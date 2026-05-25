@@ -1,0 +1,156 @@
+# sol105_options.jl
+#
+# Phase C1 (architectural-cleanup 2026-05-24): typed SOL105 options object.
+# Replaces scattered ENV reads inside the SOL 105 path with an explicit
+# struct that the solver receives as a kwarg.
+#
+# Backwards compatible: when no options are passed, callers can use
+# `SOL105Options()` (= `from_env()`) which populates from the current ENV
+# reads and exactly reproduces today's behavior. Python-driven optimization
+# loops can build a SOL105Options once and pass it through every solve.
+#
+# This object intentionally mirrors `SOL105_CALIBRATED_CONSTANTS` so the two
+# stay synchronized; the values default to the calibrated constants and the
+# `from_env` constructor honors ENV overrides at the same keys.
+#
+# Migration policy: ENV reads at individual call sites are left in place
+# until each site is explicitly migrated to consult the SOL105Options
+# object. New code paths should accept the options object directly.
+
+"""
+    SOL105Options
+
+Typed bag of every option that drives the SOL 105 buckling pipeline. Built
+from `SOL105Options()` (= `from_env()`) by default, or constructed
+explicitly to override one or more fields.
+
+Fields are grouped by concern:
+
+  Filters
+    raw_output                       — bypass both localization + cluster filters
+    localization_filter_enabled      — drop modes with single-element share above threshold
+    localization_filter_max_share    — threshold (default 0.10)
+    cluster_filter_enabled           — drop modes below spectral-gap separator
+    cluster_filter_ratio             — spectral-gap ratio (default 1.25)
+
+  MITC4+phi2 shear formulation
+    phi2_alpha                       — global α in `min(1, α·h²/L²)`; default 10.0
+    phi2_alpha_lowaspect_soft        — per-element α override for thin+high-aspect; nothing = off
+    phi2_alpha_lowaspect_hol_max     — h/L upper threshold for the gate; default 0.03
+    phi2_alpha_lowaspect_aspect_min  — aspect lower threshold for the gate; default 4.0
+
+  MacNeal RBF shear
+    macneal_rbf_zb_scale             — Zb residual-bending-flexibility scale; default 0.65
+    macneal_warp_tol                 — max warp_ratio for MacNeal eligibility; default 1e-4
+    macneal_pcomp_surface_kappa_l_max — max κ_L for curved PCOMP on MacNeal; default 1e-4
+
+  AUTOSPC
+    autospc_trans_rel                — relative threshold for translational DOFs; default 1e-8
+    autospc_rot_rel                  — same for rotational; default 1e-8
+
+  Other
+    k6rot                            — drilling DOF stiffness coefficient; default 100.0
+    pcomp_rigid_ts_cs_scale          — PCOMP/MAT8 blank-G1z TS scale; default 2.5
+
+These map 1:1 to entries in `SOL105_CALIBRATED_CONSTANTS`.
+"""
+struct SOL105Options
+    # Filters
+    raw_output::Bool
+    localization_filter_enabled::Bool
+    localization_filter_max_share::Float64
+    cluster_filter_enabled::Bool
+    cluster_filter_ratio::Float64
+    # MITC4+phi2 shear
+    phi2_alpha::Float64
+    phi2_alpha_lowaspect_soft::Union{Float64,Nothing}
+    phi2_alpha_lowaspect_hol_max::Float64
+    phi2_alpha_lowaspect_aspect_min::Float64
+    # MacNeal RBF
+    macneal_rbf_zb_scale::Float64
+    macneal_warp_tol::Float64
+    macneal_pcomp_surface_kappa_l_max::Float64
+    # AUTOSPC
+    autospc_trans_rel::Float64
+    autospc_rot_rel::Float64
+    # Other
+    k6rot::Float64
+    pcomp_rigid_ts_cs_scale::Float64
+end
+
+# ─────────────────────────────────────────────────────────────────────────
+# Helpers — central env parsing matching what the current call sites do.
+# ─────────────────────────────────────────────────────────────────────────
+
+function _env_bool(name::String, default::Bool)
+    raw = lowercase(strip(get(ENV, name, "")))
+    isempty(raw) && return default
+    return raw in ("1", "true", "yes", "on")
+end
+
+function _env_float(name::String, default::Float64)
+    raw = strip(get(ENV, name, ""))
+    isempty(raw) && return default
+    v = tryparse(Float64, raw)
+    return v === nothing ? default : v
+end
+
+function _env_opt_float(name::String)
+    raw = strip(get(ENV, name, ""))
+    isempty(raw) && return nothing
+    return tryparse(Float64, raw)
+end
+
+"""
+    from_env() -> SOL105Options
+
+Build a SOL105Options exactly matching the current ENV-driven behavior.
+Equivalent to calling `SOL105Options()` (= the no-arg constructor).
+"""
+function from_env()
+    return SOL105Options(
+        # Filters
+        _env_bool("JFEM_BUCKLING_RAW_OUTPUT", false),
+        _env_bool("JFEM_BUCKLING_LOCALIZATION_FILTER", true),
+        _env_float("JFEM_BUCKLING_LOCALIZATION_MAX_SHARE", 0.10),
+        _env_bool("JFEM_BUCKLING_CLUSTER_FILTER", true),
+        _env_float("JFEM_BUCKLING_CLUSTER_FILTER_RATIO", 1.25),
+        # phi2
+        10.0,  # phi2_alpha — currently a module Ref (FEM.PHI2_ALPHA), not env-driven
+        _env_opt_float("JFEM_Q4_PHI2_ALPHA_LOWASPECT"),
+        _env_float("JFEM_Q4_PHI2_ALPHA_LOWASPECT_HOL_MAX", 0.03),
+        _env_float("JFEM_Q4_PHI2_ALPHA_LOWASPECT_ASPECT_MIN", 4.0),
+        # MacNeal
+        _env_float("JFEM_Q4_MACNEAL_RBF_ZB_SCALE", 0.65),
+        _env_float("JFEM_Q4_MACNEAL_WARP_TOL", 1e-4),
+        _env_float("JFEM_Q4_MACNEAL_PCOMP_SURFACE_KAPPA_L_MAX", 1e-4),
+        # AUTOSPC
+        _env_float("JFEM_AUTOSPC_TRANS_REL", 1e-8),
+        _env_float("JFEM_AUTOSPC_ROT_REL", 1e-8),
+        # Other
+        _env_float("JFEM_PARAM_K6ROT", 100.0),
+        _env_float("JFEM_PCOMP_RIGID_TS_CS_SCALE", 2.5),
+    )
+end
+
+"""
+    SOL105Options() -> SOL105Options
+
+Default constructor that calls `from_env()`. Lets callers write
+`SOL105Options()` for the default behavior and `SOL105Options(...)` for
+explicit overrides via positional args.
+"""
+SOL105Options() = from_env()
+
+"""
+    summary(opts::SOL105Options, io::IO=stdout)
+
+Pretty-print the options for debugging/log inclusion. Used as a
+reproducibility footer in long-running optimization runs.
+"""
+function summary(opts::SOL105Options, io::IO=stdout)
+    println(io, "SOL105Options:")
+    for fn in fieldnames(SOL105Options)
+        println(io, "  $fn = $(getfield(opts, fn))")
+    end
+end
