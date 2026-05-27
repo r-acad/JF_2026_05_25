@@ -201,7 +201,7 @@ open(summary_csv, "w") do csv
 
         println(">>> [$idx/$(length(case_rows))] running $deck")
         write_run_manifest(out_dir;
-            repo_root=normpath(joinpath(@__DIR__, "..", "..", "..")),
+            repo_root=normpath(joinpath(@__DIR__, "..", "..")),
             bdf_path=deck,
             script_path=@__FILE__,
             args=ARGS,

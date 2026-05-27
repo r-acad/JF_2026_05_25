@@ -5,6 +5,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- `JFEMSolver`: new SOL 101 capability gates and env-bool helpers
+  (unsymmetric `PCOMP`, transverse `CELAS`, static membrane-incomp).
+- `FEMKernels.stiffness_quad4_matrices`: new kwargs
+  `marguerre_warp_to_uz`, `min4_disable`, `bmb_incomp_coupling_mode`, plus
+  ~400 lines of CQUAD4 kernel work.
+- `solver/assembly`: new `build_node_has_frame_elements` helper and assembly
+  path updates.
+- `solver/solve_case`: `solve_buckling` internal updates.
+- `solver/loads`: new `_shell_normal_moment_filter_data` helper for shell
+  normal-moment filtering on `resolve_loads`.
+- `solver/sol105_options` and `solver/sol105_calibrated_constants`: new
+  kernel options exposed, calibrated constants updated.
+- Minor cleanups in `solver/buckling_result`, `solver/helpers`,
+  `solver/constraints`, `OpenJFEM.jl`, `main.jl`, and the `tools/*`
+  runners. Line endings normalized (CRLF -> LF) on
+  `solver/constraints.jl` and `solver/loads.jl`.
+
 ### Added
 - `Reference_documentation/README.md` index listing every published PDF and
   Markdown note with its audience and purpose.

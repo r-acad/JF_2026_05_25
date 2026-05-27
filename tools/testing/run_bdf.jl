@@ -15,7 +15,7 @@ const EXPORT_JFEM_BINARY = lowercase(strip(get(ENV, "JFEM_EXPORT_BINARY", "true"
 
 mkpath(OUT_DIR)
 write_run_manifest(OUT_DIR;
-    repo_root=normpath(joinpath(@__DIR__, "..", "..", "..")),
+    repo_root=normpath(joinpath(@__DIR__, "..", "..")),
     bdf_path=BDF_PATH,
     script_path=@__FILE__,
     args=ARGS,

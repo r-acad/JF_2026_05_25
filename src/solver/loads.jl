@@ -40,12 +40,82 @@ function _tria3_shell_isotropic_material(model, el_def)
     return (E=Float64(mat["E"]), nu=Float64(mat["NU"]), h=h)
 end
 
+@inline function _filter_shell_normal_moments_enabled()
+    return solver_env_bool("JFEM_FILTER_SHELL_NORMAL_MOMENTS", true)
+end
+
+function _shell_normal_moment_filter_data(model, id_map, node_coords)
+    n_nodes = length(id_map)
+    normal_sum = [zeros(3) for _ in 1:n_nodes]
+    node_has_shell = falses(n_nodes)
+    node_has_rotational_line = falses(n_nodes)
+
+    for (_, el) in get(model, "CSHELLs", Dict())
+        nodes = get(el, "NODES", Int[])
+        idxs = [get(id_map, nid, 0) for nid in nodes]
+        if isempty(idxs) || any(==(0), idxs)
+            continue
+        end
+        Xc = node_coords[idxs, :]
+        normal_vec =
+            if length(idxs) == 4
+                cross(Xc[3, :] - Xc[1, :], Xc[4, :] - Xc[2, :])
+            elseif length(idxs) == 3
+                cross(Xc[2, :] - Xc[1, :], Xc[3, :] - Xc[1, :])
+            else
+                zeros(3)
+            end
+        norm(normal_vec) <= 1e-30 && continue
+        for idx in idxs
+            node_has_shell[idx] = true
+            normal_sum[idx] .+= normal_vec
+        end
+    end
+
+    for group_name in ("CBARs", "CBEAMs", "CBUSHs")
+        for (_, el) in get(model, group_name, Dict())
+            for key in ("GA", "GB", "G1", "G2")
+                gid = get(el, key, 0)
+                idx = get(id_map, gid, 0)
+                idx > 0 && (node_has_rotational_line[idx] = true)
+            end
+        end
+    end
+
+    return normal_sum, node_has_shell, node_has_rotational_line
+end
+
+@inline function _filter_shell_normal_moment(
+    moment::AbstractVector{<:Real},
+    gid,
+    id_map,
+    normal_sum,
+    node_has_shell,
+    node_has_rotational_line,
+)
+    idx = get(id_map, gid, 0)
+    if idx <= 0 || idx > length(node_has_shell) ||
+       !node_has_shell[idx] || node_has_rotational_line[idx]
+        return Vector{Float64}(moment)
+    end
+    n = normal_sum[idx]
+    n_norm = norm(n)
+    n_norm <= 1e-30 && return Vector{Float64}(moment)
+    nhat = n ./ n_norm
+    return Vector{Float64}(moment) .- dot(moment, nhat) .* nhat
+end
+
 function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
     raw_forces = Dict{Int, Vector{Float64}}()
     add_force = (gid, vec) -> begin
         if !haskey(raw_forces, gid); raw_forces[gid] = zeros(6); end
         raw_forces[gid] .+= vec
     end
+    filter_shell_normal_moments = _filter_shell_normal_moments_enabled()
+    shell_moment_filter =
+        filter_shell_normal_moments ?
+        _shell_normal_moment_filter_data(model, id_map, node_coords) :
+        nothing
 
     for frc in model["FORCEs"]; if Int(frc["SID"]) == sid
         global_dir = get_coord_transform(model, Int(frc["CID"]), frc["Dir"])
@@ -54,7 +124,12 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
 
     for mom in model["MOMENTs"]; if Int(mom["SID"]) == sid
         global_dir = get_coord_transform(model, Int(mom["CID"]), mom["Dir"])
-        add_force(mom["GID"], zeros(6)); raw_forces[mom["GID"]][4:6] .+= global_dir * mom["Mag"] * scale
+        moment_vec = global_dir * mom["Mag"] * scale
+        if shell_moment_filter !== nothing
+            moment_vec = _filter_shell_normal_moment(
+                moment_vec, mom["GID"], id_map, shell_moment_filter...)
+        end
+        add_force(mom["GID"], zeros(6)); raw_forces[mom["GID"]][4:6] .+= moment_vec
     end; end
 
     for pload in model["PLOAD4s"]; if Int(pload["SID"]) == sid

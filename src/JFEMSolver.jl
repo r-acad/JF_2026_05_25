@@ -774,6 +774,46 @@ end
 # Stage 2: Model Dict → Solver → Results Dict
 # ============================================================================
 
+function _jfem_env_bool(name::AbstractString, default::Bool)
+    raw = lowercase(strip(get(ENV, name, default ? "true" : "false")))
+    raw in ("1", "true", "yes", "on") && return true
+    raw in ("0", "false", "no", "off") && return false
+    return default
+end
+
+function _sol101_has_unsymmetric_pcomp(model::Dict)
+    for prop in values(get(model, "PSHELLs", Dict()))
+        get(prop, "TYPE", "") == "PCOMP_CLT" || continue
+        Bmb = get(prop, "Bmb", nothing)
+        Bmb === nothing && continue
+        try
+            maximum(abs, Bmb) > 1.0e-30 && return true
+        catch
+            return true
+        end
+    end
+    return false
+end
+
+function _sol101_has_transverse_celas_support(model::Dict)
+    for spring in values(get(model, "CELASs", Dict()))
+        c1 = Int(get(spring, "C1", 0))
+        c2 = Int(get(spring, "C2", 0))
+        g1 = Int(get(spring, "G1", 0))
+        g2 = Int(get(spring, "G2", 0))
+        ((g1 > 0 && c1 == 3) || (g2 > 0 && c2 == 3)) && return true
+    end
+    return false
+end
+
+function _sol101_static_membrane_incomp_enabled(model::Dict)
+    _ = model
+    if haskey(ENV, "JFEM_SOL101_MEMBRANE_INCOMP")
+        return _jfem_env_bool("JFEM_SOL101_MEMBRANE_INCOMP", true)
+    end
+    return true
+end
+
 """
     solve_model(model::Dict) -> Dict
 
@@ -803,10 +843,19 @@ function solve_model(model::Dict)
 
     # --- Assemble global stiffness ---
     t_asm = time_ns()
-    static_membrane_incomp = sol_type == 105 ? Solver.sol105_static_membrane_incomp_enabled() : true
+    static_membrane_incomp =
+        if sol_type == 105
+            Solver.sol105_static_membrane_incomp_enabled()
+        elseif sol_type == 101
+            _sol101_static_membrane_incomp_enabled(model)
+        else
+            true
+        end
     K, id_map, X, ndof, node_R, max_elem_stiff, rbe3_map, snorm_normals, orig_diag = Solver.assemble_stiffness(
         model; snorm_angle_override=sol105_snorm_angle,
-        membrane_incomp=static_membrane_incomp
+        membrane_incomp=static_membrane_incomp,
+        sol105_context=(sol_type == 105),
+        sol101_context=(sol_type == 101),
     )
     t_asm_K = (time_ns() - t_asm) * 1e-9
 
@@ -824,6 +873,7 @@ function solve_model(model::Dict)
             membrane_incomp=membrane_incomp_eig,
             pcomp_membrane_incomp=pcomp_membrane_incomp_eig,
             snorm_angle_override=sol105_snorm_angle, iso_no_incomp=true,
+            sol105_context=true,
         )
         t_asm_Keig = (time_ns() - t_asm2) * 1e-9
     end
@@ -1399,6 +1449,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                             model;
                             snorm_angle_override=sol105_snorm_angle,
                             membrane_incomp=static_membrane_incomp_for_load,
+                            sol105_context=true,
                         )
                     if sol105_use_static_k
                         K_eig_static = K_static
@@ -1412,6 +1463,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                             membrane_incomp=membrane_incomp_eig,
                             pcomp_membrane_incomp=pcomp_membrane_incomp_eig,
                             snorm_angle_override=sol105_snorm_angle, iso_no_incomp=true,
+                            sol105_context=true,
                         )
                     end
                 end
@@ -1499,6 +1551,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             eigen_cache=eigen_solve_cache,
             buckling_subcase=buck_sid,
             static_subcase=stat_sid,
+            sol105_options=opts,
             return_diagnostics=true)
         buck_wall_seconds = (time_ns() - t_buck) * 1e-9
         sol105_buckling_wall_seconds += buck_wall_seconds

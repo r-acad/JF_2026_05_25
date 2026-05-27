@@ -50,8 +50,8 @@ const _THREAD_HINT_SHOWN = Ref(false)
 function __init__()
     if Threads.nthreads() == 1 && !haskey(ENV, "JFEM_SUPPRESS_THREAD_HINT")
         @info "OpenJFEM: running with 1 Julia thread. Start Julia with `--threads=N` " *
-              "(e.g. `julia --project=. --threads=8 ...`) to parallelize assembly — " *
-              "this typically cuts stiffness-assembly time by 6-10× on large models. " *
+              "(e.g. `julia --project=. --threads=8 ...`) to parallelize assembly; " *
+              "this typically cuts stiffness-assembly time by 6-10x on large models. " *
               "Silence this with `ENV[\"JFEM_SUPPRESS_THREAD_HINT\"]=1`."
     end
     _THREAD_HINT_SHOWN[] = true

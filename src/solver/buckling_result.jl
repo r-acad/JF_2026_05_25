@@ -1,6 +1,6 @@
 # buckling_result.jl
 #
-# Structured SOL 105 buckling result types — one BucklingSubcaseResult per
+# Structured SOL 105 buckling result types: one BucklingSubcaseResult per
 # buckling subcase, aggregated into a BucklingResult. Replaces the prior
 # pattern in _solve_sol105 of flattening all subcases' eigenvalues and mode
 # shapes into single global arrays and retaining only the LAST subcase's K,
@@ -20,7 +20,7 @@
 # The container is held as `results["buckling"]` in the top-level results
 # dict. Legacy keys ("eigenvalues", "_raw_mode_shapes", "Kg", "K_eig",
 # "u_static", "fixed_dofs") remain populated for backwards compatibility,
-# but they now reflect only the LAST subcase as before — production scripts
+# but they now reflect only the LAST subcase as before; production scripts
 # should migrate to the structured API.
 
 """
@@ -35,9 +35,9 @@ Fields:
   buckling_subcase_id   the BUCKLING SUBCASE id (e.g. 511002)
   static_subcase_id     the STATSUB id (e.g. 111002)
   reported_eigenvalues  post-filter eigenvalues (what the public API exposes)
-  reported_mode_shapes  ndof × n_reported, post-filter shapes
+  reported_mode_shapes  ndof x n_reported, post-filter shapes
   raw_eigenvalues       pre-filter eigenvalues (only populated when raw mode is on)
-  raw_mode_shapes       ndof × n_raw, pre-filter shapes (raw mode only)
+  raw_mode_shapes       ndof x n_raw, pre-filter shapes (raw mode only)
   filter_decisions      Vector{Symbol}, length = n_raw; values like
                         :kept | :dropped_localization | :dropped_cluster |
                         :dropped_nonpositive | :dropped_outofrange
@@ -104,4 +104,9 @@ overriding the two individual filter knobs.
 function buckling_raw_output_enabled()
     raw = lowercase(strip(get(ENV, "JFEM_BUCKLING_RAW_OUTPUT", "")))
     return raw in ("1", "true", "yes", "on")
+end
+
+function buckling_raw_output_enabled(opts)
+    opts === nothing && return buckling_raw_output_enabled()
+    return getfield(opts, :raw_output) === true
 end

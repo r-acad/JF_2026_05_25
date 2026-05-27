@@ -37,7 +37,7 @@ manifest_apply_flags!(startup_flags)
 using OpenJFEM
 
 const WORKER_SESSION_ID = string(Dates.format(Dates.now(Dates.UTC), dateformat"yyyymmddTHHMMSS"), "-pid", getpid())
-const REPO_ROOT = normpath(joinpath(@__DIR__, "..", ".."))
+const REPO_ROOT = normpath(joinpath(@__DIR__, ".."))
 const COUNTERS = Dict{String,Int}("commands" => 0, "completed_batches" => 0, "failed_batches" => 0)
 
 function _json_response(obj)

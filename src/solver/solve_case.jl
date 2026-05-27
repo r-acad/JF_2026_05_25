@@ -1881,8 +1881,10 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                         eigen_cache=nothing,
                         buckling_subcase=nothing,
                         static_subcase=nothing,
+                        sol105_options=nothing,
                         return_diagnostics::Bool=false)
 
+    opts = sol105_options === nothing ? from_env() : sol105_options
     t_buckling_total = time_ns()
     buckling_timings = Dict{String,Any}()
     log_msg("[BUCKLING] Computing free DOFs...")
@@ -2401,12 +2403,18 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     buckling_timings["eigensolver_search"] = (time_ns() - t_eigen_search) * 1e-9
     t_postprocess = time_ns()
 
-    # Post-process: per Nastran SOL105 convention, only POSITIVE eigenvalues are
-    # physical buckling load factors. Negatives correspond to load reversal and
-    # are reported by Nastran as a tensile-direction critical solution but are
-    # not part of the EIGRL-requested buckling spectrum on a compressive deck.
-    # We drop them outright. The eigenvalue range is then [max(V1, +tol), V2]
-    # capped at EIGRL ND.
+    # Post-process eigenvalues for Nastran-style SOL105 reporting.
+    #
+    # If EIGRL has no V1/V2 bounds, MSC/Nastran reports signed real buckling
+    # roots in extraction order, which is effectively increasing |lambda| for
+    # the extraction used here. Keeping only positive roots in that case hides
+    # tensile-direction roots printed by Nastran and can move the first reported
+    # eigenvalue by orders of magnitude on probe decks.
+    #
+    # If an explicit bounded range is present, keep the historical compression
+    # design behavior: positive load factors in [max(V1,+tol), V2]. This
+    # preserves the GAME SOL105 range semantics and avoids re-admitting negative
+    # load-reversal modes through common decks with V1=-1e-4.
     n_found = length(eigenvalues)
     log_msg("[BUCKLING] Found $n_found eigenvalues (raw, pre-filter)")
 
@@ -2425,9 +2433,19 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             positive_tol=positive_tol)
         diagnostics["raw_eigen_csv"] = raw_eigen_csv_path
     end
-    valid_idx = findall(x -> x > positive_tol, eigenvalues)
+    signed_unbounded_output =
+        !has_range &&
+        solver_env_bool("JFEM_SOL105_UNBOUNDED_SIGNED_OUTPUT", true)
+    valid_idx = signed_unbounded_output ?
+        findall(x -> isfinite(x) && abs(x) > positive_tol, eigenvalues) :
+        findall(x -> isfinite(x) && x > positive_tol, eigenvalues)
     if length(valid_idx) < n_found
-        log_msg("[BUCKLING] Dropped $(n_found - length(valid_idx)) non-positive eigenvalues (Nastran convention)")
+        dropped = n_found - length(valid_idx)
+        if signed_unbounded_output
+            log_msg("[BUCKLING] Dropped $dropped near-zero/non-finite eigenvalues")
+        else
+            log_msg("[BUCKLING] Dropped $dropped non-positive eigenvalues (bounded compression range)")
+        end
     end
 
     # Apply EIGRL V1/V2 range filter if specified. V1 is clamped to >+tol so a
@@ -2577,9 +2595,11 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         end
     end
 
-    # Sort ascending by signed eigenvalue (all positives now, smallest λ first =
-    # smallest critical load = lowest buckling mode, matches Nastran).
-    sorted_idx = valid_idx[sortperm(eigenvalues[valid_idx])]
+    # Sort bounded positive ranges by lambda, and unbounded signed extraction by
+    # |lambda| to match MSC/Nastran's printed root order for blank V1/V2 EIGRLs.
+    sorted_idx = signed_unbounded_output ?
+        valid_idx[sortperm(abs.(eigenvalues[valid_idx]))] :
+        valid_idx[sortperm(eigenvalues[valid_idx])]
 
     # JFEM_BUCKLING_LOCALIZATION_FILTER (2026-05-14 evening): drop modes whose
     # translation-energy participation is dominated by a single element
@@ -2593,18 +2613,15 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     # The cluster filter's spectral-gap rule misses these spurious modes
     # because they form a dense low-magnitude band with no clean gap below
     # the physical cluster.
-    loc_filter_raw = strip(get(ENV, "JFEM_BUCKLING_LOCALIZATION_FILTER", "true"))
-    loc_filter_enabled = isempty(loc_filter_raw) ? true :
-        lowercase(loc_filter_raw) in ("1", "true", "yes", "on")
+    loc_filter_enabled = opts.localization_filter_enabled
     # JFEM_BUCKLING_RAW_OUTPUT=true is a single knob that forces BOTH the
     # localization filter (here) and the cluster filter (~line 3009) off,
     # exposing the eigensolver's raw spectrum for off-line MAC / Rayleigh-
     # quotient parity analysis. Replaces the two-knob pattern from diagnostic
     # scripts (per architectural-cleanup 2026-05-24).
-    if buckling_raw_output_enabled()
+    if buckling_raw_output_enabled(opts)
         loc_filter_enabled = false
     end
-    loc_max_share_raw = strip(get(ENV, "JFEM_BUCKLING_LOCALIZATION_MAX_SHARE", ""))
     # Default 0.10 (2026-05-14 evening): physical buckling modes on the
     # GAME 7-case set have top-element share 4-7% (HTP_launch mode 1 4.14%,
     # VTP_3wp_strain mode 1 6.78%); intermediate spurious modes that survive
@@ -2614,8 +2631,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     # eigenvalue as without the filter (cluster filter handles fallback when
     # locfilter is aggressive). Override via env to relax (0.20) or tighten
     # (0.05) per deck.
-    loc_max_share = isempty(loc_max_share_raw) ? 0.10 :
-        (tryparse(Float64, loc_max_share_raw) === nothing ? 0.10 : parse(Float64, loc_max_share_raw))
+    loc_max_share = opts.localization_filter_max_share
 
     # Mesh-size guard (2026-05-14 evening, post-probe-regression): the
     # localization filter assumes physical buckling modes are distributed
@@ -2645,7 +2661,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         (loc_top_kappa_v2_max > 0.0 && (!has_range || eigrl_v2 > loc_top_kappa_v2_max)) ?
         0.0 :
         loc_top_kappa_l_min_raw
-    broad_strip_filter_enabled = solver_env_bool("JFEM_BUCKLING_BROAD_STRIP_FILTER", false)
+    broad_strip_filter_enabled = solver_env_bool("JFEM_BUCKLING_BROAD_STRIP_FILTER", true)
     broad_strip_top_n = max(
         something(tryparse(Int, strip(get(ENV, "JFEM_BUCKLING_BROAD_STRIP_TOP_N", "24"))), 24),
         1,
@@ -2655,10 +2671,16 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         1,
     )
     broad_strip_pid_share_min = clamp(
-        solver_env_float("JFEM_BUCKLING_BROAD_STRIP_PID_SHARE_MIN", 0.50),
+        solver_env_float("JFEM_BUCKLING_BROAD_STRIP_PID_SHARE_MIN", 0.88),
         0.0,
         1.0,
     )
+    broad_strip_v2_max = solver_env_float("JFEM_BUCKLING_BROAD_STRIP_V2_MAX", 2.0)
+    if broad_strip_filter_enabled
+        broad_strip_filter_enabled =
+            has_range &&
+            (broad_strip_v2_max <= 0.0 || eigrl_v2 <= broad_strip_v2_max)
+    end
     broad_strip_aspect_min = max(solver_env_float("JFEM_BUCKLING_BROAD_STRIP_ASPECT_MIN", 3.8), 1.0)
     broad_strip_max_top_share = clamp(
         solver_env_float("JFEM_BUCKLING_BROAD_STRIP_MAX_TOP_SHARE", 0.10),
@@ -2966,6 +2988,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     "patch_keep_enabled" => patch_keep_enabled,
                     "patch_kept" => length(patch_kept_info),
                     "broad_strip_enabled" => broad_strip_filter_enabled,
+                    "broad_strip_v2_max" => broad_strip_v2_max,
                     "broad_strip_dropped" => length(broad_dropped_info),
                     "scanned_modes" => length(loc_eval_idx),
                     "available_modes" => length(sorted_idx),
@@ -3028,22 +3051,17 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     # N_DENSE eigenvalues within a small relative spread (default 30%). This
     # prevents misfiring on launch-style decks where mode 1 is naturally far
     # below mode 2 (no dense post-jump cluster).
-    cluster_filter_raw = strip(get(ENV, "JFEM_BUCKLING_CLUSTER_FILTER", "true"))
-    cluster_filter_enabled = isempty(cluster_filter_raw) ?
-        true :
-        lowercase(cluster_filter_raw) in ("1", "true", "yes", "on")
+    cluster_filter_enabled = opts.cluster_filter_enabled
     # JFEM_BUCKLING_RAW_OUTPUT=true also forces this cluster filter off
     # (paired with the localization-filter override at solve_case.jl ~2582).
     # See buckling_result.jl::buckling_raw_output_enabled.
-    if buckling_raw_output_enabled()
+    if buckling_raw_output_enabled(opts)
         cluster_filter_enabled = false
     end
-    cluster_jump_raw = strip(get(ENV, "JFEM_BUCKLING_CLUSTER_FILTER_RATIO", ""))
     # Default 1.25 (2026-05-01) — empirically detects the spectral gap between
     # JFEM's spurious low cluster and the actual buckling cluster on the GAME
     # 3wp 511003 cases (jump 0.903 → 1.151, ratio 1.27).
-    cluster_jump_threshold = isempty(cluster_jump_raw) ? 1.25 :
-        (tryparse(Float64, cluster_jump_raw) === nothing ? 1.25 : parse(Float64, cluster_jump_raw))
+    cluster_jump_threshold = opts.cluster_filter_ratio
     cluster_jump_max_raw = strip(get(ENV, "JFEM_BUCKLING_CLUSTER_FILTER_RATIO_MAX", ""))
     cluster_jump_max = isempty(cluster_jump_max_raw) ? 8.0 :
         (tryparse(Float64, cluster_jump_max_raw) === nothing ? 8.0 : parse(Float64, cluster_jump_max_raw))
@@ -3098,6 +3116,14 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         (tryparse(Int, cluster_min_elem_raw) === nothing ? 100 : parse(Int, cluster_min_elem_raw))
     n_cshells_filter = haskey(model, "CSHELLs") ? length(model["CSHELLs"]) : 0
     cluster_filter_mesh_ok = n_cshells_filter >= cluster_min_elements
+    # Keep the upper tail of the pre-gap low band. This avoids exposing the
+    # full low clutter while preserving the first physical buckling root in
+    # large EIGRL requests where Nastran reports that root before the dense
+    # post-gap band. Set to 0 to recover the older post-gap-only behavior.
+    cluster_pre_gap_tail_raw = strip(get(ENV, "JFEM_BUCKLING_CLUSTER_FILTER_PRE_GAP_TAIL", ""))
+    cluster_pre_gap_tail = isempty(cluster_pre_gap_tail_raw) ? 1 :
+        (tryparse(Int, cluster_pre_gap_tail_raw) === nothing ? 1 : parse(Int, cluster_pre_gap_tail_raw))
+    cluster_pre_gap_tail = max(cluster_pre_gap_tail, 0)
 
     # Run the cluster detection on the FULL in-range positive spectrum
     # (sorted_idx, all of it), not the ND-capped output. Spurious low modes
@@ -3137,13 +3163,14 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             cluster_max = maximum(full_eigs[(i + 1):(i + cluster_dense_n)])
             cluster_min = minimum(full_eigs[(i + 1):(i + cluster_dense_n)])
             if (cluster_max - cluster_min) / cluster_min <= cluster_dense_spread
-                n_skip = i
+                n_skip = max(i - cluster_pre_gap_tail, 0)
                 log_msg("[BUCKLING] cluster filter ($(cluster_select_last ? "last" : "first")): " *
                         "jump $(round(ej/ei; digits=3))× " *
                         "at mode $i ($(round(ei; digits=5)) → $(round(ej; digits=5))) " *
                         "starts a dense cluster of $cluster_dense_n modes within " *
                         "$(round(100*cluster_dense_spread; digits=1))% spread; " *
-                        "skipping $n_skip spurious mode(s)")
+                        "keeping $cluster_pre_gap_tail pre-gap tail mode(s); " *
+                        "skipping $n_skip low mode(s)")
                 cluster_select_last || break
             end
         end
@@ -3272,6 +3299,8 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
     I_idx = Vector{Int}(); J_idx = Vector{Int}(); V_val = Vector{Float64}()
 
     pshells = model["PSHELLs"]; mats = model["MATs"]
+    pbarls = get(model, "PBARLs", Dict())
+    prods = get(model, "PRODs", Dict())
     cshells = model["CSHELLs"]; cbars = model["CBARs"]
     cbeams = get(model, "CBEAMs", Dict()); crods = model["CRODs"]
     conrods = get(model, "CONRODs", Dict())
@@ -3326,7 +3355,7 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
                 lc_buf4[k,1] = dot(pk-c_ctr, v1); lc_buf4[k,2] = dot(pk-c_ctr, v2)
             end
 
-            Me_loc = FEM.consistent_mass_quad4(lc_buf4, rho_eff, h)
+            Me_loc = FEM.nastran_lumped_mass_quad4(lc_buf4, rho_eff, h)
 
             # Build T (24×24)
             fill!(T_buf, 0.0)
@@ -3377,7 +3406,7 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
                 lc3[k,1] = dot(pk-c_ctr, v1); lc3[k,2] = dot(pk-c_ctr, v2)
             end
 
-            Me_loc = FEM.consistent_mass_tria3(lc3, rho_eff, h)
+            Me_loc = FEM.nastran_lumped_mass_tria3(lc3, rho_eff, h)
 
             T18 = zeros(18, 18)
             for k in 1:3
@@ -3409,8 +3438,8 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
         (!haskey(id_map, ga) || !haskey(id_map, gb)) && continue
         i1, i2 = id_map[ga], id_map[gb]
         pid = string(bar["PID"])
-        !haskey(pshells, pid) && continue  # PBAR stored in PSHELLs dict
-        prop = pshells[pid]; mid = string(prop["MID"])
+        !haskey(pbarls, pid) && continue
+        prop = pbarls[pid]; mid = string(prop["MID"])
         !haskey(mats, mid) && continue
         mat = _effective_mat1_for_nodes(model, mid, [ga, gb])
         rho = Float64(get(mat, "RHO", 0.0))
@@ -3422,12 +3451,13 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
         L < 1e-12 && continue
 
         A_bar = Float64(get(prop, "A", 0.0))
-        Iy = Float64(get(prop, "I1", get(prop, "Iy", 0.0)))
-        Iz = Float64(get(prop, "I2", get(prop, "Iz", 0.0)))
+        Iy = Float64(get(prop, "I2", get(prop, "Iy", 0.0)))
+        Iz = Float64(get(prop, "I1", get(prop, "Iz", 0.0)))
+        J = Float64(get(prop, "J", 0.0))
 
         # Effective density: rho_eff = rho + NSM/A (NSM is mass per unit length)
         rho_bar = A_bar > 1e-30 ? rho + nsm_bar / A_bar : rho
-        Me_loc = FEM.consistent_mass_frame3d(L, rho_bar, A_bar, Iy, Iz)
+        Me_loc = FEM.nastran_lumped_mass_frame3d(L, rho_bar, A_bar, J, Iy, Iz)
 
         # Transformation
         e1 = (p2 - p1) / L
@@ -3467,8 +3497,8 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
         (!haskey(id_map, ga) || !haskey(id_map, gb)) && continue
         i1, i2 = id_map[ga], id_map[gb]
         pid = string(rod["PID"])
-        !haskey(pshells, pid) && continue
-        prop = pshells[pid]; mid = string(prop["MID"])
+        !haskey(prods, pid) && continue
+        prop = prods[pid]; mid = string(prop["MID"])
         !haskey(mats, mid) && continue
         mat = _effective_mat1_for_nodes(model, mid, [ga, gb])
         rho = Float64(get(mat, "RHO", 0.0))
@@ -3479,10 +3509,11 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
         L = norm(p2 - p1)
         L < 1e-12 && continue
         A_rod = Float64(get(prop, "A", 0.0))
+        J_rod = Float64(get(prop, "J", 0.0))
 
         # Effective density: rho_eff = rho + NSM/A
         rho_rod = A_rod > 1e-30 ? rho + nsm_rod / A_rod : rho
-        Me_loc = FEM.consistent_mass_rod(L, rho_rod, A_rod)
+        Me_loc = FEM.nastran_lumped_mass_rod(L, rho_rod, A_rod, J_rod)
 
         e1 = (p2 - p1) / L
         e2 = abs(e1[3]) < 0.9 ? normalize(cross(e1, SVector(0.0,0.0,1.0))) : normalize(cross(e1, SVector(1.0,0.0,0.0)))
@@ -3532,7 +3563,8 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
         # Add non-structural mass (NSM) per unit length
         nsm = Float64(get(rod, "NSM", 0.0))
 
-        Me_loc = FEM.consistent_mass_rod(L, rho, A_rod)
+        J_rod = Float64(get(rod, "J", 0.0))
+        Me_loc = FEM.nastran_lumped_mass_rod(L, rho, A_rod, J_rod)
 
         # Add NSM contribution (lumped at both ends, translational only)
         if nsm > 0
@@ -3577,8 +3609,8 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
         (!haskey(id_map, ga) || !haskey(id_map, gb)) && continue
         i1, i2 = id_map[ga], id_map[gb]
         pid = string(beam["PID"])
-        !haskey(pshells, pid) && continue
-        prop = pshells[pid]; mid = string(prop["MID"])
+        !haskey(pbarls, pid) && continue
+        prop = pbarls[pid]; mid = string(prop["MID"])
         !haskey(mats, mid) && continue
         mat = _effective_mat1_for_nodes(model, mid, [ga, gb])
         rho = Float64(get(mat, "RHO", 0.0))
@@ -3590,12 +3622,13 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
         L < 1e-12 && continue
 
         A_beam = Float64(get(prop, "A", 0.0))
-        Iy = Float64(get(prop, "I1", get(prop, "Iy", 0.0)))
-        Iz = Float64(get(prop, "I2", get(prop, "Iz", 0.0)))
+        Iy = Float64(get(prop, "I2", get(prop, "Iy", 0.0)))
+        Iz = Float64(get(prop, "I1", get(prop, "Iz", 0.0)))
+        J = Float64(get(prop, "J", 0.0))
 
         # Effective density including NSM
         rho_beam = A_beam > 1e-30 ? rho + nsm_beam / A_beam : rho
-        Me_loc = FEM.consistent_mass_frame3d(L, rho_beam, A_beam, Iy, Iz)
+        Me_loc = FEM.nastran_lumped_mass_frame3d(L, rho_beam, A_beam, J, Iy, Iz)
 
         # Transformation
         e1 = (p2 - p1) / L
@@ -3664,13 +3697,13 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
         local Me_loc
         local ndof_el::Int
         if etype == "CTETRA" && nn == 4
-            Me_loc = FEM.consistent_mass_tetra4(view(coords_buf_solid, 1:4, :), rho)
+            Me_loc = FEM.nastran_lumped_mass_tetra4(view(coords_buf_solid, 1:4, :), rho)
             ndof_el = 12
         elseif etype == "CHEXA" && nn == 8
-            Me_loc = FEM.consistent_mass_hexa8(view(coords_buf_solid, 1:8, :), rho)
+            Me_loc = FEM.nastran_lumped_mass_hexa8(view(coords_buf_solid, 1:8, :), rho)
             ndof_el = 24
         elseif etype == "CPENTA" && nn == 6
-            Me_loc = FEM.consistent_mass_cpenta6(view(coords_buf_solid, 1:6, :), rho)
+            Me_loc = FEM.nastran_lumped_mass_cpenta6(view(coords_buf_solid, 1:6, :), rho)
             ndof_el = 18
         else
             continue
@@ -3888,7 +3921,60 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
     M_ff = M[free_dofs, free_dofs]
     M_ff = 0.5 * (M_ff + M_ff')
 
-    num_modes_request = min(num_modes * 3, max(n_free - 2, 1))
+    # Nastran's SOL 103 READ/Lanczos path can work with massless-but-stiff
+    # coordinates (for example shell bending rotations): they remain in KXX,
+    # while MXX is singular. Only genuinely unsupported massless coordinates
+    # should be removed. The remaining singular-M cases are sent to the
+    # shift-invert solver below, which applies K\ M without requiring M to be
+    # positive definite.
+    mass_diag = abs.(diag(M_ff))
+    mass_scale = isempty(mass_diag) ? 0.0 : maximum(mass_diag)
+    mass_tol = max(mass_scale * 1.0e-12, 1.0e-30)
+    stiff_diag = abs.(diag(K_ff))
+    stiff_scale = isempty(stiff_diag) ? 0.0 : maximum(stiff_diag)
+    stiff_tol = max(stiff_scale * 1.0e-12, 1.0e-20)
+    massless_idx = findall(<=(mass_tol), mass_diag)
+    drop_mass_idx = [
+        i for i in massless_idx
+        if stiff_diag[i] <= stiff_tol || ((free_dofs[i] - 1) % 6 + 1) == 6
+    ]
+    keep_mass_idx = isempty(drop_mass_idx) ? collect(1:n_free) : setdiff(collect(1:n_free), drop_mass_idx)
+    mass_filter_removed = length(drop_mass_idx)
+    if mass_filter_removed > 0
+        removed_dofs = free_dofs[drop_mass_idx]
+        free_dofs = free_dofs[keep_mass_idx]
+        fixed_dofs = vcat(fixed_dofs, removed_dofs)
+        K_ff = K_ff[keep_mass_idx, keep_mass_idx]
+        M_ff = M_ff[keep_mass_idx, keep_mass_idx]
+        n_free = length(free_dofs)
+        diagnostics["free_dofs"] = n_free
+        diagnostics["fixed_dofs"] = length(fixed_dofs)
+        diagnostics["massless_free_dofs_removed"] = mass_filter_removed
+        diagnostics["massless_free_dof_tolerance"] = mass_tol
+        diagnostics["massless_zero_stiffness_dof_tolerance"] = stiff_tol
+        log_msg("[MODES] AUTOSPC massless zero-stiffness filter removed $mass_filter_removed DOFs (mass tol=$(round(mass_tol; sigdigits=4)), stiffness tol=$(round(stiff_tol; sigdigits=4)))")
+        if n_free == 0
+            log_msg("[MODES] ERROR: No dynamic DOFs remain after massless-DOF filtering")
+            diagnostics["solver_backend"] = "failed"
+            return return_diagnostics ? (Float64[], Float64[], zeros(ndof, 0), diagnostics) : (Float64[], Float64[], zeros(ndof, 0))
+        end
+    else
+        diagnostics["massless_free_dofs_removed"] = 0
+        diagnostics["massless_free_dof_tolerance"] = mass_tol
+        diagnostics["massless_zero_stiffness_dof_tolerance"] = stiff_tol
+    end
+    mass_diag = abs.(diag(M_ff))
+    singular_mass = any(<=(mass_tol), mass_diag)
+    singular_mass_retained = count(<=(mass_tol), mass_diag)
+    diagnostics["singular_mass_coordinates_retained"] = singular_mass_retained
+    if singular_mass
+        log_msg("[MODES] Retaining $singular_mass_retained massless stiff DOFs for shift-invert modal solve")
+    end
+
+    # All remaining dynamic DOFs can carry modes after SPC/AUTOSPC filtering.
+    # The old n_free-2 cap hid valid roots in small verification decks such as
+    # two-DOF rod chains, while doing nothing useful for production-size models.
+    num_modes_request = min(max(num_modes * 3, 1), n_free)
     diagnostics["requested_modes_internal"] = num_modes_request
 
     log_msg("[MODES] Solving eigenvalue problem ($num_modes modes, $n_free DOFs)...")
@@ -3897,7 +3983,7 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
     solved = false
 
     # Strategy 1: Dense eigensolver for small/medium systems
-    if n_free <= 4000
+    if n_free <= 4000 && !singular_mass
         push!(diagnostics["solver_attempts"], Dict("name" => "dense_symmetric_definite", "status" => "attempted"))
         try
             log_msg("[MODES] Using dense symmetric-definite eigensolver ($n_free DOFs)...")
@@ -3918,6 +4004,8 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
             diagnostics["solver_attempts"][end] = Dict("name" => "dense_symmetric_definite", "status" => "failed", "error" => sprint(showerror, e))
             log_msg("[MODES] Dense eigensolver failed: $e")
         end
+    elseif n_free <= 4000
+        push!(diagnostics["solver_attempts"], Dict("name" => "dense_symmetric_definite", "status" => "skipped", "reason" => "singular_mass"))
     end
 
     # Strategy 2: KrylovKit shift-invert for larger systems
@@ -3925,14 +4013,34 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
         push!(diagnostics["solver_attempts"], Dict("name" => "krylov_shift_invert", "status" => "attempted"))
         try
             log_msg("[MODES] Using KrylovKit shift-invert ($n_free DOFs)...")
-            K_factor, factor_cache_hit = ensure_eigen_solve_factorization!(eigen_ctx)
-            diagnostics["eigen_cache"]["factorization_cache_hit"] = factor_cache_hit
-            diagnostics["eigen_cache"]["factor_backend"] = eigen_ctx.factor_backend
-            if factor_cache_hit
-                log_msg("[MODES] Reusing eigen K factorization cache ($(eigen_ctx.factor_backend))")
+            K_factor = nothing
+            factor_cache_hit = false
+            factor_backend = "cholesky"
+            if mass_filter_removed == 0
+                K_factor, factor_cache_hit = ensure_eigen_solve_factorization!(eigen_ctx)
+                factor_backend = eigen_ctx.factor_backend
+                if factor_cache_hit
+                    log_msg("[MODES] Reusing eigen K factorization cache ($(eigen_ctx.factor_backend))")
+                else
+                    log_msg("[MODES] K factorization succeeded ($(eigen_ctx.factor_backend))")
+                end
             else
-                log_msg("[MODES] K factorization succeeded ($(eigen_ctx.factor_backend))")
+                K_factor = try
+                    cholesky(Symmetric(K_ff))
+                catch e
+                    if e isa LinearAlgebra.PosDefException ||
+                       e isa LinearAlgebra.SingularException ||
+                       e isa LinearAlgebra.ZeroPivotException
+                        factor_backend = "lu"
+                        lu(K_ff)
+                    else
+                        rethrow(e)
+                    end
+                end
+                log_msg("[MODES] K factorization succeeded ($factor_backend, mass-filtered)")
             end
+            diagnostics["eigen_cache"]["factorization_cache_hit"] = factor_cache_hit
+            diagnostics["eigen_cache"]["factor_backend"] = factor_backend
             nev = min(num_modes_request + 5, n_free - 1)
             kd = min(max(2*nev + 10, 30), n_free)
 

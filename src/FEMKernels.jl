@@ -1364,7 +1364,7 @@ include(joinpath(@__DIR__, "experimental", "hu_washizu_kernel.jl"))
 # Pre-allocated workspace `ws` eliminates ALL heap allocations in the hot loop
 # (~5M alloc saved across HTP_launch).
 # =============================================================================
-function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_assumed_mode::Symbol=:none, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false)
+function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_assumed_mode::Symbol=:none, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env)
     # Allow env-var override for marguerre_warp_to_uz so it can be enabled
     # globally without plumbing through every caller. Currently the assembly
     # loop doesn't pass this kwarg, so default is false. Env override:
@@ -1406,6 +1406,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             shear_center_only=shear_center_only,
             no_phi2=no_phi2,
             membrane_incomp=false,
+            membrane_incomp_scale=membrane_incomp_scale,
             curvature_membrane=curvature_membrane,
             membrane_shear_center_row=membrane_shear_center_row,
             material_shear_rotation=material_shear_rotation,
@@ -1432,6 +1433,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             shear_center_only=true,
             no_phi2=true,
             membrane_incomp=false,
+            membrane_incomp_scale=membrane_incomp_scale,
             curvature_membrane=membrane_curvature_default,
             membrane_shear_center_row=membrane_shear_center_row,
             material_shear_rotation=material_shear_rotation,
@@ -1501,6 +1503,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             shear_center_only=shear_center_only,
             no_phi2=true,
             membrane_incomp=membrane_incomp,
+            membrane_incomp_scale=membrane_incomp_scale,
             curvature_membrane=curvature_membrane,
             membrane_shear_center_row=membrane_shear_center_row,
             material_shear_rotation=material_shear_rotation,
@@ -2151,24 +2154,69 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     end
 
     # Static condensation (BLAS-free for thread safety)
+    bmb_incomp_mode = lowercase(strip(
+        bmb_incomp_coupling_mode === :env ?
+            get(ENV, "JFEM_Q4_BMB_INCOMP_COUPLING_MODE", "full") :
+            string(bmb_incomp_coupling_mode)
+    ))
+    membrane_incomp_weight = max(membrane_incomp_scale, 0.0)
     if Bmb !== nothing
         if membrane_incomp
-            # Combined 8×8 condensation (B coupling creates cross-coupling between membrane/bending incomp modes)
-            K_ab_full = hcat(ws.K_ab .+ ws.K_ab_cross, ws.K_ab_bend .+ ws.K_ab_bend_cross)
-            K_bb_full = [ws.K_bb ws.K_mb_incomp; ws.K_mb_incomp' ws.K_bb_bend]
-            inv_Kbb = Matrix(inv(SMatrix{8,8}(K_bb_full)))
-            tmp8x24 = zeros(8, 24)
-            ts_mul!(tmp8x24, inv_Kbb, K_ab_full')
-            @inbounds @fastmath for j in 1:24, i in 1:24
-                s = 0.0
-                for l in 1:8; s += K_ab_full[i,l] * tmp8x24[l,j]; end
-                ws.Ke[i,j] -= s
+            if bmb_incomp_mode in ("separate", "separate_nocross", "uncoupled")
+                inv_Kbb_m = Matrix(inv(SMatrix{4,4}(ws.K_bb)))
+                inv_Kbb_b = Matrix(inv(SMatrix{4,4}(ws.K_bb_bend)))
+                @inbounds @fastmath for j in 1:24, i in 1:24
+                    sm = 0.0
+                    sb = 0.0
+                    for l in 1:4
+                        tmp_m = 0.0
+                        tmp_b = 0.0
+                        for q in 1:4
+                            tmp_m += inv_Kbb_m[l,q] * ws.K_ab[j,q]
+                            tmp_b += inv_Kbb_b[l,q] * ws.K_ab_bend[j,q]
+                        end
+                        sm += ws.K_ab[i,l] * tmp_m
+                        sb += ws.K_ab_bend[i,l] * tmp_b
+                    end
+                    ws.Ke[i,j] -= membrane_incomp_weight * sm + sb
+                end
+            elseif bmb_incomp_mode in ("no_cross", "combined_nocross")
+                K_ab_full = hcat(ws.K_ab, ws.K_ab_bend)
+                K_bb_full = [ws.K_bb zeros(4,4); zeros(4,4) ws.K_bb_bend]
+                inv_Kbb = Matrix(inv(SMatrix{8,8}(K_bb_full)))
+                tmp8x24 = zeros(8, 24)
+                ts_mul!(tmp8x24, inv_Kbb, K_ab_full')
+                @inbounds @fastmath for j in 1:24, i in 1:24
+                    s = 0.0
+                    for l in 1:8
+                        mode_weight = l <= 4 ? membrane_incomp_weight : 1.0
+                        s += mode_weight * K_ab_full[i,l] * tmp8x24[l,j]
+                    end
+                    ws.Ke[i,j] -= s
+                end
+            else
+                # Combined 8×8 condensation (B coupling creates cross-coupling between membrane/bending incomp modes)
+                K_ab_full = hcat(ws.K_ab .+ ws.K_ab_cross, ws.K_ab_bend .+ ws.K_ab_bend_cross)
+                K_bb_full = [ws.K_bb ws.K_mb_incomp; ws.K_mb_incomp' ws.K_bb_bend]
+                inv_Kbb = Matrix(inv(SMatrix{8,8}(K_bb_full)))
+                tmp8x24 = zeros(8, 24)
+                ts_mul!(tmp8x24, inv_Kbb, K_ab_full')
+                @inbounds @fastmath for j in 1:24, i in 1:24
+                    s = 0.0
+                    for l in 1:8
+                        mode_weight = l <= 4 ? membrane_incomp_weight : 1.0
+                        s += mode_weight * K_ab_full[i,l] * tmp8x24[l,j]
+                    end
+                    ws.Ke[i,j] -= s
+                end
             end
         elseif maximum(abs, ws.K_bb_bend) > 0.0
             # Bending-only 4×4 condensation (no membrane incompatible modes)
             # K_ab_bend_cross = Bm' * Bmb * Bi_bend — B-coupling cross term still relevant
             inv_Kbb_b = Matrix(inv(SMatrix{4,4}(ws.K_bb_bend)))
-            K_ab_b = ws.K_ab_bend .+ ws.K_ab_bend_cross
+            K_ab_b =
+                bmb_incomp_mode in ("bending_nocross", "no_cross", "combined_nocross", "separate", "separate_nocross", "uncoupled") ?
+                ws.K_ab_bend : ws.K_ab_bend .+ ws.K_ab_bend_cross
             @inbounds @fastmath for j in 1:24, i in 1:24
                 sb = 0.0
                 for l in 1:4
@@ -2206,7 +2254,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
                         end
                         sm += ws.K_ab[i,l] * tmp_m
                     end
-                    ws.Ke[i,j] -= sm
+                    ws.Ke[i,j] -= membrane_incomp_weight * sm
                 end
             end
         else
@@ -2222,7 +2270,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
                         end
                         sm += ws.K_ab[i,l] * tmp_m
                     end
-                    ws.Ke[i,j] -= sm
+                    ws.Ke[i,j] -= membrane_incomp_weight * sm
                 end
             end
         end
@@ -4248,6 +4296,123 @@ function tria3_plate_macro_average_moment(coords, u_elem, E, nu, h; bend_ratio=1
     return M_sum ./ A_sum
 end
 
+@inline function _dkt_side_coefficients(xi::T, yi::T, xj::T, yj::T) where {T}
+    xij = xi - xj
+    yij = yi - yj
+    l2 = xij*xij + yij*yij
+    if l2 <= eps(T)
+        return zero(T), zero(T), zero(T), zero(T)
+    end
+    P = -T(6) * xij / l2
+    q = T(3) * xij * yij / l2
+    r = T(3) * yij * yij / l2
+    t = -T(6) * yij / l2
+    return P, q, r, t
+end
+
+function _tria3_dkt_derivatives(xi::T, eta::T,
+                                P4::T, P5::T, P6::T,
+                                q4::T, q5::T, q6::T,
+                                r4::T, r5::T, r6::T,
+                                t4::T, t5::T, t6::T) where {T}
+    Hx_xi = T[
+        P6*(one(T)-T(2)*xi) + (P5-P6)*eta,
+        q6*(one(T)-T(2)*xi) - (q5+q6)*eta,
+        -T(4) + T(6)*(xi+eta) + r6*(one(T)-T(2)*xi) - eta*(r5+r6),
+        -P6*(one(T)-T(2)*xi) + eta*(P4+P6),
+        q6*(one(T)-T(2)*xi) - eta*(q6-q4),
+        -T(2) + T(6)*xi + r6*(one(T)-T(2)*xi) + eta*(r4-r6),
+        -eta*(P5+P4),
+        eta*(q4-q5),
+        -eta*(r5-r4),
+    ]
+
+    Hy_xi = T[
+        t6*(one(T)-T(2)*xi) + eta*(t5-t6),
+        one(T) + r6*(one(T)-T(2)*xi) - eta*(r5+r6),
+        -q6*(one(T)-T(2)*xi) + eta*(q5+q6),
+        -t6*(one(T)-T(2)*xi) + eta*(t4+t6),
+        -one(T) + r6*(one(T)-T(2)*xi) + eta*(r4-r6),
+        -q6*(one(T)-T(2)*xi) - eta*(q4-q6),
+        -eta*(t4+t5),
+        eta*(r4-r5),
+        -eta*(q4-q5),
+    ]
+
+    Hx_eta = T[
+        -P5*(one(T)-T(2)*eta) - xi*(P6-P5),
+        q5*(one(T)-T(2)*eta) - xi*(q5+q6),
+        -T(4) + T(6)*(xi+eta) + r5*(one(T)-T(2)*eta) - xi*(r5+r6),
+        xi*(P4+P6),
+        xi*(q4-q6),
+        -xi*(r6-r4),
+        P5*(one(T)-T(2)*eta) - xi*(P4+P5),
+        q5*(one(T)-T(2)*eta) + xi*(q4-q5),
+        -T(2) + T(6)*eta + r5*(one(T)-T(2)*eta) + xi*(r4-r5),
+    ]
+
+    Hy_eta = T[
+        -t5*(one(T)-T(2)*eta) - xi*(t6-t5),
+        one(T) + r5*(one(T)-T(2)*eta) - xi*(r5+r6),
+        -q5*(one(T)-T(2)*eta) + xi*(q5+q6),
+        xi*(t4+t6),
+        xi*(r4-r6),
+        -xi*(q4-q6),
+        t5*(one(T)-T(2)*eta) - xi*(t4+t5),
+        -one(T) + r5*(one(T)-T(2)*eta) + xi*(r4-r5),
+        -q5*(one(T)-T(2)*eta) - xi*(q4-q5),
+    ]
+
+    return Hx_xi, Hy_xi, Hx_eta, Hy_eta
+end
+
+function tria3_plate_dkt_stiffness(coords, Db)
+    T = promote_type(eltype(coords), eltype(Db))
+    x1, y1 = T(coords[1,1]), T(coords[1,2])
+    x2, y2 = T(coords[2,1]), T(coords[2,2])
+    x3, y3 = T(coords[3,1]), T(coords[3,2])
+
+    x31 = x3 - x1
+    y31 = y3 - y1
+    x12 = x1 - x2
+    y12 = y1 - y2
+    area2 = x31*y12 - x12*y31
+    abs(area2) <= T(1e-12) && return zeros(T, 9, 9)
+
+    # Batoz-Bathe-Ho DKT side order: k=4 for side 23, k=5 for 31, k=6 for 12.
+    P4, q4, r4, t4 = _dkt_side_coefficients(x2, y2, x3, y3)
+    P5, q5, r5, t5 = _dkt_side_coefficients(x3, y3, x1, y1)
+    P6, q6, r6, t6 = _dkt_side_coefficients(x1, y1, x2, y2)
+
+    Kpaper = zeros(T, 9, 9)
+    gauss = ((T(0.5), T(0.0), T(1)/T(6)),
+             (T(0.5), T(0.5), T(1)/T(6)),
+             (T(0.0), T(0.5), T(1)/T(6)))
+    for (xi, eta, wt) in gauss
+        Hx_xi, Hy_xi, Hx_eta, Hy_eta =
+            _tria3_dkt_derivatives(xi, eta, P4, P5, P6, q4, q5, q6, r4, r5, r6, t4, t5, t6)
+        B = zeros(T, 3, 9)
+        inv_area2 = inv(area2)
+        @inbounds for j in 1:9
+            B[1,j] = (y31 * Hx_xi[j] + y12 * Hx_eta[j]) * inv_area2
+            B[2,j] = (-x31 * Hy_xi[j] - x12 * Hy_eta[j]) * inv_area2
+            B[3,j] = (-x31 * Hx_xi[j] - x12 * Hx_eta[j] + y31 * Hy_xi[j] + y12 * Hy_eta[j]) * inv_area2
+        end
+        Kpaper .+= abs(area2) * wt .* (B' * Db * B)
+    end
+
+    # Paper DOFs are [w, beta_x, beta_y]. JFEM local shell plate DOFs are
+    # [w, theta_x, theta_y], with beta_x=theta_y and beta_y=-theta_x.
+    Tmap = zeros(T, 9, 9)
+    @inbounds for i in 0:2
+        p = 3*i
+        Tmap[p+1, p+1] = one(T)
+        Tmap[p+2, p+3] = one(T)
+        Tmap[p+3, p+2] = -one(T)
+    end
+    return Tmap' * Kpaper * Tmap
+end
+
 # Overload accepting pre-computed constitutive matrices (for orthotropic MAT8)
 function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_ratio=1.0, k6rot=100.0, Bmb=nothing)
     T = promote_type(eltype(coords), eltype(Dm), eltype(Db), eltype(Ds), typeof(h), typeof(G_ref))
@@ -4293,11 +4458,27 @@ function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_rat
     end
     Ks = Bs' * Ds * Bs * A
 
-    # TRIA3 uses 1-point centroidal shear integration (locking-free for constant shear).
-    # phi2=1.0 gives the correct Reissner-Mindlin stiffness, consistent with Nastran CTRIA3.
     b_idx = [3,4,5, 9,10,11, 15,16,17]
-    macro_data = tria3_plate_macro_data(coords, Dm, Db, Ds, h, G_ref; bend_ratio=bend_ratio, k6rot=k6rot)
-    Ke[b_idx, b_idx] += macro_data.Kcond
+    # Use the macro-quad condensed triangle by default. It is the current
+    # SOL101/SOL105 guardrail path; the DKT implementation remains available
+    # for controlled formulation probes with JFEM_TRIA3_PLATE_KERNEL=dkt.
+    tria3_plate_kernel = lowercase(strip(get(ENV, "JFEM_TRIA3_PLATE_KERNEL", "macro")))
+    if tria3_plate_kernel in ("constant", "centroid", "mindlin", "mindlin_constant")
+        # Constant-curvature Mindlin triangle with centroidal shear. This is a
+        # simple, generic CTRIA3 plate operator and is useful as a Nastran-parity
+        # probe against the macro-quad condensed plate operator below.
+        Ke[b_idx, b_idx] += Kb + Ks
+    elseif tria3_plate_kernel in ("dkt", "kirchhoff", "batoz")
+        if Bmb === nothing
+            Ke[b_idx, b_idx] += tria3_plate_dkt_stiffness(coords, Db)
+        else
+            macro_data = tria3_plate_macro_data(coords, Dm, Db, Ds, h, G_ref; bend_ratio=bend_ratio, k6rot=k6rot)
+            Ke[b_idx, b_idx] += macro_data.Kcond
+        end
+    else
+        macro_data = tria3_plate_macro_data(coords, Dm, Db, Ds, h, G_ref; bend_ratio=bend_ratio, k6rot=k6rot)
+        Ke[b_idx, b_idx] += macro_data.Kcond
+    end
 
     # B matrix coupling (membrane-bending): cross-blocks between m_idx and b_idx
     if Bmb !== nothing
@@ -5227,6 +5408,62 @@ function consistent_mass_tria3(coords::AbstractMatrix, rho::Float64, h::Float64)
 end
 
 """
+    nastran_lumped_mass_quad4(coords, rho, h) -> 24x24 Matrix
+
+Nastran-compatible lumped shell mass for a four-node shell. Translational mass
+is split equally over the corner grids. Shell rotations carry no default
+rotary inertia in the SOL 103 lumped-mass path; Nastran keeps the bending
+rotations in K but gives them zero structural mass for the default PSHELL
+mass matrix.
+"""
+function nastran_lumped_mass_quad4(coords::AbstractMatrix, rho::Float64, h::Float64)
+    Me = zeros(24, 24)
+    if rho < 1e-30 || h < 1e-30; return Me; end
+
+    area = 0.0
+    @inbounds for i in 1:4
+        j = i == 4 ? 1 : i + 1
+        area += coords[i,1] * coords[j,2] - coords[j,1] * coords[i,2]
+    end
+    area = 0.5 * abs(area)
+    if area < 1e-30; return Me; end
+
+    mass_t = rho * h * area / 4.0
+    @inbounds for k in 1:4
+        base = (k - 1) * 6
+        Me[base + 1, base + 1] = mass_t
+        Me[base + 2, base + 2] = mass_t
+        Me[base + 3, base + 3] = mass_t
+    end
+    return Me
+end
+
+"""
+    nastran_lumped_mass_tria3(coords, rho, h) -> 18x18 Matrix
+
+Nastran-compatible lumped shell mass for a three-node shell.
+"""
+function nastran_lumped_mass_tria3(coords::AbstractMatrix, rho::Float64, h::Float64)
+    Me = zeros(18, 18)
+    if rho < 1e-30 || h < 1e-30; return Me; end
+
+    x1, y1 = coords[1,1], coords[1,2]
+    x2, y2 = coords[2,1], coords[2,2]
+    x3, y3 = coords[3,1], coords[3,2]
+    area = 0.5 * abs((x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1))
+    if area < 1e-30; return Me; end
+
+    mass_t = rho * h * area / 3.0
+    @inbounds for k in 1:3
+        base = (k - 1) * 6
+        Me[base + 1, base + 1] = mass_t
+        Me[base + 2, base + 2] = mass_t
+        Me[base + 3, base + 3] = mass_t
+    end
+    return Me
+end
+
+"""
     consistent_mass_frame3d(L, rho, A, Iy, Iz) -> 12×12 Matrix
 
 Consistent mass matrix for a 3D Euler-Bernoulli beam element.
@@ -5291,6 +5528,58 @@ function consistent_mass_rod(L::Float64, rho::Float64, A::Float64)
     Me[2,2] = m/2; Me[3,3] = m/2
     Me[8,8] = m/2; Me[9,9] = m/2
 
+    return Me
+end
+
+"""
+    nastran_lumped_mass_frame3d(L, rho, A, J, Iy, Iz) -> 12x12 Matrix
+
+Nastran-compatible lumped mass matrix for 3D CBAR/CBEAM line elements.
+Translational mass is lumped equally to the two end grids. Rotary inertia is
+lumped to the corresponding local rotational DOFs when section inertias are
+available.
+"""
+function nastran_lumped_mass_frame3d(L::Float64, rho::Float64, A::Float64,
+                                     J::Float64, Iy::Float64, Iz::Float64)
+    Me = zeros(12, 12)
+    if L < 1e-12 || rho < 1e-30 || A < 1e-30; return Me; end
+
+    m_node = rho * A * L / 2.0
+    @inbounds for base in (0, 6)
+        Me[base + 1, base + 1] = m_node
+        Me[base + 2, base + 2] = m_node
+        Me[base + 3, base + 3] = m_node
+        if J > 0.0
+            Me[base + 4, base + 4] = rho * J * L / 2.0
+        end
+        if Iy > 0.0
+            Me[base + 5, base + 5] = rho * Iy * L / 2.0
+        end
+        if Iz > 0.0
+            Me[base + 6, base + 6] = rho * Iz * L / 2.0
+        end
+    end
+    return Me
+end
+
+"""
+    nastran_lumped_mass_rod(L, rho, A, J) -> 12x12 Matrix
+
+Nastran-compatible lumped mass matrix for CROD/CONROD elements.
+"""
+function nastran_lumped_mass_rod(L::Float64, rho::Float64, A::Float64, J::Float64)
+    Me = zeros(12, 12)
+    if L < 1e-12 || rho < 1e-30 || A < 1e-30; return Me; end
+
+    m_node = rho * A * L / 2.0
+    @inbounds for base in (0, 6)
+        Me[base + 1, base + 1] = m_node
+        Me[base + 2, base + 2] = m_node
+        Me[base + 3, base + 3] = m_node
+        if J > 0.0
+            Me[base + 4, base + 4] = rho * J * L / 2.0
+        end
+    end
     return Me
 end
 
@@ -5429,6 +5718,67 @@ function consistent_mass_cpenta6(coords::AbstractMatrix{Float64}, rho::Float64)
     end
 
     return Me
+end
+
+function _row_sum_lumped_mass(Me::AbstractMatrix{Float64})
+    Ml = zeros(size(Me, 1), size(Me, 2))
+    @inbounds for i in 1:size(Me, 1)
+        row_sum = 0.0
+        for j in 1:size(Me, 2)
+            row_sum += Me[i, j]
+        end
+        if abs(row_sum) > 1e-30
+            Ml[i, i] = row_sum
+        end
+    end
+    return Ml
+end
+
+"""
+    nastran_lumped_mass_tetra4(coords, rho) -> 12x12 Matrix
+
+Nastran-compatible lumped translational mass for a four-node tetrahedron.
+"""
+function nastran_lumped_mass_tetra4(coords::AbstractMatrix{Float64}, rho::Float64)
+    Me = zeros(12, 12)
+    if rho < 1e-30; return Me; end
+
+    x1, y1, z1 = coords[1,1], coords[1,2], coords[1,3]
+    x2, y2, z2 = coords[2,1], coords[2,2], coords[2,3]
+    x3, y3, z3 = coords[3,1], coords[3,2], coords[3,3]
+    x4, y4, z4 = coords[4,1], coords[4,2], coords[4,3]
+    J = @SMatrix [x2-x1 y2-y1 z2-z1;
+                   x3-x1 y3-y1 z3-z1;
+                   x4-x1 y4-y1 z4-z1]
+    volume = abs(det(J)) / 6.0
+    if volume < 1e-30; return Me; end
+
+    mass_node = rho * volume / 4.0
+    @inbounds for k in 1:4
+        base = (k - 1) * 3
+        Me[base + 1, base + 1] = mass_node
+        Me[base + 2, base + 2] = mass_node
+        Me[base + 3, base + 3] = mass_node
+    end
+    return Me
+end
+
+"""
+    nastran_lumped_mass_hexa8(coords, rho) -> 24x24 Matrix
+
+Nastran-compatible row-sum lumped translational mass for an eight-node brick.
+"""
+function nastran_lumped_mass_hexa8(coords::AbstractMatrix{Float64}, rho::Float64)
+    return _row_sum_lumped_mass(consistent_mass_hexa8(coords, rho))
+end
+
+"""
+    nastran_lumped_mass_cpenta6(coords, rho) -> 18x18 Matrix
+
+Nastran-compatible row-sum lumped translational mass for a six-node wedge.
+"""
+function nastran_lumped_mass_cpenta6(coords::AbstractMatrix{Float64}, rho::Float64)
+    return _row_sum_lumped_mass(consistent_mass_cpenta6(coords, rho))
 end
 
 # ============================================================================
@@ -5642,14 +5992,40 @@ function stiffness_cpenta6(coords::AbstractMatrix{Float64}, E::Float64, nu::Floa
     # Gauss integration: 3-point triangle × 2-point through thickness
     # Triangle: 3-point rule (midpoints of edges), weight = 1/6 each (total area = 1/2)
     # Through thickness: ζ = ±1/√3, weight = 1.0
-    tri_xi  = [0.5, 0.5, 0.0]
-    tri_eta = [0.0, 0.5, 0.5]
-    tri_w   = [1.0/6.0, 1.0/6.0, 1.0/6.0]
     g = 1.0 / sqrt(3.0)
-    zet_pts = [-g, g]
-    zet_w   = [1.0, 1.0]
+    # Nastran-compatible default for the first-order wedge: keep the 3-point
+    # triangle rule, but use one point through thickness to avoid over-stiff
+    # locking behavior on coarse CPENTA bending probes. Set
+    # JFEM_CPENTA_STIFFNESS_INTEGRATION=full to recover the former 3x2 rule.
+    cpenta_rule = lowercase(strip(get(ENV, "JFEM_CPENTA_STIFFNESS_INTEGRATION", "tri3_z1")))
+    local tri_xi, tri_eta, tri_w, zet_pts, zet_w
+    if cpenta_rule in ("reduced", "centroid", "tri1_z1")
+        tri_xi  = [1.0/3.0]
+        tri_eta = [1.0/3.0]
+        tri_w   = [0.5]
+        zet_pts = [0.0]
+        zet_w   = [2.0]
+    elseif cpenta_rule in ("tri1_z2", "triangle_reduced")
+        tri_xi  = [1.0/3.0]
+        tri_eta = [1.0/3.0]
+        tri_w   = [0.5]
+        zet_pts = [-g, g]
+        zet_w   = [1.0, 1.0]
+    elseif cpenta_rule in ("tri3_z1", "through_reduced")
+        tri_xi  = [0.5, 0.5, 0.0]
+        tri_eta = [0.0, 0.5, 0.5]
+        tri_w   = [1.0/6.0, 1.0/6.0, 1.0/6.0]
+        zet_pts = [0.0]
+        zet_w   = [2.0]
+    else
+        tri_xi  = [0.5, 0.5, 0.0]
+        tri_eta = [0.0, 0.5, 0.5]
+        tri_w   = [1.0/6.0, 1.0/6.0, 1.0/6.0]
+        zet_pts = [-g, g]
+        zet_w   = [1.0, 1.0]
+    end
 
-    for tg in 1:length(tri_xi), zg in 1:2
+    for tg in 1:length(tri_xi), zg in eachindex(zet_pts)
         xi  = tri_xi[tg]
         eta = tri_eta[tg]
         zet = zet_pts[zg]

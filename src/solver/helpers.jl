@@ -679,31 +679,6 @@ end
     return solver_env_bool("JFEM_SOL105_EIG_FLAT_PCOMP_PLATE_BRANCH", false)
 end
 
-"""
-JFEM_NASTRAN_PARITY is deprecated as a formulation preset.
-
-The solver must converge toward a generic Nastran-compatible formulation, not a
-bundle of validation-suite decisions. This helper therefore intentionally does
-not activate any hidden element, stress-recovery, frame, or eigenvalue filters.
-Use explicit formulation switches for controlled experiments, for example:
-
-  JFEM_SOL105_EIG_FLAT_PCOMP_DKMQ=true
-  JFEM_KG_QUAD4_STRESS_FIELD_MODE=gauss
-  JFEM_Q4_FRAME_MODE=parametric
-  JFEM_SOL105_EIG_PCOMP_MEMBRANE_INCOMP=true
-
-Optional EIGRL range-completeness diagnostics remain explicit:
-  JFEM_SOL105_RANGE_AUGMENTATION=true
-  JFEM_SOL105_RANGE_AUGMENTATION_MULTI=true
-  JFEM_SOL105_RANGE_AUGMENTATION_SIGMAS=0.037,0.4
-  JFEM_SOL105_RETURN_ALL_IN_RANGE=true
-
-
-"""
-@inline function jfem_nastran_parity_preset()
-    return false
-end
-
 @inline function q4_sol105_flat_pcomp_dkmq_enabled()
     return solver_env_bool("JFEM_SOL105_EIG_FLAT_PCOMP_DKMQ", false)
 end

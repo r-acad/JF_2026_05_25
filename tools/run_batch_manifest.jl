@@ -39,7 +39,7 @@ using OpenJFEM
 
 summary = run_batch_manifest!(manifest;
     manifest_path=manifest_abs,
-    repo_root=normpath(joinpath(@__DIR__, "..", "..")),
+    repo_root=normpath(joinpath(@__DIR__, "..")),
     script_path=@__FILE__,
     args=ARGS,
     quiet=quiet,
