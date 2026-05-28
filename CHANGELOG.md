@@ -5,7 +5,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `Reference_documentation/` now publishes three additional PDFs sourced
+  from `04_DOCUMENTATION_IN_WORK/`:
+  `jfem_openludwig_overview.pdf`, `agentic_coding_lessons.pdf`,
+  `gpu_workstation_pitch.pdf` (plus a duplicate
+  `agentic_coding_lessons copy.pdf`).
+- `Reference_documentation/README.md` index rewritten to list every
+  published PDF (canonical OpenJFEM docs, talks, and pitches) and to
+  describe the build-and-sync chain that keeps the folder fresh.
+
 ### Changed
+- `solver/assembly.assemble_stiffness`: when in SOL 101 context and not in
+  shear-centre-only mode, the default Q4 kernel is now `mitc4_3d_aspect`
+  instead of the historical `macneal`. Controlled by the new env var
+  `JFEM_SOL101_PCOMP_MITC4_3D_ASPECT_DEFAULT` (default `true`).
 - `solver/boundary_conditions`: SOL 101 AUTOSPC machinery with load-path
   protection. New helpers `_autospc_model_sol_type`,
   `autospc_rot_relative_threshold`, `_load_path_add_components!`,

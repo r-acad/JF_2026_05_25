@@ -2238,7 +2238,12 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     # project_htp_curved_scaffold_2026_04_21.md in memory.
     curved_jacobian_enabled = q4_curved_jacobian_enabled(shear_center_only)
     q4_kernel_key = shear_center_only ? "JFEM_Q4_KERNEL_EIG" : "JFEM_Q4_KERNEL_STATIC"
-    q4_kernel_mode_static = lowercase(strip(get(ENV, q4_kernel_key, get(ENV, "JFEM_Q4_KERNEL", "macneal"))))
+    sol101_pcomp_mitc4_3d_aspect_default =
+        sol101_context && !shear_center_only &&
+        solver_env_bool("JFEM_SOL101_PCOMP_MITC4_3D_ASPECT_DEFAULT", true)
+    default_q4_kernel =
+        sol101_pcomp_mitc4_3d_aspect_default ? "mitc4_3d_aspect" : "macneal"
+    q4_kernel_mode_static = lowercase(strip(get(ENV, q4_kernel_key, get(ENV, "JFEM_Q4_KERNEL", default_q4_kernel))))
     mitc4_3d_all_kernel = q4_kernel_mode_static in ("mitc4_3d", "mitc4-3d", "mitc3d")
     mitc4_3d_aspect_kernel = q4_kernel_mode_static in (
         "mitc4_3d_aspect", "mitc4-3d-aspect", "mitc3d_aspect", "mitc3d-aspect",
