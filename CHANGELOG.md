@@ -6,6 +6,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `Reference_documentation/`: PowerPoint companions to the three external
+  talks published as PDFs (`Engineering_Autonomy.pptx`,
+  `JFEM_Solver_Architecture.pptx`, `Local_GPU_Workstation_Proposal.pptx`).
+
+### Changed
+- `solver/assembly`: new `pshell_bending_constitutive_matrix` helper that
+  builds the shell bending constitutive matrix C_b for PSHELL/PCOMP with
+  proper handling of MAT1, MAT2 (anisotropic), and PCOMP_CLT including
+  theta rotation. Two new env-var gates: `JFEM_PSHELL_USE_MID2_BENDING`
+  (when true, use the MID2 material for bending separately from the
+  membrane material) and `JFEM_SOL101_PSHELL_MAT2_CB_SCALE` (scale factor
+  for MAT2 bending under SOL 101). New tracking array `q4_pshell_mat2`.
+
+### Added (continued)
 - `Reference_documentation/` now publishes three additional PDFs sourced
   from `04_DOCUMENTATION_IN_WORK/`:
   `jfem_openludwig_overview.pdf`, `agentic_coding_lessons.pdf`,

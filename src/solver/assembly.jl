@@ -1953,6 +1953,67 @@ end
     ]
 end
 
+@inline function pshell_bending_constitutive_matrix(mat, h::Real, bend_ratio::Real, theta::Real=0.0)
+    h_eff = Float64(h)
+    br_eff = Float64(bend_ratio)
+    Cb = zeros(3, 3)
+    (mat === nothing || h_eff <= 0.0 || br_eff <= 1e-12) && return Cb
+
+    coeff = br_eff * h_eff^3 / 12.0
+    theta_eff = Float64(theta)
+    mtype = get(mat, "TYPE", "")
+
+    if mtype == "MAT8" && haskey(mat, "E1") && haskey(mat, "E2")
+        E1 = Float64(mat["E1"])
+        E2 = Float64(mat["E2"])
+        nu12 = Float64(mat["NU12"])
+        G12 = Float64(mat["G12"])
+        nu21 = nu12 * E2 / max(E1, 1e-30)
+        denom = 1.0 - nu12 * nu21
+        Q11 = E1 / denom
+        Q22 = E2 / denom
+        Q12 = nu12 * E2 / denom
+        Q66 = G12
+        Q16 = 0.0
+        Q26 = 0.0
+        if abs(theta_eff) > 1e-10
+            ct = cos(theta_eff)
+            st = sin(theta_eff)
+            c2 = ct^2
+            s2 = st^2
+            Q11r = Q11*c2^2 + 2*(Q12+2*Q66)*c2*s2 + Q22*s2^2
+            Q22r = Q11*s2^2 + 2*(Q12+2*Q66)*c2*s2 + Q22*c2^2
+            Q12r = (Q11+Q22-4*Q66)*c2*s2 + Q12*(c2^2+s2^2)
+            Q16 = (Q11-Q12-2*Q66)*ct*st*c2 + (Q12-Q22+2*Q66)*ct*st*s2
+            Q26 = (Q11-Q12-2*Q66)*ct*st*s2 + (Q12-Q22+2*Q66)*ct*st*c2
+            Q66 = (Q11+Q22-2*Q12-2*Q66)*c2*s2 + Q66*(c2^2+s2^2)
+            Q11 = Q11r
+            Q22 = Q22r
+            Q12 = Q12r
+        end
+        return coeff .* [Q11 Q12 Q16; Q12 Q22 Q26; Q16 Q26 Q66]
+    elseif mtype == "MAT2" && haskey(mat, "G11")
+        return coeff .* [
+            Float64(get(mat, "G11", 0.0)) Float64(get(mat, "G12", 0.0)) Float64(get(mat, "G13", 0.0));
+            Float64(get(mat, "G12", 0.0)) Float64(get(mat, "G22", 0.0)) Float64(get(mat, "G23", 0.0));
+            Float64(get(mat, "G13", 0.0)) Float64(get(mat, "G23", 0.0)) Float64(get(mat, "G33", 0.0))
+        ]
+    end
+
+    E_val = Float64(get(mat, "E", 0.0))
+    nu_val = Float64(get(mat, "NU", 0.0))
+    if E_val <= 0.0
+        G_val = Float64(get(mat, "G", 0.0))
+        E_val = G_val > 0.0 ? 2.0 * G_val * (1.0 + nu_val) : 0.0
+    end
+    plane_coeff = E_val / max(1.0 - nu_val^2, 1e-30)
+    return coeff * plane_coeff .* [
+        1.0 nu_val 0.0;
+        nu_val 1.0 0.0;
+        0.0 0.0 (1.0 - nu_val) / 2.0
+    ]
+end
+
 @inline function pcomp_metric_ratios(prop, theta_rad::Float64)
     Cm_metric = copy(prop["Cm"])
     Cb_metric = copy(prop["Cb"])
@@ -2181,6 +2242,11 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         sol101_context && !shear_center_only &&
         solver_env_bool("JFEM_SOL101_PSHELL_BLANK_MID3_RIGID_SHEAR", true)
     pshell_mid4_bmb_enabled = solver_env_bool("JFEM_PSHELL_MID4_BMB", false)
+    pshell_use_mid2_bending = solver_env_bool("JFEM_PSHELL_USE_MID2_BENDING", false)
+    sol101_pshell_mat2_cb_scale =
+        sol101_context && !shear_center_only ?
+        solver_env_float("JFEM_SOL101_PSHELL_MAT2_CB_SCALE", 1.0) :
+        1.0
     q4_bmb_incomp_coupling_mode =
         sol101_context && !shear_center_only &&
         !haskey(ENV, "JFEM_Q4_BMB_INCOMP_COUPLING_MODE") ?
@@ -2511,6 +2577,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     q4_is_pcomp_isotropic = falses(n_q4)
     q4_pcomp_rigid_shear = falses(n_q4)
     q4_is_isotropic = falses(n_q4)
+    q4_pshell_mat2 = falses(n_q4)
     q4_eid_int = zeros(Int, n_q4)
     q4_pid_int = zeros(Int, n_q4)
     q4_pcomp_auto_element_axis_prop = falses(n_q4)
@@ -2552,6 +2619,14 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         is_pcomp_clt = get(prop, "TYPE", "") == "PCOMP_CLT" && haskey(prop, "Cm")
         base_mat = mats[mid]
         mat = is_pcomp_clt ? base_mat : _effective_mat1_for_nodes(model, mid, nids)
+        bend_mat = mat
+        if !is_pcomp_clt && pshell_use_mid2_bending
+            mid2 = get(prop, "MID2", 0)
+            if mid2 != 0 && haskey(mats, string(mid2))
+                bend_candidate = _effective_mat1_for_nodes(model, string(mid2), nids)
+                bend_candidate !== nothing && (bend_mat = bend_candidate)
+            end
+        end
         el_theta = deg2rad(Float64(get(el, "THETA", 0.0)))
         mid3 = get(prop, "MID3", 0)
         pshell_blank_mid3 = !is_pcomp_clt && mid3 == 0
@@ -2625,6 +2700,10 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             E_ref_e = n == 4 ? E_val : G_shear_ref
         end
 
+        if !is_pcomp_clt && br > 1e-12
+            Cb_e = pshell_bending_constitutive_matrix(bend_mat, h, br, el_theta)
+        end
+
         if br <= 1e-12
             # A PSHELL/Pcomp membrane-only shell should not retain transverse shear
             # or drilling stabilization; those artificial out-of-plane terms prevent
@@ -2669,6 +2748,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             else
                 q4_ply_data[iq4] = nothing
                 q4_is_isotropic[iq4] = !is_ortho && !is_mat2
+                q4_pshell_mat2[iq4] = is_mat2
                 q4_pshell_blank_mid3[iq4] = pshell_blank_mid3
             end
         elseif n == 3
@@ -3820,6 +3900,14 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         if elem_sol101_iso_pshell_cb_scale != 1.0
             @inbounds @fastmath for jj in 1:3, ii in 1:3
                 Cb_local[ii, jj] *= elem_sol101_iso_pshell_cb_scale
+            end
+        end
+        if sol101_pshell_mat2_cb_scale != 1.0 &&
+           !is_pcomp_ei &&
+           q4_pshell_mat2[ei] &&
+           q4_pshell_blank_mid3[ei]
+            @inbounds @fastmath for jj in 1:3, ii in 1:3
+                Cb_local[ii, jj] *= sol101_pshell_mat2_cb_scale
             end
         end
         if elem_static_component_cm_scale != 1.0
