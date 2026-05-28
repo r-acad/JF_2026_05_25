@@ -2750,6 +2750,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 q4_is_isotropic[iq4] = !is_ortho && !is_mat2
                 q4_pshell_mat2[iq4] = is_mat2
                 q4_pshell_blank_mid3[iq4] = pshell_blank_mid3
+                q4_el_theta[iq4] = el_theta
+                q4_el_mcid[iq4] = Int(get(el, "MCID", 0))
             end
         elseif n == 3
             it3 += 1
@@ -3507,6 +3509,36 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             # Kg rotation for the same element (no 2- vs 4-corner asymmetry).
             beta = shell_pcomp_material_rotation(
                 pcomp_axis_mode_eff,
+                v1, v2, v3, p1, p2, p3, p4,
+                q4_el_theta[ei],
+                q4_el_mcid[ei],
+                model["CORDs"],
+            )
+            elem_material_shear_rotation = beta
+            if abs(beta) > 1e-10
+                cb = cos(beta); sb = sin(beta)
+                c2 = cb^2; s2 = sb^2; cs = cb*sb
+                T11 = c2;  T12 = s2;  T13 = cs
+                T21 = s2;  T22 = c2;  T23 = -cs
+                T31 = -2cs; T32 = 2cs; T33 = c2 - s2
+                _rotate_constitutive_3x3!(Cm_local, T11, T12, T13, T21, T22, T23, T31, T32, T33)
+                _rotate_constitutive_3x3!(Cb_local, T11, T12, T13, T21, T22, T23, T31, T32, T33)
+                a11 = Cs_local[1,1]; a12 = Cs_local[1,2]; a22 = Cs_local[2,2]
+                Cs_local[1,1] = cb^2*a11 + 2*cb*sb*a12 + sb^2*a22
+                Cs_local[1,2] = -cb*sb*a11 + (cb^2-sb^2)*a12 + cb*sb*a22
+                Cs_local[2,1] = Cs_local[1,2]
+                Cs_local[2,2] = sb^2*a11 - 2*cb*sb*a12 + cb^2*a22
+                if Bmb_local !== nothing
+                    _rotate_constitutive_3x3!(Bmb_local, T11, T12, T13, T21, T22, T23, T31, T32, T33)
+                end
+            end
+        elseif !q4_is_isotropic[ei] && q4_el_mcid[ei] > 0
+            # PSHELL MAT2/MAT8 elements use the same CQUAD4 THETA/MCID material
+            # axis convention as PCOMP. THETA-based PSHELL matrices are already
+            # rotated while building the property resultants above; MCID-based
+            # PSHELL matrices are unrotated until the element frame is known.
+            beta = shell_pcomp_material_rotation(
+                :element,
                 v1, v2, v3, p1, p2, p3, p4,
                 q4_el_theta[ei],
                 q4_el_mcid[ei],

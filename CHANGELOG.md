@@ -6,6 +6,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `Reference_documentation/agentic_numerical_software_report.pdf`: new
+  long-form report covering workspace shape, working philosophy, useful
+  prompts, agents, skills, hooks, the harness classifier, the technology
+  stack, validation discipline, and the documentation build chain.
+- `Reference_documentation/Agentic_Numerical_Software_Blueprint.pptx`:
+  PowerPoint companion (10.4 MB).
+
+### Changed
+- `solver/assembly.assemble_stiffness`: PSHELL MAT2/MAT8 elements with
+  `MCID > 0` now follow the same THETA/MCID material-axis rotation path
+  used by PCOMP. Adds two tracking arrays (`q4_el_theta`, `q4_el_mcid`)
+  and a new rotation branch for Cm, Cb, Cs, and Bmb under the element
+  material frame.
+- `Reference_documentation/`: author and affiliation corrected on all
+  four external-talk PDFs (`agentic_coding_lessons.pdf`,
+  `agentic_numerical_software_report.pdf`,
+  `gpu_workstation_pitch.pdf`, `jfem_openludwig_overview.pdf`).
+  Author now reads "Raul Llamas-Sandin, Universidad de Sevilla".
+
+### Added (continued)
 - `Reference_documentation/`: PowerPoint companions to the three external
   talks published as PDFs (`Engineering_Autonomy.pptx`,
   `JFEM_Solver_Architecture.pptx`, `Local_GPU_Workstation_Proposal.pptx`).
