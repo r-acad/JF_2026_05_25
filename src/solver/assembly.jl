@@ -1908,6 +1908,51 @@ end
     return tst_eff * h_eff .* [G_val 0.0; 0.0 G_val], G_val
 end
 
+@inline function pshell_mid4_bmb_matrix(mat, h::Real, theta::Real=0.0)
+    h_eff = Float64(h)
+    scale = solver_env_float("JFEM_PSHELL_MID4_BMB_SCALE", 1.0) * h_eff^2 / 4.0
+    sign = solver_env_float("JFEM_PSHELL_MID4_BMB_SIGN", 1.0)
+    theta_eff = Float64(theta)
+    mtype = get(mat, "TYPE", "")
+    if mtype == "MAT8" && haskey(mat, "E1")
+        E1 = Float64(mat["E1"]); E2 = Float64(mat["E2"])
+        nu12 = Float64(mat["NU12"]); G12 = Float64(mat["G12"])
+        nu21 = nu12 * E2 / max(E1, 1e-30)
+        denom = 1.0 - nu12 * nu21
+        Q11 = E1 / denom; Q22 = E2 / denom; Q12 = nu12 * E2 / denom; Q66 = G12
+        Q16 = 0.0; Q26 = 0.0
+        if abs(theta_eff) > 1e-10
+            ct = cos(theta_eff); st = sin(theta_eff); c2 = ct^2; s2 = st^2
+            Q11r = Q11*c2^2 + 2*(Q12+2*Q66)*c2*s2 + Q22*s2^2
+            Q22r = Q11*s2^2 + 2*(Q12+2*Q66)*c2*s2 + Q22*c2^2
+            Q12r = (Q11+Q22-4*Q66)*c2*s2 + Q12*(c2^2+s2^2)
+            Q16 = (Q11-Q12-2*Q66)*ct*st*c2 + (Q12-Q22+2*Q66)*ct*st*s2
+            Q26 = (Q11-Q12-2*Q66)*ct*st*s2 + (Q12-Q22+2*Q66)*ct*st*c2
+            Q66 = (Q11+Q22-2*Q12-2*Q66)*c2*s2 + Q66*(c2^2+s2^2)
+            Q11 = Q11r; Q22 = Q22r; Q12 = Q12r
+        end
+        return sign * scale .* [Q11 Q12 Q16; Q12 Q22 Q26; Q16 Q26 Q66]
+    elseif mtype == "MAT2" && haskey(mat, "G11")
+        return sign * scale .* [
+            Float64(get(mat, "G11", 0.0)) Float64(get(mat, "G12", 0.0)) Float64(get(mat, "G13", 0.0));
+            Float64(get(mat, "G12", 0.0)) Float64(get(mat, "G22", 0.0)) Float64(get(mat, "G23", 0.0));
+            Float64(get(mat, "G13", 0.0)) Float64(get(mat, "G23", 0.0)) Float64(get(mat, "G33", 0.0))
+        ]
+    end
+    E_val = Float64(get(mat, "E", 0.0))
+    nu_val = Float64(get(mat, "NU", 0.0))
+    if E_val <= 0.0
+        G_val = Float64(get(mat, "G", 0.0))
+        E_val = G_val > 0.0 ? 2.0 * G_val * (1.0 + nu_val) : 0.0
+    end
+    plane_coeff = E_val / max(1.0 - nu_val^2, 1e-30)
+    return sign * scale * plane_coeff .* [
+        1.0 nu_val 0.0;
+        nu_val 1.0 0.0;
+        0.0 0.0 (1.0 - nu_val) / 2.0
+    ]
+end
+
 @inline function pcomp_metric_ratios(prop, theta_rad::Float64)
     Cm_metric = copy(prop["Cm"])
     Cb_metric = copy(prop["Cb"])
@@ -2132,13 +2177,17 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         clamp(solver_env_float("JFEM_SOL101_LINE_NODE_DRILL_SCALE", 0.001), 0.0, 1.0) :
         1.0
     sol101_line_node_drill_sqrt_scale = sqrt(sol101_line_node_drill_scale)
+    sol101_pshell_blank_mid3_rigid_shear =
+        sol101_context && !shear_center_only &&
+        solver_env_bool("JFEM_SOL101_PSHELL_BLANK_MID3_RIGID_SHEAR", true)
+    pshell_mid4_bmb_enabled = solver_env_bool("JFEM_PSHELL_MID4_BMB", false)
     q4_bmb_incomp_coupling_mode =
         sol101_context && !shear_center_only &&
         !haskey(ENV, "JFEM_Q4_BMB_INCOMP_COUPLING_MODE") ?
         :no_cross : :env
     q4_membrane_incomp_scale =
         sol101_context && !shear_center_only ?
-        clamp(solver_env_float("JFEM_SOL101_Q4_MEMBRANE_INCOMP_SCALE", 1.0), 0.0, 2.0) :
+        clamp(solver_env_float("JFEM_SOL101_Q4_MEMBRANE_INCOMP_SCALE", 0.85), 0.0, 2.0) :
         1.0
     sol101_q4_iso_pshell_cb_scale =
         sol101_context && !shear_center_only ?
@@ -2462,6 +2511,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     q4_pcomp_auto_element_axis_prop = falses(n_q4)
     q4_el_theta = zeros(n_q4)
     q4_el_mcid = zeros(Int, n_q4)
+    q4_pshell_blank_mid3 = falses(n_q4)
     q4_pcomp_shear_ratio = zeros(n_q4)
     q4_pcomp_d16_ratio = zeros(n_q4)
     q4_pcomp_b_ratio = zeros(n_q4)
@@ -2499,6 +2549,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         mat = is_pcomp_clt ? base_mat : _effective_mat1_for_nodes(model, mid, nids)
         el_theta = deg2rad(Float64(get(el, "THETA", 0.0)))
         mid3 = get(prop, "MID3", 0)
+        pshell_blank_mid3 = !is_pcomp_clt && mid3 == 0
         shear_mat =
             if mid3 != 0 && haskey(mats, string(mid3))
                 is_pcomp_clt ? mats[string(mid3)] : _effective_mat1_for_nodes(model, string(mid3), nids)
@@ -2575,6 +2626,11 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             # AUTOSPC from reproducing Nastran's membrane-only mechanism handling.
             fill!(Cs_e, 0.0)
         end
+        mid4 = get(prop, "MID4", 0)
+        if pshell_mid4_bmb_enabled && !is_pcomp_clt && mid4 != 0 && br > 1e-12 && haskey(mats, string(mid4))
+            bmb_mat = _effective_mat1_for_nodes(model, string(mid4), nids)
+            Bmb_e = pshell_mid4_bmb_matrix(bmb_mat, h, el_theta)
+        end
 
         if n == 4
             iq4 += 1
@@ -2608,6 +2664,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             else
                 q4_ply_data[iq4] = nothing
                 q4_is_isotropic[iq4] = !is_ortho && !is_mat2
+                q4_pshell_blank_mid3[iq4] = pshell_blank_mid3
             end
         elseif n == 3
             it3 += 1
@@ -3243,6 +3300,12 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
              q4_pcomp_rigid_shear[ei] &&
              (q4_kernel_mode_static in ("macneal", "macneal_pcomp", "macneal-pcomp", "macneal_aniso",
                                         "mitc4_3d_aspect", "mitc4-3d-aspect", "mitc3d_aspect", "mitc3d-aspect"))) ||
+            (sol101_pshell_blank_mid3_rigid_shear &&
+             q4_pshell_blank_mid3[ei] &&
+             q4_br[ei] > 1e-12 &&
+             (q4_kernel_mode_static in ("macneal", "macneal_pcomp", "macneal-pcomp", "macneal_aniso",
+                                        "macneal_all", "mitc4_3d_aspect", "mitc4-3d-aspect",
+                                        "mitc3d_aspect", "mitc3d-aspect"))) ||
             (solver_env_bool("JFEM_Q4_MACNEAL_RIGID_SHEAR_FORCE", false) &&
              elem_is_macneal_eligible &&
              (q4_kernel_mode_static in ("macneal", "macneal_pcomp", "macneal-pcomp", "macneal_aniso",

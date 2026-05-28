@@ -1,7 +1,18 @@
 # extract_materials.jl — MAT1, MAT2, MAT8, MATT1, TABLEM1
 
+@inline function mat1_negative_nu_mode()
+    raw = lowercase(strip(get(ENV, "JFEM_MAT1_NEGATIVE_NU_MODE", "clamp")))
+    if raw in ("derive_from_eg", "derive-eg", "eg", "derive")
+        return :derive_from_eg
+    elseif raw in ("preserve", "keep", "explicit")
+        return :preserve
+    end
+    return :clamp
+end
+
 function extract_mats(cards)
     d = Dict()
+    neg_nu_mode = mat1_negative_nu_mode()
     for c in cards
         mid = to_id(parse_nastran_number(safe_get(c, 3)))
         E_raw = parse_nastran_number(safe_get(c, 4), nothing)
@@ -18,7 +29,15 @@ function extract_mats(cards)
         elseif G > 0 && nu >= 0 && E <= 0
             E = 2*G*(1+nu)
         end
-        if nu < 0; nu = 0.3; end
+        if nu < 0
+            if neg_nu_mode === :derive_from_eg && E > 0 && G > 0
+                nu = E / (2*G) - 1.0
+            elseif neg_nu_mode === :preserve && !isnothing(nu_raw)
+                nu = Float64(nu_raw)
+            else
+                nu = 0.3
+            end
+        end
         RHO = Float64(parse_nastran_number(safe_get(c, 7), 0.0))
         ALPHA = Float64(parse_nastran_number(safe_get(c, 8), 0.0))
         TREF = Float64(parse_nastran_number(safe_get(c, 9), 0.0))

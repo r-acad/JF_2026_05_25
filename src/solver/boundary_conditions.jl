@@ -94,8 +94,8 @@ end
         spc_token,
         rbe3_token,
         model_autospc_enabled(model),
-        autospc_trans_relative_threshold(),
-        autospc_rot_relative_threshold(),
+        autospc_trans_relative_threshold(model),
+        autospc_rot_relative_threshold(model),
     )
 end
 
@@ -222,12 +222,237 @@ end
     return max(solver_env_float("JFEM_AUTOSPC_ROT_BAR_ONLY_MUL", 0.25), 0.0)
 end
 
-@inline function autospc_trans_relative_threshold()
-    return max(solver_env_float("JFEM_AUTOSPC_TRANS_REL", 1e-8), 0.0)
+function _autospc_model_sol_type(model)
+    cc = get(model, "CASE_CONTROL", Dict{String,Any}())
+    raw = get(model, "SOL", get(cc, "SOL", 101))
+    if raw isa Integer
+        return Int(raw)
+    elseif raw isa AbstractString
+        m = match(r"\d+", raw)
+        m === nothing && return 101
+        return parse(Int, m.match)
+    elseif raw isa Number
+        return round(Int, raw)
+    end
+    return 101
 end
 
-@inline function autospc_rot_relative_threshold()
-    return max(solver_env_float("JFEM_AUTOSPC_ROT_REL", autospc_trans_relative_threshold()), 0.0)
+@inline function _autospc_is_sol101(model)
+    return _autospc_model_sol_type(model) == 101
+end
+
+@inline function sol101_load_path_autospc_protect_enabled(model)
+    return model !== nothing &&
+           _autospc_is_sol101(model) &&
+           solver_env_bool("JFEM_SOL101_AUTOSPC_LOAD_PATH_PROTECT", false)
+end
+
+@inline function autospc_trans_relative_threshold(model=nothing)
+    default = (model !== nothing && _autospc_is_sol101(model)) ?
+        solver_env_float("JFEM_SOL101_AUTOSPC_TRANS_REL", 1e-10) :
+        1e-8
+    return max(solver_env_float("JFEM_AUTOSPC_TRANS_REL", default), 0.0)
+end
+
+function autospc_rot_relative_threshold(model=nothing)
+    if haskey(ENV, "JFEM_AUTOSPC_ROT_REL")
+        return max(solver_env_float("JFEM_AUTOSPC_ROT_REL", 1e-8), 0.0)
+    end
+    if model !== nothing && _autospc_is_sol101(model)
+        return max(solver_env_float("JFEM_SOL101_AUTOSPC_ROT_REL", 1e-8), 0.0)
+    end
+    return max(autospc_trans_relative_threshold(model), 0.0)
+end
+
+function _load_path_add_components!(node_components::Dict{Int,Set{Int}}, node_idx::Int, comps)
+    node_idx > 0 || return
+    comp_set = get!(node_components, node_idx, Set{Int}())
+    for comp_raw in comps
+        comp = Int(comp_raw)
+        1 <= comp <= 3 && push!(comp_set, comp)
+    end
+end
+
+function _load_path_element_components(nodes, loaded_components::Dict{Int,Set{Int}}, id_map)
+    comps = Set{Int}()
+    for nid in nodes
+        idx = get(id_map, nid, 0)
+        idx > 0 || continue
+        node_loaded = get(loaded_components, idx, nothing)
+        node_loaded === nothing && continue
+        union!(comps, node_loaded)
+    end
+    return comps
+end
+
+function _load_path_protect_element_nodes!(protected_components::Dict{Int,Set{Int}},
+                                           loaded_components::Dict{Int,Set{Int}},
+                                           nodes, id_map)
+    comps = _load_path_element_components(nodes, loaded_components, id_map)
+    isempty(comps) && return false
+    for nid in nodes
+        _load_path_add_components!(protected_components, get(id_map, nid, 0), comps)
+    end
+    return true
+end
+
+function _build_sol101_load_path_protected_trans_dofs(F_applied, ndof::Int, model, id_map)
+    diagnostics = Dict{String,Any}(
+        "enabled" => sol101_load_path_autospc_protect_enabled(model),
+        "loaded_translational_dofs" => 0,
+        "loaded_nodes" => 0,
+        "protected_translational_dofs" => 0,
+        "protected_nodes" => 0,
+        "connected_elements" => 0,
+        "force_tolerance" => 0.0,
+    )
+    diagnostics["enabled"] || return nothing, diagnostics
+
+    force_max = mapreduce(abs, max, F_applied; init=0.0)
+    force_rel = max(solver_env_float("JFEM_SOL101_AUTOSPC_LOAD_PATH_FORCE_REL", 1e-12), 0.0)
+    force_abs = max(solver_env_float("JFEM_SOL101_AUTOSPC_LOAD_PATH_FORCE_ABS", 1e-9), 0.0)
+    force_tol = max(force_abs, force_rel * max(force_max, 1.0))
+    diagnostics["force_tolerance"] = force_tol
+
+    loaded_components = Dict{Int,Set{Int}}()
+    stop_dof = min(ndof, length(F_applied))
+    @inbounds for gdof in 1:stop_dof
+        comp = mod(gdof - 1, 6) + 1
+        comp <= 3 || continue
+        abs(F_applied[gdof]) > force_tol || continue
+        node_idx = div(gdof - 1, 6) + 1
+        _load_path_add_components!(loaded_components, node_idx, (comp,))
+    end
+
+    loaded_dofs = sum(length(comps) for comps in values(loaded_components); init=0)
+    diagnostics["loaded_translational_dofs"] = loaded_dofs
+    diagnostics["loaded_nodes"] = length(loaded_components)
+    if isempty(loaded_components)
+        return Set{Int}(), diagnostics
+    end
+
+    protected_components = Dict{Int,Set{Int}}()
+    for (node_idx, comps) in loaded_components
+        _load_path_add_components!(protected_components, node_idx, comps)
+    end
+
+    connected_elements = 0
+    for group_name in ("CSHELLs", "CSOLIDs")
+        for (_, el) in get(model, group_name, Dict())
+            nodes = get(el, "NODES", Int[])
+            connected_elements += _load_path_protect_element_nodes!(
+                protected_components, loaded_components, nodes, id_map) ? 1 : 0
+        end
+    end
+
+    for group_name in ("CBARs", "CBEAMs", "CRODs", "CONRODs", "CBUSHs")
+        for (_, el) in get(model, group_name, Dict())
+            nodes = Int[]
+            ga = get(el, "GA", 0)
+            gb = get(el, "GB", 0)
+            ga != 0 && push!(nodes, ga)
+            gb != 0 && push!(nodes, gb)
+            connected_elements += _load_path_protect_element_nodes!(
+                protected_components, loaded_components, nodes, id_map) ? 1 : 0
+        end
+    end
+
+    for (_, el) in get(model, "CELASs", Dict())
+        nodes = Int[]
+        g1 = get(el, "G1", 0)
+        g2 = get(el, "G2", 0)
+        g1 != 0 && push!(nodes, g1)
+        g2 != 0 && push!(nodes, g2)
+        connected_elements += _load_path_protect_element_nodes!(
+            protected_components, loaded_components, nodes, id_map) ? 1 : 0
+    end
+
+    protected_dofs = Set{Int}()
+    for (node_idx, comps) in protected_components
+        for comp in comps
+            push!(protected_dofs, (node_idx - 1) * 6 + comp)
+        end
+    end
+
+    diagnostics["protected_translational_dofs"] = length(protected_dofs)
+    diagnostics["protected_nodes"] = length(protected_components)
+    diagnostics["connected_elements"] = connected_elements
+    return protected_dofs, diagnostics
+end
+
+@inline function autospc_audit_csv_path()
+    return strip(get(ENV, "JFEM_AUTOSPC_AUDIT_CSV", ""))
+end
+
+function _autospc_inverse_id_map(id_map)
+    inv_id_map = zeros(Int, length(id_map))
+    for (gid, idx_raw) in id_map
+        idx = Int(idx_raw)
+        if 1 <= idx <= length(inv_id_map)
+            inv_id_map[idx] = gid isa Integer ? Int(gid) : parse(Int, string(gid))
+        end
+    end
+    return inv_id_map
+end
+
+@inline function _autospc_component_name(dof_local::Int)
+    dof_local <= 3 && return "T$dof_local"
+    return "R$(dof_local - 3)"
+end
+
+function _open_autospc_audit_csv(path::AbstractString)
+    isempty(path) && return nothing, ""
+    abs_path = abspath(path)
+    try
+        mkpath(dirname(abs_path))
+        io = open(abs_path, "w")
+        println(io, join((
+            "global_dof",
+            "grid_id",
+            "component",
+            "dof_class",
+            "k_diagonal",
+            "abs_k_diagonal",
+            "max_k_reference",
+            "relative_threshold",
+            "effective_threshold",
+            "reason",
+            "rotational_topology_category",
+            "rotational_topology_multiplier",
+            "node_has_shell",
+            "node_has_bar_or_beam",
+            "node_has_rod",
+        ), ","))
+        return io, abs_path
+    catch err
+        @warn "Could not open JFEM_AUTOSPC_AUDIT_CSV; AUTOSPC audit disabled" path exception=(err, catch_backtrace())
+        return nothing, ""
+    end
+end
+
+function _write_autospc_audit_row(io, i::Int, gid::Int, dof_local::Int, k_diag::Float64,
+                                  max_K_ref::Float64, rel_thresh::Float64, thresh::Float64,
+                                  reason::AbstractString, category::Symbol, multiplier::Float64,
+                                  has_shell::Bool, has_bar::Bool, has_rod::Bool)
+    io === nothing && return
+    dof_class = dof_local <= 3 ? "translation" : "rotation"
+    println(io, join((
+        i,
+        gid,
+        _autospc_component_name(dof_local),
+        dof_class,
+        k_diag,
+        abs(k_diag),
+        max_K_ref,
+        rel_thresh,
+        thresh,
+        reason,
+        String(category),
+        multiplier,
+        has_shell,
+        has_bar,
+        has_rod,
+    ), ","))
 end
 
 function _build_autospc_node_topology(model, id_map)
@@ -293,9 +518,10 @@ end
     return 1.0
 end
 
-function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{Int}}, K, ndof, model, id_map)
-    autospc_rel_trans = autospc_trans_relative_threshold()
-    autospc_rel_rot = autospc_rot_relative_threshold()
+function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{Int}}, K, ndof, model, id_map,
+                            protected_trans_dofs::Union{Nothing,Set{Int}}=nothing)
+    autospc_rel_trans = autospc_trans_relative_threshold(model)
+    autospc_rel_rot = autospc_rot_relative_threshold(model)
     max_K_trans = maximum((abs(K[i, i]) for i in 1:ndof if mod(i - 1, 6) + 1 <= 3); init=1.0)
     max_K_rot = maximum((abs(K[i, i]) for i in 1:ndof if mod(i - 1, 6) + 1 > 3); init=1.0)
 
@@ -326,6 +552,7 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
     n_autospc = 0
     n_autospc_trans = 0
     n_autospc_rot = 0
+    n_load_path_skipped = 0
     rot_dofs_by_category = Dict(
         "shell_only" => 0,
         "rod_shell" => 0,
@@ -334,33 +561,65 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
         "default" => 0,
     )
 
-    for i in 1:ndof
-        dof_local = mod(i - 1, 6) + 1
-        max_K_ref = dof_local <= 3 ? max_K_trans : max_K_rot
-        rel_thresh = dof_local <= 3 ? autospc_rel_trans : autospc_rel_rot
-        thresh = rel_thresh * max(max_K_ref, 1.0)
-        category = :default
-        if dof_local > 3 && topology_enabled
+    audit_io, audit_path = _open_autospc_audit_csv(autospc_audit_csv_path())
+    inv_id_map = audit_io === nothing ? Int[] : _autospc_inverse_id_map(id_map)
+
+    try
+        for i in 1:ndof
+            dof_local = mod(i - 1, 6) + 1
             node_idx = div(i - 1, 6) + 1
+            max_K_ref = dof_local <= 3 ? max_K_trans : max_K_rot
+            rel_thresh = dof_local <= 3 ? autospc_rel_trans : autospc_rel_rot
+            thresh = rel_thresh * max(max_K_ref, 1.0)
+            category = :default
+            multiplier = 1.0
+            has_shell = false
+            has_bar = false
+            has_rod = false
             if 1 <= node_idx <= length(node_has_shell)
-                category = _autospc_rotational_topology_category(
-                    node_has_shell[node_idx],
-                    node_has_bar[node_idx],
-                    node_has_rod[node_idx],
-                )
-                thresh *= _autospc_rotational_topology_multiplier(category, multipliers)
+                has_shell = node_has_shell[node_idx]
+                has_bar = node_has_bar[node_idx]
+                has_rod = node_has_rod[node_idx]
+            end
+            if dof_local > 3 && topology_enabled
+                category = _autospc_rotational_topology_category(has_shell, has_bar, has_rod)
+                multiplier = _autospc_rotational_topology_multiplier(category, multipliers)
+                thresh *= multiplier
+            end
+            k_diag = Float64(K[i, i])
+            is_below_threshold = abs(k_diag) < thresh
+            is_negative = k_diag < 0
+            if !(i in fixed_dofs) && (is_below_threshold || is_negative)
+                if dof_local <= 3 &&
+                   !is_negative &&
+                   protected_trans_dofs !== nothing &&
+                   (i in protected_trans_dofs)
+                    n_load_path_skipped += 1
+                    continue
+                end
+                push!(fixed_dofs, i)
+                !isnothing(spc_dofs) && push!(spc_dofs, i)
+                n_autospc += 1
+                if dof_local <= 3
+                    n_autospc_trans += 1
+                else
+                    n_autospc_rot += 1
+                    rot_dofs_by_category[String(category)] += 1
+                end
+
+                if audit_io !== nothing
+                    gid = 1 <= node_idx <= length(inv_id_map) ? inv_id_map[node_idx] : 0
+                    reason = k_diag < 0 ? "negative_diagonal" : "below_threshold"
+                    _write_autospc_audit_row(
+                        audit_io, i, gid, dof_local, k_diag, max_K_ref, rel_thresh, thresh,
+                        reason, category, multiplier, has_shell, has_bar, has_rod,
+                    )
+                end
             end
         end
-        if !(i in fixed_dofs) && (abs(K[i, i]) < thresh || K[i, i] < 0)
-            push!(fixed_dofs, i)
-            !isnothing(spc_dofs) && push!(spc_dofs, i)
-            n_autospc += 1
-            if dof_local <= 3
-                n_autospc_trans += 1
-            else
-                n_autospc_rot += 1
-                rot_dofs_by_category[String(category)] += 1
-            end
+    finally
+        if audit_io !== nothing
+            close(audit_io)
         end
     end
 
@@ -373,6 +632,10 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
         "rel_threshold_rot" => autospc_rel_rot,
         "max_K_trans" => max_K_trans,
         "max_K_rot" => max_K_rot,
+        "audit_csv" => audit_path,
+        "load_path_protected_translational_dofs" =>
+            protected_trans_dofs === nothing ? 0 : length(protected_trans_dofs),
+        "load_path_autospc_skipped_dofs" => n_load_path_skipped,
         "rotational_topology" => Dict(
             "enabled" => topology_enabled,
             "node_counts" => node_counts,
@@ -465,6 +728,9 @@ function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diag
         "autospc_diagonal_dofs" => 0,
         "autospc_diagonal_translational_dofs" => 0,
         "autospc_diagonal_rotational_dofs" => 0,
+        "autospc_load_path_protected_translational_dofs" => 0,
+        "autospc_load_path_skipped_dofs" => 0,
+        "autospc_load_path_protection" => Dict{String,Any}("enabled" => false),
         "autospc_rotational_topology" => Dict{String,Any}(),
         "factorization_autospc" => Dict{String,Any}(),
         "fixed_dofs" => 0,
@@ -510,6 +776,8 @@ function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diag
         diagnostics["autospc_diagonal_dofs"] = autospc_diag["dofs"]
         diagnostics["autospc_diagonal_translational_dofs"] = autospc_diag["translational_dofs"]
         diagnostics["autospc_diagonal_rotational_dofs"] = autospc_diag["rotational_dofs"]
+        diagnostics["autospc_load_path_protected_translational_dofs"] = autospc_diag["load_path_protected_translational_dofs"]
+        diagnostics["autospc_load_path_skipped_dofs"] = autospc_diag["load_path_autospc_skipped_dofs"]
         diagnostics["autospc_rotational_topology"] = autospc_diag["rotational_topology"]
     end
 
@@ -532,7 +800,8 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
     log_msg("[SOLVER] Processing Boundary Conditions...")
 
     spc_id = get(model, "_spc_id", nothing)
-    cache_enabled = linear_cache !== nothing && ndof >= linear_solve_cache_min_ndof()
+    load_path_protect_enabled = sol101_load_path_autospc_protect_enabled(model)
+    cache_enabled = linear_cache !== nothing && ndof >= linear_solve_cache_min_ndof() && !load_path_protect_enabled
     cache_key = cache_enabled ? _linear_solve_cache_key(K, ndof, model, spc_id, rbe3_map) : nothing
     cached_entry = (cache_enabled && cache_key !== nothing) ? get(linear_cache, cache_key, nothing) : nothing
 
@@ -547,6 +816,9 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
             "autospc_diagonal_dofs" => 0,
             "autospc_diagonal_translational_dofs" => 0,
             "autospc_diagonal_rotational_dofs" => 0,
+            "autospc_load_path_protected_translational_dofs" => 0,
+            "autospc_load_path_skipped_dofs" => 0,
+            "autospc_load_path_protection" => Dict{String,Any}("enabled" => false),
             "autospc_rotational_topology" => Dict{String,Any}(),
             "post_factorization_singular_dofs" => 0,
             "post_factorization_singular_translational_dofs" => 0,
@@ -684,15 +956,29 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
     diagnostics["linear_solver"]["used_enforced_displacement_correction"] = !isempty(enforced_disp)
 
     if model_autospc_enabled(model)
-        autospc_diag = _diagonal_autospc!(fixed_dofs, spc_dofs, K, ndof, model, id_map)
+        protected_trans_dofs = nothing
+        load_path_diag = Dict{String,Any}("enabled" => false)
+        if load_path_protect_enabled
+            protected_trans_dofs, load_path_diag = _build_sol101_load_path_protected_trans_dofs(
+                F_applied, ndof, model, id_map)
+            log_msg("[SOLVER] SOL101 load-path AUTOSPC protection: protected=$(get(load_path_diag, "protected_translational_dofs", 0)) translational DOFs across $(get(load_path_diag, "protected_nodes", 0)) nodes")
+        end
+
+        autospc_diag = _diagonal_autospc!(fixed_dofs, spc_dofs, K, ndof, model, id_map, protected_trans_dofs)
         diagnostics["bc_partition"]["autospc_diagonal_dofs"] = autospc_diag["dofs"]
         diagnostics["bc_partition"]["autospc_diagonal_translational_dofs"] = autospc_diag["translational_dofs"]
         diagnostics["bc_partition"]["autospc_diagonal_rotational_dofs"] = autospc_diag["rotational_dofs"]
+        diagnostics["bc_partition"]["autospc_load_path_protected_translational_dofs"] = autospc_diag["load_path_protected_translational_dofs"]
+        diagnostics["bc_partition"]["autospc_load_path_skipped_dofs"] = autospc_diag["load_path_autospc_skipped_dofs"]
+        diagnostics["bc_partition"]["autospc_load_path_protection"] = load_path_diag
         diagnostics["bc_partition"]["autospc_rotational_topology"] = autospc_diag["rotational_topology"]
         rel_trans = autospc_diag["rel_threshold_trans"]
         rel_rot = autospc_diag["rel_threshold_rot"]
         rel_msg = rel_trans == rel_rot ? string(rel_trans) : "trans=$(rel_trans), rot=$(rel_rot)"
         log_msg("[SOLVER] AUTOSPC: $(autospc_diag["dofs"]) DOFs ($(autospc_diag["translational_dofs"]) trans + $(autospc_diag["rotational_dofs"]) rot, rel_thresh=$rel_msg, max_K_trans=$(round(autospc_diag["max_K_trans"], sigdigits=3)), max_K_rot=$(round(autospc_diag["max_K_rot"], sigdigits=3)))")
+        if autospc_diag["load_path_autospc_skipped_dofs"] > 0
+            log_msg("[SOLVER] AUTOSPC load-path protection skipped $(autospc_diag["load_path_autospc_skipped_dofs"]) low-diagonal translational candidates")
+        end
         if get(autospc_diag["rotational_topology"], "enabled", false)
             topology = autospc_diag["rotational_topology"]
             multipliers = topology["multipliers"]

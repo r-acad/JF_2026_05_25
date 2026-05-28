@@ -1025,9 +1025,12 @@ function build_model_from_json(raw::AbstractDict)
             "PID"=>Int(p["PID"]), "MID"=>Int(p["MID"]), "T"=>Float64(p["T"]),
             "MID2"=> mid2_blank ? 0 : Int(mid2_val),
             "MID3"=> Int(get(p, "MID3", 0)),
+            "MID4"=> Int(get(p, "MID4", 0)),
             "BEND_RATIO"=> mid2_blank ? 0.0 : Float64(get(p, "BEND_RATIO", 1.0)),
             "TS_T"=> Float64(get(p, "TS_T", 5.0/6.0)),
             "NSM"=> Float64(get(p, "NSM", 0.0)),
+            "Z1"=> Float64(get(p, "Z1", -0.5 * Float64(p["T"]))),
+            "Z2"=> Float64(get(p, "Z2",  0.5 * Float64(p["T"]))),
         )
     end
 

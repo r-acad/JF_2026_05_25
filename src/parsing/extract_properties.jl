@@ -16,15 +16,22 @@ function extract_props_shell(cards)
         mid3 = (isnothing(mid3_val) || mid3_val == 0) ? 0 : to_id(mid3_val)
         ts_t = parse_nastran_number(safe_get(c, 9), 5.0/6.0)    # TS/T, default=5/6
         nsm = parse_nastran_number(safe_get(c, 10), 0.0)        # NSM, non-structural mass per area
+        z1 = parse_nastran_number(safe_get(c, 11), -0.5 * t)
+        z2 = parse_nastran_number(safe_get(c, 12),  0.5 * t)
+        mid4_val = parse_nastran_number(safe_get(c, 13), nothing)
+        mid4 = (isnothing(mid4_val) || mid4_val == 0) ? 0 : to_id(mid4_val)
         d[string(pid)] = Dict(
             "PID"=>pid,
             "MID"=>mid,
             "MID2"=>mid2,
             "MID3"=>mid3,
+            "MID4"=>mid4,
             "T"=>t,
             "BEND_RATIO"=>bend_ratio,
             "TS_T"=>ts_t,
             "NSM"=>Float64(nsm),
+            "Z1"=>Float64(z1),
+            "Z2"=>Float64(z2),
         )
     end
     return d

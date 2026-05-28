@@ -6,6 +6,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- `solver/boundary_conditions`: SOL 101 AUTOSPC machinery with load-path
+  protection. New helpers `_autospc_model_sol_type`,
+  `autospc_rot_relative_threshold`, `_load_path_add_components!`,
+  `_load_path_element_components`, `_load_path_protect_element_nodes!`,
+  `_build_sol101_load_path_protected_trans_dofs`, `_autospc_inverse_id_map`.
+  Prevents the auto single-point constraint from clamping DOFs touched by
+  elements that carry applied load.
+- `solver/assembly`: distributed `assemble_stiffness` updates aligned with
+  the new AUTOSPC / load-path machinery (~60 lines).
+- `ModelBuilder.build_model_from_json`: propagate new model fields.
+- `parsing/extract_materials`: new material parsing branch.
+- `parsing/extract_properties.extract_props_shell`: shell property
+  extraction extension. Line endings normalized (CRLF -> LF) on
+  `ModelBuilder.jl`, `extract_materials.jl`, `extract_properties.jl`.
 - `JFEMSolver`: new SOL 101 capability gates and env-bool helpers
   (unsymmetric `PCOMP`, transverse `CELAS`, static membrane-incomp).
 - `FEMKernels.stiffness_quad4_matrices`: new kwargs
