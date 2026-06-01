@@ -1,0 +1,48 @@
+$ MacNeal & Harder (1985), Sec. 3 - curved cantilever beam.
+$ 90-deg arc in the XY plane, inner radius 4.12, outer radius 4.32,
+$ width (radial) 0.20, shell thickness (out-of-plane) 0.10.
+$ E = 1.0e7, nu = 0.25. Cantilevered at theta=0, loaded at theta=90.
+$ Mesh: 6 CQUAD4 along the arc, 1 across the width (14 nodes total).
+$ Reference (in-plane Fy = 1.0): tip displacement Uy = 0.08734.
+$
+SOL 101
+CEND
+TITLE = MacNeal-Harder curved cantilever beam (in-plane load)
+SUBCASE 1
+  LABEL = In-plane unit tip load Fy at theta=90
+  SPC = 1
+  LOAD = 1
+  DISPLACEMENT = ALL
+BEGIN BULK
+$ ---- material and property ----
+MAT1, 1, 1.0+7, , 0.25
+PSHELL, 1, 1, 0.10, 1
+$ ---- grids: outer radius r = 4.32, theta = 0, 15, 30, 45, 60, 75, 90 ----
+GRID, 1, , 4.32000, 0.00000, 0.0
+GRID, 2, , 4.17280, 1.11810, 0.0
+GRID, 3, , 3.74123, 2.16000, 0.0
+GRID, 4, , 3.05470, 3.05470, 0.0
+GRID, 5, , 2.16000, 3.74123, 0.0
+GRID, 6, , 1.11810, 4.17280, 0.0
+GRID, 7, , 0.00000, 4.32000, 0.0
+$ ---- grids: inner radius r = 4.12, theta = 0, 15, 30, 45, 60, 75, 90 ----
+GRID, 8, , 4.12000, 0.00000, 0.0
+GRID, 9, , 3.97962, 1.06633, 0.0
+GRID,10, , 3.56802, 2.06000, 0.0
+GRID,11, , 2.91328, 2.91328, 0.0
+GRID,12, , 2.06000, 3.56802, 0.0
+GRID,13, , 1.06633, 3.97962, 0.0
+GRID,14, , 0.00000, 4.12000, 0.0
+$ ---- elements ----
+CQUAD4, 1, 1, 1, 2, 9, 8
+CQUAD4, 2, 1, 2, 3,10, 9
+CQUAD4, 3, 1, 3, 4,11,10
+CQUAD4, 4, 1, 4, 5,12,11
+CQUAD4, 5, 1, 5, 6,13,12
+CQUAD4, 6, 1, 6, 7,14,13
+$ ---- clamp at theta = 0 (nodes 1 and 8) ----
+SPC1, 1, 123456, 1, 8
+$ ---- in-plane Fy = 1 distributed as 0.5 + 0.5 at the loaded edge ----
+FORCE, 1, 7, , 0.5, 0.0, 1.0, 0.0
+FORCE, 1,14, , 0.5, 0.0, 1.0, 0.0
+ENDDATA

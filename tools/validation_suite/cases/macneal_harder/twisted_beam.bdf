@@ -1,0 +1,76 @@
+$ MacNeal & Harder (1985), Sec. 4 - twisted cantilever beam.
+$ Length L = 12, cross-section 1.1 (width) x 0.32 (thickness), twisted 90
+$ deg from root to tip. E = 29.0e6, nu = 0.22.
+$ Mesh: 12 CQUAD4 along length, 1 across width (26 nodes total).
+$ Twist at station i (i=0..12): theta_i = (i/12) * pi/2 .
+$ Reference (in-plane Fy = 1 at tip): Uy = 5.424e-3.
+$
+SOL 101
+CEND
+TITLE = MacNeal-Harder twisted cantilever beam (in-plane load)
+SUBCASE 1
+  LABEL = In-plane unit tip load Fy at the free end
+  SPC = 1
+  LOAD = 1
+  DISPLACEMENT = ALL
+BEGIN BULK
+MAT1, 1, 2.9+7, , 0.22
+PSHELL, 1, 1, 0.32, 1
+$ ---- station 0 (theta=0 deg) ----
+GRID, 1, , 0.0, -0.55000,  0.00000
+GRID, 2, , 0.0,  0.55000,  0.00000
+$ ---- station 1 (theta=7.5 deg) ----
+GRID, 3, , 1.0, -0.54527, -0.07178
+GRID, 4, , 1.0,  0.54527,  0.07178
+$ ---- station 2 (theta=15 deg) ----
+GRID, 5, , 2.0, -0.53126, -0.14235
+GRID, 6, , 2.0,  0.53126,  0.14235
+$ ---- station 3 (theta=22.5 deg) ----
+GRID, 7, , 3.0, -0.50815, -0.21048
+GRID, 8, , 3.0,  0.50815,  0.21048
+$ ---- station 4 (theta=30 deg) ----
+GRID, 9, , 4.0, -0.47631, -0.27500
+GRID,10, , 4.0,  0.47631,  0.27500
+$ ---- station 5 (theta=37.5 deg) ----
+GRID,11, , 5.0, -0.43638, -0.33484
+GRID,12, , 5.0,  0.43638,  0.33484
+$ ---- station 6 (theta=45 deg) ----
+GRID,13, , 6.0, -0.38891, -0.38891
+GRID,14, , 6.0,  0.38891,  0.38891
+$ ---- station 7 (theta=52.5 deg) ----
+GRID,15, , 7.0, -0.33484, -0.43638
+GRID,16, , 7.0,  0.33484,  0.43638
+$ ---- station 8 (theta=60 deg) ----
+GRID,17, , 8.0, -0.27500, -0.47631
+GRID,18, , 8.0,  0.27500,  0.47631
+$ ---- station 9 (theta=67.5 deg) ----
+GRID,19, , 9.0, -0.21048, -0.50815
+GRID,20, , 9.0,  0.21048,  0.50815
+$ ---- station 10 (theta=75 deg) ----
+GRID,21, ,10.0, -0.14235, -0.53126
+GRID,22, ,10.0,  0.14235,  0.53126
+$ ---- station 11 (theta=82.5 deg) ----
+GRID,23, ,11.0, -0.07178, -0.54527
+GRID,24, ,11.0,  0.07178,  0.54527
+$ ---- station 12 (theta=90 deg, tip) ----
+GRID,25, ,12.0,  0.00000, -0.55000
+GRID,26, ,12.0,  0.00000,  0.55000
+$ ---- elements ----
+CQUAD4, 1, 1, 1, 3, 4, 2
+CQUAD4, 2, 1, 3, 5, 6, 4
+CQUAD4, 3, 1, 5, 7, 8, 6
+CQUAD4, 4, 1, 7, 9,10, 8
+CQUAD4, 5, 1, 9,11,12,10
+CQUAD4, 6, 1,11,13,14,12
+CQUAD4, 7, 1,13,15,16,14
+CQUAD4, 8, 1,15,17,18,16
+CQUAD4, 9, 1,17,19,20,18
+CQUAD4,10, 1,19,21,22,20
+CQUAD4,11, 1,21,23,24,22
+CQUAD4,12, 1,23,25,26,24
+$ ---- clamp at root ----
+SPC1, 1, 123456, 1, 2
+$ ---- in-plane tip load Fy = 1 distributed across the two tip nodes ----
+FORCE, 1,25, , 0.5, 0.0, 1.0, 0.0
+FORCE, 1,26, , 0.5, 0.0, 1.0, 0.0
+ENDDATA

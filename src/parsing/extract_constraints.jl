@@ -87,9 +87,33 @@ function extract_rbe3(cards)
 
         # Parse multiple weight groups: WT1,C1,G1...,Gn, WT2,C2,G1...,Gm, ...
         # Continuation markers (+XX, *XX) are skipped as they are parser artifacts.
+        # Optional UM entries name alternate DOFs listed by the RBE3.  The solver
+        # keeps the historical REFGRID/REFC dependent set by default; UM-based
+        # elimination is available as an explicit diagnostic option.
         wt_groups = []
+        um_pairs = []
+        alpha = 0.0
+        tref = 0.0
+        um_idx = 0
+        alpha_idx = 0
+        for k in 7:length(c)
+            marker = uppercase(strip(string(safe_get(c, k))))
+            if marker == "UM" && um_idx == 0
+                um_idx = k
+            elseif marker == "ALPHA" && alpha_idx == 0
+                alpha_idx = k
+            end
+        end
+        wt_stop = length(c) + 1
+        if um_idx > 0
+            wt_stop = min(wt_stop, um_idx)
+        end
+        if alpha_idx > 0
+            wt_stop = min(wt_stop, alpha_idx)
+        end
+
         pos = 7
-        while pos <= length(c)
+        while pos < wt_stop
             wt_str = strip(safe_get(c, pos))
             if isempty(wt_str) || _is_continuation_marker(wt_str); pos += 1; continue; end
             wt_val = parse_nastran_number(wt_str, NaN)
@@ -121,8 +145,36 @@ function extract_rbe3(cards)
             end
         end
 
+        if um_idx > 0
+            um_stop = alpha_idx > 0 ? alpha_idx : length(c) + 1
+            pos = um_idx + 1
+            while pos + 1 < um_stop
+                g_str = strip(safe_get(c, pos))
+                c_str = strip(safe_get(c, pos + 1))
+                if isempty(g_str) || _is_continuation_marker(g_str)
+                    pos += 1
+                    continue
+                end
+                if uppercase(g_str) == "ALPHA"
+                    break
+                end
+                gid = to_id(parse_nastran_number(g_str, 0))
+                comps_val = to_id(parse_nastran_number(c_str, 0))
+                if gid > 0 && comps_val > 0
+                    push!(um_pairs, (grid=gid, comps=comps_val))
+                end
+                pos += 2
+            end
+        end
+
+        if alpha_idx > 0
+            alpha = Float64(parse_nastran_number(safe_get(c, alpha_idx + 1), 0.0))
+            tref = Float64(parse_nastran_number(safe_get(c, alpha_idx + 2), 0.0))
+        end
+
         d[string(eid)] = Dict("ID"=>eid, "REFGRID"=>refgrid, "REFC"=>refc,
-                              "WT_GROUPS"=>wt_groups)
+                              "WT_GROUPS"=>wt_groups, "UM"=>um_pairs,
+                              "ALPHA"=>alpha, "TREF"=>tref)
     end
     return d
 end

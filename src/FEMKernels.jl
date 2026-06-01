@@ -975,6 +975,26 @@ end
     return Bi
 end
 
+@inline function q4_membrane_incomp_mode_weights(scale::Float64)
+    raw = strip(get(ENV, "JFEM_SOL101_Q4_MEMBRANE_INCOMP_MODE_WEIGHTS",
+                    get(ENV, "JFEM_Q4_MEMBRANE_INCOMP_MODE_WEIGHTS", "")))
+    if isempty(raw)
+        return (scale, scale, scale, scale)
+    end
+    parts = split(replace(raw, ';' => ','), ',')
+    if length(parts) != 4
+        return (scale, scale, scale, scale)
+    end
+    w1 = tryparse(Float64, strip(parts[1]))
+    w2 = tryparse(Float64, strip(parts[2]))
+    w3 = tryparse(Float64, strip(parts[3]))
+    w4 = tryparse(Float64, strip(parts[4]))
+    if w1 === nothing || w2 === nothing || w3 === nothing || w4 === nothing
+        return (scale, scale, scale, scale)
+    end
+    return (max(w1, 0.0), max(w2, 0.0), max(w3, 0.0), max(w4, 0.0))
+end
+
 @inline function fill_quad4_membrane_enhanced_B!(
     Bi::AbstractMatrix,
     r::Float64,
@@ -1364,7 +1384,7 @@ include(joinpath(@__DIR__, "experimental", "hu_washizu_kernel.jl"))
 # Pre-allocated workspace `ws` eliminates ALL heap allocations in the hot loop
 # (~5M alloc saved across HTP_launch).
 # =============================================================================
-function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_assumed_mode::Symbol=:none, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env)
+function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_assumed_mode::Symbol=:none, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env)
     # Allow env-var override for marguerre_warp_to_uz so it can be enabled
     # globally without plumbing through every caller. Currently the assembly
     # loop doesn't pass this kwarg, so default is false. Env override:
@@ -1407,6 +1427,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             no_phi2=no_phi2,
             membrane_incomp=false,
             membrane_incomp_scale=membrane_incomp_scale,
+            membrane_incomp_weights=membrane_incomp_weights,
             curvature_membrane=curvature_membrane,
             membrane_shear_center_row=membrane_shear_center_row,
             material_shear_rotation=material_shear_rotation,
@@ -1434,6 +1455,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             no_phi2=true,
             membrane_incomp=false,
             membrane_incomp_scale=membrane_incomp_scale,
+            membrane_incomp_weights=membrane_incomp_weights,
             curvature_membrane=membrane_curvature_default,
             membrane_shear_center_row=membrane_shear_center_row,
             material_shear_rotation=material_shear_rotation,
@@ -2160,6 +2182,13 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             string(bmb_incomp_coupling_mode)
     ))
     membrane_incomp_weight = max(membrane_incomp_scale, 0.0)
+    membrane_incomp_mode_weights =
+        membrane_incomp_weights === nothing ?
+        q4_membrane_incomp_mode_weights(membrane_incomp_weight) :
+        (max(Float64(membrane_incomp_weights[1]), 0.0),
+         max(Float64(membrane_incomp_weights[2]), 0.0),
+         max(Float64(membrane_incomp_weights[3]), 0.0),
+         max(Float64(membrane_incomp_weights[4]), 0.0))
     if Bmb !== nothing
         if membrane_incomp
             if bmb_incomp_mode in ("separate", "separate_nocross", "uncoupled")
@@ -2175,10 +2204,10 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
                             tmp_m += inv_Kbb_m[l,q] * ws.K_ab[j,q]
                             tmp_b += inv_Kbb_b[l,q] * ws.K_ab_bend[j,q]
                         end
-                        sm += ws.K_ab[i,l] * tmp_m
+                        sm += membrane_incomp_mode_weights[l] * ws.K_ab[i,l] * tmp_m
                         sb += ws.K_ab_bend[i,l] * tmp_b
                     end
-                    ws.Ke[i,j] -= membrane_incomp_weight * sm + sb
+                    ws.Ke[i,j] -= sm + sb
                 end
             elseif bmb_incomp_mode in ("no_cross", "combined_nocross")
                 K_ab_full = hcat(ws.K_ab, ws.K_ab_bend)
@@ -2189,7 +2218,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
                 @inbounds @fastmath for j in 1:24, i in 1:24
                     s = 0.0
                     for l in 1:8
-                        mode_weight = l <= 4 ? membrane_incomp_weight : 1.0
+                        mode_weight = l <= 4 ? membrane_incomp_mode_weights[l] : 1.0
                         s += mode_weight * K_ab_full[i,l] * tmp8x24[l,j]
                     end
                     ws.Ke[i,j] -= s
@@ -2204,7 +2233,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
                 @inbounds @fastmath for j in 1:24, i in 1:24
                     s = 0.0
                     for l in 1:8
-                        mode_weight = l <= 4 ? membrane_incomp_weight : 1.0
+                        mode_weight = l <= 4 ? membrane_incomp_mode_weights[l] : 1.0
                         s += mode_weight * K_ab_full[i,l] * tmp8x24[l,j]
                     end
                     ws.Ke[i,j] -= s
@@ -2252,9 +2281,9 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
                         for q in 1:4
                             tmp_m += inv_Kbb_m[l,q] * ws.K_ab[j,q]
                         end
-                        sm += ws.K_ab[i,l] * tmp_m
+                        sm += membrane_incomp_mode_weights[l] * ws.K_ab[i,l] * tmp_m
                     end
-                    ws.Ke[i,j] -= membrane_incomp_weight * sm
+                    ws.Ke[i,j] -= sm
                 end
             end
         else
@@ -2268,9 +2297,9 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
                         for q in 1:4
                             tmp_m += inv_Kbb_m[l,q] * ws.K_ab[j,q]
                         end
-                        sm += ws.K_ab[i,l] * tmp_m
+                        sm += membrane_incomp_mode_weights[l] * ws.K_ab[i,l] * tmp_m
                     end
-                    ws.Ke[i,j] -= membrane_incomp_weight * sm
+                    ws.Ke[i,j] -= sm
                 end
             end
         end

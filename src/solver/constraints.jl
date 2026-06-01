@@ -34,6 +34,48 @@ end
     return pairs
 end
 
+@inline function _component_digits(value)
+    return sort!([parse(Int, string(ch)) for ch in string(Int(value)) if isdigit(ch)])
+end
+
+@inline function _add_row_coeff!(row::Dict{Int,Float64}, dof::Int, coeff::Float64)
+    abs(coeff) <= 1e-15 && return row
+    row[dof] = get(row, dof, 0.0) + coeff
+    if abs(row[dof]) <= 1e-15
+        delete!(row, dof)
+    end
+    return row
+end
+
+function _rbe3_um_dependent_dofs(um_pairs, id_map)
+    dep_dofs = Int[]
+    seen = Set{Int}()
+    for pair in um_pairs
+        grid = Int(pair isa AbstractDict ? pair["grid"] : getproperty(pair, :grid))
+        comps = Int(pair isa AbstractDict ? pair["comps"] : getproperty(pair, :comps))
+        gi = get(id_map, grid, 0)
+        gi == 0 && continue
+        for dof in _component_digits(comps)
+            1 <= dof <= 6 || continue
+            gdof = (gi - 1) * 6 + dof
+            if !(gdof in seen)
+                push!(dep_dofs, gdof)
+                push!(seen, gdof)
+            end
+        end
+    end
+    return dep_dofs
+end
+
+@inline function _rbe3_basic_frame_diagnostic_enabled()
+    return solver_env_bool("JFEM_RBE3_BASIC_FRAME_DIAGNOSTIC", false)
+end
+
+@inline function _rbe3_offset_sign_diagnostic()
+    raw = solver_env_float("JFEM_RBE3_OFFSET_SIGN_DIAGNOSTIC", 1.0)
+    return raw < 0.0 ? -1.0 : 1.0
+end
+
 function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, V_val)
     rbe2s = get(model, "RBE2s", Dict())
 
@@ -219,16 +261,25 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
     rbe3s = get(model, "RBE3s", Dict())
     rbe3_map = Dict{Int, Vector{Tuple{Int, Float64}}}()
     n_rbe3 = 0
+    n_rbe3_um = 0
+    rbe3_basic_frame_diagnostic = _rbe3_basic_frame_diagnostic_enabled()
+    rbe3_offset_sign = _rbe3_offset_sign_diagnostic()
+    if rbe3_basic_frame_diagnostic
+        log_msg("[SOLVER] RBE3 diagnostic: interpreting RBE3 interpolation components in the basic frame")
+    end
+    if rbe3_offset_sign < 0.0
+        log_msg("[SOLVER] RBE3 diagnostic: reversing reference-to-independent offset sign")
+    end
     for (id, rbe) in rbe3s
         ref_gid = rbe["REFGRID"]
         ref_idx = get(id_map, ref_gid, 0)
         if ref_idx == 0; continue; end
 
-        refc_digits = sort!([parse(Int, string(ch)) for ch in string(Int(rbe["REFC"])) if isdigit(ch)])
+        refc_digits = _component_digits(rbe["REFC"])
         if isempty(refc_digits); continue; end
 
         p_ref = SVector{3}(node_coords[ref_idx,1], node_coords[ref_idx,2], node_coords[ref_idx,3])
-        R_ref = node_R[ref_idx]
+        R_ref = rbe3_basic_frame_diagnostic ? Matrix(1.0I, 3, 3) : node_R[ref_idx]
 
         # Build weighted Gram matrix G'WG (6×6) and per-grid G_i matrices
         # G_i maps independent DOFs at node i to full 6 RB DOFs at reference
@@ -240,15 +291,17 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
             # Support both NamedTuple (.wt) and Dict (["wt"]) access for JSON compatibility
             wt = Float64(group isa AbstractDict ? group["wt"] : group.wt)
             comps_raw = group isa AbstractDict ? group["comps"] : group.comps
-            comps_digits = sort!([parse(Int, string(ch)) for ch in string(Int(comps_raw)) if isdigit(ch)])
+            comps_digits = _component_digits(comps_raw)
             if isempty(comps_digits); continue; end
             grids_raw = group isa AbstractDict ? group["grids"] : group.grids
             for dg in grids_raw
                 di = get(id_map, dg, 0)
                 if di == 0; continue; end
                 p_i = SVector{3}(node_coords[di,1], node_coords[di,2], node_coords[di,3])
-                dx = p_i[1] - p_ref[1]; dy = p_i[2] - p_ref[2]; dz = p_i[3] - p_ref[3]
-                R_i = node_R[di]
+                dx = rbe3_offset_sign * (p_i[1] - p_ref[1])
+                dy = rbe3_offset_sign * (p_i[2] - p_ref[2])
+                dz = rbe3_offset_sign * (p_i[3] - p_ref[3])
+                R_i = rbe3_basic_frame_diagnostic ? Matrix(1.0I, 3, 3) : node_R[di]
 
                 n_comp = length(comps_digits)
                 G_i = zeros(n_comp, 6)  # maps comp DOFs → 6 RB DOFs at ref
@@ -264,24 +317,85 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
 
         A6_inv = pinv(A6, rtol=1e-10)
 
-        # Build a mapping from REFC digits to rows in A6
-        # refc_digits maps to indices in the 6-DOF vector
+        equation_rows = Dict{Int,Float64}[]
+        row_by_ref_dof = Dict{Int,Int}()
         for (di, G_i, wt, comps_digits) in grid_Gi
-            # C_i = A6_inv * (wt * G_i') → 6 × n_comp
             C_i = A6_inv * (wt .* G_i')
-
             for rdof in refc_digits
+                1 <= rdof <= 6 || continue
                 ref_dof = (ref_idx - 1) * 6 + rdof
-                if !haskey(rbe3_map, ref_dof)
-                    rbe3_map[ref_dof] = Tuple{Int,Float64}[]
+                row_index = get(row_by_ref_dof, ref_dof, 0)
+                if row_index == 0
+                    row = Dict{Int,Float64}()
+                    _add_row_coeff!(row, ref_dof, 1.0)
+                    push!(equation_rows, row)
+                    row_index = length(equation_rows)
+                    row_by_ref_dof[ref_dof] = row_index
                 end
+                row = equation_rows[row_index]
                 for (jj, cdof) in enumerate(comps_digits)
-                    coeff = C_i[rdof, jj]  # row=rdof in 6-DOF space
+                    coeff = C_i[rdof, jj]
                     if abs(coeff) > 1e-15
                         ind_dof = (di - 1) * 6 + cdof
-                        push!(rbe3_map[ref_dof], (ind_dof, coeff))
+                        _add_row_coeff!(row, ind_dof, -coeff)
                     end
                 end
+            end
+        end
+        if isempty(equation_rows); continue; end
+
+        default_dep_dofs = Int[]
+        for rdof in refc_digits
+            1 <= rdof <= 6 || continue
+            push!(default_dep_dofs, (ref_idx - 1) * 6 + rdof)
+        end
+
+        um_dep_dofs = _rbe3_um_dependent_dofs(get(rbe, "UM", []), id_map)
+        dep_dofs = default_dep_dofs
+        if !isempty(um_dep_dofs) && solver_env_bool("JFEM_RBE3_USE_UM_DEPENDENT", false)
+            if length(um_dep_dofs) == length(equation_rows)
+                dep_dofs = um_dep_dofs
+                n_rbe3_um += 1
+            else
+                log_msg("[SOLVER] RBE3 $(rbe["ID"]): ignored UM dependent set because it has $(length(um_dep_dofs)) DOFs for $(length(equation_rows)) equations")
+            end
+        end
+
+        all_dof_set = Set{Int}()
+        for row in equation_rows
+            for dof in keys(row)
+                push!(all_dof_set, dof)
+            end
+        end
+        dep_set = Set(dep_dofs)
+        ind_dofs = sort!(collect(setdiff(all_dof_set, dep_set)))
+
+        A_dep = zeros(length(equation_rows), length(dep_dofs))
+        B_ind = zeros(length(equation_rows), length(ind_dofs))
+        for (ri, row) in enumerate(equation_rows)
+            for (ci, dof) in enumerate(dep_dofs)
+                A_dep[ri, ci] = get(row, dof, 0.0)
+            end
+            for (ci, dof) in enumerate(ind_dofs)
+                B_ind[ri, ci] = get(row, dof, 0.0)
+            end
+        end
+
+        C_dep = try
+            -(A_dep \ B_ind)
+        catch
+            -(pinv(A_dep, rtol=1e-10) * B_ind)
+        end
+        for (dep_col, dep_dof) in enumerate(dep_dofs)
+            pairs = Tuple{Int,Float64}[]
+            for (ind_col, ind_dof) in enumerate(ind_dofs)
+                coeff = C_dep[dep_col, ind_col]
+                if abs(coeff) > 1e-15
+                    push!(pairs, (ind_dof, coeff))
+                end
+            end
+            if !isempty(pairs)
+                rbe3_map[dep_dof] = pairs
             end
         end
         n_rbe3 += 1
@@ -322,6 +436,9 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
 
     if n_rbe3 > 0
         log_msg("[SOLVER] RBE3: $n_rbe3 elements, $n_rbe3_only dependent DOFs")
+        if n_rbe3_um > 0
+            log_msg("[SOLVER] RBE3: $n_rbe3_um elements used UM dependent DOFs")
+        end
     end
 
     if n_mpc_total > 0

@@ -1,6 +1,10 @@
 # boundary_conditions.jl - SPC application, AUTOSPC, and linear solve
 
 @inline function model_autospc_enabled(model)
+    if haskey(ENV, "JFEM_AUTOSPC")
+        raw_env = lowercase(strip(ENV["JFEM_AUTOSPC"]))
+        return raw_env in ("1", "true", "yes", "on")
+    end
     raw = get(model, "PARAM_AUTOSPC", true)
     if raw isa AbstractString
         token = uppercase(strip(raw))
@@ -11,6 +15,10 @@
         return true
     end
     return Bool(raw)
+end
+
+@inline function autospc_negative_diagonal_enabled()
+    return solver_env_bool("JFEM_AUTOSPC_NEGATIVE_DIAGONAL", true)
 end
 
 @inline function _permanent_grid_components(ps_raw)
@@ -189,6 +197,216 @@ function seed_eigen_solve_cache_from_linear!(eigen_cache, linear_cache, K, ndof:
     return true
 end
 
+function _singular_lu_regularization_exponents()
+    first_exp = solver_env_int("JFEM_SOL101_SINGULAR_LU_REGULARIZATION_MIN_EXP", -14)
+    last_exp = solver_env_int("JFEM_SOL101_SINGULAR_LU_REGULARIZATION_MAX_EXP", -6)
+    step = max(abs(solver_env_int("JFEM_SOL101_SINGULAR_LU_REGULARIZATION_EXP_STEP", 2)), 1)
+    if first_exp <= last_exp
+        return collect(first_exp:step:last_exp)
+    end
+    return collect(first_exp:-step:last_exp)
+end
+
+@inline function _singular_solver_mode()
+    return lowercase(strip(get(ENV, "JFEM_SOL101_SINGULAR_SOLVER", "regularized_lu")))
+end
+
+@inline function _lsmr_maxiter(n::Int)
+    default_iter = min(max(2 * n, 1000), 10000)
+    return max(solver_env_int("JFEM_SOL101_LSMR_MAXITER", default_iter), 1)
+end
+
+function _diag_scaled_sparse_copy(K::SparseMatrixCSC{Float64,Int}, scale::AbstractVector{Float64})
+    Ks = copy(K)
+    rows = rowvals(Ks)
+    vals = nonzeros(Ks)
+    @inbounds for col in 1:size(Ks, 2)
+        col_scale = scale[col]
+        for p in nzrange(Ks, col)
+            vals[p] *= scale[rows[p]] * col_scale
+        end
+    end
+    return Ks
+end
+
+function _lsmr_singular_solve(K_ff::SparseMatrixCSC{Float64,Int}, F_ff::Vector{Float64},
+                              diagnostics::Dict{String,Any}, backend::String;
+                              scaled::Bool=false)
+    atol = max(solver_env_float("JFEM_SOL101_LSMR_ATOL", 1e-8), 0.0)
+    btol = max(solver_env_float("JFEM_SOL101_LSMR_BTOL", 1e-8), 0.0)
+    conlim = max(solver_env_float("JFEM_SOL101_LSMR_CONLIM", 1e12), 0.0)
+    damping = max(solver_env_float("JFEM_SOL101_LSMR_DAMPING", 0.0), 0.0)
+    maxiter = _lsmr_maxiter(size(K_ff, 2))
+
+    diagnostics["linear_solver"]["backend"] = backend * (scaled ? "_scaled_lsmr" : "_lsmr")
+    diagnostics["linear_solver"]["used_lsmr_fallback"] = true
+    diagnostics["linear_solver"]["lsmr_scaled"] = scaled
+    diagnostics["linear_solver"]["lsmr_atol"] = atol
+    diagnostics["linear_solver"]["lsmr_btol"] = btol
+    diagnostics["linear_solver"]["lsmr_conlim"] = conlim
+    diagnostics["linear_solver"]["lsmr_damping"] = damping
+    diagnostics["linear_solver"]["lsmr_maxiter"] = maxiter
+    log_msg("[SOLVER] Singular solve using $(scaled ? "scaled " : "")LSMR: atol=$atol, btol=$btol, conlim=$conlim, damping=$damping, maxiter=$maxiter")
+
+    if scaled
+        diag_abs = abs.(collect(diag(K_ff)))
+        diag_max = max(maximum(diag_abs; init=0.0), 1.0)
+        floor_rel = max(solver_env_float("JFEM_SOL101_LSMR_DIAG_FLOOR_REL", 1e-12), 0.0)
+        diag_floor = max(diag_max * floor_rel, eps(Float64))
+        dscale = max.(diag_abs, diag_floor)
+        inv_sqrt_d = 1.0 ./ sqrt.(dscale)
+        K_scaled = _diag_scaled_sparse_copy(K_ff, inv_sqrt_d)
+        F_scaled = inv_sqrt_d .* F_ff
+        diagnostics["linear_solver"]["lsmr_diag_scale_min"] = minimum(dscale)
+        diagnostics["linear_solver"]["lsmr_diag_scale_max"] = maximum(dscale)
+        diagnostics["linear_solver"]["lsmr_diag_floor"] = diag_floor
+        y = lsmr(K_scaled, F_scaled; atol=atol, btol=btol, conlim=conlim,
+                 maxiter=maxiter, log=false, λ=damping)
+        return nothing, inv_sqrt_d .* y
+    else
+        u = lsmr(K_ff, F_ff; atol=atol, btol=btol, conlim=conlim,
+                 maxiter=maxiter, log=false, λ=damping)
+        return nothing, u
+    end
+end
+
+@inline function _auto_lsmr_residual_threshold()
+    return max(solver_env_float("JFEM_SOL101_AUTO_LSMR_RESIDUAL_REL_MAX", 1e-4), 0.0)
+end
+
+function _singular_solution_relative_residual(K_ff::SparseMatrixCSC{Float64,Int},
+                                              F_ff::Vector{Float64},
+                                              u::Vector{Float64})
+    residual = K_ff * u - F_ff
+    r_norm = norm(residual)
+    return r_norm, r_norm / max(norm(F_ff), 1e-30)
+end
+
+function _auto_lsmr_singular_candidate(K_ff::SparseMatrixCSC{Float64,Int}, F_ff::Vector{Float64},
+                                       diagnostics::Dict{String,Any}, backend::String;
+                                       scaled::Bool=false)
+    threshold = _auto_lsmr_residual_threshold()
+    diagnostics["linear_solver"]["auto_lsmr_threshold"] = threshold
+    diagnostics["linear_solver"]["auto_lsmr_scaled"] = scaled
+    try
+        _, u = _lsmr_singular_solve(K_ff, F_ff, diagnostics, backend; scaled=scaled)
+        r_norm, rel = _singular_solution_relative_residual(K_ff, F_ff, u)
+        diagnostics["linear_solver"]["auto_lsmr_residual_norm"] = r_norm
+        diagnostics["linear_solver"]["auto_lsmr_relative_residual"] = rel
+        accepted = rel <= threshold
+        diagnostics["linear_solver"]["auto_lsmr_accepted"] = accepted
+        if accepted
+            diagnostics["linear_solver"]["backend"] = backend * (scaled ? "_auto_scaled_lsmr" : "_auto_lsmr")
+            log_msg("[SOLVER] Auto singular LSMR accepted: rel_residual=$rel <= $threshold")
+            return true, nothing, u
+        end
+        diagnostics["linear_solver"]["used_lsmr_fallback"] = false
+        diagnostics["linear_solver"]["lsmr_scaled"] = false
+        log_msg("[SOLVER] Auto singular LSMR rejected: rel_residual=$rel > $threshold; using regularized LU")
+    catch lsmr_err
+        diagnostics["linear_solver"]["auto_lsmr_accepted"] = false
+        diagnostics["linear_solver"]["auto_lsmr_error"] = sprint(showerror, lsmr_err)
+        diagnostics["linear_solver"]["used_lsmr_fallback"] = false
+        diagnostics["linear_solver"]["lsmr_scaled"] = false
+        log_msg("[SOLVER] Auto singular LSMR failed ($(typeof(lsmr_err))); using regularized LU")
+    end
+    return false, nothing, zeros(size(F_ff))
+end
+
+function _singular_lu_regularization_matrix(K_ff::SparseMatrixCSC{Float64,Int},
+                                            max_elem_stiff::Float64,
+                                            exp::Int,
+                                            diagnostics::Dict{String,Any})
+    mode = lowercase(strip(get(ENV, "JFEM_SOL101_SINGULAR_LU_REGULARIZATION_MODE", "global")))
+    diagnostics["linear_solver"]["regularization_mode"] = mode
+    abs_shift = max(solver_env_float("JFEM_SOL101_SINGULAR_LU_REGULARIZATION_ABS_SHIFT", 0.0), 0.0)
+    if abs_shift > 0.0
+        diagnostics["linear_solver"]["regularization_shift_source"] = "explicit_absolute"
+        diagnostics["linear_solver"]["regularization_shift"] = abs_shift
+        diagnostics["linear_solver"]["regularization_shift_min"] = abs_shift
+        diagnostics["linear_solver"]["regularization_shift_max"] = abs_shift
+        return abs_shift * spdiagm(0 => ones(size(K_ff, 1)))
+    end
+    rel_shift = max(solver_env_float("JFEM_SOL101_SINGULAR_LU_REGULARIZATION_REL_SHIFT", 0.0), 0.0)
+    if rel_shift > 0.0
+        diag_scale = max(max_elem_stiff, mapreduce(abs, max, diag(K_ff); init=0.0), 1.0)
+        shift = diag_scale * rel_shift
+        diagnostics["linear_solver"]["regularization_shift_source"] = "explicit_relative"
+        diagnostics["linear_solver"]["regularization_shift"] = shift
+        diagnostics["linear_solver"]["regularization_shift_min"] = shift
+        diagnostics["linear_solver"]["regularization_shift_max"] = shift
+        return shift * spdiagm(0 => ones(size(K_ff, 1)))
+    end
+    if mode in ("diagonal", "diag", "diagonal_relative", "diag_relative")
+        diag_abs = map(abs, diag(K_ff))
+        shifts = max.(diag_abs, 1.0) .* 10.0^exp
+        diagnostics["linear_solver"]["regularization_shift_source"] = "exponent_diagonal"
+        diagnostics["linear_solver"]["regularization_shift_min"] = minimum(shifts)
+        diagnostics["linear_solver"]["regularization_shift_max"] = maximum(shifts)
+        return spdiagm(0 => shifts)
+    end
+
+    diag_scale = max(max_elem_stiff, mapreduce(abs, max, diag(K_ff); init=0.0), 1.0)
+    shift = diag_scale * 10.0^exp
+    diagnostics["linear_solver"]["regularization_shift_source"] = "exponent_global"
+    diagnostics["linear_solver"]["regularization_shift"] = shift
+    diagnostics["linear_solver"]["regularization_shift_min"] = shift
+    diagnostics["linear_solver"]["regularization_shift_max"] = shift
+    return shift * spdiagm(0 => ones(size(K_ff, 1)))
+end
+
+function _lu_or_regularized_solve(K_ff::SparseMatrixCSC{Float64,Int}, F_ff::Vector{Float64},
+                                  max_elem_stiff::Float64, diagnostics::Dict{String,Any},
+                                  backend::String)
+    try
+        F_lu = lu(K_ff)
+        diagnostics["linear_solver"]["backend"] = backend
+        diagnostics["linear_solver"]["used_lu_fallback"] = true
+        return F_lu, F_lu \ F_ff
+    catch err
+        if !(err isa LinearAlgebra.SingularException)
+            rethrow(err)
+        end
+        mode = _singular_solver_mode()
+        diagnostics["linear_solver"]["singular_solver_mode"] = mode
+        if mode in ("lsmr", "minimum_norm", "minnorm", "least_squares", "least_squares_lsmr")
+            return _lsmr_singular_solve(K_ff, F_ff, diagnostics, backend; scaled=false)
+        elseif mode in ("scaled_lsmr", "equilibrated_lsmr", "diag_scaled_lsmr")
+            return _lsmr_singular_solve(K_ff, F_ff, diagnostics, backend; scaled=true)
+        elseif mode in ("auto_lsmr", "compatible_lsmr", "range_lsmr")
+            accepted, F_auto, u_auto = _auto_lsmr_singular_candidate(
+                K_ff, F_ff, diagnostics, backend; scaled=false)
+            accepted && return F_auto, u_auto
+        elseif mode in ("auto_scaled_lsmr", "compatible_scaled_lsmr", "range_scaled_lsmr")
+            accepted, F_auto, u_auto = _auto_lsmr_singular_candidate(
+                K_ff, F_ff, diagnostics, backend; scaled=true)
+            accepted && return F_auto, u_auto
+        end
+        solver_env_bool("JFEM_SOL101_SINGULAR_LU_REGULARIZATION", true) || rethrow(err)
+
+        diagnostics["linear_solver"]["used_singular_lu_regularization"] = true
+        last_err = err
+        for exp in _singular_lu_regularization_exponents()
+            try
+                D_reg = _singular_lu_regularization_matrix(K_ff, max_elem_stiff, exp, diagnostics)
+                K_reg = K_ff + D_reg
+                F_reg = lu(K_reg)
+                diagnostics["linear_solver"]["backend"] = backend * "_regularized"
+                diagnostics["linear_solver"]["used_lu_fallback"] = true
+                diagnostics["linear_solver"]["regularization_shift_exponent"] = exp
+                shift_min = diagnostics["linear_solver"]["regularization_shift_min"]
+                shift_max = diagnostics["linear_solver"]["regularization_shift_max"]
+                mode = diagnostics["linear_solver"]["regularization_mode"]
+                log_msg("[SOLVER] Singular LU regularization succeeded with mode=$(mode), shift_range=[$(shift_min), $(shift_max)] (1e$exp scale)")
+                return F_reg, F_reg \ F_ff
+            catch reg_err
+                last_err = reg_err
+            end
+        end
+        throw(last_err)
+    end
+end
+
 function _free_dofs_from_fixed_set(ndof::Int, fixed_dofs::Set{Int})
     n_fixed = count(d -> 1 <= d <= ndof, fixed_dofs)
     free_dofs = Vector{Int}(undef, max(ndof - n_fixed, 0))
@@ -247,6 +465,49 @@ end
            solver_env_bool("JFEM_SOL101_AUTOSPC_LOAD_PATH_PROTECT", false)
 end
 
+@inline function sol101_factorization_probe_check_false_enabled(model)
+    return model !== nothing &&
+           _autospc_is_sol101(model) &&
+           solver_env_bool("JFEM_SOL101_FACTOR_AUTOSPC_CHECK_FALSE", false)
+end
+
+@inline function sol101_factorization_autospc_load_path_protect_enabled(model)
+    return model !== nothing &&
+           _autospc_is_sol101(model) &&
+           solver_env_bool("JFEM_SOL101_FACTOR_AUTOSPC_LOAD_PATH_PROTECT", true)
+end
+
+@inline function sol101_factorization_autospc_skip_loaded_trans_enabled(model)
+    return model !== nothing &&
+           _autospc_is_sol101(model) &&
+           solver_env_bool("JFEM_SOL101_FACTOR_AUTOSPC_SKIP_LOADED_TRANS", true)
+end
+
+@inline function sol101_factorization_autospc_allow_trans_enabled(model)
+    return !(model !== nothing && _autospc_is_sol101(model)) ||
+           solver_env_bool("JFEM_SOL101_FACTOR_AUTOSPC_ALLOW_TRANSLATIONAL", false)
+end
+
+@inline function sol101_factorization_autospc_loaded_force_rel()
+    return max(solver_env_float("JFEM_SOL101_FACTOR_AUTOSPC_LOADED_FORCE_REL", 1e-12), 0.0)
+end
+
+@inline function sol101_factorization_autospc_loaded_force_abs()
+    return max(solver_env_float("JFEM_SOL101_FACTOR_AUTOSPC_LOADED_FORCE_ABS", 1e-9), 0.0)
+end
+
+@inline function sol101_factorization_autospc_shift_multiplier()
+    return max(solver_env_float("JFEM_SOL101_FACTOR_AUTOSPC_PIVOT_SHIFT_MUL", 3.0), 0.0)
+end
+
+@inline function sol101_factorization_autospc_median_relative()
+    return max(solver_env_float("JFEM_SOL101_FACTOR_AUTOSPC_PIVOT_MEDIAN_REL", 1e-4), 0.0)
+end
+
+@inline function sol101_factorization_autospc_max_fraction()
+    return clamp(solver_env_float("JFEM_SOL101_FACTOR_AUTOSPC_MAX_FRACTION", 0.5), 0.0, 1.0)
+end
+
 @inline function autospc_trans_relative_threshold(model=nothing)
     default = (model !== nothing && _autospc_is_sol101(model)) ?
         solver_env_float("JFEM_SOL101_AUTOSPC_TRANS_REL", 1e-10) :
@@ -259,7 +520,7 @@ function autospc_rot_relative_threshold(model=nothing)
         return max(solver_env_float("JFEM_AUTOSPC_ROT_REL", 1e-8), 0.0)
     end
     if model !== nothing && _autospc_is_sol101(model)
-        return max(solver_env_float("JFEM_SOL101_AUTOSPC_ROT_REL", 1e-8), 0.0)
+        return max(solver_env_float("JFEM_SOL101_AUTOSPC_ROT_REL", 1e-10), 0.0)
     end
     return max(autospc_trans_relative_threshold(model), 0.0)
 end
@@ -490,9 +751,9 @@ function _build_autospc_node_topology(model, id_map)
 end
 
 @inline function _autospc_rotational_topology_category(has_shell::Bool, has_bar::Bool, has_rod::Bool)
-    # The tuning buckets intentionally collapse bar+rod+shell into :bar_shell
-    # and bar+rod into :bar_only. That matches the heuristic sweep used to
-    # calibrate NAPA_101 against the Nastran singularity table.
+    # Collapse mixed topologies into a small set of generic rotational-stiffness
+    # buckets.  Shell-only rotational DOFs and beam/shell joints need different
+    # singularity tolerances because their diagonal stiffness scales differently.
     if has_shell && has_bar
         return :bar_shell
     elseif has_shell && has_rod
@@ -560,6 +821,7 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
         "bar_only" => 0,
         "default" => 0,
     )
+    negative_diagonal_enabled = autospc_negative_diagonal_enabled()
 
     audit_io, audit_path = _open_autospc_audit_csv(autospc_audit_csv_path())
     inv_id_map = audit_io === nothing ? Int[] : _autospc_inverse_id_map(id_map)
@@ -588,7 +850,8 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
             end
             k_diag = Float64(K[i, i])
             is_below_threshold = abs(k_diag) < thresh
-            is_negative = k_diag < 0
+            raw_negative = k_diag < 0
+            is_negative = negative_diagonal_enabled && raw_negative
             if !(i in fixed_dofs) && (is_below_threshold || is_negative)
                 if dof_local <= 3 &&
                    !is_negative &&
@@ -609,7 +872,7 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
 
                 if audit_io !== nothing
                     gid = 1 <= node_idx <= length(inv_id_map) ? inv_id_map[node_idx] : 0
-                    reason = k_diag < 0 ? "negative_diagonal" : "below_threshold"
+                    reason = is_negative ? "negative_diagonal" : "below_threshold"
                     _write_autospc_audit_row(
                         audit_io, i, gid, dof_local, k_diag, max_K_ref, rel_thresh, thresh,
                         reason, category, multiplier, has_shell, has_bar, has_rod,
@@ -642,6 +905,7 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
             "multipliers" => multipliers,
             "autospc_rotational_dofs_by_category" => rot_dofs_by_category,
         ),
+        "negative_diagonal_rule_enabled" => negative_diagonal_enabled,
     )
 end
 
@@ -832,13 +1096,44 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
             "cache_hit" => false,
             "used_enforced_displacement_correction" => false,
             "used_lu_fallback" => false,
+            "used_singular_lu_regularization" => false,
+            "singular_solver_mode" => _singular_solver_mode(),
+            "used_lsmr_fallback" => false,
+            "lsmr_scaled" => false,
+            "lsmr_atol" => 0.0,
+            "lsmr_btol" => 0.0,
+            "lsmr_conlim" => 0.0,
+            "lsmr_damping" => 0.0,
+            "lsmr_maxiter" => 0,
+            "lsmr_diag_scale_min" => 0.0,
+            "lsmr_diag_scale_max" => 0.0,
+            "lsmr_diag_floor" => 0.0,
+            "auto_lsmr_threshold" => 0.0,
+            "auto_lsmr_scaled" => false,
+            "auto_lsmr_residual_norm" => 0.0,
+            "auto_lsmr_relative_residual" => 0.0,
+            "auto_lsmr_accepted" => false,
+            "auto_lsmr_error" => "",
+            "regularization_mode" => "global",
+            "regularization_shift" => 0.0,
+            "regularization_shift_min" => 0.0,
+            "regularization_shift_max" => 0.0,
+            "regularization_shift_source" => "",
+            "regularization_shift_exponent" => nothing,
             "used_factorization_autospc" => false,
             "factorization_autospc" => Dict{String,Any}(
                 "triggered" => false,
                 "mechanism_dofs" => 0,
                 "mechanism_translational_dofs" => 0,
                 "mechanism_rotational_dofs" => 0,
+                "skipped_translational_dofs" => 0,
+                "skipped_loaded_translational_dofs" => 0,
+                "skipped_load_path_protected_translational_dofs" => 0,
                 "shift_exponent" => nothing,
+                "pivot_threshold" => 0.0,
+                "pivot_shift_multiplier" => 0.0,
+                "pivot_median_relative" => 0.0,
+                "max_fraction" => 0.0,
                 "skipped_as_too_aggressive" => false,
             ),
             "force_norm" => 0.0,
@@ -955,12 +1250,19 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
     diagnostics["bc_partition"]["enforced_displacement_dofs"] = length(enforced_disp)
     diagnostics["linear_solver"]["used_enforced_displacement_correction"] = !isempty(enforced_disp)
 
+    protected_trans_dofs = nothing
+    factorization_protected_trans_dofs = nothing
     if model_autospc_enabled(model)
-        protected_trans_dofs = nothing
         load_path_diag = Dict{String,Any}("enabled" => false)
-        if load_path_protect_enabled
-            protected_trans_dofs, load_path_diag = _build_sol101_load_path_protected_trans_dofs(
+        factor_load_path_protect_enabled =
+            sol101_factorization_probe_check_false_enabled(model) &&
+            sol101_factorization_autospc_load_path_protect_enabled(model)
+        if load_path_protect_enabled || factor_load_path_protect_enabled
+            protected_trans_dofs_all, load_path_diag = _build_sol101_load_path_protected_trans_dofs(
                 F_applied, ndof, model, id_map)
+            protected_trans_dofs = load_path_protect_enabled ? protected_trans_dofs_all : nothing
+            factorization_protected_trans_dofs =
+                factor_load_path_protect_enabled ? protected_trans_dofs_all : nothing
             log_msg("[SOLVER] SOL101 load-path AUTOSPC protection: protected=$(get(load_path_diag, "protected_translational_dofs", 0)) translational DOFs across $(get(load_path_diag, "protected_nodes", 0)) nodes")
         end
 
@@ -1084,21 +1386,35 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
                     diagnostics["linear_solver"]["factorization_autospc"]["triggered"] = true
                     diagnostics["linear_solver"]["factorization_autospc"]["shift_exponent"] = shift_exp
 
-                    F_chol_probe = cholesky(Symmetric(K_ff); shift=shift_val)
+                    F_chol_probe = if sol101_factorization_probe_check_false_enabled(model)
+                        cholesky(Symmetric(K_ff); shift=shift_val, check=false)
+                    else
+                        cholesky(Symmetric(K_ff); shift=shift_val)
+                    end
                     L_sparse = sparse(F_chol_probe.L)
                     L_diag = abs.(diag(L_sparse))
                     L_median = median(L_diag)
                     # Use ratio-based threshold: mechanisms have L[i] close to sqrt(shift),
                     # regular DOFs have L[i] much larger than sqrt(shift).
-                    pivot_threshold = min(sqrt(shift_val) * 3.0, L_median * 1e-4)
+                    pivot_shift_mul = sol101_factorization_autospc_shift_multiplier()
+                    pivot_median_rel = sol101_factorization_autospc_median_relative()
+                    max_fraction = sol101_factorization_autospc_max_fraction()
+                    pivot_threshold = min(sqrt(shift_val) * pivot_shift_mul,
+                                          L_median * pivot_median_rel)
+                    diagnostics["linear_solver"]["factorization_autospc"]["pivot_threshold"] = pivot_threshold
+                    diagnostics["linear_solver"]["factorization_autospc"]["pivot_shift_multiplier"] = pivot_shift_mul
+                    diagnostics["linear_solver"]["factorization_autospc"]["pivot_median_relative"] = pivot_median_rel
+                    diagnostics["linear_solver"]["factorization_autospc"]["max_fraction"] = max_fraction
                     small_pivot_mask = L_diag .< pivot_threshold
                     n_mechanism = count(small_pivot_mask)
 
-                    # Sanity check: if >50% of DOFs flagged, threshold is too aggressive for this shift
-                    if n_mechanism > n_free * 0.5
+                    # Sanity check: if too many DOFs are flagged, the threshold is
+                    # too aggressive for this shift.
+                    if n_mechanism > n_free * max_fraction
                         diagnostics["linear_solver"]["factorization_autospc"]["mechanism_dofs"] = n_mechanism
                         diagnostics["linear_solver"]["factorization_autospc"]["skipped_as_too_aggressive"] = true
-                        log_msg("[SOLVER] Factorization AUTOSPC (shift=1e$shift_exp): $n_mechanism DOFs (>50% of $n_free free) - threshold too aggressive, skipping")
+                        max_pct = round(100.0 * max_fraction; digits=3)
+                        log_msg("[SOLVER] Factorization AUTOSPC (shift=1e$shift_exp): $n_mechanism DOFs (>$max_pct% of $n_free free) - threshold too aggressive, skipping")
                         mechanism_found = true
                         break
                     end
@@ -1107,13 +1423,50 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
                         perm = F_chol_probe.p
                         mechanism_local = findall(small_pivot_mask)
                         mechanism_original = perm[mechanism_local]
-                        mechanism_global = free_dofs[mechanism_original]
+                        mechanism_global_raw = free_dofs[mechanism_original]
+                        mechanism_global = Int[]
+                        skipped_trans = 0
+                        skipped_loaded_trans = 0
+                        skipped_load_path_trans = 0
+                        allow_trans =
+                            sol101_factorization_autospc_allow_trans_enabled(model)
+                        skip_loaded_trans =
+                            sol101_factorization_autospc_skip_loaded_trans_enabled(model)
+                        loaded_force_threshold =
+                            max(
+                                sol101_factorization_autospc_loaded_force_abs(),
+                                sol101_factorization_autospc_loaded_force_rel() *
+                                    max(F_max, 1.0),
+                            )
+                        protected_factor_dofs =
+                            factorization_protected_trans_dofs === nothing ?
+                            Set{Int}() :
+                            factorization_protected_trans_dofs
+                        for d in mechanism_global_raw
+                            dof_local = mod(d - 1, 6) + 1
+                            if dof_local <= 3
+                                if !allow_trans
+                                    skipped_trans += 1
+                                    continue
+                                elseif d in protected_factor_dofs
+                                    skipped_load_path_trans += 1
+                                    continue
+                                elseif skip_loaded_trans && abs(F_applied[d]) > loaded_force_threshold
+                                    skipped_loaded_trans += 1
+                                    continue
+                                end
+                            end
+                            push!(mechanism_global, d)
+                        end
                         n_mech_trans = count(d -> mod(d - 1, 6) + 1 <= 3, mechanism_global)
-                        n_mech_rot = n_mechanism - n_mech_trans
-                        diagnostics["linear_solver"]["factorization_autospc"]["mechanism_dofs"] = n_mechanism
+                        n_mech_rot = length(mechanism_global) - n_mech_trans
+                        diagnostics["linear_solver"]["factorization_autospc"]["mechanism_dofs"] = length(mechanism_global)
                         diagnostics["linear_solver"]["factorization_autospc"]["mechanism_translational_dofs"] = n_mech_trans
                         diagnostics["linear_solver"]["factorization_autospc"]["mechanism_rotational_dofs"] = n_mech_rot
-                        log_msg("[SOLVER] Factorization AUTOSPC (shift=1e$shift_exp): Found $n_mechanism DOFs ($n_mech_trans trans + $n_mech_rot rot)")
+                        diagnostics["linear_solver"]["factorization_autospc"]["skipped_translational_dofs"] = skipped_trans
+                        diagnostics["linear_solver"]["factorization_autospc"]["skipped_loaded_translational_dofs"] = skipped_loaded_trans
+                        diagnostics["linear_solver"]["factorization_autospc"]["skipped_load_path_protected_translational_dofs"] = skipped_load_path_trans
+                        log_msg("[SOLVER] Factorization AUTOSPC (shift=1e$shift_exp): Found $(length(mechanism_global)) DOFs ($n_mech_trans trans + $n_mech_rot rot), skipped $(skipped_trans + skipped_loaded_trans + skipped_load_path_trans) translational candidates")
 
                         for d in mechanism_global
                             push!(fixed_dofs, d)
@@ -1149,19 +1502,17 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
                     log_msg("[SOLVER] Clean Cholesky succeeded after factorization AUTOSPC")
                 catch e2
                     log_msg("[SOLVER] Clean Cholesky still failed: $(typeof(e2)). Using LU factorization...")
-                    F_lu = lu(K_ff)
-                    solve_factor = F_lu
-                    u_result = F_lu \ F_ff
-                    diagnostics["linear_solver"]["backend"] = "direct_lu_after_factorization_autospc"
-                    diagnostics["linear_solver"]["used_lu_fallback"] = true
+                    solve_factor, u_result = _lu_or_regularized_solve(
+                        K_ff, F_ff, max_elem_stiff, diagnostics,
+                        "direct_lu_after_factorization_autospc",
+                    )
                 end
             else
                 log_msg("[SOLVER] All shifted Cholesky attempts failed. Using LU factorization directly...")
-                F_lu = lu(K_ff)
-                solve_factor = F_lu
-                u_result = F_lu \ F_ff
-                diagnostics["linear_solver"]["backend"] = "direct_lu"
-                diagnostics["linear_solver"]["used_lu_fallback"] = true
+                solve_factor, u_result = _lu_or_regularized_solve(
+                    K_ff, F_ff, max_elem_stiff, diagnostics,
+                    "direct_lu",
+                )
             end
             u_result
         end

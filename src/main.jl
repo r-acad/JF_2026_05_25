@@ -105,7 +105,7 @@ function main(filename::String;
         "export"      => t_export,
     )
     if export_report
-        export_markdown_report(results, filename, output_dir; timings=pipeline_timings)
+        Base.invokelatest(export_markdown_report, results, filename, output_dir; timings=pipeline_timings)
     end
 
     # --- Adjoint sensitivity (optional) ---

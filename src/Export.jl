@@ -3065,7 +3065,7 @@ function export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id
     println(">>> Buckling JSON exported: $json_path")
 end
 
-function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jfem_quads, jfem_trias, jfem_bars, jfem_rods, jfem_tetras, jfem_hexas, jfem_pentas, eigenvalues, mode_shapes; jfem_celas=[], jfem_rbe2s=[], jfem_rbe3s=[], K_global=nothing, node_R=nothing)
+function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jfem_quads, jfem_trias, jfem_bars, jfem_rods, jfem_tetras, jfem_hexas, jfem_pentas, eigenvalues, mode_shapes; jfem_celas=[], jfem_rbe2s=[], jfem_rbe3s=[], K_global=nothing, node_R=nothing, static_disp=nothing, static_shell_fields=nothing)
     if isempty(eigenvalues); return; end
     base_name = replace(basename(filename), ".bdf" => "")
     jfem_name = base_name * ".jfem"
@@ -3078,10 +3078,17 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
     nRods  = length(jfem_rods)
     nModes = length(eigenvalues)
 
-    println("\n>>> Exporting JFEM binary (v3 buckling): $jfem_path")
+    # A static-preload block is appended (after the EVAL footer) only when the
+    # caller supplies the static displacement. The version is bumped to 5 so a
+    # v5-aware reader knows to look for the trailing 'STAT' block; older readers
+    # still find EVAL exactly where they expect it and ignore the trailing bytes.
+    has_static = static_disp !== nothing
+    version = has_static ? UInt32(5) : UInt32(3)
+
+    println("\n>>> Exporting JFEM binary (v$(Int(version)) buckling$(has_static ? "+static" : "")): $jfem_path")
     open(jfem_path, "w") do io
         write(io, UInt8('J')); write(io, UInt8('F')); write(io, UInt8('E')); write(io, UInt8('M'))
-        write(io, UInt32(3))        # version
+        write(io, version)          # version (3 = buckling, 5 = buckling + static block)
         write(io, UInt32(nNodes))
         write(io, UInt32(nQuads))
         write(io, UInt32(nTrias))
@@ -3242,6 +3249,46 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
         for ev in eigenvalues
             write(io, Float64(ev))
         end
+
+        # ---- v5 STATIC block (after EVAL so older readers are unaffected) ----
+        # 'STAT' marker
+        #   static displacement: nNodes * 6 Float32 (global components, in
+        #     jfem_node_ids order, [tx,ty,tz,rx,ry,rz])
+        #   per-shell static fields: (nQuads+nTrias) * 3 Float32
+        #     [von_mises_stress, equivalent_strain, strain_energy_density]
+        if has_static
+            write(io, UInt8('S')); write(io, UInt8('T')); write(io, UInt8('A')); write(io, UInt8('T'))
+            # static displacement, reordered to jfem_node_ids, ROTATED TO GLOBAL.
+            # u_static comes from the solver in ANALYSIS (node-local / cylindrical
+            # CD=1) components; the viewer adds these to the global node coords, so
+            # they MUST be rotated to global x,y,z first (exactly like the mode
+            # shapes already are). Without this, a tangential/axial edge motion is
+            # plotted as if it were global out-of-plane -> a spurious "radial"
+            # tilt of the whole panel even though uR is held to zero.
+            for nid in jfem_node_ids
+                idx = id_map[nid]; base = (idx - 1) * 6
+                ok = (base + 6) <= length(static_disp)
+                tl = ok ? static_disp[base+1:base+3] : zeros(3)
+                rl = ok ? static_disp[base+4:base+6] : zeros(3)
+                if node_R !== nothing
+                    R = node_R[idx]
+                    tl = R * tl
+                    rl = R * rl
+                end
+                write(io, Float32(tl[1])); write(io, Float32(tl[2])); write(io, Float32(tl[3]))
+                write(io, Float32(rl[1])); write(io, Float32(rl[2])); write(io, Float32(rl[3]))
+            end
+            sf = static_shell_fields === nothing ? Dict{Int,NTuple{3,Float64}}() : static_shell_fields
+            safe32(x) = (v = Float32(x); (isnan(v) || isinf(v)) ? Float32(0) : v)
+            for q in jfem_quads
+                f = get(sf, q[1], (0.0, 0.0, 0.0))   # q[1] = eid
+                write(io, safe32(f[1])); write(io, safe32(f[2])); write(io, safe32(f[3]))
+            end
+            for tr in jfem_trias
+                f = get(sf, tr[1], (0.0, 0.0, 0.0))  # tr[1] = eid
+                write(io, safe32(f[1])); write(io, safe32(f[2])); write(io, safe32(f[3]))
+            end
+        end
     end
-    println("  JFEM binary exported: $jfem_path ($nModes buckling modes)")
+    println("  JFEM binary exported: $jfem_path ($nModes buckling modes$(has_static ? " + static block" : ""))")
 end

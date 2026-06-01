@@ -1,0 +1,87 @@
+$ Classical thin cylindrical shell under uniform axial compression.
+$ SOL 105 linear buckling against the Brush-Almroth axisymmetric formula
+$     sigma_cr = E*t / (R * sqrt(3 (1 - nu^2)))
+$ Geometry: R = 100, L = 200, t = 1.  Material: E = 210e9, nu = 0.3.
+$ Reference:
+$     sigma_cr = 210e9 * 1 / (100 * sqrt(3*0.91)) ~= 1.271e9 Pa.
+$
+$ Modelling choice: 1/16 axial strip with cylindrical coordinate system
+$ and phi-symmetric boundary conditions on both phi edges. This forces
+$ axisymmetric deformation (n = 0), matching the Brush-Almroth derivation.
+$ Mesh: 8 axial elements over z in [0, L/2] = [0, 100], 1 circumferential
+$ element across phi in [0, 22.5 deg]. 18 GRIDs, 8 CQUAD4s.
+$
+$ Loading: total axial compressive force on the strip end (z = 0) is
+$     F = sigma_applied * t * (R * dphi) = 1 * 1 * (100 * 22.5*pi/180)
+$        = 39.270 N
+$ split equally between the two end nodes (19.635 N each, in -Z global).
+$
+SOL 105
+CEND
+TITLE = Classical thin cylinder, axial compression (1/16 strip)
+SUBCASE 1
+  LABEL = Static preload (unit axial compression)
+  SPC = 1
+  LOAD = 1
+SUBCASE 2
+  LABEL = Buckling eigenvalue
+  STATSUB = 1
+  METHOD  = 1
+BEGIN BULK
+$ ---- cylindrical coord system: axis along global Z, ref radius along +X
+CORD2C, 1, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0,+CC1
++CC1, 1.0, 0.0, 0.0
+$ ---- eigenvalue extraction: subspace inverse iteration ----
+$ EIGB / INV is more robust than EIGRL on the reference solver build.
+$ Range [0, 1e10] brackets sigma_cr ~= 1.27e9 Pa.
+EIGB, 1, INV, 0.0, 1.0E10, 4
+$ ---- small drilling-DOF stiffness to avoid Rz mechanisms ----
+PARAM, K6ROT, 100.0
+$ ---- material and property
+MAT1, 1, 2.1+11, , 0.3
+PSHELL, 1, 1, 1.0, 1
+$ ---- grids in CYLINDRICAL CP=1 (R, theta_deg, Z); DOFs CD=1 (R, T, Z)
+$ phi = 0 row (j=0): nodes 1..9 at z = 0, 12.5, ..., 100
+GRID,  1, 1, 100.0,  0.0,    0.0, 1
+GRID,  2, 1, 100.0,  0.0,   12.5, 1
+GRID,  3, 1, 100.0,  0.0,   25.0, 1
+GRID,  4, 1, 100.0,  0.0,   37.5, 1
+GRID,  5, 1, 100.0,  0.0,   50.0, 1
+GRID,  6, 1, 100.0,  0.0,   62.5, 1
+GRID,  7, 1, 100.0,  0.0,   75.0, 1
+GRID,  8, 1, 100.0,  0.0,   87.5, 1
+GRID,  9, 1, 100.0,  0.0,  100.0, 1
+$ phi = 22.5 row (j=1): nodes 10..18
+GRID, 10, 1, 100.0, 22.5,    0.0, 1
+GRID, 11, 1, 100.0, 22.5,   12.5, 1
+GRID, 12, 1, 100.0, 22.5,   25.0, 1
+GRID, 13, 1, 100.0, 22.5,   37.5, 1
+GRID, 14, 1, 100.0, 22.5,   50.0, 1
+GRID, 15, 1, 100.0, 22.5,   62.5, 1
+GRID, 16, 1, 100.0, 22.5,   75.0, 1
+GRID, 17, 1, 100.0, 22.5,   87.5, 1
+GRID, 18, 1, 100.0, 22.5,  100.0, 1
+$ ---- elements
+CQUAD4, 1, 1,  1,  2, 11, 10
+CQUAD4, 2, 1,  2,  3, 12, 11
+CQUAD4, 3, 1,  3,  4, 13, 12
+CQUAD4, 4, 1,  4,  5, 14, 13
+CQUAD4, 5, 1,  5,  6, 15, 14
+CQUAD4, 6, 1,  6,  7, 16, 15
+CQUAD4, 7, 1,  7,  8, 17, 16
+CQUAD4, 8, 1,  8,  9, 18, 17
+$ ---- BCs (DOFs are in cylindrical local: 1=R, 2=T, 3=Z, 4=Rr, 5=Rt, 6=Rz)
+$ phi = 0 symmetry plane: T = 0 on all 9 nodes
+SPC1, 1, 2, 1, THRU, 9
+$ phi = 22.5 symmetry plane: T = 0 on all 9 nodes
+SPC1, 1, 2, 10, THRU, 18
+$ rigid diaphragm at z = 0 (loaded end): R = 0, Rz_local = 0 (T already set)
+SPC1, 1, 16, 1
+SPC1, 1, 16, 10
+$ midspan symmetry at z = L/2 = 100: Z = 0, Rr = 0, Rt = 0
+SPC1, 1, 345, 9
+SPC1, 1, 345, 18
+$ ---- loads: total -Z force 39.27 N split equally between the two end nodes
+FORCE, 1,  1, , 19.635, 0.0, 0.0, -1.0
+FORCE, 1, 10, , 19.635, 0.0, 0.0, -1.0
+ENDDATA

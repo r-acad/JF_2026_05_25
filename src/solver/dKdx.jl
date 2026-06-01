@@ -375,9 +375,7 @@ function _dKdx_u_bar_area(dv, model, id_map, node_coords, node_R, u_global, ndof
         T12[7:9,7:9] = TR2; T12[10:12,10:12] = TR2
 
         E = mat["E"]; G = mat["G"]; A = prop["A"]
-        Iy = get(prop, "I2", get(prop, "I", 0.0))
-        Iz = get(prop, "I1", get(prop, "I", 0.0))
-        if Iy == 0.0; Iy = Iz; end; if Iz == 0.0; Iz = Iy; end
+        Iy, Iz = _bar_bending_inertias(prop)
         Iyz = Float64(get(prop, "I12", 0.0))
         K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
 
@@ -452,9 +450,7 @@ function _dKdx_u_bar_area_ad_forward(dv, model, id_map, node_coords, node_R, u_g
         T12[7:9,7:9] = TR2; T12[10:12,10:12] = TR2
 
         E = mat["E"]; G = mat["G"]; A = prop["A"]
-        Iy = get(prop, "I2", get(prop, "I", 0.0))
-        Iz = get(prop, "I1", get(prop, "I", 0.0))
-        if Iy == 0.0; Iy = Iz; end; if Iz == 0.0; Iz = Iy; end
+        Iy, Iz = _bar_bending_inertias(prop)
         Iyz = Float64(get(prop, "I12", 0.0))
         K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
 
@@ -509,9 +505,7 @@ function _dKdx_u_material_E_bars!(pseudo_load, mids, model, id_map, node_coords,
         T12[7:9,7:9] = TR2; T12[10:12,10:12] = TR2
 
         E = mat["E"]; G = mat["G"]; A = prop["A"]
-        Iy = get(prop, "I2", get(prop, "I", 0.0))
-        Iz = get(prop, "I1", get(prop, "I", 0.0))
-        if Iy == 0.0; Iy = Iz; end; if Iz == 0.0; Iz = Iy; end
+        Iy, Iz = _bar_bending_inertias(prop)
         Iyz = Float64(get(prop, "I12", 0.0))
         K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
         As_y = (K1 > 0.0) ? K1 * A : Inf
@@ -1096,9 +1090,7 @@ function _dKdx_u_topology_density(dv, model, id_map, node_coords, node_R, u_glob
             if isnothing(rd); continue; end
 
             E = mat["E"]; G = mat["G"]; A = prop["A"]
-            Iy = get(prop, "I2", get(prop, "I", 0.0))
-            Iz = get(prop, "I1", get(prop, "I", 0.0))
-            if Iy == 0.0; Iy = Iz; end; if Iz == 0.0; Iz = Iy; end
+            Iy, Iz = _bar_bending_inertias(prop)
             Iyz = Float64(get(prop, "I12", 0.0))
             K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
             As_y = (K1 > 0.0) ? K1 * A : Inf; As_z = (K2 > 0.0) ? K2 * A : Inf

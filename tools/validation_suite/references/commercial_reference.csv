@@ -1,0 +1,8 @@
+case_id,quantity_name,value,notes
+MYSTRAN_sol101_simple,T1_node_1013,3.053279E-03,Reference linear-static solver; SOL 101; node 1013 T1 (X-displacement of the loaded CQUAD4 patch corner)
+MYSTRAN_sol105_buckling,lambda_1,1.035817E+04,Reference linear-buckling solver; SOL 105; mode 1 eigenvalue of an Euler cantilever bar
+CRM_wingbox_modal_mode1,eigenvalue,1.117764E+02,Reference modal solver; SOL 103; mode 1 (omega^2) of the uCRM coarse wingbox modal analysis
+CRM_wingbox_modal_mode2,eigenvalue,9.903101E+02,Reference modal solver; SOL 103; mode 2
+CRM_wingbox_modal_mode3,eigenvalue,1.355943E+03,Reference modal solver; SOL 103; mode 3
+CRM_wingbox_modal_mode4,eigenvalue,5.946717E+03,Reference modal solver; SOL 103; mode 4
+CRM_wingbox_modal_mode5,eigenvalue,1.044876E+04,Reference modal solver; SOL 103; mode 5

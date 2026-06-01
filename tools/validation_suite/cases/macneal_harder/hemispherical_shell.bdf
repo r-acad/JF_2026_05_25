@@ -1,0 +1,93 @@
+$ MacNeal & Harder (1985), Sec. 9 - pinched hemispherical shell.
+$ Belytschko variant with an 18-deg hole at the apex (theta in [18,90]).
+$ R = 10, t = 0.04, E = 6.825e7, nu = 0.3.
+$ Free at the equator. Two pairs of opposite radial unit point loads at
+$ phi = 0, 90, 180, 270 deg on the equator. Pair (0, 180) pulls outward
+$ in X; pair (90, 270) pulls inward in Y -- self-equilibrated.
+$ Quarter model (phi in [0,90]) with symmetries:
+$   phi=0  (XZ plane): Uy = Rx = Rz = 0
+$   phi=90 (YZ plane): Ux = Ry = Rz = 0
+$ Mesh 4 (theta) x 4 (phi) = 16 CQUAD4, 5x5 = 25 nodes.
+$ Load on quarter: half of unit load at each of nodes 5 (+X) and 25 (-Y).
+$ Reference radial displacement at node 5: Ux = 0.0924.
+$
+SOL 101
+CEND
+TITLE = MacNeal-Harder pinched hemispherical shell (quarter, 18 deg hole)
+SUBCASE 1
+  LABEL = Two pairs of opposite radial unit loads at equator
+  SPC = 1
+  LOAD = 1
+  DISPLACEMENT = ALL
+BEGIN BULK
+MAT1, 1, 6.825+7, , 0.3
+PSHELL, 1, 1, 0.04, 1
+$ ---- grids ----
+$ Node ID = 5*j + i + 1; i in 0..4 (theta), j in 0..4 (phi).
+$ theta = 18, 36, 54, 72, 90 deg.   phi = 0, 22.5, 45, 67.5, 90 deg.
+$ x = R sin(theta) cos(phi), y = R sin(theta) sin(phi), z = R cos(theta).
+$
+$ j=0, phi=0:
+GRID,  1, , 3.09017, 0.00000, 9.51057
+GRID,  2, , 5.87785, 0.00000, 8.09017
+GRID,  3, , 8.09017, 0.00000, 5.87785
+GRID,  4, , 9.51057, 0.00000, 3.09017
+GRID,  5, ,10.00000, 0.00000, 0.00000
+$ j=1, phi=22.5:
+GRID,  6, , 2.85498, 1.18256, 9.51057
+GRID,  7, , 5.43033, 2.24927, 8.09017
+GRID,  8, , 7.47422, 3.09579, 5.87785
+GRID,  9, , 8.78623, 3.63944, 3.09017
+GRID, 10, , 9.23880, 3.82683, 0.00000
+$ j=2, phi=45:
+GRID, 11, , 2.18510, 2.18510, 9.51057
+GRID, 12, , 4.15627, 4.15627, 8.09017
+GRID, 13, , 5.72060, 5.72060, 5.87785
+GRID, 14, , 6.72499, 6.72499, 3.09017
+GRID, 15, , 7.07107, 7.07107, 0.00000
+$ j=3, phi=67.5:
+GRID, 16, , 1.18256, 2.85498, 9.51057
+GRID, 17, , 2.24927, 5.43033, 8.09017
+GRID, 18, , 3.09579, 7.47422, 5.87785
+GRID, 19, , 3.63944, 8.78623, 3.09017
+GRID, 20, , 3.82683, 9.23880, 0.00000
+$ j=4, phi=90:
+GRID, 21, , 0.00000, 3.09017, 9.51057
+GRID, 22, , 0.00000, 5.87785, 8.09017
+GRID, 23, , 0.00000, 8.09017, 5.87785
+GRID, 24, , 0.00000, 9.51057, 3.09017
+GRID, 25, , 0.00000,10.00000, 0.00000
+$ ---- elements ----
+CQUAD4,  1, 1,  1,  2,  7,  6
+CQUAD4,  2, 1,  2,  3,  8,  7
+CQUAD4,  3, 1,  3,  4,  9,  8
+CQUAD4,  4, 1,  4,  5, 10,  9
+CQUAD4,  5, 1,  6,  7, 12, 11
+CQUAD4,  6, 1,  7,  8, 13, 12
+CQUAD4,  7, 1,  8,  9, 14, 13
+CQUAD4,  8, 1,  9, 10, 15, 14
+CQUAD4,  9, 1, 11, 12, 17, 16
+CQUAD4, 10, 1, 12, 13, 18, 17
+CQUAD4, 11, 1, 13, 14, 19, 18
+CQUAD4, 12, 1, 14, 15, 20, 19
+CQUAD4, 13, 1, 16, 17, 22, 21
+CQUAD4, 14, 1, 17, 18, 23, 22
+CQUAD4, 15, 1, 18, 19, 24, 23
+CQUAD4, 16, 1, 19, 20, 25, 24
+$ ---- BCs ----
+$ phi = 0 symmetry (XZ plane): nodes 1..5 ; Uy = Rx = Rz = 0
+SPC1, 1, 246, 1, THRU, 5
+$ phi = 90 symmetry (YZ plane): nodes 21..25 ; Ux = Ry = Rz = 0
+SPC1, 1, 156, 21, THRU, 25
+$ The two phi-symmetry SPCs leave Uz free (the loads are self-equilibrated
+$ in X and Y, so Z is unconstrained). Anchor Uz at a single node at the
+$ hole edge (node 1, theta=18, phi=0) to remove the Z rigid-body mode.
+SPC1, 1, 3, 1
+$ ---- loads ----
+$ Outward load at the +X equator point (phi = 0, theta = 90), node 5:
+$ half the unit load (cut by phi=0 symmetry plane) -> 0.5 in +X.
+FORCE, 1, 5, , 0.5, 1.0, 0.0, 0.0
+$ Inward load at the +Y equator point (phi = 90, theta = 90), node 25:
+$ half the unit load -> 0.5 in -Y.
+FORCE, 1,25, , 0.5, 0.0,-1.0, 0.0
+ENDDATA

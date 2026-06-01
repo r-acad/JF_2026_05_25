@@ -1,0 +1,109 @@
+# =============================================================================
+# panel_launch.jl - cross-platform launcher for the stiffened-panel web app.
+#
+# Starts the pure-Julia panel server in this process and opens the default
+# browser at the app URL. Works on Windows, macOS, and Linux.
+#
+#   julia --project=<JFEM> --threads=auto JFEM/POST/panel_launch.jl [--port 8088] [--no-open]
+#
+# It picks the OpenJFEM project automatically (the JFEM folder two levels up),
+# so you can run it from anywhere. Press Ctrl+C to stop the server.
+# =============================================================================
+
+const _POST_DIR  = @__DIR__
+const _REPO_ROOT = normpath(joinpath(_POST_DIR, ".."))   # <repo>/JFEM (the project)
+
+# Parse args
+port = 8088
+do_open = true
+let i = 1
+    global port, do_open
+    while i <= length(ARGS)
+        a = ARGS[i]
+        if a == "--port" && i < length(ARGS)
+            port = parse(Int, ARGS[i+1]); i += 2
+        elseif a == "--no-open"
+            do_open = false; i += 1
+        else
+            i += 1
+        end
+    end
+end
+
+const URL = "http://127.0.0.1:$port/"
+
+# Cross-platform "open a URL in the default browser". Returns true on success.
+function open_in_browser(url::AbstractString)
+    try
+        @static if Sys.iswindows()
+            # Use explorer.exe as the opener: it reliably hands the URL to the
+            # default browser from a non-interactive/background process, whereas
+            # `cmd /c start` can silently no-op when there is no console window
+            # attached. `start` is kept as a fallback below.
+            try
+                run(`explorer.exe $url`)
+            catch
+                run(`cmd /c start "" $url`)
+            end
+        elseif Sys.isapple()
+            run(`open $url`)
+        else
+            run(`xdg-open $url`)
+        end
+        return true
+    catch err
+        @warn "Could not auto-open the browser; open this URL manually." url exception=err
+        return false
+    end
+end
+
+# Open the browser ONLY once the server is actually accepting connections. The
+# server now warms up (compiles the HTTP handler + solver) BEFORE it binds the
+# port, so a successful TCP connect means the server is genuinely ready and the
+# page will load instantly - no more opening onto a stalled/compiling socket.
+# We poll the port, and once it's up we try to open the browser a few times in
+# case the first hand-off is swallowed by the OS.
+using Sockets
+function _port_is_listening(port::Integer; host="127.0.0.1")
+    try
+        s = connect(host, port)   # throws until something is listening
+        close(s)
+        return true
+    catch
+        return false
+    end
+end
+if do_open
+    @async begin
+        up = false
+        for _ in 1:1200                     # up to ~10 min (warm-up can take ~2 min)
+            if _port_is_listening(port); up = true; break; end
+            sleep(0.5)
+        end
+        if up
+            @info "Server is up - opening $URL"
+            ok = open_in_browser(URL)
+            # explorer/start sometimes returns before the browser actually shows;
+            # a single extra attempt covers the rare swallowed hand-off.
+            if ok
+                sleep(1.5)
+                open_in_browser(URL)
+            end
+            @info "If no browser window appeared, open this URL manually:" URL
+        else
+            @warn "Server didn't come up in time; open $URL manually once it's listening." URL
+        end
+    end
+end
+
+# Ensure we load OpenJFEM from the right project even if --project wasn't passed.
+import Pkg
+if Base.active_project() != joinpath(_REPO_ROOT, "Project.toml")
+    Pkg.activate(_REPO_ROOT; io=devnull)
+end
+
+println(stderr, "Loading OpenJFEM + server (first load compiles; ~10-30s)...")
+include(joinpath(_POST_DIR, "panel_server.jl"))
+
+# Hand off to the server (blocks until Ctrl+C).
+serve(; host="127.0.0.1", port=port)

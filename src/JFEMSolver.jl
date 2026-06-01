@@ -1341,6 +1341,54 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
 end
 
 # ============================================================================
+# SOL 105: static-preload element recovery (for .jfem export)
+#
+# Recovers the static reference subcase's per-element shell results (von Mises
+# stress, an equivalent membrane strain, and a strain-energy density proxy) from
+# the static displacement `u_static`. Returns a Dict eid=>(vm, eps, sed) plus the
+# global static displacement vector, both ready for the v5 .jfem STATIC block.
+# Pure post-processing - it does NOT touch the solved state.
+# ============================================================================
+function _recover_sol105_static_fields(model, id_map, X, node_R, u_static, snorm_normals)
+    out = Dict{Int,NTuple{3,Float64}}()
+    try
+        stresses = Dict{Int,Float64}()
+        rj = Dict(
+            "forces"      => Dict("quad4" => [], "tria3" => []),
+            "forces_bilin"=> Dict("quad4" => [], "tria3" => []),
+            "stresses"    => Dict("quad4" => [], "tria3" => []),
+            "strains"     => Dict("quad4" => [], "tria3" => []),
+        )
+        Solver.recover_shell_stresses!(model, id_map, X, node_R, u_static, snorm_normals, stresses, rj)
+        # strain entries are keyed by eid alongside the stress entries
+        strain_by_eid = Dict{Int,Any}()
+        for k in ("quad4", "tria3")
+            for s in rj["strains"][k]; strain_by_eid[s["eid"]] = s; end
+        end
+        for k in ("quad4", "tria3")
+            for s in rj["stresses"][k]
+                eid = s["eid"]
+                vm = max(Float64(s["z1"]["von_mises"]), Float64(s["z2"]["von_mises"]))
+                # Equivalent (von-Mises-type) membrane strain from the z1 strain
+                # tensor (normal_x, normal_y, shear_xy stored on the strain entry).
+                eps = 0.0; sed = 0.0
+                st = get(strain_by_eid, eid, nothing)
+                if st !== nothing
+                    ex = Float64(st["z1"]["normal_x"]); ey = Float64(st["z1"]["normal_y"]); exy = Float64(st["z1"]["shear_xy"])
+                    eps = sqrt(max(0.0, ex*ex - ex*ey + ey*ey + 3.0*exy*exy))
+                end
+                # Strain-energy density proxy ~ 0.5 * vm * eps (per unit volume).
+                sed = 0.5 * vm * eps
+                out[eid] = (vm, eps, sed)
+            end
+        end
+    catch err
+        @warn "SOL105 static field recovery failed; static export will be empty" error=err
+    end
+    return out
+end
+
+# ============================================================================
 # SOL 105: Linear Buckling
 # ============================================================================
 function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
@@ -1405,6 +1453,12 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     last_fixed_dofs = Set{Int}()
     last_K = K
     last_K_eig = K_eig
+    # Stash the static-subcase recovery inputs (only bound inside the loop) so the
+    # returned results dict can recover static element stress/strain for export.
+    last_id_map_static = id_map
+    last_X_static = X
+    last_node_R_static = node_R
+    last_snorm_normals_static = snorm_normals
 
     for (buck_sid, stat_sid) in buckling_subcases
         sub_buck = cc["SUBCASES"][buck_sid]
@@ -1498,6 +1552,10 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         last_fixed_dofs = fixed_dofs_static
         last_K = K_static
         last_K_eig = K_eig_static
+        last_id_map_static = id_map_static
+        last_X_static = X_static
+        last_node_R_static = node_R_static
+        last_snorm_normals_static = snorm_normals_static
 
         println(">>> Assembling Geometric Stiffness for buckling subcase $buck_sid (STATSUB=$stat_sid)")
         t_kg = time_ns()
@@ -1666,6 +1724,11 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         "node_R" => node_R,
         "rbe3_map" => rbe3_map,
         "u_static" => last_u_static,
+        # Static preload element fields for the v5 .jfem STATIC block:
+        # eid => (von_mises, equiv_strain, strain_energy_density).
+        "static_shell_fields" => _recover_sol105_static_fields(
+            model, last_id_map_static, last_X_static, last_node_R_static,
+            last_u_static, last_snorm_normals_static),
         "fixed_dofs" => last_fixed_dofs,
         "cache_diagnostics" => Dict{String,Any}(
             "static_cache_hits" => sol105_static_cache_hits,
@@ -2007,7 +2070,9 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
                 jfem_tetras, jfem_hexas, jfem_pentas,
                 eigenvalues, mode_shapes;
                 jfem_celas=jfem_celas, jfem_rbe2s=jfem_rbe2s, jfem_rbe3s=jfem_rbe3s,
-                K_global=get(results, "K_eig", nothing), node_R=get(results, "node_R", nothing))
+                K_global=get(results, "K_eig", nothing), node_R=get(results, "node_R", nothing),
+                static_disp=get(results, "u_static", nothing),
+                static_shell_fields=get(results, "static_shell_fields", nothing))
         end
     end
 

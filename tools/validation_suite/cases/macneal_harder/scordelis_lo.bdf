@@ -1,0 +1,86 @@
+$ MacNeal & Harder (1985), Sec. 7 - Scordelis-Lo roof.
+$ Cylindrical roof, radius R = 25, length L = 50, thickness t = 0.25,
+$ subtended angle 80 deg, supported on rigid diaphragms at the two ends.
+$ E = 4.32e8, nu = 0.0. Self-weight loading via GRAV.
+$ Quarter model exploiting two symmetries:
+$   x = 0   : midspan symmetry plane (xz section)
+$   phi = 0 : circumferential symmetry plane (xz section at top)
+$ Mesh 4x4 = 16 CQUAD4 over the quarter, 5x5 = 25 nodes.
+$ Reference vertical displacement at the midspan/free-edge corner:
+$   Uz at node 5 = -0.3024  (downward).
+$
+SOL 101
+CEND
+TITLE = MacNeal-Harder Scordelis-Lo roof (quarter model, gravity)
+SUBCASE 1
+  LABEL = Self-weight 4x4 mesh
+  SPC = 1
+  LOAD = 1
+  DISPLACEMENT = ALL
+BEGIN BULK
+$ ---- material and property ----
+MAT1, 1, 4.32+8, , 0.0, 1.0
+PSHELL, 1, 1, 0.25, 1
+$ ---- grids: 5 along arc (phi = 0, 10, 20, 30, 40 deg) by ----
+$ ----        5 along length (x = 0, 6.25, 12.5, 18.75, 25)  ----
+$ Coordinates: y = R*sin(phi), z = R*cos(phi).
+$ Row 1: x = 0 (midspan)
+GRID,  1, , 0.00,  0.00000, 25.00000
+GRID,  2, , 0.00,  4.34120, 24.62019
+GRID,  3, , 0.00,  8.55050, 23.49231
+GRID,  4, , 0.00, 12.50000, 21.65063
+GRID,  5, , 0.00, 16.06969, 19.15111
+$ Row 2: x = 6.25
+GRID,  6, , 6.25,  0.00000, 25.00000
+GRID,  7, , 6.25,  4.34120, 24.62019
+GRID,  8, , 6.25,  8.55050, 23.49231
+GRID,  9, , 6.25, 12.50000, 21.65063
+GRID, 10, , 6.25, 16.06969, 19.15111
+$ Row 3: x = 12.5
+GRID, 11, ,12.50,  0.00000, 25.00000
+GRID, 12, ,12.50,  4.34120, 24.62019
+GRID, 13, ,12.50,  8.55050, 23.49231
+GRID, 14, ,12.50, 12.50000, 21.65063
+GRID, 15, ,12.50, 16.06969, 19.15111
+$ Row 4: x = 18.75
+GRID, 16, ,18.75,  0.00000, 25.00000
+GRID, 17, ,18.75,  4.34120, 24.62019
+GRID, 18, ,18.75,  8.55050, 23.49231
+GRID, 19, ,18.75, 12.50000, 21.65063
+GRID, 20, ,18.75, 16.06969, 19.15111
+$ Row 5: x = 25 (diaphragm end)
+GRID, 21, ,25.00,  0.00000, 25.00000
+GRID, 22, ,25.00,  4.34120, 24.62019
+GRID, 23, ,25.00,  8.55050, 23.49231
+GRID, 24, ,25.00, 12.50000, 21.65063
+GRID, 25, ,25.00, 16.06969, 19.15111
+$ ---- elements (4x4 grid) ----
+CQUAD4,  1, 1,  1,  6,  7,  2
+CQUAD4,  2, 1,  2,  7,  8,  3
+CQUAD4,  3, 1,  3,  8,  9,  4
+CQUAD4,  4, 1,  4,  9, 10,  5
+CQUAD4,  5, 1,  6, 11, 12,  7
+CQUAD4,  6, 1,  7, 12, 13,  8
+CQUAD4,  7, 1,  8, 13, 14,  9
+CQUAD4,  8, 1,  9, 14, 15, 10
+CQUAD4,  9, 1, 11, 16, 17, 12
+CQUAD4, 10, 1, 12, 17, 18, 13
+CQUAD4, 11, 1, 13, 18, 19, 14
+CQUAD4, 12, 1, 14, 19, 20, 15
+CQUAD4, 13, 1, 16, 21, 22, 17
+CQUAD4, 14, 1, 17, 22, 23, 18
+CQUAD4, 15, 1, 18, 23, 24, 19
+CQUAD4, 16, 1, 19, 24, 25, 20
+$ ---- midspan symmetry (x=0): Ux = Ry = Rz = 0 ----
+SPC1, 1, 156, 1, THRU, 5
+$ ---- top symmetry (phi=0, the y=0 line): Uy = Rx = Rz = 0 ----
+SPC1, 1, 246, 1
+SPC1, 1, 246, 6
+SPC1, 1, 246, 11
+SPC1, 1, 246, 16
+SPC1, 1, 246, 21
+$ ---- rigid diaphragm at x = 25: Uy = Uz = Rx = 0 (in-plane fixed) ----
+SPC1, 1, 234, 21, THRU, 25
+$ ---- self-weight: rho * g = 360 in -z, so q = 90 per unit area ----
+GRAV, 1, 0, 360.0, 0.0, 0.0, -1.0
+ENDDATA

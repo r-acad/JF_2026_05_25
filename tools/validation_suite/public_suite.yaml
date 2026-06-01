@@ -1,0 +1,257 @@
+# OpenJFEM Public Validation Suite -- case manifest
+#
+# Single source of truth. Adding a new case is one entry. Removing a case
+# is one entry. The driver run_public_suite.jl does not list cases on its
+# own; it walks this file.
+#
+# Schema (per case):
+#   id            : unique identifier used in comparison.csv
+#   family        : grouping label for the report; one of
+#                     macneal_harder | classical | mystran_xref | crm
+#   bdf           : path to the input deck relative to this folder
+#   sol           : solution sequence (101 | 103 | 105)
+#   quantities    : list of values to extract and compare. Each entry has
+#                     name       : column in comparison.csv
+#                     kind       : displacement | eigenvalue | mac
+#                     selector   : how to find the value in JFEM output
+#                                  (node + dof, or mode index)
+#                     reference  : where the reference comes from
+#                                    kind: analytical | f06 | csv
+#                                    plus kind-specific fields
+#                     tol_rel    : relative-error pass threshold
+#   citation      : human-readable source for the bibliography
+#   license       : license / status of the case material
+
+# ===========================================================================
+# Family 1: MacNeal -- Harder (1985) classical benchmark suite.
+#           Reference: R. H. MacNeal and R. L. Harder, "A proposed standard
+#           set of problems to test finite element accuracy," Finite Elements
+#           in Analysis and Design 1 (1985) 3--20.
+# ===========================================================================
+
+- id: MH_curved_beam_in_plane
+  family: macneal_harder
+  bdf: cases/macneal_harder/curved_beam.bdf
+  sol: 101
+  quantities:
+    - name: tip_disp_in_plane
+      kind: displacement
+      selector: {node: 7, dof: 2}
+      reference:
+        kind: analytical
+        module: macneal_curved_beam
+        fn: tip_disp_in_plane
+      tol_rel: 0.02
+  citation: "MacNeal & Harder 1985, curved cantilever beam (Sec. 3)"
+  license: public domain
+
+- id: MH_twisted_beam_in_plane
+  family: macneal_harder
+  bdf: cases/macneal_harder/twisted_beam.bdf
+  sol: 101
+  quantities:
+    - name: tip_disp_in_plane
+      kind: displacement
+      selector: {node: 13, dof: 2}
+      reference:
+        kind: analytical
+        module: macneal_twisted_beam
+        fn: tip_disp_in_plane
+      tol_rel: 0.02
+  citation: "MacNeal & Harder 1985, twisted cantilever beam (Sec. 4)"
+  license: public domain
+
+- id: MH_scordelis_lo
+  family: macneal_harder
+  bdf: cases/macneal_harder/scordelis_lo.bdf
+  sol: 101
+  quantities:
+    - name: midedge_vertical_disp
+      kind: displacement
+      selector: {node: 25, dof: 3}
+      reference:
+        kind: analytical
+        module: macneal_scordelis_lo
+        fn: midedge_vertical_disp
+      tol_rel: 0.05
+  citation: "MacNeal & Harder 1985, Scordelis--Lo roof (Sec. 7)"
+  license: public domain
+
+- id: MH_pinched_cylinder
+  family: macneal_harder
+  bdf: cases/macneal_harder/pinched_cylinder.bdf
+  sol: 101
+  quantities:
+    - name: radial_disp_under_load
+      kind: displacement
+      selector: {node: 1, dof: 1}
+      reference:
+        kind: analytical
+        module: macneal_pinched_cylinder
+        fn: radial_disp_under_load
+      tol_rel: 0.10
+  citation: "MacNeal & Harder 1985, pinched cylinder with diaphragms (Sec. 8)"
+  license: public domain
+
+- id: MH_hemispherical_shell
+  family: macneal_harder
+  bdf: cases/macneal_harder/hemispherical_shell.bdf
+  sol: 101
+  quantities:
+    - name: radial_disp_at_load
+      kind: displacement
+      selector: {node: 1, dof: 1}
+      reference:
+        kind: analytical
+        module: macneal_hemispherical_shell
+        fn: radial_disp_at_load
+      tol_rel: 0.05
+  citation: "MacNeal & Harder 1985, pinched hemispherical shell (Sec. 9)"
+  license: public domain
+
+# ===========================================================================
+# Family 2: Classical analytical buckling references.
+#           Geometry and loads transcribed from standard textbooks; no
+#           proprietary suite involved.
+# ===========================================================================
+
+- id: TG_plate_uniaxial_buckling
+  family: classical
+  bdf: cases/classical/timoshenko_plate_buckling.bdf
+  sol: 105
+  quantities:
+    - name: first_buckling_lambda
+      kind: eigenvalue
+      selector: {mode: 1}
+      reference:
+        kind: analytical
+        module: classical_plate_buckling
+        fn: simply_supported_uniaxial_first_mode
+      tol_rel: 0.03
+  citation: "Timoshenko & Gere, Theory of Elastic Stability (1961), Ch. 9"
+  license: public domain
+
+- id: BA_cylinder_axial_buckling
+  family: classical
+  bdf: cases/classical/cylinder_axial_buckling.bdf
+  sol: 105
+  quantities:
+    - name: classical_critical_stress
+      kind: eigenvalue
+      selector: {mode: 1}
+      reference:
+        kind: analytical
+        module: classical_cylinder_buckling
+        fn: thin_cylinder_axial_critical
+      tol_rel: 0.15
+      notes: "Classical formula known to over-predict; wide tolerance is intentional."
+  citation: "Brush & Almroth, Buckling of Bars, Plates and Shells (1975), Ch. 5"
+  license: public domain
+
+# ===========================================================================
+# Family 3: MYSTRAN cross-checks. Decks taken from the MYSTRAN public test
+#           suite (MIT license). MYSTRAN-only case-control entries
+#           (ELDATA*, DEBUG, EIGRL/DGB) were commented out to keep each deck
+#           parseable by any classical BDF-based solver; the in-deck
+#           comments document the changes. The MYSTRAN public test suite has
+#           no SOL 103 case in this snapshot, so that family is intentionally
+#           left out.
+# ===========================================================================
+
+- id: MYSTRAN_sol101_simple
+  family: mystran_xref
+  bdf: cases/mystran_xref/sol101_simple.bdf
+  sol: 101
+  quantities:
+    - name: T1_node_1013
+      kind: displacement
+      selector: {node: 1013, dof: 1}
+      reference:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+      tol_rel: 0.02
+  citation: "MYSTRAN public test suite, Build_Test_Cases/statics/cquad4_pshell_center.bdf"
+  license: MIT (MYSTRAN)
+
+- id: MYSTRAN_sol105_buckling
+  family: mystran_xref
+  bdf: cases/mystran_xref/sol105_buckling.bdf
+  sol: 105
+  quantities:
+    - name: lambda_1
+      kind: eigenvalue
+      selector: {mode: 1}
+      reference:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+      tol_rel: 0.05
+  citation: "MYSTRAN public test suite, Build_Test_Cases/buckling/bar.bdf (Euler cantilever)"
+  license: MIT (MYSTRAN)
+
+# ===========================================================================
+# Family 4: Common Research Model wing-box for industrial-scale modal.
+#           Source: TACS examples/crm/CRM_box_2nd.bdf (Apache 2.0).
+#
+#           The upstream TACS BDF intentionally omits PSHELL and MAT cards
+#           because TACS supplies properties from its Python runner at
+#           runtime. Running this deck in any classical BDF-based
+#           solver requires synthesising the property/material set from
+#           tacs-master/examples/crm/crm_frequency.py. The augmented deck
+#           wingbox_modal_with_props.bdf in this folder is the synthesised
+#           version produced by helpers/synthesize_crm_properties.ps1.
+# ===========================================================================
+
+- id: CRM_wingbox_modal
+  family: crm
+  bdf: cases/crm/wingbox_modal_with_props.bdf
+  sol: 103
+  quantities:
+    - name: eigenvalue_mode1
+      kind: eigenvalue
+      selector: {mode: 1}
+      reference:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: CRM_wingbox_modal_mode1
+      tol_rel: 0.05
+    - name: eigenvalue_mode2
+      kind: eigenvalue
+      selector: {mode: 2}
+      reference:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: CRM_wingbox_modal_mode2
+      tol_rel: 0.05
+    - name: eigenvalue_mode3
+      kind: eigenvalue
+      selector: {mode: 3}
+      reference:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: CRM_wingbox_modal_mode3
+      tol_rel: 0.05
+    - name: eigenvalue_mode4
+      kind: eigenvalue
+      selector: {mode: 4}
+      reference:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: CRM_wingbox_modal_mode4
+      tol_rel: 0.05
+    - name: eigenvalue_mode5
+      kind: eigenvalue
+      selector: {mode: 5}
+      reference:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: CRM_wingbox_modal_mode5
+      tol_rel: 0.05
+  citation: "TACS examples/crm/CRM_box_2nd.bdf (uCRM coarse wingbox); CQUADR -> CQUAD4 substitution; isotropic shell properties from crm_frequency.py synthesised via helpers/synthesize_crm_properties.ps1"
+  license: Apache 2.0 (TACS)

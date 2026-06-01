@@ -6,6 +6,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `POST/` stiffened-panel buckling web app: a pure-Julia HTTP + MsgPack
+  server (`panel_server.jl`, `panel_launch.jl`, `panel_app.cmd/.sh`) plus a
+  single-file Babylon.js front-end (`panel_app.html`, vendored libs under
+  `POST/vendor/`). Generates a SOL 105 cylindrical stiffened-panel deck,
+  solves it through OpenJFEM in-process, and renders the buckling modes and
+  static results in 3D with load/BC overlays. Adds `HTTP` and `MsgPack` to
+  the project dependencies; ignores `POST/panel_runs/` run artifacts.
+- SOL 105 `.jfem` export now carries a STATIC results block (format bumped
+  to v5): the static-preload nodal displacement (rotated to global) plus
+  per-element von Mises stress, an equivalent membrane strain, and a
+  strain-energy-density proxy, recovered from `u_static` via
+  `_recover_sol105_static_fields`. Appended after the `EVAL` footer so v3/v4
+  readers are unaffected. The web viewer parses v5 and lets the user select
+  total / X / radial / tangential deformation contours and the static
+  stress/strain/energy fields.
+- `tools/validation_suite/`: public verification suite (MacNeal-Harder
+  shell benchmarks, classical plate/cylinder buckling, CRM wingbox, MYSTRAN
+  cross-reference cases) with analytical references and a runner.
 - `Reference_documentation/agentic_numerical_software_report.pdf`: new
   long-form report covering workspace shape, working philosophy, useful
   prompts, agents, skills, hooks, the harness classifier, the technology

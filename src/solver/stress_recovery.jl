@@ -489,10 +489,7 @@ function recover_bar_stresses!(model, id_map, X, node_R, u_global, stresses, res
             u_el[7:9] -= Rel_t * S_wb * θ_glob_B
         end
 
-        Iy = get(prop, "I2", get(prop, "I", 0.0))
-        Iz = get(prop, "I1", get(prop, "I", 0.0))
-        if Iy == 0.0; Iy = Iz; end
-        if Iz == 0.0; Iz = Iy; end
+        Iy, Iz = _bar_bending_inertias(prop)
         Iyz = Float64(get(prop, "I12", 0.0))
         K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
         As_y = (K1 > 0.0) ? K1 * prop["A"] : Inf
@@ -563,10 +560,7 @@ function recover_bar_stresses!(model, id_map, X, node_R, u_global, stresses, res
             u_el[7:9] -= Rel_t * S_wb * θ_glob_B
         end
 
-        Iy = get(prop, "I2", get(prop, "I", 0.0))
-        Iz = get(prop, "I1", get(prop, "I", 0.0))
-        if Iy == 0.0; Iy = Iz; end
-        if Iz == 0.0; Iz = Iy; end
+        Iy, Iz = _bar_bending_inertias(prop)
         Iyz = Float64(get(prop, "I12", 0.0))
         K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
         As_y = (K1 > 0.0) ? K1 * prop["A"] : Inf

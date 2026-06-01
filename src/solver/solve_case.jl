@@ -175,11 +175,17 @@ function _build_results_from_state(ndof, model, id_map, X, node_R, u_global, res
     )
 
     stresses = Dict{Int, Float64}()
-    recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_normals, stresses, results_json)
-    recover_bar_stresses!(model, id_map, X, node_R, u_global, stresses, results_json)
-    recover_rod_stresses!(model, id_map, X, node_R, u_global, stresses, results_json)
-    recover_spring_forces!(model, id_map, u_global, stresses, results_json)
-    recover_solid_stresses!(model, id_map, X, node_R, u_global, stresses, results_json)
+    skip_stress_recovery =
+        lowercase(strip(get(ENV, "JFEM_SKIP_STRESS_RECOVERY", "false"))) in ("1", "true", "yes", "on")
+    if skip_stress_recovery
+        results_json["stress_recovery_skipped"] = true
+    else
+        recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_normals, stresses, results_json)
+        recover_bar_stresses!(model, id_map, X, node_R, u_global, stresses, results_json)
+        recover_rod_stresses!(model, id_map, X, node_R, u_global, stresses, results_json)
+        recover_spring_forces!(model, id_map, u_global, stresses, results_json)
+        recover_solid_stresses!(model, id_map, X, node_R, u_global, stresses, results_json)
+    end
 
     return u_out, stresses, results_json
 end
@@ -2661,55 +2667,10 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         (loc_top_kappa_v2_max > 0.0 && (!has_range || eigrl_v2 > loc_top_kappa_v2_max)) ?
         0.0 :
         loc_top_kappa_l_min_raw
-    broad_strip_filter_enabled = solver_env_bool("JFEM_BUCKLING_BROAD_STRIP_FILTER", true)
-    broad_strip_top_n = max(
-        something(tryparse(Int, strip(get(ENV, "JFEM_BUCKLING_BROAD_STRIP_TOP_N", "24"))), 24),
-        1,
-    )
-    broad_strip_pid_count = max(
-        something(tryparse(Int, strip(get(ENV, "JFEM_BUCKLING_BROAD_STRIP_PID_COUNT", "4"))), 4),
-        1,
-    )
-    broad_strip_pid_share_min = clamp(
-        solver_env_float("JFEM_BUCKLING_BROAD_STRIP_PID_SHARE_MIN", 0.88),
-        0.0,
-        1.0,
-    )
-    broad_strip_v2_max = solver_env_float("JFEM_BUCKLING_BROAD_STRIP_V2_MAX", 2.0)
-    if broad_strip_filter_enabled
-        broad_strip_filter_enabled =
-            has_range &&
-            (broad_strip_v2_max <= 0.0 || eigrl_v2 <= broad_strip_v2_max)
-    end
-    broad_strip_aspect_min = max(solver_env_float("JFEM_BUCKLING_BROAD_STRIP_ASPECT_MIN", 3.8), 1.0)
-    broad_strip_max_top_share = clamp(
-        solver_env_float("JFEM_BUCKLING_BROAD_STRIP_MAX_TOP_SHARE", 0.10),
-        0.0,
-        1.0,
-    )
-    broad_strip_lambda_min = solver_env_float("JFEM_BUCKLING_BROAD_STRIP_LAMBDA_MIN", 0.0)
-    broad_strip_lambda_max = solver_env_float("JFEM_BUCKLING_BROAD_STRIP_LAMBDA_MAX", 1.0e99)
-    patch_keep_enabled = solver_env_bool("JFEM_BUCKLING_LOCALIZATION_PATCH_KEEP", false)
-    patch_keep_top_n = max(
-        something(tryparse(Int, strip(get(ENV, "JFEM_BUCKLING_LOCALIZATION_PATCH_TOP_N", "4"))), 4),
-        2,
-    )
-    patch_keep_top2_share_max = clamp(
-        solver_env_float("JFEM_BUCKLING_LOCALIZATION_PATCH_TOP2_SHARE_MAX", 0.75),
-        0.0,
-        1.0,
-    )
-    patch_keep_topn_share_max = clamp(
-        solver_env_float("JFEM_BUCKLING_LOCALIZATION_PATCH_TOPN_SHARE_MAX", 0.90),
-        0.0,
-        1.0,
-    )
-    patch_keep_kappa_l_min = max(
-        solver_env_float("JFEM_BUCKLING_LOCALIZATION_PATCH_KAPPA_L_MIN", 0.05),
-        0.0,
-    )
-    patch_keep_lambda_min = solver_env_float("JFEM_BUCKLING_LOCALIZATION_PATCH_LAMBDA_MIN", 0.0)
-    patch_keep_lambda_max = solver_env_float("JFEM_BUCKLING_LOCALIZATION_PATCH_LAMBDA_MAX", 1.0e99)
+    # Population/PID-concentration filters were removed from production
+    # behavior. They can hide formulation defects by dropping modes based on
+    # patch makeup; parity work must instead correct K, Kg, constraints, or the
+    # eigensolution itself.
 
     if loc_filter_enabled && haskey(model, "CSHELLs") && !isempty(sorted_idx) && length(free_dofs) > 0 &&
        n_cshells_total >= loc_min_elements
@@ -2728,22 +2689,6 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             id_vec[nid] = idx
         end
         elem_nids = Vector{Vector{Int}}()
-        elem_pids = Int[]
-        elem_aspects = Float64[]
-        function elem_edge_aspect(nids)
-            pts = Tuple{Float64,Float64,Float64}[]
-            for nid in nids
-                idx = id_vec[nid]
-                push!(pts, (X[idx, 1], X[idx, 2], X[idx, 3]))
-            end
-            d(a, b) = sqrt((a[1] - b[1])^2 + (a[2] - b[2])^2 + (a[3] - b[3])^2)
-            lens = if length(pts) == 4
-                (d(pts[1], pts[2]), d(pts[2], pts[3]), d(pts[3], pts[4]), d(pts[4], pts[1]))
-            else
-                (d(pts[1], pts[2]), d(pts[2], pts[3]), d(pts[3], pts[1]))
-            end
-            return maximum(lens) / max(minimum(lens), 1e-12)
-        end
         for (_, el) in model["CSHELLs"]
             nids = el["NODES"]
             n = length(nids)
@@ -2757,13 +2702,11 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             end
             if valid
                 push!(elem_nids, nids)
-                push!(elem_pids, something(tryparse(Int, string(get(el, "PID", 0))), 0))
-                push!(elem_aspects, elem_edge_aspect(nids))
             end
         end
         if !isempty(elem_nids)
             elem_top_kappa_l = zeros(Float64, length(elem_nids))
-            if loc_top_kappa_l_min > 0.0 || patch_keep_enabled
+            if loc_top_kappa_l_min > 0.0
                 elem_normals = zeros(Float64, length(elem_nids), 3)
                 node_normal_sum = zeros(Float64, length(id_map), 3)
                 for (ei, nids) in enumerate(elem_nids)
@@ -2834,12 +2777,18 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             kept_high_info = Tuple{Int, Float64, Float64, Float64}[]
             patch_kept_info = Tuple{Int, Float64, Float64, Float64, Float64, Float64}[]
             broad_dropped_info = Tuple{Int, Float64, Float64, Float64, Float64}[]
+            patch_keep_enabled = false
+            patch_keep_top_n = 0
+            patch_keep_top2_share_max = 0.0
+            patch_keep_topn_share_max = 0.0
+            broad_strip_filter_enabled = false
+            broad_strip_pid_count = 0
+            broad_strip_pid_share_min = 0.0
+            broad_strip_aspect_min = 0.0
+            broad_strip_v2_max = 0.0
             full_u = zeros(ndof)
-            elem_energy = broad_strip_filter_enabled ? zeros(Float64, length(elem_nids)) : Float64[]
             for k_idx in loc_eval_idx
                 fill!(full_u, 0.0)
-                broad_strip_filter_enabled && fill!(elem_energy, 0.0)
-                patch_top_e = patch_keep_enabled ? zeros(Float64, patch_keep_top_n) : Float64[]
                 evec = view(eigenvectors, :, k_idx)
                 for (i, dof_idx) in enumerate(free_dofs)
                     full_u[dof_idx] = evec[i]
@@ -2859,11 +2808,6 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                         e += tx*tx + ty*ty + tz*tz
                     end
                     e /= n
-                    broad_strip_filter_enabled && (elem_energy[ei] = e)
-                    if patch_keep_enabled && e > patch_top_e[end]
-                        patch_top_e[end] = e
-                        sort!(patch_top_e; rev=true)
-                    end
                     total_e += e
                     if e > max_e
                         max_e = e
@@ -2874,62 +2818,11 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     share = max_e / total_e
                     if share > loc_max_share
                         top_kappa_l = max_ei > 0 ? elem_top_kappa_l[max_ei] : 0.0
-                        patch_keep = false
-                        patch_top2_share = 0.0
-                        patch_topn_share = 0.0
-                        if patch_keep_enabled &&
-                           eigenvalues[k_idx] >= patch_keep_lambda_min &&
-                           eigenvalues[k_idx] <= patch_keep_lambda_max &&
-                           top_kappa_l >= patch_keep_kappa_l_min
-                            patch_top2_share = sum(@view patch_top_e[1:min(2, length(patch_top_e))]) / total_e
-                            patch_topn_share = sum(patch_top_e) / total_e
-                            patch_keep =
-                                patch_top2_share <= patch_keep_top2_share_max &&
-                                patch_topn_share <= patch_keep_topn_share_max
-                        end
-                        if patch_keep
-                            push!(patch_kept_info, (
-                                k_idx,
-                                eigenvalues[k_idx],
-                                share,
-                                top_kappa_l,
-                                patch_top2_share,
-                                patch_topn_share,
-                            ))
-                        elseif loc_top_kappa_l_min <= 0.0 || top_kappa_l >= loc_top_kappa_l_min
+                        if loc_top_kappa_l_min <= 0.0 || top_kappa_l >= loc_top_kappa_l_min
                             push!(dropped_info, (k_idx, eigenvalues[k_idx], share, top_kappa_l))
                             continue
                         else
                             push!(kept_high_info, (k_idx, eigenvalues[k_idx], share, top_kappa_l))
-                        end
-                    end
-                    if broad_strip_filter_enabled &&
-                       eigenvalues[k_idx] >= broad_strip_lambda_min &&
-                       eigenvalues[k_idx] <= broad_strip_lambda_max &&
-                       share <= broad_strip_max_top_share &&
-                       length(elem_energy) == length(elem_nids)
-                        perm = sortperm(elem_energy; rev=true)
-                        top_count = min(broad_strip_top_n, length(perm))
-                        pid_weight = Dict{Int,Float64}()
-                        aspect_sum = 0.0
-                        top_weight = 0.0
-                        for pos in 1:top_count
-                            ei = perm[pos]
-                            w = elem_energy[ei] / total_e
-                            w <= 0.0 && continue
-                            pid = elem_pids[ei]
-                            pid_weight[pid] = get(pid_weight, pid, 0.0) + w
-                            aspect_sum += w * elem_aspects[ei]
-                            top_weight += w
-                        end
-                        pid_rows = collect(pid_weight)
-                        sort!(pid_rows; by=p -> p.second, rev=true)
-                        n_pid = min(broad_strip_pid_count, length(pid_rows))
-                        pid_share = n_pid == 0 ? 0.0 : sum(pid_rows[i].second for i in 1:n_pid)
-                        aspect_w = top_weight > 1e-30 ? aspect_sum / top_weight : 0.0
-                        if pid_share >= broad_strip_pid_share_min && aspect_w >= broad_strip_aspect_min
-                            push!(broad_dropped_info, (k_idx, eigenvalues[k_idx], share, pid_share, aspect_w))
-                            continue
                         end
                     end
                 end

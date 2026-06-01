@@ -62,6 +62,13 @@ end
     return clamp(something(tryparse(Float64, raw), 1.0), 0.0, 1.0)
 end
 
+@inline function _bar_bending_inertias(prop)
+    I_default = Float64(get(prop, "I", 0.0))
+    Iy = haskey(prop, "I2") ? Float64(prop["I2"]) : I_default
+    Iz = haskey(prop, "I1") ? Float64(prop["I1"]) : I_default
+    return Iy, Iz
+end
+
 @inline function q4_geom_normals_nearly_constant(
     n1::SVector{3,Float64},
     n2::SVector{3,Float64},
@@ -126,6 +133,106 @@ function build_node_has_frame_elements(model, id_map, n_nodes)
         end
     end
     return node_has_frame
+end
+
+@inline function pbeam_station_condensed_enabled()
+    raw = lowercase(strip(get(ENV, "JFEM_PBEAM_STATION_CONDENSED", "false")))
+    return raw in ("1", "true", "yes", "on")
+end
+
+@inline function pbeam_neutral_axis_coupling_enabled()
+    raw = lowercase(strip(get(ENV, "JFEM_PBEAM_NEUTRAL_AXIS_COUPLING", "false")))
+    return raw in ("1", "true", "yes", "on")
+end
+
+@inline function _station_value(st::AbstractDict, key::String, fallback::Float64)
+    return Float64(get(st, key, fallback))
+end
+
+function _apply_pbeam_neutral_axis_coupling(Ke_loc::AbstractMatrix, prop::AbstractDict)
+    pbeam_neutral_axis_coupling_enabled() || return Ke_loc
+    n1a = Float64(get(prop, "N1A", 0.0))
+    n2a = Float64(get(prop, "N2A", 0.0))
+    n1b = Float64(get(prop, "N1B", 0.0))
+    n2b = Float64(get(prop, "N2B", 0.0))
+    if max(abs(n1a), abs(n2a), abs(n1b), abs(n2b)) <= 0.0
+        return Ke_loc
+    end
+    C = Matrix{Float64}(I, 12, 12)
+    C[1, 5] += n2a
+    C[1, 6] -= n1a
+    C[7, 11] += n2b
+    C[7, 12] -= n1b
+    return C' * Matrix(Ke_loc) * C
+end
+
+function _pbeam_station_condensed_stiffness(L::Float64, prop::AbstractDict, E::Float64, G::Float64)
+    pbeam_station_condensed_enabled() || return nothing
+    stations_raw = get(prop, "STATIONS", nothing)
+    stations_raw isa AbstractVector || return nothing
+    length(stations_raw) >= 2 || return nothing
+
+    stations = sort(collect(stations_raw); by=s -> Float64(get(s, "X", 0.0)))
+    n = length(stations)
+    nd = 6 * n
+    K = zeros(Float64, nd, nd)
+    K1 = Float64(get(prop, "K1", 0.0))
+    K2 = Float64(get(prop, "K2", 0.0))
+    active_segments = 0
+
+    for s in 1:(n - 1)
+        xa = clamp(Float64(get(stations[s], "X", 0.0)), 0.0, 1.0)
+        xb = clamp(Float64(get(stations[s + 1], "X", 1.0)), 0.0, 1.0)
+        xb > xa + 1e-10 || continue
+        segL = (xb - xa) * L
+        segL > 1e-12 || continue
+
+        A = 0.5 * (
+            _station_value(stations[s], "A", Float64(get(prop, "A", 0.0))) +
+            _station_value(stations[s + 1], "A", Float64(get(prop, "A", 0.0)))
+        )
+        base_Iy, base_Iz = _bar_bending_inertias(prop)
+        I1 = 0.5 * (
+            _station_value(stations[s], "I1", base_Iz) +
+            _station_value(stations[s + 1], "I1", base_Iz)
+        )
+        I2 = 0.5 * (
+            _station_value(stations[s], "I2", base_Iy) +
+            _station_value(stations[s + 1], "I2", base_Iy)
+        )
+        I12 = 0.5 * (
+            _station_value(stations[s], "I12", Float64(get(prop, "I12", 0.0))) +
+            _station_value(stations[s + 1], "I12", Float64(get(prop, "I12", 0.0)))
+        )
+        J = 0.5 * (
+            _station_value(stations[s], "J", Float64(get(prop, "J", 0.0))) +
+            _station_value(stations[s + 1], "J", Float64(get(prop, "J", 0.0)))
+        )
+
+        Iy = I2
+        Iz = I1
+        As_y = (K1 > 0.0) ? K1 * A : Inf
+        As_z = (K2 > 0.0) ? K2 * A : Inf
+        Ke_seg = FEM.stiffness_frame3d(segL, A, Iy, Iz, J, E, G; As_y=As_y, As_z=As_z, I12=I12)
+        dofs = vcat(((s - 1) * 6 + 1):(s * 6), (s * 6 + 1):((s + 1) * 6))
+        for c in 1:12, r in 1:12
+            K[dofs[r], dofs[c]] += Ke_seg[r, c]
+        end
+        active_segments += 1
+    end
+
+    active_segments > 0 || return nothing
+    boundary = vcat(1:6, (nd - 5):nd)
+    if nd == 12
+        return K[boundary, boundary]
+    end
+    internal = collect(7:(nd - 6))
+    Kii = K[internal, internal]
+    try
+        return K[boundary, boundary] - K[boundary, internal] * (Kii \ K[internal, boundary])
+    catch
+        return nothing
+    end
 end
 
 @inline function scale_shell_local_drilling_dof!(Ke::AbstractMatrix, local_node::Int, scale::Float64)
@@ -379,20 +486,6 @@ end
 @inline function kg_quad4_covariant_auto_cyl_ratio_max()
     raw = strip(get(ENV, "JFEM_KG_QUAD4_COVARIANT_AUTO_CYL_RATIO_MAX", "0.85"))
     return clamp(something(tryparse(Float64, raw), 0.85), 0.0, 1.0)
-end
-
-@inline function kg_quad4_auto_gp_patch_enabled()
-    return solver_env_bool("JFEM_KG_QUAD4_AUTO_GP_PATCH", false)
-end
-
-@inline function kg_quad4_auto_gp_patch_valence_min()
-    raw = strip(get(ENV, "JFEM_KG_QUAD4_AUTO_GP_PATCH_VALENCE_MIN", "4"))
-    return max(something(tryparse(Int, raw), 4), 1)
-end
-
-@inline function kg_quad4_auto_gp_patch_kappa_l_min()
-    raw = strip(get(ENV, "JFEM_KG_QUAD4_AUTO_GP_PATCH_KAPPA_L_MIN", "0.05"))
-    return max(something(tryparse(Float64, raw), 0.05), 0.0)
 end
 
 @inline function kg_quad4_auto_gp_spread_enabled()
@@ -774,19 +867,6 @@ function q4_static_component_eid_list()
     return eids
 end
 
-function q4_static_component_neighbor_pid_prefixes()
-    raw = strip(get(ENV, "JFEM_Q4_STATIC_COMPONENT_REQUIRE_NEIGHBOR_PID_PREFIX", ""))
-    prefixes = String[]
-    isempty(raw) && return prefixes
-    for part in split(raw, r"[,/\s]+")
-        item = strip(part)
-        isempty(item) && continue
-        push!(prefixes, item)
-    end
-    unique!(prefixes)
-    return prefixes
-end
-
 @inline function q4_static_component_v2_min()
     return max(solver_env_float("JFEM_Q4_STATIC_COMPONENT_V2_MIN", 0.0), 0.0)
 end
@@ -801,6 +881,38 @@ end
 
 @inline function q4_static_component_thickness_max()
     return max(solver_env_float("JFEM_Q4_STATIC_COMPONENT_THICKNESS_MAX", 0.0), 0.0)
+end
+
+@inline function q4_static_component_aspect_min()
+    return max(solver_env_float("JFEM_Q4_STATIC_COMPONENT_ASPECT_MIN", 0.0), 0.0)
+end
+
+@inline function q4_static_component_aspect_max()
+    return max(solver_env_float("JFEM_Q4_STATIC_COMPONENT_ASPECT_MAX", 0.0), 0.0)
+end
+
+@inline function q4_static_component_taper_min()
+    return max(solver_env_float("JFEM_Q4_STATIC_COMPONENT_TAPER_MIN", 0.0), 0.0)
+end
+
+@inline function q4_static_component_taper_max()
+    return max(solver_env_float("JFEM_Q4_STATIC_COMPONENT_TAPER_MAX", 0.0), 0.0)
+end
+
+@inline function q4_static_component_h_over_l_min()
+    return max(solver_env_float("JFEM_Q4_STATIC_COMPONENT_H_OVER_L_MIN", 0.0), 0.0)
+end
+
+@inline function q4_static_component_h_over_l_max()
+    return max(solver_env_float("JFEM_Q4_STATIC_COMPONENT_H_OVER_L_MAX", 0.0), 0.0)
+end
+
+@inline function q4_static_component_warp_min()
+    return max(solver_env_float("JFEM_Q4_STATIC_COMPONENT_WARP_MIN", 0.0), 0.0)
+end
+
+@inline function q4_static_component_warp_max()
+    return max(solver_env_float("JFEM_Q4_STATIC_COMPONENT_WARP_MAX", 0.0), 0.0)
 end
 
 @inline function q4_static_component_pcomp_shear_ratio_min()
@@ -868,13 +980,6 @@ end
     eigrl_v2 > 0.0 || return false
     return (v2_min <= 0.0 || eigrl_v2 >= v2_min) &&
            (v2_max <= 0.0 || eigrl_v2 <= v2_max)
-end
-
-@inline function q4_pid_matches_any_prefix(pid::AbstractString, prefixes)
-    for prefix in prefixes
-        startswith(pid, prefix) && return true
-    end
-    return false
 end
 
 @inline function kg_quad4_feature_membrane_scale_aspect_min()
@@ -2108,6 +2213,35 @@ end
     return nothing
 end
 
+@inline function _node_dof_rotation(cord::AbstractDict, xg)
+    u = Float64.(cord["U"])
+    v = Float64.(cord["V"])
+    w = Float64.(cord["W"])
+    R = hcat(u, v, w)
+    ctype = uppercase(string(get(cord, "TYPE", "RECTANGULAR")))
+    ctype == "RECTANGULAR" && return R
+
+    origin = Float64.(cord["Origin"])
+    xloc = R' * (Float64.(xg) - origin)
+
+    if ctype == "CYLINDRICAL"
+        theta = atan(xloc[2], xloc[1])
+        er = cos(theta) .* u .+ sin(theta) .* v
+        et = -sin(theta) .* u .+ cos(theta) .* v
+        return hcat(er, et, w)
+    elseif ctype == "SPHERICAL"
+        rxy = hypot(xloc[1], xloc[2])
+        theta = atan(xloc[2], xloc[1])
+        phi = atan(rxy, xloc[3])
+        er_loc = [sin(phi) * cos(theta), sin(phi) * sin(theta), cos(phi)]
+        et_loc = [-sin(theta), cos(theta), 0.0]
+        ep_loc = [cos(phi) * cos(theta), cos(phi) * sin(theta), -sin(phi)]
+        return R * hcat(er_loc, et_loc, ep_loc)
+    end
+
+    return R
+end
+
 function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only::Bool=false,
                             membrane_incomp::Bool=true, pcomp_membrane_incomp::Bool=false,
                             snorm_angle_override::Union{Nothing,Float64}=nothing,
@@ -2131,7 +2265,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             node_R[idx] = Matrix(1.0I, 3, 3)
         elseif haskey(model["CORDs"], string(cid))
             c = model["CORDs"][string(cid)]
-            node_R[idx] = hcat(c["U"], c["V"], c["W"])
+            node_R[idx] = _node_dof_rotation(c, g["X"])
         else
              node_R[idx] = Matrix(1.0I, 3, 3)
         end
@@ -2175,6 +2309,12 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     flat_pcomp_auto_shear_scale_gain = q4_sol105_flat_pcomp_auto_shear_scale_gain()
     flat_pcomp_auto_shear_scale_max = q4_sol105_flat_pcomp_auto_shear_scale_max()
     flat_pcomp_exact_membrane = shear_center_only && q4_sol105_flat_pcomp_exact_membrane()
+    sol101_flat_pcomp_exact_membrane =
+        sol101_context && !shear_center_only &&
+        solver_env_bool("JFEM_SOL101_Q4_PCOMP_EXACT_MEMBRANE", false)
+    sol101_flat_iso_exact_membrane =
+        sol101_context && !shear_center_only &&
+        solver_env_bool("JFEM_SOL101_Q4_ISO_EXACT_MEMBRANE", false)
     flat_pcomp_exact_side_shear = q4_sol105_flat_pcomp_exact_side_shear()
     flat_curved_pcomp_exact_side_shear = q4_sol105_flat_curved_pcomp_exact_side_shear()
     flat_pcomp_exact_side_rotcorr = q4_sol105_flat_pcomp_exact_side_rotcorr()
@@ -2195,7 +2335,12 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     curved_iso_warp_membrane_incomp_kappa_l_max = q4_curved_iso_warp_membrane_incomp_kappa_l_max()
     curved_iso_elongated_membrane_incomp = shear_center_only && q4_curved_iso_elongated_membrane_incomp_enabled()
     curved_iso_elongated_membrane_incomp_aspect_ratio_min = q4_curved_iso_elongated_membrane_incomp_aspect_ratio_min()
-    membrane_incomp_center_jacobian = q4_sol105_membrane_incomp_center_jacobian_enabled()
+    sol101_membrane_incomp_center_jacobian =
+        sol101_context && !shear_center_only &&
+        solver_env_bool("JFEM_SOL101_Q4_MEMBRANE_INCOMP_CENTER_JACOBIAN", true)
+    membrane_incomp_center_jacobian =
+        q4_sol105_membrane_incomp_center_jacobian_enabled() ||
+        sol101_membrane_incomp_center_jacobian
     static_pcomp_membrane_incomp_aspect =
         !shear_center_only && q4_sol105_static_pcomp_membrane_incomp_aspect_enabled()
     static_pcomp_membrane_incomp_aspect_min = q4_sol105_static_pcomp_membrane_incomp_aspect_min()
@@ -2242,19 +2387,115 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         sol101_context && !shear_center_only &&
         solver_env_bool("JFEM_SOL101_PSHELL_BLANK_MID3_RIGID_SHEAR", true)
     pshell_mid4_bmb_enabled = solver_env_bool("JFEM_PSHELL_MID4_BMB", false)
-    pshell_use_mid2_bending = solver_env_bool("JFEM_PSHELL_USE_MID2_BENDING", false)
+    pshell_use_mid2_bending = solver_env_bool("JFEM_PSHELL_USE_MID2_BENDING", true)
     sol101_pshell_mat2_cb_scale =
         sol101_context && !shear_center_only ?
         solver_env_float("JFEM_SOL101_PSHELL_MAT2_CB_SCALE", 1.0) :
         1.0
+    sol101_mat2_extreme_cb_enabled =
+        sol101_context && !shear_center_only &&
+        !haskey(ENV, "JFEM_SOL101_PSHELL_MAT2_CB_SCALE") &&
+        !haskey(ENV, "JFEM_Q4_STATIC_COMPONENT_CB_SCALE") &&
+        solver_env_bool("JFEM_SOL101_Q4_MAT2_EXTREME_ASPECT_CB_SCALE_ENABLED", true)
+    sol101_mat2_extreme_cb_factor =
+        clamp(solver_env_float("JFEM_SOL101_Q4_MAT2_EXTREME_ASPECT_CB_SCALE", 0.85), 0.1, 2.0)
+    sol101_mat2_extreme_cb_aspect_min =
+        max(solver_env_float("JFEM_SOL101_Q4_MAT2_EXTREME_ASPECT_MIN", 4.2), 1.0)
+    sol101_mat2_extreme_cb_aspect_max =
+        max(solver_env_float("JFEM_SOL101_Q4_MAT2_EXTREME_ASPECT_MAX", 0.0), 0.0)
+    sol101_mat2_extreme_cb_taper_min =
+        max(solver_env_float("JFEM_SOL101_Q4_MAT2_EXTREME_TAPER_MIN", 0.0), 0.0)
+    sol101_mat2_extreme_cb_taper_max =
+        max(solver_env_float("JFEM_SOL101_Q4_MAT2_EXTREME_TAPER_MAX", 0.96), 0.0)
+    sol101_mat2_extreme_cb_h_over_l_min =
+        max(solver_env_float("JFEM_SOL101_Q4_MAT2_EXTREME_H_OVER_L_MIN", 0.08), 0.0)
+    sol101_mat2_extreme_cb_h_over_l_max =
+        max(solver_env_float("JFEM_SOL101_Q4_MAT2_EXTREME_H_OVER_L_MAX", 0.20), 0.0)
+    sol101_mat2_extreme_cb_warp_min =
+        max(solver_env_float("JFEM_SOL101_Q4_MAT2_EXTREME_WARP_MIN", 0.0), 0.0)
+    sol101_mat2_extreme_cb_warp_max =
+        max(solver_env_float("JFEM_SOL101_Q4_MAT2_EXTREME_WARP_MAX", 0.0), 0.0)
     q4_bmb_incomp_coupling_mode =
         sol101_context && !shear_center_only &&
         !haskey(ENV, "JFEM_Q4_BMB_INCOMP_COUPLING_MODE") ?
         :no_cross : :env
     q4_membrane_incomp_scale =
         sol101_context && !shear_center_only ?
-        clamp(solver_env_float("JFEM_SOL101_Q4_MEMBRANE_INCOMP_SCALE", 0.85), 0.0, 2.0) :
+        clamp(solver_env_float("JFEM_SOL101_Q4_MEMBRANE_INCOMP_SCALE", 0.60), 0.0, 2.0) :
         1.0
+    q4_pcomp_membrane_incomp_scale_overridden =
+        haskey(ENV, "JFEM_SOL101_Q4_PCOMP_MEMBRANE_INCOMP_SCALE")
+    q4_membrane_incomp_scale_overridden =
+        haskey(ENV, "JFEM_SOL101_Q4_MEMBRANE_INCOMP_SCALE")
+    q4_pcomp_membrane_incomp_scale =
+        sol101_context && !shear_center_only ?
+        clamp(solver_env_float(
+            "JFEM_SOL101_Q4_PCOMP_MEMBRANE_INCOMP_SCALE",
+            q4_membrane_incomp_scale_overridden ? q4_membrane_incomp_scale : 0.60,
+        ), 0.0, 2.0) :
+        q4_membrane_incomp_scale
+    q4_sol101_aniso_membrane_scale_enabled =
+        sol101_context && !shear_center_only &&
+        solver_env_bool(
+            "JFEM_SOL101_Q4_ANISO_MEMBRANE_SCALE_ENABLED",
+            !(q4_membrane_incomp_scale_overridden || q4_pcomp_membrane_incomp_scale_overridden),
+        )
+    q4_sol101_aniso_c12_min =
+        max(solver_env_float("JFEM_SOL101_Q4_ANISO_MEMBRANE_C12_MIN", 0.50), 0.0)
+    q4_sol101_aniso_c66_min =
+        max(solver_env_float("JFEM_SOL101_Q4_ANISO_MEMBRANE_C66_MIN", 0.45), 0.0)
+    q4_sol101_aniso_c16_max =
+        max(solver_env_float("JFEM_SOL101_Q4_ANISO_MEMBRANE_C16_MAX", 1e-8), 0.0)
+    q4_sol101_aniso_warp_ratio_max =
+        max(solver_env_float("JFEM_SOL101_Q4_ANISO_MEMBRANE_WARP_RATIO_MAX", 0.01), 0.0)
+    q4_sol101_aniso_aspect_break =
+        max(solver_env_float("JFEM_SOL101_Q4_ANISO_MEMBRANE_ASPECT_BREAK", 2.0), 1.0)
+    q4_sol101_aniso_scale_low_aspect =
+        clamp(solver_env_float("JFEM_SOL101_Q4_ANISO_MEMBRANE_SCALE_LOW_ASPECT", 0.55), 0.0, 2.0)
+    q4_sol101_aniso_scale_high_aspect =
+        clamp(solver_env_float("JFEM_SOL101_Q4_ANISO_MEMBRANE_SCALE_HIGH_ASPECT", 0.65), 0.0, 2.0)
+    q4_sol101_low_coupling_scale_enabled =
+        sol101_context && !shear_center_only &&
+        solver_env_bool(
+            "JFEM_SOL101_Q4_LOW_COUPLING_MEMBRANE_SCALE_ENABLED",
+            !(q4_membrane_incomp_scale_overridden || q4_pcomp_membrane_incomp_scale_overridden),
+        )
+    q4_sol101_low_coupling_c12_max =
+        max(solver_env_float("JFEM_SOL101_Q4_LOW_COUPLING_MEMBRANE_C12_MAX", 0.10), 0.0)
+    q4_sol101_low_coupling_c66_max =
+        max(solver_env_float("JFEM_SOL101_Q4_LOW_COUPLING_MEMBRANE_C66_MAX", 0.15), 0.0)
+    q4_sol101_low_coupling_scale =
+        clamp(solver_env_float("JFEM_SOL101_Q4_LOW_COUPLING_MEMBRANE_SCALE", 1.0), 0.0, 2.0)
+    q4_sol101_membrane_mode_weights_overridden =
+        haskey(ENV, "JFEM_SOL101_Q4_MEMBRANE_INCOMP_MODE_WEIGHTS") ||
+        haskey(ENV, "JFEM_Q4_MEMBRANE_INCOMP_MODE_WEIGHTS")
+    q4_sol101_cross_membrane_weights_enabled =
+        sol101_context && !shear_center_only &&
+        !q4_sol101_membrane_mode_weights_overridden &&
+        solver_env_bool("JFEM_SOL101_Q4_CROSS_MEMBRANE_WEIGHTS_ENABLED", true)
+    q4_sol101_cross_membrane_weights_mixed_topology =
+        solver_env_bool("JFEM_SOL101_Q4_CROSS_MEMBRANE_WEIGHTS_MIXED_TOPOLOGY", false)
+    q4_sol101_cross_membrane_weights_unconstrained_mixed_topology =
+        solver_env_bool(
+            "JFEM_SOL101_Q4_CROSS_MEMBRANE_WEIGHTS_UNCONSTRAINED_MIXED_TOPOLOGY",
+            true,
+        )
+    q4_sol101_mat2_directional_weights_enabled =
+        sol101_context && !shear_center_only &&
+        !q4_sol101_membrane_mode_weights_overridden &&
+        solver_env_bool("JFEM_SOL101_Q4_MAT2_DIRECTIONAL_WEIGHTS_ENABLED", false)
+    q4_sol101_mat2_directional_aspect_min =
+        max(solver_env_float("JFEM_SOL101_Q4_MAT2_DIRECTIONAL_WEIGHTS_ASPECT_MIN", 5.0), 1.0)
+    q4_sol101_mat2_directional_warp_max =
+        max(solver_env_float("JFEM_SOL101_Q4_MAT2_DIRECTIONAL_WEIGHTS_WARP_MAX", 0.01), 0.0)
+    q4_sol101_mat2_directional_h_over_l_max =
+        max(solver_env_float("JFEM_SOL101_Q4_MAT2_DIRECTIONAL_WEIGHTS_H_OVER_L_MAX", 0.02), 0.0)
+    q4_sol101_mat2_directional_c16_max =
+        max(solver_env_float("JFEM_SOL101_Q4_MAT2_DIRECTIONAL_WEIGHTS_C16_MAX", 1e-8), 0.0)
+    q4_sol101_mat2_directional_wx =
+        clamp(solver_env_float("JFEM_SOL101_Q4_MAT2_DIRECTIONAL_WEIGHTS_WX", 0.20), 0.0, 2.0)
+    q4_sol101_mat2_directional_wy =
+        clamp(solver_env_float("JFEM_SOL101_Q4_MAT2_DIRECTIONAL_WEIGHTS_WY", 1.00), 0.0, 2.0)
     sol101_q4_iso_pshell_cb_scale =
         sol101_context && !shear_center_only ?
         clamp(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CB_SCALE", 0.85), 0.1, 2.0) :
@@ -2263,8 +2504,6 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         shear_center_only ? Int[] : q4_static_component_pid_list()
     static_component_eid_filter =
         shear_center_only ? Int[] : q4_static_component_eid_list()
-    static_component_neighbor_pid_prefixes =
-        shear_center_only ? String[] : q4_static_component_neighbor_pid_prefixes()
     static_component_v2_min = shear_center_only ? 0.0 : q4_static_component_v2_min()
     static_component_v2_max = shear_center_only ? 0.0 : q4_static_component_v2_max()
     static_component_v2 =
@@ -2278,6 +2517,28 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         shear_center_only ? 0.0 : q4_static_component_thickness_min()
     static_component_thickness_max =
         shear_center_only ? 0.0 : q4_static_component_thickness_max()
+    static_component_aspect_min =
+        shear_center_only ? 0.0 : q4_static_component_aspect_min()
+    static_component_aspect_max =
+        shear_center_only ? 0.0 : q4_static_component_aspect_max()
+    static_component_taper_min =
+        shear_center_only ? 0.0 : q4_static_component_taper_min()
+    static_component_taper_max =
+        shear_center_only ? 0.0 : q4_static_component_taper_max()
+    static_component_h_over_l_min =
+        shear_center_only ? 0.0 : q4_static_component_h_over_l_min()
+    static_component_h_over_l_max =
+        shear_center_only ? 0.0 : q4_static_component_h_over_l_max()
+    static_component_warp_min =
+        shear_center_only ? 0.0 : q4_static_component_warp_min()
+    static_component_warp_max =
+        shear_center_only ? 0.0 : q4_static_component_warp_max()
+    static_component_require_pshell_mat2 =
+        !shear_center_only &&
+        solver_env_bool("JFEM_Q4_STATIC_COMPONENT_REQUIRE_PSHELL_MAT2", false)
+    static_component_require_pcomp =
+        !shear_center_only &&
+        solver_env_bool("JFEM_Q4_STATIC_COMPONENT_REQUIRE_PCOMP", false)
     static_component_pcomp_shear_ratio_min =
         shear_center_only ? 0.0 : q4_static_component_pcomp_shear_ratio_min()
     static_component_pcomp_shear_ratio_max =
@@ -2304,9 +2565,18 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     # project_htp_curved_scaffold_2026_04_21.md in memory.
     curved_jacobian_enabled = q4_curved_jacobian_enabled(shear_center_only)
     q4_kernel_key = shear_center_only ? "JFEM_Q4_KERNEL_EIG" : "JFEM_Q4_KERNEL_STATIC"
+    # SOL101 static PCOMP: keep the MITC4-3D aspect route opt-in.
+    #
+    # The route is useful as a research branch, but on NAPA-derived static
+    # high-aspect PCOMP probes its transverse/shear block is too stiff versus
+    # Nastran. Disabling the automatic route is a generic element-formulation
+    # choice (PCOMP + static analysis branch), not a case-specific calibration:
+    # the standard CQUAD4/MacNeal static path gives better extracted-K and
+    # displacement parity on thin high-aspect laminates without moving the
+    # other local SOL101 feature probes. Users can still opt in explicitly.
     sol101_pcomp_mitc4_3d_aspect_default =
         sol101_context && !shear_center_only &&
-        solver_env_bool("JFEM_SOL101_PCOMP_MITC4_3D_ASPECT_DEFAULT", true)
+        solver_env_bool("JFEM_SOL101_PCOMP_MITC4_3D_ASPECT_DEFAULT", false)
     default_q4_kernel =
         sol101_pcomp_mitc4_3d_aspect_default ? "mitc4_3d_aspect" : "macneal"
     q4_kernel_mode_static = lowercase(strip(get(ENV, q4_kernel_key, get(ENV, "JFEM_Q4_KERNEL", default_q4_kernel))))
@@ -2325,9 +2595,27 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     mitc4_3d_aspect_skew_max = max(q4_mitc4_3d_aspect_skew_max(), mitc4_3d_aspect_skew_min)
     mitc4_3d_aspect_skew_aspect_min = q4_mitc4_3d_aspect_skew_aspect_min()
     mitc4_3d_aspect_pcomp_only = solver_env_bool("JFEM_Q4_MITC4_3D_ASPECT_PCOMP_ONLY", true)
+    sol101_static_mitc4_3d_aspect_h_over_l_max_default =
+        (sol101_context && !shear_center_only) ? 0.012 : 1e30
+    mitc4_3d_aspect_h_over_l_min =
+        max(solver_env_float("JFEM_Q4_MITC4_3D_ASPECT_H_OVER_L_MIN", 0.0), 0.0)
+    mitc4_3d_aspect_h_over_l_max =
+        max(
+            solver_env_float(
+                "JFEM_Q4_MITC4_3D_ASPECT_H_OVER_L_MAX",
+                sol101_static_mitc4_3d_aspect_h_over_l_max_default,
+            ),
+            mitc4_3d_aspect_h_over_l_min,
+        )
     mitc4_3d_ply_integration = solver_env_bool("JFEM_Q4_MITC4_3D_PLY_INTEGRATION", true)
+    # SOL101 static PSHELL probes against Nastran extracted-K matrices showed
+    # that the MITC4-3D high-skew fallback over-stiffens bad-taper CQUAD4
+    # neighborhoods. Keep the historical default for SOL105/eigen branches,
+    # but make this SOL101 static route opt-in.
+    mitc4_3d_high_skew_auto_default =
+        sol101_context && !shear_center_only ? false : true
     mitc4_3d_high_skew_auto =
-        q4_mitc4_3d_high_skew_auto_enabled() &&
+        solver_env_bool("JFEM_Q4_MITC4_3D_HIGH_SKEW_AUTO", mitc4_3d_high_skew_auto_default) &&
         q4_kernel_mode_static in (
             "macneal", "macneal_all", "macneal_pcomp", "macneal-pcomp",
             "macneal_aniso", "default",
@@ -2790,33 +3078,6 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         shell_valence[t3_idx[ei,1]] += 1
         shell_valence[t3_idx[ei,2]] += 1
         shell_valence[t3_idx[ei,3]] += 1
-    end
-    q4_static_component_neighbor_ok = trues(n_q4)
-    if !isempty(static_component_neighbor_pid_prefixes)
-        fill!(q4_static_component_neighbor_ok, false)
-        node_pid_sets = [Set{String}() for _ in 1:n_nodes]
-        for ei in 1:n_q4
-            pid_s = string(q4_pid_int[ei])
-            push!(node_pid_sets[q4_idx[ei,1]], pid_s)
-            push!(node_pid_sets[q4_idx[ei,2]], pid_s)
-            push!(node_pid_sets[q4_idx[ei,3]], pid_s)
-            push!(node_pid_sets[q4_idx[ei,4]], pid_s)
-        end
-        for ei in 1:n_q4
-            own_pid_s = string(q4_pid_int[ei])
-            ok = false
-            for idx in (q4_idx[ei,1], q4_idx[ei,2], q4_idx[ei,3], q4_idx[ei,4])
-                for pid_s in node_pid_sets[idx]
-                    if pid_s != own_pid_s &&
-                       q4_pid_matches_any_prefix(pid_s, static_component_neighbor_pid_prefixes)
-                        ok = true
-                        break
-                    end
-                end
-                ok && break
-            end
-            q4_static_component_neighbor_ok[ei] = ok
-        end
     end
     # --- PARALLEL QUAD4 ASSEMBLY ---
     per_thread_ws = [FEM.create_quad4_workspace() for _ in 1:nt]
@@ -3719,6 +3980,82 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                                static_pcomp_aspect_membrane_incomp ||
                                (pcomp_membrane_incomp && is_pcomp_ei) ||
                                (flat_iso_eig_membrane_incomp && elem_is_flat && q4_is_isotropic[ei])
+        elem_membrane_incomp_scale =
+            is_pcomp_ei ? q4_pcomp_membrane_incomp_scale : q4_membrane_incomp_scale
+        # SOL101 anisotropic membrane probes show that the incompatible-mode
+        # condensation weight is material-regime sensitive. Keep this generic:
+        # use only the local membrane constitutive ratios and element aspect,
+        # never deck names or validation-family identifiers.
+        sol101_aniso_membrane_geom_ok = elem_is_flat ||
+                                        warp_ratio_ei <= q4_sol101_aniso_warp_ratio_max
+        if elem_membrane_incomp &&
+           sol101_aniso_membrane_geom_ok &&
+           Bmb_local === nothing &&
+           (is_pcomp_ei || q4_pshell_mat2[ei]) &&
+           !is_pcomp_iso_ei &&
+           (q4_sol101_aniso_membrane_scale_enabled || q4_sol101_low_coupling_scale_enabled)
+            cm_den = sqrt(max(abs(Cm_local[1,1] * Cm_local[2,2]), 1e-30))
+            c12_ratio = abs(Cm_local[1,2]) / cm_den
+            c66_ratio = abs(Cm_local[3,3]) / cm_den
+            c16_ratio = abs(Cm_local[1,3]) / cm_den
+            c26_ratio = abs(Cm_local[2,3]) / cm_den
+            balanced_axes = c16_ratio <= q4_sol101_aniso_c16_max &&
+                            c26_ratio <= q4_sol101_aniso_c16_max
+            if balanced_axes &&
+               q4_sol101_aniso_membrane_scale_enabled &&
+               c12_ratio >= q4_sol101_aniso_c12_min &&
+               c66_ratio >= q4_sol101_aniso_c66_min
+                elem_membrane_incomp_scale =
+                    aspect_ratio_ei >= q4_sol101_aniso_aspect_break ?
+                    q4_sol101_aniso_scale_high_aspect :
+                    q4_sol101_aniso_scale_low_aspect
+            elseif balanced_axes &&
+                   q4_sol101_low_coupling_scale_enabled &&
+                   c12_ratio <= q4_sol101_low_coupling_c12_max &&
+                   c66_ratio <= q4_sol101_low_coupling_c66_max
+                elem_membrane_incomp_scale = q4_sol101_low_coupling_scale
+            end
+        end
+        # Nastran SOL101 CQUAD4 membrane matrix extractions for MAT1, MAT2,
+        # and PCOMP flat quads are reproduced by condensing the cross/shear
+        # Wilson membrane modes only. Mildly warped anisotropic quads still use
+        # the generic material-regime scale above, but keep the full Wilson
+        # basis because the cross/shear-only projection is a flat-operator
+        # result. These gates depend on local geometry and constitutive
+        # coupling, never deck names or validation families.
+        cross_membrane_weights_topology_ok =
+            q4_sol101_cross_membrane_weights_mixed_topology ||
+            (!model_has_line_elements && !model_has_kinematic_constraints) ||
+            (q4_sol101_cross_membrane_weights_unconstrained_mixed_topology &&
+             model_has_line_elements && !model_has_kinematic_constraints)
+        elem_membrane_incomp_weights =
+            q4_sol101_cross_membrane_weights_enabled &&
+            cross_membrane_weights_topology_ok &&
+            elem_membrane_incomp &&
+            elem_is_flat &&
+            Bmb_local === nothing ?
+            (0.0, 1.0, 1.0, 0.0) : nothing
+        if elem_membrane_incomp_weights === nothing &&
+           q4_sol101_mat2_directional_weights_enabled &&
+           elem_membrane_incomp &&
+           q4_pshell_mat2[ei] &&
+           Bmb_local === nothing &&
+           aspect_ratio_ei >= q4_sol101_mat2_directional_aspect_min &&
+           warp_ratio_ei <= q4_sol101_mat2_directional_warp_max &&
+           flat_pcomp_h_over_l <= q4_sol101_mat2_directional_h_over_l_max
+            cm_den = sqrt(max(abs(Cm_local[1,1] * Cm_local[2,2]), 1e-30))
+            c16_ratio = abs(Cm_local[1,3]) / cm_den
+            c26_ratio = abs(Cm_local[2,3]) / cm_den
+            if c16_ratio <= q4_sol101_mat2_directional_c16_max &&
+               c26_ratio <= q4_sol101_mat2_directional_c16_max
+                elem_membrane_incomp_weights = (
+                    q4_sol101_mat2_directional_wx,
+                    q4_sol101_mat2_directional_wy,
+                    q4_sol101_mat2_directional_wx,
+                    q4_sol101_mat2_directional_wy,
+                )
+            end
+        end
         # Formal flat symmetric-laminate plate/shell regime:
         # use a DKMQ-style stiffness split (membrane + MITC shear + DKQ bending)
         # when the laminate has no membrane-bending coupling and the geometry is flat.
@@ -3775,7 +4112,20 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                                     is_pcomp_ei &&
                                     !is_pcomp_iso_ei &&
                                     Bmb_local === nothing
-        elem_exact_membrane_operator = elem_iso_exact_membrane || elem_pcomp_exact_membrane
+        elem_sol101_pcomp_exact_membrane =
+            sol101_flat_pcomp_exact_membrane &&
+            elem_is_flat &&
+            is_pcomp_ei &&
+            !is_pcomp_iso_ei &&
+            Bmb_local === nothing
+        elem_sol101_iso_exact_membrane =
+            sol101_flat_iso_exact_membrane &&
+            elem_is_flat &&
+            is_iso_ei &&
+            Bmb_local === nothing
+        elem_exact_membrane_operator =
+            elem_iso_exact_membrane || elem_pcomp_exact_membrane ||
+            elem_sol101_pcomp_exact_membrane || elem_sol101_iso_exact_membrane
         # Flat facets on a curved shell patch still need the membrane-to-w
         elem_iso_exact_membrane_curvature_w_coupling =
             elem_cyl_iso_exact_membrane
@@ -3896,6 +4246,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                     mitc4_3d_aspect_skew_max,
                     mitc4_3d_aspect_skew_aspect_min,
                 ) &&
+                flat_pcomp_h_over_l >= mitc4_3d_aspect_h_over_l_min &&
+                flat_pcomp_h_over_l <= mitc4_3d_aspect_h_over_l_max &&
                 (!mitc4_3d_aspect_pcomp_only || is_pcomp_ei)
             else
                 false
@@ -3906,9 +4258,23 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
              (q4_pid_int[ei] in static_component_pid_filter)) &&
             (isempty(static_component_eid_filter) ||
              (q4_eid_int[ei] in static_component_eid_filter)) &&
+            (!static_component_require_pshell_mat2 || q4_pshell_mat2[ei]) &&
+            (!static_component_require_pcomp || is_pcomp_ei) &&
             q4_static_component_range_ok(q4_h[ei],
                                          static_component_thickness_min,
                                          static_component_thickness_max) &&
+            q4_static_component_range_ok(aspect_ratio_ei,
+                                         static_component_aspect_min,
+                                         static_component_aspect_max) &&
+            q4_static_component_range_ok(taper_ratio_ei,
+                                         static_component_taper_min,
+                                         static_component_taper_max) &&
+            q4_static_component_range_ok(flat_pcomp_h_over_l,
+                                         static_component_h_over_l_min,
+                                         static_component_h_over_l_max) &&
+            q4_static_component_range_ok(warp_ratio_ei,
+                                         static_component_warp_min,
+                                         static_component_warp_max) &&
             q4_static_component_pcomp_range_ok(is_pcomp_ei,
                                                q4_pcomp_shear_ratio[ei],
                                                static_component_pcomp_shear_ratio_min,
@@ -3920,8 +4286,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             q4_static_component_pcomp_range_ok(is_pcomp_ei,
                                                q4_pcomp_b_ratio[ei],
                                                static_component_pcomp_b_ratio_min,
-                                               static_component_pcomp_b_ratio_max) &&
-            q4_static_component_neighbor_ok[ei]
+                                               static_component_pcomp_b_ratio_max)
         elem_static_component_cm_scale = elem_static_component_scale_ok ? static_component_cm_scale : 1.0
         elem_static_component_cb_scale = elem_static_component_scale_ok ? static_component_cb_scale : 1.0
         elem_static_component_cs_scale = elem_static_component_scale_ok ? static_component_cs_scale : 1.0
@@ -3940,6 +4305,27 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
            q4_pshell_blank_mid3[ei]
             @inbounds @fastmath for jj in 1:3, ii in 1:3
                 Cb_local[ii, jj] *= sol101_pshell_mat2_cb_scale
+            end
+        end
+        elem_sol101_mat2_extreme_cb_ok =
+            sol101_mat2_extreme_cb_enabled &&
+            !is_pcomp_ei &&
+            q4_pshell_mat2[ei] &&
+            q4_static_component_range_ok(aspect_ratio_ei,
+                                         sol101_mat2_extreme_cb_aspect_min,
+                                         sol101_mat2_extreme_cb_aspect_max) &&
+            q4_static_component_range_ok(taper_ratio_ei,
+                                         sol101_mat2_extreme_cb_taper_min,
+                                         sol101_mat2_extreme_cb_taper_max) &&
+            q4_static_component_range_ok(flat_pcomp_h_over_l,
+                                         sol101_mat2_extreme_cb_h_over_l_min,
+                                         sol101_mat2_extreme_cb_h_over_l_max) &&
+            q4_static_component_range_ok(warp_ratio_ei,
+                                         sol101_mat2_extreme_cb_warp_min,
+                                         sol101_mat2_extreme_cb_warp_max)
+        if elem_sol101_mat2_extreme_cb_ok && sol101_mat2_extreme_cb_factor != 1.0
+            @inbounds @fastmath for jj in 1:3, ii in 1:3
+                Cb_local[ii, jj] *= sol101_mat2_extreme_cb_factor
             end
         end
         if elem_static_component_cm_scale != 1.0
@@ -3993,7 +4379,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 drill_scale=elem_drill_scale,
                 ws=ws_stiff, bending_incomp=elem_bending_incomp, shear_center_only=true,
                 no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
-                membrane_incomp_scale=q4_membrane_incomp_scale, curvature_membrane=curvature_membrane,
+                membrane_incomp_scale=elem_membrane_incomp_scale,
+                membrane_incomp_weights=elem_membrane_incomp_weights,
+                curvature_membrane=curvature_membrane,
                 membrane_shear_center_row=elem_membrane_shear_center_row, material_shear_rotation=elem_material_shear_rotation,
                 membrane_assumed_mode=elem_membrane_assumed_mode,
                 membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
@@ -4010,7 +4398,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 drill_scale=elem_drill_scale,
                 ws=per_thread_ws_alt[tid], bending_incomp=elem_bending_incomp, shear_center_only=false,
                 no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
-                membrane_incomp_scale=q4_membrane_incomp_scale, curvature_membrane=curvature_membrane,
+                membrane_incomp_scale=elem_membrane_incomp_scale,
+                membrane_incomp_weights=elem_membrane_incomp_weights,
+                curvature_membrane=curvature_membrane,
                 membrane_shear_center_row=elem_membrane_shear_center_row, material_shear_rotation=elem_material_shear_rotation,
                 membrane_assumed_mode=elem_membrane_assumed_mode,
                 membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
@@ -4070,7 +4460,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                     drill_scale=elem_drill_scale,
                     ws=ws_stiff, bending_incomp=elem_bending_incomp, shear_center_only=true,
                     no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
-                    membrane_incomp_scale=q4_membrane_incomp_scale, curvature_membrane=curvature_membrane,
+                    membrane_incomp_scale=elem_membrane_incomp_scale,
+                    membrane_incomp_weights=elem_membrane_incomp_weights,
+                    curvature_membrane=curvature_membrane,
                     membrane_shear_center_row=elem_membrane_shear_center_row, material_shear_rotation=elem_material_shear_rotation,
                     membrane_assumed_mode=elem_membrane_assumed_mode,
                     membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
@@ -4089,7 +4481,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                     drill_scale=elem_drill_scale,
                     ws=ws_stiff, bending_incomp=elem_bending_incomp, shear_center_only=true,
                     no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
-                    membrane_incomp_scale=q4_membrane_incomp_scale, curvature_membrane=curvature_membrane,
+                    membrane_incomp_scale=elem_membrane_incomp_scale,
+                    membrane_incomp_weights=elem_membrane_incomp_weights,
+                    curvature_membrane=curvature_membrane,
                     membrane_shear_center_row=elem_membrane_shear_center_row, material_shear_rotation=elem_material_shear_rotation,
                     membrane_assumed_mode=elem_membrane_assumed_mode,
                     membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
@@ -4106,7 +4500,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                     drill_scale=elem_drill_scale,
                     ws=per_thread_ws_alt[tid], bending_incomp=elem_bending_incomp, shear_center_only=false,
                     no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
-                    membrane_incomp_scale=q4_membrane_incomp_scale, curvature_membrane=curvature_membrane,
+                    membrane_incomp_scale=elem_membrane_incomp_scale,
+                    membrane_incomp_weights=elem_membrane_incomp_weights,
+                    curvature_membrane=curvature_membrane,
                     membrane_shear_center_row=elem_membrane_shear_center_row, material_shear_rotation=elem_material_shear_rotation,
                     membrane_assumed_mode=elem_membrane_assumed_mode,
                     membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
@@ -4129,7 +4525,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                     drill_scale=elem_drill_scale,
                     ws=ws_stiff, bending_incomp=elem_bending_incomp, shear_center_only=false,
                     no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
-                    membrane_incomp_scale=q4_membrane_incomp_scale, curvature_membrane=curvature_membrane,
+                    membrane_incomp_scale=elem_membrane_incomp_scale,
+                    membrane_incomp_weights=elem_membrane_incomp_weights,
+                    curvature_membrane=curvature_membrane,
                     membrane_shear_center_row=elem_membrane_shear_center_row, material_shear_rotation=elem_material_shear_rotation,
                 membrane_assumed_mode=elem_membrane_assumed_mode,
                 membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
@@ -4149,7 +4547,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 drill_scale=elem_drill_scale,
                 ws=ws_stiff, bending_incomp=elem_bending_incomp, shear_center_only=elem_shear_center_only,
                 no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
-                membrane_incomp_scale=q4_membrane_incomp_scale, curvature_membrane=curvature_membrane,
+                membrane_incomp_scale=elem_membrane_incomp_scale,
+                membrane_incomp_weights=elem_membrane_incomp_weights,
+                curvature_membrane=curvature_membrane,
                 membrane_shear_center_row=elem_membrane_shear_center_row, material_shear_rotation=elem_material_shear_rotation,
                 membrane_assumed_mode=elem_membrane_assumed_mode,
                 membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
@@ -4373,15 +4773,16 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             T_buf[7:9, 10:12] = -Rel_t * S_wb * node_R[i2]
         end
 
-        Iy = get(prop, "I2", get(prop, "I", 0.0))
-        Iz = get(prop, "I1", get(prop, "I", 0.0))
-        if Iy == 0.0; Iy = Iz; end
-        if Iz == 0.0; Iz = Iy; end
+        Iy, Iz = _bar_bending_inertias(prop)
         Iyz = Float64(get(prop, "I12", 0.0))
         K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
         As_y = (K1 > 0.0) ? K1 * prop["A"] : Inf
         As_z = (K2 > 0.0) ? K2 * prop["A"] : Inf
-        Ke_loc = FEM.stiffness_frame3d(L, prop["A"], Iy, Iz, prop["J"], mat["E"], mat["G"]; As_y=As_y, As_z=As_z, I12=Iyz)
+        Ke_loc = _pbeam_station_condensed_stiffness(L, prop, mat["E"], mat["G"])
+        if isnothing(Ke_loc)
+            Ke_loc = FEM.stiffness_frame3d(L, prop["A"], Iy, Iz, prop["J"], mat["E"], mat["G"]; As_y=As_y, As_z=As_z, I12=Iyz)
+        end
+        Ke_loc = _apply_pbeam_neutral_axis_coupling(Ke_loc, prop)
         # Apply pin flags (PA/PB) via static condensation on local stiffness
         pa = get(bar, "PA", 0); pb = get(bar, "PB", 0)
         if pa != 0 || pb != 0
@@ -4440,15 +4841,16 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             T_buf[7:9, 10:12] = -Rel_t * S_wb * node_R[i2]
         end
 
-        Iy = get(prop, "I2", get(prop, "I", 0.0))
-        Iz = get(prop, "I1", get(prop, "I", 0.0))
-        if Iy == 0.0; Iy = Iz; end
-        if Iz == 0.0; Iz = Iy; end
+        Iy, Iz = _bar_bending_inertias(prop)
         Iyz = Float64(get(prop, "I12", 0.0))
         K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
         As_y = (K1 > 0.0) ? K1 * prop["A"] : Inf
         As_z = (K2 > 0.0) ? K2 * prop["A"] : Inf
-        Ke_loc = FEM.stiffness_frame3d(L, prop["A"], Iy, Iz, prop["J"], mat["E"], mat["G"]; As_y=As_y, As_z=As_z, I12=Iyz)
+        Ke_loc = _pbeam_station_condensed_stiffness(L, prop, mat["E"], mat["G"])
+        if isnothing(Ke_loc)
+            Ke_loc = FEM.stiffness_frame3d(L, prop["A"], Iy, Iz, prop["J"], mat["E"], mat["G"]; As_y=As_y, As_z=As_z, I12=Iyz)
+        end
+        Ke_loc = _apply_pbeam_neutral_axis_coupling(Ke_loc, prop)
         # Apply pin flags (PA/PB) via static condensation on local stiffness
         pa = get(bar, "PA", 0); pb = get(bar, "PB", 0)
         if pa != 0 || pb != 0
@@ -4940,9 +5342,6 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     kg_covariant_blend = kg_quad4_covariant_blend()
     kg_covariant_auto_kappa_l_min = kg_quad4_covariant_auto_kappa_l_min()
     kg_covariant_auto_cyl_ratio_max = kg_quad4_covariant_auto_cyl_ratio_max()
-    kg_auto_gp_patch = kg_quad4_auto_gp_patch_enabled()
-    kg_auto_gp_patch_valence_min = kg_quad4_auto_gp_patch_valence_min()
-    kg_auto_gp_patch_kappa_l_min = kg_quad4_auto_gp_patch_kappa_l_min()
     kg_shear_avg_operator = kg_quad4_shear_average_operator_enabled()
     kg_shear_avg_ratio_min = kg_quad4_shear_average_ratio_min()
     kg_shear_avg_warp_min = kg_quad4_shear_average_warp_min()
@@ -5555,15 +5954,6 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     kg_rot_grad_scale_eff = max(kg_rot_grad_scale_eff, kg_rot_grad_auto_iso_scale)
                 end
             end
-            auto_gp_patch_candidate = false
-            if kg_auto_gp_patch && geom_curvature !== nothing
-                k1_patch, _ = q4_curvature_principal_abs(geom_curvature)
-                kappa_l_patch = k1_patch * q4_curvature_characteristic_length(lc_buf4)
-                max_valence = max(shell_valence[i1], shell_valence[i2], shell_valence[i3], shell_valence[i4])
-                auto_gp_patch_candidate = max_valence >= kg_auto_gp_patch_valence_min &&
-                    kappa_l_patch >= kg_auto_gp_patch_kappa_l_min
-            end
-
             # Build transformation matrix T (24x24)
             fill!(T_buf, 0.0)
             for k in 1:4
@@ -5899,10 +6289,6 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     kg_shear_avg_aspect_max,
                     kg_shear_avg_geom_mode,
                 )
-            if !use_gp_sigma && auto_gp_patch_candidate
-                use_gp_sigma = true
-                stress_mode_label = "gauss_auto_patch"
-            end
             if gp_blend_override === nothing && !use_gp_sigma && kg_auto_gp_spread && geom_curvature !== nothing
                 gp_mean_norm = 0.0
                 @inbounds for gp in 1:size(N_gp, 1)
@@ -6726,10 +7112,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
         u_bar = T12 * u_elem
 
         # Compute axial force
-        Iy = get(prop, "I2", get(prop, "I", 0.0))
-        Iz = get(prop, "I1", get(prop, "I", 0.0))
-        if Iy == 0.0; Iy = Iz; end
-        if Iz == 0.0; Iz = Iy; end
+        Iy, Iz = _bar_bending_inertias(prop)
         Iyz = Float64(get(prop, "I12", 0.0))
         K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
         As_y = (K1 > 0.0) ? K1 * prop["A"] : Inf
@@ -6789,9 +7172,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
         u_elem = @views vcat(u_global[(b1+1):(b1+6)], u_global[(b2+1):(b2+6)])
         u_bar = T12 * u_elem
 
-        Iy = get(prop, "I2", get(prop, "I", 0.0))
-        Iz = get(prop, "I1", get(prop, "I", 0.0))
-        if Iy == 0.0; Iy = Iz; end; if Iz == 0.0; Iz = Iy; end
+        Iy, Iz = _bar_bending_inertias(prop)
         Iyz = Float64(get(prop, "I12", 0.0))
         K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
         As_y = (K1 > 0.0) ? K1 * prop["A"] : Inf

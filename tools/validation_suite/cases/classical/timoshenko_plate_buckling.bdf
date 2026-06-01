@@ -1,0 +1,142 @@
+$ Classical simply-supported square plate under uniaxial in-plane
+$ compression. SOL 105 linear buckling.
+$
+$ Geometry: a = b = 1, t = 0.01. Material E = 210e9, nu = 0.3.
+$ Reference (Timoshenko & Gere, Theory of Elastic Stability, Ch. 9):
+$     sigma_cr = 4 * pi^2 * E * t^2 / (12 * (1 - nu^2) * b^2)
+$              ~= 7.591e7 Pa
+$ The applied edge load resolves to a uniform sigma_x = 1 Pa, so the SOL
+$ 105 eigenvalue equals sigma_cr directly.
+$
+$ Mesh 5x5 = 25 CQUAD4 over the unit square, 6x6 = 36 nodes.
+$ BCs:
+$   - All four edges: Uz = 0 (simply supported, plate normal is global Z)
+$   - Left edge (x=0): Ux = 0 (anchor for compression)
+$   - Node 1 (origin): Uy = 0 (anchor for in-plane Y translation)
+$ Loading: uniform compressive resultant 0.01 N applied on the right edge
+$ (x=1), distributed by consistent nodal forces (0.001 at corners,
+$ 0.002 at interior nodes).
+$
+SOL 105
+CEND
+TITLE = Classical SS square plate, uniaxial compression buckling
+SUBCASE 1
+  LABEL = Static preload (unit uniaxial compression)
+  SPC = 1
+  LOAD = 1
+SUBCASE 2
+  LABEL = Buckling eigenvalue
+  STATSUB = 1
+  METHOD  = 1
+BEGIN BULK
+$ ---- buckling eigenvalue extraction: subspace inverse iteration ----
+$ EIGB / INV is more robust than EIGRL on the reference solver build for
+$ small SOL 105 decks. Range [0, 1e9] brackets sigma_cr ~= 7.6e7 Pa.
+EIGB, 1, INV, 0.0, 1.0E9, 4
+$ ---- small drilling-DOF stiffness avoids near-singular Rz mechanisms ----
+PARAM, K6ROT, 100.0
+$ ---- material and property ----
+MAT1, 1, 2.1+11, , 0.3
+PSHELL, 1, 1, 0.01, 1
+$ ---- grids: 6x6 on a 1.0 x 1.0 plate, dz = 0 ----
+$ Node ID = 6*j + i + 1 ; i, j in 0..5 ; x = 0.2 i, y = 0.2 j.
+GRID,  1, , 0.0, 0.0, 0.0
+GRID,  2, , 0.2, 0.0, 0.0
+GRID,  3, , 0.4, 0.0, 0.0
+GRID,  4, , 0.6, 0.0, 0.0
+GRID,  5, , 0.8, 0.0, 0.0
+GRID,  6, , 1.0, 0.0, 0.0
+GRID,  7, , 0.0, 0.2, 0.0
+GRID,  8, , 0.2, 0.2, 0.0
+GRID,  9, , 0.4, 0.2, 0.0
+GRID, 10, , 0.6, 0.2, 0.0
+GRID, 11, , 0.8, 0.2, 0.0
+GRID, 12, , 1.0, 0.2, 0.0
+GRID, 13, , 0.0, 0.4, 0.0
+GRID, 14, , 0.2, 0.4, 0.0
+GRID, 15, , 0.4, 0.4, 0.0
+GRID, 16, , 0.6, 0.4, 0.0
+GRID, 17, , 0.8, 0.4, 0.0
+GRID, 18, , 1.0, 0.4, 0.0
+GRID, 19, , 0.0, 0.6, 0.0
+GRID, 20, , 0.2, 0.6, 0.0
+GRID, 21, , 0.4, 0.6, 0.0
+GRID, 22, , 0.6, 0.6, 0.0
+GRID, 23, , 0.8, 0.6, 0.0
+GRID, 24, , 1.0, 0.6, 0.0
+GRID, 25, , 0.0, 0.8, 0.0
+GRID, 26, , 0.2, 0.8, 0.0
+GRID, 27, , 0.4, 0.8, 0.0
+GRID, 28, , 0.6, 0.8, 0.0
+GRID, 29, , 0.8, 0.8, 0.0
+GRID, 30, , 1.0, 0.8, 0.0
+GRID, 31, , 0.0, 1.0, 0.0
+GRID, 32, , 0.2, 1.0, 0.0
+GRID, 33, , 0.4, 1.0, 0.0
+GRID, 34, , 0.6, 1.0, 0.0
+GRID, 35, , 0.8, 1.0, 0.0
+GRID, 36, , 1.0, 1.0, 0.0
+$ ---- elements (5x5 grid) ----
+CQUAD4,  1, 1,  1,  2,  8,  7
+CQUAD4,  2, 1,  2,  3,  9,  8
+CQUAD4,  3, 1,  3,  4, 10,  9
+CQUAD4,  4, 1,  4,  5, 11, 10
+CQUAD4,  5, 1,  5,  6, 12, 11
+CQUAD4,  6, 1,  7,  8, 14, 13
+CQUAD4,  7, 1,  8,  9, 15, 14
+CQUAD4,  8, 1,  9, 10, 16, 15
+CQUAD4,  9, 1, 10, 11, 17, 16
+CQUAD4, 10, 1, 11, 12, 18, 17
+CQUAD4, 11, 1, 13, 14, 20, 19
+CQUAD4, 12, 1, 14, 15, 21, 20
+CQUAD4, 13, 1, 15, 16, 22, 21
+CQUAD4, 14, 1, 16, 17, 23, 22
+CQUAD4, 15, 1, 17, 18, 24, 23
+CQUAD4, 16, 1, 19, 20, 26, 25
+CQUAD4, 17, 1, 20, 21, 27, 26
+CQUAD4, 18, 1, 21, 22, 28, 27
+CQUAD4, 19, 1, 22, 23, 29, 28
+CQUAD4, 20, 1, 23, 24, 30, 29
+CQUAD4, 21, 1, 25, 26, 32, 31
+CQUAD4, 22, 1, 26, 27, 33, 32
+CQUAD4, 23, 1, 27, 28, 34, 33
+CQUAD4, 24, 1, 28, 29, 35, 34
+CQUAD4, 25, 1, 29, 30, 36, 35
+$ ---- BCs ----
+$ Simply-supported on all 4 edges: Uz = 0
+$ bottom (y=0): nodes 1-6
+SPC1, 1, 3, 1, THRU, 6
+$ top (y=1): nodes 31-36
+SPC1, 1, 3, 31, THRU, 36
+$ left (x=0): nodes 1, 7, 13, 19, 25, 31
+SPC1, 1, 3, 1
+SPC1, 1, 3, 7
+SPC1, 1, 3, 13
+SPC1, 1, 3, 19
+SPC1, 1, 3, 25
+SPC1, 1, 3, 31
+$ right (x=1): nodes 6, 12, 18, 24, 30, 36
+SPC1, 1, 3, 6
+SPC1, 1, 3, 12
+SPC1, 1, 3, 18
+SPC1, 1, 3, 24
+SPC1, 1, 3, 30
+SPC1, 1, 3, 36
+$ Anchor left edge in X to take the compressive reaction
+SPC1, 1, 1, 1
+SPC1, 1, 1, 7
+SPC1, 1, 1, 13
+SPC1, 1, 1, 19
+SPC1, 1, 1, 25
+SPC1, 1, 1, 31
+$ Anchor a single Y at the origin to remove rigid body Y
+SPC1, 1, 2, 1
+$ ---- loads: compression on x = 1 edge, total = 0.01 N in -X ----
+$ corner nodes (6 and 36): 0.001 each ; interior (12, 18, 24, 30): 0.002
+FORCE, 1,  6, , 0.001, -1.0, 0.0, 0.0
+FORCE, 1, 12, , 0.002, -1.0, 0.0, 0.0
+FORCE, 1, 18, , 0.002, -1.0, 0.0, 0.0
+FORCE, 1, 24, , 0.002, -1.0, 0.0, 0.0
+FORCE, 1, 30, , 0.002, -1.0, 0.0, 0.0
+FORCE, 1, 36, , 0.001, -1.0, 0.0, 0.0
+ENDDATA

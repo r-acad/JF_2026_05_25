@@ -256,6 +256,13 @@ function extract_pbeam(cards)
         F1_a = Float64(parse_nastran_number(safe_get(c, 17), 0.0))
         F2_a = Float64(parse_nastran_number(safe_get(c, 18), 0.0))
 
+        stations = Dict{String,Any}[
+            Dict{String,Any}(
+                "X"=>0.0, "A"=>A_a, "I1"=>I1_a, "I2"=>I2_a,
+                "I12"=>I12_a, "J"=>J_a
+            )
+        ]
+
         # Default station B = station A
         A_b = A_a; I1_b = I1_a; I2_b = I2_a; I12_b = I12_a; J_b = J_a
         C1_b = C1_a; C2_b = C2_a; D1_b = D1_a; D2_b = D2_a
@@ -267,11 +274,16 @@ function extract_pbeam(cards)
         while k + 7 <= length(c)
             so_raw = uppercase(strip(string(safe_get(c, k, ""))))
             if so_raw == "YES" || so_raw == "YESA" || so_raw == "NO"
+                x_b = Float64(parse_nastran_number(safe_get(c, k+1), 1.0))
                 A_b   = Float64(parse_nastran_number(safe_get(c, k+2), A_a))
                 I1_b  = Float64(parse_nastran_number(safe_get(c, k+3), I1_a))
                 I2_b  = Float64(parse_nastran_number(safe_get(c, k+4), I2_a))
                 I12_b = Float64(parse_nastran_number(safe_get(c, k+5), I12_a))
                 J_b   = Float64(parse_nastran_number(safe_get(c, k+6), J_a))
+                push!(stations, Dict{String,Any}(
+                    "X"=>x_b, "A"=>A_b, "I1"=>I1_b, "I2"=>I2_b,
+                    "I12"=>I12_b, "J"=>J_b
+                ))
                 # Stress recovery for this station (8 more fields)
                 if k + 15 <= length(c)
                     C1_b = Float64(parse_nastran_number(safe_get(c, k+8),  0.0))
@@ -292,6 +304,20 @@ function extract_pbeam(cards)
         # K1, K2 follow after all stations
         K1 = Float64(parse_nastran_number(safe_get(c, k),   0.0))
         K2 = Float64(parse_nastran_number(safe_get(c, k+1), 0.0))
+        S1 = Float64(parse_nastran_number(safe_get(c, k+2), 0.0))
+        S2 = Float64(parse_nastran_number(safe_get(c, k+3), 0.0))
+        NSIA = Float64(parse_nastran_number(safe_get(c, k+4), 0.0))
+        NSIB = Float64(parse_nastran_number(safe_get(c, k+5), 0.0))
+        CWA = Float64(parse_nastran_number(safe_get(c, k+6), 0.0))
+        CWB = Float64(parse_nastran_number(safe_get(c, k+7), 0.0))
+        M1A = Float64(parse_nastran_number(safe_get(c, k+8), 0.0))
+        M2A = Float64(parse_nastran_number(safe_get(c, k+9), 0.0))
+        M1B = Float64(parse_nastran_number(safe_get(c, k+10), 0.0))
+        M2B = Float64(parse_nastran_number(safe_get(c, k+11), 0.0))
+        N1A = Float64(parse_nastran_number(safe_get(c, k+12), 0.0))
+        N2A = Float64(parse_nastran_number(safe_get(c, k+13), 0.0))
+        N1B = Float64(parse_nastran_number(safe_get(c, k+14), 0.0))
+        N2B = Float64(parse_nastran_number(safe_get(c, k+15), 0.0))
 
         # Average properties between station A and station B
         A_avg   = (A_a + A_b) / 2.0
@@ -306,6 +332,11 @@ function extract_pbeam(cards)
                 "I1"=>I1_avg, "I2"=>I2_avg, "I12"=>I12_avg, "J"=>J_avg,
                 "I"=>I1_avg,
                 "TYPE"=>"PBEAM", "K1"=>K1, "K2"=>K2,
+                "STATIONS"=>stations,
+                "S1"=>S1, "S2"=>S2, "NSIA"=>NSIA, "NSIB"=>NSIB,
+                "CWA"=>CWA, "CWB"=>CWB,
+                "M1A"=>M1A, "M2A"=>M2A, "M1B"=>M1B, "M2B"=>M2B,
+                "N1A"=>N1A, "N2A"=>N2A, "N1B"=>N1B, "N2B"=>N2B,
                 "C1"=>(C1_a+C1_b)/2, "C2"=>(C2_a+C2_b)/2,
                 "D1"=>(D1_a+D1_b)/2, "D2"=>(D2_a+D2_b)/2,
                 "E1"=>(E1_a+E1_b)/2, "E2"=>(E2_a+E2_b)/2,

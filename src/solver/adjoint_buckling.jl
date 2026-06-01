@@ -1228,9 +1228,6 @@ function _covariant_iso_quad4_sigma_input(ctx,
     use_gp_sigma = false
     if isnothing(force_sigma_field_mode)
         use_gp_sigma = isnothing(force_use_gp_sigma) ? kg_quad4_use_gp_field(N_gp, N_res) : force_use_gp_sigma
-        if !use_gp_sigma && ctx.auto_gp_patch_candidate
-            use_gp_sigma = true
-        end
         if !use_gp_sigma && ctx.auto_gp_spread && !isnothing(ctx.geom_curvature)
             gp_mean_norm = 0.0
             @inbounds for gp in 1:size(N_gp, 1)
@@ -1630,16 +1627,6 @@ function _covariant_iso_quad4_kg_context(el, model, id_map, node_coords, node_R,
         end
     end
 
-    auto_gp_patch_candidate = false
-    if !isnothing(geom_curvature) && kg_quad4_auto_gp_patch_enabled()
-        k1_patch, _ = q4_curvature_principal_abs(geom_curvature)
-        kappa_l_patch = k1_patch * q4_curvature_characteristic_length(qd.lc)
-        max_valence = maximum(support.shell_valence[idx] for idx in qd.idxs)
-        auto_gp_patch_candidate =
-            max_valence >= kg_quad4_auto_gp_patch_valence_min() &&
-            kappa_l_patch >= kg_quad4_auto_gp_patch_kappa_l_min()
-    end
-
     membrane_recovery_mode = kg_quad4_membrane_recovery_mode()
     use_covariant_membrane =
         compatible_only &&
@@ -1700,7 +1687,6 @@ function _covariant_iso_quad4_kg_context(el, model, id_map, node_coords, node_R,
         use_iso_exact_membrane = use_iso_exact_membrane,
         covariant_blend = covariant_blend,
         curvature_membrane = curvature_membrane,
-        auto_gp_patch_candidate = auto_gp_patch_candidate,
         auto_gp_spread = kg_quad4_auto_gp_spread_enabled(),
         geom_curvature = geom_curvature,
         covariant_membrane_candidate = covariant_membrane_candidate,

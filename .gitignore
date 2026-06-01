@@ -17,6 +17,7 @@ __pycache__/
 output/
 tmp_*
 build/
+POST/panel_runs/
 
 # Nastran/JFEM heavy run artifacts
 *.f04

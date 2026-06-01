@@ -30,3 +30,11 @@ end
 if !isdefined(@__MODULE__, :solve_model)
     include("JFEMSolver.jl")
 end
+
+if !isdefined(@__MODULE__, :export_results)
+    include("Export.jl")
+end
+
+if !isdefined(@__MODULE__, :export_markdown_report)
+    include("MarkdownReport.jl")
+end
