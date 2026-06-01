@@ -6,6 +6,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `Reference_documentation/JFEM_TACS_Backend_Roadmap_Beamer.pdf`: roadmap
+  slides for a TACS-style backend.
 - `POST/` stiffened-panel buckling web app: a pure-Julia HTTP + MsgPack
   server (`panel_server.jl`, `panel_launch.jl`, `panel_app.cmd/.sh`) plus a
   single-file Babylon.js front-end (`panel_app.html`, vendored libs under
