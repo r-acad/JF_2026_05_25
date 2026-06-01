@@ -22,10 +22,24 @@ echo.
 echo   Keep this window OPEN while you work. Close it (or Ctrl+C) to stop.
 echo ===================================================================
 echo.
-REM Pin to the juliaup "release" channel (currently Julia 1.12.3 - the version
-REM the packages were precompiled with). This avoids accidentally using an old
-REM Julia (e.g. 1.11.1). If you don't use juliaup, drop "+release".
-julia +release --project="%REPO_ROOT%" --threads=auto "%POST_DIR%panel_launch.jl" %*
+REM Optional sysimage: if a prebuilt OpenJFEM sysimage exists, load it with -J so
+REM startup/warm-up is near-instant. Build it once per machine with build_sysimage.cmd.
+REM The sysimage is tied to this machine's exact Julia version + OS + CPU, so it is
+REM NOT committed and must be (re)built locally; if it is absent we start normally.
+set "SYSIMG_DLL=%REPO_ROOT%\build\OpenJFEM_sysimage.dll"
+set "SYSIMG_ARG="
+if exist "%SYSIMG_DLL%" (
+    set "SYSIMG_ARG=--sysimage=%SYSIMG_DLL%"
+    echo   Using prebuilt sysimage: %SYSIMG_DLL%
+    echo   ^(startup will be fast; delete that file or run build_sysimage.cmd to refresh^)
+    echo.
+)
+
+REM Use whatever "julia" is on PATH. The packages were precompiled with Julia
+REM 1.12.x, so make sure a 1.12.x Julia is installed and on PATH on this machine.
+REM (No juliaup here: do NOT add "+release" - plain julia.exe treats it as a
+REM bad path argument and fails with a "+release ... not found" error.)
+julia %SYSIMG_ARG% --project="%REPO_ROOT%" --threads=auto "%POST_DIR%panel_launch.jl" %*
 echo.
 echo Server stopped. Press any key to close this window.
 pause >nul

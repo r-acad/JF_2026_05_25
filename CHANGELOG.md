@@ -34,6 +34,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
   PowerPoint companion (10.4 MB).
 
 ### Changed
+- `POST/panel_app.cmd`: launch with plain `julia` instead of `julia +release`
+  so the app runs on machines without juliaup (a standalone `julia.exe`
+  treats `+release` as a bad path and errors). Now also auto-loads a
+  prebuilt sysimage via `--sysimage` when `build/OpenJFEM_sysimage.dll`
+  exists, for near-instant startup, and falls back to a normal start when
+  it does not. New helper `POST/build_sysimage.cmd` builds that sysimage
+  once per machine via `tools/deploy_fast.jl` (the `.dll` is git-ignored
+  and machine-specific).
+- `POST/panel_app.html`: clicking "Analyze (SOL 105)" now shows a modal
+  overlay with a spinner and a live elapsed-seconds counter (updates
+  10x/sec) while the solver runs; it closes automatically when results are
+  ready or on error.
 - `solver/assembly.assemble_stiffness`: PSHELL MAT2/MAT8 elements with
   `MCID > 0` now follow the same THETA/MCID material-axis rotation path
   used by PCOMP. Adds two tracking arrays (`q4_el_theta`, `q4_el_mcid`)
