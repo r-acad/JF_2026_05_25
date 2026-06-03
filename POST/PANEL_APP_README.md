@@ -31,7 +31,6 @@ small Julia HTTP server over **msgpack**.
 | `panel_launch.jl` | Cross-platform launcher: starts the server **and** opens the browser. |
 | `panel_app.cmd`   | Windows double-click launcher (calls `panel_launch.jl`). Uses plain `julia` (no `julia +release`), and auto-loads `../build/OpenJFEM_sysimage.dll` via `--sysimage` when it exists. |
 | `panel_app.sh`    | macOS/Linux launcher (`chmod +x` then run). Uses plain `julia` and auto-loads `../build/OpenJFEM_sysimage.so`/`.dylib` when it exists. |
-| `build_sysimage.cmd` | Thin shim - the sysimage build scripts moved to the repo-root `build_sysimage/` folder (Windows + Linux/macOS). |
 | `vendor/`         | Local copies of the front-end libraries (`babylon.js` minified, `msgpack.min.js`) so the app loads fast and works fully offline — no CDN needed. The server serves these at `/vendor/...`. |
 | `PANEL_APP_README.md` | This runbook. |
 

@@ -3,7 +3,11 @@ REM ====================================================================
 REM  Stiffened-panel buckling web app - Windows double-click launcher.
 REM  Starts the pure-Julia server and opens the browser automatically.
 REM ====================================================================
-setlocal
+REM EnableDelayedExpansion so paths containing parentheses or spaces (e.g.
+REM "...\JF_2026_05_25-main (7)\...") do not break the parenthesised if-block
+REM below: we reference the path as !VAR! which is expanded AFTER cmd parses
+REM the block, not during, so a ")" inside the path can't close the block early.
+setlocal EnableDelayedExpansion
 set "POST_DIR=%~dp0"
 set "REPO_ROOT=%POST_DIR%.."
 title JFEM Stiffened Panel - server
@@ -28,9 +32,11 @@ REM The sysimage is tied to this machine's exact Julia version + OS + CPU, so it
 REM NOT committed and must be (re)built locally; if it is absent we start normally.
 set "SYSIMG_DLL=%REPO_ROOT%\build\OpenJFEM_sysimage.dll"
 set "SYSIMG_ARG="
-if exist "%SYSIMG_DLL%" (
-    set "SYSIMG_ARG=--sysimage=%SYSIMG_DLL%"
-    echo   Using prebuilt sysimage: %SYSIMG_DLL%
+REM Note: !SYSIMG_DLL! (delayed expansion) so a path with parentheses/spaces does
+REM not break this block. The --sysimage value is quoted so spaces are handled.
+if exist "!SYSIMG_DLL!" (
+    set "SYSIMG_ARG=--sysimage=!SYSIMG_DLL!"
+    echo   Using prebuilt sysimage: !SYSIMG_DLL!
     echo   ^(startup will be fast; delete that file or run build_sysimage.cmd to refresh^)
     echo.
 )
@@ -39,7 +45,12 @@ REM Use whatever "julia" is on PATH. The packages were precompiled with Julia
 REM 1.12.x, so make sure a 1.12.x Julia is installed and on PATH on this machine.
 REM (No juliaup here: do NOT add "+release" - plain julia.exe treats it as a
 REM bad path argument and fails with a "+release ... not found" error.)
-julia %SYSIMG_ARG% --project="%REPO_ROOT%" --threads=auto "%POST_DIR%panel_launch.jl" %*
+REM SYSIMG_ARG is quoted as one token (it is either empty or --sysimage="..path..").
+if defined SYSIMG_ARG (
+    julia "!SYSIMG_ARG!" --project="!REPO_ROOT!" --threads=auto "!POST_DIR!panel_launch.jl" %*
+) else (
+    julia --project="!REPO_ROOT!" --threads=auto "!POST_DIR!panel_launch.jl" %*
+)
 echo.
 echo Server stopped. Press any key to close this window.
 pause >nul

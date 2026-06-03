@@ -24,7 +24,9 @@ REM      or a change to the OpenJFEM packages.
 REM    * If you never build it, everything still works - just slower to start.
 REM    * Needs a Julia 1.12.x on PATH (no juliaup / no "+release" required).
 REM ====================================================================
-setlocal
+REM EnableDelayedExpansion so an install path with parentheses/spaces (e.g.
+REM "...\JF_2026_05_25-main (7)\...") does not break the if-blocks below.
+setlocal EnableDelayedExpansion
 REM This script lives in <repo>\build_sysimage\ ; the repo root is one level up.
 set "HERE=%~dp0"
 set "REPO_ROOT=%HERE%.."
@@ -42,13 +44,13 @@ echo.
 REM deploy_fast.jl runs the precompile workload and, with --sysimage, the
 REM PackageCompiler build. --install-packagecompiler adds PackageCompiler if
 REM it is not already in the project.
-julia --threads=auto --startup-file=no --project="%REPO_ROOT%" ^
-  "%REPO_ROOT%\tools\deploy_fast.jl" ^
-  --sysimage="%SYSIMG%" ^
+julia --threads=auto --startup-file=no --project="!REPO_ROOT!" ^
+  "!REPO_ROOT!\tools\deploy_fast.jl" ^
+  --sysimage="!SYSIMG!" ^
   --install-packagecompiler %*
 
 echo.
-if exist "%SYSIMG%" (
+if exist "!SYSIMG!" (
     echo Done. The launchers will now use the sysimage automatically:
     echo   - jfem.cmd            ^(command-line runs^)
     echo   - POST\panel_app.cmd  ^(web app^)

@@ -5,6 +5,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- Windows launchers (`POST/panel_app.cmd`, `jfem.cmd`,
+  `build_sysimage/build_sysimage.cmd`) now work when the install path contains
+  parentheses or spaces (e.g. a browser download named
+  `...\JF_2026_05_25-main (7)\...`). Previously the `)` inside such a path
+  prematurely closed the `if exist (...)` block, producing
+  `...OpenJFEM_sysimage.dll was unexpected at this time`. Fixed by enabling
+  delayed expansion and referencing/quoting paths as `!VAR!`.
+
 ### Changed
 - `POST/panel_launch.jl`: the web app now opens exactly ONE browser tab on
   launch. Previously up to four tabs appeared because `explorer.exe` returns a
@@ -29,7 +38,6 @@ Versions follow [Semantic Versioning](https://semver.org/).
   `JSON`) and a precompile workload that drives the server's own `run_analysis`
   + HTTP-handler + msgpack path on the bundled decks, so the FIRST browser
   Analyze no longer pays just-in-time compilation for the solve/export path.
-  `POST/build_sysimage.cmd` docs updated accordingly.
 - `POST/panel_server.jl`: `/health` and the startup banner now report whether
   the process is running inside a custom sysimage and the Julia/BLAS thread
   counts, and each run logs a per-phase timing breakdown (parse / build / solve
@@ -59,8 +67,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   scripts - `build_sysimage.cmd` (Windows), `build_sysimage.sh` (Linux/macOS),
   and a `README.md` with step-by-step instructions. Building a sysimage is
   optional (everything runs without one, just slower to start); the launchers
-  load it automatically when present. `POST/build_sysimage.cmd` is now a thin
-  shim that forwards to the new Windows script. `POST/panel_app.sh` now loads a
+  load it automatically when present. `POST/panel_app.sh` now loads a
   `.so`/`.dylib` sysimage when present and uses plain `julia` (dropped the
   juliaup-only `+release`), matching `panel_app.cmd`.
 - `Reference_documentation/jfem_method_origins_review.pdf`: literature review
@@ -277,7 +284,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   treats `+release` as a bad path and errors). Now also auto-loads a
   prebuilt sysimage via `--sysimage` when `build/OpenJFEM_sysimage.dll`
   exists, for near-instant startup, and falls back to a normal start when
-  it does not. New helper `POST/build_sysimage.cmd` builds that sysimage
+  it does not. The `build_sysimage/` helper scripts build that sysimage
   once per machine via `tools/deploy_fast.jl` (the `.dll` is git-ignored
   and machine-specific).
 - `POST/panel_app.html`: clicking "Analyze (SOL 105)" now shows a modal

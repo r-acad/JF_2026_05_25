@@ -558,7 +558,7 @@ function serve(; host="127.0.0.1", port=8088)
         if si["custom"]
             _log("  sysimage: YES ($(si["name"]))  -  fast startup active")
         else
-            _log("  sysimage: NO (default Julia image)  -  build POST/build_sysimage.cmd for fast startup")
+            _log("  sysimage: NO (default Julia image)  -  build build_sysimage/build_sysimage.cmd (or .sh) for fast startup")
         end
         _log("  threads:  $(Threads.nthreads())")
     end
