@@ -6,6 +6,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- `POST/panel_launch.jl`: the web app now opens exactly ONE browser tab on
+  launch. Previously up to four tabs appeared because `explorer.exe` returns a
+  non-zero exit code even on success (triggering a second `start` fallback) and
+  the launcher also called the opener twice; both are fixed.
+- `POST/panel_app.html`: the Analyze button now turns RED when any model/analysis
+  input changes (results are stale) and GREEN once results are available, giving
+  clear at-a-glance feedback on whether the shown results match the inputs.
+- `README.md` and `Reference_documentation/case_submission_methods.md`: document
+  how to invoke the `jfem` wrapper - shells do not run a bare command name from
+  the current directory, so use `.\jfem` (Windows) / `./jfem` (Linux/macOS) from
+  the repo folder, or add the repo to `PATH` to call `jfem` from anywhere;
+  Linux/macOS also need the execute bit (`chmod +x jfem`).
 - Dense BLAS (the Cholesky factorization in SOL 101/105 and the eigensolve in
   SOL 103/105) now runs on the physical-core count instead of OpenBLAS's
   default (~half the logical processors). The web server (`POST/panel_server.jl`)

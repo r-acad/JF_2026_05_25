@@ -28,6 +28,10 @@
   .seg label{display:flex;align-items:center;gap:4px;margin:0;font-size:12px;cursor:pointer;}
   button{cursor:pointer;border:none;border-radius:5px;padding:9px;font-size:13px;font-weight:bold;width:100%;margin-top:6px;}
   #analyzeBtn{background:var(--accent);color:#003040;}
+  /* stale = inputs changed since the last solve (results no longer match) */
+  #analyzeBtn.stale{background:#d64545;color:#fff;}
+  /* ready = current results are up to date with the inputs */
+  #analyzeBtn.ready{background:#2faa55;color:#fff;}
   #analyzeBtn:disabled{background:#555;color:#999;cursor:wait;}
   .ghost-btn{background:#3a3a42;color:#ccc;}
   #status{font-size:11px;margin-top:8px;padding:6px;border-radius:4px;background:#1d1d22;color:#9ad;min-height:16px;white-space:pre-wrap;}
@@ -1627,6 +1631,39 @@ if(_deckFileEl){
   });
 }
 
+// --- Analyze-button state: RED when inputs changed since the last solve
+// (results are stale), GREEN when the shown results match the current inputs. ---
+function markStale(){
+  const b=$("analyzeBtn"); if(!b) return;
+  b.classList.add("stale"); b.classList.remove("ready");
+}
+function markReady(){
+  const b=$("analyzeBtn"); if(!b) return;
+  b.classList.add("ready"); b.classList.remove("stale");
+}
+function clearBtnState(){
+  const b=$("analyzeBtn"); if(!b) return;
+  b.classList.remove("stale"); b.classList.remove("ready");
+}
+// Any change to a model/analysis input invalidates the current results -> RED.
+// We listen on the whole sidebar (delegation) so new inputs are covered too, and
+// ignore fields that don't change the model: the read-only generated-bdf preview
+// and the server-URL box. _suppressStale guards programmatic value updates.
+let _suppressStale=false;
+(function wireStaleOnChange(){
+  const side=$("side"); if(!side) return;
+  const ignore=new Set(["bdfText","bridge"]);
+  const onChange=(e)=>{
+    if(_suppressStale) return;
+    const t=e.target;
+    if(!t || !t.matches || !t.matches("input,select,textarea")) return;
+    if(ignore.has(t.id)) return;
+    markStale();
+  };
+  side.addEventListener("input", onChange);
+  side.addEventListener("change", onChange);
+})();
+
 $("analyzeBtn").addEventListener("click",analyze);
 async function analyze(){
   let MP;
@@ -1692,8 +1729,8 @@ async function analyze(){
     // into the viewer so result labels match the analysis type.
     const meta={sol:res.sol, analysis_type:aType, frequencies:res.frequencies||[]};
     let bytes=res.jfem_bytes;
-    if(bytes && bytes.buffer) loadResults(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),meta);
-    else if(bytes) loadResults(new Uint8Array(bytes).buffer,meta);
+    if(bytes && bytes.buffer){ loadResults(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),meta); markReady(); }
+    else if(bytes){ loadResults(new Uint8Array(bytes).buffer,meta); markReady(); }
     else setStatus("Run finished but no .jfem returned.\n"+(res.log||""),"err");
   }catch(e){
     // A dropped connection (TypeError "Failed to fetch") usually means the

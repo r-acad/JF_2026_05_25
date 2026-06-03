@@ -33,27 +33,36 @@ end
 const URL = "http://127.0.0.1:$port/"
 
 # Cross-platform "open a URL in the default browser". Returns true on success.
+# IMPORTANT: open the URL exactly ONCE. On Windows, explorer.exe successfully
+# hands the URL to the browser but then returns a NON-ZERO exit code, which makes
+# Julia's run() throw even though a tab DID open. Previously the catch then ran
+# `cmd /c start` too, opening a SECOND tab - and the caller invoked this twice -
+# so up to four tabs appeared. We now treat "explorer launched" as success and
+# never fall through to a second opener.
 function open_in_browser(url::AbstractString)
-    try
-        @static if Sys.iswindows()
-            # Use explorer.exe as the opener: it reliably hands the URL to the
-            # default browser from a non-interactive/background process, whereas
-            # `cmd /c start` can silently no-op when there is no console window
-            # attached. `start` is kept as a fallback below.
+    @static if Sys.iswindows()
+        try
+            # Don't wait on / inspect explorer's exit code (it lies); just launch.
+            run(`explorer.exe $url`; wait=false)
+            return true
+        catch
+            # explorer truly failed to start - fall back to start, once.
             try
-                run(`explorer.exe $url`)
-            catch
-                run(`cmd /c start "" $url`)
+                run(`cmd /c start "" $url`; wait=false)
+                return true
+            catch err
+                @warn "Could not auto-open the browser; open this URL manually." url exception=err
+                return false
             end
-        elseif Sys.isapple()
-            run(`open $url`)
-        else
-            run(`xdg-open $url`)
         end
-        return true
-    catch err
-        @warn "Could not auto-open the browser; open this URL manually." url exception=err
-        return false
+    else
+        try
+            Sys.isapple() ? run(`open $url`) : run(`xdg-open $url`)
+            return true
+        catch err
+            @warn "Could not auto-open the browser; open this URL manually." url exception=err
+            return false
+        end
     end
 end
 
@@ -82,13 +91,8 @@ if do_open
         end
         if up
             @info "Server is up - opening $URL"
-            ok = open_in_browser(URL)
-            # explorer/start sometimes returns before the browser actually shows;
-            # a single extra attempt covers the rare swallowed hand-off.
-            if ok
-                sleep(1.5)
-                open_in_browser(URL)
-            end
+            # Open exactly once. (open_in_browser no longer double-fires on Windows.)
+            open_in_browser(URL)
             @info "If no browser window appeared, open this URL manually:" URL
         else
             @warn "Server didn't come up in time; open $URL manually once it's listening." URL

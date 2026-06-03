@@ -209,6 +209,59 @@ That writes the **viewer-ready set** — the `.jfem` binary (opens in the POST 3
 viewer), `REPORT.md`, and the results JSON — into `<deck_dir>/<deckname>_out/`,
 right next to the input deck.
 
+### How to invoke it (important): `jfem` vs `.\jfem` / `./jfem`
+
+By design, **shells do not run a program from the current directory by typing
+its bare name** — the directory must be on your `PATH` first. This is true on
+Windows PowerShell, Linux, and macOS alike. So if you `cd` into the repo and
+type `jfem ...`, you will get *"jfem is not recognized"* (Windows) or
+*"command not found"* (Linux/macOS) until you do one of the following.
+
+**Option A — run it from the repo folder with a path prefix (no setup):**
+
+```powershell
+# Windows PowerShell (runs jfem.cmd):
+.\jfem  .\my_model.bdf
+```
+
+```bash
+# Linux/macOS (runs the jfem bash script):
+./jfem  ./my_model.bdf
+```
+
+**Option B — call `jfem` from anywhere (one-time setup):** add the repository
+root to your `PATH`.
+
+```powershell
+# Windows PowerShell - add to your USER PATH (persists; reopen the terminal):
+[Environment]::SetEnvironmentVariable(
+  "Path",
+  [Environment]::GetEnvironmentVariable("Path","User") + ";C:\path\to\JFEM",
+  "User")
+```
+
+```bash
+# Linux/macOS - add to PATH in ~/.bashrc or ~/.zshrc:
+echo 'export PATH="$PATH:/path/to/JFEM"' >> ~/.bashrc
+# ...or symlink the script into a directory already on PATH (common idiom):
+ln -s "/path/to/JFEM/jfem" ~/.local/bin/jfem
+```
+
+After Option B, plain `jfem my_model.bdf` works from any directory.
+
+**Linux/macOS only — the execute bit.** The `jfem` script must be executable.
+A fresh `git clone` preserves this, but if it was lost run once:
+
+```bash
+chmod +x jfem
+```
+
+> The repo ships two launcher files: `jfem.cmd` (Windows) and `jfem` (the bash
+> script for Linux/macOS). On Windows, `.\jfem` resolves to `jfem.cmd`
+> automatically. The sysimage is platform-specific — `jfem.cmd` looks for
+> `build\OpenJFEM_sysimage.dll`, while `jfem` looks for `build/OpenJFEM_sysimage.so`
+> (Linux) or `.dylib` (macOS); build it on each machine with the sysimage helper.
+
 Give a second argument to choose the output folder:
 
 ```bat
@@ -246,8 +299,8 @@ jfem  -jrsvh    model.bdf  out       :: viewer + report + JSON + VTK + HDF5
 A `run_manifest.json` recording the exact inputs and flags is always written.
 The wrappers use whatever `julia` is on `PATH` (Julia 1.12.x; no juliaup
 needed) and automatically load a prebuilt sysimage from `build/` if one exists,
-for near-instant startup. Add the repository root to your `PATH` to call `jfem`
-from any directory.
+for near-instant startup. (See "How to invoke it" above to call `jfem` from any
+directory.)
 
 The sections below show the fully explicit `julia ... run_bdf.jl` form, which
 the wrapper runs for you and which you may still prefer for scripting or batch

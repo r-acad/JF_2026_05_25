@@ -195,7 +195,15 @@ jfem -jrsvh C:\models\panel_001.bdf D:\runs\p1       :: viewer + report + JSON +
 A trailing `FLAG=value,...` string can still be appended to override any
 `JFEM_*` run flag. A `run_manifest.json` recording the run is always written.
 The wrapper uses whatever `julia` is on `PATH` (Julia 1.12.x; no juliaup
-needed). Add the repository root to your `PATH` to call `jfem` from anywhere.
+needed).
+
+**Invocation note.** Shells do not run a program from the current directory by
+its bare name (Windows PowerShell, Linux, and macOS alike). From inside the repo
+folder use a path prefix: `.\jfem deck.bdf` (Windows, runs `jfem.cmd`) or
+`./jfem deck.bdf` (Linux/macOS). To call `jfem` from anywhere, add the
+repository root to your `PATH`. On Linux/macOS the `jfem` script also needs the
+execute bit (`chmod +x jfem`, preserved by `git clone`). See the README's
+"Quickest Way To Run A Deck" → "How to invoke it" for the exact PATH commands.
 
 ## Method 2: Single-Case Command Runner
 
