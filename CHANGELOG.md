@@ -55,6 +55,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
   records `backend_forced_by = "CQUADR"`.
 
 ### Added
+- `build_sysimage/` folder: clearly identified, cross-platform sysimage build
+  scripts - `build_sysimage.cmd` (Windows), `build_sysimage.sh` (Linux/macOS),
+  and a `README.md` with step-by-step instructions. Building a sysimage is
+  optional (everything runs without one, just slower to start); the launchers
+  load it automatically when present. `POST/build_sysimage.cmd` is now a thin
+  shim that forwards to the new Windows script. `POST/panel_app.sh` now loads a
+  `.so`/`.dylib` sysimage when present and uses plain `julia` (dropped the
+  juliaup-only `+release`), matching `panel_app.cmd`.
 - `Reference_documentation/jfem_method_origins_review.pdf`: literature review
   mapping the reference paper corpus to the numerical methods implemented in
   JFEM, organised along the solver pipeline (MITC/MacNeal shells, DKMQ,

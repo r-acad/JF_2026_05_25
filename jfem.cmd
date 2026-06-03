@@ -27,7 +27,7 @@ if "%~1"=="" (
   exit /b 1
 )
 
-REM Optional sysimage for near-instant startup (build it with POST\build_sysimage.cmd).
+REM Optional sysimage for near-instant startup (build it with build_sysimage\build_sysimage.cmd).
 set "SYSIMG_DLL=%REPO_ROOT%build\OpenJFEM_sysimage.dll"
 set "SYSIMG_ARG="
 if exist "%SYSIMG_DLL%" set "SYSIMG_ARG=--sysimage=%SYSIMG_DLL%"

@@ -75,6 +75,9 @@ line-continuation character.
 - `jfem` (Linux/macOS) and `jfem.cmd` (Windows): one-line wrappers to analyze a
   single deck with good defaults — see "Quickest Way To Run A Deck" below. They
   call `tools/jfem.jl`, the underlying simple single-deck runner.
+- `build_sysimage/`: optional sysimage build scripts for Windows
+  (`build_sysimage.cmd`), Linux/macOS (`build_sysimage.sh`), and a README.
+  Building a sysimage makes the solver and web app start near-instantly.
 - `tools/testing/run_bdf.jl`: explicit single-case runner (what the wrapper
   runs for you).
 - `tools/testing/run_bdf_batch.jl`: simple text-list batch runner retained
@@ -301,6 +304,25 @@ The wrappers use whatever `julia` is on `PATH` (Julia 1.12.x; no juliaup
 needed) and automatically load a prebuilt sysimage from `build/` if one exists,
 for near-instant startup. (See "How to invoke it" above to call `jfem` from any
 directory.)
+
+### Faster startup (optional): build a sysimage
+
+Each fresh run pays Julia's one-time compilation. To remove that wait, build a
+**sysimage** once per machine — the launchers then start near-instantly,
+including the first analysis. The build scripts live in the **`build_sysimage/`**
+folder:
+
+```bat
+build_sysimage\build_sysimage.cmd          :: Windows
+```
+
+```bash
+chmod +x build_sysimage/build_sysimage.sh
+./build_sysimage/build_sysimage.sh          # Linux / macOS
+```
+
+It is entirely optional — everything works without it, just slower to start.
+See [`build_sysimage/README.md`](build_sysimage/README.md) for details.
 
 The sections below show the fully explicit `julia ... run_bdf.jl` form, which
 the wrapper runs for you and which you may still prefer for scripting or batch

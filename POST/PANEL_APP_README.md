@@ -30,8 +30,8 @@ small Julia HTTP server over **msgpack**.
 | `panel_server.jl` | Pure-Julia **msgpack-over-HTTP** server. Serves the app, runs a deck through OpenJFEM in-process, and is **SOL-agnostic** — it detects the SOL from the deck and returns `sol`, `analysis_type`, eigenvalues, frequencies, the report text, and the `.jfem` bytes. Uses `HTTP.jl` + `MsgPack.jl`. |
 | `panel_launch.jl` | Cross-platform launcher: starts the server **and** opens the browser. |
 | `panel_app.cmd`   | Windows double-click launcher (calls `panel_launch.jl`). Uses plain `julia` (no `julia +release`), and auto-loads `../build/OpenJFEM_sysimage.dll` via `--sysimage` when it exists. |
-| `build_sysimage.cmd` | Windows helper: builds `../build/OpenJFEM_sysimage.dll` once per machine (via `tools/deploy_fast.jl`) so subsequent launches start near-instantly. |
-| `panel_app.sh`    | macOS/Linux launcher (`chmod +x` then run). |
+| `panel_app.sh`    | macOS/Linux launcher (`chmod +x` then run). Uses plain `julia` and auto-loads `../build/OpenJFEM_sysimage.so`/`.dylib` when it exists. |
+| `build_sysimage.cmd` | Thin shim - the sysimage build scripts moved to the repo-root `build_sysimage/` folder (Windows + Linux/macOS). |
 | `vendor/`         | Local copies of the front-end libraries (`babylon.js` minified, `msgpack.min.js`) so the app loads fast and works fully offline — no CDN needed. The server serves these at `/vendor/...`. |
 | `PANEL_APP_README.md` | This runbook. |
 
@@ -66,11 +66,16 @@ terminal (or close the window) to stop.
 
 ### Faster startup with a sysimage (optional)
 
-Run **`build_sysimage.cmd`** once per machine (Windows). It builds
-`../build/OpenJFEM_sysimage.dll`, and from then on `panel_app.cmd` loads it
-automatically (`--sysimage`), so startup and the first analysis are
-near-instant. The `.dll` is machine-specific (tied to the exact Julia version
-+ OS + CPU) and git-ignored; rebuild it after a Julia upgrade.
+Build a sysimage once per machine using the scripts in the repo-root
+**`build_sysimage/`** folder:
+
+- Windows: `build_sysimage\build_sysimage.cmd`
+- Linux/macOS: `./build_sysimage/build_sysimage.sh` (after `chmod +x`)
+
+From then on `panel_app.cmd` / `panel_app.sh` load it automatically
+(`--sysimage`), so startup and the first analysis are near-instant. The image is
+machine-specific (tied to the exact Julia version + OS + CPU) and git-ignored;
+rebuild it after a Julia upgrade. See `build_sysimage/README.md` for details.
 
 ### Manual
 
