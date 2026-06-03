@@ -291,8 +291,13 @@ function setSolveMsg(text, warn){
 
 // While a solve is in flight, poll /health. A large model can exhaust RAM and be
 // killed by the OS mid-solve - the /analyze request then hangs or drops with no
-// error from the solver. If health stops answering for a sustained window we warn
+// error from the solver. If health stops answering for a SUSTAINED window we warn
 // the user that the server may have stopped (and to check the server window).
+//
+// The server runs the solve on a worker thread, so /health stays responsive even
+// during long solves; a healthy long solve should NOT trip this. We poll every
+// 5s, allow a generous per-request timeout, and only warn after several
+// consecutive misses (~30s) so a momentarily busy server is not flagged as dead.
 function startHealthWatch(){
   stopHealthWatch();
   let consecFails=0;
@@ -300,24 +305,26 @@ function startHealthWatch(){
     let ok=false;
     try{
       const ctrl=new AbortController();
-      const to=setTimeout(()=>ctrl.abort(), 4000);
+      const to=setTimeout(()=>ctrl.abort(), 8000);
       const r=await fetch(serverBase()+"/health",{signal:ctrl.signal,cache:"no-store"});
       clearTimeout(to);
       ok=r.ok;
     }catch(_){ ok=false; }
     if(ok){
       consecFails=0;
+      // healthy: keep the normal "solving" message (don't overwrite a custom one
+      // unless we had previously warned).
     } else {
       consecFails++;
-      // ~3 misses (server polled every 3s) => ~9s unresponsive while solving.
-      if(consecFails>=3){
+      // poll every 5s; warn only after ~6 misses (~30s) of no response.
+      if(consecFails>=6){
         const secs=((performance.now()-_solveT0)/1000).toFixed(0);
-        setSolveMsg(`The server has not responded for a while (solving for ${secs}s). `+
+        setSolveMsg(`The server has not responded for ~${consecFails*5}s (solving for ${secs}s). `+
           `It may still be working on a large model - or it may have STOPPED `+
           `(e.g. out of memory). Check the JFEM server window for a message.`, true);
       }
     }
-  }, 3000);
+  }, 5000);
 }
 function stopHealthWatch(){ if(_healthTimerId){ clearInterval(_healthTimerId); _healthTimerId=null; } }
 
@@ -808,6 +815,42 @@ engine.runRenderLoop(()=>{
 });
 window.addEventListener("resize",()=>engine.resize());
 
+// ---- camera interactions: reset on bg double-click, re-pivot on middle-click ---
+// Only the model meshes (shell/ghost/wire) are valid pick targets; overlay arrows
+// and BC cones are isPickable=false already.
+function _isModelMesh(m){ return m && (m.name==="shell" || m.name==="ghost" || m.name==="wire"); }
+function _pickModel(){
+  const pi = scene.pick(scene.pointerX, scene.pointerY, _isModelMesh);
+  return (pi && pi.hit) ? pi : null;
+}
+
+// (1) Double-click on EMPTY background -> reset & recenter the view. Double-click
+//     ON the model is ignored, so interacting with the model never resets it.
+canvas.addEventListener("dblclick", ()=>{
+  if(!_pickModel()){           // nothing under the cursor -> background
+    resetView();
+  }
+});
+
+// (2) Middle-click ON the model -> make that point the camera's rotation center.
+//     We distinguish a click from a middle-drag (panning) with a small movement
+//     threshold so panning is unaffected.
+let _midDown=null;  // {x,y} at middle-button press, or null
+// Stop the browser's middle-click autoscroll so it doesn't fight the viewer.
+canvas.addEventListener("auxclick",(e)=>{ if(e.button===1) e.preventDefault(); });
+canvas.addEventListener("pointerdown",(e)=>{ if(e.button===1){ _midDown={x:e.clientX,y:e.clientY}; e.preventDefault(); } });
+canvas.addEventListener("pointerup",(e)=>{
+  if(e.button!==1 || !_midDown) return;
+  const moved=Math.hypot(e.clientX-_midDown.x, e.clientY-_midDown.y);
+  _midDown=null;
+  if(moved>5) return;          // it was a pan-drag, not a click
+  const pi=_pickModel();
+  if(pi && pi.pickedPoint){
+    setRotationCenter(pi.pickedPoint);
+    setStatus("Rotation center set on the model. Double-click the background to reset the view.","ok");
+  }
+});
+
 // ---- v4-aware parseJFEM (mirrors postv11.html) ----
 function parseJFEM(buffer){
   const view=new DataView(buffer); let off=0;
@@ -918,6 +961,45 @@ function frameCamera(b){
     if(q.has("beta"))  camera.beta =parseFloat(q.get("beta"));
     if(q.has("rad"))   camera.radius=b.size*parseFloat(q.get("rad"));
   }catch(_){}
+}
+
+// Bounds of whatever is currently shown, in WORLD units. Prefer the parsed FE
+// nodes; fall back to the displayed shell mesh's bounding box (e.g. a preview
+// mesh built before any results are loaded). Returns null if nothing is shown.
+function currentViewBounds(){
+  if(femData && femData.nodes && femData.nodes.length){
+    return computeBounds(femData.nodes, femUnitScale);
+  }
+  if(shellMesh){
+    shellMesh.computeWorldMatrix(true);
+    const bi=shellMesh.getBoundingInfo().boundingBox;
+    const mn=bi.minimumWorld, mx=bi.maximumWorld;
+    return {
+      mn:[mn.x,mn.y,mn.z], mx:[mx.x,mx.y,mx.z],
+      c:[(mn.x+mx.x)/2,(mn.y+mx.y)/2,(mn.z+mx.z)/2],
+      size:Math.hypot(mx.x-mn.x,mx.y-mn.y,mx.z-mn.z)||1,
+    };
+  }
+  return null;
+}
+
+// Reset the camera so the whole model is centered and framed again - the escape
+// hatch for "I rotated/panned and got lost". Re-applies the default view angles.
+function resetView(){
+  const b=currentViewBounds();
+  if(!b) return;
+  frameCamera(b);
+}
+
+// Re-pivot the ArcRotateCamera around a picked world point WITHOUT moving the
+// eye, so subsequent rotations orbit that point with no visual jump. We preserve
+// the current eye position and let setPosition() re-derive alpha/beta/radius
+// against the new target.
+function setRotationCenter(point){
+  if(!camera || !point) return;
+  const eye=camera.position.clone();
+  camera.setTarget(point.clone());   // ArcRotateCamera: target = pivot
+  camera.setPosition(eye);           // recompute alpha/beta/radius from kept eye
 }
 
 function loadResults(buffer, meta){

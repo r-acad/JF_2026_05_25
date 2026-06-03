@@ -6,6 +6,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- `POST/panel_app.html`: 3D viewer camera controls. Double-clicking the empty
+  background resets and recenters the view on the model (an escape hatch for
+  getting lost after rotating/panning); middle-clicking a point on the model
+  makes that point the camera's rotation center without moving the eye.
+- `POST/panel_server.jl`: the solve now runs on a worker thread (still
+  serialised by the solve lock) and `HTTP.serve` uses `readtimeout=0`, so the
+  server stays responsive to health checks and other requests during long
+  multi-minute solves. This removes the spurious `ECANCELED` connection errors
+  and false "server may have stopped" warnings seen on large models. The
+  front-end health watcher is also more tolerant (warns only after a sustained
+  no-response window).
 - Generalized the internal SOL200-lite material-route helper names and
   user-facing diagnostics from MAT1-only wording to material-route wording now
   that the route executes both MAT1 and MAT8 material design relations.

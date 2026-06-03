@@ -193,16 +193,23 @@ function run_analysis(payload::AbstractDict)
     )
 
     t0 = time_ns()
-    summary = lock(SOLVE_LOCK) do
-        default_flags = manifest_default_flags(manifest)
-        manifest_apply_flags!(default_flags)
-        run_batch_manifest!(manifest;
-            manifest_path=nothing,
-            repo_root=REPO_ROOT,
-            script_path=@__FILE__,
-            args=String[],
-            quiet=true)
-    end
+    # Run the (potentially long) solve on a worker thread and `fetch` it, instead
+    # of running it directly on the HTTP handler task. This keeps the HTTP event
+    # loop responsive during a multi-minute solve, so health checks and other
+    # requests are still served and connections are not starved/cancelled. The
+    # SOLVE_LOCK still serialises solves to one at a time.
+    summary = fetch(Threads.@spawn begin
+        lock(SOLVE_LOCK) do
+            default_flags = manifest_default_flags(manifest)
+            manifest_apply_flags!(default_flags)
+            run_batch_manifest!(manifest;
+                manifest_path=nothing,
+                repo_root=REPO_ROOT,
+                script_path=@__FILE__,
+                args=String[],
+                quiet=true)
+        end
+    end)
     elapsed = (time_ns() - t0) * 1e-9
     _log("solve finished in $(round(elapsed; digits=1))s")
 
@@ -441,7 +448,11 @@ function serve(; host="127.0.0.1", port=8088)
     # (Note: an out-of-memory kill by the OS terminates the process abruptly and
     # cannot be caught here; the front end detects that as a dropped connection.)
     try
-        HTTP.serve(handle, server)
+        # readtimeout=0 disables the idle-connection timeout: a large model can
+        # keep the /analyze connection open for minutes while the solve runs, and
+        # we must not drop it. verbose=false keeps the per-connection chatter down
+        # (a client that navigates away mid-solve otherwise logs a stack trace).
+        HTTP.serve(handle, server; readtimeout=0, verbose=false)
         _log("server loop ended normally (listening socket closed). Stopping.")
     catch err
         if err isa InterruptException
