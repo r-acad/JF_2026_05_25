@@ -5,7 +5,192 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- Generalized the internal SOL200-lite material-route helper names and
+  user-facing diagnostics from MAT1-only wording to material-route wording now
+  that the route executes both MAT1 and MAT8 material design relations.
+- `CQUADR` shell cards are now accepted directly and are always solved through
+  the TACS formulation. When the requested/default backend is `nastran_parity`,
+  `solve_model(model)` forces the actual route to `tacs_formulation` and
+  records `backend_forced_by = "CQUADR"`.
+
 ### Added
+- One-line deck runner for all platforms: `jfem` (Linux/macOS) and `jfem.cmd`
+  (Windows) wrappers plus the underlying `tools/jfem.jl`. Usage is just
+  `jfem model.bdf [output_folder]` — the wrapper supplies Julia, the project,
+  `--threads=auto`, viewer-ready defaults, and the sysimage if present, and the
+  SOL is auto-detected. Results default to `<deck_dir>/<deckname>_out/`. An
+  optional `-letters` string before the deck selects output formats in any order
+  (`j` .jfem, `r` REPORT.md, `s` results JSON, `v` VTK, `h` HDF5, `m` model
+  JSON, `c` card inventory); omitting it gives the default `-jrs` set.
+- Added backend-dispatched generic static design-gradient hooks for the
+  TACS-formulation SOL101 slice:
+  `static_compliance_design_gradient` and
+  `static_displacement_design_gradient`.
+- Added the first TACS-formulation PCOMP ply-level design tangent route for
+  CQUAD4/PCOMP_CLT SOL101 decks. The route supports ply thickness and ply
+  angle design variables, preserves the ModelBuilder PCOMP transverse-shear
+  correction policy during perturbations, and returns compliance and
+  displacement-response gradients through the generic backend hooks.
+- Added SOL200-lite parsing/routing for PCOMP ply DVPREL fields (`T<n>` and
+  `THETA<n>`) on the TACS backend. The route performs bounded projected-
+  gradient SOL101 compliance/displacement optimization through the
+  TACS-formulation design-gradient hooks, records per-iteration ply
+  sensitivities, and reports the explicit
+  `SOL200_LITE_PCOMP_PLY_OPTIMIZATION` analysis type.
+- Extended the TACS PCOMP ply SOL200-lite route with an optional upper-bound
+  MASS/WEIGHT constraint. Ply-thickness variables now report laminate mass
+  coefficients, ply-angle variables report zero mass coefficient, and the
+  projected-gradient update is clipped back to the translated mass target.
+- Added the first TACS material-design SOL200-lite route for
+  `DVMREL1,MAT1,E`, `DVMREL1,MAT1,G`, `DVMREL1,MAT1,NU`, and
+  `DVMREL1,MAT1,RHO` / `DVMREL1,MAT8,RHO` on supported SOL101 shell decks.
+  The stiffness-material route performs bounded projected-gradient compliance/displacement
+  optimization through the generic design-gradient hooks and records
+  `SOL200_LITE_MATERIAL_OPTIMIZATION`. The route also accepts a feasible
+  upper-bound MASS/WEIGHT constraint, reports invariant shell-mass diagnostics,
+  and records zero mass coefficients for MAT1 `E/G/NU` variables. The `RHO`
+  route supports `DESOBJ(MIN)=MASS` with analytic shell-mass coefficients for
+  MAT1/PSHELL and MAT8/PCOMP shell mass.
+- Extended the TACS material-design SOL200-lite route to MAT8 laminate
+  stiffness variables (`DVMREL1,MAT8,E1/E2/G12/NU12`) for supported
+  PCOMP/MAT8 SOL101 shell decks. The route refreshes affected PCOMP_CLT
+  stiffness matrices after each MAT8 update and uses the generic
+  TACS-formulation design-tangent hook for compliance/displacement gradients.
+  The generated material-route coverage now exercises E1, E2, G12, and NU12
+  laminate stiffness variables.
+- Added the first executable TACS SOL200-lite stress-response route for
+  `DRESP1,STRESS` / `DRESP1,VMSTRS` with `DESOBJ(MIN)`. The route dispatches
+  a SOL101 TACS forward solve, recovers shell through-thickness von-Mises
+  stresses, computes a KS aggregate controlled by `DOPTPRM,KSRHO`, and reports
+  the explicit `SOL200_LITE_STRESS_RESPONSE` analysis type. When the same
+  route carries a unit `DVPREL1,PSHELL/PCOMP,T` shell-thickness design
+  relation, it also reports a TACS adjoint/design-tangent KS stress gradient
+  through `static_ks_von_mises_design_gradient`. The generated route coverage
+  now includes both PSHELL/MAT1 and PCOMP/MAT8 uniform-thickness stress
+  design-gradient decks.
+- Extended SOL200-lite mass minimization so upper-bound `DRESP1,STRESS` /
+  `DRESP1,VMSTRS` constraints are translated to KS von-Mises static response
+  constraints. The TACS route now supports generated `DESOBJ(MIN)=MASS` decks
+  with `DCONSTR` stress limits and shell-thickness sizing, using the grouped
+  exact search for single-design-variable decks and the multi-group response
+  search for multi-property decks through the TACS KS stress adjoint/design-
+  tangent hook. The generated route coverage now includes PSHELL/MAT1 and
+  PCOMP/MAT8 stress-constrained mass-minimization decks.
+- Added a backend nonlinear-state callback boundary for SOL106. The
+  TACS-formulation route now evaluates tangent-operator nonlinear states
+  through a backend callback that returns the native residual-first
+  geometric stiffness, effective tangent, and residual metrics. The guarded
+  flat-shell `PARAM,NLMETHOD,formal_shell_von_karman` path is also routed
+  through the backend callback using the formal internal-force and consistent-
+  tangent state evaluator.
+- Extended `tools/testing/tacs_sol106_route_check.jl` with two-element
+  flat-shell SOL106 patch decks. The expanded check now validates the
+  TACS tangent-operator callback and the guarded formal von-Karman callback on
+  a larger residual-first shell model, including larger `Kg` assembly and
+  state-evaluation diagnostics.
+- Preserved `PARAM,NLMETHOD` and `PARAM,NLRESMODEL` as string-valued BDF
+  parameters so nonlinear method selection survives model construction.
+- Broadened the TACS-formulation shell slice from CQUAD4-only to
+  CQUAD4/CTRIA3 for the guarded PSHELL/MAT1 and PCOMP_CLT residual-first
+  paths. CTRIA3 now uses the TACS constitutive abstraction for SOL101
+  residual/tangent assembly, AD shell-thickness derivatives, SOL105/SOL106
+  native geometric stiffness, and backend metadata.
+- Added explicit CTRIA3 TACS route coverage for SOL103 modal analysis and
+  SOL200-lite compliance sizing.
+- Exported static, modal/buckling, nonlinear, and SOL200-lite optimization
+  JSON payloads now carry solver backend metadata when the solve result
+  provides it, making manifest and worker outputs self-describing across
+  `nastran_parity` and `tacs_formulation` runs.
+- Extended `tools/testing/tacs_sol101_fd_check.jl` with PCOMP ply-level
+  design-gradient regression checks. The generated suite now verifies
+  symmetric PCOMP ply thickness and unsymmetric off-axis ply thickness/angle
+  gradients in addition to the existing residual, tangent, thickness, and
+  response checks.
+- Backend selection scaffold and first TACS-formulation vertical slice:
+  public backend types, `JFEM_BACKEND`/model/manifest selection, explicit
+  `nastran_parity` default metadata, plus a restricted residual-first
+  `tacs_formulation` SOL 101 path for CQUAD4 + PSHELL + MAT1 models.
+- Added `tools/testing/backend_default_check.jl` to guard the backend
+  selection contract: blank/default/parity aliases normalize to
+  `nastran_parity`, `JFEM_BACKEND=tacs_formulation` remains opt-in, explicit
+  model backend selection overrides the environment, and default metadata
+  stays on the existing calibrated JFEM formulation.
+- Added `tools/testing/backend_manifest_check.jl` to guard JSON batch
+  manifest backend propagation. The check runs a quiet SOL101 batch with
+  `backend = "tacs_formulation"` and verifies the generated run manifest and
+  exported static JSON preserve the selected backend.
+- Added `tools/testing/backend_sol200_shared_route_check.jl` to guard the
+  Phase 3 SOL200 contract. The generated deck runs once through the implicit
+  `nastran_parity` default and once through `tacs_formulation`, proving the
+  same SOL200-lite route surface dispatches both backend forward solves.
+- Added `tools/testing/backend_parity_smoke_check.jl` to guard that bundled
+  SOL101, SOL103, and SOL105 production-path examples still solve through the
+  implicit `nastran_parity` backend and report the existing calibrated JFEM
+  formulation.
+- Added `tools/testing/tacs_backend_roadmap_audit.jl`, a static roadmap
+  closure guard that maps the documented Phase 0-3 TACS backend requirements
+  to the public numerical guard scripts and backend source hooks.
+- `tools/testing/tacs_sol101_fd_check.jl`: finite-difference smoke and
+  generated patch-suite check for the new TACS-formulation SOL 101
+  residual/tangent slice, including PSHELL thickness `dK/dt` and `dR/dt`
+  audits.
+- TACS-formulation result metadata now records the active thickness
+  derivative route (`element_ad`) for the supported PSHELL/MAT1 and
+  PCOMP_CLT uniform-thickness slice.
+- Added a backend-dispatched static compliance/thickness-gradient hook for
+  the TACS SOL 101 slice, with finite-difference coverage in the patch suite.
+- Extended the TACS-formulation SOL 101 slice to consume PCOMP/MAT8-derived
+  CLT shell properties (`PCOMP_CLT` with `Cm`, `Bmb`, `Cb`, and `Cs`) while
+  supporting the same backend-local AD thickness derivative for
+  PSHELL/MAT1 and uniform-thickness PCOMP_CLT laminate scaling.
+- Routed SOL 200-lite compliance sizing through the opt-in
+  `tacs_formulation` backend for supported CQUAD4/PSHELL/MAT1 static
+  and PCOMP_CLT forward solves, including backend/formulation fields in
+  optimization iteration diagnostics.
+- `tools/testing/tacs_sol200_route_check.jl`: generated-deck smoke test for
+  SOL 200-lite -> TACS routing, covering static compliance sizing for PSHELL
+  and PCOMP_CLT plus max-buckling sizing through the TACS SOL 105 route.
+- Added a backend-dispatched buckling load-factor/thickness-gradient hook for
+  the supported TACS SOL 105 shell slice. SOL 200-lite max-buckling sizing now
+  consumes this hook for TACS shell-thickness variables and records a
+  backend-local Rayleigh derivative route
+  (`tacs_formulation_rayleigh_ad_kg_directional_fd`) in optimization
+  diagnostics.
+- Added a backend-dispatched static displacement/thickness-gradient hook for
+  the supported TACS SOL 101 shell slice. SOL 200-lite displacement-constrained
+  mass minimization now consumes this adjoint hook for TACS shell-thickness
+  variables and records `tacs_formulation_element_ad_adjoint` in optimization
+  diagnostics.
+- Promoted the supported TACS SOL 101 shell-thickness tangent from an element
+  finite-difference route to backend-local ForwardDiff AD through the active
+  residual-first Quad4 operator. The AD route covers PSHELL/MAT1 and
+  uniform-thickness PCOMP_CLT scaling, including unsymmetric `Bmb` coupling.
+- Added the first TACS-formulation SOL 103 route for supported CQUAD4 shell
+  modal decks. The route assembles the residual-first TACS shell stiffness and
+  reuses the shared mass assembly, modal eigensolver, modal effective mass, and
+  result packaging.
+- `tools/testing/tacs_sol103_route_check.jl`: bundled-deck smoke test for
+  TACS SOL 103 routing, finite modal frequencies, stiffness symmetry, and route
+  metadata.
+- Added the first TACS-formulation SOL 106 route for supported CQUAD4 shell
+  nonlinear-static decks on the shared geometric route. The route assembles the
+  residual-first TACS shell stiffness, supplies the native residual-first
+  CQUAD4 geometric stiffness through a nonlinear callback, and now also routes
+  the guarded flat-shell formal von-Karman path through the backend
+  nonlinear-state callback.
+- `tools/testing/tacs_sol106_route_check.jl`: generated-deck smoke test for
+  TACS SOL 106 routing, native geometric-stiffness callback use, convergence
+  diagnostics, nonzero `Kg`, and stiffness symmetry.
+- Added the first TACS-formulation SOL 105 route for supported CQUAD4 shell
+  buckling decks. The route assembles the residual-first shell tangent for
+  `K`/`K_eig`, supplies a backend-native residual-first CQUAD4 geometric
+  stiffness for `Kg`, reuses the shared SOL 105 preload/eigenvalue/result
+  machinery, and records route metadata for the first buckling slice.
+- `tools/testing/tacs_sol105_route_check.jl`: bundled-deck smoke test for
+  TACS SOL 105 routing, finite eigenvalues, stiffness symmetry, and nonzero
+  geometric stiffness, plus a thickness finite-difference/Rayleigh quotient
+  derivative check on the first buckling factor.
 - `Reference_documentation/JFEM_TACS_Backend_Roadmap_Beamer.pdf`: roadmap
   slides for a TACS-style backend.
 - `POST/` stiffened-panel buckling web app: a pure-Julia HTTP + MsgPack
@@ -46,6 +231,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
   overlay with a spinner and a live elapsed-seconds counter (updates
   10x/sec) while the solver runs; it closes automatically when results are
   ready or on error.
+- `POST/` web app can now run an arbitrary deck, not just the form-built
+  stiffened panel. A sidebar "Analysis source" toggle switches between
+  "Build stiffened panel" (unchanged) and "Run a .bdf file", where the user
+  gives a server-side path to a `.bdf`/`.dat`/`.nas` deck. The deck runs in
+  place so its `INCLUDE` cards resolve, and the solution sequence (SOL 101
+  static, 103 modes, 105 buckling, 106 nonlinear) is auto-detected from the
+  deck rather than assumed. `panel_server.jl` is now SOL-agnostic: it reads
+  the matching results JSON per SOL (`.JU.JSON` / `.BUCKLING.JSON` /
+  `.NONLINEAR.JSON`), returns `sol`, `analysis_type`, eigenvalues,
+  frequencies, and the markdown report, and the 3D viewer labels results by
+  type (mode frequency for SOL 103, buckling factor for SOL 105, static
+  deformation for SOL 101/106). Fixes a latent bug where the one-case
+  manifest used the key `options` instead of `output_options`, which had
+  suppressed the results JSON and stored mode-shape eigenvectors.
 - `solver/assembly.assemble_stiffness`: PSHELL MAT2/MAT8 elements with
   `MCID > 0` now follow the same THETA/MCID material-axis rotation path
   used by PCOMP. Adds two tracking arrays (`q4_el_theta`, `q4_el_mcid`)

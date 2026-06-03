@@ -80,7 +80,7 @@ Common input families supported by the parser and model builder include:
 | Family | Representative cards |
 |---|---|
 | Geometry and coordinates | `GRID`, `GRDSET`, `CORD1R`, `CORD2R`, `CORD2C`, `CORD2S` |
-| Shell elements | `CQUAD4`, `CQUAD8`, `CTRIA3`, `CTRIA6`, `CSHEAR` |
+| Shell elements | `CQUAD4`, `CQUADR`, `CQUAD8`, `CTRIA3`, `CTRIA6`, `CSHEAR` |
 | Bars, beams, and rods | `CBAR`, `CBEAM`, `CROD`, `CONROD` |
 | Springs and bushings | `CELAS1`, `CELAS2`, `CBUSH` |
 | Solid elements | `CTETRA`, `CHEXA`, `CPENTA` |
@@ -245,10 +245,33 @@ The viewer loads `.jfem` files directly in a browser and supports structural
 mesh display, subcase selection, result coloring, deformed-shape display, and
 side-by-side model inspection.
 
+## Interactive Analysis Web App
+
+`POST/panel_app.html` (served by the pure-Julia `POST/panel_server.jl`) is an
+interactive front end that both **builds and runs** a model. Its *Analysis
+source* toggle offers two paths:
+
+- **Build stiffened panel**: parameterize a curved cylindrical stiffened panel
+  (skin + T-stringer), generate the Nastran deck client-side, and run a
+  SOL 105 linear buckling analysis.
+- **Run a .bdf file**: give a server-side path to an existing
+  `.bdf`/`.dat`/`.nas` deck. The solution sequence (SOL 101 static, 103 normal
+  modes, 105 buckling, 106 nonlinear static) is auto-detected from the deck,
+  which is run in place so `INCLUDE` cards resolve.
+
+The solver runs in-process (loaded once), the browser communicates over
+msgpack-over-HTTP, and results are rendered in the same 3D viewer with
+SOL-aware labels plus the solver's markdown report. On Windows, `panel_app.cmd`
+launches the server (and, if a prebuilt sysimage is present, loads it for
+near-instant startup). See `POST/PANEL_APP_README.md` for the runbook.
+
 ## Public Runner Scripts
 
 The public command-line runner scripts are:
 
+- `jfem` / `jfem.cmd`: one-line wrappers (Linux/macOS and Windows) to analyze a
+  single deck with good defaults and an optional `-letters` output-format
+  string; they call `tools/jfem.jl`. This is the simplest entry point.
 - `deploy_fast.jl`: preferred fast deployment and broad precompile workflow.
 - `run_batch_manifest.jl`: preferred explicit JSON-manifest batch runner.
 - `jfem_worker_jsonl.jl`: persistent JSONL worker for Python-driven
@@ -259,7 +282,9 @@ The public command-line runner scripts are:
   manifests and launching manifest-based runs from external workflows.
 - `precompile_sol105.jl`: focused legacy helper for representative SOL 105
   precompile setup.
-- `run_bdf.jl`: preferred runner for one case.
+- `tools/jfem.jl`: simple single-case runner behind the `jfem`/`jfem.cmd`
+  wrappers above (good defaults, optional `-letters` output-format string).
+- `run_bdf.jl`: explicit single-case runner with every flag spelled out.
 - `run_bdf_batch.jl`: simple text-list batch runner retained for existing
   scripts.
 - `run_manifest.jl`: shared manifest and environment-flag helper.
@@ -281,5 +306,4 @@ OpenJFEM is best suited for:
 The codebase is intentionally source-transparent: core algorithms, element
 kernels, solver assembly, exports, and post-processing are all included in the
 repository.
-
 

@@ -91,6 +91,42 @@ _first_existing(dir, names) = begin
     hit
 end
 
+# Detect the solution-sequence number from a deck's executive control. Mirrors
+# the solver's own parsing (regex on the "SOL <n>" line); defaults to 101 when
+# absent. Only the first ~200 lines are scanned (the SOL line precedes CEND).
+function _detect_sol(deck_path::AbstractString)
+    found = nothing
+    try
+        open(deck_path, "r") do io
+            for _ in 1:200
+                eof(io) && break
+                ln = strip(uppercase(readline(io)))
+                startswith(ln, "BEGIN BULK") && break   # exec control is over
+                m = match(r"^SOL\s+(\d+)", ln)
+                # NOTE: a bare `return` here would only exit this do-block closure,
+                # not _detect_sol - so capture into `found` and break instead.
+                if m !== nothing
+                    found = parse(Int, m.captures[1])
+                    break
+                end
+            end
+        end
+    catch err
+        _log("WARN: could not detect SOL from $deck_path: $(sprint(showerror, err))")
+    end
+    return found === nothing ? 101 : found
+end
+
+# Human-readable analysis label for a SOL number (SOL 63 is normal modes too).
+function _analysis_type(sol::Integer)
+    sol = (sol == 63) ? 103 : sol
+    sol == 101 && return "SOL101_STATIC"
+    sol == 103 && return "SOL103_MODES"
+    sol == 105 && return "SOL105_BUCKLING"
+    sol == 106 && return "SOL106_NONLINEAR"
+    return "SOL$(sol)"
+end
+
 # --- the core: write deck, run a one-case manifest, collect artifacts --------
 function run_analysis(payload::AbstractDict)
     case_id = string(get(payload, "case_id", "panel_" *
@@ -98,7 +134,11 @@ function run_analysis(payload::AbstractDict)
     out_dir = joinpath(RUN_ROOT, case_id)
     mkpath(out_dir)
 
-    # resolve the deck
+    # Resolve the deck. A server-side path is run IN PLACE (we pass the original
+    # absolute path to the solver) so that any INCLUDE cards resolve relative to
+    # the deck's own directory. Decks supplied as 'bdf' text (the form-built
+    # panel, or a browser-uploaded file's contents) are written into this case's
+    # run dir; uploaded files carry a 'filename' hint so the stem/name is real.
     bdf_path = ""
     if haskey(payload, "bdf_path") && !isempty(string(payload["bdf_path"]))
         bdf_path = abspath(string(payload["bdf_path"]))
@@ -106,24 +146,41 @@ function run_analysis(payload::AbstractDict)
     else
         bdf_text = string(get(payload, "bdf", ""))
         isempty(strip(bdf_text)) && error("payload needs a non-empty 'bdf' string or 'bdf_path'")
-        bdf_path = joinpath(out_dir, case_id * ".bdf")
+        # name the written deck from the upload's filename when provided, else the
+        # case id. Sanitize to a bare basename so a stray path can't escape out_dir.
+        raw_name = strip(string(get(payload, "filename", "")))
+        fname = isempty(raw_name) ? (case_id * ".bdf") : basename(replace(raw_name, '\\' => '/'))
+        occursin(r"(?i)\.(bdf|dat|nas)$", fname) || (fname *= ".bdf")
+        bdf_path = joinpath(out_dir, fname)
         write(bdf_path, bdf_text)
         _log("wrote deck: $bdf_path")
     end
-    stem = replace(basename(bdf_path), r"(?i)\.bdf$" => "")
+    # strip a .bdf / .dat / .nas extension to get the output stem
+    stem = replace(basename(bdf_path), r"(?i)\.(bdf|dat|nas)$" => "")
+    sol = _detect_sol(bdf_path)
+    analysis_type = _analysis_type(sol)
+    _log("deck SOL=$sol ($analysis_type): $bdf_path")
 
-    # one-case manifest, mode shapes enabled for the viewer
+    # One-case manifest. Export options are SOL-agnostic: binary .jfem (the 3D
+    # viewer reads v3/v4/v5 from any SOL), the per-SOL results JSON, mode/eigen-
+    # vectors, and the markdown report. We do NOT inject EIGRL/METHOD or force a
+    # mode count - an uploaded deck's own EIGRL is respected.
+    # NOTE: the manifest core reads these under "output_options" (NOT "options");
+    # the latter is silently ignored, which suppresses the results JSON and the
+    # stored mode-shape eigenvectors.
     manifest = Dict{String,Any}(
         "output_root" => RUN_ROOT,
         "defaults" => Dict{String,Any}(
-            "options" => Dict{String,Any}(
-                "binary" => true,        # write <stem>.jfem (v4)
-                "json" => true,          # write <stem>.BUCKLING.JSON
-                "eigenvectors" => true,  # mode shapes into .jfem / JSON
+            "output_options" => Dict{String,Any}(
+                "binary" => true,        # write <stem>.jfem
+                "json" => true,          # write the per-SOL results JSON
+                "eigenvectors" => true,  # mode shapes into .jfem / JSON (103/105)
                 "report" => true,        # <stem>.REPORT.md
             ),
             "flags" => Dict{String,Any}(
                 "JFEM_EXPORT_BINARY" => "true",
+                # store public mode shapes so SOL 103/105 modes reach the viewer;
+                # harmless for SOL 101/106 (no eigen modes to store).
                 "JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES" => "true",
                 "JFEM_SUPPRESS_THREAD_HINT" => "1",
             ),
@@ -151,25 +208,46 @@ function run_analysis(payload::AbstractDict)
 
     # collect artifacts
     jfem_path = _first_existing(out_dir, [stem * ".jfem"])
-    buckling_path = _first_existing(out_dir, [stem * ".BUCKLING.JSON"])
     report_path = _first_existing(out_dir, [stem * ".REPORT.md"])
     log_path = _first_existing(out_dir, ["jfem_case_stdout.log"])
+    # The results JSON name depends on the SOL: 103/105 -> .BUCKLING.JSON,
+    # 101 -> .JU.JSON, 106 -> .NONLINEAR.JSON, 200 -> .OPTIMIZATION.JSON. Probe
+    # all of them so the server stays SOL-agnostic.
+    json_path = _first_existing(out_dir, [
+        stem * ".BUCKLING.JSON",
+        stem * ".JU.JSON",
+        stem * ".NONLINEAR.JSON",
+        stem * ".OPTIMIZATION.JSON",
+    ])
 
     jfem_bytes = jfem_path === nothing ? UInt8[] : read(jfem_path)
     eigenvalues = Float64[]
-    buckling = nothing
-    if buckling_path !== nothing
+    frequencies = Float64[]
+    if json_path !== nothing
         try
-            buckling = JSON.parsefile(buckling_path)
-            if buckling isa AbstractDict && haskey(buckling, "eigenvalues")
-                eigenvalues = Float64.(buckling["eigenvalues"])
+            j = JSON.parsefile(json_path)
+            if j isa AbstractDict
+                # buckling load factors (105) or eigenvalues (103)
+                haskey(j, "eigenvalues") && (eigenvalues = Float64.(j["eigenvalues"]))
+                # natural frequencies in Hz (103)
+                haskey(j, "frequencies") && (frequencies = Float64.(j["frequencies"]))
             end
         catch err
-            _log("WARN: could not parse buckling JSON: $err")
+            _log("WARN: could not parse results JSON $(basename(json_path)): $err")
         end
     end
+    # eigen footer in the .jfem is the fallback for 103/105 eigenvalues
     if isempty(eigenvalues) && !isempty(jfem_bytes)
         eigenvalues = _eigenvalues_from_jfem(jfem_bytes)
+    end
+
+    # The markdown report text (sent to the browser so the user sees a summary).
+    report_text = ""
+    if report_path !== nothing
+        try
+            txt = read(report_path, String)
+            report_text = length(txt) > 20000 ? txt[1:20000] * "\n... (truncated)" : txt
+        catch; end
     end
 
     run_log = ""
@@ -185,12 +263,16 @@ function run_analysis(payload::AbstractDict)
     return Dict{String,Any}(
         "ok" => ok,
         "case_id" => case_id,
+        "sol" => sol,
+        "analysis_type" => analysis_type,
         "bdf_path" => bdf_path,
         "output_dir" => out_dir,
         "jfem_path" => jfem_path === nothing ? "" : jfem_path,
         "jfem_bytes" => jfem_bytes,           # msgpack bin -> Uint8Array in browser
         "report_path" => report_path === nothing ? "" : report_path,
+        "report" => report_text,
         "eigenvalues" => eigenvalues,
+        "frequencies" => frequencies,
         "elapsed_s" => round(elapsed; digits=3),
         "log" => run_log,
     )
@@ -354,7 +436,24 @@ function serve(; host="127.0.0.1", port=8088)
     _log("  app:      http://$host:$port/")
     _log("  repo:     $REPO_ROOT")
     _log("  runs:     $RUN_ROOT")
-    HTTP.serve(handle, server)
+    # HTTP.serve normally blocks forever. If it RETURNS or THROWS, the process is
+    # about to stop - say WHY, so the launcher window does not just close silently.
+    # (Note: an out-of-memory kill by the OS terminates the process abruptly and
+    # cannot be caught here; the front end detects that as a dropped connection.)
+    try
+        HTTP.serve(handle, server)
+        _log("server loop ended normally (listening socket closed). Stopping.")
+    catch err
+        if err isa InterruptException
+            _log("server stopped by Ctrl+C / interrupt.")
+        else
+            _log("ERROR: server loop crashed - stopping. Reason:")
+            _log(sprint(showerror, err, catch_backtrace()))
+        end
+        rethrow()
+    finally
+        try; isopen(server) && close(server); catch; end
+    end
 end
 
 # --- CLI ---------------------------------------------------------------------

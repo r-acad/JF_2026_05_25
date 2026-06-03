@@ -73,7 +73,9 @@ function extract_shells(cards)
     for c in cards
         id = to_id(parse_nastran_number(safe_get(c, 3)))
         pid = to_id(parse_nastran_number(safe_get(c, 4)))
-        # Determine node count from card name suffix: CTRIA3→3, CQUAD4→4, CTRIA6→6, CQUAD8→8
+        # Determine node count from card name suffix: CTRIA3 -> 3,
+        # CQUAD4 -> 4, CTRIA6 -> 6, CQUAD8 -> 8. CQUADR has no suffix
+        # but shares the four-corner shell field layout.
         card_name = uppercase(strip(string(safe_get(c, 2, ""))))
         m = match(r"(\d+)$", card_name)
         n_nodes = m !== nothing ? parse(Int, m.captures[1]) : (startswith(card_name, "CTRIA") ? 3 : 4)
@@ -104,7 +106,7 @@ function extract_shells(cards)
             end
         end
         if id > 0 && length(nodes) >= 3
-            d[string(id)] = Dict("ID"=>id, "PID"=>pid, "NODES"=>nodes, "THETA"=>theta, "MCID"=>mcid)
+            d[string(id)] = Dict("ID"=>id, "PID"=>pid, "NODES"=>nodes, "THETA"=>theta, "MCID"=>mcid, "TYPE"=>card_name)
         end
     end
     return d

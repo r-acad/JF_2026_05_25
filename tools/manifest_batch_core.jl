@@ -294,6 +294,10 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
     case_flags = copy(default_flags)
     merge!(case_flags, _manifest_string_dict(_manifest_get(raw_case, "flags", nothing)))
     merge!(case_flags, _manifest_string_dict(_manifest_get(raw_case, "flags_raw", nothing)))
+    backend_raw = _manifest_get(raw_case, "backend", _manifest_get(defaults, "backend", _manifest_get(manifest, "backend", nothing)))
+    if backend_raw !== nothing
+        case_flags["JFEM_BACKEND"] = string(backend_raw)
+    end
     options = _manifest_case_output_options(defaults, raw_case)
     export_opts = _manifest_export_options(options, case_flags)
     if export_opts.eigenvalues_only
@@ -330,31 +334,20 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
         extra[string(k)] = v
     end
 
-    if quiet
-        open(case_log, "w") do io
-            redirect_stdout(io) do
-                write_run_manifest(out_dir;
-                    repo_root=repo_root,
-                    bdf_path=deck,
-                    script_path=script_path,
-                    args=args,
-                    applied_flags=applied_case_flags,
-                    extra=extra)
-            end
-        end
-    else
-        write_run_manifest(out_dir;
-            repo_root=repo_root,
-            bdf_path=deck,
-            script_path=script_path,
-            args=args,
-            applied_flags=applied_case_flags,
-            extra=extra)
-    end
-
     t0 = time_ns()
     case_results = _manifest_with_env(case_flags) do
         if quiet
+            open(case_log, "w") do io
+                redirect_stdout(io) do
+                    write_run_manifest(out_dir;
+                        repo_root=repo_root,
+                        bdf_path=deck,
+                        script_path=script_path,
+                        args=args,
+                        applied_flags=applied_case_flags,
+                        extra=extra)
+                end
+            end
             open(case_log, "a") do io
                 redirect_stdout(io) do
                     redirect_stderr(io) do
@@ -371,6 +364,13 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
                 end
             end
         else
+            write_run_manifest(out_dir;
+                repo_root=repo_root,
+                bdf_path=deck,
+                script_path=script_path,
+                args=args,
+                applied_flags=applied_case_flags,
+                extra=extra)
             OpenJFEM.main(deck;
                 output_dir=out_dir,
                 export_model_json=export_opts.export_model_json,

@@ -39,6 +39,8 @@ using .Solver
 # Order: ModelBuilder -> JFEMSolver -> Export -> main.
 # JFEMSolver's _export_results_impl references symbols that are defined
 # in Export.jl, but only at call time, so parsing order is safe.
+include("backend/BackendInterface.jl")
+include("backend/tacs_formulation/sol101.jl")
 include("ModelBuilder.jl")
 include("JFEMSolver.jl")
 include("Export.jl")
@@ -62,6 +64,12 @@ end
 export main,
        bdf_to_model, bdf_to_model_json, json_to_model,
        solve_model,
+       AbstractJFEMBackend, NastranParityBackend, TACSFormulationBackend,
+       backend_from_model, backend_from_name, backend_name,
+       static_compliance_thickness_gradient, static_displacement_thickness_gradient,
+       static_compliance_design_gradient, static_displacement_design_gradient,
+       static_ks_von_mises_design_gradient,
+       buckling_load_factor_thickness_gradient,
        solve_adjoint, solve_adjoint_buckling,
        optimize_thickness, optimize_sizing,
        build_model, resolve_nested_coords!, transform_geometry!,

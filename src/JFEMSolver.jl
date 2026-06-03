@@ -111,7 +111,7 @@ end
 
 function _report_card_inventory(cards)
     processed = Set(["GRID", "GRDSET", "CORD2R", "CORD1R", "CORD2C", "CORD2S",
-        "CTRIA3", "CTRIA6", "CQUAD4", "CQUAD8", "CSHEAR", "CBAR", "CBEAM", "CROD", "CONROD", "CELAS1", "CELAS2", "CBUSH",
+        "CTRIA3", "CTRIA6", "CQUAD4", "CQUADR", "CQUAD8", "CSHEAR", "CBAR", "CBEAM", "CROD", "CONROD", "CELAS1", "CELAS2", "CBUSH",
         "RBE1", "RBE2", "RBE3", "RBAR", "RSPLINE",
         "PSHELL", "PSHEAR", "PBARL", "PBAR", "PBAR*", "PBEAM", "PBEAM*", "PBEAML", "PROD", "PCOMP", "PELAS", "PBUSH", "PSOLID",
         "MAT1", "MAT2", "MAT8", "MATT1", "TABLEM1",
@@ -323,7 +323,7 @@ function _sol200_lite_select_subcases!(model, objective::Symbol, opt::Dict{Strin
     return nothing
 end
 
-function _sol200_lite_static_response_spec(response::Dict{String,Any})
+function _sol200_lite_static_response_spec(response::Dict{String,Any}; ks_rho::Float64=50.0)
     family = get(response, "candidate_response_family", nothing)
     if family == "compliance"
         return :compliance, Dict{String,Any}("type" => "compliance")
@@ -337,10 +337,1162 @@ function _sol200_lite_static_response_spec(response::Dict{String,Any})
             "grid" => Int(grid),
             "dof" => Int(dof),
         )
+    elseif family == "von_mises"
+        eids = sort!(collect(_sol200_lite_stress_response_eids(response)))
+        isempty(eids) && (eids = "all")
+        return :ks_von_mises, Dict{String,Any}(
+            "type" => "ks_von_mises",
+            "eids" => eids,
+            "surface" => "top",
+            "rho" => ks_rho,
+            "sigma_ref" => 1.0,
+        )
     end
     response_id = get(response, "id", nothing)
     response_label = get(response, "label", nothing)
-    error("SOL 200-lite static response route only supports compliance or displacement constraints (DRESP1 $(response_id), label=$(response_label), family=$(family))")
+    error("SOL 200-lite static response route only supports compliance, displacement, or KS von-Mises constraints (DRESP1 $(response_id), label=$(response_label), family=$(family))")
+end
+
+@inline function _sol200_lite_has_only_pcomp_ply_relations(model::Dict)
+    opt = get(model, "OPTIMIZATION", nothing)
+    opt isa Dict{String,Any} || return false
+    property_relations = get(opt, "property_relations", Any[])
+    !isempty(property_relations) || return false
+    return all(get(rel, "candidate_design_variable_family", nothing) in ("pcomp_ply_thickness", "pcomp_ply_angle") for rel in property_relations)
+end
+
+@inline function _sol200_lite_has_only_material_relations(model::Dict)
+    opt = get(model, "OPTIMIZATION", nothing)
+    opt isa Dict{String,Any} || return false
+    isempty(get(opt, "property_relations", Any[])) || return false
+    material_relations = get(opt, "material_relations", Any[])
+    !isempty(material_relations) || return false
+    return all(get(rel, "candidate_design_variable_family", nothing) in ("material_E", "material_G", "material_NU", "material_E1", "material_E2", "material_G12", "material_NU12", "material_RHO") for rel in material_relations)
+end
+
+_sol200_lite_has_only_mat1_material_relations(model::Dict) = _sol200_lite_has_only_material_relations(model)
+
+function _sol200_lite_pcomp_ply_current_value(model::Dict, pid::Int, ply_idx::Int, dv_type::AbstractString)
+    prop = get(get(model, "PSHELLs", Dict()), string(pid), nothing)
+    prop isa AbstractDict || error("SOL 200-lite PCOMP ply route could not find PCOMP property $pid")
+    uppercase(string(get(prop, "TYPE", ""))) == "PCOMP_CLT" ||
+        error("SOL 200-lite PCOMP ply route requires PCOMP_CLT property $pid")
+    ply_data = get(prop, "PLY_DATA", Any[])
+    1 <= ply_idx <= length(ply_data) || error("SOL 200-lite PCOMP ply route requested ply $ply_idx on property $pid with $(length(ply_data)) plies")
+    ply = ply_data[ply_idx]
+    if dv_type == "pcomp_ply_thickness"
+        return Float64(ply["z_top"] - ply["z_bot"])
+    elseif dv_type == "pcomp_ply_angle"
+        return Float64(get(ply, "theta", get(ply, "THETA", 0.0)))
+    end
+    error("SOL 200-lite PCOMP ply route does not support design variable type '$dv_type'")
+end
+
+function _sol200_lite_apply_pcomp_ply_initial!(model::Dict, pid::Int, ply_idx::Int, dv_type::AbstractString, value::Float64)
+    current = _sol200_lite_pcomp_ply_current_value(model, pid, ply_idx, dv_type)
+    delta = value - current
+    abs(delta) <= 1e-12 * max(1.0, abs(value), abs(current)) && return nothing
+    updated = _tacs_model_with_pcomp_ply_delta(model, pid, ply_idx, dv_type, delta)
+    empty!(model)
+    merge!(model, updated)
+    return nothing
+end
+
+function _sol200_lite_pcomp_ply_design_variables(model::Dict, opt::Dict{String,Any})
+    design_vars = _sol200_lite_lookup_by_id(get(opt, "design_variables", Any[]))
+    optimizer_params = get(opt, "optimizer_params", Dict{String,Any}())
+    default_move_limit_raw = get(optimizer_params, "DELX", nothing)
+    default_move_limit =
+        if isnothing(default_move_limit_raw)
+            0.2
+        else
+            value = Float64(default_move_limit_raw)
+            value > 0.0 || error("SOL 200-lite PCOMP ply route requires DOPTPRM DELX to be positive when provided")
+            value
+        end
+    dvs = Dict{String,Any}[]
+    relation_summaries = Dict{String,Any}[]
+    for relation in get(opt, "property_relations", Any[])
+        relation_id = Int(relation["id"])
+        family = string(get(relation, "candidate_design_variable_family", ""))
+        family in ("pcomp_ply_thickness", "pcomp_ply_angle") ||
+            error("SOL 200-lite PCOMP ply route received non-ply relation $relation_id")
+        uppercase(string(get(relation, "card_type", ""))) == "PCOMP" ||
+            error("SOL 200-lite PCOMP ply route requires DVPREL1 type PCOMP for relation $relation_id")
+        ply_idx_raw = get(relation, "ply_index", nothing)
+        isnothing(ply_idx_raw) && error("SOL 200-lite PCOMP ply route could not infer ply index from relation $relation_id field $(get(relation, "field", "?"))")
+        ply_idx = Int(ply_idx_raw)
+        pid = Int(relation["property_id"])
+        coeffs = get(relation, "coefficients", Any[])
+        length(coeffs) == 1 || error("SOL 200-lite PCOMP ply route requires one DESVAR per DVPREL1 relation")
+        coef = Float64(coeffs[1]["COEF"])
+        _sol200_lite_numeric_equal(coef, 1.0) || error("SOL 200-lite PCOMP ply route requires unit DVPREL1 coefficients")
+        _sol200_lite_numeric_equal(get(relation, "offset", 0.0), 0.0) || error("SOL 200-lite PCOMP ply route requires zero DVPREL1 offset")
+        desvar_id = Int(coeffs[1]["DESVAR_ID"])
+        haskey(design_vars, desvar_id) || error("SOL 200-lite PCOMP ply route could not find DESVAR $desvar_id")
+        dv_card = design_vars[desvar_id]
+        label = isempty(strip(string(get(dv_card, "label", "")))) ? "desvar_$desvar_id" : strip(string(get(dv_card, "label", "")))
+        x_init = Float64(get(dv_card, "x_init", _sol200_lite_pcomp_ply_current_value(model, pid, ply_idx, family)))
+        lower_candidates = Float64[]
+        upper_candidates = Float64[]
+        dv_lower = get(dv_card, "lower_bound", nothing)
+        dv_upper = get(dv_card, "upper_bound", nothing)
+        relation_lower = get(relation, "lower_bound", nothing)
+        relation_upper = get(relation, "upper_bound", nothing)
+        !isnothing(dv_lower) && push!(lower_candidates, Float64(dv_lower))
+        !isnothing(relation_lower) && push!(lower_candidates, Float64(relation_lower))
+        !isnothing(dv_upper) && push!(upper_candidates, Float64(dv_upper))
+        !isnothing(relation_upper) && push!(upper_candidates, Float64(relation_upper))
+        x_min = isempty(lower_candidates) ? (family == "pcomp_ply_thickness" ? 1e-6 : -90.0) : maximum(lower_candidates)
+        x_max = isempty(upper_candidates) ? (family == "pcomp_ply_thickness" ? 0.0 : 90.0) : minimum(upper_candidates)
+        isfinite(x_min) || error("SOL 200-lite PCOMP ply route requires a finite lower bound for DESVAR $desvar_id")
+        family == "pcomp_ply_angle" && !isfinite(x_max) &&
+            error("SOL 200-lite PCOMP ply route requires a finite upper bound for ply-angle DESVAR $desvar_id")
+        x_max > 0.0 || family == "pcomp_ply_angle" ||
+            error("SOL 200-lite PCOMP ply route requires a positive upper bound for ply-thickness DESVAR $desvar_id")
+        x_max + 1e-12 < x_min &&
+            error("SOL 200-lite PCOMP ply route found incompatible lower/upper bounds for DESVAR $desvar_id")
+        x_init + 1e-12 < x_min &&
+            error("SOL 200-lite PCOMP ply route requires DESVAR $desvar_id initial value to satisfy the translated lower bound")
+        x_init > x_max + 1e-12 &&
+            error("SOL 200-lite PCOMP ply route requires DESVAR $desvar_id initial value to satisfy the translated upper bound")
+        move_limit = isnothing(get(dv_card, "move_limit", nothing)) ? default_move_limit : Float64(dv_card["move_limit"])
+        move_limit > 0.0 || error("SOL 200-lite PCOMP ply route requires positive move limits")
+        _sol200_lite_apply_pcomp_ply_initial!(model, pid, ply_idx, family, x_init)
+        push!(dvs, Dict{String,Any}(
+            "id" => label,
+            "type" => family,
+            "pids" => [pid],
+            "ply_index" => ply_idx,
+        ))
+        push!(relation_summaries, Dict{String,Any}(
+            "relation_id" => relation_id,
+            "design_var_id" => desvar_id,
+            "label" => label,
+            "type" => family,
+            "property_id" => pid,
+            "ply_index" => ply_idx,
+            "initial_value" => x_init,
+            "lower_bound" => x_min,
+            "upper_bound" => x_max,
+            "move_limit" => move_limit,
+            "field" => get(relation, "field", nothing),
+        ))
+    end
+    return dvs, relation_summaries
+end
+
+function _sol200_lite_pcomp_ply_design_value_map(relation_summaries, x_vec)
+    values = Dict{String,Any}()
+    for (i, relation) in enumerate(relation_summaries)
+        values[string(relation["label"])] = Float64(x_vec[i])
+    end
+    return values
+end
+
+function _sol200_lite_pcomp_ply_apply_values!(model::Dict, relation_summaries, x_vec)
+    for (i, relation) in enumerate(relation_summaries)
+        _sol200_lite_apply_pcomp_ply_initial!(
+            model,
+            Int(relation["property_id"]),
+            Int(relation["ply_index"]),
+            string(relation["type"]),
+            Float64(x_vec[i]),
+        )
+    end
+    return nothing
+end
+
+function _sol200_lite_pcomp_ply_gradient_vector(gradient::AbstractDict, relation_summaries)
+    g = Float64[]
+    for relation in relation_summaries
+        label = string(relation["label"])
+        haskey(gradient, label) ||
+            error("SOL 200-lite PCOMP ply route did not receive a gradient entry for design variable '$label'")
+        value = Float64(gradient[label])
+        isfinite(value) || error("SOL 200-lite PCOMP ply route received a non-finite gradient for design variable '$label'")
+        push!(g, value)
+    end
+    return g
+end
+
+function _sol200_lite_pcomp_ply_projected_update(x_vec, gradient_vec, x_min, x_max, move_limit)
+    scale = maximum(abs.(gradient_vec))
+    if !isfinite(scale) || scale <= 1e-30
+        return copy(x_vec)
+    end
+    candidate = Float64[]
+    for i in eachindex(x_vec)
+        push!(candidate, clamp(Float64(x_vec[i]) - Float64(move_limit[i]) * Float64(gradient_vec[i]) / scale,
+            Float64(x_min[i]), Float64(x_max[i])))
+    end
+    return candidate
+end
+
+function _sol200_lite_pcomp_ply_mass_constraint(opt::Dict{String,Any}, responses::Dict{Int,Dict{String,Any}})
+    mass_constraints = Dict{String,Any}[]
+    for constraint in get(opt, "constraints", Any[])
+        response_id = Int(constraint["response_id"])
+        haskey(responses, response_id) || error("SOL 200-lite PCOMP ply route could not find DCONSTR response $response_id")
+        response = responses[response_id]
+        family = get(response, "candidate_response_family", nothing)
+        if family == "mass" && isnothing(get(constraint, "lower_allowable", nothing)) && !isnothing(get(constraint, "upper_allowable", nothing))
+            push!(mass_constraints, constraint)
+        else
+            error("SOL 200-lite PCOMP ply route currently supports only an optional upper-bound WEIGHT/MASS constraint")
+        end
+    end
+    isempty(mass_constraints) && return nothing
+    length(mass_constraints) == 1 || error("SOL 200-lite PCOMP ply route supports at most one upper-bound WEIGHT/MASS constraint")
+    mass_target = Float64(mass_constraints[1]["upper_allowable"])
+    mass_target > 0.0 || error("SOL 200-lite PCOMP ply route requires a positive WEIGHT/MASS upper bound")
+    return Dict{String,Any}(
+        "constraint_response_id" => Int(mass_constraints[1]["response_id"]),
+        "constraint_response_family" => "mass",
+        "absolute_mass_target" => mass_target,
+    )
+end
+
+function _sol200_lite_upper_mass_constraint(opt::Dict{String,Any}, responses::Dict{Int,Dict{String,Any}}, route_name::AbstractString)
+    mass_constraints = Dict{String,Any}[]
+    for constraint in get(opt, "constraints", Any[])
+        response_id = Int(constraint["response_id"])
+        haskey(responses, response_id) || error("SOL 200-lite $route_name route could not find DCONSTR response $response_id")
+        response = responses[response_id]
+        family = get(response, "candidate_response_family", nothing)
+        if family == "mass" && isnothing(get(constraint, "lower_allowable", nothing)) && !isnothing(get(constraint, "upper_allowable", nothing))
+            push!(mass_constraints, constraint)
+        else
+            error("SOL 200-lite $route_name route currently supports only an optional upper-bound WEIGHT/MASS constraint")
+        end
+    end
+    isempty(mass_constraints) && return nothing
+    length(mass_constraints) == 1 || error("SOL 200-lite $route_name route supports at most one upper-bound WEIGHT/MASS constraint")
+    mass_target = Float64(mass_constraints[1]["upper_allowable"])
+    mass_target > 0.0 || error("SOL 200-lite $route_name route requires a positive WEIGHT/MASS upper bound")
+    return Dict{String,Any}(
+        "constraint_response_id" => Int(mass_constraints[1]["response_id"]),
+        "constraint_response_family" => "mass",
+        "absolute_mass_target" => mass_target,
+    )
+end
+
+function _sol200_lite_pcomp_ply_area(model::Dict, pid::Int)
+    area = 0.0
+    for (_, el) in get(model, "CSHELLs", Dict())
+        Int(el["PID"]) == pid || continue
+        area += Solver._element_area(el["NODES"], model)
+    end
+    area > 0.0 || error("SOL 200-lite PCOMP ply route could not compute positive shell area for PCOMP $pid")
+    return area
+end
+
+function _sol200_lite_shell_mass(model::Dict)
+    total_mass = 0.0
+    for (_, el_any) in get(model, "CSHELLs", Dict())
+        el = el_any::AbstractDict
+        pid = Int(el["PID"])
+        prop = get(get(model, "PSHELLs", Dict()), string(pid), nothing)
+        prop isa AbstractDict || error("SOL 200-lite material route could not find shell property $pid")
+        area = Solver._element_area(el["NODES"], model)
+        prop_type = uppercase(string(get(prop, "TYPE", "PSHELL")))
+        if prop_type == "PCOMP_CLT"
+            ply_mass_per_area = 0.0
+            for (ply_idx, ply) in enumerate(get(prop, "PLY_DATA", Any[]))
+                rho = _sol200_lite_pcomp_ply_density(model, pid, ply_idx)
+                ply_mass_per_area += rho * Float64(ply["z_top"] - ply["z_bot"])
+            end
+            total_mass += area * (ply_mass_per_area + Float64(get(prop, "NSM", 0.0)))
+        else
+            mid = Int(get(prop, "MID", 0))
+            mat = get(get(model, "MATs", Dict()), string(mid), nothing)
+            mat isa AbstractDict || error("SOL 200-lite material route could not find material $mid for PSHELL $pid")
+            rho = Float64(get(mat, "RHO", 0.0))
+            total_mass += area * (rho * Float64(get(prop, "T", 0.0)) + Float64(get(prop, "NSM", 0.0)))
+        end
+    end
+    return total_mass
+end
+
+function _sol200_lite_material_density_mass_coefficients(model::Dict, relation_summaries)
+    coeffs = zeros(Float64, length(relation_summaries))
+    for (i, relation) in enumerate(relation_summaries)
+        string(relation["type"]) == "material_RHO" || continue
+        mid = Int(relation["material_id"])
+        coeff = 0.0
+        for (_, el_any) in get(model, "CSHELLs", Dict())
+            el = el_any::AbstractDict
+            pid = Int(el["PID"])
+            prop = get(get(model, "PSHELLs", Dict()), string(pid), nothing)
+            prop isa AbstractDict || error("SOL 200-lite material route could not find shell property $pid")
+            area = Solver._element_area(el["NODES"], model)
+            prop_type = uppercase(string(get(prop, "TYPE", "PSHELL")))
+            if prop_type == "PCOMP_CLT"
+                for ply in get(prop, "PLY_DATA", Any[])
+                    ply_mid = Int(get(ply, "mid", get(ply, "MID", 0)))
+                    ply_mid == mid || continue
+                    coeff += area * Float64(ply["z_top"] - ply["z_bot"])
+                end
+            else
+                Int(get(prop, "MID", 0)) == mid || continue
+                coeff += area * Float64(get(prop, "T", 0.0))
+            end
+        end
+        coeffs[i] = coeff
+    end
+    return coeffs
+end
+
+function _sol200_lite_pcomp_ply_density(model::Dict, pid::Int, ply_idx::Int)
+    prop = get(get(model, "PSHELLs", Dict()), string(pid), nothing)
+    prop isa AbstractDict || error("SOL 200-lite PCOMP ply route could not find PCOMP property $pid")
+    ply_data = get(prop, "PLY_DATA", nothing)
+    ply_data isa AbstractVector || error("SOL 200-lite PCOMP ply route requires PLY_DATA for PCOMP $pid")
+    1 <= ply_idx <= length(ply_data) || error("SOL 200-lite PCOMP ply route requested ply $ply_idx but PCOMP $pid has $(length(ply_data)) plies")
+    ply = ply_data[ply_idx]
+    mid = get(ply, "mid", get(ply, "MID", nothing))
+    isnothing(mid) && error("SOL 200-lite PCOMP ply route could not identify material for PCOMP $pid ply $ply_idx")
+    mat = get(get(model, "MATs", Dict()), string(mid), nothing)
+    mat isa AbstractDict || error("SOL 200-lite PCOMP ply route could not find material $mid for PCOMP $pid ply $ply_idx")
+    rho = Float64(get(mat, "RHO", 1.0))
+    return rho > 0.0 ? rho : 1.0
+end
+
+function _sol200_lite_pcomp_ply_mass_data(model::Dict, relation_summaries, x_vec)
+    mass_coeffs = zeros(Float64, length(relation_summaries))
+    for (i, entry) in enumerate(relation_summaries)
+        if string(entry["type"]) == "pcomp_ply_thickness"
+            pid = Int(entry["property_id"])
+            ply_idx = Int(entry["ply_index"])
+            mass_coeffs[i] = _sol200_lite_pcomp_ply_area(model, pid) *
+                             _sol200_lite_pcomp_ply_density(model, pid, ply_idx)
+        end
+    end
+
+    variable_mass = sum(mass_coeffs[i] * Float64(x_vec[i]) for i in eachindex(mass_coeffs))
+    fixed_mass = 0.0
+    for (_, prop_any) in get(model, "PSHELLs", Dict())
+        prop = prop_any::AbstractDict
+        uppercase(string(get(prop, "TYPE", ""))) == "PCOMP_CLT" || continue
+        pid = Int(prop["PID"])
+        area = _sol200_lite_pcomp_ply_area(model, pid)
+        ply_mass = 0.0
+        for (ply_idx, ply) in enumerate(get(prop, "PLY_DATA", Any[]))
+            rho = _sol200_lite_pcomp_ply_density(model, pid, ply_idx)
+            ply_mass += rho * Float64(ply["z_top"] - ply["z_bot"])
+        end
+        fixed_mass += area * (ply_mass + Float64(get(prop, "NSM", 0.0)))
+    end
+    fixed_mass = max(fixed_mass - variable_mass, 0.0)
+    return mass_coeffs, variable_mass, fixed_mass, variable_mass + fixed_mass
+end
+
+function _solve_sol200_lite_pcomp_ply_optimization(model::Dict)
+    backend_name(backend_from_model(model)) == "tacs_formulation" ||
+        error("SOL 200-lite PCOMP ply route currently requires backend = tacs_formulation")
+    opt = get(model, "OPTIMIZATION", nothing)
+    opt isa Dict{String,Any} || error("SOL 200 deck is missing normalized OPTIMIZATION metadata")
+    _sol200_lite_validate_mass_scope(model, [:shell_thickness])
+
+    responses = _sol200_lite_lookup_by_id(get(opt, "responses", Any[]))
+    mass_constraint = _sol200_lite_pcomp_ply_mass_constraint(opt, responses)
+    objective_def = get(opt, "objective", nothing)
+    objective_def isa AbstractDict || error("SOL 200-lite PCOMP ply route requires a DESOBJ objective")
+    objective_response_id = Int(objective_def["response_id"])
+    haskey(responses, objective_response_id) || error("SOL 200-lite objective response $objective_response_id was not found")
+    objective_response = responses[objective_response_id]
+    objective_family = get(objective_response, "candidate_response_family", nothing)
+    objective_sense = uppercase(strip(string(get(objective_def, "sense", ""))))
+    objective_family in ("compliance", "displacement") && objective_sense == "MIN" ||
+        error("SOL 200-lite PCOMP ply route currently supports DESOBJ(MIN) compliance or displacement only")
+
+    opt_model = deepcopy(model)
+    opt_model["SOL"] = 101
+    opt_model["CASE_CONTROL"]["SOL"] = 101
+    dvs, relation_summaries = _sol200_lite_pcomp_ply_design_variables(opt_model, opt)
+    selected_sid = _sol200_lite_select_subcases!(opt_model, :min_compliance, opt)
+
+    response_kind, response_spec =
+        objective_family == "compliance" ? (:compliance, Dict{String,Any}("type" => "compliance")) :
+        _sol200_lite_static_response_spec(objective_response)
+    optimizer_params = get(opt, "optimizer_params", Dict{String,Any}())
+    max_iter = max(1, Int(round(Float64(get(optimizer_params, "DESMAX", 1)))))
+    tol = Float64(get(optimizer_params, "CONV1", 1e-3))
+    x_vec = Float64[entry["initial_value"] for entry in relation_summaries]
+    initial_design_values = _sol200_lite_pcomp_ply_design_value_map(relation_summaries, x_vec)
+    x_min = Float64[entry["lower_bound"] for entry in relation_summaries]
+    x_max = Float64[entry["upper_bound"] for entry in relation_summaries]
+    move_limit = Float64[entry["move_limit"] for entry in relation_summaries]
+    mass_coeffs, variable_mass_initial, fixed_mass_initial, mass_initial =
+        _sol200_lite_pcomp_ply_mass_data(opt_model, relation_summaries, x_vec)
+    mass_target = isnothing(mass_constraint) ? nothing : Float64(mass_constraint["absolute_mass_target"])
+    effective_variable_mass_target = isnothing(mass_target) ? nothing : max(mass_target - fixed_mass_initial, 0.0)
+    iterations = Any[]
+    history = Float64[]
+    converged = false
+    termination_reason = "max_iter"
+    last_forward_results = nothing
+    last_gradient = Dict{String,Any}()
+
+    route_summary = Dict{String,Any}(
+        "translation_mode" => "pcomp_ply_projected_gradient",
+        "translated_objective" => objective_family == "compliance" ? "min_compliance_pcomp_ply_projected_gradient" : "min_displacement_pcomp_ply_projected_gradient",
+        "forward_sol_type" => 101,
+        "objective_response_id" => objective_response_id,
+        "objective_response_family" => objective_family,
+        "design_variable_types" => sort!(collect(Set(string(dv["type"]) for dv in dvs))),
+        "relation_ids" => Int[entry["relation_id"] for entry in relation_summaries],
+        "grouped_design_variable_count" => length(dvs),
+        "grouped_design_variables" => relation_summaries,
+        "max_iter" => max_iter,
+        "tol" => tol,
+        "variable_mass_initial" => variable_mass_initial,
+        "fixed_mass_initial" => fixed_mass_initial,
+        "total_mass_initial" => mass_initial,
+        "optimizer_note" => isnothing(mass_target) ?
+            "bounded projected-gradient TACS PCOMP ply route for SOL101 compliance/displacement objectives" :
+            "bounded projected-gradient TACS PCOMP ply route with projected upper-bound mass constraint",
+    )
+    if !isnothing(mass_constraint)
+        merge!(route_summary, mass_constraint)
+        route_summary["effective_variable_mass_target"] = effective_variable_mass_target
+        route_summary["vol_frac"] = mass_target / max(mass_initial, 1e-30)
+    end
+    !isnothing(selected_sid) && (route_summary["selected_subcase"] = selected_sid)
+
+    for iter in 1:max_iter
+        _sol200_lite_pcomp_ply_apply_values!(opt_model, relation_summaries, x_vec)
+        forward_results = solve_model(opt_model)
+        last_forward_results = forward_results
+        sensitivity = response_kind == :compliance ?
+            static_compliance_design_gradient(forward_results, dvs) :
+            static_displacement_design_gradient(forward_results, response_spec, dvs)
+
+        gradient = deepcopy(sensitivity["gradient"])
+        last_gradient = gradient
+        gradient_vec = _sol200_lite_pcomp_ply_gradient_vector(gradient, relation_summaries)
+        objective_value = Float64(sensitivity["value"])
+        rel_change = isempty(history) ? nothing : abs(objective_value - history[end]) / max(abs(history[end]), 1e-30)
+        design_values = _sol200_lite_pcomp_ply_design_value_map(relation_summaries, x_vec)
+        current_variable_mass = sum(mass_coeffs[i] * Float64(x_vec[i]) for i in eachindex(mass_coeffs))
+        current_mass = current_variable_mass + fixed_mass_initial
+
+        iteration = Dict{String,Any}(
+            "iteration" => iter,
+            "objective" => objective_value,
+            "relative_change" => rel_change,
+            "mass" => current_mass,
+            "variable_mass" => current_variable_mass,
+            "fixed_mass" => fixed_mass_initial,
+            "mass_ratio" => current_mass / max(mass_initial, 1e-30),
+            "mass_constraint_violation" => isnothing(mass_target) ? 0.0 : max(current_mass - mass_target, 0.0),
+            "design_variables" => deepcopy(design_values),
+            "gradient" => gradient,
+            "gradient_norm" => sqrt(sum(abs2, gradient_vec)),
+            "solver_diagnostics" => Dict{String,Any}(
+                "backend" => forward_results["backend"],
+                "formulation" => get(forward_results, "formulation", Dict{String,Any}()),
+                "sensitivity" => Dict{String,Any}(
+                    "response" => response_kind == :compliance ? "compliance" : "displacement",
+                    "gradient_backend" => sensitivity["gradient_backend"],
+                    "design_variable_type" => sensitivity["design_variable_type"],
+                ),
+            ),
+        )
+        if response_kind == :displacement
+            iteration["solver_diagnostics"]["sensitivity"]["grid"] = Int(response_spec["grid"])
+            iteration["solver_diagnostics"]["sensitivity"]["dof"] = Int(response_spec["dof"])
+        end
+        push!(history, objective_value)
+        push!(iterations, iteration)
+
+        if !isnothing(rel_change) && rel_change < tol
+            converged = true
+            termination_reason = "converged"
+            break
+        end
+        iter == max_iter && break
+
+        x_next = _sol200_lite_pcomp_ply_projected_update(x_vec, gradient_vec, x_min, x_max, move_limit)
+        if !isnothing(effective_variable_mass_target)
+            x_next = Solver._scale_design_to_mass_target(x_next, mass_coeffs, effective_variable_mass_target, x_min, x_max)
+        end
+        if maximum(abs.(x_next .- x_vec)) <= 1e-12 * max(1.0, maximum(abs.(x_vec)))
+            termination_reason = "design_stalled"
+            break
+        end
+        x_vec = x_next
+    end
+    final_design_values = _sol200_lite_pcomp_ply_design_value_map(relation_summaries, x_vec)
+    _sol200_lite_pcomp_ply_apply_values!(opt_model, relation_summaries, x_vec)
+    forward_results = last_forward_results::Dict{String,Any}
+    route_summary["final_forward_sol_type"] = forward_results["sol_type"]
+    route_summary["optimizer_iterations"] = length(iterations)
+
+    opt_result = Dict{String,Any}(
+        "objective" => route_summary["translated_objective"],
+        "history" => history,
+        "iterations" => iterations,
+        "design_variable_types" => route_summary["design_variable_types"],
+        "design_variables" => deepcopy(final_design_values),
+        "initial_design_variables" => deepcopy(initial_design_values),
+        "gradients" => last_gradient,
+        "converged" => converged,
+        "n_iter" => length(iterations),
+        "mass_initial" => mass_initial,
+        "mass_target" => mass_target,
+        "variable_mass_initial" => variable_mass_initial,
+        "fixed_mass" => fixed_mass_initial,
+        "final_mass" => sum(mass_coeffs[i] * Float64(x_vec[i]) for i in eachindex(mass_coeffs)) + fixed_mass_initial,
+        "mass_coefficients" => Dict(String(entry["label"]) => mass_coeffs[i] for (i, entry) in enumerate(relation_summaries)),
+        "design_variable_count" => length(dvs),
+        "termination_reason" => termination_reason,
+        "model" => opt_model,
+    )
+
+    return Dict(
+        "sol_type" => 200,
+        "analysis_type" => "SOL200_LITE_PCOMP_PLY_OPTIMIZATION",
+        "optimization" => opt_result,
+        "route_summary" => route_summary,
+        "forward_sol_type" => forward_results["sol_type"],
+        "forward_results" => forward_results,
+        "mesh" => get(forward_results, "mesh", Dict{String,Any}()),
+        "model" => forward_results["model"],
+        "id_map" => forward_results["id_map"],
+        "node_coords" => forward_results["node_coords"],
+        "solver_diagnostics" => Dict(
+            "optimization_iterations" => length(iterations),
+            "optimization_termination_reason" => termination_reason,
+            "forward_sol_type" => forward_results["sol_type"],
+        ),
+    )
+end
+
+function _sol200_lite_material_current_value(model::Dict, mid::Int, family::AbstractString)
+    mat = get(get(model, "MATs", Dict()), string(mid), nothing)
+    mat isa AbstractDict || error("SOL 200-lite material route could not find material $mid")
+    mat_type = uppercase(string(get(mat, "TYPE", "MAT1")))
+    family == "material_RHO" || mat_type in ("MAT1", "MAT1_EQUIV", "MAT8") ||
+        error("SOL 200-lite material route requires MAT1-like or MAT8 material $mid")
+    field =
+        family == "material_E" ? "E" :
+        family == "material_G" ? "G" :
+        family == "material_NU" ? "NU" :
+        family == "material_E1" ? "E1" :
+        family == "material_E2" ? "E2" :
+        family == "material_G12" ? "G12" :
+        family == "material_NU12" ? "NU12" :
+        family == "material_RHO" ? "RHO" :
+        error("SOL 200-lite material route does not support family '$family'")
+    value = Float64(get(mat, field, 0.0))
+    if field in ("E", "G", "E1", "E2", "G12")
+        value > 0.0 || error("SOL 200-lite material route requires positive $field for material $mid")
+    elseif field == "RHO"
+        value >= 0.0 || error("SOL 200-lite material route requires nonnegative RHO for material $mid")
+    else
+        -0.49 < value < 0.49 || error("SOL 200-lite material route requires Poisson ratio in (-0.49, 0.49) for material $mid")
+    end
+    return value
+end
+
+_sol200_lite_mat1_material_current_value(model::Dict, mid::Int, family::AbstractString) =
+    _sol200_lite_material_current_value(model, mid, family)
+
+function _sol200_lite_apply_material!(model::Dict, mid::Int, family::AbstractString, value::Float64)
+    mat = get(get(model, "MATs", Dict()), string(mid), nothing)
+    mat isa AbstractDict || error("SOL 200-lite material route could not find material $mid while applying DESVAR")
+    mat_type = uppercase(string(get(mat, "TYPE", "MAT1")))
+    if family == "material_E" || family == "material_G" || family == "material_RHO"
+        field = family == "material_E" ? "E" : family == "material_G" ? "G" : "RHO"
+        if field == "RHO"
+            value >= 0.0 || error("SOL 200-lite material route requires nonnegative RHO values")
+            mat[field] = value
+            return nothing
+        end
+        value > 0.0 || error("SOL 200-lite material route requires positive MAT1 $field values")
+        mat[field] = value
+    elseif family == "material_NU"
+        -0.49 < value < 0.49 || error("SOL 200-lite material route requires MAT1 NU in (-0.49, 0.49)")
+        mat["NU"] = value
+        E = Float64(get(mat, "E", 0.0))
+        E > 0.0 || error("SOL 200-lite material route requires positive MAT1 E when applying NU")
+        mat["G"] = E / (2.0 * (1.0 + value))
+    elseif family in ("material_E1", "material_E2", "material_G12", "material_NU12")
+        mat_type == "MAT8" || error("SOL 200-lite MAT8 material route requires MAT8 material $mid")
+        field =
+            family == "material_E1" ? "E1" :
+            family == "material_E2" ? "E2" :
+            family == "material_G12" ? "G12" :
+            "NU12"
+        if field in ("E1", "E2", "G12")
+            value > 0.0 || error("SOL 200-lite MAT8 material route requires positive $field values")
+        else
+            -0.49 < value < 0.49 || error("SOL 200-lite MAT8 material route requires NU12 in (-0.49, 0.49)")
+        end
+        mat[field] = value
+        field == "E1" && (mat["E"] = value)
+        field == "G12" && (mat["G"] = value)
+        field == "NU12" && (mat["NU"] = value)
+        isdefined(@__MODULE__, :_tacs_refresh_pcomp_clt_for_material!) &&
+            _tacs_refresh_pcomp_clt_for_material!(model, mid)
+    else
+        error("SOL 200-lite material route does not support family '$family'")
+    end
+    return nothing
+end
+
+_sol200_lite_apply_mat1_material!(model::Dict, mid::Int, family::AbstractString, value::Float64) =
+    _sol200_lite_apply_material!(model, mid, family, value)
+
+function _sol200_lite_material_design_variables(model::Dict, opt::Dict{String,Any})
+    design_vars = _sol200_lite_lookup_by_id(get(opt, "design_variables", Any[]))
+    optimizer_params = get(opt, "optimizer_params", Dict{String,Any}())
+    default_move_limit_raw = get(optimizer_params, "DELX", nothing)
+    default_move_limit = isnothing(default_move_limit_raw) ? 0.2 : Float64(default_move_limit_raw)
+    default_move_limit > 0.0 || error("SOL 200-lite material route requires DOPTPRM DELX to be positive when provided")
+
+    dvs = Dict{String,Any}[]
+    relation_summaries = Dict{String,Any}[]
+    for relation in get(opt, "material_relations", Any[])
+        relation_id = Int(relation["id"])
+        family = string(get(relation, "candidate_design_variable_family", ""))
+        family in ("material_E", "material_G", "material_NU", "material_E1", "material_E2", "material_G12", "material_NU12", "material_RHO") || error("SOL 200-lite material route received unsupported material relation $relation_id")
+        card_type = uppercase(string(get(relation, "card_type", "")))
+        if family == "material_RHO"
+            card_type in ("MAT1", "MAT8") ||
+                error("SOL 200-lite material density route requires DVMREL1 type MAT1 or MAT8 for relation $relation_id")
+        elseif family in ("material_E1", "material_E2", "material_G12", "material_NU12")
+            card_type == "MAT8" ||
+                error("SOL 200-lite MAT8 material route requires DVMREL1 type MAT8 for relation $relation_id")
+        else
+            card_type == "MAT1" ||
+                error("SOL 200-lite material route requires DVMREL1 type MAT1 for relation $relation_id")
+        end
+        field = uppercase(strip(string(get(relation, "field", ""))))
+        expected_field =
+            family == "material_E" ? "E" :
+            family == "material_G" ? "G" :
+            family == "material_NU" ? "NU" :
+            family == "material_E1" ? "E1" :
+            family == "material_E2" ? "E2" :
+            family == "material_G12" ? "G12" :
+            family == "material_NU12" ? "NU12" :
+            "RHO"
+        field == expected_field ||
+            error("SOL 200-lite material route expected DVMREL1 field $expected_field for relation $relation_id, got $field")
+        mid = Int(relation["material_id"])
+        coeffs = get(relation, "coefficients", Any[])
+        length(coeffs) == 1 || error("SOL 200-lite material route requires one DESVAR per DVMREL1 relation")
+        coef = Float64(coeffs[1]["COEF"])
+        _sol200_lite_numeric_equal(coef, 1.0) || error("SOL 200-lite material route requires unit DVMREL1 coefficients")
+        _sol200_lite_numeric_equal(get(relation, "offset", 0.0), 0.0) || error("SOL 200-lite material route requires zero DVMREL1 offset")
+        desvar_id = Int(coeffs[1]["DESVAR_ID"])
+        haskey(design_vars, desvar_id) || error("SOL 200-lite material route could not find DESVAR $desvar_id")
+        dv_card = design_vars[desvar_id]
+        label = isempty(strip(string(get(dv_card, "label", "")))) ? "desvar_$desvar_id" : strip(string(get(dv_card, "label", "")))
+        x_init = Float64(get(dv_card, "x_init", _sol200_lite_material_current_value(model, mid, family)))
+
+        lower_candidates = Float64[]
+        upper_candidates = Float64[]
+        for source in (dv_card, relation)
+            lower = get(source, "lower_bound", nothing)
+            upper = get(source, "upper_bound", nothing)
+            !isnothing(lower) && push!(lower_candidates, Float64(lower))
+            !isnothing(upper) && push!(upper_candidates, Float64(upper))
+        end
+        stiffness_families = ("material_E", "material_G", "material_E1", "material_E2", "material_G12")
+        x_min = isempty(lower_candidates) ? (family in stiffness_families ? 1e-9 : family == "material_RHO" ? 0.0 : -0.49) : maximum(lower_candidates)
+        x_max = isempty(upper_candidates) ? (family in (stiffness_families..., "material_RHO") ? Inf : 0.49) : minimum(upper_candidates)
+        if family in stiffness_families
+            x_min > 0.0 || error("SOL 200-lite material route requires positive $(expected_field) lower bounds")
+        elseif family == "material_RHO"
+            x_min >= 0.0 || error("SOL 200-lite material route requires nonnegative RHO lower bounds")
+        else
+            -0.49 < x_min < 0.49 || error("SOL 200-lite material route requires Poisson-ratio lower bounds inside (-0.49, 0.49)")
+            -0.49 < x_max < 0.49 || error("SOL 200-lite material route requires Poisson-ratio upper bounds inside (-0.49, 0.49)")
+        end
+        x_max > x_min || error("SOL 200-lite material route found incompatible lower/upper bounds for DESVAR $desvar_id")
+        x_init + 1e-12 < x_min && error("SOL 200-lite material route requires DESVAR $desvar_id initial value to satisfy lower bound")
+        x_init > x_max + 1e-12 && error("SOL 200-lite material route requires DESVAR $desvar_id initial value to satisfy upper bound")
+        move_limit = isnothing(get(dv_card, "move_limit", nothing)) ? default_move_limit : Float64(dv_card["move_limit"])
+        move_limit > 0.0 || error("SOL 200-lite material route requires positive move limits")
+        _sol200_lite_apply_material!(model, mid, family, x_init)
+
+        push!(dvs, Dict{String,Any}(
+            "id" => label,
+            "type" => family,
+            "mids" => [mid],
+        ))
+        push!(relation_summaries, Dict{String,Any}(
+            "relation_id" => relation_id,
+            "design_var_id" => desvar_id,
+            "label" => label,
+            "type" => family,
+            "material_id" => mid,
+            "initial_value" => x_init,
+            "lower_bound" => x_min,
+            "upper_bound" => x_max,
+            "move_limit" => move_limit,
+            "field" => field,
+        ))
+    end
+    return dvs, relation_summaries
+end
+
+_sol200_lite_mat1_material_design_variables(model::Dict, opt::Dict{String,Any}) =
+    _sol200_lite_material_design_variables(model, opt)
+
+function _sol200_lite_material_design_value_map(relation_summaries, x_vec)
+    values = Dict{String,Any}()
+    for (i, relation) in enumerate(relation_summaries)
+        values[string(relation["label"])] = Float64(x_vec[i])
+    end
+    return values
+end
+
+function _sol200_lite_apply_material_values!(model::Dict, relation_summaries, x_vec)
+    for (i, relation) in enumerate(relation_summaries)
+        _sol200_lite_apply_material!(model, Int(relation["material_id"]), string(relation["type"]), Float64(x_vec[i]))
+    end
+    return nothing
+end
+
+function _solve_sol200_lite_material_optimization(model::Dict)
+    backend_name(backend_from_model(model)) == "tacs_formulation" ||
+        error("SOL 200-lite material route currently requires backend = tacs_formulation")
+    opt = get(model, "OPTIMIZATION", nothing)
+    opt isa Dict{String,Any} || error("SOL 200 deck is missing normalized OPTIMIZATION metadata")
+
+    responses = _sol200_lite_lookup_by_id(get(opt, "responses", Any[]))
+    mass_constraint = _sol200_lite_upper_mass_constraint(opt, responses, "material")
+    !isnothing(mass_constraint) && _sol200_lite_validate_mass_scope(model, [:shell_thickness])
+    objective_def = get(opt, "objective", nothing)
+    objective_def isa AbstractDict || error("SOL 200-lite material route requires a DESOBJ objective")
+    objective_response_id = Int(objective_def["response_id"])
+    haskey(responses, objective_response_id) || error("SOL 200-lite objective response $objective_response_id was not found")
+    objective_response = responses[objective_response_id]
+    objective_family = get(objective_response, "candidate_response_family", nothing)
+    objective_sense = uppercase(strip(string(get(objective_def, "sense", ""))))
+    objective_family in ("compliance", "displacement", "mass") && objective_sense == "MIN" ||
+        error("SOL 200-lite material route currently supports DESOBJ(MIN) compliance, displacement, or mass only")
+
+    opt_model = deepcopy(model)
+    opt_model["SOL"] = 101
+    opt_model["CASE_CONTROL"]["SOL"] = 101
+    dvs, relation_summaries = _sol200_lite_material_design_variables(opt_model, opt)
+    selected_sid = _sol200_lite_select_subcases!(opt_model, :min_compliance, opt)
+    design_variable_types = sort!(collect(Set(string(dv["type"]) for dv in dvs)))
+    has_density_design = "material_RHO" in design_variable_types
+    if objective_family == "mass"
+        all(string(entry["type"]) == "material_RHO" for entry in relation_summaries) ||
+            error("SOL 200-lite material mass objective currently requires only RHO design variables")
+        isempty(get(opt, "constraints", Any[])) ||
+            error("SOL 200-lite material mass-objective route does not yet support DCONSTR entries")
+    elseif has_density_design
+        error("SOL 200-lite RHO design variables currently support DESOBJ(MIN)=MASS only")
+    end
+    response_kind, response_spec =
+        objective_family == "compliance" ? (:compliance, Dict{String,Any}("type" => "compliance")) :
+        objective_family == "mass" ? (:mass, Dict{String,Any}("type" => "mass")) :
+        _sol200_lite_static_response_spec(objective_response)
+    optimizer_params = get(opt, "optimizer_params", Dict{String,Any}())
+    max_iter = max(1, Int(round(Float64(get(optimizer_params, "DESMAX", 1)))))
+    tol = Float64(get(optimizer_params, "CONV1", 1e-3))
+    x_vec = Float64[entry["initial_value"] for entry in relation_summaries]
+    initial_design_values = _sol200_lite_material_design_value_map(relation_summaries, x_vec)
+    x_min = Float64[entry["lower_bound"] for entry in relation_summaries]
+    x_max = Float64[entry["upper_bound"] for entry in relation_summaries]
+    move_limit = Float64[entry["move_limit"] for entry in relation_summaries]
+    mass_initial = _sol200_lite_shell_mass(opt_model)
+    mass_target = isnothing(mass_constraint) ? nothing : Float64(mass_constraint["absolute_mass_target"])
+    if !isnothing(mass_target) && mass_initial > mass_target * (1.0 + 1e-10)
+        error("SOL 200-lite material route cannot satisfy WEIGHT/MASS upper bound $(mass_target) because stiffness/Poisson-ratio material variables do not change mass and initial mass is $(mass_initial)")
+    end
+    mass_coeffs = _sol200_lite_material_density_mass_coefficients(opt_model, relation_summaries)
+    fixed_mass_initial = max(mass_initial - sum(mass_coeffs[i] * Float64(x_vec[i]) for i in eachindex(mass_coeffs)), 0.0)
+    iterations = Any[]
+    history = Float64[]
+    converged = false
+    termination_reason = "max_iter"
+    last_forward_results = nothing
+    last_gradient = Dict{String,Any}()
+
+    route_summary = Dict{String,Any}(
+        "translation_mode" => "material_projected_gradient",
+        "translated_objective" =>
+            objective_family == "compliance" ? "min_compliance_material_projected_gradient" :
+            objective_family == "mass" ? "min_mass_material_density_projected_gradient" :
+            "min_displacement_material_projected_gradient",
+        "forward_sol_type" => 101,
+        "objective_response_id" => objective_response_id,
+        "objective_response_family" => objective_family,
+        "design_variable_types" => design_variable_types,
+        "relation_ids" => Int[entry["relation_id"] for entry in relation_summaries],
+        "grouped_design_variable_count" => length(dvs),
+        "grouped_design_variables" => relation_summaries,
+        "max_iter" => max_iter,
+        "tol" => tol,
+        "mass_initial" => mass_initial,
+        "fixed_mass_initial" => fixed_mass_initial,
+        "optimizer_note" =>
+            objective_family == "mass" ?
+                "bounded projected-gradient TACS RHO material route for shell mass minimization" :
+            isnothing(mass_target) ?
+                "bounded projected-gradient TACS material route for SOL101 compliance/displacement objectives" :
+                "bounded projected-gradient TACS material route with invariant upper-bound mass feasibility check",
+    )
+    if !isnothing(mass_constraint)
+        merge!(route_summary, mass_constraint)
+        route_summary["vol_frac"] = mass_target / max(mass_initial, 1e-30)
+    end
+    !isnothing(selected_sid) && (route_summary["selected_subcase"] = selected_sid)
+
+    for iter in 1:max_iter
+        _sol200_lite_apply_material_values!(opt_model, relation_summaries, x_vec)
+        forward_results = solve_model(opt_model)
+        last_forward_results = forward_results
+        current_mass = fixed_mass_initial + sum(mass_coeffs[i] * Float64(x_vec[i]) for i in eachindex(mass_coeffs))
+        sensitivity =
+            if response_kind == :compliance
+                static_compliance_design_gradient(forward_results, dvs)
+            elseif response_kind == :mass
+                Dict{String,Any}(
+                    "response" => "mass",
+                    "value" => current_mass,
+                    "gradient" => Dict(String(entry["label"]) => mass_coeffs[i] for (i, entry) in enumerate(relation_summaries)),
+                    "design_variable_type" => "material_RHO",
+                    "gradient_backend" => "tacs_formulation_material_mass_coefficient",
+                )
+            else
+                static_displacement_design_gradient(forward_results, response_spec, dvs)
+            end
+        gradient = deepcopy(sensitivity["gradient"])
+        last_gradient = gradient
+        gradient_vec = _sol200_lite_pcomp_ply_gradient_vector(gradient, relation_summaries)
+        objective_value = Float64(sensitivity["value"])
+        rel_change = isempty(history) ? nothing : abs(objective_value - history[end]) / max(abs(history[end]), 1e-30)
+        design_values = _sol200_lite_material_design_value_map(relation_summaries, x_vec)
+        iteration = Dict{String,Any}(
+            "iteration" => iter,
+            "objective" => objective_value,
+            "relative_change" => rel_change,
+            "mass" => current_mass,
+            "mass_ratio" => current_mass / max(mass_initial, 1e-30),
+            "mass_constraint_violation" => isnothing(mass_target) ? 0.0 : max(current_mass - mass_target, 0.0),
+            "design_variables" => deepcopy(design_values),
+            "gradient" => gradient,
+            "gradient_norm" => sqrt(sum(abs2, gradient_vec)),
+            "solver_diagnostics" => Dict{String,Any}(
+                "backend" => forward_results["backend"],
+                "formulation" => get(forward_results, "formulation", Dict{String,Any}()),
+                "sensitivity" => Dict{String,Any}(
+                    "response" => response_kind == :compliance ? "compliance" : response_kind == :mass ? "mass" : "displacement",
+                    "gradient_backend" => sensitivity["gradient_backend"],
+                    "design_variable_type" => sensitivity["design_variable_type"],
+                ),
+            ),
+        )
+        push!(history, objective_value)
+        push!(iterations, iteration)
+        if !isnothing(rel_change) && rel_change < tol
+            converged = true
+            termination_reason = "converged"
+            break
+        end
+        iter == max_iter && break
+        x_next = _sol200_lite_pcomp_ply_projected_update(x_vec, gradient_vec, x_min, x_max, move_limit)
+        if maximum(abs.(x_next .- x_vec)) <= 1e-12 * max(1.0, maximum(abs.(x_vec)))
+            termination_reason = "design_stalled"
+            break
+        end
+        x_vec = x_next
+    end
+
+    final_design_values = _sol200_lite_material_design_value_map(relation_summaries, x_vec)
+    _sol200_lite_apply_material_values!(opt_model, relation_summaries, x_vec)
+    forward_results = last_forward_results::Dict{String,Any}
+    route_summary["final_forward_sol_type"] = forward_results["sol_type"]
+    route_summary["optimizer_iterations"] = length(iterations)
+
+    opt_result = Dict{String,Any}(
+        "objective" => route_summary["translated_objective"],
+        "history" => history,
+        "iterations" => iterations,
+        "design_variable_types" => route_summary["design_variable_types"],
+        "design_variables" => deepcopy(final_design_values),
+        "initial_design_variables" => deepcopy(initial_design_values),
+        "gradients" => last_gradient,
+        "converged" => converged,
+        "n_iter" => length(iterations),
+        "mass_initial" => mass_initial,
+        "mass_target" => mass_target,
+        "fixed_mass" => fixed_mass_initial,
+        "final_mass" => fixed_mass_initial + sum(mass_coeffs[i] * Float64(x_vec[i]) for i in eachindex(mass_coeffs)),
+        "mass_coefficients" => Dict(String(entry["label"]) => mass_coeffs[i] for (i, entry) in enumerate(relation_summaries)),
+        "design_variable_count" => length(dvs),
+        "termination_reason" => termination_reason,
+        "model" => opt_model,
+    )
+
+    return Dict(
+        "sol_type" => 200,
+        "analysis_type" => "SOL200_LITE_MATERIAL_OPTIMIZATION",
+        "optimization" => opt_result,
+        "route_summary" => route_summary,
+        "forward_sol_type" => forward_results["sol_type"],
+        "forward_results" => forward_results,
+        "mesh" => get(forward_results, "mesh", Dict{String,Any}()),
+        "model" => forward_results["model"],
+        "id_map" => forward_results["id_map"],
+        "node_coords" => forward_results["node_coords"],
+        "solver_diagnostics" => Dict(
+            "optimization_iterations" => length(iterations),
+            "optimization_termination_reason" => termination_reason,
+            "forward_sol_type" => forward_results["sol_type"],
+        ),
+    )
+end
+
+_solve_sol200_lite_mat1_material_optimization(model::Dict) =
+    _solve_sol200_lite_material_optimization(model)
+
+function _sol200_lite_stress_objective(model::Dict)
+    opt = get(model, "OPTIMIZATION", nothing)
+    opt isa Dict{String,Any} || return nothing
+    objective_def = get(opt, "objective", nothing)
+    objective_def isa AbstractDict || return nothing
+    responses = _sol200_lite_lookup_by_id(get(opt, "responses", Any[]))
+    response_id = Int(objective_def["response_id"])
+    haskey(responses, response_id) || return nothing
+    response = responses[response_id]
+    family = get(response, "candidate_response_family", nothing)
+    sense = uppercase(strip(string(get(objective_def, "sense", ""))))
+    family == "von_mises" && sense == "MIN" || return nothing
+    return Dict{String,Any}(
+        "objective" => objective_def,
+        "response" => response,
+        "response_id" => response_id,
+    )
+end
+
+function _sol200_lite_stress_response_eids(response::AbstractDict)
+    eids = Set{Int}()
+    for token in get(response, "atti", Any[])
+        isnothing(token) && continue
+        if token isa Number
+            eid = Int(token)
+            eid > 0 && push!(eids, eid)
+        else
+            text = strip(string(token))
+            isempty(text) && continue
+            try
+                eid = parse(Int, text)
+                eid > 0 && push!(eids, eid)
+            catch
+            end
+        end
+    end
+    return eids
+end
+
+function _sol200_lite_shell_von_mises_values(forward_results::Dict, response::AbstractDict)
+    subcases = get(forward_results, "subcases", Any[])
+    !isempty(subcases) || error("SOL 200-lite stress route requires SOL101 subcase stress recovery")
+    subcase = subcases[1]
+    stresses = get(subcase, "stresses", Dict{String,Any}())
+    requested_eids = _sol200_lite_stress_response_eids(response)
+    filter_by_eid = !isempty(requested_eids)
+
+    values = Dict{Int,Float64}()
+    for elem_type in ("quad4", "tria3")
+        for entry in get(stresses, elem_type, Any[])
+            haskey(entry, "eid") || continue
+            eid = Int(entry["eid"])
+            filter_by_eid && !(eid in requested_eids) && continue
+            vm_values = Float64[]
+            for face in ("z1", "z2")
+                face_entry = get(entry, face, nothing)
+                face_entry isa AbstractDict || continue
+                haskey(face_entry, "von_mises") || continue
+                push!(vm_values, Float64(face_entry["von_mises"]))
+            end
+            isempty(vm_values) && continue
+            values[eid] = maximum(vm_values)
+        end
+    end
+    isempty(values) && error("SOL 200-lite stress route did not recover any shell von-Mises values for DRESP1 $(response["id"])")
+    return values
+end
+
+function _sol200_lite_ks(values; rho::Float64=50.0)
+    rho > 0.0 || error("SOL 200-lite stress route requires a positive KS aggregation rho")
+    data = Float64[Float64(v) for v in values]
+    !isempty(data) || error("SOL 200-lite stress route requires at least one stress value")
+    peak = maximum(data)
+    return peak + log(sum(exp(rho * (v - peak)) for v in data)) / rho
+end
+
+function _sol200_lite_stress_ks_rho(opt::Dict{String,Any})
+    optimizer_params = get(opt, "optimizer_params", Dict{String,Any}())
+    raw = get(optimizer_params, "KSRHO", nothing)
+    isnothing(raw) && return 50.0
+    rho = Float64(raw)
+    rho > 0.0 || error("SOL 200-lite stress route requires positive DOPTPRM KSRHO when provided")
+    return rho
+end
+
+function _sol200_lite_stress_response_spec(response::AbstractDict, opt::Dict{String,Any})
+    eids = sort!(collect(_sol200_lite_stress_response_eids(response)))
+    isempty(eids) && (eids = "all")
+    return Dict{String,Any}(
+        "type" => "ks_von_mises",
+        "eids" => eids,
+        "surface" => "top",
+        "rho" => _sol200_lite_stress_ks_rho(opt),
+        "sigma_ref" => 1.0,
+    )
+end
+
+function _sol200_lite_stress_design_variables!(model::Dict, opt::Dict{String,Any})
+    design_vars = _sol200_lite_lookup_by_id(get(opt, "design_variables", Any[]))
+    dvs = Dict{String,Any}[]
+    for relation in get(opt, "property_relations", Any[])
+        relation_id = Int(relation["id"])
+        family = string(get(relation, "candidate_design_variable_family", ""))
+        family == "shell_thickness" ||
+            error("SOL 200-lite stress response route currently supports only uniform shell-thickness DVPREL1 design variables")
+        card_type = uppercase(string(get(relation, "card_type", "")))
+        card_type in ("PSHELL", "PCOMP") ||
+            error("SOL 200-lite stress response route requires PSHELL/PCOMP shell-thickness relations")
+        coeffs = get(relation, "coefficients", Any[])
+        length(coeffs) == 1 || error("SOL 200-lite stress response route requires one DESVAR per DVPREL1 relation")
+        _sol200_lite_numeric_equal(Float64(coeffs[1]["COEF"]), 1.0) ||
+            error("SOL 200-lite stress response route requires unit DVPREL1 coefficients")
+        _sol200_lite_numeric_equal(get(relation, "offset", 0.0), 0.0) ||
+            error("SOL 200-lite stress response route requires zero DVPREL1 offsets")
+        desvar_id = Int(coeffs[1]["DESVAR_ID"])
+        haskey(design_vars, desvar_id) || error("SOL 200-lite stress response route could not find DESVAR $desvar_id")
+        dv_card = design_vars[desvar_id]
+        label = isempty(strip(string(get(dv_card, "label", "")))) ? "desvar_$desvar_id" : strip(string(get(dv_card, "label", "")))
+        pid = Int(relation["property_id"])
+        x_init = Float64(get(dv_card, "x_init", 0.0))
+        x_init > 0.0 || error("SOL 200-lite stress response route requires positive shell-thickness DESVAR initial values")
+        _sol200_lite_apply_group_initial_value!(model, :shell_thickness, pid, x_init)
+        push!(dvs, Dict{String,Any}(
+            "id" => label,
+            "type" => "shell_thickness",
+            "pids" => [pid],
+            "relation_id" => relation_id,
+            "design_var_id" => desvar_id,
+        ))
+    end
+    isempty(get(opt, "material_relations", Any[])) ||
+        error("SOL 200-lite stress response route does not yet support DVMREL-driven stress derivatives")
+    return dvs
+end
+
+function _solve_sol200_lite_stress_response(model::Dict, stress_route::Dict{String,Any})
+    backend_name(backend_from_model(model)) == "tacs_formulation" ||
+        error("SOL 200-lite stress response route currently requires backend = tacs_formulation")
+    opt = get(model, "OPTIMIZATION", nothing)
+    opt isa Dict{String,Any} || error("SOL 200 deck is missing normalized OPTIMIZATION metadata")
+    isempty(get(opt, "constraints", Any[])) ||
+        error("SOL 200-lite stress response route currently supports an unconstrained DESOBJ(MIN) stress response only")
+
+    objective_response = stress_route["response"]
+    response_id = Int(stress_route["response_id"])
+    rho = _sol200_lite_stress_ks_rho(opt)
+
+    opt_model = deepcopy(model)
+    opt_model["SOL"] = 101
+    opt_model["CASE_CONTROL"]["SOL"] = 101
+    dvs = _sol200_lite_stress_design_variables!(opt_model, opt)
+    selected_sid = _sol200_lite_select_subcases!(opt_model, :min_compliance, opt)
+
+    forward_results = solve_model(opt_model)
+    stress_by_eid = _sol200_lite_shell_von_mises_values(forward_results, objective_response)
+    sorted_eids = sort!(collect(keys(stress_by_eid)))
+    stress_values = Float64[stress_by_eid[eid] for eid in sorted_eids]
+    ks_value = _sol200_lite_ks(stress_values; rho=rho)
+    peak_value = maximum(stress_values)
+
+    route_summary = Dict{String,Any}(
+        "translation_mode" => "stress_ks_response",
+        "translated_objective" => "min_stress_ks_response",
+        "forward_sol_type" => 101,
+        "objective_response_id" => response_id,
+        "objective_response_family" => "von_mises",
+        "stress_aggregation" => "ks_von_mises",
+        "ks_rho" => rho,
+        "stress_element_count" => length(stress_values),
+        "peak_von_mises" => peak_value,
+        "ks_von_mises" => ks_value,
+    )
+    !isnothing(selected_sid) && (route_summary["selected_subcase"] = selected_sid)
+
+    stress_map = Dict(string(eid) => stress_by_eid[eid] for eid in sorted_eids)
+    gradient_result =
+        isempty(dvs) ? nothing :
+        static_ks_von_mises_design_gradient(forward_results, _sol200_lite_stress_response_spec(objective_response, opt), dvs)
+    iteration = Dict{String,Any}(
+        "iteration" => 1,
+        "objective" => ks_value,
+        "stress_ks_response" => ks_value,
+        "peak_von_mises" => peak_value,
+        "stress_values" => deepcopy(stress_map),
+        "solver_diagnostics" => Dict{String,Any}(
+            "backend" => forward_results["backend"],
+            "formulation" => get(forward_results, "formulation", Dict{String,Any}()),
+            "sensitivity" => Dict{String,Any}(
+                "response" => "ks_von_mises",
+                "gradient_backend" => isnothing(gradient_result) ? "not_computed_response_only" : gradient_result["gradient_backend"],
+                "stress_element_count" => length(stress_values),
+            ),
+        ),
+    )
+    if !isnothing(gradient_result)
+        iteration["gradient"] = deepcopy(gradient_result["gradient"])
+        iteration["gradient_norm"] = sqrt(sum(abs2, Float64(v) for v in values(gradient_result["gradient"])))
+        iteration["solver_diagnostics"]["sensitivity"]["design_variable_type"] = gradient_result["design_variable_type"]
+    end
+    opt_result = Dict{String,Any}(
+        "objective" => "min_stress_ks_response",
+        "history" => [ks_value],
+        "iterations" => Any[iteration],
+        "stress_ks_response" => ks_value,
+        "peak_von_mises" => peak_value,
+        "ks_rho" => rho,
+        "stress_values" => stress_map,
+        "design_variable_count" => length(dvs),
+        "converged" => true,
+        "n_iter" => 1,
+        "termination_reason" => "response_evaluated",
+        "model" => opt_model,
+    )
+    if !isnothing(gradient_result)
+        opt_result["gradients"] = deepcopy(gradient_result["gradient"])
+        opt_result["design_variable_types"] = sort!(collect(Set(string(dv["type"]) for dv in dvs)))
+        opt_result["design_variable_diagnostics"] = deepcopy(gradient_result["design_variable_diagnostics"])
+    end
+
+    return Dict(
+        "sol_type" => 200,
+        "analysis_type" => "SOL200_LITE_STRESS_RESPONSE",
+        "optimization" => opt_result,
+        "route_summary" => route_summary,
+        "forward_sol_type" => forward_results["sol_type"],
+        "forward_results" => forward_results,
+        "mesh" => get(forward_results, "mesh", Dict{String,Any}()),
+        "model" => forward_results["model"],
+        "id_map" => forward_results["id_map"],
+        "node_coords" => forward_results["node_coords"],
+        "solver_diagnostics" => Dict(
+            "optimization_iterations" => 1,
+            "optimization_termination_reason" => "response_evaluated",
+            "forward_sol_type" => forward_results["sol_type"],
+        ),
+    )
 end
 
 function _sol200_lite_translate(model::Dict)
@@ -453,6 +1605,7 @@ function _sol200_lite_translate(model::Dict)
     constraint_summary = Dict{String,Any}()
     mass_target = nothing
     response_constraints = Dict{String,Any}[]
+    stress_ks_rho = _sol200_lite_stress_ks_rho(opt)
     if translated_objective == :min_compliance || translated_objective == :max_buckling
         mass_constraints = Dict{String,Any}[]
         for constraint in get(opt, "constraints", Any[])
@@ -487,20 +1640,20 @@ function _sol200_lite_translate(model::Dict)
             haskey(responses, response_id) || error("SOL 200-lite route could not find DCONSTR response $response_id")
             response = responses[response_id]
             family = get(response, "candidate_response_family", nothing)
-            family in ("compliance", "displacement") ||
-                error("SOL 200-lite mass-minimization route only supports upper-bound compliance or displacement constraints on the routed static subset")
+            family in ("compliance", "displacement", "von_mises") ||
+                error("SOL 200-lite mass-minimization route only supports upper-bound compliance, displacement, or KS von-Mises constraints on the routed static subset")
             push!(static_constraints, Dict(
                 "constraint" => constraint,
                 "response" => response,
                 "family" => family,
             ))
         end
-        !isempty(static_constraints) || error("SOL 200-lite mass-minimization route requires at least one upper-bound compliance or displacement constraint")
+        !isempty(static_constraints) || error("SOL 200-lite mass-minimization route requires at least one upper-bound compliance, displacement, or KS von-Mises constraint")
         constraint_entries = Dict{String,Any}[]
         for selected_constraint in static_constraints
             response_upper_bound = Float64(selected_constraint["constraint"]["upper_allowable"])
             isfinite(response_upper_bound) || error("SOL 200-lite mass-minimization route requires finite static-response upper bounds")
-            response_family, response_spec = _sol200_lite_static_response_spec(selected_constraint["response"])
+            response_family, response_spec = _sol200_lite_static_response_spec(selected_constraint["response"]; ks_rho=stress_ks_rho)
             push!(response_constraints, Dict{String,Any}(
                 "response_id" => Int(selected_constraint["constraint"]["response_id"]),
                 "family" => response_family,
@@ -515,6 +1668,10 @@ function _sol200_lite_translate(model::Dict)
             if response_family == :displacement
                 entry["constraint_grid"] = Int(response_spec["grid"])
                 entry["constraint_dof"] = Int(response_spec["dof"])
+            elseif response_family == :ks_von_mises
+                entry["constraint_ks_rho"] = Float64(response_spec["rho"])
+                entry["constraint_sigma_ref"] = Float64(response_spec["sigma_ref"])
+                entry["constraint_eids"] = deepcopy(response_spec["eids"])
             end
             push!(constraint_entries, entry)
         end
@@ -617,6 +1774,11 @@ function _sol200_lite_translate(model::Dict)
 end
 
 function _solve_sol200_lite(model::Dict)
+    stress_route = _sol200_lite_stress_objective(model)
+    !isnothing(stress_route) && return _solve_sol200_lite_stress_response(model, stress_route)
+    _sol200_lite_has_only_pcomp_ply_relations(model) && return _solve_sol200_lite_pcomp_ply_optimization(model)
+    _sol200_lite_has_only_material_relations(model) && return _solve_sol200_lite_material_optimization(model)
+
     translated_objective, forward_sol_type, kinds, x_min, x_max, move_limit, max_iter, tol, mass_target, response_constraints, route_summary, group_specs =
         _sol200_lite_translate(model)
 
@@ -827,12 +1989,77 @@ Returns a Dict with keys:
   - ... solution-specific results (displacements, eigenvalues, etc.)
 """
 function solve_model(model::Dict)
+    backend = backend_from_model(model)
+    if backend isa NastranParityBackend && _model_has_cquadr_shells(model)
+        forced_model = deepcopy(model)
+        forced_model["backend"] = JFEM_BACKEND_TACS
+        results = solve_model(TACSFormulationBackend(), forced_model)
+        results["requested_backend"] = backend_name(backend)
+        results["backend_forced_by"] = "CQUADR"
+        results["backend_selection_note"] = "CQUADR shell elements are always formulated through the TACS backend."
+        diagnostics = get(results, "solver_diagnostics", nothing)
+        if diagnostics isa AbstractDict
+            diagnostics["requested_backend"] = backend_name(backend)
+            diagnostics["backend_forced_by"] = "CQUADR"
+        elseif diagnostics === nothing
+            results["solver_diagnostics"] = Dict{String,Any}(
+                "backend" => results["backend"],
+                "requested_backend" => backend_name(backend),
+                "backend_forced_by" => "CQUADR",
+            )
+        end
+        return results
+    end
+    return solve_model(backend, model)
+end
+
+function _model_has_cquadr_shells(model::AbstractDict)::Bool
+    for (_, el_any) in get(model, "CSHELLs", Dict())
+        el = el_any::AbstractDict
+        uppercase(string(get(el, "TYPE", ""))) == "CQUADR" && return true
+    end
+    return false
+end
+
+function solve_model(backend::TACSFormulationBackend, model::Dict)
+    sol_type = _canonical_sol_type(get(model, "SOL", get(get(model, "CASE_CONTROL", Dict()), "SOL", 101)))
+    t_solve_start = time_ns()
+    results =
+        if sol_type == 101
+            _solve_tacs_sol101(model)
+        elseif sol_type == 103
+            _solve_tacs_sol103(model)
+        elseif sol_type == 105
+            _solve_tacs_sol105(model)
+        elseif sol_type == 106
+            _solve_tacs_sol106(model)
+        elseif sol_type == 200
+            _solve_sol200_lite(model)
+        else
+            error("JFEM backend '$(backend_name(backend))' currently supports SOL 101, SOL 103, SOL 105, SOL 106, and SOL 200-lite only; got SOL $sol_type.")
+        end
+    results["input_sol_type"] = get(model, "SOL", get(get(model, "CASE_CONTROL", Dict()), "SOL", 101))
+    existing_timings = get(results, "timings", Dict{String,Any}())
+    merged_timings = Dict{String,Any}()
+    if existing_timings isa AbstractDict
+        for (k, v) in existing_timings
+            merged_timings[string(k)] = v
+        end
+    end
+    merged_timings["solve"] = (time_ns() - t_solve_start) * 1e-9
+    results["timings"] = merged_timings
+    attach_backend_metadata!(results, backend)
+    return results
+end
+
+function solve_model(backend::NastranParityBackend, model::Dict)
     t_solve_start = time_ns()
     cc = model["CASE_CONTROL"]
     raw_sol_type = get(model, "SOL", get(cc, "SOL", 101))
     sol_type = _canonical_sol_type(raw_sol_type)
     if sol_type == 200
         results = _solve_sol200_lite(model)
+        attach_backend_metadata!(results, backend)
         results["input_sol_type"] = raw_sol_type
         results["timings"] = Dict{String,Any}(
             "solve" => (time_ns() - t_solve_start) * 1e-9,
@@ -918,12 +2145,15 @@ function solve_model(model::Dict)
         "solve"         => (time_ns() - t_solve_start) * 1e-9,
     ))
     results["timings"] = merged_timings
+    attach_backend_metadata!(results, backend)
     return results
 end
 
 function _solve_sol106(model, cc, K, id_map, X, ndof, node_R,
                        max_elem_stiff, rbe3_map, snorm_normals, orig_diag,
-                       sorted_sids, sol106_snorm_angle, mesh)
+                       sorted_sids, sol106_snorm_angle, mesh;
+                       geometric_stiffness_builder=nothing,
+                       nonlinear_state_builder=nothing)
     println("\n>>> SOL 106 Experimental Geometric Nonlinear Static Analysis")
 
     nl_residual_raw = lowercase(strip(string(get(model, "PARAM_NLRESMODEL", "tangent_operator"))))
@@ -999,6 +2229,8 @@ function _solve_sol106(model, cc, K, id_map, X, ndof, node_R,
                 snorm_normals=snorm_normals_sub,
                 orig_diag=orig_diag_sub,
                 temp_load_id=temp_load_id,
+                geometric_stiffness_builder=geometric_stiffness_builder,
+                nonlinear_state_builder=nonlinear_state_builder,
             )
         end
 
@@ -1394,7 +2626,8 @@ end
 function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                        max_elem_stiff, rbe3_map, snorm_normals, orig_diag,
                        sorted_sids, sol105_snorm_angle, mesh;
-                       options::Union{Solver.SOL105Options,Nothing}=nothing)
+                       options::Union{Solver.SOL105Options,Nothing}=nothing,
+                       geometric_stiffness_builder=nothing)
     # Phase C1 (architectural-cleanup 2026-05-24): accept a typed
     # SOL105Options object. When `nothing`, build from ENV — exactly
     # reproduces pre-cleanup behavior for legacy scripts that don't yet
@@ -1561,7 +2794,15 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         t_kg = time_ns()
         kg_phase_timings = Dict{String,Any}()
         Kg =
-            if needs_temp_reassembly
+            if geometric_stiffness_builder !== nothing
+                geometric_stiffness_builder(
+                    model, id_map_static, X_static, node_R_static, ndof_static,
+                    u_static, snorm_normals_static, rbe3_map_static;
+                    snorm_angle_override=sol105_snorm_angle,
+                    buckling_subcase=buck_sid,
+                    static_load_id=load_id,
+                    timings=kg_phase_timings)
+            elseif needs_temp_reassembly
                 _with_active_temperature_material(model, temp_load_id_static) do
                     Solver.assemble_geometric_stiffness(
                         model, id_map_static, X_static, node_R_static, ndof_static, u_static, snorm_normals_static, rbe3_map_static;
@@ -2039,7 +3280,8 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
                 mass_summary=get(results, "mass_summary", nothing),
                 modal_effective_mass=get(results, "modal_effective_mass", nothing),
                 buckling_subcases=get(results, "subcases", nothing),
-                analysis_type="SOL103_MODES", diagnostics=get(results, "solver_diagnostics", nothing))
+                analysis_type="SOL103_MODES", diagnostics=get(results, "solver_diagnostics", nothing),
+                backend_metadata=_export_backend_metadata(results))
         end
         if export_hdf5
             getfield(@__MODULE__, :export_nastran_hdf5)(filename, output_dir, results)
@@ -2059,7 +3301,8 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
         end
         if export_json
             export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id_map;
-                analysis_type="SOL105_BUCKLING", diagnostics=get(results, "solver_diagnostics", nothing))
+                analysis_type="SOL105_BUCKLING", diagnostics=get(results, "solver_diagnostics", nothing),
+                backend_metadata=_export_backend_metadata(results))
         end
         if export_hdf5
             getfield(@__MODULE__, :export_nastran_hdf5)(filename, output_dir, results)
@@ -2123,6 +3366,7 @@ function _export_sol101(results, filename, output_dir, model, id_map, X,
                 payload["nonlinear_diagnostics"] = Any[]
                 payload["nonlinear_solver_summary"] = get(results, "solver_diagnostics", Any[])
             end
+            _export_attach_backend_metadata!(payload, results)
             payload
         else
             nothing
@@ -2175,7 +3419,8 @@ function _export_sol101(results, filename, output_dir, model, id_map, X,
     if is_nonlinear
         if export_json
             export_nonlinear_json(filename, output_dir, results["subcases"];
-                diagnostics=get(results, "solver_diagnostics", nothing))
+                diagnostics=get(results, "solver_diagnostics", nothing),
+                backend_metadata=_export_backend_metadata(results))
         end
     end
     if export_jfem_binary

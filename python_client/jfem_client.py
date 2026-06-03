@@ -33,6 +33,7 @@ def write_batch_manifest(
     output_root: Union[str, Path],
     *,
     batch_id: Optional[str] = None,
+    backend: Optional[str] = None,
     flags: Optional[Mapping[str, Any]] = None,
     output_options: Optional[Mapping[str, Any]] = None,
     gc_between: bool = True,
@@ -65,6 +66,8 @@ def write_batch_manifest(
         },
         "cases": [dict(case) for case in cases],
     }
+    if backend is not None:
+        manifest["defaults"]["backend"] = str(backend)
     if batch_id is not None:
         manifest["batch_id"] = str(batch_id)
     with manifest_path.open("w", encoding="utf-8") as f:

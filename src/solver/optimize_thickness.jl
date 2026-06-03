@@ -396,23 +396,34 @@ function _optimization_result_payload(
 end
 
 function _extract_optimization_solver_diagnostics(results, objective::Symbol)
+    backend_fields = Dict{String,Any}()
+    haskey(results, "backend") && (backend_fields["backend"] = results["backend"])
+    haskey(results, "backend_version") && (backend_fields["backend_version"] = results["backend_version"])
+    haskey(results, "backend_status") && (backend_fields["backend_status"] = results["backend_status"])
+    haskey(results, "formulation") && (backend_fields["formulation"] = deepcopy(results["formulation"]))
+    haskey(results, "sensitivity_diagnostics") && (backend_fields["sensitivity"] = deepcopy(results["sensitivity_diagnostics"]))
+
     if objective == :min_compliance
         subcases = get(results, "subcases", Any[])
         if !isempty(subcases)
             subcase = subcases[1]
-            return Dict(
+            diagnostics = Dict(
                 "sol_type" => get(results, "sol_type", nothing),
                 "subcase_id" => get(subcase, "subcase_id", 1),
                 "details" => deepcopy(get(subcase, "solver_diagnostics", Dict{String,Any}())),
             )
+            merge!(diagnostics, backend_fields)
+            return diagnostics
         end
     elseif objective == :max_buckling
-        return Dict(
+        diagnostics = Dict(
             "sol_type" => get(results, "sol_type", nothing),
             "details" => deepcopy(get(results, "solver_diagnostics", Any[])),
         )
+        merge!(diagnostics, backend_fields)
+        return diagnostics
     end
-    return nothing
+    return isempty(backend_fields) ? nothing : backend_fields
 end
 
 # ============================================================================
@@ -1042,6 +1053,42 @@ function _sizing_dv(var::SizingVarData, thickness_derivative_method, bar_area_de
     return dv
 end
 
+function _backend_static_compliance_thickness_gradient(results, pids)
+    backend = string(get(results, "backend", ""))
+    backend == "tacs_formulation" || return nothing
+    parent = parentmodule(@__MODULE__)
+    isdefined(parent, :static_compliance_thickness_gradient) || return nothing
+    hook = getfield(parent, :static_compliance_thickness_gradient)
+    return Base.invokelatest(hook, results; pids=pids)
+end
+
+function _backend_static_displacement_thickness_gradient(results, response_spec, pids)
+    backend = string(get(results, "backend", ""))
+    backend == "tacs_formulation" || return nothing
+    parent = parentmodule(@__MODULE__)
+    isdefined(parent, :static_displacement_thickness_gradient) || return nothing
+    hook = getfield(parent, :static_displacement_thickness_gradient)
+    return Base.invokelatest(hook, results, response_spec; pids=pids)
+end
+
+function _backend_static_ks_von_mises_design_gradient(results, response_spec, design_variables)
+    backend = string(get(results, "backend", ""))
+    backend == "tacs_formulation" || return nothing
+    parent = parentmodule(@__MODULE__)
+    isdefined(parent, :static_ks_von_mises_design_gradient) || return nothing
+    hook = getfield(parent, :static_ks_von_mises_design_gradient)
+    return Base.invokelatest(hook, results, response_spec, design_variables)
+end
+
+function _backend_buckling_load_factor_thickness_gradient(results, pids; mode::Integer=1)
+    backend = string(get(results, "backend", ""))
+    backend == "tacs_formulation" || return nothing
+    parent = parentmodule(@__MODULE__)
+    isdefined(parent, :buckling_load_factor_thickness_gradient) || return nothing
+    hook = getfield(parent, :buckling_load_factor_thickness_gradient)
+    return Base.invokelatest(hook, results; pids=pids, mode=mode)
+end
+
 function _sizing_objective_and_sensitivity(results, model, vars, objective;
     thickness_derivative_method=nothing,
     bar_area_derivative_method=nothing)
@@ -1051,6 +1098,19 @@ function _sizing_objective_and_sensitivity(results, model, vars, objective;
         u = sc["u_analysis"]
         K = results["K"]
         obj = dot(u, K * u)
+
+        if all(var.kind == :shell_thickness for var in vars)
+            pids = sort!(unique(Int[var.pid_new for var in vars]))
+            backend_response = _backend_static_compliance_thickness_gradient(results, pids)
+            if backend_response !== nothing
+                grad_by_pid = backend_response["gradient"]
+                grad = zeros(length(vars))
+                for (i, var) in enumerate(vars)
+                    grad[i] = Float64(grad_by_pid[string(var.pid_new)])
+                end
+                return Float64(backend_response["value"]), grad
+            end
+        end
 
         id_map = results["id_map"]
         X = results["node_coords"]
@@ -1068,6 +1128,25 @@ function _sizing_objective_and_sensitivity(results, model, vars, objective;
         eigenvalues = results["eigenvalues"]
         isempty(eigenvalues) && error("[OPT] No buckling eigenvalues found")
         obj = eigenvalues[1]
+
+        if all(var.kind == :shell_thickness for var in vars)
+            pids = sort!(unique(Int[var.pid_new for var in vars]))
+            backend_response = _backend_buckling_load_factor_thickness_gradient(results, pids; mode=1)
+            if backend_response !== nothing
+                grad_by_pid = backend_response["gradient"]
+                grad = zeros(length(vars))
+                for (i, var) in enumerate(vars)
+                    grad[i] = Float64(grad_by_pid[string(var.pid_new)])
+                end
+                results["sensitivity_diagnostics"] = Dict{String,Any}(
+                    "response" => backend_response["response"],
+                    "mode" => backend_response["mode"],
+                    "gradient_backend" => backend_response["gradient_backend"],
+                    "design_variable_type" => backend_response["design_variable_type"],
+                )
+                return Float64(backend_response["value"]), grad
+            end
+        end
 
         config = Dict(
             "responses" => [Dict("id" => "dummy", "type" => "displacement", "grid" => 1, "dof" => 1, "subcase" => 1)],
@@ -1558,6 +1637,20 @@ function _grouped_sizing_objective_and_sensitivity(results, model, groups, objec
         K = results["K"]
         obj = dot(u, K * u)
 
+        if all(all(member.kind == :shell_thickness for member in group.members) for group in groups)
+            pids = sort!(unique(Int[member.pid_new for group in groups for member in group.members]))
+            backend_response = _backend_static_compliance_thickness_gradient(results, pids)
+            if backend_response !== nothing
+                grad_by_pid = backend_response["gradient"]
+                grad = zeros(length(groups))
+                for (i, group) in enumerate(groups)
+                    group_pids = sort!(unique(Int[member.pid_new for member in group.members]))
+                    grad[i] = sum(Float64(get(grad_by_pid, string(pid), 0.0)) for pid in group_pids)
+                end
+                return Float64(backend_response["value"]), grad
+            end
+        end
+
         id_map = results["id_map"]
         X = results["node_coords"]
         node_R = results["node_R"]
@@ -1575,6 +1668,26 @@ function _grouped_sizing_objective_and_sensitivity(results, model, groups, objec
         eigenvalues = results["eigenvalues"]
         isempty(eigenvalues) && error("[OPT] No buckling eigenvalues found")
         obj = eigenvalues[1]
+
+        if all(all(member.kind == :shell_thickness for member in group.members) for group in groups)
+            pids = sort!(unique(Int[member.pid_new for group in groups for member in group.members]))
+            backend_response = _backend_buckling_load_factor_thickness_gradient(results, pids; mode=1)
+            if backend_response !== nothing
+                grad_by_pid = backend_response["gradient"]
+                grad = zeros(length(groups))
+                for (i, group) in enumerate(groups)
+                    group_pids = sort!(unique(Int[member.pid_new for member in group.members]))
+                    grad[i] = sum(Float64(get(grad_by_pid, string(pid), 0.0)) for pid in group_pids)
+                end
+                results["sensitivity_diagnostics"] = Dict{String,Any}(
+                    "response" => backend_response["response"],
+                    "mode" => backend_response["mode"],
+                    "gradient_backend" => backend_response["gradient_backend"],
+                    "design_variable_type" => backend_response["design_variable_type"],
+                )
+                return Float64(backend_response["value"]), grad
+            end
+        end
 
         design_vars = Any[]
         group_internal_ids = Dict{String, Vector{String}}()
@@ -1699,6 +1812,11 @@ function _evaluate_grouped_static_response(results, model, response_family::Symb
             response_spec, u, model, results["id_map"], results["ndof"],
             results["node_coords"], results["node_R"]
         )
+    elseif response_family == :ks_von_mises
+        return evaluate_response(
+            response_spec, u, model, results["id_map"], results["ndof"],
+            results["node_coords"], results["node_R"]
+        )
     end
     error("[OPT] Unsupported static grouped response family: $response_family")
 end
@@ -1726,6 +1844,26 @@ function _grouped_static_response_and_sensitivity(results, model, groups, respon
         end
         return response_value, grad
     elseif response_family == :displacement
+        if all(all(member.kind == :shell_thickness for member in group.members) for group in groups)
+            pids = sort!(unique(Int[member.pid_new for group in groups for member in group.members]))
+            backend_response = _backend_static_displacement_thickness_gradient(results, response_spec, pids)
+            if backend_response !== nothing
+                grad_by_pid = backend_response["gradient"]
+                for (i, group) in enumerate(groups)
+                    group_pids = sort!(unique(Int[member.pid_new for member in group.members]))
+                    grad[i] = sum(Float64(get(grad_by_pid, string(pid), 0.0)) for pid in group_pids)
+                end
+                results["sensitivity_diagnostics"] = Dict{String,Any}(
+                    "response" => backend_response["response"],
+                    "grid" => backend_response["grid"],
+                    "dof" => backend_response["dof"],
+                    "gradient_backend" => backend_response["gradient_backend"],
+                    "design_variable_type" => backend_response["design_variable_type"],
+                )
+                return Float64(backend_response["value"]), grad
+            end
+        end
+
         dr_du_full = compute_dr_du(response_spec, u, model, id_map, ndof, X, node_R)
         fixed_dofs_sc = sc["fixed_dofs"]
         free_dofs = sort(collect(setdiff(1:ndof, fixed_dofs_sc)))
@@ -1739,6 +1877,50 @@ function _grouped_static_response_and_sensitivity(results, model, groups, respon
             for dv in _grouped_sizing_dvs(group, thickness_derivative_method, bar_area_derivative_method)
                 dKdx_u = compute_dKdx_u(dv, model, id_map, X, node_R, u, ndof)
                 grad[i] += -dot(lambda_full, dKdx_u)
+            end
+        end
+        return response_value, grad
+    elseif response_family == :ks_von_mises
+        if all(all(member.kind == :shell_thickness for member in group.members) for group in groups)
+            design_vars = Dict{String,Any}[]
+            group_ids = String[]
+            for group in groups
+                group_dvs = _grouped_sizing_dvs(group, thickness_derivative_method, bar_area_derivative_method; include_id=true)
+                length(group_dvs) == 1 || error("[OPT] KS von-Mises grouped route expected one shell-thickness DV per group")
+                push!(design_vars, group_dvs[1])
+                push!(group_ids, string(group_dvs[1]["id"]))
+            end
+            backend_response = _backend_static_ks_von_mises_design_gradient(results, response_spec, design_vars)
+            if backend_response !== nothing
+                grad_by_group = backend_response["gradient"]
+                for (i, gid) in enumerate(group_ids)
+                    grad[i] = Float64(get(grad_by_group, gid, 0.0))
+                end
+                results["sensitivity_diagnostics"] = Dict{String,Any}(
+                    "response" => backend_response["response"],
+                    "gradient_backend" => backend_response["gradient_backend"],
+                    "design_variable_type" => backend_response["design_variable_type"],
+                    "ks_rho" => backend_response["ks_rho"],
+                    "sigma_ref" => backend_response["sigma_ref"],
+                )
+                return Float64(backend_response["value"]), grad
+            end
+        end
+
+        dr_du_full = compute_dr_du(response_spec, u, model, id_map, ndof, X, node_R)
+        fixed_dofs_sc = sc["fixed_dofs"]
+        free_dofs = sort(collect(setdiff(1:ndof, fixed_dofs_sc)))
+        K_ff = results["K"][free_dofs, free_dofs]
+        K_fact = cholesky(Symmetric(K_ff))
+        lambda_f = K_fact \ dr_du_full[free_dofs]
+        lambda_full = zeros(ndof)
+        lambda_full[free_dofs] = lambda_f
+
+        for (i, group) in enumerate(groups)
+            for dv in _grouped_sizing_dvs(group, thickness_derivative_method, bar_area_derivative_method)
+                dKdx_u = compute_dKdx_u(dv, model, id_map, X, node_R, u, ndof)
+                explicit = compute_dr_dx_explicit(response_spec, dv, model, id_map, X, node_R, u, ndof)
+                grad[i] += sum(Float64(v) for v in values(explicit)) - dot(lambda_full, dKdx_u)
             end
         end
         return response_value, grad

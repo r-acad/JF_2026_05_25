@@ -72,12 +72,20 @@ line-continuation character.
 - `python_client/jfem_manifest_cli.py`: Python command-line helper for creating
   and running manifests from external workflows.
 - `tools/precompile_sol105.jl`: older focused SOL 105 precompile helper.
-- `tools/testing/run_bdf.jl`: preferred single-case runner.
+- `jfem` (Linux/macOS) and `jfem.cmd` (Windows): one-line wrappers to analyze a
+  single deck with good defaults — see "Quickest Way To Run A Deck" below. They
+  call `tools/jfem.jl`, the underlying simple single-deck runner.
+- `tools/testing/run_bdf.jl`: explicit single-case runner (what the wrapper
+  runs for you).
 - `tools/testing/run_bdf_batch.jl`: simple text-list batch runner retained
   for existing scripts. New automation should use `run_batch_manifest.jl`.
 - `tools/sol105_worker.jl`: human-oriented persistent prompt retained for
   interactive local studies. Python automation should use `jfem_worker_jsonl.jl`.
 - `POST/postv11.html`: browser viewer for `.jfem` result files.
+- `POST/panel_app.html` + `POST/panel_server.jl`: interactive web app that
+  builds a stiffened panel **or** runs an existing `.bdf`/`.dat`/`.nas` deck
+  (SOL 101/103/105/106 auto-detected) and renders results in 3D. On Windows,
+  double-click `POST/panel_app.cmd`; see `POST/PANEL_APP_README.md`.
 - `general_description.md`: broader description of solver capabilities.
 
 ## Installation And Fast Deployment
@@ -178,6 +186,72 @@ Use this flag string in direct single-case and text-batch runs:
 ```text
 JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1
 ```
+
+## Quickest Way To Run A Deck
+
+For everyday use there is a one-line wrapper that fills in Julia, the project,
+threads, and good default options for you. The solution sequence
+(SOL 101 / 103 / 105 / 106) is auto-detected from the deck.
+
+Windows:
+
+```bat
+jfem  C:\models\my_model.bdf
+```
+
+Linux/macOS (make it executable once with `chmod +x jfem`):
+
+```bash
+./jfem  ~/models/my_model.bdf
+```
+
+That writes the **viewer-ready set** — the `.jfem` binary (opens in the POST 3D
+viewer), `REPORT.md`, and the results JSON — into `<deck_dir>/<deckname>_out/`,
+right next to the input deck.
+
+Give a second argument to choose the output folder:
+
+```bat
+jfem  C:\models\my_model.bdf  D:\jfem_runs\run1
+```
+
+### Choosing which output files to write
+
+Put an optional format string **before** the deck: a `-` followed by letters in
+any order. Each letter turns on one output type. If you omit the string you get
+the default set `-jrs`.
+
+| Letter | Output |
+|---|---|
+| `j` | `.jfem` binary (3D viewer) |
+| `r` | `REPORT.md` (markdown report) |
+| `s` | results JSON (`BUCKLING`/`JU`/`NONLINEAR` per SOL) |
+| `v` | VTK files (ParaView) |
+| `h` | HDF5 (`.h5`) |
+| `m` | model JSON dump |
+| `c` | card inventory |
+
+Examples:
+
+```bat
+jfem  -rs       model.bdf            :: only the report and results JSON
+jfem  -jrsvh    model.bdf  out       :: viewer + report + JSON + VTK + HDF5
+```
+
+```bash
+./jfem  -rs     model.bdf            # only the report and results JSON
+./jfem  -jrsvh  model.bdf  out       # viewer + report + JSON + VTK + HDF5
+```
+
+A `run_manifest.json` recording the exact inputs and flags is always written.
+The wrappers use whatever `julia` is on `PATH` (Julia 1.12.x; no juliaup
+needed) and automatically load a prebuilt sysimage from `build/` if one exists,
+for near-instant startup. Add the repository root to your `PATH` to call `jfem`
+from any directory.
+
+The sections below show the fully explicit `julia ... run_bdf.jl` form, which
+the wrapper runs for you and which you may still prefer for scripting or batch
+automation.
 
 ## Run One SOL 105 Case
 

@@ -35,13 +35,13 @@ end
 
 # Pre-allocated workspace for QUAD4 element stiffness computation.
 # Allocate once per thread, reuse across all elements to eliminate ~5M heap allocations.
-struct Quad4Workspace
+struct Quad4Workspace{T}
     # Accumulated per-element (cleared at start of each element)
-    Ke::Matrix{Float64}          # 24×24 element stiffness
-    K_ab::Matrix{Float64}        # 24×4  membrane incompatible mode coupling
-    K_bb::Matrix{Float64}        # 4×4   membrane incompatible self-coupling
-    K_ab_bend::Matrix{Float64}   # 24×4  bending incompatible mode coupling
-    K_bb_bend::Matrix{Float64}   # 4×4   bending incompatible self-coupling
+    Ke::Matrix{T}                # 24×24 element stiffness
+    K_ab::Matrix{T}              # 24×4  membrane incompatible mode coupling
+    K_bb::Matrix{T}              # 4×4   membrane incompatible self-coupling
+    K_ab_bend::Matrix{T}         # 24×4  bending incompatible mode coupling
+    K_bb_bend::Matrix{T}         # 4×4   bending incompatible self-coupling
     # MITC4 tying point B-matrices (filled per element)
     Bs_tp::Matrix{Float64}       # 4×24  rows: [Bs_xi_A; Bs_xi_C; Bs_eta_B; Bs_eta_D]
     Bs_row::Vector{Float64}      # 24    temporary for tying point computation
@@ -53,38 +53,38 @@ struct Quad4Workspace
     Bi_bend::Matrix{Float64}     # 3×4   bending incompatible mode B-matrix
     Bs_cov::Matrix{Float64}      # 2×24  covariant shear B-matrix
     # Temporaries for in-place mul!
-    tmp3x24::Matrix{Float64}     # for Cm*Bm, Cb*Bb products
-    tmp3x4::Matrix{Float64}      # for Cm*Bi, Cb*Bi_bend products
-    tmp2x24::Matrix{Float64}     # for Cs_cov*Bs_cov products
-    tmp2x2::Matrix{Float64}      # for Cs_cov = invJ'*Cs*invJ
+    tmp3x24::Matrix{T}           # for Cm*Bm, Cb*Bb products
+    tmp3x4::Matrix{T}            # for Cm*Bi, Cb*Bi_bend products
+    tmp2x24::Matrix{T}           # for Cs_cov*Bs_cov products
+    tmp2x2::Matrix{T}            # for Cs_cov = invJ'*Cs*invJ
     # B matrix coupling workspace (reused when Bmb != nothing)
-    K_ab_cross::Matrix{Float64}      # 24×4
-    K_ab_bend_cross::Matrix{Float64} # 24×4
-    K_mb_incomp::Matrix{Float64}     # 4×4
+    K_ab_cross::Matrix{T}            # 24×4
+    K_ab_bend_cross::Matrix{T}       # 24×4
+    K_mb_incomp::Matrix{T}           # 4×4
     # Coordinate transform workspace (used in Solver.jl assembly)
-    Ke_global::Matrix{Float64}   # 24×24  T'*Ke*T result
-    tmp24x24::Matrix{Float64}    # 24×24  temporary for transform
+    Ke_global::Matrix{T}         # 24×24  T'*Ke*T result
+    tmp24x24::Matrix{T}          # 24×24  temporary for transform
     Rel_t::Matrix{Float64}       # 3×3   element-to-global rotation
     # Thread-local constitutive matrix buffers (copied from flat arrays, avoids Vector{Matrix} reads)
-    Cm_buf::Matrix{Float64}      # 3×3   membrane constitutive
-    Cb_buf::Matrix{Float64}      # 3×3   bending constitutive
-    Cs_buf::Matrix{Float64}      # 2×2   shear constitutive
-    Bmb_buf::Matrix{Float64}     # 3×3   membrane-bending coupling
+    Cm_buf::Matrix{T}            # 3×3   membrane constitutive
+    Cb_buf::Matrix{T}            # 3×3   bending constitutive
+    Cs_buf::Matrix{T}            # 2×2   shear constitutive
+    Bmb_buf::Matrix{T}           # 3×3   membrane-bending coupling
     # Assembly buffers (used in Solver.jl parallel loop)
     T_buf::Matrix{Float64}       # 24×24 transformation matrix
     lc::Matrix{Float64}          # 4×2   local coordinates
     dofs::Vector{Int}            # 24    DOF indices
 end
 
-function create_quad4_workspace()
-    Quad4Workspace(
-        zeros(24,24), zeros(24,4), zeros(4,4), zeros(24,4), zeros(4,4),   # Ke, K_ab, K_bb, K_ab_bend, K_bb_bend
+function create_quad4_workspace(::Type{T}=Float64) where {T}
+    Quad4Workspace{T}(
+        zeros(T,24,24), zeros(T,24,4), zeros(T,4,4), zeros(T,24,4), zeros(T,4,4), # Ke, K_ab, K_bb, K_ab_bend, K_bb_bend
         zeros(4,24), zeros(24),                                             # Bs_tp, Bs_row
         zeros(3,24), zeros(3,24), zeros(1,24), zeros(3,4), zeros(3,4), zeros(2,24), # Bm..Bs_cov
-        zeros(3,24), zeros(3,4), zeros(2,24), zeros(2,2),                  # tmp buffers
-        zeros(24,4), zeros(24,4), zeros(4,4),                              # B coupling
-        zeros(24,24), zeros(24,24), zeros(3,3),                            # transform
-        zeros(3,3), zeros(3,3), zeros(2,2), zeros(3,3),                    # constitutive buffers
+        zeros(T,3,24), zeros(T,3,4), zeros(T,2,24), zeros(T,2,2),          # tmp buffers
+        zeros(T,24,4), zeros(T,24,4), zeros(T,4,4),                        # B coupling
+        zeros(T,24,24), zeros(T,24,24), zeros(3,3),                        # transform
+        zeros(T,3,3), zeros(T,3,3), zeros(T,2,2), zeros(T,3,3),            # constitutive buffers
         zeros(24,24), zeros(4,2), Vector{Int}(undef, 24)                   # assembly buffers
     )
 end
@@ -1552,7 +1552,10 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
                                                            cbmin4=cbmin4_val)
         return Ke_membrane_drill .+ Ke_bs
     end
-    if ws === nothing; ws = create_quad4_workspace(); end
+    if ws === nothing
+        T_ws = promote_type(eltype(Cm), eltype(Cb), eltype(Cs), typeof(h), typeof(E_ref))
+        ws = create_quad4_workspace(T_ws)
+    end
 
     # Clear accumulated matrices
     fill!(ws.Ke, 0.0)
@@ -2370,11 +2373,11 @@ include(joinpath(@__DIR__, "experimental", "min4_kernel.jl"))
 # This REPLACES the MITC4+phi2 shear block when JFEM_Q4_KERNEL=macneal.
 # ---------------------------------------------------------------------------
 function add_quad4_macneal_shear_rbf!(
-    Ke::AbstractMatrix{Float64},
+    Ke::AbstractMatrix,
     coords::AbstractMatrix{Float64},
-    Cb::AbstractMatrix{Float64},
-    Cs::AbstractMatrix{Float64},
-    h::Float64;
+    Cb::AbstractMatrix,
+    Cs::AbstractMatrix,
+    h;
     epsilon_rbf::Float64 = 0.04,
     rigid_shear::Bool = false,
 )
@@ -2387,7 +2390,8 @@ function add_quad4_macneal_shear_rbf!(
     pt = 1.0 / sqrt(3.0)
     shear_pts = ((0.0, -pt, 1), (0.0,  pt, 1), (-pt, 0.0, 2), ( pt, 0.0, 2))
 
-    D_mat = zeros(4, 12)
+    T = promote_type(eltype(Ke), eltype(Cb), eltype(Cs), typeof(h))
+    D_mat = zeros(T, 4, 12)
     J_pts = zeros(4)
     # Per-shear-sample-point physical extents for the residual-bending-flexibility
     # block (MacNeal eq 26, generalized to non-rectangular quads).
@@ -2467,7 +2471,7 @@ function add_quad4_macneal_shear_rbf!(
     if flex_mode in ("full", "compliance", "matrix")
         Cb_sym = 0.5 .* (Cb .+ Cb')
         reg = 1e-12 * max(maximum(abs, Cb_sym), 1e-30)
-        Cb_reg = Cb_sym + reg .* Matrix{Float64}(I, 3, 3)
+        Cb_reg = Cb_sym + reg .* Matrix{T}(I, 3, 3)
         Sb = inv(Cb_reg)
         flex_x = max(abs(Sb[1,1]), 1e-30)
         flex_y = max(abs(Sb[2,2]), 1e-30)
@@ -2497,7 +2501,7 @@ function add_quad4_macneal_shear_rbf!(
     # i.e. it's not a clean win. Leaving the implementation in place behind
     # an env switch so further exploration can compare against the legacy form.
     per_gp_delta = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_PER_GP_DELTA", "false"))) in ("1","true","yes","on")
-    Zb = zeros(4, 4)
+    Zb = zeros(T, 4, 4)
     length_mode = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_LENGTH_MODE", "paper")))
     swap_xy = length_mode in ("swap", "swapped", "cross")
     Lx2_rbf = swap_xy ? Dy2 : Dx2
@@ -2583,11 +2587,11 @@ function add_quad4_macneal_shear_rbf!(
     # Physical shear compliance (eq 23-25)
     # [V^s] = diag(√(2 J_p)); [V^s G^s V^s] has G_s = Cs for same-component pairs,
     # G_xy for cross-pairs (symmetric per eq 25)
-    Zs = zeros(4, 4)
+    Zs = zeros(T, 4, 4)
     if !rigid_shear
     G_xx = Cs[1,1]; G_yy = Cs[2,2]; G_xy = Cs[1,2]
     comps = (1, 1, 2, 2)
-    VGV = zeros(4, 4)
+    VGV = zeros(T, 4, 4)
     @inbounds for i in 1:4, j in 1:4
         ci = comps[i]; cj = comps[j]
         Jfac = sqrt(2.0*J_pts[i]) * sqrt(2.0*J_pts[j])

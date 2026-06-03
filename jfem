@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# ====================================================================
+#  jfem - simplest way to analyze a .bdf on Linux / macOS.
+#
+#    ./jfem  model.bdf
+#    ./jfem  model.bdf  my_output_folder
+#    ./jfem  -rs  model.bdf            (choose which outputs to write)
+#
+#  The solution sequence (SOL 101/103/105/106) is auto-detected from the
+#  deck. By default it writes the viewer-ready set (.jfem + REPORT.md + JSON)
+#  to <deck_dir>/<deckname>_out/, or to the folder you name.
+#
+#  Optional output-format string BEFORE the deck (a '-' then letters, any
+#  order): j=.jfem viewer  r=REPORT.md  s=results JSON  v=VTK  h=HDF5
+#  m=model JSON  c=card inventory.  e.g.  ./jfem -jrsv model.bdf out
+#
+#  Make it executable once:   chmod +x jfem
+#  Tip: symlink it onto your PATH (e.g. ln -s "$PWD/jfem" ~/.local/bin/jfem)
+#  so you can run `jfem` from anywhere. Uses whatever `julia` is on PATH
+#  (Julia 1.12.x) and auto-loads a sysimage from build/ if one exists.
+# ====================================================================
+set -euo pipefail
+
+# Resolve this script's own directory, following symlinks.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+REPO_ROOT="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+
+if [ "$#" -lt 1 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+  echo "usage:  jfem  [-formats]  <model.bdf>  [output_folder]"
+  echo "example: jfem  ~/models/my_model.bdf"
+  echo "example: jfem  -rs  ~/models/my_model.bdf"
+  [ "$#" -lt 1 ] && exit 1 || exit 0
+fi
+
+# Optional sysimage for near-instant startup (Linux .so, macOS .dylib).
+SYSIMG_ARG=()
+for ext in so dylib; do
+  cand="$REPO_ROOT/build/OpenJFEM_sysimage.$ext"
+  if [ -f "$cand" ]; then SYSIMG_ARG=(--sysimage="$cand"); break; fi
+done
+
+exec julia "${SYSIMG_ARG[@]}" --project="$REPO_ROOT" --threads=auto --startup-file=no \
+  "$REPO_ROOT/tools/jfem.jl" "$@"

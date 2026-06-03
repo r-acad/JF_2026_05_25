@@ -7,7 +7,7 @@ Used for the suite's industrial-scale modal cross-check (SOL 103).
 
 | File | What it is |
 | --- | --- |
-| `wingbox_modal.bdf` | The original TACS deck, with one mechanical edit (`CQUADR` -> `CQUAD4`). Has no `PSHELL`/`MAT*`; not runnable on its own. |
+| `wingbox_modal.bdf` | The original TACS deck snapshot used by this suite, with historical `CQUADR` -> `CQUAD4` normalization. Has no `PSHELL`/`MAT*`; not runnable on its own. |
 | `wingbox_modal_with_props.bdf` | The runnable deck: original + synthesised properties + case-control + EIGRL. **This is the one the manifest points at.** |
 | `LICENSE.TACS.txt` | Upstream Apache 2.0 license. |
 
@@ -24,8 +24,9 @@ Copied from `03_EXTERNAL_TOOLS/tacs-master/examples/crm/CRM_box_2nd.bdf`
 ## Modifications Made
 
 1. **CQUADR -> CQUAD4** (25055 elements). The two cards have identical
-   field layout. The substitution removes a dependence on the CQUADR
-   spelling that not every BDF-based solver recognises.
+   field layout. This historical normalization remains in the checked-in
+   CRM snapshot, but JFEM now also accepts `CQUADR` directly and routes those
+   elements through the TACS formulation.
 2. **PSHELL/MAT/EIGRL/case-control synthesised** from the TACS Python
    runner. The synthesis is:
    - one `MAT1` with `E = 70e9` Pa, `nu = 0.3`, `rho = 2500` kg/m^3

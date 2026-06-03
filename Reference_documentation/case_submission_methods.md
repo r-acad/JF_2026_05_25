@@ -8,10 +8,11 @@ The recommended method depends on the workflow:
 
 | Workflow | Recommended method |
 |---|---|
+| Analyze one deck, simplest call | `jfem` / `jfem.cmd` wrapper |
 | Heavy Python optimization loop | Persistent JSONL worker |
 | Command-line production batch | JSON manifest batch runner |
 | Command-line production single case | JSON manifest batch runner with one case |
-| Quick manual smoke test | Single-case runner |
+| Quick manual smoke test | `jfem` wrapper or single-case runner |
 | Solver development and debugging | Direct Julia API |
 | Legacy directory/list batch | Legacy simple batch runner |
 
@@ -126,7 +127,80 @@ convenient production interface. Long Julia `-e` commands are fragile on
 Windows PowerShell because quote escaping is easy to get wrong. For command-line
 production use, prefer the JSON manifest runner.
 
+## Method 1b: Simple Wrapper (Easiest)
+
+This is the shortest way to analyze one deck. The wrapper supplies Julia, the
+project, `--threads=auto`, good default options, and a prebuilt sysimage if one
+exists. It is a thin front end to the single-case runner (Method 2), calling
+`tools/jfem.jl`.
+
+Scripts:
+
+```text
+jfem        (Linux/macOS shell wrapper; chmod +x once)
+jfem.cmd    (Windows)
+tools/jfem.jl   (the underlying Julia runner)
+```
+
+Basic Windows example:
+
+```powershell
+jfem C:\models\panel_001.bdf
+```
+
+Basic Linux/macOS example:
+
+```bash
+./jfem /home/user/models/panel_001.bdf
+```
+
+Argument order:
+
+```text
+jfem [-formats] <input-deck> [output-directory] [FLAG=value,FLAG=value]
+```
+
+- The solution sequence (SOL 101/103/105/106) is auto-detected from the deck.
+- If no output directory is given, results go to `<deck_dir>/<deckname>_out/`.
+- Default outputs are the viewer-ready set: `.jfem` binary, `REPORT.md`, and the
+  per-SOL results JSON, with mode shapes stored for modal/buckling runs.
+
+### Choosing output formats
+
+An optional `-letters` string **before** the deck selects which files to write,
+in any order. Omit it to get the default `-jrs` set.
+
+| Letter | Output |
+|---|---|
+| `j` | `.jfem` binary (3D viewer) |
+| `r` | `REPORT.md` (markdown report) |
+| `s` | results JSON (`BUCKLING`/`JU`/`NONLINEAR` per SOL) |
+| `v` | VTK files (ParaView) |
+| `h` | HDF5 (`.h5`) |
+| `m` | model JSON dump |
+| `c` | card inventory |
+
+Examples:
+
+```powershell
+jfem -rs    C:\models\panel_001.bdf                  :: report + results JSON only
+jfem -jrsvh C:\models\panel_001.bdf D:\runs\p1       :: viewer + report + JSON + VTK + HDF5
+```
+
+```bash
+./jfem -rs    /home/user/models/panel_001.bdf            # report + results JSON only
+./jfem -jrsvh /home/user/models/panel_001.bdf /runs/p1   # viewer + report + JSON + VTK + HDF5
+```
+
+A trailing `FLAG=value,...` string can still be appended to override any
+`JFEM_*` run flag. A `run_manifest.json` recording the run is always written.
+The wrapper uses whatever `julia` is on `PATH` (Julia 1.12.x; no juliaup
+needed). Add the repository root to your `PATH` to call `jfem` from anywhere.
+
 ## Method 2: Single-Case Command Runner
+
+This is the explicit form that the `jfem` wrapper (Method 1b) runs for you. Use
+it directly for scripting or when you want to spell out every flag.
 
 Script:
 
@@ -635,9 +709,13 @@ with a precompiled package cache or sysimage when available.
 
 ### For One Manual Case
 
-Use the JSON manifest runner if you want fully controlled output.
+Use the `jfem` / `jfem.cmd` wrapper (Method 1b) for the shortest command — it
+needs only the deck path and picks good defaults.
 
-Use `run_bdf.jl` if you want the shortest quick test command.
+Use `run_bdf.jl` if you want the explicit Julia command with every flag spelled
+out.
+
+Use the JSON manifest runner if you want fully controlled output.
 
 ### For A Command-Line Batch
 
@@ -726,8 +804,9 @@ batch_summary.json -> cases[].result_json
 
 | Method | One case | Batch | Python-friendly | Fast for repeated optimization | Best use |
 |---|---:|---:|---:|---:|---|
+| `jfem` / `jfem.cmd` wrapper | Yes | No | Low | Low | Easiest single-deck run |
 | Direct Julia API | Yes | Manual | Medium | Medium inside persistent Julia | Development |
-| `run_bdf.jl` | Yes | No | Low | Low | Quick smoke test |
+| `run_bdf.jl` | Yes | No | Low | Low | Quick smoke test (explicit form) |
 | `run_batch_manifest.jl` | Yes | Yes | High | Medium | Production CLI |
 | Python `run_batch_once` | Yes | Yes | High | Medium | Python batch launcher |
 | Persistent JSONL worker | Yes | Yes | Very high | Very high | Heavy optimization |

@@ -2126,6 +2126,22 @@ function _export_strip_private_keys!(value)
     return value
 end
 
+function _export_backend_metadata(results)
+    metadata = Dict{String,Any}()
+    results isa AbstractDict || return metadata
+    for key in ("backend", "backend_version", "backend_status", "formulation")
+        haskey(results, key) && (metadata[key] = deepcopy(results[key]))
+    end
+    return metadata
+end
+
+function _export_attach_backend_metadata!(payload::AbstractDict, results)
+    for (key, value) in _export_backend_metadata(results)
+        payload[key] = value
+    end
+    return payload
+end
+
 function build_optimization_export_payload(results)
     opt_payload = deepcopy(results["optimization"])
     if opt_payload isa AbstractDict && haskey(opt_payload, "model")
@@ -2133,17 +2149,19 @@ function build_optimization_export_payload(results)
     end
     _export_strip_private_keys!(opt_payload)
 
-    return Dict(
+    payload = Dict(
         "analysis_type" => "SOL200_LITE_OPTIMIZATION",
         "forward_sol_type" => get(results, "forward_sol_type", nothing),
         "route_summary" => deepcopy(get(results, "route_summary", Dict{String,Any}())),
         "optimization" => opt_payload,
     )
+    return _export_attach_backend_metadata!(payload, results)
 end
 
 function build_nonlinear_export_payload(subcases;
                                         diagnostics=nothing,
-                                        analysis_type="SOL106_NONLINEAR_STATIC")
+                                        analysis_type="SOL106_NONLINEAR_STATIC",
+                                        backend_metadata=nothing)
     exported_subcases = Any[]
     for sc in subcases
         push!(exported_subcases, Dict(
@@ -2159,6 +2177,11 @@ function build_nonlinear_export_payload(subcases;
     )
     if diagnostics !== nothing
         payload["nonlinear_solver_summary"] = deepcopy(diagnostics)
+    end
+    if backend_metadata isa AbstractDict
+        for (key, value) in backend_metadata
+            payload[string(key)] = deepcopy(value)
+        end
     end
     return payload
 end
@@ -2270,7 +2293,8 @@ function build_buckling_export_payload(eigenvalues, mode_shapes, id_map;
                                        modal_effective_mass=nothing,
                                        buckling_subcases=nothing,
                                        analysis_type="SOL105_BUCKLING",
-                                       diagnostics=nothing)
+                                       diagnostics=nothing,
+                                       backend_metadata=nothing)
     sorted_nodes = sort(collect(keys(id_map)))
     mode_count = size(mode_shapes, 2)
     modes = Any[]
@@ -2325,6 +2349,11 @@ function build_buckling_export_payload(eigenvalues, mode_shapes, id_map;
     end
     if diagnostics !== nothing
         payload["solver_diagnostics"] = deepcopy(diagnostics)
+    end
+    if backend_metadata isa AbstractDict
+        for (key, value) in backend_metadata
+            payload[string(key)] = deepcopy(value)
+        end
     end
     return payload
 end
@@ -2786,11 +2815,13 @@ function export_optimization_json(filename, output_dir, results)
 end
 
 function export_nonlinear_json(filename, output_dir, subcases;
-                               diagnostics=nothing, analysis_type="SOL106_NONLINEAR_STATIC")
+                               diagnostics=nothing, analysis_type="SOL106_NONLINEAR_STATIC",
+                               backend_metadata=nothing)
     json_name = _export_base_name(filename) * ".NONLINEAR.JSON"
     json_path = joinpath(output_dir, json_name)
     results = build_nonlinear_export_payload(subcases;
-        diagnostics=diagnostics, analysis_type=analysis_type)
+        diagnostics=diagnostics, analysis_type=analysis_type,
+        backend_metadata=backend_metadata)
 
     println("\n>>> Exporting NONLINEAR JSON: $json_path")
     sanitize!(results)
@@ -2934,7 +2965,7 @@ end
 function export_card_inventory(cards, output_dir, filename)
     processed_card_types = Set([
         "GRID", "CORD2R", "CORD1R", "CORD2C", "CORD2S",
-        "CTRIA3", "CTRIA6", "CQUAD4", "CQUAD8", "CSHEAR", "CBAR", "CBEAM", "CROD", "CONROD", "CELAS1", "CELAS2", "CBUSH",
+        "CTRIA3", "CTRIA6", "CQUAD4", "CQUADR", "CQUAD8", "CSHEAR", "CBAR", "CBEAM", "CROD", "CONROD", "CELAS1", "CELAS2", "CBUSH",
         "CTETRA", "CHEXA", "CPENTA", "PSOLID",
         "RBE1", "RBE2", "RBE3", "RBAR", "RSPLINE",
         "PSHELL", "PSHEAR", "PBARL", "PBAR", "PBAR*", "PBEAM", "PBEAM*", "PBEAML", "PROD", "PCOMP", "PELAS", "PBUSH",
@@ -3049,7 +3080,8 @@ function export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id
                               frequencies=nothing, mass_summary=nothing,
                               modal_effective_mass=nothing, buckling_subcases=nothing,
                               analysis_type="SOL105_BUCKLING",
-                              diagnostics=nothing)
+                              diagnostics=nothing,
+                              backend_metadata=nothing)
     if isempty(eigenvalues); return; end
     json_name = _export_base_name(filename) * ".BUCKLING.JSON"
     json_path = joinpath(output_dir, json_name)
@@ -3059,7 +3091,8 @@ function export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id
         modal_effective_mass=modal_effective_mass,
         buckling_subcases=buckling_subcases,
         analysis_type=analysis_type,
-        diagnostics=diagnostics)
+        diagnostics=diagnostics,
+        backend_metadata=backend_metadata)
     sanitize!(results)
     open(json_path, "w") do f; JSON.print(f, results, 4); end
     println(">>> Buckling JSON exported: $json_path")

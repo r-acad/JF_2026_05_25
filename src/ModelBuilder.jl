@@ -223,7 +223,11 @@ end
     field = uppercase(strip(string(field_raw)))
 
     if relation_kind == :property
-        if entity_type == "PSHELL" && field == "T"
+        if entity_type == "PCOMP" && occursin(r"^T[0-9]+$", field)
+            return "pcomp_ply_thickness"
+        elseif entity_type == "PCOMP" && occursin(r"^THETA[0-9]+$", field)
+            return "pcomp_ply_angle"
+        elseif entity_type in ("PSHELL", "PCOMP") && field == "T"
             return "shell_thickness"
         elseif entity_type in ("PBAR", "PBARL", "PBEAM", "PBEAML", "PROD") && field == "A"
             return "bar_area"
@@ -231,12 +235,34 @@ end
     elseif relation_kind == :material
         if entity_type == "MAT1" && field == "E"
             return "material_E"
+        elseif entity_type == "MAT1" && field == "G"
+            return "material_G"
         elseif entity_type == "MAT1" && field == "NU"
             return "material_NU"
+        elseif entity_type == "MAT1" && field == "RHO"
+            return "material_RHO"
+        elseif entity_type == "MAT8" && field == "E1"
+            return "material_E1"
+        elseif entity_type == "MAT8" && field == "E2"
+            return "material_E2"
+        elseif entity_type == "MAT8" && field == "G12"
+            return "material_G12"
+        elseif entity_type == "MAT8" && field == "NU12"
+            return "material_NU12"
+        elseif entity_type == "MAT8" && field == "RHO"
+            return "material_RHO"
         end
     end
 
     return nothing
+end
+
+@inline function _sol200_lite_pcomp_ply_index(field_raw)
+    field = uppercase(strip(string(field_raw)))
+    m = match(r"^(?:T|THETA)([0-9]+)$", field)
+    isnothing(m) && return nothing
+    ply_index = tryparse(Int, m.captures[1])
+    isnothing(ply_index) || ply_index <= 0 ? nothing : ply_index
 end
 
 @inline function _sol200_lite_response_family(rtype_raw)
@@ -301,6 +327,7 @@ function _build_optimization_definition(model::Dict, cc::Dict{String, Any})
             "offset" => get(relation, "C0", 0.0),
             "coefficients" => deepcopy(get(relation, "COEFFICIENTS", Any[])),
             "candidate_design_variable_family" => _sol200_lite_relation_family(:property, relation["TYPE"], get(relation, "PNAME_FID", "")),
+            "ply_index" => _sol200_lite_pcomp_ply_index(get(relation, "PNAME_FID", "")),
         ))
     end
 
@@ -380,11 +407,12 @@ function _build_optimization_definition(model::Dict, cc::Dict{String, Any})
     parsed_but_unexecuted_material_relations = Any[
         relation["id"] for relation in material_relations
         if !isnothing(relation["candidate_design_variable_family"])
+        && !(relation["candidate_design_variable_family"] in ("material_E", "material_G", "material_NU", "material_E1", "material_E2", "material_G12", "material_NU12", "material_RHO"))
     ]
     parsed_but_unexecuted_responses = Any[
         response["id"] for response in responses
         if !isnothing(response["candidate_response_family"]) &&
-           !(response["candidate_response_family"] in ("mass", "compliance", "displacement", "buckling_eigenvalue"))
+           !(response["candidate_response_family"] in ("mass", "compliance", "displacement", "buckling_eigenvalue", "von_mises"))
     ]
 
     readiness = Dict(
@@ -397,8 +425,8 @@ function _build_optimization_definition(model::Dict, cc::Dict{String, Any})
         "unsupported_response_ids" => unsupported_responses,
         "parsed_but_unexecuted_material_relation_ids" => parsed_but_unexecuted_material_relations,
         "parsed_but_unexecuted_response_ids" => parsed_but_unexecuted_responses,
-        "supported_execution_relation_families" => ["shell_thickness", "bar_area"],
-        "supported_execution_response_families" => ["mass", "compliance", "displacement", "buckling_eigenvalue"],
+        "supported_execution_relation_families" => ["shell_thickness", "bar_area", "pcomp_ply_thickness", "pcomp_ply_angle", "material_E", "material_G", "material_NU", "material_E1", "material_E2", "material_G12", "material_NU12", "material_RHO"],
+        "supported_execution_response_families" => ["mass", "compliance", "displacement", "buckling_eigenvalue", "von_mises"],
         "execution_scope_note" =>
             "This readiness check is family-level only. Objective sense, constraint structure, and route-specific translation rules are still enforced during SOL 200-lite dispatch.",
     )
@@ -676,6 +704,8 @@ function build_model(cards, cc)
             pshells[pid] = Dict("PID"=>pid_int, "MID"=>synth_mid, "T"=>total_t,
                                 "TYPE"=>"PCOMP_CLT",
                                 "Cm" => A, "Bmb" => Bmb, "Cb" => D, "Cs" => Cs_lam, "Cs_raw" => copy(Ash), "E_ref" => E_max,
+                                "T_REF" => total_t, "Cm_ref" => copy(A), "Bmb_ref" => Bmb === nothing ? nothing : copy(Bmb),
+                                "Cb_ref" => copy(D), "Cs_ref" => copy(Cs_lam),
                                 "IS_ISOTROPIC" => all_plies_isotropic,
                                 "TRANSVERSE_SHEAR_RIGID_LIMIT" => saw_mat8_ply && all_mat8_plies_blank_transverse_shear,
                                 "PLY_DATA" => ply_data)
@@ -701,7 +731,9 @@ function build_model(cards, cc)
             pshells[pid] = Dict("PID"=>ps["PID"], "MID"=>ps["MID"], "T"=>t,
                                 "TYPE"=>"PCOMP_CLT",
                                 "Cm"=>Cm_shear, "Bmb"=>nothing, "Cb"=>Cb_shear, "Cs"=>Cs_shear,
-                                "E_ref"=>G_val)
+                                "E_ref"=>G_val,
+                                "T_REF"=>t, "Cm_ref"=>copy(Cm_shear), "Bmb_ref"=>nothing,
+                                "Cb_ref"=>copy(Cb_shear), "Cs_ref"=>copy(Cs_shear))
         end
     end
 
@@ -737,6 +769,7 @@ function build_model(cards, cc)
                                haskey(cards,"CTRIA3") ? NastranParser.extract_shells(cards["CTRIA3"]) : Dict(),
                                haskey(cards,"CTRIA6") ? NastranParser.extract_shells(cards["CTRIA6"]) : Dict(),
                                haskey(cards,"CQUAD4") ? NastranParser.extract_shells(cards["CQUAD4"]) : Dict(),
+                               haskey(cards,"CQUADR") ? NastranParser.extract_shells(cards["CQUADR"]) : Dict(),
                                haskey(cards,"CQUAD8") ? NastranParser.extract_shells(cards["CQUAD8"]) : Dict(),
                                haskey(cards,"CSHEAR") ? NastranParser.extract_shells(cards["CSHEAR"]) : Dict()),
         "CBARs"       => haskey(cards,"CBAR")   ? NastranParser.extract_cbar(cards["CBAR"]) : Dict(),
@@ -799,7 +832,8 @@ function build_model(cards, cc)
     # Extract PARAM cards
     # Some PARAMs have string values (YES/NO/etc.) — detect and preserve them
     string_params = Set(["AUTOSPC", "PRTMAXIM", "OMID", "POSTEXT", "POST", "NOCOMPS",
-                         "COUPMASS", "LGDISP", "INREL", "ALTRED", "CHECKOUT"])
+                         "COUPMASS", "LGDISP", "INREL", "ALTRED", "CHECKOUT",
+                         "NLMETHOD", "NLRESMODEL"])
     if haskey(cards, "PARAM")
         for c in cards["PARAM"]
             pname = uppercase(strip(string(NastranParser.safe_get(c, 3))))
@@ -920,7 +954,7 @@ end
 
 Build a solver-ready model Dict from a raw JSON model (as produced by bdf_to_json.jl).
 Performs all derivation that `build_model` does:
-  - Complete MAT1 E/G/NU, add MAT8 compat fields, compute MAT2 equivalent
+  - Complete MAT1 E/G/NU/RHO, add MAT8 compat fields, compute MAT2 equivalent
   - Compute PBARL section properties from TYPE + DIMS
   - Compute PCOMP CLT matrices, create synthetic materials
   - Convert RBAR to RBE2
@@ -1142,6 +1176,8 @@ function build_model_from_json(raw::AbstractDict)
             "PID"=>pid_int, "MID"=>synth_mid, "T"=>total_t,
             "TYPE"=>"PCOMP_CLT",
             "Cm"=>A_mat, "Bmb"=>Bmb, "Cb"=>D_mat, "Cs"=>Cs_lam, "Cs_raw"=>copy(Ash), "E_ref"=>E_max,
+            "T_REF"=>total_t, "Cm_ref"=>copy(A_mat), "Bmb_ref"=>Bmb === nothing ? nothing : copy(Bmb),
+            "Cb_ref"=>copy(D_mat), "Cs_ref"=>copy(Cs_lam),
             "IS_ISOTROPIC"=>all_plies_isotropic,
             "TRANSVERSE_SHEAR_RIGID_LIMIT"=>saw_mat8_ply && all_mat8_plies_blank_transverse_shear,
             "PLY_DATA"=>ply_data)
@@ -1269,7 +1305,9 @@ function build_model_from_json(raw::AbstractDict)
         Cm_shear = t .* [0.0 0.0 0.0; 0.0 0.0 0.0; 0.0 0.0 G_val]
         pshells[pid] = Dict{String,Any}("PID"=>Int(ps["PID"]), "MID"=>Int(ps["MID"]), "T"=>t,
             "TYPE"=>"PCOMP_CLT", "Cm"=>Cm_shear, "Bmb"=>nothing,
-            "Cb"=>zeros(3,3), "Cs"=>zeros(2,2), "E_ref"=>G_val)
+            "Cb"=>zeros(3,3), "Cs"=>zeros(2,2), "E_ref"=>G_val,
+            "T_REF"=>t, "Cm_ref"=>copy(Cm_shear), "Bmb_ref"=>nothing,
+            "Cb_ref"=>zeros(3,3), "Cs_ref"=>zeros(2,2))
     end
 
     # --- Coordinate systems: compute rotation from raw A, B, C ---
@@ -1298,7 +1336,7 @@ function build_model_from_json(raw::AbstractDict)
         "CORDs"       => cords,
         "CSHELLs"     => _merge_entity_groups_preserve_ids(
                                get(bd, "CTRIA3", Dict()), get(bd, "CTRIA6", Dict()),
-                               get(bd, "CQUAD4", Dict()), get(bd, "CQUAD8", Dict()),
+                               get(bd, "CQUAD4", Dict()), get(bd, "CQUADR", Dict()), get(bd, "CQUAD8", Dict()),
                                get(bd, "CSHEAR", Dict())),
         "CBARs"       => get(bd, "CBAR", Dict()),
         "CBEAMs"      => get(bd, "CBEAM", Dict()),

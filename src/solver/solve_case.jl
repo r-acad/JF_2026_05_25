@@ -386,8 +386,12 @@ end
 
 function _evaluate_nonlinear_state(K_linear, F_applied, ndof, model, id_map, X, spc_id, node_R, u_state,
                                    snorm_normals, rbe3_map;
-                                   residual_model::Symbol=:tangent_operator)
-    Kg = assemble_geometric_stiffness(model, id_map, X, node_R, ndof, u_state, snorm_normals, rbe3_map)
+                                   residual_model::Symbol=:tangent_operator,
+                                   geometric_stiffness_builder=nothing)
+    Kg =
+        geometric_stiffness_builder === nothing ?
+        assemble_geometric_stiffness(model, id_map, X, node_R, ndof, u_state, snorm_normals, rbe3_map) :
+        geometric_stiffness_builder(model, id_map, X, node_R, ndof, u_state, snorm_normals, rbe3_map)
     K_eff = K_linear + Kg
     residual = _nonlinear_residual_metrics(
         K_linear, Kg, K_eff, F_applied, ndof, model, id_map, spc_id, rbe3_map, u_state;
@@ -907,7 +911,9 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
                                 rbe3_map=Dict{Int,Vector{Tuple{Int,Float64}}}(),
                                 snorm_normals=Dict{Int,SVector{3,Float64}}(),
                                 orig_diag=Float64[],
-                                temp_load_id=nothing)
+                                temp_load_id=nothing,
+                                geometric_stiffness_builder=nothing,
+                                nonlinear_state_builder=nothing)
     load_steps = max(load_steps, 1)
     max_iter = max(max_iter, 1)
     relaxation = clamp(relaxation, 1e-3, 1.0)
@@ -944,13 +950,20 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
     correction_partition_reuse_count = 0
     accepted_state_reuse_count = 0
     step_growth_applied_count = 0
-    evaluate_state = nonlinear_method === :formal_shell_von_karman ?
+    evaluate_state = nonlinear_state_builder !== nothing ?
+        (u_state, F_step) -> nonlinear_state_builder(
+            K_linear, F_step, ndof, model, id_map, X, spc_id, node_R,
+            u_state, snorm_normals, rbe3_map;
+            residual_model=residual_model,
+        ) :
+        nonlinear_method === :formal_shell_von_karman ?
         (u_state, F_step) -> _evaluate_nonlinear_state_formal(
             K_linear, F_step, ndof, model, id_map, X, spc_id, node_R, u_state, snorm_normals, rbe3_map
         ) :
         (u_state, F_step) -> _evaluate_nonlinear_state(
             K_linear, F_step, ndof, model, id_map, X, spc_id, node_R, u_state, snorm_normals, rbe3_map;
             residual_model=residual_model,
+            geometric_stiffness_builder=geometric_stiffness_builder,
         )
 
     while current_load_scale < 1.0 - 1e-12

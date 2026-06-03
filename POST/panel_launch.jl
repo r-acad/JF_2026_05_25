@@ -105,5 +105,21 @@ end
 println(stderr, "Loading OpenJFEM + server (first load compiles; ~10-30s)...")
 include(joinpath(_POST_DIR, "panel_server.jl"))
 
-# Hand off to the server (blocks until Ctrl+C).
-serve(; host="127.0.0.1", port=port)
+# Hand off to the server (blocks until Ctrl+C). Wrap it so that, whatever makes
+# the server stop, we print a clear reason BEFORE the .cmd window's "pause" - so
+# the user never sees the window just close with no explanation.
+try
+    serve(; host="127.0.0.1", port=port)
+    println(stderr, "\n[panel] Server stopped normally.")
+catch err
+    if err isa InterruptException
+        println(stderr, "\n[panel] Server stopped (Ctrl+C / window closed).")
+    else
+        println(stderr, "\n[panel] Server STOPPED because of an error:")
+        showerror(stderr, err, catch_backtrace())
+        println(stderr, "\n[panel] If you were running a very large model, the most likely")
+        println(stderr,   "        cause is the machine running out of memory (the process is")
+        println(stderr,   "        killed by the OS and cannot report a Julia error). Try a")
+        println(stderr,   "        coarser mesh / smaller model, or a machine with more RAM.")
+    end
+end
