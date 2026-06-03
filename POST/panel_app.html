@@ -1669,8 +1669,19 @@ async function analyze(){
     if(!res.ok){ setStatus("Solver error:\n"+(res.error||"unknown")+"\n"+(res.log||""),"err"); btn.disabled=false; return; }
     const aType=res.analysis_type||"";
     const nRes=(res.eigenvalues||[]).length || (res.frequencies||[]).length;
+    // Per-phase timing breakdown (parsed from the report), so a slow run shows
+    // WHERE the time went - usually the solve dominates on large models.
+    let tline="";
+    const T=res.timings||{};
+    const pick=(k)=>{ const v=T[k]; return (v!==undefined) ? `${(+v).toFixed(1)}s` : null; };
+    const parts=[];
+    const pp=pick("BDF parsing"); if(pp) parts.push("parse "+pp);
+    const pb=pick("Model construction"); if(pb) parts.push("build "+pb);
+    const ps=pick("Solve (total)"); if(ps) parts.push("solve "+ps);
+    const pe=pick("Export (all formats)"); if(pe) parts.push("export "+pe);
+    if(parts.length) tline=`\n${parts.join("  •  ")}`;
     setStatus(`Done in ${res.elapsed_s}s.  ${aType}` +
-              (nRes ? `  (${nRes} modes)` : ``) + `\ndeck: ${res.bdf_path}`,"ok");
+              (nRes ? `  (${nRes} modes)` : ``) + tline + `\ndeck: ${res.bdf_path}`,"ok");
     // surface the solver's markdown report (file mode especially)
     const rd=$("reportDetails"), rt=$("reportText");
     if(rd && rt){

@@ -131,10 +131,15 @@ function _restore_env!(old)
 end
 
 function _write_sysimage_precompile_script(path::AbstractString, decks::Vector{String}, flags::AbstractString)
+    # Path to the web-server source, so the precompile workload can drive the
+    # SERVER's hot path (run_analysis + HTTP handler + msgpack), not only the CLI
+    # OpenJFEM.main path. This is what makes the FIRST browser Analyze fast.
+    post_server = normpath(joinpath(@__DIR__, "..", "POST", "panel_server.jl"))
     open(path, "w") do io
         println(io, "using OpenJFEM")
         println(io, "const _decks = ", repr(decks))
         println(io, "const _flags = ", repr(flags))
+        println(io, "const _post_server = ", repr(post_server))
         println(io, "function _apply_flags(raw)")
         println(io, "    sep = occursin(\";\", raw) ? \";\" : \",\"")
         println(io, "    for kv in split(raw, sep)")
@@ -146,17 +151,46 @@ function _write_sysimage_precompile_script(path::AbstractString, decks::Vector{S
         println(io, "end")
         println(io, "_apply_flags(_flags)")
         println(io, "ENV[\"JFEM_SUPPRESS_THREAD_HINT\"] = \"1\"")
-        println(io, "for (i, deck) in enumerate(_decks)")
+        # --- (1) CLI path: OpenJFEM.main on each deck (covers run_bdf.jl / jfem) ---
+        println(io, "for deck in _decks")
         println(io, "    out = mktempdir(; prefix=\"openjfem_sysimage_precompile_\")")
         println(io, "    try")
-        println(io, "        redirect_stdout(devnull) do")
-        println(io, "            redirect_stderr(devnull) do")
-        println(io, "                OpenJFEM.main(deck; output_dir=out, export_jfem_binary=false)")
-        println(io, "            end")
-        println(io, "        end")
+        println(io, "        redirect_stdout(devnull) do; redirect_stderr(devnull) do")
+        println(io, "            OpenJFEM.main(deck; output_dir=out, export_jfem_binary=true,")
+        println(io, "                          export_json=true, export_report=true)")
+        println(io, "        end; end")
         println(io, "    catch err")
-        println(io, "        @warn \"sysimage precompile deck failed\" deck exception=(err, catch_backtrace())")
+        println(io, "        @warn \"sysimage precompile (main) deck failed\" deck exception=(err, catch_backtrace())")
         println(io, "    end")
+        println(io, "end")
+        # --- (2) SERVER hot path: run each deck through run_analysis with the SAME ---
+        #     options the web app uses (binary+json+eigenvectors), then exercise the
+        #     HTTP handler + msgpack round-trip. This bakes the server's first-Analyze
+        #     specializations (HTTP.Request/Response, MsgPack pack/unpack, run_analysis,
+        #     binary .jfem export) into the sysimage.
+        println(io, "try")
+        println(io, "    if isfile(_post_server)")
+        println(io, "        redirect_stdout(devnull) do; redirect_stderr(devnull) do")
+        println(io, "            Main.include(_post_server)")  # defines run_analysis, handle, RUN_ROOT
+        println(io, "            for deck in _decks")
+        println(io, "                try")
+        println(io, "                    Base.invokelatest(Main.run_analysis,")
+        println(io, "                        Dict{String,Any}(\"case_id\"=>\"_sysimg\", \"bdf_path\"=>deck))")
+        println(io, "                    wd = joinpath(Main.RUN_ROOT, \"_sysimg\")")
+        println(io, "                    isdir(wd) && rm(wd; recursive=true, force=true)")
+        println(io, "                catch; end")
+        println(io, "            end")
+        # drive the HTTP handler routes + msgpack the way real requests do
+        println(io, "            try")
+        println(io, "                for tgt in (\"/\", \"/health\", \"/vendor/msgpack.min.js\")")
+        println(io, "                    Base.invokelatest(Main.handle, Main.HTTP.Request(\"GET\", tgt))")
+        println(io, "                end")
+        println(io, "                Base.invokelatest(Main.handle, Main.HTTP.Request(\"OPTIONS\", \"/analyze\"))")
+        println(io, "            catch; end")
+        println(io, "        end; end")
+        println(io, "    end")
+        println(io, "catch err")
+        println(io, "    @warn \"sysimage precompile (server) failed\" exception=(err, catch_backtrace())")
         println(io, "end")
     end
     return path
@@ -184,7 +218,17 @@ function _maybe_build_sysimage(sysimage::AbstractString, decks::Vector{String}, 
     _write_sysimage_precompile_script(script, decks, flags)
     println("Building OpenJFEM sysimage: $sysimage")
     println("This can take several minutes.")
-    Base.invokelatest(getfield(packagecompiler, :create_sysimage), [:OpenJFEM];
+    # Bake in OpenJFEM AND the web-server stack (HTTP/MsgPack/JSON). Including the
+    # server packages, together with a precompile workload that drives the server's
+    # own hot path (see _write_sysimage_precompile_script), means the FIRST browser
+    # Analyze is fast - not just process startup. Packages that are not installed
+    # are skipped gracefully so a solver-only project still builds.
+    pkgs = Symbol[:OpenJFEM]
+    for extra in (:HTTP, :MsgPack, :JSON)
+        Base.find_package(String(extra)) !== nothing && push!(pkgs, extra)
+    end
+    println("  sysimage packages: ", join(string.(pkgs), ", "))
+    Base.invokelatest(getfield(packagecompiler, :create_sysimage), pkgs;
         sysimage_path=sysimage,
         precompile_execution_file=script)
     println("Sysimage complete: $sysimage")

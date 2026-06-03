@@ -6,6 +6,23 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Dense BLAS (the Cholesky factorization in SOL 101/105 and the eigensolve in
+  SOL 103/105) now runs on the physical-core count instead of OpenBLAS's
+  default (~half the logical processors). The web server (`POST/panel_server.jl`)
+  and the `jfem`/`tools/jfem.jl` runner set this at startup; benchmarks show the
+  physical-core count is the fastest setting for FE factorization (all-logical
+  hyperthreads are slower). The server logs the chosen BLAS/thread counts.
+- `tools/deploy_fast.jl`: the prebuilt sysimage now covers the web app's hot
+  path, not just startup. It bakes in the server stack (`HTTP`, `MsgPack`,
+  `JSON`) and a precompile workload that drives the server's own `run_analysis`
+  + HTTP-handler + msgpack path on the bundled decks, so the FIRST browser
+  Analyze no longer pays just-in-time compilation for the solve/export path.
+  `POST/build_sysimage.cmd` docs updated accordingly.
+- `POST/panel_server.jl`: `/health` and the startup banner now report whether
+  the process is running inside a custom sysimage and the Julia/BLAS thread
+  counts, and each run logs a per-phase timing breakdown (parse / build / solve
+  / export). The `/analyze` response includes a `timings` map and the web app
+  surfaces a phase breakdown, so a slow run is diagnosable.
 - `POST/panel_app.html`: 3D viewer camera controls. Double-clicking the empty
   background resets and recenters the view on the model (an escape hatch for
   getting lost after rotating/panning); middle-clicking a point on the model
@@ -26,6 +43,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
   records `backend_forced_by = "CQUADR"`.
 
 ### Added
+- `Reference_documentation/jfem_method_origins_review.pdf`: literature review
+  mapping the reference paper corpus to the numerical methods implemented in
+  JFEM, organised along the solver pipeline (MITC/MacNeal shells, DKMQ,
+  Hu--Washizu, drilling rotations, DKT triangles, buckling, composites,
+  geometrically-exact shells), with full citations.
 - One-line deck runner for all platforms: `jfem` (Linux/macOS) and `jfem.cmd`
   (Windows) wrappers plus the underlying `tools/jfem.jl`. Usage is just
   `jfem model.bdf [output_folder]` — the wrapper supplies Julia, the project,

@@ -5,7 +5,12 @@ REM
 REM  Run this ONCE per machine (double-click or run from a console).
 REM  It produces  <repo>\JFEM\build\OpenJFEM_sysimage.dll, which
 REM  panel_app.cmd then loads automatically via --sysimage so that
-REM  Julia startup + solver warm-up are near-instant.
+REM  Julia startup AND the first browser Analyze are near-instant.
+REM
+REM  The sysimage bakes in OpenJFEM, the web-server stack (HTTP, MsgPack,
+REM  JSON) and the server's actual run path (run_analysis + the HTTP handler),
+REM  exercised on the bundled SOL 101/103/105 decks - so the first "Run a .bdf
+REM  file" does not pay just-in-time compilation for the solve/export path.
 REM
 REM  Notes:
 REM   * Takes several minutes and uses a lot of CPU/RAM - this is normal.

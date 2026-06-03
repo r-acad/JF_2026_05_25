@@ -24,8 +24,37 @@
 
 include(joinpath(@__DIR__, "testing", "run_manifest.jl"))
 using OpenJFEM
+using LinearAlgebra   # BLAS thread tuning for the dense solve/eigensolve phase
 
 const _REPO_ROOT = normpath(joinpath(@__DIR__, ".."))
+
+# Dense BLAS (Cholesky factor / eigensolve) is fastest at the PHYSICAL core count;
+# OpenBLAS defaults to ~half the logical processors and all-logical (hyperthreads)
+# is slower. Set it to physical cores so command-line runs use full throughput.
+function _physical_cores()
+    try
+        if Sys.iswindows()
+            out = read(`powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum"`, String)
+            n = tryparse(Int, strip(out)); n !== nothing && n > 0 && return n
+        elseif Sys.islinux()
+            pairs = Set{Tuple{String,String}}(); pid = ""; cid = ""
+            for ln in eachline("/proc/cpuinfo")
+                startswith(ln, "physical id") && (pid = strip(split(ln, ':')[end]))
+                startswith(ln, "core id")     && (cid = strip(split(ln, ':')[end]))
+                if isempty(strip(ln)) && !isempty(pid) && !isempty(cid)
+                    push!(pairs, (pid, cid)); pid = ""; cid = ""
+                end
+            end
+            !isempty(pairs) && return length(pairs)
+        elseif Sys.isapple()
+            out = read(`sysctl -n hw.physicalcpu`, String)
+            n = tryparse(Int, strip(out)); n !== nothing && n > 0 && return n
+        end
+    catch
+    end
+    return Sys.CPU_THREADS
+end
+LinearAlgebra.BLAS.set_num_threads(clamp(_physical_cores(), 1, Sys.CPU_THREADS))
 
 function _usage()
     println(stderr, """

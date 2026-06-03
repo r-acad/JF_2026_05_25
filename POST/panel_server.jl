@@ -22,6 +22,7 @@ using MsgPack
 using JSON
 using Dates
 using Sockets
+using LinearAlgebra   # BLAS.set_num_threads for dense-solve thread tuning
 
 using OpenJFEM   # provided by --project=. ; loads the solver once
 
@@ -40,6 +41,66 @@ include(joinpath(REPO_ROOT, "tools", "manifest_batch_core.jl"))
 const SOLVE_LOCK = ReentrantLock()
 
 _log(msg) = (println(stderr, "[", Dates.format(now(), "HH:MM:SS"), "] ", msg); flush(stderr))
+
+# Report whether THIS process is running inside a custom sysimage (loaded via -J)
+# vs the default Julia system image. This is how we confirm the web app is
+# actually getting the sysimage's fast startup, rather than just assuming it.
+function _sysimage_info()
+    img = try
+        unsafe_string(Base.JLOptions().image_file)
+    catch
+        ""
+    end
+    # The default image is "<...>/lib/julia/sys.dll|so|dylib"; anything else
+    # (e.g. our OpenJFEM_sysimage.dll) is a custom sysimage.
+    is_custom = !isempty(img) && !occursin(r"(?i)[\\/]sys\.(dll|so|dylib)$", img)
+    return Dict{String,Any}(
+        "custom" => is_custom,
+        "image_file" => img,
+        "name" => isempty(img) ? "" : basename(img),
+    )
+end
+
+# Number of PHYSICAL cores (not hyperthreads). Dense BLAS (the Cholesky factor in
+# SOL 101/105 and the eigensolve in SOL 103/105) is fastest at the physical core
+# count; using all logical processors (hyperthreads) is measurably slower for
+# dense linear algebra. Julia has no stdlib physical-core query, so we ask the OS
+# and fall back to the logical count if that fails.
+function _physical_cores()
+    try
+        if Sys.iswindows()
+            out = read(`powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum"`, String)
+            n = tryparse(Int, strip(out)); n !== nothing && n > 0 && return n
+        elseif Sys.islinux()
+            # count unique (physical id, core id) pairs in /proc/cpuinfo
+            pairs = Set{Tuple{String,String}}(); pid = ""; cid = ""
+            for ln in eachline("/proc/cpuinfo")
+                if startswith(ln, "physical id"); pid = strip(split(ln, ':')[end]); end
+                if startswith(ln, "core id");     cid = strip(split(ln, ':')[end]); end
+                if isempty(strip(ln)) && !isempty(pid) && !isempty(cid)
+                    push!(pairs, (pid, cid)); pid = ""; cid = ""
+                end
+            end
+            !isempty(pairs) && return length(pairs)
+        elseif Sys.isapple()
+            out = read(`sysctl -n hw.physicalcpu`, String)
+            n = tryparse(Int, strip(out)); n !== nothing && n > 0 && return n
+        end
+    catch
+    end
+    return Sys.CPU_THREADS
+end
+
+# Set the BLAS thread count to the optimum for dense factorization/eigensolve.
+# Called once at server startup so every solve's BLAS phase runs at full physical
+# throughput (the assembly path still pins BLAS to 1 and restores to THIS value).
+function _tune_blas_threads!()
+    nphys = _physical_cores()
+    # never exceed available logical processors; never below 1
+    target = clamp(nphys, 1, Sys.CPU_THREADS)
+    LinearAlgebra.BLAS.set_num_threads(target)
+    return target
+end
 
 # --- CORS / response helpers -------------------------------------------------
 const CORS_HEADERS = [
@@ -125,6 +186,32 @@ function _analysis_type(sol::Integer)
     sol == 105 && return "SOL105_BUCKLING"
     sol == 106 && return "SOL106_NONLINEAR"
     return "SOL$(sol)"
+end
+
+# Parse the "Pipeline timing" table out of a REPORT.md into a phase => seconds
+# map, so the server can show WHERE a slow run spent its time (parse vs assemble
+# vs solve vs export). The report rows look like "| BDF parsing | 0.012 s |".
+function _parse_report_timings(report_text::AbstractString)
+    timings = Dict{String,Float64}()
+    isempty(report_text) && return timings
+    in_table = false
+    for raw in split(report_text, '\n')
+        ln = strip(raw)
+        if occursin("Pipeline timing", ln); in_table = true; continue; end
+        if in_table
+            # stop at the next top-level heading after the timing section
+            startswith(ln, "## ") && break
+            startswith(ln, "|") || continue
+            # "| label | 1.234 s |"  (also handles "**Total ...**" and "ms")
+            m = match(r"^\|\s*(.+?)\s*\|\s*([\d.]+)\s*(ms|s)\s*\|", ln)
+            m === nothing && continue
+            label = replace(strip(m.captures[1]), "**" => "")
+            val = parse(Float64, m.captures[2])
+            m.captures[3] == "ms" && (val /= 1000)
+            timings[label] = val
+        end
+    end
+    return timings
 end
 
 # --- the core: write deck, run a one-case manifest, collect artifacts --------
@@ -249,12 +336,24 @@ function run_analysis(payload::AbstractDict)
     end
 
     # The markdown report text (sent to the browser so the user sees a summary).
+    # Parse the pipeline timing table from the FULL report first, then truncate
+    # the copy that goes to the browser.
     report_text = ""
+    timings = Dict{String,Float64}()
     if report_path !== nothing
         try
             txt = read(report_path, String)
+            timings = _parse_report_timings(txt)
             report_text = length(txt) > 20000 ? txt[1:20000] * "\n... (truncated)" : txt
         catch; end
+    end
+    # Log WHERE the time went, so a "slow" run is diagnosable from the server
+    # window without guessing. Shows the main phases when the report had them.
+    if !isempty(timings)
+        _phase(k) = haskey(timings, k) ? "$(round(timings[k]; digits=2))s" : "-"
+        _log("timing: parse=$(_phase("BDF parsing"))  build=$(_phase("Model construction"))  " *
+             "solve=$(_phase("Solve (total)"))  export=$(_phase("Export (all formats)"))  " *
+             "[wall=$(round(elapsed; digits=1))s]")
     end
 
     run_log = ""
@@ -281,6 +380,7 @@ function run_analysis(payload::AbstractDict)
         "eigenvalues" => eigenvalues,
         "frequencies" => frequencies,
         "elapsed_s" => round(elapsed; digits=3),
+        "timings" => timings,        # phase => seconds, parsed from the report
         "log" => run_log,
     )
 end
@@ -316,7 +416,12 @@ function handle(req::HTTP.Request)
     end
 
     if method == "GET" && (target == "/health" || target == "/ping")
-        return _msgpack_response(Dict("ok" => true, "service" => "panel-server"))
+        return _msgpack_response(Dict(
+            "ok" => true,
+            "service" => "panel-server",
+            "sysimage" => _sysimage_info(),
+            "threads" => Threads.nthreads(),
+        ))
     end
 
     # Static files: ONLY the vendored front-end libs under /vendor/.
@@ -421,6 +526,12 @@ end
 
 function serve(; host="127.0.0.1", port=8088)
     mkpath(RUN_ROOT)
+    # Use all PHYSICAL cores for dense BLAS (Cholesky/eigensolve). OpenBLAS
+    # defaults to ~half the logical processors; the physical-core count is the
+    # fastest setting for FE factorization (hyperthreads slow dense BLAS down).
+    let nblas = _tune_blas_threads!()
+        _log("BLAS threads set to $nblas (physical cores; logical=$(Sys.CPU_THREADS), Julia threads=$(Threads.nthreads()))")
+    end
     # Warm up the HTTP handler + solver BEFORE binding the socket, so the launcher
     # (which polls the TCP port) opens the browser only once we can answer fast.
     _log("warming up (compiling HTTP handler + solver; this is the one-time wait)...")
@@ -443,6 +554,14 @@ function serve(; host="127.0.0.1", port=8088)
     _log("  app:      http://$host:$port/")
     _log("  repo:     $REPO_ROOT")
     _log("  runs:     $RUN_ROOT")
+    let si = _sysimage_info()
+        if si["custom"]
+            _log("  sysimage: YES ($(si["name"]))  -  fast startup active")
+        else
+            _log("  sysimage: NO (default Julia image)  -  build POST/build_sysimage.cmd for fast startup")
+        end
+        _log("  threads:  $(Threads.nthreads())")
+    end
     # HTTP.serve normally blocks forever. If it RETURNS or THROWS, the process is
     # about to stop - say WHY, so the launcher window does not just close silently.
     # (Note: an out-of-memory kill by the OS terminates the process abruptly and
