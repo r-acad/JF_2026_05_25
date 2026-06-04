@@ -1893,6 +1893,24 @@ function _buckling_krylovmaxiter()
     return max(solver_env_int("JFEM_SOL105_KRYLOV_MAXITER", 1000), 1)
 end
 
+# Largest free-DOF count for which the dense symmetric-definite eigensolver is
+# used as the primary buckling strategy.
+#
+# Historically this was 4000: every system at or below 4000 DOFs was solved
+# densely (full spectrum). That made the dense path the de-facto default for the
+# entire validation corpus and let it dominate strategy selection. We are not
+# interested in optimizing tiny cases, so the dense path is now only a fast exact
+# oracle for *small* systems; everything larger goes straight to the iterative
+# shift-invert Lanczos/Krylov path with an active Sturm completeness check.
+#
+# Default 200 (env-overridable via JFEM_SOL105_DENSE_MAX_DOF). 200 keeps the
+# dense path for genuinely small benchmark/unit cases (where it is both faster
+# and an exact reference) while routing real structures to the iterative solver.
+# Set to 0 to disable the dense path entirely (force iterative for all sizes).
+function _buckling_dense_max_dof()
+    return max(solver_env_int("JFEM_SOL105_DENSE_MAX_DOF", 200), 0)
+end
+
 # Sturm / inertia count for the buckling pencil (K + lambda*Kg) phi = 0 with K SPD.
 # Returns the negative inertia of M(sigma) = K + sigma*Kg, i.e. the number of
 # NEGATIVE eigenvalues of M(sigma).
@@ -2017,7 +2035,8 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     has_range = (eigrl_v1 != 0.0 || eigrl_v2 != 0.0) && eigrl_v2 > eigrl_v1
     return_all_range = has_range && solver_env_bool("JFEM_SOL105_RETURN_ALL_IN_RANGE", false)
     nd_limited_range_output = has_range && !return_all_range
-    will_use_dense = n_free <= 4000
+    dense_max_dof = _buckling_dense_max_dof()
+    will_use_dense = n_free <= dense_max_dof
     range_mode_factor_default = nd_limited_range_output ? 3.0 : 4.0
     range_mode_factor = max(solver_env_float("JFEM_SOL105_RANGE_MODE_FACTOR", range_mode_factor_default), 1.0)
     num_modes_request = has_range ? ceil(Int, num_modes * range_mode_factor) :
@@ -2204,10 +2223,13 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         return unique_sigmas
     end
 
-    # Strategy 1: Dense symmetric-definite eigensolver for small-medium systems.
+    # Strategy 1: Dense symmetric-definite eigensolver for SMALL systems only.
     # K is positive definite after SPC elimination, so solve the Cholesky-reduced
     # symmetric problem C*y = θ*y with C = L⁻¹*B*L⁻ᵀ, θ = 1/λ, B = -Kg.
-    if n_free <= 4000
+    # Gated by _buckling_dense_max_dof() (default 200, was 4000) — larger systems
+    # use the iterative shift-invert Lanczos/Krylov path below, which is then
+    # checked for completeness with a Sturm inertia count.
+    if will_use_dense
         push!(diagnostics["solver_attempts"], Dict("name" => "dense_symmetric_definite", "status" => "attempted"))
         try
             log_msg("[BUCKLING] Using dense symmetric-definite eigensolver ($n_free DOFs)...")
@@ -2656,6 +2678,85 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     diagnostics["range_augmentation"]["wall_seconds"]
             end
         end
+    end
+
+    # --- ACTIVE Sturm completeness check (iterative paths only) -------------
+    #
+    # The dense path computes the entire spectrum, so completeness is exact by
+    # construction. For the iterative shift-invert Lanczos/Krylov paths (now the
+    # default for all but the smallest systems) a Krylov subspace can *miss*
+    # eigenvalues — especially in tight clusters or behind sign-reversal roots.
+    # We verify completeness with a Sturm (inertia) count: the EXACT number of
+    # buckling eigenvalues in a half-open interval (a, b] is the difference
+    #     _buckling_sturm_count(K, Kg, b) - _buckling_sturm_count(K, Kg, a).
+    # (See the helper's docstring — never compare a single absolute count.)
+    #
+    # For a bounded EIGRL range we count expected eigenvalues in (V1, V2]; for an
+    # unbounded extraction we count positive eigenvalues in (0+, max-found]. We
+    # compare to the number actually returned and record the result. A shortfall
+    # is logged as a warning and flagged in diagnostics so downstream consumers
+    # (and the validation suite) can see that the iterative solve may be
+    # incomplete rather than silently trusting a truncated spectrum.
+    completeness_enabled = solver_env_bool("JFEM_SOL105_STURM_COMPLETENESS", true)
+    if completeness_enabled && !will_use_dense && !isempty(valid_idx)
+        t_sturm = time_ns()
+        pos_tol_c = positive_tol
+        # Interval to certify.
+        a_bound, b_bound = if has_range
+            (max(eigrl_v1, pos_tol_c), v2_eff)
+        else
+            # Unbounded: certify the positive band actually returned.
+            pos_vals = filter(x -> x > pos_tol_c, eigenvalues[valid_idx])
+            isempty(pos_vals) ? (pos_tol_c, pos_tol_c) :
+                (pos_tol_c, maximum(pos_vals) * (1.0 + 1e-6))
+        end
+        found_in_band = count(i -> begin
+                v = eigenvalues[i]
+                v > pos_tol_c && v >= a_bound - eps(Float64) && v <= b_bound + eps(Float64)
+            end, valid_idx)
+        if b_bound > a_bound
+            sc_b = _buckling_sturm_count(K_ff, Kg_ff, b_bound)
+            sc_a = _buckling_sturm_count(K_ff, Kg_ff, a_bound)
+            if sc_a !== nothing && sc_b !== nothing
+                expected = sc_b - sc_a
+                # Never report a negative shortfall.
+                shortfall = max(expected - found_in_band, 0)
+                # An eigenvalue sitting exactly on a bound shifts the inertia
+                # difference by one in either direction (verified: bound-coincident
+                # roots are counted into the open side). Treat a shortfall of 1 as
+                # within tolerance so a single bound-coincidence does not cry wolf;
+                # only a shortfall of 2+ is reported as a genuinely incomplete
+                # iterative spectrum. (The dense path is exact and skips this.)
+                bound_tol = 1
+                status = shortfall == 0 ? "complete" :
+                         (shortfall <= bound_tol ? "complete_within_tolerance" : "incomplete")
+                diagnostics["sturm_completeness"] = Dict{String,Any}(
+                    "status" => status,
+                    "interval" => [a_bound, b_bound],
+                    "expected_in_interval" => expected,
+                    "found_in_interval" => found_in_band,
+                    "shortfall" => shortfall,
+                    "bound_tolerance" => bound_tol,
+                    "sturm_lower" => sc_a,
+                    "sturm_upper" => sc_b,
+                    "wall_seconds" => (time_ns() - t_sturm) * 1e-9,
+                )
+                if status == "incomplete"
+                    log_msg("[BUCKLING][STURM] INCOMPLETE: Sturm count expects $expected eigenvalue(s) in ($a_bound, $b_bound], iterative solve returned $found_in_band (missing $shortfall). Increase JFEM_SOL105_KRYLOV_DIM_FACTOR / add shifts, or lower JFEM_SOL105_DENSE_MAX_DOF below $n_free to force the dense path.")
+                elseif status == "complete_within_tolerance"
+                    log_msg("[BUCKLING][STURM] complete (within bound tolerance): found $found_in_band of $expected expected in ($a_bound, $b_bound]; the 1-mode gap is consistent with an eigenvalue on the interval bound.")
+                else
+                    log_msg("[BUCKLING][STURM] complete: $found_in_band of $expected expected eigenvalue(s) in ($a_bound, $b_bound] recovered.")
+                end
+            else
+                diagnostics["sturm_completeness"] = Dict{String,Any}(
+                    "status" => "unavailable",
+                    "reason" => "inertia_count_failed",
+                )
+                log_msg("[BUCKLING][STURM] completeness check unavailable (inertia count failed); proceeding without certification.")
+            end
+        end
+        buckling_timings["sturm_completeness"] = (time_ns() - t_sturm) * 1e-9
     end
 
     # Sort bounded positive ranges by lambda, and unbounded signed extraction by

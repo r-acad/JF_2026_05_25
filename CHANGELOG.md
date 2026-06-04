@@ -12,6 +12,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
   the eigen pass assembled an unconstrained, non-SPD `K_ff` and returned a wrong
   buckling spectrum. The classical simply-supported plate buckling benchmark
   goes from ~76% error to ~3% as a result; the MYSTRAN bar case is unchanged.
+- Classical thin-cylinder axial-buckling benchmark deck
+  (`tools/validation_suite/cases/classical/cylinder_axial_buckling.bdf`): the
+  axial end load was applied in `-Z`, which is **tension** for the deck's own
+  boundary layout (the `z=100` midspan plane is fixed in Z, the loaded `z=0` end
+  is free) — so the strip stretched and the buckling spectrum came out all
+  negative. Investigation confirmed the solver was correct: static stress,
+  displacement, and the fixed-end reaction all flip cleanly and consistently
+  when the load direction flips, so this was a **deck** error, not a solver sign
+  bug. Load corrected to `+Z` (compression toward the fixed midspan). Separately,
+  the lowest computed mode was a spurious sub-critical drilling (local Rz)
+  near-mechanism left by the soft `PARAM,K6ROT` stiffness; constraining the
+  in-plane drilling DOF (`SPC1, 1, 6, 1, THRU, 18`) removes it. The benchmark now
+  reports the physical axisymmetric mode at +11.1% vs the Brush-Almroth value,
+  within its 15% tolerance, and the case PASSes.
 
 ### Added
 - `tools/validation_suite/run_public_suite.jl` now actually runs JFEM on each
@@ -20,6 +34,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
   net. Also fixed a world-age error in analytical-reference resolution
   (`Base.invokelatest`), and the JFEM value is now recorded even when a
   reference fails to resolve, so changes are always diff-able.
+- SOL 105 buckling: **active Sturm completeness check** on iterative eigensolves.
+  After the spectrum is filtered, the solver certifies it with an inertia
+  (Sturm) count — the exact number of buckling eigenvalues in the certified
+  interval via the `sturm(b) - sturm(a)` difference — and records
+  `solver_diagnostics.sturm_completeness` (`complete` /
+  `complete_within_tolerance` / `incomplete` / `unavailable`, with expected vs
+  found counts). A genuine shortfall logs an actionable warning. The dense path
+  is exact and skips the check. Toggle with `JFEM_SOL105_STURM_COMPLETENESS`
+  (default on). Verified: the iterative path matches the dense oracle to 8–9
+  digits on the MYSTRAN/plate/cylinder SOL 105 cases and certifies the correct
+  count in each.
+
+### Changed
+- SOL 105 buckling: the dense symmetric-definite eigensolver is no longer the
+  default for systems up to 4000 DOF. It is now gated by
+  `JFEM_SOL105_DENSE_MAX_DOF` (default **200**) and serves only as a fast exact
+  oracle for small systems; larger systems go straight to the iterative
+  shift-invert Lanczos/Krylov path, which the new Sturm check then certifies.
+  Behavior is unchanged on the existing validation corpus (all cases ≤189 free
+  DOF still solve densely). Set to 0 to force the iterative path at every size.
 
 ### Fixed
 - Windows launchers (`POST/panel_app.cmd`, `jfem.cmd`,

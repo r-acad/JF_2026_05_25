@@ -14,7 +14,11 @@ $
 $ Loading: total axial compressive force on the strip end (z = 0) is
 $     F = sigma_applied * t * (R * dphi) = 1 * 1 * (100 * 22.5*pi/180)
 $        = 39.270 N
-$ split equally between the two end nodes (19.635 N each, in -Z global).
+$ split equally between the two end nodes (19.635 N each).
+$ Sign: the z=100 plane is the fixed midspan-symmetry plane (Z=0) and the
+$ z=0 end is free in Z. To COMPRESS the strip the loaded end must move toward
+$ midspan, i.e. the force is +Z global (pushing z=0 toward z=100). A -Z force
+$ here would pull the end away from midspan -> axial TENSION (no buckling).
 $
 SOL 105
 CEND
@@ -35,7 +39,12 @@ $ ---- eigenvalue extraction: subspace inverse iteration ----
 $ EIGB / INV is more robust than EIGRL on the reference solver build.
 $ Range [0, 1e10] brackets sigma_cr ~= 1.27e9 Pa.
 EIGB, 1, INV, 0.0, 1.0E10, 4
-$ ---- small drilling-DOF stiffness to avoid Rz mechanisms ----
+$ ---- drilling DOF: the in-plane drilling rotation (local Rz) carries no
+$ physics in an n=0 axisymmetric strip. A soft K6ROT stiffness leaves a near-
+$ mechanism that the geometric stiffness drives into a spurious LOW buckling
+$ mode (~8.6e8, below sigma_cr). We instead suppress Rz outright (see SPC1
+$ below), which removes the mechanism and makes mode 1 the physical
+$ axisymmetric axial mode. K6ROT kept small as a backstop for the loaded end.
 PARAM, K6ROT, 100.0
 $ ---- material and property
 MAT1, 1, 2.1+11, , 0.3
@@ -75,13 +84,17 @@ $ phi = 0 symmetry plane: T = 0 on all 9 nodes
 SPC1, 1, 2, 1, THRU, 9
 $ phi = 22.5 symmetry plane: T = 0 on all 9 nodes
 SPC1, 1, 2, 10, THRU, 18
+$ suppress the in-plane drilling rotation (local Rz) on every node: no n=0
+$ physics, and leaving it free yields a spurious sub-critical buckling mode.
+SPC1, 1, 6, 1, THRU, 18
 $ rigid diaphragm at z = 0 (loaded end): R = 0, Rz_local = 0 (T already set)
 SPC1, 1, 16, 1
 SPC1, 1, 16, 10
 $ midspan symmetry at z = L/2 = 100: Z = 0, Rr = 0, Rt = 0
 SPC1, 1, 345, 9
 SPC1, 1, 345, 18
-$ ---- loads: total -Z force 39.27 N split equally between the two end nodes
-FORCE, 1,  1, , 19.635, 0.0, 0.0, -1.0
-FORCE, 1, 10, , 19.635, 0.0, 0.0, -1.0
+$ ---- loads: total +Z compressive force 39.27 N split between the end nodes
+$ (+Z pushes the z=0 free end toward the fixed z=100 midspan plane -> compression)
+FORCE, 1,  1, , 19.635, 0.0, 0.0, 1.0
+FORCE, 1, 10, , 19.635, 0.0, 0.0, 1.0
 ENDDATA
