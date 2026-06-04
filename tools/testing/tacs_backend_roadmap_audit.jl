@@ -25,6 +25,10 @@ const REQUIRED_GUARDS = Dict(
     "phase3_sol200_tacs_routes" => "tacs_sol200_route_check.jl",
     "phase3_sol200_shared_backend" => "backend_sol200_shared_route_check.jl",
     "cquadr_forced_tacs_route" => "cquadr_tacs_forced_route_check.jl",
+    "cquadr_expanded_tacs_routes" => "cquadr_tacs_expanded_route_check.jl",
+    "cquadr_sol106_tacs_route" => "cquadr_tacs_sol106_route_check.jl",
+    "cquadr_mixed_shell_tacs_route" => "cquadr_tacs_mixed_shell_route_check.jl",
+    "cquadr_multiproperty_tacs_route" => "cquadr_tacs_multiproperty_route_check.jl",
 )
 
 function _read(path)
@@ -46,7 +50,7 @@ function main()
     @test tacs["backend"] == "tacs_formulation"
     @test tacs["formulation"]["shell"] == "residual_first_quad4_cquadr_tria3_sol101_sol103_sol105_sol106"
     @test tacs["formulation"]["constitutive"] == "mat1_pshell_pcomp_clt"
-    @test tacs["formulation"]["geometric_stiffness"] == "native_residual_first_quad4_tria3"
+    @test tacs["formulation"]["geometric_stiffness"] == "native_residual_first_quad4_cquadr_tria3"
     @test tacs["formulation"]["nonlinear_state"] == "backend_sol106_state_callback"
 
     for (_, file) in REQUIRED_GUARDS

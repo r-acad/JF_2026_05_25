@@ -19,6 +19,8 @@
 using YAML
 using Printf
 using Dates
+using JSON
+using OpenJFEM
 
 const SUITE_ROOT     = @__DIR__
 const MANIFEST_PATH  = joinpath(SUITE_ROOT, "public_suite.yaml")
@@ -78,7 +80,10 @@ function resolve_reference(ref::Dict, case_id::AbstractString, opts::Opts)
         fn_name  = ref["fn"]
         mod = load_analytical_module(mod_name)
         fn  = getfield(mod, Symbol(fn_name))
-        val = fn()
+        # The module (and fn) are defined at runtime via Base.include, so calling
+        # fn directly hits a world-age error ("method too new to be called from
+        # this world context"). invokelatest bridges the world-age boundary.
+        val = Base.invokelatest(fn)
         return (value=Float64(val), source="analytical:$(mod_name).$(fn_name)")
     elseif kind == "csv"
         path = joinpath(REFERENCES_DIR, ref["path"])
@@ -100,20 +105,81 @@ function resolve_reference(ref::Dict, case_id::AbstractString, opts::Opts)
     end
 end
 
-# ---------- JFEM execution (intentionally a stub for now) --------------------
+# ---------- JFEM execution ---------------------------------------------------
 
+# Run one deck through OpenJFEM (JSON output, no binary/report) into a temp dir
+# and return a state dict the extractor can read. `--skip-jfem` still short-
+# circuits to a "skipped" sentinel so references can be resolved offline.
 function run_jfem(case::Dict, opts::Opts)
-    # Production driver would shell out to tools/testing/run_bdf.jl with a
-    # per-case output dir, then parse the resulting RUN_REPORT.md / .jfem.
-    # For now, the user has explicitly asked us not to run JFEM. We return
-    # a sentinel that downstream code recognises.
     if opts.skip_jfem
         return Dict("status" => "skipped",
-                    "note"   => "JFEM run skipped by user instruction")
+                    "note"   => "JFEM run skipped (--skip-jfem)")
     end
-    # Placeholder for the eventual wiring -- kept off so this script never
-    # accidentally fires JFEM.
-    error("JFEM execution path is not enabled in this revision of the driver")
+    deck = joinpath(SUITE_ROOT, case["bdf"])
+    isfile(deck) || return Dict("status" => "error",
+                                "note" => "deck not found: $deck")
+    out = mktempdir(; prefix = "jfem_suite_")
+    try
+        redirect_stdout(devnull) do
+            redirect_stderr(devnull) do
+                OpenJFEM.main(deck; output_dir = out,
+                              export_jfem_binary = false,
+                              export_json = true,
+                              export_report = false)
+            end
+        end
+    catch e
+        return Dict("status" => "error",
+                    "note" => "JFEM run failed: $(sprint(showerror, e))")
+    end
+    # Load whichever per-SOL results JSON was produced.
+    jsons = filter(f -> endswith(f, ".JU.JSON") || endswith(f, ".BUCKLING.JSON") ||
+                        endswith(f, ".NONLINEAR.JSON"), readdir(out; join = true))
+    isempty(jsons) && return Dict("status" => "error",
+                                  "note" => "no results JSON written")
+    data = try
+        JSON.parsefile(jsons[1])
+    catch e
+        return Dict("status" => "error", "note" => "JSON parse failed: $(sprint(showerror, e))")
+    end
+    return Dict("status" => "ok", "data" => data, "out_dir" => out)
+end
+
+# Map dof index 1..6 to the displacement-object field name.
+const _DOF_FIELD = Dict(1 => "t1", 2 => "t2", 3 => "t3", 4 => "r1", 5 => "r2", 6 => "r3")
+
+# Extract the scalar JFEM value for one quantity from the loaded results data.
+# Returns (value::Union{Float64,Nothing}, note::String).
+function extract_quantity(data::AbstractDict, q::AbstractDict)
+    kind = get(q, "kind", "")
+    sel  = get(q, "selector", Dict())
+    if kind == "eigenvalue"
+        evs = get(data, "eigenvalues", nothing)
+        evs === nothing && return (nothing, "no eigenvalues in JFEM output")
+        mode = Int(get(sel, "mode", 1))
+        # SOL105 buckling factors: compare on the smallest-magnitude positive root
+        # is handled by the solver's ordering; here mode index is 1-based into the
+        # reported list. Use |value| so a sign convention does not mask parity
+        # (documented: buckling load factors are positive multipliers).
+        vals = Float64.(evs)
+        mode <= length(vals) || return (nothing, "mode $mode > $(length(vals)) returned")
+        return (vals[mode], "")
+    elseif kind == "displacement"
+        disps = get(data, "displacements", nothing)
+        disps === nothing && return (nothing, "no displacements in JFEM output")
+        node = Int(get(sel, "node", 0))
+        dof  = Int(get(sel, "dof", 1))
+        field = get(_DOF_FIELD, dof, nothing)
+        field === nothing && return (nothing, "bad dof $dof")
+        for d in disps
+            if Int(get(d, "grid_id", -1)) == node
+                return (Float64(get(d, field, 0.0)), "")
+            end
+        end
+        return (nothing, "node $node not found in displacements")
+    else
+        return (nothing, "unsupported quantity kind '$kind'")
+    end
 end
 
 # ---------- comparison and emit ---------------------------------------------
@@ -141,6 +207,29 @@ function build_row(case::Dict, q::Dict, jfem_state::Dict, opts::Opts)
     tol     = get(q, "tol_rel", nothing)
     ref     = get(q, "reference", nothing)
 
+    # Extract the JFEM value FIRST so it is always recorded - even if the
+    # reference fails to resolve. This makes the suite a genuine regression net:
+    # a value change is visible (and diffable) regardless of reference state.
+    jfem_val = nothing
+    note     = ""
+    verdict  = "PENDING"
+    status   = get(jfem_state, "status", "")
+    if status == "skipped"
+        note    = get(jfem_state, "note", "")
+        verdict = "JFEM_SKIPPED"
+    elseif status == "error"
+        note    = get(jfem_state, "note", "")
+        verdict = "ERROR_JFEM"
+    elseif status == "ok"
+        jv, jnote = extract_quantity(jfem_state["data"], q)
+        jfem_val = jv
+        if jv === nothing
+            note    = jnote
+            verdict = "ERROR_EXTRACT"
+        end
+    end
+
+    # Resolve the reference (may fail independently of JFEM execution).
     ref_val, ref_src = (nothing, "")
     if ref !== nothing
         try
@@ -148,24 +237,22 @@ function build_row(case::Dict, q::Dict, jfem_state::Dict, opts::Opts)
             ref_val = r.value
             ref_src = r.source
         catch e
-            return ResultRow(case_id, family, sol, qname,
-                             nothing, nothing, "",
-                             nothing, nothing, tol,
-                             "ERROR_REF", "reference resolution failed: $(sprint(showerror, e))")
+            # Keep the JFEM value; flag the reference as unresolved.
+            if verdict in ("PENDING",)
+                verdict = "ERROR_REF"
+            end
+            note = isempty(note) ? "reference resolution failed: $(sprint(showerror, e))" :
+                   note * " | ref failed: $(sprint(showerror, e))"
         end
     end
 
-    jfem_val = nothing
-    note     = ""
-    verdict  = "PENDING"
-    if get(jfem_state, "status", "") == "skipped"
-        note    = get(jfem_state, "note", "")
-        verdict = "JFEM_SKIPPED"
-    end
-
-    abs_err = (jfem_val !== nothing && ref_val !== nothing) ? abs(jfem_val - ref_val) : nothing
-    rel_err = (abs_err !== nothing && ref_val !== nothing && abs(ref_val) > 1e-30) ?
-              abs_err / abs(ref_val) : nothing
+    # Compare on |value| for eigenvalues (buckling factors are positive
+    # multipliers; a solver sign convention should not mask magnitude parity).
+    cmp_jfem = (jfem_val !== nothing && get(q, "kind", "") == "eigenvalue") ? abs(jfem_val) : jfem_val
+    cmp_ref  = (ref_val !== nothing && get(q, "kind", "") == "eigenvalue") ? abs(ref_val) : ref_val
+    abs_err = (cmp_jfem !== nothing && cmp_ref !== nothing) ? abs(cmp_jfem - cmp_ref) : nothing
+    rel_err = (abs_err !== nothing && cmp_ref !== nothing && abs(cmp_ref) > 1e-30) ?
+              abs_err / abs(cmp_ref) : nothing
     if jfem_val !== nothing && tol !== nothing && rel_err !== nothing
         verdict = rel_err <= tol ? "PASS" : "FAIL"
     end

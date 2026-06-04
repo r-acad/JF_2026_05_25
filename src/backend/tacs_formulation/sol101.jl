@@ -11,6 +11,9 @@ using LinearAlgebra
 using SparseArrays
 using StaticArrays
 
+const TACS_LINEAR_SHELL_STIFFNESS_ROUTE = "residual_first_quad4_cquadr_tria3"
+const TACS_GEOMETRIC_SHELL_STIFFNESS_ROUTE = "native_residual_first_quad4_cquadr_tria3"
+
 function _tacs_get(model::AbstractDict, key::AbstractString, default)
     return get(model, key, default)
 end
@@ -979,7 +982,7 @@ function _solve_tacs_sol103(model::Dict)
     results["node_R"] = node_R
     results["rbe3_map"] = rbe3_map
     results["tacs_formulation_sol103"] = Dict{String,Any}(
-        "linear_stiffness" => "residual_first_quad4_tria3",
+        "linear_stiffness" => TACS_LINEAR_SHELL_STIFFNESS_ROUTE,
         "mass" => "shared_jfem_mass",
         "eigensolver" => "shared_sol103",
     )
@@ -996,6 +999,7 @@ function _tacs_preflight_sol105_shared_route(model::Dict)
         end
     end
     if !Solver.sol105_static_membrane_incomp_enabled() &&
+       haskey(ENV, "JFEM_SOL105_STATIC_MEMBRANE_INCOMP_AUTO_LOAD") &&
        Solver.sol105_static_membrane_incomp_auto_load_enabled()
         error("TACS-formulation SOL105 currently requires a fixed static membrane-incomp setting; disable JFEM_SOL105_STATIC_MEMBRANE_INCOMP_AUTO_LOAD or enable JFEM_SOL105_STATIC_MEMBRANE_INCOMP.")
     end
@@ -1023,6 +1027,7 @@ function _solve_tacs_sol105(model::Dict)
         max_elem_stiff, rbe3_map, snorm_normals, orig_diag,
         sorted_sids, sol105_snorm_angle, mesh;
         geometric_stiffness_builder=_tacs_assemble_sol105_geometric_stiffness,
+        static_membrane_incomp_auto_load=false,
     )
     existing_timings = get(results, "timings", Dict{String,Any}())
     merged_timings = Dict{String,Any}()
@@ -1038,8 +1043,8 @@ function _solve_tacs_sol105(model::Dict)
     ))
     results["timings"] = merged_timings
     results["tacs_formulation_sol105"] = Dict{String,Any}(
-        "linear_stiffness" => "residual_first_quad4_tria3",
-        "geometric_stiffness" => "native_residual_first_quad4_tria3",
+        "linear_stiffness" => TACS_LINEAR_SHELL_STIFFNESS_ROUTE,
+        "geometric_stiffness" => TACS_GEOMETRIC_SHELL_STIFFNESS_ROUTE,
         "eig_stiffness" => "same_as_static_tangent",
     )
     return results
@@ -1123,8 +1128,8 @@ function _solve_tacs_sol106(model::Dict)
     ))
     results["timings"] = merged_timings
     results["tacs_formulation_sol106"] = Dict{String,Any}(
-        "linear_stiffness" => "residual_first_quad4_tria3",
-        "geometric_stiffness" => "native_residual_first_quad4_tria3",
+        "linear_stiffness" => TACS_LINEAR_SHELL_STIFFNESS_ROUTE,
+        "geometric_stiffness" => TACS_GEOMETRIC_SHELL_STIFFNESS_ROUTE,
         "nonlinear_route" => "backend_nonlinear_state_callback",
         "state_callback" => formal_requested ? "tacs_formulation_formal_shell_von_karman" : "tacs_formulation_tangent_operator",
     )

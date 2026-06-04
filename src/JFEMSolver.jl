@@ -2001,6 +2001,13 @@ function solve_model(model::Dict)
         if diagnostics isa AbstractDict
             diagnostics["requested_backend"] = backend_name(backend)
             diagnostics["backend_forced_by"] = "CQUADR"
+        elseif diagnostics isa AbstractVector
+            push!(diagnostics, Dict{String,Any}(
+                "phase" => "backend_selection",
+                "backend" => results["backend"],
+                "requested_backend" => backend_name(backend),
+                "backend_forced_by" => "CQUADR",
+            ))
         elseif diagnostics === nothing
             results["solver_diagnostics"] = Dict{String,Any}(
                 "backend" => results["backend"],
@@ -2627,7 +2634,8 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                        max_elem_stiff, rbe3_map, snorm_normals, orig_diag,
                        sorted_sids, sol105_snorm_angle, mesh;
                        options::Union{Solver.SOL105Options,Nothing}=nothing,
-                       geometric_stiffness_builder=nothing)
+                       geometric_stiffness_builder=nothing,
+                       static_membrane_incomp_auto_load::Bool=Solver.sol105_static_membrane_incomp_auto_load_enabled())
     # Phase C1 (architectural-cleanup 2026-05-24): accept a typed
     # SOL105Options object. When `nothing`, build from ENV — exactly
     # reproduces pre-cleanup behavior for legacy scripts that don't yet
@@ -2701,7 +2709,6 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         temp_load_id_static = Solver._subcase_temp_load_sid(sub_static, cc)
         needs_temp_reassembly = !isnothing(temp_load_id_static) && _model_has_temperature_dependent_mat1(model)
         static_membrane_incomp_default = Solver.sol105_static_membrane_incomp_enabled()
-        static_membrane_incomp_auto_load = Solver.sol105_static_membrane_incomp_auto_load_enabled()
         static_membrane_incomp_for_load = static_membrane_incomp_default
         if !static_membrane_incomp_for_load && static_membrane_incomp_auto_load
             static_membrane_incomp_for_load =
@@ -2834,7 +2841,15 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             end
         end
 
-        spc_id_buck = get(sub_buck, "SPC", spc_id_static)
+        # Resolve the buckling SPC: a buckling subcase usually omits SPC and must
+        # inherit the static subcase's constraints. A subcase may carry an SPC key
+        # whose value is `nothing` (no explicit set), so `get(..., default)` is not
+        # enough - we must fall back to the static SPC when the value is nothing too.
+        # Without this the eigen pass applies no SPC, K_ff loses constraints (becomes
+        # non-SPD via rigid-body/mechanism modes), and the buckling spectrum is wrong.
+        spc_id_buck = let s = get(sub_buck, "SPC", nothing)
+            s === nothing ? spc_id_static : s
+        end
         eigrl_has_range = (eigrl_v1 != 0.0 || eigrl_v2 != 0.0) && eigrl_v2 > eigrl_v1
         if Solver.seed_eigen_solve_cache_from_linear!(
             eigen_solve_cache, static_linear_solve_cache,

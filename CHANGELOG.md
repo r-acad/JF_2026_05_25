@@ -6,6 +6,22 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- SOL 105 buckling now correctly inherits the static subcase's SPC when the
+  buckling subcase omits one. A buckling subcase carrying an `SPC` key with a
+  `nothing` value (the common case) previously resolved to no constraints, so
+  the eigen pass assembled an unconstrained, non-SPD `K_ff` and returned a wrong
+  buckling spectrum. The classical simply-supported plate buckling benchmark
+  goes from ~76% error to ~3% as a result; the MYSTRAN bar case is unchanged.
+
+### Added
+- `tools/validation_suite/run_public_suite.jl` now actually runs JFEM on each
+  case (was a stub) and extracts the compared quantity (displacement by
+  node/dof, eigenvalue by mode), so the public suite is a working regression
+  net. Also fixed a world-age error in analytical-reference resolution
+  (`Base.invokelatest`), and the JFEM value is now recorded even when a
+  reference fails to resolve, so changes are always diff-able.
+
+### Fixed
 - Windows launchers (`POST/panel_app.cmd`, `jfem.cmd`,
   `build_sysimage/build_sysimage.cmd`) now work when the install path contains
   parentheses or spaces (e.g. a browser download named
@@ -61,6 +77,37 @@ Versions follow [Semantic Versioning](https://semver.org/).
   the TACS formulation. When the requested/default backend is `nastran_parity`,
   `solve_model(model)` forces the actual route to `tacs_formulation` and
   records `backend_forced_by = "CQUADR"`.
+- Expanded the `CQUADR` TACS validation envelope beyond the initial SOL101
+  forced-route guard. The new generated route check exercises default-backend
+  `CQUADR` decks through SOL103 modal analysis, SOL105 buckling plus thickness
+  sensitivity, and SOL200-lite shell-thickness sizing.
+- Extended forced-route diagnostics so vector-shaped solver diagnostics, such
+  as SOL103/SOL105/SOL106 results, also receive an explicit
+  `backend_forced_by = "CQUADR"` backend-selection entry.
+- Updated TACS route guard metadata expectations to the current
+  `residual_first_quad4_cquadr_tria3_sol101_sol103_sol105_sol106` shell
+  formulation label.
+- Expanded CQUADR validation from single-element generated decks to a mixed
+  `CQUAD4`/`CQUADR`/`CTRIA3` patch. The new guard verifies forced TACS routing
+  for SOL101 compliance sensitivity, SOL103 modal response, and SOL105
+  buckling plus thickness sensitivity on the same mixed shell envelope.
+- Updated TACS per-SOL route diagnostics so linear stiffness and native
+  geometric stiffness labels explicitly include `CQUADR`
+  (`residual_first_quad4_cquadr_tria3` and
+  `native_residual_first_quad4_cquadr_tria3`), matching the supported shell
+  formulation metadata.
+- Expanded CQUADR validation to two-property mixed shell patches. The new guard
+  verifies PID-separated SOL101 compliance/displacement gradients, SOL105
+  buckling sensitivities, and SOL200-lite grouped thickness sizing when a
+  `CQUADR` element forces the TACS formulation.
+- Promoted the conservative SOL105 formulation refinement from the 2026-06-03
+  parity sweep: CQUAD4 `Kg` stress recovery now defaults to load-classified
+  `auto`, and SOL105 static preload K enables Wilson membrane modes only for
+  simple-compression loads accepted by the direct-FORCE classifier. Broad
+  SOL101 membrane transfer and `macneal_all` remain experimental because they
+  regressed shear/mixed NAST705 probes and the GAME guard, respectively. The
+  current TACS-formulation SOL105 route pins the auto-load static reassembly
+  off until it has a native load-classified reassembly path.
 
 ### Added
 - `build_sysimage/` folder: clearly identified, cross-platform sysimage build
@@ -191,6 +238,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Added `tools/testing/tacs_backend_roadmap_audit.jl`, a static roadmap
   closure guard that maps the documented Phase 0-3 TACS backend requirements
   to the public numerical guard scripts and backend source hooks.
+- Added `tools/testing/cquadr_tacs_expanded_route_check.jl` to guard the
+  expanded `CQUADR` TACS route contract for SOL103, SOL105, and SOL200-lite.
+- Added `tools/testing/cquadr_tacs_sol106_route_check.jl` to guard default
+  `CQUADR` SOL106 routing through the TACS tangent-operator and formal
+  von-Karman nonlinear-state callbacks.
+- Added `tools/testing/cquadr_tacs_mixed_shell_route_check.jl` to guard mixed
+  CQUAD4/CQUADR/CTRIA3 generated patches through the TACS formulation.
+- Added `tools/testing/cquadr_tacs_multiproperty_route_check.jl` to guard
+  two-property CQUAD4/CQUADR/CTRIA3 generated patches through forced TACS
+  PID-separated gradients and SOL200-lite grouped sizing.
 - `tools/testing/tacs_sol101_fd_check.jl`: finite-difference smoke and
   generated patch-suite check for the new TACS-formulation SOL 101
   residual/tangent slice, including PSHELL thickness `dK/dt` and `dR/dt`

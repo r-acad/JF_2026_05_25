@@ -151,6 +151,31 @@ const SOL105_CALIBRATED_CONSTANTS = (
                            "filtering was rejected because it strongly regressed launch cases."),
     ),
     # ─────────────────────────────────────────────────────────────────
+    kg_quad4_stress_field_auto = (
+        value           = "auto",
+        env             = "JFEM_KG_QUAD4_STRESS_FIELD_MODE",
+        site            = "JFEM/src/solver/assembly.jl:295",
+        description     = "CQUAD4 geometric-stiffness stress-field selector.",
+        provenance      = ("2026-06-03 SOL105 formulation-refinement campaign: auto mode keeps " *
+                           "Gauss stress recovery by default but switches to averaged resultants " *
+                           "only for direct-FORCE, simple-compression cases accepted by the load " *
+                           "classifier. Promoted with load-classified static membrane enrichment " *
+                           "after the GAME guard stayed at 9/10 trusted, mean abs RQ bias 2.03%, " *
+                           "max trusted 4.64%."),
+    ),
+    sol105_static_membrane_auto_load = (
+        value           = true,
+        env             = "JFEM_SOL105_STATIC_MEMBRANE_INCOMP_AUTO_LOAD",
+        site            = "JFEM/src/solver/helpers.jl:235 and JFEM/src/JFEMSolver.jl (_solve_sol105 static preload loop)",
+        description     = "Enable Wilson membrane modes in SOL105 static preload K only for load-classified simple compression subcases.",
+        provenance      = ("2026-06-03 SOL101-to-SOL105 transfer audit. Broad SOL101 membrane " *
+                           "transfer was rejected (synthetic/patch regressions up to 99.97%/48.40%), " *
+                           "and MacNeal-all was rejected for GAME regressions. The conservative " *
+                           "load-classified transfer improved NAST705 patch mean abs first-root " *
+                           "error from 3.16% to 2.67% and atomic mean from 9.17% to 9.09%, with no " *
+                           "new 5% gate failures. The TACS-formulation SOL105 route currently pins " *
+                           "this off until it has a native load-classified reassembly path."),
+    ),
     # MITC4 shear-locking attenuation (phi2)
     # ─────────────────────────────────────────────────────────────────
     phi2_alpha = (

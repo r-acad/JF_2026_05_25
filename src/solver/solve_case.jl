@@ -1893,6 +1893,50 @@ function _buckling_krylovmaxiter()
     return max(solver_env_int("JFEM_SOL105_KRYLOV_MAXITER", 1000), 1)
 end
 
+# Sturm / inertia count for the buckling pencil (K + lambda*Kg) phi = 0 with K SPD.
+# Returns the negative inertia of M(sigma) = K + sigma*Kg, i.e. the number of
+# NEGATIVE eigenvalues of M(sigma).
+#
+# IMPORTANT — use as a DIFFERENCE, not an absolute count. When Kg is indefinite
+# (load-reversal modes give negative lambda), the absolute negative-inertia has a
+# constant offset, but the DIFFERENCE
+#       _buckling_sturm_count(K, Kg, b) - _buckling_sturm_count(K, Kg, a)
+# is EXACTLY the number of buckling eigenvalues lambda in the half-open interval
+# (a, b]. This was verified numerically against a known indefinite spectrum. So
+# range counts use sturm(v2)-sturm(v1), and the positive-mode count uses
+# sturm(b)-sturm(0+). Never compare a single sturm(sigma) to a mode count.
+#
+# Returns the count, or `nothing` if the inertia could not be computed (so callers
+# treat it as "unknown" and fall back to the non-Sturm behaviour). Pure-Julia:
+# uses a dense symmetric eigenvalue sign count for small systems (exact), and a
+# sparse LDLᵀ / LU pivot-sign inertia for larger ones.
+function _buckling_sturm_count(K_ff, Kg_ff, sigma::Float64)
+    n = size(K_ff, 1)
+    n == 0 && return 0
+    try
+        M = K_ff + sigma * Kg_ff
+        M = 0.5 * (M + M')                      # enforce exact symmetry
+        if n <= 600
+            # Exact: count negative eigenvalues of the (small) dense symmetric M.
+            evs = eigvals(Symmetric(Matrix(M)))
+            return count(<(0.0), evs)
+        else
+            # Sparse symmetric-indefinite inertia via LDLᵀ pivot signs.
+            try
+                F = ldlt(Symmetric(sparse(M)))
+                d = diag(F.D)
+                return count(<(0.0), d)
+            catch
+                # Fallback: LU pivot signs (matches the pre-existing debug count).
+                F = lu(Matrix(M))
+                return count(<(0.0), diag(F.U))
+            end
+        end
+    catch
+        return nothing
+    end
+end
+
 function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes;
                         rbe3_map=Dict{Int,Vector{Tuple{Int,Float64}}}(),
                         max_elem_stiff=0.0, orig_diag=Float64[],

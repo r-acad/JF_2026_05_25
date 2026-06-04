@@ -99,11 +99,11 @@ function main()
 
     @test results["sol_type"] == 106
     @test results["backend"] == "tacs_formulation"
-    @test results["formulation"]["shell"] == "residual_first_quad4_tria3_sol101_sol103_sol105_sol106"
-    @test results["formulation"]["geometric_stiffness"] == "native_residual_first_quad4_tria3"
+    @test results["formulation"]["shell"] == "residual_first_quad4_cquadr_tria3_sol101_sol103_sol105_sol106"
+    @test results["formulation"]["geometric_stiffness"] == "native_residual_first_quad4_cquadr_tria3"
     @test results["formulation"]["nonlinear_state"] == "backend_sol106_state_callback"
-    @test results["tacs_formulation_sol106"]["linear_stiffness"] == "residual_first_quad4_tria3"
-    @test results["tacs_formulation_sol106"]["geometric_stiffness"] == "native_residual_first_quad4_tria3"
+    @test results["tacs_formulation_sol106"]["linear_stiffness"] == "residual_first_quad4_cquadr_tria3"
+    @test results["tacs_formulation_sol106"]["geometric_stiffness"] == "native_residual_first_quad4_cquadr_tria3"
     @test results["tacs_formulation_sol106"]["nonlinear_route"] == "backend_nonlinear_state_callback"
     @test results["tacs_formulation_sol106"]["state_callback"] == "tacs_formulation_tangent_operator"
     @test size(K, 1) == size(K, 2)

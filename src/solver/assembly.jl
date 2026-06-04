@@ -292,7 +292,7 @@ end
 end
 
 @inline function kg_quad4_stress_field_mode()
-    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_STRESS_FIELD_MODE", "gauss")))
+    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_STRESS_FIELD_MODE", "auto")))
     if raw in ("avg", "average", "mean")
         return :average
     elseif raw in ("gp", "gauss", "field", "gauss_field")

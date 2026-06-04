@@ -814,7 +814,7 @@ function _check_route(deck::AbstractString; expected_property_type::AbstractStri
     @test results["route_summary"]["forward_sol_type"] == 101
     @test results["forward_results"]["sol_type"] == 101
     @test results["forward_results"]["backend"] == "tacs_formulation"
-    @test results["forward_results"]["formulation"]["shell"] == "residual_first_quad4_tria3_sol101_sol103_sol105_sol106"
+    @test results["forward_results"]["formulation"]["shell"] == "residual_first_quad4_cquadr_tria3_sol101_sol103_sol105_sol106"
     @test results["forward_results"]["formulation"]["thickness_derivative"] == "element_ad"
     prop = first(values(results["forward_results"]["model"]["PSHELLs"]))
     @test uppercase(string(get(prop, "TYPE", "PSHELL"))) == expected_property_type
@@ -974,14 +974,14 @@ function _check_buckling_route(deck::AbstractString)
     @test results["route_summary"]["forward_sol_type"] == 105
     @test results["forward_results"]["sol_type"] == 105
     @test results["forward_results"]["backend"] == "tacs_formulation"
-    @test results["forward_results"]["formulation"]["geometric_stiffness"] == "native_residual_first_quad4_tria3"
+    @test results["forward_results"]["formulation"]["geometric_stiffness"] == "native_residual_first_quad4_cquadr_tria3"
     @test !isempty(results["forward_results"]["eigenvalues"])
 
     iterations = results["optimization"]["iterations"]
     @test length(iterations) == 1
     diagnostics = iterations[1]["solver_diagnostics"]
     @test diagnostics["backend"] == "tacs_formulation"
-    @test diagnostics["formulation"]["geometric_stiffness"] == "native_residual_first_quad4_tria3"
+    @test diagnostics["formulation"]["geometric_stiffness"] == "native_residual_first_quad4_cquadr_tria3"
     @test diagnostics["sensitivity"]["gradient_backend"] == "tacs_formulation_rayleigh_ad_kg_directional_fd"
     @test diagnostics["sensitivity"]["response"] == "buckling_load_factor"
     return results, diagnostics

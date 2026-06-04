@@ -52,8 +52,8 @@ function _check_sol103_deck(deck::AbstractString)
 
     @test results["sol_type"] == 103
     @test results["backend"] == "tacs_formulation"
-    @test results["formulation"]["shell"] == "residual_first_quad4_tria3_sol101_sol103_sol105_sol106"
-    @test results["tacs_formulation_sol103"]["linear_stiffness"] == "residual_first_quad4_tria3"
+    @test results["formulation"]["shell"] == "residual_first_quad4_cquadr_tria3_sol101_sol103_sol105_sol106"
+    @test results["tacs_formulation_sol103"]["linear_stiffness"] == "residual_first_quad4_cquadr_tria3"
     @test results["tacs_formulation_sol103"]["mass"] == "shared_jfem_mass"
     @test results["tacs_formulation_sol103"]["eigensolver"] == "shared_sol103"
     @test !isempty(eigenvalues)

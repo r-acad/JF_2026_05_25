@@ -55,7 +55,7 @@ function backend_metadata(backend::AbstractJFEMBackend)::Dict{String,Any}
         ) : Dict{String,Any}(
             "shell" => "residual_first_quad4_cquadr_tria3_sol101_sol103_sol105_sol106",
             "constitutive" => "mat1_pshell_pcomp_clt",
-            "geometric_stiffness" => "native_residual_first_quad4_tria3",
+            "geometric_stiffness" => "native_residual_first_quad4_cquadr_tria3",
             "nonlinear_state" => "backend_sol106_state_callback",
             "thickness_derivative" => "element_ad",
         )

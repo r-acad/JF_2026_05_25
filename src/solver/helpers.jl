@@ -233,12 +233,14 @@ end
 end
 
 @inline function sol105_static_membrane_incomp_auto_load_enabled()
-    # Default OFF. Diagnostic gate for SOL105 static preload K: enable Wilson
-    # membrane modes only on simple compression subcases accepted by the same
-    # direct-FORCE load classifier used by Kg stress-field auto mode. Broad
-    # static membrane bubbles close the curved-compression patch probes but
-    # break shear/mixed guardrails, so this remains explicitly opt-in.
-    return solver_env_bool("JFEM_SOL105_STATIC_MEMBRANE_INCOMP_AUTO_LOAD", false)
+    # Default ON for the Nastran-parity SOL105 route (2026-06-03). This is a
+    # conservative transfer from the SOL101 membrane-enrichment work: enable
+    # Wilson membrane modes only on simple compression subcases accepted by the
+    # same direct-FORCE load classifier used by Kg stress-field auto mode.
+    # Broad static membrane bubbles still remain OFF through
+    # JFEM_SOL105_STATIC_MEMBRANE_INCOMP=false because they regress shear/mixed
+    # guardrails and the GAME reference set.
+    return solver_env_bool("JFEM_SOL105_STATIC_MEMBRANE_INCOMP_AUTO_LOAD", true)
 end
 
 @inline function q4_sol105_static_pcomp_membrane_incomp_aspect_enabled()

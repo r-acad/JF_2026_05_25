@@ -249,7 +249,7 @@ function _check_deck(deck::AbstractString)
 
     results = OpenJFEM.solve_model(model)
     @test results["backend"] == "tacs_formulation"
-    @test results["formulation"]["shell"] == "residual_first_quad4_tria3_sol101_sol103_sol105_sol106"
+    @test results["formulation"]["shell"] == "residual_first_quad4_cquadr_tria3_sol101_sol103_sol105_sol106"
     @test results["formulation"]["constitutive"] == "mat1_pshell_pcomp_clt"
     @test results["formulation"]["thickness_derivative"] == "element_ad"
     @test length(results["subcases"]) >= 1

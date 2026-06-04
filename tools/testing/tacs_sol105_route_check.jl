@@ -72,10 +72,10 @@ function main()
     @test results["sol_type"] == 105
     @test results["backend"] == "tacs_formulation"
     @test results["backend_version"] == "0.1.0-dev"
-    @test results["formulation"]["shell"] == "residual_first_quad4_tria3_sol101_sol103_sol105_sol106"
-    @test results["formulation"]["geometric_stiffness"] == "native_residual_first_quad4_tria3"
-    @test results["tacs_formulation_sol105"]["linear_stiffness"] == "residual_first_quad4_tria3"
-    @test results["tacs_formulation_sol105"]["geometric_stiffness"] == "native_residual_first_quad4_tria3"
+    @test results["formulation"]["shell"] == "residual_first_quad4_cquadr_tria3_sol101_sol103_sol105_sol106"
+    @test results["formulation"]["geometric_stiffness"] == "native_residual_first_quad4_cquadr_tria3"
+    @test results["tacs_formulation_sol105"]["linear_stiffness"] == "residual_first_quad4_cquadr_tria3"
+    @test results["tacs_formulation_sol105"]["geometric_stiffness"] == "native_residual_first_quad4_cquadr_tria3"
     @test results["tacs_formulation_sol105"]["eig_stiffness"] == "same_as_static_tangent"
     @test !isempty(eigenvalues)
     @test all(isfinite, eigenvalues)
@@ -129,8 +129,8 @@ function main()
     tri_eigenvalues = Float64.(tri_results["eigenvalues"])
     @test tri_results["sol_type"] == 105
     @test tri_results["backend"] == "tacs_formulation"
-    @test tri_results["formulation"]["shell"] == "residual_first_quad4_tria3_sol101_sol103_sol105_sol106"
-    @test tri_results["tacs_formulation_sol105"]["geometric_stiffness"] == "native_residual_first_quad4_tria3"
+    @test tri_results["formulation"]["shell"] == "residual_first_quad4_cquadr_tria3_sol101_sol103_sol105_sol106"
+    @test tri_results["tacs_formulation_sol105"]["geometric_stiffness"] == "native_residual_first_quad4_cquadr_tria3"
     @test !isempty(tri_eigenvalues)
     @test all(isfinite, tri_eigenvalues)
     @test nnz(tri_results["Kg"]) > 0
