@@ -44,7 +44,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
   is exact and skips the check. Toggle with `JFEM_SOL105_STURM_COMPLETENESS`
   (default on). Verified: the iterative path matches the dense oracle to 8–9
   digits on the MYSTRAN/plate/cylinder SOL 105 cases and certifies the correct
-  count in each.
+  count in each. The check is size-gated by `JFEM_SOL105_STURM_MAX_DOF`
+  (default **4000**): above that, the two sparse indefinite inertia
+  factorizations it needs are too costly in pure Julia (they otherwise dominate
+  — and can thrash — large-model SOL 105 runs), so the check is skipped with a
+  `skipped_too_large` status rather than blocking the solve. Verified on the
+  GAME aircraft-tail decks (VTP 27k DOF ~124 s, HTP 61k DOF ~142 s end-to-end
+  with the guard; both previously stalled in the inertia factorization). Set
+  `JFEM_SOL105_STURM_MAX_DOF=0` to force the check at any size.
 
 ### Changed
 - SOL 105 buckling: the dense symmetric-definite eigensolver is no longer the

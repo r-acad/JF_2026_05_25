@@ -2698,7 +2698,24 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     # (and the validation suite) can see that the iterative solve may be
     # incomplete rather than silently trusting a truncated spectrum.
     completeness_enabled = solver_env_bool("JFEM_SOL105_STURM_COMPLETENESS", true)
-    if completeness_enabled && !will_use_dense && !isempty(valid_idx)
+    # The Sturm count needs an indefinite inertia factorization of M(sigma) at two
+    # shifts. For n <= 600 that is a fast dense eigvals; above that it is a sparse
+    # LDLᵀ of a 26k-60k+ pencil, which in pure Julia is slow enough to dominate the
+    # whole SOL105 run (and can thrash on large models). Gate it by DOF so the
+    # certification stays cheap; above the ceiling we record "skipped_too_large"
+    # rather than block the solve. Override the ceiling with
+    # JFEM_SOL105_STURM_MAX_DOF (default 4000; 0 = never skip on size).
+    sturm_max_dof = max(solver_env_int("JFEM_SOL105_STURM_MAX_DOF", 4000), 0)
+    sturm_too_large = sturm_max_dof > 0 && n_free > sturm_max_dof
+    if completeness_enabled && !will_use_dense && sturm_too_large && !isempty(valid_idx)
+        diagnostics["sturm_completeness"] = Dict{String,Any}(
+            "status" => "skipped_too_large",
+            "n_free" => n_free,
+            "sturm_max_dof" => sturm_max_dof,
+        )
+        log_msg("[BUCKLING][STURM] completeness check skipped: $n_free DOF exceeds JFEM_SOL105_STURM_MAX_DOF=$sturm_max_dof (sparse inertia factorization too costly). Set JFEM_SOL105_STURM_MAX_DOF=0 to force it.")
+    end
+    if completeness_enabled && !will_use_dense && !sturm_too_large && !isempty(valid_idx)
         t_sturm = time_ns()
         pos_tol_c = positive_tol
         # Interval to certify.
