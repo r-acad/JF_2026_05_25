@@ -2788,6 +2788,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         K_static, K_eig_static,
         id_map_static, X_static, ndof_static, node_R_static,
         max_elem_stiff_static, rbe3_map_static, snorm_normals_static, orig_diag_static = static_cache[stat_sid]
+
         last_u_static = u_static
         last_fixed_dofs = fixed_dofs_static
         last_K = K_static
@@ -3315,8 +3316,21 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
             export_buckling_vtk(filename, output_dir, model, id_map, X, eigenvalues, mode_shapes)
         end
         if export_json
+            # Per-subcase eigenvalues so consumers can compare each SOL105
+            # buckling subcase against its own reference table instead of the
+            # globally-merged/sorted `eigenvalues` list (which interleaves modes
+            # from different subcases and makes per-subcase parity unreadable).
+            br_sc = get(results, "buckling", nothing)
+            sol105_subcases = br_sc isa Solver.BucklingResult ?
+                [Dict(
+                    "buckling_subcase_id" => sc.buckling_subcase_id,
+                    "static_subcase_id"   => sc.static_subcase_id,
+                    "eigenvalues"         => collect(sc.reported_eigenvalues),
+                ) for sc in br_sc.subcases] :
+                nothing
             export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id_map;
                 analysis_type="SOL105_BUCKLING", diagnostics=get(results, "solver_diagnostics", nothing),
+                buckling_subcases=sol105_subcases,
                 backend_metadata=_export_backend_metadata(results))
         end
         if export_hdf5

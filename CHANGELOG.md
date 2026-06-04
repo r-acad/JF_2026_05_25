@@ -5,6 +5,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- SOL 105 buckling JSON now exports per-subcase eigenvalues under a `subcases`
+  array (`buckling_subcase_id`, `static_subcase_id`, `eigenvalues`). The
+  top-level `eigenvalues` list merges and sorts all subcases together, which
+  interleaves modes from different buckling subcases and makes per-subcase
+  parity comparison against a reference `.f06` (one eigenvalue table per
+  subcase) ambiguous. Consumers can now compare each subcase to its own
+  reference table. No solver behavior change — purely additional output.
+
 ### Fixed
 - SOL 105 buckling now correctly inherits the static subcase's SPC when the
   buckling subcase omits one. A buckling subcase carrying an `SPC` key with a
