@@ -61,24 +61,31 @@ Versions follow [Semantic Versioning](https://semver.org/).
   net. Also fixed a world-age error in analytical-reference resolution
   (`Base.invokelatest`), and the JFEM value is now recorded even when a
   reference fails to resolve, so changes are always diff-able.
-- SOL 105 buckling: **active Sturm completeness check** on iterative eigensolves.
-  After the spectrum is filtered, the solver certifies it with an inertia
-  (Sturm) count — the exact number of buckling eigenvalues in the certified
-  interval via the `sturm(b) - sturm(a)` difference — and records
-  `solver_diagnostics.sturm_completeness` (`complete` /
-  `complete_within_tolerance` / `incomplete` / `unavailable`, with expected vs
-  found counts). A genuine shortfall logs an actionable warning. The dense path
-  is exact and skips the check. Toggle with `JFEM_SOL105_STURM_COMPLETENESS`
-  (default on). Verified: the iterative path matches the dense oracle to 8–9
-  digits on the MYSTRAN/plate/cylinder SOL 105 cases and certifies the correct
-  count in each. The check is size-gated by `JFEM_SOL105_STURM_MAX_DOF`
-  (default **4000**): above that, the two sparse indefinite inertia
-  factorizations it needs are too costly in pure Julia (they otherwise dominate
-  — and can thrash — large-model SOL 105 runs), so the check is skipped with a
-  `skipped_too_large` status rather than blocking the solve. Verified on the
-  GAME aircraft-tail decks (VTP 27k DOF ~124 s, HTP 61k DOF ~142 s end-to-end
-  with the guard; both previously stalled in the inertia factorization). Set
-  `JFEM_SOL105_STURM_MAX_DOF=0` to force the check at any size.
+- SOL 105 buckling: **Sturm inertia diagnostic** on iterative eigensolves.
+  After the spectrum is filtered, the solver records the inertia (Sturm) count
+  of the (K, -Kg) pencil over the returned band — the exact number of pencil
+  eigenvalues in the interval via the `sturm(b) - sturm(a)` difference — in
+  `solver_diagnostics.sturm_completeness` (`sturm_eigs_in_interval` vs
+  `reported_in_interval`). This is INFORMATIONAL, not a pass/fail verdict: the
+  buckling pencil is indefinite and its inertia counts spurious low-energy modes
+  (drilling, localized mechanisms, near-singular DOFs) that JFEM's localization
+  and cluster filters deliberately drop, so the pre-filter Sturm count normally
+  exceeds the post-filter reported count without any physical mode being missed.
+  (An earlier iteration emitted a complete/incomplete verdict from this and
+  consequently cried "incomplete" on every realistic model — that verdict was
+  removed.) Toggle with `JFEM_SOL105_STURM_COMPLETENESS` (default on); the dense
+  path computes the full spectrum and skips it.
+  - **Performance fix (the important part):** the inertia is now read correctly
+    via `diag(F)` on the CHOLMOD sparse LDLᵀ factor. The previous code called
+    `diag(F.D)` on a CHOLMOD `FactorComponent`, which throws `CanonicalIndexError`
+    and fell through to a dense `lu(Matrix(M))` fallback — densifying the
+    26k–60k+ sparse pencil into tens of GB and effectively hanging large-model
+    SOL 105 runs. The dense fallback is removed; the sparse path is the right
+    algorithm and is fast (≈1.5 s per shift at 60k DOF). The GAME aircraft-tail
+    decks (VTP 27k DOF, HTP 61k DOF ~42 s end-to-end) now complete with the
+    diagnostic on; both previously stalled. The size valve
+    `JFEM_SOL105_STURM_MAX_DOF` is retained but its default is raised to
+    **200000** (effectively off for realistic models; 0 = never skip).
 
 ### Changed
 - SOL 105 buckling: the dense symmetric-definite eigensolver is no longer the
