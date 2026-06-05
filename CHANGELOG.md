@@ -6,6 +6,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- SOL 105 buckling: optional **load-aware shear kernel** (opt-in via
+  `JFEM_SOL105_LOAD_AWARE_KERNEL`, default off). On warped/curved PCOMP elements
+  under shear preload, JFEM's default MITC4+phi2 transverse shear diverges from
+  MSC Nastran's released CQUAD4 (flat MacNeal RBF) by up to ~46% on the buckling
+  eigenvalue, while compression stays ~1%. The discriminator is a conjunction —
+  an element is non-flat AND shear-dominated
+  (`|Nxy|/(|Nx|+|Ny|+|Nxy|) >= JFEM_SOL105_LOAD_AWARE_SHEAR_RATIO_MIN`, default
+  0.12; warp ≥ `JFEM_SOL105_LOAD_AWARE_WARP_MIN`, default 1e-5). The effect
+  enters through the static solve (u_static → Kg), so the feature runs a 2-pass
+  static: solve, classify shear-dominated elements from the static field,
+  reassemble the static stiffness forcing those elements onto the flat MacNeal
+  kernel, and re-solve. Thresholds are probe-population separation values
+  (a documented heuristic, not benchmark-fitted; the GAME decks are held out).
+  Validated: the strongest warped-shear probe goes 46.2% → 2.3% vs Nastran with
+  zero regressions across the 23-deck probe set. Flag OFF is byte-identical to
+  prior behavior. Known limitation: combined-load / lower-warp shear cases are
+  not yet covered (the per-element shear metric is entangled with the kernel it
+  selects — see SOL105_load_aware_kernel notes).
 - SOL 105 buckling JSON now exports per-subcase eigenvalues under a `subcases`
   array (`buckling_subcase_id`, `static_subcase_id`, `eigenvalues`). The
   top-level `eigenvalues` list merges and sorts all subcases together, which

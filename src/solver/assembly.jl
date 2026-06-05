@@ -583,6 +583,106 @@ end
     return denom > 1e-30 ? abs(N_avg[3]) / denom : 0.0
 end
 
+# ---- Load-aware shear-kernel selection (SOL105), STATIC side ----------------
+#
+# MSC Nastran's released CQUAD4 (flat MacNeal RBF transverse shear) and JFEM's
+# default MITC4+phi2 shear agree on flat panels and on compression, but diverge
+# on WARPED/CURVED elements under SHEAR preload (up to ~46% on the buckling
+# eigenvalue). The divergence enters through the STATIC solve: the kernel sets
+# u_static, hence the per-element membrane-stress field, hence Kg, hence lambda.
+# (The eigenvalue stiffness itself is bit-identical either way — verified.)
+#
+# Empirical-but-principled criterion, derived from the SOL105 probe POPULATION
+# (NOT from the GAME validation set — those are held out for validation):
+#   route element e to the flat MacNeal kernel iff BOTH
+#     (1) e is non-flat (warp_ratio >= JFEM_SOL105_LOAD_AWARE_WARP_MIN), AND
+#     (2) e is shear-dominated:
+#           |Nxy| / (|Nx|+|Ny|+|Nxy|) >= JFEM_SOL105_LOAD_AWARE_SHEAR_RATIO_MIN
+# The conjunction is what the population separates cleanly: warped+shear probes
+# (mean |Nxy| ratio ~0.145-0.171) need the switch; flat+shear cases are already
+# correct (excluded by the geometry gate) and curved+mid-shear compression
+# (~0.10) sits below the shear gate, so it is left on MITC. Both thresholds are
+# population-separation values, documented as a heuristic, not first-principles
+# constants. Off by default (JFEM_SOL105_LOAD_AWARE_KERNEL).
+@inline sol105_load_aware_kernel_enabled() =
+    solver_env_bool("JFEM_SOL105_LOAD_AWARE_KERNEL", false)
+@inline sol105_load_aware_shear_ratio_min() =
+    clamp(solver_env_float("JFEM_SOL105_LOAD_AWARE_SHEAR_RATIO_MIN", 0.12), 0.0, 1.0)
+@inline sol105_load_aware_warp_min() =
+    max(solver_env_float("JFEM_SOL105_LOAD_AWARE_WARP_MIN", 1.0e-5), 0.0)
+
+"""
+    classify_shear_dominant_elements(model, id_map, X, node_R, u_global, snorm_normals) -> Dict{Int,Bool}
+
+Per-CQUAD4 conjunction classification from the static displacement field:
+`eid => true` when the element is non-flat AND shear-dominated (see the criterion
+above). Reuses the static stress-recovery primitive for the membrane resultant
+and the element warp deviation for the geometry gate. Pure geometry/load — no
+element id, deck name, or family is consulted.
+"""
+function classify_shear_dominant_elements(model, id_map, X, node_R, u_global, snorm_normals)
+    out = Dict{Int,Bool}()
+    haskey(model, "CSHELLs") || return out
+    smin = sol105_load_aware_shear_ratio_min()
+    wmin = sol105_load_aware_warp_min()
+    q4_frame_mode = q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_STATIC")
+
+    lc_buf = zeros(4, 2)
+    for (id, el) in model["CSHELLs"]
+        nids = el["NODES"]
+        length(nids) == 4 || continue
+        any(x -> get(id_map, x, 0) == 0, nids) && continue
+        pid = string(el["PID"]); haskey(model["PSHELLs"], pid) || continue
+        prop = model["PSHELLs"][pid]; mid = string(prop["MID"])
+        haskey(model["MATs"], mid) || continue
+        mat = model["MATs"][mid]
+        i1, i2, i3, i4 = id_map[nids[1]], id_map[nids[2]], id_map[nids[3]], id_map[nids[4]]
+        p1 = SVector{3}(X[i1,1], X[i1,2], X[i1,3]); p2 = SVector{3}(X[i2,1], X[i2,2], X[i2,3])
+        p3 = SVector{3}(X[i3,1], X[i3,2], X[i3,3]); p4 = SVector{3}(X[i4,1], X[i4,2], X[i4,3])
+        sr_indices = [i1, i2, i3, i4]
+        v1, v2, v3 = shell_element_frame_quad4(p1, p2, p3, p4, q4_frame_mode)
+        v1, v2, v3 = apply_snorm_to_frame(v1, v2, v3, sr_indices, snorm_normals)
+        c = (p1 + p2 + p3 + p4) / 4.0
+        # geometry gate: out-of-plane warp deviation relative to diagonal length.
+        Ldiag = max(norm(p3 - p1), norm(p4 - p2), 1e-12)
+        warp_dev = max(abs(dot(p1 - c, v3)), abs(dot(p2 - c, v3)),
+                       abs(dot(p3 - c, v3)), abs(dot(p4 - c, v3)))
+        warp_ratio = warp_dev / Ldiag
+        eid = _stress_entry_public_id(id, el)
+        if warp_ratio < wmin
+            out[eid] = false
+            continue
+        end
+        # shear gate: per-element membrane shear-resultant ratio from the static
+        # field. Uses the local-frame element displacement and stress_strain_quad4
+        # (same primitive recover_shell_stresses! uses for the centroid N).
+        lc_buf[1,1]=dot(p1-c,v1); lc_buf[1,2]=dot(p1-c,v2)
+        lc_buf[2,1]=dot(p2-c,v1); lc_buf[2,2]=dot(p2-c,v2)
+        lc_buf[3,1]=dot(p3-c,v1); lc_buf[3,2]=dot(p3-c,v2)
+        lc_buf[4,1]=dot(p4-c,v1); lc_buf[4,2]=dot(p4-c,v2)
+        Rel_t = vcat(v1', v2', v3')
+        u_el = zeros(24)
+        for k in 1:4
+            idx = id_map[nids[k]]
+            u_el[(k-1)*6+1:(k-1)*6+3] = Rel_t * node_R[idx] * u_global[(idx-1)*6+1:(idx-1)*6+3]
+            u_el[(k-1)*6+4:(k-1)*6+6] = Rel_t * node_R[idx] * u_global[(idx-1)*6+4:(idx-1)*6+6]
+        end
+        E_eff = get(mat, "E", get(mat, "E1", 1.0))
+        nu_eff = get(mat, "NU", get(mat, "NU12", 0.3))
+        shear_dominant = false
+        try
+            N, = FEM.stress_strain_quad4(view(lc_buf,1:4,:), u_el,
+                E_eff, nu_eff, Float64(prop["T"]), Float64(prop["T"]);
+                bend_ratio=get(prop, "BEND_RATIO", 1.0))
+            shear_dominant = kg_quad4_shear_resultant_ratio(N) >= smin
+        catch
+            shear_dominant = false
+        end
+        out[eid] = shear_dominant
+    end
+    return out
+end
+
 @inline function kg_quad4_use_gp_field(
     N_gp::AbstractMatrix,
     N_avg::AbstractVector,
@@ -2247,7 +2347,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                             snorm_angle_override::Union{Nothing,Float64}=nothing,
                             iso_no_incomp::Bool=false,
                             sol105_context::Bool=false,
-                            sol101_context::Bool=false)
+                            sol101_context::Bool=false,
+                            elem_shear_dominant::Union{Nothing,Dict{Int,Bool}}=nothing)
     log_msg("[SOLVER] Indexing...")
     ids = sort(collect(keys(model["GRIDs"])), by=x->parse(Int,x))
     n_nodes = length(ids)
@@ -3582,7 +3683,18 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # opt mildly-curved elements onto the MacNeal RBF path without changing
         # `elem_is_flat`, which other heuristics still key off of.
         elem_kernel_planar = elem_is_macneal_eligible
-        if q4_kernel_needs_surface_flatness &&
+        # Load-aware static override: a shear-dominated non-flat element (see
+        # classify_shear_dominant_elements) takes the flat MacNeal kernel
+        # regardless of the geometry curvature/thickness gate. Reaching the
+        # MacNeal RBF shear block also requires shear_center_only=false (set
+        # below at the elem_shear_center_only assignment), so both must flip
+        # together. Only populated when JFEM_SOL105_LOAD_AWARE_KERNEL is on.
+        elem_force_macneal_by_load =
+            elem_shear_dominant !== nothing &&
+            get(elem_shear_dominant, q4_eid_int[ei], false)
+        if elem_force_macneal_by_load
+            elem_kernel_planar = true
+        elseif q4_kernel_needs_surface_flatness &&
            elem_is_macneal_eligible &&
            is_pcomp_ei &&
            !is_pcomp_iso_ei &&
@@ -3712,6 +3824,12 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             flat_curved_iso_center_candidate ||
             flat_pcomp_reduced_shear
         )
+        # Load-aware static override: the MacNeal RBF shear block only fires with
+        # shear_center_only=false. A shear-dominated non-flat element forced onto
+        # MacNeal (elem_force_macneal_by_load) must therefore take the full path.
+        if elem_force_macneal_by_load
+            elem_shear_center_only = false
+        end
         flat_pcomp_no_phi2 = isnothing(flat_pcomp_no_phi2_override) ? true : flat_pcomp_no_phi2_override
         if flat_pcomp_auto_phi2 && elem_is_flat && is_pcomp_ei && !is_pcomp_iso_ei &&
            pcomp_geom_curvature !== nothing

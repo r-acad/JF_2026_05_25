@@ -2773,6 +2773,47 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                 needs_temp_reassembly ?
                     _with_active_temperature_material(model, temp_load_id_static, run_static) :
                     run_static()
+
+            # Load-aware static (2-pass): the default kernel routes warped/curved
+            # elements onto MITC4, which matches Nastran under compression but
+            # diverges under shear. The right kernel depends on the element's
+            # internal stress, known only after this first static solve. If any
+            # element is non-flat AND shear-dominated, reassemble the static
+            # stiffness forcing those elements onto the flat MacNeal kernel and
+            # RE-SOLVE — the corrected u_static then feeds Kg (where the effect
+            # actually lands). Gated by JFEM_SOL105_LOAD_AWARE_KERNEL (off by
+            # default; reverts to the exact prior behavior when off).
+            if Solver.sol105_load_aware_kernel_enabled()
+                shear_map = Solver.classify_shear_dominant_elements(
+                    model, id_map_static, X_static, node_R_static,
+                    u_static_analysis, snorm_normals_static)
+                n_shear = count(values(shear_map))
+                if n_shear > 0
+                    println(">>> Load-aware static: $n_shear shear-dominated non-flat element(s) → MacNeal kernel; re-solving static")
+                    K_la, id_map_la, X_la, ndof_la, node_R_la, max_elem_stiff_la, rbe3_map_la, snorm_normals_la, orig_diag_la =
+                        Solver.assemble_stiffness(model;
+                            snorm_angle_override=sol105_snorm_angle,
+                            membrane_incomp=static_membrane_incomp_for_load,
+                            sol105_context=true,
+                            elem_shear_dominant=shear_map)
+                    _, _, _, u_la, fixed_la = Solver.solve_case(
+                        K_la, ndof_la, model, id_map_la, X_la, load_id, spc_id_static, node_R_la;
+                        max_elem_stiff=max_elem_stiff_la, rbe3_map=rbe3_map_la,
+                        snorm_normals=snorm_normals_la, orig_diag=orig_diag_la,
+                        temp_load_id=temp_load_id_static, linear_cache=nothing)
+                    u_static_analysis = u_la
+                    fixed_dofs_static = fixed_la
+                    K_static = K_la
+                    if sol105_use_static_k
+                        K_eig_static = K_la
+                    end
+                    id_map_static = id_map_la; X_static = X_la; ndof_static = ndof_la
+                    node_R_static = node_R_la; max_elem_stiff_static = max_elem_stiff_la
+                    rbe3_map_static = rbe3_map_la; snorm_normals_static = snorm_normals_la
+                    orig_diag_static = orig_diag_la
+                end
+            end
+
             static_wall_seconds = (time_ns() - t_static_ref) * 1e-9
             sol105_static_wall_seconds += static_wall_seconds
             static_cache[stat_sid] = (
