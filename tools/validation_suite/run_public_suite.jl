@@ -247,8 +247,11 @@ function build_row(case::Dict, q::Dict, jfem_state::Dict, opts::Opts)
 
     # Compare on |value| for eigenvalues (buckling factors are positive
     # multipliers; a solver sign convention should not mask magnitude parity).
-    cmp_jfem = (jfem_val !== nothing && get(q, "kind", "") == "eigenvalue") ? abs(jfem_val) : jfem_val
-    cmp_ref  = (ref_val !== nothing && get(q, "kind", "") == "eigenvalue") ? abs(ref_val) : ref_val
+    # Some classical displacement references are explicitly reported as
+    # magnitudes; those cases opt in with compare_abs.
+    use_abs_compare = get(q, "kind", "") == "eigenvalue" || Bool(get(q, "compare_abs", false))
+    cmp_jfem = (jfem_val !== nothing && use_abs_compare) ? abs(jfem_val) : jfem_val
+    cmp_ref  = (ref_val !== nothing && use_abs_compare) ? abs(ref_val) : ref_val
     abs_err = (cmp_jfem !== nothing && cmp_ref !== nothing) ? abs(cmp_jfem - cmp_ref) : nothing
     rel_err = (abs_err !== nothing && cmp_ref !== nothing && abs(cmp_ref) > 1e-30) ?
               abs_err / abs(cmp_ref) : nothing
@@ -263,14 +266,21 @@ function build_row(case::Dict, q::Dict, jfem_state::Dict, opts::Opts)
 end
 
 function emit_csv(rows::Vector{ResultRow})
+    csvcell(x) = begin
+        s = string(x)
+        if occursin(",", s) || occursin("\"", s) || occursin("\n", s) || occursin("\r", s)
+            return "\"" * replace(s, "\"" => "\"\"") * "\""
+        end
+        return s
+    end
     open(OUTPUT_CSV, "w") do io
         println(io, "case_id,family,sol,quantity,jfem,reference,ref_source,abs_err,rel_err,tol_rel,verdict,note")
         for r in rows
             fnum(x) = x === nothing ? "" : @sprintf("%.12g", x)
-            println(io, join([r.case_id, r.family, string(r.sol), r.quantity,
-                              fnum(r.jfem), fnum(r.reference), r.ref_source,
-                              fnum(r.abs_err), fnum(r.rel_err), fnum(r.tol_rel),
-                              r.verdict, r.note], ","))
+            println(io, join(csvcell.([r.case_id, r.family, string(r.sol), r.quantity,
+                                       fnum(r.jfem), fnum(r.reference), r.ref_source,
+                                       fnum(r.abs_err), fnum(r.rel_err), fnum(r.tol_rel),
+                                       r.verdict, r.note]), ","))
         end
     end
 end

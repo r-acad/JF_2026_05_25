@@ -33,6 +33,12 @@ Versions follow [Semantic Versioning](https://semver.org/).
   reference table. No solver behavior change — purely additional output.
 
 ### Fixed
+- Public validation suite manifest now extracts the MacNeal-Harder twisted
+  beam, Scordelis-Lo roof, and hemispherical-shell quantities from the
+  documented benchmark nodes, and supports explicit absolute-value comparison
+  for signed displacement quantities reported as magnitudes.
+- Public validation suite CSV output now quotes fields containing commas,
+  quotes, or newlines, so solver error notes remain parseable.
 - Public validation suite analytical-reference lookup now wraps both runtime
   binding access and function invocation in `Base.invokelatest`, avoiding Julia
   1.12 world-age deprecation warnings during `run_public_suite.jl`.
