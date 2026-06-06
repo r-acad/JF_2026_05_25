@@ -43,9 +43,7 @@ function main(filename::String;
     if isnothing(output_dir)
         output_dir = joinpath(script_dir, "..", "output")
     end
-    if !isdir(output_dir)
-        mkdir(output_dir)
-    end
+    _export_ensure_dir!(output_dir)
 
     # --- Stage 1: BDF → Model Dict ---
     # Parse BDF once, build model, and export card inventory
@@ -75,7 +73,8 @@ function main(filename::String;
     if export_model_json
         json_path = filename * ".json"
         println(">>> Exporting model JSON: $json_path")
-        open(json_path, "w") do f
+        _export_ensure_parent_dir!(json_path)
+        open(_export_fs_path(json_path), "w") do f
             JSON.print(f, model, 2)
         end
         println(">>> Model JSON exported: $json_path")

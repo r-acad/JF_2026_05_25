@@ -33,6 +33,29 @@ end
 
 @inline _export_base_name(filename) = replace(basename(filename), r"(?i)\.bdf$" => "")
 
+function _export_fs_path(path::AbstractString)
+    p = normpath(abspath(String(path)))
+    Sys.iswindows() || return p
+    startswith(p, "\\\\?\\") && return p
+    if startswith(p, "\\\\")
+        return "\\\\?\\UNC\\" * p[3:end]
+    end
+    return length(p) >= 240 ? "\\\\?\\" * p : p
+end
+
+function _export_ensure_dir!(dir::AbstractString)
+    mkpath(_export_fs_path(dir))
+    return dir
+end
+
+function _export_ensure_parent_dir!(path::AbstractString)
+    dir = dirname(String(path))
+    if !isempty(dir) && dir != "."
+        _export_ensure_dir!(dir)
+    end
+    return path
+end
+
 @inline function _export_entry_public_id(key, entry)
     if entry isa AbstractDict && haskey(entry, "ID")
         value = entry["ID"]
@@ -2072,7 +2095,8 @@ end
 function export_nastran_hdf5(filename, output_dir, results; suffix=".h5")
     h5_path = joinpath(output_dir, _export_base_name(filename) * suffix)
     println("\n>>> Exporting MSC/Nastran-like compact HDF5: $h5_path")
-    h5open(h5_path, "w") do file
+    _export_ensure_parent_dir!(h5_path)
+    h5open(_export_fs_path(h5_path), "w") do file
         _msc_write_common_attrs(file, results, filename)
         _msc_write_input_tables(file, results["model"])
         sol_type = _msc_i64(get(results, "sol_type", 0))
@@ -2801,14 +2825,16 @@ function export_json(filename, output_dir, global_results)
     json_path = joinpath(output_dir, json_name)
     println("\n>>> Exporting AGGREGATED JSON: $json_path")
     sanitize!(global_results)
-    open(json_path, "w") do f; JSON.print(f, global_results, 4); end
+    _export_ensure_parent_dir!(json_path)
+    open(_export_fs_path(json_path), "w") do f; JSON.print(f, global_results, 4); end
 end
 
 function export_optimization_json(filename, output_dir, results)
     json_path = joinpath(output_dir, _export_base_name(filename) * ".OPTIMIZATION.JSON")
     payload = build_optimization_export_payload(results)
     sanitize!(payload)
-    open(json_path, "w") do f
+    _export_ensure_parent_dir!(json_path)
+    open(_export_fs_path(json_path), "w") do f
         JSON.print(f, payload, 2)
     end
     println("  Optimization JSON saved: $json_path")
@@ -2825,7 +2851,8 @@ function export_nonlinear_json(filename, output_dir, subcases;
 
     println("\n>>> Exporting NONLINEAR JSON: $json_path")
     sanitize!(results)
-    open(json_path, "w") do f; JSON.print(f, results, 4); end
+    _export_ensure_parent_dir!(json_path)
+    open(_export_fs_path(json_path), "w") do f; JSON.print(f, results, 4); end
 end
 
 function export_jfem_binary(filename, output_dir, id_map, X, jfem_node_ids, jfem_quads, jfem_trias, jfem_bars, jfem_rods, jfem_tetras, jfem_hexas, jfem_pentas, jfem_subcases_data; jfem_celas=[], jfem_rbe2s=[], jfem_rbe3s=[])
@@ -2841,7 +2868,8 @@ function export_jfem_binary(filename, output_dir, id_map, X, jfem_node_ids, jfem
     nRBE2_jfem  = length(jfem_rbe2s)
     nRBE3_jfem  = length(jfem_rbe3s)
     println("\n>>> Exporting JFEM binary (v4): $jfem_path")
-    open(jfem_path, "w") do io
+    _export_ensure_parent_dir!(jfem_path)
+    open(_export_fs_path(jfem_path), "w") do io
         # Magic: 'JFEM'
         write(io, UInt8('J')); write(io, UInt8('F')); write(io, UInt8('E')); write(io, UInt8('M'))
         # Header (v3: extended with constraint counts)
@@ -2992,7 +3020,8 @@ function export_card_inventory(cards, output_dir, filename)
         "unprocessed_cards" => Dict(unprocessed_cards)
     )
     inv_path = joinpath(output_dir, replace(basename(filename), ".bdf" => "") * ".CARDS.JSON")
-    open(inv_path, "w") do f; JSON.print(f, inv_json, 4); end
+    _export_ensure_parent_dir!(inv_path)
+    open(_export_fs_path(inv_path), "w") do f; JSON.print(f, inv_json, 4); end
     println(">>> Card inventory exported: $inv_path")
     if !isempty(unprocessed_cards)
         println("    WARNING: $(length(unprocessed_cards)) unprocessed card type(s):")
@@ -3094,7 +3123,8 @@ function export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id
         diagnostics=diagnostics,
         backend_metadata=backend_metadata)
     sanitize!(results)
-    open(json_path, "w") do f; JSON.print(f, results, 4); end
+    _export_ensure_parent_dir!(json_path)
+    open(_export_fs_path(json_path), "w") do f; JSON.print(f, results, 4); end
     println(">>> Buckling JSON exported: $json_path")
 end
 
@@ -3119,7 +3149,8 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
     version = has_static ? UInt32(5) : UInt32(3)
 
     println("\n>>> Exporting JFEM binary (v$(Int(version)) buckling$(has_static ? "+static" : "")): $jfem_path")
-    open(jfem_path, "w") do io
+    _export_ensure_parent_dir!(jfem_path)
+    open(_export_fs_path(jfem_path), "w") do io
         write(io, UInt8('J')); write(io, UInt8('F')); write(io, UInt8('E')); write(io, UInt8('M'))
         write(io, version)          # version (3 = buckling, 5 = buckling + static block)
         write(io, UInt32(nNodes))

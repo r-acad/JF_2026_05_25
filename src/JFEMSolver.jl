@@ -63,7 +63,8 @@ function bdf_to_model(filename::String; export_json::Bool=false)
     if export_json
         json_path = filename * ".json"
         println(">>> Exporting model JSON: $json_path")
-        open(json_path, "w") do f
+        _export_ensure_parent_dir!(json_path)
+        open(_export_fs_path(json_path), "w") do f
             JSON.print(f, model, 2)
         end
         println(">>> Model JSON exported: $json_path")
@@ -101,7 +102,8 @@ function json_to_model(json_path::String; export_json::Bool=false)
     if export_json
         out_path = json_path * ".model.json"
         println(">>> Exporting derived model JSON: $out_path")
-        open(out_path, "w") do f
+        _export_ensure_parent_dir!(out_path)
+        open(_export_fs_path(out_path), "w") do f
             JSON.print(f, model, 2)
         end
     end
@@ -3267,7 +3269,7 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
                               export_jfem_binary::Bool=true,
                               export_report::Bool=true,
                               timings=nothing)
-    if !isdir(output_dir); mkpath(output_dir); end
+    _export_ensure_dir!(output_dir)
 
     sol_type = results["sol_type"]
     if sol_type == 200

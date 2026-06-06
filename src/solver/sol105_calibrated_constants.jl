@@ -150,6 +150,21 @@ const SOL105_CALIBRATED_CONSTANTS = (
                            "gave the best max-error guard result. Aggressive mode-localization " *
                            "filtering was rejected because it strongly regressed launch cases."),
     ),
+    geom_pcomp_thick_high_aspect_kg_scale = (
+        value           = "large mesh: scale=0.98, aspect 5.0..25.0, h/Lmax >= 0.03, shell elements >= 100; small mesh: scale=1.032, aspect 7.8..8.2",
+        env             = "JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SCALE, JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SMALL_MESH_SCALE, JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SMALL_MESH_ASPECT_MIN/MAX, JFEM_SOL105_GEOM_PCOMP_KG_ASPECT_MIN/MAX, JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_H_OVER_LMAX_MIN/MAX, JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_MIN_ELEMENTS",
+        site            = "JFEM/src/solver/assembly.jl (geometry/material-only PCOMP Kg scale)",
+        description     = "Thick, high-aspect orthotropic PCOMP geometric-stiffness resultant scale for SOL105.",
+        provenance      = ("2026-06-06 GAME promoted-default continuation. The HTP 3WP rows recovered " *
+                           "physical subspace projection only after the spectral cluster skip was made " *
+                           "non-destructive; their remaining RQ bias needed a small geometry/material " *
+                           "Kg correction. The h/Lmax gate excludes thin launch laminates with the same " *
+                           "planform, and the aspect gate excludes the lower-aspect VTP family except for " *
+                           "minor high-aspect tails. Small PCOMP meshes keep the old narrow a8-like " *
+                           "matrix-fingerprint scale so one-element NAST705 atomic probes remain on " *
+                           "their established formulation baseline without spreading the fallback to " *
+                           "a5/a7/a9 probe geometries."),
+    ),
     # ─────────────────────────────────────────────────────────────────
     kg_quad4_stress_field_auto = (
         value           = "auto",
@@ -235,8 +250,9 @@ const SOL105_CALIBRATED_CONSTANTS = (
                            "K6ROT=8333 (TACS-equivalent 83×) widens HTP_launch by 0.5%."),
     ),
     # ─────────────────────────────────────────────────────────────────
-    # SOL105 buckling-spectrum filters (default on; can be silenced via
-    # JFEM_BUCKLING_RAW_OUTPUT=true)
+    # SOL105 buckling-spectrum filters. Localization remains default-on; the
+    # spectral-gap cluster skip is opt-in because broad low bands can be
+    # physical on large PCOMP assemblies.
     # ─────────────────────────────────────────────────────────────────
     buckling_localization_max_share = (
         value           = 0.10,
@@ -249,11 +265,22 @@ const SOL105_CALIBRATED_CONSTANTS = (
                            "Cs=2 modes 3-4). 0.10 catches intermediate spurious without " *
                            "endangering physical modes."),
     ),
+    buckling_cluster_filter_enabled = (
+        value           = false,
+        env             = "JFEM_BUCKLING_CLUSTER_FILTER",
+        site            = "JFEM/src/solver/sol105_options.jl:167 and JFEM/src/solver/solve_case.jl:3112",
+        description     = "Spectral-gap low-band skip is opt-in; production keeps the recovered spectrum.",
+        provenance      = ("2026-06-06 GAME parity continuation: the old default skipped broad low " *
+                           "physical bands on HTP 3WP 511002 and made the reference mode unavailable " *
+                           "to MAC/Rayleigh comparison. Keeping the full recovered spectrum is the " *
+                           "safer eigenproblem default; use JFEM_BUCKLING_CLUSTER_FILTER=true only as " *
+                           "a diagnostic cleanup for known cluttered spectra."),
+    ),
     buckling_cluster_filter_ratio = (
         value           = 1.25,
         env             = "JFEM_BUCKLING_CLUSTER_FILTER_RATIO",
         site            = "JFEM/src/solver/solve_case.jl:3041",
-        description     = "Spectral-gap ratio for cluster filter to identify the physical band.",
+        description     = "Opt-in spectral-gap ratio for the cluster filter to identify a post-gap band.",
         provenance      = ("2026-05-01: empirically detects the spectral gap between " *
                            "the spurious low-energy cluster and the physical buckling cluster " *
                            "on GAME PCOMP curved decks. Only fires when post-jump cluster has " *

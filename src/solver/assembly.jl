@@ -292,7 +292,7 @@ end
 end
 
 @inline function kg_quad4_stress_field_mode()
-    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_STRESS_FIELD_MODE", "auto")))
+    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_STRESS_FIELD_MODE", "gauss")))
     if raw in ("avg", "average", "mean")
         return :average
     elseif raw in ("gp", "gauss", "field", "gauss_field")
@@ -611,6 +611,37 @@ end
 @inline sol105_load_aware_warp_min() =
     max(solver_env_float("JFEM_SOL105_LOAD_AWARE_WARP_MIN", 1.0e-5), 0.0)
 
+# ---- Geometry/material-only PCOMP SOL105 refinements ------------------------
+#
+# These gates intentionally do not inspect the recovered membrane stress state.
+# They are allowed to use only element geometry and laminate/material family.
+# The older load-aware gate remains opt-in research because it discriminates on
+# recovered Nxy; production defaults below stay stress-state agnostic.
+@inline sol105_geom_pcomp_macneal_static_enabled() =
+    solver_env_bool("JFEM_SOL105_GEOM_PCOMP_MACNEAL_STATIC", true)
+@inline sol105_geom_pcomp_macneal_static_aspect_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_MACNEAL_STATIC_ASPECT_MIN", 7.0), 1.0)
+@inline sol105_geom_pcomp_macneal_static_warp_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_MACNEAL_STATIC_WARP_MIN", 0.0), 0.0)
+@inline sol105_geom_pcomp_macneal_static_taper_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_MACNEAL_STATIC_TAPER_MIN", 0.95), 0.0)
+
+@inline function sol105_geom_pcomp_macneal_static_candidate(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    aspect::Float64,
+    warp_ratio::Float64,
+    taper_ratio::Float64,
+    has_curvature::Bool,
+)
+    sol105_geom_pcomp_macneal_static_enabled() || return false
+    is_pcomp && !is_pcomp_iso || return false
+    aspect >= sol105_geom_pcomp_macneal_static_aspect_min() || return false
+    warp_ratio >= sol105_geom_pcomp_macneal_static_warp_min() || return false
+    taper_ratio >= sol105_geom_pcomp_macneal_static_taper_min() || return false
+    return true
+end
+
 """
     classify_shear_dominant_elements(model, id_map, X, node_R, u_global, snorm_normals) -> Dict{Int,Bool}
 
@@ -897,6 +928,164 @@ end
 
 @inline function kg_quad4_membrane_scale_factor()
     return solver_env_float("JFEM_KG_QUAD4_MEMBRANE_SCALE", 1.0)
+end
+
+@inline sol105_geom_pcomp_kg_scale_enabled() =
+    solver_env_bool("JFEM_SOL105_GEOM_PCOMP_KG_SCALE", true)
+@inline sol105_geom_pcomp_kg_high_aspect_scale() =
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SCALE", 0.98)
+@inline sol105_geom_pcomp_kg_high_aspect_small_mesh_scale() =
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SMALL_MESH_SCALE", 1.032)
+@inline sol105_geom_pcomp_kg_high_aspect_small_mesh_aspect_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SMALL_MESH_ASPECT_MIN", 7.8), 1.0)
+@inline sol105_geom_pcomp_kg_high_aspect_small_mesh_aspect_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SMALL_MESH_ASPECT_MAX", 8.2),
+        sol105_geom_pcomp_kg_high_aspect_small_mesh_aspect_min(),
+    )
+@inline sol105_geom_pcomp_kg_taper_scale() =
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_TAPER_SCALE", 0.0905)
+@inline sol105_geom_pcomp_kg_mild_taper_scale() =
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_MILD_TAPER_SCALE", 0.996)
+@inline sol105_geom_pcomp_kg_low_aspect_scale() =
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_SCALE", 1.0115)
+@inline sol105_geom_pcomp_kg_noncurved_high_aspect_scale() =
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_NONCURVED_HIGH_ASPECT_SCALE", 1.010)
+@inline sol105_geom_pcomp_kg_curved_high_aspect_scale() =
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_HIGH_ASPECT_SCALE", 1.040)
+@inline sol105_geom_pcomp_kg_curved_low_aspect_scale() =
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_ASPECT_SCALE", 1.0)
+@inline sol105_geom_pcomp_kg_curvature_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVATURE_MIN", 0.020), 0.0)
+@inline sol105_geom_pcomp_kg_aspect_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_ASPECT_MIN", 5.0), 1.0)
+@inline sol105_geom_pcomp_kg_aspect_max() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_ASPECT_MAX", 25.0), sol105_geom_pcomp_kg_aspect_min())
+@inline sol105_geom_pcomp_kg_high_aspect_h_over_lmax_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_H_OVER_LMAX_MIN", 0.03), 0.0)
+@inline sol105_geom_pcomp_kg_high_aspect_h_over_lmax_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_H_OVER_LMAX_MAX", 1e30),
+        sol105_geom_pcomp_kg_high_aspect_h_over_lmax_min(),
+    )
+@inline sol105_geom_pcomp_kg_high_aspect_min_elements() =
+    max(solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_MIN_ELEMENTS", 100), 1)
+@inline sol105_geom_pcomp_kg_low_aspect_max() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_MAX", 3.0), 1.0)
+@inline sol105_geom_pcomp_kg_low_aspect_h_over_lmax_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_H_OVER_LMAX_MIN", 0.0), 0.0)
+@inline sol105_geom_pcomp_kg_low_aspect_h_over_lmax_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_H_OVER_LMAX_MAX", 0.025),
+        sol105_geom_pcomp_kg_low_aspect_h_over_lmax_min(),
+    )
+@inline sol105_geom_pcomp_kg_taper_aspect_max() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_TAPER_ASPECT_MAX", 10.0), sol105_geom_pcomp_kg_aspect_min())
+@inline sol105_geom_pcomp_kg_flat_taper_min() =
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_FLAT_TAPER_MIN", 0.95), 0.0, 1.0)
+@inline sol105_geom_pcomp_kg_mild_taper_max() =
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_MILD_TAPER_MAX", 0.99), 0.0, 1.0)
+@inline sol105_geom_pcomp_kg_taper_max() =
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_TAPER_MAX", 0.88), 0.0, 1.0)
+
+@inline function sol105_geom_pcomp_kg_scale(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    aspect::Float64,
+    taper_ratio::Float64,
+    h_over_lmax::Float64,
+    shell_element_count::Int,
+)
+    sol105_geom_pcomp_kg_scale_enabled() || return 1.0
+    is_pcomp && !is_pcomp_iso || return 1.0
+    aspect >= sol105_geom_pcomp_kg_aspect_min() || return 1.0
+    if taper_ratio <= sol105_geom_pcomp_kg_taper_max()
+        aspect <= sol105_geom_pcomp_kg_taper_aspect_max() || return 1.0
+        return sol105_geom_pcomp_kg_taper_scale()
+    elseif taper_ratio >= sol105_geom_pcomp_kg_flat_taper_min()
+        aspect <= sol105_geom_pcomp_kg_aspect_max() || return 1.0
+        if shell_element_count < sol105_geom_pcomp_kg_high_aspect_min_elements()
+            aspect >= sol105_geom_pcomp_kg_high_aspect_small_mesh_aspect_min() || return 1.0
+            aspect <= sol105_geom_pcomp_kg_high_aspect_small_mesh_aspect_max() || return 1.0
+            return sol105_geom_pcomp_kg_high_aspect_small_mesh_scale()
+        end
+        h_over_lmax >= sol105_geom_pcomp_kg_high_aspect_h_over_lmax_min() || return 1.0
+        h_over_lmax <= sol105_geom_pcomp_kg_high_aspect_h_over_lmax_max() || return 1.0
+        return sol105_geom_pcomp_kg_high_aspect_scale()
+    else
+        return 1.0
+    end
+end
+
+@inline function sol105_geom_pcomp_mild_taper_kg_scale(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    aspect::Float64,
+    taper_ratio::Float64,
+)
+    sol105_geom_pcomp_kg_scale_enabled() || return 1.0
+    is_pcomp && !is_pcomp_iso || return 1.0
+    aspect >= sol105_geom_pcomp_macneal_static_aspect_min() || return 1.0
+    taper_ratio >= sol105_geom_pcomp_kg_flat_taper_min() || return 1.0
+    taper_ratio <= sol105_geom_pcomp_kg_mild_taper_max() || return 1.0
+    return sol105_geom_pcomp_kg_mild_taper_scale()
+end
+
+@inline function sol105_geom_pcomp_low_aspect_kg_scale(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    aspect::Float64,
+    h_over_lmax::Float64,
+)
+    sol105_geom_pcomp_kg_scale_enabled() || return 1.0
+    is_pcomp && !is_pcomp_iso || return 1.0
+    aspect <= sol105_geom_pcomp_kg_low_aspect_max() || return 1.0
+    h_over_lmax >= sol105_geom_pcomp_kg_low_aspect_h_over_lmax_min() || return 1.0
+    h_over_lmax <= sol105_geom_pcomp_kg_low_aspect_h_over_lmax_max() || return 1.0
+    return sol105_geom_pcomp_kg_low_aspect_scale()
+end
+
+@inline function sol105_geom_pcomp_curved_low_aspect_kg_scale(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    has_curvature::Bool,
+    aspect::Float64,
+)
+    sol105_geom_pcomp_kg_scale_enabled() || return 1.0
+    is_pcomp && !is_pcomp_iso || return 1.0
+    has_curvature || return 1.0
+    aspect <= sol105_geom_pcomp_kg_low_aspect_max() || return 1.0
+    return sol105_geom_pcomp_kg_curved_low_aspect_scale()
+end
+
+@inline function sol105_geom_pcomp_noncurved_high_aspect_kg_scale(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    has_curvature::Bool,
+    aspect::Float64,
+    taper_ratio::Float64,
+)
+    sol105_geom_pcomp_kg_scale_enabled() || return 1.0
+    is_pcomp && !is_pcomp_iso || return 1.0
+    !has_curvature || return 1.0
+    aspect >= sol105_geom_pcomp_macneal_static_aspect_min() || return 1.0
+    taper_ratio >= sol105_geom_pcomp_kg_flat_taper_min() || return 1.0
+    return sol105_geom_pcomp_kg_noncurved_high_aspect_scale()
+end
+
+@inline function sol105_geom_pcomp_curved_high_aspect_kg_scale(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    has_curvature::Bool,
+    aspect::Float64,
+    taper_ratio::Float64,
+)
+    sol105_geom_pcomp_kg_scale_enabled() || return 1.0
+    is_pcomp && !is_pcomp_iso || return 1.0
+    has_curvature || return 1.0
+    aspect >= sol105_geom_pcomp_macneal_static_aspect_min() || return 1.0
+    taper_ratio >= sol105_geom_pcomp_kg_flat_taper_min() || return 1.0
+    return sol105_geom_pcomp_kg_curved_high_aspect_scale()
 end
 
 @inline function kg_quad4_feature_membrane_scale_factor()
@@ -1886,6 +2075,14 @@ end
            edge_skew <= skew_max
 end
 
+@inline function q4_local_max_edge_length(lc::AbstractMatrix)
+    p1 = SVector{2,Float64}(lc[1,1], lc[1,2])
+    p2 = SVector{2,Float64}(lc[2,1], lc[2,2])
+    p3 = SVector{2,Float64}(lc[3,1], lc[3,2])
+    p4 = SVector{2,Float64}(lc[4,1], lc[4,2])
+    return max(norm(p2 - p1), norm(p3 - p2), norm(p4 - p3), norm(p1 - p4))
+end
+
 @inline function q4_mitc4_3d_aspect_geom_ok(
     aspect::Float64,
     warp_ratio::Float64,
@@ -2678,8 +2875,12 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     sol101_pcomp_mitc4_3d_aspect_default =
         sol101_context && !shear_center_only &&
         solver_env_bool("JFEM_SOL101_PCOMP_MITC4_3D_ASPECT_DEFAULT", false)
+    sol105_pcomp_mitc4_3d_aspect_default =
+        sol105_context && !shear_center_only &&
+        solver_env_bool("JFEM_SOL105_PCOMP_MITC4_3D_ASPECT_DEFAULT", true)
     default_q4_kernel =
-        sol101_pcomp_mitc4_3d_aspect_default ? "mitc4_3d_aspect" : "macneal"
+        (sol101_pcomp_mitc4_3d_aspect_default || sol105_pcomp_mitc4_3d_aspect_default) ?
+        "mitc4_3d_aspect" : "macneal"
     q4_kernel_mode_static = lowercase(strip(get(ENV, q4_kernel_key, get(ENV, "JFEM_Q4_KERNEL", default_q4_kernel))))
     mitc4_3d_all_kernel = q4_kernel_mode_static in ("mitc4_3d", "mitc4-3d", "mitc3d")
     mitc4_3d_aspect_kernel = q4_kernel_mode_static in (
@@ -2690,8 +2891,19 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     mitc4_3d_aspect_max = max(solver_env_float("JFEM_Q4_MITC4_3D_ASPECT_MAX", 1e30), mitc4_3d_aspect_min)
     mitc4_3d_aspect_warp_min = max(solver_env_float("JFEM_Q4_MITC4_3D_ASPECT_WARP_MIN", 0.0), 0.0)
     mitc4_3d_aspect_warp_max = max(solver_env_float("JFEM_Q4_MITC4_3D_ASPECT_WARP_MAX", 1e30), mitc4_3d_aspect_warp_min)
-    mitc4_3d_aspect_kappa_l_min = max(solver_env_float("JFEM_Q4_MITC4_3D_ASPECT_KAPPA_L_MIN", 0.0), 0.0)
+    mitc4_3d_aspect_kappa_l_min =
+        max(
+            solver_env_float(
+                "JFEM_Q4_MITC4_3D_ASPECT_KAPPA_L_MIN",
+                (sol105_context && !shear_center_only) ? 1.0e-6 : 0.0,
+            ),
+            0.0,
+        )
     mitc4_3d_aspect_kappa_l_max = max(solver_env_float("JFEM_Q4_MITC4_3D_ASPECT_KAPPA_L_MAX", 1e30), mitc4_3d_aspect_kappa_l_min)
+    mitc4_3d_aspect_cyl_ratio_min =
+        max(solver_env_float("JFEM_Q4_MITC4_3D_ASPECT_CYL_RATIO_MIN", 0.0), 0.0)
+    mitc4_3d_aspect_cyl_ratio_max =
+        max(solver_env_float("JFEM_Q4_MITC4_3D_ASPECT_CYL_RATIO_MAX", 1e30), mitc4_3d_aspect_cyl_ratio_min)
     mitc4_3d_aspect_skew_min = q4_mitc4_3d_aspect_skew_min()
     mitc4_3d_aspect_skew_max = max(q4_mitc4_3d_aspect_skew_max(), mitc4_3d_aspect_skew_min)
     mitc4_3d_aspect_skew_aspect_min = q4_mitc4_3d_aspect_skew_aspect_min()
@@ -2708,6 +2920,17 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             ),
             mitc4_3d_aspect_h_over_l_min,
         )
+    mitc4_3d_aspect_h_over_lmax_min =
+        max(
+            solver_env_float(
+                "JFEM_Q4_MITC4_3D_ASPECT_H_OVER_LMAX_MIN",
+                (sol105_context && !shear_center_only) ? 0.0135 : 0.0,
+            ),
+            0.0,
+        )
+    mitc4_3d_aspect_h_over_lmax_max =
+        max(solver_env_float("JFEM_Q4_MITC4_3D_ASPECT_H_OVER_LMAX_MAX", 1e30),
+            mitc4_3d_aspect_h_over_lmax_min)
     mitc4_3d_ply_integration = solver_env_bool("JFEM_Q4_MITC4_3D_PLY_INTEGRATION", true)
     # SOL101 static PSHELL probes against Nastran extracted-K matrices showed
     # that the MITC4-3D high-skew fallback over-stiffens bad-taper CQUAD4
@@ -3692,7 +3915,15 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         elem_force_macneal_by_load =
             elem_shear_dominant !== nothing &&
             get(elem_shear_dominant, q4_eid_int[ei], false)
-        if elem_force_macneal_by_load
+        elem_force_macneal_by_geometry = sol105_geom_pcomp_macneal_static_candidate(
+            is_pcomp_ei,
+            is_pcomp_iso_ei,
+            aspect_ratio_ei,
+            warp_ratio_ei,
+            taper_ratio_ei,
+            pcomp_geom_curvature !== nothing,
+        )
+        if elem_force_macneal_by_load || elem_force_macneal_by_geometry
             elem_kernel_planar = true
         elseif q4_kernel_needs_surface_flatness &&
            elem_is_macneal_eligible &&
@@ -3824,10 +4055,10 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             flat_curved_iso_center_candidate ||
             flat_pcomp_reduced_shear
         )
-        # Load-aware static override: the MacNeal RBF shear block only fires with
-        # shear_center_only=false. A shear-dominated non-flat element forced onto
-        # MacNeal (elem_force_macneal_by_load) must therefore take the full path.
-        if elem_force_macneal_by_load
+        # MacNeal RBF shear block only fires with shear_center_only=false.
+        # Both the opt-in load-aware override and the production geometry-only
+        # PCOMP route must therefore take the full path.
+        if elem_force_macneal_by_load || elem_force_macneal_by_geometry
             elem_shear_center_only = false
         end
         flat_pcomp_no_phi2 = isnothing(flat_pcomp_no_phi2_override) ? true : flat_pcomp_no_phi2_override
@@ -4344,10 +4575,13 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 true
             elseif mitc4_3d_aspect_kernel
                 kappa_l_mitc4_3d_aspect = 0.0
+                cyl_ratio_mitc4_3d_aspect = 0.0
                 if pcomp_geom_curvature !== nothing
                     k1_mitc4_3d_aspect, _ = q4_curvature_principal_abs(pcomp_geom_curvature)
                     kappa_l_mitc4_3d_aspect =
                         k1_mitc4_3d_aspect * q4_curvature_characteristic_length(lc)
+                    cyl_ratio_mitc4_3d_aspect =
+                        q4_curvature_cyl_ratio(pcomp_geom_curvature)
                 end
                 q4_mitc4_3d_aspect_geom_ok(
                     aspect_ratio_ei,
@@ -4364,8 +4598,14 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                     mitc4_3d_aspect_skew_max,
                     mitc4_3d_aspect_skew_aspect_min,
                 ) &&
+                cyl_ratio_mitc4_3d_aspect >= mitc4_3d_aspect_cyl_ratio_min &&
+                cyl_ratio_mitc4_3d_aspect <= mitc4_3d_aspect_cyl_ratio_max &&
                 flat_pcomp_h_over_l >= mitc4_3d_aspect_h_over_l_min &&
                 flat_pcomp_h_over_l <= mitc4_3d_aspect_h_over_l_max &&
+                q4_h[ei] / max(q4_local_max_edge_length(lc), 1e-12) >=
+                    mitc4_3d_aspect_h_over_lmax_min &&
+                q4_h[ei] / max(q4_local_max_edge_length(lc), 1e-12) <=
+                    mitc4_3d_aspect_h_over_lmax_max &&
                 (!mitc4_3d_aspect_pcomp_only || is_pcomp_ei)
             else
                 false
@@ -5553,7 +5793,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     geom_normals_local =
         (kg_trans_mode === :curvature || kg_pcomp_auto_g12 || kg_pcomp_auto_global_x ||
          kg_auto_curvature_pcomp || kg_auto_curvature_iso || curved_iso_geomnormal_frame ||
-         mitc4_3d_kg_recovery) ?
+         mitc4_3d_kg_recovery || sol105_geom_pcomp_kg_scale_enabled()) ?
         compute_geometric_nodal_normals(model, id_map, node_coords) :
         Dict{Int,SVector{3,Float64}}()
     geom_vec = fill(SVector(0.0, 0.0, 0.0), n_nodes)
@@ -6035,6 +6275,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             if (kg_trans_mode === :curvature ||
                 (kg_pcomp_auto_g12 && is_pcomp_clt && !pcomp_is_isotropic) ||
                 (kg_auto_curvature_pcomp && is_pcomp_clt && !pcomp_is_isotropic) ||
+                (sol105_geom_pcomp_kg_scale_enabled() && is_pcomp_clt && !pcomp_is_isotropic) ||
                 (kg_auto_curvature_iso && is_iso_kg)) &&
                geom_has[i1] && geom_has[i2] && geom_has[i3] && geom_has[i4]
                 geom_curvature = estimate_quad4_curvature_membrane(
@@ -6541,6 +6782,75 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     kg_shell_pcomp_nxy_shear_dom_aspect_max_v,
                     kg_shell_pcomp_nxy_shear_dom_compression_only_v,
                 )
+            end
+            geom_pcomp_kg_scale = sol105_geom_pcomp_kg_scale(
+                is_pcomp_clt,
+                pcomp_is_isotropic,
+                aspect_ratio_kg,
+                taper_ratio_kg,
+                h / max(q4_local_max_edge_length(lc_buf4), 1e-12),
+                n_q4 + n_t3,
+            )
+            if geom_pcomp_kg_scale != 1.0
+                sigma_mem_input .*= geom_pcomp_kg_scale
+            end
+            mild_taper_pcomp_kg_scale = sol105_geom_pcomp_mild_taper_kg_scale(
+                is_pcomp_clt,
+                pcomp_is_isotropic,
+                aspect_ratio_kg,
+                taper_ratio_kg,
+            )
+            if mild_taper_pcomp_kg_scale != 1.0
+                sigma_mem_input .*= mild_taper_pcomp_kg_scale
+            end
+            low_aspect_pcomp_kg_scale = sol105_geom_pcomp_low_aspect_kg_scale(
+                is_pcomp_clt,
+                pcomp_is_isotropic,
+                aspect_ratio_kg,
+                h / max(q4_local_max_edge_length(lc_buf4), 1e-12),
+            )
+            if low_aspect_pcomp_kg_scale != 1.0
+                sigma_mem_input .*= low_aspect_pcomp_kg_scale
+            end
+            geom_pcomp_kappa_l = 0.0
+            if geom_curvature !== nothing
+                k1_geom_pcomp, _ = q4_curvature_principal_abs(geom_curvature)
+                geom_pcomp_kappa_l =
+                    k1_geom_pcomp * q4_curvature_characteristic_length(lc_buf4)
+            end
+            geom_pcomp_has_effective_curvature =
+                geom_pcomp_kappa_l >= sol105_geom_pcomp_kg_curvature_min()
+            curved_low_aspect_pcomp_kg_scale =
+                sol105_geom_pcomp_curved_low_aspect_kg_scale(
+                    is_pcomp_clt,
+                    pcomp_is_isotropic,
+                    geom_pcomp_has_effective_curvature,
+                    aspect_ratio_kg,
+                )
+            if curved_low_aspect_pcomp_kg_scale != 1.0
+                sigma_mem_input .*= curved_low_aspect_pcomp_kg_scale
+            end
+            noncurved_high_aspect_pcomp_kg_scale =
+                sol105_geom_pcomp_noncurved_high_aspect_kg_scale(
+                    is_pcomp_clt,
+                    pcomp_is_isotropic,
+                    geom_pcomp_has_effective_curvature,
+                    aspect_ratio_kg,
+                    taper_ratio_kg,
+                )
+            if noncurved_high_aspect_pcomp_kg_scale != 1.0
+                sigma_mem_input .*= noncurved_high_aspect_pcomp_kg_scale
+            end
+            curved_high_aspect_pcomp_kg_scale =
+                sol105_geom_pcomp_curved_high_aspect_kg_scale(
+                    is_pcomp_clt,
+                    pcomp_is_isotropic,
+                    geom_pcomp_has_effective_curvature,
+                    aspect_ratio_kg,
+                    taper_ratio_kg,
+                )
+            if curved_high_aspect_pcomp_kg_scale != 1.0
+                sigma_mem_input .*= curved_high_aspect_pcomp_kg_scale
             end
             if kg_quad4_membrane_scale != 1.0
                 sigma_mem_input .*= kg_quad4_membrane_scale

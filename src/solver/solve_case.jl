@@ -3109,13 +3109,14 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         return return_diagnostics ? (Float64[], zeros(ndof, 0), diagnostics) : (Float64[], zeros(ndof, 0))
     end
 
-    # JFEM_BUCKLING_CLUSTER_FILTER: spectral-gap filter for spurious low modes
+    # JFEM_BUCKLING_CLUSTER_FILTER: opt-in spectral-gap filter for spurious low modes
     # produced by the legacy MITC + 3D Jacobian over-stiffening pattern (see
     # 2026-05-01 entry in the SOL105 parity TODO). On 3wp-style decks, JFEM's
     # spectrum has 16 spurious low-magnitude modes between 0 and the actual
     # buckling cluster, with a clean ~1.25× spectral gap separating them.
     # Detect that gap on the FULL in-range spectrum and skip the pre-gap modes,
-    # then re-apply the EIGRL ND cap.
+    # then re-apply the EIGRL ND cap. Production default is off: the heuristic
+    # can misclassify broad physical low-mode bands on large curved PCOMP decks.
     #
     # Conservativeness: only fires when the post-jump cluster has at least
     # N_DENSE eigenvalues within a small relative spread (default 30%). This
@@ -3131,6 +3132,8 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     # Default 1.25 (2026-05-01) — empirically detects the spectral gap between
     # JFEM's spurious low cluster and the actual buckling cluster on the GAME
     # 3wp 511003 cases (jump 0.903 → 1.151, ratio 1.27).
+    # The cluster filter is diagnostic/opt-in; production parity keeps all
+    # recovered low bands unless the caller explicitly requests this skip.
     cluster_jump_threshold = opts.cluster_filter_ratio
     cluster_jump_max_raw = strip(get(ENV, "JFEM_BUCKLING_CLUSTER_FILTER_RATIO_MAX", ""))
     cluster_jump_max = isempty(cluster_jump_max_raw) ? 8.0 :

@@ -33,6 +33,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
   reference table. No solver behavior change — purely additional output.
 
 ### Fixed
+- Exporters now write JSON, Markdown report, HDF5, and JFEM binary artifacts
+  through a Windows long-path helper when paths approach the classic
+  260-character limit. Long SOL105 validation case names could solve
+  successfully but fail at `*.BUCKLING.JSON` export with `ENOENT`; a
+  409-character smoke path and the 13-case NAST705 patch rerun now pass.
+- SOL 105 GAME parity: the spectral-gap buckling cluster filter is now opt-in
+  (`JFEM_BUCKLING_CLUSTER_FILTER=false` by default), so broad physical low-mode
+  bands remain available to MAC/Rayleigh comparison. A generic orthotropic PCOMP
+  geometric-stiffness scale was added for thick high-aspect elements
+  (`aspect=5..25`, assembly-scale `h/Lmax>=0.03` and shell elements `>=100`,
+  scale `0.98`), while small a8-like PCOMP matrix-fingerprint meshes
+  (`aspect=7.8..8.2`) retain the legacy scale `1.032`. The discriminator uses
+  only material and geometry, with no case-name, group-name, or stress-state
+  gate.
 - SOL 105 buckling now correctly inherits the static subcase's SPC when the
   buckling subcase omits one. A buckling subcase carrying an `SPC` key with a
   `nothing` value (the common case) previously resolved to no constraints, so
@@ -88,6 +102,12 @@ Versions follow [Semantic Versioning](https://semver.org/).
     **200000** (effectively off for realistic models; 0 = never skip).
 
 ### Changed
+- SOL 105 production defaults now use only element material and geometry for the
+  promoted PCOMP parity refinements. The QUAD4 geometric-stiffness stress-field
+  mode defaults to fixed Gauss recovery, disabling the prior default
+  stress-state-discriminating `auto` path; PCOMP static stiffness and geometric
+  stiffness receive generic aspect/taper/curvature/thickness-ratio gates. The
+  opt-in load-aware route remains available but is not active by default.
 - SOL 105 buckling: the dense symmetric-definite eigensolver is no longer the
   default for systems up to 4000 DOF. It is now gated by
   `JFEM_SOL105_DENSE_MAX_DOF` (default **200**) and serves only as a fast exact

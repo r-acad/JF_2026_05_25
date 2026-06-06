@@ -60,6 +60,7 @@ function export_markdown_report(results::AbstractDict, filename::AbstractString,
                                 output_dir::AbstractString; timings=nothing)
     md_path = joinpath(output_dir, _export_base_name(filename) * ".REPORT.md")
     println("\n>>> Exporting MARKDOWN REPORT: $md_path")
+    _export_ensure_parent_dir!(md_path)
 
     merged_timings = Dict{String,Any}()
     if timings isa AbstractDict
@@ -73,7 +74,7 @@ function export_markdown_report(results::AbstractDict, filename::AbstractString,
     sol_type = Int(_report_safe_get(results, "sol_type", 0))
     analysis_type = string(_report_safe_get(results, "analysis_type", _sol_type_label(sol_type)))
 
-    open(md_path, "w") do io
+    open(_export_fs_path(md_path), "w") do io
         _report_header(io, filename, sol_type, analysis_type)
         _report_environment_section(io)
         _report_timing_section(io, merged_timings)
