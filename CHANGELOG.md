@@ -33,6 +33,9 @@ Versions follow [Semantic Versioning](https://semver.org/).
   reference table. No solver behavior change — purely additional output.
 
 ### Fixed
+- Public validation suite analytical-reference lookup now wraps both runtime
+  binding access and function invocation in `Base.invokelatest`, avoiding Julia
+  1.12 world-age deprecation warnings during `run_public_suite.jl`.
 - Exporters now write JSON, Markdown report, HDF5, and JFEM binary artifacts
   through a Windows long-path helper when paths approach the classic
   260-character limit. Long SOL105 validation case names could solve

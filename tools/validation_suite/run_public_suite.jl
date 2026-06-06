@@ -79,10 +79,9 @@ function resolve_reference(ref::Dict, case_id::AbstractString, opts::Opts)
         mod_name = ref["module"]
         fn_name  = ref["fn"]
         mod = load_analytical_module(mod_name)
-        fn  = getfield(mod, Symbol(fn_name))
-        # The module (and fn) are defined at runtime via Base.include, so calling
-        # fn directly hits a world-age error ("method too new to be called from
-        # this world context"). invokelatest bridges the world-age boundary.
+        # The module (and fn) are defined at runtime via Base.include, so both
+        # binding lookup and calling cross the world-age boundary on Julia 1.12.
+        fn = Base.invokelatest(getfield, mod, Symbol(fn_name))
         val = Base.invokelatest(fn)
         return (value=Float64(val), source="analytical:$(mod_name).$(fn_name)")
     elseif kind == "csv"
