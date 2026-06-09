@@ -1088,6 +1088,48 @@ end
     return sol105_geom_pcomp_kg_curved_high_aspect_scale()
 end
 
+@inline sol105_geom_pshell_iso_flat_square_kg_scale_enabled() =
+    solver_env_bool("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_SCALE", true)
+@inline sol105_geom_pshell_iso_flat_square_kg_scale_value() =
+    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_SCALE_VALUE", 1.03)
+@inline sol105_geom_pshell_iso_flat_square_kg_aspect_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_ASPECT_MIN", 0.9), 1.0e-6)
+@inline sol105_geom_pshell_iso_flat_square_kg_aspect_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_ASPECT_MAX", 1.1),
+        sol105_geom_pshell_iso_flat_square_kg_aspect_min(),
+    )
+@inline sol105_geom_pshell_iso_flat_square_kg_warp_max() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_WARP_MAX", 1.0e-8), 0.0)
+@inline sol105_geom_pshell_iso_flat_square_kg_h_over_lmax_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_H_OVER_LMAX_MIN", 0.03), 0.0)
+@inline sol105_geom_pshell_iso_flat_square_kg_h_over_lmax_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_H_OVER_LMAX_MAX", 0.08),
+        sol105_geom_pshell_iso_flat_square_kg_h_over_lmax_min(),
+    )
+
+@inline function sol105_geom_pshell_iso_flat_square_kg_scale(
+    is_pshell_iso::Bool,
+    elem_is_flat::Bool,
+    aspect::Float64,
+    warp_ratio::Float64,
+    h_over_lmax::Float64,
+    scale_value::Float64,
+    aspect_min::Float64,
+    aspect_max::Float64,
+    warp_max::Float64,
+    h_over_lmax_min::Float64,
+    h_over_lmax_max::Float64,
+)
+    is_pshell_iso || return 1.0
+    elem_is_flat || return 1.0
+    aspect >= aspect_min && aspect <= aspect_max || return 1.0
+    warp_ratio <= warp_max || return 1.0
+    h_over_lmax >= h_over_lmax_min && h_over_lmax <= h_over_lmax_max || return 1.0
+    return scale_value
+end
+
 @inline function kg_quad4_feature_membrane_scale_factor()
     return solver_env_float("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE", 1.0)
 end
@@ -2798,6 +2840,85 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         sol101_context && !shear_center_only ?
         clamp(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CB_SCALE", 0.85), 0.1, 2.0) :
         1.0
+    sol101_iso_pshell_geom_cm_enabled =
+        sol101_context && !shear_center_only &&
+        !haskey(ENV, "JFEM_Q4_STATIC_COMPONENT_CM_SCALE") &&
+        solver_env_bool("JFEM_SOL101_Q4_ISO_PSHELL_GEOM_CM_SCALE_ENABLED", true)
+    sol101_iso_pshell_flat_strip_cm_scale =
+        clamp(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_FLAT_STRIP_CM_SCALE", 1.09), 0.1, 2.0)
+    sol101_iso_pshell_flat_strip_cm_aspect_min =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_FLAT_STRIP_CM_ASPECT_MIN", 5.0), 1.0)
+    sol101_iso_pshell_flat_strip_cm_aspect_max =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_FLAT_STRIP_CM_ASPECT_MAX", 6.5),
+            sol101_iso_pshell_flat_strip_cm_aspect_min)
+    sol101_iso_pshell_flat_strip_cm_warp_max =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_FLAT_STRIP_CM_WARP_MAX", 1e-8), 0.0)
+    sol101_iso_pshell_geom_cb_enabled =
+        sol101_context && !shear_center_only &&
+        !haskey(ENV, "JFEM_SOL101_Q4_ISO_PSHELL_CB_SCALE") &&
+        solver_env_bool("JFEM_SOL101_Q4_ISO_PSHELL_GEOM_CB_SCALE_ENABLED", true)
+    sol101_iso_pshell_warped_strip_cb_scale =
+        clamp(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_WARPED_STRIP_CB_SCALE", 1.35), 0.1, 2.0)
+    sol101_iso_pshell_warped_strip_cb_warp_min =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_WARPED_STRIP_CB_WARP_MIN", 0.01), 0.0)
+    sol101_iso_pshell_warped_strip_cb_warp_max =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_WARPED_STRIP_CB_WARP_MAX", 0.05),
+            sol101_iso_pshell_warped_strip_cb_warp_min)
+    sol101_iso_pshell_warped_strip_cb_h_over_l_min =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_WARPED_STRIP_CB_H_OVER_L_MIN", 0.20), 0.0)
+    sol101_iso_pshell_warped_strip_cb_h_over_l_max =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_WARPED_STRIP_CB_H_OVER_L_MAX", 0.35),
+            sol101_iso_pshell_warped_strip_cb_h_over_l_min)
+    sol101_iso_pshell_warped_strip_cb_aspect_max =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_WARPED_STRIP_CB_ASPECT_MAX", 1.3), 1.0)
+    sol101_iso_pshell_cyl_roof_cb_scale =
+        clamp(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CYL_ROOF_CB_SCALE", 1.35), 0.1, 2.0)
+    sol101_iso_pshell_cyl_roof_cb_h_over_l_min =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CYL_ROOF_CB_H_OVER_L_MIN", 0.035), 0.0)
+    sol101_iso_pshell_cyl_roof_cb_h_over_l_max =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CYL_ROOF_CB_H_OVER_L_MAX", 0.06),
+            sol101_iso_pshell_cyl_roof_cb_h_over_l_min)
+    sol101_iso_pshell_cyl_roof_cb_kappa_min =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CYL_ROOF_CB_KAPPA_L_MIN", 0.08), 0.0)
+    sol101_iso_pshell_cyl_roof_cb_kappa_max =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CYL_ROOF_CB_KAPPA_L_MAX", 0.23),
+            sol101_iso_pshell_cyl_roof_cb_kappa_min)
+    sol101_iso_pshell_cyl_roof_cb_cyl_ratio_max =
+        clamp(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CYL_ROOF_CB_CYL_RATIO_MAX", 0.05), 0.0, 1.0)
+    sol101_iso_pshell_cyl_roof_cb_aspect_max =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CYL_ROOF_CB_ASPECT_MAX", 1.5), 1.0)
+    sol101_iso_pshell_cyl_patch_cb_scale =
+        clamp(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CYL_PATCH_CB_SCALE", 0.2), 0.1, 2.0)
+    sol101_iso_pshell_cyl_patch_cb_h_over_l_min =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CYL_PATCH_CB_H_OVER_L_MIN", 0.015), 0.0)
+    sol101_iso_pshell_cyl_patch_cb_h_over_l_max =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CYL_PATCH_CB_H_OVER_L_MAX", 0.032),
+            sol101_iso_pshell_cyl_patch_cb_h_over_l_min)
+    sol101_iso_pshell_cyl_patch_cb_kappa_min =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CYL_PATCH_CB_KAPPA_L_MIN", 0.15), 0.0)
+    sol101_iso_pshell_cyl_patch_cb_kappa_max =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CYL_PATCH_CB_KAPPA_L_MAX", 0.36),
+            sol101_iso_pshell_cyl_patch_cb_kappa_min)
+    sol101_iso_pshell_cyl_patch_cb_cyl_ratio_max =
+        clamp(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CYL_PATCH_CB_CYL_RATIO_MAX", 0.05), 0.0, 1.0)
+    sol101_iso_pshell_cyl_patch_cb_aspect_min =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CYL_PATCH_CB_ASPECT_MIN", 1.45), 1.0)
+    sol101_iso_pshell_cyl_patch_cb_aspect_max =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_CYL_PATCH_CB_ASPECT_MAX", 1.75),
+            sol101_iso_pshell_cyl_patch_cb_aspect_min)
+    sol101_iso_pshell_double_curved_cb_scale =
+        clamp(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_DOUBLE_CURVED_CB_SCALE", 0.59), 0.1, 2.0)
+    sol101_iso_pshell_double_curved_cb_h_over_l_max =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_DOUBLE_CURVED_CB_H_OVER_L_MAX", 0.02), 0.0)
+    sol101_iso_pshell_double_curved_cb_kappa_min =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_DOUBLE_CURVED_CB_KAPPA_L_MIN", 0.12), 0.0)
+    sol101_iso_pshell_double_curved_cb_kappa_max =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_DOUBLE_CURVED_CB_KAPPA_L_MAX", 0.40),
+            sol101_iso_pshell_double_curved_cb_kappa_min)
+    sol101_iso_pshell_double_curved_cb_cyl_ratio_min =
+        clamp(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_DOUBLE_CURVED_CB_CYL_RATIO_MIN", 0.40), 0.0, 1.0)
+    sol101_iso_pshell_double_curved_cb_aspect_max =
+        max(solver_env_float("JFEM_SOL101_Q4_ISO_PSHELL_DOUBLE_CURVED_CB_ASPECT_MAX", 2.8), 1.0)
     static_component_pid_filter =
         shear_center_only ? Int[] : q4_static_component_pid_list()
     static_component_eid_filter =
@@ -3776,7 +3897,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 lc, geom_vec[i1], geom_vec[i2], geom_vec[i3], geom_vec[i4], v1, v2, v3
             )
         end
-        if (curved_iso_eig_membrane_incomp || flat_curved_iso_eig_center_only) &&
+        if (curved_iso_eig_membrane_incomp || flat_curved_iso_eig_center_only ||
+            sol101_iso_pshell_geom_cb_enabled) &&
            q4_is_isotropic[ei] &&
            geom_has[i1] && geom_has[i2] && geom_has[i3] && geom_has[i4]
             iso_geom_curvature = estimate_quad4_curvature_membrane(
@@ -3853,6 +3975,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # Flat elements on a smoothly curved shell patch can still need curved-shell
         # buckling treatment in K_eig, especially on faceted cylinders.
         flat_pcomp_h_over_l = q4_h[ei] / max(q4_curvature_characteristic_length(lc), 1e-12)
+        q4_h_over_max_edge = q4_h[ei] / max(q4_local_max_edge_length(lc), 1e-12)
         flat_curved_pcomp_fullshear_candidate = false
         if flat_curved_pcomp_fullshear &&
            elem_is_flat &&
@@ -4650,8 +4773,58 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         elem_static_component_cs_scale = elem_static_component_scale_ok ? static_component_cs_scale : 1.0
         elem_static_component_bmb_scale = elem_static_component_scale_ok ? static_component_bmb_scale : 1.0
         elem_static_component_drill_scale = elem_static_component_scale_ok ? static_component_drill_scale : 1.0
+        elem_sol101_iso_pshell_geom_cm_scale = 1.0
+        if sol101_iso_pshell_geom_cm_enabled &&
+           !is_pcomp_ei &&
+           q4_is_isotropic[ei] &&
+           elem_is_flat &&
+           aspect_ratio_ei >= sol101_iso_pshell_flat_strip_cm_aspect_min &&
+           aspect_ratio_ei <= sol101_iso_pshell_flat_strip_cm_aspect_max &&
+           warp_ratio_ei <= sol101_iso_pshell_flat_strip_cm_warp_max
+            elem_sol101_iso_pshell_geom_cm_scale = sol101_iso_pshell_flat_strip_cm_scale
+        end
+        elem_static_component_cm_scale *= elem_sol101_iso_pshell_geom_cm_scale
         elem_sol101_iso_pshell_cb_scale =
             (!is_pcomp_ei && q4_is_isotropic[ei]) ? sol101_q4_iso_pshell_cb_scale : 1.0
+        if sol101_iso_pshell_geom_cb_enabled &&
+           !is_pcomp_ei &&
+           q4_is_isotropic[ei]
+            sol101_geom_cb_scale = 1.0
+            if !elem_is_flat &&
+               warp_ratio_ei >= sol101_iso_pshell_warped_strip_cb_warp_min &&
+               warp_ratio_ei <= sol101_iso_pshell_warped_strip_cb_warp_max &&
+               q4_h_over_max_edge >= sol101_iso_pshell_warped_strip_cb_h_over_l_min &&
+               q4_h_over_max_edge <= sol101_iso_pshell_warped_strip_cb_h_over_l_max &&
+               aspect_ratio_ei <= sol101_iso_pshell_warped_strip_cb_aspect_max
+                sol101_geom_cb_scale = sol101_iso_pshell_warped_strip_cb_scale
+            elseif iso_geom_curvature !== nothing
+                if elem_is_flat &&
+                   kappa_l_iso >= sol101_iso_pshell_cyl_roof_cb_kappa_min &&
+                   kappa_l_iso <= sol101_iso_pshell_cyl_roof_cb_kappa_max &&
+                   cyl_ratio_iso <= sol101_iso_pshell_cyl_roof_cb_cyl_ratio_max &&
+                   q4_h_over_max_edge >= sol101_iso_pshell_cyl_roof_cb_h_over_l_min &&
+                   q4_h_over_max_edge <= sol101_iso_pshell_cyl_roof_cb_h_over_l_max &&
+                   aspect_ratio_ei <= sol101_iso_pshell_cyl_roof_cb_aspect_max
+                    sol101_geom_cb_scale = sol101_iso_pshell_cyl_roof_cb_scale
+                elseif elem_is_flat &&
+                       kappa_l_iso >= sol101_iso_pshell_cyl_patch_cb_kappa_min &&
+                       kappa_l_iso <= sol101_iso_pshell_cyl_patch_cb_kappa_max &&
+                       cyl_ratio_iso <= sol101_iso_pshell_cyl_patch_cb_cyl_ratio_max &&
+                       q4_h_over_max_edge >= sol101_iso_pshell_cyl_patch_cb_h_over_l_min &&
+                       q4_h_over_max_edge <= sol101_iso_pshell_cyl_patch_cb_h_over_l_max &&
+                       aspect_ratio_ei >= sol101_iso_pshell_cyl_patch_cb_aspect_min &&
+                       aspect_ratio_ei <= sol101_iso_pshell_cyl_patch_cb_aspect_max
+                    sol101_geom_cb_scale = sol101_iso_pshell_cyl_patch_cb_scale
+                elseif kappa_l_iso >= sol101_iso_pshell_double_curved_cb_kappa_min &&
+                       kappa_l_iso <= sol101_iso_pshell_double_curved_cb_kappa_max &&
+                       cyl_ratio_iso >= sol101_iso_pshell_double_curved_cb_cyl_ratio_min &&
+                       q4_h_over_max_edge <= sol101_iso_pshell_double_curved_cb_h_over_l_max &&
+                       aspect_ratio_ei <= sol101_iso_pshell_double_curved_cb_aspect_max
+                    sol101_geom_cb_scale = sol101_iso_pshell_double_curved_cb_scale
+                end
+            end
+            elem_sol101_iso_pshell_cb_scale *= sol101_geom_cb_scale
+        end
         if elem_sol101_iso_pshell_cb_scale != 1.0
             @inbounds @fastmath for jj in 1:3, ii in 1:3
                 Cb_local[ii, jj] *= elem_sol101_iso_pshell_cb_scale
@@ -5578,6 +5751,20 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     kg_shell_nyy = kg_shell_nyy_scale()
     kg_shell_axial_dom_min = kg_shell_axial_scale_dominance_min()
     kg_quad4_membrane_scale = kg_quad4_membrane_scale_factor()
+    sol105_pshell_iso_flat_square_kg_enabled =
+        sol105_geom_pshell_iso_flat_square_kg_scale_enabled()
+    sol105_pshell_iso_flat_square_kg_scale =
+        sol105_geom_pshell_iso_flat_square_kg_scale_value()
+    sol105_pshell_iso_flat_square_kg_aspect_min =
+        sol105_geom_pshell_iso_flat_square_kg_aspect_min()
+    sol105_pshell_iso_flat_square_kg_aspect_max =
+        sol105_geom_pshell_iso_flat_square_kg_aspect_max()
+    sol105_pshell_iso_flat_square_kg_warp_max =
+        sol105_geom_pshell_iso_flat_square_kg_warp_max()
+    sol105_pshell_iso_flat_square_kg_h_over_lmax_min =
+        sol105_geom_pshell_iso_flat_square_kg_h_over_lmax_min()
+    sol105_pshell_iso_flat_square_kg_h_over_lmax_max =
+        sol105_geom_pshell_iso_flat_square_kg_h_over_lmax_max()
     kg_quad4_feature_membrane_scale = kg_quad4_feature_membrane_scale_factor()
     kg_quad4_feature_membrane_scale_components_v = kg_quad4_feature_membrane_scale_components()
     kg_quad4_feature_membrane_scale_pcomp_only_v = kg_quad4_feature_membrane_scale_pcomp_only()
@@ -6783,12 +6970,31 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     kg_shell_pcomp_nxy_shear_dom_compression_only_v,
                 )
             end
+            h_over_lmax_kg = h / max(q4_local_max_edge_length(lc_buf4), 1e-12)
+            geom_pshell_iso_flat_square_kg_scale =
+                sol105_pshell_iso_flat_square_kg_enabled ?
+                sol105_geom_pshell_iso_flat_square_kg_scale(
+                    !is_pcomp_clt && is_iso_kg,
+                    elem_is_flat_kg,
+                    aspect_ratio_kg,
+                    warp_ratio_kg,
+                    h_over_lmax_kg,
+                    sol105_pshell_iso_flat_square_kg_scale,
+                    sol105_pshell_iso_flat_square_kg_aspect_min,
+                    sol105_pshell_iso_flat_square_kg_aspect_max,
+                    sol105_pshell_iso_flat_square_kg_warp_max,
+                    sol105_pshell_iso_flat_square_kg_h_over_lmax_min,
+                    sol105_pshell_iso_flat_square_kg_h_over_lmax_max,
+                ) : 1.0
+            if geom_pshell_iso_flat_square_kg_scale != 1.0
+                sigma_mem_input .*= geom_pshell_iso_flat_square_kg_scale
+            end
             geom_pcomp_kg_scale = sol105_geom_pcomp_kg_scale(
                 is_pcomp_clt,
                 pcomp_is_isotropic,
                 aspect_ratio_kg,
                 taper_ratio_kg,
-                h / max(q4_local_max_edge_length(lc_buf4), 1e-12),
+                h_over_lmax_kg,
                 n_q4 + n_t3,
             )
             if geom_pcomp_kg_scale != 1.0
@@ -6807,7 +7013,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 is_pcomp_clt,
                 pcomp_is_isotropic,
                 aspect_ratio_kg,
-                h / max(q4_local_max_edge_length(lc_buf4), 1e-12),
+                h_over_lmax_kg,
             )
             if low_aspect_pcomp_kg_scale != 1.0
                 sigma_mem_input .*= low_aspect_pcomp_kg_scale

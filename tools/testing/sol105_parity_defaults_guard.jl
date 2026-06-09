@@ -28,6 +28,21 @@ function _with_env(f::Function, key::AbstractString, value)
     end
 end
 
+function _without_env(f::Function, keys)
+    old = Dict(key => get(ENV, key, nothing) for key in keys)
+    try
+        for key in keys
+            delete!(ENV, key)
+        end
+        return f()
+    finally
+        for key in keys
+            delete!(ENV, key)
+            old[key] === nothing || (ENV[key] = old[key])
+        end
+    end
+end
+
 function _long_temp_artifact_path()
     tmp = joinpath(tempdir(), "openjfem_export_longpath_guard")
     parts = fill("segment0123456789", 20)
@@ -46,6 +61,34 @@ end
     end
 end
 
+@testset "SOL105 stress-state calibration defaults" begin
+    _with_env("JFEM_SOL105_LOAD_AWARE_KERNEL", nothing) do
+        @test OpenJFEM.Solver.sol105_load_aware_kernel_enabled() == false
+    end
+    _with_env("JFEM_SOL105_LOAD_AWARE_KERNEL", "true") do
+        @test OpenJFEM.Solver.sol105_load_aware_kernel_enabled() == true
+    end
+    _with_env("JFEM_SOL105_LOAD_AWARE_KERNEL", "false") do
+        @test OpenJFEM.Solver.sol105_load_aware_kernel_enabled() == false
+    end
+
+    _without_env((
+        "JFEM_KG_QUAD4_AUTO_GP_SPREAD",
+        "JFEM_KG_QUAD4_GP_FIELD_PMIN_SPREAD_AVG_MIN",
+        "JFEM_KG_QUAD4_GP_FIELD_PMIN_SPREAD_AVG_ALPHA",
+        "JFEM_KG_SHELL_PCOMP_NXY_SCALE",
+        "JFEM_KG_SHELL_PCOMP_NXY_ASPECT_SCALE",
+        "JFEM_KG_SHELL_PCOMP_NXY_SHEAR_DOM_RELAX",
+    )) do
+        @test OpenJFEM.Solver.kg_quad4_auto_gp_spread_enabled() == false
+        @test isinf(OpenJFEM.Solver.kg_quad4_gp_field_pmin_spread_avg_min())
+        @test isapprox(OpenJFEM.Solver.kg_quad4_gp_field_pmin_spread_avg_alpha(), 0.0; atol=0.0)
+        @test isapprox(OpenJFEM.Solver.kg_shell_pcomp_nxy_scale(), 1.0; atol=0.0)
+        @test OpenJFEM.Solver.kg_shell_pcomp_nxy_aspect_scale_enabled() == false
+        @test isapprox(OpenJFEM.Solver.kg_shell_pcomp_nxy_shear_dom_relax(), 0.0; atol=0.0)
+    end
+end
+
 @testset "SOL105 PCOMP Kg geometry/material scaling" begin
     scale = OpenJFEM.Solver.sol105_geom_pcomp_kg_scale
 
@@ -58,6 +101,18 @@ end
 
     @test isapprox(scale(false, false, 8.0, 1.0, 0.040, 100), 1.0; rtol=1e-12)
     @test isapprox(scale(true, true, 8.0, 1.0, 0.040, 100), 1.0; rtol=1e-12)
+end
+
+@testset "SOL105 PSHELL flat-square Kg geometry/material scaling" begin
+    scale = OpenJFEM.Solver.sol105_geom_pshell_iso_flat_square_kg_scale
+    args = (1.03, 0.9, 1.1, 1.0e-8, 0.03, 0.08)
+
+    @test isapprox(scale(true, true, 1.0, 0.0, 0.05, args...), 1.03; rtol=1e-12)
+    @test isapprox(scale(false, true, 1.0, 0.0, 0.05, args...), 1.0; rtol=1e-12)
+    @test isapprox(scale(true, false, 1.0, 0.0, 0.05, args...), 1.0; rtol=1e-12)
+    @test isapprox(scale(true, true, 1.2, 0.0, 0.05, args...), 1.0; rtol=1e-12)
+    @test isapprox(scale(true, true, 1.0, 2.0e-8, 0.05, args...), 1.0; rtol=1e-12)
+    @test isapprox(scale(true, true, 1.0, 0.0, 0.02, args...), 1.0; rtol=1e-12)
 end
 
 @testset "Export long-path helper" begin

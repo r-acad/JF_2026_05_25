@@ -17,9 +17,10 @@ Re-run that script if the source BDF or the material properties change.
 
 ## Source
 
-Copied from `03_EXTERNAL_TOOLS/tacs-master/examples/crm/CRM_box_2nd.bdf`
-(Apache 2.0). The TACS Python runner that drives this mesh is
-`03_EXTERNAL_TOOLS/tacs-master/examples/crm/crm_frequency.py`.
+Copied from the TACS public repository
+(`examples/crm/CRM_box_2nd.bdf`, Apache 2.0). The TACS Python runner that
+defines the material and thickness values is
+`examples/crm/crm_frequency.py` in the same upstream repository.
 
 ## Modifications Made
 
@@ -42,6 +43,17 @@ Copied from `03_EXTERNAL_TOOLS/tacs-master/examples/crm/CRM_box_2nd.bdf`
 
 Geometry, node numbering, element connectivity, and the SPC set are
 unchanged from the upstream TACS deck.
+
+## Modal Mass Formulation
+
+OpenJFEM runs SOL 103 shell modes with coupled consistent PSHELL mass by
+default. That route matches the CRM modal reference family and recovers the
+first five reference eigenvalues in order. The mass route is generic:
+`PARAM,COUPMASS,YES` requests coupled mass, `PARAM,COUPMASS,NO` requests
+Nastran-style lumped shell mass, and `JFEM_SOL103_SHELL_MASS=consistent` or
+`lumped` can force either path for diagnostics. Modal effective mass is reported
+with global rigid-translation vectors in the assembled analysis DOF frame, so
+GRID `CD` output-frame rotations preserve the same physical mass totals.
 
 ## Mesh Summary
 

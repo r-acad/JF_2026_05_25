@@ -339,6 +339,23 @@ function _sol200_lite_static_response_spec(response::Dict{String,Any}; ks_rho::F
             "grid" => Int(grid),
             "dof" => Int(dof),
         )
+    elseif family == "ks_displacement"
+        grid = get(response, "atta", nothing)
+        dof = get(response, "attb", nothing)
+        isnothing(grid) && error("SOL 200-lite KS displacement routing requires DRESP1 ATTA to identify the first grid")
+        isnothing(dof) && error("SOL 200-lite KS displacement routing requires DRESP1 ATTB to identify the component")
+        grids = Int[Int(grid)]
+        for raw in get(response, "atti", Any[])
+            raw isa Number || continue
+            push!(grids, Int(raw))
+        end
+        return :ks_displacement, Dict{String,Any}(
+            "type" => "ks_displacement",
+            "grids" => sort!(unique(grids)),
+            "dof" => Int(dof),
+            "rho" => ks_rho,
+            "displacement_ref" => 1.0,
+        )
     elseif family == "von_mises"
         eids = sort!(collect(_sol200_lite_stress_response_eids(response)))
         isempty(eids) && (eids = "all")
@@ -352,7 +369,7 @@ function _sol200_lite_static_response_spec(response::Dict{String,Any}; ks_rho::F
     end
     response_id = get(response, "id", nothing)
     response_label = get(response, "label", nothing)
-    error("SOL 200-lite static response route only supports compliance, displacement, or KS von-Mises constraints (DRESP1 $(response_id), label=$(response_label), family=$(family))")
+    error("SOL 200-lite static response route only supports compliance, displacement, KS displacement, or KS von-Mises constraints (DRESP1 $(response_id), label=$(response_label), family=$(family))")
 end
 
 @inline function _sol200_lite_has_only_pcomp_ply_relations(model::Dict)
@@ -1344,6 +1361,75 @@ function _sol200_lite_stress_ks_rho(opt::Dict{String,Any})
     return rho
 end
 
+function _sol200_lite_positive_int_param(optimizer_params::AbstractDict, key::AbstractString, route_label::AbstractString)
+    raw = get(optimizer_params, key, nothing)
+    isnothing(raw) && return nothing
+    value = Int(round(Float64(raw)))
+    value >= 1 || error("$route_label requires DOPTPRM $key to be a positive integer mode index")
+    return value
+end
+
+function _sol200_lite_buckling_mode(optimizer_params::AbstractDict)
+    mode = _sol200_lite_positive_int_param(optimizer_params, "BUCKMODE", "SOL 200-lite buckling route")
+    return isnothing(mode) ? 1 : mode
+end
+
+function _sol200_lite_buckling_ks_modes(optimizer_params::AbstractDict, buckling_mode::Integer)
+    indexed_modes = Tuple{Int,Int}[]
+    for (key_raw, value) in optimizer_params
+        key = uppercase(strip(string(key_raw)))
+        m = match(r"^BUCKM([0-9]+)$", key)
+        isnothing(m) && continue
+        slot = parse(Int, m.captures[1])
+        slot >= 1 || error("SOL 200-lite buckling route requires DOPTPRM $key to use a positive BUCKM slot")
+        mode = Int(round(Float64(value)))
+        mode >= 1 || error("SOL 200-lite buckling route requires DOPTPRM $key to be a positive integer mode index")
+        push!(indexed_modes, (slot, mode))
+    end
+    if !isempty(indexed_modes)
+        sort!(indexed_modes; by=first)
+        modes = Int[mode for (_, mode) in indexed_modes]
+        return sort!(unique(modes))
+    end
+    return haskey(optimizer_params, "BUCKMODE") ? [Int(buckling_mode)] : nothing
+end
+
+function _sol200_lite_buckling_cluster_policy(optimizer_params::AbstractDict)
+    raw = get(optimizer_params, "BUCKPOL", nothing)
+    isnothing(raw) && return "current_mode"
+    return lowercase(strip(string(raw)))
+end
+
+function _sol200_lite_buckling_cluster_tolerances(optimizer_params::AbstractDict)
+    rel_tol = Float64(get(optimizer_params, "BUCKRTOL", 1e-8))
+    abs_tol = Float64(get(optimizer_params, "BUCKATOL", 1e-10))
+    rel_tol >= 0.0 || error("SOL 200-lite buckling route requires nonnegative DOPTPRM BUCKRTOL")
+    abs_tol >= 0.0 || error("SOL 200-lite buckling route requires nonnegative DOPTPRM BUCKATOL")
+    return rel_tol, abs_tol
+end
+
+function _sol200_lite_bool_param(optimizer_params::AbstractDict, key::AbstractString; default::Bool=false)
+    raw = get(optimizer_params, key, nothing)
+    isnothing(raw) && return default
+    if raw isa Number
+        return Float64(raw) != 0.0
+    end
+    value = lowercase(strip(string(raw)))
+    value in ("1", "yes", "y", "true", "on", "mac", "previous_solve_mac") && return true
+    value in ("0", "no", "n", "false", "off", "none", "index") && return false
+    error("SOL 200-lite route could not interpret DOPTPRM $key='$raw' as a boolean flag.")
+end
+
+function _sol200_lite_buckling_mode_tracking(optimizer_params::AbstractDict)
+    enabled = _sol200_lite_bool_param(optimizer_params, "BUCKTRK"; default=false)
+    window = Int(round(Float64(get(optimizer_params, "BUCKWIN", 1))))
+    window >= 0 || error("SOL 200-lite buckling route requires nonnegative DOPTPRM BUCKWIN")
+    minimum_mac = Float64(get(optimizer_params, "BUCKMAC", 0.0))
+    0.0 <= minimum_mac <= 1.0 ||
+        error("SOL 200-lite buckling route requires DOPTPRM BUCKMAC in [0, 1]")
+    return enabled, window, minimum_mac
+end
+
 function _sol200_lite_stress_response_spec(response::AbstractDict, opt::Dict{String,Any})
     eids = sort!(collect(_sol200_lite_stress_response_eids(response)))
     isempty(eids) && (eids = "all")
@@ -1642,15 +1728,15 @@ function _sol200_lite_translate(model::Dict)
             haskey(responses, response_id) || error("SOL 200-lite route could not find DCONSTR response $response_id")
             response = responses[response_id]
             family = get(response, "candidate_response_family", nothing)
-            family in ("compliance", "displacement", "von_mises") ||
-                error("SOL 200-lite mass-minimization route only supports upper-bound compliance, displacement, or KS von-Mises constraints on the routed static subset")
+            family in ("compliance", "displacement", "ks_displacement", "von_mises") ||
+                error("SOL 200-lite mass-minimization route only supports upper-bound compliance, displacement, KS displacement, or KS von-Mises constraints on the routed static subset")
             push!(static_constraints, Dict(
                 "constraint" => constraint,
                 "response" => response,
                 "family" => family,
             ))
         end
-        !isempty(static_constraints) || error("SOL 200-lite mass-minimization route requires at least one upper-bound compliance, displacement, or KS von-Mises constraint")
+        !isempty(static_constraints) || error("SOL 200-lite mass-minimization route requires at least one upper-bound compliance, displacement, KS displacement, or KS von-Mises constraint")
         constraint_entries = Dict{String,Any}[]
         for selected_constraint in static_constraints
             response_upper_bound = Float64(selected_constraint["constraint"]["upper_allowable"])
@@ -1670,6 +1756,11 @@ function _sol200_lite_translate(model::Dict)
             if response_family == :displacement
                 entry["constraint_grid"] = Int(response_spec["grid"])
                 entry["constraint_dof"] = Int(response_spec["dof"])
+            elseif response_family == :ks_displacement
+                entry["constraint_grids"] = deepcopy(response_spec["grids"])
+                entry["constraint_dof"] = Int(response_spec["dof"])
+                entry["constraint_ks_rho"] = Float64(response_spec["rho"])
+                entry["constraint_displacement_ref"] = Float64(response_spec["displacement_ref"])
             elseif response_family == :ks_von_mises
                 entry["constraint_ks_rho"] = Float64(response_spec["rho"])
                 entry["constraint_sigma_ref"] = Float64(response_spec["sigma_ref"])
@@ -1698,6 +1789,13 @@ function _sol200_lite_translate(model::Dict)
             value > 0.0 || error("SOL 200-lite route requires DOPTPRM DELX to be positive when provided")
             value
         end
+    buckling_mode = _sol200_lite_buckling_mode(optimizer_params)
+    buckling_ks_modes = _sol200_lite_buckling_ks_modes(optimizer_params, buckling_mode)
+    buckling_cluster_policy = _sol200_lite_buckling_cluster_policy(optimizer_params)
+    buckling_cluster_rel_tol, buckling_cluster_abs_tol =
+        _sol200_lite_buckling_cluster_tolerances(optimizer_params)
+    buckling_mode_tracking, buckling_mode_tracking_candidate_window, buckling_mode_tracking_minimum_mac =
+        _sol200_lite_buckling_mode_tracking(optimizer_params)
 
     grouped_design_variables = Dict{String,Any}[]
     x_min = Float64[]
@@ -1771,6 +1869,34 @@ function _sol200_lite_translate(model::Dict)
         "tol" => tol,
     )
     merge!(route_summary, constraint_summary)
+    if translated_objective == :max_buckling
+        route_summary["buckling_mode"] = buckling_mode
+        route_summary["buckling_mode_selection"] =
+            haskey(optimizer_params, "BUCKMODE") ? "DOPTPRM_BUCKMODE" : "default_first_mode"
+        route_summary["buckling_cluster_policy"] = buckling_cluster_policy
+        route_summary["buckling_cluster_tolerances"] = Dict{String,Float64}(
+            "rel_tol" => buckling_cluster_rel_tol,
+            "abs_tol" => buckling_cluster_abs_tol,
+        )
+        route_summary["buckling_mode_tracking"] =
+            buckling_mode_tracking ? "previous_solve_mac" : "off"
+        route_summary["buckling_mode_tracking_candidate_window"] = buckling_mode_tracking_candidate_window
+        route_summary["buckling_mode_tracking_minimum_mac"] = buckling_mode_tracking_minimum_mac
+        if haskey(optimizer_params, "KSRHO")
+            route_summary["buckling_aggregation"] = "smooth_min_load_factor"
+            route_summary["buckling_ks_rho"] = stress_ks_rho
+            route_summary["buckling_aggregation_opt_in"] = "DOPTPRM_KSRHO"
+            if !isnothing(buckling_ks_modes)
+                route_summary["buckling_modes"] = Int.(collect(buckling_ks_modes))
+                route_summary["buckling_mode_selection"] =
+                    any(!isnothing(match(r"^BUCKM[0-9]+$", uppercase(string(k)))) for k in keys(optimizer_params)) ?
+                    "DOPTPRM_BUCKM" :
+                    route_summary["buckling_mode_selection"]
+            end
+        else
+            route_summary["buckling_aggregation"] = "first_mode"
+        end
+    end
 
     return translated_objective, forward_sol_type, kinds, x_min, x_max, move_limit, max_iter, tol, mass_target, response_constraints, route_summary, sorted_group_specs
 end
@@ -1899,7 +2025,16 @@ function _solve_sol200_lite(model::Dict)
             vol_frac=Float64(vol_frac),
             max_iter=max_iter,
             tol=tol,
-            move_limit=move_limit)
+            move_limit=move_limit,
+            buckling_ks_rho=translated_objective == :max_buckling ? get(route_summary, "buckling_ks_rho", nothing) : nothing,
+            buckling_ks_modes=translated_objective == :max_buckling ? get(route_summary, "buckling_modes", nothing) : nothing,
+            buckling_mode=translated_objective == :max_buckling ? Int(get(route_summary, "buckling_mode", 1)) : 1,
+            buckling_cluster_policy=translated_objective == :max_buckling ? get(route_summary, "buckling_cluster_policy", "current_mode") : "current_mode",
+            buckling_cluster_rel_tol=translated_objective == :max_buckling ? Float64(get(get(route_summary, "buckling_cluster_tolerances", Dict{String,Any}()), "rel_tol", 1e-8)) : 1e-8,
+            buckling_cluster_abs_tol=translated_objective == :max_buckling ? Float64(get(get(route_summary, "buckling_cluster_tolerances", Dict{String,Any}()), "abs_tol", 1e-10)) : 1e-10,
+            buckling_mode_tracking=translated_objective == :max_buckling && get(route_summary, "buckling_mode_tracking", "off") != "off",
+            buckling_mode_tracking_candidate_window=translated_objective == :max_buckling ? Int(get(route_summary, "buckling_mode_tracking_candidate_window", 1)) : 1,
+            buckling_mode_tracking_minimum_mac=translated_objective == :max_buckling ? Float64(get(route_summary, "buckling_mode_tracking_minimum_mac", 0.0)) : 0.0)
     end
 
     if translated_objective == :min_mass_static_response
@@ -2387,7 +2522,8 @@ end
 # SOL 103: Normal Modes
 # ============================================================================
 function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
-                       max_elem_stiff, rbe3_map, orig_diag, sorted_sids, mesh)
+                       max_elem_stiff, rbe3_map, orig_diag, sorted_sids, mesh;
+                       modal_mass_builder=nothing)
     println("\n>>> SOL 103 Normal Modes Analysis")
 
     modal_sids = Int[]
@@ -2448,7 +2584,10 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
                 K_sub, id_map_sub, X_sub, ndof_sub, node_R_sub, max_elem_stiff_sub, rbe3_map_sub, _, orig_diag_sub =
                     Solver.assemble_stiffness(model)
             end
-            return Solver.assemble_mass(model, id_map_sub, X_sub, node_R_sub, ndof_sub)
+            if modal_mass_builder === nothing
+                return Solver.assemble_mass(model, id_map_sub, X_sub, node_R_sub, ndof_sub)
+            end
+            return modal_mass_builder(model, id_map_sub, X_sub, node_R_sub, ndof_sub)
         end
 
         M = needs_temp_reassembly ?
@@ -2469,36 +2608,25 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
             eigen_cache=eigen_solve_cache, return_diagnostics=true)
         modal_wall_seconds = (time_ns() - t_modes) * 1e-9
 
-        total_mass = [0.0, 0.0, 0.0]
-        for (_, idx) in id_map_sub
-            base = (idx - 1) * 6
-            for d in 1:3
-                total_mass[d] += M[base + d, base + d]
-            end
-        end
+        total_mass, rigid_translations =
+            _sol103_total_translational_mass(M, id_map_sub, node_R_sub, ndof_sub)
         wtmass = Float64(get(model, "PARAM_WTMASS", 1.0))
+        mode_shapes_analysis = _sol103_global_to_analysis_modes(mode_shapes, id_map_sub, node_R_sub)
 
         modal_effective_mass = []
         for i in eachindex(frequencies)
-            phi = mode_shapes[:, i]
+            phi = mode_shapes_analysis[:, i]
+            Mphi = M * phi
+            gen_mass = dot(phi, Mphi)
             meff = zeros(3)
             for dir in 1:3
-                L_eff = 0.0
-                for (_, idx_n) in id_map_sub
-                    base = (idx_n - 1) * 6
-                    L_eff += M[base + dir, base + dir] * phi[base + dir]
-                    for d2 in 1:6
-                        if d2 != dir
-                            L_eff += M[base + dir, base + d2] * phi[base + d2]
-                        end
-                    end
-                end
-                gen_mass = dot(phi, M * phi)
+                L_eff = dot(rigid_translations[dir], Mphi)
                 meff[dir] = gen_mass > 1e-30 ? L_eff^2 / gen_mass : 0.0
             end
             push!(modal_effective_mass, Dict(
                 "mode" => i,
                 "freq" => frequencies[i],
+                "generalized_mass" => gen_mass,
                 "meff_x" => meff[1],
                 "meff_y" => meff[2],
                 "meff_z" => meff[3],
@@ -2515,7 +2643,13 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
             "total_mass_y" => total_mass[2],
             "total_mass_z" => total_mass[3],
             "wtmass" => wtmass,
+            "shell_mass_formulation" => Solver.sol103_shell_mass_formulation_name(model),
         )
+        solver_diagnostics["shell_mass_formulation"] = mass_summary["shell_mass_formulation"]
+        solver_diagnostics["modal_effective_mass_frame"] =
+            "global_translation_in_analysis_dof_frame"
+        solver_diagnostics["modal_generalized_mass"] =
+            [m["generalized_mass"] for m in modal_effective_mass]
         mode_shapes_out = _mode_shapes_to_list(mode_shapes, id_map_sub)
 
         push!(modal_subcases, Dict(
@@ -2551,6 +2685,7 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
                 "sid" => sid,
                 "local_mode" => i,
                 "freq" => frequencies[i],
+                "generalized_mass" => modal_effective_mass[i]["generalized_mass"],
                 "meff_x" => modal_effective_mass[i]["meff_x"],
                 "meff_y" => modal_effective_mass[i]["meff_y"],
                 "meff_z" => modal_effective_mass[i]["meff_z"],
@@ -3121,6 +3256,52 @@ end
 # ============================================================================
 # Helper: print SOL 103 results to console
 # ============================================================================
+function _sol103_global_translation_vector(id_map, node_R, ndof::Integer, dir::Integer)
+    r = zeros(Float64, ndof)
+    e = zeros(Float64, 3)
+    e[dir] = 1.0
+    for (_, idx) in id_map
+        base = (idx - 1) * 6
+        base + 3 <= ndof || continue
+        @views r[base + 1:base + 3] .= transpose(node_R[idx]) * e
+    end
+    return r
+end
+
+function _sol103_global_to_analysis_modes(mode_shapes_global, id_map, node_R)
+    mode_shapes_analysis = copy(mode_shapes_global)
+    for (_, idx) in id_map
+        base = (idx - 1) * 6
+        base + 6 <= size(mode_shapes_global, 1) || continue
+        R = node_R[idx]
+        for m in axes(mode_shapes_global, 2)
+            @views mode_shapes_analysis[base + 1:base + 3, m] =
+                transpose(R) * mode_shapes_global[base + 1:base + 3, m]
+            @views mode_shapes_analysis[base + 4:base + 6, m] =
+                transpose(R) * mode_shapes_global[base + 4:base + 6, m]
+        end
+    end
+    return mode_shapes_analysis
+end
+
+function _sol103_total_translational_mass(M, id_map, node_R, ndof::Integer)
+    total_mass = zeros(3)
+    rigid_translations = Vector{Vector{Float64}}(undef, 3)
+    for dir in 1:3
+        r = _sol103_global_translation_vector(id_map, node_R, ndof, dir)
+        rigid_translations[dir] = r
+        total_mass[dir] = dot(r, M * r)
+    end
+    return total_mass, rigid_translations
+end
+
+function _sol103_total_translational_mass(M, id_map)
+    node_count = isempty(id_map) ? 0 : maximum(values(id_map))
+    node_R = [Matrix{Float64}(I, 3, 3) for _ in 1:node_count]
+    total_mass, _ = _sol103_total_translational_mass(M, id_map, node_R, size(M, 1))
+    return total_mass
+end
+
 function _print_sol103_results(eigenvalues, frequencies, total_mass, wtmass, modal_effective_mass)
     println("\n>>> ============================================")
     println(">>> MASS SUMMARY")

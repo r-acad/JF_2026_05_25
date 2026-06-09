@@ -429,7 +429,30 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
     end
 end
 
-function recover_bar_stresses!(model, id_map, X, node_R, u_global, stresses, results_json)
+function recover_bar_stresses!(
+    model,
+    id_map,
+    X,
+    node_R,
+    u_global,
+    stresses,
+    results_json;
+    active_load_id=nothing,
+    active_load_scale::Float64=1.0,
+)
+    @inline function frame_force_dict_from_local(f_local)
+        return Dict(
+            "axial" => f_local[7],
+            "shear_1" => -f_local[2],
+            "shear_2" => -f_local[3],
+            "torque" => -f_local[4],
+            "moment_a1" => -f_local[6],
+            "moment_a2" => f_local[5],
+            "moment_b1" => f_local[12],
+            "moment_b2" => -f_local[11],
+        )
+    end
+
     @inline function surface_stress_sign(prop)
         section_type = uppercase(string(get(prop, "TYPE", "")))
         return section_type in ("ROD", "TUBE", "TUBE2") ? 1.0 : -1.0
@@ -494,9 +517,19 @@ function recover_bar_stresses!(model, id_map, X, node_R, u_global, stresses, res
         K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
         As_y = (K1 > 0.0) ? K1 * prop["A"] : Inf
         As_z = (K2 > 0.0) ? K2 * prop["A"] : Inf
-        forces = FEM.forces_frame3d(u_el, L, prop["A"], Iy, Iz, prop["J"], mat["E"], mat["G"]; As_y=As_y, As_z=As_z, I12=Iyz)
+        Ke_loc = FEM.stiffness_frame3d(L, prop["A"], Iy, Iz, prop["J"], mat["E"], mat["G"]; As_y=As_y, As_z=As_z, I12=Iyz)
+        pa = Int(get(bar, "PA", 0))
+        pb = Int(get(bar, "PB", 0))
+        if pa != 0 || pb != 0
+            Ke_loc = Matrix(Ke_loc)
+            apply_bar_pin_flags!(Ke_loc, pa, pb)
+        end
+        fixed_end_load = _beam_pload1_local_load_vector_for_sid(
+            model, eid, active_load_id, L, active_load_scale)
+        forces = frame_force_dict_from_local(Ke_loc * u_el - fixed_end_load)
         A_bar = Float64(prop["A"])
         sig_axial = (abs(A_bar) > 1e-30) ? forces["axial"]/A_bar : 0.0
+        axial_strain = mat["E"] > 0 ? sig_axial / mat["E"] : 0.0
         stresses[eid] = abs(sig_axial)
         push!(results_json["forces"]["cbar"], Dict("eid" => eid, "axial" => forces["axial"], "shear_1" => forces["shear_1"], "shear_2" => forces["shear_2"], "torque" => forces["torque"], "moment_a1" => forces["moment_a1"], "moment_a2" => forces["moment_a2"], "moment_b1" => forces["moment_b1"], "moment_b2" => forces["moment_b2"]))
 
@@ -512,6 +545,7 @@ function recover_bar_stresses!(model, id_map, X, node_R, u_global, stresses, res
             end_b["p$j"] = recover_surface_stress(prop, forces["moment_b1"], forces["moment_b2"], yj, zj, Iy, Iz, I12_sr)
         end
         push!(results_json["stresses"]["cbar"], Dict("eid"=>eid, "end_a"=>end_a, "end_b"=>end_b, "axial"=>sig_axial))
+        push!(results_json["strains"]["cbar"], Dict("eid"=>eid, "axial"=>axial_strain))
     end
 
     # --- CBEAMs (identical recovery to CBAR) ---
@@ -565,9 +599,19 @@ function recover_bar_stresses!(model, id_map, X, node_R, u_global, stresses, res
         K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
         As_y = (K1 > 0.0) ? K1 * prop["A"] : Inf
         As_z = (K2 > 0.0) ? K2 * prop["A"] : Inf
-        forces = FEM.forces_frame3d(u_el, L, prop["A"], Iy, Iz, prop["J"], mat["E"], mat["G"]; As_y=As_y, As_z=As_z, I12=Iyz)
+        Ke_loc = FEM.stiffness_frame3d(L, prop["A"], Iy, Iz, prop["J"], mat["E"], mat["G"]; As_y=As_y, As_z=As_z, I12=Iyz)
+        pa = Int(get(bar, "PA", 0))
+        pb = Int(get(bar, "PB", 0))
+        if pa != 0 || pb != 0
+            Ke_loc = Matrix(Ke_loc)
+            apply_bar_pin_flags!(Ke_loc, pa, pb)
+        end
+        fixed_end_load = _beam_pload1_local_load_vector_for_sid(
+            model, eid, active_load_id, L, active_load_scale)
+        forces = frame_force_dict_from_local(Ke_loc * u_el - fixed_end_load)
         A_bar = Float64(prop["A"])
         sig_axial = (abs(A_bar) > 1e-30) ? forces["axial"]/A_bar : 0.0
+        axial_strain = mat["E"] > 0 ? sig_axial / mat["E"] : 0.0
         stresses[eid] = abs(sig_axial)
         push!(results_json["forces"]["cbar"], Dict("eid" => eid, "axial" => forces["axial"], "shear_1" => forces["shear_1"], "shear_2" => forces["shear_2"], "torque" => forces["torque"], "moment_a1" => forces["moment_a1"], "moment_a2" => forces["moment_a2"], "moment_b1" => forces["moment_b1"], "moment_b2" => forces["moment_b2"]))
 
@@ -583,6 +627,7 @@ function recover_bar_stresses!(model, id_map, X, node_R, u_global, stresses, res
             end_b["p$j"] = recover_surface_stress(prop, forces["moment_b1"], forces["moment_b2"], yj, zj, Iy, Iz, I12_sr)
         end
         push!(results_json["stresses"]["cbar"], Dict("eid"=>eid, "end_a"=>end_a, "end_b"=>end_b, "axial"=>sig_axial))
+        push!(results_json["strains"]["cbar"], Dict("eid"=>eid, "axial"=>axial_strain))
     end
 end
 

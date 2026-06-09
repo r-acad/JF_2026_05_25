@@ -166,8 +166,9 @@ function _check_sol103(deck::AbstractString)
     _check_forced_metadata(results, 103)
     eigenvalues = Float64.(results["eigenvalues"])
     frequencies = Float64.(results["frequencies"])
+    expected_shell_mass = OpenJFEM.Solver.sol103_shell_mass_formulation_name(model)
     @test results["tacs_formulation_sol103"]["linear_stiffness"] == "residual_first_quad4_cquadr_tria3"
-    @test results["tacs_formulation_sol103"]["mass"] == "shared_jfem_mass"
+    @test results["tacs_formulation_sol103"]["mass"] == "shared_jfem_mass_" * expected_shell_mass
     @test !isempty(eigenvalues)
     @test !isempty(frequencies)
     @test all(isfinite, eigenvalues)

@@ -1,13 +1,15 @@
 # OpenJFEM Reference Documentation
 
-This folder is the public documentation drop. It contains the finished PDFs
-generated from LaTeX sources kept outside the public repository, plus a small
-set of Markdown notes that complement the source code.
+This folder is the curated public documentation drop. It contains finished
+documents selected from private sources kept outside the public repository,
+plus a small set of Markdown notes that complement the source code.
 
-PDFs in this folder are mirrored automatically from
-`04_DOCUMENTATION_IN_WORK/` by `sync_pdfs_to_reference.ps1`. The mirror
-includes every PDF the project produces - canonical OpenJFEM documentation,
-external talks, and pitches.
+Documents in this folder are published by manifest, not by automatic mirroring.
+Edit `03_PRIVATE_DOCUMENTS/MANIFESTS/published_documents.json` in the private
+workspace and run `03_PRIVATE_DOCUMENTS/publish_reference_documents.ps1`.
+Only entries with `"publish": true` are copied here. Use `-Prune` when the
+public folder should remove previously published files that are no longer in
+the manifest.
 
 ## PDF Documents
 
@@ -34,12 +36,11 @@ external talks, and pitches.
 | --- | --- |
 | `case_submission_methods.md` | The supported ways to submit a case to OpenJFEM (single deck, batch, JSON manifest, JSONL worker). |
 | `hdf5_export.md` | Layout of the aggregated and per-solution HDF5 outputs. |
+| `tacs_core_capability_matrix.md` | Current JFEM-core TACS formulation/sensitivity coverage and the implementation order for missing core capabilities. |
 
 ## How These Documents Are Built
 
-LaTeX sources are kept in the private development workspace at
-`04_DOCUMENTATION_IN_WORK/` to avoid shipping build byproducts (`.aux`,
-`.log`, `.fdb_latexmk`, etc.) to end users. Only the finished PDFs are
-published here. When a source document is updated, run
-`04_DOCUMENTATION_IN_WORK/build_all.ps1` (or any per-folder `build.ps1`);
-the sync script then refreshes this folder automatically.
+LaTeX sources are kept in the private development workspace under
+`03_PRIVATE_DOCUMENTS/` to avoid shipping source material or build byproducts
+(`.aux`, `.log`, `.fdb_latexmk`, etc.) to end users. Build documents privately,
+then publish the selected finished files through the manifest-driven script.

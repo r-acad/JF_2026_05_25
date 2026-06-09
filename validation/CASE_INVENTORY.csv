@@ -1,0 +1,11 @@
+case_id,family,sol,deck,reference,license,public_reason
+MH_curved_beam_in_plane,macneal_harder,101,cases/macneal_harder/curved_beam.bdf,analytical:MacNeal-Harder curved cantilever beam,public benchmark,"Published classical benchmark with closed-form reference"
+MH_twisted_beam_in_plane,macneal_harder,101,cases/macneal_harder/twisted_beam.bdf,analytical:MacNeal-Harder twisted cantilever beam,public benchmark,"Published classical benchmark with closed-form reference"
+MH_scordelis_lo,macneal_harder,101,cases/macneal_harder/scordelis_lo.bdf,analytical:MacNeal-Harder Scordelis-Lo roof,public benchmark,"Published classical benchmark with closed-form reference"
+MH_pinched_cylinder,macneal_harder,101,cases/macneal_harder/pinched_cylinder.bdf,analytical:MacNeal-Harder pinched cylinder,public benchmark,"Published classical benchmark with closed-form reference"
+MH_hemispherical_shell,macneal_harder,101,cases/macneal_harder/hemispherical_shell.bdf,analytical:MacNeal-Harder hemispherical shell,public benchmark,"Published classical benchmark with closed-form reference"
+TG_plate_uniaxial_buckling,classical,105,cases/classical/timoshenko_plate_buckling.bdf,analytical:Timoshenko-Gere simply-supported plate buckling,public benchmark,"Classical published formula transcribed into a synthetic deck"
+BA_cylinder_axial_buckling,classical,105,cases/classical/cylinder_axial_buckling.bdf,analytical:Brush-Almroth thin-cylinder axial buckling,public benchmark,"Classical published formula transcribed into a synthetic deck"
+MYSTRAN_sol101_simple,mystran_xref,101,cases/mystran_xref/sol101_simple.bdf,csv:references/commercial_reference.csv,MIT,"Small open-source MYSTRAN suite cross-check"
+MYSTRAN_sol105_buckling,mystran_xref,105,cases/mystran_xref/sol105_buckling.bdf,csv:references/commercial_reference.csv,MIT,"Small open-source MYSTRAN suite cross-check"
+CRM_wingbox_modal,crm,103,cases/crm/wingbox_modal_with_props.bdf,csv:references/commercial_reference.csv,Apache-2.0,"Public TACS uCRM coarse wingbox deck with synthesized public properties"

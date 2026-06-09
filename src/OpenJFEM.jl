@@ -40,6 +40,7 @@ using .Solver
 # JFEMSolver's _export_results_impl references symbols that are defined
 # in Export.jl, but only at call time, so parsing order is safe.
 include("backend/BackendInterface.jl")
+include("backend/tacs_formulation/core.jl")
 include("backend/tacs_formulation/sol101.jl")
 include("ModelBuilder.jl")
 include("JFEMSolver.jl")
@@ -68,8 +69,14 @@ export main,
        backend_from_model, backend_from_name, backend_name,
        static_compliance_thickness_gradient, static_displacement_thickness_gradient,
        static_compliance_design_gradient, static_displacement_design_gradient,
+       static_ks_displacement_design_gradient,
        static_ks_von_mises_design_gradient,
-       buckling_load_factor_thickness_gradient,
+       static_ks_ply_failure_design_gradient,
+       structural_mass_design_gradient,
+       buckling_load_factor_thickness_gradient, buckling_load_factor_design_gradient,
+       buckling_load_factor_ks_design_gradient,
+       modal_eigenvalue_design_gradient,
+       eigen_mode_tracking_reference, eigen_mode_continuation_update,
        solve_adjoint, solve_adjoint_buckling,
        optimize_thickness, optimize_sizing,
        build_model, resolve_nested_coords!, transform_geometry!,

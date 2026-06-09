@@ -168,10 +168,12 @@ function extract_cbeam(cards)
         end
         if g0 == 0 && norm(v) < 1e-6; v = [0.0, 0.0, 1.0]; end
 
+        pa = to_id(parse_nastran_number(safe_get(c, 11), 0))
+        pb = to_id(parse_nastran_number(safe_get(c, 12), 0))
         wa = [parse_nastran_number(safe_get(c, 13), 0.0), parse_nastran_number(safe_get(c, 14), 0.0), parse_nastran_number(safe_get(c, 15), 0.0)]
         wb = [parse_nastran_number(safe_get(c, 16), 0.0), parse_nastran_number(safe_get(c, 17), 0.0), parse_nastran_number(safe_get(c, 18), 0.0)]
 
-        d[string(id)] = Dict("ID"=>id, "PID"=>pid, "GA"=>ga, "GB"=>gb, "V"=>v, "G0"=>g0, "WA"=>wa, "WB"=>wb, "TYPE"=>"CBEAM")
+        d[string(id)] = Dict("ID"=>id, "PID"=>pid, "GA"=>ga, "GB"=>gb, "V"=>v, "G0"=>g0, "PA"=>pa, "PB"=>pb, "WA"=>wa, "WB"=>wb, "TYPE"=>"CBEAM")
     end
     return d
 end

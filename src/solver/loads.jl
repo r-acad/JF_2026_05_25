@@ -105,6 +105,158 @@ end
     return Vector{Float64}(moment) .- dot(moment, nhat) .* nhat
 end
 
+function _beam_pload1_interval(pload::AbstractDict, L::Real)
+    x1_raw = Float64(get(pload, "X1", 0.0))
+    x2_raw = Float64(get(pload, "X2", 1.0))
+    pscale = uppercase(strip(string(get(pload, "SCALE", ""))))
+    if pscale == "LE" || pscale == ""
+        xa0, xb0 = x1_raw, x2_raw
+    else
+        xa0, xb0 = x1_raw * Float64(L), x2_raw * Float64(L)
+    end
+    xb0 > xa0 || return nothing
+    xa = clamp(xa0, 0.0, Float64(L))
+    xb = clamp(xb0, 0.0, Float64(L))
+    xb > xa || return nothing
+    return xa0, xb0, xa, xb
+end
+
+function _line_rforce_consistent_endpoint_forces(
+    mass_per_length::Real,
+    p1::AbstractVector,
+    p2::AbstractVector,
+    center::AbstractVector,
+    axis::AbstractVector,
+    omega2::Real,
+)
+    L = norm(p2 .- p1)
+    if L <= 1e-30 || mass_per_length <= 0.0 || omega2 == 0.0
+        return nothing
+    end
+    r1 = Float64.(p1 .- center)
+    r2 = Float64.(p2 .- center)
+    r1_perp = r1 .- dot(r1, axis) .* axis
+    r2_perp = r2 .- dot(r2, axis) .* axis
+    coeff = Float64(mass_per_length) * L * Float64(omega2)
+    f1 = coeff .* (r1_perp ./ 3.0 .+ r2_perp ./ 6.0)
+    f2 = coeff .* (r1_perp ./ 6.0 .+ r2_perp ./ 3.0)
+    return f1, f2
+end
+
+function _add_line_rforce!(
+    F_acc,
+    idx1::Integer,
+    idx2::Integer,
+    p1::AbstractVector,
+    p2::AbstractVector,
+    mass_per_length::Real,
+    center::AbstractVector,
+    axis::AbstractVector,
+    omega2::Real,
+)
+    forces = _line_rforce_consistent_endpoint_forces(
+        mass_per_length, p1, p2, center, axis, omega2)
+    forces === nothing && return
+    f1, f2 = forces
+    dof1 = (Int(idx1) - 1) * 6
+    dof2 = (Int(idx2) - 1) * 6
+    F_acc[dof1+1:dof1+3] .+= f1
+    F_acc[dof2+1:dof2+3] .+= f2
+    return
+end
+
+function _beam_pload1_equivalent_local_load_vector(pload::AbstractDict, L::Real, scale::Real=1.0)
+    interval = _beam_pload1_interval(pload, L)
+    interval === nothing && return zeros(Float64, 12)
+    xa0, xb0, xa, xb = interval
+    ltype = Int(get(pload, "LOAD_TYPE", 0))
+    1 <= ltype <= 6 || return zeros(Float64, 12)
+
+    p1 = Float64(get(pload, "P1", 0.0)) * Float64(scale)
+    p2 = Float64(get(pload, "P2", 0.0)) * Float64(scale)
+    seg0 = xb0 - xa0
+    seg0 > 0.0 || return zeros(Float64, 12)
+
+    f = zeros(Float64, 12)
+    mid = 0.5 * (xa + xb)
+    half = 0.5 * (xb - xa)
+    gp = (-sqrt(3.0 / 5.0), 0.0, sqrt(3.0 / 5.0))
+    gw = (5.0 / 9.0, 8.0 / 9.0, 5.0 / 9.0)
+    for (g, wgt) in zip(gp, gw)
+        x = mid + half * g
+        xi = x / Float64(L)
+        q = p1 + (p2 - p1) * (x - xa0) / seg0
+        w = half * wgt
+
+        Na = 1.0 - xi
+        Nb = xi
+        if ltype == 1
+            f[1] += w * q * Na
+            f[7] += w * q * Nb
+        elseif ltype == 2 || ltype == 3
+            N1 = 1.0 - 3.0 * xi^2 + 2.0 * xi^3
+            N2 = Float64(L) * (xi - 2.0 * xi^2 + xi^3)
+            N3 = 3.0 * xi^2 - 2.0 * xi^3
+            N4 = Float64(L) * (-xi^2 + xi^3)
+            if ltype == 2
+                f[2] += w * q * N1
+                f[6] += w * q * N2
+                f[8] += w * q * N3
+                f[12] += w * q * N4
+            else
+                f[3] += w * q * N1
+                f[5] -= w * q * N2
+                f[9] += w * q * N3
+                f[11] -= w * q * N4
+            end
+        elseif ltype == 4
+            f[4] += w * q * Na
+            f[10] += w * q * Nb
+        elseif ltype == 5
+            f[5] += w * q * Na
+            f[11] += w * q * Nb
+        elseif ltype == 6
+            f[6] += w * q * Na
+            f[12] += w * q * Nb
+        end
+    end
+    return f
+end
+
+function _beam_pload1_local_load_vector_for_sid(
+    model::AbstractDict,
+    eid::Integer,
+    sid,
+    L::Real,
+    scale::Real=1.0,
+    visited::Set{Int}=Set{Int}(),
+)
+    isnothing(sid) && return zeros(Float64, 12)
+    sid_int = Int(sid)
+    sid_int in visited && return zeros(Float64, 12)
+    push!(visited, sid_int)
+    f = zeros(Float64, 12)
+    for pload in get(model, "PLOAD1s", [])
+        if Int(get(pload, "SID", 0)) == sid_int && Int(get(pload, "EID", 0)) == Int(eid)
+            f .+= _beam_pload1_equivalent_local_load_vector(pload, L, scale)
+        end
+    end
+    for combo in get(model, "LOAD_COMBOS", [])
+        if Int(get(combo, "SID", 0)) == sid_int
+            combo_scale = Float64(scale) * Float64(get(combo, "S", 1.0))
+            for sub in get(combo, "COMPS", [])
+                f .+= _beam_pload1_local_load_vector_for_sid(
+                    model, eid, Int(sub["LID"]), L,
+                    combo_scale * Float64(get(sub, "S", 1.0)),
+                    visited,
+                )
+            end
+        end
+    end
+    delete!(visited, sid_int)
+    return f
+end
+
 function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
     raw_forces = Dict{Int, Vector{Float64}}()
     add_force = (gid, vec) -> begin
@@ -617,6 +769,73 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
                     F_acc[dof+1] += f_cf[1]; F_acc[dof+2] += f_cf[2]; F_acc[dof+3] += f_cf[3]
                 end
             end
+
+            # Two-node line elements. The centrifugal acceleration is linear
+            # along a straight element, so use the consistent two-node
+            # equivalent translational loads rather than endpoint lumping.
+            props_rf = get(model, "PBARLs", Dict())
+            for group_name in ("CBARs", "CBEAMs")
+                for (_, bar) in get(model, group_name, Dict())
+                    pid = string(get(bar, "PID", 0))
+                    prop = get(props_rf, pid, nothing)
+                    prop === nothing && continue
+                    mid = string(get(prop, "MID", 0))
+                    mat = get(mats_rf, mid, nothing)
+                    mat === nothing && continue
+                    rho = Float64(get(mat, "RHO", 0.0))
+                    area = Float64(get(prop, "A", 0.0))
+                    nsm = Float64(get(prop, "NSM", 0.0))
+                    mass_per_length = rho * area + nsm
+                    mass_per_length > 0.0 || continue
+                    ga, gb = get(bar, "GA", 0), get(bar, "GB", 0)
+                    (haskey(id_map, ga) && haskey(id_map, gb)) || continue
+                    i1, i2 = id_map[ga], id_map[gb]
+                    p1 = view(node_coords, i1, :)
+                    p2 = view(node_coords, i2, :)
+                    _add_line_rforce!(
+                        F_acc, i1, i2, p1, p2, mass_per_length, center, axis, omega2)
+                end
+            end
+
+            prods_rf = get(model, "PRODs", Dict())
+            for (_, rod) in get(model, "CRODs", Dict())
+                pid = string(get(rod, "PID", 0))
+                prop = get(prods_rf, pid, nothing)
+                prop === nothing && continue
+                mid = string(get(prop, "MID", 0))
+                mat = get(mats_rf, mid, nothing)
+                mat === nothing && continue
+                rho = Float64(get(mat, "RHO", 0.0))
+                area = Float64(get(prop, "A", 0.0))
+                nsm = Float64(get(prop, "NSM", 0.0))
+                mass_per_length = rho * area + nsm
+                mass_per_length > 0.0 || continue
+                ga, gb = get(rod, "GA", 0), get(rod, "GB", 0)
+                (haskey(id_map, ga) && haskey(id_map, gb)) || continue
+                i1, i2 = id_map[ga], id_map[gb]
+                p1 = view(node_coords, i1, :)
+                p2 = view(node_coords, i2, :)
+                _add_line_rforce!(
+                    F_acc, i1, i2, p1, p2, mass_per_length, center, axis, omega2)
+            end
+
+            for (_, rod) in get(model, "CONRODs", Dict())
+                mid = string(get(rod, "MID", 0))
+                mat = get(mats_rf, mid, nothing)
+                mat === nothing && continue
+                rho = Float64(get(mat, "RHO", 0.0))
+                area = Float64(get(rod, "A", 0.0))
+                nsm = Float64(get(rod, "NSM", 0.0))
+                mass_per_length = rho * area + nsm
+                mass_per_length > 0.0 || continue
+                ga, gb = get(rod, "GA", 0), get(rod, "GB", 0)
+                (haskey(id_map, ga) && haskey(id_map, gb)) || continue
+                i1, i2 = id_map[ga], id_map[gb]
+                p1 = view(node_coords, i1, :)
+                p2 = view(node_coords, i2, :)
+                _add_line_rforce!(
+                    F_acc, i1, i2, p1, p2, mass_per_length, center, axis, omega2)
+            end
         end
     end
 
@@ -643,12 +862,30 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
             if L < 1e-9; continue; end
             vx = normalize(p2g - p1g)
             vref = resolve_bar_vref(bar, p1g, id_map, node_coords)
-            # Nastran convention: V vector defines the x-z plane (plane 2)
-            # v3 (vz) = component of V perpendicular to element axis
-            # v2 (vy) = v3 × v1
-            vz = normalize(vref - dot(vref, vx) * vx)
+            if norm(vref) < 1e-6 || abs(dot(vx, vref) / max(norm(vref), 1e-30)) > 0.999
+                vref = abs(vx[3]) < 0.9 ? SVector(0.0, 0.0, 1.0) : SVector(0.0, 1.0, 0.0)
+            end
+            # Keep PLOAD1 local axes aligned with CBAR/CBEAM stiffness and recovery.
+            vz = normalize(cross(vx, vref))
             vy = cross(vz, vx)
 
+            f_local = _beam_pload1_equivalent_local_load_vector(pload, L, scale)
+            if any(!=(0.0), f_local)
+                for (base, idx) in ((0, i1), (6, i2))
+                    dof = (idx - 1) * 6
+                    f_trans = f_local[base + 1] .* vx .+
+                              f_local[base + 2] .* vy .+
+                              f_local[base + 3] .* vz
+                    f_moment = f_local[base + 4] .* vx .+
+                               f_local[base + 5] .* vy .+
+                               f_local[base + 6] .* vz
+                    F_acc[dof+1:dof+3] .+= f_trans
+                    F_acc[dof+4:dof+6] .+= f_moment
+                end
+            end
+            continue
+
+#=
             # PLOAD1 TYPE: 1=FX, 2=FY, 3=FZ, 4=MX, 5=MY, 6=MZ (element local)
             ltype = pload["LOAD_TYPE"]
             x1_raw = pload["X1"]; p1_val = pload["P1"] * scale
@@ -694,6 +931,7 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
                 F_acc[(i1-1)*6+4:(i1-1)*6+6] .+= f_a_mag .* local_dir
                 F_acc[(i2-1)*6+4:(i2-1)*6+6] .+= f_b_mag .* local_dir
             end
+=#
         end
     end
 

@@ -26,6 +26,27 @@ function _with_thickness(model, pid::Int, thickness::Float64)
     return m
 end
 
+function _with_node_coord(model, grid::Int, comp::Int, delta::Float64)
+    m = deepcopy(model)
+    grid_data = m["GRIDs"][string(grid)]
+    coords = Float64.(collect(grid_data["X"]))
+    coords[comp] += delta
+    grid_data["X"] = coords
+    return m
+end
+
+function _free_grid_for_dof(results, dof::Int)
+    fixed = Set(Int.(collect(get(results["subcases"][1], "fixed_dofs", Int[]))))
+    id_map = results["id_map"]
+    gids = sort!(parse.(Int, string.(collect(keys(results["model"]["GRIDs"])))); rev=true)
+    for gid in gids
+        idx = id_map[gid]
+        gdof = (idx - 1) * 6 + dof
+        gdof in fixed || return gid
+    end
+    return first(gids)
+end
+
 function _first_supported_element(model)
     cshells = get(model, "CSHELLs", Dict())
     isempty(cshells) && error("no CSHELLs in model")
@@ -220,6 +241,9 @@ function _check_deck(deck::AbstractString)
     displacement_grad_relerr = NaN
     pcomp_compliance_grad_relerr = NaN
     pcomp_displacement_grad_relerr = NaN
+    coordinate_compliance_grad_relerr = NaN
+    coordinate_displacement_grad_relerr = NaN
+    coordinate_stress_ks_grad_relerr = NaN
     model_p = nothing
     model_m = nothing
     dt = NaN
@@ -250,7 +274,7 @@ function _check_deck(deck::AbstractString)
     results = OpenJFEM.solve_model(model)
     @test results["backend"] == "tacs_formulation"
     @test results["formulation"]["shell"] == "residual_first_quad4_cquadr_tria3_sol101_sol103_sol105_sol106"
-    @test results["formulation"]["constitutive"] == "mat1_pshell_pcomp_clt"
+    @test results["formulation"]["constitutive"] == "mat1_mat2_mat8_pshell_pcomp_clt"
     @test results["formulation"]["thickness_derivative"] == "element_ad"
     @test length(results["subcases"]) >= 1
 
@@ -286,6 +310,68 @@ function _check_deck(deck::AbstractString)
         displacement_grad_relerr = abs(disp_grad - disp_fd_grad) / max(abs(disp_grad), abs(disp_fd_grad), 1e-30)
         @test displacement_grad_relerr < 1e-5
     end
+
+    coord_grid = _free_grid_for_dof(results, 1)
+    coord_dv = Dict{String,Any}(
+        "id" => "grid$(coord_grid)_x",
+        "type" => "node_coord",
+        "grid" => coord_grid,
+        "comp" => 1,
+    )
+    coord_comp_response = OpenJFEM.static_compliance_design_gradient(results, [coord_dv])
+    @test coord_comp_response["gradient_backend"] == "tacs_formulation_coordinate_fd"
+    coord_diag = coord_comp_response["design_variable_diagnostics"][coord_dv["id"]]
+    @test coord_diag["sensitivity_contract"]["coordinate_supported"] == true
+    dx = Float64(coord_diag["step"])
+    @test dx > 0.0
+    coord_model_p = _with_node_coord(model, coord_grid, 1, dx)
+    coord_model_m = _with_node_coord(model, coord_grid, 1, -dx)
+    coord_results_p = OpenJFEM.solve_model(coord_model_p)
+    coord_results_m = OpenJFEM.solve_model(coord_model_m)
+    coord_comp_fd = (_compliance_value(coord_results_p) - _compliance_value(coord_results_m)) / (2.0 * dx)
+    coord_comp_grad = Float64(coord_comp_response["gradient"][coord_dv["id"]])
+    coordinate_compliance_grad_relerr =
+        abs(coord_comp_grad - coord_comp_fd) / max(abs(coord_comp_grad), abs(coord_comp_fd), 1e-30)
+    @test coordinate_compliance_grad_relerr < 2e-3
+
+    coord_disp_grid = _free_grid_for_dof(results, 3)
+    coord_disp_resp = Dict{String,Any}("type" => "displacement", "grid" => coord_disp_grid, "dof" => 3)
+    coord_disp_response = OpenJFEM.static_displacement_design_gradient(results, coord_disp_resp, [coord_dv])
+    @test coord_disp_response["gradient_backend"] == "tacs_formulation_coordinate_fd"
+    coord_up = Float64.(coord_results_p["subcases"][1]["u_analysis"])
+    coord_um = Float64.(coord_results_m["subcases"][1]["u_analysis"])
+    coord_disp_p = Float64(OpenJFEM.Solver.evaluate_response(
+        coord_disp_resp, coord_up, coord_results_p["model"], coord_results_p["id_map"], coord_results_p["ndof"],
+        coord_results_p["node_coords"], coord_results_p["node_R"]))
+    coord_disp_m = Float64(OpenJFEM.Solver.evaluate_response(
+        coord_disp_resp, coord_um, coord_results_m["model"], coord_results_m["id_map"], coord_results_m["ndof"],
+        coord_results_m["node_coords"], coord_results_m["node_R"]))
+    coord_disp_fd = (coord_disp_p - coord_disp_m) / (2.0 * dx)
+    coord_disp_grad = Float64(coord_disp_response["gradient"][coord_dv["id"]])
+    coordinate_displacement_grad_relerr =
+        abs(coord_disp_grad - coord_disp_fd) / max(abs(coord_disp_grad), abs(coord_disp_fd), 1e-30)
+    @test coordinate_displacement_grad_relerr < 2e-2
+
+    stress_resp = Dict{String,Any}(
+        "type" => "ks_von_mises",
+        "eids" => "all",
+        "surface" => "top",
+        "rho" => 25.0,
+        "sigma_ref" => 1.0,
+    )
+    coord_stress_response = OpenJFEM.static_ks_von_mises_design_gradient(results, stress_resp, [coord_dv])
+    @test coord_stress_response["gradient_backend"] == "tacs_formulation_stress_coordinate_fd_adjoint"
+    stress_p = Float64(OpenJFEM.Solver.evaluate_response(
+        stress_resp, coord_up, coord_results_p["model"], coord_results_p["id_map"], coord_results_p["ndof"],
+        coord_results_p["node_coords"], coord_results_p["node_R"]))
+    stress_m = Float64(OpenJFEM.Solver.evaluate_response(
+        stress_resp, coord_um, coord_results_m["model"], coord_results_m["id_map"], coord_results_m["ndof"],
+        coord_results_m["node_coords"], coord_results_m["node_R"]))
+    coord_stress_fd = (stress_p - stress_m) / (2.0 * dx)
+    coord_stress_grad = Float64(coord_stress_response["gradient"][coord_dv["id"]])
+    coordinate_stress_ks_grad_relerr =
+        abs(coord_stress_grad - coord_stress_fd) / max(abs(coord_stress_grad), abs(coord_stress_fd), 1e-30)
+    @test coordinate_stress_ks_grad_relerr < 3e-2
 
     pcomp_dvs = _pcomp_ply_design_variables(prop, pid)
     if !isempty(pcomp_dvs)
@@ -349,6 +435,9 @@ function _check_deck(deck::AbstractString)
     println("  dU/dt rel error   = ", displacement_grad_relerr)
     println("  PCOMP dC/dx error = ", pcomp_compliance_grad_relerr)
     println("  PCOMP dU/dx error = ", pcomp_displacement_grad_relerr)
+    println("  dC/dX rel error   = ", coordinate_compliance_grad_relerr)
+    println("  dU/dX rel error   = ", coordinate_displacement_grad_relerr)
+    println("  dKS/dX rel error  = ", coordinate_stress_ks_grad_relerr)
     return (
         global_relerr=global_relerr,
         elem_relerr=elem_relerr,
@@ -359,6 +448,9 @@ function _check_deck(deck::AbstractString)
         displacement_grad_relerr=displacement_grad_relerr,
         pcomp_compliance_grad_relerr=pcomp_compliance_grad_relerr,
         pcomp_displacement_grad_relerr=pcomp_displacement_grad_relerr,
+        coordinate_compliance_grad_relerr=coordinate_compliance_grad_relerr,
+        coordinate_displacement_grad_relerr=coordinate_displacement_grad_relerr,
+        coordinate_stress_ks_grad_relerr=coordinate_stress_ks_grad_relerr,
         ndof=ndof,
     )
 end
@@ -385,6 +477,9 @@ function main(args=ARGS)
     println("  max dU/dt rel error   = ", _finite_max(s.displacement_grad_relerr for s in summaries))
     println("  max PCOMP dC/dx error = ", _finite_max(s.pcomp_compliance_grad_relerr for s in summaries))
     println("  max PCOMP dU/dx error = ", _finite_max(s.pcomp_displacement_grad_relerr for s in summaries))
+    println("  max dC/dX rel error   = ", _finite_max(s.coordinate_compliance_grad_relerr for s in summaries))
+    println("  max dU/dX rel error   = ", _finite_max(s.coordinate_displacement_grad_relerr for s in summaries))
+    println("  max dKS/dX rel error  = ", _finite_max(s.coordinate_stress_ks_grad_relerr for s in summaries))
     return true
 end
 

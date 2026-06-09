@@ -138,9 +138,18 @@ function extract_conm1(cards)
         m65 = Float64(parse_nastran_number(safe_get(c, 25), 0.0))
         m66 = Float64(parse_nastran_number(safe_get(c, 26), 0.0))
         if eid > 0
+            m_full = [
+                m11 m21 m31 m41 m51 m61;
+                m21 m22 m32 m42 m52 m62;
+                m31 m32 m33 m43 m53 m63;
+                m41 m42 m43 m44 m54 m64;
+                m51 m52 m53 m54 m55 m65;
+                m61 m62 m63 m64 m65 m66;
+            ]
             d[string(eid)] = Dict("ID"=>eid, "GID"=>gid, "CID"=>cid,
                 "M"=>m11, "TYPE"=>"CONM1",
-                "M_DIAG"=>[m11, m22, m33, m44, m55, m66])
+                "M_DIAG"=>[m11, m22, m33, m44, m55, m66],
+                "M_FULL"=>m_full)
         end
     end
     return d

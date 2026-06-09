@@ -54,10 +54,18 @@ function backend_metadata(backend::AbstractJFEMBackend)::Dict{String,Any}
             "thickness_derivative" => "existing_solver_routes",
         ) : Dict{String,Any}(
             "shell" => "residual_first_quad4_cquadr_tria3_sol101_sol103_sol105_sol106",
-            "constitutive" => "mat1_pshell_pcomp_clt",
+            "rod" => "residual_first_crod_conrod_sol101_sol103",
+            "beam" => "residual_first_cbar_cbeam_sol101_sol103_sol105",
+            "spring" => "residual_first_celas1_celas2_cbush_sol101_sol103",
+            "constitutive" => "mat1_mat2_mat8_pshell_pcomp_clt",
             "geometric_stiffness" => "native_residual_first_quad4_cquadr_tria3",
+            "rod_geometric_stiffness" => "native_residual_first_crod_conrod_operator",
+            "beam_geometric_stiffness" => "native_residual_first_cbar_cbeam_operator",
             "nonlinear_state" => "backend_sol106_state_callback",
             "thickness_derivative" => "element_ad",
+            "core_contracts" => isdefined(@__MODULE__, :_tacs_core_contract_metadata) ?
+                _tacs_core_contract_metadata() :
+                Dict{String,Any}("status" => "not_loaded"),
         )
     return Dict{String,Any}(
         "backend" => name,
@@ -121,6 +129,15 @@ function static_displacement_design_gradient(results::AbstractDict, response::Ab
     return static_displacement_design_gradient(backend, results, response, design_variables)
 end
 
+function static_ks_displacement_design_gradient(backend::AbstractJFEMBackend, results::AbstractDict, response::AbstractDict, design_variables::AbstractVector)
+    error("Static KS displacement design gradients are not implemented for backend '$(backend_name(backend))'.")
+end
+
+function static_ks_displacement_design_gradient(results::AbstractDict, response::AbstractDict, design_variables::AbstractVector)
+    backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
+    return static_ks_displacement_design_gradient(backend, results, response, design_variables)
+end
+
 function static_ks_von_mises_design_gradient(backend::AbstractJFEMBackend, results::AbstractDict, response::AbstractDict, design_variables::AbstractVector)
     error("Static KS von-Mises design gradients are not implemented for backend '$(backend_name(backend))'.")
 end
@@ -130,11 +147,160 @@ function static_ks_von_mises_design_gradient(results::AbstractDict, response::Ab
     return static_ks_von_mises_design_gradient(backend, results, response, design_variables)
 end
 
-function buckling_load_factor_thickness_gradient(backend::AbstractJFEMBackend, results::AbstractDict; pids=nothing, mode::Integer=1)
+function static_ks_ply_failure_design_gradient(backend::AbstractJFEMBackend, results::AbstractDict, response::AbstractDict, design_variables::AbstractVector)
+    error("Static KS ply-failure design gradients are not implemented for backend '$(backend_name(backend))'.")
+end
+
+function static_ks_ply_failure_design_gradient(results::AbstractDict, response::AbstractDict, design_variables::AbstractVector)
+    backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
+    return static_ks_ply_failure_design_gradient(backend, results, response, design_variables)
+end
+
+function structural_mass_design_gradient(backend::AbstractJFEMBackend, results::AbstractDict, design_variables::AbstractVector)
+    error("Structural mass design gradients are not implemented for backend '$(backend_name(backend))'.")
+end
+
+function structural_mass_design_gradient(results::AbstractDict, design_variables::AbstractVector)
+    backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
+    return structural_mass_design_gradient(backend, results, design_variables)
+end
+
+function buckling_load_factor_thickness_gradient(
+    backend::AbstractJFEMBackend,
+    results::AbstractDict;
+    pids=nothing,
+    mode::Integer=1,
+    cluster_policy=:current_mode,
+    cluster_rel_tol::Real=1e-8,
+    cluster_abs_tol::Real=1e-10,
+    mode_tracking=nothing,
+)
     error("Buckling load-factor thickness gradients are not implemented for backend '$(backend_name(backend))'.")
 end
 
-function buckling_load_factor_thickness_gradient(results::AbstractDict; pids=nothing, mode::Integer=1)
+function buckling_load_factor_thickness_gradient(
+    results::AbstractDict;
+    pids=nothing,
+    mode::Integer=1,
+    cluster_policy=:current_mode,
+    cluster_rel_tol::Real=1e-8,
+    cluster_abs_tol::Real=1e-10,
+    mode_tracking=nothing,
+)
     backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
-    return buckling_load_factor_thickness_gradient(backend, results; pids=pids, mode=mode)
+    return buckling_load_factor_thickness_gradient(
+        backend,
+        results;
+        pids=pids,
+        mode=mode,
+        cluster_policy=cluster_policy,
+        cluster_rel_tol=cluster_rel_tol,
+        cluster_abs_tol=cluster_abs_tol,
+        mode_tracking=mode_tracking,
+    )
+end
+
+function buckling_load_factor_design_gradient(
+    backend::AbstractJFEMBackend,
+    results::AbstractDict,
+    design_variables::AbstractVector;
+    mode::Integer=1,
+    cluster_policy=:current_mode,
+    cluster_rel_tol::Real=1e-8,
+    cluster_abs_tol::Real=1e-10,
+    mode_tracking=nothing,
+)
+    error("Buckling load-factor design gradients are not implemented for backend '$(backend_name(backend))'.")
+end
+
+function buckling_load_factor_design_gradient(
+    results::AbstractDict,
+    design_variables::AbstractVector;
+    mode::Integer=1,
+    cluster_policy=:current_mode,
+    cluster_rel_tol::Real=1e-8,
+    cluster_abs_tol::Real=1e-10,
+    mode_tracking=nothing,
+)
+    backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
+    return buckling_load_factor_design_gradient(
+        backend,
+        results,
+        design_variables;
+        mode=mode,
+        cluster_policy=cluster_policy,
+        cluster_rel_tol=cluster_rel_tol,
+        cluster_abs_tol=cluster_abs_tol,
+        mode_tracking=mode_tracking,
+    )
+end
+
+function buckling_load_factor_ks_design_gradient(
+    backend::AbstractJFEMBackend,
+    results::AbstractDict,
+    design_variables::AbstractVector;
+    modes=nothing,
+    rho::Real=50.0,
+    cluster_policy=:current_mode,
+    cluster_rel_tol::Real=1e-8,
+    cluster_abs_tol::Real=1e-10,
+)
+    error("Buckling load-factor KS design gradients are not implemented for backend '$(backend_name(backend))'.")
+end
+
+function buckling_load_factor_ks_design_gradient(
+    results::AbstractDict,
+    design_variables::AbstractVector;
+    modes=nothing,
+    rho::Real=50.0,
+    cluster_policy=:current_mode,
+    cluster_rel_tol::Real=1e-8,
+    cluster_abs_tol::Real=1e-10,
+)
+    backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
+    return buckling_load_factor_ks_design_gradient(
+        backend,
+        results,
+        design_variables;
+        modes=modes,
+        rho=rho,
+        cluster_policy=cluster_policy,
+        cluster_rel_tol=cluster_rel_tol,
+        cluster_abs_tol=cluster_abs_tol,
+    )
+end
+
+function modal_eigenvalue_design_gradient(
+    backend::AbstractJFEMBackend,
+    results::AbstractDict,
+    design_variables::AbstractVector;
+    mode::Integer=1,
+    cluster_policy=:current_mode,
+    cluster_rel_tol::Real=1e-8,
+    cluster_abs_tol::Real=1e-10,
+    mode_tracking=nothing,
+)
+    error("Modal eigenvalue design gradients are not implemented for backend '$(backend_name(backend))'.")
+end
+
+function modal_eigenvalue_design_gradient(
+    results::AbstractDict,
+    design_variables::AbstractVector;
+    mode::Integer=1,
+    cluster_policy=:current_mode,
+    cluster_rel_tol::Real=1e-8,
+    cluster_abs_tol::Real=1e-10,
+    mode_tracking=nothing,
+)
+    backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
+    return modal_eigenvalue_design_gradient(
+        backend,
+        results,
+        design_variables;
+        mode=mode,
+        cluster_policy=cluster_policy,
+        cluster_rel_tol=cluster_rel_tol,
+        cluster_abs_tol=cluster_abs_tol,
+        mode_tracking=mode_tracking,
+    )
 end

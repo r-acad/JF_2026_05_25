@@ -7,9 +7,7 @@ cross-solver references for the validation suite.
 
 MYSTRAN, MIT-licensed: <https://github.com/MYSTRANsolver/MYSTRAN>.
 
-A snapshot of the MYSTRAN repository is bundled with this workspace at
-`03_EXTERNAL_TOOLS/MYSTRANSolver-main/`. The two decks here are copied from
-that snapshot:
+The two decks here are copied from the public MYSTRAN repository:
 
 | Local file | Source path in MYSTRAN |
 | --- | --- |

@@ -6,6 +6,352 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `Reference_documentation/tacs_core_capability_matrix.md` records the
+  JFEM-core TACS formulation and sensitivity capability matrix, explicitly
+  separating implemented shell routes from missing beam, solid, thermal,
+  response, and coordinate-sensitivity work. A new static guard,
+  `tools/testing/tacs_core_capability_matrix_guard.jl`, keeps the matrix tied
+  to backend hooks and fail-fast implementation markers.
+- Added `src/backend/tacs_formulation/core.jl` as a no-behavior-change typed
+  contract layer for future TACS-core expansion. The existing shell route now
+  builds CQUAD4/CQUADR/CTRIA3 stiffness and geometric-stiffness operators
+  through a shared shell element context while preserving the old public/internal
+  solver hooks.
+- Added the first non-shell TACS element slice: SOL101 CROD/CONROD MAT1 rod
+  axial/torsional stiffness now assembles through the TACS formulation backend,
+  with `tools/testing/tacs_sol101_rod_route_check.jl` checking CROD and CONROD
+  axial displacements against closed-form `F L / E A` results.
+- Added the first TACS beam stiffness slice: SOL101 CBAR/CBEAM constant-section
+  PBAR/PBARL-style MAT1 beams now assemble through the TACS formulation
+  backend, with `tools/testing/tacs_sol101_beam_route_check.jl` checking CBAR
+  and CBEAM cantilever tip displacement against closed-form `F L^3 / 3 E I`.
+- Extended the TACS beam slice to SOL103 modal analysis with backend-owned
+  CBAR/CBEAM lumped beam mass assembly. The new
+  `tools/testing/tacs_sol103_beam_modal_route_check.jl` checks a two-DOF
+  cantilever bending oscillator against the closed-form generalized
+  eigenproblem, including translational and rotary beam mass entries.
+- Added guarded SOL103 CBAR/CBEAM modal offsets and pin releases. The new
+  `tools/testing/tacs_sol103_beam_offset_release_modal_route_check.jl` uses
+  parser-backed offset-only, release-only, and combined offset/release decks,
+  verifies offset-driven stiffness/mass perturbations and release-driven
+  stiffness perturbations, and checks the public SOL103 eigenvalue against an
+  independent reduced generalized eigensolve.
+- Added guarded SOL103 CBAR/CBEAM modal material sensitivities for MAT1
+  `material_E` and `material_RHO`. The new
+  `tools/testing/tacs_sol103_beam_modal_sensitivity_check.jl` checks both
+  beam cards against full plus/minus re-solves on the two-DOF cantilever
+  bending oscillator.
+- Added generic constant-section CBAR/CBEAM beam sizing perturbations for
+  `beam_area`, `beam_I1`, `beam_I2`, and `beam_J` through the TACS design-delta
+  path. `tools/testing/tacs_sol101_beam_sizing_sensitivity_check.jl` guards
+  SOL101 `beam_I1`, `beam_I2`, and `beam_J`
+  compliance/displacement-or-rotation/KS-displacement-or-rotation sensitivities
+  plus CBAR/CBEAM scalar structural mass, `beam_area`, and MAT1-density mass
+  derivatives. `tools/testing/tacs_sol103_beam_sizing_sensitivity_check.jl`
+  guards `beam_I1`, `beam_I2`, and `beam_area` SOL103 eigenvalue/frequency
+  sensitivities against full plus/minus modal re-solves.
+- Added guarded SOL105 CBAR/CBEAM beam buckling support for constant-section
+  compressed beam-only decks through the native
+  `native_residual_first_cbar_cbeam_operator` geometric-stiffness route.
+  `tools/testing/tacs_sol105_beam_route_sensitivity_check.jl` checks beam
+  axial-force recovery, UZ/RY and UY/RZ geometric-stiffness entries, the first
+  generalized eigenvalue, selected-mode `beam_I1`/`beam_I2` and MAT1
+  `material_E` gradients, selected-mode `beam_area`/`beam_J` invariance
+  derivatives, and single-mode KS `beam_I1`/`beam_I2`/`beam_area`/`beam_J`
+  gradients against analytical operators and full plus/minus re-solves.
+- Added guarded SOL105 CBAR/CBEAM buckling offsets and pin releases. The new
+  `tools/testing/tacs_sol105_beam_offset_release_buckling_route_check.jl` uses
+  parser-backed offset-only, release-only, and combined offset/release decks,
+  verifies TACS K/Kg/static-preload/eigenvalue parity against the existing
+  parity backend, and checks the public first buckling load factor against an
+  independent reduced buckling pencil.
+- Added guarded CBAR/CBEAM `node_coord` shape sensitivities for the
+  constant-section beam route. `tools/testing/tacs_sol101_sol103_beam_shape_sensitivity_check.jl`
+  checks SOL101 compliance, displacement, KS displacement, and structural-mass
+  length derivatives plus SOL103 first-eigenvalue derivatives for CBAR and
+  CBEAM against closed-form cantilever and two-DOF modal oscillator formulas.
+  `tools/testing/tacs_sol105_beam_shape_sensitivity_check.jl` checks SOL105
+  selected-mode and single-mode KS buckling length derivatives against full
+  plus/minus re-solves and a closed-form reduced buckling pencil.
+- Added guarded SOL101 CBAR/CBEAM stress recovery on the TACS route.
+  `tools/testing/tacs_sol101_beam_stress_recovery_check.jl` checks axial
+  displacement, force, stress, and strain for constant-section PBAR-backed
+  CBAR and CBEAM decks plus PBARL BAR bending shear, root moment, and surface
+  stresses against closed-form cantilever results.
+- Added guarded SOL101 CBAR/CBEAM KS beam-stress sensitivities on the TACS
+  route. `tools/testing/tacs_sol101_beam_stress_sensitivity_check.jl` checks
+  constant-section PBARL BAR `beam_I2` bending stress gradients and
+  `beam_area` axial stress gradients for CBAR and CBEAM against full
+  plus/minus re-solves, and checks MAT1 `material_E` stress cancellation on
+  the axial slice.
+- Added guarded SOL101 CBAR/CBEAM PLOAD1 distributed beam loads. The shared
+  PLOAD1 equivalent-nodal-load path now uses the same local-axis convention as
+  CBAR/CBEAM stiffness/recovery, supports partial linearly varying LE/FR spans,
+  and feeds fixed-end load corrections into recovered beam root shear/moment.
+  `tools/testing/tacs_sol101_beam_pload1_route_check.jl` checks CBAR and CBEAM
+  local FY/FZ cases against cantilever influence-integral results.
+- Added guarded SOL101 CBAR/CBEAM beam offsets and pin releases on the TACS
+  static route. `tools/testing/tacs_sol101_beam_offset_release_route_check.jl`
+  compares offset-only, release-only, and combined offset/release CBAR/CBEAM
+  matrices and displacements against the legacy assembler/solver, now including
+  parser-backed CBAR/CBEAM continuation fields for PA/PB and WA/WB, and
+  confirms offsets/releases still fail fast for SOL106. Beam force recovery now
+  applies the same PA/PB
+  condensation so released-end moments are zero in the guarded offset/release
+  stress-recovery cases.
+- Extended the TACS rod slice to SOL103 modal analysis with backend-owned
+  CROD/CONROD lumped rod mass assembly. The new
+  `tools/testing/tacs_sol103_rod_modal_route_check.jl` checks first axial
+  eigenvalues/frequencies against the closed-form lumped-mass result.
+- Added guarded SOL103 CROD/CONROD modal design sensitivities for `rod_area`,
+  MAT1 `material_E`, MAT1 `material_RHO`, and axial endpoint `node_coord`.
+  The TACS route now uses exact rod-area stiffness and modal-mass coefficient
+  derivatives, with `tools/testing/tacs_sol103_rod_modal_sensitivity_check.jl`
+  checking CROD and CONROD first-eigenvalue derivatives against closed-form
+  axial results.
+- Added a guarded CROD/CONROD geometric-stiffness operator for the TACS route.
+  `tools/testing/tacs_rod_geometric_stiffness_operator_check.jl` verifies the
+  compressed-rod axial-force recovery and transverse `Kg` entries for CROD and
+  CONROD elements.
+- Added the first TACS spring slice: SOL101 CELAS1/PELAS, CELAS2, and
+  CBUSH/PBUSH diagonal stiffness now assemble through the TACS backend, with
+  `tools/testing/tacs_sol101_spring_route_check.jl` checking displacement
+  against closed-form spring responses.
+- Extended the spring slice to SOL103 modal oscillators with guarded
+  CONM1/CONM2/CMASS2/CMASS1/PMASS modal mass support.
+  `tools/testing/tacs_sol103_spring_modal_route_check.jl` checks CELAS1,
+  CELAS2, and CBUSH/PBUSH `k/m` eigenvalues plus
+  `spring_stiffness`, `bush_stiffness`, and scalar `point_mass` modal
+  derivatives against closed-form `dLambda/dK = 1/m` and
+  `dLambda/dm = -k/m^2` results.
+  `tools/testing/tacs_sol103_conm1_modal_route_check.jl` guards CONM1 full
+  6x6 modal mass assembly, including off-diagonal translational coupling, and
+  CONM1 full-matrix `point_mass` modal derivatives for diagonal `M11`/`M22`
+  terms and off-diagonal `M12/M21` terms selected by `component_pairs`.
+- Added `tools/testing/tacs_sol103_point_inertia_modal_check.jl` to guard
+  CONM2 `point_inertia` modal sensitivities on rotational spring oscillators.
+  The guard checks principal `I11` and off-diagonal `I21` inertia terms
+  against closed-form generalized eigenvalue derivatives and full re-solve
+  finite differences.
+- Added guarded SOL101 line-element static response sensitivities for
+  CROD/CONROD `rod_area`, rod MAT1 `material_E`, CELAS scalar
+  `spring_stiffness`, and PBUSH diagonal `bush_stiffness`;
+  `tools/testing/tacs_sol101_line_sensitivity_check.jl` checks compliance,
+  scalar displacement, and single-entry KS displacement adjoint gradients
+  against closed-form derivatives.
+- Extended the TACS structural-mass response to include CROD/CONROD rod
+  structural mass and guarded `rod_area`, MAT1 `material_RHO`, and
+  rod length-coordinate derivatives, plus CONM2/CMASS2/CMASS1 scalar
+  point-mass values and guarded `point_mass` derivatives in
+  `tools/testing/tacs_structural_mass_fd_check.jl`.
+- Added `tools/testing/tacs_sol101_rod_stress_recovery_check.jl` to guard
+  TACS-route CROD/CONROD axial force, stress, and strain recovery.
+- Added `tools/testing/tacs_sol105_mixed_rod_route_check.jl` to guard
+  mixed shell-plus-rod SOL105 geometric-stiffness assembly and rod axial-force
+  diagnostics.
+- Added `tools/testing/tacs_sol105_line_sensitivity_check.jl` to guard mixed
+  shell-plus-rod SOL105 buckling sensitivities for `rod_area` and rod-only
+  MAT1 `material_E` against full plus/minus re-solves for both selected-mode
+  and smooth-min KS buckling responses.
+- Refreshed the CQUADR TACS SOL103 route guards so their expected mass-route
+  metadata follows the active shell mass formulation instead of the retired
+  generic `shared_jfem_mass` label.
+- Added the first TACS-style response/function object layer in
+  `src/backend/tacs_formulation/core.jl`. Existing compliance, displacement,
+  KS von-Mises, mass, and buckling load-factor sensitivity routes now use
+  response contracts, static response contexts, static-adjoint helpers, and
+  buckling response contexts while preserving their numerical formulas and
+  existing gradient backend labels.
+- Added the first TACS coordinate/shape sensitivity route: SOL 101 static
+  compliance and displacement design gradients now accept `node_coord` variables
+  and compute `dK/dX` by central finite difference through the TACS shell
+  assembler. The SOL 101 finite-difference guard now checks these shape
+  gradients across the generated shell patch suite.
+- Extended the TACS coordinate/shape sensitivity route to SOL 101 KS
+  von-Mises stress design gradients. `node_coord` stress gradients now combine
+  TACS-assembler central-FD `dK/dX` with explicit stress-response geometry
+  terms, and the SOL 101 finite-difference guard checks the total derivative.
+- Extended the TACS coordinate/shape sensitivity route to SOL 105 buckling
+  load-factor design gradients. The new `buckling_load_factor_design_gradient`
+  API accepts `node_coord` variables and combines TACS-assembler central-FD
+  `dK/dX`, coordinate-aware `dKg/dX`, and static preload displacement variation.
+  The SOL 105 route guard checks the first-mode derivative against a full
+  plus/minus coordinate re-solve.
+- Extended SOL 105 `buckling_load_factor_design_gradient` to selected generic
+  material and PCOMP ply variables. Material stiffness and PCOMP ply
+  thickness/angle variables now use assembled `dK/dx`, generic property/material
+  `dKg/dx`, and static preload displacement variation. The SOL 105 guard checks
+  MAT1 `E` and PCOMP ply-thickness derivatives against full solve-level finite
+  differences.
+- Added SOL 103 modal eigenvalue/frequency design gradients for the TACS
+  shell route. The new `modal_eigenvalue_design_gradient` API combines
+  assembled `dK/dx` with solver-mass `dM/dx`, supports shell thickness,
+  selected material stiffness fields, material density, PCOMP ply variables,
+  and `node_coord` shape variables, and is checked against full re-solve finite
+  differences in `tools/testing/tacs_sol103_route_check.jl`.
+- Added a TACS SOL 105 smooth-min multimode buckling aggregation API,
+  `buckling_load_factor_ks_design_gradient`. It combines selected per-mode
+  Rayleigh load-factor gradients with KS weights and is checked against a
+  full re-solve finite difference on the first two buckling modes.
+- Added public TACS structural mass design gradients via
+  `structural_mass_design_gradient`. The guarded shell slice now supports mass
+  coefficients for shell thickness, PCOMP ply thickness, material density,
+  zero gradients for mass-independent stiffness variables, and central-FD
+  `node_coord` mass shape sensitivity.
+- Added SOL 101 design-dependent load sensitivity terms to the TACS static
+  adjoint gradients. Compliance, displacement, and KS von-Mises design
+  gradients now include finite-difference `dF/dx` load-vector terms for the
+  guarded shell slice, with a new PLOAD4 pressure coordinate finite-difference
+  guard.
+- Added SOL 105 static-preload design-dependent load sensitivity terms to the
+  TACS buckling-gradient route. Preload displacement derivatives now solve
+  `K du/dx = dF/dx - dK/dx*u`, and a focused PLOAD4 pressure guard checks the
+  preload state derivative against plus/minus finite differences.
+- Added static material-density load-only sensitivity for GRAV shell and
+  constant-section CBAR/CBEAM beam loads in the TACS SOL 101 adjoint route.
+  Compliance, displacement, and shell KS von-Mises gradients can now use
+  `material_RHO` design variables when density affects the load vector but not
+  static stiffness. `tools/testing/tacs_sol101_gravity_load_sensitivity_check.jl`
+  now checks shell density load-only compliance/displacement/stress derivatives
+  plus CBAR/CBEAM compliance and scalar-displacement density derivatives
+  against full plus/minus density re-solves and a closed-form cantilever
+  gravity response.
+- Added guarded RFORCE/centrifugal load sensitivity coverage for the same
+  SOL 101 material-density load-only adjoint route. The load assembler now
+  applies RFORCE to CROD/CONROD and CBAR/CBEAM elements with a consistent
+  two-node line inertial load, and
+  `tools/testing/tacs_sol101_rforce_load_sensitivity_check.jl` checks shell,
+  CROD, CONROD, CBAR, and CBEAM density derivatives for compliance and scalar
+  displacement plus single-entry KS displacement against full plus/minus
+  density re-solves. The line cases also check scalar and KS displacement
+  against a closed-form axial centrifugal response.
+- Added guarded SOL 101 TEMP(LOAD) axial thermal-load sensitivity coverage for
+  CROD, CONROD, CBAR, and CBEAM. MAT1 `material_E`, `material_ALPHA`, and
+  `material_TREF` now participate in the generic static load-vector
+  finite-difference tangent, with
+  `tools/testing/tacs_sol101_line_thermal_load_sensitivity_check.jl` checking
+  compliance, scalar displacement, and single-entry KS displacement against
+  full plus/minus re-solves and closed-form axial thermal displacement
+  derivatives.
+- Added projected repeated/clustered generalized eigenvalue derivative helpers
+  for the TACS SOL 103 and SOL 105 sensitivity routes. Modal and buckling
+  gradients now expose cluster derivative fields when a solved eigenvalue
+  cluster is detected, and `tools/testing/tacs_cluster_eigen_sensitivity_check.jl`
+  guards the projected derivative math on synthetic repeated eigenproblems.
+- Added SOL 105 GRAV material-density preload sensitivity for buckling
+  gradients. The new load-driven Rayleigh Kg route uses zero static stiffness
+  tangent plus finite-difference `dF/dRHO`, and
+  `tools/testing/tacs_sol105_gravity_preload_sensitivity_check.jl` checks the
+  load-factor derivative against full plus/minus buckling re-solves.
+- Added SOL 105 RFORCE inertial-preload sensitivity coverage. The new
+  `tools/testing/tacs_sol105_rforce_preload_sensitivity_check.jl` guard checks
+  MAT1 density and node-coordinate centrifugal preload derivatives against full
+  plus/minus buckling re-solves through the TACS load-driven Rayleigh Kg path.
+- Added a guarded SOL 101 RFORCE coordinate sensitivity check. Static
+  compliance and displacement coordinate gradients now have explicit coverage
+  for centrifugal `dF/dX` terms against full plus/minus coordinate re-solves.
+- Added SOL 200-lite opt-in support for smooth-min multimode buckling
+  aggregation through `DOPTPRM,KSRHO`. The grouped sizing optimizer now calls
+  the TACS `buckling_load_factor_ks_design_gradient` backend hook when enabled,
+  and `tools/testing/tacs_sol200_buckling_ks_route_check.jl` guards the route.
+- Added direct PSHELL/MAT8 support to the TACS residual-first shell route.
+  Orthotropic membrane, bending, and transverse-shear constitutive matrices are
+  now accepted for PSHELL properties, and
+  `tools/testing/tacs_pshell_mat8_route_check.jl` guards SOL101 compliance
+  sensitivity with respect to MAT8 `E1/E2/G12/NU12`.
+- Added direct PSHELL/MAT2 support to the TACS residual-first shell route.
+  Anisotropic membrane, bending, and transverse-shear constitutive matrices are
+  now accepted for PSHELL properties, MAT2/MAT8 thickness handling is
+  ForwardDiff-safe, and `tools/testing/tacs_pshell_mat2_route_check.jl` guards
+  SOL101 shell-thickness plus all six MAT2 `G11/G12/G13/G22/G23/G33`
+  compliance sensitivities against full re-solves. The generic TACS
+  material-design tangent route now accepts MAT2
+  `G11/G12/G13/G22/G23/G33` stiffness variables.
+- Added `tools/testing/tacs_pshell_mat2_mat8_eigen_route_check.jl` to guard
+  direct PSHELL/MAT2 and PSHELL/MAT8 material derivatives in SOL103 and SOL105.
+  The guard checks first modal/buckling eigenvalue derivatives for all
+  supported direct PSHELL/MAT2 fields (`G11/G12/G13/G22/G23/G33`) and
+  PSHELL/MAT8 fields (`E1/E2/G12/NU12`) against full plus/minus re-solves.
+- Added grouped TACS SOL103/SOL105 eigen sensitivity coverage. Material design
+  perturbations now support multiple material IDs generically, and the SOL105
+  generic shell-thickness buckling path differentiates grouped `Kg` updates as
+  one grouped perturbation. The new
+  `tools/testing/tacs_grouped_eigen_design_sensitivity_check.jl` guard checks
+  grouped shell thickness and grouped MAT1 `E` derivatives against full
+  grouped plus/minus re-solves.
+- Added grouped direct PSHELL/MAT2 and PSHELL/MAT8 eigen sensitivity coverage.
+  `tools/testing/tacs_grouped_mat2_mat8_eigen_sensitivity_check.jl` checks
+  grouped two-material SOL103/SOL105 first-eigenvalue derivatives for all
+  supported MAT2 `G11/G12/G13/G22/G23/G33` fields and MAT8
+  `E1/E2/G12/NU12` fields. Material design variables now also honor an
+  explicit `step` field for guarded finite-difference sensitivity routes.
+- Added PCOMP ply eigen sensitivity coverage. The new
+  `tools/testing/tacs_pcomp_eigen_ply_sensitivity_check.jl` guard checks
+  SOL103 modal and SOL105 buckling first-eigenvalue derivatives for PCOMP ply
+  thickness and ply angle design variables on an unsymmetric MAT8 laminate
+  against full plus/minus re-solves.
+- Added PCOMP ply KS von-Mises stress sensitivity coverage. The TACS static
+  stress response now evaluates PCOMP von-Mises stress from the laminate
+  surface ply `Qbar` data and uses a fixed-state explicit response tangent for
+  ply thickness/angle variables; the new
+  `tools/testing/tacs_pcomp_stress_ks_ply_sensitivity_check.jl` guard checks
+  the total SOL101 KS stress derivatives against full plus/minus re-solves.
+- Added the first guarded composite failure response slice. MAT8 parsing now
+  preserves strength allowables, and `static_ks_ply_failure_design_gradient`
+  exposes a SOL101 `ks_ply_failure` response for PCOMP ply thickness/angle
+  variables using an analytical state derivative plus fixed-state explicit
+  response tangent. The initial criteria are Tsai-Hill, classic Tsai-Wu, and
+  TACS-style modified Tsai-Wu strength ratio. The new
+  `tools/testing/tacs_pcomp_tsai_hill_failure_sensitivity_check.jl` guard
+  `tools/testing/tacs_pcomp_tsai_wu_failure_sensitivity_check.jl` guard, and
+  `tools/testing/tacs_pcomp_modified_tsai_wu_failure_sensitivity_check.jl`
+  guard check total derivatives against full plus/minus re-solves.
+- Added selected MAT8 strength-field sensitivities for the guarded PCOMP
+  failure response. `ks_ply_failure` design gradients now support explicit
+  response derivatives for MAT8 allowable variables such as `material_XT` and
+  `material_S` without stiffness/load tangents, and
+  `tools/testing/tacs_pcomp_failure_strength_sensitivity_check.jl` guards the
+  result against full plus/minus re-solves.
+- Added response-level SOL103/SOL105 mode-tracking and cluster-policy controls
+  for TACS eigen sensitivities. Modal and buckling load-factor gradient APIs
+  now accept MAC-based `mode_tracking` plus `current_mode`/`min`/`max`/`mean`
+  cluster derivative policies, record requested versus selected mode
+  diagnostics, and keep the old current-index behavior as the default.
+  `tools/testing/tacs_mode_tracking_policy_check.jl` guards the production
+  route, while `tools/testing/tacs_cluster_eigen_sensitivity_check.jl` now also
+  checks the low-level policy and MAC helpers.
+- Added SOL200-lite buckling mode-selection policy controls. `DOPTPRM,BUCKMODE`
+  selects the scalar load-factor mode, `DOPTPRM,BUCKM#` selects the smooth-min
+  KS mode list when `KSRHO` is active, and `DOPTPRM,BUCKPOL` plus
+  `BUCKRTOL/BUCKATOL` pass cluster-policy settings into TACS per-mode
+  gradients. `tools/testing/tacs_sol200_buckling_ks_route_check.jl` now checks
+  both KS mode-list routing and selected-mode first-load-factor routing.
+- Added public previous-solve MAC continuation helpers for TACS eigen
+  responses. `eigen_mode_tracking_reference` captures a selected SOL103/SOL105
+  mode shape, `eigen_mode_continuation_update` advances that reference across
+  a solve sequence, and scalar SOL200-lite buckling sizing can opt in with
+  `DOPTPRM,BUCKTRK` plus optional `BUCKWIN/BUCKMAC` controls. The new
+  `tools/testing/tacs_mode_continuation_check.jl` guard verifies SOL103 and
+  SOL105 continuation from a mode-1 request to a previous mode-2 reference.
+- Added a TACS static `ks_displacement` response and public
+  `static_ks_displacement_design_gradient` hook. The response aggregates
+  selected grid/component displacement values with KS smooth-max weights and
+  uses the existing static adjoint design-gradient path. A new
+  `tools/testing/tacs_ks_displacement_response_check.jl` guard checks
+  shell-thickness, material-E, node-coordinate shape, and PLOAD4 pressure-load
+  geometry derivatives against full re-solves. SOL200-lite mass-minimization
+  constraints now accept `DRESP1,KSDISP` responses routed through the same
+  TACS adjoint backend, guarded by
+  `tools/testing/tacs_sol200_ks_displacement_route_check.jl`.
+- Public repository `AGENTS.md` documents the new canonical public repo path
+  (`01_PROJECT_FOLDER/JFEM/`) and the public/private publication boundary for
+  future coding agents.
+- Top-level `validation/` folder prepared as the paper-facing public
+  validation set. It contains only public or permissively licensed cases
+  (MacNeal-Harder, classical buckling, MYSTRAN cross-checks, and CRM/uCRM),
+  explicitly excludes GAME/HTP/VTP private cases, and keeps a compatibility
+  wrapper under `tools/validation_suite/`. The folder now includes
+  `CASE_INVENTORY.csv`, `PAPER_VALIDATION_SUMMARY.md`, and convenience launchers.
 - SOL 105 buckling: optional **load-aware shear kernel** (opt-in via
   `JFEM_SOL105_LOAD_AWARE_KERNEL`, default off). On warped/curved PCOMP elements
   under shear preload, JFEM's default MITC4+phi2 transverse shear diverges from
@@ -32,16 +378,47 @@ Versions follow [Semantic Versioning](https://semver.org/).
   subcase) ambiguous. Consumers can now compare each subcase to its own
   reference table. No solver behavior change — purely additional output.
 
+- `tools/testing/sol103_mass_formulation_guard.jl` locks down SOL 103 shell
+  mass selection across the default, `PARAM,COUPMASS`, and diagnostic
+  environment override routes.
+- `tools/testing/sol105_parity_defaults_guard.jl` now also locks down that
+  promoted SOL105 defaults keep stress-state-dependent calibration paths off or
+  neutral unless a diagnostic environment knob explicitly enables them.
+
 ### Fixed
+- `Reference_documentation/README.md` now describes manifest-driven document
+  publication instead of automatic all-PDF mirroring from the private document
+  source tree.
 - Public validation suite manifest now extracts the MacNeal-Harder twisted
   beam, Scordelis-Lo roof, and hemispherical-shell quantities from the
   documented benchmark nodes, and supports explicit absolute-value comparison
   for signed displacement quantities reported as magnitudes.
+- MacNeal-Harder SOL 101 public shell parity now uses generic PSHELL/MAT1
+  geometry/material CQUAD4 static component scaling for flat strips, warped
+  strips, cylindrical roofs, cylindrical patches, and double-curved patches.
+  The rules use only element geometry and material/property family. The five
+  public MacNeal-Harder rows now all pass: curved beam 1.92%, twisted beam
+  1.22%, Scordelis-Lo 4.15%, pinched cylinder 0.20%, and hemisphere 3.28%
+  relative error.
+- Classical SOL 105 flat-square PSHELL/MAT1 plate buckling now applies a
+  geometry/material-only `Kg` membrane normalization
+  (`JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_*`, default scale `1.03`).
+  The Timoshenko plate public row moves from 3.23% high to 0.22% relative
+  error, while the private SOL105 guard remains inside the 2% target: NAST705
+  atomic 25/25, NAST705 patch 13/13, and GAME 10/10 trusted rows.
 - Public validation suite CSV output now quotes fields containing commas,
   quotes, or newlines, so solver error notes remain parseable.
 - Public validation suite analytical-reference lookup now wraps both runtime
   binding access and function invocation in `Base.invokelatest`, avoiding Julia
   1.12 world-age deprecation warnings during `run_public_suite.jl`.
+- SOL 103 shell normal modes now default to coupled consistent PSHELL mass for
+  quadrilateral and triangular shells, with explicit `PARAM,COUPMASS,NO` and
+  `JFEM_SOL103_SHELL_MASS=lumped` overrides for lumped-mass diagnostics. CRM
+  wingbox modal parity is now 5/5 PASS with first-five eigenvalue errors below
+  0.05%, and SOL103 mass/effective-mass diagnostics use the full mass operator
+  instead of diagonal-only totals. Modal effective mass now evaluates global
+  rigid translations in the assembled analysis DOF frame, preserving physical
+  mass totals for rotated GRID `CD` output frames.
 - Exporters now write JSON, Markdown report, HDF5, and JFEM binary artifacts
   through a Windows long-path helper when paths approach the classic
   260-character limit. Long SOL105 validation case names could solve

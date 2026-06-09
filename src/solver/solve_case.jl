@@ -124,7 +124,9 @@ function _write_buckling_raw_eigen_csv(eigenvalues::AbstractVector, path::Abstra
 end
 
 function _build_results_from_state(ndof, model, id_map, X, node_R, u_global, residual_vector,
-                                   snorm_normals, solver_diagnostics)
+                                   snorm_normals, solver_diagnostics;
+                                   active_load_id=nothing,
+                                   active_load_scale::Float64=1.0)
     results_json = Dict(
         "displacements" => [],
         "spc_forces" => [],
@@ -181,7 +183,11 @@ function _build_results_from_state(ndof, model, id_map, X, node_R, u_global, res
         results_json["stress_recovery_skipped"] = true
     else
         recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_normals, stresses, results_json)
-        recover_bar_stresses!(model, id_map, X, node_R, u_global, stresses, results_json)
+        recover_bar_stresses!(
+            model, id_map, X, node_R, u_global, stresses, results_json;
+            active_load_id=active_load_id,
+            active_load_scale=active_load_scale,
+        )
         recover_rod_stresses!(model, id_map, X, node_R, u_global, stresses, results_json)
         recover_spring_forces!(model, id_map, u_global, stresses, results_json)
         recover_solid_stresses!(model, id_map, X, node_R, u_global, stresses, results_json)
@@ -889,7 +895,10 @@ function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
 
     R = K * u_global - F_applied
     u_out, stresses, results_json = _build_results_from_state(
-        ndof, model, id_map, X, node_R, u_global, R, snorm_normals, solver_diagnostics)
+        ndof, model, id_map, X, node_R, u_global, R, snorm_normals, solver_diagnostics;
+        active_load_id=load_id,
+        active_load_scale=Float64(load_scale),
+    )
 
     return u_out, stresses, results_json, u_global, fixed_dofs
 end
@@ -1305,7 +1314,9 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
                 "relative_residual" => final_state.relative_residual,
             )
             u_out, stresses, sub_res = _build_results_from_state(
-                ndof, model, id_map, X, node_R, u_iter, final_state.residual_vector, snorm_normals, final_solver_diagnostics
+                ndof, model, id_map, X, node_R, u_iter, final_state.residual_vector, snorm_normals, final_solver_diagnostics;
+                active_load_id=load_id,
+                active_load_scale=Float64(attempted_scale),
             )
             recovery_relative_change = 0.0
             final_rel_residual = final_state.relative_residual
@@ -3356,6 +3367,43 @@ end
 # =============================================================================
 # SOL103 MASS MATRIX ASSEMBLY
 # =============================================================================
+@inline function _sol103_param_enabled(raw, default::Bool)
+    if raw isa AbstractString
+        token = uppercase(strip(raw))
+        isempty(token) && return default
+        return !(token in ("NO", "N", "FALSE", "F", "OFF", "0", "NONE"))
+    elseif raw isa Number
+        return abs(Float64(raw)) > 1e-12
+    elseif raw === nothing
+        return default
+    end
+    return Bool(raw)
+end
+
+@inline function sol103_shell_mass_formulation(model)
+    if haskey(ENV, "JFEM_SOL103_SHELL_MASS")
+        raw = lowercase(strip(ENV["JFEM_SOL103_SHELL_MASS"]))
+        if raw in ("consistent", "coupled", "coupmass", "full")
+            return :coupled_consistent
+        elseif raw in ("lumped", "nastran", "nastran_lumped", "diagonal", "default")
+            return :nastran_lumped
+        else
+            @warn "Ignoring unknown JFEM_SOL103_SHELL_MASS value; using Nastran lumped shell mass" value=ENV["JFEM_SOL103_SHELL_MASS"]
+            return :nastran_lumped
+        end
+    end
+    if haskey(model, "PARAM_COUPMASS")
+        return _sol103_param_enabled(get(model, "PARAM_COUPMASS", false), false) ?
+            :coupled_consistent : :nastran_lumped
+    end
+    return solver_env_bool("JFEM_SOL103_SHELL_COUPLED_MASS_DEFAULT", true) ?
+        :coupled_consistent : :nastran_lumped
+end
+
+@inline function sol103_shell_mass_formulation_name(model)
+    return string(sol103_shell_mass_formulation(model))
+end
+
 function assemble_mass(model, id_map, node_coords, node_R, ndof)
     log_msg("[SOLVER] Assembling Mass Matrix (SOL103)...")
     n_nodes = length(id_map)
@@ -3389,6 +3437,8 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
     coords_buf_solid = zeros(8, 3)
     T_buf_solid = zeros(24, 24)
     dofs_buf_solid = Vector{Int}(undef, 24)
+    shell_mass_formulation = sol103_shell_mass_formulation(model)
+    log_msg("[SOLVER] SOL103 shell mass formulation: $(shell_mass_formulation)")
 
     # --- Shell elements ---
     for (_, el) in cshells
@@ -3428,7 +3478,9 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
                 lc_buf4[k,1] = dot(pk-c_ctr, v1); lc_buf4[k,2] = dot(pk-c_ctr, v2)
             end
 
-            Me_loc = FEM.nastran_lumped_mass_quad4(lc_buf4, rho_eff, h)
+            Me_loc = shell_mass_formulation === :coupled_consistent ?
+                FEM.consistent_mass_quad4(lc_buf4, rho_eff, h) :
+                FEM.nastran_lumped_mass_quad4(lc_buf4, rho_eff, h)
 
             # Build T (24×24)
             fill!(T_buf, 0.0)
@@ -3479,7 +3531,9 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
                 lc3[k,1] = dot(pk-c_ctr, v1); lc3[k,2] = dot(pk-c_ctr, v2)
             end
 
-            Me_loc = FEM.nastran_lumped_mass_tria3(lc3, rho_eff, h)
+            Me_loc = shell_mass_formulation === :coupled_consistent ?
+                FEM.consistent_mass_tria3(lc3, rho_eff, h) :
+                FEM.nastran_lumped_mass_tria3(lc3, rho_eff, h)
 
             T18 = zeros(18, 18)
             for k in 1:3
@@ -3888,10 +3942,21 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
         !haskey(id_map, gid) && continue
         idx = id_map[gid]
         base = (idx-1)*6
-        m_diag = get(cm, "M_DIAG", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-        for d in 1:min(6, length(m_diag))
-            if abs(m_diag[d]) > 1e-30
-                push!(I_idx, base+d); push!(J_idx, base+d); push!(V_val, m_diag[d])
+        raw_full = get(cm, "M_FULL", nothing)
+        if raw_full === nothing
+            m_diag = get(cm, "M_DIAG", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+            for d in 1:min(6, length(m_diag))
+                if abs(m_diag[d]) > 1e-30
+                    push!(I_idx, base+d); push!(J_idx, base+d); push!(V_val, Float64(m_diag[d]))
+                end
+            end
+        else
+            m_full = Matrix{Float64}(raw_full)
+            n = min(6, size(m_full, 1), size(m_full, 2))
+            for r in 1:n, c in 1:n
+                val = m_full[r, c]
+                abs(val) > 1e-30 || continue
+                push!(I_idx, base+r); push!(J_idx, base+c); push!(V_val, val)
             end
         end
     end

@@ -39,6 +39,12 @@ line-continuation character.
 |   |-- jfem_client.py
 |   `-- jfem_manifest_cli.py
 |-- src/
+|-- validation/
+|   |-- public_suite.yaml
+|   |-- run_public_suite.jl
+|   |-- cases/
+|   |-- analytical/
+|   `-- references/
 |-- POST/
 |   |-- postv11.html
 |   `-- POST_GUIDE.html
@@ -71,6 +77,10 @@ line-continuation character.
   manifests and talking to the JSONL worker.
 - `python_client/jfem_manifest_cli.py`: Python command-line helper for creating
   and running manifests from external workflows.
+- `validation`: public, paper-facing validation suite. It contains only
+  public or permissively licensed decks and references: MacNeal-Harder,
+  classical buckling, MYSTRAN cross-checks, and CRM/uCRM. It intentionally
+  excludes private GAME, HTP, and VTP cases.
 - `tools/precompile_sol105.jl`: older focused SOL 105 precompile helper.
 - `jfem` (Linux/macOS) and `jfem.cmd` (Windows): one-line wrappers to analyze a
   single deck with good defaults — see "Quickest Way To Run A Deck" below. They
@@ -327,6 +337,26 @@ See [`build_sysimage/README.md`](build_sysimage/README.md) for details.
 The sections below show the fully explicit `julia ... run_bdf.jl` form, which
 the wrapper runs for you and which you may still prefer for scripting or batch
 automation.
+
+## Public Validation Suite
+
+The paper validation cases live in `validation/`. Run the full public suite
+from the repository root with:
+
+Windows PowerShell:
+
+```powershell
+.\validation\run_public_validation.ps1
+```
+
+Linux/macOS Bash:
+
+```bash
+julia --startup-file=no --project=. validation/run_public_suite.jl
+```
+
+The suite writes `validation/comparison.csv` and `validation/comparison.md`.
+The checked-in report currently has 14 scalar rows and all pass.
 
 ## Run One SOL 105 Case
 
@@ -750,5 +780,4 @@ the HTML post-processing viewer. Generated solver products are ignored:
 - OpenJFEM reports and result exports such as `.REPORT.md`, `.JU.JSON`,
   `.jfem`, `.h5`, and `.vtk`
 - Julia caches and local temporary files
-
 

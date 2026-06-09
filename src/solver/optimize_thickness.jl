@@ -1080,18 +1080,101 @@ function _backend_static_ks_von_mises_design_gradient(results, response_spec, de
     return Base.invokelatest(hook, results, response_spec, design_variables)
 end
 
-function _backend_buckling_load_factor_thickness_gradient(results, pids; mode::Integer=1)
+function _backend_static_ks_displacement_design_gradient(results, response_spec, design_variables)
+    backend = string(get(results, "backend", ""))
+    backend == "tacs_formulation" || return nothing
+    parent = parentmodule(@__MODULE__)
+    isdefined(parent, :static_ks_displacement_design_gradient) || return nothing
+    hook = getfield(parent, :static_ks_displacement_design_gradient)
+    return Base.invokelatest(hook, results, response_spec, design_variables)
+end
+
+function _backend_buckling_load_factor_thickness_gradient(
+    results,
+    pids;
+    mode::Integer=1,
+    cluster_policy=:current_mode,
+    cluster_rel_tol::Real=1e-8,
+    cluster_abs_tol::Real=1e-10,
+    mode_tracking=nothing,
+)
     backend = string(get(results, "backend", ""))
     backend == "tacs_formulation" || return nothing
     parent = parentmodule(@__MODULE__)
     isdefined(parent, :buckling_load_factor_thickness_gradient) || return nothing
     hook = getfield(parent, :buckling_load_factor_thickness_gradient)
-    return Base.invokelatest(hook, results; pids=pids, mode=mode)
+    return Base.invokelatest(
+        hook,
+        results;
+        pids=pids,
+        mode=mode,
+        cluster_policy=cluster_policy,
+        cluster_rel_tol=cluster_rel_tol,
+        cluster_abs_tol=cluster_abs_tol,
+        mode_tracking=mode_tracking,
+    )
+end
+
+function _backend_eigen_mode_continuation_update(
+    results,
+    previous_tracking;
+    mode::Integer=1,
+    analysis_family=:buckling,
+    candidate_modes=nothing,
+    candidate_window=1,
+    minimum_mac::Real=0.0,
+)
+    backend = string(get(results, "backend", ""))
+    backend == "tacs_formulation" || return nothing
+    parent = parentmodule(@__MODULE__)
+    isdefined(parent, :eigen_mode_continuation_update) || return nothing
+    hook = getfield(parent, :eigen_mode_continuation_update)
+    return Base.invokelatest(
+        hook,
+        results,
+        previous_tracking;
+        mode=mode,
+        analysis_family=analysis_family,
+        candidate_modes=candidate_modes,
+        candidate_window=candidate_window,
+        minimum_mac=minimum_mac,
+    )
+end
+
+function _backend_buckling_load_factor_ks_design_gradient(
+    results,
+    design_variables;
+    modes=nothing,
+    rho::Real=50.0,
+    cluster_policy=:current_mode,
+    cluster_rel_tol::Real=1e-8,
+    cluster_abs_tol::Real=1e-10,
+)
+    backend = string(get(results, "backend", ""))
+    backend == "tacs_formulation" || return nothing
+    parent = parentmodule(@__MODULE__)
+    isdefined(parent, :buckling_load_factor_ks_design_gradient) || return nothing
+    hook = getfield(parent, :buckling_load_factor_ks_design_gradient)
+    return Base.invokelatest(
+        hook,
+        results,
+        design_variables;
+        modes=modes,
+        rho=rho,
+        cluster_policy=cluster_policy,
+        cluster_rel_tol=cluster_rel_tol,
+        cluster_abs_tol=cluster_abs_tol,
+    )
 end
 
 function _sizing_objective_and_sensitivity(results, model, vars, objective;
     thickness_derivative_method=nothing,
-    bar_area_derivative_method=nothing)
+    bar_area_derivative_method=nothing,
+    buckling_mode::Integer=1,
+    buckling_cluster_policy=:current_mode,
+    buckling_cluster_rel_tol::Real=1e-8,
+    buckling_cluster_abs_tol::Real=1e-10,
+    buckling_mode_tracking=nothing)
 
     if objective == :min_compliance
         sc = results["subcases"][1]
@@ -1127,11 +1210,22 @@ function _sizing_objective_and_sensitivity(results, model, vars, objective;
     elseif objective == :max_buckling
         eigenvalues = results["eigenvalues"]
         isempty(eigenvalues) && error("[OPT] No buckling eigenvalues found")
-        obj = eigenvalues[1]
+        mode = Int(buckling_mode)
+        1 <= mode <= length(eigenvalues) ||
+            error("[OPT] Requested buckling mode $mode but only $(length(eigenvalues)) modes are available")
+        obj = eigenvalues[mode]
 
         if all(var.kind == :shell_thickness for var in vars)
             pids = sort!(unique(Int[var.pid_new for var in vars]))
-            backend_response = _backend_buckling_load_factor_thickness_gradient(results, pids; mode=1)
+            backend_response = _backend_buckling_load_factor_thickness_gradient(
+                results,
+                pids;
+                mode=mode,
+                cluster_policy=buckling_cluster_policy,
+                cluster_rel_tol=buckling_cluster_rel_tol,
+                cluster_abs_tol=buckling_cluster_abs_tol,
+                mode_tracking=buckling_mode_tracking,
+            )
             if backend_response !== nothing
                 grad_by_pid = backend_response["gradient"]
                 grad = zeros(length(vars))
@@ -1140,7 +1234,11 @@ function _sizing_objective_and_sensitivity(results, model, vars, objective;
                 end
                 results["sensitivity_diagnostics"] = Dict{String,Any}(
                     "response" => backend_response["response"],
+                    "requested_mode" => get(backend_response, "requested_mode", mode),
                     "mode" => backend_response["mode"],
+                    "cluster_policy" => get(backend_response, "cluster_policy", string(buckling_cluster_policy)),
+                    "cluster_detected" => get(backend_response, "cluster_detected", false),
+                    "mode_tracking" => get(backend_response, "mode_tracking", Dict{String,Any}()),
                     "gradient_backend" => backend_response["gradient_backend"],
                     "design_variable_type" => backend_response["design_variable_type"],
                 )
@@ -1159,6 +1257,8 @@ function _sizing_objective_and_sensitivity(results, model, vars, objective;
         config_path, tmp_io = mktemp()
         close(tmp_io)
         try
+            mode == 1 ||
+                error("[OPT] Buckling mode selection beyond mode 1 requires backend buckling gradient support for this route")
             open(config_path, "w") do f
                 JSON.print(f, config, 2)
             end
@@ -1377,6 +1477,16 @@ function optimize_grouped_sizing(model::Dict, solve_fn::Function, groups::Vector
     eta::Float64 = 0.5,
     thickness_derivative_method::Union{Nothing,Symbol,String} = nothing,
     bar_area_derivative_method::Union{Nothing,Symbol,String} = nothing,
+    buckling_ks_rho::Union{Nothing,Real} = nothing,
+    buckling_ks_modes = nothing,
+    buckling_mode::Integer = 1,
+    buckling_cluster_policy = :current_mode,
+    buckling_cluster_rel_tol::Real = 1e-8,
+    buckling_cluster_abs_tol::Real = 1e-10,
+    buckling_mode_tracking::Bool = false,
+    buckling_mode_tracking_candidate_modes = nothing,
+    buckling_mode_tracking_candidate_window = 1,
+    buckling_mode_tracking_minimum_mac::Real = 0.0,
     capture_solver_diagnostics::Bool = true)
 
     n_group = length(groups)
@@ -1403,6 +1513,7 @@ function optimize_grouped_sizing(model::Dict, solve_fn::Function, groups::Vector
     iterations = Any[]
     converged = false
     termination_reason = "max_iter"
+    buckling_mode_tracking_state = nothing
 
     grouped_kinds = sort!(collect(Set(var.kind for group in groups for var in group.members)))
 
@@ -1424,6 +1535,13 @@ function optimize_grouped_sizing(model::Dict, solve_fn::Function, groups::Vector
                 results, model, groups, objective;
                 thickness_derivative_method=thickness_derivative_method,
                 bar_area_derivative_method=bar_area_derivative_method,
+                buckling_ks_rho=buckling_ks_rho,
+                buckling_ks_modes=buckling_ks_modes,
+                buckling_mode=buckling_mode,
+                buckling_cluster_policy=buckling_cluster_policy,
+                buckling_cluster_rel_tol=buckling_cluster_rel_tol,
+                buckling_cluster_abs_tol=buckling_cluster_abs_tol,
+                buckling_mode_tracking=buckling_mode_tracking ? buckling_mode_tracking_state : nothing,
             )
 
             current_variable_mass = _grouped_variable_mass(groups, x_vec)
@@ -1456,6 +1574,41 @@ function optimize_grouped_sizing(model::Dict, solve_fn::Function, groups::Vector
             end
             if !isnothing(bar_area_derivative_method)
                 iter_record["bar_area_derivative_method"] = String(Symbol(bar_area_derivative_method))
+            end
+            if objective == :max_buckling && !isnothing(buckling_ks_rho)
+                iter_record["buckling_aggregation"] = "smooth_min_load_factor"
+                iter_record["buckling_ks_rho"] = Float64(buckling_ks_rho)
+            end
+            if objective == :max_buckling
+                iter_record["buckling_mode"] = Int(buckling_mode)
+                iter_record["buckling_cluster_policy"] = string(buckling_cluster_policy)
+                iter_record["buckling_cluster_tolerances"] = Dict{String,Float64}(
+                    "rel_tol" => Float64(buckling_cluster_rel_tol),
+                    "abs_tol" => Float64(buckling_cluster_abs_tol),
+                )
+                !isnothing(buckling_ks_modes) &&
+                    (iter_record["buckling_modes"] = Int.(collect(buckling_ks_modes)))
+                if buckling_mode_tracking
+                    tracking_update = _backend_eigen_mode_continuation_update(
+                        results,
+                        buckling_mode_tracking_state;
+                        mode=buckling_mode,
+                        analysis_family=:buckling,
+                        candidate_modes=buckling_mode_tracking_candidate_modes,
+                        candidate_window=buckling_mode_tracking_candidate_window,
+                        minimum_mac=buckling_mode_tracking_minimum_mac,
+                    )
+                    if tracking_update !== nothing
+                        buckling_mode_tracking_state, tracking_diag = tracking_update
+                        iter_record["buckling_mode_tracking"] = tracking_diag
+                        iter_record["buckling_mode"] = Int(get(tracking_diag, "selected_mode", buckling_mode))
+                    else
+                        iter_record["buckling_mode_tracking"] = Dict{String,Any}(
+                            "method" => "unavailable",
+                            "requested_mode" => Int(buckling_mode),
+                        )
+                    end
+                end
             end
             if capture_solver_diagnostics
                 iter_record["solver_diagnostics"] = _extract_optimization_solver_diagnostics(results, objective)
@@ -1629,7 +1782,14 @@ end
 
 function _grouped_sizing_objective_and_sensitivity(results, model, groups, objective;
     thickness_derivative_method=nothing,
-    bar_area_derivative_method=nothing)
+    bar_area_derivative_method=nothing,
+    buckling_ks_rho=nothing,
+    buckling_ks_modes=nothing,
+    buckling_mode::Integer=1,
+    buckling_cluster_policy=:current_mode,
+    buckling_cluster_rel_tol::Real=1e-8,
+    buckling_cluster_abs_tol::Real=1e-10,
+    buckling_mode_tracking=nothing)
 
     if objective == :min_compliance
         sc = results["subcases"][1]
@@ -1667,11 +1827,65 @@ function _grouped_sizing_objective_and_sensitivity(results, model, groups, objec
     elseif objective == :max_buckling
         eigenvalues = results["eigenvalues"]
         isempty(eigenvalues) && error("[OPT] No buckling eigenvalues found")
-        obj = eigenvalues[1]
+        mode = Int(buckling_mode)
+        1 <= mode <= length(eigenvalues) ||
+            error("[OPT] Requested buckling mode $mode but only $(length(eigenvalues)) modes are available")
+        obj = eigenvalues[mode]
+
+        if !isnothing(buckling_ks_rho) &&
+           all(all(member.kind == :shell_thickness for member in group.members) for group in groups)
+            design_vars = Any[]
+            group_internal_ids = Dict{String, Vector{String}}()
+            for group in groups
+                ids = String[]
+                for dv in _grouped_sizing_dvs(group, thickness_derivative_method, bar_area_derivative_method; include_id=true)
+                    push!(design_vars, dv)
+                    push!(ids, string(dv["id"]))
+                end
+                group_internal_ids[group.label] = ids
+            end
+            backend_response = _backend_buckling_load_factor_ks_design_gradient(
+                results,
+                design_vars;
+                modes=buckling_ks_modes,
+                rho=Float64(buckling_ks_rho),
+                cluster_policy=buckling_cluster_policy,
+                cluster_rel_tol=buckling_cluster_rel_tol,
+                cluster_abs_tol=buckling_cluster_abs_tol,
+            )
+            if backend_response !== nothing
+                grad_by_dv = backend_response["gradient"]
+                grad = zeros(length(groups))
+                for (i, group) in enumerate(groups)
+                    grad[i] = sum(Float64(get(grad_by_dv, dv_id, 0.0)) for dv_id in get(group_internal_ids, group.label, String[]))
+                end
+                results["sensitivity_diagnostics"] = Dict{String,Any}(
+                    "response" => backend_response["response"],
+                    "aggregation" => backend_response["aggregation"],
+                    "modes" => deepcopy(backend_response["modes"]),
+                    "mode_weights" => deepcopy(backend_response["mode_weights"]),
+                    "rho" => Float64(backend_response["rho"]),
+                    "cluster_policy" => get(backend_response, "cluster_policy", string(buckling_cluster_policy)),
+                    "cluster_tolerances" => get(backend_response, "cluster_tolerances", Dict{String,Any}()),
+                    "gradient_backend" => backend_response["gradient_backend"],
+                    "base_gradient_backend" => backend_response["base_gradient_backend"],
+                    "design_variable_type" => backend_response["design_variable_type"],
+                )
+                return Float64(backend_response["value"]), grad
+            end
+        end
 
         if all(all(member.kind == :shell_thickness for member in group.members) for group in groups)
             pids = sort!(unique(Int[member.pid_new for group in groups for member in group.members]))
-            backend_response = _backend_buckling_load_factor_thickness_gradient(results, pids; mode=1)
+            backend_response = _backend_buckling_load_factor_thickness_gradient(
+                results,
+                pids;
+                mode=mode,
+                cluster_policy=buckling_cluster_policy,
+                cluster_rel_tol=buckling_cluster_rel_tol,
+                cluster_abs_tol=buckling_cluster_abs_tol,
+                mode_tracking=buckling_mode_tracking,
+            )
             if backend_response !== nothing
                 grad_by_pid = backend_response["gradient"]
                 grad = zeros(length(groups))
@@ -1681,7 +1895,11 @@ function _grouped_sizing_objective_and_sensitivity(results, model, groups, objec
                 end
                 results["sensitivity_diagnostics"] = Dict{String,Any}(
                     "response" => backend_response["response"],
+                    "requested_mode" => get(backend_response, "requested_mode", mode),
                     "mode" => backend_response["mode"],
+                    "cluster_policy" => get(backend_response, "cluster_policy", string(buckling_cluster_policy)),
+                    "cluster_detected" => get(backend_response, "cluster_detected", false),
+                    "mode_tracking" => get(backend_response, "mode_tracking", Dict{String,Any}()),
                     "gradient_backend" => backend_response["gradient_backend"],
                     "design_variable_type" => backend_response["design_variable_type"],
                 )
@@ -1708,6 +1926,8 @@ function _grouped_sizing_objective_and_sensitivity(results, model, groups, objec
         config_path, tmp_io = mktemp()
         close(tmp_io)
         try
+            mode == 1 ||
+                error("[OPT] Buckling mode selection beyond mode 1 requires backend buckling gradient support for this route")
             open(config_path, "w") do f
                 JSON.print(f, config, 2)
             end
@@ -1807,7 +2027,7 @@ function _evaluate_grouped_static_response(results, model, response_family::Symb
     u = sc["u_analysis"]
     if response_family == :compliance
         return dot(u, results["K"] * u)
-    elseif response_family == :displacement
+    elseif response_family in (:displacement, :ks_displacement)
         return evaluate_response(
             response_spec, u, model, results["id_map"], results["ndof"],
             results["node_coords"], results["node_R"]
@@ -1859,6 +2079,49 @@ function _grouped_static_response_and_sensitivity(results, model, groups, respon
                     "dof" => backend_response["dof"],
                     "gradient_backend" => backend_response["gradient_backend"],
                     "design_variable_type" => backend_response["design_variable_type"],
+                )
+                return Float64(backend_response["value"]), grad
+            end
+        end
+
+        dr_du_full = compute_dr_du(response_spec, u, model, id_map, ndof, X, node_R)
+        fixed_dofs_sc = sc["fixed_dofs"]
+        free_dofs = sort(collect(setdiff(1:ndof, fixed_dofs_sc)))
+        K_ff = results["K"][free_dofs, free_dofs]
+        K_fact = cholesky(Symmetric(K_ff))
+        lambda_f = K_fact \ dr_du_full[free_dofs]
+        lambda_full = zeros(ndof)
+        lambda_full[free_dofs] = lambda_f
+
+        for (i, group) in enumerate(groups)
+            for dv in _grouped_sizing_dvs(group, thickness_derivative_method, bar_area_derivative_method)
+                dKdx_u = compute_dKdx_u(dv, model, id_map, X, node_R, u, ndof)
+                grad[i] += -dot(lambda_full, dKdx_u)
+            end
+        end
+        return response_value, grad
+    elseif response_family == :ks_displacement
+        if all(all(member.kind == :shell_thickness for member in group.members) for group in groups)
+            design_vars = Dict{String,Any}[]
+            group_ids = String[]
+            for group in groups
+                group_dvs = _grouped_sizing_dvs(group, thickness_derivative_method, bar_area_derivative_method; include_id=true)
+                length(group_dvs) == 1 || error("[OPT] KS displacement grouped route expected one shell-thickness DV per group")
+                push!(design_vars, group_dvs[1])
+                push!(group_ids, string(group_dvs[1]["id"]))
+            end
+            backend_response = _backend_static_ks_displacement_design_gradient(results, response_spec, design_vars)
+            if backend_response !== nothing
+                grad_by_group = backend_response["gradient"]
+                for (i, gid) in enumerate(group_ids)
+                    grad[i] = Float64(get(grad_by_group, gid, 0.0))
+                end
+                results["sensitivity_diagnostics"] = Dict{String,Any}(
+                    "response" => backend_response["response"],
+                    "gradient_backend" => backend_response["gradient_backend"],
+                    "design_variable_type" => backend_response["design_variable_type"],
+                    "ks_rho" => Float64(get(response_spec, "rho", 50.0)),
+                    "displacement_ref" => Float64(get(response_spec, "displacement_ref", 1.0)),
                 )
                 return Float64(backend_response["value"]), grad
             end
@@ -2836,6 +3099,16 @@ function optimize_grouped_single_variable_mass_minimization(
         results = solve_fn(model)
         constraint_values = _evaluate_grouped_static_constraints(results, model, normalized_constraints)
         active_constraint = _grouped_static_active_constraint(constraint_values)
+        active_response_gradient = nothing
+        if capture_solver_diagnostics
+            active_idx = Int(active_constraint["constraint_index"])
+            active_response = normalized_constraints[active_idx]
+            _, active_response_gradient = _grouped_static_response_and_sensitivity(
+                results, model, [group],
+                active_response["family"],
+                active_response["spec"],
+            )
+        end
         variable_mass_value = _grouped_variable_mass(group, x_value)
         mass_value = variable_mass_value + group.fixed_mass
         iter_record = Dict{String,Any}(
@@ -2858,7 +3131,7 @@ function optimize_grouped_single_variable_mass_minimization(
             "mass_ratio" => mass_value / max(_grouped_total_mass(group, group.x0), 1e-30),
             "min_design_value" => x_value,
             "max_design_value" => x_value,
-            "gradient_norm" => nothing,
+            "gradient_norm" => isnothing(active_response_gradient) ? nothing : norm(active_response_gradient),
             "objective_type" => "min_mass",
             "design_variable_types" => [String(kind) for kind in kinds],
             "design_variables" => _grouped_design_value_map([group], [x_value]),

@@ -273,6 +273,8 @@ end
         return "compliance"
     elseif rtype == "DISP"
         return "displacement"
+    elseif rtype in ("KSDISP", "KSDISPLACEMENT")
+        return "ks_displacement"
     elseif rtype in ("STRESS", "VMSTRS")
         return "von_mises"
     elseif rtype in ("FORCE", "FRFORC")
@@ -412,7 +414,7 @@ function _build_optimization_definition(model::Dict, cc::Dict{String, Any})
     parsed_but_unexecuted_responses = Any[
         response["id"] for response in responses
         if !isnothing(response["candidate_response_family"]) &&
-           !(response["candidate_response_family"] in ("mass", "compliance", "displacement", "buckling_eigenvalue", "von_mises"))
+           !(response["candidate_response_family"] in ("mass", "compliance", "displacement", "ks_displacement", "buckling_eigenvalue", "von_mises"))
     ]
 
     readiness = Dict(
@@ -426,7 +428,7 @@ function _build_optimization_definition(model::Dict, cc::Dict{String, Any})
         "parsed_but_unexecuted_material_relation_ids" => parsed_but_unexecuted_material_relations,
         "parsed_but_unexecuted_response_ids" => parsed_but_unexecuted_responses,
         "supported_execution_relation_families" => ["shell_thickness", "bar_area", "pcomp_ply_thickness", "pcomp_ply_angle", "material_E", "material_G", "material_NU", "material_E1", "material_E2", "material_G12", "material_NU12", "material_RHO"],
-        "supported_execution_response_families" => ["mass", "compliance", "displacement", "buckling_eigenvalue", "von_mises"],
+        "supported_execution_response_families" => ["mass", "compliance", "displacement", "ks_displacement", "buckling_eigenvalue", "von_mises"],
         "execution_scope_note" =>
             "This readiness check is family-level only. Objective sense, constraint structure, and route-specific translation rules are still enforced during SOL 200-lite dispatch.",
     )
@@ -1030,6 +1032,17 @@ function build_model_from_json(raw::AbstractDict)
             "G1Z_BLANK"=>Bool(get(m, "G1Z_BLANK", false)),
             "G2Z_BLANK"=>Bool(get(m, "G2Z_BLANK", false)),
             "RHO"=>Float64(get(m, "RHO", 0.0)),
+            "A1"=>Float64(get(m, "A1", 0.0)),
+            "A2"=>Float64(get(m, "A2", 0.0)),
+            "TREF"=>Float64(get(m, "TREF", 0.0)),
+            "XT"=>Float64(get(m, "XT", 0.0)),
+            "XC"=>Float64(get(m, "XC", 0.0)),
+            "YT"=>Float64(get(m, "YT", 0.0)),
+            "YC"=>Float64(get(m, "YC", 0.0)),
+            "S"=>Float64(get(m, "S", 0.0)),
+            "GE"=>Float64(get(m, "GE", 0.0)),
+            "F12"=>Float64(get(m, "F12", 0.0)),
+            "STRN"=>Float64(get(m, "STRN", 0.0)),
             "E"=>Float64(m["E1"]), "G"=>Float64(m["G12"]), "NU"=>Float64(m["NU12"]),
         )
     end

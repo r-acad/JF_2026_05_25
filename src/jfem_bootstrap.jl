@@ -31,6 +31,10 @@ if !isdefined(@__MODULE__, :AbstractJFEMBackend)
     include(joinpath("backend", "BackendInterface.jl"))
 end
 
+if !isdefined(@__MODULE__, :AbstractTACSCoreContract)
+    include(joinpath("backend", "tacs_formulation", "core.jl"))
+end
+
 if !isdefined(@__MODULE__, :_solve_tacs_sol101)
     include(joinpath("backend", "tacs_formulation", "sol101.jl"))
 end
