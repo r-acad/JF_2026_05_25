@@ -35,6 +35,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Updated the optional package precompile workload to use the bundled public
   precompile decks under `JFEM_installation/examples/precompile/` instead of
   private validation paths.
+- Removed the repository-local `AGENTS.md` from the public tree; public-repo
+  agent operating notes now live only in the private agentic-development area.
 - Split `POST/` into two user-facing app folders: `POST/JFEM_results_viewer/`
   for standalone `.jfem` file viewing and `POST/case_runner_web_app/` for the
   Julia-server-backed model builder/deck runner.
