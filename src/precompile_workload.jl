@@ -25,10 +25,12 @@ function _jfem_precompile_split_paths(raw::AbstractString)
 end
 
 function _jfem_default_precompile_bdfs()
-    repo_root = normpath(joinpath(@__DIR__, "..", ".."))
+    repo_root = normpath(joinpath(@__DIR__, ".."))
+    precompile_dir = joinpath(repo_root, "JFEM_installation", "examples", "precompile")
     candidates = String[
-        joinpath(repo_root, "NAST705", "probes", "kg_4x4_steplam2d.bdf"),
-        joinpath(repo_root, "NAST705", "small_stiffened_nobar.bdf"),
+        joinpath(precompile_dir, "sol101_quad_static.bdf"),
+        joinpath(precompile_dir, "sol103_quad_modes.bdf"),
+        joinpath(precompile_dir, "sol105_quad_buckling.bdf"),
     ]
     return filter(isfile, candidates)
 end

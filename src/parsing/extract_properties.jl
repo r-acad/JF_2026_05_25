@@ -259,7 +259,9 @@ function extract_pbeam(cards)
         stations = Dict{String,Any}[
             Dict{String,Any}(
                 "X"=>0.0, "A"=>A_a, "I1"=>I1_a, "I2"=>I2_a,
-                "I12"=>I12_a, "J"=>J_a
+                "I12"=>I12_a, "J"=>J_a,
+                "C1"=>C1_a, "C2"=>C2_a, "D1"=>D1_a, "D2"=>D2_a,
+                "E1"=>E1_a, "E2"=>E2_a, "F1"=>F1_a, "F2"=>F2_a
             )
         ]
 
@@ -280,10 +282,6 @@ function extract_pbeam(cards)
                 I2_b  = Float64(parse_nastran_number(safe_get(c, k+4), I2_a))
                 I12_b = Float64(parse_nastran_number(safe_get(c, k+5), I12_a))
                 J_b   = Float64(parse_nastran_number(safe_get(c, k+6), J_a))
-                push!(stations, Dict{String,Any}(
-                    "X"=>x_b, "A"=>A_b, "I1"=>I1_b, "I2"=>I2_b,
-                    "I12"=>I12_b, "J"=>J_b
-                ))
                 # Stress recovery for this station (8 more fields)
                 if k + 15 <= length(c)
                     C1_b = Float64(parse_nastran_number(safe_get(c, k+8),  0.0))
@@ -295,6 +293,12 @@ function extract_pbeam(cards)
                     F1_b = Float64(parse_nastran_number(safe_get(c, k+14), 0.0))
                     F2_b = Float64(parse_nastran_number(safe_get(c, k+15), 0.0))
                 end
+                push!(stations, Dict{String,Any}(
+                    "X"=>x_b, "A"=>A_b, "I1"=>I1_b, "I2"=>I2_b,
+                    "I12"=>I12_b, "J"=>J_b,
+                    "C1"=>C1_b, "C2"=>C2_b, "D1"=>D1_b, "D2"=>D2_b,
+                    "E1"=>E1_b, "E2"=>E2_b, "F1"=>F1_b, "F2"=>F2_b
+                ))
                 k += 16
             else
                 break  # Reached K1/K2 or end of card

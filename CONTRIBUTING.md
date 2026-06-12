@@ -11,8 +11,8 @@ development notes live in a separate workspace and are deliberately kept out
 of Git. Only the following kinds of files belong here:
 
 - Julia source code in `src/`.
-- Public tools in `tools/` and `python_client/`.
-- Bundled example decks in `examples/`.
+- Public installation and automation helpers in `JFEM_installation/`.
+- Bundled installation/precompile decks in `JFEM_installation/examples/`.
 - Finished PDFs and Markdown notes in `Reference_documentation/`.
 - Top-level metadata: `Project.toml`, `Manifest.toml`, `README.md`,
   `CHANGELOG.md`, `LICENSE`, `.gitignore`, `.gitattributes`.
@@ -51,11 +51,13 @@ output, the file goes in the private development workspace, not here.
 LaTeX sources are kept in the private development workspace, not in this
 repository. To update a PDF:
 
-1. Edit the `.tex` file in the private `DOCUMENT_SOURCES/Code_documentation/`.
+1. Edit the `.tex` file under
+   `02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/DOCUMENTS_IN_PROGRESS/OPENJFEM_REFERENCE_DOCS/`.
 2. Rebuild with the folder's `build.ps1` or with `build_all.ps1`.
-3. Copy the resulting PDF into `Reference_documentation/`, overwriting the
-   prior version.
-4. Add a `Reference_documentation/` line to `CHANGELOG.md` under `[Unreleased]`.
+3. Copy the reviewed PDF into
+   `02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/PUBLIC_PDFS/`.
+4. Run the private document publisher to update `Reference_documentation/`.
+5. Add a `Reference_documentation/` line to `CHANGELOG.md` under `[Unreleased]`.
 
 ## Releasing
 

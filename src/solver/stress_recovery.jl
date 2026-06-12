@@ -429,6 +429,148 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
     end
 end
 
+@inline function _stress_beam_station_property_value(st::AbstractDict, prop::AbstractDict, field::AbstractString)
+    fallback = field == "I1" ? get(prop, "I1", get(prop, "I", 0.0)) : get(prop, field, 0.0)
+    return Float64(get(st, field, fallback))
+end
+
+function _stress_beam_sorted_stations(prop::AbstractDict)
+    stations_raw = get(prop, "STATIONS", nothing)
+    stations_raw isa AbstractVector || return Dict{String,Any}[]
+    stations = Dict{String,Any}[]
+    for st in stations_raw
+        st isa AbstractDict || continue
+        x = clamp(Float64(get(st, "X", 0.0)), 0.0, 1.0)
+        push!(stations, Dict{String,Any}(string(k) => v for (k, v) in st))
+        stations[end]["X"] = x
+    end
+    sort!(stations; by=s -> Float64(get(s, "X", 0.0)))
+    unique_stations = Dict{String,Any}[]
+    for st in stations
+        if isempty(unique_stations) ||
+           abs(Float64(get(st, "X", 0.0)) - Float64(get(last(unique_stations), "X", 0.0))) > 1e-10
+            push!(unique_stations, st)
+        else
+            unique_stations[end] = st
+        end
+    end
+    return unique_stations
+end
+
+function _stress_beam_station_properties_constant(prop::AbstractDict)
+    stations = get(prop, "STATIONS", nothing)
+    stations isa AbstractVector || return true
+    length(stations) >= 2 || return true
+    for field in ("A", "I1", "I2", "I12", "J")
+        ref = _stress_beam_station_property_value(first(stations), prop, field)
+        for st in stations
+            val = _stress_beam_station_property_value(st, prop, field)
+            abs(val - ref) <= 1e-10 * max(1.0, abs(ref), abs(val)) || return false
+        end
+        prop_val = field == "I1" ? Float64(get(prop, "I1", get(prop, "I", ref))) : Float64(get(prop, field, ref))
+        abs(prop_val - ref) <= 1e-10 * max(1.0, abs(ref), abs(prop_val)) || return false
+    end
+    return true
+end
+
+function _stress_beam_station_section(st::AbstractDict, prop::AbstractDict)
+    I1 = _stress_beam_station_property_value(st, prop, "I1")
+    I2 = _stress_beam_station_property_value(st, prop, "I2")
+    return (
+        A = _stress_beam_station_property_value(st, prop, "A"),
+        Iy = I2,
+        Iz = I1,
+        I12 = _stress_beam_station_property_value(st, prop, "I12"),
+        J = _stress_beam_station_property_value(st, prop, "J"),
+    )
+end
+
+function _stress_beam_recovery_points(prop::AbstractDict, station)
+    value(field::AbstractString) = Float64(get(station isa AbstractDict ? station : prop, field, get(prop, field, 0.0)))
+    return [
+        (value("C1"), value("C2")),
+        (value("D1"), value("D2")),
+        (value("E1"), value("E2")),
+        (value("F1"), value("F2")),
+    ]
+end
+
+function _stress_beam_station_condensed_force_recovery(
+    L::Float64,
+    prop::AbstractDict,
+    E::Float64,
+    G::Float64,
+    u_boundary_local::AbstractVector{<:Real},
+)
+    stations = _stress_beam_sorted_stations(prop)
+    length(stations) >= 2 || return nothing
+    first_x = Float64(get(first(stations), "X", 0.0))
+    last_x = Float64(get(last(stations), "X", 0.0))
+    first_x <= 1e-8 && last_x >= 1.0 - 1e-8 ||
+        error("SOL101 beam stress recovery for varying PBEAM/PBEAML stations requires stations spanning X=0.0 to X=1.0.")
+    length(u_boundary_local) == 12 ||
+        error("SOL101 beam stress recovery for varying PBEAM/PBEAML stations requires a 12-DOF boundary displacement vector.")
+
+    n = length(stations)
+    nd = 6 * n
+    K = zeros(Float64, nd, nd)
+    segment_data = NamedTuple{(:dofs, :Ke),Tuple{Vector{Int},Matrix{Float64}}}[]
+    K1 = Float64(get(prop, "K1", 0.0))
+    K2 = Float64(get(prop, "K2", 0.0))
+
+    for s in 1:(n - 1)
+        xa = Float64(get(stations[s], "X", 0.0))
+        xb = Float64(get(stations[s + 1], "X", 1.0))
+        seg_frac = xb - xa
+        seg_frac > 1e-10 || continue
+        segL = seg_frac * L
+        sec_a = _stress_beam_station_section(stations[s], prop)
+        sec_b = _stress_beam_station_section(stations[s + 1], prop)
+        A = 0.5 * (sec_a.A + sec_b.A)
+        Iy = 0.5 * (sec_a.Iy + sec_b.Iy)
+        Iz = 0.5 * (sec_a.Iz + sec_b.Iz)
+        I12 = 0.5 * (sec_a.I12 + sec_b.I12)
+        J = 0.5 * (sec_a.J + sec_b.J)
+        A > 0.0 || error("SOL101 beam stress recovery for varying PBEAM/PBEAML stations requires positive segment area.")
+        Iy >= 0.0 || error("SOL101 beam stress recovery for varying PBEAM/PBEAML stations requires nonnegative segment I2/Iy.")
+        Iz >= 0.0 || error("SOL101 beam stress recovery for varying PBEAM/PBEAML stations requires nonnegative segment I1/Iz.")
+        J >= 0.0 || error("SOL101 beam stress recovery for varying PBEAM/PBEAML stations requires nonnegative segment J.")
+        As_y = K1 > 0.0 ? K1 * A : Inf
+        As_z = K2 > 0.0 ? K2 * A : Inf
+        Ke_seg = Matrix{Float64}(FEM.stiffness_frame3d(segL, A, Iy, Iz, J, E, G; As_y=As_y, As_z=As_z, I12=I12))
+        dofs = collect(vcat(((s - 1) * 6 + 1):(s * 6), (s * 6 + 1):((s + 1) * 6)))
+        for c in 1:12, r in 1:12
+            K[dofs[r], dofs[c]] += Ke_seg[r, c]
+        end
+        push!(segment_data, (dofs=dofs, Ke=Ke_seg))
+    end
+    isempty(segment_data) && return nothing
+
+    boundary = vcat(1:6, (nd - 5):nd)
+    T = zeros(Float64, nd, length(boundary))
+    T[boundary, :] .= Matrix{Float64}(I, length(boundary), length(boundary))
+    if nd > 12
+        internal = collect(7:(nd - 6))
+        T[internal, :] .= -(K[internal, internal] \ K[internal, boundary])
+    end
+    u_station = T * Float64.(u_boundary_local)
+
+    first_seg = first(segment_data)
+    last_seg = last(segment_data)
+    f_first = first_seg.Ke * u_station[first_seg.dofs]
+    f_last = last_seg.Ke * u_station[last_seg.dofs]
+    f_local = zeros(Float64, 12)
+    f_local[1:6] .= f_first[1:6]
+    f_local[7:12] .= f_last[7:12]
+    return (
+        f_local = f_local,
+        station_a = first(stations),
+        station_b = last(stations),
+        section_a = _stress_beam_station_section(first(stations), prop),
+        section_b = _stress_beam_station_section(last(stations), prop),
+    )
+end
+
 function recover_bar_stresses!(
     model,
     id_map,
@@ -512,40 +654,75 @@ function recover_bar_stresses!(
             u_el[7:9] -= Rel_t * S_wb * θ_glob_B
         end
 
-        Iy, Iz = _bar_bending_inertias(prop)
-        Iyz = Float64(get(prop, "I12", 0.0))
-        K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
-        As_y = (K1 > 0.0) ? K1 * prop["A"] : Inf
-        As_z = (K2 > 0.0) ? K2 * prop["A"] : Inf
-        Ke_loc = FEM.stiffness_frame3d(L, prop["A"], Iy, Iz, prop["J"], mat["E"], mat["G"]; As_y=As_y, As_z=As_z, I12=Iyz)
         pa = Int(get(bar, "PA", 0))
         pb = Int(get(bar, "PB", 0))
-        if pa != 0 || pb != 0
-            Ke_loc = Matrix(Ke_loc)
-            apply_bar_pin_flags!(Ke_loc, pa, pb)
-        end
         fixed_end_load = _beam_pload1_local_load_vector_for_sid(
             model, eid, active_load_id, L, active_load_scale)
-        forces = frame_force_dict_from_local(Ke_loc * u_el - fixed_end_load)
-        A_bar = Float64(prop["A"])
-        sig_axial = (abs(A_bar) > 1e-30) ? forces["axial"]/A_bar : 0.0
+
+        station_recovery = nothing
+        if !_stress_beam_station_properties_constant(prop)
+            if has_offset || pa != 0 || pb != 0
+                error("SOL101 beam stress recovery for varying PBEAM/PBEAML stations with WA/WB offsets or PA/PB releases is not guarded yet.")
+            end
+            if norm(fixed_end_load) > 1e-12
+                error("SOL101 beam stress recovery for varying PBEAM/PBEAML stations with PLOAD1 fixed-end loads is not guarded yet.")
+            end
+            station_recovery = _stress_beam_station_condensed_force_recovery(
+                Float64(L), prop, Float64(mat["E"]), Float64(mat["G"]), u_el)
+        end
+
+        if station_recovery === nothing
+            Iy, Iz = _bar_bending_inertias(prop)
+            Iyz = Float64(get(prop, "I12", 0.0))
+            K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
+            As_y = (K1 > 0.0) ? K1 * prop["A"] : Inf
+            As_z = (K2 > 0.0) ? K2 * prop["A"] : Inf
+            Ke_loc = FEM.stiffness_frame3d(L, prop["A"], Iy, Iz, prop["J"], mat["E"], mat["G"]; As_y=As_y, As_z=As_z, I12=Iyz)
+            if pa != 0 || pb != 0
+                Ke_loc = Matrix(Ke_loc)
+                apply_bar_pin_flags!(Ke_loc, pa, pb)
+            end
+            forces = frame_force_dict_from_local(Ke_loc * u_el - fixed_end_load)
+            A_bar = Float64(prop["A"])
+            section_a = (A=A_bar, Iy=Float64(Iy), Iz=Float64(Iz), I12=Float64(Iyz))
+            section_b = section_a
+            station_a = nothing
+            station_b = nothing
+        else
+            forces = frame_force_dict_from_local(station_recovery.f_local)
+            section_a = station_recovery.section_a
+            section_b = station_recovery.section_b
+            station_a = station_recovery.station_a
+            station_b = station_recovery.station_b
+        end
+
+        sig_axial_a = (abs(section_a.A) > 1e-30) ? forces["axial"]/section_a.A : 0.0
+        sig_axial_b = (abs(section_b.A) > 1e-30) ? forces["axial"]/section_b.A : 0.0
+        sig_axial = abs(sig_axial_a) >= abs(sig_axial_b) ? sig_axial_a : sig_axial_b
         axial_strain = mat["E"] > 0 ? sig_axial / mat["E"] : 0.0
+        axial_strain_a = mat["E"] > 0 ? sig_axial_a / mat["E"] : 0.0
+        axial_strain_b = mat["E"] > 0 ? sig_axial_b / mat["E"] : 0.0
         stresses[eid] = abs(sig_axial)
         push!(results_json["forces"]["cbar"], Dict("eid" => eid, "axial" => forces["axial"], "shear_1" => forces["shear_1"], "shear_2" => forces["shear_2"], "torque" => forces["torque"], "moment_a1" => forces["moment_a1"], "moment_a2" => forces["moment_a2"], "moment_b1" => forces["moment_b1"], "moment_b2" => forces["moment_b2"]))
 
-        I12_sr = Float64(get(prop, "I12", 0.0))
-        sr_pts = [(get(prop,"C1",0.0), get(prop,"C2",0.0)),
-                  (get(prop,"D1",0.0), get(prop,"D2",0.0)),
-                  (get(prop,"E1",0.0), get(prop,"E2",0.0)),
-                  (get(prop,"F1",0.0), get(prop,"F2",0.0))]
         end_a = Dict{String,Float64}()
         end_b = Dict{String,Float64}()
-        for (j, (yj, zj)) in enumerate(sr_pts)
-            end_a["p$j"] = recover_surface_stress(prop, forces["moment_a1"], forces["moment_a2"], yj, zj, Iy, Iz, I12_sr)
-            end_b["p$j"] = recover_surface_stress(prop, forces["moment_b1"], forces["moment_b2"], yj, zj, Iy, Iz, I12_sr)
+        for (j, (yj, zj)) in enumerate(_stress_beam_recovery_points(prop, station_a))
+            end_a["p$j"] = recover_surface_stress(prop, forces["moment_a1"], forces["moment_a2"], yj, zj, section_a.Iy, section_a.Iz, section_a.I12)
         end
-        push!(results_json["stresses"]["cbar"], Dict("eid"=>eid, "end_a"=>end_a, "end_b"=>end_b, "axial"=>sig_axial))
-        push!(results_json["strains"]["cbar"], Dict("eid"=>eid, "axial"=>axial_strain))
+        for (j, (yj, zj)) in enumerate(_stress_beam_recovery_points(prop, station_b))
+            end_b["p$j"] = recover_surface_stress(prop, forces["moment_b1"], forces["moment_b2"], yj, zj, section_b.Iy, section_b.Iz, section_b.I12)
+        end
+        stress_entry = Dict("eid"=>eid, "end_a"=>end_a, "end_b"=>end_b, "axial"=>sig_axial)
+        strain_entry = Dict("eid"=>eid, "axial"=>axial_strain)
+        if station_recovery !== nothing
+            stress_entry["axial_end_a"] = sig_axial_a
+            stress_entry["axial_end_b"] = sig_axial_b
+            strain_entry["axial_end_a"] = axial_strain_a
+            strain_entry["axial_end_b"] = axial_strain_b
+        end
+        push!(results_json["stresses"]["cbar"], stress_entry)
+        push!(results_json["strains"]["cbar"], strain_entry)
     end
 
     # --- CBEAMs (identical recovery to CBAR) ---
@@ -594,40 +771,75 @@ function recover_bar_stresses!(
             u_el[7:9] -= Rel_t * S_wb * θ_glob_B
         end
 
-        Iy, Iz = _bar_bending_inertias(prop)
-        Iyz = Float64(get(prop, "I12", 0.0))
-        K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
-        As_y = (K1 > 0.0) ? K1 * prop["A"] : Inf
-        As_z = (K2 > 0.0) ? K2 * prop["A"] : Inf
-        Ke_loc = FEM.stiffness_frame3d(L, prop["A"], Iy, Iz, prop["J"], mat["E"], mat["G"]; As_y=As_y, As_z=As_z, I12=Iyz)
         pa = Int(get(bar, "PA", 0))
         pb = Int(get(bar, "PB", 0))
-        if pa != 0 || pb != 0
-            Ke_loc = Matrix(Ke_loc)
-            apply_bar_pin_flags!(Ke_loc, pa, pb)
-        end
         fixed_end_load = _beam_pload1_local_load_vector_for_sid(
             model, eid, active_load_id, L, active_load_scale)
-        forces = frame_force_dict_from_local(Ke_loc * u_el - fixed_end_load)
-        A_bar = Float64(prop["A"])
-        sig_axial = (abs(A_bar) > 1e-30) ? forces["axial"]/A_bar : 0.0
+
+        station_recovery = nothing
+        if !_stress_beam_station_properties_constant(prop)
+            if has_offset || pa != 0 || pb != 0
+                error("SOL101 beam stress recovery for varying PBEAM/PBEAML stations with WA/WB offsets or PA/PB releases is not guarded yet.")
+            end
+            if norm(fixed_end_load) > 1e-12
+                error("SOL101 beam stress recovery for varying PBEAM/PBEAML stations with PLOAD1 fixed-end loads is not guarded yet.")
+            end
+            station_recovery = _stress_beam_station_condensed_force_recovery(
+                Float64(L), prop, Float64(mat["E"]), Float64(mat["G"]), u_el)
+        end
+
+        if station_recovery === nothing
+            Iy, Iz = _bar_bending_inertias(prop)
+            Iyz = Float64(get(prop, "I12", 0.0))
+            K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
+            As_y = (K1 > 0.0) ? K1 * prop["A"] : Inf
+            As_z = (K2 > 0.0) ? K2 * prop["A"] : Inf
+            Ke_loc = FEM.stiffness_frame3d(L, prop["A"], Iy, Iz, prop["J"], mat["E"], mat["G"]; As_y=As_y, As_z=As_z, I12=Iyz)
+            if pa != 0 || pb != 0
+                Ke_loc = Matrix(Ke_loc)
+                apply_bar_pin_flags!(Ke_loc, pa, pb)
+            end
+            forces = frame_force_dict_from_local(Ke_loc * u_el - fixed_end_load)
+            A_bar = Float64(prop["A"])
+            section_a = (A=A_bar, Iy=Float64(Iy), Iz=Float64(Iz), I12=Float64(Iyz))
+            section_b = section_a
+            station_a = nothing
+            station_b = nothing
+        else
+            forces = frame_force_dict_from_local(station_recovery.f_local)
+            section_a = station_recovery.section_a
+            section_b = station_recovery.section_b
+            station_a = station_recovery.station_a
+            station_b = station_recovery.station_b
+        end
+
+        sig_axial_a = (abs(section_a.A) > 1e-30) ? forces["axial"]/section_a.A : 0.0
+        sig_axial_b = (abs(section_b.A) > 1e-30) ? forces["axial"]/section_b.A : 0.0
+        sig_axial = abs(sig_axial_a) >= abs(sig_axial_b) ? sig_axial_a : sig_axial_b
         axial_strain = mat["E"] > 0 ? sig_axial / mat["E"] : 0.0
+        axial_strain_a = mat["E"] > 0 ? sig_axial_a / mat["E"] : 0.0
+        axial_strain_b = mat["E"] > 0 ? sig_axial_b / mat["E"] : 0.0
         stresses[eid] = abs(sig_axial)
         push!(results_json["forces"]["cbar"], Dict("eid" => eid, "axial" => forces["axial"], "shear_1" => forces["shear_1"], "shear_2" => forces["shear_2"], "torque" => forces["torque"], "moment_a1" => forces["moment_a1"], "moment_a2" => forces["moment_a2"], "moment_b1" => forces["moment_b1"], "moment_b2" => forces["moment_b2"]))
 
-        I12_sr = Float64(get(prop, "I12", 0.0))
-        sr_pts = [(get(prop,"C1",0.0), get(prop,"C2",0.0)),
-                  (get(prop,"D1",0.0), get(prop,"D2",0.0)),
-                  (get(prop,"E1",0.0), get(prop,"E2",0.0)),
-                  (get(prop,"F1",0.0), get(prop,"F2",0.0))]
         end_a = Dict{String,Float64}()
         end_b = Dict{String,Float64}()
-        for (j, (yj, zj)) in enumerate(sr_pts)
-            end_a["p$j"] = recover_surface_stress(prop, forces["moment_a1"], forces["moment_a2"], yj, zj, Iy, Iz, I12_sr)
-            end_b["p$j"] = recover_surface_stress(prop, forces["moment_b1"], forces["moment_b2"], yj, zj, Iy, Iz, I12_sr)
+        for (j, (yj, zj)) in enumerate(_stress_beam_recovery_points(prop, station_a))
+            end_a["p$j"] = recover_surface_stress(prop, forces["moment_a1"], forces["moment_a2"], yj, zj, section_a.Iy, section_a.Iz, section_a.I12)
         end
-        push!(results_json["stresses"]["cbar"], Dict("eid"=>eid, "end_a"=>end_a, "end_b"=>end_b, "axial"=>sig_axial))
-        push!(results_json["strains"]["cbar"], Dict("eid"=>eid, "axial"=>axial_strain))
+        for (j, (yj, zj)) in enumerate(_stress_beam_recovery_points(prop, station_b))
+            end_b["p$j"] = recover_surface_stress(prop, forces["moment_b1"], forces["moment_b2"], yj, zj, section_b.Iy, section_b.Iz, section_b.I12)
+        end
+        stress_entry = Dict("eid"=>eid, "end_a"=>end_a, "end_b"=>end_b, "axial"=>sig_axial)
+        strain_entry = Dict("eid"=>eid, "axial"=>axial_strain)
+        if station_recovery !== nothing
+            stress_entry["axial_end_a"] = sig_axial_a
+            stress_entry["axial_end_b"] = sig_axial_b
+            strain_entry["axial_end_a"] = axial_strain_a
+            strain_entry["axial_end_b"] = axial_strain_b
+        end
+        push!(results_json["stresses"]["cbar"], stress_entry)
+        push!(results_json["strains"]["cbar"], strain_entry)
     end
 end
 

@@ -4,12 +4,12 @@ This folder is the curated public documentation drop. It contains finished
 documents selected from private sources kept outside the public repository,
 plus a small set of Markdown notes that complement the source code.
 
-Documents in this folder are published by manifest, not by automatic mirroring.
-Edit `03_PRIVATE_DOCUMENTS/MANIFESTS/published_documents.json` in the private
-workspace and run `03_PRIVATE_DOCUMENTS/publish_reference_documents.ps1`.
-Only entries with `"publish": true` are copied here. Use `-Prune` when the
-public folder should remove previously published files that are no longer in
-the manifest.
+Documents in this folder are published from the private public-ready drop:
+`02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/PUBLIC_PDFS/`.
+Place only reviewed `.pdf`/`.pptx` files there, then run
+`02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/publish_reference_documents.ps1`.
+Use `-Prune` when this public folder should remove files that are no longer in
+`PUBLIC_PDFS/`.
 
 ## PDF Documents
 
@@ -41,6 +41,7 @@ the manifest.
 ## How These Documents Are Built
 
 LaTeX sources are kept in the private development workspace under
-`03_PRIVATE_DOCUMENTS/` to avoid shipping source material or build byproducts
+`02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/DOCUMENTS_IN_PROGRESS/` to avoid shipping source material or build byproducts
 (`.aux`, `.log`, `.fdb_latexmk`, etc.) to end users. Build documents privately,
-then publish the selected finished files through the manifest-driven script.
+then copy reviewed finished files into `PUBLIC_PDFS/` and publish them with
+the private script.

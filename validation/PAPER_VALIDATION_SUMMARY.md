@@ -19,13 +19,15 @@ public validation manifest.
 
 ## Current Result Snapshot
 
-The checked-in comparison report is:
+A full public-suite run writes the comparison report to:
 
 ```text
 validation/comparison.md
 ```
 
-Current status:
+Generated comparison reports are not checked in; the source decks, analytical
+references, tabulated references, and manifest are the public validation
+payload. The latest maintained public-suite status is:
 
 | Metric | Value |
 | --- | ---: |
@@ -47,8 +49,8 @@ Largest relative errors by family:
 
 The larger classical-cylinder tolerance is intentional: the reference is a
 classical thin-shell formula and the deck includes a finite discretization and
-drilling-stiffness treatment. See `public_suite.yaml` and `comparison.csv` for
-the row-level tolerances and values.
+drilling-stiffness treatment. See `public_suite.yaml` for row-level tolerances,
+and rerun the suite to regenerate `comparison.csv` with the local values.
 
 ## Reproduce
 
@@ -81,6 +83,6 @@ Do not add any of the following to this folder:
 - Any deck whose redistribution rights are unclear.
 
 Candidate additions should first be recorded in
-`00_AGENTIC_DEVELOPMENT/MANIFESTS/public_validation_cases.json`, then added to
+`02_PROJECT_DEVELOPMENT/02.1_AGENTIC_DEVELOPMENT/public_validation_cases.json`, then added to
 `validation/public_suite.yaml` only after provenance and license status are
 clear.

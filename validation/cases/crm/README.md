@@ -7,13 +7,13 @@ Used for the suite's industrial-scale modal cross-check (SOL 103).
 
 | File | What it is |
 | --- | --- |
-| `wingbox_modal.bdf` | The original TACS deck snapshot used by this suite, with historical `CQUADR` -> `CQUAD4` normalization. Has no `PSHELL`/`MAT*`; not runnable on its own. |
-| `wingbox_modal_with_props.bdf` | The runnable deck: original + synthesised properties + case-control + EIGRL. **This is the one the manifest points at.** |
+| `wingbox_modal_with_props.bdf` | The runnable deck: upstream CRM geometry plus synthesised properties, case control, and `EIGRL`. **This is the one the manifest points at.** |
 | `LICENSE.TACS.txt` | Upstream Apache 2.0 license. |
 
-The augmented deck is regenerated from `wingbox_modal.bdf` by
-[`../../helpers/synthesize_crm_properties.ps1`](../../helpers/synthesize_crm_properties.ps1).
-Re-run that script if the source BDF or the material properties change.
+The original upstream source snapshot has no `PSHELL`/`MAT*` cards and is not
+runnable by itself in a classical BDF workflow, so it is retained outside the
+public user suite with the maintainer synthesis helper. Public users only need
+the runnable deck shipped here.
 
 ## Source
 
@@ -25,8 +25,8 @@ defines the material and thickness values is
 ## Modifications Made
 
 1. **CQUADR -> CQUAD4** (25055 elements). The two cards have identical
-   field layout. This historical normalization remains in the checked-in
-   CRM snapshot, but JFEM now also accepts `CQUADR` directly and routes those
+   field layout. This historical normalization remains in the public runnable
+   CRM deck, but JFEM now also accepts `CQUADR` directly and routes those
    elements through the TACS formulation.
 2. **PSHELL/MAT/EIGRL/case-control synthesised** from the TACS Python
    runner. The synthesis is:
@@ -60,7 +60,7 @@ GRID `CD` output-frame rotations preserve the same physical mass totals.
 - 23,738 GRID points (long-field format)
 - 25,055 CQUAD4 elements distributed across 242 PIDs
 - SPC set 1 fixing several thousand grids
-- BDF size: 5.4 MB (augmented), 5.3 MB (original)
+- BDF size: 5.4 MB
 
 ## Reference Values
 

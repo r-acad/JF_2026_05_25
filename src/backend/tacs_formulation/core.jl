@@ -920,9 +920,9 @@ end
 function _tacs_core_contract_metadata()
     return Dict{String,Any}(
         "element_kernels" => ["shell_cquad4", "shell_cquadr", "shell_ctria3", "rod_crod", "rod_conrod", "beam_cbar", "beam_cbeam", "spring_celas1", "spring_celas2", "spring_cbush"],
-        "constitutive_kernels" => ["pshell_mat1", "pshell_mat2", "pshell_mat8", "pcomp_clt", "rod_prod_mat1", "rod_conrod_mat1", "beam_pbar_mat1", "spring_pelas", "spring_direct", "spring_pbush"],
+        "constitutive_kernels" => ["pshell_mat1", "pshell_mat2", "pshell_mat8", "pcomp_clt", "rod_prod_mat1", "rod_conrod_mat1", "beam_pbar_mat1", "beam_pbeam_constant_equivalent", "beam_pbeam_station_stiffness_condensation", "beam_pbeam_station_modal_guyan_mass", "beam_pbeam_station_geometric_stiffness_condensation", "spring_pelas", "spring_direct", "spring_pbush"],
         "response_contracts" => ["compliance", "displacement", "ks_displacement", "mass", "ks_von_mises", "ks_ply_failure", "modal_eigenvalue", "buckling_load_factor", "buckling_ks_load_factor"],
-        "response_functions" => ["static_response_value", "static_response_state_derivative", "static_adjoint", "explicit_design_derivative", "static_load_design_derivative", "modal_eigenvalue", "buckling_load_factor", "buckling_ks_load_factor", "clustered_eigenvalue_projected_derivative", "eigenvalue_cluster_policy", "mac_mode_tracking", "previous_solve_mac_mode_continuation"],
+        "response_functions" => ["static_response_value", "static_response_state_derivative", "static_adjoint", "explicit_design_derivative", "static_load_design_derivative", "beam_pbeam_station_stress_recovery", "modal_eigenvalue", "buckling_load_factor", "buckling_ks_load_factor", "clustered_eigenvalue_projected_derivative", "eigenvalue_cluster_policy", "mac_mode_tracking", "previous_solve_mac_mode_continuation"],
         "sensitivity_contracts" => [
             "static_shell_thickness",
             "static_shell_design_tangent",
@@ -963,7 +963,7 @@ function _tacs_core_contract_metadata()
             "rod_only_sol105_buckling_route",
             "rod_stress_loads_and_sensitivities",
             "spring_damping_orientation_and_broader_mass_sensitivities",
-            "beam_non_pload1_loads_broader_stress_failure_shape_and_pbeam_breadth",
+            "beam_non_pload1_loads_broader_stress_failure_shape_and_varying_pbeam_offset_release_pload1_stress_sensitivity_breadth",
             "solid_thermal_element_kernels",
         ],
     )

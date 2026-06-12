@@ -132,14 +132,14 @@ production use, prefer the JSON manifest runner.
 This is the shortest way to analyze one deck. The wrapper supplies Julia, the
 project, `--threads=auto`, good default options, and a prebuilt sysimage if one
 exists. It is a thin front end to the single-case runner (Method 2), calling
-`tools/jfem.jl`.
+`JFEM_installation/julia_tools/jfem.jl`.
 
 Scripts:
 
 ```text
 jfem        (Linux/macOS shell wrapper; chmod +x once)
 jfem.cmd    (Windows)
-tools/jfem.jl   (the underlying Julia runner)
+JFEM_installation/julia_tools/jfem.jl   (the underlying Julia runner)
 ```
 
 Basic Windows example:
@@ -213,19 +213,19 @@ it directly for scripting or when you want to spell out every flag.
 Script:
 
 ```text
-tools/testing/run_bdf.jl
+JFEM_installation/julia_tools/run_bdf.jl
 ```
 
 Basic Windows example:
 
 ```powershell
-julia --threads=auto --startup-file=no --project=. .\tools\testing\run_bdf.jl C:\models\panel_001.bdf D:\jfem_runs\panel_001 "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SUPPRESS_THREAD_HINT=1"
+julia --threads=auto --startup-file=no --project=. .\JFEM_installation\julia_tools\run_bdf.jl C:\models\panel_001.bdf D:\jfem_runs\panel_001 "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SUPPRESS_THREAD_HINT=1"
 ```
 
 Basic Linux example:
 
 ```bash
-julia --threads=auto --startup-file=no --project=. ./tools/testing/run_bdf.jl /home/user/models/panel_001.bdf /home/user/jfem_runs/panel_001 "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SUPPRESS_THREAD_HINT=1"
+julia --threads=auto --startup-file=no --project=. ./JFEM_installation/julia_tools/run_bdf.jl /home/user/models/panel_001.bdf /home/user/jfem_runs/panel_001 "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SUPPRESS_THREAD_HINT=1"
 ```
 
 Argument order:
@@ -270,7 +270,7 @@ JSON output, reports, and per-case summaries.
 Script:
 
 ```text
-tools/run_batch_manifest.jl
+JFEM_installation/julia_tools/run_batch_manifest.jl
 ```
 
 This is the preferred command-line interface for both one case and many cases.
@@ -278,13 +278,13 @@ This is the preferred command-line interface for both one case and many cases.
 Run command:
 
 ```powershell
-julia --threads=auto --startup-file=no --project=. .\tools\run_batch_manifest.jl C:\models\cases.json --quiet
+julia --threads=auto --startup-file=no --project=. .\JFEM_installation\julia_tools\run_batch_manifest.jl C:\models\cases.json --quiet
 ```
 
 Linux:
 
 ```bash
-julia --threads=auto --startup-file=no --project=. ./tools/run_batch_manifest.jl /home/user/models/cases.json --quiet
+julia --threads=auto --startup-file=no --project=. ./JFEM_installation/julia_tools/run_batch_manifest.jl /home/user/models/cases.json --quiet
 ```
 
 ### Manifest Structure
@@ -448,7 +448,7 @@ For modal and buckling cases, these include:
 Python helper:
 
 ```text
-python_client/jfem_client.py
+JFEM_installation/python_client/jfem_client.py
 ```
 
 The helper has no third-party Python dependencies.
@@ -458,7 +458,11 @@ Example:
 ```python
 from pathlib import Path
 
-from jfem_client import load_summary, run_batch_once, write_batch_manifest
+from JFEM_installation.python_client.jfem_client import (
+    load_summary,
+    run_batch_once,
+    write_batch_manifest,
+)
 
 repo = Path(r"C:\path\to\JFEM")
 
@@ -518,13 +522,13 @@ optimization loop, use the persistent worker instead.
 Script:
 
 ```text
-tools/jfem_worker_jsonl.jl
+JFEM_installation/julia_tools/jfem_worker_jsonl.jl
 ```
 
 Python helper class:
 
 ```text
-python_client/jfem_client.py
+JFEM_installation/python_client/jfem_client.py
 ```
 
 The worker starts Julia once and then accepts JSON commands on stdin. It writes
@@ -536,7 +540,11 @@ Python example:
 ```python
 from pathlib import Path
 
-from jfem_client import JFEMWorker, load_summary, write_batch_manifest
+from JFEM_installation.python_client.jfem_client import (
+    JFEMWorker,
+    load_summary,
+    write_batch_manifest,
+)
 
 repo = Path(r"C:\path\to\JFEM")
 
@@ -631,7 +639,7 @@ this is the preferred production architecture.
 Script:
 
 ```text
-tools/testing/run_bdf_batch.jl
+JFEM_installation/julia_tools/run_bdf_batch.jl
 ```
 
 This runner accepts:
@@ -643,13 +651,13 @@ This runner accepts:
 Directory example:
 
 ```powershell
-julia --threads=auto --startup-file=no --project=. .\tools\testing\run_bdf_batch.jl C:\models D:\jfem_runs "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1" --recursive
+julia --threads=auto --startup-file=no --project=. .\JFEM_installation\julia_tools\run_bdf_batch.jl C:\models D:\jfem_runs "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1" --recursive
 ```
 
 Simple list example:
 
 ```powershell
-julia --threads=auto --startup-file=no --project=. .\tools\testing\run_bdf_batch.jl C:\models\deck_list.txt D:\jfem_runs "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
+julia --threads=auto --startup-file=no --project=. .\JFEM_installation\julia_tools\run_bdf_batch.jl C:\models\deck_list.txt D:\jfem_runs "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
 ```
 
 Options:
@@ -730,7 +738,7 @@ Use the JSON manifest runner if you want fully controlled output.
 Use:
 
 ```text
-tools/run_batch_manifest.jl
+JFEM_installation/julia_tools/run_batch_manifest.jl
 ```
 
 This gives one Julia process for the whole batch and writes batch summaries.
@@ -740,8 +748,8 @@ This gives one Julia process for the whole batch and writes batch summaries.
 Use:
 
 ```text
-python_client/jfem_client.py
-tools/jfem_worker_jsonl.jl
+JFEM_installation/python_client/jfem_client.py
+JFEM_installation/julia_tools/jfem_worker_jsonl.jl
 ```
 
 The optimizer should:
@@ -820,6 +828,3 @@ batch_summary.json -> cases[].result_json
 | Persistent JSONL worker | Yes | Yes | Very high | Very high | Heavy optimization |
 | `run_bdf_batch.jl` | Yes | Yes | Medium | Medium | Legacy/simple sweeps |
 | Sysimage/precompile | N/A | N/A | N/A | Improves all compatible runners | Deployment speed layer |
-
-
-

@@ -24,11 +24,12 @@ validation/
 |   |-- classical/                  two closed-form plate/cylinder buckling decks
 |   |-- mystran_xref/               cross-checks against the MYSTRAN test suite
 |   `-- crm/                        Common Research Model wing-box
-|-- helpers/                        small utilities (deck synthesisers, parsers)
-|-- references/                     tabulated reference values
-|-- comparison.csv                  GENERATED: row per (case, quantity)
-`-- comparison.md                   GENERATED: paper-ready summary
+`-- references/                     tabulated reference values
 ```
+
+Full runs create `comparison.csv` and `comparison.md` locally in this folder.
+Those generated reports are ignored by Git so the public validation tree stays
+focused on auditable inputs and references.
 
 ## How To Run
 
@@ -104,14 +105,14 @@ redistribution rights are unclear.
 
 ## Current Paper Status
 
-The checked-in comparison report currently contains 14 scalar validation rows:
+The maintained public-suite snapshot contains 14 scalar validation rows:
 
 - SOL 101: 6 rows, all PASS.
 - SOL 103: 5 CRM modal rows, all PASS.
 - SOL 105: 3 buckling rows, all PASS.
 
-See `comparison.md` and `comparison.csv` for the exact values, tolerances, and
-relative errors.
+Run the suite to recreate `comparison.md` and `comparison.csv` with the exact
+values, tolerances, and relative errors for the local solver revision.
 
 ## Building The Reference Set
 

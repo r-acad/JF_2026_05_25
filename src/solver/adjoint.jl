@@ -794,6 +794,29 @@ function _beam_surface_force_coefficients(prop, sample, A::Float64, Iy::Float64,
     return coeff
 end
 
+function _beam_station_property_value(st::AbstractDict, prop::AbstractDict, field::AbstractString)
+    fallback = field == "I1" ? get(prop, "I1", get(prop, "I", 0.0)) : get(prop, field, 0.0)
+    return Float64(get(st, field, fallback))
+end
+
+function _beam_station_properties_constant(prop::AbstractDict)
+    stations = get(prop, "STATIONS", nothing)
+    stations isa AbstractVector || return true
+    isempty(stations) && return true
+    for field in ("A", "I1", "I2", "I12", "J")
+        ref = _beam_station_property_value(first(stations), prop, field)
+        for st in stations
+            val = _beam_station_property_value(st, prop, field)
+            abs(val - ref) <= 1e-10 * max(1.0, abs(ref), abs(val)) ||
+                return false
+        end
+        prop_val = field == "I1" ? Float64(get(prop, "I1", get(prop, "I", ref))) : Float64(get(prop, field, ref))
+        abs(prop_val - ref) <= 1e-10 * max(1.0, abs(ref), abs(prop_val)) ||
+            return false
+    end
+    return true
+end
+
 function _get_beam_element_data(eid::Int, model, id_map, node_coords, node_R, resp=nothing)
     beam = _beam_lookup(eid, model)
     beam === nothing && return nothing
@@ -801,8 +824,8 @@ function _get_beam_element_data(eid::Int, model, id_map, node_coords, node_R, re
     prop = get(get(model, "PBARLs", Dict()), pid_str, nothing)
     prop === nothing && return nothing
     prop_type = uppercase(strip(string(get(prop, "TYPE", "PBAR"))))
-    if prop_type == "PBEAM" || haskey(prop, "STATIONS")
-        error("[ADJOINT] beam stress sensitivities currently support constant PBAR/PBARL-style CBAR/CBEAM properties only.")
+    if (prop_type == "PBEAM" || haskey(prop, "STATIONS")) && !_beam_station_properties_constant(prop)
+        error("[ADJOINT] beam stress sensitivities currently support constant/equivalent PBAR/PBARL/PBEAM-style CBAR/CBEAM properties only.")
     end
     mid_str = string(Int(get(prop, "MID", 0)))
     mat = _effective_mat1_for_nodes(model, mid_str, [Int(get(beam, "GA", 0)), Int(get(beam, "GB", 0))])

@@ -5,7 +5,49 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- Expanded the public installation documentation so new users can install
+  Julia packages and build the local sysimage by running one platform-specific
+  setup file from `JFEM_installation/`.
+- Updated workspace-facing public documentation references for the renamed
+  private areas: code-development state now lives under
+  `02_PROJECT_DEVELOPMENT/02.2_CODE_DEVELOPMENT/`, while in-progress document sources and publication
+  staging live under `02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/`.
+- Updated public documentation guidance to the new private-document workspace
+  layout: reviewed public PDFs/PPTX live under
+  `02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/PUBLIC_PDFS/`, while editable document sources
+  live under `02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/DOCUMENTS_IN_PROGRESS/`.
+- Trimmed `validation/` to the user-facing public validation suite: runnable
+  decks, suite manifest, analytical references, tabulated references,
+  provenance docs, and launchers. Maintainer-only helper scripts, generated
+  comparison reports, and the non-runnable upstream CRM source snapshot were
+  moved out of the public repository into the private validation workspace.
+- Moved the top-level `tools/` tree out of the GitHub-published repository.
+  User-facing runtime entry points now live under
+  `JFEM_installation/julia_tools/`, while non-public development, guard, and
+  validation helper scripts are kept in the
+  private development workspace under
+  `02_PROJECT_DEVELOPMENT/02.2_CODE_DEVELOPMENT/PRIVATE_CODE_TOOLS/OpenJFEM_tools_private_2026_06_12/`.
+  The public validation suite remains under `validation/`.
+- Grouped all Julia helper scripts in `JFEM_installation/julia_tools/` so the
+  installation folder keeps only launchers, assets, and documentation at the
+  top level.
+- Updated the optional package precompile workload to use the bundled public
+  precompile decks under `JFEM_installation/examples/precompile/` instead of
+  private validation paths.
+- Split `POST/` into two user-facing app folders: `POST/JFEM_results_viewer/`
+  for standalone `.jfem` file viewing and `POST/case_runner_web_app/` for the
+  Julia-server-backed model builder/deck runner.
+
 ### Added
+- Added one first-time setup launcher per platform under `JFEM_installation/`.
+  Each launcher installs Julia packages and creates the optional sysimage:
+  `CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd`,
+  `RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh`, and
+  `CLICK_MAC_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.command`. Generated images are
+  written under `sysimage/`. Bundled precompile decks, manifest templates, and
+  Python helper clients now live under `JFEM_installation/` instead of top-level
+  `examples/` and `python_client/` folders.
 - `Reference_documentation/tacs_core_capability_matrix.md` records the
   JFEM-core TACS formulation and sensitivity capability matrix, explicitly
   separating implemented shell routes from missing beam, solid, thermal,
@@ -25,6 +67,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
   PBAR/PBARL-style MAT1 beams now assemble through the TACS formulation
   backend, with `tools/testing/tacs_sol101_beam_route_check.jl` checking CBAR
   and CBEAM cantilever tip displacement against closed-form `F L^3 / 3 E I`.
+- Extended the guarded SOL101 CBAR/CBEAM beam route to accept parser-backed
+  constant/equivalent PBEAM/PBEAML properties through the same generic
+  material and geometry discriminators. The same guard now covers SOL101
+  varying PBEAM/PBEAML station stiffness for straight no-offset/no-release
+  beams through segmented station condensation, and the SOL103 modal guard now
+  covers varying-station beam stiffness plus a Guyan-reduced station mass for
+  the same straight no-offset/no-release slice. The SOL105 beam buckling guard
+  now covers station-condensed varying PBEAM/PBEAML geometric stiffness for the
+  same slice against an independent reduced buckling pencil. The SOL101 beam
+  stress-recovery guard now covers varying-station force recovery, endpoint
+  axial stress/strain, and bending surface stress for the same no-offset/
+  no-release slice against an independent segmented reference. Varying-station
+  offsets/releases, PLOAD1 fixed-end station stress recovery, and sensitivity
+  semantics still fail fast.
 - Extended the TACS beam slice to SOL103 modal analysis with backend-owned
   CBAR/CBEAM lumped beam mass assembly. The new
   `tools/testing/tacs_sol103_beam_modal_route_check.jl` checks a two-DOF
@@ -344,7 +400,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   TACS adjoint backend, guarded by
   `tools/testing/tacs_sol200_ks_displacement_route_check.jl`.
 - Public repository `AGENTS.md` documents the new canonical public repo path
-  (`01_PROJECT_FOLDER/JFEM/`) and the public/private publication boundary for
+  (`01_PUBLIC_PROJECT_REPOSITORY/JFEM/`) and the public/private publication boundary for
   future coding agents.
 - Top-level `validation/` folder prepared as the paper-facing public
   validation set. It contains only public or permissively licensed cases
@@ -504,7 +560,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 - Windows launchers (`POST/panel_app.cmd`, `jfem.cmd`,
-  `build_sysimage/build_sysimage.cmd`) now work when the install path contains
+  `JFEM_installation/CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd`) now work when the install path contains
   parentheses or spaces (e.g. a browser download named
   `...\JF_2026_05_25-main (7)\...`). Previously the `)` inside such a path
   prematurely closed the `if exist (...)` block, producing
@@ -591,9 +647,9 @@ Versions follow [Semantic Versioning](https://semver.org/).
   off until it has a native load-classified reassembly path.
 
 ### Added
-- `build_sysimage/` folder: clearly identified, cross-platform sysimage build
-  scripts - `build_sysimage.cmd` (Windows), `build_sysimage.sh` (Linux/macOS),
-  and a `README.md` with step-by-step instructions. Building a sysimage is
+- `JFEM_installation/` folder: clearly identified, cross-platform sysimage build
+  scripts with explicit Windows, Linux, and macOS filenames, plus a `README.md`
+  with step-by-step instructions. Building a sysimage is
   optional (everything runs without one, just slower to start); the launchers
   load it automatically when present. `POST/panel_app.sh` now loads a
   `.so`/`.dylib` sysimage when present and uses plain `julia` (dropped the
@@ -820,9 +876,9 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - `POST/panel_app.cmd`: launch with plain `julia` instead of `julia +release`
   so the app runs on machines without juliaup (a standalone `julia.exe`
   treats `+release` as a bad path and errors). Now also auto-loads a
-  prebuilt sysimage via `--sysimage` when `build/OpenJFEM_sysimage.dll`
+  prebuilt sysimage via `--sysimage` when `sysimage/OpenJFEM_sysimage.dll`
   exists, for near-instant startup, and falls back to a normal start when
-  it does not. The `build_sysimage/` helper scripts build that sysimage
+  it does not. The `JFEM_installation/` helper scripts build that sysimage
   once per machine via `tools/deploy_fast.jl` (the `.dll` is git-ignored
   and machine-specific).
 - `POST/panel_app.html`: clicking "Analyze (SOL 105)" now shows a modal
@@ -870,7 +926,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added (continued)
 - `Reference_documentation/` now publishes three additional PDFs sourced
-  from `04_DOCUMENTATION_IN_WORK/`:
+  from `02_PROJECT_DEVELOPMENT/03_DOCUMENTS_IN_PROGRESS/`:
   `jfem_openludwig_overview.pdf`, `agentic_coding_lessons.pdf`,
   `gpu_workstation_pitch.pdf` (plus a duplicate
   `agentic_coding_lessons copy.pdf`).

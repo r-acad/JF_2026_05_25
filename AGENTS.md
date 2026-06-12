@@ -5,12 +5,11 @@ This directory is the only GitHub-published repository in the workspace.
 Canonical path:
 
 ```text
-01_PROJECT_FOLDER/JFEM/
+01_PUBLIC_PROJECT_REPOSITORY/JFEM/
 ```
 
-Until the old wrapper is physically removable, this path may be a junction to
-`01_PROJECT_FOLDER/JFEM_GitHub_repo/JFEM/`. Agents should still treat
-`01_PROJECT_FOLDER/JFEM/` as the public repo root.
+The old `01_PROJECT_FOLDER/` and `JFEM_GitHub_repo/` wrappers have been
+removed. Agents should treat this path as the public repo root.
 
 ## Public Boundary
 
@@ -22,9 +21,9 @@ Keep this repository public-safe:
   commercial solver artifacts, and campaign notes are not allowed here.
 - Public validation material is curated through
   `validation/public_suite.yaml` and the private manifest
-  `00_AGENTIC_DEVELOPMENT/MANIFESTS/public_validation_cases.json`.
-- Reference documentation is curated through
-  `03_PRIVATE_DOCUMENTS/MANIFESTS/published_documents.json`; do not copy
+  `02_PROJECT_DEVELOPMENT/02.1_AGENTIC_DEVELOPMENT/public_validation_cases.json`.
+- Reference documentation is curated from reviewed `.pdf`/`.pptx` files staged
+  in `02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/PUBLIC_PDFS/`; do not copy
   private PDFs or document sources here by hand.
 
 ## Git
@@ -36,6 +35,10 @@ Before pushing:
 
 - Check `CHANGELOG.md` has an `[Unreleased]` entry for code or documentation
   changes.
-- Make sure public validation/docs are listed in their manifests.
-- Do not stage private paths from `02_PRIVATE_VALIDATION/`,
-  `03_PRIVATE_DOCUMENTS/`, or `04_EXTERNAL_TOOLS/`.
+- Make sure public validation is listed in its manifest and public docs are
+  staged in `02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/PUBLIC_PDFS/`.
+- Do not stage private paths from `02_PROJECT_DEVELOPMENT/02.3_PRIVATE VALIDATION/`,
+  `02_PROJECT_DEVELOPMENT/02.2_CODE_DEVELOPMENT/`,
+  `02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/`,
+  `02_PROJECT_DEVELOPMENT/02.6_EXTERNAL_PAPERS/`, or
+  `02_PROJECT_DEVELOPMENT/02.4_EXTERNAL_TOOLS/`.

@@ -132,6 +132,7 @@ function _tacs_validate_shell_slice(
     allow_conm1::Bool=false,
     require_shell::Bool=true,
     allow_beam_offsets_releases::Union{Nothing,Bool}=nothing,
+    allow_varying_pbeam_stations::Bool=false,
 )
     label = _tacs_route_label(route_label, allowed_sol_types)
     raw_sol_type = get(model, "SOL", get(get(model, "CASE_CONTROL", Dict()), "SOL", 101))
@@ -216,7 +217,12 @@ function _tacs_validate_shell_slice(
             allow_beam_offsets_releases === nothing ?
             default_beam_offsets_releases :
             Bool(allow_beam_offsets_releases)
-        _tacs_validate_beam_slice(model, label; allow_offsets_releases=beam_offsets_releases)
+        _tacs_validate_beam_slice(
+            model,
+            label;
+            allow_offsets_releases=beam_offsets_releases,
+            allow_varying_pbeam_stations=allow_varying_pbeam_stations,
+        )
     end
     if allow_springs
         _tacs_validate_spring_slice(model, label)
@@ -284,7 +290,297 @@ function _tacs_has_nonzero_offset(el::AbstractDict, key::AbstractString)::Bool
     return any(v -> abs(Float64(v)) > 1e-14, vals)
 end
 
-function _tacs_validate_beam_slice(model::Dict, label::AbstractString; allow_offsets_releases::Bool=false)
+function _tacs_station_property_value(st::AbstractDict, prop::AbstractDict, field::AbstractString)
+    fallback = field == "I1" ? get(prop, "I1", get(prop, "I", 0.0)) : get(prop, field, 0.0)
+    return Float64(get(st, field, fallback))
+end
+
+function _tacs_beam_station_properties_constant(prop::AbstractDict)
+    stations = get(prop, "STATIONS", nothing)
+    stations isa AbstractVector || return true
+    isempty(stations) && return true
+    fields = ("A", "I1", "I2", "I12", "J")
+    for field in fields
+        ref = _tacs_station_property_value(first(stations), prop, field)
+        for st in stations
+            val = _tacs_station_property_value(st, prop, field)
+            abs(val - ref) <= 1e-10 * max(1.0, abs(ref), abs(val)) ||
+                return false
+        end
+        prop_val = field == "I1" ? Float64(get(prop, "I1", get(prop, "I", ref))) : Float64(get(prop, field, ref))
+        abs(prop_val - ref) <= 1e-10 * max(1.0, abs(ref), abs(prop_val)) ||
+            return false
+    end
+    return true
+end
+
+function _tacs_beam_sorted_stations(prop::AbstractDict)
+    stations_raw = get(prop, "STATIONS", nothing)
+    stations_raw isa AbstractVector || return Dict{String,Any}[]
+    stations = Dict{String,Any}[]
+    for st in stations_raw
+        st isa AbstractDict || continue
+        x = clamp(Float64(get(st, "X", 0.0)), 0.0, 1.0)
+        push!(stations, Dict{String,Any}(string(k) => v for (k, v) in st))
+        stations[end]["X"] = x
+    end
+    sort!(stations; by=s -> Float64(get(s, "X", 0.0)))
+    unique_stations = Dict{String,Any}[]
+    for st in stations
+        if isempty(unique_stations) || abs(Float64(get(st, "X", 0.0)) - Float64(get(last(unique_stations), "X", 0.0))) > 1e-10
+            push!(unique_stations, st)
+        else
+            unique_stations[end] = st
+        end
+    end
+    return unique_stations
+end
+
+function _tacs_beam_station_condensed_stiffness(L::Float64, prop::AbstractDict, E::Float64, G::Float64)
+    stations = _tacs_beam_sorted_stations(prop)
+    length(stations) >= 2 || return nothing
+    first_x = Float64(get(first(stations), "X", 0.0))
+    last_x = Float64(get(last(stations), "X", 0.0))
+    first_x <= 1e-8 && last_x >= 1.0 - 1e-8 ||
+        error("TACS-formulation varying PBEAM/PBEAML station stiffness requires stations spanning X=0.0 to X=1.0.")
+
+    n = length(stations)
+    nd = 6 * n
+    K = zeros(Float64, nd, nd)
+    K1 = Float64(get(prop, "K1", 0.0))
+    K2 = Float64(get(prop, "K2", 0.0))
+    active_segments = 0
+    for s in 1:(n - 1)
+        xa = Float64(get(stations[s], "X", 0.0))
+        xb = Float64(get(stations[s + 1], "X", 1.0))
+        seg_frac = xb - xa
+        seg_frac > 1e-10 || continue
+        segL = seg_frac * L
+        A = 0.5 * (
+            _tacs_station_property_value(stations[s], prop, "A") +
+            _tacs_station_property_value(stations[s + 1], prop, "A")
+        )
+        I1 = 0.5 * (
+            _tacs_station_property_value(stations[s], prop, "I1") +
+            _tacs_station_property_value(stations[s + 1], prop, "I1")
+        )
+        I2 = 0.5 * (
+            _tacs_station_property_value(stations[s], prop, "I2") +
+            _tacs_station_property_value(stations[s + 1], prop, "I2")
+        )
+        I12 = 0.5 * (
+            _tacs_station_property_value(stations[s], prop, "I12") +
+            _tacs_station_property_value(stations[s + 1], prop, "I12")
+        )
+        J = 0.5 * (
+            _tacs_station_property_value(stations[s], prop, "J") +
+            _tacs_station_property_value(stations[s + 1], prop, "J")
+        )
+        A > 0.0 || error("TACS-formulation varying PBEAM/PBEAML station stiffness requires positive segment area.")
+        I1 >= 0.0 || error("TACS-formulation varying PBEAM/PBEAML station stiffness requires nonnegative segment I1.")
+        I2 >= 0.0 || error("TACS-formulation varying PBEAM/PBEAML station stiffness requires nonnegative segment I2.")
+        J >= 0.0 || error("TACS-formulation varying PBEAM/PBEAML station stiffness requires nonnegative segment J.")
+        As_y = K1 > 0.0 ? K1 * A : Inf
+        As_z = K2 > 0.0 ? K2 * A : Inf
+        Ke_seg = FEM.stiffness_frame3d(segL, A, I2, I1, J, E, G; As_y=As_y, As_z=As_z, I12=I12)
+        dofs = vcat(((s - 1) * 6 + 1):(s * 6), (s * 6 + 1):((s + 1) * 6))
+        for c in 1:12, r in 1:12
+            K[dofs[r], dofs[c]] += Ke_seg[r, c]
+        end
+        active_segments += 1
+    end
+    active_segments > 0 || return nothing
+
+    boundary = vcat(1:6, (nd - 5):nd)
+    if nd == 12
+        Ke = K[boundary, boundary]
+    else
+        internal = collect(7:(nd - 6))
+        Kii = K[internal, internal]
+        Ke = K[boundary, boundary] - K[boundary, internal] * (Kii \ K[internal, boundary])
+    end
+    Ke .= 0.5 .* (Ke .+ transpose(Ke))
+    return Ke
+end
+
+function _tacs_beam_station_condensed_mass(
+    L::Float64,
+    prop::AbstractDict,
+    E::Float64,
+    G::Float64,
+    rho::Float64,
+    nsm::Float64,
+)
+    stations = _tacs_beam_sorted_stations(prop)
+    length(stations) >= 2 || return nothing
+    first_x = Float64(get(first(stations), "X", 0.0))
+    last_x = Float64(get(last(stations), "X", 0.0))
+    first_x <= 1e-8 && last_x >= 1.0 - 1e-8 ||
+        error("TACS-formulation varying PBEAM/PBEAML station modal mass requires stations spanning X=0.0 to X=1.0.")
+
+    n = length(stations)
+    nd = 6 * n
+    K = zeros(Float64, nd, nd)
+    M = zeros(Float64, nd, nd)
+    K1 = Float64(get(prop, "K1", 0.0))
+    K2 = Float64(get(prop, "K2", 0.0))
+    active_segments = 0
+    for s in 1:(n - 1)
+        xa = Float64(get(stations[s], "X", 0.0))
+        xb = Float64(get(stations[s + 1], "X", 1.0))
+        seg_frac = xb - xa
+        seg_frac > 1e-10 || continue
+        segL = seg_frac * L
+        A = 0.5 * (
+            _tacs_station_property_value(stations[s], prop, "A") +
+            _tacs_station_property_value(stations[s + 1], prop, "A")
+        )
+        I1 = 0.5 * (
+            _tacs_station_property_value(stations[s], prop, "I1") +
+            _tacs_station_property_value(stations[s + 1], prop, "I1")
+        )
+        I2 = 0.5 * (
+            _tacs_station_property_value(stations[s], prop, "I2") +
+            _tacs_station_property_value(stations[s + 1], prop, "I2")
+        )
+        I12 = 0.5 * (
+            _tacs_station_property_value(stations[s], prop, "I12") +
+            _tacs_station_property_value(stations[s + 1], prop, "I12")
+        )
+        J = 0.5 * (
+            _tacs_station_property_value(stations[s], prop, "J") +
+            _tacs_station_property_value(stations[s + 1], prop, "J")
+        )
+        A > 0.0 || error("TACS-formulation varying PBEAM/PBEAML station modal mass requires positive segment area.")
+        I1 >= 0.0 || error("TACS-formulation varying PBEAM/PBEAML station modal mass requires nonnegative segment I1.")
+        I2 >= 0.0 || error("TACS-formulation varying PBEAM/PBEAML station modal mass requires nonnegative segment I2.")
+        J >= 0.0 || error("TACS-formulation varying PBEAM/PBEAML station modal mass requires nonnegative segment J.")
+        As_y = K1 > 0.0 ? K1 * A : Inf
+        As_z = K2 > 0.0 ? K2 * A : Inf
+        Ke_seg = FEM.stiffness_frame3d(segL, A, I2, I1, J, E, G; As_y=As_y, As_z=As_z, I12=I12)
+        rho_eff = rho + nsm / A
+        Me_seg = FEM.nastran_lumped_mass_frame3d(segL, rho_eff, A, J, I2, I1)
+        dofs = vcat(((s - 1) * 6 + 1):(s * 6), (s * 6 + 1):((s + 1) * 6))
+        for c in 1:12, r in 1:12
+            K[dofs[r], dofs[c]] += Ke_seg[r, c]
+            M[dofs[r], dofs[c]] += Me_seg[r, c]
+        end
+        active_segments += 1
+    end
+    active_segments > 0 || return nothing
+
+    boundary = vcat(1:6, (nd - 5):nd)
+    if nd == 12
+        Me = M[boundary, boundary]
+    else
+        internal = collect(7:(nd - 6))
+        T = zeros(Float64, nd, length(boundary))
+        T[boundary, :] .= Matrix{Float64}(I, length(boundary), length(boundary))
+        T[internal, :] .= -(K[internal, internal] \ K[internal, boundary])
+        Me = transpose(T) * M * T
+    end
+    Me .= 0.5 .* (Me .+ transpose(Me))
+    return Me
+end
+
+function _tacs_beam_station_condensed_geometric_stiffness(
+    L::Float64,
+    prop::AbstractDict,
+    E::Float64,
+    G::Float64,
+    u_boundary_local::AbstractVector{<:Real},
+)
+    stations = _tacs_beam_sorted_stations(prop)
+    length(stations) >= 2 || return nothing, 0.0
+    first_x = Float64(get(first(stations), "X", 0.0))
+    last_x = Float64(get(last(stations), "X", 0.0))
+    first_x <= 1e-8 && last_x >= 1.0 - 1e-8 ||
+        error("TACS-formulation varying PBEAM/PBEAML station Kg requires stations spanning X=0.0 to X=1.0.")
+    length(u_boundary_local) == 12 ||
+        error("TACS-formulation varying PBEAM/PBEAML station Kg requires a 12-DOF boundary displacement vector.")
+
+    n = length(stations)
+    nd = 6 * n
+    K = zeros(Float64, nd, nd)
+    segment_data = NamedTuple{(:dofs, :segL, :A),Tuple{Vector{Int},Float64,Float64}}[]
+    K1 = Float64(get(prop, "K1", 0.0))
+    K2 = Float64(get(prop, "K2", 0.0))
+    for s in 1:(n - 1)
+        xa = Float64(get(stations[s], "X", 0.0))
+        xb = Float64(get(stations[s + 1], "X", 1.0))
+        seg_frac = xb - xa
+        seg_frac > 1e-10 || continue
+        segL = seg_frac * L
+        A = 0.5 * (
+            _tacs_station_property_value(stations[s], prop, "A") +
+            _tacs_station_property_value(stations[s + 1], prop, "A")
+        )
+        I1 = 0.5 * (
+            _tacs_station_property_value(stations[s], prop, "I1") +
+            _tacs_station_property_value(stations[s + 1], prop, "I1")
+        )
+        I2 = 0.5 * (
+            _tacs_station_property_value(stations[s], prop, "I2") +
+            _tacs_station_property_value(stations[s + 1], prop, "I2")
+        )
+        I12 = 0.5 * (
+            _tacs_station_property_value(stations[s], prop, "I12") +
+            _tacs_station_property_value(stations[s + 1], prop, "I12")
+        )
+        J = 0.5 * (
+            _tacs_station_property_value(stations[s], prop, "J") +
+            _tacs_station_property_value(stations[s + 1], prop, "J")
+        )
+        A > 0.0 || error("TACS-formulation varying PBEAM/PBEAML station Kg requires positive segment area.")
+        I1 >= 0.0 || error("TACS-formulation varying PBEAM/PBEAML station Kg requires nonnegative segment I1.")
+        I2 >= 0.0 || error("TACS-formulation varying PBEAM/PBEAML station Kg requires nonnegative segment I2.")
+        J >= 0.0 || error("TACS-formulation varying PBEAM/PBEAML station Kg requires nonnegative segment J.")
+        As_y = K1 > 0.0 ? K1 * A : Inf
+        As_z = K2 > 0.0 ? K2 * A : Inf
+        Ke_seg = FEM.stiffness_frame3d(segL, A, I2, I1, J, E, G; As_y=As_y, As_z=As_z, I12=I12)
+        dofs = collect(vcat(((s - 1) * 6 + 1):(s * 6), (s * 6 + 1):((s + 1) * 6)))
+        for c in 1:12, r in 1:12
+            K[dofs[r], dofs[c]] += Ke_seg[r, c]
+        end
+        push!(segment_data, (dofs=dofs, segL=segL, A=A))
+    end
+    isempty(segment_data) && return nothing, 0.0
+
+    boundary = vcat(1:6, (nd - 5):nd)
+    T = zeros(Float64, nd, length(boundary))
+    T[boundary, :] .= Matrix{Float64}(I, length(boundary), length(boundary))
+    if nd > 12
+        internal = collect(7:(nd - 6))
+        T[internal, :] .= -(K[internal, internal] \ K[internal, boundary])
+    end
+    u_station = T * Float64.(u_boundary_local)
+
+    Kg_full = zeros(Float64, nd, nd)
+    force_length_sum = 0.0
+    length_sum = 0.0
+    for seg in segment_data
+        q1 = u_station[seg.dofs[1:6]]
+        q2 = u_station[seg.dofs[7:12]]
+        axial_force = E * seg.A / seg.segL * (q2[1] - q1[1])
+        Kg_seg = FEM.geometric_stiffness_frame3d(seg.segL, Float64(axial_force))
+        for c in 1:12, r in 1:12
+            Kg_full[seg.dofs[r], seg.dofs[c]] += Kg_seg[r, c]
+        end
+        force_length_sum += axial_force * seg.segL
+        length_sum += seg.segL
+    end
+    Kg = transpose(T) * Kg_full * T
+    Kg .= 0.5 .* (Kg .+ transpose(Kg))
+    axial_force_avg = length_sum > 0.0 ? force_length_sum / length_sum : 0.0
+    return Kg, axial_force_avg
+end
+
+function _tacs_validate_beam_slice(
+    model::Dict,
+    label::AbstractString;
+    allow_offsets_releases::Bool=false,
+    allow_varying_pbeam_stations::Bool=false,
+)
     grids = get(model, "GRIDs", Dict())
     props = get(model, "PBARLs", Dict())
     for (group_name, beams) in (("CBAR", get(model, "CBARs", Dict())),
@@ -294,10 +590,17 @@ function _tacs_validate_beam_slice(model::Dict, label::AbstractString; allow_off
             prop = get(props, pid, nothing)
             prop === nothing && error("TACS-formulation $label $group_name element $eid references missing PBAR/PBARL property $pid.")
             prop_type = uppercase(strip(string(get(prop, "TYPE", "PBAR"))))
-            prop_type == "PBEAM" &&
-                error("TACS-formulation $label $group_name element $eid first beam slice supports constant PBAR/PBARL-style properties only, not PBEAM station properties.")
-            haskey(prop, "STATIONS") &&
-                error("TACS-formulation $label $group_name property $pid has beam station data; PBEAM/PBEAML station condensation is outside the first TACS beam slice.")
+            if prop_type == "PBEAM" || haskey(prop, "STATIONS")
+                station_constant = _tacs_beam_station_properties_constant(prop)
+                if !station_constant && !allow_varying_pbeam_stations
+                    error("TACS-formulation $label $group_name property $pid has varying PBEAM/PBEAML station data; station condensation is outside the current TACS beam slice.")
+                elseif !station_constant
+                    (Int(get(beam, "PA", 0)) == 0 && Int(get(beam, "PB", 0)) == 0) ||
+                        error("TACS-formulation $label $group_name element $eid has varying PBEAM/PBEAML station data with PA/PB pin releases; that combined beam slice is not guarded yet.")
+                    (!_tacs_has_nonzero_offset(beam, "WA") && !_tacs_has_nonzero_offset(beam, "WB")) ||
+                        error("TACS-formulation $label $group_name element $eid has varying PBEAM/PBEAML station data with WA/WB offsets; that combined beam slice is not guarded yet.")
+                end
+            end
             A = Float64(get(prop, "A", 0.0))
             I1 = Float64(get(prop, "I1", get(prop, "I", 0.0)))
             I2 = Float64(get(prop, "I2", get(prop, "I", 0.0)))
@@ -668,6 +971,7 @@ function _tacs_beam_property_material(model::Dict, beam::AbstractDict)
         K2=Float64(get(prop, "K2", 0.0)),
         NSM=Float64(get(prop, "NSM", 0.0)),
         MID=get(prop, "MID", 0),
+        prop=prop,
     )
 end
 
@@ -746,18 +1050,24 @@ function _tacs_beam_residual_tangent(model::Dict, beam::AbstractDict, id_map, X,
     bd = _tacs_beam_frame_and_transform(beam, id_map, X, node_R)
     As_y = pdata.K1 > 0.0 ? pdata.K1 * A : Inf
     As_z = pdata.K2 > 0.0 ? pdata.K2 * A : Inf
-    Ke_loc = FEM.stiffness_frame3d(
-        Float64(bd.L),
-        A,
-        Iy,
-        Iz,
-        J,
-        mat.E,
-        mat.G;
-        As_y=As_y,
-        As_z=As_z,
-        I12=pdata.I12,
-    )
+    Ke_station =
+        _tacs_beam_station_properties_constant(pdata.prop) ? nothing :
+        _tacs_beam_station_condensed_stiffness(Float64(bd.L), pdata.prop, mat.E, mat.G)
+    Ke_loc =
+        Ke_station === nothing ?
+        FEM.stiffness_frame3d(
+            Float64(bd.L),
+            A,
+            Iy,
+            Iz,
+            J,
+            mat.E,
+            mat.G;
+            As_y=As_y,
+            As_z=As_z,
+            I12=pdata.I12,
+        ) :
+        Ke_station
     pa = Int(get(beam, "PA", 0))
     pb = Int(get(beam, "PB", 0))
     if pa != 0 || pb != 0
@@ -786,9 +1096,19 @@ function _tacs_beam_mass_tangent(model::Dict, beam::AbstractDict, id_map, X, nod
     mat === nothing && error("TACS-formulation $(kernel.card_type) beam mass references missing MAT1 material $(pdata.MID).")
     rho = Float64(get(mat, "RHO", 0.0))
     rho >= 0.0 || error("TACS-formulation $(kernel.card_type) beam mass requires nonnegative material density.")
+    E = Float64(get(mat, "E", 0.0))
+    G = Float64(get(mat, "G", 0.0))
+    nu = Float64(get(mat, "NU", -1.0))
+    E, G, _ = Solver._complete_mat1_triplet(E, G, nu)
     rho_eff = rho + nsm / A
     bd = _tacs_beam_frame_and_transform(beam, id_map, X, node_R)
-    Me_loc = FEM.nastran_lumped_mass_frame3d(Float64(bd.L), rho_eff, A, J, Iy, Iz)
+    Me_station =
+        _tacs_beam_station_properties_constant(pdata.prop) ? nothing :
+        _tacs_beam_station_condensed_mass(Float64(bd.L), pdata.prop, E, G, rho, nsm)
+    Me_loc =
+        Me_station === nothing ?
+        FEM.nastran_lumped_mass_frame3d(Float64(bd.L), rho_eff, A, J, Iy, Iz) :
+        Me_station
     Me = bd.T12' * Me_loc * bd.T12
     Me .= 0.5 .* (Me .+ transpose(Me))
     return Me, bd.dofs
@@ -807,8 +1127,21 @@ function _tacs_beam_geometric_stiffness_operator(model::Dict, beam::AbstractDict
     bd = _tacs_beam_frame_and_transform(beam, id_map, X, node_R)
     u_elem = Float64.(u_static[bd.dofs])
     u_local = bd.T12 * u_elem
-    axial_force = mat.E * A / bd.L * (u_local[7] - u_local[1])
-    Kg_loc = FEM.geometric_stiffness_frame3d(Float64(bd.L), Float64(axial_force))
+    if !_tacs_beam_station_properties_constant(pdata.prop)
+        Kg_station, axial_force = _tacs_beam_station_condensed_geometric_stiffness(
+            Float64(bd.L),
+            pdata.prop,
+            mat.E,
+            mat.G,
+            u_local,
+        )
+        Kg_station === nothing &&
+            error("TACS-formulation $(kernel.card_type) beam Kg could not build varying PBEAM/PBEAML station operator.")
+        Kg_loc = Kg_station
+    else
+        axial_force = mat.E * A / bd.L * (u_local[7] - u_local[1])
+        Kg_loc = FEM.geometric_stiffness_frame3d(Float64(bd.L), Float64(axial_force))
+    end
     Kg = bd.T12' * Kg_loc * bd.T12
     Kg .= 0.5 .* (Kg .+ transpose(Kg))
     return Kg, bd.dofs, axial_force
@@ -2775,13 +3108,31 @@ function _tacs_assemble_sol101_design_derivative(
     return K, id_map, X, ndof, node_R, steps
 end
 
-function _tacs_assemble_sol101(model::Dict; thickness_derivative_pid=nothing, allowed_sol_types=(101,), route_label="SOL101")
+function _tacs_default_allow_varying_pbeam_stations(thickness_derivative_pid, allowed_sol_types, route_label)
+    thickness_derivative_pid === nothing || return false
+    allowed = collect(allowed_sol_types)
+    length(allowed) == 1 || return false
+    Int(first(allowed)) == 101 || return false
+    return string(route_label) == "SOL101"
+end
+
+function _tacs_assemble_sol101(
+    model::Dict;
+    thickness_derivative_pid=nothing,
+    allowed_sol_types=(101,),
+    route_label="SOL101",
+    allow_varying_pbeam_stations=nothing,
+)
     raw_sol_type = get(model, "SOL", get(get(model, "CASE_CONTROL", Dict()), "SOL", 101))
     sol_type = _canonical_sol_type(raw_sol_type)
     allow_rod_slice = sol_type in (101, 103, 105) && sol_type in allowed_sol_types
     allow_beam_slice = sol_type in (101, 103, 105) && sol_type in allowed_sol_types
     allow_spring_slice = sol_type in (101, 103) && sol_type in allowed_sol_types
     allow_mass_slice = sol_type == 103 && 103 in allowed_sol_types
+    allow_varying_stations =
+        allow_varying_pbeam_stations === nothing ?
+        _tacs_default_allow_varying_pbeam_stations(thickness_derivative_pid, allowed_sol_types, route_label) :
+        Bool(allow_varying_pbeam_stations)
     _tacs_validate_shell_slice(
         model;
         allowed_sol_types=allowed_sol_types,
@@ -2792,6 +3143,7 @@ function _tacs_assemble_sol101(model::Dict; thickness_derivative_pid=nothing, al
         allow_masses=allow_mass_slice,
         allow_conm1=allow_mass_slice,
         require_shell=!(allow_rod_slice || allow_beam_slice || allow_spring_slice),
+        allow_varying_pbeam_stations=allow_varying_stations,
     )
     id_map, X, ndof, node_R = _tacs_node_tables(model)
     cshells = get(model, "CSHELLs", Dict())
@@ -3050,6 +3402,7 @@ function _tacs_sol103_modal_mass_builder(model::Dict, id_map, X, node_R, ndof::I
         allow_masses=true,
         allow_conm1=true,
         require_shell=false,
+        allow_varying_pbeam_stations=true,
     )
     has_shared_mass =
         !isempty(get(model, "CSHELLs", Dict())) ||
@@ -3075,6 +3428,18 @@ function _tacs_model_has_modal_point_mass(model::AbstractDict)
            _tacs_nonempty_group(model, "CMASS2s")
 end
 
+function _tacs_model_has_varying_station_beam(model::AbstractDict)
+    for group_name in ("CBARs", "CBEAMs")
+        for (_, beam) in get(model, group_name, Dict())
+            prop = get(get(model, "PBARLs", Dict()), _tacs_id_key(get(beam, "PID", 0)), nothing)
+            if prop !== nothing && !_tacs_beam_station_properties_constant(prop)
+                return true
+            end
+        end
+    end
+    return false
+end
+
 function _tacs_sol103_modal_mass_route_label(model::AbstractDict)
     parts = String[]
     if _tacs_nonempty_group(model, "CSHELLs")
@@ -3087,7 +3452,7 @@ function _tacs_sol103_modal_mass_route_label(model::AbstractDict)
         push!(parts, "tacs_lumped_crod_conrod_mass")
     end
     if _tacs_nonempty_group(model, "CBARs") || _tacs_nonempty_group(model, "CBEAMs")
-        push!(parts, "tacs_lumped_cbar_cbeam_mass")
+        push!(parts, _tacs_model_has_varying_station_beam(model) ? "tacs_guyan_pbeam_station_cbar_cbeam_mass" : "tacs_lumped_cbar_cbeam_mass")
     end
     isempty(parts) && return "zero_mass"
     return join(parts, "_plus_")
@@ -3102,13 +3467,21 @@ function _tacs_sol103_linear_stiffness_route_label(model::AbstractDict)
         push!(parts, TACS_LINEAR_ROD_STIFFNESS_ROUTE)
     end
     if _tacs_nonempty_group(model, "CBARs") || _tacs_nonempty_group(model, "CBEAMs")
-        push!(parts, TACS_LINEAR_BEAM_STIFFNESS_ROUTE)
+        push!(parts, _tacs_model_has_varying_station_beam(model) ? TACS_LINEAR_BEAM_STIFFNESS_ROUTE * "_pbeam_station_stiffness" : TACS_LINEAR_BEAM_STIFFNESS_ROUTE)
     end
     if _tacs_nonempty_group(model, "CELASs") || _tacs_nonempty_group(model, "CBUSHs")
         push!(parts, "residual_first_celas1_celas2_cbush_sol101_sol103")
     end
     isempty(parts) && return TACS_LINEAR_SHELL_STIFFNESS_ROUTE
     return join(parts, "_plus_")
+end
+
+function _tacs_sol105_beam_geometric_stiffness_route_label(model::AbstractDict)
+    has_beams = _tacs_nonempty_group(model, "CBARs") || _tacs_nonempty_group(model, "CBEAMs")
+    has_beams || return "not_active"
+    return _tacs_model_has_varying_station_beam(model) ?
+        TACS_GEOMETRIC_BEAM_STIFFNESS_ROUTE * "_pbeam_station_kg" :
+        TACS_GEOMETRIC_BEAM_STIFFNESS_ROUTE
 end
 
 function _tacs_assemble_sol105_geometric_stiffness(
@@ -3137,6 +3510,7 @@ function _tacs_assemble_sol105_geometric_stiffness(
         allow_beams=has_beams,
         require_shell=!has_beams,
         allow_beam_offsets_releases=sol_type == 105,
+        allow_varying_pbeam_stations=sol_type == 105,
     )
     cshells = get(model, "CSHELLs", Dict())
     crods = get(model, "CRODs", Dict())
@@ -3240,7 +3614,12 @@ function _solve_tacs_sol103(model::Dict)
     println("\n>>> SOL 103 Normal Modes Analysis (TACS-formulation backend)")
     t_asm = time_ns()
     K, id_map, X, ndof, node_R, max_elem_stiff, rbe3_map, _, orig_diag =
-        _tacs_assemble_sol101(model; allowed_sol_types=(103,), route_label="SOL103")
+        _tacs_assemble_sol101(
+            model;
+            allowed_sol_types=(103,),
+            route_label="SOL103",
+            allow_varying_pbeam_stations=true,
+        )
     t_asm_K = (time_ns() - t_asm) * 1e-9
 
     cc = model["CASE_CONTROL"]
@@ -3299,12 +3678,18 @@ function _solve_tacs_sol105(model::Dict)
         allow_rods=true,
         allow_beams=has_beams,
         require_shell=!has_beams,
+        allow_varying_pbeam_stations=true,
     )
     _tacs_preflight_sol105_shared_route(model)
 
     t_asm = time_ns()
     K, id_map, X, ndof, node_R, max_elem_stiff, rbe3_map, snorm_normals, orig_diag =
-        _tacs_assemble_sol101(model; allowed_sol_types=(105,), route_label="SOL105")
+        _tacs_assemble_sol101(
+            model;
+            allowed_sol_types=(105,),
+            route_label="SOL105",
+            allow_varying_pbeam_stations=true,
+        )
     t_asm_K = (time_ns() - t_asm) * 1e-9
 
     cc = model["CASE_CONTROL"]
@@ -3333,11 +3718,12 @@ function _solve_tacs_sol105(model::Dict)
         "solve_cases" => (time_ns() - t_disp) * 1e-9,
     ))
     results["timings"] = merged_timings
+    beam_kg_route = _tacs_sol105_beam_geometric_stiffness_route_label(model)
     results["tacs_formulation_sol105"] = Dict{String,Any}(
         "linear_stiffness" => _tacs_sol103_linear_stiffness_route_label(model),
         "geometric_stiffness" => TACS_GEOMETRIC_SHELL_STIFFNESS_ROUTE,
         "rod_geometric_stiffness" => "native_residual_first_crod_conrod_operator",
-        "beam_geometric_stiffness" => has_beams ? TACS_GEOMETRIC_BEAM_STIFFNESS_ROUTE : "not_active",
+        "beam_geometric_stiffness" => beam_kg_route,
         "eig_stiffness" => "same_as_static_tangent",
     )
     return results

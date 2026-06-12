@@ -202,8 +202,8 @@
 #           runtime. Running this deck in any classical BDF-based
 #           solver requires synthesising the property/material set from
 #           tacs-master/examples/crm/crm_frequency.py. The augmented deck
-#           wingbox_modal_with_props.bdf in this folder is the synthesised
-#           version produced by helpers/synthesize_crm_properties.ps1.
+#           wingbox_modal_with_props.bdf in this folder is the public,
+#           runnable synthesised version.
 # ===========================================================================
 
 - id: CRM_wingbox_modal
@@ -256,5 +256,5 @@
         column: value
         row_id: CRM_wingbox_modal_mode5
       tol_rel: 0.05
-  citation: "TACS examples/crm/CRM_box_2nd.bdf (uCRM coarse wingbox); CQUADR -> CQUAD4 substitution; isotropic shell properties from crm_frequency.py synthesised via helpers/synthesize_crm_properties.ps1"
+  citation: "TACS examples/crm/CRM_box_2nd.bdf (uCRM coarse wingbox); CQUADR -> CQUAD4 substitution; isotropic shell properties from crm_frequency.py synthesised into the public runnable deck"
   license: Apache 2.0 (TACS)
