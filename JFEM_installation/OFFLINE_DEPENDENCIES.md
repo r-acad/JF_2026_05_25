@@ -220,7 +220,7 @@ export JULIA_DEPOT_PATH="$PWD/offline_depot"
 ```
 
 Set `JULIA_DEPOT_PATH` the same way before running `./jfem` or
-`POST/case_runner_web_app/RUN_PANDEATOR_MAC_LINUX.sh`
+`POST/PANDEATOR_APP/RUN_PANDEATOR_MAC_LINUX.sh`
 so they use the bundled depot.
 
 ### Alternative: ask IT for a Julia package-server mirror

@@ -97,7 +97,7 @@ line-continuation character.
 |   |-- JFEM_results_viewer/
 |   |   |-- postv11.html
 |   |   `-- POST_GUIDE.html
-|   `-- case_runner_web_app/
+|   `-- PANDEATOR_APP/
 |       |-- RUN_PANDEATOR_WINDOWS.cmd
 |       |-- RUN_PANDEATOR_MAC_LINUX.sh
 |       |-- panel_app.html
@@ -138,12 +138,12 @@ line-continuation character.
 - `JFEM_installation/julia_tools/run_bdf_batch.jl`: simple text-list batch runner retained
   for existing scripts. New automation should use `run_batch_manifest.jl`.
 - `POST/JFEM_results_viewer/postv11.html`: browser viewer for `.jfem` result files.
-- `POST/case_runner_web_app/panel_app.html` +
-  `POST/case_runner_web_app/panel_server.jl`: interactive web app that
+- `POST/PANDEATOR_APP/panel_app.html` +
+  `POST/PANDEATOR_APP/panel_server.jl`: interactive web app that
   builds a stiffened panel **or** runs an existing `.bdf`/`.dat`/`.nas` deck
   (SOL 101/103/105/106 auto-detected) and renders results in 3D. On Windows,
-  double-click `POST/case_runner_web_app/RUN_PANDEATOR_WINDOWS.cmd`; see
-  `POST/case_runner_web_app/PANEL_APP_README.md`.
+  double-click `POST/PANDEATOR_APP/RUN_PANDEATOR_WINDOWS.cmd`; see
+  `POST/PANDEATOR_APP/PANEL_APP_README.md`.
 - `general_description.md`: broader description of solver capabilities.
 
 ## Installation And Fast Deployment

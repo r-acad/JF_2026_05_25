@@ -20,7 +20,7 @@ tmp_*
 # Locally generated sysimages created by each user's installation script
 sysimage/
 POST/panel_runs/
-POST/case_runner_web_app/panel_runs/
+POST/PANDEATOR_APP/panel_runs/
 
 # Nastran/JFEM heavy run artifacts
 *.f04

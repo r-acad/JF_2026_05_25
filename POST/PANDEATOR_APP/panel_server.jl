@@ -12,7 +12,7 @@
 # analysis pays Julia's compile cost; later runs are warm.
 #
 # Usage:
-#   julia --project=. --threads=auto JFEM/POST/case_runner_web_app/panel_server.jl [--port 8088]
+#   julia --project=. --threads=auto JFEM/POST/PANDEATOR_APP/panel_server.jl [--port 8088]
 #
 # Normally you launch it via panel_launch.jl, which also opens the browser.
 # =============================================================================
@@ -27,7 +27,7 @@ using LinearAlgebra   # BLAS.set_num_threads for dense-solve thread tuning
 using OpenJFEM   # provided by --project=. ; loads the solver once
 
 # --- repo / path layout ------------------------------------------------------
-const APP_DIR   = @__DIR__                                           # <repo>/JFEM/POST/case_runner_web_app
+const APP_DIR   = @__DIR__                                           # <repo>/JFEM/POST/PANDEATOR_APP
 const REPO_ROOT = normpath(joinpath(APP_DIR, "..", ".."))            # <repo>/JFEM
 const APP_HTML  = joinpath(APP_DIR, "panel_app.html")
 const RUN_ROOT  = joinpath(APP_DIR, "panel_runs")

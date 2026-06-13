@@ -44,12 +44,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Removed the repository-local `AGENTS.md` from the public tree; public-repo
   agent operating notes now live only in the private agentic-development area.
 - Split `POST/` into two user-facing app folders: `POST/JFEM_results_viewer/`
-  for standalone `.jfem` file viewing and `POST/case_runner_web_app/` for the
+  for standalone `.jfem` file viewing and `POST/PANDEATOR_APP/` for the
   Julia-server-backed model builder/deck runner.
-- Renamed the `POST/case_runner_web_app/` launchers to
+- Renamed the case-runner app folder `POST/case_runner_web_app/` to
+  `POST/PANDEATOR_APP/`, and updated all code, launcher, ignore-rule, and
+  documentation references.
+- Renamed the `POST/PANDEATOR_APP/` launchers to
   `RUN_PANDEATOR_WINDOWS.cmd` and `RUN_PANDEATOR_MAC_LINUX.sh` (was
   `panel_app.cmd` / `panel_app.sh`), and updated all documentation references.
-- Improved the `POST/case_runner_web_app/` browser app: the *Analyze* button now
+- Improved the `POST/PANDEATOR_APP/` browser app: the *Analyze* button now
   floats at the top-right of the 3D view and appears only when the model needs
   (re)analysing; SOL 105 / SOL 103 runs list every eigenvalue (buckling factors
   or natural frequencies) below the result selector; and the total model mass is
@@ -58,7 +61,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ### Added
 - Published a linear-buckling exercise presentation,
   `Reference_documentation/07_Exercises/jfem_2026_linear_buckling_exercise.pdf`.
-  It walks through the `POST/case_runner_web_app/` SOL 105 workflow, documents the
+  It walks through the `POST/PANDEATOR_APP/` SOL 105 workflow, documents the
   reference axes, loads, and boundary conditions of the cylindrical stiffened
   panel, explains the eigenvalue-buckling theory and its limitations, and sets a
   structural-sizing exercise (drive the lowest buckling factor to

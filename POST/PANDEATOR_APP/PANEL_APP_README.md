@@ -80,9 +80,9 @@ rebuild it after a Julia upgrade. See `JFEM_installation/README.md` for details.
 ### Manual
 
 ```
-julia --project=<...>/JFEM --threads=auto <...>/JFEM/POST/case_runner_web_app/panel_launch.jl
+julia --project=<...>/JFEM --threads=auto <...>/JFEM/POST/PANDEATOR_APP/panel_launch.jl
 # or, to run the server without auto-opening a browser:
-julia --project=<...>/JFEM --threads=auto <...>/JFEM/POST/case_runner_web_app/panel_server.jl --port 8088
+julia --project=<...>/JFEM --threads=auto <...>/JFEM/POST/PANDEATOR_APP/panel_server.jl --port 8088
 ```
 
 Then browse to `http://127.0.0.1:8088/`.
@@ -141,7 +141,7 @@ lists every ply (no reliance on the solver's SYM handling).
 
 ## Where outputs go
 
-Each run lands under `POST/case_runner_web_app/panel_runs/<case_id>/`:
+Each run lands under `POST/PANDEATOR_APP/panel_runs/<case_id>/`:
 
 ```
 <case_id>.bdf              the form-built deck (panel mode only; file mode runs your deck in place)

@@ -57,7 +57,7 @@ exists:
 | Launcher | Uses the sysimage if present |
 |---|---|
 | `jfem` / `jfem.cmd` | yes |
-| `POST/case_runner_web_app/RUN_PANDEATOR_WINDOWS.cmd` / `POST/case_runner_web_app/RUN_PANDEATOR_MAC_LINUX.sh` | yes |
+| `POST/PANDEATOR_APP/RUN_PANDEATOR_WINDOWS.cmd` / `POST/PANDEATOR_APP/RUN_PANDEATOR_MAC_LINUX.sh` | yes |
 
 The sysimage is a startup-speed optimization. It does not change solver
 results, model data, load factors, or equations. If it is missing, OpenJFEM
@@ -84,7 +84,7 @@ POST/JFEM_results_viewer/postv11.html
 On Windows, the web case runner can be started by double-clicking:
 
 ```text
-POST/case_runner_web_app/RUN_PANDEATOR_WINDOWS.cmd
+POST/PANDEATOR_APP/RUN_PANDEATOR_WINDOWS.cmd
 ```
 
 ## Representative Decks

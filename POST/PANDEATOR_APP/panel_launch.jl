@@ -4,7 +4,7 @@
 # Starts the pure-Julia panel server in this process and opens the default
 # browser at the app URL. Works on Windows, macOS, and Linux.
 #
-#   julia --project=<JFEM> --threads=auto JFEM/POST/case_runner_web_app/panel_launch.jl [--port 8088] [--no-open]
+#   julia --project=<JFEM> --threads=auto JFEM/POST/PANDEATOR_APP/panel_launch.jl [--port 8088] [--no-open]
 #
 # It picks the OpenJFEM project automatically (the JFEM folder two levels up),
 # so you can run it from anywhere. Press Ctrl+C to stop the server.

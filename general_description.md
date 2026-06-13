@@ -249,8 +249,8 @@ side-by-side model inspection.
 
 ## Interactive Analysis Web App
 
-`POST/case_runner_web_app/panel_app.html` (served by the pure-Julia
-`POST/case_runner_web_app/panel_server.jl`) is an
+`POST/PANDEATOR_APP/panel_app.html` (served by the pure-Julia
+`POST/PANDEATOR_APP/panel_server.jl`) is an
 interactive front end that both **builds and runs** a model. Its *Analysis
 source* toggle offers two paths:
 
@@ -265,9 +265,9 @@ source* toggle offers two paths:
 The solver runs in-process (loaded once), the browser communicates over
 msgpack-over-HTTP, and results are rendered in the same 3D viewer with
 SOL-aware labels plus the solver's markdown report. On Windows,
-`POST/case_runner_web_app/RUN_PANDEATOR_WINDOWS.cmd` launches the server (and, if a
+`POST/PANDEATOR_APP/RUN_PANDEATOR_WINDOWS.cmd` launches the server (and, if a
 prebuilt sysimage is present, loads it for near-instant startup). See
-`POST/case_runner_web_app/PANEL_APP_README.md` for the runbook.
+`POST/PANDEATOR_APP/PANEL_APP_README.md` for the runbook.
 
 ## Public Runner Scripts
 

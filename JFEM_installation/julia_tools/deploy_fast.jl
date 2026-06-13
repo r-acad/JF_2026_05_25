@@ -135,7 +135,7 @@ function _write_sysimage_precompile_script(path::AbstractString, decks::Vector{S
     # Path to the web-server source, so the precompile workload can drive the
     # SERVER's hot path (run_analysis + HTTP handler + msgpack), not only the CLI
     # OpenJFEM.main path. This is what makes the FIRST browser Analyze fast.
-    post_server = normpath(joinpath(@__DIR__, "..", "..", "POST", "case_runner_web_app", "panel_server.jl"))
+    post_server = normpath(joinpath(@__DIR__, "..", "..", "POST", "PANDEATOR_APP", "panel_server.jl"))
     open(path, "w") do io
         println(io, "using OpenJFEM")
         println(io, "const _decks = ", repr(decks))

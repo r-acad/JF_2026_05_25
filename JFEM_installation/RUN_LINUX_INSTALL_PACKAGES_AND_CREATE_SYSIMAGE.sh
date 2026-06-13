@@ -14,7 +14,7 @@
 #  WHAT IT PRODUCES
 #    <repo>/sysimage/OpenJFEM_sysimage.so      (Linux)
 #    <repo>/sysimage/OpenJFEM_sysimage.dylib   (macOS)
-#    The launchers (jfem, POST/case_runner_web_app/RUN_PANDEATOR_MAC_LINUX.sh) load it AUTOMATICALLY when present.
+#    The launchers (jfem, POST/PANDEATOR_APP/RUN_PANDEATOR_MAC_LINUX.sh) load it AUTOMATICALLY when present.
 #
 #  NOTES
 #    * Takes several minutes and uses a lot of CPU/RAM - this is normal.
@@ -97,7 +97,7 @@ echo
 if [ -f "$SYSIMG" ]; then
   echo "Done. The launchers will now use the sysimage automatically:"
   echo "  - ./jfem               (command-line runs)"
-  echo "  - POST/case_runner_web_app/RUN_PANDEATOR_MAC_LINUX.sh    (web app)"
+  echo "  - POST/PANDEATOR_APP/RUN_PANDEATOR_MAC_LINUX.sh    (web app)"
 else
   echo "Build did NOT produce the sysimage - see the messages above." >&2
   exit 1
