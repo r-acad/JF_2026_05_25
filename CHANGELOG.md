@@ -14,9 +14,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
   `02_PROJECT_DEVELOPMENT/02.2_CODE_DEVELOPMENT/`, while in-progress document sources and publication
   staging live under `02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/`.
 - Updated public documentation guidance to the new private-document workspace
-  layout: reviewed public PDFs/PPTX live under
+  layout: reviewed public PDFs live under
   `02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/PUBLIC_PDFS/`, while editable document sources
   live under `02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/DOCUMENTS_IN_PROGRESS/`.
+- Refreshed `Reference_documentation/` as a PDF-only folder populated from the
+  curated public PDF drop; presentations and Markdown side files are no longer
+  published there.
+- Organized `Reference_documentation/` PDFs into topic subfolders for user
+  reference, architecture, formulation/sensitivities, TACS backend, agentic
+  workspace material, and infrastructure planning.
 - Trimmed `validation/` to the user-facing public validation suite: runnable
   decks, suite manifest, analytical references, tabulated references,
   provenance docs, and launchers. Maintainer-only helper scripts, generated
@@ -40,8 +46,25 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Split `POST/` into two user-facing app folders: `POST/JFEM_results_viewer/`
   for standalone `.jfem` file viewing and `POST/case_runner_web_app/` for the
   Julia-server-backed model builder/deck runner.
+- Renamed the `POST/case_runner_web_app/` launchers to
+  `RUN_PANDEATOR_WINDOWS.cmd` and `RUN_PANDEATOR_MAC_LINUX.sh` (was
+  `panel_app.cmd` / `panel_app.sh`), and updated all documentation references.
+- Improved the `POST/case_runner_web_app/` browser app: the *Analyze* button now
+  floats at the top-right of the 3D view and appears only when the model needs
+  (re)analysing; SOL 105 / SOL 103 runs list every eigenvalue (buckling factors
+  or natural frequencies) below the result selector; and the total model mass is
+  shown in the lower-right corner after a run.
 
 ### Added
+- Published a linear-buckling exercise presentation,
+  `Reference_documentation/07_Exercises/jfem_2026_linear_buckling_exercise.pdf`.
+  It walks through the `POST/case_runner_web_app/` SOL 105 workflow, documents the
+  reference axes, loads, and boundary conditions of the cylindrical stiffened
+  panel, explains the eigenvalue-buckling theory and its limitations, and sets a
+  structural-sizing exercise (drive the lowest buckling factor to
+  $\lambda_1 \approx 1.0$ by changing thickness or laminate).
+- Published the method-origins and bibliography review,
+  `Reference_documentation/03_Formulation_and_Sensitivities/jfem_method_origins_review.pdf`.
 - Added one first-time setup launcher per platform under `JFEM_installation/`.
   Each launcher installs Julia packages and creates the optional sysimage:
   `CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd`,
@@ -50,12 +73,6 @@ Versions follow [Semantic Versioning](https://semver.org/).
   written under `sysimage/`. Bundled precompile decks, manifest templates, and
   Python helper clients now live under `JFEM_installation/` instead of top-level
   `examples/` and `python_client/` folders.
-- `Reference_documentation/tacs_core_capability_matrix.md` records the
-  JFEM-core TACS formulation and sensitivity capability matrix, explicitly
-  separating implemented shell routes from missing beam, solid, thermal,
-  response, and coordinate-sensitivity work. A new static guard,
-  `tools/testing/tacs_core_capability_matrix_guard.jl`, keeps the matrix tied
-  to backend hooks and fail-fast implementation markers.
 - Added `src/backend/tacs_formulation/core.jl` as a no-behavior-change typed
   contract layer for future TACS-core expansion. The existing shell route now
   builds CQUAD4/CQUADR/CTRIA3 stiffness and geometric-stiffness operators
@@ -561,7 +578,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   DOF still solve densely). Set to 0 to force the iterative path at every size.
 
 ### Fixed
-- Windows launchers (`POST/panel_app.cmd`, `jfem.cmd`,
+- Windows launchers (`POST/RUN_PANDEATOR_WINDOWS.cmd`, `jfem.cmd`,
   `JFEM_installation/CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd`) now work when the install path contains
   parentheses or spaces (e.g. a browser download named
   `...\JF_2026_05_25-main (7)\...`). Previously the `)` inside such a path
@@ -653,9 +670,9 @@ Versions follow [Semantic Versioning](https://semver.org/).
   scripts with explicit Windows, Linux, and macOS filenames, plus a `README.md`
   with step-by-step instructions. Building a sysimage is
   optional (everything runs without one, just slower to start); the launchers
-  load it automatically when present. `POST/panel_app.sh` now loads a
+  load it automatically when present. `POST/RUN_PANDEATOR_MAC_LINUX.sh` now loads a
   `.so`/`.dylib` sysimage when present and uses plain `julia` (dropped the
-  juliaup-only `+release`), matching `panel_app.cmd`.
+  juliaup-only `+release`), matching `RUN_PANDEATOR_WINDOWS.cmd`.
 - `Reference_documentation/jfem_method_origins_review.pdf`: literature review
   mapping the reference paper corpus to the numerical methods implemented in
   JFEM, organised along the solver pipeline (MITC/MacNeal shells, DKMQ,
@@ -850,7 +867,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - `Reference_documentation/JFEM_TACS_Backend_Roadmap_Beamer.pdf`: roadmap
   slides for a TACS-style backend.
 - `POST/` stiffened-panel buckling web app: a pure-Julia HTTP + MsgPack
-  server (`panel_server.jl`, `panel_launch.jl`, `panel_app.cmd/.sh`) plus a
+  server (`panel_server.jl`, `panel_launch.jl`, `RUN_PANDEATOR_WINDOWS.cmd`/`RUN_PANDEATOR_MAC_LINUX.sh`) plus a
   single-file Babylon.js front-end (`panel_app.html`, vendored libs under
   `POST/vendor/`). Generates a SOL 105 cylindrical stiffened-panel deck,
   solves it through OpenJFEM in-process, and renders the buckling modes and
@@ -875,7 +892,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   PowerPoint companion (10.4 MB).
 
 ### Changed
-- `POST/panel_app.cmd`: launch with plain `julia` instead of `julia +release`
+- `POST/RUN_PANDEATOR_WINDOWS.cmd`: launch with plain `julia` instead of `julia +release`
   so the app runs on machines without juliaup (a standalone `julia.exe`
   treats `+release` as a bad path and errors). Now also auto-loads a
   prebuilt sysimage via `--sysimage` when `sysimage/OpenJFEM_sysimage.dll`

@@ -972,6 +972,12 @@ end
     max(solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_MIN_ELEMENTS", 100), 1)
 @inline sol105_geom_pcomp_kg_low_aspect_max() =
     max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_MAX", 3.0), 1.0)
+@inline sol105_geom_pcomp_kg_low_aspect_min() =
+    clamp(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_MIN", 1.0),
+        1.0,
+        sol105_geom_pcomp_kg_low_aspect_max(),
+    )
 @inline sol105_geom_pcomp_kg_low_aspect_h_over_lmax_min() =
     max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_H_OVER_LMAX_MIN", 0.0), 0.0)
 @inline sol105_geom_pcomp_kg_low_aspect_h_over_lmax_max() =
@@ -1039,6 +1045,7 @@ end
 )
     sol105_geom_pcomp_kg_scale_enabled() || return 1.0
     is_pcomp && !is_pcomp_iso || return 1.0
+    aspect >= sol105_geom_pcomp_kg_low_aspect_min() || return 1.0
     aspect <= sol105_geom_pcomp_kg_low_aspect_max() || return 1.0
     h_over_lmax >= sol105_geom_pcomp_kg_low_aspect_h_over_lmax_min() || return 1.0
     h_over_lmax <= sol105_geom_pcomp_kg_low_aspect_h_over_lmax_max() || return 1.0
@@ -3975,6 +3982,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # Flat elements on a smoothly curved shell patch can still need curved-shell
         # buckling treatment in K_eig, especially on faceted cylinders.
         flat_pcomp_h_over_l = q4_h[ei] / max(q4_curvature_characteristic_length(lc), 1e-12)
+        flat_pcomp_h_over_lmax = q4_h[ei] / max(q4_local_max_edge_length(lc), 1e-12)
         q4_h_over_max_edge = q4_h[ei] / max(q4_local_max_edge_length(lc), 1e-12)
         flat_curved_pcomp_fullshear_candidate = false
         if flat_curved_pcomp_fullshear &&
@@ -4029,6 +4037,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # opt mildly-curved elements onto the MacNeal RBF path without changing
         # `elem_is_flat`, which other heuristics still key off of.
         elem_kernel_planar = elem_is_macneal_eligible
+        elem_macneal_static_kernel = false
         # Load-aware static override: a shear-dominated non-flat element (see
         # classify_shear_dominant_elements) takes the flat MacNeal kernel
         # regardless of the geometry curvature/thickness gate. Reaching the
@@ -4046,8 +4055,12 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             taper_ratio_ei,
             pcomp_geom_curvature !== nothing,
         )
-        if elem_force_macneal_by_load || elem_force_macneal_by_geometry
+        elem_force_macneal_static =
+            elem_force_macneal_by_load ||
+            elem_force_macneal_by_geometry
+        if elem_force_macneal_static
             elem_kernel_planar = true
+            elem_macneal_static_kernel = true
         elseif q4_kernel_needs_surface_flatness &&
            elem_is_macneal_eligible &&
            is_pcomp_ei &&
@@ -4095,7 +4108,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 aspect_ratio_ei      <= aspect_max  &&
                 kappa_l_kernel       >= kappa_l_min &&
                 q4_h[ei]             >= h_min
-            elem_kernel_planar = on_macneal_by_curvature || on_macneal_by_thickness
+            elem_macneal_static_kernel = on_macneal_by_curvature || on_macneal_by_thickness
+            elem_kernel_planar = elem_macneal_static_kernel
         end
         # JFEM_Q4_MACNEAL_RIGID_SHEAR_FORCE: research switch (default false)
         # introduced 2026-05-12 after Nastran reverse-engineering showed that
@@ -4725,14 +4739,13 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 cyl_ratio_mitc4_3d_aspect <= mitc4_3d_aspect_cyl_ratio_max &&
                 flat_pcomp_h_over_l >= mitc4_3d_aspect_h_over_l_min &&
                 flat_pcomp_h_over_l <= mitc4_3d_aspect_h_over_l_max &&
-                q4_h[ei] / max(q4_local_max_edge_length(lc), 1e-12) >=
-                    mitc4_3d_aspect_h_over_lmax_min &&
-                q4_h[ei] / max(q4_local_max_edge_length(lc), 1e-12) <=
-                    mitc4_3d_aspect_h_over_lmax_max &&
+                flat_pcomp_h_over_lmax >= mitc4_3d_aspect_h_over_lmax_min &&
+                flat_pcomp_h_over_lmax <= mitc4_3d_aspect_h_over_lmax_max &&
                 (!mitc4_3d_aspect_pcomp_only || is_pcomp_ei)
             else
                 false
             end
+        elem_macneal_static_kernel && (elem_mitc4_3d_kernel = false)
         elem_static_component_scale_ok =
             static_component_v2_gate_ok &&
             (isempty(static_component_pid_filter) ||

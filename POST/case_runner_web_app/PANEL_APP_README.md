@@ -29,8 +29,8 @@ small Julia HTTP server over **msgpack**.
 | `panel_app.html`  | The browser app: *Analysis source* toggle (build panel vs. run a deck), parameter form, cylindrical mesh + BDF generator (comma free-field), msgpack client, Babylon.js viewer (`parseJFEM`, v3/v4/v5). |
 | `panel_server.jl` | Pure-Julia **msgpack-over-HTTP** server. Serves the app, runs a deck through OpenJFEM in-process, and is **SOL-agnostic** — it detects the SOL from the deck and returns `sol`, `analysis_type`, eigenvalues, frequencies, the report text, and the `.jfem` bytes. Uses `HTTP.jl` + `MsgPack.jl`. |
 | `panel_launch.jl` | Cross-platform launcher: starts the server **and** opens the browser. |
-| `panel_app.cmd`   | Windows double-click launcher (calls `panel_launch.jl`). Uses plain `julia` (no `julia +release`), and auto-loads `../../sysimage/OpenJFEM_sysimage.dll` via `--sysimage` when it exists. |
-| `panel_app.sh`    | macOS/Linux launcher (`chmod +x` then run). Uses plain `julia` and auto-loads `../../sysimage/OpenJFEM_sysimage.so`/`.dylib` when it exists. |
+| `RUN_PANDEATOR_WINDOWS.cmd`   | Windows double-click launcher (calls `panel_launch.jl`). Uses plain `julia` (no `julia +release`), and auto-loads `../../sysimage/OpenJFEM_sysimage.dll` via `--sysimage` when it exists. |
+| `RUN_PANDEATOR_MAC_LINUX.sh`    | macOS/Linux launcher (`chmod +x` then run). Uses plain `julia` and auto-loads `../../sysimage/OpenJFEM_sysimage.so`/`.dylib` when it exists. |
 | `vendor/`         | Local copies of the front-end libraries (`babylon.js` minified, `msgpack.min.js`) so the app loads fast and works fully offline — no CDN needed. The server serves these at `/vendor/...`. |
 | `PANEL_APP_README.md` | This runbook. |
 
@@ -53,8 +53,8 @@ required at runtime).
 
 ### Easiest - one launcher (Windows / macOS / Linux)
 
-- **Windows:** double-click **`panel_app.cmd`**.
-- **macOS / Linux:** `chmod +x panel_app.sh` once, then `./panel_app.sh`.
+- **Windows:** double-click **`RUN_PANDEATOR_WINDOWS.cmd`**.
+- **macOS / Linux:** `chmod +x RUN_PANDEATOR_MAC_LINUX.sh` once, then `./RUN_PANDEATOR_MAC_LINUX.sh`.
 
 The launcher starts the Julia server and, after a moment, opens your default
 browser at `http://127.0.0.1:8088/`. The launcher uses whatever `julia` is on
@@ -72,7 +72,7 @@ Build a sysimage once per machine using the scripts in the repo-root
 - Linux: `./JFEM_installation/RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh` (after `chmod +x`)
 - macOS: `JFEM_installation/CLICK_MAC_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.command`
 
-From then on `panel_app.cmd` / `panel_app.sh` load it automatically
+From then on `RUN_PANDEATOR_WINDOWS.cmd` / `RUN_PANDEATOR_MAC_LINUX.sh` load it automatically
 (`--sysimage`), so startup and the first analysis are near-instant. The image is
 machine-specific (tied to the exact Julia version + OS + CPU) and git-ignored;
 rebuild it after a Julia upgrade. See `JFEM_installation/README.md` for details.

@@ -12,7 +12,7 @@ REM        JFEM_installation\CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.
 REM
 REM  WHAT IT PRODUCES
 REM    <repo>\sysimage\OpenJFEM_sysimage.dll
-REM    The launchers (jfem.cmd, POST\case_runner_web_app\panel_app.cmd) load it AUTOMATICALLY when
+REM    The launchers (jfem.cmd, POST\case_runner_web_app\RUN_PANDEATOR_WINDOWS.cmd) load it AUTOMATICALLY when
 REM    present. You do nothing else after building.
 REM
 REM  NOTES
@@ -95,7 +95,7 @@ if not "%STATUS%"=="0" (
     if exist "!SYSIMG!" (
         echo Done. The launchers will now use the sysimage automatically:
         echo   - jfem.cmd            ^(command-line runs^)
-        echo   - POST\case_runner_web_app\panel_app.cmd  ^(web app^)
+        echo   - POST\case_runner_web_app\RUN_PANDEATOR_WINDOWS.cmd  ^(web app^)
     ) else (
         echo Build did NOT produce the sysimage - see the messages above.
         set "STATUS=1"

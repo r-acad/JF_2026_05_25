@@ -265,7 +265,7 @@ source* toggle offers two paths:
 The solver runs in-process (loaded once), the browser communicates over
 msgpack-over-HTTP, and results are rendered in the same 3D viewer with
 SOL-aware labels plus the solver's markdown report. On Windows,
-`POST/case_runner_web_app/panel_app.cmd` launches the server (and, if a
+`POST/case_runner_web_app/RUN_PANDEATOR_WINDOWS.cmd` launches the server (and, if a
 prebuilt sysimage is present, loads it for near-instant startup). See
 `POST/case_runner_web_app/PANEL_APP_README.md` for the runbook.
 

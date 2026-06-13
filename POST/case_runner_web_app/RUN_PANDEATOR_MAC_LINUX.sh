@@ -2,7 +2,7 @@
 # ====================================================================
 #  Stiffened-panel buckling web app - macOS/Linux launcher.
 #  Starts the pure-Julia server and opens the browser automatically.
-#  Usage:  ./panel_app.sh [--port 8088] [--no-open]
+#  Usage:  ./RUN_PANDEATOR_MAC_LINUX.sh [--port 8088] [--no-open]
 # ====================================================================
 set -euo pipefail
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -98,8 +98,8 @@ line-continuation character.
 |   |   |-- postv11.html
 |   |   `-- POST_GUIDE.html
 |   `-- case_runner_web_app/
-|       |-- panel_app.cmd
-|       |-- panel_app.sh
+|       |-- RUN_PANDEATOR_WINDOWS.cmd
+|       |-- RUN_PANDEATOR_MAC_LINUX.sh
 |       |-- panel_app.html
 |       |-- panel_server.jl
 |       |-- PANEL_APP_README.md
@@ -142,7 +142,7 @@ line-continuation character.
   `POST/case_runner_web_app/panel_server.jl`: interactive web app that
   builds a stiffened panel **or** runs an existing `.bdf`/`.dat`/`.nas` deck
   (SOL 101/103/105/106 auto-detected) and renders results in 3D. On Windows,
-  double-click `POST/case_runner_web_app/panel_app.cmd`; see
+  double-click `POST/case_runner_web_app/RUN_PANDEATOR_WINDOWS.cmd`; see
   `POST/case_runner_web_app/PANEL_APP_README.md`.
 - `general_description.md`: broader description of solver capabilities.
 

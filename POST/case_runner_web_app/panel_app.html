@@ -33,6 +33,14 @@
   /* ready = current results are up to date with the inputs */
   #analyzeBtn.ready{background:#2faa55;color:#fff;}
   #analyzeBtn:disabled{background:#555;color:#999;cursor:wait;}
+  /* Floating Analyze panel, pinned to the top-right of the 3D view. It is shown
+     ONLY when the model needs (re)analysing - i.e. inputs changed since the last
+     solve, or a fresh model was just built/read - and hidden once the shown
+     results match the inputs. The .show class toggles its visibility. */
+  #analyzePanel{position:absolute;top:10px;right:10px;z-index:6;display:none;}
+  #analyzePanel.show{display:block;}
+  #analyzePanel #analyzeBtn{width:auto;margin-top:0;padding:11px 22px;font-size:14px;
+    box-shadow:0 4px 16px rgba(0,0,0,.45);white-space:nowrap;}
   .ghost-btn{background:#3a3a42;color:#ccc;}
   #status{font-size:11px;margin-top:8px;padding:6px;border-radius:4px;background:#1d1d22;color:#9ad;min-height:16px;white-space:pre-wrap;}
   .err{color:#ff7a7a!important;}
@@ -42,10 +50,30 @@
   #colorbar{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);width:360px;z-index:5;text-align:center;pointer-events:none;}
   #colorbar canvas{width:100%;height:16px;border:1px solid #555;border-radius:3px;}
   .cb-row{display:flex;justify-content:space-between;font-size:11px;color:#ccc;}
-  #ovLegend{position:absolute;bottom:16px;right:16px;background:rgba(30,30,36,.92);padding:8px 10px;border-radius:6px;border:1px solid #444;z-index:5;font-size:11px;color:#ddd;pointer-events:none;}
+  /* Load/BC legend sits in the lower-right; bumped up so the mass readout
+     (#massBox) can occupy the very corner beneath it without overlapping. */
+  #ovLegend{position:absolute;bottom:52px;right:16px;background:rgba(30,30,36,.92);padding:8px 10px;border-radius:6px;border:1px solid #444;z-index:5;font-size:11px;color:#ddd;pointer-events:none;}
+  /* Total model mass, lower-right corner. Shown only after a run, when the mass
+     could be computed from the model's geometry + properties. */
+  #massBox{position:absolute;bottom:16px;right:16px;background:rgba(30,30,36,.92);padding:6px 10px;border-radius:6px;border:1px solid #444;z-index:5;font-size:12px;color:#ddd;pointer-events:none;display:none;}
+  #massBox .mass-lbl{color:#9ad;font-size:10px;text-transform:uppercase;letter-spacing:.5px;}
+  #massBox .mass-val{color:#fff;font-weight:bold;font-variant-numeric:tabular-nums;}
+  #massBox.unknown .mass-val{color:#bbb;font-weight:normal;}
   .ov-row{display:flex;align-items:center;gap:6px;margin:2px 0;}
   .ov-sw{display:inline-block;width:12px;height:12px;border-radius:2px;border:1px solid rgba(255,255,255,.25);}
   #eigLbl{color:#ffd740;font-weight:bold;font-size:13px;margin-top:4px;}
+  /* Eigenvalue list below the Result box - populated for SOL 105 (buckling
+     factors λ) and SOL 103 (natural frequencies). Hidden for static runs. */
+  #eigList{margin-top:6px;display:none;}
+  #eigList .eig-hdr{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#9ad;margin-bottom:3px;}
+  #eigList table{width:100%;border-collapse:collapse;font-size:11px;}
+  #eigList td{padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.06);}
+  #eigList td.eig-k{color:#888;width:34px;}
+  #eigList td.eig-v{color:#ffd740;text-align:right;font-variant-numeric:tabular-nums;}
+  #eigList tr{cursor:pointer;}
+  #eigList tr:hover td{background:rgba(0,208,255,.10);}
+  #eigList tr.sel td{background:rgba(0,208,255,.18);}
+  #eigList tr.sel td.eig-k{color:#cde;}
   details{margin-top:6px;}
   summary{cursor:pointer;font-size:12px;color:#bbb;}
   code{background:#111;padding:1px 4px;border-radius:3px;color:#9ad;font-size:11px;}
@@ -170,7 +198,8 @@
 
     <h2>Run</h2>
     <div><label>Server URL</label><input id="bridge" type="text" value=""></div>
-    <button id="analyzeBtn">Analyze (SOL 105)</button>
+    <!-- The Analyze button now floats at the top-right of the 3D view (see
+         #analyzePanel) and is shown only when the model needs (re)analysing. -->
     <div class="seg" id="panelButtons" style="margin-top:8px">
       <button class="ghost-btn" id="previewBtn">Preview mesh</button>
       <button class="ghost-btn" id="bdfBtn">Download .bdf</button>
@@ -188,10 +217,19 @@
   </div>
 
   <div id="view">
+    <!-- Floating Analyze button, top-right. Shown only when the model needs
+         (re)analysing (stale inputs / freshly built or read), hidden once the
+         displayed results match the inputs. Label is set by applySrcMode(). -->
+    <div id="analyzePanel">
+      <button id="analyzeBtn">Analyze (SOL 105)</button>
+    </div>
     <div id="modeBar">
       <label>Result</label>
       <select id="modeSelect"><option>(no results yet)</option></select>
       <div id="eigLbl">&nbsp;</div>
+      <!-- Eigenvalue list for SOL 105 (buckling factors) / SOL 103 (frequencies).
+           Click a row to jump to that mode. Populated by renderEigList(). -->
+      <div id="eigList"></div>
       <div id="compRow" style="display:none;margin-top:6px">
         <label>Contour component</label>
         <select id="compSelect">
@@ -218,6 +256,8 @@
     </div>
     <canvas id="renderCanvas"></canvas>
     <div id="ovLegend" style="display:none"></div>
+    <!-- Total model mass, lower-right corner; filled in by showModelMass() after a run. -->
+    <div id="massBox"></div>
     <div id="colorbar" style="display:none">
       <div id="cbTitle" style="font-size:11px;color:#fff;margin-bottom:2px">Displacement magnitude</div>
       <canvas id="cbCanvas" height="16"></canvas>
@@ -951,6 +991,99 @@ function computeBounds(nodes,s){
   const size=Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2])||1;
   return {mn,mx,c,size};
 }
+
+// =====================================================================
+//  TOTAL MODEL MASS
+//
+//  Mass = Σ_elements (shell area × thickness × density). We use the model's own
+//  node coordinates (mm) for the area, and per-PART (PID) thickness + density.
+//  This is well-defined for a FORM-BUILT panel, where we know each part's
+//  thickness and material (PID 1=skin, 2=web, 3=foot). For an arbitrary uploaded
+//  deck the .jfem carries no property data, so mass is reported as "n/a".
+//
+//  Units: coords mm, thickness mm -> volume mm³; density t/mm³ (the form's rho
+//  unit) -> mass in tonnes, which we convert to a friendly kg/g for display.
+// =====================================================================
+function _triArea(p,q,r){           // area of triangle (p,q,r), coords in mm
+  const ux=q.x-p.x, uy=q.y-p.y, uz=q.z-p.z;
+  const vx=r.x-p.x, vy=r.y-p.y, vz=r.z-p.z;
+  const cx=uy*vz-uz*vy, cy=uz*vx-ux*vz, cz=ux*vy-uy*vx;
+  return 0.5*Math.hypot(cx,cy,cz);
+}
+// Per-PID {thickness mm, density t/mm³} for the current FORM panel. Composite
+// part thickness = (#plies) × t_ply. Returns null if not a form panel.
+function panelPidProps(P){
+  if(srcMode()!=="panel") return null;
+  const props={};
+  if(matMode()==='iso'){
+    props[1]={t:P.tSkin, rho:P.rho};
+    props[2]={t:P.tWeb,  rho:P.rho};
+    props[3]={t:P.tFoot, rho:P.rho};
+  } else {
+    // composite: thickness from the ply count in each laminate spec.
+    const nply=(spec)=>{ try{ return parseLaminate(spec).length; }catch(_){ return 0; } };
+    props[1]={t:nply(P.lamSkin)*P.tply, rho:P.rho};
+    props[2]={t:nply(P.lamWeb )*P.tply, rho:P.rho};
+    props[3]={t:nply(P.lamFoot)*P.tply, rho:P.rho};
+  }
+  return props;
+}
+// Total mass in tonnes from femData geometry + per-PID props, or null if the
+// properties are unknown (uploaded deck) or the geometry is missing.
+function computeModelMassTonnes(){
+  if(!femData || !femData.nodes || !femData.nodes.length) return null;
+  let P; try{ P=gatherParams(); }catch(_){ return null; }
+  const props=panelPidProps(P);
+  if(!props) return null;            // unknown properties (file mode)
+  const idx=femData.nidToIdx, nodes=femData.nodes;
+  const nd=g=>{ const i=idx[g]; return (i==null)?null:nodes[i]; };
+  let massT=0;
+  const addShell=(g, pid)=>{
+    const pr=props[pid]; if(!pr || !(pr.t>0)) return;
+    let area=0;
+    if(g.length===4){
+      const a=nd(g[0]),b=nd(g[1]),c=nd(g[2]),d=nd(g[3]);
+      if(!a||!b||!c||!d) return;
+      area=_triArea(a,b,c)+_triArea(a,c,d);   // quad = two triangles
+    } else {
+      const a=nd(g[0]),b=nd(g[1]),c=nd(g[2]);
+      if(!a||!b||!c) return;
+      area=_triArea(a,b,c);
+    }
+    massT += area * pr.t * pr.rho;             // mm² · mm · (t/mm³) = tonnes
+  };
+  (femData.quads||[]).forEach(q=>addShell(q.nodes, q.pid));
+  (femData.trias||[]).forEach(t=>addShell(t.nodes, t.pid));
+  return massT;
+}
+// Format a mass given in tonnes into a compact, readable string with a sensible
+// unit (t / kg / g / mg) so panels of very different scales all read cleanly.
+function fmtMass(massT){
+  const kg=massT*1000;               // tonnes -> kg
+  if(kg>=1000)  return (kg/1000).toPrecision(4)+" t";
+  if(kg>=1)     return kg.toPrecision(4)+" kg";
+  if(kg>=1e-3)  return (kg*1000).toPrecision(4)+" g";
+  return (kg*1e6).toPrecision(4)+" mg";
+}
+// Show / refresh the lower-right mass readout. Called after a run loads results.
+function showModelMass(){
+  const box=$("massBox"); if(!box) return;
+  const massT=computeModelMassTonnes();
+  if(massT===null || !isFinite(massT)){
+    // Uploaded deck (or no geometry): properties unknown, can't compute mass.
+    box.className="unknown";
+    box.innerHTML=`<span class="mass-lbl">Total mass</span> `+
+                  `<span class="mass-val">n/a (unknown deck properties)</span>`;
+    // Explicit "block": the base rule is display:none, so "" would stay hidden.
+    box.style.display = (femData && !femData._isPreview) ? "block" : "none";
+    return;
+  }
+  box.className="";
+  box.innerHTML=`<span class="mass-lbl">Total mass</span> `+
+                `<span class="mass-val">${fmtMass(massT)}</span>`;
+  box.style.display="block";
+}
+function hideModelMass(){ const box=$("massBox"); if(box) box.style.display="none"; }
 // Frame the camera on the model, looking from the INNER (concave, +z) side and
 // a bit above so the upstanding T-stringer reads clearly on first view.
 function frameCamera(b){
@@ -1048,8 +1181,13 @@ function loadResults(buffer, meta){
     results.push({label, sc:i, field:null, mode:(isModes||isBuckling), ev, freq:(isModes?freqs[i]:undefined)});
   });
   femData._results=results;
+  // Remember the analysis kind so the eigenvalue list can label its column
+  // (λ for buckling, f [Hz] for normal modes).
+  femData._isModes=isModes; femData._isBuckling=isBuckling;
   const sel=$("modeSelect"); sel.innerHTML="";
   results.forEach((r,i)=>{ const o=document.createElement("option"); o.value=i; o.textContent=r.label; sel.appendChild(o); });
+  // Eigenvalue list under the Result box (SOL 105 / SOL 103 only).
+  renderEigList(results);
   // Debug: ?result=N preselects a result index (for headless screenshots).
   let startIdx=0;
   try{ const q=new URLSearchParams(location.search); if(q.has("result")){ const v=parseInt(q.get("result")); if(v>=0&&v<results.length) startIdx=v; } }catch(_){}
@@ -1071,6 +1209,8 @@ function loadResults(buffer, meta){
   } else {
     femData._loadbc=null;
   }
+  // The model has run: show the total mass in the lower-right corner.
+  showModelMass();
   renderMode(startIdx);
 }
 
@@ -1089,8 +1229,64 @@ function autoDefScale(sc){
   return maxd>0 ? (b.size*0.12)/maxd : 0;
 }
 
+// Build the eigenvalue list shown under the Result box. One row per mode result:
+//   SOL 105 (buckling) -> buckling factor λ
+//   SOL 103 (modes)    -> natural frequency f [Hz]
+// Each row stores its index into femData._results (= the modeSelect value) in
+// data-idx, so clicking a row jumps the viewer to that mode. Static-only runs
+// (no eigenvalues) hide the list entirely.
+function renderEigList(results){
+  const box=$("eigList"); if(!box) return;
+  const modes=(results||[]).filter(r=>r && r.mode);
+  if(!modes.length){ box.style.display="none"; box.innerHTML=""; return; }
+  const isModes = femData && femData._isModes;
+  const hdr = isModes ? "Natural frequencies" : "Buckling factors";
+  const col = isModes ? "f [Hz]" : "λ";
+  const fmtVal = (r)=>{
+    if(isModes){
+      // frequency in Hz: prefer the server value, else derive from the eigenvalue
+      // (same rule as the result label: f = sqrt(ev)/2π).
+      let f=r.freq;
+      if(f===undefined && r.ev!==undefined && r.ev>0) f=Math.sqrt(r.ev)/(2*Math.PI);
+      return (f!==undefined) ? f.toPrecision(6) : "—";
+    }
+    if(r.ev!==undefined && r.ev!==null) return (+r.ev).toPrecision(6);
+    return "—";
+  };
+  let rows="";
+  results.forEach((r,i)=>{
+    if(!r || !r.mode) return;
+    // 1-based mode number within the mode results (skip any leading static rows).
+    const k = modes.indexOf(r)+1;
+    rows += `<tr data-idx="${i}"><td class="eig-k">${k}</td>`+
+            `<td class="eig-v">${fmtVal(r)}</td></tr>`;
+  });
+  box.innerHTML =
+    `<div class="eig-hdr">${hdr}</div>`+
+    `<table><thead><tr><td class="eig-k">#</td>`+
+    `<td class="eig-v" style="color:#9ad">${col}</td></tr></thead><tbody>${rows}</tbody></table>`;
+  // Use an explicit value: the base rule is `display:none`, so resetting to ""
+  // would fall back to that and stay hidden.
+  box.style.display="block";
+  // Row click -> select that mode (also updates the dropdown + viewer).
+  box.querySelectorAll("tr[data-idx]").forEach(tr=>{
+    tr.addEventListener("click",()=>{
+      const idx=parseInt(tr.getAttribute("data-idx"));
+      if(!isNaN(idx)){ const sel=$("modeSelect"); if(sel) sel.value=idx; renderMode(idx); }
+    });
+  });
+}
+// Highlight the eigenvalue-list row matching the currently shown result index.
+function highlightEigRow(idx){
+  const box=$("eigList"); if(!box) return;
+  box.querySelectorAll("tr[data-idx]").forEach(tr=>{
+    tr.classList.toggle("sel", parseInt(tr.getAttribute("data-idx"))===idx);
+  });
+}
+
 function renderMode(idx){
   if(!femData) return;
+  highlightEigRow(idx);
   // Resolve the selected result. Preview meshes (no _results) fall back to the
   // raw subcase-by-index behaviour.
   let r=null, sc=null;
@@ -1551,6 +1747,11 @@ function previewMesh(){
   updateColorbarVis();
   buildDeformedMesh(femData.subcases[0],0);
   setStatus(`Preview: ${geo.counts.nNodes} nodes, ${geo.counts.nQuads} elements.`,"ok");
+  // A freshly-built/previewed model has no results yet -> it is ready to be
+  // analysed, so surface the floating Analyze button (stale state).
+  renderEigList(null);   // no eigenvalues for a preview
+  hideModelMass();       // mass is shown only after a run, not on a preview
+  markStale();
 }
 
 // =====================================================================
@@ -1633,17 +1834,27 @@ if(_deckFileEl){
 
 // --- Analyze-button state: RED when inputs changed since the last solve
 // (results are stale), GREEN when the shown results match the current inputs. ---
+// The floating Analyze panel is shown ONLY when the model needs (re)analysing,
+// i.e. while STALE (inputs changed, or a fresh model was just built/read). Once
+// the shown results match the inputs (READY) the panel is hidden again.
+function _showAnalyzePanel(show){
+  const p=$("analyzePanel"); if(!p) return;
+  p.classList.toggle("show", !!show);
+}
 function markStale(){
   const b=$("analyzeBtn"); if(!b) return;
   b.classList.add("stale"); b.classList.remove("ready");
+  _showAnalyzePanel(true);     // model changed / freshly read -> needs analysis
 }
 function markReady(){
   const b=$("analyzeBtn"); if(!b) return;
   b.classList.add("ready"); b.classList.remove("stale");
+  _showAnalyzePanel(false);    // results match the inputs -> hide the button
 }
 function clearBtnState(){
   const b=$("analyzeBtn"); if(!b) return;
   b.classList.remove("stale"); b.classList.remove("ready");
+  _showAnalyzePanel(false);
 }
 // Any change to a model/analysis input invalidates the current results -> RED.
 // We listen on the whole sidebar (delegation) so new inputs are covered too, and
