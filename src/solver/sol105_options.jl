@@ -162,7 +162,7 @@ function from_env()
     return SOL105Options(
         # Filters
         _env_bool("JFEM_BUCKLING_RAW_OUTPUT", false),
-        _env_bool("JFEM_BUCKLING_LOCALIZATION_FILTER", true),
+        _env_bool("JFEM_BUCKLING_LOCALIZATION_FILTER", false),
         _env_float("JFEM_BUCKLING_LOCALIZATION_MAX_SHARE", 0.10),
         _env_bool("JFEM_BUCKLING_CLUSTER_FILTER", false),
         _env_float("JFEM_BUCKLING_CLUSTER_FILTER_RATIO", 1.25),
@@ -184,7 +184,7 @@ function from_env()
         _env_float("JFEM_AUTOSPC_ROT_REL", 1e-8),
         # Other
         _env_float("JFEM_PARAM_K6ROT", 100.0),
-        _env_float("JFEM_PCOMP_RIGID_TS_CS_SCALE", 2.5),
+        _env_float("JFEM_PCOMP_RIGID_TS_CS_SCALE", 100.0),
     )
 end
 

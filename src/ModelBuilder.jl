@@ -648,10 +648,11 @@ function build_model(cards, cc)
             # =================================================================
             rigid_ts_disable = lowercase(strip(get(ENV, "JFEM_PCOMP_RIGID_TS_DISABLE", ""))) in ("1","true","yes","on")
             if !rigid_ts_disable && saw_mat8_ply && all_mat8_plies_blank_transverse_shear
-                # Uniform Cs=2.5*Ash default (2026-05-15):
-                # GAME-tuned across Cs sweep on launch_16modes (max mean MAC
-                # 0.963 at Cs=2.5). Replaces Whitney's κ < 1 softening which
-                # produced phantom soft modes (MAC 0.005 on VTP_launch 511002).
+                # Uniform Cs=100*Ash default (2026-06-15):
+                # treat blank MAT8 transverse shear as a rigid-shear PCOMP
+                # convention. This is keyed only by material definition
+                # (MAT8 plies with blank G1Z/G2Z), matching the Nastran
+                # equivalent-PSHELL behavior used in SOL105 parity campaigns.
                 #
                 # Side effect: flat PCOMP cantilever probes over-predict +8-9%
                 # because Cs=2.5 is past the Whitney κ regime for those.
@@ -663,7 +664,7 @@ function build_model(cards, cc)
                 #
                 # Env overrides:
                 #   JFEM_PCOMP_RIGID_TS_DISABLE=true   — restore Whitney
-                #   JFEM_PCOMP_RIGID_TS_CS_SCALE=<x>   — uniform Cs=x*Ash (default 2.5)
+                #   JFEM_PCOMP_RIGID_TS_CS_SCALE=<x>   — uniform Cs=x*Ash (default 100)
                 #   JFEM_PCOMP_RIGID_TS_CS_FACTOR=<x>  — opt-in layup-aware Cs=x*κ*Ash
                 #     (defaults to 3.57 if env present without value; uses
                 #      Whitney's per-layup κ as baseline)
@@ -674,9 +675,9 @@ function build_model(cards, cc)
                     Cs_factor = something(tryparse(Float64, cs_factor_env), 3.57)
                     Cs_lam = Cs_factor .* Cs_lam
                 else
-                    # Default: uniform Cs=2.5*Ash
-                    Cs_scale = isempty(cs_scale_env) ? 2.5 :
-                               something(tryparse(Float64, cs_scale_env), 2.5)
+                    # Default: uniform Cs=100*Ash
+                    Cs_scale = isempty(cs_scale_env) ? 100.0 :
+                               something(tryparse(Float64, cs_scale_env), 100.0)
                     Cs_lam = Cs_scale .* Ash
                 end
             end

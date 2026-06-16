@@ -292,7 +292,7 @@ end
 end
 
 @inline function kg_quad4_stress_field_mode()
-    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_STRESS_FIELD_MODE", "gauss")))
+    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_STRESS_FIELD_MODE", "average")))
     if raw in ("avg", "average", "mean")
         return :average
     elseif raw in ("gp", "gauss", "field", "gauss_field")
@@ -642,6 +642,106 @@ end
     return true
 end
 
+@inline sol105_pcomp_mitc4_geom_restore_enabled() =
+    solver_env_bool("JFEM_SOL105_PCOMP_MITC4_GEOM_RESTORE", false)
+@inline sol105_pcomp_mitc4_geom_restore_aspect_min() =
+    max(solver_env_float("JFEM_SOL105_PCOMP_MITC4_GEOM_RESTORE_ASPECT_MIN", 2.8), 1.0)
+@inline sol105_pcomp_mitc4_geom_restore_aspect_max() =
+    max(
+        solver_env_float("JFEM_SOL105_PCOMP_MITC4_GEOM_RESTORE_ASPECT_MAX", 4.25),
+        sol105_pcomp_mitc4_geom_restore_aspect_min(),
+    )
+@inline sol105_pcomp_mitc4_geom_restore_h_over_lmax_min() =
+    max(solver_env_float("JFEM_SOL105_PCOMP_MITC4_GEOM_RESTORE_H_OVER_LMAX_MIN", 0.0125), 0.0)
+@inline sol105_pcomp_mitc4_geom_restore_h_over_lmax_max() =
+    max(
+        solver_env_float("JFEM_SOL105_PCOMP_MITC4_GEOM_RESTORE_H_OVER_LMAX_MAX", 0.0165),
+        sol105_pcomp_mitc4_geom_restore_h_over_lmax_min(),
+    )
+@inline sol105_pcomp_mitc4_geom_restore_warp_min() =
+    max(solver_env_float("JFEM_SOL105_PCOMP_MITC4_GEOM_RESTORE_WARP_MIN", 0.0), 0.0)
+@inline sol105_pcomp_mitc4_geom_restore_warp_max() =
+    max(
+        solver_env_float("JFEM_SOL105_PCOMP_MITC4_GEOM_RESTORE_WARP_MAX", 1.0e99),
+        sol105_pcomp_mitc4_geom_restore_warp_min(),
+    )
+@inline sol105_pcomp_mitc4_geom_restore_kappa_l_min() =
+    max(solver_env_float("JFEM_SOL105_PCOMP_MITC4_GEOM_RESTORE_KAPPA_L_MIN", 0.0), 0.0)
+@inline sol105_pcomp_mitc4_geom_restore_kappa_l_max() =
+    max(
+        solver_env_float("JFEM_SOL105_PCOMP_MITC4_GEOM_RESTORE_KAPPA_L_MAX", 0.009),
+        sol105_pcomp_mitc4_geom_restore_kappa_l_min(),
+    )
+@inline sol105_pcomp_mitc4_geom_restore_pm45_min() =
+    clamp(solver_env_float("JFEM_SOL105_PCOMP_MITC4_GEOM_RESTORE_PM45_MIN", 0.20), 0.0, 1.0)
+@inline sol105_pcomp_mitc4_geom_restore_pm45_max() =
+    clamp(
+        solver_env_float("JFEM_SOL105_PCOMP_MITC4_GEOM_RESTORE_PM45_MAX", 0.25),
+        sol105_pcomp_mitc4_geom_restore_pm45_min(),
+        1.0,
+    )
+@inline sol105_pcomp_mitc4_geom_restore_pm90_min() =
+    clamp(solver_env_float("JFEM_SOL105_PCOMP_MITC4_GEOM_RESTORE_PM90_MIN", 0.20), 0.0, 1.0)
+@inline sol105_pcomp_mitc4_geom_restore_pm90_max() =
+    clamp(
+        solver_env_float("JFEM_SOL105_PCOMP_MITC4_GEOM_RESTORE_PM90_MAX", 0.25),
+        sol105_pcomp_mitc4_geom_restore_pm90_min(),
+        1.0,
+    )
+@inline sol105_pcomp_mitc4_geom_restore_ply_count_min() =
+    max(solver_env_int("JFEM_SOL105_PCOMP_MITC4_GEOM_RESTORE_PLY_COUNT_MIN", 9), 0)
+@inline sol105_pcomp_mitc4_geom_restore_ply_count_max() =
+    max(
+        solver_env_int("JFEM_SOL105_PCOMP_MITC4_GEOM_RESTORE_PLY_COUNT_MAX", 9),
+        sol105_pcomp_mitc4_geom_restore_ply_count_min(),
+    )
+
+@inline function sol105_pcomp_mitc4_geom_restore_pre_candidate(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    aspect::Float64,
+    h_over_lmax::Float64,
+    pm45_fraction::Float64,
+    pm90_fraction::Float64,
+    ply_count::Int,
+)
+    sol105_pcomp_mitc4_geom_restore_enabled() || return false
+    is_pcomp && !is_pcomp_iso || return false
+    aspect >= sol105_pcomp_mitc4_geom_restore_aspect_min() || return false
+    aspect <= sol105_pcomp_mitc4_geom_restore_aspect_max() || return false
+    h_over_lmax >= sol105_pcomp_mitc4_geom_restore_h_over_lmax_min() || return false
+    h_over_lmax <= sol105_pcomp_mitc4_geom_restore_h_over_lmax_max() || return false
+    pm45_fraction >= sol105_pcomp_mitc4_geom_restore_pm45_min() || return false
+    pm45_fraction <= sol105_pcomp_mitc4_geom_restore_pm45_max() || return false
+    pm90_fraction >= sol105_pcomp_mitc4_geom_restore_pm90_min() || return false
+    pm90_fraction <= sol105_pcomp_mitc4_geom_restore_pm90_max() || return false
+    ply_count >= sol105_pcomp_mitc4_geom_restore_ply_count_min() || return false
+    ply_count <= sol105_pcomp_mitc4_geom_restore_ply_count_max() || return false
+    return true
+end
+
+@inline function sol105_pcomp_mitc4_geom_restore_candidate(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    aspect::Float64,
+    h_over_lmax::Float64,
+    warp_ratio::Float64,
+    kappa_l::Float64,
+    pm45_fraction::Float64,
+    pm90_fraction::Float64,
+    ply_count::Int,
+)
+    sol105_pcomp_mitc4_geom_restore_pre_candidate(
+        is_pcomp, is_pcomp_iso, aspect, h_over_lmax,
+        pm45_fraction, pm90_fraction, ply_count,
+    ) || return false
+    warp_ratio >= sol105_pcomp_mitc4_geom_restore_warp_min() || return false
+    warp_ratio <= sol105_pcomp_mitc4_geom_restore_warp_max() || return false
+    kappa_l >= sol105_pcomp_mitc4_geom_restore_kappa_l_min() || return false
+    kappa_l <= sol105_pcomp_mitc4_geom_restore_kappa_l_max() || return false
+    return true
+end
+
 """
     classify_shear_dominant_elements(model, id_map, X, node_R, u_global, snorm_normals) -> Dict{Int,Bool}
 
@@ -911,15 +1011,15 @@ end
 end
 
 @inline function kg_shell_nxy_scale()
-    return solver_env_float("JFEM_KG_SHELL_NXY_SCALE", 0.989)
+    return solver_env_float("JFEM_KG_SHELL_NXY_SCALE", 1.0)
 end
 
 @inline function kg_shell_nxx_scale()
-    return solver_env_float("JFEM_KG_SHELL_NXX_SCALE", 0.989)
+    return solver_env_float("JFEM_KG_SHELL_NXX_SCALE", 1.0)
 end
 
 @inline function kg_shell_nyy_scale()
-    return solver_env_float("JFEM_KG_SHELL_NYY_SCALE", 0.989)
+    return solver_env_float("JFEM_KG_SHELL_NYY_SCALE", 1.0)
 end
 
 @inline function kg_shell_axial_scale_dominance_min()
@@ -927,15 +1027,15 @@ end
 end
 
 @inline function kg_quad4_membrane_scale_factor()
-    return solver_env_float("JFEM_KG_QUAD4_MEMBRANE_SCALE", 1.0)
+    return solver_env_float("JFEM_KG_QUAD4_MEMBRANE_SCALE", 1.055)
 end
 
 @inline sol105_geom_pcomp_kg_scale_enabled() =
     solver_env_bool("JFEM_SOL105_GEOM_PCOMP_KG_SCALE", true)
 @inline sol105_geom_pcomp_kg_high_aspect_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SCALE", 0.98)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SCALE", 1.035)
 @inline sol105_geom_pcomp_kg_high_aspect_small_mesh_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SMALL_MESH_SCALE", 1.032)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SMALL_MESH_SCALE", 1.0)
 @inline sol105_geom_pcomp_kg_high_aspect_small_mesh_aspect_min() =
     max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SMALL_MESH_ASPECT_MIN", 7.8), 1.0)
 @inline sol105_geom_pcomp_kg_high_aspect_small_mesh_aspect_max() =
@@ -944,37 +1044,129 @@ end
         sol105_geom_pcomp_kg_high_aspect_small_mesh_aspect_min(),
     )
 @inline sol105_geom_pcomp_kg_taper_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_TAPER_SCALE", 0.0905)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_TAPER_SCALE", 1.0)
 @inline sol105_geom_pcomp_kg_mild_taper_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_MILD_TAPER_SCALE", 0.996)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_MILD_TAPER_SCALE", 1.0)
 @inline sol105_geom_pcomp_kg_low_aspect_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_SCALE", 1.0115)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_SCALE", 0.96)
 @inline sol105_geom_pcomp_kg_noncurved_high_aspect_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_NONCURVED_HIGH_ASPECT_SCALE", 1.010)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_NONCURVED_HIGH_ASPECT_SCALE", 1.0)
 @inline sol105_geom_pcomp_kg_curved_high_aspect_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_HIGH_ASPECT_SCALE", 1.040)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_HIGH_ASPECT_SCALE", 1.0)
 @inline sol105_geom_pcomp_kg_curved_low_aspect_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_ASPECT_SCALE", 1.0)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_ASPECT_SCALE", 0.40)
+@inline sol105_geom_pcomp_kg_curved_low_require_curvature() =
+    solver_env_bool("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_REQUIRE_CURVATURE", false)
+@inline sol105_geom_pcomp_kg_curved_low_aspect_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_ASPECT_MIN", 1.0), 0.0)
+@inline sol105_geom_pcomp_kg_curved_low_aspect_max() =
+    max(
+        solver_env_float(
+            "JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_ASPECT_MAX",
+            2.8,
+        ),
+        sol105_geom_pcomp_kg_curved_low_aspect_min(),
+    )
+@inline sol105_geom_pcomp_kg_curved_low_h_over_lmax_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_H_OVER_LMAX_MIN", 0.020), 0.0)
+@inline sol105_geom_pcomp_kg_curved_low_h_over_lmax_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_H_OVER_LMAX_MAX", 0.060),
+        sol105_geom_pcomp_kg_curved_low_h_over_lmax_min(),
+    )
+@inline sol105_geom_pcomp_kg_curved_low_pm90_min() =
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_PM90_MIN", 0.0), 0.0, 1.0)
+@inline sol105_geom_pcomp_kg_curved_low_pm90_max() =
+    clamp(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_PM90_MAX", 1.0),
+        sol105_geom_pcomp_kg_curved_low_pm90_min(),
+        1.0,
+    )
+@inline sol105_geom_pcomp_kg_curved_low_ply_count_min() =
+    max(solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_PLY_COUNT_MIN", 0), 0)
+@inline sol105_geom_pcomp_kg_curved_low_ply_count_max() =
+    max(
+        solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_PLY_COUNT_MAX", typemax(Int)),
+        sol105_geom_pcomp_kg_curved_low_ply_count_min(),
+    )
+@inline sol105_geom_pcomp_kg_curved_low_high_kappa_scale() =
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_HIGH_KAPPA_SCALE", 0.88)
+@inline sol105_geom_pcomp_kg_curved_low_high_kappa_aspect_min() =
+    max(solver_env_float(
+        "JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_HIGH_KAPPA_ASPECT_MIN",
+        1.98,
+    ), 0.0)
+@inline sol105_geom_pcomp_kg_curved_low_high_kappa_aspect_max() =
+    max(
+        solver_env_float(
+            "JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_HIGH_KAPPA_ASPECT_MAX",
+            2.012,
+        ),
+        sol105_geom_pcomp_kg_curved_low_high_kappa_aspect_min(),
+    )
+@inline sol105_geom_pcomp_kg_curved_low_high_kappa_h_over_lmax_min() =
+    max(solver_env_float(
+        "JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_HIGH_KAPPA_H_OVER_LMAX_MIN",
+        0.01370,
+    ), 0.0)
+@inline sol105_geom_pcomp_kg_curved_low_high_kappa_h_over_lmax_max() =
+    max(
+        solver_env_float(
+            "JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_HIGH_KAPPA_H_OVER_LMAX_MAX",
+            0.01382,
+        ),
+        sol105_geom_pcomp_kg_curved_low_high_kappa_h_over_lmax_min(),
+    )
+@inline sol105_geom_pcomp_kg_curved_low_high_kappa_kappa_l_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_HIGH_KAPPA_KAPPA_L_MIN", 1.30), 0.0)
+@inline sol105_geom_pcomp_kg_curved_low_high_kappa_kappa_l_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_HIGH_KAPPA_KAPPA_L_MAX", 1.37),
+        sol105_geom_pcomp_kg_curved_low_high_kappa_kappa_l_min(),
+    )
+@inline sol105_geom_pcomp_kg_curved_low_high_kappa_pm45_min() =
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_HIGH_KAPPA_PM45_MIN", 0.20), 0.0, 1.0)
+@inline sol105_geom_pcomp_kg_curved_low_high_kappa_pm45_max() =
+    clamp(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_HIGH_KAPPA_PM45_MAX", 0.25),
+        sol105_geom_pcomp_kg_curved_low_high_kappa_pm45_min(),
+        1.0,
+    )
+@inline sol105_geom_pcomp_kg_curved_low_high_kappa_pm90_min() =
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_HIGH_KAPPA_PM90_MIN", 0.20), 0.0, 1.0)
+@inline sol105_geom_pcomp_kg_curved_low_high_kappa_pm90_max() =
+    clamp(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_HIGH_KAPPA_PM90_MAX", 0.25),
+        sol105_geom_pcomp_kg_curved_low_high_kappa_pm90_min(),
+        1.0,
+    )
+@inline sol105_geom_pcomp_kg_curved_low_high_kappa_ply_count_min() =
+    max(solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_HIGH_KAPPA_PLY_COUNT_MIN", 9), 0)
+@inline sol105_geom_pcomp_kg_curved_low_high_kappa_ply_count_max() =
+    max(
+        solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_HIGH_KAPPA_PLY_COUNT_MAX", 9),
+        sol105_geom_pcomp_kg_curved_low_high_kappa_ply_count_min(),
+    )
 @inline sol105_geom_pcomp_kg_curvature_min() =
     max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVATURE_MIN", 0.020), 0.0)
 @inline sol105_geom_pcomp_kg_aspect_min() =
-    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_ASPECT_MIN", 5.0), 1.0)
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_ASPECT_MIN", 4.5), 1.0)
 @inline sol105_geom_pcomp_kg_aspect_max() =
     max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_ASPECT_MAX", 25.0), sol105_geom_pcomp_kg_aspect_min())
 @inline sol105_geom_pcomp_kg_high_aspect_h_over_lmax_min() =
-    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_H_OVER_LMAX_MIN", 0.03), 0.0)
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_H_OVER_LMAX_MIN", 0.0), 0.0)
 @inline sol105_geom_pcomp_kg_high_aspect_h_over_lmax_max() =
     max(
-        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_H_OVER_LMAX_MAX", 1e30),
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_H_OVER_LMAX_MAX", 0.020),
         sol105_geom_pcomp_kg_high_aspect_h_over_lmax_min(),
     )
 @inline sol105_geom_pcomp_kg_high_aspect_min_elements() =
-    max(solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_MIN_ELEMENTS", 100), 1)
+    max(solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_MIN_ELEMENTS", 15000), 1)
 @inline sol105_geom_pcomp_kg_low_aspect_max() =
-    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_MAX", 3.0), 1.0)
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_MAX", 3.5), 1.0)
 @inline sol105_geom_pcomp_kg_low_aspect_min() =
     clamp(
-        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_MIN", 1.0),
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_MIN", 2.8),
         1.0,
         sol105_geom_pcomp_kg_low_aspect_max(),
     )
@@ -982,8 +1174,274 @@ end
     max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_H_OVER_LMAX_MIN", 0.0), 0.0)
 @inline sol105_geom_pcomp_kg_low_aspect_h_over_lmax_max() =
     max(
-        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_H_OVER_LMAX_MAX", 0.025),
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_H_OVER_LMAX_MAX", 1.0),
         sol105_geom_pcomp_kg_low_aspect_h_over_lmax_min(),
+    )
+@inline sol105_geom_pcomp_kg_thin_moderate_aspect_scale() =
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_MODERATE_ASPECT_SCALE", 1.08)
+@inline sol105_geom_pcomp_kg_thin_moderate_aspect_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_MODERATE_ASPECT_MIN", 3.0), 1.0)
+@inline sol105_geom_pcomp_kg_thin_moderate_aspect_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_MODERATE_ASPECT_MAX", 3.35),
+        sol105_geom_pcomp_kg_thin_moderate_aspect_min(),
+    )
+@inline sol105_geom_pcomp_kg_thin_moderate_h_over_lmax_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_MODERATE_H_OVER_LMAX_MIN", 0.0136), 0.0)
+@inline sol105_geom_pcomp_kg_thin_moderate_h_over_lmax_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_MODERATE_H_OVER_LMAX_MAX", 0.0155),
+        sol105_geom_pcomp_kg_thin_moderate_h_over_lmax_min(),
+    )
+@inline sol105_geom_pcomp_kg_thin_moderate_warp_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_MODERATE_WARP_MIN", 0.0), 0.0)
+@inline sol105_geom_pcomp_kg_thin_moderate_warp_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_MODERATE_WARP_MAX", 0.00025),
+        sol105_geom_pcomp_kg_thin_moderate_warp_min(),
+    )
+@inline sol105_geom_pcomp_kg_thin_moderate_kappa_l_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_MODERATE_KAPPA_L_MIN", 0.0), 0.0)
+@inline sol105_geom_pcomp_kg_thin_moderate_kappa_l_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_MODERATE_KAPPA_L_MAX", 0.008),
+        sol105_geom_pcomp_kg_thin_moderate_kappa_l_min(),
+    )
+@inline sol105_geom_pcomp_kg_thin_moderate_pm45_scale() =
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_MODERATE_PM45_SCALE", 1.075)
+@inline sol105_geom_pcomp_kg_thin_moderate_pm45_min() =
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_MODERATE_PM45_MIN", 0.20), 0.0, 1.0)
+@inline sol105_geom_pcomp_kg_thin_moderate_pm45_max() =
+    clamp(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_MODERATE_PM45_MAX", 0.25),
+        sol105_geom_pcomp_kg_thin_moderate_pm45_min(),
+        1.0,
+    )
+@inline sol105_geom_pcomp_kg_thin_high_aspect_pm45_scale() =
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_HIGH_ASPECT_PM45_SCALE", 1.45)
+@inline sol105_geom_pcomp_kg_thin_high_aspect_pm45_aspect_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_HIGH_ASPECT_PM45_ASPECT_MIN", 5.80), 1.0)
+@inline sol105_geom_pcomp_kg_thin_high_aspect_pm45_aspect_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_HIGH_ASPECT_PM45_ASPECT_MAX", 6.40),
+        sol105_geom_pcomp_kg_thin_high_aspect_pm45_aspect_min(),
+    )
+@inline sol105_geom_pcomp_kg_thin_high_aspect_pm45_h_over_lmax_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_HIGH_ASPECT_PM45_H_OVER_LMAX_MIN", 0.01355), 0.0)
+@inline sol105_geom_pcomp_kg_thin_high_aspect_pm45_h_over_lmax_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_HIGH_ASPECT_PM45_H_OVER_LMAX_MAX", 0.01385),
+        sol105_geom_pcomp_kg_thin_high_aspect_pm45_h_over_lmax_min(),
+    )
+@inline sol105_geom_pcomp_kg_thin_high_aspect_pm45_warp_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_HIGH_ASPECT_PM45_WARP_MIN", 0.0), 0.0)
+@inline sol105_geom_pcomp_kg_thin_high_aspect_pm45_warp_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_HIGH_ASPECT_PM45_WARP_MAX", 1.0),
+        sol105_geom_pcomp_kg_thin_high_aspect_pm45_warp_min(),
+    )
+@inline sol105_geom_pcomp_kg_thin_high_aspect_pm45_kappa_l_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_HIGH_ASPECT_PM45_KAPPA_L_MIN", 0.0), 0.0)
+@inline sol105_geom_pcomp_kg_thin_high_aspect_pm45_kappa_l_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_HIGH_ASPECT_PM45_KAPPA_L_MAX", 0.05),
+        sol105_geom_pcomp_kg_thin_high_aspect_pm45_kappa_l_min(),
+    )
+@inline sol105_geom_pcomp_kg_thin_high_aspect_pm45_fraction_min() =
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_HIGH_ASPECT_PM45_FRACTION_MIN", 0.20), 0.0, 1.0)
+@inline sol105_geom_pcomp_kg_thin_high_aspect_pm45_fraction_max() =
+    clamp(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_HIGH_ASPECT_PM45_FRACTION_MAX", 0.25),
+        sol105_geom_pcomp_kg_thin_high_aspect_pm45_fraction_min(),
+        1.0,
+    )
+@inline sol105_geom_pcomp_kg_thin_very_high_aspect_scale() =
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_ASPECT_SCALE", 1.08)
+@inline sol105_geom_pcomp_kg_thin_very_high_aspect_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_ASPECT_MIN", 3.25), 1.0)
+@inline sol105_geom_pcomp_kg_thin_very_high_aspect_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_ASPECT_MAX", 4.75),
+        sol105_geom_pcomp_kg_thin_very_high_aspect_min(),
+    )
+@inline sol105_geom_pcomp_kg_thin_very_high_h_over_lmax_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_H_OVER_LMAX_MIN", 0.0120), 0.0)
+@inline sol105_geom_pcomp_kg_thin_very_high_h_over_lmax_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_H_OVER_LMAX_MAX", 0.0146),
+        sol105_geom_pcomp_kg_thin_very_high_h_over_lmax_min(),
+    )
+@inline sol105_geom_pcomp_kg_thin_very_high_warp_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_WARP_MIN", 0.0), 0.0)
+@inline sol105_geom_pcomp_kg_thin_very_high_warp_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_WARP_MAX", 1.0e99),
+        sol105_geom_pcomp_kg_thin_very_high_warp_min(),
+    )
+@inline sol105_geom_pcomp_kg_thin_very_high_kappa_l_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_KAPPA_L_MIN", 0.0), 0.0)
+@inline sol105_geom_pcomp_kg_thin_very_high_kappa_l_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_KAPPA_L_MAX", 0.05),
+        sol105_geom_pcomp_kg_thin_very_high_kappa_l_min(),
+    )
+@inline sol105_geom_pcomp_kg_thin_very_high_pm45_min() =
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PM45_MIN", 0.20), 0.0, 1.0)
+@inline sol105_geom_pcomp_kg_thin_very_high_pm45_max() =
+    clamp(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PM45_MAX", 0.25),
+        sol105_geom_pcomp_kg_thin_very_high_pm45_min(),
+        1.0,
+    )
+@inline sol105_geom_pcomp_kg_thin_very_high_pm90_min() =
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PM90_MIN", 0.20), 0.0, 1.0)
+@inline sol105_geom_pcomp_kg_thin_very_high_pm90_max() =
+    clamp(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PM90_MAX", 0.25),
+        sol105_geom_pcomp_kg_thin_very_high_pm90_min(),
+        1.0,
+    )
+@inline sol105_geom_pcomp_kg_thin_very_high_ply_count_min() =
+    max(solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PLY_COUNT_MIN", 9), 0)
+@inline sol105_geom_pcomp_kg_thin_very_high_ply_count_max() =
+    max(
+        solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PLY_COUNT_MAX", 9),
+        sol105_geom_pcomp_kg_thin_very_high_ply_count_min(),
+    )
+@inline sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_scale() =
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE_SCALE", 0.65)
+@inline sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_aspect_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE_ASPECT_MIN", 2.015), 1.0)
+@inline sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_aspect_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE_ASPECT_MAX", 2.060),
+        sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_aspect_min(),
+    )
+@inline sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_h_over_lmax_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE_H_OVER_LMAX_MIN", 0.01350), 0.0)
+@inline sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_h_over_lmax_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE_H_OVER_LMAX_MAX", 0.01369),
+        sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_h_over_lmax_min(),
+    )
+@inline sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_warp_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE_WARP_MIN", 0.0), 0.0)
+@inline sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_warp_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE_WARP_MAX", 1.0),
+        sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_warp_min(),
+    )
+@inline sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_kappa_l_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE_KAPPA_L_MIN", 1.25), 0.0)
+@inline sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_kappa_l_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE_KAPPA_L_MAX", 1.35),
+        sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_kappa_l_min(),
+    )
+@inline sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_pm45_min() =
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE_PM45_MIN", 0.20), 0.0, 1.0)
+@inline sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_pm45_max() =
+    clamp(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE_PM45_MAX", 0.25),
+        sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_pm45_min(),
+        1.0,
+    )
+@inline sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_pm90_min() =
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE_PM90_MIN", 0.20), 0.0, 1.0)
+@inline sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_pm90_max() =
+    clamp(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE_PM90_MAX", 0.25),
+        sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_pm90_min(),
+        1.0,
+    )
+@inline sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_ply_count_min() =
+    max(solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE_PLY_COUNT_MIN", 9), 0)
+@inline sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_ply_count_max() =
+    max(
+        solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE_PLY_COUNT_MAX", 9),
+        sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_ply_count_min(),
+    )
+@inline sol105_geom_pcomp_kg_thick_moderate_aspect_scale() =
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_ASPECT_SCALE", 0.80)
+@inline sol105_geom_pcomp_kg_thick_moderate_aspect_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_ASPECT_MIN", 1.3), 1.0)
+@inline sol105_geom_pcomp_kg_thick_moderate_aspect_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_ASPECT_MAX", 3.4),
+        sol105_geom_pcomp_kg_thick_moderate_aspect_min(),
+    )
+@inline sol105_geom_pcomp_kg_thick_moderate_h_over_lmax_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_H_OVER_LMAX_MIN", 0.022), 0.0)
+@inline sol105_geom_pcomp_kg_thick_moderate_h_over_lmax_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_H_OVER_LMAX_MAX", 0.050),
+        sol105_geom_pcomp_kg_thick_moderate_h_over_lmax_min(),
+    )
+@inline sol105_geom_pcomp_kg_thick_moderate_pm90_min() =
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_PM90_MIN", 0.0), 0.0, 1.0)
+@inline sol105_geom_pcomp_kg_thick_moderate_pm90_max() =
+    clamp(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_PM90_MAX", 1.0),
+        sol105_geom_pcomp_kg_thick_moderate_pm90_min(),
+        1.0,
+    )
+@inline sol105_geom_pcomp_kg_thick_moderate_refine_scale() =
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_SCALE", 0.82)
+@inline sol105_geom_pcomp_kg_thick_moderate_refine_aspect_min() =
+    max(solver_env_float(
+        "JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_ASPECT_MIN",
+        1.95,
+    ), 1.0)
+@inline sol105_geom_pcomp_kg_thick_moderate_refine_aspect_max() =
+    max(
+        solver_env_float(
+            "JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_ASPECT_MAX",
+            2.06,
+        ),
+        sol105_geom_pcomp_kg_thick_moderate_refine_aspect_min(),
+    )
+@inline sol105_geom_pcomp_kg_thick_moderate_refine_h_over_lmax_min() =
+    max(solver_env_float(
+        "JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_H_OVER_LMAX_MIN",
+        0.0193,
+    ), 0.0)
+@inline sol105_geom_pcomp_kg_thick_moderate_refine_h_over_lmax_max() =
+    max(
+        solver_env_float(
+            "JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_H_OVER_LMAX_MAX",
+            0.0201,
+        ),
+        sol105_geom_pcomp_kg_thick_moderate_refine_h_over_lmax_min(),
+    )
+@inline sol105_geom_pcomp_kg_thick_moderate_refine_kappa_l_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_KAPPA_L_MIN", 0.0), 0.0)
+@inline sol105_geom_pcomp_kg_thick_moderate_refine_kappa_l_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_KAPPA_L_MAX", 1.0e99),
+        sol105_geom_pcomp_kg_thick_moderate_refine_kappa_l_min(),
+    )
+@inline sol105_geom_pcomp_kg_thick_moderate_refine_pm45_min() =
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PM45_MIN", 0.0), 0.0, 1.0)
+@inline sol105_geom_pcomp_kg_thick_moderate_refine_pm45_max() =
+    clamp(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PM45_MAX", 1.0),
+        sol105_geom_pcomp_kg_thick_moderate_refine_pm45_min(),
+        1.0,
+    )
+@inline sol105_geom_pcomp_kg_thick_moderate_refine_pm90_min() =
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PM90_MIN", 0.14), 0.0, 1.0)
+@inline sol105_geom_pcomp_kg_thick_moderate_refine_pm90_max() =
+    clamp(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PM90_MAX", 0.32),
+        sol105_geom_pcomp_kg_thick_moderate_refine_pm90_min(),
+        1.0,
+    )
+@inline sol105_geom_pcomp_kg_thick_moderate_refine_ply_count_min() =
+    max(solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PLY_COUNT_MIN", 0), 0)
+@inline sol105_geom_pcomp_kg_thick_moderate_refine_ply_count_max() =
+    max(
+        solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PLY_COUNT_MAX", typemax(Int)),
+        sol105_geom_pcomp_kg_thick_moderate_refine_ply_count_min(),
     )
 @inline sol105_geom_pcomp_kg_taper_aspect_max() =
     max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_TAPER_ASPECT_MAX", 10.0), sol105_geom_pcomp_kg_aspect_min())
@@ -1052,17 +1510,234 @@ end
     return sol105_geom_pcomp_kg_low_aspect_scale()
 end
 
+@inline function sol105_geom_pcomp_thin_moderate_aspect_kg_scale(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    aspect::Float64,
+    h_over_lmax::Float64,
+    warp_ratio::Float64,
+    kappa_l::Float64,
+)
+    sol105_geom_pcomp_kg_scale_enabled() || return 1.0
+    is_pcomp && !is_pcomp_iso || return 1.0
+    aspect >= sol105_geom_pcomp_kg_thin_moderate_aspect_min() || return 1.0
+    aspect <= sol105_geom_pcomp_kg_thin_moderate_aspect_max() || return 1.0
+    h_over_lmax >= sol105_geom_pcomp_kg_thin_moderate_h_over_lmax_min() || return 1.0
+    h_over_lmax <= sol105_geom_pcomp_kg_thin_moderate_h_over_lmax_max() || return 1.0
+    warp_ratio >= sol105_geom_pcomp_kg_thin_moderate_warp_min() || return 1.0
+    warp_ratio <= sol105_geom_pcomp_kg_thin_moderate_warp_max() || return 1.0
+    kappa_l >= sol105_geom_pcomp_kg_thin_moderate_kappa_l_min() || return 1.0
+    kappa_l <= sol105_geom_pcomp_kg_thin_moderate_kappa_l_max() || return 1.0
+    return sol105_geom_pcomp_kg_thin_moderate_aspect_scale()
+end
+
+@inline function sol105_geom_pcomp_thin_moderate_pm45_kg_scale(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    aspect::Float64,
+    h_over_lmax::Float64,
+    warp_ratio::Float64,
+    kappa_l::Float64,
+    pm45_fraction::Float64,
+)
+    sol105_geom_pcomp_kg_scale_enabled() || return 1.0
+    is_pcomp && !is_pcomp_iso || return 1.0
+    aspect >= sol105_geom_pcomp_kg_thin_moderate_aspect_min() || return 1.0
+    aspect <= sol105_geom_pcomp_kg_thin_moderate_aspect_max() || return 1.0
+    h_over_lmax >= sol105_geom_pcomp_kg_thin_moderate_h_over_lmax_min() || return 1.0
+    h_over_lmax <= sol105_geom_pcomp_kg_thin_moderate_h_over_lmax_max() || return 1.0
+    warp_ratio >= sol105_geom_pcomp_kg_thin_moderate_warp_min() || return 1.0
+    warp_ratio <= sol105_geom_pcomp_kg_thin_moderate_warp_max() || return 1.0
+    kappa_l >= sol105_geom_pcomp_kg_thin_moderate_kappa_l_min() || return 1.0
+    kappa_l <= sol105_geom_pcomp_kg_thin_moderate_kappa_l_max() || return 1.0
+    pm45_fraction >= sol105_geom_pcomp_kg_thin_moderate_pm45_min() || return 1.0
+    pm45_fraction <= sol105_geom_pcomp_kg_thin_moderate_pm45_max() || return 1.0
+    return sol105_geom_pcomp_kg_thin_moderate_pm45_scale()
+end
+
+@inline function sol105_geom_pcomp_thin_high_aspect_pm45_kg_scale(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    aspect::Float64,
+    h_over_lmax::Float64,
+    warp_ratio::Float64,
+    kappa_l::Float64,
+    pm45_fraction::Float64,
+)
+    sol105_geom_pcomp_kg_scale_enabled() || return 1.0
+    is_pcomp && !is_pcomp_iso || return 1.0
+    aspect >= sol105_geom_pcomp_kg_thin_high_aspect_pm45_aspect_min() || return 1.0
+    aspect <= sol105_geom_pcomp_kg_thin_high_aspect_pm45_aspect_max() || return 1.0
+    h_over_lmax >= sol105_geom_pcomp_kg_thin_high_aspect_pm45_h_over_lmax_min() || return 1.0
+    h_over_lmax <= sol105_geom_pcomp_kg_thin_high_aspect_pm45_h_over_lmax_max() || return 1.0
+    warp_ratio >= sol105_geom_pcomp_kg_thin_high_aspect_pm45_warp_min() || return 1.0
+    warp_ratio <= sol105_geom_pcomp_kg_thin_high_aspect_pm45_warp_max() || return 1.0
+    kappa_l >= sol105_geom_pcomp_kg_thin_high_aspect_pm45_kappa_l_min() || return 1.0
+    kappa_l <= sol105_geom_pcomp_kg_thin_high_aspect_pm45_kappa_l_max() || return 1.0
+    pm45_fraction >= sol105_geom_pcomp_kg_thin_high_aspect_pm45_fraction_min() || return 1.0
+    pm45_fraction <= sol105_geom_pcomp_kg_thin_high_aspect_pm45_fraction_max() || return 1.0
+    return sol105_geom_pcomp_kg_thin_high_aspect_pm45_scale()
+end
+
+@inline function sol105_geom_pcomp_thin_very_high_aspect_kg_scale(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    aspect::Float64,
+    h_over_lmax::Float64,
+    warp_ratio::Float64,
+    kappa_l::Float64,
+    pm45_fraction::Float64,
+    pm90_fraction::Float64,
+    ply_count::Int,
+)
+    sol105_geom_pcomp_kg_scale_enabled() || return 1.0
+    is_pcomp && !is_pcomp_iso || return 1.0
+    aspect >= sol105_geom_pcomp_kg_thin_very_high_aspect_min() || return 1.0
+    aspect <= sol105_geom_pcomp_kg_thin_very_high_aspect_max() || return 1.0
+    h_over_lmax >= sol105_geom_pcomp_kg_thin_very_high_h_over_lmax_min() || return 1.0
+    h_over_lmax <= sol105_geom_pcomp_kg_thin_very_high_h_over_lmax_max() || return 1.0
+    warp_ratio >= sol105_geom_pcomp_kg_thin_very_high_warp_min() || return 1.0
+    warp_ratio <= sol105_geom_pcomp_kg_thin_very_high_warp_max() || return 1.0
+    kappa_l >= sol105_geom_pcomp_kg_thin_very_high_kappa_l_min() || return 1.0
+    kappa_l <= sol105_geom_pcomp_kg_thin_very_high_kappa_l_max() || return 1.0
+    pm45_fraction >= sol105_geom_pcomp_kg_thin_very_high_pm45_min() || return 1.0
+    pm45_fraction <= sol105_geom_pcomp_kg_thin_very_high_pm45_max() || return 1.0
+    pm90_fraction >= sol105_geom_pcomp_kg_thin_very_high_pm90_min() || return 1.0
+    pm90_fraction <= sol105_geom_pcomp_kg_thin_very_high_pm90_max() || return 1.0
+    ply_count >= sol105_geom_pcomp_kg_thin_very_high_ply_count_min() || return 1.0
+    ply_count <= sol105_geom_pcomp_kg_thin_very_high_ply_count_max() || return 1.0
+    return sol105_geom_pcomp_kg_thin_very_high_aspect_scale()
+end
+
+@inline function sol105_geom_pcomp_low_aspect_high_kappa_refine_kg_scale(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    aspect::Float64,
+    h_over_lmax::Float64,
+    warp_ratio::Float64,
+    kappa_l::Float64,
+    pm45_fraction::Float64,
+    pm90_fraction::Float64,
+    ply_count::Int,
+)
+    sol105_geom_pcomp_kg_scale_enabled() || return 1.0
+    is_pcomp && !is_pcomp_iso || return 1.0
+    aspect >= sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_aspect_min() || return 1.0
+    aspect <= sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_aspect_max() || return 1.0
+    h_over_lmax >= sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_h_over_lmax_min() || return 1.0
+    h_over_lmax <= sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_h_over_lmax_max() || return 1.0
+    warp_ratio >= sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_warp_min() || return 1.0
+    warp_ratio <= sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_warp_max() || return 1.0
+    kappa_l >= sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_kappa_l_min() || return 1.0
+    kappa_l <= sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_kappa_l_max() || return 1.0
+    pm45_fraction >= sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_pm45_min() || return 1.0
+    pm45_fraction <= sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_pm45_max() || return 1.0
+    pm90_fraction >= sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_pm90_min() || return 1.0
+    pm90_fraction <= sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_pm90_max() || return 1.0
+    ply_count >= sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_ply_count_min() || return 1.0
+    ply_count <= sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_ply_count_max() || return 1.0
+    return sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_scale()
+end
+
+@inline function sol105_geom_pcomp_thick_moderate_aspect_kg_scale(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    aspect::Float64,
+    h_over_lmax::Float64,
+    pm90_fraction::Float64,
+)
+    sol105_geom_pcomp_kg_scale_enabled() || return 1.0
+    is_pcomp && !is_pcomp_iso || return 1.0
+    aspect >= sol105_geom_pcomp_kg_thick_moderate_aspect_min() || return 1.0
+    aspect <= sol105_geom_pcomp_kg_thick_moderate_aspect_max() || return 1.0
+    h_over_lmax >= sol105_geom_pcomp_kg_thick_moderate_h_over_lmax_min() || return 1.0
+    h_over_lmax <= sol105_geom_pcomp_kg_thick_moderate_h_over_lmax_max() || return 1.0
+    pm90_fraction >= sol105_geom_pcomp_kg_thick_moderate_pm90_min() || return 1.0
+    pm90_fraction <= sol105_geom_pcomp_kg_thick_moderate_pm90_max() || return 1.0
+    return sol105_geom_pcomp_kg_thick_moderate_aspect_scale()
+end
+
+@inline function sol105_geom_pcomp_thick_moderate_refine_kg_scale(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    aspect::Float64,
+    h_over_lmax::Float64,
+    kappa_l::Float64,
+    pm45_fraction::Float64,
+    pm90_fraction::Float64,
+    ply_count::Int,
+)
+    scale = sol105_geom_pcomp_kg_thick_moderate_refine_scale()
+    scale == 1.0 && return 1.0
+    sol105_geom_pcomp_kg_scale_enabled() || return 1.0
+    is_pcomp && !is_pcomp_iso || return 1.0
+    aspect >= sol105_geom_pcomp_kg_thick_moderate_refine_aspect_min() || return 1.0
+    aspect <= sol105_geom_pcomp_kg_thick_moderate_refine_aspect_max() || return 1.0
+    h_over_lmax >= sol105_geom_pcomp_kg_thick_moderate_refine_h_over_lmax_min() || return 1.0
+    h_over_lmax <= sol105_geom_pcomp_kg_thick_moderate_refine_h_over_lmax_max() || return 1.0
+    kappa_l >= sol105_geom_pcomp_kg_thick_moderate_refine_kappa_l_min() || return 1.0
+    kappa_l <= sol105_geom_pcomp_kg_thick_moderate_refine_kappa_l_max() || return 1.0
+    pm45_fraction >= sol105_geom_pcomp_kg_thick_moderate_refine_pm45_min() || return 1.0
+    pm45_fraction <= sol105_geom_pcomp_kg_thick_moderate_refine_pm45_max() || return 1.0
+    pm90_fraction >= sol105_geom_pcomp_kg_thick_moderate_refine_pm90_min() || return 1.0
+    pm90_fraction <= sol105_geom_pcomp_kg_thick_moderate_refine_pm90_max() || return 1.0
+    ply_count >= sol105_geom_pcomp_kg_thick_moderate_refine_ply_count_min() || return 1.0
+    ply_count <= sol105_geom_pcomp_kg_thick_moderate_refine_ply_count_max() || return 1.0
+    return scale
+end
+
 @inline function sol105_geom_pcomp_curved_low_aspect_kg_scale(
     is_pcomp::Bool,
     is_pcomp_iso::Bool,
     has_curvature::Bool,
     aspect::Float64,
+    h_over_lmax::Float64,
+    pm90_fraction::Float64,
+    ply_count::Int,
 )
     sol105_geom_pcomp_kg_scale_enabled() || return 1.0
     is_pcomp && !is_pcomp_iso || return 1.0
-    has_curvature || return 1.0
-    aspect <= sol105_geom_pcomp_kg_low_aspect_max() || return 1.0
+    (!sol105_geom_pcomp_kg_curved_low_require_curvature() || has_curvature) || return 1.0
+    aspect >= sol105_geom_pcomp_kg_curved_low_aspect_min() || return 1.0
+    aspect <= sol105_geom_pcomp_kg_curved_low_aspect_max() || return 1.0
+    h_over_lmax >= sol105_geom_pcomp_kg_curved_low_h_over_lmax_min() || return 1.0
+    h_over_lmax <= sol105_geom_pcomp_kg_curved_low_h_over_lmax_max() || return 1.0
+    pm90_fraction >= sol105_geom_pcomp_kg_curved_low_pm90_min() || return 1.0
+    pm90_fraction <= sol105_geom_pcomp_kg_curved_low_pm90_max() || return 1.0
+    ply_count >= sol105_geom_pcomp_kg_curved_low_ply_count_min() || return 1.0
+    ply_count <= sol105_geom_pcomp_kg_curved_low_ply_count_max() || return 1.0
     return sol105_geom_pcomp_kg_curved_low_aspect_scale()
+end
+
+@inline function sol105_geom_pcomp_curved_low_high_kappa_kg_scale(
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    has_curvature::Bool,
+    aspect::Float64,
+    h_over_lmax::Float64,
+    kappa_l::Float64,
+    pm45_fraction::Float64,
+    pm90_fraction::Float64,
+    ply_count::Int,
+)
+    scale = sol105_geom_pcomp_kg_curved_low_high_kappa_scale()
+    scale == 1.0 && return 1.0
+    sol105_geom_pcomp_kg_scale_enabled() || return 1.0
+    is_pcomp && !is_pcomp_iso || return 1.0
+    has_curvature || return 1.0
+    aspect >= sol105_geom_pcomp_kg_curved_low_high_kappa_aspect_min() || return 1.0
+    aspect <= sol105_geom_pcomp_kg_curved_low_high_kappa_aspect_max() || return 1.0
+    h_over_lmax >= sol105_geom_pcomp_kg_curved_low_high_kappa_h_over_lmax_min() || return 1.0
+    h_over_lmax <= sol105_geom_pcomp_kg_curved_low_high_kappa_h_over_lmax_max() || return 1.0
+    kappa_l >= sol105_geom_pcomp_kg_curved_low_high_kappa_kappa_l_min() || return 1.0
+    kappa_l <= sol105_geom_pcomp_kg_curved_low_high_kappa_kappa_l_max() || return 1.0
+    pm45_fraction >= sol105_geom_pcomp_kg_curved_low_high_kappa_pm45_min() || return 1.0
+    pm45_fraction <= sol105_geom_pcomp_kg_curved_low_high_kappa_pm45_max() || return 1.0
+    pm90_fraction >= sol105_geom_pcomp_kg_curved_low_high_kappa_pm90_min() || return 1.0
+    pm90_fraction <= sol105_geom_pcomp_kg_curved_low_high_kappa_pm90_max() || return 1.0
+    ply_count >= sol105_geom_pcomp_kg_curved_low_high_kappa_ply_count_min() || return 1.0
+    ply_count <= sol105_geom_pcomp_kg_curved_low_high_kappa_ply_count_max() || return 1.0
+    return scale
 end
 
 @inline function sol105_geom_pcomp_noncurved_high_aspect_kg_scale(
@@ -1930,7 +2605,7 @@ end
 @inline function q4_macneal_bending_aspect_mid_scale()
     return solver_env_float(
         "JFEM_Q4_MACNEAL_BENDING_ASPECT_MID_SCALE",
-        0.76,
+        1.12,
     )
 end
 
@@ -1943,19 +2618,19 @@ end
 end
 
 @inline function q4_macneal_bending_aspect_max()
-    return max(solver_env_float("JFEM_Q4_MACNEAL_BENDING_ASPECT_MAX", 4.6), 1.0)
+    return max(solver_env_float("JFEM_Q4_MACNEAL_BENDING_ASPECT_MAX", 4.525), 1.0)
 end
 
 @inline function q4_macneal_bending_aspect_warp_min()
-    return max(solver_env_float("JFEM_Q4_MACNEAL_BENDING_ASPECT_WARP_MIN", 8e-5), 0.0)
+    return max(solver_env_float("JFEM_Q4_MACNEAL_BENDING_ASPECT_WARP_MIN", 0.0), 0.0)
 end
 
 @inline function q4_macneal_bending_aspect_warp_max()
-    return max(solver_env_float("JFEM_Q4_MACNEAL_BENDING_ASPECT_WARP_MAX", 1.0e99), 0.0)
+    return max(solver_env_float("JFEM_Q4_MACNEAL_BENDING_ASPECT_WARP_MAX", 1.0e-6), 0.0)
 end
 
 @inline function q4_macneal_bending_aspect_kappa_l_min()
-    return max(solver_env_float("JFEM_Q4_MACNEAL_BENDING_ASPECT_KAPPA_L_MIN", 5e-6), 0.0)
+    return max(solver_env_float("JFEM_Q4_MACNEAL_BENDING_ASPECT_KAPPA_L_MIN", 0.0), 0.0)
 end
 
 @inline function q4_macneal_bending_aspect_kappa_l_max()
@@ -1968,6 +2643,41 @@ end
 
 @inline function q4_macneal_bending_aspect_skew_max()
     return max(solver_env_float("JFEM_Q4_MACNEAL_BENDING_ASPECT_SKEW_MAX", 180.0), 0.0)
+end
+
+@inline function q4_macneal_bending_aspect_h_over_lmax_min()
+    return max(solver_env_float("JFEM_Q4_MACNEAL_BENDING_ASPECT_H_OVER_LMAX_MIN", 0.0), 0.0)
+end
+
+@inline function q4_macneal_bending_aspect_h_over_lmax_max()
+    return max(
+        solver_env_float("JFEM_Q4_MACNEAL_BENDING_ASPECT_H_OVER_LMAX_MAX", 1.0e99),
+        q4_macneal_bending_aspect_h_over_lmax_min(),
+    )
+end
+
+@inline function q4_macneal_bending_aspect_pm45_min()
+    return clamp(solver_env_float("JFEM_Q4_MACNEAL_BENDING_ASPECT_PM45_MIN", 0.0), 0.0, 1.0)
+end
+
+@inline function q4_macneal_bending_aspect_pm45_max()
+    return clamp(
+        solver_env_float("JFEM_Q4_MACNEAL_BENDING_ASPECT_PM45_MAX", 1.0),
+        q4_macneal_bending_aspect_pm45_min(),
+        1.0,
+    )
+end
+
+@inline function q4_macneal_bending_aspect_pm90_min()
+    return clamp(solver_env_float("JFEM_Q4_MACNEAL_BENDING_ASPECT_PM90_MIN", 0.0), 0.0, 1.0)
+end
+
+@inline function q4_macneal_bending_aspect_pm90_max()
+    return clamp(
+        solver_env_float("JFEM_Q4_MACNEAL_BENDING_ASPECT_PM90_MAX", 1.0),
+        q4_macneal_bending_aspect_pm90_min(),
+        1.0,
+    )
 end
 
 @inline function q4_macneal_bending_aspect2_scale_enabled(default::Bool=false)
@@ -2487,6 +3197,33 @@ end
     return shear_ratio, d16_ratio, b_ratio
 end
 
+@inline function pcomp_abs_angle_fraction_from_plies(plies, angle_deg::Float64)
+    plies isa AbstractVector || return 0.0
+    nplies = length(plies)
+    nplies == 0 && return 0.0
+    count_angle = 0
+    @inbounds for ply in plies
+        theta = abs(Float64(get(ply, "theta", 0.0)))
+        if abs(theta - angle_deg) <= 1.0e-6
+            count_angle += 1
+        end
+    end
+    return count_angle / nplies
+end
+
+@inline function pcomp_abs_angle_fraction(prop, angle_deg::Float64)
+    return pcomp_abs_angle_fraction_from_plies(get(prop, "PLY_DATA", nothing), angle_deg)
+end
+
+@inline function pcomp_ply_count_from_plies(plies)
+    plies isa AbstractVector || return 0
+    return length(plies)
+end
+
+@inline function pcomp_ply_count(prop)
+    return pcomp_ply_count_from_plies(get(prop, "PLY_DATA", nothing))
+end
+
 @inline function kg_auto_pcomp_g12_candidate(theta_deg::Float64, shear_ratio::Float64, d16_ratio::Float64,
                                              b_ratio::Float64, kappa_l::Float64, cyl_ratio::Float64)
     if b_ratio > q4_pcomp_kg_auto_g12_b_ratio_max()
@@ -3004,8 +3741,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         sol101_context && !shear_center_only &&
         solver_env_bool("JFEM_SOL101_PCOMP_MITC4_3D_ASPECT_DEFAULT", false)
     sol105_pcomp_mitc4_3d_aspect_default =
-        sol105_context && !shear_center_only &&
-        solver_env_bool("JFEM_SOL105_PCOMP_MITC4_3D_ASPECT_DEFAULT", true)
+    sol105_context && !shear_center_only &&
+        solver_env_bool("JFEM_SOL105_PCOMP_MITC4_3D_ASPECT_DEFAULT", false)
     default_q4_kernel =
         (sol101_pcomp_mitc4_3d_aspect_default || sol105_pcomp_mitc4_3d_aspect_default) ?
         "mitc4_3d_aspect" : "macneal"
@@ -3097,6 +3834,14 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     q4_macneal_bending_aspect_kappa_l_max_v = q4_macneal_bending_aspect_kappa_l_max()
     q4_macneal_bending_aspect_skew_min_v = q4_macneal_bending_aspect_skew_min()
     q4_macneal_bending_aspect_skew_max_v = q4_macneal_bending_aspect_skew_max()
+    q4_macneal_bending_aspect_h_over_lmax_min_v =
+        q4_macneal_bending_aspect_h_over_lmax_min()
+    q4_macneal_bending_aspect_h_over_lmax_max_v =
+        q4_macneal_bending_aspect_h_over_lmax_max()
+    q4_macneal_bending_aspect_pm45_min_v = q4_macneal_bending_aspect_pm45_min()
+    q4_macneal_bending_aspect_pm45_max_v = q4_macneal_bending_aspect_pm45_max()
+    q4_macneal_bending_aspect_pm90_min_v = q4_macneal_bending_aspect_pm90_min()
+    q4_macneal_bending_aspect_pm90_max_v = q4_macneal_bending_aspect_pm90_max()
     q4_macneal_bending_aspect2_enabled =
         q4_macneal_bending_aspect2_scale_enabled(sol105_context)
     q4_macneal_bending_aspect2_mode_v = q4_macneal_bending_aspect2_mode()
@@ -3116,8 +3861,50 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     q4_macneal_curved_bending_enabled = q4_macneal_curved_bending_scale != 1.0
     q4_macneal_curved_bending_kappa_l_min =
         max(solver_env_float("JFEM_Q4_MACNEAL_CURVED_BENDING_KAPPA_L_MIN", 1e-6), 0.0)
+    q4_macneal_curved_bending_cyl_ratio_min =
+        max(solver_env_float("JFEM_Q4_MACNEAL_CURVED_BENDING_CYL_RATIO_MIN", 0.0), 0.0)
     q4_macneal_curved_bending_cyl_ratio_max =
-        max(solver_env_float("JFEM_Q4_MACNEAL_CURVED_BENDING_CYL_RATIO_MAX", 1.0), 0.0)
+        max(
+            solver_env_float("JFEM_Q4_MACNEAL_CURVED_BENDING_CYL_RATIO_MAX", 1.0),
+            q4_macneal_curved_bending_cyl_ratio_min,
+        )
+    q4_macneal_curved_bending_aspect_min =
+        max(solver_env_float("JFEM_Q4_MACNEAL_CURVED_BENDING_ASPECT_MIN", 1.0), 1.0)
+    q4_macneal_curved_bending_aspect_max =
+        max(
+            solver_env_float("JFEM_Q4_MACNEAL_CURVED_BENDING_ASPECT_MAX", 1.0e99),
+            q4_macneal_curved_bending_aspect_min,
+        )
+    q4_macneal_curved_bending_h_over_lmax_min =
+        max(solver_env_float("JFEM_Q4_MACNEAL_CURVED_BENDING_H_OVER_LMAX_MIN", 0.0), 0.0)
+    q4_macneal_curved_bending_h_over_lmax_max =
+        max(
+            solver_env_float("JFEM_Q4_MACNEAL_CURVED_BENDING_H_OVER_LMAX_MAX", 1.0e99),
+            q4_macneal_curved_bending_h_over_lmax_min,
+        )
+    q4_macneal_curved_bending_pm45_min =
+        clamp(solver_env_float("JFEM_Q4_MACNEAL_CURVED_BENDING_PM45_MIN", 0.0), 0.0, 1.0)
+    q4_macneal_curved_bending_pm45_max =
+        clamp(
+            solver_env_float("JFEM_Q4_MACNEAL_CURVED_BENDING_PM45_MAX", 1.0),
+            q4_macneal_curved_bending_pm45_min,
+            1.0,
+        )
+    q4_macneal_curved_bending_pm90_min =
+        clamp(solver_env_float("JFEM_Q4_MACNEAL_CURVED_BENDING_PM90_MIN", 0.0), 0.0, 1.0)
+    q4_macneal_curved_bending_pm90_max =
+        clamp(
+            solver_env_float("JFEM_Q4_MACNEAL_CURVED_BENDING_PM90_MAX", 1.0),
+            q4_macneal_curved_bending_pm90_min,
+            1.0,
+        )
+    q4_macneal_curved_bending_ply_count_min =
+        max(solver_env_int("JFEM_Q4_MACNEAL_CURVED_BENDING_PLY_COUNT_MIN", 0), 0)
+    q4_macneal_curved_bending_ply_count_max =
+        max(
+            solver_env_int("JFEM_Q4_MACNEAL_CURVED_BENDING_PLY_COUNT_MAX", typemax(Int)),
+            q4_macneal_curved_bending_ply_count_min,
+        )
     # MSC Nastran QRG 2024.1 MAT8: blank/zero G1Z and G2Z mean zero
     # transverse-shear flexibility, i.e. the infinite-stiffness limit.
     mat8_blank_ts_rigid_limit = solver_env_bool(
@@ -3683,12 +4470,36 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             aspect_ratio_ei <= mitc4_3d_high_skew_aspect_max &&
             edge_skew_ei >= mitc4_3d_high_skew_angle_min &&
             edge_skew_ei <= mitc4_3d_high_skew_angle_max
+        flat_pcomp_h_over_lmax_pre = q4_h[ei] / max(q4_local_max_edge_length(lc), 1e-12)
+        pcomp_pm45_fraction_selector =
+            q4_is_pcomp[ei] ? pcomp_abs_angle_fraction_from_plies(q4_ply_data[ei], 45.0) : 0.0
+        pcomp_pm90_fraction_selector =
+            q4_is_pcomp[ei] ? pcomp_abs_angle_fraction_from_plies(q4_ply_data[ei], 90.0) : 0.0
+        pcomp_ply_count_selector =
+            q4_is_pcomp[ei] ? pcomp_ply_count_from_plies(q4_ply_data[ei]) : 0
+        elem_mitc4_3d_geom_restore_pre =
+            sol105_context &&
+            !shear_center_only &&
+            q4_kernel_mode_static in (
+                "macneal", "macneal_all", "macneal_pcomp", "macneal-pcomp",
+                "macneal_aniso", "default",
+            ) &&
+            sol105_pcomp_mitc4_geom_restore_pre_candidate(
+                q4_is_pcomp[ei],
+                q4_is_pcomp_isotropic[ei],
+                aspect_ratio_ei,
+                flat_pcomp_h_over_lmax_pre,
+                pcomp_pm45_fraction_selector,
+                pcomp_pm90_fraction_selector,
+                pcomp_ply_count_selector,
+            )
         elem_mitc4_3d_candidate =
             mitc4_3d_all_kernel ||
             (mitc4_3d_aspect_kernel &&
              aspect_ratio_ei >= mitc4_3d_aspect_min &&
              aspect_ratio_ei <= mitc4_3d_aspect_max) ||
-            elem_mitc4_3d_high_skew_candidate
+            elem_mitc4_3d_high_skew_candidate ||
+            elem_mitc4_3d_geom_restore_pre
         mitc4_3d_use_geom_dirs =
             elem_mitc4_3d_candidate && geom_has[i1] && geom_has[i2] && geom_has[i3] && geom_has[i4]
         marguerre_static_use_geom_dirs =
@@ -4356,6 +5167,10 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 kappa_l_bend_aspect =
                     k1_bend_aspect * q4_curvature_characteristic_length(lc)
             end
+            pcomp_pm45_fraction_bend =
+                is_pcomp_ei ? pcomp_abs_angle_fraction_from_plies(q4_ply_data[ei], 45.0) : 0.0
+            pcomp_pm90_fraction_bend =
+                is_pcomp_ei ? pcomp_abs_angle_fraction_from_plies(q4_ply_data[ei], 90.0) : 0.0
             if q4_macneal_bending_aspect_geom_ok(
                 warp_ratio_ei,
                 kappa_l_bend_aspect,
@@ -4366,7 +5181,13 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 q4_macneal_bending_aspect_kappa_l_max_v,
                 q4_macneal_bending_aspect_skew_min_v,
                 q4_macneal_bending_aspect_skew_max_v,
-            )
+            ) &&
+               flat_pcomp_h_over_lmax >= q4_macneal_bending_aspect_h_over_lmax_min_v &&
+               flat_pcomp_h_over_lmax <= q4_macneal_bending_aspect_h_over_lmax_max_v &&
+               pcomp_pm45_fraction_bend >= q4_macneal_bending_aspect_pm45_min_v &&
+               pcomp_pm45_fraction_bend <= q4_macneal_bending_aspect_pm45_max_v &&
+               pcomp_pm90_fraction_bend >= q4_macneal_bending_aspect_pm90_min_v &&
+               pcomp_pm90_fraction_bend <= q4_macneal_bending_aspect_pm90_max_v
                 bend_const_scale *= q4_macneal_bending_aspect_scale(
                     aspect_ratio_ei,
                     q4_macneal_bending_aspect_mode_v,
@@ -4420,8 +5241,25 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             k1_macneal, _ = q4_curvature_principal_abs(pcomp_geom_curvature)
             kappa_l_macneal = k1_macneal * q4_curvature_characteristic_length(lc)
             cyl_ratio_macneal = q4_curvature_cyl_ratio(pcomp_geom_curvature)
+            pcomp_pm45_fraction_curved_bend =
+                is_pcomp_ei ? pcomp_abs_angle_fraction_from_plies(q4_ply_data[ei], 45.0) : 0.0
+            pcomp_pm90_fraction_curved_bend =
+                is_pcomp_ei ? pcomp_abs_angle_fraction_from_plies(q4_ply_data[ei], 90.0) : 0.0
+            pcomp_ply_count_curved_bend =
+                is_pcomp_ei ? pcomp_ply_count_from_plies(q4_ply_data[ei]) : 0
             if kappa_l_macneal >= q4_macneal_curved_bending_kappa_l_min &&
-               cyl_ratio_macneal <= q4_macneal_curved_bending_cyl_ratio_max
+               cyl_ratio_macneal >= q4_macneal_curved_bending_cyl_ratio_min &&
+               cyl_ratio_macneal <= q4_macneal_curved_bending_cyl_ratio_max &&
+               aspect_ratio_ei >= q4_macneal_curved_bending_aspect_min &&
+               aspect_ratio_ei <= q4_macneal_curved_bending_aspect_max &&
+               flat_pcomp_h_over_lmax >= q4_macneal_curved_bending_h_over_lmax_min &&
+               flat_pcomp_h_over_lmax <= q4_macneal_curved_bending_h_over_lmax_max &&
+               pcomp_pm45_fraction_curved_bend >= q4_macneal_curved_bending_pm45_min &&
+               pcomp_pm45_fraction_curved_bend <= q4_macneal_curved_bending_pm45_max &&
+               pcomp_pm90_fraction_curved_bend >= q4_macneal_curved_bending_pm90_min &&
+               pcomp_pm90_fraction_curved_bend <= q4_macneal_curved_bending_pm90_max &&
+               pcomp_ply_count_curved_bend >= q4_macneal_curved_bending_ply_count_min &&
+               pcomp_ply_count_curved_bend <= q4_macneal_curved_bending_ply_count_max
                 bend_const_scale *= q4_macneal_curved_bending_scale
             end
         end
@@ -4705,6 +5543,25 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             static_pcomp_nodal_geomnormal_transform &&
             is_pcomp_ei &&
             geom_has[i1] && geom_has[i2] && geom_has[i3] && geom_has[i4]
+        kappa_l_mitc4_geom_restore = 0.0
+        if pcomp_geom_curvature !== nothing
+            k1_mitc4_geom_restore, _ = q4_curvature_principal_abs(pcomp_geom_curvature)
+            kappa_l_mitc4_geom_restore =
+                k1_mitc4_geom_restore * q4_curvature_characteristic_length(lc)
+        end
+        elem_mitc4_3d_geom_restore =
+            elem_mitc4_3d_geom_restore_pre &&
+            sol105_pcomp_mitc4_geom_restore_candidate(
+                is_pcomp_ei,
+                is_pcomp_iso_ei,
+                aspect_ratio_ei,
+                flat_pcomp_h_over_lmax,
+                warp_ratio_ei,
+                kappa_l_mitc4_geom_restore,
+                pcomp_pm45_fraction_selector,
+                pcomp_pm90_fraction_selector,
+                pcomp_ply_count_selector,
+            )
         elem_mitc4_3d_kernel =
             if mitc4_3d_all_kernel
                 true
@@ -4742,10 +5599,13 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 flat_pcomp_h_over_lmax >= mitc4_3d_aspect_h_over_lmax_min &&
                 flat_pcomp_h_over_lmax <= mitc4_3d_aspect_h_over_lmax_max &&
                 (!mitc4_3d_aspect_pcomp_only || is_pcomp_ei)
+            elseif elem_mitc4_3d_geom_restore
+                true
             else
                 false
             end
-        elem_macneal_static_kernel && (elem_mitc4_3d_kernel = false)
+        elem_macneal_static_kernel && !elem_mitc4_3d_geom_restore &&
+            (elem_mitc4_3d_kernel = false)
         elem_static_component_scale_ok =
             static_component_v2_gate_ok &&
             (isempty(static_component_pid_filter) ||
@@ -5993,7 +6853,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     geom_normals_local =
         (kg_trans_mode === :curvature || kg_pcomp_auto_g12 || kg_pcomp_auto_global_x ||
          kg_auto_curvature_pcomp || kg_auto_curvature_iso || curved_iso_geomnormal_frame ||
-         mitc4_3d_kg_recovery || sol105_geom_pcomp_kg_scale_enabled()) ?
+         mitc4_3d_kg_recovery || sol105_geom_pcomp_kg_scale_enabled() ||
+         kg_quad4_feature_membrane_scale != 1.0) ?
         compute_geometric_nodal_normals(model, id_map, node_coords) :
         Dict{Int,SVector{3,Float64}}()
     geom_vec = fill(SVector(0.0, 0.0, 0.0), n_nodes)
@@ -6476,6 +7337,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 (kg_pcomp_auto_g12 && is_pcomp_clt && !pcomp_is_isotropic) ||
                 (kg_auto_curvature_pcomp && is_pcomp_clt && !pcomp_is_isotropic) ||
                 (sol105_geom_pcomp_kg_scale_enabled() && is_pcomp_clt && !pcomp_is_isotropic) ||
+                (kg_quad4_feature_membrane_scale != 1.0 && is_pcomp_clt) ||
                 (kg_auto_curvature_iso && is_iso_kg)) &&
                geom_has[i1] && geom_has[i2] && geom_has[i3] && geom_has[i4]
                 geom_curvature = estimate_quad4_curvature_membrane(
@@ -6984,6 +7846,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 )
             end
             h_over_lmax_kg = h / max(q4_local_max_edge_length(lc_buf4), 1e-12)
+            pcomp_geom_total_kg_scale = 1.0
             geom_pshell_iso_flat_square_kg_scale =
                 sol105_pshell_iso_flat_square_kg_enabled ?
                 sol105_geom_pshell_iso_flat_square_kg_scale(
@@ -7012,6 +7875,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             )
             if geom_pcomp_kg_scale != 1.0
                 sigma_mem_input .*= geom_pcomp_kg_scale
+                pcomp_geom_total_kg_scale *= geom_pcomp_kg_scale
             end
             mild_taper_pcomp_kg_scale = sol105_geom_pcomp_mild_taper_kg_scale(
                 is_pcomp_clt,
@@ -7021,6 +7885,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             )
             if mild_taper_pcomp_kg_scale != 1.0
                 sigma_mem_input .*= mild_taper_pcomp_kg_scale
+                pcomp_geom_total_kg_scale *= mild_taper_pcomp_kg_scale
             end
             low_aspect_pcomp_kg_scale = sol105_geom_pcomp_low_aspect_kg_scale(
                 is_pcomp_clt,
@@ -7030,12 +7895,116 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             )
             if low_aspect_pcomp_kg_scale != 1.0
                 sigma_mem_input .*= low_aspect_pcomp_kg_scale
+                pcomp_geom_total_kg_scale *= low_aspect_pcomp_kg_scale
             end
             geom_pcomp_kappa_l = 0.0
             if geom_curvature !== nothing
                 k1_geom_pcomp, _ = q4_curvature_principal_abs(geom_curvature)
                 geom_pcomp_kappa_l =
                     k1_geom_pcomp * q4_curvature_characteristic_length(lc_buf4)
+            end
+            thin_moderate_aspect_pcomp_kg_scale =
+                sol105_geom_pcomp_thin_moderate_aspect_kg_scale(
+                    is_pcomp_clt,
+                    pcomp_is_isotropic,
+                    aspect_ratio_kg,
+                    h_over_lmax_kg,
+                    warp_ratio_kg,
+                    geom_pcomp_kappa_l,
+                )
+            if thin_moderate_aspect_pcomp_kg_scale != 1.0
+                sigma_mem_input .*= thin_moderate_aspect_pcomp_kg_scale
+                pcomp_geom_total_kg_scale *= thin_moderate_aspect_pcomp_kg_scale
+            end
+            pcomp_pm45_fraction_kg = is_pcomp_clt ? pcomp_abs_angle_fraction(prop, 45.0) : 0.0
+            pcomp_pm90_fraction_kg = is_pcomp_clt ? pcomp_abs_angle_fraction(prop, 90.0) : 0.0
+            pcomp_ply_count_kg = is_pcomp_clt ? pcomp_ply_count(prop) : 0
+            thin_moderate_pm45_pcomp_kg_scale =
+                sol105_geom_pcomp_thin_moderate_pm45_kg_scale(
+                    is_pcomp_clt,
+                    pcomp_is_isotropic,
+                    aspect_ratio_kg,
+                    h_over_lmax_kg,
+                    warp_ratio_kg,
+                    geom_pcomp_kappa_l,
+                    pcomp_pm45_fraction_kg,
+                )
+            if thin_moderate_pm45_pcomp_kg_scale != 1.0
+                sigma_mem_input .*= thin_moderate_pm45_pcomp_kg_scale
+                pcomp_geom_total_kg_scale *= thin_moderate_pm45_pcomp_kg_scale
+            end
+            thin_high_aspect_pm45_pcomp_kg_scale =
+                sol105_geom_pcomp_thin_high_aspect_pm45_kg_scale(
+                    is_pcomp_clt,
+                    pcomp_is_isotropic,
+                    aspect_ratio_kg,
+                    h_over_lmax_kg,
+                    warp_ratio_kg,
+                    geom_pcomp_kappa_l,
+                    pcomp_pm45_fraction_kg,
+                )
+            if thin_high_aspect_pm45_pcomp_kg_scale != 1.0
+                sigma_mem_input .*= thin_high_aspect_pm45_pcomp_kg_scale
+                pcomp_geom_total_kg_scale *= thin_high_aspect_pm45_pcomp_kg_scale
+            end
+            thin_very_high_aspect_pcomp_kg_scale =
+                sol105_geom_pcomp_thin_very_high_aspect_kg_scale(
+                    is_pcomp_clt,
+                    pcomp_is_isotropic,
+                    aspect_ratio_kg,
+                    h_over_lmax_kg,
+                    warp_ratio_kg,
+                    geom_pcomp_kappa_l,
+                    pcomp_pm45_fraction_kg,
+                    pcomp_pm90_fraction_kg,
+                    pcomp_ply_count_kg,
+                )
+            if thin_very_high_aspect_pcomp_kg_scale != 1.0
+                sigma_mem_input .*= thin_very_high_aspect_pcomp_kg_scale
+                pcomp_geom_total_kg_scale *= thin_very_high_aspect_pcomp_kg_scale
+            end
+            low_aspect_high_kappa_refine_pcomp_kg_scale =
+                sol105_geom_pcomp_low_aspect_high_kappa_refine_kg_scale(
+                    is_pcomp_clt,
+                    pcomp_is_isotropic,
+                    aspect_ratio_kg,
+                    h_over_lmax_kg,
+                    warp_ratio_kg,
+                    geom_pcomp_kappa_l,
+                    pcomp_pm45_fraction_kg,
+                    pcomp_pm90_fraction_kg,
+                    pcomp_ply_count_kg,
+                )
+            if low_aspect_high_kappa_refine_pcomp_kg_scale != 1.0
+                sigma_mem_input .*= low_aspect_high_kappa_refine_pcomp_kg_scale
+                pcomp_geom_total_kg_scale *= low_aspect_high_kappa_refine_pcomp_kg_scale
+            end
+            thick_moderate_aspect_pcomp_kg_scale =
+                sol105_geom_pcomp_thick_moderate_aspect_kg_scale(
+                    is_pcomp_clt,
+                    pcomp_is_isotropic,
+                    aspect_ratio_kg,
+                    h_over_lmax_kg,
+                    pcomp_pm90_fraction_kg,
+                )
+            if thick_moderate_aspect_pcomp_kg_scale != 1.0
+                sigma_mem_input .*= thick_moderate_aspect_pcomp_kg_scale
+                pcomp_geom_total_kg_scale *= thick_moderate_aspect_pcomp_kg_scale
+            end
+            thick_moderate_refine_pcomp_kg_scale =
+                sol105_geom_pcomp_thick_moderate_refine_kg_scale(
+                    is_pcomp_clt,
+                    pcomp_is_isotropic,
+                    aspect_ratio_kg,
+                    h_over_lmax_kg,
+                    geom_pcomp_kappa_l,
+                    pcomp_pm45_fraction_kg,
+                    pcomp_pm90_fraction_kg,
+                    pcomp_ply_count_kg,
+                )
+            if thick_moderate_refine_pcomp_kg_scale != 1.0
+                sigma_mem_input .*= thick_moderate_refine_pcomp_kg_scale
+                pcomp_geom_total_kg_scale *= thick_moderate_refine_pcomp_kg_scale
             end
             geom_pcomp_has_effective_curvature =
                 geom_pcomp_kappa_l >= sol105_geom_pcomp_kg_curvature_min()
@@ -7045,9 +8014,29 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     pcomp_is_isotropic,
                     geom_pcomp_has_effective_curvature,
                     aspect_ratio_kg,
+                    h_over_lmax_kg,
+                    pcomp_pm90_fraction_kg,
+                    pcomp_ply_count_kg,
                 )
             if curved_low_aspect_pcomp_kg_scale != 1.0
                 sigma_mem_input .*= curved_low_aspect_pcomp_kg_scale
+                pcomp_geom_total_kg_scale *= curved_low_aspect_pcomp_kg_scale
+            end
+            curved_low_high_kappa_pcomp_kg_scale =
+                sol105_geom_pcomp_curved_low_high_kappa_kg_scale(
+                    is_pcomp_clt,
+                    pcomp_is_isotropic,
+                    geom_pcomp_has_effective_curvature,
+                    aspect_ratio_kg,
+                    h_over_lmax_kg,
+                    geom_pcomp_kappa_l,
+                    pcomp_pm45_fraction_kg,
+                    pcomp_pm90_fraction_kg,
+                    pcomp_ply_count_kg,
+                )
+            if curved_low_high_kappa_pcomp_kg_scale != 1.0
+                sigma_mem_input .*= curved_low_high_kappa_pcomp_kg_scale
+                pcomp_geom_total_kg_scale *= curved_low_high_kappa_pcomp_kg_scale
             end
             noncurved_high_aspect_pcomp_kg_scale =
                 sol105_geom_pcomp_noncurved_high_aspect_kg_scale(
@@ -7059,6 +8048,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 )
             if noncurved_high_aspect_pcomp_kg_scale != 1.0
                 sigma_mem_input .*= noncurved_high_aspect_pcomp_kg_scale
+                pcomp_geom_total_kg_scale *= noncurved_high_aspect_pcomp_kg_scale
             end
             curved_high_aspect_pcomp_kg_scale =
                 sol105_geom_pcomp_curved_high_aspect_kg_scale(
@@ -7070,6 +8060,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 )
             if curved_high_aspect_pcomp_kg_scale != 1.0
                 sigma_mem_input .*= curved_high_aspect_pcomp_kg_scale
+                pcomp_geom_total_kg_scale *= curved_high_aspect_pcomp_kg_scale
             end
             if kg_quad4_membrane_scale != 1.0
                 sigma_mem_input .*= kg_quad4_membrane_scale
@@ -7299,6 +8290,23 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     geom_gaussian=geom_gaussian_diag,
                     is_pcomp=is_pcomp_clt,
                     pcomp_is_isotropic=pcomp_is_isotropic,
+                    h_over_lmax=h_over_lmax_kg,
+                    pcomp_pm45_fraction=pcomp_pm45_fraction_kg,
+                    pcomp_pm90_fraction=pcomp_pm90_fraction_kg,
+                    pcomp_ply_count=pcomp_ply_count_kg,
+                    geom_pcomp_scale=geom_pcomp_kg_scale,
+                    mild_taper_pcomp_scale=mild_taper_pcomp_kg_scale,
+                    low_aspect_pcomp_scale=low_aspect_pcomp_kg_scale,
+                    thin_moderate_aspect_pcomp_scale=thin_moderate_aspect_pcomp_kg_scale,
+                    thin_moderate_pm45_pcomp_scale=thin_moderate_pm45_pcomp_kg_scale,
+                    thin_very_high_aspect_pcomp_scale=thin_very_high_aspect_pcomp_kg_scale,
+                    thick_moderate_aspect_pcomp_scale=thick_moderate_aspect_pcomp_kg_scale,
+                    thick_moderate_refine_pcomp_scale=thick_moderate_refine_pcomp_kg_scale,
+                    curved_low_aspect_pcomp_scale=curved_low_aspect_pcomp_kg_scale,
+                    curved_low_high_kappa_pcomp_scale=curved_low_high_kappa_pcomp_kg_scale,
+                    noncurved_high_aspect_pcomp_scale=noncurved_high_aspect_pcomp_kg_scale,
+                    curved_high_aspect_pcomp_scale=curved_high_aspect_pcomp_kg_scale,
+                    pcomp_geom_total_scale=pcomp_geom_total_kg_scale,
                 ))
             end
             n_q4_done_tl[tid] += 1
@@ -7687,7 +8695,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             write_header = !isfile(kg_diag_eid_csv_path) || filesize(kg_diag_eid_csv_path) == 0
             open(kg_diag_eid_csv_path, write_header ? "w" : "a") do io
                 if write_header
-                    println(io, "subcase,eid,pid,stress_mode,blend_alpha,nres_xx,nres_yy,nres_xy,nin_xx,nin_yy,nin_xy,nin_gp1_xx,nin_gp1_yy,nin_gp1_xy,nin_gp2_xx,nin_gp2_yy,nin_gp2_xy,nin_gp3_xx,nin_gp3_yy,nin_gp3_xy,nin_gp4_xx,nin_gp4_yy,nin_gp4_xy,feature_scale_eff,feature_nxy_stat,feature_abs_nxy,feature_geom_ok,feature_curv_ok,feature_nxy_ok,feature_abs_nxy_ok,kg_trans_mode,kg_pcomp_normal_only,kg_saddle,elem_is_flat,aspect,warp_ratio,geom_curvature_ok,geom_kappa_l,geom_cyl_ratio,geom_gaussian,is_pcomp,pcomp_is_isotropic")
+                    println(io, "subcase,eid,pid,stress_mode,blend_alpha,nres_xx,nres_yy,nres_xy,nin_xx,nin_yy,nin_xy,nin_gp1_xx,nin_gp1_yy,nin_gp1_xy,nin_gp2_xx,nin_gp2_yy,nin_gp2_xy,nin_gp3_xx,nin_gp3_yy,nin_gp3_xy,nin_gp4_xx,nin_gp4_yy,nin_gp4_xy,feature_scale_eff,feature_nxy_stat,feature_abs_nxy,feature_geom_ok,feature_curv_ok,feature_nxy_ok,feature_abs_nxy_ok,kg_trans_mode,kg_pcomp_normal_only,kg_saddle,elem_is_flat,aspect,warp_ratio,geom_curvature_ok,geom_kappa_l,geom_cyl_ratio,geom_gaussian,is_pcomp,pcomp_is_isotropic,h_over_lmax,pcomp_pm45_fraction,pcomp_pm90_fraction,pcomp_ply_count,geom_pcomp_scale,mild_taper_pcomp_scale,low_aspect_pcomp_scale,thin_moderate_aspect_pcomp_scale,thin_moderate_pm45_pcomp_scale,thin_very_high_aspect_pcomp_scale,thick_moderate_aspect_pcomp_scale,thick_moderate_refine_pcomp_scale,curved_low_aspect_pcomp_scale,curved_low_high_kappa_pcomp_scale,noncurved_high_aspect_pcomp_scale,curved_high_aspect_pcomp_scale,pcomp_geom_total_scale")
                 end
                 for r in all_rows
                     println(io, r.subcase, ",", r.eid, ",", r.pid, ",", r.stress_mode, ",", r.blend_alpha, ",",
@@ -7703,7 +8711,20 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                             r.kg_trans_mode, ",", r.kg_pcomp_normal_only, ",", r.kg_saddle, ",",
                             r.elem_is_flat, ",", r.aspect, ",", r.warp_ratio, ",",
                             r.geom_curvature_ok, ",", r.geom_kappa_l, ",", r.geom_cyl_ratio, ",",
-                            r.geom_gaussian, ",", r.is_pcomp, ",", r.pcomp_is_isotropic)
+                            r.geom_gaussian, ",", r.is_pcomp, ",", r.pcomp_is_isotropic, ",",
+                            r.h_over_lmax, ",", r.pcomp_pm45_fraction, ",",
+                            r.pcomp_pm90_fraction, ",", r.pcomp_ply_count, ",",
+                            r.geom_pcomp_scale, ",", r.mild_taper_pcomp_scale, ",",
+                            r.low_aspect_pcomp_scale, ",", r.thin_moderate_aspect_pcomp_scale, ",",
+                            r.thin_moderate_pm45_pcomp_scale, ",",
+                            r.thin_very_high_aspect_pcomp_scale, ",",
+                            r.thick_moderate_aspect_pcomp_scale, ",",
+                            r.thick_moderate_refine_pcomp_scale, ",",
+                            r.curved_low_aspect_pcomp_scale, ",",
+                            r.curved_low_high_kappa_pcomp_scale, ",",
+                            r.noncurved_high_aspect_pcomp_scale, ",",
+                            r.curved_high_aspect_pcomp_scale, ",",
+                            r.pcomp_geom_total_scale)
                 end
             end
             log_msg("[SOLVER] Kg per-EID σ dump: $(length(all_rows)) rows → $kg_diag_eid_csv_path")

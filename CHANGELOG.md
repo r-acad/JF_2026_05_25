@@ -6,6 +6,42 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added per-mode subcase metadata to SOL105 buckling JSON exports so private
+  MAC and mode-shape diagnostics can compare each buckling subcase without
+  guessing mode ownership from the globally sorted flat eigenvalue list.
+- Enabled SOL105 feature-based CQUAD4 `Kg` geometry gates to compute the
+  geometric normals and curvature metrics they require when the feature scale
+  is active, even when the older PCOMP geometry-Kg scale path is disabled.
+- Added opt-in SOL105 PCOMP `Kg` geometry/laminate bands for thin
+  moderate-aspect, thin very-high-aspect, and thick moderate-aspect CQUAD4
+  panels so formulation sweeps can strengthen or relax those panel families
+  using only material, laminate, and geometry metrics.
+- Added an opt-in SOL105 range-completeness recovery pass that uses Sturm
+  counts to detect missing roots below the highest recovered root, then runs
+  higher-budget shifted searches before output filtering. The expensive Sturm
+  completeness checks remain disabled by default for production runs.
+- Added neutral opt-in geometry/material gates to the SOL105 MacNeal
+  aspect-bending selector and the thin-moderate PCOMP `Kg` band. The new gates
+  can discriminate by warp, curvature, thickness ratio, and laminate angle
+  fractions without using case names, groups, reference tables, or stress state.
+- Added neutral geometry/material gates to the SOL105 curved-PCOMP MacNeal
+  bending scale so curvature-side formulation probes can be scoped by aspect,
+  thickness ratio, laminate fractions, and ply count without case-specific or
+  stress-state calibration.
+- Tightened and promoted the SOL105 thin high-aspect PCOMP `Kg` laminate gate
+  for flat ±45-rich strips using aspect, `h/Lmax`, curvature, and laminate
+  fraction limits only; this closes the focused Mfg651 first-root miss without
+  changing the curved local-buckling guard rows.
+- Promoted the SOL105 CQUAD4 defaults used by the generic formulation selector:
+  average membrane recovery for `Kg`, geometry-only PCOMP `Kg` bands for
+  low/high/thin panel families, a laminate-fraction gate for thin
+  moderate-aspect PCOMP panels, and a flat-element MacNeal aspect-bending
+  selector. The promoted defaults do not enable the stress-state feature
+  scaling path.
+- Added an opt-in SOL105 PCOMP CQUAD4 formulation selector that can restore the
+  MITC4-3D static stiffness path from a MacNeal default using only laminate
+  angle fractions, ply count, thickness ratio, aspect ratio, warp, and
+  curvature.
 - Expanded the public installation documentation so new users can install
   Julia packages and build the local sysimage by running one platform-specific
   setup file from `JFEM_installation/`.

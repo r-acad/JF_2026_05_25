@@ -2819,6 +2819,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     sol105_eigen_seeded_from_static = 0
     all_eigenvalues = Float64[]
     all_mode_shapes = Vector{Vector{Float64}}()
+    all_mode_metadata = Vector{Dict{String,Any}}()
     buckling_case_diagnostics = Any[]
     # Phase A1 (architectural-cleanup 2026-05-24): structured per-subcase
     # results. Container of Solver.BucklingSubcaseResult, one per buckling
@@ -3069,6 +3070,12 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         append!(all_eigenvalues, eigenvalues)
         for i in 1:size(mode_shapes, 2)
             push!(all_mode_shapes, mode_shapes[:, i])
+            push!(all_mode_metadata, Dict{String,Any}(
+                "buckling_subcase_id" => buck_sid,
+                "static_subcase_id" => stat_sid,
+                "subcase_mode_index" => i,
+                "global_mode_source_index" => length(all_mode_metadata) + 1,
+            ))
         end
 
         # Phase A1+A2: capture this subcase into the structured result.
@@ -3117,8 +3124,25 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         ))
     end
 
-    eigenvalues = all_eigenvalues
-    mode_shapes = isempty(all_mode_shapes) ? zeros(ndof, 0) : hcat(all_mode_shapes...)
+    if isempty(all_eigenvalues)
+        eigenvalues = Float64[]
+        mode_shapes = zeros(ndof, 0)
+        mode_metadata = Dict{String,Any}[]
+    else
+        # The structured per-subcase results preserve subcase-local order, but
+        # the legacy flat SOL105 list should expose the critical load factor
+        # first across all buckling subcases.
+        flat_order = sortperm(all_eigenvalues; by = lam ->
+            isfinite(lam) ? (lam > 0.0 ? 0 : 1, lam > 0.0 ? lam : abs(lam)) : (2, Inf))
+        eigenvalues = all_eigenvalues[flat_order]
+        mode_shapes_unsorted = isempty(all_mode_shapes) ? zeros(ndof, 0) : hcat(all_mode_shapes...)
+        mode_shapes = size(mode_shapes_unsorted, 2) == length(flat_order) ?
+            mode_shapes_unsorted[:, flat_order] :
+            mode_shapes_unsorted
+        mode_metadata = length(all_mode_metadata) == length(flat_order) ?
+            all_mode_metadata[flat_order] :
+            all_mode_metadata
+    end
 
     # Console output
     println("\n>>> ============================================")
@@ -3141,6 +3165,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         "sol_type" => 105,
         "eigenvalues" => collect(eigenvalues),
         "mode_shapes" => mode_shapes_out,
+        "mode_metadata" => mode_metadata,
         "solver_diagnostics" => buckling_case_diagnostics,
         # Phase A1 structured per-subcase result. Preferred API for off-line
         # MAC / Rayleigh-quotient parity, substitution probes, and exports.
@@ -3554,6 +3579,7 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
                 nothing
             export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id_map;
                 analysis_type="SOL105_BUCKLING", diagnostics=get(results, "solver_diagnostics", nothing),
+                mode_metadata=get(results, "mode_metadata", nothing),
                 buckling_subcases=sol105_subcases,
                 backend_metadata=_export_backend_metadata(results))
         end

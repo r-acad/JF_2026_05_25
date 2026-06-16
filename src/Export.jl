@@ -2315,6 +2315,7 @@ function build_buckling_export_payload(eigenvalues, mode_shapes, id_map;
                                        frequencies=nothing,
                                        mass_summary=nothing,
                                        modal_effective_mass=nothing,
+                                       mode_metadata=nothing,
                                        buckling_subcases=nothing,
                                        analysis_type="SOL105_BUCKLING",
                                        diagnostics=nothing,
@@ -2347,6 +2348,14 @@ function build_buckling_export_payload(eigenvalues, mode_shapes, id_map;
         end
         if eigenvalues !== nothing
             mode_entry["eigenvalue"] = eigenvalues[i]
+        end
+        if mode_metadata !== nothing && i <= length(mode_metadata)
+            meta = mode_metadata[i]
+            if meta isa AbstractDict
+                for (key, value) in meta
+                    mode_entry[string(key)] = value
+                end
+            end
         end
         push!(modes, mode_entry)
     end
@@ -3107,7 +3116,8 @@ end
 
 function export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id_map;
                               frequencies=nothing, mass_summary=nothing,
-                              modal_effective_mass=nothing, buckling_subcases=nothing,
+                              modal_effective_mass=nothing, mode_metadata=nothing,
+                              buckling_subcases=nothing,
                               analysis_type="SOL105_BUCKLING",
                               diagnostics=nothing,
                               backend_metadata=nothing)
@@ -3118,6 +3128,7 @@ function export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id
         frequencies=frequencies,
         mass_summary=mass_summary,
         modal_effective_mass=modal_effective_mass,
+        mode_metadata=mode_metadata,
         buckling_subcases=buckling_subcases,
         analysis_type=analysis_type,
         diagnostics=diagnostics,
