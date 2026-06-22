@@ -41,7 +41,7 @@ const SOL105_CALIBRATED_CONSTANTS = (
     # MacNeal RBF shear kernel (post-1978 calibration)
     # ─────────────────────────────────────────────────────────────────
     macneal_rbf_zb_scale = (
-        value           = 0.65,
+        value           = 1.28,
         env             = "JFEM_Q4_MACNEAL_RBF_ZB_SCALE",
         site            = "JFEM/src/FEMKernels.jl:4968",
         description     = "MacNeal 1978 RBF Zb residual-bending-flexibility scale.",
@@ -179,17 +179,15 @@ const SOL105_CALIBRATED_CONSTANTS = (
                            "max trusted 4.64%."),
     ),
     sol105_static_membrane_auto_load = (
-        value           = true,
+        value           = false,
         env             = "JFEM_SOL105_STATIC_MEMBRANE_INCOMP_AUTO_LOAD",
         site            = "JFEM/src/solver/helpers.jl:235 and JFEM/src/JFEMSolver.jl (_solve_sol105 static preload loop)",
-        description     = "Enable Wilson membrane modes in SOL105 static preload K only for load-classified simple compression subcases.",
-        provenance      = ("2026-06-03 SOL101-to-SOL105 transfer audit. Broad SOL101 membrane " *
-                           "transfer was rejected (synthetic/patch regressions up to 99.97%/48.40%), " *
-                           "and MacNeal-all was rejected for GAME regressions. The conservative " *
-                           "load-classified transfer improved NAST705 patch mean abs first-root " *
-                           "error from 3.16% to 2.67% and atomic mean from 9.17% to 9.09%, with no " *
-                           "new 5% gate failures. The TACS-formulation SOL105 route currently pins " *
-                           "this off until it has a native load-classified reassembly path."),
+        description     = "Opt-in legacy load-classified Wilson membrane modes in SOL105 static preload K.",
+        provenance      = ("2026-06-20 disabled by default. The current parity route must use " *
+                           "formulation, geometry, thickness, and material/laminate descriptors " *
+                           "only. The older 2026-06-03 load-classified transfer remains available " *
+                           "for diagnostics through the env key, but is not part of the production " *
+                           "SOL105 parity path."),
     ),
     # MITC4 shear-locking attenuation (phi2)
     # ─────────────────────────────────────────────────────────────────

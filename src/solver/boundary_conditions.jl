@@ -484,6 +484,9 @@ end
 end
 
 @inline function sol101_factorization_autospc_allow_trans_enabled(model)
+    if haskey(ENV, "JFEM_FACTOR_AUTOSPC_ALLOW_TRANSLATIONAL")
+        return solver_env_bool("JFEM_FACTOR_AUTOSPC_ALLOW_TRANSLATIONAL", true)
+    end
     return !(model !== nothing && _autospc_is_sol101(model)) ||
            solver_env_bool("JFEM_SOL101_FACTOR_AUTOSPC_ALLOW_TRANSLATIONAL", false)
 end
@@ -1339,7 +1342,10 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
                 end
             end
             perm = F_chol.p
-            sing_threshold = 1e-7
+            sing_threshold = max(
+                solver_env_float("JFEM_SOL101_POST_FACTOR_SINGULAR_PIVOT_THRESHOLD", 1e-7),
+                0.0,
+            )
             singular_local = findall(pivot_ratios .< sing_threshold)
             n_sing = length(singular_local)
             if n_sing > 0

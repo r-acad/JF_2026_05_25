@@ -172,7 +172,7 @@ function from_env()
         _env_float("JFEM_Q4_PHI2_ALPHA_LOWASPECT_HOL_MAX", 0.03),
         _env_float("JFEM_Q4_PHI2_ALPHA_LOWASPECT_ASPECT_MIN", 4.0),
         # MacNeal
-        _env_float("JFEM_Q4_MACNEAL_RBF_ZB_SCALE", 0.65),
+        _env_float("JFEM_Q4_MACNEAL_RBF_ZB_SCALE", 1.28),
         _env_float("JFEM_Q4_MACNEAL_WARP_TOL", 1e-4),
         _env_float("JFEM_Q4_MACNEAL_PCOMP_SURFACE_KAPPA_L_MAX", 1e-4),
         _env_float("JFEM_Q4_MACNEAL_PCOMP_THICK_H_OVER_L_MIN", 0.015),

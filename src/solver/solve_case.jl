@@ -2011,6 +2011,10 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         "solver_attempts" => Any[],
         "returned_modes" => 0,
     )
+    if solver_env_bool("JFEM_SOL105_STORE_EIGEN_PARTITION", false)
+        diagnostics["free_dof_indices"] = copy(free_dofs)
+        diagnostics["fixed_dof_indices"] = sort!(collect(fixed_dofs))
+    end
 
     t_slice = time_ns()
     K_ff  = eigen_ctx.K_ff
@@ -3070,6 +3074,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         (loc_top_kappa_v2_max > 0.0 && (!has_range || eigrl_v2 > loc_top_kappa_v2_max)) ?
         0.0 :
         loc_top_kappa_l_min_raw
+    loc_debug_top = solver_env_bool("JFEM_BUCKLING_LOCALIZATION_DEBUG_TOP", false)
     # Population/PID-concentration filters were removed from production
     # behavior. They can hide formulation defects by dropping modes based on
     # patch makeup; parity work must instead correct K, Kg, constraints, or the
@@ -3095,6 +3100,14 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         elem_geom_physical_local_keep = Bool[]
         elem_geom_keep_aspect = Float64[]
         elem_geom_keep_h_over_lmax = Float64[]
+        elem_geom_keep_pm45 = Float64[]
+        elem_geom_keep_pm90 = Float64[]
+        elem_geom_keep_ply_count = Int[]
+        elem_geom_keep_nemeth_alpha = Float64[]
+        elem_geom_keep_nemeth_beta = Float64[]
+        elem_geom_keep_nemeth_gamma = Float64[]
+        elem_geom_keep_nemeth_delta = Float64[]
+        elem_geom_keep_pid = String[]
         for (_, el) in model["CSHELLs"]
             nids = el["NODES"]
             n = length(nids)
@@ -3134,6 +3147,10 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 pm45_local = is_pcomp_prop ? pcomp_abs_angle_fraction(prop, 45.0) : 0.0
                 pm90_local = is_pcomp_prop ? pcomp_abs_angle_fraction(prop, 90.0) : 0.0
                 ply_count_local = is_pcomp_prop ? pcomp_ply_count(prop) : 0
+                nemeth_alpha_local, nemeth_beta_local, nemeth_gamma_local, nemeth_delta_local =
+                    is_pcomp_prop ?
+                    pcomp_nemeth_parameters(prop, 1.0 / max(aspect_local, 1.0)) :
+                    (0.0, 0.0, 0.0, 0.0)
                 geom_keep =
                     loc_keep_geom_physical_local &&
                     is_pcomp_prop &&
@@ -3150,11 +3167,19 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 push!(elem_geom_physical_local_keep, geom_keep)
                 push!(elem_geom_keep_aspect, aspect_local)
                 push!(elem_geom_keep_h_over_lmax, h_over_lmax_local)
+                push!(elem_geom_keep_pm45, pm45_local)
+                push!(elem_geom_keep_pm90, pm90_local)
+                push!(elem_geom_keep_ply_count, ply_count_local)
+                push!(elem_geom_keep_nemeth_alpha, nemeth_alpha_local)
+                push!(elem_geom_keep_nemeth_beta, nemeth_beta_local)
+                push!(elem_geom_keep_nemeth_gamma, nemeth_gamma_local)
+                push!(elem_geom_keep_nemeth_delta, nemeth_delta_local)
+                push!(elem_geom_keep_pid, pid_key)
             end
         end
         if !isempty(elem_nids)
             elem_top_kappa_l = zeros(Float64, length(elem_nids))
-            if loc_top_kappa_l_min > 0.0
+            if loc_top_kappa_l_min > 0.0 || loc_debug_top
                 elem_normals = zeros(Float64, length(elem_nids), 3)
                 node_normal_sum = zeros(Float64, length(id_map), 3)
                 for (ei, nids) in enumerate(elem_nids)
@@ -3284,6 +3309,24 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 if total_e > 0
                     share = max_e / total_e
                     topn_share = loc_topn_filter_enabled ? sum(topn_vals) / total_e : 0.0
+                    if loc_debug_top && max_ei > 0
+                        log_msg(
+                            "[BUCKLING] localization top mode: lambda=$(round(eigenvalues[k_idx]; sigdigits=6)) " *
+                            "share=$(round(100*share; digits=2))% " *
+                            "top$(loc_topn_count)_share=$(round(100*topn_share; digits=2))% " *
+                            "pid=$(elem_geom_keep_pid[max_ei]) " *
+                            "aspect=$(round(elem_geom_keep_aspect[max_ei]; digits=4)) " *
+                            "h/Lmax=$(round(elem_geom_keep_h_over_lmax[max_ei]; sigdigits=5)) " *
+                            "pm45=$(round(elem_geom_keep_pm45[max_ei]; digits=4)) " *
+                            "pm90=$(round(elem_geom_keep_pm90[max_ei]; digits=4)) " *
+                            "plies=$(elem_geom_keep_ply_count[max_ei]) " *
+                            "nemeth_alpha=$(round(elem_geom_keep_nemeth_alpha[max_ei]; sigdigits=5)) " *
+                            "nemeth_beta=$(round(elem_geom_keep_nemeth_beta[max_ei]; sigdigits=5)) " *
+                            "nemeth_gamma=$(round(elem_geom_keep_nemeth_gamma[max_ei]; sigdigits=5)) " *
+                            "nemeth_delta=$(round(elem_geom_keep_nemeth_delta[max_ei]; sigdigits=5)) " *
+                            "top_kappa_L=$(round(elem_top_kappa_l[max_ei]; sigdigits=5))",
+                        )
+                    end
                     top1_exceeded = share > loc_max_share
                     topn_exceeded = loc_topn_filter_enabled && topn_share > loc_topn_max_share
                     if top1_exceeded || topn_exceeded

@@ -1384,7 +1384,7 @@ include(joinpath(@__DIR__, "experimental", "hu_washizu_kernel.jl"))
 # Pre-allocated workspace `ws` eliminates ALL heap allocations in the hot loop
 # (~5M alloc saved across HTP_launch).
 # =============================================================================
-function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_assumed_mode::Symbol=:none, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env)
+function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_assumed_mode::Symbol=:none, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, macneal_rbf_zb_scale::Union{Nothing,Float64}=nothing)
     # Allow env-var override for marguerre_warp_to_uz so it can be enabled
     # globally without plumbing through every caller. Currently the assembly
     # loop doesn't pass this kwarg, so default is false. Env override:
@@ -1442,6 +1442,9 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             coords_3d=coords_3d,
             kernel_planar=kernel_planar,
             macneal_rigid_shear=macneal_rigid_shear,
+            kernel_mode=kernel_mode,
+            macneal_rbf_flex_mode=macneal_rbf_flex_mode,
+            macneal_rbf_zb_scale=macneal_rbf_zb_scale,
         )
         Ke_mem_default = stiffness_quad4_matrices(
             coords, Cm, zero_Cb, zero_Cs, h, E_ref;
@@ -1470,11 +1473,28 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             coords_3d=coords_3d,
             kernel_planar=kernel_planar,
             macneal_rigid_shear=false,
+            kernel_mode=kernel_mode,
+            macneal_rbf_flex_mode=macneal_rbf_flex_mode,
+            macneal_rbf_zb_scale=macneal_rbf_zb_scale,
         )
-        Ke_mem_exact = stiffness_quad4_membrane_hybrid_stress_matrices(coords, Cm, h)
-        return Ke_shell .+ Ke_mem_exact .- Ke_mem_default
+        exact_membrane_drill_penalty = lowercase(strip(
+            get(ENV, "JFEM_Q4_EXACT_MEMBRANE_DRILL_PENALTY", "true")
+        )) in ("1", "true", "yes", "on")
+        Ke_mem_exact = stiffness_quad4_membrane_hybrid_stress_matrices(
+            coords,
+            Cm,
+            h;
+            include_drill_penalty=exact_membrane_drill_penalty,
+        )
+        exact_membrane_blend_raw = strip(get(ENV, "JFEM_Q4_EXACT_MEMBRANE_BLEND", "1.0"))
+        exact_membrane_blend = clamp(
+            something(tryparse(Float64, exact_membrane_blend_raw), 1.0),
+            0.0,
+            1.0,
+        )
+        return Ke_shell .+ exact_membrane_blend .* (Ke_mem_exact .- Ke_mem_default)
     end
-    q4_kernel = lowercase(strip(get(ENV, "JFEM_Q4_KERNEL", "")))
+    q4_kernel = lowercase(strip(kernel_mode === nothing ? get(ENV, "JFEM_Q4_KERNEL", "") : string(kernel_mode)))
     huwashizu_kernel = q4_kernel in ("huwashizu", "hu-washizu", "hw")
     if huwashizu_kernel &&
        curvature_membrane === nothing &&
@@ -1543,6 +1563,9 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             macneal_rigid_shear=false,
             marguerre_warp_to_uz=false,
             min4_disable=true,
+            kernel_mode=kernel_mode,
+            macneal_rbf_flex_mode=macneal_rbf_flex_mode,
+            macneal_rbf_zb_scale=macneal_rbf_zb_scale,
         )
         # MIN4 bending + φ²·shear
         cbmin4_env = strip(get(ENV, "JFEM_MIN4_CBMIN4", ""))
@@ -1722,7 +1745,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # explicitly requested. The older anisotropic-only split remains available
     # as JFEM_Q4_KERNEL=macneal_pcomp; use JFEM_Q4_KERNEL=default (or any
     # unrecognized value) to force the legacy non-MacNeal path.
-    q4_kernel_mode = lowercase(strip(get(ENV, "JFEM_Q4_KERNEL", "macneal")))
+    q4_kernel_mode = lowercase(strip(kernel_mode === nothing ? get(ENV, "JFEM_Q4_KERNEL", "macneal") : string(kernel_mode)))
     macneal_default_kernel = q4_kernel_mode in (
         "macneal", "mitc4_3d_aspect", "mitc4-3d-aspect", "mitc3d_aspect", "mitc3d-aspect",
     )
@@ -2175,6 +2198,8 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             ws.Ke, coords, Cb, Cs, h;
             epsilon_rbf=macneal_rbf_eps,
             rigid_shear=macneal_rigid_shear,
+            flex_mode_override=macneal_rbf_flex_mode,
+            zb_scale_override=macneal_rbf_zb_scale,
         )
     end
 
@@ -2380,6 +2405,8 @@ function add_quad4_macneal_shear_rbf!(
     h;
     epsilon_rbf::Float64 = 0.04,
     rigid_shear::Bool = false,
+    flex_mode_override::Symbol = :env,
+    zb_scale_override::Union{Nothing,Float64} = nothing,
 )
     # Shortcut: skip if thickness or shear modulus is effectively zero
     if h < 1e-30 || (!rigid_shear && maximum(abs, Cs) < 1e-30)
@@ -2465,7 +2492,10 @@ function add_quad4_macneal_shear_rbf!(
     a_param = ε / (ε + (1.0 - ε) * Dx2 / max(Dy2, 1e-30))
     b_param = ε / (ε + (1.0 - ε) * Dy2 / max(Dx2, 1e-30))
 
-    flex_mode = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_BENDING_FLEX_MODE", "diag")))
+    flex_mode =
+        flex_mode_override === :full ? "full" :
+        flex_mode_override === :diag ? "diag" :
+        lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_BENDING_FLEX_MODE", "diag")))
     flex_x = 1.0 / max(abs(Cb[1,1]), 1e-30)
     flex_y = 1.0 / max(abs(Cb[2,2]), 1e-30)
     if flex_mode in ("full", "compliance", "matrix")
@@ -2506,28 +2536,27 @@ function add_quad4_macneal_shear_rbf!(
     swap_xy = length_mode in ("swap", "swapped", "cross")
     Lx2_rbf = swap_xy ? Dy2 : Dx2
     Ly2_rbf = swap_xy ? Dx2 : Dy2
-    # MacNeal RBF magnitude (zb_scale) default — empirical Nastran calibration.
-    # Probe-library result (2026-05-14): zb_scale = 0.65 reproduces Nastran's
-    # CQUAD4 per-element K to within 3-5% across all flat-shell MAT1/MAT8/PCOMP
-    # probes (aspect 1-20, thickness h/L 0.001-0.033, orthotropy E1/E2 1-20,
-    # laminate 3-17 plies). JFEM's prior default of 1.0 over-applied the
-    # MacNeal RBF by ~50%. Promoted to default 2026-05-14 after GAME validation
-    # showed zero parity change at this value (mean 6.40%, max 17.81%
-    # unchanged) — the K/Kg cascade absorbs the per-element K shift for
-    # SOL105 eigenvalues, but per-element K parity improves substantially.
+    # MacNeal RBF magnitude (zb_scale) default. The production SOL105 profile
+    # uses the validated geometry/material MacNeal-Nemeth branch; retain the
+    # paper value through an explicit environment override when auditing.
     #
     # JFEM_Q4_MACNEAL_RBF_ZB_SCALE_LEGACY: set to "true" to restore the old
-    # 1.0 default if a downstream pipeline depends on the previous K magnitude.
+    # 0.65 empirical default if a downstream pipeline depends on the previous K
+    # magnitude.
     legacy_zb = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_SCALE_LEGACY", ""))) in ("1","true","yes","on")
     default_zb_scale = if legacy_zb
-        rigid_shear ? (2.0 / 3.0) : 1.0
+        rigid_shear ? (2.0 / 3.0) : 0.65
     elseif rigid_shear
         2.0 / 3.0
     else
-        0.65
+        1.28
     end
-    zb_scale_raw = tryparse(Float64, strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_SCALE", string(default_zb_scale))))
-    zb_scale = zb_scale_raw === nothing ? default_zb_scale : max(zb_scale_raw, 1e-12)
+    zb_scale = if zb_scale_override === nothing
+        zb_scale_raw = tryparse(Float64, strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_SCALE", string(default_zb_scale))))
+        zb_scale_raw === nothing ? default_zb_scale : max(zb_scale_raw, 1e-12)
+    else
+        max(Float64(zb_scale_override), 1e-12)
+    end
     # ---------------------------------------------------------------------
     # Per-direction RBF decomposition (added 2026-05-22).
     # The 2×2 sub-block Zb_xx (and Zb_yy) on the γ_x (γ_y) samples has two
@@ -2845,6 +2874,22 @@ end
 # JFEM_SOL105_EIG_FLAT_PCOMP_DKMQ / _RECT_ADINI / _PLATE_BRANCH env knobs
 # (all default false).
 include(joinpath(@__DIR__, "experimental", "plate_kernels.jl"))
+
+# Rectangular CQUAD4 KDJJ synthesis from private MATPRN operator triplets.
+# Experimental and opt-in only via JFEM_SOL105_KG_RECT_SYNTH.
+include(joinpath(@__DIR__, "experimental", "nastran_rect_kg_synth.jl"))
+
+# Tapered CQUAD4 KDJJ synthesis from private MATPRN operator triplets.
+# Experimental and opt-in only via JFEM_SOL105_KG_TAPER_SYNTH.
+include(joinpath(@__DIR__, "experimental", "nastran_tapered_kg_synth.jl"))
+
+# Rectangular CQUAD4 KGG synthesis from private MATPRN elastic operators.
+# Experimental and opt-in only via JFEM_SOL105_K_RECT_SYNTH.
+include(joinpath(@__DIR__, "experimental", "nastran_rect_k_synth.jl"))
+
+# Tapered CQUAD4 KGG synthesis from private MATPRN elastic operators.
+# Experimental and opt-in only via JFEM_SOL105_K_TAPER_SYNTH.
+include(joinpath(@__DIR__, "experimental", "nastran_tapered_k_synth.jl"))
 
 
 function compute_principal_2d(s11, s22, s12)
@@ -3887,9 +3932,10 @@ end
                                                scale::Float64,
                                                s_xx::Float64,
                                                s_yy::Float64,
-                                               s_xy::Float64)
+                                               s_xy::Float64,
+                                               block_scale::Float64=1.0)
     @inbounds @fastmath for j in eachindex(gdx), i in eachindex(gdx)
-        Kg[i, j] += scale * (
+        Kg[i, j] += block_scale * scale * (
             s_xx * gdx[i] * gdx[j] +
             s_yy * gdy[i] * gdy[j] +
             s_xy * (gdx[i] * gdy[j] + gdy[i] * gdx[j])
@@ -3934,11 +3980,15 @@ end
     p22_factor::Float64,
     p12_factor::Float64,
     z_factor::Float64,
+    local_u_factor::Float64=1.0,
+    local_v_factor::Float64=1.0,
+    local_uv_factor::Float64=1.0,
+    local_w_factor::Float64=1.0,
 )
     abs(lambda) <= 1e-30 && return Kg
-    p11 = s * s
-    p22 = p22_factor * c * c
-    p12 = p12_factor * -c * s
+    p11 = local_u_factor * s * s
+    p22 = local_v_factor * p22_factor * c * c
+    p12 = local_uv_factor * p12_factor * -c * s
     factor = scale * lambda
     @inbounds @fastmath for j in eachindex(dux_dx), i in eachindex(dux_dx)
         gux_i = c * dux_dx[i] + s * dux_dy[i]
@@ -3951,7 +4001,7 @@ end
             p11 * gux_i * gux_j +
             p22 * guy_i * guy_j +
             p12 * (gux_i * guy_j + guy_i * gux_j) +
-            z_factor * guz_i * guz_j
+            local_w_factor * z_factor * guz_i * guz_j
         )
     end
     return Kg
@@ -3973,6 +4023,10 @@ end
     shear_xy_factor::Float64=1.0,
     shear_z_factor::Float64=1.0,
     shear_ratio_min::Float64=1.0,
+    local_u_factor::Float64=1.0,
+    local_v_factor::Float64=1.0,
+    local_uv_factor::Float64=1.0,
+    local_w_factor::Float64=1.0,
 )
     l1, c1, s1, l2, c2, s2 = principal_stress_2d_components(s_xx, s_yy, s_xy)
     denom = abs(s_xx) + abs(s_yy) + abs(s_xy)
@@ -3982,10 +4036,12 @@ end
     z_factor = shear_ratio >= shear_ratio_min ? shear_z_factor : 1.0
     add_geometric_principal_transverse_direction!(
         Kg, dux_dx, dux_dy, duy_dx, duy_dy, duz_dx, duz_dy,
-        scale, l1, c1, s1, p22_factor, p12_factor, z_factor)
+        scale, l1, c1, s1, p22_factor, p12_factor, z_factor,
+        local_u_factor, local_v_factor, local_uv_factor, local_w_factor)
     add_geometric_principal_transverse_direction!(
         Kg, dux_dx, dux_dy, duy_dx, duy_dy, duz_dx, duz_dy,
-        scale, l2, c2, s2, p22_factor, p12_factor, z_factor)
+        scale, l2, c2, s2, p22_factor, p12_factor, z_factor,
+        local_u_factor, local_v_factor, local_uv_factor, local_w_factor)
     return Kg
 end
 
@@ -4004,19 +4060,23 @@ end
     p22_factor::Float64,
     p12_factor::Float64,
     z_factor::Float64,
+    local_u_factor::Float64=1.0,
+    local_v_factor::Float64=1.0,
+    local_uv_factor::Float64=1.0,
+    local_w_factor::Float64=1.0,
 )
     abs(lambda) <= 1e-30 && return Kg
     gi = c * dNi_dx + s * dNi_dy
     gj = c * dNj_dx + s * dNj_dy
     val = scale * lambda * gi * gj
-    p11 = s * s
-    p22 = p22_factor * c * c
-    p12 = p12_factor * -c * s
+    p11 = local_u_factor * s * s
+    p22 = local_v_factor * p22_factor * c * c
+    p12 = local_uv_factor * p12_factor * -c * s
     Kg[row0 + 1, col0 + 1] += val * p11
     Kg[row0 + 1, col0 + 2] += val * p12
     Kg[row0 + 2, col0 + 1] += val * p12
     Kg[row0 + 2, col0 + 2] += val * p22
-    Kg[row0 + 3, col0 + 3] += z_factor * val
+    Kg[row0 + 3, col0 + 3] += local_w_factor * z_factor * val
     return Kg
 end
 
@@ -4036,6 +4096,10 @@ end
     shear_xy_factor::Float64=1.0,
     shear_z_factor::Float64=1.0,
     shear_ratio_min::Float64=1.0,
+    local_u_factor::Float64=1.0,
+    local_v_factor::Float64=1.0,
+    local_uv_factor::Float64=1.0,
+    local_w_factor::Float64=1.0,
 )
     l1, c1, s1, l2, c2, s2 = principal_stress_2d_components(s_xx, s_yy, s_xy)
     denom = abs(s_xx) + abs(s_yy) + abs(s_xy)
@@ -4045,10 +4109,12 @@ end
     z_factor = shear_ratio >= shear_ratio_min ? shear_z_factor : 1.0
     add_geometric_principal_transverse_pair_direction!(
         Kg, row0, col0, dNi_dx, dNi_dy, dNj_dx, dNj_dy,
-        scale, l1, c1, s1, p22_factor, p12_factor, z_factor)
+        scale, l1, c1, s1, p22_factor, p12_factor, z_factor,
+        local_u_factor, local_v_factor, local_uv_factor, local_w_factor)
     add_geometric_principal_transverse_pair_direction!(
         Kg, row0, col0, dNi_dx, dNi_dy, dNj_dx, dNj_dy,
-        scale, l2, c2, s2, p22_factor, p12_factor, z_factor)
+        scale, l2, c2, s2, p22_factor, p12_factor, z_factor,
+        local_u_factor, local_v_factor, local_uv_factor, local_w_factor)
     return Kg
 end
 
@@ -4720,6 +4786,25 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                                     principal_shear_ratio_min::Float64=1.0)
     Kg = zeros(24, 24)
     if h < 1e-30; return Kg; end
+    local_trans_split = fem_env_bool("JFEM_KG_SHELL_LOCAL_TRANS_SPLIT", false)
+    local_trans_scales =
+        local_trans_split ?
+        (
+            max(fem_env_float("JFEM_KG_SHELL_LOCAL_U_SCALE", 1.0), 0.0),
+            max(fem_env_float("JFEM_KG_SHELL_LOCAL_V_SCALE", 1.0), 0.0),
+            max(fem_env_float("JFEM_KG_SHELL_LOCAL_W_SCALE", 1.0), 0.0),
+        ) :
+        (1.0, 1.0, 1.0)
+    local_uv_scale =
+        local_trans_split ?
+        max(
+            fem_env_float(
+                "JFEM_KG_SHELL_LOCAL_UV_SCALE",
+                sqrt(local_trans_scales[1] * local_trans_scales[2]),
+            ),
+            0.0,
+        ) :
+        1.0
 
     pt = 1.0 / sqrt(3.0)
     gauss_pts = (SVector(-pt,-pt), SVector(pt,-pt), SVector(pt,pt), SVector(-pt,pt))
@@ -4921,7 +5006,7 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                     end
                 end
             elseif trans_mode === :normal_only
-                add_geometric_gradient_block!(Kg, duz_dx, duz_dy, scale, s_xx, s_yy, s_xy)
+                add_geometric_gradient_block!(Kg, duz_dx, duz_dy, scale, s_xx, s_yy, s_xy, local_trans_scales[3])
             elseif trans_mode === :principal_transverse
                 add_geometric_principal_transverse_block!(
                     Kg,
@@ -4939,11 +5024,15 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                     principal_shear_xy_factor,
                     principal_shear_z_factor,
                     principal_shear_ratio_min,
+                    local_trans_scales[1],
+                    local_trans_scales[2],
+                    local_uv_scale,
+                    local_trans_scales[3],
                 )
             else
-                add_geometric_gradient_block!(Kg, dux_dx, dux_dy, scale, s_xx, s_yy, s_xy)
-                add_geometric_gradient_block!(Kg, duy_dx, duy_dy, scale, s_xx, s_yy, s_xy)
-                add_geometric_gradient_block!(Kg, duz_dx, duz_dy, scale, s_xx, s_yy, s_xy)
+                add_geometric_gradient_block!(Kg, dux_dx, dux_dy, scale, s_xx, s_yy, s_xy, local_trans_scales[1])
+                add_geometric_gradient_block!(Kg, duy_dx, duy_dy, scale, s_xx, s_yy, s_xy, local_trans_scales[2])
+                add_geometric_gradient_block!(Kg, duz_dx, duz_dy, scale, s_xx, s_yy, s_xy, local_trans_scales[3])
                 if rot_grad_scale > 0.0
                     for i in 1:4
                         dNi_dx = iJ11*dNr[i] + iJ12*dNs[i]
@@ -5105,12 +5194,22 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                                 principal_shear_xy_factor,
                                 principal_shear_z_factor,
                                 principal_shear_ratio_min,
+                                local_trans_scales[1],
+                                local_trans_scales[2],
+                                local_uv_scale,
+                                local_trans_scales[3],
                             )
                         else
                             for d in 1:3
                                 row = (i-1)*6 + d
                                 col = (j-1)*6 + d
-                                Kg[row, col] += val
+                                Kg[row, col] += local_trans_scales[d] * val
+                            end
+                            if local_uv_scale != 0.0
+                                row0 = (i - 1) * 6
+                                col0 = (j - 1) * 6
+                                Kg[row0 + 1, col0 + 2] += local_uv_scale * val
+                                Kg[row0 + 2, col0 + 1] += local_uv_scale * val
                             end
                             if rot_grad_scale > 0.0
                                 rot_val = rot_grad_scale * (h^3 / 12.0) * abs_detJ * (
@@ -5235,7 +5334,29 @@ function geometric_stiffness_tria3(coords::AbstractMatrix, sigma_mem::AbstractVe
                 val = h * A * (s_xx * bv[i] * bv[j] +
                                s_yy * cv[i] * cv[j] +
                                s_xy * (bv[i] * cv[j] + cv[i] * bv[j]))
-                if trans_mode === :normal_only
+                if trans_mode === :surface_normal || trans_mode === :normal_projector
+                    n_gp = cross(a_r, a_s) / dA
+                    row0 = (i - 1) * 6
+                    col0 = (j - 1) * 6
+                    for p in 1:3
+                        np = n_gp[p]
+                        row = row0 + p
+                        for q in 1:3
+                            Kg[row, col0 + q] += val * np * n_gp[q]
+                        end
+                    end
+                elseif trans_mode === :surface_tangent || trans_mode === :tangent_projector
+                    n_gp = cross(a_r, a_s) / dA
+                    row0 = (i - 1) * 6
+                    col0 = (j - 1) * 6
+                    for p in 1:3
+                        row = row0 + p
+                        for q in 1:3
+                            projector_pq = (p == q ? 1.0 : 0.0) - n_gp[p] * n_gp[q]
+                            Kg[row, col0 + q] += val * projector_pq
+                        end
+                    end
+                elseif trans_mode === :normal_only
                     row = (i-1)*6 + 3
                     col = (j-1)*6 + 3
                     Kg[row, col] += val
@@ -5256,7 +5377,11 @@ end
 function geometric_stiffness_quad4_covariant(coords3d::AbstractMatrix, sigma_mem::AbstractVector, h::Float64,
                                              basis1::SVector{3,Float64}, basis2::SVector{3,Float64};
                                              trans_mode::Symbol=:all,
-                                             rot_grad_scale::Float64=0.0)
+                                             rot_grad_scale::Float64=0.0,
+                                             principal_shear_yy_factor::Float64=1.0,
+                                             principal_shear_xy_factor::Float64=1.0,
+                                             principal_shear_z_factor::Float64=1.0,
+                                             principal_shear_ratio_min::Float64=1.0)
     sigma_gp = zeros(4, 3)
     @inbounds for gp in 1:4
         sigma_gp[gp, 1] = sigma_mem[1]
@@ -5265,13 +5390,21 @@ function geometric_stiffness_quad4_covariant(coords3d::AbstractMatrix, sigma_mem
     end
     return geometric_stiffness_quad4_covariant(coords3d, sigma_gp, h, basis1, basis2;
                                                trans_mode=trans_mode,
-                                               rot_grad_scale=rot_grad_scale)
+                                               rot_grad_scale=rot_grad_scale,
+                                               principal_shear_yy_factor=principal_shear_yy_factor,
+                                               principal_shear_xy_factor=principal_shear_xy_factor,
+                                               principal_shear_z_factor=principal_shear_z_factor,
+                                               principal_shear_ratio_min=principal_shear_ratio_min)
 end
 
 function geometric_stiffness_quad4_covariant(coords3d::AbstractMatrix, sigma_mem_gp::AbstractMatrix, h::Float64,
                                              basis1::SVector{3,Float64}, basis2::SVector{3,Float64};
                                              trans_mode::Symbol=:all,
-                                             rot_grad_scale::Float64=0.0)
+                                             rot_grad_scale::Float64=0.0,
+                                             principal_shear_yy_factor::Float64=1.0,
+                                             principal_shear_xy_factor::Float64=1.0,
+                                             principal_shear_z_factor::Float64=1.0,
+                                             principal_shear_ratio_min::Float64=1.0)
     Kg = zeros(24, 24)
     if h < 1e-30; return Kg; end
 
@@ -5326,6 +5459,26 @@ function geometric_stiffness_quad4_covariant(coords3d::AbstractMatrix, sigma_mem
                     row = (i-1)*6 + 3
                     col = (j-1)*6 + 3
                     Kg[row, col] += val
+                elseif trans_mode === :principal_transverse
+                    row0 = (i - 1) * 6
+                    col0 = (j - 1) * 6
+                    add_geometric_principal_transverse_pair!(
+                        Kg,
+                        row0,
+                        col0,
+                        dNi_dx,
+                        dNi_dy,
+                        dNj_dx,
+                        dNj_dy,
+                        h * dA,
+                        s_xx,
+                        s_yy,
+                        s_xy,
+                        principal_shear_yy_factor,
+                        principal_shear_xy_factor,
+                        principal_shear_z_factor,
+                        principal_shear_ratio_min,
+                    )
                 else
                     for d in 1:3
                         row = (i-1)*6 + d

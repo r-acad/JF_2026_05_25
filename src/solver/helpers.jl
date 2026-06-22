@@ -233,14 +233,11 @@ end
 end
 
 @inline function sol105_static_membrane_incomp_auto_load_enabled()
-    # Default ON for the Nastran-parity SOL105 route (2026-06-03). This is a
-    # conservative transfer from the SOL101 membrane-enrichment work: enable
-    # Wilson membrane modes only on simple compression subcases accepted by the
-    # same direct-FORCE load classifier used by Kg stress-field auto mode.
-    # Broad static membrane bubbles still remain OFF through
-    # JFEM_SOL105_STATIC_MEMBRANE_INCOMP=false because they regress shear/mixed
-    # guardrails and the GAME reference set.
-    return solver_env_bool("JFEM_SOL105_STATIC_MEMBRANE_INCOMP_AUTO_LOAD", true)
+    # Default OFF (2026-06-20). Earlier parity experiments enabled Wilson
+    # membrane modes for load-classified simple-compression subcases. The
+    # current SOL105 route must stay formulation/geometry/material driven, so
+    # load-state gating is opt-in only.
+    return solver_env_bool("JFEM_SOL105_STATIC_MEMBRANE_INCOMP_AUTO_LOAD", false)
 end
 
 @inline function q4_sol105_static_pcomp_membrane_incomp_aspect_enabled()
@@ -706,7 +703,11 @@ end
 end
 
 @inline function q4_sol105_nonflat_pcomp_normal_only_kg_enabled()
-    return solver_env_bool("JFEM_SOL105_KG_NONFLAT_PCOMP_NORMAL_ONLY", true)
+    # Default off: MATPRN/KDJJ CQUAD4 probes show that non-flat anisotropic
+    # PCOMP differential stiffness carries in-plane translational coupling.
+    # The old normal-only path remains available as an explicit research
+    # override through JFEM_SOL105_KG_NONFLAT_PCOMP_NORMAL_ONLY=true.
+    return solver_env_bool("JFEM_SOL105_KG_NONFLAT_PCOMP_NORMAL_ONLY", false)
 end
 
 @inline function q4_flat_pcomp_auto_g12_enabled()

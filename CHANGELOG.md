@@ -6,6 +6,81 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Disabled the SOL105 static membrane incompatible-mode auto-load selector by
+  default (`JFEM_SOL105_STATIC_MEMBRANE_INCOMP_AUTO_LOAD=false`). The legacy
+  load-classified branch remains available as an explicit diagnostic override,
+  but production parity work now avoids load/stress-state formulation gates.
+- Added an opt-in SOL105 CQUAD4 differential-stiffness diagnostic hook
+  (`JFEM_KG_SHELL_LOCAL_TRANS_SPLIT=true`) that separates local translational
+  `u`, `v`, `u-v`, and `w` component weights in the generic and
+  principal-transverse `Kg` operators. The hook is neutral by default and is
+  intended only for private formulation-identification campaigns.
+- Added an opt-in SOL105 buckling diagnostic partition export
+  (`JFEM_SOL105_STORE_EIGEN_PARTITION=true`) so private matrix parity tools can
+  compare `K`/`Kg` on the exact free-DOF set used by the eigensolver without
+  changing default user runs.
+- Added an opt-in experimental SOL105 flat rectangular CQUAD4 `Kg` synthesis
+  branch (`JFEM_SOL105_KG_RECT_SYNTH=true`) reconstructed from Nastran MATPRN
+  operator triplets as a geometry-only `q`, `1/q`, and constant metric law.
+  The branch is disabled by default while it is validated on larger meshes.
+  Added neutral rectangular-only `Nxx`, `Nyy`, and `Nxy` component probes
+  (`JFEM_SOL105_KG_RECT_SYNTH_NXX_SCALE`, `..._NYY_SCALE`, and
+  `..._NXY_SCALE`) for private operator-sensitivity campaigns.
+- Added an opt-in experimental SOL105 flat rectangular PCOMP CQUAD4 elastic
+  `K` synthesis branch (`JFEM_SOL105_K_RECT_SYNTH=true`) reconstructed from
+  Nastran MATPRN `KGG` operators as a geometry/material law using `Cm`, `Cb`,
+  `Cs`, `q^3`, `q^2`, `q`, `1`, `1/q`, `1/q^2`, and `1/q^3`. The branch
+  affects only the separate SOL105 eigen-stiffness path and remains disabled
+  by default. Added `JFEM_SOL105_K_RECT_SYNTH_BLEND` so the experimental
+  synthesized operator can be studied as a continuous generic formulation
+  correction rather than only as a hard replacement. Added optional component
+  blends (`..._INPLANE_BLEND`, `..._PLATE_BLEND`, `..._W_BLEND`,
+  `..._ROT_BLEND`, `..._WROT_BLEND`, `..._COUPLING_BLEND`, and
+  `..._DRILL_BLEND`) to identify which formulation subspaces drive SOL105
+  parity without using case names, element IDs, groups, or stress-state gates.
+- Added generic geometry-gated membrane component scale hooks
+  (`JFEM_Q4_STATIC_COMPONENT_CM11_SCALE`, `..._CM22_SCALE`, `..._CM66_SCALE`,
+  plus eigen-K counterparts `JFEM_Q4_EIG_COMPONENT_CM11_SCALE`,
+  `..._CM22_SCALE`, `..._CM66_SCALE`) for SOL105/SOL101 formulation studies.
+  They default to neutral values and use symmetric constitutive scaling rather
+  than case-name or stress-state rules.
+- Generalized the opt-in SOL105 PCOMP Nemeth-invariant `Kg` selector from a
+  fixed four-band sweep to a bounded configurable band count
+  (`JFEM_SOL105_NEMETH_PCOMP_KG_BAND_COUNT`, default six). Bands remain keyed
+  only by element geometry, thickness, and laminate bending invariants.
+- Added opt-in SOL105 PCOMP CQUAD4 `Kg` selector diagnostics and gates based on
+  Nemeth laminate invariants (`alpha_inf`, `beta`, `gamma`, `delta`) computed
+  from the laminate bending stiffness matrix, together with local
+  geometry/thickness metrics. The new path avoids case names, property/element
+  ids, stress-state discriminators, and external calibration tables.
+- Added geometry/material-only SOL105 CQUAD4 PCOMP selector refinements for
+  first-buckling-root parity: high transverse-shear laminates now use gated
+  `Kg` transverse z scaling by `Cs/Cm`, aspect ratio, `h/Lmax`, taper, and
+  curvature, while ordinary low-`Cs/Cm` moderate-thickness laminates use a
+  small gated `Kg` scale. No case names, element IDs, group IDs, stress-state
+  features, or external calibration tables are used.
+- Restored the SOL105 CQUAD4 geometric-stiffness stress-field default to fixed
+  Gauss recovery and removed the default Q4 membrane-resultant amplification
+  (`JFEM_KG_QUAD4_MEMBRANE_SCALE=1.0`). The production default no longer uses
+  the stress-resultant-dependent `auto` selector.
+- Reinstated the last verified geometry/material SOL105 PCOMP defaults for the
+  static MITC4-3D aspect route and the taper/high-aspect/low-aspect `Kg`
+  selectors, while keeping newer exploratory geometry bands neutral unless
+  explicitly enabled.
+- Restored the generic SOL105 shell membrane-resultant normalization
+  (`JFEM_KG_SHELL_NXX_SCALE`, `JFEM_KG_SHELL_NYY_SCALE`, and
+  `JFEM_KG_SHELL_NXY_SCALE`) to the verified `0.989` default.
+- Changed the SOL105 non-flat anisotropic PCOMP CQUAD4 `Kg` selector so the
+  production default keeps the full principal-transverse translational
+  differential-stiffness operator instead of forcing a normal-only branch.
+  Matrix-level Nastran KDJJ probes show the non-flat composite operator carries
+  in-plane translational coupling; the old normal-only branch is now an
+  explicit research override.
+- Fixed the SOL105 CQUAD4 static/eigen kernel plumbing so
+  `JFEM_Q4_KERNEL_STATIC` and `JFEM_Q4_KERNEL_EIG` are honored by the low-level
+  shell stiffness kernel instead of only by wrapper-side formulation gates.
+  This keeps split static/eigen formulation probes honest while preserving the
+  existing default `JFEM_Q4_KERNEL` behavior.
 - Added per-mode subcase metadata to SOL105 buckling JSON exports so private
   MAC and mode-shape diagnostics can compare each buckling subcase without
   guessing mode ownership from the globally sorted flat eigenvalue list.
@@ -28,6 +103,10 @@ Versions follow [Semantic Versioning](https://semver.org/).
   bending scale so curvature-side formulation probes can be scoped by aspect,
   thickness ratio, laminate fractions, and ply count without case-specific or
   stress-state calibration.
+- Added a neutral cylindricity lower-bound gate for the SOL105 curved-PCOMP
+  MacNeal bending scale and a second opt-in low-aspect/high-curvature PCOMP
+  `Kg` refinement hook. Both are disabled by default unless explicitly selected
+  by geometry/material campaign flags.
 - Tightened and promoted the SOL105 thin high-aspect PCOMP `Kg` laminate gate
   for flat ±45-rich strips using aspect, `h/Lmax`, curvature, and laminate
   fraction limits only; this closes the focused Mfg651 first-root miss without
