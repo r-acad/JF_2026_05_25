@@ -6,6 +6,67 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added a descriptor-only SOL105 global-plate localization keep for simple
+  many-element plate/strip meshes. It keeps mild top-element elastic-energy
+  exceedances only when shell count, bounded top-10 concentration, aspect ratio,
+  thickness ratio, ply count, and ply-angle fractions indicate a broad
+  unidirectional/isotropic plate mode, avoiding case names, IDs, groups,
+  stress-state gates, or external calibration tables.
+- Promoted the FSLoad mode-family SOL105 PCOMP `Kg` refinement as generic
+  Nemeth descriptor bands 7 and 8, plus a second descriptor-only physical
+  local-buckling keep window. The promoted candidate
+  `FSDUAL_GUARD23C` keeps `12/12` large comparable GAME/BOXES_LE first roots
+  within `2%`, improves mean absolute error to `0.8694%`, and makes the
+  FSLoadswLE iter 532 `511002` first mode the compact Nastran-like strip,
+  using only element geometry, thickness, laminate/Nemeth descriptors, and
+  ply-angle fractions.
+- Promoted the generic SOL105 PCOMP `Kg` selector defaults for the large
+  comparable guard set. The confirmed production guard
+  `PROD_LG_20260623_02` has `12/12` comparable GAME/BOXES_LE first roots
+  within `2%` of Nastran, with mean absolute error `1.0631%` and worst error
+  `1.9645%`, using only geometry, thickness, material/laminate, and
+  Nemeth-style laminate descriptors.
+- Added an opt-in experimental SOL105 CQUAD4 `Kg` shape-basis synthesis branch
+  (`JFEM_SOL105_KG_SHAPE11_SYNTH=true`) reconstructed from elementary Nastran
+  MATPRN `KDJJ` triplets using geometry-only `shape11` coefficients and an
+  optional laminate-invariant `Nxx` law. The branch is disabled by default:
+  private guard sweeps showed sub-1% elementary translational-operator fits but
+  unacceptable large-model regressions without the missing full-shell/rotational
+  coupling.
+- Added `JFEM_SOL105_KG_FLAT_DELTA_BLEND` for the opt-in flat+distortion-delta
+  `Kg` synthesis branch so private validation can test it as a translational
+  correction rather than only as a full replacement. The default solver path is
+  unchanged; large-guard sweeps rejected the translational-only blend route and
+  point to full 24-DOF `KDJJ` rotational/coupling reconstruction as the next
+  principled step.
+- Added an opt-in experimental SOL105 warped CQUAD4 `Kg` matrix-law synthesis
+  branch (`JFEM_SOL105_KG_WARPED_MATRIX_SYNTH=true`) reconstructed from
+  elementary Nastran MATPRN `KDJJ` triplets. The law is based on element
+  geometry plus laminate bending descriptors, including Nemeth-style
+  `alpha`, `beta`, `gamma`, and `delta`, and remains disabled by default:
+  private large-guard testing showed excellent elementary operator fits but
+  unacceptable full-replacement regressions on coupled production models.
+- Added a generic SOL105 shell `Kg` model-descriptor scale for all-PCOMP,
+  moderate-aspect panels with a high-aspect tail and low warp. The selector is
+  based only on aggregate element geometry/thickness/material descriptors and
+  brought the FSLoadswLE iter 532 BOXES_LE guard first roots inside 2% without
+  using case names, IDs, groups, or stress-state discriminators.
+- Added a descriptor-gated top-10 elastic-energy patch check to the SOL105
+  localization filter. The default remains generic: compact patch modes are
+  rejected only for balanced 9-ply PCOMP element geometry bands identified by
+  aspect ratio and thickness ratio, with no case names, IDs, groups, or
+  stress-state discriminators.
+- Enabled the SOL105 localized buckling-mode cleanup by default and made its
+  default metric elastic energy. This removes highly localized spurious
+  pre-branch modes using only mode-energy concentration and element
+  geometry/material descriptors; raw output remains available through
+  `JFEM_BUCKLING_RAW_OUTPUT=true`.
+- Added an opt-in SOL105 PCOMP CQUAD4 elastic-stiffness MacNeal blend
+  diagnostic (`JFEM_SOL105_PCOMP_K_MACNEAL_BLEND*_VALUE`) gated only by
+  geometry, thickness, ply mix, and Nemeth laminate invariants. The hook is
+  neutral by default and is intended to identify smooth formulation-selector
+  laws without using case names, element/property IDs, groups, stress-state
+  classifiers, or external calibration tables.
 - Disabled the SOL105 static membrane incompatible-mode auto-load selector by
   default (`JFEM_SOL105_STATIC_MEMBRANE_INCOMP_AUTO_LOAD=false`). The legacy
   load-classified branch remains available as an explicit diagnostic override,

@@ -2961,8 +2961,8 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         valid_idx[sortperm(eigenvalues[valid_idx])]
 
     # JFEM_BUCKLING_LOCALIZATION_FILTER (2026-05-14 evening): drop modes whose
-    # translation-energy participation is dominated by a single element
-    # (max element share > threshold). Mechanism: certain kernel-stiffening
+    # element participation is dominated by a single element (default metric:
+    # elastic energy; max element share > threshold). Mechanism: certain kernel-stiffening
     # flag combinations (notably `JFEM_PCOMP_RIGID_TS_LITERAL=true` with low
     # `JFEM_PCOMP_RIGID_TS_CS_SCALE`) produce spurious low-magnitude modes
     # localized on tight clusters of 4-8 adjacent elements. Empirically, the
@@ -2991,14 +2991,47 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     # locfilter is aggressive). Override via env to relax (0.20) or tighten
     # (0.05) per deck.
     loc_max_share = opts.localization_filter_max_share
-    loc_topn_count = max(solver_env_int("JFEM_BUCKLING_LOCALIZATION_TOPN_COUNT", 0), 0)
+    loc_topn_count = max(solver_env_int("JFEM_BUCKLING_LOCALIZATION_TOPN_COUNT", 10), 0)
     loc_topn_max_share = clamp(
-        solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_MAX_SHARE", 0.0),
+        solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_MAX_SHARE", 0.40),
         0.0,
         1.0,
     )
     loc_topn_filter_enabled = loc_topn_count > 1 && loc_topn_max_share > 0.0
-    loc_metric_raw = lowercase(strip(get(ENV, "JFEM_BUCKLING_LOCALIZATION_METRIC", "translation")))
+    loc_topn_descriptor_gate =
+        solver_env_bool("JFEM_BUCKLING_LOCALIZATION_TOPN_DESCRIPTOR_GATE", true)
+    loc_topn_balanced_pm_min =
+        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_BALANCED_PM_MIN", 0.20), 0.0, 1.0)
+    loc_topn_balanced_pm_max =
+        clamp(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_BALANCED_PM_MAX", 0.25),
+            loc_topn_balanced_pm_min,
+            1.0,
+        )
+    loc_topn_lowasp_aspect_max =
+        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_LOWASP_ASPECT_MAX", 1.35), 1.0)
+    loc_topn_lowasp_h_over_l_min =
+        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_LOWASP_H_OVER_L_MIN", 0.030), 0.0)
+    loc_topn_lowasp_h_over_l_max =
+        max(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_LOWASP_H_OVER_L_MAX", 0.040),
+            loc_topn_lowasp_h_over_l_min,
+        )
+    loc_topn_highasp_aspect_min =
+        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_HIGHASP_ASPECT_MIN", 5.80), 1.0)
+    loc_topn_highasp_aspect_max =
+        max(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_HIGHASP_ASPECT_MAX", 6.50),
+            loc_topn_highasp_aspect_min,
+        )
+    loc_topn_highasp_h_over_l_min =
+        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_HIGHASP_H_OVER_L_MIN", 0.0134), 0.0)
+    loc_topn_highasp_h_over_l_max =
+        max(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_HIGHASP_H_OVER_L_MAX", 0.0140),
+            loc_topn_highasp_h_over_l_min,
+        )
+    loc_metric_raw = lowercase(strip(get(ENV, "JFEM_BUCKLING_LOCALIZATION_METRIC", "elastic")))
     loc_elastic_energy_metric = loc_metric_raw in ("elastic", "stiffness", "k", "strain")
     loc_metric_label = loc_elastic_energy_metric ? "elastic" : "translation"
 
@@ -3052,11 +3085,84 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             solver_env_int("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM_PLY_COUNT_MAX", 9),
             loc_keep_geom_ply_count_min,
         )
+    loc_keep_geom2_enabled =
+        solver_env_bool("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_ENABLED", true)
+    loc_keep_geom2_aspect_min =
+        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_ASPECT_MIN", 1.05), 1.0)
+    loc_keep_geom2_aspect_max =
+        max(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_ASPECT_MAX", 1.25),
+            loc_keep_geom2_aspect_min,
+        )
+    loc_keep_geom2_h_over_lmax_min =
+        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_H_OVER_LMAX_MIN", 0.0350), 0.0)
+    loc_keep_geom2_h_over_lmax_max =
+        max(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_H_OVER_LMAX_MAX", 0.0385),
+            loc_keep_geom2_h_over_lmax_min,
+        )
+    loc_keep_geom2_pm45_min =
+        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_PM45_MIN", 0.20), 0.0, 1.0)
+    loc_keep_geom2_pm45_max =
+        clamp(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_PM45_MAX", 0.25),
+            loc_keep_geom2_pm45_min,
+            1.0,
+        )
+    loc_keep_geom2_pm90_min =
+        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_PM90_MIN", 0.20), 0.0, 1.0)
+    loc_keep_geom2_pm90_max =
+        clamp(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_PM90_MAX", 0.25),
+            loc_keep_geom2_pm90_min,
+            1.0,
+        )
+    loc_keep_geom2_ply_count_min =
+        max(solver_env_int("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_PLY_COUNT_MIN", 9), 0)
+    loc_keep_geom2_ply_count_max =
+        max(
+            solver_env_int("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_PLY_COUNT_MAX", 9),
+            loc_keep_geom2_ply_count_min,
+        )
     loc_keep_geom_topn_share_min = clamp(
         solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM_TOPN_SHARE_MIN", 0.0),
         0.0,
         1.0,
     )
+    # Regular plate-strip elementary guards can have a legitimate global mode
+    # whose highest element carries slightly more energy than the large-mesh
+    # aircraft guards. Keep only mild top-1 exceedances on simple laminate or
+    # isotropic many-element plates; compact patch modes remain rejected by
+    # the top-N and laminate/geometry gates below.
+    loc_keep_global_plate_enabled =
+        solver_env_bool("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE", true)
+    loc_keep_global_plate_min_elements = max(
+        solver_env_int("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_MIN_ELEMENTS", 150),
+        loc_min_elements,
+    )
+    loc_keep_global_plate_share_max = clamp(
+        solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_MAX_SHARE", 0.145),
+        loc_max_share,
+        1.0,
+    )
+    loc_keep_global_plate_topn_share_max = clamp(
+        solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_TOPN_MAX_SHARE", 0.75),
+        0.0,
+        1.0,
+    )
+    loc_keep_global_plate_aspect_min =
+        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_ASPECT_MIN", 1.0), 1.0)
+    loc_keep_global_plate_aspect_max =
+        max(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_ASPECT_MAX", 2.50),
+            loc_keep_global_plate_aspect_min,
+        )
+    loc_keep_global_plate_h_over_lmax_max =
+        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_H_OVER_LMAX_MAX", 0.20), 0.0)
+    loc_keep_global_plate_ply_count_max =
+        max(solver_env_int("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_PLY_COUNT_MAX", 6), 0)
+    loc_keep_global_plate_pm_max =
+        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_PM_MAX", 0.05), 0.0, 1.0)
     n_cshells_total = haskey(model, "CSHELLs") ? length(model["CSHELLs"]) : 0
     loc_top_kappa_raw = strip(get(ENV, "JFEM_BUCKLING_LOCALIZATION_TOP_KAPPA_L_MIN", ""))
     loc_top_kappa_l_min_raw = isempty(loc_top_kappa_raw) ? 0.0 :
@@ -3151,9 +3257,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     is_pcomp_prop ?
                     pcomp_nemeth_parameters(prop, 1.0 / max(aspect_local, 1.0)) :
                     (0.0, 0.0, 0.0, 0.0)
-                geom_keep =
-                    loc_keep_geom_physical_local &&
-                    is_pcomp_prop &&
+                geom_keep_band1 =
                     aspect_local >= loc_keep_geom_aspect_min &&
                     aspect_local <= loc_keep_geom_aspect_max &&
                     h_over_lmax_local >= loc_keep_geom_h_over_lmax_min &&
@@ -3164,6 +3268,22 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     pm90_local <= loc_keep_geom_pm90_max &&
                     ply_count_local >= loc_keep_geom_ply_count_min &&
                     ply_count_local <= loc_keep_geom_ply_count_max
+                geom_keep_band2 =
+                    loc_keep_geom2_enabled &&
+                    aspect_local >= loc_keep_geom2_aspect_min &&
+                    aspect_local <= loc_keep_geom2_aspect_max &&
+                    h_over_lmax_local >= loc_keep_geom2_h_over_lmax_min &&
+                    h_over_lmax_local <= loc_keep_geom2_h_over_lmax_max &&
+                    pm45_local >= loc_keep_geom2_pm45_min &&
+                    pm45_local <= loc_keep_geom2_pm45_max &&
+                    pm90_local >= loc_keep_geom2_pm90_min &&
+                    pm90_local <= loc_keep_geom2_pm90_max &&
+                    ply_count_local >= loc_keep_geom2_ply_count_min &&
+                    ply_count_local <= loc_keep_geom2_ply_count_max
+                geom_keep =
+                    loc_keep_geom_physical_local &&
+                    is_pcomp_prop &&
+                    (geom_keep_band1 || geom_keep_band2)
                 push!(elem_geom_physical_local_keep, geom_keep)
                 push!(elem_geom_keep_aspect, aspect_local)
                 push!(elem_geom_keep_h_over_lmax, h_over_lmax_local)
@@ -3249,6 +3369,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             dropped_info = Tuple{Int, Float64, Float64, Float64, Float64, String}[]   # (orig_idx, lambda, top1 share, top kappa_L, top-N share, reason)
             kept_high_info = Tuple{Int, Float64, Float64, Float64}[]
             geom_kept_info = Tuple{Int, Float64, Float64, Float64, Float64, Float64}[]
+            global_plate_kept_info = Tuple{Int, Float64, Float64, Float64, Float64, Int, Float64, Float64}[]
             patch_kept_info = Tuple{Int, Float64, Float64, Float64, Float64, Float64}[]
             broad_dropped_info = Tuple{Int, Float64, Float64, Float64, Float64}[]
             patch_keep_enabled = false
@@ -3328,7 +3449,38 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                         )
                     end
                     top1_exceeded = share > loc_max_share
-                    topn_exceeded = loc_topn_filter_enabled && topn_share > loc_topn_max_share
+                    raw_topn_exceeded = loc_topn_filter_enabled && topn_share > loc_topn_max_share
+                    topn_descriptor_match = false
+                    if raw_topn_exceeded
+                        if !loc_topn_descriptor_gate
+                            topn_descriptor_match = true
+                        elseif max_ei > 0 && max_ei <= length(elem_geom_keep_aspect)
+                            aspect_local = elem_geom_keep_aspect[max_ei]
+                            h_over_lmax_local = elem_geom_keep_h_over_lmax[max_ei]
+                            pm45_local = elem_geom_keep_pm45[max_ei]
+                            pm90_local = elem_geom_keep_pm90[max_ei]
+                            ply_count_local = elem_geom_keep_ply_count[max_ei]
+                            balanced_9ply =
+                                ply_count_local == 9 &&
+                                pm45_local >= loc_topn_balanced_pm_min &&
+                                pm45_local <= loc_topn_balanced_pm_max &&
+                                pm90_local >= loc_topn_balanced_pm_min &&
+                                pm90_local <= loc_topn_balanced_pm_max
+                            low_aspect_thick =
+                                balanced_9ply &&
+                                aspect_local <= loc_topn_lowasp_aspect_max &&
+                                h_over_lmax_local >= loc_topn_lowasp_h_over_l_min &&
+                                h_over_lmax_local <= loc_topn_lowasp_h_over_l_max
+                            high_aspect_thin =
+                                balanced_9ply &&
+                                aspect_local >= loc_topn_highasp_aspect_min &&
+                                aspect_local <= loc_topn_highasp_aspect_max &&
+                                h_over_lmax_local >= loc_topn_highasp_h_over_l_min &&
+                                h_over_lmax_local <= loc_topn_highasp_h_over_l_max
+                            topn_descriptor_match = low_aspect_thick || high_aspect_thin
+                        end
+                    end
+                    topn_exceeded = raw_topn_exceeded && topn_descriptor_match
                     if top1_exceeded || topn_exceeded
                         top_kappa_l = max_ei > 0 ? elem_top_kappa_l[max_ei] : 0.0
                         geom_keep_mode =
@@ -3339,6 +3491,31 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                                 loc_keep_geom_topn_share_min <= 0.0 ||
                                 (loc_topn_filter_enabled && topn_share >= loc_keep_geom_topn_share_min)
                             )
+                        global_plate_keep_mode = false
+                        if max_ei > 0 && max_ei <= length(elem_geom_keep_aspect)
+                            aspect_local = elem_geom_keep_aspect[max_ei]
+                            h_over_lmax_local = elem_geom_keep_h_over_lmax[max_ei]
+                            pm45_local = elem_geom_keep_pm45[max_ei]
+                            pm90_local = elem_geom_keep_pm90[max_ei]
+                            ply_count_local = elem_geom_keep_ply_count[max_ei]
+                            simple_laminate_or_isotropic =
+                                ply_count_local <= loc_keep_global_plate_ply_count_max &&
+                                pm45_local <= loc_keep_global_plate_pm_max &&
+                                pm90_local <= loc_keep_global_plate_pm_max
+                            topn_ok =
+                                !loc_topn_filter_enabled ||
+                                topn_share <= loc_keep_global_plate_topn_share_max
+                            global_plate_keep_mode =
+                                loc_keep_global_plate_enabled &&
+                                n_cshells_total >= loc_keep_global_plate_min_elements &&
+                                top1_exceeded &&
+                                share <= loc_keep_global_plate_share_max &&
+                                topn_ok &&
+                                aspect_local >= loc_keep_global_plate_aspect_min &&
+                                aspect_local <= loc_keep_global_plate_aspect_max &&
+                                h_over_lmax_local <= loc_keep_global_plate_h_over_lmax_max &&
+                                simple_laminate_or_isotropic
+                        end
                         if geom_keep_mode
                             push!(
                                 geom_kept_info,
@@ -3351,9 +3528,23 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                                     topn_share,
                                 ),
                             )
+                        elseif global_plate_keep_mode
+                            push!(
+                                global_plate_kept_info,
+                                (
+                                    k_idx,
+                                    eigenvalues[k_idx],
+                                    share,
+                                    topn_share,
+                                    elem_geom_keep_aspect[max_ei],
+                                    elem_geom_keep_ply_count[max_ei],
+                                    elem_geom_keep_pm45[max_ei],
+                                    elem_geom_keep_pm90[max_ei],
+                                ),
+                            )
                         elseif loc_top_kappa_l_min <= 0.0 || top_kappa_l >= loc_top_kappa_l_min
-                            reason = top1_exceeded && topn_exceeded ? "top1+top$(loc_topn_count)" :
-                                     topn_exceeded ? "top$(loc_topn_count)" : "top1"
+                            reason = top1_exceeded && topn_exceeded ? "top1+top$(loc_topn_count)-descriptor" :
+                                     topn_exceeded ? "top$(loc_topn_count)-descriptor" : "top1"
                             push!(
                                 dropped_info,
                                 (k_idx, eigenvalues[k_idx], share, top_kappa_l, topn_share, reason),
@@ -3370,14 +3561,19 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 append!(surviving, @view sorted_idx[(loc_scan_limit + 1):end])
             end
             if !isempty(dropped_info) || !isempty(broad_dropped_info) ||
-               !isempty(patch_kept_info) || !isempty(geom_kept_info)
+               !isempty(patch_kept_info) || !isempty(geom_kept_info) ||
+               !isempty(global_plate_kept_info)
                 if !isempty(dropped_info)
+                    topn_clause = loc_topn_filter_enabled ?
+                        " or gated top$(loc_topn_count) share > $(round(100*loc_topn_max_share; digits=1))%" :
+                        ""
                     log_msg("[BUCKLING] localization filter: dropped $(length(dropped_info)) of " *
                             "$(length(loc_eval_idx)) scanned modes (top-element share > " *
-                            "$(round(100*loc_max_share; digits=1))%)")
+                            "$(round(100*loc_max_share; digits=1))%$(topn_clause))")
                 end
-                for (_k_idx, lam, sh, kap, _topn_sh, _reason) in dropped_info[1:min(5, length(dropped_info))]
+                for (_k_idx, lam, sh, kap, _topn_sh, reason) in dropped_info[1:min(5, length(dropped_info))]
                     suffix = loc_top_kappa_l_min > 0.0 ? ", top_kappa_L=$(round(kap; sigdigits=4))" : ""
+                    suffix *= ", reason=$(reason)"
                     log_msg("[BUCKLING]   skip λ=$(round(lam; sigdigits=5)) (share=$(round(100*sh; digits=1))%$suffix)")
                 end
                 if !isempty(broad_dropped_info)
@@ -3407,6 +3603,16 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                                 "h/Lmax=$(round(h_lmax; sigdigits=4)))")
                     end
                 end
+                if !isempty(global_plate_kept_info)
+                    log_msg("[BUCKLING] localization global-plate keep: kept $(length(global_plate_kept_info)) " *
+                            "mild high-share mode(s) on simple many-element plate meshes")
+                    for (_k_idx, lam, sh, topn_sh, asp, ply_count, pm45, pm90) in global_plate_kept_info[1:min(5, length(global_plate_kept_info))]
+                        topn_label = loc_topn_filter_enabled ? ", top$(loc_topn_count)=$(round(100*topn_sh; digits=1))%" : ""
+                        log_msg("[BUCKLING]   keep lambda=$(round(lam; sigdigits=5)) " *
+                                "(share=$(round(100*sh; digits=1))%$topn_label, aspect=$(round(asp; digits=3)), " *
+                                "plies=$(ply_count), pm45=$(round(pm45; digits=3)), pm90=$(round(pm90; digits=3)))")
+                    end
+                end
                 if !isempty(patch_kept_info)
                     log_msg("[BUCKLING] localization patch keep: kept $(length(patch_kept_info)) high-share mode(s) " *
                             "with top2 share <= $(round(100*patch_keep_top2_share_max; digits=1))% and " *
@@ -3425,6 +3631,24 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     "topn_filter_enabled" => loc_topn_filter_enabled,
                     "topn_count" => loc_topn_count,
                     "topn_max_share" => loc_topn_max_share,
+                    "topn_descriptor_gate" => loc_topn_descriptor_gate,
+                    "topn_balanced_pm_range" => [
+                        loc_topn_balanced_pm_min,
+                        loc_topn_balanced_pm_max,
+                    ],
+                    "topn_lowaspect_aspect_max" => loc_topn_lowasp_aspect_max,
+                    "topn_lowaspect_h_over_lmax_range" => [
+                        loc_topn_lowasp_h_over_l_min,
+                        loc_topn_lowasp_h_over_l_max,
+                    ],
+                    "topn_highaspect_aspect_range" => [
+                        loc_topn_highasp_aspect_min,
+                        loc_topn_highasp_aspect_max,
+                    ],
+                    "topn_highaspect_h_over_lmax_range" => [
+                        loc_topn_highasp_h_over_l_min,
+                        loc_topn_highasp_h_over_l_max,
+                    ],
                     "top_kappa_l_min" => loc_top_kappa_l_min,
                     "top_kappa_l_min_raw" => loc_top_kappa_l_min_raw,
                     "top_kappa_l_min_nmodes_min" => loc_top_kappa_modes_min,
@@ -3452,7 +3676,40 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                         loc_keep_geom_ply_count_min,
                         loc_keep_geom_ply_count_max,
                     ],
+                    "geom_physical_local2_keep_enabled" => loc_keep_geom2_enabled,
+                    "geom_physical_local2_aspect_range" => [
+                        loc_keep_geom2_aspect_min,
+                        loc_keep_geom2_aspect_max,
+                    ],
+                    "geom_physical_local2_h_over_lmax_range" => [
+                        loc_keep_geom2_h_over_lmax_min,
+                        loc_keep_geom2_h_over_lmax_max,
+                    ],
+                    "geom_physical_local2_pm45_range" => [
+                        loc_keep_geom2_pm45_min,
+                        loc_keep_geom2_pm45_max,
+                    ],
+                    "geom_physical_local2_pm90_range" => [
+                        loc_keep_geom2_pm90_min,
+                        loc_keep_geom2_pm90_max,
+                    ],
+                    "geom_physical_local2_ply_count_range" => [
+                        loc_keep_geom2_ply_count_min,
+                        loc_keep_geom2_ply_count_max,
+                    ],
                     "geom_physical_local_topn_share_min" => loc_keep_geom_topn_share_min,
+                    "global_plate_keep_enabled" => loc_keep_global_plate_enabled,
+                    "global_plate_kept" => length(global_plate_kept_info),
+                    "global_plate_min_elements" => loc_keep_global_plate_min_elements,
+                    "global_plate_max_share" => loc_keep_global_plate_share_max,
+                    "global_plate_topn_max_share" => loc_keep_global_plate_topn_share_max,
+                    "global_plate_aspect_range" => [
+                        loc_keep_global_plate_aspect_min,
+                        loc_keep_global_plate_aspect_max,
+                    ],
+                    "global_plate_h_over_lmax_max" => loc_keep_global_plate_h_over_lmax_max,
+                    "global_plate_ply_count_max" => loc_keep_global_plate_ply_count_max,
+                    "global_plate_pm_max" => loc_keep_global_plate_pm_max,
                     "patch_keep_enabled" => patch_keep_enabled,
                     "patch_kept" => length(patch_kept_info),
                     "broad_strip_enabled" => broad_strip_filter_enabled,

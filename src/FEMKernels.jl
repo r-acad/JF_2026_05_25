@@ -2883,6 +2883,20 @@ include(joinpath(@__DIR__, "experimental", "nastran_rect_kg_synth.jl"))
 # Experimental and opt-in only via JFEM_SOL105_KG_TAPER_SYNTH.
 include(joinpath(@__DIR__, "experimental", "nastran_tapered_kg_synth.jl"))
 
+# Geometry-law CQUAD4 KDJJ synthesis from private MATPRN operator triplets.
+# Experimental and opt-in only via JFEM_SOL105_KG_SHAPE11_SYNTH.
+include(joinpath(@__DIR__, "experimental", "nastran_shape11_kg_synth.jl"))
+
+# Flat-baseline plus distortion-delta CQUAD4 KDJJ synthesis from private
+# elementary MATPRN operator triplets. Experimental and opt-in only via
+# JFEM_SOL105_KG_FLAT_DELTA_SYNTH.
+include(joinpath(@__DIR__, "experimental", "nastran_flat_delta_kg_synth.jl"))
+
+# Warped rectangular CQUAD4 KDJJ synthesis from private elementary MATPRN
+# operator triplets. Experimental and opt-in only via
+# JFEM_SOL105_KG_WARPED_MATRIX_SYNTH.
+include(joinpath(@__DIR__, "experimental", "nastran_warped_matrix_kg_synth.jl"))
+
 # Rectangular CQUAD4 KGG synthesis from private MATPRN elastic operators.
 # Experimental and opt-in only via JFEM_SOL105_K_RECT_SYNTH.
 include(joinpath(@__DIR__, "experimental", "nastran_rect_k_synth.jl"))
@@ -4805,6 +4819,10 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
             0.0,
         ) :
         1.0
+    local_uv_nxy_scale =
+        local_trans_split ?
+        max(fem_env_float("JFEM_KG_SHELL_LOCAL_UV_NXY_SCALE", local_uv_scale), 0.0) :
+        local_uv_scale
 
     pt = 1.0 / sqrt(3.0)
     gauss_pts = (SVector(-pt,-pt), SVector(pt,-pt), SVector(pt,pt), SVector(-pt,pt))
@@ -5205,11 +5223,18 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                                 col = (j-1)*6 + d
                                 Kg[row, col] += local_trans_scales[d] * val
                             end
-                            if local_uv_scale != 0.0
+                            if local_uv_scale != 0.0 || local_uv_nxy_scale != 0.0
                                 row0 = (i - 1) * 6
                                 col0 = (j - 1) * 6
-                                Kg[row0 + 1, col0 + 2] += local_uv_scale * val
-                                Kg[row0 + 2, col0 + 1] += local_uv_scale * val
+                                uv_val = h * abs_detJ * (
+                                    local_uv_scale * (
+                                        s_xx * dNi_dx * dNj_dx +
+                                        s_yy * dNi_dy * dNj_dy
+                                    ) +
+                                    local_uv_nxy_scale * s_xy * sxy_term
+                                )
+                                Kg[row0 + 1, col0 + 2] += uv_val
+                                Kg[row0 + 2, col0 + 1] += uv_val
                             end
                             if rot_grad_scale > 0.0
                                 rot_val = rot_grad_scale * (h^3 / 12.0) * abs_detJ * (

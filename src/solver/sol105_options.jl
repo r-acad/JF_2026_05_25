@@ -31,7 +31,7 @@ Fields are grouped by concern:
   Filters
     raw_output                       bypass both localization + cluster filters
     localization_filter_enabled      drop modes with single-element share above threshold
-    localization_filter_max_share    threshold (default 0.10)
+    localization_filter_max_share    threshold (default 0.12)
     cluster_filter_enabled           opt-in spectral-gap skip for known low-mode clutter
     cluster_filter_ratio             spectral-gap ratio (default 1.25)
 
@@ -162,8 +162,8 @@ function from_env()
     return SOL105Options(
         # Filters
         _env_bool("JFEM_BUCKLING_RAW_OUTPUT", false),
-        _env_bool("JFEM_BUCKLING_LOCALIZATION_FILTER", false),
-        _env_float("JFEM_BUCKLING_LOCALIZATION_MAX_SHARE", 0.10),
+        _env_bool("JFEM_BUCKLING_LOCALIZATION_FILTER", true),
+        _env_float("JFEM_BUCKLING_LOCALIZATION_MAX_SHARE", 0.12),
         _env_bool("JFEM_BUCKLING_CLUSTER_FILTER", false),
         _env_float("JFEM_BUCKLING_CLUSTER_FILTER_RATIO", 1.25),
         # phi2
