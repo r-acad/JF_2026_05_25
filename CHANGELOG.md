@@ -6,20 +6,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
-- Added an opt-in descriptor-rich SOL105 CQUAD4 `Nxy` differential-stiffness
-  synthesis branch (`JFEM_SOL105_KG_NXY_PC_PATCH_BLEND`) generated from
-  elementary MATPRN `KDJJ` triplets. The selector and operator inputs use only
-  flat-element geometry, laminate bending/Nemeth descriptors, and
-  thickness-weighted ply orientation descriptors. The branch is disabled by
-  default and is protected by a generic element-operator delta cap
-  (`JFEM_SOL105_KG_NXY_PC_PATCH_DELTA_MAX_REL`) while large-guard validation is
-  pending. The generated kernel was revised to act as a residual correction
-  over the default JFEM `Nxy` operator, rather than as an absolute replacement,
-  after private guards showed the residual form is scale-safe on large models.
-  A `25%` opt-in blend kept the current 12-row large comparable SOL105 guard
-  inside `2%` with mean absolute first-root error `0.7930%` and worst error
-  `1.9690%`; the branch remains opt-in because the existing NAST705 N4 probe
-  blocker still requires a separate full nonflat CQUAD4 `K/Kg` operator fix.
+- Added opt-in axis-rich SOL105 CQUAD4 unit-resultant residual-PC `Kg` patches
+  for `Nxx`, `Nxy`, and `Nyy`, generated from elementary MATPRN `KDJJ`
+  triplets. The runtime branch is disabled by default and can be enabled with
+  `JFEM_SOL105_KG_AXIS_PC_PATCH_BLEND` or component-specific blend flags
+  (`JFEM_SOL105_KG_NXX_PC_PATCH_BLEND`,
+  `JFEM_SOL105_KG_NXY_PC_PATCH_BLEND`,
+  `JFEM_SOL105_KG_NYY_PC_PATCH_BLEND`). Inputs remain generic: flat-element
+  geometry, laminate ABD/Nemeth descriptors, thickness-weighted ply orientation
+  descriptors, and no case names, groups, IDs, stress-state gates, or external
+  calibration tables. On the 12-row large comparable private SOL105 guard, a
+  `10%` opt-in all-axis blend kept `12/12` rows within `2%`, improved mean
+  absolute first-root error from `0.8694%` to `0.7662%`, and kept worst error
+  at `1.9592%`; `25%` and `50%` blends also stayed within `2%` but trade mean
+  error for slightly lower worst-case error. The branch remains opt-in while
+  broader probe/N4 coverage is evaluated.
 - Added a descriptor-only SOL105 global-plate localization keep for simple
   many-element plate/strip meshes. It keeps mild top-element elastic-energy
   exceedances only when shell count, bounded top-10 concentration, aspect ratio,

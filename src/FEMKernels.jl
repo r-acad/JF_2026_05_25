@@ -2887,10 +2887,12 @@ include(joinpath(@__DIR__, "experimental", "nastran_tapered_kg_synth.jl"))
 # Experimental and opt-in only via JFEM_SOL105_KG_SHAPE11_SYNTH.
 include(joinpath(@__DIR__, "experimental", "nastran_shape11_kg_synth.jl"))
 
-# Descriptor-rich nxy CQUAD4 KDJJ synthesis from private elementary MATPRN
-# operator triplets. Experimental and opt-in only via
-# JFEM_SOL105_KG_NXY_PC_PATCH_BLEND.
+# Descriptor-rich unit-resultant CQUAD4 KDJJ synthesis from private elementary
+# MATPRN operator triplets. Experimental and opt-in only via
+# JFEM_SOL105_KG_AXIS_PC_PATCH_BLEND or the component-specific blend flags.
+include(joinpath(@__DIR__, "experimental", "nastran_nxx_pc_patch_kg_synth.jl"))
 include(joinpath(@__DIR__, "experimental", "nastran_nxy_pc_patch_kg_synth.jl"))
+include(joinpath(@__DIR__, "experimental", "nastran_nyy_pc_patch_kg_synth.jl"))
 
 # Flat-baseline plus distortion-delta CQUAD4 KDJJ synthesis from private
 # elementary MATPRN operator triplets. Experimental and opt-in only via

@@ -8419,7 +8419,25 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     kg_pid_nxx_tl = [Dict{Int,Float64}() for _ in 1:nt_kg]
     kg_pid_nyy_tl = [Dict{Int,Float64}() for _ in 1:nt_kg]
     kg_pid_nxy_tl = [Dict{Int,Float64}() for _ in 1:nt_kg]
-    nxy_pc_patch_debug = solver_env_bool("JFEM_SOL105_KG_NXY_PC_PATCH_DEBUG", false)
+    axis_pc_patch_blend_default =
+        clamp(solver_env_float("JFEM_SOL105_KG_AXIS_PC_PATCH_BLEND", 0.0), 0.0, 1.0)
+    nxx_pc_patch_blend_cfg =
+        clamp(solver_env_float("JFEM_SOL105_KG_NXX_PC_PATCH_BLEND", axis_pc_patch_blend_default), 0.0, 1.0)
+    nxy_pc_patch_blend_cfg =
+        clamp(solver_env_float("JFEM_SOL105_KG_NXY_PC_PATCH_BLEND", axis_pc_patch_blend_default), 0.0, 1.0)
+    nyy_pc_patch_blend_cfg =
+        clamp(solver_env_float("JFEM_SOL105_KG_NYY_PC_PATCH_BLEND", axis_pc_patch_blend_default), 0.0, 1.0)
+    axis_pc_patch_delta_max_rel_default =
+        max(solver_env_float("JFEM_SOL105_KG_AXIS_PC_PATCH_DELTA_MAX_REL", 0.25), 0.0)
+    nxx_pc_patch_delta_max_rel_cfg =
+        max(solver_env_float("JFEM_SOL105_KG_NXX_PC_PATCH_DELTA_MAX_REL", axis_pc_patch_delta_max_rel_default), 0.0)
+    nxy_pc_patch_delta_max_rel_cfg =
+        max(solver_env_float("JFEM_SOL105_KG_NXY_PC_PATCH_DELTA_MAX_REL", axis_pc_patch_delta_max_rel_default), 0.0)
+    nyy_pc_patch_delta_max_rel_cfg =
+        max(solver_env_float("JFEM_SOL105_KG_NYY_PC_PATCH_DELTA_MAX_REL", axis_pc_patch_delta_max_rel_default), 0.0)
+    axis_pc_patch_debug = solver_env_bool("JFEM_SOL105_KG_AXIS_PC_PATCH_DEBUG", false)
+    nxy_pc_patch_debug =
+        axis_pc_patch_debug || solver_env_bool("JFEM_SOL105_KG_NXY_PC_PATCH_DEBUG", false)
     nxy_pc_patch_debug_limit =
         max(Int(round(solver_env_float("JFEM_SOL105_KG_NXY_PC_PATCH_DEBUG_LIMIT", 8.0))), 0)
     nxy_pc_patch_seen_tl = zeros(Int, nt_kg)
@@ -10521,10 +10539,6 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             end
             rect_nxy_synth_blend =
                 clamp(solver_env_float("JFEM_SOL105_KG_RECT_NXY_SYNTH_BLEND", 0.0), 0.0, 1.0)
-            nxy_pc_patch_blend =
-                clamp(solver_env_float("JFEM_SOL105_KG_NXY_PC_PATCH_BLEND", 0.0), 0.0, 1.0)
-            nxy_pc_patch_delta_max_rel =
-                max(solver_env_float("JFEM_SOL105_KG_NXY_PC_PATCH_DELTA_MAX_REL", 0.25), 0.0)
             if rect_nxy_synth_blend > 0.0 &&
                !rect_synth_requested &&
                elem_is_flat_kg &&
@@ -10565,7 +10579,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     Kg_loc[ii, jj] +=
                         rect_nxy_synth_blend * (Kg_rect_nxy[ii, jj] - Kg_default_nxy[ii, jj])
                 end
-            elseif nxy_pc_patch_blend > 0.0 &&
+            elseif nxy_pc_patch_blend_cfg > 0.0 &&
                    !rect_synth_requested &&
                    !kg_global_ready &&
                    elem_is_flat_kg &&
@@ -10628,11 +10642,11 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     default_norm2 += Kg_default_nxy[ii, jj] * Kg_default_nxy[ii, jj]
                 end
                 delta_scale = 1.0
-                if isfinite(nxy_pc_patch_delta_max_rel) &&
-                   nxy_pc_patch_delta_max_rel > 0.0 &&
+                if isfinite(nxy_pc_patch_delta_max_rel_cfg) &&
+                   nxy_pc_patch_delta_max_rel_cfg > 0.0 &&
                    delta_norm2 > 0.0 &&
                    default_norm2 > 0.0
-                    max_delta = nxy_pc_patch_delta_max_rel * sqrt(default_norm2)
+                    max_delta = nxy_pc_patch_delta_max_rel_cfg * sqrt(default_norm2)
                     delta_norm = sqrt(delta_norm2)
                     if delta_norm > max_delta
                         delta_scale = max_delta / delta_norm
@@ -10659,12 +10673,165 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                         nemeth_gamma=pcomp_nemeth_gamma_kg,
                         nemeth_delta=pcomp_nemeth_delta_kg,
                     )
-                    @info "SOL105 Nxy PC patch Kg candidate" eid=shell_eids[_shell_ei] delta_scale=delta_scale delta_norm=sqrt(delta_norm2) default_norm=sqrt(default_norm2) delta_max_rel=nxy_pc_patch_delta_max_rel blend=nxy_pc_patch_blend aspect=aspect_ratio_kg h=h frac0=ply_desc.frac0 frac90=ply_desc.frac90 fracp45=ply_desc.fracp45 fracm45=ply_desc.fracm45 nemeth_alpha=pcomp_nemeth_alpha_kg nemeth_beta=pcomp_nemeth_beta_kg nemeth_gamma=pcomp_nemeth_gamma_kg nemeth_delta=pcomp_nemeth_delta_kg pc_z_rms=pc_metrics.z_rms pc_z_max=pc_metrics.z_max pc_score_l2=pc_metrics.score_l2 pc_score_max=pc_metrics.score_max
+                    @info "SOL105 Nxy PC patch Kg candidate" eid=shell_eids[_shell_ei] delta_scale=delta_scale delta_norm=sqrt(delta_norm2) default_norm=sqrt(default_norm2) delta_max_rel=nxy_pc_patch_delta_max_rel_cfg blend=nxy_pc_patch_blend_cfg aspect=aspect_ratio_kg h=h frac0=ply_desc.frac0 frac90=ply_desc.frac90 fracp45=ply_desc.fracp45 fracm45=ply_desc.fracm45 nemeth_alpha=pcomp_nemeth_alpha_kg nemeth_beta=pcomp_nemeth_beta_kg nemeth_gamma=pcomp_nemeth_gamma_kg nemeth_delta=pcomp_nemeth_delta_kg pc_z_rms=pc_metrics.z_rms pc_z_max=pc_metrics.z_max pc_score_l2=pc_metrics.score_l2 pc_score_max=pc_metrics.score_max
                 end
                 @inbounds @fastmath for jj in 1:24, ii in 1:24
                     Kg_loc[ii, jj] +=
-                        nxy_pc_patch_blend * delta_scale *
+                        nxy_pc_patch_blend_cfg * delta_scale *
                         (Kg_nxy_pc_patch[ii, jj] - Kg_default_nxy[ii, jj])
+                end
+            end
+            if (nxx_pc_patch_blend_cfg > 0.0 || nyy_pc_patch_blend_cfg > 0.0) &&
+               !rect_synth_requested &&
+               !kg_global_ready &&
+               elem_is_flat_kg &&
+               is_pcomp_clt &&
+               !pcomp_is_isotropic &&
+               synth_Cb_kg !== nothing
+                ply_desc_axis = pcomp_orientation_thickness_descriptors(prop)
+                if nxx_pc_patch_blend_cfg > 0.0
+                    nxx_sigma_input =
+                        if sigma_mem_input isa AbstractMatrix
+                            tmp = zeros(size(sigma_mem_input, 1), size(sigma_mem_input, 2))
+                            @inbounds for gp in 1:size(sigma_mem_input, 1)
+                                tmp[gp, 1] = sigma_mem_input[gp, 1]
+                            end
+                            tmp
+                        else
+                            [sigma_mem_input[1], 0.0, 0.0]
+                        end
+                    Kg_default_nxx = FEM.geometric_stiffness_quad4(
+                        lc_buf4, nxx_sigma_input, h;
+                        trans_mode=kg_trans_mode_eff,
+                        curvature=kg_curvature,
+                        curvature_sign=kg_curvature_sign_eff,
+                        rot_grad_scale=kg_rot_grad_scale_eff,
+                        membrane_shear_center_row=kg_membrane_shear_center_row,
+                        Cm=Cm_kg,
+                        membrane_incomp=kg_consistent_membrane_incomp && !kg_iso_exact_membrane,
+                        membrane_enhanced=kg_iso_exact_membrane,
+                        material_shear_rotation=kg_material_shear_rotation,
+                        membrane_assumed_mode=kg_membrane_assumed_mode,
+                        membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
+                        principal_shear_yy_factor=principal_shear_yy_factor_eff,
+                        principal_shear_xy_factor=principal_shear_xy_factor_eff,
+                        principal_shear_z_factor=principal_shear_z_factor_eff,
+                        principal_shear_ratio_min=principal_shear_ratio_min_eff,
+                    )
+                    Kg_nxx_pc_patch = FEM.geometric_stiffness_quad4_nastran_nxx_pc_patch_synth(
+                        lc_buf4, nxx_sigma_input, h, synth_Cb_kg;
+                        frac0=ply_desc_axis.frac0,
+                        frac90=ply_desc_axis.frac90,
+                        fracp45=ply_desc_axis.fracp45,
+                        fracm45=ply_desc_axis.fracm45,
+                        fracpm45=ply_desc_axis.fracpm45,
+                        frac090=ply_desc_axis.frac090,
+                        pm45_signed=ply_desc_axis.pm45_signed,
+                        pm45_balance=ply_desc_axis.pm45_balance,
+                        orient_cos2=ply_desc_axis.orient_cos2,
+                        orient_sin2=ply_desc_axis.orient_sin2,
+                        orient_cos4=ply_desc_axis.orient_cos4,
+                        orient_sin4=ply_desc_axis.orient_sin4,
+                        nemeth_alpha=pcomp_nemeth_alpha_kg,
+                        nemeth_beta=pcomp_nemeth_beta_kg,
+                        nemeth_gamma=pcomp_nemeth_gamma_kg,
+                        nemeth_delta=pcomp_nemeth_delta_kg,
+                    )
+                    delta_norm2 = 0.0
+                    default_norm2 = 0.0
+                    @inbounds @fastmath for jj in 1:24, ii in 1:24
+                        delta = Kg_nxx_pc_patch[ii, jj] - Kg_default_nxx[ii, jj]
+                        delta_norm2 += delta * delta
+                        default_norm2 += Kg_default_nxx[ii, jj] * Kg_default_nxx[ii, jj]
+                    end
+                    delta_scale = 1.0
+                    if isfinite(nxx_pc_patch_delta_max_rel_cfg) &&
+                       nxx_pc_patch_delta_max_rel_cfg > 0.0 &&
+                       delta_norm2 > 0.0 &&
+                       default_norm2 > 0.0
+                        max_delta = nxx_pc_patch_delta_max_rel_cfg * sqrt(default_norm2)
+                        delta_norm = sqrt(delta_norm2)
+                        if delta_norm > max_delta
+                            delta_scale = max_delta / delta_norm
+                        end
+                    end
+                    @inbounds @fastmath for jj in 1:24, ii in 1:24
+                        Kg_loc[ii, jj] +=
+                            nxx_pc_patch_blend_cfg * delta_scale *
+                            (Kg_nxx_pc_patch[ii, jj] - Kg_default_nxx[ii, jj])
+                    end
+                end
+                if nyy_pc_patch_blend_cfg > 0.0
+                    nyy_sigma_input =
+                        if sigma_mem_input isa AbstractMatrix
+                            tmp = zeros(size(sigma_mem_input, 1), size(sigma_mem_input, 2))
+                            @inbounds for gp in 1:size(sigma_mem_input, 1)
+                                tmp[gp, 2] = sigma_mem_input[gp, 2]
+                            end
+                            tmp
+                        else
+                            [0.0, sigma_mem_input[2], 0.0]
+                        end
+                    Kg_default_nyy = FEM.geometric_stiffness_quad4(
+                        lc_buf4, nyy_sigma_input, h;
+                        trans_mode=kg_trans_mode_eff,
+                        curvature=kg_curvature,
+                        curvature_sign=kg_curvature_sign_eff,
+                        rot_grad_scale=kg_rot_grad_scale_eff,
+                        membrane_shear_center_row=kg_membrane_shear_center_row,
+                        Cm=Cm_kg,
+                        membrane_incomp=kg_consistent_membrane_incomp && !kg_iso_exact_membrane,
+                        membrane_enhanced=kg_iso_exact_membrane,
+                        material_shear_rotation=kg_material_shear_rotation,
+                        membrane_assumed_mode=kg_membrane_assumed_mode,
+                        membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
+                        principal_shear_yy_factor=principal_shear_yy_factor_eff,
+                        principal_shear_xy_factor=principal_shear_xy_factor_eff,
+                        principal_shear_z_factor=principal_shear_z_factor_eff,
+                        principal_shear_ratio_min=principal_shear_ratio_min_eff,
+                    )
+                    Kg_nyy_pc_patch = FEM.geometric_stiffness_quad4_nastran_nyy_pc_patch_synth(
+                        lc_buf4, nyy_sigma_input, h, synth_Cb_kg;
+                        frac0=ply_desc_axis.frac0,
+                        frac90=ply_desc_axis.frac90,
+                        fracp45=ply_desc_axis.fracp45,
+                        fracm45=ply_desc_axis.fracm45,
+                        fracpm45=ply_desc_axis.fracpm45,
+                        frac090=ply_desc_axis.frac090,
+                        pm45_signed=ply_desc_axis.pm45_signed,
+                        pm45_balance=ply_desc_axis.pm45_balance,
+                        orient_cos2=ply_desc_axis.orient_cos2,
+                        orient_sin2=ply_desc_axis.orient_sin2,
+                        orient_cos4=ply_desc_axis.orient_cos4,
+                        orient_sin4=ply_desc_axis.orient_sin4,
+                        nemeth_alpha=pcomp_nemeth_alpha_kg,
+                        nemeth_beta=pcomp_nemeth_beta_kg,
+                        nemeth_gamma=pcomp_nemeth_gamma_kg,
+                        nemeth_delta=pcomp_nemeth_delta_kg,
+                    )
+                    delta_norm2 = 0.0
+                    default_norm2 = 0.0
+                    @inbounds @fastmath for jj in 1:24, ii in 1:24
+                        delta = Kg_nyy_pc_patch[ii, jj] - Kg_default_nyy[ii, jj]
+                        delta_norm2 += delta * delta
+                        default_norm2 += Kg_default_nyy[ii, jj] * Kg_default_nyy[ii, jj]
+                    end
+                    delta_scale = 1.0
+                    if isfinite(nyy_pc_patch_delta_max_rel_cfg) &&
+                       nyy_pc_patch_delta_max_rel_cfg > 0.0 &&
+                       delta_norm2 > 0.0 &&
+                       default_norm2 > 0.0
+                        max_delta = nyy_pc_patch_delta_max_rel_cfg * sqrt(default_norm2)
+                        delta_norm = sqrt(delta_norm2)
+                        if delta_norm > max_delta
+                            delta_scale = max_delta / delta_norm
+                        end
+                    end
+                    @inbounds @fastmath for jj in 1:24, ii in 1:24
+                        Kg_loc[ii, jj] +=
+                            nyy_pc_patch_blend_cfg * delta_scale *
+                            (Kg_nyy_pc_patch[ii, jj] - Kg_default_nyy[ii, jj])
+                    end
                 end
             end
 
