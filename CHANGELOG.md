@@ -6,6 +6,9 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Fixed the public validation-suite lazy `OpenJFEM` loader for Julia 1.12 so
+  the documented `julia --project=.. run_public_suite.jl` command runs without
+  a preload workaround.
 - Added opt-in axis-rich SOL105 CQUAD4 unit-resultant residual-PC `Kg` patches
   for `Nxx`, `Nxy`, and `Nyy`, generated from elementary MATPRN `KDJJ`
   triplets. The runtime branch is disabled by default and can be enabled with

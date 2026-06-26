@@ -113,8 +113,8 @@ const _OPENJFEM_MODULE = Ref{Any}(nothing)
 
 function openjfem_module()
     if _OPENJFEM_MODULE[] === nothing
-        @eval using OpenJFEM
-        _OPENJFEM_MODULE[] = OpenJFEM
+        Base.invokelatest(Core.eval, @__MODULE__, :(using OpenJFEM))
+        _OPENJFEM_MODULE[] = Base.invokelatest(getfield, @__MODULE__, :OpenJFEM)
     end
     return _OPENJFEM_MODULE[]
 end
