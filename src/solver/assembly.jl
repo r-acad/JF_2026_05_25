@@ -4036,6 +4036,82 @@ end
     return pcomp_abs_angle_fraction_from_plies(get(prop, "PLY_DATA", nothing), angle_deg)
 end
 
+@inline function pcomp_ply_thickness_value(ply)
+    if haskey(ply, "T")
+        return max(Float64(ply["T"]), 0.0)
+    elseif haskey(ply, "t")
+        return max(Float64(ply["t"]), 0.0)
+    elseif haskey(ply, "z_top") && haskey(ply, "z_bot")
+        return max(Float64(ply["z_top"]) - Float64(ply["z_bot"]), 0.0)
+    end
+    return 1.0
+end
+
+@inline function pcomp_angle_distance_180(theta_deg::Float64, target_deg::Float64)
+    d = mod(theta_deg - target_deg + 90.0, 180.0) - 90.0
+    return abs(d)
+end
+
+function pcomp_orientation_thickness_descriptors_from_plies(plies; tol_deg::Float64=2.5)
+    if !(plies isa AbstractVector) || isempty(plies)
+        return (
+            frac0=0.0, frac90=0.0, fracp45=0.0, fracm45=0.0,
+            fracpm45=0.0, frac090=0.0, pm45_signed=0.0, pm45_balance=0.0,
+            orient_cos2=0.0, orient_sin2=0.0, orient_cos4=0.0, orient_sin4=0.0,
+        )
+    end
+    total = 0.0
+    f0 = 0.0; f90 = 0.0; fp45 = 0.0; fm45 = 0.0
+    c2 = 0.0; s2 = 0.0; c4 = 0.0; s4 = 0.0
+    @inbounds for ply in plies
+        w = pcomp_ply_thickness_value(ply)
+        w > 0.0 || continue
+        theta = Float64(get(ply, "theta", get(ply, "THETA", 0.0)))
+        total += w
+        pcomp_angle_distance_180(theta, 0.0) <= tol_deg && (f0 += w)
+        pcomp_angle_distance_180(theta, 90.0) <= tol_deg && (f90 += w)
+        pcomp_angle_distance_180(theta, 45.0) <= tol_deg && (fp45 += w)
+        pcomp_angle_distance_180(theta, -45.0) <= tol_deg && (fm45 += w)
+        th = deg2rad(theta)
+        c2 += w * cos(2.0 * th)
+        s2 += w * sin(2.0 * th)
+        c4 += w * cos(4.0 * th)
+        s4 += w * sin(4.0 * th)
+    end
+    if total <= 0.0
+        return (
+            frac0=0.0, frac90=0.0, fracp45=0.0, fracm45=0.0,
+            fracpm45=0.0, frac090=0.0, pm45_signed=0.0, pm45_balance=0.0,
+            orient_cos2=0.0, orient_sin2=0.0, orient_cos4=0.0, orient_sin4=0.0,
+        )
+    end
+    inv_total = 1.0 / total
+    frac0 = f0 * inv_total
+    frac90 = f90 * inv_total
+    fracp45 = fp45 * inv_total
+    fracm45 = fm45 * inv_total
+    fracpm45 = fracp45 + fracm45
+    pm45_signed = fracp45 - fracm45
+    return (
+        frac0=frac0,
+        frac90=frac90,
+        fracp45=fracp45,
+        fracm45=fracm45,
+        fracpm45=fracpm45,
+        frac090=frac0 + frac90,
+        pm45_signed=pm45_signed,
+        pm45_balance=abs(pm45_signed),
+        orient_cos2=c2 * inv_total,
+        orient_sin2=s2 * inv_total,
+        orient_cos4=c4 * inv_total,
+        orient_sin4=s4 * inv_total,
+    )
+end
+
+@inline function pcomp_orientation_thickness_descriptors(prop)
+    return pcomp_orientation_thickness_descriptors_from_plies(get(prop, "PLY_DATA", nothing))
+end
+
 @inline function pcomp_ply_count_from_plies(plies)
     plies isa AbstractVector || return 0
     return length(plies)
@@ -8343,6 +8419,10 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     kg_pid_nxx_tl = [Dict{Int,Float64}() for _ in 1:nt_kg]
     kg_pid_nyy_tl = [Dict{Int,Float64}() for _ in 1:nt_kg]
     kg_pid_nxy_tl = [Dict{Int,Float64}() for _ in 1:nt_kg]
+    nxy_pc_patch_debug = solver_env_bool("JFEM_SOL105_KG_NXY_PC_PATCH_DEBUG", false)
+    nxy_pc_patch_debug_limit =
+        max(Int(round(solver_env_float("JFEM_SOL105_KG_NXY_PC_PATCH_DEBUG_LIMIT", 8.0))), 0)
+    nxy_pc_patch_seen_tl = zeros(Int, nt_kg)
 
     # The per-element kernel only does small (≤24×24) matmuls where BLAS
     # threading is pure overhead. Pin to 1 BLAS thread while the @threads
@@ -10441,6 +10521,10 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             end
             rect_nxy_synth_blend =
                 clamp(solver_env_float("JFEM_SOL105_KG_RECT_NXY_SYNTH_BLEND", 0.0), 0.0, 1.0)
+            nxy_pc_patch_blend =
+                clamp(solver_env_float("JFEM_SOL105_KG_NXY_PC_PATCH_BLEND", 0.0), 0.0, 1.0)
+            nxy_pc_patch_delta_max_rel =
+                max(solver_env_float("JFEM_SOL105_KG_NXY_PC_PATCH_DELTA_MAX_REL", 0.25), 0.0)
             if rect_nxy_synth_blend > 0.0 &&
                !rect_synth_requested &&
                elem_is_flat_kg &&
@@ -10480,6 +10564,107 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 @inbounds @fastmath for jj in 1:24, ii in 1:24
                     Kg_loc[ii, jj] +=
                         rect_nxy_synth_blend * (Kg_rect_nxy[ii, jj] - Kg_default_nxy[ii, jj])
+                end
+            elseif nxy_pc_patch_blend > 0.0 &&
+                   !rect_synth_requested &&
+                   !kg_global_ready &&
+                   elem_is_flat_kg &&
+                   is_pcomp_clt &&
+                   !pcomp_is_isotropic &&
+                   synth_Cb_kg !== nothing
+                nxy_sigma_input =
+                    if sigma_mem_input isa AbstractMatrix
+                        tmp = zeros(size(sigma_mem_input, 1), size(sigma_mem_input, 2))
+                        @inbounds for gp in 1:size(sigma_mem_input, 1)
+                            tmp[gp, 3] = sigma_mem_input[gp, 3]
+                        end
+                        tmp
+                    else
+                        [0.0, 0.0, sigma_mem_input[3]]
+                    end
+                Kg_default_nxy = FEM.geometric_stiffness_quad4(
+                    lc_buf4, nxy_sigma_input, h;
+                    trans_mode=kg_trans_mode_eff,
+                    curvature=kg_curvature,
+                    curvature_sign=kg_curvature_sign_eff,
+                    rot_grad_scale=kg_rot_grad_scale_eff,
+                    membrane_shear_center_row=kg_membrane_shear_center_row,
+                    Cm=Cm_kg,
+                    membrane_incomp=kg_consistent_membrane_incomp && !kg_iso_exact_membrane,
+                    membrane_enhanced=kg_iso_exact_membrane,
+                    material_shear_rotation=kg_material_shear_rotation,
+                    membrane_assumed_mode=kg_membrane_assumed_mode,
+                    membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
+                    principal_shear_yy_factor=principal_shear_yy_factor_eff,
+                    principal_shear_xy_factor=principal_shear_xy_factor_eff,
+                    principal_shear_z_factor=principal_shear_z_factor_eff,
+                    principal_shear_ratio_min=principal_shear_ratio_min_eff,
+                )
+                ply_desc = pcomp_orientation_thickness_descriptors(prop)
+                Kg_nxy_pc_patch = FEM.geometric_stiffness_quad4_nastran_nxy_pc_patch_synth(
+                    lc_buf4, nxy_sigma_input, h, synth_Cb_kg;
+                    frac0=ply_desc.frac0,
+                    frac90=ply_desc.frac90,
+                    fracp45=ply_desc.fracp45,
+                    fracm45=ply_desc.fracm45,
+                    fracpm45=ply_desc.fracpm45,
+                    frac090=ply_desc.frac090,
+                    pm45_signed=ply_desc.pm45_signed,
+                    pm45_balance=ply_desc.pm45_balance,
+                    orient_cos2=ply_desc.orient_cos2,
+                    orient_sin2=ply_desc.orient_sin2,
+                    orient_cos4=ply_desc.orient_cos4,
+                    orient_sin4=ply_desc.orient_sin4,
+                    nemeth_alpha=pcomp_nemeth_alpha_kg,
+                    nemeth_beta=pcomp_nemeth_beta_kg,
+                    nemeth_gamma=pcomp_nemeth_gamma_kg,
+                    nemeth_delta=pcomp_nemeth_delta_kg,
+                )
+                delta_norm2 = 0.0
+                default_norm2 = 0.0
+                @inbounds @fastmath for jj in 1:24, ii in 1:24
+                    delta = Kg_nxy_pc_patch[ii, jj] - Kg_default_nxy[ii, jj]
+                    delta_norm2 += delta * delta
+                    default_norm2 += Kg_default_nxy[ii, jj] * Kg_default_nxy[ii, jj]
+                end
+                delta_scale = 1.0
+                if isfinite(nxy_pc_patch_delta_max_rel) &&
+                   nxy_pc_patch_delta_max_rel > 0.0 &&
+                   delta_norm2 > 0.0 &&
+                   default_norm2 > 0.0
+                    max_delta = nxy_pc_patch_delta_max_rel * sqrt(default_norm2)
+                    delta_norm = sqrt(delta_norm2)
+                    if delta_norm > max_delta
+                        delta_scale = max_delta / delta_norm
+                    end
+                end
+                if nxy_pc_patch_debug && nxy_pc_patch_seen_tl[tid] < nxy_pc_patch_debug_limit
+                    nxy_pc_patch_seen_tl[tid] += 1
+                    pc_metrics = FEM.nastran_nxy_pc_patch_descriptor_metrics(
+                        lc_buf4, synth_Cb_kg;
+                        frac0=ply_desc.frac0,
+                        frac90=ply_desc.frac90,
+                        fracp45=ply_desc.fracp45,
+                        fracm45=ply_desc.fracm45,
+                        fracpm45=ply_desc.fracpm45,
+                        frac090=ply_desc.frac090,
+                        pm45_signed=ply_desc.pm45_signed,
+                        pm45_balance=ply_desc.pm45_balance,
+                        orient_cos2=ply_desc.orient_cos2,
+                        orient_sin2=ply_desc.orient_sin2,
+                        orient_cos4=ply_desc.orient_cos4,
+                        orient_sin4=ply_desc.orient_sin4,
+                        nemeth_alpha=pcomp_nemeth_alpha_kg,
+                        nemeth_beta=pcomp_nemeth_beta_kg,
+                        nemeth_gamma=pcomp_nemeth_gamma_kg,
+                        nemeth_delta=pcomp_nemeth_delta_kg,
+                    )
+                    @info "SOL105 Nxy PC patch Kg candidate" eid=shell_eids[_shell_ei] delta_scale=delta_scale delta_norm=sqrt(delta_norm2) default_norm=sqrt(default_norm2) delta_max_rel=nxy_pc_patch_delta_max_rel blend=nxy_pc_patch_blend aspect=aspect_ratio_kg h=h frac0=ply_desc.frac0 frac90=ply_desc.frac90 fracp45=ply_desc.fracp45 fracm45=ply_desc.fracm45 nemeth_alpha=pcomp_nemeth_alpha_kg nemeth_beta=pcomp_nemeth_beta_kg nemeth_gamma=pcomp_nemeth_gamma_kg nemeth_delta=pcomp_nemeth_delta_kg pc_z_rms=pc_metrics.z_rms pc_z_max=pc_metrics.z_max pc_score_l2=pc_metrics.score_l2 pc_score_max=pc_metrics.score_max
+                end
+                @inbounds @fastmath for jj in 1:24, ii in 1:24
+                    Kg_loc[ii, jj] +=
+                        nxy_pc_patch_blend * delta_scale *
+                        (Kg_nxy_pc_patch[ii, jj] - Kg_default_nxy[ii, jj])
                 end
             end
 

@@ -6,6 +6,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added an opt-in descriptor-rich SOL105 CQUAD4 `Nxy` differential-stiffness
+  synthesis branch (`JFEM_SOL105_KG_NXY_PC_PATCH_BLEND`) generated from
+  elementary MATPRN `KDJJ` triplets. The selector and operator inputs use only
+  flat-element geometry, laminate bending/Nemeth descriptors, and
+  thickness-weighted ply orientation descriptors. The branch is disabled by
+  default and is protected by a generic element-operator delta cap
+  (`JFEM_SOL105_KG_NXY_PC_PATCH_DELTA_MAX_REL`) while large-guard validation is
+  pending. The generated kernel was revised to act as a residual correction
+  over the default JFEM `Nxy` operator, rather than as an absolute replacement,
+  after private guards showed the residual form is scale-safe on large models.
+  A `25%` opt-in blend kept the current 12-row large comparable SOL105 guard
+  inside `2%` with mean absolute first-root error `0.7930%` and worst error
+  `1.9690%`; the branch remains opt-in because the existing NAST705 N4 probe
+  blocker still requires a separate full nonflat CQUAD4 `K/Kg` operator fix.
 - Added a descriptor-only SOL105 global-plate localization keep for simple
   many-element plate/strip meshes. It keeps mild top-element elastic-energy
   exceedances only when shell count, bounded top-10 concentration, aspect ratio,
