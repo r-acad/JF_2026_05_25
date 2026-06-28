@@ -6,6 +6,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Promoted the HTP-like branch SOL105 candidate made of descriptor-only PCOMP
+  `Kg` refinements for 13-ply and 11-ply strip laminates plus a balanced
+  9-ply mid-aspect top-10 localization window. The candidate is based on
+  element geometry, thickness ratio, ply count, ply-angle fractions, and modal
+  elastic-energy concentration only.
+- Added a descriptor-gated SOL105 localization top-10 cleanup for narrow
+  11-ply strip-like PCOMP roots. The gate uses only element geometry,
+  thickness ratio, ply count, ply-angle fractions, and elastic-energy
+  concentration; it does not use case names, element/property IDs, groups,
+  stress-state classifiers, or external calibration tables.
 - Fixed SOL105 batch-manifest quiet logging on Windows long private validation
   paths by applying the `\\?\` filesystem prefix to quiet log creation. This
   prevents false failed rows when validation run tags and case names exceed the

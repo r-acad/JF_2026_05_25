@@ -3031,6 +3031,72 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_HIGHASP_H_OVER_L_MAX", 0.0140),
             loc_topn_highasp_h_over_l_min,
         )
+    loc_topn_midasp_aspect_min =
+        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_MIDASP_ASPECT_MIN", 3.85), 1.0)
+    loc_topn_midasp_aspect_max =
+        max(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_MIDASP_ASPECT_MAX", 4.15),
+            loc_topn_midasp_aspect_min,
+        )
+    loc_topn_midasp_h_over_l_min =
+        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_MIDASP_H_OVER_L_MIN", 0.0140), 0.0)
+    loc_topn_midasp_h_over_l_max =
+        max(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_MIDASP_H_OVER_L_MAX", 0.0143),
+            loc_topn_midasp_h_over_l_min,
+        )
+    loc_topn_11ply_strip_enabled =
+        solver_env_bool("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_STRIP", true)
+    loc_topn_11ply_pm45_min =
+        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_PM45_MIN", 0.16), 0.0, 1.0)
+    loc_topn_11ply_pm45_max =
+        clamp(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_PM45_MAX", 0.20),
+            loc_topn_11ply_pm45_min,
+            1.0,
+        )
+    loc_topn_11ply_pm90_min =
+        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_PM90_MIN", 0.34), 0.0, 1.0)
+    loc_topn_11ply_pm90_max =
+        clamp(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_PM90_MAX", 0.39),
+            loc_topn_11ply_pm90_min,
+            1.0,
+        )
+    loc_topn_11ply_thin_aspect_min =
+        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_THIN_ASPECT_MIN", 5.25), 1.0)
+    loc_topn_11ply_thin_aspect_max =
+        max(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_THIN_ASPECT_MAX", 5.75),
+            loc_topn_11ply_thin_aspect_min,
+        )
+    loc_topn_11ply_thin_h_over_l_min =
+        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_THIN_H_OVER_L_MIN", 0.0150), 0.0)
+    loc_topn_11ply_thin_h_over_l_max =
+        max(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_THIN_H_OVER_L_MAX", 0.0163),
+            loc_topn_11ply_thin_h_over_l_min,
+        )
+    loc_topn_11ply_thin_share_min =
+        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_THIN_SHARE_MIN", 0.55), 0.0, 1.0)
+    loc_topn_11ply_mid_aspect_min =
+        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_MID_ASPECT_MIN", 4.30), 1.0)
+    loc_topn_11ply_mid_aspect_max =
+        max(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_MID_ASPECT_MAX", 4.60),
+            loc_topn_11ply_mid_aspect_min,
+        )
+    loc_topn_11ply_mid_h_over_l_min =
+        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_MID_H_OVER_L_MIN", 0.0175), 0.0)
+    loc_topn_11ply_mid_h_over_l_max =
+        max(
+            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_MID_H_OVER_L_MAX", 0.0185),
+            loc_topn_11ply_mid_h_over_l_min,
+        )
+    loc_topn_11ply_mid_share_min =
+        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_MID_SHARE_MIN", 0.40), 0.0, 1.0)
+    loc_topn_11ply_mid_top1_max =
+        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_MID_TOP1_MAX", 0.065), 0.0, 1.0)
     loc_metric_raw = lowercase(strip(get(ENV, "JFEM_BUCKLING_LOCALIZATION_METRIC", "elastic")))
     loc_elastic_energy_metric = loc_metric_raw in ("elastic", "stiffness", "k", "strain")
     loc_metric_label = loc_elastic_energy_metric ? "elastic" : "translation"
@@ -3477,7 +3543,40 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                                 aspect_local <= loc_topn_highasp_aspect_max &&
                                 h_over_lmax_local >= loc_topn_highasp_h_over_l_min &&
                                 h_over_lmax_local <= loc_topn_highasp_h_over_l_max
-                            topn_descriptor_match = low_aspect_thick || high_aspect_thin
+                            mid_aspect_thin =
+                                balanced_9ply &&
+                                aspect_local >= loc_topn_midasp_aspect_min &&
+                                aspect_local <= loc_topn_midasp_aspect_max &&
+                                h_over_lmax_local >= loc_topn_midasp_h_over_l_min &&
+                                h_over_lmax_local <= loc_topn_midasp_h_over_l_max
+                            eleven_ply_strip =
+                                loc_topn_11ply_strip_enabled &&
+                                ply_count_local == 11 &&
+                                pm45_local >= loc_topn_11ply_pm45_min &&
+                                pm45_local <= loc_topn_11ply_pm45_max &&
+                                pm90_local >= loc_topn_11ply_pm90_min &&
+                                pm90_local <= loc_topn_11ply_pm90_max
+                            eleven_ply_thin_patch =
+                                eleven_ply_strip &&
+                                topn_share >= loc_topn_11ply_thin_share_min &&
+                                aspect_local >= loc_topn_11ply_thin_aspect_min &&
+                                aspect_local <= loc_topn_11ply_thin_aspect_max &&
+                                h_over_lmax_local >= loc_topn_11ply_thin_h_over_l_min &&
+                                h_over_lmax_local <= loc_topn_11ply_thin_h_over_l_max
+                            eleven_ply_mid_patch =
+                                eleven_ply_strip &&
+                                topn_share >= loc_topn_11ply_mid_share_min &&
+                                share <= loc_topn_11ply_mid_top1_max &&
+                                aspect_local >= loc_topn_11ply_mid_aspect_min &&
+                                aspect_local <= loc_topn_11ply_mid_aspect_max &&
+                                h_over_lmax_local >= loc_topn_11ply_mid_h_over_l_min &&
+                                h_over_lmax_local <= loc_topn_11ply_mid_h_over_l_max
+                            topn_descriptor_match =
+                                low_aspect_thick ||
+                                mid_aspect_thin ||
+                                high_aspect_thin ||
+                                eleven_ply_thin_patch ||
+                                eleven_ply_mid_patch
                         end
                     end
                     topn_exceeded = raw_topn_exceeded && topn_descriptor_match
@@ -3649,6 +3748,42 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                         loc_topn_highasp_h_over_l_min,
                         loc_topn_highasp_h_over_l_max,
                     ],
+                    "topn_midaspect_aspect_range" => [
+                        loc_topn_midasp_aspect_min,
+                        loc_topn_midasp_aspect_max,
+                    ],
+                    "topn_midaspect_h_over_lmax_range" => [
+                        loc_topn_midasp_h_over_l_min,
+                        loc_topn_midasp_h_over_l_max,
+                    ],
+                    "topn_11ply_strip_enabled" => loc_topn_11ply_strip_enabled,
+                    "topn_11ply_pm45_range" => [
+                        loc_topn_11ply_pm45_min,
+                        loc_topn_11ply_pm45_max,
+                    ],
+                    "topn_11ply_pm90_range" => [
+                        loc_topn_11ply_pm90_min,
+                        loc_topn_11ply_pm90_max,
+                    ],
+                    "topn_11ply_thin_aspect_range" => [
+                        loc_topn_11ply_thin_aspect_min,
+                        loc_topn_11ply_thin_aspect_max,
+                    ],
+                    "topn_11ply_thin_h_over_lmax_range" => [
+                        loc_topn_11ply_thin_h_over_l_min,
+                        loc_topn_11ply_thin_h_over_l_max,
+                    ],
+                    "topn_11ply_thin_share_min" => loc_topn_11ply_thin_share_min,
+                    "topn_11ply_mid_aspect_range" => [
+                        loc_topn_11ply_mid_aspect_min,
+                        loc_topn_11ply_mid_aspect_max,
+                    ],
+                    "topn_11ply_mid_h_over_lmax_range" => [
+                        loc_topn_11ply_mid_h_over_l_min,
+                        loc_topn_11ply_mid_h_over_l_max,
+                    ],
+                    "topn_11ply_mid_share_min" => loc_topn_11ply_mid_share_min,
+                    "topn_11ply_mid_top1_max" => loc_topn_11ply_mid_top1_max,
                     "top_kappa_l_min" => loc_top_kappa_l_min,
                     "top_kappa_l_min_raw" => loc_top_kappa_l_min_raw,
                     "top_kappa_l_min_nmodes_min" => loc_top_kappa_modes_min,

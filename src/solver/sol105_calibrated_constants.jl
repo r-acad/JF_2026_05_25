@@ -165,6 +165,19 @@ const SOL105_CALIBRATED_CONSTANTS = (
                            "their established formulation baseline without spreading the fallback to " *
                            "a5/a7/a9 probe geometries."),
     ),
+    geom_pcomp_htp574_branch_kg_scales = (
+        value           = "13-ply branch: scale=0.960, aspect 4.60..5.05, h/Lmax 0.0190..0.0210, pm45 0.14..0.17, pm90 0.43..0.49; 11-ply branch: scale=0.930, aspect 4.90..5.35, h/Lmax 0.0162..0.0169, pm45/pm90 0.17..0.20",
+        env             = "JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_* and JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_*",
+        site            = "JFEM/src/solver/assembly.jl (geometry/material-only PCOMP Kg scale)",
+        description     = "Descriptor-only PCOMP geometric-stiffness refinements for neighboring HTP-like laminate strip branches.",
+        provenance      = ("2026-06-28 HTP574 branch diagnostics. Modal-energy and localization-debug " *
+                           "runs showed the remaining low roots were controlled by 13-ply " *
+                           "pm45~0.15/pm90~0.46 elements and 11-ply pm45~pm90~0.18 strip " *
+                           "elements. The promoted candidate scales only these geometry, " *
+                           "thickness, ply-count, and ply-fraction windows; it uses no case names, " *
+                           "element/property IDs, groups, stress-state gates, or external " *
+                           "calibration table."),
+    ),
     # ─────────────────────────────────────────────────────────────────
     kg_quad4_stress_field_auto = (
         value           = "auto",
@@ -326,6 +339,18 @@ const SOL105_CALIBRATED_CONSTANTS = (
                            "compact patch roots while the descriptor gate protects HTP574's " *
                            "11-ply physical local modes. Set JFEM_BUCKLING_LOCALIZATION_TOPN_DESCRIPTOR_GATE=false " *
                            "only for diagnostics."),
+    ),
+    buckling_localization_topn_11ply_strip = (
+        value           = "enabled; balanced 9-ply mid-aspect top10 window plus 11-ply pm45 0.16..0.20, pm90 0.34..0.39 windows with 40% mid-patch threshold",
+        env             = "JFEM_BUCKLING_LOCALIZATION_TOPN_MIDASP_* and JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_*",
+        site            = "JFEM/src/solver/solve_case.jl:top-N descriptor gate",
+        description     = "Descriptor-only cleanup for early balanced-laminate and 11-ply strip-like SOL105 roots whose elastic energy is concentrated in a compact element patch.",
+        provenance      = ("2026-06-28 HTP574 modal-energy diagnostics: the first exported low roots " *
+                           "were not case-name filtered; they were rejected only when the top " *
+                           "element geometry, thickness ratio, ply count, ply-angle fractions, " *
+                           "and top-10 elastic-energy concentration matched a narrow strip-like " *
+                           "artifact family. No element IDs, property IDs, groups, stress-state " *
+                           "classifiers, case names, or external calibration tables are used."),
     ),
     buckling_cluster_filter_enabled = (
         value           = false,

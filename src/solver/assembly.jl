@@ -1723,19 +1723,19 @@ end
         1.0,
     )
 @inline sol105_geom_pcomp_kg_thin_very_high_aspect_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_ASPECT_SCALE", 1.0)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_ASPECT_SCALE", 0.930)
 @inline sol105_geom_pcomp_kg_thin_very_high_aspect_min() =
-    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_ASPECT_MIN", 3.25), 1.0)
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_ASPECT_MIN", 4.90), 1.0)
 @inline sol105_geom_pcomp_kg_thin_very_high_aspect_max() =
     max(
-        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_ASPECT_MAX", 4.75),
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_ASPECT_MAX", 5.35),
         sol105_geom_pcomp_kg_thin_very_high_aspect_min(),
     )
 @inline sol105_geom_pcomp_kg_thin_very_high_h_over_lmax_min() =
-    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_H_OVER_LMAX_MIN", 0.0120), 0.0)
+    max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_H_OVER_LMAX_MIN", 0.0162), 0.0)
 @inline sol105_geom_pcomp_kg_thin_very_high_h_over_lmax_max() =
     max(
-        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_H_OVER_LMAX_MAX", 0.0146),
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_H_OVER_LMAX_MAX", 0.0169),
         sol105_geom_pcomp_kg_thin_very_high_h_over_lmax_min(),
     )
 @inline sol105_geom_pcomp_kg_thin_very_high_warp_min() =
@@ -1753,26 +1753,26 @@ end
         sol105_geom_pcomp_kg_thin_very_high_kappa_l_min(),
     )
 @inline sol105_geom_pcomp_kg_thin_very_high_pm45_min() =
-    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PM45_MIN", 0.20), 0.0, 1.0)
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PM45_MIN", 0.17), 0.0, 1.0)
 @inline sol105_geom_pcomp_kg_thin_very_high_pm45_max() =
     clamp(
-        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PM45_MAX", 0.25),
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PM45_MAX", 0.20),
         sol105_geom_pcomp_kg_thin_very_high_pm45_min(),
         1.0,
     )
 @inline sol105_geom_pcomp_kg_thin_very_high_pm90_min() =
-    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PM90_MIN", 0.20), 0.0, 1.0)
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PM90_MIN", 0.17), 0.0, 1.0)
 @inline sol105_geom_pcomp_kg_thin_very_high_pm90_max() =
     clamp(
-        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PM90_MAX", 0.25),
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PM90_MAX", 0.20),
         sol105_geom_pcomp_kg_thin_very_high_pm90_min(),
         1.0,
     )
 @inline sol105_geom_pcomp_kg_thin_very_high_ply_count_min() =
-    max(solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PLY_COUNT_MIN", 9), 0)
+    max(solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PLY_COUNT_MIN", 11), 0)
 @inline sol105_geom_pcomp_kg_thin_very_high_ply_count_max() =
     max(
-        solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PLY_COUNT_MAX", 9),
+        solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_PLY_COUNT_MAX", 11),
         sol105_geom_pcomp_kg_thin_very_high_ply_count_min(),
     )
 @inline sol105_geom_pcomp_kg_low_aspect_high_kappa_refine_scale() =
@@ -1853,30 +1853,30 @@ end
         1.0,
     )
 @inline sol105_geom_pcomp_kg_thick_moderate_refine_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_SCALE", 1.0)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_SCALE", 0.960)
 @inline sol105_geom_pcomp_kg_thick_moderate_refine_aspect_min() =
     max(solver_env_float(
         "JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_ASPECT_MIN",
-        1.95,
+        4.60,
     ), 1.0)
 @inline sol105_geom_pcomp_kg_thick_moderate_refine_aspect_max() =
     max(
         solver_env_float(
             "JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_ASPECT_MAX",
-            2.06,
+            5.05,
         ),
         sol105_geom_pcomp_kg_thick_moderate_refine_aspect_min(),
     )
 @inline sol105_geom_pcomp_kg_thick_moderate_refine_h_over_lmax_min() =
     max(solver_env_float(
         "JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_H_OVER_LMAX_MIN",
-        0.0193,
+        0.0190,
     ), 0.0)
 @inline sol105_geom_pcomp_kg_thick_moderate_refine_h_over_lmax_max() =
     max(
         solver_env_float(
             "JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_H_OVER_LMAX_MAX",
-            0.0201,
+            0.0210,
         ),
         sol105_geom_pcomp_kg_thick_moderate_refine_h_over_lmax_min(),
     )
@@ -1888,26 +1888,26 @@ end
         sol105_geom_pcomp_kg_thick_moderate_refine_kappa_l_min(),
     )
 @inline sol105_geom_pcomp_kg_thick_moderate_refine_pm45_min() =
-    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PM45_MIN", 0.0), 0.0, 1.0)
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PM45_MIN", 0.14), 0.0, 1.0)
 @inline sol105_geom_pcomp_kg_thick_moderate_refine_pm45_max() =
     clamp(
-        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PM45_MAX", 1.0),
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PM45_MAX", 0.17),
         sol105_geom_pcomp_kg_thick_moderate_refine_pm45_min(),
         1.0,
     )
 @inline sol105_geom_pcomp_kg_thick_moderate_refine_pm90_min() =
-    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PM90_MIN", 0.14), 0.0, 1.0)
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PM90_MIN", 0.43), 0.0, 1.0)
 @inline sol105_geom_pcomp_kg_thick_moderate_refine_pm90_max() =
     clamp(
-        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PM90_MAX", 0.32),
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PM90_MAX", 0.49),
         sol105_geom_pcomp_kg_thick_moderate_refine_pm90_min(),
         1.0,
     )
 @inline sol105_geom_pcomp_kg_thick_moderate_refine_ply_count_min() =
-    max(solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PLY_COUNT_MIN", 0), 0)
+    max(solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PLY_COUNT_MIN", 13), 0)
 @inline sol105_geom_pcomp_kg_thick_moderate_refine_ply_count_max() =
     max(
-        solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PLY_COUNT_MAX", typemax(Int)),
+        solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_PLY_COUNT_MAX", 13),
         sol105_geom_pcomp_kg_thick_moderate_refine_ply_count_min(),
     )
 @inline sol105_geom_pcomp_kg_taper_aspect_max() =
