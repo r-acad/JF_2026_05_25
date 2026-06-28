@@ -6,6 +6,25 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Fixed SOL105 batch-manifest quiet logging on Windows long private validation
+  paths by applying the `\\?\` filesystem prefix to quiet log creation. This
+  prevents false failed rows when validation run tags and case names exceed the
+  legacy path-length limit.
+- Corrected SOL105 BUCKLING JSON `subcases[*].eigenvalues` to follow the
+  reported/display mode order derived from `mode_metadata`, so per-subcase
+  consumers see the same positive-first design buckling order as the top-level
+  results and console table.
+- Activated the existing default-off descriptor `UV_NXY` knob inside the
+  principal-transverse CQUAD4 `Kg` operator as an Nxy component correction. The
+  default path is unchanged because the correction is zero when
+  `UV_NXY == UV`; private N4 exploration shows it is useful but not yet a
+  production promotion candidate.
+- Added default-off experimental SOL105 CQUAD4 shell `Kg` local-gradient
+  operator hooks for private formulation discovery.  The new hooks allow
+  descriptor-gated local translational-gradient scaling controlled by
+  `JFEM_KG_SHELL_DESCRIPTOR_LOCAL_TRANS_SPLIT`.  Defaults remain unchanged;
+  the private NAST705/N4 scans show the mechanism is useful evidence but not
+  yet a production promotion candidate.
 - Fixed the public validation-suite lazy `OpenJFEM` loader for Julia 1.12 so
   the documented `julia --project=.. run_public_suite.jl` command runs without
   a preload workaround.

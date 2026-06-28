@@ -4764,7 +4764,11 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem::AbstractVe
                                     principal_shear_yy_factor::Float64=1.0,
                                     principal_shear_xy_factor::Float64=1.0,
                                     principal_shear_z_factor::Float64=1.0,
-                                    principal_shear_ratio_min::Float64=1.0)
+                                    principal_shear_ratio_min::Float64=1.0,
+                                    local_trans_split_override::Union{Nothing,Bool}=nothing,
+                                    local_trans_scales_override::Union{Nothing,NTuple{3,Float64}}=nothing,
+                                    local_uv_scale_override::Union{Nothing,Float64}=nothing,
+                                    local_uv_nxy_scale_override::Union{Nothing,Float64}=nothing)
     sigma_gp = zeros(4, 3)
     @inbounds for gp in 1:4
         sigma_gp[gp, 1] = sigma_mem[1]
@@ -4786,7 +4790,11 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem::AbstractVe
                                      principal_shear_yy_factor=principal_shear_yy_factor,
                                      principal_shear_xy_factor=principal_shear_xy_factor,
                                      principal_shear_z_factor=principal_shear_z_factor,
-                                     principal_shear_ratio_min=principal_shear_ratio_min)
+                                     principal_shear_ratio_min=principal_shear_ratio_min,
+                                     local_trans_split_override=local_trans_split_override,
+                                     local_trans_scales_override=local_trans_scales_override,
+                                     local_uv_scale_override=local_uv_scale_override,
+                                     local_uv_nxy_scale_override=local_uv_nxy_scale_override)
 end
 
 function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::AbstractMatrix, h::Float64;
@@ -4804,31 +4812,47 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                                     principal_shear_yy_factor::Float64=1.0,
                                     principal_shear_xy_factor::Float64=1.0,
                                     principal_shear_z_factor::Float64=1.0,
-                                    principal_shear_ratio_min::Float64=1.0)
+                                    principal_shear_ratio_min::Float64=1.0,
+                                    local_trans_split_override::Union{Nothing,Bool}=nothing,
+                                    local_trans_scales_override::Union{Nothing,NTuple{3,Float64}}=nothing,
+                                    local_uv_scale_override::Union{Nothing,Float64}=nothing,
+                                    local_uv_nxy_scale_override::Union{Nothing,Float64}=nothing)
     Kg = zeros(24, 24)
     if h < 1e-30; return Kg; end
-    local_trans_split = fem_env_bool("JFEM_KG_SHELL_LOCAL_TRANS_SPLIT", false)
+    local_trans_split = local_trans_split_override === nothing ?
+        fem_env_bool("JFEM_KG_SHELL_LOCAL_TRANS_SPLIT", false) :
+        local_trans_split_override
     local_trans_scales =
         local_trans_split ?
-        (
-            max(fem_env_float("JFEM_KG_SHELL_LOCAL_U_SCALE", 1.0), 0.0),
-            max(fem_env_float("JFEM_KG_SHELL_LOCAL_V_SCALE", 1.0), 0.0),
-            max(fem_env_float("JFEM_KG_SHELL_LOCAL_W_SCALE", 1.0), 0.0),
-        ) :
+        (local_trans_scales_override === nothing ?
+            (
+                max(fem_env_float("JFEM_KG_SHELL_LOCAL_U_SCALE", 1.0), 0.0),
+                max(fem_env_float("JFEM_KG_SHELL_LOCAL_V_SCALE", 1.0), 0.0),
+                max(fem_env_float("JFEM_KG_SHELL_LOCAL_W_SCALE", 1.0), 0.0),
+            ) :
+            (
+                max(local_trans_scales_override[1], 0.0),
+                max(local_trans_scales_override[2], 0.0),
+                max(local_trans_scales_override[3], 0.0),
+            )) :
         (1.0, 1.0, 1.0)
     local_uv_scale =
         local_trans_split ?
-        max(
-            fem_env_float(
-                "JFEM_KG_SHELL_LOCAL_UV_SCALE",
-                sqrt(local_trans_scales[1] * local_trans_scales[2]),
-            ),
-            0.0,
-        ) :
+        (local_uv_scale_override === nothing ?
+            max(
+                fem_env_float(
+                    "JFEM_KG_SHELL_LOCAL_UV_SCALE",
+                    sqrt(local_trans_scales[1] * local_trans_scales[2]),
+                ),
+                0.0,
+            ) :
+            max(local_uv_scale_override, 0.0)) :
         1.0
     local_uv_nxy_scale =
         local_trans_split ?
-        max(fem_env_float("JFEM_KG_SHELL_LOCAL_UV_NXY_SCALE", local_uv_scale), 0.0) :
+        (local_uv_nxy_scale_override === nothing ?
+            max(fem_env_float("JFEM_KG_SHELL_LOCAL_UV_NXY_SCALE", local_uv_scale), 0.0) :
+            max(local_uv_nxy_scale_override, 0.0)) :
         local_uv_scale
 
     pt = 1.0 / sqrt(3.0)
@@ -5054,6 +5078,17 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                     local_uv_scale,
                     local_trans_scales[3],
                 )
+                uv_nxy_delta = local_uv_nxy_scale - local_uv_scale
+                if uv_nxy_delta != 0.0 && s_xy != 0.0
+                    for a in 1:24
+                        for b in 1:24
+                            Kg[a, b] += scale * uv_nxy_delta * s_xy * (
+                                dux_dx[a] * duy_dy[b] + dux_dy[a] * duy_dx[b] +
+                                duy_dx[a] * dux_dy[b] + duy_dy[a] * dux_dx[b]
+                            )
+                        end
+                    end
+                end
             else
                 add_geometric_gradient_block!(Kg, dux_dx, dux_dy, scale, s_xx, s_yy, s_xy, local_trans_scales[1])
                 add_geometric_gradient_block!(Kg, duy_dx, duy_dy, scale, s_xx, s_yy, s_xy, local_trans_scales[2])
@@ -5224,6 +5259,12 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                                 local_uv_scale,
                                 local_trans_scales[3],
                             )
+                            uv_nxy_delta = local_uv_nxy_scale - local_uv_scale
+                            if uv_nxy_delta != 0.0 && s_xy != 0.0
+                                uv_delta_val = h * abs_detJ * uv_nxy_delta * s_xy * sxy_term
+                                Kg[row0 + 1, col0 + 2] += uv_delta_val
+                                Kg[row0 + 2, col0 + 1] += uv_delta_val
+                            end
                         else
                             for d in 1:3
                                 row = (i-1)*6 + d

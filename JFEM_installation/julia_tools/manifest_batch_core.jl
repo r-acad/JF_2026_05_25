@@ -138,6 +138,14 @@ function _manifest_abs_path(path::AbstractString, base_dir::AbstractString=pwd()
     return normpath(isabspath(raw) ? raw : joinpath(base_dir, raw))
 end
 
+function _manifest_fs_path(path::AbstractString)
+    resolved = abspath(path)
+    if Sys.iswindows() && !startswith(resolved, "\\\\?\\")
+        return "\\\\?\\" * resolved
+    end
+    return resolved
+end
+
 function _manifest_case_slug(raw)
     slug = replace(string(raw), '\\' => '_', '/' => '_')
     slug = replace(slug, r"[^A-Za-z0-9_.-]+" => "_")
@@ -337,7 +345,8 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
     t0 = time_ns()
     case_results = _manifest_with_env(case_flags) do
         if quiet
-            open(case_log, "w") do io
+            mkpath(_manifest_fs_path(dirname(case_log)))
+            open(_manifest_fs_path(case_log), "w") do io
                 redirect_stdout(io) do
                     write_run_manifest(out_dir;
                         repo_root=repo_root,
@@ -348,7 +357,8 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
                         extra=extra)
                 end
             end
-            open(case_log, "a") do io
+            mkpath(_manifest_fs_path(dirname(case_log)))
+            open(_manifest_fs_path(case_log), "a") do io
                 redirect_stdout(io) do
                     redirect_stderr(io) do
                         OpenJFEM.main(deck;

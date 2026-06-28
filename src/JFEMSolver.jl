@@ -3561,6 +3561,7 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
     elseif sol_type == 105
         mode_shapes = results["_raw_mode_shapes"]
         eigenvalues = results["eigenvalues"]
+        mode_metadata = get(results, "mode_metadata", nothing)
         if export_vtk
             export_buckling_vtk(filename, output_dir, model, id_map, X, eigenvalues, mode_shapes)
         end
@@ -3570,13 +3571,36 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
             # globally-merged/sorted `eigenvalues` list (which interleaves modes
             # from different subcases and makes per-subcase parity unreadable).
             br_sc = get(results, "buckling", nothing)
-            sol105_subcases = br_sc isa Solver.BucklingResult ?
-                [Dict(
+            sol105_subcases = nothing
+            if mode_metadata isa AbstractVector && length(mode_metadata) == length(eigenvalues)
+                by_sid = Dict{Int,Dict{String,Any}}()
+                for (i, meta) in enumerate(mode_metadata)
+                    meta isa AbstractDict || continue
+                    buckling_sid = get(meta, "buckling_subcase_id", get(meta, :buckling_subcase_id, nothing))
+                    static_sid = get(meta, "static_subcase_id", get(meta, :static_subcase_id, nothing))
+                    buckling_sid === nothing && continue
+                    bid = tryparse(Int, string(buckling_sid))
+                    bid === nothing && continue
+                    entry = get!(by_sid, bid) do
+                        Dict{String,Any}(
+                            "buckling_subcase_id" => bid,
+                            "static_subcase_id" => static_sid,
+                            "eigenvalues" => Float64[],
+                        )
+                    end
+                    push!(entry["eigenvalues"], Float64(eigenvalues[i]))
+                end
+                if !isempty(by_sid)
+                    sol105_subcases = [by_sid[sid] for sid in sort(collect(keys(by_sid)))]
+                end
+            end
+            if sol105_subcases === nothing && br_sc isa Solver.BucklingResult
+                sol105_subcases = [Dict(
                     "buckling_subcase_id" => sc.buckling_subcase_id,
                     "static_subcase_id"   => sc.static_subcase_id,
                     "eigenvalues"         => collect(sc.reported_eigenvalues),
-                ) for sc in br_sc.subcases] :
-                nothing
+                ) for sc in br_sc.subcases]
+            end
             export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id_map;
                 analysis_type="SOL105_BUCKLING", diagnostics=get(results, "solver_diagnostics", nothing),
                 mode_metadata=get(results, "mode_metadata", nothing),
