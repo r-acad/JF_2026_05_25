@@ -38,9 +38,17 @@ function _manifest_git_info(repo_root::AbstractString)
 end
 
 function _manifest_file_sha256(path::AbstractString)
-    open(path, "r") do io
+    open(_run_manifest_fs_path(path), "r") do io
         return bytes2hex(sha256(io))
     end
+end
+
+function _run_manifest_fs_path(path::AbstractString)
+    resolved = abspath(path)
+    if Sys.iswindows() && !startswith(resolved, "\\\\?\\")
+        return "\\\\?\\" * resolved
+    end
+    return resolved
 end
 
 function _manifest_jfem_environment()
@@ -56,7 +64,7 @@ function write_run_manifest(out_dir::AbstractString; repo_root::AbstractString,
                             bdf_path::AbstractString, script_path::AbstractString,
                             args=String[], applied_flags=Dict{String,String}(),
                             extra=Dict{String,Any}())
-    mkpath(out_dir)
+    mkpath(_run_manifest_fs_path(out_dir))
     manifest = Dict{String,Any}(
         "created_utc" => string(Dates.now(Dates.UTC)),
         "script" => abspath(script_path),
@@ -80,7 +88,7 @@ function write_run_manifest(out_dir::AbstractString; repo_root::AbstractString,
         "extra" => extra,
     )
     path = joinpath(out_dir, "run_manifest.json")
-    open(path, "w") do io
+    open(_run_manifest_fs_path(path), "w") do io
         JSON.print(io, manifest, 4)
         println(io)
     end

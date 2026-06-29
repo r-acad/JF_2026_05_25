@@ -6,6 +6,9 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Extended Windows long-path handling in the Julia batch-manifest helpers to
+  cover per-case run manifests, solver output directories, and batch summary
+  files, avoiding false failed rows in deeply nested validation campaigns.
 - Added a generic SOL105 model-descriptor selector for split static/eigen
   stiffness, HTP-like PCOMP shell `Kg` component scaling, and thick
   high-aspect PCOMP shell `Kg` scaling. The default rules use only element

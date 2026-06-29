@@ -322,7 +322,8 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
 
     deck = string(case["input"])
     out_dir = string(case["output_dir"])
-    mkpath(out_dir)
+    out_dir_fs = _manifest_fs_path(out_dir)
+    mkpath(out_dir_fs)
     case_log = joinpath(out_dir, "jfem_case_stdout.log")
 
     applied_case_flags = Dict{String,String}(string(k) => string(v) for (k, v) in case_flags)
@@ -362,7 +363,7 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
                 redirect_stdout(io) do
                     redirect_stderr(io) do
                         OpenJFEM.main(deck;
-                            output_dir=out_dir,
+                            output_dir=out_dir_fs,
                             export_model_json=export_opts.export_model_json,
                             export_card_inventory=export_opts.export_card_inventory,
                             export_json=export_opts.export_json,
@@ -382,7 +383,7 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
                 applied_flags=applied_case_flags,
                 extra=extra)
             OpenJFEM.main(deck;
-                output_dir=out_dir,
+                output_dir=out_dir_fs,
                 export_model_json=export_opts.export_model_json,
                 export_card_inventory=export_opts.export_card_inventory,
                 export_json=export_opts.export_json,
@@ -426,7 +427,7 @@ function run_batch_manifest!(manifest::AbstractDict;
                              command_extra=Dict{String,Any}())
     defaults = _manifest_get(manifest, "defaults", Dict{String,Any}())
     output_root, cases = _manifest_normalize_cases(manifest, manifest_path)
-    mkpath(output_root)
+    mkpath(_manifest_fs_path(output_root))
 
     default_flags = manifest_default_flags(manifest)
     default_applied_flags = Dict{String,String}(string(k) => string(v) for (k, v) in default_flags)
@@ -443,7 +444,7 @@ function run_batch_manifest!(manifest::AbstractDict;
     completed = 0
     failed = 0
 
-    open(summary_csv, "w") do csv
+    open(_manifest_fs_path(summary_csv), "w") do csv
         _manifest_write_csv_row(csv, ("index", "case_id", "status", "sol_type", "eigenvalue_count", "first_eigenvalue", "eigenvalues", "mode_shape_count", "mode_shapes_available", "result_json", "wall_s", "input", "output_dir", "report", "log", "error"))
         for case in cases
             gc_between && Int(case["index"]) > 1 && GC.gc()
@@ -508,7 +509,7 @@ function run_batch_manifest!(manifest::AbstractDict;
         "quiet" => quiet,
         "cases" => rows,
     )
-    open(summary_json, "w") do io
+    open(_manifest_fs_path(summary_json), "w") do io
         JSON.print(io, summary, 4)
         println(io)
     end
