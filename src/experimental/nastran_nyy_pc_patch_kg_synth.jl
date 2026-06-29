@@ -269,12 +269,25 @@ function _nas_nyy_pc_base_matrix!(K12::AbstractMatrix, coords::AbstractMatrix,
     return K12
 end
 
+@inline function _nas_nyy_pc_rank_limit()
+    raw = get(ENV, "JFEM_SOL105_KG_NYY_PC_PATCH_RANK",
+              get(ENV, "JFEM_SOL105_KG_AXIS_PC_PATCH_RANK", "0"))
+    n = try
+        parse(Int, strip(raw))
+    catch
+        0
+    end
+    n <= 0 && return length(_NAS_NYY_PC_MATS)
+    return clamp(n, 1, length(_NAS_NYY_PC_MATS))
+end
+
 function _nas_nyy_pc_scores(values)
-    scores = zeros(Float64, length(_NAS_NYY_PC_MATS))
+    rank_limit = _nas_nyy_pc_rank_limit()
+    scores = zeros(Float64, rank_limit)
     z_l2 = 0.0
     z_max = 0.0
     active_count = 0
-    for pc in eachindex(_NAS_NYY_PC_MATS)
+    for pc in 1:rank_limit
         scores[pc] = _NAS_NYY_PC_INTERCEPTS[pc]
     end
     @inbounds for i in eachindex(values)
@@ -284,7 +297,7 @@ function _nas_nyy_pc_scores(values)
         z_l2 += z * z
         z_max = max(z_max, abs(z))
         active_count += 1
-        for pc in eachindex(_NAS_NYY_PC_MATS)
+        for pc in 1:rank_limit
             scores[pc] += _NAS_NYY_PC_SCORE_COEFFS[pc][i] * z
         end
     end
@@ -293,7 +306,7 @@ end
 
 function _nas_nyy_pc_patch_matrix!(K12::AbstractMatrix, resultant::Float64, values)
     scores, _, _, _ = _nas_nyy_pc_scores(values)
-    for pc in eachindex(_NAS_NYY_PC_MATS)
+    for pc in eachindex(scores)
         score = scores[pc]
         pcmat = _NAS_NYY_PC_MATS[pc]
         @inbounds for i in 1:12, j in 1:12

@@ -6,6 +6,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added an opt-in residual-PC rank limiter for the experimental SOL105 CQUAD4
+  axis PC-patch `Kg` operator. `JFEM_SOL105_KG_AXIS_PC_PATCH_RANK` or the
+  component-specific rank flags can restrict the generic descriptor residual
+  law to the dominant low-rank modes during parity sweeps; unset keeps the
+  previous patch behavior.
 - Extended Windows long-path handling in the Julia batch-manifest helpers to
   cover per-case run manifests, solver output directories, and batch summary
   files, avoiding false failed rows in deeply nested validation campaigns.
