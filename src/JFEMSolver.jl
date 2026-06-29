@@ -2232,7 +2232,7 @@ function solve_model(backend::NastranParityBackend, model::Dict)
 
     K_eig = K
     t_asm_Keig = 0.0
-    sol105_use_static_k = sol_type == 105 && Solver.sol105_use_static_k_enabled()
+    sol105_use_static_k = sol_type == 105 && Solver.sol105_model_use_static_k(model)
     if sol_type == 105 && !sol105_use_static_k
         t_asm2 = time_ns()
         membrane_incomp_eig = Solver.solver_env_bool("JFEM_SOL105_EIG_MEMBRANE_INCOMP", false)
@@ -2810,7 +2810,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     static_cache = Dict{Int, Any}()
     static_linear_solve_cache = ndof >= Solver.linear_solve_cache_min_ndof() ? Solver.create_linear_solve_cache() : nothing
     eigen_solve_cache = ndof >= Solver.eigen_solve_cache_min_ndof() ? Solver.create_eigen_solve_cache() : nothing
-    sol105_use_static_k = Solver.sol105_use_static_k_enabled()
+    sol105_use_static_k = Solver.sol105_model_use_static_k(model)
     sol105_static_wall_seconds = 0.0
     sol105_kg_wall_seconds = 0.0
     sol105_buckling_wall_seconds = 0.0

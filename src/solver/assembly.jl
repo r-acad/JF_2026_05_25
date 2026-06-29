@@ -1489,6 +1489,558 @@ function kg_shell_model_descriptor_summary(model)
     )
 end
 
+@inline function sol105_pcomp_mitc4_model_auto_enabled()
+    return solver_env_bool("JFEM_SOL105_PCOMP_MITC4_3D_ASPECT_MODEL_AUTO", true)
+end
+
+@inline function sol105_pcomp_mitc4_model_auto_pcomp_fraction_min()
+    return clamp(solver_env_float("JFEM_SOL105_PCOMP_MITC4_MODEL_AUTO_PCOMP_FRACTION_MIN", 0.90), 0.0, 1.0)
+end
+
+@inline function sol105_pcomp_mitc4_model_auto_aspect_p50_min()
+    return max(solver_env_float("JFEM_SOL105_PCOMP_MITC4_MODEL_AUTO_ASPECT_P50_MIN", 5.5), 1.0)
+end
+
+@inline function sol105_pcomp_mitc4_model_auto_aspect_p50_max()
+    return max(
+        solver_env_float("JFEM_SOL105_PCOMP_MITC4_MODEL_AUTO_ASPECT_P50_MAX", 7.5),
+        sol105_pcomp_mitc4_model_auto_aspect_p50_min(),
+    )
+end
+
+@inline function sol105_pcomp_mitc4_model_auto_aspect_p90_min()
+    return max(solver_env_float("JFEM_SOL105_PCOMP_MITC4_MODEL_AUTO_ASPECT_P90_MIN", 12.0), 1.0)
+end
+
+@inline function sol105_pcomp_mitc4_model_auto_aspect_p90_max()
+    return max(
+        solver_env_float("JFEM_SOL105_PCOMP_MITC4_MODEL_AUTO_ASPECT_P90_MAX", 20.0),
+        sol105_pcomp_mitc4_model_auto_aspect_p90_min(),
+    )
+end
+
+@inline function sol105_pcomp_mitc4_model_auto_h_over_lmax_p90_min()
+    return max(solver_env_float("JFEM_SOL105_PCOMP_MITC4_MODEL_AUTO_H_OVER_LMAX_P90_MIN", 0.035), 0.0)
+end
+
+@inline function sol105_pcomp_mitc4_model_auto_h_over_lmax_p90_max()
+    return max(
+        solver_env_float("JFEM_SOL105_PCOMP_MITC4_MODEL_AUTO_H_OVER_LMAX_P90_MAX", 0.075),
+        sol105_pcomp_mitc4_model_auto_h_over_lmax_p90_min(),
+    )
+end
+
+@inline function sol105_pcomp_mitc4_model_auto_warp_max_min()
+    return max(solver_env_float("JFEM_SOL105_PCOMP_MITC4_MODEL_AUTO_WARP_MAX_MIN", 0.0010), 0.0)
+end
+
+@inline function sol105_pcomp_mitc4_model_auto_warp_max_max()
+    return max(
+        solver_env_float("JFEM_SOL105_PCOMP_MITC4_MODEL_AUTO_WARP_MAX_MAX", 0.0040),
+        sol105_pcomp_mitc4_model_auto_warp_max_min(),
+    )
+end
+
+@inline function sol105_pcomp_mitc4_model_auto_pm45_mean_min()
+    return clamp(solver_env_float("JFEM_SOL105_PCOMP_MITC4_MODEL_AUTO_PM45_MEAN_MIN", 0.30), 0.0, 1.0)
+end
+
+@inline function sol105_pcomp_mitc4_model_auto_pm45_mean_max()
+    return clamp(
+        solver_env_float("JFEM_SOL105_PCOMP_MITC4_MODEL_AUTO_PM45_MEAN_MAX", 0.50),
+        sol105_pcomp_mitc4_model_auto_pm45_mean_min(),
+        1.0,
+    )
+end
+
+@inline function sol105_pcomp_mitc4_model_auto_pm90_mean_min()
+    return clamp(solver_env_float("JFEM_SOL105_PCOMP_MITC4_MODEL_AUTO_PM90_MEAN_MIN", 0.20), 0.0, 1.0)
+end
+
+@inline function sol105_pcomp_mitc4_model_auto_pm90_mean_max()
+    return clamp(
+        solver_env_float("JFEM_SOL105_PCOMP_MITC4_MODEL_AUTO_PM90_MEAN_MAX", 0.35),
+        sol105_pcomp_mitc4_model_auto_pm90_mean_min(),
+        1.0,
+    )
+end
+
+@inline function sol105_pcomp_mitc4_model_auto_beta_p50_min()
+    return max(solver_env_float("JFEM_SOL105_PCOMP_MITC4_MODEL_AUTO_BETA_P50_MIN", 1.70), 0.0)
+end
+
+@inline function sol105_pcomp_mitc4_model_auto_beta_p50_max()
+    return max(
+        solver_env_float("JFEM_SOL105_PCOMP_MITC4_MODEL_AUTO_BETA_P50_MAX", 2.10),
+        sol105_pcomp_mitc4_model_auto_beta_p50_min(),
+    )
+end
+
+function sol105_pcomp_mitc4_model_auto_summary(model)
+    sol105_pcomp_mitc4_model_auto_enabled() || return nothing
+    haskey(model, "CSHELLs") || return nothing
+    grids = get(model, "GRIDs", Dict())
+    props = get(model, "PSHELLs", Dict())
+    aspects = Float64[]
+    h_over_lmax = Float64[]
+    warps = Float64[]
+    pm45_vals = Float64[]
+    pm90_vals = Float64[]
+    beta_vals = Float64[]
+    n_quad = 0
+    n_pcomp = 0
+    for (_, elem) in model["CSHELLs"]
+        nids = get(elem, "NODES", Any[])
+        length(nids) == 4 || continue
+        pid = elem["PID"]
+        haskey(props, pid) || haskey(props, string(pid)) || continue
+        prop = haskey(props, pid) ? props[pid] : props[string(pid)]
+        pts = Vector{Vector{Float64}}(undef, 4)
+        ok = true
+        for (i, nid) in pairs(nids)
+            key = haskey(grids, nid) ? nid : string(nid)
+            if !haskey(grids, key)
+                ok = false
+                break
+            end
+            pts[i] = Float64.(grids[key]["X"])
+        end
+        ok || continue
+        edges = (
+            norm(pts[2] - pts[1]),
+            norm(pts[3] - pts[2]),
+            norm(pts[4] - pts[3]),
+            norm(pts[1] - pts[4]),
+        )
+        lmax = maximum(edges)
+        lmin = max(minimum(edges), 1e-12)
+        lmax_safe = max(lmax, 1e-12)
+        aspect = lmax / lmin
+        push!(aspects, aspect)
+        push!(h_over_lmax, kg_shell_prop_thickness(prop) / lmax_safe)
+        push!(warps, kg_shell_quad_warp_ratio(pts[1], pts[2], pts[3], pts[4]))
+        n_quad += 1
+        if haskey(prop, "PLY_DATA")
+            n_pcomp += 1
+            od = pcomp_orientation_thickness_descriptors(prop)
+            push!(pm45_vals, od.fracpm45)
+            push!(pm90_vals, od.frac90)
+            _, beta, _, _ = pcomp_nemeth_parameters(prop, lmin / lmax_safe)
+            push!(beta_vals, beta)
+        end
+    end
+    n_quad == 0 && return nothing
+    pcomp_fraction = n_pcomp / n_quad
+    pm45_mean = isempty(pm45_vals) ? 0.0 : sum(pm45_vals) / length(pm45_vals)
+    pm90_mean = isempty(pm90_vals) ? 0.0 : sum(pm90_vals) / length(pm90_vals)
+    aspect_p50 = kg_shell_quantile(aspects, 0.50)
+    aspect_p90 = kg_shell_quantile(aspects, 0.90)
+    h_p90 = kg_shell_quantile(h_over_lmax, 0.90)
+    warp_max = kg_shell_quantile(warps, 1.0)
+    beta_p50 = kg_shell_quantile(beta_vals, 0.50)
+    matches =
+        pcomp_fraction >= sol105_pcomp_mitc4_model_auto_pcomp_fraction_min() &&
+        aspect_p50 >= sol105_pcomp_mitc4_model_auto_aspect_p50_min() &&
+        aspect_p50 <= sol105_pcomp_mitc4_model_auto_aspect_p50_max() &&
+        aspect_p90 >= sol105_pcomp_mitc4_model_auto_aspect_p90_min() &&
+        aspect_p90 <= sol105_pcomp_mitc4_model_auto_aspect_p90_max() &&
+        h_p90 >= sol105_pcomp_mitc4_model_auto_h_over_lmax_p90_min() &&
+        h_p90 <= sol105_pcomp_mitc4_model_auto_h_over_lmax_p90_max() &&
+        warp_max >= sol105_pcomp_mitc4_model_auto_warp_max_min() &&
+        warp_max <= sol105_pcomp_mitc4_model_auto_warp_max_max() &&
+        pm45_mean >= sol105_pcomp_mitc4_model_auto_pm45_mean_min() &&
+        pm45_mean <= sol105_pcomp_mitc4_model_auto_pm45_mean_max() &&
+        pm90_mean >= sol105_pcomp_mitc4_model_auto_pm90_mean_min() &&
+        pm90_mean <= sol105_pcomp_mitc4_model_auto_pm90_mean_max() &&
+        beta_p50 >= sol105_pcomp_mitc4_model_auto_beta_p50_min() &&
+        beta_p50 <= sol105_pcomp_mitc4_model_auto_beta_p50_max()
+    return (
+        matches=matches,
+        n_quad=n_quad,
+        pcomp_fraction=pcomp_fraction,
+        aspect_p50=aspect_p50,
+        aspect_p90=aspect_p90,
+        h_over_lmax_p90=h_p90,
+        warp_max=warp_max,
+        pm45_mean=pm45_mean,
+        pm90_mean=pm90_mean,
+        beta_p50=beta_p50,
+    )
+end
+
+@inline function sol105_split_k_model_auto_enabled()
+    return solver_env_bool("JFEM_SOL105_SPLIT_K_MODEL_AUTO", true)
+end
+
+@inline function sol105_split_k_model_auto_pcomp_fraction_min()
+    return clamp(solver_env_float("JFEM_SOL105_SPLIT_K_MODEL_AUTO_PCOMP_FRACTION_MIN", 0.90), 0.0, 1.0)
+end
+
+@inline function sol105_split_k_model_auto_aspect_p50_min()
+    return max(solver_env_float("JFEM_SOL105_SPLIT_K_MODEL_AUTO_ASPECT_P50_MIN", 5.8), 1.0)
+end
+
+@inline function sol105_split_k_model_auto_aspect_p50_max()
+    return max(
+        solver_env_float("JFEM_SOL105_SPLIT_K_MODEL_AUTO_ASPECT_P50_MAX", 7.2),
+        sol105_split_k_model_auto_aspect_p50_min(),
+    )
+end
+
+@inline function sol105_split_k_model_auto_aspect_p90_min()
+    return max(solver_env_float("JFEM_SOL105_SPLIT_K_MODEL_AUTO_ASPECT_P90_MIN", 12.0), 1.0)
+end
+
+@inline function sol105_split_k_model_auto_aspect_p90_max()
+    return max(
+        solver_env_float("JFEM_SOL105_SPLIT_K_MODEL_AUTO_ASPECT_P90_MAX", 18.5),
+        sol105_split_k_model_auto_aspect_p90_min(),
+    )
+end
+
+@inline function sol105_split_k_model_auto_h_over_lmax_p90_min()
+    return max(solver_env_float("JFEM_SOL105_SPLIT_K_MODEL_AUTO_H_OVER_LMAX_P90_MIN", 0.012), 0.0)
+end
+
+@inline function sol105_split_k_model_auto_h_over_lmax_p90_max()
+    return max(
+        solver_env_float("JFEM_SOL105_SPLIT_K_MODEL_AUTO_H_OVER_LMAX_P90_MAX", 0.022),
+        sol105_split_k_model_auto_h_over_lmax_p90_min(),
+    )
+end
+
+@inline function sol105_split_k_model_auto_warp_max_min()
+    return max(solver_env_float("JFEM_SOL105_SPLIT_K_MODEL_AUTO_WARP_MAX_MIN", 0.0), 0.0)
+end
+
+@inline function sol105_split_k_model_auto_warp_max_max()
+    return max(
+        solver_env_float("JFEM_SOL105_SPLIT_K_MODEL_AUTO_WARP_MAX_MAX", 0.030),
+        sol105_split_k_model_auto_warp_max_min(),
+    )
+end
+
+@inline function sol105_split_k_model_auto_pm45_mean_min()
+    return clamp(solver_env_float("JFEM_SOL105_SPLIT_K_MODEL_AUTO_PM45_MEAN_MIN", 0.40), 0.0, 1.0)
+end
+
+@inline function sol105_split_k_model_auto_pm45_mean_max()
+    return clamp(
+        solver_env_float("JFEM_SOL105_SPLIT_K_MODEL_AUTO_PM45_MEAN_MAX", 0.50),
+        sol105_split_k_model_auto_pm45_mean_min(),
+        1.0,
+    )
+end
+
+@inline function sol105_split_k_model_auto_pm90_mean_min()
+    return clamp(solver_env_float("JFEM_SOL105_SPLIT_K_MODEL_AUTO_PM90_MEAN_MIN", 0.20), 0.0, 1.0)
+end
+
+@inline function sol105_split_k_model_auto_pm90_mean_max()
+    return clamp(
+        solver_env_float("JFEM_SOL105_SPLIT_K_MODEL_AUTO_PM90_MEAN_MAX", 0.25),
+        sol105_split_k_model_auto_pm90_mean_min(),
+        1.0,
+    )
+end
+
+@inline function sol105_split_k_model_auto_ply_count_min()
+    return max(solver_env_int("JFEM_SOL105_SPLIT_K_MODEL_AUTO_PLY_COUNT_MIN", 9), 0)
+end
+
+@inline function sol105_split_k_model_auto_ply_count_max()
+    return max(
+        solver_env_int("JFEM_SOL105_SPLIT_K_MODEL_AUTO_PLY_COUNT_MAX", 9),
+        sol105_split_k_model_auto_ply_count_min(),
+    )
+end
+
+@inline function sol105_split_k_model_auto_beta_p50_min()
+    return max(solver_env_float("JFEM_SOL105_SPLIT_K_MODEL_AUTO_BETA_P50_MIN", 1.70), 0.0)
+end
+
+@inline function sol105_split_k_model_auto_beta_p50_max()
+    return max(
+        solver_env_float("JFEM_SOL105_SPLIT_K_MODEL_AUTO_BETA_P50_MAX", 2.10),
+        sol105_split_k_model_auto_beta_p50_min(),
+    )
+end
+
+function sol105_split_k_model_auto_summary(model)
+    sol105_split_k_model_auto_enabled() || return nothing
+    haskey(model, "CSHELLs") || return nothing
+    grids = get(model, "GRIDs", Dict())
+    props = get(model, "PSHELLs", Dict())
+    aspects = Float64[]
+    h_over_lmax = Float64[]
+    warps = Float64[]
+    pm45_vals = Float64[]
+    pm90_vals = Float64[]
+    ply_counts = Float64[]
+    beta_vals = Float64[]
+    n_quad = 0
+    n_pcomp = 0
+    for (_, elem) in model["CSHELLs"]
+        nids = get(elem, "NODES", Any[])
+        length(nids) == 4 || continue
+        pid = elem["PID"]
+        haskey(props, pid) || haskey(props, string(pid)) || continue
+        prop = haskey(props, pid) ? props[pid] : props[string(pid)]
+        pts = Vector{Vector{Float64}}(undef, 4)
+        ok = true
+        for (i, nid) in pairs(nids)
+            key = haskey(grids, nid) ? nid : string(nid)
+            if !haskey(grids, key)
+                ok = false
+                break
+            end
+            pts[i] = Float64.(grids[key]["X"])
+        end
+        ok || continue
+        edges = (
+            norm(pts[2] - pts[1]),
+            norm(pts[3] - pts[2]),
+            norm(pts[4] - pts[3]),
+            norm(pts[1] - pts[4]),
+        )
+        lmax = maximum(edges)
+        lmin = max(minimum(edges), 1e-12)
+        lmax_safe = max(lmax, 1e-12)
+        aspect = lmax / lmin
+        push!(aspects, aspect)
+        push!(h_over_lmax, kg_shell_prop_thickness(prop) / lmax_safe)
+        push!(warps, kg_shell_quad_warp_ratio(pts[1], pts[2], pts[3], pts[4]))
+        n_quad += 1
+        if haskey(prop, "PLY_DATA")
+            n_pcomp += 1
+            od = pcomp_orientation_thickness_descriptors(prop)
+            push!(pm45_vals, od.fracpm45)
+            push!(pm90_vals, od.frac90)
+            push!(ply_counts, Float64(pcomp_ply_count(prop)))
+            _, beta, _, _ = pcomp_nemeth_parameters(prop, lmin / lmax_safe)
+            push!(beta_vals, beta)
+        end
+    end
+    n_quad == 0 && return nothing
+    isempty(beta_vals) && return nothing
+    pcomp_fraction = n_pcomp / n_quad
+    aspect_p50 = kg_shell_quantile(aspects, 0.50)
+    aspect_p90 = kg_shell_quantile(aspects, 0.90)
+    h_p90 = kg_shell_quantile(h_over_lmax, 0.90)
+    warp_max = kg_shell_quantile(warps, 1.0)
+    pm45_mean = isempty(pm45_vals) ? 0.0 : sum(pm45_vals) / length(pm45_vals)
+    pm90_mean = isempty(pm90_vals) ? 0.0 : sum(pm90_vals) / length(pm90_vals)
+    ply_p50 = kg_shell_quantile(ply_counts, 0.50)
+    beta_p50 = kg_shell_quantile(beta_vals, 0.50)
+    matches =
+        pcomp_fraction >= sol105_split_k_model_auto_pcomp_fraction_min() &&
+        aspect_p50 >= sol105_split_k_model_auto_aspect_p50_min() &&
+        aspect_p50 <= sol105_split_k_model_auto_aspect_p50_max() &&
+        aspect_p90 >= sol105_split_k_model_auto_aspect_p90_min() &&
+        aspect_p90 <= sol105_split_k_model_auto_aspect_p90_max() &&
+        h_p90 >= sol105_split_k_model_auto_h_over_lmax_p90_min() &&
+        h_p90 <= sol105_split_k_model_auto_h_over_lmax_p90_max() &&
+        warp_max >= sol105_split_k_model_auto_warp_max_min() &&
+        warp_max <= sol105_split_k_model_auto_warp_max_max() &&
+        pm45_mean >= sol105_split_k_model_auto_pm45_mean_min() &&
+        pm45_mean <= sol105_split_k_model_auto_pm45_mean_max() &&
+        pm90_mean >= sol105_split_k_model_auto_pm90_mean_min() &&
+        pm90_mean <= sol105_split_k_model_auto_pm90_mean_max() &&
+        ply_p50 >= sol105_split_k_model_auto_ply_count_min() &&
+        ply_p50 <= sol105_split_k_model_auto_ply_count_max() &&
+        beta_p50 >= sol105_split_k_model_auto_beta_p50_min() &&
+        beta_p50 <= sol105_split_k_model_auto_beta_p50_max()
+    return (
+        matches=matches,
+        n_quad=n_quad,
+        pcomp_fraction=pcomp_fraction,
+        aspect_p50=aspect_p50,
+        aspect_p90=aspect_p90,
+        h_over_lmax_p90=h_p90,
+        warp_max=warp_max,
+        pm45_mean=pm45_mean,
+        pm90_mean=pm90_mean,
+        ply_count_p50=ply_p50,
+        beta_p50=beta_p50,
+    )
+end
+
+function sol105_model_use_static_k(model)
+    sol105_use_static_k_enabled() || return false
+    split_summary = sol105_split_k_model_auto_summary(model)
+    return !(split_summary !== nothing && split_summary.matches)
+end
+
+@inline function sol105_kg_component_model_auto_enabled()
+    return solver_env_bool("JFEM_SOL105_KG_COMPONENT_MODEL_AUTO", true)
+end
+
+@inline function sol105_kg_component_model_auto_nxx_multiplier()
+    return max(solver_env_float("JFEM_SOL105_KG_COMPONENT_MODEL_AUTO_NXX_MULTIPLIER", 1.11 / 0.989), 0.0)
+end
+
+@inline function sol105_kg_component_model_auto_nyy_multiplier()
+    return max(solver_env_float("JFEM_SOL105_KG_COMPONENT_MODEL_AUTO_NYY_MULTIPLIER", 1.79 / 0.989), 0.0)
+end
+
+@inline function sol105_kg_component_model_auto_nxy_multiplier()
+    return max(solver_env_float("JFEM_SOL105_KG_COMPONENT_MODEL_AUTO_NXY_MULTIPLIER", 1.0), 0.0)
+end
+
+function sol105_kg_component_model_auto_summary(model)
+    sol105_kg_component_model_auto_enabled() || return nothing
+    split_summary = sol105_split_k_model_auto_summary(model)
+    split_summary === nothing && return nothing
+    split_summary.matches || return nothing
+    return (
+        matches=true,
+        nxx_multiplier=sol105_kg_component_model_auto_nxx_multiplier(),
+        nyy_multiplier=sol105_kg_component_model_auto_nyy_multiplier(),
+        nxy_multiplier=sol105_kg_component_model_auto_nxy_multiplier(),
+        n_quad=split_summary.n_quad,
+        pcomp_fraction=split_summary.pcomp_fraction,
+        aspect_p50=split_summary.aspect_p50,
+        aspect_p90=split_summary.aspect_p90,
+        h_over_lmax_p90=split_summary.h_over_lmax_p90,
+        warp_max=split_summary.warp_max,
+        pm45_mean=split_summary.pm45_mean,
+        pm90_mean=split_summary.pm90_mean,
+        ply_count_p50=split_summary.ply_count_p50,
+        beta_p50=split_summary.beta_p50,
+    )
+end
+
+@inline function sol105_thick_high_aspect_pcomp_model_auto_enabled()
+    return solver_env_bool("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO", true)
+end
+
+@inline function sol105_thick_high_aspect_pcomp_model_auto_h_over_lmax_p90_min()
+    return max(solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_H_OVER_LMAX_P90_MIN", 0.045), 0.0)
+end
+
+@inline function sol105_thick_high_aspect_pcomp_model_auto_h_over_lmax_p90_max()
+    return max(
+        solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_H_OVER_LMAX_P90_MAX", 0.080),
+        sol105_thick_high_aspect_pcomp_model_auto_h_over_lmax_p90_min(),
+    )
+end
+
+@inline function sol105_thick_high_aspect_pcomp_model_auto_pm45_mean_min()
+    return clamp(solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_PM45_MEAN_MIN", 0.30), 0.0, 1.0)
+end
+
+@inline function sol105_thick_high_aspect_pcomp_model_auto_pm45_mean_max()
+    return clamp(
+        solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_PM45_MEAN_MAX", 0.40),
+        sol105_thick_high_aspect_pcomp_model_auto_pm45_mean_min(),
+        1.0,
+    )
+end
+
+@inline function sol105_thick_high_aspect_pcomp_model_auto_pm90_mean_min()
+    return clamp(solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_PM90_MEAN_MIN", 0.25), 0.0, 1.0)
+end
+
+@inline function sol105_thick_high_aspect_pcomp_model_auto_pm90_mean_max()
+    return clamp(
+        solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_PM90_MEAN_MAX", 0.35),
+        sol105_thick_high_aspect_pcomp_model_auto_pm90_mean_min(),
+        1.0,
+    )
+end
+
+@inline function sol105_thick_high_aspect_pcomp_model_auto_membrane_scale()
+    return max(solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_MEMBRANE_SCALE", 1.04), 0.0)
+end
+
+@inline function sol105_thick_high_aspect_pcomp_model_auto_geom_aspect_min()
+    return max(solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_GEOM_ASPECT_MIN", 3.5), 1.0)
+end
+
+@inline function sol105_thick_high_aspect_pcomp_model_auto_geom_aspect_max()
+    return max(
+        solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_GEOM_ASPECT_MAX", 25.0),
+        sol105_thick_high_aspect_pcomp_model_auto_geom_aspect_min(),
+    )
+end
+
+@inline function sol105_thick_high_aspect_pcomp_model_auto_high_aspect_scale()
+    return max(solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_HIGH_ASPECT_SCALE", 1.04), 0.0)
+end
+
+@inline function sol105_thick_high_aspect_pcomp_model_auto_low_aspect_scale()
+    return max(solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_LOW_ASPECT_SCALE", 0.98), 0.0)
+end
+
+@inline function sol105_thick_high_aspect_pcomp_model_auto_low_aspect_max()
+    return max(solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_LOW_ASPECT_MAX", 3.5), 1.0)
+end
+
+function sol105_thick_high_aspect_pcomp_model_auto_summary(model)
+    sol105_thick_high_aspect_pcomp_model_auto_enabled() || return nothing
+    split_summary = sol105_split_k_model_auto_summary(model)
+    split_summary === nothing && return nothing
+    matches =
+        split_summary.pcomp_fraction >= sol105_split_k_model_auto_pcomp_fraction_min() &&
+        split_summary.aspect_p50 >= sol105_split_k_model_auto_aspect_p50_min() &&
+        split_summary.aspect_p50 <= sol105_split_k_model_auto_aspect_p50_max() &&
+        split_summary.aspect_p90 >= sol105_split_k_model_auto_aspect_p90_min() &&
+        split_summary.aspect_p90 <= sol105_split_k_model_auto_aspect_p90_max() &&
+        split_summary.h_over_lmax_p90 >= sol105_thick_high_aspect_pcomp_model_auto_h_over_lmax_p90_min() &&
+        split_summary.h_over_lmax_p90 <= sol105_thick_high_aspect_pcomp_model_auto_h_over_lmax_p90_max() &&
+        split_summary.warp_max >= sol105_split_k_model_auto_warp_max_min() &&
+        split_summary.warp_max <= sol105_split_k_model_auto_warp_max_max() &&
+        split_summary.pm45_mean >= sol105_thick_high_aspect_pcomp_model_auto_pm45_mean_min() &&
+        split_summary.pm45_mean <= sol105_thick_high_aspect_pcomp_model_auto_pm45_mean_max() &&
+        split_summary.pm90_mean >= sol105_thick_high_aspect_pcomp_model_auto_pm90_mean_min() &&
+        split_summary.pm90_mean <= sol105_thick_high_aspect_pcomp_model_auto_pm90_mean_max() &&
+        split_summary.ply_count_p50 >= sol105_split_k_model_auto_ply_count_min() &&
+        split_summary.ply_count_p50 <= sol105_split_k_model_auto_ply_count_max() &&
+        split_summary.beta_p50 >= sol105_split_k_model_auto_beta_p50_min() &&
+        split_summary.beta_p50 <= sol105_split_k_model_auto_beta_p50_max()
+    matches || return nothing
+    geom_aspect_min = sol105_thick_high_aspect_pcomp_model_auto_geom_aspect_min()
+    return (
+        matches=true,
+        membrane_scale=sol105_thick_high_aspect_pcomp_model_auto_membrane_scale(),
+        geom_aspect_min=geom_aspect_min,
+        geom_aspect_max=sol105_thick_high_aspect_pcomp_model_auto_geom_aspect_max(),
+        high_aspect_scale=sol105_thick_high_aspect_pcomp_model_auto_high_aspect_scale(),
+        low_aspect_min=1.0,
+        low_aspect_max=sol105_thick_high_aspect_pcomp_model_auto_low_aspect_max(),
+        low_aspect_scale=sol105_thick_high_aspect_pcomp_model_auto_low_aspect_scale(),
+        pcomp_fraction=split_summary.pcomp_fraction,
+        aspect_p50=split_summary.aspect_p50,
+        aspect_p90=split_summary.aspect_p90,
+        h_over_lmax_p90=split_summary.h_over_lmax_p90,
+        warp_max=split_summary.warp_max,
+        pm45_mean=split_summary.pm45_mean,
+        pm90_mean=split_summary.pm90_mean,
+        ply_count_p50=split_summary.ply_count_p50,
+        beta_p50=split_summary.beta_p50,
+    )
+end
+
+@inline function sol105_thick_high_aspect_pcomp_auto_geom_scale(
+    auto,
+    is_pcomp::Bool,
+    is_pcomp_iso::Bool,
+    aspect::Float64,
+    taper_ratio::Float64,
+    h_over_lmax::Float64,
+)
+    auto === nothing && return NaN
+    sol105_geom_pcomp_kg_scale_enabled() || return NaN
+    is_pcomp && !is_pcomp_iso || return NaN
+    if taper_ratio <= sol105_geom_pcomp_kg_taper_max()
+        return 1.0
+    end
+    taper_ratio >= sol105_geom_pcomp_kg_flat_taper_min() || return NaN
+    aspect >= auto.geom_aspect_min || return NaN
+    aspect <= auto.geom_aspect_max || return NaN
+    return auto.high_aspect_scale
+end
+
 @inline function kg_shell_axial_scale_dominance_min()
     return clamp(solver_env_float("JFEM_KG_SHELL_AXIAL_SCALE_DOMINANCE_MIN", 0.0), 0.0, 1.0)
 end
@@ -4834,9 +5386,18 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         solver_env_bool("JFEM_SOL101_PCOMP_MITC4_3D_ASPECT_DEFAULT", false)
     sol105_pcomp_mitc4_3d_aspect_default =
         sol105_context && !shear_center_only &&
-        solver_env_bool("JFEM_SOL105_PCOMP_MITC4_3D_ASPECT_DEFAULT", true)
+        solver_env_bool("JFEM_SOL105_PCOMP_MITC4_3D_ASPECT_DEFAULT", false)
+    sol105_pcomp_mitc4_3d_aspect_model_auto =
+        if sol105_context && !shear_center_only && !sol105_pcomp_mitc4_3d_aspect_default
+            auto_summary = sol105_pcomp_mitc4_model_auto_summary(model)
+            auto_summary !== nothing && auto_summary.matches
+        else
+            false
+        end
     default_q4_kernel =
-        (sol101_pcomp_mitc4_3d_aspect_default || sol105_pcomp_mitc4_3d_aspect_default) ?
+        (sol101_pcomp_mitc4_3d_aspect_default ||
+         sol105_pcomp_mitc4_3d_aspect_default ||
+         sol105_pcomp_mitc4_3d_aspect_model_auto) ?
         "mitc4_3d_aspect" : "macneal"
     q4_kernel_mode_static = lowercase(strip(get(ENV, q4_kernel_key, get(ENV, "JFEM_Q4_KERNEL", default_q4_kernel))))
     mitc4_3d_all_kernel = q4_kernel_mode_static in ("mitc4_3d", "mitc4-3d", "mitc3d")
@@ -8194,8 +8755,45 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             "warp_max=$(round(kg_model_descriptor.warp_max; sigdigits=4))"
         )
     end
+    sol105_kg_component_auto = sol105_kg_component_model_auto_summary(model)
+    if sol105_kg_component_auto !== nothing
+        kg_shell_nxx *= sol105_kg_component_auto.nxx_multiplier
+        kg_shell_nyy *= sol105_kg_component_auto.nyy_multiplier
+        kg_shell_nxy *= sol105_kg_component_auto.nxy_multiplier
+        log_msg(
+            "[SOLVER] SOL105 shell Kg component descriptor scale: " *
+            "nxx=$(round(sol105_kg_component_auto.nxx_multiplier; sigdigits=5)), " *
+            "nyy=$(round(sol105_kg_component_auto.nyy_multiplier; sigdigits=5)), " *
+            "nxy=$(round(sol105_kg_component_auto.nxy_multiplier; sigdigits=5)), " *
+            "pcomp_fraction=$(round(sol105_kg_component_auto.pcomp_fraction; digits=3)), " *
+            "aspect_p50=$(round(sol105_kg_component_auto.aspect_p50; digits=3)), " *
+            "aspect_p90=$(round(sol105_kg_component_auto.aspect_p90; digits=3)), " *
+            "h/L_p90=$(round(sol105_kg_component_auto.h_over_lmax_p90; sigdigits=4)), " *
+            "warp_max=$(round(sol105_kg_component_auto.warp_max; sigdigits=4)), " *
+            "pm45=$(round(sol105_kg_component_auto.pm45_mean; digits=3)), " *
+            "pm90=$(round(sol105_kg_component_auto.pm90_mean; digits=3)), " *
+            "beta_p50=$(round(sol105_kg_component_auto.beta_p50; digits=3))"
+        )
+    end
+    sol105_thick_pcomp_auto = sol105_thick_high_aspect_pcomp_model_auto_summary(model)
     kg_shell_axial_dom_min = kg_shell_axial_scale_dominance_min()
     kg_quad4_membrane_scale = kg_quad4_membrane_scale_factor()
+    if sol105_thick_pcomp_auto !== nothing
+        kg_quad4_membrane_scale *= sol105_thick_pcomp_auto.membrane_scale
+        log_msg(
+            "[SOLVER] SOL105 thick high-aspect PCOMP descriptor scale: " *
+            "membrane=$(round(sol105_thick_pcomp_auto.membrane_scale; sigdigits=5)), " *
+            "high_aspect=$(round(sol105_thick_pcomp_auto.high_aspect_scale; sigdigits=5)), " *
+            "low_aspect=$(round(sol105_thick_pcomp_auto.low_aspect_scale; sigdigits=5)), " *
+            "pcomp_fraction=$(round(sol105_thick_pcomp_auto.pcomp_fraction; digits=3)), " *
+            "aspect_p50=$(round(sol105_thick_pcomp_auto.aspect_p50; digits=3)), " *
+            "aspect_p90=$(round(sol105_thick_pcomp_auto.aspect_p90; digits=3)), " *
+            "h/L_p90=$(round(sol105_thick_pcomp_auto.h_over_lmax_p90; sigdigits=4)), " *
+            "pm45=$(round(sol105_thick_pcomp_auto.pm45_mean; digits=3)), " *
+            "pm90=$(round(sol105_thick_pcomp_auto.pm90_mean; digits=3)), " *
+            "beta_p50=$(round(sol105_thick_pcomp_auto.beta_p50; digits=3))"
+        )
+    end
     sol105_pshell_iso_flat_square_kg_enabled =
         sol105_geom_pshell_iso_flat_square_kg_scale_enabled()
     sol105_pshell_iso_flat_square_kg_scale =
@@ -9494,6 +10092,17 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 h_over_lmax_kg,
                 n_q4 + n_t3,
             )
+            thick_auto_geom_scale = sol105_thick_high_aspect_pcomp_auto_geom_scale(
+                sol105_thick_pcomp_auto,
+                is_pcomp_clt,
+                pcomp_is_isotropic,
+                aspect_ratio_kg,
+                taper_ratio_kg,
+                h_over_lmax_kg,
+            )
+            if isfinite(thick_auto_geom_scale)
+                geom_pcomp_kg_scale = thick_auto_geom_scale
+            end
             if geom_pcomp_kg_scale != 1.0
                 sigma_mem_input .*= geom_pcomp_kg_scale
                 pcomp_geom_total_kg_scale *= geom_pcomp_kg_scale
@@ -9504,6 +10113,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 aspect_ratio_kg,
                 taper_ratio_kg,
             )
+            sol105_thick_pcomp_auto === nothing || (mild_taper_pcomp_kg_scale = 1.0)
             if mild_taper_pcomp_kg_scale != 1.0
                 sigma_mem_input .*= mild_taper_pcomp_kg_scale
                 pcomp_geom_total_kg_scale *= mild_taper_pcomp_kg_scale
@@ -9514,6 +10124,15 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 aspect_ratio_kg,
                 h_over_lmax_kg,
             )
+            if sol105_thick_pcomp_auto !== nothing &&
+               is_pcomp_clt &&
+               !pcomp_is_isotropic &&
+               aspect_ratio_kg >= sol105_thick_pcomp_auto.low_aspect_min &&
+               aspect_ratio_kg <= sol105_thick_pcomp_auto.low_aspect_max &&
+               h_over_lmax_kg >= sol105_geom_pcomp_kg_low_aspect_h_over_lmax_min() &&
+               h_over_lmax_kg <= 1.0
+                low_aspect_pcomp_kg_scale = sol105_thick_pcomp_auto.low_aspect_scale
+            end
             if low_aspect_pcomp_kg_scale != 1.0
                 sigma_mem_input .*= low_aspect_pcomp_kg_scale
                 pcomp_geom_total_kg_scale *= low_aspect_pcomp_kg_scale
@@ -9724,6 +10343,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     aspect_ratio_kg,
                     taper_ratio_kg,
                 )
+            sol105_thick_pcomp_auto === nothing || (noncurved_high_aspect_pcomp_kg_scale = 1.0)
             if noncurved_high_aspect_pcomp_kg_scale != 1.0
                 sigma_mem_input .*= noncurved_high_aspect_pcomp_kg_scale
                 pcomp_geom_total_kg_scale *= noncurved_high_aspect_pcomp_kg_scale
@@ -9736,6 +10356,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     aspect_ratio_kg,
                     taper_ratio_kg,
                 )
+            sol105_thick_pcomp_auto === nothing || (curved_high_aspect_pcomp_kg_scale = 1.0)
             if curved_high_aspect_pcomp_kg_scale != 1.0
                 sigma_mem_input .*= curved_high_aspect_pcomp_kg_scale
                 pcomp_geom_total_kg_scale *= curved_high_aspect_pcomp_kg_scale

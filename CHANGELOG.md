@@ -6,6 +6,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added a generic SOL105 model-descriptor selector for split static/eigen
+  stiffness, HTP-like PCOMP shell `Kg` component scaling, and thick
+  high-aspect PCOMP shell `Kg` scaling. The default rules use only element
+  geometry, thickness, ply-angle fractions, ply count, and Nemeth-style
+  laminate descriptors; they avoid case names, IDs, groups, external
+  calibration tables, and internal stress-state formulation gates. The thick
+  branch recovers the BOXES HTP574 guard as a comparable SOL105 case while
+  leaving the thinner HTP Launch branch on the existing component rule.
 - Promoted the HTP-like branch SOL105 candidate made of descriptor-only PCOMP
   `Kg` refinements for 13-ply and 11-ply strip laminates plus a balanced
   9-ply mid-aspect top-10 localization window. The candidate is based on
