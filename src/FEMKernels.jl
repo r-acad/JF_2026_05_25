@@ -3965,6 +3965,142 @@ end
     return Kg
 end
 
+@inline function add_geometric_shear_axis_block!(Kg::AbstractMatrix,
+                                                 ux_dx::AbstractVector,
+                                                 ux_dy::AbstractVector,
+                                                 w_dx::AbstractVector,
+                                                 w_dy::AbstractVector,
+                                                 scale::Float64,
+                                                 s_xy::Float64,
+                                                 u_xx_scale::Float64,
+                                                 w_xx_scale::Float64,
+                                                 u_xy_scale::Float64,
+                                                 w_xy_scale::Float64)
+    if s_xy == 0.0 ||
+       (u_xx_scale == 0.0 && w_xx_scale == 0.0 &&
+        u_xy_scale == 0.0 && w_xy_scale == 0.0)
+        return Kg
+    end
+    shear_scale = scale * s_xy
+    @inbounds @fastmath for j in eachindex(ux_dx), i in eachindex(ux_dx)
+        sxx_term = ux_dx[i] * ux_dx[j]
+        sxy_u = ux_dx[i] * ux_dy[j] + ux_dy[i] * ux_dx[j]
+        sxy_w = w_dx[i] * w_dy[j] + w_dy[i] * w_dx[j]
+        Kg[i, j] += shear_scale * (
+            u_xx_scale * sxx_term +
+            u_xy_scale * sxy_u +
+            w_xx_scale * w_dx[i] * w_dx[j] +
+            w_xy_scale * sxy_w
+        )
+    end
+    return Kg
+end
+
+@inline function add_geometric_axis_resultant_block!(Kg::AbstractMatrix,
+                                                     ux_dx::AbstractVector,
+                                                     vy_dy::AbstractVector,
+                                                     w_dx::AbstractVector,
+                                                     w_dy::AbstractVector,
+                                                     scale::Float64,
+                                                     s_xx::Float64,
+                                                     s_yy::Float64,
+                                                     u_xx_extra::Float64,
+                                                     v_yy_extra::Float64,
+                                                     w_xx_extra::Float64,
+                                                     w_yy_extra::Float64)
+    if (s_xx == 0.0 && s_yy == 0.0) ||
+       (u_xx_extra == 0.0 && v_yy_extra == 0.0 &&
+        w_xx_extra == 0.0 && w_yy_extra == 0.0)
+        return Kg
+    end
+    @inbounds @fastmath for j in eachindex(ux_dx), i in eachindex(ux_dx)
+        Kg[i, j] += scale * (
+            u_xx_extra * s_xx * ux_dx[i] * ux_dx[j] +
+            v_yy_extra * s_yy * vy_dy[i] * vy_dy[j] +
+            w_xx_extra * s_xx * w_dx[i] * w_dx[j] +
+            w_yy_extra * s_yy * w_dy[i] * w_dy[j]
+        )
+    end
+    return Kg
+end
+
+@inline function add_geometric_shear_extra_block!(Kg::AbstractMatrix,
+                                                  ux_dy::AbstractVector,
+                                                  vy_dx::AbstractVector,
+                                                  vy_dy::AbstractVector,
+                                                  scale::Float64,
+                                                  s_xy::Float64,
+                                                  u_yy_scale::Float64,
+                                                  v_xx_scale::Float64,
+                                                  v_yy_scale::Float64,
+                                                  v_xy_scale::Float64)
+    if s_xy == 0.0 ||
+       (u_yy_scale == 0.0 && v_xx_scale == 0.0 &&
+        v_yy_scale == 0.0 && v_xy_scale == 0.0)
+        return Kg
+    end
+    shear_scale = scale * s_xy
+    @inbounds @fastmath for j in eachindex(ux_dy), i in eachindex(ux_dy)
+        vxy = vy_dx[i] * vy_dy[j] + vy_dy[i] * vy_dx[j]
+        Kg[i, j] += shear_scale * (
+            u_yy_scale * ux_dy[i] * ux_dy[j] +
+            v_xx_scale * vy_dx[i] * vy_dx[j] +
+            v_yy_scale * vy_dy[i] * vy_dy[j] +
+            v_xy_scale * vxy
+        )
+    end
+    return Kg
+end
+
+@inline function add_geometric_nyy_u_extra_block!(Kg::AbstractMatrix,
+                                                  ux_dx::AbstractVector,
+                                                  ux_dy::AbstractVector,
+                                                  scale::Float64,
+                                                  s_yy::Float64,
+                                                  u_xx_scale::Float64,
+                                                  u_yy_scale::Float64,
+                                                  u_xy_scale::Float64)
+    if s_yy == 0.0 ||
+       (u_xx_scale == 0.0 && u_yy_scale == 0.0 && u_xy_scale == 0.0)
+        return Kg
+    end
+    yy_scale = scale * s_yy
+    @inbounds @fastmath for j in eachindex(ux_dx), i in eachindex(ux_dx)
+        uxy = ux_dx[i] * ux_dy[j] + ux_dy[i] * ux_dx[j]
+        Kg[i, j] += yy_scale * (
+            u_xx_scale * ux_dx[i] * ux_dx[j] +
+            u_yy_scale * ux_dy[i] * ux_dy[j] +
+            u_xy_scale * uxy
+        )
+    end
+    return Kg
+end
+
+@inline function add_geometric_nyy_vw_extra_block!(Kg::AbstractMatrix,
+                                                   vy_dx::AbstractVector,
+                                                   w_dx::AbstractVector,
+                                                   w_dy::AbstractVector,
+                                                   scale::Float64,
+                                                   s_yy::Float64,
+                                                   v_xx_scale::Float64,
+                                                   w_xx_scale::Float64,
+                                                   w_xy_scale::Float64)
+    if s_yy == 0.0 ||
+       (v_xx_scale == 0.0 && w_xx_scale == 0.0 && w_xy_scale == 0.0)
+        return Kg
+    end
+    yy_scale = scale * s_yy
+    @inbounds @fastmath for j in eachindex(vy_dx), i in eachindex(vy_dx)
+        wxy = w_dx[i] * w_dy[j] + w_dy[i] * w_dx[j]
+        Kg[i, j] += yy_scale * (
+            v_xx_scale * vy_dx[i] * vy_dx[j] +
+            w_xx_scale * w_dx[i] * w_dx[j] +
+            w_xy_scale * wxy
+        )
+    end
+    return Kg
+end
+
 @inline function shell_geometric_metric3(s_xx::Float64, s_yy::Float64, s_xy::Float64,
                                          ax::SVector{3,Float64}, ay::SVector{3,Float64},
                                          bx::SVector{3,Float64}, by::SVector{3,Float64})
@@ -4766,9 +4902,17 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem::AbstractVe
                                     principal_shear_z_factor::Float64=1.0,
                                     principal_shear_ratio_min::Float64=1.0,
                                     local_trans_split_override::Union{Nothing,Bool}=nothing,
-                                    local_trans_scales_override::Union{Nothing,NTuple{3,Float64}}=nothing,
-                                    local_uv_scale_override::Union{Nothing,Float64}=nothing,
-                                    local_uv_nxy_scale_override::Union{Nothing,Float64}=nothing)
+                                     local_trans_scales_override::Union{Nothing,NTuple{3,Float64}}=nothing,
+                                     local_uv_scale_override::Union{Nothing,Float64}=nothing,
+                                     local_uv_nxy_scale_override::Union{Nothing,Float64}=nothing,
+                                     local_w_nxx_scale_override::Union{Nothing,Float64}=nothing,
+                                     local_w_nyy_scale_override::Union{Nothing,Float64}=nothing,
+                                     local_w_nxy_scale_override::Union{Nothing,Float64}=nothing,
+                                     local_shear_axis_scales_override::Union{Nothing,NTuple{4,Float64}}=nothing,
+                                     local_axis_resultant_scales_override::Union{Nothing,NTuple{4,Float64}}=nothing,
+                                     local_shear_extra_scales_override::Union{Nothing,NTuple{4,Float64}}=nothing,
+                                    local_nyy_u_extra_scales_override::Union{Nothing,NTuple{3,Float64}}=nothing,
+                                    local_nyy_vw_extra_scales_override::Union{Nothing,NTuple{3,Float64}}=nothing)
     sigma_gp = zeros(4, 3)
     @inbounds for gp in 1:4
         sigma_gp[gp, 1] = sigma_mem[1]
@@ -4792,9 +4936,17 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem::AbstractVe
                                      principal_shear_z_factor=principal_shear_z_factor,
                                      principal_shear_ratio_min=principal_shear_ratio_min,
                                      local_trans_split_override=local_trans_split_override,
-                                     local_trans_scales_override=local_trans_scales_override,
-                                     local_uv_scale_override=local_uv_scale_override,
-                                     local_uv_nxy_scale_override=local_uv_nxy_scale_override)
+                                      local_trans_scales_override=local_trans_scales_override,
+                                      local_uv_scale_override=local_uv_scale_override,
+                                      local_uv_nxy_scale_override=local_uv_nxy_scale_override,
+                                      local_w_nxx_scale_override=local_w_nxx_scale_override,
+                                      local_w_nyy_scale_override=local_w_nyy_scale_override,
+                                      local_w_nxy_scale_override=local_w_nxy_scale_override,
+                                      local_shear_axis_scales_override=local_shear_axis_scales_override,
+                                      local_axis_resultant_scales_override=local_axis_resultant_scales_override,
+                                      local_shear_extra_scales_override=local_shear_extra_scales_override,
+                                     local_nyy_u_extra_scales_override=local_nyy_u_extra_scales_override,
+                                     local_nyy_vw_extra_scales_override=local_nyy_vw_extra_scales_override)
 end
 
 function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::AbstractMatrix, h::Float64;
@@ -4814,9 +4966,17 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                                     principal_shear_z_factor::Float64=1.0,
                                     principal_shear_ratio_min::Float64=1.0,
                                     local_trans_split_override::Union{Nothing,Bool}=nothing,
-                                    local_trans_scales_override::Union{Nothing,NTuple{3,Float64}}=nothing,
-                                    local_uv_scale_override::Union{Nothing,Float64}=nothing,
-                                    local_uv_nxy_scale_override::Union{Nothing,Float64}=nothing)
+                                     local_trans_scales_override::Union{Nothing,NTuple{3,Float64}}=nothing,
+                                     local_uv_scale_override::Union{Nothing,Float64}=nothing,
+                                     local_uv_nxy_scale_override::Union{Nothing,Float64}=nothing,
+                                     local_w_nxx_scale_override::Union{Nothing,Float64}=nothing,
+                                     local_w_nyy_scale_override::Union{Nothing,Float64}=nothing,
+                                     local_w_nxy_scale_override::Union{Nothing,Float64}=nothing,
+                                     local_shear_axis_scales_override::Union{Nothing,NTuple{4,Float64}}=nothing,
+                                     local_axis_resultant_scales_override::Union{Nothing,NTuple{4,Float64}}=nothing,
+                                     local_shear_extra_scales_override::Union{Nothing,NTuple{4,Float64}}=nothing,
+                                    local_nyy_u_extra_scales_override::Union{Nothing,NTuple{3,Float64}}=nothing,
+                                    local_nyy_vw_extra_scales_override::Union{Nothing,NTuple{3,Float64}}=nothing)
     Kg = zeros(24, 24)
     if h < 1e-30; return Kg; end
     local_trans_split = local_trans_split_override === nothing ?
@@ -4854,6 +5014,100 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
             max(fem_env_float("JFEM_KG_SHELL_LOCAL_UV_NXY_SCALE", local_uv_scale), 0.0) :
             max(local_uv_nxy_scale_override, 0.0)) :
         local_uv_scale
+    local_w_nxx_scale =
+        local_trans_split ?
+        (local_w_nxx_scale_override === nothing ?
+            max(fem_env_float("JFEM_KG_SHELL_LOCAL_W_NXX_SCALE", local_trans_scales[3]), 0.0) :
+            max(local_w_nxx_scale_override, 0.0)) :
+        local_trans_scales[3]
+    local_w_nyy_scale =
+        local_trans_split ?
+        (local_w_nyy_scale_override === nothing ?
+            max(fem_env_float("JFEM_KG_SHELL_LOCAL_W_NYY_SCALE", local_trans_scales[3]), 0.0) :
+            max(local_w_nyy_scale_override, 0.0)) :
+        local_trans_scales[3]
+    local_w_nxy_scale =
+        local_trans_split ?
+        (local_w_nxy_scale_override === nothing ?
+            max(fem_env_float("JFEM_KG_SHELL_LOCAL_W_NXY_SCALE", local_trans_scales[3]), 0.0) :
+            max(local_w_nxy_scale_override, 0.0)) :
+        local_trans_scales[3]
+    local_shear_axis_scales =
+        local_trans_split ?
+        (local_shear_axis_scales_override === nothing ?
+            (
+                fem_env_float("JFEM_KG_SHELL_LOCAL_SHEAR_AXIS_UXX_SCALE", 0.0),
+                fem_env_float("JFEM_KG_SHELL_LOCAL_SHEAR_AXIS_WXX_SCALE", 0.0),
+                fem_env_float("JFEM_KG_SHELL_LOCAL_SHEAR_AXIS_UXY_SCALE", 0.0),
+                fem_env_float("JFEM_KG_SHELL_LOCAL_SHEAR_AXIS_WXY_SCALE", 0.0),
+            ) :
+            local_shear_axis_scales_override) :
+        (0.0, 0.0, 0.0, 0.0)
+    local_shear_axis_active =
+        local_shear_axis_scales[1] != 0.0 ||
+        local_shear_axis_scales[2] != 0.0 ||
+        local_shear_axis_scales[3] != 0.0 ||
+        local_shear_axis_scales[4] != 0.0
+    local_axis_resultant_scales =
+        local_trans_split ?
+        (local_axis_resultant_scales_override === nothing ?
+            (
+                fem_env_float("JFEM_KG_SHELL_LOCAL_AXIS_UXX_EXTRA_SCALE", 0.0),
+                fem_env_float("JFEM_KG_SHELL_LOCAL_AXIS_VYY_EXTRA_SCALE", 0.0),
+                fem_env_float("JFEM_KG_SHELL_LOCAL_AXIS_WXX_EXTRA_SCALE", 0.0),
+                fem_env_float("JFEM_KG_SHELL_LOCAL_AXIS_WYY_EXTRA_SCALE", 0.0),
+            ) :
+            local_axis_resultant_scales_override) :
+        (0.0, 0.0, 0.0, 0.0)
+    local_axis_resultant_active =
+        local_axis_resultant_scales[1] != 0.0 ||
+        local_axis_resultant_scales[2] != 0.0 ||
+        local_axis_resultant_scales[3] != 0.0 ||
+        local_axis_resultant_scales[4] != 0.0
+    local_shear_extra_scales =
+        local_trans_split ?
+        (local_shear_extra_scales_override === nothing ?
+            (
+                fem_env_float("JFEM_KG_SHELL_LOCAL_SHEAR_EXTRA_UYY_SCALE", 0.0),
+                fem_env_float("JFEM_KG_SHELL_LOCAL_SHEAR_EXTRA_VXX_SCALE", 0.0),
+                fem_env_float("JFEM_KG_SHELL_LOCAL_SHEAR_EXTRA_VYY_SCALE", 0.0),
+                fem_env_float("JFEM_KG_SHELL_LOCAL_SHEAR_EXTRA_VXY_SCALE", 0.0),
+            ) :
+            local_shear_extra_scales_override) :
+        (0.0, 0.0, 0.0, 0.0)
+    local_shear_extra_active =
+        local_shear_extra_scales[1] != 0.0 ||
+        local_shear_extra_scales[2] != 0.0 ||
+        local_shear_extra_scales[3] != 0.0 ||
+        local_shear_extra_scales[4] != 0.0
+    local_nyy_u_extra_scales =
+        local_trans_split ?
+        (local_nyy_u_extra_scales_override === nothing ?
+            (
+                fem_env_float("JFEM_KG_SHELL_LOCAL_NYY_U_EXTRA_UXX_SCALE", 0.0),
+                fem_env_float("JFEM_KG_SHELL_LOCAL_NYY_U_EXTRA_UYY_SCALE", 0.0),
+                fem_env_float("JFEM_KG_SHELL_LOCAL_NYY_U_EXTRA_UXY_SCALE", 0.0),
+            ) :
+            local_nyy_u_extra_scales_override) :
+        (0.0, 0.0, 0.0)
+    local_nyy_u_extra_active =
+        local_nyy_u_extra_scales[1] != 0.0 ||
+        local_nyy_u_extra_scales[2] != 0.0 ||
+        local_nyy_u_extra_scales[3] != 0.0
+    local_nyy_vw_extra_scales =
+        local_trans_split ?
+        (local_nyy_vw_extra_scales_override === nothing ?
+            (
+                fem_env_float("JFEM_KG_SHELL_LOCAL_NYY_VW_EXTRA_VXX_SCALE", 0.0),
+                fem_env_float("JFEM_KG_SHELL_LOCAL_NYY_VW_EXTRA_WXX_SCALE", 0.0),
+                fem_env_float("JFEM_KG_SHELL_LOCAL_NYY_VW_EXTRA_WXY_SCALE", 0.0),
+            ) :
+            local_nyy_vw_extra_scales_override) :
+        (0.0, 0.0, 0.0)
+    local_nyy_vw_extra_active =
+        local_nyy_vw_extra_scales[1] != 0.0 ||
+        local_nyy_vw_extra_scales[2] != 0.0 ||
+        local_nyy_vw_extra_scales[3] != 0.0
 
     pt = 1.0 / sqrt(3.0)
     gauss_pts = (SVector(-pt,-pt), SVector(pt,-pt), SVector(pt,pt), SVector(-pt,pt))
@@ -5089,10 +5343,42 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                         end
                     end
                 end
+                w_nxx_delta = local_w_nxx_scale - local_trans_scales[3]
+                w_nyy_delta = local_w_nyy_scale - local_trans_scales[3]
+                w_nxy_delta = local_w_nxy_scale - local_trans_scales[3]
+                if w_nxx_delta != 0.0 || w_nyy_delta != 0.0 || (w_nxy_delta != 0.0 && s_xy != 0.0)
+                    for a in 1:24
+                        for b in 1:24
+                            Kg[a, b] += scale * (
+                                w_nxx_delta * s_xx * duz_dx[a] * duz_dx[b] +
+                                w_nyy_delta * s_yy * duz_dy[a] * duz_dy[b] +
+                                w_nxy_delta * s_xy * (
+                                    duz_dx[a] * duz_dy[b] + duz_dy[a] * duz_dx[b]
+                                )
+                            )
+                        end
+                    end
+                end
             else
                 add_geometric_gradient_block!(Kg, dux_dx, dux_dy, scale, s_xx, s_yy, s_xy, local_trans_scales[1])
                 add_geometric_gradient_block!(Kg, duy_dx, duy_dy, scale, s_xx, s_yy, s_xy, local_trans_scales[2])
                 add_geometric_gradient_block!(Kg, duz_dx, duz_dy, scale, s_xx, s_yy, s_xy, local_trans_scales[3])
+                w_nxx_delta = local_w_nxx_scale - local_trans_scales[3]
+                w_nyy_delta = local_w_nyy_scale - local_trans_scales[3]
+                w_nxy_delta = local_w_nxy_scale - local_trans_scales[3]
+                if w_nxx_delta != 0.0 || w_nyy_delta != 0.0 || (w_nxy_delta != 0.0 && s_xy != 0.0)
+                    for a in 1:24
+                        for b in 1:24
+                            Kg[a, b] += scale * (
+                                w_nxx_delta * s_xx * duz_dx[a] * duz_dx[b] +
+                                w_nyy_delta * s_yy * duz_dy[a] * duz_dy[b] +
+                                w_nxy_delta * s_xy * (
+                                    duz_dx[a] * duz_dy[b] + duz_dy[a] * duz_dx[b]
+                                )
+                            )
+                        end
+                    end
+                end
                 if rot_grad_scale > 0.0
                     for i in 1:4
                         dNi_dx = iJ11*dNr[i] + iJ12*dNs[i]
@@ -5119,6 +5405,76 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                         end
                     end
                 end
+            end
+            if trans_mode !== :curvature && local_shear_axis_active
+                add_geometric_shear_axis_block!(
+                    Kg,
+                    dux_dx,
+                    dux_dy,
+                    duz_dx,
+                    duz_dy,
+                    scale,
+                    s_xy,
+                    local_shear_axis_scales[1],
+                    local_shear_axis_scales[2],
+                    local_shear_axis_scales[3],
+                    local_shear_axis_scales[4],
+                )
+            end
+            if trans_mode !== :curvature && local_axis_resultant_active
+                add_geometric_axis_resultant_block!(
+                    Kg,
+                    dux_dx,
+                    duy_dy,
+                    duz_dx,
+                    duz_dy,
+                    scale,
+                    s_xx,
+                    s_yy,
+                    local_axis_resultant_scales[1],
+                    local_axis_resultant_scales[2],
+                    local_axis_resultant_scales[3],
+                    local_axis_resultant_scales[4],
+                )
+            end
+            if trans_mode !== :curvature && local_shear_extra_active
+                add_geometric_shear_extra_block!(
+                    Kg,
+                    dux_dy,
+                    duy_dx,
+                    duy_dy,
+                    scale,
+                    s_xy,
+                    local_shear_extra_scales[1],
+                    local_shear_extra_scales[2],
+                    local_shear_extra_scales[3],
+                    local_shear_extra_scales[4],
+                )
+            end
+            if trans_mode !== :curvature && local_nyy_u_extra_active
+                add_geometric_nyy_u_extra_block!(
+                    Kg,
+                    dux_dx,
+                    dux_dy,
+                    scale,
+                    s_yy,
+                    local_nyy_u_extra_scales[1],
+                    local_nyy_u_extra_scales[2],
+                    local_nyy_u_extra_scales[3],
+                )
+            end
+            if trans_mode !== :curvature && local_nyy_vw_extra_active
+                add_geometric_nyy_vw_extra_block!(
+                    Kg,
+                    duy_dx,
+                    duz_dx,
+                    duz_dy,
+                    scale,
+                    s_yy,
+                    local_nyy_vw_extra_scales[1],
+                    local_nyy_vw_extra_scales[2],
+                    local_nyy_vw_extra_scales[3],
+                )
             end
         else
             # Shape function derivatives in physical coordinates + geometric stiffness
@@ -5265,6 +5621,16 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                                 Kg[row0 + 1, col0 + 2] += uv_delta_val
                                 Kg[row0 + 2, col0 + 1] += uv_delta_val
                             end
+                            w_nxx_delta = local_w_nxx_scale - local_trans_scales[3]
+                            w_nyy_delta = local_w_nyy_scale - local_trans_scales[3]
+                            w_nxy_delta = local_w_nxy_scale - local_trans_scales[3]
+                            if w_nxx_delta != 0.0 || w_nyy_delta != 0.0 || (w_nxy_delta != 0.0 && s_xy != 0.0)
+                                Kg[row0 + 3, col0 + 3] += h * abs_detJ * (
+                                    w_nxx_delta * s_xx * dNi_dx * dNj_dx +
+                                    w_nyy_delta * s_yy * dNi_dy * dNj_dy +
+                                    w_nxy_delta * s_xy * sxy_term
+                                )
+                            end
                         else
                             for d in 1:3
                                 row = (i-1)*6 + d
@@ -5284,6 +5650,18 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                                 Kg[row0 + 1, col0 + 2] += uv_val
                                 Kg[row0 + 2, col0 + 1] += uv_val
                             end
+                            w_nxx_delta = local_w_nxx_scale - local_trans_scales[3]
+                            w_nyy_delta = local_w_nyy_scale - local_trans_scales[3]
+                            w_nxy_delta = local_w_nxy_scale - local_trans_scales[3]
+                            if w_nxx_delta != 0.0 || w_nyy_delta != 0.0 || (w_nxy_delta != 0.0 && s_xy != 0.0)
+                                row0 = (i - 1) * 6
+                                col0 = (j - 1) * 6
+                                Kg[row0 + 3, col0 + 3] += h * abs_detJ * (
+                                    w_nxx_delta * s_xx * dNi_dx * dNj_dx +
+                                    w_nyy_delta * s_yy * dNi_dy * dNj_dy +
+                                    w_nxy_delta * s_xy * sxy_term
+                                )
+                            end
                             if rot_grad_scale > 0.0
                                 rot_val = rot_grad_scale * (h^3 / 12.0) * abs_detJ * (
                                     s_xx * dNi_dx * dNj_dx +
@@ -5297,6 +5675,99 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                                 Kg[row_rx, col_rx] += rot_val
                                 Kg[row_ry, col_ry] += rot_val
                             end
+                        end
+                        if trans_mode !== :curvature &&
+                           trans_mode !== :normal_only &&
+                           local_shear_axis_active &&
+                           s_xy != 0.0
+                            row0 = (i - 1) * 6
+                            col0 = (j - 1) * 6
+                            shear_axis_scale = h * abs_detJ * s_xy
+                            ux_axis = shear_axis_scale * (
+                                local_shear_axis_scales[1] * dNi_dx * dNj_dx +
+                                local_shear_axis_scales[3] * sxy_term
+                            )
+                            wz_axis = shear_axis_scale * (
+                                local_shear_axis_scales[2] * dNi_dx * dNj_dx +
+                                local_shear_axis_scales[4] * sxy_term
+                            )
+                            Kg[row0 + 1, col0 + 1] += ux_axis
+                            Kg[row0 + 3, col0 + 3] += wz_axis
+                        end
+                        if trans_mode !== :curvature &&
+                           local_axis_resultant_active &&
+                           (s_xx != 0.0 || s_yy != 0.0)
+                            row0 = (i - 1) * 6
+                            col0 = (j - 1) * 6
+                            axis_scale = h * abs_detJ
+                            ux_axis = axis_scale * local_axis_resultant_scales[1] *
+                                      s_xx * dNi_dx * dNj_dx
+                            vy_axis = axis_scale * local_axis_resultant_scales[2] *
+                                      s_yy * dNi_dy * dNj_dy
+                            wx_axis = axis_scale * local_axis_resultant_scales[3] *
+                                      s_xx * dNi_dx * dNj_dx
+                            wy_axis = axis_scale * local_axis_resultant_scales[4] *
+                                      s_yy * dNi_dy * dNj_dy
+                            Kg[row0 + 1, col0 + 1] += ux_axis
+                            Kg[row0 + 2, col0 + 2] += vy_axis
+                            Kg[row0 + 3, col0 + 3] += wx_axis + wy_axis
+                        end
+                        if trans_mode !== :curvature &&
+                           trans_mode !== :normal_only &&
+                           local_shear_extra_active &&
+                           s_xy != 0.0
+                            row0 = (i - 1) * 6
+                            col0 = (j - 1) * 6
+                            shear_extra_scale = h * abs_detJ * s_xy
+                            uyy_extra = shear_extra_scale *
+                                        local_shear_extra_scales[1] *
+                                        dNi_dy * dNj_dy
+                            vxx_extra = shear_extra_scale *
+                                        local_shear_extra_scales[2] *
+                                        dNi_dx * dNj_dx
+                            vyy_extra = shear_extra_scale *
+                                        local_shear_extra_scales[3] *
+                                        dNi_dy * dNj_dy
+                            vxy_extra = shear_extra_scale *
+                                        local_shear_extra_scales[4] *
+                                        sxy_term
+                            Kg[row0 + 1, col0 + 1] += uyy_extra
+                            Kg[row0 + 2, col0 + 2] += vxx_extra + vyy_extra + vxy_extra
+                        end
+                        if trans_mode !== :curvature &&
+                           local_nyy_u_extra_active &&
+                           s_yy != 0.0
+                            row0 = (i - 1) * 6
+                            col0 = (j - 1) * 6
+                            nyy_u_scale = h * abs_detJ * s_yy
+                            uxx_extra = nyy_u_scale *
+                                        local_nyy_u_extra_scales[1] *
+                                        dNi_dx * dNj_dx
+                            uyy_extra = nyy_u_scale *
+                                        local_nyy_u_extra_scales[2] *
+                                        dNi_dy * dNj_dy
+                            uxy_extra = nyy_u_scale *
+                                        local_nyy_u_extra_scales[3] *
+                                        sxy_term
+                            Kg[row0 + 1, col0 + 1] += uxx_extra + uyy_extra + uxy_extra
+                        end
+                        if trans_mode !== :curvature &&
+                           local_nyy_vw_extra_active &&
+                           s_yy != 0.0
+                            row0 = (i - 1) * 6
+                            col0 = (j - 1) * 6
+                            nyy_vw_scale = h * abs_detJ * s_yy
+                            vxx_extra = nyy_vw_scale *
+                                        local_nyy_vw_extra_scales[1] *
+                                        dNi_dx * dNj_dx
+                            wxx_extra = nyy_vw_scale *
+                                        local_nyy_vw_extra_scales[2] *
+                                        dNi_dx * dNj_dx
+                            wxy_extra = nyy_vw_scale *
+                                        local_nyy_vw_extra_scales[3] *
+                                        sxy_term
+                            Kg[row0 + 2, col0 + 2] += vxx_extra
+                            Kg[row0 + 3, col0 + 3] += wxx_extra + wxy_extra
                         end
                     end
                 end

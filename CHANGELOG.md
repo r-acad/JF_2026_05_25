@@ -6,6 +6,63 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added descriptor-gated SOL105 isotropic PSHELL CQUAD4 component-basis `Kg`
+  defaults for elementary formulation parity, including local transverse
+  `W/Nyy = 1.55`, `W/Nxy = 0.0`, local `UV/Nxy = 0.78`, and separate skew
+  (`1.36`) and mildly warped (`1.20`) geometry gates. The private compact DOE
+  sweep `ELEMENTARY_CORE_PSHELL_UV_REFINE_PROBE_20260630_01` identified the
+  candidate, and the clean default rerun
+  `ELEMENTARY_CORE_AFTER_HARNESS_DEFAULT_SYNC_20260630_01` achieved `9/9`
+  elementary comparable rows within `2%`, mean absolute first-root error
+  `0.3476%`, and max `1.7844%`. The candidate is not case-name, PID/EID,
+  group, external-table, or stress-state gated.
+- Promoted the PCOMP low-warp N4-family and square-laminate descriptor `Kg`
+  defaults used by the compact guard. These gates use only aspect,
+  thickness ratio, warp, ply count, ply-angle fractions, and Nemeth-style
+  laminate descriptors. The N4 compact shear row is `+0.0472%` in
+  `ELEMENTARY_CORE_AFTER_HARNESS_DEFAULT_SYNC_20260630_01`.
+- Verified the promoted defaults on the optimized large comparable SOL105
+  guard in two slices: `LARGE_GUARD_NO_VTP_OPT_AFTER_DESCRIPTOR_PROMOTION_20260630_01`
+  achieved `10/10` rows within `2%`, mean absolute error `0.8046%`, max
+  `1.9645%`; `GAME_VTP_OPT_AFTER_DESCRIPTOR_PROMOTION_20260630_01` achieved
+  `2/2` rows within `2%`, mean absolute error `1.1931%`, max `1.6117%`.
+- Retuned the existing descriptor-gated SOL105 isotropic PSHELL flat-square
+  `Kg` scale from `1.03` to `0.947`. The gate remains generic and narrow:
+  isotropic PSHELL material, flat CQUAD4 geometry, aspect `0.9..1.1`, near-zero
+  warp, and `h/Lmax` in the thick square-plate band. Private elementary DOE
+  sweep `ELEMENTARY_CORE_PSHELL_NXY_PROBE_20260630_01` showed this removes the
+  `-8.05%` first-root bias on flat square PSHELL probes while avoiding the
+  broader skew/warp cases that need separate operator work.
+- Added default-off descriptor-gated SOL105 CQUAD4 shell `Kg` compact
+  operator hooks for NAST705/N4 formulation discovery, including local
+  shear-extra and `Nyy`/`v-w` coupling terms inside the existing
+  `JFEM_KG_SHELL_DESCRIPTOR_LOCAL_TRANS_SPLIT` branch. Added an independent
+  square-laminate descriptor band controlled by
+  `JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_TRANS_SPLIT`; its default aspect cap
+  is restricted to `1.10` so it applies to truly square laminate patches while
+  avoiding slightly rectangular FSLoad strip elements. These branches remain
+  opt-in and use only element geometry, thickness, ply count, ply-angle
+  fractions, and Nemeth-style laminate descriptors. Private verification
+  `COMBINED_LOWWARP_SQUARE_MIXED_TIGHT_ASPECT_20260630_01` achieved `20/20`
+  comparable SOL105 first-root rows within `2%` of Nastran, mean absolute
+  error `0.7469%`, worst `1.9645%`.
+- Added default-off experimental SOL105 CQUAD4 shell `Kg` shear-axis operator
+  hooks for private formulation discovery. The descriptor-gated coefficients
+  `JFEM_KG_SHELL_DESCRIPTOR_LOCAL_SHEAR_AXIS_UXX_SCALE`,
+  `JFEM_KG_SHELL_DESCRIPTOR_LOCAL_SHEAR_AXIS_WXX_SCALE`,
+  `JFEM_KG_SHELL_DESCRIPTOR_LOCAL_SHEAR_AXIS_UXY_SCALE`, and
+  `JFEM_KG_SHELL_DESCRIPTOR_LOCAL_SHEAR_AXIS_WXY_SCALE` add signed,
+  `Nxy`-weighted local gradient terms inside the existing
+  `JFEM_KG_SHELL_DESCRIPTOR_LOCAL_TRANS_SPLIT` gate. Added companion
+  component-axis extras
+  `JFEM_KG_SHELL_DESCRIPTOR_LOCAL_AXIS_UXX_EXTRA_SCALE`,
+  `JFEM_KG_SHELL_DESCRIPTOR_LOCAL_AXIS_VYY_EXTRA_SCALE`,
+  `JFEM_KG_SHELL_DESCRIPTOR_LOCAL_AXIS_WXX_EXTRA_SCALE`, and
+  `JFEM_KG_SHELL_DESCRIPTOR_LOCAL_AXIS_WYY_EXTRA_SCALE` for signed
+  `Nxx`/`Nyy` directional-gradient experiments. Defaults remain unchanged, and
+  the selector uses element geometry and laminate descriptors rather than case
+  names, groups, IDs, or formulation gates based on solved internal stress
+  state.
 - Added an opt-in residual-PC rank limiter for the experimental SOL105 CQUAD4
   axis PC-patch `Kg` operator. `JFEM_SOL105_KG_AXIS_PC_PATCH_RANK` or the
   component-specific rank flags can restrict the generic descriptor residual

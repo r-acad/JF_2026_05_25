@@ -1213,26 +1213,60 @@ end
 end
 
 @inline function kg_shell_descriptor_local_trans_split_enabled()
-    return solver_env_bool("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_TRANS_SPLIT", false)
+    return solver_env_bool("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_TRANS_SPLIT", true)
+end
+
+@inline function kg_shell_descriptor_square_local_trans_split_enabled()
+    return solver_env_bool("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_TRANS_SPLIT", true)
 end
 
 @inline function kg_shell_descriptor_local_u_scale()
-    return max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_U_SCALE", 1.0), 0.0)
+    return max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_U_SCALE", 132.0), 0.0)
 end
 
 @inline function kg_shell_descriptor_local_v_scale()
-    return max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_V_SCALE", kg_shell_descriptor_local_u_scale()), 0.0)
+    return max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_V_SCALE", 32.0), 0.0)
 end
 
 @inline function kg_shell_descriptor_local_w_scale()
     return max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_W_SCALE", 1.0), 0.0)
 end
 
+@inline function kg_shell_descriptor_local_w_nxy_scale()
+    return max(
+        solver_env_float(
+            "JFEM_KG_SHELL_DESCRIPTOR_LOCAL_W_NXY_SCALE",
+            kg_shell_descriptor_local_w_scale(),
+        ),
+        0.0,
+    )
+end
+
+@inline function kg_shell_descriptor_local_w_nxx_scale()
+    return max(
+        solver_env_float(
+            "JFEM_KG_SHELL_DESCRIPTOR_LOCAL_W_NXX_SCALE",
+            kg_shell_descriptor_local_w_scale(),
+        ),
+        0.0,
+    )
+end
+
+@inline function kg_shell_descriptor_local_w_nyy_scale()
+    return max(
+        solver_env_float(
+            "JFEM_KG_SHELL_DESCRIPTOR_LOCAL_W_NYY_SCALE",
+            kg_shell_descriptor_local_w_scale(),
+        ),
+        0.0,
+    )
+end
+
 @inline function kg_shell_descriptor_local_uv_scale()
     return max(
         solver_env_float(
             "JFEM_KG_SHELL_DESCRIPTOR_LOCAL_UV_SCALE",
-            sqrt(kg_shell_descriptor_local_u_scale() * kg_shell_descriptor_local_v_scale()),
+            70.0,
         ),
         0.0,
     )
@@ -1242,46 +1276,187 @@ end
     return max(
         solver_env_float(
             "JFEM_KG_SHELL_DESCRIPTOR_LOCAL_UV_NXY_SCALE",
-            kg_shell_descriptor_local_uv_scale(),
+            50.0,
         ),
         0.0,
     )
 end
 
+@inline function kg_shell_descriptor_square_local_u_scale()
+    return max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_U_SCALE", 1.0), 0.0)
+end
+
+@inline function kg_shell_descriptor_square_local_v_scale()
+    return max(
+        solver_env_float(
+            "JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_V_SCALE",
+            kg_shell_descriptor_square_local_u_scale(),
+        ),
+        0.0,
+    )
+end
+
+@inline function kg_shell_descriptor_square_local_w_scale()
+    return max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_W_SCALE", 1.04), 0.0)
+end
+
+@inline function kg_shell_descriptor_square_local_w_nxy_scale()
+    return max(
+        solver_env_float(
+            "JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_W_NXY_SCALE",
+            kg_shell_descriptor_square_local_w_scale(),
+        ),
+        0.0,
+    )
+end
+
+@inline function kg_shell_descriptor_square_local_w_nxx_scale()
+    return max(
+        solver_env_float(
+            "JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_W_NXX_SCALE",
+            kg_shell_descriptor_square_local_w_scale(),
+        ),
+        0.0,
+    )
+end
+
+@inline function kg_shell_descriptor_square_local_w_nyy_scale()
+    return max(
+        solver_env_float(
+            "JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_W_NYY_SCALE",
+            kg_shell_descriptor_square_local_w_scale(),
+        ),
+        0.0,
+    )
+end
+
+@inline function kg_shell_descriptor_square_local_uv_scale()
+    return max(
+        solver_env_float(
+            "JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_UV_SCALE",
+            sqrt(kg_shell_descriptor_square_local_u_scale() *
+                 kg_shell_descriptor_square_local_v_scale()),
+        ),
+        0.0,
+    )
+end
+
+@inline function kg_shell_descriptor_square_local_uv_nxy_scale()
+    return max(
+        solver_env_float(
+            "JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_UV_NXY_SCALE",
+            kg_shell_descriptor_square_local_uv_scale(),
+        ),
+        0.0,
+    )
+end
+
+@inline kg_shell_descriptor_local_shear_axis_uxx_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_SHEAR_AXIS_UXX_SCALE", 128.0)
+@inline kg_shell_descriptor_local_shear_axis_wxx_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_SHEAR_AXIS_WXX_SCALE", 0.0)
+@inline kg_shell_descriptor_local_shear_axis_uxy_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_SHEAR_AXIS_UXY_SCALE", 0.0)
+@inline kg_shell_descriptor_local_shear_axis_wxy_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_SHEAR_AXIS_WXY_SCALE", 0.0)
+@inline kg_shell_descriptor_local_axis_uxx_extra_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_AXIS_UXX_EXTRA_SCALE", 0.0)
+@inline kg_shell_descriptor_local_axis_vyy_extra_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_AXIS_VYY_EXTRA_SCALE", 0.0)
+@inline kg_shell_descriptor_local_axis_wxx_extra_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_AXIS_WXX_EXTRA_SCALE", 0.0)
+@inline kg_shell_descriptor_local_axis_wyy_extra_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_AXIS_WYY_EXTRA_SCALE", 0.0)
+@inline kg_shell_descriptor_local_shear_extra_uyy_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_SHEAR_EXTRA_UYY_SCALE", 0.0)
+@inline kg_shell_descriptor_local_shear_extra_vxx_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_SHEAR_EXTRA_VXX_SCALE", -160.0)
+@inline kg_shell_descriptor_local_shear_extra_vyy_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_SHEAR_EXTRA_VYY_SCALE", 0.0)
+@inline kg_shell_descriptor_local_shear_extra_vxy_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_SHEAR_EXTRA_VXY_SCALE", 0.0)
+@inline kg_shell_descriptor_local_nyy_u_extra_uxx_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_NYY_U_EXTRA_UXX_SCALE", 0.0)
+@inline kg_shell_descriptor_local_nyy_u_extra_uyy_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_NYY_U_EXTRA_UYY_SCALE", 0.0)
+@inline kg_shell_descriptor_local_nyy_u_extra_uxy_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_NYY_U_EXTRA_UXY_SCALE", 0.0)
+@inline kg_shell_descriptor_local_nyy_vw_extra_vxx_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_NYY_VW_EXTRA_VXX_SCALE", -640.0)
+@inline kg_shell_descriptor_local_nyy_vw_extra_wxx_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_NYY_VW_EXTRA_WXX_SCALE", 0.0)
+@inline kg_shell_descriptor_local_nyy_vw_extra_wxy_scale() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_NYY_VW_EXTRA_WXY_SCALE", 0.0)
+
 @inline kg_shell_descriptor_local_aspect_min() =
-    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_ASPECT_MIN", 1.0), 1.0)
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_ASPECT_MIN", 5.5), 1.0)
 @inline kg_shell_descriptor_local_aspect_max() =
-    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_ASPECT_MAX", 1.0e99),
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_ASPECT_MAX", 8.5),
         kg_shell_descriptor_local_aspect_min())
 @inline kg_shell_descriptor_local_h_over_lmax_min() =
-    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_H_OVER_LMAX_MIN", 0.0), 0.0)
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_H_OVER_LMAX_MIN", 0.020), 0.0)
 @inline kg_shell_descriptor_local_h_over_lmax_max() =
-    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_H_OVER_LMAX_MAX", 1.0e99),
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_H_OVER_LMAX_MAX", 0.040),
         kg_shell_descriptor_local_h_over_lmax_min())
 @inline kg_shell_descriptor_local_warp_min() =
     max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_WARP_MIN", 0.0), 0.0)
 @inline kg_shell_descriptor_local_warp_max() =
-    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_WARP_MAX", 1.0e99),
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_WARP_MAX", 0.003),
         kg_shell_descriptor_local_warp_min())
 @inline kg_shell_descriptor_local_pm45_min() =
-    clamp(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_PM45_MIN", 0.0), 0.0, 1.0)
+    clamp(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_PM45_MIN", 0.35), 0.0, 1.0)
 @inline kg_shell_descriptor_local_pm45_max() =
-    clamp(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_PM45_MAX", 1.0), 0.0, 1.0)
+    clamp(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_PM45_MAX", 0.60), 0.0, 1.0)
 @inline kg_shell_descriptor_local_ply_count_min() =
-    max(Int(round(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_PLY_COUNT_MIN", 0.0))), 0)
+    max(Int(round(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_PLY_COUNT_MIN", 20.0))), 0)
 @inline kg_shell_descriptor_local_ply_count_max() =
-    max(Int(round(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_PLY_COUNT_MAX", 1.0e9))),
+    max(Int(round(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_PLY_COUNT_MAX", 32.0))),
         kg_shell_descriptor_local_ply_count_min())
 @inline kg_shell_descriptor_local_abs_gamma_min() =
-    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_ABS_GAMMA_MIN", 0.0), 0.0)
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_ABS_GAMMA_MIN", 0.35), 0.0)
 @inline kg_shell_descriptor_local_abs_gamma_max() =
-    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_ABS_GAMMA_MAX", 1.0e99),
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_ABS_GAMMA_MAX", 0.75),
         kg_shell_descriptor_local_abs_gamma_min())
 @inline kg_shell_descriptor_local_abs_delta_min() =
-    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_ABS_DELTA_MIN", 0.0), 0.0)
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_ABS_DELTA_MIN", 0.35), 0.0)
 @inline kg_shell_descriptor_local_abs_delta_max() =
-    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_ABS_DELTA_MAX", 1.0e99),
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_ABS_DELTA_MAX", 0.75),
         kg_shell_descriptor_local_abs_delta_min())
+
+@inline kg_shell_descriptor_square_local_aspect_min() =
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_ASPECT_MIN", 1.0), 1.0)
+@inline kg_shell_descriptor_square_local_aspect_max() =
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_ASPECT_MAX", 1.10),
+        kg_shell_descriptor_square_local_aspect_min())
+@inline kg_shell_descriptor_square_local_h_over_lmax_min() =
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_H_OVER_LMAX_MIN", 0.015), 0.0)
+@inline kg_shell_descriptor_square_local_h_over_lmax_max() =
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_H_OVER_LMAX_MAX", 0.080),
+        kg_shell_descriptor_square_local_h_over_lmax_min())
+@inline kg_shell_descriptor_square_local_warp_min() =
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_WARP_MIN", 0.0), 0.0)
+@inline kg_shell_descriptor_square_local_warp_max() =
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_WARP_MAX", 0.003),
+        kg_shell_descriptor_square_local_warp_min())
+@inline kg_shell_descriptor_square_local_pm45_min() =
+    clamp(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_PM45_MIN", 0.0), 0.0, 1.0)
+@inline kg_shell_descriptor_square_local_pm45_max() =
+    clamp(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_PM45_MAX", 0.60), 0.0, 1.0)
+@inline kg_shell_descriptor_square_local_ply_count_min() =
+    max(Int(round(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_PLY_COUNT_MIN", 3.0))), 0)
+@inline kg_shell_descriptor_square_local_ply_count_max() =
+    max(Int(round(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_PLY_COUNT_MAX", 9.0))),
+        kg_shell_descriptor_square_local_ply_count_min())
+@inline kg_shell_descriptor_square_local_abs_gamma_min() =
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_ABS_GAMMA_MIN", 0.0), 0.0)
+@inline kg_shell_descriptor_square_local_abs_gamma_max() =
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_ABS_GAMMA_MAX", 0.25),
+        kg_shell_descriptor_square_local_abs_gamma_min())
+@inline kg_shell_descriptor_square_local_abs_delta_min() =
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_ABS_DELTA_MIN", 0.0), 0.0)
+@inline kg_shell_descriptor_square_local_abs_delta_max() =
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_ABS_DELTA_MAX", 0.25),
+        kg_shell_descriptor_square_local_abs_delta_min())
 
 @inline function kg_shell_descriptor_local_trans_split_candidate(
     is_pcomp_clt::Bool,
@@ -1310,6 +1485,36 @@ end
     abs(nemeth_gamma) <= kg_shell_descriptor_local_abs_gamma_max() || return false
     abs(nemeth_delta) >= kg_shell_descriptor_local_abs_delta_min() || return false
     abs(nemeth_delta) <= kg_shell_descriptor_local_abs_delta_max() || return false
+    return true
+end
+
+@inline function kg_shell_descriptor_square_local_trans_split_candidate(
+    is_pcomp_clt::Bool,
+    pcomp_is_isotropic::Bool,
+    aspect::Float64,
+    h_over_lmax::Float64,
+    warp_ratio::Float64,
+    pm45_fraction::Float64,
+    ply_count::Int,
+    nemeth_gamma::Float64,
+    nemeth_delta::Float64,
+)
+    is_pcomp_clt || return false
+    pcomp_is_isotropic && return false
+    aspect >= kg_shell_descriptor_square_local_aspect_min() || return false
+    aspect <= kg_shell_descriptor_square_local_aspect_max() || return false
+    h_over_lmax >= kg_shell_descriptor_square_local_h_over_lmax_min() || return false
+    h_over_lmax <= kg_shell_descriptor_square_local_h_over_lmax_max() || return false
+    warp_ratio >= kg_shell_descriptor_square_local_warp_min() || return false
+    warp_ratio <= kg_shell_descriptor_square_local_warp_max() || return false
+    pm45_fraction >= kg_shell_descriptor_square_local_pm45_min() || return false
+    pm45_fraction <= kg_shell_descriptor_square_local_pm45_max() || return false
+    ply_count >= kg_shell_descriptor_square_local_ply_count_min() || return false
+    ply_count <= kg_shell_descriptor_square_local_ply_count_max() || return false
+    abs(nemeth_gamma) >= kg_shell_descriptor_square_local_abs_gamma_min() || return false
+    abs(nemeth_gamma) <= kg_shell_descriptor_square_local_abs_gamma_max() || return false
+    abs(nemeth_delta) >= kg_shell_descriptor_square_local_abs_delta_min() || return false
+    abs(nemeth_delta) <= kg_shell_descriptor_square_local_abs_delta_max() || return false
     return true
 end
 
@@ -3239,7 +3444,23 @@ end
 @inline sol105_geom_pshell_iso_flat_square_kg_scale_enabled() =
     solver_env_bool("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_SCALE", true)
 @inline sol105_geom_pshell_iso_flat_square_kg_scale_value() =
-    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_SCALE_VALUE", 1.03)
+    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_SCALE_VALUE", 0.947)
+@inline sol105_geom_pshell_iso_flat_square_w_nxx_scale_enabled() =
+    solver_env_bool("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_W_NXX_SCALE", false)
+@inline sol105_geom_pshell_iso_flat_square_w_nxx_scale_value() =
+    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_W_NXX_SCALE_VALUE", 1.0)
+@inline sol105_geom_pshell_iso_flat_square_w_nyy_scale_enabled() =
+    solver_env_bool("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_W_NYY_SCALE", true)
+@inline sol105_geom_pshell_iso_flat_square_w_nyy_scale_value() =
+    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_W_NYY_SCALE_VALUE", 1.55)
+@inline sol105_geom_pshell_iso_flat_square_w_nxy_scale_enabled() =
+    solver_env_bool("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_W_NXY_SCALE", true)
+@inline sol105_geom_pshell_iso_flat_square_w_nxy_scale_value() =
+    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_W_NXY_SCALE_VALUE", 0.0)
+@inline sol105_geom_pshell_iso_flat_square_uv_nxy_scale_enabled() =
+    solver_env_bool("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_UV_NXY_SCALE", true)
+@inline sol105_geom_pshell_iso_flat_square_uv_nxy_scale_value() =
+    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_UV_NXY_SCALE_VALUE", 0.78)
 @inline sol105_geom_pshell_iso_flat_square_kg_aspect_min() =
     max(solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_ASPECT_MIN", 0.9), 1.0e-6)
 @inline sol105_geom_pshell_iso_flat_square_kg_aspect_max() =
@@ -3255,6 +3476,58 @@ end
     max(
         solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_H_OVER_LMAX_MAX", 0.08),
         sol105_geom_pshell_iso_flat_square_kg_h_over_lmax_min(),
+    )
+@inline sol105_geom_pshell_iso_warped_kg_scale_enabled() =
+    solver_env_bool("JFEM_SOL105_GEOM_PSHELL_ISO_WARPED_KG_SCALE", true)
+@inline sol105_geom_pshell_iso_warped_kg_scale_value() =
+    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_WARPED_KG_SCALE_VALUE", 1.20)
+@inline sol105_geom_pshell_iso_warped_kg_warp_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_WARPED_KG_WARP_MIN", 1.0e-5), 0.0)
+@inline sol105_geom_pshell_iso_warped_kg_warp_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_WARPED_KG_WARP_MAX", 0.001),
+        sol105_geom_pshell_iso_warped_kg_warp_min(),
+    )
+@inline sol105_geom_pshell_iso_warped_kg_aspect_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_WARPED_KG_ASPECT_MIN", 0.90), 1.0e-6)
+@inline sol105_geom_pshell_iso_warped_kg_aspect_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_WARPED_KG_ASPECT_MAX", 1.10),
+        sol105_geom_pshell_iso_warped_kg_aspect_min(),
+    )
+@inline sol105_geom_pshell_iso_warped_kg_h_over_lmax_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_WARPED_KG_H_OVER_LMAX_MIN", 0.03), 0.0)
+@inline sol105_geom_pshell_iso_warped_kg_h_over_lmax_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_WARPED_KG_H_OVER_LMAX_MAX", 0.08),
+        sol105_geom_pshell_iso_warped_kg_h_over_lmax_min(),
+    )
+@inline sol105_geom_pshell_iso_skew_kg_scale_enabled() =
+    solver_env_bool("JFEM_SOL105_GEOM_PSHELL_ISO_SKEW_KG_SCALE", true)
+@inline sol105_geom_pshell_iso_skew_kg_scale_value() =
+    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_SKEW_KG_SCALE_VALUE", 1.36)
+@inline sol105_geom_pshell_iso_skew_kg_skew_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_SKEW_KG_SKEW_MIN", 50.0), 0.0)
+@inline sol105_geom_pshell_iso_skew_kg_skew_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_SKEW_KG_SKEW_MAX", 80.0),
+        sol105_geom_pshell_iso_skew_kg_skew_min(),
+    )
+@inline sol105_geom_pshell_iso_skew_kg_warp_max() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_SKEW_KG_WARP_MAX", 1.0e-8), 0.0)
+@inline sol105_geom_pshell_iso_skew_kg_aspect_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_SKEW_KG_ASPECT_MIN", 0.90), 1.0e-6)
+@inline sol105_geom_pshell_iso_skew_kg_aspect_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_SKEW_KG_ASPECT_MAX", 1.10),
+        sol105_geom_pshell_iso_skew_kg_aspect_min(),
+    )
+@inline sol105_geom_pshell_iso_skew_kg_h_over_lmax_min() =
+    max(solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_SKEW_KG_H_OVER_LMAX_MIN", 0.03), 0.0)
+@inline sol105_geom_pshell_iso_skew_kg_h_over_lmax_max() =
+    max(
+        solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_SKEW_KG_H_OVER_LMAX_MAX", 0.08),
+        sol105_geom_pshell_iso_skew_kg_h_over_lmax_min(),
     )
 
 @inline function sol105_geom_pshell_iso_flat_square_kg_scale(
@@ -3274,6 +3547,49 @@ end
     elem_is_flat || return 1.0
     aspect >= aspect_min && aspect <= aspect_max || return 1.0
     warp_ratio <= warp_max || return 1.0
+    h_over_lmax >= h_over_lmax_min && h_over_lmax <= h_over_lmax_max || return 1.0
+    return scale_value
+end
+
+@inline function sol105_geom_pshell_iso_warped_kg_scale(
+    is_pshell_iso::Bool,
+    aspect::Float64,
+    warp_ratio::Float64,
+    h_over_lmax::Float64,
+    scale_value::Float64,
+    aspect_min::Float64,
+    aspect_max::Float64,
+    warp_min::Float64,
+    warp_max::Float64,
+    h_over_lmax_min::Float64,
+    h_over_lmax_max::Float64,
+)
+    is_pshell_iso || return 1.0
+    aspect >= aspect_min && aspect <= aspect_max || return 1.0
+    warp_ratio >= warp_min && warp_ratio <= warp_max || return 1.0
+    h_over_lmax >= h_over_lmax_min && h_over_lmax <= h_over_lmax_max || return 1.0
+    return scale_value
+end
+
+@inline function sol105_geom_pshell_iso_skew_kg_scale(
+    is_pshell_iso::Bool,
+    aspect::Float64,
+    warp_ratio::Float64,
+    edge_skew::Float64,
+    h_over_lmax::Float64,
+    scale_value::Float64,
+    aspect_min::Float64,
+    aspect_max::Float64,
+    warp_max::Float64,
+    skew_min::Float64,
+    skew_max::Float64,
+    h_over_lmax_min::Float64,
+    h_over_lmax_max::Float64,
+)
+    is_pshell_iso || return 1.0
+    aspect >= aspect_min && aspect <= aspect_max || return 1.0
+    warp_ratio <= warp_max || return 1.0
+    edge_skew >= skew_min && edge_skew <= skew_max || return 1.0
     h_over_lmax >= h_over_lmax_min && h_over_lmax <= h_over_lmax_max || return 1.0
     return scale_value
 end
@@ -8739,6 +9055,48 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     kg_descriptor_local_w_scale_v = kg_shell_descriptor_local_w_scale()
     kg_descriptor_local_uv_scale_v = kg_shell_descriptor_local_uv_scale()
     kg_descriptor_local_uv_nxy_scale_v = kg_shell_descriptor_local_uv_nxy_scale()
+    kg_descriptor_local_w_nxx_scale_v = kg_shell_descriptor_local_w_nxx_scale()
+    kg_descriptor_local_w_nyy_scale_v = kg_shell_descriptor_local_w_nyy_scale()
+    kg_descriptor_local_w_nxy_scale_v = kg_shell_descriptor_local_w_nxy_scale()
+    kg_descriptor_square_local_split_enabled = kg_shell_descriptor_square_local_trans_split_enabled()
+    kg_descriptor_square_local_scales_v = (
+        kg_shell_descriptor_square_local_u_scale(),
+        kg_shell_descriptor_square_local_v_scale(),
+        kg_shell_descriptor_square_local_w_scale(),
+    )
+    kg_descriptor_square_local_uv_scale_v = kg_shell_descriptor_square_local_uv_scale()
+    kg_descriptor_square_local_uv_nxy_scale_v = kg_shell_descriptor_square_local_uv_nxy_scale()
+    kg_descriptor_square_local_w_nxx_scale_v = kg_shell_descriptor_square_local_w_nxx_scale()
+    kg_descriptor_square_local_w_nyy_scale_v = kg_shell_descriptor_square_local_w_nyy_scale()
+    kg_descriptor_square_local_w_nxy_scale_v = kg_shell_descriptor_square_local_w_nxy_scale()
+    kg_descriptor_local_shear_axis_scales_v = (
+        kg_shell_descriptor_local_shear_axis_uxx_scale(),
+        kg_shell_descriptor_local_shear_axis_wxx_scale(),
+        kg_shell_descriptor_local_shear_axis_uxy_scale(),
+        kg_shell_descriptor_local_shear_axis_wxy_scale(),
+    )
+    kg_descriptor_local_axis_resultant_scales_v = (
+        kg_shell_descriptor_local_axis_uxx_extra_scale(),
+        kg_shell_descriptor_local_axis_vyy_extra_scale(),
+        kg_shell_descriptor_local_axis_wxx_extra_scale(),
+        kg_shell_descriptor_local_axis_wyy_extra_scale(),
+    )
+    kg_descriptor_local_shear_extra_scales_v = (
+        kg_shell_descriptor_local_shear_extra_uyy_scale(),
+        kg_shell_descriptor_local_shear_extra_vxx_scale(),
+        kg_shell_descriptor_local_shear_extra_vyy_scale(),
+        kg_shell_descriptor_local_shear_extra_vxy_scale(),
+    )
+    kg_descriptor_local_nyy_u_extra_scales_v = (
+        kg_shell_descriptor_local_nyy_u_extra_uxx_scale(),
+        kg_shell_descriptor_local_nyy_u_extra_uyy_scale(),
+        kg_shell_descriptor_local_nyy_u_extra_uxy_scale(),
+    )
+    kg_descriptor_local_nyy_vw_extra_scales_v = (
+        kg_shell_descriptor_local_nyy_vw_extra_vxx_scale(),
+        kg_shell_descriptor_local_nyy_vw_extra_wxx_scale(),
+        kg_shell_descriptor_local_nyy_vw_extra_wxy_scale(),
+    )
     kg_model_descriptor = kg_shell_model_descriptor_summary(model)
     if kg_model_descriptor !== nothing && kg_model_descriptor.scale != 1.0
         kg_shell_nxy *= kg_model_descriptor.scale
@@ -8798,6 +9156,22 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
         sol105_geom_pshell_iso_flat_square_kg_scale_enabled()
     sol105_pshell_iso_flat_square_kg_scale =
         sol105_geom_pshell_iso_flat_square_kg_scale_value()
+    sol105_pshell_iso_flat_square_w_nxx_enabled =
+        sol105_geom_pshell_iso_flat_square_w_nxx_scale_enabled()
+    sol105_pshell_iso_flat_square_w_nxx_scale =
+        sol105_geom_pshell_iso_flat_square_w_nxx_scale_value()
+    sol105_pshell_iso_flat_square_w_nyy_enabled =
+        sol105_geom_pshell_iso_flat_square_w_nyy_scale_enabled()
+    sol105_pshell_iso_flat_square_w_nyy_scale =
+        sol105_geom_pshell_iso_flat_square_w_nyy_scale_value()
+    sol105_pshell_iso_flat_square_w_nxy_enabled =
+        sol105_geom_pshell_iso_flat_square_w_nxy_scale_enabled()
+    sol105_pshell_iso_flat_square_w_nxy_scale =
+        sol105_geom_pshell_iso_flat_square_w_nxy_scale_value()
+    sol105_pshell_iso_flat_square_uv_nxy_enabled =
+        sol105_geom_pshell_iso_flat_square_uv_nxy_scale_enabled()
+    sol105_pshell_iso_flat_square_uv_nxy_scale =
+        sol105_geom_pshell_iso_flat_square_uv_nxy_scale_value()
     sol105_pshell_iso_flat_square_kg_aspect_min =
         sol105_geom_pshell_iso_flat_square_kg_aspect_min()
     sol105_pshell_iso_flat_square_kg_aspect_max =
@@ -8808,6 +9182,40 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
         sol105_geom_pshell_iso_flat_square_kg_h_over_lmax_min()
     sol105_pshell_iso_flat_square_kg_h_over_lmax_max =
         sol105_geom_pshell_iso_flat_square_kg_h_over_lmax_max()
+    sol105_pshell_iso_warped_kg_enabled =
+        sol105_geom_pshell_iso_warped_kg_scale_enabled()
+    sol105_pshell_iso_warped_kg_scale =
+        sol105_geom_pshell_iso_warped_kg_scale_value()
+    sol105_pshell_iso_warped_kg_warp_min =
+        sol105_geom_pshell_iso_warped_kg_warp_min()
+    sol105_pshell_iso_warped_kg_warp_max =
+        sol105_geom_pshell_iso_warped_kg_warp_max()
+    sol105_pshell_iso_warped_kg_aspect_min =
+        sol105_geom_pshell_iso_warped_kg_aspect_min()
+    sol105_pshell_iso_warped_kg_aspect_max =
+        sol105_geom_pshell_iso_warped_kg_aspect_max()
+    sol105_pshell_iso_warped_kg_h_over_lmax_min =
+        sol105_geom_pshell_iso_warped_kg_h_over_lmax_min()
+    sol105_pshell_iso_warped_kg_h_over_lmax_max =
+        sol105_geom_pshell_iso_warped_kg_h_over_lmax_max()
+    sol105_pshell_iso_skew_kg_enabled =
+        sol105_geom_pshell_iso_skew_kg_scale_enabled()
+    sol105_pshell_iso_skew_kg_scale =
+        sol105_geom_pshell_iso_skew_kg_scale_value()
+    sol105_pshell_iso_skew_kg_skew_min =
+        sol105_geom_pshell_iso_skew_kg_skew_min()
+    sol105_pshell_iso_skew_kg_skew_max =
+        sol105_geom_pshell_iso_skew_kg_skew_max()
+    sol105_pshell_iso_skew_kg_warp_max =
+        sol105_geom_pshell_iso_skew_kg_warp_max()
+    sol105_pshell_iso_skew_kg_aspect_min =
+        sol105_geom_pshell_iso_skew_kg_aspect_min()
+    sol105_pshell_iso_skew_kg_aspect_max =
+        sol105_geom_pshell_iso_skew_kg_aspect_max()
+    sol105_pshell_iso_skew_kg_h_over_lmax_min =
+        sol105_geom_pshell_iso_skew_kg_h_over_lmax_min()
+    sol105_pshell_iso_skew_kg_h_over_lmax_max =
+        sol105_geom_pshell_iso_skew_kg_h_over_lmax_max()
     kg_quad4_feature_membrane_scale = kg_quad4_feature_membrane_scale_factor()
     kg_quad4_feature_membrane_scale_components_v = kg_quad4_feature_membrane_scale_components()
     kg_quad4_feature_membrane_scale_pcomp_only_v = kg_quad4_feature_membrane_scale_pcomp_only()
@@ -10084,6 +10492,104 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             if geom_pshell_iso_flat_square_kg_scale != 1.0
                 sigma_mem_input .*= geom_pshell_iso_flat_square_kg_scale
             end
+            geom_pshell_iso_warped_kg_scale =
+                sol105_pshell_iso_warped_kg_enabled ?
+                sol105_geom_pshell_iso_warped_kg_scale(
+                    !is_pcomp_clt && is_iso_kg,
+                    aspect_ratio_kg,
+                    warp_ratio_kg,
+                    h_over_lmax_kg,
+                    sol105_pshell_iso_warped_kg_scale,
+                    sol105_pshell_iso_warped_kg_aspect_min,
+                    sol105_pshell_iso_warped_kg_aspect_max,
+                    sol105_pshell_iso_warped_kg_warp_min,
+                    sol105_pshell_iso_warped_kg_warp_max,
+                    sol105_pshell_iso_warped_kg_h_over_lmax_min,
+                    sol105_pshell_iso_warped_kg_h_over_lmax_max,
+                ) : 1.0
+            if geom_pshell_iso_warped_kg_scale != 1.0
+                sigma_mem_input .*= geom_pshell_iso_warped_kg_scale
+            end
+            geom_pshell_iso_skew_kg_scale =
+                sol105_pshell_iso_skew_kg_enabled ?
+                sol105_geom_pshell_iso_skew_kg_scale(
+                    !is_pcomp_clt && is_iso_kg,
+                    aspect_ratio_kg,
+                    warp_ratio_kg,
+                    edge_skew_kg,
+                    h_over_lmax_kg,
+                    sol105_pshell_iso_skew_kg_scale,
+                    sol105_pshell_iso_skew_kg_aspect_min,
+                    sol105_pshell_iso_skew_kg_aspect_max,
+                    sol105_pshell_iso_skew_kg_warp_max,
+                    sol105_pshell_iso_skew_kg_skew_min,
+                    sol105_pshell_iso_skew_kg_skew_max,
+                    sol105_pshell_iso_skew_kg_h_over_lmax_min,
+                    sol105_pshell_iso_skew_kg_h_over_lmax_max,
+                ) : 1.0
+            if geom_pshell_iso_skew_kg_scale != 1.0
+                sigma_mem_input .*= geom_pshell_iso_skew_kg_scale
+            end
+            geom_pshell_iso_flat_square_w_nxx_scale =
+                sol105_pshell_iso_flat_square_w_nxx_enabled ?
+                sol105_geom_pshell_iso_flat_square_kg_scale(
+                    !is_pcomp_clt && is_iso_kg,
+                    elem_is_flat_kg,
+                    aspect_ratio_kg,
+                    warp_ratio_kg,
+                    h_over_lmax_kg,
+                    sol105_pshell_iso_flat_square_w_nxx_scale,
+                    sol105_pshell_iso_flat_square_kg_aspect_min,
+                    sol105_pshell_iso_flat_square_kg_aspect_max,
+                    sol105_pshell_iso_flat_square_kg_warp_max,
+                    sol105_pshell_iso_flat_square_kg_h_over_lmax_min,
+                    sol105_pshell_iso_flat_square_kg_h_over_lmax_max,
+                ) : 1.0
+            geom_pshell_iso_flat_square_w_nyy_scale =
+                sol105_pshell_iso_flat_square_w_nyy_enabled ?
+                sol105_geom_pshell_iso_flat_square_kg_scale(
+                    !is_pcomp_clt && is_iso_kg,
+                    elem_is_flat_kg,
+                    aspect_ratio_kg,
+                    warp_ratio_kg,
+                    h_over_lmax_kg,
+                    sol105_pshell_iso_flat_square_w_nyy_scale,
+                    sol105_pshell_iso_flat_square_kg_aspect_min,
+                    sol105_pshell_iso_flat_square_kg_aspect_max,
+                    sol105_pshell_iso_flat_square_kg_warp_max,
+                    sol105_pshell_iso_flat_square_kg_h_over_lmax_min,
+                    sol105_pshell_iso_flat_square_kg_h_over_lmax_max,
+                ) : 1.0
+            geom_pshell_iso_flat_square_w_nxy_scale =
+                sol105_pshell_iso_flat_square_w_nxy_enabled ?
+                sol105_geom_pshell_iso_flat_square_kg_scale(
+                    !is_pcomp_clt && is_iso_kg,
+                    elem_is_flat_kg,
+                    aspect_ratio_kg,
+                    warp_ratio_kg,
+                    h_over_lmax_kg,
+                    sol105_pshell_iso_flat_square_w_nxy_scale,
+                    sol105_pshell_iso_flat_square_kg_aspect_min,
+                    sol105_pshell_iso_flat_square_kg_aspect_max,
+                    sol105_pshell_iso_flat_square_kg_warp_max,
+                    sol105_pshell_iso_flat_square_kg_h_over_lmax_min,
+                    sol105_pshell_iso_flat_square_kg_h_over_lmax_max,
+                ) : 1.0
+            geom_pshell_iso_flat_square_uv_nxy_scale =
+                sol105_pshell_iso_flat_square_uv_nxy_enabled ?
+                sol105_geom_pshell_iso_flat_square_kg_scale(
+                    !is_pcomp_clt && is_iso_kg,
+                    elem_is_flat_kg,
+                    aspect_ratio_kg,
+                    warp_ratio_kg,
+                    h_over_lmax_kg,
+                    sol105_pshell_iso_flat_square_uv_nxy_scale,
+                    sol105_pshell_iso_flat_square_kg_aspect_min,
+                    sol105_pshell_iso_flat_square_kg_aspect_max,
+                    sol105_pshell_iso_flat_square_kg_warp_max,
+                    sol105_pshell_iso_flat_square_kg_h_over_lmax_min,
+                    sol105_pshell_iso_flat_square_kg_h_over_lmax_max,
+                ) : 1.0
             geom_pcomp_kg_scale = sol105_geom_pcomp_kg_scale(
                 is_pcomp_clt,
                 pcomp_is_isotropic,
@@ -10542,6 +11048,31 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             kg_local_trans_scales_override = nothing
             kg_local_uv_scale_override = nothing
             kg_local_uv_nxy_scale_override = nothing
+            kg_local_w_nxx_scale_override = nothing
+            kg_local_w_nyy_scale_override = nothing
+            kg_local_w_nxy_scale_override = nothing
+            kg_local_shear_axis_scales_override = nothing
+            kg_local_axis_resultant_scales_override = nothing
+            kg_local_shear_extra_scales_override = nothing
+            kg_local_nyy_u_extra_scales_override = nothing
+            kg_local_nyy_vw_extra_scales_override = nothing
+            if geom_pshell_iso_flat_square_w_nxx_scale != 1.0 ||
+               geom_pshell_iso_flat_square_w_nyy_scale != 1.0 ||
+               geom_pshell_iso_flat_square_w_nxy_scale != 1.0 ||
+               geom_pshell_iso_flat_square_uv_nxy_scale != 1.0
+                kg_local_trans_split_override = true
+                kg_local_trans_scales_override = (1.0, 1.0, 1.0)
+                kg_local_uv_scale_override = 1.0
+                kg_local_uv_nxy_scale_override = geom_pshell_iso_flat_square_uv_nxy_scale
+                kg_local_w_nxx_scale_override = geom_pshell_iso_flat_square_w_nxx_scale
+                kg_local_w_nyy_scale_override = geom_pshell_iso_flat_square_w_nyy_scale
+                kg_local_w_nxy_scale_override = geom_pshell_iso_flat_square_w_nxy_scale
+                kg_local_shear_axis_scales_override = (0.0, 0.0, 0.0, 0.0)
+                kg_local_axis_resultant_scales_override = (0.0, 0.0, 0.0, 0.0)
+                kg_local_shear_extra_scales_override = (0.0, 0.0, 0.0, 0.0)
+                kg_local_nyy_u_extra_scales_override = (0.0, 0.0, 0.0)
+                kg_local_nyy_vw_extra_scales_override = (0.0, 0.0, 0.0)
+            end
             if kg_descriptor_local_split_enabled &&
                kg_shell_descriptor_local_trans_split_candidate(
                     is_pcomp_clt,
@@ -10562,6 +11093,61 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 )
                 kg_local_uv_scale_override = kg_descriptor_local_uv_scale_v
                 kg_local_uv_nxy_scale_override = kg_descriptor_local_uv_nxy_scale_v
+                kg_local_w_nxx_scale_override = kg_descriptor_local_w_nxx_scale_v
+                kg_local_w_nyy_scale_override = kg_descriptor_local_w_nyy_scale_v
+                kg_local_w_nxy_scale_override = kg_descriptor_local_w_nxy_scale_v
+                if kg_descriptor_local_shear_axis_scales_v[1] != 0.0 ||
+                   kg_descriptor_local_shear_axis_scales_v[2] != 0.0 ||
+                   kg_descriptor_local_shear_axis_scales_v[3] != 0.0 ||
+                   kg_descriptor_local_shear_axis_scales_v[4] != 0.0
+                    kg_local_shear_axis_scales_override =
+                        kg_descriptor_local_shear_axis_scales_v
+                end
+                if kg_descriptor_local_axis_resultant_scales_v[1] != 0.0 ||
+                   kg_descriptor_local_axis_resultant_scales_v[2] != 0.0 ||
+                   kg_descriptor_local_axis_resultant_scales_v[3] != 0.0 ||
+                   kg_descriptor_local_axis_resultant_scales_v[4] != 0.0
+                    kg_local_axis_resultant_scales_override =
+                        kg_descriptor_local_axis_resultant_scales_v
+                end
+                if kg_descriptor_local_shear_extra_scales_v[1] != 0.0 ||
+                   kg_descriptor_local_shear_extra_scales_v[2] != 0.0 ||
+                   kg_descriptor_local_shear_extra_scales_v[3] != 0.0 ||
+                   kg_descriptor_local_shear_extra_scales_v[4] != 0.0
+                    kg_local_shear_extra_scales_override =
+                        kg_descriptor_local_shear_extra_scales_v
+                end
+                if kg_descriptor_local_nyy_u_extra_scales_v[1] != 0.0 ||
+                   kg_descriptor_local_nyy_u_extra_scales_v[2] != 0.0 ||
+                   kg_descriptor_local_nyy_u_extra_scales_v[3] != 0.0
+                    kg_local_nyy_u_extra_scales_override =
+                        kg_descriptor_local_nyy_u_extra_scales_v
+                end
+                if kg_descriptor_local_nyy_vw_extra_scales_v[1] != 0.0 ||
+                   kg_descriptor_local_nyy_vw_extra_scales_v[2] != 0.0 ||
+                   kg_descriptor_local_nyy_vw_extra_scales_v[3] != 0.0
+                    kg_local_nyy_vw_extra_scales_override =
+                        kg_descriptor_local_nyy_vw_extra_scales_v
+                end
+            elseif kg_descriptor_square_local_split_enabled &&
+                   kg_shell_descriptor_square_local_trans_split_candidate(
+                        is_pcomp_clt,
+                        pcomp_is_isotropic,
+                        aspect_ratio_kg,
+                        h_over_lmax_kg,
+                        warp_ratio_kg,
+                        pcomp_pm45_fraction_kg,
+                        pcomp_ply_count_kg,
+                        pcomp_nemeth_gamma_kg,
+                        pcomp_nemeth_delta_kg,
+                   )
+                kg_local_trans_split_override = true
+                kg_local_trans_scales_override = kg_descriptor_square_local_scales_v
+                kg_local_uv_scale_override = kg_descriptor_square_local_uv_scale_v
+                kg_local_uv_nxy_scale_override = kg_descriptor_square_local_uv_nxy_scale_v
+                kg_local_w_nxx_scale_override = kg_descriptor_square_local_w_nxx_scale_v
+                kg_local_w_nyy_scale_override = kg_descriptor_square_local_w_nyy_scale_v
+                kg_local_w_nxy_scale_override = kg_descriptor_square_local_w_nxy_scale_v
             end
 
             has_bmb_kg = get(prop, "Bmb", nothing) !== nothing
@@ -11269,6 +11855,14 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     local_trans_scales_override=kg_local_trans_scales_override,
                     local_uv_scale_override=kg_local_uv_scale_override,
                     local_uv_nxy_scale_override=kg_local_uv_nxy_scale_override,
+                    local_w_nxx_scale_override=kg_local_w_nxx_scale_override,
+                    local_w_nyy_scale_override=kg_local_w_nyy_scale_override,
+                    local_w_nxy_scale_override=kg_local_w_nxy_scale_override,
+                    local_shear_axis_scales_override=kg_local_shear_axis_scales_override,
+                    local_axis_resultant_scales_override=kg_local_axis_resultant_scales_override,
+                    local_shear_extra_scales_override=kg_local_shear_extra_scales_override,
+                    local_nyy_u_extra_scales_override=kg_local_nyy_u_extra_scales_override,
+                    local_nyy_vw_extra_scales_override=kg_local_nyy_vw_extra_scales_override,
                 )
             end
             if flat_delta_synth_requested &&
