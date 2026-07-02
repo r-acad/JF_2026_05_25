@@ -2479,6 +2479,21 @@ end
         sol105_geom_pcomp_kg_thin_high_aspect_pm45_fraction_min(),
         1.0,
     )
+@inline sol105_geom_pcomp_kg_thin_high_aspect_pm45_pm90_min() =
+    clamp(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_HIGH_ASPECT_PM45_PM90_MIN", 0.0), 0.0, 1.0)
+@inline sol105_geom_pcomp_kg_thin_high_aspect_pm45_pm90_max() =
+    clamp(
+        solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_HIGH_ASPECT_PM45_PM90_MAX", 1.0),
+        sol105_geom_pcomp_kg_thin_high_aspect_pm45_pm90_min(),
+        1.0,
+    )
+@inline sol105_geom_pcomp_kg_thin_high_aspect_pm45_ply_count_min() =
+    max(solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_THIN_HIGH_ASPECT_PM45_PLY_COUNT_MIN", 0), 0)
+@inline sol105_geom_pcomp_kg_thin_high_aspect_pm45_ply_count_max() =
+    max(
+        solver_env_int("JFEM_SOL105_GEOM_PCOMP_KG_THIN_HIGH_ASPECT_PM45_PLY_COUNT_MAX", typemax(Int)),
+        sol105_geom_pcomp_kg_thin_high_aspect_pm45_ply_count_min(),
+    )
 @inline sol105_geom_pcomp_kg_thin_very_high_aspect_scale() =
     solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_ASPECT_SCALE", 0.930)
 @inline sol105_geom_pcomp_kg_thin_very_high_aspect_min() =
@@ -2802,6 +2817,105 @@ end
         suffix == "GAMMA_MAX" && return 0.17
         suffix == "DELTA_MIN" && return 0.16
         suffix == "DELTA_MAX" && return 0.19
+    elseif band == 9
+        suffix == "SCALE" && return 1.10
+        suffix == "ASPECT_MIN" && return 4.50
+        suffix == "ASPECT_MAX" && return 5.25
+        suffix == "H_OVER_LMAX_MIN" && return 0.0130
+        suffix == "H_OVER_LMAX_MAX" && return 0.0175
+        suffix == "WARP_MAX" && return 1.0e-4
+        suffix == "KAPPA_L_MAX" && return 1.0e-3
+        suffix == "BETA_MIN" && return 1.60
+        suffix == "BETA_MAX" && return 1.95
+        suffix == "ABS_GAMMA_MIN" && return 0.09
+        suffix == "ABS_GAMMA_MAX" && return 0.17
+        suffix == "ABS_DELTA_MIN" && return 0.10
+        suffix == "ABS_DELTA_MAX" && return 0.19
+    elseif band == 10
+        suffix == "SCALE" && return 0.94
+        suffix == "ASPECT_MIN" && return 3.10
+        suffix == "ASPECT_MAX" && return 3.35
+        suffix == "H_OVER_LMAX_MIN" && return 0.0230
+        suffix == "H_OVER_LMAX_MAX" && return 0.0246
+        suffix == "WARP_MAX" && return 1.0e-4
+        suffix == "KAPPA_L_MAX" && return 0.35
+        suffix == "BETA_MIN" && return 1.60
+        suffix == "BETA_MAX" && return 1.70
+        suffix == "ABS_GAMMA_MIN" && return 0.09
+        suffix == "ABS_GAMMA_MAX" && return 0.12
+        suffix == "ABS_DELTA_MIN" && return 0.10
+        suffix == "ABS_DELTA_MAX" && return 0.13
+    elseif band == 11
+        suffix == "SCALE" && return 1.04
+        suffix == "ASPECT_MIN" && return 3.10
+        suffix == "ASPECT_MAX" && return 3.35
+        suffix == "H_OVER_LMAX_MIN" && return 0.0270
+        suffix == "H_OVER_LMAX_MAX" && return 0.0292
+        suffix == "WARP_MAX" && return 1.0e-4
+        suffix == "KAPPA_L_MAX" && return 0.35
+        suffix == "BETA_MIN" && return 1.45
+        suffix == "BETA_MAX" && return 1.55
+        suffix == "ABS_GAMMA_MIN" && return 0.055
+        suffix == "ABS_GAMMA_MAX" && return 0.080
+        suffix == "ABS_DELTA_MIN" && return 0.080
+        suffix == "ABS_DELTA_MAX" && return 0.105
+    elseif band == 12
+        suffix == "SCALE" && return 1.08
+        suffix == "ASPECT_MIN" && return 3.25
+        suffix == "ASPECT_MAX" && return 3.50
+        suffix == "H_OVER_LMAX_MIN" && return 0.0250
+        suffix == "H_OVER_LMAX_MAX" && return 0.0260
+        suffix == "WARP_MAX" && return 1.0e-4
+        suffix == "KAPPA_L_MAX" && return 0.010
+        suffix == "BETA_MIN" && return 1.60
+        suffix == "BETA_MAX" && return 1.70
+        suffix == "ABS_GAMMA_MIN" && return 0.10
+        suffix == "ABS_GAMMA_MAX" && return 0.13
+        suffix == "ABS_DELTA_MIN" && return 0.09
+        suffix == "ABS_DELTA_MAX" && return 0.12
+    elseif band == 13
+        suffix == "SCALE" && return 1.08
+        suffix == "ASPECT_MIN" && return 3.25
+        suffix == "ASPECT_MAX" && return 3.50
+        suffix == "H_OVER_LMAX_MIN" && return 0.0340
+        suffix == "H_OVER_LMAX_MAX" && return 0.0355
+        suffix == "WARP_MAX" && return 1.0e-4
+        suffix == "KAPPA_L_MAX" && return 0.010
+        suffix == "BETA_MIN" && return 1.20
+        suffix == "BETA_MAX" && return 1.30
+        suffix == "ABS_GAMMA_MIN" && return 0.04
+        suffix == "ABS_GAMMA_MAX" && return 0.07
+        suffix == "ABS_DELTA_MIN" && return 0.05
+        suffix == "ABS_DELTA_MAX" && return 0.08
+    elseif band == 14
+        suffix == "SCALE" && return 0.97
+        suffix == "ASPECT_MIN" && return 1.0
+        suffix == "ASPECT_MAX" && return 4.80
+        suffix == "H_OVER_LMAX_MIN" && return 0.0090
+        suffix == "H_OVER_LMAX_MAX" && return 0.0200
+        suffix == "WARP_MAX" && return 1.0
+        suffix == "KAPPA_L_MAX" && return 20.0
+        suffix == "BETA_MIN" && return 1.88
+        suffix == "BETA_MAX" && return 1.96
+        suffix == "ABS_GAMMA_MIN" && return 0.14
+        suffix == "ABS_GAMMA_MAX" && return 0.17
+        suffix == "ABS_DELTA_MIN" && return 0.16
+        suffix == "ABS_DELTA_MAX" && return 0.19
+    elseif band == 15
+        suffix == "SCALE" && return 1.18
+        suffix == "ASPECT_MIN" && return 2.70
+        suffix == "ASPECT_MAX" && return 4.80
+        suffix == "H_OVER_LMAX_MIN" && return 0.0090
+        suffix == "H_OVER_LMAX_MAX" && return 0.0200
+        suffix == "WARP_MAX" && return 1.0e-4
+        suffix == "KAPPA_L_MIN" && return 1.50
+        suffix == "KAPPA_L_MAX" && return 2.50
+        suffix == "BETA_MIN" && return 1.88
+        suffix == "BETA_MAX" && return 1.96
+        suffix == "ABS_GAMMA_MIN" && return 0.14
+        suffix == "ABS_GAMMA_MAX" && return 0.17
+        suffix == "ABS_DELTA_MIN" && return 0.16
+        suffix == "ABS_DELTA_MAX" && return 0.19
     end
     return fallback
 end
@@ -2813,7 +2927,7 @@ end
     )
 
 @inline function sol105_nemeth_pcomp_kg_band_count()
-    return clamp(solver_env_int("JFEM_SOL105_NEMETH_PCOMP_KG_BAND_COUNT", 8), 1, 16)
+    return clamp(solver_env_int("JFEM_SOL105_NEMETH_PCOMP_KG_BAND_COUNT", 15), 1, 16)
 end
 
 @inline function sol105_nemeth_pcomp_kg_band_scale(
@@ -3118,6 +3232,8 @@ end
     warp_ratio::Float64,
     kappa_l::Float64,
     pm45_fraction::Float64,
+    pm90_fraction::Float64,
+    ply_count::Int,
 )
     sol105_geom_pcomp_kg_scale_enabled() || return 1.0
     is_pcomp && !is_pcomp_iso || return 1.0
@@ -3142,6 +3258,8 @@ end
     warp_ratio::Float64,
     kappa_l::Float64,
     pm45_fraction::Float64,
+    pm90_fraction::Float64,
+    ply_count::Int,
 )
     sol105_geom_pcomp_kg_scale_enabled() || return 1.0
     is_pcomp && !is_pcomp_iso || return 1.0
@@ -3155,6 +3273,10 @@ end
     kappa_l <= sol105_geom_pcomp_kg_thin_high_aspect_pm45_kappa_l_max() || return 1.0
     pm45_fraction >= sol105_geom_pcomp_kg_thin_high_aspect_pm45_fraction_min() || return 1.0
     pm45_fraction <= sol105_geom_pcomp_kg_thin_high_aspect_pm45_fraction_max() || return 1.0
+    pm90_fraction >= sol105_geom_pcomp_kg_thin_high_aspect_pm45_pm90_min() || return 1.0
+    pm90_fraction <= sol105_geom_pcomp_kg_thin_high_aspect_pm45_pm90_max() || return 1.0
+    ply_count >= sol105_geom_pcomp_kg_thin_high_aspect_pm45_ply_count_min() || return 1.0
+    ply_count <= sol105_geom_pcomp_kg_thin_high_aspect_pm45_ply_count_max() || return 1.0
     return sol105_geom_pcomp_kg_thin_high_aspect_pm45_scale()
 end
 
@@ -10715,6 +10837,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     warp_ratio_kg,
                     geom_pcomp_kappa_l,
                     pcomp_pm45_fraction_kg,
+                    pcomp_pm90_fraction_kg,
+                    pcomp_ply_count_kg,
                 )
             if thin_moderate_pm45_pcomp_kg_scale != 1.0
                 sigma_mem_input .*= thin_moderate_pm45_pcomp_kg_scale
@@ -10729,6 +10853,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     warp_ratio_kg,
                     geom_pcomp_kappa_l,
                     pcomp_pm45_fraction_kg,
+                    pcomp_pm90_fraction_kg,
+                    pcomp_ply_count_kg,
                 )
             if thin_high_aspect_pm45_pcomp_kg_scale != 1.0
                 sigma_mem_input .*= thin_high_aspect_pm45_pcomp_kg_scale

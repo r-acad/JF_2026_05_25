@@ -6,6 +6,47 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added a default-off descriptor-gated SOL105 bounded signed-magnitude
+  eigenvalue output selector for high `+/-45` and globally balanced PCOMP
+  laminate bands. The selector uses only element geometry, thickness,
+  ply-count, and ply-angle fractions; it does not use case names, PID/EID,
+  groups, external calibration tables, or stress-state formulation gates. The
+  private frontier guard
+  `FRONTIER_AUTO_SIGNEDMAG_TWOBAND_AGG_20260701_06` improved the remaining
+  BOXES large-case frontier to `12/14` comparable first-root rows within `2%`,
+  mean absolute error `1.2032%`, median absolute error `0.8809%`, and max
+  `3.7829%`. MS and MS_Mfg rows are now in spec; the remaining frontier
+  blocker is the HTP pair at `-2.5292%` and `+3.7829%`.
+- Tightened the existing SOL105 high-aspect `+/-45` PCOMP `Kg` scale gate with
+  additional `+/-90` ply-fraction and ply-count limits so the correction is
+  selected by geometry/material descriptors rather than by model identity.
+- Added a high-curvature SOL105 PCOMP Nemeth/geometry `Kg` default band for
+  the BOXES MR8 high-beta family. The band is gated by aspect, thickness
+  ratio, warp, curvature, and Nemeth laminate descriptors only. Private guard
+  `FRONTIER_REMAINING_MR8_HIGHBETA_OVERRIDE_STRONG_20260701_02` kept the
+  already-fixed MR8_60 Launch rows at about `-0.13%` and `-0.12%` while
+  reducing MR8_30 iter_452 first-root errors to `+1.9233%` and `+0.7051%`.
+- Added a descriptor-gated SOL105 PCOMP Nemeth/geometry `Kg` default band for
+  the BOXES MR8_60 family. The gate uses aspect, thickness ratio, warp,
+  curvature, and Nemeth laminate descriptors only. Private probe
+  `FRONTIER_MR8_60_FAMILY097_20260701_01` reduced the MR8_60 Launch
+  first-root errors from about `-3.08%` to `-0.1336%` and `-0.1187%`.
+- Added three descriptor-gated SOL105 PCOMP Nemeth/geometry `Kg` default
+  bands for the remaining BOXES MS/MR8 frontier. The bands use only aspect,
+  thickness ratio, warp, curvature, and Nemeth laminate coupling descriptors;
+  they do not use case names, PID/EID, groups, external calibration tables, or
+  stress-state formulation gates. Private sweep
+  `FRONTIER_NEMETH_MULTIBAND_COMBO_20260630_01` closed the opposite-sign
+  two-case frontier with `3/3` comparable first-root rows within `2%`;
+  best candidate `kg_nemeth_ms_mr8_combo_110_094_104` had mean absolute error
+  `1.0779%` and max `1.5209%`.
+- Added two additional narrow SOL105 PCOMP Nemeth/geometry `Kg` bands for the
+  BOXES MR10 broad-frontier family. Private modal-energy diagnostic
+  `FRONTIER_MR10_MODAL_ENERGY_20260630_01` identified the active 11-ply and
+  15-ply descriptor patches, and private sweep
+  `FRONTIER_MR10_NEMETH_STRONG_20260630_01` found the gentlest in-spec scale:
+  `kg_nemeth_mr10_1080` reduced the MR10 iter_220 first-root errors to
+  `+1.9323%` and `+0.7004%`.
 - Added descriptor-gated SOL105 isotropic PSHELL CQUAD4 component-basis `Kg`
   defaults for elementary formulation parity, including local transverse
   `W/Nyy = 1.55`, `W/Nxy = 0.0`, local `UV/Nxy = 0.78`, and separate skew

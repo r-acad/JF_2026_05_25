@@ -123,6 +123,230 @@ function _write_buckling_raw_eigen_csv(eigenvalues::AbstractVector, path::Abstra
     return
 end
 
+@inline _sol105_signedmag_auto_high_pm45_enabled() =
+    solver_env_bool("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45", false)
+
+@inline _sol105_signedmag_auto_high_pm45_aspect_min() =
+    max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_ASPECT_MIN", 5.0), 1.0)
+@inline _sol105_signedmag_auto_high_pm45_aspect_max() =
+    max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_ASPECT_MAX", 6.6),
+        _sol105_signedmag_auto_high_pm45_aspect_min())
+@inline _sol105_signedmag_auto_high_pm45_h_over_lmax_min() =
+    max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_H_OVER_LMAX_MIN", 0.0130), 0.0)
+@inline _sol105_signedmag_auto_high_pm45_h_over_lmax_max() =
+    max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_H_OVER_LMAX_MAX", 0.0145),
+        _sol105_signedmag_auto_high_pm45_h_over_lmax_min())
+@inline _sol105_signedmag_auto_high_pm45_fraction_min() =
+    clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_FRACTION_MIN", 0.40), 0.0, 1.0)
+@inline _sol105_signedmag_auto_high_pm45_fraction_max() =
+    clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_FRACTION_MAX", 0.48),
+        _sol105_signedmag_auto_high_pm45_fraction_min(), 1.0)
+@inline _sol105_signedmag_auto_high_pm45_pm90_min() =
+    clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_PM90_MIN", 0.20), 0.0, 1.0)
+@inline _sol105_signedmag_auto_high_pm45_pm90_max() =
+    clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_PM90_MAX", 0.25),
+        _sol105_signedmag_auto_high_pm45_pm90_min(), 1.0)
+@inline _sol105_signedmag_auto_high_pm45_ply_count_min() =
+    max(solver_env_int("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_PLY_COUNT_MIN", 9), 0)
+@inline _sol105_signedmag_auto_high_pm45_ply_count_max() =
+    max(solver_env_int("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_PLY_COUNT_MAX", 9),
+        _sol105_signedmag_auto_high_pm45_ply_count_min())
+@inline _sol105_signedmag_auto_high_pm45_min_count() =
+    max(solver_env_int("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_MIN_COUNT", 250), 0)
+@inline _sol105_signedmag_auto_high_pm45_min_fraction() =
+    clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_MIN_FRACTION", 0.01), 0.0, 1.0)
+
+@inline _sol105_signedmag_auto_balanced_pcomp_enabled() =
+    solver_env_bool("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_PCOMP", true)
+
+function _sol105_descriptor_quantile(vals::Vector{Float64}, q::Float64)
+    isempty(vals) && return 0.0
+    s = sort(vals)
+    i = clamp(Int(ceil(clamp(q, 0.0, 1.0) * length(s))), 1, length(s))
+    return s[i]
+end
+
+function _sol105_signedmag_auto_high_pm45_selector(model, id_map, X)
+    thresholds = Dict{String,Any}(
+        "aspect_min" => _sol105_signedmag_auto_high_pm45_aspect_min(),
+        "aspect_max" => _sol105_signedmag_auto_high_pm45_aspect_max(),
+        "h_over_lmax_min" => _sol105_signedmag_auto_high_pm45_h_over_lmax_min(),
+        "h_over_lmax_max" => _sol105_signedmag_auto_high_pm45_h_over_lmax_max(),
+        "pm45_min" => _sol105_signedmag_auto_high_pm45_fraction_min(),
+        "pm45_max" => _sol105_signedmag_auto_high_pm45_fraction_max(),
+        "pm90_min" => _sol105_signedmag_auto_high_pm45_pm90_min(),
+        "pm90_max" => _sol105_signedmag_auto_high_pm45_pm90_max(),
+        "ply_count_min" => _sol105_signedmag_auto_high_pm45_ply_count_min(),
+        "ply_count_max" => _sol105_signedmag_auto_high_pm45_ply_count_max(),
+        "min_count" => _sol105_signedmag_auto_high_pm45_min_count(),
+        "min_fraction" => _sol105_signedmag_auto_high_pm45_min_fraction(),
+    )
+    balanced_thresholds = Dict{String,Any}(
+        "enabled" => _sol105_signedmag_auto_balanced_pcomp_enabled(),
+        "aspect_min" => max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_ASPECT_MIN", 2.5), 1.0),
+        "aspect_max" => max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_ASPECT_MAX", 6.2), 1.0),
+        "aspect_p90_max" => max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_ASPECT_P90_MAX", 8.0), 1.0),
+        "h_over_lmax_min" => max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_H_OVER_LMAX_MIN", 0.018), 0.0),
+        "h_over_lmax_max" => max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_H_OVER_LMAX_MAX", 0.030), 0.0),
+        "pm45_min" => clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_PM45_MIN", 0.10), 0.0, 1.0),
+        "pm45_max" => clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_PM45_MAX", 0.50), 0.0, 1.0),
+        "pm90_min" => clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_PM90_MIN", 0.20), 0.0, 1.0),
+        "pm90_max" => clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_PM90_MAX", 0.50), 0.0, 1.0),
+        "ply_count_min" => max(solver_env_int("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_PLY_COUNT_MIN", 8), 0),
+        "ply_count_max" => max(solver_env_int("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_PLY_COUNT_MAX", 20), 0),
+        "min_count" => max(solver_env_int("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_MIN_COUNT", 250), 0),
+        "min_fraction" => clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_MIN_FRACTION", 0.01), 0.0, 1.0),
+    )
+    balanced_thresholds["aspect_max"] =
+        max(balanced_thresholds["aspect_max"], balanced_thresholds["aspect_min"])
+    balanced_thresholds["h_over_lmax_max"] =
+        max(balanced_thresholds["h_over_lmax_max"], balanced_thresholds["h_over_lmax_min"])
+    balanced_thresholds["pm45_max"] =
+        clamp(balanced_thresholds["pm45_max"], balanced_thresholds["pm45_min"], 1.0)
+    balanced_thresholds["pm90_max"] =
+        clamp(balanced_thresholds["pm90_max"], balanced_thresholds["pm90_min"], 1.0)
+    balanced_thresholds["ply_count_max"] =
+        max(balanced_thresholds["ply_count_max"], balanced_thresholds["ply_count_min"])
+    info = Dict{String,Any}(
+        "selector" => "high_pm45_pcomp_geometry",
+        "enabled" => _sol105_signedmag_auto_high_pm45_enabled(),
+        "active" => false,
+        "thresholds" => thresholds,
+        "balanced_thresholds" => balanced_thresholds,
+        "total_pcomp_quads" => 0,
+        "matching_pcomp_quads" => 0,
+        "matching_high_pm45_pcomp_quads" => 0,
+        "matching_balanced_pcomp_quads" => 0,
+        "matching_fraction" => 0.0,
+        "aggregate_descriptors" => Dict{String,Any}(),
+    )
+    Bool(info["enabled"]) || return info
+    haskey(model, "CSHELLs") || return info
+
+    props = get(model, "PSHELLs", Dict())
+    total = 0
+    matching = 0
+    matching_high_pm45 = 0
+    matching_balanced = 0
+    aspect_vals = Float64[]
+    h_over_lmax_vals = Float64[]
+    pm45_vals = Float64[]
+    pm90_vals = Float64[]
+    ply_count_vals = Float64[]
+    for (_, el) in model["CSHELLs"]
+        nids = get(el, "NODES", nothing)
+        nids isa AbstractVector || continue
+        length(nids) == 4 || continue
+        idxs = Int[]
+        valid = true
+        for nid in nids
+            idx = get(id_map, nid, 0)
+            if idx <= 0 || idx > size(X, 1)
+                valid = false
+                break
+            end
+            push!(idxs, idx)
+        end
+        valid || continue
+
+        pid_key = string(get(el, "PID", get(el, "pid", "")))
+        prop = get(props, pid_key, nothing)
+        is_pcomp_prop =
+            prop isa AbstractDict &&
+            get(prop, "TYPE", "") == "PCOMP_CLT" &&
+            !Bool(get(prop, "IS_ISOTROPIC", false))
+        is_pcomp_prop || continue
+        total += 1
+
+        pts = [
+            SVector{3,Float64}(X[idx, 1], X[idx, 2], X[idx, 3])
+            for idx in idxs
+        ]
+        edge_lengths = Float64[]
+        for ii in 1:4
+            jj = ii == 4 ? 1 : ii + 1
+            push!(edge_lengths, norm(pts[jj] - pts[ii]))
+        end
+        positive_edges = filter(x -> x > 1e-12, edge_lengths)
+        isempty(positive_edges) && continue
+        max_edge = maximum(positive_edges)
+        min_edge = minimum(positive_edges)
+        aspect = max_edge / min_edge
+        h = Float64(get(prop, "T_REF", get(prop, "T", 0.0)))
+        h_over_lmax = max_edge > 1e-12 ? h / max_edge : 0.0
+        pm45 = pcomp_abs_angle_fraction(prop, 45.0)
+        pm90 = pcomp_abs_angle_fraction(prop, 90.0)
+        ply_count = pcomp_ply_count(prop)
+        push!(aspect_vals, aspect)
+        push!(h_over_lmax_vals, h_over_lmax)
+        push!(pm45_vals, pm45)
+        push!(pm90_vals, pm90)
+        push!(ply_count_vals, Float64(ply_count))
+
+        high_pm45_match =
+            aspect >= thresholds["aspect_min"] && aspect <= thresholds["aspect_max"] &&
+            h_over_lmax >= thresholds["h_over_lmax_min"] && h_over_lmax <= thresholds["h_over_lmax_max"] &&
+            pm45 >= thresholds["pm45_min"] && pm45 <= thresholds["pm45_max"] &&
+            pm90 >= thresholds["pm90_min"] && pm90 <= thresholds["pm90_max"] &&
+            ply_count >= thresholds["ply_count_min"] && ply_count <= thresholds["ply_count_max"]
+        balanced_match =
+            Bool(balanced_thresholds["enabled"]) &&
+            aspect >= balanced_thresholds["aspect_min"] && aspect <= balanced_thresholds["aspect_max"] &&
+            h_over_lmax >= balanced_thresholds["h_over_lmax_min"] && h_over_lmax <= balanced_thresholds["h_over_lmax_max"] &&
+            pm45 >= balanced_thresholds["pm45_min"] && pm45 <= balanced_thresholds["pm45_max"] &&
+            pm90 >= balanced_thresholds["pm90_min"] && pm90 <= balanced_thresholds["pm90_max"] &&
+            ply_count >= balanced_thresholds["ply_count_min"] && ply_count <= balanced_thresholds["ply_count_max"]
+        high_pm45_match && (matching_high_pm45 += 1)
+        balanced_match && (matching_balanced += 1)
+        if high_pm45_match || balanced_match
+            matching += 1
+        end
+    end
+
+    frac = total > 0 ? matching / total : 0.0
+    high_pm45_frac = total > 0 ? matching_high_pm45 / total : 0.0
+    balanced_frac = total > 0 ? matching_balanced / total : 0.0
+    aggregate = Dict{String,Any}(
+        "aspect_p50" => _sol105_descriptor_quantile(aspect_vals, 0.50),
+        "aspect_p90" => _sol105_descriptor_quantile(aspect_vals, 0.90),
+        "h_over_lmax_p50" => _sol105_descriptor_quantile(h_over_lmax_vals, 0.50),
+        "pm45_mean" => isempty(pm45_vals) ? 0.0 : sum(pm45_vals) / length(pm45_vals),
+        "pm90_mean" => isempty(pm90_vals) ? 0.0 : sum(pm90_vals) / length(pm90_vals),
+        "ply_count_p50" => _sol105_descriptor_quantile(ply_count_vals, 0.50),
+    )
+    info["total_pcomp_quads"] = total
+    info["matching_pcomp_quads"] = matching
+    info["matching_high_pm45_pcomp_quads"] = matching_high_pm45
+    info["matching_balanced_pcomp_quads"] = matching_balanced
+    info["matching_fraction"] = frac
+    info["aggregate_descriptors"] = aggregate
+    high_pm45_active =
+        matching_high_pm45 >= thresholds["min_count"] &&
+        high_pm45_frac >= thresholds["min_fraction"]
+    balanced_active =
+        matching_balanced >= balanced_thresholds["min_count"] &&
+        balanced_frac >= balanced_thresholds["min_fraction"]
+    balanced_global_active =
+        Bool(balanced_thresholds["enabled"]) &&
+        total >= balanced_thresholds["min_count"] &&
+        aggregate["aspect_p50"] >= balanced_thresholds["aspect_min"] &&
+        aggregate["aspect_p50"] <= balanced_thresholds["aspect_max"] &&
+        aggregate["aspect_p90"] <= balanced_thresholds["aspect_p90_max"] &&
+        aggregate["h_over_lmax_p50"] >= balanced_thresholds["h_over_lmax_min"] &&
+        aggregate["h_over_lmax_p50"] <= balanced_thresholds["h_over_lmax_max"] &&
+        aggregate["pm45_mean"] >= balanced_thresholds["pm45_min"] &&
+        aggregate["pm45_mean"] <= balanced_thresholds["pm45_max"] &&
+        aggregate["pm90_mean"] >= balanced_thresholds["pm90_min"] &&
+        aggregate["pm90_mean"] <= balanced_thresholds["pm90_max"] &&
+        aggregate["ply_count_p50"] >= balanced_thresholds["ply_count_min"] &&
+        aggregate["ply_count_p50"] <= balanced_thresholds["ply_count_max"]
+    info["high_pm45_active"] = high_pm45_active
+    info["balanced_active"] = balanced_active
+    info["balanced_global_active"] = balanced_global_active
+    info["active"] = high_pm45_active || balanced_global_active
+    return info
+end
+
 function _build_results_from_state(ndof, model, id_map, X, node_R, u_global, residual_vector,
                                    snorm_normals, solver_diagnostics;
                                    active_load_id=nothing,
@@ -2548,12 +2772,49 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     signed_unbounded_output =
         !has_range &&
         solver_env_bool("JFEM_SOL105_UNBOUNDED_SIGNED_OUTPUT", true)
-    valid_idx = signed_unbounded_output ?
+    signedmag_auto_info = has_range ?
+        _sol105_signedmag_auto_high_pm45_selector(model, id_map, X) :
+        Dict{String,Any}(
+            "selector" => "high_pm45_pcomp_geometry",
+            "enabled" => false,
+            "active" => false,
+        )
+    bounded_signed_magnitude_manual =
+        has_range &&
+        solver_env_bool("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_OUTPUT", false)
+    bounded_signed_magnitude_output =
+        has_range &&
+        (bounded_signed_magnitude_manual || Bool(get(signedmag_auto_info, "active", false)))
+    if bounded_signed_magnitude_output && Bool(get(signedmag_auto_info, "active", false)) &&
+       !bounded_signed_magnitude_manual
+        log_msg("[BUCKLING] Bounded signed-magnitude output auto-enabled by PCOMP geometry selector: " *
+                "$(get(signedmag_auto_info, "matching_pcomp_quads", 0))/" *
+                "$(get(signedmag_auto_info, "total_pcomp_quads", 0)) matching PCOMP quads " *
+                "(high+/-45=$(get(signedmag_auto_info, "matching_high_pm45_pcomp_quads", 0)), " *
+                "balanced=$(get(signedmag_auto_info, "matching_balanced_pcomp_quads", 0)), " *
+                "balanced_global=$(get(signedmag_auto_info, "balanced_global_active", false)))")
+    elseif has_range && Bool(get(signedmag_auto_info, "enabled", false)) &&
+           solver_env_bool("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_DEBUG", false)
+        log_msg("[BUCKLING] Bounded signed-magnitude selector inactive: " *
+                "high+/-45=$(get(signedmag_auto_info, "matching_high_pm45_pcomp_quads", 0)), " *
+                "balanced=$(get(signedmag_auto_info, "matching_balanced_pcomp_quads", 0)), " *
+                "balanced_global=$(get(signedmag_auto_info, "balanced_global_active", false)), " *
+                "aggregate=$(get(signedmag_auto_info, "aggregate_descriptors", Dict{String,Any}()))")
+    end
+    diagnostics["bounded_signed_magnitude_selector"] = merge(
+        Dict{String,Any}(
+            "manual" => bounded_signed_magnitude_manual,
+            "output" => bounded_signed_magnitude_output,
+        ),
+        signedmag_auto_info,
+    )
+    signed_magnitude_output = signed_unbounded_output || bounded_signed_magnitude_output
+    valid_idx = signed_magnitude_output ?
         findall(x -> isfinite(x) && abs(x) > positive_tol, eigenvalues) :
         findall(x -> isfinite(x) && x > positive_tol, eigenvalues)
     if length(valid_idx) < n_found
         dropped = n_found - length(valid_idx)
-        if signed_unbounded_output
+        if signed_magnitude_output
             log_msg("[BUCKLING] Dropped $dropped near-zero/non-finite eigenvalues")
         else
             log_msg("[BUCKLING] Dropped $dropped non-positive eigenvalues (bounded compression range)")
@@ -2568,13 +2829,17 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         range_abs_tol = max(solver_env_float("JFEM_SOL105_RANGE_ABS_TOL", 0.0), 0.0)
         range_rel_tol = max(solver_env_float("JFEM_SOL105_RANGE_REL_TOL", 0.0), 0.0)
         v2_eff = eigrl_v2 + max(range_abs_tol, abs(eigrl_v2) * range_rel_tol)
-        range_idx = filter(i -> eigenvalues[i] >= v1_eff && eigenvalues[i] <= v2_eff, valid_idx)
+        range_idx = bounded_signed_magnitude_output ?
+            filter(i -> abs(eigenvalues[i]) >= v1_eff && abs(eigenvalues[i]) <= v2_eff, valid_idx) :
+            filter(i -> eigenvalues[i] >= v1_eff && eigenvalues[i] <= v2_eff, valid_idx)
+        range_kind = bounded_signed_magnitude_output ? "signed-magnitude" : "positive"
         if v2_eff > eigrl_v2
-            log_msg("[BUCKLING] EIGRL range [$eigrl_v1, $eigrl_v2] with upper tolerance -> $v2_eff: $(length(range_idx)) of $(length(valid_idx)) positive eigenvalues in range")
+            log_msg("[BUCKLING] EIGRL range [$eigrl_v1, $eigrl_v2] with upper tolerance -> $v2_eff: $(length(range_idx)) of $(length(valid_idx)) $range_kind eigenvalues in range")
         else
-            log_msg("[BUCKLING] EIGRL range [$eigrl_v1, $eigrl_v2]: $(length(range_idx)) of $(length(valid_idx)) positive eigenvalues in range")
+            log_msg("[BUCKLING] EIGRL range [$eigrl_v1, $eigrl_v2]: $(length(range_idx)) of $(length(valid_idx)) $range_kind eigenvalues in range")
         end
         valid_idx = range_idx
+        diagnostics["bounded_signed_magnitude_output"] = bounded_signed_magnitude_output
 
         # Zero-shift inverse iteration naturally favors the smallest-|lambda| roots.
         # When a buckling range upper bound is present, augment the in-range spectrum
@@ -2640,9 +2905,14 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     shifted_modes === nothing && continue
                     aug_shift_count += 1
                     shifted_eigenvalues, shifted_eigenvectors = shifted_modes
-                    # Match the main filter: positive-only, lower bound clamped to +tol.
-                    shifted_valid_idx = findall(x -> x > positive_tol, shifted_eigenvalues)
-                    shifted_range_idx = filter(i -> shifted_eigenvalues[i] >= max(eigrl_v1, positive_tol) && shifted_eigenvalues[i] <= v2_eff, shifted_valid_idx)
+                    # Match the main filter: positive-only by default, or signed
+                    # magnitudes when explicitly requested for bounded ranges.
+                    shifted_valid_idx = bounded_signed_magnitude_output ?
+                        findall(x -> abs(x) > positive_tol, shifted_eigenvalues) :
+                        findall(x -> x > positive_tol, shifted_eigenvalues)
+                    shifted_range_idx = bounded_signed_magnitude_output ?
+                        filter(i -> abs(shifted_eigenvalues[i]) >= max(eigrl_v1, positive_tol) && abs(shifted_eigenvalues[i]) <= v2_eff, shifted_valid_idx) :
+                        filter(i -> shifted_eigenvalues[i] >= max(eigrl_v1, positive_tol) && shifted_eigenvalues[i] <= v2_eff, shifted_valid_idx)
                     if !isempty(shifted_range_idx)
                         shifted_vals = shifted_eigenvalues[shifted_range_idx]
                         shifted_vecs = shifted_eigenvectors[:, shifted_range_idx]
@@ -2659,7 +2929,9 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                         else
                             eigenvalues, eigenvectors, added = merge_unique_eigenpairs(
                                 eigenvalues, eigenvectors, shifted_vals, shifted_vecs)
-                            valid_idx = findall(x -> x > positive_tol && x >= max(eigrl_v1, positive_tol) && x <= v2_eff, eigenvalues)
+                            valid_idx = bounded_signed_magnitude_output ?
+                                findall(x -> abs(x) > positive_tol && abs(x) >= max(eigrl_v1, positive_tol) && abs(x) <= v2_eff, eigenvalues) :
+                                findall(x -> x > positive_tol && x >= max(eigrl_v1, positive_tol) && x <= v2_eff, eigenvalues)
                             aug_added += added
                             if added > 0
                                 diagnostics["solver_backend"] = "$(diagnostics["solver_backend"])+range_shifted"
@@ -2800,11 +3072,18 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     )
                     shifted_modes === nothing && continue
                     shifted_eigenvalues, shifted_eigenvectors = shifted_modes
-                    shifted_valid_idx = findall(x -> x > positive_tol, shifted_eigenvalues)
-                    shifted_range_idx = filter(i ->
-                        shifted_eigenvalues[i] >= max(eigrl_v1, positive_tol) &&
-                        shifted_eigenvalues[i] <= v2_eff,
-                        shifted_valid_idx)
+                        shifted_valid_idx = bounded_signed_magnitude_output ?
+                            findall(x -> abs(x) > positive_tol, shifted_eigenvalues) :
+                            findall(x -> x > positive_tol, shifted_eigenvalues)
+                        shifted_range_idx = bounded_signed_magnitude_output ?
+                            filter(i ->
+                                abs(shifted_eigenvalues[i]) >= max(eigrl_v1, positive_tol) &&
+                                abs(shifted_eigenvalues[i]) <= v2_eff,
+                                shifted_valid_idx) :
+                            filter(i ->
+                                shifted_eigenvalues[i] >= max(eigrl_v1, positive_tol) &&
+                                shifted_eigenvalues[i] <= v2_eff,
+                                shifted_valid_idx)
                     isempty(shifted_range_idx) && continue
                     shifted_vals = shifted_eigenvalues[shifted_range_idx]
                     shifted_vecs = shifted_eigenvectors[:, shifted_range_idx]
@@ -2816,11 +3095,17 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     else
                         eigenvalues, eigenvectors, added = merge_unique_eigenpairs(
                             eigenvalues, eigenvectors, shifted_vals, shifted_vecs)
-                        valid_idx = findall(x ->
-                            x > positive_tol &&
-                            x >= max(eigrl_v1, positive_tol) &&
-                            x <= v2_eff,
-                            eigenvalues)
+                        valid_idx = bounded_signed_magnitude_output ?
+                            findall(x ->
+                                abs(x) > positive_tol &&
+                                abs(x) >= max(eigrl_v1, positive_tol) &&
+                                abs(x) <= v2_eff,
+                                eigenvalues) :
+                            findall(x ->
+                                x > positive_tol &&
+                                x >= max(eigrl_v1, positive_tol) &&
+                                x <= v2_eff,
+                                eigenvalues)
                     end
                     pass_added += added
                     completion_added += added
@@ -2954,9 +3239,10 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         buckling_timings["sturm_completeness"] = (time_ns() - t_sturm) * 1e-9
     end
 
-    # Sort bounded positive ranges by lambda, and unbounded signed extraction by
-    # |lambda| to match MSC/Nastran's printed root order for blank V1/V2 EIGRLs.
-    sorted_idx = signed_unbounded_output ?
+    # Sort bounded positive ranges by lambda. Sort signed-magnitude extraction
+    # by |lambda| to match MSC/Nastran's printed root order when signed load
+    # reversal roots are intentionally retained.
+    sorted_idx = signed_magnitude_output ?
         valid_idx[sortperm(abs.(eigenvalues[valid_idx]))] :
         valid_idx[sortperm(eigenvalues[valid_idx])]
 
@@ -4058,7 +4344,9 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         output_sorted_idx = sorted_idx[1:n_out]
     end
 
-    final_eigenvalues = eigenvalues[output_sorted_idx]
+    final_eigenvalues = bounded_signed_magnitude_output ?
+        abs.(eigenvalues[output_sorted_idx]) :
+        eigenvalues[output_sorted_idx]
     final_eigenvectors = eigenvectors[:, output_sorted_idx]
 
     # Expand to full DOF set
