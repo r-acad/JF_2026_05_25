@@ -1622,8 +1622,7 @@ function kg_shell_quad_warp_ratio(p1, p2, p3, p4)
     return maximum(abs(dot(p - center, n)) for p in (p1, p2, p3, p4)) / ldiag
 end
 
-function kg_shell_model_descriptor_summary(model)
-    kg_shell_model_descriptor_scale_enabled() || return nothing
+function kg_shell_model_descriptor_stats(model)
     haskey(model, "CSHELLs") || return nothing
     grids = get(model, "GRIDs", Dict())
     props = get(model, "PSHELLs", Dict())
@@ -1670,20 +1669,7 @@ function kg_shell_model_descriptor_summary(model)
     aspect_max = kg_shell_quantile(aspects, 1.0)
     h_p90 = kg_shell_quantile(h_over_lmax, 0.90)
     warp_max = kg_shell_quantile(warps, 1.0)
-    matches =
-        pcomp_fraction >= kg_shell_model_descriptor_pcomp_fraction_min() &&
-        aspect_p50 >= kg_shell_model_descriptor_aspect_p50_min() &&
-        aspect_p50 <= kg_shell_model_descriptor_aspect_p50_max() &&
-        aspect_p90 >= kg_shell_model_descriptor_aspect_p90_min() &&
-        aspect_p90 <= kg_shell_model_descriptor_aspect_p90_max() &&
-        aspect_max >= kg_shell_model_descriptor_aspect_max_min() &&
-        aspect_max <= kg_shell_model_descriptor_aspect_max_max() &&
-        h_p90 >= kg_shell_model_descriptor_h_over_lmax_p90_min() &&
-        h_p90 <= kg_shell_model_descriptor_h_over_lmax_p90_max() &&
-        warp_max <= kg_shell_model_descriptor_warp_max_max()
-    scale = matches ? kg_shell_model_descriptor_scale_value() : 1.0
     return (
-        scale=scale,
         n_quad=n_quad,
         pcomp_fraction=pcomp_fraction,
         aspect_p50=aspect_p50,
@@ -1691,6 +1677,34 @@ function kg_shell_model_descriptor_summary(model)
         aspect_max=aspect_max,
         h_over_lmax_p90=h_p90,
         warp_max=warp_max,
+    )
+end
+
+function kg_shell_model_descriptor_summary(model, stats=nothing)
+    kg_shell_model_descriptor_scale_enabled() || return nothing
+    stats === nothing && (stats = kg_shell_model_descriptor_stats(model))
+    stats === nothing && return nothing
+    matches =
+        stats.pcomp_fraction >= kg_shell_model_descriptor_pcomp_fraction_min() &&
+        stats.aspect_p50 >= kg_shell_model_descriptor_aspect_p50_min() &&
+        stats.aspect_p50 <= kg_shell_model_descriptor_aspect_p50_max() &&
+        stats.aspect_p90 >= kg_shell_model_descriptor_aspect_p90_min() &&
+        stats.aspect_p90 <= kg_shell_model_descriptor_aspect_p90_max() &&
+        stats.aspect_max >= kg_shell_model_descriptor_aspect_max_min() &&
+        stats.aspect_max <= kg_shell_model_descriptor_aspect_max_max() &&
+        stats.h_over_lmax_p90 >= kg_shell_model_descriptor_h_over_lmax_p90_min() &&
+        stats.h_over_lmax_p90 <= kg_shell_model_descriptor_h_over_lmax_p90_max() &&
+        stats.warp_max <= kg_shell_model_descriptor_warp_max_max()
+    scale = matches ? kg_shell_model_descriptor_scale_value() : 1.0
+    return (
+        scale=scale,
+        n_quad=stats.n_quad,
+        pcomp_fraction=stats.pcomp_fraction,
+        aspect_p50=stats.aspect_p50,
+        aspect_p90=stats.aspect_p90,
+        aspect_max=stats.aspect_max,
+        h_over_lmax_p90=stats.h_over_lmax_p90,
+        warp_max=stats.warp_max,
     )
 end
 
@@ -3716,12 +3730,16 @@ end
     return scale_value
 end
 
-@inline function kg_quad4_feature_membrane_scale_factor()
-    return solver_env_float("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE", 1.0)
+@inline function kg_quad4_feature_membrane_scale_factor(envbase::AbstractString)
+    return solver_env_float(envbase, 1.0)
 end
 
-@inline function kg_quad4_feature_membrane_scale_components()
-    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_COMPONENTS", "all")))
+@inline function kg_quad4_feature_membrane_scale_factor()
+    return kg_quad4_feature_membrane_scale_factor("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_components(envbase::AbstractString)
+    raw = lowercase(strip(get(ENV, envbase * "_COMPONENTS", "all")))
     if raw in ("nxx", "xx", "1")
         return :nxx
     elseif raw in ("nyy", "yy", "2")
@@ -3735,12 +3753,20 @@ end
     end
 end
 
-@inline function kg_quad4_feature_membrane_scale_pcomp_only()
-    return solver_env_bool("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_PCOMP_ONLY", true)
+@inline function kg_quad4_feature_membrane_scale_components()
+    return kg_quad4_feature_membrane_scale_components("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
 end
 
-function kg_quad4_feature_membrane_scale_pid_list()
-    raw = strip(get(ENV, "JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_PID_LIST", ""))
+@inline function kg_quad4_feature_membrane_scale_pcomp_only()
+    return kg_quad4_feature_membrane_scale_pcomp_only("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_pcomp_only(envbase::AbstractString)
+    return solver_env_bool(envbase * "_PCOMP_ONLY", true)
+end
+
+function kg_quad4_feature_membrane_scale_pid_list(envbase::AbstractString)
+    raw = strip(get(ENV, envbase * "_PID_LIST", ""))
     pids = Int[]
     isempty(raw) && return pids
     for part in split(raw, r"[,/\s]+")
@@ -3752,6 +3778,10 @@ function kg_quad4_feature_membrane_scale_pid_list()
     sort!(pids)
     unique!(pids)
     return pids
+end
+
+function kg_quad4_feature_membrane_scale_pid_list()
+    return kg_quad4_feature_membrane_scale_pid_list("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
 end
 
 function q4_static_component_pid_list()
@@ -3900,44 +3930,84 @@ end
 end
 
 @inline function kg_quad4_feature_membrane_scale_aspect_min()
-    return max(solver_env_float("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_ASPECT_MIN", 1.0), 1.0)
+    return kg_quad4_feature_membrane_scale_aspect_min("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_aspect_min(envbase::AbstractString)
+    return max(solver_env_float(envbase * "_ASPECT_MIN", 1.0), 1.0)
 end
 
 @inline function kg_quad4_feature_membrane_scale_aspect_max()
-    return max(solver_env_float("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_ASPECT_MAX", 1.0e99), 1.0)
+    return kg_quad4_feature_membrane_scale_aspect_max("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_aspect_max(envbase::AbstractString)
+    return max(solver_env_float(envbase * "_ASPECT_MAX", 1.0e99), 1.0)
 end
 
 @inline function kg_quad4_feature_membrane_scale_warp_min()
-    return max(solver_env_float("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_WARP_MIN", 0.0), 0.0)
+    return kg_quad4_feature_membrane_scale_warp_min("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_warp_min(envbase::AbstractString)
+    return max(solver_env_float(envbase * "_WARP_MIN", 0.0), 0.0)
 end
 
 @inline function kg_quad4_feature_membrane_scale_warp_max()
-    return max(solver_env_float("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_WARP_MAX", 1.0e99), 0.0)
+    return kg_quad4_feature_membrane_scale_warp_max("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_warp_max(envbase::AbstractString)
+    return max(solver_env_float(envbase * "_WARP_MAX", 1.0e99), 0.0)
 end
 
 @inline function kg_quad4_feature_membrane_scale_kappa_l_min()
-    return max(solver_env_float("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_KAPPA_L_MIN", 0.0), 0.0)
+    return kg_quad4_feature_membrane_scale_kappa_l_min("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_kappa_l_min(envbase::AbstractString)
+    return max(solver_env_float(envbase * "_KAPPA_L_MIN", 0.0), 0.0)
 end
 
 @inline function kg_quad4_feature_membrane_scale_kappa_l_max()
-    return max(solver_env_float("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_KAPPA_L_MAX", 1.0e99), 0.0)
+    return kg_quad4_feature_membrane_scale_kappa_l_max("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_kappa_l_max(envbase::AbstractString)
+    return max(solver_env_float(envbase * "_KAPPA_L_MAX", 1.0e99), 0.0)
 end
 
 @inline function kg_quad4_feature_membrane_scale_h_over_lmax_min()
-    return max(solver_env_float("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_H_OVER_LMAX_MIN", 0.0), 0.0)
+    return kg_quad4_feature_membrane_scale_h_over_lmax_min("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_h_over_lmax_min(envbase::AbstractString)
+    return max(solver_env_float(envbase * "_H_OVER_LMAX_MIN", 0.0), 0.0)
 end
 
 @inline function kg_quad4_feature_membrane_scale_h_over_lmax_max()
-    return max(solver_env_float("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_H_OVER_LMAX_MAX", 1.0e99), 0.0)
+    return kg_quad4_feature_membrane_scale_h_over_lmax_max("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_h_over_lmax_max(envbase::AbstractString)
+    return max(solver_env_float(envbase * "_H_OVER_LMAX_MAX", 1.0e99), 0.0)
 end
 
 @inline function kg_quad4_feature_membrane_scale_geometry_mode()
-    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_GEOM_MODE", "all")))
+    return kg_quad4_feature_membrane_scale_geometry_mode("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_geometry_mode(envbase::AbstractString)
+    raw = lowercase(strip(get(ENV, envbase * "_GEOM_MODE", "all")))
     return raw in ("any", "or", "either") ? :any : :all
 end
 
 @inline function kg_quad4_feature_membrane_scale_sign_gate()
-    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_NXX_SIGN", "any")))
+    return kg_quad4_feature_membrane_scale_sign_gate("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_sign_gate(envbase::AbstractString)
+    raw = lowercase(strip(get(ENV, envbase * "_NXX_SIGN", "any")))
     if raw in ("positive", "pos", "tension", "+")
         return :positive
     elseif raw in ("negative", "neg", "compression", "-")
@@ -3954,7 +4024,11 @@ end
 end
 
 @inline function kg_quad4_feature_membrane_scale_nxy_sign_gate()
-    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_NXY_SIGN", "any")))
+    return kg_quad4_feature_membrane_scale_nxy_sign_gate("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_nxy_sign_gate(envbase::AbstractString)
+    raw = lowercase(strip(get(ENV, envbase * "_NXY_SIGN", "any")))
     if raw in ("positive", "pos", "+")
         return :positive
     elseif raw in ("negative", "neg", "-")
@@ -3965,7 +4039,11 @@ end
 end
 
 @inline function kg_quad4_feature_membrane_scale_nxy_stat()
-    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_NXY_STAT", "mean")))
+    return kg_quad4_feature_membrane_scale_nxy_stat("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_nxy_stat(envbase::AbstractString)
+    raw = lowercase(strip(get(ENV, envbase * "_NXY_STAT", "mean")))
     if raw in ("min", "minimum", "gp_min", "gp-min")
         return :min
     elseif raw in ("max", "maximum", "gp_max", "gp-max")
@@ -3976,25 +4054,86 @@ end
 end
 
 @inline function kg_quad4_feature_membrane_scale_abs_nxy_min()
-    return max(solver_env_float("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_ABS_NXY_MIN", 0.0), 0.0)
+    return kg_quad4_feature_membrane_scale_abs_nxy_min("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_abs_nxy_min(envbase::AbstractString)
+    return max(solver_env_float(envbase * "_ABS_NXY_MIN", 0.0), 0.0)
 end
 
 @inline function kg_quad4_feature_membrane_scale_nxy_mode()
-    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_NXY_MODE", "gate")))
+    return kg_quad4_feature_membrane_scale_nxy_mode("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_nxy_mode(envbase::AbstractString)
+    raw = lowercase(strip(get(ENV, envbase * "_NXY_MODE", "gate")))
     return raw in ("extra_component", "extra-component", "extra", "component_extra") ?
         :extra_component : :gate
 end
 
 @inline function kg_quad4_feature_membrane_scale_gp_pmin_spread_min()
-    return max(solver_env_float("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_GP_PMIN_SPREAD_MIN", 0.0), 0.0)
+    return kg_quad4_feature_membrane_scale_gp_pmin_spread_min("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_gp_pmin_spread_min(envbase::AbstractString)
+    return max(solver_env_float(envbase * "_GP_PMIN_SPREAD_MIN", 0.0), 0.0)
 end
 
 @inline function kg_quad4_feature_membrane_scale_gp_nxx_spread_min()
-    return max(solver_env_float("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_GP_NXX_SPREAD_MIN", 0.0), 0.0)
+    return kg_quad4_feature_membrane_scale_gp_nxx_spread_min("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_gp_nxx_spread_min(envbase::AbstractString)
+    return max(solver_env_float(envbase * "_GP_NXX_SPREAD_MIN", 0.0), 0.0)
 end
 
 @inline function kg_quad4_feature_membrane_scale_gp_spread_factor()
-    return clamp(solver_env_float("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE_GP_SPREAD_FACTOR", 1.0), 0.0, 1.0)
+    return kg_quad4_feature_membrane_scale_gp_spread_factor("JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE")
+end
+
+@inline function kg_quad4_feature_membrane_scale_gp_spread_factor(envbase::AbstractString)
+    return clamp(solver_env_float(envbase * "_GP_SPREAD_FACTOR", 1.0), 0.0, 1.0)
+end
+
+function kg_quad4_feature_membrane_scale_model_gate_ok(stats, envbase::AbstractString)
+    solver_env_bool(envbase * "_MODEL_DESCRIPTOR", false) || return true
+    stats === nothing && return false
+    pcomp_fraction_min = clamp(
+        solver_env_float(envbase * "_MODEL_PCOMP_FRACTION_MIN", 0.0),
+        0.0,
+        1.0,
+    )
+    aspect_p50_min = max(solver_env_float(envbase * "_MODEL_ASPECT_P50_MIN", 1.0), 1.0)
+    aspect_p50_max = max(
+        solver_env_float(envbase * "_MODEL_ASPECT_P50_MAX", 1.0e99),
+        aspect_p50_min,
+    )
+    aspect_p90_min = max(solver_env_float(envbase * "_MODEL_ASPECT_P90_MIN", 1.0), 1.0)
+    aspect_p90_max = max(
+        solver_env_float(envbase * "_MODEL_ASPECT_P90_MAX", 1.0e99),
+        aspect_p90_min,
+    )
+    aspect_max_min = max(solver_env_float(envbase * "_MODEL_ASPECT_MAX_MIN", 1.0), 1.0)
+    aspect_max_max = max(
+        solver_env_float(envbase * "_MODEL_ASPECT_MAX_MAX", 1.0e99),
+        aspect_max_min,
+    )
+    h_p90_min = max(solver_env_float(envbase * "_MODEL_H_OVER_LMAX_P90_MIN", 0.0), 0.0)
+    h_p90_max = max(
+        solver_env_float(envbase * "_MODEL_H_OVER_LMAX_P90_MAX", 1.0e99),
+        h_p90_min,
+    )
+    warp_max_max = max(solver_env_float(envbase * "_MODEL_WARP_MAX_MAX", 1.0e99), 0.0)
+    return stats.pcomp_fraction >= pcomp_fraction_min &&
+           stats.aspect_p50 >= aspect_p50_min &&
+           stats.aspect_p50 <= aspect_p50_max &&
+           stats.aspect_p90 >= aspect_p90_min &&
+           stats.aspect_p90 <= aspect_p90_max &&
+           stats.aspect_max >= aspect_max_min &&
+           stats.aspect_max <= aspect_max_max &&
+           stats.h_over_lmax_p90 >= h_p90_min &&
+           stats.h_over_lmax_p90 <= h_p90_max &&
+           stats.warp_max <= warp_max_max
 end
 
 function kg_quad4_pid_membrane_scale_map()
@@ -9219,7 +9358,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
         kg_shell_descriptor_local_nyy_vw_extra_wxx_scale(),
         kg_shell_descriptor_local_nyy_vw_extra_wxy_scale(),
     )
-    kg_model_descriptor = kg_shell_model_descriptor_summary(model)
+    kg_model_descriptor_stats = kg_shell_model_descriptor_stats(model)
+    kg_model_descriptor = kg_shell_model_descriptor_summary(model, kg_model_descriptor_stats)
     if kg_model_descriptor !== nothing && kg_model_descriptor.scale != 1.0
         kg_shell_nxy *= kg_model_descriptor.scale
         kg_shell_nxx *= kg_model_descriptor.scale
@@ -9361,6 +9501,58 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     kg_quad4_feature_membrane_scale_gp_pmin_spread_min_v = kg_quad4_feature_membrane_scale_gp_pmin_spread_min()
     kg_quad4_feature_membrane_scale_gp_nxx_spread_min_v = kg_quad4_feature_membrane_scale_gp_nxx_spread_min()
     kg_quad4_feature_membrane_scale_gp_spread_factor_v = kg_quad4_feature_membrane_scale_gp_spread_factor()
+    kg_quad4_feature_membrane_scale_model_gate_ok_v =
+        kg_quad4_feature_membrane_scale_model_gate_ok(
+            kg_model_descriptor_stats,
+            "JFEM_KG_QUAD4_FEATURE_MEMBRANE_SCALE",
+        )
+    kg_quad4_feature2_membrane_scale_envbase = "JFEM_KG_QUAD4_FEATURE2_MEMBRANE_SCALE"
+    kg_quad4_feature2_membrane_scale = kg_quad4_feature_membrane_scale_factor(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_components_v =
+        kg_quad4_feature_membrane_scale_components(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_pcomp_only_v =
+        kg_quad4_feature_membrane_scale_pcomp_only(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_pids =
+        kg_quad4_feature_membrane_scale_pid_list(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_aspect_min_v =
+        kg_quad4_feature_membrane_scale_aspect_min(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_aspect_max_v =
+        kg_quad4_feature_membrane_scale_aspect_max(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_warp_min_v =
+        kg_quad4_feature_membrane_scale_warp_min(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_warp_max_v =
+        kg_quad4_feature_membrane_scale_warp_max(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_kappa_l_min_v =
+        kg_quad4_feature_membrane_scale_kappa_l_min(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_kappa_l_max_v =
+        kg_quad4_feature_membrane_scale_kappa_l_max(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_h_over_lmax_min_v =
+        kg_quad4_feature_membrane_scale_h_over_lmax_min(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_h_over_lmax_max_v =
+        kg_quad4_feature_membrane_scale_h_over_lmax_max(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_geom_mode_v =
+        kg_quad4_feature_membrane_scale_geometry_mode(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_nxx_sign_v =
+        kg_quad4_feature_membrane_scale_sign_gate(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_nxy_sign_v =
+        kg_quad4_feature_membrane_scale_nxy_sign_gate(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_nxy_stat_v =
+        kg_quad4_feature_membrane_scale_nxy_stat(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_abs_nxy_min_v =
+        kg_quad4_feature_membrane_scale_abs_nxy_min(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_nxy_mode_v =
+        kg_quad4_feature_membrane_scale_nxy_mode(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_gp_pmin_spread_min_v =
+        kg_quad4_feature_membrane_scale_gp_pmin_spread_min(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_gp_nxx_spread_min_v =
+        kg_quad4_feature_membrane_scale_gp_nxx_spread_min(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_gp_spread_factor_v =
+        kg_quad4_feature_membrane_scale_gp_spread_factor(kg_quad4_feature2_membrane_scale_envbase)
+    kg_quad4_feature2_membrane_scale_model_gate_ok_v =
+        kg_quad4_feature_membrane_scale_model_gate_ok(
+            kg_model_descriptor_stats,
+            kg_quad4_feature2_membrane_scale_envbase,
+        )
     kg_quad4_gp_field_pmin_spread_avg_min_v = kg_quad4_gp_field_pmin_spread_avg_min()
     kg_quad4_gp_field_pmin_spread_avg_alpha_v = kg_quad4_gp_field_pmin_spread_avg_alpha()
     kg_quad4_pid_membrane_scales = kg_quad4_pid_membrane_scale_map()
@@ -9558,7 +9750,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
         (kg_trans_mode === :curvature || kg_pcomp_auto_g12 || kg_pcomp_auto_global_x ||
          kg_auto_curvature_pcomp || kg_auto_curvature_iso || curved_iso_geomnormal_frame ||
          mitc4_3d_kg_recovery || sol105_geom_pcomp_kg_scale_enabled() ||
-         kg_quad4_feature_membrane_scale != 1.0) ?
+         kg_quad4_feature_membrane_scale != 1.0 ||
+         kg_quad4_feature2_membrane_scale != 1.0) ?
         compute_geometric_nodal_normals(model, id_map, node_coords) :
         Dict{Int,SVector{3,Float64}}()
     geom_vec = fill(SVector(0.0, 0.0, 0.0), n_nodes)
@@ -10066,6 +10259,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 (sol105_high_ts_curved_min4_enabled() && is_pcomp_clt && !pcomp_is_isotropic) ||
                 (sol105_geom_pcomp_kg_scale_enabled() && is_pcomp_clt && !pcomp_is_isotropic) ||
                 (kg_quad4_feature_membrane_scale != 1.0 && is_pcomp_clt) ||
+                (kg_quad4_feature2_membrane_scale != 1.0 && is_pcomp_clt) ||
                 (kg_auto_curvature_iso && is_iso_kg)) &&
                geom_has[i1] && geom_has[i2] && geom_has[i3] && geom_has[i4]
                 geom_curvature = estimate_quad4_curvature_membrane(
@@ -11045,7 +11239,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 feature_scale_diag_abs_nxy_ok = feature_scale_abs_nxy_ok
                 feature_scale_gate_ok = kg_quad4_feature_membrane_scale_nxy_mode_v === :extra_component ||
                                         feature_scale_nxy_ok
-                if feature_scale_geom_ok && feature_scale_thickness_ok && feature_scale_curv_ok &&
+                if kg_quad4_feature_membrane_scale_model_gate_ok_v &&
+                   feature_scale_geom_ok && feature_scale_thickness_ok && feature_scale_curv_ok &&
                    feature_scale_pcomp_ok && feature_scale_pid_ok && feature_scale_gate_ok &&
                    feature_scale_abs_nxy_ok
                     feature_scale_eff = kg_quad4_pid_membrane_effective_scale(
@@ -11070,6 +11265,74 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                             kg_quad4_apply_feature_component_scale!(
                                 sigma_mem_input,
                                 feature_scale_eff,
+                                :nxy,
+                            )
+                        end
+                    end
+                end
+            end
+            if kg_quad4_feature2_membrane_scale != 1.0
+                feature2_scale_geom_ok = kg_quad4_geometry_gate(
+                    warp_ratio_kg,
+                    aspect_ratio_kg,
+                    kg_quad4_feature2_membrane_scale_warp_min_v,
+                    kg_quad4_feature2_membrane_scale_warp_max_v,
+                    kg_quad4_feature2_membrane_scale_aspect_min_v,
+                    kg_quad4_feature2_membrane_scale_aspect_max_v,
+                    kg_quad4_feature2_membrane_scale_geom_mode_v,
+                )
+                feature2_scale_curv_ok = kg_quad4_feature_curvature_gate(
+                    geom_curvature,
+                    lc_buf4,
+                    kg_quad4_feature2_membrane_scale_kappa_l_min_v,
+                    kg_quad4_feature2_membrane_scale_kappa_l_max_v,
+                )
+                feature2_scale_thickness_ok =
+                    h_over_lmax_kg >= kg_quad4_feature2_membrane_scale_h_over_lmax_min_v &&
+                    h_over_lmax_kg <= kg_quad4_feature2_membrane_scale_h_over_lmax_max_v
+                feature2_scale_pcomp_ok = !kg_quad4_feature2_membrane_scale_pcomp_only_v || is_pcomp_clt
+                feature2_scale_pid_ok =
+                    isempty(kg_quad4_feature2_membrane_scale_pids) ||
+                    (something(tryparse(Int, string(pid)), 0) in kg_quad4_feature2_membrane_scale_pids)
+                feature2_scale_nxy_stat_value = kg_quad4_sigma_nxy_stat(
+                    sigma_mem_input,
+                    kg_quad4_feature2_membrane_scale_nxy_stat_v,
+                )
+                feature2_scale_nxy_ok = kg_quad4_component_sign_ok(
+                    kg_quad4_feature2_membrane_scale_nxy_sign_v,
+                    feature2_scale_nxy_stat_value,
+                )
+                feature2_scale_abs_nxy_ok =
+                    kg_quad4_feature2_membrane_scale_abs_nxy_min_v <= 0.0 ||
+                    abs(feature2_scale_nxy_stat_value * h) >= kg_quad4_feature2_membrane_scale_abs_nxy_min_v
+                feature2_scale_gate_ok = kg_quad4_feature2_membrane_scale_nxy_mode_v === :extra_component ||
+                                         feature2_scale_nxy_ok
+                if kg_quad4_feature2_membrane_scale_model_gate_ok_v &&
+                   feature2_scale_geom_ok && feature2_scale_thickness_ok && feature2_scale_curv_ok &&
+                   feature2_scale_pcomp_ok && feature2_scale_pid_ok && feature2_scale_gate_ok &&
+                   feature2_scale_abs_nxy_ok
+                    feature2_scale_eff = kg_quad4_pid_membrane_effective_scale(
+                        kg_quad4_feature2_membrane_scale,
+                        kg_quad4_feature2_membrane_scale_nxx_sign_v,
+                        sigma_mem_input,
+                        h,
+                        kg_quad4_feature2_membrane_scale_gp_pmin_spread_min_v,
+                        kg_quad4_feature2_membrane_scale_gp_nxx_spread_min_v,
+                        kg_quad4_feature2_membrane_scale_gp_spread_factor_v,
+                    )
+                    feature_scale_diag_eff *= feature2_scale_eff
+                    if feature2_scale_eff != 1.0
+                        kg_quad4_apply_feature_component_scale!(
+                            sigma_mem_input,
+                            feature2_scale_eff,
+                            kg_quad4_feature2_membrane_scale_components_v,
+                        )
+                        if kg_quad4_feature2_membrane_scale_nxy_mode_v === :extra_component &&
+                           kg_quad4_feature2_membrane_scale_nxy_sign_v !== :any &&
+                           feature2_scale_nxy_ok
+                            kg_quad4_apply_feature_component_scale!(
+                                sigma_mem_input,
+                                feature2_scale_eff,
                                 :nxy,
                             )
                         end

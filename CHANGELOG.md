@@ -6,6 +6,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added default-off SOL105 CQUAD4 feature-band infrastructure for a second
+  membrane-scale band and optional aggregate model-descriptor gates. The gates
+  use only model-level statistics derived from element geometry/material data
+  such as PCOMP fraction and aspect-ratio percentiles, plus the existing local
+  element geometry/material filters; they do not use case names, PID/EID,
+  groups, external calibration tables, or formulation selection from internal
+  stress state. Private guard
+  `FRONTIER_SIGNEDMAG_HTP_DUAL_MODEL_FINAL_20260702_01` achieved `14/14`
+  comparable BOXES large-frontier first-root rows within `2%`, mean absolute
+  error `0.8231%`, median absolute error `0.6800%`, and max `1.9233%`.
 - Added a default-off descriptor-gated SOL105 bounded signed-magnitude
   eigenvalue output selector for high `+/-45` and globally balanced PCOMP
   laminate bands. The selector uses only element geometry, thickness,
