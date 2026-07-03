@@ -306,6 +306,17 @@ end
     return clamp(solver_env_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_PM90_MAX", 1.0), 0.0, 1.0)
 end
 
+@inline function q4_sol105_static_pcomp_membrane_incomp_model_ply_p90_min()
+    # Optional aggregate model-descriptor bound: only activate the static
+    # PCOMP membrane-incomp gate on models whose PCOMP ply-count 90th
+    # percentile reaches this value.  Separates mixed-laminate models (which
+    # want the membrane softening on and around their >=10-ply strips) from
+    # uniform thin-laminate models (which over-soften).  Uses whole-model
+    # laminate statistics only; no case names, PID/EID, groups, or stress
+    # state.  Unset by default (no model bound).
+    return solver_env_optional_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_MODEL_PLY_P90_MIN")
+end
+
 @inline function kg_match_static_membrane_operator_enabled()
     # Default OFF (2026-04-29). Previously this cascaded from USE_STATIC_K=true,
     # which silently switched Kg σ-recovery to the bubble-augmented (Wilson-

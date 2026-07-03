@@ -1733,6 +1733,7 @@ function kg_shell_model_descriptor_stats(model)
     pm45_mean = isempty(pm45_vals) ? NaN : sum(pm45_vals) / length(pm45_vals)
     pm90_mean = isempty(pm90_vals) ? NaN : sum(pm90_vals) / length(pm90_vals)
     ply_p50 = kg_shell_quantile(ply_counts, 0.50)
+    ply_p90 = kg_shell_quantile(ply_counts, 0.90)
     beta_p50 = kg_shell_quantile(beta_vals, 0.50)
     return (
         n_quad=n_quad,
@@ -1746,6 +1747,7 @@ function kg_shell_model_descriptor_stats(model)
         pm45_mean=pm45_mean,
         pm90_mean=pm90_mean,
         ply_count_p50=ply_p50,
+        ply_count_p90=ply_p90,
         beta_p50=beta_p50,
     )
 end
@@ -5761,6 +5763,16 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     static_pcomp_membrane_incomp_pm45_max = q4_sol105_static_pcomp_membrane_incomp_pm45_max()
     static_pcomp_membrane_incomp_pm90_min = q4_sol105_static_pcomp_membrane_incomp_pm90_min()
     static_pcomp_membrane_incomp_pm90_max = q4_sol105_static_pcomp_membrane_incomp_pm90_max()
+    static_pcomp_membrane_incomp_model_ply_p90_min =
+        q4_sol105_static_pcomp_membrane_incomp_model_ply_p90_min()
+    if static_pcomp_membrane_incomp_aspect &&
+       static_pcomp_membrane_incomp_model_ply_p90_min !== nothing
+        mi_model_stats = kg_shell_model_descriptor_stats(model)
+        static_pcomp_membrane_incomp_aspect =
+            mi_model_stats !== nothing &&
+            isfinite(mi_model_stats.ply_count_p90) &&
+            mi_model_stats.ply_count_p90 >= static_pcomp_membrane_incomp_model_ply_p90_min
+    end
     flat_iso_eig_membrane_incomp = q4_flat_iso_eig_membrane_incomp_enabled()
     flat_iso_eig_membrane_shear_center_row = q4_flat_iso_eig_membrane_shear_center_row_enabled()
     flat_iso_eig_membrane_assumed_mode = q4_flat_iso_eig_membrane_assumed_mode()

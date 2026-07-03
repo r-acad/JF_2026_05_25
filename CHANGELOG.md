@@ -6,6 +6,22 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added an optional aggregate model-descriptor bound to the default-off
+  SOL105 static PCOMP Wilson-membrane-mode gate
+  (`JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_MODEL_PLY_P90_MIN`), backed by a
+  new `ply_count_p90` statistic in the shell model-descriptor summary.  The
+  bound separates mixed-laminate models from uniform thin-laminate models
+  using whole-model laminate statistics only.  Motivation: single-element
+  stiffness extraction against the reference solver shows its CQUAD4 membrane
+  matches the Wilson-mode-softened membrane (block error `1.6-2.3%`) rather
+  than the compatible-only membrane (`7-10%`) for the production laminates,
+  so the gate should follow physics rather than a per-family window; the
+  model bound plus a ply-count upper window reproduces the full membrane
+  softening on mixed-laminate models while leaving uniform thin-laminate
+  models bit-identical.  The same extraction quantified two remaining element
+  gaps for future work: twist-family bending modes `27-40%` softer than the
+  reference (curvature modes match to 5 digits) and a near-zero-energy
+  membrane hourglass mode on aspect `<~1.5` elements.
 - Extended the default-off SOL105 static PCOMP Wilson-membrane-mode gate with
   laminate/thickness descriptor bounds: `h/Lmax`, ply count, and `+/-45` /
   `+/-90` ply-fraction windows, plus an explicit boolean enable
