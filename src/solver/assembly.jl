@@ -1407,11 +1407,26 @@ end
     clamp(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_PM45_MIN", 0.35), 0.0, 1.0)
 @inline kg_shell_descriptor_local_pm45_max() =
     clamp(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_PM45_MAX", 0.60), 0.0, 1.0)
+@inline kg_shell_descriptor_local_pm90_min() =
+    clamp(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_PM90_MIN", 0.0), 0.0, 1.0)
+@inline kg_shell_descriptor_local_pm90_max() =
+    clamp(max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_PM90_MAX", 1.0),
+              kg_shell_descriptor_local_pm90_min()), 0.0, 1.0)
 @inline kg_shell_descriptor_local_ply_count_min() =
     max(Int(round(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_PLY_COUNT_MIN", 20.0))), 0)
 @inline kg_shell_descriptor_local_ply_count_max() =
     max(Int(round(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_PLY_COUNT_MAX", 32.0))),
         kg_shell_descriptor_local_ply_count_min())
+@inline kg_shell_descriptor_local_alpha_min() =
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_ALPHA_MIN", 0.0), 0.0)
+@inline kg_shell_descriptor_local_alpha_max() =
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_ALPHA_MAX", Inf),
+        kg_shell_descriptor_local_alpha_min())
+@inline kg_shell_descriptor_local_beta_min() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_BETA_MIN", -Inf)
+@inline kg_shell_descriptor_local_beta_max() =
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_BETA_MAX", Inf),
+        kg_shell_descriptor_local_beta_min())
 @inline kg_shell_descriptor_local_abs_gamma_min() =
     max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_LOCAL_ABS_GAMMA_MIN", 0.35), 0.0)
 @inline kg_shell_descriptor_local_abs_gamma_max() =
@@ -1442,11 +1457,26 @@ end
     clamp(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_PM45_MIN", 0.0), 0.0, 1.0)
 @inline kg_shell_descriptor_square_local_pm45_max() =
     clamp(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_PM45_MAX", 0.60), 0.0, 1.0)
+@inline kg_shell_descriptor_square_local_pm90_min() =
+    clamp(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_PM90_MIN", 0.0), 0.0, 1.0)
+@inline kg_shell_descriptor_square_local_pm90_max() =
+    clamp(max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_PM90_MAX", 1.0),
+              kg_shell_descriptor_square_local_pm90_min()), 0.0, 1.0)
 @inline kg_shell_descriptor_square_local_ply_count_min() =
     max(Int(round(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_PLY_COUNT_MIN", 3.0))), 0)
 @inline kg_shell_descriptor_square_local_ply_count_max() =
     max(Int(round(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_PLY_COUNT_MAX", 9.0))),
         kg_shell_descriptor_square_local_ply_count_min())
+@inline kg_shell_descriptor_square_local_alpha_min() =
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_ALPHA_MIN", 0.0), 0.0)
+@inline kg_shell_descriptor_square_local_alpha_max() =
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_ALPHA_MAX", Inf),
+        kg_shell_descriptor_square_local_alpha_min())
+@inline kg_shell_descriptor_square_local_beta_min() =
+    solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_BETA_MIN", -Inf)
+@inline kg_shell_descriptor_square_local_beta_max() =
+    max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_BETA_MAX", Inf),
+        kg_shell_descriptor_square_local_beta_min())
 @inline kg_shell_descriptor_square_local_abs_gamma_min() =
     max(solver_env_float("JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL_ABS_GAMMA_MIN", 0.0), 0.0)
 @inline kg_shell_descriptor_square_local_abs_gamma_max() =
@@ -1465,7 +1495,10 @@ end
     h_over_lmax::Float64,
     warp_ratio::Float64,
     pm45_fraction::Float64,
+    pm90_fraction::Float64,
     ply_count::Int,
+    nemeth_alpha::Float64,
+    nemeth_beta::Float64,
     nemeth_gamma::Float64,
     nemeth_delta::Float64,
 )
@@ -1479,8 +1512,14 @@ end
     warp_ratio <= kg_shell_descriptor_local_warp_max() || return false
     pm45_fraction >= kg_shell_descriptor_local_pm45_min() || return false
     pm45_fraction <= kg_shell_descriptor_local_pm45_max() || return false
+    pm90_fraction >= kg_shell_descriptor_local_pm90_min() || return false
+    pm90_fraction <= kg_shell_descriptor_local_pm90_max() || return false
     ply_count >= kg_shell_descriptor_local_ply_count_min() || return false
     ply_count <= kg_shell_descriptor_local_ply_count_max() || return false
+    nemeth_alpha >= kg_shell_descriptor_local_alpha_min() || return false
+    nemeth_alpha <= kg_shell_descriptor_local_alpha_max() || return false
+    nemeth_beta >= kg_shell_descriptor_local_beta_min() || return false
+    nemeth_beta <= kg_shell_descriptor_local_beta_max() || return false
     abs(nemeth_gamma) >= kg_shell_descriptor_local_abs_gamma_min() || return false
     abs(nemeth_gamma) <= kg_shell_descriptor_local_abs_gamma_max() || return false
     abs(nemeth_delta) >= kg_shell_descriptor_local_abs_delta_min() || return false
@@ -1495,7 +1534,10 @@ end
     h_over_lmax::Float64,
     warp_ratio::Float64,
     pm45_fraction::Float64,
+    pm90_fraction::Float64,
     ply_count::Int,
+    nemeth_alpha::Float64,
+    nemeth_beta::Float64,
     nemeth_gamma::Float64,
     nemeth_delta::Float64,
 )
@@ -1509,8 +1551,14 @@ end
     warp_ratio <= kg_shell_descriptor_square_local_warp_max() || return false
     pm45_fraction >= kg_shell_descriptor_square_local_pm45_min() || return false
     pm45_fraction <= kg_shell_descriptor_square_local_pm45_max() || return false
+    pm90_fraction >= kg_shell_descriptor_square_local_pm90_min() || return false
+    pm90_fraction <= kg_shell_descriptor_square_local_pm90_max() || return false
     ply_count >= kg_shell_descriptor_square_local_ply_count_min() || return false
     ply_count <= kg_shell_descriptor_square_local_ply_count_max() || return false
+    nemeth_alpha >= kg_shell_descriptor_square_local_alpha_min() || return false
+    nemeth_alpha <= kg_shell_descriptor_square_local_alpha_max() || return false
+    nemeth_beta >= kg_shell_descriptor_square_local_beta_min() || return false
+    nemeth_beta <= kg_shell_descriptor_square_local_beta_max() || return false
     abs(nemeth_gamma) >= kg_shell_descriptor_square_local_abs_gamma_min() || return false
     abs(nemeth_gamma) <= kg_shell_descriptor_square_local_abs_gamma_max() || return false
     abs(nemeth_delta) >= kg_shell_descriptor_square_local_abs_delta_min() || return false
@@ -1629,6 +1677,10 @@ function kg_shell_model_descriptor_stats(model)
     aspects = Float64[]
     h_over_lmax = Float64[]
     warps = Float64[]
+    pm45_vals = Float64[]
+    pm90_vals = Float64[]
+    ply_counts = Float64[]
+    beta_vals = Float64[]
     n_quad = 0
     n_pcomp = 0
     for (_, elem) in model["CSHELLs"]
@@ -1660,24 +1712,134 @@ function kg_shell_model_descriptor_stats(model)
         push!(h_over_lmax, kg_shell_prop_thickness(prop) / max(lmax, 1e-12))
         push!(warps, kg_shell_quad_warp_ratio(pts[1], pts[2], pts[3], pts[4]))
         n_quad += 1
-        haskey(prop, "PLY_DATA") && (n_pcomp += 1)
+        if haskey(prop, "PLY_DATA")
+            n_pcomp += 1
+            od = pcomp_orientation_thickness_descriptors(prop)
+            push!(pm45_vals, od.fracpm45)
+            push!(pm90_vals, od.frac90)
+            push!(ply_counts, Float64(pcomp_ply_count(prop)))
+            _, beta, _, _ = pcomp_nemeth_parameters(prop, lmin / max(lmax, 1e-12))
+            push!(beta_vals, beta)
+        end
     end
     n_quad == 0 && return nothing
     pcomp_fraction = n_pcomp / n_quad
     aspect_p50 = kg_shell_quantile(aspects, 0.50)
     aspect_p90 = kg_shell_quantile(aspects, 0.90)
     aspect_max = kg_shell_quantile(aspects, 1.0)
+    h_p50 = kg_shell_quantile(h_over_lmax, 0.50)
     h_p90 = kg_shell_quantile(h_over_lmax, 0.90)
     warp_max = kg_shell_quantile(warps, 1.0)
+    pm45_mean = isempty(pm45_vals) ? NaN : sum(pm45_vals) / length(pm45_vals)
+    pm90_mean = isempty(pm90_vals) ? NaN : sum(pm90_vals) / length(pm90_vals)
+    ply_p50 = kg_shell_quantile(ply_counts, 0.50)
+    beta_p50 = kg_shell_quantile(beta_vals, 0.50)
     return (
         n_quad=n_quad,
         pcomp_fraction=pcomp_fraction,
         aspect_p50=aspect_p50,
         aspect_p90=aspect_p90,
         aspect_max=aspect_max,
+        h_over_lmax_p50=h_p50,
         h_over_lmax_p90=h_p90,
         warp_max=warp_max,
+        pm45_mean=pm45_mean,
+        pm90_mean=pm90_mean,
+        ply_count_p50=ply_p50,
+        beta_p50=beta_p50,
     )
+end
+
+function kg_shell_descriptor_model_gate_ok(stats, envbase::AbstractString)
+    solver_env_bool(envbase * "_MODEL_DESCRIPTOR", false) || return true
+    stats === nothing && return false
+
+    pcomp_fraction_min = clamp(
+        solver_env_float(envbase * "_MODEL_PCOMP_FRACTION_MIN", 0.0),
+        0.0,
+        1.0,
+    )
+    aspect_p50_min = max(solver_env_float(envbase * "_MODEL_ASPECT_P50_MIN", 1.0), 1.0)
+    aspect_p50_max = max(
+        solver_env_float(envbase * "_MODEL_ASPECT_P50_MAX", 1.0e99),
+        aspect_p50_min,
+    )
+    aspect_p90_min = max(solver_env_float(envbase * "_MODEL_ASPECT_P90_MIN", 1.0), 1.0)
+    aspect_p90_max = max(
+        solver_env_float(envbase * "_MODEL_ASPECT_P90_MAX", 1.0e99),
+        aspect_p90_min,
+    )
+    aspect_max_min = max(solver_env_float(envbase * "_MODEL_ASPECT_MAX_MIN", 1.0), 1.0)
+    aspect_max_max = max(
+        solver_env_float(envbase * "_MODEL_ASPECT_MAX_MAX", 1.0e99),
+        aspect_max_min,
+    )
+    h_p50_min = max(solver_env_float(envbase * "_MODEL_H_OVER_LMAX_P50_MIN", 0.0), 0.0)
+    h_p50_max = max(
+        solver_env_float(envbase * "_MODEL_H_OVER_LMAX_P50_MAX", 1.0e99),
+        h_p50_min,
+    )
+    h_p90_min = max(solver_env_float(envbase * "_MODEL_H_OVER_LMAX_P90_MIN", 0.0), 0.0)
+    h_p90_max = max(
+        solver_env_float(envbase * "_MODEL_H_OVER_LMAX_P90_MAX", 1.0e99),
+        h_p90_min,
+    )
+    warp_max_max = max(solver_env_float(envbase * "_MODEL_WARP_MAX_MAX", 1.0e99), 0.0)
+    pm45_mean_min = clamp(
+        solver_env_float(envbase * "_MODEL_PM45_MEAN_MIN", 0.0),
+        0.0,
+        1.0,
+    )
+    pm45_mean_max = clamp(
+        solver_env_float(envbase * "_MODEL_PM45_MEAN_MAX", 1.0),
+        pm45_mean_min,
+        1.0,
+    )
+    pm90_mean_min = clamp(
+        solver_env_float(envbase * "_MODEL_PM90_MEAN_MIN", 0.0),
+        0.0,
+        1.0,
+    )
+    pm90_mean_max = clamp(
+        solver_env_float(envbase * "_MODEL_PM90_MEAN_MAX", 1.0),
+        pm90_mean_min,
+        1.0,
+    )
+    ply_p50_min = max(solver_env_float(envbase * "_MODEL_PLY_COUNT_P50_MIN", 0.0), 0.0)
+    ply_p50_max = max(
+        solver_env_float(envbase * "_MODEL_PLY_COUNT_P50_MAX", 1.0e99),
+        ply_p50_min,
+    )
+    beta_p50_min = solver_env_float(envbase * "_MODEL_BETA_P50_MIN", -Inf)
+    beta_p50_max = max(
+        solver_env_float(envbase * "_MODEL_BETA_P50_MAX", Inf),
+        beta_p50_min,
+    )
+
+    return stats.pcomp_fraction >= pcomp_fraction_min &&
+           stats.aspect_p50 >= aspect_p50_min &&
+           stats.aspect_p50 <= aspect_p50_max &&
+           stats.aspect_p90 >= aspect_p90_min &&
+           stats.aspect_p90 <= aspect_p90_max &&
+           stats.aspect_max >= aspect_max_min &&
+           stats.aspect_max <= aspect_max_max &&
+           stats.h_over_lmax_p50 >= h_p50_min &&
+           stats.h_over_lmax_p50 <= h_p50_max &&
+           stats.h_over_lmax_p90 >= h_p90_min &&
+           stats.h_over_lmax_p90 <= h_p90_max &&
+           stats.warp_max <= warp_max_max &&
+           isfinite(stats.pm45_mean) &&
+           stats.pm45_mean >= pm45_mean_min &&
+           stats.pm45_mean <= pm45_mean_max &&
+           isfinite(stats.pm90_mean) &&
+           stats.pm90_mean >= pm90_mean_min &&
+           stats.pm90_mean <= pm90_mean_max &&
+           isfinite(stats.ply_count_p50) &&
+           stats.ply_count_p50 >= ply_p50_min &&
+           stats.ply_count_p50 <= ply_p50_max &&
+           isfinite(stats.beta_p50) &&
+           stats.beta_p50 >= beta_p50_min &&
+           stats.beta_p50 <= beta_p50_max
 end
 
 function kg_shell_model_descriptor_summary(model, stats=nothing)
@@ -5591,6 +5753,14 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         !shear_center_only && q4_sol105_static_pcomp_membrane_incomp_aspect_enabled()
     static_pcomp_membrane_incomp_aspect_min = q4_sol105_static_pcomp_membrane_incomp_aspect_min()
     static_pcomp_membrane_incomp_aspect_max = q4_sol105_static_pcomp_membrane_incomp_aspect_max()
+    static_pcomp_membrane_incomp_h_over_lmax_min = q4_sol105_static_pcomp_membrane_incomp_h_over_lmax_min()
+    static_pcomp_membrane_incomp_h_over_lmax_max = q4_sol105_static_pcomp_membrane_incomp_h_over_lmax_max()
+    static_pcomp_membrane_incomp_ply_count_min = q4_sol105_static_pcomp_membrane_incomp_ply_count_min()
+    static_pcomp_membrane_incomp_ply_count_max = q4_sol105_static_pcomp_membrane_incomp_ply_count_max()
+    static_pcomp_membrane_incomp_pm45_min = q4_sol105_static_pcomp_membrane_incomp_pm45_min()
+    static_pcomp_membrane_incomp_pm45_max = q4_sol105_static_pcomp_membrane_incomp_pm45_max()
+    static_pcomp_membrane_incomp_pm90_min = q4_sol105_static_pcomp_membrane_incomp_pm90_min()
+    static_pcomp_membrane_incomp_pm90_max = q4_sol105_static_pcomp_membrane_incomp_pm90_max()
     flat_iso_eig_membrane_incomp = q4_flat_iso_eig_membrane_incomp_enabled()
     flat_iso_eig_membrane_shear_center_row = q4_flat_iso_eig_membrane_shear_center_row_enabled()
     flat_iso_eig_membrane_assumed_mode = q4_flat_iso_eig_membrane_assumed_mode()
@@ -7654,7 +7824,27 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             static_pcomp_membrane_incomp_aspect &&
             is_pcomp_ei &&
             aspect_ratio_ei >= static_pcomp_membrane_incomp_aspect_min &&
-            aspect_ratio_ei <= static_pcomp_membrane_incomp_aspect_max
+            aspect_ratio_ei <= static_pcomp_membrane_incomp_aspect_max &&
+            flat_pcomp_h_over_lmax >= static_pcomp_membrane_incomp_h_over_lmax_min &&
+            flat_pcomp_h_over_lmax <= static_pcomp_membrane_incomp_h_over_lmax_max
+        if static_pcomp_aspect_membrane_incomp &&
+           (static_pcomp_membrane_incomp_ply_count_min > 0 ||
+            static_pcomp_membrane_incomp_ply_count_max < typemax(Int) ||
+            static_pcomp_membrane_incomp_pm45_min > 0.0 ||
+            static_pcomp_membrane_incomp_pm45_max < 1.0 ||
+            static_pcomp_membrane_incomp_pm90_min > 0.0 ||
+            static_pcomp_membrane_incomp_pm90_max < 1.0)
+            mi_ply_count = pcomp_ply_count_from_plies(q4_ply_data[ei])
+            mi_pm45 = pcomp_abs_angle_fraction_from_plies(q4_ply_data[ei], 45.0)
+            mi_pm90 = pcomp_abs_angle_fraction_from_plies(q4_ply_data[ei], 90.0)
+            static_pcomp_aspect_membrane_incomp =
+                mi_ply_count >= static_pcomp_membrane_incomp_ply_count_min &&
+                mi_ply_count <= static_pcomp_membrane_incomp_ply_count_max &&
+                mi_pm45 >= static_pcomp_membrane_incomp_pm45_min &&
+                mi_pm45 <= static_pcomp_membrane_incomp_pm45_max &&
+                mi_pm90 >= static_pcomp_membrane_incomp_pm90_min &&
+                mi_pm90 <= static_pcomp_membrane_incomp_pm90_max
+        end
         # iso_no_incomp: disable Wilson incompatible modes for isotropic elements
         # (matches Nastran CQUAD4 standard bilinear formulation for eigenvalue K_eig)
         elem_bending_incomp = bending_incomp && !(iso_no_incomp && q4_is_isotropic[ei])
@@ -9359,6 +9549,16 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
         kg_shell_descriptor_local_nyy_vw_extra_wxy_scale(),
     )
     kg_model_descriptor_stats = kg_shell_model_descriptor_stats(model)
+    kg_descriptor_local_model_gate_ok_v =
+        kg_shell_descriptor_model_gate_ok(
+            kg_model_descriptor_stats,
+            "JFEM_KG_SHELL_DESCRIPTOR_LOCAL",
+        )
+    kg_descriptor_square_local_model_gate_ok_v =
+        kg_shell_descriptor_model_gate_ok(
+            kg_model_descriptor_stats,
+            "JFEM_KG_SHELL_DESCRIPTOR_SQUARE_LOCAL",
+        )
     kg_model_descriptor = kg_shell_model_descriptor_summary(model, kg_model_descriptor_stats)
     if kg_model_descriptor !== nothing && kg_model_descriptor.scale != 1.0
         kg_shell_nxy *= kg_model_descriptor.scale
@@ -11463,6 +11663,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 kg_local_nyy_vw_extra_scales_override = (0.0, 0.0, 0.0)
             end
             if kg_descriptor_local_split_enabled &&
+               kg_descriptor_local_model_gate_ok_v &&
                kg_shell_descriptor_local_trans_split_candidate(
                     is_pcomp_clt,
                     pcomp_is_isotropic,
@@ -11470,7 +11671,10 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     h_over_lmax_kg,
                     warp_ratio_kg,
                     pcomp_pm45_fraction_kg,
+                    pcomp_pm90_fraction_kg,
                     pcomp_ply_count_kg,
+                    pcomp_nemeth_alpha_kg,
+                    pcomp_nemeth_beta_kg,
                     pcomp_nemeth_gamma_kg,
                     pcomp_nemeth_delta_kg,
                )
@@ -11519,6 +11723,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                         kg_descriptor_local_nyy_vw_extra_scales_v
                 end
             elseif kg_descriptor_square_local_split_enabled &&
+                   kg_descriptor_square_local_model_gate_ok_v &&
                    kg_shell_descriptor_square_local_trans_split_candidate(
                         is_pcomp_clt,
                         pcomp_is_isotropic,
@@ -11526,7 +11731,10 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                         h_over_lmax_kg,
                         warp_ratio_kg,
                         pcomp_pm45_fraction_kg,
+                        pcomp_pm90_fraction_kg,
                         pcomp_ply_count_kg,
+                        pcomp_nemeth_alpha_kg,
+                        pcomp_nemeth_beta_kg,
                         pcomp_nemeth_gamma_kg,
                         pcomp_nemeth_delta_kg,
                    )

@@ -6,6 +6,40 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Extended the default-off SOL105 static PCOMP Wilson-membrane-mode gate with
+  laminate/thickness descriptor bounds: `h/Lmax`, ply count, and `+/-45` /
+  `+/-90` ply-fraction windows, plus an explicit boolean enable
+  (`JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP`).  The legacy aspect-window
+  enablement is preserved; all new bounds default to fully open windows.  The
+  gate uses only element geometry and laminate descriptors; it does not use
+  case names, PID/EID, groups, external calibration tables, or internal
+  stress state.  Motivation: displacement-substitution and A/B eigen probes
+  attribute most of the SOL105 higher-mode (roots 2-4) parity spread to the
+  compatible-only membrane stiffness; Wilson membrane modes in the SOL105 K
+  (with the default compatible sigma-recovery in `Kg`) bring MR8_30/MR10_30
+  first-four spectra to near-parity while a uniform enable over-softens
+  uniform thin 9-ply laminate models, hence the descriptor windows.  Private
+  broad-guard validation with a ply-count window of 10..24: gate-only frontier
+  variant keeps `14/14` first roots within `2%` (mean `0.9243%`, max
+  `1.9813%`) with no MS_Mfg-specific `Kg` weight rule; gate plus the previous
+  `w=1.19` rule improves first-four parity to `22/56` rows within `2%` (max
+  `6.5522%`, versus `21/56` / `7.8404%` for the previous frontier) but the
+  two corrections overlap on the same strips and the `w` weight needs joint
+  re-tuning.  GAME-pack production-driver check: uniform 9-ply launch models
+  bit-identical, HTP_3wp first root improves `+1.99% -> +0.16%`,
+  VTP_3wp first root shifts `-0.18% -> -0.97%` (in spec).
+- Added default-off aggregate model-descriptor gates for the SOL105 CQUAD4
+  local and square-local descriptor-gated geometric-stiffness split selectors.
+  The gates use only whole-model geometry/material/laminate statistics such as
+  PCOMP fraction, aspect and thickness percentiles, ply-angle fractions,
+  median ply count, and Nemeth `beta`; they do not use case names, PID/EID,
+  groups, external calibration tables, or stress-state formulation gates.
+- Added default-off `pm90`, Nemeth `alpha`, and Nemeth `beta` descriptor
+  bounds to the SOL105 CQUAD4 local and square-local descriptor-gated
+  geometric-stiffness split selectors.  Defaults are broad and preserve the
+  existing behavior; the new bounds are intended for geometry/material-only
+  private DOE refinement and do not use case names, PID/EID, groups, external
+  calibration tables, or stress-state formulation gates.
 - Added default-off SOL105 CQUAD4 feature-band infrastructure for a second
   membrane-scale band and optional aggregate model-descriptor gates. The gates
   use only model-level statistics derived from element geometry/material data

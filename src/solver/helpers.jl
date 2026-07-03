@@ -242,16 +242,21 @@ end
 
 @inline function q4_sol105_static_pcomp_membrane_incomp_aspect_enabled()
     # Default OFF. Diagnostic gate for SOL105 static preload K: add Wilson
-    # membrane modes only to PCOMP CQUAD4 elements inside an aspect-ratio
-    # window. This lets the parity campaign test whether the high-aspect HTP
-    # population wants the bubble contribution while lower-aspect VTP/guardrail
-    # meshes should stay on the MacNeal-like compatible membrane path.
+    # membrane modes only to PCOMP CQUAD4 elements inside a descriptor window
+    # (aspect ratio, h/Lmax, ply count, +/-45 and +/-90 ply fractions). This
+    # lets the parity campaign test which laminate/geometry populations want
+    # the bubble contribution while others stay on the MacNeal-like compatible
+    # membrane path. Enabled either by the explicit boolean
+    # JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP or (legacy) by setting
+    # JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_ASPECT_MIN. All bounds default
+    # to fully open windows.
+    solver_env_bool("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP", false) && return true
     return solver_env_optional_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_ASPECT_MIN") !== nothing
 end
 
 @inline function q4_sol105_static_pcomp_membrane_incomp_aspect_min()
     raw = solver_env_optional_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_ASPECT_MIN")
-    raw === nothing && return Inf
+    raw === nothing && return 0.0
     return max(raw, 0.0)
 end
 
@@ -259,6 +264,46 @@ end
     raw = solver_env_optional_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_ASPECT_MAX")
     raw === nothing && return Inf
     return max(raw, 0.0)
+end
+
+@inline function q4_sol105_static_pcomp_membrane_incomp_h_over_lmax_min()
+    raw = solver_env_optional_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_H_OVER_LMAX_MIN")
+    raw === nothing && return 0.0
+    return max(raw, 0.0)
+end
+
+@inline function q4_sol105_static_pcomp_membrane_incomp_h_over_lmax_max()
+    raw = solver_env_optional_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_H_OVER_LMAX_MAX")
+    raw === nothing && return Inf
+    return max(raw, 0.0)
+end
+
+@inline function q4_sol105_static_pcomp_membrane_incomp_ply_count_min()
+    raw = solver_env_optional_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_PLY_COUNT_MIN")
+    raw === nothing && return 0
+    return max(Int(round(raw)), 0)
+end
+
+@inline function q4_sol105_static_pcomp_membrane_incomp_ply_count_max()
+    raw = solver_env_optional_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_PLY_COUNT_MAX")
+    raw === nothing && return typemax(Int)
+    return max(Int(round(raw)), 0)
+end
+
+@inline function q4_sol105_static_pcomp_membrane_incomp_pm45_min()
+    return clamp(solver_env_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_PM45_MIN", 0.0), 0.0, 1.0)
+end
+
+@inline function q4_sol105_static_pcomp_membrane_incomp_pm45_max()
+    return clamp(solver_env_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_PM45_MAX", 1.0), 0.0, 1.0)
+end
+
+@inline function q4_sol105_static_pcomp_membrane_incomp_pm90_min()
+    return clamp(solver_env_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_PM90_MIN", 0.0), 0.0, 1.0)
+end
+
+@inline function q4_sol105_static_pcomp_membrane_incomp_pm90_max()
+    return clamp(solver_env_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_PM90_MAX", 1.0), 0.0, 1.0)
 end
 
 @inline function kg_match_static_membrane_operator_enabled()
