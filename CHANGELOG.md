@@ -6,6 +6,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added `JFEM_Q4_DRILL_LUMPED_NASTRAN` (default OFF): reference-measured
+  drilling stiffness.  Single-element extraction shows the reference CQUAD4
+  drilling block is a pure lumped nodal spring `K6ROT * 1e-6 * A66 * Area`
+  per theta-z with no inter-node coupling (laminate ratios match `A66/G12`
+  exactly); the switch replaces the consistent `Bd'Bd` accumulation with the
+  lumped form (drilling block error `0.0000`; full 24x24 element error
+  `0.03-1.0%` across the reference laminates).
 - Added per-direction MacNeal RBF differential-gamma scales
   (`JFEM_Q4_MACNEAL_RBF_ZB_DIFF_{X,Y}_SCALE`, default = the common scale)
   and `JFEM_Q4_MACNEAL_RBF_DIFF_ASPECT_LAW` (default OFF): the

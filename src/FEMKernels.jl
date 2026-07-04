@@ -1877,6 +1877,19 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     G_drill = Cm[3,3] / h
     if G_drill < 1e-6; G_drill = E_ref / (2*3.0); end
     alpha_drill = drill_scale * (k6rot / 1e5) * G_drill * h
+    # JFEM_Q4_DRILL_LUMPED_NASTRAN (default OFF): reference-measured drilling.
+    # Single-element K extraction (k_extract_boxes_laminates_20260704, four
+    # laminates, aspects 1..3) shows the reference CQUAD4 drilling block is a
+    # PURE LUMPED nodal spring, k = K6ROT * 1e-6 * A66 * Area on each
+    # theta-z, with NO inter-node coupling (exact to 5 digits: the laminate
+    # ratios 1.0000 / 5.1463 / 9.2927 / 4.3925 equal A66/G12 per layup) and
+    # only a small residual theta-z/translation coupling (half of the
+    # consistent form).  When enabled, the consistent Bd'Bd accumulation is
+    # skipped and the lumped springs are added after the GP loop.
+    drill_lumped_nastran = fem_env_bool("JFEM_Q4_DRILL_LUMPED_NASTRAN", false)
+    if drill_lumped_nastran
+        alpha_drill = 0.0
+    end
 
     @inbounds @fastmath for gp in 1:4
         r, s = gauss_pts[gp][1], gauss_pts[gp][2]
@@ -2283,6 +2296,18 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             flex_mode_override=macneal_rbf_flex_mode,
             zb_scale_override=macneal_rbf_zb_scale,
         )
+    end
+
+    # Reference-matched lumped drilling (see the flag hoist above the GP
+    # loop): k = K6ROT * 1e-6 * A66 * Area per node on theta-z, replacing the
+    # consistent Bd'Bd accumulation.
+    if drill_lumped_nastran
+        A_drill = 4.0 * abs_detJc
+        k_lump = drill_scale * (k6rot * 1e-6) * Cm[3, 3] * A_drill
+        @inbounds for k in 1:4
+            d = (k - 1) * 6 + 6
+            ws.Ke[d, d] += k_lump
+        end
     end
 
     # Static condensation (BLAS-free for thread safety)
