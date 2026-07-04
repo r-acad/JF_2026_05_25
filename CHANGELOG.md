@@ -6,6 +6,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added three default-off CQUAD4 kernel switches from the reference-solver
+  element identification campaign (`k_extract_boxes_laminates_20260704`):
+  `JFEM_Q4_MACNEAL_TWIST_MODE=center` (1-point reduced twist row; with
+  `JFEM_Q4_MACNEAL_RBF_ZB_UNIFORM_SCALE=1.0`,
+  `JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SCALE=0.625`, no bending enrichment, and
+  Wilson membrane modes this reproduces the reference CQUAD4 bending block
+  EXACTLY — relative error `0.0000`, all Rayleigh ratios `1.000` — on
+  square elements for cross-ply, 9-ply, 11-ply, and heavy-pm45 laminates,
+  and to `<= 2%` up to aspect `1.5`); `JFEM_Q4_MACNEAL_SHEAR_SAMPLE=edge`
+  (edge-midpoint substitute-shear sampling, diagnostic);
+  `JFEM_Q4_BENDING_INCOMP_DECOUPLE_D16` (bend-twist decoupled enrichment
+  products, diagnostic — measured inert).  A uniform per-element aspect
+  factor remains above aspect `1.5` (`1.0500` at 2.0, `1.1000` at 2.5,
+  non-monotone beyond); its identification sweep is prepared.
 - Added `JFEM_SOL105_Q4_PCOMP_MEMBRANE_INCOMP_SCALE` (default `1.0`,
   behavior-preserving): the SOL105-context PCOMP Wilson-membrane condensation
   weight, previously hard-wired to full condensation.  Reference-solver

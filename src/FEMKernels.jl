@@ -1736,6 +1736,9 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # Only engages on the flat default path; disabled with curved_frame_supported.
     macneal_twist_env_set = haskey(ENV, "JFEM_Q4_MACNEAL_TWIST")
     macneal_twist = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_TWIST", "false"))) in ("1","true","yes","on")
+    macneal_twist_center =
+        lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_TWIST_MODE", "extrapolate"))) in
+        ("center", "reduced", "1pt")
     # Full MacNeal 1978 CQUAD4 kernel: replaces MITC4+phi2 shear block with
     # MacNeal's [D]ᵀ·([Z_s]+[Z_b])⁻¹·[D] formulation + twist correction.
     # MSC/Nastran's CQUAD4 lineage uses this operator for the released QUAD4.
@@ -1767,6 +1770,9 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         v = tryparse(Float64, strip(raw))
         (v === nothing || v < 0.0) ? 0.04 : v
     end
+    # Default OFF; see the K_ab_bend accumulation below for the evidence.
+    bending_incomp_decouple_d16 =
+        fem_env_bool("JFEM_Q4_BENDING_INCOMP_DECOUPLE_D16", false)
     # Center Jacobian — needed for phi2 and/or shear_center_only 1-point integration
     dNr_c = SVector(-0.25, 0.25, 0.25, -0.25)
     dNs_c = SVector(-0.25, -0.25, 0.25, 0.25)
@@ -1935,9 +1941,22 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             ws.Bb[3, idx+5] = dN_dy;  ws.Bb[3, idx+4] = -dN_dx
             # MacNeal twist compatibility (eq 17): χ̃_xy = 2·χ_xy(GP) − χ_xy(0).
             # Applied only on the flat default path (no curved_frame_supported).
+            # JFEM_Q4_MACNEAL_TWIST_MODE=center (default "extrapolate"):
+            # 1-point reduced twist row, χ̃_xy = χ_xy(0) at every GP.
+            # Reference-solver K extraction (k_extract_boxes_laminates_20260704)
+            # shows the reference CQUAD4 gives rotation-hourglass patterns ZERO
+            # twist-curvature energy on square elements for every laminate
+            # tested (Rayleigh alpha = 0.000): the center-evaluated twist row
+            # reproduces that exactly (the theta hourglass field r*s has zero
+            # gradient at the element center) while keeping constant twist.
             if macneal_twist && !curved_frame_supported
-                ws.Bb[3, idx+5] = 2.0*dN_dy - dNdy_c[k]
-                ws.Bb[3, idx+4] = 2.0*(-dN_dx) - (-dNdx_c[k])
+                if macneal_twist_center
+                    ws.Bb[3, idx+5] = dNdy_c[k]
+                    ws.Bb[3, idx+4] = -dNdx_c[k]
+                else
+                    ws.Bb[3, idx+5] = 2.0*dN_dy - dNdy_c[k]
+                    ws.Bb[3, idx+4] = 2.0*(-dN_dx) - (-dNdx_c[k])
+                end
             end
             if curved_frame_supported
                 # Covariant change-of-curvature in the moving tangent frame:
@@ -2065,6 +2084,23 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         end
         # K_ab_bend += abs_detJ * Bb' * Cb * Bi_bend
         ts_mul!(ws.tmp3x4, Cb_use, ws.Bi_bend)
+        # JFEM_Q4_BENDING_INCOMP_DECOUPLE_D16 (default OFF): zero the
+        # bend-twist coupling (D16/D26) channel in the bending incompatible
+        # mode products. Reference-solver single-element extraction
+        # (k_extract_boxes_laminates_20260704) shows the enrichment
+        # condensation removes D16-coupled twist stiffness that the reference
+        # CQUAD4 retains: twist-family Rayleigh ratios vs the reference are
+        # 1.00 for D16=0 cross-ply laminates but fall to 0.71/0.60/0.31 as
+        # |D16|/D66 grows (0.20/0.25/0.47). Zeroing D16/D26 here affects only
+        # the enrichment condensation, not the compatible bending energy.
+        if bending_incomp_decouple_d16
+            @inbounds for j in 1:4
+                ws.tmp3x4[1, j] -= Cb_use[1, 3] * ws.Bi_bend[3, j]
+                ws.tmp3x4[2, j] -= Cb_use[2, 3] * ws.Bi_bend[3, j]
+                ws.tmp3x4[3, j] -= Cb_use[3, 1] * ws.Bi_bend[1, j] +
+                                   Cb_use[3, 2] * ws.Bi_bend[2, j]
+            end
+        end
         ts_mul_At_add!(ws.K_ab_bend, ws.Bb, ws.tmp3x4, abs_detJ)
         # K_bb_bend += abs_detJ * Bi_bend' * Cb * Bi_bend (reuse tmp3x4)
         ts_mul_At_add!(ws.K_bb_bend, ws.Bi_bend, ws.tmp3x4, abs_detJ)
@@ -2413,8 +2449,15 @@ function add_quad4_macneal_shear_rbf!(
         return Ke
     end
 
-    # Sampling points: (ξ, η, component) where component=1 is γx, =2 is γy
-    pt = 1.0 / sqrt(3.0)
+    # Sampling points: (ξ, η, component) where component=1 is γx, =2 is γy.
+    # JFEM_Q4_MACNEAL_SHEAR_SAMPLE=edge (default "gauss"): sample the
+    # substitute shear strains at the edge midpoints (0,±1)/(±1,0) as in
+    # MacNeal 1978, instead of the Gauss-offset interior points (0,±1/√3).
+    # Identical on squares after zb calibration; changes the aspect scaling.
+    shear_sample_edge =
+        lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_SHEAR_SAMPLE", "gauss"))) in
+        ("edge", "midpoint", "midside")
+    pt = shear_sample_edge ? 1.0 : 1.0 / sqrt(3.0)
     shear_pts = ((0.0, -pt, 1), (0.0,  pt, 1), (-pt, 0.0, 2), ( pt, 0.0, 2))
 
     T = promote_type(eltype(Ke), eltype(Cb), eltype(Cs), typeof(h))
