@@ -6,6 +6,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added `JFEM_Q4_NASTRAN_ASPECT_BAND` (default OFF): reference-solver-
+  measured mid-aspect bending softening band for the CQUAD4.  Fine
+  single-element sweeps (aspect 1.0..8.0, four laminates) show the
+  reference bending block is uniformly softer than the Nastran-matched JFEM
+  configuration inside a finite band (peaks `1.10` at aspect 2.5 and
+  `~1.11` at 4.0, piecewise linear, laminate-independent, exactly `1.0`
+  outside `1.5..4.52`).  The switch multiplies `Cb` by the inverse band
+  factor (scaling bending and the MacNeal RBF shear stiffness uniformly).
+  With the full Nastran-matched v1 set enabled, the bending-block MEDIAN
+  mode ratio vs the reference is `1.00000` across the whole extraction
+  library (~50 reference matrices, aspects 1.0-4.5, cross-ply / 9-ply /
+  11-ply / heavy-pm45); residual per-mode spread is within `-1.6%..+4%`
+  except one shear-family mode drifting to `+19%` at aspect 4.5 (open) and
+  one anomalous strip geometry (open).  Geometry-only element descriptor.
 - Added three default-off CQUAD4 kernel switches from the reference-solver
   element identification campaign (`k_extract_boxes_laminates_20260704`):
   `JFEM_Q4_MACNEAL_TWIST_MODE=center` (1-point reduced twist row; with

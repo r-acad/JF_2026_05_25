@@ -1773,6 +1773,52 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # Default OFF; see the K_ab_bend accumulation below for the evidence.
     bending_incomp_decouple_d16 =
         fem_env_bool("JFEM_Q4_BENDING_INCOMP_DECOUPLE_D16", false)
+    # JFEM_Q4_NASTRAN_ASPECT_BAND (default OFF): reference-solver-measured
+    # mid-aspect bending softening band.  Single-element K extraction
+    # (k_extract_boxes_laminates_20260704, aspect 1.0..8.0 in 0.1..0.2 steps,
+    # four laminates) shows the reference CQUAD4 bending block equals the
+    # JFEM Nastran-matched configuration exactly for aspect <= 1.5 and
+    # aspect >= 4.6, but is uniformly SOFTER inside a finite band with
+    # piecewise-linear, laminate-independent shape:
+    #   c(a) = 1                        a <= 1.5
+    #        = 1 + (a-1.5)/10          1.5 < a <= 2.5   (peak 1.10)
+    #        = 1.10 - (a-2.5)/9        2.5 < a <= 3.4
+    #        = 1                        3.4 < a <= 3.5
+    #        = 1 + 0.218*(a-3.5)       3.5 < a <= 4.0   (peak ~1.109)
+    #        = 1.109 - 0.253*(a-4.1)   4.1 < a <= 4.52
+    #        = 1                        a > 4.52
+    # where c is the JFEM/reference stiffness ratio; enabling the switch
+    # multiplies Cb by 1/c(aspect) (which scales bending AND the MacNeal RBF
+    # shear stiffness uniformly, matching the measured uniform-mode shift).
+    # Geometry-only element descriptor; no case/PID/group/stress selectors.
+    nastran_aspect_band = fem_env_bool("JFEM_Q4_NASTRAN_ASPECT_BAND", false)
+    if nastran_aspect_band && kernel_planar
+        e12 = hypot(coords[2,1]-coords[1,1], coords[2,2]-coords[1,2])
+        e23 = hypot(coords[3,1]-coords[2,1], coords[3,2]-coords[2,2])
+        e34 = hypot(coords[4,1]-coords[3,1], coords[4,2]-coords[3,2])
+        e41 = hypot(coords[1,1]-coords[4,1], coords[1,2]-coords[4,2])
+        a_band = max(e12, e23, e34, e41) / max(min(e12, e23, e34, e41), 1e-12)
+        c_band = if a_band <= 1.5
+            1.0
+        elseif a_band <= 2.5
+            1.0 + (a_band - 1.5) / 10.0
+        elseif a_band <= 3.4
+            1.10 - (a_band - 2.5) / 9.0
+        elseif a_band <= 3.5
+            1.0
+        elseif a_band <= 4.0
+            1.0 + 0.218 * (a_band - 3.5)
+        elseif a_band <= 4.1
+            1.109
+        elseif a_band <= 4.52
+            1.109 - 0.253 * (a_band - 4.1)
+        else
+            1.0
+        end
+        if c_band != 1.0
+            Cb = Cb ./ c_band
+        end
+    end
     # Center Jacobian — needed for phi2 and/or shear_center_only 1-point integration
     dNr_c = SVector(-0.25, 0.25, 0.25, -0.25)
     dNs_c = SVector(-0.25, -0.25, 0.25, 0.25)
