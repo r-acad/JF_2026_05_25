@@ -2702,19 +2702,26 @@ function add_quad4_macneal_shear_rbf!(
     zb_dy = zb_dy_raw === nothing ? zb_d : max(zb_dy_raw, 1e-12)
     # JFEM_Q4_MACNEAL_RBF_DIFF_ASPECT_LAW (default OFF): reference-measured
     # directional aspect law for the differential-gamma scales.  Element
-    # library (k_extract_boxes_laminates_20260704, aspects 1..8, four
+    # library (k_extract_boxes_laminates_20260704, aspects 1..16, four
     # laminates, laminate-independent): the SHORT-direction differential
     # scale grows with aspect (RS) and the LONG-direction one softens
     # slightly (RF); with these factors both shear-family modes match the
-    # reference to <0.1% at every measured aspect.  Linear interpolation
-    # between measured knots; linear extrapolation beyond aspect 8.
+    # reference to <0.1% at every measured aspect below 9 and <0.7% at
+    # 9..16 (kxv extension, rsrf_grid_fit).  RS SATURATES beyond aspect 8
+    # (1.40 at 9 up to 1.51 at 15-16) — the pre-extension linear
+    # extrapolation overshot to 1.68 at 16.  RF is flat at 0.985 in the
+    # extension band.  Linear interpolation between measured knots; linear
+    # extrapolation beyond aspect 16 (last-segment slope, i.e. saturated).
     if fem_env_bool("JFEM_Q4_MACNEAL_RBF_DIFF_ASPECT_LAW", false)
         Dx_l = 0.5 * abs(coords[2,1] + coords[3,1] - coords[1,1] - coords[4,1])
         Dy_l = 0.5 * abs(coords[3,2] + coords[4,2] - coords[1,2] - coords[2,2])
         a_rbf = max(Dx_l, Dy_l) / max(min(Dx_l, Dy_l), 1e-12)
-        A_KNOTS = (1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0)
-        RS = (1.0, 1.008, 1.018, 1.041, 1.068, 1.098, 1.130, 1.161, 1.190, 1.222, 1.277, 1.324, 1.364)
-        RF = (1.0, 0.9946, 0.9917, 0.9887, 0.9873, 0.9866, 0.9861, 0.9859, 0.9856, 0.9855, 0.9853, 0.9852, 0.9851)
+        A_KNOTS = (1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0,
+                   9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0)
+        RS = (1.0, 1.008, 1.018, 1.041, 1.068, 1.098, 1.130, 1.161, 1.190, 1.222, 1.277, 1.324, 1.364,
+              1.400, 1.430, 1.450, 1.460, 1.490, 1.500, 1.510, 1.510)
+        RF = (1.0, 0.9946, 0.9917, 0.9887, 0.9873, 0.9866, 0.9861, 0.9859, 0.9856, 0.9855, 0.9853, 0.9852, 0.9851,
+              0.9850, 0.9850, 0.9850, 0.9850, 0.9850, 0.9850, 0.9850, 0.9850)
         r_s = 1.0
         r_f = 1.0
         if a_rbf <= A_KNOTS[1]

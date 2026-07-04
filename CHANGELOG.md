@@ -6,6 +6,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Extended the MacNeal RBF directional differential-gamma aspect law
+  (`JFEM_Q4_MACNEAL_RBF_DIFF_ASPECT_LAW`) with measured knots at aspects
+  9-16.  The short-direction scale SATURATES beyond aspect 8 (1.400 at 9
+  rising to 1.510 at 15-16) where the previous linear extrapolation
+  overshot to 1.68 at 16; the long-direction scale is flat at 0.985.
+  Reference extraction (two laminates at very high aspect) now matches
+  within +-0.6% on every bending mode through aspect 16; knots at or
+  below aspect 8 are unchanged.
 - Added `JFEM_SOL105_Q4_CROSS_MEMBRANE_WEIGHTS` (default OFF): extends the
   SOL101 cross/shear-only Wilson membrane condensation to the SOL105
   static/pencil assembly for flat quads.  Single-element extraction
