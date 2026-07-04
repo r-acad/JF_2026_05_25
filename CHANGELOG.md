@@ -6,6 +6,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added `JFEM_Q4_STATIC_BENDING_INCOMP` (unset by default; the assembly
+  argument wins): optional override of the rotation-bubble bending
+  enrichment on the static/pencil assembly path, complementing the existing
+  eigen-path control.  Needed to run the reference-identified element
+  configuration end to end.
 - Added `JFEM_Q4_NASTRAN_ASPECT_BAND` (default OFF): reference-solver-
   measured mid-aspect bending softening band for the CQUAD4.  Fine
   single-element sweeps (aspect 1.0..8.0, four laminates) show the
