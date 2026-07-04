@@ -6,6 +6,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added per-direction MacNeal RBF differential-gamma scales
+  (`JFEM_Q4_MACNEAL_RBF_ZB_DIFF_{X,Y}_SCALE`, default = the common scale)
+  and `JFEM_Q4_MACNEAL_RBF_DIFF_ASPECT_LAW` (default OFF): the
+  reference-measured directional aspect law for the differential
+  shear-family modes (short-direction scale grows to `1.364` at aspect 8,
+  long-direction softens to `0.985`; laminate-independent).  With the law
+  enabled on top of the reference-matched element set, the ENTIRE
+  single-element extraction library (aspects 1..8, four laminates) matches
+  the reference bending block within `+-0.4%` on every mode (median
+  `1.00000`), and the single-element SOL105 buckling pencils match at
+  `0.000%` on squares for all load states.
 - Added `JFEM_Q4_STATIC_BENDING_INCOMP` (unset by default; the assembly
   argument wins): optional override of the rotation-bubble bending
   enrichment on the static/pencil assembly path, complementing the existing

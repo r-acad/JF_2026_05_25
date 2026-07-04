@@ -2667,15 +2667,69 @@ function add_quad4_macneal_shear_rbf!(
     zb_d_raw = tryparse(Float64, strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SCALE",    "")))
     zb_u = zb_u_raw === nothing ? zb_scale : max(zb_u_raw, 1e-12)
     zb_d = zb_d_raw === nothing ? zb_scale : max(zb_d_raw, 1e-12)
+    # Per-direction differential-gamma scales (default = zb_d): the
+    # reference-solver library shows the two differential shear-family modes
+    # split by strip direction away from square aspect (one drifts stiff,
+    # one soft) — a directional aspect law on top of MacNeal's eq-27 a/b.
+    zb_dx_raw = tryparse(Float64, strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_DIFF_X_SCALE", "")))
+    zb_dy_raw = tryparse(Float64, strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_DIFF_Y_SCALE", "")))
+    zb_dx = zb_dx_raw === nothing ? zb_d : max(zb_dx_raw, 1e-12)
+    zb_dy = zb_dy_raw === nothing ? zb_d : max(zb_dy_raw, 1e-12)
+    # JFEM_Q4_MACNEAL_RBF_DIFF_ASPECT_LAW (default OFF): reference-measured
+    # directional aspect law for the differential-gamma scales.  Element
+    # library (k_extract_boxes_laminates_20260704, aspects 1..8, four
+    # laminates, laminate-independent): the SHORT-direction differential
+    # scale grows with aspect (RS) and the LONG-direction one softens
+    # slightly (RF); with these factors both shear-family modes match the
+    # reference to <0.1% at every measured aspect.  Linear interpolation
+    # between measured knots; linear extrapolation beyond aspect 8.
+    if fem_env_bool("JFEM_Q4_MACNEAL_RBF_DIFF_ASPECT_LAW", false)
+        Dx_l = 0.5 * abs(coords[2,1] + coords[3,1] - coords[1,1] - coords[4,1])
+        Dy_l = 0.5 * abs(coords[3,2] + coords[4,2] - coords[1,2] - coords[2,2])
+        a_rbf = max(Dx_l, Dy_l) / max(min(Dx_l, Dy_l), 1e-12)
+        A_KNOTS = (1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0)
+        RS = (1.0, 1.008, 1.018, 1.041, 1.068, 1.098, 1.130, 1.161, 1.190, 1.222, 1.277, 1.324, 1.364)
+        RF = (1.0, 0.9946, 0.9917, 0.9887, 0.9873, 0.9866, 0.9861, 0.9859, 0.9856, 0.9855, 0.9853, 0.9852, 0.9851)
+        r_s = 1.0
+        r_f = 1.0
+        if a_rbf <= A_KNOTS[1]
+            r_s = RS[1]; r_f = RF[1]
+        else
+            found = false
+            for i in 2:length(A_KNOTS)
+                if a_rbf <= A_KNOTS[i]
+                    t = (a_rbf - A_KNOTS[i-1]) / (A_KNOTS[i] - A_KNOTS[i-1])
+                    r_s = RS[i-1] + t * (RS[i] - RS[i-1])
+                    r_f = RF[i-1] + t * (RF[i] - RF[i-1])
+                    found = true
+                    break
+                end
+            end
+            if !found
+                n = length(A_KNOTS)
+                slope_s = (RS[n] - RS[n-1]) / (A_KNOTS[n] - A_KNOTS[n-1])
+                slope_f = (RF[n] - RF[n-1]) / (A_KNOTS[n] - A_KNOTS[n-1])
+                r_s = RS[n] + (a_rbf - A_KNOTS[n]) * slope_s
+                r_f = RF[n] + (a_rbf - A_KNOTS[n]) * slope_f
+            end
+        end
+        if Dx_l >= Dy_l
+            zb_dy *= r_s
+            zb_dx *= r_f
+        else
+            zb_dx *= r_s
+            zb_dy *= r_f
+        end
+    end
     if per_gp_delta && !swap_xy
         # Per-GP Δ at each shear sampling point. pt_delta[1,2] are γ_x x-extents;
         # pt_delta[3,4] are γ_y y-extents.
         Δa = pt_delta[1]; Δb = pt_delta[2]
         Δc = pt_delta[3]; Δd = pt_delta[4]
         sxu = zb_u * inv_12A * flex_x
-        sxd = zb_d * inv_12A * flex_x * a_param
+        sxd = zb_dx * inv_12A * flex_x * a_param
         syu = zb_u * inv_12A * flex_y
-        syd = zb_d * inv_12A * flex_y * b_param
+        syd = zb_dy * inv_12A * flex_y * b_param
         Zb[1,1] = (sxu + sxd) * Δa * Δa
         Zb[2,2] = (sxu + sxd) * Δb * Δb
         Zb[1,2] = (sxu - sxd) * Δa * Δb
@@ -2689,9 +2743,9 @@ function add_quad4_macneal_shear_rbf!(
         # uniform (zb_u) and differential (zb_d · anisotropy) directions.
         # Reduces exactly to the single-scale formula when zb_u = zb_d.
         zbx_u = zb_u * inv_12A * Lx2_rbf * flex_x
-        zbx_d = zb_d * inv_12A * a_param * Lx2_rbf * flex_x
+        zbx_d = zb_dx * inv_12A * a_param * Lx2_rbf * flex_x
         zby_u = zb_u * inv_12A * Ly2_rbf * flex_y
-        zby_d = zb_d * inv_12A * b_param * Ly2_rbf * flex_y
+        zby_d = zb_dy * inv_12A * b_param * Ly2_rbf * flex_y
         Zb[1,1] = zbx_u + zbx_d
         Zb[1,2] = zbx_u - zbx_d
         Zb[2,1] = Zb[1,2]
