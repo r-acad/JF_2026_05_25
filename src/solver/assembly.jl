@@ -5976,6 +5976,19 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         sol101_context && !shear_center_only &&
         !q4_sol101_membrane_mode_weights_overridden &&
         solver_env_bool("JFEM_SOL101_Q4_CROSS_MEMBRANE_WEIGHTS_ENABLED", true)
+    # SOL105 analogue of the cross/shear-only Wilson membrane condensation.
+    # The reference K is one physical operator independent of solution
+    # sequence: single-element extractions (k_extract_boxes_laminates_20260704,
+    # membrane_hourglass_probe) show the cross/shear-only weights reproduce the
+    # Nastran flat CQUAD4 membrane block exactly (Rayleigh ratios 1.000000 on
+    # all deformational modes, all laminates, aspect 1-8), while the uniform
+    # full-basis condensation errs from -22% (pm45-dominant, aspect 1) to
+    # +335% (aspect 8) on the in-plane hourglass channel. Default off pending
+    # guard promotion.
+    q4_sol105_cross_membrane_weights_enabled =
+        sol105_context && !shear_center_only &&
+        !q4_sol101_membrane_mode_weights_overridden &&
+        solver_env_bool("JFEM_SOL105_Q4_CROSS_MEMBRANE_WEIGHTS", false)
     q4_sol101_cross_membrane_weights_mixed_topology =
         solver_env_bool("JFEM_SOL101_Q4_CROSS_MEMBRANE_WEIGHTS_MIXED_TOPOLOGY", false)
     q4_sol101_cross_membrane_weights_unconstrained_mixed_topology =
@@ -7934,8 +7947,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             (q4_sol101_cross_membrane_weights_unconstrained_mixed_topology &&
              model_has_line_elements && !model_has_kinematic_constraints)
         elem_membrane_incomp_weights =
-            q4_sol101_cross_membrane_weights_enabled &&
-            cross_membrane_weights_topology_ok &&
+            ((q4_sol101_cross_membrane_weights_enabled &&
+              cross_membrane_weights_topology_ok) ||
+             q4_sol105_cross_membrane_weights_enabled) &&
             elem_membrane_incomp &&
             elem_is_flat &&
             Bmb_local === nothing ?

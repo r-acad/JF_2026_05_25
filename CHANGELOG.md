@@ -6,6 +6,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added `JFEM_SOL105_Q4_CROSS_MEMBRANE_WEIGHTS` (default OFF): extends the
+  SOL101 cross/shear-only Wilson membrane condensation to the SOL105
+  static/pencil assembly for flat quads.  Single-element extraction
+  (four laminates, aspect 1-8) shows the cross/shear-only weights
+  `(0,1,1,0)` reproduce the reference flat CQUAD4 membrane block exactly
+  (Rayleigh ratio `1.000000` on every deformational membrane mode), while
+  a uniform full-basis condensation errs from `-22%` (pm45-dominant
+  square) to `+335%` (aspect 8) on the in-plane hourglass channel.  The
+  reference stiffness is one physical operator independent of solution
+  sequence, so the SOL105 path can now use the same verified projection.
 - Added `JFEM_Q4_DRILL_LUMPED_NASTRAN` (default OFF): reference-measured
   drilling stiffness.  Single-element extraction shows the reference CQUAD4
   drilling block is a pure lumped nodal spring `K6ROT * 1e-6 * A66 * Area`
