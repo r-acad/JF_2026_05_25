@@ -5655,6 +5655,15 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                             sol105_context::Bool=false,
                             sol101_context::Bool=false,
                             elem_shear_dominant::Union{Nothing,Dict{Int,Bool}}=nothing)
+    # JFEM_Q4_STATIC_BENDING_INCOMP: optional override of the bending
+    # incompatible-mode enrichment on the static/pencil assembly path (the
+    # eigen path has its own JFEM_SOL105_EIG_BENDING_INCOMP).  Unset by
+    # default (argument wins).  Part of the reference-matched element set:
+    # the reference CQUAD4 bending is reproduced exactly WITHOUT the
+    # rotation-bubble enrichment (see k_extract_boxes_laminates_20260704).
+    if !shear_center_only && haskey(ENV, "JFEM_Q4_STATIC_BENDING_INCOMP")
+        bending_incomp = solver_env_bool("JFEM_Q4_STATIC_BENDING_INCOMP", bending_incomp)
+    end
     log_msg("[SOLVER] Indexing...")
     ids = sort(collect(keys(model["GRIDs"])), by=x->parse(Int,x))
     n_nodes = length(ids)
