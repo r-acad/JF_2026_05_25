@@ -5920,7 +5920,14 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             "JFEM_SOL101_Q4_PCOMP_MEMBRANE_INCOMP_SCALE",
             q4_membrane_incomp_scale_overridden ? q4_membrane_incomp_scale : 0.60,
         ), 0.0, 2.0) :
-        q4_membrane_incomp_scale
+        (sol105_context ?
+         # SOL105 PCOMP Wilson-membrane condensation weight. Default 1.0
+         # preserves the historical full-condensation behavior; reference
+         # single-element K extraction (k_extract_boxes_laminates_20260704)
+         # places the Nastran-matching weight at ~0.80-0.95 for the
+         # production laminates.
+         clamp(solver_env_float("JFEM_SOL105_Q4_PCOMP_MEMBRANE_INCOMP_SCALE", 1.0), 0.0, 2.0) :
+         q4_membrane_incomp_scale)
     q4_sol101_aniso_membrane_scale_enabled =
         sol101_context && !shear_center_only &&
         solver_env_bool(

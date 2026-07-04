@@ -6,6 +6,12 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added `JFEM_SOL105_Q4_PCOMP_MEMBRANE_INCOMP_SCALE` (default `1.0`,
+  behavior-preserving): the SOL105-context PCOMP Wilson-membrane condensation
+  weight, previously hard-wired to full condensation.  Reference-solver
+  single-element K extraction on the production laminates places the
+  best-matching weight at `~0.80-0.95` (membrane block error `0.2-2.1%`),
+  so the weight is now sweepable for calibration without code edits.
 - Added an optional aggregate model-descriptor bound to the default-off
   SOL105 static PCOMP Wilson-membrane-mode gate
   (`JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_MODEL_PLY_P90_MIN`), backed by a
