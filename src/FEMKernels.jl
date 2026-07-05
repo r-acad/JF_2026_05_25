@@ -5347,10 +5347,21 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
             :rot
         elseif raw in ("cross", "wtheta", "w_theta", "sym_cross")
             :cross
+        elseif raw in ("wty", "nastran_cross", "metric_cross")
+            # Reference-extracted form (kd_/kdx MATPRN campaigns): the FULL
+            # classic metric M(sigma) = int grad(N_i).sigma.grad(N_j) placed
+            # as a symmetric w-THETA_Y cross coupling — verified entry-exact
+            # on 40x40 and 80x40 elements for pure Nxx (the dx-dx table),
+            # pure Nyy (the dy-dy table), and pure Nxy (the symmetrized
+            # cross table).  Zero w-w, zero theta-theta, no theta_x pairing.
+            :wty
         else
             :w
         end
     end
+    transverse_wty_sign =
+        something(tryparse(Float64,
+            strip(get(ENV, "JFEM_KG_SHELL_TRANSVERSE_WTY_SIGN", "1.0"))), 1.0)
 
     @inbounds @fastmath for gp in 1:4
         s_xx = sigma_mem_gp[gp, 1]
@@ -5993,7 +6004,10 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                         s_xy * sxy_term
                     )
                     Kg[row0 + 3, col0 + 3] -= val_ww
-                    if transverse_w_form === :rot
+                    if transverse_w_form === :wty
+                        Kg[row0 + 3, col0 + 5] += transverse_wty_sign * val_ww
+                        Kg[row0 + 5, col0 + 3] += transverse_wty_sign * val_ww
+                    elseif transverse_w_form === :rot
                         nn = h * abs_detJ * Ni * Nj
                         Kg[row0 + 5, col0 + 5] += s_xx * nn
                         Kg[row0 + 4, col0 + 4] += s_yy * nn
