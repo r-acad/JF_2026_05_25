@@ -10798,6 +10798,16 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     material_shear_rotation=kg_material_shear_rotation,
                     membrane_assumed_mode=kg_membrane_assumed_mode,
                     membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
+                    # JFEM_KG_RECOVERY_CROSS_MEMBRANE_WEIGHTS (default OFF):
+                    # align the Kg stress recovery's Wilson condensation with
+                    # the static-K cross/shear-only weights so the recovered
+                    # field's consistent nodal forces equal the element
+                    # internal forces (report 3.29).  Flat elements only,
+                    # mirroring the static-K gate.
+                    mode_weights=(solver_env_bool(
+                        "JFEM_KG_RECOVERY_CROSS_MEMBRANE_WEIGHTS", false) &&
+                        elem_is_flat_kg && Bmb_kg === nothing) ?
+                        (0.0, 1.0, 1.0, 0.0) : nothing,
                 )
             end
             if !elem_mitc4_3d_kg_recovery &&

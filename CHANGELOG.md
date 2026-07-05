@@ -6,6 +6,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added `JFEM_KG_RECOVERY_CROSS_MEMBRANE_WEIGHTS` (default OFF): aligns the
+  geometric-stiffness stress recovery's Wilson-mode condensation with the
+  static-K cross/shear-only weights (new `mode_weights` option on
+  `quad4_membrane_force_field`, applied at bubble application so the
+  recovered field's consistent nodal forces equal the element internal
+  forces).  With the recovery run under `JFEM_KG_PCOMP_MEMBRANE_INCOMP`
+  plus this flag, single-element reference pencils show the in-element
+  stress-gradient states are repaired: flat cantilever in-plane-shear
+  control `-99.6% -> +12.6%`, L-junction shear-drag first root
+  `-65% -> -0.01%`, junction press modes 1-3 within `0.5%`, uniform
+  states unchanged (exact).
+- Added `JFEM_KG_SHELL_TRANSVERSE_W_FORM=meanstring` research scaffolding
+  (mean-stress metric plus residual-force edge strings); superseded by the
+  recovery-consistency fix above (the two are equivalent through the
+  discrete metric/string identity) and kept for diagnostics.
 - Added `JFEM_KG_SHELL_TRANSVERSE_W_FORM` (default `w`, unchanged
   behavior): research scaffolding for the CQUAD4 differential-stiffness
   transverse channel.  Reference-matrix extraction shows the reference

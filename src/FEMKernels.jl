@@ -3519,7 +3519,8 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
                                     membrane_shear_center_row::Bool=false,
                                     material_shear_rotation::Float64=0.0,
                                     membrane_assumed_mode::Symbol=:none,
-                                    membrane_incomp_center_jacobian::Bool=false)
+                                    membrane_incomp_center_jacobian::Bool=false,
+                                    mode_weights=nothing)
     # slope_membrane (Ibrahimbegović 1994 Eq. 6.14 / Marguerre rotation-column
     # coupling) is the curved-shell coupling between rotation DOFs (θx, θy)
     # and in-plane strain via the geometric slope of the mid-surface. It is
@@ -3658,6 +3659,19 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
             K_bb_sr .+= (Bi' * Cm * Bi) .* detJ_g
         end
         alpha = -(K_bb_sr \ (K_ab_sr' * u_elem))
+        if mode_weights !== nothing
+            # Mirror the static-K weighted condensation (the weights are
+            # applied at bubble APPLICATION, so the consistent recovered
+            # field is N = A(eps_c + sum_l w_l alpha_l eps_b,l)).  Needed so
+            # the recovered stress field's consistent nodal forces equal the
+            # element internal forces K_e*u when the static K condenses the
+            # cross/shear Wilson modes only (report 3.29: an 8.6% gradient
+            # under-recovery otherwise, which is exactly the spurious
+            # transverse Kg residual on gradient states).
+            for l in 1:min(4, length(alpha))
+                alpha[l] *= Float64(mode_weights[l])
+            end
+        end
     end
 
     N_gp = zeros(4, 3)
@@ -5355,6 +5369,17 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
             # pure Nyy (the dy-dy table), and pure Nxy (the symmetrized
             # cross table).  Zero w-w, zero theta-theta, no theta_x pairing.
             :wty
+        elseif raw in ("meanstring", "mean_string", "nastran_meanstring")
+            # Reference form identified from CLEAN single/pair-dof pencils
+            # (kdc_* SPCD apparatus, report 3.29): the transverse
+            # differential stiffness is the classic Kirchhoff metric
+            # evaluated with the ELEMENT-MEAN membrane state, PLUS edge
+            # "string" terms (P/L)[1,-1;-1,1] carrying the self-equilibrated
+            # residual corner forces of the in-element stress gradient.
+            # All ten w-block entries of the gradient-state reference are
+            # reproduced exactly; uniform states reduce to the classic
+            # metric.  No theta terms.
+            :meanstring
         else
             :w
         end
@@ -5362,6 +5387,19 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
     transverse_wty_sign =
         something(tryparse(Float64,
             strip(get(ENV, "JFEM_KG_SHELL_TRANSVERSE_WTY_SIGN", "1.0"))), 1.0)
+    sigma_mean_1 = 0.0; sigma_mean_2 = 0.0; sigma_mean_3 = 0.0
+    if transverse_w_form === :meanstring
+        @inbounds for gp in 1:size(sigma_mem_gp, 1)
+            sigma_mean_1 += sigma_mem_gp[gp, 1]
+            sigma_mean_2 += sigma_mem_gp[gp, 2]
+            sigma_mean_3 += sigma_mem_gp[gp, 3]
+        end
+        ngp_sm = max(size(sigma_mem_gp, 1), 1)
+        sigma_mean_1 /= ngp_sm; sigma_mean_2 /= ngp_sm; sigma_mean_3 /= ngp_sm
+    end
+    # residual (gradient-part) consistent nodal in-plane forces, for the
+    # meanstring edge terms: df = sum_gp w_gp * Bm(gp)' * (sigma_gp - mean) * h
+    dfx = zeros(4); dfy = zeros(4)
 
     @inbounds @fastmath for gp in 1:4
         s_xx = sigma_mem_gp[gp, 1]
@@ -5991,6 +6029,12 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                 dNi_dx = iJ11*dNr[i] + iJ12*dNs[i]
                 dNi_dy = iJ21*dNr[i] + iJ22*dNs[i]
                 Ni = Nvals[i]
+                if transverse_w_form === :meanstring
+                    dfx[i] += h * abs_detJ * ((s_xx - sigma_mean_1) * dNi_dx +
+                                              (s_xy - sigma_mean_3) * dNi_dy)
+                    dfy[i] += h * abs_detJ * ((s_yy - sigma_mean_2) * dNi_dy +
+                                              (s_xy - sigma_mean_3) * dNi_dx)
+                end
                 for j in 1:4
                     dNj_dx = iJ11*dNr[j] + iJ12*dNs[j]
                     dNj_dy = iJ21*dNr[j] + iJ22*dNs[j]
@@ -6004,7 +6048,13 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                         s_xy * sxy_term
                     )
                     Kg[row0 + 3, col0 + 3] -= val_ww
-                    if transverse_w_form === :wty
+                    if transverse_w_form === :meanstring
+                        Kg[row0 + 3, col0 + 3] += h * abs_detJ * (
+                            sigma_mean_1 * dNi_dx * dNj_dx +
+                            sigma_mean_2 * dNi_dy * dNj_dy +
+                            sigma_mean_3 * sxy_term
+                        )
+                    elseif transverse_w_form === :wty
                         Kg[row0 + 3, col0 + 5] += transverse_wty_sign * val_ww
                         Kg[row0 + 5, col0 + 3] += transverse_wty_sign * val_ww
                     elseif transverse_w_form === :rot
@@ -6026,6 +6076,44 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                     end
                 end
             end
+        end
+    end
+
+    if transverse_w_form === :meanstring && trans_mode !== :curvature
+        # Edge strings carrying the residual (gradient-part) corner forces:
+        # least-squares decomposition of df onto the four edge axial forces,
+        # each contributing the classic (P/L)[1,-1;-1,1] on its (w_a, w_b).
+        ms_edges = ((1, 2), (2, 3), (3, 4), (4, 1))
+        ms_A = zeros(8, 4)
+        for (k, (a, b)) in enumerate(ms_edges)
+            ex = coords[b, 1] - coords[a, 1]
+            ey = coords[b, 2] - coords[a, 2]
+            Le = hypot(ex, ey)
+            Le < 1e-12 && continue
+            ex /= Le; ey /= Le
+            ms_A[2a-1, k] += ex; ms_A[2a, k] += ey
+            ms_A[2b-1, k] -= ex; ms_A[2b, k] -= ey
+        end
+        ms_rhs = zeros(8)
+        for i in 1:4
+            ms_rhs[2i-1] = -dfx[i]
+            ms_rhs[2i] = -dfy[i]
+        end
+        ms_G = ms_A' * ms_A
+        @inbounds for k in 1:4
+            ms_G[k, k] += 1e-10
+        end
+        ms_P = ms_G \ (ms_A' * ms_rhs)
+        for (k, (a, b)) in enumerate(ms_edges)
+            Le = hypot(coords[b, 1] - coords[a, 1], coords[b, 2] - coords[a, 2])
+            Le < 1e-12 && continue
+            s = ms_P[k] / Le
+            wa = (a - 1) * 6 + 3
+            wb = (b - 1) * 6 + 3
+            Kg[wa, wa] += s
+            Kg[wb, wb] += s
+            Kg[wa, wb] -= s
+            Kg[wb, wa] -= s
         end
     end
 
