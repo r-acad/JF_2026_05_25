@@ -6000,7 +6000,11 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                         Kg[row0 + 5, col0 + 4] += -s_xy * nn
                         Kg[row0 + 4, col0 + 5] += -s_xy * nn
                     else # :cross
-                        tx = 0.5 * h * abs_detJ
+                        # Element rotation convention is beta = -grad(w) on
+                        # Kirchhoff-consistent modes (measured via the w-form
+                        # critical eigenvector: Rayleigh ratio -0.917), so the
+                        # cross terms carry a global minus sign.
+                        tx = -0.5 * h * abs_detJ
                         Kg[row0 + 3, col0 + 5] += tx * (s_xx * dNi_dx + s_xy * dNi_dy) * Nj
                         Kg[row0 + 3, col0 + 4] += -tx * (s_xy * dNi_dx + s_yy * dNi_dy) * Nj
                         Kg[row0 + 5, col0 + 3] += tx * (s_xx * dNj_dx + s_xy * dNj_dy) * Ni
