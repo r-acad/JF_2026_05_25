@@ -2912,6 +2912,47 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                     _with_active_temperature_material(model, temp_load_id_static, run_static) :
                     run_static()
 
+            # JFEM_SOL105_STATIC_U_PCH_OVERRIDE (research probe): replace the
+            # static preload displacement field with a SOL101 PUNCH
+            # displacement file from the reference solver before Kg assembly.
+            # Decisive attribution tool: if the buckling error persists with
+            # the exact reference field, the Kg operator/assembly is at
+            # fault; if it vanishes, the static field is.
+            let pch_path = strip(get(ENV, "JFEM_SOL105_STATIC_U_PCH_OVERRIDE", ""))
+                if !isempty(pch_path) && isfile(pch_path)
+                    n_over = 0
+                    gid = 0
+                    open(pch_path) do io
+                        for ln in eachline(io)
+                            startswith(ln, "\$") && continue
+                            f = split(ln)
+                            isempty(f) && continue
+                            if length(f) >= 5 && f[2] == "G"
+                                g = tryparse(Int, f[1])
+                                if g !== nothing && haskey(id_map_static, g)
+                                    gid = g
+                                    b = (id_map_static[g] - 1) * 6
+                                    for d in 1:3
+                                        v = tryparse(Float64, replace(f[2+d], r"[dD]" => "e"))
+                                        v === nothing || (u_static_analysis[b+d] = v; n_over += 1)
+                                    end
+                                else
+                                    gid = 0
+                                end
+                            elseif length(f) >= 4 && f[1] == "-CONT-" && gid != 0 &&
+                                   !haskey(ENV, "JFEM_SOL105_STATIC_U_PCH_TRANSONLY")
+                                b = (id_map_static[gid] - 1) * 6
+                                for d in 1:3
+                                    v = tryparse(Float64, replace(f[1+d], r"[dD]" => "e"))
+                                    v === nothing || (u_static_analysis[b+3+d] = v; n_over += 1)
+                                end
+                            end
+                        end
+                    end
+                    println(">>> SOL105 static-u PCH override: $n_over dof values from $pch_path")
+                end
+            end
+
             # Load-aware static (2-pass): the default kernel routes warped/curved
             # elements onto MITC4, which matches Nastran under compression but
             # diverges under shear. The right kernel depends on the element's

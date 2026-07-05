@@ -5,6 +5,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `JFEM_SOL105_STATIC_U_PCH_OVERRIDE` (research probe, default off):
+  replace the SOL105 static preload displacement field with a SOL101
+  PUNCH displacement file before geometric-stiffness assembly
+  (`JFEM_SOL105_STATIC_U_PCH_TRANSONLY` limits the override to
+  translations).  Decisive attribution tool separating static-field
+  differences from differential-stiffness differences at model scale;
+  validated by a healthy-case control (substitution leaves the result
+  unchanged where the fields agree).
+
 ### Changed
 - Added `JFEM_Q4_FLAT_TOL_REL` (default `1e-6`, legacy-strict, behavior
   unchanged): the relative facet-flatness classification tolerance is now
