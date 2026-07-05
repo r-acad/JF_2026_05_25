@@ -6879,7 +6879,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 max_dev_p = max(abs(dot(p1-c_p, v3g_p)), abs(dot(p2-c_p, v3g_p)),
                                 abs(dot(p3-c_p, v3g_p)), abs(dot(p4-c_p, v3g_p)))
                 L_diag_p = max(norm(d13_p), norm(d24_p))
-                elem_is_flat_p = max_dev_p < 1e-6 * max(L_diag_p, 1e-12)
+                elem_is_flat_p = max_dev_p <
+                    max(solver_env_float("JFEM_Q4_FLAT_TOL_REL", 1e-6), 1e-12) *
+                    max(L_diag_p, 1e-12)
             end
             geom_curv_p = estimate_quad4_curvature_membrane(
                 lc_p, geom_vec[i1], geom_vec[i2], geom_vec[i3], geom_vec[i4], v1p, v2p, v3p
@@ -7120,7 +7122,16 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             max_dev_ei = 0.0
         end
         L_diag_ei  = max(norm(d13_geom), norm(d24_geom))  # diagonal length (≈ √2 × edge)
-        elem_is_flat = max_dev_ei < 1e-6 * max(L_diag_ei, 1e-12)
+        # JFEM_Q4_FLAT_TOL_REL (default 1e-6, legacy-strict): relative
+        # flatness classification tolerance.  Real aerodynamic meshes carry
+        # microscopic facet warp (HTP-346: warp/L p50 1.5e-5, max 1.6e-3)
+        # that the reference CQUAD4 treats as flat (mean-plane projection
+        # with warp corrections); the strict test disables the identified
+        # flat-element stack (cross membrane weights, recovery consistency)
+        # on such elements.
+        elem_is_flat = max_dev_ei <
+            max(solver_env_float("JFEM_Q4_FLAT_TOL_REL", 1e-6), 1e-12) *
+            max(L_diag_ei, 1e-12)
         warp_ratio_ei = max_dev_ei / max(L_diag_ei, 1e-12)
         # MacNeal-permissive planarity (2026-04-30): the flat MacNeal RBF kernel
         # works correctly on mildly-warped quads as long as warp_ratio is small.
@@ -10179,7 +10190,9 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 max_dev = max(abs(dot(p1-c_geom, v3g)), abs(dot(p2-c_geom, v3g)),
                               abs(dot(p3-c_geom, v3g)), abs(dot(p4-c_geom, v3g)))
                 L_diag = max(norm(d13_geom), norm(d24_geom))
-                elem_is_flat_kg = max_dev < 1e-6 * max(L_diag, 1e-12)
+                elem_is_flat_kg = max_dev <
+                    max(solver_env_float("JFEM_Q4_FLAT_TOL_REL", 1e-6), 1e-12) *
+                    max(L_diag, 1e-12)
             else
                 elem_is_flat_kg = true
                 max_dev = 0.0

@@ -5,6 +5,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- Added `JFEM_Q4_FLAT_TOL_REL` (default `1e-6`, legacy-strict, behavior
+  unchanged): the relative facet-flatness classification tolerance is now
+  configurable.  Real aerodynamic meshes carry microscopic facet warp
+  (HTP-class: warp/L median `1.5e-5`, max `1.6e-3`) that the reference
+  CQUAD4 treats as flat; the strict test silently disabled the identified
+  flat-element stack (cross/shear membrane weights, Kg recovery
+  consistency) on such elements.  Applied consistently at the static,
+  eigen, and geometric-stiffness classification sites.
+
 ### Added
 - SPCD enforced-displacement support: SPCD bulk cards are parsed and
   applied in the static solve with Nastran semantics (selected by the
