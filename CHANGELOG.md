@@ -6,6 +6,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Completed the `meanstring` reference differential-stiffness form
+  (`JFEM_KG_SHELL_TRANSVERSE_W_FORM=meanstring`): the in-plane channels
+  now also use the mean-state consistent principal-transverse metric,
+  and the residual-corner-force edge strings act on the in-plane
+  transverse deflections as well as w.  The complete reference structure
+  was identified from clean single/pair-dof pencil extractions and
+  verified against thirty measured in-plane matrix entries to machine
+  precision (all exact rationals), including three entries predicted
+  before measurement.  Element ladder: flat gradient control
+  `-99.6% -> +3.3%`, junction shear-drag first root `-0.00%`, junction
+  press (10-degree fold) all four modes within `0.5%`, uniform states
+  exact.
 - Added `JFEM_KG_RECOVERY_CROSS_MEMBRANE_WEIGHTS` (default OFF): aligns the
   geometric-stiffness stress recovery's Wilson-mode condensation with the
   static-K cross/shear-only weights (new `mode_weights` option on

@@ -6054,6 +6054,21 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                             sigma_mean_2 * dNi_dy * dNj_dy +
                             sigma_mean_3 * sxy_term
                         )
+                        # Reference form (report 3.33): the IN-PLANE channels
+                        # are ALSO the mean-state consistent principal-
+                        # transverse metric (plus the string terms added after
+                        # the GP loop).  Remove the per-GP in-plane content
+                        # the standard path accumulated and add the mean-state
+                        # version.  Assumes unit local factors (pure-physics
+                        # configuration), like the w delta above.
+                        add_geometric_principal_transverse_pair!(
+                            Kg, row0, col0, dNi_dx, dNi_dy, dNj_dx, dNj_dy,
+                            h * abs_detJ, -s_xx, -s_yy, -s_xy,
+                            1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0)
+                        add_geometric_principal_transverse_pair!(
+                            Kg, row0, col0, dNi_dx, dNi_dy, dNj_dx, dNj_dy,
+                            h * abs_detJ, sigma_mean_1, sigma_mean_2, sigma_mean_3,
+                            1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0)
                     elseif transverse_w_form === :wty
                         Kg[row0 + 3, col0 + 5] += transverse_wty_sign * val_ww
                         Kg[row0 + 5, col0 + 3] += transverse_wty_sign * val_ww
@@ -6105,7 +6120,9 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
         end
         ms_P = ms_G \ (ms_A' * ms_rhs)
         for (k, (a, b)) in enumerate(ms_edges)
-            Le = hypot(coords[b, 1] - coords[a, 1], coords[b, 2] - coords[a, 2])
+            ex = coords[b, 1] - coords[a, 1]
+            ey = coords[b, 2] - coords[a, 2]
+            Le = hypot(ex, ey)
             Le < 1e-12 && continue
             s = ms_P[k] / Le
             wa = (a - 1) * 6 + 3
@@ -6114,6 +6131,17 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
             Kg[wb, wb] += s
             Kg[wa, wb] -= s
             Kg[wb, wa] -= s
+            # in-plane-transverse part of the string (report 3.33)
+            px = -ey / Le
+            py = ex / Le
+            for (na, sa) in ((a, 1.0), (b, -1.0)), (nb, sb) in ((a, 1.0), (b, -1.0))
+                ra = (na - 1) * 6
+                rb = (nb - 1) * 6
+                Kg[ra + 1, rb + 1] += s * sa * sb * px * px
+                Kg[ra + 1, rb + 2] += s * sa * sb * px * py
+                Kg[ra + 2, rb + 1] += s * sa * sb * py * px
+                Kg[ra + 2, rb + 2] += s * sa * sb * py * py
+            end
         end
     end
 
