@@ -6,6 +6,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- Added `JFEM_KG_SHELL_TRANSVERSE_W_FORM` (default `w`, unchanged
+  behavior): research scaffolding for the CQUAD4 differential-stiffness
+  transverse channel.  Reference-matrix extraction shows the reference
+  KDJJ carries the transverse geometric stiffness in w-rotation cross
+  terms with an exactly zero w-w block, while the Kirchhoff
+  `int N grad(w).grad(w)` form spuriously destabilizes rotation-free w
+  patterns under non-uniform membrane states (flat cantilever
+  in-plane-shear pencil: `-99.6%` on the first root).  The two candidate
+  local forms (`rot`, `cross`) are implemented as exact per-GP deltas but
+  neither reproduces the reference coefficients; both are research-only.
 - Extended the MacNeal RBF directional differential-gamma aspect law
   (`JFEM_Q4_MACNEAL_RBF_DIFF_ASPECT_LAW`) with measured knots at aspects
   9-16.  The short-direction scale SATURATES beyond aspect 8 (1.400 at 9

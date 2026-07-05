@@ -5328,6 +5328,30 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
             nothing
         end
 
+    # JFEM_KG_SHELL_TRANSVERSE_W_FORM (default "w"): reference-form research
+    # switch for the transverse differential-stiffness channel.  The junction
+    # campaign (kjunction_boxes_20260705) shows the reference CQUAD4 KDJJ
+    # gives ZERO destabilization to rotation-free w patterns (flat cantilever
+    # in-plane-shear pencil: reference lambda_1 175.8 vs 0.70 for the
+    # Kirchhoff w-w form), consistent with the extracted KDJJ structure
+    # (zero w-w block, w-rotation cross terms).  Forms:
+    #   "w"     — legacy Kirchhoff int N grad(w).grad(w) (default, unchanged)
+    #   "rot"   — rotation field only: grad(w) replaced by the material
+    #             normal rotation beta = (+theta_y, -theta_x)
+    #   "cross" — symmetrized cross form int N (grad(w).beta + beta.grad(w))/2
+    # Implemented as an exact per-GP delta on top of the standard path; the
+    # subtraction assumes unit local w scales (the pure-physics configuration).
+    transverse_w_form = begin
+        raw = lowercase(strip(get(ENV, "JFEM_KG_SHELL_TRANSVERSE_W_FORM", "w")))
+        if raw in ("rot", "rotation", "theta")
+            :rot
+        elseif raw in ("cross", "wtheta", "w_theta", "sym_cross")
+            :cross
+        else
+            :w
+        end
+    end
+
     @inbounds @fastmath for gp in 1:4
         s_xx = sigma_mem_gp[gp, 1]
         s_yy = sigma_mem_gp[gp, 2]
@@ -5944,6 +5968,43 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                             Kg[row0 + 2, col0 + 2] += vxx_extra
                             Kg[row0 + 3, col0 + 3] += wxx_extra + wxy_extra
                         end
+                    end
+                end
+            end
+        end
+        if transverse_w_form !== :w && trans_mode !== :curvature
+            # Reference-form delta (see the hoist above): remove the plain
+            # Kirchhoff w-w metric added by the standard path and add the
+            # selected rotation form.  beta_x = +theta_y, beta_y = -theta_x.
+            for i in 1:4
+                dNi_dx = iJ11*dNr[i] + iJ12*dNs[i]
+                dNi_dy = iJ21*dNr[i] + iJ22*dNs[i]
+                Ni = Nvals[i]
+                for j in 1:4
+                    dNj_dx = iJ11*dNr[j] + iJ12*dNs[j]
+                    dNj_dy = iJ21*dNr[j] + iJ22*dNs[j]
+                    Nj = Nvals[j]
+                    row0 = (i - 1) * 6
+                    col0 = (j - 1) * 6
+                    sxy_term = dNi_dx * dNj_dy + dNi_dy * dNj_dx
+                    val_ww = h * abs_detJ * (
+                        s_xx * dNi_dx * dNj_dx +
+                        s_yy * dNi_dy * dNj_dy +
+                        s_xy * sxy_term
+                    )
+                    Kg[row0 + 3, col0 + 3] -= val_ww
+                    if transverse_w_form === :rot
+                        nn = h * abs_detJ * Ni * Nj
+                        Kg[row0 + 5, col0 + 5] += s_xx * nn
+                        Kg[row0 + 4, col0 + 4] += s_yy * nn
+                        Kg[row0 + 5, col0 + 4] += -s_xy * nn
+                        Kg[row0 + 4, col0 + 5] += -s_xy * nn
+                    else # :cross
+                        tx = 0.5 * h * abs_detJ
+                        Kg[row0 + 3, col0 + 5] += tx * (s_xx * dNi_dx + s_xy * dNi_dy) * Nj
+                        Kg[row0 + 3, col0 + 4] += -tx * (s_xy * dNi_dx + s_yy * dNi_dy) * Nj
+                        Kg[row0 + 5, col0 + 3] += tx * (s_xx * dNj_dx + s_xy * dNj_dy) * Ni
+                        Kg[row0 + 4, col0 + 3] += -tx * (s_xy * dNj_dx + s_yy * dNj_dy) * Ni
                     end
                 end
             end
