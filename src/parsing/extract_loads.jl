@@ -268,3 +268,22 @@ function extract_dmig(cards)
     end
     return matrices
 end
+
+function extract_spcd(cards)
+    out = []
+    for c in cards
+        sid = to_id(parse_nastran_number(safe_get(c, 3)))
+        for base in (4, 7)
+            g = to_id(parse_nastran_number(safe_get(c, base), 0))
+            g == 0 && continue
+            comps = string(to_id(parse_nastran_number(safe_get(c, base + 1), 0)))
+            val = parse_nastran_number(safe_get(c, base + 2), 0.0)
+            for ch in comps
+                d = ch - '0'
+                1 <= d <= 6 || continue
+                push!(out, Dict("TYPE"=>"SPCD", "SID"=>sid, "GID"=>g, "C"=>d, "D"=>val))
+            end
+        end
+    end
+    return out
+end

@@ -6098,8 +6098,15 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
         # Edge strings carrying the residual (gradient-part) corner forces:
         # least-squares decomposition of df onto the four edge axial forces,
         # each contributing the classic (P/L)[1,-1;-1,1] on its (w_a, w_b).
-        ms_edges = ((1, 2), (2, 3), (3, 4), (4, 1))
-        ms_A = zeros(8, 4)
+        # Strut set: 4 edges + 2 diagonals (minimal-norm least squares; the
+        # diagonal columns are inert when the residual is edge-representable,
+        # e.g. the flat gradient control, but redistribute junction-element
+        # residual states).  Toggle with JFEM_KG_MEANSTRING_DIAGONALS=false.
+        ms_edges = lowercase(strip(get(ENV, "JFEM_KG_MEANSTRING_DIAGONALS", "true"))) in
+                   ("1", "true", "yes", "on") ?
+            ((1, 2), (2, 3), (3, 4), (4, 1), (1, 3), (2, 4)) :
+            ((1, 2), (2, 3), (3, 4), (4, 1))
+        ms_A = zeros(8, length(ms_edges))
         for (k, (a, b)) in enumerate(ms_edges)
             ex = coords[b, 1] - coords[a, 1]
             ey = coords[b, 2] - coords[a, 2]
@@ -6115,7 +6122,7 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
             ms_rhs[2i] = -dfy[i]
         end
         ms_G = ms_A' * ms_A
-        @inbounds for k in 1:4
+        @inbounds for k in 1:length(ms_edges)
             ms_G[k, k] += 1e-10
         end
         ms_P = ms_G \ (ms_A' * ms_rhs)

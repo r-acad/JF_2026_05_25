@@ -5,6 +5,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- SPCD enforced-displacement support: SPCD bulk cards are parsed and
+  applied in the static solve with Nastran semantics (selected by the
+  LOAD set; the dof must also belong to the SPC set; equivalent-load
+  reduction `F -= K[:,s]*u_s` with the prescribed values scattered into
+  the displacement vector after the solve, so downstream stress recovery
+  and geometric-stiffness assembly see the enforced state).  Previously
+  SPCD cards were silently ignored.
+
 ### Changed
 - Completed the `meanstring` reference differential-stiffness form
   (`JFEM_KG_SHELL_TRANSVERSE_W_FORM=meanstring`): the in-plane channels

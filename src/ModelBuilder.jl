@@ -813,6 +813,7 @@ function build_model(cards, cc)
         "PLOADs"      => haskey(cards,"PLOAD") ? NastranParser.extract_pload(cards["PLOAD"]) : [],
         "PLOAD1s"     => haskey(cards,"PLOAD1") ? NastranParser.extract_pload1(cards["PLOAD1"]) : [],
         "GRAVs"       => haskey(cards,"GRAV")   ? NastranParser.extract_grav(cards["GRAV"]) : [],
+        "SPCDs"       => haskey(cards,"SPCD")   ? NastranParser.extract_spcd(cards["SPCD"]) : [],
         "RFORCEs"     => haskey(cards,"RFORCE") ? NastranParser.extract_rforce(cards["RFORCE"]) : [],
         "LOAD_COMBOS" => haskey(cards,"LOAD")   ? NastranParser.extract_load_combos(cards["LOAD"]) : [],
         "SPC1s"       => spc1s,

@@ -119,7 +119,7 @@ function _report_card_inventory(cards)
         "MAT1", "MAT2", "MAT8", "MATT1", "TABLEM1",
         "DESVAR", "DRESP1", "DVPREL1", "DVMREL1", "DCONSTR", "DOPTPRM",
         "FORCE", "MOMENT", "PLOAD4", "PLOAD2", "PLOAD", "PLOAD1", "GRAV", "RFORCE",
-        "SPC1", "SPC", "SPCADD", "MPC", "MPCADD", "LOAD",
+        "SPC1", "SPC", "SPCADD", "SPCD", "MPC", "MPCADD", "LOAD",
         "CONM2", "CONM1", "CMASS1", "CMASS2", "PMASS",
         "CTETRA", "CHEXA", "CPENTA",
         "EIGRL", "TEMP", "TEMPD", "DMIG", "PARAM"])

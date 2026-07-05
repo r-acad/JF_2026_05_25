@@ -1097,6 +1097,31 @@ function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
         log_rbe3=true,
     )
 
+    # SPCD enforced displacements (selected by the LOAD set, Nastran
+    # semantics; the dof must also be SPC'd).  Applied as the equivalent
+    # load on the free set (F -= K[:,s]*u_s), with the prescribed values
+    # scattered into u_global after the solve.
+    spcd_entries = Tuple{Int,Float64}[]
+    for e in get(model, "SPCDs", [])
+        e isa AbstractDict || continue
+        Int(get(e, "SID", -1)) == Int(load_id) || continue
+        g = Int(get(e, "GID", 0))
+        haskey(id_map, g) || continue
+        d = Int(get(e, "C", 0))
+        1 <= d <= 6 || continue
+        push!(spcd_entries, ((id_map[g] - 1) * 6 + d,
+                             Float64(get(e, "D", 0.0)) * load_scale))
+    end
+    F_resid = F_applied
+    if !isempty(spcd_entries)
+        F_applied = copy(F_applied)
+        for (dof, val) in spcd_entries
+            val == 0.0 && continue
+            F_applied .-= Vector(K[:, dof]) .* val
+        end
+        log_msg("[SOLVER] SPCD: $(length(spcd_entries)) enforced displacement(s) applied (load set $load_id)")
+    end
+
     # Safe _spc_id mutation: preserve any prior value and restore via
     # try/finally so that an exception in apply_bc_and_solve does not leak
     # the temporary key into shared `model` state. (Phase B1 hygiene
@@ -1117,7 +1142,17 @@ function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
         end
     end
 
-    R = K * u_global - F_applied
+    if !isempty(spcd_entries)
+        for (dof, val) in spcd_entries
+            if dof in fixed_dofs
+                u_global[dof] = val
+            else
+                log_msg("[SOLVER] WARNING: SPCD on unconstrained dof $dof ignored (dof must be in the SPC set)")
+            end
+        end
+    end
+
+    R = K * u_global - F_resid
     u_out, stresses, results_json = _build_results_from_state(
         ndof, model, id_map, X, node_R, u_global, R, snorm_normals, solver_diagnostics;
         active_load_id=load_id,
