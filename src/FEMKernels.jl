@@ -2543,6 +2543,27 @@ function add_quad4_macneal_shear_rbf!(
     # On a rectangle (and hence on any uniform-Jacobian quad) all γ_x extents collapse
     # to MacNeal's Δx and all γ_y extents to Δy, recovering the original eq (26).
     pt_delta = zeros(4)
+    # JFEM_Q4_MACNEAL_SHEAR_COVARIANT (default OFF): build the substitute shear
+    # samples as COVARIANT (strip-tangent) strains γ_t = (w,ξ + x,ξ·θy − y,ξ·θx)/|x,ξ|
+    # instead of direct isoparametric γ_x/γ_y at the sample points. Identical on
+    # rectangles/parallelograms (uniform Jacobian). On TAPERED quads the direct
+    # form tilts the shear-block range off the reference QUAD4's: single-element
+    # extraction on the HTP skin trapezoid (kex_skin268, taper 0.14%) shows a
+    # rank-1 spurious stiffness of 8.4e4 on the alternating-θ twist pattern that
+    # the reference treats as exactly shear-free (kex rect: JFEM==Nastran to
+    # relF 3e-4; kex flat/orig: leak identical → taper, not warp).
+    shear_cov_mode = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_SHEAR_COVARIANT", "false")))
+    shear_covariant = shear_cov_mode in ("1","true","yes","on")
+    # "mitc": covariant sampling for the RANGE (taper-correct null space) with
+    # PHYSICAL gamma_x/gamma_y rows reconstructed per sample via J^-1 on the
+    # MITC-interpolated covariant fields (skew-correct Z application). Skew
+    # family extraction (kex_s*, kjunction_boxes_20260705): reproduces the
+    # reference block to 0.3% at full HTP skew where the strip form leaves a
+    # 9x gamma_eta compliance deficit and misses the -8.9 cross coupling.
+    shear_mitc = shear_cov_mode in ("mitc", "mitc_phys", "mitcphys")
+    t_hat = zeros(2, 4)
+    mitc_C = shear_mitc ? zeros(T, 4, 12) : nothing
+    mitc_J = shear_mitc ? zeros(2, 2, 4) : nothing
     @inbounds for sp_idx in 1:4
         xi, eta, comp = shear_pts[sp_idx]
         dNr, dNs = shape_derivs_quad(xi, eta)
@@ -2567,21 +2588,77 @@ function add_quad4_macneal_shear_rbf!(
         N3 = 0.25*(1+xi)*(1+eta); N4 = 0.25*(1-xi)*(1+eta)
         N_vals = (N1, N2, N3, N4)
 
-        for k in 1:4
-            dN_dx = iJ11*dNr[k] + iJ12*dNs[k]
-            dN_dy = iJ21*dNr[k] + iJ22*dNs[k]
-            Nk    = N_vals[k]
-            col   = (k-1)*3  # plate DOFs: 1=w, 2=θx, 3=θy
-            if comp == 1  # γ_xz = ∂w/∂x + θy
-                D_mat[sp_idx, col+1] = dN_dx
-                D_mat[sp_idx, col+3] = Nk
-            else          # γ_yz = ∂w/∂y − θx
-                D_mat[sp_idx, col+1] = dN_dy
-                D_mat[sp_idx, col+2] = -Nk
+        if shear_mitc
+            # raw covariant row (gamma_xi or gamma_eta, unnormalized) + J;
+            # physical rows assembled after the loop.
+            mitc_J[1,1,sp_idx] = J11; mitc_J[1,2,sp_idx] = J12
+            mitc_J[2,1,sp_idx] = J21; mitc_J[2,2,sp_idx] = J22
+            tx, ty = comp == 1 ? (J11, J12) : (J21, J22)
+            t_hat[1, sp_idx] = comp == 1 ? 1.0 : 0.0
+            t_hat[2, sp_idx] = comp == 1 ? 0.0 : 1.0
+            for k in 1:4
+                dNc = comp == 1 ? dNr[k] : dNs[k]
+                Nk = N_vals[k]
+                col = (k-1)*3
+                mitc_C[sp_idx, col+1] = dNc
+                mitc_C[sp_idx, col+2] = -Nk * ty
+                mitc_C[sp_idx, col+3] =  Nk * tx
+            end
+        elseif shear_covariant
+            tx, ty = comp == 1 ? (J11, J12) : (J21, J22)
+            tlen = max(hypot(tx, ty), 1e-14)
+            t_hat[1, sp_idx] = tx / tlen
+            t_hat[2, sp_idx] = ty / tlen
+            pt_delta[sp_idx] = 2.0 * tlen
+            for k in 1:4
+                dN_t = (comp == 1 ? dNr[k] : dNs[k]) / tlen
+                Nk = N_vals[k]
+                col = (k-1)*3
+                # γ_tz = (∂w/∂ξ_c + x,ξc·θy − y,ξc·θx)/|x,ξc|  (ξ_c = strip coord)
+                D_mat[sp_idx, col+1] = dN_t
+                D_mat[sp_idx, col+2] = -Nk * ty / tlen
+                D_mat[sp_idx, col+3] =  Nk * tx / tlen
+            end
+        else
+            t_hat[1, sp_idx] = comp == 1 ? 1.0 : 0.0
+            t_hat[2, sp_idx] = comp == 1 ? 0.0 : 1.0
+            for k in 1:4
+                dN_dx = iJ11*dNr[k] + iJ12*dNs[k]
+                dN_dy = iJ21*dNr[k] + iJ22*dNs[k]
+                Nk    = N_vals[k]
+                col   = (k-1)*3  # plate DOFs: 1=w, 2=θx, 3=θy
+                if comp == 1  # γ_xz = ∂w/∂x + θy
+                    D_mat[sp_idx, col+1] = dN_dx
+                    D_mat[sp_idx, col+3] = Nk
+                else          # γ_yz = ∂w/∂y − θx
+                    D_mat[sp_idx, col+1] = dN_dy
+                    D_mat[sp_idx, col+2] = -Nk
+                end
             end
         end
     end
 
+    if shear_mitc
+        # Physical rows at each sample: [gx; gy](pt) = J(pt)^-1 [gxi(pt); geta(pt)]
+        # with the covariant fields MITC-interpolated from their two samples.
+        pt_m = shear_sample_edge ? 1.0 : 1.0/sqrt(3.0)
+        pts_m = ((0.0,-pt_m), (0.0,pt_m), (-pt_m,0.0), (pt_m,0.0))
+        for sp_idx in 1:4
+            xi, eta = pts_m[sp_idx]
+            J = @view mitc_J[:, :, sp_idx]
+            detJ = J[1,1]*J[2,2] - J[1,2]*J[2,1]
+            adet = abs(detJ) < 1e-14 ? (detJ < 0 ? -1e-14 : 1e-14) : detJ
+            i11 =  J[2,2]/adet; i12 = -J[1,2]/adet
+            i21 = -J[2,1]/adet; i22 =  J[1,1]/adet
+            w1 = 0.5*(1.0 - eta/pt_m); w2 = 0.5*(1.0 + eta/pt_m)
+            w3 = 0.5*(1.0 - xi/pt_m);  w4 = 0.5*(1.0 + xi/pt_m)
+            for j in 1:12
+                gxi  = w1*mitc_C[1,j] + w2*mitc_C[2,j]
+                geta = w3*mitc_C[3,j] + w4*mitc_C[4,j]
+                D_mat[sp_idx, j] = sp_idx <= 2 ? (i11*gxi + i12*geta) : (i21*gxi + i22*geta)
+            end
+        end
+    end
     # MacNeal projected side lengths Δx, Δy (eq after 26)
     Dx = 0.5 * (coords[2,1]+coords[3,1]-coords[1,1]-coords[4,1])
     Dy = 0.5 * (coords[3,2]+coords[4,2]-coords[1,2]-coords[2,2])
@@ -2793,15 +2870,19 @@ function add_quad4_macneal_shear_rbf!(
     # G_xy for cross-pairs (symmetric per eq 25)
     Zs = zeros(T, 4, 4)
     if !rigid_shear
-    G_xx = Cs[1,1]; G_yy = Cs[2,2]; G_xy = Cs[1,2]
     comps = (1, 1, 2, 2)
     VGV = zeros(T, 4, 4)
     @inbounds for i in 1:4, j in 1:4
         ci = comps[i]; cj = comps[j]
         Jfac = sqrt(2.0*J_pts[i]) * sqrt(2.0*J_pts[j])
+        # Shear modulus projected onto the sample strip directions
+        # (t_hat = global x/y axes when the covariant switch is off, so this
+        # reduces exactly to Cs[1,1]/Cs[2,2]/Cs[1,2]).
+        G_ij = t_hat[1,i]*(Cs[1,1]*t_hat[1,j] + Cs[1,2]*t_hat[2,j]) +
+               t_hat[2,i]*(Cs[2,1]*t_hat[1,j] + Cs[2,2]*t_hat[2,j])
         if ci == cj
             if i == j
-                VGV[i,j] = Jfac * (ci == 1 ? G_xx : G_yy)
+                VGV[i,j] = Jfac * G_ij
             else
                 # Different points, same component — no direct coupling
                 # (MacNeal's integration is independent per point)
@@ -2809,7 +2890,7 @@ function add_quad4_macneal_shear_rbf!(
             end
         else
             # Symmetric x-y coupling through G_xy (eq 25)
-            VGV[i,j] = 0.5 * Jfac * G_xy
+            VGV[i,j] = 0.5 * Jfac * G_ij
         end
     end
 

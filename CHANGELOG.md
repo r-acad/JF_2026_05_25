@@ -6,6 +6,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- CQUAD4 MacNeal shear block: `JFEM_Q4_MACNEAL_SHEAR_COVARIANT` (default off;
+  `true`/`strip` = covariant strip-tangent samples, `mitc` = covariant sampling
+  with MITC-interpolated physical-row reconstruction). Single-element extraction
+  on tapered/skewed quads shows the direct isoparametric samples tilt the shear
+  block range off the reference QUAD4's Kirchhoff set (rank-1 spurious stiffness
+  on alternating-twist patterns) and the strip form misses the reference's
+  skew-invariant physical-basis compliance; `mitc` reproduces the reference
+  shear block on rectangles exactly and on fully-skewed quads to 0.3%.
+
+### Added
 - `JFEM_SOL105_STATIC_U_PCH_OVERRIDE` (research probe, default off):
   replace the SOL105 static preload displacement field with a SOL101
   PUNCH displacement file before geometric-stiffness assembly
