@@ -2864,6 +2864,47 @@ function add_quad4_macneal_shear_rbf!(
         Zb[4,3] = Zb[3,4]
         Zb[4,4] = Zb[3,3]
     end
+    # JFEM_Q4_MACNEAL_FAN_COUPLING (default OFF): reference-measured twist-
+    # mediated coupling between the two substitute-shear families on FAN-
+    # distorted (strongly tapered) quads. Single-element extraction over
+    # three laminate/geometry families (kex_zlaw_data.md, kjunction campaign):
+    # Z_xy = c1 * g_fan / Cb66 with c1 ~ 0.036, g_fan the bilinear fan
+    # fraction (xi.eta coefficient over the corresponding edge coefficient);
+    # Lx-independent, laminate enters only via the twist stiffness Cb66;
+    # zero on rectangles, parallelograms and pure-skew shapes (measured).
+    if shear_mitc &&
+       lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_FAN_COUPLING", "false"))) in ("1","true","yes","on")
+        a1 = 0.25 * (-coords[1,1] + coords[2,1] + coords[3,1] - coords[4,1])
+        a3 = 0.25 * ( coords[1,1] - coords[2,1] + coords[3,1] - coords[4,1])
+        b2 = 0.25 * (-coords[1,2] - coords[2,2] + coords[3,2] + coords[4,2])
+        b3 = 0.25 * ( coords[1,2] - coords[2,2] + coords[3,2] - coords[4,2])
+        g_fan = (abs(b2) > 1e-12 ? b3 / b2 : 0.0) + (abs(a1) > 1e-12 ? a3 / a1 : 0.0)
+        c1_fan = fem_env_float("JFEM_Q4_MACNEAL_FAN_C1", 0.036)
+        z_fan = c1_fan * g_fan / max(abs(Cb[3,3]), 1e-30)
+        for i in 1:2, j in 3:4
+            Zb[i,j] += z_fan
+            Zb[j,i] += z_fan
+        end
+        # Family-averaged first-order scale laws for the same fan distortion
+        # (measured spread across laminate/aspect families ~ +-5% of the
+        # correction; see kex_zlaw_data.md scale tables):
+        ga = abs(g_fan)
+        # Restore the bilinear-median rectangle baseline first (the measured
+        # laws are ratios to the g=0 rectangle; the distorted-geometry
+        # Dx/Dy/A drift the kernel baseline by several % the WRONG way):
+        A_rect = 4.0 * abs(a1 * b2)
+        rxx_rect = ((2a1)^2 / max(A_rect, 1e-30)) / max(Dx2 / max(A_elem, 1e-30), 1e-30)
+        ryy_rect = ((2b2)^2 / max(A_rect, 1e-30)) / max(Dy2 / max(A_elem, 1e-30), 1e-30)
+        sxx_fan = rxx_rect / (1.0 + fem_env_float("JFEM_Q4_MACNEAL_FAN_CXX", 0.20) * ga)
+        syyd_fan = ryy_rect * (1.0 + fem_env_float("JFEM_Q4_MACNEAL_FAN_CYYD", 0.30) * ga)
+        syyo_fan = ryy_rect * (1.0 + fem_env_float("JFEM_Q4_MACNEAL_FAN_CYYO", 0.40) * ga)
+        for i in 1:2, j in 1:2
+            Zb[i,j] *= sxx_fan
+        end
+        z34_d = Zb[3,3]; z34_o = Zb[3,4]
+        Zb[3,3] = z34_d * syyd_fan; Zb[4,4] = Zb[4,4] * syyd_fan
+        Zb[3,4] = z34_o * syyo_fan; Zb[4,3] = Zb[3,4]
+    end
 
     # Physical shear compliance (eq 23-25)
     # [V^s] = diag(√(2 J_p)); [V^s G^s V^s] has G_s = Cs for same-component pairs,
@@ -2906,6 +2947,12 @@ function add_quad4_macneal_shear_rbf!(
     VGV_sym = 0.5 * (VGV + VGV')
     Zs .= inv(VGV_sym)
     Zs .= 0.5 .* (Zs .+ Zs')
+    end
+    if lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_SHEAR_DEBUG", "false"))) in ("1","true","yes","on")
+        println("[SHEAR_DEBUG] Zs(x1e6): ", round.(1e6 .* Zs; digits=4))
+        println("[SHEAR_DEBUG] Zb(x1e6): ", round.(1e6 .* Zb; digits=4))
+        println("[SHEAR_DEBUG] pt_delta: ", round.(pt_delta; digits=3), " Dx=", round(Dx; digits=3), " Dy=", round(Dy; digits=3),
+                " a=", round(a_param; digits=4), " b=", round(b_param; digits=4))
     end
     Z_total = Zs + Zb
     Z_total = 0.5 * (Z_total + Z_total')

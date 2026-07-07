@@ -5,6 +5,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- SOL105 range augmentation: shifted factorizations no longer die on
+  structurally singular pencils (AUTOSPC=NO decks can leave free dofs with
+  zero stiffness in both K and Kg; those dofs are now eliminated before the
+  shifted factorization and re-embedded in the eigenvectors), a jittered-shift
+  retry ladder handles shifts landing on clustered eigenvalues, and augmented
+  spectra deduplicate against the base spectrum with a realistic tolerance.
+  Restores EIGRL-range reporting on decks where every shift previously failed.
+
+### Added
+- CQUAD4 MacNeal shear: measured fan-distortion (extreme-taper) corrections,
+  env-gated default-off: `JFEM_Q4_MACNEAL_FAN_COUPLING` (+`_FAN_C1/_CXX/_CYYD/
+  _CYYO`) adds the reference-measured twist-mediated coupling and first-order
+  scale laws on fan-distorted quads; `JFEM_SOL105_GEOM_PCOMP_MACNEAL_EXTREME_
+  TAPER_MAX` optionally routes extreme-taper anisotropic PCOMPs onto the flat
+  MacNeal kernel; `JFEM_Q4_MACNEAL_SHEAR_DEBUG` dumps the assembled shear
+  compliances for single-element audits.
+
 ### Added
 - CQUAD4 MacNeal shear block: `JFEM_Q4_MACNEAL_SHEAR_COVARIANT` (default off;
   `true`/`strip` = covariant strip-tangent samples, `mitc` = covariant sampling

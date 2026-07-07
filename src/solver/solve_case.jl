@@ -2345,6 +2345,22 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             M = K_ff - sigma * B
             M = 0.5 * (M + M')
 
+            # AUTOSPC=NO decks can leave free dofs with no stiffness in either
+            # K or Kg (zero row/col in M for EVERY sigma) - UMFPACK then throws
+            # SingularException(0) and the whole range augmentation dies (HTP
+            # iter_346: all shifts fail on both subcases). Detect and eliminate
+            # those dofs from the shifted factorization; eigenvectors get zeros
+            # there on re-embedding.
+            M_dg = abs.(diag(M))
+            m_ref = maximum(M_dg)
+            live_dofs = findall(M_dg .> 1e-14 * max(m_ref, 1.0))
+            reduced = length(live_dofs) < size(M, 1)
+            if reduced
+                log_msg("[BUCKLING] shift-invert: eliminating $(size(M,1) - length(live_dofs)) zero-stiffness dofs")
+                M = M[live_dofs, live_dofs]
+                B = B[live_dofs, live_dofs]
+            end
+
             factor_backend = "cholesky"
             M_factor =
                 try
@@ -2371,8 +2387,10 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             kd = _buckling_krylovdim(nev_request, n_free)
             krylov_tol = _buckling_krylovtol()
             krylov_maxiter = _buckling_krylovmaxiter()
+            start_vec = next_start_vector()
+            reduced && (start_vec = start_vec[live_dofs])
             vals_kk, vecs_kk, info = eigsolve(
-                x -> M_factor \ (B * x), next_start_vector(), nev_request, :LM;
+                x -> M_factor \ (B * x), start_vec, nev_request, :LM;
                 krylovdim=kd, maxiter=krylov_maxiter, tol=krylov_tol, eager=true)
 
             actual_lambdas = Float64[]
@@ -2405,6 +2423,11 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             n_out = min(shifted_modes_request, length(perm))
             lambdas = [actual_lambdas[perm[i]] for i in 1:n_out]
             vecs = hcat([actual_vecs[perm[i]] for i in 1:n_out]...)
+            if reduced
+                vecs_full = zeros(Float64, length(M_dg), size(vecs, 2))
+                vecs_full[live_dofs, :] = vecs
+                vecs = vecs_full
+            end
 
             diagnostics["solver_attempts"][end] = Dict(
                 "name" => attempt_name,
@@ -2431,13 +2454,28 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 "error" => sprint(showerror, e),
             )
             log_msg("[BUCKLING] Range-targeted shift-invert failed: $(sprint(showerror, e))")
+            # A shift landing on (or numerically near) a pencil eigenvalue makes
+            # K - sigma*B (numerically) singular (LinearAlgebra.SingularException).
+            # Retry with progressively larger inward jitters instead of abandoning
+            # the range augmentation. HTP 511002: sigma = EIGRL v2 = 0.6 sits 7e-4
+            # from a clustered mode (0.5996); a 0.3% jitter stays inside the
+            # cluster, so the ladder steps 2% and 5% inward as well.
+            if e isa LinearAlgebra.SingularException && !occursin("_jitter", attempt_name)
+                for (tag, frac) in (("_jitter1", 3.0e-3), ("_jitter2", 2.0e-2), ("_jitter3", 5.0e-2))
+                    sigma_j = sigma * (1.0 - frac) - 1.0e-9
+                    res = attempt_shifted_buckling_search(sigma_j, attempt_name * tag;
+                        modes_request_override=modes_request_override,
+                        force_full_request=force_full_request)
+                    res === nothing || return res
+                end
+            end
             return nothing
         end
     end
 
     function merge_unique_eigenpairs(base_vals::Vector{Float64}, base_vecs::AbstractMatrix,
                                      add_vals::Vector{Float64}, add_vecs::AbstractMatrix;
-                                     rel_tol::Float64=1e-6, abs_tol::Float64=1e-8)
+                                     rel_tol::Float64=1e-4, abs_tol::Float64=1e-8)
         merged_vals = copy(base_vals)
         merged_vec_cols = [Vector{Float64}(base_vecs[:, i]) for i in 1:size(base_vecs, 2)]
         added = 0

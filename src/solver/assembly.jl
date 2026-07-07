@@ -7389,9 +7389,19 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             taper_ratio_ei,
             pcomp_geom_curvature !== nothing,
         )
+        # Extreme-taper PCOMPs (opposite-edge ratio below the threshold) sit
+        # outside every path calibration: the legacy/center-shear paths are
+        # measured 6-16x SOFT on them (kjunction closure webs, taper ~0.2),
+        # and the flat MacNeal kernel with the fan law (report 3.65) matches
+        # the reference within ~2%. Geometry-only discriminator, default off.
+        elem_force_macneal_by_extreme_taper =
+            solver_env_float("JFEM_SOL105_GEOM_PCOMP_MACNEAL_EXTREME_TAPER_MAX", 0.0) > 0.0 &&
+            is_pcomp_ei && !is_pcomp_iso_ei &&
+            taper_ratio_ei <= solver_env_float("JFEM_SOL105_GEOM_PCOMP_MACNEAL_EXTREME_TAPER_MAX", 0.0)
         elem_force_macneal_static =
             elem_force_macneal_by_load ||
-            elem_force_macneal_by_geometry
+            elem_force_macneal_by_geometry ||
+            elem_force_macneal_by_extreme_taper
         if elem_force_macneal_static
             elem_kernel_planar = true
             elem_macneal_static_kernel = true
