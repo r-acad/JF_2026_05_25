@@ -5,6 +5,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- SOL105 Kg compensation-scale stack neutralized by default: the 15-band
+  Nemeth-parameter Kg scale table and 19 geometry-classified Kg/K scale
+  families (plus the MacNeal mid-aspect bending scale bands) now default to
+  1.0. Element-level extraction shows the recovered membrane forces match the
+  reference within +-5% without them, and the seven-case guard improves from
+  mean 2.08 to 1.83 with the previously worst case moving from -6.2% into
+  band; the tables were compensating element-kernel defects that have since
+  been fixed at source. All env overrides remain available.
+- SOL105 range completeness (Sturm-certified augmentation,
+  `JFEM_SOL105_RANGE_COMPLETENESS_AUGMENT`) now defaults ON: eigensolves are
+  deterministic and coverage-complete in the reported band (verified
+  bit-identical spectra across repeated runs), eliminating mode-coverage
+  nondeterminism that previously let low clusters be silently missed.
+
 ### Fixed
 - SOL105 range augmentation: shifted factorizations no longer die on
   structurally singular pencils (AUTOSPC=NO decks can leave free dofs with

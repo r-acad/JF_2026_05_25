@@ -3057,7 +3057,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         # numerical recovery step only: it does not use case names, groups,
         # stresses, or reference answers, and it runs before any reporting cap.
         if !will_use_dense &&
-           solver_env_bool("JFEM_SOL105_RANGE_COMPLETENESS_AUGMENT", false) &&
+           solver_env_bool("JFEM_SOL105_RANGE_COMPLETENESS_AUGMENT", true) &&
            !isempty(valid_idx)
 
             function current_range_sturm_gap()
