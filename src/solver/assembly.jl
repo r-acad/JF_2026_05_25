@@ -6240,10 +6240,18 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     mitc4_3d_ply_integration = solver_env_bool("JFEM_Q4_MITC4_3D_PLY_INTEGRATION", true)
     # SOL101 static PSHELL probes against Nastran extracted-K matrices showed
     # that the MITC4-3D high-skew fallback over-stiffens bad-taper CQUAD4
-    # neighborhoods. Keep the historical default for SOL105/eigen branches,
-    # but make this SOL101 static route opt-in.
-    mitc4_3d_high_skew_auto_default =
-        sol101_context && !shear_center_only ? false : true
+    # neighborhoods. Element-level KGG extraction (2026-07-12) confirmed the
+    # same defect on SOL105: on skewed non-PCOMP PSHELL/MAT1 elements the
+    # experimental mitc4_3d kernel over-stiffens the transverse-shear (uz)
+    # block 27-65x vs Nastran (atomic_skew_45: uz 37454 vs Nas 1368), pushing
+    # skew-atomic mode-1 lambda +15..+29% over Nastran, where the MacNeal RBF
+    # kernel lands within -6..-10%. The high-skew gate requires !is_pcomp
+    # (allow_pcomp=false), so it fires on ZERO elements of the all-PCOMP box/
+    # tail-box guardrail assemblies (verified bit-identical inert across the
+    # 49-case BOXES_LE+GAME sweep) and ONLY ever routed non-PCOMP skewed iso
+    # elements into the over-stiff kernel. Default OFF for both SOL101 and
+    # SOL105; env JFEM_Q4_MITC4_3D_HIGH_SKEW_AUTO=true restores the old route.
+    mitc4_3d_high_skew_auto_default = false
     mitc4_3d_high_skew_auto =
         solver_env_bool("JFEM_Q4_MITC4_3D_HIGH_SKEW_AUTO", mitc4_3d_high_skew_auto_default) &&
         q4_kernel_mode_static in (
@@ -7151,11 +7159,26 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # trade-off — aspect ratio alone is insufficient. Left as an explicit
         # switch for further per-element classifier work.
         macneal_aspect_max = max(solver_env_float("JFEM_Q4_MACNEAL_ASPECT_MAX", 1e30), 1.0)
-        elem_is_macneal_eligible = warp_ratio_ei < macneal_warp_tol &&
-                                   aspect_ratio_ei <= macneal_aspect_max
+        # Isotropic-only MacNeal warp tolerance (2026-07-12). Element-level KGG
+        # extraction on the warp atomics (single warped iso PSHELL/MAT1 CQUAD4)
+        # showed the 1e-4 `macneal_warp_tol` gate flips mildly-warped ISOTROPIC
+        # elements off MacNeal onto the legacy MITC path, which over-stiffens
+        # them: atomic_warp_0p05/0p5 mode-1 lambda jumps +19.7% over Nastran at
+        # warp_ratio > 1e-4, while Nastran is warp-insensitive (~34.29 at all
+        # warp levels). Keeping isotropic elements on MacNeal restores -5.29%
+        # (matching the flat/tiny-warp cases). The original 1e-4 threshold was
+        # tuned for PCOMP curved routing (HTP_3wp_disp), so raise the bound ONLY
+        # for genuinely isotropic (non-PCOMP-laminate) elements — PCOMP element
+        # eligibility (and hence the HTP/box routing) is byte-identical.
+        macneal_warp_tol_iso =
+            max(solver_env_float("JFEM_Q4_MACNEAL_WARP_TOL_ISO", 1.0), macneal_warp_tol)
         is_pcomp_ei = q4_is_pcomp[ei]
         is_pcomp_iso_ei = q4_is_pcomp_isotropic[ei]
         is_iso_ei = q4_is_isotropic[ei] || is_pcomp_iso_ei
+        elem_macneal_warp_tol_eff =
+            (is_iso_ei && !is_pcomp_ei) ? macneal_warp_tol_iso : macneal_warp_tol
+        elem_is_macneal_eligible = warp_ratio_ei < elem_macneal_warp_tol_eff &&
+                                   aspect_ratio_ei <= macneal_aspect_max
         if flat_curved_iso_geomnormal_frame &&
            q4_is_isotropic[ei] &&
            elem_is_flat &&
@@ -9510,6 +9533,35 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     kg_timings = Dict{String,Any}()
     kg_t_setup = time_ns()
     log_msg("[SOLVER] Assembling Geometric Stiffness Matrix (SOL105)...")
+    # JFEM_DUMP_USTATIC: when set to a writable path, dump the SOL101 static
+    # displacement solution (u_global, GLOBAL coords per node) as "gid ux uy uz"
+    # so it can be compared against a Nastran DISPLACEMENT punch. Debug hook only.
+    let ust_path = strip(get(ENV, "JFEM_DUMP_USTATIC", ""))
+        if !isempty(ust_path)
+            try
+                open(ust_path, "w") do io
+                    for (gid, idx) in sort(collect(id_map); by = x -> x[2])
+                        b = (idx - 1) * 6
+                        # u_global is in local (node_R) DOFs; rotate back to global
+                        R = node_R[idx]
+                        ul = (u_global[b+1], u_global[b+2], u_global[b+3])
+                        rl = (u_global[b+4], u_global[b+5], u_global[b+6])
+                        ux = R[1,1]*ul[1] + R[2,1]*ul[2] + R[3,1]*ul[3]
+                        uy = R[1,2]*ul[1] + R[2,2]*ul[2] + R[3,2]*ul[3]
+                        uz = R[1,3]*ul[1] + R[2,3]*ul[2] + R[3,3]*ul[3]
+                        rx = R[1,1]*rl[1] + R[2,1]*rl[2] + R[3,1]*rl[3]
+                        ry = R[1,2]*rl[1] + R[2,2]*rl[2] + R[3,2]*rl[3]
+                        rz = R[1,3]*rl[1] + R[2,3]*rl[2] + R[3,3]*rl[3]
+                        println(io, gid, " ", repr(ux), " ", repr(uy), " ", repr(uz),
+                                " ", repr(rx), " ", repr(ry), " ", repr(rz))
+                    end
+                end
+                log_msg("[SOLVER] Dumped u_static to $ust_path")
+            catch err
+                log_msg("[SOLVER] WARNING: JFEM_DUMP_USTATIC failed: $err")
+            end
+        end
+    end
 
     snorm_override = isnothing(snorm_angle_override) ?
         get(ENV, "JFEM_PARAM_SNORM_OVERRIDE_KG", get(ENV, "JFEM_PARAM_SNORM_OVERRIDE", "")) :
