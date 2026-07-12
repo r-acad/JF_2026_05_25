@@ -5515,6 +5515,22 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
     transverse_wty_sign =
         something(tryparse(Float64,
             strip(get(ENV, "JFEM_KG_SHELL_TRANSVERSE_WTY_SIGN", "1.0"))), 1.0)
+    # JFEM_KG_PRINCIPAL_INPLANE_LINEAR (default false): the :principal_transverse
+    # in-plane (u,v) differential-stiffness block is built by re-diagonalizing the
+    # FULL stress vector (principal_stress_2d_components) per element. That makes
+    # the in-plane operator NON-LINEAR in the stress components: for combined /
+    # rotated states Kg(sa+sb) != Kg(sa)+Kg(sb). It is exact for pure single-axis
+    # states (trivial principal decomposition) but under a rotated saddle
+    # (combined Nxx+Nxy) it spuriously stiffens higher buckling modes
+    # (single-element pencil: +147% on mode 2; report 3.90). The proven-correct
+    # operator is the LINEAR SUPERPOSITION of the per-stress-component principal
+    # blocks: the offline pencil shows Kg(Nxx)+Kg(Nxy) reproduces Nastran to
+    # +1.11% on BOTH modes, vs +12.7/+147% for the re-diagonalized form. When
+    # enabled, the in-plane block is evaluated one stress component at a time
+    # (sxx,0,0),(0,syy,0),(0,0,sxy) and summed, restoring linearity while leaving
+    # every axis-aligned state (and hence the ladder) identical.
+    principal_inplane_linear =
+        fem_env_bool("JFEM_KG_PRINCIPAL_INPLANE_LINEAR", false)
     sigma_mean_1 = 0.0; sigma_mean_2 = 0.0; sigma_mean_3 = 0.0
     if transverse_w_form === :meanstring
         @inbounds for gp in 1:size(sigma_mem_gp, 1)
@@ -5687,6 +5703,45 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
             elseif trans_mode === :normal_only
                 add_geometric_gradient_block!(Kg, duz_dx, duz_dy, scale, s_xx, s_yy, s_xy, local_trans_scales[3])
             elseif trans_mode === :principal_transverse
+                if principal_inplane_linear
+                    # Component-wise principal in-plane block: evaluate one stress
+                    # component at a time and sum, so the operator is LINEAR in
+                    # (Nxx,Nyy,Nxy). The re-diagonalized single-call form is
+                    # non-linear and spuriously stiffens higher modes on
+                    # combined/rotated states (report 3.90). The w-transverse
+                    # term (local_trans_scales[3]) is added once here; the
+                    # per-component calls carry w_factor=0 to avoid triple-adding
+                    # the w channel.
+                    add_geometric_principal_transverse_block!(
+                        Kg, dux_dx, dux_dy, duy_dx, duy_dy, duz_dx, duz_dy,
+                        scale, s_xx, 0.0, 0.0,
+                        principal_shear_yy_factor, principal_shear_xy_factor,
+                        principal_shear_z_factor, principal_shear_ratio_min,
+                        local_trans_scales[1], local_trans_scales[2],
+                        local_uv_scale, 0.0)
+                    add_geometric_principal_transverse_block!(
+                        Kg, dux_dx, dux_dy, duy_dx, duy_dy, duz_dx, duz_dy,
+                        scale, 0.0, s_yy, 0.0,
+                        principal_shear_yy_factor, principal_shear_xy_factor,
+                        principal_shear_z_factor, principal_shear_ratio_min,
+                        local_trans_scales[1], local_trans_scales[2],
+                        local_uv_scale, 0.0)
+                    add_geometric_principal_transverse_block!(
+                        Kg, dux_dx, dux_dy, duy_dx, duy_dy, duz_dx, duz_dy,
+                        scale, 0.0, 0.0, s_xy,
+                        principal_shear_yy_factor, principal_shear_xy_factor,
+                        principal_shear_z_factor, principal_shear_ratio_min,
+                        local_trans_scales[1], local_trans_scales[2],
+                        local_uv_scale, 0.0)
+                    # w-transverse channel once, from the full stress (it is
+                    # already linear and rotation-invariant)
+                    add_geometric_principal_transverse_block!(
+                        Kg, dux_dx, dux_dy, duy_dx, duy_dy, duz_dx, duz_dy,
+                        scale, s_xx, s_yy, s_xy,
+                        principal_shear_yy_factor, principal_shear_xy_factor,
+                        principal_shear_z_factor, principal_shear_ratio_min,
+                        0.0, 0.0, 0.0, local_trans_scales[3])
+                else
                 add_geometric_principal_transverse_block!(
                     Kg,
                     dux_dx,
@@ -5708,6 +5763,7 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                     local_uv_scale,
                     local_trans_scales[3],
                 )
+                end
                 uv_nxy_delta = local_uv_nxy_scale - local_uv_scale
                 if uv_nxy_delta != 0.0 && s_xy != 0.0
                     for a in 1:24
@@ -6189,6 +6245,47 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                         # the standard path accumulated and add the mean-state
                         # version.  Assumes unit local factors (pure-physics
                         # configuration), like the w delta above.
+                        # The in-plane channel is the mean-state principal-
+                        # transverse metric: remove the per-GP content the
+                        # standard path added and add the mean-state version.
+                        # The principal reconstruction re-diagonalizes the FULL
+                        # stress vector, which makes the in-plane operator
+                        # NON-LINEAR in (Nxx,Nyy,Nxy): under combined/rotated
+                        # states Kg(sa+sb) != Kg(sa)+Kg(sb), producing large
+                        # errors on higher buckling modes (single-element pencil:
+                        # +147% mode 2; report 3.90). When principal_inplane_linear
+                        # is on we evaluate the principal in-plane block ONE STRESS
+                        # COMPONENT AT A TIME and sum, restoring linearity. Each
+                        # single-component evaluation is identical to the current
+                        # operator (principal decomposition of a single component
+                        # is trivial), so axis-aligned states are unchanged, while
+                        # combined states become the correct linear superposition
+                        # (offline pencil: +1.11% both modes, matching Nastran).
+                        if principal_inplane_linear
+                            # remove per-GP principal in-plane content. This must
+                            # cancel EXACTLY what the base GP loop added (a single
+                            # re-diagonalized call on the full stress), so it uses
+                            # the full-stress form, NOT the component split.
+                            add_geometric_principal_transverse_pair!(
+                                Kg, row0, col0, dNi_dx, dNi_dy, dNj_dx, dNj_dy,
+                                h * abs_detJ, -s_xx, -s_yy, -s_xy,
+                                1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0)
+                            # add mean-state principal in-plane content, component-wise
+                            # (linear superposition -> the operator becomes linear
+                            # in the mean stress components)
+                            add_geometric_principal_transverse_pair!(
+                                Kg, row0, col0, dNi_dx, dNi_dy, dNj_dx, dNj_dy,
+                                h * abs_detJ, sigma_mean_1, 0.0, 0.0,
+                                1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0)
+                            add_geometric_principal_transverse_pair!(
+                                Kg, row0, col0, dNi_dx, dNi_dy, dNj_dx, dNj_dy,
+                                h * abs_detJ, 0.0, sigma_mean_2, 0.0,
+                                1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0)
+                            add_geometric_principal_transverse_pair!(
+                                Kg, row0, col0, dNi_dx, dNi_dy, dNj_dx, dNj_dy,
+                                h * abs_detJ, 0.0, 0.0, sigma_mean_3,
+                                1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0)
+                        else
                         add_geometric_principal_transverse_pair!(
                             Kg, row0, col0, dNi_dx, dNi_dy, dNj_dx, dNj_dy,
                             h * abs_detJ, -s_xx, -s_yy, -s_xy,
@@ -6197,6 +6294,7 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                             Kg, row0, col0, dNi_dx, dNi_dy, dNj_dx, dNj_dy,
                             h * abs_detJ, sigma_mean_1, sigma_mean_2, sigma_mean_3,
                             1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0)
+                        end
                     elseif transverse_w_form === :wty
                         Kg[row0 + 3, col0 + 5] += transverse_wty_sign * val_ww
                         Kg[row0 + 5, col0 + 3] += transverse_wty_sign * val_ww
