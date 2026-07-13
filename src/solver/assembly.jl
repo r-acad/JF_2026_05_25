@@ -793,7 +793,7 @@ end
 end
 
 @inline sol105_low_ts_moderate_pcomp_kg_scale() =
-    solver_env_float("JFEM_SOL105_LOW_TS_MODERATE_PCOMP_KG_SCALE", 1.0225)
+    solver_env_float("JFEM_SOL105_LOW_TS_MODERATE_PCOMP_KG_SCALE", 1.0)
 @inline sol105_low_ts_moderate_pcomp_kg_aspect_min() =
     max(solver_env_float("JFEM_SOL105_LOW_TS_MODERATE_PCOMP_KG_ASPECT_MIN", 1.75), 1.0)
 @inline sol105_low_ts_moderate_pcomp_kg_aspect_max() =
@@ -2333,7 +2333,7 @@ end
 end
 
 @inline function sol105_thick_high_aspect_pcomp_model_auto_membrane_scale()
-    return max(solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_MEMBRANE_SCALE", 1.04), 0.0)
+    return max(solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_MEMBRANE_SCALE", 1.0), 0.0)
 end
 
 @inline function sol105_thick_high_aspect_pcomp_model_auto_geom_aspect_min()
@@ -2348,11 +2348,11 @@ end
 end
 
 @inline function sol105_thick_high_aspect_pcomp_model_auto_high_aspect_scale()
-    return max(solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_HIGH_ASPECT_SCALE", 1.04), 0.0)
+    return max(solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_HIGH_ASPECT_SCALE", 1.0), 0.0)
 end
 
 @inline function sol105_thick_high_aspect_pcomp_model_auto_low_aspect_scale()
-    return max(solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_LOW_ASPECT_SCALE", 0.98), 0.0)
+    return max(solver_env_float("JFEM_SOL105_THICK_HIGH_ASPECT_PCOMP_MODEL_AUTO_LOW_ASPECT_SCALE", 1.0), 0.0)
 end
 
 @inline function sol105_thick_high_aspect_pcomp_model_auto_low_aspect_max()
@@ -2435,9 +2435,9 @@ end
 @inline sol105_geom_pcomp_kg_scale_enabled() =
     solver_env_bool("JFEM_SOL105_GEOM_PCOMP_KG_SCALE", true)
 @inline sol105_geom_pcomp_kg_high_aspect_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SCALE", 0.98)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SCALE", 1.0)
 @inline sol105_geom_pcomp_kg_high_aspect_small_mesh_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SMALL_MESH_SCALE", 1.032)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SMALL_MESH_SCALE", 1.0)
 @inline sol105_geom_pcomp_kg_high_aspect_small_mesh_aspect_min() =
     max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SMALL_MESH_ASPECT_MIN", 7.8), 1.0)
 @inline sol105_geom_pcomp_kg_high_aspect_small_mesh_aspect_max() =
@@ -2446,15 +2446,15 @@ end
         sol105_geom_pcomp_kg_high_aspect_small_mesh_aspect_min(),
     )
 @inline sol105_geom_pcomp_kg_taper_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_TAPER_SCALE", 0.0905)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_TAPER_SCALE", 1.0)
 @inline sol105_geom_pcomp_kg_mild_taper_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_MILD_TAPER_SCALE", 0.996)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_MILD_TAPER_SCALE", 1.0)
 @inline sol105_geom_pcomp_kg_low_aspect_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_SCALE", 1.0115)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_SCALE", 1.0)
 @inline sol105_geom_pcomp_kg_noncurved_high_aspect_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_NONCURVED_HIGH_ASPECT_SCALE", 1.010)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_NONCURVED_HIGH_ASPECT_SCALE", 1.00)
 @inline sol105_geom_pcomp_kg_curved_high_aspect_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_HIGH_ASPECT_SCALE", 1.040)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_HIGH_ASPECT_SCALE", 1.00)
 @inline sol105_geom_pcomp_kg_curved_low_aspect_scale() =
     solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_CURVED_LOW_ASPECT_SCALE", 1.0)
 @inline sol105_geom_pcomp_kg_curved_low_require_curvature() =
@@ -2673,7 +2673,7 @@ end
         sol105_geom_pcomp_kg_thin_high_aspect_pm45_ply_count_min(),
     )
 @inline sol105_geom_pcomp_kg_thin_very_high_aspect_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_ASPECT_SCALE", 0.930)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_ASPECT_SCALE", 1.00)
 @inline sol105_geom_pcomp_kg_thin_very_high_aspect_min() =
     max(solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_ASPECT_MIN", 4.90), 1.0)
 @inline sol105_geom_pcomp_kg_thin_very_high_aspect_max() =
@@ -2803,7 +2803,7 @@ end
         1.0,
     )
 @inline sol105_geom_pcomp_kg_thick_moderate_refine_scale() =
-    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_SCALE", 0.960)
+    solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_SCALE", 1.00)
 @inline sol105_geom_pcomp_kg_thick_moderate_refine_aspect_min() =
     max(solver_env_float(
         "JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_ASPECT_MIN",
@@ -2877,7 +2877,7 @@ end
 
 @inline function sol105_nemeth_pcomp_kg_default(band::Int, suffix::String, fallback::Float64)
     if band == 1
-        suffix == "SCALE" && return 1.045
+        suffix == "SCALE" && return 1.0
         suffix == "ASPECT_MIN" && return 3.2
         suffix == "ASPECT_MAX" && return 5.0
         suffix == "H_OVER_LMAX_MIN" && return 0.0180
@@ -2891,7 +2891,7 @@ end
         suffix == "ABS_DELTA_MIN" && return 0.08
         suffix == "ABS_DELTA_MAX" && return 0.22
     elseif band == 2
-        suffix == "SCALE" && return 1.13
+        suffix == "SCALE" && return 1.0
         suffix == "ASPECT_MIN" && return 2.8
         suffix == "ASPECT_MAX" && return 3.45
         suffix == "H_OVER_LMAX_MIN" && return 0.0134
@@ -2905,7 +2905,7 @@ end
         suffix == "DELTA_MIN" && return 0.16
         suffix == "DELTA_MAX" && return 0.19
     elseif band == 3
-        suffix == "SCALE" && return 1.13
+        suffix == "SCALE" && return 1.0
         suffix == "ASPECT_MIN" && return 2.15
         suffix == "ASPECT_MAX" && return 2.40
         suffix == "H_OVER_LMAX_MIN" && return 0.0157
@@ -2920,7 +2920,7 @@ end
         suffix == "DELTA_MIN" && return 0.16
         suffix == "DELTA_MAX" && return 0.19
     elseif band == 4
-        suffix == "SCALE" && return 1.18
+        suffix == "SCALE" && return 1.0
         suffix == "ASPECT_MIN" && return 3.55
         suffix == "ASPECT_MAX" && return 4.20
         suffix == "H_OVER_LMAX_MIN" && return 0.0118
@@ -2936,7 +2936,7 @@ end
         suffix == "DELTA_MIN" && return 0.16
         suffix == "DELTA_MAX" && return 0.19
     elseif band == 5
-        suffix == "SCALE" && return 1.07
+        suffix == "SCALE" && return 1.0
         suffix == "ASPECT_MIN" && return 3.55
         suffix == "ASPECT_MAX" && return 4.20
         suffix == "H_OVER_LMAX_MIN" && return 0.0118
@@ -2952,7 +2952,7 @@ end
         suffix == "DELTA_MIN" && return 0.16
         suffix == "DELTA_MAX" && return 0.19
     elseif band == 6
-        suffix == "SCALE" && return 1.57
+        suffix == "SCALE" && return 1.0
         suffix == "ASPECT_MIN" && return 3.55
         suffix == "ASPECT_MAX" && return 4.20
         suffix == "H_OVER_LMAX_MIN" && return 0.0145
@@ -2968,7 +2968,7 @@ end
         suffix == "DELTA_MIN" && return 0.16
         suffix == "DELTA_MAX" && return 0.19
     elseif band == 7
-        suffix == "SCALE" && return 0.96
+        suffix == "SCALE" && return 1.0
         suffix == "ASPECT_MIN" && return 2.20
         suffix == "ASPECT_MAX" && return 2.80
         suffix == "H_OVER_LMAX_MIN" && return 0.0130
@@ -2982,7 +2982,7 @@ end
         suffix == "DELTA_MIN" && return 0.16
         suffix == "DELTA_MAX" && return 0.19
     elseif band == 8
-        suffix == "SCALE" && return 1.21
+        suffix == "SCALE" && return 1.0
         suffix == "ASPECT_MIN" && return 1.05
         suffix == "ASPECT_MAX" && return 1.25
         suffix == "H_OVER_LMAX_MIN" && return 0.0350
@@ -2996,7 +2996,7 @@ end
         suffix == "DELTA_MIN" && return 0.16
         suffix == "DELTA_MAX" && return 0.19
     elseif band == 9
-        suffix == "SCALE" && return 1.10
+        suffix == "SCALE" && return 1.0
         suffix == "ASPECT_MIN" && return 4.50
         suffix == "ASPECT_MAX" && return 5.25
         suffix == "H_OVER_LMAX_MIN" && return 0.0130
@@ -3010,7 +3010,7 @@ end
         suffix == "ABS_DELTA_MIN" && return 0.10
         suffix == "ABS_DELTA_MAX" && return 0.19
     elseif band == 10
-        suffix == "SCALE" && return 0.94
+        suffix == "SCALE" && return 1.0
         suffix == "ASPECT_MIN" && return 3.10
         suffix == "ASPECT_MAX" && return 3.35
         suffix == "H_OVER_LMAX_MIN" && return 0.0230
@@ -3024,7 +3024,7 @@ end
         suffix == "ABS_DELTA_MIN" && return 0.10
         suffix == "ABS_DELTA_MAX" && return 0.13
     elseif band == 11
-        suffix == "SCALE" && return 1.04
+        suffix == "SCALE" && return 1.0
         suffix == "ASPECT_MIN" && return 3.10
         suffix == "ASPECT_MAX" && return 3.35
         suffix == "H_OVER_LMAX_MIN" && return 0.0270
@@ -3038,7 +3038,7 @@ end
         suffix == "ABS_DELTA_MIN" && return 0.080
         suffix == "ABS_DELTA_MAX" && return 0.105
     elseif band == 12
-        suffix == "SCALE" && return 1.08
+        suffix == "SCALE" && return 1.0
         suffix == "ASPECT_MIN" && return 3.25
         suffix == "ASPECT_MAX" && return 3.50
         suffix == "H_OVER_LMAX_MIN" && return 0.0250
@@ -3052,7 +3052,7 @@ end
         suffix == "ABS_DELTA_MIN" && return 0.09
         suffix == "ABS_DELTA_MAX" && return 0.12
     elseif band == 13
-        suffix == "SCALE" && return 1.08
+        suffix == "SCALE" && return 1.0
         suffix == "ASPECT_MIN" && return 3.25
         suffix == "ASPECT_MAX" && return 3.50
         suffix == "H_OVER_LMAX_MIN" && return 0.0340
@@ -3066,7 +3066,7 @@ end
         suffix == "ABS_DELTA_MIN" && return 0.05
         suffix == "ABS_DELTA_MAX" && return 0.08
     elseif band == 14
-        suffix == "SCALE" && return 0.97
+        suffix == "SCALE" && return 1.0
         suffix == "ASPECT_MIN" && return 1.0
         suffix == "ASPECT_MAX" && return 4.80
         suffix == "H_OVER_LMAX_MIN" && return 0.0090
@@ -3080,7 +3080,7 @@ end
         suffix == "ABS_DELTA_MIN" && return 0.16
         suffix == "ABS_DELTA_MAX" && return 0.19
     elseif band == 15
-        suffix == "SCALE" && return 1.18
+        suffix == "SCALE" && return 1.0
         suffix == "ASPECT_MIN" && return 2.70
         suffix == "ASPECT_MAX" && return 4.80
         suffix == "H_OVER_LMAX_MIN" && return 0.0090
@@ -3529,7 +3529,7 @@ end
     pm90_fraction::Float64,
     ply_count::Int,
 )
-    scale = solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE2_SCALE", 1.10)
+    scale = solver_env_float("JFEM_SOL105_GEOM_PCOMP_KG_LOW_ASPECT_HIGH_KAPPA_REFINE2_SCALE", 1.00)
     scale == 1.0 && return 1.0
     sol105_geom_pcomp_kg_scale_enabled() || return 1.0
     is_pcomp && !is_pcomp_iso || return 1.0
@@ -3744,7 +3744,7 @@ end
 @inline sol105_geom_pshell_iso_flat_square_kg_scale_enabled() =
     solver_env_bool("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_SCALE", true)
 @inline sol105_geom_pshell_iso_flat_square_kg_scale_value() =
-    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_SCALE_VALUE", 0.947)
+    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_SCALE_VALUE", 1.0)
 @inline sol105_geom_pshell_iso_flat_square_w_nxx_scale_enabled() =
     solver_env_bool("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_W_NXX_SCALE", false)
 @inline sol105_geom_pshell_iso_flat_square_w_nxx_scale_value() =
@@ -3752,7 +3752,7 @@ end
 @inline sol105_geom_pshell_iso_flat_square_w_nyy_scale_enabled() =
     solver_env_bool("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_W_NYY_SCALE", true)
 @inline sol105_geom_pshell_iso_flat_square_w_nyy_scale_value() =
-    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_W_NYY_SCALE_VALUE", 1.55)
+    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_W_NYY_SCALE_VALUE", 1.0)
 @inline sol105_geom_pshell_iso_flat_square_w_nxy_scale_enabled() =
     solver_env_bool("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_W_NXY_SCALE", true)
 @inline sol105_geom_pshell_iso_flat_square_w_nxy_scale_value() =
@@ -3760,7 +3760,7 @@ end
 @inline sol105_geom_pshell_iso_flat_square_uv_nxy_scale_enabled() =
     solver_env_bool("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_UV_NXY_SCALE", true)
 @inline sol105_geom_pshell_iso_flat_square_uv_nxy_scale_value() =
-    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_UV_NXY_SCALE_VALUE", 0.78)
+    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_UV_NXY_SCALE_VALUE", 1.0)
 @inline sol105_geom_pshell_iso_flat_square_kg_aspect_min() =
     max(solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_ASPECT_MIN", 0.9), 1.0e-6)
 @inline sol105_geom_pshell_iso_flat_square_kg_aspect_max() =
@@ -3780,7 +3780,7 @@ end
 @inline sol105_geom_pshell_iso_warped_kg_scale_enabled() =
     solver_env_bool("JFEM_SOL105_GEOM_PSHELL_ISO_WARPED_KG_SCALE", true)
 @inline sol105_geom_pshell_iso_warped_kg_scale_value() =
-    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_WARPED_KG_SCALE_VALUE", 1.20)
+    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_WARPED_KG_SCALE_VALUE", 1.00)
 @inline sol105_geom_pshell_iso_warped_kg_warp_min() =
     max(solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_WARPED_KG_WARP_MIN", 1.0e-5), 0.0)
 @inline sol105_geom_pshell_iso_warped_kg_warp_max() =
@@ -3805,7 +3805,7 @@ end
 @inline sol105_geom_pshell_iso_skew_kg_scale_enabled() =
     solver_env_bool("JFEM_SOL105_GEOM_PSHELL_ISO_SKEW_KG_SCALE", true)
 @inline sol105_geom_pshell_iso_skew_kg_scale_value() =
-    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_SKEW_KG_SCALE_VALUE", 1.36)
+    solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_SKEW_KG_SCALE_VALUE", 1.0)
 @inline sol105_geom_pshell_iso_skew_kg_skew_min() =
     max(solver_env_float("JFEM_SOL105_GEOM_PSHELL_ISO_SKEW_KG_SKEW_MIN", 50.0), 0.0)
 @inline sol105_geom_pshell_iso_skew_kg_skew_max() =
@@ -4820,7 +4820,7 @@ end
 @inline function q4_macneal_bending_aspect_mid_scale()
     return solver_env_float(
         "JFEM_Q4_MACNEAL_BENDING_ASPECT_MID_SCALE",
-        1.12,
+        1.0,
     )
 end
 
@@ -6240,10 +6240,18 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     mitc4_3d_ply_integration = solver_env_bool("JFEM_Q4_MITC4_3D_PLY_INTEGRATION", true)
     # SOL101 static PSHELL probes against Nastran extracted-K matrices showed
     # that the MITC4-3D high-skew fallback over-stiffens bad-taper CQUAD4
-    # neighborhoods. Keep the historical default for SOL105/eigen branches,
-    # but make this SOL101 static route opt-in.
-    mitc4_3d_high_skew_auto_default =
-        sol101_context && !shear_center_only ? false : true
+    # neighborhoods. Element-level KGG extraction (2026-07-12) confirmed the
+    # same defect on SOL105: on skewed non-PCOMP PSHELL/MAT1 elements the
+    # experimental mitc4_3d kernel over-stiffens the transverse-shear (uz)
+    # block 27-65x vs Nastran (atomic_skew_45: uz 37454 vs Nas 1368), pushing
+    # skew-atomic mode-1 lambda +15..+29% over Nastran, where the MacNeal RBF
+    # kernel lands within -6..-10%. The high-skew gate requires !is_pcomp
+    # (allow_pcomp=false), so it fires on ZERO elements of the all-PCOMP box/
+    # tail-box guardrail assemblies (verified bit-identical inert across the
+    # 49-case BOXES_LE+GAME sweep) and ONLY ever routed non-PCOMP skewed iso
+    # elements into the over-stiff kernel. Default OFF for both SOL101 and
+    # SOL105; env JFEM_Q4_MITC4_3D_HIGH_SKEW_AUTO=true restores the old route.
+    mitc4_3d_high_skew_auto_default = false
     mitc4_3d_high_skew_auto =
         solver_env_bool("JFEM_Q4_MITC4_3D_HIGH_SKEW_AUTO", mitc4_3d_high_skew_auto_default) &&
         q4_kernel_mode_static in (
@@ -7151,11 +7159,26 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # trade-off — aspect ratio alone is insufficient. Left as an explicit
         # switch for further per-element classifier work.
         macneal_aspect_max = max(solver_env_float("JFEM_Q4_MACNEAL_ASPECT_MAX", 1e30), 1.0)
-        elem_is_macneal_eligible = warp_ratio_ei < macneal_warp_tol &&
-                                   aspect_ratio_ei <= macneal_aspect_max
+        # Isotropic-only MacNeal warp tolerance (2026-07-12). Element-level KGG
+        # extraction on the warp atomics (single warped iso PSHELL/MAT1 CQUAD4)
+        # showed the 1e-4 `macneal_warp_tol` gate flips mildly-warped ISOTROPIC
+        # elements off MacNeal onto the legacy MITC path, which over-stiffens
+        # them: atomic_warp_0p05/0p5 mode-1 lambda jumps +19.7% over Nastran at
+        # warp_ratio > 1e-4, while Nastran is warp-insensitive (~34.29 at all
+        # warp levels). Keeping isotropic elements on MacNeal restores -5.29%
+        # (matching the flat/tiny-warp cases). The original 1e-4 threshold was
+        # tuned for PCOMP curved routing (HTP_3wp_disp), so raise the bound ONLY
+        # for genuinely isotropic (non-PCOMP-laminate) elements — PCOMP element
+        # eligibility (and hence the HTP/box routing) is byte-identical.
+        macneal_warp_tol_iso =
+            max(solver_env_float("JFEM_Q4_MACNEAL_WARP_TOL_ISO", 1.0), macneal_warp_tol)
         is_pcomp_ei = q4_is_pcomp[ei]
         is_pcomp_iso_ei = q4_is_pcomp_isotropic[ei]
         is_iso_ei = q4_is_isotropic[ei] || is_pcomp_iso_ei
+        elem_macneal_warp_tol_eff =
+            (is_iso_ei && !is_pcomp_ei) ? macneal_warp_tol_iso : macneal_warp_tol
+        elem_is_macneal_eligible = warp_ratio_ei < elem_macneal_warp_tol_eff &&
+                                   aspect_ratio_ei <= macneal_aspect_max
         if flat_curved_iso_geomnormal_frame &&
            q4_is_isotropic[ei] &&
            elem_is_flat &&
@@ -9510,6 +9533,35 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     kg_timings = Dict{String,Any}()
     kg_t_setup = time_ns()
     log_msg("[SOLVER] Assembling Geometric Stiffness Matrix (SOL105)...")
+    # JFEM_DUMP_USTATIC: when set to a writable path, dump the SOL101 static
+    # displacement solution (u_global, GLOBAL coords per node) as "gid ux uy uz"
+    # so it can be compared against a Nastran DISPLACEMENT punch. Debug hook only.
+    let ust_path = strip(get(ENV, "JFEM_DUMP_USTATIC", ""))
+        if !isempty(ust_path)
+            try
+                open(ust_path, "w") do io
+                    for (gid, idx) in sort(collect(id_map); by = x -> x[2])
+                        b = (idx - 1) * 6
+                        # u_global is in local (node_R) DOFs; rotate back to global
+                        R = node_R[idx]
+                        ul = (u_global[b+1], u_global[b+2], u_global[b+3])
+                        rl = (u_global[b+4], u_global[b+5], u_global[b+6])
+                        ux = R[1,1]*ul[1] + R[2,1]*ul[2] + R[3,1]*ul[3]
+                        uy = R[1,2]*ul[1] + R[2,2]*ul[2] + R[3,2]*ul[3]
+                        uz = R[1,3]*ul[1] + R[2,3]*ul[2] + R[3,3]*ul[3]
+                        rx = R[1,1]*rl[1] + R[2,1]*rl[2] + R[3,1]*rl[3]
+                        ry = R[1,2]*rl[1] + R[2,2]*rl[2] + R[3,2]*rl[3]
+                        rz = R[1,3]*rl[1] + R[2,3]*rl[2] + R[3,3]*rl[3]
+                        println(io, gid, " ", repr(ux), " ", repr(uy), " ", repr(uz),
+                                " ", repr(rx), " ", repr(ry), " ", repr(rz))
+                    end
+                end
+                log_msg("[SOLVER] Dumped u_static to $ust_path")
+            catch err
+                log_msg("[SOLVER] WARNING: JFEM_DUMP_USTATIC failed: $err")
+            end
+        end
+    end
 
     snorm_override = isnothing(snorm_angle_override) ?
         get(ENV, "JFEM_PARAM_SNORM_OVERRIDE_KG", get(ENV, "JFEM_PARAM_SNORM_OVERRIDE", "")) :

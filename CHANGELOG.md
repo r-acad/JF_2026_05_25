@@ -5,6 +5,50 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- SOL105 MacNeal warp-eligibility is now raised for isotropic elements
+  (`JFEM_Q4_MACNEAL_WARP_TOL_ISO`, default 1.0). Element-level Nastran KGG
+  extraction on the warp atomics showed the shared 1e-4 `macneal_warp_tol`
+  gate flips mildly-warped isotropic PSHELL/MAT1 CQUAD4 elements off the
+  MacNeal kernel onto the legacy MITC path, which over-stiffens them: at
+  warp_ratio > 1e-4 the atomic_warp_0p05/0p5 mode-1 lambda jumps discontinuously
+  from -5.29% to +19.7% vs Nastran (bisected transition at warp_ratio ~1e-4;
+  the whole spectrum steps up), even though Nastran is warp-insensitive
+  (~34.29 at every warp level). Keeping isotropic elements on MacNeal restores
+  the flat-case -5.29%. The bound is raised ONLY for genuinely isotropic
+  (non-PCOMP) elements — the original 1e-4 threshold, tuned for PCOMP curved
+  routing (HTP_3wp_disp), is unchanged for PCOMP, so PCOMP element eligibility
+  and the HTP/box routing are byte-identical (the all-PCOMP box/tail-box
+  guardrail has zero non-PCOMP elements, verified inert). Env
+  `JFEM_Q4_MACNEAL_WARP_TOL_ISO=1e-4` restores the previous shared threshold.
+- SOL105 high-skew MITC4-3D auto-gate (`JFEM_Q4_MITC4_3D_HIGH_SKEW_AUTO`) now
+  defaults **off** (previously on for SOL105/eigen). Element-level Nastran KGG
+  extraction showed the experimental `mitc4_3d` kernel this gate routes skewed
+  non-PCOMP PSHELL/MAT1 elements into over-stiffens the transverse-shear (uz)
+  block 27-65x vs Nastran (atomic_skew_45: uz diag 37454/106720 vs Nastran
+  1368/1646), driving skew-atomic mode-1 lambda +15..+29% over Nastran; the
+  MacNeal RBF kernel the elements fall back to lands within -6..-10%
+  (skew_20 +28.9% -> -6.4%, skew_30 +15.6% -> -9.7%, skew_45 +14.6% -> -6.9%).
+  The gate requires `!is_pcomp` (allow_pcomp=false), so it fires on zero
+  elements of the all-PCOMP box/tail-box guardrail assemblies -- verified
+  bit-identical (0 regressions) across the 49-case BOXES_LE+GAME sweep and by
+  per-element kernel-selection diagnostics (`JFEM_K_DIAG_EID_CSV`). It only
+  ever routed non-PCOMP skewed isotropic elements into the over-stiff kernel.
+  Env `JFEM_Q4_MITC4_3D_HIGH_SKEW_AUTO=true` restores the previous route.
+- SOL105 Kg compensation-scale stack neutralized by default: the 15-band
+  Nemeth-parameter Kg scale table and 19 geometry-classified Kg/K scale
+  families (plus the MacNeal mid-aspect bending scale bands) now default to
+  1.0. Element-level extraction shows the recovered membrane forces match the
+  reference within +-5% without them, and the seven-case guard improves from
+  mean 2.08 to 1.83 with the previously worst case moving from -6.2% into
+  band; the tables were compensating element-kernel defects that have since
+  been fixed at source. All env overrides remain available.
+- SOL105 range completeness (Sturm-certified augmentation,
+  `JFEM_SOL105_RANGE_COMPLETENESS_AUGMENT`) now defaults ON: eigensolves are
+  deterministic and coverage-complete in the reported band (verified
+  bit-identical spectra across repeated runs), eliminating mode-coverage
+  nondeterminism that previously let low clusters be silently missed.
+
 ### Fixed
 - SOL105 range augmentation: shifted factorizations no longer die on
   structurally singular pencils (AUTOSPC=NO decks can leave free dofs with

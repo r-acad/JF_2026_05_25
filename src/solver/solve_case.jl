@@ -2279,6 +2279,40 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     K_ff  = eigen_ctx.K_ff
     Kg_ff = Kg[free_dofs, free_dofs]
     buckling_timings["slice_free_matrices"] = (time_ns() - t_slice) * 1e-9
+    # JFEM_DUMP_ELEMENT_MATRICES: dump the FULL (pre-BC) global K and Kg, plus the
+    # DOF->(grid,component) map. For a single-element model this is exactly the
+    # 24x24 element K and Kg, for entry-by-entry comparison against Nastran's
+    # MATPRN KGG/KDJJ. Debug hook only; no-op when unset.
+    let em_prefix = strip(get(ENV, "JFEM_DUMP_ELEMENT_MATRICES", ""))
+        if !isempty(em_prefix)
+            try
+                dump_dense = (path, M) -> begin
+                    Md = Matrix(M)
+                    open(path, "w") do io
+                        for r in 1:size(Md, 1)
+                            for c in 1:size(Md, 2)
+                                c > 1 && print(io, " ")
+                                print(io, repr(Md[r, c]))
+                            end
+                            println(io)
+                        end
+                    end
+                end
+                dump_dense(em_prefix * "_K.txt", K)
+                dump_dense(em_prefix * "_Kg.txt", Kg)
+                open(em_prefix * "_dofmap.txt", "w") do io
+                    for (gid, idx) in sort(collect(id_map); by = x -> x[2])
+                        for comp in 1:6
+                            println(io, (idx - 1) * 6 + comp, " ", gid, " ", comp)
+                        end
+                    end
+                end
+                log_msg("[BUCKLING] Dumped element matrices to $(em_prefix)_K/_Kg/_dofmap.txt (ndof=$(size(K,1)))")
+            catch err
+                log_msg("[BUCKLING] WARNING: JFEM_DUMP_ELEMENT_MATRICES failed: $err")
+            end
+        end
+    end
 
     t_symmetry = time_ns()
     Kg_norm_inf = max(norm(Kg_ff, Inf), 1e-30)
@@ -2300,6 +2334,40 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     # expects the conservative symmetric Hessian pair.
     Kg_ff = 0.5 * (Kg_ff + Kg_ff')
     buckling_timings["symmetry_checks"] = (time_ns() - t_symmetry) * 1e-9
+    # JFEM_DUMP_PENCIL: when set to a writable path prefix, dump the free-reduced
+    # K_ff and Kg_ff (dense) so the buckling pencil can be solved offline for
+    # operator research on small models. Writes <prefix>_Kff.txt / _Kgff.txt as
+    # whitespace matrices. Debug hook only; no effect when unset.
+    let dump_prefix = strip(get(ENV, "JFEM_DUMP_PENCIL", ""))
+        if !isempty(dump_prefix)
+            try
+                dump_dense_matrix = (path, M) -> begin
+                    Kd = Matrix(M)
+                    open(path, "w") do io
+                        for r in 1:size(Kd, 1)
+                            for c in 1:size(Kd, 2)
+                                c > 1 && print(io, " ")
+                                print(io, repr(Kd[r, c]))
+                            end
+                            println(io)
+                        end
+                    end
+                end
+                dump_dense_matrix(dump_prefix * "_Kff.txt", K_ff)
+                dump_dense_matrix(dump_prefix * "_Kgff.txt", Kg_ff)
+                open(dump_prefix * "_dofs.txt", "w") do io
+                    for gd in free_dofs
+                        node0 = div(gd - 1, 6)
+                        comp = ((gd - 1) % 6) + 1
+                        println(io, gd, " ", node0 + 1, " ", comp)
+                    end
+                end
+                log_msg("[BUCKLING] Dumped pencil to $(dump_prefix)_Kff.txt / _Kgff.txt / _dofs.txt (n_free=$n_free)")
+            catch err
+                log_msg("[BUCKLING] WARNING: JFEM_DUMP_PENCIL failed: $err")
+            end
+        end
+    end
     start_vector_ordinal = Ref(0)
     next_start_vector() = begin
         start_vector_ordinal[] += 1
@@ -3057,7 +3125,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         # numerical recovery step only: it does not use case names, groups,
         # stresses, or reference answers, and it runs before any reporting cap.
         if !will_use_dense &&
-           solver_env_bool("JFEM_SOL105_RANGE_COMPLETENESS_AUGMENT", false) &&
+           solver_env_bool("JFEM_SOL105_RANGE_COMPLETENESS_AUGMENT", true) &&
            !isempty(valid_idx)
 
             function current_range_sturm_gap()
