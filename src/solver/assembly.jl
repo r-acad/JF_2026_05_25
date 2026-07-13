@@ -8185,9 +8185,15 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # under-softens transverse shear on skewed isotropic elements, leaving
         # the bending block 1+0.57 sin^2(skew) over-stiff.  Gate requires
         # !is_pcomp_ei -> provably inert on all-PCOMP guardrail models.
+        # PCOMP opt-in (JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SKEW_LAW_PCOMP, default OFF)
+        # is an INVESTIGATION knob: the skewed-PCOMP elastic-K bending block shows
+        # the same over-stiff signature; measure whether the same law helps before
+        # any default change.  Default off -> guardrail-inert.
         elem_macneal_rbf_zb_diff_skew_law =
-            solver_env_bool("JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SKEW_LAW_ISO", true) &&
-            is_iso_ei && !is_pcomp_ei
+            (solver_env_bool("JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SKEW_LAW_ISO", true) &&
+             is_iso_ei && !is_pcomp_ei) ||
+            (solver_env_bool("JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SKEW_LAW_PCOMP", false) &&
+             is_pcomp_ei)
         elem_q4_kernel_mode_static = q4_kernel_mode_static
         if q4_macneal_pcomp_nemeth_force_all && on_macneal_by_nemeth
             elem_q4_kernel_mode_static = "macneal_all"
