@@ -6,6 +6,39 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- SOL105 flat isotropic (non-PCOMP) CQUAD4 geometric stiffness on skewed
+  elements now uses a Nastran-KDJJ-exact element kernel
+  (`geometric_stiffness_quad4_nastran_kdjj_iso`), gated by
+  `JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ` (default `skew`: fires only when the corner
+  angle deviates from 90° by more than
+  `JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ_SKEW_MIN_DEG`, default 2.0°; `all`/`off`
+  available). The reference in-plane differential stiffness was identified
+  entry-exactly from single-element MATPRN KDJJ extractions under pure uniform
+  sigma_xx/yy/xy states: it is the component-wise transverse "string" rule
+  applied in the CQUAD4 diagonal-bisector element frame with per-GP stress
+  (eps_x/eps_y per GP, membrane shear sampled at the element center in the
+  element frame). For deviatoric stress this coincides with the existing
+  principal-transverse operator; for the trace part it is frame-dependent —
+  exactly the shape error that made the in-plane Kg block wrong on skewed
+  elements (entry ratios 0.26…2.81 vs KDJJ). The new kernel matches KDJJ
+  in-plane to 0.001–0.003% across skew 0/10/20/30/45 and drives
+  atomic_skew_45p0 mode-1 lambda from **+15.9% to +2.1%** under production
+  flags (skew_20 +2.3→−0.9%, skew_30 +2.4→−0.2%; warp and all rectangular
+  atomics unchanged/exact). Rectangular elements keep the legacy operator
+  bit-identically; the gate requires `!is_pcomp`, so all-PCOMP models (the
+  box/tail-box guardrail) are inert by construction.
+- SOL105 MacNeal RBF differential-gamma compliance now carries an
+  isotropic-only skew law (`JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SKEW_LAW_ISO`, default
+  true): the box-calibrated `JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SCALE=0.625`
+  under-softens transverse shear on skewed isotropic elements, leaving the
+  element bending block 1 + 0.57·sin²(skew) over-stiff vs Nastran KGG (1.28×
+  at 45°). The law multiplies zb_dx/zb_dy by a piecewise-linear factor in the
+  corner-angle deviation (measured knots 11.31/21.80/30.96/41.99° →
+  1.024/1.091/1.194/1.369, calibrated by matching the uz diagonal of the
+  element K to Nastran KGG on the skew atomic family; flat extrapolation
+  beyond). With the law the skew_45 bending diagonals match KGG exactly
+  (ratio 1.000). Applied only for `is_iso && !is_pcomp` elements — identity on
+  rectangles and inert on all-PCOMP models.
 - SOL105 MacNeal warp-eligibility is now raised for isotropic elements
   (`JFEM_Q4_MACNEAL_WARP_TOL_ISO`, default 1.0). Element-level Nastran KGG
   extraction on the warp atomics showed the shared 1e-4 `macneal_warp_tol`

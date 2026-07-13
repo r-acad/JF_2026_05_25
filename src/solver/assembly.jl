@@ -1076,6 +1076,29 @@ end
     return solver_env_bool("JFEM_KG_SHELL_PRINCIPAL_TRANSVERSE_FLAT_ONLY", false)
 end
 
+@inline function kg_quad4_iso_nastran_kdjj_mode()
+    # Kg operator for flat isotropic (non-PCOMP) CQUAD4: replace the element
+    # Kg with the Nastran-KDJJ-exact kernel
+    # (FEM.geometric_stiffness_quad4_nastran_kdjj_iso).
+    #   off  -> never
+    #   skew -> only when the element corner angle deviates from 90deg by more
+    #           than JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ_SKEW_MIN_DEG (rectangular
+    #           elements keep the legacy operator bit-identically)
+    #   all  -> every flat isotropic non-PCOMP CQUAD4
+    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ", "skew")))
+    if raw in ("off", "false", "0", "none")
+        return :off
+    elseif raw in ("all", "always", "true", "1")
+        return :all
+    else
+        return :skew
+    end
+end
+
+@inline function kg_quad4_iso_nastran_kdjj_skew_min_deg()
+    return max(solver_env_float("JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ_SKEW_MIN_DEG", 2.0), 0.0)
+end
+
 @inline function kg_shell_principal_transverse_warp_ratio_max()
     return max(solver_env_float("JFEM_KG_SHELL_PRINCIPAL_TRANSVERSE_WARP_RATIO_MAX", 1e-6), 0.0)
 end
@@ -8151,6 +8174,14 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         )
             elem_macneal_rbf_zb_scale = sol105_high_ts_taper_macneal_zb_value()
         end
+        # Iso-only skew law on the MacNeal RBF differential-gamma compliance
+        # (skew_45 decomposition defect A): the box-calibrated ZB_DIFF_SCALE
+        # under-softens transverse shear on skewed isotropic elements, leaving
+        # the bending block 1+0.57 sin^2(skew) over-stiff.  Gate requires
+        # !is_pcomp_ei -> provably inert on all-PCOMP guardrail models.
+        elem_macneal_rbf_zb_diff_skew_law =
+            solver_env_bool("JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SKEW_LAW_ISO", true) &&
+            is_iso_ei && !is_pcomp_ei
         elem_q4_kernel_mode_static = q4_kernel_mode_static
         if q4_macneal_pcomp_nemeth_force_all && on_macneal_by_nemeth
             elem_q4_kernel_mode_static = "macneal_all"
@@ -8593,7 +8624,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
-                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale)
+                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
+                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law)
             Ke_full = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                 q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
                 drill_scale=elem_drill_scale,
@@ -8615,7 +8647,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
-                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale)
+                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
+                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law)
             Ke_t = sep_Ke_blend[tid]
             @inbounds @fastmath for jj in 1:24, ii in 1:24
                 Ke_t[ii, jj] = (1.0 - elem_curved_iso_blend) * Ke_center[ii, jj] +
@@ -8681,7 +8714,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
-                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale)
+                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
+                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law)
             elseif curved_pcomp_blend < 1.0
                 Ke_center = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
@@ -8704,7 +8738,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
-                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale)
+                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
+                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law)
                 Ke_full = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
                     drill_scale=elem_drill_scale,
@@ -8726,7 +8761,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
-                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale)
+                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
+                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law)
                 Ke_t = sep_Ke_blend[tid]
                 @inbounds @fastmath for jj in 1:24, ii in 1:24
                     Ke_t[ii, jj] = (1.0 - curved_pcomp_blend) * Ke_center[ii, jj] +
@@ -8755,7 +8791,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
-                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale)
+                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
+                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law)
             end
         else
             Ke_t = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
@@ -8780,7 +8817,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
-                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale)
+                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
+                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law)
         end
         if elem_pcomp_k_macneal_blend > 0.0
             Ke_ref = Matrix(Ke_t)
@@ -8807,7 +8845,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode="macneal_all",
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
-                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale)
+                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
+                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law)
             Ke_macneal_ref = Matrix(Ke_macneal)
             Ke_t = sep_Ke_blend[tid]
             @inbounds @fastmath for jj in 1:24, ii in 1:24
@@ -9593,6 +9632,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     kg_trans_mode = kg_shell_trans_mode()
     kg_principal_transverse_flat_only = kg_shell_principal_transverse_flat_only_enabled()
     kg_principal_transverse_warp_ratio_max = kg_shell_principal_transverse_warp_ratio_max()
+    kg_iso_nastran_kdjj_mode_v = kg_quad4_iso_nastran_kdjj_mode()
+    kg_iso_nastran_kdjj_skew_min_deg_v = kg_quad4_iso_nastran_kdjj_skew_min_deg()
     kg_principal_shear_yy_factor_v = kg_shell_principal_shear_yy_factor()
     kg_principal_shear_xy_factor_v = kg_shell_principal_shear_xy_factor()
     kg_principal_shear_z_factor_v = kg_shell_principal_shear_z_factor()
@@ -10727,6 +10768,17 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                                   elem_is_flat_kg &&
                                   get(prop, "Bmb", nothing) === nothing &&
                                   maximum(abs, prop["Cb"]) > 1e-30
+            # Nastran-KDJJ-exact Kg for flat isotropic (non-PCOMP) CQUAD4.
+            # Provably inert on all-PCOMP models (gate requires !is_pcomp_clt),
+            # same guardrail class as the high-skew/warp-tol kernel-gate fixes.
+            kg_nastran_kdjj_iso_branch =
+                kg_iso_nastran_kdjj_mode_v !== :off &&
+                is_iso_kg &&
+                !is_pcomp_clt &&
+                elem_is_flat_kg &&
+                get(prop, "Bmb", nothing) === nothing &&
+                (kg_iso_nastran_kdjj_mode_v === :all ||
+                 abs(90.0 - edge_skew_kg) >= kg_iso_nastran_kdjj_skew_min_deg_v)
             kg_flat_plate_auto = is_pcomp_clt &&
                                  flat_pcomp_plate_auto &&
                                  !pcomp_is_isotropic &&
@@ -12049,7 +12101,11 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 synth_Cb_kg !== nothing
             warped_matrix_synth_blend =
                 clamp(solver_env_float("JFEM_SOL105_KG_WARPED_MATRIX_BLEND", 1.0), 0.0, 1.0)
-            if warped_matrix_synth_requested && warped_matrix_synth_blend >= 1.0 - 1e-12
+            if kg_nastran_kdjj_iso_branch
+                Kg_loc = FEM.geometric_stiffness_quad4_nastran_kdjj_iso(
+                    lc_buf4, u_elem24, E_val, nu_val, h
+                )
+            elseif warped_matrix_synth_requested && warped_matrix_synth_blend >= 1.0 - 1e-12
                 Kg_loc = FEM.geometric_stiffness_quad4_nastran_warped_matrix_synth(
                     lc_buf4, sigma_mem_input, h, synth_Cb_kg
                 )
