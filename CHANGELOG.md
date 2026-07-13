@@ -9,10 +9,10 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - SOL105 flat isotropic (non-PCOMP) CQUAD4 geometric stiffness on skewed
   elements now uses a Nastran-KDJJ-exact element kernel
   (`geometric_stiffness_quad4_nastran_kdjj_iso`), gated by
-  `JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ` (default `skew`: fires only when the corner
-  angle deviates from 90° by more than
-  `JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ_SKEW_MIN_DEG`, default 2.0°; `all`/`off`
-  available). The reference in-plane differential stiffness was identified
+  `JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ` (default `all`: every flat isotropic
+  non-PCOMP CQUAD4; `skew` restricts to corner-angle deviation >
+  `JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ_SKEW_MIN_DEG` (2.0°), `off` restores the
+  legacy operator). The reference in-plane differential stiffness was identified
   entry-exactly from single-element MATPRN KDJJ extractions under pure uniform
   sigma_xx/yy/xy states: it is the component-wise transverse "string" rule
   applied in the CQUAD4 diagonal-bisector element frame with per-GP stress
@@ -23,10 +23,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
   elements (entry ratios 0.26…2.81 vs KDJJ). The new kernel matches KDJJ
   in-plane to 0.001–0.003% across skew 0/10/20/30/45 and drives
   atomic_skew_45p0 mode-1 lambda from **+15.9% to +2.1%** under production
-  flags (skew_20 +2.3→−0.9%, skew_30 +2.4→−0.2%; warp and all rectangular
-  atomics unchanged/exact). Rectangular elements keep the legacy operator
-  bit-identically; the gate requires `!is_pcomp`, so all-PCOMP models (the
-  box/tail-box guardrail) are inert by construction.
+  flags (skew_20 +2.3→−0.9%, skew_30 +2.4→−0.2%). On rectangular elements the
+  legacy operator's element-MEAN stress destroys the per-GP field variation
+  that gradient-load states depend on (KDJJ entry mismatch 66/69/38% on
+  load_uy/load_shear/aspect_2 vs ≤0.03% for this kernel): with the kernel,
+  **atomic_load_uy goes +54.9%→0.000% and atomic_load_shear −30.4%→0.000%**,
+  while every previously-exact atomic (load_ux/biax, warp, aspect, thick,
+  poisson, PCOMP, curved) is unchanged. The gate requires `!is_pcomp`, so
+  all-PCOMP models (the box/tail-box guardrail) are inert by construction.
 - SOL105 MacNeal RBF differential-gamma compliance now carries an
   isotropic-only skew law (`JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SKEW_LAW_ISO`, default
   true): the box-calibrated `JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SCALE=0.625`

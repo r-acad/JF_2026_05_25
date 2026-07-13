@@ -1084,8 +1084,14 @@ end
     #   skew -> only when the element corner angle deviates from 90deg by more
     #           than JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ_SKEW_MIN_DEG (rectangular
     #           elements keep the legacy operator bit-identically)
-    #   all  -> every flat isotropic non-PCOMP CQUAD4
-    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ", "skew")))
+    #   all  -> every flat isotropic non-PCOMP CQUAD4 (default: the legacy
+    #           operator's element-MEAN stress destroys the per-GP field
+    #           variation that gradient-load states live on — KDJJ entry
+    #           mismatch 66/69/38% on load_uy/load_shear/aspect_2 vs
+    #           0.03% for this kernel; eigen load_uy +54.9%->0.000%,
+    #           load_shear -30.4%->0.000%, all previously-exact atomics
+    #           unchanged)
+    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ", "all")))
     if raw in ("off", "false", "0", "none")
         return :off
     elseif raw in ("all", "always", "true", "1")
