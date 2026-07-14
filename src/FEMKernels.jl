@@ -1384,7 +1384,7 @@ include(joinpath(@__DIR__, "experimental", "hu_washizu_kernel.jl"))
 # Pre-allocated workspace `ws` eliminates ALL heap allocations in the hot loop
 # (~5M alloc saved across HTP_launch).
 # =============================================================================
-function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_assumed_mode::Symbol=:none, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, macneal_rbf_zb_scale::Union{Nothing,Float64}=nothing, macneal_rbf_zb_diff_skew_law::Bool=false)
+function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_assumed_mode::Symbol=:none, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, macneal_rbf_zb_scale::Union{Nothing,Float64}=nothing, macneal_rbf_zb_diff_skew_law::Bool=false, macneal_rbf_zb_diff_skew_directional::Bool=false)
     # Allow env-var override for marguerre_warp_to_uz so it can be enabled
     # globally without plumbing through every caller. Currently the assembly
     # loop doesn't pass this kwarg, so default is false. Env override:
@@ -2296,6 +2296,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             flex_mode_override=macneal_rbf_flex_mode,
             zb_scale_override=macneal_rbf_zb_scale,
             zb_diff_skew_law=macneal_rbf_zb_diff_skew_law,
+            zb_diff_skew_directional=macneal_rbf_zb_diff_skew_directional,
         )
     end
 
@@ -2516,6 +2517,7 @@ function add_quad4_macneal_shear_rbf!(
     flex_mode_override::Symbol = :env,
     zb_scale_override::Union{Nothing,Float64} = nothing,
     zb_diff_skew_law::Bool = false,
+    zb_diff_skew_directional::Bool = false,
 )
     # Shortcut: skip if thickness or shear modulus is effectively zero
     if h < 1e-30 || (!rigid_shear && maximum(abs, Cs) < 1e-30)
@@ -2862,8 +2864,34 @@ function add_quad4_macneal_shear_rbf!(
                     break
                 end
             end
-            zb_dx *= g_skew
-            zb_dy *= g_skew
+            if zb_diff_skew_directional
+                # Composite (anisotropic laminate) elements need a DIRECTIONAL skew
+                # correction, not the isotropic symmetric one: element-KGG matching on
+                # skewed PCOMP cantilevers (2026-07-15, 3ply [0/90/0] + 4ply
+                # [45/-45/0/90]) shows the element-LOCAL x-axis differential shear is
+                # the over-stiff direction (bending block 97.6% -> single digits when
+                # only zb_dx is boosted; boosting zb_dy makes it WORSE).  The boost is
+                # keyed to the element-local frame (edge 1->2), so it is node-order /
+                # global-orientation robust (verified on a relabeled y-skew element).
+                # Calibrated zb_dx factor vs corner-angle deviation (zb_dy stays at
+                # base): dev 0/10/21.8/30/42 deg -> factor 1.0/1.0/1.20/1.36/2.08.
+                DIR_KNOTS  = (0.0, 10.0, 21.80, 30.0, 41.99)
+                DIR_FACTOR = (1.0, 1.0,  1.20,  1.36, 2.08)
+                g_dir = DIR_FACTOR[end]
+                for i in 2:length(DIR_KNOTS)
+                    if skew_dev <= DIR_KNOTS[i]
+                        t = (skew_dev - DIR_KNOTS[i-1]) / (DIR_KNOTS[i] - DIR_KNOTS[i-1])
+                        g_dir = DIR_FACTOR[i-1] + t * (DIR_FACTOR[i] - DIR_FACTOR[i-1])
+                        break
+                    end
+                end
+                zb_dx *= g_dir
+                # zb_dy unchanged (base): the y-axis differential shear is not the
+                # skew-over-stiff direction.
+            else
+                zb_dx *= g_skew
+                zb_dy *= g_skew
+            end
         end
     end
     if per_gp_delta && !swap_xy

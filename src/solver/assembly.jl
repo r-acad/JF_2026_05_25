@@ -8204,7 +8204,18 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             (solver_env_bool("JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SKEW_LAW_ISO", true) &&
              is_iso_ei && !is_pcomp_ei) ||
             (solver_env_bool("JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SKEW_LAW_PCOMP", false) &&
-             is_pcomp_ei)
+             is_pcomp_ei) ||
+            (solver_env_bool("JFEM_SOL105_PCOMP_SKEW_BENDING", false) &&
+             is_pcomp_ei && !is_pcomp_iso_ei && elem_is_flat)
+        # Composite (anisotropic laminate) skewed elements get the DIRECTIONAL skew
+        # correction (zb_dx boosted, zb_dy at base) instead of the isotropic symmetric
+        # one -- element-KGG matching (2026-07-15) shows the element-local x-axis is the
+        # skew-over-stiff direction on laminates.  Default OFF (guardrail-live: it
+        # moves flat composite box panels), opt-in JFEM_SOL105_PCOMP_SKEW_BENDING; lands
+        # with per-case accounting.
+        elem_macneal_rbf_zb_diff_directional =
+            solver_env_bool("JFEM_SOL105_PCOMP_SKEW_BENDING", false) &&
+            is_pcomp_ei && !is_pcomp_iso_ei && elem_is_flat
         elem_q4_kernel_mode_static = q4_kernel_mode_static
         if q4_macneal_pcomp_nemeth_force_all && on_macneal_by_nemeth
             elem_q4_kernel_mode_static = "macneal_all"
@@ -8648,7 +8659,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
-                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law)
+                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
+                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional)
             Ke_full = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                 q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
                 drill_scale=elem_drill_scale,
@@ -8671,7 +8683,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
-                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law)
+                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
+                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional)
             Ke_t = sep_Ke_blend[tid]
             @inbounds @fastmath for jj in 1:24, ii in 1:24
                 Ke_t[ii, jj] = (1.0 - elem_curved_iso_blend) * Ke_center[ii, jj] +
@@ -8738,7 +8751,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
-                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law)
+                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
+                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional)
             elseif curved_pcomp_blend < 1.0
                 Ke_center = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
@@ -8762,7 +8776,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
-                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law)
+                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
+                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional)
                 Ke_full = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
                     drill_scale=elem_drill_scale,
@@ -8785,7 +8800,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
-                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law)
+                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
+                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional)
                 Ke_t = sep_Ke_blend[tid]
                 @inbounds @fastmath for jj in 1:24, ii in 1:24
                     Ke_t[ii, jj] = (1.0 - curved_pcomp_blend) * Ke_center[ii, jj] +
@@ -8815,7 +8831,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
-                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law)
+                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
+                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional)
             end
         else
             Ke_t = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
@@ -8841,7 +8858,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
-                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law)
+                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
+                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional)
         end
         if elem_pcomp_k_macneal_blend > 0.0
             Ke_ref = Matrix(Ke_t)
@@ -8869,7 +8887,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 kernel_mode="macneal_all",
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
-                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law)
+                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
+                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional)
             Ke_macneal_ref = Matrix(Ke_macneal)
             Ke_t = sep_Ke_blend[tid]
             @inbounds @fastmath for jj in 1:24, ii in 1:24
