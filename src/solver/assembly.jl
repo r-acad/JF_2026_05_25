@@ -8180,15 +8180,26 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         )
             elem_macneal_rbf_zb_scale = sol105_high_ts_taper_macneal_zb_value()
         end
-        # Iso-only skew law on the MacNeal RBF differential-gamma compliance
-        # (skew_45 decomposition defect A): the box-calibrated ZB_DIFF_SCALE
-        # under-softens transverse shear on skewed isotropic elements, leaving
-        # the bending block 1+0.57 sin^2(skew) over-stiff.  Gate requires
-        # !is_pcomp_ei -> provably inert on all-PCOMP guardrail models.
-        # PCOMP opt-in (JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SKEW_LAW_PCOMP, default OFF)
-        # is an INVESTIGATION knob: the skewed-PCOMP elastic-K bending block shows
-        # the same over-stiff signature; measure whether the same law helps before
-        # any default change.  Default off -> guardrail-inert.
+        # Skew law on the MacNeal RBF differential-gamma compliance (skew_45
+        # decomposition defect A): the box-calibrated ZB_DIFF_SCALE under-softens
+        # transverse shear on skewed elements, leaving the bending block
+        # 1+0.57 sin^2(skew) over-stiff.  The law is GEOMETRY-ONLY (its factor
+        # g_skew is a function of the corner-angle deviation from 90deg, identity
+        # at 0deg) and MATERIAL-AGNOSTIC (it scales a transverse-shear compliance,
+        # no laminate terms) -- so it is physically correct for any material.
+        # The iso->PCOMP transfer was verified exact on iso-layer PCOMP (bending
+        # 32->3.2% at skew45, same knots).
+        #
+        # For ISOTROPIC (MAT1) elements the law stays default ON (shipped).
+        # For PCOMP it is default OFF: although the law is a clean formulation
+        # fix, the box/tail-box guardrail contains MILDLY-SKEWED PCOMP panels
+        # whose compensating Kg/K scale stack was tuned against the OLD (uncorrected)
+        # bending -- so enabling the correct law regresses ~6/15 box cases by
+        # 0.05-0.12% via lost managed cancellation.  Per the formulation-over-
+        # compensation directive, the PCOMP promotion must land together with the
+        # coordinated unwind of those compensating scales (elastic-K fix Steps 2/4);
+        # until then it is held OFF-by-default with element evidence recorded.
+        # JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SKEW_LAW_PCOMP=true opts PCOMP in for that work.
         elem_macneal_rbf_zb_diff_skew_law =
             (solver_env_bool("JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SKEW_LAW_ISO", true) &&
              is_iso_ei && !is_pcomp_ei) ||
