@@ -7719,6 +7719,18 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 q4_el_mcid[ei],
                 model["CORDs"],
             )
+            # Frame-consistency correction for skewed composites (elastic-K membrane
+            # defect): the membrane B-matrix is built in the element-local (lc = v1,v2)
+            # frame, but the laminate A/Cm is expressed in the material frame.  For an
+            # axis-aligned rectangle v1 == global x so they coincide, but on a SKEWED
+            # element the lc frame (v1) is rotated from global by the element-frame
+            # angle, so A must be rotated by that same angle to stay consistent with the
+            # lc-frame B -- otherwise the bilinear Bm_lc' * A_material * Bm_lc is
+            # equivalent to using A rotated by the skew angle, giving a spurious A16/A26
+            # and an ~80%-off membrane block vs Nastran KGG (which keeps B and A in one
+            # consistent frame).  Add the element-frame angle to beta.  Gate
+            # JFEM_SOL105_PCOMP_SKEW_MEMBRANE (default OFF, guardrail-live -> lands with
+            # per-case accounting); non-skew (v1 ~ global x) elements are unaffected.
             elem_material_shear_rotation = beta
             if abs(beta) > 1e-10
                 cb = cos(beta); sb = sin(beta)
@@ -7735,6 +7747,27 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 Cs_local[2,2] = sb^2*a11 - 2*cb*sb*a12 + cb^2*a22
                 if Bmb_local !== nothing
                     _rotate_constitutive_3x3!(Bmb_local, T11, T12, T13, T21, T22, T23, T31, T32, T33)
+                end
+            end
+            # Frame-consistency correction for skewed composites (elastic-K MEMBRANE
+            # defect): the membrane B-matrix is built in the element-local (lc = v1,v2)
+            # frame, but the laminate MEMBRANE Cm is expressed in the material frame.
+            # For an axis-aligned rectangle v1 == global x so they coincide; on a SKEWED
+            # element v1 is rotated from global by the element-frame angle, so Cm must be
+            # rotated by that angle to stay consistent with the lc-frame Bm -- else
+            # Bm_lc' * Cm_material * Bm_lc == Cm rotated by the skew angle, giving spurious
+            # A16/A26 and an ~80%-off membrane block vs Nastran KGG (which keeps B and Cm
+            # in one consistent frame).  Apply to Cm ONLY (bending/shear already handled
+            # their own frames; the committed skew-BENDING law owns Cb/Cs).  Gate
+            # JFEM_SOL105_PCOMP_SKEW_MEMBRANE (default OFF, guardrail-live).
+            if solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
+               !is_pcomp_iso_ei && elem_is_flat
+                phi = -atan(v1[2], v1[1])
+                if abs(phi) > 1e-10
+                    cbp = cos(phi); sbp = sin(phi)
+                    c2p = cbp^2; s2p = sbp^2; csp = cbp*sbp
+                    _rotate_constitutive_3x3!(Cm_local,
+                        c2p, s2p, csp, s2p, c2p, -csp, -2csp, 2csp, c2p - s2p)
                 end
             end
         elseif !q4_is_isotropic[ei] && q4_el_mcid[ei] > 0
