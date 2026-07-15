@@ -4680,6 +4680,186 @@ end
 # Validation vs Nastran KDJJ: in-plane 0.001-0.003% across skew 0/10/20/30/45
 # cantilevers and machine-exact on all three uniform states; w block <=1.3%
 # for skew<=20, 1.5-5.9% at skew 45 (vs ~15% for the plain metric).
+# Composite (laminate) variant of the Nastran-KDJJ Kg kernel.  Identical bisector-
+# frame component-string operator, but instead of recovering the membrane stress from
+# the isotropic D(E,nu) it consumes JFEM's ALREADY-RECOVERED per-GP membrane force
+# resultant field N_gp (4x3: nxx,nyy,nxy per Gauss point, in the element-local = lc =
+# bisector frame -- SAME frame the operator works in, so no rotation).  Using the
+# recovered N_gp (which includes the incompatible-mode membrane recovery) rather than a
+# compatible Cm*eps from u is essential: the compatible recovery under-recovers the skew
+# membrane badly (kernel hyper-sensitive to u), whereas N_gp is JFEM's validated field.
+# The shear component is CENTER-sampled (element mean of N_gp[:,3]) to match the KDJJ
+# rule.  N_gp is a stress RESULTANT (force/length) so the weight carries NO extra h.
+function geometric_stiffness_quad4_nastran_kdjj_pcomp_field(coords::AbstractMatrix,
+                                                            N_gp::AbstractMatrix)
+    Kg = zeros(24, 24)
+    x1 = coords[1,1]; y1 = coords[1,2]
+    x2 = coords[2,1]; y2 = coords[2,2]
+    x3 = coords[3,1]; y3 = coords[3,2]
+    x4 = coords[4,1]; y4 = coords[4,2]
+    d13x = x3 - x1; d13y = y3 - y1; l13 = hypot(d13x, d13y)
+    d42x = x2 - x4; d42y = y2 - y4; l42 = hypot(d42x, d42y)
+    (l13 < 1e-12 || l42 < 1e-12) && return Kg
+    bx = d13x / l13 + d42x / l42
+    by = d13y / l13 + d42y / l42
+    lb = hypot(bx, by)
+    lb < 1e-12 && return Kg
+    ce = bx / lb; se = by / lb
+    # center-sampled shear resultant (element mean of the per-GP nxy)
+    nxy_c = 0.25 * (N_gp[1,3] + N_gp[2,3] + N_gp[3,3] + N_gp[4,3])
+    X = (x1, x2, x3, x4); Y = (y1, y2, y3, y4)
+    function grad_p(r::Float64, s::Float64)
+        dNr = (-(1.0-s), (1.0-s), (1.0+s), -(1.0+s)) .* 0.25
+        dNs = (-(1.0-r), -(1.0+r), (1.0+r), (1.0-r)) .* 0.25
+        J11 = dNr[1]*X[1] + dNr[2]*X[2] + dNr[3]*X[3] + dNr[4]*X[4]
+        J12 = dNr[1]*Y[1] + dNr[2]*Y[2] + dNr[3]*Y[3] + dNr[4]*Y[4]
+        J21 = dNs[1]*X[1] + dNs[2]*X[2] + dNs[3]*X[3] + dNs[4]*X[4]
+        J22 = dNs[1]*Y[1] + dNs[2]*Y[2] + dNs[3]*Y[3] + dNs[4]*Y[4]
+        detJ = J11*J22 - J12*J21
+        abs(detJ) < 1e-14 && return nothing
+        i11 =  J22 / detJ; i12 = -J12 / detJ
+        i21 = -J21 / detJ; i22 =  J11 / detJ
+        dNx = MVector{4,Float64}(undef); dNy = MVector{4,Float64}(undef)
+        @inbounds for k in 1:4
+            gx = i11*dNr[k] + i12*dNs[k]
+            gy = i21*dNr[k] + i22*dNs[k]
+            dNx[k] =  ce * gx + se * gy
+            dNy[k] = -se * gx + ce * gy
+        end
+        return dNx, dNy, abs(detJ)
+    end
+    g0 = grad_p(0.0, 0.0)
+    g0 === nothing && return Kg
+    dNx0, dNy0, _ = g0
+    gp = 1.0 / sqrt(3.0)
+    gpts = ((-gp,-gp), (gp,-gp), (gp,gp), (-gp,gp))
+    @inbounds for gi in 1:4
+        r, s = gpts[gi]
+        g = grad_p(r, s)
+        g === nothing && continue
+        dNx, dNy, adetJ = g
+        w = adetJ
+        # per-GP resultant in the lc/bisector frame; shear center-sampled
+        sxx = N_gp[gi,1]; syy = N_gp[gi,2]; sxy = nxy_c
+        for i in 1:4
+            r0 = (i-1)*6
+            for j in 1:4
+                c0 = (j-1)*6
+                sym_xy = 0.5 * (dNx[i]*dNy[j] + dNy[i]*dNx[j])
+                kuu = w * (syy * dNy[i]*dNy[j] + sxy * sym_xy)
+                kvv = w * (sxx * dNx[i]*dNx[j] + sxy * sym_xy)
+                kuv = -w * sxy * 0.5 * (dNx[i]*dNx[j] + dNy[i]*dNy[j])
+                Kg[r0+1, c0+1] += ce*ce*kuu - 2.0*ce*se*kuv + se*se*kvv
+                Kg[r0+1, c0+2] += ce*se*kuu + (ce*ce - se*se)*kuv - se*ce*kvv
+                Kg[r0+2, c0+1] += se*ce*kuu + (ce*ce - se*se)*kuv - ce*se*kvv
+                Kg[r0+2, c0+2] += se*se*kuu + 2.0*se*ce*kuv + ce*ce*kvv
+                Kg[r0+3, c0+3] += w * (
+                    sxx * dNx[i]*dNx[j] +
+                    syy * dNy[i]*dNy[j] +
+                    sxy * (dNx0[i]*dNy0[j] + dNy0[i]*dNx0[j])
+                )
+            end
+        end
+    end
+    return Kg
+end
+
+function geometric_stiffness_quad4_nastran_kdjj_pcomp(coords::AbstractMatrix,
+                                                      u_e::AbstractVector,
+                                                      Cm_prime::AbstractMatrix,
+                                                      h::Float64)
+    Kg = zeros(24, 24)
+    h < 1e-30 && return Kg
+    x1 = coords[1,1]; y1 = coords[1,2]
+    x2 = coords[2,1]; y2 = coords[2,2]
+    x3 = coords[3,1]; y3 = coords[3,2]
+    x4 = coords[4,1]; y4 = coords[4,2]
+    d13x = x3 - x1; d13y = y3 - y1; l13 = hypot(d13x, d13y)
+    d42x = x2 - x4; d42y = y2 - y4; l42 = hypot(d42x, d42y)
+    (l13 < 1e-12 || l42 < 1e-12) && return Kg
+    bx = d13x / l13 + d42x / l42
+    by = d13y / l13 + d42y / l42
+    lb = hypot(bx, by)
+    lb < 1e-12 && return Kg
+    ce = bx / lb; se = by / lb
+    up = MVector{4,Float64}(undef)
+    vp = MVector{4,Float64}(undef)
+    @inbounds for k in 1:4
+        ux = u_e[(k-1)*6 + 1]
+        uy = u_e[(k-1)*6 + 2]
+        up[k] =  ce * ux + se * uy
+        vp[k] = -se * ux + ce * uy
+    end
+    # Cm_prime is the laminate membrane A-matrix rotated into the bisector/primed frame:
+    # sigma_resultant = Cm_prime * [eps_x'; eps_y'; gamma'].  Full anisotropic coupling.
+    c11 = Cm_prime[1,1]; c12 = Cm_prime[1,2]; c13 = Cm_prime[1,3]
+    c22 = Cm_prime[2,2]; c23 = Cm_prime[2,3]; c33 = Cm_prime[3,3]
+    X = (x1, x2, x3, x4); Y = (y1, y2, y3, y4)
+    function grad_p(r::Float64, s::Float64)
+        dNr = (-(1.0-s), (1.0-s), (1.0+s), -(1.0+s)) .* 0.25
+        dNs = (-(1.0-r), -(1.0+r), (1.0+r), (1.0-r)) .* 0.25
+        J11 = dNr[1]*X[1] + dNr[2]*X[2] + dNr[3]*X[3] + dNr[4]*X[4]
+        J12 = dNr[1]*Y[1] + dNr[2]*Y[2] + dNr[3]*Y[3] + dNr[4]*Y[4]
+        J21 = dNs[1]*X[1] + dNs[2]*X[2] + dNs[3]*X[3] + dNs[4]*X[4]
+        J22 = dNs[1]*Y[1] + dNs[2]*Y[2] + dNs[3]*Y[3] + dNs[4]*Y[4]
+        detJ = J11*J22 - J12*J21
+        abs(detJ) < 1e-14 && return nothing
+        i11 =  J22 / detJ; i12 = -J12 / detJ
+        i21 = -J21 / detJ; i22 =  J11 / detJ
+        dNx = MVector{4,Float64}(undef); dNy = MVector{4,Float64}(undef)
+        @inbounds for k in 1:4
+            gx = i11*dNr[k] + i12*dNs[k]
+            gy = i21*dNr[k] + i22*dNs[k]
+            dNx[k] =  ce * gx + se * gy
+            dNy[k] = -se * gx + ce * gy
+        end
+        return dNx, dNy, abs(detJ)
+    end
+    g0 = grad_p(0.0, 0.0)
+    g0 === nothing && return Kg
+    dNx0, dNy0, _ = g0
+    gam0 = 0.0
+    @inbounds for k in 1:4
+        gam0 += dNy0[k]*up[k] + dNx0[k]*vp[k]
+    end
+    gp = 1.0 / sqrt(3.0)
+    @inbounds for (r, s) in ((-gp,-gp), (gp,-gp), (gp,gp), (-gp,gp))
+        g = grad_p(r, s)
+        g === nothing && continue
+        dNx, dNy, adetJ = g
+        w = adetJ  # Cm_prime is a stress RESULTANT map (A-matrix) -> NO extra h
+        epx = 0.0; epy = 0.0
+        for k in 1:4
+            epx += dNx[k]*up[k]
+            epy += dNy[k]*vp[k]
+        end
+        # full anisotropic stress resultant; gamma center-sampled (gam0)
+        sxx = c11*epx + c12*epy + c13*gam0
+        syy = c12*epx + c22*epy + c23*gam0
+        sxy = c13*epx + c23*epy + c33*gam0
+        for i in 1:4
+            r0 = (i-1)*6
+            for j in 1:4
+                c0 = (j-1)*6
+                sym_xy = 0.5 * (dNx[i]*dNy[j] + dNy[i]*dNx[j])
+                kuu = w * (syy * dNy[i]*dNy[j] + sxy * sym_xy)
+                kvv = w * (sxx * dNx[i]*dNx[j] + sxy * sym_xy)
+                kuv = -w * sxy * 0.5 * (dNx[i]*dNx[j] + dNy[i]*dNy[j])
+                Kg[r0+1, c0+1] += ce*ce*kuu - 2.0*ce*se*kuv + se*se*kvv
+                Kg[r0+1, c0+2] += ce*se*kuu + (ce*ce - se*se)*kuv - se*ce*kvv
+                Kg[r0+2, c0+1] += se*ce*kuu + (ce*ce - se*se)*kuv - ce*se*kvv
+                Kg[r0+2, c0+2] += se*se*kuu + 2.0*se*ce*kuv + ce*ce*kvv
+                Kg[r0+3, c0+3] += w * (
+                    sxx * dNx[i]*dNx[j] +
+                    syy * dNy[i]*dNy[j] +
+                    sxy * (dNx0[i]*dNy0[j] + dNy0[i]*dNx0[j])
+                )
+            end
+        end
+    end
+    return Kg
+end
+
 function geometric_stiffness_quad4_nastran_kdjj_iso(coords::AbstractMatrix,
                                                     u_e::AbstractVector,
                                                     E::Float64,
