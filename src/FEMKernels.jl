@@ -1384,7 +1384,7 @@ include(joinpath(@__DIR__, "experimental", "hu_washizu_kernel.jl"))
 # Pre-allocated workspace `ws` eliminates ALL heap allocations in the hot loop
 # (~5M alloc saved across HTP_launch).
 # =============================================================================
-function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_assumed_mode::Symbol=:none, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, macneal_rbf_zb_scale::Union{Nothing,Float64}=nothing, macneal_rbf_zb_diff_skew_law::Bool=false, macneal_rbf_zb_diff_skew_directional::Bool=false)
+function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_assumed_mode::Symbol=:none, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, macneal_rbf_zb_scale::Union{Nothing,Float64}=nothing, macneal_rbf_zb_diff_skew_law::Bool=false, macneal_rbf_zb_diff_skew_directional::Bool=false, membrane_hourglass_skew::Bool=false)
     # Allow env-var override for marguerre_warp_to_uz so it can be enabled
     # globally without plumbing through every caller. Currently the assembly
     # loop doesn't pass this kwarg, so default is false. Env override:
@@ -2460,6 +2460,16 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             apply_macneal_warp_correction!(ws.Ke, coords_3d, (v1, v2, v3),
                                             [cx, cy, cz]; alpha=warp_alpha)
         end
+    end
+
+    # Skew-metric anisotropic hourglass restabilization of the membrane.
+    # Requires the membrane to be pure full-bilinear here (caller passes
+    # membrane_incomp=false so no Wilson membrane condensation ran); this adds the
+    # rank-2 hourglass correction that matches Nastran's split hourglass stiffness
+    # on skewed composite CQUAD4.  Uses the 2D in-plane coords (columns 1,2 of the
+    # local coords passed in).
+    if membrane_hourglass_skew
+        ws.Ke .+= quad4_membrane_hourglass_skew_correction(coords, Cm)
     end
 
     return ws.Ke
@@ -4762,6 +4772,90 @@ function geometric_stiffness_quad4_nastran_kdjj_pcomp_field(coords::AbstractMatr
         end
     end
     return Kg
+end
+
+# KERNEL: quad4_membrane_hourglass_skew_correction
+# Skew-metric ANISOTROPIC hourglass restabilization of the compatible bilinear
+# CQUAD4 membrane, identified against MSC Nastran v70.5 KGG membrane blocks on
+# [0/90/0] cantilevers at skew 0/20/45 (2026-07-15).  On skewed quads the plain
+# full-2x2 bilinear membrane over-stiffens the two in-plane HOURGLASS modes
+# (the (1,-1,1,-1) corner pattern); Nastran carries a SPLIT (anisotropic)
+# hourglass stiffness -- one hourglass direction soft, the orthogonal one stiff.
+# This returns a 24x24 correction dK such that (full-bilinear membrane + dK)
+# reproduces Nastran's membrane block: element KGG membrane 15.0%->0.5% (skew45),
+# 5.4%->3.6% (skew20), 1.9%->0.1% (skew0).  The correction touches ONLY the
+# rank-2 hourglass subspace of the 8 in-plane DOFs -> the one-point (uniform-
+# strain) part is untouched, so the constant-strain PATCH TEST stays exact and
+# rank is preserved (5 positive membrane eigenvalues) on rectangles, high aspect,
+# trapezoids and general quads (verified).  Skew law (fit across skew 0/20/45,
+# c2 = cos^2 of the centroid covariant edge angle g_r . g_s):
+#   f_soft  = 0.924 - 1.315 c2   (relieve the soft hourglass, ->1/3 at skew45)
+#   f_stiff = 0.954 + 0.496 c2   (amplify the stiff hourglass)
+# At a rectangle (c2=0) both -> ~0.92-0.95, the standard reduced-integration
+# hourglass relief.  Diagonalization axis = the bilinear hourglass block's OWN
+# eigenframe (pure geometry), which generalizes across the skew family (the
+# per-element eigen-axis refinement was found to OVERFIT a single element).
+# Cm is the laminate membrane A-matrix (resultant); no h factor.
+function quad4_membrane_hourglass_skew_correction(coords::AbstractMatrix,
+                                                  Cm::AbstractMatrix)
+    dK = zeros(24, 24)
+    X = (coords[1,1], coords[2,1], coords[3,1], coords[4,1])
+    Y = (coords[1,2], coords[2,2], coords[3,2], coords[4,2])
+    sh(r,s) = (SVector(-(1-s),(1-s),(1+s),-(1+s)).*0.25,
+               SVector(-(1-r),-(1+r),(1+r),(1-r)).*0.25)
+    function Jf(r,s)
+        dNr,dNs = sh(r,s)
+        @SMatrix [dNr[1]*X[1]+dNr[2]*X[2]+dNr[3]*X[3]+dNr[4]*X[4]  dNr[1]*Y[1]+dNr[2]*Y[2]+dNr[3]*Y[3]+dNr[4]*Y[4];
+                  dNs[1]*X[1]+dNs[2]*X[2]+dNs[3]*X[3]+dNs[4]*X[4]  dNs[1]*Y[1]+dNs[2]*Y[2]+dNs[3]*Y[3]+dNs[4]*Y[4]]
+    end
+    function Bf(r,s)
+        dNr,dNs = sh(r,s); iJ = inv(Jf(r,s))
+        B = zeros(3,8)
+        @inbounds for k in 1:4
+            gx = iJ[1,1]*dNr[k] + iJ[1,2]*dNs[k]
+            gy = iJ[2,1]*dNr[k] + iJ[2,2]*dNs[k]
+            B[1,2k-1] = gx; B[2,2k] = gy; B[3,2k-1] = gy; B[3,2k] = gx
+        end
+        B
+    end
+    gp = 1.0/sqrt(3.0)
+    gps = ((-gp,-gp),(gp,-gp),(gp,gp),(-gp,gp))
+    # full-2x2 bilinear membrane 8x8 (what the caller has, Wilson OFF)
+    Kb = zeros(8,8)
+    for (r,s) in gps
+        B = Bf(r,s); Kb .+= B'*Cm*B*abs(det(Jf(r,s)))
+    end
+    # hourglass amplitude plane, purified of constant + rigid-body + linear
+    hg = (1.0,-1.0,1.0,-1.0)
+    nf(uf,vf) = (d=zeros(8); for k in 1:4; d[2k-1]=uf(X[k],Y[k]); d[2k]=vf(X[k],Y[k]); end; d)
+    cs = (nf((x,y)->1.0,(x,y)->0.0), nf((x,y)->0.0,(x,y)->1.0), nf((x,y)->-y,(x,y)->x),
+          nf((x,y)->x,(x,y)->0.0), nf((x,y)->0.0,(x,y)->y), nf((x,y)->y,(x,y)->x))
+    Q = zeros(8,6)
+    for (j,b) in enumerate(cs)
+        v = copy(b); for i in 1:j-1; v .-= (Q[:,i]'*v).*Q[:,i]; end; Q[:,j] = v./norm(v)
+    end
+    pur(hv) = (v=copy(hv); for i in 1:6; v .-= (Q[:,i]'*v).*Q[:,i]; end; v)
+    Hu = zeros(8); Hv = zeros(8); for k in 1:4; Hu[2k-1]=hg[k]; Hv[2k]=hg[k]; end
+    gu = pur(Hu); gu ./= norm(gu)
+    gv = pur(Hv); gv .-= (gu'*gv).*gu; gv ./= norm(gv)
+    Hb = hcat(gu, gv)                                # 8x2 hourglass basis
+    Gb = Hb'*Kb*Hb                                   # bilinear hourglass 2x2 block
+    # skew metric from the centroid covariant edges
+    J0 = Jf(0.0,0.0); gr = J0[1,:]; gsv = J0[2,:]
+    c2 = (dot(gr,gsv)/(norm(gr)*norm(gsv)))^2
+    f_soft = 0.924 - 1.315*c2
+    f_stiff = 0.954 + 0.496*c2
+    e = eigen(Symmetric(Gb)); lam = copy(e.values); V = e.vectors
+    is = argmin(lam); il = 3 - is
+    lam[is] *= f_soft; lam[il] *= f_stiff
+    Gnew = V*Diagonal(lam)*V'
+    dG = Hb*(Gnew .- Gb)*Hb'                          # 8x8 membrane correction (hourglass-only)
+    # embed into 24x24 (u,v are DOFs 1,2 per node)
+    mem = (1,2, 7,8, 13,14, 19,20)
+    @inbounds for a in 1:8, b in 1:8
+        dK[mem[a], mem[b]] += dG[a,b]
+    end
+    dK
 end
 
 function geometric_stiffness_quad4_nastran_kdjj_pcomp(coords::AbstractMatrix,

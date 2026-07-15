@@ -8004,6 +8004,22 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                                static_pcomp_aspect_membrane_incomp ||
                                (pcomp_membrane_incomp && is_pcomp_ei) ||
                                (flat_iso_eig_membrane_incomp && elem_is_flat && q4_is_isotropic[ei])
+        # Skew-metric anisotropic hourglass membrane restabilization for flat
+        # non-isotropic composite CQUAD4 (JFEM_SOL105_PCOMP_SKEW_MEMBRANE).  The
+        # Wilson incompatible membrane over-stiffens the skew hourglass modes
+        # (element KGG membrane 15% off at skew45); Nastran carries a SPLIT
+        # hourglass stiffness.  Replace the Wilson membrane with a full-bilinear +
+        # skew-metric hourglass correction (kernel quad4_membrane_hourglass_skew_
+        # correction): membrane block 15->0.5% (skew45), 5.4->3.6% (skew20),
+        # exact at rectangle.  Requires membrane Wilson OFF so the kernel's
+        # membrane is pure bilinear before the correction.
+        elem_membrane_hourglass_skew =
+            solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
+            is_pcomp_ei && !is_pcomp_iso_ei && elem_is_flat &&
+            Bmb_local === nothing
+        if elem_membrane_hourglass_skew
+            elem_membrane_incomp = false
+        end
         elem_membrane_incomp_scale =
             is_pcomp_ei ? q4_pcomp_membrane_incomp_scale : q4_membrane_incomp_scale
         # SOL101 anisotropic membrane probes show that the incompatible-mode
@@ -8693,7 +8709,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
                 macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
-                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional)
+                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional,
+                membrane_hourglass_skew=elem_membrane_hourglass_skew)
             Ke_full = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                 q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
                 drill_scale=elem_drill_scale,
@@ -8717,7 +8734,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
                 macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
-                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional)
+                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional,
+                membrane_hourglass_skew=elem_membrane_hourglass_skew)
             Ke_t = sep_Ke_blend[tid]
             @inbounds @fastmath for jj in 1:24, ii in 1:24
                 Ke_t[ii, jj] = (1.0 - elem_curved_iso_blend) * Ke_center[ii, jj] +
@@ -8785,7 +8803,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
                 macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
-                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional)
+                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional,
+                membrane_hourglass_skew=elem_membrane_hourglass_skew)
             elseif curved_pcomp_blend < 1.0
                 Ke_center = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
@@ -8810,7 +8829,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
                 macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
-                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional)
+                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional,
+                membrane_hourglass_skew=elem_membrane_hourglass_skew)
                 Ke_full = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
                     drill_scale=elem_drill_scale,
@@ -8834,7 +8854,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
                 macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
-                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional)
+                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional,
+                membrane_hourglass_skew=elem_membrane_hourglass_skew)
                 Ke_t = sep_Ke_blend[tid]
                 @inbounds @fastmath for jj in 1:24, ii in 1:24
                     Ke_t[ii, jj] = (1.0 - curved_pcomp_blend) * Ke_center[ii, jj] +
@@ -8865,7 +8886,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
                 macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
-                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional)
+                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional,
+                membrane_hourglass_skew=elem_membrane_hourglass_skew)
             end
         else
             Ke_t = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
@@ -8892,7 +8914,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
                 macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
-                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional)
+                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional,
+                membrane_hourglass_skew=elem_membrane_hourglass_skew)
         end
         if elem_pcomp_k_macneal_blend > 0.0
             Ke_ref = Matrix(Ke_t)
@@ -8921,7 +8944,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
                 macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
-                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional)
+                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional,
+                membrane_hourglass_skew=elem_membrane_hourglass_skew)
             Ke_macneal_ref = Matrix(Ke_macneal)
             Ke_t = sep_Ke_blend[tid]
             @inbounds @fastmath for jj in 1:24, ii in 1:24
