@@ -10854,6 +10854,23 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 get(prop, "Bmb", nothing) === nothing &&
                 (kg_iso_nastran_kdjj_mode_v === :all ||
                  abs(90.0 - edge_skew_kg) >= kg_iso_nastran_kdjj_skew_min_deg_v)
+            # Nastran-KDJJ-exact Kg for FLAT COMPOSITE (PCOMP, non-isotropic)
+            # CQUAD4.  Same bisector-frame component-string operator as the iso
+            # branch, but the membrane stress resultant is JFEM's ALREADY-
+            # RECOVERED element field (N_res, the resultant) fed in directly --
+            # NOT recomputed inside the kernel.  Offline the resultant broadcast
+            # to all GPs (no frame rotation -- the recovered N is already in the
+            # lc = bisector frame) hits the KDJJ in-plane block at 6.7% (skew20)
+            # / 15.1% (skew45), vs 10.7/21.2% for the per-GP N_gp -- the
+            # resultant averages out recovery noise the per-GP field carries.
+            # Default OFF (JFEM_SOL105_PCOMP_SKEW_MEMBRANE, the composite-skew
+            # investigation flag); pairs with the elastic-K skew fixes.
+            kg_nastran_kdjj_pcomp_branch =
+                solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
+                is_pcomp_clt &&
+                !pcomp_is_isotropic &&
+                elem_is_flat_kg &&
+                get(prop, "Bmb", nothing) === nothing
             kg_flat_plate_auto = is_pcomp_clt &&
                                  flat_pcomp_plate_auto &&
                                  !pcomp_is_isotropic &&
@@ -10935,6 +10952,25 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     if Bmb_kg !== nothing
                         _rotate_constitutive_3x3!(Bmb_kg,
                             c2, s2, cs, s2, c2, -cs, -2cs, 2cs, c2-s2)
+                    end
+                end
+                # Frame-consistency on the Kg STRESS-RECOVERY side, mirroring the
+                # elastic-K membrane fix (0e38bd1).  quad4_membrane_force_field
+                # builds the recovery B-matrix in the element-LOCAL (lc = v1,v2
+                # bisector) frame; the recovered resultant N = Cm*eps must use a Cm
+                # in that SAME frame.  Without this, the skew recovery collapses the
+                # membrane shear resultant (skew45: nxy -0.71 -> -0.07) and the
+                # KDJJ Kg operator -- which needs nxy ~ -0.82 -- lands at 67% not
+                # the ~15% floor.  Rotate Cm_override by the same
+                # phi = -atan(v1[2],v1[1]) as the elastic-K side.  Same gate/scope.
+                if solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
+                   !pcomp_is_isotropic && elem_is_flat_kg
+                    phi_kg = -atan(v1[2], v1[1])
+                    if abs(phi_kg) > 1e-10
+                        cbp = cos(phi_kg); sbp = sin(phi_kg)
+                        c2p = cbp^2; s2p = sbp^2; csp = cbp*sbp
+                        _rotate_constitutive_3x3!(Cm_override,
+                            c2p, s2p, csp, s2p, c2p, -csp, -2csp, 2csp, c2p - s2p)
                     end
                 end
                 if kg_flat_plate_branch || kg_flat_dkmq_branch
@@ -12179,6 +12215,19 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             if kg_nastran_kdjj_iso_branch
                 Kg_loc = FEM.geometric_stiffness_quad4_nastran_kdjj_iso(
                     lc_buf4, u_elem24, E_val, nu_val, h
+                )
+            elseif kg_nastran_kdjj_pcomp_branch
+                # Feed the composite-KDJJ operator JFEM's recovered element
+                # membrane resultant N_res (already in the lc = bisector frame).
+                # The resultant broadcast to all 4 GPs is the offline-best field
+                # (skew45 15.1% vs per-GP 21.2%); NO frame rotation, NO /h *h
+                # round-trip -- N_res is already a resultant in the right frame.
+                Ngp_kdjj = Matrix{Float64}(undef, 4, 3)
+                @inbounds for gp_i in 1:4, comp in 1:3
+                    Ngp_kdjj[gp_i, comp] = N_res[comp]
+                end
+                Kg_loc = FEM.geometric_stiffness_quad4_nastran_kdjj_pcomp_field(
+                    lc_buf4, Ngp_kdjj
                 )
             elseif warped_matrix_synth_requested && warped_matrix_synth_blend >= 1.0 - 1e-12
                 Kg_loc = FEM.geometric_stiffness_quad4_nastran_warped_matrix_synth(
