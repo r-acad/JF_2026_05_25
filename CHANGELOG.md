@@ -24,6 +24,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
   skew-split law is additionally clamped to its calibrated range (c2 <= 0.5)
   so extreme sliver skew cannot drive the soft-mode factor negative
   (indefinite membrane block). Both gates remain default OFF.
+- The two composite-skew OPERATOR SWAPS under `JFEM_SOL105_PCOMP_SKEW_MEMBRANE`
+  (Wilson membrane -> bilinear + anisotropic hourglass restabilization, and
+  legacy Kg -> Nastran-KDJJ composite kernel) are now scoped to genuinely
+  skewed elements: corner-angle deviation >=
+  `JFEM_SOL105_PCOMP_SKEW_MEMBRANE_MIN_DEG` (default 10.0, the first nonzero
+  calibration knot band). Ungated they fired on every flat composite CQUAD4 —
+  on the box guardrail that replaced the element-validated Wilson membrane
+  (Nastran's own rectangle membrane) and the ratio-1.00 legacy rectangle Kg
+  (with an element-mean resultant broadcast that erases per-GP stress
+  gradients) on ~93% rectangular fleets, regressing a mild-skew box case from
+  +0.36% to -13.0% (threshold sweep: 2 deg -5.1%, 10 deg -2.2%). Rectangles
+  and near-rectangles now keep the legacy operators bit-identically; the
+  analytic Cm/Bmb frame rotation stays ungated (it vanishes on rectangles).
+  `JFEM_SOL105_PCOMP_SKEW_MEMBRANE_KG=false` additionally disables just the
+  KDJJ Kg branch (attribution aid). Gates remain default OFF; promotion still
+  requires laminate-class generalization of the calibrated laws (the
+  guardrail decks carry exclusively +-45-faced stacks, where the
+  [0/90/0]-calibrated corrections are measured to transfer poorly).
 
 ### Changed
 - SOL105 flat isotropic (non-PCOMP) CQUAD4 geometric stiffness on skewed

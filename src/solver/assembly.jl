@@ -1105,6 +1105,26 @@ end
     return max(solver_env_float("JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ_SKEW_MIN_DEG", 2.0), 0.0)
 end
 
+@inline function sol105_pcomp_skew_membrane_min_deg()
+    # Corner-angle deviation (deg from 90) below which the composite skew-
+    # membrane OPERATOR SWAPS (bilinear+hourglass membrane replacing the Wilson
+    # incompatible membrane; KDJJ composite Kg replacing the legacy operator)
+    # stay OFF and the element keeps the legacy operators bit-identically.
+    # These kernels are SKEW corrections calibrated at deviation 20-45 deg;
+    # ungated they fired on EVERY flat composite element (93% rectangles on the
+    # box guardrail), replacing the element-validated Wilson membrane and the
+    # gradient-capable legacy Kg fleet-wide (2026-07-16 canary: -13% on a
+    # mild-skew box that the skewed-element fixes never targeted).  Measured
+    # threshold sweep on that canary (iter_291, baseline +0.36%): unscoped
+    # -13.0%, gate 2 deg -5.1%, gate 10 deg -2.2% -- monotone recovery as the
+    # swap is restricted to the deviation range the calibration covers.
+    # Default 10.0 = the first nonzero calibration knot band (zb law identity
+    # below ~10 deg; hourglass split calibrated at 0/20/45 deg).  The
+    # analytic Cm/Bmb frame rotation needs no gate (it vanishes continuously
+    # on rectangles: side 1-2 || v1 -> phi = 0).
+    return max(solver_env_float("JFEM_SOL105_PCOMP_SKEW_MEMBRANE_MIN_DEG", 10.0), 0.0)
+end
+
 @inline function kg_shell_principal_transverse_warp_ratio_max()
     return max(solver_env_float("JFEM_KG_SHELL_PRINCIPAL_TRANSVERSE_WARP_RATIO_MAX", 1e-6), 0.0)
 end
@@ -8032,10 +8052,15 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # correction): membrane block 15->0.5% (skew45), 5.4->3.6% (skew20),
         # exact at rectangle.  Requires membrane Wilson OFF so the kernel's
         # membrane is pure bilinear before the correction.
+        # SKEW-SCOPED (2026-07-16): the swap replaces the Wilson membrane, which
+        # is the element-validated Nastran-matching operator on rectangles --
+        # only elements with real corner-angle deviation get the skew kernel;
+        # rectangles keep the legacy membrane bit-identically.
         elem_membrane_hourglass_skew =
             solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
             is_pcomp_ei && !is_pcomp_iso_ei && elem_is_flat &&
-            Bmb_local === nothing
+            Bmb_local === nothing &&
+            abs(90.0 - edge_skew_ei) >= sol105_pcomp_skew_membrane_min_deg()
         if elem_membrane_hourglass_skew
             elem_membrane_incomp = false
         end
@@ -10908,12 +10933,21 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             # resultant averages out recovery noise the per-GP field carries.
             # Default OFF (JFEM_SOL105_PCOMP_SKEW_MEMBRANE, the composite-skew
             # investigation flag); pairs with the elastic-K skew fixes.
+            # SKEW-SCOPED (2026-07-16): the KDJJ composite kernel consumes the
+            # element-mean N_res broadcast to all GPs -- correct where the legacy
+            # operator's skew SHAPE error dominates (dev >= threshold), but a
+            # gradient-state regression on rectangles where the legacy Kg was
+            # already ratio-1.00 vs KDJJ.  Rects keep the legacy operator.
+            # JFEM_SOL105_PCOMP_SKEW_MEMBRANE_KG=false disables just this branch
+            # (attribution sub-gate; default follows the master flag).
             kg_nastran_kdjj_pcomp_branch =
                 solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
+                solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE_KG", true) &&
                 is_pcomp_clt &&
                 !pcomp_is_isotropic &&
                 elem_is_flat_kg &&
-                get(prop, "Bmb", nothing) === nothing
+                get(prop, "Bmb", nothing) === nothing &&
+                abs(90.0 - edge_skew_kg) >= sol105_pcomp_skew_membrane_min_deg()
             kg_flat_plate_auto = is_pcomp_clt &&
                                  flat_pcomp_plate_auto &&
                                  !pcomp_is_isotropic &&
