@@ -7751,23 +7751,42 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             end
             # Frame-consistency correction for skewed composites (elastic-K MEMBRANE
             # defect): the membrane B-matrix is built in the element-local (lc = v1,v2)
-            # frame, but the laminate MEMBRANE Cm is expressed in the material frame.
-            # For an axis-aligned rectangle v1 == global x so they coincide; on a SKEWED
-            # element v1 is rotated from global by the element-frame angle, so Cm must be
-            # rotated by that angle to stay consistent with the lc-frame Bm -- else
-            # Bm_lc' * Cm_material * Bm_lc == Cm rotated by the skew angle, giving spurious
-            # A16/A26 and an ~80%-off membrane block vs Nastran KGG (which keeps B and Cm
-            # in one consistent frame).  Apply to Cm ONLY (bending/shear already handled
-            # their own frames; the committed skew-BENDING law owns Cb/Cs).  Gate
-            # JFEM_SOL105_PCOMP_SKEW_MEMBRANE (default OFF, guardrail-live).
+            # frame, but with the raw-THETA axis modes (:element, and :warp_switch on
+            # flat quads) the laminate Cm is referenced to the PROJECTED SIDE 1-2 (the
+            # CQUAD4 THETA convention), not to v1.  On an axis-aligned rectangle side
+            # 1-2 || v1 so they coincide; on a SKEWED element they differ by the
+            # in-plane side-1-2 -> v1 angle, so Bm_lc' * Cm * Bm_lc is equivalent to
+            # using Cm rotated by that angle -- spurious A16/A26 and an ~80%-off
+            # membrane block vs Nastran KGG.  Rotate Cm by the OBJECTIVE in-plane angle
+            # (shell_material_rotation_from_g12: projected edge 1-2 measured from v1),
+            # NOT a global-axis proxy -- the earlier phi = -atan(v1_y, v1_x) was only
+            # valid for elements in the global XY plane with side 1-2 along +X, and
+            # mis-rotated vertical/inclined panels (A11<->A22 swap on webs) and
+            # violated frame-invariance (2026-07-16 review, confirmed numerically).
+            # Apply ONLY when beta came from a raw-THETA path: MCID and :g12/:global_x
+            # modes already contain the full element-frame angle (adding more would
+            # double-rotate).  Rotate Cm AND Bmb (same membrane-strain frame; matches
+            # how the beta block treats them).  Cb/Cs belong to the committed
+            # skew-BENDING law.  Gate JFEM_SOL105_PCOMP_SKEW_MEMBRANE (default OFF,
+            # guardrail-live).
             if solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
                !is_pcomp_iso_ei && elem_is_flat
-                phi = -atan(v1[2], v1[1])
-                if abs(phi) > 1e-10
-                    cbp = cos(phi); sbp = sin(phi)
-                    c2p = cbp^2; s2p = sbp^2; csp = cbp*sbp
-                    _rotate_constitutive_3x3!(Cm_local,
-                        c2p, s2p, csp, s2p, c2p, -csp, -2csp, 2csp, c2p - s2p)
+                mcid_phi = Int(q4_el_mcid[ei])
+                mcid_phi_active = mcid_phi > 0 && model["CORDs"] !== nothing &&
+                                  haskey(model["CORDs"], string(mcid_phi))
+                if !mcid_phi_active &&
+                   pcomp_axis_mode_eff !== :g12 && pcomp_axis_mode_eff !== :global_x
+                    phi = shell_material_rotation_from_g12(v1, v2, v3, p1, p2, 0.0)
+                    if abs(phi) > 1e-10
+                        cbp = cos(phi); sbp = sin(phi)
+                        c2p = cbp^2; s2p = sbp^2; csp = cbp*sbp
+                        _rotate_constitutive_3x3!(Cm_local,
+                            c2p, s2p, csp, s2p, c2p, -csp, -2csp, 2csp, c2p - s2p)
+                        if Bmb_local !== nothing
+                            _rotate_constitutive_3x3!(Bmb_local,
+                                c2p, s2p, csp, s2p, c2p, -csp, -2csp, 2csp, c2p - s2p)
+                        end
+                    end
                 end
             end
         elseif !q4_is_isotropic[ei] && q4_el_mcid[ei] > 0
@@ -10985,16 +11004,29 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 # in that SAME frame.  Without this, the skew recovery collapses the
                 # membrane shear resultant (skew45: nxy -0.71 -> -0.07) and the
                 # KDJJ Kg operator -- which needs nxy ~ -0.82 -- lands at 67% not
-                # the ~15% floor.  Rotate Cm_override by the same
-                # phi = -atan(v1[2],v1[1]) as the elastic-K side.  Same gate/scope.
+                # the ~15% floor.  Same OBJECTIVE in-plane angle and raw-THETA-path
+                # scoping as the elastic-K side (g12 projected-edge angle; the earlier
+                # -atan(v1_y,v1_x) proxy mis-rotated non-XY-plane panels; MCID and
+                # :g12/:global_x betas already contain the frame angle).  Rotate
+                # Cm_override AND Bmb_kg (same membrane-strain frame).
                 if solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
                    !pcomp_is_isotropic && elem_is_flat_kg
-                    phi_kg = -atan(v1[2], v1[1])
-                    if abs(phi_kg) > 1e-10
-                        cbp = cos(phi_kg); sbp = sin(phi_kg)
-                        c2p = cbp^2; s2p = sbp^2; csp = cbp*sbp
-                        _rotate_constitutive_3x3!(Cm_override,
-                            c2p, s2p, csp, s2p, c2p, -csp, -2csp, 2csp, c2p - s2p)
+                    mcid_kg_phi = Int(get(el, "MCID", 0))
+                    mcid_kg_phi_active = mcid_kg_phi > 0 && model["CORDs"] !== nothing &&
+                                         haskey(model["CORDs"], string(mcid_kg_phi))
+                    if !mcid_kg_phi_active &&
+                       kg_axis_mode_eff !== :g12 && kg_axis_mode_eff !== :global_x
+                        phi_kg = shell_material_rotation_from_g12(v1, v2, v3, p1, p2, 0.0)
+                        if abs(phi_kg) > 1e-10
+                            cbp = cos(phi_kg); sbp = sin(phi_kg)
+                            c2p = cbp^2; s2p = sbp^2; csp = cbp*sbp
+                            _rotate_constitutive_3x3!(Cm_override,
+                                c2p, s2p, csp, s2p, c2p, -csp, -2csp, 2csp, c2p - s2p)
+                            if Bmb_kg !== nothing
+                                _rotate_constitutive_3x3!(Bmb_kg,
+                                    c2p, s2p, csp, s2p, c2p, -csp, -2csp, 2csp, c2p - s2p)
+                            end
+                        end
                     end
                 end
                 if kg_flat_plate_branch || kg_flat_dkmq_branch

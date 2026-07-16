@@ -5,6 +5,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- The composite-skew investigation gates `JFEM_SOL105_PCOMP_SKEW_MEMBRANE` /
+  `JFEM_SOL105_PCOMP_SKEW_BENDING` (default OFF; membrane Cm frame-consistency,
+  anisotropic membrane hourglass restabilization, Nastran-KDJJ composite Kg,
+  directional skew-bending zb law) now compute the membrane frame-consistency
+  rotation objectively: the angle is the in-plane projected side-1-2 -> v1
+  angle (`shell_material_rotation_from_g12`), replacing a `-atan(v1_y, v1_x)`
+  global-azimuth proxy that was only valid for elements lying in the global XY
+  plane with side 1-2 along +X. The proxy mis-rotated the laminate A-matrix on
+  vertical/inclined panels (A11<->A22 swap on webs), violated frame invariance
+  under rigid rotation, and double-rotated MCID/`:g12`/`:global_x` elements
+  whose material rotation already contains the element-frame angle (the fix is
+  now scoped to raw-THETA axis modes only, and rotates Bmb together with Cm).
+  Verified: gate-ON eigenvalues are now identical for the same element placed
+  in the XY, YZ, XZ planes and under rigid in-plane rotation, while all
+  previously validated XY-plane results are unchanged. The membrane hourglass
+  skew-split law is additionally clamped to its calibrated range (c2 <= 0.5)
+  so extreme sliver skew cannot drive the soft-mode factor negative
+  (indefinite membrane block). Both gates remain default OFF.
+
 ### Changed
 - SOL105 flat isotropic (non-PCOMP) CQUAD4 geometric stiffness on skewed
   elements now uses a Nastran-KDJJ-exact element kernel

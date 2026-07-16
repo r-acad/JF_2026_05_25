@@ -4843,6 +4843,12 @@ function quad4_membrane_hourglass_skew_correction(coords::AbstractMatrix,
     # skew metric from the centroid covariant edges
     J0 = Jf(0.0,0.0); gr = J0[1,:]; gsv = J0[2,:]
     c2 = (dot(gr,gsv)/(norm(gr)*norm(gsv)))^2
+    # Split law calibrated on skew 0/20/45 (c2 in [0, 0.5]); hold the last
+    # calibrated point past c2 = 0.5 -- the linear law would drive f_soft
+    # NEGATIVE (indefinite membrane block) for c2 > 0.70, reachable on
+    # extreme sliver/trapezoid quads that pass the flat gate (2026-07-16
+    # review finding).  Flat extrapolation matches the zb-law precedent.
+    c2 = min(c2, 0.5)
     f_soft = 0.924 - 1.315*c2
     f_stiff = 0.954 + 0.496*c2
     e = eigen(Symmetric(Gb)); lam = copy(e.values); V = e.vectors
