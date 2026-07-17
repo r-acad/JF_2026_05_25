@@ -10985,6 +10985,11 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             # already ratio-1.00 vs KDJJ.  Rects keep the legacy operator.
             # JFEM_SOL105_PCOMP_SKEW_MEMBRANE_KG=false disables just this branch
             # (attribution sub-gate; default follows the master flag).
+            # JFEM_SOL105_PCOMP_KDJJ_MODE=all extends the KDJJ operator to
+            # EVERY flat composite (rects included) -- the composite analog of
+            # the iso kernel's skew->all promotion: with the SELC-consistent
+            # per-GP recovered field, the legacy element-mean operator's
+            # gradient-state defect is the thing being replaced (2026-07-17).
             kg_nastran_kdjj_pcomp_branch =
                 solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
                 solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE_KG", true) &&
@@ -10992,7 +10997,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 !pcomp_is_isotropic &&
                 elem_is_flat_kg &&
                 get(prop, "Bmb", nothing) === nothing &&
-                abs(90.0 - edge_skew_kg) >= sol105_pcomp_skew_membrane_min_deg()
+                (lowercase(strip(get(ENV, "JFEM_SOL105_PCOMP_KDJJ_MODE", "skew"))) == "all" ||
+                 abs(90.0 - edge_skew_kg) >= sol105_pcomp_skew_membrane_min_deg())
             kg_flat_plate_auto = is_pcomp_clt &&
                                  flat_pcomp_plate_auto &&
                                  !pcomp_is_isotropic &&
@@ -11158,18 +11164,33 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     Bmb=Bmb_kg,
                 )
             else
+                # Recovery-side twin of the SELC membrane (2026-07-17): the
+                # SOL101->N recovery must use the SAME operator as the
+                # elastic K (per-GP normal strains + CENTER-sampled shear in
+                # the lc frame, NO Wilson modes), or gradient fields recover
+                # a stress state inconsistent with the stiffness that
+                # produced u -- exact on uniform single-element states (why
+                # the probes pass) but wrong on real panels (the spurious
+                # local-mode mechanism).  Cm_override is already phi-rotated
+                # into the lc frame (96a4ff6), so the projection rotation is 0.
+                kg_membrane_selc =
+                    solver_env_bool("JFEM_SOL105_PCOMP_MEMBRANE_SELC", false) &&
+                    solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
+                    is_pcomp_clt && !pcomp_is_isotropic && elem_is_flat_kg &&
+                    Bmb_kg === nothing
                 N_gp, N_res, _ = FEM.quad4_membrane_force_field(
                     lc_buf4, u_elem24, E_val, nu_val, h;
                     Cm_override=Cm_override,
                     Bmb=Bmb_kg,
                     slope_membrane=slope_membrane_kg,
                     compatible_only=kg_compatible_membrane,
-                    use_incompatible_modes=elem_membrane_incomp_kg && !kg_iso_exact_membrane,
+                    use_incompatible_modes=elem_membrane_incomp_kg &&
+                        !kg_iso_exact_membrane && !kg_membrane_selc,
                     use_enhanced_modes=kg_iso_exact_membrane,
                     curvature_membrane=curvature_membrane,
-                    membrane_shear_center_row=false,
-                    material_shear_rotation=kg_material_shear_rotation,
-                    membrane_assumed_mode=kg_membrane_assumed_mode,
+                    membrane_shear_center_row=kg_membrane_selc,
+                    material_shear_rotation=kg_membrane_selc ? 0.0 : kg_material_shear_rotation,
+                    membrane_assumed_mode=kg_membrane_selc ? :none : kg_membrane_assumed_mode,
                     membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
                     # JFEM_KG_RECOVERY_CROSS_MEMBRANE_WEIGHTS (default OFF):
                     # align the Kg stress recovery's Wilson condensation with
@@ -11179,7 +11200,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     # mirroring the static-K gate.
                     mode_weights=(solver_env_bool(
                         "JFEM_KG_RECOVERY_CROSS_MEMBRANE_WEIGHTS", false) &&
-                        elem_is_flat_kg && Bmb_kg === nothing) ?
+                        elem_is_flat_kg && Bmb_kg === nothing &&
+                        !kg_membrane_selc) ?
                         (0.0, 1.0, 1.0, 0.0) : nothing,
                 )
             end
@@ -12357,9 +12379,26 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 # The resultant broadcast to all 4 GPs is the offline-best field
                 # (skew45 15.1% vs per-GP 21.2%); NO frame rotation, NO /h *h
                 # round-trip -- N_res is already a resultant in the right frame.
+                # 2026-07-17: with the SELC-consistent recovery
+                # (kg_membrane_selc), the per-GP field no longer carries the
+                # Wilson recovery noise that motivated the broadcast, and
+                # gradient stress states NEED the per-GP variation (the
+                # element-mean field is the iso load_uy/load_shear defect
+                # class: +55%/-30% before the per-GP iso kernel).  Env
+                # JFEM_SOL105_PCOMP_KDJJ_FIELD=res|gp (default gp when the
+                # SELC recovery is active, else res).
+                kdjj_field_raw = lowercase(strip(get(ENV, "JFEM_SOL105_PCOMP_KDJJ_FIELD", "")))
+                kdjj_use_gp = kdjj_field_raw == "gp" ||
+                              (isempty(kdjj_field_raw) && kg_membrane_selc)
                 Ngp_kdjj = Matrix{Float64}(undef, 4, 3)
-                @inbounds for gp_i in 1:4, comp in 1:3
-                    Ngp_kdjj[gp_i, comp] = N_res[comp]
+                if kdjj_use_gp
+                    @inbounds for gp_i in 1:4, comp in 1:3
+                        Ngp_kdjj[gp_i, comp] = N_gp[gp_i, comp]
+                    end
+                else
+                    @inbounds for gp_i in 1:4, comp in 1:3
+                        Ngp_kdjj[gp_i, comp] = N_res[comp]
+                    end
                 end
                 Kg_loc = FEM.geometric_stiffness_quad4_nastran_kdjj_pcomp_field(
                     lc_buf4, Ngp_kdjj
