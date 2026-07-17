@@ -5,6 +5,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `JFEM_SOL105_PCOMP_MEMBRANE_SELC` (default OFF): the exact Nastran QUAD4
+  flat-membrane operator for composite CQUAD4 — per-Gauss-point normal
+  strains with the membrane-shear row sampled once at the element center,
+  evaluated in the element (diagonal-bisector) frame with the
+  frame-consistent laminate Cm (requires `JFEM_SOL105_PCOMP_SKEW_MEMBRANE`
+  for the constitutive rotation). Identified 2026-07-17 by direct operator
+  matching against MATPRN KGG extractions: reproduces the Nastran membrane
+  block to 0.00% on parallelogram probes across skew 0–30 deg x aspect 1–5
+  for both [0/90/0] and 9-ply quasi-isotropic laminates, and to 0.001–0.002%
+  in the live assembly. This is the same selective-center operator the
+  flat-isotropic exact membrane already used (for isotropic C the frame is
+  irrelevant, which is why iso was already exact); it supersedes the Wilson
+  incompatible-mode membrane and the anisotropic hourglass restabilization
+  for these elements. The previously believed "Nastran membrane = Wilson
+  bubbles" (2026-07-04, 1.6–2.3% match) was approximate; Wilson degrades to
+  7–20% on skewed elements while this operator stays exact.
+
 ### Fixed
 - The composite-skew investigation gates `JFEM_SOL105_PCOMP_SKEW_MEMBRANE` /
   `JFEM_SOL105_PCOMP_SKEW_BENDING` (default OFF; membrane Cm frame-consistency,

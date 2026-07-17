@@ -7841,11 +7841,35 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             end
         end
         elem_no_phi2 = shear_center_only && elem_is_flat && is_pcomp_ei && !is_pcomp_iso_ei && flat_pcomp_no_phi2
+        # Nastran QUAD4 flat-membrane operator for COMPOSITES (identified
+        # 2026-07-17, calib_bisector_membrane.jl): per-GP normal strains +
+        # CENTER-sampled membrane-shear row, evaluated in the lc
+        # (diagonal-bisector) frame with the frame-consistent Cm (the
+        # JFEM_SOL105_PCOMP_SKEW_MEMBRANE g12 rotation puts Cm in that frame).
+        # This reproduces the Nastran KGG membrane block to 0.00% on
+        # parallelogram probes across skew 0-30 deg x aspect 1-5 for both the
+        # [0/90/0] and 9-ply quasi-isotropic laminates -- the same
+        # selective-center operator the flat-ISO exact membrane already uses
+        # (for iso C the frame is irrelevant, which is why iso was already
+        # exact).  Supersedes the Wilson membrane AND the hourglass
+        # restabilization for these elements.  Gate
+        # JFEM_SOL105_PCOMP_MEMBRANE_SELC (default OFF, guardrail-live);
+        # requires the SKEW_MEMBRANE gate so Cm is in the lc frame, hence the
+        # projection frame rotation is 0.
+        elem_pcomp_membrane_selc =
+            solver_env_bool("JFEM_SOL105_PCOMP_MEMBRANE_SELC", false) &&
+            solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
+            is_pcomp_ei && !is_pcomp_iso_ei && elem_is_flat &&
+            Bmb_local === nothing
+        if elem_pcomp_membrane_selc
+            elem_material_shear_rotation = 0.0
+        end
         # Use the exact pointwise membrane field for flat orthotropic laminates.
         # The constitutive rotation already puts the element into the material
         # frame, so no additional center-row shear projection is applied here.
         elem_membrane_shear_center_row =
-            flat_iso_eig_membrane_shear_center_row && elem_is_flat && q4_is_isotropic[ei]
+            (flat_iso_eig_membrane_shear_center_row && elem_is_flat && q4_is_isotropic[ei]) ||
+            elem_pcomp_membrane_selc
         elem_membrane_assumed_mode =
             if elem_is_flat && is_pcomp_ei && !is_pcomp_iso_ei && Bmb_local === nothing
                 if flat_pcomp_taper_membrane_none &&
@@ -8056,12 +8080,17 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # is the element-validated Nastran-matching operator on rectangles --
         # only elements with real corner-angle deviation get the skew kernel;
         # rectangles keep the legacy membrane bit-identically.
+        # SUPERSEDED by the selective-center membrane when
+        # JFEM_SOL105_PCOMP_MEMBRANE_SELC fires (2026-07-17): that operator is
+        # KGG-exact at every skew/aspect, so the hourglass restabilization must
+        # stay out of its way.
         elem_membrane_hourglass_skew =
+            !elem_pcomp_membrane_selc &&
             solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
             is_pcomp_ei && !is_pcomp_iso_ei && elem_is_flat &&
             Bmb_local === nothing &&
             abs(90.0 - edge_skew_ei) >= sol105_pcomp_skew_membrane_min_deg()
-        if elem_membrane_hourglass_skew
+        if elem_membrane_hourglass_skew || elem_pcomp_membrane_selc
             elem_membrane_incomp = false
         end
         elem_membrane_incomp_scale =
