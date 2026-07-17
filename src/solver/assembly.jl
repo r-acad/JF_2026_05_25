@@ -7806,6 +7806,22 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                             _rotate_constitutive_3x3!(Bmb_local,
                                 c2p, s2p, csp, s2p, c2p, -csp, -2csp, 2csp, c2p - s2p)
                         end
+                        # BENDING frame-consistency (investigation, 2026-07-17):
+                        # the bending Bb is built in the same lc frame as Bm,
+                        # so Cb (and the transverse-shear Cs) have the same
+                        # material-vs-lc frame mismatch the membrane had --
+                        # first-order for laminates with large material-frame
+                        # D16/D26 (quasi-isotropic stacks; the zb dials cannot
+                        # reach it: sweep floor ~10-16%).  Diagnostic opt-in.
+                        if solver_env_bool("JFEM_SOL105_PCOMP_SKEW_CB_FRAME", false)
+                            _rotate_constitutive_3x3!(Cb_local,
+                                c2p, s2p, csp, s2p, c2p, -csp, -2csp, 2csp, c2p - s2p)
+                            a11 = Cs_local[1,1]; a12 = Cs_local[1,2]; a22 = Cs_local[2,2]
+                            Cs_local[1,1] = cbp^2*a11 + 2*cbp*sbp*a12 + sbp^2*a22
+                            Cs_local[1,2] = -cbp*sbp*a11 + (cbp^2-sbp^2)*a12 + cbp*sbp*a22
+                            Cs_local[2,1] = Cs_local[1,2]
+                            Cs_local[2,2] = sbp^2*a11 - 2*cbp*sbp*a12 + cbp^2*a22
+                        end
                     end
                 end
             end
