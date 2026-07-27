@@ -2232,22 +2232,6 @@ function solve_model(backend::NastranParityBackend, model::Dict)
 
     K_eig = K
     t_asm_Keig = 0.0
-    sol105_use_static_k = sol_type == 105 && Solver.sol105_model_use_static_k(model)
-    if sol_type == 105 && !sol105_use_static_k
-        t_asm2 = time_ns()
-        membrane_incomp_eig = Solver.solver_env_bool("JFEM_SOL105_EIG_MEMBRANE_INCOMP", false)
-        pcomp_membrane_incomp_eig = Solver.solver_env_bool("JFEM_SOL105_EIG_PCOMP_MEMBRANE_INCOMP", false)
-        bending_incomp_eig = Solver.sol105_eig_bending_incomp_enabled()
-        K_eig, = Solver.assemble_stiffness(
-            model;
-            shear_center_only=true, bending_incomp=bending_incomp_eig,
-            membrane_incomp=membrane_incomp_eig,
-            pcomp_membrane_incomp=pcomp_membrane_incomp_eig,
-            snorm_angle_override=sol105_snorm_angle, iso_no_incomp=true,
-            sol105_context=true,
-        )
-        t_asm_Keig = (time_ns() - t_asm2) * 1e-9
-    end
 
     sorted_sids = sort(collect(keys(cc["SUBCASES"])))
 
@@ -2810,7 +2794,6 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     static_cache = Dict{Int, Any}()
     static_linear_solve_cache = ndof >= Solver.linear_solve_cache_min_ndof() ? Solver.create_linear_solve_cache() : nothing
     eigen_solve_cache = ndof >= Solver.eigen_solve_cache_min_ndof() ? Solver.create_eigen_solve_cache() : nothing
-    sol105_use_static_k = Solver.sol105_model_use_static_k(model)
     sol105_static_wall_seconds = 0.0
     sol105_kg_wall_seconds = 0.0
     sol105_buckling_wall_seconds = 0.0
@@ -2883,21 +2866,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                             membrane_incomp=static_membrane_incomp_for_load,
                             sol105_context=true,
                         )
-                    if sol105_use_static_k
-                        K_eig_static = K_static
-                    else
-                        membrane_incomp_eig = Solver.solver_env_bool("JFEM_SOL105_EIG_MEMBRANE_INCOMP", false)
-                        pcomp_membrane_incomp_eig = Solver.solver_env_bool("JFEM_SOL105_EIG_PCOMP_MEMBRANE_INCOMP", false)
-                        bending_incomp_eig = Solver.sol105_eig_bending_incomp_enabled()
-                        K_eig_static, = Solver.assemble_stiffness(
-                            model;
-                            shear_center_only=true, bending_incomp=bending_incomp_eig,
-                            membrane_incomp=membrane_incomp_eig,
-                            pcomp_membrane_incomp=pcomp_membrane_incomp_eig,
-                            snorm_angle_override=sol105_snorm_angle, iso_no_incomp=true,
-                            sol105_context=true,
-                        )
-                    end
+                    K_eig_static = K_static
                 end
                 _, _, _, u_static_analysis, fixed_dofs_static = Solver.solve_case(
                     K_static, ndof_static, model, id_map_static, X_static, load_id, spc_id_static, node_R_static;
@@ -2983,9 +2952,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                     u_static_analysis = u_la
                     fixed_dofs_static = fixed_la
                     K_static = K_la
-                    if sol105_use_static_k
-                        K_eig_static = K_la
-                    end
+                    K_eig_static = K_la
                     id_map_static = id_map_la; X_static = X_la; ndof_static = ndof_la
                     node_R_static = node_R_la; max_elem_stiff_static = max_elem_stiff_la
                     rbe3_map_static = rbe3_map_la; snorm_normals_static = snorm_normals_la

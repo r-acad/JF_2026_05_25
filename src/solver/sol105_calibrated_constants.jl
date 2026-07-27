@@ -50,23 +50,42 @@ const SOL105_CALIBRATED_CONSTANTS = (
                            "kept at 0.65 to balance HTP_launch on the MITC4 path."),
     ),
     macneal_warp_tol = (
-        value           = 1e-4,
+        value           = 1e-2,
         env             = "JFEM_Q4_MACNEAL_WARP_TOL",
         site            = "JFEM/src/solver/assembly.jl:2863",
         description     = "Maximum warp_ratio for an element to be MacNeal-eligible.",
-        provenance      = ("2026-04-30: relaxed from strict elem_is_flat tolerance " *
+        provenance      = ("2026-07-27: raised again 1e-4 -> 1e-2. MacNeal eligibility is tested " *
+                           "BEFORE the curvature branch, so cells above this bound never reach it. " *
+                           "HTP_launch's mode-hosting cells sit at warp/L = 1.5e-4, just over the " *
+                           "old line; JFEM's energy on Nastran's OWN HTP eigenvector was 2.24x too " *
+                           "stiff and drops to 0.906x once they stay on MacNeal. A dedicated warp " *
+                           "rig (single PCOMP cell, warp/L 0 -> 3e-3, Nastran MATPRN KGG) shows the " *
+                           "reference is warp-INSENSITIVE (476.39 -> 476.48) while JFEM stepped " *
+                           "459 -> 295 at the first nonzero warp. " *
+                           "2026-04-30: relaxed from strict elem_is_flat tolerance " *
                            "(1e-6) to 1e-4 so mildly-warped real aerodynamic meshes " *
                            "stay on MacNeal RBF instead of the inferior legacy MITC fallback."),
     ),
     macneal_pcomp_surface_kappa_l_max = (
-        value           = 1e-4,
+        value           = 1e6,
         env             = "JFEM_Q4_MACNEAL_PCOMP_SURFACE_KAPPA_L_MAX",
         site            = "JFEM/src/solver/assembly.jl:2198",
         description     = "Maximum κ_L for a curved PCOMP element to stay on MacNeal RBF kernel.",
-        provenance      = ("2026-05-22 PATH-1 sweep: above this κ_L threshold curved PCOMP " *
-                           "elements get the legacy MITC4 fallback. Forcing MacNeal everywhere " *
-                           "(threshold=1e6) closes synthetic K to 0.95 but regresses GAME " *
-                           "HTP_launch 511003 from +4.6% to +52.65%."),
+        provenance      = ("2026-07-27: RAISED 1e-4 -> 1e6 (gate effectively removed). The 1e-4 " *
+                           "bound sat orders of magnitude below any physical mesh scale: iter_6's " *
+                           "median κ_L is 8.1e-3, so 69.7% of its PCOMP elements were routed off " *
+                           "the MacNeal (MSC CQUAD4 lineage) kernel onto legacy MITC4+phi2, which " *
+                           "runs the assembled out-of-plane stiffness at median 2.68x Nastran KGG " *
+                           "(p75 4.23x) -> 1.05x/1.17x when opened. The 2026-05-22 note below does " *
+                           "NOT reproduce on current source: opening the gate IMPROVES HTP_launch " *
+                           "on both subcases (-9.5 -> -4.7%, -7.4 -> +4.7%). Validated by a " *
+                           "four-way oracle against Nastran's own KGG AND KDJJ (K_JFEM + Kg_Nastran " *
+                           "within 0.5% of the f06, and K_N + Kg_N reproducing it to 6 digits) plus " *
+                           "a 42-deck corpus screen (mean |err| 12.95 -> 8.64%, median 8.66 -> " *
+                           "5.11%, 31 of 42 decks improved). Superseded note: 2026-05-22 PATH-1 " *
+                           "sweep claimed threshold=1e6 regresses HTP_launch 511003 from +4.6% to " *
+                           "+52.65% — measured on the mis-routed baseline, without the covariant " *
+                           "shear and aspect-law settings promoted alongside this one."),
     ),
     macneal_pcomp_thick_h_over_l_min = (
         value           = 0.015,
@@ -150,34 +169,6 @@ const SOL105_CALIBRATED_CONSTANTS = (
                            "gave the best max-error guard result. Aggressive mode-localization " *
                            "filtering was rejected because it strongly regressed launch cases."),
     ),
-    geom_pcomp_thick_high_aspect_kg_scale = (
-        value           = "large mesh: scale=0.98, aspect 5.0..25.0, h/Lmax >= 0.03, shell elements >= 100; small mesh: scale=1.032, aspect 7.8..8.2",
-        env             = "JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SCALE, JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SMALL_MESH_SCALE, JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SMALL_MESH_ASPECT_MIN/MAX, JFEM_SOL105_GEOM_PCOMP_KG_ASPECT_MIN/MAX, JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_H_OVER_LMAX_MIN/MAX, JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_MIN_ELEMENTS",
-        site            = "JFEM/src/solver/assembly.jl (geometry/material-only PCOMP Kg scale)",
-        description     = "Thick, high-aspect orthotropic PCOMP geometric-stiffness resultant scale for SOL105.",
-        provenance      = ("2026-06-06 GAME promoted-default continuation. The HTP 3WP rows recovered " *
-                           "physical subspace projection only after the spectral cluster skip was made " *
-                           "non-destructive; their remaining RQ bias needed a small geometry/material " *
-                           "Kg correction. The h/Lmax gate excludes thin launch laminates with the same " *
-                           "planform, and the aspect gate excludes the lower-aspect VTP family except for " *
-                           "minor high-aspect tails. Small PCOMP meshes keep the old narrow a8-like " *
-                           "matrix-fingerprint scale so one-element NAST705 atomic probes remain on " *
-                           "their established formulation baseline without spreading the fallback to " *
-                           "a5/a7/a9 probe geometries."),
-    ),
-    geom_pcomp_htp574_branch_kg_scales = (
-        value           = "13-ply branch: scale=0.960, aspect 4.60..5.05, h/Lmax 0.0190..0.0210, pm45 0.14..0.17, pm90 0.43..0.49; 11-ply branch: scale=0.930, aspect 4.90..5.35, h/Lmax 0.0162..0.0169, pm45/pm90 0.17..0.20",
-        env             = "JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_* and JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_*",
-        site            = "JFEM/src/solver/assembly.jl (geometry/material-only PCOMP Kg scale)",
-        description     = "Descriptor-only PCOMP geometric-stiffness refinements for neighboring HTP-like laminate strip branches.",
-        provenance      = ("2026-06-28 HTP574 branch diagnostics. Modal-energy and localization-debug " *
-                           "runs showed the remaining low roots were controlled by 13-ply " *
-                           "pm45~0.15/pm90~0.46 elements and 11-ply pm45~pm90~0.18 strip " *
-                           "elements. The promoted candidate scales only these geometry, " *
-                           "thickness, ply-count, and ply-fraction windows; it uses no case names, " *
-                           "element/property IDs, groups, stress-state gates, or external " *
-                           "calibration table."),
-    ),
     # ─────────────────────────────────────────────────────────────────
     kg_quad4_stress_field_auto = (
         value           = "auto",
@@ -259,21 +250,6 @@ const SOL105_CALIBRATED_CONSTANTS = (
                            "start with K6ROT=100. A value too high may be just as detrimental " *
                            "as too low' (MSC Reference Guide pp.139). Sweep on GAME shows " *
                            "K6ROT=8333 (TACS-equivalent 83×) widens HTP_launch by 0.5%."),
-    ),
-    nemeth_pcomp_kg_bands_7_8 = (
-        value           = "band7 scale=0.96 for alpha 0.38..0.50, aspect 2.20..2.80, h/Lmax 0.0130..0.0138; band8 scale=1.21 for alpha 0.88..1.00, aspect 1.05..1.25, h/Lmax 0.0350..0.0385; both beta 1.90..1.95, gamma 0.14..0.17, delta 0.16..0.19",
-        env             = "JFEM_SOL105_NEMETH_PCOMP_KG7_* and JFEM_SOL105_NEMETH_PCOMP_KG8_*",
-        site            = "JFEM/src/solver/assembly.jl:sol105_nemeth_pcomp_kg_default",
-        description     = "Additional generic Nemeth-descriptor SOL105 PCOMP geometric-stiffness bands.",
-        provenance      = ("2026-06-23 FSLoad mode-family campaign. The broad thin balanced-9-ply " *
-                           "strip was slightly too soft relative to Nastran, while the compact " *
-                           "low-aspect balanced-9-ply strip that matches the Nastran hotspot " *
-                           "family was too high and was hidden behind a broad-family root. " *
-                           "The descriptor-only band pair made the compact strip the accepted " *
-                           "first mode on FSLoad 511002 while keeping all 12 large comparable " *
-                           "GAME/BOXES_LE first roots within 2%: FSDUAL_GUARD23C mean abs " *
-                           "0.869367%, max abs 1.964508%. No case names, IDs, groups, " *
-                           "stress-state, or external calibration table are used."),
     ),
     # ─────────────────────────────────────────────────────────────────
     # SOL105 buckling-spectrum filters. Localization remains default-on; the

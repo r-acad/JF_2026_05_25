@@ -1853,7 +1853,20 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     phi2_xi = phi2_shear
     phi2_eta = phi2_shear
     if !shear_center_only && !no_phi2 && _alpha > 0.0
-        L_char_sq = max(4.0 * abs_detJc, 1e-30)  # ≈ element area
+        # phi2 transverse-shear characteristic length. Default = 4*detJc (≈ element
+        # area), but on a SKEWED cell the area shrinks by sin(skew) while the spans
+        # (edge lengths) do not, so phi2=α h²/L² grows and the shear over-stiffens
+        # (verified vs Nastran KGG: distorted PCOMP cells 2-10× too stiff in
+        # out-of-plane translation / soft bending rotation). JFEM_Q4_PHI2_LCHAR_SKEWCORR
+        # replaces the area by the UNSHEARED area |r1||r2| (product of the two
+        # center-Jacobian edge-vector lengths) — identical to 4*detJc on rectangles
+        # (preserves all aspect calibration), larger on skewed cells (softer shear).
+        L_char_sq = if fem_env_bool("JFEM_Q4_PHI2_LCHAR_SKEWCORR", false)
+            r1r2 = sqrt((J11c*J11c + J12c*J12c) * (J21c*J21c + J22c*J22c))
+            max(4.0 * r1r2, 1e-30)
+        else
+            max(4.0 * abs_detJc, 1e-30)  # ≈ element area
+        end
         if macneal_rbf
             # MacNeal 1978 eq (12): 1/GA* = 1/GA + L²/(12 EI). Series-flexibility
             # form (alternative to the min-clamped phi2). Replaces phi2 when
@@ -2566,7 +2579,13 @@ function add_quad4_macneal_shear_rbf!(
     # rank-1 spurious stiffness of 8.4e4 on the alternating-θ twist pattern that
     # the reference treats as exactly shear-free (kex rect: JFEM==Nastran to
     # relF 3e-4; kex flat/orig: leak identical → taper, not warp).
-    shear_cov_mode = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_SHEAR_COVARIANT", "false")))
+    # 2026-07-27: default changed "false" -> "mitc". Previously measured as
+    # box-INERT, but that measurement was taken with ~70 % of PCOMP elements
+    # routed off the MacNeal kernel entirely by the kappa_L gate (see
+    # assembly.jl JFEM_Q4_MACNEAL_PCOMP_SURFACE_KAPPA_L_MAX). With the routing
+    # corrected the two are complementary: on iter_6 the gate alone gives
+    # +11.4 %, "mitc" alone is inert, and together they give -0.02 %.
+    shear_cov_mode = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_SHEAR_COVARIANT", "mitc")))
     shear_covariant = shear_cov_mode in ("1","true","yes","on")
     # "mitc": covariant sampling for the RANGE (taper-correct null space) with
     # PHYSICAL gamma_x/gamma_y rows reconstructed per sample via J^-1 on the
@@ -2777,11 +2796,21 @@ function add_quad4_macneal_shear_rbf!(
     # mode-1 lambda did NOT change (+9.09% vs +9.10% baseline) and mean got
     # slightly worse (2.42 → 2.51%). So the K/Kg cascade absorbs the
     # uniform-γ K_bb shift for real curved-shell buckling modes.
-    # Production default keeps zb_u = zb_d = zb_scale (legacy behavior); the
-    # split is exposed for per-element / per-physics calibration work.
+    # 2026-07-27: zb_u now defaults to MacNeal's PAPER value 1.0 rather than
+    # tracking zb_scale (1.28). The 2026-05-22 "no change on HTP_launch" note
+    # above was taken with the elements routed off the MacNeal kernel by the
+    # kappa_L gate. Re-measured against Nastran KGG on an aspect rig extended
+    # past the old aspect-5 ceiling (aspect 4/8/12/20/30 x skew 0/16/30, at the
+    # real skin thickness ratio h/Lmax = 0.0136), the out-of-plane block was
+    # 21 % (a4) to 49 % (a30) too stiff; with zb_u = 1.0 plus the directional
+    # aspect law below it lands at 0.8-5.6 %, out-of-plane ratio 0.957-0.993
+    # across the regime, and the FULL 24x24 error also improves (8.5 -> 6.3 %).
+    # NB judge this on the whole matrix: setting JFEM_Q4_MACNEAL_RBF_ZB_SCALE
+    # itself to 1.0 flatters the same eigenvalue while taking the full-matrix
+    # error from 8 % to 37 %.
     zb_u_raw = tryparse(Float64, strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_UNIFORM_SCALE", "")))
     zb_d_raw = tryparse(Float64, strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SCALE",    "")))
-    zb_u = zb_u_raw === nothing ? zb_scale : max(zb_u_raw, 1e-12)
+    zb_u = zb_u_raw === nothing ? 1.0 : max(zb_u_raw, 1e-12)
     zb_d = zb_d_raw === nothing ? zb_scale : max(zb_d_raw, 1e-12)
     # Per-direction differential-gamma scales (default = zb_d): the
     # reference-solver library shows the two differential shear-family modes
@@ -2803,7 +2832,11 @@ function add_quad4_macneal_shear_rbf!(
     # extrapolation overshot to 1.68 at 16.  RF is flat at 0.985 in the
     # extension band.  Linear interpolation between measured knots; linear
     # extrapolation beyond aspect 16 (last-segment slope, i.e. saturated).
-    if fem_env_bool("JFEM_Q4_MACNEAL_RBF_DIFF_ASPECT_LAW", false)
+    # 2026-07-27: default flipped OFF -> ON. This is a reference-MEASURED law and
+    # the aspect regime it covers is exactly where the operator was worst: on the
+    # extended aspect rig (4..30) it takes the assembled out-of-plane block from
+    # 1.49x Nastran to 1.36x on its own, and to 0.99x together with zb_u = 1.0.
+    if fem_env_bool("JFEM_Q4_MACNEAL_RBF_DIFF_ASPECT_LAW", true)
         Dx_l = 0.5 * abs(coords[2,1] + coords[3,1] - coords[1,1] - coords[4,1])
         Dy_l = 0.5 * abs(coords[3,2] + coords[4,2] - coords[1,2] - coords[2,2])
         a_rbf = max(Dx_l, Dy_l) / max(min(Dx_l, Dy_l), 1e-12)
@@ -2901,6 +2934,60 @@ function add_quad4_macneal_shear_rbf!(
             else
                 zb_dx *= g_skew
                 zb_dy *= g_skew
+            end
+            # JFEM_Q4_MACNEAL_RBF_ZB_SKEW_ASPECT_LAW (default OFF): the skew x
+            # aspect CROSS-term the constant base scale misses.  DOE-identified
+            # 2026-07-22 (uniform-stress single-element KGG extraction vs MSC
+            # v70.5, isostatic supports; skew {0..40} x aspect {1.2,2,3,4},
+            # 9-ply QI PCOMP, exact per-point zero of the rank-1 zb-mode
+            # projection via two-scale linear solve): the reference-matching
+            # base scale s* drifts DOWN from 0.625 as skew AND aspect grow;
+            # g2 = s*/0.625.  Bilinear knot interpolation, flat extrapolation;
+            # identity row at 0 deg keeps rectangles bit-identical (measured
+            # 0.9995 at 0 deg x aspect 4).  Applied to BOTH zb_dx and zb_dy
+            # (equivalent to scaling the base zb_d), composing multiplicatively
+            # AFTER the skew/directional/aspect laws exactly as measured.
+            if fem_env_bool("JFEM_Q4_MACNEAL_RBF_ZB_SKEW_ASPECT_LAW", false)
+                Dx_g2 = 0.5 * abs(coords[2,1] + coords[3,1] - coords[1,1] - coords[4,1])
+                Dy_g2 = 0.5 * abs(coords[3,2] + coords[4,2] - coords[1,2] - coords[2,2])
+                a_g2 = max(Dx_g2, Dy_g2) / max(min(Dx_g2, Dy_g2), 1e-12)
+                SK2 = (0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 40.0)
+                AK2 = (1.21, 2.0, 3.0, 4.0, 8.0, 16.0)
+                # Newton-refined knots (iterations 2-3, 2026-07-22): the zb term
+                # enters the stiffness through a compliance inversion, so the
+                # first (linear two-point) estimate over-corrected; these values
+                # zero the local secant around the law point per grid knot.
+                # a8/a16 columns measured at s5/s15/s25; s10/s20 interpolated
+                # between measured rows; s30/s40 ratio-scaled from the a4 column
+                # by the measured s25 aspect decrement (law ~saturates in aspect
+                # beyond 4: bend 0.01-0.4% at s5-s15 x a8-a16 with the a4 value).
+                G2 = ((1.0,    1.0,    1.0,    1.0,    1.0,    1.0),
+                      (0.9925, 0.9912, 0.9903, 0.9894, 0.9895, 0.9893),
+                      (0.9934, 0.9880, 0.9845, 0.9810, 0.9731, 0.9723),
+                      (0.9868, 0.9743, 0.9639, 0.9587, 0.9567, 0.9552),
+                      (0.9842, 0.9619, 0.9503, 0.9387, 0.9254, 0.9226),
+                      (0.9772, 0.9430, 0.9246, 0.9062, 0.8941, 0.8900),
+                      (0.9770, 0.9279, 0.8996, 0.8712, 0.8596, 0.8556),
+                      (0.9135, 0.9400, 0.8614, 0.7943, 0.7837, 0.7801))
+                si = length(SK2)
+                for i in 2:length(SK2)
+                    if skew_dev <= SK2[i]; si = i; break; end
+                end
+                ts = si > length(SK2) ? 1.0 :
+                     clamp((skew_dev - SK2[si-1]) / (SK2[si] - SK2[si-1]), 0.0, 1.0)
+                si = min(si, length(SK2))
+                ai = length(AK2)
+                for j in 2:length(AK2)
+                    if a_g2 <= AK2[j]; ai = j; break; end
+                end
+                ta = a_g2 <= AK2[1] ? 0.0 :
+                     clamp((a_g2 - AK2[ai-1]) / (AK2[ai] - AK2[ai-1]), 0.0, 1.0)
+                ai = min(ai, length(AK2))
+                glo = G2[si-1][ai-1] + ta * (G2[si-1][ai] - G2[si-1][ai-1])
+                ghi = G2[si][ai-1]   + ta * (G2[si][ai]   - G2[si][ai-1])
+                g2 = glo + ts * (ghi - glo)
+                zb_dx *= g2
+                zb_dy *= g2
             end
         end
     end
@@ -3251,43 +3338,6 @@ end
 # JFEM_SOL105_EIG_FLAT_PCOMP_DKMQ / _RECT_ADINI / _PLATE_BRANCH env knobs
 # (all default false).
 include(joinpath(@__DIR__, "experimental", "plate_kernels.jl"))
-
-# Rectangular CQUAD4 KDJJ synthesis from private MATPRN operator triplets.
-# Experimental and opt-in only via JFEM_SOL105_KG_RECT_SYNTH.
-include(joinpath(@__DIR__, "experimental", "nastran_rect_kg_synth.jl"))
-
-# Tapered CQUAD4 KDJJ synthesis from private MATPRN operator triplets.
-# Experimental and opt-in only via JFEM_SOL105_KG_TAPER_SYNTH.
-include(joinpath(@__DIR__, "experimental", "nastran_tapered_kg_synth.jl"))
-
-# Geometry-law CQUAD4 KDJJ synthesis from private MATPRN operator triplets.
-# Experimental and opt-in only via JFEM_SOL105_KG_SHAPE11_SYNTH.
-include(joinpath(@__DIR__, "experimental", "nastran_shape11_kg_synth.jl"))
-
-# Descriptor-rich unit-resultant CQUAD4 KDJJ synthesis from private elementary
-# MATPRN operator triplets. Experimental and opt-in only via
-# JFEM_SOL105_KG_AXIS_PC_PATCH_BLEND or the component-specific blend flags.
-include(joinpath(@__DIR__, "experimental", "nastran_nxx_pc_patch_kg_synth.jl"))
-include(joinpath(@__DIR__, "experimental", "nastran_nxy_pc_patch_kg_synth.jl"))
-include(joinpath(@__DIR__, "experimental", "nastran_nyy_pc_patch_kg_synth.jl"))
-
-# Flat-baseline plus distortion-delta CQUAD4 KDJJ synthesis from private
-# elementary MATPRN operator triplets. Experimental and opt-in only via
-# JFEM_SOL105_KG_FLAT_DELTA_SYNTH.
-include(joinpath(@__DIR__, "experimental", "nastran_flat_delta_kg_synth.jl"))
-
-# Warped rectangular CQUAD4 KDJJ synthesis from private elementary MATPRN
-# operator triplets. Experimental and opt-in only via
-# JFEM_SOL105_KG_WARPED_MATRIX_SYNTH.
-include(joinpath(@__DIR__, "experimental", "nastran_warped_matrix_kg_synth.jl"))
-
-# Rectangular CQUAD4 KGG synthesis from private MATPRN elastic operators.
-# Experimental and opt-in only via JFEM_SOL105_K_RECT_SYNTH.
-include(joinpath(@__DIR__, "experimental", "nastran_rect_k_synth.jl"))
-
-# Tapered CQUAD4 KGG synthesis from private MATPRN elastic operators.
-# Experimental and opt-in only via JFEM_SOL105_K_TAPER_SYNTH.
-include(joinpath(@__DIR__, "experimental", "nastran_tapered_k_synth.jl"))
 
 
 function compute_principal_2d(s11, s22, s12)
@@ -4717,6 +4767,30 @@ function geometric_stiffness_quad4_nastran_kdjj_pcomp_field(coords::AbstractMatr
     ce = bx / lb; se = by / lb
     # center-sampled shear resultant (element mean of the per-GP nxy)
     nxy_c = 0.25 * (N_gp[1,3] + N_gp[2,3] + N_gp[3,3] + N_gp[4,3])
+    # element-mean normal resultants (for the meanstring gradient strings)
+    nxx_c = 0.25 * (N_gp[1,1] + N_gp[2,1] + N_gp[3,1] + N_gp[4,1])
+    nyy_c = 0.25 * (N_gp[1,2] + N_gp[2,2] + N_gp[3,2] + N_gp[4,2])
+    # JFEM_SOL105_PCOMP_KDJJ_MEANSTRING (default OFF): add the meanstring
+    # EDGE-STRING gradient terms this kernel dropped when it took over the
+    # path.  Nastran's KDJJ = mean-state metric + edge strings carrying the
+    # self-equilibrated residual corner forces of the in-element stress
+    # gradient (identified report 3.29; legacy :meanstring form).  Gradient-
+    # state DOE 2026-07-22: without them the w-w block misses by 3.3-6.3% at
+    # 15 deg (11% at 25 deg) under gradient states while uniform states are
+    # exact — an EXACTLY rank-2, state-invariant edge-pair delta = this term.
+    # DOE 2026-07-22 string_cmp: the ported strings match Nastran's implied
+    # strings to principal cosines 1.000/1.000 with amplitude 0.93-1.03, BUT
+    # (a) the w-block metric must then use the MEAN resultants (per-GP metric
+    # already embeds ~95% of the gradient content -> double counting: 50-104%
+    # deltas), and (b) the in-plane-transverse string parts do NOT match
+    # Nastran (uv 12-32% vs 1.7-5.1% baseline) -- Nastran's in-plane gradient
+    # content is already carried by the per-GP in-plane metric.  Hence:
+    # strings act on w DOFs only (in-plane parts behind _INPLANE, default
+    # off), and the w-w metric switches to mean-state when strings are on.
+    kdjj_meanstring = fem_env_bool("JFEM_SOL105_PCOMP_KDJJ_MEANSTRING", false)
+    kdjj_ms_inplane = kdjj_meanstring &&
+        fem_env_bool("JFEM_SOL105_PCOMP_KDJJ_MEANSTRING_INPLANE", false)
+    dfx_ms = zeros(4); dfy_ms = zeros(4)
     X = (x1, x2, x3, x4); Y = (y1, y2, y3, y4)
     function grad_p(r::Float64, s::Float64)
         dNr = (-(1.0-s), (1.0-s), (1.0+s), -(1.0+s)) .* 0.25
@@ -4751,6 +4825,20 @@ function geometric_stiffness_quad4_nastran_kdjj_pcomp_field(coords::AbstractMatr
         w = adetJ
         # per-GP resultant in the lc/bisector frame; shear center-sampled
         sxx = N_gp[gi,1]; syy = N_gp[gi,2]; sxy = nxy_c
+        # w-block resultants: mean-state when the strings carry the gradient
+        sxx_w = kdjj_meanstring ? nxx_c : sxx
+        syy_w = kdjj_meanstring ? nyy_c : syy
+        if kdjj_meanstring
+            # residual corner forces of the stress-gradient part:
+            # df_i = sum_gp w * Bm_i' * (N_gp - N_mean)   (resultants: no h)
+            rxx = N_gp[gi,1] - nxx_c
+            ryy = N_gp[gi,2] - nyy_c
+            rxy = N_gp[gi,3] - nxy_c
+            @inbounds for i in 1:4
+                dfx_ms[i] += w * (dNx[i]*rxx + dNy[i]*rxy)
+                dfy_ms[i] += w * (dNy[i]*ryy + dNx[i]*rxy)
+            end
+        end
         for i in 1:4
             r0 = (i-1)*6
             for j in 1:4
@@ -4764,10 +4852,112 @@ function geometric_stiffness_quad4_nastran_kdjj_pcomp_field(coords::AbstractMatr
                 Kg[r0+2, c0+1] += se*ce*kuu + (ce*ce - se*se)*kuv - ce*se*kvv
                 Kg[r0+2, c0+2] += se*se*kuu + 2.0*se*ce*kuv + ce*ce*kvv
                 Kg[r0+3, c0+3] += w * (
-                    sxx * dNx[i]*dNx[j] +
-                    syy * dNy[i]*dNy[j] +
+                    sxx_w * dNx[i]*dNx[j] +
+                    syy_w * dNy[i]*dNy[j] +
                     sxy * (dNx0[i]*dNy0[j] + dNy0[i]*dNx0[j])
                 )
+            end
+        end
+    end
+    if kdjj_meanstring
+        # Edge strings carrying the gradient residual (port of the legacy
+        # :meanstring form, see ~line 6900): least-squares decomposition of
+        # the self-equilibrated residual corner forces onto the 4 edges + 2
+        # diagonals; each strut of force P and length L adds (P/L)[1,-1;-1,1]
+        # on its (w_a, w_b) pair plus the in-plane-transverse part.
+        # dfx_ms/dfy_ms were accumulated in the BISECTOR frame (bisector
+        # gradients x bisector resultant components); rotate back to lc to
+        # match the coords-based strut geometry.
+        dflx = MVector{4,Float64}(undef); dfly = MVector{4,Float64}(undef)
+        @inbounds for i in 1:4
+            dflx[i] = ce * dfx_ms[i] - se * dfy_ms[i]
+            dfly[i] = se * dfx_ms[i] + ce * dfy_ms[i]
+        end
+        ms_edges = ((1,2), (2,3), (3,4), (4,1), (1,3), (2,4))
+        ms_A = zeros(8, 6)
+        for (k, (a, b)) in enumerate(ms_edges)
+            ex = coords[b,1] - coords[a,1]
+            ey = coords[b,2] - coords[a,2]
+            Le = hypot(ex, ey)
+            Le < 1e-12 && continue
+            ex /= Le; ey /= Le
+            ms_A[2a-1, k] += ex; ms_A[2a, k] += ey
+            ms_A[2b-1, k] -= ex; ms_A[2b, k] -= ey
+        end
+        ms_rhs = zeros(8)
+        @inbounds for i in 1:4
+            ms_rhs[2i-1] = -dflx[i]
+            ms_rhs[2i]   = -dfly[i]
+        end
+        ms_G = ms_A' * ms_A
+        @inbounds for k in 1:6
+            ms_G[k,k] += 1e-10
+        end
+        ms_P = ms_G \ (ms_A' * ms_rhs)
+        for (k, (a, b)) in enumerate(ms_edges)
+            ex = coords[b,1] - coords[a,1]
+            ey = coords[b,2] - coords[a,2]
+            Le = hypot(ex, ey)
+            Le < 1e-12 && continue
+            s = ms_P[k] / Le
+            wa = (a-1)*6 + 3; wb = (b-1)*6 + 3
+            Kg[wa, wa] += s; Kg[wb, wb] += s
+            Kg[wa, wb] -= s; Kg[wb, wa] -= s
+            if kdjj_ms_inplane
+                # in-plane-transverse part: unit perpendicular to the strut
+                px = -ey / Le; py = ex / Le
+                for (na, sa) in ((a, 1.0), (b, -1.0)), (nb, sb) in ((a, 1.0), (b, -1.0))
+                    ra = (na-1)*6; rb = (nb-1)*6
+                    Kg[ra+1, rb+1] += s * sa * sb * px * px
+                    Kg[ra+1, rb+2] += s * sa * sb * px * py
+                    Kg[ra+2, rb+1] += s * sa * sb * py * px
+                    Kg[ra+2, rb+2] += s * sa * sb * py * py
+                end
+            end
+        end
+    end
+    # Debug hook for offline string-construction DOE: append coords + per-GP
+    # N to the file named by JFEM_KDJJ_DUMP_NGP (single-element rigs).  One
+    # atomic write per call so multi-threaded box assembly does not interleave.
+    let ngp_path = get(ENV, "JFEM_KDJJ_DUMP_NGP", "")
+        if !isempty(ngp_path)
+            buf = IOBuffer()
+            for i in 1:4
+                print(buf, coords[i,1], " ", coords[i,2], " ")
+            end
+            for gi in 1:4, c in 1:3
+                print(buf, N_gp[gi,c], " ")
+            end
+            print(buf, "\n")
+            open(ngp_path, "a") do io
+                write(io, take!(buf))
+            end
+        end
+    end
+    # Firing/gradient statistics hook: JFEM_KDJJ_MS_STATS names a file that
+    # gets one line per kernel call: grad_ratio  skew_cos.  grad_ratio =
+    # max_gp,c |N_gp - N_mean| / max_c|N_mean| measures how much stress
+    # gradient this single element carries (the meanstring term scales with
+    # it); skew_cos = |cos(angle between edges 1-2 and 1-4)| (0 = rectangle).
+    let stats_path = get(ENV, "JFEM_KDJJ_MS_STATS", "")
+        if !isempty(stats_path)
+            mx = 0.0
+            for gi in 1:4
+                for c in 1:3
+                    m = c == 1 ? nxx_c : (c == 2 ? nyy_c : nxy_c)
+                    d = abs(N_gp[gi,c] - m)
+                    d > mx && (mx = d)
+                end
+            end
+            mmag = max(abs(nxx_c), abs(nyy_c), abs(nxy_c), 1e-30)
+            e12x = coords[2,1]-coords[1,1]; e12y = coords[2,2]-coords[1,2]
+            e14x = coords[4,1]-coords[1,1]; e14y = coords[4,2]-coords[1,2]
+            scos = abs(e12x*e14x + e12y*e14y) /
+                   max(hypot(e12x,e12y)*hypot(e14x,e14y), 1e-30)
+            buf = IOBuffer()
+            print(buf, mx/mmag, " ", scos, "\n")
+            open(stats_path, "a") do io
+                write(io, take!(buf))
             end
         end
     end
@@ -5983,22 +6173,20 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
     transverse_wty_sign =
         something(tryparse(Float64,
             strip(get(ENV, "JFEM_KG_SHELL_TRANSVERSE_WTY_SIGN", "1.0"))), 1.0)
-    # JFEM_KG_PRINCIPAL_INPLANE_LINEAR (default false): the :principal_transverse
-    # in-plane (u,v) differential-stiffness block is built by re-diagonalizing the
-    # FULL stress vector (principal_stress_2d_components) per element. That makes
-    # the in-plane operator NON-LINEAR in the stress components: for combined /
-    # rotated states Kg(sa+sb) != Kg(sa)+Kg(sb). It is exact for pure single-axis
-    # states (trivial principal decomposition) but under a rotated saddle
-    # (combined Nxx+Nxy) it spuriously stiffens higher buckling modes
-    # (single-element pencil: +147% on mode 2; report 3.90). The proven-correct
-    # operator is the LINEAR SUPERPOSITION of the per-stress-component principal
-    # blocks: the offline pencil shows Kg(Nxx)+Kg(Nxy) reproduces Nastran to
-    # +1.11% on BOTH modes, vs +12.7/+147% for the re-diagonalized form. When
-    # enabled, the in-plane block is evaluated one stress component at a time
-    # (sxx,0,0),(0,syy,0),(0,0,sxy) and summed, restoring linearity while leaving
-    # every axis-aligned state (and hence the ladder) identical.
-    principal_inplane_linear =
-        fem_env_bool("JFEM_KG_PRINCIPAL_INPLANE_LINEAR", false)
+    # In-plane (u,v) differential-stiffness block: LINEAR SUPERPOSITION of the
+    # per-stress-component principal blocks. The geometric stiffness is linear in the
+    # stress state by construction — Kg(sa+sb) = Kg(sa)+Kg(sb) — so the block is
+    # evaluated one component at a time, (sxx,0,0),(0,syy,0),(0,0,sxy), and summed.
+    #
+    # 2026-07-27: this was previously selectable via JFEM_KG_PRINCIPAL_INPLANE_LINEAR
+    # and defaulted to FALSE, i.e. the shipped operator re-diagonalized the FULL stress
+    # vector per element, which is non-linear in stress. That form is exact only for
+    # pure single-axis states; under a rotated saddle (combined Nxx+Nxy) it spuriously
+    # stiffened higher modes (+12.7 % / +147 % on a single-element pencil vs +1.11 % on
+    # both modes for the linear form). The switch is removed and the correct operator is
+    # unconditional: every axis-aligned state — hence the whole validation ladder — is
+    # bit-identical, and combined/rotated states are corrected.
+    principal_inplane_linear = true
     sigma_mean_1 = 0.0; sigma_mean_2 = 0.0; sigma_mean_3 = 0.0
     if transverse_w_form === :meanstring
         @inbounds for gp in 1:size(sigma_mem_gp, 1)
@@ -7026,10 +7214,21 @@ function geometric_stiffness_quad4_covariant(coords3d::AbstractMatrix, sigma_mem
     pt = 1.0 / sqrt(3.0)
     gauss_pts = (SVector(-pt,-pt), SVector(pt,-pt), SVector(pt,pt), SVector(-pt,pt))
 
+    # JFEM_KG_COVARIANT_CENTER_SHEAR (default OFF): match Nastran's CQUAD4 KDJJ
+    # shear sampling on skewed/warped composite cells.  Nastran center-samples the
+    # differential-stiffness shear resultant (element mean of the per-GP Nxy) while
+    # integrating the normal terms per-GP (see geometric_stiffness_quad4_nastran_kdjj
+    # _pcomp_field).  The covariant kernel otherwise uses the per-GP Nxy, which on a
+    # skewed cell over-weights the shear geometric-stiffness cross term and biases the
+    # transverse (w-w) block ~8% vs Nastran KGG/KDJJ.  Center-sampling only the shear
+    # (keeping per-GP normals + the exact covariant metric) is the missing ingredient.
+    center_shear = fem_env_bool("JFEM_KG_COVARIANT_CENTER_SHEAR", false)
+    nxy_c = 0.25 * (sigma_mem_gp[1,3] + sigma_mem_gp[2,3] + sigma_mem_gp[3,3] + sigma_mem_gp[4,3])
+
     @inbounds @fastmath for gp in 1:4
         s_xx = sigma_mem_gp[gp, 1]
         s_yy = sigma_mem_gp[gp, 2]
-        s_xy = sigma_mem_gp[gp, 3]
+        s_xy = center_shear ? nxy_c : sigma_mem_gp[gp, 3]
         r, s = gauss_pts[gp][1], gauss_pts[gp][2]
         dNr, dNs = shape_derivs_quad(r, s)
 

@@ -129,36 +129,12 @@ end
     return Q_out
 end
 
-@inline function _quad4_pressure_resultant_moment_scale(model, prop, mat, lc::AbstractMatrix, N::AbstractVector, Q::AbstractVector)
-    get(prop, "TYPE", "") == "PCOMP_CLT" && return 1.0
-    (!haskey(mat, "E") || !haskey(mat, "NU")) && return 1.0
-    abs(get(prop, "BEND_RATIO", 1.0)) <= 1e-12 && return 1.0
-    FEM.quad4_is_axis_aligned_rectangle(lc) || return 1.0
-
-    has_line_elements =
-        !isempty(get(model, "CBARs", Dict())) ||
-        !isempty(get(model, "CBEAMs", Dict())) ||
-        !isempty(get(model, "CRODs", Dict())) ||
-        !isempty(get(model, "CONRODs", Dict()))
-    has_kinematic_constraints =
-        !isempty(get(model, "RBE2s", Dict())) ||
-        !isempty(get(model, "RBE3s", Dict())) ||
-        !isempty(get(model, "RSPLINEs", Dict())) ||
-        !isempty(get(model, "MPCs", []))
-    (has_line_elements || has_kinematic_constraints) && return 1.0
-    length(get(model, "CSHELLs", Dict())) < 4 && return 1.0
-    length(get(model, "PLOAD4s", [])) < 4 && return 1.0
-
-    max_q = maximum(abs, Q)
-    max_n = maximum(abs, N)
-    max_q <= 1e-8 && return 1.0
-    max_n > max(1e-6, 1e-4 * max_q) && return 1.0
-
-    # Nastran's flat pressure-loaded QUAD4 force tables come out slightly lower
-    # than the raw JFEM plate-resultant recovery. Apply a very narrow correction
-    # only to the reported bending moments, leaving the solved state untouched.
-    return 0.99
-end
+# REMOVED 2026-07-27 (strip plan C1): `_quad4_pressure_resultant_moment_scale` applied a hardcoded
+# 0.99 to reported CQUAD4 bending moments behind a nine-condition deck fingerprint (axis-aligned
+# rectangle AND no line elements AND no kinematic constraints AND >=4 shells AND >=4 PLOAD4s AND a
+# near-zero membrane state). That is a case-fitted output correction with no formulation basis, so
+# it is deleted rather than neutralised. Reported moments rise ~1.01x on the decks it used to hit;
+# the solved state was never affected.
 
 function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_normals, stresses, results_json)
     lc_buf = zeros(4,2)
@@ -275,18 +251,6 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                     _quad4_blend_recovered_shear(Q, _quad4_equilibrium_shear_from_bending(view(lc_buf,1:4,:), M_corners))
                 else
                     collect(Q)
-                end
-                m_scale = _quad4_pressure_resultant_moment_scale(
-                    model,
-                    prop,
-                    mat,
-                    view(lc_buf,1:4,:),
-                    N,
-                    Q_out,
-                )
-                if m_scale != 1.0
-                    M .*= m_scale
-                    M_corners .*= m_scale
                 end
                 # Nastran's bilinear shell-force output keeps twisting moment
                 # constant across the QUAD4 corner rows.

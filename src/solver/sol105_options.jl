@@ -173,8 +173,10 @@ function from_env()
         _env_float("JFEM_Q4_PHI2_ALPHA_LOWASPECT_ASPECT_MIN", 4.0),
         # MacNeal
         _env_float("JFEM_Q4_MACNEAL_RBF_ZB_SCALE", 1.28),
-        _env_float("JFEM_Q4_MACNEAL_WARP_TOL", 1e-4),
-        _env_float("JFEM_Q4_MACNEAL_PCOMP_SURFACE_KAPPA_L_MAX", 1e-4),
+        # 2026-07-27: both raised (see assembly.jl for the measurement notes) —
+        # the old bounds sat orders of magnitude below any physical mesh scale.
+        _env_float("JFEM_Q4_MACNEAL_WARP_TOL", 1e-2),
+        _env_float("JFEM_Q4_MACNEAL_PCOMP_SURFACE_KAPPA_L_MAX", 1e6),
         _env_float("JFEM_Q4_MACNEAL_PCOMP_THICK_H_OVER_L_MIN", 0.015),
         _env_float("JFEM_Q4_MACNEAL_PCOMP_THICK_ASPECT_MAX", 3.5),
         _env_float("JFEM_Q4_MACNEAL_PCOMP_THICK_KAPPA_L_MIN", 0.0),
