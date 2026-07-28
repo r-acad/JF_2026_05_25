@@ -2551,6 +2551,17 @@ function add_quad4_macneal_shear_rbf!(
     # i.e. it's not a clean win. Leaving the implementation in place behind
     # an env switch so further exploration can compare against the legacy form.
     per_gp_delta = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_PER_GP_DELTA", "false"))) in ("1","true","yes","on")
+    # JFEM_Q4_MACNEAL_ZB_DIRECTIONAL (default false; "proj"/"true" or "cov"):
+    # closed-form per-direction differential residual-bending flexibility
+    # d_i = C∞·ρ_i²/(ρ_i²+β), ρ_i = l_j/l_i — the MacNeal eq (27) FORM with one
+    # effective saturation parameter. Replaces, atomically, the entire fitted
+    # stack {zb_scale 1.28 × RS/RF aspect table × a/b ε-blend × skew tables}:
+    # partial swaps recreate the documented 8%→37% cancellation trap. "cov"
+    # additionally uses center covariant tangent lengths (targets the skew
+    # tables); "proj" uses the projected side lengths.
+    zb_dir_mode = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_ZB_DIRECTIONAL", "false")))
+    zb_directional = zb_dir_mode in ("1", "true", "yes", "on", "proj", "cov")
+    zb_dir_cov = zb_dir_mode == "cov"
     Zb = zeros(T, 4, 4)
     length_mode = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_LENGTH_MODE", "paper")))
     swap_xy = length_mode in ("swap", "swapped", "cross")
@@ -2631,7 +2642,7 @@ function add_quad4_macneal_shear_rbf!(
     # the aspect regime it covers is exactly where the operator was worst: on the
     # extended aspect rig (4..30) it takes the assembled out-of-plane block from
     # 1.49x Nastran to 1.36x on its own, and to 0.99x together with zb_u = 1.0.
-    if fem_env_bool("JFEM_Q4_MACNEAL_RBF_DIFF_ASPECT_LAW", true)
+    if !zb_directional && fem_env_bool("JFEM_Q4_MACNEAL_RBF_DIFF_ASPECT_LAW", true)
         Dx_l = 0.5 * abs(coords[2,1] + coords[3,1] - coords[1,1] - coords[4,1])
         Dy_l = 0.5 * abs(coords[3,2] + coords[4,2] - coords[1,2] - coords[2,2])
         a_rbf = max(Dx_l, Dy_l) / max(min(Dx_l, Dy_l), 1e-12)
@@ -2682,7 +2693,7 @@ function add_quad4_macneal_shear_rbf!(
     # grows with the corner-angle deviation from 90 deg.  Piecewise-linear
     # knots (deviation deg -> zb_d factor), flat extrapolation past the last
     # knot; identity at 0 deg keeps rectangular elements bit-identical.
-    if zb_diff_skew_law
+    if zb_diff_skew_law && !zb_directional
         e12x = coords[2,1] - coords[1,1]; e12y = coords[2,2] - coords[1,2]
         e23x = coords[3,1] - coords[2,1]; e23y = coords[3,2] - coords[2,2]
         l12 = hypot(e12x, e12y); l23 = hypot(e23x, e23y)
@@ -2786,7 +2797,7 @@ function add_quad4_macneal_shear_rbf!(
             end
         end
     end
-    if per_gp_delta && !swap_xy
+    if per_gp_delta && !swap_xy && !zb_directional
         # Per-GP Δ at each shear sampling point. pt_delta[1,2] are γ_x x-extents;
         # pt_delta[3,4] are γ_y y-extents.
         Δa = pt_delta[1]; Δb = pt_delta[2]
@@ -2807,10 +2818,36 @@ function add_quad4_macneal_shear_rbf!(
         # Legacy MacNeal eq (26) with averaged Δx, Δy, decomposed into
         # uniform (zb_u) and differential (zb_d · anisotropy) directions.
         # Reduces exactly to the single-scale formula when zb_u = zb_d.
-        zbx_u = zb_u * inv_12A * Lx2_rbf * flex_x
-        zbx_d = zb_dx * inv_12A * a_param * Lx2_rbf * flex_x
-        zby_u = zb_u * inv_12A * Ly2_rbf * flex_y
-        zby_d = zb_dy * inv_12A * b_param * Ly2_rbf * flex_y
+        if zb_directional
+            # Closed-form per-direction differential compliance (eq-27 form):
+            # d_i = C∞·ρ_i²/(ρ_i²+β) with ρ_i = l_j/l_i. C∞_rigid preserves the
+            # (2/3)-arm magnitude exactly; β is the saturation constant
+            # (ε_eff = 1/(1+β)). Reproduces the retired 1.28×RS/RF stack to
+            # ≤0.6% over the measured aspect range 1–16.
+            zb_dir_cinf = rigid_shear ?
+                fem_env_float("JFEM_Q4_MACNEAL_ZB_DIR_CINF_RIGID", 1.06510) :
+                fem_env_float("JFEM_Q4_MACNEAL_ZB_DIR_CINF", 2.045)
+            zb_dir_beta = fem_env_float("JFEM_Q4_MACNEAL_ZB_DIR_BETA", 39.0)
+            zb_lx2 = Lx2_rbf
+            zb_ly2 = Ly2_rbf
+            if zb_dir_cov
+                zb_lx2 = 4.0 * (J11c * J11c + J12c * J12c)
+                zb_ly2 = 4.0 * (J21c * J21c + J22c * J22c)
+            end
+            zb_rho2x = zb_ly2 / max(zb_lx2, 1e-30)
+            zb_rho2y = zb_lx2 / max(zb_ly2, 1e-30)
+            zb_d_x = zb_dir_cinf * zb_rho2x / (zb_rho2x + zb_dir_beta)
+            zb_d_y = zb_dir_cinf * zb_rho2y / (zb_rho2y + zb_dir_beta)
+            zbx_u = zb_u * inv_12A * zb_lx2 * flex_x
+            zbx_d = zb_d_x * inv_12A * zb_lx2 * flex_x
+            zby_u = zb_u * inv_12A * zb_ly2 * flex_y
+            zby_d = zb_d_y * inv_12A * zb_ly2 * flex_y
+        else
+            zbx_u = zb_u * inv_12A * Lx2_rbf * flex_x
+            zbx_d = zb_dx * inv_12A * a_param * Lx2_rbf * flex_x
+            zby_u = zb_u * inv_12A * Ly2_rbf * flex_y
+            zby_d = zb_dy * inv_12A * b_param * Ly2_rbf * flex_y
+        end
         Zb[1,1] = zbx_u + zbx_d
         Zb[1,2] = zbx_u - zbx_d
         Zb[2,1] = Zb[1,2]
