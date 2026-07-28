@@ -3464,7 +3464,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             # equivalent to using A rotated by the skew angle, giving a spurious A16/A26
             # and an ~80%-off membrane block vs Nastran KGG (which keeps B and A in one
             # consistent frame).  Add the element-frame angle to beta.  Gate
-            # JFEM_SOL105_PCOMP_SKEW_MEMBRANE (default OFF, guardrail-live -> lands with
+            # JFEM_SOL105_PCOMP_SKEW_MEMBRANE (default ON since 2026-07-28: deterministic 42-deck screen
             # per-case accounting); non-skew (v1 ~ global x) elements are unaffected.
             elem_material_shear_rotation = beta
             if abs(beta) > 1e-10
@@ -3502,7 +3502,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             # modes already contain the full element-frame angle (adding more would
             # double-rotate).  Rotate Cm AND Bmb (same membrane-strain frame; matches
             # how the beta block treats them).  Cb/Cs belong to the committed
-            # skew-BENDING law.  Gate JFEM_SOL105_PCOMP_SKEW_MEMBRANE (default OFF,
+            # skew-BENDING law.  Gate JFEM_SOL105_PCOMP_SKEW_MEMBRANE (default ON 2026-07-28,
             # guardrail-live).
             # The MEMBRANE (Cm/Bmb) and BENDING (Cb/Cs) halves of this frame
             # correction are gated INDEPENDENTLY.  They share the same phi and the
@@ -3512,7 +3512,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             # orientation dependence of the bending block, so the bending fix has to
             # be landable without dragging the membrane rotation along with it.
             # Enabling both reproduces the previous nested behaviour exactly.
-            skew_membrane_frame = solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false)
+            skew_membrane_frame = solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true)
             skew_cb_frame = solver_env_bool("JFEM_SOL105_PCOMP_SKEW_CB_FRAME", false)
             if (skew_membrane_frame || skew_cb_frame) &&
                !is_pcomp_iso_ei && elem_is_flat
@@ -3596,7 +3596,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # (for iso C the frame is irrelevant, which is why iso was already
         # exact).  Supersedes the Wilson membrane AND the hourglass
         # restabilization for these elements.  Gate
-        # JFEM_SOL105_PCOMP_MEMBRANE_SELC (default OFF, guardrail-live);
+        # JFEM_SOL105_PCOMP_MEMBRANE_SELC (default ON 2026-07-28: corpus spec mean 2.62->1.02, zero-stringer controls hold);
         # requires the SKEW_MEMBRANE gate so Cm is in the lc frame, hence the
         # projection frame rotation is 0.
         # JFEM_SOL105_PCOMP_SELC_ALLOW_BMB (default OFF): admit UNSYMMETRIC
@@ -3608,8 +3608,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # 5.9-12.6% off vs Nastran KGG while bending is 0.5-0.9% -- the gate,
         # not the operator, is the gap (same pattern as the KDJJ Bmb gate).
         elem_pcomp_membrane_selc =
-            solver_env_bool("JFEM_SOL105_PCOMP_MEMBRANE_SELC", false) &&
-            solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
+            solver_env_bool("JFEM_SOL105_PCOMP_MEMBRANE_SELC", true) &&
+            solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true) &&
             is_pcomp_ei && !is_pcomp_iso_ei && elem_is_flat &&
             (Bmb_local === nothing ||
              solver_env_bool("JFEM_SOL105_PCOMP_SELC_ALLOW_BMB", false))
@@ -3713,7 +3713,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # stay out of its way.
         elem_membrane_hourglass_skew =
             !elem_pcomp_membrane_selc &&
-            solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
+            solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true) &&
             is_pcomp_ei && !is_pcomp_iso_ei && elem_is_flat &&
             Bmb_local === nothing &&
             abs(90.0 - edge_skew_ei) >= sol105_pcomp_skew_membrane_min_deg()
@@ -5999,8 +5999,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             # (A=B 0.34%, C exact) while unsymmetric stacks on the LEGACY path
             # miss by 10-33% -- the gate, not the physics, was the gap.
             kg_nastran_kdjj_pcomp_branch =
-                solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
-                solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE_KG", true) &&
+                solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true) &&
+                solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE_KG", false) &&
                 is_pcomp_clt &&
                 !pcomp_is_isotropic &&
                 elem_is_flat_kg &&
@@ -6098,7 +6098,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 # -atan(v1_y,v1_x) proxy mis-rotated non-XY-plane panels; MCID and
                 # :g12/:global_x betas already contain the frame angle).  Rotate
                 # Cm_override AND Bmb_kg (same membrane-strain frame).
-                if solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
+                if solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true) &&
                    !pcomp_is_isotropic && elem_is_flat_kg
                     mcid_kg_phi = Int(get(el, "MCID", 0))
                     mcid_kg_phi_active = mcid_kg_phi > 0 && model["CORDs"] !== nothing &&
@@ -6163,8 +6163,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 # local-mode mechanism).  Cm_override is already phi-rotated
                 # into the lc frame (96a4ff6), so the projection rotation is 0.
                 kg_membrane_selc =
-                    solver_env_bool("JFEM_SOL105_PCOMP_MEMBRANE_SELC", false) &&
-                    solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", false) &&
+                    solver_env_bool("JFEM_SOL105_PCOMP_MEMBRANE_SELC", true) &&
+                    solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true) &&
                     is_pcomp_clt && !pcomp_is_isotropic && elem_is_flat_kg &&
                     Bmb_kg === nothing
                 N_gp, N_res, _ = FEM.quad4_membrane_force_field(
