@@ -600,20 +600,6 @@ function build_model(cards, cc)
                 Cs_lam = ts_t_default .* Ash
             end
 
-            # JFEM_Q4_NASTRAN_K_PARITY_FIXES (2026-05-13): when this PCOMP
-            # qualifies for the MAT8-blank-rigid-TS convention AND the
-            # Nastran-K-parity bundle is enabled, override Cs to literal-
-            # infinite (Kirchhoff limit). This matches Nastran's SYSTEM(361)=1
-            # output for the same PCOMP, which shows MID3=0 in the equivalent
-            # PSHELL — no transverse shear material → infinite Cs.
-            # JFEM's Whitney-Pagano correction (kx,ky<1) SOFTENS the shear,
-            # the opposite of Nastran's behavior, producing 60-75% bending
-            # residuals on PCOMP probes. The literal-infinite Cs closes the
-            # PCOMP gap to <5% (probe-library verified).
-            # Two-part fix is decomposable: the rigid-TS piece can be activated
-            # via JFEM_PCOMP_RIGID_TS_LITERAL alone, independent of the zb_scale
-            # calibration. This allows users (and us, for diagnostic) to test
-            # which piece drives the HTP-vs-VTP trade-off on GAME.
             # Default ON (2026-05-14 very late evening): when a PCOMP qualifies
             # for the MAT8-blank-G1Z convention (Nastran treats as MID3=0 → no
             # transverse-shear material), apply a Cs override that supplants
@@ -638,14 +624,6 @@ function build_model(cards, cc)
             #     (the pre-2026-05-14 default; useful for back-compat tests)
             #   JFEM_PCOMP_RIGID_TS_CS_SCALE=<value>  — set Cs multiplier
             #     directly (overrides default 2.5).
-            # =================================================================
-            # BACK-COMPAT SHIMS (NO-OP): JFEM_PCOMP_RIGID_TS_LITERAL and
-            # JFEM_Q4_NASTRAN_K_PARITY_FIXES. Both used to force-enable this
-            # path; now no-op because the path is default-ON. Retained ONLY
-            # for bit-compatibility with prior research scripts that may
-            # still set them. Safe to delete in a future cleanup when no
-            # outstanding scripts reference them. Do not introduce new usage.
-            # =================================================================
             rigid_ts_disable = lowercase(strip(get(ENV, "JFEM_PCOMP_RIGID_TS_DISABLE", ""))) in ("1","true","yes","on")
             if !rigid_ts_disable && saw_mat8_ply && all_mat8_plies_blank_transverse_shear
                 # Uniform Cs=100*Ash default (2026-06-15):

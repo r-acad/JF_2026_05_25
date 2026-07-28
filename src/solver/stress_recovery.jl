@@ -175,25 +175,6 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
             lc_buf[3,1]=dot(p3-c,v1); lc_buf[3,2]=dot(p3-c,v2)
             lc_buf[4,1]=dot(p4-c,v1); lc_buf[4,2]=dot(p4-c,v2)
             curvature_membrane = nothing
-            curvature_scale = q4_curvature_membrane_scale("JFEM_Q4_CURVATURE_MEMBRANE_SCALE_STATIC")
-            if curvature_scale > 0.0 && all(idx -> haskey(snorm_normals, idx), sr_indices)
-                curvature_raw = estimate_quad4_curvature_membrane(
-                    view(lc_buf,1:4,:), snorm_normals[i1], snorm_normals[i2], snorm_normals[i3], snorm_normals[i4], v1, v2, v3
-                )
-                curvature_weight = q4_curvature_filter_weight(
-                    curvature_raw,
-                    q4_curvature_filter_mode("JFEM_Q4_CURVATURE_FILTER_MODE_STATIC"),
-                    q4_curvature_cyl_ratio_max("JFEM_Q4_CURVATURE_CYL_RATIO_MAX_STATIC"),
-                )
-                curvature_weight *= q4_curvature_resolution_weight(
-                    curvature_raw, view(lc_buf,1:4,:),
-                    q4_curvature_resolution_min("JFEM_Q4_CURVATURE_RESOLUTION_MIN_STATIC"),
-                    q4_curvature_resolution_full("JFEM_Q4_CURVATURE_RESOLUTION_FULL_STATIC"),
-                )
-                if curvature_weight > 0.0
-                    curvature_membrane = curvature_raw * (curvature_scale * curvature_weight)
-                end
-            end
 
             Rel_t = vcat(v1', v2', v3')
             u_el = zeros(24)

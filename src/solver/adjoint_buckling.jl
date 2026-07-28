@@ -1569,35 +1569,6 @@ function _covariant_iso_quad4_kg_context(el, model, id_map, node_coords, node_R,
         !use_enhanced_modes
 
     curvature_membrane = nothing
-    if !isnothing(support)
-        curvature_scale = q4_curvature_membrane_scale("JFEM_Q4_CURVATURE_MEMBRANE_SCALE_KG")
-        has_curv_normals =
-            use_geom_snorm_kg ||
-            all(haskey(support.snorm_normals, idx) for idx in qd.idxs)
-        if curvature_scale > 0.0 && has_curv_normals
-            n1_curv = use_geom_snorm_kg ? support.geom_vec[qd.idxs[1]] : support.snorm_normals[qd.idxs[1]]
-            n2_curv = use_geom_snorm_kg ? support.geom_vec[qd.idxs[2]] : support.snorm_normals[qd.idxs[2]]
-            n3_curv = use_geom_snorm_kg ? support.geom_vec[qd.idxs[3]] : support.snorm_normals[qd.idxs[3]]
-            n4_curv = use_geom_snorm_kg ? support.geom_vec[qd.idxs[4]] : support.snorm_normals[qd.idxs[4]]
-            curvature_raw = estimate_quad4_curvature_membrane(
-                qd.lc, n1_curv, n2_curv, n3_curv, n4_curv, qd.v1, qd.v2, qd.v3
-            )
-            curvature_weight = q4_curvature_filter_weight(
-                curvature_raw,
-                q4_curvature_filter_mode("JFEM_Q4_CURVATURE_FILTER_MODE_KG"),
-                q4_curvature_cyl_ratio_max("JFEM_Q4_CURVATURE_CYL_RATIO_MAX_KG"),
-            )
-            curvature_weight *= q4_curvature_resolution_weight(
-                curvature_raw,
-                qd.lc,
-                q4_curvature_resolution_min("JFEM_Q4_CURVATURE_RESOLUTION_MIN_KG"),
-                q4_curvature_resolution_full("JFEM_Q4_CURVATURE_RESOLUTION_FULL_KG"),
-            )
-            if curvature_weight > 0.0
-                curvature_membrane = curvature_raw * (curvature_scale * curvature_weight)
-            end
-        end
-    end
 
     covariant_membrane_candidate = false
     kg_curvature = nothing
