@@ -2138,6 +2138,11 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     let dump_prefix = strip(get(ENV, "JFEM_DUMP_PENCIL", ""))
         if !isempty(dump_prefix)
             try
+                # Per-subcase filenames: successive buckling subcases must never
+                # overwrite each other's dump (the _dofs.txt file is written last
+                # and marks that subcase's dump complete).
+                dump_prefix = buckling_subcase === nothing ? dump_prefix :
+                    dump_prefix * "_sc$(buckling_subcase)"
                 sparse_dump = solver_env_bool("JFEM_DUMP_PENCIL_SPARSE", false)
                 dump_dense_matrix = (path, M) -> begin
                     Kd = Matrix(M)
