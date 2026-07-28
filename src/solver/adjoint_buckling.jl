@@ -19,38 +19,16 @@
 Compute φᵀ·dK/dx·φ and ψᵀ·dK/dx·u via full model reassembly FD.
 Returns Dict{group_label => (phi_dK_phi, psi_dK_u)}.
 """
-function _full_model_dKdx_matrix_diffs(dv, model;
-                                       bending_incomp::Bool=true,
-                                       shear_center_only::Bool=false,
-                                       membrane_incomp::Bool=true,
-                                       pcomp_membrane_incomp::Bool=false,
-                                       snorm_angle_override::Union{Nothing,Float64}=nothing,
-                                       iso_no_incomp::Bool=false)
+function _full_model_dKdx_matrix_diffs(dv, model)
     dv_type = dv["type"]
     result = Dict{String, SparseMatrixCSC{Float64, Int}}()
 
     function _assemble_diff!(label, apply_plus!, apply_minus!, restore!)
         apply_plus!()
-        K_plus, = assemble_stiffness(
-            model;
-            bending_incomp=bending_incomp,
-            shear_center_only=shear_center_only,
-            membrane_incomp=membrane_incomp,
-            pcomp_membrane_incomp=pcomp_membrane_incomp,
-            snorm_angle_override=snorm_angle_override,
-            iso_no_incomp=iso_no_incomp,
-        )
+        K_plus, = assemble_stiffness(model)
 
         apply_minus!()
-        K_minus, = assemble_stiffness(
-            model;
-            bending_incomp=bending_incomp,
-            shear_center_only=shear_center_only,
-            membrane_incomp=membrane_incomp,
-            pcomp_membrane_incomp=pcomp_membrane_incomp,
-            snorm_angle_override=snorm_angle_override,
-            iso_no_incomp=iso_no_incomp,
-        )
+        K_minus, = assemble_stiffness(model)
 
         restore!()
         result[label] = K_plus - K_minus
@@ -137,22 +115,6 @@ function _full_model_dKdx_bilinear(dv, model, phi, u_static, psi, ndof)
     return result
 end
 
-@inline function _sol105_eig_stiffness_fd_kwargs()
-    return (
-        bending_incomp=sol105_eig_bending_incomp_enabled(),
-        shear_center_only=true,
-        membrane_incomp=solver_env_bool("JFEM_SOL105_EIG_MEMBRANE_INCOMP", false),
-        pcomp_membrane_incomp=solver_env_bool("JFEM_SOL105_EIG_PCOMP_MEMBRANE_INCOMP", false),
-        snorm_angle_override=sol105_snorm_angle_override(),
-        # 2026-05-23: iso_no_incomp=true was hardcoded; exposing as
-        # JFEM_SOL105_EIG_ISO_NO_INCOMP for the +9 % flat-iso baseline λ bias
-        # diagnostic (see [[lambda-bias-spectrum-2026-05-22]]). The diff_per_dof
-        # probe shows JFEM K is 11 % softer than Nastran on θ-θ entries for
-        # iso square baseline. Hypothesis: Nastran uses Wilson bending
-        # incompatible modes for iso CQUAD4; JFEM's K_eig has these disabled.
-        iso_no_incomp=solver_env_bool("JFEM_SOL105_EIG_ISO_NO_INCOMP", true),
-    )
-end
 
 function _contract_full_model_dKdx_split_bilinear(static_diffs, eig_diffs, phi, u_static, psi)
     result = Dict{String, Tuple{Float64, Float64}}()
@@ -171,7 +133,7 @@ end
 
 function _full_model_dKdx_split_bilinear(dv, model, phi, u_static, psi, ndof)
     static_diffs = _full_model_dKdx_matrix_diffs(dv, model)
-    eig_diffs = _full_model_dKdx_matrix_diffs(dv, model; _sol105_eig_stiffness_fd_kwargs()...)
+    eig_diffs = static_diffs
     return _contract_full_model_dKdx_split_bilinear(static_diffs, eig_diffs, phi, u_static, psi)
 end
 
@@ -691,10 +653,8 @@ function _flat_pcomp_quad4_sigma_input(lc,
                                        beta::Float64;
                                        compatible_only::Bool,
                                        use_incompatible_modes::Bool,
-                                       kg_membrane_assumed_mode::Symbol,
                                        membrane_incomp_center_jacobian::Bool,
                                        force_use_gp_sigma::Union{Nothing,Bool}=nothing,
-                                       kg_shell_nxy::Float64=1.0,
                                        kg_shell_pcomp_nxy::Float64=1.0,
                                        kg_shell_pcomp_nxy_compression_only::Bool=false)
     N_gp, N_res, _ = FEM.quad4_membrane_force_field(
@@ -705,22 +665,12 @@ function _flat_pcomp_quad4_sigma_input(lc,
         curvature_membrane = nothing,
         membrane_shear_center_row = false,
         material_shear_rotation = beta,
-        membrane_assumed_mode = kg_membrane_assumed_mode,
         membrane_incomp_center_jacobian = membrane_incomp_center_jacobian,
     )
 
     use_gp_sigma = isnothing(force_use_gp_sigma) ? kg_quad4_use_gp_field(N_gp, N_res) : force_use_gp_sigma
     sigma_input = use_gp_sigma ? N_gp ./ h : N_res ./ h
 
-    if kg_shell_nxy != 1.0
-        if sigma_input isa AbstractMatrix
-            @inbounds for gp in 1:size(sigma_input, 1)
-                sigma_input[gp, 3] *= kg_shell_nxy
-            end
-        else
-            sigma_input[3] *= kg_shell_nxy
-        end
-    end
     kg_shell_apply_pcomp_nxy_scale!(sigma_input, kg_shell_pcomp_nxy, kg_shell_pcomp_nxy_compression_only)
 
     return sigma_input, use_gp_sigma
@@ -773,9 +723,7 @@ function _flat_pcomp_quad4_kg_context(el, model, id_map, node_coords, node_R, u_
 
     compatible_only = kg_use_compatible_membrane_stress()
     use_incompatible_modes = solver_env_bool("JFEM_SOL105_EIG_PCOMP_MEMBRANE_INCOMP", false)
-    kg_membrane_assumed_mode = q4_flat_pcomp_eig_membrane_assumed_mode()
     membrane_incomp_center_jacobian = q4_sol105_membrane_incomp_center_jacobian_enabled()
-    kg_shell_nxy = kg_shell_nxy_scale()
     kg_shell_pcomp_nxy = kg_shell_pcomp_nxy_scale()
     kg_shell_pcomp_nxy_compression_only_v = kg_shell_pcomp_nxy_compression_only()
 
@@ -794,9 +742,7 @@ function _flat_pcomp_quad4_kg_context(el, model, id_map, node_coords, node_R, u_
         beta;
         compatible_only = compatible_only,
         use_incompatible_modes = use_incompatible_modes,
-        kg_membrane_assumed_mode = kg_membrane_assumed_mode,
         membrane_incomp_center_jacobian = membrane_incomp_center_jacobian,
-        kg_shell_nxy = kg_shell_nxy,
         kg_shell_pcomp_nxy = kg_shell_pcomp_nxy,
         kg_shell_pcomp_nxy_compression_only = kg_shell_pcomp_nxy_compression_only_v,
     )
@@ -815,13 +761,10 @@ function _flat_pcomp_quad4_kg_context(el, model, id_map, node_coords, node_R, u_
         beta = beta,
         compatible_only = compatible_only,
         use_incompatible_modes = use_incompatible_modes,
-        kg_membrane_assumed_mode = kg_membrane_assumed_mode,
         membrane_incomp_center_jacobian = membrane_incomp_center_jacobian,
-        kg_shell_nxy = kg_shell_nxy,
         kg_shell_pcomp_nxy = kg_shell_pcomp_nxy,
         kg_shell_pcomp_nxy_compression_only = kg_shell_pcomp_nxy_compression_only_v,
         trans_mode = operator === :generic_normal_only ? :normal_only : kg_shell_trans_mode(),
-        rot_grad_scale = 0.0,
         curvature_sign = kg_shell_curvature_sign(),
     )
 end
@@ -844,12 +787,10 @@ function _flat_pcomp_quad4_kg_local(ctx, sigma_input)
         trans_mode = ctx.trans_mode,
         curvature = nothing,
         curvature_sign = ctx.curvature_sign,
-        rot_grad_scale = ctx.rot_grad_scale,
         membrane_shear_center_row = false,
         Cm = ctx.Cm_kg,
         membrane_incomp = false,
         material_shear_rotation = ctx.beta,
-        membrane_assumed_mode = ctx.kg_membrane_assumed_mode,
         membrane_incomp_center_jacobian = ctx.membrane_incomp_center_jacobian,
     )
 end
@@ -871,10 +812,8 @@ function _flat_pcomp_quad4_rhs_local(ctx, phi_local)
             ctx.beta;
             compatible_only = ctx.compatible_only,
             use_incompatible_modes = ctx.use_incompatible_modes,
-            kg_membrane_assumed_mode = ctx.kg_membrane_assumed_mode,
             membrane_incomp_center_jacobian = ctx.membrane_incomp_center_jacobian,
             force_use_gp_sigma = ctx.use_gp_sigma,
-            kg_shell_nxy = ctx.kg_shell_nxy,
             kg_shell_pcomp_nxy = ctx.kg_shell_pcomp_nxy,
             kg_shell_pcomp_nxy_compression_only = ctx.kg_shell_pcomp_nxy_compression_only,
         )
@@ -913,22 +852,12 @@ function _flat_iso_quad4_sigma_input(ctx,
         curvature_membrane = nothing,
         membrane_shear_center_row = ctx.kg_membrane_shear_center_row,
         material_shear_rotation = 0.0,
-        membrane_assumed_mode = ctx.kg_membrane_assumed_mode,
         membrane_incomp_center_jacobian = ctx.membrane_incomp_center_jacobian,
     )
 
     use_gp_sigma = isnothing(force_use_gp_sigma) ? kg_quad4_use_gp_field(N_gp, N_res) : force_use_gp_sigma
     sigma_input = use_gp_sigma ? N_gp ./ ctx.h : N_res ./ ctx.h
 
-    if ctx.kg_shell_nxy != 1.0
-        if sigma_input isa AbstractMatrix
-            @inbounds for gp in 1:size(sigma_input, 1)
-                sigma_input[gp, 3] *= ctx.kg_shell_nxy
-            end
-        else
-            sigma_input[3] *= ctx.kg_shell_nxy
-        end
-    end
 
     return sigma_input, use_gp_sigma
 end
@@ -960,9 +889,7 @@ function _flat_iso_quad4_kg_context(el, model, id_map, node_coords, node_R, u_gl
                          get(prop, "Bmb", nothing) === nothing
     use_incompatible_modes = (membrane_incomp || flat_iso_membrane_incomp) && !use_enhanced_modes
     kg_membrane_shear_center_row = q4_flat_iso_eig_membrane_shear_center_row_enabled()
-    kg_membrane_assumed_mode = q4_flat_iso_eig_membrane_assumed_mode()
     membrane_incomp_center_jacobian = q4_sol105_membrane_incomp_center_jacobian_enabled()
-    kg_shell_nxy = kg_shell_nxy_scale()
     trans_mode = kg_shell_trans_mode()
     trans_mode === :curvature && (trans_mode = :all)
 
@@ -981,9 +908,7 @@ function _flat_iso_quad4_kg_context(el, model, id_map, node_coords, node_R, u_gl
             use_incompatible_modes = use_incompatible_modes,
             use_enhanced_modes = use_enhanced_modes,
             kg_membrane_shear_center_row = kg_membrane_shear_center_row,
-            kg_membrane_assumed_mode = kg_membrane_assumed_mode,
             membrane_incomp_center_jacobian = membrane_incomp_center_jacobian,
-            kg_shell_nxy = kg_shell_nxy,
         ),
         u_local;
         nu_val = nu,
@@ -999,9 +924,7 @@ function _flat_iso_quad4_kg_context(el, model, id_map, node_coords, node_R, u_gl
         use_incompatible_modes = use_incompatible_modes,
         use_enhanced_modes = use_enhanced_modes,
         kg_membrane_shear_center_row = kg_membrane_shear_center_row,
-        kg_membrane_assumed_mode = kg_membrane_assumed_mode,
         membrane_incomp_center_jacobian = membrane_incomp_center_jacobian,
-        kg_shell_nxy = kg_shell_nxy,
         trans_mode = trans_mode,
         curvature_sign = kg_shell_curvature_sign(),
         u_local = u_local,
@@ -1016,13 +939,11 @@ function _flat_iso_quad4_kg_local(ctx, sigma_input; nu_val::Float64=ctx.nu)
         trans_mode = ctx.trans_mode,
         curvature = nothing,
         curvature_sign = ctx.curvature_sign,
-        rot_grad_scale = 0.0,
         membrane_shear_center_row = ctx.kg_membrane_shear_center_row,
         Cm = _flat_iso_quad4_Cm(ctx.E, nu_val, ctx.h),
         membrane_incomp = ctx.use_incompatible_modes,
         membrane_enhanced = ctx.use_enhanced_modes,
         material_shear_rotation = 0.0,
-        membrane_assumed_mode = ctx.kg_membrane_assumed_mode,
         membrane_incomp_center_jacobian = ctx.membrane_incomp_center_jacobian,
     )
 end
@@ -1198,7 +1119,6 @@ function _covariant_iso_quad4_sigma_input(ctx,
         curvature_membrane = ctx.curvature_membrane,
         membrane_shear_center_row = ctx.recovery_membrane_shear_center_row,
         material_shear_rotation = 0.0,
-        membrane_assumed_mode = ctx.kg_membrane_assumed_mode,
         membrane_incomp_center_jacobian = ctx.membrane_incomp_center_jacobian,
     )
 
@@ -1314,15 +1234,6 @@ function _covariant_iso_quad4_sigma_input(ctx,
         end
     end
 
-    if ctx.kg_shell_nxy != 1.0
-        if sigma_input isa AbstractMatrix
-            @inbounds for gp in 1:size(sigma_input, 1)
-                sigma_input[gp, 3] *= ctx.kg_shell_nxy
-            end
-        else
-            sigma_input[3] *= ctx.kg_shell_nxy
-        end
-    end
 
     sigma_field_mode = use_gp_sigma ? :gp : (gp_blend_alpha > 0.0 ? :blend : :res)
     return sigma_input, use_gp_sigma, gp_blend_alpha, sigma_field_mode
@@ -1472,9 +1383,7 @@ function _covariant_iso_quad4_kg_context(el, model, id_map, node_coords, node_R,
         get(prop, "Bmb", nothing) === nothing
     kg_membrane_shear_center_row =
         elem_is_flat && q4_flat_iso_eig_membrane_shear_center_row_enabled()
-    kg_membrane_assumed_mode = elem_is_flat ? q4_flat_iso_eig_membrane_assumed_mode() : :none
     membrane_incomp_center_jacobian = q4_sol105_membrane_incomp_center_jacobian_enabled()
-    kg_shell_nxy = kg_shell_nxy_scale()
     kg_shell_nxy_auto_v = kg_shell_nxy_auto_relax()
     kg_shell_nxy_auto_ratio_min_v = kg_shell_nxy_auto_ratio_min()
     kg_shell_nxy_auto_ratio_full_v = kg_shell_nxy_auto_ratio_full()
@@ -1482,7 +1391,6 @@ function _covariant_iso_quad4_kg_context(el, model, id_map, node_coords, node_R,
     kg_shell_nxy_auto_kappa_l_min_v = kg_shell_nxy_auto_kappa_l_min()
     kg_trans_mode_eff = kg_shell_trans_mode()
     kg_auto_curvature_iso = kg_trans_mode_eff !== :curvature && q4_shell_kg_auto_curvature_iso_enabled()
-    kg_rot_grad_scale_eff = elem_is_flat ? 0.0 : kg_shell_rot_grad_scale()
 
     u_elem = zeros(qd.ndof_elem)
     for i in 1:qd.ndof_elem
@@ -1590,12 +1498,6 @@ function _covariant_iso_quad4_kg_context(el, model, id_map, node_coords, node_R,
             kg_curvature = geom_curvature * q4_shell_kg_auto_curvature_iso_effective_scale(cyl_ratio, kappa_l)
             curvature_sign = q4_shell_kg_auto_curvature_iso_sign()
         end
-        if kg_shell_rot_grad_auto_iso_scale() > 0.0 &&
-           kappa_l >= kg_shell_rot_grad_auto_kappa_l_min() &&
-           cyl_ratio >= kg_shell_rot_grad_auto_cyl_ratio_min() &&
-           aspect_ratio <= q4_shell_kg_auto_curvature_iso_aspect_ratio_max()
-            kg_rot_grad_scale_eff = max(kg_rot_grad_scale_eff, kg_shell_rot_grad_auto_iso_scale())
-        end
     end
 
     membrane_recovery_mode = kg_quad4_membrane_recovery_mode()
@@ -1648,9 +1550,7 @@ function _covariant_iso_quad4_kg_context(el, model, id_map, node_coords, node_R,
         use_enhanced_modes = use_enhanced_modes,
         kg_membrane_shear_center_row = kg_membrane_shear_center_row,
         recovery_membrane_shear_center_row = recovery_membrane_shear_center_row,
-        kg_membrane_assumed_mode = kg_membrane_assumed_mode,
         membrane_incomp_center_jacobian = membrane_incomp_center_jacobian,
-        kg_shell_nxy = kg_shell_nxy,
         use_covariant_membrane = use_covariant_membrane,
         use_covariant_operator = use_covariant_operator,
         use_flat_curved_iso_exact_membrane = use_flat_curved_iso_exact_membrane,
@@ -1669,7 +1569,6 @@ function _covariant_iso_quad4_kg_context(el, model, id_map, node_coords, node_R,
         trans_mode_flat = trans_mode_flat,
         trans_mode_cov = trans_mode_cov,
         kg_curvature = kg_curvature,
-        rot_grad_scale = kg_rot_grad_scale_eff,
         curvature_sign = curvature_sign,
     )
     sigma_input, use_gp_sigma, gp_blend_alpha, sigma_field_mode = _covariant_iso_quad4_sigma_input(
@@ -1697,7 +1596,6 @@ function _covariant_iso_quad4_kg_local(ctx, sigma_input; nu_val::Float64=ctx.nu)
             ctx.qd.v1,
             ctx.qd.v2;
             trans_mode = ctx.trans_mode_cov,
-            rot_grad_scale = ctx.rot_grad_scale,
         )
     end
 
@@ -1706,13 +1604,11 @@ function _covariant_iso_quad4_kg_local(ctx, sigma_input; nu_val::Float64=ctx.nu)
         trans_mode = ctx.trans_mode_flat,
         curvature = ctx.kg_curvature,
         curvature_sign = ctx.curvature_sign,
-        rot_grad_scale = ctx.rot_grad_scale,
         membrane_shear_center_row = ctx.kg_membrane_shear_center_row,
         Cm = _flat_iso_quad4_Cm(ctx.E, nu_val, ctx.h),
         membrane_incomp = ctx.use_incompatible_modes,
         membrane_enhanced = ctx.use_enhanced_modes,
         material_shear_rotation = 0.0,
-        membrane_assumed_mode = ctx.kg_membrane_assumed_mode,
         membrane_incomp_center_jacobian = ctx.membrane_incomp_center_jacobian,
     )
 end
@@ -2401,7 +2297,6 @@ function solve_adjoint_buckling(results::Dict, adjoint_config_path::String)
     eigenvalue_values = Dict{String, Float64}()
     full_sensitivity_fd_cache = Dict{String, Dict{String, Vector{Float64}}}()
     full_static_dKdx_cache = Dict{String, Dict{String, SparseMatrixCSC{Float64, Int}}}()
-    full_eig_dKdx_cache = Dict{String, Dict{String, SparseMatrixCSC{Float64, Int}}}()
     full_dKg_cache = Dict{String, Dict{String, SparseMatrixCSC{Float64, Int}}}()
     static_dKdx_u_cache = Dict{String, Dict{String, Vector{Float64}}}()
     target_labels_cache = Dict{String, Set{String}}()
@@ -2549,9 +2444,7 @@ function solve_adjoint_buckling(results::Dict, adjoint_config_path::String)
                     static_diffs = get!(full_static_dKdx_cache, dv_id) do
                         _full_model_dKdx_matrix_diffs(dv, model)
                     end
-                    eig_diffs = get!(full_eig_dKdx_cache, dv_id) do
-                        _full_model_dKdx_matrix_diffs(dv, model; _sol105_eig_stiffness_fd_kwargs()...)
-                    end
+                    eig_diffs = static_diffs
                     bilinear = _contract_full_model_dKdx_split_bilinear(
                         static_diffs, eig_diffs, phi, u_static, psi
                     )
@@ -2578,9 +2471,7 @@ function solve_adjoint_buckling(results::Dict, adjoint_config_path::String)
                 static_diffs = get!(full_static_dKdx_cache, dv_id) do
                     _full_model_dKdx_matrix_diffs(dv, model)
                 end
-                eig_diffs = get!(full_eig_dKdx_cache, dv_id) do
-                    _full_model_dKdx_matrix_diffs(dv, model; _sol105_eig_stiffness_fd_kwargs()...)
-                end
+                eig_diffs = static_diffs
                 bilinear = _contract_full_model_dKdx_split_bilinear(
                     static_diffs, eig_diffs, phi, u_static, psi
                 )

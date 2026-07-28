@@ -92,7 +92,6 @@ function stiffness_quad4_plate_adini_matrices(
     curvature_membrane=nothing,
     membrane_shear_center_row::Bool=false,
     material_shear_rotation::Float64=0.0,
-    membrane_assumed_mode::Symbol=:none,
 )
     if !quad4_is_axis_aligned_rectangle(coords)
         return stiffness_quad4_plate_dkq_matrices(
@@ -104,7 +103,6 @@ function stiffness_quad4_plate_adini_matrices(
             curvature_membrane=curvature_membrane,
             membrane_shear_center_row=membrane_shear_center_row,
             material_shear_rotation=material_shear_rotation,
-            membrane_assumed_mode=membrane_assumed_mode,
         )
     end
 
@@ -135,7 +133,6 @@ function stiffness_quad4_plate_adini_matrices(
         curvature_membrane=curvature_membrane,
         membrane_shear_center_row=membrane_shear_center_row,
         material_shear_rotation=material_shear_rotation,
-        membrane_assumed_mode=membrane_assumed_mode,
     )
 
     maximum(abs, Cb) < 1e-30 && return Ke
@@ -150,7 +147,6 @@ function stiffness_quad4_plate_adini_matrices(
         curvature_membrane=curvature_membrane,
         membrane_shear_center_row=membrane_shear_center_row,
         material_shear_rotation=material_shear_rotation,
-        membrane_assumed_mode=membrane_assumed_mode,
     )
 
     x_min = minimum(view(coords, :, 1))
@@ -171,7 +167,6 @@ function stiffness_quad4_plate_adini_matrices(
             curvature_membrane=curvature_membrane,
             membrane_shear_center_row=membrane_shear_center_row,
             material_shear_rotation=material_shear_rotation,
-            membrane_assumed_mode=membrane_assumed_mode,
         )
     end
 
@@ -231,7 +226,6 @@ function geometric_stiffness_quad4_plate_adini(coords::AbstractMatrix, sigma_mem
     quad4_is_axis_aligned_rectangle(coords) || return geometric_stiffness_quad4(
         coords, sigma_mem_gp, h;
         trans_mode=:normal_only,
-        rot_grad_scale=0.0,
         membrane_shear_center_row=false,
     )
 
@@ -239,7 +233,6 @@ function geometric_stiffness_quad4_plate_adini(coords::AbstractMatrix, sigma_mem
     T_inv === nothing && return geometric_stiffness_quad4(
         coords, sigma_mem_gp, h;
         trans_mode=:normal_only,
-        rot_grad_scale=0.0,
         membrane_shear_center_row=false,
     )
 
@@ -472,7 +465,6 @@ function stiffness_quad4_plate_dkq_matrices(
     curvature_membrane=nothing,
     membrane_shear_center_row::Bool=false,
     material_shear_rotation::Float64=0.0,
-    membrane_assumed_mode::Symbol=:none,
     )
     if ws === nothing
         ws = create_quad4_workspace()
@@ -501,7 +493,6 @@ function stiffness_quad4_plate_dkq_matrices(
         curvature_membrane=curvature_membrane,
         membrane_shear_center_row=membrane_shear_center_row,
         material_shear_rotation=material_shear_rotation,
-        membrane_assumed_mode=membrane_assumed_mode,
     )
     return add_quad4_plate_dkq_bending!(Ke, coords, Cb, Cs)
 end
@@ -528,7 +519,6 @@ function stiffness_quad4_plate_dkmq_matrices(
     curvature_membrane=nothing,
     membrane_shear_center_row::Bool=false,
     material_shear_rotation::Float64=0.0,
-    membrane_assumed_mode::Symbol=:none,
 )
     if ws === nothing
         ws = create_quad4_workspace()

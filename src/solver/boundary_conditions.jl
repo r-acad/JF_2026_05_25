@@ -420,25 +420,6 @@ function _free_dofs_from_fixed_set(ndof::Int, fixed_dofs::Set{Int})
     return free_dofs
 end
 
-@inline function autospc_rotational_topology_enabled()
-    return solver_env_bool("JFEM_AUTOSPC_ROT_TOPOLOGY", true)
-end
-
-@inline function autospc_rot_shell_only_multiplier()
-    return max(solver_env_float("JFEM_AUTOSPC_ROT_SHELL_ONLY_MUL", 4.0), 0.0)
-end
-
-@inline function autospc_rot_rod_shell_multiplier()
-    return max(solver_env_float("JFEM_AUTOSPC_ROT_ROD_SHELL_MUL", 4.0), 0.0)
-end
-
-@inline function autospc_rot_bar_shell_multiplier()
-    return max(solver_env_float("JFEM_AUTOSPC_ROT_BAR_SHELL_MUL", 0.1), 0.0)
-end
-
-@inline function autospc_rot_bar_only_multiplier()
-    return max(solver_env_float("JFEM_AUTOSPC_ROT_BAR_ONLY_MUL", 0.25), 0.0)
-end
 
 function _autospc_model_sol_type(model)
     cc = get(model, "CASE_CONTROL", Dict{String,Any}())
@@ -471,17 +452,6 @@ end
            solver_env_bool("JFEM_SOL101_FACTOR_AUTOSPC_CHECK_FALSE", false)
 end
 
-@inline function sol101_factorization_autospc_load_path_protect_enabled(model)
-    return model !== nothing &&
-           _autospc_is_sol101(model) &&
-           solver_env_bool("JFEM_SOL101_FACTOR_AUTOSPC_LOAD_PATH_PROTECT", true)
-end
-
-@inline function sol101_factorization_autospc_skip_loaded_trans_enabled(model)
-    return model !== nothing &&
-           _autospc_is_sol101(model) &&
-           solver_env_bool("JFEM_SOL101_FACTOR_AUTOSPC_SKIP_LOADED_TRANS", true)
-end
 
 @inline function sol101_factorization_autospc_allow_trans_enabled(model)
     if haskey(ENV, "JFEM_FACTOR_AUTOSPC_ALLOW_TRANSLATIONAL")
@@ -491,13 +461,6 @@ end
            solver_env_bool("JFEM_SOL101_FACTOR_AUTOSPC_ALLOW_TRANSLATIONAL", false)
 end
 
-@inline function sol101_factorization_autospc_loaded_force_rel()
-    return max(solver_env_float("JFEM_SOL101_FACTOR_AUTOSPC_LOADED_FORCE_REL", 1e-12), 0.0)
-end
-
-@inline function sol101_factorization_autospc_loaded_force_abs()
-    return max(solver_env_float("JFEM_SOL101_FACTOR_AUTOSPC_LOADED_FORCE_ABS", 1e-9), 0.0)
-end
 
 @inline function sol101_factorization_autospc_shift_multiplier()
     return max(solver_env_float("JFEM_SOL101_FACTOR_AUTOSPC_PIVOT_SHIFT_MUL", 3.0), 0.0)
@@ -512,18 +475,12 @@ end
 end
 
 @inline function autospc_trans_relative_threshold(model=nothing)
-    default = (model !== nothing && _autospc_is_sol101(model)) ?
-        solver_env_float("JFEM_SOL101_AUTOSPC_TRANS_REL", 1e-10) :
-        1e-8
-    return max(solver_env_float("JFEM_AUTOSPC_TRANS_REL", default), 0.0)
+    return max(solver_env_float("JFEM_AUTOSPC_TRANS_REL", 1e-8), 0.0)
 end
 
 function autospc_rot_relative_threshold(model=nothing)
     if haskey(ENV, "JFEM_AUTOSPC_ROT_REL")
         return max(solver_env_float("JFEM_AUTOSPC_ROT_REL", 1e-8), 0.0)
-    end
-    if model !== nothing && _autospc_is_sol101(model)
-        return max(solver_env_float("JFEM_SOL101_AUTOSPC_ROT_REL", 1e-10), 0.0)
     end
     return max(autospc_trans_relative_threshold(model), 0.0)
 end
@@ -681,11 +638,6 @@ function _open_autospc_audit_csv(path::AbstractString)
             "relative_threshold",
             "effective_threshold",
             "reason",
-            "rotational_topology_category",
-            "rotational_topology_multiplier",
-            "node_has_shell",
-            "node_has_bar_or_beam",
-            "node_has_rod",
         ), ","))
         return io, abs_path
     catch err
@@ -696,8 +648,7 @@ end
 
 function _write_autospc_audit_row(io, i::Int, gid::Int, dof_local::Int, k_diag::Float64,
                                   max_K_ref::Float64, rel_thresh::Float64, thresh::Float64,
-                                  reason::AbstractString, category::Symbol, multiplier::Float64,
-                                  has_shell::Bool, has_bar::Bool, has_rod::Bool)
+                                  reason::AbstractString)
     io === nothing && return
     dof_class = dof_local <= 3 ? "translation" : "rotation"
     println(io, join((
@@ -711,76 +662,9 @@ function _write_autospc_audit_row(io, i::Int, gid::Int, dof_local::Int, k_diag::
         rel_thresh,
         thresh,
         reason,
-        String(category),
-        multiplier,
-        has_shell,
-        has_bar,
-        has_rod,
     ), ","))
 end
 
-function _build_autospc_node_topology(model, id_map)
-    n_nodes = length(id_map)
-    node_has_shell = falses(n_nodes)
-    node_has_bar = falses(n_nodes)
-    node_has_rod = falses(n_nodes)
-
-    for (_, el) in get(model, "CSHELLs", Dict())
-        for nid in get(el, "NODES", Int[])
-            idx = get(id_map, nid, 0)
-            idx > 0 && (node_has_shell[idx] = true)
-        end
-    end
-
-    for group_name in ("CBARs", "CBEAMs")
-        for (_, el) in get(model, group_name, Dict())
-            ga = get(id_map, get(el, "GA", 0), 0)
-            gb = get(id_map, get(el, "GB", 0), 0)
-            ga > 0 && (node_has_bar[ga] = true)
-            gb > 0 && (node_has_bar[gb] = true)
-        end
-    end
-
-    for group_name in ("CRODs", "CONRODs")
-        for (_, el) in get(model, group_name, Dict())
-            ga = get(id_map, get(el, "GA", 0), 0)
-            gb = get(id_map, get(el, "GB", 0), 0)
-            ga > 0 && (node_has_rod[ga] = true)
-            gb > 0 && (node_has_rod[gb] = true)
-        end
-    end
-
-    return node_has_shell, node_has_bar, node_has_rod
-end
-
-@inline function _autospc_rotational_topology_category(has_shell::Bool, has_bar::Bool, has_rod::Bool)
-    # Collapse mixed topologies into a small set of generic rotational-stiffness
-    # buckets.  Shell-only rotational DOFs and beam/shell joints need different
-    # singularity tolerances because their diagonal stiffness scales differently.
-    if has_shell && has_bar
-        return :bar_shell
-    elseif has_shell && has_rod
-        return :rod_shell
-    elseif has_shell
-        return :shell_only
-    elseif has_bar
-        return :bar_only
-    end
-    return :default
-end
-
-@inline function _autospc_rotational_topology_multiplier(category::Symbol, multipliers::Dict{String,Float64})
-    if category === :shell_only
-        return multipliers["shell_only"]
-    elseif category === :rod_shell
-        return multipliers["rod_shell"]
-    elseif category === :bar_shell
-        return multipliers["bar_shell"]
-    elseif category === :bar_only
-        return multipliers["bar_only"]
-    end
-    return 1.0
-end
 
 function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{Int}}, K, ndof, model, id_map,
                             protected_trans_dofs::Union{Nothing,Set{Int}}=nothing)
@@ -789,41 +673,11 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
     max_K_trans = maximum((abs(K[i, i]) for i in 1:ndof if mod(i - 1, 6) + 1 <= 3); init=1.0)
     max_K_rot = maximum((abs(K[i, i]) for i in 1:ndof if mod(i - 1, 6) + 1 > 3); init=1.0)
 
-    topology_enabled = autospc_rotational_topology_enabled()
-    node_has_shell, node_has_bar, node_has_rod = topology_enabled ?
-        _build_autospc_node_topology(model, id_map) :
-        (falses(length(id_map)), falses(length(id_map)), falses(length(id_map)))
-    multipliers = Dict(
-        "shell_only" => autospc_rot_shell_only_multiplier(),
-        "rod_shell" => autospc_rot_rod_shell_multiplier(),
-        "bar_shell" => autospc_rot_bar_shell_multiplier(),
-        "bar_only" => autospc_rot_bar_only_multiplier(),
-    )
-    node_counts = Dict(
-        "shell_only" => 0,
-        "rod_shell" => 0,
-        "bar_shell" => 0,
-        "bar_only" => 0,
-        "default" => 0,
-    )
-    for idx in 1:length(node_has_shell)
-        category = topology_enabled ?
-            _autospc_rotational_topology_category(node_has_shell[idx], node_has_bar[idx], node_has_rod[idx]) :
-            :default
-        node_counts[String(category)] += 1
-    end
 
     n_autospc = 0
     n_autospc_trans = 0
     n_autospc_rot = 0
     n_load_path_skipped = 0
-    rot_dofs_by_category = Dict(
-        "shell_only" => 0,
-        "rod_shell" => 0,
-        "bar_shell" => 0,
-        "bar_only" => 0,
-        "default" => 0,
-    )
     negative_diagonal_enabled = autospc_negative_diagonal_enabled()
 
     audit_io, audit_path = _open_autospc_audit_csv(autospc_audit_csv_path())
@@ -836,21 +690,6 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
             max_K_ref = dof_local <= 3 ? max_K_trans : max_K_rot
             rel_thresh = dof_local <= 3 ? autospc_rel_trans : autospc_rel_rot
             thresh = rel_thresh * max(max_K_ref, 1.0)
-            category = :default
-            multiplier = 1.0
-            has_shell = false
-            has_bar = false
-            has_rod = false
-            if 1 <= node_idx <= length(node_has_shell)
-                has_shell = node_has_shell[node_idx]
-                has_bar = node_has_bar[node_idx]
-                has_rod = node_has_rod[node_idx]
-            end
-            if dof_local > 3 && topology_enabled
-                category = _autospc_rotational_topology_category(has_shell, has_bar, has_rod)
-                multiplier = _autospc_rotational_topology_multiplier(category, multipliers)
-                thresh *= multiplier
-            end
             k_diag = Float64(K[i, i])
             is_below_threshold = abs(k_diag) < thresh
             raw_negative = k_diag < 0
@@ -870,7 +709,6 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
                     n_autospc_trans += 1
                 else
                     n_autospc_rot += 1
-                    rot_dofs_by_category[String(category)] += 1
                 end
 
                 if audit_io !== nothing
@@ -878,7 +716,7 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
                     reason = is_negative ? "negative_diagonal" : "below_threshold"
                     _write_autospc_audit_row(
                         audit_io, i, gid, dof_local, k_diag, max_K_ref, rel_thresh, thresh,
-                        reason, category, multiplier, has_shell, has_bar, has_rod,
+                        reason,
                     )
                 end
             end
@@ -902,12 +740,6 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
         "load_path_protected_translational_dofs" =>
             protected_trans_dofs === nothing ? 0 : length(protected_trans_dofs),
         "load_path_autospc_skipped_dofs" => n_load_path_skipped,
-        "rotational_topology" => Dict(
-            "enabled" => topology_enabled,
-            "node_counts" => node_counts,
-            "multipliers" => multipliers,
-            "autospc_rotational_dofs_by_category" => rot_dofs_by_category,
-        ),
         "negative_diagonal_rule_enabled" => negative_diagonal_enabled,
     )
 end
@@ -998,7 +830,6 @@ function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diag
         "autospc_load_path_protected_translational_dofs" => 0,
         "autospc_load_path_skipped_dofs" => 0,
         "autospc_load_path_protection" => Dict{String,Any}("enabled" => false),
-        "autospc_rotational_topology" => Dict{String,Any}(),
         "factorization_autospc" => Dict{String,Any}(),
         "fixed_dofs" => 0,
         "free_dofs" => 0,
@@ -1045,7 +876,6 @@ function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diag
         diagnostics["autospc_diagonal_rotational_dofs"] = autospc_diag["rotational_dofs"]
         diagnostics["autospc_load_path_protected_translational_dofs"] = autospc_diag["load_path_protected_translational_dofs"]
         diagnostics["autospc_load_path_skipped_dofs"] = autospc_diag["load_path_autospc_skipped_dofs"]
-        diagnostics["autospc_rotational_topology"] = autospc_diag["rotational_topology"]
     end
 
     free_dofs, n_fact_autospc, fact_diag = factorization_autospc_free_dofs(K, ndof, fixed_dofs)
@@ -1086,7 +916,6 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
             "autospc_load_path_protected_translational_dofs" => 0,
             "autospc_load_path_skipped_dofs" => 0,
             "autospc_load_path_protection" => Dict{String,Any}("enabled" => false),
-            "autospc_rotational_topology" => Dict{String,Any}(),
             "post_factorization_singular_dofs" => 0,
             "post_factorization_singular_translational_dofs" => 0,
             "post_factorization_singular_rotational_dofs" => 0,
@@ -1130,8 +959,6 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
                 "mechanism_translational_dofs" => 0,
                 "mechanism_rotational_dofs" => 0,
                 "skipped_translational_dofs" => 0,
-                "skipped_loaded_translational_dofs" => 0,
-                "skipped_load_path_protected_translational_dofs" => 0,
                 "shift_exponent" => nothing,
                 "pivot_threshold" => 0.0,
                 "pivot_shift_multiplier" => 0.0,
@@ -1254,18 +1081,11 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
     diagnostics["linear_solver"]["used_enforced_displacement_correction"] = !isempty(enforced_disp)
 
     protected_trans_dofs = nothing
-    factorization_protected_trans_dofs = nothing
     if model_autospc_enabled(model)
         load_path_diag = Dict{String,Any}("enabled" => false)
-        factor_load_path_protect_enabled =
-            sol101_factorization_probe_check_false_enabled(model) &&
-            sol101_factorization_autospc_load_path_protect_enabled(model)
-        if load_path_protect_enabled || factor_load_path_protect_enabled
-            protected_trans_dofs_all, load_path_diag = _build_sol101_load_path_protected_trans_dofs(
+        if load_path_protect_enabled
+            protected_trans_dofs, load_path_diag = _build_sol101_load_path_protected_trans_dofs(
                 F_applied, ndof, model, id_map)
-            protected_trans_dofs = load_path_protect_enabled ? protected_trans_dofs_all : nothing
-            factorization_protected_trans_dofs =
-                factor_load_path_protect_enabled ? protected_trans_dofs_all : nothing
             log_msg("[SOLVER] SOL101 load-path AUTOSPC protection: protected=$(get(load_path_diag, "protected_translational_dofs", 0)) translational DOFs across $(get(load_path_diag, "protected_nodes", 0)) nodes")
         end
 
@@ -1276,19 +1096,12 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
         diagnostics["bc_partition"]["autospc_load_path_protected_translational_dofs"] = autospc_diag["load_path_protected_translational_dofs"]
         diagnostics["bc_partition"]["autospc_load_path_skipped_dofs"] = autospc_diag["load_path_autospc_skipped_dofs"]
         diagnostics["bc_partition"]["autospc_load_path_protection"] = load_path_diag
-        diagnostics["bc_partition"]["autospc_rotational_topology"] = autospc_diag["rotational_topology"]
         rel_trans = autospc_diag["rel_threshold_trans"]
         rel_rot = autospc_diag["rel_threshold_rot"]
         rel_msg = rel_trans == rel_rot ? string(rel_trans) : "trans=$(rel_trans), rot=$(rel_rot)"
         log_msg("[SOLVER] AUTOSPC: $(autospc_diag["dofs"]) DOFs ($(autospc_diag["translational_dofs"]) trans + $(autospc_diag["rotational_dofs"]) rot, rel_thresh=$rel_msg, max_K_trans=$(round(autospc_diag["max_K_trans"], sigdigits=3)), max_K_rot=$(round(autospc_diag["max_K_rot"], sigdigits=3)))")
         if autospc_diag["load_path_autospc_skipped_dofs"] > 0
             log_msg("[SOLVER] AUTOSPC load-path protection skipped $(autospc_diag["load_path_autospc_skipped_dofs"]) low-diagonal translational candidates")
-        end
-        if get(autospc_diag["rotational_topology"], "enabled", false)
-            topology = autospc_diag["rotational_topology"]
-            multipliers = topology["multipliers"]
-            node_counts = topology["node_counts"]
-            log_msg("[SOLVER] AUTOSPC rotational topology: shell_only=$(multipliers["shell_only"]) ($(node_counts["shell_only"]) nodes), rod_shell=$(multipliers["rod_shell"]) ($(node_counts["rod_shell"]) nodes), bar_shell=$(multipliers["bar_shell"]) ($(node_counts["bar_shell"]) nodes), bar_only=$(multipliers["bar_only"]) ($(node_counts["bar_only"]) nodes)")
         end
     else
         log_msg("[SOLVER] AUTOSPC: disabled by PARAM,AUTOSPC")
@@ -1432,33 +1245,13 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
                         mechanism_global_raw = free_dofs[mechanism_original]
                         mechanism_global = Int[]
                         skipped_trans = 0
-                        skipped_loaded_trans = 0
-                        skipped_load_path_trans = 0
                         allow_trans =
                             sol101_factorization_autospc_allow_trans_enabled(model)
-                        skip_loaded_trans =
-                            sol101_factorization_autospc_skip_loaded_trans_enabled(model)
-                        loaded_force_threshold =
-                            max(
-                                sol101_factorization_autospc_loaded_force_abs(),
-                                sol101_factorization_autospc_loaded_force_rel() *
-                                    max(F_max, 1.0),
-                            )
-                        protected_factor_dofs =
-                            factorization_protected_trans_dofs === nothing ?
-                            Set{Int}() :
-                            factorization_protected_trans_dofs
                         for d in mechanism_global_raw
                             dof_local = mod(d - 1, 6) + 1
                             if dof_local <= 3
                                 if !allow_trans
                                     skipped_trans += 1
-                                    continue
-                                elseif d in protected_factor_dofs
-                                    skipped_load_path_trans += 1
-                                    continue
-                                elseif skip_loaded_trans && abs(F_applied[d]) > loaded_force_threshold
-                                    skipped_loaded_trans += 1
                                     continue
                                 end
                             end
@@ -1470,9 +1263,7 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
                         diagnostics["linear_solver"]["factorization_autospc"]["mechanism_translational_dofs"] = n_mech_trans
                         diagnostics["linear_solver"]["factorization_autospc"]["mechanism_rotational_dofs"] = n_mech_rot
                         diagnostics["linear_solver"]["factorization_autospc"]["skipped_translational_dofs"] = skipped_trans
-                        diagnostics["linear_solver"]["factorization_autospc"]["skipped_loaded_translational_dofs"] = skipped_loaded_trans
-                        diagnostics["linear_solver"]["factorization_autospc"]["skipped_load_path_protected_translational_dofs"] = skipped_load_path_trans
-                        log_msg("[SOLVER] Factorization AUTOSPC (shift=1e$shift_exp): Found $(length(mechanism_global)) DOFs ($n_mech_trans trans + $n_mech_rot rot), skipped $(skipped_trans + skipped_loaded_trans + skipped_load_path_trans) translational candidates")
+                        log_msg("[SOLVER] Factorization AUTOSPC (shift=1e$shift_exp): Found $(length(mechanism_global)) DOFs ($n_mech_trans trans + $n_mech_rot rot), skipped $(skipped_trans) translational candidates")
 
                         for d in mechanism_global
                             push!(fixed_dofs, d)

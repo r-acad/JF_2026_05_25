@@ -94,12 +94,11 @@ end
     buckling_raw_output_enabled() -> Bool
 
 Single env knob `JFEM_BUCKLING_RAW_OUTPUT` that, when set to a truthy value,
-implies BOTH `JFEM_BUCKLING_LOCALIZATION_FILTER=false` and
-`JFEM_BUCKLING_CLUSTER_FILTER=false`. Replaces the two-knob pattern from
-prior diagnostic scripts.
+implies `JFEM_BUCKLING_CLUSTER_FILTER=false`. Replaces the two-knob pattern
+from prior diagnostic scripts.
 
 Returns true if the raw output is requested. Caller should treat this as
-overriding the two individual filter knobs.
+overriding the cluster-filter knob.
 """
 function buckling_raw_output_enabled()
     raw = lowercase(strip(get(ENV, "JFEM_BUCKLING_RAW_OUTPUT", "")))

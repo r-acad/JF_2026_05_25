@@ -212,13 +212,6 @@ end
     return solver_env_bool("JFEM_SOL105_STATIC_MEMBRANE_INCOMP", false)
 end
 
-@inline function sol105_static_membrane_incomp_auto_load_enabled()
-    # Default OFF (2026-06-20). Earlier parity experiments enabled Wilson
-    # membrane modes for load-classified simple-compression subcases. The
-    # current SOL105 route must stay formulation/geometry/material driven, so
-    # load-state gating is opt-in only.
-    return solver_env_bool("JFEM_SOL105_STATIC_MEMBRANE_INCOMP_AUTO_LOAD", false)
-end
 
 
 @inline function kg_match_static_membrane_operator_enabled()
@@ -245,12 +238,6 @@ end
     return solver_env_optional_float("JFEM_SOL105_SNORM_ANGLE")
 end
 
-@inline function sol105_eig_bending_incomp_enabled()
-    # Use the enriched bending branch by default for SOL105 K_eig. This is now
-    # the safest common baseline across the broad buckling gate and the GAME
-    # pack, while still allowing an explicit opt-out through the env override.
-    return solver_env_bool("JFEM_SOL105_EIG_BENDING_INCOMP", true)
-end
 
 
 @inline function q4_curvature_principal_abs(curvature::SVector{3,Float64})
@@ -656,41 +643,6 @@ end
     return :none
 end
 
-@inline function q4_flat_pcomp_eig_membrane_assumed_mode()
-    raw = lowercase(strip(get(ENV, "JFEM_SOL105_EIG_FLAT_PCOMP_MEMBRANE_ASSUMED_MODE", "mitc4plus")))
-    if raw in ("mitc4plus_all", "mitc4+_all", "ans_all", "all")
-        return :mitc4plus_all
-    elseif raw in ("mitc4plus", "mitc4+", "ans")
-        return :mitc4plus
-    end
-    return :none
-end
-
-@inline function q4_flat_pcomp_taper_membrane_none_enabled()
-    return solver_env_bool("JFEM_SOL105_EIG_FLAT_PCOMP_TAPER_MEMBRANE_NONE", false)
-end
-
-@inline function q4_flat_pcomp_taper_membrane_none_ratio_max()
-    return clamp(solver_env_float("JFEM_SOL105_EIG_FLAT_PCOMP_TAPER_MEMBRANE_NONE_RATIO_MAX", 0.35), 0.0, 1.0)
-end
-
-@inline function q4_flat_pcomp_taper_membrane_none_aspect_min()
-    return max(solver_env_float("JFEM_SOL105_EIG_FLAT_PCOMP_TAPER_MEMBRANE_NONE_ASPECT_MIN", 2.0), 1.0)
-end
-
-@inline function q4_nonflat_pcomp_eig_membrane_assumed_mode()
-    # Ko-Lee-Bathe 2016 §3 MITC4+ for warped/curved shell quads: standard MITC4
-    # membrane exhibits membrane locking on curved geometries (HTP_launch 14% bias).
-    # Default "none" preserves legacy behavior; "mitc4plus" enables the ANS fix on
-    # non-flat curved PCOMP, mirroring what we already do for flat PCOMP.
-    raw = lowercase(strip(get(ENV, "JFEM_SOL105_EIG_NONFLAT_PCOMP_MEMBRANE_ASSUMED_MODE", "none")))
-    if raw in ("mitc4plus_all", "mitc4+_all", "ans_all", "all")
-        return :mitc4plus_all
-    elseif raw in ("mitc4plus", "mitc4+", "ans")
-        return :mitc4plus
-    end
-    return :none
-end
 
 
 @inline function q4_sol105_flat_pcomp_exact_side_shear()

@@ -574,7 +574,7 @@ function build_model(cards, cc)
             # First-order shear deformation laminate shear stiffness: ply-wise transformed
             # transverse shear integrated through the thickness, then corrected.
             #
-            # Three options for the correction:
+            # Two options for the correction:
             #
             # 1. JFEM_PCOMP_WHITNEY_SHEAR=true — per-element Whitney–Pagano (1973)
             #    κ_x, κ_y computed from actual through-thickness Q̄(z) and G(z)
@@ -582,83 +582,16 @@ function build_model(cards, cc)
             #    distribution from CLT bending equilibrium. Reduces to 5/6 for
             #    iso plies. Layup-dependent (typically 0.7–0.9 for CFRP QI).
             #
-            # 2. JFEM_PCOMP_TS_T=<float> — global override constant.
-            #
-            # 3. JFEM_PCOMP_WHITNEY_SHEAR=false — use 5/6 (Reissner).
-            #
-            # Priority: explicit JFEM_PCOMP_TS_T > Whitney > Reissner.
+            # 2. JFEM_PCOMP_WHITNEY_SHEAR=false — use 5/6 (Reissner).
             ts_t_default = 5.0/6.0
-            ts_t_raw = strip(get(ENV, "JFEM_PCOMP_TS_T", ""))
-            ts_t_parsed = isempty(ts_t_raw) ? nothing : tryparse(Float64, ts_t_raw)
             whitney_on = pcomp_whitney_shear_enabled()
-            if ts_t_parsed !== nothing
-                Cs_lam = ts_t_parsed .* Ash
-            elseif whitney_on && length(ply_data) > 0
+            if whitney_on && length(ply_data) > 0
                 κ_x, κ_y = pcomp_whitney_kappa(ply_data, total_t)
                 Cs_lam = [κ_x*Ash[1,1] κ_x*Ash[1,2]; κ_y*Ash[2,1] κ_y*Ash[2,2]]
             else
                 Cs_lam = ts_t_default .* Ash
             end
 
-            # Default ON (2026-05-14 very late evening): when a PCOMP qualifies
-            # for the MAT8-blank-G1Z convention (Nastran treats as MID3=0 → no
-            # transverse-shear material), apply a Cs override that supplants
-            # the Whitney-Pagano correction. The default Cs scale is 2.5
-            # (GAME-tuned: maximizes mean MAC between JFEM and Nastran mode 1
-            # across HTP_launch_16modes + VTP_launch_16modes — mean MAC 0.963,
-            # min MAC 0.92). This replaces the previous CS_SCALE=100
-            # (well-conditioned-Kirchhoff) which produced large eigenvalue
-            # over-prediction (HTP_launch +15%) because the
-            # per-element-K-optimal Cs is much stiffer than the
-            # global-eigenvalue-optimal Cs on curved aerospace shells.
-            #
-            # The previous defaults (Whitney κ < 1) produced phantom soft
-            # modes that displaced the physical mode 1 in JFEM's spectrum,
-            # giving up to 17.81% eigenvalue under-prediction AND mode 1
-            # MAC = 0.005 on VTP_launch 511002 (essentially orthogonal to
-            # Nastran's mode 1). The CS_SCALE=2.5 default eliminates both
-            # the eigenvalue and the mode-selection error simultaneously.
-            #
-            # Env overrides:
-            #   JFEM_PCOMP_RIGID_TS_DISABLE=true  — restore Whitney baseline
-            #     (the pre-2026-05-14 default; useful for back-compat tests)
-            #   JFEM_PCOMP_RIGID_TS_CS_SCALE=<value>  — set Cs multiplier
-            #     directly (overrides default 2.5).
-            rigid_ts_disable = lowercase(strip(get(ENV, "JFEM_PCOMP_RIGID_TS_DISABLE", ""))) in ("1","true","yes","on")
-            if !rigid_ts_disable && saw_mat8_ply && all_mat8_plies_blank_transverse_shear
-                # Uniform Cs=100*Ash default (2026-06-15):
-                # treat blank MAT8 transverse shear as a rigid-shear PCOMP
-                # convention. This is keyed only by material definition
-                # (MAT8 plies with blank G1Z/G2Z), matching the Nastran
-                # equivalent-PSHELL behavior used in SOL105 parity campaigns.
-                #
-                # Side effect: flat PCOMP cantilever probes over-predict +8-9%
-                # because Cs=2.5 is past the Whitney κ regime for those.
-                # Tried `JFEM_PCOMP_RIGID_TS_CS_FACTOR=<x>` layup-aware
-                # variant (Cs = factor·κ·Ash); on flat probes the effect is
-                # negligible due to Cs-saturation; on GAME slightly worse on
-                # mean (3.38% vs 3.27% on 6 subcases measured). Kept the
-                # uniform path as default for simplicity.
-                #
-                # Env overrides:
-                #   JFEM_PCOMP_RIGID_TS_DISABLE=true   — restore Whitney
-                #   JFEM_PCOMP_RIGID_TS_CS_SCALE=<x>   — uniform Cs=x*Ash (default 100)
-                #   JFEM_PCOMP_RIGID_TS_CS_FACTOR=<x>  — opt-in layup-aware Cs=x*κ*Ash
-                #     (defaults to 3.57 if env present without value; uses
-                #      Whitney's per-layup κ as baseline)
-                cs_scale_env = strip(get(ENV, "JFEM_PCOMP_RIGID_TS_CS_SCALE", ""))
-                cs_factor_env = strip(get(ENV, "JFEM_PCOMP_RIGID_TS_CS_FACTOR", ""))
-                if !isempty(cs_factor_env)
-                    # Layup-aware (opt-in): scale Whitney κ result by factor
-                    Cs_factor = something(tryparse(Float64, cs_factor_env), 3.57)
-                    Cs_lam = Cs_factor .* Cs_lam
-                else
-                    # Default: uniform Cs=100*Ash
-                    Cs_scale = isempty(cs_scale_env) ? 100.0 :
-                               something(tryparse(Float64, cs_scale_env), 100.0)
-                    Cs_lam = Cs_scale .* Ash
-                end
-            end
 
             # Derive equivalent E and nu for stress recovery and drill stiffness
             nu_eq = A[1,1] > 0 ? clamp(A[1,2] / A[1,1], 0.0, 0.49) : 0.3
@@ -1132,15 +1065,11 @@ function build_model_from_json(raw::AbstractDict)
 
         # First-order shear deformation laminate shear stiffness. Keep this
         # path consistent with the card-based PCOMP builder above:
-        # explicit JFEM_PCOMP_TS_T wins, otherwise Whitney-Pagano is the default
-        # ply-stack-dependent kappa; JFEM_PCOMP_WHITNEY_SHEAR=false restores 5/6.
+        # Whitney-Pagano is the default ply-stack-dependent kappa;
+        # JFEM_PCOMP_WHITNEY_SHEAR=false restores 5/6.
         ts_t_default2 = 5.0/6.0
-        ts_t_raw2 = strip(get(ENV, "JFEM_PCOMP_TS_T", ""))
-        ts_t_parsed2 = isempty(ts_t_raw2) ? nothing : tryparse(Float64, ts_t_raw2)
         whitney_on2 = pcomp_whitney_shear_enabled()
-        if ts_t_parsed2 !== nothing
-            Cs_lam = ts_t_parsed2 .* Ash
-        elseif whitney_on2 && length(ply_data) > 0
+        if whitney_on2 && length(ply_data) > 0
             kappa_x, kappa_y = pcomp_whitney_kappa(ply_data, total_t)
             Cs_lam = [kappa_x*Ash[1,1] kappa_x*Ash[1,2]; kappa_y*Ash[2,1] kappa_y*Ash[2,2]]
         else

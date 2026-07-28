@@ -9,14 +9,6 @@ using StaticArrays
 # Set to 0.0 to use default alpha=10. Otherwise overrides alpha.
 const PHI2_ALPHA = Ref(10.0)
 
-# When true, allow the MITC4+ assumed-strain membrane formulation to apply even
-# when curvature_membrane is supplied. Default false preserves the legacy
-# "flat-only MITC4+" behavior; Ko-Lee-Bathe 2016 motivates enabling it on
-# curved/distorted 4-node shells where standard MITC4's rs-term causes
-# membrane locking (HTP_launch etc.). Env: JFEM_SOL105_EIG_MITC4PLUS_ALLOW_CURVED.
-const MITC4PLUS_ALLOW_CURVED = Ref(
-    lowercase(strip(get(ENV, "JFEM_SOL105_EIG_MITC4PLUS_ALLOW_CURVED", "false"))) in ("1", "true", "yes", "on")
-)
 
 @inline function fem_env_float(name::AbstractString, default::Float64)
     raw = get(ENV, name, "")
@@ -825,114 +817,6 @@ end
     return Bm
 end
 
-@inline function apply_membrane_ans_mitc4plus!(Bm::AbstractMatrix, coords::AbstractMatrix, xi::Float64, eta::Float64)
-    x1 = coords[1,1]; y1 = coords[1,2]
-    x2 = coords[2,1]; y2 = coords[2,2]
-    x3 = coords[3,1]; y3 = coords[3,2]
-    x4 = coords[4,1]; y4 = coords[4,2]
-
-    xr1 = 0.25 * (-x1 + x2 + x3 - x4)
-    xr2 = 0.25 * (-y1 + y2 + y3 - y4)
-    xs1 = 0.25 * (-x1 - x2 + x3 + x4)
-    xs2 = 0.25 * (-y1 - y2 + y3 + y4)
-    xd1 = 0.25 * (x1 - x2 + x3 - x4)
-    xd2 = 0.25 * (y1 - y2 + y3 - y4)
-
-    det0 = xr1 * xs2 - xr2 * xs1
-    abs(det0) < 1e-12 && return Bm
-
-    mr1 = xs2 / det0
-    mr2 = -xs1 / det0
-    ms1 = -xr2 / det0
-    ms2 = xr1 / det0
-
-    c_r = mr1 * xd1 + mr2 * xd2
-    c_s = ms1 * xd1 + ms2 * xd2
-    d = c_r * c_r + c_s * c_s - 1.0
-    abs(d) < 1e-10 && return Bm
-
-    coef_r = (-0.25, 0.25, 0.25, -0.25)
-    coef_s = (-0.25, -0.25, 0.25, 0.25)
-    coef_d = (0.25, -0.25, 0.25, -0.25)
-
-    xi_eta = xi * eta
-    xi2_m1 = xi * xi - 1.0
-    eta2_m1 = eta * eta - 1.0
-    inv_d = 1.0 / d
-
-    # Zero only the u/v columns we are about to overwrite. Do NOT fill! the
-    # entire Bm: the caller may have already filled idx+3 (w-DOF) columns with
-    # curvature coupling terms (-N_k * curvature_membrane[i]) that must be
-    # preserved for curved-shell formulations (Ko-Lee-Bathe 2016 §2.3).
-    @inbounds for k in 1:4
-        idx = (k - 1) * 6
-        Bm[1, idx+1] = 0.0; Bm[1, idx+2] = 0.0
-        Bm[2, idx+1] = 0.0; Bm[2, idx+2] = 0.0
-        Bm[3, idx+1] = 0.0; Bm[3, idx+2] = 0.0
-    end
-    @inbounds for k in 1:4
-        idx = (k - 1) * 6
-        rk = coef_r[k]
-        sk = coef_s[k]
-        dk = coef_d[k]
-
-        rr_con_x = xr1 * rk
-        rr_con_y = xr2 * rk
-        rr_lin_x = xr1 * dk + xd1 * rk
-        rr_lin_y = xr2 * dk + xd2 * rk
-
-        ss_con_x = xs1 * sk
-        ss_con_y = xs2 * sk
-        ss_lin_x = xs1 * dk + xd1 * sk
-        ss_lin_y = xs2 * dk + xd2 * sk
-
-        rs_con_x = 0.5 * (xr1 * sk + xs1 * rk)
-        rs_con_y = 0.5 * (xr2 * sk + xs2 * rk)
-        rs_bil_x = xd1 * dk
-        rs_bil_y = xd2 * dk
-
-        rs_bil_tilde_x =
-            (c_r * (c_r * (rr_con_x + rs_bil_x) - rr_lin_x) +
-             c_s * (c_s * (ss_con_x + rs_bil_x) - ss_lin_x) +
-             2.0 * c_r * c_s * rs_con_x) * inv_d
-        rs_bil_tilde_y =
-            (c_r * (c_r * (rr_con_y + rs_bil_y) - rr_lin_y) +
-             c_s * (c_s * (ss_con_y + rs_bil_y) - ss_lin_y) +
-             2.0 * c_r * c_s * rs_con_y) * inv_d
-
-        cov_rr_x = rr_con_x + rs_bil_x + eta * rr_lin_x + eta2_m1 * rs_bil_tilde_x
-        cov_rr_y = rr_con_y + rs_bil_y + eta * rr_lin_y + eta2_m1 * rs_bil_tilde_y
-        cov_ss_x = ss_con_x + rs_bil_x + xi * ss_lin_x + xi2_m1 * rs_bil_tilde_x
-        cov_ss_y = ss_con_y + rs_bil_y + xi * ss_lin_y + xi2_m1 * rs_bil_tilde_y
-        cov_rs_x = rs_con_x + 0.5 * xi * rr_lin_x + 0.5 * eta * ss_lin_x + xi_eta * rs_bil_tilde_x
-        cov_rs_y = rs_con_y + 0.5 * xi * rr_lin_y + 0.5 * eta * ss_lin_y + xi_eta * rs_bil_tilde_y
-
-        Bm[1, idx+1] = mr1 * mr1 * cov_rr_x + ms1 * ms1 * cov_ss_x + 2.0 * mr1 * ms1 * cov_rs_x
-        Bm[1, idx+2] = mr1 * mr1 * cov_rr_y + ms1 * ms1 * cov_ss_y + 2.0 * mr1 * ms1 * cov_rs_y
-
-        Bm[2, idx+1] = mr2 * mr2 * cov_rr_x + ms2 * ms2 * cov_ss_x + 2.0 * mr2 * ms2 * cov_rs_x
-        Bm[2, idx+2] = mr2 * mr2 * cov_rr_y + ms2 * ms2 * cov_ss_y + 2.0 * mr2 * ms2 * cov_rs_y
-
-        Bm[3, idx+1] = 2.0 * mr1 * mr2 * cov_rr_x + 2.0 * ms1 * ms2 * cov_ss_x +
-                        2.0 * (mr1 * ms2 + mr2 * ms1) * cov_rs_x
-        Bm[3, idx+2] = 2.0 * mr1 * mr2 * cov_rr_y + 2.0 * ms1 * ms2 * cov_ss_y +
-                        2.0 * (mr1 * ms2 + mr2 * ms1) * cov_rs_y
-    end
-
-    return Bm
-end
-
-@inline function use_membrane_ans_mitc4plus(mode::Symbol, coords::AbstractMatrix, curvature_membrane)
-    if curvature_membrane !== nothing && !MITC4PLUS_ALLOW_CURVED[]
-        return false
-    end
-    if mode === :mitc4plus_all
-        return true
-    elseif mode === :mitc4plus
-        return !quad4_is_axis_aligned_rectangle(coords)
-    end
-    return false
-end
 
 @inline function quad4_membrane_incompatible_jacobian_components(
     membrane_incomp_center_jacobian::Bool,
@@ -1049,7 +933,6 @@ function stiffness_quad4_membrane_enhanced_matrices(
     curvature_membrane=nothing,
     membrane_shear_center_row::Bool=false,
     material_shear_rotation::Float64=0.0,
-    membrane_assumed_mode::Symbol=:none,
     membrane_incomp_center_jacobian::Bool=false,
 )
     Ke = zeros(24, 24)
@@ -1134,8 +1017,6 @@ function stiffness_quad4_membrane_enhanced_matrices(
                 curvature_membrane,
                 material_shear_rotation,
             )
-        elseif use_membrane_ans_mitc4plus(membrane_assumed_mode, coords, curvature_membrane)
-            apply_membrane_ans_mitc4plus!(Bm, coords, r, s)
         end
 
         ts_mul!(tmp3x24, Cm, Bm)
@@ -1384,7 +1265,7 @@ include(joinpath(@__DIR__, "experimental", "hu_washizu_kernel.jl"))
 # Pre-allocated workspace `ws` eliminates ALL heap allocations in the hot loop
 # (~5M alloc saved across HTP_launch).
 # =============================================================================
-function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_assumed_mode::Symbol=:none, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, macneal_rbf_zb_scale::Union{Nothing,Float64}=nothing, macneal_rbf_zb_diff_skew_law::Bool=false, macneal_rbf_zb_diff_skew_directional::Bool=false, membrane_hourglass_skew::Bool=false)
+function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, macneal_rbf_zb_scale::Union{Nothing,Float64}=nothing, macneal_rbf_zb_diff_skew_law::Bool=false, macneal_rbf_zb_diff_skew_directional::Bool=false, membrane_hourglass_skew::Bool=false)
     # Allow env-var override for marguerre_warp_to_uz so it can be enabled
     # globally without plumbing through every caller. Currently the assembly
     # loop doesn't pass this kwarg, so default is false. Env override:
@@ -1431,7 +1312,6 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             curvature_membrane=curvature_membrane,
             membrane_shear_center_row=membrane_shear_center_row,
             material_shear_rotation=material_shear_rotation,
-            membrane_assumed_mode=membrane_assumed_mode,
             membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
             selective_shear=selective_shear,
             selective_shear_mode=selective_shear_mode,
@@ -1462,7 +1342,6 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             curvature_membrane=membrane_curvature_default,
             membrane_shear_center_row=membrane_shear_center_row,
             material_shear_rotation=material_shear_rotation,
-            membrane_assumed_mode=membrane_assumed_mode,
             membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
             selective_shear=false,
             selective_shear_mode=:all,
@@ -1501,7 +1380,6 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
        slope_membrane === nothing &&
        coords_3d === nothing &&
         (!membrane_shear_center_row || material_shear_rotation == 0.0) &&
-       membrane_assumed_mode === :none &&
        !membrane_shear_center_row &&
        !selective_shear &&
        !exact_side_shear &&
@@ -1549,7 +1427,6 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             curvature_membrane=curvature_membrane,
             membrane_shear_center_row=membrane_shear_center_row,
             material_shear_rotation=material_shear_rotation,
-            membrane_assumed_mode=membrane_assumed_mode,
             membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
             selective_shear=false,
             selective_shear_mode=:all,
@@ -1593,7 +1470,6 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         curvature_membrane === nothing &&
         slope_membrane === nothing &&
         (!membrane_shear_center_row || material_shear_rotation == 0.0) &&
-        membrane_assumed_mode === :none &&
         !membrane_shear_center_row &&
         !selective_shear &&
         !exact_side_shear &&
@@ -1692,39 +1568,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # MITC4 at 2×2 Gauss points still locks for thin plates on coarse meshes (h/L<0.05).
     # phi2 matches Nastran CQUAD4's Selective Reduced Integration behavior.
     # PHI2_ALPHA=10.0 is the globally optimal coefficient across all test cases.
-    #
-    # Per-element alpha gate (default-on as of 2026-05-25):
-    # On thin (h/L<HOL_MAX) AND high-aspect (>ASPECT_MIN) PCOMP curved elements
-    # (the HTP_launch regime), the default α=10 over-stiffens shear coupling
-    # (w,θy) → eigenvalue bias +6% RQ. Lowering α to α_soft on those elements
-    # alone closes HTP_launch substantially while preserving mode-subspace trust
-    # on the other GAME cases. Gate is geometry-only (h/L, aspect), respects
-    # [[no-test-set-tuning]]. Knobs (env overrides documented in calibrated
-    # constants):
-    #   JFEM_Q4_PHI2_ALPHA_LOWASPECT       (default 4.5)  — α on gated elements
-    #   JFEM_Q4_PHI2_ALPHA_LOWASPECT_HOL_MAX   (default 0.03) — h/L threshold
-    #   JFEM_Q4_PHI2_ALPHA_LOWASPECT_ASPECT_MIN (default 4.0) — aspect threshold
     _alpha = PHI2_ALPHA[]
-    let
-        p1_g = SVector(coords[1,1], coords[1,2])
-        p2_g = SVector(coords[2,1], coords[2,2])
-        p3_g = SVector(coords[3,1], coords[3,2])
-        p4_g = SVector(coords[4,1], coords[4,2])
-        l_avg_g = 0.25 * (norm(p2_g-p1_g) + norm(p3_g-p2_g) +
-                          norm(p4_g-p3_g) + norm(p1_g-p4_g))
-        l_min_g = max(min(norm(p2_g-p1_g), norm(p3_g-p2_g),
-                          norm(p4_g-p3_g), norm(p1_g-p4_g)), 1e-12)
-        l_max_g = max(norm(p2_g-p1_g), norm(p3_g-p2_g),
-                      norm(p4_g-p3_g), norm(p1_g-p4_g))
-        h_over_L = h / max(l_avg_g, 1e-12)
-        aspect_g = l_max_g / l_min_g
-        h_over_L_thr = fem_env_float("JFEM_Q4_PHI2_ALPHA_LOWASPECT_HOL_MAX", 0.03)
-        aspect_thr   = fem_env_float("JFEM_Q4_PHI2_ALPHA_LOWASPECT_ASPECT_MIN", 4.0)
-        alpha_soft   = fem_env_float("JFEM_Q4_PHI2_ALPHA_LOWASPECT", 4.5)
-        if h_over_L < h_over_L_thr && aspect_g > aspect_thr
-            _alpha = alpha_soft
-        end
-    end
     phi2_shear = 1.0
     # MacNeal 1978 eq (12): 1/GA* = 1/GA + L²/(12 EI). Series-flexibility
     # correction that makes the element match Nastran CQUAD4 for both
@@ -1773,52 +1617,6 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # Default OFF; see the K_ab_bend accumulation below for the evidence.
     bending_incomp_decouple_d16 =
         fem_env_bool("JFEM_Q4_BENDING_INCOMP_DECOUPLE_D16", false)
-    # JFEM_Q4_NASTRAN_ASPECT_BAND (default OFF): reference-solver-measured
-    # mid-aspect bending softening band.  Single-element K extraction
-    # (k_extract_boxes_laminates_20260704, aspect 1.0..8.0 in 0.1..0.2 steps,
-    # four laminates) shows the reference CQUAD4 bending block equals the
-    # JFEM Nastran-matched configuration exactly for aspect <= 1.5 and
-    # aspect >= 4.6, but is uniformly SOFTER inside a finite band with
-    # piecewise-linear, laminate-independent shape:
-    #   c(a) = 1                        a <= 1.5
-    #        = 1 + (a-1.5)/10          1.5 < a <= 2.5   (peak 1.10)
-    #        = 1.10 - (a-2.5)/9        2.5 < a <= 3.4
-    #        = 1                        3.4 < a <= 3.5
-    #        = 1 + 0.218*(a-3.5)       3.5 < a <= 4.0   (peak ~1.109)
-    #        = 1.109 - 0.253*(a-4.1)   4.1 < a <= 4.52
-    #        = 1                        a > 4.52
-    # where c is the JFEM/reference stiffness ratio; enabling the switch
-    # multiplies Cb by 1/c(aspect) (which scales bending AND the MacNeal RBF
-    # shear stiffness uniformly, matching the measured uniform-mode shift).
-    # Geometry-only element descriptor; no case/PID/group/stress selectors.
-    nastran_aspect_band = fem_env_bool("JFEM_Q4_NASTRAN_ASPECT_BAND", false)
-    if nastran_aspect_band && kernel_planar
-        e12 = hypot(coords[2,1]-coords[1,1], coords[2,2]-coords[1,2])
-        e23 = hypot(coords[3,1]-coords[2,1], coords[3,2]-coords[2,2])
-        e34 = hypot(coords[4,1]-coords[3,1], coords[4,2]-coords[3,2])
-        e41 = hypot(coords[1,1]-coords[4,1], coords[1,2]-coords[4,2])
-        a_band = max(e12, e23, e34, e41) / max(min(e12, e23, e34, e41), 1e-12)
-        c_band = if a_band <= 1.5
-            1.0
-        elseif a_band <= 2.5
-            1.0 + (a_band - 1.5) / 10.0
-        elseif a_band <= 3.4
-            1.10 - (a_band - 2.5) / 9.0
-        elseif a_band <= 3.5
-            1.0
-        elseif a_band <= 4.0
-            1.0 + 0.218 * (a_band - 3.5)
-        elseif a_band <= 4.1
-            1.109
-        elseif a_band <= 4.52
-            1.109 - 0.253 * (a_band - 4.1)
-        else
-            1.0
-        end
-        if c_band != 1.0
-            Cb = Cb ./ c_band
-        end
-    end
     # Center Jacobian — needed for phi2 and/or shear_center_only 1-point integration
     dNr_c = SVector(-0.25, 0.25, 0.25, -0.25)
     dNs_c = SVector(-0.25, -0.25, 0.25, 0.25)
@@ -2052,8 +1850,6 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
                 curvature_membrane,
                 material_shear_rotation,
             )
-        elseif use_membrane_ans_mitc4plus(membrane_assumed_mode, coords, curvature_membrane)
-            apply_membrane_ans_mitc4plus!(ws.Bm, coords, r, s)
         end
 
         dphi1_dx = iJ11*(-2.0*r);  dphi1_dy = iJ21*(-2.0*r)
@@ -2512,7 +2308,7 @@ include(joinpath(@__DIR__, "experimental", "min4_kernel.jl"))
 #         calculation here is *always* done; the env enables a DIFFERENT in-line
 #         RBF in stiffness_quad4_matrices at line ~3406);
 #         JFEM_Q4_MACNEAL_EPSILON (0.04), JFEM_Q4_MACNEAL_RBF_ZB_SCALE,
-#         JFEM_Q4_MACNEAL_RBF_ZB_UNIFORM_SCALE, JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SCALE,
+#         JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SCALE,
 #         JFEM_Q4_MACNEAL_RBF_BENDING_FLEX_MODE ("diag"), JFEM_Q4_MACNEAL_RBF_LENGTH_MODE ("paper").
 # LAST VALIDATED: 2026-05-22 (GAME mean 2.42% / max 9.10%).
 # =============================================================================
@@ -2808,9 +2604,8 @@ function add_quad4_macneal_shear_rbf!(
     # NB judge this on the whole matrix: setting JFEM_Q4_MACNEAL_RBF_ZB_SCALE
     # itself to 1.0 flatters the same eigenvalue while taking the full-matrix
     # error from 8 % to 37 %.
-    zb_u_raw = tryparse(Float64, strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_UNIFORM_SCALE", "")))
     zb_d_raw = tryparse(Float64, strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SCALE",    "")))
-    zb_u = zb_u_raw === nothing ? 1.0 : max(zb_u_raw, 1e-12)
+    zb_u = 1.0
     zb_d = zb_d_raw === nothing ? zb_scale : max(zb_d_raw, 1e-12)
     # Per-direction differential-gamma scales (default = zb_d): the
     # reference-solver library shows the two differential shear-family modes
@@ -3422,7 +3217,7 @@ function quad4_mitc4_center_shear_resultant(coords, u_elem, G, h; ts_t=5.0/6.0)
     ]
 end
 
-function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, Cm_override=nothing, for_kg=false, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_assumed_mode::Symbol=:none, membrane_incomp_center_jacobian::Bool=false)
+function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, Cm_override=nothing, for_kg=false, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false)
     const_mem = E / (1 - nu^2)
     D_mem = const_mem .* [1 nu 0; nu 1 0; 0 0 (1-nu)/2]
     # For PCOMP elements, use CLT Cm for incompatible mode condensation
@@ -3500,8 +3295,6 @@ function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, 
         end
         if membrane_shear_center_row
             project_material_membrane_shear!(Bm_g, dN_dxy[1,:], dN_dxy[2,:], curvature_membrane, material_shear_rotation)
-        elseif use_membrane_ans_mitc4plus(membrane_assumed_mode, coords, curvature_membrane)
-            apply_membrane_ans_mitc4plus!(Bm_g, coords, r, s)
         end
 
         Bi = zeros(3, 4)
@@ -3556,8 +3349,6 @@ function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, 
         end
         if membrane_shear_center_row
             project_material_membrane_shear!(Bm_g, dN_dxy[1,:], dN_dxy[2,:], nothing, material_shear_rotation)
-        elseif use_membrane_ans_mitc4plus(membrane_assumed_mode, coords, nothing)
-            apply_membrane_ans_mitc4plus!(Bm_g, coords, r, s)
         end
 
         # Bending strain at this GP
@@ -3623,7 +3414,6 @@ function quad4_bilinear_corner_forces(coords, u_elem, E, nu, h;
                                       curvature_membrane=nothing,
                                       membrane_shear_center_row::Bool=false,
                                       material_shear_rotation::Float64=0.0,
-                                      membrane_assumed_mode::Symbol=:none,
                                       membrane_incomp_center_jacobian::Bool=false)
     const_mem = E / (1 - nu^2)
     D_mem = const_mem .* [1 nu 0; nu 1 0; 0 0 (1-nu)/2]
@@ -3669,8 +3459,6 @@ function quad4_bilinear_corner_forces(coords, u_elem, E, nu, h;
         end
         if membrane_shear_center_row
             project_material_membrane_shear!(Bm_g, dN_dxy[1,:], dN_dxy[2,:], curvature_membrane, material_shear_rotation)
-        elseif use_membrane_ans_mitc4plus(membrane_assumed_mode, coords, curvature_membrane)
-            apply_membrane_ans_mitc4plus!(Bm_g, coords, r, s)
         end
 
         Bi = zeros(3, 4)
@@ -3714,8 +3502,6 @@ function quad4_bilinear_corner_forces(coords, u_elem, E, nu, h;
         end
         if membrane_shear_center_row
             project_material_membrane_shear!(Bm_g, dN_dxy[1,:], dN_dxy[2,:], nothing, material_shear_rotation)
-        elseif use_membrane_ans_mitc4plus(membrane_assumed_mode, coords, nothing)
-            apply_membrane_ans_mitc4plus!(Bm_g, coords, r, s)
         end
 
         Bb_g = zeros(3, 24)
@@ -3770,7 +3556,6 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
                                     curvature_membrane=nothing,
                                     membrane_shear_center_row::Bool=false,
                                     material_shear_rotation::Float64=0.0,
-                                    membrane_assumed_mode::Symbol=:none,
                                     membrane_incomp_center_jacobian::Bool=false,
                                     mode_weights=nothing)
     # slope_membrane (Ibrahimbegović 1994 Eq. 6.14 / Marguerre rotation-column
@@ -3869,8 +3654,6 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
                     curvature_membrane,
                     material_shear_rotation,
                 )
-            elseif use_membrane_ans_mitc4plus(membrane_assumed_mode, coords, curvature_membrane)
-                apply_membrane_ans_mitc4plus!(Bm_g, coords, r, s)
             end
 
             if use_enhanced_modes
@@ -3983,8 +3766,6 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
                 curvature_membrane,
                 material_shear_rotation,
             )
-        elseif use_membrane_ans_mitc4plus(membrane_assumed_mode, coords, curvature_membrane)
-            apply_membrane_ans_mitc4plus!(Bm_g, coords, r, s)
         end
 
         eps_gp = Bm_g * u_elem
@@ -4235,7 +4016,6 @@ function quad4_membrane_incompatible_condensation_map(coords::AbstractMatrix,
                                                       curvature_membrane=nothing,
                                                       membrane_shear_center_row::Bool=false,
                                                       material_shear_rotation::Float64=0.0,
-                                                      membrane_assumed_mode::Symbol=:none,
                                                       membrane_incomp_center_jacobian::Bool=false)
     K_ab = zeros(24, 4)
     K_bb = zeros(4, 4)
@@ -4282,8 +4062,6 @@ function quad4_membrane_incompatible_condensation_map(coords::AbstractMatrix,
                 curvature_membrane,
                 material_shear_rotation,
             )
-        elseif use_membrane_ans_mitc4plus(membrane_assumed_mode, coords, curvature_membrane)
-            apply_membrane_ans_mitc4plus!(Bm_g, coords, r, s)
         end
 
         Bi = zeros(3, 4)
@@ -4314,7 +4092,6 @@ function quad4_membrane_enhanced_condensation_map(coords::AbstractMatrix,
                                                   curvature_membrane=nothing,
                                                   membrane_shear_center_row::Bool=false,
                                                   material_shear_rotation::Float64=0.0,
-                                                  membrane_assumed_mode::Symbol=:none,
                                                   membrane_incomp_center_jacobian::Bool=false)
     K_ab = zeros(24, 6)
     K_bb = zeros(6, 6)
@@ -4361,8 +4138,6 @@ function quad4_membrane_enhanced_condensation_map(coords::AbstractMatrix,
                 curvature_membrane,
                 material_shear_rotation,
             )
-        elseif use_membrane_ans_mitc4plus(membrane_assumed_mode, coords, curvature_membrane)
-            apply_membrane_ans_mitc4plus!(Bm_g, coords, r, s)
         end
 
         Bi = zeros(3, 6)
@@ -4542,13 +4317,6 @@ end
     return Kg
 end
 
-@inline function shell_geometric_metric3(s_xx::Float64, s_yy::Float64, s_xy::Float64,
-                                         ax::SVector{3,Float64}, ay::SVector{3,Float64},
-                                         bx::SVector{3,Float64}, by::SVector{3,Float64})
-    return s_xx * dot(ax, bx) +
-           s_yy * dot(ay, by) +
-           s_xy * (dot(ax, by) + dot(ay, bx))
-end
 
 @inline function principal_stress_2d_components(s_xx::Float64, s_yy::Float64, s_xy::Float64)
     mean_s = 0.5 * (s_xx + s_yy)
@@ -5850,7 +5618,7 @@ end
 #         default-path element (live trace 2026-05-22 confirms).
 # DISPATCHED FROM: assembly.jl `else` fallback in K_g dispatch (~line 5912).
 # CALLS: geometric_stiffness_quad4_covariant when JFEM_SOL105_EIG_CURVED_JACOBIAN.
-# CALIBRATION KNOBS: trans_mode, curvature_sign, rot_grad_scale, Cs/Cb scaling
+# CALIBRATION KNOBS: trans_mode, curvature_sign, Cs/Cb scaling
 #         pass-through; env JFEM_SOL105_EIG_CURVED_KG_*.
 # Method dispatches: this is the (sigma_mem::Vector) variant — averaged membrane
 #         stress; the (sigma_mem_gp::Matrix) variant at line ~7302 handles per-GP
@@ -5864,13 +5632,11 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem::AbstractVe
                                    trans_mode::Symbol=:all,
                                    curvature::Union{Nothing,SVector{3,Float64}}=nothing,
                                    curvature_sign::Float64=1.0,
-                                   rot_grad_scale::Float64=0.0,
                                    membrane_shear_center_row::Bool=false,
                                    Cm::Union{Nothing,AbstractMatrix}=nothing,
                                     membrane_incomp::Bool=false,
                                     membrane_enhanced::Bool=false,
                                     material_shear_rotation::Float64=0.0,
-                                    membrane_assumed_mode::Symbol=:none,
                                     membrane_incomp_center_jacobian::Bool=false,
                                     principal_shear_yy_factor::Float64=1.0,
                                     principal_shear_xy_factor::Float64=1.0,
@@ -5898,13 +5664,11 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem::AbstractVe
                                      trans_mode=trans_mode,
                                      curvature=curvature,
                                      curvature_sign=curvature_sign,
-                                     rot_grad_scale=rot_grad_scale,
                                      membrane_shear_center_row=membrane_shear_center_row,
                                      Cm=Cm,
                                      membrane_incomp=membrane_incomp,
                                      membrane_enhanced=membrane_enhanced,
                                      material_shear_rotation=material_shear_rotation,
-                                     membrane_assumed_mode=membrane_assumed_mode,
                                      membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
                                      principal_shear_yy_factor=principal_shear_yy_factor,
                                      principal_shear_xy_factor=principal_shear_xy_factor,
@@ -5928,13 +5692,11 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                                     trans_mode::Symbol=:all,
                                     curvature::Union{Nothing,SVector{3,Float64}}=nothing,
                                     curvature_sign::Float64=1.0,
-                                    rot_grad_scale::Float64=0.0,
                                     membrane_shear_center_row::Bool=false,
                                     Cm::Union{Nothing,AbstractMatrix}=nothing,
                                     membrane_incomp::Bool=false,
                                     membrane_enhanced::Bool=false,
                                     material_shear_rotation::Float64=0.0,
-                                    membrane_assumed_mode::Symbol=:none,
                                     membrane_incomp_center_jacobian::Bool=false,
                                     principal_shear_yy_factor::Float64=1.0,
                                     principal_shear_xy_factor::Float64=1.0,
@@ -6112,7 +5874,6 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                 curvature_membrane=(trans_mode === :curvature && curvature !== nothing ? curvature_sign * curvature : nothing),
                 membrane_shear_center_row=membrane_shear_center_row,
                 material_shear_rotation=material_shear_rotation,
-                membrane_assumed_mode=membrane_assumed_mode,
                 membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
             )
         elseif membrane_incomp && Cm !== nothing
@@ -6121,7 +5882,6 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                 curvature_membrane=(trans_mode === :curvature && curvature !== nothing ? curvature_sign * curvature : nothing),
                 membrane_shear_center_row=membrane_shear_center_row,
                 material_shear_rotation=material_shear_rotation,
-                membrane_assumed_mode=membrane_assumed_mode,
                 membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
             )
         else
@@ -6319,43 +6079,6 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                         )
                     end
                 end
-                if rot_grad_scale > 0.0
-                    for i in 1:4
-                        dNi_dx = iJ11*dNr[i] + iJ12*dNs[i]
-                        dNi_dy = iJ21*dNr[i] + iJ22*dNs[i]
-                        Ni = Nvals[i]
-                        rx_x_i = SVector(0.0, dNi_dx, Ni * k12)
-                        rx_y_i = SVector(0.0, dNi_dy, Ni * k22)
-                        ry_x_i = SVector(dNi_dx, 0.0, Ni * k11)
-                        ry_y_i = SVector(dNi_dy, 0.0, Ni * k12)
-                        for j in 1:4
-                            dNj_dx = iJ11*dNr[j] + iJ12*dNs[j]
-                            dNj_dy = iJ21*dNr[j] + iJ22*dNs[j]
-                            Nj = Nvals[j]
-                            rot_scale = rot_grad_scale * (h^3 / 12.0) * abs_detJ
-                            rx_x_j = SVector(0.0, dNj_dx, Nj * k12)
-                            rx_y_j = SVector(0.0, dNj_dy, Nj * k22)
-                            ry_x_j = SVector(dNj_dx, 0.0, Nj * k11)
-                            ry_y_j = SVector(dNj_dy, 0.0, Nj * k12)
-                            rx_val = rot_scale * shell_geometric_metric3(
-                                s_xx, s_yy, s_xy, rx_x_i, rx_y_i, rx_x_j, rx_y_j)
-                            ry_val = rot_scale * shell_geometric_metric3(
-                                s_xx, s_yy, s_xy, ry_x_i, ry_y_i, ry_x_j, ry_y_j)
-                            rx_ry_val = -rot_scale * shell_geometric_metric3(
-                                s_xx, s_yy, s_xy, rx_x_i, rx_y_i, ry_x_j, ry_y_j)
-                            ry_rx_val = -rot_scale * shell_geometric_metric3(
-                                s_xx, s_yy, s_xy, ry_x_i, ry_y_i, rx_x_j, rx_y_j)
-                            row_rx = (i-1)*6 + 4
-                            col_rx = (j-1)*6 + 4
-                            row_ry = (i-1)*6 + 5
-                            col_ry = (j-1)*6 + 5
-                            Kg[row_rx, col_rx] += rx_val
-                            Kg[row_ry, col_ry] += ry_val
-                            Kg[row_rx, col_ry] += rx_ry_val
-                            Kg[row_ry, col_rx] += ry_rx_val
-                        end
-                    end
-                end
             elseif trans_mode === :normal_only
                 add_geometric_gradient_block!(Kg, duz_dx, duz_dy, scale, s_xx, s_yy, s_xy, local_trans_scales[3])
             elseif trans_mode === :principal_transverse
@@ -6464,32 +6187,6 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                                     duz_dx[a] * duz_dy[b] + duz_dy[a] * duz_dx[b]
                                 )
                             )
-                        end
-                    end
-                end
-                if rot_grad_scale > 0.0
-                    for i in 1:4
-                        dNi_dx = iJ11*dNr[i] + iJ12*dNs[i]
-                        dNi_dy = iJ21*dNr[i] + iJ22*dNs[i]
-                        for j in 1:4
-                            dNj_dx = iJ11*dNr[j] + iJ12*dNs[j]
-                            dNj_dy = iJ21*dNr[j] + iJ22*dNs[j]
-                            sxy_term = if membrane_shear_center_row
-                                dNdx_c[i] * dNdy_c[j] + dNdy_c[i] * dNdx_c[j]
-                            else
-                                dNi_dx * dNj_dy + dNi_dy * dNj_dx
-                            end
-                            rot_val = rot_grad_scale * (h^3 / 12.0) * abs_detJ * (
-                                s_xx * dNi_dx * dNj_dx +
-                                s_yy * dNi_dy * dNj_dy +
-                                s_xy * sxy_term
-                            )
-                            row_rx = (i-1)*6 + 4
-                            col_rx = (j-1)*6 + 4
-                            row_ry = (i-1)*6 + 5
-                            col_ry = (j-1)*6 + 5
-                            Kg[row_rx, col_rx] += rot_val
-                            Kg[row_ry, col_ry] += rot_val
                         end
                     end
                 end
@@ -6647,25 +6344,6 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                         s_xy * (Axi13*Ayj13 + Axi23*Ayj23 + Axi33*Ayj33 +
                                 Ayi13*Axj13 + Ayi23*Axj23 + Ayi33*Axj33)
                     )
-                    if rot_grad_scale > 0.0
-                        rot_scale = rot_grad_scale * (h^3 / 12.0) * abs_detJ
-                        rx_x_i = SVector(Axi12, Axi22, Axi32)
-                        rx_y_i = SVector(Ayi12, Ayi22, Ayi32)
-                        ry_x_i = SVector(Axi11, Axi21, Axi31)
-                        ry_y_i = SVector(Ayi11, Ayi21, Ayi31)
-                        rx_x_j = SVector(Axj12, Axj22, Axj32)
-                        rx_y_j = SVector(Ayj12, Ayj22, Ayj32)
-                        ry_x_j = SVector(Axj11, Axj21, Axj31)
-                        ry_y_j = SVector(Ayj11, Ayj21, Ayj31)
-                        Kg[row0+4, col0+4] += rot_scale * shell_geometric_metric3(
-                            s_xx, s_yy, s_xy, rx_x_i, rx_y_i, rx_x_j, rx_y_j)
-                        Kg[row0+5, col0+5] += rot_scale * shell_geometric_metric3(
-                            s_xx, s_yy, s_xy, ry_x_i, ry_y_i, ry_x_j, ry_y_j)
-                        Kg[row0+4, col0+5] += -rot_scale * shell_geometric_metric3(
-                            s_xx, s_yy, s_xy, rx_x_i, rx_y_i, ry_x_j, ry_y_j)
-                        Kg[row0+5, col0+4] += -rot_scale * shell_geometric_metric3(
-                            s_xx, s_yy, s_xy, ry_x_i, ry_y_i, rx_x_j, rx_y_j)
-                    end
                     else
                         sxy_term = if membrane_shear_center_row
                             dNdx_c[i] * dNdy_c[j] + dNdy_c[i] * dNdx_c[j]
@@ -6749,19 +6427,6 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                                     w_nyy_delta * s_yy * dNi_dy * dNj_dy +
                                     w_nxy_delta * s_xy * sxy_term
                                 )
-                            end
-                            if rot_grad_scale > 0.0
-                                rot_val = rot_grad_scale * (h^3 / 12.0) * abs_detJ * (
-                                    s_xx * dNi_dx * dNj_dx +
-                                    s_yy * dNi_dy * dNj_dy +
-                                    s_xy * sxy_term
-                                )
-                                row_rx = (i-1)*6 + 4
-                                col_rx = (j-1)*6 + 4
-                                row_ry = (i-1)*6 + 5
-                                col_ry = (j-1)*6 + 5
-                                Kg[row_rx, col_rx] += rot_val
-                                Kg[row_ry, col_ry] += rot_val
                             end
                         end
                         if trans_mode !== :curvature &&
@@ -7180,7 +6845,6 @@ end
 function geometric_stiffness_quad4_covariant(coords3d::AbstractMatrix, sigma_mem::AbstractVector, h::Float64,
                                              basis1::SVector{3,Float64}, basis2::SVector{3,Float64};
                                              trans_mode::Symbol=:all,
-                                             rot_grad_scale::Float64=0.0,
                                              principal_shear_yy_factor::Float64=1.0,
                                              principal_shear_xy_factor::Float64=1.0,
                                              principal_shear_z_factor::Float64=1.0,
@@ -7193,7 +6857,6 @@ function geometric_stiffness_quad4_covariant(coords3d::AbstractMatrix, sigma_mem
     end
     return geometric_stiffness_quad4_covariant(coords3d, sigma_gp, h, basis1, basis2;
                                                trans_mode=trans_mode,
-                                               rot_grad_scale=rot_grad_scale,
                                                principal_shear_yy_factor=principal_shear_yy_factor,
                                                principal_shear_xy_factor=principal_shear_xy_factor,
                                                principal_shear_z_factor=principal_shear_z_factor,
@@ -7203,7 +6866,6 @@ end
 function geometric_stiffness_quad4_covariant(coords3d::AbstractMatrix, sigma_mem_gp::AbstractMatrix, h::Float64,
                                              basis1::SVector{3,Float64}, basis2::SVector{3,Float64};
                                              trans_mode::Symbol=:all,
-                                             rot_grad_scale::Float64=0.0,
                                              principal_shear_yy_factor::Float64=1.0,
                                              principal_shear_xy_factor::Float64=1.0,
                                              principal_shear_z_factor::Float64=1.0,
@@ -7298,19 +6960,6 @@ function geometric_stiffness_quad4_covariant(coords3d::AbstractMatrix, sigma_mem
                         row = (i-1)*6 + d
                         col = (j-1)*6 + d
                         Kg[row, col] += val
-                    end
-                    if rot_grad_scale > 0.0
-                        rot_val = rot_grad_scale * (h^3 / 12.0) * dA * (
-                            s_xx * dNi_dx * dNj_dx +
-                            s_yy * dNi_dy * dNj_dy +
-                            s_xy * (dNi_dx * dNj_dy + dNi_dy * dNj_dx)
-                        )
-                        row_rx = (i-1)*6 + 4
-                        col_rx = (j-1)*6 + 4
-                        row_ry = (i-1)*6 + 5
-                        col_ry = (j-1)*6 + 5
-                        Kg[row_rx, col_rx] += rot_val
-                        Kg[row_ry, col_ry] += rot_val
                     end
                 end
             end

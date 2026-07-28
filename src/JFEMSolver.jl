@@ -2755,8 +2755,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                        max_elem_stiff, rbe3_map, snorm_normals, orig_diag,
                        sorted_sids, sol105_snorm_angle, mesh;
                        options::Union{Solver.SOL105Options,Nothing}=nothing,
-                       geometric_stiffness_builder=nothing,
-                       static_membrane_incomp_auto_load::Bool=Solver.sol105_static_membrane_incomp_auto_load_enabled())
+                       geometric_stiffness_builder=nothing)
     # Phase C1 (architectural-cleanup 2026-05-24): accept a typed
     # SOL105Options object. When `nothing`, build from ENV — exactly
     # reproduces pre-cleanup behavior for legacy scripts that don't yet
@@ -2831,16 +2830,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         needs_temp_reassembly = !isnothing(temp_load_id_static) && _model_has_temperature_dependent_mat1(model)
         static_membrane_incomp_default = Solver.sol105_static_membrane_incomp_enabled()
         static_membrane_incomp_for_load = static_membrane_incomp_default
-        if !static_membrane_incomp_for_load && static_membrane_incomp_auto_load
-            static_membrane_incomp_for_load =
-                Solver.kg_quad4_auto_avg_load_classifier(model, load_id) === true
-            if static_membrane_incomp_for_load
-                println(">>> SOL105 static membrane-incomp auto-load enabled for LOAD=$load_id")
-            end
-        end
-        needs_static_reassembly =
-            needs_temp_reassembly ||
-            static_membrane_incomp_for_load != static_membrane_incomp_default
+        needs_static_reassembly = needs_temp_reassembly
         static_wall_seconds = 0.0
 
         if !haskey(static_cache, stat_sid)

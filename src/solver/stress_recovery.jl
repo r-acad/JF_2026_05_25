@@ -129,12 +129,6 @@ end
     return Q_out
 end
 
-# REMOVED 2026-07-27 (strip plan C1): `_quad4_pressure_resultant_moment_scale` applied a hardcoded
-# 0.99 to reported CQUAD4 bending moments behind a nine-condition deck fingerprint (axis-aligned
-# rectangle AND no line elements AND no kinematic constraints AND >=4 shells AND >=4 PLOAD4s AND a
-# near-zero membrane state). That is a case-fitted output correction with no formulation basis, so
-# it is deleted rather than neutralised. Reported moments rise ~1.01x on the decks it used to hit;
-# the solved state was never affected.
 
 function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_normals, stresses, results_json)
     lc_buf = zeros(4,2)
@@ -210,14 +204,12 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                 end
             end
             try
-                membrane_assumed_mode = ((get(prop, "TYPE", "") == "PCOMP_CLT" && !get(prop, "IS_ISOTROPIC", false) && get(prop, "Bmb", nothing) === nothing) ? :mitc4plus : :none)
                 N, M, Q, s_z1, s_z2, e_z1, e_z2 = FEM.stress_strain_quad4(view(lc_buf,1:4,:), u_el, mat["E"], mat["NU"], Float64(prop["T"]), Float64(prop["T"]);
                     bend_ratio=br,
                     Cm_override=clt_Cm,
                     curvature_membrane=curvature_membrane,
                     membrane_shear_center_row=membrane_shear_center_row,
                     material_shear_rotation=material_shear_rotation,
-                    membrane_assumed_mode=membrane_assumed_mode,
                     membrane_incomp_center_jacobian=membrane_incomp_center_jacobian)
                 N_corners, M_corners = FEM.quad4_bilinear_corner_forces(view(lc_buf,1:4,:), u_el, mat["E"], mat["NU"], Float64(prop["T"]);
                     bend_ratio=br,
@@ -226,7 +218,6 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                     curvature_membrane=curvature_membrane,
                     membrane_shear_center_row=membrane_shear_center_row,
                     material_shear_rotation=material_shear_rotation,
-                    membrane_assumed_mode=membrane_assumed_mode,
                     membrane_incomp_center_jacobian=membrane_incomp_center_jacobian)
                 Q_out = if clt_Cm === nothing && curvature_membrane === nothing && abs(br) > 1e-12
                     _quad4_blend_recovered_shear(Q, _quad4_equilibrium_shear_from_bending(view(lc_buf,1:4,:), M_corners))

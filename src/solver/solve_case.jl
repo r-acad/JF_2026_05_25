@@ -3198,18 +3198,6 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     # Sort by lambda ascending — Nastran's root order. Never by |lambda|.
     sorted_idx = valid_idx[sortperm(eigenvalues[valid_idx])]
 
-    # JFEM_BUCKLING_LOCALIZATION_FILTER (2026-05-14 evening): drop modes whose
-    # element participation is dominated by a single element (default metric:
-    # elastic energy; max element share > threshold). Mechanism: certain kernel-stiffening
-    # flag combinations (notably `JFEM_PCOMP_RIGID_TS_LITERAL=true` with low
-    # `JFEM_PCOMP_RIGID_TS_CS_SCALE`) produce spurious low-magnitude modes
-    # localized on tight clusters of 4-8 adjacent elements. Empirically, the
-    # single-element top share for these modes is 25-50%; physical global
-    # buckling modes are ≤7% top share (verified on GAME default runs:
-    # HTP_launch mode 1 = 4.14% top share, VTP_3wp_strain mode 1 = 6.78%).
-    # The cluster filter's spectral-gap rule misses these spurious modes
-    # because they form a dense low-magnitude band with no clean gap below
-    # the physical cluster.
     # 2026-07-27 (strip Stage 1): the localization filter and its rescue windows are GONE.
     # It discarded eigenvalues whose elastic strain energy was concentrated in few elements
     # (top-element share > 12 %, top-10 share > 40 %) and then re-admitted specific ones via
