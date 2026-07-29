@@ -1265,7 +1265,7 @@ include(joinpath(@__DIR__, "experimental", "hu_washizu_kernel.jl"))
 # Pre-allocated workspace `ws` eliminates ALL heap allocations in the hot loop
 # (~5M alloc saved across HTP_launch).
 # =============================================================================
-function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, macneal_rbf_zb_scale::Union{Nothing,Float64}=nothing, macneal_rbf_zb_diff_skew_law::Bool=false, macneal_rbf_zb_diff_skew_directional::Bool=false, membrane_hourglass_skew::Bool=false)
+function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, membrane_hourglass_skew::Bool=false)
     # Allow env-var override for marguerre_warp_to_uz so it can be enabled
     # globally without plumbing through every caller. Currently the assembly
     # loop doesn't pass this kwarg, so default is false. Env override:
@@ -1324,7 +1324,6 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             macneal_rigid_shear=macneal_rigid_shear,
             kernel_mode=kernel_mode,
             macneal_rbf_flex_mode=macneal_rbf_flex_mode,
-            macneal_rbf_zb_scale=macneal_rbf_zb_scale,
         )
         Ke_mem_default = stiffness_quad4_matrices(
             coords, Cm, zero_Cb, zero_Cs, h, E_ref;
@@ -1354,7 +1353,6 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             macneal_rigid_shear=false,
             kernel_mode=kernel_mode,
             macneal_rbf_flex_mode=macneal_rbf_flex_mode,
-            macneal_rbf_zb_scale=macneal_rbf_zb_scale,
         )
         exact_membrane_drill_penalty = lowercase(strip(
             get(ENV, "JFEM_Q4_EXACT_MEMBRANE_DRILL_PENALTY", "true")
@@ -1442,7 +1440,6 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             min4_disable=true,
             kernel_mode=kernel_mode,
             macneal_rbf_flex_mode=macneal_rbf_flex_mode,
-            macneal_rbf_zb_scale=macneal_rbf_zb_scale,
         )
         # MIN4 bending + φ²·shear
         cbmin4_env = strip(get(ENV, "JFEM_MIN4_CBMIN4", ""))
@@ -2103,9 +2100,6 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             epsilon_rbf=macneal_rbf_eps,
             rigid_shear=macneal_rigid_shear,
             flex_mode_override=macneal_rbf_flex_mode,
-            zb_scale_override=macneal_rbf_zb_scale,
-            zb_diff_skew_law=macneal_rbf_zb_diff_skew_law,
-            zb_diff_skew_directional=macneal_rbf_zb_diff_skew_directional,
         )
     end
 
@@ -2334,9 +2328,6 @@ function add_quad4_macneal_shear_rbf!(
     epsilon_rbf::Float64 = 0.04,
     rigid_shear::Bool = false,
     flex_mode_override::Symbol = :env,
-    zb_scale_override::Union{Nothing,Float64} = nothing,
-    zb_diff_skew_law::Bool = false,
-    zb_diff_skew_directional::Bool = false,
 )
     # Shortcut: skip if thickness or shear modulus is effectively zero
     if h < 1e-30 || (!rigid_shear && maximum(abs, Cs) < 1e-30)
@@ -2565,35 +2556,11 @@ function add_quad4_macneal_shear_rbf!(
     # taper -0.068, patch -0.144, and it WINS at aspect 20/30 where the 21-knot table
     # was flat-extrapolated from unmeasured data. Variants rejected there: "cov"
     # (covariant lengths, +9.5 pt at skew) and flex_mode=full (+36 pt).
-    zb_dir_mode = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_ZB_DIRECTIONAL", "proj")))
-    zb_directional = zb_dir_mode in ("1", "true", "yes", "on", "proj", "cov")
-    zb_dir_cov = zb_dir_mode == "cov"
     Zb = zeros(T, 4, 4)
     length_mode = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_LENGTH_MODE", "paper")))
     swap_xy = length_mode in ("swap", "swapped", "cross")
     Lx2_rbf = swap_xy ? Dy2 : Dx2
     Ly2_rbf = swap_xy ? Dx2 : Dy2
-    # MacNeal RBF magnitude (zb_scale) default. The production SOL105 profile
-    # uses the validated geometry/material MacNeal-Nemeth branch; retain the
-    # paper value through an explicit environment override when auditing.
-    #
-    # JFEM_Q4_MACNEAL_RBF_ZB_SCALE_LEGACY: set to "true" to restore the old
-    # 0.65 empirical default if a downstream pipeline depends on the previous K
-    # magnitude.
-    legacy_zb = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_SCALE_LEGACY", ""))) in ("1","true","yes","on")
-    default_zb_scale = if legacy_zb
-        rigid_shear ? (2.0 / 3.0) : 0.65
-    elseif rigid_shear
-        2.0 / 3.0
-    else
-        1.28
-    end
-    zb_scale = if zb_scale_override === nothing
-        zb_scale_raw = tryparse(Float64, strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_SCALE", string(default_zb_scale))))
-        zb_scale_raw === nothing ? default_zb_scale : max(zb_scale_raw, 1e-12)
-    else
-        max(Float64(zb_scale_override), 1e-12)
-    end
     # ---------------------------------------------------------------------
     # Per-direction RBF decomposition (added 2026-05-22).
     # The 2×2 sub-block Zb_xx (and Zb_yy) on the γ_x (γ_y) samples has two
@@ -2621,248 +2588,39 @@ function add_quad4_macneal_shear_rbf!(
     # NB judge this on the whole matrix: setting JFEM_Q4_MACNEAL_RBF_ZB_SCALE
     # itself to 1.0 flatters the same eigenvalue while taking the full-matrix
     # error from 8 % to 37 %.
-    zb_d_raw = tryparse(Float64, strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SCALE",    "")))
     zb_u = 1.0
-    zb_d = zb_d_raw === nothing ? zb_scale : max(zb_d_raw, 1e-12)
-    # Per-direction differential-gamma scales (default = zb_d): the
-    # reference-solver library shows the two differential shear-family modes
-    # split by strip direction away from square aspect (one drifts stiff,
-    # one soft) — a directional aspect law on top of MacNeal's eq-27 a/b.
-    zb_dx_raw = tryparse(Float64, strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_DIFF_X_SCALE", "")))
-    zb_dy_raw = tryparse(Float64, strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_DIFF_Y_SCALE", "")))
-    zb_dx = zb_dx_raw === nothing ? zb_d : max(zb_dx_raw, 1e-12)
-    zb_dy = zb_dy_raw === nothing ? zb_d : max(zb_dy_raw, 1e-12)
-    # JFEM_Q4_MACNEAL_RBF_DIFF_ASPECT_LAW (default OFF): reference-measured
-    # directional aspect law for the differential-gamma scales.  Element
-    # library (k_extract_boxes_laminates_20260704, aspects 1..16, four
-    # laminates, laminate-independent): the SHORT-direction differential
-    # scale grows with aspect (RS) and the LONG-direction one softens
-    # slightly (RF); with these factors both shear-family modes match the
-    # reference to <0.1% at every measured aspect below 9 and <0.7% at
-    # 9..16 (kxv extension, rsrf_grid_fit).  RS SATURATES beyond aspect 8
-    # (1.40 at 9 up to 1.51 at 15-16) — the pre-extension linear
-    # extrapolation overshot to 1.68 at 16.  RF is flat at 0.985 in the
-    # extension band.  Linear interpolation between measured knots; linear
-    # extrapolation beyond aspect 16 (last-segment slope, i.e. saturated).
-    # 2026-07-27: default flipped OFF -> ON. This is a reference-MEASURED law and
-    # the aspect regime it covers is exactly where the operator was worst: on the
-    # extended aspect rig (4..30) it takes the assembled out-of-plane block from
-    # 1.49x Nastran to 1.36x on its own, and to 0.99x together with zb_u = 1.0.
-    if !zb_directional && fem_env_bool("JFEM_Q4_MACNEAL_RBF_DIFF_ASPECT_LAW", true)
-        Dx_l = 0.5 * abs(coords[2,1] + coords[3,1] - coords[1,1] - coords[4,1])
-        Dy_l = 0.5 * abs(coords[3,2] + coords[4,2] - coords[1,2] - coords[2,2])
-        a_rbf = max(Dx_l, Dy_l) / max(min(Dx_l, Dy_l), 1e-12)
-        A_KNOTS = (1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0,
-                   9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0)
-        RS = (1.0, 1.008, 1.018, 1.041, 1.068, 1.098, 1.130, 1.161, 1.190, 1.222, 1.277, 1.324, 1.364,
-              1.400, 1.430, 1.450, 1.460, 1.490, 1.500, 1.510, 1.510)
-        RF = (1.0, 0.9946, 0.9917, 0.9887, 0.9873, 0.9866, 0.9861, 0.9859, 0.9856, 0.9855, 0.9853, 0.9852, 0.9851,
-              0.9850, 0.9850, 0.9850, 0.9850, 0.9850, 0.9850, 0.9850, 0.9850)
-        r_s = 1.0
-        r_f = 1.0
-        if a_rbf <= A_KNOTS[1]
-            r_s = RS[1]; r_f = RF[1]
-        else
-            found = false
-            for i in 2:length(A_KNOTS)
-                if a_rbf <= A_KNOTS[i]
-                    t = (a_rbf - A_KNOTS[i-1]) / (A_KNOTS[i] - A_KNOTS[i-1])
-                    r_s = RS[i-1] + t * (RS[i] - RS[i-1])
-                    r_f = RF[i-1] + t * (RF[i] - RF[i-1])
-                    found = true
-                    break
-                end
-            end
-            if !found
-                n = length(A_KNOTS)
-                slope_s = (RS[n] - RS[n-1]) / (A_KNOTS[n] - A_KNOTS[n-1])
-                slope_f = (RF[n] - RF[n-1]) / (A_KNOTS[n] - A_KNOTS[n-1])
-                r_s = RS[n] + (a_rbf - A_KNOTS[n]) * slope_s
-                r_f = RF[n] + (a_rbf - A_KNOTS[n]) * slope_f
-            end
-        end
-        if Dx_l >= Dy_l
-            zb_dy *= r_s
-            zb_dx *= r_f
-        else
-            zb_dx *= r_s
-            zb_dy *= r_f
-        end
-    end
-    # Skew law on the differential-gamma compliance (caller-gated; production
-    # passes zb_diff_skew_law only for isotropic non-PCOMP elements).  The
-    # box-calibrated ZB_DIFF_SCALE=0.625 over-softens the residual-bending
-    # correction on skewed elements: the K bending block comes out
-    # f = 1 + 0.57 sin^2(skew) over-stiff vs the reference (element KGG
-    # extraction, skew cantilever family).  Measured skew-correct zb_d on the
-    # same family (uz diagonal match vs reference KGG): the correction factor
-    # grows with the corner-angle deviation from 90 deg.  Piecewise-linear
-    # knots (deviation deg -> zb_d factor), flat extrapolation past the last
-    # knot; identity at 0 deg keeps rectangular elements bit-identical.
-    if zb_diff_skew_law && !zb_directional
-        e12x = coords[2,1] - coords[1,1]; e12y = coords[2,2] - coords[1,2]
-        e23x = coords[3,1] - coords[2,1]; e23y = coords[3,2] - coords[2,2]
-        l12 = hypot(e12x, e12y); l23 = hypot(e23x, e23y)
-        if l12 > 1e-12 && l23 > 1e-12
-            cosc = abs(e12x*e23x + e12y*e23y) / (l12 * l23)
-            skew_dev = 90.0 - acosd(clamp(cosc, 0.0, 1.0))
-            # Calibrated 2026-07-13 on atomic_skew_10/20/30/45 (uz diag vs
-            # Nastran KGG, v18p base zb_d=0.625): zb* = 0.640/0.682/0.746/0.855
-            # at corner-angle deviations 11.31/21.80/30.96/41.99 deg.
-            SKEW_KNOTS = (0.0, 11.31, 21.80, 30.96, 41.99)
-            ZB_FACTOR  = (1.0, 1.024, 1.091, 1.194, 1.369)
-            g_skew = ZB_FACTOR[end]
-            for i in 2:length(SKEW_KNOTS)
-                if skew_dev <= SKEW_KNOTS[i]
-                    t = (skew_dev - SKEW_KNOTS[i-1]) / (SKEW_KNOTS[i] - SKEW_KNOTS[i-1])
-                    g_skew = ZB_FACTOR[i-1] + t * (ZB_FACTOR[i] - ZB_FACTOR[i-1])
-                    break
-                end
-            end
-            if zb_diff_skew_directional
-                # Composite (anisotropic laminate) elements need a DIRECTIONAL skew
-                # correction, not the isotropic symmetric one: element-KGG matching on
-                # skewed PCOMP cantilevers (2026-07-15, 3ply [0/90/0] + 4ply
-                # [45/-45/0/90]) shows the element-LOCAL x-axis differential shear is
-                # the over-stiff direction (bending block 97.6% -> single digits when
-                # only zb_dx is boosted; boosting zb_dy makes it WORSE).  The boost is
-                # keyed to the element-local frame (edge 1->2), so it is node-order /
-                # global-orientation robust (verified on a relabeled y-skew element).
-                # Calibrated zb_dx factor vs corner-angle deviation (zb_dy stays at
-                # base): dev 0/10/21.8/30/42 deg -> factor 1.0/1.0/1.20/1.36/2.08.
-                DIR_KNOTS  = (0.0, 10.0, 21.80, 30.0, 41.99)
-                DIR_FACTOR = (1.0, 1.0,  1.20,  1.36, 2.08)
-                g_dir = DIR_FACTOR[end]
-                for i in 2:length(DIR_KNOTS)
-                    if skew_dev <= DIR_KNOTS[i]
-                        t = (skew_dev - DIR_KNOTS[i-1]) / (DIR_KNOTS[i] - DIR_KNOTS[i-1])
-                        g_dir = DIR_FACTOR[i-1] + t * (DIR_FACTOR[i] - DIR_FACTOR[i-1])
-                        break
-                    end
-                end
-                zb_dx *= g_dir
-                # zb_dy unchanged (base): the y-axis differential shear is not the
-                # skew-over-stiff direction.
-            else
-                zb_dx *= g_skew
-                zb_dy *= g_skew
-            end
-            # JFEM_Q4_MACNEAL_RBF_ZB_SKEW_ASPECT_LAW (default OFF): the skew x
-            # aspect CROSS-term the constant base scale misses.  DOE-identified
-            # 2026-07-22 (uniform-stress single-element KGG extraction vs MSC
-            # v70.5, isostatic supports; skew {0..40} x aspect {1.2,2,3,4},
-            # 9-ply QI PCOMP, exact per-point zero of the rank-1 zb-mode
-            # projection via two-scale linear solve): the reference-matching
-            # base scale s* drifts DOWN from 0.625 as skew AND aspect grow;
-            # g2 = s*/0.625.  Bilinear knot interpolation, flat extrapolation;
-            # identity row at 0 deg keeps rectangles bit-identical (measured
-            # 0.9995 at 0 deg x aspect 4).  Applied to BOTH zb_dx and zb_dy
-            # (equivalent to scaling the base zb_d), composing multiplicatively
-            # AFTER the skew/directional/aspect laws exactly as measured.
-            if fem_env_bool("JFEM_Q4_MACNEAL_RBF_ZB_SKEW_ASPECT_LAW", false)
-                Dx_g2 = 0.5 * abs(coords[2,1] + coords[3,1] - coords[1,1] - coords[4,1])
-                Dy_g2 = 0.5 * abs(coords[3,2] + coords[4,2] - coords[1,2] - coords[2,2])
-                a_g2 = max(Dx_g2, Dy_g2) / max(min(Dx_g2, Dy_g2), 1e-12)
-                SK2 = (0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 40.0)
-                AK2 = (1.21, 2.0, 3.0, 4.0, 8.0, 16.0)
-                # Newton-refined knots (iterations 2-3, 2026-07-22): the zb term
-                # enters the stiffness through a compliance inversion, so the
-                # first (linear two-point) estimate over-corrected; these values
-                # zero the local secant around the law point per grid knot.
-                # a8/a16 columns measured at s5/s15/s25; s10/s20 interpolated
-                # between measured rows; s30/s40 ratio-scaled from the a4 column
-                # by the measured s25 aspect decrement (law ~saturates in aspect
-                # beyond 4: bend 0.01-0.4% at s5-s15 x a8-a16 with the a4 value).
-                G2 = ((1.0,    1.0,    1.0,    1.0,    1.0,    1.0),
-                      (0.9925, 0.9912, 0.9903, 0.9894, 0.9895, 0.9893),
-                      (0.9934, 0.9880, 0.9845, 0.9810, 0.9731, 0.9723),
-                      (0.9868, 0.9743, 0.9639, 0.9587, 0.9567, 0.9552),
-                      (0.9842, 0.9619, 0.9503, 0.9387, 0.9254, 0.9226),
-                      (0.9772, 0.9430, 0.9246, 0.9062, 0.8941, 0.8900),
-                      (0.9770, 0.9279, 0.8996, 0.8712, 0.8596, 0.8556),
-                      (0.9135, 0.9400, 0.8614, 0.7943, 0.7837, 0.7801))
-                si = length(SK2)
-                for i in 2:length(SK2)
-                    if skew_dev <= SK2[i]; si = i; break; end
-                end
-                ts = si > length(SK2) ? 1.0 :
-                     clamp((skew_dev - SK2[si-1]) / (SK2[si] - SK2[si-1]), 0.0, 1.0)
-                si = min(si, length(SK2))
-                ai = length(AK2)
-                for j in 2:length(AK2)
-                    if a_g2 <= AK2[j]; ai = j; break; end
-                end
-                ta = a_g2 <= AK2[1] ? 0.0 :
-                     clamp((a_g2 - AK2[ai-1]) / (AK2[ai] - AK2[ai-1]), 0.0, 1.0)
-                ai = min(ai, length(AK2))
-                glo = G2[si-1][ai-1] + ta * (G2[si-1][ai] - G2[si-1][ai-1])
-                ghi = G2[si][ai-1]   + ta * (G2[si][ai]   - G2[si][ai-1])
-                g2 = glo + ts * (ghi - glo)
-                zb_dx *= g2
-                zb_dy *= g2
-            end
-        end
-    end
-    if per_gp_delta && !swap_xy && !zb_directional
-        # Per-GP Δ at each shear sampling point. pt_delta[1,2] are γ_x x-extents;
-        # pt_delta[3,4] are γ_y y-extents.
-        Δa = pt_delta[1]; Δb = pt_delta[2]
-        Δc = pt_delta[3]; Δd = pt_delta[4]
-        sxu = zb_u * inv_12A * flex_x
-        sxd = zb_dx * inv_12A * flex_x * a_param
-        syu = zb_u * inv_12A * flex_y
-        syd = zb_dy * inv_12A * flex_y * b_param
-        Zb[1,1] = (sxu + sxd) * Δa * Δa
-        Zb[2,2] = (sxu + sxd) * Δb * Δb
-        Zb[1,2] = (sxu - sxd) * Δa * Δb
-        Zb[2,1] = Zb[1,2]
-        Zb[3,3] = (syu + syd) * Δc * Δc
-        Zb[4,4] = (syu + syd) * Δd * Δd
-        Zb[3,4] = (syu - syd) * Δc * Δd
-        Zb[4,3] = Zb[3,4]
-    else
-        # Legacy MacNeal eq (26) with averaged Δx, Δy, decomposed into
-        # uniform (zb_u) and differential (zb_d · anisotropy) directions.
-        # Reduces exactly to the single-scale formula when zb_u = zb_d.
-        if zb_directional
-            # Closed-form per-direction differential compliance (eq-27 form):
-            # d_i = C∞·ρ_i²/(ρ_i²+β) with ρ_i = l_j/l_i. C∞_rigid preserves the
-            # (2/3)-arm magnitude exactly; β is the saturation constant
-            # (ε_eff = 1/(1+β)). Reproduces the retired 1.28×RS/RF stack to
-            # ≤0.6% over the measured aspect range 1–16.
-            zb_dir_cinf = rigid_shear ?
-                fem_env_float("JFEM_Q4_MACNEAL_ZB_DIR_CINF_RIGID", 1.06510) :
-                fem_env_float("JFEM_Q4_MACNEAL_ZB_DIR_CINF", 2.045)
-            zb_dir_beta = fem_env_float("JFEM_Q4_MACNEAL_ZB_DIR_BETA", 39.0)
-            zb_lx2 = Lx2_rbf
-            zb_ly2 = Ly2_rbf
-            if zb_dir_cov
-                zb_lx2 = 4.0 * (J11c * J11c + J12c * J12c)
-                zb_ly2 = 4.0 * (J21c * J21c + J22c * J22c)
-            end
-            zb_rho2x = zb_ly2 / max(zb_lx2, 1e-30)
-            zb_rho2y = zb_lx2 / max(zb_ly2, 1e-30)
-            zb_d_x = zb_dir_cinf * zb_rho2x / (zb_rho2x + zb_dir_beta)
-            zb_d_y = zb_dir_cinf * zb_rho2y / (zb_rho2y + zb_dir_beta)
-            zbx_u = zb_u * inv_12A * zb_lx2 * flex_x
-            zbx_d = zb_d_x * inv_12A * zb_lx2 * flex_x
-            zby_u = zb_u * inv_12A * zb_ly2 * flex_y
-            zby_d = zb_d_y * inv_12A * zb_ly2 * flex_y
-        else
-            zbx_u = zb_u * inv_12A * Lx2_rbf * flex_x
-            zbx_d = zb_dx * inv_12A * a_param * Lx2_rbf * flex_x
-            zby_u = zb_u * inv_12A * Ly2_rbf * flex_y
-            zby_d = zb_dy * inv_12A * b_param * Ly2_rbf * flex_y
-        end
-        Zb[1,1] = zbx_u + zbx_d
-        Zb[1,2] = zbx_u - zbx_d
-        Zb[2,1] = Zb[1,2]
-        Zb[2,2] = Zb[1,1]
-        Zb[3,3] = zby_u + zby_d
-        Zb[3,4] = zby_u - zby_d
-        Zb[4,3] = Zb[3,4]
-        Zb[4,4] = Zb[3,3]
-    end
+    # MacNeal eq (26) residual bending flexibility with averaged Δx, Δy,
+    # decomposed into a UNIFORM-γ direction (zb_u, the paper value 1.0) and a
+    # DIFFERENTIAL-γ direction given in closed form by the eq-(27) law
+    #
+    #     d_i = C∞ · ρ_i² / (ρ_i² + β),      ρ_i = l_j / l_i
+    #
+    # with a single effective saturation parameter β (ε_eff = 1/(1+β)) and the
+    # rigid/non-rigid transverse-shear arms differing only by the prefactor C∞.
+    # Validated 2026-07-29 against reference KGG on 38 single-element/patch
+    # cases (aspect 4-30 × skew 0-30, taper 0.2-0.8, two laminate families):
+    # uniformly more accurate than the fitted table stack this replaced, and
+    # decisively better at aspect 20/30 where that table was extrapolated.
+    zb_dir_cinf = rigid_shear ?
+        fem_env_float("JFEM_Q4_MACNEAL_ZB_DIR_CINF_RIGID", 1.06510) :
+        fem_env_float("JFEM_Q4_MACNEAL_ZB_DIR_CINF", 2.045)
+    zb_dir_beta = fem_env_float("JFEM_Q4_MACNEAL_ZB_DIR_BETA", 39.0)
+    zb_rho2x = Ly2_rbf / max(Lx2_rbf, 1e-30)
+    zb_rho2y = Lx2_rbf / max(Ly2_rbf, 1e-30)
+    zb_d_x = zb_dir_cinf * zb_rho2x / (zb_rho2x + zb_dir_beta)
+    zb_d_y = zb_dir_cinf * zb_rho2y / (zb_rho2y + zb_dir_beta)
+    zbx_u = zb_u * inv_12A * Lx2_rbf * flex_x
+    zbx_d = zb_d_x * inv_12A * Lx2_rbf * flex_x
+    zby_u = zb_u * inv_12A * Ly2_rbf * flex_y
+    zby_d = zb_d_y * inv_12A * Ly2_rbf * flex_y
+    Zb[1,1] = zbx_u + zbx_d
+    Zb[1,2] = zbx_u - zbx_d
+    Zb[2,1] = Zb[1,2]
+    Zb[2,2] = Zb[1,1]
+    Zb[3,3] = zby_u + zby_d
+    Zb[3,4] = zby_u - zby_d
+    Zb[4,3] = Zb[3,4]
+    Zb[4,4] = Zb[3,3]
     # JFEM_Q4_MACNEAL_FAN_COUPLING (default OFF): reference-measured twist-
     # mediated coupling between the two substitute-shear families on FAN-
     # distorted (strongly tapered) quads. Single-element extraction over

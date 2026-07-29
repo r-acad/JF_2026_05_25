@@ -3874,43 +3874,6 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             elem_flat_iso_fullshear_selective_mode != :none ? elem_flat_iso_fullshear_selective_mode : :all
         pcomp_cs_over_cm_ei = q4_pcomp_cs_over_cm(Cm_local, Cs_local)
         elem_macneal_rbf_flex_mode = :env
-        elem_macneal_rbf_zb_scale = nothing
-        # Skew law on the MacNeal RBF differential-gamma compliance (skew_45
-        # decomposition defect A): the box-calibrated ZB_DIFF_SCALE under-softens
-        # transverse shear on skewed elements, leaving the bending block
-        # 1+0.57 sin^2(skew) over-stiff.  The law is GEOMETRY-ONLY (its factor
-        # g_skew is a function of the corner-angle deviation from 90deg, identity
-        # at 0deg) and MATERIAL-AGNOSTIC (it scales a transverse-shear compliance,
-        # no laminate terms) -- so it is physically correct for any material.
-        # The iso->PCOMP transfer was verified exact on iso-layer PCOMP (bending
-        # 32->3.2% at skew45, same knots).
-        #
-        # For ISOTROPIC (MAT1) elements the law stays default ON (shipped).
-        # For PCOMP it is default OFF: although the law is a clean formulation
-        # fix, the box/tail-box guardrail contains MILDLY-SKEWED PCOMP panels
-        # whose compensating Kg/K scale stack was tuned against the OLD (uncorrected)
-        # bending -- so enabling the correct law regresses ~6/15 box cases by
-        # 0.05-0.12% via lost managed cancellation.  Per the formulation-over-
-        # compensation directive, the PCOMP promotion must land together with the
-        # coordinated unwind of those compensating scales (elastic-K fix Steps 2/4);
-        # until then it is held OFF-by-default with element evidence recorded.
-        # JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SKEW_LAW_PCOMP=true opts PCOMP in for that work.
-        elem_macneal_rbf_zb_diff_skew_law =
-            (solver_env_bool("JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SKEW_LAW_ISO", true) &&
-             is_iso_ei && !is_pcomp_ei) ||
-            (solver_env_bool("JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SKEW_LAW_PCOMP", false) &&
-             is_pcomp_ei) ||
-            (solver_env_bool("JFEM_SOL105_PCOMP_SKEW_BENDING", false) &&
-             is_pcomp_ei && !is_pcomp_iso_ei && elem_is_flat)
-        # Composite (anisotropic laminate) skewed elements get the DIRECTIONAL skew
-        # correction (zb_dx boosted, zb_dy at base) instead of the isotropic symmetric
-        # one -- element-KGG matching (2026-07-15) shows the element-local x-axis is the
-        # skew-over-stiff direction on laminates.  Default OFF (guardrail-live: it
-        # moves flat composite box panels), opt-in JFEM_SOL105_PCOMP_SKEW_BENDING; lands
-        # with per-case accounting.
-        elem_macneal_rbf_zb_diff_directional =
-            solver_env_bool("JFEM_SOL105_PCOMP_SKEW_BENDING", false) &&
-            is_pcomp_ei && !is_pcomp_iso_ei && elem_is_flat
         elem_q4_kernel_mode_static = q4_kernel_mode_static
         elem_exact_side_shear = flat_pcomp_exact_side_shear &&
                                 elem_is_flat &&
@@ -4037,7 +4000,6 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             pcomp_pm90_diag = is_pcomp_ei ? pcomp_abs_angle_fraction_from_plies(q4_ply_data[ei], 90.0) : 0.0
             pcomp_ply_diag = is_pcomp_ei ? pcomp_ply_count_from_plies(q4_ply_data[ei]) : 0
             macneal_zb_override_diag =
-                elem_macneal_rbf_zb_scale === nothing ? "" : string(elem_macneal_rbf_zb_scale)
             k_diag_rows[ei] = string(
                 shear_center_only ? "eig" : "static", ",",
                 q4_eid_int[ei], ",",
@@ -4208,9 +4170,6 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
-                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
-                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
-                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
             Ke_full = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                 q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
@@ -4232,9 +4191,6 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
-                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
-                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
-                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
             Ke_t = sep_Ke_blend[tid]
             @inbounds @fastmath for jj in 1:24, ii in 1:24
@@ -4297,9 +4253,6 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
-                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
-                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
-                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
             elseif curved_pcomp_blend < 1.0
                 Ke_center = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
@@ -4322,9 +4275,6 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
-                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
-                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
-                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
                 Ke_full = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
@@ -4346,9 +4296,6 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
-                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
-                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
-                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
                 Ke_t = sep_Ke_blend[tid]
                 @inbounds @fastmath for jj in 1:24, ii in 1:24
@@ -4377,9 +4324,6 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
-                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
-                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
-                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
             end
         else
@@ -4404,9 +4348,6 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
-                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
-                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
-                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
         end
         if elem_pcomp_k_macneal_blend > 0.0
@@ -4433,9 +4374,6 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode="macneal_all",
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
-                macneal_rbf_zb_scale=elem_macneal_rbf_zb_scale,
-                macneal_rbf_zb_diff_skew_law=elem_macneal_rbf_zb_diff_skew_law,
-                macneal_rbf_zb_diff_skew_directional=elem_macneal_rbf_zb_diff_directional,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
             Ke_macneal_ref = Matrix(Ke_macneal)
             Ke_t = sep_Ke_blend[tid]
@@ -4517,7 +4455,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         try
             mkpath(dirname(k_diag_eid_csv_path))
             open(k_diag_eid_csv_path, "w") do io
-                println(io, "analysis,eid,pid,kernel_mode_static,elem_kernel_mode_static,elem_kernel_planar,elem_macneal_static_kernel,elem_force_macneal_by_geometry,elem_force_macneal_by_load,on_macneal_by_curvature,on_macneal_by_thickness,on_macneal_by_nemeth,elem_mitc4_3d_kernel,elem_mitc4_3d_geom_restore,pcomp_k_macneal_blend,elem_shear_center_only,elem_is_flat,aspect,taper,warp,kappa_l_kernel,edge_skew,is_pcomp,pcomp_is_isotropic,h,h_over_l,h_over_lmax,pcomp_pm45_fraction,pcomp_pm90_fraction,pcomp_ply_count,pcomp_shear_ratio,pcomp_d16_ratio,pcomp_b_ratio,pcomp_nemeth_alpha,pcomp_nemeth_beta,pcomp_nemeth_gamma,pcomp_nemeth_delta,bend_const_scale,pcomp_cs_over_cm,macneal_rbf_zb_scale_override")
+                println(io, "analysis,eid,pid,kernel_mode_static,elem_kernel_mode_static,elem_kernel_planar,elem_macneal_static_kernel,elem_force_macneal_by_geometry,elem_force_macneal_by_load,on_macneal_by_curvature,on_macneal_by_thickness,on_macneal_by_nemeth,elem_mitc4_3d_kernel,elem_mitc4_3d_geom_restore,pcomp_k_macneal_blend,elem_shear_center_only,elem_is_flat,aspect,taper,warp,kappa_l_kernel,edge_skew,is_pcomp,pcomp_is_isotropic,h,h_over_l,h_over_lmax,pcomp_pm45_fraction,pcomp_pm90_fraction,pcomp_ply_count,pcomp_shear_ratio,pcomp_d16_ratio,pcomp_b_ratio,pcomp_nemeth_alpha,pcomp_nemeth_beta,pcomp_nemeth_gamma,pcomp_nemeth_delta,bend_const_scale,pcomp_cs_over_cm")
                 for row in k_diag_rows
                     println(io, row)
                 end
