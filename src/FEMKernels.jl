@@ -2559,7 +2559,13 @@ function add_quad4_macneal_shear_rbf!(
     # partial swaps recreate the documented 8%→37% cancellation trap. "cov"
     # additionally uses center covariant tangent lengths (targets the skew
     # tables); "proj" uses the projected side lengths.
-    zb_dir_mode = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_ZB_DIRECTIONAL", "false")))
+    # DEFAULT ON since 2026-07-29: rung-(ii) single-element scoring vs reference KGG
+    # (38 cases x 4 configs, tierb2/scores.csv) shows the closed-form law is UNIFORMLY
+    # more accurate than the fitted stack it replaces — aspect family mean -0.156 pt,
+    # taper -0.068, patch -0.144, and it WINS at aspect 20/30 where the 21-knot table
+    # was flat-extrapolated from unmeasured data. Variants rejected there: "cov"
+    # (covariant lengths, +9.5 pt at skew) and flex_mode=full (+36 pt).
+    zb_dir_mode = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_ZB_DIRECTIONAL", "proj")))
     zb_directional = zb_dir_mode in ("1", "true", "yes", "on", "proj", "cov")
     zb_dir_cov = zb_dir_mode == "cov"
     Zb = zeros(T, 4, 4)
