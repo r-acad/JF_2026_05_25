@@ -209,8 +209,23 @@ struct ResultRow
     rel_err::Union{Nothing,Float64}
     tol_rel::Union{Nothing,Float64}
     verdict::String
+    # Parity block: an independent second reference measuring agreement with
+    # an established solver on the SAME deck and mesh. Empty / nothing when the
+    # quantity declares no `parity`. Never feeds `verdict`.
+    parity_ref::Union{Nothing,Float64}
+    parity_source::String
+    parity_rel_err::Union{Nothing,Float64}
+    parity_tol::Union{Nothing,Float64}
+    parity_verdict::String
     note::String
 end
+
+# Convenience for the placeholder rows that carry no comparison at all.
+ResultRow(case_id, family, sol, quantity, jfem, reference, ref_source,
+          abs_err, rel_err, tol_rel, verdict, note) =
+    ResultRow(case_id, family, sol, quantity, jfem, reference, ref_source,
+              abs_err, rel_err, tol_rel, verdict,
+              nothing, "", nothing, nothing, "", note)
 
 function build_row(case::Dict, q::Dict, jfem_state::Dict, opts::Opts)
     case_id = case["id"]
@@ -273,10 +288,45 @@ function build_row(case::Dict, q::Dict, jfem_state::Dict, opts::Opts)
         verdict = rel_err <= tol ? "PASS" : "FAIL"
     end
 
+    # ---- parity: independent second reference, scored independently --------
+    # A parity gap is a formulation difference (same deck, same mesh, so the
+    # discretisation error cancels); an accuracy gap is not. Keeping the two
+    # apart is the point, so a parity failure NEVER touches `verdict`, and a
+    # parity reference that will not resolve degrades to an empty column
+    # instead of failing the row.
+    parity      = get(q, "parity", nothing)
+    parity_val  = nothing
+    parity_src  = ""
+    parity_tol  = parity === nothing ? nothing : get(parity, "tol_rel", nothing)
+    parity_rel  = nothing
+    parity_verd = ""
+    if parity !== nothing
+        try
+            p = resolve_reference(parity, case_id, opts)
+            parity_val = p.value
+            parity_src = p.source
+        catch e
+            parity_verd = "ERROR_PARITY_REF"
+            note = isempty(note) ? "parity reference resolution failed: $(sprint(showerror, e))" :
+                   note * " | parity ref failed: $(sprint(showerror, e))"
+        end
+        cmp_par = (parity_val !== nothing && use_abs_compare) ? abs(parity_val) : parity_val
+        if cmp_jfem !== nothing && cmp_par !== nothing && abs(cmp_par) > 1e-30
+            parity_rel = abs(cmp_jfem - cmp_par) / abs(cmp_par)
+            if parity_tol !== nothing
+                parity_verd = parity_rel <= parity_tol ? "PARITY_PASS" : "PARITY_FAIL"
+            end
+        elseif isempty(parity_verd)
+            parity_verd = jfem_val === nothing ? "PARITY_NO_JFEM" : "PARITY_PENDING"
+        end
+    end
+
     return ResultRow(case_id, family, sol, qname,
                      jfem_val, ref_val, ref_src,
                      abs_err, rel_err, tol,
-                     verdict, note)
+                     verdict,
+                     parity_val, parity_src, parity_rel, parity_tol, parity_verd,
+                     note)
 end
 
 function emit_csv(rows::Vector{ResultRow})
@@ -288,13 +338,18 @@ function emit_csv(rows::Vector{ResultRow})
         return s
     end
     open(OUTPUT_CSV, "w") do io
-        println(io, "case_id,family,sol,quantity,jfem,reference,ref_source,abs_err,rel_err,tol_rel,verdict,note")
+        println(io, "case_id,family,sol,quantity,jfem,reference,ref_source,abs_err,rel_err,tol_rel,verdict," *
+                    "parity_ref,parity_source,parity_rel_err,parity_tol_rel,parity_verdict,note")
         for r in rows
             fnum(x) = x === nothing ? "" : @sprintf("%.12g", x)
             println(io, join(csvcell.([r.case_id, r.family, string(r.sol), r.quantity,
                                        fnum(r.jfem), fnum(r.reference), r.ref_source,
                                        fnum(r.abs_err), fnum(r.rel_err), fnum(r.tol_rel),
-                                       r.verdict, r.note]), ","))
+                                       r.verdict,
+                                       fnum(r.parity_ref), r.parity_source,
+                                       fnum(r.parity_rel_err), fnum(r.parity_tol),
+                                       r.parity_verdict,
+                                       r.note]), ","))
         end
     end
 end
@@ -311,22 +366,36 @@ function emit_md(rows::Vector{ResultRow})
         nfail = count(r -> r.verdict == "FAIL", rows)
         nskip = count(r -> r.verdict == "JFEM_SKIPPED", rows)
         nerr  = count(r -> startswith(r.verdict, "ERROR"), rows)
+        nppass = count(r -> r.parity_verdict == "PARITY_PASS", rows)
+        npfail = count(r -> r.parity_verdict == "PARITY_FAIL", rows)
+        nprow  = count(r -> r.parity_ref !== nothing, rows)
         println(io, "Summary: $n quantity rows ($npass PASS, $nfail FAIL, $nskip JFEM_SKIPPED, $nerr ERROR_REF)")
+        println(io)
+        println(io, "Parity: $nprow of $n rows carry a reference-solver parity target ($nppass PARITY_PASS, $npfail PARITY_FAIL)")
+        println(io)
+        println(io, "Accuracy (`reference`, `rel_err`, `verdict`) asks whether OpenJFEM is close to the")
+        println(io, "published or closed-form value for the problem. Parity (`parity_*`) asks whether it")
+        println(io, "reproduces what an established solver produces on the SAME deck and mesh, where the")
+        println(io, "discretisation error is common to both sides and cancels. They are independent: a")
+        println(io, "parity result never changes the accuracy verdict, and vice versa.")
         println(io)
         for fam in families
             println(io, "## Family: $fam")
             println(io)
-            println(io, "| case_id | quantity | reference | JFEM | rel_err | tol | verdict |")
-            println(io, "| --- | --- | ---: | ---: | ---: | ---: | --- |")
+            println(io, "| case_id | quantity | reference | JFEM | rel_err | tol | verdict | parity ref | parity rel_err | parity tol | parity |")
+            println(io, "| --- | --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |")
             for r in rows
                 r.family == fam || continue
                 fnum(x) = x === nothing ? "" : @sprintf("%.6g", x)
-                println(io, "| $(r.case_id) | $(r.quantity) | $(fnum(r.reference)) | $(fnum(r.jfem)) | $(fnum(r.rel_err)) | $(fnum(r.tol_rel)) | $(r.verdict) |")
+                println(io, "| $(r.case_id) | $(r.quantity) | $(fnum(r.reference)) | $(fnum(r.jfem)) | $(fnum(r.rel_err)) | $(fnum(r.tol_rel)) | $(r.verdict) | $(fnum(r.parity_ref)) | $(fnum(r.parity_rel_err)) | $(fnum(r.parity_tol)) | $(r.parity_verdict) |")
             end
             println(io)
         end
         if nskip > 0
             println(io, "_Note: JFEM_SKIPPED rows indicate the reference is resolved but JFEM was not invoked on this run (`--dry-run` / `--skip-jfem`). Re-run without those flags to populate the JFEM column._")
+        end
+        if nprow < n
+            println(io, "_Note: rows with an empty parity column declare no `parity` block in `public_suite.yaml` -- no reference-solver value has been verified for that quantity. An empty parity cell means unmeasured, not passing._")
         end
     end
 end
@@ -378,7 +447,11 @@ function main(args)
         nfail = count(r -> r.verdict == "FAIL", rows)
         nskip = count(r -> r.verdict == "JFEM_SKIPPED", rows)
         nerr  = count(r -> startswith(r.verdict, "ERROR"), rows)
+        nppass = count(r -> r.parity_verdict == "PARITY_PASS", rows)
+        npfail = count(r -> r.parity_verdict == "PARITY_FAIL", rows)
+        nprow  = count(r -> r.parity_ref !== nothing, rows)
         println("\nChecked $n rows without writing outputs ($npass PASS, $nfail FAIL, $nskip JFEM_SKIPPED, $nerr ERROR)")
+        println("Parity targets resolved on $nprow/$n rows ($nppass PARITY_PASS, $npfail PARITY_FAIL)")
     end
 end
 

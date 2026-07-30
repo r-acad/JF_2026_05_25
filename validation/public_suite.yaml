@@ -21,8 +21,39 @@
 #                                    kind: analytical | f06 | csv
 #                                    plus kind-specific fields
 #                     tol_rel    : relative-error pass threshold
+#                     parity     : OPTIONAL second, independent reference used
+#                                  only for the parity columns. Same schema as
+#                                  `reference`, plus its own tol_rel. See the
+#                                  note below.
 #   citation      : human-readable source for the bibliography
 #   license       : license / status of the case material
+#
+# ---------------------------------------------------------------------------
+# ACCURACY vs PARITY -- two different questions, two independent columns
+# ---------------------------------------------------------------------------
+# `reference` answers "is OpenJFEM close to the published/closed-form value for
+# this problem?" That is an ACCURACY question, and on a deliberately coarse
+# benchmark mesh no solver answers it exactly -- the discretisation error is
+# part of the number.
+#
+# `parity` answers a different question: "given the SAME deck, the SAME mesh
+# and the SAME loads, does OpenJFEM produce what an established solver
+# produces?" Discretisation error is common to both sides and cancels, so a
+# parity gap is a formulation difference, not a mesh artifact.
+#
+# Conflating the two hides defects in both directions: a case can miss the
+# textbook value by 6 % while being in 0.02 % parity (coarse mesh, not a
+# defect), and a case can sit inside its accuracy tolerance while being
+# hundreds of percent away in parity (a real formulation gap masked by a
+# reference that is itself far from the textbook value).
+#
+# Parity tolerances are therefore DELIBERATELY TIGHTER than the accuracy
+# tolerance on the same row: both codes run the identical discretisation, so
+# there is no mesh-convergence allowance to spend.
+#
+# `parity` is optional and purely additive. A quantity with no `parity` block
+# behaves exactly as before, and the parity result never changes the accuracy
+# verdict.
 
 # ===========================================================================
 # Family 1: MacNeal -- Harder (1985) classical benchmark suite.
@@ -44,6 +75,12 @@
         module: macneal_curved_beam
         fn: tip_disp_in_plane
       tol_rel: 0.02
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MH_curved_beam_in_plane
+        tol_rel: 0.02
   citation: "MacNeal & Harder 1985, curved cantilever beam (Sec. 3)"
   license: public domain
 
@@ -60,6 +97,12 @@
         module: macneal_twisted_beam
         fn: tip_disp_in_plane
       tol_rel: 0.02
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MH_twisted_beam_in_plane
+        tol_rel: 0.02
   citation: "MacNeal & Harder 1985, twisted cantilever beam (Sec. 4)"
   license: public domain
 
@@ -76,6 +119,12 @@
         module: macneal_scordelis_lo
         fn: midedge_vertical_disp
       tol_rel: 0.05
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MH_scordelis_lo
+        tol_rel: 0.02
   citation: "MacNeal & Harder 1985, Scordelis--Lo roof (Sec. 7)"
   license: public domain
 
@@ -93,6 +142,12 @@
         module: macneal_pinched_cylinder
         fn: radial_disp_under_load
       tol_rel: 0.10
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MH_pinched_cylinder
+        tol_rel: 0.02
   citation: "MacNeal & Harder 1985, pinched cylinder with diaphragms (Sec. 8)"
   license: public domain
 
@@ -109,6 +164,12 @@
         module: macneal_hemispherical_shell
         fn: radial_disp_at_load
       tol_rel: 0.05
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MH_hemispherical_shell
+        tol_rel: 0.02
   citation: "MacNeal & Harder 1985, pinched hemispherical shell (Sec. 9)"
   license: public domain
 
@@ -116,6 +177,18 @@
 # Family 2: Classical analytical buckling references.
 #           Geometry and loads transcribed from standard textbooks; no
 #           proprietary suite involved.
+#
+#           NO `parity` block on either case, deliberately:
+#             * TG_plate_uniaxial_buckling -- a reference-solver run of this
+#               deck returns a first eigenvalue 56 % away from both the
+#               analytical value and OpenJFEM's. Until that is shown to be a
+#               convention/units mismatch rather than a real gap, tabulating
+#               it would assert a parity gap that has not been established.
+#             * BA_cylinder_axial_buckling -- the quantity here is a critical
+#               STRESS; a reference-solver run yields the raw eigenvalue. The
+#               suite's own lambda-to-stress conversion has to be applied
+#               before the two are comparable.
+#           Both are tracked as open items; see PAPER_VALIDATION_SUMMARY.md.
 # ===========================================================================
 
 - id: TG_plate_uniaxial_buckling
@@ -174,6 +247,15 @@
         path: commercial_reference.csv
         column: value
       tol_rel: 0.02
+      # This family's accuracy reference IS a reference-solver value, so the
+      # row already measured parity. The parity block makes that explicit
+      # rather than implied; the two columns are expected to be identical.
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MYSTRAN_sol101_simple
+        tol_rel: 0.02
   citation: "MYSTRAN public test suite, Build_Test_Cases/statics/cquad4_pshell_center.bdf"
   license: MIT (MYSTRAN)
 
@@ -190,6 +272,12 @@
         path: commercial_reference.csv
         column: value
       tol_rel: 0.05
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MYSTRAN_sol105_buckling
+        tol_rel: 0.05
   citation: "MYSTRAN public test suite, Build_Test_Cases/buckling/bar.bdf (Euler cantilever)"
   license: MIT (MYSTRAN)
 
@@ -211,6 +299,9 @@
   bdf: cases/crm/wingbox_modal_with_props.bdf
   sol: 103
   quantities:
+    # As with mystran_xref, this family's accuracy reference IS a
+    # reference-solver value, so every row here already measured parity; the
+    # parity blocks state it explicitly and are expected to be identical.
     - name: eigenvalue_mode1
       kind: eigenvalue
       selector: {mode: 1}
@@ -220,6 +311,12 @@
         column: value
         row_id: CRM_wingbox_modal_mode1
       tol_rel: 0.05
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: CRM_wingbox_modal_mode1
+        tol_rel: 0.05
     - name: eigenvalue_mode2
       kind: eigenvalue
       selector: {mode: 2}
@@ -229,6 +326,12 @@
         column: value
         row_id: CRM_wingbox_modal_mode2
       tol_rel: 0.05
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: CRM_wingbox_modal_mode2
+        tol_rel: 0.05
     - name: eigenvalue_mode3
       kind: eigenvalue
       selector: {mode: 3}
@@ -238,6 +341,12 @@
         column: value
         row_id: CRM_wingbox_modal_mode3
       tol_rel: 0.05
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: CRM_wingbox_modal_mode3
+        tol_rel: 0.05
     - name: eigenvalue_mode4
       kind: eigenvalue
       selector: {mode: 4}
@@ -247,6 +356,12 @@
         column: value
         row_id: CRM_wingbox_modal_mode4
       tol_rel: 0.05
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: CRM_wingbox_modal_mode4
+        tol_rel: 0.05
     - name: eigenvalue_mode5
       kind: eigenvalue
       selector: {mode: 5}
@@ -256,5 +371,11 @@
         column: value
         row_id: CRM_wingbox_modal_mode5
       tol_rel: 0.05
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: CRM_wingbox_modal_mode5
+        tol_rel: 0.05
   citation: "TACS examples/crm/CRM_box_2nd.bdf (uCRM coarse wingbox); CQUADR -> CQUAD4 substitution; isotropic shell properties from crm_frequency.py synthesised into the public runnable deck"
   license: Apache 2.0 (TACS)

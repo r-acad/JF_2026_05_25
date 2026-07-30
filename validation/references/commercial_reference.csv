@@ -6,3 +6,8 @@ CRM_wingbox_modal_mode2,eigenvalue,9.903101E+02,Reference modal solver; SOL 103;
 CRM_wingbox_modal_mode3,eigenvalue,1.355943E+03,Reference modal solver; SOL 103; mode 3
 CRM_wingbox_modal_mode4,eigenvalue,5.946717E+03,Reference modal solver; SOL 103; mode 4
 CRM_wingbox_modal_mode5,eigenvalue,1.044876E+04,Reference modal solver; SOL 103; mode 5
+MH_curved_beam_in_plane,tip_disp_in_plane,7.278696E-02,Reference linear-static solver on THIS deck unmodified; parity target (not an accuracy target); node 7 T2
+MH_twisted_beam_in_plane,tip_disp_in_plane,1.707296E-03,Reference linear-static solver on THIS deck unmodified; parity target (not an accuracy target); node 25 T2
+MH_scordelis_lo,midedge_vertical_disp,-3.200028E-01,Reference linear-static solver on THIS deck unmodified; parity target (not an accuracy target); node 5 T3
+MH_pinched_cylinder,radial_disp_under_load,-9.563499E-06,Reference linear-static solver on THIS deck unmodified; parity target (not an accuracy target); node 1 T1
+MH_hemispherical_shell,radial_disp_at_load,4.937420E-02,Reference linear-static solver on THIS deck unmodified; parity target (not an accuracy target); node 5 T1

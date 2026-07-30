@@ -103,13 +103,39 @@ The public validation set must not contain GAME, HTP, VTP, proprietary aircraft
 models, commercial-solver verification kits, private run outputs, or decks whose
 redistribution rights are unclear.
 
+## Accuracy And Parity Are Scored Separately
+
+Each quantity in `public_suite.yaml` carries a `reference` (published or
+closed-form target) and, on 12 of the 14 rows, an optional `parity` block
+holding a tabulated reference-solver value for **this folder's own deck,
+unmodified**.
+
+They measure different things. The accuracy columns (`reference`, `rel_err`,
+`verdict`) include the discretisation error of a deliberately coarse benchmark
+mesh. The parity columns (`parity_ref`, `parity_rel_err`, `parity_tol_rel`,
+`parity_verdict`) do not: both sides run the identical mesh, so that error is
+common and cancels, and what remains is a formulation difference.
+
+The two are independent by construction — a parity result never changes the
+accuracy verdict and vice versa — because conflating them hides defects in both
+directions. A case can miss its textbook value by 6% while being in 0.02%
+parity (coarse mesh, not a defect), and a case can sit inside its accuracy
+tolerance while being hundreds of percent out of parity.
+
+Parity tolerances are deliberately **tighter** than the accuracy tolerance on
+the same row: there is no mesh-convergence allowance to spend.
+
+An empty parity cell means *unmeasured*, not passing. A quantity with no
+`parity` block behaves exactly as it did before the column existed.
+
 ## Current Paper Status
 
-The maintained public-suite snapshot contains 14 scalar validation rows:
-
-- SOL 101: 6 rows, all PASS.
-- SOL 103: 5 CRM modal rows, all PASS.
-- SOL 105: 3 buckling rows, all PASS.
+The maintained public-suite snapshot contains 14 scalar validation rows: 9
+accuracy PASS / 5 FAIL, and 9 parity PASS / 3 parity FAIL across the 12 rows
+that carry a parity target. Three of the five accuracy failures are in
+0.02-2.3% parity and are dominated by the benchmark mesh and by a load
+convention still under review; the remaining two are genuine formulation gaps.
+`PAPER_VALIDATION_SUMMARY.md` itemises all of them.
 
 Run the suite to recreate `comparison.md` and `comparison.csv` with the exact
 values, tolerances, and relative errors for the local solver revision.
@@ -132,12 +158,22 @@ These never need to be regenerated; they are the references in source form.
 
 ### Tabulated commercial-solver values
 
-For the cross-check cases, the reference numbers were produced once on the
-maintainer's machine using an established commercial finite-element solver
-that accepts the classical BDF input format, and tabulated in
-`references/commercial_reference.csv` with one row per (case, quantity).
-The solver itself is not invoked by anything in this folder, and no
-solver-generated output files are shipped here.
+For the cross-check cases, and for the parity column, the reference numbers
+were produced once on the maintainer's machine using an established commercial
+finite-element solver that accepts the classical BDF input format, and
+tabulated in `references/commercial_reference.csv` with one row per
+(case, quantity). The solver itself is not invoked by anything in this folder,
+and no solver-generated output files are shipped here.
+
+Two of the fourteen rows deliberately have **no** tabulated parity value. A
+reference-solver run of `timoshenko_plate_buckling` returns a first eigenvalue
+56% away from both the analytical value and OpenJFEM's, which is unexplained
+and may be a convention mismatch rather than a gap; and
+`cylinder_axial_buckling` reports a critical stress where the reference-solver
+run yields a raw eigenvalue, so the suite's own lambda-to-stress conversion has
+to be applied before the two are comparable. Wiring in an unverified number
+would assert a parity result that has not been established, so those rows stay
+empty until each is resolved.
 
 ## What This Suite Is Not
 
