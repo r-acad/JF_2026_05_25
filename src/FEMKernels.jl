@@ -2100,18 +2100,59 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             epsilon_rbf=macneal_rbf_eps,
             rigid_shear=macneal_rigid_shear,
             flex_mode_override=macneal_rbf_flex_mode,
+            Cm=Cm, Bmb=Bmb,
         )
     end
 
-    # Reference-matched lumped drilling (see the flag hoist above the GP
-    # loop): k = K6ROT * 1e-6 * A66 * Area per node on theta-z, replacing the
-    # consistent Bd'Bd accumulation.
+    # Reference-matched lumped drilling (see the flag hoist above the GP loop).
+    #
+    #     K_drill = sum over the 4 CORNER NODES of  alpha_L * (theta_z,i - omega_i)^2
+    #     alpha_L = K6ROT * 1e-6 * A66 * Area      (per element per NODE)
+    #     omega_i = 0.5*(dv/dx - du/dy) evaluated AT node i
+    #
+    # i.e. exactly the Hughes-Brezzi row `Bd` this kernel already builds, but sampled at
+    # the four CORNERS instead of the four Gauss points (at a corner N_k is the indicator
+    # delta_ki, so the same assembly yields theta_z,i - omega_i) and weighted by alpha_L
+    # instead of abs_detJ*alpha_drill.
+    #
+    # Verified against the reference with ZERO free parameters on a flat 2-element patch,
+    # by isolating each code's operator as K(K6ROT=k) - K(K6ROT=0):
+    # ||pred-actual||/||actual|| = 3.3e-8 at K6ROT=1 and 5.2e-9 at K6ROT=10 (the OP4 print
+    # floor), rot-rot 4.7e-9, trans-rot 4.8e-9.  See
+    # PROJECT_STATE/TOOLS_MATPRN/drillpred.jl and SESSIONS/2026-07-30_...md SS4d.
+    #
+    # NOTE this CORRECTS the earlier version of this branch, which added only the theta-z
+    # diagonal. The reference's operator also carries the membrane-drilling coupling
+    # -alpha_L*d(omega_i)/dq (measured 2.17895 = alpha_L/(2L) on the patch, 10 of 24
+    # entries nonzero where the consistent form has 24 of 24) and the second-order
+    # membrane-membrane term. Dropping them left the operator incomplete.
+    # For a PLANAR quad detJ is linear in (xi,eta), so 4*abs_detJc is the exact area.
     if drill_lumped_nastran
         A_drill = 4.0 * abs_detJc
-        k_lump = drill_scale * (k6rot * 1e-6) * Cm[3, 3] * A_drill
-        @inbounds for k in 1:4
-            d = (k - 1) * 6 + 6
-            ws.Ke[d, d] += k_lump
+        alpha_L = drill_scale * (k6rot * 1e-6) * Cm[3, 3] * A_drill
+        corner_rs = ((-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0))
+        @inbounds @fastmath for i in 1:4
+            r, s = corner_rs[i][1], corner_rs[i][2]
+            dNr, dNs = shape_derivs_quad(r, s)
+            J11 = dNr[1]*coords[1,1] + dNr[2]*coords[2,1] + dNr[3]*coords[3,1] + dNr[4]*coords[4,1]
+            J12 = dNr[1]*coords[1,2] + dNr[2]*coords[2,2] + dNr[3]*coords[3,2] + dNr[4]*coords[4,2]
+            J21 = dNs[1]*coords[1,1] + dNs[2]*coords[2,1] + dNs[3]*coords[3,1] + dNs[4]*coords[4,1]
+            J22 = dNs[1]*coords[1,2] + dNs[2]*coords[2,2] + dNs[3]*coords[3,2] + dNs[4]*coords[4,2]
+            detJ = J11*J22 - J12*J21
+            abs(detJ) < 1e-12 && (detJ = detJ < 0.0 ? -1e-12 : 1e-12)
+            inv_det = 1.0 / detJ
+            iJ11 =  J22*inv_det; iJ12 = -J12*inv_det
+            iJ21 = -J21*inv_det; iJ22 =  J11*inv_det
+            fill!(ws.Bd, 0.0)
+            for k in 1:4
+                dN_dx = iJ11*dNr[k] + iJ12*dNs[k]
+                dN_dy = iJ21*dNr[k] + iJ22*dNs[k]
+                idx = (k-1)*6
+                ws.Bd[1, idx+1] =  0.5*dN_dy
+                ws.Bd[1, idx+2] = -0.5*dN_dx
+            end
+            ws.Bd[1, (i-1)*6 + 6] = 1.0
+            ts_mul_At_add!(ws.Ke, ws.Bd, ws.Bd, alpha_L)
         end
     end
 
@@ -2319,6 +2360,77 @@ include(joinpath(@__DIR__, "experimental", "min4_kernel.jl"))
 #
 # This REPLACES the MITC4+phi2 shear block when JFEM_Q4_KERNEL=macneal.
 # ---------------------------------------------------------------------------
+"""
+    macneal_strip_bending_flex(A, B, D, dir) -> 1/D*_dir
+
+⛔ **REFUTED BY MEASUREMENT 2026-07-30 — DO NOT RE-DERIVE. Kept only as the record.**
+
+Hypothesis: the RBF term needs the flexibility of a STRIP of the element bending under a
+moment gradient, with that strip free to relax in everything except the direct curvature —
+`κ_other = 0` (cylindrical), `M_xy = 0` (twist free), `N = 0` (membrane free, which matters
+only when `B ≠ 0`). Unknowns `ε⁰` (3) and `κ_xy`, per unit `κ_dir`:
+
+    A·ε⁰ + κ_xy·B[:,3]        = −κ_dir·B[:,dir]     (N = 0)
+    B[3,:]·ε⁰ + κ_xy·D[3,3]   = −κ_dir·D[3,dir]     (M_xy = 0)
+    D*_dir = (B[dir,:]·ε⁰ + D[dir,dir] + D[dir,3]·κ_xy) / κ_dir
+
+Measured against reference KGG on 27 single-element PCOMP cells (`gen_pcomp.jl`, `pccinf.jl`),
+recovering the C∞ each cell wants — 1.00000 is the right answer:
+
+| family                        | `diag` (1/D₁₁) | this function  |
+|-------------------------------|----------------|----------------|
+| cross-ply, `B=0, D₁₆=0`       | **1.00000**    | **1.00000**    |
+| quasi-iso, `B=0, D₁₆≠0`       | **1.0000**     | 0.9418         |
+| unsymmetric, `B≠0`            | **1.0006**     | 0.4301         |
+
+Cross-ply agreeing exactly confirms the implementation reduces correctly, so it is the PHYSICS
+that is wrong: releasing twist over-softens quasi-isotropic, and releasing membrane over-softens
+unsymmetric by 2.3×. **The reference uses the bare `1/D₁₁` for every laminate family**, i.e.
+`κ_other = κ_xy = 0` AND `ε⁰ = 0`.
+
+Why that is the correct reading: the RBF supplies only the DIRECT bending flexibility that the
+shear interpolation fails to represent inside the strip. The element's own DOFs already carry
+the transverse curvature, the twist and the membrane response — relaxing them again inside the
+RBF term double-counts them.
+
+Consequence: the `un` family's divergence at thick (C∞ 1.0006 → 4.09 over h/L 0.002 → 0.1 under
+`diag`) is NOT a bending-flexibility defect. It is thickness-driven, so it lives on the SHEAR
+side (`Zs`/`Cs`), which is where to look next.
+"""
+function macneal_strip_bending_flex(A, B, D::AbstractMatrix, dir::Int)
+    D33 = abs(D[3, 3]) > 1e-30 ? D[3, 3] : (D[3, 3] >= 0 ? 1e-30 : -1e-30)
+    # No membrane-bending coupling: the 4x4 collapses to the twist equation alone.
+    if A === nothing || B === nothing || maximum(abs, B) <= 1e-30
+        kxy = -D[3, dir] / D33
+        Dstar = D[dir, dir] + D[dir, 3] * kxy
+        return 1.0 / max(abs(Dstar), 1e-30)
+    end
+    M = zeros(Float64, 4, 4); r = zeros(Float64, 4)
+    @inbounds for i in 1:3
+        for j in 1:3
+            M[i, j] = A[i, j]
+        end
+        M[i, 4] = B[i, 3]
+        r[i]    = -B[i, dir]
+    end
+    @inbounds for j in 1:3
+        M[4, j] = B[3, j]
+    end
+    M[4, 4] = D33
+    r[4]    = -D[3, dir]
+    z = try
+        M \ r
+    catch
+        return 1.0 / max(abs(D[dir, dir]), 1e-30)   # singular A: fall back to the plain diagonal
+    end
+    all(isfinite, z) || return 1.0 / max(abs(D[dir, dir]), 1e-30)
+    Dstar = D[dir, dir] + D[dir, 3] * z[4]
+    @inbounds for j in 1:3
+        Dstar += B[dir, j] * z[j]
+    end
+    return 1.0 / max(abs(Dstar), 1e-30)
+end
+
 function add_quad4_macneal_shear_rbf!(
     Ke::AbstractMatrix,
     coords::AbstractMatrix{Float64},
@@ -2328,6 +2440,8 @@ function add_quad4_macneal_shear_rbf!(
     epsilon_rbf::Float64 = 0.04,
     rigid_shear::Bool = false,
     flex_mode_override::Symbol = :env,
+    Cm = nothing,
+    Bmb = nothing,
 )
     # Shortcut: skip if thickness or shear modulus is effectively zero
     if h < 1e-30 || (!rigid_shear && maximum(abs, Cs) < 1e-30)
@@ -2516,6 +2630,13 @@ function add_quad4_macneal_shear_rbf!(
         Sb = inv(Cb_reg)
         flex_x = max(abs(Sb[1,1]), 1e-30)
         flex_y = max(abs(Sb[2,2]), 1e-30)
+    elseif flex_mode in ("abd", "strip")
+        # First-principles strip flexibility (see macneal_strip_bending_flex).
+        # Unlike "diag" it does not assume D16=D26=0, and unlike "full" it does not
+        # release the transverse curvature; it also carries the B matrix, so it is
+        # correct for UNSYMMETRIC laminates instead of silently over-stiffening them.
+        flex_x = macneal_strip_bending_flex(Cm, Bmb, Cb, 1)
+        flex_y = macneal_strip_bending_flex(Cm, Bmb, Cb, 2)
     end
     inv_12A = 1.0 / (12.0 * A_elem)
 

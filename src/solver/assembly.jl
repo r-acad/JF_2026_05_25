@@ -2381,6 +2381,10 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     # its SNORM grid-normal). This matches Nastran: SNORM sets the grid-point normal for the DOF connection,
     # NOT the in-plane membrane geometry. Cures the membrane leak while preserving the curved-shell coupling.
     snorm_transform_only = solver_env_bool("JFEM_Q4_SNORM_TRANSFORM_ONLY", false)
+    # SNORM-DIRECTOR (default OFF): PARAM SNORM as the reference actually applies it -- a per-element,
+    # per-node congruence on the ROTATIONAL DOFs only (snorm.jl, snorm_director_matrix). Suppresses the
+    # element-frame tilt entirely; the in-plane frame and every translational term stay untouched.
+    snorm_director = snorm_director_enabled()
     flat_curved_pcomp_fullshear = shear_center_only && q4_flat_curved_pcomp_fullshear_enabled()
     flat_curved_pcomp_fullshear_kappa_l_min = q4_flat_curved_pcomp_fullshear_kappa_l_min()
     flat_curved_pcomp_fullshear_cyl_ratio_max = q4_flat_curved_pcomp_fullshear_cyl_ratio_max()
@@ -2863,7 +2867,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 if dot(v3n, v3) < 0.0; v3n = -v3n; end
                 if snorm_transform_only
                     snorm_xf_v3 = v3n; snorm_xf_ok = true
-                elseif dot(v3n, v3) >= snorm_tilt_gate_cos  # DIAGNOSTIC gate: skip tilt if it exceeds gate angle
+                elseif !snorm_director && dot(v3n, v3) >= snorm_tilt_gate_cos  # DIAGNOSTIC gate: skip tilt if it exceeds gate angle
                     v1p = v1 - dot(v1, v3n) * v3n; v1l = norm(v1p)
                     if v1l > 1e-12
                         v1n = SVector{3}(v1p / v1l)
@@ -3999,7 +4003,6 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             pcomp_pm45_diag = is_pcomp_ei ? pcomp_abs_angle_fraction_from_plies(q4_ply_data[ei], 45.0) : 0.0
             pcomp_pm90_diag = is_pcomp_ei ? pcomp_abs_angle_fraction_from_plies(q4_ply_data[ei], 90.0) : 0.0
             pcomp_ply_diag = is_pcomp_ei ? pcomp_ply_count_from_plies(q4_ply_data[ei]) : 0
-            macneal_zb_override_diag =
             k_diag_rows[ei] = string(
                 shear_center_only ? "eig" : "static", ",",
                 q4_eid_int[ei], ",",
@@ -4039,8 +4042,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 nemeth_gamma_diag, ",",
                 nemeth_delta_diag, ",",
                 bend_const_scale, ",",
-                pcomp_cs_over_cm_ei, ",",
-                macneal_zb_override_diag,
+                pcomp_cs_over_cm_ei,
             )
         end
         elem_static_component_scale_ok =
@@ -4418,6 +4420,18 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                     T_t[base+rr, base+cc] = val
                     T_t[base+3+rr, base+3+cc] = val
                 end
+                if snorm_director && snorm_has[idx]
+                    # rotational block only: reference this node's rotations to its grid normal.
+                    # Built from the element's OWN geometric frame (v1,v2,v3) — the frame Ke_t was
+                    # formed in — not the per-node projected vk frame.
+                    TR = @SMatrix [T_t[base+4,base+4] T_t[base+4,base+5] T_t[base+4,base+6];
+                                   T_t[base+5,base+4] T_t[base+5,base+5] T_t[base+5,base+6];
+                                   T_t[base+6,base+4] T_t[base+6,base+5] T_t[base+6,base+6]]
+                    TRs = snorm_director_matrix(snorm_vec[idx], v1, v2, v3) * TR
+                    for rr in 1:3, cc in 1:3
+                        T_t[base+3+rr, base+3+cc] = TRs[rr,cc]
+                    end
+                end
             end
             tmp_t = sep_tmp[tid]; fill!(tmp_t, 0.0)
             @inbounds @fastmath for jj in 1:24, ll in 1:24
@@ -4492,7 +4506,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             if len_s > 1e-12
                 v3n = SVector{3}(n_avg_s / len_s)
                 if dot(v3n, v3) < 0.0; v3n = -v3n; end
-                if dot(v3n, v3) >= snorm_tilt_gate_cos  # DIAGNOSTIC gate (K/Kg-consistent)
+                if !snorm_director && dot(v3n, v3) >= snorm_tilt_gate_cos  # DIAGNOSTIC gate (K/Kg-consistent)
                     v1p = v1 - dot(v1, v3n) * v3n; v1l = norm(v1p)
                     if v1l > 1e-12
                         v1n = SVector{3}(v1p / v1l)
@@ -4558,7 +4572,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             TR = Rel_t * node_R[idx]
             base = (k-1)*6
             T_buf[base+1:base+3, base+1:base+3] = TR
-            T_buf[base+4:base+6, base+4:base+6] = TR
+            T_buf[base+4:base+6, base+4:base+6] =
+                (snorm_director && snorm_has[idx]) ?
+                snorm_director_matrix(snorm_vec[idx], v1, v2, v3) * TR : TR
         end
         Ke = T_buf' * Ke_loc * T_buf
 
@@ -5259,6 +5275,10 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     snorm_tilt_gate_cos = let g = solver_env_float("JFEM_SNORM_ELEM_TILT_GATE", 0.0); g > 0.0 ? cosd(g) : -2.0 end
     # SNORM-TRANSFORM-ONLY (default OFF): mirror of the K-assembly flag (must stay K/Kg-consistent).
     snorm_transform_only = solver_env_bool("JFEM_Q4_SNORM_TRANSFORM_ONLY", false)
+    # SNORM-DIRECTOR (default OFF): mirror of the K-assembly flag. K and Kg MUST agree on the rotational
+    # referencing -- leaving Kg on the element normal while K uses the grid normal puts the two operators
+    # in different frames and manufactures a spurious near-zero buckling mode.
+    snorm_director = snorm_director_enabled()
     curved_iso_elongated_membrane_incomp_aspect_ratio_min = q4_curved_iso_elongated_membrane_incomp_aspect_ratio_min()
     kg_flat_pcomp_auto_g12 = !kg_pcomp_axis_mode_override && q4_flat_pcomp_auto_g12_enabled()
     kg_flat_pcomp_auto_g12_kappa_l_max = q4_flat_pcomp_auto_g12_kappa_l_max()
@@ -5488,7 +5508,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     if dot(v3n, v3) < 0.0; v3n = -v3n; end
                     if snorm_transform_only
                         snorm_xf_v3 = v3n; snorm_xf_ok = true
-                    elseif dot(v3n, v3) >= snorm_tilt_gate_cos  # DIAGNOSTIC gate (K/Kg-consistent)
+                    elseif !snorm_director && dot(v3n, v3) >= snorm_tilt_gate_cos  # DIAGNOSTIC gate (K/Kg-consistent)
                         v1p = v1 - dot(v1, v3n) * v3n; v1l = norm(v1p)
                         if v1l > 1e-12
                             v1n = SVector{3}(v1p / v1l)
@@ -5816,6 +5836,16 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     val = Rel_t[rr,1]*node_R_flat[1,cc,idx] + Rel_t[rr,2]*node_R_flat[2,cc,idx] + Rel_t[rr,3]*node_R_flat[3,cc,idx]
                     T_buf[base+rr, base+cc] = val
                     T_buf[base+3+rr, base+3+cc] = val
+                end
+                if snorm_director && snorm_has[idx]
+                    # mirror of the K-assembly transform; same element-frame convention.
+                    TR = @SMatrix [T_buf[base+4,base+4] T_buf[base+4,base+5] T_buf[base+4,base+6];
+                                   T_buf[base+5,base+4] T_buf[base+5,base+5] T_buf[base+5,base+6];
+                                   T_buf[base+6,base+4] T_buf[base+6,base+5] T_buf[base+6,base+6]]
+                    TRs = snorm_director_matrix(snorm_vec[idx], v1, v2, v3) * TR
+                    for rr in 1:3, cc in 1:3
+                        T_buf[base+3+rr, base+3+cc] = TRs[rr,cc]
+                    end
                 end
             end
 
@@ -6798,7 +6828,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 if len_s > 1e-12
                     v3n = SVector{3}(n_avg_s / len_s)
                     if dot(v3n, v3) < 0.0; v3n = -v3n; end
-                    if dot(v3n, v3) >= snorm_tilt_gate_cos  # DIAGNOSTIC gate (K/Kg-consistent)
+                    if !snorm_director && dot(v3n, v3) >= snorm_tilt_gate_cos  # DIAGNOSTIC gate (K/Kg-consistent)
                         v1p = v1 - dot(v1, v3n) * v3n; v1l = norm(v1p)
                         if v1l > 1e-12
                             v1n = SVector{3}(v1p / v1l)
@@ -6826,7 +6856,9 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 TR = Rel_t * node_R[idx]
                 base = (k-1)*6
                 T18[base+1:base+3, base+1:base+3] = TR
-                T18[base+4:base+6, base+4:base+6] = TR
+                T18[base+4:base+6, base+4:base+6] =
+                    (snorm_director && snorm_has[idx]) ?
+                    snorm_director_matrix(snorm_vec[idx], v1, v2, v3) * TR : TR
             end
 
             # Extract element displacements in local coords

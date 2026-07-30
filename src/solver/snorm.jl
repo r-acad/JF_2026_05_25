@@ -89,11 +89,82 @@ function compute_geometric_nodal_normals(model, id_map, node_coords)
     return compute_shell_nodal_normals(model, id_map, node_coords, angle_deg)
 end
 
+# --- PARAM SNORM as a nodal-director referencing of the rotational DOFs -------
+#
+# At a grid whose averaged shell normal n differs from an attached element's own
+# normal v3, the reference formulation references that element's nodal rotations
+# to n instead of v3.  Substituting
+#
+#     theta_used = S * theta,      S = I + skew( (n x v3) / (n . v3) )
+#
+# into the element operators (equivalently Ke <- S' Ke S on that node's
+# rotational 3x3) reproduces the reference's per-element SNORM stiffness change to
+# <1e-3 relative on the creased-patch and dome rigs, and is EXACTLY the identity
+# when n == v3.
+#
+# Two properties, both measured against the reference:
+#   * the transformed physical rotation rows annihilate d (note: S itself does NOT
+#     annihilate n -- S*n = d; it is the ROWS of S, i.e. what the element's
+#     operators contract with theta, that kill rotation about d ~ n). So rotation
+#     about the averaged normal produces no element deformation and adjacent facets
+#     share one fictitious direction instead of each having its own.
+#   * the drilling penalty alpha*(v3'theta)^2 becomes alpha*(d'theta)^2 with
+#     d = n/(n.v3), i.e. alpha/(n.v3)^2 about n.  Predicted 898.68 vs 898.60
+#     measured on the 20-degree patch.
+#
+# This replaces the element-frame TILT below, which rotates v1/v2 as well and so
+# corrupts the membrane response (the tilt moves lambda1 the wrong way: -0.99%
+# and -3.08% at 20/30 degrees where the reference gives +0.81% and +1.12%).
+#
+# ⛔ NOT PROMOTABLE AS IT STANDS — but the operator ABOVE IS CORRECT; what is
+# missing is a SECOND term. See SESSIONS/2026-07-30_SNORM_PARSER_BUG_OPERATOR_CONFIRMED.md.
+#
+# Under mesh refinement the reference's SNORM effect VANISHES (-2.65 -> -0.78 ->
+# -0.24 % on the MacNeal hemisphere at 4x4/8x8/16x16) while this operator's GROWS
+# (-47 -> -61 -> -67 %). The 2026-07-29 reading of that — "S is too low-order in
+# alpha, re-derive the alpha-dependence" — is REFUTED: the reference-KGG reader it
+# relied on was dropping ~43 % of every punch. With a correct reader
+# (PROJECT_STATE/TOOLS_MATPRN/) the reference's own director reads back off the
+# FAILING deck at ratio 1.0000 and 0.00-0.07 deg at all 12 probes, and both rows of
+# S are confirmed. So: do NOT re-derive and do NOT tune S.
+#
+# The real gap: on the same mesh the reference's SNORM change is 2.2-2.6x LARGER
+# than this one and only 73 % of it is the congruence K0*S (this code's is 100 %),
+# yet the reference's physical effect is 20x smaller. The missing 27 % is
+# STABILISING and is the same order as the congruence. Ruled out by measurement:
+# the drilling operator (both codes are K6ROT-insensitive), rigid-body consistency,
+# warp, cell taper, unequal element areas, any nodal translational transform, and
+# print precision (the deficit is thickness-independent over a 100x range).
+# Prime untested hypothesis: the reference also re-forms the element with the
+# smoothed director field, adding the initial-curvature terms of a genuinely curved
+# shell element — invisible on every rig where only one node per element carries a
+# director, which is true of all the older rigs and false on the hemisphere.
+@inline snorm_director_enabled() = solver_env_bool("JFEM_SNORM_DIRECTOR", false)
+
+
+# S in the element frame, for a node whose averaged normal is `n`.
+# Returns the identity whenever the node normal coincides with the element
+# normal, so unshared and coplanar nodes are structurally inert.
+@inline function snorm_director_matrix(n::SVector{3,Float64},
+                                       v1::SVector{3,Float64},
+                                       v2::SVector{3,Float64},
+                                       v3::SVector{3,Float64})
+    n3 = dot(n, v3)
+    # n is only ever this close to the element plane if PARAM SNORM was set wide
+    # enough to defeat its own half-angle refusal; leave those nodes alone.
+    if abs(n3) < 1e-3
+        return @SMatrix [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
+    end
+    a = dot(n, v1) / n3
+    b = dot(n, v2) / n3
+    return @SMatrix [1.0 0.0 -a; 0.0 1.0 -b; a b 1.0]
+end
+
 # Apply SNORM: adjust element frame using averaged normals at element nodes.
 # Returns modified (v1, v2, v3) with v3 tilted toward averaged surface normal.
 function apply_snorm_to_frame(v1::SVector{3,Float64}, v2::SVector{3,Float64}, v3::SVector{3,Float64},
                                indices::Vector{Int}, snorm_normals::Dict{Int, SVector{3,Float64}})
-    if isempty(snorm_normals); return v1, v2, v3; end
+    if isempty(snorm_normals) || snorm_director_enabled(); return v1, v2, v3; end
 
     n_avg = SVector(0.0, 0.0, 0.0)
     n_count = 0
