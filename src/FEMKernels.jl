@@ -1694,7 +1694,13 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # only a small residual theta-z/translation coupling (half of the
     # consistent form).  When enabled, the consistent Bd'Bd accumulation is
     # skipped and the lumped springs are added after the GP loop.
-    drill_lumped_nastran = fem_env_bool("JFEM_Q4_DRILL_LUMPED_NASTRAN", false)
+    # ★ 2026-07-31 PROMOTED TO DEFAULT. The reference's drilling operator, verified
+    # zero-parameter to 3.3e-8 by isolating each code's operator as K(K6ROT=k) - K(K6ROT=0),
+    # and confirmed in ABSOLUTE terms on the single-element scoreboard (drilling ratio vs
+    # reference KGG exactly 1.0000, where the default form gives 10/9). 42-deck corpus screen
+    # NEUTRAL: spec mean 0.95 -> 0.94, MAX 2.81 unchanged, |lambda1| max 14.38 -> 14.37,
+    # 5 better / 3 worse / 33 unchanged, missing 0.
+    drill_lumped_nastran = fem_env_bool("JFEM_Q4_DRILL_LUMPED_NASTRAN", true)
     if drill_lumped_nastran
         alpha_drill = 0.0
     end
@@ -2722,9 +2728,28 @@ function add_quad4_macneal_shear_rbf!(
     # cases (aspect 4-30 × skew 0-30, taper 0.2-0.8, two laminate families):
     # uniformly more accurate than the fitted table stack this replaced, and
     # decisively better at aspect 20/30 where that table was extrapolated.
+    # ★ 2026-07-31: BOTH constants are MacNeal's published C_inf = 1.0. The previous values
+    # (2.045 non-rigid, 1.06510 rigid) were two independently FITTED numbers standing in for
+    # one paper value, and the fit was never checked against an absolute element comparison —
+    # every prior element verification compared DIFFERENCES, in which a common systematic
+    # cancels exactly.
+    #
+    # Recovered as exactly 1.00000 by bisection against reference KGG (OP4, ~11 digits) on 54
+    # single-CQUAD4 cells: isotropic PSHELL over 13 thicknesses (h/L 0.001-0.305), and
+    # cross-ply / quasi-isotropic / UNSYMMETRIC laminates over h/L 0.002-0.1 and aspect 1-10,
+    # on BOTH branches (blank-TS MAT8 selects the rigid one). Element-level effect at 2.045:
+    # a PERFECT SQUARE was 47 % wrong in Frobenius norm, entirely in transverse shear.
+    # With 1.0: control 8.6e-4, aspect 1-30 8.8e-4, thickness 0.001-0.305 9.0e-3, and K33
+    # exact to 0.00 % at every thickness.
+    #
+    # 42-deck corpus screen of the RIGID constant (the one the corpus actually uses; the
+    # non-rigid change is a bit-exact no-op there): spec mean 0.98 -> 0.88, median 0.83 ->
+    # 0.74, MAX 2.81 -> 2.58, |lambda1| mean 1.91 -> 1.78, decks <1% 24 -> 28, below 62 -> 53,
+    # missing 0 -> 0. 26 better / 14 worse / 2 unchanged.
+    # Rigs: PROJECT_STATE/TOOLS_MATPRN/{gen_doe,gen_pcomp,doecmp,pccinf,rigcinf}.jl
     zb_dir_cinf = rigid_shear ?
-        fem_env_float("JFEM_Q4_MACNEAL_ZB_DIR_CINF_RIGID", 1.06510) :
-        fem_env_float("JFEM_Q4_MACNEAL_ZB_DIR_CINF", 2.045)
+        fem_env_float("JFEM_Q4_MACNEAL_ZB_DIR_CINF_RIGID", 1.0) :
+        fem_env_float("JFEM_Q4_MACNEAL_ZB_DIR_CINF", 1.0)
     zb_dir_beta = fem_env_float("JFEM_Q4_MACNEAL_ZB_DIR_BETA", 39.0)
     zb_rho2x = Ly2_rbf / max(Lx2_rbf, 1e-30)
     zb_rho2y = Lx2_rbf / max(Ly2_rbf, 1e-30)
