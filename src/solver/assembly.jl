@@ -3611,10 +3611,22 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # the legacy membrane on the unsymmetric 90-heavy aspect-5.5 skins is
         # 5.9-12.6% off vs Nastran KGG while bending is 0.5-0.9% -- the gate,
         # not the operator, is the gap (same pattern as the KDJJ Bmb gate).
+        # JFEM_Q4_SKEW_MEMBRANE_ALLOW_ISOTROPIC (research, default OFF): both skew membrane
+        # operators below (SELC and the hourglass restabilization) are gated on
+        # `is_pcomp && !is_pcomp_iso`, so a flat ISOTROPIC PSHELL reaches neither and keeps
+        # the legacy membrane. Measured on the single-element scoreboard, isotropic skew is
+        # the worst remaining distortion axis (whole-matrix 0.33 at 45 deg, membrane block
+        # 0.167) -- and this operator's own record is "membrane block 15->0.5% (skew45)",
+        # i.e. the same defect it already fixes for laminates. This flag widens the material
+        # gate so that claim can be MEASURED on isotropic cells before anything is promoted.
+        skew_membrane_material_ok =
+            (is_pcomp_ei && !is_pcomp_iso_ei) ||
+            (solver_env_bool("JFEM_Q4_SKEW_MEMBRANE_ALLOW_ISOTROPIC", false) &&
+             q4_is_isotropic[ei])
         elem_pcomp_membrane_selc =
             solver_env_bool("JFEM_SOL105_PCOMP_MEMBRANE_SELC", true) &&
             solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true) &&
-            is_pcomp_ei && !is_pcomp_iso_ei && elem_is_flat &&
+            skew_membrane_material_ok && elem_is_flat &&
             (Bmb_local === nothing ||
              solver_env_bool("JFEM_SOL105_PCOMP_SELC_ALLOW_BMB", false))
         if elem_pcomp_membrane_selc
@@ -3718,7 +3730,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         elem_membrane_hourglass_skew =
             !elem_pcomp_membrane_selc &&
             solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true) &&
-            is_pcomp_ei && !is_pcomp_iso_ei && elem_is_flat &&
+            skew_membrane_material_ok && elem_is_flat &&
             Bmb_local === nothing &&
             abs(90.0 - edge_skew_ei) >= sol105_pcomp_skew_membrane_min_deg()
         if elem_membrane_hourglass_skew || elem_pcomp_membrane_selc
