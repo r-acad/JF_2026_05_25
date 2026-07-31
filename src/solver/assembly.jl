@@ -2226,6 +2226,29 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     # kinematic coupling is the remaining work for next session. See
     # project_htp_curved_scaffold_2026_04_21.md in memory.
     curved_jacobian_enabled = q4_curved_jacobian_enabled(shear_center_only)
+    # `coords_3d` is a PREREQUISITE, not a feature. Three independent capabilities consume it
+    # -- the curved-Jacobian path, the MacNeal warp correction (JFEM_MACNEAL_WARP_ALPHA) and
+    # the Marguerre membrane-uz coupling (JFEM_Q4_MARGUERRE_WARP_TO_UZ) -- but it was only
+    # ever populated when the curved-Jacobian flag was on. The other two were therefore
+    # SILENT NO-OPS under their own flags: setting JFEM_MACNEAL_WARP_ALPHA alone changed
+    # nothing, which is measurably how that correction went unexamined long enough for its
+    # documented premise to be wrong (2026-07-31: it is the wrong operator, worse at every
+    # alpha, and the dominant warp term is bending-drilling, not K[Tz,Tx]).
+    # Supply the buffer whenever ANY consumer asks for it.
+    #
+    # ⛔ WARNING, measured 2026-07-31 once these flags became reachable: supplying coords_3d
+    # activates the experimental curved-shell GP-local frame path, and that path VIOLATES
+    # RIGID-BODY TRANSLATION on warped elements -- ‖K·t‖/‖K‖ goes from ~2e-17 to 4.6e-3 at
+    # warp/L = 0.024 and 3.7e-2 at 0.2, identically for all three consumers. Exact on flat
+    # cells, which is why it went unnoticed. NONE of curved-Jacobian / Marguerre / warp-alpha
+    # is promotable until the curved-shell path's outstanding "Gauss-loop rewrite + NRM
+    # kinematic coupling" lands. Keep all three default OFF.
+    warp_alpha_wants_coords3d =
+        (tryparse(Float64, strip(get(ENV, "JFEM_MACNEAL_WARP_ALPHA", ""))) !== nothing) &&
+        tryparse(Float64, strip(get(ENV, "JFEM_MACNEAL_WARP_ALPHA", ""))) != 0.0
+    marguerre_wants_coords3d =
+        lowercase(strip(get(ENV, "JFEM_Q4_MARGUERRE_WARP_TO_UZ", ""))) in ("1", "true", "yes", "on")
+    coords3d_needed = curved_jacobian_enabled || warp_alpha_wants_coords3d || marguerre_wants_coords3d
     q4_kernel_key = shear_center_only ? "JFEM_Q4_KERNEL_EIG" : "JFEM_Q4_KERNEL_STATIC"
     # SOL101 static PCOMP: keep the MITC4-3D aspect route opt-in.
     #
@@ -2894,10 +2917,10 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         taper_ratio_ei = q4_local_opposite_edge_ratio(lc)
         edge_skew_ei = q4_local_edge_skew_angle(lc)
 
-        # Curved-Jacobian scaffold (fix path #2). Fill the per-thread 4x3 buffer
-        # only when the curved-Jacobian path is active.
+        # Fill the per-thread 4x3 buffer whenever ANY consumer of coords_3d is enabled
+        # (curved Jacobian, MacNeal warp correction, or Marguerre) -- see coords3d_needed.
         coords_3d_arg = nothing
-        if curved_jacobian_enabled
+        if coords3d_needed
             c3d = sep_coords3d[tid]
             c3d[1,1] = p1[1]; c3d[1,2] = p1[2]; c3d[1,3] = p1[3]
             c3d[2,1] = p2[1]; c3d[2,2] = p2[2]; c3d[2,3] = p2[3]
