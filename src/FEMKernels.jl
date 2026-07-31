@@ -5360,12 +5360,83 @@ function tria3_plate_dkt_stiffness(coords, Db)
 end
 
 # Overload accepting pre-computed constitutive matrices (for orthotropic MAT8)
+"""
+    tria3_rbf_shear(Ds, Db, A) -> Ds_eff
+
+MacNeal residual bending flexibility for CTRIA3, gated by `JFEM_TRIA3_RBF_C` (0 = OFF).
+
+**Why this exists.** Every CTRIA3 plate kernel in this file — `macro` (the default macro-quad
+condensed operator), `constant` (constant-curvature Mindlin with centroidal shear), and `dkt` —
+lacks any shear-locking / residual-bending treatment; there is not one occurrence of "macneal"
+in the CTRIA3 code. Measured against reference KGG on single-element cells (2026-07-31), the
+ROT-ROT block is wrong by:
+
+    macro (default)   0.614 (undistorted!) … 0.954
+    dkt               0.853 … 1.001
+    constant          1189 at h/L=0.01 falling to 1.52 at h/L=0.305  (textbook shear locking)
+
+i.e. the worst element-level defect in the solver, and invisible to every screen this project
+runs because the 42-deck corpus contains **zero triangles**.
+
+**The reference's law, measured.** `K[3,3]` on a flat cell is pure transverse shear, so
+`1/K33 = b/t³ + a/t` is testable as "`t³/K33` linear in `t²`". On the reference it is linear to
+5 significant figures over a 300× thickness range (slope 4.56000e-5 at every decade), and
+reducing `(a,b)` to dimensionless form over 4× element size, 3× modulus and ν = 0…0.33 gives
+`b·D₀/L² = 0.04167 = 1/24` and `a·G = 1.20000 = 6/5` EXACTLY:
+
+    1/K33  =  L²/(24·D)  +  1/((5/6)·G·t)
+
+The shear constant is the standard 5/6 transverse-shear correction factor; the residual-bending
+constant is a clean 24·D/L². JFEM's own slope varies 100× across the same range and follows no
+such law, being 2.2× too soft at thin and 3.6× at thick.
+
+**What this applies** (series on the transverse shear rigidity, before any plate kernel sees
+it, so all three inherit it):
+
+    1/k_eff = 1/k_s + L_c²/(c_r · D̄),    L_c² = 2·A,    c_r = JFEM_TRIA3_RBF_C
+
+⛔ **REFUTED BY MEASUREMENT 2026-07-31 — LEAVE AT 0 (OFF). Kept as the record.**
+Adding this makes the element WORSE, because the sign of the diagnosis was wrong. `K33_jfem /
+K33_ref` at h/L = 0.001: **0.455 OFF → 0.101 (c_r=12) → 0.143 (c_r=24) → 0.183 (c_r=48)**.
+RBF adds flexibility, and JFEM was already **2.2× too SOFT**, not too stiff.
+
+**What the numbers actually say.** At h/L = 0.001 the reference gives `K33 = 0.0157108`, and
+`24·D/L² = 0.015713` — so the reference IS the pure bending-limited form there. JFEM gives
+`0.00714616`, i.e. an effective coefficient of **10.92 where the reference has 24**. JFEM's
+triangle is therefore ALREADY bending-limited at thin, exactly like the reference; it does not
+lack residual bending flexibility at all. Its coefficient is simply 2.2× too small, and grows
+worse with thickness (3.6× at h/L = 0.305).
+
+⇒ The real defect is inside the plate operator (`tria3_plate_macro_data`, the macro-quad
+condensed kernel) producing 10.92·D/L² instead of 24·D/L². Fixing it means understanding that
+condensation, NOT bolting a shear correction onto the outside. Scaling the block by 2.199 would
+be a fudge and is explicitly not the answer.
+"""
+function tria3_rbf_shear(Ds, Db, A)
+    c_r = fem_env_float("JFEM_TRIA3_RBF_C", 0.0)
+    c_r > 0 || return Ds
+    Dbar = 0.5 * (abs(Db[1, 1]) + abs(Db[2, 2]))
+    Dbar > 0 || return Ds
+    Lc2 = 2 * A
+    Ds_eff = copy(Ds)
+    @inbounds for i in 1:min(2, size(Ds, 1))
+        ks = Ds[i, i]
+        ks > 0 || continue
+        Ds_eff[i, i] = 1.0 / (1.0 / ks + Lc2 / (c_r * Dbar))
+    end
+    Ds_eff
+end
+
 function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_ratio=1.0, k6rot=100.0, Bmb=nothing)
     T = promote_type(eltype(coords), eltype(Dm), eltype(Db), eltype(Ds), typeof(h), typeof(G_ref))
     x, y = coords[:,1], coords[:,2]
     A2 = x[1]*(y[2]-y[3]) + x[2]*(y[3]-y[1]) + x[3]*(y[1]-y[2])
     A = T(0.5) * abs(A2)
     if A < T(1e-12); return zeros(T, 18, 18); end
+    # Residual bending flexibility applied to the transverse shear rigidity BEFORE any plate
+    # kernel is chosen, so `macro`, `constant` and `dkt` all inherit it. No-op when the gate
+    # is 0 (the default).
+    Ds = tria3_rbf_shear(Ds, Db, A)
 
     Ke = zeros(T, 18, 18)
 
