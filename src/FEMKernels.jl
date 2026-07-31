@@ -2306,6 +2306,91 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         end
     end
 
+    # -------------------------------------------------------------------------
+    # Warp rotation-drilling coupling — JFEM_Q4_WARP_ROTDRILL (default 0 = OFF).
+    #
+    # MEASURED TARGET (2026-07-31, warpstruct.jl). Decomposing dK = K_ref - K_JFEM on a warped
+    # CQUAD4 by component pair and fitting each class against the warp amplitude gives, at
+    # warp/L = 0.0242:
+    #     Rx-Rz, Ry-Rz   4.43e3   order 0.99  <- DOMINANT
+    #     Tx-Tz, Ty-Tz   1.84e3   order 0.99
+    #     Tx-Ry, Ty-Rx     44.2   order 0.99  <- what the rigid-offset correction above targets
+    #     Rz-Rz, Tz-Tz    ~100    order ~2.0
+    # So the dominant missing warp physics is a bending<->drilling coupling FIRST ORDER in warp.
+    # This refutes the docstring premise of apply_macneal_warp_correction! ("the second-order
+    # localised K[Tz,Tx]"): that coupling is first order AND 2.4x smaller than Rx-Rz/Ry-Rz.
+    #
+    # DERIVATION. On a warped quad the true surface normal varies across the element. At node i
+    # the local normal deviates from the mean-plane normal by the surface slope there, so a
+    # bending rotation at that node carries a component along the LOCAL normal — i.e. it leaks
+    # into drilling — at first order in the slope. That is a nodal rotational transform
+    #     T_i = I + skew(dn_i),     dn_i = (-dz/dx, -dz/dy, 0) at node i,
+    # applied as Ke <- T' Ke T on each node's rotational 3x3. Structurally the same object as
+    # the SNORM director transform S = I + skew((n x v3)/(n.v3)), but sourced from ELEMENT WARP
+    # rather than nodal director smoothing, and it generates exactly Rx-Rz / Ry-Rz at first
+    # order — the dominant measured class.
+    #
+    # z_i is the signed height of node i above the mean plane, and dz/dx, dz/dy are the bilinear
+    # slopes of that height field, both in the element local frame.
+    #
+    # ⚠ This deliberately does NOT enable the curved-shell GP-local frame path. That path is
+    # reached via `curved_frame_supported`, which needs coords_3d AND several other conditions,
+    # and it VIOLATES RIGID-BODY TRANSLATION on warped cells (2e-17 -> 3.7e-2) while improving
+    # the error norm. The two are separable and must stay separate.
+    #
+    # ⛔ REFUTED BY MEASUREMENT 2026-07-31 — LEAVE AT 0 (OFF). Kept as the record.
+    # Whole-matrix error vs reference (warp 0.0242): 1.73e-2 OFF -> 1.91e-2 (c=0.5) -> 2.37e-2
+    # (c=1) -> 3.67e-2 (c=2). Worse at every amplitude, and inert on the flat control.
+    #
+    # HOW it fails is the useful part: c = +1 and c = -1 give IDENTICAL errors, and the growth
+    # is quadratic in c. A first-order term that changed the residual would be linear in c and
+    # asymmetric in its sign. Quadratic-and-sign-symmetric means the term this transform adds is
+    # ORTHOGONAL to the actual residual, so it can only add in quadrature and increase the error.
+    # The missing warp physics lies in a different subspace than any nodal rotational transform
+    # of this form — which also retrospectively explains the sign-symmetric failure of
+    # apply_macneal_warp_correction!'s alpha sweep (same class of object, same orthogonality).
+    # It additionally violates rigid-body translation at large warp (RB 1.9e-2 at warp 0.1),
+    # because a per-node rotational transform is not a rigid-body-preserving congruence here.
+    #
+    # ⇒ Do not retry nodal rotational transforms for warp. The dominant Rx-Rz/Ry-Rz term must
+    # come from inside the strain-displacement operator, not from a post-hoc DOF transform.
+    let wrd = fem_env_float("JFEM_Q4_WARP_ROTDRILL", 0.0)
+        if wrd != 0.0 && coords_3d !== nothing
+            _, _, v3 = quad4_center_frame_from_coords3d(coords_3d)
+            cx = (coords_3d[1,1] + coords_3d[2,1] + coords_3d[3,1] + coords_3d[4,1]) * 0.25
+            cy = (coords_3d[1,2] + coords_3d[2,2] + coords_3d[3,2] + coords_3d[4,2]) * 0.25
+            cz = (coords_3d[1,3] + coords_3d[2,3] + coords_3d[3,3] + coords_3d[4,3]) * 0.25
+            zi = ntuple(i -> (coords_3d[i,1]-cx)*v3[1] + (coords_3d[i,2]-cy)*v3[2] +
+                             (coords_3d[i,3]-cz)*v3[3], 4)
+            corner_rs_wrd = ((-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0))
+            # bilinear slopes of the height field at each corner, in the local frame
+            @inbounds for i in 1:4
+                r, s = corner_rs_wrd[i][1], corner_rs_wrd[i][2]
+                dNr, dNs = shape_derivs_quad(r, s)
+                J11 = dNr[1]*coords[1,1] + dNr[2]*coords[2,1] + dNr[3]*coords[3,1] + dNr[4]*coords[4,1]
+                J12 = dNr[1]*coords[1,2] + dNr[2]*coords[2,2] + dNr[3]*coords[3,2] + dNr[4]*coords[4,2]
+                J21 = dNs[1]*coords[1,1] + dNs[2]*coords[2,1] + dNs[3]*coords[3,1] + dNs[4]*coords[4,1]
+                J22 = dNs[1]*coords[1,2] + dNs[2]*coords[2,2] + dNs[3]*coords[3,2] + dNs[4]*coords[4,2]
+                dj = J11*J22 - J12*J21
+                abs(dj) < 1e-30 && continue
+                z_xi  = dNr[1]*zi[1] + dNr[2]*zi[2] + dNr[3]*zi[3] + dNr[4]*zi[4]
+                z_eta = dNs[1]*zi[1] + dNs[2]*zi[2] + dNs[3]*zi[3] + dNs[4]*zi[4]
+                z_x = ( J22*z_xi - J12*z_eta) / dj
+                z_y = (-J21*z_xi + J11*z_eta) / dj
+                # T_i = I + skew(dn),  dn = wrd*(-z_x, -z_y, 0)
+                a = -wrd * z_x; b = -wrd * z_y
+                T = @SMatrix [ 1.0   0.0   b
+                               0.0   1.0  -a
+                              -b     a    1.0 ]
+                r0 = (i-1)*6 + 3          # rotational DOFs are r0+1 .. r0+3
+                blk = @view ws.Ke[(r0+1):(r0+3), :]
+                blk .= T' * blk
+                blk2 = @view ws.Ke[:, (r0+1):(r0+3)]
+                blk2 .= blk2 * T
+            end
+        end
+    end
+
     # Skew-metric anisotropic hourglass restabilization of the membrane.
     # Requires the membrane to be pure full-bilinear here (caller passes
     # membrane_incomp=false so no Wilson membrane condensation ran); this adds the
