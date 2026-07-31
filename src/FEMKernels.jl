@@ -5387,6 +5387,12 @@ it, so all three inherit it):
     1/k_eff = 1/k_s + L_c²/(c_r · D̄),    L_c² = 2·A,    c_r = JFEM_TRIA3_RBF_C
 
 ⛔ **REFUTED BY MEASUREMENT 2026-07-31 — LEAVE AT 0 (OFF). Kept as the record.**
+⛔ **AND THE PREMISE WAS ALSO WRONG.** The DEFAULT `macro` kernel builds the triangle from three
+virtual sub-quads and calls `stiffness_quad4_matrices` on each, so CTRIA3 DOES inherit the full
+CQUAD4 kernel including MacNeal RBF. It is not missing the formulation. Those sub-quads are
+inherently skewed 45-53 deg with aspect up to 3.0, and the CQUAD4 skew defect at 45 deg is 37 %
+in the rotational block - the same order as CTRIA3's 61 %. Fix the QUAD skew bending operator
+first; CTRIA3 and skew are ONE defect.
 Adding this makes the element WORSE, because the sign of the diagnosis was wrong. `K33_jfem /
 K33_ref` at h/L = 0.001: **0.455 OFF → 0.101 (c_r=12) → 0.143 (c_r=24) → 0.183 (c_r=48)**.
 RBF adds flexibility, and JFEM was already **2.2× too SOFT**, not too stiff.
