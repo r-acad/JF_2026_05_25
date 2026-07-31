@@ -3634,7 +3634,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # the legacy membrane on the unsymmetric 90-heavy aspect-5.5 skins is
         # 5.9-12.6% off vs Nastran KGG while bending is 0.5-0.9% -- the gate,
         # not the operator, is the gap (same pattern as the KDJJ Bmb gate).
-        # JFEM_Q4_SKEW_MEMBRANE_ALLOW_ISOTROPIC (research, default OFF): both skew membrane
+        # JFEM_Q4_SKEW_MEMBRANE_ALLOW_ISOTROPIC (2026-07-31: PROMOTED, default ON): both skew membrane
         # operators below (SELC and the hourglass restabilization) are gated on
         # `is_pcomp && !is_pcomp_iso`, so a flat ISOTROPIC PSHELL reaches neither and keeps
         # the legacy membrane. Measured on the single-element scoreboard, isotropic skew is
@@ -3642,9 +3642,17 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # 0.167) -- and this operator's own record is "membrane block 15->0.5% (skew45)",
         # i.e. the same defect it already fixes for laminates. This flag widens the material
         # gate so that claim can be MEASURED on isotropic cells before anything is promoted.
+        #
+        # PROMOTED 2026-07-31. Measured isotropic membrane block: skew 15/30/45 deg
+        # 6.13e-2/1.09e-1/1.67e-1 -> 5.02e-5/1.66e-4/2.42e-4 (656-1200x); taper 0.7/0.5/0.25
+        # 2.49e-2/4.89e-2/9.26e-2 -> 1.07e-4/5.07e-4/3.56e-3 (26-232x). Rectangles stay
+        # bit-identical. Public benchmark parity: curved_beam 28.21% -> -0.29%, hemisphere
+        # -3.98% -> -3.39%. Corpus: BIT-EXACT INERT on all 42 decks (||dK||/||K|| = 0.0000e+00,
+        # every deck) because the corpus is PCOMP and already took this path - proven exactly
+        # rather than statistically, so no spectrum screen was needed.
         skew_membrane_material_ok =
             (is_pcomp_ei && !is_pcomp_iso_ei) ||
-            (solver_env_bool("JFEM_Q4_SKEW_MEMBRANE_ALLOW_ISOTROPIC", false) &&
+            (solver_env_bool("JFEM_Q4_SKEW_MEMBRANE_ALLOW_ISOTROPIC", true) &&
              q4_is_isotropic[ei])
         elem_pcomp_membrane_selc =
             solver_env_bool("JFEM_SOL105_PCOMP_MEMBRANE_SELC", true) &&
