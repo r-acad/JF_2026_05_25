@@ -2757,15 +2757,43 @@ function add_quad4_macneal_shear_rbf!(
     # ⇒ METHOD NOTE: the single-axis cells alone would have promoted this. The combined
     # distortion cells (gen_more.jl) are what caught it. Never promote an element change on
     # single-axis evidence.
-    if fem_env_bool("JFEM_Q4_MACNEAL_RBF_DELTA_MIDSIDE", false)
-        mx1 = 0.5*(coords[1,1]+coords[4,1]); my1 = 0.5*(coords[1,2]+coords[4,2])
-        mx2 = 0.5*(coords[2,1]+coords[3,1]); my2 = 0.5*(coords[2,2]+coords[3,2])
-        my3 = 0.5*(coords[1,2]+coords[2,2]); mx3 = 0.5*(coords[1,1]+coords[2,1])
-        my4 = 0.5*(coords[3,2]+coords[4,2]); mx4 = 0.5*(coords[3,1]+coords[4,1])
-        dxv = sqrt((mx2-mx1)^2 + (my2-my1)^2)
-        dyv = sqrt((mx4-mx3)^2 + (my4-my3)^2)
-        if dxv > 1e-30 && dyv > 1e-30
-            Dx = dxv; Dy = dyv; Dx2 = Dx*Dx; Dy2 = Dy*Dy
+    #
+    # MODES (JFEM_Q4_MACNEAL_RBF_DELTA_MIDSIDE):
+    #   "true"/"len"  — raw mid-side vector LENGTHS  (|g1|, |g2|)
+    #   "perp"        — base and PERPENDICULAR HEIGHT (|g1|, |g2|·sinθ)
+    #
+    # "perp" was tried because "len" regressed 5× on aspect5×skew45: there the η mid-side vector
+    # is 141.42 long while the element's actual height across it is only 100.
+    # ⛔ "perp" REFUTED: skew45 whole-matrix 3.203e-1 (off) -> 6.030e-1, far worse than either
+    # other mode. It SHRINKS Δy (100 vs 141.42) and so stiffens further — the opposite of the
+    # required direction, which the cos = -0.998 anti-parallel residual already said must be
+    # softening. Δx·Δy = A is therefore NOT the right constraint (consistent with the separate
+    # area-normalisation refutation above).
+    #
+    # SUMMARY of the Δ search: off 3.203e-1 | len 1.154e-1 | perp 6.030e-1 at skew45.
+    # "len" is the best of the three on pure skew and the only one that improves anything, but
+    # it breaks combined aspect×skew where JFEM's existing Δ is already good (7.29e-2). So the
+    # correct Δ is close to the current one at high aspect and must grow toward the mid-side
+    # length as aspect -> 1. Six candidates have now been measured (twist correction, frame
+    # mode, flex_mode=full, Δ area-norm, Δ len, Δ perp); the space of simple Δ redefinitions is
+    # explored and none is the law. Further progress needs MacNeal's published skew treatment
+    # rather than more geometry guesses from this side.
+    let dmode = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_DELTA_MIDSIDE", "false")))
+        if dmode in ("1", "true", "yes", "on", "len", "perp")
+            g1x = 0.5*(coords[2,1]+coords[3,1]) - 0.5*(coords[1,1]+coords[4,1])
+            g1y = 0.5*(coords[2,2]+coords[3,2]) - 0.5*(coords[1,2]+coords[4,2])
+            g2x = 0.5*(coords[3,1]+coords[4,1]) - 0.5*(coords[1,1]+coords[2,1])
+            g2y = 0.5*(coords[3,2]+coords[4,2]) - 0.5*(coords[1,2]+coords[2,2])
+            n1 = sqrt(g1x*g1x + g1y*g1y); n2 = sqrt(g2x*g2x + g2y*g2y)
+            if n1 > 1e-30 && n2 > 1e-30
+                if dmode == "perp"
+                    cr = abs(g1x*g2y - g1y*g2x)      # |g1 x g2| = area of the parallelogram
+                    Dx = n1; Dy = cr / n1            # base, perpendicular height
+                else
+                    Dx = n1; Dy = n2                 # raw lengths
+                end
+                Dx2 = Dx*Dx; Dy2 = Dy*Dy
+            end
         end
     end
 
