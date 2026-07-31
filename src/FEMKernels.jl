@@ -2722,6 +2722,52 @@ function add_quad4_macneal_shear_rbf!(
             Dx2 = Dx*Dx; Dy2 = Dy*Dy
         end
     end
+    # -------------------------------------------------------------------------
+    # JFEM_Q4_MACNEAL_RBF_DELTA_MIDSIDE (default OFF).
+    #
+    # `Dx`/`Dy` above take only the x- and y-COMPONENTS of the mid-side vectors in the element
+    # local frame. Under skew that discards the cross-component, and the loss is not benign:
+    # for the skew-45 parallelogram (0,0),(100,0),(200,100),(100,100) the component form gives
+    # 85.065 / 137.638 while the mid-side vectors are actually 100 and 141.42 long.
+    #
+    # Why LARGER Δ is the required direction: the residual E = K_ref − K_JFEM is anti-parallel
+    # to JFEM's own bending block (cos −0.998, ν-independent), i.e. JFEM is a pure scalar too
+    # STIFF — 1.0305/1.1372/1.3259 at 15/30/45°. Since Zb ∝ Δ²/(12A) and stiffness ∝ inv(Zb),
+    # softening requires Δ to grow. That is also why the area-normalisation variant above FAILED:
+    # it scales Δ by sqrt(A/(ΔxΔy)) = 0.924 here, i.e. SHRINKS them and stiffens further.
+    #
+    # This uses the frame-independent mid-side vector LENGTHS — MacNeal's Δ denotes the
+    # element's side lengths, and a length is not a frame component.
+    #
+    # ⚠ PARTIAL — RIGHT FOR PURE SKEW, WRONG IN COMBINATION. NOT PROMOTABLE. Default OFF.
+    # Measured whole-matrix error vs reference:
+    #   pure skew 15/30/45°   3.31e-2/1.41e-1/3.20e-1 -> 1.73e-2/6.85e-2/1.15e-1  (-48…-64 %)
+    #   flat, aspect, taper, warp, thickness          -> BIT-INERT, as intended
+    #   aspect5 × skew45      7.29e-2 -> 3.81e-1   (5× WORSE)
+    #   skew×taper×warp       3.13e-1 -> 3.49e-1   (worse)
+    #   CTRIA3 aspect1/apex4  1.84e-1/8.98e-1 -> 2.12e-1/9.33e-1  (worse)
+    # All 35 single-axis cells still pass the rigid-body gate (~1e-17), so it is a valid
+    # stiffness — just not the right law.
+    #
+    # ⇒ The correct Δ must REDUCE to the mid-side length on a parallelogram but differ once
+    # skew combines with aspect. That is a real constraint on the law and narrows it a lot.
+    # ⇒ Also note this did NOT improve CTRIA3, whose sub-quads are skewed AND aspect-distorted
+    # — consistent with the combined-distortion failure above, so the "CTRIA3 inherits the quad
+    # skew defect" diagnosis is neither confirmed nor refuted by this test.
+    # ⇒ METHOD NOTE: the single-axis cells alone would have promoted this. The combined
+    # distortion cells (gen_more.jl) are what caught it. Never promote an element change on
+    # single-axis evidence.
+    if fem_env_bool("JFEM_Q4_MACNEAL_RBF_DELTA_MIDSIDE", false)
+        mx1 = 0.5*(coords[1,1]+coords[4,1]); my1 = 0.5*(coords[1,2]+coords[4,2])
+        mx2 = 0.5*(coords[2,1]+coords[3,1]); my2 = 0.5*(coords[2,2]+coords[3,2])
+        my3 = 0.5*(coords[1,2]+coords[2,2]); mx3 = 0.5*(coords[1,1]+coords[2,1])
+        my4 = 0.5*(coords[3,2]+coords[4,2]); mx4 = 0.5*(coords[3,1]+coords[4,1])
+        dxv = sqrt((mx2-mx1)^2 + (my2-my1)^2)
+        dyv = sqrt((mx4-mx3)^2 + (my4-my3)^2)
+        if dxv > 1e-30 && dyv > 1e-30
+            Dx = dxv; Dy = dyv; Dx2 = Dx*Dx; Dy2 = Dy*Dy
+        end
+    end
 
     # Aspect-ratio-adjusted coefficients (MacNeal eq 27):
     # a_param / b_param and their JFEM_Q4_MACNEAL_EPSILON knob were DELETED 2026-07-31.
