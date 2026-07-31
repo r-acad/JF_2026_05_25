@@ -2595,6 +2595,27 @@ function add_quad4_macneal_shear_rbf!(
     # MacNeal projected side lengths Δx, Δy (eq after 26)
     Dx = 0.5 * (coords[2,1]+coords[3,1]-coords[1,1]-coords[4,1])
     Dy = 0.5 * (coords[3,2]+coords[4,2]-coords[1,2]-coords[2,2])
+    # ---------------------------------------------------------------------
+    # JFEM_Q4_MACNEAL_RBF_DELTA_AREA_NORM (DIAGNOSTIC, default OFF).
+    # NOT a proposed fix — a probe for one specific hypothesis about the skew bending defect.
+    #
+    # On a PARALLELOGRAM these projected sides should satisfy Δx·Δy = A. In the element frame
+    # JFEM actually uses they do not: for the skew-45 cell (0,0),(100,0),(200,100),(100,100)
+    # the natural frame gives Δx=Δy=100 with Δx·Δy = 10000 = A, while JFEM gets
+    # 85.065/137.638 => 11708, i.e. 17 % out (Δx² 0.72× too stiff, Δy² 1.89× too soft).
+    # Since Zb ∝ Δ²·flex/(12A) and flex ∝ 1/t³, an error in Δ is exactly thickness-independent
+    # while Zb dominates and dilutes once Zs enters — the measured signature of the skew
+    # rot-rot defect (0.3629/0.3655/0.3631/0.3232 over h/L 0.001→0.2).
+    #
+    # This rescales both Δ by sqrt(A/(Δx·Δy)) to enforce the invariant while preserving their
+    # ratio.
+    #
+    # ⛔ RESULT: HYPOTHESIS REFUTED 2026-07-31. Enforcing the invariant makes skew WORSE, not
+    # better — rot-rot error 3.54e-2 → 5.31e-2 (15°), 1.55e-1 → 2.39e-1 (30°), 3.66e-1 →
+    # 5.92e-1 (45°), i.e. +50…+62 %; inert on flat/aspect/taper/warp as expected. So JFEM's
+    # projected lengths are CLOSER to the reference than the invariant-satisfying ones, the
+    # reference does NOT satisfy Δx·Δy = A in its own frame, and the skew defect is not in the
+    # Δ magnitudes. Kept default-OFF as the record; do not retry this direction.
     Dx2 = Dx*Dx; Dy2 = Dy*Dy
 
     # Element area from center-Jacobian
@@ -2606,6 +2627,16 @@ function add_quad4_macneal_shear_rbf!(
     J22c = dNs_c[1]*coords[1,2]+dNs_c[2]*coords[2,2]+dNs_c[3]*coords[3,2]+dNs_c[4]*coords[4,2]
     detJc = J11c*J22c - J12c*J21c
     A_elem = 4.0 * abs(detJc)
+    # DIAGNOSTIC probe, default OFF (see the comment above Dx): enforce the parallelogram
+    # invariant Dx*Dy = A while preserving their ratio, to test whether the projected-side
+    # definition is the skew bending defect. NOT a fix and NOT promotable.
+    if fem_env_bool("JFEM_Q4_MACNEAL_RBF_DELTA_AREA_NORM", false)
+        _pr = abs(Dx * Dy)
+        if _pr > 1e-30 && A_elem > 0
+            _sc = sqrt(A_elem / _pr); Dx *= _sc; Dy *= _sc
+            Dx2 = Dx*Dx; Dy2 = Dy*Dy
+        end
+    end
 
     # Aspect-ratio-adjusted coefficients (MacNeal eq 27):
     # a_param / b_param and their JFEM_Q4_MACNEAL_EPSILON knob were DELETED 2026-07-31.
