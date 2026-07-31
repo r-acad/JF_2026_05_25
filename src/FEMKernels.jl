@@ -1606,11 +1606,6 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     if macneal_kernel && !macneal_twist_env_set
         macneal_twist = true  # twist correction is part of full MacNeal kernel
     end
-    macneal_rbf_eps = begin
-        raw = get(ENV, "JFEM_Q4_MACNEAL_EPSILON", "0.04")
-        v = tryparse(Float64, strip(raw))
-        (v === nothing || v < 0.0) ? 0.04 : v
-    end
     # Default OFF; see the K_ab_bend accumulation below for the evidence.
     bending_incomp_decouple_d16 =
         fem_env_bool("JFEM_Q4_BENDING_INCOMP_DECOUPLE_D16", false)
@@ -2103,7 +2098,6 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     if macneal_kernel && !shear_center_only && !skip_all_shear
         add_quad4_macneal_shear_rbf!(
             ws.Ke, coords, Cb, Cs, h;
-            epsilon_rbf=macneal_rbf_eps,
             rigid_shear=macneal_rigid_shear,
             flex_mode_override=macneal_rbf_flex_mode,
             Cm=Cm, Bmb=Bmb,
@@ -2348,7 +2342,7 @@ include(joinpath(@__DIR__, "experimental", "min4_kernel.jl"))
 # CALIBRATION KNOBS (env): JFEM_Q4_MACNEAL_RBF (off by default — the in-RBF
 #         calculation here is *always* done; the env enables a DIFFERENT in-line
 #         RBF in stiffness_quad4_matrices at line ~3406);
-#         JFEM_Q4_MACNEAL_EPSILON (0.04), JFEM_Q4_MACNEAL_RBF_ZB_SCALE,
+#         JFEM_Q4_MACNEAL_RBF_ZB_SCALE,
 #         JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SCALE,
 #         JFEM_Q4_MACNEAL_RBF_BENDING_FLEX_MODE ("diag"), JFEM_Q4_MACNEAL_RBF_LENGTH_MODE ("paper").
 # LAST VALIDATED: 2026-05-22 (GAME mean 2.42% / max 9.10%).
@@ -2443,7 +2437,6 @@ function add_quad4_macneal_shear_rbf!(
     Cb::AbstractMatrix,
     Cs::AbstractMatrix,
     h;
-    epsilon_rbf::Float64 = 0.04,
     rigid_shear::Bool = false,
     flex_mode_override::Symbol = :env,
     Cm = nothing,
@@ -2615,14 +2608,13 @@ function add_quad4_macneal_shear_rbf!(
     A_elem = 4.0 * abs(detJc)
 
     # Aspect-ratio-adjusted coefficients (MacNeal eq 27):
-    #   a = eps / (eps + (1 - eps) * (Dx/Dy)^2)
-    #   b = eps / (eps + (1 - eps) * (Dy/Dx)^2)
-    # The earlier bounded interpolation was numerically safe, but it was not
-    # MacNeal's formula and made a=b=0.52 for square elements when eps=0.04.
-    ε = clamp(epsilon_rbf, 1e-12, 1.0)
-    a_param = ε / (ε + (1.0 - ε) * Dx2 / max(Dy2, 1e-30))
-    b_param = ε / (ε + (1.0 - ε) * Dy2 / max(Dx2, 1e-30))
-
+    # a_param / b_param and their JFEM_Q4_MACNEAL_EPSILON knob were DELETED 2026-07-31.
+    # They were computed here and consumed by nothing but a debug printout, so the
+    # documented "calibration knob" had no effect on any matrix: measured on the
+    # single-element scoreboard, eps = 0.0, 0.04 and 0.5 produce BIT-IDENTICAL results on
+    # every cell and every distortion axis. Removed per the de-calibration directive - a
+    # knob that appears to be a tuning parameter but silently does nothing is worse than
+    # no knob, because it invites tuning that cannot work.
     flex_mode =
         flex_mode_override === :full ? "full" :
         flex_mode_override === :diag ? "diag" :
@@ -2854,8 +2846,7 @@ function add_quad4_macneal_shear_rbf!(
     if lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_SHEAR_DEBUG", "false"))) in ("1","true","yes","on")
         println("[SHEAR_DEBUG] Zs(x1e6): ", round.(1e6 .* Zs; digits=4))
         println("[SHEAR_DEBUG] Zb(x1e6): ", round.(1e6 .* Zb; digits=4))
-        println("[SHEAR_DEBUG] pt_delta: ", round.(pt_delta; digits=3), " Dx=", round(Dx; digits=3), " Dy=", round(Dy; digits=3),
-                " a=", round(a_param; digits=4), " b=", round(b_param; digits=4))
+        println("[SHEAR_DEBUG] pt_delta: ", round.(pt_delta; digits=3), " Dx=", round(Dx; digits=3), " Dy=", round(Dy; digits=3))
     end
     Z_total = Zs + Zb
     Z_total = 0.5 * (Z_total + Z_total')
