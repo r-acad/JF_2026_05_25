@@ -1265,7 +1265,7 @@ include(joinpath(@__DIR__, "experimental", "hu_washizu_kernel.jl"))
 # Pre-allocated workspace `ws` eliminates ALL heap allocations in the hot loop
 # (~5M alloc saved across HTP_launch).
 # =============================================================================
-function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, membrane_hourglass_skew::Bool=false)
+function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, membrane_hourglass_skew::Bool=false, distortion_corrections::Bool=true)
     # Allow env-var override for marguerre_warp_to_uz so it can be enabled
     # globally without plumbing through every caller. Currently the assembly
     # loop doesn't pass this kwarg, so default is false. Env override:
@@ -2101,6 +2101,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             rigid_shear=macneal_rigid_shear,
             flex_mode_override=macneal_rbf_flex_mode,
             Cm=Cm, Bmb=Bmb,
+            distortion_corrections=distortion_corrections,
         )
     end
 
@@ -2526,6 +2527,7 @@ function add_quad4_macneal_shear_rbf!(
     flex_mode_override::Symbol = :env,
     Cm = nothing,
     Bmb = nothing,
+    distortion_corrections::Bool = true,
 )
     # Shortcut: skip if thickness or shear modulus is effectively zero
     if h < 1e-30 || (!rigid_shear && maximum(abs, Cs) < 1e-30)
@@ -2809,10 +2811,45 @@ function add_quad4_macneal_shear_rbf!(
         flex_mode_override === :full ? "full" :
         flex_mode_override === :diag ? "diag" :
         lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_BENDING_FLEX_MODE", "diag")))
-    flex_x = 1.0 / max(abs(Cb[1,1]), 1e-30)
-    flex_y = 1.0 / max(abs(Cb[2,2]), 1e-30)
+    # ------------------------------------------------------------------
+    # SKEWED-STRIP frame for the residual-bending flexibilities (2026-07-31).
+    #
+    # eq (26)'s flexibilities are taken along the ELEMENT AXES, but MacNeal's strips run
+    # along the MID-SIDE VECTORS, tilted by atan(dx/Dx) on a skewed element.  Rotating an
+    # ISOTROPIC compliance changes nothing, so this is invisible on every isotropic cell --
+    # the recovered uniform term u is exact to 6 digits there at every skew angle -- while
+    # on a laminate it is the dominant skew error (recovered u ref/jfem = 1.620/1.279
+    # cross-ply, 1.026/0.524 quasi-isotropic, 0.910/1.312 unsymmetric at skew 45).
+    #
+    # The strips are an ORTHOGONAL PAIR aligned with the Dx mid-side vector, i.e. ONE
+    # rotation of the element frame -- not the two (non-orthogonal) mid-side vectors taken
+    # separately, which is the obvious guess and is measurably wrong.  Rotating the
+    # CONSTITUTIVE MATRICES (rather than patching flex_x/flex_y afterwards) is what makes
+    # this compose with flex_mode: "abd" must see a rotated B as well as a rotated D, or
+    # the unsymmetric-laminate correction it exists for is silently discarded.
+    #
+    # ACCEPTANCE: recovered u = 1.000000 in BOTH directions on all three laminate families
+    # (including an UNSYMMETRIC layup, B != 0), at skew 30/45 and aspect 1/5 -- twelve
+    # exact hits.  Each rival y-strip choice made exactly one family exact, the rest worse.
+    Cb_f = Cb; Cm_f = Cm; Bmb_f = Bmb
+    if distortion_corrections && fem_env_bool("JFEM_Q4_MACNEAL_RBF_STRIP_ROT", true)   # PROMOTED 2026-08-01
+        dxs = 0.5 * (coords[2,2] + coords[3,2] - coords[1,2] - coords[4,2])
+        ls = hypot(Dx, dxs)
+        if ls > 1e-30 && abs(dxs) > 1e-30
+            cs_ = Dx / ls; sn_ = dxs / ls
+            # engineering-strain rotation into the strip frame; C' = T' C T with T = T(-phi)
+            Tr = @SMatrix [ cs_^2      sn_^2      cs_*sn_;
+                            sn_^2      cs_^2     -cs_*sn_;
+                           -2cs_*sn_  2cs_*sn_   cs_^2 - sn_^2]
+            Cb_f = Tr' * Cb * Tr
+            if Cm !== nothing;  Cm_f  = Tr' * Cm  * Tr; end
+            if Bmb !== nothing; Bmb_f = Tr' * Bmb * Tr; end
+        end
+    end
+    flex_x = 1.0 / max(abs(Cb_f[1,1]), 1e-30)
+    flex_y = 1.0 / max(abs(Cb_f[2,2]), 1e-30)
     if flex_mode in ("full", "compliance", "matrix")
-        Cb_sym = 0.5 .* (Cb .+ Cb')
+        Cb_sym = 0.5 .* (Cb_f .+ Cb_f')
         reg = 1e-12 * max(maximum(abs, Cb_sym), 1e-30)
         Cb_reg = Cb_sym + reg .* Matrix{T}(I, 3, 3)
         Sb = inv(Cb_reg)
@@ -2823,8 +2860,8 @@ function add_quad4_macneal_shear_rbf!(
         # Unlike "diag" it does not assume D16=D26=0, and unlike "full" it does not
         # release the transverse curvature; it also carries the B matrix, so it is
         # correct for UNSYMMETRIC laminates instead of silently over-stiffening them.
-        flex_x = macneal_strip_bending_flex(Cm, Bmb, Cb, 1)
-        flex_y = macneal_strip_bending_flex(Cm, Bmb, Cb, 2)
+        flex_x = macneal_strip_bending_flex(Cm_f, Bmb_f, Cb_f, 1)
+        flex_y = macneal_strip_bending_flex(Cm_f, Bmb_f, Cb_f, 2)
     end
     inv_12A = 1.0 / (12.0 * A_elem)
 
@@ -2937,10 +2974,135 @@ function add_quad4_macneal_shear_rbf!(
     zb_rho2y = Lx2_rbf / max(Ly2_rbf, 1e-30)
     zb_d_x = zb_dir_cinf * zb_rho2x / (zb_rho2x + zb_dir_beta)
     zb_d_y = zb_dir_cinf * zb_rho2y / (zb_rho2y + zb_dir_beta)
+    # ------------------------------------------------------------------
+    # SKEW correction to the eq-(27) DIFFERENTIAL coefficient (2026-07-31).
+    #
+    # MacNeal 1978 carries a footnote on p.180: "After the paper was submitted for
+    # publication, it was discovered that large errors occur when the skew angle of the
+    # element exceeds twenty degrees.  This error was traced to coupling between
+    # transverse shear strains, and has subsequently been corrected."  The published
+    # eq (26)/(27) -- which is what the rest of this block implements -- has no skew
+    # dependence at all, and JFEM inherited that gap: the rotational block was 3.5e-2 /
+    # 1.5e-1 / 3.7e-1 wrong at 15 / 30 / 45 degrees, turning on between 15 and 30 exactly
+    # as the footnote says.
+    #
+    # MEASURED, not fitted.  K_plate = D'*inv(Z)*D inverts in closed form
+    # (inv(Z) = M^-1 (D K D') M^-1, M = D D'), so the reference's own Z is recoverable
+    # from its punched KGG -- see PROJECT_STATE/TOOLS_MATPRN/zrec.jl.  Doing that on
+    # 40+ single-element cells says:
+    #   * the UNIFORM part u is already EXACT (ref/jfem = 1.000000 at every skew angle),
+    #     confirming the projected-side deltas below are the reference's own;
+    #   * aspect ratios 2/5/10 match to 6 digits, so eq (27) with eps = 1/40 is right;
+    #   * the entire discrepancy is one scalar F multiplying the DIFFERENTIAL coefficient,
+    #     the SAME F in both directions (a and b agree to 0.03-0.3 %).
+    #
+    # With the two mid-side vectors in the element frame, (Dx, Dxy) and (Dyx, Dy),
+    # their determinant IS the area, so with p = (Dxy/Dx)(Dyx/Dy):
+    #
+    #     1 - p = (Dx*Dy - Dxy*Dyx)/(Dx*Dy) = A/(Dx*Dy)   =>   F = 1/(1-p)^2
+    #
+    # F collapses 25 cells spanning aspect 0.2-5 and skew 5-60 deg onto one curve
+    # (aspect 5/skew 20 and aspect 2/skew 10 have p = 0.004897 / 0.004962 and F =
+    # 1.010004 / 1.010136), and tracks F even where it is NON-MONOTONIC in skew -- both
+    # peak at 55 deg and fall at 60.  Agreement 0.003 % at small skew to 0.3 % at 60.
+    #
+    # F is identically 1 on rectangles AND on trapezoids (Dxy = Dyx = 0 for a symmetric
+    # taper), and the taper cells independently measure F = 1.00006-1.004 -- so this term
+    # is skew-specific and leaves the taper defect (which is in u, not a) untouched.
+    #
+    # NB this is NOT the "normalise Dx*Dy to A" idea refuted earlier: that rescaled the
+    # WHOLE Zb (u included, which is already exact) and by the first power, and made skew
+    # 50-62 % worse.  Only the differential part takes the factor, and squared.
+    #
+    # MODE (JFEM_Q4_MACNEAL_ZB_SKEW): "zb" applies F to the residual-bending term only;
+    # "total" applies it to the differential direction of Z = Zs + Zb further down.
+    # The two are identical in the thin limit (where Zb dominates Z) and the "zb" form is
+    # EXACT there -- recovered a-ratio 1.00002 at h/L = 0.001.  They differ as the plate
+    # thickens and Zs takes a share of the energy: with "zb" the recovered a and b then
+    # need DIFFERENT factors (1.85 vs 3.11 at h/L = 0.2, skew 45), which is what a missing
+    # Zs term looks like when it is attributed to Zb.
+    zb_skew_mode = distortion_corrections ?
+        lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_ZB_SKEW", "total"))) : "false"  # PROMOTED 2026-08-01
+    zb_skew_on = zb_skew_mode in ("1", "true", "yes", "on", "zb", "total")
+    zb_skew_f = 1.0
+    if zb_skew_on
+        Dxy = 0.5 * (coords[2,2] + coords[3,2] - coords[1,2] - coords[4,2])
+        Dyx = 0.5 * (coords[3,1] + coords[4,1] - coords[1,1] - coords[2,1])
+        den = Dx * Dy - Dxy * Dyx
+        zb_skew_f = abs(den) > 1e-30 ? (Dx * Dy / den)^2 : 1.0
+        if zb_skew_mode != "total"
+            zb_d_x *= zb_skew_f
+            zb_d_y *= zb_skew_f
+        end
+    end
     zbx_u = zb_u * inv_12A * Lx2_rbf * flex_x
     zbx_d = zb_d_x * inv_12A * Lx2_rbf * flex_x
     zby_u = zb_u * inv_12A * Ly2_rbf * flex_y
     zby_d = zb_d_y * inv_12A * Ly2_rbf * flex_y
+    # ------------------------------------------------------------------
+    # TAPER correction to the UNIFORM residual-bending flexibility (2026-07-31).
+    #
+    # On a trapezoid the mid-side vectors stay axis-aligned, so the skew factor above is
+    # identically 1 and taper is a genuinely separate defect.  Recovering the reference's Z
+    # (TOOLS_MATPRN/zrec.jl) localises it exactly: the eq-(27) coefficient is already right
+    # (d ref/jfem = 1.017 / 1.002 / 1.0002 at taper 0.25 / 0.5 / 0.7) and the whole error is
+    # in the UNIFORM term, which JFEM makes too flexible.
+    #
+    # The bilinear "fan" coefficients a3 = (x1-x2+x3-x4)/4 and b3 = (y1-y2+y3-y4)/4 are what
+    # a taper turns on (both are zero on any parallelogram, which is why this is invisible on
+    # every skew and aspect cell).  Measured over a 16-cell sweep, taper 0.1-0.9 x aspect
+    # 1/2/5 x thickness 0.001-0.2:
+    #
+    #     u_ref / u_jfem  =  1 / (1 + (16/9) * (fan / D_perp)^2)
+    #
+    # The coefficient converges to exactly 16/9 = 1.77778 -- measured 1.77792, 1.77868,
+    # 1.77857, 1.77709 on the cells whose recovery is clean (D-subspace reach > 0.9);
+    # higher-order terms appear only at extreme taper.  Thickness-independent (0.9404 /
+    # 0.9399 / 0.9318 over h/L 0.001-0.2), confirming it is geometric and not shear-side.
+    #
+    # ACCEPTANCE BUILT IN: for an x-taper b3 = 0, so the law predicts the X family is
+    # UNAFFECTED -- and u_x is measured exact (0.999-1.000) on every one of those cells.
+    if distortion_corrections && fem_env_bool("JFEM_Q4_MACNEAL_ZB_TAPER", true)   # PROMOTED 2026-08-01
+        fan_a3 = 0.25 * (coords[1,1] - coords[2,1] + coords[3,1] - coords[4,1])
+        fan_b3 = 0.25 * (coords[1,2] - coords[2,2] + coords[3,2] - coords[4,2])
+        c169 = 16.0 / 9.0
+        if abs(Dx) > 1e-30
+            zbx_u /= (1.0 + c169 * (fan_b3 / Dx)^2)
+        end
+        if abs(Dy) > 1e-30
+            zby_u /= (1.0 + c169 * (fan_a3 / Dy)^2)
+        end
+        # ---- taper OFF-BLOCK: differential-to-differential coupling ----
+        # The uniform correction above makes the recovered u exact but is worth almost
+        # nothing on the matrix norm (9.139e-2 -> 9.137e-2). The taper error actually lives
+        # in the Zb OFF-BLOCK, which the published eq (26) leaves identically zero and which
+        # the reference does NOT: recovering its Z on trapezoids gives
+        #     [1,3] = -[1,4] = -[2,3] = [2,4],  7-18 % of d
+        # (contrast SKEW, where the recovered off-block is exactly zero). Those entries are
+        # 0.14 % of the diagonal but 7-18 % of the DIFFERENTIAL part, which carries the small
+        # eigenvalues of Z and therefore controls K. In mode form the coupling is purely
+        # differential-to-differential: u'Bu = 0 exactly.
+        #
+        # EVEN in the fan, established by punching INVERTED trapezoids (a3 > 0), which the
+        # original sweep lacked entirely -- with every cell at a3 < 0 a term odd in a3 is
+        # indistinguishable from one even in it. The off-block stays NEGATIVE for both signs
+        # (tau = 0.5 -> -1.149e-8, tau = 1.5 -> -4.412e-9, tau = 2.0 -> -1.240e-8), and cells
+        # with equal (a3/Dx)^2 give equal magnitude regardless of sign.
+        # ⛔ This REFUTES the existing default-off JFEM_Q4_MACNEAL_FAN_COUPLING, whose
+        # z_fan = c1*g_fan/Cb[3,3] is LINEAR in the fan (and fits 14x worse).
+        # ⚠ kappa is MEASURED (0.0295-0.0339 over 9 cells), not derived; and only the a3
+        # (x-taper) half is measured -- the b3 term is the symmetry image, untested.
+        kap = fem_env_float("JFEM_Q4_MACNEAL_ZB_TAPER_K", 1.0 / 30.0)
+        fx = abs(Dx) > 1e-30 ? (fan_a3 / Dx)^2 : 0.0
+        fy = abs(Dy) > 1e-30 ? (fan_b3 / Dy)^2 : 0.0
+        w = kap * (fx + fy) * sqrt(max(zbx_u * zby_u, 0.0))
+        if w != 0.0
+            Zb[1,3] = -w; Zb[3,1] = -w
+            Zb[1,4] =  w; Zb[4,1] =  w
+            Zb[2,3] =  w; Zb[3,2] =  w
+            Zb[2,4] = -w; Zb[4,2] = -w
+        end
+    end
     Zb[1,1] = zbx_u + zbx_d
     Zb[1,2] = zbx_u - zbx_d
     Zb[2,1] = Zb[1,2]
@@ -3040,11 +3202,53 @@ function add_quad4_macneal_shear_rbf!(
     end
     Z_total = Zs + Zb
     Z_total = 0.5 * (Z_total + Z_total')
+    # "total" mode: put the skew factor on the DIFFERENTIAL direction of the full
+    # compliance rather than on Zb alone (see the derivation above).  The differential
+    # direction of each sample family is the (1,-1) eigenvector, so this scales exactly
+    # the component the eq-(27) coefficient controls and leaves the uniform direction --
+    # which is measured EXACT at every skew angle and thickness -- untouched.
+    if zb_skew_mode == "total" && abs(zb_skew_f - 1.0) > 1e-14
+        for (i, j) in ((1, 2), (3, 4))
+            d = 0.5 * (Z_total[i,i] - Z_total[i,j] - Z_total[j,i] + Z_total[j,j]) / 2
+            add = (zb_skew_f - 1.0) * d
+            Z_total[i,i] += add; Z_total[j,j] += add
+            Z_total[i,j] -= add; Z_total[j,i] -= add
+        end
+    end
     # K_plate = Dᵀ · inv(Z_total) · D
     K_plate = D_mat' * (Z_total \ D_mat)
     # Enforce exact symmetry on K_plate to avoid roundoff-level asymmetry
     # tripping the solver's positive-definiteness checks
     K_plate = 0.5 * (K_plate + K_plate')
+
+    # Diagnostic dump of the flexibility formulation's own operands, so the
+    # reference solver's Z can be RECOVERED rather than guessed at:
+    #   K_plate = Dᵀ·inv(Z)·D  with D (4×12) full row rank
+    #   ⇒  inv(Z) = M⁻¹ (D·K_plate·Dᵀ) M⁻¹,   M = D·Dᵀ
+    # so a reference K_plate yields the reference Z exactly. Writes NPY-free
+    # whitespace text (rows of D, then Zb, Zs) to $JFEM_Q4_DUMP_ZMAT.
+    let zdump = get(ENV, "JFEM_Q4_DUMP_ZMAT", "")
+        if !isempty(zdump)
+            open(zdump, "a") do io
+                println(io, "# ZMAT")
+                for i in 1:4
+                    println(io, "XY ", string(Float64(coords[i, 1])), " ", string(Float64(coords[i, 2])))
+                end
+                for i in 1:4
+                    println(io, "D ", join((string(Float64(D_mat[i, j])) for j in 1:12), " "))
+                end
+                for i in 1:4
+                    println(io, "Zb ", join((string(Float64(Zb[i, j])) for j in 1:4), " "))
+                end
+                for i in 1:4
+                    println(io, "Zs ", join((string(Float64(Zs[i, j])) for j in 1:4), " "))
+                end
+                for i in 1:12
+                    println(io, "KP ", join((string(Float64(K_plate[i, j])) for j in 1:12), " "))
+                end
+            end
+        end
+    end
 
     # Distribute to 24×24 Ke (plate DOFs at positions 3, 4, 5 per node)
     plate_dofs = (3, 4, 5, 9, 10, 11, 15, 16, 17, 21, 22, 23)
@@ -5281,7 +5485,19 @@ function tria3_plate_macro_data(coords, Cm, Cb, Cs, h, E_ref, pressure=nothing; 
 
     for quad in TRIA3_MACRO_QUADS
         qc = pts[[quad[1], quad[2], quad[3], quad[4]], :]
-        Ke_full = stiffness_quad4_matrices(qc, Cm, Cb, Cs, h, E_ref; bend_ratio=bend_ratio, k6rot=k6rot)
+        # CONTAINMENT (2026-08-01): the macro construction's sub-quads are a VIRTUAL
+        # interpolation device, not physical elements -- they are skewed 45-53 deg and
+        # tapered BY CONSTRUCTION. MacNeal's distortion corrections are derived from the
+        # physics of a REAL quad (residual bending flexibility of a strip spanning the
+        # element), and the reference's own triangle is not built this way at all (trec.jl:
+        # its shear operator is rank 3 in MITC3's tying subspace). Applying real-element
+        # corrections to virtual sub-quads is unjustified and measurably harmful: promoting
+        # the quad skew fix moved tri_aspect 0.346 -> 0.485, and adding the taper coupling
+        # took it to 0.583. Freezing this path's quad operator stops the triangle degrading
+        # every time the quad improves. This is CONTAINMENT of a legacy construction pending
+        # the pure MITC3 element, NOT a claim that the frozen operator is more correct.
+        Ke_full = stiffness_quad4_matrices(qc, Cm, Cb, Cs, h, E_ref; bend_ratio=bend_ratio,
+                                           k6rot=k6rot, distortion_corrections=false)
         Ke_plate = Ke_full[plate_idx, plate_idx]
 
         edofs = Int[]
@@ -5599,13 +5815,34 @@ condensed kernel) producing 10.92·D/L² instead of 24·D/L². Fixing it means u
 condensation, NOT bolting a shear correction onto the outside. Scaling the block by 2.199 would
 be a fudge and is explicitly not the answer.
 """
-function tria3_rbf_shear(Ds, Db, A)
+function tria3_rbf_shear(Ds, Db, A, coords = nothing)
     c_r = fem_env_float("JFEM_TRIA3_RBF_C", 0.0)
     c_r > 0 || return Ds
+    Ds_eff = copy(Ds)
+    # DIRECTIONAL residual bending flexibility (mode "dir"). MacNeal's quad RBF is
+    # per-direction (separate Delta_x^2 / Delta_y^2 against E11 / E22); the original
+    # triangle hook collapsed that to ONE isotropic length Lc2 = 2A against the averaged
+    # bending stiffness, which is exact only when the triangle is equilateral-ish and
+    # degrades with aspect -- measured MITC3 rot-rot 0.50/0.58/1.09/1.98 at aspect
+    # 1/2/5/10, i.e. fine at aspect 1 and diverging exactly where one length cannot
+    # stand in for two. gamma_xz is bending about y over the x-extent, so it pairs with
+    # the x-extent and Db[1,1]; likewise y.
+    dir = lowercase(strip(get(ENV, "JFEM_TRIA3_RBF_MODE", "iso"))) in ("dir", "directional")
+    if dir && coords !== nothing
+        Lx2 = (maximum(@view coords[:,1]) - minimum(@view coords[:,1]))^2
+        Ly2 = (maximum(@view coords[:,2]) - minimum(@view coords[:,2]))^2
+        Lc2v = (Lx2, Ly2)
+        Dv = (abs(Db[1,1]), abs(Db[2,2]))
+        @inbounds for i in 1:min(2, size(Ds, 1))
+            ks = Ds[i, i]
+            (ks > 0 && Dv[i] > 0) || continue
+            Ds_eff[i, i] = 1.0 / (1.0 / ks + Lc2v[i] / (c_r * Dv[i]))
+        end
+        return Ds_eff
+    end
     Dbar = 0.5 * (abs(Db[1, 1]) + abs(Db[2, 2]))
     Dbar > 0 || return Ds
     Lc2 = 2 * A
-    Ds_eff = copy(Ds)
     @inbounds for i in 1:min(2, size(Ds, 1))
         ks = Ds[i, i]
         ks > 0 || continue
@@ -5623,7 +5860,7 @@ function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_rat
     # Residual bending flexibility applied to the transverse shear rigidity BEFORE any plate
     # kernel is chosen, so `macro`, `constant` and `dkt` all inherit it. No-op when the gate
     # is 0 (the default).
-    Ds = tria3_rbf_shear(Ds, Db, A)
+    Ds = tria3_rbf_shear(Ds, Db, A, coords)
 
     Ke = zeros(T, 18, 18)
 
@@ -5662,12 +5899,257 @@ function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_rat
     end
     Ks = Bs' * Ds * Bs * A
 
+    # Diagnostic dump of the triangle's plate operands, so the reference's own shear
+    # operator can be RECOVERED rather than guessed -- the method that solved the quad
+    # (see TOOLS_MATPRN/zrec.jl). Writes the constant-curvature bending block Kb and the
+    # element-frame coords; the analysis subtracts Kb from the reference's plate block and
+    # examines the RANK of what is left. A MacNeal/MITC-style triangle samples transverse
+    # shear at a handful of tying points, so its shear stiffness is LOW RANK (<= 3); a
+    # rank-3 remainder means the reference's operator is recoverable in closed form, a
+    # full-rank one means its bending differs from constant curvature and the search has
+    # to move there instead.
+    let tdump = get(ENV, "JFEM_TRIA3_DUMP_PLATE", "")
+        if !isempty(tdump)
+            open(tdump, "a") do io
+                println(io, "# TMAT")
+                for i in 1:3
+                    println(io, "XY ", string(Float64(coords[i,1])), " ", string(Float64(coords[i,2])))
+                end
+                for i in 1:9
+                    println(io, "KB ", join((string(Float64(Kb[i,j])) for j in 1:9), " "))
+                end
+                # laminate bending constitutive matrix in the ELEMENT frame. Needed because
+                # the derived Zb is normalised by a bending stiffness, and on a PCOMP that
+                # stiffness is DIRECTIONAL -- the rig cannot read it off the deck.
+                for i in 1:3
+                    println(io, "DB ", join((string(Float64(Db[i,j])) for j in 1:3), " "))
+                end
+            end
+        end
+    end
+
     b_idx = [3,4,5, 9,10,11, 15,16,17]
     # Use the macro-quad condensed triangle by default. It is the current
     # SOL101/SOL105 guardrail path; the DKT implementation remains available
     # for controlled formulation probes with JFEM_TRIA3_PLATE_KERNEL=dkt.
-    tria3_plate_kernel = lowercase(strip(get(ENV, "JFEM_TRIA3_PLATE_KERNEL", "macro")))
-    if tria3_plate_kernel in ("constant", "centroid", "mindlin", "mindlin_constant")
+    tria3_plate_kernel = lowercase(strip(get(ENV, "JFEM_TRIA3_PLATE_KERNEL", "mitc3")))  # PROMOTED 2026-08-01
+    if tria3_plate_kernel in ("mitc3",)
+        # ------------------------------------------------------------------
+        # PURE THREE-NODE TRIANGLE (MITC3): assumed transverse-shear strains tied at
+        # the edge midpoints.  Owner directive 2026-07-31: "model trias as pure trias
+        # when you can" -- the default `macro` kernel builds the triangle from three
+        # virtual sub-quads that are skewed 45-53 deg BY CONSTRUCTION, so it inherits
+        # the quad's distortion sensitivity as a floor it can never get below (an
+        # UNDISTORTED right triangle is already 61 % wrong), and fixing the quad's skew
+        # defect exactly made the triangle WORSE, which rules out "same defect".
+        #
+        # w and both rotations are linear, so the covariant shear strains are linear
+        # fields; MITC3 replaces them with the assumed field
+        #     g~_r = g_r(A) + c*s ,   g~_s = g_s(B) - c*r
+        # tied at A = mid(1,2), B = mid(1,3) and, along edge 2-3, at C = mid(2,3):
+        #     c = [g_r(C) - g_r(A)] - [g_s(C) - g_s(B)]
+        # The shared coefficient with opposite signs is what removes the spurious
+        # constraint that makes the plain centroid-sampled triangle lock (measured:
+        # 1189x too stiff at h/L = 0.001, decaying to 1.5x when thick -- textbook).
+        # Cartesian strains follow from [g_xz; g_yz] = J^-1 [g_r; g_s].
+        x1, y1 = coords[1,1], coords[1,2]
+        x2, y2 = coords[2,1], coords[2,2]
+        x3, y3 = coords[3,1], coords[3,2]
+        # natural coords: node1 (0,0), node2 (1,0), node3 (0,1); J is constant
+        Jm = @SMatrix [x2 - x1  y2 - y1; x3 - x1  y3 - y1]
+        Jinv = inv(Jm)
+        # covariant shear rows as functions of (r,s):  g_r = dw/dr + th_y*x,r - th_x*y,r
+        # with linear shape functions N1 = 1-r-s, N2 = r, N3 = s.
+        function gcov(r, s)
+            N = (one(T) - r - s, r, s)
+            Br = zeros(T, 9); Bs_ = zeros(T, 9)
+            dwdr = (-one(T), one(T), zero(T))
+            dwds = (-one(T), zero(T), one(T))
+            for i in 1:3
+                cw = 3*(i-1) + 1; crx = 3*(i-1) + 2; cry = 3*(i-1) + 3
+                Br[cw]  = dwdr[i];      Bs_[cw]  = dwds[i]
+                Br[cry] = N[i] * Jm[1,1];  Bs_[cry] = N[i] * Jm[2,1]
+                Br[crx] = -N[i] * Jm[1,2]; Bs_[crx] = -N[i] * Jm[2,2]
+            end
+            Br, Bs_
+        end
+        grA, _   = gcov(T(0.5), zero(T))
+        _,   gsB = gcov(zero(T), T(0.5))
+        grC, gsC = gcov(T(0.5), T(0.5))
+        cvec = (grC .- grA) .- (gsC .- gsB)
+        # integrate Bs' Ds Bs over the triangle; the assumed field is linear in (r,s),
+        # so the 3-midpoint rule is exact for the quadratic integrand
+        # Shear RIGIDITY in the tying basis: Ks = D3' * Wsh * D3 with D3 = [grA; gsB; c].
+        # Assembling Wsh (3x3) rather than the 9x9 directly is what lets the reference's
+        # residual bending flexibility be added as a COMPLIANCE, per MacNeal's series law.
+        Wsh = zeros(T, 3, 3)
+        for (r, s) in ((T(0.5), zero(T)), (zero(T), T(0.5)), (T(0.5), T(0.5)))
+            # [g_r; g_s] = P(r,s) * [grA; gsB; c],  P = [1 0 s; 0 1 -r]
+            Pm = zeros(T, 2, 3)
+            Pm[1,1] = one(T); Pm[1,3] = s
+            Pm[2,2] = one(T); Pm[2,3] = -r
+            G = Jinv' * Ds * Jinv                      # covariant -> Cartesian metric
+            Wsh .+= (Pm' * G * Pm) .* (A / 3)
+        end
+
+        # ---- REFERENCE RESIDUAL BENDING FLEXIBILITY (derived 2026-08-01) ----
+        # Recovering the reference's own operator (TOOLS_MATPRN/trec.jl) showed its CTRIA3 is
+        #     K_plate = Kb + D3' * inv(Zs + Zb) * D3
+        # i.e. MacNeal's flexibility series on the MITC3 tying basis (Zs = inv(Wsh)).
+        # Zb, in the basis normalised by (L12, L13, PERIMETER) and scaled by the bending
+        # stiffness, is closed in CLOSED FORM with only rational coefficients -- verified on
+        # 30 cells (9 vertex angles 30-150 deg x 4 edge ratios), worst error 0.015 % on the
+        # diagonal and 0.19 % off-diagonal:
+        #     R = (|a|-|b|)^2/(|a||b|),   T = (|a|^2-|b|^2)/(|a||b|)
+        #     a11+a22 = 2[(1-c+c^2)/(6s) + 1/6] + R(1+c^2)/(6s)
+        #     a11-a22 = T*s/6
+        #     a12     = (-1+4c-c^2)/(12s) - 1/6 + R*c/(6s)
+        #     a13 = -1/6,  a23 = +1/6,  a33 = 1/6
+        # The symmetric/antisymmetric split under the edge swap a<->b is what separates the
+        # variables; a fixed (1,1)/(1,-1) projection CANNOT work because those stop being
+        # eigenvectors once |a| != |b| (measured: the eigenvector rotates -135 -> -51 deg).
+        if fem_env_bool("JFEM_TRIA3_MITC3_ZB", true)
+            La = hypot(x2 - x1, y2 - y1)
+            Lb = hypot(x3 - x1, y3 - y1)
+            Lc_ = hypot(x3 - x2, y3 - y2)
+            Pper = La + Lb + Lc_
+            cth = ((x2-x1)*(x3-x1) + (y2-y1)*(y3-y1)) / max(La * Lb, 1e-30)
+            cth = clamp(cth, -one(T), one(T))
+            sth = sqrt(max(one(T) - cth * cth, zero(T)))
+            Dbend = abs(Db[1, 1])
+            if sth > 1e-9 && Dbend > 1e-30 && La > 1e-30 && Lb > 1e-30
+                Rr = (La - Lb)^2 / (La * Lb)
+                Tt = (La * La - Lb * Lb) / (La * Lb)
+                sum_d = 2 * ((1 - cth + cth^2) / (6 * sth) + one(T)/6) + Rr * (1 + cth^2) / (6 * sth)
+                dif_d = Tt * sth / 6
+                a11 = (sum_d + dif_d) / 2
+                a22 = (sum_d - dif_d) / 2
+                a12 = (-1 + 4*cth - cth^2) / (12 * sth) - one(T)/6 + Rr * cth / (6 * sth)
+                # ---- DIRECTIONAL PAIRING (measured 2026-08-01) ----
+                # `Dbend = Db[1,1]`, ONE scalar, is exact for isotropic and 5.5-25 % wrong on
+                # PCOMP triangles -- CQUAD4 Defect B in triangle form. Recovering the
+                # reference's own Zb on PSHELL/MID2=MAT2 cells (which set Db entry by entry,
+                # unlike a layup, which moves all of it at once) shows the compliance is
+                # resolved PER ENTRY, against the ELEMENT-FRAME orthogonal pair -- x is edge
+                # 1-2 -- and not against the two (non-orthogonal) edge directions:
+                #
+                #   * the whole third row/col divides by G = sqrt(D11*D22) at EVERY geometry
+                #     and material tested (worst 0.21 % over 50 cells, r = D22/D11 in
+                #     [0.25, 4]; the fitted coefficients on 1/D11 and 1/D22 are <= 1e-5);
+                #   * writing the derived isotropic law as A = B + (1/6)*v*v' with
+                #     v = (1,-1,-1) -- which is exactly its geometry-free constants -- B pairs
+                #     with G and the rank-1 part pairs per axis:
+                #        z11 = (a11-1/6)/G + (1/6)/D11 ,  z22 = (a22-1/6)/G + (1/6)/D22
+                #     residual 0.000 % on a (D11,D22) grid AND on all 7 angles of a material
+                #     rotation sweep at the 90 deg equal-edge cell.
+                # The law is nu-FREE (verified at nu = 0, 0.15, 0.33, 0.45), which is why it is
+                # built from directional STIFFNESS v'Db v and not from a compliance contraction.
+                # ⚠ OPEN: off 90 deg the diagonal is 10-31 % out and picks up a dependence on
+                # D12+2*D33, so the carrying direction is not an element axis there; the (1,2)
+                # entry's pairing is closed only at D11 = D22. Both are measured in
+                # PROJECT_STATE/SESSIONS/2026-08-01_CTRIA3_LAMINATE_ZB.md.
+                #
+                # physical -> tying basis: Z_tying[i,j] = Z_phys[i,j] * S_i * S_j.
+                S1, S2, S3 = La, Lb, Pper
+                s6 = one(T) / 6
+                D11e = abs(Db[1,1]); D22e = abs(Db[2,2])
+                # PROMOTED 2026-08-01: bit-identical on every isotropic cell (the law reduces to
+                # a_ij exactly when all D_dir coincide -- that is the sum rule), ratchet PASS at
+                # 0.0 % on all 15 axes with the gate ON, and PCOMP triangles 2.52e-1 -> 1.96e-3.
+                dir_pair = fem_env_bool("JFEM_TRIA3_ZB_DIRECTIONAL", true) &&
+                           D11e > 1e-30 && D22e > 1e-30
+                # ---- DIRECTIONAL CHANNELS (measured and closed 2026-08-01) ----
+                # `Dbend = Db[1,1]`, ONE scalar, is exact for isotropic and 5.5-25 % wrong on
+                # PCOMP triangles -- CQUAD4 Defect B in triangle form. Recovering the
+                # reference's own Zb on PSHELL/MID2=MAT2 cells (which set Db entry by entry,
+                # unlike a layup, which moves all of it at once) and then gradient-probing every
+                # Db entry about the ISOTROPIC point, where the answer is already known exactly,
+                # gives the operator with no fitting:
+                #
+                #   Zb = (1/6) v v' / G  +  SUM over the 3 edges of  W_e / D_dir(n_e)
+                #
+                # `v = (1,-1,-1)`, `G = sqrt(D11*D22)` (ELEMENT-frame entries; x is edge 1-2),
+                # `n_e` = the NORMAL to edge e, and `D_dir(n) = w'Db w`, `w = (nx^2, ny^2, 2nxny)`
+                # -- a UNIAXIAL curvature state, which is forced: the measured `g33 = 2*g12`
+                # (0.2 % on 24 gradient rows) says the element is blind to exactly the `Db`
+                # perturbation that leaves every `D_dir` unchanged. The law is nu-FREE
+                # (nu = 0, 0.15, 0.33, 0.45 exact), so it is built from directional STIFFNESS,
+                # never from a compliance contraction.
+                # Fitting 3 channel weights to the 5 measured harmonics per entry is
+                # overdetermined by two; residual 5e-5..3e-3 against ~3e-3 measurement noise on
+                # 27 (shape, entry) pairs spanning vertex angle 30-150 deg and edge ratio 1/3..3.
+                # With `rho = La/Lb`, `R = rho + 1/rho - 2`, `T_ = rho - 1/rho` (the SAME
+                # descriptors the isotropic law uses), the weights are, per channel:
+                #
+                #   n12: [1,1] = f(rho)          [2,2] = (1/rho - c)/(6s)
+                #   n13: [1,1] = (rho - c)/(6s)  [2,2] = f(1/rho)
+                #   n23: [1,1] = [2,2] = c/(6s)  [1,2] = (1+c^2)/(12s)
+                #   n12/n13 [1,2] = [R*c - (1-c)^2 -+ T_*c] / (12 s)
+                #   f(rho) = [(1-c)^2 - (rho-c)]/(6s) + R(1+c^2)/(12s) + T_*s/12
+                #
+                # ★ These are NOT fitted: all three sum rules close ALGEBRAICALLY back onto the
+                # derived isotropic law (e.g. z11: 1/6 + f + (rho-c)/(6s) + c/(6s) = a11), so the
+                # anisotropic operator is the isotropic one with each channel divided by its own
+                # directional stiffness -- nothing added, nothing tuned.
+                rho = La / Lb
+                Rr2 = rho + 1/rho - 2
+                Tt2 = rho - 1/rho
+                fr  = ((1-cth)^2 - (rho - cth)) / (6*sth) + Rr2*(1+cth^2)/(12*sth) + Tt2*sth/12
+                fri = ((1-cth)^2 - (1/rho - cth)) / (6*sth) + Rr2*(1+cth^2)/(12*sth) - Tt2*sth/12
+                w12 = (T(1/rho) - cth) / (6*sth)
+                w13 = (rho - cth) / (6*sth)
+                w23 = cth / (6*sth)
+                o12 = (Rr2*cth - (1-cth)^2 - Tt2*cth) / (12*sth)
+                o13 = (Rr2*cth - (1-cth)^2 + Tt2*cth) / (12*sth)
+                o23 = (1 + cth^2) / (12*sth)
+                # directional stiffness along the normal of each edge
+                function ddir(vx, vy)
+                    n = hypot(vx, vy)
+                    n < 1e-30 && return Dbend
+                    nx = -vy / n; ny = vx / n     # normal
+                    wv = (nx*nx, ny*ny, 2*nx*ny)
+                    d = zero(T)
+                    for ii in 1:3, jj in 1:3; d += wv[ii] * Db[ii,jj] * wv[jj]; end
+                    abs(d) > 1e-30 ? d : Dbend
+                end
+                Dn12 = dir_pair ? ddir(x2-x1, y2-y1) : Dbend
+                Dn13 = dir_pair ? ddir(x3-x1, y3-y1) : Dbend
+                Dn23 = dir_pair ? ddir(x3-x2, y3-y2) : Dbend
+                Gd   = dir_pair ? sqrt(D11e * D22e) : Dbend
+                # gate OFF keeps the ORIGINAL single-scalar expressions, so it is bit-identical
+                c11 = dir_pair ? s6/Gd + fr/Dn12  + w13/Dn13 + w23/Dn23 : a11 / Dbend
+                c22 = dir_pair ? s6/Gd + w12/Dn12 + fri/Dn13 + w23/Dn23 : a22 / Dbend
+                c12 = dir_pair ? -s6/Gd + o12/Dn12 + o13/Dn13 + o23/Dn23 : a12 / Dbend
+                Zb3 = zeros(T, 3, 3)
+                Zb3[1,1] = c11*S1*S1;      Zb3[1,2] = c12*S1*S2
+                Zb3[2,1] = Zb3[1,2];       Zb3[2,2] = c22*S2*S2
+                Zb3[1,3] = -s6/Gd*S1*S3;   Zb3[3,1] = Zb3[1,3]
+                Zb3[2,3] =  s6/Gd*S2*S3;   Zb3[3,2] = Zb3[2,3]
+                Zb3[3,3] =  s6/Gd*S3*S3
+                Zt = inv(Symmetric(Matrix(Wsh))) + Zb3
+                Zt = 0.5 .* (Zt .+ Zt')
+                Wsh = Matrix(inv(Symmetric(Zt)))
+            end
+        end
+
+        D3 = vcat(grA', gsB', cvec')
+        Ks_mitc = D3' * Wsh * D3
+        Ke[b_idx, b_idx] += Kb + Ks_mitc
+        # The assumed field is spanned by these three rows, so Ks_mitc = D'*M*D with
+        # D = [g_r(A); g_s(B); c] (3x9) -- i.e. MITC3's shear stiffness is RANK 3 by
+        # construction. Dumped so the reference's own rank-3 shear operator can be
+        # compared against this subspace (TOOLS_MATPRN/trec.jl).
+        let tdump = get(ENV, "JFEM_TRIA3_DUMP_PLATE", "")
+            if !isempty(tdump)
+                open(tdump, "a") do io
+                    println(io, "# TYING")
+                    for row in (grA, gsB, cvec)
+                        println(io, "DT ", join((string(Float64(row[j])) for j in 1:9), " "))
+                    end
+                end
+            end
+        end
+    elseif tria3_plate_kernel in ("constant", "centroid", "mindlin", "mindlin_constant")
         # Constant-curvature Mindlin triangle with centroidal shear. This is a
         # simple, generic CTRIA3 plate operator and is useful as a Nastran-parity
         # probe against the macro-quad condensed plate operator below.
@@ -5693,15 +6175,44 @@ function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_rat
 
     # --- Hughes-Brezzi drilling rotation coupling ---
     # ε_drill = θz - (1/2)(∂v/∂x - ∂u/∂y), penalized with alpha_drill * ε_drill²
-    alpha_drill = (k6rot / 1e5) * G_ref * h
-    Bd = zeros(T, 1, 18)
-    for i in 1:3
-        idx = (i-1)*6
-        Bd[1, idx+1] = T(0.5) * cv[i]    # +(1/2)*∂N/∂y (from ∂u/∂y)
-        Bd[1, idx+2] = -T(0.5) * bv[i]   # -(1/2)*∂N/∂x (from -∂v/∂x)
-        Bd[1, idx+6] = one(T)/T(3)       # N_i = 1/3 at centroid
+    # LUMPED (reference-matched) drilling, mirroring the CQUAD4 operator that was solved
+    # to 3.3e-8 against the reference:
+    #     K_drill = sum over the 3 NODES of  alpha_L * (theta_z,i - omega_i)^2
+    #     alpha_L = K6ROT * 1e-6 * A66 * Area        (per element per NODE)
+    # The pre-existing form below penalised a SINGLE constraint built on the CENTROID-AVERAGED
+    # theta_z (N_i = 1/3), which is the triangle analogue of the quad's Gauss-integrated form
+    # -- and on the quad that shape was measured 76 % wrong. On a CST the membrane rotation
+    # omega = (dv/dx - du/dy)/2 is CONSTANT over the element, so the three nodal rows share the
+    # same omega part and differ only in which theta_z they pick up.
+    # Measured: this is what the residual CTRIA3 error was after the plate was closed -- worst
+    # entry 66.7 % at (6,1), i.e. a drilling-membrane coupling, on every cell.
+    if fem_env_bool("JFEM_TRIA3_DRILL_LUMPED", true)
+        # NB the measure is 2A, not A: the quad's `Area` in this operator comes from the
+        # integral of detJ, and for a triangle detJ = 2A. Measured ref/jfem = EXACTLY
+        # 2.000000 on every drilling entry of every cell with A, and 1.000000 with 2A.
+        alpha_L = (k6rot * T(1e-6)) * Dm[3, 3] * (2 * A)
+        Bd_i = zeros(T, 1, 18)
+        for i in 1:3
+            fill!(Bd_i, zero(T))
+            for j in 1:3
+                jdx = (j-1)*6
+                Bd_i[1, jdx+1] =  T(0.5) * cv[j]
+                Bd_i[1, jdx+2] = -T(0.5) * bv[j]
+            end
+            Bd_i[1, (i-1)*6+6] = one(T)
+            Ke .+= alpha_L .* (Bd_i' * Bd_i)
+        end
+    else
+        alpha_drill = (k6rot / 1e5) * G_ref * h
+        Bd = zeros(T, 1, 18)
+        for i in 1:3
+            idx = (i-1)*6
+            Bd[1, idx+1] = T(0.5) * cv[i]    # +(1/2)*∂N/∂y (from ∂u/∂y)
+            Bd[1, idx+2] = -T(0.5) * bv[i]   # -(1/2)*∂N/∂x (from -∂v/∂x)
+            Bd[1, idx+6] = one(T)/T(3)       # N_i = 1/3 at centroid
+        end
+        Ke .+= alpha_drill .* (Bd' * Bd) .* A
     end
-    Ke .+= alpha_drill .* (Bd' * Bd) .* A
 
     return Ke
 end
