@@ -2948,14 +2948,39 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
            solver_env_bool("JFEM_SOL105_RANGE_COMPLETENESS_AUGMENT", true) &&
            !isempty(valid_idx)
 
+            # Cache Sturm counts within this solve: each count is a full sparse LDL' of
+            # K + sigma*Kg (the dominant cost at these sizes), and the lower bound a_bound is
+            # IDENTICAL on every pass, so recomputing it per pass is pure waste.
+            sturm_cache = Dict{Float64,Union{Int,Nothing}}()
+            sturm_at(sig::Float64) = get!(sturm_cache, sig) do
+                _buckling_sturm_count(K_ff, Kg_ff, sig)
+            end
+
             function current_range_sturm_gap()
                 a_bound = max(eigrl_v1, positive_tol)
-                pos_vals = [eigenvalues[i] for i in valid_idx if eigenvalues[i] > positive_tol]
+                pos_vals = sort!([eigenvalues[i] for i in valid_idx if eigenvalues[i] > positive_tol])
                 isempty(pos_vals) && return nothing
-                b_bound = maximum(pos_vals) * (1.0 + 1e-6)
+                # ---------------------------------------------------------------
+                # Completeness is only meaningful UP TO THE HIGHEST ROOT WE REPORT.
+                #
+                # The iterative extraction requests ~8x ND modes but the output is capped at
+                # ND (see the EIGRL-ND cap below). Bounding this check by the highest
+                # RECOVERED root therefore demands completeness over (v1, lambda_32] while
+                # only (v1, lambda_4] is ever emitted: any root the Krylov solve did not
+                # converge to between lambda_ND and lambda_max leaves a PERMANENT positive
+                # gap, so the loop re-shifts to its budget on every narrow-EIGRL deck and
+                # cannot ever close. Measured cost of that: 2917 s of a 2928 s solve
+                # (99.6 %), for eigenvalues identical to the loop-disabled run.
+                #
+                # Bounding by the ND-th root instead gives the standard, SATISFIABLE
+                # certificate -- "no eigenvalue was missed below the last root reported" --
+                # which is exactly the guarantee that matters and terminates.
+                cap_to_reported = solver_env_bool("JFEM_SOL105_COMPLETENESS_TO_REPORTED", true)
+                n_report = cap_to_reported ? min(max(num_modes, 1), length(pos_vals)) : length(pos_vals)
+                b_bound = pos_vals[n_report] * (1.0 + 1e-6)
                 b_bound > a_bound || return nothing
-                sc_b = _buckling_sturm_count(K_ff, Kg_ff, b_bound)
-                sc_a = _buckling_sturm_count(K_ff, Kg_ff, a_bound)
+                sc_b = sturm_at(b_bound)
+                sc_a = sturm_at(a_bound)
                 (sc_a === nothing || sc_b === nothing) && return nothing
                 expected = max(sc_b - sc_a, 0)
                 found = count(i -> begin
