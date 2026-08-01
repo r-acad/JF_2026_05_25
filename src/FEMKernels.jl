@@ -1462,8 +1462,17 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # B coupling accumulators (cleared even if Bmb is nothing — branch-free)
     fill!(ws.K_ab_cross, 0.0); fill!(ws.K_ab_bend_cross, 0.0); fill!(ws.K_mb_incomp, 0.0)
 
+    # ⚠ `marguerre_warp_to_uz` MUST be excluded here. The docstring of the coords_3d argument
+    # says this path "engages only on the pure formulation branch (no curvature heuristics,
+    # Marguerre slopes, ...)", but the condition list never implemented the Marguerre half, and
+    # `coords_3d` is supplied precisely BECAUSE Marguerre asked for it. So requesting the
+    # Marguerre term silently also switched on the curved-frame path -- which is documented to
+    # VIOLATE RIGID-BODY TRANSLATION on warped cells. Measured with Marguerre on and this fix
+    # absent: RB residual 1.9e-2 at warp 0.1 and 3.73e-2 at warp 0.2, the latter matching the
+    # figure already recorded for the curved path, while warp <= 0.05 stayed at 1e-17.
     curved_frame_supported =
         coords_3d !== nothing &&
+        !marguerre_warp_to_uz &&
         curvature_membrane === nothing &&
         slope_membrane === nothing &&
         (!membrane_shear_center_row || material_shear_rotation == 0.0) &&
@@ -1747,8 +1756,12 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             z_corners = quad4_local_z_from_coords3d(coords_3d)
             z_xi  = dNr[1]*z_corners[1] + dNr[2]*z_corners[2] + dNr[3]*z_corners[3] + dNr[4]*z_corners[4]
             z_eta = dNs[1]*z_corners[1] + dNs[2]*z_corners[2] + dNs[3]*z_corners[3] + dNs[4]*z_corners[4]
-            marguerre_z_x_gp = iJ11*z_xi + iJ12*z_eta
-            marguerre_z_y_gp = iJ21*z_xi + iJ22*z_eta
+            # research scale, for measuring whether the exact kinematics (1.0) is what the
+            # reference uses; a coefficient that optimises away from 1 means the term's FORM is
+            # wrong, not its size, and must not simply be tuned (de-calibration directive)
+            msc = fem_env_float("JFEM_Q4_MARGUERRE_SCALE", 1.0)
+            marguerre_z_x_gp = msc * (iJ11*z_xi + iJ12*z_eta)
+            marguerre_z_y_gp = msc * (iJ21*z_xi + iJ22*z_eta)
         end
 
         # Fill Bm, Bb, Bd directly from inline dN/dx, dN/dy
