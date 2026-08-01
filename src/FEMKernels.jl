@@ -5982,14 +5982,52 @@ function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_rat
         # Shear RIGIDITY in the tying basis: Ks = D3' * Wsh * D3 with D3 = [grA; gsB; c].
         # Assembling Wsh (3x3) rather than the 9x9 directly is what lets the reference's
         # residual bending flexibility be added as a COMPLIANCE, per MacNeal's series law.
+        La   = hypot(x2 - x1, y2 - y1)
+        Lb   = hypot(x3 - x1, y3 - y1)
+        Lc_  = hypot(x3 - x2, y3 - y2)
+        Pper = La + Lb + Lc_
+        cth  = clamp(((x2-x1)*(x3-x1) + (y2-y1)*(y3-y1)) / max(La * Lb, 1e-30), -one(T), one(T))
+        sth  = sqrt(max(one(T) - cth * cth, zero(T)))
         Wsh = zeros(T, 3, 3)
-        for (r, s) in ((T(0.5), zero(T)), (zero(T), T(0.5)), (T(0.5), T(0.5)))
-            # [g_r; g_s] = P(r,s) * [grA; gsB; c],  P = [1 0 s; 0 1 -r]
-            Pm = zeros(T, 2, 3)
-            Pm[1,1] = one(T); Pm[1,3] = s
-            Pm[2,2] = one(T); Pm[2,3] = -r
-            G = Jinv' * Ds * Jinv                      # covariant -> Cartesian metric
-            Wsh .+= (Pm' * G * Pm) .* (A / 3)
+        # PROMOTED 2026-08-01: tri_angle 4.16e-3 -> 2.26e-8, tri_aspect 2.42e-4 -> 2.10e-8,
+        # tri_h_over_L 9.85e-3 -> 2.22e-8 (all -100 %), every CQUAD4 axis 0.0 % unchanged.
+        if fem_env_bool("JFEM_TRIA3_MITC3_SHEAR_REF", true)
+            # ---- THE REFERENCE'S OWN TYING RIGIDITY (recovered 2026-08-01) ----
+            # JFEM's rigidity is exact when the plate is THIN and drifts as t^2 on distorted
+            # cells (8 % at aspect 3, h/L = 0.2). The t^2 scaling is what identifies the culprit
+            # as this operator rather than Zb, since Zb*D is thickness-free. Recovering the
+            # reference's rigidity as the dimensionless M = W/w, w = kappa*G*t/(6*Delta), in the
+            # metric invariants (al = |a|^2, be = |b|^2, ga = a.b) shows it differs from JFEM's
+            # in exactly TWO places, with the (r,s) 2x2 block untouched:
+            #   (1) the third (linear-variation) mode is (u*s, -v*r), NOT (s, -r), with
+            #         u = 3*La/P,  v = 3*Lb/P,   P = the PERIMETER
+            #       -- measured p/q = La/Lb exactly, and 1/P = perimeter/3 on all 18 shapes.
+            #       This is the same perimeter that normalises the third row of Zb.
+            #   (2) the effective r*s cross-moment is (2-c)/6 * (A/3), not 1/4 * (A/3).
+            # ★ Both reduce to JFEM's at the EQUILATERAL triangle -- u = v = 1 there because
+            # P = 3L, and (2-c)/6 = 1/4 at c = 1/2 -- which is exactly the shape measured to be
+            # exact, on all three modes. Closed form vs the recovered rigidity: 0.01-0.6 % on 16
+            # of 18 shapes (the two outliers are ratio 1/2 and 3 at 135 deg, where the recovery
+            # itself is worst conditioned because Zs is small against Zb).
+            G = Jinv' * Ds * Jinv
+            uu = 3 * La / Pper
+            vv = 3 * Lb / Pper
+            Wsh[1,1] = G[1,1] * A
+            Wsh[1,2] = G[1,2] * A;  Wsh[2,1] = Wsh[1,2]
+            Wsh[2,2] = G[2,2] * A
+            Wsh[1,3] = (A/3) * (uu*G[1,1] - vv*G[1,2]);  Wsh[3,1] = Wsh[1,3]
+            Wsh[2,3] = (A/3) * (uu*G[1,2] - vv*G[2,2]);  Wsh[3,2] = Wsh[2,3]
+            Wsh[3,3] = uu*uu*G[1,1]*(A/6) - 2*uu*vv*G[1,2]*(A*(2-cth)/18) +
+                       vv*vv*G[2,2]*(A/6)
+        else
+            for (r, s) in ((T(0.5), zero(T)), (zero(T), T(0.5)), (T(0.5), T(0.5)))
+                # [g_r; g_s] = P(r,s) * [grA; gsB; c],  P = [1 0 s; 0 1 -r]
+                Pm = zeros(T, 2, 3)
+                Pm[1,1] = one(T); Pm[1,3] = s
+                Pm[2,2] = one(T); Pm[2,3] = -r
+                G = Jinv' * Ds * Jinv                      # covariant -> Cartesian metric
+                Wsh .+= (Pm' * G * Pm) .* (A / 3)
+            end
         end
 
         # ---- REFERENCE RESIDUAL BENDING FLEXIBILITY (derived 2026-08-01) ----
@@ -6009,13 +6047,6 @@ function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_rat
         # variables; a fixed (1,1)/(1,-1) projection CANNOT work because those stop being
         # eigenvectors once |a| != |b| (measured: the eigenvector rotates -135 -> -51 deg).
         if fem_env_bool("JFEM_TRIA3_MITC3_ZB", true)
-            La = hypot(x2 - x1, y2 - y1)
-            Lb = hypot(x3 - x1, y3 - y1)
-            Lc_ = hypot(x3 - x2, y3 - y2)
-            Pper = La + Lb + Lc_
-            cth = ((x2-x1)*(x3-x1) + (y2-y1)*(y3-y1)) / max(La * Lb, 1e-30)
-            cth = clamp(cth, -one(T), one(T))
-            sth = sqrt(max(one(T) - cth * cth, zero(T)))
             Dbend = abs(Db[1, 1])
             if sth > 1e-9 && Dbend > 1e-30 && La > 1e-30 && Lb > 1e-30
                 Rr = (La - Lb)^2 / (La * Lb)
