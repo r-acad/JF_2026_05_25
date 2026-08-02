@@ -2216,6 +2216,18 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         A_drill = 4.0 * abs_detJc
         alpha_L = drill_scale * (k6rot * 1e-6) * Cm[3, 3] * A_drill
         corner_rs = ((-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0))
+        # PROMOTED 2026-08-02. The four corners do NOT share the drilling stiffness equally on a
+        # non-parallelogram cell: the reference lumps it in proportion to the CORNER JACOBIAN.
+        # Measured K_ref/K_jfem on the theta_z diagonal, against 4*detJ_k/sum(detJ_m):
+        #   d_tap70  1.17647 1.17647 0.82353 0.82353     d_tap25  1.60000 1.60000 0.40000 0.40000
+        #   d_tap50  1.33333 1.33333 0.66667 0.66667     f_tx010  1.81818 1.81818 0.18182 0.18182
+        #   f_ty020  1.66667 0.33333 0.33333 1.66667  <- y-tapered MIRROR, pattern permutes
+        # exact to 1.6e-8 (punch precision) on all 15 cells tested, including both aspect ratios
+        # and both mirrors, and exactly 1.0 on every parallelogram (flat, aspect 2/10, skew 15/45)
+        # so this is a bit-exact no-op there. The weights sum to 4, i.e. the TOTAL drilling
+        # stiffness is unchanged -- only its distribution. detJ is linear in (xi,eta) on a planar
+        # quad, so sum(detJ_m) over the corners is exactly 4*detJc and w_i = detJ_i/detJc.
+        drill_corner_weight = fem_env_bool("JFEM_Q4_DRILL_CORNER_JACOBIAN", true)
         @inbounds @fastmath for i in 1:4
             r, s = corner_rs[i][1], corner_rs[i][2]
             dNr, dNs = shape_derivs_quad(r, s)
@@ -2237,7 +2249,8 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
                 ws.Bd[1, idx+2] = -0.5*dN_dx
             end
             ws.Bd[1, (i-1)*6 + 6] = 1.0
-            ts_mul_At_add!(ws.Ke, ws.Bd, ws.Bd, alpha_L)
+            w_corner = drill_corner_weight ? abs(detJ) / max(abs_detJc, 1e-30) : 1.0
+            ts_mul_At_add!(ws.Ke, ws.Bd, ws.Bd, alpha_L * w_corner)
         end
     end
 
