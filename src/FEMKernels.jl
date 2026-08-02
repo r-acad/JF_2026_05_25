@@ -1586,8 +1586,21 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # Only engages on the flat default path; disabled with curved_frame_supported.
     macneal_twist_env_set = haskey(ENV, "JFEM_Q4_MACNEAL_TWIST")
     macneal_twist = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_TWIST", "false"))) in ("1","true","yes","on")
+    # PROMOTED 2026-08-02 -- "center" is now the default, and it is DERIVED, not preferred.
+    # With the center-evaluated twist row the rotation hourglass carries zero twist curvature,
+    # so its bending energy is the plain compatible integral, which for a parallelogram is
+    #     G_hourglass = D*(4/3) * [1  nu*tan ; nu*tan  1+tan^2]
+    # giving trace = D*(4/3)*(2 + tan^2) -- and the reference's recovered hourglass trace is
+    # exactly that: measured/flat = 1.0000, 1.0359, 1.1667, 1.5000 at skew 0/15/30/45 against
+    # (1 + tan^2/2) = 1, 1.0359, 1.1667, 1.5000. With "extrapolate" the twist row is doubled,
+    # which inflates the flat hourglass energy to 2.04e4 against the reference's 8.73e3 and is
+    # then partly undone by the enrichment condensation -- two errors that do not cancel.
+    # The kernel's own note below already recorded that the reference gives rotation-hourglass
+    # patterns zero twist energy and that "center" reproduces it; only the default lagged.
+    # Scored: skew30_x_h -65.4 %, aspect_x_skew -36.4 %, skew45_x_h / skew_deg -35.7 %,
+    # skew_nu -34.0 %, taper -13.8 %, every other axis unchanged. Ratchet PASS.
     macneal_twist_center =
-        lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_TWIST_MODE", "extrapolate"))) in
+        lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_TWIST_MODE", "center"))) in
         ("center", "reduced", "1pt")
     # Full MacNeal 1978 CQUAD4 kernel: replaces MITC4+phi2 shear block with
     # MacNeal's [D]ᵀ·([Z_s]+[Z_b])⁻¹·[D] formulation + twist correction.
