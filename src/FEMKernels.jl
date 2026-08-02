@@ -2689,6 +2689,27 @@ end
     1.0 + g2 * g2 * r * (r + b) / (b * (r + 1.0 / b))
 end
 
+# ⚠ THE ONLY EMPIRICAL COEFFICIENTS IN THE ELEMENT -- the taper factor of the SHEAR flexibility's
+# cross-family coupling, kept on the owner's explicit decision after the derivation was exhausted.
+#
+# The other two relations of this correction ARE derived and exact:
+#   * it scales as rho (NOT rho^2): measured 2x per aspect doubling, and residual/(Zs*rho) is
+#     constant to FIVE digits over an eightfold aspect range (-3.5477 at every aspect, taper 0.15);
+#   * its uniform-by-differential channel is locked to the differential-differential one by
+#     ud/dd = -g/3 exactly -- measured -0.33337 -0.33338 -0.33337 -0.33340 across taper.
+# Only the taper factor D(g) resisted a closed form: its local exponent in g drifts 5.5 -> 2.15
+# over the sweep, so it is no power law. Fitted as a rational function of g^2 to a 10-point taper
+# sweep on thin cells, reproducing D to a max of 0.0012 % -- and D itself spans a factor of 90.
+# D(0) = 0 identically, so this vanishes on any parallelogram along with everything else.
+@inline function q4_taper_shear_cross_D(g::Float64)
+    g <= 1e-12 && return 0.0
+    x = g > 1.0 ? 1.0 : g * g
+    num = ((-155.893116996 * x + 113.08382495) * x + 79.1160661624) * x + 3.08637764718
+    den = (((25.4378883507 * x - 53.3509632458) * x + 5.34946812132) * x + 22.4240823599) * x + 1.0
+    abs(den) < 1e-12 && return 0.0
+    -x * num / den
+end
+
 const CORNER_RS_FIT = ((-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0))
 
 function add_quad4_macneal_shear_rbf!(
@@ -2759,6 +2780,7 @@ function add_quad4_macneal_shear_rbf!(
     row_full = shear_row_edge && fem_env_bool("JFEM_Q4_MACNEAL_SHEAR_ROW_FULL", true)
     taper_diff_fit = row_full && fem_env_bool("JFEM_Q4_TAPER_DIFF", true)
     shear_diff_taper = taper_diff_fit && fem_env_bool("JFEM_Q4_TAPER_SHEAR_DIFF", true)
+    shear_cross_taper = taper_diff_fit && fem_env_bool("JFEM_Q4_TAPER_SHEAR_CROSS", true)
 
     T = promote_type(eltype(Ke), eltype(Cb), eltype(Cs), typeof(h))
     D_mat = zeros(T, 4, 12)
@@ -3600,6 +3622,35 @@ function add_quad4_macneal_shear_rbf!(
             # same power the residual-bending factor carries, so the derived part is g^4 * rho2.
             # ⚠ a residual of 1.06-1.22 remains on that (a slow drift toward 1 as the taper
             # weakens); it is NOT fitted here -- see the handover.
+            # SHEAR cross-family coupling. JFEM has NO cross block in Zs at all (measured 1e-16),
+            # while the reference carries one on a tapered cell. Inject it in the two channels it
+            # actually occupies -- uu and du are 1e-16 in BOTH codes and must stay there:
+            #   dd = a  <-  [[a,-a],[-a,a]]      ud = b  <-  [[b,-b],[b,-b]]
+            #   du = c  <-  [[c,c],[-c,-c]]
+            if shear_cross_taper
+                # Normalise by the TRANSPORTED shear flexibility's uniform, not the raw one:
+                # (T Zs T')[1,1] + (T Zs T')[1,2] = t1*Zs11 + Zs12 + t2*Zs22 with t1,t2 = (1+-k)/2.
+                # Those coincide only when Zs11 == Zs22, i.e. only off a taper -- which is exactly
+                # where this term lives, so the distinction is not optional.
+                t1c = 0.5*(1 + k_e); t2c = 0.5*(1 - k_e)
+                zsu_x = t1c*Zs[1,1] + Zs[1,2] + t2c*Zs[2,2]
+                zsu_y = t1c*Zs[3,3] + Zs[3,4] + t2c*Zs[4,4]
+                zsn = sqrt(max(zsu_x * zsu_y, 0.0)) / 2
+                if zsn > 0.0
+                    dd_s = q4_taper_shear_cross_D(gs) * sqrt(max(rho2y_f, 0.0)) * zsn
+                    dd_r = q4_taper_shear_cross_D(gr) * sqrt(max(rho2x_f, 0.0)) * zsn
+                    aa = dd_s + dd_r
+                    bb = -(gs / 3) * dd_s            # x-taper feeds the u_x . d_y channel
+                    cc = -(gr / 3) * dd_r            # y-taper feeds its mirror, d_x . u_y
+                    if abs(aa) + abs(bb) + abs(cc) > 0.0
+                        Z_total[1,3] += aa + bb + cc; Z_total[1,4] += -aa - bb + cc
+                        Z_total[2,3] += -aa + bb - cc; Z_total[2,4] +=  aa - bb - cc
+                        @inbounds for (i, j) in ((1,3),(1,4),(2,3),(2,4))
+                            Z_total[j,i] = Z_total[i,j]
+                        end
+                    end
+                end
+            end
             if shear_diff_taper
                 @inbounds for (i, j, gg, rr) in ((1, 2, gr, rho2x_f), (3, 4, gs, rho2y_f))
                     gg <= 1e-12 && continue
