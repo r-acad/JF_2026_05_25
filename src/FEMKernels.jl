@@ -2663,6 +2663,39 @@ function add_quad4_macneal_shear_rbf!(
         ("edge", "midpoint", "midside")
     pt = shear_sample_edge ? 1.0 : 1.0 / sqrt(3.0)
     shear_pts = ((0.0, -pt, 1), (0.0,  pt, 1), (-pt, 0.0, 2), ( pt, 0.0, 2))
+    # Tying ROWS at the edge midsides, flexibility geometry left where it is.
+    #
+    # Recovered, not guessed: with Kb shared (it cancels), KP_ref = K_ref,plate - Kb is a rank-4
+    # PSD matrix whose column space IS the row space of the reference's tying operator. Measured
+    # on tapered cells it shares three of four directions with JFEM's to <= 1.9 deg and differs in
+    # exactly one -- the UNIFORM y channel (0,0,1,1) -- by 3.8 deg at taper 0.80, 13.4 deg at
+    # 0.25, 22.8 deg at aspect 2. Printing that row nodally, the w and theta_x coefficients agree
+    # EXACTLY and the theta_y (fan) coefficients differ by EXACTLY 3.0000 on every node of every
+    # cell.
+    #
+    # That factor is pt^2. In the covariant tying row gamma_eta = w,eta + x,s theta_y - y,s
+    # theta_x, summing the two eta-family samples gives a w coefficient of -1/L and a theta_x
+    # coefficient of -1/2, both INDEPENDENT of the tying abscissa, while the theta_y term picks up
+    # N_k(r) * x,s(r) whose surviving part is quadratic in r -- so it carries pt^2, which is 1/3 at
+    # the Gauss abscissa and 1 at the edge. On a parallelogram x,s is constant and the row is
+    # pt-independent, which is exactly why every parallelogram axis is blind to this.
+    #
+    # These are the standard MITC4 tying points (edge midsides). Moving the whole sampling there
+    # via JFEM_Q4_MACNEAL_SHEAR_SAMPLE=edge also drags J_pts and the residual-flexibility geometry
+    # and triples the twist channel on a SQUARE, so it is the tying ROWS alone that belong at the
+    # edge.
+# ⚠ DEFAULT OFF, and NOT because it is wrong -- it is verified right, but it is HALF of a coupled
+    # pair. Switching it on drives the recovered row-space mismatch from 13.43 deg to 1.11 deg at
+    # taper 0.25 and 3.80 -> 0.014 deg at 0.80, leaves every parallelogram cell BIT-EXACT, and
+    # takes the kappa_xx patch channel from 0.311 to 0.700 against the reference's 0.659 (it was
+    # 45 % of the reference, it is now 106 %). But `Z` was calibrated against the OLD `D`: with the
+    # row space corrected, `reach` -- the share of the taper residual that `Z` can even express --
+    # jumps from 0.023 to 0.998 at taper 0.80 and 0.503 to 0.905 at 0.25, and the recovered
+    # Z_ref/Z_jfem is then 0.78-1.47 in the x-family, i.e. `Zb` must be re-derived to consume this.
+    # Until it is, the two errors partly cancel and turning this on alone costs +66 % on the taper
+    # axis. Ship the pair together; do not enable this alone to chase the norm.
+    shear_row_edge = fem_env_bool("JFEM_Q4_MACNEAL_SHEAR_ROW_EDGE", false)
+    pt_row = shear_row_edge ? 1.0 : pt
 
     T = promote_type(eltype(Ke), eltype(Cb), eltype(Cs), typeof(h))
     D_mat = zeros(T, 4, 12)
@@ -2703,6 +2736,8 @@ function add_quad4_macneal_shear_rbf!(
     t_hat = zeros(2, 4)
     mitc_C = shear_mitc ? zeros(T, 4, 12) : nothing
     mitc_J = shear_mitc ? zeros(2, 2, 4) : nothing
+    mitc_Ce = (shear_mitc && pt_row != pt) ? zeros(T, 4, 12) : nothing
+    D_edge  = mitc_Ce === nothing ? nothing : zeros(T, 4, 12)
     @inbounds for sp_idx in 1:4
         xi, eta, comp = shear_pts[sp_idx]
         dNr, dNs = shape_derivs_quad(xi, eta)
@@ -2742,6 +2777,26 @@ function add_quad4_macneal_shear_rbf!(
                 mitc_C[sp_idx, col+1] = dNc
                 mitc_C[sp_idx, col+2] = -Nk * ty
                 mitc_C[sp_idx, col+3] =  Nk * tx
+            end
+            # Same covariant row re-evaluated at the EDGE midside, for the uniform-channel
+            # correction applied after this loop (see pt_row). No-op when pt_row == pt.
+            if mitc_Ce !== nothing
+                xr = xi  == 0.0 ? 0.0 : copysign(pt_row, xi)
+                er = eta == 0.0 ? 0.0 : copysign(pt_row, eta)
+                dNre, dNse = shape_derivs_quad(xr, er)
+                J11e = dNre[1]*coords[1,1]+dNre[2]*coords[2,1]+dNre[3]*coords[3,1]+dNre[4]*coords[4,1]
+                J12e = dNre[1]*coords[1,2]+dNre[2]*coords[2,2]+dNre[3]*coords[3,2]+dNre[4]*coords[4,2]
+                J21e = dNse[1]*coords[1,1]+dNse[2]*coords[2,1]+dNse[3]*coords[3,1]+dNse[4]*coords[4,1]
+                J22e = dNse[1]*coords[1,2]+dNse[2]*coords[2,2]+dNse[3]*coords[3,2]+dNse[4]*coords[4,2]
+                Ne = (0.25*(1-xr)*(1-er), 0.25*(1+xr)*(1-er),
+                      0.25*(1+xr)*(1+er), 0.25*(1-xr)*(1+er))
+                txe, tye = comp == 1 ? (J11e, J12e) : (J21e, J22e)
+                for k in 1:4
+                    col = (k-1)*3
+                    mitc_Ce[sp_idx, col+1] = comp == 1 ? dNre[k] : dNse[k]
+                    mitc_Ce[sp_idx, col+2] = -Ne[k] * tye
+                    mitc_Ce[sp_idx, col+3] =  Ne[k] * txe
+                end
             end
         elseif shear_covariant
             tx, ty = comp == 1 ? (J11, J12) : (J21, J22)
@@ -2795,6 +2850,22 @@ function add_quad4_macneal_shear_rbf!(
                 gxi  = w1*mitc_C[1,j] + w2*mitc_C[2,j]
                 geta = w3*mitc_C[3,j] + w4*mitc_C[4,j]
                 D_mat[sp_idx, j] = sp_idx <= 2 ? (i11*gxi + i12*geta) : (i21*gxi + i22*geta)
+                if mitc_Ce !== nothing
+                    gxie  = w1*mitc_Ce[1,j] + w2*mitc_Ce[2,j]
+                    getae = w3*mitc_Ce[3,j] + w4*mitc_Ce[4,j]
+                    D_edge[sp_idx, j] = sp_idx <= 2 ? (i11*gxie + i12*getae) :
+                                                      (i21*gxie + i22*getae)
+                end
+            end
+        end
+        # UNIFORM-CHANNEL CORRECTION. Adding the SAME vector to both rows of a family changes
+        # only that family's uniform channel (row_a + row_b) and leaves its differential channel
+        # (row_a - row_b) bit-exact -- which is what the recovery demands: the differential
+        # directions are shared between the codes, the uniform y direction is not.
+        if mitc_Ce !== nothing
+            @inbounds for (a, b) in ((1, 2), (3, 4)), j in 1:12
+                d = 0.5*((D_edge[a,j] + D_edge[b,j]) - (D_mat[a,j] + D_mat[b,j]))
+                D_mat[a,j] += d; D_mat[b,j] += d
             end
         end
     end
