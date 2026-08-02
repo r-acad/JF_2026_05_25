@@ -1618,6 +1618,11 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # Default OFF; see the K_ab_bend accumulation below for the evidence.
     bending_incomp_decouple_d16 =
         fem_env_bool("JFEM_Q4_BENDING_INCOMP_DECOUPLE_D16", false)
+    # PROMOTED 2026-08-02: control 8.55e-4 -> 2.19e-8, aspect 8.82e-4 -> 2.19e-8,
+    # h_over_L 9.02e-3 -> 3.38e-8 (all -100 %); skew -10..-15 %, warp x h -4.1 %; taper +0.6 %
+    # (within tolerance) and every triangle axis bit-unchanged. Ratchet PASS.
+    bending_incomp_decouple_d12 =
+        fem_env_bool("JFEM_Q4_BENDING_INCOMP_DECOUPLE_D12", true)
     # Center Jacobian — needed for phi2 and/or shear_center_only 1-point integration
     dNr_c = SVector(-0.25, 0.25, 0.25, -0.25)
     dNs_c = SVector(-0.25, -0.25, 0.25, 0.25)
@@ -1978,6 +1983,27 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
                 ws.tmp3x4[2, j] -= Cb_use[2, 3] * ws.Bi_bend[3, j]
                 ws.tmp3x4[3, j] -= Cb_use[3, 1] * ws.Bi_bend[1, j] +
                                    Cb_use[3, 2] * ws.Bi_bend[2, j]
+            end
+        end
+        # JFEM_Q4_BENDING_INCOMP_DECOUPLE_D12 -- the SAME surgery on the D12 (Poisson)
+        # channel, and it is measured, not guessed. Recovering the reference's bending
+        # operator (TOOLS_MATPRN/kbrec.jl) on a FLAT square shows the discrepancy is rank 2,
+        # carries ZERO transverse displacement, and is exactly the two ROTATIONAL HOURGLASS
+        # modes (theta ~ r*s, hourglass projection 1.000). Its size is
+        #     ref/jfem = 1/(1 - nu^2)   on BOTH modes and on both generalised eigenvalues
+        # measured 1.122208 vs 1.1222097 at nu = 0.33, 1.253919 vs 1.253918 at nu = 0.45, and
+        # 1.000000 at nu = 0 -- where the flat discrepancy vanishes entirely (7.6e-9).
+        # MECHANISM: incompatible bending modes 3,4 carry kappa_xx, so the condensation lets a
+        # pure kappa_yy hourglass relax kappa_xx to -nu*kappa_yy, giving D(1-nu^2)kappa^2 where
+        # the reference keeps D*kappa^2. Removing the Poisson channel from the ENRICHMENT
+        # products (not from the compatible bending energy) suppresses exactly that relaxation.
+        # ⚠ turning the whole enrichment off instead is much worse (flat hourglass energy
+        # 2.04e4 vs the reference's 8.73e3), so the enrichment is needed -- only its Poisson
+        # coupling is not.
+        if bending_incomp_decouple_d12
+            @inbounds for j in 1:4
+                ws.tmp3x4[1, j] -= Cb_use[1, 2] * ws.Bi_bend[2, j]
+                ws.tmp3x4[2, j] -= Cb_use[2, 1] * ws.Bi_bend[1, j]
             end
         end
         ts_mul_At_add!(ws.K_ab_bend, ws.Bb, ws.tmp3x4, abs_detJ)
