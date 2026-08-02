@@ -3574,9 +3574,15 @@ function add_quad4_macneal_shear_rbf!(
                     end
                 end
             end
+            # F is a RESIDUAL-BENDING law, so it must act on Zb's share of the differential,
+            # not on the total. The congruence has already scaled every differential by 1/pt^2,
+            # so Zb's post-congruence share is 3*(Zb[i,i] - Zb[i,j]).
+            zbfac = fem_env_bool("JFEM_Q4_TAPER_DIFF_ZB_ONLY", true)
             @inbounds for (i, j, Ff) in ((1, 2, Fx), (3, 4, Fy))
                 abs(Ff - 1.0) < 1e-15 && continue
-                dd = 0.5 * (Z_total[i,i] - Z_total[i,j] - Z_total[j,i] + Z_total[j,j]) / 2
+                dd = zbfac ?
+                    3.0 * 0.5 * (Zb[i,i] - Zb[i,j] - Zb[j,i] + Zb[j,j]) / 2 :
+                    0.5 * (Z_total[i,i] - Z_total[i,j] - Z_total[j,i] + Z_total[j,j]) / 2
                 add = (Ff - 1.0) * dd
                 Z_total[i,i] += add; Z_total[j,j] += add
                 Z_total[i,j] -= add; Z_total[j,i] -= add
