@@ -2758,6 +2758,7 @@ function add_quad4_macneal_shear_rbf!(
     # 1.000000 where the Gauss rows give 0.9974.
     row_full = shear_row_edge && fem_env_bool("JFEM_Q4_MACNEAL_SHEAR_ROW_FULL", true)
     taper_diff_fit = row_full && fem_env_bool("JFEM_Q4_TAPER_DIFF", true)
+    shear_diff_taper = taper_diff_fit && fem_env_bool("JFEM_Q4_TAPER_SHEAR_DIFF", true)
 
     T = promote_type(eltype(Ke), eltype(Cb), eltype(Cs), typeof(h))
     D_mat = zeros(T, 4, 12)
@@ -3586,6 +3587,29 @@ function add_quad4_macneal_shear_rbf!(
                 add = (Ff - 1.0) * dd
                 Z_total[i,i] += add; Z_total[j,j] += add
                 Z_total[i,j] -= add; Z_total[j,i] -= add
+            end
+            # SHEAR share of the differential. Recovered: with Zb exact on every channel, the
+            # whole remaining taper residual is proportional to Zs (identical thick and thin --
+            # -0.06531 vs -0.06538 normalised by Zs, and the total flexibility error scales as
+            # h^2 to within a factor 100.0 across a decade of thickness), and its aspect
+            # dependence is EXACTLY linear in rho2: residual/(Zs*rho2) measured
+            #   0.36474 0.36471 0.36470 0.36471   at taper 0.15, aspect 0.5 1 2 4
+            #   0.14705 0.14710 0.14709 0.14711   at taper 0.25
+            #   0.035755 0.035776 0.035770 0.035791 at taper 0.40
+            # i.e. constant to 4 digits over an 8x aspect range. The taper dependence is g^4, the
+            # same power the residual-bending factor carries, so the derived part is g^4 * rho2.
+            # ⚠ a residual of 1.06-1.22 remains on that (a slow drift toward 1 as the taper
+            # weakens); it is NOT fitted here -- see the handover.
+            if shear_diff_taper
+                @inbounds for (i, j, gg, rr) in ((1, 2, gr, rho2x_f), (3, 4, gs, rho2y_f))
+                    gg <= 1e-12 && continue
+                    g2 = gg*gg; sc = g2*g2*rr
+                    sc <= 1e-15 && continue
+                    ds = 3.0 * 0.5 * (Zs[i,i] - Zs[i,j] - Zs[j,i] + Zs[j,j]) / 2
+                    adds = sc * ds
+                    Z_total[i,i] += adds; Z_total[j,j] += adds
+                    Z_total[i,j] -= adds; Z_total[j,i] -= adds
+                end
             end
         end
     end
