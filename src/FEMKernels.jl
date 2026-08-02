@@ -2649,6 +2649,48 @@ function macneal_strip_bending_flex(A, B, D::AbstractMatrix, dir::Int)
     return 1.0 / max(abs(Dstar), 1e-30)
 end
 
+# TAPER CORRECTIONS TO THE eq-(27) DIFFERENTIAL COEFFICIENTS.
+#
+# Built ONLY from the formulation's own constants -- 3 = 1/pt^2 and eps = 0.025, whose eq-(27)
+# partner is (1-eps)/eps = 39. No fitted coefficients.
+#
+# VARIABLES (derived, not chosen):
+#   g    = |grad detJ| / detJc in a natural direction. detJ is linear in (xi,eta) on a planar
+#          quad, so detJ/detJc = 1 + gr*r + gs*s EXACTLY; a pure x-taper gives gs = -(1-t)/(1+t)
+#          and gr = 0. g vanishes identically on a parallelogram, so BOTH factors are 1 there and
+#          every closed axis is bit-exact.
+#   rho2 = the eq-(27) aspect argument of the affected family.
+#
+# CROSS-FAMILY coupling (the differential-differential channel). Measured on thin reference cells
+# the shipped term is exactly eps*g^2 in units of sqrt(zbx_u*zby_u), and the reference is
+#      W = 3/(1-eps) * rho2/(rho2 + eps/(1-eps))
+# which reproduces it to 0.003-0.020 % at rho2 = 0.098 / 0.331 / 0.391 / 0.490 / 0.640 / 1.563 /
+# 6.250 -- i.e. across aspect 0.5-4 AND taper 0.15-0.60 with no free parameter. The apparent
+# taper dependence of this term is entirely rho2 moving with the taper.
+@inline function q4_taper_cross_factor(rho2::Float64)
+    eps = 0.025
+    c = eps / (1 - eps)
+    r = rho2 < 0.0 ? 0.0 : rho2
+    (3.0 / (1 - eps)) * r / (r + c)
+end
+
+# SAME-FAMILY differential coefficient. The identical structure, one power of (rho2+39) higher:
+#      F - 1 = g^4 * rho2 (rho2 + 39) / (39 (rho2 + 1/39))
+# Reproduces the recovered factor to max 1.7e-3 / rms 5.5e-4 over aspect >= 0.5 and taper
+# 0.05-0.85 (F itself spans 1.0002-1.618). ⚠ it degrades to 6.8e-3 on the extreme aspect-0.25
+# slivers, where the saturation is not exactly this form -- the one place the element is still
+# knowingly approximate.
+@inline function q4_taper_diff_factor(g::Float64, rho2::Float64)
+    g <= 1e-12 && return 1.0
+    gg = g > 1.0 ? 1.0 : g          # a valid convex quad has |gr| + |gs| < 1; clamp defensively
+    b = 39.0
+    r = rho2 < 0.0 ? 0.0 : rho2
+    g2 = gg * gg
+    1.0 + g2 * g2 * r * (r + b) / (b * (r + 1.0 / b))
+end
+
+const CORNER_RS_FIT = ((-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0))
+
 function add_quad4_macneal_shear_rbf!(
     Ke::AbstractMatrix,
     coords::AbstractMatrix{Float64},
@@ -2714,7 +2756,8 @@ function add_quad4_macneal_shear_rbf!(
     # EXACTLY equivalent to the shipped Gauss form (verified: |D_edge - T*D_gauss| = 2e-16), and
     # on a tapered cell D_edge reproduces the reference's own tying row space with reach
     # 1.000000 where the Gauss rows give 0.9974.
-    row_full = shear_row_edge && fem_env_bool("JFEM_Q4_MACNEAL_SHEAR_ROW_FULL", false)
+    row_full = shear_row_edge && fem_env_bool("JFEM_Q4_MACNEAL_SHEAR_ROW_FULL", true)
+    taper_diff_fit = row_full && fem_env_bool("JFEM_Q4_TAPER_DIFF", true)
 
     T = promote_type(eltype(Ke), eltype(Cb), eltype(Cs), typeof(h))
     D_mat = zeros(T, 4, 12)
@@ -3493,6 +3536,52 @@ function add_quad4_macneal_shear_rbf!(
         end
         Z_total = Tc * Z_total * transpose(Tc)
         Z_total = 0.5 * (Z_total + transpose(Z_total))
+        # ------------------------------------------------------------------
+        # TAPER CORRECTIONS to the eq-(27) differential coefficients -- see q4_taper_cross_factor
+        # and q4_taper_diff_factor. Both are built only from the formulation's own constants
+        # (3 = 1/pt^2 and eps = 0.025, whose eq-(27) partner is 39); there are NO fitted numbers.
+        # Both vanish identically on a parallelogram, so no closed axis can be disturbed.
+        if taper_diff_fit
+            dJ = ntuple(4) do i
+                r, s = CORNER_RS_FIT[i]
+                dNr, dNs = shape_derivs_quad(r, s)
+                a11 = dNr[1]*coords[1,1]+dNr[2]*coords[2,1]+dNr[3]*coords[3,1]+dNr[4]*coords[4,1]
+                a12 = dNr[1]*coords[1,2]+dNr[2]*coords[2,2]+dNr[3]*coords[3,2]+dNr[4]*coords[4,2]
+                a21 = dNs[1]*coords[1,1]+dNs[2]*coords[2,1]+dNs[3]*coords[3,1]+dNs[4]*coords[4,1]
+                a22 = dNs[1]*coords[1,2]+dNs[2]*coords[2,2]+dNs[3]*coords[3,2]+dNs[4]*coords[4,2]
+                a11*a22 - a12*a21
+            end
+            dc = abs(detJc) < 1e-30 ? 1e-30 : abs(detJc)
+            gr = abs(0.25*(dJ[2]+dJ[3]-dJ[1]-dJ[4])) / dc
+            gs = abs(0.25*(dJ[3]+dJ[4]-dJ[1]-dJ[2])) / dc
+            rho2x_f = Dy2 / max(Dx2, 1e-30)
+            rho2y_f = Dx2 / max(Dy2, 1e-30)
+            # x-family carries the s-free gradient and vice versa: on an x-taper gs != 0, gr == 0
+            # and the Y family is the one that moves -- confirmed on the y-tapered mirrors, where
+            # the divergent channel swaps to uniform-x.
+            Fx = q4_taper_diff_factor(gr, rho2x_f)
+            Fy = q4_taper_diff_factor(gs, rho2y_f)
+            # cross-family: weight each family's factor by the gradient that drives it, so a pure
+            # x-taper uses rho2y, a pure y-taper rho2x, and a parallelogram leaves the (skew-only)
+            # term untouched.
+            gsum = gr*gr + gs*gs
+            if gsum > 1e-24
+                Wc = (q4_taper_cross_factor(rho2x_f)*gr*gr +
+                      q4_taper_cross_factor(rho2y_f)*gs*gs) / gsum
+                if abs(Wc - 1.0) > 1e-15
+                    @inbounds for (i, j) in ((1,3),(1,4),(2,3),(2,4))
+                        Z_total[i,j] *= Wc; Z_total[j,i] = Z_total[i,j]
+                    end
+                end
+            end
+            @inbounds for (i, j, Ff) in ((1, 2, Fx), (3, 4, Fy))
+                abs(Ff - 1.0) < 1e-15 && continue
+                dd = 0.5 * (Z_total[i,i] - Z_total[i,j] - Z_total[j,i] + Z_total[j,j]) / 2
+                add = (Ff - 1.0) * dd
+                Z_total[i,i] += add; Z_total[j,j] += add
+                Z_total[i,j] -= add; Z_total[j,i] -= add
+            end
+        end
     end
     if zb_skew_mode == "total" && abs(zb_skew_f - 1.0) > 1e-14
         for (i, j) in ((1, 2), (3, 4))
