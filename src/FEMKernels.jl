@@ -2291,6 +2291,41 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             end
         end
     else
+        # ---- THE ENRICHMENT MUST NOT RELAX THE ROTATIONAL HOURGLASS (2026-08-02) ----
+        # Recovering the reference's bending operator (TOOLS_MATPRN/kbrec.jl) shows its
+        # rotational-hourglass block IS the plain compatible integral: with the centre-evaluated
+        # twist row the hourglass carries no twist curvature, so for a parallelogram
+        #     G = D*(4/3)*[1  nu*tan ; nu*tan  1+tan^2],  trace = D*(4/3)*(2 + tan^2)
+        # and the recovered trace is exactly that at skew 0/15/30/45 (measured/flat = 1.0000,
+        # 1.0359, 1.1667, 1.5000 vs predicted 1, 1.0359, 1.1667, 1.5000).
+        # On the FLAT cell the D12 decoupling above already leaves nothing for the enrichment to
+        # relax there, and JFEM lands on the reference exactly. On a SKEWED cell the skewed
+        # Jacobian re-opens the coupling through the other channels and the enrichment softens
+        # the hourglass by ~2x (trace 12699 vs the reference's 26185 at skew 45).
+        # So project the hourglass directions out of the enrichment coupling. This is not a
+        # tuning knob: it enforces the measured statement "the reference's hourglass energy is
+        # the compatible one", it is exact on the flat cell by construction, and it keeps the
+        # condensation symmetric because it only removes columns from K_ab_bend.
+        # PROMOTED 2026-08-02: skew_deg 6.14e-3 -> 4.96e-7, skew_nu 6.55e-3 -> 2.55e-7,
+        # skew30_x_h 1.38e-2 -> 2.75e-7, skew45_x_h 3.94e-2 -> 3.39e-8, aspect_x_skew
+        # 6.84e-3 -> 3.78e-6 -- all -100 %. Every other axis bit-unchanged; ratchet PASS.
+        # JFEM's recovered hourglass block now equals the reference's EXACTLY at every skew
+        # angle (6695.60 / 19489.3 at skew 45, matching to 6 digits).
+        if bending_incomp && fem_env_bool("JFEM_Q4_BENDING_INCOMP_NO_HOURGLASS", true) &&
+           maximum(abs, ws.K_bb_bend) > 0.0
+            hgs = (4, 5)                      # theta_x, theta_y
+            sgn4 = (1.0, -1.0, 1.0, -1.0)     # r*s at the corners
+            for c in hgs
+                nrm = 0.0
+                @inbounds for i in 1:4; nrm += sgn4[i]^2; end
+                @inbounds for q in 1:4
+                    d = 0.0
+                    for i in 1:4; d += sgn4[i] * ws.K_ab_bend[(i-1)*6 + c, q]; end
+                    d /= nrm
+                    for i in 1:4; ws.K_ab_bend[(i-1)*6 + c, q] -= sgn4[i] * d; end
+                end
+            end
+        end
         if bending_incomp && maximum(abs, ws.K_bb_bend) > 0.0
             # Separate 4×4 condensation for bending (always) and membrane (only if membrane_incomp)
             # (skipped when bend_ratio=0, i.e. membrane-only element with zero Cb)
