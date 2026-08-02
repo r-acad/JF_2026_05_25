@@ -1636,6 +1636,30 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # (within tolerance) and every triangle axis bit-unchanged. Ratchet PASS.
     bending_incomp_decouple_d12 =
         fem_env_bool("JFEM_Q4_BENDING_INCOMP_DECOUPLE_D12", true)
+    # Patch-test correction for the BENDING incompatible modes on a NON-PARALLELOGRAM cell.
+    #
+    # The incompatible bending modes phi = 1-r^2, 1-s^2 only preserve the constant-curvature
+    # (patch) states if their gradient operator integrates to zero over the element:
+    #     int Bi_bend |J| dr ds == 0.
+    # Built from the GAUSS-POINT inverse Jacobian, as below, that integral is zero only when |J|
+    # and J^-1 are constant — i.e. only on a parallelogram. Taylor, Beresford & Wilson (1976)
+    # restore it by evaluating the operator at the element CENTRE and rescaling by the Jacobian
+    # ratio, so the integrand becomes detJc * Jc^-1 * dphi/dr, whose integral vanishes because
+    # int -2r dr ds = 0 identically:
+    #     "center" -> Jc^-1                      (centre operator only)
+    #     "qm6"    -> Jc^-1 * (detJc / detJ)     (full patch-test correction)
+    # On a parallelogram J == Jc and detJ == detJc, so BOTH modes are bit-identical to "gp" —
+    # which is why every parallelogram axis (control, aspect, skew and their crosses) cannot see
+    # this, and why taper is the one planar axis left open.
+    # PROMOTED 2026-08-02, default "qm6". Measured absolutely against the reference, not fitted:
+    # imposing the exact constant-curvature state w = y^2/2 on a tapered cell, the reference
+    # reproduces it EXACTLY (U/U_exact - 1 = 2e-8, i.e. punch precision) at every taper, while
+    # "gp" leaves JFEM 1.4-35 % too SOFT and "center" only halves that. "qm6" makes it exact to
+    # MACHINE precision (4e-16) at taper 0.70 / 0.50 / 0.25 / 0.15 / 0.10. Bit-identical on every
+    # parallelogram cell, so all eleven closed axes are untouched.
+    bending_incomp_jac_mode = let raw = lowercase(strip(get(ENV, "JFEM_Q4_BENDING_INCOMP_JAC", "")))
+        raw == "center" ? :center : raw == "gp" ? :gp : :qm6
+    end
     # Center Jacobian — needed for phi2 and/or shear_center_only 1-point integration
     dNr_c = SVector(-0.25, 0.25, 0.25, -0.25)
     dNs_c = SVector(-0.25, -0.25, 0.25, 0.25)
@@ -1900,12 +1924,20 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             membrane_incomp_center_jacobian,
         )
 
-        # Fill Bi_bend (bending incompatible)
+        # Fill Bi_bend (bending incompatible). See JFEM_Q4_BENDING_INCOMP_JAC above: on a
+        # parallelogram the centre and Gauss-point Jacobians coincide and all three modes give
+        # bit-identical operators, so only a tapered cell is affected.
+        b1_dx = dphi1_dx; b1_dy = dphi1_dy; b2_dx = dphi2_dx; b2_dy = dphi2_dy
+        if bending_incomp_jac_mode !== :gp
+            g = bending_incomp_jac_mode === :qm6 ? detJc / detJ : 1.0
+            b1_dx = (iJ11c*(-2.0*r)) * g;  b1_dy = (iJ21c*(-2.0*r)) * g
+            b2_dx = (iJ12c*(-2.0*s)) * g;  b2_dy = (iJ22c*(-2.0*s)) * g
+        end
         fill!(ws.Bi_bend, 0.0)
-        ws.Bi_bend[2,1]=-dphi1_dy; ws.Bi_bend[2,2]=-dphi2_dy
-        ws.Bi_bend[1,3]=dphi1_dx;  ws.Bi_bend[1,4]=dphi2_dx
-        ws.Bi_bend[3,1]=-dphi1_dx; ws.Bi_bend[3,2]=-dphi2_dx
-        ws.Bi_bend[3,3]=dphi1_dy;  ws.Bi_bend[3,4]=dphi2_dy
+        ws.Bi_bend[2,1]=-b1_dy; ws.Bi_bend[2,2]=-b2_dy
+        ws.Bi_bend[1,3]=b1_dx;  ws.Bi_bend[1,4]=b2_dx
+        ws.Bi_bend[3,1]=-b1_dx; ws.Bi_bend[3,2]=-b2_dx
+        ws.Bi_bend[3,3]=b1_dy;  ws.Bi_bend[3,4]=b2_dy
 
         Cm_use = Cm
         Cb_use = Cb
