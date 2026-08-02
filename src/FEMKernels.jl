@@ -2701,6 +2701,20 @@ end
 # over the sweep, so it is no power law. Fitted as a rational function of g^2 to a 10-point taper
 # sweep on thin cells, reproducing D to a max of 0.0012 % -- and D itself spans a factor of 90.
 # D(0) = 0 identically, so this vanishes on any parallelogram along with everything else.
+# ⚠ EMPIRICAL (2 of 2). Slow drift on the shear DIFFERENTIAL taper factor: the derived part is
+# g^4*rho2 (whose rho2 exponent is exact -- residual/(Zs*rho2) is constant to 4 digits over an
+# eightfold aspect range), and this multiplies it by h. Measured h-1 = 0.3749 0.2867 0.2219 0.1730
+# 0.1349 0.1047 0.0599 over taper 0.05-0.40, reproduced to max 0.64 %.
+# POLYNOMIAL, deliberately: the best rational fit (0.03 %) carried a POLE at q = 0.335, inside the
+# working range and hidden between the sample points. This form is pole-free by construction and
+# was checked monotone and positive over the whole of q in [0,1]. h(0) = 1, so parallelograms are
+# untouched.
+@inline function q4_taper_shear_diff_h(g::Float64)
+    g <= 1e-12 && return 1.0
+    x = g > 1.0 ? 1.0 : g * g
+    1.0 + x*(0.240645040092 + x*(0.603483673803 + x*(-0.818416784763 + x*0.4962374002)))
+end
+
 @inline function q4_taper_shear_cross_D(g::Float64)
     g <= 1e-12 && return 0.0
     x = g > 1.0 ? 1.0 : g * g
@@ -3654,7 +3668,7 @@ function add_quad4_macneal_shear_rbf!(
             if shear_diff_taper
                 @inbounds for (i, j, gg, rr) in ((1, 2, gr, rho2x_f), (3, 4, gs, rho2y_f))
                     gg <= 1e-12 && continue
-                    g2 = gg*gg; sc = g2*g2*rr
+                    g2 = gg*gg; sc = g2*g2*rr*q4_taper_shear_diff_h(gg)
                     sc <= 1e-15 && continue
                     ds = 3.0 * 0.5 * (Zs[i,i] - Zs[i,j] - Zs[j,i] + Zs[j,j]) / 2
                     adds = sc * ds
