@@ -2709,6 +2709,12 @@ function add_quad4_macneal_shear_rbf!(
     # axis. Ship the pair together; do not enable this alone to chase the norm.
     shear_row_edge = fem_env_bool("JFEM_Q4_MACNEAL_SHEAR_ROW_EDGE", true)
     pt_row = shear_row_edge ? 1.0 : pt
+    # FULL edge tying rows (all three DOF families, not just the cross component) together with
+    # the matching congruence on Z -- see the Z_total assembly. On a parallelogram the pair is
+    # EXACTLY equivalent to the shipped Gauss form (verified: |D_edge - T*D_gauss| = 2e-16), and
+    # on a tapered cell D_edge reproduces the reference's own tying row space with reach
+    # 1.000000 where the Gauss rows give 0.9974.
+    row_full = shear_row_edge && fem_env_bool("JFEM_Q4_MACNEAL_SHEAR_ROW_FULL", false)
 
     T = promote_type(eltype(Ke), eltype(Cb), eltype(Cs), typeof(h))
     D_mat = zeros(T, 4, 12)
@@ -2750,6 +2756,7 @@ function add_quad4_macneal_shear_rbf!(
     mitc_C = shear_mitc ? zeros(T, 4, 12) : nothing
     mitc_J = shear_mitc ? zeros(2, 2, 4) : nothing
     mitc_Ce = (shear_mitc && pt_row != pt) ? zeros(T, 4, 12) : nothing
+    mitc_Je = mitc_Ce === nothing ? nothing : zeros(2, 2, 4)
     D_edge  = mitc_Ce === nothing ? nothing : zeros(T, 4, 12)
     @inbounds for sp_idx in 1:4
         xi, eta, comp = shear_pts[sp_idx]
@@ -2803,6 +2810,9 @@ function add_quad4_macneal_shear_rbf!(
                 J22e = dNse[1]*coords[1,2]+dNse[2]*coords[2,2]+dNse[3]*coords[3,2]+dNse[4]*coords[4,2]
                 Ne = (0.25*(1-xr)*(1-er), 0.25*(1+xr)*(1-er),
                       0.25*(1+xr)*(1+er), 0.25*(1-xr)*(1+er))
+                mitc_Je[1,1,sp_idx] = J11e; mitc_Je[1,2,sp_idx] = J12e
+                mitc_Je[2,1,sp_idx] = J21e; mitc_Je[2,2,sp_idx] = J22e
+                txe, tye = comp == 1 ? (J11e, J12e) : (J21e, J22e)
                 # Only the CROSS component of the tying tangent moves to the edge -- J12 = y,r for
                 # the xi-family, J21 = x,s for the eta-family. The ALIGNED component and the w
                 # term stay at the sample. That is what the recovery demands and it is why only
@@ -2812,7 +2822,11 @@ function add_quad4_macneal_shear_rbf!(
                 # measured divergent channel swaps with it (uniform-y -> uniform-x).
                 for k in 1:4
                     col = (k-1)*3
-                    if comp == 1
+                    if row_full
+                        mitc_Ce[sp_idx, col+1] = comp == 1 ? dNre[k] : dNse[k]
+                        mitc_Ce[sp_idx, col+2] = -Ne[k] * tye
+                        mitc_Ce[sp_idx, col+3] =  Ne[k] * txe
+                    elseif comp == 1
                         mitc_Ce[sp_idx, col+1] = dNr[k]
                         mitc_Ce[sp_idx, col+2] = -Ne[k] * J12e
                         mitc_Ce[sp_idx, col+3] =  N_vals[k] * J11
@@ -2864,7 +2878,7 @@ function add_quad4_macneal_shear_rbf!(
         pts_m = ((0.0,-pt_m), (0.0,pt_m), (-pt_m,0.0), (pt_m,0.0))
         for sp_idx in 1:4
             xi, eta = pts_m[sp_idx]
-            J = @view mitc_J[:, :, sp_idx]
+            J = @view (row_full ? mitc_Je : mitc_J)[:, :, sp_idx]
             detJ = J[1,1]*J[2,2] - J[1,2]*J[2,1]
             adet = abs(detJ) < 1e-14 ? (detJ < 0 ? -1e-14 : 1e-14) : detJ
             i11 =  J[2,2]/adet; i12 = -J[1,2]/adet
@@ -2888,9 +2902,13 @@ function add_quad4_macneal_shear_rbf!(
         # (row_a - row_b) bit-exact -- which is what the recovery demands: the differential
         # directions are shared between the codes, the uniform y direction is not.
         if mitc_Ce !== nothing
-            @inbounds for (a, b) in ((1, 2), (3, 4)), j in 1:12
-                d = 0.5*((D_edge[a,j] + D_edge[b,j]) - (D_mat[a,j] + D_mat[b,j]))
-                D_mat[a,j] += d; D_mat[b,j] += d
+            if row_full
+                @inbounds for i in 1:4, j in 1:12; D_mat[i,j] = D_edge[i,j]; end
+            else
+                @inbounds for (a, b) in ((1, 2), (3, 4)), j in 1:12
+                    d = 0.5*((D_edge[a,j] + D_edge[b,j]) - (D_mat[a,j] + D_mat[b,j]))
+                    D_mat[a,j] += d; D_mat[b,j] += d
+                end
             end
         end
     end
@@ -3285,9 +3303,13 @@ function add_quad4_macneal_shear_rbf!(
     Lx2_u = swap_xy ? Dy2_u : Dx2_u
     Ly2_u = swap_xy ? Dx2_u : Dy2_u
     zbx_u = zb_u * inv_12A * Lx2_u * flex_x
-    zbx_d = zb_d_x * inv_12A * Lx2_rbf * flex_x
+    # With the tying at the EDGE midsides the differential channel of D is 1/pt_gauss = sqrt(3)
+    # larger than in the Gauss-abscissa form, so the eq-(27) differential flexibility must take
+    # 1/pt_gauss^2 = 3 for the two to agree on a parallelogram -- where they must, and do.
+    zb_dfac = shear_sample_edge ? 3.0 : 1.0
+    zbx_d = zb_dfac * zb_d_x * inv_12A * Lx2_rbf * flex_x
     zby_u = zb_u * inv_12A * Ly2_u * flex_y
-    zby_d = zb_d_y * inv_12A * Ly2_rbf * flex_y
+    zby_d = zb_dfac * zb_d_y * inv_12A * Ly2_rbf * flex_y
     # ------------------------------------------------------------------
     # TAPER correction to the UNIFORM residual-bending flexibility (2026-07-31).
     #
@@ -3456,6 +3478,22 @@ function add_quad4_macneal_shear_rbf!(
     # direction of each sample family is the (1,-1) eigenvector, so this scales exactly
     # the component the eq-(27) coefficient controls and leaves the uniform direction --
     # which is measured EXACT at every skew angle and thickness -- untouched.
+    # D_edge = T * D_gauss on a parallelogram, T = 1/2[[1+k,1-k],[1-k,1+k]] per family with
+    # k = 1/pt = sqrt(3) (uniform unchanged, differential scaled by k -- verified to 2e-16).
+    # Keeping D' inv(Z) D invariant then REQUIRES the congruence Z -> T Z T', which scales
+    # uniform-uniform by 1, differential-differential by k^2 = 3 and every uniform-differential
+    # and cross-FAMILY term by the matching power. A diagonal factor is not enough: it leaves the
+    # cross-family coupling unscaled. This makes the pair exactly equivalent on any parallelogram.
+    if row_full
+        k_e = 1.0 / pt
+        Tc = zeros(4, 4)
+        for (i, j) in ((1, 2), (3, 4))
+            Tc[i,i] = 0.5*(1 + k_e); Tc[i,j] = 0.5*(1 - k_e)
+            Tc[j,i] = 0.5*(1 - k_e); Tc[j,j] = 0.5*(1 + k_e)
+        end
+        Z_total = Tc * Z_total * transpose(Tc)
+        Z_total = 0.5 * (Z_total + transpose(Z_total))
+    end
     if zb_skew_mode == "total" && abs(zb_skew_f - 1.0) > 1e-14
         for (i, j) in ((1, 2), (3, 4))
             d = 0.5 * (Z_total[i,i] - Z_total[i,j] - Z_total[j,i] + Z_total[j,j]) / 2
