@@ -2694,7 +2694,7 @@ function add_quad4_macneal_shear_rbf!(
     # Z_ref/Z_jfem is then 0.78-1.47 in the x-family, i.e. `Zb` must be re-derived to consume this.
     # Until it is, the two errors partly cancel and turning this on alone costs +66 % on the taper
     # axis. Ship the pair together; do not enable this alone to chase the norm.
-    shear_row_edge = fem_env_bool("JFEM_Q4_MACNEAL_SHEAR_ROW_EDGE", false)
+    shear_row_edge = fem_env_bool("JFEM_Q4_MACNEAL_SHEAR_ROW_EDGE", true)
     pt_row = shear_row_edge ? 1.0 : pt
 
     T = promote_type(eltype(Ke), eltype(Cb), eltype(Cs), typeof(h))
@@ -2790,12 +2790,24 @@ function add_quad4_macneal_shear_rbf!(
                 J22e = dNse[1]*coords[1,2]+dNse[2]*coords[2,2]+dNse[3]*coords[3,2]+dNse[4]*coords[4,2]
                 Ne = (0.25*(1-xr)*(1-er), 0.25*(1+xr)*(1-er),
                       0.25*(1+xr)*(1+er), 0.25*(1-xr)*(1+er))
-                txe, tye = comp == 1 ? (J11e, J12e) : (J21e, J22e)
+                # Only the CROSS component of the tying tangent moves to the edge -- J12 = y,r for
+                # the xi-family, J21 = x,s for the eta-family. The ALIGNED component and the w
+                # term stay at the sample. That is what the recovery demands and it is why only
+                # one family moves on a given cell: on an x-taper the eta-family's cross term
+                # x,s carries the whole fan while the xi-family's cross term y,r is identically
+                # zero, so the xi-family is a no-op; the y-tapered mirror swaps the two, and the
+                # measured divergent channel swaps with it (uniform-y -> uniform-x).
                 for k in 1:4
                     col = (k-1)*3
-                    mitc_Ce[sp_idx, col+1] = comp == 1 ? dNre[k] : dNse[k]
-                    mitc_Ce[sp_idx, col+2] = -Ne[k] * tye
-                    mitc_Ce[sp_idx, col+3] =  Ne[k] * txe
+                    if comp == 1
+                        mitc_Ce[sp_idx, col+1] = dNr[k]
+                        mitc_Ce[sp_idx, col+2] = -Ne[k] * J12e
+                        mitc_Ce[sp_idx, col+3] =  N_vals[k] * J11
+                    else
+                        mitc_Ce[sp_idx, col+1] = dNs[k]
+                        mitc_Ce[sp_idx, col+2] = -N_vals[k] * J22
+                        mitc_Ce[sp_idx, col+3] =  Ne[k] * J21e
+                    end
                 end
             end
         elseif shear_covariant
@@ -3225,9 +3237,43 @@ function add_quad4_macneal_shear_rbf!(
             zb_d_y *= zb_skew_f
         end
     end
-    zbx_u = zb_u * inv_12A * Lx2_rbf * flex_x
+    # ------------------------------------------------------------------
+    # FAN CORRECTION to the eq-(26) UNIFORM projected length (2026-08-02).
+    #
+    # MEASURED, not fitted. With the tying operator corrected (see JFEM_Q4_MACNEAL_SHEAR_ROW_EDGE)
+    # the taper residual becomes Z-expressible, and recovering the reference's own Z in the
+    # uniform/differential basis of eq (26)/(27) leaves exactly ONE term out: the UNIFORM
+    # coefficient of the family CROSSED with the fan direction. Its recovered ratio is reproduced
+    # to 5 digits on every cell by adding the fan sum, over three, IN QUADRATURE to the projected
+    # side:
+    #
+    #     Delta_eff^2 = Delta^2 + ((x1 - x2 + x3 - x4)/3)^2
+    #
+    #   cell        fan/3     predicted    recovered   rel err
+    #   f_tx010    -30.000     1.090000     1.08996    3.7e-05
+    #   f_tx025    -25.000     1.062500     1.06248    1.9e-05
+    #   f_tx080     -6.667     1.004444     1.00444    4.4e-06
+    #   g_a05_t25  -12.500     1.015625     1.01562    4.9e-06
+    #   g_a20_t25  -50.000     1.250000     1.24989    8.8e-05
+    #   f_ty020    -26.667     1.071111     1.07108    2.9e-05   (y-tapered MIRROR)
+    #   f_ty035    -21.667     1.046944     1.04693    1.4e-05   (y-tapered MIRROR)
+    #
+    # spanning x-taper 0.10-0.80, both aspect ratios and the y-tapered mirrors, with the residual
+    # at the recovery's own precision. The x-fan corrects the Y family and the y-fan the X family
+    # -- the same cross pairing the row-space recovery found, and the mirrors confirm it rather
+    # than assume it. Identically zero on any parallelogram (the fan sum vanishes), so every
+    # parallelogram axis is bit-unchanged. DIFFERENTIAL terms keep the plain projected side: their
+    # recovered ratios do NOT follow this factor.
+    fan_x = (coords[1,1] - coords[2,1] + coords[3,1] - coords[4,1]) / 3.0
+    fan_y = (coords[1,2] - coords[2,2] + coords[3,2] - coords[4,2]) / 3.0
+    zb_fan = fem_env_bool("JFEM_Q4_MACNEAL_ZB_FAN", true)
+    Dx2_u = zb_fan ? Dx2 + fan_y*fan_y : Dx2
+    Dy2_u = zb_fan ? Dy2 + fan_x*fan_x : Dy2
+    Lx2_u = swap_xy ? Dy2_u : Dx2_u
+    Ly2_u = swap_xy ? Dx2_u : Dy2_u
+    zbx_u = zb_u * inv_12A * Lx2_u * flex_x
     zbx_d = zb_d_x * inv_12A * Lx2_rbf * flex_x
-    zby_u = zb_u * inv_12A * Ly2_rbf * flex_y
+    zby_u = zb_u * inv_12A * Ly2_u * flex_y
     zby_d = zb_d_y * inv_12A * Ly2_rbf * flex_y
     # ------------------------------------------------------------------
     # TAPER correction to the UNIFORM residual-bending flexibility (2026-07-31).
