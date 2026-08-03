@@ -2492,93 +2492,6 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     #
     # ⇒ Do not retry nodal rotational transforms for warp. The dominant Rx-Rz/Ry-Rz term must
     # come from inside the strain-displacement operator, not from a post-hoc DOF transform.
-    # ------------------------------------------------------------------
-    # MacNEAL WARP MULTIPLIER (JFEM_Q4_WARP_TRANSFORM, default ON).
-    #
-    # p.180: the warped element is the flat one "modified by pre- and post-multipliers so as to
-    # satisfy rigid body properties". Without it this element does NOT annihilate rigid-body
-    # ROTATION on a warped cell -- measured 2.356e-5 / 2.356e-4 / 1.177e-3 / 4.131e-3 at warp
-    # 0.001 / 0.01 / 0.05 / 0.20, exactly linear, where the reference sits at 1.4e-11 throughout.
-    # Translations were always clean, which is why the ratchet's translation-only rigid gate never
-    # caught it. That is a CORRECTNESS defect, not just a parity gap.
-    #
-    # RECOVERED, not fitted. dK is exactly first order in the warp, and solving
-    # W'K + KW = dK/warp under the rigid-body constraint gives a transform whose two classes have
-    # closed forms in the element frame, both in terms of the bilinear height field's NODAL SLOPES:
-    #   rotational (per node):  W[Rx_i<-Rz_i] = (dz/dx)_i ,  W[Ry_i<-Rz_i] = (dz/dy)_i
-    #   non-local  (per edge):  W[Tx_i<-Tz] = (dz/dx)_i * (w_i - w_xpartner)/2 , and the y mirror
-    # The rotational law reads EXACTLY 1.0000 against the slopes on a pure-twist cell and within
-    # 0.7 % on every rectangular cell; the non-local one is nonzero only within an edge pair.
-    #
-    # ⚠ The rotational half ALONE is what JFEM_Q4_WARP_ROTDRILL below tried, and it was correctly
-    # measured to make things WORSE. It is not wrong -- it is INCOMPLETE. Half a transform is worse
-    # than none; the two classes must be applied together, which is what this block does.
-    #
-    # MEASURED, both criteria, flat cell bit-unchanged:
-    #   warp 0.001  parity 7.14e-4 -> 9.29e-6   rigid-rot 2.36e-5 -> 7.89e-8
-    #   warp 0.05   parity 3.57e-2 -> 4.67e-4   rigid-rot 1.18e-3 -> 4.72e-6
-    #   warp 0.20   parity 1.40e-1 -> 1.10e-2   rigid-rot 4.13e-3 -> 1.60e-4
-    # The residual is second order in the warp -- this transform is exact to first order only.
-    if coords_3d !== nothing && warp_transform_on
-        c3 = coords_3d
-        cx = (c3[1,1]+c3[2,1]+c3[3,1]+c3[4,1])*0.25
-        cy = (c3[1,2]+c3[2,2]+c3[3,2]+c3[4,2])*0.25
-        cz = (c3[1,3]+c3[2,3]+c3[3,3]+c3[4,3])*0.25
-        d13 = (c3[3,1]-c3[1,1], c3[3,2]-c3[1,2], c3[3,3]-c3[1,3])
-        d24 = (c3[4,1]-c3[2,1], c3[4,2]-c3[2,2], c3[4,3]-c3[2,3])
-        nx = d13[2]*d24[3]-d13[3]*d24[2]
-        ny = d13[3]*d24[1]-d13[1]*d24[3]
-        nz = d13[1]*d24[2]-d13[2]*d24[1]
-        nn = sqrt(nx*nx+ny*ny+nz*nz)
-        if nn > 1e-30
-            nx /= nn; ny /= nn; nz /= nn
-            mx1 = 0.5*((c3[2,1]+c3[3,1]) - (c3[1,1]+c3[4,1]))
-            mx2 = 0.5*((c3[2,2]+c3[3,2]) - (c3[1,2]+c3[4,2]))
-            mx3 = 0.5*((c3[2,3]+c3[3,3]) - (c3[1,3]+c3[4,3]))
-            dp = mx1*nx + mx2*ny + mx3*nz
-            e1x = mx1 - dp*nx; e1y = mx2 - dp*ny; e1z = mx3 - dp*nz
-            e1n = sqrt(e1x*e1x+e1y*e1y+e1z*e1z)
-            if e1n > 1e-30
-                e1x /= e1n; e1y /= e1n; e1z /= e1n
-                e2x = ny*e1z - nz*e1y; e2y = nz*e1x - nx*e1z; e2z = nx*e1y - ny*e1x
-                xl = ntuple(i -> (c3[i,1]-cx)*e1x + (c3[i,2]-cy)*e1y + (c3[i,3]-cz)*e1z, 4)
-                yl = ntuple(i -> (c3[i,1]-cx)*e2x + (c3[i,2]-cy)*e2y + (c3[i,3]-cz)*e2z, 4)
-                zl = ntuple(i -> (c3[i,1]-cx)*nx  + (c3[i,2]-cy)*ny  + (c3[i,3]-cz)*nz,  4)
-                if maximum(abs, zl) > 1e-12 * max(maximum(abs, xl), 1e-30)
-                    # bilinear height field z = a0 + a1 x + a2 y + a3 x y through the four points
-                    Vm = [1.0 xl[1] yl[1] xl[1]*yl[1];
-                          1.0 xl[2] yl[2] xl[2]*yl[2];
-                          1.0 xl[3] yl[3] xl[3]*yl[3];
-                          1.0 xl[4] yl[4] xl[4]*yl[4]]
-                    av = Vm \ [zl[1], zl[2], zl[3], zl[4]]
-                    XPn = (2,1,4,3); YPn = (4,3,2,1)
-                    Wl = zeros(Float64, 24, 24)
-                    for i in 1:4
-                        gx = av[2] + av[4]*yl[i]
-                        gy = av[3] + av[4]*xl[i]
-                        Wl[6(i-1)+4, 6(i-1)+6] += gx
-                        Wl[6(i-1)+5, 6(i-1)+6] += gy
-                        Wl[6(i-1)+1, 6(i-1)+3]        += 0.5*gx
-                        Wl[6(i-1)+1, 6(XPn[i]-1)+3]   -= 0.5*gx
-                        Wl[6(i-1)+2, 6(i-1)+3]        += 0.5*gy
-                        Wl[6(i-1)+2, 6(YPn[i]-1)+3]   -= 0.5*gy
-                    end
-                    Rm = [e1x e2x nx; e1y e2y ny; e1z e2z nz]
-                    Tl = Matrix{Float64}(I, 24, 24)
-                    for i in 0:3
-                        Tl[6i+1:6i+3, 6i+1:6i+3] = Rm
-                        Tl[6i+4:6i+6, 6i+4:6i+6] = Rm
-                    end
-                    Tg = Tl * (I + Wl) * transpose(Tl)
-                    Kt = transpose(Tg) * ws.Ke * Tg
-                    @inbounds for j in 1:24, i in 1:24
-                        ws.Ke[i,j] = 0.5*(Kt[i,j] + Kt[j,i])
-                    end
-                end
-            end
-        end
-    end
-
     let wrd = fem_env_float("JFEM_Q4_WARP_ROTDRILL", 0.0)
         if wrd != 0.0 && coords_3d !== nothing
             _, _, v3 = quad4_center_frame_from_coords3d(coords_3d)
@@ -2624,6 +2537,67 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # local coords passed in).
     if membrane_hourglass_skew
         ws.Ke .+= quad4_membrane_hourglass_skew_correction(coords, Cm)
+    end
+
+    # ------------------------------------------------------------------
+    # MacNEAL WARP MULTIPLIER (JFEM_Q4_WARP_TRANSFORM, default ON).
+    #
+    # p.180: the warped element is the flat one "modified by pre- and post-multipliers so as to
+    # satisfy rigid body properties". Without it this element does NOT annihilate rigid-body
+    # ROTATION on a warped cell -- measured 2.356e-5 / 2.356e-4 / 1.177e-3 / 4.131e-3 at warp
+    # 0.001 / 0.01 / 0.05 / 0.20, exactly linear, where the reference sits at 1.4e-11 throughout.
+    # Translations were always clean, which is why the ratchet's translation-only rigid gate never
+    # caught it. That is a CORRECTNESS defect, not just a parity gap.
+    #
+    # RECOVERED, not fitted. dK is exactly first order in the warp, and solving
+    # W'K + KW = dK/warp under the rigid-body constraint gives a transform whose two classes have
+    # closed forms in the element frame, both in terms of the bilinear height field's NODAL SLOPES:
+    #   rotational (per node):  W[Rx_i<-Rz_i] = (dz/dx)_i ,  W[Ry_i<-Rz_i] = (dz/dy)_i
+    #   non-local  (per edge):  W[Tx_i<-Tz] = (dz/dx)_i * (w_i - w_xpartner)/2 , and the y mirror
+    # The rotational law reads EXACTLY 1.0000 against the slopes on a pure-twist cell and within
+    # 0.7 % on every rectangular cell; the non-local one is nonzero only within an edge pair.
+    #
+    # ⚠ The rotational half ALONE is what JFEM_Q4_WARP_ROTDRILL below tried, and it was correctly
+    # measured to make things WORSE. It is not wrong -- it is INCOMPLETE. Half a transform is worse
+    # than none; the two classes must be applied together, which is what this block does.
+    #
+    # MEASURED, both criteria, flat cell bit-unchanged:
+    #   warp 0.001  parity 7.14e-4 -> 9.29e-6   rigid-rot 2.36e-5 -> 7.89e-8
+    #   warp 0.05   parity 3.57e-2 -> 4.67e-4   rigid-rot 1.18e-3 -> 4.72e-6
+    #   warp 0.20   parity 1.40e-1 -> 1.10e-2   rigid-rot 4.13e-3 -> 1.60e-4
+    # The residual is second order in the warp -- this transform is exact to first order only.
+    if coords_3d !== nothing && warp_transform_on
+        zl4 = quad4_local_z_from_coords3d(coords_3d)
+        xmax = max(maximum(abs, @view coords[:,1]), 1e-30)
+        if maximum(abs, zl4) > 1e-12 * xmax
+            # x, y are the CALLER's own local in-plane coords -- ws.Ke is in that frame, so no
+            # rotation is applied here. z is the out-of-plane offset about the same mean plane.
+            xc = 0.25*(coords[1,1]+coords[2,1]+coords[3,1]+coords[4,1])
+            yc = 0.25*(coords[1,2]+coords[2,2]+coords[3,2]+coords[4,2])
+            xl = ntuple(i -> coords[i,1]-xc, 4)
+            yl = ntuple(i -> coords[i,2]-yc, 4)
+            Vm = @SMatrix [1.0 xl[1] yl[1] xl[1]*yl[1];
+                           1.0 xl[2] yl[2] xl[2]*yl[2];
+                           1.0 xl[3] yl[3] xl[3]*yl[3];
+                           1.0 xl[4] yl[4] xl[4]*yl[4]]
+            av = Vm \ SVector(zl4[1], zl4[2], zl4[3], zl4[4])
+            XPn = (2,1,4,3); YPn = (4,3,2,1)
+            Tg = Matrix{Float64}(I, 24, 24)
+            @inbounds for i in 1:4
+                gx = av[2] + av[4]*yl[i]
+                gy = av[3] + av[4]*xl[i]
+                Tg[6(i-1)+4, 6(i-1)+6] += gx
+                Tg[6(i-1)+5, 6(i-1)+6] += gy
+                Tg[6(i-1)+1, 6(i-1)+3]      += 0.5*gx
+                Tg[6(i-1)+1, 6(XPn[i]-1)+3] -= 0.5*gx
+                Tg[6(i-1)+2, 6(i-1)+3]      += 0.5*gy
+                Tg[6(i-1)+2, 6(YPn[i]-1)+3] -= 0.5*gy
+            end
+            Kt = transpose(Tg) * ws.Ke * Tg
+            @inbounds for j in 1:24, i in 1:24
+                ws.Ke[i,j] = 0.5*(Kt[i,j] + Kt[j,i])
+            end
+        end
     end
 
     return ws.Ke
