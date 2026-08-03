@@ -2572,20 +2572,29 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         if maximum(abs, zl4) > 1e-12 * xmax
             # x, y are the CALLER's own local in-plane coords -- ws.Ke is in that frame, so no
             # rotation is applied here. z is the out-of-plane offset about the same mean plane.
-            xc = 0.25*(coords[1,1]+coords[2,1]+coords[3,1]+coords[4,1])
-            yc = 0.25*(coords[1,2]+coords[2,2]+coords[3,2]+coords[4,2])
-            xl = ntuple(i -> coords[i,1]-xc, 4)
-            yl = ntuple(i -> coords[i,2]-yc, 4)
-            Vm = @SMatrix [1.0 xl[1] yl[1] xl[1]*yl[1];
-                           1.0 xl[2] yl[2] xl[2]*yl[2];
-                           1.0 xl[3] yl[3] xl[3]*yl[3];
-                           1.0 xl[4] yl[4] xl[4]*yl[4]]
-            av = Vm \ SVector(zl4[1], zl4[2], zl4[3], zl4[4])
+            # The height field is bilinear in the NATURAL coordinates, z = sum N_i(r,s) z_i --
+            # NOT bilinear in x,y. The two coincide only on a rectangle, which is exactly where
+            # the slope law was verified (ratio 1.0000 on a pure twist, <=0.7 % on rectangles) and
+            # exactly where it stopped holding: on skew 30 the Ry column ran 0.27-3.80 and on
+            # taper 0.50 it ran 0.50-2.08. So take the slopes isoparametrically, through the
+            # inverse Jacobian AT each corner, which reduces to the x,y form on a rectangle.
+            corner = ((-1.0,-1.0), (1.0,-1.0), (1.0,1.0), (-1.0,1.0))
             XPn = (2,1,4,3); YPn = (4,3,2,1)
             Tg = Matrix{Float64}(I, 24, 24)
             @inbounds for i in 1:4
-                gx = av[2] + av[4]*yl[i]
-                gy = av[3] + av[4]*xl[i]
+                rr, ss = corner[i]
+                dNr, dNs = shape_derivs_quad(rr, ss)
+                J11 = dNr[1]*coords[1,1]+dNr[2]*coords[2,1]+dNr[3]*coords[3,1]+dNr[4]*coords[4,1]
+                J12 = dNr[1]*coords[1,2]+dNr[2]*coords[2,2]+dNr[3]*coords[3,2]+dNr[4]*coords[4,2]
+                J21 = dNs[1]*coords[1,1]+dNs[2]*coords[2,1]+dNs[3]*coords[3,1]+dNs[4]*coords[4,1]
+                J22 = dNs[1]*coords[1,2]+dNs[2]*coords[2,2]+dNs[3]*coords[3,2]+dNs[4]*coords[4,2]
+                dj = J11*J22 - J12*J21
+                abs(dj) < 1e-30 && continue
+                i11 =  J22/dj; i12 = -J12/dj; i21 = -J21/dj; i22 = J11/dj
+                zr = dNr[1]*zl4[1]+dNr[2]*zl4[2]+dNr[3]*zl4[3]+dNr[4]*zl4[4]
+                zsd = dNs[1]*zl4[1]+dNs[2]*zl4[2]+dNs[3]*zl4[3]+dNs[4]*zl4[4]
+                gx = i11*zr + i12*zsd
+                gy = i21*zr + i22*zsd
                 Tg[6(i-1)+4, 6(i-1)+6] += gx
                 Tg[6(i-1)+5, 6(i-1)+6] += gy
                 Tg[6(i-1)+1, 6(i-1)+3]      += 0.5*gx
