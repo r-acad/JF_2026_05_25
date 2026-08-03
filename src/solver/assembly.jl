@@ -3051,8 +3051,21 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # discontinuity, because !elem_is_flat flips elem_shear_center_only and
         # skips the MacNeal RBF shear block. With the tolerance relaxed the
         # warped cell reproduces the flat cell exactly at every warp level.
+        # 2026-08-03: with the MacNeal warp multiplier in place (JFEM_Q4_WARP_TRANSFORM), the
+        # flat/warped KERNEL branch is superseded. MacNeal's construction IS "flat element, then
+        # pre/post-multiplier", so once the multiplier exists the flat kernel is correct at every
+        # warp and this classifier should not gate it. Leaving it gated left a genuine BRANCH
+        # DISCONTINUITY: the membrane block of K drops by 1097 in a single step between warp 0.0570
+        # and 0.0575 -- exactly where warp_ratio crosses this 1e-2 -- against a smooth trend of ~30,
+        # while the reference is warp-insensitive there. That step was the whole of the remaining
+        # membrane error: mem-mem at warp 0.20 falls 1.017e-2 -> 9.02e-5 when it is removed.
+        # The comment above records the same class of bug being pushed from 1e-6 to 1e-2 in April,
+        # which MOVED the discontinuity rather than removing it. This removes it.
+        # Measured: warp 1.089953e-02 -> 3.414193e-03, combined 1.494114e-01 -> 1.014564e-01, every
+        # other element-parity axis bit-unchanged.
+        flat_tol_rel_default = fem_env_bool_solver_warp_transform() ? 1e30 : 1e-2
         elem_is_flat = max_dev_ei <
-            max(solver_env_float("JFEM_Q4_FLAT_TOL_REL", 1e-2), 1e-12) *
+            max(solver_env_float("JFEM_Q4_FLAT_TOL_REL", flat_tol_rel_default), 1e-12) *
             max(L_diag_ei, 1e-12)
         warp_ratio_ei = max_dev_ei / max(L_diag_ei, 1e-12)
         # MacNeal-permissive planarity (2026-04-30): the flat MacNeal RBF kernel

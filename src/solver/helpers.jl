@@ -594,6 +594,12 @@ end
     return clamp(solver_env_float("JFEM_SOL105_EIG_CURVED_ISO_MEMBRANE_INCOMP_CYL_RATIO_MAX", 0.2), 0.0, 1.0)
 end
 
+# True when the MacNeal warp multiplier is active (default ON). Used to decide whether the
+# flat/warped kernel branch is still needed -- it is not, once the multiplier handles warp.
+@inline function fem_env_bool_solver_warp_transform()
+    return !(lowercase(strip(get(ENV, "JFEM_Q4_WARP_TRANSFORM", ""))) in ("0","false","no","off"))
+end
+
 @inline function q4_curved_iso_warp_membrane_incomp_enabled()
     # Default off (2026-04-21 cleanup).
     return solver_env_bool("JFEM_SOL105_EIG_CURVED_ISO_WARP_MEMBRANE_INCOMP", false)
