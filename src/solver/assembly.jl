@@ -2248,7 +2248,13 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         tryparse(Float64, strip(get(ENV, "JFEM_MACNEAL_WARP_ALPHA", ""))) != 0.0
     marguerre_wants_coords3d =
         lowercase(strip(get(ENV, "JFEM_Q4_MARGUERRE_WARP_TO_UZ", ""))) in ("1", "true", "yes", "on")
-    coords3d_needed = curved_jacobian_enabled || warp_alpha_wants_coords3d || marguerre_wants_coords3d
+    # The MacNeal warp multiplier (JFEM_Q4_WARP_TRANSFORM, default ON) also needs coords_3d.
+    # It EXCLUDES the curved-shell frame inside the kernel, exactly as Marguerre does, so the
+    # rigid-body-translation warning above does not apply to it.
+    warp_transform_wants_coords3d =
+        !(lowercase(strip(get(ENV, "JFEM_Q4_WARP_TRANSFORM", ""))) in ("0", "false", "no", "off"))
+    coords3d_needed = curved_jacobian_enabled || warp_alpha_wants_coords3d ||
+                      marguerre_wants_coords3d || warp_transform_wants_coords3d
     q4_kernel_key = shear_center_only ? "JFEM_Q4_KERNEL_EIG" : "JFEM_Q4_KERNEL_STATIC"
     # SOL101 static PCOMP: keep the MITC4-3D aspect route opt-in.
     #
