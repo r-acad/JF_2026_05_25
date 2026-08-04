@@ -6,6 +6,47 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Grid-point singularity processing, matching the reference solver's
+  `GRID POINT SINGULARITY TABLE` for translations and rotations alike.** The
+  pre-existing AUTOSPC tests one DOF at a time against its own diagonal, which
+  cannot see a singular *direction* that is not aligned with a DOF axis — and on
+  a shell whose normal is oblique to the global axes, the drilling direction
+  never is. The new test eigen-decomposes each grid's 3x3 translational and 3x3
+  rotational stiffness blocks, forms each eigenvalue's ratio to that block's
+  largest, and moves any direction below `EPZERO` from the free set to the SPC
+  set, reporting the DOF the singular eigenvector lies closest to — which is
+  exactly what the reference does. Blocks are read in the grid's displacement
+  (`CD`) frame, the frame the reference tests and reports in.
+
+  Validated entry-for-entry against the reference's own table on **ten cases,
+  10/10 PASS**. Eight are purpose-built rod/bar decks, since a pure-shell deck
+  cannot produce a translational singularity: a rank-1 rod with a two-dimensional
+  oblique null space; a truss spanning a plane whose normal `(1,2,3)/√14` no DOF
+  axis lies near (1-D oblique — the case a diagonal test provably cannot find); a
+  CBAR cantilever as a false-positive control, expecting and getting zero; a
+  pinned CBAR; a rod whose grid `CD` frame is aligned to its own axis, which is
+  the frame proof; a mixed quad-plus-rod deck; and an equiangular truss that
+  makes "nearest DOF" a genuine three-way tie. The two shipped MacNeal decks
+  supply the rotational side at 24/24 and 12/12.
+
+  The two mechanisms are complementary and the claim is their union: the curved
+  beam is flat so its drilling direction *is* global Rz, and the diagonal test
+  finds all 12 while the directional test finds 0; the twisted beam's normal is
+  oblique everywhere, so the diagonal test finds 0 while the directional test
+  finds all 24.
+
+  One limit is inherent rather than an implementation choice: when a null space
+  has dimension > 1 and is not spanned by DOF axes, its eigenvector basis is
+  arbitrary, so *which* DOFs get constrained is not a property of the method. The
+  reference shows this against itself — for the same rod direction `(1,1,1)` it
+  constrains `{1,3}` in one deck and `{2,3}` in another, and in both the
+  resulting displacement lies along the single surviving DOF rather than along
+  the rod. Only the count, and the choice when the null space is 1-D, are
+  reproducible; the validation gate is written accordingly.
+
+  `JFEM_AUTOSPC_GRID_POINT_SINGULARITY=false` disables the test;
+  `JFEM_AUTOSPC_GRID_POINT_SINGULARITY_TRANS=false` disables its translational
+  half only.
 - **The effective `PARAM,K6ROT` and where it came from are now echoed on every
   run.** `[SOLVER] Drilling stabilisation: K6ROT=100.0 (OpenJFEM default;
   MSC/Nastran 70.5 linear SOLs default to 0.0)` on a deck that declares nothing,
@@ -54,7 +95,45 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - `run_public_suite.jl` understands a `static_preload_displacement` quantity
   kind, reading `static_displacements` out of a SOL 105 result.
 
+### Changed
+- **BREAKING (cardless decks only): `PARAM,K6ROT` now defaults to the reference
+  solver's per-solution-sequence value instead of a flat 100.0.** MSC/Nastran
+  70.5 has no single global default — its delivery source says so outright
+  (`param.ddl:142-143`: *"K6ROT MUST NOT BE DEFINED HERE BECAUSE ITS DEFAULT
+  VALUE IS DIFFERENT ACROSS SOLUTION SEQUENCES"*). It declares `K6ROT=0.` in
+  every linear sequence (`sestatic.dat:44` for SOL 101, `semodes.dat:46` for
+  103, `sebuckl.dat:42` for 105) and `100.` only in the nonlinear SOL 106/129.
+  OpenJFEM now does the same, so a deck that declares nothing runs the same
+  problem in both codes.
+
+  This is safe because the drilling directions it exposes are removed by the new
+  grid-point singularity processing, exactly as the reference removes them — the
+  reference's own singularity table on the shipped twisted beam at K6ROT=0 has 24
+  entries, so its element is no less drilling-rank-deficient than OpenJFEM's.
+
+  A deck that declares `PARAM,K6ROT` is unaffected, as are the
+  `JFEM_PARAM_K6ROT*` environment overrides. Measured blast radius: the private
+  SOL 105 corpus declares the card on 66 of 66 decks, and of 16 git-tracked
+  public decks only 4 relied on the default — three JIT warm-up decks and one
+  CBAR case measured K6ROT-invariant to 13 digits.
+
+  The same value is now threaded into the design-sensitivity path
+  (`src/solver/dKdx.jl`), whose kernel calls previously left `k6rot` at its own
+  100.0 keyword default. That was harmless only while the assembly default was
+  also 100.0; left unfixed it would have computed `dK/dx` from a different
+  operator than `K`.
+
 ### Fixed
+- **CBAR/CBEAM continuation fields were read one slot early, silently applying a
+  pin release the deck never requested.** The processed-card layout includes MSC
+  field 10, so an explicit continuation marker such as `+CB1` lands where `PA`
+  was being read — and `parse_nastran_number` does not reject `"+CB1"`, it
+  returns a number, which was then interpreted as a pin-flag DOF list. A bar with
+  `PB=456` came out with its tip displacement wrong by five orders of magnitude
+  while the solver reported a clean residual throughout. Now fixed for both card
+  types; a deck with no explicit marker takes the unchanged path, so the private
+  SOL 105 corpus (zero CBAR/CBEAM cards) and the one such public deck
+  (fixed-format, no continuation) are bit-identical.
 - **Public validation suite: same-deck parity now passes on every row that
   carries a parity target (13/13, was 11/12), and the last reported gap was not
   a formulation gap.** `PARAM,K6ROT` — the Hughes-Brezzi drilling-DOF

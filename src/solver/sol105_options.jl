@@ -117,8 +117,12 @@ function from_env()
         # AUTOSPC
         _env_float("JFEM_AUTOSPC_TRANS_REL", 1e-8),
         _env_float("JFEM_AUTOSPC_ROT_REL", 1e-8),
-        # Other
-        _env_float("JFEM_PARAM_K6ROT", 100.0),
+        # Other. NOTE this is the reproducibility-footer field only; it has no
+        # solver consumer. The effective value comes from assembly.jl, which
+        # honours the deck's PARAM,K6ROT and otherwise follows MSC/Nastran 70.5
+        # per solution sequence (0. linear, 100. in SOL 106/129). SOL 105 is
+        # linear, hence 0.0 here.
+        _env_float("JFEM_PARAM_K6ROT", 0.0),
     )
 end
 

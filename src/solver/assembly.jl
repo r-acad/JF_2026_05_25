@@ -1554,6 +1554,32 @@ end
 end
 
 
+"""
+    nastran_k6rot_default(model)
+
+The drilling-DOF stabilisation coefficient a deck gets when it declares no
+`PARAM,K6ROT`, matching the reference solver.
+
+MSC/Nastran 70.5 has no single global default -- its own delivery source says so
+outright (`msc705/nast/del/param.ddl:142-143`: *"K6ROT MUST NOT BE DEFINED HERE
+BECAUSE ITS DEFAULT VALUE IS DIFFERENT ACROSS SOLUTION SEQUENCES"*). The value is
+declared per subDMAP: `K6ROT=0.` in every linear sequence (`sestatic.dat:44` for
+SOL 101, `semodes.dat:46` for 103, `sebuckl.dat:42` for 105, and likewise for
+107-112, 114-118, 144-146, 200), and `K6ROT=100.` only in the nonlinear ones
+(`nlstatic.dat:67` for SOL 106, `nltran.dat:69` for 129).
+
+OpenJFEM previously defaulted to a flat 100.0 everywhere. On a deck that declares
+nothing that silently ran a different problem from the reference -- worth up to
+3.5% on the MacNeal hemisphere, where it was mistaken for a formulation gap until
+2026-08-04. Matching the reference per sequence removes the discrepancy at its
+source. A deck that declares `PARAM,K6ROT` is unaffected, as is the
+`JFEM_PARAM_K6ROT*` environment override.
+"""
+@inline function nastran_k6rot_default(model)
+    sol = Int(round(Float64(get(model, "SOL", get(model, "sol_type", 101)))))
+    return (sol == 106 || sol == 129) ? 100.0 : 0.0
+end
+
 @inline function solver_k6rot(default::Real, shear_center_only::Bool)
     primary_key = shear_center_only ? "JFEM_PARAM_K6ROT_EIG" : "JFEM_PARAM_K6ROT_STATIC"
     raw = get(ENV, primary_key, get(ENV, "JFEM_PARAM_K6ROT", ""))
@@ -2447,7 +2473,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         !isempty(get(model, "MPCs", []))
     pshells = model["PSHELLs"]; pbarls = model["PBARLs"]; mats = model["MATs"]
     auto_pcomp_membrane_incomp_model = any(q4_sol105_pcomp_auto_membrane_incomp_candidate, values(pshells))
-    k6rot = solver_k6rot(get(model, "PARAM_K6ROT", 100.0), shear_center_only)
+    k6rot = solver_k6rot(get(model, "PARAM_K6ROT", nastran_k6rot_default(model)), shear_center_only)
 
     nt = Threads.maxthreadid()
     log_msg("[SOLVER] Computing Element Stiffness ($(Threads.nthreads()) threads)...")
@@ -2459,7 +2485,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     # gap" on the MacNeal hemisphere. Saying it out loud costs one line.
     log_msg(string("[SOLVER] Drilling stabilisation: K6ROT=", k6rot, " (",
                    haskey(model, "PARAM_K6ROT") ? "from the deck's PARAM,K6ROT" :
-                       "OpenJFEM default; MSC/Nastran 70.5 linear SOLs default to 0.0",
+                       "default for SOL " *
+                       string(Int(round(Float64(get(model, "SOL", get(model, "sol_type", 101)))))) *
+                       ", matching MSC/Nastran 70.5",
                    ")"))
 
     # Convert id_map Dict to dense Vector

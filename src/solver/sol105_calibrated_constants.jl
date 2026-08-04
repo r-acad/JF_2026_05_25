@@ -171,14 +171,24 @@ const SOL105_CALIBRATED_CONSTANTS = (
     # Drilling stabilization
     # ─────────────────────────────────────────────────────────────────
     k6rot_default = (
-        value           = 100.0,
+        value           = 0.0,   # linear sequences; 100.0 in SOL 106/129
         env             = "JFEM_PARAM_K6ROT",
-        site            = "BDF PARAM K6ROT card / solver default",
-        description     = "Hughes-Brezzi drilling DOF stiffness coefficient.",
-        provenance      = ("MSC Nastran convention: 'It is recommended in SOL105 to " *
-                           "start with K6ROT=100. A value too high may be just as detrimental " *
-                           "as too low' (MSC Reference Guide pp.139). Sweep on GAME shows " *
-                           "K6ROT=8333 (TACS-equivalent 83×) widens HTP_launch by 0.5%."),
+        site            = "JFEM/src/solver/assembly.jl:nastran_k6rot_default + assembly.jl:2450",
+        description     = "Hughes-Brezzi drilling DOF stiffness coefficient, when the deck declares no PARAM,K6ROT.",
+        provenance      = ("NO LONGER A CALIBRATED VALUE (2026-08-04). This entry used to " *
+                           "record a flat 100.0 justified by an MSC recommendation to 'start " *
+                           "with K6ROT=100' in SOL105. That is advice for a user, not the " *
+                           "solver's default, and taking it as the default meant a cardless " *
+                           "deck silently ran a different problem from the reference -- worth " *
+                           "3.4956% on the MacNeal hemisphere, where it was mistaken for a " *
+                           "formulation gap. The default now mirrors MSC/Nastran 70.5's own " *
+                           "per-subDMAP declarations: 0. in every linear sequence " *
+                           "(del/sestatic.dat:44, semodes.dat:46, sebuckl.dat:42, ...) and " *
+                           "100. only in the nonlinear SOL 106/129 (nlstatic.dat:67, " *
+                           "nltran.dat:69). Safe because the drilling directions this exposes " *
+                           "are removed by grid-point singularity processing, exactly as the " *
+                           "reference does: OpenJFEM reproduces its GRID POINT SINGULARITY " *
+                           "TABLE entry-for-entry (24/24 twisted beam, 12/12 curved beam)."),
     ),
     # ─────────────────────────────────────────────────────────────────
     # SOL105 buckling-spectrum filters. The spectral-gap cluster skip is

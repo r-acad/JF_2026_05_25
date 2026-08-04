@@ -485,6 +485,158 @@ function autospc_rot_relative_threshold(model=nothing)
     return max(autospc_trans_relative_threshold(model), 0.0)
 end
 
+@inline function gpst_enabled()
+    return solver_env_bool("JFEM_AUTOSPC_GRID_POINT_SINGULARITY", true)
+end
+
+"""
+Whether the directional singularity test also runs on the 3x3 TRANSLATIONAL
+block. Default ON, matching the reference solver, which tests both blocks.
+
+Validated against purpose-built reference runs under
+`VALIDATION_FILES/GRID_POINT_SINGULARITY_2026_08_04/` -- rods and bars, since a
+pure-shell deck cannot produce a translational singularity. A single rod resists
+only along its own axis, so its free node's translational stiffness is rank 1
+with a two-dimensional null space; three rods spanning an oblique plane leave a
+one-dimensional null space along that plane's normal, which no DOF axis lies
+near and which therefore no per-DOF diagonal test can find.
+"""
+@inline function gpst_translational_enabled()
+    return solver_env_bool("JFEM_AUTOSPC_GRID_POINT_SINGULARITY_TRANS", true)
+end
+
+"""
+    _grid_point_singularity_autospc!(fixed_dofs, spc_dofs, K, ndof, model, id_map, protected_trans_dofs)
+
+Nastran-equivalent grid point singularity processing.
+
+The pre-existing `_diagonal_autospc!` tests one DOF at a time against its own
+diagonal. That cannot see a singular *direction* which is not aligned with a DOF
+axis -- and on a shell whose normal is oblique to the global axes, the
+drilling direction never is. The reference solver instead tests, at each grid,
+the 3x3 translational and 3x3 rotational stiffness blocks as a whole: it
+eigen-decomposes each block, forms the ratio of each eigenvalue to that block's
+largest, and any direction whose ratio falls below `EPZERO` is singular and is
+moved from the free set to the SPC set. Its `GRID POINT SINGULARITY TABLE`
+reports the failed direction as the DOF the singular eigenvector lies closest
+to.
+
+Worked example that pins the semantics -- the MacNeal twisted beam at
+`PARAM,K6ROT,0.`, whose section rotates 90 degrees from root to tip. The
+reference AUTOSPCs 24 directions, and the reported DOF migrates from 6 to 5 as
+the shell normal swings from global Z to global Y:
+
+    grids  3..12  ->  failed direction 6, ratios 3.29e-11 .. 3.76e-11
+    grids 13..26  ->  failed direction 5, ratios 0.00e+00 .. 3.76e-11
+
+A diagonal test finds almost none of these, which is why an earlier
+investigation concluded the mechanisms were OpenJFEM's own. They are not; they
+are inherent to any quad without a genuine drilling formulation once the
+drilling spring is removed, and the reference simply processes them.
+
+Runs *after* `_diagonal_autospc!` and only over DOFs still free, so it is purely
+additive. Fully constrained grids are skipped, matching the reference (the
+clamped root grids are absent from its table).
+"""
+function _grid_point_singularity_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{Int}},
+                                          K, ndof, model, id_map,
+                                          protected_trans_dofs::Union{Nothing,Set{Int}}=nothing)
+    eps_zero = autospc_rot_relative_threshold(model)
+    n_nodes = div(ndof, 6)
+    n_trans = 0
+    n_rot = 0
+    entries = Vector{NTuple{3,Any}}()   # (grid_id, failed dof 1..6, stiffness ratio)
+    inv_id_map = _autospc_inverse_id_map(id_map)
+
+    do_trans = gpst_translational_enabled()
+    blk = zeros(Float64, 3, 3)
+    for node_idx in 1:n_nodes
+        base = (node_idx - 1) * 6
+        for (offset, is_rot) in ((0, false), (3, true))
+            (is_rot || do_trans) || continue
+            # Only the DOFs of this block that are still free participate; a
+            # partially constrained grid is tested on its remaining subspace.
+            free_local = Int[]
+            for a in 1:3
+                gdof = base + offset + a
+                gdof <= ndof || continue
+                (gdof in fixed_dofs) && continue
+                push!(free_local, a)
+            end
+            length(free_local) >= 1 || continue
+
+            m = length(free_local)
+            @inbounds for ii in 1:m, jj in 1:m
+                blk[ii, jj] = Float64(K[base + offset + free_local[ii],
+                                        base + offset + free_local[jj]])
+            end
+            sub = @view blk[1:m, 1:m]
+            # Symmetrise defensively; K is symmetric up to assembly roundoff.
+            S = Symmetric((Matrix(sub) .+ transpose(Matrix(sub))) ./ 2)
+            local vals, vecs
+            try
+                F = eigen(S)
+                vals = F.values
+                vecs = F.vectors
+            catch
+                continue
+            end
+            lam_max = maximum(abs, vals)
+            lam_max > 0.0 || continue
+
+            claimed = Set{Int}()
+            for k in 1:m
+                ratio = abs(vals[k]) / lam_max
+                ratio < eps_zero || continue
+                # Constrain the DOF the singular eigenvector lies closest to,
+                # which is what the reference's table records. Ties, and the
+                # ordering within a degenerate null space, are broken by lowest
+                # DOF index so that OpenJFEM is at least deterministic.
+                #
+                # A caveat that the reference's own output forces, and that no
+                # implementation can remove: when the null space has dimension
+                # > 1 its eigenvector basis is arbitrary, so WHICH DOFs get
+                # constrained is not a property of the method. The reference
+                # picks {1,3} for a rod along (1,1,1) in one deck and {2,3} for
+                # the identical rod direction in another. Both leave the axial
+                # load path intact -- and both return a displacement along the
+                # single surviving DOF rather than along the rod. Only the COUNT
+                # of constrained directions, and the choice when the null space
+                # is one-dimensional, are reproducible.
+                best_a, best_w = 0, -1.0
+                for ii in 1:m
+                    w = abs(vecs[ii, k])
+                    a = free_local[ii]
+                    (a in claimed) && continue
+                    if w > best_w + 1e-12
+                        best_w, best_a = w, a
+                    end
+                end
+                best_a == 0 && continue
+                gdof = base + offset + best_a
+                (gdof in fixed_dofs) && continue
+                if !is_rot && protected_trans_dofs !== nothing && (gdof in protected_trans_dofs)
+                    continue
+                end
+                push!(claimed, best_a)
+                push!(fixed_dofs, gdof)
+                !isnothing(spc_dofs) && push!(spc_dofs, gdof)
+                is_rot ? (n_rot += 1) : (n_trans += 1)
+                gid = 1 <= node_idx <= length(inv_id_map) ? inv_id_map[node_idx] : 0
+                push!(entries, (gid, offset + best_a, ratio))
+            end
+        end
+    end
+
+    return Dict(
+        "dofs" => n_trans + n_rot,
+        "translational_dofs" => n_trans,
+        "rotational_dofs" => n_rot,
+        "eps_zero" => eps_zero,
+        "entries" => entries,
+    )
+end
+
 function _load_path_add_components!(node_components::Dict{Int,Set{Int}}, node_idx::Int, comps)
     node_idx > 0 || return
     comp_set = get!(node_components, node_idx, Set{Int}())
@@ -876,6 +1028,18 @@ function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diag
         diagnostics["autospc_diagonal_rotational_dofs"] = autospc_diag["rotational_dofs"]
         diagnostics["autospc_load_path_protected_translational_dofs"] = autospc_diag["load_path_protected_translational_dofs"]
         diagnostics["autospc_load_path_skipped_dofs"] = autospc_diag["load_path_autospc_skipped_dofs"]
+        # The eigen partition must reach the SAME constrained set as the static
+        # path, or K and Kg disagree about which DOFs exist. Run the directional
+        # test here too.
+        if gpst_enabled()
+            gpst = _grid_point_singularity_autospc!(fixed_dofs, nothing, K, ndof, model, id_map)
+            diagnostics["autospc_gpst_dofs"] = gpst["dofs"]
+            diagnostics["autospc_gpst_translational_dofs"] = gpst["translational_dofs"]
+            diagnostics["autospc_gpst_rotational_dofs"] = gpst["rotational_dofs"]
+            if gpst["dofs"] > 0
+                log_msg("[SOLVER] AUTOSPC grid-point singularity (eigen partition): $(gpst["dofs"]) DOFs ($(gpst["translational_dofs"]) trans + $(gpst["rotational_dofs"]) rot)")
+            end
+        end
     end
 
     free_dofs, n_fact_autospc, fact_diag = factorization_autospc_free_dofs(K, ndof, fixed_dofs)
@@ -1102,6 +1266,18 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
         log_msg("[SOLVER] AUTOSPC: $(autospc_diag["dofs"]) DOFs ($(autospc_diag["translational_dofs"]) trans + $(autospc_diag["rotational_dofs"]) rot, rel_thresh=$rel_msg, max_K_trans=$(round(autospc_diag["max_K_trans"], sigdigits=3)), max_K_rot=$(round(autospc_diag["max_K_rot"], sigdigits=3)))")
         if autospc_diag["load_path_autospc_skipped_dofs"] > 0
             log_msg("[SOLVER] AUTOSPC load-path protection skipped $(autospc_diag["load_path_autospc_skipped_dofs"]) low-diagonal translational candidates")
+        end
+        if gpst_enabled()
+            gpst = _grid_point_singularity_autospc!(fixed_dofs, spc_dofs, K, ndof, model, id_map,
+                                                    protected_trans_dofs)
+            diagnostics["bc_partition"]["autospc_gpst_dofs"] = gpst["dofs"]
+            diagnostics["bc_partition"]["autospc_gpst_translational_dofs"] = gpst["translational_dofs"]
+            diagnostics["bc_partition"]["autospc_gpst_rotational_dofs"] = gpst["rotational_dofs"]
+            diagnostics["bc_partition"]["autospc_gpst_eps_zero"] = gpst["eps_zero"]
+            diagnostics["bc_partition"]["autospc_gpst_entries"] =
+                [Dict("grid_id" => e[1], "failed_direction" => e[2], "stiffness_ratio" => e[3])
+                 for e in gpst["entries"]]
+            log_msg("[SOLVER] AUTOSPC grid-point singularity: $(gpst["dofs"]) DOFs ($(gpst["translational_dofs"]) trans + $(gpst["rotational_dofs"]) rot, eps_zero=$(gpst["eps_zero"]))")
         end
     else
         log_msg("[SOLVER] AUTOSPC: disabled by PARAM,AUTOSPC")
