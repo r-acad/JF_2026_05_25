@@ -127,6 +127,34 @@
   citation: "MacNeal & Harder 1985, curved cantilever beam (Sec. 3)"
   license: public domain
 
+# Refined-mesh companions. The coarse decks above ARE the published benchmark
+# and stay untouched; these answer the separate question the benchmark mesh
+# cannot -- does the element converge onto the published target? Both are
+# scored against the SAME published reference as their coarse twin, at the
+# ordinary 2% tolerance, with no per-mesh allowance.
+- id: MH_curved_beam_refined
+  family: macneal_harder
+  bdf: cases/macneal_harder/curved_beam_refined.bdf
+  sol: 101
+  quantities:
+    - name: tip_disp_in_plane
+      kind: displacement
+      # mid-width tip node of the 24x4 mesh
+      selector: {node: 75, dof: 2}
+      reference:
+        kind: analytical
+        module: macneal_curved_beam
+        fn: tip_disp_in_plane
+      tol_rel: 0.02
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MH_curved_beam_refined
+        tol_rel: 1.0e-3
+  citation: "MacNeal & Harder 1985, curved cantilever beam (Sec. 3), refined 24x4 mesh"
+  license: public domain
+
 # The twisted beam carries BOTH published load cases. Until 2026-08-04 the
 # suite shipped one row that applied the out-of-plane load (+Y) while scoring
 # it against the in-plane target, which is where its 68.5% "accuracy error"
@@ -239,6 +267,29 @@
         row_id: MH_pinched_cylinder
         tol_rel: 1.0e-3
   citation: "MacNeal & Harder 1985, pinched cylinder with diaphragms (Sec. 8)"
+  license: public domain
+
+- id: MH_pinched_cylinder_refined
+  family: macneal_harder
+  bdf: cases/macneal_harder/pinched_cylinder_refined.bdf
+  sol: 101
+  quantities:
+    - name: radial_disp_under_load
+      kind: displacement
+      selector: {node: 1, dof: 1}
+      compare_abs: true
+      reference:
+        kind: analytical
+        module: macneal_pinched_cylinder
+        fn: radial_disp_under_load
+      tol_rel: 0.02
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MH_pinched_cylinder_refined
+        tol_rel: 1.0e-3
+  citation: "MacNeal & Harder 1985, pinched cylinder with diaphragms (Sec. 8), refined 24x24 octant mesh"
   license: public domain
 
 - id: MH_hemispherical_shell

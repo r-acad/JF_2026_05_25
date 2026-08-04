@@ -13,6 +13,7 @@ public validation manifest.
 | Family | SOL | Cases | Scalar rows | Reference type | Parity rows | Public basis |
 | --- | ---: | ---: | ---: | --- | ---: | --- |
 | MacNeal-Harder shell benchmarks | 101 | 6 | 6 | Analytical / published benchmark values | 6 | Published classical benchmark set |
+| MacNeal-Harder refined companions | 101 | 2 | 2 | Same published values, refined mesh | 2 | Convergence evidence for the two hardest cases |
 | Classical buckling | 105 | 2 | 4 | Closed-form formulas + STATSUB preload | 2 | Published plate and shell buckling theory |
 | MYSTRAN cross-checks | 101, 105 | 2 | 2 | Tabulated reference values | 2 | MIT-licensed open-source test suite |
 | CRM/uCRM wingbox modal | 103 | 1 | 5 | Tabulated modal eigenvalues | 5 | Apache-2.0 TACS CRM example with synthesized public properties |
@@ -20,10 +21,10 @@ public validation manifest.
 ## Two Independent Measurements: Accuracy And Parity
 
 Every row is scored against a published or closed-form target (**accuracy**).
-Fifteen of the seventeen rows are additionally scored against a tabulated
+Seventeen of the nineteen rows are additionally scored against a tabulated
 reference-solver value obtained by running **this folder's own deck,
-unmodified**, through an established solver (**parity**). Every one of the ten
-cases carries at least one such measurement.
+unmodified**, through an established solver (**parity**). Every one of the
+twelve cases carries at least one such measurement.
 
 The two answer different questions and must not be conflated:
 
@@ -37,7 +38,8 @@ Reporting only accuracy hides defects in both directions, and did. The two rows
 that still miss their textbook targets — by 16.7% and 47.6% — are in `1.3e-8`
 and `7.2e-6` same-deck parity: the reference solver misses the same targets by
 the same amounts on the same decks, because the standard benchmark meshes are
-deliberately coarse.
+deliberately coarse. Their refined companions settle the question directly, at
+0.64% and 0.21% of the same published targets.
 
 Parity tolerances are deliberately tighter than the accuracy tolerance on the
 same row; there is no mesh-convergence allowance to spend. Since same-deck
@@ -82,12 +84,12 @@ payload. The status of the current maintained revision is:
 
 | Metric | Value |
 | --- | ---: |
-| Total scalar validation rows | 17 |
-| Accuracy PASS / FAIL | 15 / 2 |
-| Rows carrying a parity target | 15 |
-| Parity PASS / FAIL | **15 / 0** |
-| Cases with at least one parity row | **10 / 10** |
-| SOL 101 rows | 7 |
+| Total scalar validation rows | 19 |
+| Accuracy PASS / FAIL | 17 / 2 |
+| Rows carrying a parity target | 17 |
+| Parity PASS / FAIL | **17 / 0** |
+| Cases with at least one parity row | **12 / 12** |
+| SOL 101 rows | 9 |
 | SOL 103 rows | 5 |
 | SOL 105 rows | 5 |
 
@@ -95,7 +97,8 @@ Per-family maxima, both measurements side by side:
 
 | Family | Max accuracy error | Accuracy tol | Max parity error | Parity tol |
 | --- | ---: | ---: | ---: | ---: |
-| MacNeal-Harder | 47.6% | 2-10% by case | 0.0000062% | 0.1% |
+| MacNeal-Harder (benchmark meshes) | 47.6% | 2-10% by case | 0.0000062% | 0.1% |
+| MacNeal-Harder (refined companions) | 0.64% | 2% | 0.0036% | 0.1% |
 | Classical buckling | 3.56% | 3-15% by case | 0.00039% (STATSUB preload) | 0.1% |
 | MYSTRAN cross-check | 0.0000102% | 2-5% by case | 0.0000102% | 0.1% |
 | CRM/uCRM modal | 0.0282% | 5% | 0.0282% | 0.5% |
@@ -104,7 +107,7 @@ The MYSTRAN and CRM families show identical accuracy and parity figures because
 their published reference values *are* reference-solver values; those rows were
 always parity measurements, and the parity column now says so explicitly.
 
-### Same-deck parity, all 15 rows
+### Same-deck parity, all 17 rows
 
 | Row | Parity rel. error | Tol |
 | --- | ---: | ---: |
@@ -117,6 +120,8 @@ always parity measurements, and the parity column now says so explicitly.
 | `MYSTRAN_sol101_simple` | `1.02e-7` | `1e-3` |
 | `MYSTRAN_sol105_buckling` | `3.62e-7` | `1e-3` |
 | `CRM_wingbox_modal` modes 1-5 | `2.91e-5` .. `2.82e-4` | `5e-3` |
+| `MH_curved_beam_refined` | `3.59e-5` | `1e-3` |
+| `MH_pinched_cylinder_refined` | `8.83e-6` | `1e-3` |
 | `TG_plate_uniaxial_buckling` STATSUB preload | `5.00e-8` | `1e-3` |
 | `BA_cylinder_axial_buckling` STATSUB preload | `3.90e-6` | `1e-3` |
 
@@ -160,7 +165,17 @@ always parity measurements, and the parity column now says so explicitly.
    elements, OpenJFEM 0.5228, reference solver 0.5241; curved beam at 6x1:
    MacNeal & Harder's own published QUAD4 value 0.833, OpenJFEM 0.8310,
    reference solver 0.8334), and OpenJFEM converges onto both targets under
-   refinement (1.0002 at 24x24 and 1.006 at 24x4 respectively).
+   refinement.
+
+   That convergence is no longer a claim in prose: each of these two cases now
+   ships a **refined companion deck** scored against the *same* published
+   reference at the ordinary 2% tolerance —
+   `MH_curved_beam_refined` (24x4) at **0.64%** and
+   `MH_pinched_cylinder_refined` (24x24) at **0.21%**, both also in
+   `3.6e-5` / `8.8e-6` same-deck parity. The benchmark decks are untouched and
+   keep reporting the benchmark result, FAIL included; the refined decks carry
+   the convergence evidence. See `README.md`, "Benchmark Meshes vs Refined
+   Companions".
 
    *This supersedes an earlier note in this file which stated that the pinched
    cylinder, like the hemisphere, "applies half the load its symmetry model

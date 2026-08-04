@@ -20,7 +20,7 @@ validation/
 |-- run_public_suite.jl             top-level driver
 |-- analytical/                     Julia functions for closed-form references
 |-- cases/
-|   |-- macneal_harder/             six hand-coded classical shell/beam decks
+|   |-- macneal_harder/             six benchmark decks + two refined companions
 |   |-- classical/                  two closed-form plate/cylinder buckling decks
 |   |-- mystran_xref/               cross-checks against the MYSTRAN test suite
 |   `-- crm/                        Common Research Model wing-box
@@ -77,6 +77,8 @@ vectors, so rotated GRID `CD` frames do not change the reported physical mass.
 | Case | Source | License | Reference kind |
 | --- | --- | --- | --- |
 | `macneal_harder/curved_beam.bdf` | MacNeal & Harder (1985), Sec.\ 3 | Public domain (40+ yr journal) | Analytical |
+| `macneal_harder/curved_beam_refined.bdf` | MacNeal & Harder (1985), Sec.\ 3, refined 24x4 mesh | Public domain | Analytical |
+| `macneal_harder/pinched_cylinder_refined.bdf` | MacNeal & Harder (1985), Sec.\ 8, refined 24x24 mesh | Public domain | Analytical |
 | `macneal_harder/twisted_beam.bdf` | MacNeal & Harder (1985), Sec.\ 4, in-plane load | Public domain | Analytical |
 | `macneal_harder/twisted_beam_out_of_plane.bdf` | MacNeal & Harder (1985), Sec.\ 4, out-of-plane load | Public domain | Analytical |
 | `macneal_harder/scordelis_lo.bdf` | MacNeal & Harder (1985), Sec.\ 7 | Public domain | Analytical |
@@ -128,6 +130,32 @@ the same row: there is no mesh-convergence allowance to spend.
 
 An empty parity cell means *unmeasured*, not passing. A quantity with no
 `parity` block behaves exactly as it did before the column existed.
+
+## Benchmark Meshes vs Refined Companions
+
+The MacNeal-Harder decks use the mesh densities the benchmark specifies. Those
+meshes are deliberately coarse, and on the two hardest cases **no** published
+4-node shell element reaches its converged target on them — the pinched
+cylinder at 4x4 puts six published elements between 0.370 and 0.636 of the
+reference, and the curved beam at 6x1 has MacNeal & Harder's own QUAD4 result at
+0.833. Scoring those meshes against the converged target measures the mesh, not
+the code.
+
+Rather than widen the tolerance until the coarse row passes — which would be
+fitting the gate to the answer — those two cases each ship a **refined
+companion** alongside the untouched benchmark deck:
+
+| benchmark deck | refined companion | mesh |
+| --- | --- | --- |
+| `curved_beam.bdf` | `curved_beam_refined.bdf` | 6x1 -> 24x4 |
+| `pinched_cylinder.bdf` | `pinched_cylinder_refined.bdf` | 4x4 -> 24x24 |
+
+Same problem, same material, same loads, same published reference, ordinary 2%
+tolerance, no per-mesh allowance. The benchmark rows keep reporting the
+benchmark result — including their honest FAIL against the converged target —
+and the refined rows show the element converging onto it. Each refined deck
+states its mesh construction rule in its header, so it is reproducible without
+a generator.
 
 ## PARAM,K6ROT
 

@@ -6,6 +6,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Refined-mesh companion decks for the two MacNeal-Harder cases whose
+  accuracy rows cannot pass on the published benchmark mesh.** On those meshes
+  no published 4-node shell element reaches its converged target either — the
+  pinched cylinder at 4x4 puts six published elements between 0.370 and 0.636
+  of the reference, and the curved beam at 6x1 has MacNeal & Harder's own QUAD4
+  result at 0.833 — so scoring them against the converged target measures the
+  mesh, not the code. Rather than widen a tolerance until the coarse row passes,
+  each case now ships a refined companion beside the untouched benchmark deck:
+  `curved_beam_refined.bdf` (6x1 -> 24x4) and `pinched_cylinder_refined.bdf`
+  (4x4 -> 24x24). Same problem, same published reference, ordinary 2% tolerance,
+  no per-mesh allowance. OpenJFEM converges onto both targets: **0.64%** and
+  **0.21%**, with same-deck parity of `3.6e-5` and `8.8e-6`. The benchmark rows
+  are unchanged and keep reporting the benchmark result, FAIL included. Each
+  refined deck states its mesh construction rule in its header so it is
+  reproducible without a generator.
 - **SOL 105 buckling results now carry the `STATSUB` static-preload
   displacement field.** `*.BUCKLING.JSON` gains a `static_displacements` block
   in the same per-grid schema the SOL 101 export uses (`grid_id`, `t1`..`r3`),
