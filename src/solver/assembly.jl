@@ -2451,6 +2451,16 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
 
     nt = Threads.maxthreadid()
     log_msg("[SOLVER] Computing Element Stiffness ($(Threads.nthreads()) threads)...")
+    # Echo the EFFECTIVE drilling stabilisation and where it came from. K6ROT is
+    # not part of any benchmark definition and solvers default it differently
+    # (MSC/Nastran 70.5 linear sequences: 0.0; MSC.Nastran 2004+ and OpenJFEM:
+    # 100.0), so on a deck that declares nothing the two run different problems.
+    # That was silent until 2026-08-04, when it turned up as a 3.5% "formulation
+    # gap" on the MacNeal hemisphere. Saying it out loud costs one line.
+    log_msg(string("[SOLVER] Drilling stabilisation: K6ROT=", k6rot, " (",
+                   haskey(model, "PARAM_K6ROT") ? "from the deck's PARAM,K6ROT" :
+                       "OpenJFEM default; MSC/Nastran 70.5 linear SOLs default to 0.0",
+                   ")"))
 
     # Convert id_map Dict to dense Vector
     if isempty(id_map)

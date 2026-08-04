@@ -6,6 +6,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **The effective `PARAM,K6ROT` and where it came from are now echoed on every
+  run.** `[SOLVER] Drilling stabilisation: K6ROT=100.0 (OpenJFEM default;
+  MSC/Nastran 70.5 linear SOLs default to 0.0)` on a deck that declares nothing,
+  or `K6ROT=0.0 (from the deck's PARAM,K6ROT)` when it does. K6ROT is a numerical
+  stabiliser that solvers default differently, so on a cardless deck two codes
+  silently run different problems — which is exactly how it surfaced, as an
+  apparent 3.5% formulation gap on the MacNeal hemisphere. One log line makes
+  that class of mismatch self-diagnosing. OpenJFEM's default is unchanged at
+  100.0.
 - **Refined-mesh companion decks for the two MacNeal-Harder cases whose
   accuracy rows cannot pass on the published benchmark mesh.** On those meshes
   no published 4-node shell element reaches its converged target either — the
