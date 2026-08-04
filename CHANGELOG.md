@@ -6,6 +6,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `JFEM_Q4_MACNEAL_SHEAR_EDGE_LINEAR=interaction` remains an explicit
+  diagnostic, while the objective `interaction_hybrid` is now the implicit
+  production choice when the revised full edge rows are active and rigid
+  physical shear is not selected.  Otherwise an unset environment variable
+  falls back to the established off route; an explicitly requested
+  incompatible interaction still errors.  Signed determinant-gradient
+  covectors and oriented tying-weight exchange close taper inversion without
+  fitted coefficients: both pure-taper signs score `5.80861796e-8`, all `8/8`
+  signed mixed cells improve (worst `3.4100742495e-3`), the worst exact-mirror
+  spectral delta is `2.91049e-15`, and all 24 cached tapered/combined cases
+  improve while eight controls change only at roundoff.  The cached worst is
+  `2.154037192e-2` and the worst six-mode rigid residual is `4.796e-17`.
 - `JFEM_SOL105_PCOMP_MEMBRANE_SELC` (default OFF): the exact Nastran QUAD4
   flat-membrane operator for composite CQUAD4 — per-Gauss-point normal
   strains with the membrane-shear row sampled once at the element center,
@@ -24,6 +36,50 @@ Versions follow [Semantic Versioning](https://semver.org/).
   7–20% on skewed elements while this operator stays exact.
 
 ### Fixed
+- CQUAD4 `PARAM,SNORM` now uses the parameter-free corner normal-moment
+  equilibrium map by default whenever a nonzero nodal director field is
+  active (`PARAM,SNORM` itself still defaults to the deck/model value `0`).
+  At each corner it replaces drilling rotation by its value relative to the
+  interpolated in-plane spin and completes the third director row with the
+  matching transverse-slope residual.  The transpose therefore equilibrates
+  the induced normal moment with in-plane force couples while preserving all
+  six rigid motions and the recovered rotation--rotation block.  The same map
+  wraps elastic stiffness (including exact-membrane, MIN4, and Hu--Washizu),
+  stress/resultant recovery, and geometric stiffness, in the order
+  `K = W' * M' * K0 * M * W`; the superseded local-gradient `field` route is
+  diagnostic-only. On a finitely warped corner, `W` already contains the
+  intrinsic height slopes `(gx,gy)`, so active nonaligned director rows now
+  use the exact relative residual `(p+gx,q+gy)` in `M`; aligned, solo,
+  rejected, and missing rows remain W-only. This prevents geometric tilt from
+  being counted twice. A forced-`SNORM,20` warped twisted-beam holdout changes
+  from `+66.55%` relative to the SNORM0 response to `+0.00513%`, landing within
+  `0.07581%` of the independent NAST705 response; manual congruence and rigid
+  residuals are `2.501e-16` and `1.839e-16`. Same-deck SNORM-effect errors on
+  the standalone ladder are at most `9.204e-4`
+  percentage points over two independent folds and the 4/8/16 hemisphere
+  refinement ladder, with worst response error `9.385e-6`.  Element-local
+  analytical sensitivity routes now fail explicitly for every affected Q4
+  design variable whenever either this SNORM map or a non-null finite-warp map
+  is active.  The buckling-adjoint entry point independently guards both maps
+  before its projected-plane `dK/dx` or `dKg/dx` builders can run; full
+  end-to-end finite differences remain the supported mapped-coordinate route.
+- The exact-membrane and MIN4 CQUAD4 research splices now assemble their whole
+  projected operator before applying the same single SNORM and finite-warp
+  congruences as the default kernel.  All `9/9` manual common-congruence
+  comparisons are bitwise identical across three warp amplitudes; all `54/54`
+  rigid checks pass, with worst residual `1.539054774272e-16`.
+- CQUAD4 finite-warp equilibrium is now complete on the default
+  basic/diagonal element-frame route.  The MacNeal pre/post multiplier uses
+  the exact QDMEM1 shape-derivative transfer for offset
+  membrane forces together with the projected-diagonal spin needed to
+  equilibrate tilted nodal moments.  The parameter-free map annihilates all
+  six rigid-body modes at roundoff and reduces the retained-matrix worst
+  error from `1.878e-3` to `6.920e-6` over `warp/L <= 0.20`, and from
+  `2.378e-4` to `3.343e-8` over the warp-by-thickness sweep.  The remaining
+  extreme-warp difference is confined to the independent projected-flat
+  plate block, not to a missing warp-equilibrium coupling.  On the public
+  warped twisted-beam deck, same-mesh solver parity improves from `3.613`
+  relative error to `2.212e-5` (`0.0022%`).
 - The composite-skew investigation gates `JFEM_SOL105_PCOMP_SKEW_MEMBRANE` /
   `JFEM_SOL105_PCOMP_SKEW_BENDING` (default OFF; membrane Cm frame-consistency,
   anisotropic membrane hourglass restabilization, Nastran-KDJJ composite Kg,

@@ -168,6 +168,11 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
             lc_buf[2,1]=dot(p2-c,v1); lc_buf[2,2]=dot(p2-c,v2)
             lc_buf[3,1]=dot(p3-c,v1); lc_buf[3,2]=dot(p3-c,v2)
             lc_buf[4,1]=dot(p4-c,v1); lc_buf[4,2]=dot(p4-c,v2)
+            snorm_pq = snorm_element_pq(v1, v2, v3, sr_indices, snorm_normals)
+            coords3d_sr = [p1[1] p1[2] p1[3];
+                           p2[1] p2[2] p2[3];
+                           p3[1] p3[2] p3[3];
+                           p4[1] p4[2] p4[3]]
             curvature_membrane = nothing
 
             Rel_t = vcat(v1', v2', v3')
@@ -210,7 +215,9 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                     curvature_membrane=curvature_membrane,
                     membrane_shear_center_row=membrane_shear_center_row,
                     material_shear_rotation=material_shear_rotation,
-                    membrane_incomp_center_jacobian=membrane_incomp_center_jacobian)
+                    membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
+                    snorm_pq=snorm_pq,
+                    coords_3d=coords3d_sr)
                 N_corners, M_corners = FEM.quad4_bilinear_corner_forces(view(lc_buf,1:4,:), u_el, mat["E"], mat["NU"], Float64(prop["T"]);
                     bend_ratio=br,
                     Cm_override=clt_Cm,
@@ -218,7 +225,9 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                     curvature_membrane=curvature_membrane,
                     membrane_shear_center_row=membrane_shear_center_row,
                     material_shear_rotation=material_shear_rotation,
-                    membrane_incomp_center_jacobian=membrane_incomp_center_jacobian)
+                    membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
+                    snorm_pq=snorm_pq,
+                    coords_3d=coords3d_sr)
                 Q_out = if clt_Cm === nothing && curvature_membrane === nothing && abs(br) > 1e-12
                     _quad4_blend_recovered_shear(Q, _quad4_equilibrium_shear_from_bending(view(lc_buf,1:4,:), M_corners))
                 else

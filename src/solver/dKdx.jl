@@ -39,6 +39,110 @@ const _DKDX_DISPATCH = Dict{String, Function}(
     "topology_density"    => (dv, m, id, nc, nR, u, n) -> _dKdx_u_topology_density(dv, m, id, nc, nR, u, n),
 )
 
+@inline function _dkdx_targets_quad4(dv, eid_key, el, model)
+    dv_type = string(dv["type"])
+    pid_str = string(el["PID"])
+    if dv_type == "shell_thickness" ||
+       dv_type == "pcomp_ply_thickness" || dv_type == "pcomp_ply_angle"
+        return pid_str in Set(string.(get(dv, "pids", Any[])))
+    elseif dv_type == "material_E" || dv_type == "material_NU"
+        prop = get(get(model, "PSHELLs", Dict()), pid_str, nothing)
+        isnothing(prop) && return false
+        return string(get(prop, "MID", "")) in
+               Set(string.(get(dv, "mids", Any[])))
+    elseif dv_type == "topology_density"
+        eid_str = string(get(el, "ID", eid_key))
+        return eid_str in Set(string.(get(dv, "eids", Any[])))
+    end
+    return false
+end
+
+"""
+Fail explicitly when an element-local analytical/AD/FD derivative would omit
+one of the production CQUAD4 physical-coordinate maps.  The normal-moment and
+finite-warp maps are independent of material/thickness variables, but their
+work-dual congruences still have to wrap `dKe`; the current local derivative
+kernels build only the projected basic matrix.  Node-coordinate derivatives
+already use full-model finite differences and bar-only variables do not touch
+CQUAD4, so neither is restricted here.
+"""
+function _guard_mapped_quad4_local_dkdx!(dv, model, id_map, node_coords)
+    dv_type = string(dv["type"])
+    dv_type in ("bar_area", "node_coord") && return nothing
+    haskey(model, "CSHELLs") || return nothing
+
+    base_raw = get(model, "PARAM_SNORM", 0.0)
+    base_angle = base_raw isa Real ? Float64(base_raw) :
+        something(tryparse(Float64, string(base_raw)), 0.0)
+    override_raw = strip(get(
+        ENV,
+        "JFEM_PARAM_SNORM_OVERRIDE_STATIC",
+        get(ENV, "JFEM_PARAM_SNORM_OVERRIDE", ""),
+    ))
+    snorm_angle = isempty(override_raw) ? base_angle :
+        something(tryparse(Float64, override_raw), base_angle)
+    snorm_normals =
+        snorm_curvature_enabled() && snorm_angle > 0.0 ?
+        compute_shell_nodal_normals(model, id_map, node_coords, snorm_angle) :
+        Dict{Int,SVector{3,Float64}}()
+    frame_mode = q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_STATIC")
+    warp_on = solver_env_bool("JFEM_Q4_WARP_TRANSFORM", true)
+
+    for (eid_key, el) in model["CSHELLs"]
+        nids = get(el, "NODES", nothing)
+        nids === nothing && continue
+        length(nids) == 4 || continue
+        _dkdx_targets_quad4(dv, eid_key, el, model) || continue
+        all(nid -> haskey(id_map, nid), nids) || continue
+
+        indices = ntuple(k -> id_map[nids[k]], 4)
+        points = ntuple(k -> SVector{3}(
+            node_coords[indices[k],1],
+            node_coords[indices[k],2],
+            node_coords[indices[k],3],
+        ), 4)
+        v1, v2, v3 = shell_element_frame_quad4(
+            points[1], points[2], points[3], points[4], frame_mode)
+
+        active_snorm = false
+        if !isempty(snorm_normals)
+            pq = snorm_element_pq(v1, v2, v3, indices, snorm_normals)
+            active_snorm = pq !== nothing && FEM.quad4_snorm_pq_has_active_rows(pq)
+        end
+
+        active_warp = false
+        if warp_on
+            center = (points[1] + points[2] + points[3] + points[4]) / 4.0
+            local_xy = zeros(4, 2)
+            coords3d = zeros(4, 3)
+            @inbounds for k in 1:4
+                dp = points[k] - center
+                local_xy[k,1] = dot(dp, v1)
+                local_xy[k,2] = dot(dp, v2)
+                coords3d[k,1] = points[k][1]
+                coords3d[k,2] = points[k][2]
+                coords3d[k,3] = points[k][3]
+            end
+            active_warp =
+                FEM.quad4_finite_warp_displacement_map(local_xy, coords3d) !== nothing
+        end
+
+        if active_snorm || active_warp
+            maps = active_snorm && active_warp ? "PARAM,SNORM and finite-warp" :
+                   active_snorm ? "PARAM,SNORM" : "finite-warp"
+            eid = get(el, "ID", eid_key)
+            dv_label = get(dv, "id", dv_type)
+            error(
+                "[ADJOINT] Element-local CQUAD4 dK/dx is unsupported for " *
+                "active $maps coordinate maps (EID $eid, DV $dv_label). " *
+                "Use a full end-to-end finite-difference sensitivity; " *
+                "node_coord already uses that supported route."
+            )
+        end
+    end
+    return nothing
+end
+
 """
     compute_dKdx_u(dv, model, id_map, node_coords, node_R, u_global, ndof) -> Vector{Float64}
 
@@ -55,6 +159,8 @@ and an optional `dv["method"]` override:
 function compute_dKdx_u(dv, model, id_map, node_coords, node_R, u_global, ndof)
     dv_type = dv["type"]
     dv_method = get_dv_method(dv)
+    dv_method === :full_model_fd ||
+        _guard_mapped_quad4_local_dkdx!(dv, model, id_map, node_coords)
 
     if dv_type == "shell_thickness"
         if dv_method == :ad_forward

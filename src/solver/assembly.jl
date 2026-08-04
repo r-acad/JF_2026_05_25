@@ -562,11 +562,18 @@ function classify_shear_dominant_elements(model, id_map, X, node_R, u_global, sn
         end
         E_eff = get(mat, "E", get(mat, "E1", 1.0))
         nu_eff = get(mat, "NU", get(mat, "NU12", 0.3))
+        snorm_pq_sr = snorm_element_pq(v1, v2, v3, sr_indices, snorm_normals)
+        coords3d_sr = [p1[1] p1[2] p1[3];
+                       p2[1] p2[2] p2[3];
+                       p3[1] p3[2] p3[3];
+                       p4[1] p4[2] p4[3]]
         shear_dominant = false
         try
             N, = FEM.stress_strain_quad4(view(lc_buf,1:4,:), u_el,
                 E_eff, nu_eff, Float64(prop["T"]), Float64(prop["T"]);
-                bend_ratio=get(prop, "BEND_RATIO", 1.0))
+                bend_ratio=get(prop, "BEND_RATIO", 1.0),
+                snorm_pq=snorm_pq_sr,
+                coords_3d=coords3d_sr)
             shear_dominant = kg_quad4_shear_resultant_ratio(N) >= smin
         catch
             shear_dominant = false
@@ -2403,17 +2410,19 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     # deviate from the element's own normal by more than JFEM_SNORM_ELEM_TILT_GATE degrees. Used to
     # confirm the iter_290 mechanism (junction-transition elements over-tilt the membrane). -2.0 => never.
     snorm_tilt_gate_cos = let g = solver_env_float("JFEM_SNORM_ELEM_TILT_GATE", 0.0); g > 0.0 ? cosd(g) : -2.0 end
-    # SNORM-TRANSFORM-ONLY (default OFF): the correct curved-shell formulation. Instead of tilting the
-    # element FRAME (which foreshortens the flat membrane's projected coords -> spurious over-softening on
-    # junction-transition PCOMP flats, e.g. box iter_290), keep the membrane/bending strain in the element's
-    # OWN frame and reference SNORM only in the per-node SCATTER TRANSFORM (each node's DOFs projected onto
-    # its SNORM grid-normal). This matches Nastran: SNORM sets the grid-point normal for the DOF connection,
-    # NOT the in-plane membrane geometry. Cures the membrane leak while preserving the curved-shell coupling.
+    # SNORM-TRANSFORM-ONLY (default OFF): superseded frame/scatter diagnostic.
+    # It keeps the basic element in its own frame and references SNORM only in
+    # the per-node scatter transform. Retained for historical bisects; the
+    # production route is the corner normal-moment map below.
     snorm_transform_only = solver_env_bool("JFEM_Q4_SNORM_TRANSFORM_ONLY", false)
-    # SNORM-DIRECTOR (default OFF): PARAM SNORM as the reference actually applies it -- a per-element,
-    # per-node congruence on the ROTATIONAL DOFs only (snorm.jl, snorm_director_matrix). Suppresses the
-    # element-frame tilt entirely; the in-plane frame and every translational term stay untouched.
+    # SNORM-DIRECTOR (default OFF): superseded rotation-only S-map diagnostic
+    # (snorm.jl, snorm_director_matrix). It suppresses element-frame tilt and
+    # leaves translations untouched; production uses the normal-moment map.
     snorm_director = snorm_director_enabled()
+    # Production route: retain the geometric mean-plane frame, form the
+    # unchanged projected basic element, then apply the rigid-exact corner
+    # normal-moment equilibrium map before the finite-warp map.
+    snorm_curvature = snorm_curvature_enabled()
     flat_curved_pcomp_fullshear = shear_center_only && q4_flat_curved_pcomp_fullshear_enabled()
     flat_curved_pcomp_fullshear_kappa_l_min = q4_flat_curved_pcomp_fullshear_kappa_l_min()
     flat_curved_pcomp_fullshear_cyl_ratio_max = q4_flat_curved_pcomp_fullshear_cyl_ratio_max()
@@ -2801,6 +2810,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     sep_coords3d = [zeros(4,3) for _ in 1:nt]
     sep_coords3d_local = [zeros(4,3) for _ in 1:nt]
     sep_directors3d_local = [zeros(4,3) for _ in 1:nt]
+    sep_snorm_pq = [zeros(4,2) for _ in 1:nt]
     sep_Cm      = [zeros(3,3) for _ in 1:nt]
     sep_Cb      = [zeros(3,3) for _ in 1:nt]
     sep_Cs      = [zeros(2,2) for _ in 1:nt]
@@ -2876,6 +2886,31 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
 
         v1, v2, v3 = shell_element_frame_quad4(p1, p2, p3, p4, q4_frame_mode)
         elem_use_geom_snorm = q4_use_geom_snorm[ei]
+        snorm_pq_arg = nothing
+        if snorm_curvature && !elem_use_geom_snorm &&
+           (snorm_has[i1] || snorm_has[i2] || snorm_has[i3] || snorm_has[i4])
+            snorm_pq_local = sep_snorm_pq[tid]
+            @inbounds for (k, idx) in enumerate((i1, i2, i3, i4))
+                if snorm_has[idx]
+                    n = snorm_vec[idx]
+                    dot(n, v3) < 0.0 && (n = -n)
+                    n3 = dot(n, v3)
+                    if abs(n3) >= 1e-3
+                        snorm_pq_local[k,1] = dot(n, v1) / n3
+                        snorm_pq_local[k,2] = dot(n, v2) / n3
+                    else
+                        snorm_pq_local[k,1] = 0.0
+                        snorm_pq_local[k,2] = 0.0
+                    end
+                else
+                    snorm_pq_local[k,1] = 0.0
+                    snorm_pq_local[k,2] = 0.0
+                end
+            end
+            FEM.quad4_snorm_pq_has_active_rows(snorm_pq_local) &&
+                (snorm_pq_arg = snorm_pq_local)
+        end
+        elem_snorm_curvature = snorm_pq_arg !== nothing
 
         # SNORM adjustment
         n_avg = SVector(0.0, 0.0, 0.0); nc = 0
@@ -2885,6 +2920,13 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             else
                 if snorm_has[idx]; n_avg = n_avg + snorm_vec[idx]; nc += 1; end
             end
+        end
+        if snorm_curvature && !elem_use_geom_snorm && !elem_snorm_curvature
+            # Aligned averaged normals produce an exactly zero pq field. Treat
+            # that as no SNORM before the legacy frame-reprojection branch so
+            # the full assembled matrix remains bitwise identical, while the
+            # independent geometry-normal experiment keeps its original route.
+            nc = 0
         end
         # snorm_transform_only: keep the OWN element frame here (membrane/bending use undistorted geometry)
         # and store the element-averaged SNORM normal (snorm_xf_v3) for a UNIFORM per-element transform below.
@@ -2896,7 +2938,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 if dot(v3n, v3) < 0.0; v3n = -v3n; end
                 if snorm_transform_only
                     snorm_xf_v3 = v3n; snorm_xf_ok = true
-                elseif !snorm_director && dot(v3n, v3) >= snorm_tilt_gate_cos  # DIAGNOSTIC gate: skip tilt if it exceeds gate angle
+                elseif !snorm_director && !elem_snorm_curvature &&
+                       dot(v3n, v3) >= snorm_tilt_gate_cos  # DIAGNOSTIC gate: skip tilt if it exceeds gate angle
                     v1p = v1 - dot(v1, v3n) * v3n; v1l = norm(v1p)
                     if v1l > 1e-12
                         v1n = SVector{3}(v1p / v1l)
@@ -4021,6 +4064,20 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             end
         elem_macneal_static_kernel &&
             (elem_mitc4_3d_kernel = false)
+        if elem_snorm_curvature
+            # The common PARAM,SNORM normal-moment map wraps the projected
+            # CQUAD4 kernel, including exact-membrane, MIN4 and Hu-Washizu
+            # branches. Quarantine standalone plate, 3-D-director, and
+            # geometry-normal scatter experiments that bypass that map.
+            elem_mitc4_3d_kernel = false
+            elem_flat_dkmq_branch = false
+            elem_flat_plate_branch = false
+            elem_rect_plate_branch = false
+            elem_flat_curved_iso_nodal_geomnormal_transform = false
+            elem_static_pcomp_nodal_geomnormal_transform = false
+            elem_exact_side_shear = false
+            elem_exact_side_rotcorr = false
+        end
         elem_pcomp_k_macneal_blend = 0.0
         if sol105_context && is_pcomp_ei && !is_pcomp_iso_ei
             kappa_l_kblend = kappa_l_kernel
@@ -4229,7 +4286,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 selective_shear=elem_selective_shear, selective_shear_mode=elem_selective_shear_mode,
                 exact_side_shear=elem_exact_side_shear,
                 exact_side_rotcorr=elem_exact_side_rotcorr,
-                coords_3d=coords_3d_arg, kernel_planar=elem_kernel_planar,
+                coords_3d=coords_3d_arg, snorm_pq=snorm_pq_arg,
+                kernel_planar=elem_kernel_planar,
                 macneal_rigid_shear=elem_macneal_rigid_shear,
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
@@ -4250,7 +4308,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 selective_shear=elem_selective_shear, selective_shear_mode=elem_selective_shear_mode,
                 exact_side_shear=elem_exact_side_shear,
                 exact_side_rotcorr=elem_exact_side_rotcorr,
-                coords_3d=coords_3d_arg, kernel_planar=elem_kernel_planar,
+                coords_3d=coords_3d_arg, snorm_pq=snorm_pq_arg,
+                kernel_planar=elem_kernel_planar,
                 macneal_rigid_shear=elem_macneal_rigid_shear,
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
@@ -4312,7 +4371,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                     exact_side_shear=elem_exact_side_shear,
                     exact_side_rotcorr=elem_exact_side_rotcorr,
                     slope_membrane=slope_membrane,
-                coords_3d=coords_3d_arg, kernel_planar=elem_kernel_planar,
+                coords_3d=coords_3d_arg, snorm_pq=snorm_pq_arg,
+                kernel_planar=elem_kernel_planar,
                 macneal_rigid_shear=elem_macneal_rigid_shear,
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
@@ -4334,7 +4394,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                     selective_shear=elem_selective_shear, selective_shear_mode=elem_selective_shear_mode,
                     exact_side_shear=elem_exact_side_shear,
                     exact_side_rotcorr=elem_exact_side_rotcorr,
-                coords_3d=coords_3d_arg, kernel_planar=elem_kernel_planar,
+                coords_3d=coords_3d_arg, snorm_pq=snorm_pq_arg,
+                kernel_planar=elem_kernel_planar,
                 macneal_rigid_shear=elem_macneal_rigid_shear,
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
@@ -4355,7 +4416,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                     selective_shear=elem_selective_shear, selective_shear_mode=elem_selective_shear_mode,
                     exact_side_shear=elem_exact_side_shear,
                     exact_side_rotcorr=elem_exact_side_rotcorr,
-                coords_3d=coords_3d_arg, kernel_planar=elem_kernel_planar,
+                coords_3d=coords_3d_arg, snorm_pq=snorm_pq_arg,
+                kernel_planar=elem_kernel_planar,
                 macneal_rigid_shear=elem_macneal_rigid_shear,
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
@@ -4383,7 +4445,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 exact_side_shear=elem_exact_side_shear,
                 exact_side_rotcorr=elem_exact_side_rotcorr,
                 slope_membrane=slope_membrane,
-                coords_3d=coords_3d_arg, kernel_planar=elem_kernel_planar,
+                coords_3d=coords_3d_arg, snorm_pq=snorm_pq_arg,
+                kernel_planar=elem_kernel_planar,
                 macneal_rigid_shear=elem_macneal_rigid_shear,
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
@@ -4407,7 +4470,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 exact_side_shear=elem_exact_side_shear,
                 exact_side_rotcorr=elem_exact_side_rotcorr,
                 slope_membrane=slope_membrane,
-                coords_3d=coords_3d_arg, kernel_planar=elem_kernel_planar,
+                coords_3d=coords_3d_arg, snorm_pq=snorm_pq_arg,
+                kernel_planar=elem_kernel_planar,
                 macneal_rigid_shear=elem_macneal_rigid_shear,
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
@@ -4433,7 +4497,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 exact_side_shear=elem_exact_side_shear,
                 exact_side_rotcorr=elem_exact_side_rotcorr,
                 slope_membrane=slope_membrane,
-                coords_3d=coords_3d_arg, kernel_planar=true,
+                coords_3d=coords_3d_arg, snorm_pq=snorm_pq_arg,
+                kernel_planar=true,
                 macneal_rigid_shear=elem_macneal_rigid_shear,
                 bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
                 kernel_mode="macneal_all",
@@ -5341,6 +5406,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     # referencing -- leaving Kg on the element normal while K uses the grid normal puts the two operators
     # in different frames and manufactures a spurious near-zero buckling mode.
     snorm_director = snorm_director_enabled()
+    snorm_curvature = snorm_curvature_enabled()
     curved_iso_elongated_membrane_incomp_aspect_ratio_min = q4_curved_iso_elongated_membrane_incomp_aspect_ratio_min()
     kg_flat_pcomp_auto_g12 = !kg_pcomp_axis_mode_override && q4_flat_pcomp_auto_g12_enabled()
     kg_flat_pcomp_auto_g12_kappa_l_max = q4_flat_pcomp_auto_g12_kappa_l_max()
@@ -5554,11 +5620,42 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             end
             warp_ratio_kg = max_dev / max(L_diag, 1e-12)
             v1, v2, v3 = shell_element_frame_quad4(p1, p2, p3, p4, q4_frame_mode)
+            snorm_pq_kg = if snorm_curvature &&
+                             (snorm_has[i1] || snorm_has[i2] || snorm_has[i3] || snorm_has[i4])
+                pq = snorm_element_pq(
+                    v1, v2, v3, (i1, i2, i3, i4), snorm_normals_local)
+                pq !== nothing && FEM.quad4_snorm_pq_has_active_rows(pq) ? pq : nothing
+            else
+                nothing
+            end
+            snorm_completion_active_kg = snorm_pq_kg !== nothing
+            elem_snorm_curvature_kg = snorm_completion_active_kg
+            if snorm_completion_active_kg
+                kg_w_form_raw = lowercase(strip(
+                    get(ENV, "JFEM_KG_SHELL_TRANSVERSE_W_FORM", "w")))
+                if kg_w_form_raw in (
+                    "rot", "rotation", "theta",
+                    "cross", "wtheta", "w_theta", "sym_cross",
+                    "wty", "nastran_cross", "metric_cross",
+                )
+                    throw(ArgumentError(
+                        "JFEM_KG_SHELL_TRANSVERSE_W_FORM=$kg_w_form_raw is an " *
+                        "unvalidated rotation-containing geometric-stiffness " *
+                        "experiment under nonzero CQUAD4 PARAM,SNORM director " *
+                        "completion; use the production 'w' form or PARAM,SNORM,0"
+                    ))
+                end
+            end
 
             # SNORM adjustment
             n_avg = SVector(0.0, 0.0, 0.0); nc = 0
             for idx in (i1, i2, i3, i4)
                 if snorm_has[idx]; n_avg = n_avg + snorm_vec[idx]; nc += 1; end
+            end
+            if snorm_curvature && !elem_snorm_curvature_kg
+                # Canonical aligned zero-pq directors to the no-SNORM frame
+                # before any legacy normal-based reprojection.
+                nc = 0
             end
             # snorm_transform_only: keep OWN frame here (K/Kg-consistent); store element-averaged SNORM normal
             # for the UNIFORM per-element transform below.
@@ -5570,7 +5667,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     if dot(v3n, v3) < 0.0; v3n = -v3n; end
                     if snorm_transform_only
                         snorm_xf_v3 = v3n; snorm_xf_ok = true
-                    elseif !snorm_director && dot(v3n, v3) >= snorm_tilt_gate_cos  # DIAGNOSTIC gate (K/Kg-consistent)
+                    elseif !snorm_director && !elem_snorm_curvature_kg &&
+                           dot(v3n, v3) >= snorm_tilt_gate_cos  # DIAGNOSTIC gate (K/Kg-consistent)
                         v1p = v1 - dot(v1, v3n) * v3n; v1l = norm(v1p)
                         if v1l > 1e-12
                             v1n = SVector{3}(v1p / v1l)
@@ -5581,7 +5679,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     end
                 end
             end
-            if curved_iso_geomnormal_frame &&
+            if !elem_snorm_curvature_kg && curved_iso_geomnormal_frame &&
                is_iso_kg &&
                !elem_is_flat_kg &&
                (shell_valence[i1] + shell_valence[i2] + shell_valence[i3] + shell_valence[i4]) <= 10 &&
@@ -5631,7 +5729,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             taper_ratio_kg = q4_local_opposite_edge_ratio(lc_buf4)
             h_over_lmax_kg = h / max(q4_local_max_edge_length(lc_buf4), 1e-12)
             use_geom_snorm_kg = false
-            if curved_iso_geomnormal_frame &&
+            if !elem_snorm_curvature_kg && curved_iso_geomnormal_frame &&
                is_iso_kg &&
                aspect_ratio_kg >= curved_iso_geomnormal_frame_aspect_ratio_min &&
                (shell_valence[i1] + shell_valence[i2] + shell_valence[i3] + shell_valence[i4]) <= 10 &&
@@ -5716,6 +5814,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 else
                     false
                 end
+            elem_snorm_curvature_kg && (elem_mitc4_3d_kg_recovery = false)
             mitc4_3d_use_geom_dirs_kg =
                 elem_mitc4_3d_kg_recovery && geom_has[i1] && geom_has[i2] && geom_has[i3] && geom_has[i4]
             if elem_mitc4_3d_kg_recovery
@@ -6053,6 +6152,16 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                                    elem_is_flat_kg &&
                                    get(prop, "Bmb", nothing) === nothing &&
                                    maximum(abs, prop["Cb"]) > 1e-30
+            if snorm_completion_active_kg
+                # An active PARAM,SNORM normal-moment operator must use the
+                # matching projected geometric-stiffness route. Standalone
+                # KDJJ/DKQ/DKMQ operators do not carry the same normal-moment
+                # and finite-warp maps, so quarantine them.
+                kg_nastran_kdjj_iso_branch = false
+                kg_nastran_kdjj_pcomp_branch = false
+                kg_flat_dkmq_branch = false
+                kg_flat_plate_branch = false
+            end
             if is_pcomp_clt
                 theta_deg = Float64(get(el, "THETA", 0.0))
                 theta_rad = deg2rad(theta_deg)
@@ -6221,9 +6330,12 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                         elem_is_flat_kg && Bmb_kg === nothing &&
                         !kg_membrane_selc) ?
                         (0.0, 1.0, 1.0, 0.0) : nothing,
+                    snorm_pq=snorm_pq_kg,
+                    coords_3d=coords3d_local_buf4,
                 )
             end
             if !elem_mitc4_3d_kg_recovery &&
+               !elem_snorm_curvature_kg &&
                kg_membrane_recovery_mode in (:tri_aspect, :tri_center_adj, :tri_incident_interp, :tri_diagavg)
                 Cm_tri = if Cm_override === nothing
                     const_mem = E_val / (1 - nu_val^2)
@@ -6241,6 +6353,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 )
             end
             if !elem_mitc4_3d_kg_recovery &&
+               !elem_snorm_curvature_kg &&
                kg_compatible_membrane && kg_membrane_recovery_mode !== :planar && kg_covariant_blend > 0.0
                 use_covariant = kg_membrane_recovery_mode === :covariant ||
                     (kg_membrane_recovery_mode === :auto && covariant_membrane_candidate)
@@ -6663,6 +6776,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             # Compute geometric stiffness in local coordinates unless an
             # experimental MATPRN-derived branch returns a basic-frame matrix.
             kg_global_ready = false
+            kg_covariant_branch =
+                kg_surface_operator_mode === :covariant && !snorm_completion_active_kg
             coords3d_buf4[1,1] = p1[1]; coords3d_buf4[1,2] = p1[2]; coords3d_buf4[1,3] = p1[3]
             coords3d_buf4[2,1] = p2[1]; coords3d_buf4[2,2] = p2[2]; coords3d_buf4[2,3] = p2[3]
             coords3d_buf4[3,1] = p3[1]; coords3d_buf4[3,2] = p3[2]; coords3d_buf4[3,3] = p3[3]
@@ -6713,7 +6828,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 Kg_loc = FEM.geometric_stiffness_quad4_plate_dkq(
                     lc_buf4, sigma_mem_input, h, Cb_kg, Cs_kg
                 )
-            elseif kg_surface_operator_mode === :covariant
+            elseif kg_covariant_branch
                 coords3d_buf4[1,1] = p1[1]; coords3d_buf4[1,2] = p1[2]; coords3d_buf4[1,3] = p1[3]
                 coords3d_buf4[2,1] = p2[1]; coords3d_buf4[2,2] = p2[2]; coords3d_buf4[2,3] = p2[3]
                 coords3d_buf4[3,1] = p3[1]; coords3d_buf4[3,2] = p3[2]; coords3d_buf4[3,3] = p3[3]
@@ -6822,6 +6937,37 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     principal_shear_z_factor=principal_shear_z_factor_eff,
                     principal_shear_ratio_min=principal_shear_ratio_min_eff,
                 )
+            end
+
+            # Keep SOL105 in the same physical coordinates as the elastic
+            # matrix: form projected Kg, then the selected PARAM,SNORM map,
+            # then W, and only afterwards scatter through the element frame.
+            warp_map_for_snorm_kg =
+                if snorm_pq_kg !== nothing &&
+                   FEM.quad4_snorm_normal_moment_mode() &&
+                   solver_env_bool("JFEM_Q4_WARP_TRANSFORM", true) &&
+                   !elem_mitc4_3d_kg_recovery && !kg_covariant_branch
+                    FEM.quad4_finite_warp_displacement_map(
+                        lc_buf4, coords3d_local_buf4)
+                else
+                    nothing
+                end
+            if snorm_pq_kg !== nothing
+                if FEM.quad4_snorm_normal_moment_mode()
+                    snorm_relative_pq_kg =
+                        FEM.quad4_snorm_relative_to_finite_warp_pq(
+                            snorm_pq_kg, warp_map_for_snorm_kg)
+                    snorm_relative_pq_kg === nothing ||
+                        FEM.apply_quad4_snorm_normal_moment_completion!(
+                            Kg_loc, lc_buf4, snorm_relative_pq_kg)
+                else
+                    FEM.apply_quad4_snorm_director_completion!(Kg_loc, snorm_pq_kg)
+                end
+            end
+            if solver_env_bool("JFEM_Q4_WARP_TRANSFORM", true) &&
+               !elem_mitc4_3d_kg_recovery && !kg_covariant_branch
+                FEM.apply_quad4_finite_warp_equilibrium!(
+                    Kg_loc, lc_buf4, coords3d_local_buf4)
             end
 
             # Transform to global: Kg_global = T' * Kg_loc * T

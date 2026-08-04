@@ -2256,6 +2256,98 @@ end
 # Main buckling adjoint solver
 # ============================================================================
 
+function _adjoint_has_active_completed_q4_snorm(model, id_map, node_coords)
+    snorm_curvature_enabled() || return false
+    base_angle = Float64(get(model, "PARAM_SNORM", 0.0))
+    sol105_angle = sol105_snorm_angle_override()
+
+    function effective_angle(specific_key)
+        sol105_angle === nothing || return sol105_angle
+        raw = strip(get(ENV, specific_key,
+                        get(ENV, "JFEM_PARAM_SNORM_OVERRIDE", "")))
+        isempty(raw) && return base_angle
+        return something(tryparse(Float64, raw), base_angle)
+    end
+
+    # K_static, K_eig, and Kg may each use a scoped override and element-frame
+    # mode. Any active nonzero director field makes the current analytical
+    # adjoint derivatives inconsistent with the completed forward operator.
+    configurations = (
+        (effective_angle("JFEM_PARAM_SNORM_OVERRIDE_STATIC"),
+         q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_STATIC")),
+        (effective_angle("JFEM_PARAM_SNORM_OVERRIDE_EIG"),
+         q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_EIG")),
+        (effective_angle("JFEM_PARAM_SNORM_OVERRIDE_KG"),
+         q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_KG")),
+    )
+
+    for (angle, frame_mode) in configurations
+        angle > 0.0 || continue
+        normals = compute_shell_nodal_normals(model, id_map, node_coords, angle)
+        isempty(normals) && continue
+        for (_, el) in get(model, "CSHELLs", Dict())
+            nids = get(el, "NODES", nothing)
+            nids === nothing && continue
+            length(nids) == 4 || continue
+            all(nid -> haskey(id_map, nid), nids) || continue
+            indices = ntuple(k -> id_map[nids[k]], 4)
+            p = ntuple(k -> SVector{3}(
+                node_coords[indices[k],1],
+                node_coords[indices[k],2],
+                node_coords[indices[k],3]), 4)
+            v1, v2, v3 = shell_element_frame_quad4(
+                p[1], p[2], p[3], p[4], frame_mode)
+            pq = snorm_element_pq(v1, v2, v3, indices, normals)
+            pq !== nothing && FEM.quad4_snorm_pq_has_active_rows(pq) && return true
+        end
+    end
+    return false
+end
+
+function _adjoint_has_active_q4_finite_warp(model, id_map, node_coords)
+    solver_env_bool("JFEM_Q4_WARP_TRANSFORM", true) || return false
+
+    # The forward SOL105 operator may use independently scoped frames for the
+    # static, eigenvalue, and geometric-stiffness matrices.  A non-null W map
+    # in any of those frames makes the current projected-plane analytical
+    # buckling derivatives inconsistent with the forward operator.
+    frame_modes = (
+        q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_STATIC"),
+        q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_EIG"),
+        q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_KG"),
+    )
+
+    for frame_mode in unique(frame_modes)
+        for (_, el) in get(model, "CSHELLs", Dict())
+            nids = get(el, "NODES", nothing)
+            nids === nothing && continue
+            length(nids) == 4 || continue
+            all(nid -> haskey(id_map, nid), nids) || continue
+            indices = ntuple(k -> id_map[nids[k]], 4)
+            p = ntuple(k -> SVector{3}(
+                node_coords[indices[k],1],
+                node_coords[indices[k],2],
+                node_coords[indices[k],3]), 4)
+            v1, v2, _ = shell_element_frame_quad4(
+                p[1], p[2], p[3], p[4], frame_mode)
+            center = (p[1] + p[2] + p[3] + p[4]) / 4.0
+            local_xy = zeros(4, 2)
+            coords3d = zeros(4, 3)
+            @inbounds for k in 1:4
+                dp = p[k] - center
+                local_xy[k,1] = dot(dp, v1)
+                local_xy[k,2] = dot(dp, v2)
+                coords3d[k,1] = p[k][1]
+                coords3d[k,2] = p[k][2]
+                coords3d[k,3] = p[k][3]
+            end
+            FEM.quad4_finite_warp_displacement_map(local_xy, coords3d) === nothing ||
+                return true
+        end
+    end
+    return false
+end
+
 """
     solve_adjoint_buckling(results::Dict, adjoint_config_path::String) -> Dict
 
@@ -2273,6 +2365,21 @@ function solve_adjoint_buckling(results::Dict, adjoint_config_path::String)
     model = results["model"]
     id_map = results["id_map"]
     X = results["node_coords"]
+    active_snorm = _adjoint_has_active_completed_q4_snorm(model, id_map, X)
+    active_warp = _adjoint_has_active_q4_finite_warp(model, id_map, X)
+    if active_snorm || active_warp
+        maps = active_snorm && active_warp ?
+            "nonzero PARAM,SNORM and finite-warp CQUAD4 maps" :
+            active_snorm ? "a nonzero PARAM,SNORM CQUAD4 map" :
+                           "a nonzero finite-warp CQUAD4 map"
+        error(
+            "[ADJOINT-BUCK] Analytical buckling sensitivities are unsupported " *
+            "for active $maps. The local dK/dx and dKg/dx builders do not " *
+            "carry the forward work-dual coordinate maps. Disable the mapped " *
+            "formulation only for a deliberate diagnostic, or evaluate the " *
+            "sensitivity with a full end-to-end finite-difference solve."
+        )
+    end
     K_static = results["K"]
     K_eig = get(results, "K_eig", K_static)
     ndof = results["ndof"]
