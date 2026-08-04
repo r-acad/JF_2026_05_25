@@ -77,10 +77,11 @@ vectors, so rotated GRID `CD` frames do not change the reported physical mass.
 | Case | Source | License | Reference kind |
 | --- | --- | --- | --- |
 | `macneal_harder/curved_beam.bdf` | MacNeal & Harder (1985), Sec.\ 3 | Public domain (40+ yr journal) | Analytical |
-| `macneal_harder/twisted_beam.bdf` | MacNeal & Harder (1985), Sec.\ 4 | Public domain | Analytical |
+| `macneal_harder/twisted_beam.bdf` | MacNeal & Harder (1985), Sec.\ 4, in-plane load | Public domain | Analytical |
+| `macneal_harder/twisted_beam_out_of_plane.bdf` | MacNeal & Harder (1985), Sec.\ 4, out-of-plane load | Public domain | Analytical |
 | `macneal_harder/scordelis_lo.bdf` | MacNeal & Harder (1985), Sec.\ 7 | Public domain | Analytical |
 | `macneal_harder/pinched_cylinder.bdf` | MacNeal & Harder (1985), Sec.\ 8 | Public domain | Analytical |
-| `macneal_harder/hemispherical_shell.bdf` | MacNeal & Harder (1985), Sec.\ 9 | Public domain | Analytical |
+| `macneal_harder/hemispherical_shell.bdf` | MacNeal & Harder (1985), Sec.\ 9, 18-deg cut-out variant | Public domain | Analytical |
 | `classical/timoshenko_plate_buckling.bdf` | Timoshenko \& Gere, *Theory of Elastic Stability* (1961), Ch.\ 9 | Public domain | Closed-form |
 | `classical/cylinder_axial_buckling.bdf` | Brush \& Almroth, *Buckling of Bars, Plates and Shells* (1975), Ch.\ 5 | Public domain | Closed-form |
 | `mystran_xref/sol101_simple.bdf` | MYSTRAN test suite (MIT) | MIT | Tabulated commercial reference |
@@ -106,7 +107,7 @@ redistribution rights are unclear.
 ## Accuracy And Parity Are Scored Separately
 
 Each quantity in `public_suite.yaml` carries a `reference` (published or
-closed-form target) and, on 12 of the 14 rows, an optional `parity` block
+closed-form target) and, on 13 of the 15 rows, an optional `parity` block
 holding a tabulated reference-solver value for **this folder's own deck,
 unmodified**.
 
@@ -128,14 +129,49 @@ the same row: there is no mesh-convergence allowance to spend.
 An empty parity cell means *unmeasured*, not passing. A quantity with no
 `parity` block behaves exactly as it did before the column existed.
 
+## PARAM,K6ROT
+
+Every shell deck in this folder declares `PARAM,K6ROT` explicitly. This is
+deliberate and it matters.
+
+K6ROT is the Hughes-Brezzi drilling-DOF stabilisation coefficient — a numerical
+stabiliser, not part of any of these benchmark definitions. Solvers disagree on
+its default:
+
+| solver | default in SOL 101 |
+| --- | ---: |
+| MSC/Nastran 70.5 | `0.0` |
+| MSC.Nastran 2004+ | `100.0` |
+| OpenJFEM | `100.0` |
+
+A deck that does not declare it therefore runs a *different problem* in each,
+and neither the accuracy comparison nor the same-deck parity comparison means
+what it claims. On the pinched hemisphere the difference alone is 3.5%.
+
+The decks pin it at `0.0`: the setting under which both the published benchmark
+values and this folder's tabulated reference-solver values were produced, and
+the setting that leaves the element unstabilised so the accuracy rows measure
+the element rather than the stabiliser. Declaring it is a numerical no-op for a
+solver that already defaults to 0 — verified by re-running the reference solver
+on the decks with and without the card and getting identical output.
+
+`cases/classical/*` and `cases/crm/*` declare `PARAM,K6ROT,100.0`; those decks
+were always explicit and their reference values were produced at that setting.
+
 ## Current Paper Status
 
-The maintained public-suite snapshot contains 14 scalar validation rows: 9
-accuracy PASS / 5 FAIL, and 9 parity PASS / 3 parity FAIL across the 12 rows
-that carry a parity target. Three of the five accuracy failures are in
-0.02-2.3% parity and are dominated by the benchmark mesh and by a load
-convention still under review; the remaining two are genuine formulation gaps.
-`PAPER_VALIDATION_SUMMARY.md` itemises all of them.
+The maintained public-suite snapshot contains 15 scalar validation rows: 13
+accuracy PASS / 2 FAIL, and **13 parity PASS / 0 parity FAIL** across the 13
+rows that carry a parity target. Worst same-deck parity error on any row is
+`2.82e-4` (CRM mode 4) and `6.19e-5` across the MacNeal-Harder family, against
+parity tolerances of `1e-3` (`5e-3` for the CRM modal rows).
+
+The two remaining accuracy failures — the curved beam (16.7%) and the pinched
+cylinder (47.6%) — are properties of the deliberately coarse standard benchmark
+meshes, not solver defects: the reference solver misses the same targets by the
+same amounts on the same decks, no published 4-node shell element comes near its
+converged value at these meshes either, and OpenJFEM converges onto both targets
+under refinement. `PAPER_VALIDATION_SUMMARY.md` itemises each row.
 
 Run the suite to recreate `comparison.md` and `comparison.csv` with the exact
 values, tolerances, and relative errors for the local solver revision.
@@ -165,15 +201,33 @@ tabulated in `references/commercial_reference.csv` with one row per
 (case, quantity). The solver itself is not invoked by anything in this folder,
 and no solver-generated output files are shipped here.
 
-Two of the fourteen rows deliberately have **no** tabulated parity value. A
-reference-solver run of `timoshenko_plate_buckling` returns a first eigenvalue
-56% away from both the analytical value and OpenJFEM's, which is unexplained
-and may be a convention mismatch rather than a gap; and
-`cylinder_axial_buckling` reports a critical stress where the reference-solver
-run yields a raw eigenvalue, so the suite's own lambda-to-stress conversion has
-to be applied before the two are comparable. Wiring in an unverified number
-would assert a parity result that has not been established, so those rows stay
-empty until each is resolved.
+Two of the fifteen rows deliberately have **no** tabulated parity value: the two
+`classical` SOL 105 buckling rows. This is a limitation of the reference solver
+on those two decks, and it has been characterised rather than left unexplained.
+
+The reference solver cannot produce a trustworthy *first* buckling eigenvalue
+for either deck:
+
+- On `timoshenko_plate_buckling` its unguarded inverse-power extraction reports
+  a first eigenvalue 56% away from both the analytical value and OpenJFEM's —
+  but its own Sturm-sequence messages count 14 roots below `3.003e8` while only
+  6 of the printed roots are below that. Eight roots below the printed minimum
+  were missed, so the printed "mode 1" is not the first eigenvalue of that
+  discretisation and is not comparable to anything.
+- On `cylinder_axial_buckling` it reports a first eigenvalue of `3.33e-5` with a
+  **negative** generalized mass and a failed orthogonality test (66 pairs).
+
+Re-running both with the Sturm-guarded extraction method does not rescue them:
+it returns 100+ roots dominated by a near-null spurious cluster. The reference
+solver's `K`/`K_g` pair on these decks carries a large spurious near-null
+subspace; OpenJFEM's spectrum has 5 roots below `5e8` where the reference's own
+Sturm count claims 17.
+
+Wiring in a number from a demonstrably incomplete extraction would assert a
+parity result that has not been established, so those two rows stay empty. The
+tractable route to closing them is a displacement parity row on the SOL 105
+static preload subcase, which is well-posed for both codes; that needs the
+preload displacements to be exposed in OpenJFEM's buckling output first.
 
 ## What This Suite Is Not
 

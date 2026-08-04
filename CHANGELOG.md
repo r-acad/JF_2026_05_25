@@ -5,7 +5,66 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Public validation suite: same-deck parity now passes on every row that
+  carries a parity target (13/13, was 11/12), and the last reported gap was not
+  a formulation gap.** `PARAM,K6ROT` — the Hughes-Brezzi drilling-DOF
+  stabilisation coefficient — is not part of any of these benchmark definitions
+  and solvers default it differently: `0.0` in the reference solver's SOL 101
+  (and in every one of its linear solution sequences), `100.0` in current
+  MSC.Nastran and in OpenJFEM. Every tabulated parity reference had been
+  produced at `0.0` on a deck that declared nothing, while OpenJFEM ran the same
+  deck at `100.0`. That single unstated difference was the entire residual
+  parity error on all six shell rows; it only exceeded tolerance on the pinched
+  hemisphere, the most K6ROT-sensitive case, where it read as a `3.4956%`
+  formulation gap. Confirmed from both sides on the reference solver: the
+  hemisphere deck gives the same answer cardless and with `PARAM,K6ROT,0.` (full
+  25-node displacement blocks bit-identical), and with `PARAM,K6ROT,100.` it
+  returns OpenJFEM's own default-run answer to the output file's full print
+  precision. At the matched setting OpenJFEM reproduces the reference's complete
+  25-node translation field to `1.53e-7` relative L2. The six affected decks now
+  declare `PARAM,K6ROT,0.` explicitly; because that was already the reference
+  solver's default, no previously tabulated reference value changed. Per-row
+  parity error after the fix: curved beam `1.32e-8`, Scordelis-Lo `3.67e-8`,
+  hemisphere `3.81e-8`, MYSTRAN SOL 101 `1.02e-7`, pinched cylinder `7.20e-6`,
+  twisted beam `3.29e-5` / `6.19e-5`. Solver source is unchanged; OpenJFEM's own
+  `PARAM,K6ROT` default remains `100.0`.
+- **`validation/cases/macneal_harder/twisted_beam.bdf` applied the wrong load
+  case.** It applied the out-of-plane tip load (+Y) while the suite scored it
+  against the *in-plane* published target — the entire source of its former
+  `68.5%` accuracy error. At the tip the 1.1 width lies along global Z, so the
+  in-plane direction is +Z. The load is rotated to +Z and the selector moved to
+  T3 (`0.77%` accuracy, PASS), and the out-of-plane case is split out into the
+  new `twisted_beam_out_of_plane.bdf` with its own row (`2.66%`, PASS). Both
+  carry their own reference-solver parity value.
+- **`validation/cases/macneal_harder/hemispherical_shell.bdf` applied half the
+  benchmark load and cited the wrong variant's reference.** The benchmark load
+  is `P = 2.0`, so the quarter model carries `1.0` at each loaded equator node,
+  not `0.5`; and the deck models the 18-deg cut-out variant, whose published
+  reference is `0.0930`, not the closed-pole `0.0924`. Both corrected. The load
+  error is independently confirmed by convergence: at `0.5`/node the response is
+  flat in the mesh at 0.507-0.516 of the reference through N = 32, i.e. it
+  converges to exactly half. Its parity reference is re-measured at
+  `9.874839E-02`, exactly twice the previous value as linearity requires.
+
+### Changed
+- Public-suite parity tolerances tightened from `2e-2` to `1e-3` (`5e-3` on the
+  CRM modal rows) now that same-deck parity is exact to five to eight
+  significant figures. At the old tolerance the gate could no longer detect a
+  regression.
+- Accuracy tolerance widened `0.05 -> 0.10` on `MH_scordelis_lo` and
+  `MH_hemispherical_shell` only, each set from the published 4-node-element
+  spread on the identical mesh and cited inline in `public_suite.yaml`.
+  `MH_curved_beam_in_plane` and `MH_pinched_cylinder` were deliberately left
+  alone and remain accuracy FAILs: no published per-mesh band supports widening
+  them. Both are correctly posed — in particular the pinched cylinder's
+  `P/4 = 0.25` octant load is correct, superseding an earlier note in
+  `PAPER_VALIDATION_SUMMARY.md` that claimed it was under-loaded.
+
 ### Added
+- `validation/cases/macneal_harder/twisted_beam_out_of_plane.bdf` and the
+  `MH_twisted_beam_out_of_plane` row, so the suite covers both published
+  MacNeal-Harder twisted-beam load cases instead of conflating them.
 - `JFEM_Q4_MACNEAL_SHEAR_EDGE_LINEAR=interaction` remains an explicit
   diagnostic, while the objective `interaction_hybrid` is now the implicit
   production choice when the revised full edge rows are active and rigid
