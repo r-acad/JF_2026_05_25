@@ -13,16 +13,17 @@ public validation manifest.
 | Family | SOL | Cases | Scalar rows | Reference type | Parity rows | Public basis |
 | --- | ---: | ---: | ---: | --- | ---: | --- |
 | MacNeal-Harder shell benchmarks | 101 | 6 | 6 | Analytical / published benchmark values | 6 | Published classical benchmark set |
-| Classical buckling | 105 | 2 | 2 | Closed-form formulas | 0 | Published plate and shell buckling theory |
+| Classical buckling | 105 | 2 | 4 | Closed-form formulas + STATSUB preload | 2 | Published plate and shell buckling theory |
 | MYSTRAN cross-checks | 101, 105 | 2 | 2 | Tabulated reference values | 2 | MIT-licensed open-source test suite |
 | CRM/uCRM wingbox modal | 103 | 1 | 5 | Tabulated modal eigenvalues | 5 | Apache-2.0 TACS CRM example with synthesized public properties |
 
 ## Two Independent Measurements: Accuracy And Parity
 
 Every row is scored against a published or closed-form target (**accuracy**).
-Thirteen of the fifteen rows are additionally scored against a tabulated
+Fifteen of the seventeen rows are additionally scored against a tabulated
 reference-solver value obtained by running **this folder's own deck,
-unmodified**, through an established solver (**parity**).
+unmodified**, through an established solver (**parity**). Every one of the ten
+cases carries at least one such measurement.
 
 The two answer different questions and must not be conflated:
 
@@ -81,20 +82,21 @@ payload. The status of the current maintained revision is:
 
 | Metric | Value |
 | --- | ---: |
-| Total scalar validation rows | 15 |
-| Accuracy PASS / FAIL | 13 / 2 |
-| Rows carrying a parity target | 13 |
-| Parity PASS / FAIL | **13 / 0** |
+| Total scalar validation rows | 17 |
+| Accuracy PASS / FAIL | 15 / 2 |
+| Rows carrying a parity target | 15 |
+| Parity PASS / FAIL | **15 / 0** |
+| Cases with at least one parity row | **10 / 10** |
 | SOL 101 rows | 7 |
 | SOL 103 rows | 5 |
-| SOL 105 rows | 3 |
+| SOL 105 rows | 5 |
 
 Per-family maxima, both measurements side by side:
 
 | Family | Max accuracy error | Accuracy tol | Max parity error | Parity tol |
 | --- | ---: | ---: | ---: | ---: |
 | MacNeal-Harder | 47.6% | 2-10% by case | 0.0000062% | 0.1% |
-| Classical buckling | 3.56% | 3-15% by case | not measured | — |
+| Classical buckling | 3.56% | 3-15% by case | 0.00039% (STATSUB preload) | 0.1% |
 | MYSTRAN cross-check | 0.0000102% | 2-5% by case | 0.0000102% | 0.1% |
 | CRM/uCRM modal | 0.0282% | 5% | 0.0282% | 0.5% |
 
@@ -102,7 +104,7 @@ The MYSTRAN and CRM families show identical accuracy and parity figures because
 their published reference values *are* reference-solver values; those rows were
 always parity measurements, and the parity column now says so explicitly.
 
-### Same-deck parity, all 13 rows
+### Same-deck parity, all 15 rows
 
 | Row | Parity rel. error | Tol |
 | --- | ---: | ---: |
@@ -115,6 +117,8 @@ always parity measurements, and the parity column now says so explicitly.
 | `MYSTRAN_sol101_simple` | `1.02e-7` | `1e-3` |
 | `MYSTRAN_sol105_buckling` | `3.62e-7` | `1e-3` |
 | `CRM_wingbox_modal` modes 1-5 | `2.91e-5` .. `2.82e-4` | `5e-3` |
+| `TG_plate_uniaxial_buckling` STATSUB preload | `5.00e-8` | `1e-3` |
+| `BA_cylinder_axial_buckling` STATSUB preload | `3.90e-6` | `1e-3` |
 
 ### Status notes behind the MacNeal-Harder rows
 
@@ -165,13 +169,22 @@ always parity measurements, and the parity column now says so explicitly.
    published reference, trading a real coarse-mesh error for a permanent 100%
    load error that merely cancels at N = 4.*
 
-6. **The two classical buckling rows still carry no parity target**, and the
-   reason is now characterised rather than unexplained: the reference solver's
-   eigenvalue extraction on those two decks is demonstrably incomplete (its own
-   Sturm-sequence counts contradict its printed first mode) and a Sturm-guarded
-   re-run returns a spurious near-null cluster instead. See `README.md`,
-   "Tabulated commercial-solver values". An unverified number in a parity column
-   is worse than an empty one.
+6. **The two classical buckling EIGENVALUE rows still carry no parity target**,
+   and the reason is now characterised rather than unexplained: the reference
+   solver's eigenvalue extraction on those two decks is demonstrably incomplete
+   (its own Sturm-sequence counts contradict its printed first mode) and a
+   Sturm-guarded re-run returns a spurious near-null cluster instead. See
+   `README.md`, "Tabulated commercial-solver values". An unverified number in a
+   parity column is worse than an empty one.
+
+   Both classical *cases* are nevertheless parity-covered: each now carries a
+   second row on its SOL 105 `STATSUB` static preload field, which is well-posed
+   for both codes and agrees to `5.0e-8` (plate) and `3.9e-6` (cylinder, in the
+   deck's `CORD2C` cylindrical output frame). Be precise about the scope: those
+   rows verify the stiffness matrix, the applied load and the boundary
+   conditions on the identical mesh. They do **not** verify the geometric
+   stiffness `K_g` or the eigensolver, which remain unverified against a
+   reference solver on these two decks.
 
 Published per-mesh comparators quoted above are from Y. Ko, P.-S. Lee and
 K.-J. Bathe, "Performance of the MITC3+ and MITC4+ shell elements in

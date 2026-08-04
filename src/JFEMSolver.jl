@@ -3599,10 +3599,15 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
                     "eigenvalues"         => collect(sc.reported_eigenvalues),
                 ) for sc in br_sc.subcases]
             end
+            # The SOL 105 static preload is a well-posed, directly comparable
+            # quantity that the buckling JSON previously dropped, so a consumer
+            # wanting it had to re-run the deck as SOL 101. Emit it alongside
+            # the modes; the binary export has always carried it.
             export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id_map;
                 analysis_type="SOL105_BUCKLING", diagnostics=get(results, "solver_diagnostics", nothing),
                 mode_metadata=get(results, "mode_metadata", nothing),
                 buckling_subcases=sol105_subcases,
+                static_displacements=_static_disp_to_list(get(results, "u_static", nothing), id_map),
                 backend_metadata=_export_backend_metadata(results))
         end
         if export_hdf5

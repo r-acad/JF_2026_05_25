@@ -20,7 +20,7 @@ validation/
 |-- run_public_suite.jl             top-level driver
 |-- analytical/                     Julia functions for closed-form references
 |-- cases/
-|   |-- macneal_harder/             five hand-coded classical shell/beam decks
+|   |-- macneal_harder/             six hand-coded classical shell/beam decks
 |   |-- classical/                  two closed-form plate/cylinder buckling decks
 |   |-- mystran_xref/               cross-checks against the MYSTRAN test suite
 |   `-- crm/                        Common Research Model wing-box
@@ -107,7 +107,7 @@ redistribution rights are unclear.
 ## Accuracy And Parity Are Scored Separately
 
 Each quantity in `public_suite.yaml` carries a `reference` (published or
-closed-form target) and, on 13 of the 15 rows, an optional `parity` block
+closed-form target) and, on 15 of the 17 rows, an optional `parity` block
 holding a tabulated reference-solver value for **this folder's own deck,
 unmodified**.
 
@@ -160,9 +160,10 @@ were always explicit and their reference values were produced at that setting.
 
 ## Current Paper Status
 
-The maintained public-suite snapshot contains 15 scalar validation rows: 13
-accuracy PASS / 2 FAIL, and **13 parity PASS / 0 parity FAIL** across the 13
-rows that carry a parity target. Worst same-deck parity error on any row is
+The maintained public-suite snapshot contains 17 scalar validation rows: 15
+accuracy PASS / 2 FAIL, and **15 parity PASS / 0 parity FAIL** across the 15
+rows that carry a parity target. Every one of the ten cases now carries at
+least one same-deck parity measurement. Worst same-deck parity error on any row is
 `2.82e-4` (CRM mode 4) and `6.19e-5` across the MacNeal-Harder family, against
 parity tolerances of `1e-3` (`5e-3` for the CRM modal rows).
 
@@ -201,9 +202,16 @@ tabulated in `references/commercial_reference.csv` with one row per
 (case, quantity). The solver itself is not invoked by anything in this folder,
 and no solver-generated output files are shipped here.
 
-Two of the fifteen rows deliberately have **no** tabulated parity value: the two
-`classical` SOL 105 buckling rows. This is a limitation of the reference solver
-on those two decks, and it has been characterised rather than left unexplained.
+Two of the seventeen rows deliberately have **no** tabulated parity value: the
+two `classical` **buckling-eigenvalue** rows. This is a limitation of the
+reference solver on those two decks, and it has been characterised rather than
+left unexplained.
+
+Note that both of those *cases* are still parity-covered — each carries a
+second row measuring its SOL 105 `STATSUB` static preload field, which is
+well-posed for both codes (see below). Every case in the suite therefore has at
+least one same-deck parity measurement; what remains unverified against a
+reference solver is the buckling **eigenvalue** on these two decks specifically.
 
 The reference solver cannot produce a trustworthy *first* buckling eigenvalue
 for either deck:
@@ -224,10 +232,21 @@ subspace; OpenJFEM's spectrum has 5 roots below `5e8` where the reference's own
 Sturm count claims 17.
 
 Wiring in a number from a demonstrably incomplete extraction would assert a
-parity result that has not been established, so those two rows stay empty. The
-tractable route to closing them is a displacement parity row on the SOL 105
-static preload subcase, which is well-posed for both codes; that needs the
-preload displacements to be exposed in OpenJFEM's buckling output first.
+parity result that has not been established, so those two eigenvalue rows stay
+empty.
+
+**What is measured instead.** Each classical case carries a second row on its
+SOL 105 `SUBCASE 1` `STATSUB` preload field, requested with `DISPLACEMENT = ALL`
+and emitted by OpenJFEM under `static_displacements` in the `*.BUCKLING.JSON`.
+That field is well-posed for both codes and agrees to `5.0e-8` (plate, node 36
+T1) and `3.9e-6` (cylinder, node 1 T3, in the deck's `CORD2C` cylindrical output
+frame).
+
+Be precise about what this buys: the preload row verifies the **stiffness
+matrix, the applied load and the boundary conditions** on the identical mesh.
+It does **not** verify the geometric stiffness `K_g` or the eigensolver. Those
+remain unverified against a reference solver on these two decks, and saying so
+is the point of keeping the eigenvalue parity cells empty.
 
 ## What This Suite Is Not
 

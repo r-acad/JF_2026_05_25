@@ -177,9 +177,16 @@ function extract_quantity(data::AbstractDict, q::AbstractDict)
         vals = Float64.(evs)
         mode <= length(vals) || return (nothing, "mode $mode > $(length(vals)) returned")
         return (vals[mode], "")
-    elseif kind == "displacement"
-        disps = get(data, "displacements", nothing)
-        disps === nothing && return (nothing, "no displacements in JFEM output")
+    elseif kind == "displacement" || kind == "static_preload_displacement"
+        # `displacement`               -> the SOL 101 displacement vector.
+        # `static_preload_displacement`-> the SOL 105 STATSUB preload field,
+        #    which the buckling export emits under `static_displacements`. It
+        #    is a well-posed same-deck quantity on a case whose buckling
+        #    eigenvalue the reference solver cannot extract reliably; see
+        #    README.md, "Tabulated commercial-solver values".
+        key = kind == "displacement" ? "displacements" : "static_displacements"
+        disps = get(data, key, nothing)
+        disps === nothing && return (nothing, "no $key in JFEM output")
         node = Int(get(sel, "node", 0))
         dof  = Int(get(sel, "dof", 1))
         field = get(_DOF_FIELD, dof, nothing)
@@ -189,7 +196,7 @@ function extract_quantity(data::AbstractDict, q::AbstractDict)
                 return (Float64(get(d, field, 0.0)), "")
             end
         end
-        return (nothing, "node $node not found in displacements")
+        return (nothing, "node $node not found in $key")
     else
         return (nothing, "unsupported quantity kind '$kind'")
     end

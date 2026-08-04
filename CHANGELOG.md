@@ -5,6 +5,31 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **SOL 105 buckling results now carry the `STATSUB` static-preload
+  displacement field.** `*.BUCKLING.JSON` gains a `static_displacements` block
+  in the same per-grid schema the SOL 101 export uses (`grid_id`, `t1`..`r3`),
+  in the analysis DOF ordering and grid `CD` output frame. The value was always
+  available — the binary export has carried it since the version-5 format — but
+  the JSON dropped it, so a consumer wanting the preload had to re-run the deck
+  as SOL 101. The key is omitted entirely when the case has no static subcase,
+  so decks without `STATSUB` are unchanged.
+- Public validation suite: both `classical` SOL 105 cases now carry a same-deck
+  parity row on that preload field, so **every case in the suite has at least
+  one parity measurement (10/10)**. Their buckling *eigenvalue* rows still carry
+  no parity target, deliberately: the reference solver's extraction on those two
+  decks is demonstrably incomplete — on the plate it prints mode 1 at
+  `1.184360E+08` while its own Sturm messages count 14 roots below
+  `3.002962E+08` and only 6 printed roots are below that, and on the cylinder it
+  prints a first eigenvalue with negative generalized mass and a failed
+  orthogonality test. A Sturm-guarded `SINV` re-run does not rescue either; it
+  returns 100+ roots dominated by a near-null spurious cluster. The preload rows
+  verify the stiffness matrix, loads and boundary conditions on the identical
+  mesh; they do not verify `K_g` or the eigensolver, and the documentation says
+  so. Agreement: `5.0e-8` (plate node 36 T1) and `3.9e-6` (cylinder node 1 T3).
+- `run_public_suite.jl` understands a `static_preload_displacement` quantity
+  kind, reading `static_displacements` out of a SOL 105 result.
+
 ### Fixed
 - **Public validation suite: same-deck parity now passes on every row that
   carries a parity target (13/13, was 11/12), and the last reported gap was not

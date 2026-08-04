@@ -275,17 +275,33 @@
 #           Geometry and loads transcribed from standard textbooks; no
 #           proprietary suite involved.
 #
-#           NO `parity` block on either case, deliberately:
-#             * TG_plate_uniaxial_buckling -- a reference-solver run of this
-#               deck returns a first eigenvalue 56 % away from both the
-#               analytical value and OpenJFEM's. Until that is shown to be a
-#               convention/units mismatch rather than a real gap, tabulating
-#               it would assert a parity gap that has not been established.
-#             * BA_cylinder_axial_buckling -- the quantity here is a critical
-#               STRESS; a reference-solver run yields the raw eigenvalue. The
-#               suite's own lambda-to-stress conversion has to be applied
-#               before the two are comparable.
-#           Both are tracked as open items; see PAPER_VALIDATION_SUMMARY.md.
+#           NO `parity` block on either BUCKLING EIGENVALUE, deliberately.
+#           The reference solver cannot produce a trustworthy first buckling
+#           eigenvalue for either deck (established 2026-08-04):
+#             * TG_plate_uniaxial_buckling -- its unguarded inverse-power
+#               extraction prints mode 1 at 1.184360E+08, 56 % away from both
+#               the analytical value and OpenJFEM's, but its own Sturm-sequence
+#               messages count 14 roots below 3.002962E+08 while only 6 printed
+#               roots are below that. Eight roots below the printed minimum were
+#               missed, so the printed "mode 1" is not the first eigenvalue of
+#               that discretisation.
+#             * BA_cylinder_axial_buckling -- prints mode 1 = 3.332354E-05 with
+#               a NEGATIVE generalized mass and a failed orthogonality test
+#               (66 pairs).
+#           Re-running both with the Sturm-guarded SINV method does not rescue
+#           them: it returns 100+ roots dominated by a near-null spurious
+#           cluster (plate mode 1 = -2.763834E-07). The reference's K/Kg pair on
+#           these decks carries a large spurious near-null subspace; OpenJFEM
+#           has 5 roots below 5e8 where the reference's own Sturm count claims
+#           17. Tabulating any of those numbers would assert a parity result
+#           that has not been established.
+#
+#           Each case DOES carry a parity row on its SOL 105 STATSUB static
+#           preload field, which is well-posed for both codes and which the
+#           buckling export now emits. That row verifies the stiffness matrix,
+#           the applied load and the boundary conditions on the identical mesh.
+#           It does NOT verify Kg or the eigensolver -- that remains the open
+#           item. See PAPER_VALIDATION_SUMMARY.md.
 # ===========================================================================
 
 - id: TG_plate_uniaxial_buckling
@@ -301,6 +317,23 @@
         module: classical_plate_buckling
         fn: simply_supported_uniaxial_first_mode
       tol_rel: 0.03
+    # Same-deck parity on the well-posed part of this case: the STATSUB
+    # preload field. Node 36 is the far corner of the compressed edge (x = 1).
+    - name: preload_ux_node_36
+      kind: static_preload_displacement
+      selector: {node: 36, dof: 1}
+      reference:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: TG_plate_preload_ux
+      tol_rel: 1.0e-3
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: TG_plate_preload_ux
+        tol_rel: 1.0e-3
   citation: "Timoshenko & Gere, Theory of Elastic Stability (1961), Ch. 9"
   license: public domain
 
@@ -318,6 +351,25 @@
         fn: thin_cylinder_axial_critical
       tol_rel: 0.15
       notes: "Classical formula known to over-predict; wide tolerance is intentional."
+    # Same-deck parity on the well-posed part of this case: the STATSUB
+    # preload field. Node 1 is the loaded end; grid CD = 1, the CORD2C
+    # cylindrical frame, so T3 is the axial component -- the same convention
+    # the reference solver prints in.
+    - name: preload_uz_node_1
+      kind: static_preload_displacement
+      selector: {node: 1, dof: 3}
+      reference:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: BA_cylinder_preload_uz
+      tol_rel: 1.0e-3
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: BA_cylinder_preload_uz
+        tol_rel: 1.0e-3
   citation: "Brush & Almroth, Buckling of Bars, Plates and Shells (1975), Ch. 5"
   license: public domain
 

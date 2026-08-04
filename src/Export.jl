@@ -2311,12 +2311,40 @@ function filtered_subcase_result_payload(sc::AbstractDict, sub_ctrl::AbstractDic
     )
 end
 
+"""
+Convert a SOL 105 static-preload displacement vector into the same per-grid
+row format the SOL 101 export uses, so a consumer can read a preload
+displacement out of a buckling result without a second run.
+
+`u_static` is in the analysis DOF ordering and the grid CD output frame, i.e.
+the same convention the mode shapes and the reference solver's printed
+displacement vector use.
+"""
+function _static_disp_to_list(u_static, id_map)
+    u_static === nothing && return nothing
+    sorted_nodes = sort(collect(keys(id_map)))
+    ndof = length(u_static)
+    rows = Any[]
+    for nid in sorted_nodes
+        idx = id_map[nid]
+        base = (idx - 1) * 6
+        base + 6 <= ndof || continue
+        push!(rows, Dict(
+            "grid_id" => nid,
+            "t1" => u_static[base+1], "t2" => u_static[base+2], "t3" => u_static[base+3],
+            "r1" => u_static[base+4], "r2" => u_static[base+5], "r3" => u_static[base+6],
+        ))
+    end
+    return isempty(rows) ? nothing : rows
+end
+
 function build_buckling_export_payload(eigenvalues, mode_shapes, id_map;
                                        frequencies=nothing,
                                        mass_summary=nothing,
                                        modal_effective_mass=nothing,
                                        mode_metadata=nothing,
                                        buckling_subcases=nothing,
+                                       static_displacements=nothing,
                                        analysis_type="SOL105_BUCKLING",
                                        diagnostics=nothing,
                                        backend_metadata=nothing)
@@ -2379,6 +2407,9 @@ function build_buckling_export_payload(eigenvalues, mode_shapes, id_map;
     end
     if buckling_subcases !== nothing
         payload["subcases"] = _export_clean_subcases(buckling_subcases)
+    end
+    if static_displacements !== nothing
+        payload["static_displacements"] = static_displacements
     end
     if diagnostics !== nothing
         payload["solver_diagnostics"] = deepcopy(diagnostics)
@@ -3118,6 +3149,7 @@ function export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id
                               frequencies=nothing, mass_summary=nothing,
                               modal_effective_mass=nothing, mode_metadata=nothing,
                               buckling_subcases=nothing,
+                              static_displacements=nothing,
                               analysis_type="SOL105_BUCKLING",
                               diagnostics=nothing,
                               backend_metadata=nothing)
@@ -3130,6 +3162,7 @@ function export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id
         modal_effective_mass=modal_effective_mass,
         mode_metadata=mode_metadata,
         buckling_subcases=buckling_subcases,
+        static_displacements=static_displacements,
         analysis_type=analysis_type,
         diagnostics=diagnostics,
         backend_metadata=backend_metadata)
