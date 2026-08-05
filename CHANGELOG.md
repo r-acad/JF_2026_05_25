@@ -27,6 +27,12 @@ Versions follow [Semantic Versioning](https://semver.org/).
   per read — with ~25–40 reads per element). Outside assembly the accessors
   read live `ENV` exactly as before, so research bisects that set variables
   between direct kernel calls are unaffected.
+- **Kg no longer rebuilds the constraint dependency map.** The geometric
+  stiffness assembly reuses the merged RBE2/RBE1/RSPLINE/RBE3/MPC map the
+  stiffness assembly already built (it arrives as an argument that was
+  previously ignored), skipping a full map rebuild — including per-RBE3
+  pseudo-inverse solves — per Kg call. Bit-identical triplets; empty maps
+  are not trusted and trigger the full build as before.
 - **Sturm inertia counts are cheaper**: the completeness certificate's
   counts share one CHOLMOD symbolic analysis across shifts (the pencil
   pattern is shift-independent; inertia is permutation-invariant, so the

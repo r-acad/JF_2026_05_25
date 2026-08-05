@@ -7640,8 +7640,13 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     kg_timings["solids"] = (time_ns() - kg_t_solids) * 1e-9
 
     # --- Constraint redistribution (same as for K) ---
+    # The K assembly's merged dependency map arrives as the rbe3_map
+    # argument; pass it through so the full RBE/MPC map (incl. per-RBE3
+    # pinv solves) is not rebuilt per Kg call. Empty maps are not trusted
+    # by the callee and trigger the full build exactly as before.
     kg_t_constraints = time_ns()
-    _, I_idx, J_idx, V_val = assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, V_val)
+    _, I_idx, J_idx, V_val = assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, V_val;
+                                                  prebuilt_map=rbe3_map)
     kg_timings["constraint_redistribution"] = (time_ns() - kg_t_constraints) * 1e-9
 
     kg_t_sparse = time_ns()
