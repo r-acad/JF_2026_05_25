@@ -5170,7 +5170,11 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     actual_nz = length(I_idx)
     log_msg("[SOLVER] Creating Sparse Matrix (NZ: $actual_nz)...")
     K = sparse(I_idx, J_idx, V_val, ndof, ndof)
-    I_idx = nothing; J_idx = nothing; V_val = nothing; GC.gc()
+    # Triplet arrays are dropped for natural collection; the former forced
+    # full GC.gc() here cost a measured ~0.6 s per assembly (full-heap mark
+    # while the live set is at its largest) and multiplied across
+    # reassemblies (temperature subcases, load-aware passes, dKdx, SOL106).
+    I_idx = nothing; J_idx = nothing; V_val = nothing
 
     return K, id_map, node_coords, ndof, node_R, max_elem_stiff, rbe3_map, snorm_normals, orig_diag
 end

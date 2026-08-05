@@ -872,7 +872,8 @@ function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
                     orig_diag=Float64[],
                     load_scale::Float64=1.0,
                     temp_load_id=nothing,
-                    linear_cache=nothing)
+                    linear_cache=nothing,
+                    build_results::Bool=true)
     F_applied = _assemble_applied_force(
         ndof, model, id_map, X, load_id, node_R, rbe3_map;
         load_scale=load_scale,
@@ -933,6 +934,14 @@ function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
                 log_msg("[SOLVER] WARNING: SPCD on unconstrained dof $dof ignored (dof must be in the SPC set)")
             end
         end
+    end
+
+    # Callers that only need the displacement field (e.g. the SOL 105 static
+    # reference solve feeding Kg) skip stress recovery and result-row
+    # building entirely — previously computed unconditionally and discarded
+    # (measured pure waste, PERF_AUDIT_SOL105_2026_08_05 item 9).
+    if !build_results
+        return nothing, nothing, nothing, u_global, fixed_dofs
     end
 
     R = K * u_global - F_resid

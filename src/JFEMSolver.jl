@@ -2861,7 +2861,8 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                 _, _, _, u_static_analysis, fixed_dofs_static = Solver.solve_case(
                     K_static, ndof_static, model, id_map_static, X_static, load_id, spc_id_static, node_R_static;
                     max_elem_stiff=max_elem_stiff_static, rbe3_map=rbe3_map_static, snorm_normals=snorm_normals_static, orig_diag=orig_diag_static,
-                    temp_load_id=temp_load_id_static, linear_cache=static_linear_solve_cache)
+                    temp_load_id=temp_load_id_static, linear_cache=static_linear_solve_cache,
+                    build_results=false)
                 return u_static_analysis, fixed_dofs_static
             end
 
@@ -2938,7 +2939,8 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                         K_la, ndof_la, model, id_map_la, X_la, load_id, spc_id_static, node_R_la;
                         max_elem_stiff=max_elem_stiff_la, rbe3_map=rbe3_map_la,
                         snorm_normals=snorm_normals_la, orig_diag=orig_diag_la,
-                        temp_load_id=temp_load_id_static, linear_cache=nothing)
+                        temp_load_id=temp_load_id_static, linear_cache=nothing,
+                        build_results=false)
                     u_static_analysis = u_la
                     fixed_dofs_static = fixed_la
                     K_static = K_la

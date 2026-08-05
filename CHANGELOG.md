@@ -5,6 +5,35 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Performance
+- **The SOL101/103/105 precompile workload is ON by default.** The package
+  image now bakes the full parse -> build -> solve path, eliminating a
+  measured ~147 s of per-process first-solve JIT (79% of a fresh
+  single-deck run). The one-time cost moves to package precompilation
+  after a source change; opt out for tight edit loops with
+  `JFEM_SOL105_PRECOMPILE_WORKLOAD=false`. Measured on the 36.5k-DOF
+  reference deck: fresh-process wall 187 s -> 49 s (load 3.1 s + first
+  solve 46.0 s). Note: ahead-of-time compiled code may select marginally
+  different FMA/SIMD instruction sequences than per-session JIT, shifting
+  floating-point results deterministically at up to `~3.5e-10` relative
+  (measured over the full public suite; every PASS/FAIL and parity verdict
+  unchanged, and the shift is stable across processes for a given image).
+  The opt-out env var restores the exact JIT behavior.
+- **Post-factorization pivot checks read `diag(F)` instead of materializing
+  the whole Cholesky factor** (three sites). Bit-identical values, measured
+  19x on the check at 48k DOF, and removes a transient copy of the full
+  factor fill-in (hundreds of MB on large models). The natural-order
+  `K_ff` diagonal is likewise read in one pass.
+- **The forced full `GC.gc()` after stiffness assembly is removed**
+  (measured ~0.6 s per assembly, multiplied across reassemblies).
+- **SOL 105 static reference solves no longer compute-and-discard stress
+  recovery and result rows** (`build_results=false` on the preload path);
+  recovery for export still runs exactly as before where consumed.
+- **Parser fast paths**: NASTRAN field numbers take a zero-allocation
+  `tryparse` fast path (embedded-exponent forms fall through to the exact
+  legacy path unchanged; measured 4.4x on the tokenizer), and the
+  `BEGIN BULK` presence scan no longer uppercases a copy of every line.
+
 ### Removed
 - **The CTRIA3 virtual macro-quad construction is gone.** The triangle's plate
   stiffness has been the pure three-node MITC3 kernel since its 2026-08-01
