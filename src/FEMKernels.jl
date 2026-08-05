@@ -4212,11 +4212,25 @@ function add_quad4_macneal_shear_rbf!(
            zb_skew_mode != "total" ||
            !fem_env_bool("JFEM_Q4_MACNEAL_ZB_TAPER", true) ||
            fem_env_bool("JFEM_Q4_MACNEAL_FAN_COUPLING", false)
-            throw(ArgumentError(
-                "JFEM_Q4_MACNEAL_SHEAR_EDGE_LINEAR interaction modes require " *
-                "the validated default MITC/Gauss, paper-length, Zb-only " *
-                "taper/shear/skew correction stack"))
+            # The interaction reconstruction is only valid on the validated
+            # default correction stack.  When the mode was selected by the
+            # implicit default, fall back to the established operator instead
+            # of erroring -- internal callers legitimately reach this kernel
+            # off the default stack (the CTRIA3 macro-quad containment path
+            # passes distortion_corrections=false).  An explicitly requested
+            # mode remains a hard error.
+            if shear_edge_linear_explicit
+                throw(ArgumentError(
+                    "JFEM_Q4_MACNEAL_SHEAR_EDGE_LINEAR interaction modes require " *
+                    "the validated default MITC/Gauss, paper-length, Zb-only " *
+                    "taper/shear/skew correction stack"))
+            end
+            shear_edge_linear_interaction = false
+            shear_edge_linear_interaction_raw = false
+            shear_edge_linear_interaction_hybrid = false
         end
+    end
+    if shear_edge_linear_interaction
         gpt = 1.0 / sqrt(3.0)
 
         # Orient opposite edges consistently with the positive x/y sample
@@ -7104,202 +7118,14 @@ function stiffness_tria3(coords, E, nu, h; bend_ratio=1.0, ts_t=5.0/6.0, k6rot=1
     return stiffness_tria3_generic(coords, E, nu, h; bend_ratio=bend_ratio, ts_t=ts_t, k6rot=k6rot)
 end
 
-const TRIA3_MACRO_QUADS = ((1, 4, 7, 6), (2, 5, 7, 4), (3, 6, 7, 5))
-const QUAD4_PLATE_DOF_IDX = (3, 4, 5, 9, 10, 11, 15, 16, 17, 21, 22, 23)
+# 2026-08-05: the CTRIA3 virtual macro-quad construction (TRIA3_MACRO_QUADS,
+# tria3_plate_macro_data and its pressure/shear-resultant/average-moment
+# consumers) was REMOVED. The CTRIA3 plate stiffness has been the pure
+# MITC3 kernel since its 2026-08-01 promotion; recovery is the element
+# constant-curvature field with an MITC3-consistent centroid shear
+# resultant, and CTRIA3 pressure uses the same equal-share lumping as
+# every other face, matching the reference solver.
 
-@inline function _tria3_virtual_quad_points(coords::AbstractMatrix)
-    T = eltype(coords)
-    pts = Matrix{T}(undef, 7, 2)
-
-    x1 = coords[1,1]; y1 = coords[1,2]
-    x2 = coords[2,1]; y2 = coords[2,2]
-    x3 = coords[3,1]; y3 = coords[3,2]
-
-    pts[1,1] = x1; pts[1,2] = y1
-    pts[2,1] = x2; pts[2,2] = y2
-    pts[3,1] = x3; pts[3,2] = y3
-    pts[4,1] = (x1 + x2) / 2; pts[4,2] = (y1 + y2) / 2
-    pts[5,1] = (x2 + x3) / 2; pts[5,2] = (y2 + y3) / 2
-    pts[6,1] = (x3 + x1) / 2; pts[6,2] = (y3 + y1) / 2
-    pts[7,1] = (x1 + x2 + x3) / 3; pts[7,2] = (y1 + y2 + y3) / 3
-
-    return pts
-end
-
-@inline function _tria3_virtual_quad_area(qc::AbstractMatrix)
-    a1 = (qc[2,1] - qc[1,1]) * (qc[4,2] - qc[1,2]) - (qc[4,1] - qc[1,1]) * (qc[2,2] - qc[1,2])
-    a2 = (qc[3,1] - qc[2,1]) * (qc[4,2] - qc[2,2]) - (qc[4,1] - qc[2,1]) * (qc[3,2] - qc[2,2])
-    return (abs(a1) + abs(a2)) / 2
-end
-
-function tria3_plate_macro_data(coords, Cm, Cb, Cs, h, E_ref, pressure=nothing; bend_ratio=1.0, k6rot=100.0)
-    T = promote_type(eltype(coords), eltype(Cm), eltype(Cb), eltype(Cs), typeof(h), typeof(E_ref))
-    pts = _tria3_virtual_quad_points(coords)
-    zero_cond = zeros(T, 9, 9)
-    zero_map = zeros(T, 12, 9)
-    zero_load = pressure === nothing ? nothing : zeros(T, 9)
-
-    bend_ratio <= T(1e-12) && return (Kcond=zero_cond, Aint=zero_map, pts=pts, fcond=zero_load)
-
-    K = zeros(T, 21, 21)
-    f = pressure === nothing ? nothing : zeros(T, 21)
-    plate_idx = collect(QUAD4_PLATE_DOF_IDX)
-
-    for quad in TRIA3_MACRO_QUADS
-        qc = pts[[quad[1], quad[2], quad[3], quad[4]], :]
-        # CONTAINMENT (2026-08-01): the macro construction's sub-quads are a VIRTUAL
-        # interpolation device, not physical elements -- they are skewed 45-53 deg and
-        # tapered BY CONSTRUCTION. MacNeal's distortion corrections are derived from the
-        # physics of a REAL quad (residual bending flexibility of a strip spanning the
-        # element), and the reference's own triangle is not built this way at all (trec.jl:
-        # its shear operator is rank 3 in MITC3's tying subspace). Applying real-element
-        # corrections to virtual sub-quads is unjustified and measurably harmful: promoting
-        # the quad skew fix moved tri_aspect 0.346 -> 0.485, and adding the taper coupling
-        # took it to 0.583. Freezing this path's quad operator stops the triangle degrading
-        # every time the quad improves. This is CONTAINMENT of a legacy construction pending
-        # the pure MITC3 element, NOT a claim that the frozen operator is more correct.
-        Ke_full = stiffness_quad4_matrices(qc, Cm, Cb, Cs, h, E_ref; bend_ratio=bend_ratio,
-                                           k6rot=k6rot, distortion_corrections=false)
-        Ke_plate = Ke_full[plate_idx, plate_idx]
-
-        edofs = Int[]
-        for nid in quad
-            append!(edofs, (3*(nid-1)+1):(3*(nid-1)+3))
-        end
-        K[edofs, edofs] .+= Ke_plate
-
-        if f !== nothing
-            fe = zeros(T, 12)
-            qA = pressure * _tria3_virtual_quad_area(qc)
-            fe[1] = qA / 4
-            fe[4] = qA / 4
-            fe[7] = qA / 4
-            fe[10] = qA / 4
-            f[edofs] .+= fe
-        end
-    end
-
-    ext = 1:9
-    int = 10:21
-    Kee = K[ext, ext]
-    Kei = K[ext, int]
-    Kie = K[int, ext]
-    Kii = K[int, int]
-
-    Fii = lu(Kii)
-    Aint = -(Fii \ Kie)
-    Kcond = Kee + Kei * Aint
-
-    fcond = nothing
-    if f !== nothing
-        fcond = f[ext] - Kei * (Fii \ f[int])
-    end
-
-    return (Kcond=Kcond, Aint=Aint, pts=pts, fcond=fcond)
-end
-
-function tria3_plate_macro_pressure_load(coords, E, nu, h, pressure; bend_ratio=1.0, k6rot=100.0)
-    T = promote_type(eltype(coords), typeof(E), typeof(nu), typeof(h), typeof(pressure))
-    D = (T(E) / (one(T) - T(nu)^2)) .* Matrix{T}([one(T) T(nu) zero(T); T(nu) one(T) zero(T); zero(T) zero(T) (one(T)-T(nu))/T(2)])
-    Cm = D * T(h)
-    Cb = D * (T(h)^3 / T(12))
-    G = T(E) / (T(2) * (one(T) + T(nu)))
-    Cs = zeros(T, 2, 2)
-    shear_scale = T(5) / T(6) * G * T(h)
-    Cs[1,1] = shear_scale
-    Cs[2,2] = shear_scale
-    macro_data = tria3_plate_macro_data(coords, Cm, Cb, Cs, T(h), G, T(pressure); bend_ratio=bend_ratio, k6rot=k6rot)
-    return macro_data.fcond === nothing ? zeros(T, 9) : macro_data.fcond
-end
-
-function tria3_plate_macro_shear_resultant(coords, u_plate, E, nu, h; bend_ratio=1.0, k6rot=100.0)
-    T = promote_type(eltype(coords), eltype(u_plate), typeof(E), typeof(nu), typeof(h))
-    bend_ratio <= T(1e-12) && return zeros(T, 2)
-
-    D = (T(E) / (one(T) - T(nu)^2)) .* Matrix{T}([one(T) T(nu) zero(T); T(nu) one(T) zero(T); zero(T) zero(T) (one(T)-T(nu))/T(2)])
-    Cm = D * T(h)
-    Cb = D * (T(h)^3 / T(12))
-    G = T(E) / (T(2) * (one(T) + T(nu)))
-    Cs = zeros(T, 2, 2)
-    shear_scale = T(5) / T(6) * G * T(h)
-    Cs[1,1] = shear_scale
-    Cs[2,2] = shear_scale
-    macro_data = tria3_plate_macro_data(coords, Cm, Cb, Cs, T(h), G; bend_ratio=bend_ratio, k6rot=k6rot)
-
-    u_all = Vector{T}(undef, 21)
-    u_all[1:9] = u_plate
-    u_all[10:21] = macro_data.Aint * u_plate
-
-    Q_sum = zeros(T, 2)
-    A_sum = zero(T)
-    u_quad = zeros(T, 24)
-    plate_idx = collect(QUAD4_PLATE_DOF_IDX)
-
-    for quad in TRIA3_MACRO_QUADS
-        fill!(u_quad, zero(T))
-        qc = macro_data.pts[[quad[1], quad[2], quad[3], quad[4]], :]
-        edofs = Int[]
-        for nid in quad
-            append!(edofs, (3*(nid-1)+1):(3*(nid-1)+3))
-        end
-        u_quad[plate_idx] .= u_all[edofs]
-
-        _, _, Q_quad, _, _, _, _ = stress_strain_quad4(qc, u_quad, E, nu, h, h; bend_ratio=bend_ratio)
-        area = _tria3_virtual_quad_area(qc)
-        Q_sum .+= area .* Q_quad
-        A_sum += area
-    end
-
-    A_sum <= T(1e-12) && return zeros(T, 2)
-    return Q_sum ./ A_sum
-end
-
-function tria3_plate_macro_average_moment(coords, u_elem, E, nu, h; bend_ratio=1.0, k6rot=100.0)
-    T = promote_type(eltype(coords), eltype(u_elem), typeof(E), typeof(nu), typeof(h))
-    bend_ratio <= T(1e-12) && return zeros(T, 3)
-
-    D = (T(E) / (one(T) - T(nu)^2)) .* Matrix{T}([one(T) T(nu) zero(T); T(nu) one(T) zero(T); zero(T) zero(T) (one(T)-T(nu))/T(2)])
-    Cm = D * T(h)
-    Cb = D * (T(h)^3 / T(12))
-    G = T(E) / (T(2) * (one(T) + T(nu)))
-    Cs = zeros(T, 2, 2)
-    shear_scale = T(5) / T(6) * G * T(h)
-    Cs[1,1] = shear_scale
-    Cs[2,2] = shear_scale
-    macro_data = tria3_plate_macro_data(coords, Cm, Cb, Cs, T(h), G; bend_ratio=bend_ratio, k6rot=k6rot)
-
-    u_plate = T[
-        u_elem[3], u_elem[4], u_elem[5],
-        u_elem[9], u_elem[10], u_elem[11],
-        u_elem[15], u_elem[16], u_elem[17],
-    ]
-    u_all = Vector{T}(undef, 21)
-    u_all[1:9] = u_plate
-    u_all[10:21] = macro_data.Aint * u_plate
-
-    M_sum = zeros(T, 3)
-    A_sum = zero(T)
-    u_quad = zeros(T, 24)
-    plate_idx = collect(QUAD4_PLATE_DOF_IDX)
-
-    for quad in TRIA3_MACRO_QUADS
-        fill!(u_quad, zero(T))
-        qc = macro_data.pts[[quad[1], quad[2], quad[3], quad[4]], :]
-        edofs = Int[]
-        for nid in quad
-            append!(edofs, (3*(nid-1)+1):(3*(nid-1)+3))
-        end
-        u_quad[plate_idx] .= u_all[edofs]
-
-        _, M_quad, _, _, _, _, _ = stress_strain_quad4(qc, u_quad, E, nu, h, h; bend_ratio=bend_ratio)
-        area = _tria3_virtual_quad_area(qc)
-        M_sum .+= area .* M_quad
-        A_sum += area
-    end
-
-    A_sum <= T(1e-12) && return zeros(T, 3)
-    return M_sum ./ A_sum
-end
 
 @inline function _dkt_side_coefficients(xi::T, yi::T, xj::T, yj::T) where {T}
     xij = xi - xj
@@ -7595,6 +7421,13 @@ function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_rat
     # SOL101/SOL105 guardrail path; the DKT implementation remains available
     # for controlled formulation probes with JFEM_TRIA3_PLATE_KERNEL=dkt.
     tria3_plate_kernel = lowercase(strip(get(ENV, "JFEM_TRIA3_PLATE_KERNEL", "mitc3")))  # PROMOTED 2026-08-01
+    # 2026-08-05: the legacy macro-quad plate kernel was removed with the
+    # virtual-quad construction. Unknown or legacy kernel names resolve to the
+    # validated MITC3 default instead of the removed operator.
+    if !(tria3_plate_kernel in ("mitc3", "constant", "centroid", "mindlin",
+                                "mindlin_constant", "dkt", "kirchhoff", "batoz"))
+        tria3_plate_kernel = "mitc3"
+    end
     if tria3_plate_kernel in ("mitc3",)
         # ------------------------------------------------------------------
         # PURE THREE-NODE TRIANGLE (MITC3): assumed transverse-shear strains tied at
@@ -7843,20 +7676,15 @@ function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_rat
             end
         end
     elseif tria3_plate_kernel in ("constant", "centroid", "mindlin", "mindlin_constant")
-        # Constant-curvature Mindlin triangle with centroidal shear. This is a
-        # simple, generic CTRIA3 plate operator and is useful as a Nastran-parity
-        # probe against the macro-quad condensed plate operator below.
+        # Constant-curvature Mindlin triangle with centroidal shear: a simple,
+        # generic CTRIA3 plate operator retained as a formulation-bisect probe.
         Ke[b_idx, b_idx] += Kb + Ks
-    elseif tria3_plate_kernel in ("dkt", "kirchhoff", "batoz")
-        if Bmb === nothing
-            Ke[b_idx, b_idx] += tria3_plate_dkt_stiffness(coords, Db)
-        else
-            macro_data = tria3_plate_macro_data(coords, Dm, Db, Ds, h, G_ref; bend_ratio=bend_ratio, k6rot=k6rot)
-            Ke[b_idx, b_idx] += macro_data.Kcond
-        end
     else
-        macro_data = tria3_plate_macro_data(coords, Dm, Db, Ds, h, G_ref; bend_ratio=bend_ratio, k6rot=k6rot)
-        Ke[b_idx, b_idx] += macro_data.Kcond
+        # "dkt" / "kirchhoff" / "batoz" (the kernel name set is normalised at
+        # the ENV read above, so no other value reaches here). The macro-quad
+        # alternative this branch once used for Bmb-coupled sections was
+        # removed 2026-08-05; DKT is applied uniformly.
+        Ke[b_idx, b_idx] += tria3_plate_dkt_stiffness(coords, Db)
     end
 
     # B matrix coupling (membrane-bending): cross-blocks between m_idx and b_idx
@@ -7914,6 +7742,52 @@ function stiffness_tria3_matrices(coords, Dm, Db, Ds, h, G_ref; bend_ratio=1.0, 
     return stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_ratio=bend_ratio, k6rot=k6rot, Bmb=Bmb)
 end
 
+"""
+    tria3_mitc3_shear_resultant(coords, u_plate, E, nu, h; bend_ratio=1.0) -> [Qx, Qy]
+
+Centroid transverse-shear resultant from the MITC3 assumed shear field --
+the same tying construction as the MITC3 plate stiffness (edge midpoints A, B
+and the edge-2-3 point C), evaluated at the centroid and mapped to Cartesian
+components. Replaces the removed macro-quad area-averaged resultant so the
+recovered Q is consistent with the element's own shear operator.
+`u_plate` is the 9-vector (w, theta_x, theta_y) per node.
+"""
+function tria3_mitc3_shear_resultant(coords, u_plate, E, nu, h; bend_ratio=1.0)
+    T = promote_type(eltype(coords), eltype(u_plate), typeof(E), typeof(nu), typeof(h))
+    bend_ratio <= 1e-12 && return zeros(T, 2)
+    x1, y1 = coords[1,1], coords[1,2]
+    x2, y2 = coords[2,1], coords[2,2]
+    x3, y3 = coords[3,1], coords[3,2]
+    Jm = @SMatrix [x2 - x1  y2 - y1; x3 - x1  y3 - y1]
+    detJ = Jm[1,1]*Jm[2,2] - Jm[1,2]*Jm[2,1]
+    abs(detJ) < 1e-30 && return zeros(T, 2)
+    Jinv = inv(Jm)
+    function gcov(r, s)
+        N = (one(T) - r - s, r, s)
+        Br = zeros(T, 9); Bs_ = zeros(T, 9)
+        dwdr = (-one(T), one(T), zero(T))
+        dwds = (-one(T), zero(T), one(T))
+        for i in 1:3
+            cw = 3*(i-1) + 1; crx = 3*(i-1) + 2; cry = 3*(i-1) + 3
+            Br[cw]  = dwdr[i];         Bs_[cw]  = dwds[i]
+            Br[cry] = N[i] * Jm[1,1];  Bs_[cry] = N[i] * Jm[2,1]
+            Br[crx] = -N[i] * Jm[1,2]; Bs_[crx] = -N[i] * Jm[2,2]
+        end
+        Br, Bs_
+    end
+    grA, _   = gcov(T(0.5), zero(T))
+    _,   gsB = gcov(zero(T), T(0.5))
+    grC, gsC = gcov(T(0.5), T(0.5))
+    cvec = (grC .- grA) .- (gsC .- gsB)
+    # assumed covariant field at the centroid: P(1/3,1/3) = [1 0 1/3; 0 1 -1/3]
+    a  = dot(grA, u_plate)
+    b  = dot(gsB, u_plate)
+    cc = dot(cvec, u_plate)
+    g_cart = Jinv * @SVector [a + cc/3, b - cc/3]
+    G = T(E) / (2 * (one(T) + T(nu)))
+    return collect((T(5) / T(6) * G * T(h)) .* g_cart)
+end
+
 function stress_strain_tria3(coords, u_elem, E, nu, h; bend_ratio=1.0, Cm_override=nothing)
     x, y = coords[:,1], coords[:,2]
     A = 0.5 * abs(x[1]*(y[2]-y[3]) + x[2]*(y[3]-y[1]) + x[3]*(y[1]-y[2]))
@@ -7945,7 +7819,7 @@ function stress_strain_tria3(coords, u_elem, E, nu, h; bend_ratio=1.0, Cm_overri
     M = -bend_ratio * (D * kappa) * (h^3/12.0)
 
     u_plate = [u_elem[3], u_elem[4], u_elem[5], u_elem[9], u_elem[10], u_elem[11], u_elem[15], u_elem[16], u_elem[17]]
-    Q = tria3_plate_macro_shear_resultant(coords, u_plate, E, nu, h; bend_ratio=bend_ratio)
+    Q = tria3_mitc3_shear_resultant(coords, u_plate, E, nu, h; bend_ratio=bend_ratio)
 
     # Stresses at top/bottom surfaces
     z1 = -h/2.0; z2 = h/2.0

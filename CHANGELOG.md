@@ -5,6 +5,50 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed
+- **The CTRIA3 virtual macro-quad construction is gone.** The triangle's plate
+  stiffness has been the pure three-node MITC3 kernel since its 2026-08-01
+  promotion; the macro-quad (three virtual sub-quads spanning corner, midside
+  and centroid points) survived only in secondary consumers, each now replaced
+  by an element-consistent formulation: interior-triangle moment recovery uses
+  the element's own constant-curvature field (the edge-connectivity-weighted
+  macro blend is removed; matching the reference's element-local recovery),
+  the transverse-shear resultant is an MITC3-consistent centroid evaluation of
+  the same tying field as the stiffness, and CTRIA3 pressure uses the same
+  equal-share `A*p/n` lumping as every other face — verified against the
+  reference solver at displacement print precision (`1.3e-7` relative L2) on a
+  purpose-built CTRIA3 pressure-cantilever deck. Legacy
+  `JFEM_TRIA3_PLATE_KERNEL` values that selected the macro operator now
+  resolve to the MITC3 default; `dkt` applies uniformly to coupled sections.
+
+### Fixed
+- **`PLOAD2`/`PLOAD4` `THRU` element ranges were silently collapsed.** The
+  literal `THRU` parsed as an invalid id and was skipped, so
+  `PLOAD2 SID P 1 THRU 32` loaded only elements 1 and 32, and PLOAD4's range
+  form mis-read the range end as a face grid. A `1 THRU 32` uniform-pressure
+  cantilever carried 1/16 of its load (tip deflection `-92%` vs the
+  reference); with the ranges expanded the same deck matches the reference to
+  full print precision. No retained validation deck used the THRU pressure
+  form, so no recorded parity number changes.
+- **SOL 103 cardless shell-mass default now matches the reference solver
+  (lumped).** Without `PARAM,COUPMASS`, MSC/Nastran builds lumped mass; the
+  previous cardless default selected the coupled-consistent shell mass, a
+  silent divergence that inflated first shell modes by +18..+19% on
+  single-element modal probes (invisible on refined meshes, where the two
+  formulations converge). With the corrected default the probe first modes
+  reproduce the reference to full F06 print precision (CQUAD4 `562.8937`,
+  CTRIA3 `571.9129`). Deck `PARAM,COUPMASS` and the `JFEM_SOL103_SHELL_MASS`
+  environment override behave as before; only the cardless default changed.
+  The public validation suite is bit-identical under the change.
+- **CTRIA3 decks no longer error when the implicit MacNeal shear-edge
+  interaction default meets the frozen macro-quad path.** The CTRIA3
+  macro-quad construction intentionally calls the CQUAD4 kernel with
+  distortion corrections off; the shear-edge interaction guard then rejected
+  the *implicit* `interaction_hybrid` default with an `ArgumentError` instead
+  of falling back to the established operator as documented. Explicitly
+  requested interaction modes still error. Fixes hard failures on
+  bending-CTRIA3 models (the five `buc3*` validation decks).
+
 ### Added
 - **Grid-point singularity processing, matching the reference solver's
   `GRID POINT SINGULARITY TABLE` for translations and rotations alike.** The

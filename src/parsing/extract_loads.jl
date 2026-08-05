@@ -32,22 +32,29 @@ function extract_pload4(cards)
         sid = to_id(parse_nastran_number(safe_get(c, 3)))
         eid = to_id(parse_nastran_number(safe_get(c, 4)))
         press = parse_nastran_number(safe_get(c, 5), 0.0)
-        # G1, G3 for solid face identification (fields 8, 9)
-        g1 = to_id(parse_nastran_number(safe_get(c, 8), 0))
-        g3 = to_id(parse_nastran_number(safe_get(c, 9), 0))
+        # Field 8 is either G1 (solid-face form) or the literal THRU (shell
+        # element-range form, with field 9 = EID2). The THRU form previously
+        # parsed as G1=0/G3=EID2, silently loading only the first element.
+        thru = uppercase(strip(string(safe_get(c, 8, "")))) == "THRU"
+        eid2 = thru ? to_id(parse_nastran_number(safe_get(c, 9), 0)) : 0
+        g1 = thru ? 0 : to_id(parse_nastran_number(safe_get(c, 8), 0))
+        g3 = thru ? 0 : to_id(parse_nastran_number(safe_get(c, 9), 0))
         # Continuation line: CID(field 10→c[11]), N1(c[12]), N2(c[13]), N3(c[14])
         cid = to_id(parse_nastran_number(safe_get(c, 11), 0))
         n1 = parse_nastran_number(safe_get(c, 12), nothing)
         n2 = parse_nastran_number(safe_get(c, 13), nothing)
         n3 = parse_nastran_number(safe_get(c, 14), nothing)
-        d = Dict{String,Any}("TYPE"=>"PLOAD4", "SID"=>sid, "EID"=>eid, "P"=>press)
-        if g1 > 0; d["G1"] = g1; end
-        if g3 > 0; d["G3"] = g3; end
-        if n1 !== nothing && n2 !== nothing && n3 !== nothing
-            d["CID"] = cid
-            d["N"] = [Float64(n1), Float64(n2), Float64(n3)]
+        eids = thru && eid2 > eid ? collect(eid:eid2) : [eid]
+        for e in eids
+            d = Dict{String,Any}("TYPE"=>"PLOAD4", "SID"=>sid, "EID"=>e, "P"=>press)
+            if g1 > 0; d["G1"] = g1; end
+            if g3 > 0; d["G3"] = g3; end
+            if n1 !== nothing && n2 !== nothing && n3 !== nothing
+                d["CID"] = cid
+                d["N"] = [Float64(n1), Float64(n2), Float64(n3)]
+            end
+            push!(p, d)
         end
-        push!(p, d)
     end
     return p
 end
@@ -57,11 +64,27 @@ function extract_pload2(cards)
     for c in cards
         sid = to_id(parse_nastran_number(safe_get(c, 3)))
         press = parse_nastran_number(safe_get(c, 4), 0.0)
-        for k in 5:length(c)
-            eid = to_id(parse_nastran_number(safe_get(c, k), 0))
-            if eid > 0
-                push!(p, Dict("TYPE"=>"PLOAD4", "SID"=>sid, "EID"=>eid, "P"=>press))
+        # EID list with optional THRU ranges: `EID1 THRU EID2` expands to the
+        # inclusive range. The literal THRU previously parsed to 0 and was
+        # skipped, silently loading only the two endpoint elements.
+        eids = Int[]
+        k = 5
+        while k <= length(c)
+            raw = uppercase(strip(string(safe_get(c, k, ""))))
+            if raw == "THRU"
+                e2 = to_id(parse_nastran_number(safe_get(c, k + 1), 0))
+                if !isempty(eids) && e2 > eids[end]
+                    append!(eids, (eids[end] + 1):e2)
+                end
+                k += 2
+                continue
             end
+            eid = to_id(parse_nastran_number(raw, 0))
+            eid > 0 && push!(eids, eid)
+            k += 1
+        end
+        for eid in eids
+            push!(p, Dict("TYPE"=>"PLOAD4", "SID"=>sid, "EID"=>eid, "P"=>press))
         end
     end
     return p

@@ -3403,7 +3403,14 @@ end
         return _sol103_param_enabled(get(model, "PARAM_COUPMASS", false), false) ?
             :coupled_consistent : :nastran_lumped
     end
-    return solver_env_bool("JFEM_SOL103_SHELL_COUPLED_MASS_DEFAULT", true) ?
+    # 2026-08-05 de-calibration: the reference solver's cardless default is
+    # lumped mass (PARAM,COUPMASS,-1). The previous coupled-consistent cardless
+    # default silently diverged from both the reference and from JFEM's own
+    # explicit COUPMASS handling above; on cardless single-element SOL 103
+    # probes it inflated first shell modes by +18..+19% (registry-corpus run
+    # CORPUS_REGISTRY_PARITY_2026_08_05). Forcing lumped reproduces the
+    # reference first modes to full F06 print precision.
+    return solver_env_bool("JFEM_SOL103_SHELL_COUPLED_MASS_DEFAULT", false) ?
         :coupled_consistent : :nastran_lumped
 end
 
