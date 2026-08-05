@@ -6,6 +6,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Performance
+- **Certificate-first range augmentation promoted to DEFAULT ON.** Full
+  promotion protocol recorded: two consecutive clean 42-deck fabric runs
+  flag-ON (spectra and mode shapes bit-identical to flag-OFF on all 83
+  scored subcases; parity 83/83 within 1%, max |err| unchanged at 0.700%,
+  zero margin-rule violations; battery wall −15%, eigen wall −22%,
+  augmentation+completeness block −32%) plus the public validation suite
+  under the flag (all 19 rows: verdicts identical, computed values exactly
+  equal, error-column deltas at the documented 1e-11 noise class). The
+  augmentation eigensolve now runs only when the Sturm certificate cannot
+  prove the reported spectrum complete (12% of corpus subcases — the
+  rescue classes). Opt out with
+  `JFEM_SOL105_CERT_FIRST_AUGMENTATION=false`.
 - **Certificate-first range augmentation (env-flagged, default OFF).** With
   `JFEM_SOL105_CERT_FIRST_AUGMENTATION=true`, the SOL 105 buckling path asks
   the Sturm inertia certificate whether the zero-shift extraction already

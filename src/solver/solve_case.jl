@@ -2930,8 +2930,13 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             sufficient_in_range = length(range_idx) >= num_modes_request
             auto_skip_aug = spans_above_V2 && spans_below_V1 && sufficient_in_range
 
-            # Certificate-first gate (perf program Phase 3.1, env-flagged,
-            # default OFF until the promotion protocol lands): before paying
+            # Certificate-first gate (perf program Phase 3.1). Promoted to
+            # default ON 2026-08-06 after the full protocol: two consecutive
+            # clean 42-deck fabric runs flag-ON (eigen_score exactly 0 vs
+            # flag-OFF, parity 83/83 within 1%, zero margin-rule violations)
+            # plus the public suite field-diff (values exactly equal,
+            # verdicts identical). Opt out with
+            # JFEM_SOL105_CERT_FIRST_AUGMENTATION=false: before paying
             # the V2-targeted shifted eigsolve, ask the Sturm certificate
             # whether the zero-shift pass already recovered every root up to
             # the ND-th reported one. When >= ND positive in-range roots
@@ -2946,7 +2951,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             # recovered_from_empty rescue class fails the >=ND guard and is
             # untouched. The counts stay cached (sturm_cache above), so the
             # completeness section below re-certifies for free.
-            cert_first = solver_env_bool("JFEM_SOL105_CERT_FIRST_AUGMENTATION", false)
+            cert_first = solver_env_bool("JFEM_SOL105_CERT_FIRST_AUGMENTATION", true)
             cert_skip_aug = false
             cert_gap_info = nothing
             cert_wall = 0.0
