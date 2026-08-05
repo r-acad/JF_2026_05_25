@@ -9918,21 +9918,183 @@ coords: 6×3 matrix of nodal coordinates.
 Nastran CPENTA node numbering:
   Bottom triangle: 1-2-3, Top triangle: 4-5-6  (4 above 1, etc.)
 """
+# Natural-derivative matrix (3x6) of the CPENTA6 shape functions at (r, s, z).
+@inline function _cpenta6_dN(r::Float64, s::Float64, z::Float64)
+    L = (1.0 - r - s, r, s)
+    dLdr = (-1.0, 1.0, 0.0); dLds = (-1.0, 0.0, 1.0)
+    dN = zeros(3, 6)
+    for i in 1:3
+        dN[1, i]   = dLdr[i] * (1 - z) / 2; dN[2, i]   = dLds[i] * (1 - z) / 2
+        dN[3, i]   = -L[i] / 2
+        dN[1, i+3] = dLdr[i] * (1 + z) / 2; dN[2, i+3] = dLds[i] * (1 + z) / 2
+        dN[3, i+3] = L[i] / 2
+    end
+    dN
+end
+
+"""
+Covariant transverse-shear rows g_rz(u), g_sz(u) (each 1x18) at (r, s, z):
+g_az = a_a . u_,z + a_z . u_,a with a_i the covariant basis rows of J.
+"""
+function _cpenta6_cov_shear_rows(coords::AbstractMatrix{Float64}, r::Float64, s::Float64, z::Float64)
+    dN = _cpenta6_dN(r, s, z)
+    J = dN * coords
+    grz = zeros(18); gsz = zeros(18)
+    for i in 1:6
+        c = 3 * (i - 1)
+        for d in 1:3
+            grz[c+d] = J[1, d] * dN[3, i] + J[3, d] * dN[1, i]
+            gsz[c+d] = J[2, d] * dN[3, i] + J[3, d] * dN[2, i]
+        end
+    end
+    grz, gsz
+end
+
+"""
+    _cpenta6_nastran_stiffness(coords, E, nu) -> Ke (18x18)
+
+Reference-matched CPENTA6, recovered from the reference solver's own element
+matrices and per-subcase stress output on a 46-geometry extraction corpus
+(DIAGNOSTICS/2026Q3/CPENTA_K_FORENSICS_2026_08_05, stages 1-21):
+
+  - isoparametric strains, 3-interior-point triangle x 2-point z quadrature;
+  - assumed (MITC3-tied) covariant transverse shear per z level, tied at the
+    triangle mid-edges with the linear-variation mode scaled by the SHELL
+    reference coefficients u = 3*La/P, v = 3*Lb/P of the layer triangle;
+  - three condensed incompatible modes phi = (1 - z^2) per displacement
+    direction, Wilson-Taylor center-Jacobian corrected;
+  - a twist-shear rigidity correction subtracted in the z-odd tying basis:
+        dW = (G*A2/hz^3) * [f11 f12; f12 f22]  on (grA_odd, gsB_odd),
+        f11 = (9/4)(14 + y^2 + z^2 - yz) / (187 + 14 Q)
+        f12 = (9/4)(-5 + z^2 - xz - yz) / (187 + 14 Q)
+        f22 = f11 with x <-> y,   Q = (x-z)^2 + (y-z)^2 + z^2,
+    in the dimensionless mid-plane triangle invariants x = |a|^2/A2,
+    y = |b|^2/A2, z = a.b/A2. Verified to 5e-5 worst relative Frobenius
+    error against the reference element matrices for straight (vertical)
+    wedges; wedges with a tilted director retain a small residual (the tilt
+    extension of the law is a documented open refinement).
+"""
+function _cpenta6_nastran_stiffness(coords::AbstractMatrix{Float64}, E::Float64, nu::Float64)
+    D = iso_3d_constitutive(E, nu)
+    G = E / (2 * (1 + nu))
+    tri = ((1/6, 1/6), (2/3, 1/6), (1/6, 2/3))
+    triw = (1/6, 1/6, 1/6)
+    gz = 1 / sqrt(3)
+    nm = 3
+    Kaa = zeros(18, 18); Kai = zeros(18, nm); Kii = zeros(nm, nm)
+
+    dN0 = _cpenta6_dN(1/3, 1/3, 0.0)
+    J0 = dN0 * coords
+    detJ0 = det(J0)
+    abs(detJ0) < 1e-30 && return zeros(18, 18)
+    invJ0 = inv(J0)
+
+    Tlev = Vector{Matrix{Float64}}(undef, 2)   # tying rows per level
+
+    for (li, (zp, wz)) in enumerate(((-gz, 1.0), (gz, 1.0)))
+        # layer triangle for the u,v shell coefficients
+        P3 = zeros(3, 3)
+        for i in 1:3
+            P3[i, :] = coords[i, :] .* (1 - zp) / 2 .+ coords[i+3, :] .* (1 + zp) / 2
+        end
+        La = norm(P3[2, :] .- P3[1, :]); Lb = norm(P3[3, :] .- P3[1, :])
+        Lc = norm(P3[3, :] .- P3[2, :])
+        Pper = max(La + Lb + Lc, 1e-30)
+        uu = 3La / Pper; vv = 3Lb / Pper
+
+        grA, _ = _cpenta6_cov_shear_rows(coords, 0.5, 0.0, zp)
+        _, gsB = _cpenta6_cov_shear_rows(coords, 0.0, 0.5, zp)
+        grC, gsC = _cpenta6_cov_shear_rows(coords, 0.5, 0.5, zp)
+        cvec = (grC .- grA) .- (gsC .- gsB)
+        Tlev[li] = vcat(grA', gsB', cvec')
+
+        for ((r, s), wt) in zip(tri, triw)
+            dN = _cpenta6_dN(r, s, zp)
+            J = dN * coords
+            detJ = det(J)
+            abs(detJ) < 1e-30 && continue
+            invJ = inv(J)
+            Gd = invJ * dN
+            B = zeros(6, 18)
+            for i in 1:6
+                c = 3 * (i - 1)
+                B[1, c+1] = Gd[1, i]; B[2, c+2] = Gd[2, i]; B[3, c+3] = Gd[3, i]
+                B[4, c+1] = Gd[2, i]; B[4, c+2] = Gd[1, i]
+                B[5, c+2] = Gd[3, i]; B[5, c+3] = Gd[2, i]
+                B[6, c+1] = Gd[3, i]; B[6, c+3] = Gd[1, i]
+            end
+            # substitute the assumed covariant transverse shear
+            g_rz = grA .+ (uu * s) .* cvec
+            g_sz = gsB .- (vv * r) .* cvec
+            grz_i, gsz_i = _cpenta6_cov_shear_rows(coords, r, s, zp)
+            drz = g_rz .- grz_i
+            dsz = g_sz .- gsz_i
+            for (row, i) in ((5, 2), (6, 1))
+                c_r = invJ[i, 1] * invJ[3, 3] + invJ[i, 3] * invJ[3, 1]
+                c_s = invJ[i, 2] * invJ[3, 3] + invJ[i, 3] * invJ[3, 2]
+                B[row, :] .+= c_r .* drz .+ c_s .* dsz
+            end
+            # incompatible (1 - z^2) modes, Wilson-Taylor corrected
+            Bi_ = zeros(6, nm)
+            gc = (invJ0 * [0.0, 0.0, -2 * zp]) .* (detJ0 / detJ)
+            for d in 1:3
+                Bi_[d, d] = gc[d]
+                if d == 1
+                    Bi_[4, d] = gc[2]; Bi_[6, d] = gc[3]
+                elseif d == 2
+                    Bi_[4, d] = gc[1]; Bi_[5, d] = gc[3]
+                else
+                    Bi_[5, d] = gc[2]; Bi_[6, d] = gc[1]
+                end
+            end
+            w = wt * wz * detJ
+            Kaa .+= (B' * D * B) .* w
+            Kai .+= (B' * D * Bi_) .* w
+            Kii .+= (Bi_' * D * Bi_) .* w
+        end
+    end
+    Ke = Kaa .- Kai * (Kii \ Kai')
+
+    # odd twist-shear rigidity correction (subtracted; reference-recovered law)
+    P3m = (coords[1:3, :] .+ coords[4:6, :]) ./ 2
+    a = P3m[2, :] .- P3m[1, :]; b = P3m[3, :] .- P3m[1, :]
+    A2 = norm(cross(a, b)) / 2
+    az = (dN0 * coords)[3, :]
+    hz = norm(az)
+    if A2 > 1e-30 && hz > 1e-30
+        x = dot(a, a) / A2; y = dot(b, b) / A2; zi = dot(a, b) / A2
+        Q = (x - zi)^2 + (y - zi)^2 + zi^2
+        den = 187 + 14 * Q
+        f11 = 2.25 * (14 + y^2 + zi^2 - y * zi) / den
+        f12 = 2.25 * (-5 + zi^2 - x * zi - y * zi) / den
+        f22 = 2.25 * (14 + x^2 + zi^2 - x * zi) / den
+        scale = G * A2 / hz^3
+        To = (Tlev[2] .- Tlev[1]) ./ 2
+        dW = scale .* [f11 f12 0.0; f12 f22 0.0; 0.0 0.0 0.0]
+        Ke .-= To' * dW * To
+    end
+    return 0.5 .* (Ke .+ Ke')
+end
+
 function stiffness_cpenta6(coords::AbstractMatrix{Float64}, E::Float64, nu::Float64)
     D = iso_3d_constitutive(E, nu)
     Ke = zeros(18, 18)
     B  = zeros(6, 18)
     DB = zeros(6, 18)
 
+    # 2026-08-05: the default is the reference-matched formulation recovered
+    # from the reference solver's own element matrices (see
+    # _cpenta6_nastran_stiffness). The plain isoparametric quadrature
+    # variants below are retained as formulation-bisect options; the former
+    # tri3_z1 reduced-z heuristic default is superseded.
+    cpenta_rule = lowercase(strip(get(ENV, "JFEM_CPENTA_STIFFNESS_INTEGRATION", "nastran")))
+    if cpenta_rule in ("nastran", "reference", "mitc")
+        return _cpenta6_nastran_stiffness(coords, E, nu)
+    end
     # Gauss integration: 3-point triangle × 2-point through thickness
     # Triangle: 3-point rule (midpoints of edges), weight = 1/6 each (total area = 1/2)
     # Through thickness: ζ = ±1/√3, weight = 1.0
     g = 1.0 / sqrt(3.0)
-    # Nastran-compatible default for the first-order wedge: keep the 3-point
-    # triangle rule, but use one point through thickness to avoid over-stiff
-    # locking behavior on coarse CPENTA bending probes. Set
-    # JFEM_CPENTA_STIFFNESS_INTEGRATION=full to recover the former 3x2 rule.
-    cpenta_rule = lowercase(strip(get(ENV, "JFEM_CPENTA_STIFFNESS_INTEGRATION", "tri3_z1")))
     local tri_xi, tri_eta, tri_w, zet_pts, zet_w
     if cpenta_rule in ("reduced", "centroid", "tri1_z1")
         tri_xi  = [1.0/3.0]

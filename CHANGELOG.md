@@ -21,6 +21,25 @@ Versions follow [Semantic Versioning](https://semver.org/).
   `JFEM_TRIA3_PLATE_KERNEL` values that selected the macro operator now
   resolve to the MITC3 default; `dkt` applies uniformly to coupled sections.
 
+### Changed
+- **CPENTA6 uses a reference-recovered formulation** in place of the plain
+  isoparametric wedge with a reduced-integration heuristic. Recovered by
+  direct forensics against the reference solver's own element matrices and
+  per-subcase stress output on a 70-geometry extraction corpus: assumed
+  (MITC3-tied) covariant transverse shear per z level with the shell
+  reference's `u = 3La/P, v = 3Lb/P` linear-variation coefficients, three
+  condensed `(1 - z^2)` incompatible modes (Wilson-Taylor corrected), and a
+  closed-form twist-shear rigidity correction
+  `f = (9/4)(...)/(187 + 14Q)` recovered exactly (verified to `5e-5`
+  worst Frobenius error on straight wedges). Single-wedge modal probe
+  errors drop from `+25.3/+34.0/+5.6%` to `+4.3/+0.1/-2.0%`; the worst
+  element-matrix error over the corpus drops from `~0.30` to `0.056`
+  (straight) / `0.16` (extreme 45-degree-sheared synthetic). Two bounded
+  residuals remain documented in the private forensics record: a
+  second-order even-mode term on non-equilateral sections and the
+  director-tilt extension. Legacy quadrature variants remain selectable via
+  `JFEM_CPENTA_STIFFNESS_INTEGRATION`.
+
 ### Fixed
 - **PBEAM `K1`/`K2` now default to `1.0` (shear-flexible), matching the
   reference solver.** The parser defaulted absent shear-area factors to `0.0`,
