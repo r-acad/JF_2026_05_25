@@ -2021,6 +2021,11 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     if !shear_center_only && haskey(ENV, "JFEM_Q4_STATIC_BENDING_INCOMP")
         bending_incomp = solver_env_bool("JFEM_Q4_STATIC_BENDING_INCOMP", bending_incomp)
     end
+    # Snapshot every JFEM_* env var for the element loops (lock-free reads
+    # on the threaded paths; see FEM.env_snapshot_begin!). Cleared before
+    # return; an escaping exception aborts the solve and the next assembly
+    # re-snapshots, same exposure as the BLAS-thread pin/restore below.
+    FEM.env_snapshot_begin!()
     log_msg("[SOLVER] Indexing...")
     ids = sort(collect(keys(model["GRIDs"])), by=x->parse(Int,x))
     n_nodes = length(ids)
@@ -5176,6 +5181,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     # reassemblies (temperature subcases, load-aware passes, dKdx, SOL106).
     I_idx = nothing; J_idx = nothing; V_val = nothing
 
+    FEM.env_snapshot_end!()
     return K, id_map, node_coords, ndof, node_R, max_elem_stiff, rbe3_map, snorm_normals, orig_diag
 end
 
@@ -5192,6 +5198,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     kg_t_total = time_ns()
     kg_timings = Dict{String,Any}()
     kg_t_setup = time_ns()
+    FEM.env_snapshot_begin!()
     log_msg("[SOLVER] Assembling Geometric Stiffness Matrix (SOL105)...")
     # JFEM_DUMP_USTATIC: when set to a writable path, dump the SOL101 static
     # displacement solution (u_global, GLOBAL coords per node) as "gid ux uy uz"
@@ -5553,17 +5560,19 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     coords3d_local_buf4_tl = [zeros(4, 3)       for _ in 1:nt_kg]
     directors3d_local_buf4_tl = [zeros(4, 3)    for _ in 1:nt_kg]
 
-    # Thread-local COO triplet accumulators — concatenated into the master
-    # I/J/V after the loop. Capacity hint is each thread's share of est_total.
-    thread_I = [Int[]     for _ in 1:nt_kg]
-    thread_J = [Int[]     for _ in 1:nt_kg]
-    thread_V = [Float64[] for _ in 1:nt_kg]
-    _per_thread_cap = cld(max(est_total, 1), nt_kg) + 1024
-    for t in 1:nt_kg
-        sizehint!(thread_I[t], _per_thread_cap)
-        sizehint!(thread_J[t], _per_thread_cap)
-        sizehint!(thread_V[t], _per_thread_cap)
-    end
+    # Positional-slot COO triplet buffers: element ei owns the fixed slot
+    # range (ei-1)*576+1 .. ei*576 (576 = the 24x24 quad maximum; triangles
+    # use 324 of it, skipped elements 0, recorded in kg_slot_n). Threads
+    # write only their own elements' slots, and the post-loop compaction
+    # walks ELEMENT order — so the master triplet stream is identical for
+    # every thread count (and bit-identical to the former single-thread
+    # concat order). This replaces per-thread push! accumulators whose
+    # concat order depended on the schedule (the documented Kg threading
+    # nondeterminism; PERF program Phase 1).
+    kg_slot_I = Vector{Int}(undef, length(shell_list) * 576)
+    kg_slot_J = Vector{Int}(undef, length(shell_list) * 576)
+    kg_slot_V = Vector{Float64}(undef, length(shell_list) * 576)
+    kg_slot_n = zeros(Int, length(shell_list))
 
     # Per-thread scalar reductions (summed after the loop).
     diag_Nxx_sum_tl = zeros(nt_kg)
@@ -5609,9 +5618,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             coords3d_buf4 = coords3d_buf4_tl[tid],
             coords3d_local_buf4 = coords3d_local_buf4_tl[tid],
             directors3d_local_buf4 = directors3d_local_buf4_tl[tid],
-            I_idx         = thread_I[tid],
-            J_idx         = thread_J[tid],
-            V_val         = thread_V[tid]
+            _kg_slot_base = (_shell_ei - 1) * 576
 
         pid = string(el["PID"])
         if !haskey(pshells, pid); continue; end
@@ -7055,9 +7062,14 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 b = (idx-1)*6
                 for d in 1:6; dofs_buf24[(k-1)*6+d] = b+d; end
             end
-            for cc in 1:24, rr in 1:24
-                push!(I_idx, dofs_buf24[rr]); push!(J_idx, dofs_buf24[cc]); push!(V_val, Kg_global[rr,cc])
+            local _k = 0
+            @inbounds for cc in 1:24, rr in 1:24
+                _k += 1
+                kg_slot_I[_kg_slot_base + _k] = dofs_buf24[rr]
+                kg_slot_J[_kg_slot_base + _k] = dofs_buf24[cc]
+                kg_slot_V[_kg_slot_base + _k] = Kg_global[rr, cc]
             end
+            kg_slot_n[_shell_ei] = _k
 
         elseif n == 3
             # TRIA3 geometric stiffness
@@ -7187,9 +7199,14 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 b = (idx-1)*6
                 for d in 1:6; dofs_t3[(k-1)*6+d] = b+d; end
             end
-            for cc in 1:18, rr in 1:18
-                push!(I_idx, dofs_t3[rr]); push!(J_idx, dofs_t3[cc]); push!(V_val, Kg18[rr,cc])
+            local _k = 0
+            @inbounds for cc in 1:18, rr in 1:18
+                _k += 1
+                kg_slot_I[_kg_slot_base + _k] = dofs_t3[rr]
+                kg_slot_J[_kg_slot_base + _k] = dofs_t3[cc]
+                kg_slot_V[_kg_slot_base + _k] = Kg18[rr, cc]
             end
+            kg_slot_n[_shell_ei] = _k
         end
         end  # let
     end  # Threads.@threads :static for _shell_ei
@@ -7197,21 +7214,23 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     # Restore BLAS threads so downstream Cholesky / Krylov can use all cores.
     LinearAlgebra.BLAS.set_num_threads(_prev_blas_threads_kg)
 
-    # Concatenate per-thread COO accumulators into the master triplet arrays.
-    # Total allocation is still O(est_total); we just deferred it until after
-    # the parallel section so threads didn't fight over the shared push!.
-    total_kg_nz = 0
-    for t in 1:nt_kg
-        total_kg_nz += length(thread_I[t])
+    # Compact the positional slots into the master triplet arrays in ELEMENT
+    # order — schedule- and thread-count-independent by construction.
+    total_kg_nz = sum(kg_slot_n)
+    _kg_off = length(I_idx)
+    resize!(I_idx, _kg_off + total_kg_nz)
+    resize!(J_idx, _kg_off + total_kg_nz)
+    resize!(V_val, _kg_off + total_kg_nz)
+    @inbounds for ei in 1:length(shell_list)
+        base = (ei - 1) * 576
+        for k in 1:kg_slot_n[ei]
+            _kg_off += 1
+            I_idx[_kg_off] = kg_slot_I[base + k]
+            J_idx[_kg_off] = kg_slot_J[base + k]
+            V_val[_kg_off] = kg_slot_V[base + k]
+        end
     end
-    sizehint!(I_idx, length(I_idx) + total_kg_nz)
-    sizehint!(J_idx, length(J_idx) + total_kg_nz)
-    sizehint!(V_val, length(V_val) + total_kg_nz)
-    for t in 1:nt_kg
-        append!(I_idx, thread_I[t])
-        append!(J_idx, thread_J[t])
-        append!(V_val, thread_V[t])
-    end
+    kg_slot_I = nothing; kg_slot_J = nothing; kg_slot_V = nothing
 
     # Reduce thread-local scalar counters.
     n_q4_done    = sum(n_q4_done_tl)
@@ -7637,5 +7656,6 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             timings[string(k)] = v
         end
     end
+    FEM.env_snapshot_end!()
     return Kg
 end

@@ -2000,22 +2000,39 @@ end
 # densified the 26k-60k+ sparse pencil into tens of GB — which is what made the
 # Sturm check appear to "hang" on large models. There is no dense fallback now:
 # the sparse LDLᵀ is the right algorithm and is fast (≈1.5 s/shift at 60k DOF).
-function _buckling_sturm_count(K_ff, Kg_ff, sigma::Float64)
+function _buckling_sturm_count(K_ff, Kg_ff, sigma::Float64;
+                               reuse::Union{Nothing,Base.RefValue{Any}}=nothing)
     n = size(K_ff, 1)
     n == 0 && return 0
     try
         M = K_ff + sigma * Kg_ff
-        M = 0.5 * (M + M')                      # enforce exact symmetry
+        # Enforce exact symmetry only when the sum is not already exactly
+        # symmetric: for symmetric inputs 0.5*(M+M') is value-identical
+        # (0.5*(x+x) == x in IEEE) and only costs two nnz-sized temporaries
+        # (~170 MB per count at CRM-class sizes).
+        issymmetric(M) || (M = 0.5 * (M + M'))
         if n <= 600
             # Exact: count negative eigenvalues of the (small) dense symmetric M.
             evs = eigvals(Symmetric(Matrix(M)))
             return count(<(0.0), evs)
         else
             # Sparse symmetric-indefinite inertia via CHOLMOD LDLᵀ pivot signs.
-            F = ldlt(sparse(M))
+            # The sparsity pattern of K + sigma*Kg is sigma-independent, so a
+            # caller-held Factor (`reuse`) skips the symbolic analysis on every
+            # count after the first. The inertia is permutation-invariant
+            # (Sylvester's law), so factor reuse cannot change the integer
+            # result even if a fresh analysis would pick another ordering.
+            local F
+            if reuse !== nothing && reuse[] !== nothing
+                F = ldlt!(reuse[], M)
+            else
+                F = ldlt(M)
+                reuse !== nothing && (reuse[] = F)
+            end
             return count(<(0.0), diag(F))
         end
     catch
+        reuse !== nothing && (reuse[] = nothing)
         return nothing
     end
 end
@@ -2948,6 +2965,18 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             end
         end
 
+        # Cache Sturm counts for the completeness certificate below: each
+        # count is a full sparse LDL' of K + sigma*Kg — the dominant
+        # eigen-phase cost at production sizes — and the symbolic analysis is
+        # additionally shared across sigmas via sturm_reuse (the pattern is
+        # sigma-independent). The informational diagnostic further down is in
+        # a sibling scope and carries its own local reuse Ref.
+        sturm_reuse = Base.RefValue{Any}(nothing)
+        sturm_cache = Dict{Float64,Union{Int,Nothing}}()
+        sturm_at(sig::Float64) = get!(sturm_cache, sig) do
+            _buckling_sturm_count(K_ff, Kg_ff, sig; reuse=sturm_reuse)
+        end
+
         # If the iterative extraction is still missing roots below the highest
         # root it recovered, use the Sturm count as an honest completeness
         # certificate and increase the local shifted-solve budget. This is a
@@ -2956,14 +2985,6 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         if !will_use_dense &&
            solver_env_bool("JFEM_SOL105_RANGE_COMPLETENESS_AUGMENT", true) &&
            !isempty(valid_idx)
-
-            # Cache Sturm counts within this solve: each count is a full sparse LDL' of
-            # K + sigma*Kg (the dominant cost at these sizes), and the lower bound a_bound is
-            # IDENTICAL on every pass, so recomputing it per pass is pure waste.
-            sturm_cache = Dict{Float64,Union{Int,Nothing}}()
-            sturm_at(sig::Float64) = get!(sturm_cache, sig) do
-                _buckling_sturm_count(K_ff, Kg_ff, sig)
-            end
 
             function current_range_sturm_gap()
                 a_bound = max(eigrl_v1, positive_tol)
@@ -2989,7 +3010,16 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 b_bound = pos_vals[n_report] * (1.0 + 1e-6)
                 b_bound > a_bound || return nothing
                 sc_b = sturm_at(b_bound)
-                sc_a = sturm_at(a_bound)
+                # Lower-bound short-circuit: with no positive V1 the lower
+                # bound sits at +tol, and a PD-certified K_ff (its Cholesky
+                # succeeded) has inertia 0 there by construction — skip a
+                # full LDL' factorization for a count that cannot be nonzero.
+                sc_a = if a_bound <= positive_tol && eigrl_v1 <= 0.0 &&
+                          eigen_ctx.factor_backend == "cholesky"
+                    0
+                else
+                    sturm_at(a_bound)
+                end
                 (sc_a === nothing || sc_b === nothing) && return nothing
                 expected = max(sc_b - sc_a, 0)
                 found = count(i -> begin
@@ -3193,8 +3223,11 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 v > pos_tol_c && v >= a_bound - eps(Float64) && v <= b_bound + eps(Float64)
             end, valid_idx)
         if b_bound > a_bound
-            sc_b = _buckling_sturm_count(K_ff, Kg_ff, b_bound)
-            sc_a = _buckling_sturm_count(K_ff, Kg_ff, a_bound)
+            # Local symbolic-reuse Ref (this block is outside the completeness
+            # branch's scope): the second count reuses the first's analysis.
+            sturm_info_reuse = Base.RefValue{Any}(nothing)
+            sc_b = _buckling_sturm_count(K_ff, Kg_ff, b_bound; reuse=sturm_info_reuse)
+            sc_a = _buckling_sturm_count(K_ff, Kg_ff, a_bound; reuse=sturm_info_reuse)
             if sc_a !== nothing && sc_b !== nothing
                 expected = sc_b - sc_a
                 gap = expected - found_in_band

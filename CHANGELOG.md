@@ -6,6 +6,36 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Performance
+- **Threaded Kg assembly is deterministic at any thread count.** The shell
+  geometric-stiffness loop now writes each element's triplets into fixed
+  positional slots and compacts them in element order, replacing per-thread
+  accumulators whose concatenation order depended on the schedule. The
+  triplet stream — and therefore Kg — is bit-identical from `-t 1` through
+  `-t 8`, and identical to the former single-thread ordering. The last
+  thread-count dependence was KrylovKit's own task parallelism (its init
+  raises internal threading to `Threads.nthreads()`, changing Krylov-basis
+  reduction order and shifting eigenvalues at ~1e-14 with `-t`): OpenJFEM
+  now pins it to 1 so eigensolves are bit-identical at any thread count
+  (research escape hatch: `JFEM_KRYLOVKIT_THREADS`). K, the static
+  solution, Kg, and the eigensolve are each verified bitwise
+  thread-invariant.
+- **Element loops no longer touch the process environment.** Assembly
+  snapshots every `JFEM_*` variable into an immutable dictionary up front;
+  all kernel/assembly env accessors read the snapshot lock-free (on Windows
+  every live `ENV` read takes the process environment lock, which serialized
+  threaded assembly at ~4.5% scaling efficiency and cost 145–200 ns + 240 B
+  per read — with ~25–40 reads per element). Outside assembly the accessors
+  read live `ENV` exactly as before, so research bisects that set variables
+  between direct kernel calls are unaffected.
+- **Sturm inertia counts are cheaper**: the completeness certificate's
+  counts share one CHOLMOD symbolic analysis across shifts (the pencil
+  pattern is shift-independent; inertia is permutation-invariant, so the
+  integer results cannot change), the redundant resymmetrization of an
+  already-symmetric pencil is skipped (two nnz-sized temporaries per count),
+  the defensive sparse copy before LDLT is gone, and the lower-bound count
+  at ~0+ is short-circuited to its provable value 0 when K is PD-certified
+  by its own successful Cholesky. All counts, and every decision they feed,
+  are unchanged.
 - **The SOL101/103/105 precompile workload is ON by default.** The package
   image now bakes the full parse -> build -> solve path, eliminating a
   measured ~147 s of per-process first-solve JIT (79% of a fresh

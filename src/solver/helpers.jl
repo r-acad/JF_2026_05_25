@@ -153,7 +153,7 @@ end
     # are explicit formulation experiments and should not be selected by a
     # validation-suite preset.
     base_default = "diag"
-    raw = lowercase(strip(get(ENV, primary_key, get(ENV, "JFEM_Q4_FRAME_MODE", base_default))))
+    raw = lowercase(strip(FEM._fem_env_get(primary_key, FEM._fem_env_get("JFEM_Q4_FRAME_MODE", base_default))))
     if raw in ("parametric", "center", "center_tangent", "tangent")
         return :parametric
     elseif raw in ("edge", "g12", "edge12")
@@ -164,30 +164,37 @@ end
 end
 
 
+# All solver env accessors route through FEM's snapshot-aware reader: while
+# an assembly snapshot is active they read an immutable Dict (lock-free on
+# the threaded paths); otherwise live ENV, exactly as before. The former
+# `string(default)` fallback allocation is gone (identical results: an
+# unset key returns the default, an empty value parses to the default).
 @inline function solver_env_bool(primary_key::String, default::Bool)
-    raw = lowercase(strip(get(ENV, primary_key, default ? "true" : "false")))
+    raw = lowercase(strip(FEM._fem_env_get(primary_key, default ? "true" : "false")))
     return raw in ("1", "true", "yes", "on")
 end
 
 @inline function solver_env_optional_bool(primary_key::String)
-    haskey(ENV, primary_key) || return nothing
-    raw = lowercase(strip(ENV[primary_key]))
+    FEM.fem_env_has(primary_key) || return nothing
+    raw = lowercase(strip(FEM._fem_env_get(primary_key, "")))
     return raw in ("1", "true", "yes", "on")
 end
 
 @inline function solver_env_float(primary_key::String, default::Float64)
-    raw = strip(get(ENV, primary_key, string(default)))
+    raw = strip(FEM._fem_env_get(primary_key, ""))
+    isempty(raw) && return default
     return something(tryparse(Float64, raw), default)
 end
 
 @inline function solver_env_int(primary_key::String, default::Int)
-    raw = strip(get(ENV, primary_key, string(default)))
+    raw = strip(FEM._fem_env_get(primary_key, ""))
+    isempty(raw) && return default
     return something(tryparse(Int, raw), default)
 end
 
 @inline function solver_env_optional_float(primary_key::String)
-    haskey(ENV, primary_key) || return nothing
-    raw = strip(ENV[primary_key])
+    FEM.fem_env_has(primary_key) || return nothing
+    raw = strip(FEM._fem_env_get(primary_key, ""))
     isempty(raw) && return nothing
     return tryparse(Float64, raw)
 end

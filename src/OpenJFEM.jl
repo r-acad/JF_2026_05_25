@@ -51,6 +51,16 @@ include("precompile_workload.jl")
 
 const _THREAD_HINT_SHOWN = Ref(false)
 function __init__()
+    # KrylovKit's own __init__ raises its internal task parallelism to
+    # Threads.nthreads(), which makes Krylov-basis reductions (and therefore
+    # eigenvalues) depend on the julia -t setting at the 1e-14 level — the
+    # last thread-count nondeterminism in the solver after the deterministic
+    # assembly work (PERF program Phase 1; K, u_static and Kg are bitwise
+    # thread-invariant). Pin it to 1 so eigensolves are bit-identical at any
+    # -t. Research escape hatch: JFEM_KRYLOVKIT_THREADS=<n> (results then
+    # vary in the last digits with thread count — not for parity runs).
+    kk_threads = something(tryparse(Int, get(ENV, "JFEM_KRYLOVKIT_THREADS", "1")), 1)
+    KrylovKit.set_num_threads(max(kk_threads, 1))
     if Threads.nthreads() == 1 && !haskey(ENV, "JFEM_SUPPRESS_THREAD_HINT")
         @info "OpenJFEM: running with 1 Julia thread. Start Julia with `--threads=N` " *
               "(e.g. `julia --project=. --threads=8 ...`) to parallelize assembly; " *

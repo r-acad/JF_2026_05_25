@@ -10,15 +10,59 @@ using StaticArrays
 const PHI2_ALPHA = Ref(10.0)
 
 
+# ---- ENV snapshot (PERF program phase 2: the ENV hoist) -------------------
+# On Windows every ENV read takes the process environment lock, which
+# serializes threaded assembly (measured 4.5% scaling efficiency at 8
+# threads) and costs 145-200 ns + 240 B per read even single-threaded.
+# The assembly drivers snapshot every JFEM_* variable into an immutable
+# Dict before their element loops (env_snapshot_begin!) and clear it after
+# (env_snapshot_end!); while active, the accessors below read the snapshot
+# lock-free. With no snapshot active (direct kernel calls from scripts,
+# research bisects), behavior is exactly the live-ENV behavior of old.
+# Mid-ASSEMBLY env mutation is not a supported pattern (it already raced
+# the threaded loops); mutation between solves keeps working because every
+# assembly re-snapshots.
+const _FEM_ENV_SNAPSHOT = Base.RefValue{Union{Nothing,Dict{String,String}}}(nothing)
+
+function env_snapshot_begin!()
+    snap = Dict{String,String}()
+    for (k, v) in ENV
+        startswith(k, "JFEM_") && (snap[k] = v)
+    end
+    _FEM_ENV_SNAPSHOT[] = snap
+    return nothing
+end
+
+env_snapshot_end!() = (_FEM_ENV_SNAPSHOT[] = nothing; nothing)
+
+@inline function _fem_env_get(name::AbstractString, default::AbstractString)
+    snap = _FEM_ENV_SNAPSHOT[]
+    if snap === nothing || !startswith(name, "JFEM_")
+        return get(ENV, name, default)
+    end
+    return get(snap, name, default)
+end
+
+@inline function fem_env_has(name::AbstractString)
+    snap = _FEM_ENV_SNAPSHOT[]
+    if snap === nothing || !startswith(name, "JFEM_")
+        return haskey(ENV, name)
+    end
+    return haskey(snap, name)
+end
+
+@inline fem_env_str(name::AbstractString, default::AbstractString="") =
+    _fem_env_get(name, default)
+
 @inline function fem_env_float(name::AbstractString, default::Float64)
-    raw = get(ENV, name, "")
+    raw = _fem_env_get(name, "")
     isempty(strip(raw)) && return default
     parsed = tryparse(Float64, strip(raw))
     return parsed === nothing ? default : parsed
 end
 
 @inline function fem_env_bool(name::AbstractString, default::Bool)
-    raw = lowercase(strip(get(ENV, name, "")))
+    raw = lowercase(strip(_fem_env_get(name, "")))
     isempty(raw) && return default
     raw in ("1", "true", "yes", "on") && return true
     raw in ("0", "false", "no", "off") && return false
@@ -633,7 +677,7 @@ function apply_quad4_snorm_normal_moment_displacement!(
 end
 
 @inline function quad4_snorm_normal_moment_mode()
-    mode = lowercase(strip(get(ENV, "JFEM_Q4_SNORM_COMPLETION_MODE", "normal_moment")))
+    mode = lowercase(strip(fem_env_str("JFEM_Q4_SNORM_COMPLETION_MODE", "normal_moment")))
     # `corner_drill_s3` remains an accepted campaign alias for the selected
     # completed three-row formulation.  The inferior identity-row3 prototype
     # and the global pseudoinverse prototype are deliberately not retained.
@@ -1204,8 +1248,8 @@ end
 end
 
 @inline function q4_membrane_incomp_mode_weights(scale::Float64)
-    raw = strip(get(ENV, "JFEM_SOL101_Q4_MEMBRANE_INCOMP_MODE_WEIGHTS",
-                    get(ENV, "JFEM_Q4_MEMBRANE_INCOMP_MODE_WEIGHTS", "")))
+    raw = strip(fem_env_str("JFEM_SOL101_Q4_MEMBRANE_INCOMP_MODE_WEIGHTS",
+                    fem_env_str("JFEM_Q4_MEMBRANE_INCOMP_MODE_WEIGHTS")))
     if isempty(raw)
         return (scale, scale, scale, scale)
     end
@@ -1622,7 +1666,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # where z_x, z_y are the element-local-frame slopes of the corner
     # z-coords. Activates only on genuinely warped (non-coplanar) elements.
     if !marguerre_warp_to_uz
-        env_raw = strip(get(ENV, "JFEM_Q4_MARGUERRE_WARP_TO_UZ", ""))
+        env_raw = strip(fem_env_str("JFEM_Q4_MARGUERRE_WARP_TO_UZ"))
         if !isempty(env_raw) && lowercase(env_raw) in ("1", "true", "yes", "on")
             marguerre_warp_to_uz = true
         end
@@ -1644,7 +1688,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # retained only as the explicit `field` diagnostic.
     snorm_transform_pq = snorm_pq
     snorm_completion_mode = lowercase(strip(
-        get(ENV, "JFEM_Q4_SNORM_COMPLETION_MODE", "normal_moment")
+        fem_env_str("JFEM_Q4_SNORM_COMPLETION_MODE", "normal_moment")
     ))
     snorm_normal_moment = snorm_transform_pq !== nothing &&
         quad4_snorm_normal_moment_mode()
@@ -1760,7 +1804,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             _defer_snorm_transform=true,
         )
         exact_membrane_drill_penalty = lowercase(strip(
-            get(ENV, "JFEM_Q4_EXACT_MEMBRANE_DRILL_PENALTY", "true")
+            fem_env_str("JFEM_Q4_EXACT_MEMBRANE_DRILL_PENALTY", "true")
         )) in ("1", "true", "yes", "on")
         Ke_mem_exact = stiffness_quad4_membrane_hybrid_stress_matrices(
             coords,
@@ -1769,7 +1813,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             include_drill_penalty=exact_membrane_drill_penalty,
             snorm_pq=snorm_pq,
         )
-        exact_membrane_blend_raw = strip(get(ENV, "JFEM_Q4_EXACT_MEMBRANE_BLEND", "1.0"))
+        exact_membrane_blend_raw = strip(fem_env_str("JFEM_Q4_EXACT_MEMBRANE_BLEND", "1.0"))
         exact_membrane_blend = clamp(
             something(tryparse(Float64, exact_membrane_blend_raw), 1.0),
             0.0,
@@ -1792,7 +1836,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         end
         return Ke
     end
-    q4_kernel = lowercase(strip(kernel_mode === nothing ? get(ENV, "JFEM_Q4_KERNEL", "") : string(kernel_mode)))
+    q4_kernel = lowercase(strip(kernel_mode === nothing ? fem_env_str("JFEM_Q4_KERNEL") : string(kernel_mode)))
     huwashizu_kernel = q4_kernel in ("huwashizu", "hu-washizu", "hw")
     if huwashizu_kernel &&
        !snorm_completion_active &&
@@ -1881,7 +1925,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             _defer_snorm_transform=true,
         )
         # MIN4 bending + φ²·shear
-        cbmin4_env = strip(get(ENV, "JFEM_MIN4_CBMIN4", ""))
+        cbmin4_env = strip(fem_env_str("JFEM_MIN4_CBMIN4"))
         cbmin4_val = isempty(cbmin4_env) ? 3.6 :
             (something(tryparse(Float64, cbmin4_env), 3.6))
         Ke_bs, _, _, _ = stiffness_quad4_min4_bending_shear(
@@ -2049,12 +2093,12 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # correction that makes the element match Nastran CQUAD4 for both
     # long-wavelength (launch) and short-wavelength (3wp) buckling modes.
     # When enabled, this replaces phi2 as the shear softening mechanism.
-    macneal_rbf = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_RBF", "false"))) in ("1","true","yes","on")
+    macneal_rbf = lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_RBF", "false"))) in ("1","true","yes","on")
     # Twist-compatibility correction (MacNeal eq 17): χ̃xy = 2·χxy(gp) − χxy(0).
     # Replaces the twist row of Bb at each Gauss point by 2·row(gp) − row(center).
     # Only engages on the flat default path; disabled with curved_frame_supported.
-    macneal_twist_env_set = haskey(ENV, "JFEM_Q4_MACNEAL_TWIST")
-    macneal_twist = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_TWIST", "false"))) in ("1","true","yes","on")
+    macneal_twist_env_set = fem_env_has("JFEM_Q4_MACNEAL_TWIST")
+    macneal_twist = lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_TWIST", "false"))) in ("1","true","yes","on")
     # PROMOTED 2026-08-02 -- "center" is now the default, and it is DERIVED, not preferred.
     # With the center-evaluated twist row the rotation hourglass carries zero twist curvature,
     # so its bending energy is the plain compatible integral, which for a parallelogram is
@@ -2069,7 +2113,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # Scored: skew30_x_h -65.4 %, aspect_x_skew -36.4 %, skew45_x_h / skew_deg -35.7 %,
     # skew_nu -34.0 %, taper -13.8 %, every other axis unchanged. Ratchet PASS.
     macneal_twist_center =
-        lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_TWIST_MODE", "center"))) in
+        lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_TWIST_MODE", "center"))) in
         ("center", "reduced", "1pt")
     # Full MacNeal 1978 CQUAD4 kernel: replaces MITC4+phi2 shear block with
     # MacNeal's [D]ᵀ·([Z_s]+[Z_b])⁻¹·[D] formulation + twist correction.
@@ -2080,7 +2124,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # explicitly requested. The older anisotropic-only split remains available
     # as JFEM_Q4_KERNEL=macneal_pcomp; use JFEM_Q4_KERNEL=default (or any
     # unrecognized value) to force the legacy non-MacNeal path.
-    q4_kernel_mode = lowercase(strip(kernel_mode === nothing ? get(ENV, "JFEM_Q4_KERNEL", "macneal") : string(kernel_mode)))
+    q4_kernel_mode = lowercase(strip(kernel_mode === nothing ? fem_env_str("JFEM_Q4_KERNEL", "macneal") : string(kernel_mode)))
     macneal_default_kernel = q4_kernel_mode in (
         "macneal", "mitc4_3d_aspect", "mitc4-3d-aspect", "mitc3d_aspect", "mitc3d-aspect",
     )
@@ -2126,7 +2170,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # "gp" leaves JFEM 1.4-35 % too SOFT and "center" only halves that. "qm6" makes it exact to
     # MACHINE precision (4e-16) at taper 0.70 / 0.50 / 0.25 / 0.15 / 0.10. Bit-identical on every
     # parallelogram cell, so all eleven closed axes are untouched.
-    bending_incomp_jac_mode = let raw = lowercase(strip(get(ENV, "JFEM_Q4_BENDING_INCOMP_JAC", "")))
+    bending_incomp_jac_mode = let raw = lowercase(strip(fem_env_str("JFEM_Q4_BENDING_INCOMP_JAC")))
         raw == "center" ? :center : raw == "gp" ? :gp : :qm6
     end
     # Center Jacobian — needed for phi2 and/or shear_center_only 1-point integration
@@ -2804,7 +2848,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # Static condensation (BLAS-free for thread safety)
     bmb_incomp_mode = lowercase(strip(
         bmb_incomp_coupling_mode === :env ?
-            get(ENV, "JFEM_Q4_BMB_INCOMP_COUPLING_MODE", "full") :
+            fem_env_str("JFEM_Q4_BMB_INCOMP_COUPLING_MODE", "full") :
             string(bmb_incomp_coupling_mode)
     ))
     membrane_incomp_weight = max(membrane_incomp_scale, 0.0)
@@ -2973,7 +3017,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # ~70% of K[θ_x, T_x] warp gap on the iso warped probe at α=-1/3.
     # Default 0.0 = no correction = original JFEM behavior.
     if coords_3d !== nothing
-        warp_alpha_raw = strip(get(ENV, "JFEM_MACNEAL_WARP_ALPHA", ""))
+        warp_alpha_raw = strip(fem_env_str("JFEM_MACNEAL_WARP_ALPHA"))
         warp_alpha = isempty(warp_alpha_raw) ? 0.0 :
             (tryparse(Float64, warp_alpha_raw) === nothing ? 0.0 : parse(Float64, warp_alpha_raw))
         if warp_alpha != 0.0
@@ -3346,7 +3390,7 @@ function add_quad4_macneal_shear_rbf!(
     # MacNeal 1978, instead of the Gauss-offset interior points (0,±1/√3).
     # Identical on squares after zb calibration; changes the aspect scaling.
     shear_sample_edge =
-        lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_SHEAR_SAMPLE", "gauss"))) in
+        lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_SHEAR_SAMPLE", "gauss"))) in
         ("edge", "midpoint", "midside")
     pt = shear_sample_edge ? 1.0 : 1.0 / sqrt(3.0)
     shear_pts = ((0.0, -pt, 1), (0.0,  pt, 1), (-pt, 0.0, 2), ( pt, 0.0, 2))
@@ -3410,10 +3454,10 @@ function add_quad4_macneal_shear_rbf!(
     # implicit default, but fall back to the established operator when either
     # prerequisite is absent.  An explicitly requested incompatible
     # interaction mode remains an error below.
-    shear_edge_linear_explicit = haskey(ENV, "JFEM_Q4_MACNEAL_SHEAR_EDGE_LINEAR")
+    shear_edge_linear_explicit = fem_env_has("JFEM_Q4_MACNEAL_SHEAR_EDGE_LINEAR")
     shear_edge_linear_default = row_full && !rigid_shear ? "interaction_hybrid" : "off"
-    shear_edge_linear_mode = lowercase(strip(get(
-        ENV, "JFEM_Q4_MACNEAL_SHEAR_EDGE_LINEAR", shear_edge_linear_default)))
+    shear_edge_linear_mode = lowercase(strip(fem_env_str(
+        "JFEM_Q4_MACNEAL_SHEAR_EDGE_LINEAR", shear_edge_linear_default)))
     shear_edge_linear_interaction_raw = shear_edge_linear_mode == "interaction"
     shear_edge_linear_interaction_hybrid =
         shear_edge_linear_mode == "interaction_hybrid"
@@ -3461,7 +3505,7 @@ function add_quad4_macneal_shear_rbf!(
     # assembly.jl JFEM_Q4_MACNEAL_PCOMP_SURFACE_KAPPA_L_MAX). With the routing
     # corrected the two are complementary: on iter_6 the gate alone gives
     # +11.4 %, "mitc" alone is inert, and together they give -0.02 %.
-    shear_cov_mode = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_SHEAR_COVARIANT", "mitc")))
+    shear_cov_mode = lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_SHEAR_COVARIANT", "mitc")))
     shear_covariant = shear_cov_mode in ("1","true","yes","on")
     # "mitc": covariant sampling for the RANGE (taper-correct null space) with
     # PHYSICAL gamma_x/gamma_y rows reconstructed per sample via J^-1 on the
@@ -3731,7 +3775,7 @@ function add_quad4_macneal_shear_rbf!(
     # mode, flex_mode=full, Δ area-norm, Δ len, Δ perp); the space of simple Δ redefinitions is
     # explored and none is the law. Further progress needs MacNeal's published skew treatment
     # rather than more geometry guesses from this side.
-    let dmode = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_DELTA_MIDSIDE", "false")))
+    let dmode = lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_RBF_DELTA_MIDSIDE", "false")))
         if dmode in ("1", "true", "yes", "on", "len", "perp")
             g1x = 0.5*(coords[2,1]+coords[3,1]) - 0.5*(coords[1,1]+coords[4,1])
             g1y = 0.5*(coords[2,2]+coords[3,2]) - 0.5*(coords[1,2]+coords[4,2])
@@ -3761,7 +3805,7 @@ function add_quad4_macneal_shear_rbf!(
     flex_mode =
         flex_mode_override === :full ? "full" :
         flex_mode_override === :diag ? "diag" :
-        lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_BENDING_FLEX_MODE", "diag")))
+        lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_RBF_BENDING_FLEX_MODE", "diag")))
     # ------------------------------------------------------------------
     # SKEWED-STRIP frame for the residual-bending flexibilities (2026-07-31).
     #
@@ -3838,7 +3882,7 @@ function add_quad4_macneal_shear_rbf!(
     # to Nastran's overall norm but slightly worsens the directional error,
     # i.e. it's not a clean win. Leaving the implementation in place behind
     # an env switch so further exploration can compare against the legacy form.
-    per_gp_delta = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_PER_GP_DELTA", "false"))) in ("1","true","yes","on")
+    per_gp_delta = lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_RBF_PER_GP_DELTA", "false"))) in ("1","true","yes","on")
     # JFEM_Q4_MACNEAL_ZB_DIRECTIONAL (default false; "proj"/"true" or "cov"):
     # closed-form per-direction differential residual-bending flexibility
     # d_i = C∞·ρ_i²/(ρ_i²+β), ρ_i = l_j/l_i — the MacNeal eq (27) FORM with one
@@ -3854,7 +3898,7 @@ function add_quad4_macneal_shear_rbf!(
     # was flat-extrapolated from unmeasured data. Variants rejected there: "cov"
     # (covariant lengths, +9.5 pt at skew) and flex_mode=full (+36 pt).
     Zb = zeros(T, 4, 4)
-    length_mode = lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_LENGTH_MODE", "paper")))
+    length_mode = lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_RBF_LENGTH_MODE", "paper")))
     swap_xy = length_mode in ("swap", "swapped", "cross")
     Lx2_rbf = swap_xy ? Dy2 : Dx2
     Ly2_rbf = swap_xy ? Dx2 : Dy2
@@ -3973,7 +4017,7 @@ function add_quad4_macneal_shear_rbf!(
     # need DIFFERENT factors (1.85 vs 3.11 at h/L = 0.2, skew 45), which is what a missing
     # Zs term looks like when it is attributed to Zb.
     zb_skew_mode = distortion_corrections ?
-        lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_ZB_SKEW", "total"))) : "false"  # PROMOTED 2026-08-01
+        lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_ZB_SKEW", "total"))) : "false"  # PROMOTED 2026-08-01
     zb_skew_on = zb_skew_mode in ("1", "true", "yes", "on", "zb", "total")
     zb_skew_f = 1.0
     if zb_skew_on
@@ -4109,7 +4153,7 @@ function add_quad4_macneal_shear_rbf!(
     # Lx-independent, laminate enters only via the twist stiffness Cb66;
     # zero on rectangles, parallelograms and pure-skew shapes (measured).
     if shear_mitc &&
-       lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_FAN_COUPLING", "false"))) in ("1","true","yes","on")
+       lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_FAN_COUPLING", "false"))) in ("1","true","yes","on")
         a1 = 0.25 * (-coords[1,1] + coords[2,1] + coords[3,1] - coords[4,1])
         a3 = 0.25 * ( coords[1,1] - coords[2,1] + coords[3,1] - coords[4,1])
         b2 = 0.25 * (-coords[1,2] - coords[2,2] + coords[3,2] + coords[4,2])
@@ -4184,7 +4228,7 @@ function add_quad4_macneal_shear_rbf!(
     Zs .= inv(VGV_sym)
     Zs .= 0.5 .* (Zs .+ Zs')
     end
-    if lowercase(strip(get(ENV, "JFEM_Q4_MACNEAL_SHEAR_DEBUG", "false"))) in ("1","true","yes","on")
+    if lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_SHEAR_DEBUG", "false"))) in ("1","true","yes","on")
         println("[SHEAR_DEBUG] Zs(x1e6): ", round.(1e6 .* Zs; digits=4))
         println("[SHEAR_DEBUG] Zb(x1e6): ", round.(1e6 .* Zb; digits=4))
         println("[SHEAR_DEBUG] pt_delta: ", round.(pt_delta; digits=3), " Dx=", round(Dx; digits=3), " Dy=", round(Dy; digits=3))
@@ -4202,7 +4246,7 @@ function add_quad4_macneal_shear_rbf!(
     Zs_edge_interaction = nothing
     if shear_edge_linear_interaction
         midside_mode = lowercase(strip(
-            get(ENV, "JFEM_Q4_MACNEAL_RBF_DELTA_MIDSIDE", "false")))
+            fem_env_str("JFEM_Q4_MACNEAL_RBF_DELTA_MIDSIDE", "false")))
         if !shear_mitc || shear_sample_edge || length_mode != "paper" ||
            fem_env_bool("JFEM_Q4_MACNEAL_RBF_DELTA_AREA_NORM", false) ||
            midside_mode in ("1", "true", "yes", "on", "len", "perp") ||
@@ -4772,7 +4816,7 @@ function add_quad4_macneal_shear_rbf!(
     #   ⇒  inv(Z) = M⁻¹ (D·K_plate·Dᵀ) M⁻¹,   M = D·Dᵀ
     # so a reference K_plate yields the reference Z exactly. Writes NPY-free
     # whitespace text (rows of D, then Zb, Zs) to $JFEM_Q4_DUMP_ZMAT.
-    let zdump = get(ENV, "JFEM_Q4_DUMP_ZMAT", "")
+    let zdump = fem_env_str("JFEM_Q4_DUMP_ZMAT")
         if !isempty(zdump)
             open(zdump, "a") do io
                 println(io, "# ZMAT")
@@ -6695,7 +6739,7 @@ function geometric_stiffness_quad4_nastran_kdjj_pcomp_field(coords::AbstractMatr
     # Debug hook for offline string-construction DOE: append coords + per-GP
     # N to the file named by JFEM_KDJJ_DUMP_NGP (single-element rigs).  One
     # atomic write per call so multi-threaded box assembly does not interleave.
-    let ngp_path = get(ENV, "JFEM_KDJJ_DUMP_NGP", "")
+    let ngp_path = fem_env_str("JFEM_KDJJ_DUMP_NGP")
         if !isempty(ngp_path)
             buf = IOBuffer()
             for i in 1:4
@@ -6715,7 +6759,7 @@ function geometric_stiffness_quad4_nastran_kdjj_pcomp_field(coords::AbstractMatr
     # max_gp,c |N_gp - N_mean| / max_c|N_mean| measures how much stress
     # gradient this single element carries (the meanstring term scales with
     # it); skew_cos = |cos(angle between edges 1-2 and 1-4)| (0 = rectangle).
-    let stats_path = get(ENV, "JFEM_KDJJ_MS_STATS", "")
+    let stats_path = fem_env_str("JFEM_KDJJ_MS_STATS")
         if !isempty(stats_path)
             mx = 0.0
             for gi in 1:4
@@ -7315,7 +7359,7 @@ function tria3_rbf_shear(Ds, Db, A, coords = nothing)
     # 1/2/5/10, i.e. fine at aspect 1 and diverging exactly where one length cannot
     # stand in for two. gamma_xz is bending about y over the x-extent, so it pairs with
     # the x-extent and Db[1,1]; likewise y.
-    dir = lowercase(strip(get(ENV, "JFEM_TRIA3_RBF_MODE", "iso"))) in ("dir", "directional")
+    dir = lowercase(strip(fem_env_str("JFEM_TRIA3_RBF_MODE", "iso"))) in ("dir", "directional")
     if dir && coords !== nothing
         Lx2 = (maximum(@view coords[:,1]) - minimum(@view coords[:,1]))^2
         Ly2 = (maximum(@view coords[:,2]) - minimum(@view coords[:,2]))^2
@@ -7396,7 +7440,7 @@ function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_rat
     # rank-3 remainder means the reference's operator is recoverable in closed form, a
     # full-rank one means its bending differs from constant curvature and the search has
     # to move there instead.
-    let tdump = get(ENV, "JFEM_TRIA3_DUMP_PLATE", "")
+    let tdump = fem_env_str("JFEM_TRIA3_DUMP_PLATE")
         if !isempty(tdump)
             open(tdump, "a") do io
                 println(io, "# TMAT")
@@ -7420,7 +7464,7 @@ function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_rat
     # Use the macro-quad condensed triangle by default. It is the current
     # SOL101/SOL105 guardrail path; the DKT implementation remains available
     # for controlled formulation probes with JFEM_TRIA3_PLATE_KERNEL=dkt.
-    tria3_plate_kernel = lowercase(strip(get(ENV, "JFEM_TRIA3_PLATE_KERNEL", "mitc3")))  # PROMOTED 2026-08-01
+    tria3_plate_kernel = lowercase(strip(fem_env_str("JFEM_TRIA3_PLATE_KERNEL", "mitc3")))  # PROMOTED 2026-08-01
     # 2026-08-05: the legacy macro-quad plate kernel was removed with the
     # virtual-quad construction. Unknown or legacy kernel names resolve to the
     # validated MITC3 default instead of the removed operator.
@@ -7665,7 +7709,7 @@ function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_rat
         # D = [g_r(A); g_s(B); c] (3x9) -- i.e. MITC3's shear stiffness is RANK 3 by
         # construction. Dumped so the reference's own rank-3 shear operator can be
         # compared against this subspace (TOOLS_MATPRN/trec.jl).
-        let tdump = get(ENV, "JFEM_TRIA3_DUMP_PLATE", "")
+        let tdump = fem_env_str("JFEM_TRIA3_DUMP_PLATE")
             if !isempty(tdump)
                 open(tdump, "a") do io
                     println(io, "# TYING")
@@ -8185,7 +8229,7 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
     # Implemented as an exact per-GP delta on top of the standard path; the
     # subtraction assumes unit local w scales (the pure-physics configuration).
     transverse_w_form = begin
-        raw = lowercase(strip(get(ENV, "JFEM_KG_SHELL_TRANSVERSE_W_FORM", "w")))
+        raw = lowercase(strip(fem_env_str("JFEM_KG_SHELL_TRANSVERSE_W_FORM", "w")))
         if raw in ("rot", "rotation", "theta")
             :rot
         elseif raw in ("cross", "wtheta", "w_theta", "sym_cross")
@@ -8215,7 +8259,7 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
     end
     transverse_wty_sign =
         something(tryparse(Float64,
-            strip(get(ENV, "JFEM_KG_SHELL_TRANSVERSE_WTY_SIGN", "1.0"))), 1.0)
+            strip(fem_env_str("JFEM_KG_SHELL_TRANSVERSE_WTY_SIGN", "1.0"))), 1.0)
     # In-plane (u,v) differential-stiffness block: LINEAR SUPERPOSITION of the
     # per-stress-component principal blocks. The geometric stiffness is linear in the
     # stress state by construction — Kg(sa+sb) = Kg(sa)+Kg(sb) — so the block is
@@ -8932,7 +8976,7 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
         # diagonal columns are inert when the residual is edge-representable,
         # e.g. the flat gradient control, but redistribute junction-element
         # residual states).  Toggle with JFEM_KG_MEANSTRING_DIAGONALS=false.
-        ms_edges = lowercase(strip(get(ENV, "JFEM_KG_MEANSTRING_DIAGONALS", "true"))) in
+        ms_edges = lowercase(strip(fem_env_str("JFEM_KG_MEANSTRING_DIAGONALS", "true"))) in
                    ("1", "true", "yes", "on") ?
             ((1, 2), (2, 3), (3, 4), (4, 1), (1, 3), (2, 4)) :
             ((1, 2), (2, 3), (3, 4), (4, 1))
@@ -10129,7 +10173,7 @@ function stiffness_cpenta6(coords::AbstractMatrix{Float64}, E::Float64, nu::Floa
     # _cpenta6_nastran_stiffness). The plain isoparametric quadrature
     # variants below are retained as formulation-bisect options; the former
     # tri3_z1 reduced-z heuristic default is superseded.
-    cpenta_rule = lowercase(strip(get(ENV, "JFEM_CPENTA_STIFFNESS_INTEGRATION", "nastran")))
+    cpenta_rule = lowercase(strip(fem_env_str("JFEM_CPENTA_STIFFNESS_INTEGRATION", "nastran")))
     if cpenta_rule in ("nastran", "reference", "mitc")
         return _cpenta6_nastran_stiffness(coords, E, nu)
     end
