@@ -22,6 +22,12 @@ Versions follow [Semantic Versioning](https://semver.org/).
   resolve to the MITC3 default; `dkt` applies uniformly to coupled sections.
 
 ### Fixed
+- **PBEAM `K1`/`K2` now default to `1.0` (shear-flexible), matching the
+  reference solver.** The parser defaulted absent shear-area factors to `0.0`,
+  which selects the rigid-shear limit — that is PBAR's convention, not
+  PBEAM's. The CBEAM modal probe's bending modes go from `+0.32%` to exact;
+  its full spectrum is now within `0.086%` of the reference. An explicit
+  `0.0` still selects rigid shear, as in the reference.
 - **Bar-family lumped mass now follows the reference solver's element-specific
   conventions.** The CBAR/CROD lumped mass is translational only — the former
   rotary/torsional inertia entries produced a spurious CBAR torsion mode at
