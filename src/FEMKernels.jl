@@ -1947,11 +1947,63 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         end
         return Ke
     end
-    if ws === nothing
-        T_ws = promote_type(eltype(Cm), eltype(Cb), eltype(Cs), typeof(h), typeof(E_ref))
-        ws = create_quad4_workspace(T_ws)
-    end
+    # ---- PERF function barrier (2026-08-05, perf program phase 2) ----------
+    # Everything above this point is the per-element DISPATCHER: env-flag and
+    # kwarg resolution plus the research branches (which recurse through this
+    # public function and must stay out of the hot core so the core never
+    # calls itself). Resolve the workspace to a concretely-typed local and
+    # hand every resolved value to the strictly-typed core as an argument.
+    # The old in-place reassignment of the Union{Nothing,Quad4Workspace} kwarg
+    # kept the entire element kernel dynamically typed (inferred Any, ~1.3 ms
+    # + ~1 MB heap per element); behind the barrier the core specialises on
+    # Quad4Workspace{Float64} and runs statically typed.
+    # NOTE (accepted, documented): re-typing lets LLVM apply @fastmath
+    # contraction where dynamic dispatch previously blocked it — a
+    # deterministic <=4e-15 relative shift in K, CQUAD4-only, accepted per the
+    # Phase-0 codegen-shift precedent. Baseline recapture handled downstream.
+    ws_c = ws === nothing ?
+        create_quad4_workspace(promote_type(
+            eltype(Cm), eltype(Cb), eltype(Cs), typeof(h), typeof(E_ref))) :
+        ws
+    return _stiffness_quad4_core!(
+        ws_c, coords, Cm, Cb, Cs, h, E_ref,
+        k6rot, drill_scale, Bmb,
+        bending_incomp, shear_center_only, no_phi2,
+        membrane_incomp, membrane_incomp_scale, membrane_incomp_weights,
+        curvature_membrane, membrane_shear_center_row, material_shear_rotation,
+        membrane_incomp_center_jacobian,
+        selective_shear, selective_shear_mode,
+        exact_side_shear, exact_side_rotcorr,
+        slope_membrane, coords_3d, snorm_pq,
+        kernel_planar, macneal_rigid_shear, marguerre_warp_to_uz,
+        bmb_incomp_coupling_mode, kernel_mode, macneal_rbf_flex_mode,
+        membrane_hourglass_skew, distortion_corrections,
+        snorm_transform_pq, snorm_normal_moment, snorm_transform_on,
+        warp_transform_requested, warp_transform_on, snorm_completion_active,
+    )
+end
 
+# Strictly-typed hot core of stiffness_quad4_matrices. Called ONLY from the
+# dispatcher above with every env flag / kwarg / derived SNORM-and-warp value
+# already resolved and the workspace concretely typed. The recursive research
+# splices live in the dispatcher, so this function never calls the public
+# entry. The statement sequence is the original function body, unchanged.
+function _stiffness_quad4_core!(
+    ws::Quad4Workspace, coords, Cm, Cb, Cs, h, E_ref,
+    k6rot, drill_scale::Float64, Bmb,
+    bending_incomp::Bool, shear_center_only::Bool, no_phi2::Bool,
+    membrane_incomp::Bool, membrane_incomp_scale::Float64, membrane_incomp_weights,
+    curvature_membrane, membrane_shear_center_row::Bool, material_shear_rotation::Float64,
+    membrane_incomp_center_jacobian::Bool,
+    selective_shear::Bool, selective_shear_mode::Symbol,
+    exact_side_shear::Bool, exact_side_rotcorr::Bool,
+    slope_membrane, coords_3d, snorm_pq,
+    kernel_planar::Bool, macneal_rigid_shear::Bool, marguerre_warp_to_uz::Bool,
+    bmb_incomp_coupling_mode::Symbol, kernel_mode, macneal_rbf_flex_mode::Symbol,
+    membrane_hourglass_skew::Bool, distortion_corrections::Bool,
+    snorm_transform_pq, snorm_normal_moment::Bool, snorm_transform_on::Bool,
+    warp_transform_requested::Bool, warp_transform_on::Bool, snorm_completion_active::Bool,
+)
     # Clear accumulated matrices
     fill!(ws.Ke, 0.0)
     fill!(ws.K_ab, 0.0); fill!(ws.K_bb, 0.0)
@@ -2088,7 +2140,9 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # phi2 matches Nastran CQUAD4's Selective Reduced Integration behavior.
     # PHI2_ALPHA=10.0 is the globally optimal coefficient across all test cases.
     _alpha = PHI2_ALPHA[]
-    phi2_shear = 1.0
+    # (phi2_shear is assigned ONCE, below, after the center Jacobian is
+    # available: it is captured by the selective-shear closure further down,
+    # and a second assignment would Core.Box it and poison the GP loop types.)
     # MacNeal 1978 eq (12): 1/GA* = 1/GA + L²/(12 EI). Series-flexibility
     # correction that makes the element match Nastran CQUAD4 for both
     # long-wavelength (launch) and short-wavelength (3wp) buckling modes.
@@ -2202,11 +2256,11 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     iJ22c =  J11c*inv_detc
     dNdx_c = ntuple(k -> iJ11c*dNr_c[k] + iJ12c*dNs_c[k], 4)
     dNdy_c = ntuple(k -> iJ21c*dNr_c[k] + iJ22c*dNs_c[k], 4)
-    # Directional phi2 storage kept as alias for the scalar value; downstream
-    # code reads phi2_xi/phi2_eta and applies them to ξ/η rows of Bs.
-    phi2_xi = phi2_shear
-    phi2_eta = phi2_shear
-    if !shear_center_only && !no_phi2 && _alpha > 0.0
+    # PERF de-box (2026-08-05): phi2_shear is captured by the selective-shear
+    # closure below; assigning it more than once would Core.Box it and poison
+    # the GP loop's inferred types. Single-assignment form — branch conditions
+    # and every numeric expression are unchanged.
+    phi2_shear = if !shear_center_only && !no_phi2 && _alpha > 0.0
         # phi2 transverse-shear characteristic length. Default = 4*detJc (≈ element
         # area), but on a SKEWED cell the area shrinks by sin(skew) while the spans
         # (edge lengths) do not, so phi2=α h²/L² grows and the shear over-stiffens
@@ -2227,13 +2281,17 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
             # JFEM_Q4_MACNEAL_RBF=true.
             D_bend = max(Cb[1,1], 1e-30)
             GA_shear = max(Cs[1,1], 1e-30)
-            phi2_shear = 1.0 / (1.0 + GA_shear * L_char_sq / (12.0 * D_bend))
+            1.0 / (1.0 + GA_shear * L_char_sq / (12.0 * D_bend))
         else
-            phi2_shear = min(1.0, _alpha * h^2 / L_char_sq)
+            min(1.0, _alpha * h^2 / L_char_sq)
         end
-        phi2_xi = phi2_shear
-        phi2_eta = phi2_shear
+    else
+        1.0
     end
+    # Directional phi2 storage kept as alias for the scalar value; downstream
+    # code reads phi2_xi/phi2_eta and applies them to ξ/η rows of Bs.
+    phi2_xi = phi2_shear
+    phi2_eta = phi2_shear
     # For membrane-only elements (Cb≈0, bend_ratio=0) assembled with shear_center_only=true:
     # skip all shear so DOF3/4/5 are truly zero → AUTOSPC in eigenvalue solve constrains them,
     # matching Nastran's behavior where AUTOSPC eliminates membrane-only plate out-of-plane DOFs.
@@ -3080,12 +3138,15 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # come from inside the strain-displacement operator, not from a post-hoc DOF transform.
     let wrd = fem_env_float("JFEM_Q4_WARP_ROTDRILL", 0.0)
         if wrd != 0.0 && coords_3d !== nothing
-            _, _, v3 = quad4_center_frame_from_coords3d(coords_3d)
-            cx = (coords_3d[1,1] + coords_3d[2,1] + coords_3d[3,1] + coords_3d[4,1]) * 0.25
-            cy = (coords_3d[1,2] + coords_3d[2,2] + coords_3d[3,2] + coords_3d[4,2]) * 0.25
-            cz = (coords_3d[1,3] + coords_3d[2,3] + coords_3d[3,3] + coords_3d[4,3]) * 0.25
-            zi = ntuple(i -> (coords_3d[i,1]-cx)*v3[1] + (coords_3d[i,2]-cy)*v3[2] +
-                             (coords_3d[i,3]-cz)*v3[3], 4)
+            # PERF de-box (2026-08-05): fresh names — these were re-assignments
+            # of the warp-alpha block's locals above, and the ntuple closure
+            # capture Core.Box'ed all four (Any-typed reads for every element).
+            _, _, wrd_v3 = quad4_center_frame_from_coords3d(coords_3d)
+            wrd_cx = (coords_3d[1,1] + coords_3d[2,1] + coords_3d[3,1] + coords_3d[4,1]) * 0.25
+            wrd_cy = (coords_3d[1,2] + coords_3d[2,2] + coords_3d[3,2] + coords_3d[4,2]) * 0.25
+            wrd_cz = (coords_3d[1,3] + coords_3d[2,3] + coords_3d[3,3] + coords_3d[4,3]) * 0.25
+            zi = ntuple(i -> (coords_3d[i,1]-wrd_cx)*wrd_v3[1] + (coords_3d[i,2]-wrd_cy)*wrd_v3[2] +
+                             (coords_3d[i,3]-wrd_cz)*wrd_v3[3], 4)
             corner_rs_wrd = ((-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0))
             # bilinear slopes of the height field at each corner, in the local frame
             @inbounds for i in 1:4
@@ -3458,11 +3519,15 @@ function add_quad4_macneal_shear_rbf!(
     shear_edge_linear_default = row_full && !rigid_shear ? "interaction_hybrid" : "off"
     shear_edge_linear_mode = lowercase(strip(fem_env_str(
         "JFEM_Q4_MACNEAL_SHEAR_EDGE_LINEAR", shear_edge_linear_default)))
-    shear_edge_linear_interaction_raw = shear_edge_linear_mode == "interaction"
-    shear_edge_linear_interaction_hybrid =
+    # "_req" = the mode as requested; the FINAL flags are assigned exactly
+    # once, after the default-stack validation below (PERF de-box 2026-08-05:
+    # the hybrid flag is captured by the legacy_Zs_edge closure, so clearing
+    # these in place would Core.Box all three).
+    shear_edge_linear_interaction_raw_req = shear_edge_linear_mode == "interaction"
+    shear_edge_linear_interaction_hybrid_req =
         shear_edge_linear_mode == "interaction_hybrid"
-    shear_edge_linear_interaction = shear_edge_linear_interaction_raw ||
-        shear_edge_linear_interaction_hybrid
+    shear_edge_linear_interaction_req = shear_edge_linear_interaction_raw_req ||
+        shear_edge_linear_interaction_hybrid_req
     if !(shear_edge_linear_mode in
          ("", "0", "false", "no", "off", "none", "interaction", "interaction_hybrid"))
         throw(ArgumentError(
@@ -3470,7 +3535,7 @@ function add_quad4_macneal_shear_rbf!(
             shear_edge_linear_mode))
     end
     if shear_edge_linear_explicit &&
-       shear_edge_linear_interaction && (!row_full || rigid_shear)
+       shear_edge_linear_interaction_req && (!row_full || rigid_shear)
         throw(ArgumentError(
             "JFEM_Q4_MACNEAL_SHEAR_EDGE_LINEAR interaction modes require " *
             "full edge rows and non-rigid physical shear"))
@@ -4244,7 +4309,8 @@ function add_quad4_macneal_shear_rbf!(
     # E^-1*Zs_edge*E^-T.  The 2x2 Gauss rule integrates H exactly for the
     # bilinear geometry and the linear assumed field.
     Zs_edge_interaction = nothing
-    if shear_edge_linear_interaction
+    shear_edge_linear_fallback = false
+    if shear_edge_linear_interaction_req
         midside_mode = lowercase(strip(
             fem_env_str("JFEM_Q4_MACNEAL_RBF_DELTA_MIDSIDE", "false")))
         if !shear_mitc || shear_sample_edge || length_mode != "paper" ||
@@ -4269,11 +4335,14 @@ function add_quad4_macneal_shear_rbf!(
                     "the validated default MITC/Gauss, paper-length, Zb-only " *
                     "taper/shear/skew correction stack"))
             end
-            shear_edge_linear_interaction = false
-            shear_edge_linear_interaction_raw = false
-            shear_edge_linear_interaction_hybrid = false
+            shear_edge_linear_fallback = true
         end
     end
+    # Final flags: single assignment each (see the _req note above).
+    shear_edge_linear_interaction = shear_edge_linear_interaction_req &&
+        !shear_edge_linear_fallback
+    shear_edge_linear_interaction_hybrid = shear_edge_linear_interaction_hybrid_req &&
+        !shear_edge_linear_fallback
     if shear_edge_linear_interaction
         gpt = 1.0 / sqrt(3.0)
 
@@ -4471,10 +4540,12 @@ function add_quad4_macneal_shear_rbf!(
                     j22 = sum(dNs[k]*X[k,2] for k in 1:4)
                     jac[sp] = abs(j11*j22 - j12*j21)
                 end
-                comps = (1, 1, 2, 2)
+                # closure-local name: assigning `comps` here would write the
+                # enclosing function's `comps` and Core.Box it (PERF de-box)
+                comps_l = (1, 1, 2, 2)
                 VV = zeros(T, 4, 4)
                 for i in 1:4, j in 1:4
-                    ci = comps[i]; cj = comps[j]
+                    ci = comps_l[i]; cj = comps_l[j]
                     jf = sqrt(2*jac[i]) * sqrt(2*jac[j])
                     if ci == cj
                         VV[i,j] = i == j ? jf*Cs[ci,cj] : zero(T)
@@ -4583,12 +4654,15 @@ function add_quad4_macneal_shear_rbf!(
                         dc = max(abs(detc), T(1e-30))
                         grad_r = abs(0.25*(dj[2]+dj[3]-dj[1]-dj[4])) / dc
                         grad_s = abs(0.25*(dj[3]+dj[4]-dj[1]-dj[2])) / dc
-                        gsum = grad_r*grad_r + grad_s*grad_s
-                        if gsum > 1e-24
-                            Wc = (q4_taper_cross_factor(rho2x)*grad_r*grad_r +
-                                  q4_taper_cross_factor(rho2y)*grad_s*grad_s) / gsum
+                        # closure-local names (gsum_l/Wc_l): the enclosing
+                        # function reuses gsum/Wc below — assigning them here
+                        # would Core.Box both (PERF de-box)
+                        gsum_l = grad_r*grad_r + grad_s*grad_s
+                        if gsum_l > 1e-24
+                            Wc_l = (q4_taper_cross_factor(rho2x)*grad_r*grad_r +
+                                  q4_taper_cross_factor(rho2y)*grad_s*grad_s) / gsum_l
                             for (i, j) in ((1,3),(1,4),(2,3),(2,4))
-                                ZZ[i,j] *= Wc
+                                ZZ[i,j] *= Wc_l
                                 ZZ[j,i] = ZZ[i,j]
                             end
                         end
@@ -4609,8 +4683,10 @@ function add_quad4_macneal_shear_rbf!(
                     if zb_skew_mode == "total"
                         dxy = 0.5*(X[2,2]+X[3,2]-X[1,2]-X[4,2])
                         dyx = 0.5*(X[3,1]+X[4,1]-X[1,1]-X[2,1])
-                        den = dxc*dyc - dxy*dyx
-                        fsk = abs(den) > 1e-30 ? (dxc*dyc/den)^2 : one(T)
+                        # closure-local name: `den` is an enclosing-function
+                        # local (zb_skew block) — see de-box note above
+                        den_l = dxc*dyc - dxy*dyx
+                        fsk = abs(den_l) > 1e-30 ? (dxc*dyc/den_l)^2 : one(T)
                         if abs(fsk-one(T)) > 1e-14
                             for (i, j) in ((1,2),(3,4))
                                 dd = 0.5*(ZZ[i,i]-ZZ[i,j]-ZZ[j,i]+ZZ[j,j]) / 2
@@ -4805,10 +4881,12 @@ function add_quad4_macneal_shear_rbf!(
         Z_total .= 0.5 .* (Z_total .+ transpose(Z_total))
     end
     # K_plate = Dᵀ · inv(Z_total) · D
-    K_plate = D_mat' * (Z_total \ D_mat)
+    K_plate_raw = D_mat' * (Z_total \ D_mat)
     # Enforce exact symmetry on K_plate to avoid roundoff-level asymmetry
-    # tripping the solver's positive-definiteness checks
-    K_plate = 0.5 * (K_plate + K_plate')
+    # tripping the solver's positive-definiteness checks.
+    # (single assignment of K_plate: it is captured by the $JFEM_Q4_DUMP_ZMAT
+    # debug closure below, and a second assignment would Core.Box it)
+    K_plate = 0.5 * (K_plate_raw + K_plate_raw')
 
     # Diagnostic dump of the flexibility formulation's own operands, so the
     # reference solver's Z can be RECOVERED rather than guessed at:

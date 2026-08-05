@@ -27,6 +27,19 @@ Versions follow [Semantic Versioning](https://semver.org/).
   per read — with ~25–40 reads per element). Outside assembly the accessors
   read live `ENV` exactly as before, so research bisects that set variables
   between direct kernel calls are unaffected.
+- **The CQUAD4 stiffness kernel is type-stable.** The production entry is
+  now a thin dispatcher (env flags, SNORM/warp canonicalization, research
+  branches, workspace resolution) over a strictly-typed core behind a
+  function barrier, with every closure-boxing construct eliminated in both
+  the stiffness body and the MacNeal shear block. Measured on the 6220-quad
+  reference deck: K assembly 8.3 -> 2.3 s, allocations 365 M -> 78 M, heap
+  6.34 -> 2.05 GiB per assembly. Numeric note: the old kernel's exact bits
+  were an artifact of compiling `@fastmath` regions around type-unstable
+  code (proven irreproducible by any portable source — including
+  per-unrolled-iteration FP patterns); the type-stable kernel's results
+  differ deterministically by at most `6.5e-15` relative, confined to
+  CQUAD4 stiffness — five orders below the accepted precompile-image
+  codegen shift documented above, with every validation verdict unchanged.
 - **Kg no longer rebuilds the constraint dependency map.** The geometric
   stiffness assembly reuses the merged RBE2/RBE1/RSPLINE/RBE3/MPC map the
   stiffness assembly already built (it arrives as an argument that was
