@@ -9969,10 +9969,26 @@ matrices and per-subcase stress output on a 46-geometry extraction corpus
         f12 = (9/4)(-5 + z^2 - xz - yz) / (187 + 14 Q)
         f22 = f11 with x <-> y,   Q = (x-z)^2 + (y-z)^2 + z^2,
     in the dimensionless mid-plane triangle invariants x = |a|^2/A2,
-    y = |b|^2/A2, z = a.b/A2. Verified to 5e-5 worst relative Frobenius
-    error against the reference element matrices for straight (vertical)
-    wedges; wedges with a tilted director retain a small residual (the tilt
-    extension of the law is a documented open refinement).
+    y = |b|^2/A2, z = a.b/A2;
+  - an even-mode c-column rigidity correction subtracted in the z-even tying
+    basis (recovered 2026-08-05, three independent recognition routes,
+    adversarially cross-verified): with mid-plane edge lengths La, Lb, Lc,
+    u = 3La/P, v = 3Lb/P,
+        ds  = (2 - (Lb+Lc)(La+Lb-Lc)(La+Lc-Lb)/(La Lb Lc))/36
+        dr  = ds with La <-> Lb applied to the second factor pair
+        Dss = (La^2 - Lc^2 + Lb Lc)/(27 Lb Lc),  Drr = mirror,
+        Drs = (2(La^3+Lb^3) - 6 La Lb (La+Lb) - Lc(La^2+Lb^2)
+               - 2 Lc^2 (La+Lb) - 3 La Lb Lc + Lc^3)/(216 La Lb Lc)
+        dW_even column 3 = (G/hz) * (f13, f23, f33),
+        f13 = y*u*ds + z*v*dr,  f23 = -(z*u*ds + x*v*dr),
+        f33 = y*u^2*Dss + x*v^2*Drr + 2*z*u*v*Drs.
+    ds, dr are the reference's first-moment defects of the c-mode influence
+    field relative to the naive int(s) = int(r) = 1/6; Dss, Drr, Drs the
+    second-moment defects (one exactly-snapping gauge). With both corrections
+    every straight wedge of the 70-geometry extraction corpus reproduces the
+    reference K to F06 print precision (~2e-7 relF; previously 5.6e-2 worst).
+    Wedges with a tilted director retain a bounded residual (tilt extension
+    is a documented open refinement; 48-deck widened corpus retained).
 """
 function _cpenta6_nastran_stiffness(coords::AbstractMatrix{Float64}, E::Float64, nu::Float64)
     D = iso_3d_constitutive(E, nu)
@@ -10072,6 +10088,32 @@ function _cpenta6_nastran_stiffness(coords::AbstractMatrix{Float64}, E::Float64,
         To = (Tlev[2] .- Tlev[1]) ./ 2
         dW = scale .* [f11 f12 0.0; f12 f22 0.0; 0.0 0.0 0.0]
         Ke .-= To' * dW * To
+
+        # even-mode c-column rigidity correction (subtracted; reference-recovered
+        # closed form, 2026-08-05 stage 23-26: first-/second-moment defects of the
+        # c-mode influence field, homogeneous in the mid-plane edge lengths).
+        # With this term every straight (vertical or tapered-base-prism) wedge in
+        # the 70-geometry extraction corpus reproduces the reference K to F06
+        # print precision (~2e-7 relF); tilted directors remain a documented
+        # open refinement.
+        La = sqrt(dot(a, a)); Lb = sqrt(dot(b, b)); Lc = norm(b .- a)
+        if La > 1e-30 && Lb > 1e-30 && Lc > 1e-30
+            Pper2 = La + Lb + Lc
+            ue = 3La / Pper2; ve = 3Lb / Pper2
+            ds = (2 - (Lb + Lc) * (La + Lb - Lc) * (La + Lc - Lb) / (La * Lb * Lc)) / 36
+            dr = (2 - (La + Lc) * (La + Lb - Lc) * (Lb + Lc - La) / (La * Lb * Lc)) / 36
+            Dss = (La^2 - Lc^2 + Lb * Lc) / (27 * Lb * Lc)
+            Drr = (Lb^2 - Lc^2 + La * Lc) / (27 * La * Lc)
+            Drs = (2 * (La^3 + Lb^3) - 6 * La * Lb * (La + Lb) - Lc * (La^2 + Lb^2) -
+                   2 * Lc^2 * (La + Lb) - 3 * La * Lb * Lc + Lc^3) / (216 * La * Lb * Lc)
+            f13 = y * ue * ds + zi * ve * dr
+            f23 = -(zi * ue * ds + x * ve * dr)
+            f33 = y * ue^2 * Dss + x * ve^2 * Drr + 2 * zi * ue * ve * Drs
+            se = G / hz
+            Te = (Tlev[1] .+ Tlev[2]) ./ 2
+            dWe = se .* [0.0 0.0 f13; 0.0 0.0 f23; f13 f23 f33]
+            Ke .-= Te' * dWe * Te
+        end
     end
     return 0.5 .* (Ke .+ Ke')
 end

@@ -30,14 +30,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
   reference's `u = 3La/P, v = 3Lb/P` linear-variation coefficients, three
   condensed `(1 - z^2)` incompatible modes (Wilson-Taylor corrected), and a
   closed-form twist-shear rigidity correction
-  `f = (9/4)(...)/(187 + 14Q)` recovered exactly (verified to `5e-5`
-  worst Frobenius error on straight wedges). Single-wedge modal probe
-  errors drop from `+25.3/+34.0/+5.6%` to `+4.3/+0.1/-2.0%`; the worst
-  element-matrix error over the corpus drops from `~0.30` to `0.056`
-  (straight) / `0.16` (extreme 45-degree-sheared synthetic). Two bounded
-  residuals remain documented in the private forensics record: a
-  second-order even-mode term on non-equilateral sections and the
-  director-tilt extension. Legacy quadrature variants remain selectable via
+  `f = (9/4)(...)/(187 + 14Q)` recovered exactly, and a closed-form
+  even-mode c-column correction built from the first- and second-moment
+  defects of the reference's tying influence field (homogeneous rationals
+  in the mid-plane edge lengths; recovered by three independent recognition
+  routes and adversarially cross-verified at the extraction noise floor).
+  With both corrections **every straight (vertical or tapered-base) wedge
+  of the extraction corpus reproduces the reference element stiffness to
+  F06 print precision** (`~2e-7` relative Frobenius, including held-out
+  scalene bases; previously worst `5.6e-2`), and the single-wedge modal
+  probe — `+25.3/+34.0/+5.6%` at the campaign start — now matches the
+  reference frequencies to every printed digit. One bounded residual
+  remains documented in the private forensics record: the director-tilt
+  extension (tilted-director synthetics at `3-16%`, widened 48-deck
+  corpus retained). Legacy quadrature variants remain selectable via
   `JFEM_CPENTA_STIFFNESS_INTEGRATION`.
 
 ### Fixed
