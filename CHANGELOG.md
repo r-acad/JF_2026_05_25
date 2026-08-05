@@ -6,6 +6,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Performance
+- **Certificate-first range augmentation (env-flagged, default OFF).** With
+  `JFEM_SOL105_CERT_FIRST_AUGMENTATION=true`, the SOL 105 buckling path asks
+  the Sturm inertia certificate whether the zero-shift extraction already
+  recovered every root up to the ND-th reported one BEFORE paying the
+  V2-targeted shifted eigensolve, and skips the augmentation when the
+  certificate says complete. The skip is provably output-invariant under
+  the EIGRL-ND output cap: with >= ND positive in-range roots recovered and
+  an exact inertia match over (V1+, lambda_ND*(1+1e-6)], augmentation could
+  only add duplicates below the cap or roots above it. Guards restrict the
+  skip to ND-limited positive-branch output; the recovered_from_empty
+  rescue class (zero-shift finds nothing in range) is untouched. The Sturm
+  cache is now shared between this gate and the completeness augmentation,
+  so the completeness pass re-certifies for free after a skip. Gate record
+  (6-deck battery, one deck per augmentation outcome class + both
+  HTP_launch pair-order decks): flag-OFF outputs semantically identical to
+  the pre-change state 6/6; flag-ON spectra and mode shapes bit-identical
+  to flag-OFF on 12/12 subcases while skipping the augmentation eigensolve
+  on 10 of 12; augmentation+completeness wall -42% on the battery. Default
+  stays OFF until the promotion protocol (two consecutive clean full-fabric
+  runs + public suite) completes.
 - **Threaded Kg assembly is deterministic at any thread count.** The shell
   geometric-stiffness loop now writes each element's triplets into fixed
   positional slots and compacts them in element order, replacing per-thread

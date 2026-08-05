@@ -2828,6 +2828,73 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         valid_idx = range_idx
         diagnostics["bounded_signed_magnitude_output"] = bounded_signed_magnitude_output
 
+        # Sturm counts, shared by the certificate-first augmentation gate
+        # below and the completeness augmentation: each count is a full
+        # sparse LDL' of K + sigma*Kg — the dominant eigen-phase cost at
+        # production sizes — and the symbolic analysis is additionally
+        # shared across sigmas via sturm_reuse (the pattern is
+        # sigma-independent). Cached, so whichever consumer runs first pays;
+        # every later consumer at the same sigma is free.
+        sturm_reuse = Base.RefValue{Any}(nothing)
+        sturm_cache = Dict{Float64,Union{Int,Nothing}}()
+        sturm_at(sig::Float64) = get!(sturm_cache, sig) do
+            _buckling_sturm_count(K_ff, Kg_ff, sig; reuse=sturm_reuse)
+        end
+
+        # Sturm gap over the reported positive range, evaluated against the
+        # CURRENT eigenvalues/valid_idx state at call time (pre- or
+        # post-augmentation). Returns nothing when no certificate can be
+        # formed (no positive roots, inertia unavailable).
+        function current_range_sturm_gap()
+            a_bound = max(eigrl_v1, positive_tol)
+            pos_vals = sort!([eigenvalues[i] for i in valid_idx if eigenvalues[i] > positive_tol])
+            isempty(pos_vals) && return nothing
+            # ---------------------------------------------------------------
+            # Completeness is only meaningful UP TO THE HIGHEST ROOT WE REPORT.
+            #
+            # The iterative extraction requests ~8x ND modes but the output is capped at
+            # ND (see the EIGRL-ND cap below). Bounding this check by the highest
+            # RECOVERED root therefore demands completeness over (v1, lambda_32] while
+            # only (v1, lambda_4] is ever emitted: any root the Krylov solve did not
+            # converge to between lambda_ND and lambda_max leaves a PERMANENT positive
+            # gap, so the loop re-shifts to its budget on every narrow-EIGRL deck and
+            # cannot ever close. Measured cost of that: 2917 s of a 2928 s solve
+            # (99.6 %), for eigenvalues identical to the loop-disabled run.
+            #
+            # Bounding by the ND-th root instead gives the standard, SATISFIABLE
+            # certificate -- "no eigenvalue was missed below the last root reported" --
+            # which is exactly the guarantee that matters and terminates.
+            cap_to_reported = solver_env_bool("JFEM_SOL105_COMPLETENESS_TO_REPORTED", true)
+            n_report = cap_to_reported ? min(max(num_modes, 1), length(pos_vals)) : length(pos_vals)
+            b_bound = pos_vals[n_report] * (1.0 + 1e-6)
+            b_bound > a_bound || return nothing
+            sc_b = sturm_at(b_bound)
+            # Lower-bound short-circuit: with no positive V1 the lower
+            # bound sits at +tol, and a PD-certified K_ff (its Cholesky
+            # succeeded) has inertia 0 there by construction — skip a
+            # full LDL' factorization for a count that cannot be nonzero.
+            sc_a = if a_bound <= positive_tol && eigrl_v1 <= 0.0 &&
+                      eigen_ctx.factor_backend == "cholesky"
+                0
+            else
+                sturm_at(a_bound)
+            end
+            (sc_a === nothing || sc_b === nothing) && return nothing
+            expected = max(sc_b - sc_a, 0)
+            found = count(i -> begin
+                    v = eigenvalues[i]
+                    v > positive_tol && v >= a_bound - eps(Float64) && v <= b_bound + eps(Float64)
+                end, valid_idx)
+            return Dict{String,Any}(
+                "interval" => [a_bound, b_bound],
+                "sturm_eigs_in_interval" => expected,
+                "recovered_in_interval" => found,
+                "gap" => expected - found,
+                "sturm_lower" => sc_a,
+                "sturm_upper" => sc_b,
+            )
+        end
+
         # Zero-shift inverse iteration naturally favors the smallest-|lambda| roots.
         # When a buckling range upper bound is present, augment the in-range spectrum
         # with a targeted shift-invert search near V2 so upper-branch modes are not
@@ -2862,11 +2929,45 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             spans_below_V1 = any(v -> real(v) < eigrl_v1, eigenvalues)
             sufficient_in_range = length(range_idx) >= num_modes_request
             auto_skip_aug = spans_above_V2 && spans_below_V1 && sufficient_in_range
-            do_augmentation = range_aug_requested && !(env_skip_aug || auto_skip_aug)
+
+            # Certificate-first gate (perf program Phase 3.1, env-flagged,
+            # default OFF until the promotion protocol lands): before paying
+            # the V2-targeted shifted eigsolve, ask the Sturm certificate
+            # whether the zero-shift pass already recovered every root up to
+            # the ND-th reported one. When >= ND positive in-range roots
+            # exist AND the inertia count over (a, lambda_ND*(1+1e-6)]
+            # equals the recovered count, the ND-capped output is provably
+            # invariant to skipping the augmentation: it could only add
+            # duplicates below the cap (excluded by gap==0) or roots above
+            # it (removed by the cap). Guards: ND-limited output only
+            # (RETURN_ALL_IN_RANGE inspects the full range) and
+            # positive-branch output only (the certificate counts positive
+            # roots, so signed-magnitude decks keep today's behavior). The
+            # recovered_from_empty rescue class fails the >=ND guard and is
+            # untouched. The counts stay cached (sturm_cache above), so the
+            # completeness section below re-certifies for free.
+            cert_first = solver_env_bool("JFEM_SOL105_CERT_FIRST_AUGMENTATION", false)
+            cert_skip_aug = false
+            cert_gap_info = nothing
+            cert_wall = 0.0
+            if cert_first && range_aug_requested && !env_skip_aug && !auto_skip_aug &&
+               nd_limited_range_output && !bounded_signed_magnitude_output
+                t_cert = time_ns()
+                n_pos_in_range = count(i -> eigenvalues[i] > positive_tol, valid_idx)
+                if n_pos_in_range >= num_modes
+                    cert_gap_info = current_range_sturm_gap()
+                    cert_skip_aug = cert_gap_info !== nothing &&
+                                    Int(get(cert_gap_info, "gap", 1)) <= 0
+                end
+                cert_wall = (time_ns() - t_cert) * 1e-9
+            end
+            do_augmentation = range_aug_requested &&
+                              !(env_skip_aug || auto_skip_aug || cert_skip_aug)
 
             if !do_augmentation
                 reason = !range_aug_requested ? "not_requested" :
-                         (env_skip_aug ? "env_override" : "auto_brackets")
+                         (env_skip_aug ? "env_override" :
+                          (auto_skip_aug ? "auto_brackets" : "certificate_complete"))
                 log_msg("[BUCKLING] Skipping range-targeted shift-invert ($reason, $(length(range_idx)) in-range modes already)")
                 diagnostics["range_augmentation"] = Dict{String,Any}(
                     "status" => "skipped",
@@ -2874,7 +2975,9 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     "requested" => range_aug_requested,
                     "in_range_modes_from_strategy2" => length(range_idx),
                 )
-                buckling_timings["range_augmentation"] = 0.0
+                cert_gap_info !== nothing &&
+                    (diagnostics["range_augmentation"]["certificate"] = cert_gap_info)
+                buckling_timings["range_augmentation"] = cert_wall
             else
                 t_aug_start = time_ns()
                 aug_added = 0
@@ -2960,22 +3063,20 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     "shifts" => aug_details,
                     "wall_seconds" => (time_ns() - t_aug_start) * 1e-9,
                 )
+                # When the certificate-first gate ran but could not certify
+                # (gap > 0 or < ND recovered), record what it saw — the flag-ON
+                # rescue path is the one place augmentation still pays.
+                cert_gap_info !== nothing &&
+                    (diagnostics["range_augmentation"]["pre_certificate"] = cert_gap_info)
                 buckling_timings["range_augmentation"] =
                     diagnostics["range_augmentation"]["wall_seconds"]
             end
         end
 
-        # Cache Sturm counts for the completeness certificate below: each
-        # count is a full sparse LDL' of K + sigma*Kg — the dominant
-        # eigen-phase cost at production sizes — and the symbolic analysis is
-        # additionally shared across sigmas via sturm_reuse (the pattern is
-        # sigma-independent). The informational diagnostic further down is in
-        # a sibling scope and carries its own local reuse Ref.
-        sturm_reuse = Base.RefValue{Any}(nothing)
-        sturm_cache = Dict{Float64,Union{Int,Nothing}}()
-        sturm_at(sig::Float64) = get!(sturm_cache, sig) do
-            _buckling_sturm_count(K_ff, Kg_ff, sig; reuse=sturm_reuse)
-        end
+        # (The Sturm cache and current_range_sturm_gap are defined above the
+        # range augmentation so the certificate-first gate shares them; the
+        # informational diagnostic further down is in a sibling scope and
+        # carries its own local reuse Ref.)
 
         # If the iterative extraction is still missing roots below the highest
         # root it recovered, use the Sturm count as an honest completeness
@@ -2985,56 +3086,6 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         if !will_use_dense &&
            solver_env_bool("JFEM_SOL105_RANGE_COMPLETENESS_AUGMENT", true) &&
            !isempty(valid_idx)
-
-            function current_range_sturm_gap()
-                a_bound = max(eigrl_v1, positive_tol)
-                pos_vals = sort!([eigenvalues[i] for i in valid_idx if eigenvalues[i] > positive_tol])
-                isempty(pos_vals) && return nothing
-                # ---------------------------------------------------------------
-                # Completeness is only meaningful UP TO THE HIGHEST ROOT WE REPORT.
-                #
-                # The iterative extraction requests ~8x ND modes but the output is capped at
-                # ND (see the EIGRL-ND cap below). Bounding this check by the highest
-                # RECOVERED root therefore demands completeness over (v1, lambda_32] while
-                # only (v1, lambda_4] is ever emitted: any root the Krylov solve did not
-                # converge to between lambda_ND and lambda_max leaves a PERMANENT positive
-                # gap, so the loop re-shifts to its budget on every narrow-EIGRL deck and
-                # cannot ever close. Measured cost of that: 2917 s of a 2928 s solve
-                # (99.6 %), for eigenvalues identical to the loop-disabled run.
-                #
-                # Bounding by the ND-th root instead gives the standard, SATISFIABLE
-                # certificate -- "no eigenvalue was missed below the last root reported" --
-                # which is exactly the guarantee that matters and terminates.
-                cap_to_reported = solver_env_bool("JFEM_SOL105_COMPLETENESS_TO_REPORTED", true)
-                n_report = cap_to_reported ? min(max(num_modes, 1), length(pos_vals)) : length(pos_vals)
-                b_bound = pos_vals[n_report] * (1.0 + 1e-6)
-                b_bound > a_bound || return nothing
-                sc_b = sturm_at(b_bound)
-                # Lower-bound short-circuit: with no positive V1 the lower
-                # bound sits at +tol, and a PD-certified K_ff (its Cholesky
-                # succeeded) has inertia 0 there by construction — skip a
-                # full LDL' factorization for a count that cannot be nonzero.
-                sc_a = if a_bound <= positive_tol && eigrl_v1 <= 0.0 &&
-                          eigen_ctx.factor_backend == "cholesky"
-                    0
-                else
-                    sturm_at(a_bound)
-                end
-                (sc_a === nothing || sc_b === nothing) && return nothing
-                expected = max(sc_b - sc_a, 0)
-                found = count(i -> begin
-                        v = eigenvalues[i]
-                        v > positive_tol && v >= a_bound - eps(Float64) && v <= b_bound + eps(Float64)
-                    end, valid_idx)
-                return Dict{String,Any}(
-                    "interval" => [a_bound, b_bound],
-                    "sturm_eigs_in_interval" => expected,
-                    "recovered_in_interval" => found,
-                    "gap" => expected - found,
-                    "sturm_lower" => sc_a,
-                    "sturm_upper" => sc_b,
-                )
-            end
 
             function range_completeness_sigmas(a_bound::Float64, b_bound::Float64, n_sigmas::Int)
                 sigmas = Float64[b_bound]
