@@ -22,6 +22,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
   resolve to the MITC3 default; `dkt` applies uniformly to coupled sections.
 
 ### Fixed
+- **Bar-family lumped mass now follows the reference solver's element-specific
+  conventions.** The CBAR/CROD lumped mass is translational only — the former
+  rotary/torsional inertia entries produced a spurious CBAR torsion mode at
+  `5.84e6` below the axial pair, where the reference spectrum has none — while
+  the CBEAM lumped mass keeps torsional inertia `rho*J*L/2`, whose torsion
+  root the CBEAM reference does print (`5.836e6`, now matched to `0.086%`).
+  Each element's own retained reference spectrum proves its convention. CBAR
+  modal parity is now exact on all six probe modes.
+- **Massless-but-stiff DOFs are retained for the modal solve instead of being
+  constrained when they are rotation component 6.** The removed clause was a
+  shell-drilling-era heuristic that SPC'd every massless r3; on a bar along x
+  it locked the t2 bending plane outright (probe modes `29159/169952` where
+  the reference has the `2582.69/68528.4` pair, mode shapes carrying zero r3).
+  True mechanisms (massless AND stiffness-free) are still removed; everything
+  else is condensed exactly by the shift-invert path, as in the reference.
+  With this and the lumped-mass corrections, every SOL 103 single-element
+  probe except CPENTA now matches the reference across its full spectrum
+  (CQUAD4/CTRIA3 worst `2e-4%`, CROD/CBAR/CTETRA `0.0%`, CBEAM `0.32%`).
 - **`PLOAD2`/`PLOAD4` `THRU` element ranges were silently collapsed.** The
   literal `THRU` parsed as an invalid id and was skipped, so
   `PLOAD2 SID P 1 THRU 32` loaded only elements 1 and 32, and PLOAD4's range

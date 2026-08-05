@@ -3769,7 +3769,10 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
 
         # Effective density including NSM
         rho_beam = A_beam > 1e-30 ? rho + nsm_beam / A_beam : rho
-        Me_loc = FEM.nastran_lumped_mass_frame3d(L, rho_beam, A_beam, J, Iy, Iz)
+        # CBEAM lumped mass includes torsional inertia, unlike CBAR -- the
+        # two elements' reference spectra prove their respective conventions.
+        Me_loc = FEM.nastran_lumped_mass_frame3d(L, rho_beam, A_beam, J, Iy, Iz;
+                                                 torsion_inertia=true)
 
         # Transformation
         e1 = (p2 - p1) / L
@@ -4086,10 +4089,16 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
     stiff_scale = isempty(stiff_diag) ? 0.0 : maximum(stiff_diag)
     stiff_tol = max(stiff_scale * 1.0e-12, 1.0e-20)
     massless_idx = findall(<=(mass_tol), mass_diag)
-    drop_mass_idx = [
-        i for i in massless_idx
-        if stiff_diag[i] <= stiff_tol || ((free_dofs[i] - 1) % 6 + 1) == 6
-    ]
+    # 2026-08-05: drop ONLY massless coordinates that are also stiffness-free
+    # (true mechanisms). The former unconditional `component == 6` clause was
+    # a shell-drilling-era heuristic that SPC'd every massless r3; on a bar
+    # along x, r3 is a genuine bending rotation with real stiffness, and
+    # constraining it locked the t2 bending plane (CBAR modal probe modes
+    # 29159/169952 instead of the reference's 2582.69/68528.4 pair). The
+    # reference retains massless-but-stiff coordinates; so does the
+    # shift-invert path below, which condenses them exactly. Shell drilling
+    # at K6ROT=0 is already caught by the zero-stiffness clause or AUTOSPC.
+    drop_mass_idx = [i for i in massless_idx if stiff_diag[i] <= stiff_tol]
     keep_mass_idx = isempty(drop_mass_idx) ? collect(1:n_free) : setdiff(collect(1:n_free), drop_mass_idx)
     mass_filter_removed = length(drop_mass_idx)
     if mass_filter_removed > 0

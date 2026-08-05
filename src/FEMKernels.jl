@@ -9472,23 +9472,27 @@ lumped to the corresponding local rotational DOFs when section inertias are
 available.
 """
 function nastran_lumped_mass_frame3d(L::Float64, rho::Float64, A::Float64,
-                                     J::Float64, Iy::Float64, Iz::Float64)
+                                     J::Float64, Iy::Float64, Iz::Float64;
+                                     torsion_inertia::Bool=false)
     Me = zeros(12, 12)
     if L < 1e-12 || rho < 1e-30 || A < 1e-30; return Me; end
 
     m_node = rho * A * L / 2.0
+    # 2026-08-05: the reference solver's lumped conventions are element
+    # specific, and each element's own retained reference spectrum proves its
+    # convention: the CBAR lumped mass is TRANSLATIONAL ONLY (its reference
+    # has no finite torsion mode -- the former rho*J/Iy/Iz entries here
+    # produced a spurious torsion root at 5.84e6 below the axial pair), while
+    # the CBEAM lumped mass ADDS torsional inertia rho*J*L/2 (its reference
+    # prints exactly that torsion mode at 5.836e6). Bending rotary inertia
+    # (Iy/Iz) is carried by neither. `torsion_inertia=true` selects the CBEAM
+    # convention.
     @inbounds for base in (0, 6)
         Me[base + 1, base + 1] = m_node
         Me[base + 2, base + 2] = m_node
         Me[base + 3, base + 3] = m_node
-        if J > 0.0
+        if torsion_inertia && J > 0.0
             Me[base + 4, base + 4] = rho * J * L / 2.0
-        end
-        if Iy > 0.0
-            Me[base + 5, base + 5] = rho * Iy * L / 2.0
-        end
-        if Iz > 0.0
-            Me[base + 6, base + 6] = rho * Iz * L / 2.0
         end
     end
     return Me
@@ -9504,13 +9508,12 @@ function nastran_lumped_mass_rod(L::Float64, rho::Float64, A::Float64, J::Float6
     if L < 1e-12 || rho < 1e-30 || A < 1e-30; return Me; end
 
     m_node = rho * A * L / 2.0
+    # 2026-08-05: translational only, matching the reference's lumped rod
+    # mass (see nastran_lumped_mass_frame3d).
     @inbounds for base in (0, 6)
         Me[base + 1, base + 1] = m_node
         Me[base + 2, base + 2] = m_node
         Me[base + 3, base + 3] = m_node
-        if J > 0.0
-            Me[base + 4, base + 4] = rho * J * L / 2.0
-        end
     end
     return Me
 end
