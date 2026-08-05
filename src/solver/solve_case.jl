@@ -2224,6 +2224,16 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     nd_limited_range_output = has_range && !return_all_range
     dense_max_dof = _buckling_dense_max_dof()
     will_use_dense = n_free <= dense_max_dof
+
+    # Positivity floor and effective range bounds, shared by the adaptive-nev
+    # ladder test, the range filter, and the certificate machinery below.
+    # V1 is clamped to >+tol so a negative V1 (commonly -1e-4 in MSC decks)
+    # does not re-admit non-positive roots after the positivity filter.
+    positive_tol = 1e-10
+    v1_eff = has_range ? max(eigrl_v1, positive_tol) : 0.0
+    range_abs_tol = max(solver_env_float("JFEM_SOL105_RANGE_ABS_TOL", 0.0), 0.0)
+    range_rel_tol = max(solver_env_float("JFEM_SOL105_RANGE_REL_TOL", 0.0), 0.0)
+    v2_eff = has_range ? eigrl_v2 + max(range_abs_tol, abs(eigrl_v2) * range_rel_tol) : 0.0
     range_mode_factor_default = 8.0
     range_mode_factor = max(solver_env_float("JFEM_SOL105_RANGE_MODE_FACTOR", range_mode_factor_default), 1.0)
     num_modes_request = has_range ? ceil(Int, num_modes * range_mode_factor) :
@@ -2554,18 +2564,99 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             # shell structures often have nearly-degenerate pairs (symmetric/
             # antisymmetric about a plane of near-symmetry); tight tol + eager=false
             # ensures consistent ordering of those pairs across formulation changes.
-            nev_request = min(num_modes_request + 5, n_free - 1)
-            kd = _buckling_krylovdim(nev_request, n_free)
+            nev_full = min(num_modes_request + 5, n_free - 1)
             krylov_tol = _buckling_krylovtol()
             krylov_maxiter = _buckling_krylovmaxiter()
+
+            # Adaptive nev (perf program Phase 3.2, env-flagged): range decks
+            # inflate the request to ~8x ND although the output is capped at
+            # ND — most of that Krylov space is provably discarded work. The
+            # escalation ladder starts near ND + buffer and stops as soon as
+            # the CONVERGED spectrum either holds >= ND positive in-range
+            # roots or contains a positive root strictly ABOVE the range:
+            # zero-shift inverse iteration enumerates by |lambda|, so a
+            # converged positive root beyond V2 proves every positive root
+            # below it was recovered. A rung that converges fewer than its
+            # request escalates unconditionally (unconverged trailing Ritz
+            # values invert to huge fake "bracketing" roots). Guards: only
+            # ND-limited output (RETURN_ALL_IN_RANGE inspects the full
+            # range), and only while the Sturm safety net — the
+            # certificate-first gate or the completeness augmentation — is
+            # env-armed to catch the converged-subset caveat; otherwise the
+            # ladder collapses to the full request. One start vector serves
+            # every rung, so ordinal consumption matches the flag-OFF run
+            # exactly and an escalated final rung IS today's solve.
+            # NOTE bounded_signed_magnitude_output is constant false since
+            # the 2026-07-27 signed-magnitude strip and is defined AFTER
+            # this block; the ladder's positive-only count is sound only
+            # while that remains true — hoist it into the guard if the
+            # signed-magnitude selector is ever reintroduced.
+            adaptive_nev = has_range && nd_limited_range_output && !will_use_dense &&
+                           solver_env_bool("JFEM_SOL105_ADAPTIVE_NEV", false) &&
+                           (solver_env_bool("JFEM_SOL105_CERT_FIRST_AUGMENTATION", true) ||
+                            solver_env_bool("JFEM_SOL105_RANGE_COMPLETENESS_AUGMENT", true))
+            nev_ladder = if adaptive_nev
+                nev_buf = max(solver_env_int("JFEM_SOL105_ADAPTIVE_NEV_BUFFER",
+                                             max(num_modes, 8)), 1)
+                sort(unique([min(num_modes + nev_buf, nev_full),
+                             min(4 * num_modes + 5, nev_full),
+                             nev_full]))
+            else
+                [nev_full]
+            end
 
             # K⁻¹*B operator: find largest magnitude eigenvalues θ = 1/λ
             # tol tightened from 1e-10 → 1e-13 (2026-04-21): HTP_launch has mode-1/2
             # pairs separated by <0.1%; loose convergence lets order wobble between
             # solver runs and between formulation changes, masking as a "bug".
-            vals_kk, vecs_kk, info = eigsolve(
-                x -> K_factor \ (B * x), next_start_vector(), nev_request, :LM;
-                krylovdim=kd, maxiter=krylov_maxiter, tol=krylov_tol, eager=true)
+            local vals_kk, vecs_kk, info
+            nev_request = nev_ladder[end]
+            kd = _buckling_krylovdim(nev_request, n_free)
+            adaptive_attempts = Any[]
+            ladder_start_vec = next_start_vector()
+            for (rung_i, nev_try) in enumerate(nev_ladder)
+                nev_request = nev_try
+                kd = _buckling_krylovdim(nev_request, n_free)
+                vals_kk, vecs_kk, info = eigsolve(
+                    x -> K_factor \ (B * x), ladder_start_vec, nev_request, :LM;
+                    krylovdim=kd, maxiter=krylov_maxiter, tol=krylov_tol, eager=true)
+                if rung_i == length(nev_ladder)
+                    adaptive_nev && push!(adaptive_attempts, Dict{String,Any}(
+                        "nev" => nev_try, "kd" => kd,
+                        "converged" => info.converged, "pos_in_range" => -1,
+                        "brackets_above_v2" => false, "decision" => "final"))
+                    break
+                end
+                pos_in_range = 0
+                brackets = false
+                if info.converged >= nev_try
+                    for theta in vals_kk[1:min(info.converged, length(vals_kk))]
+                        theta_r = real(theta)
+                        (abs(imag(theta)) > 1e-6 * max(abs(theta_r), 1e-20) ||
+                         abs(theta_r) < 1e-14) && continue
+                        lam = 1.0 / theta_r
+                        # mirror the θ→λ conversion floor exactly, so the
+                        # ladder never counts a root the output would drop
+                        (lam > positive_tol && abs(lam) > 1e-6) || continue
+                        # hysteresis: clear V2 by 1e-6 rel to count as
+                        # bracketing (decision-boundary robustness)
+                        lam > v2_eff + max(1e-6 * abs(v2_eff), 1e-12) && (brackets = true)
+                        v1_eff <= lam <= v2_eff && (pos_in_range += 1)
+                    end
+                end
+                sufficient = pos_in_range >= num_modes || brackets
+                push!(adaptive_attempts, Dict{String,Any}(
+                    "nev" => nev_try, "kd" => kd, "converged" => info.converged,
+                    "pos_in_range" => pos_in_range, "brackets_above_v2" => brackets,
+                    "decision" => sufficient ? "sufficient" : "escalated"))
+                if sufficient
+                    log_msg("[BUCKLING] adaptive nev: rung $rung_i (nev=$nev_try, converged=$(info.converged)) sufficient ($pos_in_range in-range, brackets=$brackets)")
+                    break
+                end
+                log_msg("[BUCKLING] adaptive nev: rung $rung_i (nev=$nev_try, converged=$(info.converged)) insufficient ($pos_in_range in-range) — escalating")
+            end
+            isempty(adaptive_attempts) ||
+                (diagnostics["adaptive_nev"] = adaptive_attempts)
 
             log_msg("[BUCKLING] KrylovKit returned $(length(vals_kk)) eigenvalues (converged=$(info.converged))")
 
@@ -2737,7 +2828,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     n_found = length(eigenvalues)
     log_msg("[BUCKLING] Found $n_found eigenvalues (raw, pre-filter)")
 
-    positive_tol = 1e-10
+    # (positive_tol is defined once, up with the range bounds.)
     raw_eigen_csv_path = strip(get(ENV, "JFEM_BUCKLING_RAW_EIGEN_CSV", ""))
     if !isempty(raw_eigen_csv_path)
         _write_buckling_raw_eigen_csv(eigenvalues, raw_eigen_csv_path;
@@ -2808,14 +2899,9 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         end
     end
 
-    # Apply EIGRL V1/V2 range filter if specified. V1 is clamped to >+tol so a
-    # negative V1 (commonly -1e-4 in MSC decks) does not re-admit non-positive
-    # roots after the positivity filter above.
+    # Apply EIGRL V1/V2 range filter if specified (v1_eff/v2_eff are the
+    # hoisted effective bounds shared with the adaptive-nev ladder).
     if has_range
-        v1_eff = max(eigrl_v1, positive_tol)
-        range_abs_tol = max(solver_env_float("JFEM_SOL105_RANGE_ABS_TOL", 0.0), 0.0)
-        range_rel_tol = max(solver_env_float("JFEM_SOL105_RANGE_REL_TOL", 0.0), 0.0)
-        v2_eff = eigrl_v2 + max(range_abs_tol, abs(eigrl_v2) * range_rel_tol)
         range_idx = bounded_signed_magnitude_output ?
             filter(i -> abs(eigenvalues[i]) >= v1_eff && abs(eigenvalues[i]) <= v2_eff, valid_idx) :
             filter(i -> eigenvalues[i] >= v1_eff && eigenvalues[i] <= v2_eff, valid_idx)

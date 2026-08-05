@@ -6,6 +6,22 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Performance
+- **Adaptive eigensolve request on EIGRL-range decks (env-flagged, default
+  OFF).** With `JFEM_SOL105_ADAPTIVE_NEV=true`, the SOL 105 zero-shift
+  buckling eigensolve no longer always requests ~8x ND modes: an
+  escalation ladder starts near ND + buffer (`JFEM_SOL105_ADAPTIVE_NEV_BUFFER`,
+  default max(ND, 8)) and stops as soon as the CONVERGED spectrum holds
+  >= ND positive in-range roots or a converged positive root strictly
+  above V2 (zero-shift inverse iteration enumerates by |lambda|, so a
+  bracketing root proves every positive root below it was recovered). A
+  rung that converges fewer than its request escalates unconditionally;
+  the final rung reuses the same start vector and equals today's request
+  exactly. Guarded to ND-limited output and to env states where the Sturm
+  safety net (certificate-first gate or completeness augmentation) is
+  armed; otherwise inert. Gate record: flag-OFF outputs semantically
+  identical to the promoted certificate-first state; flag-ON retained
+  spectra within 2.6e-14 relative (subspaces within 5.2e-12) of flag-OFF
+  on the 6-deck battery, rescue decks unchanged.
 - **Certificate-first range augmentation promoted to DEFAULT ON.** Full
   promotion protocol recorded: two consecutive clean 42-deck fabric runs
   flag-ON (spectra and mode shapes bit-identical to flag-OFF on all 83
