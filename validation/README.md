@@ -109,7 +109,7 @@ redistribution rights are unclear.
 ## Accuracy And Parity Are Scored Separately
 
 Each quantity in `public_suite.yaml` carries a `reference` (published or
-closed-form target) and, on 15 of the 17 rows, an optional `parity` block
+closed-form target) and, on 17 of the 19 rows, an optional `parity` block
 holding a tabulated reference-solver value for **this folder's own deck,
 unmodified**.
 
@@ -188,12 +188,21 @@ were always explicit and their reference values were produced at that setting.
 
 ## Current Paper Status
 
-The maintained public-suite snapshot contains 17 scalar validation rows: 15
-accuracy PASS / 2 FAIL, and **15 parity PASS / 0 parity FAIL** across the 15
-rows that carry a parity target. Every one of the ten cases now carries at
-least one same-deck parity measurement. Worst same-deck parity error on any row is
-`2.82e-4` (CRM mode 4) and `6.19e-5` across the MacNeal-Harder family, against
-parity tolerances of `1e-3` (`5e-3` for the CRM modal rows).
+The maintained public-suite snapshot contains **19 scalar validation rows
+across 13 cases: 17 accuracy PASS / 2 FAIL, and 17 parity PASS / 0 parity
+FAIL** across the 17 rows that carry a parity target. Every case carries at
+least one same-deck parity measurement. Worst same-deck parity error on any
+row is `3.59e-5` (curved beam, refined mesh), with the CRM modal rows at
+`1.36e-5`, against parity tolerances of `1e-3` (`5e-3` for the CRM modal
+rows).
+
+Since 2026-08-06 the suite is also **run-to-run reproducible**: two
+independent runs produce identical values and identical error columns. The
+modal solver previously seeded its Krylov space with a random start vector,
+which made the CRM SOL 103 rows differ between runs at the `1e-11` level and
+forced comparisons to be judged on verdicts rather than numbers; it now uses
+a deterministic start vector with a Sturm completeness guard. Suite
+comparisons can therefore be gated on exact values.
 
 The two remaining accuracy failures — the curved beam (16.7%) and the pinched
 cylinder (47.6%) — are properties of the deliberately coarse standard benchmark

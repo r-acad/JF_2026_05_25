@@ -88,7 +88,7 @@ payload. The status of the current maintained revision is:
 | Accuracy PASS / FAIL | 17 / 2 |
 | Rows carrying a parity target | 17 |
 | Parity PASS / FAIL | **17 / 0** |
-| Cases with at least one parity row | **12 / 12** |
+| Cases with at least one parity row | **13 / 13** |
 | SOL 101 rows | 9 |
 | SOL 103 rows | 5 |
 | SOL 105 rows | 5 |
@@ -97,11 +97,10 @@ Per-family maxima, both measurements side by side:
 
 | Family | Max accuracy error | Accuracy tol | Max parity error | Parity tol |
 | --- | ---: | ---: | ---: | ---: |
-| MacNeal-Harder (benchmark meshes) | 47.6% | 2-10% by case | 0.0000062% | 0.1% |
-| MacNeal-Harder (refined companions) | 0.64% | 2% | 0.0036% | 0.1% |
+| MacNeal-Harder (benchmark + refined) | 47.6% | 2-10% by case | 0.0036% | 0.1% |
 | Classical buckling | 3.56% | 3-15% by case | 0.00039% (STATSUB preload) | 0.1% |
-| MYSTRAN cross-check | 0.0000102% | 2-5% by case | 0.0000102% | 0.1% |
-| CRM/uCRM modal | 0.0282% | 5% | 0.0282% | 0.5% |
+| MYSTRAN cross-check | 0.0000362% | 2-5% by case | 0.0000362% | 0.1% |
+| CRM/uCRM modal | 0.0014% | 5% | 0.0014% | 0.5% |
 
 The MYSTRAN and CRM families show identical accuracy and parity figures because
 their published reference values *are* reference-solver values; those rows were
