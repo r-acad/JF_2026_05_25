@@ -243,6 +243,96 @@ end
     return nothing
 end
 
+# De-boxed CQUAD4 transform/triplet tail (function barrier, 2026-08-06).
+# At the caller, Ke_t is union-typed across the 8-way kernel branch table,
+# which made every load in these @fastmath loops box (~826 MB + ~200 MB of
+# allocation per 6220-element assembly). The caller concretizes Ke_t to
+# Matrix{Float64} exactly once and this barrier transcribes the tail
+# verbatim — identical arithmetic, loop order, branch logic, and sparsity
+# guards; only the binding types change. The sep_* scratch matrices are
+# per-thread buffers and MUST arrive here already tid-resolved.
+function _quad4_transform_emit!(
+    out_t::Matrix{Float64}, T_t::Matrix{Float64}, tmp_t::Matrix{Float64},
+    dofs::Vector{Int},
+    Ke_t::Matrix{Float64}, ke_t_global_ready::Bool,
+    ei::Int, i1::Int, i2::Int, i3::Int, i4::Int,
+    v1::SVector{3,Float64}, v2::SVector{3,Float64}, v3::SVector{3,Float64},
+    snorm_transform_only::Bool, snorm_xf_ok::Bool,
+    snorm_xf_v3::SVector{3,Float64},
+    elem_flat_curved_iso_nodal_geomnormal_transform::Bool,
+    elem_static_pcomp_nodal_geomnormal_transform::Bool,
+    geom_vec::Vector{SVector{3,Float64}},
+    node_R_flat::Array{Float64,3},
+    snorm_director::Bool, snorm_has::BitVector,
+    snorm_vec::Vector{SVector{3,Float64}},
+    all_I::Vector{Int}, all_J::Vector{Int}, all_V::Vector{Float64},
+)
+    fill!(out_t, 0.0)
+    if ke_t_global_ready
+        @inbounds @fastmath for jj in 1:24, ii in 1:24
+            out_t[ii, jj] = Ke_t[ii, jj]
+        end
+    else
+        fill!(T_t, 0.0)
+        @inbounds @fastmath for k in 1:4
+            idx = k == 1 ? i1 : k == 2 ? i2 : k == 3 ? i3 : i4
+            base = (k-1)*6
+                vk1, vk2, vk3 =
+                (snorm_transform_only && snorm_xf_ok) ?
+                shell_project_frame_to_normal(v1, v2, v3, snorm_xf_v3) :
+                (elem_flat_curved_iso_nodal_geomnormal_transform ||
+                 elem_static_pcomp_nodal_geomnormal_transform) ?
+                shell_project_frame_to_normal(v1, v2, v3, geom_vec[idx]) :
+                (v1, v2, v3)
+            Rel_t = @SMatrix [vk1[1] vk1[2] vk1[3]; vk2[1] vk2[2] vk2[3]; vk3[1] vk3[2] vk3[3]]
+            for rr in 1:3, cc in 1:3
+                val = Rel_t[rr,1]*node_R_flat[1,cc,idx] + Rel_t[rr,2]*node_R_flat[2,cc,idx] + Rel_t[rr,3]*node_R_flat[3,cc,idx]
+                T_t[base+rr, base+cc] = val
+                T_t[base+3+rr, base+3+cc] = val
+            end
+            if snorm_director && snorm_has[idx]
+                # rotational block only: reference this node's rotations to its grid normal.
+                # Built from the element's OWN geometric frame (v1,v2,v3) — the frame Ke_t was
+                # formed in — not the per-node projected vk frame.
+                TR = @SMatrix [T_t[base+4,base+4] T_t[base+4,base+5] T_t[base+4,base+6];
+                               T_t[base+5,base+4] T_t[base+5,base+5] T_t[base+5,base+6];
+                               T_t[base+6,base+4] T_t[base+6,base+5] T_t[base+6,base+6]]
+                TRs = snorm_director_matrix(snorm_vec[idx], v1, v2, v3) * TR
+                for rr in 1:3, cc in 1:3
+                    T_t[base+3+rr, base+3+cc] = TRs[rr,cc]
+                end
+            end
+        end
+        fill!(tmp_t, 0.0)
+        @inbounds @fastmath for jj in 1:24, ll in 1:24
+            val = T_t[ll, jj]
+            if val != 0.0
+                for ii in 1:24; tmp_t[ii, jj] += Ke_t[ii, ll] * val; end
+            end
+        end
+        @inbounds @fastmath for jj in 1:24, ll in 1:24
+            val = tmp_t[ll, jj]
+            if val != 0.0
+                for ii in 1:24; out_t[ii, jj] += T_t[ll, ii] * val; end
+            end
+        end
+    end
+
+    for k in 1:4
+        idx = k == 1 ? i1 : k == 2 ? i2 : k == 3 ? i3 : i4
+        b = (idx-1)*6
+        for d in 1:6; dofs[(k-1)*6+d] = b+d; end
+    end
+    base = (ei-1)*576; cnt = 0
+    for cc in 1:24, rr in 1:24
+        cnt += 1
+        all_I[base+cnt] = dofs[rr]
+        all_J[base+cnt] = dofs[cc]
+        all_V[base+cnt] = out_t[rr,cc]
+    end
+    return nothing
+end
+
 @inline function q4_flat_iso_eig_membrane_incomp_enabled()
     raw = lowercase(strip(get(ENV, "JFEM_SOL105_EIG_FLAT_ISO_MEMBRANE_INCOMP", "true")))
     return raw in ("1", "true", "yes", "on")
@@ -4569,79 +4659,32 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
 
         ke_t_global_ready = false
 
+        # Concretize Ke_t exactly once (folds the old conditional Matrix()
+        # conversion in the drilling-scale block below): the 8-way kernel
+        # branch table leaves Ke_t union-typed, which boxed every load in the
+        # transform/triplet tail. Every branch produces Matrix{Float64} at
+        # runtime, so this is an alias — no copy — on the hot path.
+        Ke_m = Ke_t isa Matrix{Float64} ? Ke_t : Matrix{Float64}(Ke_t)
+
         if sol101_line_node_drill_sqrt_scale != 1.0 &&
            (node_has_frame[i1] || node_has_frame[i2] || node_has_frame[i3] || node_has_frame[i4])
-            Ke_t isa Matrix || (Ke_t = Matrix(Ke_t))
-            node_has_frame[i1] && scale_shell_local_drilling_dof!(Ke_t, 1, sol101_line_node_drill_sqrt_scale)
-            node_has_frame[i2] && scale_shell_local_drilling_dof!(Ke_t, 2, sol101_line_node_drill_sqrt_scale)
-            node_has_frame[i3] && scale_shell_local_drilling_dof!(Ke_t, 3, sol101_line_node_drill_sqrt_scale)
-            node_has_frame[i4] && scale_shell_local_drilling_dof!(Ke_t, 4, sol101_line_node_drill_sqrt_scale)
+            node_has_frame[i1] && scale_shell_local_drilling_dof!(Ke_m, 1, sol101_line_node_drill_sqrt_scale)
+            node_has_frame[i2] && scale_shell_local_drilling_dof!(Ke_m, 2, sol101_line_node_drill_sqrt_scale)
+            node_has_frame[i3] && scale_shell_local_drilling_dof!(Ke_m, 3, sol101_line_node_drill_sqrt_scale)
+            node_has_frame[i4] && scale_shell_local_drilling_dof!(Ke_m, 4, sol101_line_node_drill_sqrt_scale)
         end
 
-        out_t = sep_global[tid]; fill!(out_t, 0.0)
-        if ke_t_global_ready
-            @inbounds @fastmath for jj in 1:24, ii in 1:24
-                out_t[ii, jj] = Ke_t[ii, jj]
-            end
-        else
-            T_t = sep_T[tid]; fill!(T_t, 0.0)
-            @inbounds @fastmath for k in 1:4
-                idx = k == 1 ? i1 : k == 2 ? i2 : k == 3 ? i3 : i4
-                base = (k-1)*6
-                    vk1, vk2, vk3 =
-                    (snorm_transform_only && snorm_xf_ok) ?
-                    shell_project_frame_to_normal(v1, v2, v3, snorm_xf_v3) :
-                    (elem_flat_curved_iso_nodal_geomnormal_transform ||
-                     elem_static_pcomp_nodal_geomnormal_transform) ?
-                    shell_project_frame_to_normal(v1, v2, v3, geom_vec[idx]) :
-                    (v1, v2, v3)
-                Rel_t = @SMatrix [vk1[1] vk1[2] vk1[3]; vk2[1] vk2[2] vk2[3]; vk3[1] vk3[2] vk3[3]]
-                for rr in 1:3, cc in 1:3
-                    val = Rel_t[rr,1]*node_R_flat[1,cc,idx] + Rel_t[rr,2]*node_R_flat[2,cc,idx] + Rel_t[rr,3]*node_R_flat[3,cc,idx]
-                    T_t[base+rr, base+cc] = val
-                    T_t[base+3+rr, base+3+cc] = val
-                end
-                if snorm_director && snorm_has[idx]
-                    # rotational block only: reference this node's rotations to its grid normal.
-                    # Built from the element's OWN geometric frame (v1,v2,v3) — the frame Ke_t was
-                    # formed in — not the per-node projected vk frame.
-                    TR = @SMatrix [T_t[base+4,base+4] T_t[base+4,base+5] T_t[base+4,base+6];
-                                   T_t[base+5,base+4] T_t[base+5,base+5] T_t[base+5,base+6];
-                                   T_t[base+6,base+4] T_t[base+6,base+5] T_t[base+6,base+6]]
-                    TRs = snorm_director_matrix(snorm_vec[idx], v1, v2, v3) * TR
-                    for rr in 1:3, cc in 1:3
-                        T_t[base+3+rr, base+3+cc] = TRs[rr,cc]
-                    end
-                end
-            end
-            tmp_t = sep_tmp[tid]; fill!(tmp_t, 0.0)
-            @inbounds @fastmath for jj in 1:24, ll in 1:24
-                val = T_t[ll, jj]
-                if val != 0.0
-                    for ii in 1:24; tmp_t[ii, jj] += Ke_t[ii, ll] * val; end
-                end
-            end
-            @inbounds @fastmath for jj in 1:24, ll in 1:24
-                val = tmp_t[ll, jj]
-                if val != 0.0
-                    for ii in 1:24; out_t[ii, jj] += T_t[ll, ii] * val; end
-                end
-            end
-        end
-
-        dofs = sep_dofs[tid]
-        for k in 1:4
-            idx = k == 1 ? i1 : k == 2 ? i2 : k == 3 ? i3 : i4
-            b = (idx-1)*6
-            for d in 1:6; dofs[(k-1)*6+d] = b+d; end
-        end
-        base = (ei-1)*576; cnt = 0
-        for cc in 1:24, rr in 1:24
-            cnt += 1
-            all_I[base+cnt] = dofs[rr]
-            all_J[base+cnt] = dofs[cc]
-            all_V[base+cnt] = out_t[rr,cc]
-        end
+        _quad4_transform_emit!(
+            sep_global[tid], sep_T[tid], sep_tmp[tid], sep_dofs[tid],
+            Ke_m, ke_t_global_ready,
+            ei, i1, i2, i3, i4,
+            v1, v2, v3,
+            snorm_transform_only, snorm_xf_ok, snorm_xf_v3,
+            elem_flat_curved_iso_nodal_geomnormal_transform,
+            elem_static_pcomp_nodal_geomnormal_transform,
+            geom_vec, node_R_flat,
+            snorm_director, snorm_has, snorm_vec,
+            all_I, all_J, all_V)
     end
 
     LinearAlgebra.BLAS.set_num_threads(prev_blas_threads)

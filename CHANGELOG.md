@@ -15,6 +15,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
   rows documented as reference-defect exceptions).
 
 ### Performance
+- **CQUAD4 transform/triplet tail is type-stable (re-baseline class).**
+  The per-element local→global congruence and triplet emission now run
+  behind a strictly-typed function barrier: the element matrix binding was
+  union-typed across the kernel branch table, boxing every load inside the
+  `@fastmath` transform loops (~1.1 GB allocation per 6220-element
+  assembly). Arithmetic transcribed verbatim; the concrete-type codegen
+  enables FMA contraction, shifting assembled K entries by at most
+  4.6e-14 of the matrix scale (worst single entry 1.5e-13 of its own
+  magnitude; CRM 3.7e-16). Accepted per the established re-baseline
+  precedent: 6-deck battery spectra within 6.9e-11, public suite verdicts
+  identical with values within 1.0e-11, differential-harness baseline
+  recaptured. Box-deck assembly allocation 312 → 129 KB/element.
 - **MacNeal shear block is allocation-free (bit-identical).** The CQUAD4
   kernel's MacNeal/interaction-hybrid construction now runs against a
   per-thread `MacNealShearWorkspace`: every per-element temporary — the
