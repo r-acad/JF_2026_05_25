@@ -245,6 +245,14 @@ mutable struct MacNealShearWorkspace{T}
     lap_sviwork::Vector{LinearAlgebra.BlasInt} # 8*minmn=32 gesdd iwork
     lap_svU::Matrix{Float64}                  # 4x0 gesdd 'N' U stub
     lap_svVT::Matrix{Float64}                 # 4x0 gesdd 'N' VT stub
+    # Out-of-band report channel (NOT scratch): set to `true` by
+    # add_quad4_macneal_shear_rbf! when it skips the assumed-shear interaction
+    # correction on a degenerate synthetic companion (see the per-element
+    # fallback in that kernel). The kernel only ever SETS it; the caller clears
+    # it before the call(s) for one element and reads it after, so a caller that
+    # runs the kernel more than once per element (the blend branches) sees the
+    # OR over those calls. Per-thread workspace => no cross-thread contention.
+    interaction_skipped::Bool
 end
 
 function create_macneal_shear_workspace(::Type{T}=Float64) where {T}
@@ -281,6 +289,7 @@ function create_macneal_shear_workspace(::Type{T}=Float64) where {T}
         zeros(LinearAlgebra.BlasInt, 4), Float64[],                # lap_luipiv, lap_griwork
         zeros(4), Float64[], zeros(LinearAlgebra.BlasInt, 32),     # lap_svS, lap_svwork, lap_sviwork
         Matrix{Float64}(undef, 4, 0), Matrix{Float64}(undef, 4, 0), # lap_svU, lap_svVT
+        false,                                                     # interaction_skipped
     )
 end
 
@@ -5164,6 +5173,11 @@ function add_quad4_macneal_shear_rbf!(
             # Reject a companion whose Jacobian changes sign.  Using abs(detJ)
             # in the energy integration is correct for a consistently oriented
             # cell, but must not hide a folded synthetic geometry.
+            # Returns `true` when the companion is usable.  A rejection is a
+            # hard error ONLY when the interaction mode was requested
+            # explicitly; on the implicit default it is reported as `false` so
+            # the caller can skip the correction for this element (see the
+            # per-element fallback at the validation call site below).
             validate_companion = function (X)
                 dNr0, dNs0 = shape_derivs_quad(0.0, 0.0)
                 j110 = sum(dNr0[k]*X[k,1] for k in 1:4)
@@ -5171,8 +5185,11 @@ function add_quad4_macneal_shear_rbf!(
                 j210 = sum(dNs0[k]*X[k,1] for k in 1:4)
                 j220 = sum(dNs0[k]*X[k,2] for k in 1:4)
                 det0 = j110*j220 - j120*j210
-                (!isfinite(det0) || det0 == zero(T)) && throw(ArgumentError(
-                    "singular interaction companion at its centre"))
+                if !isfinite(det0) || det0 == zero(T)
+                    shear_edge_linear_explicit && throw(ArgumentError(
+                        "singular interaction companion at its centre"))
+                    return false
+                end
                 for (rr, ss) in corners
                     dNr, dNs = shape_derivs_quad(rr, ss)
                     j11 = sum(dNr[k]*X[k,1] for k in 1:4)
@@ -5180,11 +5197,14 @@ function add_quad4_macneal_shear_rbf!(
                     j21 = sum(dNs[k]*X[k,1] for k in 1:4)
                     j22 = sum(dNs[k]*X[k,2] for k in 1:4)
                     detj = j11*j22 - j12*j21
-                    (!isfinite(detj) || detj*det0 <= zero(T) ||
-                     abs(detj) <= 1e-12*abs(det0)) && throw(ArgumentError(
-                        "folded or singular assumed-shear interaction companion"))
+                    if !isfinite(detj) || detj*det0 <= zero(T) ||
+                       abs(detj) <= 1e-12*abs(det0)
+                        shear_edge_linear_explicit && throw(ArgumentError(
+                            "folded or singular assumed-shear interaction companion"))
+                        return false
+                    end
                 end
-                nothing
+                true
             end
             equilibrated_sym_cond = function (M)
                 dd = mw.diag4
@@ -5224,168 +5244,203 @@ function add_quad4_macneal_shear_rbf!(
             Xskew = make_companion(mw.X2, Aaff, false)
             Xtap  = make_companion(mw.X3, Aorth, true)
             Xflat = make_companion(mw.X4, Aorth, false)
-            foreach(validate_companion, (Xgen, Xskew, Xtap, Xflat))
-            Hs = (assumed_H(mw.H1, Xgen), assumed_H(mw.H2, Xskew),
-                  assumed_H(mw.H3, Xtap), assumed_H(mw.H4, Xflat))
-            any(H -> equilibrated_sym_cond(H) > 1e12, Hs) &&
-                throw(ArgumentError(
-                    "ill-conditioned assumed-shear energy in interaction companions"))
-            I4 = mw.I4
-            # dHinv = Hs[1] \ I4 - Hs[2] \ I4 - Hs[3] \ I4 + Hs[4] \ I4:
-            # the four solves in the original left-to-right order, then the
-            # ((a-b)-c)+d combination with identical per-entry order.
-            _msws_ldiv_sq!(mw, mw.hs1, mw.lu4a, Hs[1], I4)
-            _msws_ldiv_sq!(mw, mw.hs2, mw.lu4a, Hs[2], I4)
-            _msws_ldiv_sq!(mw, mw.hs3, mw.lu4a, Hs[3], I4)
-            _msws_ldiv_sq!(mw, mw.hs4, mw.lu4a, Hs[4], I4)
-            dHinv = mw.dHinv
-            @inbounds for j in 1:4, i in 1:4
-                dHinv[i,j] = ((mw.hs1[i,j] - mw.hs2[i,j]) - mw.hs3[i,j]) + mw.hs4[i,j]
+            # PER-ELEMENT graceful fallback (2026-08-06), mirroring the
+            # default-stack policy at the top of this block.  The four
+            # companions are SYNTHETIC cells rebuilt from the element by the
+            # Aaff/Aorth maps, so a perfectly valid production element can still
+            # generate a folded or singular companion once its fan term
+            # dominates the affine part.  A degenerate companion therefore does
+            # NOT prove the caller's element is invalid, and aborting the whole
+            # run on one of 10^5 elements is the wrong response.  When the
+            # interaction mode was selected by the implicit default, skip the
+            # correction for THIS element: `Zs_edge_interaction` stays
+            # `nothing`, the Z_total assembly below tests for it, and the
+            # element uses the validated base operator exactly as the
+            # default-stack fallback above does.  An explicitly requested mode
+            # remains a hard error (raised inside the guards themselves, so the
+            # message still identifies which check failed).  Both guards are
+            # evaluated BEFORE the H solves, so no singular intermediate math
+            # is ever performed on a rejected companion.
+            #
+            # `Hs` is bound to the workspace buffers up front rather than to the
+            # assumed_H results so that it is definitely-defined in the guarded
+            # branch below (no undef check on the hot path); assumed_H fills
+            # those same buffers in the original left-to-right order and returns
+            # them, so the values are unchanged.
+            Hs = (mw.H1, mw.H2, mw.H3, mw.H4)
+            interaction_ok = validate_companion(Xgen) && validate_companion(Xskew) &&
+                             validate_companion(Xtap) && validate_companion(Xflat)
+            if interaction_ok
+                assumed_H(mw.H1, Xgen); assumed_H(mw.H2, Xskew)
+                assumed_H(mw.H3, Xtap); assumed_H(mw.H4, Xflat)
+                if any(H -> equilibrated_sym_cond(H) > 1e12, Hs)
+                    shear_edge_linear_explicit && throw(ArgumentError(
+                        "ill-conditioned assumed-shear energy in interaction companions"))
+                    interaction_ok = false
+                end
             end
-            Gcan = edge_G(mw.Gcan, Xgen)
-            # dZg = (Gcan * dHinv) * transpose(Gcan) — same two gemm calls
-            mul!(mw.t4a, Gcan, dHinv)
-            dZg = mw.dZg
-            mul!(dZg, mw.t4a, transpose(Gcan))
-            if shear_edge_linear_interaction
-                kedge = inv(gpt)
-                Tedge = fill!(mw.Tedge, zero(T))
-                for (i, j) in ((1, 2), (3, 4))
-                    Tedge[i,i] = 0.5*(1+kedge)
-                    Tedge[i,j] = 0.5*(1-kedge)
-                    Tedge[j,i] = 0.5*(1-kedge)
-                    Tedge[j,j] = 0.5*(1+kedge)
-                end
-                legacy_Zs_edge = function (dest, X)
-                    Zg = legacy_Zs_gauss(mw.Zg, X)
-                    # ZZ = (Tedge * Zg) * transpose(Tedge)
-                    mul!(mw.t4a, Tedge, Zg)
-                    ZZ = mw.Zedge
-                    mul!(ZZ, mw.t4a, transpose(Tedge))
-                    shear_edge_linear_interaction_hybrid || return copyto!(dest, ZZ)
-
-                    dxc = 0.5*(X[2,1]+X[3,1]-X[1,1]-X[4,1])
-                    dyc = 0.5*(X[3,2]+X[4,2]-X[1,2]-X[2,2])
-                    dx2c = dxc*dxc; dy2c = dyc*dyc
-                    rho2x = dy2c / max(dx2c, T(1e-30))
-                    rho2y = dx2c / max(dy2c, T(1e-30))
-
-                    if taper_diff_fit
-                        dNr0, dNs0 = shape_derivs_quad(0.0, 0.0)
-                        c11 = sum(dNr0[k]*X[k,1] for k in 1:4)
-                        c12 = sum(dNr0[k]*X[k,2] for k in 1:4)
-                        c21 = sum(dNs0[k]*X[k,1] for k in 1:4)
-                        c22 = sum(dNs0[k]*X[k,2] for k in 1:4)
-                        detc = c11*c22 - c12*c21
-                        dj = ntuple(4) do ii
-                            rr, ss = CORNER_RS_FIT[ii]
-                            dNr, dNs = shape_derivs_quad(rr, ss)
-                            j11 = sum(dNr[k]*X[k,1] for k in 1:4)
-                            j12 = sum(dNr[k]*X[k,2] for k in 1:4)
-                            j21 = sum(dNs[k]*X[k,1] for k in 1:4)
-                            j22 = sum(dNs[k]*X[k,2] for k in 1:4)
-                            j11*j22 - j12*j21
-                        end
-                        dc = max(abs(detc), T(1e-30))
-                        grad_r = abs(0.25*(dj[2]+dj[3]-dj[1]-dj[4])) / dc
-                        grad_s = abs(0.25*(dj[3]+dj[4]-dj[1]-dj[2])) / dc
-                        # closure-local names (gsum_l/Wc_l): the enclosing
-                        # function reuses gsum/Wc below — assigning them here
-                        # would Core.Box both (PERF de-box)
-                        gsum_l = grad_r*grad_r + grad_s*grad_s
-                        if gsum_l > 1e-24
-                            Wc_l = (q4_taper_cross_factor(rho2x)*grad_r*grad_r +
-                                  q4_taper_cross_factor(rho2y)*grad_s*grad_s) / gsum_l
-                            for (i, j) in ((1,3),(1,4),(2,3),(2,4))
-                                ZZ[i,j] *= Wc_l
-                                ZZ[j,i] = ZZ[i,j]
-                            end
-                        end
-                        if shear_diff_taper
-                            for (i, j, gg, rr) in
-                                ((1,2,grad_r,rho2x), (3,4,grad_s,rho2y))
-                                gg <= 1e-12 && continue
-                                sc = gg^4 * rr * q4_taper_shear_diff_h(gg)
-                                sc <= 1e-15 && continue
-                                ds = 3 * 0.5*(Zg[i,i]-Zg[i,j]-Zg[j,i]+Zg[j,j]) / 2
-                                add = sc*ds
-                                ZZ[i,i] += add; ZZ[j,j] += add
-                                ZZ[i,j] -= add; ZZ[j,i] -= add
-                            end
-                        end
-                    end
-
-                    if zb_skew_mode == "total"
-                        dxy = 0.5*(X[2,2]+X[3,2]-X[1,2]-X[4,2])
-                        dyx = 0.5*(X[3,1]+X[4,1]-X[1,1]-X[2,1])
-                        # closure-local name: `den` is an enclosing-function
-                        # local (zb_skew block) — see de-box note above
-                        den_l = dxc*dyc - dxy*dyx
-                        fsk = abs(den_l) > 1e-30 ? (dxc*dyc/den_l)^2 : one(T)
-                        if abs(fsk-one(T)) > 1e-14
-                            for (i, j) in ((1,2),(3,4))
-                                dd = 0.5*(ZZ[i,i]-ZZ[i,j]-ZZ[j,i]+ZZ[j,j]) / 2
-                                add = (fsk-one(T))*dd
-                                ZZ[i,i] += add; ZZ[j,j] += add
-                                ZZ[i,j] -= add; ZZ[j,i] -= add
-                            end
-                        end
-                    end
-                    @inbounds for j in 1:4, i in 1:4
-                        dest[i,j] = 0.5 * (ZZ[i,j] + ZZ[j,i])
-                    end
-                    dest
-                end
-                legacy_common = function (dest, X)
-                    Dc = legacy_edge_D(mw.Dc, X)
-                    Dtc = edge_Dtan(mw.Dtc, X)
-                    Ec = _msws_rdiv_wide!(mw, mw.Ec_buf, Dtc, Dc)
-                    mul!(mw.res_a, Ec, Dc)
-                    mw.res_b .= Dtc .- mw.res_a
-                    ec_residual = norm(mw.res_b) / max(norm(Dtc), eps(T))
-                    ec_cond = _msws_cond2(mw, Ec)
-                    (!isfinite(ec_cond) || ec_cond > 1e12 || ec_residual > 1e-10) &&
-                        throw(ArgumentError(
-                            "incompatible MITC/tangential companion row spaces"))
-                    # Znative = (Ec * legacy_Zs_edge(X)) * transpose(Ec)
-                    Zle = legacy_Zs_edge(mw.Zle, X)
-                    mul!(mw.t4a, Ec, Zle)
-                    Znative = mw.Znative
-                    mul!(Znative, mw.t4a, transpose(Ec))
-                    Gc = edge_G(mw.Gc, X)
-                    gc_cond = normalized_column_cond(Gc)
-                    (!isfinite(gc_cond) || gc_cond > 1e12) && throw(ArgumentError(
-                        "ill-conditioned companion edge coefficient map"))
-                    transport = _msws_rdiv_sq!(mw, mw.transport_buf, mw.lu4a,
-                                               mw.t4a, Gcan, Gc)
-                    # ZZ = (transport * Znative) * transpose(transport)
-                    mul!(mw.t4b, transport, Znative)
-                    mul!(mw.t4c, mw.t4b, transpose(transport))
-                    @inbounds for j in 1:4, i in 1:4
-                        dest[i,j] = 0.5 * (mw.t4c[i,j] + mw.t4c[j,i])
-                    end
-                    dest
-                end
-                legacy_common(mw.lc1, Xgen)
-                legacy_common(mw.lc2, Xskew)
-                legacy_common(mw.lc3, Xtap)
-                legacy_common(mw.lc4, Xflat)
+            if interaction_ok
+                I4 = mw.I4
+                # dHinv = Hs[1] \ I4 - Hs[2] \ I4 - Hs[3] \ I4 + Hs[4] \ I4:
+                # the four solves in the original left-to-right order, then the
+                # ((a-b)-c)+d combination with identical per-entry order.
+                _msws_ldiv_sq!(mw, mw.hs1, mw.lu4a, Hs[1], I4)
+                _msws_ldiv_sq!(mw, mw.hs2, mw.lu4a, Hs[2], I4)
+                _msws_ldiv_sq!(mw, mw.hs3, mw.lu4a, Hs[3], I4)
+                _msws_ldiv_sq!(mw, mw.hs4, mw.lu4a, Hs[4], I4)
+                dHinv = mw.dHinv
                 @inbounds for j in 1:4, i in 1:4
-                    dZg[i,j] -= ((mw.lc1[i,j] - mw.lc2[i,j]) - mw.lc3[i,j]) +
-                                mw.lc4[i,j]
+                    dHinv[i,j] = ((mw.hs1[i,j] - mw.hs2[i,j]) - mw.hs3[i,j]) + mw.hs4[i,j]
                 end
+                Gcan = edge_G(mw.Gcan, Xgen)
+                # dZg = (Gcan * dHinv) * transpose(Gcan) — same two gemm calls
+                mul!(mw.t4a, Gcan, dHinv)
+                dZg = mw.dZg
+                mul!(dZg, mw.t4a, transpose(Gcan))
+                if shear_edge_linear_interaction
+                    kedge = inv(gpt)
+                    Tedge = fill!(mw.Tedge, zero(T))
+                    for (i, j) in ((1, 2), (3, 4))
+                        Tedge[i,i] = 0.5*(1+kedge)
+                        Tedge[i,j] = 0.5*(1-kedge)
+                        Tedge[j,i] = 0.5*(1-kedge)
+                        Tedge[j,j] = 0.5*(1+kedge)
+                    end
+                    legacy_Zs_edge = function (dest, X)
+                        Zg = legacy_Zs_gauss(mw.Zg, X)
+                        # ZZ = (Tedge * Zg) * transpose(Tedge)
+                        mul!(mw.t4a, Tedge, Zg)
+                        ZZ = mw.Zedge
+                        mul!(ZZ, mw.t4a, transpose(Tedge))
+                        shear_edge_linear_interaction_hybrid || return copyto!(dest, ZZ)
+
+                        dxc = 0.5*(X[2,1]+X[3,1]-X[1,1]-X[4,1])
+                        dyc = 0.5*(X[3,2]+X[4,2]-X[1,2]-X[2,2])
+                        dx2c = dxc*dxc; dy2c = dyc*dyc
+                        rho2x = dy2c / max(dx2c, T(1e-30))
+                        rho2y = dx2c / max(dy2c, T(1e-30))
+
+                        if taper_diff_fit
+                            dNr0, dNs0 = shape_derivs_quad(0.0, 0.0)
+                            c11 = sum(dNr0[k]*X[k,1] for k in 1:4)
+                            c12 = sum(dNr0[k]*X[k,2] for k in 1:4)
+                            c21 = sum(dNs0[k]*X[k,1] for k in 1:4)
+                            c22 = sum(dNs0[k]*X[k,2] for k in 1:4)
+                            detc = c11*c22 - c12*c21
+                            dj = ntuple(4) do ii
+                                rr, ss = CORNER_RS_FIT[ii]
+                                dNr, dNs = shape_derivs_quad(rr, ss)
+                                j11 = sum(dNr[k]*X[k,1] for k in 1:4)
+                                j12 = sum(dNr[k]*X[k,2] for k in 1:4)
+                                j21 = sum(dNs[k]*X[k,1] for k in 1:4)
+                                j22 = sum(dNs[k]*X[k,2] for k in 1:4)
+                                j11*j22 - j12*j21
+                            end
+                            dc = max(abs(detc), T(1e-30))
+                            grad_r = abs(0.25*(dj[2]+dj[3]-dj[1]-dj[4])) / dc
+                            grad_s = abs(0.25*(dj[3]+dj[4]-dj[1]-dj[2])) / dc
+                            # closure-local names (gsum_l/Wc_l): the enclosing
+                            # function reuses gsum/Wc below — assigning them here
+                            # would Core.Box both (PERF de-box)
+                            gsum_l = grad_r*grad_r + grad_s*grad_s
+                            if gsum_l > 1e-24
+                                Wc_l = (q4_taper_cross_factor(rho2x)*grad_r*grad_r +
+                                      q4_taper_cross_factor(rho2y)*grad_s*grad_s) / gsum_l
+                                for (i, j) in ((1,3),(1,4),(2,3),(2,4))
+                                    ZZ[i,j] *= Wc_l
+                                    ZZ[j,i] = ZZ[i,j]
+                                end
+                            end
+                            if shear_diff_taper
+                                for (i, j, gg, rr) in
+                                    ((1,2,grad_r,rho2x), (3,4,grad_s,rho2y))
+                                    gg <= 1e-12 && continue
+                                    sc = gg^4 * rr * q4_taper_shear_diff_h(gg)
+                                    sc <= 1e-15 && continue
+                                    ds = 3 * 0.5*(Zg[i,i]-Zg[i,j]-Zg[j,i]+Zg[j,j]) / 2
+                                    add = sc*ds
+                                    ZZ[i,i] += add; ZZ[j,j] += add
+                                    ZZ[i,j] -= add; ZZ[j,i] -= add
+                                end
+                            end
+                        end
+
+                        if zb_skew_mode == "total"
+                            dxy = 0.5*(X[2,2]+X[3,2]-X[1,2]-X[4,2])
+                            dyx = 0.5*(X[3,1]+X[4,1]-X[1,1]-X[2,1])
+                            # closure-local name: `den` is an enclosing-function
+                            # local (zb_skew block) — see de-box note above
+                            den_l = dxc*dyc - dxy*dyx
+                            fsk = abs(den_l) > 1e-30 ? (dxc*dyc/den_l)^2 : one(T)
+                            if abs(fsk-one(T)) > 1e-14
+                                for (i, j) in ((1,2),(3,4))
+                                    dd = 0.5*(ZZ[i,i]-ZZ[i,j]-ZZ[j,i]+ZZ[j,j]) / 2
+                                    add = (fsk-one(T))*dd
+                                    ZZ[i,i] += add; ZZ[j,j] += add
+                                    ZZ[i,j] -= add; ZZ[j,i] -= add
+                                end
+                            end
+                        end
+                        @inbounds for j in 1:4, i in 1:4
+                            dest[i,j] = 0.5 * (ZZ[i,j] + ZZ[j,i])
+                        end
+                        dest
+                    end
+                    legacy_common = function (dest, X)
+                        Dc = legacy_edge_D(mw.Dc, X)
+                        Dtc = edge_Dtan(mw.Dtc, X)
+                        Ec = _msws_rdiv_wide!(mw, mw.Ec_buf, Dtc, Dc)
+                        mul!(mw.res_a, Ec, Dc)
+                        mw.res_b .= Dtc .- mw.res_a
+                        ec_residual = norm(mw.res_b) / max(norm(Dtc), eps(T))
+                        ec_cond = _msws_cond2(mw, Ec)
+                        (!isfinite(ec_cond) || ec_cond > 1e12 || ec_residual > 1e-10) &&
+                            throw(ArgumentError(
+                                "incompatible MITC/tangential companion row spaces"))
+                        # Znative = (Ec * legacy_Zs_edge(X)) * transpose(Ec)
+                        Zle = legacy_Zs_edge(mw.Zle, X)
+                        mul!(mw.t4a, Ec, Zle)
+                        Znative = mw.Znative
+                        mul!(Znative, mw.t4a, transpose(Ec))
+                        Gc = edge_G(mw.Gc, X)
+                        gc_cond = normalized_column_cond(Gc)
+                        (!isfinite(gc_cond) || gc_cond > 1e12) && throw(ArgumentError(
+                            "ill-conditioned companion edge coefficient map"))
+                        transport = _msws_rdiv_sq!(mw, mw.transport_buf, mw.lu4a,
+                                                   mw.t4a, Gcan, Gc)
+                        # ZZ = (transport * Znative) * transpose(transport)
+                        mul!(mw.t4b, transport, Znative)
+                        mul!(mw.t4c, mw.t4b, transpose(transport))
+                        @inbounds for j in 1:4, i in 1:4
+                            dest[i,j] = 0.5 * (mw.t4c[i,j] + mw.t4c[j,i])
+                        end
+                        dest
+                    end
+                    legacy_common(mw.lc1, Xgen)
+                    legacy_common(mw.lc2, Xskew)
+                    legacy_common(mw.lc3, Xtap)
+                    legacy_common(mw.lc4, Xflat)
+                    @inbounds for j in 1:4, i in 1:4
+                        dZg[i,j] -= ((mw.lc1[i,j] - mw.lc2[i,j]) - mw.lc3[i,j]) +
+                                    mw.lc4[i,j]
+                    end
+                end
+                # Zs_edge_interaction = Elin \ dZg / transpose(Elin), i.e.
+                # S1 = Elin \ dZg, then S1 / transpose(Elin) which lowers to
+                # copy(adjoint(Elin \ adjoint(S1))) (adjoint∘transpose of a real
+                # matrix is the matrix itself); then the symmetrization
+                # 0.5*(S2 + transpose(S2)) as an explicit per-entry loop.
+                _msws_ldiv_sq!(mw, mw.zei_a, mw.lu4a, Elin, dZg)
+                _msws_ldiv_sq!(mw, mw.zei_b, mw.lu4b, Elin, adjoint(mw.zei_a))
+                @inbounds for j in 1:4, i in 1:4
+                    mw.Zsei[i,j] = 0.5 * (mw.zei_b[j,i] + mw.zei_b[i,j])
+                end
+                Zs_edge_interaction = mw.Zsei
+            else
+                # Report the skip out-of-band: the kernel has no element id, but
+                # the assembly caller does (per-thread workspace, no contention).
+                mw.interaction_skipped = true
             end
-            # Zs_edge_interaction = Elin \ dZg / transpose(Elin), i.e.
-            # S1 = Elin \ dZg, then S1 / transpose(Elin) which lowers to
-            # copy(adjoint(Elin \ adjoint(S1))) (adjoint∘transpose of a real
-            # matrix is the matrix itself); then the symmetrization
-            # 0.5*(S2 + transpose(S2)) as an explicit per-entry loop.
-            _msws_ldiv_sq!(mw, mw.zei_a, mw.lu4a, Elin, dZg)
-            _msws_ldiv_sq!(mw, mw.zei_b, mw.lu4b, Elin, adjoint(mw.zei_a))
-            @inbounds for j in 1:4, i in 1:4
-                mw.Zsei[i,j] = 0.5 * (mw.zei_b[j,i] + mw.zei_b[i,j])
-            end
-            Zs_edge_interaction = mw.Zsei
         end
     end
 
@@ -5554,7 +5609,10 @@ function add_quad4_macneal_shear_rbf!(
             Z_total[i,j] -= add; Z_total[j,i] -= add
         end
     end
-    if shear_edge_linear_interaction
+    # `Zs_edge_interaction === nothing` with the flag still set means the
+    # per-element companion fallback fired above: skip the correction and use
+    # the validated base operator for this element.
+    if shear_edge_linear_interaction && Zs_edge_interaction !== nothing
         Z_total .+= Zs_edge_interaction
         copyto!(mw.sym4, Z_total)
         @inbounds for j in 1:4, i in 1:4

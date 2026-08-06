@@ -3018,8 +3018,21 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     k_diag_enabled = !isempty(k_diag_eid_csv_path)
     k_diag_rows = k_diag_enabled ? Vector{String}(undef, n_q4) : String[]
 
+    # Per-element record of the MacNeal assumed-shear interaction fallback (see
+    # `add_quad4_macneal_shear_rbf!`: a synthetic companion of a strongly
+    # distorted element can be degenerate, in which case that element silently
+    # uses the validated base operator). A plain Vector{Bool} is byte-addressed,
+    # so distinct indices are safe to write concurrently from the :static loop;
+    # ONE summary line is emitted after the loop -- never per element.
+    q4_macneal_interaction_skipped = fill(false, n_q4)
+
     Threads.@threads :static for ei in 1:n_q4
         tid = Threads.threadid()
+        # Clear the kernel's out-of-band report channel for this element; the
+        # kernel only ever sets it, so reading it after the (possibly repeated,
+        # for the blend branches) kernel calls below ORs them together.
+        msws_e = per_thread_msws[tid]
+        msws_e.interaction_skipped = false
 
         i1 = q4_idx[ei,1]; i2 = q4_idx[ei,2]; i3 = q4_idx[ei,3]; i4 = q4_idx[ei,4]
 
@@ -4657,6 +4670,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             end
         end
 
+        q4_macneal_interaction_skipped[ei] = msws_e.interaction_skipped
+
         ke_t_global_ready = false
 
         # Concretize Ke_t exactly once (folds the old conditional Matrix()
@@ -4688,6 +4703,22 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     end
 
     LinearAlgebra.BLAS.set_num_threads(prev_blas_threads)
+
+    # ONE summary line for the MacNeal interaction fallback (never per element:
+    # a production model has 10^5 CQUAD4). Silent when nothing fell back.
+    n_macneal_skip = count(q4_macneal_interaction_skipped)
+    if n_macneal_skip > 0
+        skip_eids = String[]
+        for ei in 1:n_q4
+            q4_macneal_interaction_skipped[ei] || continue
+            push!(skip_eids, string(q4_eid_int[ei]))
+            length(skip_eids) >= 10 && break
+        end
+        log_msg("[SOLVER] MacNeal interaction correction skipped on " *
+                "$n_macneal_skip of $n_q4 CQUAD4 (degenerate assumed-shear " *
+                "companion); example EIDs: " * join(skip_eids, ", ") *
+                (n_macneal_skip > length(skip_eids) ? ", ..." : ""))
+    end
 
     if k_diag_enabled
         try
