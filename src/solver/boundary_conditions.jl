@@ -80,6 +80,18 @@ mutable struct EigenSolveCacheEntry
     K_ff::SparseMatrixCSC{Float64,Int}
     factor::Any
     factor_backend::String  # "cholesky" | "lu" | ""
+    # Cached CHOLMOD LDLᵀ factor of the buckling pencil K_ff + σ·Kg_ff used
+    # by the Sturm inertia counts: later subcases refactor numerically into
+    # this object instead of re-running the symbolic analysis. Julia pins
+    # CHOLMOD to SIMPLICIAL mode, whose numeric refactorization recomputes
+    # column patterns from the actual matrix, so reuse is pattern-safe even
+    # if Kg sparsity were to differ across subcases; inertia counts are
+    # additionally permutation-invariant (Sylvester), so reuse cannot change
+    # any integer result. NUMERIC content is whatever the last count left —
+    # consumers must ldlt! before reading. Retained for the lifetime of the
+    # per-deck eigen cache (a pencil-factor-sized allocation; cleared with
+    # the cache when the deck's solve completes).
+    sturm_factor::Any
 end
 
 create_eigen_solve_cache() = Dict{Any,EigenSolveCacheEntry}()
@@ -132,6 +144,7 @@ function prepare_eigen_solve_context(K, ndof, model, id_map, spc_id, rbe3_map; e
         K_ff,
         nothing,
         "",
+        nothing,
     )
 
     if cache_enabled && cache_key !== nothing
@@ -193,6 +206,7 @@ function seed_eigen_solve_cache_from_linear!(eigen_cache, linear_cache, K, ndof:
         linear_entry.K_ff,
         linear_entry.factor,
         factor_backend,
+        nothing,
     )
     return true
 end

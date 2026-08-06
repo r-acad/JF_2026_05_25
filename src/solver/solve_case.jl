@@ -2001,7 +2001,8 @@ end
 # Sturm check appear to "hang" on large models. There is no dense fallback now:
 # the sparse LDLᵀ is the right algorithm and is fast (≈1.5 s/shift at 60k DOF).
 function _buckling_sturm_count(K_ff, Kg_ff, sigma::Float64;
-                               reuse::Union{Nothing,Base.RefValue{Any}}=nothing)
+                               reuse::Union{Nothing,Base.RefValue{Any}}=nothing,
+                               factor_out::Union{Nothing,Base.RefValue{Any}}=nothing)
     n = size(K_ff, 1)
     n == 0 && return 0
     try
@@ -2022,9 +2023,31 @@ function _buckling_sturm_count(K_ff, Kg_ff, sigma::Float64;
             # count after the first. The inertia is permutation-invariant
             # (Sylvester's law), so factor reuse cannot change the integer
             # result even if a fresh analysis would pick another ordering.
+            #
+            # `factor_out` (ShiftFactor fusion): request a FRESH factorization
+            # whose Factor object is handed back to the caller for reuse as a
+            # shift-invert solve operator — never routed through `reuse`, so a
+            # later in-place refactorization cannot corrupt it.
             local F
-            if reuse !== nothing && reuse[] !== nothing
-                F = ldlt!(reuse[], M)
+            if factor_out !== nothing
+                F = ldlt(M)
+                factor_out[] = F
+            elseif reuse !== nothing && reuse[] !== nothing
+                # Julia's ldlt/ldlt! pin CHOLMOD to SIMPLICIAL mode, whose
+                # numeric refactorization recomputes column patterns from the
+                # ACTUAL matrix — so refactoring into a reuse factor is
+                # pattern-safe by construction (verified empirically both
+                # pattern directions). This try/catch covers the cases that
+                # DO throw — dimension mismatch (CHOLMODException) and
+                # singular pencils (ZeroPivotException) — by falling back to
+                # a fresh analysis instead of silently disabling the
+                # certificate for the subcase.
+                F = try
+                    ldlt!(reuse[], M)
+                catch
+                    ldlt(M)
+                end
+                reuse[] = F
             else
                 F = ldlt(M)
                 reuse !== nothing && (reuse[] = F)
@@ -2255,6 +2278,27 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     solved = false
     t_eigen_search = time_ns()
 
+    # ShiftFactor fusion (perf program Phase 3.3, env-flagged): one CHOLMOD
+    # LDLᵀ of M(σ) = K + σ·Kg per shift serves BOTH as the shift-invert
+    # solve operator AND the Sturm inertia certificate at σ. Certificate
+    # factors kept here (bounded, most-recent-two) are consumed by shifted
+    # searches at the same σ (the completeness pass-1 shift IS the
+    # certificate bound b, so the recovery solve then costs no
+    # factorization at all).
+    shift_factor_fusion = solver_env_bool("JFEM_SOL105_SHIFT_FACTOR_FUSION", false)
+    sturm_factor_cache = Dict{Float64,Any}()
+    sturm_factor_order = Float64[]
+    function keep_sturm_factor!(sigma::Float64, F)
+        F === nothing && return
+        haskey(sturm_factor_cache, sigma) && return
+        while length(sturm_factor_order) >= 2
+            delete!(sturm_factor_cache, popfirst!(sturm_factor_order))
+        end
+        sturm_factor_cache[sigma] = F
+        push!(sturm_factor_order, sigma)
+        return
+    end
+
     function attempt_shifted_buckling_search(sigma::Float64, attempt_name::String;
                                             modes_request_override::Union{Nothing,Int}=nothing,
                                             force_full_request::Bool=false)
@@ -2281,14 +2325,55 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 B = B[live_dofs, live_dofs]
             end
 
-            factor_backend = "cholesky"
-            M_factor =
-                try
-                    cholesky(M)
+            local factor_backend, M_factor
+            if shift_factor_fusion && !reduced && haskey(sturm_factor_cache, sigma)
+                # A certificate at exactly this σ already factored M: reuse
+                # its LDLᵀ as the solve operator — zero factorization cost.
+                factor_backend = "ldlt_cached"
+                M_factor = sturm_factor_cache[sigma]
+            elseif shift_factor_fusion && !reduced
+                # LDLᵀ-first: one factorization yields the solve operator and
+                # a reusable certificate factor at σ. CHOLMOD LDLᵀ is
+                # simplicial with NO pivoting of any kind, so an
+                # accidentally-tiny pivot (a dof whose diagonal cancels near
+                # σ — the local-crippling condition) silently degrades the
+                # solve by up to ~11 digits without throwing: reject factors
+                # whose pivot spread exceeds sqrt(eps) and fall back to the
+                # proven cholesky→LU ladder (the σ-jitter retry upstream
+                # handles shifts landing exactly on eigenvalues).
+                factor_backend = "ldlt"
+                M_factor = try
+                    ldlt(M)
                 catch
-                    factor_backend = "lu"
-                    lu(M)
+                    nothing
                 end
+                if M_factor !== nothing
+                    dM = abs.(diag(M_factor))
+                    if minimum(dM) < sqrt(eps(Float64)) * maximum(dM)
+                        M_factor = nothing   # numerically untrustworthy pivots
+                    end
+                end
+                if M_factor === nothing
+                    factor_backend = "cholesky"
+                    M_factor = try
+                        cholesky(M)
+                    catch
+                        factor_backend = "lu"
+                        lu(M)
+                    end
+                else
+                    keep_sturm_factor!(sigma, M_factor)
+                end
+            else
+                factor_backend = "cholesky"
+                M_factor =
+                    try
+                        cholesky(M)
+                    catch
+                        factor_backend = "lu"
+                        lu(M)
+                    end
+            end
 
             nd_limited_range_augmentation =
                 nd_limited_range_output &&
@@ -2925,11 +3010,38 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         # production sizes — and the symbolic analysis is additionally
         # shared across sigmas via sturm_reuse (the pattern is
         # sigma-independent). Cached, so whichever consumer runs first pays;
-        # every later consumer at the same sigma is free.
-        sturm_reuse = Base.RefValue{Any}(nothing)
+        # every later consumer at the same sigma is free. The reuse factor
+        # is seeded from (and written back to) the per-deck eigen cache, so
+        # the SECOND buckling subcase of a deck skips the symbolic analysis
+        # entirely — inertia counts are permutation-invariant (Sylvester),
+        # so cross-subcase reuse cannot change any integer result. Under
+        # ShiftFactor fusion, counts instead keep their fresh Factor for
+        # reuse as shift-invert operators, and a fused shifted solve can
+        # prime a count for free (sturm_prime_count).
+        sturm_reuse = Base.RefValue{Any}(eigen_ctx.sturm_factor)
         sturm_cache = Dict{Float64,Union{Int,Nothing}}()
         sturm_at(sig::Float64) = get!(sturm_cache, sig) do
-            _buckling_sturm_count(K_ff, Kg_ff, sig; reuse=sturm_reuse)
+            if shift_factor_fusion && haskey(sturm_factor_cache, sig)
+                # a fused shifted solve already factored M(σ) (bit-identical
+                # construction, audited): its pivot signs ARE the count
+                Int(count(<(0.0), diag(sturm_factor_cache[sig])))
+            elseif shift_factor_fusion
+                fo = Base.RefValue{Any}(nothing)
+                c = _buckling_sturm_count(K_ff, Kg_ff, sig; factor_out=fo)
+                # keep only operator-grade factors: an accidentally-tiny
+                # unpivoted LDLᵀ pivot is fine for the (pre-existing) count
+                # semantics but would silently degrade a reused SOLVE
+                if fo[] !== nothing
+                    dF = abs.(diag(fo[]))
+                    minimum(dF) >= sqrt(eps(Float64)) * maximum(dF) &&
+                        keep_sturm_factor!(sig, fo[])
+                end
+                c
+            else
+                c = _buckling_sturm_count(K_ff, Kg_ff, sig; reuse=sturm_reuse)
+                eigen_ctx.sturm_factor = sturm_reuse[]
+                c
+            end
         end
 
         # Sturm gap over the reported positive range, evaluated against the

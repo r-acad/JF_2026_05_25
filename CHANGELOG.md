@@ -6,6 +6,23 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Performance
+- **Sturm certificate factorizations are cheaper and (optionally) fused
+  with shifted solves.** Two unflagged, output-identical improvements: the
+  Sturm inertia counter now falls back to a fresh analysis when an
+  in-place refactorization of a reused factor throws (previously that
+  silently disabled the completeness certificate for the subcase), and the
+  reuse factor is carried in the per-deck eigen cache so the second
+  buckling subcase of a deck skips the CHOLMOD symbolic analysis
+  (inertia counts are permutation-invariant, and Julia's simplicial-mode
+  refactorization is pattern-safe; verified semantically identical on the
+  battery). Behind `JFEM_SOL105_SHIFT_FACTOR_FUSION=true` (default OFF),
+  shifted range-augmentation/completeness solves additionally factor
+  M(σ) = K + σ·Kg via LDLᵀ first, so one factorization serves as both the
+  shift-invert operator and a reusable certificate factor at that σ — a
+  completeness recovery at the certificate bound then costs no
+  factorization at all. Factors with untrustworthy pivot spreads
+  (unpivoted LDLᵀ near a diagonal cancellation) are rejected back to the
+  proven cholesky→LU ladder and never reused.
 - **Adaptive eigensolve request promoted to DEFAULT ON.** Promotion
   protocol recorded: two consecutive clean 42-deck fabric runs adaptive-ON
   (retained spectra within 3.9e-14 relative of the full-request baseline,
