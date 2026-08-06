@@ -2591,8 +2591,13 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             # this block; the ladder's positive-only count is sound only
             # while that remains true — hoist it into the guard if the
             # signed-magnitude selector is ever reintroduced.
+            # Promoted to default ON 2026-08-06: two consecutive clean
+            # 42-deck fabric runs (retained spectra within 4e-14 of the
+            # full-request baseline, parity row-identical, zero margin-rule
+            # violations), suite values exactly equal, 20-repeat stability
+            # exact-zero. Opt out with JFEM_SOL105_ADAPTIVE_NEV=false.
             adaptive_nev = has_range && nd_limited_range_output && !will_use_dense &&
-                           solver_env_bool("JFEM_SOL105_ADAPTIVE_NEV", false) &&
+                           solver_env_bool("JFEM_SOL105_ADAPTIVE_NEV", true) &&
                            (solver_env_bool("JFEM_SOL105_CERT_FIRST_AUGMENTATION", true) ||
                             solver_env_bool("JFEM_SOL105_RANGE_COMPLETENESS_AUGMENT", true))
             nev_ladder = if adaptive_nev

@@ -6,6 +6,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Performance
+- **Adaptive eigensolve request promoted to DEFAULT ON.** Promotion
+  protocol recorded: two consecutive clean 42-deck fabric runs adaptive-ON
+  (retained spectra within 3.9e-14 relative of the full-request baseline,
+  subspaces within 3.5e-11; parity row-identical, 83/83 within 1%, zero
+  margin-rule violations), public suite values exactly equal (19/19), and
+  a 20-repeat stability battery with exact-zero drift. Measured: corpus
+  eigen wall −17% on top of certificate-first (−35% cumulative vs the
+  pre-program state); the HTP-class ND=16 battery halved. Opt out with
+  `JFEM_SOL105_ADAPTIVE_NEV=false`.
 - **Adaptive eigensolve request on EIGRL-range decks (env-flagged, default
   OFF).** With `JFEM_SOL105_ADAPTIVE_NEV=true`, the SOL 105 zero-shift
   buckling eigensolve no longer always requests ~8x ND modes: an
