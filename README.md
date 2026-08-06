@@ -1,5 +1,20 @@
 # OpenJFEM
 
+> **Last pushed: 2026-08-06.** The active development branch is
+> **`decalibration/strip-tier-a`**, not `main` — `main` currently lags it by
+> a large margin and does NOT contain the 2026-08 element-formulation or
+> performance work. To get the current solver:
+>
+> ```bash
+> git clone https://github.com/r-acad/JF_2026_05_25.git
+> cd JF_2026_05_25
+> git checkout decalibration/strip-tier-a
+> ```
+>
+> `Manifest.toml` is committed, so package versions resolve identically on
+> another machine, and the solver is deterministic run-to-run: a fresh clone
+> should reproduce `validation/comparison.csv` value-for-value.
+
 OpenJFEM is a Julia finite-element solver focused on fast linear buckling
 analysis for bulk-data structural models. It reads an input deck, builds the
 finite-element model, solves the requested case, and writes a run manifest plus
