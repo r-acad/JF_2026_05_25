@@ -10620,7 +10620,31 @@ coords: 8×3 matrix of nodal coordinates [x y z].
 Nastran CHEXA node numbering:
   Bottom face: 1-2-3-4, Top face: 5-6-7-8  (5 above 1, etc.)
 """
+# Enhanced-assumed-strain mode table for the CHEXA8 (Simo-Armero assignment,
+# recovered from MSC/Nastran 70.5 by the 2026-08-06 forensics campaign).
+# Each entry is (Voigt component, natural monomial): 9 linear modes (one per
+# component, plus the cross terms) + 12 bilinear modes.
+# Voigt order: 1=xx 2=yy 3=zz 4=xy 5=yz 6=zx.
+const _HEXA8_EAS21 = (
+    (1, 1), (2, 2), (3, 3), (4, 1), (4, 2), (5, 2), (5, 3), (6, 3), (6, 1),
+    (1, 4), (1, 6), (2, 4), (2, 5), (3, 6), (3, 5),
+    (4, 6), (4, 5), (5, 4), (5, 6), (6, 4), (6, 5),
+)
+# monomial index: 1=xi 2=eta 3=zet 4=xi*eta 5=eta*zet 6=zet*xi
+@inline function _hexa8_mono(m::Int, x::Float64, y::Float64, z::Float64)
+    m == 1 && return x
+    m == 2 && return y
+    m == 3 && return z
+    m == 4 && return x * y
+    m == 5 && return y * z
+    return z * x
+end
+const _HEXA8_VOIGT_IJ = ((1,1), (2,2), (3,3), (1,2), (2,3), (1,3))
+
 function stiffness_hexa8(coords::AbstractMatrix{Float64}, E::Float64, nu::Float64)
+    if fem_env_bool("JFEM_CHEXA8_EAS", true)
+        return _stiffness_hexa8_eas(coords, E, nu)
+    end
     D = iso_3d_constitutive(E, nu)
 
     # Natural coordinates of 8 corner nodes
@@ -10722,6 +10746,120 @@ function stiffness_hexa8(coords::AbstractMatrix{Float64}, E::Float64, nu::Float6
     end
 
     return Ke
+end
+
+"""
+    _stiffness_hexa8_eas(coords, E, nu) -> Ke (24x24)
+
+MSC/Nastran 70.5's CHEXA8 formulation, recovered by matrix extraction
+(2026-08-06 forensics campaign, `DIAGNOSTICS/2026Q3/CHEXA_K_FORENSICS_2026_08_06`):
+isoparametric 2x2x2 PLUS a 21-mode enhanced assumed strain field, mapped
+through the POLAR factor of the centre Jacobian and scaled by
+det(J0)/det(J), statically condensed.
+
+Two things distinguish it from the legacy Wilson-Taylor element:
+
+  - the enhancement is on STRAIN (Simo-Armero), not on displacement, and it
+    is richer: the reference softens the trilinear mode triple that 9
+    displacement bubbles leave at full integration. The extracted softening
+    law is a fully relieved uniaxial response,
+    `mu_d = E / [(lam + 2 mu) + mu (L_d/L_e)^2 + mu (L_d/L_f)^2]`, which on
+    a cube is exactly `(1+nu)(1-2nu)/(2-3nu) = 26/55`;
+  - the frame is the POLAR rotation `R = U*V'` of `svd(J0)`, not `inv(J0)`
+    and not a Gram-Schmidt/QR frame (QR pins its first column to the xi
+    axis and is measurably wrong on oblique elements).
+
+Measured against the reference over the 12-geometry extraction corpus:
+relative operator error falls from the legacy kernel's 5.0e-2..1.0e-1 to
+~1e-7 on rectangular bricks, 9.4e-4..1.8e-3 on oblique parallelepipeds and
+5.0e-4..6.8e-3 on varying-Jacobian shapes (that last band is the remaining
+open residual: the frame/scaling treatment when det(J) varies).
+
+Set `JFEM_CHEXA8_EAS=false` to restore the legacy Wilson-Taylor kernel.
+"""
+function _stiffness_hexa8_eas(coords::AbstractMatrix{Float64}, E::Float64, nu::Float64)
+    D = iso_3d_constitutive(E, nu)
+
+    xi_n  = @SVector [-1.0, 1.0, 1.0,-1.0,-1.0, 1.0, 1.0,-1.0]
+    eta_n = @SVector [-1.0,-1.0, 1.0, 1.0,-1.0,-1.0, 1.0, 1.0]
+    zet_n = @SVector [-1.0,-1.0,-1.0,-1.0, 1.0, 1.0, 1.0, 1.0]
+    g = 1.0 / sqrt(3.0)
+    gp = @SVector [-g, g]
+
+    dN0 = zeros(3, 8)
+    for i in 1:8
+        dN0[1,i] = 0.125 * xi_n[i]
+        dN0[2,i] = 0.125 * eta_n[i]
+        dN0[3,i] = 0.125 * zet_n[i]
+    end
+    J0 = dN0 * coords
+    detJ0 = det(J0)
+    abs(detJ0) < 1e-30 && return zeros(24, 24)
+
+    # Polar rotation of the centre deformation gradient F0 = J0' (F0[j,i] =
+    # dx_j / dxi_i). svd -> U*V' is the polar factor; qr(F0).Q is NOT (it is
+    # Gram-Schmidt and pins column 1 to the xi axis).
+    F0 = Matrix(J0')
+    sv = svd(F0)
+    Rp = sv.U * sv.Vt
+
+    na = length(_HEXA8_EAS21)
+    Kaa = zeros(24, 24)
+    Kal = zeros(24, na)
+    Kll = zeros(na, na)
+    B = zeros(6, 24)
+    Ba = zeros(6, na)
+    Et = zeros(3, 3)
+
+    for gi in 1:2, gj in 1:2, gk in 1:2
+        xi = gp[gi]; eta = gp[gj]; zet = gp[gk]
+
+        dN_dxi = zeros(3, 8)
+        for i in 1:8
+            dN_dxi[1,i] = 0.125 * xi_n[i]  * (1.0 + eta_n[i]*eta) * (1.0 + zet_n[i]*zet)
+            dN_dxi[2,i] = 0.125 * eta_n[i] * (1.0 + xi_n[i]*xi)   * (1.0 + zet_n[i]*zet)
+            dN_dxi[3,i] = 0.125 * zet_n[i] * (1.0 + xi_n[i]*xi)   * (1.0 + eta_n[i]*eta)
+        end
+        J = dN_dxi * coords
+        dJ = det(J)
+        adJ = abs(dJ)
+        adJ < 1e-30 && continue
+        dN_dx = inv(J) * dN_dxi
+
+        fill!(B, 0.0)
+        for i in 1:8
+            c = (i-1)*3
+            dx = dN_dx[1,i]; dy = dN_dx[2,i]; dz = dN_dx[3,i]
+            B[1,c+1] = dx; B[2,c+2] = dy; B[3,c+3] = dz
+            B[4,c+1] = dy; B[4,c+2] = dx
+            B[5,c+2] = dz; B[5,c+3] = dy
+            B[6,c+1] = dz; B[6,c+3] = dx
+        end
+
+        sc = detJ0 / dJ
+        fill!(Ba, 0.0)
+        for (k, (comp, mono)) in enumerate(_HEXA8_EAS21)
+            v = _hexa8_mono(mono, xi, eta, zet)
+            fill!(Et, 0.0)
+            (ii, jj) = _HEXA8_VOIGT_IJ[comp]
+            if ii == jj
+                Et[ii,ii] = v
+            else
+                Et[ii,jj] = 0.5 * v; Et[jj,ii] = 0.5 * v
+            end
+            ep = (sc .* Rp) * Et * Rp'
+            Ba[1,k] = ep[1,1]; Ba[2,k] = ep[2,2]; Ba[3,k] = ep[3,3]
+            Ba[4,k] = 2 * ep[1,2]; Ba[5,k] = 2 * ep[2,3]; Ba[6,k] = 2 * ep[1,3]
+        end
+
+        DB = D * B
+        DBa = D * Ba
+        Kaa .+= adJ .* (B' * DB)
+        Kal .+= adJ .* (B' * DBa)
+        Kll .+= adJ .* (Ba' * DBa)
+    end
+
+    return abs(det(Kll)) > 1e-30 ? Kaa .- Kal * (Kll \ Kal') : Kaa
 end
 
 """

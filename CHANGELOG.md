@@ -5,6 +5,36 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **CHEXA8 now uses MSC/Nastran 70.5's actual formulation — the solid
+  static gap is closed.** The 8-node hexahedron previously used 9
+  Wilson-Taylor incompatible DISPLACEMENT modes; matrix extraction against
+  the reference (12-geometry corpus, 24 unit-displacement columns each)
+  showed MSC uses an enhanced assumed STRAIN element instead: isoparametric
+  2x2x2 plus 21 EAS modes mapped through the POLAR factor of the centre
+  Jacobian, det(J0)/det(J)-scaled and statically condensed. The difference
+  was a rank-3 deficiency — the reference softens the trilinear mode triple
+  that displacement bubbles leave at full integration, giving it a fully
+  relieved uniaxial response
+  (`mu_d = E/[(lam+2mu) + mu(L_d/L_e)^2 + mu(L_d/L_f)^2]`, exactly
+  `(1+nu)(1-2nu)/(2-3nu) = 26/55` on a cube).
+
+  Measured effect on the solid validation probes, against MSC 70.5:
+
+  | probe | before | after |
+  | --- | --- | --- |
+  | hexa shear | 8.86e-3 | **1.19e-7** |
+  | hexa cantilever | 6.53e-3 | **3.50e-7** |
+  | tetra cantilever (control) | 2.01e-7 | 2.01e-7 |
+
+  Both hexa probes now match the CTETRA control's precision. Element
+  operator error over the 12-geometry corpus falls from worst 9.96e-2 /
+  median 6.65e-2 to worst 6.79e-3 / median 5.02e-4, with rectangular
+  bricks at ~1e-7. Verified on every geometry: exactly 6 rigid-body modes
+  and rigid-rotation equivariance at 3e-16. The remaining 5e-4..6.8e-3 band
+  is confined to varying-Jacobian shapes. Set `JFEM_CHEXA8_EAS=false` to
+  restore the legacy Wilson-Taylor kernel.
+
 ### Fixed
 - **CPENTA6 stiffness was frame-dependent: a wedge whose axis was not
   aligned with global Z got a wrong stiffness matrix.** The vertical-wedge
