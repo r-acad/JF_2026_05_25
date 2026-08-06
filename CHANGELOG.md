@@ -5,6 +5,44 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **CPENTA6 stiffness was frame-dependent: a wedge whose axis was not
+  aligned with global Z got a wrong stiffness matrix.** The vertical-wedge
+  path hardcoded global Y-Z and Z-X as the receiving strain rows of its
+  substitute-shear back-substitution, so the operator was not equivariant
+  under rigid rotation of the model — measured worst-case error **16.5%**
+  on a rotated wedge (median 4e-16; the defect only appears on rotated
+  elements, which is why an axis-aligned extraction corpus never exposed
+  it). Untilted wedges now go through the same covariant receipt as tilted
+  ones, which is frame-independent by construction: rigid-rotation
+  equivariance improves from 1.65e-01 to **9.1e-16**, while agreement with
+  the reference is unchanged (2.09e-7 relative over all 48 vertical
+  extraction geometries) and the SOL 103 wedge modal probe stays exact to
+  every printed digit. Any model containing wedges not aligned to global Z
+  is affected and should be re-run. Opt out with
+  `JFEM_CPENTA6_COVARIANT_RECEIPT=false`.
+
+### Added
+- **CPENTA6 director-tilt formulation.** When a wedge's axis is tilted
+  relative to its mid-plane normal, the substitute-shear construction is
+  now applied in the frame perpendicular to a recovered director rather
+  than to the mid-plane normal. The director follows a closed-form
+  covariant law: with mid-plane edge vectors a, b, c = b-a, area A2, unit
+  normal n and height H, the in-plane slope sigma solves
+  `(I + (2/(3H)) sqrt(T)) sigma = tau` where `T = a(x)a + b(x)b + c(x)c`
+  and tau is the axis slope; the square root is elementary because
+  `det T = 12 A2^2` identically. Physically the director is the element
+  axis pulled back toward the mid-plane normal by the inverse of the
+  in-plane gyration tensor scaled by height. Measured against MSC/Nastran
+  70.5 over a 76-deck tilted extraction corpus (9 base triangles, 3
+  scalene): worst relative operator error **1.6e-1 -> 1.3e-2**, median
+  **7.8e-2 -> 5.9e-3**; tapered and twisted wedges also improve
+  (taper 3.7e-2 -> 1.1e-3, twisted 2.9e-2 -> 1.3e-3). Untilted elements are
+  unaffected. The residual on tilted wedges is no longer the director
+  (driving the kernel with the exactly stress-measured director leaves the
+  same residual) but the transfer of the rigidity laws and bubble
+  condensation into the tilted frame.
+
 ### Documentation
 - README: added "Performance Notes (2026-08)" summarizing the promoted
   default-ON behaviors (certificate-first augmentation, adaptive
