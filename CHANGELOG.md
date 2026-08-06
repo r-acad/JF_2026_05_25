@@ -6,6 +6,23 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Performance
+- **MacNeal shear block is allocation-free (bit-identical).** The CQUAD4
+  kernel's MacNeal/interaction-hybrid construction now runs against a
+  per-thread `MacNealShearWorkspace`: every per-element temporary — the
+  4×12/4×4/12×12/24×24 intermediates, matrix literals, symmetrizations,
+  and the LAPACK factorizations (pivoted-QR right-divisions, LU inverses,
+  SVD condition estimates) — is served from preallocated, workspace-cached
+  buffers through statement-for-statement replicas of the stdlib paths
+  issuing the identical LAPACK calls with identical workspace sizing.
+  Measured: kernel invocation 321 → 11 KB allocated (−96.6%); the CRM
+  interaction-path deck drops ~300 KB/element. Verified 0-ulp: the
+  deck-level differential harness is byte-exact over assembled K on every
+  battery deck, backed by an 1,800-comparison bit-equality battery of the
+  replica factorization paths. The SNORM/warp 24×24 congruence appliers
+  reuse previously-unused `Quad4Workspace` buffers the same way. Remaining
+  CQUAD4 assembly allocation (~250 KB/el on the box deck) is caller-side
+  union-type boxing in the transform/triplet tail whose fix enables FMA
+  contraction — re-baseline class, recorded as the next perf target.
 - **Three deferred marginal-cost items landed (all verified bit-identical
   and default ON).** (1) *Trial-factor keep*: the eigen-partition stability
   trial's Cholesky is kept and reused as the eigen factorization when K_ff

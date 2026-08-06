@@ -125,6 +125,474 @@ function create_quad4_workspace(::Type{T}=Float64) where {T}
     )
 end
 
+# ---------------------------------------------------------------------------
+# Per-thread workspace for add_quad4_macneal_shear_rbf! (allocation
+# elimination 2026-08-06). Every buffer replaces a fresh per-element
+# allocation with identical shape/eltype; the arithmetic (kernel dispatch,
+# operand types, evaluation order) is unchanged, so results are bit-identical.
+# One instance per thread suffices: the buffers are pure scratch, fully
+# consumed within a single add_quad4_macneal_shear_rbf! call (nothing escapes
+# except values accumulated into Ke), so sequential kernel calls on one
+# thread — including the blend branches' center/full pairs — can share it.
+mutable struct MacNealShearWorkspace{T}
+    # 4x12 operators
+    D_mat::Matrix{T}
+    Dtan::Matrix{T}
+    D_edge::Matrix{T}
+    mitc_C::Matrix{T}
+    mitc_Ce::Matrix{T}
+    Dc::Matrix{T}          # legacy_edge_D result
+    Dtc::Matrix{T}         # edge_Dtan result
+    Ccov::Matrix{T}        # legacy_edge_D covariant rows
+    res_a::Matrix{T}       # residual-guard product buffer
+    res_b::Matrix{T}       # residual-guard difference buffer
+    sol4x12::Matrix{T}     # Z_total \ D_mat
+    # 12x4 pivoted-QR right-division scratch
+    qrA::Matrix{T}         # factor copy (adjoint of the divisor)
+    qrX::Matrix{T}         # rhs/solution buffer
+    # 2x2x4 Jacobian stores
+    mitc_J::Array{Float64,3}
+    mitc_Je::Array{Float64,3}
+    Js::Array{T,3}
+    # small vectors
+    J_pts::Vector{Float64}
+    pt_delta::Vector{Float64}
+    jac4::Vector{T}
+    diag4::Vector{T}
+    ss4::Vector{T}
+    is4::Vector{T}
+    nn4::Vector{T}
+    inn4::Vector{T}
+    fan2::Vector{T}
+    # 2x4 / 4x2
+    t_hat::Matrix{Float64}
+    PP::Matrix{T}
+    PtCs::Matrix{T}        # 4x2 transpose(PP)*Cs
+    X1::Matrix{T}          # 4x2 companions
+    X2::Matrix{T}
+    X3::Matrix{T}
+    X4::Matrix{T}
+    # 4x4 blocks
+    Zb::Matrix{T}
+    Zs::Matrix{T}
+    VGV::Matrix{T}
+    VGV_sym::Matrix{T}
+    VV::Matrix{T}          # legacy_Zs_gauss compliance
+    Z_total::Matrix{T}
+    sym4::Matrix{T}        # symmetrize scratch
+    lu4a::Matrix{T}        # lu! factor scratch
+    lu4b::Matrix{T}
+    inv4::Matrix{T}        # inv result scratch
+    I4::Matrix{T}          # identity (read-only)
+    H1::Matrix{T}
+    H2::Matrix{T}
+    H3::Matrix{T}
+    H4::Matrix{T}
+    HH::Matrix{T}
+    PCP::Matrix{T}
+    hs1::Matrix{T}
+    hs2::Matrix{T}
+    hs3::Matrix{T}
+    hs4::Matrix{T}
+    dHinv::Matrix{T}
+    Gcan::Matrix{T}
+    Gc::Matrix{T}
+    dZg::Matrix{T}
+    Tedge::Matrix{T}
+    Zg::Matrix{T}          # legacy_Zs_gauss result
+    Zedge::Matrix{T}       # legacy_Zs_edge working ZZ
+    Zle::Matrix{T}         # legacy_Zs_edge result
+    Znative::Matrix{T}
+    transport_buf::Matrix{T}
+    t4a::Matrix{T}
+    t4b::Matrix{T}
+    t4c::Matrix{T}
+    lc1::Matrix{T}         # legacy_common results (4 held simultaneously)
+    lc2::Matrix{T}
+    lc3::Matrix{T}
+    lc4::Matrix{T}
+    svd4::Matrix{T}        # svdvals! scratch
+    c4a::Matrix{T}         # cond-guard matmul scratch
+    c4b::Matrix{T}
+    zei_a::Matrix{T}       # Zs_edge_interaction solves
+    zei_b::Matrix{T}
+    Zsei::Matrix{T}
+    Elin_buf::Matrix{T}
+    Ec_buf::Matrix{T}
+    Tc::Matrix{Float64}    # row_full congruence (original zeros(4,4) is Float64)
+    # 12x12 / 4x24 / 24x24 tails
+    K_plate_raw::Matrix{T}
+    K_plate::Matrix{T}
+    D24::Matrix{T}
+    sol4x24::Matrix{T}
+    K24::Matrix{T}
+    K24s::Matrix{T}
+    # LAPACK scratch for the Float64 fast paths. Work arrays are sized by a
+    # one-time workspace query identical to the stdlib wrappers' per-call
+    # query; the dimensions are fixed (12x4 geqp3/ormqr, 4x4 getrf/getri/
+    # gesdd), so the cached lwork equals what every stock call would obtain
+    # — same LAPACK blocking, bit-identical results.
+    lap_jpvt::Vector{LinearAlgebra.BlasInt}   # 4   geqp3 pivots
+    lap_tau::Vector{Float64}                  # 4   geqp3 reflectors
+    lap_qrwork::Vector{Float64}               # geqp3 work (query-sized)
+    lap_ormwork::Vector{Float64}              # ormqr work (query-sized)
+    lap_tmp::Vector{Float64}                  # 2mn=8 rank-revealing ldiv! tmp
+    lap_ip::Vector{Int}                       # 4   invperm(jpvt) cache
+    lap_luipiv::Vector{LinearAlgebra.BlasInt} # 4   getrf pivots
+    lap_griwork::Vector{Float64}              # getri work (query-sized)
+    lap_svS::Vector{Float64}                  # 4   singular values
+    lap_svwork::Vector{Float64}               # gesdd work (query-sized)
+    lap_sviwork::Vector{LinearAlgebra.BlasInt} # 8*minmn=32 gesdd iwork
+    lap_svU::Matrix{Float64}                  # 4x0 gesdd 'N' U stub
+    lap_svVT::Matrix{Float64}                 # 4x0 gesdd 'N' VT stub
+end
+
+function create_macneal_shear_workspace(::Type{T}=Float64) where {T}
+    MacNealShearWorkspace{T}(
+        zeros(T,4,12), zeros(T,4,12), zeros(T,4,12), zeros(T,4,12),
+        zeros(T,4,12), zeros(T,4,12), zeros(T,4,12), zeros(T,4,12),
+        zeros(T,4,12), zeros(T,4,12), zeros(T,4,12),               # 4x12
+        zeros(T,12,4), zeros(T,12,4),                              # 12x4
+        zeros(2,2,4), zeros(2,2,4), zeros(T,2,2,4),                # 2x2x4
+        zeros(4), zeros(4), zeros(T,4), zeros(T,4), zeros(T,4),
+        zeros(T,4), zeros(T,4), zeros(T,4), zeros(T,2),            # vectors
+        zeros(2,4), zeros(T,2,4), zeros(T,4,2),                    # t_hat, PP, PtCs
+        zeros(T,4,2), zeros(T,4,2), zeros(T,4,2), zeros(T,4,2),    # X1..X4
+        zeros(T,4,4), zeros(T,4,4), zeros(T,4,4), zeros(T,4,4),    # Zb, Zs, VGV, VGV_sym
+        zeros(T,4,4),                                              # VV
+        zeros(T,4,4), zeros(T,4,4), zeros(T,4,4), zeros(T,4,4),    # Z_total, sym4, lu4a, lu4b
+        zeros(T,4,4), Matrix{T}(I,4,4),                            # inv4, I4
+        zeros(T,4,4), zeros(T,4,4), zeros(T,4,4), zeros(T,4,4),    # H1..H4
+        zeros(T,4,4), zeros(T,4,4),                                # HH, PCP
+        zeros(T,4,4), zeros(T,4,4), zeros(T,4,4), zeros(T,4,4),    # hs1..hs4
+        zeros(T,4,4), zeros(T,4,4), zeros(T,4,4), zeros(T,4,4),    # dHinv, Gcan, Gc, dZg
+        zeros(T,4,4), zeros(T,4,4), zeros(T,4,4), zeros(T,4,4),    # Tedge, Zg, Zedge, Zle
+        zeros(T,4,4), zeros(T,4,4),                                # Znative, transport_buf
+        zeros(T,4,4), zeros(T,4,4), zeros(T,4,4),                  # t4a, t4b, t4c
+        zeros(T,4,4), zeros(T,4,4), zeros(T,4,4), zeros(T,4,4),    # lc1..lc4
+        zeros(T,4,4), zeros(T,4,4), zeros(T,4,4),                  # svd4, c4a, c4b
+        zeros(T,4,4), zeros(T,4,4), zeros(T,4,4),                  # zei_a, zei_b, Zsei
+        zeros(T,4,4), zeros(T,4,4), zeros(4,4),                    # Elin_buf, Ec_buf, Tc
+        zeros(T,12,12), zeros(T,12,12),                            # K_plate_raw, K_plate
+        zeros(T,4,24), zeros(T,4,24),                              # D24, sol4x24
+        zeros(T,24,24), zeros(T,24,24),                            # K24, K24s
+        zeros(LinearAlgebra.BlasInt, 4), zeros(4), Float64[],      # lap_jpvt, lap_tau, lap_qrwork
+        Float64[], zeros(8), Vector{Int}(undef, 4),                # lap_ormwork, lap_tmp, lap_ip
+        zeros(LinearAlgebra.BlasInt, 4), Float64[],                # lap_luipiv, lap_griwork
+        zeros(4), Float64[], zeros(LinearAlgebra.BlasInt, 32),     # lap_svS, lap_svwork, lap_sviwork
+        Matrix{Float64}(undef, 4, 0), Matrix{Float64}(undef, 4, 0), # lap_svU, lap_svVT
+    )
+end
+
+# --- Bit-exact in-place replicas of the LinearAlgebra entry points used by ---
+# --- the MacNeal RBF block (verified against the installed 1.12.3 stdlib) ---
+#
+# The Float64 fast paths below issue the exact ccalls of the stdlib wrappers
+# (lapack.jl geqp3!/ormqr!/getri!/getrf!/gesdd!, qr.jl ldiv!(::QRPivoted,...))
+# with identical numerical inputs; only the scratch (work/iwork/jpvt/tau/
+# ipiv/output) comes from the per-thread workspace instead of per-call
+# allocations. The cached lwork equals the query-optimal value the stdlib
+# obtains on every call (all dimensions here are fixed), so the LAPACK
+# blocking — and hence every result bit — is unchanged. Non-Float64 element
+# types fall back to the stock calls.
+
+# Replica of LAPACK.geqp3!(A) (lapack.jl:653 -> :418) with cached jpvt/tau/
+# work; jpvt is zero-filled exactly as the 1-arg wrapper does. Returns the
+# same QRPivoted that qr!(A, ColumnNorm()) (qr.jl:293) constructs.
+function _msws_geqp3!(mw::MacNealShearWorkspace, A::Matrix{Float64})
+    m, n = size(A)
+    jpvt = mw.lap_jpvt
+    fill!(jpvt, 0)
+    tau = mw.lap_tau
+    lda = stride(A, 2)
+    work = mw.lap_qrwork
+    info = Ref{LinearAlgebra.BlasInt}()
+    if isempty(work)
+        qwork = Vector{Float64}(undef, 1)
+        ccall((LinearAlgebra.BLAS.@blasfunc(dgeqp3_), LinearAlgebra.libblastrampoline), Cvoid,
+              (Ref{LinearAlgebra.BlasInt}, Ref{LinearAlgebra.BlasInt}, Ptr{Float64}, Ref{LinearAlgebra.BlasInt},
+               Ptr{LinearAlgebra.BlasInt}, Ptr{Float64}, Ptr{Float64}, Ref{LinearAlgebra.BlasInt},
+               Ptr{LinearAlgebra.BlasInt}),
+              m, n, A, lda, jpvt, tau, qwork, LinearAlgebra.BlasInt(-1), info)
+        LinearAlgebra.LAPACK.chklapackerror(info[])
+        resize!(work, Int(real(qwork[1])))
+    end
+    ccall((LinearAlgebra.BLAS.@blasfunc(dgeqp3_), LinearAlgebra.libblastrampoline), Cvoid,
+          (Ref{LinearAlgebra.BlasInt}, Ref{LinearAlgebra.BlasInt}, Ptr{Float64}, Ref{LinearAlgebra.BlasInt},
+           Ptr{LinearAlgebra.BlasInt}, Ptr{Float64}, Ptr{Float64}, Ref{LinearAlgebra.BlasInt},
+           Ptr{LinearAlgebra.BlasInt}),
+          m, n, A, lda, jpvt, tau, work, LinearAlgebra.BlasInt(length(work)), info)
+    LinearAlgebra.LAPACK.chklapackerror(info[])
+    return QRPivoted(A, tau, jpvt)
+end
+
+# Replica of LAPACK.ormqr!('L', 'T', A, tau, C) (lapack.jl:2968) with cached
+# work — this is exactly what lmul!(adjoint(F.Q), C) dispatches to for the
+# BlasReal QRPackedQ (abstractq.jl:359).
+function _msws_ormqr_LT!(mw::MacNealShearWorkspace, A::Matrix{Float64},
+                         tau::Vector{Float64}, C::AbstractVecOrMat{Float64})
+    m, n = ndims(C) == 2 ? size(C) : (size(C, 1), 1)
+    k = length(tau)
+    work = mw.lap_ormwork
+    info = Ref{LinearAlgebra.BlasInt}()
+    if isempty(work)
+        qwork = Vector{Float64}(undef, 1)
+        ccall((LinearAlgebra.BLAS.@blasfunc(dormqr_), LinearAlgebra.libblastrampoline), Cvoid,
+              (Ref{UInt8}, Ref{UInt8}, Ref{LinearAlgebra.BlasInt}, Ref{LinearAlgebra.BlasInt},
+               Ref{LinearAlgebra.BlasInt}, Ptr{Float64}, Ref{LinearAlgebra.BlasInt}, Ptr{Float64},
+               Ptr{Float64}, Ref{LinearAlgebra.BlasInt}, Ptr{Float64}, Ref{LinearAlgebra.BlasInt},
+               Ref{LinearAlgebra.BlasInt}, Clong, Clong),
+              'L', 'T', m, n, k, A, max(1, stride(A, 2)), tau,
+              C, max(1, stride(C, 2)), qwork, LinearAlgebra.BlasInt(-1), info, 1, 1)
+        LinearAlgebra.LAPACK.chklapackerror(info[])
+        resize!(work, Int(real(qwork[1])))
+    end
+    ccall((LinearAlgebra.BLAS.@blasfunc(dormqr_), LinearAlgebra.libblastrampoline), Cvoid,
+          (Ref{UInt8}, Ref{UInt8}, Ref{LinearAlgebra.BlasInt}, Ref{LinearAlgebra.BlasInt},
+           Ref{LinearAlgebra.BlasInt}, Ptr{Float64}, Ref{LinearAlgebra.BlasInt}, Ptr{Float64},
+           Ptr{Float64}, Ref{LinearAlgebra.BlasInt}, Ptr{Float64}, Ref{LinearAlgebra.BlasInt},
+           Ref{LinearAlgebra.BlasInt}, Clong, Clong),
+          'L', 'T', m, n, k, A, max(1, stride(A, 2)), tau,
+          C, max(1, stride(C, 2)), work, LinearAlgebra.BlasInt(length(work)), info, 1, 1)
+    LinearAlgebra.LAPACK.chklapackerror(info[])
+    return C
+end
+
+# Replica of ldiv!(F::QRPivoted, B) (qr.jl:649 -> :568, the xgelsy-like
+# rank-revealing solve) with cached tmp/work and the invperm(F.jpvt)
+# permutation cached once per solve (stock re-derives the same values on
+# every access of F.p). Statement order, laic1 sequence, ormqr, triangular
+# solve, and permutation arithmetic are verbatim. The rank-deficient branch
+# (never taken by the guarded full-rank operators here) keeps the stock
+# tzrzf!/ormrz! statements including their allocations.
+function _msws_qrp_solve!(mw::MacNealShearWorkspace,
+                          F::QRPivoted{Float64,Matrix{Float64}},
+                          B::Matrix{Float64})
+    m, n = size(F)
+    rcond = min(m, n) * eps(Float64)
+    @inbounds begin
+        smin = smax = abs(F.factors[1])
+        if smax == 0
+            fill!(B, 0)
+            return B
+        end
+        mn = min(m, n)
+        tmp = resize!(mw.lap_tmp, 2mn)
+        wmin = view(tmp, 1:mn)
+        wmax = view(tmp, mn+1:2mn)
+        rnk = 1
+        wmin[1] = 1
+        wmax[1] = 1
+        while rnk < mn
+            i = rnk + 1
+            smin, s1, c1 = LinearAlgebra.LAPACK.laic1!(2, view(wmin, 1:rnk), smin,
+                view(F.factors, 1:rnk, i), F.factors[i,i])
+            smax, s2, c2 = LinearAlgebra.LAPACK.laic1!(1, view(wmax, 1:rnk), smax,
+                view(F.factors, 1:rnk, i), F.factors[i,i])
+            if smax*rcond > smin
+                break
+            end
+            for j in 1:rnk
+                wmin[j] *= s1
+                wmax[j] *= s2
+            end
+            wmin[i] = c1
+            wmax[i] = c2
+            rnk += 1
+        end
+        local C, τ, work
+        if rnk < n
+            C, τ = LinearAlgebra.LAPACK.tzrzf!(F.factors[1:rnk, :])
+            work = vec(C)
+        else
+            C, τ = F.factors, F.τ
+            work = resize!(tmp, n)
+        end
+        _msws_ormqr_LT!(mw, F.factors, F.τ, view(B, 1:m, :))
+        ldiv!(UpperTriangular(view(C, 1:rnk, 1:rnk)), view(B, 1:rnk, :))
+        if rnk < n
+            B[rnk+1:n,:] .= zero(Float64)
+            LinearAlgebra.LAPACK.ormrz!('L', 'T', C, τ, view(B, 1:n, :))
+        end
+        # stock reads A.p, which getproperty(::QRPivoted, :p) resolves to the
+        # jpvt field itself (qr.jl:500) — no inversion.
+        p = F.jpvt
+        for j in axes(B, 2)
+            for i in 1:n
+                work[p[i]] = B[i,j]
+            end
+            for i in 1:n
+                B[i,j] = work[i]
+            end
+        end
+    end
+    return B
+end
+
+# Replica of lu!(A) for 4x4 Float64 (lu.jl:90): getrf! with cached ipiv,
+# then the same success check and LU construction.
+function _msws_lu4!(mw::MacNealShearWorkspace, A::Matrix{Float64})
+    factors, ipiv, info = LinearAlgebra.LAPACK.getrf!(A, mw.lap_luipiv; check=true)
+    LinearAlgebra._check_lu_success(info, false)
+    return LU{Float64,Matrix{Float64},Vector{LinearAlgebra.BlasInt}}(factors, ipiv, info)
+end
+
+# Replica of LAPACK.getri!(A, ipiv) (lapack.jl:1070) with cached work.
+function _msws_getri!(mw::MacNealShearWorkspace, A::Matrix{Float64},
+                      ipiv::Vector{LinearAlgebra.BlasInt})
+    n = size(A, 1)
+    lda = max(1, stride(A, 2))
+    work = mw.lap_griwork
+    info = Ref{LinearAlgebra.BlasInt}()
+    if isempty(work)
+        qwork = Vector{Float64}(undef, 1)
+        ccall((LinearAlgebra.BLAS.@blasfunc(dgetri_), LinearAlgebra.libblastrampoline), Cvoid,
+              (Ref{LinearAlgebra.BlasInt}, Ptr{Float64}, Ref{LinearAlgebra.BlasInt}, Ptr{LinearAlgebra.BlasInt},
+               Ptr{Float64}, Ref{LinearAlgebra.BlasInt}, Ptr{LinearAlgebra.BlasInt}),
+              n, A, lda, ipiv, qwork, LinearAlgebra.BlasInt(-1), info)
+        LinearAlgebra.LAPACK.chklapackerror(info[])
+        resize!(work, Int(real(qwork[1])))
+    end
+    ccall((LinearAlgebra.BLAS.@blasfunc(dgetri_), LinearAlgebra.libblastrampoline), Cvoid,
+          (Ref{LinearAlgebra.BlasInt}, Ptr{Float64}, Ref{LinearAlgebra.BlasInt}, Ptr{LinearAlgebra.BlasInt},
+           Ptr{Float64}, Ref{LinearAlgebra.BlasInt}, Ptr{LinearAlgebra.BlasInt}),
+          n, A, lda, ipiv, work, LinearAlgebra.BlasInt(length(work)), info)
+    LinearAlgebra.LAPACK.chklapackerror(info[])
+    return A
+end
+
+# Replica of svdvals!(A) == LAPACK.gesdd!('N', A)[2] for 4x4 Float64
+# (lapack.jl:1668) with cached S/work/iwork and the 4x0 U/VT stubs the 'N'
+# job constructs; includes the stock nextfloat lwork rounding.
+function _msws_svdvals4!(mw::MacNealShearWorkspace, A::Matrix{Float64})
+    m, n = size(A)
+    U = mw.lap_svU
+    VT = mw.lap_svVT
+    S = mw.lap_svS
+    iwork = mw.lap_sviwork
+    work = mw.lap_svwork
+    info = Ref{LinearAlgebra.BlasInt}()
+    if isempty(work)
+        qwork = Vector{Float64}(undef, 1)
+        ccall((LinearAlgebra.BLAS.@blasfunc(dgesdd_), LinearAlgebra.libblastrampoline), Cvoid,
+              (Ref{UInt8}, Ref{LinearAlgebra.BlasInt}, Ref{LinearAlgebra.BlasInt}, Ptr{Float64},
+               Ref{LinearAlgebra.BlasInt}, Ptr{Float64}, Ptr{Float64}, Ref{LinearAlgebra.BlasInt},
+               Ptr{Float64}, Ref{LinearAlgebra.BlasInt}, Ptr{Float64}, Ref{LinearAlgebra.BlasInt},
+               Ptr{LinearAlgebra.BlasInt}, Ref{LinearAlgebra.BlasInt}, Clong),
+              'N', m, n, A, max(1, stride(A, 2)), S, U, max(1, stride(U, 2)),
+              VT, max(1, stride(VT, 2)), qwork, LinearAlgebra.BlasInt(-1), iwork, info, 1)
+        LinearAlgebra.LAPACK.chklapackerror(info[])
+        resize!(work, round(Int, nextfloat(real(qwork[1]))))
+    end
+    ccall((LinearAlgebra.BLAS.@blasfunc(dgesdd_), LinearAlgebra.libblastrampoline), Cvoid,
+          (Ref{UInt8}, Ref{LinearAlgebra.BlasInt}, Ref{LinearAlgebra.BlasInt}, Ptr{Float64},
+           Ref{LinearAlgebra.BlasInt}, Ptr{Float64}, Ptr{Float64}, Ref{LinearAlgebra.BlasInt},
+           Ptr{Float64}, Ref{LinearAlgebra.BlasInt}, Ptr{Float64}, Ref{LinearAlgebra.BlasInt},
+           Ptr{LinearAlgebra.BlasInt}, Ref{LinearAlgebra.BlasInt}, Clong),
+          'N', m, n, A, max(1, stride(A, 2)), S, U, max(1, stride(U, 2)),
+          VT, max(1, stride(VT, 2)), work, LinearAlgebra.BlasInt(length(work)), iwork, info, 1)
+    LinearAlgebra.LAPACK.chklapackerror(info[])
+    return S
+end
+
+# `A \ B` for square A (generic.jl:1220): the Diagonal/LowerTriangular/
+# UpperTriangular structure branches are delegated to the stock operators
+# (identical values, small allocations, rare-but-real on isotropic decks);
+# the general branch replicates `lu(A) \ B` — getrf on a copy of A
+# (copy_similar == copyto! into the scratch) followed by
+# `ldiv!(F, copyto!(dest, B))` (LinearAlgebra.ldiv at LinearAlgebra.jl:694
+# copies B into a same-shape buffer and cuts nothing for square A).
+function _msws_ldiv_sq!(mw::MacNealShearWorkspace, dest::AbstractMatrix,
+                        scratch::Matrix, A::AbstractMatrix, B::AbstractMatrix)
+    if istril(A)
+        if istriu(A)
+            dest .= Diagonal(A) \ B
+        else
+            dest .= LowerTriangular(A) \ B
+        end
+    elseif istriu(A)
+        dest .= UpperTriangular(A) \ B
+    else
+        copyto!(scratch, A)
+        F = scratch isa Matrix{Float64} ? _msws_lu4!(mw, scratch) : lu!(scratch)
+        copyto!(dest, B)
+        ldiv!(F, dest)
+    end
+    return dest
+end
+
+# `inv(A::StridedMatrix)` (dense.jl:1080): the isdiag/istriu/istril branches
+# are delegated to stock inv (identical values); the general branch replicates
+# `inv!(lu(A))` — getrf on a copy, getri! in place on those factors.
+function _msws_inv!(mw::MacNealShearWorkspace, dest::Matrix, scratch::Matrix,
+                    A::AbstractMatrix)
+    if isdiag(A) || istriu(A) || istril(A)
+        dest .= inv(A)
+    else
+        copyto!(scratch, A)
+        if scratch isa Matrix{Float64}
+            F = _msws_lu4!(mw, scratch)
+            _msws_getri!(mw, F.factors, F.ipiv)
+        else
+            F = lu!(scratch)
+            LinearAlgebra.inv!(F)
+        end
+        dest .= scratch
+    end
+    return dest
+end
+
+# `A / B` for square 4x4 (generic.jl:1264): copy(adjoint(adjoint(B) \ adjoint(A))).
+# The inner square solve goes through _msws_ldiv_sq! (same branches as stock \),
+# and the final copy(adjoint(...)) materializes into dest — a plain Matrix,
+# exactly as stock `/` returns.
+function _msws_rdiv_sq!(mw::MacNealShearWorkspace, dest::Matrix, scratch::Matrix,
+                        sol::Matrix, A::AbstractMatrix, B::AbstractMatrix)
+    _msws_ldiv_sq!(mw, sol, scratch, adjoint(B), adjoint(A))
+    @inbounds for j in axes(dest, 2), i in axes(dest, 1)
+        dest[i,j] = sol[j,i]
+    end
+    return dest
+end
+
+# `A / B` for wide 4x12 operands (generic.jl:1264 + generic.jl:1236):
+# copy(adjoint(qr(adjoint(B), ColumnNorm()) \ adjoint(A))). geqp3 runs on the
+# same materialized 12x4 copy that qr's copy_similar produces; the QRPivoted
+# `\` (LinearAlgebra.jl:690/694) copies the rhs into a 12x4 zeros buffer
+# (fully overwritten here since size(B',1) == 12 == max(12,4)), runs the
+# rank-revealing ldiv!, and cuts rows 1:4; the cut+outer copy(adjoint)
+# collapse to the transposed copy into dest.
+function _msws_rdiv_wide!(mw::MacNealShearWorkspace, dest::Matrix,
+                          A::AbstractMatrix, B::AbstractMatrix)
+    qrA = mw.qrA
+    qrX = mw.qrX
+    copyto!(qrA, adjoint(B))
+    if qrA isa Matrix{Float64} && qrX isa Matrix{Float64}
+        F = _msws_geqp3!(mw, qrA)
+        copyto!(qrX, adjoint(A))
+        _msws_qrp_solve!(mw, F, qrX)
+    else
+        F = qr!(qrA, ColumnNorm())
+        copyto!(qrX, adjoint(A))
+        ldiv!(F, qrX)
+    end
+    @inbounds for j in axes(dest, 2), i in axes(dest, 1)
+        dest[i,j] = qrX[j,i]
+    end
+    return dest
+end
+
+# `cond(M, 2)` (dense.jl:1801, non-empty branch): svdvals(M) — i.e.
+# svdvals!(copy of M) — with the copy landing in mw.svd4 and the gesdd
+# scratch cached for the Float64 path.
+function _msws_cond2(mw::MacNealShearWorkspace, M::AbstractMatrix)
+    scratch = mw.svd4
+    copyto!(scratch, M)
+    v = scratch isa Matrix{Float64} ? _msws_svdvals4!(mw, scratch) : svdvals!(scratch)
+    maxv = maximum(v)
+    return iszero(maxv) ? oftype(real(maxv), Inf) : maxv / minimum(v)
+end
+
 # Thread-safe matrix multiplication replacing BLAS mul! (which is NOT re-entrant on Windows).
 # C += alpha * A * B   (A is m×k, B is k×n, C is m×n)
 @inline function ts_mul_add!(C, A, B, alpha)
@@ -380,13 +848,22 @@ function quad4_finite_warp_displacement_map(coords::AbstractMatrix,
     xmax = max(maximum(abs, @view coords[:,1]), 1e-30)
     maximum(abs, zl4) > 1e-12 * xmax || return nothing
 
+    Tg = Matrix{Float64}(I, 24, 24)
+    _quad4_finite_warp_fill!(Tg, coords, zl4)
+    return Tg
+end
+
+# Entry fill of the finite-warp map onto an identity-initialized 24x24 buffer.
+# Body moved verbatim from quad4_finite_warp_displacement_map (allocation
+# elimination 2026-08-06); the arithmetic and statement order are unchanged.
+function _quad4_finite_warp_fill!(Tg::AbstractMatrix, coords::AbstractMatrix,
+                                   zl4)
     # Ke is in the caller's local frame. Use its projected x,y coordinates
     # and offsets about the same diagonal-cross mean plane. The height field
     # is bilinear in natural coordinates, so evaluate its corner slopes
     # through the corner Jacobian.
     corner = ((-1.0,-1.0), (1.0,-1.0),
               (1.0,1.0), (-1.0,1.0))
-    Tg = Matrix{Float64}(I, 24, 24)
     @inbounds for i in 1:4
         rr, ss = corner[i]
         dNr, dNs = shape_derivs_quad(rr, ss)
@@ -443,6 +920,24 @@ function quad4_finite_warp_displacement_map(coords::AbstractMatrix,
             Tg[6(i-1)+2, 6(j-1)+3] += zl4[i]*dNdy
         end
     end
+    return Tg
+end
+# (end of _quad4_finite_warp_fill!)
+
+# Buffer-building variant of quad4_finite_warp_displacement_map (allocation
+# elimination 2026-08-06): identical values, written onto a caller-supplied
+# 24x24 initialized here exactly like Matrix{Float64}(I, 24, 24).
+function _quad4_finite_warp_map_into!(Tg::AbstractMatrix,
+                                       coords::AbstractMatrix,
+                                       coords_3d::AbstractMatrix)
+    zl4 = quad4_local_z_from_coords3d(coords_3d)
+    xmax = max(maximum(abs, @view coords[:,1]), 1e-30)
+    maximum(abs, zl4) > 1e-12 * xmax || return nothing
+    fill!(Tg, 0.0)
+    @inbounds for i in 1:24
+        Tg[i,i] = 1.0
+    end
+    _quad4_finite_warp_fill!(Tg, coords, zl4)
     return Tg
 end
 
@@ -507,10 +1002,34 @@ end
 
 function apply_quad4_finite_warp_equilibrium!(Ke::AbstractMatrix,
                                                coords::AbstractMatrix,
-                                               coords_3d::AbstractMatrix)
-    Tg = quad4_finite_warp_displacement_map(coords, coords_3d)
-    Tg === nothing && return Ke
-    Kt = transpose(Tg) * Ke * Tg
+                                               coords_3d::AbstractMatrix,
+                                               ws::Union{Nothing,Quad4Workspace}=nothing)
+    if ws === nothing
+        Tg = quad4_finite_warp_displacement_map(coords, coords_3d)
+        Tg === nothing && return Ke
+        Kt = transpose(Tg) * Ke * Tg
+        @inbounds for j in 1:24, i in 1:24
+            Ke[i,j] = 0.5*(Kt[i,j] + Kt[j,i])
+        end
+        return Ke
+    end
+    # Workspace path (allocation elimination 2026-08-06): identical arithmetic.
+    # The map is built onto ws.T_buf (fill!+diag == Matrix{Float64}(I,24,24)),
+    # and the congruence transpose(Tg)*Ke*Tg — which the 3-arg * evaluates as
+    # (transpose(Tg)*Ke)*Tg — becomes the same two BLAS gemm calls via mul!
+    # into ws.tmp24x24 / ws.Ke_global (both otherwise unused).
+    zl4 = quad4_local_z_from_coords3d(coords_3d)
+    xmax = max(maximum(abs, @view coords[:,1]), 1e-30)
+    maximum(abs, zl4) > 1e-12 * xmax || return Ke
+    Tg = ws.T_buf
+    fill!(Tg, 0.0)
+    @inbounds for i in 1:24
+        Tg[i,i] = 1.0
+    end
+    _quad4_finite_warp_fill!(Tg, coords, zl4)
+    mul!(ws.tmp24x24, transpose(Tg), Ke)
+    mul!(ws.Ke_global, ws.tmp24x24, Tg)
+    Kt = ws.Ke_global
     @inbounds for j in 1:24, i in 1:24
         Ke[i,j] = 0.5*(Kt[i,j] + Kt[j,i])
     end
@@ -597,17 +1116,34 @@ absolute director without double-counting the geometric corner tilt. This is
 the parameter-free work-dual map selected by retained fold, star, taper, and
 hemisphere element matrices.
 """
-function quad4_snorm_normal_moment_displacement_map(
-    coords::AbstractMatrix,
-    snorm_pq::AbstractMatrix,
-)
+function _quad4_snorm_nm_map_checks(coords::AbstractMatrix, snorm_pq::AbstractMatrix)
     size(coords, 1) == 4 || throw(ArgumentError("coords must have four rows"))
     size(coords, 2) >= 2 || throw(ArgumentError("coords must have x and y columns"))
     size(snorm_pq, 1) == 4 || throw(ArgumentError("snorm_pq must have four rows"))
     size(snorm_pq, 2) >= 2 || throw(ArgumentError("snorm_pq must have p and q columns"))
+    return nothing
+end
+
+function quad4_snorm_normal_moment_displacement_map(
+    coords::AbstractMatrix,
+    snorm_pq::AbstractMatrix,
+)
+    _quad4_snorm_nm_map_checks(coords, snorm_pq)
 
     T = Matrix{Float64}(I, 24, 24)
     all(iszero, snorm_pq) && return T
+    _quad4_snorm_normal_moment_fill!(T, coords, snorm_pq)
+    return T
+end
+
+# Entry fill of the SNORM normal-moment map onto an identity-initialized 24x24
+# buffer. Body moved verbatim from the map above (allocation elimination
+# 2026-08-06); the arithmetic and statement order are unchanged.
+function _quad4_snorm_normal_moment_fill!(
+    T::AbstractMatrix,
+    coords::AbstractMatrix,
+    snorm_pq::AbstractMatrix,
+)
     corner_rs = ((-1.0, -1.0), (1.0, -1.0),
                  (1.0, 1.0), (-1.0, 1.0))
     @inbounds for i in 1:4
@@ -655,10 +1191,29 @@ function apply_quad4_snorm_normal_moment_completion!(
     Ke::AbstractMatrix,
     coords::AbstractMatrix,
     snorm_pq::AbstractMatrix,
+    ws::Union{Nothing,Quad4Workspace}=nothing,
 )
     all(iszero, snorm_pq) && return Ke
-    T = quad4_snorm_normal_moment_displacement_map(coords, snorm_pq)
-    Kt = transpose(T) * Ke * T
+    if ws === nothing
+        T = quad4_snorm_normal_moment_displacement_map(coords, snorm_pq)
+        Kt = transpose(T) * Ke * T
+        @inbounds for j in 1:24, i in 1:24
+            Ke[i,j] = 0.5*(Kt[i,j] + Kt[j,i])
+        end
+        return Ke
+    end
+    # Workspace path (allocation elimination 2026-08-06): identical arithmetic
+    # — see apply_quad4_finite_warp_equilibrium! for the buffer contract.
+    _quad4_snorm_nm_map_checks(coords, snorm_pq)
+    T = ws.T_buf
+    fill!(T, 0.0)
+    @inbounds for i in 1:24
+        T[i,i] = 1.0
+    end
+    _quad4_snorm_normal_moment_fill!(T, coords, snorm_pq)
+    mul!(ws.tmp24x24, transpose(T), Ke)
+    mul!(ws.Ke_global, ws.tmp24x24, T)
+    Kt = ws.Ke_global
     @inbounds for j in 1:24, i in 1:24
         Ke[i,j] = 0.5*(Kt[i,j] + Kt[j,i])
     end
@@ -1655,7 +2210,7 @@ include(joinpath(@__DIR__, "experimental", "hu_washizu_kernel.jl"))
 # Pre-allocated workspace `ws` eliminates ALL heap allocations in the hot loop
 # (~5M alloc saved across HTP_launch).
 # =============================================================================
-function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, snorm_pq=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, membrane_hourglass_skew::Bool=false, distortion_corrections::Bool=true, _defer_warp_transform::Bool=false, _defer_snorm_transform::Bool=false)
+function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, msws::Union{Nothing,MacNealShearWorkspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, snorm_pq=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, membrane_hourglass_skew::Bool=false, distortion_corrections::Bool=true, _defer_warp_transform::Bool=false, _defer_snorm_transform::Bool=false)
     # Allow env-var override for marguerre_warp_to_uz so it can be enabled
     # globally without plumbing through every caller. Currently the assembly
     # loop doesn't pass this kwarg, so default is false. Env override:
@@ -1714,7 +2269,12 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         # splices defer both transforms and therefore receive this already
         # relative field without applying the residual a second time.
         warp_map_for_snorm = if coords_3d !== nothing && warp_transform_on
-            quad4_finite_warp_displacement_map(coords, coords_3d)
+            # ws.T_buf is dead here (the SNORM/warp appliers rebuild it later
+            # in the core), so build the map in place when a workspace exists;
+            # the map values and the pq composition below are identical.
+            ws === nothing ?
+                quad4_finite_warp_displacement_map(coords, coords_3d) :
+                _quad4_finite_warp_map_into!(ws.T_buf, coords, coords_3d)
         else
             nothing
         end
@@ -1965,8 +2525,15 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         create_quad4_workspace(promote_type(
             eltype(Cm), eltype(Cb), eltype(Cs), typeof(h), typeof(E_ref))) :
         ws
+    # MacNeal-RBF scratch workspace, resolved with the RBF kernel's own
+    # element type promote_type(eltype(Ke), eltype(Cb), eltype(Cs), typeof(h))
+    # so the concrete MacNealShearWorkspace{T} matches the kernel's buffers.
+    msws_c = msws === nothing ?
+        create_macneal_shear_workspace(promote_type(
+            eltype(ws_c.Ke), eltype(Cb), eltype(Cs), typeof(h))) :
+        msws
     return _stiffness_quad4_core!(
-        ws_c, coords, Cm, Cb, Cs, h, E_ref,
+        ws_c, msws_c, coords, Cm, Cb, Cs, h, E_ref,
         k6rot, drill_scale, Bmb,
         bending_incomp, shear_center_only, no_phi2,
         membrane_incomp, membrane_incomp_scale, membrane_incomp_weights,
@@ -1989,7 +2556,7 @@ end
 # splices live in the dispatcher, so this function never calls the public
 # entry. The statement sequence is the original function body, unchanged.
 function _stiffness_quad4_core!(
-    ws::Quad4Workspace, coords, Cm, Cb, Cs, h, E_ref,
+    ws::Quad4Workspace, msws::MacNealShearWorkspace, coords, Cm, Cb, Cs, h, E_ref,
     k6rot, drill_scale::Float64, Bmb,
     bending_incomp::Bool, shear_center_only::Bool, no_phi2::Bool,
     membrane_incomp::Bool, membrane_incomp_scale::Float64, membrane_incomp_weights,
@@ -2830,6 +3397,7 @@ function _stiffness_quad4_core!(
             Cm=Cm, Bmb=Bmb,
             distortion_corrections=distortion_corrections,
             snorm_pq=snorm_pq,
+            msws=msws,
         )
     end
 
@@ -3194,7 +3762,7 @@ function _stiffness_quad4_core!(
     if snorm_transform_on
         if snorm_normal_moment
             apply_quad4_snorm_normal_moment_completion!(
-                ws.Ke, coords, snorm_transform_pq)
+                ws.Ke, coords, snorm_transform_pq, ws)
         else
             apply_quad4_snorm_director_completion!(ws.Ke, snorm_transform_pq)
         end
@@ -3232,7 +3800,7 @@ function _stiffness_quad4_core!(
     # rigid residuals are <=4e-17. The extreme-warp remainder is confined to
     # plate channels (plate--plate 6.780e-6, plate--drill 1.097e-6).
     if coords_3d !== nothing && warp_transform_on
-        apply_quad4_finite_warp_equilibrium!(ws.Ke, coords, coords_3d)
+        apply_quad4_finite_warp_equilibrium!(ws.Ke, coords, coords_3d, ws)
     end
 
     return ws.Ke
@@ -3439,6 +4007,7 @@ function add_quad4_macneal_shear_rbf!(
     Bmb = nothing,
     distortion_corrections::Bool = true,
     snorm_pq = nothing,
+    msws::Union{Nothing,MacNealShearWorkspace} = nothing,
 )
     # Shortcut: skip if thickness or shear modulus is effectively zero
     if h < 1e-30 || (!rigid_shear && maximum(abs, Cs) < 1e-30)
@@ -3544,8 +4113,13 @@ function add_quad4_macneal_shear_rbf!(
     shear_cross_taper = taper_diff_fit && fem_env_bool("JFEM_Q4_TAPER_SHEAR_CROSS", true)
 
     T = promote_type(eltype(Ke), eltype(Cb), eltype(Cs), typeof(h))
-    D_mat = zeros(T, 4, 12)
-    J_pts = zeros(4)
+    # Per-thread scratch workspace (allocation elimination 2026-08-06). A
+    # `nothing` kwarg (direct script calls) creates a fresh instance, exactly
+    # reproducing the historical per-call allocation behavior.
+    mw = (msws === nothing ? create_macneal_shear_workspace(T) :
+          msws)::MacNealShearWorkspace{T}
+    D_mat = fill!(mw.D_mat, zero(T))
+    J_pts = fill!(mw.J_pts, 0.0)
     # Per-shear-sample-point physical extents for the residual-bending-flexibility
     # block (MacNeal eq 26, generalized to non-rectangular quads).
     #   pt_delta[1] = 2·J11 at (ξ=0, η=-1/√3)  → physical x-extent at γ_x sample a
@@ -3554,7 +4128,7 @@ function add_quad4_macneal_shear_rbf!(
     #   pt_delta[4] = 2·J22 at (ξ=+1/√3, η=0)  → physical y-extent at γ_y sample d
     # On a rectangle (and hence on any uniform-Jacobian quad) all γ_x extents collapse
     # to MacNeal's Δx and all γ_y extents to Δy, recovering the original eq (26).
-    pt_delta = zeros(4)
+    pt_delta = fill!(mw.pt_delta, 0.0)
     # JFEM_Q4_MACNEAL_SHEAR_COVARIANT (default OFF): build the substitute shear
     # samples as COVARIANT (strip-tangent) strains γ_t = (w,ξ + x,ξ·θy − y,ξ·θx)/|x,ξ|
     # instead of direct isoparametric γ_x/γ_y at the sample points. Identical on
@@ -3579,12 +4153,12 @@ function add_quad4_macneal_shear_rbf!(
     # reference block to 0.3% at full HTP skew where the strip form leaves a
     # 9x gamma_eta compliance deficit and misses the -8.9 cross coupling.
     shear_mitc = shear_cov_mode in ("mitc", "mitc_phys", "mitcphys")
-    t_hat = zeros(2, 4)
-    mitc_C = shear_mitc ? zeros(T, 4, 12) : nothing
-    mitc_J = shear_mitc ? zeros(2, 2, 4) : nothing
-    mitc_Ce = (shear_mitc && pt_row != pt) ? zeros(T, 4, 12) : nothing
-    mitc_Je = mitc_Ce === nothing ? nothing : zeros(2, 2, 4)
-    D_edge  = mitc_Ce === nothing ? nothing : zeros(T, 4, 12)
+    t_hat = fill!(mw.t_hat, 0.0)
+    mitc_C = shear_mitc ? fill!(mw.mitc_C, zero(T)) : nothing
+    mitc_J = shear_mitc ? fill!(mw.mitc_J, 0.0) : nothing
+    mitc_Ce = (shear_mitc && pt_row != pt) ? fill!(mw.mitc_Ce, zero(T)) : nothing
+    mitc_Je = mitc_Ce === nothing ? nothing : fill!(mw.mitc_Je, 0.0)
+    D_edge  = mitc_Ce === nothing ? nothing : fill!(mw.D_edge, zero(T))
     @inbounds for sp_idx in 1:4
         xi, eta, comp = shear_pts[sp_idx]
         dNr, dNs = shape_derivs_quad(xi, eta)
@@ -3962,7 +4536,7 @@ function add_quad4_macneal_shear_rbf!(
     # taper -0.068, patch -0.144, and it WINS at aspect 20/30 where the 21-knot table
     # was flat-extrapolated from unmeasured data. Variants rejected there: "cov"
     # (covariant lengths, +9.5 pt at skew) and flex_mode=full (+36 pt).
-    Zb = zeros(T, 4, 4)
+    Zb = fill!(mw.Zb, zero(T))
     length_mode = lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_RBF_LENGTH_MODE", "paper")))
     swap_xy = length_mode in ("swap", "swapped", "cross")
     Lx2_rbf = swap_xy ? Dy2 : Dx2
@@ -4254,10 +4828,10 @@ function add_quad4_macneal_shear_rbf!(
     # Physical shear compliance (eq 23-25)
     # [V^s] = diag(√(2 J_p)); [V^s G^s V^s] has G_s = Cs for same-component pairs,
     # G_xy for cross-pairs (symmetric per eq 25)
-    Zs = zeros(T, 4, 4)
+    Zs = fill!(mw.Zs, zero(T))
     if !rigid_shear
     comps = (1, 1, 2, 2)
-    VGV = zeros(T, 4, 4)
+    VGV = fill!(mw.VGV, zero(T))
     @inbounds for i in 1:4, j in 1:4
         ci = comps[i]; cj = comps[j]
         Jfac = sqrt(2.0*J_pts[i]) * sqrt(2.0*J_pts[j])
@@ -4289,9 +4863,16 @@ function add_quad4_macneal_shear_rbf!(
 
     # Enforce symmetry of VGV before inversion (protects against asymmetry
     # from accumulated floating-point differences in cross-coupling terms)
-    VGV_sym = 0.5 * (VGV + VGV')
-    Zs .= inv(VGV_sym)
-    Zs .= 0.5 .* (Zs .+ Zs')
+    VGV_sym = mw.VGV_sym
+    @inbounds for j in 1:4, i in 1:4
+        VGV_sym[i,j] = 0.5 * (VGV[i,j] + VGV[j,i])
+    end
+    _msws_inv!(mw, mw.inv4, mw.lu4a, VGV_sym)
+    Zs .= mw.inv4
+    copyto!(mw.sym4, Zs)
+    @inbounds for j in 1:4, i in 1:4
+        Zs[i,j] = 0.5 * (mw.sym4[i,j] + mw.sym4[j,i])
+    end
     end
     if lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_SHEAR_DEBUG", "false"))) in ("1","true","yes","on")
         println("[SHEAR_DEBUG] Zs(x1e6): ", round.(1e6 .* Zs; digits=4))
@@ -4349,7 +4930,7 @@ function add_quad4_macneal_shear_rbf!(
         # Orient opposite edges consistently with the positive x/y sample
         # directions: 1->2, 4->3, 1->4, 2->3.
         edge_nodes = ((1,2), (4,3), (1,4), (2,3))
-        Dtan = zeros(T, 4, 12)
+        Dtan = fill!(mw.Dtan, zero(T))
         for e in 1:4
             n1, n2 = edge_nodes[e]
             tx = coords[n2,1] - coords[n1,1]
@@ -4369,9 +4950,11 @@ function add_quad4_macneal_shear_rbf!(
         # spaces coincide; expressing the map through the actual nodal rows
         # avoids assuming that missing physical components interpolate with a
         # Cartesian average on a non-affine cell.
-        Elin = Dtan / D_mat
-        elin_residual = norm(Dtan - Elin * D_mat) / max(norm(Dtan), eps(T))
-        elin_cond = cond(Elin)
+        Elin = _msws_rdiv_wide!(mw, mw.Elin_buf, Dtan, D_mat)
+        mul!(mw.res_a, Elin, D_mat)
+        mw.res_b .= Dtan .- mw.res_a
+        elin_residual = norm(mw.res_b) / max(norm(Dtan), eps(T))
+        elin_cond = _msws_cond2(mw, Elin)
         (!isfinite(elin_cond) || elin_cond > 1e12 || elin_residual > 1e-10) &&
             throw(ArgumentError(
                 "incompatible MITC/tangential row spaces in assumed-linear interaction"))
@@ -4410,11 +4993,12 @@ function add_quad4_macneal_shear_rbf!(
             Rpolar = Aaff * inv_root
             Aorth = Rpolar * Diagonal(T[max(hypot(grx, gry), 1e-14),
                                         max(hypot(gsx, gsy), 1e-14)])
-            fan = T[fcx, fcy]
+            fan = mw.fan2
+            fan[1] = fcx
+            fan[2] = fcy
             corners = ((-1.0,-1.0), (1.0,-1.0), (1.0,1.0), (-1.0,1.0))
 
-            make_companion = function (affine, with_fan)
-                X = zeros(T, 4, 2)
+            make_companion = function (X, affine, with_fan)
                 for k in 1:4
                     rr, ss = corners[k]
                     X[k,1] = affine[1,1]*rr + affine[1,2]*ss
@@ -4426,8 +5010,9 @@ function add_quad4_macneal_shear_rbf!(
                 end
                 X
             end
-            assumed_H = function (X)
-                HH = zeros(T, 4, 4)
+            assumed_H = function (Hdest, X)
+                HH = fill!(mw.HH, zero(T))
+                PP = mw.PP
                 for rr in (-gpt, gpt), ss in (-gpt, gpt)
                     dNr, dNs = shape_derivs_quad(rr, ss)
                     j11 = sum(dNr[k]*X[k,1] for k in 1:4)
@@ -4439,13 +5024,22 @@ function add_quad4_macneal_shear_rbf!(
                           0.25*(1+rr)*(1+ss), 0.25*(1-rr)*(1+ss))
                     xx = sum(nv[k]*X[k,1] for k in 1:4)
                     yy = sum(nv[k]*X[k,2] for k in 1:4)
-                    PP = T[1 yy 0 0; 0 0 1 xx]
-                    HH .+= da .* (transpose(PP) * Cs * PP)
+                    # PP = T[1 yy 0 0; 0 0 1 xx] written into the hoisted 2x4
+                    PP[1,1] = one(T);  PP[1,2] = T(yy);    PP[1,3] = zero(T); PP[1,4] = zero(T)
+                    PP[2,1] = zero(T); PP[2,2] = zero(T);  PP[2,3] = one(T);  PP[2,4] = T(xx)
+                    # (transpose(PP) * Cs) * PP — same two gemm calls as the
+                    # 3-arg * (equal-cost tie evaluates left-associated)
+                    mul!(mw.PtCs, transpose(PP), Cs)
+                    mul!(mw.PCP, mw.PtCs, PP)
+                    HH .+= da .* mw.PCP
                 end
-                0.5 * (HH + transpose(HH))
+                @inbounds for j in 1:4, i in 1:4
+                    Hdest[i,j] = 0.5 * (HH[i,j] + HH[j,i])
+                end
+                Hdest
             end
-            edge_G = function (X)
-                GG = zeros(T, 4, 4)
+            edge_G = function (GG, X)
+                fill!(GG, zero(T))
                 for e in 1:4
                     n1, n2 = edge_nodes[e]
                     tx = X[n2,1] - X[n1,1]
@@ -4460,8 +5054,8 @@ function add_quad4_macneal_shear_rbf!(
                 GG
             end
 
-            edge_Dtan = function (X)
-                DD = zeros(T, 4, 12)
+            edge_Dtan = function (DD, X)
+                fill!(DD, zero(T))
                 for e in 1:4
                     n1, n2 = edge_nodes[e]
                     tx = X[n2,1] - X[n1,1]
@@ -4482,11 +5076,11 @@ function add_quad4_macneal_shear_rbf!(
             # geometry.  The covariant edge fields are interpolated first and
             # then converted to the requested physical x/y component with the
             # edge-midpoint Jacobian, exactly as for D_mat above.
-            legacy_edge_D = function (X)
+            legacy_edge_D = function (DD, X)
                 pts = ((0.0,-1.0,1), (0.0,1.0,1),
                        (-1.0,0.0,2), (1.0,0.0,2))
-                Ccov = zeros(T, 4, 12)
-                Js = zeros(T, 2, 2, 4)
+                Ccov = fill!(mw.Ccov, zero(T))
+                Js = fill!(mw.Js, zero(T))
                 for sp in 1:4
                     rr, ss, comp = pts[sp]
                     dNr, dNs = shape_derivs_quad(rr, ss)
@@ -4506,7 +5100,7 @@ function add_quad4_macneal_shear_rbf!(
                         Ccov[sp,col+3] =  nv[k]*tx
                     end
                 end
-                DD = zeros(T, 4, 12)
+                fill!(DD, zero(T))
                 for sp in 1:4
                     rr, ss, _ = pts[sp]
                     J = @view Js[:,:,sp]
@@ -4528,9 +5122,9 @@ function add_quad4_macneal_shear_rbf!(
 
             # Physical-shear flexibility used by the legacy kernel, evaluated
             # on a companion at its original Gauss tying abscissae.
-            legacy_Zs_gauss = function (X)
+            legacy_Zs_gauss = function (dest, X)
                 pts = ((0.0,-gpt), (0.0,gpt), (-gpt,0.0), (gpt,0.0))
-                jac = zeros(T, 4)
+                jac = fill!(mw.jac4, zero(T))
                 for sp in 1:4
                     rr, ss = pts[sp]
                     dNr, dNs = shape_derivs_quad(rr, ss)
@@ -4543,7 +5137,7 @@ function add_quad4_macneal_shear_rbf!(
                 # closure-local name: assigning `comps` here would write the
                 # enclosing function's `comps` and Core.Box it (PERF de-box)
                 comps_l = (1, 1, 2, 2)
-                VV = zeros(T, 4, 4)
+                VV = fill!(mw.VV, zero(T))
                 for i in 1:4, j in 1:4
                     ci = comps_l[i]; cj = comps_l[j]
                     jf = sqrt(2*jac[i]) * sqrt(2*jac[j])
@@ -4553,12 +5147,18 @@ function add_quad4_macneal_shear_rbf!(
                         VV[i,j] = 0.5*jf*Cs[ci,cj]
                     end
                 end
-                VV .= 0.5 .* (VV .+ transpose(VV))
+                copyto!(mw.sym4, VV)
+                @inbounds for j in 1:4, i in 1:4
+                    VV[i,j] = 0.5 * (mw.sym4[i,j] + mw.sym4[j,i])
+                end
                 for i in 1:4
                     VV[i,i] = max(VV[i,i], T(1e-30))
                 end
-                ZZ = inv(VV)
-                0.5 * (ZZ + transpose(ZZ))
+                _msws_inv!(mw, mw.inv4, mw.lu4a, VV)
+                @inbounds for j in 1:4, i in 1:4
+                    dest[i,j] = 0.5 * (mw.inv4[i,j] + mw.inv4[j,i])
+                end
+                dest
             end
 
             # Reject a companion whose Jacobian changes sign.  Using abs(detJ)
@@ -4587,47 +5187,82 @@ function add_quad4_macneal_shear_rbf!(
                 nothing
             end
             equilibrated_sym_cond = function (M)
-                dd = diag(M)
+                dd = mw.diag4
+                @inbounds for i in 1:4
+                    dd[i] = M[i,i]
+                end
                 any(x -> !isfinite(x) || x <= zero(T), dd) && return Inf
-                ss = sqrt.(dd)
-                S = Diagonal(inv.(ss))
-                cond(S * M * S)
+                ss = mw.ss4
+                @inbounds for i in 1:4
+                    ss[i] = sqrt(dd[i])
+                end
+                @inbounds for i in 1:4
+                    mw.is4[i] = inv(ss[i])
+                end
+                S = Diagonal(mw.is4)
+                # cond((S * M) * S) — same Diagonal-specialized mul! kernels
+                mul!(mw.c4a, S, M)
+                mul!(mw.c4b, mw.c4a, S)
+                _msws_cond2(mw, mw.c4b)
             end
             normalized_column_cond = function (M)
-                nn = [norm(@view M[:,j]) for j in axes(M, 2)]
+                nn = mw.nn4
+                @inbounds for j in 1:4
+                    nn[j] = norm(@view M[:,j])
+                end
                 nmax = maximum(nn)
                 (!isfinite(nmax) || nmax <= zero(T) ||
                  any(x -> !isfinite(x) || x <= eps(T)*nmax, nn)) && return Inf
-                cond(M * Diagonal(inv.(nn)))
+                @inbounds for j in 1:4
+                    mw.inn4[j] = inv(nn[j])
+                end
+                mul!(mw.c4a, M, Diagonal(mw.inn4))
+                _msws_cond2(mw, mw.c4a)
             end
 
-            Xgen  = make_companion(Aaff, true)
-            Xskew = make_companion(Aaff, false)
-            Xtap  = make_companion(Aorth, true)
-            Xflat = make_companion(Aorth, false)
+            Xgen  = make_companion(mw.X1, Aaff, true)
+            Xskew = make_companion(mw.X2, Aaff, false)
+            Xtap  = make_companion(mw.X3, Aorth, true)
+            Xflat = make_companion(mw.X4, Aorth, false)
             foreach(validate_companion, (Xgen, Xskew, Xtap, Xflat))
-            Hs = (assumed_H(Xgen), assumed_H(Xskew),
-                  assumed_H(Xtap), assumed_H(Xflat))
+            Hs = (assumed_H(mw.H1, Xgen), assumed_H(mw.H2, Xskew),
+                  assumed_H(mw.H3, Xtap), assumed_H(mw.H4, Xflat))
             any(H -> equilibrated_sym_cond(H) > 1e12, Hs) &&
                 throw(ArgumentError(
                     "ill-conditioned assumed-shear energy in interaction companions"))
-            I4 = Matrix{T}(I, 4, 4)
-            dHinv = Hs[1] \ I4 - Hs[2] \ I4 - Hs[3] \ I4 + Hs[4] \ I4
-            Gcan = edge_G(Xgen)
-            dZg = Gcan * dHinv * transpose(Gcan)
+            I4 = mw.I4
+            # dHinv = Hs[1] \ I4 - Hs[2] \ I4 - Hs[3] \ I4 + Hs[4] \ I4:
+            # the four solves in the original left-to-right order, then the
+            # ((a-b)-c)+d combination with identical per-entry order.
+            _msws_ldiv_sq!(mw, mw.hs1, mw.lu4a, Hs[1], I4)
+            _msws_ldiv_sq!(mw, mw.hs2, mw.lu4a, Hs[2], I4)
+            _msws_ldiv_sq!(mw, mw.hs3, mw.lu4a, Hs[3], I4)
+            _msws_ldiv_sq!(mw, mw.hs4, mw.lu4a, Hs[4], I4)
+            dHinv = mw.dHinv
+            @inbounds for j in 1:4, i in 1:4
+                dHinv[i,j] = ((mw.hs1[i,j] - mw.hs2[i,j]) - mw.hs3[i,j]) + mw.hs4[i,j]
+            end
+            Gcan = edge_G(mw.Gcan, Xgen)
+            # dZg = (Gcan * dHinv) * transpose(Gcan) — same two gemm calls
+            mul!(mw.t4a, Gcan, dHinv)
+            dZg = mw.dZg
+            mul!(dZg, mw.t4a, transpose(Gcan))
             if shear_edge_linear_interaction
                 kedge = inv(gpt)
-                Tedge = zeros(T, 4, 4)
+                Tedge = fill!(mw.Tedge, zero(T))
                 for (i, j) in ((1, 2), (3, 4))
                     Tedge[i,i] = 0.5*(1+kedge)
                     Tedge[i,j] = 0.5*(1-kedge)
                     Tedge[j,i] = 0.5*(1-kedge)
                     Tedge[j,j] = 0.5*(1+kedge)
                 end
-                legacy_Zs_edge = function (X)
-                    Zg = legacy_Zs_gauss(X)
-                    ZZ = Tedge * Zg * transpose(Tedge)
-                    shear_edge_linear_interaction_hybrid || return ZZ
+                legacy_Zs_edge = function (dest, X)
+                    Zg = legacy_Zs_gauss(mw.Zg, X)
+                    # ZZ = (Tedge * Zg) * transpose(Tedge)
+                    mul!(mw.t4a, Tedge, Zg)
+                    ZZ = mw.Zedge
+                    mul!(ZZ, mw.t4a, transpose(Tedge))
+                    shear_edge_linear_interaction_hybrid || return copyto!(dest, ZZ)
 
                     dxc = 0.5*(X[2,1]+X[3,1]-X[1,1]-X[4,1])
                     dyc = 0.5*(X[3,2]+X[4,2]-X[1,2]-X[2,2])
@@ -4696,37 +5331,74 @@ function add_quad4_macneal_shear_rbf!(
                             end
                         end
                     end
-                    0.5 * (ZZ + transpose(ZZ))
+                    @inbounds for j in 1:4, i in 1:4
+                        dest[i,j] = 0.5 * (ZZ[i,j] + ZZ[j,i])
+                    end
+                    dest
                 end
-                legacy_common = function (X)
-                    Dc = legacy_edge_D(X)
-                    Dtc = edge_Dtan(X)
-                    Ec = Dtc / Dc
-                    ec_residual = norm(Dtc - Ec * Dc) / max(norm(Dtc), eps(T))
-                    ec_cond = cond(Ec)
+                legacy_common = function (dest, X)
+                    Dc = legacy_edge_D(mw.Dc, X)
+                    Dtc = edge_Dtan(mw.Dtc, X)
+                    Ec = _msws_rdiv_wide!(mw, mw.Ec_buf, Dtc, Dc)
+                    mul!(mw.res_a, Ec, Dc)
+                    mw.res_b .= Dtc .- mw.res_a
+                    ec_residual = norm(mw.res_b) / max(norm(Dtc), eps(T))
+                    ec_cond = _msws_cond2(mw, Ec)
                     (!isfinite(ec_cond) || ec_cond > 1e12 || ec_residual > 1e-10) &&
                         throw(ArgumentError(
                             "incompatible MITC/tangential companion row spaces"))
-                    Znative = Ec * legacy_Zs_edge(X) * transpose(Ec)
-                    Gc = edge_G(X)
+                    # Znative = (Ec * legacy_Zs_edge(X)) * transpose(Ec)
+                    Zle = legacy_Zs_edge(mw.Zle, X)
+                    mul!(mw.t4a, Ec, Zle)
+                    Znative = mw.Znative
+                    mul!(Znative, mw.t4a, transpose(Ec))
+                    Gc = edge_G(mw.Gc, X)
                     gc_cond = normalized_column_cond(Gc)
                     (!isfinite(gc_cond) || gc_cond > 1e12) && throw(ArgumentError(
                         "ill-conditioned companion edge coefficient map"))
-                    transport = Gcan / Gc
-                    ZZ = transport * Znative * transpose(transport)
-                    0.5 * (ZZ + transpose(ZZ))
+                    transport = _msws_rdiv_sq!(mw, mw.transport_buf, mw.lu4a,
+                                               mw.t4a, Gcan, Gc)
+                    # ZZ = (transport * Znative) * transpose(transport)
+                    mul!(mw.t4b, transport, Znative)
+                    mul!(mw.t4c, mw.t4b, transpose(transport))
+                    @inbounds for j in 1:4, i in 1:4
+                        dest[i,j] = 0.5 * (mw.t4c[i,j] + mw.t4c[j,i])
+                    end
+                    dest
                 end
-                dZg .-= legacy_common(Xgen) - legacy_common(Xskew) -
-                         legacy_common(Xtap) + legacy_common(Xflat)
+                legacy_common(mw.lc1, Xgen)
+                legacy_common(mw.lc2, Xskew)
+                legacy_common(mw.lc3, Xtap)
+                legacy_common(mw.lc4, Xflat)
+                @inbounds for j in 1:4, i in 1:4
+                    dZg[i,j] -= ((mw.lc1[i,j] - mw.lc2[i,j]) - mw.lc3[i,j]) +
+                                mw.lc4[i,j]
+                end
             end
-            Zs_edge_interaction = Elin \ dZg / transpose(Elin)
-            Zs_edge_interaction = 0.5 *
-                (Zs_edge_interaction + transpose(Zs_edge_interaction))
+            # Zs_edge_interaction = Elin \ dZg / transpose(Elin), i.e.
+            # S1 = Elin \ dZg, then S1 / transpose(Elin) which lowers to
+            # copy(adjoint(Elin \ adjoint(S1))) (adjoint∘transpose of a real
+            # matrix is the matrix itself); then the symmetrization
+            # 0.5*(S2 + transpose(S2)) as an explicit per-entry loop.
+            _msws_ldiv_sq!(mw, mw.zei_a, mw.lu4a, Elin, dZg)
+            _msws_ldiv_sq!(mw, mw.zei_b, mw.lu4b, Elin, adjoint(mw.zei_a))
+            @inbounds for j in 1:4, i in 1:4
+                mw.Zsei[i,j] = 0.5 * (mw.zei_b[j,i] + mw.zei_b[i,j])
+            end
+            Zs_edge_interaction = mw.Zsei
         end
     end
 
-    Z_total = Zs + Zb
-    Z_total = 0.5 * (Z_total + Z_total')
+    # Z_total = Zs + Zb, then 0.5*(Z_total + Z_total') — explicit per-entry
+    # loops with the identical add-then-scale order.
+    Z_total = mw.Z_total
+    @inbounds for j in 1:4, i in 1:4
+        Z_total[i,j] = Zs[i,j] + Zb[i,j]
+    end
+    copyto!(mw.sym4, Z_total)
+    @inbounds for j in 1:4, i in 1:4
+        Z_total[i,j] = 0.5 * (mw.sym4[i,j] + mw.sym4[j,i])
+    end
     # "total" mode: put the skew factor on the DIFFERENTIAL direction of the full
     # compliance rather than on Zb alone (see the derivation above).  The differential
     # direction of each sample family is the (1,-1) eigenvector, so this scales exactly
@@ -4740,13 +5412,19 @@ function add_quad4_macneal_shear_rbf!(
     # cross-family coupling unscaled. This makes the pair exactly equivalent on any parallelogram.
     if row_full
         k_e = 1.0 / pt
-        Tc = zeros(4, 4)
+        Tc = fill!(mw.Tc, 0.0)
         for (i, j) in ((1, 2), (3, 4))
             Tc[i,i] = 0.5*(1 + k_e); Tc[i,j] = 0.5*(1 - k_e)
             Tc[j,i] = 0.5*(1 - k_e); Tc[j,j] = 0.5*(1 + k_e)
         end
-        Z_total = Tc * Z_total * transpose(Tc)
-        Z_total = 0.5 * (Z_total + transpose(Z_total))
+        # Z_total = (Tc * Z_total) * transpose(Tc), then the symmetrization —
+        # same two gemm calls and identical per-entry arithmetic.
+        mul!(mw.t4a, Tc, Z_total)
+        mul!(Z_total, mw.t4a, transpose(Tc))
+        copyto!(mw.sym4, Z_total)
+        @inbounds for j in 1:4, i in 1:4
+            Z_total[i,j] = 0.5 * (mw.sym4[i,j] + mw.sym4[j,i])
+        end
         # ------------------------------------------------------------------
         # TAPER CORRECTIONS to the eq-(27) differential coefficients -- see q4_taper_cross_factor
         # and q4_taper_diff_factor. Both are built only from the formulation's own constants
@@ -4878,15 +5556,24 @@ function add_quad4_macneal_shear_rbf!(
     end
     if shear_edge_linear_interaction
         Z_total .+= Zs_edge_interaction
-        Z_total .= 0.5 .* (Z_total .+ transpose(Z_total))
+        copyto!(mw.sym4, Z_total)
+        @inbounds for j in 1:4, i in 1:4
+            Z_total[i,j] = 0.5 * (mw.sym4[i,j] + mw.sym4[j,i])
+        end
     end
-    # K_plate = Dᵀ · inv(Z_total) · D
-    K_plate_raw = D_mat' * (Z_total \ D_mat)
+    # K_plate = Dᵀ · inv(Z_total) · D, via the same lowering as
+    # D_mat' * (Z_total \ D_mat): square \ replica + one gemm.
+    _msws_ldiv_sq!(mw, mw.sol4x12, mw.lu4a, Z_total, D_mat)
+    K_plate_raw = mw.K_plate_raw
+    mul!(K_plate_raw, D_mat', mw.sol4x12)
     # Enforce exact symmetry on K_plate to avoid roundoff-level asymmetry
     # tripping the solver's positive-definiteness checks.
     # (single assignment of K_plate: it is captured by the $JFEM_Q4_DUMP_ZMAT
     # debug closure below, and a second assignment would Core.Box it)
-    K_plate = 0.5 * (K_plate_raw + K_plate_raw')
+    K_plate = mw.K_plate
+    @inbounds for j in 1:12, i in 1:12
+        K_plate[i,j] = 0.5 * (K_plate_raw[i,j] + K_plate_raw[j,i])
+    end
 
     # Diagnostic dump of the flexibility formulation's own operands, so the
     # reference solver's Z can be RECOVERED rather than guessed at:
@@ -4925,7 +5612,7 @@ function add_quad4_macneal_shear_rbf!(
         # gamma_y samples. The completion is derived from each final assumed
         # row (after all MITC/taper/skew row operations), so it preserves that
         # row's exact rigid-spin cancellation even on distorted cells.
-        D24 = zeros(T, 4, 24)
+        D24 = fill!(mw.D24, zero(T))
         @inbounds for row in 1:4
             c_spin = zero(T)
             p_weight = zero(T)
@@ -4956,9 +5643,14 @@ function add_quad4_macneal_shear_rbf!(
                 end
             end
         end
-        K24 = transpose(D24) * (Z_total \ D24)
-        K24 = 0.5 * (K24 + transpose(K24))
-        Ke .+= K24
+        # K24 = transpose(D24) * (Z_total \ D24), then the symmetrization —
+        # square \ replica + gemm + explicit per-entry loop.
+        _msws_ldiv_sq!(mw, mw.sol4x24, mw.lu4a, Z_total, D24)
+        mul!(mw.K24, transpose(D24), mw.sol4x24)
+        @inbounds for j in 1:24, i in 1:24
+            mw.K24s[i,j] = 0.5 * (mw.K24[i,j] + mw.K24[j,i])
+        end
+        Ke .+= mw.K24s
     else
         # Preserve the established flat/default operator bit-for-bit when no
         # nonzero director field is present.

@@ -2832,6 +2832,12 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     # --- PARALLEL QUAD4 ASSEMBLY ---
     per_thread_ws = [FEM.create_quad4_workspace() for _ in 1:nt]
     per_thread_ws_alt = [FEM.create_quad4_workspace() for _ in 1:nt]
+    # MacNeal-RBF scratch workspace (allocation elimination 2026-08-06). One
+    # per thread is sufficient even for the blend branches: the buffers are
+    # pure intra-call scratch of add_quad4_macneal_shear_rbf! — nothing
+    # escapes a kernel call except values accumulated into ws.Ke, and the
+    # center/full pair in each blend branch runs sequentially on one thread.
+    per_thread_msws = [FEM.create_macneal_shear_workspace() for _ in 1:nt]
 
     all_I = Vector{Int}(undef, n_q4 * 576)
     all_J = Vector{Int}(undef, n_q4 * 576)
@@ -2859,6 +2865,11 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     sep_Cs      = [zeros(2,2) for _ in 1:nt]
     sep_Bmb     = [zeros(3,3) for _ in 1:nt]
     sep_Ke_blend = [zeros(24,24) for _ in 1:nt]
+    # Buffers for the macneal-blend branch's two 24x24 snapshots (the copies
+    # are semantically required — Ke_t/Ke_macneal alias workspace Ke fields —
+    # only their per-element allocation is not).
+    sep_Ke_ref      = [zeros(24,24) for _ in 1:nt]
+    sep_Ke_macneal  = [zeros(24,24) for _ in 1:nt]
     q4_use_geom_snorm = falses(n_q4)
     if curved_iso_geomnormal_frame && isempty(snorm_normals)
         for ei in 1:n_q4
@@ -4317,7 +4328,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             Ke_center = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                 q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
                 drill_scale=elem_drill_scale,
-                ws=ws_stiff, bending_incomp=elem_bending_incomp, shear_center_only=true,
+                ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=true,
                 no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
                 membrane_incomp_scale=elem_membrane_incomp_scale,
                 membrane_incomp_weights=elem_membrane_incomp_weights,
@@ -4339,7 +4350,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             Ke_full = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                 q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
                 drill_scale=elem_drill_scale,
-                ws=per_thread_ws_alt[tid], bending_incomp=elem_bending_incomp, shear_center_only=false,
+                ws=per_thread_ws_alt[tid], msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=false,
                 no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
                 membrane_incomp_scale=elem_membrane_incomp_scale,
                 membrane_incomp_weights=elem_membrane_incomp_weights,
@@ -4401,7 +4412,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 Ke_t = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
                     drill_scale=elem_drill_scale,
-                    ws=ws_stiff, bending_incomp=elem_bending_incomp, shear_center_only=true,
+                    ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=true,
                     no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
                     membrane_incomp_scale=elem_membrane_incomp_scale,
                     membrane_incomp_weights=elem_membrane_incomp_weights,
@@ -4425,7 +4436,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 Ke_center = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
                     drill_scale=elem_drill_scale,
-                    ws=ws_stiff, bending_incomp=elem_bending_incomp, shear_center_only=true,
+                    ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=true,
                     no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
                     membrane_incomp_scale=elem_membrane_incomp_scale,
                     membrane_incomp_weights=elem_membrane_incomp_weights,
@@ -4447,7 +4458,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 Ke_full = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
                     drill_scale=elem_drill_scale,
-                    ws=per_thread_ws_alt[tid], bending_incomp=elem_bending_incomp, shear_center_only=false,
+                    ws=per_thread_ws_alt[tid], msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=false,
                     no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
                     membrane_incomp_scale=elem_membrane_incomp_scale,
                     membrane_incomp_weights=elem_membrane_incomp_weights,
@@ -4475,7 +4486,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 Ke_t = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
                     drill_scale=elem_drill_scale,
-                    ws=ws_stiff, bending_incomp=elem_bending_incomp, shear_center_only=false,
+                    ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=false,
                     no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
                     membrane_incomp_scale=elem_membrane_incomp_scale,
                     membrane_incomp_weights=elem_membrane_incomp_weights,
@@ -4500,7 +4511,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             Ke_t = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                 q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
                 drill_scale=elem_drill_scale,
-                ws=ws_stiff, bending_incomp=elem_bending_incomp, shear_center_only=elem_shear_center_only,
+                ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=elem_shear_center_only,
                 no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
                 membrane_incomp_scale=elem_membrane_incomp_scale,
                 membrane_incomp_weights=elem_membrane_incomp_weights,
@@ -4522,11 +4533,11 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
         end
         if elem_pcomp_k_macneal_blend > 0.0
-            Ke_ref = Matrix(Ke_t)
+            Ke_ref = copyto!(sep_Ke_ref[tid], Ke_t)
             Ke_macneal = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
                 q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
                 drill_scale=elem_drill_scale,
-                ws=per_thread_ws_alt[tid], bending_incomp=elem_bending_incomp,
+                ws=per_thread_ws_alt[tid], msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp,
                 shear_center_only=elem_shear_center_only,
                 no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
                 membrane_incomp_scale=elem_membrane_incomp_scale,
@@ -4547,7 +4558,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 kernel_mode="macneal_all",
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
-            Ke_macneal_ref = Matrix(Ke_macneal)
+            Ke_macneal_ref = copyto!(sep_Ke_macneal[tid], Ke_macneal)
             Ke_t = sep_Ke_blend[tid]
             @inbounds @fastmath for jj in 1:24, ii in 1:24
                 Ke_t[ii, jj] =
