@@ -5,6 +5,28 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **SOL 103 normal modes could silently drop one member of a degenerate
+  mode pair, and was not reproducible run to run.** The shift-invert modal
+  eigensolve seeded its Krylov space with a RANDOM start vector, which can
+  land with near-zero overlap on one member of an exactly degenerate pair —
+  the documented "CBAR probe returned 4 of 6 modes, about one run in five"
+  behaviour. It was also the solver's last source of run-to-run variation.
+  Two changes: (1) the modal path now uses the same deterministic start
+  vector generator as the buckling path; (2) a completeness guard counts
+  the pencil's roots below the highest reported one by Sturm inertia
+  (`K - omega^2 M`) and, if the certificate says roots are missing, retries
+  from a different deterministic start vector and merges what it finds
+  (`JFEM_SOL103_COMPLETENESS_GUARD=false` opts out). The guard can only add
+  modes — values already found are never perturbed.
+
+  Verified: the CBAR probe returns all 6 modes, including both members of
+  each degenerate pair, identically on 10 consecutive runs; and two
+  independent runs of the public validation suite now agree **exactly**
+  (previously the CRM SOL 103 rows differed run to run at the 1e-11 level,
+  which is why suite comparisons had to be judged on verdicts rather than
+  values). Computed values are unchanged against the previous release.
+
 ### Changed
 - **CHEXA8 now uses MSC/Nastran 70.5's actual formulation — the solid
   static gap is closed.** The 8-node hexahedron previously used 9

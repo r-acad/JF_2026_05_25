@@ -4550,21 +4550,95 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
             nev = min(num_modes_request + 5, n_free - 1)
             kd = min(max(2*nev + 10, 30), n_free)
 
+            # Start vector: DETERMINISTIC, not randn. A random start vector can
+            # land with near-zero overlap on one member of an exactly degenerate
+            # mode pair, and the Krylov space then never resolves it — the
+            # documented "CBAR probe intermittently returned 4 of 6 modes, about
+            # one run in five" behaviour, whose 1-in-5 cadence is the signature
+            # of the draw rather than of an algorithmic bug. It was also the last
+            # run-to-run non-determinism in the solver (the CRM SOL 103 rows of
+            # the public suite wobbled at the 1e-15 level between identical
+            # runs, which is why suite gates had to judge verdicts rather than
+            # bytes). SOL 105 has used this generator since the deterministic
+            # threading work; SOL 103 now shares it.
+            #
+            # Determinism alone only makes the outcome REPRODUCIBLE, so the
+            # completeness guard below turns "silently miss a degenerate
+            # partner" into "detect and recover it".
+            modal_start_ordinal = Ref(0)
+            next_modal_start() = begin
+                modal_start_ordinal[] += 1
+                _deterministic_buckling_start_vector(n_free, modal_start_ordinal[])
+            end
+
             # K⁻¹M operator: largest θ = 1/ω² → smallest ω
             vals_kk, vecs_kk, info = eigsolve(
-                x -> K_factor \ (M_ff * x), randn(n_free), nev, :LM;
+                x -> K_factor \ (M_ff * x), next_modal_start(), nev, :LM;
                 krylovdim=kd, maxiter=500, tol=1e-10, eager=true)
 
-            actual_omegas_sq = Float64[]
-            actual_vecs = Vector{Float64}[]
-            for (i, theta) in enumerate(vals_kk)
-                theta_r = real(theta)
-                theta_r < 1e-14 && continue
-                abs(imag(theta)) > 1e-6 * abs(theta_r) && continue
-                omega_sq = 1.0 / theta_r
-                omega_sq > 1e-6 || continue
-                push!(actual_omegas_sq, omega_sq)
-                push!(actual_vecs, real.(vecs_kk[i]))
+            harvest_modes(vals, vecs) = begin
+                osq = Float64[]
+                vs = Vector{Float64}[]
+                for (i, theta) in enumerate(vals)
+                    theta_r = real(theta)
+                    theta_r < 1e-14 && continue
+                    abs(imag(theta)) > 1e-6 * abs(theta_r) && continue
+                    omega_sq = 1.0 / theta_r
+                    omega_sq > 1e-6 || continue
+                    push!(osq, omega_sq)
+                    push!(vs, real.(vecs[i]))
+                end
+                (osq, vs)
+            end
+            actual_omegas_sq, actual_vecs = harvest_modes(vals_kk, vecs_kk)
+
+            # --- Completeness guard (Sturm inertia over the reported band) ----
+            # The pencil (K - ω²M) has exactly as many eigenvalues below σ as
+            # K - σM has negative inertia, so _buckling_sturm_count applies
+            # verbatim with Kg := -M and σ := ω². If the certificate says roots
+            # are missing below the highest one we would report — the signature
+            # of a dropped degenerate partner — retry from a different
+            # deterministic start vector and merge. The guard can only ADD
+            # modes: values already found are never perturbed, so decks that
+            # pass today cannot regress.
+            if solver_env_bool("JFEM_SOL103_COMPLETENESS_GUARD", true) &&
+               !isempty(actual_omegas_sq)
+                mass_neg = -M_ff
+                sturm_reuse_modal = Base.RefValue{Any}(nothing)
+                max_tries = max(solver_env_int("JFEM_SOL103_COMPLETENESS_TRIES", 2), 0)
+                guard_log = Any[]
+                for attempt in 1:max_tries
+                    sorted_osq = sort(actual_omegas_sq)
+                    n_report = min(max(num_modes_request, 1), length(sorted_osq))
+                    b_bound = sorted_osq[n_report] * (1.0 + 1e-6)
+                    sc_b = _buckling_sturm_count(K_ff, mass_neg, b_bound;
+                                                 reuse=sturm_reuse_modal)
+                    sc_b === nothing && break
+                    found = count(<=(b_bound), actual_omegas_sq)
+                    gap = sc_b - found
+                    push!(guard_log, Dict{String,Any}(
+                        "attempt" => attempt, "omega_sq_bound" => b_bound,
+                        "sturm_below" => sc_b, "recovered" => found, "gap" => gap))
+                    gap <= 0 && break
+                    log_msg("[MODES] completeness guard: Sturm reports $sc_b root(s) below ω²=$b_bound but $found recovered — retrying from start vector $(modal_start_ordinal[] + 1)")
+                    v2, w2, _ = eigsolve(
+                        x -> K_factor \ (M_ff * x), next_modal_start(),
+                        min(nev + gap, n_free - 1), :LM;
+                        krylovdim=kd, maxiter=500, tol=1e-10, eager=true)
+                    osq2, vs2 = harvest_modes(v2, w2)
+                    added = 0
+                    for (o, v) in zip(osq2, vs2)
+                        if all(x -> abs(x - o) > 1e-8 * max(abs(x), abs(o), 1.0),
+                               actual_omegas_sq)
+                            push!(actual_omegas_sq, o); push!(actual_vecs, v)
+                            added += 1
+                        end
+                    end
+                    log_msg("[MODES] completeness guard: recovered $added additional mode(s)")
+                    added == 0 && break
+                end
+                isempty(guard_log) ||
+                    (diagnostics["completeness_guard"] = guard_log)
             end
             if !isempty(actual_omegas_sq)
                 perm = sortperm(actual_omegas_sq)
