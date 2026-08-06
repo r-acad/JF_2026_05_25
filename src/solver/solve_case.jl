@@ -2699,6 +2699,30 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             # tol tightened from 1e-10 → 1e-13 (2026-04-21): HTP_launch has mode-1/2
             # pairs separated by <0.1%; loose convergence lets order wobble between
             # solver runs and between formulation changes, masking as a "bug".
+            # Symmetric Lanczos via Cholesky congruence (perf program Phase
+            # 3.4, env-flagged, default OFF): with K = Pᵀ L Lᵀ P SPD, the
+            # operator S = L⁻¹ (P B Pᵀ) L⁻ᵀ is SYMMETRIC with the same
+            # eigenvalues θ as K⁻¹B, so KrylovKit can run real Lanczos
+            # (ishermitian=true) instead of general Arnoldi: three-term
+            # recurrence, real tridiagonal Ritz problem, no complex-pair
+            # filtering. Eigenvectors map back as u = Pᵀ L⁻ᵀ y. The L
+            # extraction works on a COPY of the K factor — sparse(F.L) can
+            # convert a supernodal factor in place, which would change the
+            # rounding of every later F \ b for the shared cached factor.
+            symm_ctx = nothing
+            if solver_env_bool("JFEM_SOL105_SYMM_LANCZOS", false) &&
+               eigen_ctx.factor_backend == "cholesky"
+                symm_ctx = try
+                    Fc = copy(K_factor)
+                    pperm = Fc.p
+                    LT = LowerTriangular(sparse(Fc.L))
+                    (LT, pperm, B[pperm, pperm])
+                catch err
+                    log_msg("[BUCKLING] symmetric-Lanczos congruence unavailable ($(sprint(showerror, err))); using Arnoldi")
+                    nothing
+                end
+            end
+
             local vals_kk, vecs_kk, info
             nev_request = nev_ladder[end]
             kd = _buckling_krylovdim(nev_request, n_free)
@@ -2707,9 +2731,17 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             for (rung_i, nev_try) in enumerate(nev_ladder)
                 nev_request = nev_try
                 kd = _buckling_krylovdim(nev_request, n_free)
-                vals_kk, vecs_kk, info = eigsolve(
-                    x -> K_factor \ (B * x), ladder_start_vec, nev_request, :LM;
-                    krylovdim=kd, maxiter=krylov_maxiter, tol=krylov_tol, eager=true)
+                if symm_ctx !== nothing
+                    LTs, pperm, Bp = symm_ctx
+                    vals_kk, vecs_kk, info = eigsolve(
+                        y -> LTs \ (Bp * (LTs' \ y)), ladder_start_vec, nev_request, :LM;
+                        krylovdim=kd, maxiter=krylov_maxiter, tol=krylov_tol,
+                        eager=true, ishermitian=true)
+                else
+                    vals_kk, vecs_kk, info = eigsolve(
+                        x -> K_factor \ (B * x), ladder_start_vec, nev_request, :LM;
+                        krylovdim=kd, maxiter=krylov_maxiter, tol=krylov_tol, eager=true)
+                end
                 if rung_i == length(nev_ladder)
                     adaptive_nev && push!(adaptive_attempts, Dict{String,Any}(
                         "nev" => nev_try, "kd" => kd,
@@ -2747,6 +2779,18 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             end
             isempty(adaptive_attempts) ||
                 (diagnostics["adaptive_nev"] = adaptive_attempts)
+
+            # Congruence back-map: eigsolve returned y-space vectors;
+            # u = Pᵀ L⁻ᵀ y restores pencil eigenvectors (θ values unchanged).
+            if symm_ctx !== nothing
+                LTs, pperm, _ = symm_ctx
+                vecs_kk = [begin
+                    u = zeros(Float64, n_free)
+                    u[pperm] = LTs' \ real.(y)
+                    u
+                end for y in vecs_kk]
+                diagnostics["symm_lanczos"] = true
+            end
 
             log_msg("[BUCKLING] KrylovKit returned $(length(vals_kk)) eigenvalues (converged=$(info.converged))")
 

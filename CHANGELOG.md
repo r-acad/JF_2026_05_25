@@ -6,6 +6,19 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Performance
+- **Symmetric Lanczos for the zero-shift buckling eigensolve (env-flagged,
+  default OFF).** With `JFEM_SOL105_SYMM_LANCZOS=true` and an SPD K
+  factorization, the strategy-2 operator is congruence-transformed to the
+  symmetric S = L⁻¹ (P·B·Pᵀ) L⁻ᵀ and KrylovKit runs real Lanczos
+  (`ishermitian=true`) instead of general Arnoldi: three-term recurrence,
+  real tridiagonal Ritz problem, no complex-pair filtering; eigenvectors
+  map back as u = Pᵀ L⁻ᵀ y. The L extraction works on a copy of the K
+  factor so the shared cached factor's representation (and hence the
+  rounding of every later solve against it) is untouched. Gate: flag-ON
+  spectra within 1.5e-14 relative (subspaces within 4.0e-12) of flag-OFF
+  on the 6-deck battery; flag-OFF bit-identical. Value-gated: default
+  stays OFF until a battery demonstrates a measured win on top of the
+  adaptive-nev request reduction.
 - **Sturm certificate factorizations are cheaper and (optionally) fused
   with shifted solves.** Two unflagged, output-identical improvements: the
   Sturm inertia counter now falls back to a fresh analysis when an
