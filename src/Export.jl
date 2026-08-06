@@ -2909,7 +2909,11 @@ function export_jfem_binary(filename, output_dir, id_map, X, jfem_node_ids, jfem
     nRBE3_jfem  = length(jfem_rbe3s)
     println("\n>>> Exporting JFEM binary (v4): $jfem_path")
     _export_ensure_parent_dir!(jfem_path)
-    open(_export_fs_path(jfem_path), "w") do io
+    open(_export_fs_path(jfem_path), "w") do fio
+        # Batched export (perf deferred item #13): stage the full byte
+        # stream in memory and hand the OS one write — byte-identical
+        # output, no per-value stream overhead on large models.
+        io = IOBuffer()
         # Magic: 'JFEM'
         write(io, UInt8('J')); write(io, UInt8('F')); write(io, UInt8('E')); write(io, UInt8('M'))
         # Header (v3: extended with constraint counts)
@@ -3025,6 +3029,7 @@ function export_jfem_binary(filename, output_dir, id_map, X, jfem_node_ids, jfem
                 write(io, nid); write(io, mx); write(io, my); write(io, mz)
             end
         end
+        write(fio, take!(io))
     end
     nTet = length(jfem_tetras); nHex = length(jfem_hexas); nPen = length(jfem_pentas)
     println("  JFEM v4: $(nNodes_jfem) nodes, $(nQuads_jfem)Q+$(nTrias_jfem)T shells, $(nBars_jfem) bars, $(nRods_jfem) rods, $(nTet)Tet+$(nHex)Hex+$(nPen)Pen solids, $(nCelas_jfem) springs, $(length(jfem_subcases_data)) subcases")
@@ -3194,7 +3199,10 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
 
     println("\n>>> Exporting JFEM binary (v$(Int(version)) buckling$(has_static ? "+static" : "")): $jfem_path")
     _export_ensure_parent_dir!(jfem_path)
-    open(_export_fs_path(jfem_path), "w") do io
+    open(_export_fs_path(jfem_path), "w") do fio
+        # Batched export (perf deferred item #13): stage the full byte
+        # stream in memory, one OS write — byte-identical output.
+        io = IOBuffer()
         write(io, UInt8('J')); write(io, UInt8('F')); write(io, UInt8('E')); write(io, UInt8('M'))
         write(io, version)          # version (3 = buckling, 5 = buckling + static block)
         write(io, UInt32(nNodes))
@@ -3397,6 +3405,7 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
                 write(io, safe32(f[1])); write(io, safe32(f[2])); write(io, safe32(f[3]))
             end
         end
+        write(fio, take!(io))
     end
     println("  JFEM binary exported: $jfem_path ($nModes buckling modes$(has_static ? " + static block" : ""))")
 end

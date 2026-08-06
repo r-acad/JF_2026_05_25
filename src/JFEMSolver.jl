@@ -2793,6 +2793,10 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     static_cache = Dict{Int, Any}()
     static_linear_solve_cache = ndof >= Solver.linear_solve_cache_min_ndof() ? Solver.create_linear_solve_cache() : nothing
     eigen_solve_cache = ndof >= Solver.eigen_solve_cache_min_ndof() ? Solver.create_eigen_solve_cache() : nothing
+    # Per-deck Kg CSC pattern cache (values-only reassembly, env-flagged in
+    # the assembler): the triplet pattern is identical across a deck's
+    # buckling subcases, only the values change.
+    kg_csc_cache = Dict{Any,Any}()
     sol105_static_wall_seconds = 0.0
     sol105_kg_wall_seconds = 0.0
     sol105_buckling_wall_seconds = 0.0
@@ -2996,7 +3000,8 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                         snorm_angle_override=sol105_snorm_angle,
                         buckling_subcase=buck_sid,
                         static_load_id=load_id,
-                        timings=kg_phase_timings)
+                        timings=kg_phase_timings,
+                        csc_cache=kg_csc_cache)
                 end
             else
                 Solver.assemble_geometric_stiffness(
@@ -3004,7 +3009,8 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                     snorm_angle_override=sol105_snorm_angle,
                     buckling_subcase=buck_sid,
                     static_load_id=load_id,
-                    timings=kg_phase_timings)
+                    timings=kg_phase_timings,
+                    csc_cache=kg_csc_cache)
             end
         kg_wall_seconds = (time_ns() - t_kg) * 1e-9
         sol105_kg_wall_seconds += kg_wall_seconds

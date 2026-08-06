@@ -5190,11 +5190,61 @@ end
 # Mirrors assemble_stiffness but builds Kg from SOL101 stress state.
 # u_global = displacement solution from SOL101 (in local coord-system DOFs).
 # =============================================================================
+# Values-only CSC reassembly (perf program deferred item, env-flagged):
+# across the buckling subcases of a deck the Kg triplet PATTERN (the I,J
+# sequences) is identical — only V changes. On a pattern-cache hit, refill a
+# FRESH nzval through a precomputed triplet→nzval slot map instead of
+# re-running sparse()'s full sort/merge. Bit-safety: sparse()'s stable
+# counting sorts combine duplicates in original triplet order per entry
+# (first value assigned, later ones added left-to-right); the slot-map loop
+# reproduces exactly that assignment/addition sequence, so nzval is
+# bit-identical (gated by suite/battery hashes; -0.0 first-touch handled by
+# assignment, not 0.0 + x). colptr/rowval are shared READ-ONLY across
+# subcases; nzval is freshly allocated so earlier Kg matrices never mutate.
+function _sparse_from_triplets_cached(I_idx, J_idx, V_val, ndof::Int, csc_cache)
+    # Default ON 2026-08-06: gate showed the refill is bit-identical
+    # (anchor-deck JSON hash equal with the subcase-2 refill active;
+    # both-ON suite exactly equal; battery eigen metrics exactly 0).
+    use_cache = csc_cache !== nothing &&
+                solver_env_bool("JFEM_KG_VALUES_ONLY_CSC", true)
+    use_cache || return sparse(I_idx, J_idx, V_val, ndof, ndof)
+    key = (length(I_idx), hash(I_idx), hash(J_idx), ndof)
+    hit = get(csc_cache, key, nothing)
+    if hit === nothing
+        Kg = sparse(I_idx, J_idx, V_val, ndof, ndof)
+        cp = Kg.colptr
+        rv = Kg.rowval
+        slots = Vector{Int}(undef, length(I_idx))
+        @inbounds for k in eachindex(I_idx)
+            j = J_idx[k]
+            lo = cp[j]
+            hi = cp[j + 1] - 1
+            slots[k] = searchsortedfirst(view(rv, lo:hi), I_idx[k]) + lo - 1
+        end
+        csc_cache[key] = (copy(cp), copy(rv), slots)
+        return Kg
+    end
+    cp, rv, slots = hit
+    nz = Vector{Float64}(undef, length(rv))
+    filled = falses(length(rv))
+    @inbounds for k in eachindex(V_val)
+        s = slots[k]
+        if filled[s]
+            nz[s] += V_val[k]
+        else
+            nz[s] = V_val[k]
+            filled[s] = true
+        end
+    end
+    return SparseMatrixCSC(ndof, ndof, cp, rv, nz)
+end
+
 function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, u_global, snorm_normals, rbe3_map;
                                       snorm_angle_override::Union{Nothing,Float64}=nothing,
                                       buckling_subcase=nothing,
                                       static_load_id=nothing,
-                                      timings=nothing)
+                                      timings=nothing,
+                                      csc_cache=nothing)
     kg_t_total = time_ns()
     kg_timings = Dict{String,Any}()
     kg_t_setup = time_ns()
@@ -7651,7 +7701,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
 
     kg_t_sparse = time_ns()
     log_msg("[SOLVER] Creating Sparse Kg (NZ: $(length(I_idx)))...")
-    Kg = sparse(I_idx, J_idx, V_val, ndof, ndof)
+    Kg = _sparse_from_triplets_cached(I_idx, J_idx, V_val, ndof, csc_cache)
     kg_timings["sparse_build"] = (time_ns() - kg_t_sparse) * 1e-9
     kg_timings["total"] = (time_ns() - kg_t_total) * 1e-9
 

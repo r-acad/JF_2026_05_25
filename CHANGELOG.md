@@ -6,6 +6,22 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Performance
+- **Three deferred marginal-cost items landed (all verified bit-identical
+  and default ON).** (1) *Trial-factor keep*: the eigen-partition stability
+  trial's Cholesky is kept and reused as the eigen factorization when K_ff
+  is bitwise symmetric (the symmetrization is then an exact identity),
+  eliminating a duplicate full factorization per subcase on decks below
+  the solve-cache threshold — most of the parity corpus
+  (`JFEM_EIGEN_TRIAL_FACTOR_KEEP=false` opts out). (2) *Values-only Kg
+  reassembly*: across a deck's buckling subcases the Kg triplet pattern is
+  identical, so later subcases refill a fresh nzval through a precomputed
+  triplet→slot map instead of re-running the full sparse sort/merge,
+  reproducing sparse()'s assignment/accumulation order exactly
+  (`JFEM_KG_VALUES_ONLY_CSC=false` opts out). (3) *Batched binary export*:
+  the .jfem writers stage the full byte stream in memory and issue one OS
+  write (byte-hash-identical output). Gates: flag-OFF outputs semantically
+  and byte-identical to the promoted state; flags-ON suite values exactly
+  equal (rtol=0 field diff) and battery eigen metrics exactly zero.
 - **Symmetric Lanczos for the zero-shift buckling eigensolve (env-flagged,
   default OFF).** With `JFEM_SOL105_SYMM_LANCZOS=true` and an SPD K
   factorization, the strategy-2 operator is congruence-transformed to the

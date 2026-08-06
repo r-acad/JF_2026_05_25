@@ -132,18 +132,34 @@ function prepare_eigen_solve_context(K, ndof, model, id_map, spc_id, rbe3_map; e
         return cached_entry, true
     end
 
+    trial_ref = Base.RefValue{Any}(nothing)
     free_dofs, fixed_dofs, bc_diagnostics = compute_free_dofs(
-        K, ndof, model, id_map, spc_id, rbe3_map; return_diagnostics=true)
+        K, ndof, model, id_map, spc_id, rbe3_map; return_diagnostics=true,
+        trial_factor_out=trial_ref)
     K_ff = K[free_dofs, free_dofs]
-    K_ff = 0.5 * (K_ff + K_ff')
+
+    # Trial-factor keep (perf deferred item #12, env-flagged): the partition
+    # stability trial inside compute_free_dofs already paid a full Cholesky
+    # of Symmetric(K_ff). When K_ff is BITWISE symmetric, the symmetrization
+    # below is exact identity (0.5*(x+x) == x in IEEE), so that trial factor
+    # IS a factor of the matrix ensure_eigen_solve_factorization! would
+    # otherwise re-factor — keep it and skip both the two nnz-sized
+    # symmetrization temporaries and the second factorization. For
+    # asymmetric K_ff the trial factored a (ulp-)different matrix: discard.
+    # Default ON 2026-08-06: gate showed cholesky(Symmetric(X)) and
+    # cholesky(X) produce identical downstream results on the full suite
+    # (field diff exactly equal at rtol=0) and battery (hash-identical).
+    keep_trial = solver_env_bool("JFEM_EIGEN_TRIAL_FACTOR_KEEP", true) &&
+                 trial_ref[] !== nothing && issymmetric(K_ff)
+    keep_trial || (K_ff = 0.5 * (K_ff + K_ff'))
 
     entry = EigenSolveCacheEntry(
         copy(free_dofs),
         copy(fixed_dofs),
         deepcopy(bc_diagnostics),
         K_ff,
-        nothing,
-        "",
+        keep_trial ? trial_ref[] : nothing,
+        keep_trial ? "cholesky" : "",
         nothing,
     )
 
@@ -921,12 +937,16 @@ function factorization_autospc_free_dofs(K, ndof, fixed_dofs::Set{Int})
     )
 
     free_dofs = _free_dofs_from_fixed_set(ndof, fixed_dofs)
-    isempty(free_dofs) && return free_dofs, 0, diagnostics
+    isempty(free_dofs) && return free_dofs, 0, diagnostics, nothing
 
     K_ff = K[free_dofs, free_dofs]
     try
-        cholesky(Symmetric(K_ff))
-        return free_dofs, 0, diagnostics
+        # The stability trial is a FULL Cholesky of the eigen-partition K_ff.
+        # Hand the successful factor back so the caller can keep it instead
+        # of paying a second, identical factorization (trial-factor keep,
+        # perf program deferred item #12).
+        F_trial = cholesky(Symmetric(K_ff))
+        return free_dofs, 0, diagnostics, F_trial
     catch
     end
 
@@ -980,11 +1000,13 @@ function factorization_autospc_free_dofs(K, ndof, fixed_dofs::Set{Int})
         end
     end
 
-    return free_dofs, n_mechanism_total, diagnostics
+    # After AUTOSPC mutations no clean factor of the FINAL partition exists.
+    return free_dofs, n_mechanism_total, diagnostics, nothing
 end
 
 # Compute free DOFs without solving (for eigenvalue problems that need the same BC partition).
-function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diagnostics::Bool=false)
+function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diagnostics::Bool=false,
+                           trial_factor_out::Union{Nothing,Base.RefValue{Any}}=nothing)
     fixed_dofs = Set{Int}()
     diagnostics = Dict{String,Any}(
         "mpc_dependent_dofs" => length(rbe3_map),
@@ -1058,7 +1080,8 @@ function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diag
         end
     end
 
-    free_dofs, n_fact_autospc, fact_diag = factorization_autospc_free_dofs(K, ndof, fixed_dofs)
+    free_dofs, n_fact_autospc, fact_diag, F_trial = factorization_autospc_free_dofs(K, ndof, fixed_dofs)
+    trial_factor_out !== nothing && (trial_factor_out[] = F_trial)
     if n_fact_autospc > 0
         log_msg("[BUCKLING] Added $n_fact_autospc factorization AUTOSPC DOFs to stabilize eigen partition")
     end
