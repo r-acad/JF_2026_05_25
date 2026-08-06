@@ -5,6 +5,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Documentation
+- README: added "Performance Notes (2026-08)" summarizing the promoted
+  default-ON behaviors (certificate-first augmentation, adaptive
+  eigensolve request, deterministic threading, allocation-free hot paths)
+  with their opt-out flags and the two research opt-ins; corrected the
+  public-suite description to the current 19-row state (all rows pass
+  parity against the commercial reference; two classical-plate analytical
+  rows documented as reference-defect exceptions).
+
 ### Performance
 - **MacNeal shear block is allocation-free (bit-identical).** The CQUAD4
   kernel's MacNeal/interaction-hybrid construction now runs against a

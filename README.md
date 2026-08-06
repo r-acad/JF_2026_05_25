@@ -248,6 +248,45 @@ Use this flag string in direct single-case and text-batch runs:
 JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1
 ```
 
+### Performance Notes (2026-08)
+
+The August 2026 performance program restructured the SOL 105 eigen phase
+and the assembly hot paths. Everything below is ON by default and was
+promoted only after the full public validation suite reproduced its
+previous results exactly (identical verdicts, computed values equal at
+print precision) plus multi-deck batteries with spectra matched to ~1e-14
+relative:
+
+- **Certificate-first range augmentation**: on EIGRL range decks, a Sturm
+  inertia certificate proves the reported spectrum complete before any
+  extra shifted eigensolve runs; the augmentation solve now fires only
+  when the certificate cannot certify (opt out:
+  `JFEM_SOL105_CERT_FIRST_AUGMENTATION=false`).
+- **Adaptive eigensolve request**: range decks start near the requested
+  mode count instead of ~8x it and escalate only when the converged
+  spectrum is provably insufficient (opt out:
+  `JFEM_SOL105_ADAPTIVE_NEV=false`). Measured together with
+  certificate-first: eigen-phase wall down ~35% across a 42-deck buckling
+  battery, with parity to the commercial reference unchanged.
+- **Deterministic threading**: results are bit-identical at any
+  `--threads` count (positional-slot assembly plus a pinned inner
+  eigensolver thread pool), so `--threads=auto` is both the fastest and a
+  reproducible choice.
+- **Allocation-free element hot paths**: the CQUAD4 MacNeal shear
+  construction runs against per-thread workspaces (per-invocation
+  allocation down ~97%), repeated buckling subcases refill the geometric
+  stiffness matrix through a cached sparsity pattern
+  (`JFEM_KG_VALUES_ONLY_CSC=false` opts out), the eigen partition reuses
+  its stability-trial factorization (`JFEM_EIGEN_TRIAL_FACTOR_KEEP=false`
+  opts out), and binary exports are staged as a single write. All are
+  verified bit-identical.
+- **Research opt-ins** (OFF by default; both validated to the same
+  tolerances but without a demonstrated wall-clock win yet):
+  `JFEM_SOL105_SHIFT_FACTOR_FUSION=true` fuses shifted-solve
+  factorizations with Sturm certificates;
+  `JFEM_SOL105_SYMM_LANCZOS=true` runs the zero-shift buckling
+  eigensolve as symmetric Lanczos via a Cholesky congruence.
+
 ## Quickest Way To Run A Deck
 
 For everyday use there is a one-line wrapper that fills in Julia, the project,
@@ -407,8 +446,12 @@ julia --startup-file=no --project=. validation/run_public_suite.jl
 ```
 
 The suite writes `validation/comparison.csv` and `validation/comparison.md`.
-The latest maintained public-suite snapshot has 14 scalar rows and all pass;
-rerun the suite to regenerate the local report for the current solver revision.
+The maintained suite has 19 scalar rows: every row passes its parity
+comparison against the commercial reference solution, and 17 of 19 also
+pass their analytical tolerance (the two exceptions are classical-plate
+buckling eigenvalue rows whose published reference extraction is itself
+unreliable — documented in the validation README). Rerun the suite to
+regenerate the local report for the current solver revision.
 
 ## Run One SOL 105 Case
 
