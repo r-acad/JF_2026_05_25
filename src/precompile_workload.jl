@@ -1,7 +1,12 @@
-# Optional SOL105 precompile workload.
+# SOL101/103/105 precompile workload (ON by default since 2026-08-05).
 #
-# Enable before package precompilation with:
-#   JFEM_SOL105_PRECOMPILE_WORKLOAD=true
+# Bakes the parse -> build -> solve path into the package image at precompile
+# time, eliminating the measured ~147 s of per-process first-solve JIT
+# (79% of a fresh single-deck run; PERF_AUDIT_SOL105_2026_08_05 item 1).
+# The one-time cost is paid at package precompilation after a source change.
+#
+# Opt out (e.g. for tight source-edit loops) with:
+#   JFEM_SOL105_PRECOMPILE_WORKLOAD=false
 #
 # Optionally override the BDF list with semicolon-separated absolute/relative
 # paths in JFEM_SOL105_PRECOMPILE_BDF and the flag set with
@@ -31,6 +36,11 @@ function _jfem_default_precompile_bdfs()
         joinpath(precompile_dir, "sol101_quad_static.bdf"),
         joinpath(precompile_dir, "sol103_quad_modes.bdf"),
         joinpath(precompile_dir, "sol105_quad_buckling.bdf"),
+        # ~1000-DOF mixed CQUAD4/CTRIA3 plate with ranged EIGRL + STATSUB:
+        # exercises the SPARSE eigsolve/Sturm/augmentation branches (the tiny
+        # decks above stay under the dense-path thresholds and left ~26 s of
+        # first-solve JIT uncovered on production-size decks).
+        joinpath(precompile_dir, "sol105_plate_ranged.bdf"),
     ]
     return filter(isfile, candidates)
 end
@@ -77,19 +87,22 @@ function _jfem_with_env(f::Function, pairs)
 end
 
 function _jfem_precompile_solve_bdf(path::AbstractString)
-    lines = readlines(path)
-    lines = NastranParser.resolve_includes(lines, dirname(abspath(path)))
-    lines = NastranParser.convert_mystran_to_nastran(lines)
-    cc, bulk = NastranParser.read_bulk_and_case(lines)
-    cards = NastranParser.process_cards(bulk)
-    model = build_model(cards, cc)
-    resolve_nested_coords!(model)
-    transform_geometry!(model)
-    results = solve_model(model)
-    return get(results, "sol_type", nothing)
+    # Route through main() so the export stack (JSON/binary/markdown) is
+    # baked into the pkgimage too — export was a measured chunk of the
+    # residual first-solve JIT when the workload called solve_model only.
+    # A failing workload deck must degrade coverage, never break package
+    # precompilation.
+    try
+        outdir = mktempdir()
+        main(String(path); output_dir=outdir, export_json=true)
+        return nothing
+    catch err
+        @warn "precompile workload deck failed (coverage reduced)" path err
+        return nothing
+    end
 end
 
-if _jfem_precompile_bool("JFEM_SOL105_PRECOMPILE_WORKLOAD", false) ||
+if _jfem_precompile_bool("JFEM_SOL105_PRECOMPILE_WORKLOAD", true) ||
    haskey(ENV, "JFEM_SOL105_PRECOMPILE_BDF")
     @setup_workload begin
         bdfs = _jfem_precompile_bdfs()

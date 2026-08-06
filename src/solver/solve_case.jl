@@ -123,230 +123,13 @@ function _write_buckling_raw_eigen_csv(eigenvalues::AbstractVector, path::Abstra
     return
 end
 
-@inline _sol105_signedmag_auto_high_pm45_enabled() =
-    solver_env_bool("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45", false)
-
-@inline _sol105_signedmag_auto_high_pm45_aspect_min() =
-    max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_ASPECT_MIN", 5.0), 1.0)
-@inline _sol105_signedmag_auto_high_pm45_aspect_max() =
-    max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_ASPECT_MAX", 6.6),
-        _sol105_signedmag_auto_high_pm45_aspect_min())
-@inline _sol105_signedmag_auto_high_pm45_h_over_lmax_min() =
-    max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_H_OVER_LMAX_MIN", 0.0130), 0.0)
-@inline _sol105_signedmag_auto_high_pm45_h_over_lmax_max() =
-    max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_H_OVER_LMAX_MAX", 0.0145),
-        _sol105_signedmag_auto_high_pm45_h_over_lmax_min())
-@inline _sol105_signedmag_auto_high_pm45_fraction_min() =
-    clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_FRACTION_MIN", 0.40), 0.0, 1.0)
-@inline _sol105_signedmag_auto_high_pm45_fraction_max() =
-    clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_FRACTION_MAX", 0.48),
-        _sol105_signedmag_auto_high_pm45_fraction_min(), 1.0)
-@inline _sol105_signedmag_auto_high_pm45_pm90_min() =
-    clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_PM90_MIN", 0.20), 0.0, 1.0)
-@inline _sol105_signedmag_auto_high_pm45_pm90_max() =
-    clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_PM90_MAX", 0.25),
-        _sol105_signedmag_auto_high_pm45_pm90_min(), 1.0)
-@inline _sol105_signedmag_auto_high_pm45_ply_count_min() =
-    max(solver_env_int("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_PLY_COUNT_MIN", 9), 0)
-@inline _sol105_signedmag_auto_high_pm45_ply_count_max() =
-    max(solver_env_int("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_PLY_COUNT_MAX", 9),
-        _sol105_signedmag_auto_high_pm45_ply_count_min())
-@inline _sol105_signedmag_auto_high_pm45_min_count() =
-    max(solver_env_int("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_MIN_COUNT", 250), 0)
-@inline _sol105_signedmag_auto_high_pm45_min_fraction() =
-    clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_HIGH_PM45_MIN_FRACTION", 0.01), 0.0, 1.0)
-
-@inline _sol105_signedmag_auto_balanced_pcomp_enabled() =
-    solver_env_bool("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_PCOMP", true)
-
-function _sol105_descriptor_quantile(vals::Vector{Float64}, q::Float64)
-    isempty(vals) && return 0.0
-    s = sort(vals)
-    i = clamp(Int(ceil(clamp(q, 0.0, 1.0) * length(s))), 1, length(s))
-    return s[i]
-end
-
-function _sol105_signedmag_auto_high_pm45_selector(model, id_map, X)
-    thresholds = Dict{String,Any}(
-        "aspect_min" => _sol105_signedmag_auto_high_pm45_aspect_min(),
-        "aspect_max" => _sol105_signedmag_auto_high_pm45_aspect_max(),
-        "h_over_lmax_min" => _sol105_signedmag_auto_high_pm45_h_over_lmax_min(),
-        "h_over_lmax_max" => _sol105_signedmag_auto_high_pm45_h_over_lmax_max(),
-        "pm45_min" => _sol105_signedmag_auto_high_pm45_fraction_min(),
-        "pm45_max" => _sol105_signedmag_auto_high_pm45_fraction_max(),
-        "pm90_min" => _sol105_signedmag_auto_high_pm45_pm90_min(),
-        "pm90_max" => _sol105_signedmag_auto_high_pm45_pm90_max(),
-        "ply_count_min" => _sol105_signedmag_auto_high_pm45_ply_count_min(),
-        "ply_count_max" => _sol105_signedmag_auto_high_pm45_ply_count_max(),
-        "min_count" => _sol105_signedmag_auto_high_pm45_min_count(),
-        "min_fraction" => _sol105_signedmag_auto_high_pm45_min_fraction(),
-    )
-    balanced_thresholds = Dict{String,Any}(
-        "enabled" => _sol105_signedmag_auto_balanced_pcomp_enabled(),
-        "aspect_min" => max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_ASPECT_MIN", 2.5), 1.0),
-        "aspect_max" => max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_ASPECT_MAX", 6.2), 1.0),
-        "aspect_p90_max" => max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_ASPECT_P90_MAX", 8.0), 1.0),
-        "h_over_lmax_min" => max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_H_OVER_LMAX_MIN", 0.018), 0.0),
-        "h_over_lmax_max" => max(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_H_OVER_LMAX_MAX", 0.030), 0.0),
-        "pm45_min" => clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_PM45_MIN", 0.10), 0.0, 1.0),
-        "pm45_max" => clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_PM45_MAX", 0.50), 0.0, 1.0),
-        "pm90_min" => clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_PM90_MIN", 0.20), 0.0, 1.0),
-        "pm90_max" => clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_PM90_MAX", 0.50), 0.0, 1.0),
-        "ply_count_min" => max(solver_env_int("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_PLY_COUNT_MIN", 8), 0),
-        "ply_count_max" => max(solver_env_int("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_PLY_COUNT_MAX", 20), 0),
-        "min_count" => max(solver_env_int("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_MIN_COUNT", 250), 0),
-        "min_fraction" => clamp(solver_env_float("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_AUTO_BALANCED_MIN_FRACTION", 0.01), 0.0, 1.0),
-    )
-    balanced_thresholds["aspect_max"] =
-        max(balanced_thresholds["aspect_max"], balanced_thresholds["aspect_min"])
-    balanced_thresholds["h_over_lmax_max"] =
-        max(balanced_thresholds["h_over_lmax_max"], balanced_thresholds["h_over_lmax_min"])
-    balanced_thresholds["pm45_max"] =
-        clamp(balanced_thresholds["pm45_max"], balanced_thresholds["pm45_min"], 1.0)
-    balanced_thresholds["pm90_max"] =
-        clamp(balanced_thresholds["pm90_max"], balanced_thresholds["pm90_min"], 1.0)
-    balanced_thresholds["ply_count_max"] =
-        max(balanced_thresholds["ply_count_max"], balanced_thresholds["ply_count_min"])
-    info = Dict{String,Any}(
-        "selector" => "high_pm45_pcomp_geometry",
-        "enabled" => _sol105_signedmag_auto_high_pm45_enabled(),
-        "active" => false,
-        "thresholds" => thresholds,
-        "balanced_thresholds" => balanced_thresholds,
-        "total_pcomp_quads" => 0,
-        "matching_pcomp_quads" => 0,
-        "matching_high_pm45_pcomp_quads" => 0,
-        "matching_balanced_pcomp_quads" => 0,
-        "matching_fraction" => 0.0,
-        "aggregate_descriptors" => Dict{String,Any}(),
-    )
-    Bool(info["enabled"]) || return info
-    haskey(model, "CSHELLs") || return info
-
-    props = get(model, "PSHELLs", Dict())
-    total = 0
-    matching = 0
-    matching_high_pm45 = 0
-    matching_balanced = 0
-    aspect_vals = Float64[]
-    h_over_lmax_vals = Float64[]
-    pm45_vals = Float64[]
-    pm90_vals = Float64[]
-    ply_count_vals = Float64[]
-    for (_, el) in model["CSHELLs"]
-        nids = get(el, "NODES", nothing)
-        nids isa AbstractVector || continue
-        length(nids) == 4 || continue
-        idxs = Int[]
-        valid = true
-        for nid in nids
-            idx = get(id_map, nid, 0)
-            if idx <= 0 || idx > size(X, 1)
-                valid = false
-                break
-            end
-            push!(idxs, idx)
-        end
-        valid || continue
-
-        pid_key = string(get(el, "PID", get(el, "pid", "")))
-        prop = get(props, pid_key, nothing)
-        is_pcomp_prop =
-            prop isa AbstractDict &&
-            get(prop, "TYPE", "") == "PCOMP_CLT" &&
-            !Bool(get(prop, "IS_ISOTROPIC", false))
-        is_pcomp_prop || continue
-        total += 1
-
-        pts = [
-            SVector{3,Float64}(X[idx, 1], X[idx, 2], X[idx, 3])
-            for idx in idxs
-        ]
-        edge_lengths = Float64[]
-        for ii in 1:4
-            jj = ii == 4 ? 1 : ii + 1
-            push!(edge_lengths, norm(pts[jj] - pts[ii]))
-        end
-        positive_edges = filter(x -> x > 1e-12, edge_lengths)
-        isempty(positive_edges) && continue
-        max_edge = maximum(positive_edges)
-        min_edge = minimum(positive_edges)
-        aspect = max_edge / min_edge
-        h = Float64(get(prop, "T_REF", get(prop, "T", 0.0)))
-        h_over_lmax = max_edge > 1e-12 ? h / max_edge : 0.0
-        pm45 = pcomp_abs_angle_fraction(prop, 45.0)
-        pm90 = pcomp_abs_angle_fraction(prop, 90.0)
-        ply_count = pcomp_ply_count(prop)
-        push!(aspect_vals, aspect)
-        push!(h_over_lmax_vals, h_over_lmax)
-        push!(pm45_vals, pm45)
-        push!(pm90_vals, pm90)
-        push!(ply_count_vals, Float64(ply_count))
-
-        high_pm45_match =
-            aspect >= thresholds["aspect_min"] && aspect <= thresholds["aspect_max"] &&
-            h_over_lmax >= thresholds["h_over_lmax_min"] && h_over_lmax <= thresholds["h_over_lmax_max"] &&
-            pm45 >= thresholds["pm45_min"] && pm45 <= thresholds["pm45_max"] &&
-            pm90 >= thresholds["pm90_min"] && pm90 <= thresholds["pm90_max"] &&
-            ply_count >= thresholds["ply_count_min"] && ply_count <= thresholds["ply_count_max"]
-        balanced_match =
-            Bool(balanced_thresholds["enabled"]) &&
-            aspect >= balanced_thresholds["aspect_min"] && aspect <= balanced_thresholds["aspect_max"] &&
-            h_over_lmax >= balanced_thresholds["h_over_lmax_min"] && h_over_lmax <= balanced_thresholds["h_over_lmax_max"] &&
-            pm45 >= balanced_thresholds["pm45_min"] && pm45 <= balanced_thresholds["pm45_max"] &&
-            pm90 >= balanced_thresholds["pm90_min"] && pm90 <= balanced_thresholds["pm90_max"] &&
-            ply_count >= balanced_thresholds["ply_count_min"] && ply_count <= balanced_thresholds["ply_count_max"]
-        high_pm45_match && (matching_high_pm45 += 1)
-        balanced_match && (matching_balanced += 1)
-        if high_pm45_match || balanced_match
-            matching += 1
-        end
-    end
-
-    frac = total > 0 ? matching / total : 0.0
-    high_pm45_frac = total > 0 ? matching_high_pm45 / total : 0.0
-    balanced_frac = total > 0 ? matching_balanced / total : 0.0
-    aggregate = Dict{String,Any}(
-        "aspect_p50" => _sol105_descriptor_quantile(aspect_vals, 0.50),
-        "aspect_p90" => _sol105_descriptor_quantile(aspect_vals, 0.90),
-        "h_over_lmax_p50" => _sol105_descriptor_quantile(h_over_lmax_vals, 0.50),
-        "pm45_mean" => isempty(pm45_vals) ? 0.0 : sum(pm45_vals) / length(pm45_vals),
-        "pm90_mean" => isempty(pm90_vals) ? 0.0 : sum(pm90_vals) / length(pm90_vals),
-        "ply_count_p50" => _sol105_descriptor_quantile(ply_count_vals, 0.50),
-    )
-    info["total_pcomp_quads"] = total
-    info["matching_pcomp_quads"] = matching
-    info["matching_high_pm45_pcomp_quads"] = matching_high_pm45
-    info["matching_balanced_pcomp_quads"] = matching_balanced
-    info["matching_fraction"] = frac
-    info["aggregate_descriptors"] = aggregate
-    high_pm45_active =
-        matching_high_pm45 >= thresholds["min_count"] &&
-        high_pm45_frac >= thresholds["min_fraction"]
-    balanced_active =
-        matching_balanced >= balanced_thresholds["min_count"] &&
-        balanced_frac >= balanced_thresholds["min_fraction"]
-    balanced_global_active =
-        Bool(balanced_thresholds["enabled"]) &&
-        total >= balanced_thresholds["min_count"] &&
-        aggregate["aspect_p50"] >= balanced_thresholds["aspect_min"] &&
-        aggregate["aspect_p50"] <= balanced_thresholds["aspect_max"] &&
-        aggregate["aspect_p90"] <= balanced_thresholds["aspect_p90_max"] &&
-        aggregate["h_over_lmax_p50"] >= balanced_thresholds["h_over_lmax_min"] &&
-        aggregate["h_over_lmax_p50"] <= balanced_thresholds["h_over_lmax_max"] &&
-        aggregate["pm45_mean"] >= balanced_thresholds["pm45_min"] &&
-        aggregate["pm45_mean"] <= balanced_thresholds["pm45_max"] &&
-        aggregate["pm90_mean"] >= balanced_thresholds["pm90_min"] &&
-        aggregate["pm90_mean"] <= balanced_thresholds["pm90_max"] &&
-        aggregate["ply_count_p50"] >= balanced_thresholds["ply_count_min"] &&
-        aggregate["ply_count_p50"] <= balanced_thresholds["ply_count_max"]
-    info["high_pm45_active"] = high_pm45_active
-    info["balanced_active"] = balanced_active
-    info["balanced_global_active"] = balanced_global_active
-    info["active"] = high_pm45_active || balanced_global_active
-    return info
-end
-
+# 2026-07-27 (strip Stage 1, Pass B): REMOVED the bounded signed-magnitude auto-selector
+# (`_sol105_signedmag_auto_high_pm45_selector`), its 19 threshold accessors and the
+# `_sol105_descriptor_quantile` helper that served only them — 223 lines. The selector was a
+# whole-model DECK FINGERPRINT: aspect 5.0-6.6 AND h/Lmax 0.0130-0.0145 AND pm45 0.40-0.48 AND
+# pm90 0.20-0.25 AND ply_count == 9 exactly AND >= 250 matching PCOMP quads. On a match it
+# switched the buckling output to |lambda| ordering, i.e. it changed which eigenvalue a matching
+# model reports as mode 1. Nastran has no such concept.
 function _build_results_from_state(ndof, model, id_map, X, node_R, u_global, residual_vector,
                                    snorm_normals, solver_diagnostics;
                                    active_load_id=nothing,
@@ -1089,7 +872,8 @@ function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
                     orig_diag=Float64[],
                     load_scale::Float64=1.0,
                     temp_load_id=nothing,
-                    linear_cache=nothing)
+                    linear_cache=nothing,
+                    build_results::Bool=true)
     F_applied = _assemble_applied_force(
         ndof, model, id_map, X, load_id, node_R, rbe3_map;
         load_scale=load_scale,
@@ -1150,6 +934,14 @@ function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
                 log_msg("[SOLVER] WARNING: SPCD on unconstrained dof $dof ignored (dof must be in the SPC set)")
             end
         end
+    end
+
+    # Callers that only need the displacement field (e.g. the SOL 105 static
+    # reference solve feeding Kg) skip stress recovery and result-row
+    # building entirely — previously computed unconditionally and discarded
+    # (measured pure waste, PERF_AUDIT_SOL105_2026_08_05 item 9).
+    if !build_results
+        return nothing, nothing, nothing, u_global, fixed_dofs
     end
 
     R = K * u_global - F_resid
@@ -2208,22 +2000,62 @@ end
 # densified the 26k-60k+ sparse pencil into tens of GB — which is what made the
 # Sturm check appear to "hang" on large models. There is no dense fallback now:
 # the sparse LDLᵀ is the right algorithm and is fast (≈1.5 s/shift at 60k DOF).
-function _buckling_sturm_count(K_ff, Kg_ff, sigma::Float64)
+function _buckling_sturm_count(K_ff, Kg_ff, sigma::Float64;
+                               reuse::Union{Nothing,Base.RefValue{Any}}=nothing,
+                               factor_out::Union{Nothing,Base.RefValue{Any}}=nothing)
     n = size(K_ff, 1)
     n == 0 && return 0
     try
         M = K_ff + sigma * Kg_ff
-        M = 0.5 * (M + M')                      # enforce exact symmetry
+        # Enforce exact symmetry only when the sum is not already exactly
+        # symmetric: for symmetric inputs 0.5*(M+M') is value-identical
+        # (0.5*(x+x) == x in IEEE) and only costs two nnz-sized temporaries
+        # (~170 MB per count at CRM-class sizes).
+        issymmetric(M) || (M = 0.5 * (M + M'))
         if n <= 600
             # Exact: count negative eigenvalues of the (small) dense symmetric M.
             evs = eigvals(Symmetric(Matrix(M)))
             return count(<(0.0), evs)
         else
             # Sparse symmetric-indefinite inertia via CHOLMOD LDLᵀ pivot signs.
-            F = ldlt(sparse(M))
+            # The sparsity pattern of K + sigma*Kg is sigma-independent, so a
+            # caller-held Factor (`reuse`) skips the symbolic analysis on every
+            # count after the first. The inertia is permutation-invariant
+            # (Sylvester's law), so factor reuse cannot change the integer
+            # result even if a fresh analysis would pick another ordering.
+            #
+            # `factor_out` (ShiftFactor fusion): request a FRESH factorization
+            # whose Factor object is handed back to the caller for reuse as a
+            # shift-invert solve operator — never routed through `reuse`, so a
+            # later in-place refactorization cannot corrupt it.
+            local F
+            if factor_out !== nothing
+                F = ldlt(M)
+                factor_out[] = F
+            elseif reuse !== nothing && reuse[] !== nothing
+                # Julia's ldlt/ldlt! pin CHOLMOD to SIMPLICIAL mode, whose
+                # numeric refactorization recomputes column patterns from the
+                # ACTUAL matrix — so refactoring into a reuse factor is
+                # pattern-safe by construction (verified empirically both
+                # pattern directions). This try/catch covers the cases that
+                # DO throw — dimension mismatch (CHOLMODException) and
+                # singular pencils (ZeroPivotException) — by falling back to
+                # a fresh analysis instead of silently disabling the
+                # certificate for the subcase.
+                F = try
+                    ldlt!(reuse[], M)
+                catch
+                    ldlt(M)
+                end
+                reuse[] = F
+            else
+                F = ldlt(M)
+                reuse !== nothing && (reuse[] = F)
+            end
             return count(<(0.0), diag(F))
         end
     catch
+        reuse !== nothing && (reuse[] = nothing)
         return nothing
     end
 end
@@ -2286,6 +2118,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     let em_prefix = strip(get(ENV, "JFEM_DUMP_ELEMENT_MATRICES", ""))
         if !isempty(em_prefix)
             try
+                em_sparse = solver_env_bool("JFEM_DUMP_ELEMENT_MATRICES_SPARSE", false)
                 dump_dense = (path, M) -> begin
                     Md = Matrix(M)
                     open(path, "w") do io
@@ -2298,8 +2131,21 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                         end
                     end
                 end
-                dump_dense(em_prefix * "_K.txt", K)
-                dump_dense(em_prefix * "_Kg.txt", Kg)
+                # Sparse triplet dump (header "<nrows> <ncols> <nnz>" then "i j v")
+                # for large assembled g-set matrices (box has ~45k DOF).
+                dump_sparse = (path, M) -> begin
+                    S = SparseArrays.sparse(M)
+                    I, J, V = SparseArrays.findnz(S)
+                    open(path, "w") do io
+                        println(io, size(S, 1), " ", size(S, 2), " ", length(V))
+                        for k in 1:length(V)
+                            println(io, I[k], " ", J[k], " ", repr(V[k]))
+                        end
+                    end
+                end
+                dump_em = em_sparse ? dump_sparse : dump_dense
+                dump_em(em_prefix * "_K.txt", K)
+                dump_em(em_prefix * "_Kg.txt", Kg)
                 open(em_prefix * "_dofmap.txt", "w") do io
                     for (gid, idx) in sort(collect(id_map); by = x -> x[2])
                         for comp in 1:6
@@ -2341,6 +2187,12 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     let dump_prefix = strip(get(ENV, "JFEM_DUMP_PENCIL", ""))
         if !isempty(dump_prefix)
             try
+                # Per-subcase filenames: successive buckling subcases must never
+                # overwrite each other's dump (the _dofs.txt file is written last
+                # and marks that subcase's dump complete).
+                dump_prefix = buckling_subcase === nothing ? dump_prefix :
+                    dump_prefix * "_sc$(buckling_subcase)"
+                sparse_dump = solver_env_bool("JFEM_DUMP_PENCIL_SPARSE", false)
                 dump_dense_matrix = (path, M) -> begin
                     Kd = Matrix(M)
                     open(path, "w") do io
@@ -2353,8 +2205,21 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                         end
                     end
                 end
-                dump_dense_matrix(dump_prefix * "_Kff.txt", K_ff)
-                dump_dense_matrix(dump_prefix * "_Kgff.txt", Kg_ff)
+                # Sparse triplet dump (I J V) for large systems: header line
+                # "<nrows> <ncols> <nnz>" then one "i j v" per nonzero.
+                dump_sparse_matrix = (path, M) -> begin
+                    S = SparseArrays.sparse(M)
+                    I, J, V = SparseArrays.findnz(S)
+                    open(path, "w") do io
+                        println(io, size(S, 1), " ", size(S, 2), " ", length(V))
+                        for k in 1:length(V)
+                            println(io, I[k], " ", J[k], " ", repr(V[k]))
+                        end
+                    end
+                end
+                dump_pencil_matrix = sparse_dump ? dump_sparse_matrix : dump_dense_matrix
+                dump_pencil_matrix(dump_prefix * "_Kff.txt", K_ff)
+                dump_pencil_matrix(dump_prefix * "_Kgff.txt", Kg_ff)
                 open(dump_prefix * "_dofs.txt", "w") do io
                     for gd in free_dofs
                         node0 = div(gd - 1, 6)
@@ -2382,6 +2247,16 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     nd_limited_range_output = has_range && !return_all_range
     dense_max_dof = _buckling_dense_max_dof()
     will_use_dense = n_free <= dense_max_dof
+
+    # Positivity floor and effective range bounds, shared by the adaptive-nev
+    # ladder test, the range filter, and the certificate machinery below.
+    # V1 is clamped to >+tol so a negative V1 (commonly -1e-4 in MSC decks)
+    # does not re-admit non-positive roots after the positivity filter.
+    positive_tol = 1e-10
+    v1_eff = has_range ? max(eigrl_v1, positive_tol) : 0.0
+    range_abs_tol = max(solver_env_float("JFEM_SOL105_RANGE_ABS_TOL", 0.0), 0.0)
+    range_rel_tol = max(solver_env_float("JFEM_SOL105_RANGE_REL_TOL", 0.0), 0.0)
+    v2_eff = has_range ? eigrl_v2 + max(range_abs_tol, abs(eigrl_v2) * range_rel_tol) : 0.0
     range_mode_factor_default = 8.0
     range_mode_factor = max(solver_env_float("JFEM_SOL105_RANGE_MODE_FACTOR", range_mode_factor_default), 1.0)
     num_modes_request = has_range ? ceil(Int, num_modes * range_mode_factor) :
@@ -2402,6 +2277,27 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     local eigenvalues, eigenvectors
     solved = false
     t_eigen_search = time_ns()
+
+    # ShiftFactor fusion (perf program Phase 3.3, env-flagged): one CHOLMOD
+    # LDLᵀ of M(σ) = K + σ·Kg per shift serves BOTH as the shift-invert
+    # solve operator AND the Sturm inertia certificate at σ. Certificate
+    # factors kept here (bounded, most-recent-two) are consumed by shifted
+    # searches at the same σ (the completeness pass-1 shift IS the
+    # certificate bound b, so the recovery solve then costs no
+    # factorization at all).
+    shift_factor_fusion = solver_env_bool("JFEM_SOL105_SHIFT_FACTOR_FUSION", false)
+    sturm_factor_cache = Dict{Float64,Any}()
+    sturm_factor_order = Float64[]
+    function keep_sturm_factor!(sigma::Float64, F)
+        F === nothing && return
+        haskey(sturm_factor_cache, sigma) && return
+        while length(sturm_factor_order) >= 2
+            delete!(sturm_factor_cache, popfirst!(sturm_factor_order))
+        end
+        sturm_factor_cache[sigma] = F
+        push!(sturm_factor_order, sigma)
+        return
+    end
 
     function attempt_shifted_buckling_search(sigma::Float64, attempt_name::String;
                                             modes_request_override::Union{Nothing,Int}=nothing,
@@ -2429,14 +2325,55 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 B = B[live_dofs, live_dofs]
             end
 
-            factor_backend = "cholesky"
-            M_factor =
-                try
-                    cholesky(M)
+            local factor_backend, M_factor
+            if shift_factor_fusion && !reduced && haskey(sturm_factor_cache, sigma)
+                # A certificate at exactly this σ already factored M: reuse
+                # its LDLᵀ as the solve operator — zero factorization cost.
+                factor_backend = "ldlt_cached"
+                M_factor = sturm_factor_cache[sigma]
+            elseif shift_factor_fusion && !reduced
+                # LDLᵀ-first: one factorization yields the solve operator and
+                # a reusable certificate factor at σ. CHOLMOD LDLᵀ is
+                # simplicial with NO pivoting of any kind, so an
+                # accidentally-tiny pivot (a dof whose diagonal cancels near
+                # σ — the local-crippling condition) silently degrades the
+                # solve by up to ~11 digits without throwing: reject factors
+                # whose pivot spread exceeds sqrt(eps) and fall back to the
+                # proven cholesky→LU ladder (the σ-jitter retry upstream
+                # handles shifts landing exactly on eigenvalues).
+                factor_backend = "ldlt"
+                M_factor = try
+                    ldlt(M)
                 catch
-                    factor_backend = "lu"
-                    lu(M)
+                    nothing
                 end
+                if M_factor !== nothing
+                    dM = abs.(diag(M_factor))
+                    if minimum(dM) < sqrt(eps(Float64)) * maximum(dM)
+                        M_factor = nothing   # numerically untrustworthy pivots
+                    end
+                end
+                if M_factor === nothing
+                    factor_backend = "cholesky"
+                    M_factor = try
+                        cholesky(M)
+                    catch
+                        factor_backend = "lu"
+                        lu(M)
+                    end
+                else
+                    keep_sturm_factor!(sigma, M_factor)
+                end
+            else
+                factor_backend = "cholesky"
+                M_factor =
+                    try
+                        cholesky(M)
+                    catch
+                        factor_backend = "lu"
+                        lu(M)
+                    end
+            end
 
             nd_limited_range_augmentation =
                 nd_limited_range_output &&
@@ -2712,18 +2649,148 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             # shell structures often have nearly-degenerate pairs (symmetric/
             # antisymmetric about a plane of near-symmetry); tight tol + eager=false
             # ensures consistent ordering of those pairs across formulation changes.
-            nev_request = min(num_modes_request + 5, n_free - 1)
-            kd = _buckling_krylovdim(nev_request, n_free)
+            nev_full = min(num_modes_request + 5, n_free - 1)
             krylov_tol = _buckling_krylovtol()
             krylov_maxiter = _buckling_krylovmaxiter()
+
+            # Adaptive nev (perf program Phase 3.2, env-flagged): range decks
+            # inflate the request to ~8x ND although the output is capped at
+            # ND — most of that Krylov space is provably discarded work. The
+            # escalation ladder starts near ND + buffer and stops as soon as
+            # the CONVERGED spectrum either holds >= ND positive in-range
+            # roots or contains a positive root strictly ABOVE the range:
+            # zero-shift inverse iteration enumerates by |lambda|, so a
+            # converged positive root beyond V2 proves every positive root
+            # below it was recovered. A rung that converges fewer than its
+            # request escalates unconditionally (unconverged trailing Ritz
+            # values invert to huge fake "bracketing" roots). Guards: only
+            # ND-limited output (RETURN_ALL_IN_RANGE inspects the full
+            # range), and only while the Sturm safety net — the
+            # certificate-first gate or the completeness augmentation — is
+            # env-armed to catch the converged-subset caveat; otherwise the
+            # ladder collapses to the full request. One start vector serves
+            # every rung, so ordinal consumption matches the flag-OFF run
+            # exactly and an escalated final rung IS today's solve.
+            # NOTE bounded_signed_magnitude_output is constant false since
+            # the 2026-07-27 signed-magnitude strip and is defined AFTER
+            # this block; the ladder's positive-only count is sound only
+            # while that remains true — hoist it into the guard if the
+            # signed-magnitude selector is ever reintroduced.
+            # Promoted to default ON 2026-08-06: two consecutive clean
+            # 42-deck fabric runs (retained spectra within 4e-14 of the
+            # full-request baseline, parity row-identical, zero margin-rule
+            # violations), suite values exactly equal, 20-repeat stability
+            # exact-zero. Opt out with JFEM_SOL105_ADAPTIVE_NEV=false.
+            adaptive_nev = has_range && nd_limited_range_output && !will_use_dense &&
+                           solver_env_bool("JFEM_SOL105_ADAPTIVE_NEV", true) &&
+                           (solver_env_bool("JFEM_SOL105_CERT_FIRST_AUGMENTATION", true) ||
+                            solver_env_bool("JFEM_SOL105_RANGE_COMPLETENESS_AUGMENT", true))
+            nev_ladder = if adaptive_nev
+                nev_buf = max(solver_env_int("JFEM_SOL105_ADAPTIVE_NEV_BUFFER",
+                                             max(num_modes, 8)), 1)
+                sort(unique([min(num_modes + nev_buf, nev_full),
+                             min(4 * num_modes + 5, nev_full),
+                             nev_full]))
+            else
+                [nev_full]
+            end
 
             # K⁻¹*B operator: find largest magnitude eigenvalues θ = 1/λ
             # tol tightened from 1e-10 → 1e-13 (2026-04-21): HTP_launch has mode-1/2
             # pairs separated by <0.1%; loose convergence lets order wobble between
             # solver runs and between formulation changes, masking as a "bug".
-            vals_kk, vecs_kk, info = eigsolve(
-                x -> K_factor \ (B * x), next_start_vector(), nev_request, :LM;
-                krylovdim=kd, maxiter=krylov_maxiter, tol=krylov_tol, eager=true)
+            # Symmetric Lanczos via Cholesky congruence (perf program Phase
+            # 3.4, env-flagged, default OFF): with K = Pᵀ L Lᵀ P SPD, the
+            # operator S = L⁻¹ (P B Pᵀ) L⁻ᵀ is SYMMETRIC with the same
+            # eigenvalues θ as K⁻¹B, so KrylovKit can run real Lanczos
+            # (ishermitian=true) instead of general Arnoldi: three-term
+            # recurrence, real tridiagonal Ritz problem, no complex-pair
+            # filtering. Eigenvectors map back as u = Pᵀ L⁻ᵀ y. The L
+            # extraction works on a COPY of the K factor — sparse(F.L) can
+            # convert a supernodal factor in place, which would change the
+            # rounding of every later F \ b for the shared cached factor.
+            symm_ctx = nothing
+            if solver_env_bool("JFEM_SOL105_SYMM_LANCZOS", false) &&
+               eigen_ctx.factor_backend == "cholesky"
+                symm_ctx = try
+                    Fc = copy(K_factor)
+                    pperm = Fc.p
+                    LT = LowerTriangular(sparse(Fc.L))
+                    (LT, pperm, B[pperm, pperm])
+                catch err
+                    log_msg("[BUCKLING] symmetric-Lanczos congruence unavailable ($(sprint(showerror, err))); using Arnoldi")
+                    nothing
+                end
+            end
+
+            local vals_kk, vecs_kk, info
+            nev_request = nev_ladder[end]
+            kd = _buckling_krylovdim(nev_request, n_free)
+            adaptive_attempts = Any[]
+            ladder_start_vec = next_start_vector()
+            for (rung_i, nev_try) in enumerate(nev_ladder)
+                nev_request = nev_try
+                kd = _buckling_krylovdim(nev_request, n_free)
+                if symm_ctx !== nothing
+                    LTs, pperm, Bp = symm_ctx
+                    vals_kk, vecs_kk, info = eigsolve(
+                        y -> LTs \ (Bp * (LTs' \ y)), ladder_start_vec, nev_request, :LM;
+                        krylovdim=kd, maxiter=krylov_maxiter, tol=krylov_tol,
+                        eager=true, ishermitian=true)
+                else
+                    vals_kk, vecs_kk, info = eigsolve(
+                        x -> K_factor \ (B * x), ladder_start_vec, nev_request, :LM;
+                        krylovdim=kd, maxiter=krylov_maxiter, tol=krylov_tol, eager=true)
+                end
+                if rung_i == length(nev_ladder)
+                    adaptive_nev && push!(adaptive_attempts, Dict{String,Any}(
+                        "nev" => nev_try, "kd" => kd,
+                        "converged" => info.converged, "pos_in_range" => -1,
+                        "brackets_above_v2" => false, "decision" => "final"))
+                    break
+                end
+                pos_in_range = 0
+                brackets = false
+                if info.converged >= nev_try
+                    for theta in vals_kk[1:min(info.converged, length(vals_kk))]
+                        theta_r = real(theta)
+                        (abs(imag(theta)) > 1e-6 * max(abs(theta_r), 1e-20) ||
+                         abs(theta_r) < 1e-14) && continue
+                        lam = 1.0 / theta_r
+                        # mirror the θ→λ conversion floor exactly, so the
+                        # ladder never counts a root the output would drop
+                        (lam > positive_tol && abs(lam) > 1e-6) || continue
+                        # hysteresis: clear V2 by 1e-6 rel to count as
+                        # bracketing (decision-boundary robustness)
+                        lam > v2_eff + max(1e-6 * abs(v2_eff), 1e-12) && (brackets = true)
+                        v1_eff <= lam <= v2_eff && (pos_in_range += 1)
+                    end
+                end
+                sufficient = pos_in_range >= num_modes || brackets
+                push!(adaptive_attempts, Dict{String,Any}(
+                    "nev" => nev_try, "kd" => kd, "converged" => info.converged,
+                    "pos_in_range" => pos_in_range, "brackets_above_v2" => brackets,
+                    "decision" => sufficient ? "sufficient" : "escalated"))
+                if sufficient
+                    log_msg("[BUCKLING] adaptive nev: rung $rung_i (nev=$nev_try, converged=$(info.converged)) sufficient ($pos_in_range in-range, brackets=$brackets)")
+                    break
+                end
+                log_msg("[BUCKLING] adaptive nev: rung $rung_i (nev=$nev_try, converged=$(info.converged)) insufficient ($pos_in_range in-range) — escalating")
+            end
+            isempty(adaptive_attempts) ||
+                (diagnostics["adaptive_nev"] = adaptive_attempts)
+
+            # Congruence back-map: eigsolve returned y-space vectors;
+            # u = Pᵀ L⁻ᵀ y restores pencil eigenvectors (θ values unchanged).
+            if symm_ctx !== nothing
+                LTs, pperm, _ = symm_ctx
+                vecs_kk = [begin
+                    u = zeros(Float64, n_free)
+                    u[pperm] = LTs' \ real.(y)
+                    u
+                end for y in vecs_kk]
+                diagnostics["symm_lanczos"] = true
+            end
 
             log_msg("[BUCKLING] KrylovKit returned $(length(vals_kk)) eigenvalues (converged=$(info.converged))")
 
@@ -2895,7 +2962,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     n_found = length(eigenvalues)
     log_msg("[BUCKLING] Found $n_found eigenvalues (raw, pre-filter)")
 
-    positive_tol = 1e-10
+    # (positive_tol is defined once, up with the range bounds.)
     raw_eigen_csv_path = strip(get(ENV, "JFEM_BUCKLING_RAW_EIGEN_CSV", ""))
     if !isempty(raw_eigen_csv_path)
         _write_buckling_raw_eigen_csv(eigenvalues, raw_eigen_csv_path;
@@ -2910,22 +2977,22 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             positive_tol=positive_tol)
         diagnostics["raw_eigen_csv"] = raw_eigen_csv_path
     end
-    signed_unbounded_output =
-        !has_range &&
-        solver_env_bool("JFEM_SOL105_UNBOUNDED_SIGNED_OUTPUT", true)
-    signedmag_auto_info = has_range ?
-        _sol105_signedmag_auto_high_pm45_selector(model, id_map, X) :
-        Dict{String,Any}(
-            "selector" => "high_pm45_pcomp_geometry",
-            "enabled" => false,
-            "active" => false,
-        )
-    bounded_signed_magnitude_manual =
-        has_range &&
-        solver_env_bool("JFEM_SOL105_BOUNDED_SIGNED_MAGNITUDE_OUTPUT", false)
-    bounded_signed_magnitude_output =
-        has_range &&
-        (bounded_signed_magnitude_manual || Bool(get(signedmag_auto_info, "active", false)))
+    # 2026-07-27 (strip Stage 1): ALL signed-magnitude output conventions are disabled.
+    # Both of them reported |lambda| for negative roots and ordered the spectrum by |lambda|,
+    # which silently changes which eigenvalue is reported as mode 1. Nastran does neither: its
+    # Lanczos returns the roots found in the EIGRL range, ordered by lambda ascending, sign
+    # intact. The bounded variant was armed by `_sol105_signedmag_auto_high_pm45_selector`, a
+    # whole-model deck fingerprint (aspect 5.0-6.6 AND h/Lmax 0.0130-0.0145 AND pm45 0.40-0.48
+    # AND pm90 0.20-0.25 AND ply_count == 9 exactly AND >= 250 matching quads).
+    # The selector and its 14 threshold accessors are removed in the follow-up pass.
+    signed_unbounded_output = false
+    signedmag_auto_info = Dict{String,Any}(
+        "selector" => "removed_2026_07_27",
+        "enabled" => false,
+        "active" => false,
+    )
+    bounded_signed_magnitude_manual = false
+    bounded_signed_magnitude_output = false
     if bounded_signed_magnitude_output && Bool(get(signedmag_auto_info, "active", false)) &&
        !bounded_signed_magnitude_manual
         log_msg("[BUCKLING] Bounded signed-magnitude output auto-enabled by PCOMP geometry selector: " *
@@ -2949,10 +3016,14 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         ),
         signedmag_auto_info,
     )
-    signed_magnitude_output = signed_unbounded_output || bounded_signed_magnitude_output
-    valid_idx = signed_magnitude_output ?
-        findall(x -> isfinite(x) && abs(x) > positive_tol, eigenvalues) :
-        findall(x -> isfinite(x) && x > positive_tol, eigenvalues)
+    # 2026-07-27 (strip Stage 1): signed-magnitude output is DISABLED unconditionally.
+    # It reported |lambda| for negative roots and sorted by |lambda|, which changes WHICH
+    # eigenvalue is called mode 1. Nastran's Lanczos reports the roots it finds in the EIGRL
+    # range, ordered by lambda ascending — so that is what we do. The two auto-selectors that
+    # used to switch this on were whole-model deck fingerprints (aspect/ply-count/h-L windows
+    # with a >=250 matching-quad count); they are removed with the rest of the machinery.
+    signed_magnitude_output = false
+    valid_idx = findall(x -> isfinite(x) && x > positive_tol, eigenvalues)
     if length(valid_idx) < n_found
         dropped = n_found - length(valid_idx)
         if signed_magnitude_output
@@ -2962,14 +3033,9 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         end
     end
 
-    # Apply EIGRL V1/V2 range filter if specified. V1 is clamped to >+tol so a
-    # negative V1 (commonly -1e-4 in MSC decks) does not re-admit non-positive
-    # roots after the positivity filter above.
+    # Apply EIGRL V1/V2 range filter if specified (v1_eff/v2_eff are the
+    # hoisted effective bounds shared with the adaptive-nev ladder).
     if has_range
-        v1_eff = max(eigrl_v1, positive_tol)
-        range_abs_tol = max(solver_env_float("JFEM_SOL105_RANGE_ABS_TOL", 0.0), 0.0)
-        range_rel_tol = max(solver_env_float("JFEM_SOL105_RANGE_REL_TOL", 0.0), 0.0)
-        v2_eff = eigrl_v2 + max(range_abs_tol, abs(eigrl_v2) * range_rel_tol)
         range_idx = bounded_signed_magnitude_output ?
             filter(i -> abs(eigenvalues[i]) >= v1_eff && abs(eigenvalues[i]) <= v2_eff, valid_idx) :
             filter(i -> eigenvalues[i] >= v1_eff && eigenvalues[i] <= v2_eff, valid_idx)
@@ -2981,6 +3047,100 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         end
         valid_idx = range_idx
         diagnostics["bounded_signed_magnitude_output"] = bounded_signed_magnitude_output
+
+        # Sturm counts, shared by the certificate-first augmentation gate
+        # below and the completeness augmentation: each count is a full
+        # sparse LDL' of K + sigma*Kg — the dominant eigen-phase cost at
+        # production sizes — and the symbolic analysis is additionally
+        # shared across sigmas via sturm_reuse (the pattern is
+        # sigma-independent). Cached, so whichever consumer runs first pays;
+        # every later consumer at the same sigma is free. The reuse factor
+        # is seeded from (and written back to) the per-deck eigen cache, so
+        # the SECOND buckling subcase of a deck skips the symbolic analysis
+        # entirely — inertia counts are permutation-invariant (Sylvester),
+        # so cross-subcase reuse cannot change any integer result. Under
+        # ShiftFactor fusion, counts instead keep their fresh Factor for
+        # reuse as shift-invert operators, and a fused shifted solve can
+        # prime a count for free (sturm_prime_count).
+        sturm_reuse = Base.RefValue{Any}(eigen_ctx.sturm_factor)
+        sturm_cache = Dict{Float64,Union{Int,Nothing}}()
+        sturm_at(sig::Float64) = get!(sturm_cache, sig) do
+            if shift_factor_fusion && haskey(sturm_factor_cache, sig)
+                # a fused shifted solve already factored M(σ) (bit-identical
+                # construction, audited): its pivot signs ARE the count
+                Int(count(<(0.0), diag(sturm_factor_cache[sig])))
+            elseif shift_factor_fusion
+                fo = Base.RefValue{Any}(nothing)
+                c = _buckling_sturm_count(K_ff, Kg_ff, sig; factor_out=fo)
+                # keep only operator-grade factors: an accidentally-tiny
+                # unpivoted LDLᵀ pivot is fine for the (pre-existing) count
+                # semantics but would silently degrade a reused SOLVE
+                if fo[] !== nothing
+                    dF = abs.(diag(fo[]))
+                    minimum(dF) >= sqrt(eps(Float64)) * maximum(dF) &&
+                        keep_sturm_factor!(sig, fo[])
+                end
+                c
+            else
+                c = _buckling_sturm_count(K_ff, Kg_ff, sig; reuse=sturm_reuse)
+                eigen_ctx.sturm_factor = sturm_reuse[]
+                c
+            end
+        end
+
+        # Sturm gap over the reported positive range, evaluated against the
+        # CURRENT eigenvalues/valid_idx state at call time (pre- or
+        # post-augmentation). Returns nothing when no certificate can be
+        # formed (no positive roots, inertia unavailable).
+        function current_range_sturm_gap()
+            a_bound = max(eigrl_v1, positive_tol)
+            pos_vals = sort!([eigenvalues[i] for i in valid_idx if eigenvalues[i] > positive_tol])
+            isempty(pos_vals) && return nothing
+            # ---------------------------------------------------------------
+            # Completeness is only meaningful UP TO THE HIGHEST ROOT WE REPORT.
+            #
+            # The iterative extraction requests ~8x ND modes but the output is capped at
+            # ND (see the EIGRL-ND cap below). Bounding this check by the highest
+            # RECOVERED root therefore demands completeness over (v1, lambda_32] while
+            # only (v1, lambda_4] is ever emitted: any root the Krylov solve did not
+            # converge to between lambda_ND and lambda_max leaves a PERMANENT positive
+            # gap, so the loop re-shifts to its budget on every narrow-EIGRL deck and
+            # cannot ever close. Measured cost of that: 2917 s of a 2928 s solve
+            # (99.6 %), for eigenvalues identical to the loop-disabled run.
+            #
+            # Bounding by the ND-th root instead gives the standard, SATISFIABLE
+            # certificate -- "no eigenvalue was missed below the last root reported" --
+            # which is exactly the guarantee that matters and terminates.
+            cap_to_reported = solver_env_bool("JFEM_SOL105_COMPLETENESS_TO_REPORTED", true)
+            n_report = cap_to_reported ? min(max(num_modes, 1), length(pos_vals)) : length(pos_vals)
+            b_bound = pos_vals[n_report] * (1.0 + 1e-6)
+            b_bound > a_bound || return nothing
+            sc_b = sturm_at(b_bound)
+            # Lower-bound short-circuit: with no positive V1 the lower
+            # bound sits at +tol, and a PD-certified K_ff (its Cholesky
+            # succeeded) has inertia 0 there by construction — skip a
+            # full LDL' factorization for a count that cannot be nonzero.
+            sc_a = if a_bound <= positive_tol && eigrl_v1 <= 0.0 &&
+                      eigen_ctx.factor_backend == "cholesky"
+                0
+            else
+                sturm_at(a_bound)
+            end
+            (sc_a === nothing || sc_b === nothing) && return nothing
+            expected = max(sc_b - sc_a, 0)
+            found = count(i -> begin
+                    v = eigenvalues[i]
+                    v > positive_tol && v >= a_bound - eps(Float64) && v <= b_bound + eps(Float64)
+                end, valid_idx)
+            return Dict{String,Any}(
+                "interval" => [a_bound, b_bound],
+                "sturm_eigs_in_interval" => expected,
+                "recovered_in_interval" => found,
+                "gap" => expected - found,
+                "sturm_lower" => sc_a,
+                "sturm_upper" => sc_b,
+            )
+        end
 
         # Zero-shift inverse iteration naturally favors the smallest-|lambda| roots.
         # When a buckling range upper bound is present, augment the in-range spectrum
@@ -3016,11 +3176,50 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             spans_below_V1 = any(v -> real(v) < eigrl_v1, eigenvalues)
             sufficient_in_range = length(range_idx) >= num_modes_request
             auto_skip_aug = spans_above_V2 && spans_below_V1 && sufficient_in_range
-            do_augmentation = range_aug_requested && !(env_skip_aug || auto_skip_aug)
+
+            # Certificate-first gate (perf program Phase 3.1). Promoted to
+            # default ON 2026-08-06 after the full protocol: two consecutive
+            # clean 42-deck fabric runs flag-ON (eigen_score exactly 0 vs
+            # flag-OFF, parity 83/83 within 1%, zero margin-rule violations)
+            # plus the public suite field-diff (values exactly equal,
+            # verdicts identical). Opt out with
+            # JFEM_SOL105_CERT_FIRST_AUGMENTATION=false: before paying
+            # the V2-targeted shifted eigsolve, ask the Sturm certificate
+            # whether the zero-shift pass already recovered every root up to
+            # the ND-th reported one. When >= ND positive in-range roots
+            # exist AND the inertia count over (a, lambda_ND*(1+1e-6)]
+            # equals the recovered count, the ND-capped output is provably
+            # invariant to skipping the augmentation: it could only add
+            # duplicates below the cap (excluded by gap==0) or roots above
+            # it (removed by the cap). Guards: ND-limited output only
+            # (RETURN_ALL_IN_RANGE inspects the full range) and
+            # positive-branch output only (the certificate counts positive
+            # roots, so signed-magnitude decks keep today's behavior). The
+            # recovered_from_empty rescue class fails the >=ND guard and is
+            # untouched. The counts stay cached (sturm_cache above), so the
+            # completeness section below re-certifies for free.
+            cert_first = solver_env_bool("JFEM_SOL105_CERT_FIRST_AUGMENTATION", true)
+            cert_skip_aug = false
+            cert_gap_info = nothing
+            cert_wall = 0.0
+            if cert_first && range_aug_requested && !env_skip_aug && !auto_skip_aug &&
+               nd_limited_range_output && !bounded_signed_magnitude_output
+                t_cert = time_ns()
+                n_pos_in_range = count(i -> eigenvalues[i] > positive_tol, valid_idx)
+                if n_pos_in_range >= num_modes
+                    cert_gap_info = current_range_sturm_gap()
+                    cert_skip_aug = cert_gap_info !== nothing &&
+                                    Int(get(cert_gap_info, "gap", 1)) <= 0
+                end
+                cert_wall = (time_ns() - t_cert) * 1e-9
+            end
+            do_augmentation = range_aug_requested &&
+                              !(env_skip_aug || auto_skip_aug || cert_skip_aug)
 
             if !do_augmentation
                 reason = !range_aug_requested ? "not_requested" :
-                         (env_skip_aug ? "env_override" : "auto_brackets")
+                         (env_skip_aug ? "env_override" :
+                          (auto_skip_aug ? "auto_brackets" : "certificate_complete"))
                 log_msg("[BUCKLING] Skipping range-targeted shift-invert ($reason, $(length(range_idx)) in-range modes already)")
                 diagnostics["range_augmentation"] = Dict{String,Any}(
                     "status" => "skipped",
@@ -3028,7 +3227,9 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     "requested" => range_aug_requested,
                     "in_range_modes_from_strategy2" => length(range_idx),
                 )
-                buckling_timings["range_augmentation"] = 0.0
+                cert_gap_info !== nothing &&
+                    (diagnostics["range_augmentation"]["certificate"] = cert_gap_info)
+                buckling_timings["range_augmentation"] = cert_wall
             else
                 t_aug_start = time_ns()
                 aug_added = 0
@@ -3114,10 +3315,20 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     "shifts" => aug_details,
                     "wall_seconds" => (time_ns() - t_aug_start) * 1e-9,
                 )
+                # When the certificate-first gate ran but could not certify
+                # (gap > 0 or < ND recovered), record what it saw — the flag-ON
+                # rescue path is the one place augmentation still pays.
+                cert_gap_info !== nothing &&
+                    (diagnostics["range_augmentation"]["pre_certificate"] = cert_gap_info)
                 buckling_timings["range_augmentation"] =
                     diagnostics["range_augmentation"]["wall_seconds"]
             end
         end
+
+        # (The Sturm cache and current_range_sturm_gap are defined above the
+        # range augmentation so the certificate-first gate shares them; the
+        # informational diagnostic further down is in a sibling scope and
+        # carries its own local reuse Ref.)
 
         # If the iterative extraction is still missing roots below the highest
         # root it recovered, use the Sturm count as an honest completeness
@@ -3127,30 +3338,6 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         if !will_use_dense &&
            solver_env_bool("JFEM_SOL105_RANGE_COMPLETENESS_AUGMENT", true) &&
            !isempty(valid_idx)
-
-            function current_range_sturm_gap()
-                a_bound = max(eigrl_v1, positive_tol)
-                pos_vals = [eigenvalues[i] for i in valid_idx if eigenvalues[i] > positive_tol]
-                isempty(pos_vals) && return nothing
-                b_bound = maximum(pos_vals) * (1.0 + 1e-6)
-                b_bound > a_bound || return nothing
-                sc_b = _buckling_sturm_count(K_ff, Kg_ff, b_bound)
-                sc_a = _buckling_sturm_count(K_ff, Kg_ff, a_bound)
-                (sc_a === nothing || sc_b === nothing) && return nothing
-                expected = max(sc_b - sc_a, 0)
-                found = count(i -> begin
-                        v = eigenvalues[i]
-                        v > positive_tol && v >= a_bound - eps(Float64) && v <= b_bound + eps(Float64)
-                    end, valid_idx)
-                return Dict{String,Any}(
-                    "interval" => [a_bound, b_bound],
-                    "sturm_eigs_in_interval" => expected,
-                    "recovered_in_interval" => found,
-                    "gap" => expected - found,
-                    "sturm_lower" => sc_a,
-                    "sturm_upper" => sc_b,
-                )
-            end
 
             function range_completeness_sigmas(a_bound::Float64, b_bound::Float64, n_sigmas::Int)
                 sigmas = Float64[b_bound]
@@ -3339,8 +3526,11 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 v > pos_tol_c && v >= a_bound - eps(Float64) && v <= b_bound + eps(Float64)
             end, valid_idx)
         if b_bound > a_bound
-            sc_b = _buckling_sturm_count(K_ff, Kg_ff, b_bound)
-            sc_a = _buckling_sturm_count(K_ff, Kg_ff, a_bound)
+            # Local symbolic-reuse Ref (this block is outside the completeness
+            # branch's scope): the second count reuses the first's analysis.
+            sturm_info_reuse = Base.RefValue{Any}(nothing)
+            sc_b = _buckling_sturm_count(K_ff, Kg_ff, b_bound; reuse=sturm_info_reuse)
+            sc_a = _buckling_sturm_count(K_ff, Kg_ff, a_bound; reuse=sturm_info_reuse)
             if sc_a !== nothing && sc_b !== nothing
                 expected = sc_b - sc_a
                 gap = expected - found_in_band
@@ -3380,912 +3570,18 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         buckling_timings["sturm_completeness"] = (time_ns() - t_sturm) * 1e-9
     end
 
-    # Sort bounded positive ranges by lambda. Sort signed-magnitude extraction
-    # by |lambda| to match MSC/Nastran's printed root order when signed load
-    # reversal roots are intentionally retained.
-    sorted_idx = signed_magnitude_output ?
-        valid_idx[sortperm(abs.(eigenvalues[valid_idx]))] :
-        valid_idx[sortperm(eigenvalues[valid_idx])]
+    # Sort by lambda ascending — Nastran's root order. Never by |lambda|.
+    sorted_idx = valid_idx[sortperm(eigenvalues[valid_idx])]
 
-    # JFEM_BUCKLING_LOCALIZATION_FILTER (2026-05-14 evening): drop modes whose
-    # element participation is dominated by a single element (default metric:
-    # elastic energy; max element share > threshold). Mechanism: certain kernel-stiffening
-    # flag combinations (notably `JFEM_PCOMP_RIGID_TS_LITERAL=true` with low
-    # `JFEM_PCOMP_RIGID_TS_CS_SCALE`) produce spurious low-magnitude modes
-    # localized on tight clusters of 4-8 adjacent elements. Empirically, the
-    # single-element top share for these modes is 25-50%; physical global
-    # buckling modes are ≤7% top share (verified on GAME default runs:
-    # HTP_launch mode 1 = 4.14% top share, VTP_3wp_strain mode 1 = 6.78%).
-    # The cluster filter's spectral-gap rule misses these spurious modes
-    # because they form a dense low-magnitude band with no clean gap below
-    # the physical cluster.
-    loc_filter_enabled = opts.localization_filter_enabled
-    # JFEM_BUCKLING_RAW_OUTPUT=true is a single knob that forces BOTH the
-    # localization filter (here) and the cluster filter (~line 3009) off,
-    # exposing the eigensolver's raw spectrum for off-line MAC / Rayleigh-
-    # quotient parity analysis. Replaces the two-knob pattern from diagnostic
-    # scripts (per architectural-cleanup 2026-05-24).
-    if buckling_raw_output_enabled(opts)
-        loc_filter_enabled = false
-    end
-    # Default 0.10 (2026-05-14 evening): physical buckling modes on the
-    # GAME 7-case set have top-element share 4-7% (HTP_launch mode 1 4.14%,
-    # VTP_3wp_strain mode 1 6.78%); intermediate spurious modes that survive
-    # the 0.20 threshold sit at 13-14% (verified VTP_3wp_strain Cs=2 modes
-    # 3-4). 0.10 catches the intermediate spurious without endangering
-    # physical modes. Verified safe on all 7 default GAME cases: same mode 1
-    # eigenvalue as without the filter (cluster filter handles fallback when
-    # locfilter is aggressive). Override via env to relax (0.20) or tighten
-    # (0.05) per deck.
-    loc_max_share = opts.localization_filter_max_share
-    loc_topn_count = max(solver_env_int("JFEM_BUCKLING_LOCALIZATION_TOPN_COUNT", 10), 0)
-    loc_topn_max_share = clamp(
-        solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_MAX_SHARE", 0.40),
-        0.0,
-        1.0,
-    )
-    loc_topn_filter_enabled = loc_topn_count > 1 && loc_topn_max_share > 0.0
-    loc_topn_descriptor_gate =
-        solver_env_bool("JFEM_BUCKLING_LOCALIZATION_TOPN_DESCRIPTOR_GATE", true)
-    loc_topn_balanced_pm_min =
-        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_BALANCED_PM_MIN", 0.20), 0.0, 1.0)
-    loc_topn_balanced_pm_max =
-        clamp(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_BALANCED_PM_MAX", 0.25),
-            loc_topn_balanced_pm_min,
-            1.0,
-        )
-    loc_topn_lowasp_aspect_max =
-        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_LOWASP_ASPECT_MAX", 1.35), 1.0)
-    loc_topn_lowasp_h_over_l_min =
-        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_LOWASP_H_OVER_L_MIN", 0.030), 0.0)
-    loc_topn_lowasp_h_over_l_max =
-        max(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_LOWASP_H_OVER_L_MAX", 0.040),
-            loc_topn_lowasp_h_over_l_min,
-        )
-    loc_topn_highasp_aspect_min =
-        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_HIGHASP_ASPECT_MIN", 5.80), 1.0)
-    loc_topn_highasp_aspect_max =
-        max(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_HIGHASP_ASPECT_MAX", 6.50),
-            loc_topn_highasp_aspect_min,
-        )
-    loc_topn_highasp_h_over_l_min =
-        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_HIGHASP_H_OVER_L_MIN", 0.0134), 0.0)
-    loc_topn_highasp_h_over_l_max =
-        max(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_HIGHASP_H_OVER_L_MAX", 0.0140),
-            loc_topn_highasp_h_over_l_min,
-        )
-    loc_topn_midasp_aspect_min =
-        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_MIDASP_ASPECT_MIN", 3.85), 1.0)
-    loc_topn_midasp_aspect_max =
-        max(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_MIDASP_ASPECT_MAX", 4.15),
-            loc_topn_midasp_aspect_min,
-        )
-    loc_topn_midasp_h_over_l_min =
-        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_MIDASP_H_OVER_L_MIN", 0.0140), 0.0)
-    loc_topn_midasp_h_over_l_max =
-        max(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_MIDASP_H_OVER_L_MAX", 0.0143),
-            loc_topn_midasp_h_over_l_min,
-        )
-    loc_topn_11ply_strip_enabled =
-        solver_env_bool("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_STRIP", true)
-    loc_topn_11ply_pm45_min =
-        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_PM45_MIN", 0.16), 0.0, 1.0)
-    loc_topn_11ply_pm45_max =
-        clamp(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_PM45_MAX", 0.20),
-            loc_topn_11ply_pm45_min,
-            1.0,
-        )
-    loc_topn_11ply_pm90_min =
-        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_PM90_MIN", 0.34), 0.0, 1.0)
-    loc_topn_11ply_pm90_max =
-        clamp(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_PM90_MAX", 0.39),
-            loc_topn_11ply_pm90_min,
-            1.0,
-        )
-    loc_topn_11ply_thin_aspect_min =
-        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_THIN_ASPECT_MIN", 5.25), 1.0)
-    loc_topn_11ply_thin_aspect_max =
-        max(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_THIN_ASPECT_MAX", 5.75),
-            loc_topn_11ply_thin_aspect_min,
-        )
-    loc_topn_11ply_thin_h_over_l_min =
-        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_THIN_H_OVER_L_MIN", 0.0150), 0.0)
-    loc_topn_11ply_thin_h_over_l_max =
-        max(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_THIN_H_OVER_L_MAX", 0.0163),
-            loc_topn_11ply_thin_h_over_l_min,
-        )
-    loc_topn_11ply_thin_share_min =
-        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_THIN_SHARE_MIN", 0.55), 0.0, 1.0)
-    loc_topn_11ply_mid_aspect_min =
-        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_MID_ASPECT_MIN", 4.30), 1.0)
-    loc_topn_11ply_mid_aspect_max =
-        max(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_MID_ASPECT_MAX", 4.60),
-            loc_topn_11ply_mid_aspect_min,
-        )
-    loc_topn_11ply_mid_h_over_l_min =
-        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_MID_H_OVER_L_MIN", 0.0175), 0.0)
-    loc_topn_11ply_mid_h_over_l_max =
-        max(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_MID_H_OVER_L_MAX", 0.0185),
-            loc_topn_11ply_mid_h_over_l_min,
-        )
-    loc_topn_11ply_mid_share_min =
-        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_MID_SHARE_MIN", 0.40), 0.0, 1.0)
-    loc_topn_11ply_mid_top1_max =
-        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_MID_TOP1_MAX", 0.065), 0.0, 1.0)
-    loc_metric_raw = lowercase(strip(get(ENV, "JFEM_BUCKLING_LOCALIZATION_METRIC", "elastic")))
-    loc_elastic_energy_metric = loc_metric_raw in ("elastic", "stiffness", "k", "strain")
-    loc_metric_label = loc_elastic_energy_metric ? "elastic" : "translation"
-
-    # Mesh-size guard (2026-05-14 evening, post-probe-regression): the
-    # localization filter assumes physical buckling modes are distributed
-    # across many elements, so a single-element top share > threshold flags
-    # spurious. On a SMALL mesh (e.g., probe BDFs with 8-50 elements) a
-    # physical mode can have top share 10-30% just because there are few
-    # elements participating in the global shape, with no kernel pathology.
-    # Skip the filter when N_elements is below the threshold; the cluster
-    # filter still operates as the fallback.
-    loc_min_elem_raw = strip(get(ENV, "JFEM_BUCKLING_LOCALIZATION_MIN_ELEMENTS", ""))
-    loc_min_elements = isempty(loc_min_elem_raw) ? 100 :
-        (tryparse(Int, loc_min_elem_raw) === nothing ? 100 : parse(Int, loc_min_elem_raw))
-    loc_keep_geom_physical_local =
-        solver_env_bool("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM_PHYSICAL_LOCAL", true)
-    loc_keep_geom_aspect_min =
-        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM_ASPECT_MIN", 1.98), 1.0)
-    loc_keep_geom_aspect_max =
-        max(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM_ASPECT_MAX", 2.06),
-            loc_keep_geom_aspect_min,
-        )
-    loc_keep_geom_h_over_lmax_min =
-        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM_H_OVER_LMAX_MIN", 0.01350), 0.0)
-    loc_keep_geom_h_over_lmax_max =
-        max(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM_H_OVER_LMAX_MAX", 0.01382),
-            loc_keep_geom_h_over_lmax_min,
-        )
-    loc_keep_geom_pm45_min =
-        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM_PM45_MIN", 0.20), 0.0, 1.0)
-    loc_keep_geom_pm45_max =
-        clamp(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM_PM45_MAX", 0.25),
-            loc_keep_geom_pm45_min,
-            1.0,
-        )
-    loc_keep_geom_pm90_min =
-        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM_PM90_MIN", 0.20), 0.0, 1.0)
-    loc_keep_geom_pm90_max =
-        clamp(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM_PM90_MAX", 0.25),
-            loc_keep_geom_pm90_min,
-            1.0,
-        )
-    loc_keep_geom_ply_count_min =
-        max(solver_env_int("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM_PLY_COUNT_MIN", 9), 0)
-    loc_keep_geom_ply_count_max =
-        max(
-            solver_env_int("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM_PLY_COUNT_MAX", 9),
-            loc_keep_geom_ply_count_min,
-        )
-    loc_keep_geom2_enabled =
-        solver_env_bool("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_ENABLED", true)
-    loc_keep_geom2_aspect_min =
-        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_ASPECT_MIN", 1.05), 1.0)
-    loc_keep_geom2_aspect_max =
-        max(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_ASPECT_MAX", 1.25),
-            loc_keep_geom2_aspect_min,
-        )
-    loc_keep_geom2_h_over_lmax_min =
-        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_H_OVER_LMAX_MIN", 0.0350), 0.0)
-    loc_keep_geom2_h_over_lmax_max =
-        max(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_H_OVER_LMAX_MAX", 0.0385),
-            loc_keep_geom2_h_over_lmax_min,
-        )
-    loc_keep_geom2_pm45_min =
-        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_PM45_MIN", 0.20), 0.0, 1.0)
-    loc_keep_geom2_pm45_max =
-        clamp(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_PM45_MAX", 0.25),
-            loc_keep_geom2_pm45_min,
-            1.0,
-        )
-    loc_keep_geom2_pm90_min =
-        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_PM90_MIN", 0.20), 0.0, 1.0)
-    loc_keep_geom2_pm90_max =
-        clamp(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_PM90_MAX", 0.25),
-            loc_keep_geom2_pm90_min,
-            1.0,
-        )
-    loc_keep_geom2_ply_count_min =
-        max(solver_env_int("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_PLY_COUNT_MIN", 9), 0)
-    loc_keep_geom2_ply_count_max =
-        max(
-            solver_env_int("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_PLY_COUNT_MAX", 9),
-            loc_keep_geom2_ply_count_min,
-        )
-    loc_keep_geom_topn_share_min = clamp(
-        solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM_TOPN_SHARE_MIN", 0.0),
-        0.0,
-        1.0,
-    )
-    # Regular plate-strip elementary guards can have a legitimate global mode
-    # whose highest element carries slightly more energy than the large-mesh
-    # aircraft guards. Keep only mild top-1 exceedances on simple laminate or
-    # isotropic many-element plates; compact patch modes remain rejected by
-    # the top-N and laminate/geometry gates below.
-    loc_keep_global_plate_enabled =
-        solver_env_bool("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE", true)
-    loc_keep_global_plate_min_elements = max(
-        solver_env_int("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_MIN_ELEMENTS", 150),
-        loc_min_elements,
-    )
-    loc_keep_global_plate_share_max = clamp(
-        solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_MAX_SHARE", 0.145),
-        loc_max_share,
-        1.0,
-    )
-    loc_keep_global_plate_topn_share_max = clamp(
-        solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_TOPN_MAX_SHARE", 0.75),
-        0.0,
-        1.0,
-    )
-    loc_keep_global_plate_aspect_min =
-        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_ASPECT_MIN", 1.0), 1.0)
-    loc_keep_global_plate_aspect_max =
-        max(
-            solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_ASPECT_MAX", 2.50),
-            loc_keep_global_plate_aspect_min,
-        )
-    loc_keep_global_plate_h_over_lmax_max =
-        max(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_H_OVER_LMAX_MAX", 0.20), 0.0)
-    loc_keep_global_plate_ply_count_max =
-        max(solver_env_int("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_PLY_COUNT_MAX", 6), 0)
-    loc_keep_global_plate_pm_max =
-        clamp(solver_env_float("JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_PM_MAX", 0.05), 0.0, 1.0)
-    n_cshells_total = haskey(model, "CSHELLs") ? length(model["CSHELLs"]) : 0
-    loc_top_kappa_raw = strip(get(ENV, "JFEM_BUCKLING_LOCALIZATION_TOP_KAPPA_L_MIN", ""))
-    loc_top_kappa_l_min_raw = isempty(loc_top_kappa_raw) ? 0.0 :
-        (tryparse(Float64, loc_top_kappa_raw) === nothing ? 0.0 : max(parse(Float64, loc_top_kappa_raw), 0.0))
-    loc_top_kappa_modes_min = max(
-        solver_env_int("JFEM_BUCKLING_LOCALIZATION_TOP_KAPPA_L_MIN_NMODES_MIN", 0),
-        0,
-    )
-    loc_top_kappa_v2_max = solver_env_float(
-        "JFEM_BUCKLING_LOCALIZATION_TOP_KAPPA_L_MIN_V2_MAX",
-        0.0,
-    )
-    loc_top_kappa_l_min =
-        (loc_top_kappa_modes_min > 0 && num_modes < loc_top_kappa_modes_min) ||
-        (loc_top_kappa_v2_max > 0.0 && (!has_range || eigrl_v2 > loc_top_kappa_v2_max)) ?
-        0.0 :
-        loc_top_kappa_l_min_raw
-    loc_debug_top = solver_env_bool("JFEM_BUCKLING_LOCALIZATION_DEBUG_TOP", false)
-    # Population/PID-concentration filters were removed from production
-    # behavior. They can hide formulation defects by dropping modes based on
-    # patch makeup; parity work must instead correct K, Kg, constraints, or the
-    # eigensolution itself.
-
-    if loc_filter_enabled && haskey(model, "CSHELLs") && !isempty(sorted_idx) && length(free_dofs) > 0 &&
-       n_cshells_total >= loc_min_elements
-        t_localization = time_ns()
-        loc_scan_all =
-            solver_env_bool("JFEM_BUCKLING_LOCALIZATION_SCAN_ALL", false) ||
-            solver_env_bool("JFEM_SOL105_RETURN_ALL_IN_RANGE", false)
-        loc_scan_buffer = max(solver_env_int("JFEM_BUCKLING_LOCALIZATION_SCAN_BUFFER", 16), 0)
-        loc_scan_limit = loc_scan_all ? length(sorted_idx) :
-            min(length(sorted_idx), max(num_modes + loc_scan_buffer, num_modes))
-        loc_eval_idx = loc_scan_limit >= length(sorted_idx) ?
-            sorted_idx : sorted_idx[1:loc_scan_limit]
-        max_nid = isempty(id_map) ? 0 : maximum(keys(id_map))
-        id_vec = zeros(Int, max_nid)
-        for (nid, idx) in id_map
-            id_vec[nid] = idx
-        end
-        elem_nids = Vector{Vector{Int}}()
-        elem_geom_physical_local_keep = Bool[]
-        elem_geom_keep_aspect = Float64[]
-        elem_geom_keep_h_over_lmax = Float64[]
-        elem_geom_keep_pm45 = Float64[]
-        elem_geom_keep_pm90 = Float64[]
-        elem_geom_keep_ply_count = Int[]
-        elem_geom_keep_nemeth_alpha = Float64[]
-        elem_geom_keep_nemeth_beta = Float64[]
-        elem_geom_keep_nemeth_gamma = Float64[]
-        elem_geom_keep_nemeth_delta = Float64[]
-        elem_geom_keep_pid = String[]
-        for (_, el) in model["CSHELLs"]
-            nids = el["NODES"]
-            n = length(nids)
-            (n == 3 || n == 4) || continue
-            valid = true
-            for k in 1:n
-                nid = nids[k]
-                if nid < 1 || nid > max_nid || id_vec[nid] == 0
-                    valid = false; break
-                end
-            end
-            if valid
-                push!(elem_nids, nids)
-                idxs = [id_vec[nid] for nid in nids]
-                pts = [
-                    SVector{3,Float64}(X[idx, 1], X[idx, 2], X[idx, 3])
-                    for idx in idxs
-                ]
-                edge_lengths = Float64[]
-                for ii in 1:n
-                    jj = ii == n ? 1 : ii + 1
-                    push!(edge_lengths, norm(pts[jj] - pts[ii]))
-                end
-                max_edge = isempty(edge_lengths) ? 0.0 : maximum(edge_lengths)
-                positive_edges = filter(x -> x > 1e-12, edge_lengths)
-                min_edge = isempty(positive_edges) ? 0.0 : minimum(positive_edges)
-                aspect_local = min_edge > 0.0 ? max_edge / min_edge : 0.0
-                pid_key = string(get(el, "PID", get(el, "pid", "")))
-                prop = get(get(model, "PSHELLs", Dict()), pid_key, nothing)
-                is_pcomp_prop =
-                    prop isa AbstractDict &&
-                    get(prop, "TYPE", "") == "PCOMP_CLT" &&
-                    !Bool(get(prop, "IS_ISOTROPIC", false))
-                h_local = prop isa AbstractDict ?
-                    Float64(get(prop, "T_REF", get(prop, "T", 0.0))) : 0.0
-                h_over_lmax_local = max_edge > 1e-12 ? h_local / max_edge : 0.0
-                pm45_local = is_pcomp_prop ? pcomp_abs_angle_fraction(prop, 45.0) : 0.0
-                pm90_local = is_pcomp_prop ? pcomp_abs_angle_fraction(prop, 90.0) : 0.0
-                ply_count_local = is_pcomp_prop ? pcomp_ply_count(prop) : 0
-                nemeth_alpha_local, nemeth_beta_local, nemeth_gamma_local, nemeth_delta_local =
-                    is_pcomp_prop ?
-                    pcomp_nemeth_parameters(prop, 1.0 / max(aspect_local, 1.0)) :
-                    (0.0, 0.0, 0.0, 0.0)
-                geom_keep_band1 =
-                    aspect_local >= loc_keep_geom_aspect_min &&
-                    aspect_local <= loc_keep_geom_aspect_max &&
-                    h_over_lmax_local >= loc_keep_geom_h_over_lmax_min &&
-                    h_over_lmax_local <= loc_keep_geom_h_over_lmax_max &&
-                    pm45_local >= loc_keep_geom_pm45_min &&
-                    pm45_local <= loc_keep_geom_pm45_max &&
-                    pm90_local >= loc_keep_geom_pm90_min &&
-                    pm90_local <= loc_keep_geom_pm90_max &&
-                    ply_count_local >= loc_keep_geom_ply_count_min &&
-                    ply_count_local <= loc_keep_geom_ply_count_max
-                geom_keep_band2 =
-                    loc_keep_geom2_enabled &&
-                    aspect_local >= loc_keep_geom2_aspect_min &&
-                    aspect_local <= loc_keep_geom2_aspect_max &&
-                    h_over_lmax_local >= loc_keep_geom2_h_over_lmax_min &&
-                    h_over_lmax_local <= loc_keep_geom2_h_over_lmax_max &&
-                    pm45_local >= loc_keep_geom2_pm45_min &&
-                    pm45_local <= loc_keep_geom2_pm45_max &&
-                    pm90_local >= loc_keep_geom2_pm90_min &&
-                    pm90_local <= loc_keep_geom2_pm90_max &&
-                    ply_count_local >= loc_keep_geom2_ply_count_min &&
-                    ply_count_local <= loc_keep_geom2_ply_count_max
-                geom_keep =
-                    loc_keep_geom_physical_local &&
-                    is_pcomp_prop &&
-                    (geom_keep_band1 || geom_keep_band2)
-                push!(elem_geom_physical_local_keep, geom_keep)
-                push!(elem_geom_keep_aspect, aspect_local)
-                push!(elem_geom_keep_h_over_lmax, h_over_lmax_local)
-                push!(elem_geom_keep_pm45, pm45_local)
-                push!(elem_geom_keep_pm90, pm90_local)
-                push!(elem_geom_keep_ply_count, ply_count_local)
-                push!(elem_geom_keep_nemeth_alpha, nemeth_alpha_local)
-                push!(elem_geom_keep_nemeth_beta, nemeth_beta_local)
-                push!(elem_geom_keep_nemeth_gamma, nemeth_gamma_local)
-                push!(elem_geom_keep_nemeth_delta, nemeth_delta_local)
-                push!(elem_geom_keep_pid, pid_key)
-            end
-        end
-        if !isempty(elem_nids)
-            elem_top_kappa_l = zeros(Float64, length(elem_nids))
-            if loc_top_kappa_l_min > 0.0 || loc_debug_top
-                elem_normals = zeros(Float64, length(elem_nids), 3)
-                node_normal_sum = zeros(Float64, length(id_map), 3)
-                for (ei, nids) in enumerate(elem_nids)
-                    i1 = id_vec[nids[1]]
-                    i2 = id_vec[nids[2]]
-                    i3 = id_vec[nids[3]]
-                    x1 = X[i1, 1]; y1 = X[i1, 2]; z1 = X[i1, 3]
-                    x2 = X[i2, 1]; y2 = X[i2, 2]; z2 = X[i2, 3]
-                    x3 = X[i3, 1]; y3 = X[i3, 2]; z3 = X[i3, 3]
-                    if length(nids) == 4
-                        i4 = id_vec[nids[4]]
-                        ax = x3 - x1; ay = y3 - y1; az = z3 - z1
-                        bx = X[i4, 1] - x2; by = X[i4, 2] - y2; bz = X[i4, 3] - z2
-                    else
-                        ax = x2 - x1; ay = y2 - y1; az = z2 - z1
-                        bx = x3 - x1; by = y3 - y1; bz = z3 - z1
-                    end
-                    nx = ay * bz - az * by
-                    ny = az * bx - ax * bz
-                    nz = ax * by - ay * bx
-                    nn = sqrt(nx * nx + ny * ny + nz * nz)
-                    nn <= 1e-12 && continue
-                    nx /= nn; ny /= nn; nz /= nn
-                    elem_normals[ei, 1] = nx
-                    elem_normals[ei, 2] = ny
-                    elem_normals[ei, 3] = nz
-                    for nid in nids
-                        idx = id_vec[nid]
-                        node_normal_sum[idx, 1] += nx
-                        node_normal_sum[idx, 2] += ny
-                        node_normal_sum[idx, 3] += nz
-                    end
-                end
-                for idx in axes(node_normal_sum, 1)
-                    nx = node_normal_sum[idx, 1]
-                    ny = node_normal_sum[idx, 2]
-                    nz = node_normal_sum[idx, 3]
-                    nn = sqrt(nx * nx + ny * ny + nz * nz)
-                    if nn > 1e-12
-                        node_normal_sum[idx, 1] = nx / nn
-                        node_normal_sum[idx, 2] = ny / nn
-                        node_normal_sum[idx, 3] = nz / nn
-                    end
-                end
-                for (ei, nids) in enumerate(elem_nids)
-                    ex = elem_normals[ei, 1]
-                    ey = elem_normals[ei, 2]
-                    ez = elem_normals[ei, 3]
-                    enn = sqrt(ex * ex + ey * ey + ez * ez)
-                    enn <= 1e-12 && continue
-                    acc = 0.0
-                    nacc = 0
-                    for nid in nids
-                        idx = id_vec[nid]
-                        nx = node_normal_sum[idx, 1]
-                        ny = node_normal_sum[idx, 2]
-                        nz = node_normal_sum[idx, 3]
-                        nn = sqrt(nx * nx + ny * ny + nz * nz)
-                        nn <= 1e-12 && continue
-                        acc += 1.0 - clamp(abs(nx * ex + ny * ey + nz * ez), 0.0, 1.0)
-                        nacc += 1
-                    end
-                    nacc > 0 && (elem_top_kappa_l[ei] = acc / nacc)
-                end
-            end
-            surviving = Int[]
-            dropped_info = Tuple{Int, Float64, Float64, Float64, Float64, String}[]   # (orig_idx, lambda, top1 share, top kappa_L, top-N share, reason)
-            kept_high_info = Tuple{Int, Float64, Float64, Float64}[]
-            geom_kept_info = Tuple{Int, Float64, Float64, Float64, Float64, Float64}[]
-            global_plate_kept_info = Tuple{Int, Float64, Float64, Float64, Float64, Int, Float64, Float64}[]
-            patch_kept_info = Tuple{Int, Float64, Float64, Float64, Float64, Float64}[]
-            broad_dropped_info = Tuple{Int, Float64, Float64, Float64, Float64}[]
-            patch_keep_enabled = false
-            patch_keep_top_n = 0
-            patch_keep_top2_share_max = 0.0
-            patch_keep_topn_share_max = 0.0
-            broad_strip_filter_enabled = false
-            broad_strip_pid_count = 0
-            broad_strip_pid_share_min = 0.0
-            broad_strip_aspect_min = 0.0
-            broad_strip_v2_max = 0.0
-            full_u = zeros(ndof)
-            for k_idx in loc_eval_idx
-                fill!(full_u, 0.0)
-                evec = view(eigenvectors, :, k_idx)
-                for (i, dof_idx) in enumerate(free_dofs)
-                    full_u[dof_idx] = evec[i]
-                end
-                full_f = loc_elastic_energy_metric ? K * full_u : nothing
-                max_e = 0.0
-                max_ei = 0
-                total_e = 0.0
-                topn_vals = loc_topn_filter_enabled ? zeros(Float64, loc_topn_count) : Float64[]
-                for (ei, nids) in enumerate(elem_nids)
-                    n = length(nids)
-                    e = 0.0
-                    for nid in nids
-                        idx = id_vec[nid]
-                        base = (idx - 1) * 6
-                        if loc_elastic_energy_metric
-                            node_e = 0.0
-                            for dd in 1:6
-                                node_e += full_u[base + dd] * full_f[base + dd]
-                            end
-                            e += 0.5 * abs(node_e)
-                        else
-                            tx = full_u[base + 1]
-                            ty = full_u[base + 2]
-                            tz = full_u[base + 3]
-                            e += tx*tx + ty*ty + tz*tz
-                        end
-                    end
-                    e /= n
-                    total_e += e
-                    if loc_topn_filter_enabled && e > topn_vals[end]
-                        topn_vals[end] = e
-                        jj = length(topn_vals)
-                        while jj > 1 && topn_vals[jj] > topn_vals[jj - 1]
-                            topn_vals[jj], topn_vals[jj - 1] = topn_vals[jj - 1], topn_vals[jj]
-                            jj -= 1
-                        end
-                    end
-                    if e > max_e
-                        max_e = e
-                        max_ei = ei
-                    end
-                end
-                if total_e > 0
-                    share = max_e / total_e
-                    topn_share = loc_topn_filter_enabled ? sum(topn_vals) / total_e : 0.0
-                    if loc_debug_top && max_ei > 0
-                        log_msg(
-                            "[BUCKLING] localization top mode: lambda=$(round(eigenvalues[k_idx]; sigdigits=6)) " *
-                            "share=$(round(100*share; digits=2))% " *
-                            "top$(loc_topn_count)_share=$(round(100*topn_share; digits=2))% " *
-                            "pid=$(elem_geom_keep_pid[max_ei]) " *
-                            "aspect=$(round(elem_geom_keep_aspect[max_ei]; digits=4)) " *
-                            "h/Lmax=$(round(elem_geom_keep_h_over_lmax[max_ei]; sigdigits=5)) " *
-                            "pm45=$(round(elem_geom_keep_pm45[max_ei]; digits=4)) " *
-                            "pm90=$(round(elem_geom_keep_pm90[max_ei]; digits=4)) " *
-                            "plies=$(elem_geom_keep_ply_count[max_ei]) " *
-                            "nemeth_alpha=$(round(elem_geom_keep_nemeth_alpha[max_ei]; sigdigits=5)) " *
-                            "nemeth_beta=$(round(elem_geom_keep_nemeth_beta[max_ei]; sigdigits=5)) " *
-                            "nemeth_gamma=$(round(elem_geom_keep_nemeth_gamma[max_ei]; sigdigits=5)) " *
-                            "nemeth_delta=$(round(elem_geom_keep_nemeth_delta[max_ei]; sigdigits=5)) " *
-                            "top_kappa_L=$(round(elem_top_kappa_l[max_ei]; sigdigits=5))",
-                        )
-                    end
-                    top1_exceeded = share > loc_max_share
-                    raw_topn_exceeded = loc_topn_filter_enabled && topn_share > loc_topn_max_share
-                    topn_descriptor_match = false
-                    if raw_topn_exceeded
-                        if !loc_topn_descriptor_gate
-                            topn_descriptor_match = true
-                        elseif max_ei > 0 && max_ei <= length(elem_geom_keep_aspect)
-                            aspect_local = elem_geom_keep_aspect[max_ei]
-                            h_over_lmax_local = elem_geom_keep_h_over_lmax[max_ei]
-                            pm45_local = elem_geom_keep_pm45[max_ei]
-                            pm90_local = elem_geom_keep_pm90[max_ei]
-                            ply_count_local = elem_geom_keep_ply_count[max_ei]
-                            balanced_9ply =
-                                ply_count_local == 9 &&
-                                pm45_local >= loc_topn_balanced_pm_min &&
-                                pm45_local <= loc_topn_balanced_pm_max &&
-                                pm90_local >= loc_topn_balanced_pm_min &&
-                                pm90_local <= loc_topn_balanced_pm_max
-                            low_aspect_thick =
-                                balanced_9ply &&
-                                aspect_local <= loc_topn_lowasp_aspect_max &&
-                                h_over_lmax_local >= loc_topn_lowasp_h_over_l_min &&
-                                h_over_lmax_local <= loc_topn_lowasp_h_over_l_max
-                            high_aspect_thin =
-                                balanced_9ply &&
-                                aspect_local >= loc_topn_highasp_aspect_min &&
-                                aspect_local <= loc_topn_highasp_aspect_max &&
-                                h_over_lmax_local >= loc_topn_highasp_h_over_l_min &&
-                                h_over_lmax_local <= loc_topn_highasp_h_over_l_max
-                            mid_aspect_thin =
-                                balanced_9ply &&
-                                aspect_local >= loc_topn_midasp_aspect_min &&
-                                aspect_local <= loc_topn_midasp_aspect_max &&
-                                h_over_lmax_local >= loc_topn_midasp_h_over_l_min &&
-                                h_over_lmax_local <= loc_topn_midasp_h_over_l_max
-                            eleven_ply_strip =
-                                loc_topn_11ply_strip_enabled &&
-                                ply_count_local == 11 &&
-                                pm45_local >= loc_topn_11ply_pm45_min &&
-                                pm45_local <= loc_topn_11ply_pm45_max &&
-                                pm90_local >= loc_topn_11ply_pm90_min &&
-                                pm90_local <= loc_topn_11ply_pm90_max
-                            eleven_ply_thin_patch =
-                                eleven_ply_strip &&
-                                topn_share >= loc_topn_11ply_thin_share_min &&
-                                aspect_local >= loc_topn_11ply_thin_aspect_min &&
-                                aspect_local <= loc_topn_11ply_thin_aspect_max &&
-                                h_over_lmax_local >= loc_topn_11ply_thin_h_over_l_min &&
-                                h_over_lmax_local <= loc_topn_11ply_thin_h_over_l_max
-                            eleven_ply_mid_patch =
-                                eleven_ply_strip &&
-                                topn_share >= loc_topn_11ply_mid_share_min &&
-                                share <= loc_topn_11ply_mid_top1_max &&
-                                aspect_local >= loc_topn_11ply_mid_aspect_min &&
-                                aspect_local <= loc_topn_11ply_mid_aspect_max &&
-                                h_over_lmax_local >= loc_topn_11ply_mid_h_over_l_min &&
-                                h_over_lmax_local <= loc_topn_11ply_mid_h_over_l_max
-                            topn_descriptor_match =
-                                low_aspect_thick ||
-                                mid_aspect_thin ||
-                                high_aspect_thin ||
-                                eleven_ply_thin_patch ||
-                                eleven_ply_mid_patch
-                        end
-                    end
-                    topn_exceeded = raw_topn_exceeded && topn_descriptor_match
-                    if top1_exceeded || topn_exceeded
-                        top_kappa_l = max_ei > 0 ? elem_top_kappa_l[max_ei] : 0.0
-                        geom_keep_mode =
-                            max_ei > 0 &&
-                            max_ei <= length(elem_geom_physical_local_keep) &&
-                            elem_geom_physical_local_keep[max_ei] &&
-                            (
-                                loc_keep_geom_topn_share_min <= 0.0 ||
-                                (loc_topn_filter_enabled && topn_share >= loc_keep_geom_topn_share_min)
-                            )
-                        global_plate_keep_mode = false
-                        if max_ei > 0 && max_ei <= length(elem_geom_keep_aspect)
-                            aspect_local = elem_geom_keep_aspect[max_ei]
-                            h_over_lmax_local = elem_geom_keep_h_over_lmax[max_ei]
-                            pm45_local = elem_geom_keep_pm45[max_ei]
-                            pm90_local = elem_geom_keep_pm90[max_ei]
-                            ply_count_local = elem_geom_keep_ply_count[max_ei]
-                            simple_laminate_or_isotropic =
-                                ply_count_local <= loc_keep_global_plate_ply_count_max &&
-                                pm45_local <= loc_keep_global_plate_pm_max &&
-                                pm90_local <= loc_keep_global_plate_pm_max
-                            topn_ok =
-                                !loc_topn_filter_enabled ||
-                                topn_share <= loc_keep_global_plate_topn_share_max
-                            global_plate_keep_mode =
-                                loc_keep_global_plate_enabled &&
-                                n_cshells_total >= loc_keep_global_plate_min_elements &&
-                                top1_exceeded &&
-                                share <= loc_keep_global_plate_share_max &&
-                                topn_ok &&
-                                aspect_local >= loc_keep_global_plate_aspect_min &&
-                                aspect_local <= loc_keep_global_plate_aspect_max &&
-                                h_over_lmax_local <= loc_keep_global_plate_h_over_lmax_max &&
-                                simple_laminate_or_isotropic
-                        end
-                        if geom_keep_mode
-                            push!(
-                                geom_kept_info,
-                                (
-                                    k_idx,
-                                    eigenvalues[k_idx],
-                                    share,
-                                    elem_geom_keep_aspect[max_ei],
-                                    elem_geom_keep_h_over_lmax[max_ei],
-                                    topn_share,
-                                ),
-                            )
-                        elseif global_plate_keep_mode
-                            push!(
-                                global_plate_kept_info,
-                                (
-                                    k_idx,
-                                    eigenvalues[k_idx],
-                                    share,
-                                    topn_share,
-                                    elem_geom_keep_aspect[max_ei],
-                                    elem_geom_keep_ply_count[max_ei],
-                                    elem_geom_keep_pm45[max_ei],
-                                    elem_geom_keep_pm90[max_ei],
-                                ),
-                            )
-                        elseif loc_top_kappa_l_min <= 0.0 || top_kappa_l >= loc_top_kappa_l_min
-                            reason = top1_exceeded && topn_exceeded ? "top1+top$(loc_topn_count)-descriptor" :
-                                     topn_exceeded ? "top$(loc_topn_count)-descriptor" : "top1"
-                            push!(
-                                dropped_info,
-                                (k_idx, eigenvalues[k_idx], share, top_kappa_l, topn_share, reason),
-                            )
-                            continue
-                        else
-                            push!(kept_high_info, (k_idx, eigenvalues[k_idx], share, top_kappa_l))
-                        end
-                    end
-                end
-                push!(surviving, k_idx)
-            end
-            if loc_scan_limit < length(sorted_idx)
-                append!(surviving, @view sorted_idx[(loc_scan_limit + 1):end])
-            end
-            if !isempty(dropped_info) || !isempty(broad_dropped_info) ||
-               !isempty(patch_kept_info) || !isempty(geom_kept_info) ||
-               !isempty(global_plate_kept_info)
-                if !isempty(dropped_info)
-                    topn_clause = loc_topn_filter_enabled ?
-                        " or gated top$(loc_topn_count) share > $(round(100*loc_topn_max_share; digits=1))%" :
-                        ""
-                    log_msg("[BUCKLING] localization filter: dropped $(length(dropped_info)) of " *
-                            "$(length(loc_eval_idx)) scanned modes (top-element share > " *
-                            "$(round(100*loc_max_share; digits=1))%$(topn_clause))")
-                end
-                for (_k_idx, lam, sh, kap, _topn_sh, reason) in dropped_info[1:min(5, length(dropped_info))]
-                    suffix = loc_top_kappa_l_min > 0.0 ? ", top_kappa_L=$(round(kap; sigdigits=4))" : ""
-                    suffix *= ", reason=$(reason)"
-                    log_msg("[BUCKLING]   skip λ=$(round(lam; sigdigits=5)) (share=$(round(100*sh; digits=1))%$suffix)")
-                end
-                if !isempty(broad_dropped_info)
-                    log_msg("[BUCKLING] broad-strip filter: dropped $(length(broad_dropped_info)) of " *
-                            "$(length(loc_eval_idx)) scanned modes (top $(broad_strip_pid_count) PID share >= " *
-                            "$(round(100*broad_strip_pid_share_min; digits=1))%, weighted aspect >= " *
-                            "$(round(broad_strip_aspect_min; digits=3)))")
-                    for (_k_idx, lam, sh, psh, asp) in broad_dropped_info[1:min(5, length(broad_dropped_info))]
-                        log_msg("[BUCKLING]   skip Î»=$(round(lam; sigdigits=5)) " *
-                                "(share=$(round(100*sh; digits=1))%, pid_share=$(round(100*psh; digits=1))%, aspect=$(round(asp; digits=3)))")
-                    end
-                end
-                if loc_top_kappa_l_min > 0.0 && !isempty(kept_high_info)
-                    log_msg("[BUCKLING] localization filter: kept $(length(kept_high_info)) high-share mode(s) " *
-                            "with top_kappa_L < $(round(loc_top_kappa_l_min; sigdigits=4))")
-                    for (_k_idx, lam, sh, kap) in kept_high_info[1:min(5, length(kept_high_info))]
-                        log_msg("[BUCKLING]   keep λ=$(round(lam; sigdigits=5)) " *
-                                "(share=$(round(100*sh; digits=1))%, top_kappa_L=$(round(kap; sigdigits=4)))")
-                    end
-                end
-                if !isempty(geom_kept_info)
-                    log_msg("[BUCKLING] localization geometry keep: kept $(length(geom_kept_info)) high-share mode(s) " *
-                            "whose top element matches the physical local-buckling geometry/material gate")
-                    for (_k_idx, lam, sh, asp, h_lmax, _topn_sh) in geom_kept_info[1:min(5, length(geom_kept_info))]
-                        log_msg("[BUCKLING]   keep lambda=$(round(lam; sigdigits=5)) " *
-                                "(share=$(round(100*sh; digits=1))%, aspect=$(round(asp; digits=3)), " *
-                                "h/Lmax=$(round(h_lmax; sigdigits=4)))")
-                    end
-                end
-                if !isempty(global_plate_kept_info)
-                    log_msg("[BUCKLING] localization global-plate keep: kept $(length(global_plate_kept_info)) " *
-                            "mild high-share mode(s) on simple many-element plate meshes")
-                    for (_k_idx, lam, sh, topn_sh, asp, ply_count, pm45, pm90) in global_plate_kept_info[1:min(5, length(global_plate_kept_info))]
-                        topn_label = loc_topn_filter_enabled ? ", top$(loc_topn_count)=$(round(100*topn_sh; digits=1))%" : ""
-                        log_msg("[BUCKLING]   keep lambda=$(round(lam; sigdigits=5)) " *
-                                "(share=$(round(100*sh; digits=1))%$topn_label, aspect=$(round(asp; digits=3)), " *
-                                "plies=$(ply_count), pm45=$(round(pm45; digits=3)), pm90=$(round(pm90; digits=3)))")
-                    end
-                end
-                if !isempty(patch_kept_info)
-                    log_msg("[BUCKLING] localization patch keep: kept $(length(patch_kept_info)) high-share mode(s) " *
-                            "with top2 share <= $(round(100*patch_keep_top2_share_max; digits=1))% and " *
-                            "top$(patch_keep_top_n) share <= $(round(100*patch_keep_topn_share_max; digits=1))%")
-                    for (_k_idx, lam, sh, kap, top2, topn) in patch_kept_info[1:min(5, length(patch_kept_info))]
-                        log_msg("[BUCKLING]   keep Î»=$(round(lam; sigdigits=5)) " *
-                                "(share=$(round(100*sh; digits=1))%, top2=$(round(100*top2; digits=1))%, " *
-                                "top$(patch_keep_top_n)=$(round(100*topn; digits=1))%, top_kappa_L=$(round(kap; sigdigits=4)))")
-                    end
-                end
-                sorted_idx = surviving
-                diagnostics["localization_filter"] = Dict{String,Any}(
-                    "dropped" => length(dropped_info),
-                    "metric" => loc_metric_label,
-                    "max_share_threshold" => loc_max_share,
-                    "topn_filter_enabled" => loc_topn_filter_enabled,
-                    "topn_count" => loc_topn_count,
-                    "topn_max_share" => loc_topn_max_share,
-                    "topn_descriptor_gate" => loc_topn_descriptor_gate,
-                    "topn_balanced_pm_range" => [
-                        loc_topn_balanced_pm_min,
-                        loc_topn_balanced_pm_max,
-                    ],
-                    "topn_lowaspect_aspect_max" => loc_topn_lowasp_aspect_max,
-                    "topn_lowaspect_h_over_lmax_range" => [
-                        loc_topn_lowasp_h_over_l_min,
-                        loc_topn_lowasp_h_over_l_max,
-                    ],
-                    "topn_highaspect_aspect_range" => [
-                        loc_topn_highasp_aspect_min,
-                        loc_topn_highasp_aspect_max,
-                    ],
-                    "topn_highaspect_h_over_lmax_range" => [
-                        loc_topn_highasp_h_over_l_min,
-                        loc_topn_highasp_h_over_l_max,
-                    ],
-                    "topn_midaspect_aspect_range" => [
-                        loc_topn_midasp_aspect_min,
-                        loc_topn_midasp_aspect_max,
-                    ],
-                    "topn_midaspect_h_over_lmax_range" => [
-                        loc_topn_midasp_h_over_l_min,
-                        loc_topn_midasp_h_over_l_max,
-                    ],
-                    "topn_11ply_strip_enabled" => loc_topn_11ply_strip_enabled,
-                    "topn_11ply_pm45_range" => [
-                        loc_topn_11ply_pm45_min,
-                        loc_topn_11ply_pm45_max,
-                    ],
-                    "topn_11ply_pm90_range" => [
-                        loc_topn_11ply_pm90_min,
-                        loc_topn_11ply_pm90_max,
-                    ],
-                    "topn_11ply_thin_aspect_range" => [
-                        loc_topn_11ply_thin_aspect_min,
-                        loc_topn_11ply_thin_aspect_max,
-                    ],
-                    "topn_11ply_thin_h_over_lmax_range" => [
-                        loc_topn_11ply_thin_h_over_l_min,
-                        loc_topn_11ply_thin_h_over_l_max,
-                    ],
-                    "topn_11ply_thin_share_min" => loc_topn_11ply_thin_share_min,
-                    "topn_11ply_mid_aspect_range" => [
-                        loc_topn_11ply_mid_aspect_min,
-                        loc_topn_11ply_mid_aspect_max,
-                    ],
-                    "topn_11ply_mid_h_over_lmax_range" => [
-                        loc_topn_11ply_mid_h_over_l_min,
-                        loc_topn_11ply_mid_h_over_l_max,
-                    ],
-                    "topn_11ply_mid_share_min" => loc_topn_11ply_mid_share_min,
-                    "topn_11ply_mid_top1_max" => loc_topn_11ply_mid_top1_max,
-                    "top_kappa_l_min" => loc_top_kappa_l_min,
-                    "top_kappa_l_min_raw" => loc_top_kappa_l_min_raw,
-                    "top_kappa_l_min_nmodes_min" => loc_top_kappa_modes_min,
-                    "top_kappa_l_min_v2_max" => loc_top_kappa_v2_max,
-                    "kept_high_share_low_kappa" => length(kept_high_info),
-                    "geom_physical_local_keep_enabled" => loc_keep_geom_physical_local,
-                    "geom_physical_local_kept" => length(geom_kept_info),
-                    "geom_physical_local_aspect_range" => [
-                        loc_keep_geom_aspect_min,
-                        loc_keep_geom_aspect_max,
-                    ],
-                    "geom_physical_local_h_over_lmax_range" => [
-                        loc_keep_geom_h_over_lmax_min,
-                        loc_keep_geom_h_over_lmax_max,
-                    ],
-                    "geom_physical_local_pm45_range" => [
-                        loc_keep_geom_pm45_min,
-                        loc_keep_geom_pm45_max,
-                    ],
-                    "geom_physical_local_pm90_range" => [
-                        loc_keep_geom_pm90_min,
-                        loc_keep_geom_pm90_max,
-                    ],
-                    "geom_physical_local_ply_count_range" => [
-                        loc_keep_geom_ply_count_min,
-                        loc_keep_geom_ply_count_max,
-                    ],
-                    "geom_physical_local2_keep_enabled" => loc_keep_geom2_enabled,
-                    "geom_physical_local2_aspect_range" => [
-                        loc_keep_geom2_aspect_min,
-                        loc_keep_geom2_aspect_max,
-                    ],
-                    "geom_physical_local2_h_over_lmax_range" => [
-                        loc_keep_geom2_h_over_lmax_min,
-                        loc_keep_geom2_h_over_lmax_max,
-                    ],
-                    "geom_physical_local2_pm45_range" => [
-                        loc_keep_geom2_pm45_min,
-                        loc_keep_geom2_pm45_max,
-                    ],
-                    "geom_physical_local2_pm90_range" => [
-                        loc_keep_geom2_pm90_min,
-                        loc_keep_geom2_pm90_max,
-                    ],
-                    "geom_physical_local2_ply_count_range" => [
-                        loc_keep_geom2_ply_count_min,
-                        loc_keep_geom2_ply_count_max,
-                    ],
-                    "geom_physical_local_topn_share_min" => loc_keep_geom_topn_share_min,
-                    "global_plate_keep_enabled" => loc_keep_global_plate_enabled,
-                    "global_plate_kept" => length(global_plate_kept_info),
-                    "global_plate_min_elements" => loc_keep_global_plate_min_elements,
-                    "global_plate_max_share" => loc_keep_global_plate_share_max,
-                    "global_plate_topn_max_share" => loc_keep_global_plate_topn_share_max,
-                    "global_plate_aspect_range" => [
-                        loc_keep_global_plate_aspect_min,
-                        loc_keep_global_plate_aspect_max,
-                    ],
-                    "global_plate_h_over_lmax_max" => loc_keep_global_plate_h_over_lmax_max,
-                    "global_plate_ply_count_max" => loc_keep_global_plate_ply_count_max,
-                    "global_plate_pm_max" => loc_keep_global_plate_pm_max,
-                    "patch_keep_enabled" => patch_keep_enabled,
-                    "patch_kept" => length(patch_kept_info),
-                    "broad_strip_enabled" => broad_strip_filter_enabled,
-                    "broad_strip_v2_max" => broad_strip_v2_max,
-                    "broad_strip_dropped" => length(broad_dropped_info),
-                    "scanned_modes" => length(loc_eval_idx),
-                    "available_modes" => length(sorted_idx),
-                    "scan_all" => loc_scan_all,
-                    "scan_buffer" => loc_scan_buffer,
-                )
-            end
-            buckling_timings["localization_filter"] = (time_ns() - t_localization) * 1e-9
-        end
-    end
+    # 2026-07-27 (strip Stage 1): the localization filter and its rescue windows are GONE.
+    # It discarded eigenvalues whose elastic strain energy was concentrated in few elements
+    # (top-element share > 12 %, top-10 share > 40 %) and then re-admitted specific ones via
+    # three descriptor windows keyed on ply_count == 9 / == 11 with h/L bands 0.0003 wide —
+    # i.e. deck fingerprints deciding which eigenvalue is reported as mode 1. Nastran applies
+    # no such test. Measured: with the filter ON, 6 of 42 corpus decks were MISSING a Nastran
+    # mode; with it OFF, 1. The filter introduced to fix mode selection WAS the defect.
+    # Removed here: ~887 lines of thresholds, keep/reject windows and energy-share
+    # machinery. The spectrum is now reported as found: see `sorted_idx` above.
 
     # By default, honor EIGRL ND even when V1/V2 is present. Range augmentation
     # may discover many more in-range roots than MSC reports for an ND-limited
@@ -4326,164 +3622,12 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         return return_diagnostics ? (Float64[], zeros(ndof, 0), diagnostics) : (Float64[], zeros(ndof, 0))
     end
 
-    # JFEM_BUCKLING_CLUSTER_FILTER: opt-in spectral-gap filter for spurious low modes
-    # produced by the legacy MITC + 3D Jacobian over-stiffening pattern (see
-    # 2026-05-01 entry in the SOL105 parity TODO). On 3wp-style decks, JFEM's
-    # spectrum has 16 spurious low-magnitude modes between 0 and the actual
-    # buckling cluster, with a clean ~1.25× spectral gap separating them.
-    # Detect that gap on the FULL in-range spectrum and skip the pre-gap modes,
-    # then re-apply the EIGRL ND cap. Production default is off: the heuristic
-    # can misclassify broad physical low-mode bands on large curved PCOMP decks.
-    #
-    # Conservativeness: only fires when the post-jump cluster has at least
-    # N_DENSE eigenvalues within a small relative spread (default 30%). This
-    # prevents misfiring on launch-style decks where mode 1 is naturally far
-    # below mode 2 (no dense post-jump cluster).
-    cluster_filter_enabled = opts.cluster_filter_enabled
-    # JFEM_BUCKLING_RAW_OUTPUT=true also forces this cluster filter off
-    # (paired with the localization-filter override at solve_case.jl ~2582).
-    # See buckling_result.jl::buckling_raw_output_enabled.
-    if buckling_raw_output_enabled(opts)
-        cluster_filter_enabled = false
-    end
-    # Default 1.25 (2026-05-01) — empirically detects the spectral gap between
-    # JFEM's spurious low cluster and the actual buckling cluster on the GAME
-    # 3wp 511003 cases (jump 0.903 → 1.151, ratio 1.27).
-    # The cluster filter is diagnostic/opt-in; production parity keeps all
-    # recovered low bands unless the caller explicitly requests this skip.
-    cluster_jump_threshold = opts.cluster_filter_ratio
-    cluster_jump_max_raw = strip(get(ENV, "JFEM_BUCKLING_CLUSTER_FILTER_RATIO_MAX", ""))
-    cluster_jump_max = isempty(cluster_jump_max_raw) ? 8.0 :
-        (tryparse(Float64, cluster_jump_max_raw) === nothing ? 8.0 : parse(Float64, cluster_jump_max_raw))
-    cluster_min_v2_raw = strip(get(ENV, "JFEM_BUCKLING_CLUSTER_FILTER_MIN_V2", ""))
-    cluster_min_v2 = isempty(cluster_min_v2_raw) ? 1.0 :
-        (tryparse(Float64, cluster_min_v2_raw) === nothing ? 1.0 : parse(Float64, cluster_min_v2_raw))
-    cluster_dense_n_raw = strip(get(ENV, "JFEM_BUCKLING_CLUSTER_FILTER_DENSE_N", ""))
-    cluster_dense_n = isempty(cluster_dense_n_raw) ? 3 :
-        (tryparse(Int, cluster_dense_n_raw) === nothing ? 3 : parse(Int, cluster_dense_n_raw))
-    cluster_dense_spread_raw = strip(get(ENV, "JFEM_BUCKLING_CLUSTER_FILTER_DENSE_SPREAD", ""))
-    cluster_dense_spread = isempty(cluster_dense_spread_raw) ? 0.30 :
-        (tryparse(Float64, cluster_dense_spread_raw) === nothing ? 0.30 : parse(Float64, cluster_dense_spread_raw))
-    cluster_singleton_raw = strip(get(ENV, "JFEM_BUCKLING_CLUSTER_FILTER_SINGLETON_RATIO", ""))
-    cluster_singleton_threshold = isempty(cluster_singleton_raw) ? max(cluster_jump_threshold, 3.0) :
-        (tryparse(Float64, cluster_singleton_raw) === nothing ? max(cluster_jump_threshold, 3.0) : parse(Float64, cluster_singleton_raw))
-    cluster_filter_range_ok = has_range && eigrl_v2 >= cluster_min_v2
-    # JFEM_BUCKLING_CLUSTER_FILTER_SELECT_RULE: "last" (default, 2026-05-11) picks
-    # the latest qualifying gap; "first" picks the earliest (legacy behaviour).
-    # Mechanism: spurious-mode clusters from kernel over-stiffening can themselves
-    # contain internal sub-cluster gaps > the 1.25× threshold (see VTP_3wp_strain
-    # 511003 diagnostic, 2026-05-11). The first-gap rule then commits to an
-    # internal sub-gap and reports a still-spurious mode as λ₁. The latest-gap
-    # rule scans all qualifying gaps and picks the last — since the dense-N
-    # criterion (≥3 modes within 30% spread after the gap) already restricts
-    # firing to true buckling-cluster boundaries, the latest one is the
-    # spurious→physical transition.
-    cluster_select_raw = lowercase(strip(get(ENV, "JFEM_BUCKLING_CLUSTER_FILTER_SELECT_RULE", "")))
-    cluster_select_rule = isempty(cluster_select_raw) ? "last" : cluster_select_raw
-    cluster_select_last = cluster_select_rule != "first"
-    # JFEM_BUCKLING_CLUSTER_FILTER_MAX_PRE_SPREAD: reject candidate gaps whose
-    # pre-jump cluster spans more than this ratio in eigenvalue magnitude.
-    # Mechanism: spurious modes from kernel over-stiffening are all small local
-    # instabilities of similar magnitude (observed pre-jump ratio 1.7-3× on the
-    # GAME 3wp cases). If the pre-jump cluster spans >5×, it is not a spurious
-    # cluster — it is a physical low-frequency buckling band followed by higher-
-    # frequency buckling modes (seen on probe BDFs with EIGRL V2=1e8 returning
-    # many physical bands). Default 5× is generous vs observed spurious spreads.
-    cluster_max_pre_raw = strip(get(ENV, "JFEM_BUCKLING_CLUSTER_FILTER_MAX_PRE_SPREAD", ""))
-    cluster_max_pre_spread = isempty(cluster_max_pre_raw) ? 5.0 :
-        (tryparse(Float64, cluster_max_pre_raw) === nothing ? 5.0 : parse(Float64, cluster_max_pre_raw))
-    # JFEM_BUCKLING_CLUSTER_FILTER_MIN_ELEMENTS (2026-05-13): mesh-size guard.
-    # The cluster filter was tuned on GAME meshes (10K+ elements) where the
-    # spectrum is dense and "spurious clusters" are clearly identifiable.
-    # On small meshes (4×4=16 elements, etc.) the spectrum is sparse: pairs of
-    # physical modes can look like a "post-jump cluster" to the heuristic
-    # (verified on kg_4x4_pcomp_curved_R200 — JFEM's first 4 modes match
-    # Nastran's first 4 modes, but the cluster filter classifies them as
-    # spurious because a 1.77× jump exists to mode 5). Skip the filter
-    # entirely when n_elements < 100; the localization filter has the same guard.
-    cluster_min_elem_raw = strip(get(ENV, "JFEM_BUCKLING_CLUSTER_FILTER_MIN_ELEMENTS", ""))
-    cluster_min_elements = isempty(cluster_min_elem_raw) ? 100 :
-        (tryparse(Int, cluster_min_elem_raw) === nothing ? 100 : parse(Int, cluster_min_elem_raw))
-    n_cshells_filter = haskey(model, "CSHELLs") ? length(model["CSHELLs"]) : 0
-    cluster_filter_mesh_ok = n_cshells_filter >= cluster_min_elements
-    # Keep the upper tail of the pre-gap low band. This avoids exposing the
-    # full low clutter while preserving the first physical buckling root in
-    # large EIGRL requests where Nastran reports that root before the dense
-    # post-gap band. Set to 0 to recover the older post-gap-only behavior.
-    cluster_pre_gap_tail_raw = strip(get(ENV, "JFEM_BUCKLING_CLUSTER_FILTER_PRE_GAP_TAIL", ""))
-    cluster_pre_gap_tail = isempty(cluster_pre_gap_tail_raw) ? 1 :
-        (tryparse(Int, cluster_pre_gap_tail_raw) === nothing ? 1 : parse(Int, cluster_pre_gap_tail_raw))
-    cluster_pre_gap_tail = max(cluster_pre_gap_tail, 0)
-
-    # Run the cluster detection on the FULL in-range positive spectrum
-    # (sorted_idx, all of it), not the ND-capped output. Spurious low modes
-    # often fill the slots ND would otherwise expose, so the filter must see
-    # past the ND cap to detect the spectral gap. After detection, the ND cap
-    # is re-applied to the post-filter spectrum.
-    n_skip = 0
-    full_n = length(sorted_idx)
-    if cluster_filter_enabled && cluster_filter_range_ok &&
-       cluster_filter_mesh_ok &&
-       full_n >= cluster_dense_n + 2 &&
-       all(v -> v > 0.0, eigenvalues[sorted_idx])
-        full_eigs = eigenvalues[sorted_idx]
-        for i in 1:(full_n - cluster_dense_n)
-            ei = full_eigs[i]
-            ej = full_eigs[i + 1]
-            ei <= 0 && continue
-            ej <= 0 && continue
-            jump = ej / ei
-            local_jump_threshold = i == 1 ? cluster_singleton_threshold : cluster_jump_threshold
-            jump < local_jump_threshold && continue
-            jump > cluster_jump_max && continue   # very large jumps = post-buckling band, NOT spurious
-            # Spurious-cluster magnitude-bound check: reject if the pre-jump
-            # cluster spans more than cluster_max_pre_spread×. Auto-passes for i==1
-            # (singleton pre-jump). Mechanism: spurious modes from kernel over-
-            # stiffening are constrained to a narrow magnitude range; a wide
-            # pre-jump span indicates the pre-jump cluster is actually a physical
-            # low-frequency band, not spurious clutter.
-            if i >= 2
-                pre_min = full_eigs[1]
-                pre_max = full_eigs[i]
-                pre_min > 0 || continue
-                if pre_max / pre_min > cluster_max_pre_spread
-                    continue
-                end
-            end
-            cluster_max = maximum(full_eigs[(i + 1):(i + cluster_dense_n)])
-            cluster_min = minimum(full_eigs[(i + 1):(i + cluster_dense_n)])
-            if (cluster_max - cluster_min) / cluster_min <= cluster_dense_spread
-                n_skip = max(i - cluster_pre_gap_tail, 0)
-                log_msg("[BUCKLING] cluster filter ($(cluster_select_last ? "last" : "first")): " *
-                        "jump $(round(ej/ei; digits=3))× " *
-                        "at mode $i ($(round(ei; digits=5)) → $(round(ej; digits=5))) " *
-                        "starts a dense cluster of $cluster_dense_n modes within " *
-                        "$(round(100*cluster_dense_spread; digits=1))% spread; " *
-                        "keeping $cluster_pre_gap_tail pre-gap tail mode(s); " *
-                        "skipping $n_skip low mode(s)")
-                cluster_select_last || break
-            end
-        end
-    end
-    # Re-apply ND cap after cluster filtering
-    if n_skip > 0
-        post_filter_idx = sorted_idx[(n_skip + 1):end]
-        if has_range
-            if return_all_range
-                cap_raw = strip(get(ENV, "JFEM_SOL105_RETURN_ALL_IN_RANGE_MAX", "256"))
-                cap = tryparse(Int, cap_raw)
-                cap = cap === nothing ? 256 : clamp(cap, 1, max(length(post_filter_idx), 1))
-                n_out = min(length(post_filter_idx), cap)
-            else
-                n_out = min(num_modes, length(post_filter_idx))
-            end
-        else
-            n_out = min(num_modes_request, length(post_filter_idx))
-        end
-        output_sorted_idx = post_filter_idx[1:n_out]
-    else
-        output_sorted_idx = sorted_idx[1:n_out]
-    end
+    # 2026-07-27 (strip Stage 1): the spectral-gap CLUSTER FILTER is GONE. It skipped low
+    # modes ahead of a detected eigenvalue gap so that a denser higher cluster would be
+    # reported instead — another rule choosing which eigenvalue is mode 1, with no counterpart
+    # in Nastran, which returns the roots its Lanczos finds in the EIGRL range. Removed with it:
+    # the 11 CLUSTER_FILTER_* thresholds and the n_skip re-cap branch.
+    output_sorted_idx = sorted_idx[1:n_out]
 
     final_eigenvalues = bounded_signed_magnitude_output ?
         abs.(eigenvalues[output_sorted_idx]) :
@@ -4604,7 +3748,14 @@ end
         return _sol103_param_enabled(get(model, "PARAM_COUPMASS", false), false) ?
             :coupled_consistent : :nastran_lumped
     end
-    return solver_env_bool("JFEM_SOL103_SHELL_COUPLED_MASS_DEFAULT", true) ?
+    # 2026-08-05 de-calibration: the reference solver's cardless default is
+    # lumped mass (PARAM,COUPMASS,-1). The previous coupled-consistent cardless
+    # default silently diverged from both the reference and from JFEM's own
+    # explicit COUPMASS handling above; on cardless single-element SOL 103
+    # probes it inflated first shell modes by +18..+19% (registry-corpus run
+    # CORPUS_REGISTRY_PARITY_2026_08_05). Forcing lumped reproduces the
+    # reference first modes to full F06 print precision.
+    return solver_env_bool("JFEM_SOL103_SHELL_COUPLED_MASS_DEFAULT", false) ?
         :coupled_consistent : :nastran_lumped
 end
 
@@ -4963,7 +4114,10 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
 
         # Effective density including NSM
         rho_beam = A_beam > 1e-30 ? rho + nsm_beam / A_beam : rho
-        Me_loc = FEM.nastran_lumped_mass_frame3d(L, rho_beam, A_beam, J, Iy, Iz)
+        # CBEAM lumped mass includes torsional inertia, unlike CBAR -- the
+        # two elements' reference spectra prove their respective conventions.
+        Me_loc = FEM.nastran_lumped_mass_frame3d(L, rho_beam, A_beam, J, Iy, Iz;
+                                                 torsion_inertia=true)
 
         # Transformation
         e1 = (p2 - p1) / L
@@ -5280,10 +4434,16 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
     stiff_scale = isempty(stiff_diag) ? 0.0 : maximum(stiff_diag)
     stiff_tol = max(stiff_scale * 1.0e-12, 1.0e-20)
     massless_idx = findall(<=(mass_tol), mass_diag)
-    drop_mass_idx = [
-        i for i in massless_idx
-        if stiff_diag[i] <= stiff_tol || ((free_dofs[i] - 1) % 6 + 1) == 6
-    ]
+    # 2026-08-05: drop ONLY massless coordinates that are also stiffness-free
+    # (true mechanisms). The former unconditional `component == 6` clause was
+    # a shell-drilling-era heuristic that SPC'd every massless r3; on a bar
+    # along x, r3 is a genuine bending rotation with real stiffness, and
+    # constraining it locked the t2 bending plane (CBAR modal probe modes
+    # 29159/169952 instead of the reference's 2582.69/68528.4 pair). The
+    # reference retains massless-but-stiff coordinates; so does the
+    # shift-invert path below, which condenses them exactly. Shell drilling
+    # at K6ROT=0 is already caught by the zero-stiffness clause or AUTOSPC.
+    drop_mass_idx = [i for i in massless_idx if stiff_diag[i] <= stiff_tol]
     keep_mass_idx = isempty(drop_mass_idx) ? collect(1:n_free) : setdiff(collect(1:n_free), drop_mass_idx)
     mass_filter_removed = length(drop_mass_idx)
     if mass_filter_removed > 0
@@ -5390,21 +4550,95 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
             nev = min(num_modes_request + 5, n_free - 1)
             kd = min(max(2*nev + 10, 30), n_free)
 
+            # Start vector: DETERMINISTIC, not randn. A random start vector can
+            # land with near-zero overlap on one member of an exactly degenerate
+            # mode pair, and the Krylov space then never resolves it — the
+            # documented "CBAR probe intermittently returned 4 of 6 modes, about
+            # one run in five" behaviour, whose 1-in-5 cadence is the signature
+            # of the draw rather than of an algorithmic bug. It was also the last
+            # run-to-run non-determinism in the solver (the CRM SOL 103 rows of
+            # the public suite wobbled at the 1e-15 level between identical
+            # runs, which is why suite gates had to judge verdicts rather than
+            # bytes). SOL 105 has used this generator since the deterministic
+            # threading work; SOL 103 now shares it.
+            #
+            # Determinism alone only makes the outcome REPRODUCIBLE, so the
+            # completeness guard below turns "silently miss a degenerate
+            # partner" into "detect and recover it".
+            modal_start_ordinal = Ref(0)
+            next_modal_start() = begin
+                modal_start_ordinal[] += 1
+                _deterministic_buckling_start_vector(n_free, modal_start_ordinal[])
+            end
+
             # K⁻¹M operator: largest θ = 1/ω² → smallest ω
             vals_kk, vecs_kk, info = eigsolve(
-                x -> K_factor \ (M_ff * x), randn(n_free), nev, :LM;
+                x -> K_factor \ (M_ff * x), next_modal_start(), nev, :LM;
                 krylovdim=kd, maxiter=500, tol=1e-10, eager=true)
 
-            actual_omegas_sq = Float64[]
-            actual_vecs = Vector{Float64}[]
-            for (i, theta) in enumerate(vals_kk)
-                theta_r = real(theta)
-                theta_r < 1e-14 && continue
-                abs(imag(theta)) > 1e-6 * abs(theta_r) && continue
-                omega_sq = 1.0 / theta_r
-                omega_sq > 1e-6 || continue
-                push!(actual_omegas_sq, omega_sq)
-                push!(actual_vecs, real.(vecs_kk[i]))
+            harvest_modes(vals, vecs) = begin
+                osq = Float64[]
+                vs = Vector{Float64}[]
+                for (i, theta) in enumerate(vals)
+                    theta_r = real(theta)
+                    theta_r < 1e-14 && continue
+                    abs(imag(theta)) > 1e-6 * abs(theta_r) && continue
+                    omega_sq = 1.0 / theta_r
+                    omega_sq > 1e-6 || continue
+                    push!(osq, omega_sq)
+                    push!(vs, real.(vecs[i]))
+                end
+                (osq, vs)
+            end
+            actual_omegas_sq, actual_vecs = harvest_modes(vals_kk, vecs_kk)
+
+            # --- Completeness guard (Sturm inertia over the reported band) ----
+            # The pencil (K - ω²M) has exactly as many eigenvalues below σ as
+            # K - σM has negative inertia, so _buckling_sturm_count applies
+            # verbatim with Kg := -M and σ := ω². If the certificate says roots
+            # are missing below the highest one we would report — the signature
+            # of a dropped degenerate partner — retry from a different
+            # deterministic start vector and merge. The guard can only ADD
+            # modes: values already found are never perturbed, so decks that
+            # pass today cannot regress.
+            if solver_env_bool("JFEM_SOL103_COMPLETENESS_GUARD", true) &&
+               !isempty(actual_omegas_sq)
+                mass_neg = -M_ff
+                sturm_reuse_modal = Base.RefValue{Any}(nothing)
+                max_tries = max(solver_env_int("JFEM_SOL103_COMPLETENESS_TRIES", 2), 0)
+                guard_log = Any[]
+                for attempt in 1:max_tries
+                    sorted_osq = sort(actual_omegas_sq)
+                    n_report = min(max(num_modes_request, 1), length(sorted_osq))
+                    b_bound = sorted_osq[n_report] * (1.0 + 1e-6)
+                    sc_b = _buckling_sturm_count(K_ff, mass_neg, b_bound;
+                                                 reuse=sturm_reuse_modal)
+                    sc_b === nothing && break
+                    found = count(<=(b_bound), actual_omegas_sq)
+                    gap = sc_b - found
+                    push!(guard_log, Dict{String,Any}(
+                        "attempt" => attempt, "omega_sq_bound" => b_bound,
+                        "sturm_below" => sc_b, "recovered" => found, "gap" => gap))
+                    gap <= 0 && break
+                    log_msg("[MODES] completeness guard: Sturm reports $sc_b root(s) below ω²=$b_bound but $found recovered — retrying from start vector $(modal_start_ordinal[] + 1)")
+                    v2, w2, _ = eigsolve(
+                        x -> K_factor \ (M_ff * x), next_modal_start(),
+                        min(nev + gap, n_free - 1), :LM;
+                        krylovdim=kd, maxiter=500, tol=1e-10, eager=true)
+                    osq2, vs2 = harvest_modes(v2, w2)
+                    added = 0
+                    for (o, v) in zip(osq2, vs2)
+                        if all(x -> abs(x - o) > 1e-8 * max(abs(x), abs(o), 1.0),
+                               actual_omegas_sq)
+                            push!(actual_omegas_sq, o); push!(actual_vecs, v)
+                            added += 1
+                        end
+                    end
+                    log_msg("[MODES] completeness guard: recovered $added additional mode(s)")
+                    added == 0 && break
+                end
+                isempty(guard_log) ||
+                    (diagnostics["completeness_guard"] = guard_log)
             end
             if !isempty(actual_omegas_sq)
                 perm = sortperm(actual_omegas_sq)

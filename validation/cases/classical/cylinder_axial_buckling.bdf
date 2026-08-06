@@ -27,6 +27,10 @@ SUBCASE 1
   LABEL = Static preload (unit axial compression)
   SPC = 1
   LOAD = 1
+$ The preload field is the part of this SOL 105 case that both solvers agree
+$ is well-posed, so it is requested and used as the parity target for this row.
+$ See validation/README.md, "Tabulated commercial-solver values".
+  DISPLACEMENT = ALL
 SUBCASE 2
   LABEL = Buckling eigenvalue
   STATSUB = 1

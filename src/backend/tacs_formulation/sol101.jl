@@ -1541,7 +1541,6 @@ function _tacs_quad4_shell_geometric_stiffness_operator(
         Cm=Cm,
         membrane_incomp=false,
         membrane_enhanced=false,
-        membrane_assumed_mode=:none,
     )
     Kg = transpose(ctx.transform) * Kg_local * ctx.transform
     Kg .= 0.5 .* (Kg .+ transpose(Kg))
@@ -1977,46 +1976,15 @@ function _tacs_pcomp_ply_step(prop::AbstractDict, ply_idx::Integer, perturb_fiel
     end
 end
 
-function _tacs_pcomp_shear_corrected(Ash::AbstractMatrix, ply_data::AbstractVector, total_t::Float64, mats::AbstractDict)
+function _tacs_pcomp_shear_corrected(Ash::AbstractMatrix, ply_data::AbstractVector, total_t::Float64)
     ts_t_default = 5.0 / 6.0
-    ts_t_raw = strip(get(ENV, "JFEM_PCOMP_TS_T", ""))
-    ts_t_parsed = isempty(ts_t_raw) ? nothing : tryparse(Float64, ts_t_raw)
     Cs_lam =
-        ts_t_parsed !== nothing ? ts_t_parsed .* Ash :
         pcomp_whitney_shear_enabled() && !isempty(ply_data) ? begin
             kappa_x, kappa_y = pcomp_whitney_kappa(collect(ply_data), total_t)
             [kappa_x * Ash[1,1] kappa_x * Ash[1,2]; kappa_y * Ash[2,1] kappa_y * Ash[2,2]]
         end :
         ts_t_default .* Ash
 
-    saw_mat8_ply = false
-    all_mat8_plies_blank_transverse_shear = true
-    for ply in ply_data
-        mid_raw = get(ply, "mid", get(ply, "MID", nothing))
-        isnothing(mid_raw) && continue
-        mat = get(mats, string(Int(mid_raw)), nothing)
-        isnothing(mat) && continue
-        if haskey(mat, "E1")
-            saw_mat8_ply = true
-            all_mat8_plies_blank_transverse_shear &=
-                Bool(get(mat, "G1Z_BLANK", false)) && Bool(get(mat, "G2Z_BLANK", false))
-        else
-            all_mat8_plies_blank_transverse_shear = false
-        end
-    end
-
-    rigid_ts_disable = lowercase(strip(get(ENV, "JFEM_PCOMP_RIGID_TS_DISABLE", ""))) in ("1", "true", "yes", "on")
-    if !rigid_ts_disable && saw_mat8_ply && all_mat8_plies_blank_transverse_shear
-        cs_scale_env = strip(get(ENV, "JFEM_PCOMP_RIGID_TS_CS_SCALE", ""))
-        cs_factor_env = strip(get(ENV, "JFEM_PCOMP_RIGID_TS_CS_FACTOR", ""))
-        if !isempty(cs_factor_env)
-            Cs_factor = something(tryparse(Float64, cs_factor_env), 3.57)
-            Cs_lam = Cs_factor .* Cs_lam
-        else
-            Cs_scale = isempty(cs_scale_env) ? 2.5 : something(tryparse(Float64, cs_scale_env), 2.5)
-            Cs_lam = Cs_scale .* Ash
-        end
-    end
     return Cs_lam
 end
 
@@ -2074,7 +2042,7 @@ function _tacs_recompute_pcomp_clt(prop::AbstractDict, mats::AbstractDict; pertu
         z_bot = z_top
     end
 
-    Cs = _tacs_pcomp_shear_corrected(Ash, perturbed_ply_data, total_t, mats)
+    Cs = _tacs_pcomp_shear_corrected(Ash, perturbed_ply_data, total_t)
     Bmb = maximum(abs.(B)) > 1e-10 * maximum(abs.(A); init=1.0) ? B : nothing
     return A, Bmb, D, Cs, total_t, perturbed_ply_data, Ash
 end
@@ -3660,11 +3628,6 @@ function _tacs_preflight_sol105_shared_route(model::Dict)
             end
         end
     end
-    if !Solver.sol105_static_membrane_incomp_enabled() &&
-       haskey(ENV, "JFEM_SOL105_STATIC_MEMBRANE_INCOMP_AUTO_LOAD") &&
-       Solver.sol105_static_membrane_incomp_auto_load_enabled()
-        error("TACS-formulation SOL105 currently requires a fixed static membrane-incomp setting; disable JFEM_SOL105_STATIC_MEMBRANE_INCOMP_AUTO_LOAD or enable JFEM_SOL105_STATIC_MEMBRANE_INCOMP.")
-    end
     return nothing
 end
 
@@ -3703,7 +3666,6 @@ function _solve_tacs_sol105(model::Dict)
         max_elem_stiff, rbe3_map, snorm_normals, orig_diag,
         sorted_sids, sol105_snorm_angle, mesh;
         geometric_stiffness_builder=_tacs_assemble_sol105_geometric_stiffness,
-        static_membrane_incomp_auto_load=false,
     )
     existing_timings = get(results, "timings", Dict{String,Any}())
     merged_timings = Dict{String,Any}()

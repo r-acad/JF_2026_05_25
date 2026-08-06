@@ -89,11 +89,92 @@ function compute_geometric_nodal_normals(model, id_map, node_coords)
     return compute_shell_nodal_normals(model, id_map, node_coords, angle_deg)
 end
 
+# --- PARAM,SNORM nodal directors and normal-moment equilibrium ----------------
+#
+# `snorm_element_pq` expresses each accepted averaged nodal normal in the
+# element mean-plane frame as the absolute target d_i=(p_i,q_i,1). For a flat
+# corner the CQUAD4 kernel uses those slopes directly in the production
+# normal-moment map. For a finitely warped corner, W already carries height
+# slopes (gx_i,gy_i), so the map receives the exact relative residual
+# (p_i+gx_i,q_i+gy_i) at nonaligned rows:
+#
+#   delta_i = rz_i - 0.5*(v_,x-u_,y)_i
+#   rx_used = rx_i - p_i*delta_i
+#   ry_used = ry_i - q_i*delta_i
+#   rz_used = rz_i + p_i*(rx_i-w_,y) + q_i*(ry_i+w_,x)
+#
+# Isoparametric derivatives are evaluated at the corresponding corner. Every
+# exact rigid motion makes all three residuals vanish. The transpose map replaces
+# the induced normal moment with a zero-resultant in-plane force couple,
+# preserving work and the recovered full-S rotation--rotation block. Aligned,
+# solo, rejected, and missing rows remain exactly inert. The complete physical
+# map is M_relative*W; applying raw M after W would count the intrinsic corner
+# tilt twice.
+#
+# Retained fold, star, taper and h7 KGG blocks select this parameter-free map;
+# fold and 4/8/16 hemisphere physical ladders independently close its effect.
+# `JFEM_Q4_SNORM_COMPLETION_MODE=field` retains the superseded local-gradient
+# construction solely for explicit formulation bisects.
+@inline snorm_director_enabled() = solver_env_bool("JFEM_SNORM_DIRECTOR", false)
+
+# Production PARAM,SNORM route. The historical function name is retained to
+# avoid churn in assembly and adjoint guards; FEMKernels selects the
+# normal-moment formulation.
+@inline function snorm_curvature_enabled()
+    return solver_env_bool("JFEM_Q4_SNORM_CURVATURE", true) &&
+           !solver_env_bool("JFEM_Q4_SNORM_TRANSFORM_ONLY", false) &&
+           !snorm_director_enabled()
+end
+
+function snorm_element_pq(v1::SVector{3,Float64},
+                          v2::SVector{3,Float64},
+                          v3::SVector{3,Float64},
+                          indices,
+                          snorm_normals::Dict{Int,SVector{3,Float64}})
+    snorm_curvature_enabled() || return nothing
+    length(indices) == 4 || return nothing
+    any(i -> haskey(snorm_normals, i), indices) || return nothing
+    pq = zeros(4, 2)
+    @inbounds for k in 1:4
+        idx = indices[k]
+        haskey(snorm_normals, idx) || continue
+        n = snorm_normals[idx]
+        dot(n, v3) < 0.0 && (n = -n)
+        n3 = dot(n, v3)
+        abs(n3) < 1e-3 && continue
+        pq[k,1] = dot(n, v1) / n3
+        pq[k,2] = dot(n, v2) / n3
+    end
+    return pq
+end
+
+
+# S in the element frame, for a node whose averaged normal is `n`.
+# Returns the identity whenever the node normal coincides with the element
+# normal, so unshared and coplanar nodes are structurally inert.
+@inline function snorm_director_matrix(n::SVector{3,Float64},
+                                       v1::SVector{3,Float64},
+                                       v2::SVector{3,Float64},
+                                       v3::SVector{3,Float64})
+    n3 = dot(n, v3)
+    # n is only ever this close to the element plane if PARAM SNORM was set wide
+    # enough to defeat its own half-angle refusal; leave those nodes alone.
+    if abs(n3) < 1e-3
+        return @SMatrix [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
+    end
+    a = dot(n, v1) / n3
+    b = dot(n, v2) / n3
+    return @SMatrix [1.0 0.0 -a; 0.0 1.0 -b; a b 1.0]
+end
+
 # Apply SNORM: adjust element frame using averaged normals at element nodes.
 # Returns modified (v1, v2, v3) with v3 tilted toward averaged surface normal.
 function apply_snorm_to_frame(v1::SVector{3,Float64}, v2::SVector{3,Float64}, v3::SVector{3,Float64},
                                indices::Vector{Int}, snorm_normals::Dict{Int, SVector{3,Float64}})
-    if isempty(snorm_normals); return v1, v2, v3; end
+    if isempty(snorm_normals) || snorm_director_enabled() ||
+       (length(indices) == 4 && snorm_curvature_enabled())
+        return v1, v2, v3
+    end
 
     n_avg = SVector(0.0, 0.0, 0.0)
     n_count = 0

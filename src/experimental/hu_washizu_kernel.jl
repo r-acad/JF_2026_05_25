@@ -35,6 +35,7 @@ function stiffness_quad4_membrane_hybrid_stress_matrices(
     curvature_membrane=nothing,
     curvature_w_coupling::Bool=false,
     include_drill_penalty::Bool=true,
+    snorm_pq=nothing,
 )
     Ke = zeros(24, 24)
 
@@ -130,12 +131,19 @@ function stiffness_quad4_membrane_hybrid_stress_matrices(
     iJ21 = -J0[2,1] * inv_det0
     iJ22 = J0[1,1] * inv_det0
     b0 = zeros(24)
+    p_c = snorm_pq === nothing ? 0.0 : 0.25 * sum(@view snorm_pq[:,1])
+    q_c = snorm_pq === nothing ? 0.0 : 0.25 * sum(@view snorm_pq[:,2])
     for k in 1:4
         dN_dx = iJ11*dNr0[k] + iJ12*dNs0[k]
         dN_dy = iJ21*dNr0[k] + iJ22*dNs0[k]
         idx = (k - 1) * 6
         b0[idx + 1] = -0.5 * dN_dy
         b0[idx + 2] =  0.5 * dN_dx
+        # b0 is the negative Hughes-Brezzi surface-spin row. Its pq completion
+        # is retained only for the explicit legacy `field` diagnostic;
+        # production normal-moment mode passes no pq into this local kernel and
+        # wraps the complete operator with the common equilibrium map instead.
+        b0[idx + 3] = -q_c * dN_dx + p_c * dN_dy
         b0[idx + 6] = -0.25
     end
     if include_drill_penalty

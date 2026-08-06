@@ -76,7 +76,19 @@ end
     return raw < 0.0 ? -1.0 : 1.0
 end
 
-function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, V_val)
+function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, V_val;
+                              prebuilt_map=nothing)
+    # Reuse a previously built merged dependency map (the Kg assembly
+    # receives K's map as an argument; its contents depend only on
+    # connectivity cards + geometry, which cannot change between the K and
+    # Kg builds of one solve). Skips the full RBE2/RBE1/RSPLINE/RBE3/MPC
+    # map rebuild — including the per-RBE3 pseudo-inverse solves — and
+    # produces bit-identical triplets (redistribution reads per-key vectors,
+    # not map iteration order). An EMPTY prebuilt map is deliberately NOT
+    # trusted: several call sites pass a default empty Dict.
+    if prebuilt_map !== nothing && !isempty(prebuilt_map)
+        return _redistribute_constraint_triplets(prebuilt_map, I_idx, J_idx, V_val)
+    end
     rbe2s = get(model, "RBE2s", Dict())
 
     # --- RBE2 (rigid body element - MPC constraint via DOF elimination) ---
@@ -443,39 +455,44 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
 
     if n_mpc_total > 0
         log_msg("[SOLVER] MPC elimination: $n_mpc_total total dependent DOFs (RBE2: $(length(rbe2_map)), RBE1: $(length(rbe1_map)), RSPLINE: $(length(rspline_map)), RBE3: $n_rbe3_only, MPC: $(length(mpc_map)))")
-        # Process triplets: redistribute entries involving dependent DOFs
-        n_orig = length(I_idx)
-        new_I = Int[]; new_J = Int[]; new_V = Float64[]
-        sizehint!(new_I, n_orig + n_orig ÷ 10)
-        sizehint!(new_J, n_orig + n_orig ÷ 10)
-        sizehint!(new_V, n_orig + n_orig ÷ 10)
+    end
 
-        for k in 1:n_orig
-            i = I_idx[k]; j = J_idx[k]; v = V_val[k]
-            i_dep = haskey(rbe3_map, i)
-            j_dep = haskey(rbe3_map, j)
+    return _redistribute_constraint_triplets(rbe3_map, I_idx, J_idx, V_val)
+end
 
-            if !i_dep && !j_dep
-                push!(new_I, i); push!(new_J, j); push!(new_V, v)
-            elseif i_dep && !j_dep
-                for (ind_dof, coeff) in rbe3_map[i]
-                    push!(new_I, ind_dof); push!(new_J, j); push!(new_V, v * coeff)
-                end
-            elseif !i_dep && j_dep
-                for (ind_dof, coeff) in rbe3_map[j]
-                    push!(new_I, i); push!(new_J, ind_dof); push!(new_V, v * coeff)
-                end
-            else
-                for (ind_i, ci) in rbe3_map[i]
-                    for (ind_j, cj) in rbe3_map[j]
-                        push!(new_I, ind_i); push!(new_J, ind_j); push!(new_V, v * ci * cj)
-                    end
+# Redistribute triplets involving dependent DOFs onto their independent
+# DOFs. Split from the map build so a prebuilt map can skip the build.
+function _redistribute_constraint_triplets(rbe3_map, I_idx, J_idx, V_val)
+    isempty(rbe3_map) && return rbe3_map, I_idx, J_idx, V_val
+    n_orig = length(I_idx)
+    new_I = Int[]; new_J = Int[]; new_V = Float64[]
+    sizehint!(new_I, n_orig + n_orig ÷ 10)
+    sizehint!(new_J, n_orig + n_orig ÷ 10)
+    sizehint!(new_V, n_orig + n_orig ÷ 10)
+
+    for k in 1:n_orig
+        i = I_idx[k]; j = J_idx[k]; v = V_val[k]
+        i_dep = haskey(rbe3_map, i)
+        j_dep = haskey(rbe3_map, j)
+
+        if !i_dep && !j_dep
+            push!(new_I, i); push!(new_J, j); push!(new_V, v)
+        elseif i_dep && !j_dep
+            for (ind_dof, coeff) in rbe3_map[i]
+                push!(new_I, ind_dof); push!(new_J, j); push!(new_V, v * coeff)
+            end
+        elseif !i_dep && j_dep
+            for (ind_dof, coeff) in rbe3_map[j]
+                push!(new_I, i); push!(new_J, ind_dof); push!(new_V, v * coeff)
+            end
+        else
+            for (ind_i, ci) in rbe3_map[i]
+                for (ind_j, cj) in rbe3_map[j]
+                    push!(new_I, ind_i); push!(new_J, ind_j); push!(new_V, v * ci * cj)
                 end
             end
         end
-        I_idx = new_I; J_idx = new_J; V_val = new_V
-        log_msg("[SOLVER] MPC: Triplets redistributed: $n_orig → $(length(I_idx))")
     end
-
-    return rbe3_map, I_idx, J_idx, V_val
+    log_msg("[SOLVER] MPC: Triplets redistributed: $n_orig → $(length(new_I))")
+    return rbe3_map, new_I, new_J, new_V
 end

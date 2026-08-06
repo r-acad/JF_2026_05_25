@@ -2232,22 +2232,6 @@ function solve_model(backend::NastranParityBackend, model::Dict)
 
     K_eig = K
     t_asm_Keig = 0.0
-    sol105_use_static_k = sol_type == 105 && Solver.sol105_model_use_static_k(model)
-    if sol_type == 105 && !sol105_use_static_k
-        t_asm2 = time_ns()
-        membrane_incomp_eig = Solver.solver_env_bool("JFEM_SOL105_EIG_MEMBRANE_INCOMP", false)
-        pcomp_membrane_incomp_eig = Solver.solver_env_bool("JFEM_SOL105_EIG_PCOMP_MEMBRANE_INCOMP", false)
-        bending_incomp_eig = Solver.sol105_eig_bending_incomp_enabled()
-        K_eig, = Solver.assemble_stiffness(
-            model;
-            shear_center_only=true, bending_incomp=bending_incomp_eig,
-            membrane_incomp=membrane_incomp_eig,
-            pcomp_membrane_incomp=pcomp_membrane_incomp_eig,
-            snorm_angle_override=sol105_snorm_angle, iso_no_incomp=true,
-            sol105_context=true,
-        )
-        t_asm_Keig = (time_ns() - t_asm2) * 1e-9
-    end
 
     sorted_sids = sort(collect(keys(cc["SUBCASES"])))
 
@@ -2771,8 +2755,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                        max_elem_stiff, rbe3_map, snorm_normals, orig_diag,
                        sorted_sids, sol105_snorm_angle, mesh;
                        options::Union{Solver.SOL105Options,Nothing}=nothing,
-                       geometric_stiffness_builder=nothing,
-                       static_membrane_incomp_auto_load::Bool=Solver.sol105_static_membrane_incomp_auto_load_enabled())
+                       geometric_stiffness_builder=nothing)
     # Phase C1 (architectural-cleanup 2026-05-24): accept a typed
     # SOL105Options object. When `nothing`, build from ENV — exactly
     # reproduces pre-cleanup behavior for legacy scripts that don't yet
@@ -2810,7 +2793,10 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     static_cache = Dict{Int, Any}()
     static_linear_solve_cache = ndof >= Solver.linear_solve_cache_min_ndof() ? Solver.create_linear_solve_cache() : nothing
     eigen_solve_cache = ndof >= Solver.eigen_solve_cache_min_ndof() ? Solver.create_eigen_solve_cache() : nothing
-    sol105_use_static_k = Solver.sol105_model_use_static_k(model)
+    # Per-deck Kg CSC pattern cache (values-only reassembly, env-flagged in
+    # the assembler): the triplet pattern is identical across a deck's
+    # buckling subcases, only the values change.
+    kg_csc_cache = Dict{Any,Any}()
     sol105_static_wall_seconds = 0.0
     sol105_kg_wall_seconds = 0.0
     sol105_buckling_wall_seconds = 0.0
@@ -2848,16 +2834,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         needs_temp_reassembly = !isnothing(temp_load_id_static) && _model_has_temperature_dependent_mat1(model)
         static_membrane_incomp_default = Solver.sol105_static_membrane_incomp_enabled()
         static_membrane_incomp_for_load = static_membrane_incomp_default
-        if !static_membrane_incomp_for_load && static_membrane_incomp_auto_load
-            static_membrane_incomp_for_load =
-                Solver.kg_quad4_auto_avg_load_classifier(model, load_id) === true
-            if static_membrane_incomp_for_load
-                println(">>> SOL105 static membrane-incomp auto-load enabled for LOAD=$load_id")
-            end
-        end
-        needs_static_reassembly =
-            needs_temp_reassembly ||
-            static_membrane_incomp_for_load != static_membrane_incomp_default
+        needs_static_reassembly = needs_temp_reassembly
         static_wall_seconds = 0.0
 
         if !haskey(static_cache, stat_sid)
@@ -2883,26 +2860,13 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                             membrane_incomp=static_membrane_incomp_for_load,
                             sol105_context=true,
                         )
-                    if sol105_use_static_k
-                        K_eig_static = K_static
-                    else
-                        membrane_incomp_eig = Solver.solver_env_bool("JFEM_SOL105_EIG_MEMBRANE_INCOMP", false)
-                        pcomp_membrane_incomp_eig = Solver.solver_env_bool("JFEM_SOL105_EIG_PCOMP_MEMBRANE_INCOMP", false)
-                        bending_incomp_eig = Solver.sol105_eig_bending_incomp_enabled()
-                        K_eig_static, = Solver.assemble_stiffness(
-                            model;
-                            shear_center_only=true, bending_incomp=bending_incomp_eig,
-                            membrane_incomp=membrane_incomp_eig,
-                            pcomp_membrane_incomp=pcomp_membrane_incomp_eig,
-                            snorm_angle_override=sol105_snorm_angle, iso_no_incomp=true,
-                            sol105_context=true,
-                        )
-                    end
+                    K_eig_static = K_static
                 end
                 _, _, _, u_static_analysis, fixed_dofs_static = Solver.solve_case(
                     K_static, ndof_static, model, id_map_static, X_static, load_id, spc_id_static, node_R_static;
                     max_elem_stiff=max_elem_stiff_static, rbe3_map=rbe3_map_static, snorm_normals=snorm_normals_static, orig_diag=orig_diag_static,
-                    temp_load_id=temp_load_id_static, linear_cache=static_linear_solve_cache)
+                    temp_load_id=temp_load_id_static, linear_cache=static_linear_solve_cache,
+                    build_results=false)
                 return u_static_analysis, fixed_dofs_static
             end
 
@@ -2979,13 +2943,12 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                         K_la, ndof_la, model, id_map_la, X_la, load_id, spc_id_static, node_R_la;
                         max_elem_stiff=max_elem_stiff_la, rbe3_map=rbe3_map_la,
                         snorm_normals=snorm_normals_la, orig_diag=orig_diag_la,
-                        temp_load_id=temp_load_id_static, linear_cache=nothing)
+                        temp_load_id=temp_load_id_static, linear_cache=nothing,
+                        build_results=false)
                     u_static_analysis = u_la
                     fixed_dofs_static = fixed_la
                     K_static = K_la
-                    if sol105_use_static_k
-                        K_eig_static = K_la
-                    end
+                    K_eig_static = K_la
                     id_map_static = id_map_la; X_static = X_la; ndof_static = ndof_la
                     node_R_static = node_R_la; max_elem_stiff_static = max_elem_stiff_la
                     rbe3_map_static = rbe3_map_la; snorm_normals_static = snorm_normals_la
@@ -3037,7 +3000,8 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                         snorm_angle_override=sol105_snorm_angle,
                         buckling_subcase=buck_sid,
                         static_load_id=load_id,
-                        timings=kg_phase_timings)
+                        timings=kg_phase_timings,
+                        csc_cache=kg_csc_cache)
                 end
             else
                 Solver.assemble_geometric_stiffness(
@@ -3045,7 +3009,8 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                     snorm_angle_override=sol105_snorm_angle,
                     buckling_subcase=buck_sid,
                     static_load_id=load_id,
-                    timings=kg_phase_timings)
+                    timings=kg_phase_timings,
+                    csc_cache=kg_csc_cache)
             end
         kg_wall_seconds = (time_ns() - t_kg) * 1e-9
         sol105_kg_wall_seconds += kg_wall_seconds
@@ -3642,10 +3607,15 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
                     "eigenvalues"         => collect(sc.reported_eigenvalues),
                 ) for sc in br_sc.subcases]
             end
+            # The SOL 105 static preload is a well-posed, directly comparable
+            # quantity that the buckling JSON previously dropped, so a consumer
+            # wanting it had to re-run the deck as SOL 101. Emit it alongside
+            # the modes; the binary export has always carried it.
             export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id_map;
                 analysis_type="SOL105_BUCKLING", diagnostics=get(results, "solver_diagnostics", nothing),
                 mode_metadata=get(results, "mode_metadata", nothing),
                 buckling_subcases=sol105_subcases,
+                static_displacements=_static_disp_to_list(get(results, "u_static", nothing), id_map),
                 backend_metadata=_export_backend_metadata(results))
         end
         if export_hdf5

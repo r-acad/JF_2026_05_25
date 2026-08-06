@@ -14,6 +14,12 @@ SUBCASE 1
   LOAD = 1
   DISPLACEMENT = ALL
 BEGIN BULK
+$ ---- solver parameters ----
+$ Drilling-DOF stabilisation is not part of the benchmark definition and
+$ solvers default it differently (MSC/Nastran 70.5 SOL 101: 0.0; MSC.Nastran
+$ 2004+ and OpenJFEM: 100.0). Pinned so the accuracy and same-deck parity
+$ comparisons are parameter-exact. See validation/README.md, "PARAM,K6ROT".
+PARAM,K6ROT,0.
 $ ---- material and property ----
 MAT1, 1, 1.0+7, , 0.25
 PSHELL, 1, 1, 0.10, 1

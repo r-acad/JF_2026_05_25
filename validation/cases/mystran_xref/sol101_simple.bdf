@@ -46,6 +46,12 @@ BEGIN BULK
 $
 $ inline "$ fixed"/"$ free" comments stripped: some classical
 $ BDF parsers treat them as extra data and fail.
+$
+$ Drilling-DOF stabilisation is not part of this cross-check's definition and
+$ solvers default it differently (MSC/Nastran 70.5 SOL 101 and MYSTRAN: 0.0;
+$ MSC.Nastran 2004+ and OpenJFEM: 100.0). Pinned so the same-deck parity
+$ comparison is parameter-exact. See validation/README.md, "PARAM,K6ROT".
+PARAM   K6ROT   0.
 GRID    1011              0.      0.      0.
 GRID    1012             50.      0.      0.
 GRID    1013             50.     50.      0.

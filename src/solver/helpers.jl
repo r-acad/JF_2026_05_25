@@ -153,7 +153,7 @@ end
     # are explicit formulation experiments and should not be selected by a
     # validation-suite preset.
     base_default = "diag"
-    raw = lowercase(strip(get(ENV, primary_key, get(ENV, "JFEM_Q4_FRAME_MODE", base_default))))
+    raw = lowercase(strip(FEM._fem_env_get(primary_key, FEM._fem_env_get("JFEM_Q4_FRAME_MODE", base_default))))
     if raw in ("parametric", "center", "center_tangent", "tangent")
         return :parametric
     elseif raw in ("edge", "g12", "edge12")
@@ -163,51 +163,38 @@ end
     end
 end
 
-@inline function q4_stage_key(primary_key::String)
-    if endswith(primary_key, "_STATIC")
-        return :static
-    elseif endswith(primary_key, "_EIG")
-        return :eig
-    else
-        return :other
-    end
-end
 
-@inline function q4_curvature_stage_default(primary_key::String, static_value, eig_value, other_value)
-    stage = q4_stage_key(primary_key)
-    if stage === :static
-        return static_value
-    elseif stage === :eig
-        return eig_value
-    else
-        return other_value
-    end
-end
-
+# All solver env accessors route through FEM's snapshot-aware reader: while
+# an assembly snapshot is active they read an immutable Dict (lock-free on
+# the threaded paths); otherwise live ENV, exactly as before. The former
+# `string(default)` fallback allocation is gone (identical results: an
+# unset key returns the default, an empty value parses to the default).
 @inline function solver_env_bool(primary_key::String, default::Bool)
-    raw = lowercase(strip(get(ENV, primary_key, default ? "true" : "false")))
+    raw = lowercase(strip(FEM._fem_env_get(primary_key, default ? "true" : "false")))
     return raw in ("1", "true", "yes", "on")
 end
 
 @inline function solver_env_optional_bool(primary_key::String)
-    haskey(ENV, primary_key) || return nothing
-    raw = lowercase(strip(ENV[primary_key]))
+    FEM.fem_env_has(primary_key) || return nothing
+    raw = lowercase(strip(FEM._fem_env_get(primary_key, "")))
     return raw in ("1", "true", "yes", "on")
 end
 
 @inline function solver_env_float(primary_key::String, default::Float64)
-    raw = strip(get(ENV, primary_key, string(default)))
+    raw = strip(FEM._fem_env_get(primary_key, ""))
+    isempty(raw) && return default
     return something(tryparse(Float64, raw), default)
 end
 
 @inline function solver_env_int(primary_key::String, default::Int)
-    raw = strip(get(ENV, primary_key, string(default)))
+    raw = strip(FEM._fem_env_get(primary_key, ""))
+    isempty(raw) && return default
     return something(tryparse(Int, raw), default)
 end
 
 @inline function solver_env_optional_float(primary_key::String)
-    haskey(ENV, primary_key) || return nothing
-    raw = strip(ENV[primary_key])
+    FEM.fem_env_has(primary_key) || return nothing
+    raw = strip(FEM._fem_env_get(primary_key, ""))
     isempty(raw) && return nothing
     return tryparse(Float64, raw)
 end
@@ -232,90 +219,7 @@ end
     return solver_env_bool("JFEM_SOL105_STATIC_MEMBRANE_INCOMP", false)
 end
 
-@inline function sol105_static_membrane_incomp_auto_load_enabled()
-    # Default OFF (2026-06-20). Earlier parity experiments enabled Wilson
-    # membrane modes for load-classified simple-compression subcases. The
-    # current SOL105 route must stay formulation/geometry/material driven, so
-    # load-state gating is opt-in only.
-    return solver_env_bool("JFEM_SOL105_STATIC_MEMBRANE_INCOMP_AUTO_LOAD", false)
-end
 
-@inline function q4_sol105_static_pcomp_membrane_incomp_aspect_enabled()
-    # Default OFF. Diagnostic gate for SOL105 static preload K: add Wilson
-    # membrane modes only to PCOMP CQUAD4 elements inside a descriptor window
-    # (aspect ratio, h/Lmax, ply count, +/-45 and +/-90 ply fractions). This
-    # lets the parity campaign test which laminate/geometry populations want
-    # the bubble contribution while others stay on the MacNeal-like compatible
-    # membrane path. Enabled either by the explicit boolean
-    # JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP or (legacy) by setting
-    # JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_ASPECT_MIN. All bounds default
-    # to fully open windows.
-    solver_env_bool("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP", false) && return true
-    return solver_env_optional_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_ASPECT_MIN") !== nothing
-end
-
-@inline function q4_sol105_static_pcomp_membrane_incomp_aspect_min()
-    raw = solver_env_optional_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_ASPECT_MIN")
-    raw === nothing && return 0.0
-    return max(raw, 0.0)
-end
-
-@inline function q4_sol105_static_pcomp_membrane_incomp_aspect_max()
-    raw = solver_env_optional_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_ASPECT_MAX")
-    raw === nothing && return Inf
-    return max(raw, 0.0)
-end
-
-@inline function q4_sol105_static_pcomp_membrane_incomp_h_over_lmax_min()
-    raw = solver_env_optional_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_H_OVER_LMAX_MIN")
-    raw === nothing && return 0.0
-    return max(raw, 0.0)
-end
-
-@inline function q4_sol105_static_pcomp_membrane_incomp_h_over_lmax_max()
-    raw = solver_env_optional_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_H_OVER_LMAX_MAX")
-    raw === nothing && return Inf
-    return max(raw, 0.0)
-end
-
-@inline function q4_sol105_static_pcomp_membrane_incomp_ply_count_min()
-    raw = solver_env_optional_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_PLY_COUNT_MIN")
-    raw === nothing && return 0
-    return max(Int(round(raw)), 0)
-end
-
-@inline function q4_sol105_static_pcomp_membrane_incomp_ply_count_max()
-    raw = solver_env_optional_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_PLY_COUNT_MAX")
-    raw === nothing && return typemax(Int)
-    return max(Int(round(raw)), 0)
-end
-
-@inline function q4_sol105_static_pcomp_membrane_incomp_pm45_min()
-    return clamp(solver_env_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_PM45_MIN", 0.0), 0.0, 1.0)
-end
-
-@inline function q4_sol105_static_pcomp_membrane_incomp_pm45_max()
-    return clamp(solver_env_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_PM45_MAX", 1.0), 0.0, 1.0)
-end
-
-@inline function q4_sol105_static_pcomp_membrane_incomp_pm90_min()
-    return clamp(solver_env_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_PM90_MIN", 0.0), 0.0, 1.0)
-end
-
-@inline function q4_sol105_static_pcomp_membrane_incomp_pm90_max()
-    return clamp(solver_env_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_PM90_MAX", 1.0), 0.0, 1.0)
-end
-
-@inline function q4_sol105_static_pcomp_membrane_incomp_model_ply_p90_min()
-    # Optional aggregate model-descriptor bound: only activate the static
-    # PCOMP membrane-incomp gate on models whose PCOMP ply-count 90th
-    # percentile reaches this value.  Separates mixed-laminate models (which
-    # want the membrane softening on and around their >=10-ply strips) from
-    # uniform thin-laminate models (which over-soften).  Uses whole-model
-    # laminate statistics only; no case names, PID/EID, groups, or stress
-    # state.  Unset by default (no model bound).
-    return solver_env_optional_float("JFEM_SOL105_STATIC_PCOMP_MEMBRANE_INCOMP_MODEL_PLY_P90_MIN")
-end
 
 @inline function kg_match_static_membrane_operator_enabled()
     # Default OFF (2026-04-29). Previously this cascaded from USE_STATIC_K=true,
@@ -341,56 +245,7 @@ end
     return solver_env_optional_float("JFEM_SOL105_SNORM_ANGLE")
 end
 
-@inline function sol105_eig_bending_incomp_enabled()
-    # Use the enriched bending branch by default for SOL105 K_eig. This is now
-    # the safest common baseline across the broad buckling gate and the GAME
-    # pack, while still allowing an explicit opt-out through the env override.
-    return solver_env_bool("JFEM_SOL105_EIG_BENDING_INCOMP", true)
-end
 
-@inline function q4_curvature_membrane_scale(primary_key::String)
-    # Default 0.0 (2026-04-21 cleanup): the curvature_membrane B[:, idx+3] term
-    # (Koiter-Donnell style -N_k*kappa coupling on w-DOF) was gated off by the
-    # resolution threshold on every real GAME element anyway; removing it at the
-    # default keeps behavior consistent with pure_v1 baseline. A proper
-    # Marguerre-style coupling on the rotation DOFs (idx+4/5) is the intended
-    # replacement per Ibrahimbegović 1994 Eq. 6.14.
-    default = 0.0
-    raw = strip(get(ENV, primary_key, get(ENV, "JFEM_Q4_CURVATURE_MEMBRANE_SCALE", string(default))))
-    return something(tryparse(Float64, raw), default)
-end
-
-@inline function q4_curvature_filter_mode(primary_key::String)
-    default = q4_curvature_stage_default(primary_key, "cylindrical", "cylindrical", "none")
-    raw = lowercase(strip(get(ENV, primary_key, get(ENV, "JFEM_Q4_CURVATURE_FILTER_MODE", default))))
-    if raw in ("cyl", "cylindrical", "developable")
-        return :cylindrical
-    elseif raw in ("cylsmooth", "cylindrical_smooth", "developable_smooth", "smooth")
-        return :cylindrical_smooth
-    else
-        return :none
-    end
-end
-
-@inline function q4_curvature_cyl_ratio_max(primary_key::String)
-    default = q4_curvature_stage_default(primary_key, 0.05, 0.05, 0.15)
-    raw = strip(get(ENV, primary_key, get(ENV, "JFEM_Q4_CURVATURE_CYL_RATIO_MAX", string(default))))
-    return clamp(something(tryparse(Float64, raw), default), 1e-6, 1.0)
-end
-
-@inline function q4_curvature_filter_weight(curvature::SVector{3,Float64}, mode::Symbol, ratio_max::Float64)
-    mode === :none && return 1.0
-
-    k1, k2 = q4_curvature_principal_abs(curvature)
-    k1 <= 1e-30 && return 0.0
-
-    ratio = k2 / k1
-    if mode === :cylindrical
-        return ratio <= ratio_max ? 1.0 : 0.0
-    else
-        return clamp(1.0 - ratio / ratio_max, 0.0, 1.0)
-    end
-end
 
 @inline function q4_curvature_principal_abs(curvature::SVector{3,Float64})
     k11, k22, k12 = curvature
@@ -409,17 +264,6 @@ end
     return k1 <= 1e-30 ? 1.0 : k2 / k1
 end
 
-@inline function q4_curvature_resolution_min(primary_key::String)
-    default = q4_curvature_stage_default(primary_key, 0.05, 0.05, 0.0)
-    raw = strip(get(ENV, primary_key, get(ENV, "JFEM_Q4_CURVATURE_RESOLUTION_MIN", string(default))))
-    return max(something(tryparse(Float64, raw), default), 0.0)
-end
-
-@inline function q4_curvature_resolution_full(primary_key::String)
-    default = q4_curvature_stage_default(primary_key, 0.05, 0.05, 0.0)
-    raw = strip(get(ENV, primary_key, get(ENV, "JFEM_Q4_CURVATURE_RESOLUTION_FULL", string(default))))
-    return max(something(tryparse(Float64, raw), default), 0.0)
-end
 
 @inline function q4_pcomp_kg_axis_mode()
     # Kg must use the same laminate material axis as the preload/static
@@ -664,42 +508,7 @@ end
     return acos(clamp(cos_corner, 0.0, 1.0)) * 180.0 / pi
 end
 
-@inline function q4_curvature_resolution_weight(curvature::SVector{3,Float64}, lc::AbstractMatrix,
-                                                min_res::Float64, full_res::Float64)
-    (min_res <= 0.0 && full_res <= 0.0) && return 1.0
 
-    k1, _ = q4_curvature_principal_abs(curvature)
-    kappa_l = k1 * q4_curvature_characteristic_length(lc)
-    if full_res <= min_res
-        return kappa_l >= min_res ? 1.0 : 0.0
-    end
-    return clamp((kappa_l - min_res) / (full_res - min_res), 0.0, 1.0)
-end
-
-@inline function q4_flat_pcomp_auto_phi2_enabled()
-    # Default off (2026-04-21 cleanup).
-    return solver_env_bool("JFEM_SOL105_EIG_FLAT_PCOMP_AUTO_PHI2", false)
-end
-
-@inline function q4_flat_pcomp_auto_phi2_shear_ratio_max()
-    return solver_env_float("JFEM_SOL105_EIG_FLAT_PCOMP_AUTO_PHI2_SHEAR_RATIO_MAX", 0.12)
-end
-
-@inline function q4_flat_pcomp_auto_phi2_d16_ratio_max()
-    return solver_env_float("JFEM_SOL105_EIG_FLAT_PCOMP_AUTO_PHI2_D16_RATIO_MAX", 0.02)
-end
-
-@inline function q4_flat_pcomp_auto_phi2_b_ratio_max()
-    return solver_env_float("JFEM_SOL105_EIG_FLAT_PCOMP_AUTO_PHI2_B_RATIO_MAX", 0.02)
-end
-
-@inline function q4_flat_pcomp_auto_phi2_cyl_ratio_max()
-    return solver_env_float("JFEM_SOL105_EIG_FLAT_PCOMP_AUTO_PHI2_CYL_RATIO_MAX", 0.005)
-end
-
-@inline function q4_flat_pcomp_auto_phi2_kappa_l_min()
-    return solver_env_float("JFEM_SOL105_EIG_FLAT_PCOMP_AUTO_PHI2_KAPPA_L_MIN", 0.20)
-end
 
 @inline function q4_pcomp_auto_global_x_enabled()
     # Default off (2026-04-21 cleanup).
@@ -792,6 +601,12 @@ end
     return clamp(solver_env_float("JFEM_SOL105_EIG_CURVED_ISO_MEMBRANE_INCOMP_CYL_RATIO_MAX", 0.2), 0.0, 1.0)
 end
 
+# True when the MacNeal warp multiplier is active (default ON). Used to decide whether the
+# flat/warped kernel branch is still needed -- it is not, once the multiplier handles warp.
+@inline function fem_env_bool_solver_warp_transform()
+    return !(lowercase(strip(get(ENV, "JFEM_Q4_WARP_TRANSFORM", ""))) in ("0","false","no","off"))
+end
+
 @inline function q4_curved_iso_warp_membrane_incomp_enabled()
     # Default off (2026-04-21 cleanup).
     return solver_env_bool("JFEM_SOL105_EIG_CURVED_ISO_WARP_MEMBRANE_INCOMP", false)
@@ -841,58 +656,7 @@ end
     return :none
 end
 
-@inline function q4_flat_pcomp_eig_membrane_assumed_mode()
-    raw = lowercase(strip(get(ENV, "JFEM_SOL105_EIG_FLAT_PCOMP_MEMBRANE_ASSUMED_MODE", "mitc4plus")))
-    if raw in ("mitc4plus_all", "mitc4+_all", "ans_all", "all")
-        return :mitc4plus_all
-    elseif raw in ("mitc4plus", "mitc4+", "ans")
-        return :mitc4plus
-    end
-    return :none
-end
 
-@inline function q4_flat_pcomp_taper_membrane_none_enabled()
-    return solver_env_bool("JFEM_SOL105_EIG_FLAT_PCOMP_TAPER_MEMBRANE_NONE", false)
-end
-
-@inline function q4_flat_pcomp_taper_membrane_none_ratio_max()
-    return clamp(solver_env_float("JFEM_SOL105_EIG_FLAT_PCOMP_TAPER_MEMBRANE_NONE_RATIO_MAX", 0.35), 0.0, 1.0)
-end
-
-@inline function q4_flat_pcomp_taper_membrane_none_aspect_min()
-    return max(solver_env_float("JFEM_SOL105_EIG_FLAT_PCOMP_TAPER_MEMBRANE_NONE_ASPECT_MIN", 2.0), 1.0)
-end
-
-@inline function q4_nonflat_pcomp_eig_membrane_assumed_mode()
-    # Ko-Lee-Bathe 2016 §3 MITC4+ for warped/curved shell quads: standard MITC4
-    # membrane exhibits membrane locking on curved geometries (HTP_launch 14% bias).
-    # Default "none" preserves legacy behavior; "mitc4plus" enables the ANS fix on
-    # non-flat curved PCOMP, mirroring what we already do for flat PCOMP.
-    raw = lowercase(strip(get(ENV, "JFEM_SOL105_EIG_NONFLAT_PCOMP_MEMBRANE_ASSUMED_MODE", "none")))
-    if raw in ("mitc4plus_all", "mitc4+_all", "ans_all", "all")
-        return :mitc4plus_all
-    elseif raw in ("mitc4plus", "mitc4+", "ans")
-        return :mitc4plus
-    end
-    return :none
-end
-
-@inline function q4_sol105_flat_pcomp_shear_scale()
-    return max(solver_env_float("JFEM_SOL105_EIG_FLAT_PCOMP_SHEAR_SCALE", 1.0), 0.0)
-end
-
-@inline function q4_sol105_flat_pcomp_auto_shear_scale_enabled()
-    # Default off (2026-04-21 cleanup).
-    return solver_env_bool("JFEM_SOL105_EIG_FLAT_PCOMP_AUTO_SHEAR_SCALE", false)
-end
-
-@inline function q4_sol105_flat_pcomp_auto_shear_scale_gain()
-    return clamp(solver_env_float("JFEM_SOL105_EIG_FLAT_PCOMP_AUTO_SHEAR_SCALE_GAIN", 0.5), 0.0, 2.0)
-end
-
-@inline function q4_sol105_flat_pcomp_auto_shear_scale_max()
-    return max(solver_env_float("JFEM_SOL105_EIG_FLAT_PCOMP_AUTO_SHEAR_SCALE_MAX", 1.5), 1.0)
-end
 
 @inline function q4_sol105_flat_pcomp_exact_side_shear()
     return solver_env_bool("JFEM_SOL105_EIG_FLAT_PCOMP_EXACT_SIDE_SHEAR", false)
@@ -916,28 +680,6 @@ end
     return solver_env_bool("JFEM_SOL105_EIG_FLAT_ISO_EXACT_SIDE_SHEAR", false)
 end
 
-@inline function q4_flat_curved_iso_coarse_exact_side_shear_enabled()
-    # Default off (2026-04-21 cleanup).
-    return solver_env_bool("JFEM_SOL105_EIG_FLAT_CURVED_ISO_COARSE_EXACT_SIDE_SHEAR", false)
-end
-
-@inline function q4_flat_curved_iso_coarse_exact_side_shear_aspect_ratio_max()
-    return max(solver_env_float("JFEM_SOL105_EIG_FLAT_CURVED_ISO_COARSE_EXACT_SIDE_SHEAR_ASPECT_RATIO_MAX", 1.1), 1.0)
-end
-
-@inline function q4_flat_curved_iso_coarse_exact_side_shear_valence_sum_min()
-    raw = strip(get(ENV, "JFEM_SOL105_EIG_FLAT_CURVED_ISO_COARSE_EXACT_SIDE_SHEAR_VALENCE_SUM_MIN", "8"))
-    return max(something(tryparse(Int, raw), 8), 0)
-end
-
-@inline function q4_flat_curved_iso_coarse_exact_side_shear_valence_sum_max()
-    raw = strip(get(ENV, "JFEM_SOL105_EIG_FLAT_CURVED_ISO_COARSE_EXACT_SIDE_SHEAR_VALENCE_SUM_MAX", "10"))
-    return max(something(tryparse(Int, raw), 10), 0)
-end
-
-@inline function q4_sol105_flat_iso_exact_side_rotcorr()
-    return solver_env_bool("JFEM_SOL105_EIG_FLAT_ISO_EXACT_SIDE_ROTCORR", false)
-end
 
 @inline function q4_flat_curved_iso_eig_center_only_enabled()
     # Default off (2026-04-21 cleanup).
@@ -1033,81 +775,7 @@ end
            cyl_ratio >= q4_sol105_pcomp_auto_element_axis_cyl_ratio_min()
 end
 
-@inline function q4_sol105_flat_cyl_iso_bend_scale()
-    # Default 1.0 neutral (2026-04-21 cleanup): was 0.6 eyeballed bend softening.
-    return clamp(solver_env_float("JFEM_SOL105_EIG_FLAT_CYL_ISO_BEND_SCALE", 1.0), 0.0, 1.0)
-end
 
-@inline function q4_sol105_flat_cyl_iso_bend_kappa_l_min()
-    return max(solver_env_float("JFEM_SOL105_EIG_FLAT_CYL_ISO_BEND_KAPPA_L_MIN", 0.06), 0.0)
-end
-
-@inline function q4_sol105_flat_cyl_iso_bend_kappa_l_full()
-    return max(solver_env_float("JFEM_SOL105_EIG_FLAT_CYL_ISO_BEND_KAPPA_L_FULL", 0.10), 0.0)
-end
-
-@inline function q4_sol105_flat_cyl_iso_bend_cyl_ratio_max()
-    return clamp(solver_env_float("JFEM_SOL105_EIG_FLAT_CYL_ISO_BEND_CYL_RATIO_MAX", 0.02), 0.0, 1.0)
-end
-
-@inline function q4_sol105_flat_cyl_iso_bend_effective_scale(kappa_l::Float64, cyl_ratio::Float64)
-    base_scale = q4_sol105_flat_cyl_iso_bend_scale()
-    base_scale >= 0.999999 && return 1.0
-    cyl_ratio > q4_sol105_flat_cyl_iso_bend_cyl_ratio_max() && return 1.0
-
-    kappa_min = q4_sol105_flat_cyl_iso_bend_kappa_l_min()
-    kappa_full = q4_sol105_flat_cyl_iso_bend_kappa_l_full()
-    weight = if kappa_full <= kappa_min
-        kappa_l >= kappa_min ? 1.0 : 0.0
-    else
-        clamp((kappa_l - kappa_min) / max(kappa_full - kappa_min, 1e-12), 0.0, 1.0)
-    end
-    return 1.0 - (1.0 - base_scale) * weight
-end
-
-@inline function shell_sol105_iso_eig_k6rot_override()
-    value = solver_env_optional_float("JFEM_SOL105_EIG_ISO_K6ROT")
-    isnothing(value) || return value
-    return solver_env_optional_float("JFEM_SOL105_EIG_FLAT_ISO_K6ROT")
-end
-
-@inline function shell_sol101_iso_static_k6rot_override()
-    value = solver_env_optional_float("JFEM_SOL101_ISO_K6ROT")
-    isnothing(value) || return value
-    return solver_env_optional_float("JFEM_STATIC_ISO_K6ROT")
-end
-
-@inline function shell_sol105_iso_eig_k6rot_cyl_ratio_min()
-    if haskey(ENV, "JFEM_SOL105_EIG_ISO_K6ROT_CYL_RATIO_MIN")
-        return clamp(solver_env_float("JFEM_SOL105_EIG_ISO_K6ROT_CYL_RATIO_MIN", 0.20), 0.0, 1.0)
-    end
-    return clamp(solver_env_float("JFEM_SOL105_EIG_FLAT_ISO_K6ROT_CYL_RATIO_MIN", 0.20), 0.0, 1.0)
-end
-
-@inline function shell_sol105_iso_eig_drill_scale_override()
-    value = solver_env_optional_float("JFEM_SOL105_EIG_ISO_DRILL_SCALE")
-    if !isnothing(value)
-        return clamp(value, 0.0, 1.0)
-    end
-    value = solver_env_optional_float("JFEM_SOL105_EIG_FLAT_ISO_DRILL_SCALE")
-    return isnothing(value) ? nothing : clamp(value, 0.0, 1.0)
-end
-
-@inline function shell_sol101_iso_static_drill_scale_override()
-    value = solver_env_optional_float("JFEM_SOL101_ISO_DRILL_SCALE")
-    if !isnothing(value)
-        return clamp(value, 0.0, 1.0)
-    end
-    value = solver_env_optional_float("JFEM_STATIC_ISO_DRILL_SCALE")
-    return isnothing(value) ? nothing : clamp(value, 0.0, 1.0)
-end
-
-@inline function shell_sol105_iso_eig_drill_scale_cyl_ratio_min()
-    if haskey(ENV, "JFEM_SOL105_EIG_ISO_DRILL_SCALE_CYL_RATIO_MIN")
-        return clamp(solver_env_float("JFEM_SOL105_EIG_ISO_DRILL_SCALE_CYL_RATIO_MIN", 0.20), 0.0, 1.0)
-    end
-    return clamp(solver_env_float("JFEM_SOL105_EIG_FLAT_ISO_DRILL_SCALE_CYL_RATIO_MIN", 0.20), 0.0, 1.0)
-end
 
 @inline function q4_flat_curved_iso_geomnormal_frame_enabled()
     # Default off (2026-04-21 cleanup).
@@ -1309,14 +977,6 @@ end
     return solver_env_float("JFEM_Q4_MARGUERRE_COUPLING_SCALE", 1.0)
 end
 
-@inline function q4_nonflat_pcomp_exact_cs_enabled()
-    # Experimental (2026-04-21): use exact ply-integrated transverse shear matrix
-    # (q4_Cs_raw_flat) on non-flat curved PCOMP elements, matching the existing
-    # flat-PCOMP treatment. Investigating HTP_launch +3.8% mode-1 residual.
-    # Hypothesis: MSC Nastran uses ply-integrated Cs on non-flat PCOMP too; JFEM's
-    # default generic Cs surrogate over-stiffens these elements.
-    return solver_env_bool("JFEM_SOL105_EIG_NONFLAT_PCOMP_EXACT_CS", false)
-end
 
 @inline function q4_marguerre_coupling_convention()
     # Which rotation DOF carries the ε_αα coupling.

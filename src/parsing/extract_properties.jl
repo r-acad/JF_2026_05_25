@@ -305,9 +305,12 @@ function extract_pbeam(cards)
             end
         end
 
-        # K1, K2 follow after all stations
-        K1 = Float64(parse_nastran_number(safe_get(c, k),   0.0))
-        K2 = Float64(parse_nastran_number(safe_get(c, k+1), 0.0))
+        # K1, K2 follow after all stations. The reference solver's PBEAM
+        # default is K1 = K2 = 1.0 (shear-flexible; unlike PBAR, whose blank
+        # K1/K2 omit shear flexibility). An explicit 0.0 still selects the
+        # rigid-shear limit downstream (As -> Inf), matching the reference.
+        K1 = Float64(parse_nastran_number(safe_get(c, k),   1.0))
+        K2 = Float64(parse_nastran_number(safe_get(c, k+1), 1.0))
         S1 = Float64(parse_nastran_number(safe_get(c, k+2), 0.0))
         S2 = Float64(parse_nastran_number(safe_get(c, k+3), 0.0))
         NSIA = Float64(parse_nastran_number(safe_get(c, k+4), 0.0))

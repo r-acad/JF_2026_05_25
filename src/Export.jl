@@ -2311,12 +2311,40 @@ function filtered_subcase_result_payload(sc::AbstractDict, sub_ctrl::AbstractDic
     )
 end
 
+"""
+Convert a SOL 105 static-preload displacement vector into the same per-grid
+row format the SOL 101 export uses, so a consumer can read a preload
+displacement out of a buckling result without a second run.
+
+`u_static` is in the analysis DOF ordering and the grid CD output frame, i.e.
+the same convention the mode shapes and the reference solver's printed
+displacement vector use.
+"""
+function _static_disp_to_list(u_static, id_map)
+    u_static === nothing && return nothing
+    sorted_nodes = sort(collect(keys(id_map)))
+    ndof = length(u_static)
+    rows = Any[]
+    for nid in sorted_nodes
+        idx = id_map[nid]
+        base = (idx - 1) * 6
+        base + 6 <= ndof || continue
+        push!(rows, Dict(
+            "grid_id" => nid,
+            "t1" => u_static[base+1], "t2" => u_static[base+2], "t3" => u_static[base+3],
+            "r1" => u_static[base+4], "r2" => u_static[base+5], "r3" => u_static[base+6],
+        ))
+    end
+    return isempty(rows) ? nothing : rows
+end
+
 function build_buckling_export_payload(eigenvalues, mode_shapes, id_map;
                                        frequencies=nothing,
                                        mass_summary=nothing,
                                        modal_effective_mass=nothing,
                                        mode_metadata=nothing,
                                        buckling_subcases=nothing,
+                                       static_displacements=nothing,
                                        analysis_type="SOL105_BUCKLING",
                                        diagnostics=nothing,
                                        backend_metadata=nothing)
@@ -2379,6 +2407,9 @@ function build_buckling_export_payload(eigenvalues, mode_shapes, id_map;
     end
     if buckling_subcases !== nothing
         payload["subcases"] = _export_clean_subcases(buckling_subcases)
+    end
+    if static_displacements !== nothing
+        payload["static_displacements"] = static_displacements
     end
     if diagnostics !== nothing
         payload["solver_diagnostics"] = deepcopy(diagnostics)
@@ -2878,7 +2909,11 @@ function export_jfem_binary(filename, output_dir, id_map, X, jfem_node_ids, jfem
     nRBE3_jfem  = length(jfem_rbe3s)
     println("\n>>> Exporting JFEM binary (v4): $jfem_path")
     _export_ensure_parent_dir!(jfem_path)
-    open(_export_fs_path(jfem_path), "w") do io
+    open(_export_fs_path(jfem_path), "w") do fio
+        # Batched export (perf deferred item #13): stage the full byte
+        # stream in memory and hand the OS one write — byte-identical
+        # output, no per-value stream overhead on large models.
+        io = IOBuffer()
         # Magic: 'JFEM'
         write(io, UInt8('J')); write(io, UInt8('F')); write(io, UInt8('E')); write(io, UInt8('M'))
         # Header (v3: extended with constraint counts)
@@ -2994,6 +3029,7 @@ function export_jfem_binary(filename, output_dir, id_map, X, jfem_node_ids, jfem
                 write(io, nid); write(io, mx); write(io, my); write(io, mz)
             end
         end
+        write(fio, take!(io))
     end
     nTet = length(jfem_tetras); nHex = length(jfem_hexas); nPen = length(jfem_pentas)
     println("  JFEM v4: $(nNodes_jfem) nodes, $(nQuads_jfem)Q+$(nTrias_jfem)T shells, $(nBars_jfem) bars, $(nRods_jfem) rods, $(nTet)Tet+$(nHex)Hex+$(nPen)Pen solids, $(nCelas_jfem) springs, $(length(jfem_subcases_data)) subcases")
@@ -3118,6 +3154,7 @@ function export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id
                               frequencies=nothing, mass_summary=nothing,
                               modal_effective_mass=nothing, mode_metadata=nothing,
                               buckling_subcases=nothing,
+                              static_displacements=nothing,
                               analysis_type="SOL105_BUCKLING",
                               diagnostics=nothing,
                               backend_metadata=nothing)
@@ -3130,6 +3167,7 @@ function export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id
         modal_effective_mass=modal_effective_mass,
         mode_metadata=mode_metadata,
         buckling_subcases=buckling_subcases,
+        static_displacements=static_displacements,
         analysis_type=analysis_type,
         diagnostics=diagnostics,
         backend_metadata=backend_metadata)
@@ -3161,7 +3199,10 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
 
     println("\n>>> Exporting JFEM binary (v$(Int(version)) buckling$(has_static ? "+static" : "")): $jfem_path")
     _export_ensure_parent_dir!(jfem_path)
-    open(_export_fs_path(jfem_path), "w") do io
+    open(_export_fs_path(jfem_path), "w") do fio
+        # Batched export (perf deferred item #13): stage the full byte
+        # stream in memory, one OS write — byte-identical output.
+        io = IOBuffer()
         write(io, UInt8('J')); write(io, UInt8('F')); write(io, UInt8('E')); write(io, UInt8('M'))
         write(io, version)          # version (3 = buckling, 5 = buckling + static block)
         write(io, UInt32(nNodes))
@@ -3364,6 +3405,7 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
                 write(io, safe32(f[1])); write(io, safe32(f[2])); write(io, safe32(f[3]))
             end
         end
+        write(fio, take!(io))
     end
     println("  JFEM binary exported: $jfem_path ($nModes buckling modes$(has_static ? " + static block" : ""))")
 end

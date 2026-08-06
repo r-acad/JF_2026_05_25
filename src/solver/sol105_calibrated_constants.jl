@@ -26,18 +26,6 @@ tied to a specific parity observation.
 """
 const SOL105_CALIBRATED_CONSTANTS = (
     # ─────────────────────────────────────────────────────────────────
-    # PCOMP transverse shear (Whitney-Pagano correction)
-    # ─────────────────────────────────────────────────────────────────
-    pcomp_rigid_ts_cs_scale = (
-        value           = 2.5,
-        env             = "JFEM_PCOMP_RIGID_TS_CS_SCALE",
-        site            = "JFEM/src/ModelBuilder.jl:649",
-        description     = "PCOMP/MAT8 blank-G1z transverse-shear stiffness scale.",
-        provenance      = ("GAME campaign 2026-05-12; Whitney-Pagano correction. " *
-                           "Calibrated against MSC Nastran 70.5 on the GAME 5-case set; " *
-                           "smaller values regress VTP_3wp_strain, larger values regress HTP_launch."),
-    ),
-    # ─────────────────────────────────────────────────────────────────
     # MacNeal RBF shear kernel (post-1978 calibration)
     # ─────────────────────────────────────────────────────────────────
     macneal_rbf_zb_scale = (
@@ -50,23 +38,21 @@ const SOL105_CALIBRATED_CONSTANTS = (
                            "kept at 0.65 to balance HTP_launch on the MITC4 path."),
     ),
     macneal_warp_tol = (
-        value           = 1e-4,
+        value           = 1e-2,
         env             = "JFEM_Q4_MACNEAL_WARP_TOL",
         site            = "JFEM/src/solver/assembly.jl:2863",
         description     = "Maximum warp_ratio for an element to be MacNeal-eligible.",
-        provenance      = ("2026-04-30: relaxed from strict elem_is_flat tolerance " *
+        provenance      = ("2026-07-27: raised again 1e-4 -> 1e-2. MacNeal eligibility is tested " *
+                           "BEFORE the curvature branch, so cells above this bound never reach it. " *
+                           "HTP_launch's mode-hosting cells sit at warp/L = 1.5e-4, just over the " *
+                           "old line; JFEM's energy on Nastran's OWN HTP eigenvector was 2.24x too " *
+                           "stiff and drops to 0.906x once they stay on MacNeal. A dedicated warp " *
+                           "rig (single PCOMP cell, warp/L 0 -> 3e-3, Nastran MATPRN KGG) shows the " *
+                           "reference is warp-INSENSITIVE (476.39 -> 476.48) while JFEM stepped " *
+                           "459 -> 295 at the first nonzero warp. " *
+                           "2026-04-30: relaxed from strict elem_is_flat tolerance " *
                            "(1e-6) to 1e-4 so mildly-warped real aerodynamic meshes " *
                            "stay on MacNeal RBF instead of the inferior legacy MITC fallback."),
-    ),
-    macneal_pcomp_surface_kappa_l_max = (
-        value           = 1e-4,
-        env             = "JFEM_Q4_MACNEAL_PCOMP_SURFACE_KAPPA_L_MAX",
-        site            = "JFEM/src/solver/assembly.jl:2198",
-        description     = "Maximum κ_L for a curved PCOMP element to stay on MacNeal RBF kernel.",
-        provenance      = ("2026-05-22 PATH-1 sweep: above this κ_L threshold curved PCOMP " *
-                           "elements get the legacy MITC4 fallback. Forcing MacNeal everywhere " *
-                           "(threshold=1e6) closes synthetic K to 0.95 but regresses GAME " *
-                           "HTP_launch 511003 from +4.6% to +52.65%."),
     ),
     macneal_pcomp_thick_h_over_l_min = (
         value           = 0.015,
@@ -136,48 +122,6 @@ const SOL105_CALIBRATED_CONSTANTS = (
                            "1.449% to 1.317%. Higher scales 1.15 and 1.20 were rejected " *
                            "because they caused a large low-aspect launch-panel regression."),
     ),
-    shell_kg_membrane_component_scale = (
-        value           = 0.989,
-        env             = "JFEM_KG_SHELL_NXX_SCALE, JFEM_KG_SHELL_NYY_SCALE, JFEM_KG_SHELL_NXY_SCALE",
-        site            = "JFEM/src/solver/assembly.jl (shell membrane geometric-stiffness components)",
-        description     = "Uniform generic scale applied to shell membrane geometric-stiffness components before SOL105 eigen extraction.",
-        provenance      = ("2026-05-26: promoted after focused and full first-root guard sweeps. " *
-                           "The uniform scale is not case- or PID-dependent; it acts on the " *
-                           "local shell Kg membrane operator. On the 12-case curated SOL105 set, " *
-                           "the full run reduced max absolute first-root error from 3.465% to " *
-                           "2.391% (mean absolute error changed from 1.317% to 1.412%). " *
-                           "Nearby scales 0.986, 0.988, 0.990, and 0.992 were checked; 0.989 " *
-                           "gave the best max-error guard result. Aggressive mode-localization " *
-                           "filtering was rejected because it strongly regressed launch cases."),
-    ),
-    geom_pcomp_thick_high_aspect_kg_scale = (
-        value           = "large mesh: scale=0.98, aspect 5.0..25.0, h/Lmax >= 0.03, shell elements >= 100; small mesh: scale=1.032, aspect 7.8..8.2",
-        env             = "JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SCALE, JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SMALL_MESH_SCALE, JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_SMALL_MESH_ASPECT_MIN/MAX, JFEM_SOL105_GEOM_PCOMP_KG_ASPECT_MIN/MAX, JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_H_OVER_LMAX_MIN/MAX, JFEM_SOL105_GEOM_PCOMP_KG_HIGH_ASPECT_MIN_ELEMENTS",
-        site            = "JFEM/src/solver/assembly.jl (geometry/material-only PCOMP Kg scale)",
-        description     = "Thick, high-aspect orthotropic PCOMP geometric-stiffness resultant scale for SOL105.",
-        provenance      = ("2026-06-06 GAME promoted-default continuation. The HTP 3WP rows recovered " *
-                           "physical subspace projection only after the spectral cluster skip was made " *
-                           "non-destructive; their remaining RQ bias needed a small geometry/material " *
-                           "Kg correction. The h/Lmax gate excludes thin launch laminates with the same " *
-                           "planform, and the aspect gate excludes the lower-aspect VTP family except for " *
-                           "minor high-aspect tails. Small PCOMP meshes keep the old narrow a8-like " *
-                           "matrix-fingerprint scale so one-element NAST705 atomic probes remain on " *
-                           "their established formulation baseline without spreading the fallback to " *
-                           "a5/a7/a9 probe geometries."),
-    ),
-    geom_pcomp_htp574_branch_kg_scales = (
-        value           = "13-ply branch: scale=0.960, aspect 4.60..5.05, h/Lmax 0.0190..0.0210, pm45 0.14..0.17, pm90 0.43..0.49; 11-ply branch: scale=0.930, aspect 4.90..5.35, h/Lmax 0.0162..0.0169, pm45/pm90 0.17..0.20",
-        env             = "JFEM_SOL105_GEOM_PCOMP_KG_THICK_MODERATE_REFINE_* and JFEM_SOL105_GEOM_PCOMP_KG_THIN_VERY_HIGH_*",
-        site            = "JFEM/src/solver/assembly.jl (geometry/material-only PCOMP Kg scale)",
-        description     = "Descriptor-only PCOMP geometric-stiffness refinements for neighboring HTP-like laminate strip branches.",
-        provenance      = ("2026-06-28 HTP574 branch diagnostics. Modal-energy and localization-debug " *
-                           "runs showed the remaining low roots were controlled by 13-ply " *
-                           "pm45~0.15/pm90~0.46 elements and 11-ply pm45~pm90~0.18 strip " *
-                           "elements. The promoted candidate scales only these geometry, " *
-                           "thickness, ply-count, and ply-fraction windows; it uses no case names, " *
-                           "element/property IDs, groups, stress-state gates, or external " *
-                           "calibration table."),
-    ),
     # ─────────────────────────────────────────────────────────────────
     kg_quad4_stress_field_auto = (
         value           = "auto",
@@ -191,17 +135,6 @@ const SOL105_CALIBRATED_CONSTANTS = (
                            "after the GAME guard stayed at 9/10 trusted, mean abs RQ bias 2.03%, " *
                            "max trusted 4.64%."),
     ),
-    sol105_static_membrane_auto_load = (
-        value           = false,
-        env             = "JFEM_SOL105_STATIC_MEMBRANE_INCOMP_AUTO_LOAD",
-        site            = "JFEM/src/solver/helpers.jl:235 and JFEM/src/JFEMSolver.jl (_solve_sol105 static preload loop)",
-        description     = "Opt-in legacy load-classified Wilson membrane modes in SOL105 static preload K.",
-        provenance      = ("2026-06-20 disabled by default. The current parity route must use " *
-                           "formulation, geometry, thickness, and material/laminate descriptors " *
-                           "only. The older 2026-06-03 load-classified transfer remains available " *
-                           "for diagnostics through the env key, but is not part of the production " *
-                           "SOL105 parity path."),
-    ),
     # MITC4 shear-locking attenuation (phi2)
     # ─────────────────────────────────────────────────────────────────
     phi2_alpha = (
@@ -213,19 +146,6 @@ const SOL105_CALIBRATED_CONSTANTS = (
                            "α=5 catastrophically regresses HTP_3wp_strain; α=8 closes max " *
                            "to 7.74% on legacy comparison; α=8.5 best on Rayleigh-quotient " *
                            "(max 3.92%); per-element gating proposed but not promoted to default."),
-    ),
-    phi2_alpha_lowaspect_soft = (
-        value           = 4.5,  # default-on per 2026-05-25 combined config
-        env             = "JFEM_Q4_PHI2_ALPHA_LOWASPECT",
-        site            = "JFEM/src/FEMKernels.jl (gate around line 3470)",
-        description     = "Per-element α override for thin (h/L<HOL_MAX) + high-aspect (>ASPECT_MIN) elements.",
-        provenance      = ("2026-05-25 (promoted): alpha=4.5 is the balanced " *
-                           "thin+high-aspect gate. A 2026-05-26 first-root sweep " *
-                           "showed alpha=3.0 improves HTP_launch F06 parity but " *
-                           "regresses the broad ND=48 HTP references, so 4.5 remains " *
-                           "the safer production default. Gate is geometry-only and " *
-                           "is paired with the h/L MacNeal route for thick+low-aspect " *
-                           "curved PCOMP elements."),
     ),
     # ─────────────────────────────────────────────────────────────────
     # AUTOSPC (singular-DOF detection)
@@ -251,107 +171,30 @@ const SOL105_CALIBRATED_CONSTANTS = (
     # Drilling stabilization
     # ─────────────────────────────────────────────────────────────────
     k6rot_default = (
-        value           = 100.0,
+        value           = 0.0,   # linear sequences; 100.0 in SOL 106/129
         env             = "JFEM_PARAM_K6ROT",
-        site            = "BDF PARAM K6ROT card / solver default",
-        description     = "Hughes-Brezzi drilling DOF stiffness coefficient.",
-        provenance      = ("MSC Nastran convention: 'It is recommended in SOL105 to " *
-                           "start with K6ROT=100. A value too high may be just as detrimental " *
-                           "as too low' (MSC Reference Guide pp.139). Sweep on GAME shows " *
-                           "K6ROT=8333 (TACS-equivalent 83×) widens HTP_launch by 0.5%."),
-    ),
-    nemeth_pcomp_kg_bands_7_8 = (
-        value           = "band7 scale=0.96 for alpha 0.38..0.50, aspect 2.20..2.80, h/Lmax 0.0130..0.0138; band8 scale=1.21 for alpha 0.88..1.00, aspect 1.05..1.25, h/Lmax 0.0350..0.0385; both beta 1.90..1.95, gamma 0.14..0.17, delta 0.16..0.19",
-        env             = "JFEM_SOL105_NEMETH_PCOMP_KG7_* and JFEM_SOL105_NEMETH_PCOMP_KG8_*",
-        site            = "JFEM/src/solver/assembly.jl:sol105_nemeth_pcomp_kg_default",
-        description     = "Additional generic Nemeth-descriptor SOL105 PCOMP geometric-stiffness bands.",
-        provenance      = ("2026-06-23 FSLoad mode-family campaign. The broad thin balanced-9-ply " *
-                           "strip was slightly too soft relative to Nastran, while the compact " *
-                           "low-aspect balanced-9-ply strip that matches the Nastran hotspot " *
-                           "family was too high and was hidden behind a broad-family root. " *
-                           "The descriptor-only band pair made the compact strip the accepted " *
-                           "first mode on FSLoad 511002 while keeping all 12 large comparable " *
-                           "GAME/BOXES_LE first roots within 2%: FSDUAL_GUARD23C mean abs " *
-                           "0.869367%, max abs 1.964508%. No case names, IDs, groups, " *
-                           "stress-state, or external calibration table are used."),
+        site            = "JFEM/src/solver/assembly.jl:nastran_k6rot_default + assembly.jl:2450",
+        description     = "Hughes-Brezzi drilling DOF stiffness coefficient, when the deck declares no PARAM,K6ROT.",
+        provenance      = ("NO LONGER A CALIBRATED VALUE (2026-08-04). This entry used to " *
+                           "record a flat 100.0 justified by an MSC recommendation to 'start " *
+                           "with K6ROT=100' in SOL105. That is advice for a user, not the " *
+                           "solver's default, and taking it as the default meant a cardless " *
+                           "deck silently ran a different problem from the reference -- worth " *
+                           "3.4956% on the MacNeal hemisphere, where it was mistaken for a " *
+                           "formulation gap. The default now mirrors MSC/Nastran 70.5's own " *
+                           "per-subDMAP declarations: 0. in every linear sequence " *
+                           "(del/sestatic.dat:44, semodes.dat:46, sebuckl.dat:42, ...) and " *
+                           "100. only in the nonlinear SOL 106/129 (nlstatic.dat:67, " *
+                           "nltran.dat:69). Safe because the drilling directions this exposes " *
+                           "are removed by grid-point singularity processing, exactly as the " *
+                           "reference does: OpenJFEM reproduces its GRID POINT SINGULARITY " *
+                           "TABLE entry-for-entry (24/24 twisted beam, 12/12 curved beam)."),
     ),
     # ─────────────────────────────────────────────────────────────────
-    # SOL105 buckling-spectrum filters. Localization remains default-on; the
-    # spectral-gap cluster skip is opt-in because broad low bands can be
-    # physical on large PCOMP assemblies.
+    # SOL105 buckling-spectrum filters. The spectral-gap cluster skip is
+    # opt-in because broad low bands can be physical on large PCOMP
+    # assemblies.
     # ─────────────────────────────────────────────────────────────────
-    buckling_localization_max_share = (
-        value           = 0.12,
-        env             = "JFEM_BUCKLING_LOCALIZATION_MAX_SHARE",
-        site            = "JFEM/src/solver/sol105_options.jl:166",
-        description     = "Maximum single-element strain-energy share for a mode to be reported.",
-        provenance      = ("2026-06-23 broad SOL105 guard: 0.10 falsely rejected the first " *
-                           "GAME VTP subcase-511002 mode, whose top-element elastic-energy " *
-                           "share is about 11.8% and whose eigenvalue matches Nastran within " *
-                           "1%. Raising the generic single-element cutoff to 0.12 keeps all " *
-                           "GAME guard first modes while leaving the descriptor-gated top-N " *
-                           "compact-patch filter to catch stronger local artifacts."),
-    ),
-    buckling_localization_geom2_keep = (
-        value           = "enabled; aspect 1.05..1.25, h/Lmax 0.0350..0.0385, pm45 0.20..0.25, pm90 0.20..0.25, ply_count=9",
-        env             = "JFEM_BUCKLING_LOCALIZATION_KEEP_GEOM2_*",
-        site            = "JFEM/src/solver/solve_case.jl:localization geometry keep",
-        description     = "Second geometry/material window for retaining physical compact local-buckling modes that would otherwise be rejected by the high-share localization filter.",
-        provenance      = ("2026-06-23 FSLoad mode-family campaign. Nastran's first FSLoad 511002 " *
-                           "mode concentrates in a compact balanced-9-ply, low-aspect/thick " *
-                           "strip. JFEM's raw spectrum contained this physical-local family, " *
-                           "but the default high-share localization filter discarded it. " *
-                           "This second keep window is descriptor-only and coexists with the " *
-                           "older keep window instead of replacing it. Confirmed with " *
-                           "FSDUAL23B and FSDUAL_GUARD23C."),
-    ),
-    buckling_localization_global_plate_keep = (
-        value           = "enabled; shell elements >=150, top1 <=14.5%, top10 <=75%, aspect 1.0..2.5, h/Lmax <=0.20, ply_count <=6, pm45/pm90 <=0.05",
-        env             = "JFEM_BUCKLING_LOCALIZATION_KEEP_GLOBAL_PLATE_*",
-        site            = "JFEM/src/solver/solve_case.jl:localization global-plate keep",
-        description     = "Descriptor-only retention gate for mild high-share global modes on simple many-element plate or strip meshes.",
-        provenance      = ("2026-06-24 broad NAST705 guard continuation. The 200-element " *
-                           "regular unidirectional PCOMP strip has a Nastran-matching raw " *
-                           "global mode at lambda about 247, but the single top element carries " *
-                           "about 13.1% of elastic energy and the generic top-1 localization " *
-                           "cutoff rejected it. This keep is intentionally narrow: it accepts " *
-                           "only mild top-1 exceedances on simple laminate/isotropic many-element " *
-                           "plates, while leaving compact balanced-laminate patch " *
-                           "and high-share large-guard artifacts rejected. No case names, element " *
-                           "IDs, groups, stress-state, or external calibration tables are used."),
-    ),
-    buckling_localization_topn_count = (
-        value           = 10,
-        env             = "JFEM_BUCKLING_LOCALIZATION_TOPN_COUNT",
-        site            = "JFEM/src/solver/solve_case.jl:2994",
-        description     = "Number of top elastic-energy elements used by the compact-patch mode filter.",
-        provenance      = ("2026-06-22 BOXES_LE continuation: MFG651 contains low roots whose " *
-                           "largest element is below the 10% top-1 cutoff but whose top 10 " *
-                           "same-laminate patch carries about 40-53% of modal elastic energy. " *
-                           "The check is descriptor-gated by element geometry and laminate makeup."),
-    ),
-    buckling_localization_topn_max_share = (
-        value           = 0.40,
-        env             = "JFEM_BUCKLING_LOCALIZATION_TOPN_MAX_SHARE",
-        site            = "JFEM/src/solver/solve_case.jl:2995",
-        description     = "Compact-patch top-N strain-energy share threshold for descriptor-gated rejection.",
-        provenance      = ("2026-06-22 BOXES_LE continuation: 40% drops the MFG651 balanced 9-ply " *
-                           "compact patch roots while the descriptor gate protects HTP574's " *
-                           "11-ply physical local modes. Set JFEM_BUCKLING_LOCALIZATION_TOPN_DESCRIPTOR_GATE=false " *
-                           "only for diagnostics."),
-    ),
-    buckling_localization_topn_11ply_strip = (
-        value           = "enabled; balanced 9-ply mid-aspect top10 window plus 11-ply pm45 0.16..0.20, pm90 0.34..0.39 windows with 40% mid-patch threshold",
-        env             = "JFEM_BUCKLING_LOCALIZATION_TOPN_MIDASP_* and JFEM_BUCKLING_LOCALIZATION_TOPN_11PLY_*",
-        site            = "JFEM/src/solver/solve_case.jl:top-N descriptor gate",
-        description     = "Descriptor-only cleanup for early balanced-laminate and 11-ply strip-like SOL105 roots whose elastic energy is concentrated in a compact element patch.",
-        provenance      = ("2026-06-28 HTP574 modal-energy diagnostics: the first exported low roots " *
-                           "were not case-name filtered; they were rejected only when the top " *
-                           "element geometry, thickness ratio, ply count, ply-angle fractions, " *
-                           "and top-10 elastic-energy concentration matched a narrow strip-like " *
-                           "artifact family. No element IDs, property IDs, groups, stress-state " *
-                           "classifiers, case names, or external calibration tables are used."),
-    ),
     buckling_cluster_filter_enabled = (
         value           = false,
         env             = "JFEM_BUCKLING_CLUSTER_FILTER",

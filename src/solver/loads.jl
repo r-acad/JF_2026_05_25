@@ -1,45 +1,5 @@
 # loads.jl — Load resolution (FORCE, MOMENT, PLOAD4, GRAV, PLOAD1, LOAD combos)
 
-function _tria3_shell_frame_and_local_coords(Xc::AbstractMatrix)
-    p1 = vec(Xc[1, :]); p2 = vec(Xc[2, :]); p3 = vec(Xc[3, :])
-    v1_raw = p2 .- p1
-    nrm_v1 = norm(v1_raw)
-    nrm_v1 <= 1e-30 && return nothing
-
-    n_raw = cross(v1_raw, p3 .- p1)
-    nrm_n = norm(n_raw)
-    nrm_n <= 1e-30 && return nothing
-
-    v1 = v1_raw ./ nrm_v1
-    v3 = n_raw ./ nrm_n
-    v2 = cross(v3, v1)
-    Rel_t = [v1[1] v1[2] v1[3]; v2[1] v2[2] v2[3]; v3[1] v3[2] v3[3]]
-
-    c = (p1 .+ p2 .+ p3) ./ 3
-    lc = zeros(3, 2)
-    lc[1,1] = dot(p1 .- c, v1); lc[1,2] = dot(p1 .- c, v2)
-    lc[2,1] = dot(p2 .- c, v1); lc[2,2] = dot(p2 .- c, v2)
-    lc[3,1] = dot(p3 .- c, v1); lc[3,2] = dot(p3 .- c, v2)
-
-    return (Rel_t=Rel_t, lc=lc)
-end
-
-function _tria3_shell_isotropic_material(model, el_def)
-    pid = string(get(el_def, "PID", 0))
-    prop = get(get(model, "PSHELLs", Dict()), pid, nothing)
-    prop === nothing && return nothing
-
-    h = Float64(get(prop, "T", 0.0))
-    h <= 0 && return nothing
-
-    mid = string(get(prop, "MID", get(prop, "MID1", 0)))
-    mat = get(get(model, "MATs", Dict()), mid, nothing)
-    mat === nothing && return nothing
-    (!haskey(mat, "E") || !haskey(mat, "NU")) && return nothing
-
-    return (E=Float64(mat["E"]), nu=Float64(mat["NU"]), h=h)
-end
-
 @inline function _filter_shell_normal_moments_enabled()
     return solver_env_bool("JFEM_FILTER_SHELL_NORMAL_MOMENTS", true)
 end
@@ -309,46 +269,15 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
                 else
                     load_dir = normalize(normal_vec)
                 end
-                handled_tria3_pressure = false
-                if length(nids) == 3
-                    mat_data = _tria3_shell_isotropic_material(model, el_def)
-                    frame = _tria3_shell_frame_and_local_coords(Xc)
-                    if mat_data !== nothing && frame !== nothing
-                        tf = area * pload["P"] * scale
-                        local_dir = frame.Rel_t * load_dir
-
-                        if abs(local_dir[3]) > 1e-12
-                            f_plate = FEM.tria3_plate_macro_pressure_load(frame.lc, mat_data.E, mat_data.nu, mat_data.h, pload["P"] * scale * local_dir[3])
-                            for (k, idx) in enumerate(nids)
-                                dof = (idx-1)*6
-                                f_loc = [0.0, 0.0, f_plate[(k-1)*3+1]]
-                                # The condensed CTRIA3 pressure vector correlates with MSC/Nastran
-                                # only through the primary local plate-rotation component; applying
-                                # the second component over-rotates the validated pressure decks.
-                                m_loc = [f_plate[(k-1)*3+2], 0.0, 0.0]
-                                F_acc[dof+1:dof+3] .+= frame.Rel_t' * f_loc
-                                F_acc[dof+4:dof+6] .+= frame.Rel_t' * m_loc
-                            end
-                            handled_tria3_pressure = true
-                        end
-
-                        local_inplane = [local_dir[1], local_dir[2], 0.0]
-                        if norm(local_inplane) > 1e-12
-                            f_inplane = frame.Rel_t' * (local_inplane .* (tf / 3))
-                            for idx in nids
-                                dof = (idx-1)*6
-                                F_acc[dof+1:dof+3] .+= f_inplane
-                            end
-                            handled_tria3_pressure = true
-                        end
-                    end
-                end
-
-                if !handled_tria3_pressure
-                    tf = area * pload["P"] * scale
-                    f_node = load_dir .* (tf / length(nids))
-                    for idx in nids; dof = (idx-1)*6; F_acc[dof+1:dof+3] .+= f_node; end
-                end
+                # 2026-08-05: CTRIA3 pressure lumping is the same equal-share
+                # force rule as every other face (A*p/n per node, no nodal
+                # moments), matching the reference solver. The former special
+                # path routed transverse pressure through the removed macro-quad
+                # condensation, which added a partial nodal-moment component the
+                # reference does not produce.
+                tf = area * pload["P"] * scale
+                f_node = load_dir .* (tf / length(nids))
+                for idx in nids; dof = (idx-1)*6; F_acc[dof+1:dof+3] .+= f_node; end
             end
         elseif haskey(get(model, "CSOLIDs", Dict()), string(eid))
             # PLOAD4 on solid element face

@@ -4,19 +4,19 @@ $ deg from root to tip. E = 29.0e6, nu = 0.22.
 $ Mesh: 12 CQUAD4 along length, 1 across width (26 nodes total).
 $ Twist at station i (i=0..12): theta_i = (i/12) * pi/2 .
 $
-$ IN-PLANE load case. At the tip (station 12) the 1.1 width lies along global
-$ Z and the 0.32 thickness along global Y, so the in-plane direction at the
-$ loaded end is +Z and the out-of-plane direction is +Y. Total tip load P = 1.
-$ Reference (in-plane, P = 1 at tip): Uz = 5.424e-3.
-$ The companion out-of-plane case (+Y, Uy = 1.754e-3) is twisted_beam_out_of_plane.bdf.
+$ OUT-OF-PLANE load case. At the tip (station 12) the 1.1 width lies along
+$ global Z and the 0.32 thickness along global Y, so the out-of-plane
+$ direction at the loaded end is +Y. Total tip load P = 1.
+$ Reference (out-of-plane, P = 1 at tip): Uy = 1.754e-3.
+$ The companion in-plane case (+Z, Uz = 5.424e-3) is twisted_beam.bdf.
 $ Both reference values: MacNeal & Harder 1985 Table 3, restated in Ko, Lee &
 $ Bathe 2017, Comput. Struct. 193, Sec. 3.5 for t/L = 0.02667.
 $
 SOL 101
 CEND
-TITLE = MacNeal-Harder twisted cantilever beam (in-plane load)
+TITLE = MacNeal-Harder twisted cantilever beam (out-of-plane load)
 SUBCASE 1
-  LABEL = In-plane unit tip load Fz at the free end
+  LABEL = Out-of-plane unit tip load Fy at the free end
   SPC = 1
   LOAD = 1
   DISPLACEMENT = ALL
@@ -83,7 +83,7 @@ CQUAD4,11, 1,21,23,24,22
 CQUAD4,12, 1,23,25,26,24
 $ ---- clamp at root ----
 SPC1, 1, 123456, 1, 2
-$ ---- in-plane tip load Fz = 1 distributed across the two tip nodes ----
-FORCE, 1,25, , 0.5, 0.0, 0.0, 1.0
-FORCE, 1,26, , 0.5, 0.0, 0.0, 1.0
+$ ---- out-of-plane tip load Fy = 1 distributed across the two tip nodes ----
+FORCE, 1,25, , 0.5, 0.0, 1.0, 0.0
+FORCE, 1,26, , 0.5, 0.0, 1.0, 0.0
 ENDDATA

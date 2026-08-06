@@ -112,6 +112,30 @@ function extract_shells(cards)
     return d
 end
 
+"""
+    _bar_continuation_base(c) -> Int
+
+Index after which a CBAR/CBEAM's continuation data begins.
+
+Fields 3..10 of the processed card hold the parent line's data (MSC fields
+2..9). MSC field 10 is the continuation marker, and a free-field deck may or may
+not emit one: `CBAR,...,1.0` produces no marker, while `CBAR,...,1.0, ,+CB1`
+produces `"+CB1"` at index 11. When the marker IS present it occupies a slot and
+shifts every continuation field by one.
+
+That shift used to be silent and harmful. `PA` was read from index 11, so on a
+deck with an explicit marker it read the marker itself -- and
+`parse_nastran_number` does not reject `"+CB1"`, it returns a number. The result
+was a pin release the deck never requested, applied to whatever DOF that number
+happened to name, with no warning. On the T5 validation bar it made the tip
+displacement wrong by five orders of magnitude while the solve still reported a
+clean residual.
+"""
+@inline function _bar_continuation_base(c)
+    tok = strip(string(safe_get(c, 11, "")))
+    return (startswith(tok, "+") || startswith(tok, "*")) ? 11 : 10
+end
+
 function extract_cbar(cards)
     d = Dict()
     for c in cards
@@ -135,12 +159,14 @@ function extract_cbar(cards)
         end
         if g0 == 0 && norm(v) < 1e-6; v = [0.0, 0.0, 1.0]; end
 
-        # Parse PA/PB pin flags from continuation line (fields 11-12)
-        pa = to_id(parse_nastran_number(safe_get(c, 11), 0))
-        pb = to_id(parse_nastran_number(safe_get(c, 12), 0))
-        # Parse WA/WB offset vectors from continuation line (fields 13-18)
-        wa = [parse_nastran_number(safe_get(c, 13), 0.0), parse_nastran_number(safe_get(c, 14), 0.0), parse_nastran_number(safe_get(c, 15), 0.0)]
-        wb = [parse_nastran_number(safe_get(c, 16), 0.0), parse_nastran_number(safe_get(c, 17), 0.0), parse_nastran_number(safe_get(c, 18), 0.0)]
+        # Parse PA/PB pin flags and WA/WB offsets from the continuation line,
+        # skipping the continuation marker when the deck emits one. See
+        # _bar_continuation_base.
+        b = _bar_continuation_base(c)
+        pa = to_id(parse_nastran_number(safe_get(c, b + 1), 0))
+        pb = to_id(parse_nastran_number(safe_get(c, b + 2), 0))
+        wa = [parse_nastran_number(safe_get(c, b + 3), 0.0), parse_nastran_number(safe_get(c, b + 4), 0.0), parse_nastran_number(safe_get(c, b + 5), 0.0)]
+        wb = [parse_nastran_number(safe_get(c, b + 6), 0.0), parse_nastran_number(safe_get(c, b + 7), 0.0), parse_nastran_number(safe_get(c, b + 8), 0.0)]
 
         d[string(id)] = Dict("ID"=>id, "PID"=>pid, "GA"=>ga, "GB"=>gb, "V"=>v, "G0"=>g0, "PA"=>pa, "PB"=>pb, "WA"=>wa, "WB"=>wb, "TYPE"=>"CBAR")
     end
@@ -168,10 +194,12 @@ function extract_cbeam(cards)
         end
         if g0 == 0 && norm(v) < 1e-6; v = [0.0, 0.0, 1.0]; end
 
-        pa = to_id(parse_nastran_number(safe_get(c, 11), 0))
-        pb = to_id(parse_nastran_number(safe_get(c, 12), 0))
-        wa = [parse_nastran_number(safe_get(c, 13), 0.0), parse_nastran_number(safe_get(c, 14), 0.0), parse_nastran_number(safe_get(c, 15), 0.0)]
-        wb = [parse_nastran_number(safe_get(c, 16), 0.0), parse_nastran_number(safe_get(c, 17), 0.0), parse_nastran_number(safe_get(c, 18), 0.0)]
+        # Same continuation-marker shift as CBAR; see _bar_continuation_base.
+        b = _bar_continuation_base(c)
+        pa = to_id(parse_nastran_number(safe_get(c, b + 1), 0))
+        pb = to_id(parse_nastran_number(safe_get(c, b + 2), 0))
+        wa = [parse_nastran_number(safe_get(c, b + 3), 0.0), parse_nastran_number(safe_get(c, b + 4), 0.0), parse_nastran_number(safe_get(c, b + 5), 0.0)]
+        wb = [parse_nastran_number(safe_get(c, b + 6), 0.0), parse_nastran_number(safe_get(c, b + 7), 0.0), parse_nastran_number(safe_get(c, b + 8), 0.0)]
 
         d[string(id)] = Dict("ID"=>id, "PID"=>pid, "GA"=>ga, "GB"=>gb, "V"=>v, "G0"=>g0, "PA"=>pa, "PB"=>pb, "WA"=>wa, "WB"=>wb, "TYPE"=>"CBEAM")
     end

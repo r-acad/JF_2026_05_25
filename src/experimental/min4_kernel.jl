@@ -51,6 +51,7 @@ function stiffness_quad4_min4_bending_shear(
     cbmin4::Float64 = 3.6,
     iord_bending::Int = 2,
     iord_shear::Int = 3,
+    snorm_pq = nothing,
 )
     # Side differences: XSD[i] = X[i] - X[i+1] (i=1..4, wrap at 4→1).
     # Matches MYSTRAN convention (BD_CQUAD computes XSD/YSD that way; see JAC2D).
@@ -142,6 +143,11 @@ function stiffness_quad4_min4_bending_shear(
 
     # --- Bending stiffness Kb (8×8) ---
     Kb = MMatrix{8, 8, Float64}(zeros(8, 8))
+    # Full-DOF bending block used only by the explicit legacy `field`
+    # diagnostic. Production normal-moment mode deliberately passes no pq here
+    # and applies its common equilibrium map after the complete kernel is built.
+    snorm_completion_active = snorm_pq !== nothing && !all(iszero, snorm_pq)
+    Kb_completed = snorm_completion_active ? zeros(24, 24) : nothing
     Cb_static = SMatrix{3, 3, Float64}(Cb)
     for i in eachindex(gp_b)
         for j in eachindex(gp_b)
@@ -161,11 +167,38 @@ function stiffness_quad4_min4_bending_shear(
             intfac = DETJ * gw_b[i] * gw_b[j]
             BB_static = SMatrix{3, 8, Float64}(BB)
             Kb .+= intfac .* (transpose(BB_static) * Cb_static * BB_static)
+            if snorm_completion_active
+                px = 0.0; py = 0.0; qx = 0.0; qy = 0.0
+                @inbounds for jj in 1:4
+                    px += DPSHX[1,jj] * snorm_pq[jj,1]
+                    py += DPSHX[2,jj] * snorm_pq[jj,1]
+                    qx += DPSHX[1,jj] * snorm_pq[jj,2]
+                    qy += DPSHX[2,jj] * snorm_pq[jj,2]
+                end
+                BB24 = zeros(3, 24)
+                @inbounds for jj in 1:4
+                    dNdx = DPSHX[1,jj]
+                    dNdy = DPSHX[2,jj]
+                    base = 6(jj-1)
+                    BB24[1,base+1] = px*dNdx
+                    BB24[1,base+2] = qx*dNdx
+                    BB24[2,base+1] = py*dNdy
+                    BB24[2,base+2] = qy*dNdy
+                    BB24[3,base+1] = py*dNdx + px*dNdy
+                    BB24[3,base+2] = qy*dNdx + qx*dNdy
+                    # Embed the exact MIN4 rotational operator; do not
+                    # reconstruct it from an assumed plate convention.
+                    BB24[:,base+4] .= BB_static[:,2*jj-1]
+                    BB24[:,base+5] .= BB_static[:,2*jj]
+                end
+                Kb_completed .+= intfac .* (transpose(BB24) * Cb * BB24)
+            end
         end
     end
 
     # --- Shear stiffness Ks (12×12) ---
     Ks = MMatrix{12, 12, Float64}(zeros(12, 12))
+    Ks_completed = snorm_completion_active ? zeros(24, 24) : nothing
     Cs_static = SMatrix{2, 2, Float64}(Cs)
     for i in eachindex(gp_s)
         for j in eachindex(gp_s)
@@ -186,6 +219,40 @@ function stiffness_quad4_min4_bending_shear(
             intfac = DETJ * gw_s[i] * gw_s[j]
             BS_static = SMatrix{2, 12, Float64}(BS)
             Ks .+= intfac .* (transpose(BS_static) * Cs_static * BS_static)
+            if snorm_completion_active
+                BS24 = zeros(2, 24)
+                @inbounds for row in 1:2
+                    c_spin = 0.0
+                    p_weight = 0.0
+                    q_weight = 0.0
+                    for jj in 1:4
+                        col = 3(jj-1)
+                        base = 6(jj-1)
+                        wcoef = BS_static[row,col+1]
+                        rxcoef = BS_static[row,col+2]
+                        rycoef = BS_static[row,col+3]
+                        BS24[row,base+3] = wcoef
+                        BS24[row,base+4] = rxcoef
+                        BS24[row,base+5] = rycoef
+                        c_spin += rxcoef*snorm_pq[jj,1] + rycoef*snorm_pq[jj,2]
+                        p_weight += rycoef*snorm_pq[jj,1]
+                        q_weight -= rxcoef*snorm_pq[jj,2]
+                    end
+                    for jj in 1:4
+                        col = 3(jj-1)
+                        base = 6(jj-1)
+                        wcoef = BS_static[row,col+1]
+                        if row == 1
+                            BS24[row,base+1] = p_weight*wcoef
+                            BS24[row,base+2] = c_spin*wcoef
+                        else
+                            BS24[row,base+1] = -c_spin*wcoef
+                            BS24[row,base+2] = q_weight*wcoef
+                        end
+                    end
+                end
+                Ks_completed .+= intfac .* (transpose(BS24) * Cs * BS24)
+            end
         end
     end
 
@@ -209,11 +276,19 @@ function stiffness_quad4_min4_bending_shear(
     IDB = SVector{8,Int}(4, 5, 10, 11, 16, 17, 22, 23)
     IDS = SVector{12,Int}(3, 4, 5, 9, 10, 11, 15, 16, 17, 21, 22, 23)
     Ke = zeros(24, 24)
-    @inbounds for j in 1:8, i in 1:8
-        Ke[IDB[i], IDB[j]] += Kb[i, j]
+    if Kb_completed === nothing
+        @inbounds for j in 1:8, i in 1:8
+            Ke[IDB[i], IDB[j]] += Kb[i, j]
+        end
+    else
+        Ke .+= Kb_completed
     end
-    @inbounds for j in 1:12, i in 1:12
-        Ke[IDS[i], IDS[j]] += phi_sq * Ks[i, j]
+    if Ks_completed === nothing
+        @inbounds for j in 1:12, i in 1:12
+            Ke[IDS[i], IDS[j]] += phi_sq * Ks[i, j]
+        end
+    else
+        Ke .+= phi_sq .* Ks_completed
     end
 
     return Ke, bensum, shrsum, phi_sq

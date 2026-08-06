@@ -13,77 +13,12 @@
     return 0
 end
 
-@inline function _shell_edge_key(a::Int, b::Int)
-    return a < b ? (a, b) : (b, a)
-end
-
-function _tria3_shell_macro_blend_weights(model)
-    edge_counts = Dict{Tuple{Int,Int},Int}()
-    weights = Dict{Int,Float64}()
-
-    for (_, el) in get(model, "CSHELLs", Dict())
-        nids = Int.(el["NODES"])
-        if length(nids) == 3
-            edges = ((nids[1], nids[2]), (nids[2], nids[3]), (nids[3], nids[1]))
-        elseif length(nids) == 4
-            edges = ((nids[1], nids[2]), (nids[2], nids[3]), (nids[3], nids[4]), (nids[4], nids[1]))
-        else
-            continue
-        end
-        for (a, b) in edges
-            key = _shell_edge_key(a, b)
-            edge_counts[key] = get(edge_counts, key, 0) + 1
-        end
-    end
-
-    for (id, el) in get(model, "CSHELLs", Dict())
-        nids = Int.(el["NODES"])
-        length(nids) == 3 || continue
-        eid = _stress_entry_public_id(id, el)
-        shared_edges = 0
-        for (a, b) in ((nids[1], nids[2]), (nids[2], nids[3]), (nids[3], nids[1]))
-            shared_edges += get(edge_counts, _shell_edge_key(a, b), 0) > 1 ? 1 : 0
-        end
-        weights[eid] = clamp((shared_edges - 1) / 2, 0.0, 1.0)
-    end
-
-    return weights
-end
-
-function _blend_tria3_macro_bending_iso!(
-    M::AbstractVector,
-    s_z1::AbstractVector,
-    s_z2::AbstractVector,
-    e_z1::AbstractVector,
-    e_z2::AbstractVector,
-    coords::AbstractMatrix,
-    u_elem::AbstractVector,
-    E,
-    nu,
-    h::Float64,
-    bend_ratio::Float64,
-    macro_weight::Float64,
-)
-    macro_weight <= 0.0 && return false
-    abs(bend_ratio) <= 1e-12 && return false
-
-    M_macro = FEM.tria3_plate_macro_average_moment(coords, u_elem, E, nu, h; bend_ratio=bend_ratio)
-    all(isfinite, M_macro) || return false
-
-    M_blend = (1.0 - macro_weight) .* M .+ macro_weight .* M_macro
-    D = (Float64(E) / (1.0 - Float64(nu)^2)) .* [1.0 Float64(nu) 0.0; Float64(nu) 1.0 0.0; 0.0 0.0 (1.0-Float64(nu))/2.0]
-    kappa = -(12.0 / (bend_ratio * h^3)) .* (D \ M_blend)
-    eps_mem = (e_z1 .+ e_z2) ./ 2.0
-    z1 = -h / 2.0
-    z2 = h / 2.0
-
-    M .= M_blend
-    e_z1 .= eps_mem .+ z1 .* kappa
-    e_z2 .= eps_mem .+ z2 .* kappa
-    s_z1 .= D * e_z1
-    s_z2 .= D * e_z2
-    return true
-end
+# 2026-08-05: the CTRIA3 macro-quad moment blend (edge-connectivity-weighted
+# average of virtual-sub-quad moments into interior-triangle recovery) was
+# removed together with the macro-quad construction itself. Recovery is now
+# the element's own constant-curvature field, consistent with the MITC3
+# stiffness promoted 2026-08-01 and with the reference's element-local
+# CTRIA3 recovery.
 
 @inline function _quad4_equilibrium_shear_from_bending(coords::AbstractMatrix, M_corners::AbstractMatrix)
     dNdr = (-0.25, 0.25, 0.25, -0.25)
@@ -129,43 +64,12 @@ end
     return Q_out
 end
 
-@inline function _quad4_pressure_resultant_moment_scale(model, prop, mat, lc::AbstractMatrix, N::AbstractVector, Q::AbstractVector)
-    get(prop, "TYPE", "") == "PCOMP_CLT" && return 1.0
-    (!haskey(mat, "E") || !haskey(mat, "NU")) && return 1.0
-    abs(get(prop, "BEND_RATIO", 1.0)) <= 1e-12 && return 1.0
-    FEM.quad4_is_axis_aligned_rectangle(lc) || return 1.0
-
-    has_line_elements =
-        !isempty(get(model, "CBARs", Dict())) ||
-        !isempty(get(model, "CBEAMs", Dict())) ||
-        !isempty(get(model, "CRODs", Dict())) ||
-        !isempty(get(model, "CONRODs", Dict()))
-    has_kinematic_constraints =
-        !isempty(get(model, "RBE2s", Dict())) ||
-        !isempty(get(model, "RBE3s", Dict())) ||
-        !isempty(get(model, "RSPLINEs", Dict())) ||
-        !isempty(get(model, "MPCs", []))
-    (has_line_elements || has_kinematic_constraints) && return 1.0
-    length(get(model, "CSHELLs", Dict())) < 4 && return 1.0
-    length(get(model, "PLOAD4s", [])) < 4 && return 1.0
-
-    max_q = maximum(abs, Q)
-    max_n = maximum(abs, N)
-    max_q <= 1e-8 && return 1.0
-    max_n > max(1e-6, 1e-4 * max_q) && return 1.0
-
-    # Nastran's flat pressure-loaded QUAD4 force tables come out slightly lower
-    # than the raw JFEM plate-resultant recovery. Apply a very narrow correction
-    # only to the reported bending moments, leaving the solved state untouched.
-    return 0.99
-end
 
 function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_normals, stresses, results_json)
     lc_buf = zeros(4,2)
     q4_frame_mode = q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_STATIC")
     pcomp_axis_mode = q4_pcomp_axis_mode("JFEM_Q4_PCOMP_AXIS_MODE_STATIC")
     membrane_incomp_center_jacobian = q4_sol105_membrane_incomp_center_jacobian_enabled()
-    tria3_macro_blend = _tria3_shell_macro_blend_weights(model)
 
     for (id, el) in model["CSHELLs"]
         eid = _stress_entry_public_id(id, el)
@@ -198,26 +102,12 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
             lc_buf[2,1]=dot(p2-c,v1); lc_buf[2,2]=dot(p2-c,v2)
             lc_buf[3,1]=dot(p3-c,v1); lc_buf[3,2]=dot(p3-c,v2)
             lc_buf[4,1]=dot(p4-c,v1); lc_buf[4,2]=dot(p4-c,v2)
+            snorm_pq = snorm_element_pq(v1, v2, v3, sr_indices, snorm_normals)
+            coords3d_sr = [p1[1] p1[2] p1[3];
+                           p2[1] p2[2] p2[3];
+                           p3[1] p3[2] p3[3];
+                           p4[1] p4[2] p4[3]]
             curvature_membrane = nothing
-            curvature_scale = q4_curvature_membrane_scale("JFEM_Q4_CURVATURE_MEMBRANE_SCALE_STATIC")
-            if curvature_scale > 0.0 && all(idx -> haskey(snorm_normals, idx), sr_indices)
-                curvature_raw = estimate_quad4_curvature_membrane(
-                    view(lc_buf,1:4,:), snorm_normals[i1], snorm_normals[i2], snorm_normals[i3], snorm_normals[i4], v1, v2, v3
-                )
-                curvature_weight = q4_curvature_filter_weight(
-                    curvature_raw,
-                    q4_curvature_filter_mode("JFEM_Q4_CURVATURE_FILTER_MODE_STATIC"),
-                    q4_curvature_cyl_ratio_max("JFEM_Q4_CURVATURE_CYL_RATIO_MAX_STATIC"),
-                )
-                curvature_weight *= q4_curvature_resolution_weight(
-                    curvature_raw, view(lc_buf,1:4,:),
-                    q4_curvature_resolution_min("JFEM_Q4_CURVATURE_RESOLUTION_MIN_STATIC"),
-                    q4_curvature_resolution_full("JFEM_Q4_CURVATURE_RESOLUTION_FULL_STATIC"),
-                )
-                if curvature_weight > 0.0
-                    curvature_membrane = curvature_raw * (curvature_scale * curvature_weight)
-                end
-            end
 
             Rel_t = vcat(v1', v2', v3')
             u_el = zeros(24)
@@ -253,15 +143,15 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                 end
             end
             try
-                membrane_assumed_mode = ((get(prop, "TYPE", "") == "PCOMP_CLT" && !get(prop, "IS_ISOTROPIC", false) && get(prop, "Bmb", nothing) === nothing) ? :mitc4plus : :none)
                 N, M, Q, s_z1, s_z2, e_z1, e_z2 = FEM.stress_strain_quad4(view(lc_buf,1:4,:), u_el, mat["E"], mat["NU"], Float64(prop["T"]), Float64(prop["T"]);
                     bend_ratio=br,
                     Cm_override=clt_Cm,
                     curvature_membrane=curvature_membrane,
                     membrane_shear_center_row=membrane_shear_center_row,
                     material_shear_rotation=material_shear_rotation,
-                    membrane_assumed_mode=membrane_assumed_mode,
-                    membrane_incomp_center_jacobian=membrane_incomp_center_jacobian)
+                    membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
+                    snorm_pq=snorm_pq,
+                    coords_3d=coords3d_sr)
                 N_corners, M_corners = FEM.quad4_bilinear_corner_forces(view(lc_buf,1:4,:), u_el, mat["E"], mat["NU"], Float64(prop["T"]);
                     bend_ratio=br,
                     Cm_override=clt_Cm,
@@ -269,24 +159,13 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                     curvature_membrane=curvature_membrane,
                     membrane_shear_center_row=membrane_shear_center_row,
                     material_shear_rotation=material_shear_rotation,
-                    membrane_assumed_mode=membrane_assumed_mode,
-                    membrane_incomp_center_jacobian=membrane_incomp_center_jacobian)
+                    membrane_incomp_center_jacobian=membrane_incomp_center_jacobian,
+                    snorm_pq=snorm_pq,
+                    coords_3d=coords3d_sr)
                 Q_out = if clt_Cm === nothing && curvature_membrane === nothing && abs(br) > 1e-12
                     _quad4_blend_recovered_shear(Q, _quad4_equilibrium_shear_from_bending(view(lc_buf,1:4,:), M_corners))
                 else
                     collect(Q)
-                end
-                m_scale = _quad4_pressure_resultant_moment_scale(
-                    model,
-                    prop,
-                    mat,
-                    view(lc_buf,1:4,:),
-                    N,
-                    Q_out,
-                )
-                if m_scale != 1.0
-                    M .*= m_scale
-                    M_corners .*= m_scale
                 end
                 # Nastran's bilinear shell-force output keeps twisting moment
                 # constant across the QUAD4 corner rows.
@@ -358,15 +237,6 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
             end
             try
                 N, M, Q, s_z1, s_z2, e_z1, e_z2 = FEM.stress_strain_tria3(view(lc_buf,1:3,:), u_el, mat["E"], mat["NU"], Float64(prop["T"]); bend_ratio=br, Cm_override=clt_Cm)
-                macro_weight = get(tria3_macro_blend, eid, 0.0)
-                if macro_weight > 0.0 && clt_Cm === nothing && haskey(mat, "E") && haskey(mat, "NU")
-                    _blend_tria3_macro_bending_iso!(
-                        M, s_z1, s_z2, e_z1, e_z2,
-                        view(lc_buf,1:3,:), u_el,
-                        mat["E"], mat["NU"], Float64(prop["T"]),
-                        Float64(br), macro_weight,
-                    )
-                end
             catch e
                 @warn "Stress recovery failed for TRIA3 $eid: $e"
                 stress_ok = false

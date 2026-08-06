@@ -39,6 +39,110 @@ const _DKDX_DISPATCH = Dict{String, Function}(
     "topology_density"    => (dv, m, id, nc, nR, u, n) -> _dKdx_u_topology_density(dv, m, id, nc, nR, u, n),
 )
 
+@inline function _dkdx_targets_quad4(dv, eid_key, el, model)
+    dv_type = string(dv["type"])
+    pid_str = string(el["PID"])
+    if dv_type == "shell_thickness" ||
+       dv_type == "pcomp_ply_thickness" || dv_type == "pcomp_ply_angle"
+        return pid_str in Set(string.(get(dv, "pids", Any[])))
+    elseif dv_type == "material_E" || dv_type == "material_NU"
+        prop = get(get(model, "PSHELLs", Dict()), pid_str, nothing)
+        isnothing(prop) && return false
+        return string(get(prop, "MID", "")) in
+               Set(string.(get(dv, "mids", Any[])))
+    elseif dv_type == "topology_density"
+        eid_str = string(get(el, "ID", eid_key))
+        return eid_str in Set(string.(get(dv, "eids", Any[])))
+    end
+    return false
+end
+
+"""
+Fail explicitly when an element-local analytical/AD/FD derivative would omit
+one of the production CQUAD4 physical-coordinate maps.  The normal-moment and
+finite-warp maps are independent of material/thickness variables, but their
+work-dual congruences still have to wrap `dKe`; the current local derivative
+kernels build only the projected basic matrix.  Node-coordinate derivatives
+already use full-model finite differences and bar-only variables do not touch
+CQUAD4, so neither is restricted here.
+"""
+function _guard_mapped_quad4_local_dkdx!(dv, model, id_map, node_coords)
+    dv_type = string(dv["type"])
+    dv_type in ("bar_area", "node_coord") && return nothing
+    haskey(model, "CSHELLs") || return nothing
+
+    base_raw = get(model, "PARAM_SNORM", 0.0)
+    base_angle = base_raw isa Real ? Float64(base_raw) :
+        something(tryparse(Float64, string(base_raw)), 0.0)
+    override_raw = strip(get(
+        ENV,
+        "JFEM_PARAM_SNORM_OVERRIDE_STATIC",
+        get(ENV, "JFEM_PARAM_SNORM_OVERRIDE", ""),
+    ))
+    snorm_angle = isempty(override_raw) ? base_angle :
+        something(tryparse(Float64, override_raw), base_angle)
+    snorm_normals =
+        snorm_curvature_enabled() && snorm_angle > 0.0 ?
+        compute_shell_nodal_normals(model, id_map, node_coords, snorm_angle) :
+        Dict{Int,SVector{3,Float64}}()
+    frame_mode = q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_STATIC")
+    warp_on = solver_env_bool("JFEM_Q4_WARP_TRANSFORM", true)
+
+    for (eid_key, el) in model["CSHELLs"]
+        nids = get(el, "NODES", nothing)
+        nids === nothing && continue
+        length(nids) == 4 || continue
+        _dkdx_targets_quad4(dv, eid_key, el, model) || continue
+        all(nid -> haskey(id_map, nid), nids) || continue
+
+        indices = ntuple(k -> id_map[nids[k]], 4)
+        points = ntuple(k -> SVector{3}(
+            node_coords[indices[k],1],
+            node_coords[indices[k],2],
+            node_coords[indices[k],3],
+        ), 4)
+        v1, v2, v3 = shell_element_frame_quad4(
+            points[1], points[2], points[3], points[4], frame_mode)
+
+        active_snorm = false
+        if !isempty(snorm_normals)
+            pq = snorm_element_pq(v1, v2, v3, indices, snorm_normals)
+            active_snorm = pq !== nothing && FEM.quad4_snorm_pq_has_active_rows(pq)
+        end
+
+        active_warp = false
+        if warp_on
+            center = (points[1] + points[2] + points[3] + points[4]) / 4.0
+            local_xy = zeros(4, 2)
+            coords3d = zeros(4, 3)
+            @inbounds for k in 1:4
+                dp = points[k] - center
+                local_xy[k,1] = dot(dp, v1)
+                local_xy[k,2] = dot(dp, v2)
+                coords3d[k,1] = points[k][1]
+                coords3d[k,2] = points[k][2]
+                coords3d[k,3] = points[k][3]
+            end
+            active_warp =
+                FEM.quad4_finite_warp_displacement_map(local_xy, coords3d) !== nothing
+        end
+
+        if active_snorm || active_warp
+            maps = active_snorm && active_warp ? "PARAM,SNORM and finite-warp" :
+                   active_snorm ? "PARAM,SNORM" : "finite-warp"
+            eid = get(el, "ID", eid_key)
+            dv_label = get(dv, "id", dv_type)
+            error(
+                "[ADJOINT] Element-local CQUAD4 dK/dx is unsupported for " *
+                "active $maps coordinate maps (EID $eid, DV $dv_label). " *
+                "Use a full end-to-end finite-difference sensitivity; " *
+                "node_coord already uses that supported route."
+            )
+        end
+    end
+    return nothing
+end
+
 """
     compute_dKdx_u(dv, model, id_map, node_coords, node_R, u_global, ndof) -> Vector{Float64}
 
@@ -55,6 +159,8 @@ and an optional `dv["method"]` override:
 function compute_dKdx_u(dv, model, id_map, node_coords, node_R, u_global, ndof)
     dv_type = dv["type"]
     dv_method = get_dv_method(dv)
+    dv_method === :full_model_fd ||
+        _guard_mapped_quad4_local_dkdx!(dv, model, id_map, node_coords)
 
     if dv_type == "shell_thickness"
         if dv_method == :ad_forward
@@ -171,8 +277,18 @@ function _shell_elem_local_data(el, model, id_map, node_coords, node_R)
         for d in 1:6; dofs[base_e+d] = base_g+d; end
     end
 
+    # Carry the EFFECTIVE drilling stabilisation with the element data. The
+    # kernels take k6rot as a keyword defaulting to 100.0, and every call below
+    # used to leave it there -- harmless only while the assembly default was
+    # also a flat 100.0. Since the assembly default now follows the reference
+    # solver's per-solution-sequence value, an unpassed keyword would compute
+    # dK/dx from a different operator than K, i.e. a sensitivity of the wrong
+    # matrix. Resolve it once, here, from the same source the assembly uses.
+    k6rot = solver_k6rot(get(model, "PARAM_K6ROT", nastran_k6rot_default(model)), false)
+
     return (n_nodes=n_nodes, lc=lc, T_mat=T_mat, dofs=dofs, ndof_elem=ndof_elem,
-            prop=prop, mat=mat, pid_str=pid_str, mid_str=mid_str, idxs=idxs)
+            prop=prop, mat=mat, pid_str=pid_str, mid_str=mid_str, idxs=idxs,
+            k6rot=k6rot)
 end
 
 """Scatter element contribution T' * f_local to global pseudo-load vector."""
@@ -204,11 +320,11 @@ function _dKdx_u_shell_thickness(dv, model, id_map, node_coords, node_R, u_globa
         delta = max(abs(h) * 1e-6, 1e-12)
 
         if ed.n_nodes == 4
-            Ke_plus  = FEM.stiffness_quad4(ed.lc, E, nu, h + delta)
-            Ke_minus = FEM.stiffness_quad4(ed.lc, E, nu, h - delta)
+            Ke_plus  = FEM.stiffness_quad4(ed.lc, E, nu, h + delta; k6rot=ed.k6rot)
+            Ke_minus = FEM.stiffness_quad4(ed.lc, E, nu, h - delta; k6rot=ed.k6rot)
         else
-            Ke_plus  = FEM.stiffness_tria3(ed.lc, E, nu, h + delta)
-            Ke_minus = FEM.stiffness_tria3(ed.lc, E, nu, h - delta)
+            Ke_plus  = FEM.stiffness_tria3(ed.lc, E, nu, h + delta; k6rot=ed.k6rot)
+            Ke_minus = FEM.stiffness_tria3(ed.lc, E, nu, h - delta; k6rot=ed.k6rot)
         end
         dKe_local = (Ke_plus - Ke_minus) / (2.0 * delta)
         _scatter_elem_contribution!(pseudo_load, ed.T_mat, dKe_local, u_global, ed.dofs, ed.ndof_elem)
@@ -221,9 +337,9 @@ function _shell_thickness_dKe_forward_ad(ed)
     E = Float64(ed.mat["E"])
     nu = Float64(ed.mat["NU"])
     stiffness_fun = if ed.n_nodes == 4
-        x -> vec(FEM.stiffness_quad4_generic(ed.lc, E, nu, x[1]))
+        x -> vec(FEM.stiffness_quad4_generic(ed.lc, E, nu, x[1]; k6rot=ed.k6rot))
     else
-        x -> vec(FEM.stiffness_tria3_generic(ed.lc, E, nu, x[1]))
+        x -> vec(FEM.stiffness_tria3_generic(ed.lc, E, nu, x[1]; k6rot=ed.k6rot))
     end
     jac = ForwardDiff.jacobian(stiffness_fun, [h0])
     return reshape(jac[:, 1], ed.ndof_elem, ed.ndof_elem)
@@ -260,8 +376,8 @@ function _dKdx_u_material_E(dv, model, id_map, node_coords, node_R, u_global, nd
 
         h = ed.prop["T"]; E = ed.mat["E"]; nu = ed.mat["NU"]
         Ke_local = ed.n_nodes == 4 ?
-            FEM.stiffness_quad4(ed.lc, E, nu, h) :
-            FEM.stiffness_tria3(ed.lc, E, nu, h)
+            FEM.stiffness_quad4(ed.lc, E, nu, h; k6rot=ed.k6rot) :
+            FEM.stiffness_tria3(ed.lc, E, nu, h; k6rot=ed.k6rot)
         dKe_local = Ke_local / E
         _scatter_elem_contribution!(pseudo_load, ed.T_mat, dKe_local, u_global, ed.dofs, ed.ndof_elem)
     end
@@ -288,11 +404,11 @@ function _dKdx_u_material_NU(dv, model, id_map, node_coords, node_R, u_global, n
         delta = max(abs(nu) * 1e-6, 1e-8)
 
         if ed.n_nodes == 4
-            Ke_plus  = FEM.stiffness_quad4(ed.lc, E, nu + delta, h)
-            Ke_minus = FEM.stiffness_quad4(ed.lc, E, nu - delta, h)
+            Ke_plus  = FEM.stiffness_quad4(ed.lc, E, nu + delta, h; k6rot=ed.k6rot)
+            Ke_minus = FEM.stiffness_quad4(ed.lc, E, nu - delta, h; k6rot=ed.k6rot)
         else
-            Ke_plus  = FEM.stiffness_tria3(ed.lc, E, nu + delta, h)
-            Ke_minus = FEM.stiffness_tria3(ed.lc, E, nu - delta, h)
+            Ke_plus  = FEM.stiffness_tria3(ed.lc, E, nu + delta, h; k6rot=ed.k6rot)
+            Ke_minus = FEM.stiffness_tria3(ed.lc, E, nu - delta, h; k6rot=ed.k6rot)
         end
         dKe_local = (Ke_plus - Ke_minus) / (2.0 * delta)
         _scatter_elem_contribution!(pseudo_load, ed.T_mat, dKe_local, u_global, ed.dofs, ed.ndof_elem)
@@ -307,9 +423,9 @@ function _material_nu_dKe_forward_ad(ed)
     E = Float64(ed.mat["E"])
     nu0 = Float64(ed.mat["NU"])
     stiffness_fun = if ed.n_nodes == 4
-        x -> vec(FEM.stiffness_quad4_generic(ed.lc, E, x[1], h))
+        x -> vec(FEM.stiffness_quad4_generic(ed.lc, E, x[1], h; k6rot=ed.k6rot))
     else
-        x -> vec(FEM.stiffness_tria3_generic(ed.lc, E, x[1], h))
+        x -> vec(FEM.stiffness_tria3_generic(ed.lc, E, x[1], h; k6rot=ed.k6rot))
     end
     jac = ForwardDiff.jacobian(stiffness_fun, [nu0])
     return reshape(jac[:, 1], ed.ndof_elem, ed.ndof_elem)
@@ -914,8 +1030,8 @@ function _dKdx_u_pcomp_ply_exact(dv, model, id_map, node_coords, node_R, u_globa
         h = Float64(prop["T"])
         E_ref = Float64(get(prop, "E_ref", 1.0))
         dKe = ed.n_nodes == 4 ?
-            FEM.stiffness_quad4_matrices(ed.lc, dCm, dCb, dCs, h, E_ref; Bmb=dBmb) :
-            FEM.stiffness_tria3_matrices(ed.lc, dCm, dCb, dCs, h, E_ref; Bmb=dBmb)
+            FEM.stiffness_quad4_matrices(ed.lc, dCm, dCb, dCs, h, E_ref; Bmb=dBmb, k6rot=ed.k6rot) :
+            FEM.stiffness_tria3_matrices(ed.lc, dCm, dCb, dCs, h, E_ref; Bmb=dBmb, k6rot=ed.k6rot)
 
         _scatter_elem_contribution!(pseudo_load, ed.T_mat, dKe, u_global, ed.dofs, ed.ndof_elem)
     end
@@ -959,11 +1075,11 @@ function _dKdx_u_pcomp_ply_fd(dv, model, id_map, node_coords, node_R, u_global, 
         h = Float64(prop["T"])
         E_ref = Float64(get(prop, "E_ref", 1.0))
         if ed.n_nodes == 4
-            Ke_p = FEM.stiffness_quad4_matrices(ed.lc, Cm_p, Cb_p, Cs_p, h, E_ref; Bmb=Bmb_p)
-            Ke_m = FEM.stiffness_quad4_matrices(ed.lc, Cm_m, Cb_m, Cs_m, h, E_ref; Bmb=Bmb_m)
+            Ke_p = FEM.stiffness_quad4_matrices(ed.lc, Cm_p, Cb_p, Cs_p, h, E_ref; Bmb=Bmb_p, k6rot=ed.k6rot)
+            Ke_m = FEM.stiffness_quad4_matrices(ed.lc, Cm_m, Cb_m, Cs_m, h, E_ref; Bmb=Bmb_m, k6rot=ed.k6rot)
         else
-            Ke_p = FEM.stiffness_tria3_matrices(ed.lc, Cm_p, Cb_p, Cs_p, h, E_ref; Bmb=Bmb_p)
-            Ke_m = FEM.stiffness_tria3_matrices(ed.lc, Cm_m, Cb_m, Cs_m, h, E_ref; Bmb=Bmb_m)
+            Ke_p = FEM.stiffness_tria3_matrices(ed.lc, Cm_p, Cb_p, Cs_p, h, E_ref; Bmb=Bmb_p, k6rot=ed.k6rot)
+            Ke_m = FEM.stiffness_tria3_matrices(ed.lc, Cm_m, Cb_m, Cs_m, h, E_ref; Bmb=Bmb_m, k6rot=ed.k6rot)
         end
 
         dKe = (Ke_p - Ke_m) / (2.0 * delta)
@@ -1061,13 +1177,13 @@ function _dKdx_u_topology_density(dv, model, id_map, node_coords, node_R, u_glob
             if is_pcomp && haskey(ed.prop, "Cm")
                 Ke0 = ed.n_nodes == 4 ?
                     FEM.stiffness_quad4_matrices(ed.lc, ed.prop["Cm"], ed.prop["Cb"], ed.prop["Cs"],
-                        h, get(ed.prop, "E_ref", E); Bmb=get(ed.prop, "Bmb", nothing)) :
+                        h, get(ed.prop, "E_ref", E); Bmb=get(ed.prop, "Bmb", nothing), k6rot=ed.k6rot) :
                     FEM.stiffness_tria3_matrices(ed.lc, ed.prop["Cm"], ed.prop["Cb"], ed.prop["Cs"],
-                        h, get(ed.prop, "E_ref", E); Bmb=get(ed.prop, "Bmb", nothing))
+                        h, get(ed.prop, "E_ref", E); Bmb=get(ed.prop, "Bmb", nothing), k6rot=ed.k6rot)
             else
                 Ke0 = ed.n_nodes == 4 ?
-                    FEM.stiffness_quad4(ed.lc, E, nu, h) :
-                    FEM.stiffness_tria3(ed.lc, E, nu, h)
+                    FEM.stiffness_quad4(ed.lc, E, nu, h; k6rot=ed.k6rot) :
+                    FEM.stiffness_tria3(ed.lc, E, nu, h; k6rot=ed.k6rot)
             end
 
             # dK_e/dρ = (p/ρ) · K_e_current  (K_e_current already includes ρ^p scaling)

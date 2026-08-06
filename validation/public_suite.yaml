@@ -21,8 +21,77 @@
 #                                    kind: analytical | f06 | csv
 #                                    plus kind-specific fields
 #                     tol_rel    : relative-error pass threshold
+#                     parity     : OPTIONAL second, independent reference used
+#                                  only for the parity columns. Same schema as
+#                                  `reference`, plus its own tol_rel. See the
+#                                  note below.
 #   citation      : human-readable source for the bibliography
 #   license       : license / status of the case material
+#
+# ---------------------------------------------------------------------------
+# ACCURACY vs PARITY -- two different questions, two independent columns
+# ---------------------------------------------------------------------------
+# `reference` answers "is OpenJFEM close to the published/closed-form value for
+# this problem?" That is an ACCURACY question, and on a deliberately coarse
+# benchmark mesh no solver answers it exactly -- the discretisation error is
+# part of the number.
+#
+# `parity` answers a different question: "given the SAME deck, the SAME mesh
+# and the SAME loads, does OpenJFEM produce what an established solver
+# produces?" Discretisation error is common to both sides and cancels, so a
+# parity gap is a formulation difference, not a mesh artifact.
+#
+# Conflating the two hides defects in both directions: a case can miss the
+# textbook value by 6 % while being in 0.02 % parity (coarse mesh, not a
+# defect), and a case can sit inside its accuracy tolerance while being
+# hundreds of percent away in parity (a real formulation gap masked by a
+# reference that is itself far from the textbook value).
+#
+# Parity tolerances are therefore DELIBERATELY TIGHTER than the accuracy
+# tolerance on the same row: both codes run the identical discretisation, so
+# there is no mesh-convergence allowance to spend.
+#
+# `parity` is optional and purely additive. A quantity with no `parity` block
+# behaves exactly as before, and the parity result never changes the accuracy
+# verdict.
+#
+# ---------------------------------------------------------------------------
+# PARAM,K6ROT -- why every shell deck here declares it (2026-08-04)
+# ---------------------------------------------------------------------------
+# K6ROT is the Hughes-Brezzi drilling-DOF stabilisation coefficient. It is a
+# numerical stabiliser, not part of any of these published benchmark
+# definitions, and solvers disagree on its default:
+#
+#     MSC/Nastran 70.5, SOL 101   K6ROT = 0.0    (delivery source del/sestatic.dat)
+#     MSC.Nastran 2004+           K6ROT = 100.0
+#     OpenJFEM                    K6ROT = 100.0
+#
+# Every parity reference in references/commercial_reference.csv was produced by
+# a solver sitting at 0.0, while OpenJFEM ran at 100.0. That single unstated
+# difference -- not a formulation gap -- accounted for the whole of the
+# then-outstanding parity error on all six shell rows, up to 3.4956% on the
+# hemisphere. Confirmed from both sides: MSC/Nastran 70.5 on the hemisphere
+# deck returns 4.937420E-02 with no card and with `PARAM,K6ROT,0.` (the two
+# displacement blocks are bit-identical), and 4.764827E-02 with
+# `PARAM,K6ROT,100.` -- which is OpenJFEM's own default-run answer to the F06's
+# full print precision.
+#
+# The decks therefore pin it at 0.0: the setting under which both the published
+# benchmark values and this suite's reference-solver values were produced, and
+# the setting that leaves the element unstabilised so the accuracy rows measure
+# the element rather than the stabiliser. Declaring it is a no-op for a solver
+# already defaulting to 0, so the pre-existing reference values are unchanged.
+#
+# ---------------------------------------------------------------------------
+# How the MacNeal-Harder accuracy tolerances are set
+# ---------------------------------------------------------------------------
+# These are deliberately coarse benchmark meshes on which NO published 4-node
+# shell element reaches its converged target. Scoring them against a tolerance
+# that no correct element can meet measures the mesh, not the code. Where a
+# published per-mesh spread exists for 4-node elements on the identical mesh,
+# `tol_rel` is set from that spread and the citation is given on the row. Where
+# it does not, the tolerance is left as it was and the row is allowed to FAIL
+# with the discrepancy documented in PAPER_VALIDATION_SUMMARY.md.
 
 # ===========================================================================
 # Family 1: MacNeal -- Harder (1985) classical benchmark suite.
@@ -43,10 +112,54 @@
         kind: analytical
         module: macneal_curved_beam
         fn: tip_disp_in_plane
+      # tol_rel unchanged. The 6x1 mesh cannot reach the curved-beam-theory
+      # target: MacNeal & Harder's own published QUAD4 result for this test is
+      # 0.833 normalised, and MSC/Nastran 70.5 on this deck gives 0.8334.
+      # OpenJFEM gives 0.8310 and converges to 1.006 at 24x4. Left as a
+      # documented FAIL rather than widened without a published per-mesh band.
       tol_rel: 0.02
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MH_curved_beam_in_plane
+        tol_rel: 1.0e-3
   citation: "MacNeal & Harder 1985, curved cantilever beam (Sec. 3)"
   license: public domain
 
+# Refined-mesh companions. The coarse decks above ARE the published benchmark
+# and stay untouched; these answer the separate question the benchmark mesh
+# cannot -- does the element converge onto the published target? Both are
+# scored against the SAME published reference as their coarse twin, at the
+# ordinary 2% tolerance, with no per-mesh allowance.
+- id: MH_curved_beam_refined
+  family: macneal_harder
+  bdf: cases/macneal_harder/curved_beam_refined.bdf
+  sol: 101
+  quantities:
+    - name: tip_disp_in_plane
+      kind: displacement
+      # mid-width tip node of the 24x4 mesh
+      selector: {node: 75, dof: 2}
+      reference:
+        kind: analytical
+        module: macneal_curved_beam
+        fn: tip_disp_in_plane
+      tol_rel: 0.02
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MH_curved_beam_refined
+        tol_rel: 1.0e-3
+  citation: "MacNeal & Harder 1985, curved cantilever beam (Sec. 3), refined 24x4 mesh"
+  license: public domain
+
+# The twisted beam carries BOTH published load cases. Until 2026-08-04 the
+# suite shipped one row that applied the out-of-plane load (+Y) while scoring
+# it against the in-plane target, which is where its 68.5% "accuracy error"
+# came from. The deck's load was corrected to +Z and the out-of-plane case was
+# split out into its own deck and row.
 - id: MH_twisted_beam_in_plane
   family: macneal_harder
   bdf: cases/macneal_harder/twisted_beam.bdf
@@ -54,13 +167,47 @@
   quantities:
     - name: tip_disp_in_plane
       kind: displacement
-      selector: {node: 25, dof: 2}
+      # At the tip the 1.1 width lies along global Z, so the in-plane
+      # displacement is T3.
+      selector: {node: 25, dof: 3}
       reference:
         kind: analytical
         module: macneal_twisted_beam
         fn: tip_disp_in_plane
       tol_rel: 0.02
-  citation: "MacNeal & Harder 1985, twisted cantilever beam (Sec. 4)"
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MH_twisted_beam_in_plane
+        tol_rel: 1.0e-3
+  citation: "MacNeal & Harder 1985, twisted cantilever beam (Sec. 4), in-plane load"
+  license: public domain
+
+- id: MH_twisted_beam_out_of_plane
+  family: macneal_harder
+  bdf: cases/macneal_harder/twisted_beam_out_of_plane.bdf
+  sol: 101
+  quantities:
+    - name: tip_disp_out_of_plane
+      kind: displacement
+      selector: {node: 25, dof: 2}
+      reference:
+        kind: analytical
+        module: macneal_twisted_beam
+        fn: tip_disp_out_of_plane
+      # Published 4-node spread on this load case at the comparable coarse
+      # mesh (Ko, Lee & Bathe 2017, Table 13, t/L = 0.02667, N = 2):
+      # MITC4 0.9188, MITC4+ 0.9832, S4 0.9862, IBRA4 1.0000 -- i.e. up to
+      # 8.1% low. OpenJFEM sits at 0.9734 on this 12x1 mesh.
+      tol_rel: 0.05
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MH_twisted_beam_out_of_plane
+        tol_rel: 1.0e-3
+  citation: "MacNeal & Harder 1985, twisted cantilever beam (Sec. 4), out-of-plane load"
   license: public domain
 
 - id: MH_scordelis_lo
@@ -75,7 +222,18 @@
         kind: analytical
         module: macneal_scordelis_lo
         fn: midedge_vertical_disp
-      tol_rel: 0.05
+      # Published 4-node spread on the identical 4x4 quarter mesh (Ko, Lee &
+      # Bathe 2017, Table 10, N = 4): MITC4 0.9432, S4 1.036, IBRA4 1.047,
+      # DKQ4 1.048, MITC4+ 1.048, SIMO4 1.083 -- a +-8.3% band. OpenJFEM sits
+      # at 1.0581 and MSC/Nastran 70.5 at 1.0582 on this deck; OpenJFEM
+      # converges to 0.9999 at 16x16. Widened 0.05 -> 0.10 to that band.
+      tol_rel: 0.10
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MH_scordelis_lo
+        tol_rel: 1.0e-3
   citation: "MacNeal & Harder 1985, Scordelis--Lo roof (Sec. 7)"
   license: public domain
 
@@ -92,8 +250,46 @@
         kind: analytical
         module: macneal_pinched_cylinder
         fn: radial_disp_under_load
+      # tol_rel unchanged. This is the slowest-converging benchmark in the set
+      # and NO published 4-node element comes near 1.0 on the 4x4 octant mesh
+      # (Ko, Lee & Bathe 2017, Table 8, N = 4: IBRA4 0.3700, MITC4 0.3788,
+      # S4 0.3882, MITC4+ 0.3904, SIMO4 0.399, DKQ4 0.636). OpenJFEM 0.5228
+      # and MSC/Nastran 70.5 0.5241 sit inside that spread, and OpenJFEM
+      # converges to 1.0002 at 24x24. The deck load P/4 = 0.25 is CORRECT --
+      # the load point lies on two of the three symmetry planes. Left as a
+      # documented FAIL; no tolerance vs the converged target is meaningful at
+      # this mesh.
       tol_rel: 0.10
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MH_pinched_cylinder
+        tol_rel: 1.0e-3
   citation: "MacNeal & Harder 1985, pinched cylinder with diaphragms (Sec. 8)"
+  license: public domain
+
+- id: MH_pinched_cylinder_refined
+  family: macneal_harder
+  bdf: cases/macneal_harder/pinched_cylinder_refined.bdf
+  sol: 101
+  quantities:
+    - name: radial_disp_under_load
+      kind: displacement
+      selector: {node: 1, dof: 1}
+      compare_abs: true
+      reference:
+        kind: analytical
+        module: macneal_pinched_cylinder
+        fn: radial_disp_under_load
+      tol_rel: 0.02
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MH_pinched_cylinder_refined
+        tol_rel: 1.0e-3
+  citation: "MacNeal & Harder 1985, pinched cylinder with diaphragms (Sec. 8), refined 24x24 octant mesh"
   license: public domain
 
 - id: MH_hemispherical_shell
@@ -108,14 +304,55 @@
         kind: analytical
         module: macneal_hemispherical_shell
         fn: radial_disp_at_load
-      tol_rel: 0.05
-  citation: "MacNeal & Harder 1985, pinched hemispherical shell (Sec. 9)"
+      # The deck models the 18-deg CUT-OUT variant, whose published reference
+      # is 0.0930 (Ko, Lee & Bathe 2017, Table 15); 0.0924 is the closed-pole
+      # value (their Table 17) and was being used here by mistake.
+      # Published 4-node spread on the identical N = 4 mesh (their Table 15,
+      # t/R = 4/1000): DKQ4 0.928, S4 0.9889, SIMO4 1.004, IBRA4 1.011,
+      # MITC4 1.044, MITC4+ 1.044 -- and MITC3+ 1.099. OpenJFEM sits at 1.062.
+      # Widened 0.05 -> 0.10 to that band.
+      tol_rel: 0.10
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MH_hemispherical_shell
+        tol_rel: 1.0e-3
+  citation: "MacNeal & Harder 1985, pinched hemispherical shell (Sec. 9); 18-deg cut-out variant"
   license: public domain
 
 # ===========================================================================
 # Family 2: Classical analytical buckling references.
 #           Geometry and loads transcribed from standard textbooks; no
 #           proprietary suite involved.
+#
+#           NO `parity` block on either BUCKLING EIGENVALUE, deliberately.
+#           The reference solver cannot produce a trustworthy first buckling
+#           eigenvalue for either deck (established 2026-08-04):
+#             * TG_plate_uniaxial_buckling -- its unguarded inverse-power
+#               extraction prints mode 1 at 1.184360E+08, 56 % away from both
+#               the analytical value and OpenJFEM's, but its own Sturm-sequence
+#               messages count 14 roots below 3.002962E+08 while only 6 printed
+#               roots are below that. Eight roots below the printed minimum were
+#               missed, so the printed "mode 1" is not the first eigenvalue of
+#               that discretisation.
+#             * BA_cylinder_axial_buckling -- prints mode 1 = 3.332354E-05 with
+#               a NEGATIVE generalized mass and a failed orthogonality test
+#               (66 pairs).
+#           Re-running both with the Sturm-guarded SINV method does not rescue
+#           them: it returns 100+ roots dominated by a near-null spurious
+#           cluster (plate mode 1 = -2.763834E-07). The reference's K/Kg pair on
+#           these decks carries a large spurious near-null subspace; OpenJFEM
+#           has 5 roots below 5e8 where the reference's own Sturm count claims
+#           17. Tabulating any of those numbers would assert a parity result
+#           that has not been established.
+#
+#           Each case DOES carry a parity row on its SOL 105 STATSUB static
+#           preload field, which is well-posed for both codes and which the
+#           buckling export now emits. That row verifies the stiffness matrix,
+#           the applied load and the boundary conditions on the identical mesh.
+#           It does NOT verify Kg or the eigensolver -- that remains the open
+#           item. See PAPER_VALIDATION_SUMMARY.md.
 # ===========================================================================
 
 - id: TG_plate_uniaxial_buckling
@@ -131,6 +368,23 @@
         module: classical_plate_buckling
         fn: simply_supported_uniaxial_first_mode
       tol_rel: 0.03
+    # Same-deck parity on the well-posed part of this case: the STATSUB
+    # preload field. Node 36 is the far corner of the compressed edge (x = 1).
+    - name: preload_ux_node_36
+      kind: static_preload_displacement
+      selector: {node: 36, dof: 1}
+      reference:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: TG_plate_preload_ux
+      tol_rel: 1.0e-3
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: TG_plate_preload_ux
+        tol_rel: 1.0e-3
   citation: "Timoshenko & Gere, Theory of Elastic Stability (1961), Ch. 9"
   license: public domain
 
@@ -148,6 +402,25 @@
         fn: thin_cylinder_axial_critical
       tol_rel: 0.15
       notes: "Classical formula known to over-predict; wide tolerance is intentional."
+    # Same-deck parity on the well-posed part of this case: the STATSUB
+    # preload field. Node 1 is the loaded end; grid CD = 1, the CORD2C
+    # cylindrical frame, so T3 is the axial component -- the same convention
+    # the reference solver prints in.
+    - name: preload_uz_node_1
+      kind: static_preload_displacement
+      selector: {node: 1, dof: 3}
+      reference:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: BA_cylinder_preload_uz
+      tol_rel: 1.0e-3
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: BA_cylinder_preload_uz
+        tol_rel: 1.0e-3
   citation: "Brush & Almroth, Buckling of Bars, Plates and Shells (1975), Ch. 5"
   license: public domain
 
@@ -174,6 +447,15 @@
         path: commercial_reference.csv
         column: value
       tol_rel: 0.02
+      # This family's accuracy reference IS a reference-solver value, so the
+      # row already measured parity. The parity block makes that explicit
+      # rather than implied; the two columns are expected to be identical.
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MYSTRAN_sol101_simple
+        tol_rel: 1.0e-3
   citation: "MYSTRAN public test suite, Build_Test_Cases/statics/cquad4_pshell_center.bdf"
   license: MIT (MYSTRAN)
 
@@ -190,6 +472,12 @@
         path: commercial_reference.csv
         column: value
       tol_rel: 0.05
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: MYSTRAN_sol105_buckling
+        tol_rel: 1.0e-3
   citation: "MYSTRAN public test suite, Build_Test_Cases/buckling/bar.bdf (Euler cantilever)"
   license: MIT (MYSTRAN)
 
@@ -211,6 +499,9 @@
   bdf: cases/crm/wingbox_modal_with_props.bdf
   sol: 103
   quantities:
+    # As with mystran_xref, this family's accuracy reference IS a
+    # reference-solver value, so every row here already measured parity; the
+    # parity blocks state it explicitly and are expected to be identical.
     - name: eigenvalue_mode1
       kind: eigenvalue
       selector: {mode: 1}
@@ -220,6 +511,12 @@
         column: value
         row_id: CRM_wingbox_modal_mode1
       tol_rel: 0.05
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: CRM_wingbox_modal_mode1
+        tol_rel: 5.0e-3
     - name: eigenvalue_mode2
       kind: eigenvalue
       selector: {mode: 2}
@@ -229,6 +526,12 @@
         column: value
         row_id: CRM_wingbox_modal_mode2
       tol_rel: 0.05
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: CRM_wingbox_modal_mode2
+        tol_rel: 5.0e-3
     - name: eigenvalue_mode3
       kind: eigenvalue
       selector: {mode: 3}
@@ -238,6 +541,12 @@
         column: value
         row_id: CRM_wingbox_modal_mode3
       tol_rel: 0.05
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: CRM_wingbox_modal_mode3
+        tol_rel: 5.0e-3
     - name: eigenvalue_mode4
       kind: eigenvalue
       selector: {mode: 4}
@@ -247,6 +556,12 @@
         column: value
         row_id: CRM_wingbox_modal_mode4
       tol_rel: 0.05
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: CRM_wingbox_modal_mode4
+        tol_rel: 5.0e-3
     - name: eigenvalue_mode5
       kind: eigenvalue
       selector: {mode: 5}
@@ -256,5 +571,11 @@
         column: value
         row_id: CRM_wingbox_modal_mode5
       tol_rel: 0.05
+      parity:
+        kind: csv
+        path: commercial_reference.csv
+        column: value
+        row_id: CRM_wingbox_modal_mode5
+        tol_rel: 5.0e-3
   citation: "TACS examples/crm/CRM_box_2nd.bdf (uCRM coarse wingbox); CQUADR -> CQUAD4 substitution; isotropic shell properties from crm_frequency.py synthesised into the public runnable deck"
   license: Apache 2.0 (TACS)

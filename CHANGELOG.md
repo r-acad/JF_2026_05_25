@@ -5,6 +5,707 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **SOL 103 normal modes could silently drop one member of a degenerate
+  mode pair, and was not reproducible run to run.** The shift-invert modal
+  eigensolve seeded its Krylov space with a RANDOM start vector, which can
+  land with near-zero overlap on one member of an exactly degenerate pair —
+  the documented "CBAR probe returned 4 of 6 modes, about one run in five"
+  behaviour. It was also the solver's last source of run-to-run variation.
+  Two changes: (1) the modal path now uses the same deterministic start
+  vector generator as the buckling path; (2) a completeness guard counts
+  the pencil's roots below the highest reported one by Sturm inertia
+  (`K - omega^2 M`) and, if the certificate says roots are missing, retries
+  from a different deterministic start vector and merges what it finds
+  (`JFEM_SOL103_COMPLETENESS_GUARD=false` opts out). The guard can only add
+  modes — values already found are never perturbed.
+
+  Verified: the CBAR probe returns all 6 modes, including both members of
+  each degenerate pair, identically on 10 consecutive runs; and two
+  independent runs of the public validation suite now agree **exactly**
+  (previously the CRM SOL 103 rows differed run to run at the 1e-11 level,
+  which is why suite comparisons had to be judged on verdicts rather than
+  values). Computed values are unchanged against the previous release.
+
+### Changed
+- **CHEXA8 now uses MSC/Nastran 70.5's actual formulation — the solid
+  static gap is closed.** The 8-node hexahedron previously used 9
+  Wilson-Taylor incompatible DISPLACEMENT modes; matrix extraction against
+  the reference (12-geometry corpus, 24 unit-displacement columns each)
+  showed MSC uses an enhanced assumed STRAIN element instead: isoparametric
+  2x2x2 plus 21 EAS modes mapped through the POLAR factor of the centre
+  Jacobian, det(J0)/det(J)-scaled and statically condensed. The difference
+  was a rank-3 deficiency — the reference softens the trilinear mode triple
+  that displacement bubbles leave at full integration, giving it a fully
+  relieved uniaxial response
+  (`mu_d = E/[(lam+2mu) + mu(L_d/L_e)^2 + mu(L_d/L_f)^2]`, exactly
+  `(1+nu)(1-2nu)/(2-3nu) = 26/55` on a cube).
+
+  Measured effect on the solid validation probes, against MSC 70.5:
+
+  | probe | before | after |
+  | --- | --- | --- |
+  | hexa shear | 8.86e-3 | **1.19e-7** |
+  | hexa cantilever | 6.53e-3 | **3.50e-7** |
+  | tetra cantilever (control) | 2.01e-7 | 2.01e-7 |
+
+  Both hexa probes now match the CTETRA control's precision. Element
+  operator error over the 12-geometry corpus falls from worst 9.96e-2 /
+  median 6.65e-2 to worst 6.79e-3 / median 5.02e-4, with rectangular
+  bricks at ~1e-7. Verified on every geometry: exactly 6 rigid-body modes
+  and rigid-rotation equivariance at 3e-16. The remaining 5e-4..6.8e-3 band
+  is confined to varying-Jacobian shapes. Set `JFEM_CHEXA8_EAS=false` to
+  restore the legacy Wilson-Taylor kernel.
+
+### Fixed
+- **CPENTA6 stiffness was frame-dependent: a wedge whose axis was not
+  aligned with global Z got a wrong stiffness matrix.** The vertical-wedge
+  path hardcoded global Y-Z and Z-X as the receiving strain rows of its
+  substitute-shear back-substitution, so the operator was not equivariant
+  under rigid rotation of the model — measured worst-case error **16.5%**
+  on a rotated wedge (median 4e-16; the defect only appears on rotated
+  elements, which is why an axis-aligned extraction corpus never exposed
+  it). Untilted wedges now go through the same covariant receipt as tilted
+  ones, which is frame-independent by construction: rigid-rotation
+  equivariance improves from 1.65e-01 to **9.1e-16**, while agreement with
+  the reference is unchanged (2.09e-7 relative over all 48 vertical
+  extraction geometries) and the SOL 103 wedge modal probe stays exact to
+  every printed digit. Any model containing wedges not aligned to global Z
+  is affected and should be re-run. Opt out with
+  `JFEM_CPENTA6_COVARIANT_RECEIPT=false`.
+
+### Added
+- **CPENTA6 director-tilt formulation.** When a wedge's axis is tilted
+  relative to its mid-plane normal, the substitute-shear construction is
+  now applied in the frame perpendicular to a recovered director rather
+  than to the mid-plane normal. The director follows a closed-form
+  covariant law: with mid-plane edge vectors a, b, c = b-a, area A2, unit
+  normal n and height H, the in-plane slope sigma solves
+  `(I + (2/(3H)) sqrt(T)) sigma = tau` where `T = a(x)a + b(x)b + c(x)c`
+  and tau is the axis slope; the square root is elementary because
+  `det T = 12 A2^2` identically. Physically the director is the element
+  axis pulled back toward the mid-plane normal by the inverse of the
+  in-plane gyration tensor scaled by height. Measured against MSC/Nastran
+  70.5 over a 76-deck tilted extraction corpus (9 base triangles, 3
+  scalene): worst relative operator error **1.6e-1 -> 1.3e-2**, median
+  **7.8e-2 -> 5.9e-3**; tapered and twisted wedges also improve
+  (taper 3.7e-2 -> 1.1e-3, twisted 2.9e-2 -> 1.3e-3). Untilted elements are
+  unaffected. The residual on tilted wedges is no longer the director
+  (driving the kernel with the exactly stress-measured director leaves the
+  same residual) but the transfer of the rigidity laws and bubble
+  condensation into the tilted frame.
+
+### Documentation
+- README: added "Performance Notes (2026-08)" summarizing the promoted
+  default-ON behaviors (certificate-first augmentation, adaptive
+  eigensolve request, deterministic threading, allocation-free hot paths)
+  with their opt-out flags and the two research opt-ins; corrected the
+  public-suite description to the current 19-row state (all rows pass
+  parity against the commercial reference; two classical-plate analytical
+  rows documented as reference-defect exceptions).
+
+### Performance
+- **CQUAD4 transform/triplet tail is type-stable (re-baseline class).**
+  The per-element local→global congruence and triplet emission now run
+  behind a strictly-typed function barrier: the element matrix binding was
+  union-typed across the kernel branch table, boxing every load inside the
+  `@fastmath` transform loops (~1.1 GB allocation per 6220-element
+  assembly). Arithmetic transcribed verbatim; the concrete-type codegen
+  enables FMA contraction, shifting assembled K entries by at most
+  4.6e-14 of the matrix scale (worst single entry 1.5e-13 of its own
+  magnitude; CRM 3.7e-16). Accepted per the established re-baseline
+  precedent: 6-deck battery spectra within 6.9e-11, public suite verdicts
+  identical with values within 1.0e-11, differential-harness baseline
+  recaptured. Box-deck assembly allocation 312 → 129 KB/element.
+- **MacNeal shear block is allocation-free (bit-identical).** The CQUAD4
+  kernel's MacNeal/interaction-hybrid construction now runs against a
+  per-thread `MacNealShearWorkspace`: every per-element temporary — the
+  4×12/4×4/12×12/24×24 intermediates, matrix literals, symmetrizations,
+  and the LAPACK factorizations (pivoted-QR right-divisions, LU inverses,
+  SVD condition estimates) — is served from preallocated, workspace-cached
+  buffers through statement-for-statement replicas of the stdlib paths
+  issuing the identical LAPACK calls with identical workspace sizing.
+  Measured: kernel invocation 321 → 11 KB allocated (−96.6%); the CRM
+  interaction-path deck drops ~300 KB/element. Verified 0-ulp: the
+  deck-level differential harness is byte-exact over assembled K on every
+  battery deck, backed by an 1,800-comparison bit-equality battery of the
+  replica factorization paths. The SNORM/warp 24×24 congruence appliers
+  reuse previously-unused `Quad4Workspace` buffers the same way. Remaining
+  CQUAD4 assembly allocation (~250 KB/el on the box deck) is caller-side
+  union-type boxing in the transform/triplet tail whose fix enables FMA
+  contraction — re-baseline class, recorded as the next perf target.
+- **Three deferred marginal-cost items landed (all verified bit-identical
+  and default ON).** (1) *Trial-factor keep*: the eigen-partition stability
+  trial's Cholesky is kept and reused as the eigen factorization when K_ff
+  is bitwise symmetric (the symmetrization is then an exact identity),
+  eliminating a duplicate full factorization per subcase on decks below
+  the solve-cache threshold — most of the parity corpus
+  (`JFEM_EIGEN_TRIAL_FACTOR_KEEP=false` opts out). (2) *Values-only Kg
+  reassembly*: across a deck's buckling subcases the Kg triplet pattern is
+  identical, so later subcases refill a fresh nzval through a precomputed
+  triplet→slot map instead of re-running the full sparse sort/merge,
+  reproducing sparse()'s assignment/accumulation order exactly
+  (`JFEM_KG_VALUES_ONLY_CSC=false` opts out). (3) *Batched binary export*:
+  the .jfem writers stage the full byte stream in memory and issue one OS
+  write (byte-hash-identical output). Gates: flag-OFF outputs semantically
+  and byte-identical to the promoted state; flags-ON suite values exactly
+  equal (rtol=0 field diff) and battery eigen metrics exactly zero.
+- **Symmetric Lanczos for the zero-shift buckling eigensolve (env-flagged,
+  default OFF).** With `JFEM_SOL105_SYMM_LANCZOS=true` and an SPD K
+  factorization, the strategy-2 operator is congruence-transformed to the
+  symmetric S = L⁻¹ (P·B·Pᵀ) L⁻ᵀ and KrylovKit runs real Lanczos
+  (`ishermitian=true`) instead of general Arnoldi: three-term recurrence,
+  real tridiagonal Ritz problem, no complex-pair filtering; eigenvectors
+  map back as u = Pᵀ L⁻ᵀ y. The L extraction works on a copy of the K
+  factor so the shared cached factor's representation (and hence the
+  rounding of every later solve against it) is untouched. Gate: flag-ON
+  spectra within 1.5e-14 relative (subspaces within 4.0e-12) of flag-OFF
+  on the 6-deck battery; flag-OFF bit-identical. Value-gated: default
+  stays OFF until a battery demonstrates a measured win on top of the
+  adaptive-nev request reduction.
+- **Sturm certificate factorizations are cheaper and (optionally) fused
+  with shifted solves.** Two unflagged, output-identical improvements: the
+  Sturm inertia counter now falls back to a fresh analysis when an
+  in-place refactorization of a reused factor throws (previously that
+  silently disabled the completeness certificate for the subcase), and the
+  reuse factor is carried in the per-deck eigen cache so the second
+  buckling subcase of a deck skips the CHOLMOD symbolic analysis
+  (inertia counts are permutation-invariant, and Julia's simplicial-mode
+  refactorization is pattern-safe; verified semantically identical on the
+  battery). Behind `JFEM_SOL105_SHIFT_FACTOR_FUSION=true` (default OFF),
+  shifted range-augmentation/completeness solves additionally factor
+  M(σ) = K + σ·Kg via LDLᵀ first, so one factorization serves as both the
+  shift-invert operator and a reusable certificate factor at that σ — a
+  completeness recovery at the certificate bound then costs no
+  factorization at all. Factors with untrustworthy pivot spreads
+  (unpivoted LDLᵀ near a diagonal cancellation) are rejected back to the
+  proven cholesky→LU ladder and never reused.
+- **Adaptive eigensolve request promoted to DEFAULT ON.** Promotion
+  protocol recorded: two consecutive clean 42-deck fabric runs adaptive-ON
+  (retained spectra within 3.9e-14 relative of the full-request baseline,
+  subspaces within 3.5e-11; parity row-identical, 83/83 within 1%, zero
+  margin-rule violations), public suite values exactly equal (19/19), and
+  a 20-repeat stability battery with exact-zero drift. Measured: corpus
+  eigen wall −17% on top of certificate-first (−35% cumulative vs the
+  pre-program state); the HTP-class ND=16 battery halved. Opt out with
+  `JFEM_SOL105_ADAPTIVE_NEV=false`.
+- **Adaptive eigensolve request on EIGRL-range decks (env-flagged, default
+  OFF).** With `JFEM_SOL105_ADAPTIVE_NEV=true`, the SOL 105 zero-shift
+  buckling eigensolve no longer always requests ~8x ND modes: an
+  escalation ladder starts near ND + buffer (`JFEM_SOL105_ADAPTIVE_NEV_BUFFER`,
+  default max(ND, 8)) and stops as soon as the CONVERGED spectrum holds
+  >= ND positive in-range roots or a converged positive root strictly
+  above V2 (zero-shift inverse iteration enumerates by |lambda|, so a
+  bracketing root proves every positive root below it was recovered). A
+  rung that converges fewer than its request escalates unconditionally;
+  the final rung reuses the same start vector and equals today's request
+  exactly. Guarded to ND-limited output and to env states where the Sturm
+  safety net (certificate-first gate or completeness augmentation) is
+  armed; otherwise inert. Gate record: flag-OFF outputs semantically
+  identical to the promoted certificate-first state; flag-ON retained
+  spectra within 2.6e-14 relative (subspaces within 5.2e-12) of flag-OFF
+  on the 6-deck battery, rescue decks unchanged.
+- **Certificate-first range augmentation promoted to DEFAULT ON.** Full
+  promotion protocol recorded: two consecutive clean 42-deck fabric runs
+  flag-ON (spectra and mode shapes bit-identical to flag-OFF on all 83
+  scored subcases; parity 83/83 within 1%, max |err| unchanged at 0.700%,
+  zero margin-rule violations; battery wall −15%, eigen wall −22%,
+  augmentation+completeness block −32%) plus the public validation suite
+  under the flag (all 19 rows: verdicts identical, computed values exactly
+  equal, error-column deltas at the documented 1e-11 noise class). The
+  augmentation eigensolve now runs only when the Sturm certificate cannot
+  prove the reported spectrum complete (12% of corpus subcases — the
+  rescue classes). Opt out with
+  `JFEM_SOL105_CERT_FIRST_AUGMENTATION=false`.
+- **Certificate-first range augmentation (env-flagged, default OFF).** With
+  `JFEM_SOL105_CERT_FIRST_AUGMENTATION=true`, the SOL 105 buckling path asks
+  the Sturm inertia certificate whether the zero-shift extraction already
+  recovered every root up to the ND-th reported one BEFORE paying the
+  V2-targeted shifted eigensolve, and skips the augmentation when the
+  certificate says complete. The skip is provably output-invariant under
+  the EIGRL-ND output cap: with >= ND positive in-range roots recovered and
+  an exact inertia match over (V1+, lambda_ND*(1+1e-6)], augmentation could
+  only add duplicates below the cap or roots above it. Guards restrict the
+  skip to ND-limited positive-branch output; the recovered_from_empty
+  rescue class (zero-shift finds nothing in range) is untouched. The Sturm
+  cache is now shared between this gate and the completeness augmentation,
+  so the completeness pass re-certifies for free after a skip. Gate record
+  (6-deck battery, one deck per augmentation outcome class + both
+  HTP_launch pair-order decks): flag-OFF outputs semantically identical to
+  the pre-change state 6/6; flag-ON spectra and mode shapes bit-identical
+  to flag-OFF on 12/12 subcases while skipping the augmentation eigensolve
+  on 10 of 12; augmentation+completeness wall -42% on the battery. Default
+  stays OFF until the promotion protocol (two consecutive clean full-fabric
+  runs + public suite) completes.
+- **Threaded Kg assembly is deterministic at any thread count.** The shell
+  geometric-stiffness loop now writes each element's triplets into fixed
+  positional slots and compacts them in element order, replacing per-thread
+  accumulators whose concatenation order depended on the schedule. The
+  triplet stream — and therefore Kg — is bit-identical from `-t 1` through
+  `-t 8`, and identical to the former single-thread ordering. The last
+  thread-count dependence was KrylovKit's own task parallelism (its init
+  raises internal threading to `Threads.nthreads()`, changing Krylov-basis
+  reduction order and shifting eigenvalues at ~1e-14 with `-t`): OpenJFEM
+  now pins it to 1 so eigensolves are bit-identical at any thread count
+  (research escape hatch: `JFEM_KRYLOVKIT_THREADS`). K, the static
+  solution, Kg, and the eigensolve are each verified bitwise
+  thread-invariant.
+- **Element loops no longer touch the process environment.** Assembly
+  snapshots every `JFEM_*` variable into an immutable dictionary up front;
+  all kernel/assembly env accessors read the snapshot lock-free (on Windows
+  every live `ENV` read takes the process environment lock, which serialized
+  threaded assembly at ~4.5% scaling efficiency and cost 145–200 ns + 240 B
+  per read — with ~25–40 reads per element). Outside assembly the accessors
+  read live `ENV` exactly as before, so research bisects that set variables
+  between direct kernel calls are unaffected.
+- **The CQUAD4 stiffness kernel is type-stable.** The production entry is
+  now a thin dispatcher (env flags, SNORM/warp canonicalization, research
+  branches, workspace resolution) over a strictly-typed core behind a
+  function barrier, with every closure-boxing construct eliminated in both
+  the stiffness body and the MacNeal shear block. Measured on the 6220-quad
+  reference deck: K assembly 8.3 -> 2.3 s, allocations 365 M -> 78 M, heap
+  6.34 -> 2.05 GiB per assembly. Numeric note: the old kernel's exact bits
+  were an artifact of compiling `@fastmath` regions around type-unstable
+  code (proven irreproducible by any portable source — including
+  per-unrolled-iteration FP patterns); the type-stable kernel's results
+  differ deterministically by at most `6.5e-15` relative, confined to
+  CQUAD4 stiffness — five orders below the accepted precompile-image
+  codegen shift documented above, with every validation verdict unchanged.
+- **Kg no longer rebuilds the constraint dependency map.** The geometric
+  stiffness assembly reuses the merged RBE2/RBE1/RSPLINE/RBE3/MPC map the
+  stiffness assembly already built (it arrives as an argument that was
+  previously ignored), skipping a full map rebuild — including per-RBE3
+  pseudo-inverse solves — per Kg call. Bit-identical triplets; empty maps
+  are not trusted and trigger the full build as before.
+- **Sturm inertia counts are cheaper**: the completeness certificate's
+  counts share one CHOLMOD symbolic analysis across shifts (the pencil
+  pattern is shift-independent; inertia is permutation-invariant, so the
+  integer results cannot change), the redundant resymmetrization of an
+  already-symmetric pencil is skipped (two nnz-sized temporaries per count),
+  the defensive sparse copy before LDLT is gone, and the lower-bound count
+  at ~0+ is short-circuited to its provable value 0 when K is PD-certified
+  by its own successful Cholesky. All counts, and every decision they feed,
+  are unchanged.
+- **The SOL101/103/105 precompile workload is ON by default.** The package
+  image now bakes the full parse -> build -> solve path, eliminating a
+  measured ~147 s of per-process first-solve JIT (79% of a fresh
+  single-deck run). The one-time cost moves to package precompilation
+  after a source change; opt out for tight edit loops with
+  `JFEM_SOL105_PRECOMPILE_WORKLOAD=false`. Measured on the 36.5k-DOF
+  reference deck: fresh-process wall 187 s -> 49 s (load 3.1 s + first
+  solve 46.0 s). Note: ahead-of-time compiled code may select marginally
+  different FMA/SIMD instruction sequences than per-session JIT, shifting
+  floating-point results deterministically at up to `~3.5e-10` relative
+  (measured over the full public suite; every PASS/FAIL and parity verdict
+  unchanged, and the shift is stable across processes for a given image).
+  The opt-out env var restores the exact JIT behavior.
+- **Post-factorization pivot checks read `diag(F)` instead of materializing
+  the whole Cholesky factor** (three sites). Bit-identical values, measured
+  19x on the check at 48k DOF, and removes a transient copy of the full
+  factor fill-in (hundreds of MB on large models). The natural-order
+  `K_ff` diagonal is likewise read in one pass.
+- **The forced full `GC.gc()` after stiffness assembly is removed**
+  (measured ~0.6 s per assembly, multiplied across reassemblies).
+- **SOL 105 static reference solves no longer compute-and-discard stress
+  recovery and result rows** (`build_results=false` on the preload path);
+  recovery for export still runs exactly as before where consumed.
+- **Parser fast paths**: NASTRAN field numbers take a zero-allocation
+  `tryparse` fast path (embedded-exponent forms fall through to the exact
+  legacy path unchanged; measured 4.4x on the tokenizer), and the
+  `BEGIN BULK` presence scan no longer uppercases a copy of every line.
+
+### Removed
+- **The CTRIA3 virtual macro-quad construction is gone.** The triangle's plate
+  stiffness has been the pure three-node MITC3 kernel since its 2026-08-01
+  promotion; the macro-quad (three virtual sub-quads spanning corner, midside
+  and centroid points) survived only in secondary consumers, each now replaced
+  by an element-consistent formulation: interior-triangle moment recovery uses
+  the element's own constant-curvature field (the edge-connectivity-weighted
+  macro blend is removed; matching the reference's element-local recovery),
+  the transverse-shear resultant is an MITC3-consistent centroid evaluation of
+  the same tying field as the stiffness, and CTRIA3 pressure uses the same
+  equal-share `A*p/n` lumping as every other face — verified against the
+  reference solver at displacement print precision (`1.3e-7` relative L2) on a
+  purpose-built CTRIA3 pressure-cantilever deck. Legacy
+  `JFEM_TRIA3_PLATE_KERNEL` values that selected the macro operator now
+  resolve to the MITC3 default; `dkt` applies uniformly to coupled sections.
+
+### Changed
+- **CPENTA6 uses a reference-recovered formulation** in place of the plain
+  isoparametric wedge with a reduced-integration heuristic. Recovered by
+  direct forensics against the reference solver's own element matrices and
+  per-subcase stress output on a 70-geometry extraction corpus: assumed
+  (MITC3-tied) covariant transverse shear per z level with the shell
+  reference's `u = 3La/P, v = 3Lb/P` linear-variation coefficients, three
+  condensed `(1 - z^2)` incompatible modes (Wilson-Taylor corrected), and a
+  closed-form twist-shear rigidity correction
+  `f = (9/4)(...)/(187 + 14Q)` recovered exactly, and a closed-form
+  even-mode c-column correction built from the first- and second-moment
+  defects of the reference's tying influence field (homogeneous rationals
+  in the mid-plane edge lengths; recovered by three independent recognition
+  routes and adversarially cross-verified at the extraction noise floor).
+  With both corrections **every straight (vertical or tapered-base) wedge
+  of the extraction corpus reproduces the reference element stiffness to
+  F06 print precision** (`~2e-7` relative Frobenius, including held-out
+  scalene bases; previously worst `5.6e-2`), and the single-wedge modal
+  probe — `+25.3/+34.0/+5.6%` at the campaign start — now matches the
+  reference frequencies to every printed digit. One bounded residual
+  remains documented in the private forensics record: the director-tilt
+  extension (tilted-director synthetics at `3-16%`, widened 48-deck
+  corpus retained). Legacy quadrature variants remain selectable via
+  `JFEM_CPENTA_STIFFNESS_INTEGRATION`.
+
+### Fixed
+- **PBEAM `K1`/`K2` now default to `1.0` (shear-flexible), matching the
+  reference solver.** The parser defaulted absent shear-area factors to `0.0`,
+  which selects the rigid-shear limit — that is PBAR's convention, not
+  PBEAM's. The CBEAM modal probe's bending modes go from `+0.32%` to exact;
+  its full spectrum is now within `0.086%` of the reference. An explicit
+  `0.0` still selects rigid shear, as in the reference.
+- **Bar-family lumped mass now follows the reference solver's element-specific
+  conventions.** The CBAR/CROD lumped mass is translational only — the former
+  rotary/torsional inertia entries produced a spurious CBAR torsion mode at
+  `5.84e6` below the axial pair, where the reference spectrum has none — while
+  the CBEAM lumped mass keeps torsional inertia `rho*J*L/2`, whose torsion
+  root the CBEAM reference does print (`5.836e6`, now matched to `0.086%`).
+  Each element's own retained reference spectrum proves its convention. CBAR
+  modal parity is now exact on all six probe modes.
+- **Massless-but-stiff DOFs are retained for the modal solve instead of being
+  constrained when they are rotation component 6.** The removed clause was a
+  shell-drilling-era heuristic that SPC'd every massless r3; on a bar along x
+  it locked the t2 bending plane outright (probe modes `29159/169952` where
+  the reference has the `2582.69/68528.4` pair, mode shapes carrying zero r3).
+  True mechanisms (massless AND stiffness-free) are still removed; everything
+  else is condensed exactly by the shift-invert path, as in the reference.
+  With this and the lumped-mass corrections, every SOL 103 single-element
+  probe except CPENTA now matches the reference across its full spectrum
+  (CQUAD4/CTRIA3 worst `2e-4%`, CROD/CBAR/CTETRA `0.0%`, CBEAM `0.32%`).
+- **`PLOAD2`/`PLOAD4` `THRU` element ranges were silently collapsed.** The
+  literal `THRU` parsed as an invalid id and was skipped, so
+  `PLOAD2 SID P 1 THRU 32` loaded only elements 1 and 32, and PLOAD4's range
+  form mis-read the range end as a face grid. A `1 THRU 32` uniform-pressure
+  cantilever carried 1/16 of its load (tip deflection `-92%` vs the
+  reference); with the ranges expanded the same deck matches the reference to
+  full print precision. No retained validation deck used the THRU pressure
+  form, so no recorded parity number changes.
+- **SOL 103 cardless shell-mass default now matches the reference solver
+  (lumped).** Without `PARAM,COUPMASS`, MSC/Nastran builds lumped mass; the
+  previous cardless default selected the coupled-consistent shell mass, a
+  silent divergence that inflated first shell modes by +18..+19% on
+  single-element modal probes (invisible on refined meshes, where the two
+  formulations converge). With the corrected default the probe first modes
+  reproduce the reference to full F06 print precision (CQUAD4 `562.8937`,
+  CTRIA3 `571.9129`). Deck `PARAM,COUPMASS` and the `JFEM_SOL103_SHELL_MASS`
+  environment override behave as before; only the cardless default changed.
+  The public validation suite is bit-identical under the change.
+- **CTRIA3 decks no longer error when the implicit MacNeal shear-edge
+  interaction default meets the frozen macro-quad path.** The CTRIA3
+  macro-quad construction intentionally calls the CQUAD4 kernel with
+  distortion corrections off; the shear-edge interaction guard then rejected
+  the *implicit* `interaction_hybrid` default with an `ArgumentError` instead
+  of falling back to the established operator as documented. Explicitly
+  requested interaction modes still error. Fixes hard failures on
+  bending-CTRIA3 models (the five `buc3*` validation decks).
+
+### Added
+- **Grid-point singularity processing, matching the reference solver's
+  `GRID POINT SINGULARITY TABLE` for translations and rotations alike.** The
+  pre-existing AUTOSPC tests one DOF at a time against its own diagonal, which
+  cannot see a singular *direction* that is not aligned with a DOF axis — and on
+  a shell whose normal is oblique to the global axes, the drilling direction
+  never is. The new test eigen-decomposes each grid's 3x3 translational and 3x3
+  rotational stiffness blocks, forms each eigenvalue's ratio to that block's
+  largest, and moves any direction below `EPZERO` from the free set to the SPC
+  set, reporting the DOF the singular eigenvector lies closest to — which is
+  exactly what the reference does. Blocks are read in the grid's displacement
+  (`CD`) frame, the frame the reference tests and reports in.
+
+  Validated entry-for-entry against the reference's own table on **ten cases,
+  10/10 PASS**. Eight are purpose-built rod/bar decks, since a pure-shell deck
+  cannot produce a translational singularity: a rank-1 rod with a two-dimensional
+  oblique null space; a truss spanning a plane whose normal `(1,2,3)/√14` no DOF
+  axis lies near (1-D oblique — the case a diagonal test provably cannot find); a
+  CBAR cantilever as a false-positive control, expecting and getting zero; a
+  pinned CBAR; a rod whose grid `CD` frame is aligned to its own axis, which is
+  the frame proof; a mixed quad-plus-rod deck; and an equiangular truss that
+  makes "nearest DOF" a genuine three-way tie. The two shipped MacNeal decks
+  supply the rotational side at 24/24 and 12/12.
+
+  The two mechanisms are complementary and the claim is their union: the curved
+  beam is flat so its drilling direction *is* global Rz, and the diagonal test
+  finds all 12 while the directional test finds 0; the twisted beam's normal is
+  oblique everywhere, so the diagonal test finds 0 while the directional test
+  finds all 24.
+
+  One limit is inherent rather than an implementation choice: when a null space
+  has dimension > 1 and is not spanned by DOF axes, its eigenvector basis is
+  arbitrary, so *which* DOFs get constrained is not a property of the method. The
+  reference shows this against itself — for the same rod direction `(1,1,1)` it
+  constrains `{1,3}` in one deck and `{2,3}` in another, and in both the
+  resulting displacement lies along the single surviving DOF rather than along
+  the rod. Only the count, and the choice when the null space is 1-D, are
+  reproducible; the validation gate is written accordingly.
+
+  `JFEM_AUTOSPC_GRID_POINT_SINGULARITY=false` disables the test;
+  `JFEM_AUTOSPC_GRID_POINT_SINGULARITY_TRANS=false` disables its translational
+  half only.
+- **The effective `PARAM,K6ROT` and where it came from are now echoed on every
+  run.** `[SOLVER] Drilling stabilisation: K6ROT=100.0 (OpenJFEM default;
+  MSC/Nastran 70.5 linear SOLs default to 0.0)` on a deck that declares nothing,
+  or `K6ROT=0.0 (from the deck's PARAM,K6ROT)` when it does. K6ROT is a numerical
+  stabiliser that solvers default differently, so on a cardless deck two codes
+  silently run different problems — which is exactly how it surfaced, as an
+  apparent 3.5% formulation gap on the MacNeal hemisphere. One log line makes
+  that class of mismatch self-diagnosing. OpenJFEM's default is unchanged at
+  100.0.
+- **Refined-mesh companion decks for the two MacNeal-Harder cases whose
+  accuracy rows cannot pass on the published benchmark mesh.** On those meshes
+  no published 4-node shell element reaches its converged target either — the
+  pinched cylinder at 4x4 puts six published elements between 0.370 and 0.636
+  of the reference, and the curved beam at 6x1 has MacNeal & Harder's own QUAD4
+  result at 0.833 — so scoring them against the converged target measures the
+  mesh, not the code. Rather than widen a tolerance until the coarse row passes,
+  each case now ships a refined companion beside the untouched benchmark deck:
+  `curved_beam_refined.bdf` (6x1 -> 24x4) and `pinched_cylinder_refined.bdf`
+  (4x4 -> 24x24). Same problem, same published reference, ordinary 2% tolerance,
+  no per-mesh allowance. OpenJFEM converges onto both targets: **0.64%** and
+  **0.21%**, with same-deck parity of `3.6e-5` and `8.8e-6`. The benchmark rows
+  are unchanged and keep reporting the benchmark result, FAIL included. Each
+  refined deck states its mesh construction rule in its header so it is
+  reproducible without a generator.
+- **SOL 105 buckling results now carry the `STATSUB` static-preload
+  displacement field.** `*.BUCKLING.JSON` gains a `static_displacements` block
+  in the same per-grid schema the SOL 101 export uses (`grid_id`, `t1`..`r3`),
+  in the analysis DOF ordering and grid `CD` output frame. The value was always
+  available — the binary export has carried it since the version-5 format — but
+  the JSON dropped it, so a consumer wanting the preload had to re-run the deck
+  as SOL 101. The key is omitted entirely when the case has no static subcase,
+  so decks without `STATSUB` are unchanged.
+- Public validation suite: both `classical` SOL 105 cases now carry a same-deck
+  parity row on that preload field, so **every case in the suite has at least
+  one parity measurement (10/10)**. Their buckling *eigenvalue* rows still carry
+  no parity target, deliberately: the reference solver's extraction on those two
+  decks is demonstrably incomplete — on the plate it prints mode 1 at
+  `1.184360E+08` while its own Sturm messages count 14 roots below
+  `3.002962E+08` and only 6 printed roots are below that, and on the cylinder it
+  prints a first eigenvalue with negative generalized mass and a failed
+  orthogonality test. A Sturm-guarded `SINV` re-run does not rescue either; it
+  returns 100+ roots dominated by a near-null spurious cluster. The preload rows
+  verify the stiffness matrix, loads and boundary conditions on the identical
+  mesh; they do not verify `K_g` or the eigensolver, and the documentation says
+  so. Agreement: `5.0e-8` (plate node 36 T1) and `3.9e-6` (cylinder node 1 T3).
+- `run_public_suite.jl` understands a `static_preload_displacement` quantity
+  kind, reading `static_displacements` out of a SOL 105 result.
+
+### Changed
+- **BREAKING (cardless decks only): `PARAM,K6ROT` now defaults to the reference
+  solver's per-solution-sequence value instead of a flat 100.0.** MSC/Nastran
+  70.5 has no single global default — its delivery source says so outright
+  (`param.ddl:142-143`: *"K6ROT MUST NOT BE DEFINED HERE BECAUSE ITS DEFAULT
+  VALUE IS DIFFERENT ACROSS SOLUTION SEQUENCES"*). It declares `K6ROT=0.` in
+  every linear sequence (`sestatic.dat:44` for SOL 101, `semodes.dat:46` for
+  103, `sebuckl.dat:42` for 105) and `100.` only in the nonlinear SOL 106/129.
+  OpenJFEM now does the same, so a deck that declares nothing runs the same
+  problem in both codes.
+
+  This is safe because the drilling directions it exposes are removed by the new
+  grid-point singularity processing, exactly as the reference removes them — the
+  reference's own singularity table on the shipped twisted beam at K6ROT=0 has 24
+  entries, so its element is no less drilling-rank-deficient than OpenJFEM's.
+
+  A deck that declares `PARAM,K6ROT` is unaffected, as are the
+  `JFEM_PARAM_K6ROT*` environment overrides. Measured blast radius: the private
+  SOL 105 corpus declares the card on 66 of 66 decks, and of 16 git-tracked
+  public decks only 4 relied on the default — three JIT warm-up decks and one
+  CBAR case measured K6ROT-invariant to 13 digits.
+
+  The same value is now threaded into the design-sensitivity path
+  (`src/solver/dKdx.jl`), whose kernel calls previously left `k6rot` at its own
+  100.0 keyword default. That was harmless only while the assembly default was
+  also 100.0; left unfixed it would have computed `dK/dx` from a different
+  operator than `K`.
+
+### Fixed
+- **CBAR/CBEAM continuation fields were read one slot early, silently applying a
+  pin release the deck never requested.** The processed-card layout includes MSC
+  field 10, so an explicit continuation marker such as `+CB1` lands where `PA`
+  was being read — and `parse_nastran_number` does not reject `"+CB1"`, it
+  returns a number, which was then interpreted as a pin-flag DOF list. A bar with
+  `PB=456` came out with its tip displacement wrong by five orders of magnitude
+  while the solver reported a clean residual throughout. Now fixed for both card
+  types; a deck with no explicit marker takes the unchanged path, so the private
+  SOL 105 corpus (zero CBAR/CBEAM cards) and the one such public deck
+  (fixed-format, no continuation) are bit-identical.
+- **Public validation suite: same-deck parity now passes on every row that
+  carries a parity target (13/13, was 11/12), and the last reported gap was not
+  a formulation gap.** `PARAM,K6ROT` — the Hughes-Brezzi drilling-DOF
+  stabilisation coefficient — is not part of any of these benchmark definitions
+  and solvers default it differently: `0.0` in the reference solver's SOL 101
+  (and in every one of its linear solution sequences), `100.0` in current
+  MSC.Nastran and in OpenJFEM. Every tabulated parity reference had been
+  produced at `0.0` on a deck that declared nothing, while OpenJFEM ran the same
+  deck at `100.0`. That single unstated difference was the entire residual
+  parity error on all six shell rows; it only exceeded tolerance on the pinched
+  hemisphere, the most K6ROT-sensitive case, where it read as a `3.4956%`
+  formulation gap. Confirmed from both sides on the reference solver: the
+  hemisphere deck gives the same answer cardless and with `PARAM,K6ROT,0.` (full
+  25-node displacement blocks bit-identical), and with `PARAM,K6ROT,100.` it
+  returns OpenJFEM's own default-run answer to the output file's full print
+  precision. At the matched setting OpenJFEM reproduces the reference's complete
+  25-node translation field to `1.53e-7` relative L2. The six affected decks now
+  declare `PARAM,K6ROT,0.` explicitly; because that was already the reference
+  solver's default, no previously tabulated reference value changed. Per-row
+  parity error after the fix: curved beam `1.32e-8`, Scordelis-Lo `3.67e-8`,
+  hemisphere `3.81e-8`, MYSTRAN SOL 101 `1.02e-7`, pinched cylinder `7.20e-6`,
+  twisted beam `3.29e-5` / `6.19e-5`. Solver source is unchanged; OpenJFEM's own
+  `PARAM,K6ROT` default remains `100.0`.
+- **`validation/cases/macneal_harder/twisted_beam.bdf` applied the wrong load
+  case.** It applied the out-of-plane tip load (+Y) while the suite scored it
+  against the *in-plane* published target — the entire source of its former
+  `68.5%` accuracy error. At the tip the 1.1 width lies along global Z, so the
+  in-plane direction is +Z. The load is rotated to +Z and the selector moved to
+  T3 (`0.77%` accuracy, PASS), and the out-of-plane case is split out into the
+  new `twisted_beam_out_of_plane.bdf` with its own row (`2.66%`, PASS). Both
+  carry their own reference-solver parity value.
+- **`validation/cases/macneal_harder/hemispherical_shell.bdf` applied half the
+  benchmark load and cited the wrong variant's reference.** The benchmark load
+  is `P = 2.0`, so the quarter model carries `1.0` at each loaded equator node,
+  not `0.5`; and the deck models the 18-deg cut-out variant, whose published
+  reference is `0.0930`, not the closed-pole `0.0924`. Both corrected. The load
+  error is independently confirmed by convergence: at `0.5`/node the response is
+  flat in the mesh at 0.507-0.516 of the reference through N = 32, i.e. it
+  converges to exactly half. Its parity reference is re-measured at
+  `9.874839E-02`, exactly twice the previous value as linearity requires.
+
+### Changed
+- Public-suite parity tolerances tightened from `2e-2` to `1e-3` (`5e-3` on the
+  CRM modal rows) now that same-deck parity is exact to five to eight
+  significant figures. At the old tolerance the gate could no longer detect a
+  regression.
+- Accuracy tolerance widened `0.05 -> 0.10` on `MH_scordelis_lo` and
+  `MH_hemispherical_shell` only, each set from the published 4-node-element
+  spread on the identical mesh and cited inline in `public_suite.yaml`.
+  `MH_curved_beam_in_plane` and `MH_pinched_cylinder` were deliberately left
+  alone and remain accuracy FAILs: no published per-mesh band supports widening
+  them. Both are correctly posed — in particular the pinched cylinder's
+  `P/4 = 0.25` octant load is correct, superseding an earlier note in
+  `PAPER_VALIDATION_SUMMARY.md` that claimed it was under-loaded.
+
+### Added
+- `validation/cases/macneal_harder/twisted_beam_out_of_plane.bdf` and the
+  `MH_twisted_beam_out_of_plane` row, so the suite covers both published
+  MacNeal-Harder twisted-beam load cases instead of conflating them.
+- `JFEM_Q4_MACNEAL_SHEAR_EDGE_LINEAR=interaction` remains an explicit
+  diagnostic, while the objective `interaction_hybrid` is now the implicit
+  production choice when the revised full edge rows are active and rigid
+  physical shear is not selected.  Otherwise an unset environment variable
+  falls back to the established off route; an explicitly requested
+  incompatible interaction still errors.  Signed determinant-gradient
+  covectors and oriented tying-weight exchange close taper inversion without
+  fitted coefficients: both pure-taper signs score `5.80861796e-8`, all `8/8`
+  signed mixed cells improve (worst `3.4100742495e-3`), the worst exact-mirror
+  spectral delta is `2.91049e-15`, and all 24 cached tapered/combined cases
+  improve while eight controls change only at roundoff.  The cached worst is
+  `2.154037192e-2` and the worst six-mode rigid residual is `4.796e-17`.
+- `JFEM_SOL105_PCOMP_MEMBRANE_SELC` (default OFF): the exact Nastran QUAD4
+  flat-membrane operator for composite CQUAD4 — per-Gauss-point normal
+  strains with the membrane-shear row sampled once at the element center,
+  evaluated in the element (diagonal-bisector) frame with the
+  frame-consistent laminate Cm (requires `JFEM_SOL105_PCOMP_SKEW_MEMBRANE`
+  for the constitutive rotation). Identified 2026-07-17 by direct operator
+  matching against MATPRN KGG extractions: reproduces the Nastran membrane
+  block to 0.00% on parallelogram probes across skew 0–30 deg x aspect 1–5
+  for both [0/90/0] and 9-ply quasi-isotropic laminates, and to 0.001–0.002%
+  in the live assembly. This is the same selective-center operator the
+  flat-isotropic exact membrane already used (for isotropic C the frame is
+  irrelevant, which is why iso was already exact); it supersedes the Wilson
+  incompatible-mode membrane and the anisotropic hourglass restabilization
+  for these elements. The previously believed "Nastran membrane = Wilson
+  bubbles" (2026-07-04, 1.6–2.3% match) was approximate; Wilson degrades to
+  7–20% on skewed elements while this operator stays exact.
+
+### Fixed
+- CQUAD4 `PARAM,SNORM` now uses the parameter-free corner normal-moment
+  equilibrium map by default whenever a nonzero nodal director field is
+  active (`PARAM,SNORM` itself still defaults to the deck/model value `0`).
+  At each corner it replaces drilling rotation by its value relative to the
+  interpolated in-plane spin and completes the third director row with the
+  matching transverse-slope residual.  The transpose therefore equilibrates
+  the induced normal moment with in-plane force couples while preserving all
+  six rigid motions and the recovered rotation--rotation block.  The same map
+  wraps elastic stiffness (including exact-membrane, MIN4, and Hu--Washizu),
+  stress/resultant recovery, and geometric stiffness, in the order
+  `K = W' * M' * K0 * M * W`; the superseded local-gradient `field` route is
+  diagnostic-only. On a finitely warped corner, `W` already contains the
+  intrinsic height slopes `(gx,gy)`, so active nonaligned director rows now
+  use the exact relative residual `(p+gx,q+gy)` in `M`; aligned, solo,
+  rejected, and missing rows remain W-only. This prevents geometric tilt from
+  being counted twice. A forced-`SNORM,20` warped twisted-beam holdout changes
+  from `+66.55%` relative to the SNORM0 response to `+0.00513%`, landing within
+  `0.07581%` of the independent NAST705 response; manual congruence and rigid
+  residuals are `2.501e-16` and `1.839e-16`. Same-deck SNORM-effect errors on
+  the standalone ladder are at most `9.204e-4`
+  percentage points over two independent folds and the 4/8/16 hemisphere
+  refinement ladder, with worst response error `9.385e-6`.  Element-local
+  analytical sensitivity routes now fail explicitly for every affected Q4
+  design variable whenever either this SNORM map or a non-null finite-warp map
+  is active.  The buckling-adjoint entry point independently guards both maps
+  before its projected-plane `dK/dx` or `dKg/dx` builders can run; full
+  end-to-end finite differences remain the supported mapped-coordinate route.
+- The exact-membrane and MIN4 CQUAD4 research splices now assemble their whole
+  projected operator before applying the same single SNORM and finite-warp
+  congruences as the default kernel.  All `9/9` manual common-congruence
+  comparisons are bitwise identical across three warp amplitudes; all `54/54`
+  rigid checks pass, with worst residual `1.539054774272e-16`.
+- CQUAD4 finite-warp equilibrium is now complete on the default
+  basic/diagonal element-frame route.  The MacNeal pre/post multiplier uses
+  the exact QDMEM1 shape-derivative transfer for offset
+  membrane forces together with the projected-diagonal spin needed to
+  equilibrate tilted nodal moments.  The parameter-free map annihilates all
+  six rigid-body modes at roundoff and reduces the retained-matrix worst
+  error from `1.878e-3` to `6.920e-6` over `warp/L <= 0.20`, and from
+  `2.378e-4` to `3.343e-8` over the warp-by-thickness sweep.  The remaining
+  extreme-warp difference is confined to the independent projected-flat
+  plate block, not to a missing warp-equilibrium coupling.  On the public
+  warped twisted-beam deck, same-mesh solver parity improves from `3.613`
+  relative error to `2.212e-5` (`0.0022%`).
+- The composite-skew investigation gates `JFEM_SOL105_PCOMP_SKEW_MEMBRANE` /
+  `JFEM_SOL105_PCOMP_SKEW_BENDING` (default OFF; membrane Cm frame-consistency,
+  anisotropic membrane hourglass restabilization, Nastran-KDJJ composite Kg,
+  directional skew-bending zb law) now compute the membrane frame-consistency
+  rotation objectively: the angle is the in-plane projected side-1-2 -> v1
+  angle (`shell_material_rotation_from_g12`), replacing a `-atan(v1_y, v1_x)`
+  global-azimuth proxy that was only valid for elements lying in the global XY
+  plane with side 1-2 along +X. The proxy mis-rotated the laminate A-matrix on
+  vertical/inclined panels (A11<->A22 swap on webs), violated frame invariance
+  under rigid rotation, and double-rotated MCID/`:g12`/`:global_x` elements
+  whose material rotation already contains the element-frame angle (the fix is
+  now scoped to raw-THETA axis modes only, and rotates Bmb together with Cm).
+  Verified: gate-ON eigenvalues are now identical for the same element placed
+  in the XY, YZ, XZ planes and under rigid in-plane rotation, while all
+  previously validated XY-plane results are unchanged. The membrane hourglass
+  skew-split law is additionally clamped to its calibrated range (c2 <= 0.5)
+  so extreme sliver skew cannot drive the soft-mode factor negative
+  (indefinite membrane block). Both gates remain default OFF.
+- The two composite-skew OPERATOR SWAPS under `JFEM_SOL105_PCOMP_SKEW_MEMBRANE`
+  (Wilson membrane -> bilinear + anisotropic hourglass restabilization, and
+  legacy Kg -> Nastran-KDJJ composite kernel) are now scoped to genuinely
+  skewed elements: corner-angle deviation >=
+  `JFEM_SOL105_PCOMP_SKEW_MEMBRANE_MIN_DEG` (default 10.0, the first nonzero
+  calibration knot band). Ungated they fired on every flat composite CQUAD4 —
+  on the box guardrail that replaced the element-validated Wilson membrane
+  (Nastran's own rectangle membrane) and the ratio-1.00 legacy rectangle Kg
+  (with an element-mean resultant broadcast that erases per-GP stress
+  gradients) on ~93% rectangular fleets, regressing a mild-skew box case from
+  +0.36% to -13.0% (threshold sweep: 2 deg -5.1%, 10 deg -2.2%). Rectangles
+  and near-rectangles now keep the legacy operators bit-identically; the
+  analytic Cm/Bmb frame rotation stays ungated (it vanishes on rectangles).
+  `JFEM_SOL105_PCOMP_SKEW_MEMBRANE_KG=false` additionally disables just the
+  KDJJ Kg branch (attribution aid). Gates remain default OFF; promotion still
+  requires laminate-class generalization of the calibrated laws (the
+  guardrail decks carry exclusively +-45-faced stacks, where the
+  [0/90/0]-calibrated corrections are measured to transfer poorly).
+
 ### Changed
 - SOL105 flat isotropic (non-PCOMP) CQUAD4 geometric stiffness on skewed
   elements now uses a Nastran-KDJJ-exact element kernel
