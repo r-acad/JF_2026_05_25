@@ -6,6 +6,19 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **A valid CQUAD4 no longer aborts an entire run when a synthetic MacNeal
+  assumed-shear companion is folded, singular, or ill-conditioned.** The
+  default `interaction_hybrid` path now rejects the unusable companion
+  correction for that element only, uses the validated base operator, and
+  emits one post-assembly summary with example element IDs. Explicitly setting
+  `JFEM_Q4_MACNEAL_SHEAR_EDGE_LINEAR=interaction_hybrid` retains the distinct
+  diagnostic errors for formulation work. This covers both the geometric and
+  the remaining MITC/tangential row-space and edge-map conditioning guards.
+  On `NAPA_101_no_bad_rspline.bdf`, 12 of 112,738 CQUAD4 elements took the
+  fallback and the SOL 101 run completed. Verified with a targeted reachable
+  edge-map degeneracy, unchanged happy-path allocations, a 0-ulp assembled-K
+  differential battery, and a byte-identical 19-row public suite.
+
 - **SOL 103 normal modes could silently drop one member of a degenerate
   mode pair, and was not reproducible run to run.** The shift-invert modal
   eigensolve seeded its Krylov space with a RANDOM start vector, which can

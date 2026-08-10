@@ -5262,12 +5262,14 @@ function add_quad4_macneal_shear_rbf!(
             # evaluated BEFORE the H solves, so no singular intermediate math
             # is ever performed on a rejected companion.
             #
-            # `Hs` is bound to the workspace buffers up front rather than to the
-            # assumed_H results so that it is definitely-defined in the guarded
-            # branch below (no undef check on the hot path); assumed_H fills
-            # those same buffers in the original left-to-right order and returns
-            # them, so the values are unchanged.
+            # `Hs` and `dZg` are bound to the workspace buffers up front rather
+            # than to the results that later fill them, so that both are
+            # definitely-defined in the guarded branches below (no undef check on
+            # the hot path); assumed_H fills those same H buffers in the original
+            # left-to-right order and returns them, and `dZg` is overwritten
+            # whole by its gemm, so the values are unchanged.
             Hs = (mw.H1, mw.H2, mw.H3, mw.H4)
+            dZg = mw.dZg
             interaction_ok = validate_companion(Xgen) && validate_companion(Xskew) &&
                              validate_companion(Xtap) && validate_companion(Xflat)
             if interaction_ok
@@ -5295,7 +5297,6 @@ function add_quad4_macneal_shear_rbf!(
                 Gcan = edge_G(mw.Gcan, Xgen)
                 # dZg = (Gcan * dHinv) * transpose(Gcan) — same two gemm calls
                 mul!(mw.t4a, Gcan, dHinv)
-                dZg = mw.dZg
                 mul!(dZg, mw.t4a, transpose(Gcan))
                 if shear_edge_linear_interaction
                     kedge = inv(gpt)
@@ -5386,6 +5387,19 @@ function add_quad4_macneal_shear_rbf!(
                         end
                         dest
                     end
+                    # Neither rejection below is GEOMETRIC, so neither is implied
+                    # by validate_companion or by the H conditioning guard above:
+                    # they test the companion's own MITC/tangential row-space
+                    # compatibility and the conditioning of its edge coefficient
+                    # map, and a correctly oriented companion carrying a
+                    # well-conditioned assumed-shear energy can still fail either.
+                    # Same policy as validate_companion, for the same reason (the
+                    # companion is synthetic, the caller's element need not be
+                    # bad): hard error only when the mode was requested
+                    # explicitly, otherwise report `false` and let the call sites
+                    # drop the correction for this element.  Returning a status
+                    # rather than clearing `interaction_ok` here keeps that flag
+                    # out of the closure's captures (PERF de-box).
                     legacy_common = function (dest, X)
                         Dc = legacy_edge_D(mw.Dc, X)
                         Dtc = edge_Dtan(mw.Dtc, X)
@@ -5394,9 +5408,11 @@ function add_quad4_macneal_shear_rbf!(
                         mw.res_b .= Dtc .- mw.res_a
                         ec_residual = norm(mw.res_b) / max(norm(Dtc), eps(T))
                         ec_cond = _msws_cond2(mw, Ec)
-                        (!isfinite(ec_cond) || ec_cond > 1e12 || ec_residual > 1e-10) &&
-                            throw(ArgumentError(
+                        if !isfinite(ec_cond) || ec_cond > 1e12 || ec_residual > 1e-10
+                            shear_edge_linear_explicit && throw(ArgumentError(
                                 "incompatible MITC/tangential companion row spaces"))
+                            return false
+                        end
                         # Znative = (Ec * legacy_Zs_edge(X)) * transpose(Ec)
                         Zle = legacy_Zs_edge(mw.Zle, X)
                         mul!(mw.t4a, Ec, Zle)
@@ -5404,8 +5420,11 @@ function add_quad4_macneal_shear_rbf!(
                         mul!(Znative, mw.t4a, transpose(Ec))
                         Gc = edge_G(mw.Gc, X)
                         gc_cond = normalized_column_cond(Gc)
-                        (!isfinite(gc_cond) || gc_cond > 1e12) && throw(ArgumentError(
-                            "ill-conditioned companion edge coefficient map"))
+                        if !isfinite(gc_cond) || gc_cond > 1e12
+                            shear_edge_linear_explicit && throw(ArgumentError(
+                                "ill-conditioned companion edge coefficient map"))
+                            return false
+                        end
                         transport = _msws_rdiv_sq!(mw, mw.transport_buf, mw.lu4a,
                                                    mw.t4a, Gcan, Gc)
                         # ZZ = (transport * Znative) * transpose(transport)
@@ -5414,17 +5433,38 @@ function add_quad4_macneal_shear_rbf!(
                         @inbounds for j in 1:4, i in 1:4
                             dest[i,j] = 0.5 * (mw.t4c[i,j] + mw.t4c[j,i])
                         end
-                        dest
+                        true
                     end
-                    legacy_common(mw.lc1, Xgen)
-                    legacy_common(mw.lc2, Xskew)
-                    legacy_common(mw.lc3, Xtap)
-                    legacy_common(mw.lc4, Xflat)
-                    @inbounds for j in 1:4, i in 1:4
-                        dZg[i,j] -= ((mw.lc1[i,j] - mw.lc2[i,j]) - mw.lc3[i,j]) +
-                                    mw.lc4[i,j]
+                    # `&&` stops at the first rejection, so mw.lc* past that point
+                    # keep the previous element's contents.  Safe: the four
+                    # buffers are read only by the inclusion-exclusion loop below,
+                    # which is skipped whenever any call returned `false`, and
+                    # each is rewritten in full (all 16 entries) before it can be
+                    # read again.
+                    legacy_ok = legacy_common(mw.lc1, Xgen) &&
+                                legacy_common(mw.lc2, Xskew) &&
+                                legacy_common(mw.lc3, Xtap) &&
+                                legacy_common(mw.lc4, Xflat)
+                    if legacy_ok
+                        @inbounds for j in 1:4, i in 1:4
+                            dZg[i,j] -= ((mw.lc1[i,j] - mw.lc2[i,j]) - mw.lc3[i,j]) +
+                                        mw.lc4[i,j]
+                        end
+                    else
+                        # dZg is missing its cross term, so it must not be
+                        # promoted: route to the same per-element fallback the
+                        # geometric guard uses (Zs_edge_interaction stays
+                        # `nothing`).
+                        interaction_ok = false
                     end
                 end
+            end
+            # Re-tested rather than nested: `interaction_ok` can also be cleared
+            # by the legacy_common rejection inside the block above, and the
+            # correction is promoted only when it is complete.  Both rejections
+            # therefore leave `Zs_edge_interaction === nothing` and report one
+            # skip through the single `else` below.
+            if interaction_ok
                 # Zs_edge_interaction = Elin \ dZg / transpose(Elin), i.e.
                 # S1 = Elin \ dZg, then S1 / transpose(Elin) which lowers to
                 # copy(adjoint(Elin \ adjoint(S1))) (adjoint∘transpose of a real
