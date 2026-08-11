@@ -6,6 +6,47 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **Compact HDF5 export now handles symmetric PCOMP laminates.** The model
+  intentionally represents a zero membrane-bending coupling matrix as
+  `Bmb = nothing`; the exporter now writes the required zero-coupling MAT2
+  surrogate instead of indexing `nothing` and aborting the export.
+
+- **SOL 103 now preserves free-body modes and constrained mass on large
+  MPC/RBE models.** Factorization AUTOSPC no longer removes the physical
+  nullspace before a modal solve. Large semidefinite pencils use a
+  positive-mass-shifted, symmetric Block-Lanczos transform with independent
+  deterministic counter-hash starts, original-pencil residual checks,
+  mass-orthogonal subspace merging, and Sturm completeness counts. Sixfold
+  rigid eigenspaces, singular-mass finite spectra, positive `EIGRL V1` bands,
+  and honest empty bands are covered explicitly. Iterative EIGRL targeting and
+  final filtering now share tolerant squared-eigenvalue bounds, so modes
+  exactly on inclusive `V1` or `V2` are retained.
+
+  The merged RBE2/RBE3/MPC dependency graph is now recursively flattened to
+  terminal coordinates and the same congruence is applied to stiffness and
+  mass (`T'KT`, `T'MT`); dependent mode-shape coordinates are reconstructed
+  from that terminal-only map. Already-flat maps preserve their historical
+  order, duplicates, zeros, and tiny coefficients. Native mass assembly skips
+  exact-zero element entries, keeping production memory bounded, while K/Kg
+  sparse patterns remain unchanged. Custom modal mass builders receive the
+  congruence exactly once. The eigensolver uses the constrained mass while
+  physical total-mass and participation reporting retain the raw mass matrix;
+  this keeps non-unit explicit MPC coefficients from distorting reported mass.
+
+  SOL103 rotational diagonal AUTOSPC now defaults to `1e-14`, independently
+  of the EPZERO/GPST `1e-8` test needed for weak translations, and every
+  partition-changing switch participates in the eigen cache key. On a
+  51,623-grid free-free shell/beam model, using the explicit modern-MSC
+  `K6ROT=100` compatibility override reproduced all six rigid roots, the exact
+  126-rotation plus 14-translation singularity set, 0.553% mean elastic
+  frequency error, 0.976 mean one-to-one MAC, and 0.99991 mean modal-subspace
+  projection. A repeated run produced byte-identical mode and AUTOSPC files;
+  all declared targets in the 19-row public validation suite retain parity.
+  Completeness target gaps are enforced even when a Sturm inertia certificate
+  is unavailable, and strict-completeness failures now propagate out of the
+  iterative backend instead of being converted to an empty nominal result.
+  The explicit non-strict setting retains graceful partial-result behavior.
+
 - **A valid CQUAD4 no longer aborts an entire run when a synthetic MacNeal
   assumed-shear companion is folded, singular, or ill-conditioned.** The
   default `interaction_hybrid` path now rejects the unusable companion
@@ -25,9 +66,10 @@ Versions follow [Semantic Versioning](https://semver.org/).
   land with near-zero overlap on one member of an exactly degenerate pair —
   the documented "CBAR probe returned 4 of 6 modes, about one run in five"
   behaviour. It was also the solver's last source of run-to-run variation.
-  Two changes: (1) the modal path now uses the same deterministic start
-  vector generator as the buckling path; (2) a completeness guard counts
-  the pencil's roots below the highest reported one by Sturm inertia
+  Two changes: (1) the modal path now uses SOL103-specific deterministic
+  counter-hash block starts whose span is not limited by phase shifts; (2) a
+  completeness guard counts the pencil's roots below the highest reported one
+  by Sturm inertia
   (`K - omega^2 M`) and, if the certificate says roots are missing, retries
   from a different deterministic start vector and merges what it finds
   (`JFEM_SOL103_COMPLETENESS_GUARD=false` opts out). The guard can only add

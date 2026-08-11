@@ -1289,10 +1289,14 @@ function _msc_input_material_records(model)
             mat = _msc_model_value_by_id(get(model, "MATs", Dict()), first_mid)
             rho = mat === nothing ? 0.0 : _msc_f64(get(mat, "RHO", 0.0))
         end
-        cm = get(prop, "Cm", zeros(3, 3))
-        cb = get(prop, "Cb", zeros(3, 3))
-        cs = get(prop, "Cs", zeros(2, 2))
-        bmb = get(prop, "Bmb", zeros(3, 3))
+        # Symmetric laminates deliberately store `Bmb = nothing` to denote a
+        # zero membrane-bending coupling matrix.  `get(..., default)` does not
+        # replace an existing `nothing`, so normalize every optional CLT matrix
+        # before creating the MAT2 surrogate rows used by the compact schema.
+        cm = something(get(prop, "Cm", nothing), zeros(3, 3))
+        cb = something(get(prop, "Cb", nothing), zeros(3, 3))
+        cs = something(get(prop, "Cs", nothing), zeros(2, 2))
+        bmb = something(get(prop, "Bmb", nothing), zeros(3, 3))
         rows = (
             (100000000 + pid, cm),
             (200000000 + pid, cb),

@@ -47,6 +47,191 @@ end
     return row
 end
 
+@inline function _push_nonzero_triplet!(I_idx, J_idx, V_val,
+                                        row::Int, col::Int, value)
+    numeric_value = Float64(value)
+    iszero(numeric_value) && return false
+    push!(I_idx, row)
+    push!(J_idx, col)
+    push!(V_val, numeric_value)
+    return true
+end
+
+"""
+    _flatten_constraint_dependency_map(dependency_map; coefficient_tolerance=1e-15)
+
+Recursively expand a merged RBE/MPC dependency map so every dependent DOF is
+written directly in terms of terminal (non-dependent) DOFs. Already-flat rows
+retain their exact original order and finite coefficients, including repeated
+DOFs and zeros. Rows containing nested dependencies combine repeated terminal
+coefficients, prune numerical zeros, and sort by terminal DOF.
+
+Returns `(flat_map, diagnostics)`. A dependency cycle raises `ArgumentError`
+with the deterministic cycle path before any matrix triplets are redistributed.
+"""
+function _flatten_constraint_dependency_map(dependency_map;
+                                            coefficient_tolerance::Real=1e-15)
+    atol = Float64(coefficient_tolerance)
+    isfinite(atol) || throw(ArgumentError("Constraint coefficient tolerance must be finite"))
+    atol = max(atol, 0.0)
+
+    flat_map = Dict{Int,Vector{Tuple{Int,Float64}}}()
+    states = Dict{Int,UInt8}()  # 0/unseen, 1/visiting, 2/complete
+    depths = Dict{Int,Int}()
+    stack = Int[]
+
+    input_terms = Ref(0)
+    nested_dependency_terms = Ref(0)
+    combined_input_terms = Ref(0)
+    terminal_contributions = Ref(0)
+    combined_terminal_contributions = Ref(0)
+    zero_input_terms_pruned = Ref(0)
+    cancelled_input_dofs_pruned = Ref(0)
+    zero_terminal_contributions_pruned = Ref(0)
+    cancelled_terminal_dofs_pruned = Ref(0)
+    changed_dependent_dofs = Ref(0)
+
+    function accumulate_terminal!(row::Dict{Int,Float64}, dof::Int, coeff::Float64)
+        terminal_contributions[] += 1
+        isfinite(coeff) || throw(ArgumentError(
+            "Non-finite flattened constraint coefficient for terminal DOF $dof"))
+        if abs(coeff) <= atol
+            zero_terminal_contributions_pruned[] += 1
+            return
+        end
+
+        if haskey(row, dof)
+            combined_terminal_contributions[] += 1
+            combined = row[dof] + coeff
+            if abs(combined) <= atol
+                delete!(row, dof)
+                cancelled_terminal_dofs_pruned[] += 1
+            else
+                row[dof] = combined
+            end
+        else
+            row[dof] = coeff
+        end
+        return
+    end
+
+    function expand_dependency!(dep_dof::Int)
+        state = get(states, dep_dof, UInt8(0))
+        state == UInt8(2) && return flat_map[dep_dof]
+        if state == UInt8(1)
+            cycle_start = findfirst(==(dep_dof), stack)
+            cycle = cycle_start === nothing ? vcat(copy(stack), dep_dof) :
+                    vcat(stack[cycle_start:end], dep_dof)
+            throw(ArgumentError(
+                "MPC/RBE dependency cycle detected: " * join(cycle, " -> ")))
+        end
+
+        states[dep_dof] = UInt8(1)
+        push!(stack, dep_dof)
+
+        original_pairs = Tuple{Int,Float64}[]
+        for pair in dependency_map[dep_dof]
+            input_terms[] += 1
+            ind_dof = Int(pair[1])
+            coeff = Float64(pair[2])
+            isfinite(coeff) || throw(ArgumentError(
+                "Non-finite constraint coefficient on dependency $dep_dof -> $ind_dof"))
+            push!(original_pairs, (ind_dof, coeff))
+        end
+
+        # Preserve the historical row exactly when no flattening work is
+        # required. K/Kg redistribution consumes these vectors in insertion
+        # order, and needlessly sorting an already-flat constraint changes the
+        # sparse triplet accumulation order (and therefore CSC/cache details).
+        # Nested rows still proceed through DFS, so self/cross dependency
+        # cycles remain covered by the visiting-state check above.
+        flat_terminal_only = all(
+            !haskey(dependency_map, ind_dof) for (ind_dof, _) in original_pairs)
+        if flat_terminal_only
+            terminal_contributions[] += length(original_pairs)
+            flat_map[dep_dof] = original_pairs
+            depths[dep_dof] = isempty(original_pairs) ? 0 : 1
+            pop!(stack)
+            states[dep_dof] = UInt8(2)
+            return original_pairs
+        end
+
+        canonical_row = Dict{Int,Float64}()
+        for (ind_dof, coeff) in sort(copy(original_pairs); by=p -> (p[1], p[2]))
+            if abs(coeff) <= atol
+                zero_input_terms_pruned[] += 1
+                continue
+            end
+            if haskey(canonical_row, ind_dof)
+                combined_input_terms[] += 1
+                combined = canonical_row[ind_dof] + coeff
+                if abs(combined) <= atol
+                    delete!(canonical_row, ind_dof)
+                    cancelled_input_dofs_pruned[] += 1
+                else
+                    canonical_row[ind_dof] = combined
+                end
+            else
+                canonical_row[ind_dof] = coeff
+            end
+        end
+        sorted_pairs = sort!(
+            Tuple{Int,Float64}[(dof, coeff) for (dof, coeff) in canonical_row];
+            by=first,
+        )
+
+        row = Dict{Int,Float64}()
+        row_depth = 0
+        for (ind_dof, coeff) in sorted_pairs
+            if haskey(dependency_map, ind_dof)
+                nested_dependency_terms[] += 1
+                child_pairs = expand_dependency!(ind_dof)
+                row_depth = max(row_depth, 1 + depths[ind_dof])
+                for (terminal_dof, child_coeff) in child_pairs
+                    accumulate_terminal!(row, terminal_dof, coeff * child_coeff)
+                end
+            else
+                row_depth = max(row_depth, 1)
+                accumulate_terminal!(row, ind_dof, coeff)
+            end
+        end
+
+        flattened_pairs = sort!(
+            Tuple{Int,Float64}[(dof, coeff) for (dof, coeff) in row];
+            by=first,
+        )
+        flat_map[dep_dof] = flattened_pairs
+        depths[dep_dof] = row_depth
+        original_pairs == flattened_pairs || (changed_dependent_dofs[] += 1)
+
+        pop!(stack)
+        states[dep_dof] = UInt8(2)
+        return flattened_pairs
+    end
+
+    for dep_dof in sort!(Int[Int(dof) for dof in keys(dependency_map)])
+        expand_dependency!(dep_dof)
+    end
+
+    diagnostics = Dict{String,Any}(
+        "dependent_dofs" => length(flat_map),
+        "input_terms" => input_terms[],
+        "output_terms" => sum(length, values(flat_map); init=0),
+        "nested_dependency_terms" => nested_dependency_terms[],
+        "combined_input_terms" => combined_input_terms[],
+        "terminal_contributions" => terminal_contributions[],
+        "combined_terminal_contributions" => combined_terminal_contributions[],
+        "zero_input_terms_pruned" => zero_input_terms_pruned[],
+        "cancelled_input_dofs_pruned" => cancelled_input_dofs_pruned[],
+        "zero_terminal_contributions_pruned" => zero_terminal_contributions_pruned[],
+        "cancelled_terminal_dofs_pruned" => cancelled_terminal_dofs_pruned[],
+        "changed_dependent_dofs" => changed_dependent_dofs[],
+        "max_dependency_depth" => maximum(values(depths); init=0),
+        "coefficient_tolerance" => atol,
+    )
+    return flat_map, diagnostics
+end
+
 function _rbe3_um_dependent_dofs(um_pairs, id_map)
     dep_dofs = Int[]
     seen = Set{Int}()
@@ -460,39 +645,114 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
     return _redistribute_constraint_triplets(rbe3_map, I_idx, J_idx, V_val)
 end
 
-# Redistribute triplets involving dependent DOFs onto their independent
-# DOFs. Split from the map build so a prebuilt map can skip the build.
-function _redistribute_constraint_triplets(rbe3_map, I_idx, J_idx, V_val)
+# Redistribute triplets involving dependent DOFs onto their terminal
+# independent DOFs. Split from the map build so a prebuilt map can skip the
+# build. Flattening here makes every caller (K, Kg, and M) use the same complete
+# congruence map and makes all one-pass dependent-DOF recovery paths valid.
+function _redistribute_constraint_triplets(rbe3_map, I_idx, J_idx, V_val;
+                                           skip_zeros::Bool=false)
     isempty(rbe3_map) && return rbe3_map, I_idx, J_idx, V_val
+    rbe3_map, flatten_diagnostics = _flatten_constraint_dependency_map(rbe3_map)
+    if flatten_diagnostics["changed_dependent_dofs"] > 0
+        log_msg("[SOLVER] MPC dependency map flattened: $(flatten_diagnostics["dependent_dofs"]) dependent DOFs, $(flatten_diagnostics["nested_dependency_terms"]) nested terms, depth=$(flatten_diagnostics["max_dependency_depth"]), terms $(flatten_diagnostics["input_terms"]) -> $(flatten_diagnostics["output_terms"])")
+    end
     n_orig = length(I_idx)
+    expected_triplets = skip_zeros ? 0 : n_orig + n_orig ÷ 10
+    zero_input_triplets = 0
+    if skip_zeros
+        for k in 1:n_orig
+            if iszero(V_val[k])
+                zero_input_triplets += 1
+                continue
+            end
+            i = I_idx[k]
+            j = J_idx[k]
+            n_i = haskey(rbe3_map, i) ? length(rbe3_map[i]) : 1
+            n_j = haskey(rbe3_map, j) ? length(rbe3_map[j]) : 1
+            expected_triplets = Base.checked_add(
+                expected_triplets, Base.checked_mul(n_i, n_j))
+        end
+    end
+
     new_I = Int[]; new_J = Int[]; new_V = Float64[]
-    sizehint!(new_I, n_orig + n_orig ÷ 10)
-    sizehint!(new_J, n_orig + n_orig ÷ 10)
-    sizehint!(new_V, n_orig + n_orig ÷ 10)
+    sizehint!(new_I, expected_triplets)
+    sizehint!(new_J, expected_triplets)
+    sizehint!(new_V, expected_triplets)
 
     for k in 1:n_orig
         i = I_idx[k]; j = J_idx[k]; v = V_val[k]
+        skip_zeros && iszero(v) && continue
         i_dep = haskey(rbe3_map, i)
         j_dep = haskey(rbe3_map, j)
 
         if !i_dep && !j_dep
-            push!(new_I, i); push!(new_J, j); push!(new_V, v)
+            if skip_zeros
+                _push_nonzero_triplet!(new_I, new_J, new_V, i, j, v)
+            else
+                push!(new_I, i); push!(new_J, j); push!(new_V, v)
+            end
         elseif i_dep && !j_dep
             for (ind_dof, coeff) in rbe3_map[i]
-                push!(new_I, ind_dof); push!(new_J, j); push!(new_V, v * coeff)
+                value = v * coeff
+                if skip_zeros
+                    _push_nonzero_triplet!(new_I, new_J, new_V, ind_dof, j, value)
+                else
+                    push!(new_I, ind_dof); push!(new_J, j); push!(new_V, value)
+                end
             end
         elseif !i_dep && j_dep
             for (ind_dof, coeff) in rbe3_map[j]
-                push!(new_I, i); push!(new_J, ind_dof); push!(new_V, v * coeff)
+                value = v * coeff
+                if skip_zeros
+                    _push_nonzero_triplet!(new_I, new_J, new_V, i, ind_dof, value)
+                else
+                    push!(new_I, i); push!(new_J, ind_dof); push!(new_V, value)
+                end
             end
         else
             for (ind_i, ci) in rbe3_map[i]
                 for (ind_j, cj) in rbe3_map[j]
-                    push!(new_I, ind_i); push!(new_J, ind_j); push!(new_V, v * ci * cj)
+                    value = v * ci * cj
+                    if skip_zeros
+                        _push_nonzero_triplet!(new_I, new_J, new_V,
+                                               ind_i, ind_j, value)
+                    else
+                        push!(new_I, ind_i); push!(new_J, ind_j); push!(new_V, value)
+                    end
                 end
             end
         end
     end
-    log_msg("[SOLVER] MPC: Triplets redistributed: $n_orig → $(length(new_I))")
+    if skip_zeros
+        log_msg("[SOLVER] MPC: Triplets redistributed: $n_orig → $(length(new_I)) (exact-zero inputs skipped: $zero_input_triplets)")
+    else
+        log_msg("[SOLVER] MPC: Triplets redistributed: $n_orig → $(length(new_I))")
+    end
     return rbe3_map, new_I, new_J, new_V
+end
+
+"""
+    _apply_constraint_congruence(matrix, constraint_map; expected_ndof=nothing)
+
+Apply the same flattened `T' * matrix * T` congruence used by native stiffness
+and mass assembly to an already assembled custom matrix. The custom matrix is
+interpreted in the full GRID coordinate space and returned as a sparse matrix
+in the MPC-reduced coordinate space. Callers must invoke this exactly once.
+"""
+function _apply_constraint_congruence(matrix::AbstractMatrix, constraint_map;
+                                      expected_ndof=nothing)
+    nrow, ncol = size(matrix)
+    nrow == ncol || throw(DimensionMismatch(
+        "Constraint congruence requires a square matrix; got $(nrow)x$(ncol)"))
+    if expected_ndof !== nothing && nrow != Int(expected_ndof)
+        throw(DimensionMismatch(
+            "Constraint congruence expected $(Int(expected_ndof)) DOFs; matrix has $nrow"))
+    end
+    (constraint_map === nothing || isempty(constraint_map)) && return matrix
+
+    matrix_sparse = sparse(matrix)
+    I_idx, J_idx, V_val = findnz(matrix_sparse)
+    _, I_idx, J_idx, V_val = _redistribute_constraint_triplets(
+        constraint_map, I_idx, J_idx, V_val; skip_zeros=true)
+    return sparse(I_idx, J_idx, V_val, nrow, ncol)
 end

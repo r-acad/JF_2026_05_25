@@ -116,16 +116,28 @@ end
         model_autospc_enabled(model),
         autospc_trans_relative_threshold(model),
         autospc_rot_relative_threshold(model),
+        autospc_gpst_relative_threshold(model),
+        autospc_negative_diagonal_enabled(),
+        gpst_enabled(),
+        gpst_translational_enabled(),
     )
 end
 
-@inline function _eigen_solve_cache_key(K, ndof::Int, model, spc_id, rbe3_map)
-    return _linear_solve_cache_key(K, ndof, model, spc_id, rbe3_map)
+@inline function _eigen_solve_cache_key(K, ndof::Int, model, spc_id, rbe3_map;
+                                        allow_factorization_autospc::Bool=true)
+    return (
+        _linear_solve_cache_key(K, ndof, model, spc_id, rbe3_map),
+        allow_factorization_autospc,
+    )
 end
 
-function prepare_eigen_solve_context(K, ndof, model, id_map, spc_id, rbe3_map; eigen_cache=nothing)
+function prepare_eigen_solve_context(K, ndof, model, id_map, spc_id, rbe3_map;
+                                     eigen_cache=nothing,
+                                     allow_factorization_autospc::Bool=true)
     cache_enabled = eigen_cache !== nothing && ndof >= eigen_solve_cache_min_ndof()
-    cache_key = cache_enabled ? _eigen_solve_cache_key(K, ndof, model, spc_id, rbe3_map) : nothing
+    cache_key = cache_enabled ? _eigen_solve_cache_key(
+        K, ndof, model, spc_id, rbe3_map;
+        allow_factorization_autospc=allow_factorization_autospc) : nothing
     cached_entry = (cache_enabled && cache_key !== nothing) ? get(eigen_cache, cache_key, nothing) : nothing
 
     if cached_entry !== nothing
@@ -135,7 +147,8 @@ function prepare_eigen_solve_context(K, ndof, model, id_map, spc_id, rbe3_map; e
     trial_ref = Base.RefValue{Any}(nothing)
     free_dofs, fixed_dofs, bc_diagnostics = compute_free_dofs(
         K, ndof, model, id_map, spc_id, rbe3_map; return_diagnostics=true,
-        trial_factor_out=trial_ref)
+        trial_factor_out=trial_ref,
+        allow_factorization_autospc=allow_factorization_autospc)
     K_ff = K[free_dofs, free_dofs]
 
     # Trial-factor keep (perf deferred item #12, env-flagged): the partition
@@ -509,10 +522,48 @@ end
 end
 
 function autospc_rot_relative_threshold(model=nothing)
+    default = model !== nothing && _autospc_model_sol_type(model) == 103 ?
+        1e-14 : autospc_trans_relative_threshold(model)
     if haskey(ENV, "JFEM_AUTOSPC_ROT_REL")
-        return max(solver_env_float("JFEM_AUTOSPC_ROT_REL", 1e-8), 0.0)
+        return max(solver_env_float("JFEM_AUTOSPC_ROT_REL", default), 0.0)
     end
-    return max(autospc_trans_relative_threshold(model), 0.0)
+    # A global rotational reference can be many orders of magnitude larger
+    # than the local shell-drilling stiffness.  In SOL103 the former 1e-8
+    # default then constrained legitimate shell rotations on large mixed
+    # models.  A 1e-14 modal floor retains only numerical-zero rotations in a
+    # validated large mixed shell/beam audit; other solution sequences retain
+    # the historical threshold until they have their own parity audit. GPST keeps its
+    # independent EPZERO-scale test below.
+    return default
+end
+
+"""
+    autospc_gpst_relative_threshold(model=nothing)
+
+Relative eigenvalue threshold (Nastran `EPZERO`) used by grid-point
+singularity processing. `JFEM_AUTOSPC_GPST_REL` has highest precedence,
+followed by a numeric deck `PARAM,EPZERO`; when neither is present, use the
+translational AUTOSPC threshold (historically `1e-8`).
+Invalid or non-finite values fall back safely and negative values clamp to zero.
+"""
+function autospc_gpst_relative_threshold(model=nothing)
+    fallback = autospc_trans_relative_threshold(model)
+    deck_default = fallback
+
+    if model !== nothing && haskey(model, "PARAM_EPZERO")
+        raw = model["PARAM_EPZERO"]
+        parsed = try
+            raw isa Number ? Float64(raw) : tryparse(Float64, strip(string(raw)))
+        catch
+            nothing
+        end
+        if parsed !== nothing && isfinite(parsed)
+            deck_default = max(parsed, 0.0)
+        end
+    end
+
+    value = solver_env_float("JFEM_AUTOSPC_GPST_REL", deck_default)
+    return isfinite(value) ? max(value, 0.0) : deck_default
 end
 
 @inline function gpst_enabled()
@@ -571,7 +622,7 @@ clamped root grids are absent from its table).
 function _grid_point_singularity_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{Int}},
                                           K, ndof, model, id_map,
                                           protected_trans_dofs::Union{Nothing,Set{Int}}=nothing)
-    eps_zero = autospc_rot_relative_threshold(model)
+    eps_zero = autospc_gpst_relative_threshold(model)
     n_nodes = div(ndof, 6)
     n_trans = 0
     n_rot = 0
@@ -1006,7 +1057,8 @@ end
 
 # Compute free DOFs without solving (for eigenvalue problems that need the same BC partition).
 function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diagnostics::Bool=false,
-                           trial_factor_out::Union{Nothing,Base.RefValue{Any}}=nothing)
+                           trial_factor_out::Union{Nothing,Base.RefValue{Any}}=nothing,
+                           allow_factorization_autospc::Bool=true)
     fixed_dofs = Set{Int}()
     diagnostics = Dict{String,Any}(
         "mpc_dependent_dofs" => length(rbe3_map),
@@ -1074,13 +1126,30 @@ function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diag
             diagnostics["autospc_gpst_dofs"] = gpst["dofs"]
             diagnostics["autospc_gpst_translational_dofs"] = gpst["translational_dofs"]
             diagnostics["autospc_gpst_rotational_dofs"] = gpst["rotational_dofs"]
+            diagnostics["autospc_gpst_eps_zero"] = gpst["eps_zero"]
+            diagnostics["autospc_gpst_entries"] =
+                [Dict("grid_id" => e[1], "failed_direction" => e[2], "stiffness_ratio" => e[3])
+                 for e in gpst["entries"]]
             if gpst["dofs"] > 0
-                log_msg("[SOLVER] AUTOSPC grid-point singularity (eigen partition): $(gpst["dofs"]) DOFs ($(gpst["translational_dofs"]) trans + $(gpst["rotational_dofs"]) rot)")
+                log_msg("[SOLVER] AUTOSPC grid-point singularity (eigen partition): $(gpst["dofs"]) DOFs ($(gpst["translational_dofs"]) trans + $(gpst["rotational_dofs"]) rot, eps_zero=$(gpst["eps_zero"]))")
             end
         end
     end
 
-    free_dofs, n_fact_autospc, fact_diag, F_trial = factorization_autospc_free_dofs(K, ndof, fixed_dofs)
+    free_dofs, n_fact_autospc, fact_diag, F_trial = if allow_factorization_autospc
+        factorization_autospc_free_dofs(K, ndof, fixed_dofs)
+    else
+        (
+            _free_dofs_from_fixed_set(ndof, fixed_dofs),
+            0,
+            Dict{String,Any}(
+                "triggered" => false,
+                "bypassed" => true,
+                "reason" => "nullspace-preserving eigen solve",
+            ),
+            nothing,
+        )
+    end
     trial_factor_out !== nothing && (trial_factor_out[] = F_trial)
     if n_fact_autospc > 0
         log_msg("[BUCKLING] Added $n_fact_autospc factorization AUTOSPC DOFs to stabilize eigen partition")

@@ -3763,7 +3763,8 @@ end
     return string(sol103_shell_mass_formulation(model))
 end
 
-function assemble_mass(model, id_map, node_coords, node_R, ndof)
+function assemble_mass(model, id_map, node_coords, node_R, ndof;
+                       constraint_map=nothing)
     log_msg("[SOLVER] Assembling Mass Matrix (SOL103)...")
     n_nodes = length(id_map)
     max_nid = maximum(keys(id_map))
@@ -3872,7 +3873,8 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
                 for d in 1:6; dofs_buf24[(k-1)*6+d] = b+d; end
             end
             for c in 1:24, r in 1:24
-                push!(I_idx, dofs_buf24[r]); push!(J_idx, dofs_buf24[c]); push!(V_val, Me_global[r,c])
+                _push_nonzero_triplet!(
+                    I_idx, J_idx, V_val, dofs_buf24[r], dofs_buf24[c], Me_global[r, c])
             end
 
         elseif n == 3
@@ -3913,7 +3915,8 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
                 for d in 1:6; dofs_t3[(k-1)*6+d] = b+d; end
             end
             for c in 1:18, r in 1:18
-                push!(I_idx, dofs_t3[r]); push!(J_idx, dofs_t3[c]); push!(V_val, Me18[r,c])
+                _push_nonzero_triplet!(
+                    I_idx, J_idx, V_val, dofs_t3[r], dofs_t3[c], Me18[r, c])
             end
         end
     end
@@ -3973,7 +3976,8 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
             for d in 1:6; dofs12[(k-1)*6+d] = b+d; end
         end
         for c in 1:12, r in 1:12
-            push!(I_idx, dofs12[r]); push!(J_idx, dofs12[c]); push!(V_val, Me12[r,c])
+            _push_nonzero_triplet!(
+                I_idx, J_idx, V_val, dofs12[r], dofs12[c], Me12[r, c])
         end
     end
 
@@ -4025,7 +4029,8 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
             for d in 1:6; dofs12[(k-1)*6+d] = b+d; end
         end
         for c in 1:12, r in 1:12
-            push!(I_idx, dofs12[r]); push!(J_idx, dofs12[c]); push!(V_val, Me12[r,c])
+            _push_nonzero_triplet!(
+                I_idx, J_idx, V_val, dofs12[r], dofs12[c], Me12[r, c])
         end
     end
 
@@ -4085,7 +4090,8 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
             for d in 1:6; dofs12[(k-1)*6+d] = b+d; end
         end
         for c in 1:12, r in 1:12
-            push!(I_idx, dofs12[r]); push!(J_idx, dofs12[c]); push!(V_val, Me12[r,c])
+            _push_nonzero_triplet!(
+                I_idx, J_idx, V_val, dofs12[r], dofs12[c], Me12[r, c])
         end
     end
 
@@ -4147,7 +4153,8 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
             for d in 1:6; dofs12[(k-1)*6+d] = b+d; end
         end
         for c in 1:12, r in 1:12
-            push!(I_idx, dofs12[r]); push!(J_idx, dofs12[c]); push!(V_val, Me12[r,c])
+            _push_nonzero_triplet!(
+                I_idx, J_idx, V_val, dofs12[r], dofs12[c], Me12[r, c])
         end
     end
 
@@ -4219,7 +4226,9 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
         end
 
         for c in 1:ndof_el, r in 1:ndof_el
-            push!(I_idx, dofs_buf_solid[r]); push!(J_idx, dofs_buf_solid[c]); push!(V_val, Me[r,c])
+            _push_nonzero_triplet!(
+                I_idx, J_idx, V_val,
+                dofs_buf_solid[r], dofs_buf_solid[c], Me[r, c])
         end
     end
 
@@ -4362,6 +4371,22 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof)
     end
 
     log_msg("[SOLVER] Mass matrix: $(length(V_val)) triplets assembled")
+
+    # K is assembled in the MPC-reduced coordinate space by redistributing
+    # every triplet through the merged RBE2/RBE1/RSPLINE/RBE3/MPC map.  The
+    # generalized eigenproblem must use the identical congruence for M:
+    #
+    #     K_r = T' K T,    M_r = T' M T.
+    #
+    # Formerly M was left in the unreduced space and the dependent rows were
+    # merely sliced out by `compute_free_dofs`.  Any structural or concentrated
+    # mass carried by a dependent grid was therefore discarded, even though its
+    # stiffness had already been transferred to the independent coordinates.
+    if constraint_map !== nothing && !isempty(constraint_map)
+        _, I_idx, J_idx, V_val = _redistribute_constraint_triplets(
+            constraint_map, I_idx, J_idx, V_val; skip_zeros=true)
+        log_msg("[SOLVER] MPC mass congruence applied to $(length(constraint_map)) dependent DOFs")
+    end
     M = sparse(I_idx, J_idx, V_val, ndof, ndof)
 
     # Apply WTMASS parameter (unit conversion: weight-density → mass-density)
@@ -4380,6 +4405,129 @@ end
 # SOL103 NORMAL MODES EIGENVALUE SOLVER
 # Solves: K*phi = omega^2 * M * phi
 # =============================================================================
+
+struct _SOL103CompletenessError <: Exception
+    msg::String
+end
+
+Base.showerror(io::IO, err::_SOL103CompletenessError) = print(io, err.msg)
+
+@inline function _sol103_completeness_gaps(
+        naccepted::Int, retry_target::Int, strict_target::Int,
+        interval_gap::Union{Nothing,Int})
+    target_gap = retry_target - naccepted
+    strict_target_gap = strict_target - naccepted
+    known_interval_gap = something(interval_gap, 0)
+    return (
+        target_gap=target_gap,
+        strict_target_gap=strict_target_gap,
+        gap=max(known_interval_gap, target_gap, 0),
+        strict_gap=max(known_interval_gap, strict_target_gap, 0),
+    )
+end
+
+@inline function _sol103_eigrl_lambda_bounds(v1::Real, v2::Real)
+    function tolerant_bound(frequency::Real, direction::Float64)
+        lambda = (2pi * Float64(frequency))^2
+        isfinite(lambda) || return lambda
+        tolerance = max(abs(lambda) * 1.0e-10, 64.0 * eps(lambda))
+        return max(lambda + direction * tolerance, 0.0)
+    end
+    lower = v1 > 0.0 ? tolerant_bound(v1, -1.0) : 0.0
+    upper = v2 > 0.0 ? tolerant_bound(v2, 1.0) : Inf
+    return lower, upper
+end
+
+@inline function _sol103_dense_max_dof()
+    return max(solver_env_int("JFEM_SOL103_DENSE_MAX_DOF", 4000), 0)
+end
+
+@inline function _sol103_start_hash64(value::UInt64)
+    mixed = value + 0x9e3779b97f4a7c15
+    mixed = xor(mixed, mixed >> 30) * 0xbf58476d1ce4e5b9
+    mixed = xor(mixed, mixed >> 27) * 0x94d049bb133111eb
+    return xor(mixed, mixed >> 31)
+end
+
+function _deterministic_sol103_start_vector(n::Int, ordinal::Int)
+    n >= 0 || throw(ArgumentError("SOL103 start-vector length must be nonnegative"))
+
+    # Counter-based hashing gives each (entry, ordinal) pair an independent
+    # deterministic value without touching Julia's global RNG. In particular,
+    # successive starts are not phase shifts in a fixed four-function basis,
+    # so a block can span the six-dimensional rigid-body eigenspace.
+    seed_word = reinterpret(UInt64, Int64(buckling_rng_seed()))
+    ordinal_word = reinterpret(UInt64, Int64(ordinal))
+    stream = _sol103_start_hash64(
+        xor(seed_word, ordinal_word * 0xd2b74407b1ce6e93))
+    vector = Vector{Float64}(undef, n)
+    @inbounds for i in 1:n
+        bits = _sol103_start_hash64(
+            xor(stream, UInt64(i) * 0xca5a826395121157))
+        # Use bin midpoints so every entry lies strictly inside (-1, 1) and is
+        # nonzero; the top 52 hash bits are exactly representable in Float64.
+        bin = bits >> 12
+        vector[i] = (Float64(bin) + 0.5) / 2251799813685248.0 - 1.0
+    end
+    return vector
+end
+
+function _sol103_shifted_factorization(K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2)
+    kdiag = abs.(diag(K_ff))
+    mdiag = abs.(diag(M_ff))
+    ratios = Float64[]
+    for i in eachindex(kdiag, mdiag)
+        if kdiag[i] > stiff_tol && mdiag[i] > mass_tol
+            ratio = kdiag[i] / mdiag[i]
+            isfinite(ratio) && ratio > 0.0 && push!(ratios, ratio)
+        end
+    end
+
+    diagonal_reference = isempty(ratios) ? 1.0 : median(ratios)
+    band_reference = eigrl_v2 > 0.0 ? (2pi * eigrl_v2)^2 : Inf
+    # When EIGRL provides an upper frequency, scale the transformed spectrum
+    # against that requested band directly.  Using a smaller local diagonal
+    # ratio can push upper-band Ritz values too close to zero for KrylovKit's
+    # absolute residual tolerance.
+    # Treat an upper bound many decades above the assembled diagonal scale as
+    # an effectively unbounded sentinel (common in small verification decks).
+    sensible_band = isfinite(band_reference) &&
+        band_reference <= 1.0e6 * max(diagonal_reference, 1.0)
+    lambda_reference = sensible_band ? band_reference : diagonal_reference
+    if !(isfinite(lambda_reference) && lambda_reference > 0.0)
+        lambda_reference = 1.0
+    end
+
+    max_kdiag = maximum(kdiag; init=1.0)
+    max_mdiag = maximum(mdiag; init=0.0)
+    max_mdiag > 0.0 || error("SOL103 positive mass shift unavailable: mass diagonal is zero")
+    numerical_floor = 256.0 * eps(Float64) * max(max_kdiag, 1.0) / max_mdiag
+    alpha0 = max(1.0e-3 * lambda_reference, numerical_floor, eps(Float64))
+    attempts = Any[]
+
+    for exponent in 0:2
+        alpha = alpha0 * 10.0^exponent
+        A = K_ff + alpha * M_ff
+        issymmetric(A) || (A = 0.5 * (A + A'))
+        try
+            factor = cholesky(Symmetric(A); check=true)
+            push!(attempts, Dict{String,Any}(
+                "alpha" => alpha,
+                "status" => "succeeded",
+            ))
+            return factor, alpha, lambda_reference, numerical_floor, attempts
+        catch err
+            push!(attempts, Dict{String,Any}(
+                "alpha" => alpha,
+                "status" => "failed",
+                "error" => sprint(showerror, err),
+            ))
+        end
+    end
+
+    error("SOL103 could not factor K + alpha*M after $(length(attempts)) positive-shift attempts; the pencil is indefinite or has a joint K/M nullspace")
+end
+
 function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
                      rbe3_map=Dict{Int,Vector{Tuple{Int,Float64}}}(),
                      max_elem_stiff=0.0, orig_diag=Float64[],
@@ -4389,8 +4537,11 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
                      return_diagnostics::Bool=false)
 
     log_msg("[MODES] Computing free DOFs...")
+    allow_factorization_autospc = solver_env_bool(
+        "JFEM_SOL103_FACTORIZATION_AUTOSPC", false)
     eigen_ctx, eigen_cache_hit = prepare_eigen_solve_context(
-        K, ndof, model, id_map, spc_id, rbe3_map; eigen_cache=eigen_cache)
+        K, ndof, model, id_map, spc_id, rbe3_map; eigen_cache=eigen_cache,
+        allow_factorization_autospc=allow_factorization_autospc)
     free_dofs = eigen_ctx.free_dofs
     fixed_dofs = eigen_ctx.fixed_dofs
     bc_diagnostics = eigen_ctx.bc_diagnostics
@@ -4415,6 +4566,7 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
         "solver_backend" => "unsolved",
         "solver_attempts" => Any[],
         "returned_modes" => 0,
+        "factorization_autospc_allowed" => allow_factorization_autospc,
     )
 
     K_ff = eigen_ctx.K_ff
@@ -4425,8 +4577,8 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
     # coordinates (for example shell bending rotations): they remain in KXX,
     # while MXX is singular. Only genuinely unsupported massless coordinates
     # should be removed. The remaining singular-M cases are sent to the
-    # shift-invert solver below, which applies K\ M without requiring M to be
-    # positive definite.
+    # shift-invert solver below, which applies the positive-mass shifted pencil
+    # without requiring M to be positive definite.
     mass_diag = abs.(diag(M_ff))
     mass_scale = isempty(mass_diag) ? 0.0 : maximum(mass_diag)
     mass_tol = max(mass_scale * 1.0e-12, 1.0e-30)
@@ -4441,8 +4593,10 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
     # constraining it locked the t2 bending plane (CBAR modal probe modes
     # 29159/169952 instead of the reference's 2582.69/68528.4 pair). The
     # reference retains massless-but-stiff coordinates; so does the
-    # shift-invert path below, which condenses them exactly. Shell drilling
-    # at K6ROT=0 is already caught by the zero-stiffness clause or AUTOSPC.
+    # shift-invert path below. Some unstabilized shell-drilling combinations
+    # can still leave a joint K/M nullspace; the shifted-factorization
+    # diagnostic reports that profile mismatch instead of deleting physical
+    # free-body modes through a full-K factorization AUTOSPC pass.
     drop_mass_idx = [i for i in massless_idx if stiff_diag[i] <= stiff_tol]
     keep_mass_idx = isempty(drop_mass_idx) ? collect(1:n_free) : setdiff(collect(1:n_free), drop_mass_idx)
     mass_filter_removed = length(drop_mass_idx)
@@ -4470,6 +4624,7 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
         diagnostics["massless_zero_stiffness_dof_tolerance"] = stiff_tol
     end
     mass_diag = abs.(diag(M_ff))
+    stiff_diag = abs.(diag(K_ff))
     singular_mass = any(<=(mass_tol), mass_diag)
     singular_mass_retained = count(<=(mass_tol), mass_diag)
     diagnostics["singular_mass_coordinates_retained"] = singular_mass_retained
@@ -4489,20 +4644,39 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
     solved = false
 
     # Strategy 1: Dense eigensolver for small/medium systems
-    if n_free <= 4000 && !singular_mass
+    dense_max_dof = _sol103_dense_max_dof()
+    diagnostics["dense_max_dof"] = dense_max_dof
+    if n_free <= dense_max_dof && !singular_mass
         push!(diagnostics["solver_attempts"], Dict("name" => "dense_symmetric_definite", "status" => "attempted"))
         try
             log_msg("[MODES] Using dense symmetric-definite eigensolver ($n_free DOFs)...")
             Kd = Matrix(K_ff); Md = Matrix(M_ff)
             vals, vecs = eigen(Symmetric(Kd), Symmetric(Md))
             # Filter: positive real eigenvalues (ω²)
-            valid = findall(x -> isfinite(x) && x > 1e-6, vals)
+            finite_abs = [abs(Float64(x)) for x in vals if isfinite(x)]
+            spectral_scale = maximum(finite_abs; init=1.0)
+            diagonal_ratios = Float64[]
+            for i in 1:length(mass_diag)
+                if mass_diag[i] > mass_tol && stiff_diag[i] > stiff_tol
+                    ratio = stiff_diag[i] / mass_diag[i]
+                    isfinite(ratio) && ratio > 0.0 && push!(diagonal_ratios, ratio)
+                end
+            end
+            lambda_reference = isempty(diagonal_ratios) ? spectral_scale : median(diagonal_ratios)
+            zero_tol = 512.0 * eps(Float64) * max(lambda_reference, spectral_scale, 1.0)
+            valid = findall(x -> isfinite(x) && x >= -zero_tol, vals)
             if !isempty(valid)
-                n_out = min(num_modes_request, length(valid))
-                eigenvalues = vals[valid[1:n_out]]
+                # The dense solve has already computed the whole spectrum.
+                # Keep it through the EIGRL range filter so a positive V1 can
+                # skip any number of lower roots; trim to ND only afterward.
+                n_out = length(valid)
+                eigenvalues = Float64[max(Float64(vals[i]), 0.0) for i in valid[1:n_out]]
                 eigenvectors = vecs[:, valid[1:n_out]]
                 solved = true
                 diagnostics["solver_backend"] = "dense_symmetric_definite"
+                diagnostics["near_zero_eigenvalue_tolerance"] = zero_tol
+                diagnostics["negative_eigenvalues_rejected"] =
+                    count(x -> isfinite(x) && x < -zero_tol, vals)
                 diagnostics["solver_attempts"][end] = Dict("name" => "dense_symmetric_definite", "status" => "succeeded", "returned_modes" => n_out)
                 log_msg("[MODES] Dense eigensolver converged ($n_out modes)")
             end
@@ -4510,149 +4684,464 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
             diagnostics["solver_attempts"][end] = Dict("name" => "dense_symmetric_definite", "status" => "failed", "error" => sprint(showerror, e))
             log_msg("[MODES] Dense eigensolver failed: $e")
         end
-    elseif n_free <= 4000
+    elseif n_free <= dense_max_dof
         push!(diagnostics["solver_attempts"], Dict("name" => "dense_symmetric_definite", "status" => "skipped", "reason" => "singular_mass"))
     end
 
-    # Strategy 2: KrylovKit shift-invert for larger systems
+    # Strategy 2: nullspace-preserving shift-invert.  First retain the former
+    # zero-shift path verbatim when K is SPD.  If K is positive semidefinite
+    # (the normal free-free case), factor K + alpha*M and solve the equivalent
+    # bounded operator alpha*(K + alpha*M)^-1*M.  Its rigid-body eigenvalues
+    # are one, so an absolute Krylov residual tolerance remains meaningful.
     if !solved
-        push!(diagnostics["solver_attempts"], Dict("name" => "krylov_shift_invert", "status" => "attempted"))
+        push!(diagnostics["solver_attempts"], Dict(
+            "name" => "nullspace_preserving_shift_invert",
+            "status" => "attempted",
+        ))
         try
-            log_msg("[MODES] Using KrylovKit shift-invert ($n_free DOFs)...")
             K_factor = nothing
             factor_cache_hit = false
             factor_backend = "cholesky"
-            if mass_filter_removed == 0
-                K_factor, factor_cache_hit = ensure_eigen_solve_factorization!(eigen_ctx)
-                factor_backend = eigen_ctx.factor_backend
-                if factor_cache_hit
-                    log_msg("[MODES] Reusing eigen K factorization cache ($(eigen_ctx.factor_backend))")
+
+            # Sparse Cholesky can numerically accept a semidefinite free-body K,
+            # so success is not a reliable nullspace test.  Use the exact
+            # positive-mass transform for every iterative SOL103 by default;
+            # retain zero shift only as an explicit compatibility escape hatch.
+            if solver_env_bool("JFEM_SOL103_ZERO_SHIFT_COMPAT", false)
+                if mass_filter_removed == 0 &&
+                   eigen_ctx.factor !== nothing &&
+                   eigen_ctx.factor_backend == "cholesky"
+                    K_factor = eigen_ctx.factor
+                    factor_cache_hit = true
                 else
-                    log_msg("[MODES] K factorization succeeded ($(eigen_ctx.factor_backend))")
-                end
-            else
-                K_factor = try
-                    cholesky(Symmetric(K_ff))
-                catch e
-                    if e isa LinearAlgebra.PosDefException ||
-                       e isa LinearAlgebra.SingularException ||
-                       e isa LinearAlgebra.ZeroPivotException
-                        factor_backend = "lu"
-                        lu(K_ff)
-                    else
-                        rethrow(e)
+                    try
+                        K_factor = cholesky(Symmetric(K_ff); check=true)
+                        if mass_filter_removed == 0
+                            eigen_ctx.factor = K_factor
+                            eigen_ctx.factor_backend = "cholesky"
+                        end
+                    catch err
+                        if !(err isa LinearAlgebra.PosDefException ||
+                             err isa LinearAlgebra.SingularException ||
+                             err isa LinearAlgebra.ZeroPivotException)
+                            rethrow(err)
+                        end
+                        K_factor = nothing
                     end
                 end
-                log_msg("[MODES] K factorization succeeded ($factor_backend, mass-filtered)")
             end
+
+            shifted = K_factor === nothing
+            alpha = 0.0
+            shift_floor = 0.0
+            shift_attempts = Any[]
+            diagonal_ratios = Float64[]
+            for i in eachindex(stiff_diag, mass_diag)
+                if stiff_diag[i] > stiff_tol && mass_diag[i] > mass_tol
+                    ratio = stiff_diag[i] / mass_diag[i]
+                    isfinite(ratio) && ratio > 0.0 && push!(diagonal_ratios, ratio)
+                end
+            end
+            lambda_reference = isempty(diagonal_ratios) ? 1.0 : median(diagonal_ratios)
+
+            if shifted
+                K_factor, alpha, lambda_reference, shift_floor, shift_attempts =
+                    _sol103_shifted_factorization(
+                        K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2)
+                factor_backend = "positive_mass_shift_cholesky"
+                log_msg("[MODES] Free/nullspace partition detected; using positive mass shift alpha=$alpha (reference lambda=$lambda_reference)")
+            elseif factor_cache_hit
+                log_msg("[MODES] Reusing zero-shift SOL103 Cholesky factorization")
+            else
+                log_msg("[MODES] Zero-shift SOL103 Cholesky factorization succeeded")
+            end
+
             diagnostics["eigen_cache"]["factorization_cache_hit"] = factor_cache_hit
             diagnostics["eigen_cache"]["factor_backend"] = factor_backend
-            nev = min(num_modes_request + 5, n_free - 1)
-            kd = min(max(2*nev + 10, 30), n_free)
+            diagnostics["positive_mass_shift"] = Dict{String,Any}(
+                "used" => shifted,
+                "alpha" => alpha,
+                "lambda_reference" => lambda_reference,
+                "numerical_floor" => shift_floor,
+                "attempts" => shift_attempts,
+            )
 
-            # Start vector: DETERMINISTIC, not randn. A random start vector can
-            # land with near-zero overlap on one member of an exactly degenerate
-            # mode pair, and the Krylov space then never resolves it — the
-            # documented "CBAR probe intermittently returned 4 of 6 modes, about
-            # one run in five" behaviour, whose 1-in-5 cadence is the signature
-            # of the draw rather than of an algorithmic bug. It was also the last
-            # run-to-run non-determinism in the solver (the CRM SOL 103 rows of
-            # the public suite wobbled at the 1e-15 level between identical
-            # runs, which is why suite gates had to judge verdicts rather than
-            # bytes). SOL 105 has used this generator since the deterministic
-            # threading work; SOL 103 now shares it.
-            #
-            # Determinism alone only makes the outcome REPRODUCIBLE, so the
-            # completeness guard below turns "silently miss a degenerate
-            # partner" into "detect and recover it".
+            block_size = min(
+                max(solver_env_int("JFEM_SOL103_BLOCK_SIZE", 6), 1),
+                max(n_free - 1, 1),
+            )
+            # A zero-shift transform returns the globally lowest roots.  Count
+            # those below a positive V1 so the Krylov request is large enough
+            # to pass them and still recover ND roots inside [V1,V2].
+            sturm_reuse_modal = Base.RefValue{Any}(nothing)
+            mass_neg = -M_ff
+            eigrl_lambda_lower, eigrl_lambda_upper =
+                _sol103_eigrl_lambda_bounds(eigrl_v1, eigrl_v2)
+            diagnostics["eigrl_lambda_bounds"] = Dict{String,Any}(
+                "lower" => eigrl_lambda_lower,
+                "upper" => eigrl_lambda_upper,
+            )
+            lower_mode_count = if eigrl_v1 > 0.0
+                _buckling_sturm_count(
+                    K_ff, mass_neg, eigrl_lambda_lower;
+                    reuse=sturm_reuse_modal)
+            else
+                0
+            end
+            upper_mode_count = if eigrl_v2 > 0.0
+                _buckling_sturm_count(
+                    K_ff, mass_neg, eigrl_lambda_upper;
+                    reuse=sturm_reuse_modal)
+            else
+                nothing
+            end
+            band_mode_count = if upper_mode_count === nothing
+                nothing
+            elseif lower_mode_count === nothing
+                upper_mode_count
+            else
+                max(upper_mode_count - lower_mode_count, 0)
+            end
+            if eigrl_v1 > 0.0 && lower_mode_count === nothing
+                log_msg("[MODES] WARNING: Could not certify the number of roots below EIGRL V1; retaining conservative modal oversampling")
+            end
+
+            in_band_target = band_mode_count === nothing ?
+                num_modes : min(num_modes, band_mode_count)
+            global_mode_target = if lower_mode_count === nothing
+                num_modes_request
+            else
+                lower_mode_count + in_band_target
+            end
+            # If M is singular and V2 is unbounded, the pencil can contain
+            # infinite roots.  Still ask Krylov for ND finite roots, but leave
+            # strict target completeness to the interval inertia certificate.
+            strict_mode_target = if singular_mass && upper_mode_count === nothing
+                0
+            elseif lower_mode_count === nothing && upper_mode_count !== nothing
+                min(num_modes_request, upper_mode_count, n_free)
+            else
+                min(global_mode_target, n_free)
+            end
+            request_mode_target = min(global_mode_target, n_free)
+            retry_mode_target = request_mode_target
+            num_modes_request = min(max(
+                request_mode_target > 0 ? request_mode_target : 1, 1), n_free)
+            diagnostics["requested_modes_internal"] = num_modes_request
+            diagnostics["eigenvalues_below_eigrl_v1"] = lower_mode_count
+            diagnostics["eigenvalues_below_eigrl_v2"] = upper_mode_count
+            diagnostics["eigenvalues_in_eigrl_band"] = band_mode_count
+
+            krylov_target = num_modes_request
+            nev = min(krylov_target + block_size, n_free)
+            kd = min(max(2 * nev + 4 * block_size, 30), n_free)
+            diagnostics["krylov_requested_modes"] = nev
+            diagnostics["krylov_dimension"] = kd
+            krylov_tol = max(solver_env_float("JFEM_SOL103_KRYLOV_TOL", 1.0e-10), eps(Float64))
+            krylov_maxiter = max(solver_env_int("JFEM_SOL103_KRYLOV_MAXITER", 500), 1)
+            zero_tol = 512.0 * eps(Float64) * max(lambda_reference, abs(alpha), 1.0)
+            residual_tol = max(solver_env_float("JFEM_SOL103_EIGEN_RESIDUAL_TOL", 1.0e-6), eps(Float64))
+            innovation_tol = max(solver_env_float("JFEM_SOL103_SUBSPACE_INNOVATION_TOL", 1.0e-8), eps(Float64))
+            k_scale = maximum(stiff_diag; init=1.0)
+            m_scale = maximum(mass_diag; init=1.0)
+
+            accepted_lambdas = Float64[]
+            accepted_vecs = Vector{Float64}[]
+            accepted_mvecs = Vector{Float64}[]
+            accepted_residuals = Float64[]
+            rejected_negative = Ref(0)
+            rejected_residual = Ref(0)
+            rejected_massless = Ref(0)
+            rejected_duplicate = Ref(0)
+
+            function accept_mode!(lambda_seed, vector_seed)
+                isfinite(lambda_seed) || return false
+                v = Float64.(real.(vector_seed))
+                mv = Vector{Float64}(M_ff * v)
+                mass_norm = dot(v, mv)
+                mass_floor = max(
+                    256.0 * eps(Float64) * m_scale * dot(v, v),
+                    1.0e-30,
+                )
+                if !(isfinite(mass_norm) && mass_norm > mass_floor)
+                    rejected_massless[] += 1
+                    return false
+                end
+                scale = inv(sqrt(mass_norm))
+                v .*= scale
+                mv .*= scale
+
+                # MGS2 against the whole accepted finite-mode subspace.  This
+                # retains genuine repeated eigenvectors while rejecting a
+                # rotated duplicate basis returned by another Arnoldi start.
+                for _ in 1:2
+                    for j in eachindex(accepted_vecs)
+                        coefficient = dot(accepted_vecs[j], mv)
+                        v .-= coefficient .* accepted_vecs[j]
+                        mv .-= coefficient .* accepted_mvecs[j]
+                    end
+                end
+                innovation = dot(v, mv)
+                if !(isfinite(innovation) && innovation > innovation_tol)
+                    rejected_duplicate[] += 1
+                    return false
+                end
+                innovation_scale = inv(sqrt(innovation))
+                v .*= innovation_scale
+                mv .*= innovation_scale
+
+                kv = Vector{Float64}(K_ff * v)
+                lambda_value = shifted ? dot(v, kv) : Float64(lambda_seed)
+                if -zero_tol <= lambda_value < 0.0
+                    lambda_value = 0.0
+                elseif lambda_value < -zero_tol
+                    rejected_negative[] += 1
+                    return false
+                end
+
+                residual = norm(kv - lambda_value .* mv) /
+                    max((k_scale + abs(lambda_value) * m_scale) * norm(v), eps(Float64))
+                if !(isfinite(residual) && residual <= residual_tol)
+                    rejected_residual[] += 1
+                    return false
+                end
+
+                push!(accepted_lambdas, lambda_value)
+                push!(accepted_vecs, v)
+                push!(accepted_mvecs, mv)
+                push!(accepted_residuals, residual)
+                return true
+            end
+
+            function harvest_modes!(vals, vecs, info; shifted_operator::Bool,
+                                    vector_transform=nothing)
+                before = length(accepted_lambdas)
+                n_converged = min(Int(info.converged), length(vals), length(vecs))
+                for i in 1:n_converged
+                    theta = vals[i]
+                    theta_real = real(theta)
+                    theta_imag = abs(imag(theta))
+                    theta_imag <= 1.0e-7 * max(abs(theta_real), 1.0e-20) || continue
+                    if shifted_operator
+                        theta_real > 1.0e-14 || continue
+                        lambda_seed = alpha * ((1.0 - theta_real) / theta_real)
+                        vector_seed = vector_transform === nothing ?
+                            vecs[i] : vector_transform(vecs[i])
+                        accept_mode!(lambda_seed, vector_seed)
+                    else
+                        theta_real > 1.0e-14 || continue
+                        accept_mode!(1.0 / theta_real, vecs[i])
+                    end
+                end
+                return length(accepted_lambdas) - before
+            end
+
             modal_start_ordinal = Ref(0)
             next_modal_start() = begin
                 modal_start_ordinal[] += 1
-                _deterministic_buckling_start_vector(n_free, modal_start_ordinal[])
+                _deterministic_sol103_start_vector(n_free, modal_start_ordinal[])
             end
+            info_last = nothing
+            block_succeeded = false
+            block_error = nothing
 
-            # K⁻¹M operator: largest θ = 1/ω² → smallest ω
-            vals_kk, vecs_kk, info = eigsolve(
-                x -> K_factor \ (M_ff * x), next_modal_start(), nev, :LM;
-                krylovdim=kd, maxiter=500, tol=1e-10, eager=true)
-
-            harvest_modes(vals, vecs) = begin
-                osq = Float64[]
-                vs = Vector{Float64}[]
-                for (i, theta) in enumerate(vals)
-                    theta_r = real(theta)
-                    theta_r < 1e-14 && continue
-                    abs(imag(theta)) > 1e-6 * abs(theta_r) && continue
-                    omega_sq = 1.0 / theta_r
-                    omega_sq > 1e-6 || continue
-                    push!(osq, omega_sq)
-                    push!(vs, real.(vecs[i]))
+            if shifted && solver_env_bool("JFEM_SOL103_BLOCK_LANCZOS", true)
+                try
+                    starts = Block([next_modal_start() for _ in 1:min(block_size, nev)])
+                    backmap(y) = Vector{Float64}(K_factor.UP \ Vector(y))
+                    transformed_operator(y) = alpha .* Vector{Float64}(
+                        K_factor.PtL \ Vector(M_ff * backmap(y)))
+                    vals_block, vecs_block_y, info_block = eigsolve(
+                        transformed_operator, starts, nev, :LM;
+                        krylovdim=kd, maxiter=krylov_maxiter,
+                        tol=krylov_tol, eager=true, ishermitian=true)
+                    added = harvest_modes!(
+                        vals_block, vecs_block_y, info_block;
+                        shifted_operator=true, vector_transform=backmap)
+                    info_last = info_block
+                    block_succeeded = added > 0
+                    diagnostics["block_lanczos"] = Dict{String,Any}(
+                        "attempted" => true,
+                        "succeeded" => block_succeeded,
+                        "block_size" => min(block_size, nev),
+                        "converged" => info_block.converged,
+                        "returned" => length(vals_block),
+                        "accepted" => added,
+                    )
+                catch err
+                    block_error = sprint(showerror, err)
+                    diagnostics["block_lanczos"] = Dict{String,Any}(
+                        "attempted" => true,
+                        "succeeded" => false,
+                        "error" => block_error,
+                    )
+                    log_msg("[MODES] Shifted BlockLanczos unavailable ($block_error); falling back to deterministic multi-start Arnoldi")
                 end
-                (osq, vs)
+            else
+                diagnostics["block_lanczos"] = Dict{String,Any}(
+                    "attempted" => false,
+                    "succeeded" => false,
+                )
             end
-            actual_omegas_sq, actual_vecs = harvest_modes(vals_kk, vecs_kk)
 
-            # --- Completeness guard (Sturm inertia over the reported band) ----
-            # The pencil (K - ω²M) has exactly as many eigenvalues below σ as
-            # K - σM has negative inertia, so _buckling_sturm_count applies
-            # verbatim with Kg := -M and σ := ω². If the certificate says roots
-            # are missing below the highest one we would report — the signature
-            # of a dropped degenerate partner — retry from a different
-            # deterministic start vector and merge. The guard can only ADD
-            # modes: values already found are never perturbed, so decks that
-            # pass today cannot regress.
-            if solver_env_bool("JFEM_SOL103_COMPLETENESS_GUARD", true) &&
-               !isempty(actual_omegas_sq)
-                mass_neg = -M_ff
-                sturm_reuse_modal = Base.RefValue{Any}(nothing)
-                max_tries = max(solver_env_int("JFEM_SOL103_COMPLETENESS_TRIES", 2), 0)
-                guard_log = Any[]
-                for attempt in 1:max_tries
-                    sorted_osq = sort(actual_omegas_sq)
-                    n_report = min(max(num_modes_request, 1), length(sorted_osq))
-                    b_bound = sorted_osq[n_report] * (1.0 + 1e-6)
-                    sc_b = _buckling_sturm_count(K_ff, mass_neg, b_bound;
-                                                 reuse=sturm_reuse_modal)
-                    sc_b === nothing && break
-                    found = count(<=(b_bound), actual_omegas_sq)
-                    gap = sc_b - found
-                    push!(guard_log, Dict{String,Any}(
-                        "attempt" => attempt, "omega_sq_bound" => b_bound,
-                        "sturm_below" => sc_b, "recovered" => found, "gap" => gap))
-                    gap <= 0 && break
-                    log_msg("[MODES] completeness guard: Sturm reports $sc_b root(s) below ω²=$b_bound but $found recovered — retrying from start vector $(modal_start_ordinal[] + 1)")
-                    v2, w2, _ = eigsolve(
-                        x -> K_factor \ (M_ff * x), next_modal_start(),
-                        min(nev + gap, n_free - 1), :LM;
-                        krylovdim=kd, maxiter=500, tol=1e-10, eager=true)
-                    osq2, vs2 = harvest_modes(v2, w2)
-                    added = 0
-                    for (o, v) in zip(osq2, vs2)
-                        if all(x -> abs(x - o) > 1e-8 * max(abs(x), abs(o), 1.0),
-                               actual_omegas_sq)
-                            push!(actual_omegas_sq, o); push!(actual_vecs, v)
-                            added += 1
-                        end
-                    end
-                    log_msg("[MODES] completeness guard: recovered $added additional mode(s)")
-                    added == 0 && break
-                end
-                isempty(guard_log) ||
-                    (diagnostics["completeness_guard"] = guard_log)
+            modal_operator = shifted ?
+                (x -> alpha .* (K_factor \ (M_ff * x))) :
+                (x -> K_factor \ (M_ff * x))
+            scalar_nev = min(nev, max(n_free - 1, 1))
+            scalar_runs = Ref(0)
+            function run_scalar_start!()
+                vals_run, vecs_run, info_run = eigsolve(
+                    modal_operator, next_modal_start(), scalar_nev, :LM;
+                    krylovdim=kd, maxiter=krylov_maxiter,
+                    tol=krylov_tol, eager=true)
+                scalar_runs[] += 1
+                info_last = info_run
+                added = harvest_modes!(
+                    vals_run, vecs_run, info_run; shifted_operator=shifted)
+                return added, info_run
             end
-            if !isempty(actual_omegas_sq)
-                perm = sortperm(actual_omegas_sq)
-                n_out = min(num_modes_request, length(perm))
-                eigenvalues = [actual_omegas_sq[perm[i]] for i in 1:n_out]
-                eigenvectors = hcat([actual_vecs[perm[i]] for i in 1:n_out]...)
+
+            if !shifted || !block_succeeded
+                run_scalar_start!()
+            end
+
+            completeness_log = Any[]
+            diagnostics["completeness_retry_target_modes"] = retry_mode_target
+            diagnostics["completeness_required_modes"] = strict_mode_target
+            function completeness_state()
+                naccepted = length(accepted_lambdas)
+                if isempty(accepted_lambdas)
+                    gaps = _sol103_completeness_gaps(
+                        naccepted, retry_mode_target, strict_mode_target, nothing)
+                    return (
+                        bound=nothing,
+                        expected=nothing,
+                        found=0,
+                        retry_required=retry_mode_target,
+                        strict_required=strict_mode_target,
+                        interval_gap=nothing,
+                        target_gap=gaps.target_gap,
+                        strict_target_gap=gaps.strict_target_gap,
+                        gap=gaps.gap,
+                        strict_gap=gaps.strict_gap,
+                    )
+                end
+                ordered = sort(accepted_lambdas)
+                n_report = min(max(num_modes_request, 1), length(ordered))
+                highest = ordered[n_report]
+                bound = highest + max(abs(highest) * 1.0e-6, zero_tol)
+                count_b = _buckling_sturm_count(
+                    K_ff, mass_neg, bound; reuse=sturm_reuse_modal)
+                # K is either checked SPD (zero shift) or K+alpha*M is checked
+                # SPD, so the lower inertia at 0 or -alpha is exactly zero.
+                expected = count_b
+                found = count(value -> value <= bound, accepted_lambdas)
+                interval_gap = expected === nothing ? nothing : expected - found
+                gaps = _sol103_completeness_gaps(
+                    naccepted, retry_mode_target, strict_mode_target, interval_gap)
+                return (bound=bound, expected=expected, found=found,
+                        retry_required=retry_mode_target,
+                        strict_required=strict_mode_target,
+                        interval_gap=interval_gap,
+                        target_gap=gaps.target_gap,
+                        strict_target_gap=gaps.strict_target_gap,
+                        gap=gaps.gap,
+                        strict_gap=gaps.strict_gap)
+            end
+
+            if solver_env_bool("JFEM_SOL103_COMPLETENESS_GUARD", true)
+                max_retries = max(solver_env_int(
+                    "JFEM_SOL103_COMPLETENESS_TRIES", block_size), 0)
+                for attempt in 0:max_retries
+                    state = completeness_state()
+                    push!(completeness_log, Dict{String,Any}(
+                        "attempt" => attempt,
+                        "omega_sq_bound" => state.bound,
+                        "sturm_available" => state.expected !== nothing,
+                        "sturm_interval_count" => state.expected,
+                        "independent_modes" => state.found,
+                        "retry_target_modes" => state.retry_required,
+                        "strict_required_modes" => state.strict_required,
+                        "interval_gap" => state.interval_gap,
+                        "target_gap" => state.target_gap,
+                        "strict_target_gap" => state.strict_target_gap,
+                        "gap" => state.gap,
+                    ))
+                    state.gap <= 0 && break
+                    attempt == max_retries && break
+                    gap_sources = String[]
+                    interval_missing = max(something(state.interval_gap, 0), 0)
+                    target_missing = max(state.target_gap, 0)
+                    interval_missing > 0 && push!(gap_sources,
+                        "certified interval gap=$interval_missing below omega^2=$(state.bound)")
+                    target_missing > 0 && push!(gap_sources,
+                        "requested-target gap=$target_missing")
+                    state.expected === nothing && push!(gap_sources,
+                        "Sturm certificate unavailable")
+                    log_msg("[MODES] completeness guard: $(join(gap_sources, "; ")); retrying deterministic Arnoldi start")
+                    run_scalar_start!()
+                end
+
+                final_state = completeness_state()
+                if final_state.strict_gap > 0 &&
+                   solver_env_bool("JFEM_SOL103_COMPLETENESS_STRICT", true)
+                    gap_sources = String[]
+                    interval_missing = max(something(final_state.interval_gap, 0), 0)
+                    target_missing = max(final_state.strict_target_gap, 0)
+                    interval_missing > 0 && push!(gap_sources,
+                        "certified interval gap=$interval_missing below omega^2=$(final_state.bound)")
+                    target_missing > 0 && push!(gap_sources,
+                        "required-target gap=$target_missing")
+                    final_state.expected === nothing && push!(gap_sources,
+                        "Sturm certificate unavailable")
+                    throw(_SOL103CompletenessError(
+                        "SOL103 eigensolve incomplete: $(join(gap_sources, "; "))"))
+                end
+            end
+
+            isempty(completeness_log) ||
+                (diagnostics["completeness_guard"] = completeness_log)
+            diagnostics["near_zero_eigenvalue_tolerance"] = zero_tol
+            diagnostics["eigen_residual_tolerance"] = residual_tol
+            diagnostics["max_accepted_relative_residual"] =
+                maximum(accepted_residuals; init=0.0)
+            diagnostics["candidate_rejections"] = Dict{String,Any}(
+                "negative" => rejected_negative[],
+                "residual" => rejected_residual[],
+                "massless" => rejected_massless[],
+                "duplicate_subspace" => rejected_duplicate[],
+            )
+            diagnostics["scalar_arnoldi_runs"] = scalar_runs[]
+
+            if !isempty(accepted_lambdas)
+                permutation = sortperm(accepted_lambdas)
+                n_out = min(num_modes_request, length(permutation))
+                selected = permutation[1:n_out]
+                eigenvalues = accepted_lambdas[selected]
+                eigenvectors = hcat(accepted_vecs[selected]...)
                 solved = true
-                diagnostics["solver_backend"] = "krylov_shift_invert"
-                diagnostics["solver_attempts"][end] = Dict("name" => "krylov_shift_invert", "status" => "succeeded", "returned_modes" => n_out, "converged" => info.converged)
-                log_msg("[MODES] KrylovKit converged ($n_out modes)")
+                backend = shifted ?
+                    (block_succeeded ? "shifted_block_lanczos" : "shifted_multistart_arnoldi") :
+                    "krylov_shift_invert"
+                diagnostics["solver_backend"] = backend
+                diagnostics["solver_attempts"][end] = Dict{String,Any}(
+                    "name" => "nullspace_preserving_shift_invert",
+                    "status" => "succeeded",
+                    "backend" => backend,
+                    "returned_modes" => n_out,
+                    "converged" => info_last === nothing ? 0 : info_last.converged,
+                    "shifted" => shifted,
+                )
+                log_msg("[MODES] Nullspace-preserving eigensolver converged ($n_out independent modes, backend=$backend)")
             end
-        catch e
-            diagnostics["solver_attempts"][end] = Dict("name" => "krylov_shift_invert", "status" => "failed", "error" => sprint(showerror, e))
-            log_msg("[MODES] KrylovKit failed: $(sprint(showerror, e))")
+        catch err
+            err isa _SOL103CompletenessError && rethrow()
+            diagnostics["solver_attempts"][end] = Dict{String,Any}(
+                "name" => "nullspace_preserving_shift_invert",
+                "status" => "failed",
+                "error" => sprint(showerror, err),
+            )
+            log_msg("[MODES] Nullspace-preserving eigensolver failed: $(sprint(showerror, err))")
         end
     end
 
@@ -4663,7 +5152,7 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
     end
 
     n_out = length(eigenvalues)
-    frequencies = sqrt.(abs.(eigenvalues)) ./ (2π)
+    frequencies = sqrt.(max.(eigenvalues, 0.0)) ./ (2π)
 
     # --- EIGRL V1/V2 frequency range filtering ---
     # V1 and V2 are frequency bounds in Hz (Nastran convention)
@@ -4671,7 +5160,13 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
     if has_range
         v1 = eigrl_v1 > 0.0 ? eigrl_v1 : 0.0
         v2 = eigrl_v2 > 0.0 ? eigrl_v2 : Inf
-        range_idx = findall(f -> f >= v1 && f <= v2, frequencies)
+        lambda_lower, lambda_upper = _sol103_eigrl_lambda_bounds(v1, v2)
+        # Use the same tolerant squared-eigenvalue bounds as the Sturm target
+        # counts. This preserves Nastran's inclusive V1/V2 convention without
+        # dropping a boundary root because of a zero inertia pivot or the last
+        # few floating-point bits in sqrt(lambda)/(2*pi).
+        range_idx = findall(lambda -> lambda >= lambda_lower && lambda <= lambda_upper,
+                            eigenvalues)
         if !isempty(range_idx)
             log_msg("[MODES] EIGRL frequency filter: V1=$v1 Hz, V2=$v2 Hz → $(length(range_idx)) modes in range")
             eigenvalues = eigenvalues[range_idx]
@@ -4679,7 +5174,11 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
             eigenvectors = eigenvectors[:, range_idx]
             n_out = length(eigenvalues)
         else
-            log_msg("[MODES] WARNING: No modes found in frequency range [$v1, $v2] Hz, returning all $(n_out) modes")
+            log_msg("[MODES] No modes found in frequency range [$v1, $v2] Hz")
+            eigenvalues = Float64[]
+            frequencies = Float64[]
+            eigenvectors = zeros(Float64, n_free, 0)
+            n_out = 0
         end
     end
 
@@ -4692,10 +5191,30 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
         n_out = num_modes
     end
 
-    # Expand to full DOF set
+    # Expand to the full DOF set.
     mode_shapes = zeros(ndof, n_out)
     for m in 1:n_out
         mode_shapes[free_dofs, m] = eigenvectors[:, m]
+    end
+
+    # Reconstruct MPC-dependent coordinates before transforming to global
+    # frames and exporting mode shapes.  K and M are solved in the reduced
+    # coordinates, but physical GRID output must be u_full = T*u_reduced.
+    # The static and SOL 105 paths already perform this same recovery.
+    if !isempty(rbe3_map)
+        for m in 1:n_out
+            for (dep_dof, pairs) in rbe3_map
+                value = 0.0
+                for (ind_dof, coeff) in pairs
+                    value += coeff * mode_shapes[ind_dof, m]
+                end
+                mode_shapes[dep_dof, m] = value
+            end
+        end
+        diagnostics["mpc_dependent_dofs_recovered"] = length(rbe3_map)
+        log_msg("[MODES] Recovered $(length(rbe3_map)) MPC-dependent mode-shape DOFs per mode")
+    else
+        diagnostics["mpc_dependent_dofs_recovered"] = 0
     end
 
     # Transform to global coordinates
@@ -4744,7 +5263,6 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
         log_msg("  Mode $i: f = $(round(f, digits=4)) Hz (ω² = $(round(eigenvalues[i], sigdigits=6)))")
     end
 
-    diagnostics["returned_modes"] = n_out
     diagnostics["returned_modes"] = n_out
     return return_diagnostics ? (eigenvalues, frequencies, mode_shapes_global, diagnostics) : (eigenvalues, frequencies, mode_shapes_global)
 end

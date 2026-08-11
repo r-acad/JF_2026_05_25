@@ -2568,15 +2568,16 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
                 K_sub, id_map_sub, X_sub, ndof_sub, node_R_sub, max_elem_stiff_sub, rbe3_map_sub, _, orig_diag_sub =
                     Solver.assemble_stiffness(model)
             end
-            if modal_mass_builder === nothing
-                return Solver.assemble_mass(model, id_map_sub, X_sub, node_R_sub, ndof_sub)
-            end
-            return modal_mass_builder(model, id_map_sub, X_sub, node_R_sub, ndof_sub)
+            return _sol103_modal_mass_matrices(
+                model, id_map_sub, X_sub, node_R_sub, ndof_sub,
+                rbe3_map_sub, modal_mass_builder)
         end
 
-        M = needs_temp_reassembly ?
+        modal_mass = needs_temp_reassembly ?
             _with_active_temperature_material(model, temp_load_id, run_modal) :
             run_modal()
+        M = modal_mass.eigensolve
+        M_physical = modal_mass.physical
 
         if length(modal_sids) == 1
             println(">>> Solving Normal Modes ($num_modes modes)")
@@ -2592,30 +2593,11 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
             eigen_cache=eigen_solve_cache, return_diagnostics=true)
         modal_wall_seconds = (time_ns() - t_modes) * 1e-9
 
-        total_mass, rigid_translations =
-            _sol103_total_translational_mass(M, id_map_sub, node_R_sub, ndof_sub)
         wtmass = Float64(get(model, "PARAM_WTMASS", 1.0))
         mode_shapes_analysis = _sol103_global_to_analysis_modes(mode_shapes, id_map_sub, node_R_sub)
-
-        modal_effective_mass = []
-        for i in eachindex(frequencies)
-            phi = mode_shapes_analysis[:, i]
-            Mphi = M * phi
-            gen_mass = dot(phi, Mphi)
-            meff = zeros(3)
-            for dir in 1:3
-                L_eff = dot(rigid_translations[dir], Mphi)
-                meff[dir] = gen_mass > 1e-30 ? L_eff^2 / gen_mass : 0.0
-            end
-            push!(modal_effective_mass, Dict(
-                "mode" => i,
-                "freq" => frequencies[i],
-                "generalized_mass" => gen_mass,
-                "meff_x" => meff[1],
-                "meff_y" => meff[2],
-                "meff_z" => meff[3],
-            ))
-        end
+        total_mass, modal_effective_mass = _sol103_modal_mass_metrics(
+            M_physical, mode_shapes_analysis, frequencies,
+            id_map_sub, node_R_sub, ndof_sub)
 
         if length(modal_sids) > 1
             println(">>> SOL 103 modal subcase $sid results")
@@ -3324,6 +3306,49 @@ function _sol103_total_translational_mass(M, id_map, node_R, ndof::Integer)
         total_mass[dir] = dot(r, M * r)
     end
     return total_mass, rigid_translations
+end
+
+function _sol103_modal_mass_matrices(
+        model, id_map, X, node_R, ndof::Integer,
+        constraint_map, modal_mass_builder)
+    physical_mass = modal_mass_builder === nothing ?
+        Solver.assemble_mass(model, id_map, X, node_R, ndof) :
+        modal_mass_builder(model, id_map, X, node_R, ndof)
+    eigensolve_mass = Solver._apply_constraint_congruence(
+        physical_mass, constraint_map; expected_ndof=ndof)
+    if constraint_map !== nothing && !isempty(constraint_map)
+        source = modal_mass_builder === nothing ? "Native" : "Custom"
+        Solver.log_msg("[SOLVER] $source SOL103 mass MPC congruence applied to $(length(constraint_map)) dependent DOFs")
+    end
+    return (eigensolve=eigensolve_mass, physical=physical_mass)
+end
+
+function _sol103_modal_mass_metrics(
+        physical_mass, mode_shapes_analysis, frequencies,
+        id_map, node_R, ndof::Integer)
+    total_mass, rigid_translations =
+        _sol103_total_translational_mass(
+            physical_mass, id_map, node_R, ndof)
+    modal_effective_mass = Any[]
+    for i in eachindex(frequencies)
+        phi = mode_shapes_analysis[:, i]
+        Mphi = physical_mass * phi
+        gen_mass = dot(phi, Mphi)
+        meff = zeros(3)
+        for dir in 1:3
+            L_eff = dot(rigid_translations[dir], Mphi)
+            meff[dir] = gen_mass > 1e-30 ? L_eff^2 / gen_mass : 0.0
+        end
+        push!(modal_effective_mass, Dict(
+            "mode" => i,
+            "freq" => frequencies[i],
+            "generalized_mass" => gen_mass,
+            "meff_x" => meff[1],
+            "meff_y" => meff[2],
+            "meff_z" => meff[3],
+        ))
+    end
+    return total_mass, modal_effective_mass
 end
 
 function _sol103_total_translational_mass(M, id_map)
