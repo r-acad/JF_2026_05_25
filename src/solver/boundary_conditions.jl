@@ -61,6 +61,7 @@ end
 
 mutable struct LinearSolveCacheEntry
     free_dofs::Vector{Int}
+    inactive_dofs::Vector{Int}
     fixed_dofs::Set{Int}
     spc_dofs::Set{Int}
     enforced_dofs::Vector{Int}
@@ -222,6 +223,11 @@ function seed_eigen_solve_cache_from_linear!(eigen_cache, linear_cache, K, ndof:
     haskey(eigen_cache, eigen_key) && return false
 
     solver_diag = get(linear_entry.diagnostics, "linear_solver", Dict{String,Any}())
+    # A regularized factor solves a shifted matrix, not the stored K_ff.
+    # Also let the eigen path decide whether an elastically empty coordinate
+    # is empty in Kg; static inactivity alone cannot establish that.
+    get(solver_diag, "used_singular_lu_regularization", false) && return false
+    isempty(linear_entry.inactive_dofs) || return false
     linear_backend = lowercase(string(get(solver_diag, "backend", "")))
     factor_backend =
         occursin("cholesky", linear_backend) ? "cholesky" :
@@ -315,6 +321,15 @@ end
 
 @inline function _auto_lsmr_residual_threshold()
     return max(solver_env_float("JFEM_SOL101_AUTO_LSMR_RESIDUAL_REL_MAX", 1e-4), 0.0)
+end
+
+function _validate_autospc_disabled_equilibrium(model, relative_residual)
+    model_autospc_enabled(model) && return
+    tolerance = _auto_lsmr_residual_threshold()
+    if !isfinite(relative_residual) || relative_residual > tolerance
+        throw(ArgumentError("The unconstrained system does not balance its applied loads with AUTOSPC disabled (relative residual=$relative_residual, limit=$tolerance). Check unsupported mechanisms and constraints; a regularized displacement is not an equilibrium solution."))
+    end
+    return
 end
 
 function _singular_solution_relative_residual(K_ff::SparseMatrixCSC{Float64,Int},
@@ -461,6 +476,48 @@ function _free_dofs_from_fixed_set(ndof::Int, fixed_dofs::Set{Int})
         end
     end
     return free_dofs
+end
+
+function _inactive_static_dofs(K::SparseMatrixCSC, free_dofs)
+    # Ignore explicitly stored numerical zeros. A zero diagonal is insufficient:
+    # an off-diagonal stiffness, however small, keeps the coordinate active.
+    candidates = falses(size(K, 1))
+    vals = nonzeros(K)
+    rows = rowvals(K)
+    found = false
+    for dof in free_dofs
+        if all(p -> iszero(vals[p]), nzrange(K, dof))
+            candidates[dof] = true
+            found = true
+        end
+    end
+    found || return Int[]
+    # Require an empty row as well as column, including connections to fixed
+    # coordinates. This remains conservative for nonsymmetric direct matrices.
+    for col in axes(K, 2), p in nzrange(K, col)
+        row = rows[p]
+        if candidates[row] && !iszero(vals[p])
+            candidates[row] = false
+        end
+    end
+    return [dof for dof in free_dofs if candidates[dof]]
+end
+
+function _inactive_static_dofs(K::AbstractMatrix, free_dofs)
+    return [dof for dof in free_dofs
+            if all(iszero, view(K, :, dof)) && all(iszero, view(K, dof, :))]
+end
+
+function _validate_inactive_static_loads(inactive_dofs, F_applied, id_map)
+    for dof in inactive_dofs
+        load = F_applied[dof]
+        iszero(load) && continue
+        node_index = div(dof - 1, 6) + 1
+        gid = findfirst(==(node_index), id_map)
+        component = mod(dof - 1, 6) + 1
+        throw(ArgumentError("Unconstrained GRID $gid component $component has load $load and no stiffness with AUTOSPC disabled; constrain or support this direction, or enable AUTOSPC."))
+    end
+    return nothing
 end
 
 
@@ -1099,11 +1156,12 @@ function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diag
     fixed_before_spc = length(fixed_dofs)
     for spc in model["SPC1s"]
         if Int(spc["SID"]) in sets
+            comps = _constraint_grid_components(spc["C"], "SPC/SPC1 $(spc["SID"])")
             for n in spc["NODES"]
-                idx = get(id_map, n, 0)
+                idx = _constraint_grid_index(id_map, n, "SPC/SPC1 $(spc["SID"])")
                 if idx > 0
-                    for c in spc["C"]
-                        push!(fixed_dofs, (idx - 1) * 6 + parse(Int, c))
+                    for c in comps
+                        push!(fixed_dofs, (idx - 1) * 6 + c)
                     end
                 end
             end
@@ -1193,6 +1251,8 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
             "post_factorization_singular_rotational_dofs" => 0,
             "fixed_dofs" => 0,
             "free_dofs" => 0,
+            "inactive_unloaded_dofs" => 0,
+            "unconstrained_dofs" => 0,
         ),
         "linear_solver" => Dict{String,Any}(
             "backend" => "unknown",
@@ -1259,6 +1319,9 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
         log_msg("[SOLVER] Force vector: |F|=$(F_norm), max=$(F_max), nonzero DOFs=$n_nonzero")
         log_msg("[SOLVER] Reusing BC partition/factorization cache: Fixed DOFs=$(length(cached_entry.fixed_dofs)), Free DOFs=$(length(cached_entry.free_dofs))")
 
+        # Inactivity is independent of the first RHS. A later subcase may load
+        # an omitted coordinate and must fail rather than reuse a zero value.
+        _validate_inactive_static_loads(cached_entry.inactive_dofs, F_applied, id_map)
         F_ff = F_applied[cached_entry.free_dofs]
         if cached_entry.K_fs !== nothing
             F_ff = F_ff - cached_entry.K_fs * cached_entry.enforced_values
@@ -1272,6 +1335,7 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
         diagnostics["linear_solver"]["residual_norm"] = r_norm
         diagnostics["linear_solver"]["relative_residual"] = rel_residual
         log_msg("[SOLVER] Residual: |r|=$(r_norm), |r|/|F|=$rel_residual")
+        _validate_autospc_disabled_equilibrium(model, rel_residual)
 
         log_msg("[SOLVER] Post-Processing...")
         u_global = zeros(ndof)
@@ -1297,7 +1361,7 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
     end
 
     fixed_dofs = Set{Int}()
-    spc_dofs = Set{Int}()  # True SPC DOFs only (SPC1 + AUTOSPC), excludes MPC-dependent
+    spc_dofs = Set{Int}()  # SPC, permanent GRID constraints, and AUTOSPC
     enforced_disp = Dict{Int,Float64}()  # global_dof => enforced value (non-zero)
 
     # Fix MPC dependent DOFs (RBE2/RBE3/RBE1/RSPLINE/MPC)
@@ -1308,7 +1372,8 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
         log_msg("[SOLVER] MPC: Fixed $(length(rbe3_map)) dependent DOFs")
     end
 
-    permanent_grid_dofs, permanent_grid_constraints = _apply_permanent_grid_constraints!(fixed_dofs, model, id_map)
+    permanent_grid_dofs, permanent_grid_constraints = _apply_permanent_grid_constraints!(spc_dofs, model, id_map)
+    union!(fixed_dofs, spc_dofs)
     diagnostics["bc_partition"]["permanent_grid_dofs"] = permanent_grid_dofs
     diagnostics["bc_partition"]["permanent_grid_constraints"] = permanent_grid_constraints
     if permanent_grid_dofs > 0
@@ -1329,11 +1394,13 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
     for spc in model["SPC1s"]
         if Int(spc["SID"]) in sets
             d_val = Float64(get(spc, "D", 0.0))
+            isfinite(d_val) || throw(ArgumentError("SPC $(spc["SID"]) displacement must be finite"))
+            comps = _constraint_grid_components(spc["C"], "SPC/SPC1 $(spc["SID"])")
             for n in spc["NODES"]
-                idx = get(id_map, n, 0)
+                idx = _constraint_grid_index(id_map, n, "SPC/SPC1 $(spc["SID"])")
                 if idx > 0
-                    for c in spc["C"]
-                        gdof = (idx - 1) * 6 + parse(Int, c)
+                    for c in comps
+                        gdof = (idx - 1) * 6 + c
                         push!(fixed_dofs, gdof)
                         push!(spc_dofs, gdof)
                         if abs(d_val) > 0.0
@@ -1400,6 +1467,19 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
     log_msg("[SOLVER] Force vector: |F|=$(F_norm), max=$(F_max), nonzero DOFs=$n_nonzero")
     log_msg("[SOLVER] Slicing Matrix (Reducing System)...")
     free_dofs = _free_dofs_from_fixed_set(ndof, fixed_dofs)
+    diagnostics["bc_partition"]["unconstrained_dofs"] = length(free_dofs)
+    inactive_dofs = Int[]
+    if !model_autospc_enabled(model)
+        inactive_dofs = _inactive_static_dofs(K, free_dofs)
+        _validate_inactive_static_loads(inactive_dofs, F_applied, id_map)
+        if !isempty(inactive_dofs)
+            inactive_mask = falses(ndof)
+            inactive_mask[inactive_dofs] .= true
+            filter!(dof -> !inactive_mask[dof], free_dofs)
+            diagnostics["bc_partition"]["inactive_unloaded_dofs"] = length(inactive_dofs)
+            log_msg("[SOLVER] Excluding $(length(inactive_dofs)) exactly empty, unloaded coordinates from the static solve (zero displacement gauge; no added supports)")
+        end
+    end
     diagnostics["bc_partition"]["fixed_dofs"] = length(fixed_dofs)
     diagnostics["bc_partition"]["free_dofs"] = length(free_dofs)
     log_msg("[SOLVER] Fixed DOFs: $(length(fixed_dofs)), Free DOFs: $(length(free_dofs))")
@@ -1419,9 +1499,31 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
         log_msg("[SOLVER] Enforced displacement RHS correction applied ($(length(enforced_dofs)) DOFs)")
     end
 
+    if !model_autospc_enabled(model)
+        # A nonzero load on a zero-stiffness free direction has no equilibrium.
+        # Reject it before LU regularization can manufacture a displacement or
+        # factorization heuristics can add an unrequested automatic constraint.
+        for (local_dof, load) in enumerate(F_ff)
+            iszero(load) && continue
+            supported = K_ff isa SparseMatrixCSC ?
+                any(p -> !iszero(nonzeros(K_ff)[p]), nzrange(K_ff, local_dof)) :
+                any(!iszero, view(K_ff, :, local_dof))
+            supported && continue
+            global_dof = free_dofs[local_dof]
+            node_index = div(global_dof - 1, 6) + 1
+            gid = findfirst(==(node_index), id_map)
+            component = mod(global_dof - 1, 6) + 1
+            throw(ArgumentError("Unconstrained GRID $gid component $component has load $load and no stiffness with AUTOSPC disabled; constrain or support this direction, or enable AUTOSPC."))
+        end
+    end
+
     n_free = length(free_dofs)
     solve_factor = nothing
-    if n_free <= 2000000
+    if n_free == 0
+        diagnostics["linear_solver"]["strategy"] = "empty"
+        diagnostics["linear_solver"]["backend"] = "empty_active_system"
+        u_ff = Float64[]
+    elseif n_free <= 2000000
         diagnostics["linear_solver"]["strategy"] = "direct"
         log_msg("[SOLVER] Using Direct Solver (Cholesky) for $n_free DOFs...")
         u_ff = try
@@ -1431,22 +1533,25 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
             # 19x measured); diag(K_ff) replaces n_free CSC binary searches.
             L_diag = abs.(diag(F_chol))
             K_diag = abs.(diag(K_ff))
+            perm = F_chol.p
             pivot_ratios = zeros(n_free)
             for i in 1:n_free
-                if K_diag[i] > 1e-30
-                    pivot_ratios[i] = L_diag[i]^2 / K_diag[i]
+                # Factor pivots use CHOLMOD's ordering, whereas K_diag is in
+                # original DOF order. Compare each pivot with its own diagonal.
+                original_dof = perm[i]
+                if K_diag[original_dof] > 1e-30
+                    pivot_ratios[i] = L_diag[i]^2 / K_diag[original_dof]
                 else
                     pivot_ratios[i] = 1.0
                 end
             end
-            perm = F_chol.p
             sing_threshold = max(
                 solver_env_float("JFEM_SOL101_POST_FACTOR_SINGULAR_PIVOT_THRESHOLD", 1e-7),
                 0.0,
             )
             singular_local = findall(pivot_ratios .< sing_threshold)
             n_sing = length(singular_local)
-            if n_sing > 0
+            if n_sing > 0 && model_autospc_enabled(model)
                 singular_original = perm[singular_local]
                 singular_global = free_dofs[singular_original]
                 n_sing_trans = count(d -> mod(d - 1, 6) + 1 <= 3, singular_global)
@@ -1458,6 +1563,7 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
 
                 for d in singular_global
                     push!(fixed_dofs, d)
+                    push!(spc_dofs, d)
                 end
                 free_dofs = _free_dofs_from_fixed_set(ndof, fixed_dofs)
                 K_ff = K[free_dofs, free_dofs]
@@ -1477,13 +1583,16 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
             solve_factor = F_chol
             F_chol \ F_ff
         catch e
-            log_msg("[SOLVER] Cholesky failed: $(typeof(e)). Running factorization AUTOSPC...")
+            recovery = model_autospc_enabled(model) ? "Running factorization AUTOSPC..." :
+                "AUTOSPC is disabled; preserving the unconstrained system."
+            log_msg("[SOLVER] Cholesky failed: $(typeof(e)). $recovery")
 
             local u_result
             mechanism_found = false
 
             # Try shifted Cholesky with progressively larger shifts (limited range to avoid false positives)
-            for shift_exp in [-12, -10, -8, -6]
+            shift_exponents = model_autospc_enabled(model) ? (-12, -10, -8, -6) : ()
+            for shift_exp in shift_exponents
                 shift_val = max(max_elem_stiff, 1.0) * 10.0^shift_exp
                 try
                     diagnostics["linear_solver"]["used_factorization_autospc"] = true
@@ -1615,6 +1724,8 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
         end
     end
 
+    diagnostics["bc_partition"]["unconstrained_dofs"] = length(free_dofs) + length(inactive_dofs)
+
     # Report residual
     r_solve = K_ff * u_ff - F_ff
     r_norm = norm(r_solve)
@@ -1622,6 +1733,7 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
     diagnostics["linear_solver"]["residual_norm"] = r_norm
     diagnostics["linear_solver"]["relative_residual"] = rel_residual
     log_msg("[SOLVER] Residual: |r|=$(r_norm), |r|/|F|=$rel_residual")
+    _validate_autospc_disabled_equilibrium(model, rel_residual)
 
     # JFEM_DUMP_SOLVE_STATE: env-var-gated dump of the actual solve-time state
     # (free_dofs, K_ff stats, F_ff stats, u_ff stats) for post-hoc comparison
@@ -1671,6 +1783,7 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
        diagnostics["linear_solver"]["strategy"] == "direct"
         linear_cache[cache_key] = LinearSolveCacheEntry(
             copy(free_dofs),
+            copy(inactive_dofs),
             copy(fixed_dofs),
             copy(spc_dofs),
             copy(enforced_dofs),

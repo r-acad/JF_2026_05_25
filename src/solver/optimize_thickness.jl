@@ -46,6 +46,7 @@ function optimize_thickness(model::Dict, solve_fn::Function;
     restart_from::Union{Nothing,String} = nothing,
     capture_solver_diagnostics::Bool = true)
 
+    _validate_sizing_controls(objective, h_min, h_max, vol_frac, tol, move_limit, eta)
     elem_data = _prepare_element_optimization_data!(model)
     n_elem = length(elem_data)
     n_elem == 0 && error("[OPT] No shell elements available for thickness optimization")
@@ -55,9 +56,11 @@ function optimize_thickness(model::Dict, solve_fn::Function;
     rho_vals = [ed.rho for ed in elem_data]
     mass_initial = sum(initial_h_vec .* areas .* rho_vals)
     mass_target = vol_frac * mass_initial
+    h_min * sum(areas .* rho_vals) <= mass_target * (1 + 1e-12) ||
+        error("[OPT] Mass target is infeasible at the minimum thickness")
 
     if h_max <= 0.0
-        h_max = 10.0 * maximum(initial_h_vec)
+        h_max = max(h_min,10.0 * maximum(initial_h_vec))
     end
 
     h_vec = clamp.(copy(initial_h_vec), h_min, h_max)
@@ -144,7 +147,8 @@ function optimize_thickness(model::Dict, solve_fn::Function;
                 _write_optimization_checkpoint(checkpoint_path, checkpoint_payload)
             end
 
-            if !isnothing(rel_change) && rel_change < tol
+            if !isnothing(rel_change) && rel_change < tol &&
+               current_mass <= mass_target + 1e-6 * max(abs(mass_target), eps(Float64))
                 converged = true
                 termination_reason = "converged"
                 log_msg("[OPT] Converged at iteration $iter_number")
@@ -212,7 +216,8 @@ function _split_per_element_pids!(model)
     elem_data = ElemOptData[]
     pid_base = 100000
 
-    for (eid_str, el) in model["CSHELLs"]
+    for eid_str in sort!(collect(keys(model["CSHELLs"])); by=x->parse(Int,x))
+        el = model["CSHELLs"][eid_str]
         eid = parse(Int, eid_str)
         pid_orig = string(el["PID"])
         prop = get(pshells, pid_orig, nothing)
@@ -227,6 +232,9 @@ function _split_per_element_pids!(model)
         rho <= 0.0 && (rho = 1.0)
 
         pid_new = pid_base + eid
+        while haskey(pshells, string(pid_new))
+            pid_new = Base.checked_add(pid_new, 1)
+        end
         new_prop = copy(prop)
         new_prop["PID"] = pid_new
         pshells[string(pid_new)] = new_prop
@@ -563,9 +571,6 @@ end
 
 function _gradient_update(h, dlam_dh, areas, rho_vals, mass_target, h_min, h_max, move_limit)
     dM_dh = areas .* rho_vals
-    grad_norm = norm(dlam_dh)
-    grad_norm < 1e-30 && return copy(h)
-
     mass_grad_norm = norm(dM_dh)
     if mass_grad_norm < 1e-30
         h_min_vec = _design_limit_vector(h_min, length(h), "lower bounds")
@@ -577,7 +582,9 @@ function _gradient_update(h, dlam_dh, areas, rho_vals, mass_target, h_min, h_max
     h_max_vec = _design_limit_vector(h_max, length(h), "upper bounds")
     move_limit_vec = _design_limit_vector(move_limit, length(h), "move limits")
     mass_grad = dM_dh / mass_grad_norm
-    dlam_proj = dlam_dh - dot(dlam_dh, mass_grad) * mass_grad
+    constraint_active = dot(h,dM_dh) >= mass_target
+    dlam_proj = constraint_active ?
+        dlam_dh - max(dot(dlam_dh,mass_grad),0.0) * mass_grad : dlam_dh
 
     step_scale = maximum(abs.(dlam_proj)) > 1e-30 ?
         maximum(move_limit_vec .* h) / maximum(abs.(dlam_proj)) : 0.0
@@ -588,13 +595,40 @@ function _gradient_update(h, dlam_dh, areas, rho_vals, mass_target, h_min, h_max
         min.(h .* (1 .+ move_limit_vec), h_max_vec))
     h_new = clamp.(h_new, h_min_vec, h_max_vec)
 
-    mass_curr = sum(h_new .* areas .* rho_vals)
-    if mass_curr > 1e-30
-        scale = mass_target / mass_curr
-        h_new = clamp.(h_new .* scale, h_min_vec, h_max_vec)
-    end
+    lower = max.(h .* (1 .- move_limit_vec), h_min_vec)
+    upper = min.(h .* (1 .+ move_limit_vec), h_max_vec)
+    return _project_sizing_mass(h_new,dM_dh,mass_target,lower,upper)
+end
 
-    return h_new
+function _validate_sizing_controls(objective, lower, upper, fraction, tolerance, move, eta)
+    objective in (:min_compliance,:max_buckling) || error("[OPT] Unknown objective: $objective")
+    all(isfinite,(lower,upper,fraction,tolerance,move,eta)) || error("[OPT] Sizing controls must be finite")
+    lower > 0 && (upper == 0 || upper >= lower) || error("[OPT] Invalid sizing bounds")
+    fraction > 0 && tolerance > 0 && 0 <= move < 1 && eta > 0 || error("[OPT] Invalid sizing controls")
+    return nothing
+end
+
+function _project_sizing_mass(values, weights, target, lower, upper)
+    all(w -> isfinite(w) && w >= 0, weights) || error("[OPT] Mass coefficients must be finite and nonnegative")
+    projected = clamp.(values,lower,upper)
+    dot(weights,projected) <= target && return projected
+    # If the move window cannot reach the target in one step, take its
+    # lightest admissible design and continue on the next iteration.
+    dot(weights,lower) >= target && return copy(lower)
+    lo = 0.0; hi = 1.0
+    while dot(weights,clamp.(values .- hi .* weights,lower,upper)) > target
+        hi *= 2
+    end
+    for _ in 1:80
+        midpoint = (lo+hi)/2
+        projected .= clamp.(values .- midpoint .* weights,lower,upper)
+        if dot(weights,projected) > target
+            lo = midpoint
+        else
+            hi = midpoint
+        end
+    end
+    return clamp.(values .- hi .* weights,lower,upper)
 end
 
 # ============================================================================
@@ -639,6 +673,7 @@ function optimize_sizing(model::Dict, solve_fn::Function;
     restart_from::Union{Nothing,String} = nothing,
     capture_solver_diagnostics::Bool = true)
 
+    _validate_sizing_controls(objective, x_min, x_max, vol_frac, tol, move_limit, eta)
     kinds = _normalize_sizing_kinds(design_variables)
     vars = _prepare_sizing_variable_data!(model, kinds)
     n_var = length(vars)
@@ -651,9 +686,11 @@ function optimize_sizing(model::Dict, solve_fn::Function;
     mass_initial = variable_mass_initial + fixed_mass
     mass_target = vol_frac * mass_initial
     variable_mass_target = max(mass_target - fixed_mass, 0.0)
+    fixed_mass + x_min * sum(mass_coeffs) <= mass_target * (1 + 1e-12) ||
+        error("[OPT] Mass target is infeasible at the minimum design bounds")
 
     if x_max <= 0.0
-        x_max = 10.0 * maximum(initial_x_vec)
+        x_max = max(x_min,10.0 * maximum(initial_x_vec))
     end
 
     x_vec = clamp.(copy(initial_x_vec), x_min, x_max)
@@ -748,7 +785,8 @@ function optimize_sizing(model::Dict, solve_fn::Function;
                 _write_optimization_checkpoint(checkpoint_path, checkpoint_payload)
             end
 
-            if !isnothing(rel_change) && rel_change < tol
+            if !isnothing(rel_change) && rel_change < tol &&
+               current_mass <= mass_target + 1e-6 * max(abs(mass_target), eps(Float64))
                 converged = true
                 termination_reason = "converged"
                 log_msg("[OPT] Converged at iteration $iter_number")

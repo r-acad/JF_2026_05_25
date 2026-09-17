@@ -94,7 +94,9 @@ function _extract_relation1(cards, target_key::String)
         c0 = Float64(parse_nastran_number(safe_get(c, 9), 0.0))
 
         coeffs = Any[]
-        k = 10
+        # Parent field 9 is reserved. Coefficient pairs begin on the continuation.
+        # Retain the historical compact free-field form when that slot is populated.
+        k = isempty(strip(string(safe_get(c, 10, "")))) ? 11 : 10
         while k <= length(c)
             desvar_id = to_id(parse_nastran_number(safe_get(c, k), 0))
             coef = _opt_float_or_nothing(safe_get(c, k + 1))

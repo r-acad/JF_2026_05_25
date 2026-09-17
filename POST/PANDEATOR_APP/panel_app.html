@@ -224,6 +224,8 @@
       <button id="analyzeBtn">Analyze (SOL 105)</button>
     </div>
     <div id="modeBar">
+      <label id="binaryCaseLabel" hidden>Buckling subcase</label>
+      <select id="binaryCaseSelect" hidden></select>
       <label>Result</label>
       <select id="modeSelect"><option>(no results yet)</option></select>
       <div id="eigLbl">&nbsp;</div>
@@ -276,6 +278,7 @@
   </div>
 </div>
 
+<script src="../jfem_binary.js"></script>
 <script>
 "use strict";
 // =====================================================================
@@ -896,92 +899,30 @@ canvas.addEventListener("pointerup",(e)=>{
 });
 
 // ---- v4-aware parseJFEM (mirrors postv11.html) ----
-function parseJFEM(buffer){
-  const view=new DataView(buffer); let off=0;
-  const magic=String.fromCharCode(view.getUint8(0),view.getUint8(1),view.getUint8(2),view.getUint8(3));
-  if (magic!=='JFEM') throw new Error("not a .jfem file");
-  off=4;
-  const version=view.getUint32(off,true);off+=4;
-  // The SOL105 buckling writer uses a v3-structured layout and bumps the version
-  // to 5 ONLY to append a trailing 'STAT' block (static preload) after the EVAL
-  // footer. So for layout purposes v5 == v3 (no nTet/nHex/nPen header fields and
-  // no per-subcase solid block); only the post-EVAL STAT block is extra.
-  const buckling = (version===3 || version===5);   // buckling-format file
-  const hasStatic = (version===5);
-  const layoutV = buckling ? 3 : version;          // structural version for offsets
-  const nNodes=view.getUint32(off,true);off+=4;
-  const nQuads=view.getUint32(off,true);off+=4;
-  const nTrias=view.getUint32(off,true);off+=4;
-  const nBars=view.getUint32(off,true);off+=4;
-  const nRods=view.getUint32(off,true);off+=4;
-  const nSubcases=view.getUint32(off,true);off+=4;
-  const nCelas=layoutV>=3?view.getUint32(off,true):0; if(layoutV>=3)off+=4;
-  const nRBE2 =layoutV>=3?view.getUint32(off,true):0; if(layoutV>=3)off+=4;
-  const nRBE3 =layoutV>=3?view.getUint32(off,true):0; if(layoutV>=3)off+=4;
-  const nTet=layoutV>=4?view.getUint32(off,true):0; if(layoutV>=4)off+=4;
-  const nHex=layoutV>=4?view.getUint32(off,true):0; if(layoutV>=4)off+=4;
-  const nPen=layoutV>=4?view.getUint32(off,true):0; if(layoutV>=4)off+=4;
-  const nodes=[], nidToIdx={};
-  for(let i=0;i<nNodes;i++){const nid=view.getInt32(off,true);off+=4;
-    const x=view.getFloat32(off,true);off+=4;const y=view.getFloat32(off,true);off+=4;const z=view.getFloat32(off,true);off+=4;
-    nodes.push({nid,x,y,z}); nidToIdx[nid]=i;}
-  const quads=[];
-  for(let i=0;i<nQuads;i++){const eid=view.getInt32(off,true);off+=4;const pid=view.getInt32(off,true);off+=4;
-    const g=[view.getInt32(off,true),view.getInt32(off+4,true),view.getInt32(off+8,true),view.getInt32(off+12,true)];off+=16;
-    if(layoutV>=2)off+=4; quads.push({eid,pid,nodes:g});}
-  const trias=[];
-  for(let i=0;i<nTrias;i++){const eid=view.getInt32(off,true);off+=4;const pid=view.getInt32(off,true);off+=4;
-    const g=[view.getInt32(off,true),view.getInt32(off+4,true),view.getInt32(off+8,true)];off+=12;
-    if(layoutV>=2)off+=4; trias.push({eid,pid,nodes:g});}
-  for(let i=0;i<nBars;i++){off+=16; if(layoutV>=2)off+=4;}
-  for(let i=0;i<nRods;i++){off+=16; if(layoutV>=2)off+=4;}
-  if(layoutV>=3){ for(let i=0;i<nCelas;i++) off+=28; }
-  if(layoutV>=3){ for(let i=0;i<nRBE2;i++){off+=12;const n=view.getUint32(off,true);off+=4;off+=n*4;} }
-  if(layoutV>=3){ for(let i=0;i<nRBE3;i++){off+=12;const n=view.getUint32(off,true);off+=4;off+=n*4;} }
-  if(layoutV>=4){ for(let i=0;i<nTet;i++) off+=8+16;
-                  for(let i=0;i<nHex;i++) off+=8+32;
-                  for(let i=0;i<nPen;i++) off+=8+24; }
-  const nSolids=nTet+nHex+nPen, nShells=nQuads+nTrias;
-  const subcases=[];
-  for(let s=0;s<nSubcases;s++){
-    const sid=view.getUint32(off,true);off+=4;
-    const disp=new Float32Array(nNodes*6);
-    for(let i=0;i<nNodes*6;i++){disp[i]=view.getFloat32(off,true);off+=4;}
-    off += nShells*7*4;      // shell results (skip)
-    off += nBars*7*4;        // bar
-    off += nRods*2*4;        // rod
-    if(layoutV>=4) off += nSolids*4;
-    if(layoutV>=3){
-      const nspc=view.getUint32(off,true);off+=4; off+=nspc*8;
-      const nf=view.getUint32(off,true);off+=4; off+=nf*16;
-      const nm=view.getUint32(off,true);off+=4; off+=nm*16;
-    }
-    subcases.push({sid,disp});
-  }
-  let eigenvalues=null;
-  if(off+8<=buffer.byteLength){
-    if(view.getUint8(off)===69&&view.getUint8(off+1)===86&&view.getUint8(off+2)===65&&view.getUint8(off+3)===76){
-      off+=4; const nEV=view.getUint32(off,true);off+=4; eigenvalues=[];
-      for(let i=0;i<nEV;i++){eigenvalues.push(view.getFloat64(off,true));off+=8;}
-    }
-  }
-  // ---- v5 STATIC block ('STAT'): static disp (nNodes*6 f32) + per-shell
-  //      [vonMises, equivStrain, strainEnergyDensity] (nShells*3 f32) ----
-  let staticData=null;
-  if(hasStatic && off+4<=buffer.byteLength &&
-     view.getUint8(off)===83&&view.getUint8(off+1)===84&&view.getUint8(off+2)===65&&view.getUint8(off+3)===84){
-    off+=4;
-    const sdisp=new Float32Array(nNodes*6);
-    for(let i=0;i<nNodes*6;i++){ sdisp[i]= (off+4<=buffer.byteLength)?view.getFloat32(off,true):0; off+=4; }
-    const vm=new Float32Array(nShells), est=new Float32Array(nShells), sed=new Float32Array(nShells);
-    for(let i=0;i<nShells;i++){
-      vm[i] =(off+4<=buffer.byteLength)?view.getFloat32(off,true):0; off+=4;
-      est[i]=(off+4<=buffer.byteLength)?view.getFloat32(off,true):0; off+=4;
-      sed[i]=(off+4<=buffer.byteLength)?view.getFloat32(off,true):0; off+=4;
-    }
-    staticData={disp:sdisp, vm, est, sed};
-  }
-  return {version,nNodes,nodes,nidToIdx,quads,trias,subcases,eigenvalues,staticData};
+function parseJFEM(buffer){ return JFEMBinary.parse(buffer); }
+
+let analysisFiles=[], analysisMetadata=null;
+function loadAnalysisFile(index){
+  const file=analysisFiles[index];
+  let bytes=file && file.bytes;
+  if(!bytes || !bytes.length) bytes=index===0?analysisMetadata.jfem_bytes:null;
+  if(!(bytes instanceof Uint8Array) || !bytes.length) throw new Error("No binary result for this subcase");
+  loadResults(bytes,analysisMetadata);
+}
+$("binaryCaseSelect").addEventListener("change",e=>loadAnalysisFile(Number(e.target.value)));
+function setAnalysisFiles(response){
+  analysisMetadata=response;
+  analysisFiles=response.jfem_files && response.jfem_files.length?response.jfem_files:[{bytes:response.jfem_bytes}];
+  const select=$("binaryCaseSelect");
+  select.replaceChildren();
+  analysisFiles.forEach((file,i)=>{
+    const option=document.createElement("option"); option.value=i;
+    option.textContent=file.buckling_subcase_id===undefined?file.file||"Result":
+      `Subcase ${file.buckling_subcase_id} (preload ${file.static_subcase_id})`;
+    select.appendChild(option);
+  });
+  select.hidden=analysisFiles.length<2; $("binaryCaseLabel").hidden=select.hidden;
+  loadAnalysisFile(0);
 }
 
 function computeBounds(nodes,s){
@@ -1146,7 +1087,7 @@ function loadResults(buffer, meta){
   const freqs=meta.frequencies||[];
   const aType=meta.analysis_type||"";
   // How to label each per-subcase result depends on the analysis type:
-  //   SOL 103 modes      -> "Mode k  f=.. Hz"   (frequency from meta, else sqrt(ev))
+  //   SOL 103 modes      -> "Mode k  f=.. Hz"   (frequency from meta or binary footer)
   //   SOL 105 buckling   -> "Buckling mode k  λ=.."
   //   SOL 101/106 static -> "Subcase N (static)"
   const isModes=aType.indexOf("MODES")>=0;
@@ -1167,18 +1108,17 @@ function loadResults(buffer, meta){
   }
   femData.subcases.forEach((sc,i)=>{
     const ev=evs[i];
+    const frequency=isModes ? (freqs[i]===undefined ? ev : freqs[i]) : undefined;
     let label;
     if(isModes){
-      // frequency in Hz: prefer the server value, else derive from the eigenvalue
-      let f=freqs[i];
-      if(f===undefined && ev!==undefined && ev>0) f=Math.sqrt(ev)/(2*Math.PI);
+      const f=frequency; // SOL103 binary footer also stores Hz.
       label = (f!==undefined) ? `Mode ${i+1}  f=${f.toPrecision(5)} Hz` : `Mode ${i+1}`;
     } else if(isBuckling && ev!==undefined){
       label = `Buckling mode ${i+1}  λ=${ev.toPrecision(5)}`;
     } else {
       label = `Subcase ${sc.sid} (static)`;
     }
-    results.push({label, sc:i, field:null, mode:(isModes||isBuckling), ev, freq:(isModes?freqs[i]:undefined)});
+    results.push({label, sc:i, field:null, mode:(isModes||isBuckling), ev, freq:frequency});
   });
   femData._results=results;
   // Remember the analysis kind so the eigenvalue list can label its column
@@ -1244,10 +1184,9 @@ function renderEigList(results){
   const col = isModes ? "f [Hz]" : "λ";
   const fmtVal = (r)=>{
     if(isModes){
-      // frequency in Hz: prefer the server value, else derive from the eigenvalue
-      // (same rule as the result label: f = sqrt(ev)/2π).
+      // The binary footer and server metadata both store frequencies in Hz.
       let f=r.freq;
-      if(f===undefined && r.ev!==undefined && r.ev>0) f=Math.sqrt(r.ev)/(2*Math.PI);
+      if(f===undefined && r.ev!==undefined) f=r.ev;
       return (f!==undefined) ? f.toPrecision(6) : "—";
     }
     if(r.ev!==undefined && r.ev!==null) return (+r.ev).toPrecision(6);
@@ -1938,11 +1877,8 @@ async function analyze(){
     }
     // res.jfem_bytes arrives as a msgpack bin -> Uint8Array. Carry the SOL info
     // into the viewer so result labels match the analysis type.
-    const meta={sol:res.sol, analysis_type:aType, frequencies:res.frequencies||[]};
-    let bytes=res.jfem_bytes;
-    if(bytes && bytes.buffer){ loadResults(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),meta); markReady(); }
-    else if(bytes){ loadResults(new Uint8Array(bytes).buffer,meta); markReady(); }
-    else setStatus("Run finished but no .jfem returned.\n"+(res.log||""),"err");
+    setAnalysisFiles({...res,analysis_type:aType});
+    markReady();
   }catch(e){
     // A dropped connection (TypeError "Failed to fetch") usually means the
     // server process went away mid-solve - most often killed by the OS when a

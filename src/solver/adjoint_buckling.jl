@@ -20,18 +20,21 @@ Compute φᵀ·dK/dx·φ and ψᵀ·dK/dx·u via full model reassembly FD.
 Returns Dict{group_label => (phi_dK_phi, psi_dK_u)}.
 """
 function _full_model_dKdx_matrix_diffs(dv, model)
+    _guard_scalar_isotropic_material_dv!(dv, model)
+    _guard_context_free_pcomp_dkdx!(dv, model)
     dv_type = dv["type"]
     result = Dict{String, SparseMatrixCSC{Float64, Int}}()
 
     function _assemble_diff!(label, apply_plus!, apply_minus!, restore!)
-        apply_plus!()
-        K_plus, = assemble_stiffness(model)
-
-        apply_minus!()
-        K_minus, = assemble_stiffness(model)
-
-        restore!()
-        result[label] = K_plus - K_minus
+        try
+            apply_plus!()
+            K_plus, = assemble_stiffness(model)
+            apply_minus!()
+            K_minus, = assemble_stiffness(model)
+            result[label] = K_plus - K_minus
+        finally
+            restore!()
+        end
     end
 
     if dv_type == "shell_thickness"
@@ -47,6 +50,21 @@ function _full_model_dKdx_matrix_diffs(dv, model)
                 () -> (pshells[pid_str]["T"] = h0),
             )
             result["PID_$pid_str"] ./= (2 * delta)
+        end
+    elseif dv_type == "material_E"
+        for mid in dv["mids"]
+            mid_str = string(Int(mid))
+            mat = model["MATs"][mid_str]
+            E0, G0 = Float64(mat["E"]), Float64(mat["G"])
+            E0 > 0.0 || error("[ADJOINT-BUCK] Material E must be positive")
+            delta = max(abs(E0) * 1e-5, 1e-12)
+            _assemble_diff!(
+                "MID_$mid_str",
+                () -> begin mat["E"] = E0 + delta; mat["G"] = G0 * (1 + delta / E0) end,
+                () -> begin mat["E"] = E0 - delta; mat["G"] = G0 * (1 - delta / E0) end,
+                () -> begin mat["E"] = E0; mat["G"] = G0 end,
+            )
+            result["MID_$mid_str"] ./= 2 * delta
         end
     elseif dv_type == "material_NU"
         mats = model["MATs"]
@@ -153,6 +171,8 @@ function _buckling_dKdx_group_labels(dv)
         return Set("PID_$(Int(pid))" for pid in dv["pids"])
     elseif dv_type == "topology_density"
         return Set("EID_$(Int(eid))" for eid in dv["eids"])
+    elseif dv_type == "node_coord"
+        return Set(["GRID_$(Int(dv["grid"]))_$(Int(dv["comp"]))"])
     end
     return Set{String}()
 end
@@ -263,6 +283,7 @@ end
 
 function _buckling_dKg_full_model_group_labels(dv, model, id_map, node_coords, node_R, u_global)
     dv_type = dv["type"]
+    dv_type == "material_E" && return Set("MID_$(Int(mid))" for mid in dv["mids"])
     if !(dv_type in ("shell_thickness", "material_NU"))
         return Set{String}()
     end
@@ -299,11 +320,57 @@ function _buckling_dKg_full_model_group_labels(dv, model, id_map, node_coords, n
     return labels
 end
 
+function _buckling_has_blank_mid3_rigid_shear(model)
+    solver_env_bool("JFEM_SOL105_PSHELL_BLANK_MID3_RIGID_SHEAR", true) || return false
+    kernel = lowercase(strip(get(ENV, "JFEM_Q4_KERNEL_STATIC", get(ENV, "JFEM_Q4_KERNEL", "macneal"))))
+    kernel in ("macneal", "macneal_pcomp", "macneal-pcomp", "macneal_aniso",
+               "macneal_all", "mitc4_3d_aspect", "mitc4-3d-aspect",
+               "mitc3d_aspect", "mitc3d-aspect") || return false
+    for el in values(get(model, "CSHELLs", Dict()))
+        length(get(el, "NODES", ())) == 4 || continue
+        prop = get(get(model, "PSHELLs", Dict()), string(el["PID"]), Dict())
+        get(prop, "TYPE", "") == "PCOMP_CLT" && continue
+        get(prop, "MID3", 0) == 0 && get(prop, "BEND_RATIO", 1.0) > 1e-12 && return true
+    end
+    return false
+end
+
+function _buckling_local_rhs_has_operator_gap(model)
+    # The local dK builders and generic reassembly do not carry the SOL105
+    # blank-MID3 rigid-shear policy. Differentiate the complete forward solve.
+    _buckling_has_blank_mid3_rigid_shear(model) && return true
+    !isempty(get(model,"CSOLIDs",Dict())) && return true
+    # The local stress-displacement RHS reconstructs an isotropic primary-MID
+    # tensor. This omits anisotropy and MID4 curvature coupling for both Q4 and
+    # T3, independently of the optional Q4 KDJJ formulation.
+    for el in values(get(model,"CSHELLs",Dict()))
+        prop = get(get(model,"PSHELLs",Dict()),string(el["PID"]),Dict())
+        _pshell_local_constitutive_gap(prop, model) && return true
+    end
+    kg_quad4_iso_nastran_kdjj_mode() === :off && return false
+    for el in values(get(model,"CSHELLs",Dict()))
+        length(el["NODES"]) == 4 || continue
+        prop = get(get(model,"PSHELLs",Dict()),string(el["PID"]),Dict())
+        get(prop,"TYPE","") == "PCOMP_CLT" && continue
+        mat = get(get(model,"MATs",Dict()),string(get(prop,"MID",0)),Dict())
+        haskey(mat,"E") && return true
+    end
+    return false
+end
+
 function _buckling_full_sensitivity_fd_group_labels(dv, model, id_map, node_coords, node_R, u_global)
     dv_type = dv["type"]
+    if dv_type in ("shell_thickness", "material_NU", "material_E") &&
+       _buckling_has_blank_mid3_rigid_shear(model)
+        return _buckling_dKdx_group_labels(dv)
+    end
     if !(dv_type in ("shell_thickness", "material_NU"))
         return Set{String}()
     end
+
+    # The legacy local RHS does not represent solid Kg or the KDJJ shell
+    # operator. Existing end-to-end finite differences preserve those paths.
+    _buckling_local_rhs_has_operator_gap(model) && return _buckling_dKdx_group_labels(dv)
 
     cshells = get(model, "CSHELLs", Dict())
     isempty(cshells) && return Set{String}()
@@ -343,6 +410,7 @@ function _full_model_buckling_fd_group_sensitivities(dv, results, group_labels::
     isempty(group_labels) && return Dict{String, Vector{Float64}}()
 
     base_model = results["model"]
+    _guard_scalar_isotropic_material_dv!(dv, base_model)
     base_mode_shapes = results["_raw_mode_shapes"]
     n_modes = length(results["eigenvalues"])
     sensitivities = Dict{String, Vector{Float64}}()
@@ -352,11 +420,17 @@ function _full_model_buckling_fd_group_sensitivities(dv, results, group_labels::
         # (Main when this file is include()-loaded, OpenJFEM when it's loaded
         # as part of the OpenJFEM package).
         pert_results = parentmodule(@__MODULE__).solve_model(model_pert)
-        return _track_buckling_eigenvalues_by_mac(
+        sid = get(results, "_buckling_subcase_id", nothing)
+        selected = sid === nothing ? nothing : result_for(pert_results["buckling"], sid)
+        sid !== nothing && selected === nothing && error("[ADJOINT-BUCK] Perturbed subcase $sid is missing")
+        tracked = _track_buckling_eigenvalues_by_mac(
             base_mode_shapes,
-            pert_results["_raw_mode_shapes"],
-            pert_results["eigenvalues"],
+            selected === nothing ? pert_results["_raw_mode_shapes"] : selected.reported_mode_shapes,
+            selected === nothing ? pert_results["eigenvalues"] : selected.reported_eigenvalues,
         )
+        length(tracked) == n_modes && all(isfinite, tracked) || error(
+            "[ADJOINT-BUCK] Perturbed solve did not recover every reference mode")
+        return tracked
     end
 
     if dv["type"] == "shell_thickness"
@@ -373,6 +447,26 @@ function _full_model_buckling_fd_group_sensitivities(dv, results, group_labels::
             model_minus["PSHELLs"][pid_str]["T"] = h0 - delta
             lam_minus = _solve_tracked(model_minus)
 
+            sensitivities[group_label] = [
+                (lam_plus[i] - lam_minus[i]) / (2.0 * delta) for i in 1:n_modes
+            ]
+        end
+    elseif dv["type"] == "material_E"
+        for group_label in group_labels
+            mid_str = split(group_label, "_", limit=2)[2]
+            material = base_model["MATs"][mid_str]
+            E0, G0 = Float64(material["E"]), Float64(material["G"])
+            E0 > 0.0 || error("[ADJOINT-BUCK] Material E must be positive")
+            delta = max(abs(E0) * 1e-5, 1e-12)
+            model_plus = deepcopy(base_model)
+            model_plus["MATs"][mid_str]["E"] = E0 + delta
+            model_plus["MATs"][mid_str]["G"] = G0 * (1.0 + delta / E0)
+            lam_plus = _solve_tracked(model_plus)
+
+            model_minus = deepcopy(base_model)
+            model_minus["MATs"][mid_str]["E"] = E0 - delta
+            model_minus["MATs"][mid_str]["G"] = G0 * (1.0 - delta / E0)
+            lam_minus = _solve_tracked(model_minus)
             sensitivities[group_label] = [
                 (lam_plus[i] - lam_minus[i]) / (2.0 * delta) for i in 1:n_modes
             ]
@@ -404,32 +498,37 @@ function _full_model_buckling_fd_group_sensitivities(dv, results, group_labels::
 end
 
 
-function _full_model_dKg_dx_matrix_diffs(dv, model, u_global)
+function _full_model_dKg_dx_matrix_diffs(dv, model, u_global; static_load_id=nothing)
     dv_type = dv["type"]
     result = Dict{String, SparseMatrixCSC{Float64, Int}}()
     snorm_angle = sol105_snorm_angle_override()
 
     function _kg_diff(label, apply_plus!, apply_minus!, restore!, delta)
-        apply_plus!()
-        _, id_map_p, nc_p, ndof_p, nr_p, _, rbe3_p, snorm_p, _ = assemble_stiffness(
-            model; snorm_angle_override=snorm_angle
-        )
-        Kg_plus = assemble_geometric_stiffness(
-            model, id_map_p, nc_p, nr_p, ndof_p, u_global, snorm_p, rbe3_p;
-            snorm_angle_override=snorm_angle,
-        )
+        try
+            apply_plus!()
+            _, id_map_p, nc_p, ndof_p, nr_p, _, rbe3_p, snorm_p, _ = assemble_stiffness(
+                model; snorm_angle_override=snorm_angle
+            )
+            Kg_plus = assemble_geometric_stiffness(
+                model, id_map_p, nc_p, nr_p, ndof_p, u_global, snorm_p, rbe3_p;
+                snorm_angle_override=snorm_angle,
+                static_load_id=static_load_id,
+            )
 
-        apply_minus!()
-        _, id_map_m, nc_m, ndof_m, nr_m, _, rbe3_m, snorm_m, _ = assemble_stiffness(
-            model; snorm_angle_override=snorm_angle
-        )
-        Kg_minus = assemble_geometric_stiffness(
-            model, id_map_m, nc_m, nr_m, ndof_m, u_global, snorm_m, rbe3_m;
-            snorm_angle_override=snorm_angle,
-        )
+            apply_minus!()
+            _, id_map_m, nc_m, ndof_m, nr_m, _, rbe3_m, snorm_m, _ = assemble_stiffness(
+                model; snorm_angle_override=snorm_angle
+            )
+            Kg_minus = assemble_geometric_stiffness(
+                model, id_map_m, nc_m, nr_m, ndof_m, u_global, snorm_m, rbe3_m;
+                snorm_angle_override=snorm_angle,
+                static_load_id=static_load_id,
+            )
 
-        restore!()
-        result[label] = (Kg_plus - Kg_minus) / (2.0 * delta)
+            result[label] = (Kg_plus - Kg_minus) / (2.0 * delta)
+        finally
+            restore!()
+        end
     end
 
     if dv_type == "shell_thickness"
@@ -443,6 +542,21 @@ function _full_model_dKg_dx_matrix_diffs(dv, model, u_global)
                 () -> (pshells[pid_str]["T"] = h0 + delta),
                 () -> (pshells[pid_str]["T"] = h0 - delta),
                 () -> (pshells[pid_str]["T"] = h0),
+                delta,
+            )
+        end
+    elseif dv_type == "material_E"
+        for mid in dv["mids"]
+            mid_str = string(Int(mid))
+            mat = model["MATs"][mid_str]
+            E0, G0 = Float64(mat["E"]), Float64(mat["G"])
+            E0 > 0.0 || error("[ADJOINT-BUCK] Material E must be positive")
+            delta = max(abs(E0) * 1e-5, 1e-12)
+            _kg_diff(
+                "MID_$mid_str",
+                () -> begin mat["E"] = E0 + delta; mat["G"] = G0 * (1 + delta / E0) end,
+                () -> begin mat["E"] = E0 - delta; mat["G"] = G0 * (1 - delta / E0) end,
+                () -> begin mat["E"] = E0; mat["G"] = G0 end,
                 delta,
             )
         end
@@ -608,7 +722,7 @@ function _quad4_buckling_local_data(el, model, id_map, node_coords, node_R)
     )
 end
 
-function _rotate_pcomp_kg_constitutive(prop, el, qd)
+function _rotate_pcomp_kg_constitutive(prop, el, qd, model)
     Cm_kg = copy(prop["Cm"])
     Cb_kg = copy(prop["Cb"])
     Cs_kg = copy(prop["Cs"])
@@ -719,7 +833,7 @@ function _flat_pcomp_quad4_kg_context(el, model, id_map, node_coords, node_R, u_
         :generic_full
     end
 
-    Cm_kg, Cb_kg, Cs_kg, beta = _rotate_pcomp_kg_constitutive(prop, el, qd)
+    Cm_kg, Cb_kg, Cs_kg, beta = _rotate_pcomp_kg_constitutive(prop, el, qd, model)
 
     compatible_only = kg_use_compatible_membrane_stress()
     use_incompatible_modes = solver_env_bool("JFEM_SOL105_EIG_PCOMP_MEMBRANE_INCOMP", false)
@@ -877,7 +991,16 @@ function _flat_iso_quad4_kg_context(el, model, id_map, node_coords, node_R, u_gl
     nu = Float64(get(mat, "NU", 0.0))
     h = Float64(prop["T"])
     compatible_only = kg_use_compatible_membrane_stress()
-    membrane_incomp = solver_env_bool("JFEM_SOL105_EIG_MEMBRANE_INCOMP", false)
+    # Follow the actual Kg recovery control precedence; the elastic eigen
+    # operator is only the fallback when static-operator matching is disabled.
+    membrane_incomp =
+        if haskey(ENV, "JFEM_KG_MEMBRANE_INCOMP")
+            solver_env_bool("JFEM_KG_MEMBRANE_INCOMP", sol105_static_membrane_incomp_enabled())
+        elseif kg_match_static_membrane_operator_enabled()
+            sol105_static_membrane_incomp_enabled()
+        else
+            solver_env_bool("JFEM_SOL105_EIG_MEMBRANE_INCOMP", false)
+        end
     flat_iso_membrane_incomp = q4_flat_iso_eig_membrane_incomp_enabled()
     model_has_line_elements =
         !isempty(get(model, "CBARs", Dict())) ||
@@ -2009,62 +2132,9 @@ function _dKg_dx_phi_thickness(dv, model, id_map, node_coords, node_R, u_global,
 end
 
 function _dKg_dx_phi_material_E(dv, model, id_map, node_coords, node_R, u_global, phi, Kg, ndof)
-    # At fixed u: σ = D(E)·Bm·u ∝ E, so Kg ∝ E → ∂Kg/∂E = Kg/E
-    mids = Set(string.(dv["mids"]))
-    result = Dict{String, Float64}()
-
-    for mid_str in mids
-        val = 0.0
-        E_mid = model["MATs"][mid_str]["E"]
-        for (_, el) in model["CSHELLs"]
-            ed = _shell_elem_local_data(el, model, id_map, node_coords, node_R)
-            if isnothing(ed); continue; end
-            if ed.mid_str != mid_str; continue; end
-
-            phi_elem = [phi[ed.dofs[i]] for i in 1:ed.ndof_elem]
-            u_elem = [u_global[ed.dofs[i]] for i in 1:ed.ndof_elem]
-            phi_local = ed.T_mat * phi_elem
-            u_local = ed.T_mat * u_elem
-
-            h = ed.prop["T"]; E = ed.mat["E"]; nu = ed.mat["NU"]
-            Bm, _, D = _shell_centroid_B_matrices(ed.n_nodes, ed.lc, E, nu)
-            sigma_mem = D * Bm * u_local
-
-            if ed.n_nodes == 4
-                Kg_elem = FEM.geometric_stiffness_quad4(ed.lc, sigma_mem, h)
-            else
-                Kg_elem = FEM.geometric_stiffness_tria3(ed.lc, sigma_mem, h)
-            end
-            val += dot(phi_local, Kg_elem * phi_local) / E
-        end
-
-        # Also bars with this MID
-        pbarls = get(model, "PBARLs", Dict())
-        for (_, bar) in get(model, "CBARs", Dict())
-            prop = get(pbarls, string(bar["PID"]), nothing)
-            if isnothing(prop); continue; end
-            if string(prop["MID"]) != mid_str; continue; end
-            mat = get(model["MATs"], mid_str, nothing)
-            if isnothing(mat); continue; end
-            if !haskey(id_map, bar["GA"]) || !haskey(id_map, bar["GB"]); continue; end
-            i1, i2 = id_map[bar["GA"]], id_map[bar["GB"]]
-            rd = _rod_local_frame_and_transform(i1, i2, node_coords, node_R)
-            if isnothing(rd); continue; end
-
-            E = mat["E"]; A = prop["A"]; L = rd.L
-            u_elem = [u_global[rd.dofs[i]] for i in 1:12]
-            u_local = rd.T12 * u_elem
-            P = E * A / L * (u_local[7] - u_local[1])
-            Kg_elem = FEM.geometric_stiffness_frame3d(L, P)
-            phi_elem = [phi[rd.dofs[i]] for i in 1:12]
-            phi_local = rd.T12 * phi_elem
-            # Kg ∝ P ∝ E (at fixed u)
-            val += dot(phi_local, Kg_elem * phi_local) / E
-        end
-
-        result["MID_$mid_str"] = val
-    end
-    return result
+    # Differentiate only the selected material through the actual assembled
+    # operator, including specialized shells, rods and solids.
+    return _full_model_dKg_dx_phi(dv, model, u_global, phi)
 end
 
 function _dKg_dx_phi_material_NU(dv, model, id_map, node_coords, node_R, u_global, phi, Kg, ndof)
@@ -2226,11 +2296,13 @@ function _dKg_dx_phi_node_coord(dv, model, id_map, node_coords, node_R, u_global
 
     # Helper: reassemble K to get updated node_coords/node_R, then assemble Kg
     function _Kg_at_perturbed(d)
-        coords_arr[comp] = x0 + d
-        _, id_map_p, nc_p, ndof_p, nr_p, _, rbe3_p, snorm_p, _ = assemble_stiffness(model)
-        Kg_p = assemble_geometric_stiffness(model, id_map_p, nc_p, nr_p, ndof_p, u_global, snorm_p, rbe3_p)
-        coords_arr[comp] = x0  # restore
-        return Kg_p
+        try
+            coords_arr[comp] = x0 + d
+            _, id_map_p, nc_p, ndof_p, nr_p, _, rbe3_p, snorm_p, _ = assemble_stiffness(model)
+            return assemble_geometric_stiffness(model, id_map_p, nc_p, nr_p, ndof_p, u_global, snorm_p, rbe3_p)
+        finally
+            coords_arr[comp] = x0
+        end
     end
 
     Kg_plus = _Kg_at_perturbed(delta)
@@ -2360,9 +2432,82 @@ function solve_adjoint_buckling(results::Dict, adjoint_config_path::String)
     end
 
     config = parse_adjoint_config(adjoint_config_path)
+    for dv in config["design_variables"]
+        _guard_context_free_pcomp_dkdx!(dv, results["model"])
+    end
+    buckling = get(results, "buckling", nothing)
+    buckling isa BucklingResult || return _solve_adjoint_buckling_case(results, config)
+    states = get(results, "static_states", nothing)
+    case_results = Dict{Int,Any}()
+    for sc in buckling.subcases
+        state = states === nothing ? nothing : get(states, sc.static_subcase_id, nothing)
+        state === nothing && (states !== nothing || length(buckling.subcases) > 1) && error(
+            "[ADJOINT-BUCK] Missing static state $(sc.static_subcase_id) for subcase $(sc.buckling_subcase_id)")
+        state !== nothing && state.temp_load_id !== nothing && error(
+            "[ADJOINT-BUCK] Temperature-loaded sensitivity requires thermal load/material derivatives; use end-to-end finite differences.")
+        local_results = copy(results)
+        local_results["K"] = state === nothing ? results["K"] : state.K
+        local_results["K_eig"] = sc.K_eig
+        local_results["Kg"] = sc.Kg
+        local_results["u_static"] = sc.u_static
+        local_results["fixed_dofs"] = sc.fixed_dofs
+        local_results["eigenvalues"] = sc.reported_eigenvalues
+        local_results["_raw_mode_shapes"] = sc.reported_mode_shapes
+        local_results["_buckling_subcase_id"] = sc.buckling_subcase_id
+        local_results["_static_subcase_id"] = sc.static_subcase_id
+        if state !== nothing
+            local_results["id_map"] = state.id_map
+            local_results["node_coords"] = state.X
+            local_results["node_R"] = state.node_R
+            local_results["snorm_normals"] = state.snorm_normals
+        end
+        case_results[sc.buckling_subcase_id] = _solve_adjoint_buckling_case(local_results, config)
+    end
+    isempty(case_results) && error("[ADJOINT-BUCK] No buckling subcases are available")
+    metadata = get(results, "mode_metadata", nothing)
+    if metadata === nothing || length(metadata) != length(results["eigenvalues"])
+        length(buckling.subcases) == 1 || error("[ADJOINT-BUCK] Missing flat-mode ownership metadata")
+        sid = only(buckling.subcases).buckling_subcase_id
+        metadata = [Dict("buckling_subcase_id"=>sid, "subcase_mode_index"=>i)
+            for i in eachindex(results["eigenvalues"])]
+    end
+    merged = Dict{String,Any}(first(values(case_results)))
+    merged["sensitivities"] = Dict{String,Any}()
+    merged["eigenvalue_values"] = Dict{String,Float64}()
+    for (i, item) in enumerate(metadata)
+        sid = Int(item["buckling_subcase_id"])
+        local_key = "mode_$(Int(item["subcase_mode_index"]))"
+        merged["sensitivities"]["mode_$i"] = case_results[sid]["sensitivities"][local_key]
+        merged["eigenvalue_values"]["mode_$i"] = case_results[sid]["eigenvalue_values"][local_key]
+    end
+    merged["subcases"] = case_results
+    merged["mode_metadata"] = metadata
+    merged["path_summary_by_subcase"] = Dict(sid=>result["path_summary"] for (sid,result) in case_results)
+    merged["path_diagnostics_by_subcase"] = Dict(sid=>result["path_diagnostics"] for (sid,result) in case_results)
+    merged["path_summary_subcase_id"] = first(buckling.subcases).buckling_subcase_id
+    merged["path_summary"] = case_results[merged["path_summary_subcase_id"]]["path_summary"]
+    merged["path_diagnostics"] = case_results[merged["path_summary_subcase_id"]]["path_diagnostics"]
+    return merged
+end
+
+function _solve_adjoint_buckling_case(results::Dict, config)
     design_vars = config["design_variables"]
+    supported = ("shell_thickness","material_E","material_NU","bar_area","node_coord","topology_density")
+    for dv in design_vars
+        dv["type"] in supported || throw(ArgumentError(
+            "SOL105 sensitivity for $(dv["type"]) is unsupported; use end-to-end finite differences"))
+    end
 
     model = results["model"]
+    for dv in design_vars
+        _guard_scalar_isotropic_material_dv!(dv, model)
+    end
+    if _buckling_local_rhs_has_operator_gap(model)
+        for dv in design_vars
+            dv["type"] in ("material_E","shell_thickness","material_NU") || error(
+                "[ADJOINT-BUCK] $(dv["type"]) with rigid-shear blank-MID3, solid, KDJJ, anisotropic, independent-material or MID4 shell operators requires end-to-end finite differences; the local adjoint operator is unsupported.")
+        end
+    end
     id_map = results["id_map"]
     X = results["node_coords"]
     active_snorm = _adjoint_has_active_completed_q4_snorm(model, id_map, X)
@@ -2382,13 +2527,24 @@ function solve_adjoint_buckling(results::Dict, adjoint_config_path::String)
     end
     K_static = results["K"]
     K_eig = get(results, "K_eig", K_static)
+    K_eig == K_static || throw(ArgumentError(
+        "SOL105 sensitivities with different static and eigen stiffness operators require separately scoped derivatives"))
     ndof = results["ndof"]
     node_R = results["node_R"]
     Kg = results["Kg"]
     u_static = results["u_static"]
     eigenvalues = results["eigenvalues"]
-    mode_shapes = results["_raw_mode_shapes"]
+    # Public mode vectors are in basic coordinates; K, Kg and the preload
+    # displacement use GRID analysis coordinates.
+    mode_shapes = copy(results["_raw_mode_shapes"])
+    for idx in values(id_map), components in (1:3, 4:6)
+        rows = (idx - 1) * 6 .+ components
+        mode_shapes[rows, :] = node_R[idx]' * mode_shapes[rows, :]
+    end
     fixed_dofs = results["fixed_dofs"]
+    constraint_map = get(results, "rbe3_map", Dict())
+    static_load_id = _adjoint_subcase_load_id(model,
+        get(results,"_static_subcase_id",get(results,"static_subcase_id",1)))
 
     n_modes = length(eigenvalues)
     n_dv = length(design_vars)
@@ -2405,6 +2561,7 @@ function solve_adjoint_buckling(results::Dict, adjoint_config_path::String)
     full_sensitivity_fd_cache = Dict{String, Dict{String, Vector{Float64}}}()
     full_static_dKdx_cache = Dict{String, Dict{String, SparseMatrixCSC{Float64, Int}}}()
     full_dKg_cache = Dict{String, Dict{String, SparseMatrixCSC{Float64, Int}}}()
+    state_dKg_cache = Dict{String, Dict{String, SparseMatrixCSC{Float64, Int}}}()
     static_dKdx_u_cache = Dict{String, Dict{String, Vector{Float64}}}()
     target_labels_cache = Dict{String, Set{String}}()
     full_sensitivity_fd_labels_cache = Dict{String, Set{String}}()
@@ -2431,7 +2588,14 @@ function solve_adjoint_buckling(results::Dict, adjoint_config_path::String)
         local_dKdx_dv_cache[dv_id] = _subset_dv_by_group_labels(
             dv, setdiff(target_labels_cache[dv_id], special_labels_cache[dv_id])
         )
+        if !isempty(setdiff(target_labels_cache[dv_id],full_sensitivity_fd_labels_cache[dv_id]))
+            static_sid = get(results,"_static_subcase_id",get(results,"static_subcase_id",1))
+            _adjoint_guard_load_derivatives!(model,_adjoint_subcase_load_id(model,static_sid),[dv];
+                constraint_map=constraint_map)
+        end
     end
+    needs_local_adjoint = any(dv -> dv["type"] != "material_E" &&
+        !issubset(target_labels_cache[dv["id"]],full_sensitivity_fd_labels_cache[dv["id"]]),design_vars)
     for mode_idx in 1:n_modes
         lam = eigenvalues[mode_idx]
         phi = mode_shapes[:, mode_idx]
@@ -2449,13 +2613,13 @@ function solve_adjoint_buckling(results::Dict, adjoint_config_path::String)
         end
 
         # Adjoint RHS: f = λ · ∂(φᵀ·Kg(σ(u))·φ)/∂u
-        f_adj_full = lam .* compute_buckling_adjoint_rhs(model, id_map, X, node_R, u_static, phi, ndof)
-
-        # Solve adjoint: K·ψ = f_adj
-        f_adj_f = f_adj_full[free_dofs]
-        psi_f = K_fact \ f_adj_f
         psi = zeros(ndof)
-        psi[free_dofs] = psi_f
+        if needs_local_adjoint
+            f_adj_full = lam .* compute_buckling_adjoint_rhs(model, id_map, X, node_R, u_static, phi, ndof)
+            f_adj_full = _adjoint_reduce_rhs(f_adj_full, constraint_map)
+            psi[free_dofs] = K_fact \ f_adj_full[free_dofs]
+            _adjoint_expand!(psi, constraint_map)
+        end
 
         # Compute sensitivities for each DV
         sensitivities[mode_id] = Dict{String, Dict{String, Float64}}()
@@ -2496,7 +2660,7 @@ function solve_adjoint_buckling(results::Dict, adjoint_config_path::String)
                 compute_dKg_dx_phi(local_dKg_dv, model, id_map, X, node_R, u_static, phi, Kg, ndof)
             if !isempty(full_dKg_labels)
                 full_dKg_diffs = get!(full_dKg_cache, dv_id) do
-                    _full_model_dKg_dx_matrix_diffs(dv, model, u_static)
+                    _full_model_dKg_dx_matrix_diffs(dv, model, u_static;static_load_id=static_load_id)
                 end
                 for group_label in full_dKg_labels
                     if haskey(full_dKg_diffs, group_label)
@@ -2506,20 +2670,43 @@ function solve_adjoint_buckling(results::Dict, adjoint_config_path::String)
             end
 
             # Terms 1 & 3 via full-model reassembly FD for accuracy.
-            # For material_E: K/E is exact, no need for reassembly.
             group_sens = Dict{String, Float64}()
             dv_method = get_dv_method(dv)
             if dv["type"] == "material_E"
-                # Analytical: dK/dE = K/E (uses full assembled K — exact)
-                phi_K_phi = dot(phi, K_eig * phi)
-                psi_K_u = dot(psi, K_static * u_static)
-                for mid in dv["mids"]
-                    mid_str = string(Int(mid))
-                    E_val = model["MATs"][mid_str]["E"]
-                    phi_dK_phi = phi_K_phi / E_val
-                    psi_dK_u = psi_K_u / E_val
-                    lam_dKg = lam * get(dKg_dx_phi_groups, "MID_$mid_str", 0.0)
-                    group_sens["MID_$mid_str"] = -(phi_dK_phi + lam_dKg - psi_dK_u) / phi_Kg_phi
+                # Global K/E includes every material and is wrong for a MID
+                # group in a multi-material model. Reuse per-MID differences
+                # of the actual forward operator across all modes.
+                diffs = get!(full_static_dKdx_cache, dv_id) do
+                    _full_model_dKdx_matrix_diffs(dv, model)
+                end
+                # Differentiate the equilibrium state using the same global
+                # Kg assembly as the forward solve. The local adjoint RHS can
+                # omit mixed PSHELL material/formulation contributions.
+                # One linear solve and two Kg assemblies per MID serve every mode.
+                state_diffs = get!(state_dKg_cache,dv_id) do
+                    derivatives = Dict{String,SparseMatrixCSC{Float64,Int}}()
+                    snorm = get(results,"snorm_normals",Dict{Int,SVector{3,Float64}}())
+                    for (label,dK) in diffs
+                        mid = split(label,"_";limit=2)[2]
+                        step = abs(Float64(model["MATs"][mid]["E"])) * 1e-4
+                        du = zeros(ndof)
+                        du[free_dofs] = -(K_fact \ (dK * u_static)[free_dofs])
+                        _adjoint_expand!(du,constraint_map)
+                        plus = assemble_geometric_stiffness(model,id_map,X,node_R,ndof,
+                            u_static + step*du,snorm,constraint_map;
+                            snorm_angle_override=sol105_snorm_angle_override(),static_load_id=static_load_id)
+                        minus = assemble_geometric_stiffness(model,id_map,X,node_R,ndof,
+                            u_static - step*du,snorm,constraint_map;
+                            snorm_angle_override=sol105_snorm_angle_override(),static_load_id=static_load_id)
+                        derivatives[label] = (plus-minus)/(2step)
+                    end
+                    derivatives
+                end
+                for (group_label, dK) in diffs
+                    phi_dK_phi = dot(phi, dK * phi)
+                    lam_dKg = lam * (get(dKg_dx_phi_groups, group_label, 0.0) +
+                        dot(phi,state_diffs[group_label]*phi))
+                    group_sens[group_label] = -(phi_dK_phi + lam_dKg) / phi_Kg_phi
                 end
             elseif dv_method in (:analytical, :ad_forward) && dv["type"] != "material_E"
                 # Analytical and AD-enabled DV types: use per-group dKdx infrastructure
@@ -2617,7 +2804,8 @@ function solve_adjoint_buckling(results::Dict, adjoint_config_path::String)
         target_labels = sort!(collect(target_labels_cache[dv_id]))
         full_sensitivity_fd_labels = sort!(collect(full_sensitivity_fd_labels_cache[dv_id]))
         full_dKg_labels = sort!(collect(full_dKg_labels_cache[dv_id]))
-        full_dKdx_labels = sort!(collect(special_labels_cache[dv_id]))
+        full_dKdx_labels = sort!(collect(dv["type"] == "material_E" ?
+            target_labels_cache[dv_id] : special_labels_cache[dv_id]))
         uses_full_sensitivity_fd = !isempty(full_sensitivity_fd_labels)
         uses_full_dKg = !isempty(full_dKg_labels)
         uses_full_dKdx = !isempty(full_dKdx_labels)

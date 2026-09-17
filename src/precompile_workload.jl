@@ -48,7 +48,12 @@ end
 function _jfem_precompile_bdfs()
     raw = strip(get(ENV, "JFEM_SOL105_PRECOMPILE_BDF", ""))
     if !isempty(raw)
-        return filter(isfile, _jfem_precompile_split_paths(raw))
+        paths = _jfem_precompile_split_paths(raw)
+        isempty(paths) && throw(ArgumentError("explicit precompile workload contains no deck paths"))
+        missing = filter(path -> !isfile(path), paths)
+        isempty(missing) || throw(ArgumentError(
+            "explicit precompile workload deck not found: " * join(missing, "; ")))
+        return paths
     end
     return _jfem_default_precompile_bdfs()
 end
@@ -70,7 +75,7 @@ end
 function _jfem_with_env(f::Function, pairs)
     old = Dict{String,Union{Nothing,String}}()
     for (key, value) in pairs
-        old[key] = haskey(ENV, key) ? ENV[key] : nothing
+        haskey(old, key) || (old[key] = haskey(ENV, key) ? ENV[key] : nothing)
         ENV[key] = value
     end
     try
@@ -86,17 +91,22 @@ function _jfem_with_env(f::Function, pairs)
     end
 end
 
-function _jfem_precompile_solve_bdf(path::AbstractString)
+function _jfem_precompile_solve_bdf(path::AbstractString; strict::Bool=false)
     # Route through main() so the export stack (JSON/binary/markdown) is
     # baked into the pkgimage too — export was a measured chunk of the
     # residual first-solve JIT when the workload called solve_model only.
-    # A failing workload deck must degrade coverage, never break package
-    # precompilation.
+    # Bundled defaults may degrade coverage without breaking package loading.
+    # An explicit deployment request must report failure to its caller.
     try
         outdir = mktempdir()
-        main(String(path); output_dir=outdir, export_json=true)
+        redirect_stdout(devnull) do
+            redirect_stderr(devnull) do
+                main(String(path); output_dir=outdir, export_json=true)
+            end
+        end
         return nothing
     catch err
+        strict && rethrow()
         @warn "precompile workload deck failed (coverage reduced)" path err
         return nothing
     end
@@ -107,14 +117,11 @@ if _jfem_precompile_bool("JFEM_SOL105_PRECOMPILE_WORKLOAD", true) ||
     @setup_workload begin
         bdfs = _jfem_precompile_bdfs()
         flags = _jfem_precompile_flags()
+        explicit_workload = !isempty(strip(get(ENV, "JFEM_SOL105_PRECOMPILE_BDF", "")))
         @compile_workload begin
             _jfem_with_env(flags) do
-                redirect_stdout(devnull) do
-                    redirect_stderr(devnull) do
-                        for bdf in bdfs
-                            _jfem_precompile_solve_bdf(bdf)
-                        end
-                    end
+                for bdf in bdfs
+                    _jfem_precompile_solve_bdf(bdf; strict=explicit_workload)
                 end
             end
         end

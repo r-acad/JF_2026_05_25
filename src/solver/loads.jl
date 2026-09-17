@@ -1,68 +1,47 @@
 # loads.jl — Load resolution (FORCE, MOMENT, PLOAD4, GRAV, PLOAD1, LOAD combos)
 
 @inline function _filter_shell_normal_moments_enabled()
-    return solver_env_bool("JFEM_FILTER_SHELL_NORMAL_MOMENTS", true)
+    # Compatibility query for callers of the former load-filter option.
+    # A nodal moment is a physical load even when the associated drilling
+    # rotation is constrained by SPC/AUTOSPC: it must remain in K*u - F.
+    if solver_env_bool("JFEM_FILTER_SHELL_NORMAL_MOMENTS", false)
+        @warn "JFEM_FILTER_SHELL_NORMAL_MOMENTS is deprecated; shell-normal moments are no longer filtered. Full applied moments are retained for the solve and SPC/AUTOSPC reaction recovery." maxlog=1
+    end
+    return false
 end
 
-function _shell_normal_moment_filter_data(model, id_map, node_coords)
-    n_nodes = length(id_map)
-    normal_sum = [zeros(3) for _ in 1:n_nodes]
-    node_has_shell = falses(n_nodes)
-    node_has_rotational_line = falses(n_nodes)
-
-    for (_, el) in get(model, "CSHELLs", Dict())
-        nodes = get(el, "NODES", Int[])
-        idxs = [get(id_map, nid, 0) for nid in nodes]
-        if isempty(idxs) || any(==(0), idxs)
+function _add_scalar_mass_gravity!(F_acc, model, cm, mass, id_map, node_coords, acceleration)
+    isfinite(mass) || throw(ArgumentError("Scalar mass must be finite"))
+    endpoints = Tuple{Int,Int,Vector{Float64}}[]
+    scalar_acceleration = zeros(2)
+    for terminal in 1:2
+        gid = Int(get(cm,"G$terminal",0))
+        component = Int(get(cm,"C$terminal",0))
+        if gid == 0
+            push!(endpoints, (0,0,zeros(3)))
             continue
         end
-        Xc = node_coords[idxs, :]
-        normal_vec =
-            if length(idxs) == 4
-                cross(Xc[3, :] - Xc[1, :], Xc[4, :] - Xc[2, :])
-            elseif length(idxs) == 3
-                cross(Xc[2, :] - Xc[1, :], Xc[3, :] - Xc[1, :])
-            else
-                zeros(3)
-            end
-        norm(normal_vec) <= 1e-30 && continue
-        for idx in idxs
-            node_has_shell[idx] = true
-            normal_sum[idx] .+= normal_vec
-        end
+        1 <= component <= 6 || throw(ArgumentError("Scalar mass GRID component must be in 1:6; SPOINT terminals are unsupported"))
+        haskey(id_map,gid) || throw(ArgumentError("Scalar mass references missing GRID $gid"))
+        idx = id_map[gid]
+        grid = get(model["GRIDs"],string(gid),nothing)
+        grid === nothing && throw(ArgumentError("Scalar mass references missing GRID $gid"))
+        direction = zeros(3); direction[mod1(component,3)] = 1.0
+        direction = get_coord_transform(model,Int(get(grid,"CD",0)),direction;
+            position=view(node_coords,idx,:))
+        push!(endpoints, (idx,component,direction))
+        component <= 3 && (scalar_acceleration[terminal] = dot(direction,acceleration))
     end
-
-    for group_name in ("CBARs", "CBEAMs", "CBUSHs")
-        for (_, el) in get(model, group_name, Dict())
-            for key in ("GA", "GB", "G1", "G2")
-                gid = get(el, key, 0)
-                idx = get(id_map, gid, 0)
-                idx > 0 && (node_has_rotational_line[idx] = true)
-            end
-        end
+    endpoints[1][1:2] != endpoints[2][1:2] ||
+        throw(ArgumentError("Scalar mass terminals must be distinct"))
+    q = mass * (scalar_acceleration[1]-scalar_acceleration[2])
+    for terminal in 1:2
+        idx,component,direction = endpoints[terminal]
+        idx == 0 && continue
+        base = (idx-1)*6 + (component <= 3 ? 0 : 3)
+        F_acc[base+1:base+3] .+= (terminal == 1 ? q : -q) .* direction
     end
-
-    return normal_sum, node_has_shell, node_has_rotational_line
-end
-
-@inline function _filter_shell_normal_moment(
-    moment::AbstractVector{<:Real},
-    gid,
-    id_map,
-    normal_sum,
-    node_has_shell,
-    node_has_rotational_line,
-)
-    idx = get(id_map, gid, 0)
-    if idx <= 0 || idx > length(node_has_shell) ||
-       !node_has_shell[idx] || node_has_rotational_line[idx]
-        return Vector{Float64}(moment)
-    end
-    n = normal_sum[idx]
-    n_norm = norm(n)
-    n_norm <= 1e-30 && return Vector{Float64}(moment)
-    nhat = n ./ n_norm
-    return Vector{Float64}(moment) .- dot(moment, nhat) .* nhat
+    return nothing
 end
 
 function _beam_pload1_interval(pload::AbstractDict, L::Real)
@@ -112,17 +91,94 @@ function _add_line_rforce!(
     mass_per_length::Real,
     center::AbstractVector,
     axis::AbstractVector,
-    omega2::Real,
+    omega2::Real;
+    method::Integer=2,
+    alpha::AbstractVector=zeros(3),
 )
-    forces = _line_rforce_consistent_endpoint_forces(
-        mass_per_length, p1, p2, center, axis, omega2)
-    forces === nothing && return
-    f1, f2 = forces
+    a1 = _rotation_body_acceleration(p1 .- center, axis, omega2, alpha)
+    a2 = _rotation_body_acceleration(p2 .- center, axis, omega2, alpha)
+    mass = Float64(mass_per_length) * norm(p2 .- p1)
+    f1, f2 = method == 1 ? (mass/2 .* a1, mass/2 .* a2) :
+        (mass .* (a1 ./ 3 .+ a2 ./ 6), mass .* (a1 ./ 6 .+ a2 ./ 3))
     dof1 = (Int(idx1) - 1) * 6
     dof2 = (Int(idx2) - 1) * 6
     F_acc[dof1+1:dof1+3] .+= f1
     F_acc[dof2+1:dof2+3] .+= f2
     return
+end
+
+@inline _rotation_body_acceleration(r, axis, omega2, alpha) =
+    omega2 .* (r .- dot(r,axis) .* axis) .+ cross(alpha,r)
+
+function _solid_body_mass(X, rho)
+    n = size(X,1)
+    n == 4 && return FEM.nastran_lumped_mass_tetra4(X,Float64(rho))
+    n == 6 && return FEM.nastran_lumped_mass_cpenta6(X,Float64(rho))
+    n == 8 && return FEM.nastran_lumped_mass_hexa8(X,Float64(rho))
+    throw(ArgumentError("Body loads require a supported 4-, 6-, or 8-node solid"))
+end
+
+function _add_rforce_mass_acceleration!(F_acc,model,id_map,node_coords,center,omega,alpha,scale)
+    n = length(id_map)
+    rotations = [Matrix{Float64}(I,3,3) for _ in 1:n]
+    acceleration = zeros(6n)
+    for (gid,idx) in id_map
+        grid = get(model["GRIDs"],string(gid),nothing)
+        grid === nothing && throw(ArgumentError("RFORCE references missing GRID $gid"))
+        R = get_coord_transform(model,Int(get(grid,"CD",0)),Matrix{Float64}(I,3,3);
+            position=view(node_coords,idx,:))
+        rotations[idx] = R
+        r = view(node_coords,idx,:) .- center
+        base = (idx-1)*6
+        acceleration[base+1:base+3] = R' * (-cross(omega,cross(omega,r))+cross(alpha,r))
+        acceleration[base+4:base+6] = R' * alpha
+    end
+    # WTMASS scales the dynamic mass matrix, not GRAV/RFORCE body-load data.
+    mass_model = copy(model)
+    mass_model["PARAM_WTMASS"] = 1.0
+    load = assemble_mass(mass_model,id_map,node_coords,rotations,6n) * acceleration
+    for idx in 1:n
+        base = (idx-1)*6; R = rotations[idx]
+        F_acc[base+1:base+3] .+= scale .* (R * view(load,base+1:base+3))
+        F_acc[base+4:base+6] .+= scale .* (R * view(load,base+4:base+6))
+    end
+    return nothing
+end
+
+function _add_concentrated_rforce!(F_acc,model,id_map,node_coords,center,omega,alpha,scale,method)
+    for (group, mass_function) in (("CONM2s",_conm2_mass_basic),("CONM1s",_conm1_mass_basic))
+        for (_,cm) in get(model,group,Dict())
+            gid = Int(cm["GID"])
+            haskey(id_map,gid) || throw(ArgumentError("$group references missing GRID $gid"))
+            idx = id_map[gid]; position = view(node_coords,idx,:)
+            M = mass_function(model,cm,position)
+            r = position .- center
+            # METHOD=2 applies the grid acceleration through the full matrix;
+            # it deliberately does not accelerate a CONM2 offset separately.
+            acceleration = vcat(-cross(omega,cross(omega,r)) + cross(alpha,r),alpha)
+            if method == 2
+                load = M * acceleration
+            elseif group == "CONM2s"
+                offset, frame = _conm2_offset_frame(model,cm,position)
+                mass = Float64(cm["M"])
+                force = -mass .* cross(omega,cross(omega,r+offset))
+                # Remove the parallel-axis contribution from the grid block.
+                offset_inertia = mass .* (dot(offset,offset) .* Matrix{Float64}(I,3,3) - offset*offset')
+                inertia_cg = M[4:6,4:6] - offset_inertia
+                moment = cross(offset,force) - cross(omega,inertia_cg*omega)
+                load = vcat(force,moment) + M * vcat(cross(alpha,r),alpha)
+            else
+                norm(M[1:3,4:6]) <= 64eps(Float64)*max(norm(M),1.0) ||
+                    throw(ArgumentError("RFORCE METHOD=1 does not support translation/rotation-coupled CONM1; use METHOD=2"))
+                force = -cross(omega,M[1:3,1:3]*cross(omega,r))
+                moment = -cross(omega,M[4:6,4:6]*omega)
+                load = vcat(force,moment) + M * vcat(cross(alpha,r),alpha)
+            end
+            base = (idx-1)*6
+            F_acc[base+1:base+6] .+= scale .* load
+        end
+    end
+    return nothing
 end
 
 function _beam_pload1_equivalent_local_load_vector(pload::AbstractDict, L::Real, scale::Real=1.0)
@@ -193,8 +249,9 @@ function _beam_pload1_local_load_vector_for_sid(
 )
     isnothing(sid) && return zeros(Float64, 12)
     sid_int = Int(sid)
-    sid_int in visited && return zeros(Float64, 12)
+    sid_int in visited && throw(ArgumentError("Cyclic LOAD combination at SID=$sid_int"))
     push!(visited, sid_int)
+    try
     f = zeros(Float64, 12)
     for pload in get(model, "PLOAD1s", [])
         if Int(get(pload, "SID", 0)) == sid_int && Int(get(pload, "EID", 0)) == Int(eid)
@@ -213,34 +270,42 @@ function _beam_pload1_local_load_vector_for_sid(
             end
         end
     end
-    delete!(visited, sid_int)
     return f
+    finally
+        delete!(visited, sid_int)
+    end
 end
 
 function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
+    _filter_shell_normal_moments_enabled() # Warn once only for an explicit retired option.
+    return _resolve_loads!(model, Int(sid), scale, id_map, elem_map, node_coords,
+                          F_acc, Int[])
+end
+
+function _resolve_loads!(model, sid::Int, scale, id_map, elem_map, node_coords,
+                         F_acc, load_path::Vector{Int})
+    sid in load_path && throw(ArgumentError("Cyclic LOAD combination: " * join([load_path; sid], " -> ")))
+    push!(load_path, sid)
+    try
     raw_forces = Dict{Int, Vector{Float64}}()
     add_force = (gid, vec) -> begin
         if !haskey(raw_forces, gid); raw_forces[gid] = zeros(6); end
         raw_forces[gid] .+= vec
     end
-    filter_shell_normal_moments = _filter_shell_normal_moments_enabled()
-    shell_moment_filter =
-        filter_shell_normal_moments ?
-        _shell_normal_moment_filter_data(model, id_map, node_coords) :
-        nothing
-
     for frc in model["FORCEs"]; if Int(frc["SID"]) == sid
-        global_dir = get_coord_transform(model, Int(frc["CID"]), frc["Dir"])
+        idx = get(id_map, frc["GID"], 0)
+        idx == 0 && continue
+        global_dir = get_coord_transform(model, Int(frc["CID"]), frc["Dir"];
+                                         position=view(node_coords, idx, :))
         add_force(frc["GID"], zeros(6)); raw_forces[frc["GID"]][1:3] .+= global_dir * frc["Mag"] * scale
     end; end
 
     for mom in model["MOMENTs"]; if Int(mom["SID"]) == sid
-        global_dir = get_coord_transform(model, Int(mom["CID"]), mom["Dir"])
+        idx = get(id_map, mom["GID"], 0)
+        idx == 0 && continue
+        global_dir = get_coord_transform(model, Int(mom["CID"]), mom["Dir"];
+                                         position=view(node_coords, idx, :))
         moment_vec = global_dir * mom["Mag"] * scale
-        if shell_moment_filter !== nothing
-            moment_vec = _filter_shell_normal_moment(
-                moment_vec, mom["GID"], id_map, shell_moment_filter...)
-        end
         add_force(mom["GID"], zeros(6)); raw_forces[mom["GID"]][4:6] .+= moment_vec
     end; end
 
@@ -254,17 +319,19 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
                 v1 = Xc[2,:] - Xc[1,:]; v2 = Xc[3,:] - Xc[1,:]
                 normal_vec = (length(nids) == 4) ? cross(Xc[3,:] - Xc[1,:], Xc[4,:] - Xc[2,:]) : cross(v1, v2)
                 area = 0.5 * norm(normal_vec)
+                area > 1e-30 || continue
                 if haskey(pload, "N")
                     dir_vec = pload["N"]
                     n_dir = norm(dir_vec)
                     if n_dir > 1e-30
                         load_dir = dir_vec ./ n_dir
+                        cid = get(pload, "CID", 0)
+                        if cid != 0
+                            load_dir = get_coord_transform(model, cid, load_dir;
+                                position=vec(sum(Xc; dims=1)) ./ length(nids))
+                        end
                     else
                         load_dir = normalize(normal_vec)
-                    end
-                    cid = get(pload, "CID", 0)
-                    if cid != 0
-                        load_dir = get_coord_transform(model, cid, load_dir)
                     end
                 else
                     load_dir = normalize(normal_vec)
@@ -280,37 +347,35 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
                 for idx in nids; dof = (idx-1)*6; F_acc[dof+1:dof+3] .+= f_node; end
             end
         elseif haskey(get(model, "CSOLIDs", Dict()), string(eid))
-            # PLOAD4 on solid element face
-            # For solids, PLOAD4 applies pressure on a face defined by G1/G3 corner nodes
-            # or defaults to face 1 (first 4 nodes for CHEXA, first 3 for CTETRA)
+            # Solid face identification follows G1/G3 (diagonally opposite
+            # corners), or G1/G4 (TETRA corner excluded from the loaded face).
             el_def = model["CSOLIDs"][string(eid)]
             el_nodes = el_def["NODES"]
             nn = length(el_nodes)
-            # Determine face nodes from G1,G3 (if specified) or default to face 1
             g1 = get(pload, "G1", 0); g3 = get(pload, "G3", 0)
             local face_nids::Vector{Int}
-            if g1 > 0 && g3 > 0 && nn == 8
-                # CHEXA: find face containing both G1 and G3
-                hexa_faces = [[1,2,3,4],[5,6,7,8],[1,2,6,5],[2,3,7,6],[3,4,8,7],[4,1,5,8]]
-                face_nids = el_nodes[hexa_faces[1]]  # default
-                for face_idx in hexa_faces
-                    fn = el_nodes[face_idx]
-                    if g1 in fn && g3 in fn; face_nids = fn; break; end
+            if nn == 8 || (nn == 6 && g3 > 0)
+                faces = nn == 8 ?
+                    ((1,2,3,4),(5,6,7,8),(1,2,6,5),(2,3,7,6),(3,4,8,7),(4,1,5,8)) :
+                    ((1,2,5,4),(2,3,6,5),(3,1,4,6))
+                face_nids = Int[]
+                for face_idx in faces
+                    fn = Int[el_nodes[k] for k in face_idx]
+                    i1 = findfirst(==(g1), fn)
+                    i3 = findfirst(==(g3), fn)
+                    if i1 !== nothing && i3 !== nothing && abs(i1 - i3) == 2
+                        face_nids = fn
+                        break
+                    end
                 end
-            elseif g1 > 0 && nn == 4
-                # CTETRA: find face containing G1
-                tet_faces = [[1,2,3],[1,2,4],[2,3,4],[1,3,4]]
-                face_nids = el_nodes[tet_faces[1]]
-                for face_idx in tet_faces
-                    fn = el_nodes[face_idx]
-                    if g1 in fn; face_nids = fn; break; end
-                end
-            elseif nn == 8
-                face_nids = el_nodes[[1,2,3,4]]  # default: bottom face
+                isempty(face_nids) && throw(ArgumentError("PLOAD4 EID=$eid requires diagonally opposite face corners G1/G3"))
             elseif nn == 4
-                face_nids = el_nodes[[1,2,3]]
+                (g3 in el_nodes && g1 in el_nodes && g1 != g3) ||
+                    throw(ArgumentError("PLOAD4 CTETRA EID=$eid requires G1 on the face and G4 opposite the face"))
+                face_nids = Int[n for n in el_nodes if n != g3]
             elseif nn == 6
-                face_nids = el_nodes[[1,2,3]]  # bottom triangle
+                g1 in el_nodes || throw(ArgumentError("PLOAD4 CPENTA EID=$eid requires a face corner G1"))
+                face_nids = g1 in el_nodes[1:3] ? Int.(el_nodes[1:3]) : Int.(el_nodes[4:6])
             else
                 continue
             end
@@ -327,7 +392,20 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
             else
                 continue
             end
-            load_dir = norm(normal_vec) > 1e-30 ? normalize(normal_vec) : [0.0,0.0,0.0]
+            area > 1e-30 || continue
+            load_dir = normalize(normal_vec)
+            # Positive solid pressure points into the element, regardless of
+            # the face's indexing orientation.
+            all_idxs = [get(id_map, n, 0) for n in el_nodes]
+            any(==(0), all_idxs) && continue
+            face_center = vec(sum(Xf; dims=1)) ./ nf
+            interior = vec(sum(node_coords[all_idxs, :]; dims=1)) ./ nn
+            dot(load_dir, interior .- face_center) < 0.0 && (load_dir = -load_dir)
+            direction = get(pload, "N", [0.0, 0.0, 0.0])
+            if norm(direction) > 1e-30
+                load_dir = get_coord_transform(model, get(pload, "CID", 0), normalize(direction);
+                    position=face_center)
+            end
             tf = area * pload["P"] * scale
             f_node = load_dir .* (tf / nf)
             for idx in idxs; dof = (idx-1)*6; F_acc[dof+1:dof+3] .+= f_node; end
@@ -362,22 +440,21 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
     # --- GRAV (gravity/acceleration body forces) ---
     for grav in get(model, "GRAVs", [])
         if Int(grav["SID"]) == sid
-            dir_raw = grav["N"]
-            n_dir = norm(dir_raw)
-            grav_dir = n_dir > 1e-30 ? dir_raw ./ n_dir : [0.0, 0.0, 0.0]
-            accel = grav["A"] * scale
-            grav_vec = grav_dir .* accel
+            grav_vec = (grav["A"] * scale) .* get_coord_transform(
+                model, get(grav, "CID", 0), grav["N"])
 
             # CONM2 concentrated masses (with offset moment)
             for (_, cm) in get(model, "CONM2s", Dict())
                 gid = cm["GID"]
+                haskey(id_map,gid) || throw(ArgumentError("CONM2 references missing GRID $gid"))
                 if haskey(id_map, gid)
-                    m = cm["M"]
+                    m = Float64(cm["M"])
+                    isfinite(m) || throw(ArgumentError("CONM2 mass must be finite"))
                     f_mass = m .* grav_vec
                     idx = id_map[gid]; dof = (idx-1)*6
                     F_acc[dof+1:dof+3] .+= f_mass
                     # Offset moment: M = m * cross(offset, g)
-                    offset = get(cm, "X", [0.0, 0.0, 0.0])
+                    offset, _ = _conm2_offset_frame(model, cm, view(node_coords, idx, :))
                     if norm(offset) > 1e-30
                         moment = m .* cross(offset, grav_vec)
                         F_acc[dof+4:dof+6] .+= moment
@@ -385,24 +462,18 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
                 end
             end
 
-            # CONM1 concentrated masses (use M diagonal for translational gravity)
+            # Full CONM1 tensor, including translation/rotation coupling and CID.
             for (_, cm) in get(model, "CONM1s", Dict())
                 gid = cm["GID"]
-                if haskey(id_map, gid)
-                    f_mass = cm["M"] .* grav_vec
-                    idx = id_map[gid]; dof = (idx-1)*6
-                    F_acc[dof+1:dof+3] .+= f_mass
-                end
+                haskey(id_map,gid) || throw(ArgumentError("CONM1 references missing GRID $gid"))
+                idx = id_map[gid]; dof = (idx-1)*6
+                block = _conm1_mass_basic(model,cm,view(node_coords,idx,:))
+                F_acc[dof+1:dof+6] .+= block[:,1:3] * grav_vec
             end
 
             # CMASS2 scalar masses (direct value)
             for (_, cm) in get(model, "CMASS2s", Dict())
-                g1 = get(cm, "G1", 0)
-                c1 = get(cm, "C1", 0)
-                if g1 > 0 && haskey(id_map, g1) && c1 >= 1 && c1 <= 3
-                    idx = id_map[g1]; dof = (idx-1)*6
-                    F_acc[dof + c1] += cm["M"] * grav_vec[c1]
-                end
+                _add_scalar_mass_gravity!(F_acc,model,cm,Float64(cm["M"]),id_map,node_coords,grav_vec)
             end
 
             # CMASS1 scalar masses (via PMASS property)
@@ -410,13 +481,8 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
             for (_, cm) in get(model, "CMASS1s", Dict())
                 pid = string(get(cm, "PID", 0))
                 pm = get(pmasses, pid, nothing)
-                if pm === nothing; continue; end
-                g1 = get(cm, "G1", 0)
-                c1 = get(cm, "C1", 0)
-                if g1 > 0 && haskey(id_map, g1) && c1 >= 1 && c1 <= 3
-                    idx = id_map[g1]; dof = (idx-1)*6
-                    F_acc[dof + c1] += pm["M"] * grav_vec[c1]
-                end
+                pm === nothing && throw(ArgumentError("CMASS1 references missing PMASS $pid"))
+                _add_scalar_mass_gravity!(F_acc,model,cm,Float64(pm["M"]),id_map,node_coords,grav_vec)
             end
 
             # Shell element mass: rho * t * area, distributed to element nodes
@@ -501,29 +567,31 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
                 end
             end
 
-            # Rod element mass: rho * A * L (CROD and CONROD)
+            # Rod element mass: (rho * A + NSM) * L (CROD and CONROD)
             for rodset in [get(model, "CRODs", Dict()), get(model, "CONRODs", Dict())]
                 for (_, rod) in rodset
-                    local A_rod, mid_rod
+                    local A_rod, mid_rod, nsm_rod
                     if haskey(rod, "MID")  # CONROD
                         A_rod = get(rod, "A", 0.0)
+                        nsm_rod = get(rod, "NSM", 0.0)
                         mid_rod = string(rod["MID"])
                     else  # CROD
                         pid = string(get(rod, "PID", 0))
                         prop = get(get(model, "PRODs", Dict()), pid, nothing)
                         if prop === nothing; continue; end
                         A_rod = get(prop, "A", 0.0)
+                        nsm_rod = get(prop, "NSM", 0.0)
                         mid_rod = string(get(prop, "MID", 0))
                     end
                     mat = get(mats_m, mid_rod, nothing)
                     if mat === nothing; continue; end
                     rho = get(mat, "RHO", 0.0)
-                    if rho <= 0; continue; end
+                    if rho <= 0 && nsm_rod <= 0; continue; end
                     ga, gb = rod["GA"], rod["GB"]
                     if !haskey(id_map, ga) || !haskey(id_map, gb); continue; end
                     i1, i2 = id_map[ga], id_map[gb]
                     L = norm(node_coords[i2,:] - node_coords[i1,:])
-                    total_mass = rho * A_rod * L
+                    total_mass = (rho * A_rod + nsm_rod) * L
                     f_per_node = (total_mass / 2) .* grav_vec
                     for idx in [i1, i2]
                         dof = (idx-1)*6
@@ -549,74 +617,69 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
                 idxs = [get(id_map, n, 0) for n in nids]
                 if any(x->x==0, idxs); continue; end
                 for k in 1:nn; coords_grav[k,:] = node_coords[idxs[k],:]; end
-                # Compute volume
-                local V_el::Float64
-                if nn == 4  # CTETRA
-                    J = [coords_grav[2,j]-coords_grav[1,j] for j in 1:3]'
-                    J = vcat(J, [coords_grav[3,j]-coords_grav[1,j] for j in 1:3]')
-                    J = vcat(J, [coords_grav[4,j]-coords_grav[1,j] for j in 1:3]')
-                    V_el = abs(det(J)) / 6.0
-                elseif nn == 8  # CHEXA (approximate: 2×2×2 Gauss)
-                    V_el = 0.0
-                    xi_n = [-1,1,1,-1,-1,1,1,-1]; eta_n = [-1,-1,1,1,-1,-1,1,1]; zet_n = [-1,-1,-1,-1,1,1,1,1]
-                    g = 1.0/sqrt(3.0); gpts = [-g, g]
-                    for gi in gpts, gj in gpts, gk in gpts
-                        dN = zeros(3, 8)
-                        for i in 1:8
-                            dN[1,i] = 0.125*xi_n[i]*(1+eta_n[i]*gj)*(1+zet_n[i]*gk)
-                            dN[2,i] = 0.125*eta_n[i]*(1+xi_n[i]*gi)*(1+zet_n[i]*gk)
-                            dN[3,i] = 0.125*zet_n[i]*(1+xi_n[i]*gi)*(1+eta_n[i]*gj)
-                        end
-                        V_el += abs(det(dN * coords_grav[1:8,:]))
-                    end
-                elseif nn == 6  # CPENTA (approximate)
-                    J1 = [coords_grav[2,j]-coords_grav[1,j] for j in 1:3]'
-                    J1 = vcat(J1, [coords_grav[3,j]-coords_grav[1,j] for j in 1:3]')
-                    J1 = vcat(J1, [coords_grav[4,j]-coords_grav[1,j] for j in 1:3]')
-                    V_el = abs(det(J1)) / 6.0
-                    J2 = [coords_grav[5,j]-coords_grav[4,j] for j in 1:3]'
-                    J2 = vcat(J2, [coords_grav[6,j]-coords_grav[4,j] for j in 1:3]')
-                    J2 = vcat(J2, [coords_grav[3,j]-coords_grav[4,j] for j in 1:3]')
-                    V_el += abs(det(J2)) / 6.0
-                    J3 = [coords_grav[2,j]-coords_grav[5,j] for j in 1:3]'
-                    J3 = vcat(J3, [coords_grav[3,j]-coords_grav[5,j] for j in 1:3]')
-                    J3 = vcat(J3, [coords_grav[4,j]-coords_grav[5,j] for j in 1:3]')
-                    V_el += abs(det(J3)) / 6.0
-                else
-                    continue
-                end
-                total_mass = rho * V_el
-                f_per_node = (total_mass / nn) .* grav_vec
-                for nid in nids
-                    if haskey(id_map, nid)
-                        dof = (id_map[nid]-1)*6
-                        F_acc[dof+1:dof+3] .+= f_per_node
-                    end
+                mass_block = _solid_body_mass(Matrix(view(coords_grav,1:nn,:)),rho)
+                for (k,idx) in enumerate(idxs)
+                    dof = (idx-1)*6
+                    mass_node = mass_block[3k-2,3k-2]
+                    F_acc[dof+1:dof+3] .+= mass_node .* grav_vec
                 end
             end
         end
     end
 
     # --- RFORCE (centrifugal body force) ---
-    # F_node = m_node * ω² * r_perp  where ω = 2π*A (A in rev/unit time)
+    # F_node = m_node * ω² * r_perp, where ω = 2π*A*norm(R).
     # r_perp = position - (position · axis_unit) * axis_unit (perpendicular from axis)
     for rforce in get(model, "RFORCEs", [])
         if Int(rforce["SID"]) == sid
-            A_rf = rforce["A"] * scale
-            r_axis = rforce["R"]
+            A_rf = Float64(rforce["A"])
+            racc = Float64(get(rforce,"RACC",0.0))
+            # Parsed BDF cards default to METHOD=1. Keep the existing direct
+            # dictionary API's consistent-line convention when METHOD is absent.
+            method = Int(get(rforce,"METHOD",2))
+            method in (1,2) || throw(ArgumentError("RFORCE METHOD must be 1 or 2"))
+            Int(get(rforce,"MB",0)) == 0 && Int(get(rforce,"IDRF",0)) == 0 ||
+                throw(ArgumentError("RFORCE superelement MB and IDRF selection are unsupported"))
+            isfinite(A_rf) && isfinite(racc) || throw(ArgumentError("RFORCE A and RACC must be finite"))
+            r_axis = get_coord_transform(model, get(rforce, "CID", 0), rforce["R"])
+            length(r_axis) == 3 && all(isfinite,r_axis) || throw(ArgumentError("RFORCE requires a finite rotation vector"))
             r_norm = norm(r_axis)
-            if r_norm < 1e-30 || A_rf == 0.0; continue; end
-            axis = r_axis ./ r_norm
-            omega = 2.0 * pi * A_rf  # convert rev/time to rad/time
-            omega2 = omega^2
+            axis = r_norm > 0.0 ? r_axis ./ r_norm : zeros(3)
+            omega = 2.0 * pi * A_rf * r_norm  # convert rev/time to rad/time
+            alpha_raw = (2.0*pi*racc) .* r_axis
+            alpha = scale .* alpha_raw
+            # LOAD coefficients scale the resulting force, including its sign.
+            omega2 = omega^2 * scale
 
             # Rotation center
-            g_center = rforce["G"]
+            g_center = Int(get(rforce,"G",0))
             center = zeros(3)
-            if g_center > 0 && haskey(id_map, g_center)
+            if g_center != 0
+                haskey(id_map,g_center) || throw(ArgumentError("RFORCE references missing rotation GRID $g_center"))
                 ic = id_map[g_center]
                 center = node_coords[ic, :]
             end
+
+            if r_norm == 0.0 || (A_rf == 0.0 && racc == 0.0); continue; end
+            if haskey(rforce,"METHOD") && method == 2
+                _add_rforce_mass_acceleration!(F_acc,model,id_map,node_coords,center,
+                    (2.0*pi*A_rf) .* r_axis,alpha_raw,scale)
+                continue
+            end
+            coupled_shells = !isempty(get(model,"CSHELLs",Dict())) &&
+                sol103_shell_mass_formulation(model) === :coupled_consistent
+            coupled_lines_or_solids = any(!isempty(get(model,key,Dict())) for key in
+                ("CBARs","CBEAMs","CRODs","CONRODs","CSOLIDs")) &&
+                _sol103_param_enabled(get(model,"PARAM_COUPMASS",false),false)
+            if method == 1 && (coupled_shells || coupled_lines_or_solids)
+                throw(ArgumentError("RFORCE METHOD=1 requires lumped mass; use METHOD=2 with COUPMASS>0"))
+            end
+            for group in ("CMASS1s","CMASS2s")
+                isempty(get(model,group,Dict())) ||
+                    throw(ArgumentError("RFORCE with scalar CMASS elements requires explicit METHOD=2"))
+            end
+            _add_concentrated_rforce!(F_acc,model,id_map,node_coords,center,
+                (2.0*pi*A_rf) .* r_axis,alpha_raw,scale,method)
 
             # Apply to all mass-carrying elements (shells, bars, rods, solids)
             mats_rf = model["MATs"]
@@ -632,7 +695,8 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
                 mid = string(get(prop, "MID", 0))
                 mat = get(mats_rf, mid, nothing)
                 rho = mat !== nothing ? get(mat, "RHO", 0.0) : 0.0
-                if rho <= 0; continue; end
+                nsm = Float64(get(prop,"NSM",0.0))
+                if rho <= 0 && nsm <= 0; continue; end
                 idxs_rf = [get(id_map, n, 0) for n in nids_rf]
                 if any(x->x==0, idxs_rf); continue; end
                 Xrf = node_coords[idxs_rf, :]
@@ -641,12 +705,10 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
                 else
                     area = 0.5 * norm(cross(Xrf[3,:]-Xrf[1,:], Xrf[4,:]-Xrf[2,:]))
                 end
-                mass_per_node = rho * get(prop, "T", 0.0) * area / nn
+                mass_per_node = (rho * get(prop, "T", 0.0) + nsm) * area / nn
                 for (li, idx) in enumerate(idxs_rf)
                     pos = node_coords[idx, :] .- center
-                    proj = dot(pos, axis) * axis
-                    r_perp = pos .- proj
-                    f_centrifugal = mass_per_node * omega2 .* r_perp
+                    f_centrifugal = mass_per_node .* _rotation_body_acceleration(pos,axis,omega2,alpha)
                     dof = (idx-1)*6
                     F_acc[dof+1] += f_centrifugal[1]
                     F_acc[dof+2] += f_centrifugal[2]
@@ -670,32 +732,13 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
                 idxs_rf = [get(id_map, n, 0) for n in nids_rf]
                 if any(x->x==0, idxs_rf); continue; end
                 Xrf = node_coords[idxs_rf, :]
-                # Approximate volume (same as GRAV calculation)
-                V_el = 0.0
-                if nn == 4
-                    J_rf = vcat([Xrf[2,j]-Xrf[1,j] for j in 1:3]', [Xrf[3,j]-Xrf[1,j] for j in 1:3]', [Xrf[4,j]-Xrf[1,j] for j in 1:3]')
-                    V_el = abs(det(J_rf))/6.0
-                elseif nn == 8
-                    xi_n_rf = [-1,1,1,-1,-1,1,1,-1]; eta_n_rf = [-1,-1,1,1,-1,-1,1,1]; zet_n_rf = [-1,-1,-1,-1,1,1,1,1]
-                    g_rf = 1.0/sqrt(3.0); gpts_rf = [-g_rf, g_rf]
-                    for gi in gpts_rf, gj in gpts_rf, gk in gpts_rf
-                        dN = zeros(3,8)
-                        for i in 1:8
-                            dN[1,i]=0.125*xi_n_rf[i]*(1+eta_n_rf[i]*gj)*(1+zet_n_rf[i]*gk)
-                            dN[2,i]=0.125*eta_n_rf[i]*(1+xi_n_rf[i]*gi)*(1+zet_n_rf[i]*gk)
-                            dN[3,i]=0.125*zet_n_rf[i]*(1+xi_n_rf[i]*gi)*(1+eta_n_rf[i]*gj)
-                        end
-                        V_el += abs(det(dN * Xrf))
-                    end
-                end
-                mass_per_node = rho * V_el / nn
-                for idx in idxs_rf
-                    pos = node_coords[idx, :] .- center
-                    proj = dot(pos, axis) * axis
-                    r_perp = pos .- proj
-                    f_cf = mass_per_node * omega2 .* r_perp
+                mass_block = _solid_body_mass(Xrf,rho)
+                for (k,idx) in enumerate(idxs_rf)
+                    mass_node = mass_block[3k-2,3k-2]
+                    pos = node_coords[idx,:] .- center
+                    force = mass_node .* _rotation_body_acceleration(pos,axis,omega2,alpha)
                     dof = (idx-1)*6
-                    F_acc[dof+1] += f_cf[1]; F_acc[dof+2] += f_cf[2]; F_acc[dof+3] += f_cf[3]
+                    F_acc[dof+1:dof+3] .+= force
                 end
             end
 
@@ -722,7 +765,7 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
                     p1 = view(node_coords, i1, :)
                     p2 = view(node_coords, i2, :)
                     _add_line_rforce!(
-                        F_acc, i1, i2, p1, p2, mass_per_length, center, axis, omega2)
+                        F_acc, i1, i2, p1, p2, mass_per_length, center, axis, omega2;method=method,alpha=alpha)
                 end
             end
 
@@ -745,7 +788,7 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
                 p1 = view(node_coords, i1, :)
                 p2 = view(node_coords, i2, :)
                 _add_line_rforce!(
-                    F_acc, i1, i2, p1, p2, mass_per_length, center, axis, omega2)
+                    F_acc, i1, i2, p1, p2, mass_per_length, center, axis, omega2;method=method,alpha=alpha)
             end
 
             for (_, rod) in get(model, "CONRODs", Dict())
@@ -763,7 +806,7 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
                 p1 = view(node_coords, i1, :)
                 p2 = view(node_coords, i2, :)
                 _add_line_rforce!(
-                    F_acc, i1, i2, p1, p2, mass_per_length, center, axis, omega2)
+                    F_acc, i1, i2, p1, p2, mass_per_length, center, axis, omega2;method=method,alpha=alpha)
             end
         end
     end
@@ -873,7 +916,8 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
     tempd_map = get(model, "TEMPDs", Dict{Int,Float64}())
     node_temps = get(temps_map, sid, Dict{Int,Float64}())
     default_temp = get(tempd_map, sid, 0.0)
-    if !isempty(node_temps) || default_temp != 0.0
+    if !isempty(node_temps) || haskey(tempd_map, sid)
+        _assert_supported_shell_thermal_load(model, sid, scale)
         mats_th = model["MATs"]
         # Shell thermal loads
         for (_, el) in get(model, "CSHELLs", Dict())
@@ -1026,6 +1070,8 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
                     dof = (idxs_th[k]-1)*6
                     for d in 1:3; F_acc[dof+d] += F_th[(k-1)*3+d]; end
                 end
+            elseif nn == 6
+                _add_cpenta_thermal_load!(F_acc, idxs_th, Xth, sig_th)
             end
         end
     end
@@ -1039,15 +1085,83 @@ function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
 
     for c in model["LOAD_COMBOS"]
         if Int(c["SID"]) == sid
-            for sub in c["COMPS"]; resolve_loads(model, Int(sub["LID"]), scale * c["S"] * sub["S"], id_map, elem_map, node_coords, F_acc); end
+            for sub in c["COMPS"]
+                _resolve_loads!(model, Int(sub["LID"]), scale * c["S"] * sub["S"],
+                    id_map, elem_map, node_coords, F_acc, load_path)
+            end
         end
     end
+    finally
+        pop!(load_path)
+    end
+end
+
+function _add_cpenta_thermal_load!(F_acc, idxs, coords, thermal_stress)
+    g = inv(sqrt(3.0))
+    for (r,s) in ((1/6,1/6),(2/3,1/6),(1/6,2/3)), z in (-g,g)
+        dN = FEM._cpenta6_dN(r,s,z)
+        J = dN * coords
+        jacobian = abs(det(J))
+        jacobian > 1e-30 || continue
+        gradient = J \ dN
+        coefficient = thermal_stress * jacobian / 6.0
+        for k in 1:6, d in 1:3
+            F_acc[6(idxs[k]-1)+d] += coefficient * gradient[d,k]
+        end
+    end
+    return F_acc
+end
+
+function _assert_supported_shell_thermal_load(model, temp_sid, scale)
+    isnothing(temp_sid) && return nothing
+    sid = Int(temp_sid)
+    (haskey(get(model, "TEMPs", Dict()), sid) ||
+     haskey(get(model, "TEMPDs", Dict()), sid)) ||
+        throw(ArgumentError("Selected thermal load $sid has no defined TEMP or TEMPD field"))
+    iszero(scale) && return nothing
+    for family in ("RBE2s", "RBE3s"), (eid, rigid) in get(model, family, Dict())
+        alpha = Float64(get(rigid, "ALPHA", 0.0))
+        isfinite(alpha) || throw(ArgumentError(
+            "$family element $eid has non-finite ALPHA for thermal load $sid"))
+        iszero(alpha) || throw(ArgumentError(
+            "$family thermal expansion is unsupported (element $eid, thermal load $sid); rigid constraint thermal offsets are not implemented"))
+    end
+    for (eid, el) in get(model, "CSHELLs", Dict())
+        pid = string(get(el, "PID", 0))
+        prop = get(get(model, "PSHELLs", Dict()), pid, nothing)
+        prop === nothing && continue
+        is_laminate = get(prop, "TYPE", "") == "PCOMP_CLT"
+        nids = get(el, "NODES", Int[])
+        mids = is_laminate ?
+            [get(ply, "mid", get(ply, "MID", 0)) for ply in get(prop, "PLY_DATA", [])] :
+            [get(prop, field, 0) for field in ("MID", "MID2", "MID3", "MID4")]
+        for mid in mids
+            mat = _effective_mat1_for_nodes(model, mid, nids; temp_sid=sid)
+            mat === nothing && continue
+            anisotropic = get(mat, "TYPE", "") in ("MAT2", "MAT8") || haskey(mat, "E1") || haskey(mat, "G11")
+            (is_laminate || anisotropic) || continue
+            family = is_laminate ? "PCOMP" : "anisotropic PSHELL"
+            for field in ("ALPHA", "A1", "A2", "A3", "A12")
+                alpha = Float64(get(mat, field, 0.0))
+                isfinite(alpha) || throw(ArgumentError(
+                    "$family $pid material $mid has non-finite $field for thermal load $sid"))
+                iszero(alpha) && continue
+                # The equivalent MAT1 has no laminate expansion tensor or
+                # thermal bending resultant. PCOMP TREF provenance is also
+                # unavailable, so even a zero temperature is not proof of
+                # zero thermal strain. Refuse the unsupported active path.
+                throw(ArgumentError("$family thermal expansion is unsupported (element $eid, property $pid, material $mid, thermal load $sid); equivalent MAT1 cannot represent anisotropic thermal resultants"))
+            end
+        end
+    end
+    return nothing
 end
 
 function resolve_thermal_loads(model, temp_sid, scale, id_map, elem_map, node_coords, F_acc; node_R=nothing)
     temp_sid = isnothing(temp_sid) ? nothing : Int(temp_sid)
+    _assert_supported_shell_thermal_load(model, temp_sid, scale)
     node_temps, default_temp = _temperature_field_for_sid(model, temp_sid)
-    if isempty(node_temps) && default_temp == 0.0
+    if isempty(node_temps) && !haskey(get(model, "TEMPDs", Dict()), temp_sid)
         return
     end
 
@@ -1092,14 +1206,16 @@ function resolve_thermal_loads(model, temp_sid, scale, id_map, elem_map, node_co
             Rel_t = vcat(vx', vy', vz')
 
             fill!(view(T_buf, 1:12, 1:12), 0.0)
-            TR1 = Rel_t * node_R[i1]
-            TR2 = Rel_t * node_R[i2]
+            # The accumulator is in basic coordinates; its caller applies
+            # GRID CD rotations once after all load families are combined.
+            TR1 = Rel_t
+            TR2 = Rel_t
             T_buf[1:3, 1:3] = TR1; T_buf[4:6, 4:6] = TR1
             T_buf[7:9, 7:9] = TR2; T_buf[10:12, 10:12] = TR2
             if has_offset
                 S_wa = skew3(wa); S_wb = skew3(wb)
-                T_buf[1:3, 4:6] = -Rel_t * S_wa * node_R[i1]
-                T_buf[7:9, 10:12] = -Rel_t * S_wb * node_R[i2]
+                T_buf[1:3, 4:6] = -Rel_t * S_wa
+                T_buf[7:9, 10:12] = -Rel_t * S_wb
             end
 
             nth = E_th * Float64(get(prop, "A", 0.0)) * alpha_th * dT_avg * scale
@@ -1151,14 +1267,14 @@ function resolve_thermal_loads(model, temp_sid, scale, id_map, elem_map, node_co
             Rel_t = vcat(vx', vy', vz')
 
             fill!(view(T_buf, 1:12, 1:12), 0.0)
-            TR1 = Rel_t * node_R[i1]
-            TR2 = Rel_t * node_R[i2]
+            TR1 = Rel_t
+            TR2 = Rel_t
             T_buf[1:3, 1:3] = TR1; T_buf[4:6, 4:6] = TR1
             T_buf[7:9, 7:9] = TR2; T_buf[10:12, 10:12] = TR2
             if has_offset
                 S_wa = skew3(wa); S_wb = skew3(wb)
-                T_buf[1:3, 4:6] = -Rel_t * S_wa * node_R[i1]
-                T_buf[7:9, 10:12] = -Rel_t * S_wb * node_R[i2]
+                T_buf[1:3, 4:6] = -Rel_t * S_wa
+                T_buf[7:9, 10:12] = -Rel_t * S_wb
             end
 
             nth = E_th * Float64(get(prop, "A", 0.0)) * alpha_th * dT_avg * scale
@@ -1206,7 +1322,7 @@ function resolve_thermal_loads(model, temp_sid, scale, id_map, elem_map, node_co
             Rel_t = vcat(vx', vy', vz')
 
             fill!(view(T_buf, 1:12, 1:12), 0.0)
-            TR1 = Rel_t * node_R[i1]; TR2 = Rel_t * node_R[i2]
+            TR1 = Rel_t; TR2 = Rel_t
             T_buf[1:3, 1:3] = TR1; T_buf[4:6, 4:6] = TR1
             T_buf[7:9, 7:9] = TR2; T_buf[10:12, 10:12] = TR2
 
@@ -1251,7 +1367,7 @@ function resolve_thermal_loads(model, temp_sid, scale, id_map, elem_map, node_co
             Rel_t = vcat(vx', vy', vz')
 
             fill!(view(T_buf, 1:12, 1:12), 0.0)
-            TR1 = Rel_t * node_R[i1]; TR2 = Rel_t * node_R[i2]
+            TR1 = Rel_t; TR2 = Rel_t
             T_buf[1:3, 1:3] = TR1; T_buf[4:6, 4:6] = TR1
             T_buf[7:9, 7:9] = TR2; T_buf[10:12, 10:12] = TR2
 
@@ -1400,6 +1516,8 @@ function resolve_thermal_loads(model, temp_sid, scale, id_map, elem_map, node_co
                     F_acc[dof+d] += F_th[(k-1)*3+d]
                 end
             end
+        elseif nn == 6
+            _add_cpenta_thermal_load!(F_acc, idxs_th, Xth, sig_th)
         end
     end
 end

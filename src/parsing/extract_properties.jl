@@ -16,8 +16,10 @@ function extract_props_shell(cards)
         mid3 = (isnothing(mid3_val) || mid3_val == 0) ? 0 : to_id(mid3_val)
         ts_t = parse_nastran_number(safe_get(c, 9), 5.0/6.0)    # TS/T, default=5/6
         nsm = parse_nastran_number(safe_get(c, 10), 0.0)        # NSM, non-structural mass per area
-        z1 = parse_nastran_number(safe_get(c, 11), -0.5 * t)
-        z2 = parse_nastran_number(safe_get(c, 12),  0.5 * t)
+        z1_value = parse_nastran_number(safe_get(c, 11), nothing)
+        z2_value = parse_nastran_number(safe_get(c, 12), nothing)
+        z1 = isnothing(z1_value) ? -0.5 * t : z1_value
+        z2 = isnothing(z2_value) ?  0.5 * t : z2_value
         mid4_val = parse_nastran_number(safe_get(c, 13), nothing)
         mid4 = (isnothing(mid4_val) || mid4_val == 0) ? 0 : to_id(mid4_val)
         d[string(pid)] = Dict(
@@ -32,9 +34,19 @@ function extract_props_shell(cards)
             "NSM"=>Float64(nsm),
             "Z1"=>Float64(z1),
             "Z2"=>Float64(z2),
+            "Z1_DEFAULT"=>isnothing(z1_value),
+            "Z2_DEFAULT"=>isnothing(z2_value),
         )
     end
     return d
+end
+
+function _tube_inner_radius(type, dims)
+    radius = dims[1]
+    inner = type == "TUBE2" ? radius - dims[2] : dims[2]
+    isfinite(radius) && radius > 0 && isfinite(inner) && 0 <= inner < radius ||
+        throw(ArgumentError("$type requires positive outer radius and a valid inner radius/wall thickness"))
+    return inner
 end
 
 function extract_pbarl(cards)
@@ -42,14 +54,16 @@ function extract_pbarl(cards)
     for c in cards
         pid = to_id(parse_nastran_number(safe_get(c, 3)))
         mid = to_id(parse_nastran_number(safe_get(c, 4)))
-        type = "ROD"
+        group = uppercase(strip(string(safe_get(c, 5, ""))))
+        type = uppercase(strip(string(safe_get(c, 6, ""))))
         dim_start_idx = 7
-        for k in 5:min(12, length(c))
-            val = strip(string(safe_get(c, k, "")))
-            if !isempty(val) && occursin(r"^[A-Za-z]", val)
-                type = uppercase(val); dim_start_idx = k + 1; break
-            end
+        # GROUP and TYPE are separate fields. Accept the legacy compact form
+        # with TYPE in the GROUP slot only when the following field is numeric.
+        if !isempty(group) && parse_nastran_number(type, nothing) !== nothing
+            type = group; group = ""; dim_start_idx = 6
         end
+        group in ("", "MSCBML0", "MSCBML1") || throw(ArgumentError("PBARL $pid: unsupported section GROUP $group"))
+        isempty(type) && throw(ArgumentError("PBARL $pid requires a section TYPE"))
         numeric_values = Float64[]
         for k in dim_start_idx:length(c)
             val = parse_nastran_number(safe_get(c, k), nothing)
@@ -88,8 +102,7 @@ function extract_pbarl(cards)
         if type == "ROD" && length(dims) >= 1
             R = dims[1]; A = pi*R^2; I1 = pi*R^4/4; I2 = I1; J = pi*R^4/2
         elseif (type == "TUBE" || type == "TUBE2") && length(dims) >= 2
-            R_out = dims[1]; R_in = dims[2]
-            if R_in < 0; R_in = 0.0; end
+            R_out = dims[1]; R_in = _tube_inner_radius(type, dims)
             A = pi*(R_out^2 - R_in^2)
             I1 = pi*(R_out^4 - R_in^4)/4
             I2 = I1
@@ -355,9 +368,30 @@ function extract_pbeam(cards)
 end
 
 function extract_pbeaml(cards)
-    # PBEAML uses same section-type calculation as PBARL
-    # For NAPA_101: only constant-section BAR and ROD types
-    return extract_pbarl(cards)
+    # A single section has the PBARL dimension layout. Multiple PBEAML
+    # stations require varying-section integration and cannot be flattened.
+    cards = [Any[x for x in raw if !(x isa AbstractString && _is_continuation_marker(x))] for raw in cards]
+    for c in cards
+        pid = to_id(parse_nastran_number(safe_get(c, 3)))
+        for k in 11:length(c)
+            value = uppercase(strip(string(safe_get(c, k, ""))))
+            value in ("YES", "YESA", "NO") &&
+                throw(ArgumentError("PBEAML $pid: multiple stations are not supported; use explicit PBEAM station properties"))
+        end
+        for k in 7:10
+            isempty(strip(string(safe_get(c, k, "")))) ||
+                throw(ArgumentError("PBEAML $pid: nonstandard parent fields/ND extension are unsupported"))
+        end
+    end
+    properties = extract_pbarl(cards)
+    for c in cards
+        pid = to_id(parse_nastran_number(safe_get(c, 3)))
+        haskey(properties, string(pid)) || continue
+        first_extra = 12 + length(properties[string(pid)]["DIMS"])
+        any(k -> !isempty(strip(string(safe_get(c, k, "")))), first_extra:length(c)) &&
+            throw(ArgumentError("PBEAML $pid: additional station fields are unsupported"))
+    end
+    return properties
 end
 
 function extract_pcomp(cards)
@@ -399,6 +433,7 @@ function extract_pcomp(cards)
 
         if pid > 0
             d[string(pid)] = Dict("PID"=>pid, "Z0"=>isnothing(z0) ? -total_t/2 : Float64(z0),
+                "Z0_DEFAULT"=>isnothing(z0),
                 "NSM"=>Float64(nsm), "LAM"=>lam_field, "PLIES"=>plies,
                 "T"=>Float64(total_t), "TYPE"=>"PCOMP")
         end
@@ -464,6 +499,18 @@ end
 
 # EIGRL — Real eigenvalue extraction (Lanczos method parameters for SOL103/SOL105)
 # EIGRL  SID  V1  V2  ND  MSGLVL  MAXSET  SHFSCL
+@inline function _eigen_request_field_is_specified(raw)
+    return !isnothing(raw) && !isempty(strip(string(raw)))
+end
+
+function _eigen_request_positive_count(raw, card_name::AbstractString, sid::Integer, field_name::AbstractString)
+    parsed = parse_nastran_number(raw, nothing)
+    if !(parsed isa Real) || !isfinite(parsed) || !isinteger(parsed) || parsed <= 0 || parsed > typemax(Int)
+        error("$card_name SID=$sid has invalid $field_name=$(repr(raw)); expected a positive integer")
+    end
+    return Int(parsed)
+end
+
 function _eigrl_canonical_option_name(name::AbstractString)
     key = uppercase(strip(name))
     key == "MSGL" && return "MSGLVL"
@@ -504,9 +551,16 @@ function extract_eigrl(cards)
 
         opts = _eigrl_parse_options(c)
 
-        v1_raw = haskey(opts, "V1") ? opts["V1"] : parse_nastran_number(safe_get(c, 4), nothing)
-        v2_raw = haskey(opts, "V2") ? opts["V2"] : parse_nastran_number(safe_get(c, 5), nothing)
-        nd_raw = haskey(opts, "ND") ? opts["ND"] : parse_nastran_number(safe_get(c, 6), 0)
+        v1_field = safe_get(c, 4, nothing)
+        v2_field = safe_get(c, 5, nothing)
+        nd_field = safe_get(c, 6, nothing)
+        v1_specified = haskey(opts, "V1") || _eigen_request_field_is_specified(v1_field)
+        v2_specified = haskey(opts, "V2") || _eigen_request_field_is_specified(v2_field)
+        nd_specified = haskey(opts, "ND") || _eigen_request_field_is_specified(nd_field)
+
+        v1_raw = haskey(opts, "V1") ? opts["V1"] : parse_nastran_number(v1_field, nothing)
+        v2_raw = haskey(opts, "V2") ? opts["V2"] : parse_nastran_number(v2_field, nothing)
+        nd_raw = haskey(opts, "ND") ? opts["ND"] : parse_nastran_number(nd_field, nothing)
         msglvl_raw = haskey(opts, "MSGLVL") ? opts["MSGLVL"] : parse_nastran_number(safe_get(c, 7), nothing)
         maxset_raw = haskey(opts, "MAXSET") ? opts["MAXSET"] : parse_nastran_number(safe_get(c, 8), nothing)
         shfscl_raw = haskey(opts, "SHFSCL") ? opts["SHFSCL"] : parse_nastran_number(safe_get(c, 9), nothing)
@@ -516,15 +570,95 @@ function extract_eigrl(cards)
 
         v1 = Float64(isnothing(v1_raw) ? 0.0 : parse_nastran_number(v1_raw, 0.0))
         v2 = Float64(isnothing(v2_raw) ? 0.0 : parse_nastran_number(v2_raw, 0.0))
-        nd = to_id(parse_nastran_number(nd_raw, 0))
-        if nd == 0; nd = 3; end  # default: 3 eigenvalues
+        # Keep the legacy numeric default for callers that have not yet been
+        # migrated, but preserve whether each field was actually present. In
+        # particular, blank ND has distinct Nastran semantics (for example,
+        # "all roots in V1..V2") and must not be confused with an explicit 3.
+        nd = nd_specified ? _eigen_request_positive_count(nd_raw, "EIGRL", sid, "ND") : 3
 
-        entry = Dict{String,Any}("SID"=>sid, "V1"=>v1, "V2"=>v2, "ND"=>nd)
+        entry = Dict{String,Any}(
+            "SID"=>sid,
+            "TYPE"=>"EIGRL",
+            "V1"=>v1,
+            "V2"=>v2,
+            "ND"=>nd,
+            "V1_SPECIFIED"=>v1_specified,
+            "V2_SPECIFIED"=>v2_specified,
+            "ND_SPECIFIED"=>nd_specified,
+        )
         !isnothing(msglvl_raw) && (entry["MSGLVL"] = to_id(parse_nastran_number(msglvl_raw, 0)))
         !isnothing(maxset_raw) && (entry["MAXSET"] = to_id(parse_nastran_number(maxset_raw, 0)))
         !isnothing(shfscl_raw) && (entry["SHFSCL"] = Float64(parse_nastran_number(shfscl_raw, 0.0)))
         !isempty(norm_raw) && (entry["NORM"] = norm_raw)
         !isempty(opts) && (entry["OPTIONS"] = opts)
+        d[string(sid)] = entry
+    end
+    return d
+end
+
+# EIGB -- Legacy real-eigenvalue extraction used by several public SOL105
+# decks. JFEM currently uses the same numerical buckling path for EIGB and
+# EIGRL; retaining these fields prevents METHOD from silently falling back to
+# an unrelated default mode count.
+#
+# EIGB  SID  METHOD  L1  L2  NEP  NDP  NDN  blank
+#       NORM G       C
+function extract_eigb(cards)
+    d = Dict()
+    for c in cards
+        sid = to_id(parse_nastran_number(safe_get(c, 3)))
+        sid <= 0 && continue
+
+        method = uppercase(strip(string(safe_get(c, 4, ""))))
+        l1_field = safe_get(c, 5, nothing)
+        l2_field = safe_get(c, 6, nothing)
+        nep_field = safe_get(c, 7, nothing)
+        l1_specified = _eigen_request_field_is_specified(l1_field)
+        l2_specified = _eigen_request_field_is_specified(l2_field)
+        nep_specified = _eigen_request_field_is_specified(nep_field)
+
+        l1_raw = parse_nastran_number(l1_field, nothing)
+        l2_raw = parse_nastran_number(l2_field, nothing)
+        l1 = Float64(isnothing(l1_raw) ? 0.0 : l1_raw)
+        l2 = Float64(isnothing(l2_raw) ? 0.0 : l2_raw)
+        # EIGB does not share EIGRL's blank-ND semantics: NEP is an estimate
+        # (and is unused by SINV), while NDP/NDN define desired roots. Keep the
+        # blank visible and use one only as an inert numeric compatibility seed.
+        # The SOL105 EIGB resolver handles NDP/NDN separately from this alias.
+        nep = nep_specified ? _eigen_request_positive_count(nep_field, "EIGB", sid, "NEP") : nothing
+
+        entry = Dict{String,Any}(
+            "SID"=>sid,
+            "TYPE"=>"EIGB",
+            "METHOD"=>method,
+            "L1"=>l1,
+            "L2"=>l2,
+            "NEP"=>nep,
+            # Normalized aliases shared with the SOL105 EIGRL path.
+            "V1"=>l1,
+            "V2"=>l2,
+            "ND"=>something(nep, 1),
+            "V1_SPECIFIED"=>l1_specified,
+            "V2_SPECIFIED"=>l2_specified,
+            "ND_SPECIFIED"=>nep_specified,
+            "L1_SPECIFIED"=>l1_specified,
+            "L2_SPECIFIED"=>l2_specified,
+            "NEP_SPECIFIED"=>nep_specified,
+        )
+        # Preserve the remaining source-card fields for model/HDF5 round trips.
+        # Signed desired counts must not be rounded or silently accept zero.
+        for (key, index) in (("NDP", 8), ("NDN", 9), ("G", 12), ("C", 13))
+            field = safe_get(c, index, nothing)
+            specified = _eigen_request_field_is_specified(field)
+            entry[key] = !specified ? nothing : key in ("NDP", "NDN") ?
+                _eigen_request_positive_count(field, "EIGB", sid, key) :
+                to_id(parse_nastran_number(field))
+            entry["$(key)_SPECIFIED"] = specified
+        end
+        norm_field = safe_get(c, 11, nothing)
+        norm_specified = _eigen_request_field_is_specified(norm_field)
+        entry["NORM"] = norm_specified ? uppercase(strip(string(norm_field))) : "MAX"
+        entry["NORM_SPECIFIED"] = norm_specified
         d[string(sid)] = entry
     end
     return d
@@ -585,7 +719,7 @@ function compute_pbarl_shear_factors(type::String, dims::Vector{Float64}, nu::Fl
         return (K, K)
 
     elseif (type == "TUBE" || type == "TUBE2") && length(dims) >= 2
-        R_out = dims[1]; R_in = max(dims[2], 0.0)
+        R_out = dims[1]; R_in = _tube_inner_radius(type, dims)
         m = R_in / R_out
         if m < 1e-10
             K = 6.0*(1.0+nu) / (7.0+6.0*nu)  # solid circle
@@ -651,4 +785,3 @@ function compute_pbarl_shear_factors(type::String, dims::Vector{Float64}, nu::Fl
     end
     return (0.0, 0.0)
 end
-

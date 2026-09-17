@@ -4,6 +4,7 @@ module FEM
 using LinearAlgebra
 using Statistics
 using StaticArrays
+import ForwardDiff
 
 # Tunable phi2 shear correction: alpha coefficient in phi2 = min(1, alpha*(h/L)^2)
 # Set to 0.0 to use default alpha=10. Otherwise overrides alpha.
@@ -594,12 +595,31 @@ end
 # `cond(M, 2)` (dense.jl:1801, non-empty branch): svdvals(M) — i.e.
 # svdvals!(copy of M) — with the copy landing in mw.svd4 and the gesdd
 # scratch cached for the Float64 path.
+@inline _fem_primal_value(x) = x
+@inline _fem_primal_value(x::ForwardDiff.Dual) = _fem_primal_value(ForwardDiff.value(x))
+
 function _msws_cond2(mw::MacNealShearWorkspace, M::AbstractMatrix)
-    scratch = mw.svd4
-    copyto!(scratch, M)
-    v = scratch isa Matrix{Float64} ? _msws_svdvals4!(mw, scratch) : svdvals!(scratch)
+    v = if eltype(M) <: ForwardDiff.Dual
+        # This condition number only selects a validity/fallback branch; the
+        # actual matrix arithmetic must retain its automatic derivatives.
+        svdvals(_fem_primal_value.(M))
+    else
+        scratch = mw.svd4
+        copyto!(scratch, M)
+        scratch isa Matrix{Float64} ? _msws_svdvals4!(mw, scratch) : svdvals!(scratch)
+    end
     maxv = maximum(v)
     return iszero(maxv) ? oftype(real(maxv), Inf) : maxv / minimum(v)
+end
+
+# Exact inverse square root of a positive-definite 2x2 Gram matrix. Using
+# sqrt(det(A'A)) = abs(det(A)) avoids cancellation in a nearly slender Gram
+# matrix and keeps automatic derivatives through the polar factor, including
+# at repeated eigenvalues where differentiating eigenvectors is undefined.
+function _fem_spd_inverse_sqrt2(gram::AbstractMatrix, sqrt_det)
+    scale = inv(sqrt_det * sqrt(gram[1,1] + gram[2,2] + 2sqrt_det))
+    return [(gram[2,2] + sqrt_det) (-gram[1,2]);
+            (-gram[2,1]) (gram[1,1] + sqrt_det)] .* scale
 end
 
 # Thread-safe matrix multiplication replacing BLAS mul! (which is NOT re-entrant on Windows).
@@ -2219,7 +2239,30 @@ include(joinpath(@__DIR__, "experimental", "hu_washizu_kernel.jl"))
 # Pre-allocated workspace `ws` eliminates ALL heap allocations in the hot loop
 # (~5M alloc saved across HTP_launch).
 # =============================================================================
-function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, msws::Union{Nothing,MacNealShearWorkspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, snorm_pq=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, membrane_hourglass_skew::Bool=false, distortion_corrections::Bool=true, _defer_warp_transform::Bool=false, _defer_snorm_transform::Bool=false)
+function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, msws::Union{Nothing,MacNealShearWorkspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, snorm_pq=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, membrane_hourglass_skew::Bool=false, distortion_corrections::Bool=true, _defer_warp_transform::Bool=false, _defer_snorm_transform::Bool=false, coupled_projected::Bool=false)
+    if coupled_projected
+        Bmb !== nothing && quad4_is_axis_aligned_rectangle(coords) ||
+            throw(ArgumentError("Projected coupled Q4 requires nonzero coupling and a rectangular local cell"))
+        kernel_planar && snorm_pq === nothing && curvature_membrane === nothing &&
+            slope_membrane === nothing && !exact_membrane_operator &&
+            !membrane_hourglass_skew && !marguerre_warp_to_uz ||
+            throw(ArgumentError("Projected coupled Q4 does not support mapped/research kinematics"))
+        !shear_center_only && !selective_shear && !exact_side_shear && !exact_side_rotcorr &&
+            !exact_membrane_curvature_w_coupling &&
+            (coords_3d === nothing || quad4_finite_warp_displacement_map(coords,coords_3d) === nothing) ||
+            throw(ArgumentError("Projected coupled Q4 requires the ordinary full MacNeal shear path"))
+        lowercase(strip(kernel_mode === nothing ? fem_env_str("JFEM_Q4_KERNEL","macneal") : string(kernel_mode))) == "macneal" &&
+            fem_env_bool("JFEM_Q4_MACNEAL_TWIST",true) &&
+            lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_TWIST_MODE","center"))) in ("center","reduced","1pt") &&
+            lowercase(strip(bmb_incomp_coupling_mode === :env ? fem_env_str("JFEM_Q4_BMB_INCOMP_COUPLING_MODE","full") : string(bmb_incomp_coupling_mode))) == "full" ||
+            throw(ArgumentError("Projected coupled Q4 cannot be combined with alternate kernel, twist, or condensation policies"))
+        # This explicit projected energy has no internal variables, regardless
+        # of the legacy enrichment Boolean defaults passed by its caller.
+        membrane_shear_center_row = true
+        material_shear_rotation = 0.0
+        membrane_incomp = false
+        bending_incomp = false
+    end
     # Allow env-var override for marguerre_warp_to_uz so it can be enabled
     # globally without plumbing through every caller. Currently the assembly
     # loop doesn't pass this kwarg, so default is false. Env override:
@@ -2555,7 +2598,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
         bmb_incomp_coupling_mode, kernel_mode, macneal_rbf_flex_mode,
         membrane_hourglass_skew, distortion_corrections,
         snorm_transform_pq, snorm_normal_moment, snorm_transform_on,
-        warp_transform_requested, warp_transform_on, snorm_completion_active,
+        warp_transform_requested, warp_transform_on, snorm_completion_active, coupled_projected,
     )
 end
 
@@ -2578,7 +2621,7 @@ function _stiffness_quad4_core!(
     bmb_incomp_coupling_mode::Symbol, kernel_mode, macneal_rbf_flex_mode::Symbol,
     membrane_hourglass_skew::Bool, distortion_corrections::Bool,
     snorm_transform_pq, snorm_normal_moment::Bool, snorm_transform_on::Bool,
-    warp_transform_requested::Bool, warp_transform_on::Bool, snorm_completion_active::Bool,
+    warp_transform_requested::Bool, warp_transform_on::Bool, snorm_completion_active::Bool, coupled_projected::Bool,
 )
     # Clear accumulated matrices
     fill!(ws.Ke, 0.0)
@@ -3480,6 +3523,7 @@ function _stiffness_quad4_core!(
         end
     end
 
+    if !coupled_projected
     # Static condensation (BLAS-free for thread safety)
     bmb_incomp_mode = lowercase(strip(
         bmb_incomp_coupling_mode === :env ?
@@ -3645,6 +3689,7 @@ function _stiffness_quad4_core!(
         end
     end
 
+    end # Legacy internal modes are outside the projected coupled energy.
     # MacNeal 1978 warp correction (opt-in, partial). Activated only when:
     #   - JFEM_MACNEAL_WARP_ALPHA env var is set to a non-zero float
     #   - coords_3d is supplied (caller knows the 3D corner positions)
@@ -4989,16 +5034,22 @@ function add_quad4_macneal_shear_rbf!(
             fcy = 0.25*( coords[1,2] - coords[2,2] + coords[3,2] - coords[4,2])
             Aaff = T[grx gsx; gry gsy]
             gram = Symmetric(transpose(Aaff) * Aaff)
-            gram_eig = eigen(gram)
+            # Eigenvalues only validate this geometry. For automatic
+            # derivatives the polar factor below uses the exact 2x2 formula.
+            gram_eig = eigen(T <: ForwardDiff.Dual ? Symmetric(_fem_primal_value.(gram)) : gram)
             gram_scale = maximum(abs, gram_eig.values)
             gram_floor = gram_scale * eps(T)
             (gram_scale <= zero(T) ||
              minimum(gram_eig.values) <= 1e-12 * gram_scale) &&
                 throw(ArgumentError(
                 "degenerate centre Jacobian in assumed-linear interaction"))
-            inv_root = gram_eig.vectors *
-                Diagonal(inv.(sqrt.(max.(gram_eig.values, gram_floor)))) *
-                transpose(gram_eig.vectors)
+            inv_root = if T <: ForwardDiff.Dual
+                _fem_spd_inverse_sqrt2(gram, abs(det(Aaff)))
+            else
+                gram_eig.vectors *
+                    Diagonal(inv.(sqrt.(max.(gram_eig.values, gram_floor)))) *
+                    transpose(gram_eig.vectors)
+            end
             Rpolar = Aaff * inv_root
             Aorth = Rpolar * Diagonal(T[max(hypot(grx, gry), 1e-14),
                                         max(hypot(gsx, gsy), 1e-14)])
@@ -6059,7 +6110,90 @@ function quad4_mitc4_center_shear_resultant(coords, u_elem, G, h;
     ]
 end
 
-function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, Cm_override=nothing, for_kg=false, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, snorm_pq=nothing, coords_3d=nothing)
+
+# These fields have different roles. N_physical/M_physical report the selective
+# elastic strain; N_work/M_work are its quadrature-work dual; N_geometric uses
+# MacNeal (1978), Eq.17, for the frozen-preload initial-stress operator.
+
+# On a rectangular cell the assumed transverse shear field is linear, so its
+# mean is its center value. Constant rotations are independent unit-shear test
+# fields. Differentiate the same MacNeal shear/RBF energy used by K: this is
+# not the MITC/phi2 surrogate and includes the physical laminate Cs.
+function quad4_macneal_center_shear_resultant(coords,u,Cb,Cs,h;
+        Cm=nothing,Bmb=nothing,msws=nothing,rigid_shear::Bool=false)
+    quad4_is_axis_aligned_rectangle(coords) ||
+        throw(ArgumentError("MacNeal center shear recovery currently requires a rectangle"))
+    T=promote_type(eltype(u),eltype(Cb),eltype(Cs),typeof(h))
+    mw=msws===nothing ? create_macneal_shear_workspace(T) : msws
+    Ke=fill!(mw.K24s,zero(T))
+    add_quad4_macneal_shear_rbf!(Ke,coords,Cb,Cs,h;Cm=Cm,Bmb=Bmb,msws=mw,rigid_shear=rigid_shear)
+    qx=zero(T);qy=zero(T)
+    for i=1:4,j=1:4,c=1:3
+        qx+=mw.K_plate[3(i-1)+3,3(j-1)+c]*u[6(j-1)+c+2]
+        qy-=mw.K_plate[3(i-1)+2,3(j-1)+c]*u[6(j-1)+c+2]
+    end
+    dr,ds=shape_derivs_quad(0.0,0.0);area=4abs(det([dr';ds']*coords))
+    [qx/area,qy/area]
+end
+
+function quad4_coupled_projected_fields(coords, u, A, B, D)
+    T = promote_type(eltype(coords),eltype(u),eltype(A),eltype(B),eltype(D))
+    p=1/sqrt(3.0); points=((-p,-p),(p,-p),(p,p),(-p,p))
+    dr,ds=shape_derivs_quad(0.0,0.0); dc=([dr';ds']*coords)\[dr';ds']
+    eps0=zeros(T,3);kap0=zeros(T,3)
+    for k=1:4
+        j=6(k-1)
+        eps0[1]+=dc[1,k]*u[j+1];eps0[2]+=dc[2,k]*u[j+2]
+        eps0[3]+=dc[2,k]*u[j+1]+dc[1,k]*u[j+2]
+        kap0[1]+=dc[1,k]*u[j+5];kap0[2]-=dc[2,k]*u[j+4]
+        kap0[3]+=dc[2,k]*u[j+5]-dc[1,k]*u[j+4]
+    end
+    N=zeros(T,4,3);M=zeros(T,4,3);Ng=zeros(T,4,3);weights=zeros(T,4)
+    for (q,(r,s)) in enumerate(points)
+        dr,ds=shape_derivs_quad(r,s);J=[dr';ds']*coords;d=J\[dr';ds'];weights[q]=abs(det(J))
+        eps=copy(eps0);kap=copy(kap0);eps[1]=eps[2]=kap[1]=kap[2]=zero(T);twist=zero(T)
+        for k=1:4
+            j=6(k-1)
+            eps[1]+=d[1,k]*u[j+1];eps[2]+=d[2,k]*u[j+2]
+            kap[1]+=d[1,k]*u[j+5];kap[2]-=d[2,k]*u[j+4]
+            twist+=d[2,k]*u[j+5]-d[1,k]*u[j+4]
+        end
+        N[q,:].=A*eps+B*kap;M[q,:].=transpose(B)*eps+D*kap
+        kgkap=copy(kap);kgkap[3]=2twist-kap0[3]
+        Ng[q,:].=A*eps+B*kgkap
+    end
+    Nw=copy(N);Mw=copy(M)
+    Nw[:,3].=dot(weights,view(N,:,3))/sum(weights)
+    Mw[:,3].=dot(weights,view(M,:,3))/sum(weights)
+    (N_physical=N,M_physical=M,N_work=Nw,M_work=Mw,N_geometric=Ng,
+     weights=weights,eps_center=eps0,kappa_center=kap0,
+     N_center=A*eps0+B*kap0,M_center=transpose(B)*eps0+D*kap0)
+end
+
+function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, Cm_override=nothing, for_kg=false, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, snorm_pq=nothing, coords_3d=nothing, recover_corners::Bool=false, Cb_override=nothing, coupled_projected::Bool=false, Bmb_override=nothing, Cs_override=nothing, shear_workspace=nothing, shear_rigid_limit::Bool=false)
+    if coupled_projected
+        for_kg && throw(ArgumentError("Use N_geometric explicitly for projected coupled Kg"))
+        Cm_override !== nothing && Cb_override !== nothing && Bmb_override !== nothing ||
+            throw(ArgumentError("Projected coupled recovery requires A/B/D"))
+        fields=quad4_coupled_projected_fields(coords,u_elem,Cm_override,Bmb_override,Cb_override)
+        eps=fields.eps_center;kap=fields.kappa_center
+        z1=eps.-(h/2).*kap;z2=eps.+(h/2).*kap
+        D=(E/(1-nu^2)).*[1 nu 0;nu 1 0;0 0 (1-nu)/2]
+        Cs_override !== nothing || throw(ArgumentError("Projected coupled recovery requires physical Cs"))
+        Q=quad4_macneal_center_shear_resultant(coords,u_elem,Cb_override,Cs_override,h;
+            Cm=Cm_override,Bmb=Bmb_override,msws=shear_workspace,rigid_shear=shear_rigid_limit)
+        result=(fields.N_center,-fields.M_center,Q,D*z1,D*z2,z1,z2)
+        if recover_corners
+            nc=zeros(4,3);mc=zeros(4,3)
+            for (i,(r,s)) in enumerate(((-1.0,-1.0),(1.0,-1.0),(1.0,1.0),(-1.0,1.0)))
+                nc[i,:].=interp_2x2_gauss_sigma(fields.N_physical,r,s)
+                mc[i,:].=-interp_2x2_gauss_sigma(fields.M_physical,r,s)
+            end
+            return (result...,nc,mc)
+        end
+        return result
+    end
+    recover_corners && for_kg && throw(ArgumentError("Corner recovery requires the full shell stress-recovery path"))
     const_mem = E / (1 - nu^2)
     D_mem = const_mem .* [1 nu 0; nu 1 0; 0 0 (1-nu)/2]
     # For PCOMP elements, use CLT Cm for incompatible mode condensation
@@ -6189,6 +6323,13 @@ function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, 
 
     alpha = -(K_bb_sr \ (K_ab_sr' * u_elem))
 
+    # Centroid and bilinear output use the same condensed displacement field.
+    # Recover both in one GP pass when the caller requests corner forces.
+    N_gp = recover_corners ? zeros(4, 3) : nothing
+    M_gp = recover_corners ? zeros(4, 3) : nothing
+    Cb_corners = recover_corners ?
+        (Cb_override === nothing ? bend_ratio * D_mem * (h^3 / 12.0) : Cb_override) : nothing
+
     # Incompatible mode B-matrix at center (ξ=η=0)
     # φ1 = 1-ξ², dφ1/dξ = -2ξ = 0 at center; φ2 = 1-η², dφ2/dη = -2η = 0 at center
     # So the incompatible mode derivatives are zero at center.
@@ -6252,6 +6393,11 @@ function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, 
         eps_gp = Bm_g * u_elem .+ Bi * alpha
         kappa_gp = Bb_g * u_elem
 
+        if recover_corners
+            N_gp[i, :] .= Cm * eps_gp
+            M_gp[i, :] .= -Cb_corners * kappa_gp
+        end
+
         eps_mem_avg .+= eps_gp .* detJ_g
         kappa_avg .+= kappa_gp .* detJ_g
         total_area += detJ_g
@@ -6276,6 +6422,16 @@ function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, 
     strain_z2 = eps_mem .+ z2 .* kappa
     stress_z2 = D_mem * strain_z2
 
+    if recover_corners
+        corner_points = ((-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0))
+        N_corners = zeros(4, 3)
+        M_corners = zeros(4, 3)
+        for (i, (r, s)) in enumerate(corner_points)
+            N_corners[i, :] .= interp_2x2_gauss_sigma(N_gp, r, s)
+            M_corners[i, :] .= interp_2x2_gauss_sigma(M_gp, r, s)
+        end
+        return N, M, Q, stress_z1, stress_z2, strain_z1, strain_z2, N_corners, M_corners
+    end
     return N, M, Q, stress_z1, stress_z2, strain_z1, strain_z2
 end
 
@@ -7404,6 +7560,49 @@ end
     return Kg
 end
 
+@inline function add_geometric_linear_principal_transverse_pair!(
+    Kg::AbstractMatrix,
+    row0::Int, col0::Int,
+    dNi_dx::Float64, dNi_dy::Float64,
+    dNj_dx::Float64, dNj_dy::Float64,
+    scale::Float64, s_xx::Float64, s_yy::Float64, s_xy::Float64,
+    shear_yy_factor::Float64=1.0,
+    shear_xy_factor::Float64=1.0,
+    shear_z_factor::Float64=1.0,
+    shear_ratio_min::Float64=1.0,
+    local_u_factor::Float64=1.0,
+    local_v_factor::Float64=1.0,
+    local_uv_factor::Float64=1.0,
+    local_w_factor::Float64=1.0,
+)
+    # Match the condensed Q4 path: the in-plane initial-stress work is
+    # additive in xx, yy and xy. Diagonalizing their sum before building
+    # the transverse projector would make this work nonlinear in stress.
+    add_geometric_principal_transverse_pair!(
+        Kg, row0, col0, dNi_dx, dNi_dy, dNj_dx, dNj_dy,
+        scale, s_xx, 0.0, 0.0,
+        shear_yy_factor, shear_xy_factor, shear_z_factor, shear_ratio_min,
+        local_u_factor, local_v_factor, local_uv_factor, 0.0)
+    add_geometric_principal_transverse_pair!(
+        Kg, row0, col0, dNi_dx, dNi_dy, dNj_dx, dNj_dy,
+        scale, 0.0, s_yy, 0.0,
+        shear_yy_factor, shear_xy_factor, shear_z_factor, shear_ratio_min,
+        local_u_factor, local_v_factor, local_uv_factor, 0.0)
+    add_geometric_principal_transverse_pair!(
+        Kg, row0, col0, dNi_dx, dNi_dy, dNj_dx, dNj_dy,
+        scale, 0.0, 0.0, s_xy,
+        shear_yy_factor, shear_xy_factor, shear_z_factor, shear_ratio_min,
+        local_u_factor, local_v_factor, local_uv_factor, 0.0)
+    # The transverse work is already linear. Evaluate it once using the
+    # complete stress to preserve the existing optional shear-factor rule.
+    add_geometric_principal_transverse_pair!(
+        Kg, row0, col0, dNi_dx, dNi_dy, dNj_dx, dNj_dy,
+        scale, s_xx, s_yy, s_xy,
+        shear_yy_factor, shear_xy_factor, shear_z_factor, shear_ratio_min,
+        0.0, 0.0, 0.0, local_w_factor)
+    return Kg
+end
+
 # KERNEL: geometric_stiffness_quad4_nastran_kdjj_iso
 # Exact replica of MSC Nastran (v70.5) CQUAD4 differential stiffness (KDJJ)
 # for FLAT ISOTROPIC PSHELL elements, identified entry-exactly from
@@ -7842,13 +8041,29 @@ function geometric_stiffness_quad4_nastran_kdjj_iso(coords::AbstractMatrix,
                                                     u_e::AbstractVector,
                                                     E::Float64,
                                                     nu::Float64,
-                                                    h::Float64)
+                                                    h::Float64;
+                                                    assumed_transverse::Bool=false)
     Kg = zeros(24, 24)
     h < 1e-30 && return Kg
     x1 = coords[1,1]; y1 = coords[1,2]
     x2 = coords[2,1]; y2 = coords[2,2]
     x3 = coords[3,1]; y3 = coords[3,2]
     x4 = coords[4,1]; y4 = coords[4,2]
+    # Keep the historical direct-call default. Production assembly explicitly
+    # enables the supported planar assumption. On an exact rectangle the two
+    # energies coincide: normal gradients are already tied, and constant
+    # center-recovered shear integrates to its center product. Retain the old
+    # arithmetic there, avoiding needless tying work and last-bit drift.
+    # Both affine closure and orthogonality are required; no angle tolerance
+    # may classify a tapered or nearly rectangular element as this fast path.
+    e12x = x2-x1; e12y = y2-y1
+    e14x = x4-x1; e14y = y4-y1
+    exact_rectangle = (e12x != 0.0 || e12y != 0.0) &&
+        (e14x != 0.0 || e14y != 0.0) &&
+        x3-x4 == e12x && y3-y4 == e12y &&
+        x3-x2 == e14x && y3-y2 == e14y &&
+        e12x*e14x + e12y*e14y == 0.0
+    assumed_transverse = assumed_transverse && !exact_rectangle
     # element frame: bisector of diagonals G1->G3 and G4->G2
     d13x = x3 - x1; d13y = y3 - y1; l13 = hypot(d13x, d13y)
     d42x = x2 - x4; d42y = y2 - y4; l42 = hypot(d42x, d42y)
@@ -7899,7 +8114,17 @@ function geometric_stiffness_quad4_nastran_kdjj_iso(coords::AbstractMatrix,
         gam0 += dNy0[k]*up[k] + dNx0[k]*vp[k]
     end
     gp = 1.0 / sqrt(3.0)
-    @inbounds for (r, s) in ((-gp,-gp), (gp,-gp), (gp,gp), (-gp,gp))
+    # Assumed midsurface gradients: bx(r,s)=w,x(0,s), by(r,s)=w,y(r,0).
+    # The transverse contribution is the Hessian of
+    #   1/2 sum_gp h*|J| * [bx by] * [sxx sxy; sxy syy] * [bx; by].
+    # These are physical gradients at their own tying-point Jacobians, in
+    # the diagonal-bisector frame. This is a w-only assumption: it does not
+    # add the rotational terms of MacNeal's full Eq. 32. Assembly disables
+    # it for warped/curvature/director paths, retaining their prior operator.
+    tying = assumed_transverse ?
+        (grad_p(0.0,-gp), grad_p(0.0,gp), grad_p(-gp,0.0), grad_p(gp,0.0)) : nothing
+    assumed_transverse && any(isnothing, tying) && return Kg
+    @inbounds for (q, (r, s)) in enumerate(((-gp,-gp), (gp,-gp), (gp,gp), (-gp,gp)))
         g = grad_p(r, s)
         g === nothing && continue
         dNx, dNy, adetJ = g
@@ -7912,6 +8137,8 @@ function geometric_stiffness_quad4_nastran_kdjj_iso(coords::AbstractMatrix,
         sxx = d11*epx + d12*epy
         syy = d12*epx + d11*epy
         sxy = d33*gam0
+        dWx = assumed_transverse ? tying[q <= 2 ? 1 : 2][1] : dNx
+        dWy = assumed_transverse ? tying[q == 1 || q == 4 ? 3 : 4][2] : dNy
         for i in 1:4
             r0 = (i-1)*6
             for j in 1:4
@@ -7926,12 +8153,17 @@ function geometric_stiffness_quad4_nastran_kdjj_iso(coords::AbstractMatrix,
                 Kg[r0+1, c0+2] += ce*se*kuu + (ce*ce - se*se)*kuv - se*ce*kvv
                 Kg[r0+2, c0+1] += se*ce*kuu + (ce*ce - se*se)*kuv - ce*se*kvv
                 Kg[r0+2, c0+2] += se*se*kuu + 2.0*se*ce*kuv + ce*ce*kvv
-                # w block: per-GP metric, center-sampled shear cross term
-                Kg[r0+3, c0+3] += w * (
-                    sxx * dNx[i]*dNx[j] +
-                    syy * dNy[i]*dNy[j] +
-                    sxy * (dNx0[i]*dNy0[j] + dNy0[i]*dNx0[j])
-                )
+                if assumed_transverse
+                    Kg[r0+3, c0+3] += w * (
+                        sxx * dWx[i]*dWx[j] + syy * dWy[i]*dWy[j] +
+                        sxy * (dWx[i]*dWy[j] + dWy[i]*dWx[j]))
+                else
+                    # Preserve the established nonplanar route exactly.
+                    Kg[r0+3, c0+3] += w * (
+                        sxx * dNx[i]*dNx[j] +
+                        syy * dNy[i]*dNy[j] +
+                        sxy * (dNx0[i]*dNy0[j] + dNy0[i]*dNx0[j]))
+                end
             end
         end
     end
@@ -8700,7 +8932,7 @@ function tria3_mitc3_shear_resultant(coords, u_plate, E, nu, h; bend_ratio=1.0)
     return collect((T(5) / T(6) * G * T(h)) .* g_cart)
 end
 
-function stress_strain_tria3(coords, u_elem, E, nu, h; bend_ratio=1.0, Cm_override=nothing)
+function stress_strain_tria3(coords, u_elem, E, nu, h; bend_ratio=1.0, Cm_override=nothing, Bmb=nothing)
     x, y = coords[:,1], coords[:,2]
     A = 0.5 * abs(x[1]*(y[2]-y[3]) + x[2]*(y[3]-y[1]) + x[3]*(y[1]-y[2]))
     if A < 1e-12; return zeros(3), zeros(3), zeros(2), zeros(3), zeros(3), zeros(3), zeros(3); end
@@ -8729,6 +8961,10 @@ function stress_strain_tria3(coords, u_elem, E, nu, h; bend_ratio=1.0, Cm_overri
     # Membrane forces and bending moments
     N = Cm_override !== nothing ? Cm_override * eps_mem : (D * eps_mem) * h
     M = -bend_ratio * (D * kappa) * (h^3/12.0)
+    if Bmb !== nothing
+        N += Bmb * kappa
+        M -= transpose(Bmb) * eps_mem
+    end
 
     u_plate = [u_elem[3], u_elem[4], u_elem[5], u_elem[9], u_elem[10], u_elem[11], u_elem[15], u_elem[16], u_elem[17]]
     Q = tria3_mitc3_shear_resultant(coords, u_plate, E, nu, h; bend_ratio=bend_ratio)
@@ -9555,7 +9791,7 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                         elseif trans_mode === :principal_transverse
                             row0 = (i-1)*6
                             col0 = (j-1)*6
-                            add_geometric_principal_transverse_pair!(
+                            add_geometric_linear_principal_transverse_pair!(
                                 Kg,
                                 row0,
                                 col0,
@@ -9778,11 +10014,9 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                         # combined states become the correct linear superposition
                         # (offline pencil: +1.11% both modes, matching Nastran).
                         if principal_inplane_linear
-                            # remove per-GP principal in-plane content. This must
-                            # cancel EXACTLY what the base GP loop added (a single
-                            # re-diagonalized call on the full stress), so it uses
-                            # the full-stress form, NOT the component split.
-                            add_geometric_principal_transverse_pair!(
+                            # Remove the same component-wise per-GP in-plane
+                            # work accumulated by the ordinary Q4 path above.
+                            add_geometric_linear_principal_transverse_pair!(
                                 Kg, row0, col0, dNi_dx, dNi_dy, dNj_dx, dNj_dy,
                                 h * abs_detJ, -s_xx, -s_yy, -s_xy,
                                 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0)

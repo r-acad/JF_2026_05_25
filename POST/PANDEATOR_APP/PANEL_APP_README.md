@@ -141,11 +141,17 @@ lists every ply (no reliance on the solver's SYM handling).
 
 ## Where outputs go
 
-Each run lands under `POST/PANDEATOR_APP/panel_runs/<case_id>/`:
+Each run gets a separate `<case_id>_<unique>/` directory. In the development
+workspace, these directories live under
+`02_PROJECT_DEVELOPMENT/02.3_PRIVATE_VALIDATION/RUN_OUTPUTS/SOL105/<YYYYQn>/PANDEATOR/`.
+An installed copy uses `~/.openjfem/panel_runs/`. Set `JFEM_PANEL_RUN_ROOT` to
+choose a different parent directory. The response includes the actual output path.
 
 ```
 <case_id>.bdf              the form-built deck (panel mode only; file mode runs your deck in place)
 <stem>.jfem                binary results (mesh + mode shapes / deformation) - also streamed to the browser
+<stem>_Subcase_<id>.jfem    separate binary for each SOL 105 subcase when more than one is solved
+<stem>.BUCKLING_FILES.JSON ownership manifest for the separate SOL 105 binaries
 <stem>.BUCKLING.JSON       eigenvalues + modes  (SOL 103 and 105)
 <stem>.JU.JSON             displacements + stresses  (SOL 101)
 <stem>.NONLINEAR.JSON      nonlinear results  (SOL 106)
@@ -157,6 +163,14 @@ jfem_case_stdout.log       solver log
 The exact results-JSON name depends on the auto-detected SOL (the server probes
 all of the above). In **file mode** the deck is run from its original location,
 so only the derived artifacts above are written into the run dir.
+
+When a SOL 105 deck produces several binary files, the result-file selector
+chooses the matching buckling subcase and static preload. The standalone viewer
+can also open each binary individually.
+
+Both browser tools use `POST/jfem_binary.js`. Keep the `POST/` directory structure
+when copying the tools; the panel server also includes
+`PANDEATOR_APP/panel_artifacts.jl` for artifact discovery and path checks.
 
 ## Notes & limitations
 

@@ -17,7 +17,7 @@
 #  Make it executable once:   chmod +x jfem
 #  Tip: symlink it onto your PATH (e.g. ln -s "$PWD/jfem" ~/.local/bin/jfem)
 #  so you can run `jfem` from anywhere. Uses whatever `julia` is on PATH
-#  (Julia 1.12.x) and auto-loads a sysimage from sysimage/ if one exists.
+# (Julia 1.12.x); auto-images require matching source/build provenance.
 # ====================================================================
 set -euo pipefail
 
@@ -41,7 +41,11 @@ fi
 SYSIMG_ARG=()
 for ext in so dylib; do
   cand="$REPO_ROOT/sysimage/OpenJFEM_sysimage.$ext"
-  if [ -f "$cand" ]; then SYSIMG_ARG=(--sysimage="$cand"); break; fi
+  if [ -f "$cand" ]; then
+    if julia --startup-file=no --threads=1 --project="$REPO_ROOT" "$REPO_ROOT/JFEM_installation/julia_tools/check_sysimage.jl" "$REPO_ROOT" "$cand"; then
+      SYSIMG_ARG=(--sysimage="$cand"); break
+    fi
+  fi
 done
 
 exec julia "${SYSIMG_ARG[@]}" --project="$REPO_ROOT" --threads=auto --startup-file=no \

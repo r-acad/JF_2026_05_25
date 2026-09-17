@@ -19,7 +19,11 @@ echo "Press Ctrl+C to stop the server."
 SYSIMG_ARG=()
 for ext in so dylib; do
   cand="$REPO_ROOT/sysimage/OpenJFEM_sysimage.$ext"
-  if [ -f "$cand" ]; then SYSIMG_ARG=(--sysimage="$cand"); echo "Using prebuilt sysimage: $cand"; break; fi
+  if [ -f "$cand" ]; then
+    if julia --startup-file=no --threads=1 --project="$REPO_ROOT" "$REPO_ROOT/JFEM_installation/julia_tools/check_sysimage.jl" "$REPO_ROOT" "$cand"; then
+      SYSIMG_ARG=(--sysimage="$cand"); echo "Using verified sysimage: $cand"; break
+    fi
+  fi
 done
 
 # Use whatever "julia" is on PATH (Julia 1.12.x). No juliaup / no "+release":

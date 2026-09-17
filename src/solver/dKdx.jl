@@ -5,12 +5,12 @@
 # Architecture: each DV type has a registered derivative method:
 #   :analytical      — exact closed-form (e.g. dK/dE = K/E, SIMP dK/dρ = p·ρ^(p-1)·K₀)
 #   :element_fd      — central FD on per-element stiffness (shell_thickness, material_NU, bar_area)
-#   :clt_fd          — CLT recomputation + element FD fallback for laminate plies
-#   :laminate_exact  — exact CLT laminate-matrix derivative for PCOMP ply thickness/angle
+#   :full_response_fd — verified complete SOL101 response differences for PCOMP
+#                      (solve_adjoint only; old :clt_fd/:laminate_exact rejected)
 #   :full_model_fd   — full reassembly FD (node_coord — expensive but exact for any geometry)
 #   :ad_forward      — ForwardDiff through supported element kernels
 #
-# The adjoint solver calls compute_dKdx_u() and gets a vector back regardless of method.
+# Local derivative methods return dK/dx*u; full-response methods bypass this API.
 # To add a new DV type: register it in DV_REGISTRY and implement the _dKdx_u_* function.
 
 # ============================================================================
@@ -21,8 +21,8 @@ const DV_REGISTRY = Dict{String, NamedTuple{(:method, :key_field, :prefix), Tupl
     "material_E"           => (method=:analytical,    key_field="mids", prefix="MID"),
     "material_NU"          => (method=:ad_forward,    key_field="mids", prefix="MID"),
     "bar_area"             => (method=:ad_forward,    key_field="pids", prefix="PID"),
-    "pcomp_ply_thickness"  => (method=:laminate_exact,key_field="pids", prefix="PID"),
-    "pcomp_ply_angle"      => (method=:laminate_exact,key_field="pids", prefix="PID"),
+    "pcomp_ply_thickness"  => (method=:full_response_fd,key_field="pids", prefix="PID"),
+    "pcomp_ply_angle"      => (method=:full_response_fd,key_field="pids", prefix="PID"),
     "node_coord"           => (method=:full_model_fd, key_field="",     prefix=""),
     "topology_density"     => (method=:analytical,    key_field="eids", prefix="EID"),
 )
@@ -39,22 +39,113 @@ const _DKDX_DISPATCH = Dict{String, Function}(
     "topology_density"    => (dv, m, id, nc, nR, u, n) -> _dKdx_u_topology_density(dv, m, id, nc, nR, u, n),
 )
 
+@inline _dkdx_id_key(id) = string(id isa Real ? Int(id) : id)
+
+# Condensing constitutive derivatives is not the derivative of condensation.
+# Local PCOMP matrices also lack the production interpolation/rotation context.
+function _pcomp_dv_properties(dv, model)
+    typ = string(dv["type"])
+    props = Dict{String,Any}()
+    pids = Set(_dkdx_id_key.(get(dv, "pids", Any[])))
+    mids = Set(_dkdx_id_key.(get(dv, "mids", Any[])))
+    for (pid, prop) in get(model, "PSHELLs", Dict())
+        get(prop, "TYPE", "") == "PCOMP_CLT" || continue
+        selected = if typ in ("shell_thickness", "pcomp_ply_thickness", "pcomp_ply_angle")
+            string(pid) in pids
+        elseif typ in ("material_E", "material_NU")
+            string(get(prop,"MID",0)) in mids || any(
+                _dkdx_id_key(get(ply,"mid",get(ply,"MID",0))) in mids
+                for ply in get(prop,"PLY_DATA",Any[]))
+        else
+            false
+        end
+        selected && (props[string(pid)] = prop)
+    end
+    return props
+end
+
+function _guard_pcomp_dv_semantics!(dv, model)
+    props = _pcomp_dv_properties(dv,model)
+    isempty(props) && return nothing
+    dv["type"] in ("pcomp_ply_thickness", "pcomp_ply_angle", "material_E", "material_NU") ||
+        throw(ArgumentError("[ADJOINT] $(dv["type"]) on PCOMP requires an explicit physical ply parameterization; use ply thickness/angle or actual isotropic ply material E/NU through solve_adjoint."))
+    return nothing
+end
+
+function _guard_context_free_pcomp_dkdx!(dv, model)
+    _guard_pcomp_dv_semantics!(dv, model)
+    if !isempty(_pcomp_dv_properties(dv, model)) || dv["type"] in ("pcomp_ply_thickness", "pcomp_ply_angle")
+        error("[ADJOINT] Direct PCOMP dK/dx lacks the forward condensation/assembly context. Use SOL101 solve_adjoint full-response finite differences; laminate_exact and clt_fd are unsupported local backends.")
+    end
+    return nothing
+end
+
+# A generic assemble_stiffness call and the element-local kernels do not carry
+# the SOL101 blank-MID3 limit. Keep geometric eligibility separate from ENV:
+# solve_adjoint must also detect settings changed since the forward solution.
+function _sol101_blank_mid3_dv_candidate(dv, model)
+    get(model, "SOL", get(get(model, "CASE_CONTROL", Dict()), "SOL", 101)) == 101 || return false
+    for (eid, el) in get(model, "CSHELLs", Dict())
+        length(get(el, "NODES", ())) == 4 || continue
+        prop = get(get(model, "PSHELLs", Dict()), string(el["PID"]), Dict())
+        get(prop, "TYPE", "") == "PCOMP_CLT" && continue
+        get(prop, "MID3", 0) == 0 && get(prop, "BEND_RATIO", 1.0) > 1e-12 || continue
+        if dv["type"] == "node_coord"
+            Int(dv["grid"]) in el["NODES"] && return true
+        elseif _dkdx_targets_quad4(dv, eid, el, model)
+            return true
+        end
+    end
+    return false
+end
+
+function _sol101_blank_mid3_policy_active()
+    (solver_env_bool("JFEM_SOL101_PSHELL_BLANK_MID3_RIGID_SHEAR", true) ||
+     solver_env_bool("JFEM_Q4_MACNEAL_RIGID_SHEAR_FORCE", false)) || return false
+    kernel = lowercase(strip(get(ENV, "JFEM_Q4_KERNEL_STATIC", get(ENV, "JFEM_Q4_KERNEL", "macneal"))))
+    return kernel in ("macneal", "macneal_pcomp", "macneal-pcomp", "macneal_aniso",
+        "macneal_all", "mitc4_3d_aspect", "mitc4-3d-aspect", "mitc3d_aspect", "mitc3d-aspect")
+end
+
 @inline function _dkdx_targets_quad4(dv, eid_key, el, model)
     dv_type = string(dv["type"])
     pid_str = string(el["PID"])
     if dv_type == "shell_thickness" ||
        dv_type == "pcomp_ply_thickness" || dv_type == "pcomp_ply_angle"
-        return pid_str in Set(string.(get(dv, "pids", Any[])))
+        return pid_str in Set(_dkdx_id_key.(get(dv, "pids", Any[])))
     elseif dv_type == "material_E" || dv_type == "material_NU"
         prop = get(get(model, "PSHELLs", Dict()), pid_str, nothing)
         isnothing(prop) && return false
-        return string(get(prop, "MID", "")) in
-               Set(string.(get(dv, "mids", Any[])))
+        mids = Set(_dkdx_id_key.(get(dv, "mids", Any[])))
+        return any(string(get(prop, key, 0)) in mids for key in ("MID", "MID2", "MID3", "MID4")) ||
+            any(_dkdx_id_key(get(ply,"mid",get(ply,"MID",0))) in mids for ply in get(prop,"PLY_DATA",Any[]))
     elseif dv_type == "topology_density"
         eid_str = string(get(el, "ID", eid_key))
-        return eid_str in Set(string.(get(dv, "eids", Any[])))
+        return eid_str in Set(_dkdx_id_key.(get(dv, "eids", Any[])))
     end
     return false
+end
+
+function _dkdx_has_constitutive_gap(dv, model)
+    for (eid, el) in get(model, "CSHELLs", Dict())
+        _dkdx_targets_quad4(dv, eid, el, model) || continue
+        prop = get(get(model, "PSHELLs", Dict()), string(el["PID"]), nothing)
+        prop !== nothing && _pshell_local_constitutive_gap(prop, model) && return true
+    end
+    return false
+end
+
+function _guard_scalar_isotropic_material_dv!(dv, model)
+    dv["type"] in ("material_E", "material_NU") || return nothing
+    for mid in get(dv, "mids", Any[])
+        mat = get(get(model, "MATs", Dict()), _dkdx_id_key(mid), nothing)
+        mat === nothing && continue
+        get(mat, "TYPE", "") == "MAT1_EQUIV" && throw(ArgumentError(
+            "[ADJOINT] Synthetic PCOMP equivalent material MID $mid is not an independent physical design variable; select the actual ply material."))
+        get(mat, "TYPE", "") in ("MAT2", "MAT8") || continue
+        throw(ArgumentError("[ADJOINT] $(dv["type"]) for $(mat["TYPE"]) MID $mid is undefined: scalar E/NU proxies do not parameterize its anisotropic constitutive entries. Use an explicit constitutive-parameter finite-difference study."))
+    end
+    return nothing
 end
 
 """
@@ -153,12 +244,30 @@ Dispatches to the appropriate implementation based on `dv["type"]`
 and an optional `dv["method"]` override:
 - Analytical methods (material_E, topology_density): exact, O(N_elements)
 - Element FD methods (NU, optional shell and bar fallback paths): 2 element Ke evals per element, O(N_elements)
-- CLT FD (pcomp plies): CLT recompute + element FD, O(N_elements)
+- PCOMP ply/material derivatives require solve_adjoint's full-response context
 - Full-model FD (node_coord): 2 full assemble_stiffness calls, O(assembly)
 """
 function compute_dKdx_u(dv, model, id_map, node_coords, node_R, u_global, ndof)
     dv_type = dv["type"]
     dv_method = get_dv_method(dv)
+    _guard_scalar_isotropic_material_dv!(dv, model)
+    _guard_context_free_pcomp_dkdx!(dv, model)
+    if _sol101_blank_mid3_policy_active() && _sol101_blank_mid3_dv_candidate(dv, model)
+        error("[ADJOINT] Direct dK/dx for SOL101 blank-MID3 rigid-shear shells lacks the forward assembly context. Use solve_adjoint for thickness/E/NU full-response finite differences; other variables require an independent end-to-end study.")
+    end
+    if _dkdx_has_constitutive_gap(dv, model)
+        if dv_type in ("shell_thickness", "material_E", "material_NU") &&
+           dv_method in (DV_REGISTRY[dv_type].method, :element_fd, :full_model_fd)
+            # Include independent MID2/3/4 and material-axis rotations exactly
+            # as assembled by the production operator, including its maps.
+            pseudo_load = zeros(ndof)
+            for dK in values(_full_model_dKdx_matrix_diffs(dv, model))
+                mul!(pseudo_load, dK, u_global, 1.0, 1.0)
+            end
+            return pseudo_load
+        end
+        throw(ArgumentError("[ADJOINT] $(dv_type) with anisotropic, independent-material or MID4 PSHELL requires full-model finite differences; this local derivative backend is unsupported."))
+    end
     dv_method === :full_model_fd ||
         _guard_mapped_quad4_local_dkdx!(dv, model, id_map, node_coords)
 
@@ -1001,92 +1110,11 @@ function _recompute_clt(prop, mats; perturb_ply::Int=0, perturb_field::Symbol=:T
 end
 
 function _dKdx_u_pcomp_ply_exact(dv, model, id_map, node_coords, node_R, u_global, ndof)
-    dv_type = dv["type"]
-    pids = Set(string.(dv["pids"]))
-    ply_idx = Int(dv["ply_index"])
-    perturb_field = dv_type == "pcomp_ply_thickness" ? :T : :THETA
-
-    pshells = model["PSHELLs"]
-    mats = model["MATs"]
-    pseudo_load = zeros(ndof)
-
-    for (_, el) in model["CSHELLs"]
-        pid_str = string(el["PID"])
-        pid_str in pids || continue
-        prop = get(pshells, pid_str, nothing)
-        if isnothing(prop) || get(prop, "TYPE", "") != "PCOMP_CLT"
-            continue
-        end
-
-        clt_deriv = _pcomp_exact_constitutive_derivative(prop, mats, ply_idx, perturb_field)
-        if isnothing(clt_deriv)
-            return _dKdx_u_pcomp_ply_fd(dv, model, id_map, node_coords, node_R, u_global, ndof)
-        end
-
-        ed = _shell_elem_local_data(el, model, id_map, node_coords, node_R)
-        isnothing(ed) && continue
-
-        dCm, dBmb, dCb, dCs = clt_deriv
-        h = Float64(prop["T"])
-        E_ref = Float64(get(prop, "E_ref", 1.0))
-        dKe = ed.n_nodes == 4 ?
-            FEM.stiffness_quad4_matrices(ed.lc, dCm, dCb, dCs, h, E_ref; Bmb=dBmb, k6rot=ed.k6rot) :
-            FEM.stiffness_tria3_matrices(ed.lc, dCm, dCb, dCs, h, E_ref; Bmb=dBmb, k6rot=ed.k6rot)
-
-        _scatter_elem_contribution!(pseudo_load, ed.T_mat, dKe, u_global, ed.dofs, ed.ndof_elem)
-    end
-
-    return pseudo_load
+    error("[ADJOINT] laminate_exact was invalid for condensed PCOMP stiffness. Use SOL101 solve_adjoint full-response differences.")
 end
 
 function _dKdx_u_pcomp_ply_fd(dv, model, id_map, node_coords, node_R, u_global, ndof)
-    dv_type = dv["type"]
-    pids = Set(string.(dv["pids"]))
-    ply_idx = Int(dv["ply_index"])
-    perturb_field = dv_type == "pcomp_ply_thickness" ? :T : :THETA
-
-    pshells = model["PSHELLs"]
-    mats = model["MATs"]
-    pseudo_load = zeros(ndof)
-
-    for (_, el) in model["CSHELLs"]
-        pid_str = string(el["PID"])
-        if !(pid_str in pids); continue; end
-        prop = get(pshells, pid_str, nothing)
-        if isnothing(prop); continue; end
-        if get(prop, "TYPE", "") != "PCOMP_CLT"; continue; end
-        if !haskey(prop, "PLY_DATA") || ply_idx > length(prop["PLY_DATA"]); continue; end
-
-        ed = _shell_elem_local_data(el, model, id_map, node_coords, node_R)
-        if isnothing(ed); continue; end
-
-        ply = prop["PLY_DATA"][ply_idx]
-        if perturb_field == :T
-            t_ply = Float64(ply["z_top"] - ply["z_bot"])
-            delta = max(abs(t_ply) * 1e-6, 1e-12)
-        else
-            theta_ply = deg2rad(Float64(ply["theta"]))
-            delta = max(abs(theta_ply) * 1e-6, 1e-6)
-        end
-
-        Cm_p, Bmb_p, Cb_p, Cs_p = _recompute_clt(prop, mats; perturb_ply=ply_idx, perturb_field=perturb_field, perturb_delta=delta)
-        Cm_m, Bmb_m, Cb_m, Cs_m = _recompute_clt(prop, mats; perturb_ply=ply_idx, perturb_field=perturb_field, perturb_delta=-delta)
-
-        h = Float64(prop["T"])
-        E_ref = Float64(get(prop, "E_ref", 1.0))
-        if ed.n_nodes == 4
-            Ke_p = FEM.stiffness_quad4_matrices(ed.lc, Cm_p, Cb_p, Cs_p, h, E_ref; Bmb=Bmb_p, k6rot=ed.k6rot)
-            Ke_m = FEM.stiffness_quad4_matrices(ed.lc, Cm_m, Cb_m, Cs_m, h, E_ref; Bmb=Bmb_m, k6rot=ed.k6rot)
-        else
-            Ke_p = FEM.stiffness_tria3_matrices(ed.lc, Cm_p, Cb_p, Cs_p, h, E_ref; Bmb=Bmb_p, k6rot=ed.k6rot)
-            Ke_m = FEM.stiffness_tria3_matrices(ed.lc, Cm_m, Cb_m, Cs_m, h, E_ref; Bmb=Bmb_m, k6rot=ed.k6rot)
-        end
-
-        dKe = (Ke_p - Ke_m) / (2.0 * delta)
-        _scatter_elem_contribution!(pseudo_load, ed.T_mat, dKe, u_global, ed.dofs, ed.ndof_elem)
-    end
-
-    return pseudo_load
+    error("[ADJOINT] clt_fd lacks PCOMP forward interpolation, shear and thickness context. Use SOL101 solve_adjoint full-response differences.")
 end
 
 function _dKdx_u_pcomp_ply(dv, model, id_map, node_coords, node_R, u_global, ndof)
@@ -1115,20 +1143,17 @@ function _dKdx_u_node_coord(dv, model, u_global, ndof)
     x0 = Float64(coords[comp])
     delta = max(abs(x0) * 1e-6, 1e-8)
 
-    # Perturb +
-    coords[comp] = x0 + delta
-    K_plus, = assemble_stiffness(model)
-    Ku_plus = K_plus * u_global
-
-    # Perturb -
-    coords[comp] = x0 - delta
-    K_minus, = assemble_stiffness(model)
-    Ku_minus = K_minus * u_global
-
-    # Restore
-    coords[comp] = x0
-
-    return (Ku_plus - Ku_minus) / (2.0 * delta)
+    try
+        coords[comp] = x0 + delta
+        K_plus, = assemble_stiffness(model)
+        Ku_plus = K_plus * u_global
+        coords[comp] = x0 - delta
+        K_minus, = assemble_stiffness(model)
+        Ku_minus = K_minus * u_global
+        return (Ku_plus - Ku_minus) / (2.0 * delta)
+    finally
+        coords[comp] = x0
+    end
 end
 
 # ============================================================================

@@ -49,6 +49,24 @@ end
     ]
 end
 
+function _laminate_corrected_shear(Ash, kappa_x, kappa_y)
+    all(k -> isfinite(k) && k > 0, (kappa_x, kappa_y)) ||
+        throw(ArgumentError("Laminate shear correction factors must be finite and positive"))
+    # Apply the correction to strain and its work-conjugate stress. This
+    # congruence preserves elastic energy symmetry/positive definiteness,
+    # the prescribed diagonal factors, and the equal-factor scalar limit.
+    coupling = sqrt(kappa_x) * sqrt(kappa_y) * (Ash[1,2] + Ash[2,1]) / 2
+    return [kappa_x * Ash[1,1] coupling; coupling kappa_y * Ash[2,2]]
+end
+
+function _unused_laminate_material_id(mats, pid)
+    candidate = Base.Checked.checked_add(900000, pid)
+    while haskey(mats, string(candidate))
+        candidate = Base.Checked.checked_add(candidate, 1)
+    end
+    return candidate
+end
+
 """
 Whitney–Pagano (1973) shear correction factors κ_xx and κ_yy for a laminate.
 
@@ -112,34 +130,66 @@ Resolve nested coordinate systems: when a CORD2R has RID != 0, its A/B/C
 points are defined in the reference coordinate system RID. Transform them
 to basic (global) coordinates and recompute the rotation matrix.
 """
+function _coordinate_point_to_basic(cord, point)
+    ctype = get(cord, "TYPE", "RECTANGULAR")
+    x = Float64.(point)
+    if ctype == "CYLINDRICAL"
+        r, theta, z = x
+        x = [r * cosd(theta), r * sind(theta), z]
+    elseif ctype == "SPHERICAL"
+        # Nastran theta is measured from +Z; phi is the azimuth from +X.
+        r, theta, phi = x
+        x = [r * sind(theta) * cosd(phi), r * sind(theta) * sind(phi), r * cosd(theta)]
+    elseif ctype != "RECTANGULAR"
+        throw(ArgumentError("Unknown coordinate system type: $ctype"))
+    end
+    return cord["Origin"] + cord["U"] * x[1] + cord["V"] * x[2] + cord["W"] * x[3]
+end
+
 function resolve_nested_coords!(model)
     cords = model["CORDs"]
     resolved = Set{String}()
+    active = Set{String}()
+
+    function grid_point(gid)
+        grids = model["GRIDs"]
+        key = string(gid)
+        haskey(grids, key) || throw(ArgumentError("Coordinate system references missing GRID $gid"))
+        grid = grids[key]
+        point = get(grid, "X_INPUT", grid["X"])
+        cp = get(grid, "CP", 0)
+        cp == 0 && return Float64.(point)
+        resolve!(string(cp))
+        return _coordinate_point_to_basic(cords[string(cp)], point)
+    end
 
     function resolve!(cid_str)
         if cid_str in resolved; return; end
+        haskey(cords, cid_str) || throw(ArgumentError("Missing coordinate system $cid_str"))
+        cid_str in active && throw(ArgumentError("Cyclic coordinate/GRID dependency involving coordinate system $cid_str"))
+        push!(active, cid_str)
         cord = cords[cid_str]
-        rid = get(cord, "RID", 0)
-        if rid != 0 && haskey(cords, string(rid))
-            # First resolve the parent
-            resolve!(string(rid))
-            parent = cords[string(rid)]
-            R_p = hcat(parent["U"], parent["V"], parent["W"])
-            O_p = parent["Origin"]
-            # Transform raw A, B, C from RID coords to basic
-            A = O_p + R_p * cord["A_raw"]
-            B = O_p + R_p * cord["B_raw"]
-            C = O_p + R_p * cord["C_raw"]
-            # Recompute rotation matrix
-            w = B - A
-            if norm(w) < 1e-9; w = [0.0, 0.0, 1.0]; else; w = normalize(w); end
-            v_t = C - A
-            v = cross(w, v_t)
-            if norm(v) < 1e-9; v = [0.0, 1.0, 0.0]; else; v = normalize(v); end
-            u = normalize(cross(v, w))
-            cord["Origin"] = A
-            cord["U"] = u; cord["V"] = v; cord["W"] = w
+        if haskey(cord, "G1")
+            A, B, C = (grid_point(cord[k]) for k in ("G1", "G2", "G3"))
+        elseif haskey(cord, "A_raw")
+            A, B, C = cord["A_raw"], cord["B_raw"], cord["C_raw"]
+            rid = get(cord, "RID", 0)
+            if rid != 0
+                resolve!(string(rid))
+                parent = cords[string(rid)]
+                A = _coordinate_point_to_basic(parent, A)
+                B = _coordinate_point_to_basic(parent, B)
+                C = _coordinate_point_to_basic(parent, C)
+            end
+        else
+            # Programmatic models may supply an already-resolved basic frame.
+            get(cord, "RID", 0) == 0 || throw(ArgumentError("Coordinate system $cid_str lacks raw defining points for its RID"))
+            A = cord["Origin"]; B = A + cord["W"]; C = A + cord["U"]
         end
+        A, u, v, w = NastranParser._coordinate_frame(A, B, C, cid_str)
+        cord["Origin"] = A
+        cord["U"] = u; cord["V"] = v; cord["W"] = w
+        delete!(active, cid_str)
         push!(resolved, cid_str)
     end
 
@@ -153,25 +203,12 @@ function transform_geometry!(model)
     cords = model["CORDs"]
 
     for (sid, g) in grids
-        if g["CP"] != 0 && haskey(cords, string(g["CP"]))
+        if g["CP"] != 0
+            haskey(cords, string(g["CP"])) || throw(ArgumentError("GRID $sid references missing CP $(g["CP"])"))
             c = cords[string(g["CP"])]
-            R = hcat(c["U"], c["V"], c["W"])
-            ctype = get(c, "TYPE", "RECTANGULAR")
-
-            if ctype == "CYLINDRICAL"
-                r, theta_deg, z = g["X"][1], g["X"][2], g["X"][3]
-                theta = deg2rad(theta_deg)
-                local_xyz = [r * cos(theta), r * sin(theta), z]
-                g["X"] = c["Origin"] + R * local_xyz
-            elseif ctype == "SPHERICAL"
-                r, theta_deg, phi_deg = g["X"][1], g["X"][2], g["X"][3]
-                theta = deg2rad(theta_deg)
-                phi = deg2rad(phi_deg)
-                local_xyz = [r * sin(phi) * cos(theta), r * sin(phi) * sin(theta), r * cos(phi)]
-                g["X"] = c["Origin"] + R * local_xyz
-            else
-                g["X"] = c["Origin"] + R * g["X"]
-            end
+            # Retain input coordinates for repeatable transforms and CORD1 GRID references.
+            point = get!(g, "X_INPUT") do; copy(g["X"]); end
+            g["X"] = _coordinate_point_to_basic(c, point)
         end
     end
 end
@@ -528,7 +565,7 @@ function build_model(cards, cc)
             all_mat8_plies_blank_transverse_shear = true
             for ply in pc["PLIES"]
                 pmid = string(ply["MID"])
-                if !haskey(mats, pmid); continue; end
+                haskey(mats, pmid) || throw(ArgumentError("PCOMP $pid references missing ply material $pmid"))
                 pm = mats[pmid]
                 t = ply["T"]; theta = deg2rad(ply["THETA"])
                 z_top = z_bot + t
@@ -587,7 +624,7 @@ function build_model(cards, cc)
             whitney_on = pcomp_whitney_shear_enabled()
             if whitney_on && length(ply_data) > 0
                 κ_x, κ_y = pcomp_whitney_kappa(ply_data, total_t)
-                Cs_lam = [κ_x*Ash[1,1] κ_x*Ash[1,2]; κ_y*Ash[2,1] κ_y*Ash[2,2]]
+                Cs_lam = _laminate_corrected_shear(Ash, κ_x, κ_y)
             else
                 Cs_lam = ts_t_default .* Ash
             end
@@ -609,7 +646,7 @@ function build_model(cards, cc)
             if total_t > 0; rho_eff /= total_t; end
 
             pid_int = pc["PID"]
-            synth_mid = 900000 + pid_int
+            synth_mid = _unused_laminate_material_id(mats, pid_int)
             mats[string(synth_mid)] = Dict("MID"=>synth_mid, "E"=>E_eq, "G"=>G_eq, "NU"=>nu_eq, "RHO"=>rho_eff, "TYPE"=>"MAT1_EQUIV")
             # Check if B is effectively zero (symmetric laminate)
             B_max = maximum(abs.(B))
@@ -622,7 +659,9 @@ function build_model(cards, cc)
                                 "Cb_ref" => copy(D), "Cs_ref" => copy(Cs_lam),
                                 "IS_ISOTROPIC" => all_plies_isotropic,
                                 "TRANSVERSE_SHEAR_RIGID_LIMIT" => saw_mat8_ply && all_mat8_plies_blank_transverse_shear,
-                                "PLY_DATA" => ply_data)
+                                "PLY_DATA" => ply_data,
+                                "PCOMP_Z0_DEFAULT"=>get(pc, "Z0_DEFAULT", false), "PCOMP_Z0"=>z0,
+                                "PCOMP_LAM"=>get(pc, "LAM", ""), "PCOMP_WHITNEY_SHEAR"=>whitney_on)
         end
     end
 
@@ -676,7 +715,9 @@ function build_model(cards, cc)
         "CASE_CONTROL" => cc,
         "GRIDs"       => haskey(cards,"GRID")   ? NastranParser.extract_grid(cards["GRID"]; grdset=grdset) : Dict(),
         "CORDs"       => merge(haskey(cards,"CORD2R") ? NastranParser.extract_coords(cards["CORD2R"]; coord_type="RECTANGULAR") : Dict(),
-                               haskey(cards,"CORD1R") ? NastranParser.extract_coords(cards["CORD1R"]; coord_type="RECTANGULAR") : Dict(),
+                               haskey(cards,"CORD1R") ? NastranParser.extract_coords1(cards["CORD1R"]; coord_type="RECTANGULAR") : Dict(),
+                               haskey(cards,"CORD1C") ? NastranParser.extract_coords1(cards["CORD1C"]; coord_type="CYLINDRICAL") : Dict(),
+                               haskey(cards,"CORD1S") ? NastranParser.extract_coords1(cards["CORD1S"]; coord_type="SPHERICAL") : Dict(),
                                haskey(cards,"CORD2C") ? NastranParser.extract_coords(cards["CORD2C"]; coord_type="CYLINDRICAL") : Dict(),
                                haskey(cards,"CORD2S") ? NastranParser.extract_coords(cards["CORD2S"]; coord_type="SPHERICAL") : Dict()),
         "CSHELLs"     => _merge_entity_groups_preserve_ids(
@@ -730,6 +771,7 @@ function build_model(cards, cc)
         "SPC1s"       => spc1s,
         "SPCADDs"     => haskey(cards,"SPCADD") ? NastranParser.extract_spcadd(cards["SPCADD"]) : Dict(),
         "EIGRLs"      => haskey(cards,"EIGRL")  ? NastranParser.extract_eigrl(cards["EIGRL"]) : Dict(),
+        "EIGBs"       => haskey(cards,"EIGB")   ? NastranParser.extract_eigb(cards["EIGB"]) : Dict(),
         "TEMPs"       => haskey(cards,"TEMP")   ? NastranParser.extract_temp(cards["TEMP"]) : Dict{Int,Dict{Int,Float64}}(),
         "TEMPDs"      => haskey(cards,"TEMPD")  ? NastranParser.extract_tempd(cards["TEMPD"]) : Dict{Int,Float64}(),
         "DMIGs"       => haskey(cards,"DMIG")   ? NastranParser.extract_dmig(cards["DMIG"]) : Dict{String,Dict{String,Any}}(),
@@ -970,6 +1012,9 @@ function build_model_from_json(raw::AbstractDict)
             "G11"=>G11, "G12"=>G12, "G13"=>Float64(m["G13"]),
             "G22"=>Float64(m["G22"]), "G23"=>Float64(m["G23"]), "G33"=>G33,
             "RHO"=>Float64(get(m, "RHO", 0.0)),
+            "A1"=>Float64(get(m, "A1", 0.0)), "A2"=>Float64(get(m, "A2", 0.0)),
+            "A3"=>Float64(get(m, "A3", get(m, "A12", 0.0))),
+            "TREF"=>Float64(get(m, "TREF", 0.0)),
             "E"=>E_eq, "G"=>G33, "NU"=>nu_eq,
         )
     end
@@ -991,6 +1036,8 @@ function build_model_from_json(raw::AbstractDict)
             "NSM"=> Float64(get(p, "NSM", 0.0)),
             "Z1"=> Float64(get(p, "Z1", -0.5 * Float64(p["T"]))),
             "Z2"=> Float64(get(p, "Z2",  0.5 * Float64(p["T"]))),
+            "Z1_DEFAULT"=> !haskey(p, "Z1") || get(p, "Z1_DEFAULT", false),
+            "Z2_DEFAULT"=> !haskey(p, "Z2") || get(p, "Z2_DEFAULT", false),
         )
     end
 
@@ -1012,7 +1059,8 @@ function build_model_from_json(raw::AbstractDict)
         if total_t <= 0; continue; end
 
         z0_raw = get(pc, "Z0", nothing)
-        z0 = isnothing(z0_raw) ? -total_t / 2.0 : Float64(z0_raw)
+        z0_default = isnothing(z0_raw) || get(pc, "Z0_DEFAULT", false)
+        z0 = z0_default ? -total_t / 2.0 : Float64(z0_raw)
 
         # CLT: compute ABD matrices
         A_mat = zeros(3, 3); B_mat = zeros(3, 3); D_mat = zeros(3, 3); Ash = zeros(2, 2)
@@ -1025,7 +1073,7 @@ function build_model_from_json(raw::AbstractDict)
 
         for ply in plies
             pmid = string(Int(ply["MID"]))
-            if !haskey(mats, pmid); continue; end
+            haskey(mats, pmid) || throw(ArgumentError("PCOMP $pid references missing ply material $pmid"))
             pm = mats[pmid]
             t = Float64(ply["T"]); theta = deg2rad(Float64(ply["THETA"]))
             z_top = z_bot + t
@@ -1071,7 +1119,7 @@ function build_model_from_json(raw::AbstractDict)
         whitney_on2 = pcomp_whitney_shear_enabled()
         if whitney_on2 && length(ply_data) > 0
             kappa_x, kappa_y = pcomp_whitney_kappa(ply_data, total_t)
-            Cs_lam = [kappa_x*Ash[1,1] kappa_x*Ash[1,2]; kappa_y*Ash[2,1] kappa_y*Ash[2,2]]
+            Cs_lam = _laminate_corrected_shear(Ash, kappa_x, kappa_y)
         else
             Cs_lam = ts_t_default2 .* Ash
         end
@@ -1087,7 +1135,7 @@ function build_model_from_json(raw::AbstractDict)
         if total_t > 0; rho_eff /= total_t; end
 
         pid_int = Int(pc["PID"])
-        synth_mid = 900000 + pid_int
+        synth_mid = _unused_laminate_material_id(mats, pid_int)
         mats[string(synth_mid)] = Dict{String,Any}(
             "MID"=>synth_mid, "E"=>E_eq, "G"=>G_eq, "NU"=>nu_eq, "RHO"=>rho_eff, "TYPE"=>"MAT1_EQUIV")
 
@@ -1102,7 +1150,9 @@ function build_model_from_json(raw::AbstractDict)
             "Cb_ref"=>copy(D_mat), "Cs_ref"=>copy(Cs_lam),
             "IS_ISOTROPIC"=>all_plies_isotropic,
             "TRANSVERSE_SHEAR_RIGID_LIMIT"=>saw_mat8_ply && all_mat8_plies_blank_transverse_shear,
-            "PLY_DATA"=>ply_data)
+            "PLY_DATA"=>ply_data,
+            "PCOMP_Z0_DEFAULT"=>z0_default, "PCOMP_Z0"=>z0,
+            "PCOMP_LAM"=>lam_field, "PCOMP_WHITNEY_SHEAR"=>whitney_on2)
     end
 
     # PBARL → compute section properties (delegate to existing function)
@@ -1135,7 +1185,7 @@ function build_model_from_json(raw::AbstractDict)
             w, h = dims[1], dims[2]; A = w*h; I1 = w*h^3/12; I2 = h*w^3/12
             J = min(w,h) > 0 ? max(w,h)*min(w,h)^3/3*(1-0.63*min(w,h)/max(w,h)) : I1+I2
         elseif (type_str == "TUBE" || type_str == "TUBE2") && length(dims) >= 2
-            Ro, Ri = dims[1], max(dims[2], 0.0)
+            Ro, Ri = dims[1], NastranParser._tube_inner_radius(type_str, dims)
             A = pi*(Ro^2-Ri^2); I1 = pi*(Ro^4-Ri^4)/4; I2 = I1; J = pi*(Ro^4-Ri^4)/2
         elseif type_str == "BOX" && length(dims) >= 4
             w, h, tw, th = dims[1], dims[2], dims[3], dims[4]
@@ -1161,7 +1211,7 @@ function build_model_from_json(raw::AbstractDict)
             w, h = dims[1], dims[2]; A = w*h; I1 = w*h^3/12; I2 = h*w^3/12
             J = min(w,h) > 0 ? max(w,h)*min(w,h)^3/3*(1-0.63*min(w,h)/max(w,h)) : I1+I2
         elseif (type_str == "TUBE" || type_str == "TUBE2") && length(dims) >= 2
-            Ro, Ri = dims[1], max(dims[2], 0.0)
+            Ro, Ri = dims[1], NastranParser._tube_inner_radius(type_str, dims)
             A = pi*(Ro^2-Ri^2); I1 = pi*(Ro^4-Ri^4)/4; I2 = I1; J = pi*(Ro^4-Ri^4)/2
         elseif type_str == "BOX" && length(dims) >= 4
             w, h, tw, th = dims[1], dims[2], dims[3], dims[4]
@@ -1234,18 +1284,19 @@ function build_model_from_json(raw::AbstractDict)
 
     # --- Coordinate systems: compute rotation from raw A, B, C ---
     cords = Dict{String,Any}()
-    for card_name in ["CORD2R", "CORD1R", "CORD2C", "CORD2S"]
+    for (card_name, coord_type) in (("CORD2R", "RECTANGULAR"), ("CORD2C", "CYLINDRICAL"),
+                                   ("CORD2S", "SPHERICAL"), ("CORD1R", "RECTANGULAR"),
+                                   ("CORD1C", "CYLINDRICAL"), ("CORD1S", "SPHERICAL"))
         for (cid, cord) in get(bd, card_name, Dict())
+            if startswith(card_name, "CORD1")
+                cords[cid] = Dict{String,Any}("TYPE"=>coord_type,
+                    "G1"=>Int(cord["G1"]), "G2"=>Int(cord["G2"]), "G3"=>Int(cord["G3"]))
+                continue
+            end
             A_pt = Float64.(cord["A"]); B_pt = Float64.(cord["B"]); C_pt = Float64.(cord["C"])
-            w = B_pt - A_pt
-            if norm(w) < 1e-9; w = [0.0, 0.0, 1.0]; else w = normalize(w); end
-            v_t = C_pt - A_pt
-            v = cross(w, v_t)
-            if norm(v) < 1e-9; v = [0.0, 1.0, 0.0]; else v = normalize(v); end
-            u = normalize(cross(v, w))
+            # resolve_nested_coords! below computes the basic frame after RID conversion.
             cords[cid] = Dict{String,Any}(
-                "Origin"=>A_pt, "U"=>u, "V"=>v, "W"=>w,
-                "TYPE"=>get(cord, "TYPE", "RECTANGULAR"),
+                "TYPE"=>coord_type,
                 "RID"=>Int(get(cord, "RID", 0)),
                 "A_raw"=>copy(A_pt), "B_raw"=>copy(B_pt), "C_raw"=>copy(C_pt))
         end
@@ -1295,9 +1346,11 @@ function build_model_from_json(raw::AbstractDict)
         "GRAVs"       => get(bd, "GRAV", []),
         "RFORCEs"     => get(bd, "RFORCE", []),
         "LOAD_COMBOS" => get(bd, "LOAD", []),
+        "SPCDs"       => get(bd, "SPCD", []),
         "SPC1s"       => spc1s,
         "SPCADDs"     => spcadds,
         "EIGRLs"      => get(bd, "EIGRL", Dict()),
+        "EIGBs"       => get(bd, "EIGB", Dict()),
         "TEMPs"       => temps,
         "TEMPDs"      => tempds,
         "DMIGs"       => dmigs,

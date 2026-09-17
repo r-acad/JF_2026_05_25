@@ -11,6 +11,8 @@
 
 using JSON
 using Pkg
+include(joinpath(@__DIR__, "precompile_deployment.jl"))
+include(joinpath(@__DIR__, "sysimage_provenance.jl"))
 
 const DEFAULT_FLAGS = "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1"
 
@@ -229,9 +231,14 @@ function _maybe_build_sysimage(sysimage::AbstractString, decks::Vector{String}, 
         Base.find_package(String(extra)) !== nothing && push!(pkgs, extra)
     end
     println("  sysimage packages: ", join(string.(pkgs), ", "))
+    repo_root = normpath(joinpath(@__DIR__, "..", ".."))
+    source_before = JFEMSysimageProvenance.input_hashes(repo_root)
+    workload_before = JFEMSysimageProvenance.workload_hashes(decks, flags)
     Base.invokelatest(getfield(packagecompiler, :create_sysimage), pkgs;
         sysimage_path=sysimage,
         precompile_execution_file=script)
+    receipt = JFEMSysimageProvenance.write_sidecar(repo_root, sysimage, source_before, workload_before)
+    println("Sysimage provenance: $receipt")
     println("Sysimage complete: $sysimage")
     return sysimage
 end
@@ -258,11 +265,9 @@ try
     _setenv_preserving!(old_env, "JFEM_SOL105_PRECOMPILE_FLAGS", flags)
     _setenv_preserving!(old_env, "JFEM_SUPPRESS_THREAD_HINT", "1")
 
-    println("Instantiating project dependencies...")
-    Pkg.instantiate()
-
-    println("Precompiling OpenJFEM with broad representative workload...")
-    Pkg.precompile()
+    println("Instantiating dependencies and refreshing the requested workload...")
+    refresh_deployment_precompile!(Base.PkgId(
+        Base.UUID("5f27aa24-1c38-4f48-8d29-0194396c76b2"), "OpenJFEM"))
 
     println("Verifying package load...")
     @eval using OpenJFEM

@@ -1981,7 +1981,7 @@ function _tacs_pcomp_shear_corrected(Ash::AbstractMatrix, ply_data::AbstractVect
     Cs_lam =
         pcomp_whitney_shear_enabled() && !isempty(ply_data) ? begin
             kappa_x, kappa_y = pcomp_whitney_kappa(collect(ply_data), total_t)
-            [kappa_x * Ash[1,1] kappa_x * Ash[1,2]; kappa_y * Ash[2,1] kappa_y * Ash[2,2]]
+            _laminate_corrected_shear(Ash, kappa_x, kappa_y)
         end :
         ts_t_default .* Ash
 
@@ -3115,23 +3115,23 @@ function _tacs_assemble_sol101(
     )
     id_map, X, ndof, node_R = _tacs_node_tables(model)
     cshells = get(model, "CSHELLs", Dict())
-    cbars = get(model, "CBARs", Dict())
-    cbeams = get(model, "CBEAMs", Dict())
-    crods = get(model, "CRODs", Dict())
-    conrods = get(model, "CONRODs", Dict())
-    celases = get(model, "CELASs", Dict())
-    cbushes = get(model, "CBUSHs", Dict())
+    # Only shells using the selected property depend on this thickness.
+    physical_stiffness = thickness_derivative_pid === nothing
+    cbars = physical_stiffness ? get(model, "CBARs", Dict()) : ()
+    cbeams = physical_stiffness ? get(model, "CBEAMs", Dict()) : ()
+    crods = physical_stiffness ? get(model, "CRODs", Dict()) : ()
+    conrods = physical_stiffness ? get(model, "CONRODs", Dict()) : ()
+    celases = physical_stiffness ? get(model, "CELASs", Dict()) : ()
+    cbushes = physical_stiffness ? get(model, "CBUSHs", Dict()) : ()
     nnz_est = 576 * length(cshells) + 144 * (length(cbars) + length(cbeams) + length(crods) + length(conrods)) +
         4 * length(celases) + 144 * length(cbushes)
     I_idx = Vector{Int}(); J_idx = Vector{Int}(); V_val = Vector{Float64}()
     sizehint!(I_idx, nnz_est); sizehint!(J_idx, nnz_est); sizehint!(V_val, nnz_est)
     max_elem_stiff = 0.0
     for (_, el) in cshells
-        use_thickness_derivative =
-            thickness_derivative_pid !== nothing &&
-            Int(get(el, "PID", 0)) == Int(thickness_derivative_pid)
+        !physical_stiffness && Int(get(el, "PID", 0)) != Int(thickness_derivative_pid) && continue
         Ke, dofs =
-            use_thickness_derivative ?
+            !physical_stiffness ?
             _tacs_shell_thickness_tangent_ad(model, el, id_map, X, node_R) :
             _tacs_shell_residual_tangent(model, el, id_map, X, node_R)
         max_elem_stiff = max(max_elem_stiff, maximum(abs.(Ke)))
@@ -3198,6 +3198,10 @@ function _tacs_assemble_sol101(
             push!(J_idx, dofs[c])
             push!(V_val, Ke[r, c])
         end
+    end
+    # Selected external stiffness is independent of shell thickness.
+    if physical_stiffness
+        Solver.append_direct_matrix_triplets!(I_idx, J_idx, V_val, model, id_map; kind=:stiffness)
     end
     K = sparse(I_idx, J_idx, V_val, ndof, ndof)
     orig_diag = collect(diag(K))
@@ -3374,7 +3378,8 @@ function _tacs_sol103_modal_mass_builder(model::Dict, id_map, X, node_R, ndof::I
     )
     has_shared_mass =
         !isempty(get(model, "CSHELLs", Dict())) ||
-        _tacs_model_has_modal_point_mass(model)
+        _tacs_model_has_modal_point_mass(model) ||
+        Solver._selected_direct_matrix(model, "M2GG") !== nothing
     M_shared = if has_shared_mass
         Solver.assemble_mass(_tacs_model_without_backend_line_elements_for_mass(model), id_map, X, node_R, ndof)
     else
@@ -3416,6 +3421,9 @@ function _tacs_sol103_modal_mass_route_label(model::AbstractDict)
     if _tacs_model_has_modal_point_mass(model)
         push!(parts, "shared_jfem_modal_point_mass")
     end
+    if Solver._selected_direct_matrix(model, "M2GG") !== nothing
+        push!(parts, "shared_jfem_selected_m2gg_mass")
+    end
     if _tacs_nonempty_group(model, "CRODs") || _tacs_nonempty_group(model, "CONRODs")
         push!(parts, "tacs_lumped_crod_conrod_mass")
     end
@@ -3439,6 +3447,9 @@ function _tacs_sol103_linear_stiffness_route_label(model::AbstractDict)
     end
     if _tacs_nonempty_group(model, "CELASs") || _tacs_nonempty_group(model, "CBUSHs")
         push!(parts, "residual_first_celas1_celas2_cbush_sol101_sol103")
+    end
+    if Solver._selected_direct_matrix(model, "K2GG") !== nothing
+        push!(parts, "shared_jfem_selected_k2gg_stiffness")
     end
     isempty(parts) && return TACS_LINEAR_SHELL_STIFFNESS_ROUTE
     return join(parts, "_plus_")

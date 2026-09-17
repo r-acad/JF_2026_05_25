@@ -63,10 +63,8 @@ function bdf_to_model(filename::String; export_json::Bool=false)
     if export_json
         json_path = filename * ".json"
         println(">>> Exporting model JSON: $json_path")
-        _export_ensure_parent_dir!(json_path)
-        open(_export_fs_path(json_path), "w") do f
-            JSON.print(f, model, 2)
-        end
+        _ensure_export_extensions!()
+        Base.invokelatest(_export_write_json, json_path, model, 2)
         println(">>> Model JSON exported: $json_path")
     end
 
@@ -102,17 +100,15 @@ function json_to_model(json_path::String; export_json::Bool=false)
     if export_json
         out_path = json_path * ".model.json"
         println(">>> Exporting derived model JSON: $out_path")
-        _export_ensure_parent_dir!(out_path)
-        open(_export_fs_path(out_path), "w") do f
-            JSON.print(f, model, 2)
-        end
+        _ensure_export_extensions!()
+        Base.invokelatest(_export_write_json, out_path, model, 2)
     end
 
     return model
 end
 
 function _report_card_inventory(cards)
-    processed = Set(["GRID", "GRDSET", "CORD2R", "CORD1R", "CORD2C", "CORD2S",
+    processed = Set(["GRID", "GRDSET", "CORD2R", "CORD1R", "CORD1C", "CORD1S", "CORD2C", "CORD2S",
         "CTRIA3", "CTRIA6", "CQUAD4", "CQUADR", "CQUAD8", "CSHEAR", "CBAR", "CBEAM", "CROD", "CONROD", "CELAS1", "CELAS2", "CBUSH",
         "RBE1", "RBE2", "RBE3", "RBAR", "RSPLINE",
         "PSHELL", "PSHEAR", "PBARL", "PBAR", "PBAR*", "PBEAM", "PBEAM*", "PBEAML", "PROD", "PCOMP", "PELAS", "PBUSH", "PSOLID",
@@ -122,7 +118,7 @@ function _report_card_inventory(cards)
         "SPC1", "SPC", "SPCADD", "SPCD", "MPC", "MPCADD", "LOAD",
         "CONM2", "CONM1", "CMASS1", "CMASS2", "PMASS",
         "CTETRA", "CHEXA", "CPENTA",
-        "EIGRL", "TEMP", "TEMPD", "DMIG", "PARAM"])
+        "EIGRL", "EIGB", "TEMP", "TEMPD", "DMIG", "PARAM"])
     unprocessed = Dict{String,Int}()
     for (cname, clist) in cards
         if !(cname in processed)
@@ -184,6 +180,10 @@ function _with_active_temperature_material(model::Dict, temp_sid, f::Function)
         end
     end
 end
+
+# Julia's do-block syntax passes the callback as the first argument.
+_with_active_temperature_material(f::Function, model::Dict, temp_sid) =
+    _with_active_temperature_material(model, temp_sid, f)
 
 @inline function _sol200_lite_numeric_equal(a, b)
     af = Float64(a)
@@ -2165,8 +2165,35 @@ function _model_has_cquadr_shells(model::AbstractDict)::Bool
     return false
 end
 
+function _model_with_selected_mpc(model::Dict)
+    cc = get(model, "CASE_CONTROL", Dict())
+    global_mpc = get(cc,"MPC",get(get(cc, "GLOBAL", Dict()), "MPC", nothing))
+    selections = Any[get(sub, "MPC", global_mpc) for sub in values(get(cc, "SUBCASES", Dict()))]
+    isempty(selections) && push!(selections, global_mpc)
+    normalized = [raw === nothing ? nothing :
+        (raw isa Number ? Int(raw) : parse(Int, strip(string(raw)))) for raw in selections]
+    all(sid -> sid === nothing || sid > 0, normalized) ||
+        throw(ArgumentError("MPC selections must be positive set IDs"))
+    length(unique(normalized)) == 1 || throw(ArgumentError(
+        "Different MPC selections across subcases require separate stiffness assemblies. Run those selections as separate models; JFEM will not combine their constraints."))
+    scoped = copy(model)
+    scoped["_active_mpc_id"] = only(unique(normalized))
+    return scoped
+end
+
 function solve_model(backend::TACSFormulationBackend, model::Dict)
+    return _solve_model_tacs(backend, _model_with_selected_mpc(model))
+end
+
+function _solve_model_tacs(backend::TACSFormulationBackend, model::Dict)
     sol_type = _canonical_sol_type(get(model, "SOL", get(get(model, "CASE_CONTROL", Dict()), "SOL", 101)))
+    if _model_has_temperature_dependent_mat1(model)
+        cc = get(model,"CASE_CONTROL",Dict())
+        selections = collect(values(get(cc,"SUBCASES",Dict())))
+        isempty(selections) && push!(selections,Dict{String,Any}())
+        any(sub->Solver._subcase_temp_load_sid(sub,cc) !== nothing,selections) && error(
+            "TACS-formulation SOL$sol_type does not support temperature-dependent MAT1 reassembly; select the Nastran-parity backend.")
+    end
     t_solve_start = time_ns()
     results =
         if sol_type == 101
@@ -2197,10 +2224,16 @@ function solve_model(backend::TACSFormulationBackend, model::Dict)
 end
 
 function solve_model(backend::NastranParityBackend, model::Dict)
+    return _solve_model_parity(backend, _model_with_selected_mpc(model))
+end
+
+function _solve_model_parity(backend::NastranParityBackend, model::Dict)
     t_solve_start = time_ns()
     cc = model["CASE_CONTROL"]
     raw_sol_type = get(model, "SOL", get(cc, "SOL", 101))
     sol_type = _canonical_sol_type(raw_sol_type)
+    sol_type in (101, 103, 105, 106, 200) || throw(ArgumentError(
+        "Unsupported solution SOL $sol_type; supported sequences are 101, 103, 105, 106 and 200-lite"))
     if sol_type == 200
         results = _solve_sol200_lite(model)
         attach_backend_metadata!(results, backend)
@@ -2364,7 +2397,7 @@ function _solve_sol106(model, cc, K, id_map, X, ndof, node_R,
 
         t_sc = time_ns()
         u, stresses, sub_res, u_analysis, fixed_dofs_sc, Kg =
-            needs_temp_reassembly ?
+            !isnothing(temp_load_id) ?
                 _with_active_temperature_material(model, temp_load_id, run_subcase) :
                 run_subcase()
         wall_seconds = (time_ns() - t_sc) * 1e-9
@@ -2389,6 +2422,11 @@ function _solve_sol106(model, cc, K, id_map, X, ndof, node_R,
             "element_vonmises" => stresses,
             "u_analysis" => u_analysis,
             "fixed_dofs" => fixed_dofs_sc,
+            "K" => K_sub,
+            "id_map" => id_map_sub,
+            "node_coords" => X_sub,
+            "node_R" => node_R_sub,
+            "temp_load_id" => temp_load_id,
             "wall_seconds" => wall_seconds,
         ))
     end
@@ -2464,7 +2502,7 @@ function _solve_sol101(model, cc, K, id_map, X, ndof, node_R,
 
         t_sc = time_ns()
         u, stresses, sub_res, u_analysis, fixed_dofs_sc =
-            needs_temp_reassembly ?
+            !isnothing(temp_load_id) ?
                 _with_active_temperature_material(model, temp_load_id, run_subcase) :
                 run_subcase()
         wall_seconds = (time_ns() - t_sc) * 1e-9
@@ -2484,8 +2522,19 @@ function _solve_sol101(model, cc, K, id_map, X, ndof, node_R,
             "element_vonmises" => stresses,
             "u_analysis" => u_analysis,
             "fixed_dofs" => fixed_dofs_sc,
+            "K" => K_sub,
+            "id_map" => id_map_sub,
+            "node_coords" => X_sub,
+            "node_R" => node_R_sub,
+            "temp_load_id" => temp_load_id,
             "wall_seconds" => wall_seconds,
         ))
+        if haskey(sub_res, "raw_residual_analysis")
+            subcases_results[end]["raw_residual_analysis"] = sub_res["raw_residual_analysis"]
+        end
+        if haskey(sub_res, "recovery_diagnostics")
+            subcases_results[end]["recovery_diagnostics"] = sub_res["recovery_diagnostics"]
+        end
     end
 
     return Dict(
@@ -2691,48 +2740,225 @@ end
 # global static displacement vector, both ready for the v5 .jfem STATIC block.
 # Pure post-processing - it does NOT touch the solved state.
 # ============================================================================
-function _recover_sol105_static_fields(model, id_map, X, node_R, u_static, snorm_normals)
+function _recover_sol105_static_fields(model, id_map, X, node_R, u_static, snorm_normals;
+                                      recovery_diagnostics=nothing)
     out = Dict{Int,NTuple{3,Float64}}()
     try
         stresses = Dict{Int,Float64}()
-        rj = Dict(
+        rj = Dict{String,Any}(
             "forces"      => Dict("quad4" => [], "tria3" => []),
             "forces_bilin"=> Dict("quad4" => [], "tria3" => []),
             "stresses"    => Dict("quad4" => [], "tria3" => []),
             "strains"     => Dict("quad4" => [], "tria3" => []),
         )
-        Solver.recover_shell_stresses!(model, id_map, X, node_R, u_static, snorm_normals, stresses, rj)
-        # strain entries are keyed by eid alongside the stress entries
-        strain_by_eid = Dict{Int,Any}()
-        for k in ("quad4", "tria3")
-            for s in rj["strains"][k]; strain_by_eid[s["eid"]] = s; end
-        end
-        for k in ("quad4", "tria3")
-            for s in rj["stresses"][k]
-                eid = s["eid"]
-                vm = max(Float64(s["z1"]["von_mises"]), Float64(s["z2"]["von_mises"]))
-                # Equivalent (von-Mises-type) membrane strain from the z1 strain
-                # tensor (normal_x, normal_y, shear_xy stored on the strain entry).
-                eps = 0.0; sed = 0.0
-                st = get(strain_by_eid, eid, nothing)
-                if st !== nothing
-                    ex = Float64(st["z1"]["normal_x"]); ey = Float64(st["z1"]["normal_y"]); exy = Float64(st["z1"]["shear_xy"])
-                    eps = sqrt(max(0.0, ex*ex - ex*ey + ey*ey + 3.0*exy*exy))
-                end
-                # Strain-energy density proxy ~ 0.5 * vm * eps (per unit volume).
-                sed = 0.5 * vm * eps
-                out[eid] = (vm, eps, sed)
-            end
+        Solver.recover_shell_stresses!(model, id_map, X, node_R, u_static, snorm_normals, stresses, rj;
+                                      static_fields=out)
+        if recovery_diagnostics !== nothing && haskey(rj, "recovery_diagnostics")
+            merge!(recovery_diagnostics, rj["recovery_diagnostics"])
         end
     catch err
-        @warn "SOL105 static field recovery failed; static export will be empty" error=err
+        @error "SOL105 static field recovery failed" exception=(err, catch_backtrace())
+        rethrow()
     end
     return out
+end
+
+"""Recover export-only shell fields once per preload, in its material context."""
+function _sol105_static_fields!(results, static_sid::Int)
+    states = get(results, "static_states", nothing)
+    if states === nothing
+        fields = get(results, "static_shell_fields", nothing)
+        return fields === nothing ? Dict{Int,NTuple{3,Float64}}() : fields
+    end
+    haskey(states, static_sid) || error("SOL105 has no static preload state $static_sid")
+    cache = get!(results, "static_shell_fields_by_subcase") do
+        Dict{Int,Dict{Int,NTuple{3,Float64}}}()
+    end
+    return get!(cache, static_sid) do
+        state = states[static_sid]
+        started = time_ns()
+        recovery_diagnostics = Dict{String,Any}()
+        fields = _with_active_temperature_material(results["model"], state.temp_load_id) do
+            _recover_sol105_static_fields(results["model"], state.id_map, state.X,
+                state.node_R, state.u_static, state.snorm_normals; recovery_diagnostics=recovery_diagnostics)
+        end
+        if !isempty(recovery_diagnostics)
+            get!(results, "static_recovery_diagnostics_by_subcase", Dict{Int,Any}())[static_sid] = recovery_diagnostics
+        end
+        results["timings"]["sol105_static_field_recovery"] =
+            get(results["timings"], "sol105_static_field_recovery", 0.0) +
+            (time_ns() - started) * 1e-9
+        br = get(results, "buckling", nothing)
+        if br isa Solver.BucklingResult && !isempty(br.subcases) &&
+           last(br.subcases).static_subcase_id == static_sid
+            results["static_shell_fields"] = fields
+        end
+        fields
+    end
 end
 
 # ============================================================================
 # SOL 105: Linear Buckling
 # ============================================================================
+function _sol105_positive_case_id(raw, field_name::AbstractString, buckling_sid::Integer)
+    parsed = if raw isa Integer
+        typemin(Int) <= raw <= typemax(Int) ? Int(raw) : nothing
+    elseif raw isa Real && isfinite(raw) && isinteger(raw) && typemin(Int) <= raw <= typemax(Int)
+        Int(raw)
+    else
+        tryparse(Int, strip(string(raw)))
+    end
+    if isnothing(parsed) || parsed <= 0
+        error("SOL 105 buckling subcase $buckling_sid has invalid $field_name=$(repr(raw)); expected a positive integer")
+    end
+    return Int(parsed)
+end
+
+function _sol105_select_buckling_subcases(cc, sorted_sids)
+    subcases = get(cc, "SUBCASES", Dict())
+    isempty(sorted_sids) && error("SOL 105 requires at least one SUBCASE")
+
+    selected = Tuple{Int,Int}[]
+    for sid in sorted_sids
+        sub = subcases[sid]
+        statsub_raw = get(sub, "STATSUB", nothing)
+        local_method = get(sub, "METHOD", nothing)
+
+        # A global METHOD applies to a selected buckling subcase, but must not
+        # turn every static/preload subcase into an eigenvalue subcase. Select
+        # standard STATSUB cases, plus the historical local-METHOD form used by
+        # older JFEM decks that omitted STATSUB.
+        if !isnothing(statsub_raw)
+            stat_sid = _sol105_positive_case_id(statsub_raw, "STATSUB", sid)
+            haskey(subcases, stat_sid) || error(
+                "SOL 105 buckling subcase $sid references missing STATSUB=$stat_sid")
+            push!(selected, (sid, stat_sid))
+        elseif !isnothing(local_method)
+            push!(selected, (sid, 0))
+        end
+    end
+
+    isempty(selected) && error(
+        "SOL 105 has no buckling subcase: add STATSUB to the buckling SUBCASE " *
+        "(a global METHOD alone does not identify one), or use an explicit local METHOD for a legacy deck")
+
+    selected_sids = Set(first.(selected))
+    static_load_sids = [
+        sid for sid in sorted_sids
+        if !(sid in selected_sids) && !isnothing(get(subcases[sid], "LOAD", nothing))
+    ]
+
+    resolved = Tuple{Int,Int}[]
+    for (buck_sid, stat_sid) in selected
+        if stat_sid != 0
+            push!(resolved, (buck_sid, stat_sid))
+            continue
+        end
+
+        # Compatibility for explicit local-METHOD decks without STATSUB:
+        # prefer a distinct preload subcase carrying LOAD, then a LOAD on the
+        # eigen subcase itself, then the first distinct subcase (thermal-only
+        # preloads need not carry LOAD), matching the old permissive behavior.
+        inferred_static = if !isempty(static_load_sids)
+            first(static_load_sids)
+        elseif !isnothing(get(subcases[buck_sid], "LOAD", nothing))
+            buck_sid
+        else
+            other_index = findfirst(sid -> sid != buck_sid, sorted_sids)
+            isnothing(other_index) ? buck_sid : sorted_sids[other_index]
+        end
+        push!(resolved, (buck_sid, inferred_static))
+    end
+    return resolved
+end
+
+@inline function _sol105_request_lookup(entries, method_id::Integer)
+    haskey(entries, string(method_id)) && return entries[string(method_id)]
+    haskey(entries, method_id) && return entries[method_id]
+    return nothing
+end
+
+function _sol105_request_bool(entry, key::AbstractString, fallback::Bool)
+    value = get(entry, key, fallback)
+    value isa Bool && return value
+    parsed = tryparse(Bool, lowercase(strip(string(value))))
+    return something(parsed, fallback)
+end
+
+function _sol105_request_count(entry, source::AbstractString, method_id::Integer)
+    raw = get(entry, "ND", nothing)
+    field_name = uppercase(source) == "EIGB" ? "NEP" : "ND"
+    if !(raw isa Real) || !isfinite(raw) || !isinteger(raw) || raw <= 0 || raw > typemax(Int)
+        error("$source SID=$method_id has invalid requested eigenvalue count $field_name=$(repr(raw)); expected a positive integer")
+    end
+    return Int(raw)
+end
+
+function _resolve_sol105_eigen_request(model, cc, sub, buckling_sid::Integer)
+    method_raw = let local_method = get(sub, "METHOD", nothing)
+        isnothing(local_method) ? get(cc, "METHOD", nothing) : local_method
+    end
+    isnothing(method_raw) && error(
+        "SOL 105 buckling subcase $buckling_sid has no METHOD; define METHOD locally or globally")
+    method_id = _sol105_positive_case_id(method_raw, "METHOD", buckling_sid)
+
+    eigrl = _sol105_request_lookup(get(model, "EIGRLs", Dict()), method_id)
+    eigb = _sol105_request_lookup(get(model, "EIGBs", Dict()), method_id)
+    entry, source = if !isnothing(eigrl)
+        eigrl, "EIGRL"
+    elseif !isnothing(eigb)
+        eigb, "EIGB"
+    else
+        error("SOL 105 buckling subcase $buckling_sid METHOD=$method_id does not reference an EIGRL or EIGB Bulk Data entry")
+    end
+    if source == "EIGB"
+        eigb_request = Solver._resolve_eigb_request(entry, method_id)
+        counts = Int[]
+        eigb_request.upper > 0.0 && eigb_request.ndp !== nothing && push!(counts, eigb_request.ndp)
+        eigb_request.lower < 0.0 && eigb_request.ndn !== nothing && push!(counts, eigb_request.ndn)
+        nd = isempty(counts) ? 1 : Base.checked_add(first(counts), length(counts) == 2 ? last(counts) : 0)
+        return (method_id=method_id, source=source, algorithm=eigb_request.algorithm,
+            entry=entry, nd=nd,
+            v1=eigb_request.lower_specified ? eigb_request.lower : 0.0,
+            v2=eigb_request.upper_specified ? eigb_request.upper : 0.0,
+            v1_specified=eigb_request.lower_specified,
+            v2_specified=eigb_request.upper_specified,
+            nd_specified=!isempty(counts), eigb_request=eigb_request)
+    end
+
+    v1 = Float64(get(entry, "V1", get(entry, "L1", 0.0)))
+    v2 = Float64(get(entry, "V2", get(entry, "L2", 0.0)))
+    # Older JSON models predate the explicit presence flags. Their exact blank
+    # state cannot be recovered; retain the legacy nonzero-bound inference and
+    # treat their stored ND as explicit.
+    v1_specified = _sol105_request_bool(entry, "V1_SPECIFIED", v1 != 0.0)
+    v2_specified = _sol105_request_bool(entry, "V2_SPECIFIED", v2 != 0.0)
+    nd_specified = _sol105_request_bool(entry, "ND_SPECIFIED", haskey(entry, "ND"))
+    nd = if nd_specified
+        _sol105_request_count(entry, source, method_id)
+    else
+        # Nastran EIGRL: all-blank and V1-only forms request the lowest
+        # qualifying root. A specified V2 makes this an all-roots-in-range
+        # request; solve_buckling uses nd_specified=false as that marker and
+        # needs only a positive numeric seed count here.
+        1
+    end
+
+    return (
+        method_id=method_id,
+        source=source,
+        algorithm=source == "EIGB" ? uppercase(string(get(entry, "METHOD", ""))) : "LANCZOS",
+        entry=entry,
+        nd=nd,
+        v1=v1,
+        v2=v2,
+        v1_specified=v1_specified,
+        v2_specified=v2_specified,
+        nd_specified=nd_specified,
+        eigb_request=nothing,
+    )
+end
+
 function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                        max_elem_stiff, rbe3_map, snorm_normals, orig_diag,
                        sorted_sids, sol105_snorm_angle, mesh;
@@ -2745,34 +2971,18 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     opts = options === nothing ? Solver.from_env() : options
     println("\n>>> SOL 105 Linear Buckling Analysis")
 
-    # Collect buckling subcases
-    buckling_subcases = Tuple{Int, Int}[]
-    for sid in sorted_sids
-        sub = cc["SUBCASES"][sid]
-        if haskey(sub, "METHOD") && !isnothing(sub["METHOD"])
-            statsub_ref = get(sub, "STATSUB", nothing)
-            static_sid = !isnothing(statsub_ref) ? Int(statsub_ref) : nothing
-            push!(buckling_subcases, (sid, isnothing(static_sid) ? 0 : static_sid))
-        end
-    end
-
-    if !isempty(buckling_subcases) && all(p -> p[2] == 0, buckling_subcases)
-        default_static = nothing
-        for sid in sorted_sids
-            sub = cc["SUBCASES"][sid]
-            if haskey(sub, "LOAD") && !isnothing(sub["LOAD"]) && !any(p -> p[1] == sid, buckling_subcases)
-                default_static = sid; break
-            end
-        end
-        if isnothing(default_static); default_static = sorted_sids[1]; end
-        buckling_subcases = [(p[1], default_static) for p in buckling_subcases]
-    end
-
-    if isempty(buckling_subcases)
-        buckling_subcases = [(length(sorted_sids) >= 2 ? sorted_sids[2] : sorted_sids[1], sorted_sids[1])]
-    end
+    buckling_subcases = _sol105_select_buckling_subcases(cc, sorted_sids)
 
     static_cache = Dict{Int, Any}()
+    static_states = Dict{Int,Any}()
+    kg_cache = Dict{Int,Any}()
+    # Custom builders may depend on buckling-subcase identity. Diagnostic CSV
+    # output also needs one assembly per subcase to preserve its rows.
+    reuse_kg = geometric_stiffness_builder === nothing &&
+        isempty(strip(get(ENV, "JFEM_KG_DIAG_EID_CSV", ""))) &&
+        Solver.solver_env_bool("JFEM_SOL105_REUSE_PRELOAD_KG", true)
+    sol105_kg_cache_hits = 0
+    sol105_kg_cache_misses = 0
     static_linear_solve_cache = ndof >= Solver.linear_solve_cache_min_ndof() ? Solver.create_linear_solve_cache() : nothing
     eigen_solve_cache = ndof >= Solver.eigen_solve_cache_min_ndof() ? Solver.create_eigen_solve_cache() : nothing
     # Per-deck Kg CSC pattern cache (values-only reassembly, env-flagged in
@@ -2786,7 +2996,9 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     sol105_static_cache_misses = 0
     sol105_eigen_seeded_from_static = 0
     all_eigenvalues = Float64[]
-    all_mode_shapes = Vector{Vector{Float64}}()
+    # Retain one matrix reference per subcase. The old column-by-column vector
+    # copies multiplied mode storage before the final legacy matrix was built.
+    all_mode_shape_blocks = Matrix{Float64}[]
     all_mode_metadata = Vector{Dict{String,Any}}()
     buckling_case_diagnostics = Any[]
     # Phase A1 (architectural-cleanup 2026-05-24): structured per-subcase
@@ -2800,16 +3012,10 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     last_fixed_dofs = Set{Int}()
     last_K = K
     last_K_eig = K_eig
-    # Stash the static-subcase recovery inputs (only bound inside the loop) so the
-    # returned results dict can recover static element stress/strain for export.
-    last_id_map_static = id_map
-    last_X_static = X
-    last_node_R_static = node_R
-    last_snorm_normals_static = snorm_normals
 
     for (buck_sid, stat_sid) in buckling_subcases
         sub_buck = cc["SUBCASES"][buck_sid]
-        sub_static = haskey(cc["SUBCASES"], stat_sid) ? cc["SUBCASES"][stat_sid] : cc["SUBCASES"][sorted_sids[1]]
+        sub_static = cc["SUBCASES"][stat_sid]
         load_id = get(sub_static, "LOAD", nothing)
         spc_id_static = get(sub_static, "SPC", nothing)
         temp_load_id_static = Solver._subcase_temp_load_sid(sub_static, cc)
@@ -2854,7 +3060,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
 
             t_static_ref = time_ns()
             u_static_analysis, fixed_dofs_static =
-                needs_temp_reassembly ?
+                !isnothing(temp_load_id_static) ?
                     _with_active_temperature_material(model, temp_load_id_static, run_static) :
                     run_static()
 
@@ -2909,32 +3115,34 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             # actually lands). Gated by JFEM_SOL105_LOAD_AWARE_KERNEL (off by
             # default; reverts to the exact prior behavior when off).
             if Solver.sol105_load_aware_kernel_enabled()
-                shear_map = Solver.classify_shear_dominant_elements(
-                    model, id_map_static, X_static, node_R_static,
-                    u_static_analysis, snorm_normals_static)
-                n_shear = count(values(shear_map))
-                if n_shear > 0
-                    println(">>> Load-aware static: $n_shear shear-dominated non-flat element(s) → MacNeal kernel; re-solving static")
-                    K_la, id_map_la, X_la, ndof_la, node_R_la, max_elem_stiff_la, rbe3_map_la, snorm_normals_la, orig_diag_la =
-                        Solver.assemble_stiffness(model;
-                            snorm_angle_override=sol105_snorm_angle,
-                            membrane_incomp=static_membrane_incomp_for_load,
-                            sol105_context=true,
-                            elem_shear_dominant=shear_map)
-                    _, _, _, u_la, fixed_la = Solver.solve_case(
-                        K_la, ndof_la, model, id_map_la, X_la, load_id, spc_id_static, node_R_la;
-                        max_elem_stiff=max_elem_stiff_la, rbe3_map=rbe3_map_la,
-                        snorm_normals=snorm_normals_la, orig_diag=orig_diag_la,
-                        temp_load_id=temp_load_id_static, linear_cache=nothing,
-                        build_results=false)
-                    u_static_analysis = u_la
-                    fixed_dofs_static = fixed_la
-                    K_static = K_la
-                    K_eig_static = K_la
-                    id_map_static = id_map_la; X_static = X_la; ndof_static = ndof_la
-                    node_R_static = node_R_la; max_elem_stiff_static = max_elem_stiff_la
-                    rbe3_map_static = rbe3_map_la; snorm_normals_static = snorm_normals_la
-                    orig_diag_static = orig_diag_la
+                _with_active_temperature_material(model, temp_load_id_static) do
+                    shear_map = Solver.classify_shear_dominant_elements(
+                        model, id_map_static, X_static, node_R_static,
+                        u_static_analysis, snorm_normals_static)
+                    n_shear = count(values(shear_map))
+                    if n_shear > 0
+                        println(">>> Load-aware static: $n_shear shear-dominated non-flat element(s) → MacNeal kernel; re-solving static")
+                        K_la, id_map_la, X_la, ndof_la, node_R_la, max_elem_stiff_la, rbe3_map_la, snorm_normals_la, orig_diag_la =
+                            Solver.assemble_stiffness(model;
+                                snorm_angle_override=sol105_snorm_angle,
+                                membrane_incomp=static_membrane_incomp_for_load,
+                                sol105_context=true,
+                                elem_shear_dominant=shear_map)
+                        _, _, _, u_la, fixed_la = Solver.solve_case(
+                            K_la, ndof_la, model, id_map_la, X_la, load_id, spc_id_static, node_R_la;
+                            max_elem_stiff=max_elem_stiff_la, rbe3_map=rbe3_map_la,
+                            snorm_normals=snorm_normals_la, orig_diag=orig_diag_la,
+                            temp_load_id=temp_load_id_static, linear_cache=nothing,
+                            build_results=false)
+                        u_static_analysis = u_la
+                        fixed_dofs_static = fixed_la
+                        K_static = K_la
+                        K_eig_static = K_la
+                        id_map_static = id_map_la; X_static = X_la; ndof_static = ndof_la
+                        node_R_static = node_R_la; max_elem_stiff_static = max_elem_stiff_la
+                        rbe3_map_static = rbe3_map_la; snorm_normals_static = snorm_normals_la
+                        orig_diag_static = orig_diag_la
+                    end
                 end
             end
 
@@ -2958,24 +3166,32 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         last_fixed_dofs = fixed_dofs_static
         last_K = K_static
         last_K_eig = K_eig_static
-        last_id_map_static = id_map_static
-        last_X_static = X_static
-        last_node_R_static = node_R_static
-        last_snorm_normals_static = snorm_normals_static
+        get!(static_states, stat_sid) do
+            (id_map=id_map_static, X=X_static, node_R=node_R_static,
+             snorm_normals=snorm_normals_static, u_static=u_static,
+             K=K_static, K_eig=K_eig_static, fixed_dofs=fixed_dofs_static,
+             temp_load_id=temp_load_id_static)
+        end
 
-        println(">>> Assembling Geometric Stiffness for buckling subcase $buck_sid (STATSUB=$stat_sid)")
         t_kg = time_ns()
         kg_phase_timings = Dict{String,Any}()
+        kg_cache_hit = reuse_kg && haskey(kg_cache, stat_sid)
         Kg =
-            if geometric_stiffness_builder !== nothing
-                geometric_stiffness_builder(
-                    model, id_map_static, X_static, node_R_static, ndof_static,
-                    u_static, snorm_normals_static, rbe3_map_static;
-                    snorm_angle_override=sol105_snorm_angle,
-                    buckling_subcase=buck_sid,
-                    static_load_id=load_id,
-                    timings=kg_phase_timings)
-            elseif needs_temp_reassembly
+            if kg_cache_hit
+                sol105_kg_cache_hits += 1
+                println(">>> Reusing Geometric Stiffness for buckling subcase $buck_sid (STATSUB=$stat_sid)")
+                kg_cache[stat_sid]
+            elseif geometric_stiffness_builder !== nothing
+                _with_active_temperature_material(model, temp_load_id_static) do
+                    geometric_stiffness_builder(
+                        model, id_map_static, X_static, node_R_static, ndof_static,
+                        u_static, snorm_normals_static, rbe3_map_static;
+                        snorm_angle_override=sol105_snorm_angle,
+                        buckling_subcase=buck_sid,
+                        static_load_id=load_id,
+                        timings=kg_phase_timings)
+                end
+            elseif !isnothing(temp_load_id_static)
                 _with_active_temperature_material(model, temp_load_id_static) do
                     Solver.assemble_geometric_stiffness(
                         model, id_map_static, X_static, node_R_static, ndof_static, u_static, snorm_normals_static, rbe3_map_static;
@@ -2994,20 +3210,23 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                     timings=kg_phase_timings,
                     csc_cache=kg_csc_cache)
             end
+        if !kg_cache_hit
+            sol105_kg_cache_misses += 1
+            reuse_kg && (kg_cache[stat_sid] = Kg)
+        end
+        kg_phase_timings["preload_cache_hit"] = kg_cache_hit
         kg_wall_seconds = (time_ns() - t_kg) * 1e-9
         sol105_kg_wall_seconds += kg_wall_seconds
         last_Kg = Kg
 
-        method_id = get(sub_buck, "METHOD", nothing)
-        num_modes = 3; eigrl_v1 = 0.0; eigrl_v2 = 0.0
-        if !isnothing(method_id)
-            eigrl = get(model["EIGRLs"], string(Int(method_id)), nothing)
-            if !isnothing(eigrl)
-                num_modes = get(eigrl, "ND", 3)
-                eigrl_v1 = get(eigrl, "V1", 0.0)
-                eigrl_v2 = get(eigrl, "V2", 0.0)
-            end
-        end
+        eigen_request = _resolve_sol105_eigen_request(model, cc, sub_buck, buck_sid)
+        method_id = eigen_request.method_id
+        num_modes = eigen_request.nd
+        eigrl_v1 = eigen_request.v1
+        eigrl_v2 = eigen_request.v2
+        eigrl_v1_specified = eigen_request.v1_specified
+        eigrl_v2_specified = eigen_request.v2_specified
+        eigrl_nd_specified = eigen_request.nd_specified
 
         # Resolve the buckling SPC: a buckling subcase usually omits SPC and must
         # inherit the static subcase's constraints. A subcase may carry an SPC key
@@ -3018,18 +3237,27 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         spc_id_buck = let s = get(sub_buck, "SPC", nothing)
             s === nothing ? spc_id_static : s
         end
-        eigrl_has_range = (eigrl_v1 != 0.0 || eigrl_v2 != 0.0) && eigrl_v2 > eigrl_v1
+        eigrl_has_range = eigrl_v1_specified || eigrl_v2_specified
         if Solver.seed_eigen_solve_cache_from_linear!(
             eigen_solve_cache, static_linear_solve_cache,
             K_eig_static, ndof_static, model, spc_id_buck, rbe3_map_static)
             sol105_eigen_seeded_from_static += 1
             println(">>> Reusing static K factorization for buckling eigen solve")
         end
-        println(">>> Solving Buckling Subcase $buck_sid ($num_modes modes)")
+        request_label = eigen_request.eigb_request !== nothing ?
+            "EIGB $(eigen_request.algorithm), independent positive/negative counts" :
+            !eigrl_nd_specified && eigrl_v2_specified ?
+            "all roots in the requested range" :
+            "$num_modes mode$(num_modes == 1 ? "" : "s")"
+        println(">>> Solving Buckling Subcase $buck_sid ($request_label)")
         t_buck = time_ns()
         eigenvalues, mode_shapes, buckling_diag = Solver.solve_buckling(K_eig_static, Kg, ndof_static, model, id_map_static, X_static, spc_id_buck, node_R_static, num_modes;
             rbe3_map=rbe3_map_static, max_elem_stiff=max_elem_stiff_static, orig_diag=orig_diag_static,
             eigrl_v1=eigrl_v1, eigrl_v2=eigrl_v2,
+            eigrl_v1_specified=eigrl_v1_specified,
+            eigrl_v2_specified=eigrl_v2_specified,
+            eigrl_nd_specified=eigrl_nd_specified,
+            eigb_request=eigen_request.eigb_request,
             eigen_cache=eigen_solve_cache,
             buckling_subcase=buck_sid,
             static_subcase=stat_sid,
@@ -3041,8 +3269,14 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             "buckling_subcase" => buck_sid,
             "static_subcase" => stat_sid,
             "num_modes_requested" => num_modes,
+            "eigenvalue_extraction_type" => eigen_request.source,
+            "eigenvalue_extraction_method" => eigen_request.algorithm,
+            "method_id" => method_id,
             "eigrl_v1" => eigrl_v1,
             "eigrl_v2" => eigrl_v2,
+            "eigrl_v1_specified" => eigrl_v1_specified,
+            "eigrl_v2_specified" => eigrl_v2_specified,
+            "eigrl_nd_specified" => eigrl_nd_specified,
             "eigrl_has_range" => eigrl_has_range,
             "eigenvalues" => collect(eigenvalues),
             "wall_seconds" => buck_wall_seconds,
@@ -3056,8 +3290,8 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         ))
 
         append!(all_eigenvalues, eigenvalues)
+        push!(all_mode_shape_blocks, mode_shapes)
         for i in 1:size(mode_shapes, 2)
-            push!(all_mode_shapes, mode_shapes[:, i])
             push!(all_mode_metadata, Dict{String,Any}(
                 "buckling_subcase_id" => buck_sid,
                 "static_subcase_id" => stat_sid,
@@ -3066,33 +3300,38 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             ))
         end
 
-        # Phase A1+A2: capture this subcase into the structured result.
-        # Pull raw_eigenvalues + filter_decisions from buckling_diag (set
-        # by solve_buckling at the end of its filter chain). raw_mode_shapes
-        # is the same matrix as reported until JFEM_BUCKLING_RAW_OUTPUT=true
-        # is set, at which point the filters are bypassed and reported ≡ raw.
+        # No pre-filter vectors are expanded: keep both structured raw fields
+        # aligned with reported pairs. Candidate-only values and verdicts stay
+        # explicitly named in diagnostics, where they cannot masquerade as pairs.
         n_reported = length(eigenvalues)
-        raw_eigs_diag = get(buckling_diag, "raw_eigenvalues", nothing)
-        filter_decs_diag = get(buckling_diag, "filter_decisions", nothing)
-        raw_eigs_vec = raw_eigs_diag === nothing ?
-                       Float64.(collect(eigenvalues)) :
-                       Float64.(collect(raw_eigs_diag))
-        filter_decs_vec = filter_decs_diag === nothing ?
-                          fill(:kept, n_reported) :
-                          Symbol.(filter_decs_diag)
+        reported_eigs = Vector{Float64}(eigenvalues)
+        buckling_diag["candidate_eigenvalues"] = get(buckling_diag, "raw_eigenvalues", reported_eigs)
+        buckling_diag["candidate_filter_decisions"] = get(buckling_diag, "filter_decisions", fill(:kept, n_reported))
+        buckling_diag["raw_fields_are_reported_mirror"] = true
         push!(subcase_results, Solver.BucklingSubcaseResult(
             buck_sid,
             stat_sid,
-            Float64.(collect(eigenvalues)),
-            Matrix{Float64}(mode_shapes),
-            raw_eigs_vec,
-            Matrix{Float64}(mode_shapes),      # raw_mode_shapes: reported mirror; full raw expansion is a future enhancement
-            filter_decs_vec,
+            reported_eigs,
+            mode_shapes,
+            reported_eigs,
+            mode_shapes,                       # reported mirror; share storage until true raw expansion exists
+            fill(:kept, n_reported),
             K_eig_static,
             Kg,
             Vector{Float64}(u_static),
             Set{Int}(fixed_dofs_static),
-            (v1=Float64(eigrl_v1), v2=Float64(eigrl_v2), nd=Int(num_modes)),
+            (
+                v1=Float64(eigrl_v1),
+                v2=Float64(eigrl_v2),
+                nd=Int(num_modes), # compatibility value; use nd_specified for input semantics
+                v1_specified=Bool(eigrl_v1_specified),
+                v2_specified=Bool(eigrl_v2_specified),
+                nd_specified=Bool(eigrl_nd_specified),
+                source=String(eigen_request.source),
+                method_id=Int(method_id),
+                request_all_in_range=Bool(eigen_request.eigb_request === nothing ?
+                    !eigrl_nd_specified && eigrl_v2_specified : eigen_request.eigb_request.request_all_in_range),
+            ),
             string(get(buckling_diag, "solver_backend", "")),
             Dict{String,Float64}(
                 "static_reference_solve" => Float64(static_wall_seconds),
@@ -3107,6 +3346,19 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                 d = buckling_diag isa Dict{String,Any} ? buckling_diag :
                     Dict{String,Any}(string(k)=>v for (k,v) in buckling_diag)
                 d["sol105_options"] = opts
+                d["eigenvalue_extraction"] = Dict{String,Any}(
+                    "type" => eigen_request.source,
+                    "algorithm" => eigen_request.algorithm,
+                    "method_id" => method_id,
+                    "v1_specified" => eigrl_v1_specified,
+                    "v2_specified" => eigrl_v2_specified,
+                    "nd_specified" => eigrl_nd_specified,
+                )
+                if eigen_request.eigb_request !== nothing
+                    merge!(d["eigenvalue_extraction"], Dict(
+                        string(k)=>v for (k,v) in pairs(eigen_request.eigb_request)))
+                    d["eigenvalue_extraction"]["count_contract"] = "independent_NDP_NDN"
+                end
                 d
             end,
         ))
@@ -3123,10 +3375,21 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         flat_order = sortperm(all_eigenvalues; by = lam ->
             isfinite(lam) ? (lam > 0.0 ? 0 : 1, lam > 0.0 ? lam : abs(lam)) : (2, Inf))
         eigenvalues = all_eigenvalues[flat_order]
-        mode_shapes_unsorted = isempty(all_mode_shapes) ? zeros(ndof, 0) : hcat(all_mode_shapes...)
-        mode_shapes = size(mode_shapes_unsorted, 2) == length(flat_order) ?
-            mode_shapes_unsorted[:, flat_order] :
-            mode_shapes_unsorted
+        # Scatter directly into the final order, avoiding hcat followed by a
+        # second full ndof-by-mode copy. Reuse the block for a sorted single case.
+        if length(all_mode_shape_blocks) == 1 && issorted(flat_order)
+            mode_shapes = only(all_mode_shape_blocks)
+        else
+            mode_shapes = Matrix{Float64}(undef, ndof, length(flat_order))
+            destinations = invperm(flat_order)
+            offset = 0
+            for block in all_mode_shape_blocks
+                for j in axes(block, 2)
+                    copyto!(view(mode_shapes, :, destinations[offset+j]), view(block, :, j))
+                end
+                offset += size(block, 2)
+            end
+        end
         mode_metadata = length(all_mode_metadata) == length(flat_order) ?
             all_mode_metadata[flat_order] :
             all_mode_metadata
@@ -3147,7 +3410,11 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     end
     println(">>> ============================================")
 
-    mode_shapes_out = _mode_shapes_to_list(mode_shapes, id_map)
+    eigenvalues_only = Solver.solver_env_bool("JFEM_SOL105_EIGENVALUES_ONLY", false)
+    store_public_mode_shapes = !eigenvalues_only &&
+        Solver.solver_env_bool("JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES", true)
+    mode_shapes_out = store_public_mode_shapes ?
+        _mode_shapes_to_list(mode_shapes, id_map) : Any[]
 
     return Dict(
         "sol_type" => 105,
@@ -3155,6 +3422,11 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         "mode_shapes" => mode_shapes_out,
         "mode_metadata" => mode_metadata,
         "solver_diagnostics" => buckling_case_diagnostics,
+        "mode_shape_storage" => Dict{String,Any}(
+            "public_list_stored" => store_public_mode_shapes,
+            "eigenvalues_only" => eigenvalues_only,
+            "raw_matrix_stored" => true,
+        ),
         # Phase A1 structured per-subcase result. Preferred API for off-line
         # MAC / Rayleigh-quotient parity, substitution probes, and exports.
         # Legacy flat keys below remain populated (last subcase only for
@@ -3174,13 +3446,16 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         "u_static" => last_u_static,
         # Static preload element fields for the v5 .jfem STATIC block:
         # eid => (von_mises, equiv_strain, strain_energy_density).
-        "static_shell_fields" => _recover_sol105_static_fields(
-            model, last_id_map_static, last_X_static, last_node_R_static,
-            last_u_static, last_snorm_normals_static),
+        "static_states" => static_states,
+        "static_shell_fields" => nothing, # materialized by _sol105_static_fields!
+        "static_shell_fields_by_subcase" => Dict{Int,Dict{Int,NTuple{3,Float64}}}(),
         "fixed_dofs" => last_fixed_dofs,
         "cache_diagnostics" => Dict{String,Any}(
             "static_cache_hits" => sol105_static_cache_hits,
             "static_cache_misses" => sol105_static_cache_misses,
+            "kg_cache_enabled" => reuse_kg,
+            "kg_cache_hits" => sol105_kg_cache_hits,
+            "kg_cache_misses" => sol105_kg_cache_misses,
             "linear_solve_cache_enabled" => static_linear_solve_cache !== nothing,
             "eigen_solve_cache_enabled" => eigen_solve_cache !== nothing,
             "eigen_seeded_from_static_linear_cache" => sol105_eigen_seeded_from_static,
@@ -3262,6 +3537,33 @@ function _mode_shapes_to_list(mode_shapes, id_map)
             ))
         end
         push!(modes, mode_data)
+    end
+    return modes
+end
+
+# The ordinary solver returns Float64 matrices with integer GRID maps. Keep
+# the public mutable Vector{Any}/Dict{String,Real} representation, but avoid
+# the heterogeneous Pair constructor's repeated type widening and allocation
+# for every node in every mode. Other caller types retain the generic path.
+function _mode_shapes_to_list(mode_shapes::AbstractMatrix{Float64}, id_map::AbstractDict{Int,Int})
+    sorted_nodes = sort!(collect(keys(id_map)))
+    modes = Vector{Any}(undef, size(mode_shapes, 2))
+    for m in 1:size(mode_shapes, 2)
+        mode_data = Vector{Any}(undef, length(sorted_nodes))
+        for (i, nid) in enumerate(sorted_nodes)
+            base = 6 * (id_map[nid] - 1)
+            entry = Dict{String,Real}()
+            sizehint!(entry, 7)
+            entry["grid_id"] = nid
+            entry["t1"] = mode_shapes[base+1, m]
+            entry["t2"] = mode_shapes[base+2, m]
+            entry["t3"] = mode_shapes[base+3, m]
+            entry["r1"] = mode_shapes[base+4, m]
+            entry["r2"] = mode_shapes[base+5, m]
+            entry["r3"] = mode_shapes[base+6, m]
+            mode_data[i] = entry
+        end
+        modes[m] = mode_data
     end
     return modes
 end
@@ -3576,6 +3878,8 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
                 mass_summary=get(results, "mass_summary", nothing),
                 modal_effective_mass=get(results, "modal_effective_mass", nothing),
                 buckling_subcases=get(results, "subcases", nothing),
+                mode_metadata=[Dict("sid" => sc["sid"], "subcase_mode_index" => i)
+                    for sc in results["subcases"] for i in eachindex(sc["eigenvalues"])],
                 analysis_type="SOL103_MODES", diagnostics=get(results, "solver_diagnostics", nothing),
                 backend_metadata=_export_backend_metadata(results))
         end
@@ -3590,71 +3894,20 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
                 jfem_celas=jfem_celas, jfem_rbe2s=jfem_rbe2s, jfem_rbe3s=jfem_rbe3s, K_global=nothing)
         end
     elseif sol_type == 105
-        mode_shapes = results["_raw_mode_shapes"]
-        eigenvalues = results["eigenvalues"]
-        mode_metadata = get(results, "mode_metadata", nothing)
         if export_vtk
-            export_buckling_vtk(filename, output_dir, model, id_map, X, eigenvalues, mode_shapes)
+            export_sol105_vtk(filename, output_dir, results)
         end
         if export_json
-            # Per-subcase eigenvalues so consumers can compare each SOL105
-            # buckling subcase against its own reference table instead of the
-            # globally-merged/sorted `eigenvalues` list (which interleaves modes
-            # from different subcases and makes per-subcase parity unreadable).
-            br_sc = get(results, "buckling", nothing)
-            sol105_subcases = nothing
-            if mode_metadata isa AbstractVector && length(mode_metadata) == length(eigenvalues)
-                by_sid = Dict{Int,Dict{String,Any}}()
-                for (i, meta) in enumerate(mode_metadata)
-                    meta isa AbstractDict || continue
-                    buckling_sid = get(meta, "buckling_subcase_id", get(meta, :buckling_subcase_id, nothing))
-                    static_sid = get(meta, "static_subcase_id", get(meta, :static_subcase_id, nothing))
-                    buckling_sid === nothing && continue
-                    bid = tryparse(Int, string(buckling_sid))
-                    bid === nothing && continue
-                    entry = get!(by_sid, bid) do
-                        Dict{String,Any}(
-                            "buckling_subcase_id" => bid,
-                            "static_subcase_id" => static_sid,
-                            "eigenvalues" => Float64[],
-                        )
-                    end
-                    push!(entry["eigenvalues"], Float64(eigenvalues[i]))
-                end
-                if !isempty(by_sid)
-                    sol105_subcases = [by_sid[sid] for sid in sort(collect(keys(by_sid)))]
-                end
-            end
-            if sol105_subcases === nothing && br_sc isa Solver.BucklingResult
-                sol105_subcases = [Dict(
-                    "buckling_subcase_id" => sc.buckling_subcase_id,
-                    "static_subcase_id"   => sc.static_subcase_id,
-                    "eigenvalues"         => collect(sc.reported_eigenvalues),
-                ) for sc in br_sc.subcases]
-            end
-            # The SOL 105 static preload is a well-posed, directly comparable
-            # quantity that the buckling JSON previously dropped, so a consumer
-            # wanting it had to re-run the deck as SOL 101. Emit it alongside
-            # the modes; the binary export has always carried it.
-            export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id_map;
-                analysis_type="SOL105_BUCKLING", diagnostics=get(results, "solver_diagnostics", nothing),
-                mode_metadata=get(results, "mode_metadata", nothing),
-                buckling_subcases=sol105_subcases,
-                static_displacements=_static_disp_to_list(get(results, "u_static", nothing), id_map),
-                backend_metadata=_export_backend_metadata(results))
+            export_sol105_json(filename, output_dir, results)
         end
         if export_hdf5
             getfield(@__MODULE__, :export_nastran_hdf5)(filename, output_dir, results)
         end
         if export_jfem_binary
-            export_jfem_buckling(filename, output_dir, id_map, X,
+            export_sol105_jfem(filename, output_dir, results,
                 jfem_node_ids, jfem_quads, jfem_trias, jfem_bars, jfem_rods,
-                jfem_tetras, jfem_hexas, jfem_pentas,
-                eigenvalues, mode_shapes;
-                jfem_celas=jfem_celas, jfem_rbe2s=jfem_rbe2s, jfem_rbe3s=jfem_rbe3s,
-                K_global=get(results, "K_eig", nothing), node_R=get(results, "node_R", nothing),
-                static_disp=get(results, "u_static", nothing),
-                static_shell_fields=get(results, "static_shell_fields", nothing))
+                jfem_tetras, jfem_hexas, jfem_pentas;
+                jfem_celas=jfem_celas, jfem_rbe2s=jfem_rbe2s, jfem_rbe3s=jfem_rbe3s)
         end
     end
 
@@ -3711,6 +3964,21 @@ function _export_sol101(results, filename, output_dir, model, id_map, X,
             nothing
         end
     jfem_subcases_data = []
+    if export_jfem_binary
+        unavailable = Dict(sc["sid"] => _export_missing_shell_result_eids(sc, jfem_quads, jfem_trias)
+            for sc in results["subcases"])
+        filter!(pair -> !isempty(last(pair)), unavailable)
+        if !isempty(unavailable)
+            existing_binary = joinpath(output_dir, _export_base_name(filename) * ".jfem")
+            isfile(_export_fs_path(existing_binary)) && throw(ArgumentError(
+                "Static JFEM binary fields are unavailable, but an older binary already exists at $existing_binary. Use a fresh output directory or archive the old file before exporting this result."))
+            @warn "Static JFEM binary export skipped because its fixed shell slots cannot represent unavailable force/stress fields. Other requested formats remain available." unavailable_shell_eids_by_subcase=unavailable
+            _export_write_json(joinpath(output_dir, _export_base_name(filename) * ".BINARY_UNAVAILABLE.JSON"),
+                Dict("binary_written" => false, "reason" => "unavailable_shell_force_or_stress_fields",
+                    "unavailable_shell_eids_by_subcase" => unavailable), 2)
+            export_jfem_binary = false
+        end
+    end
 
     for sc in results["subcases"]
         sid = sc["sid"]
@@ -3745,7 +4013,8 @@ function _export_sol101(results, filename, output_dir, model, id_map, X,
         end
 
         if export_vtk
-            export_vtk_subcase(filename, output_dir, sid, model, id_map, X, u, stresses)
+            export_vtk_subcase(filename, output_dir, sid, model, id_map, X, u, stresses;
+                               shell_stresses=get(sc, "stresses", nothing))
         end
     end
 

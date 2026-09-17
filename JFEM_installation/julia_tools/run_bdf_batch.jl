@@ -149,9 +149,16 @@ function _slug_for_deck(path::AbstractString, base_dir, used::Dict{String,Int})
     slug = replace(slug, r"[^A-Za-z0-9_.-]+" => "_")
     slug = strip(slug, ['_', '.', '-'])
     isempty(slug) && (slug = "case")
-    n = get(used, slug, 0) + 1
-    used[slug] = n
-    return n == 1 ? slug : "$(slug)_$(n)"
+    base = slug
+    n = 1
+    key = Sys.iswindows() ? lowercase(slug) : slug
+    while haskey(used, key)
+        n += 1
+        slug = "$(base)_$(n)"
+        key = Sys.iswindows() ? lowercase(slug) : slug
+    end
+    used[key] = 1
+    return slug
 end
 
 decks, deck_base = _find_decks(INPUT_RAW, OPTS)

@@ -1,19 +1,17 @@
 # OpenJFEM
 
-> **Last pushed: 2026-08-06.** `main` is the current, default branch — a
-> plain clone gives you the live solver, including the 2026-08
-> element-formulation and performance work:
+> **Last pushed: 2026-09-17.** `main` is the current, default branch — a
+> plain clone includes the September solver audit, corrected buckling and
+> sensitivity algorithms, output improvements, and deployment checks:
 >
 > ```bash
 > git clone https://github.com/r-acad/JF_2026_05_25.git
 > cd JF_2026_05_25
 > ```
 >
-> `Manifest.toml` is committed, so package versions resolve identically on
-> another machine, and the solver is deterministic run-to-run: a fresh clone
-> should reproduce `validation/comparison.csv` value-for-value. (The
-> development branch `decalibration/strip-tier-a` is merged into `main` and
-> currently points at the same content.)
+> `Manifest.toml` records the dependency versions. Run the curated public
+> validation suite using the commands below to check an installation.
+> The earlier `decalibration/strip-tier-a` work is merged into `main`.
 
 OpenJFEM is a Julia finite-element solver focused on fast linear buckling
 analysis for bulk-data structural models. It reads an input deck, builds the
@@ -236,9 +234,20 @@ What this does:
 - Representative user decks exercise the exact element, material, property,
   load, constraint, and output paths expected in production.
 - The sysimage is written under `sysimage/` and loaded automatically by
-  `jfem`, `jfem.cmd`, and the web-app launchers when present.
+  `jfem`, `jfem.cmd`, and the web-app launchers when its build receipt matches
+  the project, runtime, image and recorded workload.
 - The sysimage is a startup-speed optimization only. It does not change the
   model, solver equations, load factors, or numerical results.
+
+Deployment explicitly refreshes the OpenJFEM package cache when representative
+decks or workload flags are requested. Missing explicit inputs or failed explicit
+workloads fail visibly. Automatic sysimage selection falls back to ordinary
+package loading when the receipt is absent or stale, including after moving the
+project or removing a recorded workload deck. Rebuild with `deploy_fast.jl` to
+refresh it. The receipt covers project code and dependency locks; arbitrary
+edits inside an installed global package depot are outside this check. Manual
+`julia -J` selection bypasses the automatic guard. Validating an existing image
+adds a launcher step; measure installed startup separately from warm solves.
 
 ## Fast Settings
 
@@ -263,26 +272,78 @@ Use this flag string in direct single-case and text-batch runs:
 JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1
 ```
 
-### Performance Notes (2026-08)
+### Performance Notes (2026-09)
 
-The August 2026 performance program restructured the SOL 105 eigen phase
-and the assembly hot paths. Everything below is ON by default and was
-promoted only after the full public validation suite reproduced its
-previous results exactly (identical verdicts, computed values equal at
-print precision) plus multi-deck batteries with spectra matched to ~1e-14
-relative:
+Default mode-list construction uses less temporary storage for Float64 modes
+while retaining mutable per-node dictionaries and the existing return types.
+HDF5 input-table sorting caches numeric GRID and element IDs once, preserving
+node order and file schemas. Buckling VTK exports reuse compressed mesh data
+within each export call, with independent mode data and output documents;
+unsupported WriteVTK interfaces retain the regular writer. Static and buckling
+VTK exports also support Windows extended paths. Total run time still depends
+on assembly, extraction, compilation and selected formats.
+Compact SOL105 composite recovery avoids interior-ply and force-resultant
+calculations that its binary endpoint fields do not consume. Validation caches
+last for one recovery call; full composite recovery still evaluates every ply.
 
-- **Certificate-first range augmentation**: on EIGRL range decks, a Sturm
-  inertia certificate proves the reported spectrum complete before any
-  extra shifted eigensolve runs; the augmentation solve now fires only
-  when the certificate cannot certify (opt out:
-  `JFEM_SOL105_CERT_FIRST_AUGMENTATION=false`).
-- **Adaptive eigensolve request**: range decks start near the requested
-  mode count instead of ~8x it and escalate only when the converged
-  spectrum is provably insufficient (opt out:
-  `JFEM_SOL105_ADAPTIVE_NEV=false`). Measured together with
-  certificate-first: eigen-phase wall down ~35% across a 42-deck buckling
-  battery, with parity to the commercial reference unchanged.
+SOL 105 now treats the EIGRL card as the eigensolver contract, rather than as
+an output-only cap:
+
+- **Exact `ND` request**: an explicit EIGRL `ND=n` issues a partial spectral
+  request for exactly `n` eigenvalues and eigenvectors. It no longer asks for
+  `8*ND`, `3*ND`, `ND+5`, or a second range-completeness spectrum and then
+  discards the surplus. Dense full-spectrum extraction is not used for a
+  partial `ND`, even on a small model. KrylovKit can expose additional Ritz
+  pairs that converged simultaneously (its API promises *at least* the
+  requested count); JFEM records that raw count but, on each backend
+  invocation, examines and back-transforms no more than `ND` candidates and
+  retains, expands, and publishes no more than `ND` pairs. A residual-driven
+  retry is a new backend invocation and again requests exactly `ND`.
+- **Direct range targeting**: V1/V2 requests shift directly to the applicable
+  lower or upper bound. Explicit `ND` normally skips a full range certificate.
+  When all requested pairs pass the residual check but a finite upper bound
+  excludes some, a positive-definite shifted pencil of at most 600 active DOFs
+  can certify that the independent retained modes exhaust the interval and
+  avoid an unnecessary retry. Larger systems and uncertain counts retain the
+  retry while reusing the unchanged shifted factor within the solve.
+  `JFEM_SOL105_STURM_COMPLETENESS=true` remains an
+  optional diagnostic. Blank `ND` retains its distinct Nastran all-roots semantics for
+  small problems; large all-roots requests fail clearly and ask for an
+  explicit `ND` instead of starting an accidental O(n^2) Krylov run.
+- **Accepted pairs are verified**: only converged Ritz pairs with a finite
+  original-pencil backward residual (default limit `1e-6`) are published.
+  If the first pass is partial, one same-target retry keeps the same exact
+  `ND` request while tightening the transformed-space tolerance (default
+  `JFEM_SOL105_KRYLOV_RETRY_TOL=1e-16`). Independent accepted pairs from the
+  two starts are merged using an orthonormal basis to distinguish repeated
+  eigenspaces from duplicate vectors; any remaining shortage is reported instead
+  of filling `ND` with unconverged vectors.
+- **Large finite factors remain valid**: an exactly zero transformed root is
+  treated as an infinite mode, but a merely small nonzero transformed value is
+  not discarded through a fixed cutoff. This preserves finite buckling factors
+  above `1e14` when their original-pencil residual is acceptable.
+- **EIGRL V1/V2/ND semantics are preserved**: blank V1, V2, and ND fields remain
+  distinguishable from explicit zeros; negative and open bounds are signed
+  and inclusive. Global `METHOD`, local overrides, and `STATSUB` selection are
+  resolved deterministically. Invalid or missing references now produce an
+  input error instead of silently solving three modes.
+
+`SHFSCL`, `MAXSET`, and EIGRL `NORM` are retained by the parser but are not
+yet numerical controls of the SOL 105 eigensolver.
+
+Planar ordinary MAT1 Q4 shells use tied transverse gradients in the KDJJ
+geometric stiffness to improve skew-mesh buckling. Exact rectangular elements
+retain the equivalent original arithmetic. This change is limited to the
+transverse block; warped shells, normal/director transformations and coupled
+or anisotropic properties retain their existing formulation.
+
+With `AUTOSPC=NO`, static preload solves exclude coordinates whose full
+stiffness row and column are exactly zero, provided they carry no load.
+Their displacements are set to zero without adding supports. Loading such
+a coordinate raises an error, including on a cached subsequent subcase.
+Diagnostics report active, inactive and constrained coordinates separately.
+
+The earlier assembly improvements remain active:
 - **Deterministic threading**: results are bit-identical at any
   `--threads` count (positional-slot assembly plus a pinned inner
   eigensolver thread pool), so `--threads=auto` is both the fastest and a
@@ -295,12 +356,15 @@ relative:
   its stability-trial factorization (`JFEM_EIGEN_TRIAL_FACTOR_KEEP=false`
   opts out), and binary exports are staged as a single write. All are
   verified bit-identical.
-- **Research opt-ins** (OFF by default; both validated to the same
-  tolerances but without a demonstrated wall-clock win yet):
+- **Research opt-ins** (OFF by default):
   `JFEM_SOL105_SHIFT_FACTOR_FUSION=true` fuses shifted-solve
   factorizations with Sturm certificates;
   `JFEM_SOL105_SYMM_LANCZOS=true` runs the zero-shift buckling
-  eigensolve as symmetric Lanczos via a Cholesky congruence.
+  eigensolve as symmetric Lanczos via a Cholesky congruence; and
+  `JFEM_SOL105_BLOCK_LANCZOS=true` uses deterministic block starts (default
+  block size 2) to preserve exact repeated eigenspaces. The block option may
+  construct more Ritz pairs than `ND` and was slower on the audited large
+  case, so it is intentionally outside the default exact-count profile.
 
 ## Quickest Way To Run A Deck
 
@@ -400,6 +464,38 @@ the default set `-jrs`.
 | `m` | model JSON dump |
 | `c` | card inventory |
 
+Anisotropic, independently assigned-material and MID4 PSHELL stress recovery
+is currently incomplete. Affected force/stress/strain rows are omitted with
+recovery diagnostics; displacements and support reactions remain available.
+Supported ordinary PSHELL stresses use the property's `Z1` and `Z2` fiber
+distances, defaulting to `-T/2` and `+T/2`. Changing these output locations does
+not change the shell force resultants or generalized membrane strains and
+curvatures.
+Blank fiber locations follow the current thickness during design updates;
+explicit distances remain fixed. Stress-response gradients currently require
+default fiber locations and reject explicit/custom locations, including
+explicit distances that happen to equal the initial `-T/2` and `+T/2`.
+HDF5 PSHELL metadata records the effective fiber distances at the current
+thickness. For programmatic edits, set `Z1_DEFAULT` or `Z2_DEFAULT` to `false`
+when replacing a parsed blank location with a fixed numeric distance.
+Supported shell stress rows include ordered principal stresses. Generalized
+strain rows include principal membrane strains and principal Nastran-sign
+curvatures; those rows retain their existing units and are not fiber strains.
+VTK and Markdown use recovered von Mises values for ordinary shells and the
+all-ply maximum for supported composites. Principal values remain available
+in JSON; the current binary and HDF5 schemas do not add principal-value slots.
+The compact SOL105 binary static block retains its endpoint stress convention:
+for composites it uses the first and last ply midplanes, so it can differ from
+the all-ply maximum in VTK and Markdown when an interior ply governs.
+Beam/rod scalar stresses remain absolute axial stresses and exclude combined
+bending, shear and torsion. Markdown labels mixed stress summaries accordingly;
+the legacy VTK non-shell scalar entries retain this axial-only limitation.
+VTK retains geometry/displacements and omits an unavailable stress array.
+SOL105 binary output omits an incomplete optional static block. Static binary
+output is skipped when its fixed shell fields cannot represent missing results,
+with a `.BINARY_UNAVAILABLE.JSON` explanation. JSON contains the recovery
+diagnostics; JSON/HDF5 retain available nodal results.
+
 Examples:
 
 ```bat
@@ -414,8 +510,8 @@ jfem  -jrsvh    model.bdf  out       :: viewer + report + JSON + VTK + HDF5
 
 A `run_manifest.json` recording the exact inputs and flags is always written.
 The wrappers use whatever `julia` is on `PATH` (Julia 1.12.x; no juliaup
-needed) and automatically load a prebuilt sysimage from `sysimage/` if one exists,
-for near-instant startup. (See "How to invoke it" above to call `jfem` from any
+needed) and automatically load a prebuilt sysimage from `sysimage/` when its
+build receipt matches. (See "How to invoke it" above to call `jfem` from any
 directory.)
 
 ### Rebuild The Local Sysimage
@@ -461,12 +557,26 @@ julia --startup-file=no --project=. validation/run_public_suite.jl
 ```
 
 The suite writes `validation/comparison.csv` and `validation/comparison.md`.
-The maintained suite has 19 scalar rows: every row passes its parity
-comparison against the commercial reference solution, and 17 of 19 also
-pass their analytical tolerance (the two exceptions are classical-plate
-buckling eigenvalue rows whose published reference extraction is itself
-unreliable — documented in the validation README). Rerun the suite to
-regenerate the local report for the current solver revision.
+The maintained suite has 19 scalar rows. Seventeen have declared reference
+solver parity targets, and all 17 passed the September 15 run. The
+accuracy checks pass on 17 of 19 rows; the coarse curved-beam and pinched-cylinder
+meshes retain their documented analytical discrepancies. Matching a reference
+solver on the same mesh does not establish mesh-converged accuracy. Rerun the
+suite to regenerate the local report for the current solver revision.
+
+The package release gate runs the curated suite without rewriting its reports:
+
+```julia
+using Pkg
+Pkg.test()
+```
+
+Run this from Julia started with `--project=.` at the repository root. The test
+target declares its YAML dependency and fails on execution errors, skipped
+results, reference parity failures, or new analytical failure cases. The two
+existing analytical limitations remain visible in the test output. Private
+industrial reference campaigns are maintained separately in the development
+workspace.
 
 ## Run One SOL 105 Case
 
@@ -855,6 +965,113 @@ For buckling cases, inspect the generated report first:
 
 The batch summary files provide a compact view of success/failure status and
 runtime across all cases.
+
+The Julia result's `results["buckling"].subcases` is the authoritative mapping
+from each buckling subcase to its `STATSUB`, eigenpairs, K, Kg, and static
+displacement. The legacy flat mode list is sorted across subcases; the legacy
+K/Kg/static keys describe only the last preload. Structured `raw_*` fields
+remain aligned value/vector pairs and currently share the reported storage.
+Candidate-only values and filter decisions are available in each subcase's
+`details["candidate_eigenvalues"]` and `details["candidate_filter_decisions"]`.
+
+SOL105 exports retain this subcase ownership. Multiple buckling subcases write
+separate `<base>_Subcase_<id>.jfem` files with a JSON file index, since each
+binary file can store only one preload; a single subcase retains `<base>.jfem`.
+JSON and HDF5 identify the static and buckling states explicitly and write
+nodal displacement and modes in basic/global coordinates. Solver-internal
+static displacement and stiffness matrices remain in the analysis/grid-CD
+frame.
+
+Static shell fields are recovered only when binary export requests them and
+are cached by static subcase, with its temperature-dependent material context.
+`results["static_shell_fields"]` starts as `nothing`; programmatic callers can
+request a state's fields with `OpenJFEM._sol105_static_fields!(results, sid)`.
+Shared-STATSUB cases reuse Kg by default. Set
+`JFEM_SOL105_REUSE_PRELOAD_KG=false` for an independent assembly comparison;
+custom builders and per-subcase element diagnostic CSV output bypass reuse.
+
+Strict interval searches deflate rejected outside roots and retry with the
+same `ND`. `JFEM_SOL105_BOUNDARY_RETRIES` limits these retries (default 8).
+Check `details["boundary_targeting"]`, `details["output_request_status"]` and
+`details["output_pairs_shortage"]` when an interval contains too few acceptable
+pairs or the retry limit is reached. Failed full-spectrum dense extraction
+raises an error instead of substituting an incomplete partial solve.
+
+Case-control `MPC`, `K2GG` and `M2GG` selections apply to shared assembly.
+Different selections across subcases currently require separate model runs.
+Direct matrices support one named, real symmetric GRID matrix per selector;
+unselected DMIG cards remain inactive. Varying PBEAML stations are rejected
+by the bulk-data parser until their integration is supported.
+MPC, rigid-element and SPC constraints reject missing GRID references,
+invalid component digits and repeated dependent assignments. MPC coefficients
+must be finite with a nonzero first coefficient. RBE3 UM dependent selection
+requires `JFEM_RBE3_USE_UM_DEPENDENT=true` and a valid, complete dependent set;
+otherwise it reports an error. JSON input retains SPCD prescriptions.
+
+Thermal strain recovery is available for the supported isotropic linear
+shell, line and solid elements. SOL106 rejects nonzero thermal expansion;
+its nonlinear residual does not yet include thermal eigenstrain. TACS rejects
+active temperature-dependent MAT1 reassembly to preserve its selected
+formulation. Active PCOMP, anisotropic PSHELL and rigid-element thermal expansion
+report unsupported-operation errors. Both `TEMP` and `TEMPERATURE` accept
+the supported LOAD/BOTH/default selection; missing sets, conflicting selections,
+and separate MATERIAL/INITIAL modifiers are diagnosed explicitly.
+
+Planar rectangular anisotropic PCOMP cells in the compatible default MacNeal
+SOL101/SOL105 route use projected elastic and initial-stress operators with
+separate physical, elastic-work and geometric resultants. Shear reporting uses
+the actual laminate transverse-shear law and ply reporting retains the material
+orientation. The symmetric zero-coupling limit retains its K and Kg matrices.
+This bounded formulation does not extend to skew, warped or mapped cells and
+does not establish a complete nonlinear tangent. Research kernel, shear and
+frame overrides retain their explicit eligibility restrictions.
+
+Gravity includes the full CONM1 mass block, CONM2 offset moments, both CMASS
+terminals in their GRID coordinate systems, and supported structural and
+nonstructural mass. RFORCE defaults to METHOD=1 in BDF input. METHOD=2 applies
+the full assembled mass matrix to the rigid rotational acceleration, including
+RACC; it does not separately accelerate a CONM2 center-of-mass offset.
+METHOD=1 CONM2 force and moment follow rigid-body balance at the mass center.
+Older Nastran reference executables can differ in offset moments, so these
+are checked independently against particle force/moment sums. METHOD=1 requires
+lumped structural mass; scalar masses and translation/rotation-coupled CONM1
+require METHOD=2. Superelement MB/IDRF selections are diagnosed as unsupported.
+WTMASS scales dynamic mass matrices and does not rescale GRAV/RFORCE loads.
+Negative or zero COUPMASS selects lumped shell mass; positive values select
+coupled shell mass, subject to an explicit shell-mass environment override.
+
+Sensitivity results are scoped to each subcase. Material-E buckling
+derivatives reuse the actual forward operators and equilibrium derivative.
+Shell-thickness and Poisson-ratio derivatives use full forward differences
+where the local adjoint does not represent the active geometric stiffness.
+For eligible blank-MID3 Q4 shells in SOL105, thickness, Young's modulus and
+Poisson-ratio derivatives use complete perturbed solves with mode tracking;
+this includes the rigid-shear stiffness and preload and costs two solves per
+design-variable group. For eligible SOL101 blank-MID3 Q4 shells,
+`solve_adjoint` uses complete response differences for thickness, Young's
+modulus and Poisson ratio. It shares two perturbed solves per variable group
+across responses and subcases, plus one unperturbed replay that verifies the
+supplied forward state and settings. Perturbations must preserve the DOF and
+constraint partition. Direct local stiffness derivatives and optimizer routes
+that use them reject this rigidity limit; this support is specific to
+`solve_adjoint`. Existing mapped-shell, stress-location and load restrictions
+still apply.
+For supported SOL101 PCOMP displacement and KS-displacement responses,
+`solve_adjoint` also uses complete response differences for individual ply
+thickness, ply angle, and physical MAT1 ply E/NU variables. Angle gradients are
+per degree. Laminate reconstruction retains blank/explicit Z0 and the selected
+shear model. Perturbed solves are shared across responses and subcases, with
+forward replay and partition checks. A perturbation crossing zero laminate
+membrane/bending coupling is supported only in the verified continuous
+rectangular projected domain. Skew cells and incompatible formulation settings
+fail explicitly at this boundary because a centered difference can conceal a
+finite stiffness jump. Context-free local laminate derivatives,
+total-PCOMP-thickness variables, unsupported laminate options, PCOMP stress
+gradients and PCOMP buckling sensitivities report errors instead of returning
+derivatives of a different operator.
+Other unsupported geometric-stiffness, thermal, load-dependent or changing
+constraint-frame derivative paths report an error. Such cases need a complete
+forward finite-difference study; changing solver tolerances is not a substitute.
 
 ## Troubleshooting
 

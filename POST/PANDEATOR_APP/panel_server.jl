@@ -30,7 +30,8 @@ using OpenJFEM   # provided by --project=. ; loads the solver once
 const APP_DIR   = @__DIR__                                           # <repo>/JFEM/POST/PANDEATOR_APP
 const REPO_ROOT = normpath(joinpath(APP_DIR, "..", ".."))            # <repo>/JFEM
 const APP_HTML  = joinpath(APP_DIR, "panel_app.html")
-const RUN_ROOT  = joinpath(APP_DIR, "panel_runs")
+include(joinpath(APP_DIR, "panel_artifacts.jl"))
+const RUN_ROOT = abspath(get(ENV, "JFEM_PANEL_RUN_ROOT", _panel_default_run_root(APP_DIR)))
 
 # Pull in the manifest batch runner so we reuse the exact production path
 # (export options, flags, .jfem + .BUCKLING.JSON + .REPORT.md writing).
@@ -115,34 +116,6 @@ _msgpack_response(obj; status=200) = HTTP.Response(
     MsgPack.pack(obj),
 )
 
-# --- read the trailing 'EVAL' Float64 footer from a v4 .jfem (fallback) ------
-function _eigenvalues_from_jfem(buf::Vector{UInt8})
-    marker = UInt8['E', 'V', 'A', 'L']
-    # scan backwards for the last EVAL whose count consumes exactly to EOF
-    n = length(buf)
-    i = n - 7
-    while i >= 1
-        if buf[i] == marker[1] && buf[i+1] == marker[2] &&
-           buf[i+2] == marker[3] && buf[i+3] == marker[4]
-            pos = i + 4
-            if pos + 3 <= n
-                cnt = reinterpret(UInt32, buf[pos:pos+3])[1]
-                payload = pos + 4
-                if cnt > 0 && payload + 8 * cnt - 1 == n
-                    out = Vector{Float64}(undef, cnt)
-                    for k in 1:cnt
-                        b = payload + 8 * (k - 1)
-                        out[k] = reinterpret(Float64, buf[b:b+7])[1]
-                    end
-                    return out
-                end
-            end
-        end
-        i -= 1
-    end
-    return Float64[]
-end
-
 _first_existing(dir, names) = begin
     hit = nothing
     for nm in names
@@ -216,10 +189,10 @@ end
 
 # --- the core: write deck, run a one-case manifest, collect artifacts --------
 function run_analysis(payload::AbstractDict)
-    case_id = string(get(payload, "case_id", "panel_" *
+    case_id = _panel_case_id(get(payload, "case_id", "panel_" *
                 Dates.format(now(UTC), "yyyymmdd_HHMMSS_sss")))
-    out_dir = joinpath(RUN_ROOT, case_id)
-    mkpath(out_dir)
+    mkpath(RUN_ROOT)
+    out_dir = mktempdir(RUN_ROOT; prefix=case_id * "_", cleanup=false)
 
     # Resolve the deck. A server-side path is run IN PLACE (we pass the original
     # absolute path to the solver) so that any INCLUDE cards resolve relative to
@@ -301,7 +274,8 @@ function run_analysis(payload::AbstractDict)
     _log("solve finished in $(round(elapsed; digits=1))s")
 
     # collect artifacts
-    jfem_path = _first_existing(out_dir, [stem * ".jfem"])
+    jfem_files = _panel_binary_artifacts(out_dir, stem)
+    jfem_path = isempty(jfem_files) ? nothing : first(jfem_files)["path"]
     report_path = _first_existing(out_dir, [stem * ".REPORT.md"])
     log_path = _first_existing(out_dir, ["jfem_case_stdout.log"])
     # The results JSON name depends on the SOL: 103/105 -> .BUCKLING.JSON,
@@ -314,7 +288,7 @@ function run_analysis(payload::AbstractDict)
         stem * ".OPTIMIZATION.JSON",
     ])
 
-    jfem_bytes = jfem_path === nothing ? UInt8[] : read(jfem_path)
+    jfem_bytes = isempty(jfem_files) ? UInt8[] : first(jfem_files)["bytes"]
     eigenvalues = Float64[]
     frequencies = Float64[]
     if json_path !== nothing
@@ -344,7 +318,7 @@ function run_analysis(payload::AbstractDict)
         try
             txt = read(report_path, String)
             timings = _parse_report_timings(txt)
-            report_text = length(txt) > 20000 ? txt[1:20000] * "\n... (truncated)" : txt
+            report_text = length(txt) > 20000 ? first(txt, 20000) * "\n... (truncated)" : txt
         catch; end
     end
     # Log WHERE the time went, so a "slow" run is diagnosable from the server
@@ -360,7 +334,7 @@ function run_analysis(payload::AbstractDict)
     if log_path !== nothing
         try
             txt = read(log_path, String)
-            run_log = length(txt) > 8000 ? txt[end-7999:end] : txt
+            run_log = length(txt) > 8000 ? last(txt, 8000) : txt
         catch; end
     end
 
@@ -374,6 +348,9 @@ function run_analysis(payload::AbstractDict)
         "bdf_path" => bdf_path,
         "output_dir" => out_dir,
         "jfem_path" => jfem_path === nothing ? "" : jfem_path,
+        # The first file's bytes are already in jfem_bytes; avoid transmitting
+        # that potentially large block twice in the msgpack response.
+        "jfem_files" => [merge(file, Dict("bytes" => i == 1 ? UInt8[] : file["bytes"])) for (i,file) in enumerate(jfem_files)],
         "jfem_bytes" => jfem_bytes,           # msgpack bin -> Uint8Array in browser
         "report_path" => report_path === nothing ? "" : report_path,
         "report" => report_text,
@@ -415,6 +392,11 @@ function handle(req::HTTP.Request)
         return HTTP.Response(404, "panel_app.html not found at $APP_HTML")
     end
 
+    if method == "GET" && target == "/jfem_binary.js"
+        return HTTP.Response(200, ["Content-Type" => "application/javascript; charset=utf-8"],
+            read(joinpath(APP_DIR, "..", "jfem_binary.js")))
+    end
+
     if method == "GET" && (target == "/health" || target == "/ping")
         return _msgpack_response(Dict(
             "ok" => true,
@@ -430,10 +412,10 @@ function handle(req::HTTP.Request)
     # blocks any "/../" traversal regardless of how the client normalizes it.
     if method == "GET" && startswith(target, "/vendor/")
         try
-            rel = String(lstrip(target, '/'))               # e.g. "vendor/babylon.js"
-            path = normpath(joinpath(APP_DIR, rel))
             vendor_root = normpath(joinpath(APP_DIR, "vendor"))
-            if startswith(path, vendor_root) && isfile(path)
+            rel = HTTP.unescapeuri(target[length("/vendor/")+1:end])
+            path = _panel_contained_path(vendor_root, rel)
+            if isfile(path)
                 return HTTP.Response(200,
                     ["Content-Type" => _content_type(path),
                      "Cache-Control" => "public, max-age=86400",
@@ -515,10 +497,9 @@ function _warmup()
         EIGRL,30,,,2
         ENDDATA
         """
-        run_analysis(Dict{String,Any}("case_id" => "_warmup", "bdf" => warm_bdf))
-        # clean the throwaway run dir
-        wdir = joinpath(RUN_ROOT, "_warmup")
-        isdir(wdir) && rm(wdir; recursive=true, force=true)
+        # Use the same valid case-ID contract and isolated run directory as a
+        # normal request. Retain this small run with the other service outputs.
+        run_analysis(Dict{String,Any}("case_id" => "warmup", "bdf" => warm_bdf))
     catch err
         _log("WARN: solver warm-up hit an error (non-fatal; first Analyze will just be slower): $(sprint(showerror, err))")
     end

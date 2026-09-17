@@ -48,6 +48,23 @@ function extract_grid(cards; grdset=nothing)
     return d
 end
 
+function _coordinate_frame(A, B, C, cid)
+    a, b, c = Float64.(A), Float64.(B), Float64.(C)
+    all(isfinite, a) && all(isfinite, b) && all(isfinite, c) ||
+        throw(ArgumentError("Coordinate system $cid has nonfinite defining points"))
+    w = b - a
+    nw = norm(w)
+    nw > 0 || throw(ArgumentError("Coordinate system $cid has coincident origin and axis points"))
+    w ./= nw
+    ca = c - a
+    v = cross(w, ca)
+    nv = norm(v)
+    nv > 16eps(Float64) * norm(ca) ||
+        throw(ArgumentError("Coordinate system $cid has collinear defining points"))
+    v ./= nv
+    return a, normalize(cross(v, w)), v, w
+end
+
 function extract_coords(cards; coord_type::String="RECTANGULAR")
     d = Dict()
     for c in cards
@@ -56,14 +73,25 @@ function extract_coords(cards; coord_type::String="RECTANGULAR")
         A = [parse_nastran_number(safe_get(c, 5),0.0), parse_nastran_number(safe_get(c, 6),0.0), parse_nastran_number(safe_get(c, 7),0.0)]
         B = [parse_nastran_number(safe_get(c, 8),0.0), parse_nastran_number(safe_get(c, 9),0.0), parse_nastran_number(safe_get(c, 10),0.0)]
         C = [parse_nastran_number(safe_get(c, 11),0.0), parse_nastran_number(safe_get(c, 12),0.0), parse_nastran_number(safe_get(c, 13),0.0)]
-        w = B - A
-        if norm(w) < 1e-9; w=[0.0,0.0,1.0]; else; w=normalize(w); end
-        v_t = C - A
-        v = cross(w, v_t)
-        if norm(v) < 1e-9; v=[0.0,1.0,0.0]; else; v=normalize(v); end
-        u = normalize(cross(v, w))
+        # With RID != 0, these may be cylindrical/spherical triples. Construct
+        # the actual frame only after resolving RID and converting the points.
+        _, u, v, w = rid == 0 ? _coordinate_frame(A, B, C, id) :
+            (A, [1.0,0.0,0.0], [0.0,1.0,0.0], [0.0,0.0,1.0])
         d[string(id)] = Dict("Origin"=>A, "U"=>u, "V"=>v, "W"=>w, "TYPE"=>coord_type,
                               "RID"=>rid, "A_raw"=>copy(A), "B_raw"=>copy(B), "C_raw"=>copy(C))
+    end
+    return d
+end
+
+function extract_coords1(cards; coord_type::String="RECTANGULAR")
+    d = Dict{String,Any}()
+    for c in cards, k in (3, 7)
+        id = to_id(parse_nastran_number(safe_get(c, k), 0))
+        id == 0 && continue
+        gids = [to_id(parse_nastran_number(safe_get(c, k + j), 0)) for j in 1:3]
+        all(>(0), gids) && length(unique(gids)) == 3 ||
+            throw(ArgumentError("CORD1 coordinate system $id requires three distinct positive GRID IDs"))
+        d[string(id)] = Dict{String,Any}("TYPE"=>coord_type, "G1"=>gids[1], "G2"=>gids[2], "G3"=>gids[3])
     end
     return d
 end
@@ -151,7 +179,7 @@ function extract_cbar(cards)
 
         g0 = 0
         v = [0.0, 0.0, 0.0]
-        if !isempty(x1_raw) && !occursin(".", x1_raw) && (isempty(x2_raw) || x2_raw == "0")
+        if tryparse(Int, x1_raw) !== nothing && isempty(x2_raw) && isempty(x3_raw)
             # G0 format: integer grid ID, X2/X3 blank
             g0 = to_id(parse_nastran_number(x1_raw, 0))
         else
@@ -187,7 +215,7 @@ function extract_cbeam(cards)
 
         g0 = 0
         v = [0.0, 0.0, 0.0]
-        if !isempty(x1_raw) && !occursin(".", x1_raw) && (isempty(x2_raw) || x2_raw == "0")
+        if tryparse(Int, x1_raw) !== nothing && isempty(x2_raw) && isempty(x3_raw)
             g0 = to_id(parse_nastran_number(x1_raw, 0))
         else
             v = [parse_nastran_number(safe_get(c, 7),0.0), parse_nastran_number(safe_get(c, 8),0.0), parse_nastran_number(safe_get(c, 9),0.0)]

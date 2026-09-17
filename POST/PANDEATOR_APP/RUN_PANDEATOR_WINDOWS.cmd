@@ -36,10 +36,11 @@ set "SYSIMG_ARG="
 REM Note: !SYSIMG_DLL! (delayed expansion) so a path with parentheses/spaces does
 REM not break this block. The --sysimage value is quoted so spaces are handled.
 if exist "!SYSIMG_DLL!" (
-    set "SYSIMG_ARG=--sysimage=!SYSIMG_DLL!"
-    echo   Using prebuilt sysimage: !SYSIMG_DLL!
-    echo   ^(startup will be fast; delete that file or rerun CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd to refresh^)
-    echo.
+    julia --startup-file=no --threads=1 --project="!REPO_ROOT!" "!REPO_ROOT!\JFEM_installation\julia_tools\check_sysimage.jl" "!REPO_ROOT!" "!SYSIMG_DLL!"
+    if not errorlevel 1 (
+        set "SYSIMG_ARG=--sysimage=!SYSIMG_DLL!"
+        echo   Using verified sysimage: !SYSIMG_DLL!
+    )
 )
 
 REM Use whatever "julia" is on PATH. The packages were precompiled with Julia
@@ -52,7 +53,8 @@ if defined SYSIMG_ARG (
 ) else (
     julia --project="!REPO_ROOT!" --threads=auto "!APP_DIR!panel_launch.jl" %*
 )
+set "JFEM_EXIT=!errorlevel!"
 echo.
 echo Server stopped. Press any key to close this window.
 pause >nul
-endlocal
+endlocal & exit /b %JFEM_EXIT%

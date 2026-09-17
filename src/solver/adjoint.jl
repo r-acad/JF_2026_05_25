@@ -34,6 +34,11 @@ function parse_adjoint_config(json_path::String)
         haskey(dv, "id") || error("[ADJOINT] Each design variable must have an 'id'")
         haskey(dv, "type") || error("[ADJOINT] Design variable '$(dv["id"])' must have a 'type'")
     end
+    for key in ("responses", "design_variables")
+        ids = [item["id"] for item in config[key]]
+        length(unique(ids)) == length(ids) ||
+            error("[ADJOINT] Duplicate IDs in $key would overwrite sensitivity results")
+    end
 
     return config
 end
@@ -159,12 +164,23 @@ function _rotate_pcomp_response_qbar(Qbar::AbstractMatrix, ed)
     return Q
 end
 
+@inline _shell_response_bottom_surface(surface) =
+    lowercase(strip(string(surface))) in ("bottom", "bot", "lower", "z1", "minus")
+
+function _guard_default_pshell_stress_response!(ed)
+    ed.prop_type == "PCOMP_CLT" && return nothing
+    _pshell_stress_fibers_are_default(ed.prop) || throw(ArgumentError(
+        "[ADJOINT] Ordinary PSHELL stress responses/gradients with explicit Z1/Z2 recovery distances are unsupported, including explicit distances equal to +/-T/2. Blank recovery distances follow thickness and remain supported; displacement and force/moment responses are unaffected."))
+    return nothing
+end
+
 function _shell_response_stress_matrix(ed, D_iso::AbstractMatrix, surface)
     if ed.prop_type == "PCOMP_CLT" && haskey(ed.prop, "PLY_DATA")
         ply, z = _pcomp_surface_ply(ed.prop, surface)
         return _rotate_pcomp_response_qbar(ply["Qbar"], ed), z
     end
-    z = lowercase(strip(string(surface))) in ("bottom", "bot", "lower", "z1", "minus") ? -ed.h / 2 : ed.h / 2
+    _guard_default_pshell_stress_response!(ed)
+    z = _shell_response_bottom_surface(surface) ? -ed.h / 2 : ed.h / 2
     return D_iso, z
 end
 
@@ -425,8 +441,18 @@ function _pcomp_response_update_ply_data!(
     perturb_field::Symbol,
     delta_user::Real,
 )
+    _pcomp_require_rebuild_provenance!(prop)
+    equivalent_mid = _dkdx_id_key(prop["MID"])
+    equivalent = get(mats,equivalent_mid,nothing)
+    equivalent !== nothing && get(equivalent,"TYPE","") == "MAT1_EQUIV" ||
+        error("[ADJOINT] PCOMP rebuild requires a distinct synthetic equivalent material")
+    any(_dkdx_id_key(get(ply,"mid",get(ply,"MID",0))) == equivalent_mid for ply in prop["PLY_DATA"]) &&
+        error("[ADJOINT] PCOMP equivalent material cannot also be a physical ply material")
+    perturb_field in (:T, :THETA, :NONE) || error("[ADJOINT] Invalid PCOMP perturbation field")
     ply_data = prop["PLY_DATA"]
     n_plies = length(ply_data)
+    perturb_field == :NONE || 1 <= ply_idx <= n_plies ||
+        error("[ADJOINT] Requested PCOMP ply $ply_idx outside 1:$n_plies")
     ply_t = [Float64(ply_data[k]["z_top"] - ply_data[k]["z_bot"]) for k in 1:n_plies]
     ply_theta = [deg2rad(Float64(get(ply_data[k], "theta", get(ply_data[k], "THETA", 0.0)))) for k in 1:n_plies]
     delta = perturb_field == :THETA ? deg2rad(Float64(delta_user)) : Float64(delta_user)
@@ -440,12 +466,14 @@ function _pcomp_response_update_ply_data!(
 
     total_t = sum(ply_t)
     total_t > 0.0 || error("[ADJOINT] PCOMP response perturbation produced nonpositive total thickness.")
-    z_bot = -0.5 * total_t
+    z_bot = prop["PCOMP_Z0_DEFAULT"] ? -0.5 * total_t : Float64(prop["PCOMP_Z0"])
     A = zeros(3, 3)
     B = zeros(3, 3)
     D = zeros(3, 3)
     Ash = zeros(2, 2)
     updated_ply_data = Any[]
+    E_ref = 0.0
+    rho_areal = 0.0
     for k in 1:n_plies
         t = ply_t[k]
         t > 0.0 || error("[ADJOINT] PCOMP response perturbation produced nonpositive thickness for ply $k.")
@@ -453,13 +481,13 @@ function _pcomp_response_update_ply_data!(
         z_top = z_bot + t
         ply = ply_data[k]
         pdata = _pcomp_ply_material_data(ply, mats)
-        if isnothing(pdata)
-            Qb = Matrix{Float64}(ply["Qbar"])
-            Qs = Matrix{Float64}(ply["Qshear"])
-        else
-            Qb = _qbar_plane_stress(pdata.E1, pdata.E2, pdata.nu12, pdata.G12, theta)
-            Qs = _qbar_shear(pdata.G13, pdata.G23, theta)
-        end
+        isnothing(pdata) && error("[ADJOINT] PCOMP ply $k has no physical material for rebuilding")
+        builder = parentmodule(@__MODULE__)
+        Qb = builder.laminate_plane_stress_qbar(pdata.E1, pdata.E2, pdata.nu12, pdata.G12, theta)
+        Qs = builder.laminate_transverse_shear_qbar(pdata.G13, pdata.G23, theta)
+        E_ref = max(E_ref, pdata.E1, pdata.E2)
+        mid = _dkdx_id_key(get(ply,"mid",get(ply,"MID",0)))
+        rho_areal += Float64(get(mats[mid],"RHO",0.0)) * t
         A .+= Qb .* (z_top - z_bot)
         B .+= Qb .* (z_top^2 - z_bot^2) / 2.0
         D .+= Qb .* (z_top^3 - z_bot^3) / 3.0
@@ -476,20 +504,46 @@ function _pcomp_response_update_ply_data!(
         z_bot = z_top
     end
 
-    Bmb = maximum(abs.(B)) > 1e-10 * max(maximum(abs.(A)), 1.0) ? B : nothing
+    Bmb = maximum(abs.(B)) > 1e-10 * maximum(abs.(A)) ? B : nothing
+    builder = parentmodule(@__MODULE__)
+    Cs = if prop["PCOMP_WHITNEY_SHEAR"]
+        kx, ky = builder.pcomp_whitney_kappa(updated_ply_data, total_t)
+        builder._laminate_corrected_shear(Ash, kx, ky)
+    else
+        (5.0/6.0) .* Ash
+    end
     prop["T"] = total_t
     prop["T_REF"] = total_t
     prop["Cm"] = A
     prop["Bmb"] = Bmb
     prop["Cb"] = D
-    prop["Cs"] = (5.0 / 6.0) .* Ash
+    prop["Cs"] = Cs
     prop["Cs_raw"] = copy(Ash)
     prop["Cm_ref"] = copy(A)
     prop["Bmb_ref"] = Bmb === nothing ? nothing : copy(Bmb)
     prop["Cb_ref"] = copy(D)
     prop["Cs_ref"] = copy(prop["Cs"])
     prop["PLY_DATA"] = updated_ply_data
+    prop["PCOMP_Z0"] = first(updated_ply_data)["z_bot"]
+    prop["E_ref"] = E_ref
+    nu_eq = A[1,1] > 0 ? clamp(A[1,2]/A[1,1],0.0,0.49) : 0.3
+    equivalent["NU"] = nu_eq
+    equivalent["E"] = A[1,1] * (1-nu_eq^2) / total_t
+    equivalent["G"] = 0.5 * (Ash[1,1]+Ash[2,2]) / total_t
+    equivalent["RHO"] = rho_areal / total_t
     return prop
+end
+
+function _pcomp_require_rebuild_provenance!(prop)
+    get(prop,"TYPE","") == "PCOMP_CLT" && !isempty(get(prop,"PLY_DATA",Any[])) ||
+        error("[ADJOINT] PCOMP differentiation requires physical PLY_DATA")
+    all(haskey(prop,key) for key in ("PCOMP_Z0_DEFAULT","PCOMP_Z0","PCOMP_LAM","PCOMP_WHITNEY_SHEAR")) ||
+        error("[ADJOINT] PCOMP differentiation needs Z0/shear provenance; rebuild this legacy property from its input deck or supply explicit property provenance")
+    isempty(strip(string(prop["PCOMP_LAM"]))) ||
+        error("[ADJOINT] PCOMP LAM=$(prop["PCOMP_LAM"]) ply-variable semantics are unsupported; use an explicitly expanded physical ply stack")
+    prop["PCOMP_Z0_DEFAULT"] isa Bool && prop["PCOMP_WHITNEY_SHEAR"] isa Bool ||
+        error("[ADJOINT] PCOMP provenance flags must be Boolean")
+    return nothing
 end
 
 function _pcomp_response_model_with_ply_delta(
@@ -1006,6 +1060,8 @@ function _get_shell_element_data(eid::Int, model, id_map, node_coords, node_R)
     pshells = model["PSHELLs"]
     if !haskey(pshells, pid_str); return nothing; end
     prop = pshells[pid_str]
+    _pshell_local_constitutive_gap(prop, model) && throw(ArgumentError(
+        "[ADJOINT] Shell stress/force response for EID $eid requires anisotropic, independent-material or MID4 constitutive recovery, which is unsupported. Displacement responses remain available."))
     prop_type = uppercase(string(get(prop, "TYPE", "PSHELL")))
     mid_str = string(prop["MID"])
     mats = model["MATs"]
@@ -1080,13 +1136,19 @@ end
 Evaluate the scalar response function value.
 Supports: displacement, von_mises, shell_force_nx/ny/nxy, shell_moment_mx/my.
 """
+function _adjoint_displacement_index(resp, id_map)
+    grid = Int(resp["grid"])
+    dof = Int(resp["dof"])
+    1 <= dof <= 6 || throw(ArgumentError("[ADJOINT] Displacement DOF must be an integer in 1:6 (got $(resp["dof"]))"))
+    haskey(id_map, grid) || throw(ArgumentError("[ADJOINT] Displacement GRID $grid is absent from the forward model"))
+    return (id_map[grid]-1)*6 + dof
+end
+
 function evaluate_response(resp, u_global, model, id_map, ndof, node_coords=nothing, node_R=nothing)
     rtype = resp["type"]
 
     if rtype == "displacement"
-        grid = Int(resp["grid"]); dof = Int(resp["dof"])
-        idx = id_map[grid]
-        return u_global[(idx-1)*6 + dof]
+        return u_global[_adjoint_displacement_index(resp, id_map)]
 
     elseif rtype == "von_mises"
         eid = Int(resp["eid"])
@@ -1174,10 +1236,8 @@ function compute_dr_du(resp, u_global, model, id_map, ndof, node_coords=nothing,
     rtype = resp["type"]
 
     if rtype == "displacement"
-        grid = Int(resp["grid"]); dof = Int(resp["dof"])
-        idx = id_map[grid]
         dr_du = zeros(ndof)
-        dr_du[(idx-1)*6 + dof] = 1.0
+        dr_du[_adjoint_displacement_index(resp, id_map)] = 1.0
         return dr_du
 
     elseif rtype == "von_mises"
@@ -1542,6 +1602,7 @@ function compute_dr_dx_explicit(resp, dv, model, id_map, node_coords, node_R, u_
         bd === nothing && return _zero_explicit_groups(dv)
         return _beam_response_explicit_fd(resp, dv, model, id_map, node_coords, node_R, u_global, ndof)
     end
+    rtype == "von_mises" && _guard_default_pshell_stress_response!(ed)
 
     Bm, Bb, D = _shell_centroid_B_matrices(ed.n_nodes, ed.lc, ed.E, ed.nu)
     u_elem_global = [u_global[ed.dofs[i]] for i in 1:ed.ndof_elem]
@@ -1561,11 +1622,11 @@ function compute_dr_dx_explicit(resp, dv, model, id_map, node_coords, node_R, u_
         h = ed.h
         if rtype == "von_mises"
             surface = get(resp, "surface", "top")
-            z = surface == "bottom" ? -h/2 : h/2
+            z = _shell_response_bottom_surface(surface) ? -h/2 : h/2
             sigma = D * (eps_mem .+ z .* kappa)
             _, dVM_dsigma = _von_mises_plane_stress(sigma)
             # dsigma/dh|explicit = D * (dz/dh * kappa) = D * (±1/2 * kappa)
-            dz_dh = surface == "bottom" ? -0.5 : 0.5
+            dz_dh = _shell_response_bottom_surface(surface) ? -0.5 : 0.5
             dsigma_dh = D * (dz_dh .* kappa)
             dr_dh = dot(dVM_dsigma, dsigma_dh)
 
@@ -1601,7 +1662,7 @@ function compute_dr_dx_explicit(resp, dv, model, id_map, node_coords, node_R, u_
 
         if rtype == "von_mises"
             surface = get(resp, "surface", "top")
-            z = surface == "bottom" ? -h/2 : h/2
+            z = _shell_response_bottom_surface(surface) ? -h/2 : h/2
             sigma = D * (eps_mem .+ z .* kappa)
             _, dVM_dsigma = _von_mises_plane_stress(sigma)
             # dsigma/dE|explicit = dD/dE * (eps_mem + z*kappa) = sigma/E
@@ -1643,7 +1704,7 @@ function compute_dr_dx_explicit(resp, dv, model, id_map, node_coords, node_R, u_
 
         if rtype == "von_mises"
             surface = get(resp, "surface", "top")
-            z = surface == "bottom" ? -h/2 : h/2
+            z = _shell_response_bottom_surface(surface) ? -h/2 : h/2
             sigma = D * (eps_mem .+ z .* kappa)
             _, dVM_dsigma = _von_mises_plane_stress(sigma)
             dsigma_dnu = dD_dnu * (eps_mem .+ z .* kappa)
@@ -1733,7 +1794,7 @@ function compute_dr_dx_explicit(resp, dv, model, id_map, node_coords, node_R, u_
 
         if rtype == "von_mises"
             surface = get(resp, "surface", "top")
-            z = surface == "bottom" ? -h/2 : h/2
+            z = _shell_response_bottom_surface(surface) ? -h/2 : h/2
             sigma = (prop["Cm"] / max(h, 1e-30)) * (eps_mem .+ z .* kappa)
             _, dVM_dsigma = _von_mises_plane_stress(sigma)
             dsigma_dx = D_eff * (eps_mem .+ z .* kappa)
@@ -1836,7 +1897,7 @@ function get_design_variable_values(dv, model)
     if dv_type == "shell_thickness"
         pshells = model["PSHELLs"]
         for pid in dv["pids"]
-            pid_str = string(Int(pid))
+            pid_str = _dkdx_id_key(pid)
             if haskey(pshells, pid_str)
                 values["PID_$pid_str"] = pshells[pid_str]["T"]
             end
@@ -1844,7 +1905,7 @@ function get_design_variable_values(dv, model)
     elseif dv_type == "material_E"
         mats = model["MATs"]
         for mid in dv["mids"]
-            mid_str = string(Int(mid))
+            mid_str = _dkdx_id_key(mid)
             if haskey(mats, mid_str)
                 values["MID_$mid_str"] = mats[mid_str]["E"]
             end
@@ -1852,7 +1913,7 @@ function get_design_variable_values(dv, model)
     elseif dv_type == "material_NU"
         mats = model["MATs"]
         for mid in dv["mids"]
-            mid_str = string(Int(mid))
+            mid_str = _dkdx_id_key(mid)
             if haskey(mats, mid_str)
                 values["MID_$mid_str"] = mats[mid_str]["NU"]
             end
@@ -1860,7 +1921,7 @@ function get_design_variable_values(dv, model)
     elseif dv_type == "bar_area"
         pbarls = get(model, "PBARLs", Dict())
         for pid in dv["pids"]
-            pid_str = string(Int(pid))
+            pid_str = _dkdx_id_key(pid)
             if haskey(pbarls, pid_str)
                 values["PID_$pid_str"] = pbarls[pid_str]["A"]
             end
@@ -1869,7 +1930,7 @@ function get_design_variable_values(dv, model)
         pshells = model["PSHELLs"]
         ply_idx = Int(dv["ply_index"])
         for pid in dv["pids"]
-            pid_str = string(Int(pid))
+            pid_str = _dkdx_id_key(pid)
             prop = get(pshells, pid_str, nothing)
             if !isnothing(prop) && haskey(prop, "PLY_DATA") && ply_idx <= length(prop["PLY_DATA"])
                 ply = prop["PLY_DATA"][ply_idx]
@@ -1880,7 +1941,7 @@ function get_design_variable_values(dv, model)
         pshells = model["PSHELLs"]
         ply_idx = Int(dv["ply_index"])
         for pid in dv["pids"]
-            pid_str = string(Int(pid))
+            pid_str = _dkdx_id_key(pid)
             prop = get(pshells, pid_str, nothing)
             if !isnothing(prop) && haskey(prop, "PLY_DATA") && ply_idx <= length(prop["PLY_DATA"])
                 values["PID_$pid_str"] = Float64(prop["PLY_DATA"][ply_idx]["theta"])
@@ -1912,6 +1973,240 @@ end
 
 Run adjoint sensitivity analysis on SOL 101 results.
 """
+function _adjoint_reduce_rhs(rhs, constraint_map)
+    isempty(constraint_map) && return rhs
+    reduced = copy(rhs)
+    for (dependent, pairs) in constraint_map
+        for (independent, coefficient) in pairs
+            reduced[independent] += coefficient * rhs[dependent]
+        end
+        reduced[dependent] = 0.0
+    end
+    return reduced
+end
+
+function _adjoint_expand!(vector, constraint_map)
+    for (dependent, pairs) in constraint_map
+        vector[dependent] = sum(coefficient * vector[independent] for (independent, coefficient) in pairs)
+    end
+    return vector
+end
+
+function _adjoint_subcase_load_id(model, sid)
+    cc = get(model,"CASE_CONTROL",Dict())
+    subcases = get(cc,"SUBCASES",Dict())
+    sub = get(subcases,sid,get(subcases,string(sid),Dict()))
+    return get(sub,"LOAD",get(cc,"LOAD",get(get(cc,"GLOBAL",Dict()),"LOAD",nothing)))
+end
+
+"""Reject local adjoint paths whose omitted load/frame derivatives are nonzero."""
+function _adjoint_guard_load_derivatives!(model, load_id, dvs; constraint_map=Dict())
+    scales = _load_sid_scales(model,load_id)
+    active(key) = [card for card in get(model,key,[]) if haskey(scales,Int(card["SID"]))]
+    inertia = !isempty(active("GRAVs")) || !isempty(active("RFORCEs"))
+    distributed = inertia || any(key->!isempty(active(key)),("PLOADs","PLOAD4s","PLOAD1s"))
+    function curved(cid)
+        cid == 0 && return false
+        frame = get(get(model,"CORDs",Dict()),string(cid),Dict())
+        return get(frame,"TYPE","") in ("CYLINDRICAL","SPHERICAL") || haskey(frame,"G1")
+    end
+    for dv in dvs
+        typ = dv["type"]
+        if inertia && typ in ("shell_thickness","bar_area","pcomp_ply_thickness","material_RHO","topology_density")
+            error("[ADJOINT] $typ under GRAV/RFORCE requires mass-dependent load derivatives; use end-to-end finite differences.")
+        end
+        if typ == "node_coord"
+            mapped = !isempty(constraint_map) ||
+                any(grid->curved(Int(get(grid,"CD",0))),values(get(model,"GRIDs",Dict()))) ||
+                any(card->curved(Int(get(card,"CID",0))),vcat(active("FORCEs"),active("MOMENTs")))
+            (distributed || mapped) && error(
+                "[ADJOINT] Node-coordinate sensitivity with geometry-dependent loads or constraint frames requires end-to-end finite differences.")
+        end
+    end
+    return nothing
+end
+
+function _adjoint_static_case(results, sid)
+    cases = filter(sc -> sc["sid"] == sid, results["subcases"])
+    length(cases) == 1 || error("[ADJOINT] Forward result must contain exactly one requested subcase $sid")
+    return only(cases)
+end
+
+function _adjoint_forward_copy(results)
+    model = deepcopy(results["model"])
+    # Preserve an explicitly selected backend, including callers that used the
+    # two-argument solve_model API instead of a model-level backend setting.
+    haskey(results, "backend") && (model["backend"] = results["backend"])
+    return model
+end
+
+function _adjoint_forward_solve(model)
+    return parentmodule(@__MODULE__).solve_model(model)
+end
+
+function _adjoint_check_forward_partition(results, replay, responses)
+    replay["sol_type"] == 101 || error("[ADJOINT] Forward replay did not produce SOL101 results")
+    results["ndof"] == replay["ndof"] || error("[ADJOINT] Forward DOF count changed during differentiation")
+    for resp in responses
+        sid = get(resp, "subcase", 1)
+        base = _adjoint_static_case(results, sid)
+        trial = _adjoint_static_case(replay, sid)
+        for key in ("id_map", "node_coords", "node_R")
+            get(base, key, results[key]) == get(trial, key, replay[key]) ||
+                error("[ADJOINT] Forward replay $key differs in subcase $sid; rerun the forward solve with unchanged settings")
+        end
+        Set(base["fixed_dofs"]) == Set(trial["fixed_dofs"]) ||
+            error("[ADJOINT] Forward replay constraints differ in subcase $sid; rerun the forward solve")
+    end
+    get(results, "rbe3_map", Dict()) == get(replay, "rbe3_map", Dict()) ||
+        error("[ADJOINT] Forward replay MPC transformation differs")
+    return nothing
+end
+
+function _adjoint_check_forward_replay(results, replay, responses)
+    _adjoint_check_forward_partition(results, replay, responses)
+    for resp in responses
+        sid = get(resp, "subcase", 1)
+        base = _adjoint_static_case(results, sid)
+        trial = _adjoint_static_case(replay, sid)
+        for (key, rtol) in (("K", 64eps(Float64)), ("u_analysis", 1e-9))
+            a = key == "K" ? get(base, key, results[key]) : base[key]
+            b = key == "K" ? get(trial, key, replay[key]) : trial[key]
+            size(a) == size(b) && isapprox(a, b; rtol=rtol, atol=0.0) ||
+                error("[ADJOINT] Forward replay $key differs in subcase $sid; solver settings/model changed after the supplied forward result")
+        end
+    end
+    return nothing
+end
+
+function _adjoint_response_from_forward(resp, results)
+    sc = _adjoint_static_case(results, get(resp, "subcase", 1))
+    return evaluate_response(resp, sc["u_analysis"], results["model"],
+        get(sc, "id_map", results["id_map"]), results["ndof"],
+        get(sc, "node_coords", results["node_coords"]), get(sc, "node_R", results["node_R"]))
+end
+
+# A centered difference can converge across a finite, even jump at B=0.
+# Permit that formulation boundary only in the independently established
+# common zero-coupling limit; all other branches must stay unchanged.
+function _adjoint_pcomp_zero_limit_supported(results, pid)
+    isdefined(@__MODULE__, :coupled_pcomp_projected_enabled) || return false
+    model = results["model"]
+    prop = model["PSHELLs"][pid]
+    snorm = get(model, "PARAM_SNORM", 0.0)
+    snorm_value = snorm isa Real ? Float64(snorm) : something(tryparse(Float64,string(snorm)), NaN)
+    iszero(snorm_value) || return false
+    override = strip(get(ENV,"JFEM_PARAM_SNORM_OVERRIDE_STATIC",get(ENV,"JFEM_PARAM_SNORM_OVERRIDE","")))
+    isempty(override) || iszero(something(tryparse(Float64,override),NaN)) || return false
+    kernel = lowercase(strip(get(ENV,"JFEM_Q4_KERNEL_STATIC",get(ENV,"JFEM_Q4_KERNEL","macneal"))))
+    frame = q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_STATIC")
+    found = false
+    for el in values(get(model,"CSHELLs",Dict()))
+        _dkdx_id_key(el["PID"]) == pid || continue
+        found = true
+        nodes = el["NODES"]
+        length(nodes) == 4 || return false
+        # These additional transformations have no independent boundary proof.
+        all(iszero(get(el,key,0)) for key in ("THETA","MCID","ZOFFS")) || return false
+        for sc in results["subcases"]
+            ids = get(sc,"id_map",results["id_map"])
+            X = get(sc,"node_coords",results["node_coords"])
+            all(n->haskey(ids,n),nodes) || return false
+            points = ntuple(k->SVector{3}(X[ids[nodes[k]],1],X[ids[nodes[k]],2],X[ids[nodes[k]],3]),4)
+            v1,v2,_ = shell_element_frame_quad4(points[1],points[2],points[3],points[4],frame)
+            center = sum(points)/4
+            local_xy = [dot(points[k]-center,v) for k in 1:4, v in (v1,v2)]
+            xyz = [points[k][j] for k in 1:4, j in 1:3]
+            coupled_pcomp_projected_enabled(local_xy,get(prop,"Bmb",nothing);
+                is_pcomp=true,isotropic=Bool(get(prop,"IS_ISOTROPIC",false)),
+                coords_3d=xyz,kernel_mode=kernel,require_coupling=false,sol_type=101) || return false
+        end
+    end
+    return found
+end
+
+function _adjoint_guard_pcomp_branch_crossing!(results, perturbed, dv)
+    for (pid,base) in _pcomp_dv_properties(dv,results["model"])
+        changed = perturbed["PSHELLs"][pid]
+        (get(base,"Bmb",nothing) === nothing) == (get(changed,"Bmb",nothing) === nothing) && continue
+        _adjoint_pcomp_zero_limit_supported(results,pid) && continue
+        error("[ADJOINT] PCOMP PID $pid crosses the zero/nonzero membrane-bending coupling formulation boundary. A derivative is unsupported outside the verified continuous rectangular projected domain; a centered finite difference across this branch can hide a finite stiffness/displacement jump.")
+    end
+    return nothing
+end
+
+# Two solves per group for all responses and all static subcases. Only scalar
+# differences are retained: large stiffness/state arrays are released per group.
+function _adjoint_full_response_fd(dv, results, responses)
+    typ = dv["type"]
+    ply_dv = typ in ("pcomp_ply_thickness", "pcomp_ply_angle")
+    typ in ("shell_thickness", "material_E", "material_NU", "pcomp_ply_thickness", "pcomp_ply_angle") || error(
+        "[ADJOINT] Unsupported SOL101 full-response design variable $typ")
+    method = get_dv_method(dv)
+    allowed = ply_dv ? (:full_response_fd,) : (DV_REGISTRY[typ].method, :element_fd, :full_model_fd, :full_response_fd)
+    method in allowed || error(
+        "[ADJOINT] Unsupported derivative backend '$method' for SOL101 full-response differentiation")
+    registry = DV_REGISTRY[typ]
+    family = typ == "shell_thickness" || ply_dv ? "PSHELLs" : "MATs"
+    ids = _dkdx_id_key.(dv[registry.key_field])
+    !isempty(ids) && length(unique(ids)) == length(ids) || error("[ADJOINT] Empty or duplicate design-variable group IDs")
+    for id in dv[registry.key_field]
+        haskey(get(results["model"],family,Dict()), _dkdx_id_key(id)) ||
+            error("[ADJOINT] Requested $(registry.prefix) $id is absent from the forward model")
+        if ply_dv
+            prop = results["model"][family][_dkdx_id_key(id)]
+            _pcomp_require_rebuild_provenance!(prop)
+            1 <= Int(dv["ply_index"]) <= length(prop["PLY_DATA"]) || error("[ADJOINT] Invalid PCOMP ply index")
+        end
+    end
+    design_values = get_design_variable_values(dv, results["model"])
+    derivatives = Dict{String, Dict{Tuple{Int,String},Float64}}()
+    for (label, x0) in design_values
+        id = split(label, "_", limit=2)[2]
+        family, field = typ == "shell_thickness" || ply_dv ? ("PSHELLs", "T") :
+            ("MATs", typ == "material_E" ? "E" : "NU")
+        isfinite(x0) || error("[ADJOINT] Nonfinite design variable $label")
+        delta = typ == "material_NU" ? max(abs(x0)*1e-5, 1e-8) :
+            typ == "pcomp_ply_angle" ? max(abs(x0)*1e-5, 1e-4) : abs(x0)*1e-5
+        if typ == "material_NU"
+            -1 < x0-delta < x0+delta < 0.5 || error("[ADJOINT] Poisson ratio perturbation must remain in (-1, 0.5)")
+        elseif typ != "pcomp_ply_angle"
+            x0 > 0.0 || error("[ADJOINT] Positive $field required for $label")
+        end
+        samples = Vector{Float64}[]
+        for sign in (1.0, -1.0)
+            perturbed = _adjoint_forward_copy(results)
+            entry = perturbed[family][id]
+            if ply_dv
+                _pcomp_response_update_ply_data!(entry, perturbed["MATs"], Int(dv["ply_index"]),
+                    typ == "pcomp_ply_thickness" ? :T : :THETA, sign*delta)
+            else
+                entry[field] = x0 + sign*delta
+            end
+            if typ == "material_E"
+                entry["G"] *= 1.0 + sign*delta/x0
+            elseif typ == "material_NU"
+                entry["G"] = entry["E"] / (2.0*(1.0+entry["NU"]))
+            end
+            if typ in ("material_E", "material_NU")
+                group_dv = merge(dv, Dict("mids"=>[id]))
+                for prop in values(_pcomp_dv_properties(group_dv,perturbed))
+                    _pcomp_response_update_ply_data!(prop,perturbed["MATs"],0,:NONE,0.0)
+                end
+            end
+            _adjoint_guard_pcomp_branch_crossing!(results,perturbed,dv)
+            forward = _adjoint_forward_solve(perturbed)
+            _adjoint_check_forward_partition(results,forward,responses)
+            push!(samples, [_adjoint_response_from_forward(resp, forward) for resp in responses])
+        end
+        differences = (samples[1] - samples[2]) / (2delta)
+        all(isfinite, differences) || error("[ADJOINT] Nonfinite full-response derivative for $label")
+        derivatives[label] = Dict((Int(get(resp,"subcase",1)), String(resp["id"])) => differences[i]
+            for (i,resp) in enumerate(responses))
+    end
+    return derivatives
+end
+
 function solve_adjoint(results::Dict, adjoint_config_path::String)
     if results["sol_type"] != 101
         error("[ADJOINT] Adjoint solver requires SOL 101 results (got SOL $(results["sol_type"]))")
@@ -1933,7 +2228,64 @@ function solve_adjoint(results::Dict, adjoint_config_path::String)
     log_msg("[ADJOINT] Starting adjoint sensitivity analysis: $n_resp responses × $n_dv design variables")
 
     subcases = results["subcases"]
+    length(Set(sc["sid"] for sc in subcases)) == length(subcases) ||
+        error("[ADJOINT] Duplicate forward subcase IDs are unsupported")
     all_adjoint_results = Dict{Int, Dict}()
+
+    # Check candidates even when the current policy is disabled: changing ENV
+    # after the forward solve must not silently select the old local path.
+    blank_candidates = [_sol101_blank_mid3_dv_candidate(dv, model) for dv in design_vars]
+    pcomp_candidates = [!isempty(_pcomp_dv_properties(dv,model)) ||
+        dv["type"] in ("pcomp_ply_thickness", "pcomp_ply_angle") for dv in design_vars]
+    candidates = blank_candidates .| pcomp_candidates
+    use_full_fd = (blank_candidates .& _sol101_blank_mid3_policy_active()) .| pcomp_candidates
+    full_fd_cache = Dict{String,Any}()
+    checked_subcases = Set{Int}()
+    for dv in design_vars
+        _guard_scalar_isotropic_material_dv!(dv, model)
+        _guard_pcomp_dv_semantics!(dv, model)
+        for prop in values(_pcomp_dv_properties(dv,model))
+            _pcomp_require_rebuild_provenance!(prop)
+        end
+    end
+    for resp in responses
+        any(pcomp_candidates) && !(resp["type"] in ("displacement", "ks_displacement")) && error(
+            "[ADJOINT] PCOMP full-response differentiation currently supports displacement/KS displacement; centroid stress/resultant response equivalence is not established for the condensed laminate operator.")
+        sc = _adjoint_static_case(results, get(resp,"subcase",1))
+        if !(sc["sid"] in checked_subcases)
+            get(sc,"temp_load_id",nothing) === nothing || error(
+                "[ADJOINT] Temperature-loaded sensitivity requires derivatives of thermal loads and material tables; use end-to-end finite differences.")
+            _adjoint_guard_load_derivatives!(model, _adjoint_subcase_load_id(model,sc["sid"]), design_vars;
+                constraint_map=get(results,"rbe3_map",Dict()))
+            for (i,dv) in enumerate(design_vars)
+                use_full_fd[i] || continue
+                _guard_mapped_quad4_local_dkdx!(dv, model, get(sc,"id_map",id_map), get(sc,"node_coords",X))
+            end
+            push!(checked_subcases, sc["sid"])
+        end
+        if any(use_full_fd)
+            # Keep existing constitutive and fixed-fiber response restrictions.
+            # Full solves change the derivative route, not the response's scope.
+            evaluate_response(resp, sc["u_analysis"], model, get(sc,"id_map",id_map), ndof,
+                get(sc,"node_coords",X), get(sc,"node_R",node_R))
+        end
+    end
+    if any(candidates)
+        replay_model = _adjoint_forward_copy(results)
+        rebuilt = Set{String}()
+        for dv in design_vars, (pid,prop) in _pcomp_dv_properties(dv,replay_model)
+            pid in rebuilt && continue
+            _pcomp_response_update_ply_data!(prop,replay_model["MATs"],0,:NONE,0.0)
+            push!(rebuilt,pid)
+        end
+        replay = _adjoint_forward_solve(replay_model)
+        _adjoint_check_forward_replay(results,replay,responses)
+    end
+    for (i,dv) in enumerate(design_vars)
+        use_full_fd[i] || continue
+        full_fd_cache[dv["id"]] = _adjoint_full_response_fd(dv,results,responses)
+    end
+    needs_adjoint = !all(use_full_fd)
 
     for sc in subcases
         sid = sc["sid"]
@@ -1943,15 +2295,29 @@ function solve_adjoint(results::Dict, adjoint_config_path::String)
         subcase_responses = filter(r -> get(r, "subcase", 1) == sid, responses)
         if isempty(subcase_responses); continue; end
 
+        K = get(sc, "K", results["K"])
+        id_map = get(sc, "id_map", results["id_map"])
+        X = get(sc, "node_coords", results["node_coords"])
+        node_R = get(sc, "node_R", results["node_R"])
+        constraint_map = get(results, "rbe3_map", Dict())
+        get(sc, "temp_load_id", nothing) === nothing || error(
+            "[ADJOINT] Temperature-loaded sensitivity requires derivatives of thermal loads and material tables; use end-to-end finite differences.")
+        _adjoint_guard_load_derivatives!(model,_adjoint_subcase_load_id(model,sid),design_vars;
+            constraint_map=constraint_map)
+
         log_msg("[ADJOINT] Subcase $sid: $(length(subcase_responses)) responses")
 
         free_dofs = sort(collect(setdiff(1:ndof, fixed_dofs_sc)))
-        K_ff = K[free_dofs, free_dofs]
-        log_msg("[ADJOINT] Factorizing K_ff ($(length(free_dofs)) free DOFs)...")
-        K_fact = cholesky(Symmetric(K_ff))
+        K_fact = if needs_adjoint
+            log_msg("[ADJOINT] Factorizing K_ff ($(length(free_dofs)) free DOFs)...")
+            cholesky(Symmetric(K[free_dofs, free_dofs]))
+        else
+            nothing
+        end
 
         sensitivities = Dict{String, Dict{String, Dict{String, Float64}}}()
         response_values = Dict{String, Float64}()
+        dKdx_u_cache = Dict{String,Any}()
 
         for resp in subcase_responses
             resp_id = resp["id"]
@@ -1962,27 +2328,37 @@ function solve_adjoint(results::Dict, adjoint_config_path::String)
             response_values[resp_id] = r_value
 
             # Compute adjoint RHS: dr/du
-            dr_du_full = compute_dr_du(resp, u_global, model, id_map, ndof, X, node_R)
-
-            # Solve adjoint equation
-            dr_du_f = dr_du_full[free_dofs]
-            lambda_f = K_fact \ dr_du_f
-            lambda_full = zeros(ndof)
-            lambda_full[free_dofs] = lambda_f
+            lambda_full = if needs_adjoint
+                dr_du_full = _adjoint_reduce_rhs(
+                    compute_dr_du(resp, u_global, model, id_map, ndof, X, node_R), constraint_map)
+                lambda = zeros(ndof)
+                lambda[free_dofs] = K_fact \ dr_du_full[free_dofs]
+                _adjoint_expand!(lambda, constraint_map)
+            else
+                nothing
+            end
 
             # Compute sensitivities for each design variable
             sensitivities[resp_id] = Dict{String, Dict{String, Float64}}()
             for dv in design_vars
                 dv_id = dv["id"]
 
+                if haskey(full_fd_cache,dv_id)
+                    sensitivities[resp_id][dv_id] = Dict(label => table[(Int(sid),String(resp_id))]
+                        for (label,table) in full_fd_cache[dv_id])
+                    continue
+                end
+
                 # Implicit part: -lambda^T * dK/dx * u (per group)
-                dKdx_u_groups = compute_dKdx_u_per_group(dv, model, id_map, X, node_R, u_global, ndof)
+                dKdx_u_groups = get!(dKdx_u_cache, dv_id) do
+                    compute_dKdx_u_per_group(dv, model, id_map, X, node_R, u_global, ndof)
+                end
 
                 # Explicit part: dr/dx|explicit (per group)
                 dr_dx_explicit = compute_dr_dx_explicit(resp, dv, model, id_map, X, node_R, u_global, ndof)
 
                 # Total: dr/dx = dr/dx|explicit + lambda^T * (dF/dx - dK/dx * u)
-                # dF/dx = 0 for all current DV types
+                # The entry guard restricts this path to design-independent loads.
                 group_sens = Dict{String, Float64}()
                 for (group_label, dKdx_u_vec) in dKdx_u_groups
                     implicit = -dot(lambda_full, dKdx_u_vec)
@@ -2002,6 +2378,11 @@ function solve_adjoint(results::Dict, adjoint_config_path::String)
             "sensitivities" => sensitivities,
             "response_values" => response_values,
             "design_variable_values" => dv_values,
+            "path_diagnostics" => Dict(dv["id"] => Dict(
+                "uses_full_response_fd" => use_full_fd[i],
+                "forward_replay_verified" => any(candidates),
+                "perturbed_solve_count" => use_full_fd[i] ? 2length(full_fd_cache[dv["id"]]) : 0)
+                for (i,dv) in enumerate(design_vars)),
         )
     end
 

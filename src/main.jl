@@ -35,8 +35,7 @@ function main(filename::String;
               export_jfem_binary::Bool=true,
               export_report::Bool=true)
     if !isfile(filename)
-        println("ERROR: File not found at: $filename")
-        return
+        throw(ArgumentError("File not found: $filename"))
     end
 
     script_dir = @__DIR__
@@ -58,7 +57,7 @@ function main(filename::String;
     cards = NastranParser.process_cards(bulk)
     if export_card_inventory
         _ensure_export_extensions!()
-        Base.invokelatest(export_card_inventory, cards, output_dir, filename)
+        Base.invokelatest(getfield(@__MODULE__, :export_card_inventory), cards, output_dir, filename)
     end
     t_parse = (time_ns() - t_parse_start) * 1e-9
 
@@ -73,10 +72,7 @@ function main(filename::String;
     if export_model_json
         json_path = filename * ".json"
         println(">>> Exporting model JSON: $json_path")
-        _export_ensure_parent_dir!(json_path)
-        open(_export_fs_path(json_path), "w") do f
-            JSON.print(f, model, 2)
-        end
+        Base.invokelatest(_export_write_json, json_path, model, 2)
         println(">>> Model JSON exported: $json_path")
     end
 
@@ -133,23 +129,22 @@ end
 # CLI entry point
 # ============================================================================
 
-if normpath(abspath(PROGRAM_FILE)) == normpath(@__FILE__)
-    if !isempty(ARGS)
-        # Parse CLI arguments: <bdf_file> [output_dir] [--export-model-json]
-        positional = filter(a -> !startswith(a, "--"), ARGS)
-        flags = filter(a -> startswith(a, "--"), ARGS)
-        do_export_json = "--export-model-json" in flags
-
-        target_file = positional[1]
-        if !isabspath(target_file)
-            target_file = joinpath(@__DIR__, "..", target_file)
-        end
-        target_file = normpath(target_file)
-        out_dir = length(positional) >= 2 ? normpath(positional[2]) : nothing
-        main(target_file; output_dir=out_dir, export_model_json=do_export_json)
-    else
-        target_file = joinpath(@__DIR__, "..", "models", "OpenJFEM.bdf")
-        target_file = normpath(target_file)
-        main(target_file)
+function _main_cli(args=ARGS)
+    usage = "usage: main.jl <model.bdf> [output_dir] [--export-model-json]"
+    if isempty(args) || any(a -> a in ("-h", "--help"), args)
+        println(usage)
+        return isempty(args) ? 1 : 0
     end
+    positional = filter(a -> !startswith(a, "--"), args)
+    flags = filter(a -> startswith(a, "--"), args)
+    all(==("--export-model-json"), flags) || throw(ArgumentError("Unknown option. $usage"))
+    1 <= length(positional) <= 2 || throw(ArgumentError(usage))
+    target_file = abspath(positional[1])
+    out_dir = length(positional) == 2 ? abspath(positional[2]) : nothing
+    main(target_file; output_dir=out_dir, export_model_json="--export-model-json" in flags)
+    return 0
+end
+
+if normpath(abspath(PROGRAM_FILE)) == normpath(@__FILE__)
+    exit(_main_cli())
 end

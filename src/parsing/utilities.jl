@@ -5,11 +5,26 @@ function safe_get(arr::Vector{Any}, idx::Int, default_val=nothing)
     return arr[idx]
 end
 
+@inline function _nastran_numeric_value(val::Float64)
+    # Integer-valued fields are kept as IDs where representable. Large finite
+    # material/load values must remain floats instead of throwing InexactError.
+    if abs(val) >= 0.5 && typemin(Int) <= val < -Float64(typemin(Int))
+        rounded = round(val)
+        abs(val - rounded) < 1e-8 && return Int(rounded)
+    end
+    return val
+end
+
+@inline function _nastran_without_comment(line::AbstractString)
+    comment = findfirst(==('$'), line)
+    return comment === nothing ? line : SubString(line, firstindex(line), prevind(line, comment))
+end
+
 function parse_nastran_number(field::Any, default_val=nothing)
     if isa(field, Number); return field; end
     if isnothing(field); return default_val; end
 
-    field_str = String(strip(string(field)))
+    field_str = strip(field isa AbstractString ? field : string(field))
     isempty(field_str) && return default_val
 
     # Fast path: fields already in plain Julia float syntax (the vast
@@ -19,18 +34,16 @@ function parse_nastran_number(field::Any, default_val=nothing)
     # through to the exact legacy path, so results are identical.
     fast = tryparse(Float64, field_str)
     if fast !== nothing
-        val = fast
-        if abs(val) >= 0.5 && abs(val - round(val)) < 1e-8; return Int(round(val)); end
-        return val
+        return _nastran_numeric_value(fast)
     end
 
-    clean_field = replace(field_str, r"([\d.])([+-])(\d)" => s"\1e\2\3")
+    clean_field = replace(field_str, 'D' => 'e', 'd' => 'e')
+    clean_field = replace(clean_field, r"([\d.])([+-])(\d)" => s"\1e\2\3")
     clean_field = replace(clean_field, "ee" => "e")
 
     try
         val = parse(Float64, clean_field)
-        if abs(val) >= 0.5 && abs(val - round(val)) < 1e-8; return Int(round(val)); end
-        return val
+        return _nastran_numeric_value(val)
     catch; return default_val; end
 end
 
@@ -78,9 +91,9 @@ function expand_nastran_list(raw_fields)
 end
 
 function get_nastran_card_name(line::AbstractString)
-    if occursin(",", line)
-        parts = split(line, ",")
-        return uppercase(strip(parts[1]))
+    comma = findfirst(==(','), line)
+    if comma !== nothing
+        return uppercase(strip(SubString(line, firstindex(line), prevind(line, comma))))
     end
     if occursin('\t', line)
         parts = split(strip(line))
@@ -126,7 +139,7 @@ function get_nastran_fields_from_line(line::AbstractString; large_field::Bool=fa
             !isempty(head_payload) && push!(fields, head_payload)
         end
         if length(parts) > 1
-            for p in parts[2:end]; push!(fields, strip(string(p))); end
+            for k in 2:length(parts); push!(fields, strip(parts[k])); end
         end
         # Pad free-field lines to 8 fields to maintain NASTRAN card field alignment
         while length(fields) < 8; push!(fields, ""); end
@@ -138,8 +151,8 @@ function get_nastran_fields_from_line(line::AbstractString; large_field::Bool=fa
         if ncodeunits(prefix) > 8
             append!(fields, get_nastran_fixed_fields_from_line(prefix; large_field=large_field, truncate_to_line_length=true))
         end
-        for seg in segments[2:end]
-            push!(fields, strip(String(seg)))
+        for k in 2:length(segments)
+            push!(fields, strip(segments[k]))
         end
         while length(fields) < 8; push!(fields, ""); end
     else

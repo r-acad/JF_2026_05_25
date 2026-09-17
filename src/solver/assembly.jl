@@ -741,6 +741,20 @@ end
     return solver_env_bool("JFEM_KG_SHELL_PRINCIPAL_TRANSVERSE_FLAT_ONLY", false)
 end
 
+@inline function kg_quad4_iso_assumed_transverse_enabled(
+    warp_ratio::Real, prop, mat;
+    normal_transform::Bool=false, curvature=nothing, slope=nothing,
+)
+    # The assumed midsurface-gradient energy is supported on planar MAT1
+    # PSHELLs. The broad Q4 "flat" routing tolerance also admits warped
+    # elements; it is deliberately not used as this formulation boundary.
+    return isfinite(warp_ratio) && 0.0 <= warp_ratio <= 1e-12 &&
+        get(prop, "TYPE", "") != "PCOMP_CLT" &&
+        get(mat, "TYPE", "MAT1") == "MAT1" &&
+        get(prop, "MID4", 0) == 0 && get(prop, "Bmb", nothing) === nothing &&
+        !normal_transform && curvature === nothing && slope === nothing
+end
+
 @inline function kg_quad4_iso_nastran_kdjj_mode()
     # Kg operator for flat isotropic (non-PCOMP) CQUAD4: replace the element
     # Kg with the Nastran-KDJJ-exact kernel
@@ -1246,18 +1260,28 @@ function q4_static_component_model_eigrl_v2(model)
     cc isa AbstractDict || return 0.0
     subcases = get(cc, "SUBCASES", nothing)
     subcases isa AbstractDict || return 0.0
-    eigrls = get(model, "EIGRLs", nothing)
-    eigrls isa AbstractDict || return 0.0
+    eigrls = get(model, "EIGRLs", Dict())
+    eigbs = get(model, "EIGBs", Dict())
+    (eigrls isa AbstractDict && eigbs isa AbstractDict) || return 0.0
+    global_method = get(cc, "METHOD", nothing)
     max_v2 = 0.0
     for sub in values(subcases)
         sub isa AbstractDict || continue
-        method_id = get(sub, "METHOD", nothing)
+        local_method = get(sub, "METHOD", nothing)
+        # Match SOL105 case selection: global METHOD resolves a STATSUB case,
+        # but does not turn the static preload case into a buckling case.
+        is_buckling = !isnothing(get(sub, "STATSUB", nothing)) || !isnothing(local_method)
+        is_buckling || continue
+        method_id = isnothing(local_method) ? global_method : local_method
         method_id === nothing && continue
         method_sid = tryparse(Int, string(method_id))
         method_sid === nothing && continue
-        eigrl = get(eigrls, string(method_sid), nothing)
-        eigrl isa AbstractDict || continue
-        max_v2 = max(max_v2, Float64(get(eigrl, "V2", 0.0)))
+        request = get(eigrls, string(method_sid), get(eigrls, method_sid, nothing))
+        if !(request isa AbstractDict)
+            request = get(eigbs, string(method_sid), get(eigbs, method_sid, nothing))
+        end
+        request isa AbstractDict || continue
+        max_v2 = max(max_v2, Float64(get(request, "V2", get(request, "L2", 0.0))))
     end
     return max_v2
 end
@@ -1680,6 +1704,21 @@ end
     return something(tryparse(Float64, raw), default_val)
 end
 
+"""Rotate a MAT2 in-plane constitutive matrix, including its 16/26 couplings."""
+@inline function shell_mat2_constitutive_matrix(mat, scale::Real, theta::Real=0.0)
+    C = Float64(scale) .* [
+        Float64(get(mat, "G11", 0.0)) Float64(get(mat, "G12", 0.0)) Float64(get(mat, "G13", 0.0));
+        Float64(get(mat, "G12", 0.0)) Float64(get(mat, "G22", 0.0)) Float64(get(mat, "G23", 0.0));
+        Float64(get(mat, "G13", 0.0)) Float64(get(mat, "G23", 0.0)) Float64(get(mat, "G33", 0.0))
+    ]
+    if abs(theta) > 1e-10
+        c, s = cos(theta), sin(theta)
+        c2, s2, cs = c*c, s*s, c*s
+        _rotate_constitutive_3x3!(C, c2, s2, cs, s2, c2, -cs, -2cs, 2cs, c2-s2)
+    end
+    return C
+end
+
 @inline function shell_transverse_shear_matrix(mat, h::Real, tst::Real, theta::Real=0.0)
     h_eff = Float64(h)
     tst_eff = Float64(tst)
@@ -1701,25 +1740,20 @@ end
         end
         return tst_eff * h_eff .* [G1Z 0.0; 0.0 G2Z], max(G1Z, G2Z)
     elseif mtype == "MAT2" && haskey(mat, "G11")
-        Gxz = Float64(get(mat, "G13", 0.0))
-        Gyz = Float64(get(mat, "G23", 0.0))
-        if Gxz <= 0.0 && Gyz <= 0.0
-            Gxz = Float64(get(mat, "G33", 0.0))
-            Gyz = Gxz
-        elseif Gxz <= 0.0
-            Gxz = Gyz
-        elseif Gyz <= 0.0
-            Gyz = Gxz
-        end
+        # PSHELL MID3 uses MAT2's leading symmetric 2x2 block. G13/G23/G33
+        # describe in-plane couplings for MID1/MID2; they are not Gxz/Gyz.
+        Gxz = Float64(get(mat, "G11", 0.0))
+        Gxy = Float64(get(mat, "G12", 0.0))
+        Gyz = Float64(get(mat, "G22", 0.0))
         if abs(theta_eff) > 1e-10
             ct = cos(theta_eff)
             st = sin(theta_eff)
             return tst_eff * h_eff .* [
-                ct^2 * Gxz + st^2 * Gyz  ct * st * (Gxz - Gyz);
-                ct * st * (Gxz - Gyz)   st^2 * Gxz + ct^2 * Gyz
+                ct^2 * Gxz - 2ct*st*Gxy + st^2 * Gyz  ct * st * (Gxz - Gyz) + (ct^2-st^2)*Gxy;
+                ct * st * (Gxz - Gyz) + (ct^2-st^2)*Gxy   st^2 * Gxz + 2ct*st*Gxy + ct^2 * Gyz
             ], max(Gxz, Gyz)
         end
-        return tst_eff * h_eff .* [Gxz 0.0; 0.0 Gyz], max(Gxz, Gyz)
+        return tst_eff * h_eff .* [Gxz Gxy; Gxy Gyz], max(Gxz, Gyz)
     end
 
     G_val = Float64(get(mat, "G", 0.0))
@@ -1733,8 +1767,10 @@ end
 
 @inline function pshell_mid4_bmb_matrix(mat, h::Real, theta::Real=0.0)
     h_eff = Float64(h)
-    scale = solver_env_float("JFEM_PSHELL_MID4_BMB_SCALE", 1.0) * h_eff^2 / 4.0
-    sign = solver_env_float("JFEM_PSHELL_MID4_BMB_SIGN", 1.0)
+    # MSC Nastran Reference Guide, material properties: CLT B = -T^2 G4.
+    # Bmb uses the CLT curvature convention, also used by PCOMP assembly.
+    scale = solver_env_float("JFEM_PSHELL_MID4_BMB_SCALE", 1.0) * h_eff^2
+    sign = solver_env_float("JFEM_PSHELL_MID4_BMB_SIGN", -1.0)
     theta_eff = Float64(theta)
     mtype = get(mat, "TYPE", "")
     if mtype == "MAT8" && haskey(mat, "E1")
@@ -1756,11 +1792,7 @@ end
         end
         return sign * scale .* [Q11 Q12 Q16; Q12 Q22 Q26; Q16 Q26 Q66]
     elseif mtype == "MAT2" && haskey(mat, "G11")
-        return sign * scale .* [
-            Float64(get(mat, "G11", 0.0)) Float64(get(mat, "G12", 0.0)) Float64(get(mat, "G13", 0.0));
-            Float64(get(mat, "G12", 0.0)) Float64(get(mat, "G22", 0.0)) Float64(get(mat, "G23", 0.0));
-            Float64(get(mat, "G13", 0.0)) Float64(get(mat, "G23", 0.0)) Float64(get(mat, "G33", 0.0))
-        ]
+        return shell_mat2_constitutive_matrix(mat, sign * scale, theta_eff)
     end
     E_val = Float64(get(mat, "E", 0.0))
     nu_val = Float64(get(mat, "NU", 0.0))
@@ -1779,10 +1811,14 @@ end
 @inline function pshell_bending_constitutive_matrix(mat, h::Real, bend_ratio::Real, theta::Real=0.0)
     h_eff = Float64(h)
     br_eff = Float64(bend_ratio)
-    Cb = zeros(3, 3)
-    (mat === nothing || h_eff <= 0.0 || br_eff <= 1e-12) && return Cb
+    (mat === nothing || h_eff <= 0.0 || br_eff <= 1e-12) && return zeros(3,3)
+    Cb = pshell_plane_stress_matrix(mat, theta)
+    Cb .*= br_eff * h_eff^3 / 12.0
+    return Cb
+end
 
-    coeff = br_eff * h_eff^3 / 12.0
+@inline function pshell_plane_stress_matrix(mat, theta::Real=0.0)
+    coeff = 1.0
     theta_eff = Float64(theta)
     mtype = get(mat, "TYPE", "")
 
@@ -1816,11 +1852,7 @@ end
         end
         return coeff .* [Q11 Q12 Q16; Q12 Q22 Q26; Q16 Q26 Q66]
     elseif mtype == "MAT2" && haskey(mat, "G11")
-        return coeff .* [
-            Float64(get(mat, "G11", 0.0)) Float64(get(mat, "G12", 0.0)) Float64(get(mat, "G13", 0.0));
-            Float64(get(mat, "G12", 0.0)) Float64(get(mat, "G22", 0.0)) Float64(get(mat, "G23", 0.0));
-            Float64(get(mat, "G13", 0.0)) Float64(get(mat, "G23", 0.0)) Float64(get(mat, "G33", 0.0))
-        ]
+        return shell_mat2_constitutive_matrix(mat, coeff, theta_eff)
     end
 
     E_val = Float64(get(mat, "E", 0.0))
@@ -2084,15 +2116,83 @@ end
         return hcat(er, et, w)
     elseif ctype == "SPHERICAL"
         rxy = hypot(xloc[1], xloc[2])
-        theta = atan(xloc[2], xloc[1])
-        phi = atan(rxy, xloc[3])
-        er_loc = [sin(phi) * cos(theta), sin(phi) * sin(theta), cos(phi)]
-        et_loc = [-sin(theta), cos(theta), 0.0]
-        ep_loc = [cos(phi) * cos(theta), cos(phi) * sin(theta), -sin(phi)]
+        # Nastran spherical components are radius, polar angle, azimuth.
+        # Their unit vectors form a right-handed basis in that order.
+        theta = atan(rxy, xloc[3])
+        phi = atan(xloc[2], xloc[1])
+        er_loc = [sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta)]
+        et_loc = [cos(theta) * cos(phi), cos(theta) * sin(phi), -sin(theta)]
+        ep_loc = [-sin(phi), cos(phi), 0.0]
         return R * hcat(er_loc, et_loc, ep_loc)
     end
 
     return R
+end
+
+# External GRID IDs need not be contiguous. Keep the fast vector lookup only
+# when its storage is proportional to the actual model size; otherwise retain
+# the dictionary instead of allocating up to an arbitrarily large GRID ID.
+function _assembly_grid_lookup(id_map)
+    isempty(id_map) && return Int[]
+    max_nid = maximum(keys(id_map))
+    min_nid = minimum(keys(id_map))
+    if min_nid >= 1 && max_nid <= max(4096, 8 * length(id_map))
+        ids = zeros(Int, max_nid)
+        for (nid, idx) in id_map
+            ids[nid] = idx
+        end
+        return ids
+    end
+    return id_map
+end
+
+
+# Shared bounded-domain predicate for the rectangular coupled PCOMP energy,
+# initial stress, and physical recovery. Symmetric elasticity/Kg are unchanged;
+# require_coupling=false also admits continuous physical Q/material-frame
+# reporting and provides the proven zero-coupling limit to derivative guards.
+# Mapped/warped, isotropic, and alternate research operators stay outside.
+function coupled_pcomp_projected_enabled(coords,Bmb;is_pcomp=false,isotropic=false,
+        coords_3d=nothing,snorm_pq=nothing,curvature_membrane=nothing,
+        slope_membrane=nothing,kernel_mode="macneal",sol_type=101,rigid_shear=false,
+        require_coupling::Bool=true,shear_center_only::Bool=false)
+    shear_center_only && return false
+    sol_type in (101,105) || return false
+    is_pcomp && !isotropic || return false
+    require_coupling && (Bmb === nothing || !any(!iszero,Bmb)) && return false
+    solver_env_bool("JFEM_PCOMP_COUPLED_PROJECTED",true) || return false
+    solver_env_bool("JFEM_SOL105_PCOMP_MEMBRANE_SELC",true) &&
+        solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE",true) || return false
+    lowercase(string(kernel_mode)) == "macneal" || return false
+    for key in ("JFEM_Q4_KERNEL_STATIC","JFEM_Q4_KERNEL_EIG","JFEM_Q4_KERNEL_KG")
+        lowercase(strip(FEM._fem_env_get(key,FEM._fem_env_get("JFEM_Q4_KERNEL","macneal")))) == "macneal" || return false
+    end
+    frame=q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_STATIC")
+    all(q4_frame_mode_from_env(k)==frame for k in ("JFEM_Q4_FRAME_MODE_EIG","JFEM_Q4_FRAME_MODE_KG")) || return false
+    axis=q4_pcomp_axis_mode("JFEM_Q4_PCOMP_AXIS_MODE_STATIC")
+    all(q4_pcomp_axis_mode(k)==axis for k in ("JFEM_Q4_PCOMP_AXIS_MODE_EIG","JFEM_Q4_PCOMP_AXIS_MODE_KG")) || return false
+    solver_env_bool("JFEM_Q4_MACNEAL_RIGID_SHEAR_FORCE",false) && return false
+    solver_env_bool("JFEM_Q4_MACNEAL_TWIST",true) || return false
+    lowercase(strip(FEM._fem_env_get("JFEM_Q4_MACNEAL_TWIST_MODE","center"))) in ("center","reduced","1pt") || return false
+    lowercase(strip(FEM._fem_env_get("JFEM_Q4_BMB_INCOMP_COUPLING_MODE","full"))) == "full" || return false
+    # These alternate B=0 paths need their own recovery/zero-B continuity proof.
+    for key in ("JFEM_SOL101_Q4_PCOMP_EXACT_MEMBRANE","JFEM_SOL105_STATIC_PCOMP_EXACT_MEMBRANE",
+                "JFEM_SOL105_EIG_FLAT_PCOMP_EXACT_MEMBRANE","JFEM_SOL105_EIG_FLAT_PCOMP_EXACT_SIDE_SHEAR",
+                "JFEM_SOL105_EIG_FLAT_CURVED_PCOMP_EXACT_SIDE_SHEAR","JFEM_SOL105_EIG_FLAT_PCOMP_EXACT_SIDE_ROTCORR",
+                "JFEM_SOL105_EIG_FLAT_PCOMP_FULLSHEAR_SELECTIVE","JFEM_SOL105_EIG_FLAT_PCOMP_PLATE_BRANCH",
+                "JFEM_SOL105_EIG_FLAT_PCOMP_PLATE_AUTO","JFEM_SOL105_EIG_FLAT_PCOMP_DKMQ",
+                "JFEM_SOL105_STATIC_FLAT_PCOMP_DKMQ","JFEM_SOL105_KG_FLAT_PCOMP_PLATE_LIKE")
+        solver_env_bool(key,false) && return false
+    end
+    all(solver_env_float(k,1.0)==1.0 for k in ("JFEM_Q4_MACNEAL_BENDING_SCALE","JFEM_Q4_MACNEAL_CURVED_BENDING_SCALE","JFEM_Q4_MACNEAL_BENDING_ISOLATED_SCALE")) || return false
+    snorm_pq === nothing && curvature_membrane === nothing && slope_membrane === nothing || return false
+    FEM.quad4_is_axis_aligned_rectangle(coords) || return false
+    coords_3d === nothing || FEM.quad4_finite_warp_displacement_map(coords,coords_3d) === nothing || return false
+    # Existing research opt-ins must not silently change only one of K/Kg/output.
+    for key in ("JFEM_Q4_MARGUERRE_WARP_TO_UZ","JFEM_SOL105_PCOMP_SKEW_MEMBRANE_KG")
+        solver_env_bool(key,false) && return false
+    end
+    return true
 end
 
 function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only::Bool=false,
@@ -2112,10 +2212,11 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         bending_incomp = solver_env_bool("JFEM_Q4_STATIC_BENDING_INCOMP", bending_incomp)
     end
     # Snapshot every JFEM_* env var for the element loops (lock-free reads
-    # on the threaded paths; see FEM.env_snapshot_begin!). Cleared before
-    # return; an escaping exception aborts the solve and the next assembly
-    # re-snapshots, same exposure as the BLAS-thread pin/restore below.
+    # on the threaded paths; see FEM.env_snapshot_begin!). Clear on both
+    # success and failure so a failed element cannot leave stale settings.
+    prev_blas_threads = nothing
     FEM.env_snapshot_begin!()
+    try
     log_msg("[SOLVER] Indexing...")
     ids = sort(collect(keys(model["GRIDs"])), by=x->parse(Int,x))
     n_nodes = length(ids)
@@ -2238,10 +2339,15 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         clamp(solver_env_float("JFEM_SOL101_LINE_NODE_DRILL_SCALE", 0.001), 0.0, 1.0) :
         1.0
     sol101_line_node_drill_sqrt_scale = sqrt(sol101_line_node_drill_scale)
-    sol101_pshell_blank_mid3_rigid_shear =
-        sol101_context && !shear_center_only &&
-        solver_env_bool("JFEM_SOL101_PSHELL_BLANK_MID3_RIGID_SHEAR", true)
-    pshell_mid4_bmb_enabled = solver_env_bool("JFEM_PSHELL_MID4_BMB", false)
+    # PSHELL blank MID3 means no transverse-shear flexibility (MSC QRG,
+    # PSHELL remark 3). Apply the existing rigid-shear limit consistently
+    # to both SOL105 preload and eigen K, as well as the SOL101 path.
+    pshell_blank_mid3_rigid_shear =
+        (sol101_context && !shear_center_only &&
+         solver_env_bool("JFEM_SOL101_PSHELL_BLANK_MID3_RIGID_SHEAR", true)) ||
+        (sol105_context &&
+         solver_env_bool("JFEM_SOL105_PSHELL_BLANK_MID3_RIGID_SHEAR", true))
+    pshell_mid4_bmb_enabled = solver_env_bool("JFEM_PSHELL_MID4_BMB", true)
     pshell_use_mid2_bending = solver_env_bool("JFEM_PSHELL_USE_MID2_BENDING", true)
     sol101_pshell_mat2_cb_scale =
         sol101_context && !shear_center_only ?
@@ -2251,6 +2357,11 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         sol101_context && !shear_center_only &&
         !haskey(ENV, "JFEM_Q4_BMB_INCOMP_COUPLING_MODE") ?
         :no_cross : :env
+    q4_pshell_independent_incomp_blocks =
+        sol101_context && !shear_center_only &&
+        (q4_bmb_incomp_coupling_mode === :no_cross ||
+         lowercase(strip(get(ENV, "JFEM_Q4_BMB_INCOMP_COUPLING_MODE", "full"))) in
+             ("no_cross", "combined_nocross", "separate", "separate_nocross", "uncoupled"))
     q4_sol101_membrane_mode_weights_overridden =
         haskey(ENV, "JFEM_SOL101_Q4_MEMBRANE_INCOMP_MODE_WEIGHTS") ||
         haskey(ENV, "JFEM_Q4_MEMBRANE_INCOMP_MODE_WEIGHTS")
@@ -2585,15 +2696,11 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                        ", matching MSC/Nastran 70.5",
                    ")"))
 
-    # Convert id_map Dict to dense Vector
+    # Use dense lookup only for sufficiently compact external GRID IDs.
     if isempty(id_map)
         error("No nodes found in model — is this a standalone BDF or an INCLUDE fragment?")
     end
-    max_nid = maximum(keys(id_map))
-    id_vec = zeros(Int, max_nid)
-    for (nid, idx) in id_map
-        id_vec[nid] = idx
-    end
+    id_vec = _assembly_grid_lookup(id_map)
 
     # Convert snorm_normals Dict to arrays
     snorm_vec = fill(SVector(0.0, 0.0, 0.0), n_nodes)
@@ -2684,7 +2791,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         valid = true
         for k in 1:n
             nid = nids[k]
-            if nid < 1 || nid > max_nid || id_vec[nid] == 0; valid = false; break; end
+            if nid < 1 || get(id_vec, nid, 0) == 0; valid = false; break; end
         end
         if !valid; continue; end
         if n == 4; n_q4 += 1; elseif n == 3; n_t3 += 1; end
@@ -2774,7 +2881,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         valid = true
         for k in 1:n
             nid = nids[k]
-            if nid < 1 || nid > max_nid || id_vec[nid] == 0; valid = false; break; end
+            if nid < 1 || get(id_vec, nid, 0) == 0; valid = false; break; end
         end
         if !valid; continue; end
 
@@ -2812,7 +2919,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         elseif is_mat2
             G11 = mat["G11"]; G12m = mat["G12"]; G13 = mat["G13"]
             G22 = mat["G22"]; G23 = mat["G23"]; G33 = mat["G33"]
-            Cm_e = h .* [G11 G12m G13; G12m G22 G23; G13 G23 G33]
+            Cm_e = shell_mat2_constitutive_matrix(mat, h, el_theta)
             Cb_e = br * (h^3/12.0) .* [G11 G12m G13; G12m G22 G23; G13 G23 G33]
             Cs_e, G_shear_ref = shell_transverse_shear_matrix(shear_mat, h, tst, el_theta)
             Bmb_e = nothing
@@ -2839,7 +2946,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             fill!(Cs_e, 0.0)
         end
         mid4 = get(prop, "MID4", 0)
-        if pshell_mid4_bmb_enabled && !is_pcomp_clt && mid4 != 0 && br > 1e-12 && haskey(mats, string(mid4))
+        if pshell_mid4_bmb_enabled && !is_pcomp_clt && mid4 != 0 && br > 1e-12
+            haskey(mats, string(mid4)) || error("PSHELL $pid references missing MID4 $mid4")
             bmb_mat = _effective_mat1_for_nodes(model, string(mid4), nids)
             Bmb_e = pshell_mid4_bmb_matrix(bmb_mat, h, el_theta)
         end
@@ -2894,6 +3002,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 t3_el_mcid[it3] = Int(get(el, "MCID", 0))
             else
                 t3_is_isotropic[it3] = !is_ortho && !is_mat2
+                t3_el_theta[it3] = el_theta
+                t3_el_mcid[it3] = Int(get(el, "MCID", 0))
             end
         end
     end
@@ -3600,7 +3710,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
              q4_pcomp_rigid_shear[ei] &&
              (q4_kernel_mode_static in ("macneal", "macneal_pcomp", "macneal-pcomp", "macneal_aniso",
                                         "mitc4_3d_aspect", "mitc4-3d-aspect", "mitc3d_aspect", "mitc3d-aspect"))) ||
-            (sol101_pshell_blank_mid3_rigid_shear &&
+            (pshell_blank_mid3_rigid_shear &&
              q4_pshell_blank_mid3[ei] &&
              q4_br[ei] > 1e-12 &&
              (q4_kernel_mode_static in ("macneal", "macneal_pcomp", "macneal-pcomp", "macneal_aniso",
@@ -3798,8 +3908,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                     end
                 end
             end
-        elseif !q4_is_isotropic[ei] && q4_el_mcid[ei] > 0
-            # PSHELL MAT2/MAT8 elements use the same CQUAD4 THETA/MCID material
+        elseif q4_el_mcid[ei] > 0
+            # PSHELL materials use the same CQUAD4 THETA/MCID material
             # axis convention as PCOMP. THETA-based PSHELL matrices are already
             # rotated while building the property resultants above; MCID-based
             # PSHELL matrices are unrotated until the element frame is known.
@@ -3820,10 +3930,10 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 _rotate_constitutive_3x3!(Cm_local, T11, T12, T13, T21, T22, T23, T31, T32, T33)
                 _rotate_constitutive_3x3!(Cb_local, T11, T12, T13, T21, T22, T23, T31, T32, T33)
                 a11 = Cs_local[1,1]; a12 = Cs_local[1,2]; a22 = Cs_local[2,2]
-                Cs_local[1,1] = cb^2*a11 + 2*cb*sb*a12 + sb^2*a22
-                Cs_local[1,2] = -cb*sb*a11 + (cb^2-sb^2)*a12 + cb*sb*a22
+                Cs_local[1,1] = cb^2*a11 - 2*cb*sb*a12 + sb^2*a22
+                Cs_local[1,2] = cb*sb*a11 + (cb^2-sb^2)*a12 - cb*sb*a22
                 Cs_local[2,1] = Cs_local[1,2]
-                Cs_local[2,2] = sb^2*a11 - 2*cb*sb*a12 + cb^2*a22
+                Cs_local[2,2] = sb^2*a11 + 2*cb*sb*a12 + cb^2*a22
                 if Bmb_local !== nothing
                     _rotate_constitutive_3x3!(Bmb_local, T11, T12, T13, T21, T22, T23, T31, T32, T33)
                 end
@@ -3879,6 +3989,13 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             skew_membrane_material_ok && elem_is_flat &&
             (Bmb_local === nothing ||
              solver_env_bool("JFEM_SOL105_PCOMP_SELC_ALLOW_BMB", false))
+        elem_coupled_projected = coupled_pcomp_projected_enabled(lc,Bmb_local;
+            is_pcomp=is_pcomp_ei,isotropic=is_pcomp_iso_ei,coords_3d=coords_3d_arg,
+            snorm_pq=snorm_pq_arg,curvature_membrane=curvature_membrane,
+            slope_membrane=slope_membrane,kernel_mode=q4_kernel_mode_static,
+            sol_type=get(model,"SOL",101),rigid_shear=q4_pcomp_rigid_shear[ei],
+            shear_center_only=shear_center_only)
+        elem_pcomp_membrane_selc |= elem_coupled_projected
         if elem_pcomp_membrane_selc
             elem_material_shear_rotation = 0.0
         end
@@ -3992,8 +4109,10 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # Wilson membrane modes only. Mildly warped anisotropic quads still use
         # the generic material-regime scale above, but keep the full Wilson
         # basis because the cross/shear-only projection is a flat-operator
-        # result. These gates depend on local geometry and constitutive
-        # coupling, never deck names or validation families.
+        # result. For PSHELL's independent membrane/bending condensation, MID4
+        # changes the compatible cross block, not the membrane A operator.
+        # Preserve this membrane projection when that coupling is present.
+        # Coupled internal-mode and PCOMP formulations keep their existing gates.
         cross_membrane_weights_topology_ok =
             q4_sol101_cross_membrane_weights_mixed_topology ||
             (!model_has_line_elements && !model_has_kinematic_constraints) ||
@@ -4005,7 +4124,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
              q4_sol105_cross_membrane_weights_enabled) &&
             elem_membrane_incomp &&
             elem_is_flat &&
-            Bmb_local === nothing ?
+            (Bmb_local === nothing ||
+             (!is_pcomp_ei && q4_pshell_independent_incomp_blocks)) ?
             (0.0, 1.0, 1.0, 0.0) : nothing
         if elem_membrane_incomp_weights === nothing &&
            q4_sol101_mat2_directional_weights_enabled &&
@@ -4429,7 +4549,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             end
         elseif elem_shear_center_only && is_iso_ei
             Ke_center = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
-                q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
+                q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
                 drill_scale=elem_drill_scale,
                 ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=true,
                 no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
@@ -4446,12 +4566,12 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 coords_3d=coords_3d_arg, snorm_pq=snorm_pq_arg,
                 kernel_planar=elem_kernel_planar,
                 macneal_rigid_shear=elem_macneal_rigid_shear,
-                bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
+                bmb_incomp_coupling_mode=elem_coupled_projected ? :full : q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
             Ke_full = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
-                q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
+                q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
                 drill_scale=elem_drill_scale,
                 ws=per_thread_ws_alt[tid], msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=false,
                 no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
@@ -4468,7 +4588,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 coords_3d=coords_3d_arg, snorm_pq=snorm_pq_arg,
                 kernel_planar=elem_kernel_planar,
                 macneal_rigid_shear=elem_macneal_rigid_shear,
-                bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
+                bmb_incomp_coupling_mode=elem_coupled_projected ? :full : q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
@@ -4513,7 +4633,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         elseif elem_shear_center_only && is_pcomp_ei
             if elem_is_flat && !is_pcomp_iso_ei
                 Ke_t = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
-                    q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
+                    q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
                     drill_scale=elem_drill_scale,
                     ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=true,
                     no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
@@ -4531,13 +4651,13 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 coords_3d=coords_3d_arg, snorm_pq=snorm_pq_arg,
                 kernel_planar=elem_kernel_planar,
                 macneal_rigid_shear=elem_macneal_rigid_shear,
-                bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
+                bmb_incomp_coupling_mode=elem_coupled_projected ? :full : q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
             elseif curved_pcomp_blend < 1.0
                 Ke_center = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
-                    q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
+                    q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
                     drill_scale=elem_drill_scale,
                     ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=true,
                     no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
@@ -4554,12 +4674,12 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 coords_3d=coords_3d_arg, snorm_pq=snorm_pq_arg,
                 kernel_planar=elem_kernel_planar,
                 macneal_rigid_shear=elem_macneal_rigid_shear,
-                bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
+                bmb_incomp_coupling_mode=elem_coupled_projected ? :full : q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
                 Ke_full = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
-                    q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
+                    q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
                     drill_scale=elem_drill_scale,
                     ws=per_thread_ws_alt[tid], msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=false,
                     no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
@@ -4576,7 +4696,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 coords_3d=coords_3d_arg, snorm_pq=snorm_pq_arg,
                 kernel_planar=elem_kernel_planar,
                 macneal_rigid_shear=elem_macneal_rigid_shear,
-                bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
+                bmb_incomp_coupling_mode=elem_coupled_projected ? :full : q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
@@ -4587,7 +4707,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 end
             else
                 Ke_t = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
-                    q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
+                    q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
                     drill_scale=elem_drill_scale,
                     ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=false,
                     no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
@@ -4605,14 +4725,14 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 coords_3d=coords_3d_arg, snorm_pq=snorm_pq_arg,
                 kernel_planar=elem_kernel_planar,
                 macneal_rigid_shear=elem_macneal_rigid_shear,
-                bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
+                bmb_incomp_coupling_mode=elem_coupled_projected ? :full : q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
             end
         else
             Ke_t = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
-                q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
+                q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
                 drill_scale=elem_drill_scale,
                 ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=elem_shear_center_only,
                 no_phi2=elem_no_phi2, membrane_incomp=elem_membrane_incomp,
@@ -4630,7 +4750,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 coords_3d=coords_3d_arg, snorm_pq=snorm_pq_arg,
                 kernel_planar=elem_kernel_planar,
                 macneal_rigid_shear=elem_macneal_rigid_shear,
-                bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
+                bmb_incomp_coupling_mode=elem_coupled_projected ? :full : q4_bmb_incomp_coupling_mode,
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
@@ -4638,7 +4758,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         if elem_pcomp_k_macneal_blend > 0.0
             Ke_ref = copyto!(sep_Ke_ref[tid], Ke_t)
             Ke_macneal = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
-                q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local,
+                q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
                 drill_scale=elem_drill_scale,
                 ws=per_thread_ws_alt[tid], msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp,
                 shear_center_only=elem_shear_center_only,
@@ -4657,7 +4777,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 coords_3d=coords_3d_arg, snorm_pq=snorm_pq_arg,
                 kernel_planar=true,
                 macneal_rigid_shear=elem_macneal_rigid_shear,
-                bmb_incomp_coupling_mode=q4_bmb_incomp_coupling_mode,
+                bmb_incomp_coupling_mode=elem_coupled_projected ? :full : q4_bmb_incomp_coupling_mode,
                 kernel_mode="macneal_all",
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
@@ -4703,6 +4823,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     end
 
     LinearAlgebra.BLAS.set_num_threads(prev_blas_threads)
+    prev_blas_threads = nothing
 
     # ONE summary line for the MacNeal interaction fallback (never per element:
     # a production model has 10^5 CQUAD4). Silent when nothing fell back.
@@ -4776,9 +4897,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # PCOMP laminate-axis rotation for TRIA3 follows the element x-axis
         # plus the shell THETA angle, matching Nastran shell convention.
         Cm_t3 = t3_Cm[ei]; Cb_t3 = t3_Cb[ei]; Cs_t3 = t3_Cs[ei]; Bmb_t3 = t3_Bmb[ei]
-        if t3_is_pcomp[ei]
+        if t3_is_pcomp[ei] || t3_el_mcid[ei] > 0
             beta = shell_pcomp_material_rotation(
-                pcomp_axis_mode,
+                t3_is_pcomp[ei] ? pcomp_axis_mode : :element,
                 v1, v2, v3, p1, p2,
                 t3_el_theta[ei],
                 t3_el_mcid[ei],
@@ -4794,10 +4915,11 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 _rotate_constitutive_3x3!(Cm_t3, T11, T12, T13, T21, T22, T23, T31, T32, T33)
                 _rotate_constitutive_3x3!(Cb_t3, T11, T12, T13, T21, T22, T23, T31, T32, T33)
                 a11 = Cs_t3[1,1]; a12 = Cs_t3[1,2]; a22 = Cs_t3[2,2]
-                Cs_t3[1,1] = cb^2*a11 + 2*cb*sb*a12 + sb^2*a22
-                Cs_t3[1,2] = -cb*sb*a11 + (cb^2-sb^2)*a12 + cb*sb*a22
+                shear_s = t3_is_pcomp[ei] ? sb : -sb
+                Cs_t3[1,1] = cb^2*a11 + 2*cb*shear_s*a12 + sb^2*a22
+                Cs_t3[1,2] = -cb*shear_s*a11 + (cb^2-sb^2)*a12 + cb*shear_s*a22
                 Cs_t3[2,1] = Cs_t3[1,2]
-                Cs_t3[2,2] = sb^2*a11 - 2*cb*sb*a12 + cb^2*a22
+                Cs_t3[2,2] = sb^2*a11 - 2*cb*shear_s*a12 + cb^2*a22
                 if Bmb_t3 !== nothing
                     Bmb_t3 = copy(Bmb_t3)
                     _rotate_constitutive_3x3!(Bmb_t3, T11, T12, T13, T21, T22, T23, T31, T32, T33)
@@ -5138,24 +5260,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     end
 
     # --- DMIG (Direct Matrix Input at Grid points) ---
-    dmigs = get(model, "DMIGs", Dict{String,Dict{String,Any}}())
-    n_dmig_entries = 0
-    for (dmig_name, dmig_data) in dmigs
-        is_sym = get(dmig_data, "type", "square") == "symmetric"
-        entries = get(dmig_data, "entries", [])
-        for (gi, ci, gj, cj, aij) in entries
-            if !haskey(id_map, gi) || !haskey(id_map, gj); continue; end
-            row_dof = (id_map[gi]-1)*6 + ci
-            col_dof = (id_map[gj]-1)*6 + cj
-            push!(I_idx, row_dof); push!(J_idx, col_dof); push!(V_val, aij)
-            if is_sym && row_dof != col_dof
-                push!(I_idx, col_dof); push!(J_idx, row_dof); push!(V_val, aij)
-            end
-            n_dmig_entries += 1
-        end
-    end
+    n_dmig_entries = append_direct_matrix_triplets!(I_idx, J_idx, V_val, model, id_map; kind=:stiffness)
     if n_dmig_entries > 0
-        log_msg("[SOLVER] DMIG: $n_dmig_entries entries from $(length(dmigs)) matrix/matrices injected")
+        log_msg("[SOLVER] K2GG: $n_dmig_entries selected DMIG entries added")
     end
 
     # --- SOLID ELEMENTS (CTETRA, CHEXA, CPENTA) ---
@@ -5266,8 +5373,14 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     # reassemblies (temperature subcases, load-aware passes, dKdx, SOL106).
     I_idx = nothing; J_idx = nothing; V_val = nothing
 
-    FEM.env_snapshot_end!()
     return K, id_map, node_coords, ndof, node_R, max_elem_stiff, rbe3_map, snorm_normals, orig_diag
+    finally
+        try
+            prev_blas_threads === nothing || LinearAlgebra.BLAS.set_num_threads(prev_blas_threads)
+        finally
+            FEM.env_snapshot_end!()
+        end
+    end
 end
 
 # =============================================================================
@@ -5284,8 +5397,41 @@ end
 # (first value assigned, later ones added left-to-right); the slot-map loop
 # reproduces exactly that assignment/addition sequence, so nzval is
 # bit-identical (gated by suite/battery hashes; -0.0 first-touch handled by
-# assignment, not 0.0 + x). colptr/rowval are shared READ-ONLY across
-# subcases; nzval is freshly allocated so earlier Kg matrices never mutate.
+# assignment, not 0.0 + x). Each returned matrix owns its structure and values,
+# so downstream structural edits cannot invalidate another subcase or cache.
+function _refill_kg_csc(hit, I_idx, J_idx, V_val, ndof::Int)
+    hit isa NamedTuple || return nothing
+    hasproperty(hit, :ndof) && hit.ndof == ndof || return nothing
+    cp, rv, slots = hit.colptr, hit.rowval, hit.slots
+    length(cp) == ndof + 1 && length(slots) == length(I_idx) || return nothing
+    length(I_idx) == length(J_idx) == length(V_val) || return nothing
+    cp[1] == 1 && cp[end] == length(rv) + 1 && issorted(cp) || return nothing
+    for j in 1:ndof
+        previous_row = 0
+        for s in cp[j]:(cp[j + 1] - 1)
+            previous_row < rv[s] <= ndof || return nothing
+            previous_row = rv[s]
+        end
+    end
+    nz = Vector{Float64}(undef, length(rv))
+    filled = falses(length(rv))
+    for k in eachindex(V_val)
+        j = J_idx[k]
+        s = slots[k]
+        # A hash is only an accelerator. Check the actual row and column of
+        # every mapped slot before accepting a cache hit or using @inbounds.
+        1 <= j <= ndof && cp[j] <= s < cp[j + 1] && rv[s] == I_idx[k] || return nothing
+        if filled[s]
+            nz[s] += V_val[k]
+        else
+            nz[s] = V_val[k]
+            filled[s] = true
+        end
+    end
+    all(filled) || return nothing
+    return SparseMatrixCSC(ndof, ndof, copy(cp), copy(rv), nz)
+end
+
 function _sparse_from_triplets_cached(I_idx, J_idx, V_val, ndof::Int, csc_cache)
     # Default ON 2026-08-06: gate showed the refill is bit-identical
     # (anchor-deck JSON hash equal with the subcase-2 refill active;
@@ -5295,33 +5441,22 @@ function _sparse_from_triplets_cached(I_idx, J_idx, V_val, ndof::Int, csc_cache)
     use_cache || return sparse(I_idx, J_idx, V_val, ndof, ndof)
     key = (length(I_idx), hash(I_idx), hash(J_idx), ndof)
     hit = get(csc_cache, key, nothing)
-    if hit === nothing
-        Kg = sparse(I_idx, J_idx, V_val, ndof, ndof)
-        cp = Kg.colptr
-        rv = Kg.rowval
-        slots = Vector{Int}(undef, length(I_idx))
-        @inbounds for k in eachindex(I_idx)
-            j = J_idx[k]
-            lo = cp[j]
-            hi = cp[j + 1] - 1
-            slots[k] = searchsortedfirst(view(rv, lo:hi), I_idx[k]) + lo - 1
-        end
-        csc_cache[key] = (copy(cp), copy(rv), slots)
-        return Kg
+    if hit !== nothing
+        cached = _refill_kg_csc(hit, I_idx, J_idx, V_val, ndof)
+        cached !== nothing && return cached
     end
-    cp, rv, slots = hit
-    nz = Vector{Float64}(undef, length(rv))
-    filled = falses(length(rv))
-    @inbounds for k in eachindex(V_val)
-        s = slots[k]
-        if filled[s]
-            nz[s] += V_val[k]
-        else
-            nz[s] = V_val[k]
-            filled[s] = true
-        end
+    Kg = sparse(I_idx, J_idx, V_val, ndof, ndof)
+    cp = Kg.colptr
+    rv = Kg.rowval
+    slots = Vector{Int}(undef, length(I_idx))
+    @inbounds for k in eachindex(I_idx)
+        j = J_idx[k]
+        lo = cp[j]
+        hi = cp[j + 1] - 1
+        slots[k] = searchsortedfirst(view(rv, lo:hi), I_idx[k]) + lo - 1
     end
-    return SparseMatrixCSC(ndof, ndof, cp, rv, nz)
+    csc_cache[key] = (ndof=ndof, colptr=copy(cp), rowval=copy(rv), slots=slots)
+    return Kg
 end
 
 function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, u_global, snorm_normals, rbe3_map;
@@ -5334,6 +5469,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     kg_timings = Dict{String,Any}()
     kg_t_setup = time_ns()
     FEM.env_snapshot_begin!()
+    try
     log_msg("[SOLVER] Assembling Geometric Stiffness Matrix (SOL105)...")
     # JFEM_DUMP_USTATIC: when set to a writable path, dump the SOL101 static
     # displacement solution (u_global, GLOBAL coords per node) as "gid ux uy uz"
@@ -5348,12 +5484,12 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                         R = node_R[idx]
                         ul = (u_global[b+1], u_global[b+2], u_global[b+3])
                         rl = (u_global[b+4], u_global[b+5], u_global[b+6])
-                        ux = R[1,1]*ul[1] + R[2,1]*ul[2] + R[3,1]*ul[3]
-                        uy = R[1,2]*ul[1] + R[2,2]*ul[2] + R[3,2]*ul[3]
-                        uz = R[1,3]*ul[1] + R[2,3]*ul[2] + R[3,3]*ul[3]
-                        rx = R[1,1]*rl[1] + R[2,1]*rl[2] + R[3,1]*rl[3]
-                        ry = R[1,2]*rl[1] + R[2,2]*rl[2] + R[3,2]*rl[3]
-                        rz = R[1,3]*rl[1] + R[2,3]*rl[2] + R[3,3]*rl[3]
+                        ux = R[1,1]*ul[1] + R[1,2]*ul[2] + R[1,3]*ul[3]
+                        uy = R[2,1]*ul[1] + R[2,2]*ul[2] + R[2,3]*ul[3]
+                        uz = R[3,1]*ul[1] + R[3,2]*ul[2] + R[3,3]*ul[3]
+                        rx = R[1,1]*rl[1] + R[1,2]*rl[2] + R[1,3]*rl[3]
+                        ry = R[2,1]*rl[1] + R[2,2]*rl[2] + R[2,3]*rl[3]
+                        rz = R[3,1]*rl[1] + R[3,2]*rl[2] + R[3,3]*rl[3]
                         println(io, gid, " ", repr(ux), " ", repr(uy), " ", repr(uz),
                                 " ", repr(rx), " ", repr(ry), " ", repr(rz))
                     end
@@ -5618,9 +5754,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     auto_pcomp_membrane_incomp_model = any(q4_sol105_pcomp_auto_membrane_incomp_candidate, values(pshells))
 
     n_nodes = length(id_map)
-    max_nid = maximum(keys(id_map))
-    id_vec = zeros(Int, max_nid)
-    for (nid, idx) in id_map; id_vec[nid] = idx; end
+    id_vec = _assembly_grid_lookup(id_map)
 
     snorm_vec = fill(SVector(0.0, 0.0, 0.0), n_nodes)
     snorm_has = falses(n_nodes)
@@ -5659,7 +5793,9 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     n_shells = length(shell_list)
     # Count and pre-extract QUAD4/TRIA3 elements (same logic as assemble_stiffness)
     n_q4 = 0; n_t3 = 0
-    for el in shell_list
+    kg_shell_offsets = zeros(Int, n_shells + 1)
+    for (ei, el) in enumerate(shell_list)
+        kg_shell_offsets[ei + 1] = kg_shell_offsets[ei]
         pid = string(el["PID"])
         if !haskey(pshells, pid); continue; end
         prop = pshells[pid]; mid = string(prop["MID"])
@@ -5668,14 +5804,23 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
         valid = true
         for k in 1:n
             nid = nids[k]
-            if nid < 1 || nid > max_nid || id_vec[nid] == 0; valid = false; break; end
+            if nid < 1 || get(id_vec, nid, 0) == 0; valid = false; break; end
         end
         if !valid; continue; end
-        if n == 4; n_q4 += 1; elseif n == 3; n_t3 += 1; end
+        if n == 4
+            n_q4 += 1
+            kg_shell_offsets[ei + 1] += 576
+        elseif n == 3
+            n_t3 += 1
+            kg_shell_offsets[ei + 1] += 324
+        end
     end
 
     est_total = n_q4*576 + n_t3*324 + length(cbars)*144 + length(cbeams)*144 + length(crods)*144 + length(conrods)*144
     sizehint!(I_idx, est_total); sizehint!(J_idx, est_total); sizehint!(V_val, est_total)
+    resize!(I_idx, kg_shell_offsets[end])
+    resize!(J_idx, kg_shell_offsets[end])
+    resize!(V_val, kg_shell_offsets[end])
 
     # --- Parallel shell Kg assembly ---
     # Per-thread scratch: each Julia thread that may run an iteration gets
@@ -5695,19 +5840,10 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     coords3d_local_buf4_tl = [zeros(4, 3)       for _ in 1:nt_kg]
     directors3d_local_buf4_tl = [zeros(4, 3)    for _ in 1:nt_kg]
 
-    # Positional-slot COO triplet buffers: element ei owns the fixed slot
-    # range (ei-1)*576+1 .. ei*576 (576 = the 24x24 quad maximum; triangles
-    # use 324 of it, skipped elements 0, recorded in kg_slot_n). Threads
-    # write only their own elements' slots, and the post-loop compaction
-    # walks ELEMENT order — so the master triplet stream is identical for
-    # every thread count (and bit-identical to the former single-thread
-    # concat order). This replaces per-thread push! accumulators whose
-    # concat order depended on the schedule (the documented Kg threading
-    # nondeterminism; PERF program Phase 1).
-    kg_slot_I = Vector{Int}(undef, length(shell_list) * 576)
-    kg_slot_J = Vector{Int}(undef, length(shell_list) * 576)
-    kg_slot_V = Vector{Float64}(undef, length(shell_list) * 576)
-    kg_slot_n = zeros(Int, length(shell_list))
+    # Each valid element owns an exact-sized range of the FINAL triplet
+    # arrays. Threads write disjoint slots in element order, preserving the
+    # deterministic duplicate summation order without a second max-sized
+    # shell COO allocation or a serial compaction copy.
 
     # Per-thread scalar reductions (summed after the loop).
     diag_Nxx_sum_tl = zeros(nt_kg)
@@ -5737,11 +5873,13 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     kg_t_shells = time_ns()
     _prev_blas_threads_kg = LinearAlgebra.BLAS.get_num_threads()
     LinearAlgebra.BLAS.set_num_threads(1)
+    try
 
     log_msg("[SOLVER] Assembling Kg shells ($(Threads.nthreads()) Julia thread$(Threads.nthreads()==1 ? "" : "s"))")
 
     Threads.@threads :static for _shell_ei in 1:length(shell_list)
         tid = Threads.threadid()
+        kg_shell_offsets[_shell_ei + 1] > kg_shell_offsets[_shell_ei] || continue
         el = shell_list[_shell_ei]
         let T_buf         = T_buf_tl[tid],
             lc_buf4       = lc_buf4_tl[tid],
@@ -5753,13 +5891,14 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             coords3d_buf4 = coords3d_buf4_tl[tid],
             coords3d_local_buf4 = coords3d_local_buf4_tl[tid],
             directors3d_local_buf4 = directors3d_local_buf4_tl[tid],
-            _kg_slot_base = (_shell_ei - 1) * 576
+            kg_I = I_idx::Vector{Int},
+            kg_J = J_idx::Vector{Int},
+            kg_V = V_val::Vector{Float64},
+            _kg_slot_base = kg_shell_offsets[_shell_ei]
 
         pid = string(el["PID"])
-        if !haskey(pshells, pid); continue; end
         prop = pshells[pid]; mid = string(prop["MID"])
         nids = el["NODES"]; n = length(nids)
-        if !haskey(mats, mid); continue; end
         is_pcomp_clt = get(prop, "TYPE", "") == "PCOMP_CLT" && haskey(prop, "Cm")
         base_mat = mats[mid]
         mat = is_pcomp_clt ? base_mat : _effective_mat1_for_nodes(model, mid, nids)
@@ -5768,13 +5907,6 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
         is_ortho = !is_pcomp_clt && get(mat, "TYPE", "") == "MAT8" && haskey(mat, "E1") && haskey(mat, "E2")
         is_mat2  = !is_pcomp_clt && !is_ortho && get(mat, "TYPE", "") == "MAT2" && haskey(mat, "G11")
         is_iso_kg = pcomp_is_isotropic || (!is_pcomp_clt && !is_ortho && !is_mat2)
-
-        valid = true
-        for k in 1:n
-            nid = nids[k]
-            if nid < 1 || nid > max_nid || id_vec[nid] == 0; valid = false; break; end
-        end
-        if !valid; continue; end
 
         if n == 4
             # QUAD4 geometric stiffness
@@ -6207,6 +6339,11 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             end
 
             # Get material properties for stress recovery
+            if !is_pcomp_clt
+                _subtract_thermal_shell_displacements!(u_elem24,
+                    _thermal_strain_for_nodes(model, mat, nids), T_buf,
+                    nids, id_map, node_coords, node_R)
+            end
             E_val = get(mat, "E", 70000.0); nu_val = get(mat, "NU", 0.3)
             t_shell = h
 
@@ -6457,6 +6594,22 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     end
                 end
             end
+            if !is_pcomp_clt && (is_ortho || is_mat2 || get(prop,"MID4",0) != 0)
+                # Use the physical PSHELL membrane material in preload
+                # recovery; an equivalent isotropic E/NU loses MAT2/MAT8
+                # anisotropy and the membrane force caused by MID4 curvature.
+                theta = deg2rad(Float64(get(el,"THETA",0.0)))
+                mcid = Int(get(el,"MCID",0))
+                beta = mcid > 0 ? shell_pcomp_material_rotation(
+                    :element,v1,v2,v3,p1,p2,p3,p4,theta,mcid,model["CORDs"]) : theta
+                Cm_override = h .* pshell_plane_stress_matrix(mat,beta)
+                mid4 = Int(get(prop,"MID4",0))
+                if mid4 != 0 && get(prop,"BEND_RATIO",1.0) > 1e-12 && solver_env_bool("JFEM_PSHELL_MID4_BMB",true)
+                    bmat = _effective_mat1_for_nodes(model,string(mid4),nids)
+                    bmat === nothing && error("PSHELL $pid references missing MID4 $mid4")
+                    Bmb_kg = pshell_mid4_bmb_matrix(bmat,h,beta)
+                end
+            end
             # Compute membrane resultants from the SOL101 displacement. A
             # caller can still force compatible-only recovery through
             # JFEM_KG_USE_COMPATIBLE_MEMBRANE_STRESS for diagnostic isolation.
@@ -6490,6 +6643,17 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true) &&
                     is_pcomp_clt && !pcomp_is_isotropic && elem_is_flat_kg &&
                     Bmb_kg === nothing
+                kg_coupled_projected = coupled_pcomp_projected_enabled(lc_buf4,Bmb_kg;
+                    is_pcomp=is_pcomp_clt,isotropic=pcomp_is_isotropic,coords_3d=coords3d_local_buf4,
+                    snorm_pq=snorm_pq_kg,curvature_membrane=curvature_membrane,
+                    slope_membrane=slope_membrane_kg,kernel_mode=q4_kernel_mode_kg,
+                    sol_type=get(model,"SOL",101),rigid_shear=get(prop,"TRANSVERSE_SHEAR_RIGID_LIMIT",false))
+                if kg_coupled_projected
+                    projected = FEM.quad4_coupled_projected_fields(lc_buf4,u_elem24,
+                        Cm_override,Bmb_kg,zeros(3,3))
+                    N_gp=projected.N_geometric
+                    N_res=vec(transpose(N_gp)*projected.weights/sum(projected.weights))
+                else
                 N_gp, N_res, _ = FEM.quad4_membrane_force_field(
                     lc_buf4, u_elem24, E_val, nu_val, h;
                     Cm_override=Cm_override,
@@ -6517,6 +6681,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     snorm_pq=snorm_pq_kg,
                     coords_3d=coords3d_local_buf4,
                 )
+                end
             end
             if !elem_mitc4_3d_kg_recovery &&
                !elem_snorm_curvature_kg &&
@@ -6962,13 +7127,36 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             kg_global_ready = false
             kg_covariant_branch =
                 kg_surface_operator_mode === :covariant && !snorm_completion_active_kg
+            apply_finite_warp_kg = solver_env_bool("JFEM_Q4_WARP_TRANSFORM", true) &&
+                                   !elem_mitc4_3d_kg_recovery && !kg_covariant_branch
             coords3d_buf4[1,1] = p1[1]; coords3d_buf4[1,2] = p1[2]; coords3d_buf4[1,3] = p1[3]
             coords3d_buf4[2,1] = p2[1]; coords3d_buf4[2,2] = p2[2]; coords3d_buf4[2,3] = p2[3]
             coords3d_buf4[3,1] = p3[1]; coords3d_buf4[3,2] = p3[2]; coords3d_buf4[3,3] = p3[3]
             coords3d_buf4[4,1] = p4[1]; coords3d_buf4[4,2] = p4[2]; coords3d_buf4[4,3] = p4[3]
             if kg_nastran_kdjj_iso_branch
+                # This kernel recovers its own prestress. Supply the same
+                # physical-to-projected preload used by elastic K and ordinary
+                # recovery; the work-conjugate W'KgW is still applied once below.
+                # Omitting W here creates membrane stress from rigid rotation
+                # of a warped Q4. A planar element keeps the original vector.
+                warp_preload_map = apply_finite_warp_kg ?
+                    FEM.quad4_finite_warp_displacement_map(
+                        lc_buf4, coords3d_local_buf4) : nothing
+                u_kdjj = warp_preload_map === nothing ? u_elem24 : warp_preload_map * u_elem24
+                assumed_transverse = kg_quad4_iso_assumed_transverse_enabled(
+                    warp_ratio_kg, prop, mat;
+                    normal_transform=nc > 0 || snorm_completion_active_kg || elem_snorm_curvature_kg ||
+                        elem_mitc4_3d_kg_recovery || use_geom_snorm_kg ||
+                        (snorm_transform_only && snorm_xf_ok) ||
+                        elem_flat_curved_iso_nodal_geomnormal_transform_kg ||
+                        (snorm_director && (snorm_has[i1] || snorm_has[i2] ||
+                                           snorm_has[i3] || snorm_has[i4])),
+                    curvature=curvature_membrane === nothing ? kg_curvature : curvature_membrane,
+                    slope=slope_membrane_kg,
+                )
                 Kg_loc = FEM.geometric_stiffness_quad4_nastran_kdjj_iso(
-                    lc_buf4, u_elem24, E_val, nu_val, h
+                    lc_buf4, u_kdjj, E_val, nu_val, h;
+                    assumed_transverse=assumed_transverse,
                 )
             elseif kg_nastran_kdjj_pcomp_branch
                 # Feed the composite-KDJJ operator JFEM's recovered element
@@ -7129,8 +7317,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             warp_map_for_snorm_kg =
                 if snorm_pq_kg !== nothing &&
                    FEM.quad4_snorm_normal_moment_mode() &&
-                   solver_env_bool("JFEM_Q4_WARP_TRANSFORM", true) &&
-                   !elem_mitc4_3d_kg_recovery && !kg_covariant_branch
+                   apply_finite_warp_kg
                     FEM.quad4_finite_warp_displacement_map(
                         lc_buf4, coords3d_local_buf4)
                 else
@@ -7148,8 +7335,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     FEM.apply_quad4_snorm_director_completion!(Kg_loc, snorm_pq_kg)
                 end
             end
-            if solver_env_bool("JFEM_Q4_WARP_TRANSFORM", true) &&
-               !elem_mitc4_3d_kg_recovery && !kg_covariant_branch
+            if apply_finite_warp_kg
                 FEM.apply_quad4_finite_warp_equilibrium!(
                     Kg_loc, lc_buf4, coords3d_local_buf4)
             end
@@ -7200,11 +7386,10 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             local _k = 0
             @inbounds for cc in 1:24, rr in 1:24
                 _k += 1
-                kg_slot_I[_kg_slot_base + _k] = dofs_buf24[rr]
-                kg_slot_J[_kg_slot_base + _k] = dofs_buf24[cc]
-                kg_slot_V[_kg_slot_base + _k] = Kg_global[rr, cc]
+                kg_I[_kg_slot_base + _k] = dofs_buf24[rr]
+                kg_J[_kg_slot_base + _k] = dofs_buf24[cc]
+                kg_V[_kg_slot_base + _k] = Kg_global[rr, cc]
             end
-            kg_slot_n[_shell_ei] = _k
 
         elseif n == 3
             # TRIA3 geometric stiffness
@@ -7274,6 +7459,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             # Use the same shell material-axis definition here as in the main
             # shell formulation, including MCID support for composite CTRIA3.
             Cm_override_t3 = nothing
+            Bmb_override_t3 = nothing
             if is_pcomp_clt
                 Cm_override_t3 = copy(prop["Cm"])
                 tri_kg_axis_mode =
@@ -7293,7 +7479,25 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 end
             end
 
-            N_res, _, _, _, _, _, _ = FEM.stress_strain_tria3(lc3, u_elem18, E_val, nu_val, h; bend_ratio=br, Cm_override=Cm_override_t3)
+            if !is_pcomp_clt && (is_ortho || is_mat2 || get(prop,"MID4",0) != 0)
+                theta = deg2rad(Float64(get(el,"THETA",0.0)))
+                mcid = Int(get(el,"MCID",0))
+                beta = mcid > 0 ? shell_pcomp_material_rotation(
+                    :element,v1,v2,v3,p1,p2,theta,mcid,model["CORDs"]) : theta
+                Cm_override_t3 = h .* pshell_plane_stress_matrix(mat,beta)
+                mid4 = Int(get(prop,"MID4",0))
+                if mid4 != 0 && br > 1e-12 && solver_env_bool("JFEM_PSHELL_MID4_BMB",true)
+                    bmat = _effective_mat1_for_nodes(model,string(mid4),nids)
+                    bmat === nothing && error("PSHELL $pid references missing MID4 $mid4")
+                    Bmb_override_t3 = pshell_mid4_bmb_matrix(bmat,h,beta)
+                end
+            end
+            if !(get(prop, "TYPE", "") == "PCOMP_CLT" && haskey(prop, "Cm"))
+                _subtract_thermal_shell_displacements!(u_elem18,
+                    _thermal_strain_for_nodes(model, mat, nids), T18,
+                    nids, id_map, node_coords, node_R)
+            end
+            N_res, _, _, _, _, _, _ = FEM.stress_strain_tria3(lc3, u_elem18, E_val, nu_val, h; bend_ratio=br, Cm_override=Cm_override_t3, Bmb=Bmb_override_t3)
             if kg_diag_pid_enabled
                 pid_int = something(tryparse(Int, pid), 0)
                 if pid_int != 0
@@ -7337,35 +7541,18 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             local _k = 0
             @inbounds for cc in 1:18, rr in 1:18
                 _k += 1
-                kg_slot_I[_kg_slot_base + _k] = dofs_t3[rr]
-                kg_slot_J[_kg_slot_base + _k] = dofs_t3[cc]
-                kg_slot_V[_kg_slot_base + _k] = Kg18[rr, cc]
+                kg_I[_kg_slot_base + _k] = dofs_t3[rr]
+                kg_J[_kg_slot_base + _k] = dofs_t3[cc]
+                kg_V[_kg_slot_base + _k] = Kg18[rr, cc]
             end
-            kg_slot_n[_shell_ei] = _k
         end
         end  # let
     end  # Threads.@threads :static for _shell_ei
 
-    # Restore BLAS threads so downstream Cholesky / Krylov can use all cores.
-    LinearAlgebra.BLAS.set_num_threads(_prev_blas_threads_kg)
-
-    # Compact the positional slots into the master triplet arrays in ELEMENT
-    # order — schedule- and thread-count-independent by construction.
-    total_kg_nz = sum(kg_slot_n)
-    _kg_off = length(I_idx)
-    resize!(I_idx, _kg_off + total_kg_nz)
-    resize!(J_idx, _kg_off + total_kg_nz)
-    resize!(V_val, _kg_off + total_kg_nz)
-    @inbounds for ei in 1:length(shell_list)
-        base = (ei - 1) * 576
-        for k in 1:kg_slot_n[ei]
-            _kg_off += 1
-            I_idx[_kg_off] = kg_slot_I[base + k]
-            J_idx[_kg_off] = kg_slot_J[base + k]
-            V_val[_kg_off] = kg_slot_V[base + k]
-        end
+    finally
+        # Element exceptions must not change downstream BLAS parallelism.
+        LinearAlgebra.BLAS.set_num_threads(_prev_blas_threads_kg)
     end
-    kg_slot_I = nothing; kg_slot_J = nothing; kg_slot_V = nothing
 
     # Reduce thread-local scalar counters.
     n_q4_done    = sum(n_q4_done_tl)
@@ -7503,6 +7690,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
         b1 = (i1-1)*6; b2 = (i2-1)*6
         u_elem = @views vcat(u_global[(b1+1):(b1+6)], u_global[(b2+1):(b2+6)])
         u_bar = T12 * u_elem
+        u_bar[7] -= L * _thermal_strain_for_nodes(model, mat, (bar["GA"], bar["GB"]))
 
         # Compute axial force
         Iy, Iz = _bar_bending_inertias(prop)
@@ -7564,6 +7752,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
         b1 = (i1-1)*6; b2 = (i2-1)*6
         u_elem = @views vcat(u_global[(b1+1):(b1+6)], u_global[(b2+1):(b2+6)])
         u_bar = T12 * u_elem
+        u_bar[7] -= L * _thermal_strain_for_nodes(model, mat, (bar["GA"], bar["GB"]))
 
         Iy, Iz = _bar_bending_inertias(prop)
         Iyz = Float64(get(prop, "I12", 0.0))
@@ -7624,6 +7813,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             end
         end
         P = mat["E"] * prop["A"] / L * (u_rod[7] - u_rod[1])
+        thermal_strain = _thermal_strain_for_nodes(model, mat, (rod["GA"], rod["GB"]))
+        iszero(thermal_strain) || (P -= mat["E"] * prop["A"] * thermal_strain)
 
         Kg_loc = FEM.geometric_stiffness_rod(L, P)
         Kg_rod = T12' * Kg_loc * T12
@@ -7667,6 +7858,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             end
         end
         P = mat["E"] * rod["A"] / L * (u_rod[7] - u_rod[1])
+        thermal_strain = _thermal_strain_for_nodes(model, mat, (rod["GA"], rod["GB"]))
+        iszero(thermal_strain) || (P -= mat["E"] * rod["A"] * thermal_strain)
 
         Kg_loc = FEM.geometric_stiffness_rod(L, P)
         Kg_rod = T12' * Kg_loc * T12
@@ -7736,6 +7929,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             u_el[(k-1)*3+1:(k-1)*3+3] = node_R[idx] * u_loc
         end
 
+        _subtract_thermal_solid_displacements!(u_el,
+            _thermal_strain_for_nodes(model, mat, nids), view(coords_buf_kg, 1:nn, :))
         stress_vec = D * (B_cen * u_el)
 
         local Kg_loc
@@ -7796,6 +7991,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             timings[string(k)] = v
         end
     end
-    FEM.env_snapshot_end!()
     return Kg
+    finally
+        FEM.env_snapshot_end!()
+    end
 end

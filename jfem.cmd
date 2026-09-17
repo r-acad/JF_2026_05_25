@@ -16,7 +16,7 @@ REM  m=model JSON  c=card inventory.  e.g.  jfem -jrsv model.bdf out
 REM
 REM  Tip: add this folder to your PATH so you can run `jfem` from anywhere.
 REM  Uses whatever `julia` is on PATH (Julia 1.12.x; no juliaup needed) and
-REM  auto-loads sysimage\OpenJFEM_sysimage.dll for fast startup if it exists.
+REM  auto-loads a local sysimage only when its source/build provenance matches.
 REM ====================================================================
 REM EnableDelayedExpansion so an install path containing parentheses or spaces
 REM (e.g. "...\JF_2026_05_25-main (7)\...") does not break the if-blocks below.
@@ -33,7 +33,10 @@ REM Optional sysimage for near-instant startup.
 REM Build it with JFEM_installation\CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd.
 set "SYSIMG_DLL=%REPO_ROOT%sysimage\OpenJFEM_sysimage.dll"
 set "SYSIMG_ARG="
-if exist "!SYSIMG_DLL!" set "SYSIMG_ARG=--sysimage=!SYSIMG_DLL!"
+if exist "!SYSIMG_DLL!" (
+  julia --startup-file=no --threads=1 --project="!REPO_ROOT!." "!REPO_ROOT!JFEM_installation\julia_tools\check_sysimage.jl" "!REPO_ROOT!." "!SYSIMG_DLL!"
+  if not errorlevel 1 set "SYSIMG_ARG=--sysimage=!SYSIMG_DLL!"
+)
 
 REM Quote each path token so spaces/parentheses are handled; branch on whether a
 REM sysimage was found so we never pass an empty quoted argument to julia.
@@ -43,4 +46,5 @@ if defined SYSIMG_ARG (
   julia --project="!REPO_ROOT!." --threads=auto --startup-file=no "!REPO_ROOT!JFEM_installation\julia_tools\jfem.jl" %*
 )
 
-endlocal
+set "JFEM_EXIT=!errorlevel!"
+endlocal & exit /b %JFEM_EXIT%

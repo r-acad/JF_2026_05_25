@@ -6,6 +6,318 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **Coupled rectangular composite shells.** The eligible MacNeal PCOMP route
+  uses a common projected elastic and initial-stress formulation, with distinct
+  physical, elastic-work and geometric resultants. Transverse shear and rotated
+  ply stresses use the actual laminate law. The symmetric limit retains its
+  stiffness and geometric stiffness; incompatible research settings are excluded.
+
+- **Thermal selection and prescribed-displacement input.** Full TEMPERATURE
+  spelling and supported default/BOTH/LOAD selections resolve consistently.
+  JSON input preserves SPCD. Missing temperature sets and unsupported composite,
+  anisotropic or rigid-element thermal expansion fail explicitly. Unsupported
+  temperature modifiers and conflicting selections cannot silently overwrite
+  a previously selected temperature.
+
+- **Invalid constraint equations.** MPC, rigid-element and SPC input checks
+  reject missing GRID references, invalid component digits and duplicate
+  dependent assignments. MPC coefficients must be finite and the first must be
+  nonzero; uniformly scaled valid equations retain their meaning. Unsupported
+  RBE3 UM selections no longer disappear silently.
+
+- **Laminate displacement sensitivities.** SOL101 `solve_adjoint` rebuilds the
+  actual PCOMP laminate and runs shared perturbed solves for individual ply
+  thickness, ply angle (per degree), and physical MAT1 ply E/NU variables.
+  Blank versus explicit Z0, Whitney shear, reference material and ply geometry
+  are preserved. Incorrect local laminate derivative routes and unsupported
+  PCOMP buckling/stress derivative paths fail explicitly.
+
+- **Mass and rotational body loads.** Gravity retains full CONM1 coupling/CID,
+  both CMASS terminals in GRID coordinates, rod nonstructural mass and integrated
+  solid mass weights. RFORCE retains METHOD/RACC, supports concentrated masses,
+  angular acceleration and CPENTA/nonstructural shell mass, and diagnoses invalid
+  or unsupported selections. Explicit METHOD=2 uses the complete assembled mass
+  operator and preserves signed load scaling. METHOD=1 CONM2 moments follow
+  rigid-body force and moment balance. Negative COUPMASS selects lumped mass.
+
+- **Requested precompile workloads.** Deployment refreshes the OpenJFEM cache
+  for the requested decks and flags even when an older valid cache exists.
+  Missing explicit decks and failed explicit workloads are reported; default
+  workload warnings remain visible and temporary flags restore correctly.
+
+- **Automatic sysimage selection.** Builds record source, dependency-lock,
+  runtime, image and workload identities. CLI and web-app launchers use an
+  automatic image only while that receipt matches; stale or unverified images
+  fall back to ordinary package loading. Windows launchers preserve the Julia
+  exit code. Explicit manual `julia -J` invocations remain under caller control.
+
+- **Compact composite output recovery.** SOL105 binary static fields skip
+  unused interior-ply calculations and unused plain-Float64 force-resultant
+  products. Ply-schema checks are cached only within a recovery call. Endpoint
+  values, malformed/custom-input behavior and full all-ply recovery retain
+  their existing semantics.
+
+- **Planar isotropic Q4 buckling on skew meshes.** Eligible ordinary MAT1
+  shells use tied transverse gradients and the full prestress tensor in the
+  KDJJ transverse block. Exact rectangles retain the equivalent original
+  arithmetic. Warped shells, normal/director transformations, anisotropic
+  materials and laminate coupling retain their existing routes. Direct kernel
+  calls retain the previous default; production assembly selects the new path.
+
+- **SOL105 report ownership.** Markdown skips global backend/cache metadata
+  when listing buckling subcases. Genuine subcases with no returned modes
+  retain their empty-result and incomplete-extraction diagnostics.
+
+- **VTK writing and Windows paths.** Buckling exports reuse the library's
+  compressed geometry and connectivity within each export call. Every mode
+  retains independent XML and byte buffers, with the same compression,
+  numerical payload and subcase metadata. Unsupported dependency interfaces
+  fall back to the regular writer. Static and buckling VTK paths now use the
+  existing Windows extended-path handling.
+
+- **Mode and HDF5 output preparation.** Float64 mode matrices construct the
+  existing mutable nodal dictionaries with less temporary allocation. Other
+  matrix and GRID-map types retain the generic path. HDF5 input tables cache
+  numeric ID sort keys instead of repeating dictionary lookup and conversion
+  during sorting. Node order, equal-ID ordering, returned container types and
+  file schemas are preserved.
+
+- **Warped isotropic Q4 buckling preload.** The KDJJ branch now applies the
+  existing finite-warp displacement map before calculating membrane prestress,
+  consistently with the elastic operator and the final geometric-stiffness
+  transformation. This removes false prestress under rigid-body motion; the
+  flat path and finite-warp eligibility rules retain their existing behavior.
+
+- **SOL101 blank-MID3 response sensitivities.** `solve_adjoint` now includes
+  the active rigid-shear formulation through full response differences for
+  thickness, Young's modulus and Poisson ratio. Perturbed solves are shared
+  across responses and subcases. Forward replay checks and partition checks
+  reject changed settings or constraints. Unsupported direct local derivatives
+  fail explicitly. Static displacement responses reject invalid DOFs and
+  absent GRID IDs; requested missing or duplicate forward subcases also fail.
+
+- **Shell principal fields and stress reporting.** Supported shell stress and
+  generalized strain rows now contain ordered principal values instead of zero
+  placeholders, with engineering shear handled consistently. Ordinary-shell
+  VTK and Markdown von Mises values use recovered fiber stresses; composite
+  reporting retains the maximum over all recovered ply midplanes.
+
+- **Blank PSHELL transverse-shear material in buckling.** SOL105 now uses the
+  existing no-transverse-shear-flexibility formulation for eligible ordinary
+  PSHELLs with blank MID3. Explicit shear materials and composite selection
+  rules remain distinct. Buckling thickness, Young's modulus and Poisson-ratio
+  sensitivities for this path use complete perturbed solves with mode tracking,
+  so their derivatives include the same stiffness and preload formulation.
+
+- **Shifted buckling operator allocation.** Each Arnoldi invocation reuses its
+  matrix-product workspace and uses a native sparse factor solve when available.
+  Returned vectors retain independent storage; other factor interfaces keep
+  the established solve path. Extraction requests and residual criteria are
+  unchanged.
+
+- **Q4 mixed-prestress geometric stiffness.** The ordinary principal-transverse
+  path now adds the separate normal and shear stress contributions, matching
+  the existing condensed path. Its experimental mean-state subtraction uses
+  the same operator. This corrects missing buckling branches caused by a
+  nonlinear combination of prestress components; extraction tolerances are
+  unchanged.
+
+- **Independent PSHELL membrane-bending coupling.** Flat SOL101 PSHELLs retain
+  the established membrane incompatible-mode projection when MID4 activates
+  compatible membrane-bending coupling. This corrects membrane support forces
+  without changing explicit full-coupling or user-specified mode weights.
+
+- **PSHELL stress recovery locations.** Supported ordinary-shell recovery now
+  evaluates stresses at the requested Z1/Z2 fiber distances, including compact
+  SOL105 static fields. Default distances retain their previous arithmetic;
+  force resultants and generalized strains are unchanged. Default-location
+  provenance is retained through parsing and model conversion so blank fibers
+  follow thickness updates while explicit distances remain fixed. Unsupported
+  explicit/custom-fiber stress gradients fail instead of differentiating a
+  different response location. Bottom-surface aliases select the same location
+  in response values and derivatives. HDF5 PSHELL input metadata uses the
+  effective fiber distances after thickness updates.
+
+- **Bounded buckling extraction and repeated roots.** Same-shift retries reuse
+  the unchanged factorization. A checked positive-definite shifted-pencil
+  interval count on systems up to 600 active DOFs can stop a redundant retry
+  when fewer than ND modes exist inside the bounds. Larger systems and
+  uncertain counts retain the retry and its shortage
+  diagnostics. Pivoted QR distinguishes independent repeated modes from
+  duplicate vectors when merging attempts; residual tolerances are unchanged.
+
+- **Shell recovery allocation.** Q4 centroid and corner recovery share
+  condensation and Gauss-point work. Nodal transformation buffers are reused,
+  and lazy SOL105 output fields are computed directly without constructing
+  unused full recovery tables. Existing material omissions and output field
+  definitions are preserved.
+
+- **Static inactive coordinates and factorization ordering.** With AUTOSPC
+  disabled, exactly empty unloaded stiffness coordinates are excluded from
+  the active solve without shifting the physical stiffness or creating support
+  reactions. Cached solves reject later loads on those coordinates. Shifted
+  static factors and static-only inactive partitions are not reused as elastic
+  eigen factors. Cholesky pivot ratios now compare against the correctly
+  permuted stiffness diagonal, avoiding false constraints on scaled SPD systems.
+
+- **Shell loads, support reactions and singular static solves.** Applied nodal
+  moments retain all physical components. The obsolete shell-normal filter is
+  deprecated. SOL101 selects SPC/permanent/AUTOSPC reaction components in GRID
+  CD before rotating them to basic coordinates, keeps the raw equilibrium
+  residual separately, and preserves supports detected during factorization.
+  AUTOSPC=NO rejects unsupported loaded mechanisms, including cached solves.
+
+- **PSHELL constitutive and material-axis consistency.** MAT2 uses its full
+  rotated in-plane tensor and the MID3 transverse-shear block. MID4 coupling
+  uses the documented sign and thickness scaling and contributes curvature
+  preload to geometric stiffness. QUAD4/TRIA3 material-coordinate assignments
+  now include independently assigned materials and agree with THETA rotation.
+  Affected thickness and scalar MAT1 sensitivities use full stiffness
+  reassembly; undefined scalar E/NU controls on MAT2/MAT8 are rejected.
+  Unsupported anisotropic/independent-material/MID4 shell stress recovery
+  omits affected fields with explicit diagnostics instead of reporting an
+  isotropic approximation; displacements and support reactions remain available.
+  VTK omits unavailable shell stress arrays. Binary output suppresses unsupported
+  static fields and records their availability instead of replacing them with zeros.
+
+- **EIGB signed requests and finite ranges.** INV/SINV compatibility separates
+  NEP from positive/negative desired counts, supports bounded SINV with blank
+  NEP, and uses constrained-SPD inertia checks for finite-interval counts.
+  Independent modes, endpoint stability and original-pencil residuals are
+  checked; unsupported normalization and indefinite elastic pencils fail
+  explicitly. EIGRL explicit-ND extraction keeps its existing request budget.
+
+- **Output allocation and package validation.** JSON formats floating-point
+  values directly into bounded buffers; binary staging retains buffer capacity;
+  HDF5 compound packing avoids temporary scalar arrays and repeated defaults.
+  `Pkg.test()` runs the curated public suite and asserts all declared parity
+  targets, while retaining the two documented coarse-mesh accuracy exceptions.
+
+- **Code audit: input, mechanics, derivatives and output consistency.**
+  Coordinate definitions now resolve GRID-based CORD1 frames and nested
+  CP/RID references, with missing/cyclic definitions rejected. Parsing fixes
+  cover D exponents, PLOAD4 face fields, TEMPD pairs, RBE3/MPC continuations,
+  property/material design relations, PBARL GROUP and TUBE2 dimensions.
+  Unsupported varying PBEAML stations fail explicitly. PCOMP construction
+  preserves real material IDs, rejects missing ply materials, and retains a
+  symmetric energy matrix with unequal shear correction factors.
+
+  GRAV and RFORCE preserve coordinate frames, vector magnitudes and signed
+  LOAD coefficients; solid pressure faces and GRID permanent reactions are
+  corrected. CONM1/CONM2 masses include frame/offset/inertia coupling, scalar
+  masses include both terminals, and sparse GRID IDs avoid oversized arrays.
+  MPC and direct K2GG/M2GG selections are honored, with incompatible shared
+  selections rejected. TACS also includes selected direct matrices.
+  Nested LOAD combinations select and scale SPCD values, with invalid or
+  unconstrained enforced displacements reported as errors.
+
+  Isotropic shell, rod, beam and solid stress/Kg recovery subtracts active
+  thermal strain; line thermal loads rotate only once, zero TEMPD is retained,
+  and CPENTA has consistent thermal nodal loading. Unsupported SOL106 thermal
+  expansion and TACS temperature-dependent reassembly fail explicitly.
+
+  Buckling material-E sensitivities use the correct material group, preload,
+  stiffness and mode coordinates, and reuse consistent global state
+  derivatives across modes. Unsupported local derivative operators either
+  use the existing full-forward difference route or report an error.
+  Perturbation failures restore the input model. Constraint dual mappings,
+  duplicate sensitivity IDs, optimizer property-ID collisions, move limits
+  and mass-feasibility convergence are corrected. TACS thickness derivatives
+  exclude unrelated properties, line elements and constant direct matrices.
+
+  Both bundled viewers share a checked decoder for current and legacy binary
+  layouts, optional preload fields and multi-subcase manifests. SOL103 HDF5
+  retains actual subcase/mode ownership and correct modal quantities; compact
+  GRID data uses consistent basic coordinates. Output shape checks run before
+  opening files. Panel runs use unique private folders with validated paths;
+  batch output collisions, environment restoration, mixed-case deck extensions
+  and main/CLI inventory/bootstrap errors are corrected.
+
+- **SOL105 strict-bound targeting retries without increasing ND.** Roots
+  rejected by a strict interval are removed from subsequent searches using
+  K-metric deflation. Retries retain the original request size and residual
+  acceptance criteria, and record excluded pairs, retry limits and shortages.
+
+- **SOL 105 exports now retain each buckling subcase's preload and matrices.**
+  Structured raw eigenvalues and mode columns remain aligned; candidate-only
+  values are named separately in diagnostics. JSON/HDF5 use basic/global
+  displacement components and actual static/buckling IDs. Multiple binary
+  subcases use separate files and an index because the format stores one
+  preload per file. Export-only static shell recovery is lazy, cached per
+  preload, and runs in the correct temperature-dependent material context.
+  Temperature callback dispatch and optional second-pass material context are
+  corrected, and shell recovery now evaluates active MAT1 properties instead
+  of reading the base material. Compact HDF5 preserves native EIGB input metadata and identifies
+  unavailable stress/reaction results instead of fabricating zero tables.
+  Binary v5 now includes the solid-count extension required by the bundled
+  viewer, and solid buckling meshes include their connectivity and field slots.
+
+- **SOL 105 validates dense and shifted pairs against the original pencil.**
+  Residual checks multiply the original K directly instead of reconstructing
+  K*u from shifted terms that can cancel. Both dense backends apply the same
+  residual acceptance test as iterative extraction. A failed full-spectrum
+  solve raises an explicit error instead of falling back to an incomplete
+  n-1 solve; diagnostics also identify shortages caused by strict range filters.
+
+- **SOL 105 reduces assembly and output overhead.** Shared-STATSUB cases
+  reuse geometric stiffness, mode sorting avoids an intermediate full matrix,
+  shell assembly writes directly into exact-sized final triplet ranges, and
+  sparse GRID numbering no longer allocates up to the maximum external ID.
+  CSC reuse validates dimensions/indices and owns its structure. Assembly
+  restores BLAS settings and environment snapshots after element failures.
+  Output writers batch small writes; SOL105 JSON streams nodal records.
+
+- **BDF processing preserves large finite numbers and avoids unnecessary
+  copies.** Integral-valued scalars outside the machine-integer range remain
+  floats, comments cannot masquerade as a `BEGIN BULK` marker, and INCLUDE
+  detection no longer uppercases every line. Buffered Markdown output retains
+  the report text and finishes formatting before opening the target file.
+
+- **SOL 105 now honors the EIGRL eigenpair request at the eigensolver instead
+  of only trimming the report.** Explicit `ND` cases no longer inflate the
+  solve to `8*ND`, `3*ND`, `ND+5`, or run the default Sturm/range augmentation
+  after a sufficient solve. The default path makes one directly targeted
+  scalar Krylov request of `ND`, records the requested and returned Ritz
+  counts, retains only converged eigenpairs that pass an original-pencil
+  backward-residual check, and returns no more than `ND` eigenvalues and mode
+  columns. If residual screening leaves a partial result, one same-target,
+  exact-`ND` retry uses a tighter transformed-space tolerance and merges only
+  independent accepted pairs. A 36k-free-DOF audit case now makes one `nev=4`
+  call per buckling subcase with no range certificate; the prior certificate
+  alone could match or dominate the eigensolve wall time.
+
+  KrylovKit's documented return contract permits extra Ritz pairs that happen
+  to converge with the requested invariant subspace. JFEM now distinguishes
+  this raw backend count from its contract: on each backend invocation no more
+  than `ND` candidates are examined or back-transformed, and no more than `ND`
+  pairs are retained, expanded, or published. Both counts are diagnostic; a
+  residual-driven retry is a separate exact-`ND` request.
+
+  EIGRL parsing now preserves whether V1, V2, and ND were blank, validates an
+  explicit ND as a positive integer, implements the standard open/signed
+  bound combinations, and rejects unsafe large blank-ND all-roots requests
+  rather than launching an O(n^2) Krylov solve. SOL105 now resolves global
+  `METHOD` with local precedence after selecting the `STATSUB` buckling case,
+  reports missing METHOD/eigen-card references as input errors, and recognizes
+  the explicit-NEP EIGB cards used by the two public classical buckling decks.
+
+  Shifted solves no longer delete a live coupled DOF merely because its
+  shifted diagonal cancels, unconverged trailing Ritz vectors are never
+  published, mixed-sign ranges retain negative roots, and failed range
+  targeting cannot silently substitute roots from the zero or sigma=1
+  spectrum. Small dense all-roots extraction no longer drops finite factors
+  through a fixed cutoff on `1/lambda`; the same fixed transformed-root cutoff
+  is now removed from every iterative branch, preserving finite factors above
+  `1e14` subject to the original-pencil residual gate. The exact-count path defaults to
+  scalar Arnoldi; deterministic Block-Lanczos remains an opt-in for exact
+  repeated eigenspaces because the
+  library can construct a whole block beyond ND and the audited large case was
+  faster with Arnoldi. SOL105 also wires the advertised matrix-asymmetry and
+  public-mode-shape storage flags and removes redundant per-column/per-subcase
+  mode-matrix copies. Structured results and reports expose the source card,
+  blank-field contract, and resolved METHOD while retaining a compatibility
+  constructor for the former three-field EIGRL tuple.
+
 - **Compact HDF5 export now handles symmetric PCOMP laminates.** The model
   intentionally represents a zero membrane-bending coupling matrix as
   `Bmb = nothing`; the exporter now writes the required zero-coupling MAT2

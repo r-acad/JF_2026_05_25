@@ -43,8 +43,8 @@ if !isdefined(@__MODULE__, :solve_model)
     include("JFEMSolver.jl")
 end
 
-if !isdefined(@__MODULE__, :export_results)
-    include("Export.jl")
+if !isdefined(@__MODULE__, :build_jfem_element_tables)
+    _ensure_export_extensions!()
 end
 
 if !isdefined(@__MODULE__, :export_markdown_report)

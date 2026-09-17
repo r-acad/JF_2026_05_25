@@ -34,7 +34,9 @@ if length(ARGS) == 1
 end
 manifest_apply_flags!(startup_flags)
 
-using OpenJFEM
+redirect_stdout(stderr) do
+    @eval using OpenJFEM
+end
 
 const WORKER_SESSION_ID = string(Dates.format(Dates.now(Dates.UTC), dateformat"yyyymmddTHHMMSS"), "-pid", getpid())
 const REPO_ROOT = normpath(joinpath(@__DIR__, "..", ".."))

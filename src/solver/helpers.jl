@@ -4,6 +4,220 @@ function log_msg(message::String)
     println("[$(Dates.format(now(), "HH:MM:SS"))] $message")
 end
 
+# EIGB counts are independent signed requests. NEP estimates work for INV;
+# it is never the requested total eigenpair count (and SINV does not use the
+# estimate). MSC QRG EIGB defines omitted NDP/NDN as 3*NEP when NEP exists.
+# With SINV, blank NEP and blank counts retain its finite-range completeness
+# contract rather than inventing a one-mode request.
+function _resolve_eigb_request(entry, sid::Int)
+    algorithm = uppercase(strip(string(get(entry, "METHOD", ""))))
+    algorithm in ("INV", "SINV") || throw(ArgumentError(
+        "EIGB SID=$sid requires supported METHOD=INV or SINV; received $(repr(algorithm))"))
+    normalization = uppercase(strip(string(get(entry, "NORM", "MAX"))))
+    normalization == "MAX" || throw(ArgumentError(
+        "EIGB SID=$sid supports NORM=MAX; NORM=$normalization is not implemented"))
+    present(key) = get(entry, key * "_SPECIFIED", get(entry, key, nothing) !== nothing) === true
+    function count_field(key)
+        present(key) || return nothing
+        value = get(entry, key, nothing)
+        value isa Real && isfinite(value) && isinteger(value) &&
+            0 < value <= typemax(Int) || throw(ArgumentError(
+                "EIGB SID=$sid $key must be a positive integer; received $(repr(value))"))
+        return Int(value)
+    end
+    nep = count_field("NEP")
+    ndp = count_field("NDP")
+    ndn = count_field("NDN")
+    if nep !== nothing && (ndp === nothing || ndn === nothing)
+        nep <= div(typemax(Int), 3) || throw(ArgumentError(
+            "EIGB SID=$sid 3*NEP exceeds the supported integer count"))
+        ndp === nothing && (ndp = 3 * nep)
+        ndn === nothing && (ndn = 3 * nep)
+    end
+    algorithm == "INV" && nep === nothing && throw(ArgumentError(
+        "EIGB SID=$sid METHOD=INV requires NEP; use SINV for a finite range with blank NEP"))
+    lower_specified = get(entry, "L1_SPECIFIED", get(entry, "V1_SPECIFIED", false)) === true
+    upper_specified = get(entry, "L2_SPECIFIED", get(entry, "V2_SPECIFIED", false)) === true
+    lower = lower_specified ? Float64(get(entry, "L1", get(entry, "V1", 0.0))) : -Inf
+    upper = upper_specified ? Float64(get(entry, "L2", get(entry, "V2", 0.0))) : Inf
+    (!lower_specified || isfinite(lower)) && (!upper_specified || isfinite(upper)) &&
+        lower < upper || throw(ArgumentError("EIGB SID=$sid requires finite specified L1 < L2"))
+    upper > 0.0 && ndp === nothing && !isfinite(upper) && throw(ArgumentError(
+        "EIGB SID=$sid requires L2 or a positive-root count NDP (or NEP for its default)"))
+    lower < 0.0 && ndn === nothing && !isfinite(lower) && throw(ArgumentError(
+        "EIGB SID=$sid requires L1 or a negative-root count NDN (or NEP for its default)"))
+    return (; algorithm, normalization, nep, ndp, ndn,
+        nep_specified=present("NEP"), ndp_specified=present("NDP"), ndn_specified=present("NDN"),
+        lower, upper, lower_specified, upper_specified,
+        request_all_in_range=(upper <= 0.0 || ndp === nothing) && (lower >= 0.0 || ndn === nothing))
+end
+
+# Count a positive interval for K*x = lambda*B*x, assuming certified SPD K.
+# The negative branch uses B -> -B before reaching this helper. Counts on an
+# interval crossing zero cannot be obtained by subtracting endpoint inertia.
+# Boundary padding includes roots exactly at an input endpoint. A second,
+# wider pad must give the same count; otherwise the endpoint is numerically
+# unresolved and cannot support a completeness claim.
+function _eigb_interval_count(K, Kg, lower::Float64, upper::Float64)
+    0.0 <= lower < upper < Inf || throw(ArgumentError("EIGB interval count requires finite 0 <= lower < upper"))
+    scale = max(abs(lower), abs(upper), floatmin(Float64))
+    pad = 128 * eps(Float64) * scale
+    scaling = Diagonal(1.0 ./ sqrt.(diag(K)))
+    function inertia_at(sigma)
+        M = scaling * (K + sigma * Kg) * scaling
+        issymmetric(M) || (M = 0.5 * (M + M'))
+        n = size(M, 1)
+        diagonal_matrix = isdiag(M)
+        pivots = if diagonal_matrix
+            Vector(diag(M))
+        elseif n <= 600
+            eigvals(Symmetric(Matrix(M)))
+        else
+            F = ldlt(M)
+            Vector(diag(F))
+        end
+        all(isfinite, pivots) && all(!iszero, pivots) || throw(ArgumentError(
+            "EIGB interval endpoint has unresolved zero/nonfinite inertia pivots"))
+        if n > 600 && !diagonal_matrix && minimum(abs, pivots) <= 64 * eps(Float64) * maximum(abs, pivots)
+            throw(ArgumentError("EIGB interval inertia has numerically unsafe unpivoted LDL pivots; " *
+                "move L1/L2 away from a root or use an explicit EIGRL count"))
+        end
+        return count(<(0.0), pivots)
+    end
+    counts = Int[]
+    for multiplier in (1.0, 8.0)
+        a = max(0.0, lower - multiplier * pad)
+        b = upper + multiplier * pad
+        na = a == 0.0 ? 0 : inertia_at(a)
+        nb = inertia_at(b)
+        nb >= na || throw(ArgumentError("EIGB positive-branch inertia count is inconsistent"))
+        push!(counts, nb - na)
+    end
+    counts[1] == counts[2] || throw(ArgumentError(
+        "EIGB interval count is unstable near an endpoint; move L1/L2 away from a root"))
+    return counts[1]
+end
+
+function _solve_eigb_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, request;
+                             rbe3_map, max_elem_stiff, orig_diag, eigen_cache,
+                             buckling_subcase, static_subcase, sol105_options,
+                             return_diagnostics)
+    t0 = time_ns()
+    ctx, _ = prepare_eigen_solve_context(K, ndof, model, id_map, spc_id, rbe3_map;
+        eigen_cache=eigen_cache)
+    try
+        ensure_eigen_solve_factorization!(ctx)
+    catch err
+        if err isa LinearAlgebra.PosDefException || err isa LinearAlgebra.SingularException ||
+           err isa LinearAlgebra.ZeroPivotException
+            throw(ArgumentError("EIGB $(request.algorithm) compatibility requires positive-definite " *
+                "constrained K; the elastic pencil is singular or indefinite"))
+        end
+        rethrow()
+    end
+    ctx.factor_backend == "cholesky" || throw(ArgumentError(
+        "EIGB $(request.algorithm) compatibility requires positive-definite constrained K; " *
+        "indefinite/singular elastic pencils require an explicit EIGRL request"))
+    Kff = ctx.K_ff
+    Kgff = Kg[ctx.free_dofs, ctx.free_dofs]
+    Kgff = 0.5 * (Kgff + Kgff')
+    nfree = length(ctx.free_dofs)
+    vals = Float64[]
+    blocks = Matrix{Float64}[]
+    branches = Any[]
+    for sign in (1.0, -1.0)
+        lower = sign > 0 ? max(0.0, request.lower) : max(0.0, -request.upper)
+        upper = sign > 0 ? request.upper : -request.lower
+        upper > lower || continue
+        quota = sign > 0 ? request.ndp : request.ndn
+        finite_interval = isfinite(upper)
+        available = finite_interval ? _eigb_interval_count(Kff, sign * Kgff, lower, upper) : nothing
+        target = available === nothing ? min(quota, nfree) :
+            (quota === nothing ? available : min(quota, available))
+        branch = Dict{String,Any}("sign"=>Int(sign), "lower_magnitude"=>lower,
+            "upper_magnitude"=>finite_interval ? upper : nothing, "desired_count"=>quota,
+            "interval_count"=>available, "target_count"=>target,
+            "count_basis"=>finite_interval ? "SPD_K_branch_inertia" : "explicit_signed_count")
+        push!(branches, branch)
+        if target == 0
+            branch["returned_count"] = 0
+            branch["status"] = "empty_interval"
+            branch["interval_output_status"] = "all_interval_modes_returned"
+            continue
+        end
+        # Small EIGB problems use the complete dense spectrum so multiplicities
+        # and sign quotas do not depend on a single-vector Krylov starting span.
+        # This does not alter explicit-ND EIGRL extraction or its request budget.
+        nev = nfree <= _buckling_dense_max_dof() ? nfree : target
+        endpoint_pad = finite_interval ? 128 * eps(Float64) * max(abs(lower), abs(upper), floatmin(Float64)) : 0.0
+        λ, modes, branch_diag = solve_buckling(K, sign > 0 ? Kg : -Kg,
+            ndof, model, id_map, X, spc_id, node_R, nev;
+            rbe3_map=rbe3_map, max_elem_stiff=max_elem_stiff, orig_diag=orig_diag,
+            eigrl_v1=max(0.0, lower - endpoint_pad), eigrl_v2=finite_interval ? upper + endpoint_pad : 0.0,
+            eigrl_v1_specified=true, eigrl_v2_specified=finite_interval,
+            eigrl_nd_specified=true, eigen_cache=eigen_cache,
+            buckling_subcase=buckling_subcase, static_subcase=static_subcase,
+            sol105_options=sol105_options, return_diagnostics=true)
+        keep = sortperm(λ)[1:min(target, length(λ))]
+        branch["returned_count"] = length(keep)
+        branch["solver"] = branch_diag
+        if finite_interval && length(keep) < target
+            throw(ArgumentError("EIGB $(request.algorithm) signed branch $(Int(sign)) recovered " *
+                "$(length(keep)) of $target required roots (interval inertia=$available); " *
+                "completeness was not established"))
+        end
+        if finite_interval && length(keep) > 1
+            local_modes = copy(modes[:, keep])
+            for node in eachindex(node_R), offset in (0, 3)
+                rows = (6*(node-1)+offset+1):(6*(node-1)+offset+3)
+                local_modes[rows, :] = node_R[node]' * local_modes[rows, :]
+            end
+            V = local_modes[ctx.free_dofs, :]
+            gram = Matrix(Symmetric(V' * (Kff * V)))
+            norms = sqrt.(LinearAlgebra.diag(gram))
+            gram ./= norms * norms'
+            smallest = minimum(eigvals(Symmetric(gram)))
+            smallest > 1e-8 || throw(ArgumentError(
+                "EIGB interval extraction contains linearly dependent modes; multiplicity is unresolved"))
+            branch["minimum_normalized_K_gram_eigenvalue"] = smallest
+        end
+        branch["status"] = length(keep) == target ? "satisfied" : "shortage"
+        branch["interval_output_status"] = available === nothing ? "not_counted" :
+            length(keep) == available ? "all_interval_modes_returned" : "desired_count_subset"
+        branch["desired_count_shortage"] = quota === nothing ? nothing : max(quota-length(keep), 0)
+        append!(vals, sign .* λ[keep])
+        push!(blocks, modes[:, keep])
+    end
+    modes = isempty(blocks) ? zeros(ndof, 0) : reduce(hcat, blocks)
+    order = request.lower_specified || request.upper_specified ? sortperm(vals) : sortperm(abs.(vals))
+    vals = vals[order]
+    modes = modes[:, order]
+    # EIGB MAX refers to the analysis-set components in GRID CD, before MPC
+    # expansion/global output rotation. Dependent components may exceed one.
+    for column in axes(modes, 2)
+        analysis_max = 0.0
+        for dof in ctx.free_dofs
+            node = div(dof - 1, 6) + 1
+            component = mod(dof - 1, 6) + 1
+            offset = 6 * (node - 1) + (component <= 3 ? 0 : 3)
+            local_component = mod(component - 1, 3) + 1
+            value = sum(node_R[node][r, local_component] * modes[offset + r, column] for r in 1:3)
+            analysis_max = max(analysis_max, abs(value))
+        end
+        analysis_max > 0.0 && (view(modes, :, column) ./= analysis_max)
+    end
+    diag = Dict{String,Any}("solver_backend"=>"eigb_signed_branches",
+        "eigb_branches"=>branches, "returned_modes"=>length(vals),
+        "request_all_in_range"=>request.request_all_in_range,
+        "raw_eigenvalues"=>copy(vals), "filter_decisions"=>fill(:kept, length(vals)),
+        "free_dofs"=>nfree, "fixed_dofs"=>length(ctx.fixed_dofs),
+        "timings"=>Dict("total"=>(time_ns()-t0)*1e-9),
+        "output_request_status"=>any(b->get(b,"status","")=="shortage",branches) ? "shortage" : "satisfied")
+    solver_env_bool("JFEM_SOL105_STORE_EIGEN_PARTITION", false) &&
+        (diag["free_dof_indices"] = copy(ctx.free_dofs))
+    return return_diagnostics ? (vals, modes, diag) : (vals, modes)
+end
+
 # CBAR V-vector resolution (G0 grid point or direct vector)
 function resolve_bar_vref(bar, p_ga::SVector{3,Float64}, id_map, node_coords)
     g0 = get(bar, "G0", 0)
@@ -35,11 +249,28 @@ function bar_offsets_and_endpoints(bar, p1::SVector{3,Float64}, p2::SVector{3,Fl
 end
 
 @inline function _subcase_temp_load_sid(sub::AbstractDict, cc::AbstractDict)
-    if get(sub, "TEMP_MODIFIER", nothing) == "LOAD" && haskey(sub, "TEMP")
-        return Int(sub["TEMP"])
+    # Raw JSON model entry also reaches this helper without the BDF parser.
+    for context in (sub, cc), keyword in ("TEMP", "TEMPERATURE")
+        haskey(context, keyword) || continue
+        modifier = get(context, keyword * "_MODIFIER", "BOTH")
+        modifier in ("LOAD", "BOTH") || throw(ArgumentError(
+            "$keyword($modifier) is unsupported; independent material or initial-temperature sets are not implemented"))
     end
-    if get(cc, "TEMP_MODIFIER", nothing) == "LOAD" && haskey(cc, "TEMP")
-        return Int(cc["TEMP"])
+    for context in (sub, cc)
+        selected = nothing
+        selected_modifier = nothing
+        for keyword in ("TEMP", "TEMPERATURE")
+            modifier = get(context, keyword * "_MODIFIER", "BOTH")
+            if modifier in ("LOAD", "BOTH") && haskey(context, keyword)
+                sid = Int(context[keyword])
+                sid > 0 || throw(ArgumentError("Temperature load set must be a positive integer"))
+                selected !== nothing && (selected != sid || selected_modifier != modifier) &&
+                    throw(ArgumentError("Conflicting TEMP and TEMPERATURE load selections"))
+                selected = sid
+                selected_modifier = modifier
+            end
+        end
+        selected === nothing || return selected
     end
     return nothing
 end
@@ -95,16 +326,16 @@ function _tablem1_interp(table::AbstractDict, x::Float64)
 end
 
 @inline function _complete_mat1_triplet(E::Float64, G::Float64, nu::Float64)
-    if E > 0.0 && G > 0.0 && nu < 0.0
+    if E > 0.0 && G > 0.0 && nu <= -1.0
         nu = E / (2.0 * G) - 1.0
-    elseif E > 0.0 && nu >= 0.0 && G <= 0.0
+    elseif E > 0.0 && nu > -1.0 && G <= 0.0
         G = E / (2.0 * (1.0 + nu))
-    elseif G > 0.0 && nu >= 0.0 && E <= 0.0
+    elseif G > 0.0 && nu > -1.0 && E <= 0.0
         E = 2.0 * G * (1.0 + nu)
     end
     E <= 0.0 && (E = 0.0)
     G <= 0.0 && (G = 0.0)
-    nu < 0.0 && (nu = 0.3)
+    nu <= -1.0 && (nu = 0.3)
     return E, G, nu
 end
 
@@ -145,6 +376,83 @@ function _effective_mat1_for_nodes(model, mid_raw, nids; temp_sid=nothing)
     mat["G"] = G
     mat["NU"] = nu
     return mat
+end
+
+@inline function _thermal_strain_for_nodes(model, mat, nids)
+    sid = get(model, "_active_temp_sid", nothing)
+    isnothing(sid) && return 0.0
+    alpha = Float64(get(mat, "ALPHA", 0.0))
+    iszero(alpha) && return 0.0
+    temps = get(model, "TEMPs", Dict())
+    defaults = get(model, "TEMPDs", Dict())
+    # An explicitly specified zero temperature can differ from MAT1 TREF.
+    (haskey(temps, sid) || haskey(defaults, sid)) || return 0.0
+    nodal, default = _temperature_field_for_sid(model, sid)
+    return alpha * (_average_temperature_for_nodes(nids, nodal, default) -
+                    Float64(get(mat, "TREF", 0.0))) *
+           Float64(get(model, "_active_temp_scale", 1.0))
+end
+
+function _subtract_thermal_shell_displacements!(u, strain, transform, nids, id_map, X, node_R)
+    iszero(strain) && return u
+    first_idx = id_map[first(nids)]
+    for (k, nid) in enumerate(nids)
+        idx = id_map[nid]
+        basic = strain .* SVector(X[idx,1]-X[first_idx,1], X[idx,2]-X[first_idx,2], X[idx,3]-X[first_idx,3])
+        base = (k-1)*6
+        if size(transform, 1) == 3
+            local_displacement = transform * basic
+            for d in 1:3
+                u[base+d] -= local_displacement[d]
+            end
+        else
+            nodal = node_R[idx]' * basic
+            for r in 1:3, c in 1:3
+                u[base+r] -= transform[base+r,base+c] * nodal[c]
+            end
+        end
+    end
+    return u
+end
+
+function _subtract_thermal_solid_displacements!(u, strain, coords)
+    iszero(strain) && return u
+    for k in axes(coords,1), d in 1:3
+        u[(k-1)*3+d] -= strain * (coords[k,d] - coords[1,d])
+    end
+    return u
+end
+
+function _assert_nonlinear_thermal_supported(model, temp_sid)
+    isnothing(temp_sid) && return nothing
+    context = copy(model)
+    context["_active_temp_sid"] = Int(temp_sid)
+    context["_active_temp_scale"] = 1.0
+    for (elements, properties) in (("CSHELLs","PSHELLs"), ("CSOLIDs","PSOLIDs"),
+            ("CBARs","PBARLs"), ("CBEAMs","PBARLs"), ("CRODs","PRODs"), ("CONRODs",""))
+        for (_, el) in get(model, elements, Dict())
+            prop = isempty(properties) ? el : get(get(model, properties, Dict()), string(get(el,"PID",0)), nothing)
+            prop === nothing && continue
+            nids = get(el, "NODES", (get(el,"GA",0), get(el,"GB",0)))
+            mids = get(prop,"TYPE","") == "PCOMP_CLT" ?
+                [get(ply,"mid",get(ply,"MID",0)) for ply in get(prop,"PLY_DATA",[])] :
+                (get(prop,"MID",0),)
+            for mid in mids
+                mat = _effective_mat1_for_nodes(context, mid, nids)
+                mat === nothing && continue
+                # MAT8 has separate directional expansion coefficients.
+                anisotropic_alpha = max(abs(Float64(get(mat,"A1",0.0))), abs(Float64(get(mat,"A2",0.0))))
+                if anisotropic_alpha != 0.0
+                    mat = copy(mat)
+                    mat["ALPHA"] = anisotropic_alpha
+                end
+                if !iszero(_thermal_strain_for_nodes(context, mat, nids))
+                    throw(ArgumentError("SOL106 thermal expansion is not supported by the nonlinear residual/tangent; use a supported SOL101 or SOL105 thermal model"))
+                end
+            end
+        end
+    end
+    return nothing
 end
 
 # Fast shell element frame computation
@@ -1353,10 +1661,72 @@ function apply_bar_pin_flags!(Ke::Matrix{Float64}, pa::Int, pb::Int)
     end
 end
 
-function get_coord_transform(model, cid, vec)
+function get_coord_transform(model, cid, vec; position=nothing)
     if cid == 0; return vec; end
-    if !haskey(model["CORDs"], string(cid)); return vec; end
+    haskey(model["CORDs"], string(cid)) ||
+        throw(ArgumentError("Load references undefined coordinate system CID=$cid"))
     cord = model["CORDs"][string(cid)]
-    R = hcat(cord["U"], cord["V"], cord["W"])
+    # Body acceleration/rotation vectors use rectangular components of CID;
+    # point forces and moments use its basis at the loaded point.
+    R = isnothing(position) ? hcat(cord["U"], cord["V"], cord["W"]) :
+        _node_dof_rotation(cord, position)
     return R * vec
+end
+
+function _conm2_offset_frame(model, cm, grid_position)
+    cid = Int(get(cm, "CID", 0))
+    offset = Float64.(get(cm, "X", [0.0, 0.0, 0.0]))
+    length(offset) == 3 && all(isfinite, offset) ||
+        throw(ArgumentError("CONM2 requires three finite offset coordinates"))
+    cid >= -1 || throw(ArgumentError("CONM2 CID must be -1 or nonnegative"))
+    R = Matrix{Float64}(I, 3, 3)
+    if cid == -1
+        return offset .- grid_position, R
+    elseif cid != 0
+        cord = get(get(model, "CORDs", Dict()), string(cid), nothing)
+        cord === nothing && throw(ArgumentError("CONM2 references undefined coordinate system CID=$cid"))
+        # CONM2 offsets/inertias always use the frame's Cartesian axes,
+        # including when CID names a cylindrical or spherical coordinate.
+        R = Float64.(hcat(cord["U"], cord["V"], cord["W"]))
+        offset = R * offset
+    end
+    return offset, R
+end
+
+# Shared by mass assembly and body loads. Keeping the full block is essential:
+# translational acceleration can produce a moment through mass coupling.
+function _conm1_mass_basic(model, cm, grid_position)
+    raw_full = get(cm, "M_FULL", nothing)
+    raw_diag = get(cm, "M_DIAG", nothing)
+    raw_full === nothing && raw_diag === nothing &&
+        throw(ArgumentError("CONM1 requires M_FULL or M_DIAG; a scalar M value does not define its tensor"))
+    block = raw_full === nothing ? Matrix(Diagonal(Float64.(raw_diag))) :
+        Matrix{Float64}(raw_full)
+    size(block) == (6,6) && all(isfinite,block) ||
+        throw(ArgumentError("CONM1 requires a finite 6x6 mass matrix"))
+    norm(block-block') <= 64eps(Float64)*max(norm(block),eps(Float64)) ||
+        throw(ArgumentError("CONM1 mass matrix must be symmetric"))
+    cid = Int(get(cm,"CID",0))
+    cid >= 0 || throw(ArgumentError("CONM1 CID must be nonnegative"))
+    frame = get_coord_transform(model,cid,Matrix{Float64}(I,3,3); position=grid_position)
+    R6 = zeros(6,6)
+    R6[1:3,1:3] = frame; R6[4:6,4:6] = frame
+    return R6 * block * R6'
+end
+
+function _conm2_mass_basic(model, cm, grid_position)
+    mass = Float64(cm["M"])
+    isfinite(mass) || throw(ArgumentError("CONM2 mass must be finite"))
+    offset, frame = _conm2_offset_frame(model, cm, grid_position)
+    x1, x2, x3 = offset
+    cross_offset = [0.0 -x3 x2; x3 0.0 -x1; -x2 x1 0.0]
+    H = hcat(Matrix{Float64}(I,3,3), -cross_offset)
+    block = mass * (H' * H)
+    inertia = Float64.(get(cm, "I", zeros(6)))
+    length(inertia) == 6 && all(isfinite,inertia) ||
+        throw(ArgumentError("CONM2 requires six finite inertia entries"))
+    a,b,c,d,e,f = inertia
+    inertia_local = [a -b -d; -b c -e; -d -e f]
+    block[4:6,4:6] += frame * inertia_local * frame'
+    return block
 end

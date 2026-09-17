@@ -4,6 +4,22 @@
 # redistributes stiffness triplets for dependent DOFs.
 # Returns: (rbe3_map, I_idx, J_idx, V_val)  — rbe3_map is the merged constraint map,
 # and triplet arrays may be replaced if constraints exist.
+function _active_mpc_sets(model)
+    # Low-level callers retain the historical all-card behavior unless the
+    # solve orchestration explicitly supplies its Case Control selection.
+    haskey(model, "_active_mpc_id") || return nothing
+    sid = model["_active_mpc_id"]
+    isnothing(sid) && return Set{Int}()
+    sid = Int(sid)
+    adds = get(model, "MPCADDs", Dict())
+    sets = haskey(adds, sid) ? Set(Int.(adds[sid])) : Set([sid])
+    any(s -> haskey(adds, s), sets) &&
+        throw(ArgumentError("MPCADD $sid references another MPCADD; only MPC set IDs are allowed"))
+    any(m -> Int(m["SID"]) in sets, get(model, "MPCs", [])) ||
+        throw(ArgumentError("Selected MPC=$sid contains no defined MPC constraints"))
+    return sets
+end
+
 @inline function _rigid_offset_matrix(dx::Float64, dy::Float64, dz::Float64)
     return [
         0.0   dz   -dy;
@@ -35,7 +51,29 @@ end
 end
 
 @inline function _component_digits(value)
-    return sort!([parse(Int, string(ch)) for ch in string(Int(value)) if isdigit(ch)])
+    return sort!(_constraint_grid_components(value, "Rigid constraint"))
+end
+
+function _constraint_grid_components(value, label)
+    raw = value isa Union{AbstractVector,Tuple} ? join(string.(value)) :
+        value isa Real && isfinite(value) && isinteger(value) ? string(Int(value)) : string(value)
+    !isempty(raw) && all(c -> '1' <= c <= '6', raw) ||
+        throw(ArgumentError("$label requires GRID component digits 1 through 6"))
+    components = [Int(c-'0') for c in raw]
+    length(unique(components)) == length(components) ||
+        throw(ArgumentError("$label repeats a GRID component"))
+    return components
+end
+
+@inline function _constraint_grid_index(id_map, gid, label)
+    haskey(id_map, gid) || throw(ArgumentError("$label references undefined GRID $gid"))
+    return id_map[gid]
+end
+
+function _store_constraint_row!(map, dof, pairs, label)
+    haskey(map, dof) && throw(ArgumentError("$label assigns an already dependent DOF $dof"))
+    map[dof] = pairs
+    return nothing
 end
 
 @inline function _add_row_coeff!(row::Dict{Int,Float64}, dof::Int, coeff::Float64)
@@ -238,15 +276,13 @@ function _rbe3_um_dependent_dofs(um_pairs, id_map)
     for pair in um_pairs
         grid = Int(pair isa AbstractDict ? pair["grid"] : getproperty(pair, :grid))
         comps = Int(pair isa AbstractDict ? pair["comps"] : getproperty(pair, :comps))
-        gi = get(id_map, grid, 0)
-        gi == 0 && continue
+        gi = _constraint_grid_index(id_map, grid, "RBE3 UM")
         for dof in _component_digits(comps)
             1 <= dof <= 6 || continue
             gdof = (gi - 1) * 6 + dof
-            if !(gdof in seen)
-                push!(dep_dofs, gdof)
-                push!(seen, gdof)
-            end
+            gdof in seen && throw(ArgumentError("RBE3 UM repeats dependent DOF $gdof"))
+            push!(dep_dofs, gdof)
+            push!(seen, gdof)
         end
     end
     return dep_dofs
@@ -282,15 +318,13 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
     n_rbe2_dep = 0
     for (id, rbe) in rbe2s
         gn = rbe["GN"]   # master node
-        if !haskey(id_map, gn); continue; end
-        i_master = id_map[gn]
-        cm_digits = [parse(Int, string(ch)) for ch in string(rbe["CM"]) if isdigit(ch)]
+        i_master = _constraint_grid_index(id_map, gn, "RBE2 $id master")
+        cm_digits = _constraint_grid_components(rbe["CM"], "RBE2 $id")
         p_m = SVector{3}(node_coords[i_master,1], node_coords[i_master,2], node_coords[i_master,3])
         R_master = node_R[i_master]
 
         for gs in rbe["GM"]  # slave nodes
-            if !haskey(id_map, gs); continue; end
-            i_slave = id_map[gs]
+            i_slave = _constraint_grid_index(id_map, gs, "RBE2 $id slave")
             p_s = SVector{3}(node_coords[i_slave,1], node_coords[i_slave,2], node_coords[i_slave,3])
             dx, dy, dz = p_s[1]-p_m[1], p_s[2]-p_m[2], p_s[3]-p_m[3]
             R_slave = node_R[i_slave]
@@ -301,7 +335,7 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
                 coeff_row = _rigid_component_row(R_slave, R_master, dx, dy, dz, c)
                 _push_rigid_pairs!(pairs, (i_master-1)*6, coeff_row)
                 if !isempty(pairs)
-                    rbe2_map[slave_dof] = pairs
+                _store_constraint_row!(rbe2_map, slave_dof, pairs, "RBE2 $id")
                     n_rbe2_dep += 1
                 end
             end
@@ -321,7 +355,11 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
         indep = rbe1["INDEP"]   # [(grid, dof_digit), ...]
         dep = rbe1["DEP"]       # [(grid, dof_digit), ...]
         n_indep = length(indep)
-        if n_indep < 1 || n_indep > 6; continue; end
+        1 <= n_indep <= 6 || throw(ArgumentError("RBE1 $id requires 1 through 6 independent GRID components"))
+        for (g, dof) in vcat(indep, dep)
+            _constraint_grid_index(id_map, g, "RBE1 $id")
+            dof isa Integer && 1 <= dof <= 6 || throw(ArgumentError("RBE1 $id requires individual GRID components 1 through 6"))
+        end
 
         # Collect independent DOFs and build rigid body transformation matrix A
         # A × q = u_indep, where q = [ux_ref, uy_ref, uz_ref, wx, wy, wz] in global axes.
@@ -373,7 +411,7 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
                 end
             end
             if !isempty(pairs)
-                rbe1_map[gdof] = pairs
+                _store_constraint_row!(rbe1_map, gdof, pairs, "RBE1 $id")
             end
         end
         n_rbe1 += 1
@@ -389,6 +427,14 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
     for (id, rsp) in rsplines
         indep_grids = rsp["INDEP_GRIDS"]
         dep_list = rsp["DEP"]  # [(grid, dof_digit), ...]
+        length(indep_grids) >= 2 || throw(ArgumentError("RSPLINE $id requires at least two independent GRIDs"))
+        for g in indep_grids
+            _constraint_grid_index(id_map, g, "RSPLINE $id")
+        end
+        for (g, dof) in dep_list
+            _constraint_grid_index(id_map, g, "RSPLINE $id")
+            dof isa Integer && 1 <= dof <= 6 || throw(ArgumentError("RSPLINE $id requires individual GRID components 1 through 6"))
+        end
 
         # Get coordinates of independent grids (spline control points)
         indep_coords = Tuple{Int,Float64,Float64,Float64}[]
@@ -408,7 +454,7 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
             push!(arc_len, arc_len[end] + sqrt(dx^2 + dy^2 + dz^2))
         end
         total_len = arc_len[end]
-        if total_len < 1e-30; continue; end
+        total_len >= 1e-30 || throw(ArgumentError("RSPLINE $id has zero independent span"))
 
         for (g, dof) in dep_list
             if !haskey(id_map, g); continue; end
@@ -443,7 +489,7 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
             if abs(w_left) > 1e-15; push!(pairs, (left_dof, w_left)); end
             if abs(w_right) > 1e-15; push!(pairs, (right_dof, w_right)); end
             if !isempty(pairs)
-                rspline_map[gdof] = pairs
+                _store_constraint_row!(rspline_map, gdof, pairs, "RSPLINE $id")
             end
         end
         n_rspline += 1
@@ -469,8 +515,7 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
     end
     for (id, rbe) in rbe3s
         ref_gid = rbe["REFGRID"]
-        ref_idx = get(id_map, ref_gid, 0)
-        if ref_idx == 0; continue; end
+        ref_idx = _constraint_grid_index(id_map, ref_gid, "RBE3 $id reference")
 
         refc_digits = _component_digits(rbe["REFC"])
         if isempty(refc_digits); continue; end
@@ -484,16 +529,17 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
         grid_Gi = Tuple{Int, Matrix{Float64}, Float64, Vector{Int}}[]
 
         wt_groups = get(rbe, "WT_GROUPS", [])
+        isempty(wt_groups) && throw(ArgumentError("RBE3 $id has no independent weight groups"))
         for group in wt_groups
             # Support both NamedTuple (.wt) and Dict (["wt"]) access for JSON compatibility
             wt = Float64(group isa AbstractDict ? group["wt"] : group.wt)
+            isfinite(wt) || throw(ArgumentError("RBE3 $id has a non-finite weight"))
             comps_raw = group isa AbstractDict ? group["comps"] : group.comps
             comps_digits = _component_digits(comps_raw)
             if isempty(comps_digits); continue; end
             grids_raw = group isa AbstractDict ? group["grids"] : group.grids
             for dg in grids_raw
-                di = get(id_map, dg, 0)
-                if di == 0; continue; end
+                di = _constraint_grid_index(id_map, dg, "RBE3 $id independent")
                 p_i = SVector{3}(node_coords[di,1], node_coords[di,2], node_coords[di,3])
                 dx = rbe3_offset_sign * (p_i[1] - p_ref[1])
                 dy = rbe3_offset_sign * (p_i[2] - p_ref[2])
@@ -510,7 +556,7 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
                 push!(grid_Gi, (di, G_i, wt, comps_digits))
             end
         end
-        if isempty(grid_Gi); continue; end
+        isempty(grid_Gi) && throw(ArgumentError("RBE3 $id has no independent GRIDs"))
 
         A6_inv = pinv(A6, rtol=1e-10)
 
@@ -547,14 +593,19 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
             push!(default_dep_dofs, (ref_idx - 1) * 6 + rdof)
         end
 
-        um_dep_dofs = _rbe3_um_dependent_dofs(get(rbe, "UM", []), id_map)
+        um = get(rbe, "UM", [])
+        if !isempty(um)
+            solver_env_bool("JFEM_RBE3_USE_UM_DEPENDENT", false) ||
+                throw(ArgumentError("RBE3 $id UM dependent selection requires JFEM_RBE3_USE_UM_DEPENDENT=true; it cannot be ignored"))
+        end
+        um_dep_dofs = _rbe3_um_dependent_dofs(um, id_map)
         dep_dofs = default_dep_dofs
         if !isempty(um_dep_dofs) && solver_env_bool("JFEM_RBE3_USE_UM_DEPENDENT", false)
             if length(um_dep_dofs) == length(equation_rows)
                 dep_dofs = um_dep_dofs
                 n_rbe3_um += 1
             else
-                log_msg("[SOLVER] RBE3 $(rbe["ID"]): ignored UM dependent set because it has $(length(um_dep_dofs)) DOFs for $(length(equation_rows)) equations")
+                throw(ArgumentError("RBE3 $id UM has $(length(um_dep_dofs)) dependent DOFs for $(length(equation_rows)) equations"))
             end
         end
 
@@ -592,7 +643,7 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
                 end
             end
             if !isempty(pairs)
-                rbe3_map[dep_dof] = pairs
+                _store_constraint_row!(rbe3_map, dep_dof, pairs, "RBE3 $id")
             end
         end
         n_rbe3 += 1
@@ -600,21 +651,32 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
 
     # --- Explicit MPC constraints ---
     mpc_cards = get(model, "MPCs", [])
+    active_mpc_sets = _active_mpc_sets(model)
     mpc_map = Dict{Int, Vector{Tuple{Int, Float64}}}()
     n_mpc_explicit = 0
     for mpc in mpc_cards
+        active_mpc_sets !== nothing && !(Int(mpc["SID"]) in active_mpc_sets) && continue
         terms = mpc["TERMS"]
-        if length(terms) < 2; continue; end
+        sid = mpc["SID"]
+        length(terms) >= 2 || throw(ArgumentError("MPC $sid requires at least two GRID terms"))
+        for (i, term) in enumerate(terms)
+            haskey(id_map, term["G"]) || throw(ArgumentError(
+                "MPC $sid term $i references undefined GRID $(term["G"])"))
+            term["C"] isa Integer && 1 <= term["C"] <= 6 || throw(ArgumentError(
+                "MPC $sid term $i requires a GRID component from 1 through 6"))
+            term["A"] isa Real && isfinite(term["A"]) || throw(ArgumentError("MPC $sid term $i requires a finite real coefficient"))
+        end
         dep_g = terms[1]["G"]; dep_c = terms[1]["C"]; dep_a = terms[1]["A"]
-        if !haskey(id_map, dep_g) || dep_c < 1 || dep_c > 6; continue; end
-        if abs(dep_a) < 1e-30; continue; end
+        !iszero(dep_a) || throw(ArgumentError("MPC $sid dependent coefficient must be nonzero"))
         dep_dof = (id_map[dep_g]-1)*6 + dep_c
+        any(haskey(map, dep_dof) for map in (mpc_map, rbe2_map, rbe1_map, rspline_map, rbe3_map)) &&
+            throw(ArgumentError("MPC $sid assigns an already dependent GRID $dep_g component $dep_c"))
         pairs = Tuple{Int,Float64}[]
         for i in 2:length(terms)
             t = terms[i]
-            if !haskey(id_map, t["G"]) || t["C"] < 1 || t["C"] > 6; continue; end
             ind_dof = (id_map[t["G"]]-1)*6 + t["C"]
             coeff = -t["A"] / dep_a
+            isfinite(coeff) || throw(ArgumentError("MPC $sid coefficient ratio overflows at term $i"))
             push!(pairs, (ind_dof, coeff))
         end
         if !isempty(pairs)
@@ -627,6 +689,13 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
     end
 
     # Merge all constraint maps: RBE2, RBE1, RSPLINE, RBE3, MPC
+    assigned = Set{Int}()
+    for map in (rbe2_map, rbe1_map, rspline_map, rbe3_map, mpc_map)
+        for dof in keys(map)
+            dof in assigned && throw(ArgumentError("Rigid/MPC constraints assign dependent DOF $dof more than once"))
+            push!(assigned, dof)
+        end
+    end
     merge!(rbe3_map, rbe2_map, rbe1_map, rspline_map, mpc_map)
     n_mpc_total = length(rbe3_map)
     n_rbe3_only = length(rbe3_map) - length(rbe2_map) - length(rbe1_map) - length(rspline_map) - length(mpc_map)

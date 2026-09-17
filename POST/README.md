@@ -9,3 +9,8 @@
 
 Use `JFEM_results_viewer/POST_GUIDE.html` for the result viewer controls.
 Use `PANDEATOR_APP/PANEL_APP_README.md` for the server-backed case runner.
+
+Both viewers share `jfem_binary.js`, which reads JFEM binary versions 1–5 and
+validates result framing. Keep the `POST/` folder structure when copying either
+tool. Corrected and archived v5 files are supported; v5 includes the static
+preload alongside the buckling modes.

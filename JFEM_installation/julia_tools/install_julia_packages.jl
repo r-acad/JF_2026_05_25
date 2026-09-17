@@ -66,6 +66,7 @@ function main(args=ARGS)
 
     if options.offline
         ENV["JULIA_PKG_OFFLINE"] = "true"
+        Pkg.offline(true)
         println("Using Julia Pkg offline mode.")
     end
 

@@ -49,14 +49,32 @@ function extract_rbe2(cards)
         eid = to_id(parse_nastran_number(safe_get(c, 3)))
         gn  = to_id(parse_nastran_number(safe_get(c, 4)))  # master node
         cm  = to_id(parse_nastran_number(safe_get(c, 5)))   # constrained components (e.g. 123456)
-        # Remaining fields are slave nodes
+        # GRID IDs are integers; the first real field ends that list and
+        # starts optional ALPHA, TREF. Never round a thermal field into a GRID.
         slave_grids = Int[]
+        thermal = Float64[]
         for k in 6:length(c)
-            g = to_id(parse_nastran_number(safe_get(c, k), 0))
-            if g > 0; push!(slave_grids, g); end
+            field = strip(string(safe_get(c, k, "")))
+            (isempty(field) || _is_continuation_marker(field)) && continue
+            value = parse_nastran_number(field, nothing)
+            value isa Real && isfinite(value) ||
+                throw(ArgumentError("RBE2 $eid has an invalid GRID or thermal field: $field"))
+            if !isempty(thermal) || _is_nastran_real(field)
+                length(thermal) < 2 || throw(ArgumentError("RBE2 $eid has data after ALPHA and TREF"))
+                push!(thermal, Float64(value))
+            else
+                value isa Integer && value > 0 ||
+                    throw(ArgumentError("RBE2 $eid requires positive integer dependent GRID IDs"))
+                push!(slave_grids, Int(value))
+            end
         end
         if eid > 0 && gn > 0
-            d[string(eid)] = Dict("ID"=>eid, "GN"=>gn, "CM"=>cm, "GM"=>slave_grids)
+            entry = Dict{String,Any}("ID"=>eid, "GN"=>gn, "CM"=>cm, "GM"=>slave_grids)
+            if !isempty(thermal)
+                entry["ALPHA"] = thermal[1]
+                entry["TREF"] = length(thermal) == 2 ? thermal[2] : 0.0
+            end
+            d[string(eid)] = entry
         end
     end
     return d
@@ -65,7 +83,7 @@ end
 function _is_continuation_marker(s::AbstractString)
     st = strip(s)
     isempty(st) && return false
-    return st[1] == '+' || st[1] == '*'
+    return st[1] == '*' || (st[1] == '+' && parse_nastran_number(st, nothing) === nothing)
 end
 
 function _is_nastran_real(s::AbstractString)
@@ -302,18 +320,27 @@ end
 
 function extract_mpc(cards)
     mpcs = []
-    for c in cards
+    for raw in cards
+        c = Any[x for x in raw if !(x isa AbstractString && _is_continuation_marker(x))]
         sid = to_id(parse_nastran_number(safe_get(c, 3)))
         terms = []
-        k = 4
-        while k + 2 <= length(c)
-            gid   = to_id(parse_nastran_number(safe_get(c, k), 0))
-            comp  = to_id(parse_nastran_number(safe_get(c, k+1), 0))
-            coeff = Float64(parse_nastran_number(safe_get(c, k+2), 0.0))
-            if gid > 0 && comp > 0
-                push!(terms, Dict("G"=>gid, "C"=>comp, "A"=>coeff))
+        # Each eight-field record reserves its first and last slots (SID
+        # replaces the first slot on the parent), leaving two G/C/A triplets.
+        for block in 3:8:length(c)
+            first_term = block + 1
+            if block > 3 && !isempty(strip(string(safe_get(c, block, ""))))
+                first_term = block  # historical compact free-field continuation
             end
-            k += 3
+            for k in (first_term, first_term + 3)
+                k + 1 <= length(c) || continue
+                gid   = to_id(parse_nastran_number(safe_get(c, k), 0))
+                comp  = to_id(parse_nastran_number(safe_get(c, k+1), 0))
+                coeff = Float64(parse_nastran_number(safe_get(c, k+2), 0.0))
+                if gid > 0
+                    1 <= comp <= 6 || throw(ArgumentError("MPC $sid: only GRID components 1 through 6 are supported"))
+                    push!(terms, Dict("G"=>gid, "C"=>comp, "A"=>coeff))
+                end
+            end
         end
         if length(terms) >= 2
             push!(mpcs, Dict("SID"=>sid, "TERMS"=>terms))

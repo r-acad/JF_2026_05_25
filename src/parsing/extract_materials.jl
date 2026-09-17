@@ -22,11 +22,12 @@ function extract_mats(cards)
         G = isnothing(G_raw) ? 0.0 : Float64(G_raw)
         nu = isnothing(nu_raw) ? -1.0 : Float64(nu_raw)
         # Compute missing property from the other two (MAT1: at least 2 of E, G, NU must be given)
-        if E > 0 && G > 0 && nu < 0
+        explicit_auxetic = neg_nu_mode === :preserve && !isnothing(nu_raw) && -1 < nu < 0
+        if E > 0 && G > 0 && nu < 0 && !explicit_auxetic
             nu = E / (2*G) - 1.0
-        elseif E > 0 && nu >= 0 && G <= 0
+        elseif E > 0 && (nu >= 0 || explicit_auxetic) && G <= 0
             G = E / (2*(1+nu))
-        elseif G > 0 && nu >= 0 && E <= 0
+        elseif G > 0 && (nu >= 0 || explicit_auxetic) && E <= 0
             E = 2*G*(1+nu)
         end
         if nu < 0
@@ -66,6 +67,10 @@ function extract_mat2(cards)
                 "G11"=>G11, "G12"=>G12, "G13"=>G13,
                 "G22"=>G22, "G23"=>G23, "G33"=>G33,
                 "RHO"=>RHO,
+                "A1"=>Float64(parse_nastran_number(safe_get(c, 11), 0.0)),
+                "A2"=>Float64(parse_nastran_number(safe_get(c, 12), 0.0)),
+                "A3"=>Float64(parse_nastran_number(safe_get(c, 13), 0.0)),
+                "TREF"=>Float64(parse_nastran_number(safe_get(c, 14), 0.0)),
                 "E"=>E_eq, "G"=>G_eq, "NU"=>nu_eq, "TYPE"=>"MAT2")
         end
     end

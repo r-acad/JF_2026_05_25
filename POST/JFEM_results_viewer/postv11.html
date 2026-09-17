@@ -525,6 +525,7 @@
 
     <canvas id="renderCanvas"></canvas>
 
+    <script src="../jfem_binary.js"></script>
     <script>
         // =================================================================
         //  TAB SYSTEM
@@ -1420,295 +1421,23 @@
             reader.readAsArrayBuffer(file);
         });
 
-        function parseJFEM(buffer) {
-            const view = new DataView(buffer);
-            let off = 0;
-
-            const magic = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
-            if (magic !== 'JFEM') {
-                document.getElementById('stats').textContent = 'Error: Not a valid .jfem file';
-                return;
-            }
-            off = 4;
-
-            const version = view.getUint32(off, true); off += 4;
-            const nNodes = view.getUint32(off, true); off += 4;
-            const nQuads = view.getUint32(off, true); off += 4;
-            const nTrias = view.getUint32(off, true); off += 4;
-            const nBars = view.getUint32(off, true); off += 4;
-            const nRods = view.getUint32(off, true); off += 4;
-            const nSubcases = view.getUint32(off, true); off += 4;
-            // v3 extended header
-            const nCelas = version >= 3 ? view.getUint32(off, true) : 0; if (version >= 3) off += 4;
-            const nRBE2  = version >= 3 ? view.getUint32(off, true) : 0; if (version >= 3) off += 4;
-            const nRBE3  = version >= 3 ? view.getUint32(off, true) : 0; if (version >= 3) off += 4;
-            // v4 extended header: solid element counts (CTETRA, CHEXA, CPENTA)
-            const nTetras = version >= 4 ? view.getUint32(off, true) : 0; if (version >= 4) off += 4;
-            const nHexas  = version >= 4 ? view.getUint32(off, true) : 0; if (version >= 4) off += 4;
-            const nPentas = version >= 4 ? view.getUint32(off, true) : 0; if (version >= 4) off += 4;
-
-            // Node table: nid(i32), x(f32), y(f32), z(f32)
-            const nodes = [];
-            const nidToIdx = {};
-            for (let i = 0; i < nNodes; i++) {
-                const nid = view.getInt32(off, true); off += 4;
-                const x = view.getFloat32(off, true); off += 4;
-                const y = view.getFloat32(off, true); off += 4;
-                const z = view.getFloat32(off, true); off += 4;
-                nodes.push({ nid, x, y, z });
-                nidToIdx[nid] = i;
-            }
-
-            // CQUAD4 table: eid(i32), pid(i32), g1-g4(i32) [, thickness(f32) if v>=2]
-            const quads = [];
-            for (let i = 0; i < nQuads; i++) {
-                const eid = view.getInt32(off, true); off += 4;
-                const pid = view.getInt32(off, true); off += 4;
-                const g1 = view.getInt32(off, true); off += 4;
-                const g2 = view.getInt32(off, true); off += 4;
-                const g3 = view.getInt32(off, true); off += 4;
-                const g4 = view.getInt32(off, true); off += 4;
-                const thickness = version >= 2 ? view.getFloat32(off, true) : 0; if (version >= 2) off += 4;
-                quads.push({ eid, pid, nodes: [g1, g2, g3, g4], thickness });
-            }
-
-            // CTRIA3 table: eid(i32), pid(i32), g1-g3(i32) [, thickness(f32) if v>=2]
-            const trias = [];
-            for (let i = 0; i < nTrias; i++) {
-                const eid = view.getInt32(off, true); off += 4;
-                const pid = view.getInt32(off, true); off += 4;
-                const g1 = view.getInt32(off, true); off += 4;
-                const g2 = view.getInt32(off, true); off += 4;
-                const g3 = view.getInt32(off, true); off += 4;
-                const thickness = version >= 2 ? view.getFloat32(off, true) : 0; if (version >= 2) off += 4;
-                trias.push({ eid, pid, nodes: [g1, g2, g3], thickness });
-            }
-
-            // CBAR table: eid(i32), pid(i32), ga(i32), gb(i32) [, area(f32) if v>=2]
-            const bars = [];
-            for (let i = 0; i < nBars; i++) {
-                const eid = view.getInt32(off, true); off += 4;
-                const pid = view.getInt32(off, true); off += 4;
-                const ga = view.getInt32(off, true); off += 4;
-                const gb = view.getInt32(off, true); off += 4;
-                const area = version >= 2 ? view.getFloat32(off, true) : 0; if (version >= 2) off += 4;
-                bars.push({ eid, pid, ga, gb, area });
-            }
-
-            // CROD table: eid(i32), pid(i32), ga(i32), gb(i32) [, area(f32) if v>=2]
-            const rods = [];
-            for (let i = 0; i < nRods; i++) {
-                const eid = view.getInt32(off, true); off += 4;
-                const pid = view.getInt32(off, true); off += 4;
-                const ga = view.getInt32(off, true); off += 4;
-                const gb = view.getInt32(off, true); off += 4;
-                const area = version >= 2 ? view.getFloat32(off, true) : 0; if (version >= 2) off += 4;
-                rods.push({ eid, pid, ga, gb, area });
-            }
-
-            // v3: CELAS table
-            const celas = [];
-            if (version >= 3) {
-                for (let i = 0; i < nCelas; i++) {
-                    const eid = view.getInt32(off, true); off += 4;
-                    const g1 = view.getInt32(off, true); off += 4;
-                    const c1 = view.getInt32(off, true); off += 4;
-                    const g2 = view.getInt32(off, true); off += 4;
-                    const c2 = view.getInt32(off, true); off += 4;
-                    const stiffness = view.getFloat32(off, true); off += 4;
-                    off += 4; // pad
-                    celas.push({ eid, g1, c1, g2, c2, stiffness });
-                }
-            }
-
-            // v3: RBE2 table (variable-length)
-            const rbe2s = [];
-            if (version >= 3) {
-                for (let i = 0; i < nRBE2; i++) {
-                    const eid = view.getInt32(off, true); off += 4;
-                    const gn = view.getInt32(off, true); off += 4;
-                    const cm = view.getInt32(off, true); off += 4;
-                    const nSlaves = view.getUint32(off, true); off += 4;
-                    const slaves = [];
-                    for (let j = 0; j < nSlaves; j++) {
-                        slaves.push(view.getInt32(off, true)); off += 4;
-                    }
-                    rbe2s.push({ eid, gn, cm, slaves });
-                }
-            }
-
-            // v3: RBE3 table (variable-length)
-            const rbe3s = [];
-            if (version >= 3) {
-                for (let i = 0; i < nRBE3; i++) {
-                    const eid = view.getInt32(off, true); off += 4;
-                    const refgrid = view.getInt32(off, true); off += 4;
-                    const refc = view.getInt32(off, true); off += 4;
-                    const nDep = view.getUint32(off, true); off += 4;
-                    const deps = [];
-                    for (let j = 0; j < nDep; j++) {
-                        deps.push(view.getInt32(off, true)); off += 4;
-                    }
-                    rbe3s.push({ eid, refgrid, refc, deps });
-                }
-            }
-
-            // v4: solid element tables — CTETRA(4), CHEXA(8), CPENTA(6): eid(i32), pid(i32), nodes(i32)
-            const tetras = [];
-            const hexas = [];
-            const pentas = [];
-            if (version >= 4) {
-                for (let i = 0; i < nTetras; i++) {
-                    const eid = view.getInt32(off, true); off += 4;
-                    const pid = view.getInt32(off, true); off += 4;
-                    const nds = [];
-                    for (let j = 0; j < 4; j++) { nds.push(view.getInt32(off, true)); off += 4; }
-                    tetras.push({ eid, pid, nodes: nds });
-                }
-                for (let i = 0; i < nHexas; i++) {
-                    const eid = view.getInt32(off, true); off += 4;
-                    const pid = view.getInt32(off, true); off += 4;
-                    const nds = [];
-                    for (let j = 0; j < 8; j++) { nds.push(view.getInt32(off, true)); off += 4; }
-                    hexas.push({ eid, pid, nodes: nds });
-                }
-                for (let i = 0; i < nPentas; i++) {
-                    const eid = view.getInt32(off, true); off += 4;
-                    const pid = view.getInt32(off, true); off += 4;
-                    const nds = [];
-                    for (let j = 0; j < 6; j++) { nds.push(view.getInt32(off, true)); off += 4; }
-                    pentas.push({ eid, pid, nodes: nds });
-                }
-            }
-            const nSolids = nTetras + nHexas + nPentas;
-
-            // Subcases
-            const subcases = [];
-            for (let s = 0; s < nSubcases; s++) {
-                const sid = view.getUint32(off, true); off += 4;
-
-                // Node displacements: 6 float32 per node
-                const disp = new Float32Array(nNodes * 6);
-                for (let i = 0; i < nNodes * 6; i++) {
-                    disp[i] = view.getFloat32(off, true); off += 4;
-                }
-
-                // Shell results: 7 float32 per shell element (quads then trias)
-                const nShells = nQuads + nTrias;
-                const shellResults = new Float32Array(nShells * 7);
-                for (let i = 0; i < nShells * 7; i++) {
-                    shellResults[i] = view.getFloat32(off, true); off += 4;
-                }
-
-                // Bar results: 7 float32 per bar
-                const barResults = new Float32Array(nBars * 7);
-                for (let i = 0; i < nBars * 7; i++) {
-                    barResults[i] = view.getFloat32(off, true); off += 4;
-                }
-
-                // Rod results: 2 float32 per rod
-                const rodResults = new Float32Array(nRods * 2);
-                for (let i = 0; i < nRods * 2; i++) {
-                    rodResults[i] = view.getFloat32(off, true); off += 4;
-                }
-
-                // v4: Solid results — 1 float32 (von Mises) per solid element
-                const solidResults = new Float32Array(nSolids);
-                if (version >= 4) {
-                    for (let i = 0; i < nSolids; i++) {
-                        solidResults[i] = view.getFloat32(off, true); off += 4;
-                    }
-                }
-
-                // v3: SPC data
-                let spc = [];
-                let forces = [];
-                let moments = [];
-                if (version >= 3) {
-                    const nSPC = view.getUint32(off, true); off += 4;
-                    for (let i = 0; i < nSPC; i++) {
-                        const nid = view.getInt32(off, true); off += 4;
-                        const dofMask = view.getUint32(off, true); off += 4;
-                        spc.push({ nid, dofMask });
-                    }
-                    const nForces = view.getUint32(off, true); off += 4;
-                    for (let i = 0; i < nForces; i++) {
-                        const nid = view.getInt32(off, true); off += 4;
-                        const fx = view.getFloat32(off, true); off += 4;
-                        const fy = view.getFloat32(off, true); off += 4;
-                        const fz = view.getFloat32(off, true); off += 4;
-                        forces.push({ nid, fx, fy, fz });
-                    }
-                    const nMoments = view.getUint32(off, true); off += 4;
-                    for (let i = 0; i < nMoments; i++) {
-                        const nid = view.getInt32(off, true); off += 4;
-                        const mx = view.getFloat32(off, true); off += 4;
-                        const my = view.getFloat32(off, true); off += 4;
-                        const mz = view.getFloat32(off, true); off += 4;
-                        moments.push({ nid, mx, my, mz });
-                    }
-                }
-
-                subcases.push({ sid, disp, shellResults, barResults, rodResults, solidResults, spc, forces, moments });
-            }
-
-            // Check for eigenvalue footer ('EVAL' marker)
-            let eigenvalues = null;
-            if (off + 8 <= buffer.byteLength) {
-                const m0 = view.getUint8(off), m1 = view.getUint8(off+1), m2 = view.getUint8(off+2), m3 = view.getUint8(off+3);
-                if (m0 === 69 && m1 === 86 && m2 === 65 && m3 === 76) { // 'EVAL'
-                    off += 4;
-                    const nEV = view.getUint32(off, true); off += 4;
-                    eigenvalues = [];
-                    for (let i = 0; i < nEV; i++) {
-                        eigenvalues.push(view.getFloat64(off, true)); off += 8;
-                    }
-                    console.log('JFEM: Eigenvalues loaded:', eigenvalues);
-                }
-            }
-
-            const result = { version, nNodes, nQuads, nTrias, nBars, nRods, nSubcases,
-                        nCelas, nRBE2, nRBE3, nTetras, nHexas, nPentas, nSolids,
-                        nodes, nidToIdx, quads, trias, bars, rods,
-                        tetras, hexas, pentas,
-                        celas, rbe2s, rbe3s, subcases, eigenvalues };
-
-            // Compute auto deformation scale
-            if (subcases.length > 0) {
-                let maxDisp = 0;
-                const d = subcases[0].disp;
-                for (let i = 0; i < nNodes; i++) {
-                    const dx = d[i*6], dy = d[i*6+1], dz = d[i*6+2];
-                    const mag = Math.sqrt(dx*dx + dy*dy + dz*dz);
-                    if (mag > maxDisp) maxDisp = mag;
-                }
-                let modelSize = 0;
-                let mnx=Infinity, mny=Infinity, mnz=Infinity, mxx=-Infinity, mxy=-Infinity, mxz=-Infinity;
-                for (const n of nodes) {
-                    if (n.x<mnx) mnx=n.x; if (n.x>mxx) mxx=n.x;
-                    if (n.y<mny) mny=n.y; if (n.y>mxy) mxy=n.y;
-                    if (n.z<mnz) mnz=n.z; if (n.z>mxz) mxz=n.z;
-                }
-                modelSize = Math.sqrt((mxx-mnx)**2 + (mxy-mny)**2 + (mxz-mnz)**2);
-                result._autoDefScale = maxDisp > 0 ? (modelSize * 0.1) / maxDisp : 1;
-            }
-
-            // Validate node references
-            let missingNodes = 0;
-            const missingSet = new Set();
-            for (const q of quads) { for (const nid of q.nodes) { if (nidToIdx[nid] === undefined) { missingNodes++; missingSet.add(nid); } } }
-            for (const t of trias) { for (const nid of t.nodes) { if (nidToIdx[nid] === undefined) { missingNodes++; missingSet.add(nid); } } }
-            for (const b of bars) { if (nidToIdx[b.ga] === undefined) { missingNodes++; missingSet.add(b.ga); } if (nidToIdx[b.gb] === undefined) { missingNodes++; missingSet.add(b.gb); } }
-            for (const r of rods) { if (nidToIdx[r.ga] === undefined) { missingNodes++; missingSet.add(r.ga); } if (nidToIdx[r.gb] === undefined) { missingNodes++; missingSet.add(r.gb); } }
-            if (missingNodes > 0) console.warn(`JFEM: ${missingNodes} element node refs missing! IDs: ${[...missingSet].slice(0,20).join(', ')}`);
-            else console.log(`JFEM v${version}: All node refs OK (${nNodes}n ${nQuads}Q+${nTrias}T+${nBars}B+${nRods}R+${nTetras}Tet+${nHexas}Hex+${nPentas}Pen+${nCelas}S+${nRBE2}RBE2+${nRBE3}RBE3)`);
-
-            return result;
-        }
+        function parseJFEM(buffer) { return JFEMBinary.parse(buffer); }
 
         function loadJFEMForModel(buffer, idx, filename) {
-            const data = parseJFEM(buffer);
-            if (!data) return;
+            let data;
+            try { data = parseJFEM(buffer); }
+            catch (error) {
+                document.getElementById('stats').textContent = 'Error: ' + error.message;
+                return;
+            }
+            if (data.staticData) {
+                const shellResults = new Float32Array((data.nQuads + data.nTrias) * 7);
+                data.staticData.vm.forEach((value, i) => { shellResults[i * 7 + 6] = value; });
+                data.subcases.push({sid:-1, isStaticPreload:true, disp:data.staticData.disp,
+                    shellResults, barResults:new Float32Array(data.nBars * 7),
+                    rodResults:new Float32Array(data.nRods * 2), solidResults:new Float32Array(data.nSolids),
+                    spc:[], forces:[], moments:[]});
+            }
             data._filename = filename;
             models[idx].femData = data;
             models[idx].filename = filename;
@@ -1725,7 +1454,9 @@
                 const sc = data.subcases[si];
                 const opt = document.createElement('option');
                 opt.value = sc.sid;
-                if (data.eigenvalues && si < data.eigenvalues.length) {
+                if (sc.isStaticPreload) {
+                    opt.textContent = 'Static preload';
+                } else if (data.eigenvalues && si < data.eigenvalues.length) {
                     const ev = data.eigenvalues[si];
                     opt.textContent = 'Mode ' + sc.sid + '  \u03BB=' + ev.toPrecision(5);
                 } else {

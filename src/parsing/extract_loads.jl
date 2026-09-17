@@ -32,13 +32,17 @@ function extract_pload4(cards)
         sid = to_id(parse_nastran_number(safe_get(c, 3)))
         eid = to_id(parse_nastran_number(safe_get(c, 4)))
         press = parse_nastran_number(safe_get(c, 5), 0.0)
-        # Field 8 is either G1 (solid-face form) or the literal THRU (shell
-        # element-range form, with field 9 = EID2). The THRU form previously
-        # parsed as G1=0/G3=EID2, silently loading only the first element.
-        thru = uppercase(strip(string(safe_get(c, 8, "")))) == "THRU"
-        eid2 = thru ? to_id(parse_nastran_number(safe_get(c, 9), 0)) : 0
-        g1 = thru ? 0 : to_id(parse_nastran_number(safe_get(c, 8), 0))
-        g3 = thru ? 0 : to_id(parse_nastran_number(safe_get(c, 9), 0))
+        # P1..P4 occupy c[5:8]; G1/THRU and G3/EID2 follow at c[9:10].
+        # The current load integrator supports uniform pressure only.
+        for k in 6:8
+            pk = parse_nastran_number(safe_get(c, k), press)
+            pk == press || throw(ArgumentError("PLOAD4 SID=$sid EID=$eid: nonuniform P1-P4 pressure is not supported"))
+        end
+        thru = uppercase(strip(string(safe_get(c, 9, "")))) == "THRU"
+        eid2 = thru ? to_id(parse_nastran_number(safe_get(c, 10), 0)) : 0
+        thru && eid2 < eid && throw(ArgumentError("PLOAD4 SID=$sid: THRU end $eid2 precedes EID $eid"))
+        g1 = thru ? 0 : to_id(parse_nastran_number(safe_get(c, 9), 0))
+        g3 = thru ? 0 : to_id(parse_nastran_number(safe_get(c, 10), 0))
         # Continuation line: CID(field 10→c[11]), N1(c[12]), N2(c[13]), N3(c[14])
         cid = to_id(parse_nastran_number(safe_get(c, 11), 0))
         n1 = parse_nastran_number(safe_get(c, 12), nothing)
@@ -157,10 +161,14 @@ function extract_rforce(cards)
         r1     = Float64(parse_nastran_number(safe_get(c, 7), 0.0))
         r2     = Float64(parse_nastran_number(safe_get(c, 8), 0.0))
         r3     = Float64(parse_nastran_number(safe_get(c, 9), 0.0))
-        method = to_id(parse_nastran_number(safe_get(c, 10), 2))   # 1 or 2
+        method = to_id(parse_nastran_number(safe_get(c, 10), 1))
+        racc   = Float64(parse_nastran_number(safe_get(c, 11), 0.0))
+        mb     = to_id(parse_nastran_number(safe_get(c, 12), 0))
+        idrf   = to_id(parse_nastran_number(safe_get(c, 13), 0))
         if sid > 0
             push!(r, Dict("TYPE"=>"RFORCE", "SID"=>sid, "G"=>g_node, "CID"=>cid,
-                           "A"=>A_val, "R"=>[r1, r2, r3], "METHOD"=>method))
+                           "A"=>A_val, "R"=>[r1, r2, r3], "METHOD"=>method,
+                           "RACC"=>racc, "MB"=>mb, "IDRF"=>idrf))
         end
     end
     return r
@@ -206,10 +214,12 @@ end
 function extract_tempd(cards)
     tempd = Dict{Int, Float64}()  # SID => default temperature
     for c in cards
-        sid = to_id(parse_nastran_number(safe_get(c, 3)))
-        t_val = parse_nastran_number(safe_get(c, 4), 0.0)
-        if sid > 0
-            tempd[sid] = Float64(t_val)
+        for k in 3:2:min(length(c) - 1, 9)
+            sid = to_id(parse_nastran_number(safe_get(c, k)))
+            t_val = parse_nastran_number(safe_get(c, k + 1), 0.0)
+            if sid > 0
+                tempd[sid] = Float64(t_val)
+            end
         end
     end
     return tempd
@@ -221,72 +231,40 @@ Returns Dict{String, Dict}: name => {"type"=>symmetric/square, "entries"=>[(row_
 """
 function extract_dmig(cards)
     matrices = Dict{String, Dict{String,Any}}()
-
+    # The header is DMIG,NAME,0,IFO,TIN,TOUT,POLAR,,NCOL. Resolve all
+    # headers first, since a column card may precede its header in an INCLUDE.
     for c in cards
         name = strip(string(safe_get(c, 3, "")))
-        if isempty(name); continue; end
-
-        # Detect header vs data: header has IFO in field 4 (small integer 0-9)
-        # and TIN in field 5. Data has GJ (grid ID) in field 4 and CJ (1-6) in field 5.
-        f4 = parse_nastran_number(safe_get(c, 4), nothing)
-        f5 = parse_nastran_number(safe_get(c, 5), nothing)
-        f6 = parse_nastran_number(safe_get(c, 6), nothing)
-
-        if f4 !== nothing && f5 !== nothing && f6 !== nothing &&
-           Float64(f4) >= 0.0 && Float64(f4) <= 9.0 &&
-           Float64(f5) >= 1.0 && Float64(f5) <= 9.0 &&
-           !haskey(matrices, name)
-            # Header card: DMIG NAME IFO TIN TOUT
-            ifo = to_id(f4); tin = to_id(f5); tout = to_id(f6)
-            is_sym = (ifo == 6 || tout == 2)
-            matrices[name] = Dict{String,Any}("type" => is_sym ? "symmetric" : "square",
-                                               "entries" => Tuple{Int,Int,Int,Int,Float64}[])
-        elseif haskey(matrices, name) && f4 !== nothing && f5 !== nothing
-            # Data card: DMIG NAME GJ CJ [blank] G1 C1 A1 [G2 C2 A2 ...]
-            gj = to_id(f4)  # column grid
-            cj = to_id(f5)  # column DOF (1-6)
-            if gj <= 0 || cj <= 0 || cj > 6; continue; end
-
-            entries = matrices[name]["entries"]
-            # Parse row entries starting at field 7 (skipping blank field 6)
-            k = 7
-            while k + 2 <= length(c)
-                # Skip continuation markers
-                val_str = strip(string(safe_get(c, k, "")))
-                if !isempty(val_str) && (startswith(val_str, "+") || startswith(val_str, "*"))
-                    k += 1; continue
-                end
-                gi = to_id(parse_nastran_number(safe_get(c, k), 0))
-                ci = to_id(parse_nastran_number(safe_get(c, k+1), 0))
-                ai = parse_nastran_number(safe_get(c, k+2), nothing)
-                if gi > 0 && ci >= 1 && ci <= 6 && ai !== nothing
-                    push!(entries, (gi, ci, gj, cj, Float64(ai)))
-                end
-                k += 3
-            end
-        elseif !haskey(matrices, name) && f4 !== nothing
-            # Data card appearing before header — create a default entry
-            matrices[name] = Dict{String,Any}("type" => "square",
-                                               "entries" => Tuple{Int,Int,Int,Int,Float64}[])
-            # Re-parse this card as data
-            gj = to_id(f4); cj = f5 !== nothing ? to_id(f5) : 0
-            if gj > 0 && cj >= 1 && cj <= 6
-                entries = matrices[name]["entries"]
-                k = 7
-                while k + 2 <= length(c)
-                    val_str = strip(string(safe_get(c, k, "")))
-                    if !isempty(val_str) && (startswith(val_str, "+") || startswith(val_str, "*"))
-                        k += 1; continue
-                    end
-                    gi = to_id(parse_nastran_number(safe_get(c, k), 0))
-                    ci = to_id(parse_nastran_number(safe_get(c, k+1), 0))
-                    ai = parse_nastran_number(safe_get(c, k+2), nothing)
-                    if gi > 0 && ci >= 1 && ci <= 6 && ai !== nothing
-                        push!(entries, (gi, ci, gj, cj, Float64(ai)))
-                    end
-                    k += 3
-                end
-            end
+        isempty(name) && continue
+        parse_nastran_number(safe_get(c, 4), nothing) == 0 || continue
+        haskey(matrices, name) && throw(ArgumentError("Duplicate DMIG header: $name"))
+        ifo = to_id(parse_nastran_number(safe_get(c, 5), 0))
+        tin = to_id(parse_nastran_number(safe_get(c, 6), 0))
+        tin in (1, 2) || throw(ArgumentError("DMIG $name requires real TIN=1 or 2; TIN=$tin is unsupported"))
+        ifo in (1, 6) || throw(ArgumentError("DMIG $name requires square IFO=1 or symmetric IFO=6; IFO=$ifo is unsupported"))
+        matrices[name] = Dict{String,Any}("type" => ifo == 6 ? "symmetric" : "square",
+            "IFO"=>ifo, "TIN"=>tin, "entries" => Tuple{Int,Int,Int,Int,Float64}[])
+    end
+    for raw in cards
+        c = Any[x for x in raw if !(x isa AbstractString && _is_continuation_marker(x))]
+        name = strip(string(safe_get(c, 3, "")))
+        isempty(name) && continue
+        gj = to_id(parse_nastran_number(safe_get(c, 4), 0))
+        gj == 0 && continue
+        haskey(matrices, name) || throw(ArgumentError("DMIG $name has column data without a header"))
+        cj = to_id(parse_nastran_number(safe_get(c, 5), 0))
+        gj > 0 && 1 <= cj <= 6 || throw(ArgumentError("DMIG $name has invalid column GRID/component $gj/$cj"))
+        entries = matrices[name]["entries"]
+        # Each row is G,C,A,B, even for a real matrix where B is blank.
+        for k in 7:4:length(c)
+            all(j -> isempty(strip(string(safe_get(c, j, "")))), k:min(k + 3, length(c))) && continue
+            gi = to_id(parse_nastran_number(safe_get(c, k), 0))
+            ci = to_id(parse_nastran_number(safe_get(c, k + 1), 0))
+            ai = parse_nastran_number(safe_get(c, k + 2), nothing)
+            bi = parse_nastran_number(safe_get(c, k + 3), 0.0)
+            gi > 0 && 1 <= ci <= 6 && ai isa Real && isfinite(ai) && bi == 0 ||
+                throw(ArgumentError("DMIG $name has an invalid or unsupported complex row at field $k"))
+            push!(entries, (gi, ci, gj, cj, Float64(ai)))
         end
     end
     return matrices

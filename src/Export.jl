@@ -20,6 +20,97 @@
 
 using Dates
 
+# JSON emits many tiny writes. Bound staging memory independently of the
+# result size while amortizing stream locks and OS calls over 1 MiB chunks.
+mutable struct _ExportBufferedIO{T<:IO} <: IO
+    stream::T
+    buffer::Vector{UInt8}
+    used::Int
+end
+_ExportBufferedIO(io::IO) = _ExportBufferedIO(io, Vector{UInt8}(undef, 1 << 20), 0)
+Base.isopen(io::_ExportBufferedIO) = isopen(io.stream)
+Base.iswritable(io::_ExportBufferedIO) = iswritable(io.stream)
+function Base.flush(io::_ExportBufferedIO)
+    if io.used > 0
+        GC.@preserve io Base.unsafe_write(io.stream, pointer(io.buffer), UInt(io.used))
+        io.used = 0
+    end
+    return nothing
+end
+function Base.unsafe_write(io::_ExportBufferedIO, p::Ptr{UInt8}, n::UInt)
+    count = Int(n)
+    count > length(io.buffer) - io.used && flush(io)
+    if count >= length(io.buffer)
+        return Base.unsafe_write(io.stream, p, n)
+    end
+    GC.@preserve io unsafe_copyto!(pointer(io.buffer, io.used + 1), p, count)
+    io.used += count
+    return count
+end
+function Base.write(io::_ExportBufferedIO, byte::UInt8)
+    io.used == length(io.buffer) && flush(io)
+    io.used += 1
+    @inbounds io.buffer[io.used] = byte
+    return 1
+end
+function _export_write_json(path, payload, indent::Integer=4)
+    _export_ensure_parent_dir!(path)
+    open(_export_fs_path(path), "w") do stream
+        io = _ExportBufferedIO(stream)
+        JSON.print(io, payload, indent)
+        flush(io)
+    end
+end
+
+# Drain staged bytes without take!, which hands off the backing allocation.
+# truncate retains capacity so later subcases/modes reuse the largest block.
+function _export_flush_binary_buffer!(stream, buffer::IOBuffer)
+    seekstart(buffer)
+    write(stream, buffer)
+    truncate(buffer, 0)
+    return nothing
+end
+
+# Both static and modal output use basic/global components. Internal static
+# vectors and stiffness matrices remain in the analysis (GRID CD) frame.
+function _export_rotate_vector!(out, vector, id_map, node_R; to_global=true)
+    copyto!(out, vector)
+    node_R === nothing && return out
+    for idx in values(id_map)
+        R = node_R[idx]
+        for offset in (0, 3)
+            b = 6 * (idx - 1) + offset
+            x, y, z = vector[b+1], vector[b+2], vector[b+3]
+            if to_global
+                out[b+1] = R[1,1]*x + R[1,2]*y + R[1,3]*z
+                out[b+2] = R[2,1]*x + R[2,2]*y + R[2,3]*z
+                out[b+3] = R[3,1]*x + R[3,2]*y + R[3,3]*z
+            else
+                out[b+1] = R[1,1]*x + R[2,1]*y + R[3,1]*z
+                out[b+2] = R[1,2]*x + R[2,2]*y + R[3,2]*z
+                out[b+3] = R[1,3]*x + R[2,3]*y + R[3,3]*z
+            end
+        end
+    end
+    return out
+end
+
+function _sol105_export_state(results, sc)
+    states = get(results, "static_states", nothing)
+    if states !== nothing
+        haskey(states, sc.static_subcase_id) || error("Missing SOL105 static state $(sc.static_subcase_id)")
+        return states[sc.static_subcase_id]
+    end
+    return (id_map=results["id_map"], X=results["node_coords"],
+        node_R=get(results, "node_R", nothing), u_static=sc.u_static,
+        K_eig=sc.K_eig)
+end
+
+function _sol105_export_filename(filename, sc, count)
+    count == 1 && return filename
+    return _export_base_name(filename) * "_Subcase_$(sc.buckling_subcase_id).bdf"
+end
+
 function sanitize!(d)
     if d isa Dict
         for (k,v) in d; d[k] = sanitize!(v); end
@@ -31,7 +122,48 @@ function sanitize!(d)
     return d
 end
 
-@inline _export_base_name(filename) = replace(basename(filename), r"(?i)\.bdf$" => "")
+@inline _export_base_name(filename) = replace(basename(filename), r"(?i)\.(bdf|dat|nas)$" => "")
+
+function _export_validate_node_map(id_map)
+    seen = falses(length(id_map))
+    for index in values(id_map)
+        index isa Integer && 1 <= index <= length(seen) && !seen[index] ||
+            throw(ArgumentError("Export node indices must be a permutation of 1:$(length(id_map))"))
+        seen[index] = true
+    end
+    return nothing
+end
+
+function _export_validate_modes(eigenvalues, mode_shapes, id_map; frequencies=nothing)
+    _export_validate_node_map(id_map)
+    mode_shapes isa AbstractMatrix || throw(DimensionMismatch("Mode shapes must be a matrix"))
+    size(mode_shapes, 1) == 6 * length(id_map) || throw(DimensionMismatch("Mode shapes must have six rows per GRID"))
+    eigenvalues === nothing || size(mode_shapes, 2) == length(eigenvalues) ||
+        throw(DimensionMismatch("Eigenvalue and mode-vector counts differ"))
+    frequencies === nothing || size(mode_shapes, 2) == length(frequencies) ||
+        throw(DimensionMismatch("Frequency and mode-vector counts differ"))
+    return nothing
+end
+
+function _export_validate_mesh(id_map, X, node_ids, quads, trias, tetras, hexas, pentas)
+    _export_validate_node_map(id_map)
+    size(X) == (length(id_map), 3) || throw(DimensionMismatch("Coordinates must have one three-component row per GRID"))
+    length(Set(node_ids)) == length(node_ids) || throw(ArgumentError("Duplicate exported GRID IDs"))
+    for nid in node_ids
+        haskey(id_map, nid) || throw(ArgumentError("Unknown exported GRID $nid"))
+        0 < nid <= typemax(Int32) || throw(ArgumentError("JFEM binary GRID $nid is outside the Int32 format"))
+    end
+    exported = Set(node_ids)
+    for (elements, count) in ((quads,4),(trias,3),(tetras,4),(hexas,8),(pentas,6))
+        for elem in elements
+            length(elem[3]) == count || throw(DimensionMismatch("Element $(elem[1]) requires $count nodes"))
+            all(nid -> nid in exported, elem[3]) || throw(ArgumentError("Element $(elem[1]) references an unexported GRID"))
+        end
+    end
+    return nothing
+end
+
+_export_write_f32(io, values) = write(io, eltype(values) === Float32 ? values : Float32.(values))
 
 function _export_fs_path(path::AbstractString)
     p = normpath(abspath(String(path)))
@@ -161,6 +293,12 @@ struct _MSCGridRec
     PS::Int64
     SEID::Int64
     DOMAIN_ID::Int64
+end
+
+struct _JFEMGridFrameRec
+    ID::Int64
+    CP::Int64
+    CD::Int64
 end
 
 struct _MSCCquad4Rec
@@ -607,6 +745,20 @@ struct _MSCEigrlRec
     DOMAIN_ID::Int64
 end
 
+struct _MSCEigbRec
+    SID::Int64
+    METHOD::NTuple{8,UInt8}
+    L1::Float64
+    L2::Float64
+    NEP::Int64
+    NDP::Int64
+    NDN::Int64
+    NORM::NTuple{8,UInt8}
+    G::Int64
+    C::Int64
+    DOMAIN_ID::Int64
+end
+
 struct _MSCParamIntRec
     NAME::NTuple{8,UInt8}
     VALUE::Int64
@@ -785,13 +937,17 @@ function _msc_dynamic_dtype(fields, record_size::Integer)
 end
 
 function _msc_put_i64!(buffer::Vector{UInt8}, offset::Integer, value)
-    bytes = reinterpret(UInt8, Int64[_msc_i64(value)])
-    copyto!(buffer, offset + 1, bytes, 1, 8)
+    bytes = reinterpret(NTuple{8,UInt8}, _msc_i64(value))
+    for i in 1:8
+        buffer[offset + i] = bytes[i]
+    end
 end
 
 function _msc_put_f64!(buffer::Vector{UInt8}, offset::Integer, value)
-    bytes = reinterpret(UInt8, Float64[_msc_f64(value)])
-    copyto!(buffer, offset + 1, bytes, 1, 8)
+    bytes = reinterpret(NTuple{8,UInt8}, _msc_f64(value))
+    for i in 1:8
+        buffer[offset + i] = bytes[i]
+    end
 end
 
 function _msc_put_string!(buffer::Vector{UInt8}, offset::Integer, value, n::Integer)
@@ -832,12 +988,15 @@ function _msc_write_dynamic_records(parent, path::AbstractString, fields, rows::
     group, name = _msc_parent_and_name(parent, path)
     dataset = create_dataset(group, name, dtype, (length(rows),))
     buffer = zeros(UInt8, record_size * length(rows))
+    # Defaults are read-only while packing; create array defaults once per
+    # schema instead of eagerly allocating them for every populated field.
+    defaults = map(field -> _msc_default_dynamic_value(field[2], field[3]), fields)
     try
         for (row_index, row) in enumerate(rows)
             base = (row_index - 1) * record_size
             offset = 0
-            for (field, kind, n) in fields
-                value = get(row, field, _msc_default_dynamic_value(kind, n))
+            for (field_index, (field, kind, n)) in enumerate(fields)
+                value = get(row, field, defaults[field_index])
                 if kind == :i64
                     _msc_put_i64!(buffer, base + offset, value)
                     offset += 8
@@ -1059,6 +1218,21 @@ function _msc_eigrl_dtype()
     return HDF5.Datatype(dtype, true)
 end
 
+function _msc_eigb_dtype()
+    Rec = _MSCEigbRec
+    dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
+    for field in (:SID, :NEP, :NDP, :NDN, :G, :C, :DOMAIN_ID)
+        _msc_insert_scalar!(dtype, Rec, field, Int64)
+    end
+    for field in (:L1, :L2)
+        _msc_insert_scalar!(dtype, Rec, field, Float64)
+    end
+    for field in (:METHOD, :NORM)
+        _msc_insert_fixed_string!(dtype, Rec, field, 8)
+    end
+    return HDF5.Datatype(dtype, true)
+end
+
 function _msc_pbeam_dtype()
     Rec = _MSCPBeamRec
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
@@ -1084,13 +1258,23 @@ end
 
 _msc_node_order(id_map) = sort(collect(keys(id_map)))
 
+# Cache scalar IDs once; sorting by Dict lookup otherwise repeats conversion
+# for every comparison. sortperm preserves the original order of equal keys.
+function _msc_sorted_values_by_id(collection, field::String)
+    entries = collect(values(collection))
+    sort_keys = [_msc_i64(get(entry, field, 0)) for entry in entries]
+    return entries[sortperm(sort_keys)]
+end
+
 function _msc_input_grid_records(model)
     records = _MSCGridRec[]
-    for grid in sort(collect(values(get(model, "GRIDs", Dict()))); by=x -> _msc_i64(get(x, "ID", 0)))
+    grids = get(model, "GRIDs", Dict())
+    sizehint!(records, length(grids))
+    for grid in _msc_sorted_values_by_id(grids, "ID")
         push!(records, _MSCGridRec(
-            _msc_i64(get(grid, "ID", 0)), _msc_i64(get(grid, "CP", 0)),
-            _msc_tuple_f64(get(grid, "X", [0.0, 0.0, 0.0]), 3),
-            _msc_i64(get(grid, "CD", 0)), _msc_i64(get(grid, "PS", 0)),
+            _msc_i64(get(grid, "ID", 0)), 0,
+            _msc_tuple_f64(get(grid, "X", (0.0, 0.0, 0.0)), 3),
+            0, _msc_i64(get(grid, "PS", 0)),
             _msc_i64(get(grid, "SEID", 0)), 1,
         ))
     end
@@ -1101,7 +1285,7 @@ function _msc_input_shell_records(model)
     quads = _MSCCquad4Rec[]
     trias = _MSCCTRIA3Rec[]
     pshells = get(model, "PSHELLs", Dict())
-    for element in sort(collect(values(get(model, "CSHELLs", Dict()))); by=x -> _msc_i64(get(x, "ID", 0)))
+    for element in _msc_sorted_values_by_id(get(model, "CSHELLs", Dict()), "ID")
         node_ids = get(element, "NODES", Int[])
         pid = _msc_i64(get(element, "PID", 0))
         prop = _msc_model_value_by_id(pshells, pid)
@@ -1129,10 +1313,12 @@ end
 
 function _msc_input_bar_records(model)
     bars = _MSCCbarRec[]
-    for bar in sort(collect(values(get(model, "CBARs", Dict()))); by=x -> _msc_i64(get(x, "ID", 0)))
-        v = _msc_tuple_f64(get(bar, "V", [0.0, 0.0, 1.0]), 3)
-        wa = _msc_tuple_f64(get(bar, "WA", [0.0, 0.0, 0.0]), 3)
-        wb = _msc_tuple_f64(get(bar, "WB", [0.0, 0.0, 0.0]), 3)
+    elements = get(model, "CBARs", Dict())
+    sizehint!(bars, length(elements))
+    for bar in sort(collect(values(elements)); by=x -> _msc_i64(get(x, "ID", 0)))
+        v = _msc_tuple_f64(get(bar, "V", (0.0, 0.0, 1.0)), 3)
+        wa = _msc_tuple_f64(get(bar, "WA", (0.0, 0.0, 0.0)), 3)
+        wb = _msc_tuple_f64(get(bar, "WB", (0.0, 0.0, 0.0)), 3)
         push!(bars, _MSCCbarRec(
             _msc_i64(get(bar, "ID", 0)), _msc_i64(get(bar, "PID", 0)),
             _msc_i64(get(bar, "GA", 0)), _msc_i64(get(bar, "GB", 0)),
@@ -1361,8 +1547,8 @@ function _msc_input_property_records(model)
                 pid, mid, _msc_f64(get(prop, "T", 0.0)),
                 _msc_i64(get(prop, "MID2", mid)), _msc_f64(get(prop, "BEND_RATIO", get(prop, "BK", 1.0))),
                 _msc_i64(get(prop, "MID3", mid)), _msc_f64(get(prop, "TS_T", get(prop, "TS", 0.8333333333333334))),
-                _msc_f64(get(prop, "NSM", 0.0)), _msc_f64(get(prop, "Z1", 0.0)),
-                _msc_f64(get(prop, "Z2", 0.0)), _msc_i64(get(prop, "MID4", 0)), 1,
+                _msc_f64(get(prop, "NSM", 0.0)), _msc_f64(Solver._pshell_stress_fiber_distance(prop, "Z1")),
+                _msc_f64(Solver._pshell_stress_fiber_distance(prop, "Z2")), _msc_i64(get(prop, "MID4", 0)), 1,
             ))
         end
     end
@@ -1515,9 +1701,11 @@ end
 function _msc_input_eigrl_records(model)
     rows = _MSCEigrlRec[]
     for eig in sort(collect(values(get(model, "EIGRLs", Dict()))); by=x -> _msc_i64(get(x, "SID", 0)))
+        nd_out = get(eig, "ND_SPECIFIED", true) == true ?
+            _msc_i64(get(eig, "ND", 0)) : _msc_i64(0)
         push!(rows, _MSCEigrlRec(
             _msc_i64(get(eig, "SID", 0)), _msc_f64(get(eig, "V1", 0.0)),
-            _msc_f64(get(eig, "V2", 0.0)), _msc_i64(get(eig, "ND", 0)),
+            _msc_f64(get(eig, "V2", 0.0)), nd_out,
             _msc_i64(get(eig, "MSGLVL", 0)), _msc_i64(get(eig, "MAXSET", 0)),
             _msc_f64(get(eig, "SHFSCL", 0.0)), 0, 0,
             _msc_fixed_string_bytes(get(eig, "NORM", "MASS"), 8), 0.0, 0, 0, 1,
@@ -1526,9 +1714,29 @@ function _msc_input_eigrl_records(model)
     return rows
 end
 
+function _msc_input_eigb_records(model)
+    return [_MSCEigbRec(
+        _msc_i64(get(eig, "SID", 0)), _msc_fixed_string_bytes(get(eig, "METHOD", ""), 8),
+        _msc_f64(get(eig, "L1", 0.0)), _msc_f64(get(eig, "L2", 0.0)),
+        _msc_i64(something(get(eig, "NEP", nothing), 0)),
+        _msc_i64(something(get(eig, "NDP", nothing), 0)),
+        _msc_i64(something(get(eig, "NDN", nothing), 0)),
+        _msc_fixed_string_bytes(get(eig, "NORM", "MAX"), 8),
+        _msc_i64(something(get(eig, "G", nothing), 0)),
+        _msc_i64(something(get(eig, "C", nothing), 0)), 1)
+        for eig in sort(collect(values(get(model, "EIGBs", Dict()))); by=x -> _msc_i64(get(x, "SID", 0)))]
+end
+
 function _msc_write_input_tables(file, model)
     _msc_write_records(file, "/NASTRAN/INPUT/DOMAINS", [_MSCInputDomainRec(1, 0, 0, 0, 0)])
     _msc_write_custom(file, "/NASTRAN/INPUT/NODE/GRID", _msc_input_grid_records(model), _msc_grid_dtype)
+    frames = [_JFEMGridFrameRec(_msc_i64(get(g,"ID",0)),_msc_i64(get(g,"CP",0)),_msc_i64(get(g,"CD",0)))
+        for g in _msc_sorted_values_by_id(get(model,"GRIDs",Dict()), "ID")]
+    _msc_write_records(file,"/JFEM/INPUT/ORIGINAL_GRID_FRAMES",frames)
+    attributes(file["/NASTRAN/INPUT"])["SCOPE"] = "COMPACT_SUBSET_NOT_DECK_ROUNDTRIP"
+    if !isempty(frames)
+        attributes(file["/NASTRAN/INPUT/NODE/GRID"])["COORDINATE_FRAME"] = "BASIC_GLOBAL"
+    end
     quads, trias = _msc_input_shell_records(model)
     _msc_write_custom(file, "/NASTRAN/INPUT/ELEMENT/CQUAD4", quads, _msc_cquad4_dtype)
     _msc_write_custom(file, "/NASTRAN/INPUT/ELEMENT/CTRIA3", trias, _msc_ctria3_dtype)
@@ -1577,6 +1785,10 @@ function _msc_write_input_tables(file, model)
     _msc_write_records(file, "/NASTRAN/INPUT/ELEMENT/RBE3/WTCG", rbe3_wtcg)
     _msc_write_records(file, "/NASTRAN/INPUT/ELEMENT/RBE3/G", rbe3_g)
     _msc_write_custom(file, "/NASTRAN/INPUT/DYNAMIC/EIGRL/IDENTITY", _msc_input_eigrl_records(model), _msc_eigrl_dtype)
+    _msc_write_custom(file, "/NASTRAN/INPUT/DYNAMIC/EIGB", _msc_input_eigb_records(model), _msc_eigb_dtype)
+    if !isempty(get(model, "EIGBs", Dict()))
+        attributes(file["/NASTRAN/INPUT/DYNAMIC/EIGB"])["JFEM_SCHEMA"] = "COMPACT_EIGB_V1"
+    end
 
     _msc_write_custom(file, "/NASTRAN/INPUT/PARAMETER/MDLPRM",
         [_MSCParamIntRec(_msc_fixed_string_bytes("HDF5", 8), 1, 1)], _msc_param_int_dtype)
@@ -1589,26 +1801,32 @@ function _msc_write_input_tables(file, model)
     _msc_write_casecc_subcase(file, model)
 end
 
-function _msc_nodal_rows_from_vector(id_map, vector, domain_id::Integer)
-    rows = _MSCNodalResultRec[]
-    for nid in _msc_node_order(id_map)
+function _msc_fill_nodal_rows!(rows, offset, id_map, vector, domain_id, node_order)
+    length(vector)==6*length(id_map) || throw(DimensionMismatch("HDF5 nodal vector must contain six values per GRID"))
+    for (i, nid) in enumerate(node_order)
         idx = id_map[nid]
         base = (idx - 1) * 6
         vals = ntuple(i -> base + i <= length(vector) ? _msc_f64(vector[base + i]) : 0.0, 6)
-        push!(rows, _MSCNodalResultRec(_msc_i64(nid), vals[1], vals[2], vals[3], vals[4], vals[5], vals[6], _msc_i64(domain_id)))
+        rows[offset+i] = _MSCNodalResultRec(_msc_i64(nid), vals[1], vals[2], vals[3], vals[4], vals[5], vals[6], _msc_i64(domain_id))
     end
     return rows
 end
 
+function _msc_nodal_rows_from_vector(id_map, vector, domain_id::Integer)
+    rows = Vector{_MSCNodalResultRec}(undef, length(id_map))
+    return _msc_fill_nodal_rows!(rows, 0, id_map, vector, domain_id, _msc_node_order(id_map))
+end
+
 function _msc_eigenvector_rows(id_map, mode_shapes, domain_start::Integer)
-    rows = _MSCNodalResultRec[]
+    rows = Vector{_MSCNodalResultRec}(undef, length(id_map) * size(mode_shapes, 2))
     index = _MSCIndexRec[]
     node_count = length(id_map)
+    node_order = _msc_node_order(id_map)
     position = 0
     for mode in 1:size(mode_shapes, 2)
         domain_id = _msc_i64(domain_start + mode - 1)
         push!(index, _MSCIndexRec(domain_id, position, node_count))
-        append!(rows, _msc_nodal_rows_from_vector(id_map, view(mode_shapes, :, mode), domain_id))
+        _msc_fill_nodal_rows!(rows, position, id_map, view(mode_shapes, :, mode), domain_id, node_order)
         position += node_count
     end
     return rows, index
@@ -1905,9 +2123,19 @@ function _msc_casecc_subcase_rows(model)
             row[:LDSPTSET] = -1; row[:LDSMEDIA] = 7; row[:LDSFMT] = 1
             row[:ROUTLOAD] = 1
         end
-        if haskey(sub, "METHOD") && !isnothing(sub["METHOD"])
-            row[:REESET] = _msc_i64(sub["METHOD"])
-            row[:REESETF] = _msc_i64(sub["METHOD"])
+        local_method = get(sub, "METHOD", nothing)
+        resolved_method = if !isnothing(local_method)
+            local_method
+        elseif sol_type == 105 && haskey(sub, "STATSUB")
+            # Match SOL105 case selection: a global METHOD applies to the
+            # STATSUB buckling case, not to every static/load subcase.
+            get(case_control, "METHOD", nothing)
+        else
+            nothing
+        end
+        if !isnothing(resolved_method)
+            row[:REESET] = _msc_i64(resolved_method)
+            row[:REESETF] = _msc_i64(resolved_method)
         end
         if haskey(sub, "STATSUB") && !isnothing(sub["STATSUB"])
             row[:STATSUBB] = _msc_i64(sub["STATSUB"])
@@ -1979,7 +2207,7 @@ function _msc_static_load_id(results, subcase)
     case_control = get(model, "CASE_CONTROL", Dict{String,Any}())
     subcases = get(case_control, "SUBCASES", Dict{Int,Dict{String,Any}}())
     ctrl = haskey(subcases, sid) ? subcases[sid] : Dict{String,Any}()
-    return get(ctrl, "LOAD", nothing)
+    return get(ctrl, "LOAD", get(case_control, "LOAD", nothing))
 end
 
 function _msc_sol105_static_load_id(results)
@@ -1996,12 +2224,13 @@ function _msc_sol105_static_load_id(results)
 end
 
 function _msc_write_nodal_table(file, path, id_map, vectors_with_domains)
-    rows = _MSCNodalResultRec[]
+    rows = Vector{_MSCNodalResultRec}(undef, length(id_map) * length(vectors_with_domains))
     index = _MSCIndexRec[]
     position = 0
     node_count = length(id_map)
+    node_order = _msc_node_order(id_map)
     for (domain_id, vector) in vectors_with_domains
-        append!(rows, _msc_nodal_rows_from_vector(id_map, vector, domain_id))
+        _msc_fill_nodal_rows!(rows, position, id_map, vector, domain_id, node_order)
         push!(index, _MSCIndexRec(_msc_i64(domain_id), position, node_count))
         position += node_count
     end
@@ -2013,7 +2242,8 @@ function _msc_write_sol101_results(file, results)
     subcases = get(results, "subcases", Any[])
     _msc_write_records(file, "/NASTRAN/RESULT/DOMAINS", _msc_result_domains_static(subcases); version=20200)
     _msc_write_grid_weight(file, results)
-    _msc_write_static_element_results(file, results, [_msc_i64(i + 1) for i in eachindex(subcases)])
+    # Recovered element tables are not yet mapped to the compact schema.
+    # Do not turn a missing mapping into fictitious zero stresses/strains.
     displacements = _MSCNodalResultRec[]
     index = _MSCIndexRec[]
     position = 0
@@ -2030,73 +2260,214 @@ function _msc_write_sol101_results(file, results)
 
     applied = Tuple{Int64,Vector{Float64}}[]
     spc = Tuple{Int64,Vector{Float64}}[]
-    mpc = Tuple{Int64,Vector{Float64}}[]
     for (i, subcase) in enumerate(subcases)
         domain_id = _msc_i64(i + 1)
         push!(applied, (domain_id, _msc_applied_load_vector(results, _msc_static_load_id(results, subcase))))
         push!(spc, (domain_id, _msc_vector_from_nodal_entries(results["id_map"], get(subcase, "spc_forces", Any[]))))
-        push!(mpc, (domain_id, zeros(Float64, 6 * length(results["id_map"]))))
     end
     _msc_write_nodal_table(file, "/NASTRAN/RESULT/NODAL/APPLIED_LOAD", results["id_map"], applied)
     _msc_write_nodal_table(file, "/NASTRAN/RESULT/NODAL/SPC_FORCE", results["id_map"], spc)
-    _msc_write_nodal_table(file, "/NASTRAN/RESULT/NODAL/MPC_FORCE", results["id_map"], mpc)
+    attributes(file["/NASTRAN/RESULT"])["COORDINATE_FRAME"] = "BASIC_GLOBAL"
+    attributes(file["/NASTRAN/RESULT"])["UNAVAILABLE_RESULTS"] = "ELEMENTAL,MPC_FORCE"
+    if !isempty(applied)
+        attributes(file["/NASTRAN/RESULT/NODAL/APPLIED_LOAD"])["SOURCE"] = "FORCE_AND_MOMENT_ONLY"
+        attributes(file["/NASTRAN/RESULT/NODAL/SPC_FORCE"])["SOURCE"] = "SOLVER_EQUILIBRIUM_RESIDUAL"
+    end
+end
+
+function _export_validate_sol105_states(results)
+    br=get(results,"buckling",nothing)
+    if br===nothing
+        _export_validate_modes(get(results,"eigenvalues",Float64[]),get(results,"_raw_mode_shapes",zeros(0,0)),results["id_map"])
+        !haskey(results,"u_static") || length(results["u_static"])==6*length(results["id_map"]) ||
+            throw(DimensionMismatch("Legacy SOL105 static vector does not match GRID count"))
+        _sol105_legacy_mode_ownership(results)
+        return nothing
+    end
+    for sc in br.subcases
+        state=_sol105_export_state(results,sc)
+        _export_validate_modes(sc.reported_eigenvalues,sc.reported_mode_shapes,state.id_map)
+        length(sc.u_static)==6*length(state.id_map) || throw(DimensionMismatch("SOL105 static vector does not match GRID count"))
+        size(state.X)==(length(state.id_map),3) || throw(DimensionMismatch("SOL105 static coordinates do not match GRID count"))
+    end
+    return nothing
+end
+
+function _sol105_legacy_mode_ownership(results)
+    count=length(get(results,"eigenvalues",Float64[]))
+    metadata=get(results,"mode_metadata",nothing)
+    if metadata!==nothing
+        length(metadata)==count || throw(DimensionMismatch("Legacy SOL105 ownership metadata does not match mode count"))
+        if !isempty(metadata) && all(item->all(key->haskey(item,key),
+                ("static_subcase_id","buckling_subcase_id","subcase_mode_index")),metadata)
+            static_ids=unique(Int(item["static_subcase_id"]) for item in metadata)
+            length(static_ids)==1 || throw(ArgumentError("Legacy SOL105 results lack separate static states for multiple STATSUB IDs"))
+            return (static_sid=only(static_ids),buckling_sids=Int[item["buckling_subcase_id"] for item in metadata],
+                modes=Int[item["subcase_mode_index"] for item in metadata],inferred=false)
+        end
+    end
+    return (static_sid=Int(get(results,"static_subcase_id",1)),
+        buckling_sids=fill(Int(get(results,"buckling_subcase_id",2)),count),modes=collect(1:count),inferred=true)
 end
 
 function _msc_write_sol103_results(file, results)
-    eigenvalues = collect(get(results, "eigenvalues", Float64[]))
-    mode_shapes = get(results, "_raw_mode_shapes", zeros(0, 0))
-    domains, vector_start = _msc_result_domains_modal(eigenvalues; subcase=1, analysis_code=2, summary_start=2)
+    subcases = get(results,"subcases",Any[])
+    isempty(subcases) && (subcases=[Dict("sid"=>get(results,"sid",1),
+        "eigenvalues"=>get(results,"eigenvalues",Float64[]),
+        "frequencies"=>get(results,"frequencies",nothing),
+        "_raw_mode_shapes"=>get(results,"_raw_mode_shapes",zeros(0,0)),
+        "modal_effective_mass"=>get(results,"modal_effective_mass",Any[]))])
+    domains = _MSCResultDomainRec[_MSCResultDomainRec(1,0,0,0,0.0,0.0,0,0,0,0,0,0,0,0,0,0)]
+    eigen_rows = _MSCEigenvalueRec[]
+    eigen_index = _MSCIndexRec[]
+    vectors = Tuple{Int64,Any}[]
+    for sc in subcases
+        eigs=sc["eigenvalues"]; shapes=sc["_raw_mode_shapes"]; frequencies=get(sc,"frequencies",nothing)
+        _export_validate_modes(eigs,shapes,results["id_map"];frequencies=frequencies)
+        sid=_msc_i64(sc["sid"])
+        effective=get(sc,"modal_effective_mass",Any[])
+        for (mode,eig) in enumerate(eigs)
+            summary_domain=length(domains)+1
+            push!(domains,_MSCResultDomainRec(summary_domain,sid,0,0,0.0,0.0,mode,0,0,0,0,0,0,0,0,0))
+            freq=frequencies===nothing ? sqrt(abs(eig))/(2pi) : frequencies[mode]
+            mass=mode<=length(effective) ? _msc_f64(get(effective[mode],"generalized_mass",0.0)) : 0.0
+            push!(eigen_index,_MSCIndexRec(summary_domain,length(eigen_rows),1))
+            push!(eigen_rows,_MSCEigenvalueRec(mode,mode,eig,sqrt(abs(eig)),freq,mass,eig*mass,0,0,summary_domain))
+            vector_domain=length(domains)+1
+            push!(domains,_MSCResultDomainRec(vector_domain,sid,0,2,eig,0.0,mode,0,0,0,0,0,0,0,0,0))
+            push!(vectors,(vector_domain,view(shapes,:,mode)))
+        end
+    end
     _msc_write_records(file, "/NASTRAN/RESULT/DOMAINS", domains; version=20200)
     _msc_write_grid_weight(file, results)
-    eigen_rows = _msc_eigenvalue_rows(eigenvalues, 2; frequencies=get(results, "frequencies", nothing))
     _msc_write_records(file, "/NASTRAN/RESULT/SUMMARY/EIGENVALUE", eigen_rows)
-    _msc_write_records(file, "/INDEX/NASTRAN/RESULT/SUMMARY/EIGENVALUE", [_MSCIndexRec(2, 0, length(eigen_rows))])
-    evec_rows, evec_index = _msc_eigenvector_rows(results["id_map"], mode_shapes, vector_start)
-    _msc_write_records(file, "/NASTRAN/RESULT/NODAL/EIGENVECTOR", evec_rows; version=1)
-    _msc_write_records(file, "/INDEX/NASTRAN/RESULT/NODAL/EIGENVECTOR", evec_index)
-
-    zero = zeros(Float64, 6 * length(results["id_map"]))
-    spc_vectors = [(Int64(vector_start + i - 1), zero) for i in 1:length(eigenvalues)]
-    _msc_write_nodal_table(file, "/NASTRAN/RESULT/NODAL/SPC_FORCE", results["id_map"], spc_vectors)
+    _msc_write_records(file, "/INDEX/NASTRAN/RESULT/SUMMARY/EIGENVALUE", eigen_index)
+    _msc_write_nodal_table(file,"/NASTRAN/RESULT/NODAL/EIGENVECTOR",results["id_map"],vectors)
+    attributes(file["/NASTRAN/RESULT"])["COORDINATE_FRAME"] = "BASIC_GLOBAL"
+    attributes(file["/NASTRAN/RESULT"])["UNAVAILABLE_RESULTS"] = "SPC_FORCE,MPC_FORCE"
 end
 
-function _msc_write_sol105_results(file, results)
+function _msc_write_sol105_legacy_results(file, results)
     eigenvalues = collect(get(results, "eigenvalues", Float64[]))
     mode_shapes = get(results, "_raw_mode_shapes", zeros(0, 0))
-    domains, vector_start = _msc_result_domains_buckling(eigenvalues)
+    ownership = _sol105_legacy_mode_ownership(results)
+    domains = _MSCResultDomainRec[
+        _MSCResultDomainRec(1,0,0,0,0.0,0.0,0,0,0,0,0,0,0,0,0,0),
+        _MSCResultDomainRec(2,ownership.static_sid,0,1,0.0,0.0,0,0,0,0,0,0,0,0,0,0)]
+    eigen_rows = _MSCEigenvalueRec[]
+    eigen_index = _MSCIndexRec[]
+    vector_start = 3+length(eigenvalues)
+    for (i,eig) in enumerate(eigenvalues)
+        sid=ownership.buckling_sids[i]; mode=ownership.modes[i]; domain=i+2
+        push!(domains,_MSCResultDomainRec(domain,sid,0,0,0.0,0.0,mode,0,0,0,0,0,0,0,0,0))
+        push!(eigen_rows,_MSCEigenvalueRec(mode,mode,eig,0.0,0.0,0.0,0.0,0,0,domain))
+        push!(eigen_index,_MSCIndexRec(domain,i-1,1))
+    end
+    for (i,eig) in enumerate(eigenvalues)
+        push!(domains,_MSCResultDomainRec(vector_start+i-1,ownership.buckling_sids[i],0,8,eig,0.0,ownership.modes[i],0,0,0,0,0,0,0,0,0))
+    end
     _msc_write_records(file, "/NASTRAN/RESULT/DOMAINS", domains; version=20200)
     _msc_write_grid_weight(file, results)
-    haskey(results, "u_static") && _msc_write_static_element_results(file, results, [2])
-    eigen_rows = _msc_eigenvalue_rows(eigenvalues, 3)
     _msc_write_records(file, "/NASTRAN/RESULT/SUMMARY/EIGENVALUE", eigen_rows)
-    _msc_write_records(file, "/INDEX/NASTRAN/RESULT/SUMMARY/EIGENVALUE", [_MSCIndexRec(3, 0, length(eigen_rows))])
+    _msc_write_records(file, "/INDEX/NASTRAN/RESULT/SUMMARY/EIGENVALUE", eigen_index)
     if haskey(results, "u_static")
-        disp_rows = _msc_nodal_rows_from_vector(results["id_map"], results["u_static"], 2)
+        u_basic=_export_rotate_vector!(similar(results["u_static"]),results["u_static"],results["id_map"],get(results,"node_R",nothing))
+        disp_rows = _msc_nodal_rows_from_vector(results["id_map"], u_basic, 2)
         _msc_write_records(file, "/NASTRAN/RESULT/NODAL/DISPLACEMENT", disp_rows; version=1)
         _msc_write_records(file, "/INDEX/NASTRAN/RESULT/NODAL/DISPLACEMENT", [_MSCIndexRec(2, 0, length(disp_rows))])
 
-        static_load_id = _msc_sol105_static_load_id(results)
+        static_load_id = _msc_static_load_id(results,Dict("sid"=>ownership.static_sid))
         static_domain = Int64(2)
-        zero_static = zeros(Float64, 6 * length(results["id_map"]))
         _msc_write_nodal_table(file, "/NASTRAN/RESULT/NODAL/APPLIED_LOAD", results["id_map"],
             [(static_domain, _msc_applied_load_vector(results, static_load_id))])
-        _msc_write_nodal_table(file, "/NASTRAN/RESULT/NODAL/MPC_FORCE", results["id_map"],
-            [(static_domain, zero_static)])
+        attributes(file["/NASTRAN/RESULT/NODAL/APPLIED_LOAD"])["SOURCE"] = "FORCE_AND_MOMENT_ONLY"
     end
     evec_rows, evec_index = _msc_eigenvector_rows(results["id_map"], mode_shapes, vector_start)
     _msc_write_records(file, "/NASTRAN/RESULT/NODAL/EIGENVECTOR", evec_rows; version=1)
     _msc_write_records(file, "/INDEX/NASTRAN/RESULT/NODAL/EIGENVECTOR", evec_index)
 
-    zero = zeros(Float64, 6 * length(results["id_map"]))
-    spc_vectors = Tuple{Int64,Vector{Float64}}[]
-    haskey(results, "u_static") && push!(spc_vectors, (Int64(2), copy(zero)))
-    for i in 1:length(eigenvalues)
-        push!(spc_vectors, (Int64(vector_start + i - 1), copy(zero)))
+    attributes(file["/NASTRAN/RESULT"])["COORDINATE_FRAME"] = "BASIC_GLOBAL"
+    attributes(file["/NASTRAN/RESULT"])["UNAVAILABLE_RESULTS"] = "ELEMENTAL,SPC_FORCE,MPC_FORCE"
+    attributes(file["/NASTRAN/RESULT"])["SUBCASE_ID_SOURCE"] = ownership.inferred ? "LEGACY_DEFAULT_OR_EXPLICIT_IDS" : "MODE_METADATA"
+end
+
+function _msc_write_sol105_results(file, results)
+    br = get(results, "buckling", nothing)
+    br === nothing && return _msc_write_sol105_legacy_results(file, results)
+    domains = _MSCResultDomainRec[
+        _MSCResultDomainRec(1, 0, 0, 0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
+    eigen_rows = _MSCEigenvalueRec[]
+    eigen_index = _MSCIndexRec[]
+    # Store each static state once even when several METHODs use its STATSUB.
+    static_domains = Dict{Int,Int}()
+    static_vectors = Tuple{Int64,Vector{Float64}}[]
+    applied_vectors = Tuple{Int64,Vector{Float64}}[]
+    mode_vectors = Tuple{Int64,Any}[]
+    for sc in br.subcases
+        state = _sol105_export_state(results, sc)
+        state.id_map == results["id_map"] || error("SOL105 HDF5 requires a common node ordering across subcases")
+        static_sid = sc.static_subcase_id
+        if !haskey(static_domains, static_sid)
+            domain = length(domains) + 1
+            static_domains[static_sid] = domain
+            push!(domains, _MSCResultDomainRec(domain, static_sid, 0, 1, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+            u_global = _export_rotate_vector!(similar(sc.u_static), sc.u_static,
+                state.id_map, state.node_R)
+            push!(static_vectors, (domain, u_global))
+            load_id = _msc_static_load_id(results, Dict("sid" => static_sid))
+            push!(applied_vectors, (domain, _msc_applied_load_vector(results, load_id)))
+        end
+        length(sc.reported_eigenvalues) == size(sc.reported_mode_shapes, 2) ||
+            throw(DimensionMismatch("SOL105 subcase $(sc.buckling_subcase_id) eigenvalue/vector counts differ"))
+        for (mode, eig) in enumerate(sc.reported_eigenvalues)
+            summary_domain = length(domains) + 1
+            push!(domains, _MSCResultDomainRec(summary_domain, sc.buckling_subcase_id, 0, 0,
+                0.0, 0.0, mode, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+            # Buckling factors are dimensionless; modal frequency and mass
+            # fields have no physical meaning in this analysis.
+            push!(eigen_index, _MSCIndexRec(summary_domain, length(eigen_rows), 1))
+            push!(eigen_rows, _MSCEigenvalueRec(mode, mode, eig, 0.0, 0.0, 0.0, 0.0, 0, 0, summary_domain))
+            vector_domain = length(domains) + 1
+            push!(domains, _MSCResultDomainRec(vector_domain, sc.buckling_subcase_id, 0, 8,
+                eig, 0.0, mode, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+            push!(mode_vectors, (vector_domain, view(sc.reported_mode_shapes, :, mode)))
+        end
     end
-    _msc_write_nodal_table(file, "/NASTRAN/RESULT/NODAL/SPC_FORCE", results["id_map"], spc_vectors)
+    _msc_write_records(file, "/NASTRAN/RESULT/DOMAINS", domains; version=20200)
+    _msc_write_grid_weight(file, results)
+    _msc_write_records(file, "/NASTRAN/RESULT/SUMMARY/EIGENVALUE", eigen_rows)
+    _msc_write_records(file, "/INDEX/NASTRAN/RESULT/SUMMARY/EIGENVALUE", eigen_index)
+    _msc_write_nodal_table(file, "/NASTRAN/RESULT/NODAL/DISPLACEMENT", results["id_map"], static_vectors)
+    _msc_write_nodal_table(file, "/NASTRAN/RESULT/NODAL/APPLIED_LOAD", results["id_map"], applied_vectors)
+    if !isempty(applied_vectors)
+        attributes(file["/NASTRAN/RESULT/NODAL/APPLIED_LOAD"])["SOURCE"] = "FORCE_AND_MOMENT_ONLY"
+    end
+    _msc_write_nodal_table(file, "/NASTRAN/RESULT/NODAL/EIGENVECTOR", results["id_map"], mode_vectors)
+    # Do not publish invented zero stresses/reactions as solved results.
+    attributes(file["/NASTRAN/RESULT"])["COORDINATE_FRAME"] = "BASIC_GLOBAL"
+    attributes(file["/NASTRAN/RESULT"])["UNAVAILABLE_RESULTS"] = "ELEMENTAL,SPC_FORCE,MPC_FORCE"
 end
 
 function export_nastran_hdf5(filename, output_dir, results; suffix=".h5")
+    _export_validate_node_map(results["id_map"])
+    sol = _msc_i64(get(results,"sol_type",0))
+    sol in (101,103,105,106) || error("MSC/Nastran-like HDF5 export is not implemented for SOL $sol")
+    if sol == 105
+        _export_validate_sol105_states(results)
+    elseif sol == 103
+        subcases=get(results,"subcases",Any[])
+        if isempty(subcases)
+            _export_validate_modes(get(results,"eigenvalues",Float64[]),get(results,"_raw_mode_shapes",zeros(0,0)),results["id_map"]; frequencies=get(results,"frequencies",nothing))
+        else
+            for sc in subcases
+                _export_validate_modes(sc["eigenvalues"],sc["_raw_mode_shapes"],results["id_map"];frequencies=get(sc,"frequencies",nothing))
+            end
+        end
+    elseif sol == 101 || sol == 106
+        for sc in get(results,"subcases",Any[])
+            length(get(sc,"raw_displacement",Float64[]))==6*length(results["id_map"]) || throw(DimensionMismatch("Static HDF5 vector does not match GRID count"))
+        end
+    end
     h5_path = joinpath(output_dir, _export_base_name(filename) * suffix)
     println("\n>>> Exporting MSC/Nastran-like compact HDF5: $h5_path")
     _export_ensure_parent_dir!(h5_path)
@@ -2320,12 +2691,14 @@ Convert a SOL 105 static-preload displacement vector into the same per-grid
 row format the SOL 101 export uses, so a consumer can read a preload
 displacement out of a buckling result without a second run.
 
-`u_static` is in the analysis DOF ordering and the grid CD output frame, i.e.
-the same convention the mode shapes and the reference solver's printed
-displacement vector use.
+`u_static` is in analysis DOF ordering and the GRID CD frame. Pass `node_R`
+to emit basic/global components, the convention used by SOL105 mode shapes.
 """
-function _static_disp_to_list(u_static, id_map)
+function _static_disp_to_list(u_static, id_map; node_R=nothing)
     u_static === nothing && return nothing
+    if node_R !== nothing
+        u_static = _export_rotate_vector!(similar(u_static), u_static, id_map, node_R)
+    end
     sorted_nodes = sort(collect(keys(id_map)))
     ndof = length(u_static)
     rows = Any[]
@@ -2352,6 +2725,7 @@ function build_buckling_export_payload(eigenvalues, mode_shapes, id_map;
                                        analysis_type="SOL105_BUCKLING",
                                        diagnostics=nothing,
                                        backend_metadata=nothing)
+    _export_validate_modes(eigenvalues, mode_shapes, id_map; frequencies=frequencies)
     sorted_nodes = sort(collect(keys(id_map)))
     mode_count = size(mode_shapes, 2)
     modes = Any[]
@@ -2652,7 +3026,23 @@ function collect_point_loads(model, load_id)
     return forces_acc, moments_acc
 end
 
+function _export_missing_shell_result_eids(sub_res, jfem_quads, jfem_trias)
+    required = Set(Int(el[1]) for family in (jfem_quads, jfem_trias) for el in family)
+    isempty(required) && return Int[]
+    forces = get(sub_res, "forces", Dict())
+    stresses = get(sub_res, "stresses", Dict())
+    finite32(value) = value isa Real && isfinite(Float32(value))
+    valid_force(row) = all(key -> haskey(row, key) && finite32(row[key]), ("fx", "fy", "fxy", "mx", "my", "mxy"))
+    valid_stress(row) = all(face -> haskey(row, face) && haskey(row[face], "von_mises") &&
+        finite32(row[face]["von_mises"]), ("z1", "z2"))
+    force_ids = Set(Int(row["eid"]) for family in ("quad4", "tria3") for row in get(forces, family, []) if valid_force(row))
+    stress_ids = Set(Int(row["eid"]) for family in ("quad4", "tria3") for row in get(stresses, family, []) if valid_stress(row))
+    return sort!([eid for eid in required if !(eid in force_ids && eid in stress_ids)])
+end
+
 function collect_jfem_subcase_data(u, sub_res, id_map, jfem_node_ids, jfem_quads, jfem_trias, jfem_bars, jfem_rods, jfem_tetras, jfem_hexas, jfem_pentas; model=nothing, spc_id=nothing, load_id=nothing)
+    missing_shells = _export_missing_shell_result_eids(sub_res, jfem_quads, jfem_trias)
+    isempty(missing_shells) || throw(ArgumentError("Static JFEM binary cannot represent unavailable shell force/stress fields; missing EIDs: $(join(missing_shells, ", "))"))
     safe_f32(x) = (v = Float32(x); isnan(v) || isinf(v) ? Float32(0) : v)
     nNodes_jfem = length(jfem_node_ids)
     nQuads_jfem = length(jfem_quads)
@@ -2802,25 +3192,72 @@ function collect_jfem_subcase_data(u, sub_res, id_map, jfem_node_ids, jfem_quads
             spc=spc_data, forces=force_data, moments=moment_data)
 end
 
-function export_vtk_subcase(filename, output_dir, sid, model, id_map, X, u, stresses)
-    base_name = basename(filename)
-    vtk_base = replace(base_name, ".bdf" => "") * "_Subcase_$sid"
+# Resolve the shell scalar convention once for both VTK and Markdown.
+# Ordinary PSHELL scalars are principal stresses; only recovered VM rows are
+# valid here. PCOMP scalars retain the maximum over all ply midplanes.
+function _export_shell_vonmises(model, shell_stresses, stresses)
+    values = Dict{Int,Float64}()
+    shell_ids = Set{Int}()
+    if shell_stresses isa AbstractDict
+        for family in ("quad4", "tria3"), row in get(shell_stresses, family, [])
+            eid = _export_entry_public_id(row["eid"], nothing)
+            push!(shell_ids, eid)
+            fibers = map(("z1", "z2")) do face
+                fiber = get(row, face, nothing)
+                fiber isa AbstractDict ? get(fiber, "von_mises", nothing) : nothing
+            end
+            if all(v -> v isa Real && isfinite(v) && v >= 0, fibers)
+                values[eid] = max(fibers...)
+            end
+        end
+    end
+    if model isa AbstractDict
+        properties = get(model, "PSHELLs", Dict())
+        for (id, element) in get(model, "CSHELLs", Dict())
+            eid = _export_entry_public_id(id, element)
+            push!(shell_ids, eid)
+            prop = _msc_model_value_by_id(properties, get(element, "PID", 0))
+            if prop !== nothing && get(prop, "TYPE", "") == "PCOMP_CLT"
+                # Full rows contain only the first and last ply midplanes.
+                value = stresses isa AbstractDict ? _msc_model_value_by_id(stresses, eid) : nothing
+                if value isa Real && isfinite(value) && value >= 0
+                    values[eid] = value
+                else
+                    delete!(values, eid)
+                end
+            end
+        end
+    end
+    return (values=values, shell_ids=shell_ids,
+        unavailable=sort!([eid for eid in shell_ids if !haskey(values, eid)]))
+end
+
+function export_vtk_subcase(filename, output_dir, sid, model, id_map, X, u, stresses;
+                            shell_stresses=nothing)
+    _export_validate_node_map(id_map)
+    size(X)==(length(id_map),3) || throw(DimensionMismatch("VTK coordinates do not match GRID count"))
+    length(u)==6*length(id_map) || throw(DimensionMismatch("VTK displacement does not match GRID count"))
+    vtk_base = _export_base_name(filename) * "_Subcase_$sid"
     vtk_path = joinpath(output_dir, vtk_base)
-    points = zeros(3, length(id_map))
+    points = permutedims(X)
     disp = zeros(3, length(id_map))
     for (nid, idx) in id_map
-         points[:, idx] = X[idx, :]
-         disp[:, idx] = u[(idx-1)*6+1:(idx-1)*6+3]
+         for d in 1:3; disp[d,idx] = u[(idx-1)*6+d]; end
     end
     cells = MeshCell[]
     data_vonmises = Float64[]
+    unavailable_shells = Int[]
+    shell_vonmises = _export_shell_vonmises(model, shell_stresses, stresses).values
     for (id, el) in model["CSHELLs"]
         if !haskey(el, "NODES"); continue; end
         eid = _export_entry_public_id(id, el); nids = [get(id_map, n, 0) for n in el["NODES"]]; if 0 in nids; continue; end
+        if length(nids) in (3, 4) && !haskey(shell_vonmises, eid)
+            push!(unavailable_shells, eid)
+        end
         if length(nids) == 3
-            push!(cells, MeshCell(VTKCellTypes.VTK_TRIANGLE, nids)); push!(data_vonmises, get(stresses, eid, 0.0))
+            push!(cells, MeshCell(VTKCellTypes.VTK_TRIANGLE, nids)); push!(data_vonmises, get(shell_vonmises, eid, NaN))
         elseif length(nids) == 4
-            push!(cells, MeshCell(VTKCellTypes.VTK_QUAD, nids)); push!(data_vonmises, get(stresses, eid, 0.0))
+            push!(cells, MeshCell(VTKCellTypes.VTK_QUAD, nids)); push!(data_vonmises, get(shell_vonmises, eid, NaN))
         end
     end
     for (id, bar) in model["CBARs"]
@@ -2837,6 +3274,11 @@ function export_vtk_subcase(filename, output_dir, sid, model, id_map, X, u, stre
          if !haskey(rod, "GA"); continue; end
          eid = _export_entry_public_id(id, rod); nids = [get(id_map, rod["GA"], 0), get(id_map, rod["GB"], 0)]; if 0 in nids; continue; end
          push!(cells, MeshCell(VTKCellTypes.VTK_LINE, nids)); push!(data_vonmises, get(stresses, eid, 0.0))
+    end
+    for (id, rod) in get(model,"CONRODs",Dict())
+         if !haskey(rod,"GA"); continue; end
+         eid = _export_entry_public_id(id,rod); nids=[get(id_map,rod["GA"],0),get(id_map,rod["GB"],0)]; if 0 in nids; continue; end
+         push!(cells,MeshCell(VTKCellTypes.VTK_LINE,nids)); push!(data_vonmises,get(stresses,eid,0.0))
     end
     # Solid elements
     for (id, el) in get(model, "CSOLIDs", Dict())
@@ -2856,9 +3298,15 @@ function export_vtk_subcase(filename, output_dir, sid, model, id_map, X, u, stre
         push!(data_vonmises, get(stresses, eid, 0.0))
     end
     if !isempty(cells)
-        vtk = vtk_grid(vtk_path, points, cells)
+        vtk = vtk_grid(_export_fs_path(vtk_path), points, cells)
         vtk["Displacement", VTKPointData()] = disp
-        vtk["VonMises_Stress", VTKCellData()] = data_vonmises
+        if isempty(unavailable_shells)
+            vtk["VonMises_Stress", VTKCellData()] = data_vonmises
+        else
+            @warn "VTK VonMises_Stress array omitted because shell stresses are unavailable; geometry and displacements remain available." unavailable_shell_eids=sort!(unavailable_shells)
+            vtk["VonMises_Stress_Available", VTKFieldData()] = [0]
+            vtk["VonMises_Stress_Unavailable_Shell_EIDs", VTKFieldData()] = unavailable_shells
+        end
         vtk_save(vtk)
         println("  VTK saved: $vtk_path.vtu")
     end
@@ -2870,7 +3318,7 @@ function export_json(filename, output_dir, global_results)
     println("\n>>> Exporting AGGREGATED JSON: $json_path")
     sanitize!(global_results)
     _export_ensure_parent_dir!(json_path)
-    open(_export_fs_path(json_path), "w") do f; JSON.print(f, global_results, 4); end
+    _export_write_json(json_path, global_results)
 end
 
 function export_optimization_json(filename, output_dir, results)
@@ -2878,9 +3326,7 @@ function export_optimization_json(filename, output_dir, results)
     payload = build_optimization_export_payload(results)
     sanitize!(payload)
     _export_ensure_parent_dir!(json_path)
-    open(_export_fs_path(json_path), "w") do f
-        JSON.print(f, payload, 2)
-    end
+    _export_write_json(json_path, payload, 2)
     println("  Optimization JSON saved: $json_path")
 end
 
@@ -2896,12 +3342,18 @@ function export_nonlinear_json(filename, output_dir, subcases;
     println("\n>>> Exporting NONLINEAR JSON: $json_path")
     sanitize!(results)
     _export_ensure_parent_dir!(json_path)
-    open(_export_fs_path(json_path), "w") do f; JSON.print(f, results, 4); end
+    _export_write_json(json_path, results)
 end
 
 function export_jfem_binary(filename, output_dir, id_map, X, jfem_node_ids, jfem_quads, jfem_trias, jfem_bars, jfem_rods, jfem_tetras, jfem_hexas, jfem_pentas, jfem_subcases_data; jfem_celas=[], jfem_rbe2s=[], jfem_rbe3s=[])
-    base_name = basename(filename)
-    jfem_name = replace(base_name, ".bdf" => "") * ".jfem"
+    _export_validate_mesh(id_map,X,jfem_node_ids,jfem_quads,jfem_trias,jfem_tetras,jfem_hexas,jfem_pentas)
+    expected = (disp=6*length(jfem_node_ids),shell=7*(length(jfem_quads)+length(jfem_trias)),
+        bar=7*length(jfem_bars),rod=2*length(jfem_rods),solid=length(jfem_tetras)+length(jfem_hexas)+length(jfem_pentas))
+    for sc in jfem_subcases_data, key in keys(expected)
+        length(getproperty(sc,key)) == getproperty(expected,key) ||
+            throw(DimensionMismatch("Subcase $(sc.sid) $key field count does not match the mesh"))
+    end
+    jfem_name = _export_base_name(filename) * ".jfem"
     jfem_path = joinpath(output_dir, jfem_name)
     nNodes_jfem = length(jfem_node_ids)
     nQuads_jfem = length(jfem_quads)
@@ -2914,9 +3366,8 @@ function export_jfem_binary(filename, output_dir, id_map, X, jfem_node_ids, jfem
     println("\n>>> Exporting JFEM binary (v4): $jfem_path")
     _export_ensure_parent_dir!(jfem_path)
     open(_export_fs_path(jfem_path), "w") do fio
-        # Batched export (perf deferred item #13): stage the full byte
-        # stream in memory and hand the OS one write — byte-identical
-        # output, no per-value stream overhead on large models.
+        # Stage mesh and one subcase at a time; retain the staging capacity
+        # while avoiding per-value stream overhead on large models.
         io = IOBuffer()
         # Magic: 'JFEM'
         write(io, UInt8('J')); write(io, UInt8('F')); write(io, UInt8('E')); write(io, UInt8('M'))
@@ -2946,32 +3397,32 @@ function export_jfem_binary(filename, output_dir, id_map, X, jfem_node_ids, jfem
         for (eid, pid, nodes, t) in jfem_quads
             write(io, Int32(eid)); write(io, Int32(pid))
             for n in nodes; write(io, Int32(n)); end
-            write(io, t)
+            write(io, Float32(t))
         end
 
         # CTRIA3 table: eid(i32), pid(i32), g1-g3(i32), thickness(f32)
         for (eid, pid, nodes, t) in jfem_trias
             write(io, Int32(eid)); write(io, Int32(pid))
             for n in nodes; write(io, Int32(n)); end
-            write(io, t)
+            write(io, Float32(t))
         end
 
         # CBAR table: eid(i32), pid(i32), ga(i32), gb(i32), area(f32)
         for (eid, pid, ga, gb, a) in jfem_bars
             write(io, Int32(eid)); write(io, Int32(pid)); write(io, Int32(ga)); write(io, Int32(gb))
-            write(io, a)
+            write(io, Float32(a))
         end
 
         # CROD table: eid(i32), pid(i32), ga(i32), gb(i32), area(f32)
         for (eid, pid, ga, gb, a) in jfem_rods
             write(io, Int32(eid)); write(io, Int32(pid)); write(io, Int32(ga)); write(io, Int32(gb))
-            write(io, a)
+            write(io, Float32(a))
         end
 
         # v3: CELAS table: eid(i32), g1(i32), c1(i32), g2(i32), c2(i32), stiffness(f32), pad(f32)
         for (eid, g1, c1, g2, c2, K_stiff) in jfem_celas
             write(io, Int32(eid)); write(io, Int32(g1)); write(io, Int32(c1))
-            write(io, Int32(g2)); write(io, Int32(c2)); write(io, K_stiff); write(io, Float32(0))
+            write(io, Int32(g2)); write(io, Int32(c2)); write(io, Float32(K_stiff)); write(io, Float32(0))
         end
 
         # v3: RBE2 table (variable-length): eid(i32), gn(i32), cm(i32), nSlaves(u32), [slave_nid(i32) × nSlaves]
@@ -3006,34 +3457,35 @@ function export_jfem_binary(filename, output_dir, id_map, X, jfem_node_ids, jfem
             for n in nodes; write(io, Int32(n)); end
         end
 
+        _export_flush_binary_buffer!(fio, io)
         # Per-subcase data
         for sc in jfem_subcases_data
             write(io, UInt32(sc.sid))
-            write(io, sc.disp)    # nNodes * 6 Float32
-            write(io, sc.shell)   # (nQuads + nTrias) * 7 Float32
-            write(io, sc.bar)     # nBars * 7 Float32
-            write(io, sc.rod)     # nRods * 2 Float32
-            write(io, sc.solid)   # nSolids Float32 (von_mises per solid)
+            _export_write_f32(io, sc.disp)    # nNodes * 6 Float32
+            _export_write_f32(io, sc.shell)   # (nQuads + nTrias) * 7 Float32
+            _export_write_f32(io, sc.bar)     # nBars * 7 Float32
+            _export_write_f32(io, sc.rod)     # nRods * 2 Float32
+            _export_write_f32(io, sc.solid)   # nSolids Float32 (von_mises per solid)
 
             # v3: SPC data
             write(io, UInt32(length(sc.spc)))
             for (nid, mask) in sc.spc
-                write(io, nid); write(io, mask)
+                write(io, Int32(nid)); write(io, UInt32(mask))
             end
 
             # v3: Applied forces
             write(io, UInt32(length(sc.forces)))
             for (nid, fx, fy, fz) in sc.forces
-                write(io, nid); write(io, fx); write(io, fy); write(io, fz)
+                write(io, Int32(nid)); write(io, Float32(fx)); write(io, Float32(fy)); write(io, Float32(fz))
             end
 
             # v3: Applied moments
             write(io, UInt32(length(sc.moments)))
             for (nid, mx, my, mz) in sc.moments
-                write(io, nid); write(io, mx); write(io, my); write(io, mz)
+                write(io, Int32(nid)); write(io, Float32(mx)); write(io, Float32(my)); write(io, Float32(mz))
             end
+            _export_flush_binary_buffer!(fio, io)
         end
-        write(fio, take!(io))
     end
     nTet = length(jfem_tetras); nHex = length(jfem_hexas); nPen = length(jfem_pentas)
     println("  JFEM v4: $(nNodes_jfem) nodes, $(nQuads_jfem)Q+$(nTrias_jfem)T shells, $(nBars_jfem) bars, $(nRods_jfem) rods, $(nTet)Tet+$(nHex)Hex+$(nPen)Pen solids, $(nCelas_jfem) springs, $(length(jfem_subcases_data)) subcases")
@@ -3051,7 +3503,7 @@ function export_card_inventory(cards, output_dir, filename)
         "FORCE", "MOMENT", "PLOAD4", "PLOAD2", "PLOAD1", "PLOAD", "GRAV", "RFORCE",
         "SPC1", "SPC", "SPCADD", "MPC", "MPCADD", "LOAD",
         "CONM2", "CONM1", "CMASS1", "CMASS2", "PMASS",
-        "EIGRL",
+        "EIGRL", "EIGB",
         "TEMP", "TEMPD", "DMIG",
         "PARAM"
     ])
@@ -3068,9 +3520,9 @@ function export_card_inventory(cards, output_dir, filename)
         "processed_card_types" => sort(collect(processed_card_types)),
         "unprocessed_cards" => Dict(unprocessed_cards)
     )
-    inv_path = joinpath(output_dir, replace(basename(filename), ".bdf" => "") * ".CARDS.JSON")
+    inv_path = joinpath(output_dir, _export_base_name(filename) * ".CARDS.JSON")
     _export_ensure_parent_dir!(inv_path)
-    open(_export_fs_path(inv_path), "w") do f; JSON.print(f, inv_json, 4); end
+    _export_write_json(inv_path, inv_json)
     println(">>> Card inventory exported: $inv_path")
     if !isempty(unprocessed_cards)
         println("    WARNING: $(length(unprocessed_cards)) unprocessed card type(s):")
@@ -3084,15 +3536,230 @@ end
 # SOL105 BUCKLING EXPORT FUNCTIONS
 # =============================================================================
 
-function export_buckling_vtk(filename, output_dir, model, id_map, X, eigenvalues, mode_shapes)
+function export_sol105_vtk(filename, output_dir, results)
+    _export_validate_sol105_states(results)
+    br = get(results, "buckling", nothing)
+    if br === nothing
+        return export_buckling_vtk(filename, output_dir, results["model"], results["id_map"],
+            results["node_coords"], results["eigenvalues"], results["_raw_mode_shapes"])
+    end
+    for sc in br.subcases
+        state = _sol105_export_state(results, sc)
+        name = _sol105_export_filename(filename, sc, length(br.subcases))
+        export_buckling_vtk(name, output_dir, results["model"], state.id_map, state.X,
+            sc.reported_eigenvalues, sc.reported_mode_shapes;
+            buckling_subcase_id=sc.buckling_subcase_id, static_subcase_id=sc.static_subcase_id)
+    end
+end
+
+@inline _export_finite(value) = isfinite(value) ? value : 0.0
+
+_export_json_float(io::IO, value::Float64) = print(io, value)
+function _export_json_float(io::_ExportBufferedIO, value::Float64)
+    # The same shortest-roundtrip formatter used by Base.print, directly in
+    # our existing staging buffer instead of a fresh StringVector per scalar.
+    needed = Base.Ryu.neededdigits(Float64)
+    length(io.buffer) < needed && return print(io, value)
+    length(io.buffer) - io.used < needed && flush(io)
+    io.used = Base.Ryu.writeshortest(io.buffer, io.used + 1, value) - 1
+    return nothing
+end
+
+# Stream the repeated nodal schema directly, avoiding one Dict and seven
+# boxed values per grid per mode. Only the small metadata object is staged.
+function _export_json_nodal_vector(io, vector, id_map, node_order)
+    write(io, UInt8('['))
+    for (i, nid) in enumerate(node_order)
+        i > 1 && write(io, UInt8(','))
+        base = 6 * (id_map[nid] - 1)
+        print(io, "{\"grid_id\":", nid)
+        for (d, key) in enumerate(("t1", "t2", "t3", "r1", "r2", "r3"))
+            print(io, ",\"", key, "\":")
+            # Finite Float64's decimal representation is a JSON number;
+            # JSON.print would allocate a fresh context for every scalar.
+            _export_json_float(io, Float64(_export_finite(vector[base+d])))
+        end
+        write(io, UInt8('}'))
+    end
+    write(io, UInt8(']'))
+end
+
+function export_sol105_json(filename, output_dir, results)
+    _export_validate_sol105_states(results)
+    br = get(results, "buckling", nothing)
+    if br === nothing
+        return export_buckling_json(filename, output_dir, results["eigenvalues"],
+            results["_raw_mode_shapes"], results["id_map"];
+            static_displacements=_static_disp_to_list(get(results, "u_static", nothing),
+                results["id_map"]; node_R=get(results, "node_R", nothing)))
+    end
+    path = joinpath(output_dir, _export_base_name(filename) * ".BUCKLING.JSON")
+    mode_refs = [(sc, mode) for sc in br.subcases for mode in eachindex(sc.reported_eigenvalues)]
+    source_indices = Dict((sc.buckling_subcase_id, mode) => i for (i, (sc, mode)) in enumerate(mode_refs))
+    sort!(mode_refs; by=ref -> begin
+        eig = ref[1].reported_eigenvalues[ref[2]]
+        isfinite(eig) ? (eig > 0 ? 0 : 1, eig > 0 ? eig : abs(eig)) : (2, Inf)
+    end)
+    payload = Dict{String,Any}(
+        "analysis_type" => "SOL105_BUCKLING", "coordinate_frame" => "BASIC_GLOBAL",
+        "grid_id_order" => _msc_node_order(results["id_map"]),
+        "eigenvalues" => [sc.reported_eigenvalues[mode] for (sc, mode) in mode_refs],
+        "subcases" => [Dict("buckling_subcase_id" => sc.buckling_subcase_id,
+            "static_subcase_id" => sc.static_subcase_id,
+            "eigenvalues" => copy(sc.reported_eigenvalues)) for sc in br.subcases],
+        "solver_diagnostics" => deepcopy(get(results, "solver_diagnostics", nothing)))
+    merge!(payload, _export_backend_metadata(results))
+    sanitize!(payload)
+    _export_ensure_parent_dir!(path)
+    open(_export_fs_path(path), "w") do stream
+        io = _ExportBufferedIO(stream)
+        # Leave the metadata object's last brace open for streaming fields.
+        metadata = JSON.json(payload)
+        write(io, SubString(metadata, 1, prevind(metadata, lastindex(metadata))))
+        print(io, ",\"modes\":[")
+        number = 0
+        node_orders = Dict(sc.static_subcase_id => _msc_node_order(_sol105_export_state(results, sc).id_map)
+            for sc in br.subcases)
+        for (sc, mode) in mode_refs
+            state = _sol105_export_state(results, sc)
+            node_order = node_orders[sc.static_subcase_id]
+            length(sc.reported_eigenvalues) == size(sc.reported_mode_shapes, 2) ||
+                throw(DimensionMismatch("SOL105 eigenvalue/vector counts differ"))
+            eig = sc.reported_eigenvalues[mode]
+            number > 0 && write(io, UInt8(','))
+            number += 1
+            print(io, "{\"mode_number\":", number,
+                ",\"buckling_subcase_id\":", sc.buckling_subcase_id,
+                ",\"static_subcase_id\":", sc.static_subcase_id,
+                ",\"subcase_mode_index\":", mode,
+                ",\"global_mode_source_index\":", source_indices[(sc.buckling_subcase_id, mode)], ",\"eigenvalue\":")
+            _export_json_float(io, Float64(_export_finite(eig)))
+            print(io, ",\"mode_shape\":")
+            _export_json_nodal_vector(io, view(sc.reported_mode_shapes, :, mode), state.id_map, node_order)
+            write(io, UInt8('}'))
+        end
+        print(io, "],\"static_subcases\":[")
+        seen = Set{Int}()
+        for sc in br.subcases
+            sc.static_subcase_id in seen && continue
+            isempty(seen) || write(io, UInt8(','))
+            push!(seen, sc.static_subcase_id)
+            state = _sol105_export_state(results, sc)
+            global_u = _export_rotate_vector!(similar(sc.u_static), sc.u_static, state.id_map, state.node_R)
+            print(io, "{\"static_subcase_id\":", sc.static_subcase_id, ",\"static_displacements\":")
+            _export_json_nodal_vector(io, global_u, state.id_map, _msc_node_order(state.id_map))
+            write(io, UInt8('}'))
+        end
+        write(io, UInt8(']'))
+        # Keep the original top-level preload only when it is unambiguous.
+        if length(seen) == 1
+            sc = first(br.subcases)
+            state = _sol105_export_state(results, sc)
+            global_u = _export_rotate_vector!(similar(sc.u_static), sc.u_static, state.id_map, state.node_R)
+            print(io, ",\"static_displacements\":")
+            _export_json_nodal_vector(io, global_u, state.id_map, _msc_node_order(state.id_map))
+        end
+        write(io, UInt8('}'))
+        flush(io)
+    end
+    println(">>> Buckling JSON exported: $path")
+end
+
+function export_sol105_jfem(filename, output_dir, results,
+        jfem_node_ids, jfem_quads, jfem_trias, jfem_bars, jfem_rods,
+        jfem_tetras, jfem_hexas, jfem_pentas;
+        jfem_celas=[], jfem_rbe2s=[], jfem_rbe3s=[])
+    _export_validate_sol105_states(results)
+    br = get(results, "buckling", nothing)
+    if br === nothing
+        return export_jfem_buckling(filename, output_dir, results["id_map"], results["node_coords"],
+            jfem_node_ids, jfem_quads, jfem_trias, jfem_bars, jfem_rods,
+            jfem_tetras, jfem_hexas, jfem_pentas, results["eigenvalues"], results["_raw_mode_shapes"];
+            jfem_celas=jfem_celas, jfem_rbe2s=jfem_rbe2s, jfem_rbe3s=jfem_rbe3s,
+            K_global=get(results, "K_eig", nothing), node_R=get(results, "node_R", nothing),
+            static_disp=get(results, "u_static", nothing), static_shell_fields=get(results, "static_shell_fields", nothing))
+    end
+    manifest = Dict{String,Any}[]
+    for sc in br.subcases
+        isempty(sc.reported_eigenvalues) && continue
+        state = _sol105_export_state(results, sc)
+        name = _sol105_export_filename(filename, sc, length(br.subcases))
+        fields = _sol105_static_fields!(results, sc.static_subcase_id)
+        availability = export_jfem_buckling(name, output_dir, state.id_map, state.X,
+            jfem_node_ids, jfem_quads, jfem_trias, jfem_bars, jfem_rods,
+            jfem_tetras, jfem_hexas, jfem_pentas, sc.reported_eigenvalues, sc.reported_mode_shapes;
+            jfem_celas=jfem_celas, jfem_rbe2s=jfem_rbe2s, jfem_rbe3s=jfem_rbe3s,
+            K_global=sc.K_eig, node_R=state.node_R, static_disp=sc.u_static, static_shell_fields=fields)
+        push!(manifest, Dict("buckling_subcase_id" => sc.buckling_subcase_id,
+            "static_subcase_id" => sc.static_subcase_id,
+            "static_block_written" => availability.static_block_written,
+            "unavailable_static_shell_eids" => availability.unavailable_static_shell_eids,
+            "file" => _export_base_name(name) * ".jfem",
+            "eigenvalues" => sc.reported_eigenvalues))
+    end
+    _export_write_json(joinpath(output_dir, _export_base_name(filename) * ".BUCKLING_FILES.JSON"),
+        Dict("analysis_type" => "SOL105_BUCKLING", "coordinate_frame" => "BASIC_GLOBAL", "subcases" => manifest), 2)
+end
+
+# WriteVTK does not expose a mesh-template API. Keep the small adapter here so
+# unsupported dependency layouts use the original vtk_grid path. The template
+# owns plain XML text and copied bytes; each output owns a new document/buffer.
+function _export_vtk_mesh_template(vtk)
+    required = (:xdoc, :buf, :Npts, :Ncls, :grid_type, :version,
+                :compression_level, :appended, :ascii)
+    all(name -> hasproperty(vtk, name), required) || return nothing
+    isdefined(WriteVTK, :DatasetFile) && isdefined(WriteVTK, :VTKUnstructuredGrid) &&
+        isdefined(WriteVTK, :LightXML) || return nothing
+    vtk.grid_type == "UnstructuredGrid" && vtk.appended && !vtk.ascii &&
+        vtk.buf isa IOBuffer && isopen(vtk.buf) || return nothing
+    try
+        return (xml=string(vtk.xdoc), bytes=take!(copy(vtk.buf)),
+            npoints=vtk.Npts, ncells=vtk.Ncls,
+            compression_level=vtk.compression_level, version=vtk.version)
+    catch err
+        if err isa InterruptException || err isa OutOfMemoryError
+            rethrow()
+        end
+        return nothing
+    end
+end
+
+function _export_vtk_from_mesh_template(path, template)
+    xdoc = nothing
+    vtk = nothing
+    try
+        xdoc = WriteVTK.LightXML.parse_string(template.xml)
+        vtk = WriteVTK.DatasetFile(WriteVTK.VTKUnstructuredGrid(), xdoc,
+            _export_fs_path(path), template.npoints, template.ncells;
+            compress=template.compression_level, append=true, ascii=false,
+            vtkversion=template.version)
+        write(vtk.buf, template.bytes)
+        return vtk
+    catch err
+        # Construction only: no output file has been opened yet. Release any
+        # partial clone before falling back to the regular library writer.
+        if vtk !== nothing
+            try close(vtk.buf) catch end
+        end
+        if xdoc !== nothing
+            try WriteVTK.LightXML.free(xdoc) catch end
+        end
+        if err isa InterruptException || err isa OutOfMemoryError
+            rethrow()
+        end
+        return nothing
+    end
+end
+
+function export_buckling_vtk(filename, output_dir, model, id_map, X, eigenvalues, mode_shapes;
+        buckling_subcase_id=nothing, static_subcase_id=nothing)
+    _export_validate_modes(eigenvalues,mode_shapes,id_map)
+    size(X) == (length(id_map),3) || throw(DimensionMismatch("VTK coordinates must have one row per GRID"))
     if isempty(eigenvalues); return; end
-    base_name = replace(basename(filename), ".bdf" => "")
+    base_name = _export_base_name(filename)
     n_modes = length(eigenvalues)
 
-    points = zeros(3, length(id_map))
-    for (nid, idx) in id_map
-        points[:, idx] = X[idx, :]
-    end
+    points = permutedims(X)
 
     cells = MeshCell[]
     for (id, el) in model["CSHELLs"]
@@ -3137,18 +3804,30 @@ function export_buckling_vtk(filename, output_dir, model, id_map, X, eigenvalues
 
     if isempty(cells); return; end
 
+    disp = zeros(3, length(id_map))
+    mesh_template = nothing
+    cache_supported = n_modes > 1
     for m in 1:n_modes
         vtk_name = base_name * "_Buckling_Mode_$m"
         vtk_path = joinpath(output_dir, vtk_name)
-        disp = zeros(3, length(id_map))
         for (nid, idx) in id_map
             base = (idx-1)*6
             disp[1, idx] = mode_shapes[base+1, m]
             disp[2, idx] = mode_shapes[base+2, m]
             disp[3, idx] = mode_shapes[base+3, m]
         end
-        vtk = vtk_grid(vtk_path, points, cells)
+        vtk = mesh_template === nothing ? nothing : _export_vtk_from_mesh_template(vtk_path, mesh_template)
+        if vtk === nothing
+            mesh_template === nothing || (cache_supported = false)
+            vtk = vtk_grid(_export_fs_path(vtk_path), points, cells)
+            # The immutable mesh prefix is reused only within this call.
+            mesh_template = cache_supported ? _export_vtk_mesh_template(vtk) : nothing
+            cache_supported &= mesh_template !== nothing
+        end
         vtk["BucklingMode_$m", VTKPointData()] = disp
+        vtk["Eigenvalue", VTKFieldData()] = [eigenvalues[m]]
+        buckling_subcase_id === nothing || (vtk["BucklingSubcaseID", VTKFieldData()] = [buckling_subcase_id])
+        static_subcase_id === nothing || (vtk["StaticSubcaseID", VTKFieldData()] = [static_subcase_id])
         vtk_save(vtk)
         println("  VTK buckling mode $m saved: $vtk_path.vtu (lambda=$(round(eigenvalues[m], digits=4)))")
     end
@@ -3177,13 +3856,29 @@ function export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id
         backend_metadata=backend_metadata)
     sanitize!(results)
     _export_ensure_parent_dir!(json_path)
-    open(_export_fs_path(json_path), "w") do f; JSON.print(f, results, 4); end
+    _export_write_json(json_path, results)
     println(">>> Buckling JSON exported: $json_path")
 end
 
+function _export_missing_static_shell_fields(jfem_quads, jfem_trias, fields)
+    missing = Int[]
+    for family in (jfem_quads, jfem_trias), el in family
+        eid = Int(el[1])
+        value = fields === nothing ? nothing : get(fields, eid, nothing)
+        if value === nothing || length(value) != 3 || !all(x -> x isa Real && isfinite(Float32(x)), value)
+            push!(missing, eid)
+        end
+    end
+    return sort!(unique!(missing))
+end
+
 function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jfem_quads, jfem_trias, jfem_bars, jfem_rods, jfem_tetras, jfem_hexas, jfem_pentas, eigenvalues, mode_shapes; jfem_celas=[], jfem_rbe2s=[], jfem_rbe3s=[], K_global=nothing, node_R=nothing, static_disp=nothing, static_shell_fields=nothing)
+    _export_validate_modes(eigenvalues,mode_shapes,id_map)
+    _export_validate_mesh(id_map,X,jfem_node_ids,jfem_quads,jfem_trias,jfem_tetras,jfem_hexas,jfem_pentas)
+    static_disp === nothing || length(static_disp)==6*length(id_map) || throw(DimensionMismatch("Static displacement size does not match GRID count"))
+    K_global === nothing || size(K_global)==(6*length(id_map),6*length(id_map)) || throw(DimensionMismatch("Mode energy matrix size does not match GRID count"))
     if isempty(eigenvalues); return; end
-    base_name = replace(basename(filename), ".bdf" => "")
+    base_name = _export_base_name(filename)
     jfem_name = base_name * ".jfem"
     jfem_path = joinpath(output_dir, jfem_name)
 
@@ -3193,19 +3888,25 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
     nBars  = length(jfem_bars)
     nRods  = length(jfem_rods)
     nModes = length(eigenvalues)
+    nSolids = length(jfem_tetras) + length(jfem_hexas) + length(jfem_pentas)
 
     # A static-preload block is appended (after the EVAL footer) only when the
     # caller supplies the static displacement. The version is bumped to 5 so a
     # v5-aware reader knows to look for the trailing 'STAT' block; older readers
     # still find EVAL exactly where they expect it and ignore the trailing bytes.
-    has_static = static_disp !== nothing
-    version = has_static ? UInt32(5) : UInt32(3)
+    unavailable_static_shell_eids = static_disp === nothing ? Int[] :
+        _export_missing_static_shell_fields(jfem_quads, jfem_trias, static_shell_fields)
+    has_static = static_disp !== nothing && isempty(unavailable_static_shell_eids)
+    if static_disp !== nothing && !has_static
+        @warn "JFEM optional STATIC block omitted because shell fields are unavailable or nonfinite; buckling modes remain available. Static displacements remain in solver results and requested JSON/HDF5 outputs." unavailable_static_shell_eids
+    end
+    version = has_static ? UInt32(5) : nSolids > 0 ? UInt32(4) : UInt32(3)
 
     println("\n>>> Exporting JFEM binary (v$(Int(version)) buckling$(has_static ? "+static" : "")): $jfem_path")
     _export_ensure_parent_dir!(jfem_path)
     open(_export_fs_path(jfem_path), "w") do fio
-        # Batched export (perf deferred item #13): stage the full byte
-        # stream in memory, one OS write — byte-identical output.
+        # Stage mesh and one mode at a time so peak staging memory does not
+        # grow with the number of modes. Numeric work arrays are reused.
         io = IOBuffer()
         write(io, UInt8('J')); write(io, UInt8('F')); write(io, UInt8('E')); write(io, UInt8('M'))
         write(io, version)          # version (3 = buckling, 5 = buckling + static block)
@@ -3218,6 +3919,13 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
         write(io, UInt32(length(jfem_celas)))
         write(io, UInt32(length(jfem_rbe2s)))
         write(io, UInt32(length(jfem_rbe3s)))
+        # Version 5 extends version 4, including its solid counts even when
+        # they are zero. Omitting these shifted every subsequent reader field.
+        if version >= 4
+            write(io, UInt32(length(jfem_tetras)))
+            write(io, UInt32(length(jfem_hexas)))
+            write(io, UInt32(length(jfem_pentas)))
+        end
 
         # Node table: nid(i32), x(f32), y(f32), z(f32)
         for nid in jfem_node_ids
@@ -3230,26 +3938,26 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
         for (eid, pid, nodes, t) in jfem_quads
             write(io, Int32(eid)); write(io, Int32(pid))
             for n in nodes; write(io, Int32(n)); end
-            write(io, t)
+            write(io, Float32(t))
         end
         for (eid, pid, nodes, t) in jfem_trias
             write(io, Int32(eid)); write(io, Int32(pid))
             for n in nodes; write(io, Int32(n)); end
-            write(io, t)
+            write(io, Float32(t))
         end
         for (eid, pid, ga, gb, a) in jfem_bars
             write(io, Int32(eid)); write(io, Int32(pid)); write(io, Int32(ga)); write(io, Int32(gb))
-            write(io, a)
+            write(io, Float32(a))
         end
         for (eid, pid, ga, gb, a) in jfem_rods
             write(io, Int32(eid)); write(io, Int32(pid)); write(io, Int32(ga)); write(io, Int32(gb))
-            write(io, a)
+            write(io, Float32(a))
         end
 
         # Constraints (same format as v3 JFEM)
         for (eid, g1, c1, g2, c2, K_stiff) in jfem_celas
             write(io, Int32(eid)); write(io, Int32(g1)); write(io, Int32(c1))
-            write(io, Int32(g2)); write(io, Int32(c2)); write(io, K_stiff); write(io, Float32(0))
+            write(io, Int32(g2)); write(io, Int32(c2)); write(io, Float32(K_stiff)); write(io, Float32(0))
         end
         for rbe in jfem_rbe2s
             write(io, Int32(rbe.eid)); write(io, Int32(rbe.gn)); write(io, Int32(rbe.cm))
@@ -3262,11 +3970,27 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
             for d in rbe.deps; write(io, Int32(d)); end
         end
 
+        if version >= 4
+            for elements in (jfem_tetras, jfem_hexas, jfem_pentas)
+                for (eid, pid, nodes) in elements
+                    write(io, Int32(eid)); write(io, Int32(pid))
+                    for nid in nodes; write(io, Int32(nid)); end
+                end
+            end
+        end
+
         # Build nid→jfem_index map for fast lookup
         nid_to_jidx = Dict{Int,Int}()
         for (ji, nid) in enumerate(jfem_node_ids)
             nid_to_jidx[nid] = ji
         end
+
+        _export_flush_binary_buffer!(fio, io)
+        node_disp_mag = Vector{Float64}(undef, nNodes)
+        node_se = zeros(Float64, nNodes)
+        disp = Matrix{Float32}(undef, 6, nNodes)
+        phi_energy = Vector{Float64}(undef, size(mode_shapes, 1))
+        forces_energy = similar(phi_energy)
 
         # Per-mode data (stored as subcases, matching v3 static format)
         for m in 1:nModes
@@ -3275,39 +3999,29 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
 
             # Displacements: nNodes × 6 Float32
             # Also build per-node displacement magnitude array for element results
-            node_disp_mag = Vector{Float64}(undef, nNodes)
-            phi = mode_shapes[:, m]
+            phi = view(mode_shapes, :, m)
             for (ji, nid) in enumerate(jfem_node_ids)
                 idx = id_map[nid]; base = (idx-1)*6
                 tx = phi[base+1]
                 ty = phi[base+2]
                 tz = phi[base+3]
                 node_disp_mag[ji] = sqrt(tx*tx + ty*ty + tz*tz)
-                for d in 1:6; write(io, Float32(phi[base+d])); end
+                for d in 1:6; disp[d, ji] = Float32(phi[base+d]); end
             end
+            write(io, disp)
 
             # Compute nodal strain energy: NSE_i = 0.5 * phi_i . (K*phi)_i.
             # Buckling mode vectors are exported in global components, while
             # K_eig is assembled in analysis/node coordinate components. When
             # node_R is available, rotate the mode back for the energy proxy.
-            node_se = zeros(Float64, nNodes)
-            if !isnothing(K_global)
-                phi_energy = phi
-                if !isnothing(node_R)
-                    phi_energy = similar(phi)
-                    for (nid, idx) in id_map
-                        base = (idx - 1) * 6
-                        R = node_R[idx]
-                        phi_energy[base+1:base+3] = R' * phi[base+1:base+3]
-                        phi_energy[base+4:base+6] = R' * phi[base+4:base+6]
-                    end
-                end
-                f = K_global * phi_energy  # sparse matrix-vector product
+            if !isnothing(K_global) && nQuads+nTrias+nBars > 0
+                _export_rotate_vector!(phi_energy, phi, id_map, node_R; to_global=false)
+                mul!(forces_energy, K_global, phi_energy)
                 for (ji, nid) in enumerate(jfem_node_ids)
                     idx = id_map[nid]; base = (idx-1)*6
                     se = 0.0
                     for d in 1:6
-                        se += phi_energy[base+d] * f[base+d]
+                        se += phi_energy[base+d] * forces_energy[base+d]
                     end
                     node_se[ji] = 0.5 * abs(se)  # abs to avoid tiny negatives from numerics
                 end
@@ -3354,6 +4068,9 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
 
             # Rod results: nRods × 2 Float32 (zeros for buckling)
             for _ in 1:nRods; for _ in 1:2; write(io, Float32(0.0)); end; end
+            # Solid von-Mises stresses are unavailable for an eigenvector;
+            # retain the format's zero placeholders while exporting geometry.
+            for _ in 1:nSolids; write(io, Float32(0.0)); end
 
             # v3: SPC data (empty list)
             write(io, UInt32(0))
@@ -3361,6 +4078,7 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
             write(io, UInt32(0))
             # v3: Applied moments (empty list)
             write(io, UInt32(0))
+            _export_flush_binary_buffer!(fio, io)
         end
 
         # Eigenvalue footer: 'EVAL' marker + nModes(u32) + eigenvalues(f64)
@@ -3385,31 +4103,25 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
             # shapes already are). Without this, a tangential/axial edge motion is
             # plotted as if it were global out-of-plane -> a spurious "radial"
             # tilt of the whole panel even though uR is held to zero.
-            for nid in jfem_node_ids
+            _export_rotate_vector!(phi_energy, static_disp, id_map, node_R)
+            for (ji, nid) in enumerate(jfem_node_ids)
                 idx = id_map[nid]; base = (idx - 1) * 6
-                ok = (base + 6) <= length(static_disp)
-                tl = ok ? static_disp[base+1:base+3] : zeros(3)
-                rl = ok ? static_disp[base+4:base+6] : zeros(3)
-                if node_R !== nothing
-                    R = node_R[idx]
-                    tl = R * tl
-                    rl = R * rl
+                for d in 1:6
+                    disp[d, ji] = Float32(phi_energy[base+d])
                 end
-                write(io, Float32(tl[1])); write(io, Float32(tl[2])); write(io, Float32(tl[3]))
-                write(io, Float32(rl[1])); write(io, Float32(rl[2])); write(io, Float32(rl[3]))
             end
-            sf = static_shell_fields === nothing ? Dict{Int,NTuple{3,Float64}}() : static_shell_fields
-            safe32(x) = (v = Float32(x); (isnan(v) || isinf(v)) ? Float32(0) : v)
+            write(io, disp)
             for q in jfem_quads
-                f = get(sf, q[1], (0.0, 0.0, 0.0))   # q[1] = eid
-                write(io, safe32(f[1])); write(io, safe32(f[2])); write(io, safe32(f[3]))
+                f = static_shell_fields[q[1]]
+                write(io, Float32(f[1])); write(io, Float32(f[2])); write(io, Float32(f[3]))
             end
             for tr in jfem_trias
-                f = get(sf, tr[1], (0.0, 0.0, 0.0))  # tr[1] = eid
-                write(io, safe32(f[1])); write(io, safe32(f[2])); write(io, safe32(f[3]))
+                f = static_shell_fields[tr[1]]
+                write(io, Float32(f[1])); write(io, Float32(f[2])); write(io, Float32(f[3]))
             end
         end
-        write(fio, take!(io))
+        _export_flush_binary_buffer!(fio, io)
     end
     println("  JFEM binary exported: $jfem_path ($nModes buckling modes$(has_static ? " + static block" : ""))")
+    return (static_block_written=has_static, unavailable_static_shell_eids=unavailable_static_shell_eids)
 end

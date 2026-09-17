@@ -7,24 +7,18 @@ Recursively resolve INCLUDE cards in a Nastran BDF file.
 Replaces each INCLUDE line with the contents of the referenced file.
 Supports quoted filenames, relative and absolute paths, and nested includes (max 10 levels).
 """
-function resolve_includes(lines::Vector{String}, base_dir::String; depth::Int=0)
-    if depth > 10
-        println("[WARN] INCLUDE nesting depth > 10, stopping recursion")
-        return lines
-    end
+function resolve_includes(lines::Vector{String}, base_dir::String; depth::Int=0,
+                          _active_paths::Set{String}=Set{String}())
+    depth > 10 && throw(ArgumentError("INCLUDE nesting exceeds 10 levels in $base_dir"))
     result = String[]
+    sizehint!(result, length(lines))
     for line in lines
         stripped = strip(line)
-        upper_stripped = uppercase(stripped)
-        if startswith(upper_stripped, "INCLUDE")
+        if occursin(r"^INCLUDE(?:\s|,|$)"i, stripped)
             # Extract filename: INCLUDE 'filename' or INCLUDE "filename" or INCLUDE filename
-            rest = strip(stripped[8:end])  # skip "INCLUDE"
-            # Remove quotes if present
-            if length(rest) >= 2 && ((rest[1] == '\'' && rest[end] == '\'') || (rest[1] == '"' && rest[end] == '"'))
-                inc_file = rest[2:end-1]
-            else
-                inc_file = rest
-            end
+            spec = match(r"^INCLUDE\s*,?\s*(?:'([^']+)'|\"([^\"]+)\"|([^\s$]+))\s*(?:\$.*)?$"i, stripped)
+            spec === nothing && throw(ArgumentError("Malformed or unsupported multiline INCLUDE in $base_dir: $stripped"))
+            inc_file = something(spec.captures...)
             inc_file = strip(inc_file)
             # Resolve path: if not absolute, resolve relative to base_dir
             if !isabspath(inc_file)
@@ -32,14 +26,21 @@ function resolve_includes(lines::Vector{String}, base_dir::String; depth::Int=0)
             end
             inc_file = normpath(inc_file)
             if isfile(inc_file)
+                canonical = realpath(inc_file)
+                Sys.iswindows() && (canonical = lowercase(canonical))
+                canonical in _active_paths && throw(ArgumentError("Cyclic INCLUDE dependency: $inc_file"))
+                push!(_active_paths, canonical)
                 inc_lines = readlines(inc_file)
                 inc_dir = dirname(inc_file)
-                resolved = resolve_includes(inc_lines, inc_dir; depth=depth+1)
+                resolved = try
+                    resolve_includes(inc_lines, inc_dir; depth=depth+1, _active_paths=_active_paths)
+                finally
+                    delete!(_active_paths, canonical)
+                end
                 append!(result, resolved)
                 println("[INFO] INCLUDE resolved: $(basename(inc_file)) ($(length(resolved)) lines, depth=$depth)")
             else
-                println("[WARN] INCLUDE file not found: $inc_file")
-                push!(result, line)  # keep original line
+                throw(ArgumentError("INCLUDE file not found: $inc_file"))
             end
         else
             push!(result, line)
@@ -52,7 +53,7 @@ function process_cards(lines)
     processed = Dict{String, Vector{Any}}()
     i = 1
     while i <= length(lines)
-        line = lines[i]
+        line = _nastran_without_comment(lines[i])
         clean_line = strip(line)
         if startswith(clean_line, '$') || isempty(clean_line)
             i += 1; continue
@@ -73,9 +74,9 @@ function process_cards(lines)
 
             steps = 1
             while i + steps <= length(lines)
-                next_line = lines[i+steps]
+                next_line = _nastran_without_comment(lines[i+steps])
                 next_clean = strip(next_line)
-                if startswith(next_clean, '$')
+                if isempty(next_clean)
                     steps += 1; continue
                 end
 
@@ -84,7 +85,7 @@ function process_cards(lines)
                 if startswith(next_clean, "*")
                     is_cont = true
                     is_cont_large = true
-                elseif startswith(next_line, " ") || startswith(next_clean, "+")
+                elseif isempty(get_nastran_card_name(next_line)) || startswith(next_clean, "+")
                     is_cont = true
                 elseif occursin(",", next_line) && startswith(next_clean, ",")
                     is_cont = true
@@ -119,7 +120,7 @@ function read_bulk_and_case(lines::Vector{String})
     # Check if BEGIN BULK exists anywhere in the file (case-insensitive
     # regex avoids allocating an uppercased copy of every line — measured
     # 42 ms + 53 MB per pass on a CRM-class deck)
-    has_begin_bulk = any(occursin(r"BEGIN BULK"i, l) for l in lines)
+    has_begin_bulk = any(occursin(r"^\s*BEGIN\s+BULK\s*$"i, _nastran_without_comment(l)) for l in lines)
 
     # Default SOL type
     case_control["SOL"] = 101
@@ -133,6 +134,18 @@ function read_bulk_and_case(lines::Vector{String})
             modifier = strip(modifier_match.captures[2])
         end
 
+        if key_clean in ("TEMP", "TEMPERATURE")
+            thermal_modifier = isnothing(modifier) ? "BOTH" : uppercase(modifier)
+            thermal_modifier in ("LOAD", "BOTH") || throw(ArgumentError(
+                "$key_clean($thermal_modifier) is unsupported; only same-set LOAD, BOTH, or the default BOTH selection is implemented"))
+            for alias in ("TEMP", "TEMPERATURE")
+                haskey(target, alias) || continue
+                prior_modifier = get(target, alias * "_MODIFIER", "BOTH")
+                (target[alias] == value && prior_modifier == thermal_modifier) ||
+                    throw(ArgumentError("Conflicting temperature selections in one Case Control scope; independent temperature sets/modifiers are not implemented"))
+            end
+        end
+
         target[key_clean] = value
         if !isnothing(modifier) && !isempty(modifier)
             target["$(key_clean)_MODIFIER"] = uppercase(modifier)
@@ -141,13 +154,13 @@ function read_bulk_and_case(lines::Vector{String})
     end
 
     for line in lines
-        cl = uppercase(split(line, '$')[1])
-        if occursin("BEGIN BULK", cl); in_bulk=true; continue; end
+        cl = uppercase(_nastran_without_comment(line))
+        if occursin(r"^\s*BEGIN\s+BULK\s*$", cl); in_bulk=true; continue; end
         # If no BEGIN BULK in file, treat everything after CEND as bulk
         if !has_begin_bulk && past_cend && !in_bulk
             in_bulk = true
         end
-        if occursin("ENDDATA", cl); break; end
+        if strip(cl) == "ENDDATA"; break; end
 
         if !in_bulk
             stripped_cl = strip(cl)

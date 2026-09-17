@@ -460,6 +460,7 @@ function main(args)
         println("\nChecked $n rows without writing outputs ($npass PASS, $nfail FAIL, $nskip JFEM_SKIPPED, $nerr ERROR)")
         println("Parity targets resolved on $nprow/$n rows ($nppass PARITY_PASS, $npfail PARITY_FAIL)")
     end
+    return rows
 end
 
 main(ARGS)

@@ -12,16 +12,17 @@
 #   * Reports, HDF5 export, and substitution probes shouldn't have to
 #     reconstruct subcase identity from flat arrays.
 #
-# Both `reported_*` (post-filter, what JFEM publishes today) and `raw_*`
-# (pre-filter, what the eigensolver actually returned) are stored when the
-# raw output flag is set; otherwise raw_* == reported_*. `filter_decisions`
-# documents per-raw-mode why each mode was kept or dropped.
+# `raw_*` currently mirrors the reported pairs, sharing their storage. The
+# solver does not expand discarded candidate vectors. Candidate-only values
+# and filter verdicts live in details["candidate_eigenvalues"] and
+# details["candidate_filter_decisions"], separately from paired results.
 #
 # The container is held as `results["buckling"]` in the top-level results
 # dict. Legacy keys ("eigenvalues", "_raw_mode_shapes", "Kg", "K_eig",
 # "u_static", "fixed_dofs") remain populated for backwards compatibility,
-# but they now reflect only the LAST subcase as before; production scripts
-# should migrate to the structured API.
+# with flat eigenvalues/modes sorted across all subcases, while matrices and
+# preload fields reflect only the LAST subcase. Use the structured API for
+# calculations that combine modes and preload states.
 
 """
     BucklingSubcaseResult
@@ -36,16 +37,19 @@ Fields:
   static_subcase_id     the STATSUB id (e.g. 111002)
   reported_eigenvalues  post-filter eigenvalues (what the public API exposes)
   reported_mode_shapes  ndof x n_reported, post-filter shapes
-  raw_eigenvalues       pre-filter eigenvalues (only populated when raw mode is on)
-  raw_mode_shapes       ndof x n_raw, pre-filter shapes (raw mode only)
-  filter_decisions      Vector{Symbol}, length = n_raw; values like
-                        :kept | :dropped_localization | :dropped_cluster |
-                        :dropped_nonpositive | :dropped_outofrange
+  raw_eigenvalues       paired eigenvalues; currently the reported mirror
+  raw_mode_shapes       ndof x n_raw, aligned with raw_eigenvalues
+  filter_decisions      Vector{Symbol}, length = n_raw; currently all :kept
   K_eig                 the eigen-K passed to the eigensolver
   Kg                    the geometric stiffness for this subcase
   u_static              the static displacement field used to assemble Kg
   fixed_dofs            SPC-constrained DOF index set
-  eigrl                 NamedTuple (v1, v2, nd) from the EIGRL card
+  eigrl                 NamedTuple carrying bounds/count compatibility values,
+                        blank-field flags, source card, METHOD id, and whether
+                        the input requests every root in range. For EIGB the
+                        numeric nd is only a compatibility count; authoritative
+                        signed quotas and original NEP/NDP/NDN presence live in
+                        details["eigenvalue_extraction"]. NEP is not an ND.
   solver_backend        which eigensolver actually ran
   timings               per-phase wall seconds
   details               full diagnostics dict from solve_buckling (legacy)
@@ -62,10 +66,54 @@ struct BucklingSubcaseResult
     Kg::Any
     u_static::Vector{Float64}
     fixed_dofs::Set{Int}
-    eigrl::NamedTuple{(:v1, :v2, :nd), Tuple{Float64,Float64,Int}}
+    eigrl::NamedTuple{
+        (:v1, :v2, :nd, :v1_specified, :v2_specified, :nd_specified,
+         :source, :method_id, :request_all_in_range),
+        Tuple{Float64,Float64,Int,Bool,Bool,Bool,String,Int,Bool}}
     solver_backend::String
     timings::Dict{String,Float64}
     details::Dict{String,Any}
+end
+
+# Backward-compatible constructor for callers that created the public result
+# container directly with the original `(v1, v2, nd)` metadata tuple. The
+# richer tuple is additive for solver-produced results; legacy construction
+# retains the pre-2026-09 assumption that ND was explicit.
+function BucklingSubcaseResult(
+    buckling_subcase_id,
+    static_subcase_id,
+    reported_eigenvalues,
+    reported_mode_shapes,
+    raw_eigenvalues,
+    raw_mode_shapes,
+    filter_decisions,
+    K_eig,
+    Kg,
+    u_static,
+    fixed_dofs,
+    eigrl::NamedTuple{(:v1, :v2, :nd)},
+    solver_backend,
+    timings,
+    details,
+)
+    expanded_eigrl = (
+        v1=Float64(eigrl.v1),
+        v2=Float64(eigrl.v2),
+        nd=Int(eigrl.nd),
+        v1_specified=Float64(eigrl.v1) != 0.0,
+        v2_specified=Float64(eigrl.v2) != 0.0,
+        nd_specified=true,
+        source="EIGRL",
+        method_id=0,
+        request_all_in_range=false,
+    )
+    return BucklingSubcaseResult(
+        buckling_subcase_id, static_subcase_id,
+        reported_eigenvalues, reported_mode_shapes,
+        raw_eigenvalues, raw_mode_shapes, filter_decisions,
+        K_eig, Kg, u_static, fixed_dofs, expanded_eigrl,
+        solver_backend, timings, details,
+    )
 end
 
 """

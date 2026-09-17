@@ -72,12 +72,12 @@ end
 
 function _manifest_with_env(f::Function, flags::AbstractDict)
     old = Dict{String,Union{Nothing,String}}()
-    for (key, value) in flags
-        k = string(key)
-        old[k] = haskey(ENV, k) ? ENV[k] : nothing
-        ENV[k] = string(value)
-    end
     try
+        for (key, value) in flags
+            k = string(key)
+            old[k] = haskey(ENV, k) ? ENV[k] : nothing
+            ENV[k] = string(value)
+        end
         return f()
     finally
         for (key, value) in old
@@ -181,7 +181,8 @@ function _manifest_normalize_cases(manifest::AbstractDict, manifest_path::Union{
     cases_raw isa AbstractVector || error("batch manifest requires cases array")
     isempty(cases_raw) && error("batch manifest cases array is empty")
 
-    used = Dict{String,Int}()
+    used = Set{String}()
+    used_output_dirs = Set{String}()
     cases = Vector{Dict{String,Any}}()
     for (idx, item) in enumerate(cases_raw)
         item isa AbstractDict || error("case $idx must be an object")
@@ -192,13 +193,20 @@ function _manifest_normalize_cases(manifest::AbstractDict, manifest_path::Union{
         isfile(input_path) || error("case $idx input deck not found: $input_path")
         case_id = string(_manifest_get(case, "case_id", splitext(basename(input_path))[1]))
         slug_base = _manifest_case_slug(case_id)
-        n = get(used, slug_base, 0) + 1
-        used[slug_base] = n
-        slug = n == 1 ? slug_base : "$(slug_base)_$(n)"
+        slug = slug_base
+        n = 1
+        while (Sys.iswindows() ? lowercase(slug) : slug) in used
+            n += 1
+            slug = "$(slug_base)_$(n)"
+        end
+        push!(used, Sys.iswindows() ? lowercase(slug) : slug)
         out_raw = _manifest_get(case, "output_dir", nothing)
         output_dir = out_raw === nothing ?
             joinpath(output_root, slug) :
             _manifest_abs_path(string(out_raw), base_dir)
+        output_key = Sys.iswindows() ? lowercase(abspath(output_dir)) : abspath(output_dir)
+        output_key in used_output_dirs && error("case $idx reuses another case's output_dir: $output_dir")
+        push!(used_output_dirs, output_key)
         push!(cases, Dict{String,Any}(
             "index" => idx,
             "case_id" => case_id,
@@ -216,7 +224,7 @@ function _manifest_report_path(deck::AbstractString, output_dir::AbstractString)
 end
 
 function _manifest_export_base_name(deck::AbstractString)
-    return replace(basename(deck), r"(?i)\.bdf$" => "")
+    return replace(basename(deck), r"(?i)\.(bdf|dat|nas)$" => "")
 end
 
 function _manifest_result_json_path(deck::AbstractString, output_dir::AbstractString, sol_type, export_json::Bool)

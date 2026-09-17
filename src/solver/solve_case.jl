@@ -133,7 +133,8 @@ end
 function _build_results_from_state(ndof, model, id_map, X, node_R, u_global, residual_vector,
                                    snorm_normals, solver_diagnostics;
                                    active_load_id=nothing,
-                                   active_load_scale::Float64=1.0)
+                                   active_load_scale::Float64=1.0,
+                                   spc_dofs=nothing)
     results_json = Dict(
         "displacements" => [],
         "spc_forces" => [],
@@ -143,6 +144,25 @@ function _build_results_from_state(ndof, model, id_map, X, node_R, u_global, res
         "strains" => Dict("cbar" => [], "quad4" => [], "tria3" => [], "crod" => [], "conrod" => [], "celas1" => [], "ctetra" => [], "chexa" => [], "cpenta" => []),
         "solver_diagnostics" => solver_diagnostics,
     )
+
+    spc_mask = spc_dofs === nothing ? nothing : falses(ndof)
+    if spc_mask !== nothing
+        for dof in spc_dofs
+            spc_mask[dof] = true
+        end
+        # Preserve the owned solve residual for diagnostics without duplicating
+        # it as per-GRID dictionaries or serializing it in normal output files.
+        results_json["raw_residual_analysis"] = residual_vector
+        solver_diagnostics["reaction_recovery"] = Dict(
+            "spc_forces_frame" => "BASIC",
+            "spc_forces_components" => "SPC_AND_AUTOSPC_ONLY",
+            "raw_residual_frame" => "GRID_CD_ANALYSIS",
+            "raw_residual_layout" => "id_map order; six components per GRID",
+            "support_dofs" => length(spc_dofs),
+            "raw_residual_norm" => norm(residual_vector),
+            "excluded_residual_norm" => sqrt(sum(abs2(residual_vector[d]) for d in 1:ndof if !spc_mask[d]; init=0.0)),
+        )
+    end
 
     u_out = zeros(ndof)
     sorted_nodes = sort(collect(keys(id_map)))
@@ -164,7 +184,11 @@ function _build_results_from_state(ndof, model, id_map, X, node_R, u_global, res
         ))
 
         r_loc = view(residual_vector, base+1:base+6)
-        r_reac_glob = vcat(node_R[idx] * r_loc[1:3], node_R[idx] * r_loc[4:6])
+        # Constraint components are defined in the GRID output/analysis frame.
+        # Mask there before rotating; masking a basic vector would be wrong for CD != 0.
+        r_support = spc_mask === nothing ? r_loc :
+            SVector{6,Float64}(ntuple(c -> spc_mask[base+c] ? r_loc[c] : 0.0, 6))
+        r_reac_glob = vcat(node_R[idx] * r_support[1:3], node_R[idx] * r_support[4:6])
         if norm(r_reac_glob) > 1e-20
             push!(results_json["spc_forces"], Dict(
                 "grid_id" => nid,
@@ -865,7 +889,60 @@ function _solve_nonlinear_correction(K_eff, residual_rhs, ndof, model, id_map, s
     return correction, diagnostics
 end
 
+"""Accumulate direct and nested LOAD coefficients, rejecting cyclic references."""
+function _load_sid_scales(model, load_id, scale=1.0)
+    totals = Dict{Int,Float64}()
+    load_id === nothing && return totals
+    path = Int[]
+    function visit(sid, factor)
+        isfinite(factor) || throw(ArgumentError("Nonfinite LOAD scale for SID $sid"))
+        iszero(factor) && return
+        sid in path && throw(ArgumentError("Cyclic LOAD combination: " * join([path;sid], " -> ")))
+        totals[sid] = get(totals,sid,0.0) + factor
+        push!(path,sid)
+        try
+            for combo in get(model,"LOAD_COMBOS",[])
+                Int(combo["SID"]) == sid || continue
+                for child in combo["COMPS"]
+                    visit(Int(child["LID"]),factor * Float64(combo["S"]) * Float64(child["S"]))
+                end
+            end
+        finally
+            pop!(path)
+        end
+    end
+    visit(Int(load_id),Float64(scale))
+    filter!(pair -> !iszero(last(pair)),totals)
+    return totals
+end
+
+function _with_solver_thermal_state(f, model, temp_sid, scale)
+    keys = ("_active_temp_sid", "_active_temp_scale")
+    previous = [(haskey(model,key),get(model,key,nothing)) for key in keys]
+    try
+        if temp_sid === nothing
+            delete!(model,keys[1])
+        else
+            model[keys[1]] = Int(temp_sid)
+        end
+        model[keys[2]] = scale
+        return f()
+    finally
+        for (key,(present,value)) in zip(keys,previous)
+            present ? (model[key] = value) : delete!(model,key)
+        end
+    end
+end
+
 function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
+                    temp_load_id=nothing, load_scale::Float64=1.0, kwargs...)
+    return _with_solver_thermal_state(model,temp_load_id,load_scale) do
+        _solve_case_impl(K,ndof,model,id_map,X,load_id,spc_id,node_R;
+            temp_load_id=temp_load_id,load_scale=load_scale,kwargs...)
+    end
+end
+
+function _solve_case_impl(K, ndof, model, id_map, X, load_id, spc_id, node_R;
                     max_elem_stiff=0.0,
                     rbe3_map=Dict{Int,Vector{Tuple{Int,Float64}}}(),
                     snorm_normals=Dict{Int,SVector{3,Float64}}(),
@@ -885,16 +962,22 @@ function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
     # semantics; the dof must also be SPC'd).  Applied as the equivalent
     # load on the free set (F -= K[:,s]*u_s), with the prescribed values
     # scattered into u_global after the solve.
-    spcd_entries = Tuple{Int,Float64}[]
+    spcd_entries = Dict{Int,Float64}()
+    selected_scales = isempty(get(model,"SPCDs",[])) ? Dict{Int,Float64}() :
+        _load_sid_scales(model,load_id,load_scale)
     for e in get(model, "SPCDs", [])
         e isa AbstractDict || continue
-        Int(get(e, "SID", -1)) == Int(load_id) || continue
+        factor = get(selected_scales,Int(get(e,"SID",-1)),0.0)
+        iszero(factor) && continue
         g = Int(get(e, "GID", 0))
-        haskey(id_map, g) || continue
+        haskey(id_map, g) || throw(ArgumentError("SPCD references missing GRID $g"))
         d = Int(get(e, "C", 0))
-        1 <= d <= 6 || continue
-        push!(spcd_entries, ((id_map[g] - 1) * 6 + d,
-                             Float64(get(e, "D", 0.0)) * load_scale))
+        1 <= d <= 6 || throw(ArgumentError("SPCD requires a GRID component in 1:6"))
+        dof = (id_map[g]-1)*6+d
+        haskey(rbe3_map,dof) && throw(ArgumentError("SPCD on a dependent constraint DOF is unsupported"))
+        value = Float64(get(e,"D",0.0)) * factor
+        isfinite(value) || throw(ArgumentError("SPCD requires a finite displacement"))
+        spcd_entries[dof] = get(spcd_entries,dof,0.0) + value
     end
     F_resid = F_applied
     if !isempty(spcd_entries)
@@ -913,9 +996,9 @@ function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
     prev_spc_id = get(model, "_spc_id", nothing)
     had_prev_spc_id = haskey(model, "_spc_id")
     model["_spc_id"] = spc_id
-    local u_global, fixed_dofs, solver_diagnostics
+    local u_global, fixed_dofs, spc_dofs, solver_diagnostics
     try
-        u_global, fixed_dofs, _, solver_diagnostics = apply_bc_and_solve(
+        u_global, fixed_dofs, spc_dofs, solver_diagnostics = apply_bc_and_solve(
             K, ndof, model, id_map, F_applied, node_R, rbe3_map, max_elem_stiff, orig_diag;
             linear_cache=linear_cache)
     finally
@@ -931,7 +1014,7 @@ function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
             if dof in fixed_dofs
                 u_global[dof] = val
             else
-                log_msg("[SOLVER] WARNING: SPCD on unconstrained dof $dof ignored (dof must be in the SPC set)")
+                throw(ArgumentError("SPCD on unconstrained DOF $dof is invalid; select its SPC set before applying the enforced displacement"))
             end
         end
     end
@@ -949,6 +1032,7 @@ function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
         ndof, model, id_map, X, node_R, u_global, R, snorm_normals, solver_diagnostics;
         active_load_id=load_id,
         active_load_scale=Float64(load_scale),
+        spc_dofs=spc_dofs,
     )
 
     return u_out, stresses, results_json, u_global, fixed_dofs
@@ -974,6 +1058,7 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
                                 temp_load_id=nothing,
                                 geometric_stiffness_builder=nothing,
                                 nonlinear_state_builder=nothing)
+    _assert_nonlinear_thermal_supported(model, temp_load_id)
     load_steps = max(load_steps, 1)
     max_iter = max(max_iter, 1)
     relaxation = clamp(relaxation, 1e-3, 1.0)
@@ -1943,16 +2028,83 @@ function _buckling_krylovdim(nev_request::Int, n_free::Int)
     factor = max(solver_env_float("JFEM_SOL105_KRYLOV_DIM_FACTOR", 2.0), 1.0)
     offset = max(solver_env_int("JFEM_SOL105_KRYLOV_DIM_OFFSET", 20), 0)
     min_dim = max(solver_env_int("JFEM_SOL105_KRYLOV_DIM_MIN", 40), 1)
-    kd = max(ceil(Int, factor * nev_request) + offset, min_dim, nev_request + 2)
-    return min(kd, n_free)
+    kd = max(ceil(Int, factor * nev_request) + offset, min_dim, nev_request + 1)
+    kd = min(kd, n_free)
+    # KrylovKit can return an entire invariant subspace even when `howmany` is
+    # smaller. Avoid the guaranteed full-space case when possible, but do not
+    # mistake this for a raw-return cap: KrylovKit's public contract permits
+    # additional Ritz pairs that converged at the same cost. The harvesting
+    # loops below enforce the authoritative `nev_request` consumer cap.
+    if nev_request < n_free - 1
+        kd = min(kd, n_free - 1)
+    end
+    return kd
 end
 
 function _buckling_krylovtol()
     return max(solver_env_float("JFEM_SOL105_KRYLOV_TOL", 1e-12), 0.0)
 end
 
+function _buckling_krylov_retry_tol()
+    return max(solver_env_float("JFEM_SOL105_KRYLOV_RETRY_TOL", 1e-16), 0.0)
+end
+
 function _buckling_krylovmaxiter()
     return max(solver_env_int("JFEM_SOL105_KRYLOV_MAXITER", 1000), 1)
+end
+
+function _buckling_original_pencil_residual(K, B, u, lambda)
+    isfinite(lambda) || return Inf
+    u_norm = norm(u)
+    isfinite(u_norm) && u_norm > 0.0 || return Inf
+    # Multiply the original pencil directly. Reconstructing K*u from
+    # (K-sigma*B)*u + sigma*(B*u) can hide shift-induced cancellation errors.
+    Ku = K * u
+    Bu = B * u
+    return norm(Ku - lambda * Bu) /
+           max(norm(Ku), abs(lambda) * norm(Bu), eps(Float64))
+end
+
+# K-orthogonal deflation preserves the other eigenpairs of a symmetric pencil
+# with positive-definite K, without increasing the requested number of pairs.
+function _buckling_deflate!(x, excluded_pairs)
+    for _ in 1:2, (u, dual) in excluded_pairs
+        axpy!(-dot(dual, x), u, x)
+    end
+    return x
+end
+
+# One workspace belongs to one real-vector Arnoldi invocation. Every returned
+# vector remains independently owned: KrylovKit retains earlier operator values.
+function _buckling_shifted_operator(F, B, excluded_pairs)
+    rhs = zeros(eltype(B), size(B, 1))
+    # SparseArrays versions without a native three-argument solve retain the
+    # established backslash path. A generic LinearAlgebra fallback may require
+    # a two-argument ldiv! method that CHOLMOD does not provide.
+    native_ldiv = applicable(ldiv!, rhs, F, rhs) &&
+        which(ldiv!, (typeof(rhs), typeof(F), typeof(rhs))).module in
+            (SparseArrays.CHOLMOD, SparseArrays.UMFPACK)
+    if native_ldiv
+        return x -> begin
+            mul!(rhs, B, x)
+            _buckling_deflate!(ldiv!(similar(rhs), F, rhs), excluded_pairs)
+        end
+    end
+    return x -> begin
+        mul!(rhs, B, x)
+        _buckling_deflate!(F \ rhs, excluded_pairs)
+    end
+end
+
+function _buckling_add_excluded_pair!(excluded_pairs, K, vector)
+    u = _buckling_deflate!(Vector{Float64}(vector), excluded_pairs)
+    norm(u) > 1e-8 * norm(vector) || return false
+    u ./= norm(u)
+    Ku = K * u
+    denominator = dot(u, Ku)
+    denominator > 100 * eps(Float64) * norm(Ku) || return false
+    push!(excluded_pairs, (u, Ku ./ denominator))
+    return true
 end
 
 # Largest free-DOF count for which the dense symmetric-definite eigensolver is
@@ -2064,12 +2216,23 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                         rbe3_map=Dict{Int,Vector{Tuple{Int,Float64}}}(),
                         max_elem_stiff=0.0, orig_diag=Float64[],
                         eigrl_v1::Float64=0.0, eigrl_v2::Float64=0.0,
+                        eigrl_v1_specified::Bool=(eigrl_v1 != 0.0),
+                        eigrl_v2_specified::Bool=(eigrl_v2 != 0.0),
+                        eigrl_nd_specified::Bool=true,
+                        eigb_request=nothing,
                         eigen_cache=nothing,
                         buckling_subcase=nothing,
                         static_subcase=nothing,
                         sol105_options=nothing,
                         return_diagnostics::Bool=false)
 
+    if eigb_request !== nothing
+        return _solve_eigb_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, eigb_request;
+            rbe3_map=rbe3_map, max_elem_stiff=max_elem_stiff, orig_diag=orig_diag,
+            eigen_cache=eigen_cache, buckling_subcase=buckling_subcase,
+            static_subcase=static_subcase, sol105_options=sol105_options,
+            return_diagnostics=return_diagnostics)
+    end
     opts = sol105_options === nothing ? from_env() : sol105_options
     t_buckling_total = time_ns()
     buckling_timings = Dict{String,Any}()
@@ -2100,6 +2263,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         ),
         "solver_backend" => "unsolved",
         "solver_attempts" => Any[],
+        "eigsolve_requests" => Any[],
         "returned_modes" => 0,
     )
     if solver_env_bool("JFEM_SOL105_STORE_EIGEN_PARTITION", false)
@@ -2161,19 +2325,24 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     end
 
     t_symmetry = time_ns()
-    Kg_norm_inf = max(norm(Kg_ff, Inf), 1e-30)
     # K_ff is symmetrized once when the eigen solve context is prepared/cached.
     # Only Kg changes per buckling subcase, so keep the per-subcase symmetry work
     # focused there.
     K_asym_rel = 0.0
-    Kg_asym_rel = norm(Kg_ff - Kg_ff', Inf) / Kg_norm_inf
-    diagnostics["matrix_asymmetry"] = Dict(
-        "K_inf_rel" => K_asym_rel,
-        "Kg_inf_rel" => Kg_asym_rel,
-    )
-    asym_warn_rel = solver_env_float("JFEM_MATRIX_ASYMMETRY_WARN_REL", 1e-10)
-    if K_asym_rel > asym_warn_rel || Kg_asym_rel > asym_warn_rel
-        log_msg("[BUCKLING] Matrix asymmetry before symmetrization: K=$(K_asym_rel), Kg=$(Kg_asym_rel)")
+    if solver_env_bool("JFEM_MATRIX_ASYMMETRY_CHECK", true)
+        Kg_norm_inf = max(norm(Kg_ff, Inf), 1e-30)
+        Kg_asym_rel = norm(Kg_ff - Kg_ff', Inf) / Kg_norm_inf
+        diagnostics["matrix_asymmetry"] = Dict(
+            "status" => "computed",
+            "K_inf_rel" => K_asym_rel,
+            "Kg_inf_rel" => Kg_asym_rel,
+        )
+        asym_warn_rel = solver_env_float("JFEM_MATRIX_ASYMMETRY_WARN_REL", 1e-10)
+        if K_asym_rel > asym_warn_rel || Kg_asym_rel > asym_warn_rel
+            log_msg("[BUCKLING] Matrix asymmetry before symmetrization: K=$(K_asym_rel), Kg=$(Kg_asym_rel)")
+        end
+    else
+        diagnostics["matrix_asymmetry"] = Dict("status" => "skipped")
     end
 
     # Symmetrize after recording diagnostics; the generalized buckling solver
@@ -2239,38 +2408,86 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         _deterministic_buckling_start_vector(n_free, start_vector_ordinal[])
     end
 
-    # When EIGRL range is specified, request extra modes to allow filtering.
-    # For dense systems (≤4000 DOFs), all eigenvalues are computed anyway — return 3× modes
-    # so the comparison can use subset matching to skip spurious bar/shell modes.
-    has_range = (eigrl_v1 != 0.0 || eigrl_v2 != 0.0) && eigrl_v2 > eigrl_v1
-    return_all_range = has_range && solver_env_bool("JFEM_SOL105_RETURN_ALL_IN_RANGE", false)
-    nd_limited_range_output = has_range && !return_all_range
-    dense_max_dof = _buckling_dense_max_dof()
-    will_use_dense = n_free <= dense_max_dof
+    # Resolve the EIGRL extraction contract before choosing an eigensolver.
+    # Explicit ND requests are never inflated for post-filtering.
+    num_modes > 0 || throw(ArgumentError(
+        "SOL105 EIGRL ND must be a positive integer; received ND=$num_modes"))
 
-    # Positivity floor and effective range bounds, shared by the adaptive-nev
-    # ladder test, the range filter, and the certificate machinery below.
-    # V1 is clamped to >+tol so a negative V1 (commonly -1e-4 in MSC decks)
-    # does not re-admit non-positive roots after the positivity filter.
-    positive_tol = 1e-10
-    v1_eff = has_range ? max(eigrl_v1, positive_tol) : 0.0
+    # Preserve blank-vs-explicit EIGRL fields.  In particular, an explicit
+    # zero bound is not the same input as a blank bound.
+    has_range = eigrl_v1_specified || eigrl_v2_specified
+    range_lower = eigrl_v1_specified ? eigrl_v1 : -Inf
+    range_upper = eigrl_v2_specified ? eigrl_v2 : Inf
+    range_lower < range_upper || throw(ArgumentError(
+        "SOL105 EIGRL requires V1 < V2; received V1=$range_lower, V2=$range_upper"))
+    request_all_in_range = !eigrl_nd_specified && eigrl_v2_specified
+    strict_requested_count = !request_all_in_range
+    return_all_range = request_all_in_range
+    nd_limited_range_output = has_range && strict_requested_count
+    dense_max_dof = _buckling_dense_max_dof()
+    # Dense eigen() necessarily computes every eigenpair. Use it only when the
+    # input actually asks for the full finite spectrum: a small blank-ND range,
+    # or an explicit ND at least as large as the reduced system. Partial ND
+    # requests always remain on the partial eigensolver, even for tiny models.
+    will_use_dense = n_free <= dense_max_dof &&
+                     (request_all_in_range || num_modes >= n_free)
+    if request_all_in_range && !will_use_dense
+        throw(ArgumentError(
+            "SOL105 EIGRL with blank ND and a specified V2 requests every root in the interval. " *
+            "JFEM currently supports that all-roots form only up to $dense_max_dof free DOFs; " *
+            "specify ND for a bounded partial solve instead of launching an O(n^2) Krylov request."))
+    end
+    if num_modes >= n_free && !will_use_dense
+        throw(ArgumentError(
+            "SOL105 EIGRL ND=$num_modes requests the full $n_free-DOF reduced spectrum. " *
+            "JFEM limits dense full-spectrum extraction to $dense_max_dof free DOFs; " *
+            "reduce ND to request a partial spectrum."))
+    end
+
+    # Effective bounds shared by targeting, filtering, and the optional
+    # blank-ND completeness machinery below.
+    # Buckling factors are dimensionless but can legitimately be arbitrarily
+    # small. Do not impose a hidden unit/scale-dependent cutoff; callers that
+    # intentionally want one may set it explicitly.
+    positive_tol = max(solver_env_float("JFEM_SOL105_ZERO_ROOT_ABS_TOL", 0.0), 0.0)
+    # A non-negative lower bound explicitly selects the positive compression
+    # branch. Negative or open lower bounds retain signed buckling roots, as
+    # required by EIGRL; merely having a positive V2 must not discard them.
+    positive_range = has_range && range_lower >= 0.0
+    v1_eff = has_range ?
+        range_lower :
+        -Inf
     range_abs_tol = max(solver_env_float("JFEM_SOL105_RANGE_ABS_TOL", 0.0), 0.0)
     range_rel_tol = max(solver_env_float("JFEM_SOL105_RANGE_REL_TOL", 0.0), 0.0)
-    v2_eff = has_range ? eigrl_v2 + max(range_abs_tol, abs(eigrl_v2) * range_rel_tol) : 0.0
-    range_mode_factor_default = 8.0
-    range_mode_factor = max(solver_env_float("JFEM_SOL105_RANGE_MODE_FACTOR", range_mode_factor_default), 1.0)
-    num_modes_request = has_range ? ceil(Int, num_modes * range_mode_factor) :
-                        (will_use_dense ? num_modes * 3 : num_modes)
+    v2_eff = eigrl_v2_specified ?
+        eigrl_v2 + max(range_abs_tol, abs(eigrl_v2) * range_rel_tol) :
+        Inf
+    num_modes_request = request_all_in_range ? n_free : num_modes
 
     # Clamp num_modes to system size
-    max_modes = max(n_free - 2, 1)
+    max_modes = max(n_free, 1)
     if num_modes_request > max_modes
         log_msg("[BUCKLING] Reducing num_modes_request from $num_modes_request to $max_modes (system size limit)")
         num_modes_request = max_modes
     end
     diagnostics["requested_modes_internal"] = num_modes_request
-    diagnostics["range_mode_factor"] = has_range ? range_mode_factor : nothing
+    diagnostics["eigrl_field_presence"] = Dict(
+        "v1" => eigrl_v1_specified,
+        "v2" => eigrl_v2_specified,
+        "nd" => eigrl_nd_specified,
+    )
+    diagnostics["request_all_in_range"] = request_all_in_range
+    diagnostics["range_mode_factor"] = nothing
     diagnostics["range_nd_limited_output"] = nd_limited_range_output
+    diagnostics["eigenpair_request_contract"] = Dict{String,Any}(
+        "mode" => strict_requested_count ? "nd_limited" : "all_in_range",
+        "requested_nd" => eigrl_nd_specified ? num_modes : nothing,
+        "backend_request_limit" => strict_requested_count ? num_modes_request : nothing,
+        "candidate_pairs_examined_limit" => strict_requested_count ? num_modes_request : nothing,
+        "candidate_pairs_examined_limit_scope" => "per_backend_invocation",
+        "output_pairs_limit" => strict_requested_count ? num_modes : nothing,
+        "auxiliary_ritz_policy" => "record_raw_count_but_do_not_examine_or_expand_beyond_request",
+    )
 
     log_msg("[BUCKLING] Solving eigenvalue problem ($num_modes modes, $n_free DOFs)...")
 
@@ -2288,6 +2505,15 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     shift_factor_fusion = solver_env_bool("JFEM_SOL105_SHIFT_FACTOR_FUSION", false)
     sturm_factor_cache = Dict{Float64,Any}()
     sturm_factor_order = Float64[]
+    # Accuracy/deflation retries use the same immutable shifted pencil. Keep
+    # just the most recent factor and matrices, independently of the optional
+    # inertia-factor fusion, so those retries only repeat the Krylov work.
+    shifted_search_cache = Ref{Any}(nothing)
+    # Structural zero rows do not depend on the spectral shift. Compute the
+    # mask once so retries do not allocate abs(K)/abs(Kg) repeatedly.
+    pencil_row_activity = vec(sum(abs, K_ff; dims=2)) .+
+                          vec(sum(abs, Kg_ff; dims=2))
+    pencil_live_dofs = findall(!iszero, pencil_row_activity)
     function keep_sturm_factor!(sigma::Float64, F)
         F === nothing && return
         haskey(sturm_factor_cache, sigma) && return
@@ -2298,81 +2524,112 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         push!(sturm_factor_order, sigma)
         return
     end
+    # Recover concrete factor/matrix types after the bounded heterogeneous
+    # cache lookup, before entering the repeatedly applied Krylov operator.
 
     function attempt_shifted_buckling_search(sigma::Float64, attempt_name::String;
                                             modes_request_override::Union{Nothing,Int}=nothing,
-                                            force_full_request::Bool=false)
+                                            force_full_request::Bool=false,
+                                            spectrum_selector::Symbol=:LM,
+                                            excluded_pairs=Tuple{Vector{Float64},Vector{Float64}}[])
         push!(diagnostics["solver_attempts"], Dict("name" => attempt_name, "status" => "attempted", "sigma" => sigma))
         try
             log_msg("[BUCKLING] Range-targeted shift-invert at sigma=$sigma ...")
-            B = -Kg_ff
-            M = K_ff - sigma * B
-            M = 0.5 * (M + M')
+            cached_shift = shifted_search_cache[]
+            shifted_factor_cache_hit = cached_shift !== nothing && cached_shift.sigma == sigma
+            local B, B_pencil, M, live_dofs, reduced, full_shift_size, factor_backend, M_factor
+            if shifted_factor_cache_hit
+                B = cached_shift.B
+                B_pencil = cached_shift.B_pencil
+                M = cached_shift.M
+                live_dofs = cached_shift.live_dofs
+                reduced = cached_shift.reduced
+                full_shift_size = cached_shift.full_shift_size
+                factor_backend = cached_shift.factor_backend
+                M_factor = cached_shift.factor
+            else
+                B = -Kg_ff
+                B_pencil = B
+                M = K_ff - sigma * B
+                M = 0.5 * (M + M')
 
-            # AUTOSPC=NO decks can leave free dofs with no stiffness in either
-            # K or Kg (zero row/col in M for EVERY sigma) - UMFPACK then throws
-            # SingularException(0) and the whole range augmentation dies (HTP
-            # iter_346: all shifts fail on both subcases). Detect and eliminate
-            # those dofs from the shifted factorization; eigenvectors get zeros
-            # there on re-embedding.
-            M_dg = abs.(diag(M))
-            m_ref = maximum(M_dg)
-            live_dofs = findall(M_dg .> 1e-14 * max(m_ref, 1.0))
-            reduced = length(live_dofs) < size(M, 1)
-            if reduced
-                log_msg("[BUCKLING] shift-invert: eliminating $(size(M,1) - length(live_dofs)) zero-stiffness dofs")
-                M = M[live_dofs, live_dofs]
-                B = B[live_dofs, live_dofs]
-            end
+                # AUTOSPC=NO decks can leave free dofs with no stiffness in either
+                # K or Kg (zero row/col in M for EVERY sigma) - UMFPACK then throws
+                # SingularException(0) and the whole range augmentation dies (HTP
+                # iter_346: all shifts fail on both subcases). Detect and eliminate
+                # those dofs from the shifted factorization; eigenvectors get zeros
+                # there on re-embedding.
+                # A cancelled diagonal at a particular shift does not make a DOF
+                # structurally empty.  Eliminate only rows that are exactly empty
+                # in both members of the original pencil; this is scale independent
+                # and preserves legitimately coupled off-diagonal DOFs.
+                live_dofs = pencil_live_dofs
+                reduced = length(live_dofs) < size(M, 1)
+                full_shift_size = size(M, 1)
+                if reduced
+                    log_msg("[BUCKLING] shift-invert: eliminating $(size(M,1) - length(live_dofs)) zero-stiffness dofs")
+                    M = M[live_dofs, live_dofs]
+                    B = B[live_dofs, live_dofs]
+                end
 
-            local factor_backend, M_factor
-            if shift_factor_fusion && !reduced && haskey(sturm_factor_cache, sigma)
-                # A certificate at exactly this σ already factored M: reuse
-                # its LDLᵀ as the solve operator — zero factorization cost.
-                factor_backend = "ldlt_cached"
-                M_factor = sturm_factor_cache[sigma]
-            elseif shift_factor_fusion && !reduced
-                # LDLᵀ-first: one factorization yields the solve operator and
-                # a reusable certificate factor at σ. CHOLMOD LDLᵀ is
-                # simplicial with NO pivoting of any kind, so an
-                # accidentally-tiny pivot (a dof whose diagonal cancels near
-                # σ — the local-crippling condition) silently degrades the
-                # solve by up to ~11 digits without throwing: reject factors
-                # whose pivot spread exceeds sqrt(eps) and fall back to the
-                # proven cholesky→LU ladder (the σ-jitter retry upstream
-                # handles shifts landing exactly on eigenvalues).
-                factor_backend = "ldlt"
-                M_factor = try
-                    ldlt(M)
-                catch
-                    nothing
-                end
-                if M_factor !== nothing
-                    dM = abs.(diag(M_factor))
-                    if minimum(dM) < sqrt(eps(Float64)) * maximum(dM)
-                        M_factor = nothing   # numerically untrustworthy pivots
-                    end
-                end
-                if M_factor === nothing
-                    factor_backend = "cholesky"
+                if sigma == 0.0 && !reduced
+                    M_factor, factor_cache_hit = ensure_eigen_solve_factorization!(eigen_ctx)
+                    factor_backend = factor_cache_hit ? "$(eigen_ctx.factor_backend)_cached" :
+                                                        eigen_ctx.factor_backend
+                    diagnostics["eigen_cache"]["factorization_cache_hit"] = factor_cache_hit
+                    diagnostics["eigen_cache"]["factor_backend"] = eigen_ctx.factor_backend
+                elseif shift_factor_fusion && !reduced && haskey(sturm_factor_cache, sigma)
+                    # A certificate at exactly this σ already factored M: reuse
+                    # its LDLᵀ as the solve operator — zero factorization cost.
+                    factor_backend = "ldlt_cached"
+                    M_factor = sturm_factor_cache[sigma]
+                elseif shift_factor_fusion && !reduced
+                    # LDLᵀ-first: one factorization yields the solve operator and
+                    # a reusable certificate factor at σ. CHOLMOD LDLᵀ is
+                    # simplicial with NO pivoting of any kind, so an
+                    # accidentally-tiny pivot (a dof whose diagonal cancels near
+                    # σ — the local-crippling condition) silently degrades the
+                    # solve by up to ~11 digits without throwing: reject factors
+                    # whose pivot spread exceeds sqrt(eps) and fall back to the
+                    # proven cholesky→LU ladder (the σ-jitter retry upstream
+                    # handles shifts landing exactly on eigenvalues).
+                    factor_backend = "ldlt"
                     M_factor = try
-                        cholesky(M)
+                        ldlt(M)
                     catch
-                        factor_backend = "lu"
-                        lu(M)
+                        nothing
+                    end
+                    if M_factor !== nothing
+                        dM = abs.(diag(M_factor))
+                        if minimum(dM) < sqrt(eps(Float64)) * maximum(dM)
+                            M_factor = nothing   # numerically untrustworthy pivots
+                        end
+                    end
+                    if M_factor === nothing
+                        factor_backend = "cholesky"
+                        M_factor = try
+                            cholesky(M)
+                        catch
+                            factor_backend = "lu"
+                            lu(M)
+                        end
+                    else
+                        keep_sturm_factor!(sigma, M_factor)
                     end
                 else
-                    keep_sturm_factor!(sigma, M_factor)
+                    factor_backend = "cholesky"
+                    M_factor =
+                        try
+                            cholesky(M)
+                        catch
+                            factor_backend = "lu"
+                            lu(M)
+                        end
                 end
-            else
-                factor_backend = "cholesky"
-                M_factor =
-                    try
-                        cholesky(M)
-                    catch
-                        factor_backend = "lu"
-                        lu(M)
-                    end
+                shifted_search_cache[] = (
+                    sigma=sigma, B=B, B_pencil=B_pencil, M=M, live_dofs=live_dofs,
+                    reduced=reduced, full_shift_size=full_shift_size,
+                    factor_backend=factor_backend, factor=M_factor)
             end
 
             nd_limited_range_augmentation =
@@ -2380,37 +2637,139 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 solver_env_bool("JFEM_SOL105_RANGE_AUGMENTATION_ND_LIMIT", true) &&
                 !force_full_request
             range_aug_buffer_default = 40
-            range_aug_buffer = max(solver_env_int("JFEM_SOL105_RANGE_AUGMENTATION_BUFFER", range_aug_buffer_default), 0)
+            range_aug_buffer = strict_requested_count ? 0 :
+                max(solver_env_int("JFEM_SOL105_RANGE_AUGMENTATION_BUFFER", range_aug_buffer_default), 0)
             local_num_modes_request = modes_request_override === nothing ?
                 num_modes_request :
                 min(max(modes_request_override, num_modes), max_modes)
-            shifted_modes_request = nd_limited_range_augmentation ?
-                min(local_num_modes_request, max(num_modes + range_aug_buffer, num_modes)) :
-                local_num_modes_request
+            shifted_modes_request = strict_requested_count ? num_modes_request :
+                (nd_limited_range_augmentation ?
+                    min(local_num_modes_request, max(num_modes + range_aug_buffer, num_modes)) :
+                    local_num_modes_request)
             shifted_modes_request = min(shifted_modes_request, n_free - 1)
-            nev_request = min(shifted_modes_request + 5, n_free - 1)
+            nev_request = shifted_modes_request
             kd = _buckling_krylovdim(nev_request, n_free)
-            krylov_tol = _buckling_krylovtol()
+            base_krylov_tol = _buckling_krylovtol()
+            # Large buckling factors correspond to very small transformed
+            # eigenvalues (theta = 1/lambda).  KrylovKit's transformed-space
+            # convergence test can therefore be satisfied before the original
+            # pencil residual is acceptable.  Keep the fast production
+            # tolerance on the first pass, then tighten only the existing
+            # same-target retry when residual screening found fewer than ND.
+            accuracy_retry = occursin("_retry", attempt_name)
+            krylov_tol = accuracy_retry ?
+                min(base_krylov_tol, _buckling_krylov_retry_tol()) :
+                base_krylov_tol
             krylov_maxiter = _buckling_krylovmaxiter()
             start_vec = next_start_vector()
             reduced && (start_vec = start_vec[live_dofs])
-            vals_kk, vecs_kk, info = eigsolve(
-                x -> M_factor \ (B * x), start_vec, nev_request, :LM;
-                krylovdim=kd, maxiter=krylov_maxiter, tol=krylov_tol, eager=true)
+            active_excluded = reduced ?
+                [(u[live_dofs], dual[live_dofs]) for (u, dual) in excluded_pairs] :
+                excluded_pairs
+            isempty(active_excluded) || _buckling_deflate!(start_vec, active_excluded)
+            local vals_kk, vecs_kk, info
+            raw_ritz_vectors_returned = 0
+            block_lanczos = false
+            block_error = nothing
+            can_block = strict_requested_count && nev_request > 1 &&
+                        isempty(active_excluded) &&
+                        occursin("cholesky", lowercase(string(factor_backend))) &&
+                        solver_env_bool("JFEM_SOL105_BLOCK_LANCZOS", false)
+            if can_block
+                try
+                    block_size = min(nev_request, max(solver_env_int(
+                        "JFEM_SOL105_BLOCK_SIZE", min(nev_request, 2)), 1))
+                    factor_copy = copy(M_factor)
+                    factor_perm = factor_copy.p
+                    factor_L = LowerTriangular(sparse(factor_copy.L))
+                    B_perm = B[factor_perm, factor_perm]
+                    starts = Vector{Vector{Float64}}([Vector{Float64}(start_vec)])
+                    for _ in 2:block_size
+                        extra = next_start_vector()
+                        reduced && (extra = extra[live_dofs])
+                        push!(starts, extra)
+                    end
+                    push!(diagnostics["eigsolve_requests"], Dict{String,Any}(
+                        "attempt" => attempt_name,
+                        "requested_eigenpairs" => nev_request,
+                        "selector" => string(spectrum_selector),
+                        "sigma" => sigma,
+                        "algorithm" => "BlockLanczos",
+                        "block_size" => block_size,
+                    ))
+                    vals_kk, vecs_y, info = eigsolve(
+                        y -> factor_L \ (B_perm * (factor_L' \ Vector(y))),
+                        Block(starts), nev_request, spectrum_selector;
+                        krylovdim=kd, maxiter=krylov_maxiter, tol=krylov_tol,
+                        eager=true, ishermitian=true)
+                    raw_ritz_vectors_returned = length(vecs_y)
+                    n_backmap = min(nev_request, info.converged,
+                                    raw_ritz_vectors_returned)
+                    vecs_kk = [begin
+                        u = zeros(Float64, size(B, 1))
+                        u[factor_perm] = factor_L' \
+                            Vector{Float64}(real.(vecs_y[i]))
+                        u
+                    end for i in 1:n_backmap]
+                    block_lanczos = true
+                catch err
+                    block_error = sprint(showerror, err)
+                    log_msg("[BUCKLING] BlockLanczos unavailable ($block_error); using Arnoldi")
+                end
+            end
+            if !block_lanczos
+                push!(diagnostics["eigsolve_requests"], Dict{String,Any}(
+                    "attempt" => attempt_name,
+                    "requested_eigenpairs" => nev_request,
+                    "selector" => string(spectrum_selector),
+                    "sigma" => sigma,
+                    "algorithm" => "Arnoldi",
+                ))
+                vals_kk, vecs_kk, info = eigsolve(
+                    _buckling_shifted_operator(M_factor, B, active_excluded),
+                    start_vec, nev_request, spectrum_selector;
+                    krylovdim=kd, maxiter=krylov_maxiter, tol=krylov_tol, eager=true)
+                raw_ritz_vectors_returned = length(vecs_kk)
+            end
+            ritz_values_returned = length(vals_kk)
+            ritz_vectors_returned = raw_ritz_vectors_returned
+            operator_applications = hasproperty(info, :numops) ? getproperty(info, :numops) : nothing
 
             actual_lambdas = Float64[]
             actual_vecs = Vector{Float64}[]
-            for (i, theta) in enumerate(vals_kk)
+            accepted_residuals = Float64[]
+            residual_tol = max(solver_env_float(
+                "JFEM_SOL105_EIGENPAIR_RESIDUAL_TOL", 1e-6), 0.0)
+            # Only structurally empty rows were removed. Reuse one expanded
+            # vector for residual products instead of copying the original K.
+            residual_u_full = reduced ? zeros(Float64, full_shift_size) : nothing
+            n_converged = min(info.converged, length(vals_kk), length(vecs_kk),
+                              nev_request)
+            for i in 1:n_converged
+                theta = vals_kk[i]
                 theta_r = real(theta)
                 theta_i = abs(imag(theta))
-                if theta_i > 1e-6 * max(abs(theta_r), 1e-20) || abs(theta_r) < 1e-14
+                if !isfinite(theta_r) || !isfinite(theta_i) ||
+                   theta_i > 1e-6 * max(abs(theta_r), 1e-20) || iszero(theta_r)
                     continue
                 end
                 lam = sigma + 1.0 / theta_r
-                if abs(lam) > 1e-6
-                    push!(actual_lambdas, lam)
-                    push!(actual_vecs, real.(vecs_kk[i]))
+                isfinite(lam) || continue
+                abs(lam) > positive_tol || continue
+                u = real.(vecs_kk[i])
+                u_norm = norm(u)
+                isfinite(u_norm) && u_norm > eps(Float64) || continue
+                residual_u = if reduced
+                    residual_u_full[live_dofs] = u
+                    residual_u_full
+                else
+                    u
                 end
+                rel_res = _buckling_original_pencil_residual(K_ff, B_pencil, residual_u, lam)
+                isfinite(rel_res) && rel_res <= residual_tol || continue
+                push!(actual_lambdas, lam)
+                push!(actual_vecs, u)
+                push!(accepted_residuals, rel_res)
             end
 
             if isempty(actual_lambdas)
@@ -2420,6 +2779,14 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     "sigma" => sigma,
                     "converged" => info.converged,
                     "factorization" => factor_backend,
+                    "shifted_factor_cache_hit" => shifted_factor_cache_hit,
+                    "requested_eigenpairs" => nev_request,
+                    "ritz_values_returned" => ritz_values_returned,
+                    "ritz_vectors_returned" => ritz_vectors_returned,
+                    "operator_applications" => operator_applications,
+                    "candidate_pairs_examined" => n_converged,
+                    "pairs_retained" => 0,
+                    "accepted_residuals" => accepted_residuals,
                 )
                 return nothing
             end
@@ -2429,16 +2796,22 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             lambdas = [actual_lambdas[perm[i]] for i in 1:n_out]
             vecs = hcat([actual_vecs[perm[i]] for i in 1:n_out]...)
             if reduced
-                vecs_full = zeros(Float64, length(M_dg), size(vecs, 2))
+                vecs_full = zeros(Float64, full_shift_size, size(vecs, 2))
                 vecs_full[live_dofs, :] = vecs
                 vecs = vecs_full
             end
 
             diagnostics["solver_attempts"][end] = Dict(
                 "name" => attempt_name,
-                "status" => "succeeded",
+                "status" => n_out == nev_request ? "succeeded" : "succeeded_partial",
                 "sigma" => sigma,
                 "returned_modes" => n_out,
+                "requested_eigenpairs" => nev_request,
+                "ritz_values_returned" => ritz_values_returned,
+                "ritz_vectors_returned" => ritz_vectors_returned,
+                "operator_applications" => operator_applications,
+                "candidate_pairs_examined" => n_converged,
+                "pairs_retained" => n_out,
                 "requested_modes_internal" => shifted_modes_request,
                 "requested_modes_override" => modes_request_override,
                 "force_full_request" => force_full_request,
@@ -2446,9 +2819,14 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 "range_augmentation_buffer" => range_aug_buffer,
                 "krylovdim" => kd,
                 "krylov_tol" => krylov_tol,
+                "accuracy_retry" => accuracy_retry,
                 "krylov_maxiter" => krylov_maxiter,
                 "converged" => info.converged,
+                "accepted_residuals" => accepted_residuals,
                 "factorization" => factor_backend,
+                "shifted_factor_cache_hit" => shifted_factor_cache_hit,
+                "block_lanczos" => block_lanczos,
+                "block_error" => block_error,
             )
             return lambdas, vecs
         catch e
@@ -2461,16 +2839,20 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             log_msg("[BUCKLING] Range-targeted shift-invert failed: $(sprint(showerror, e))")
             # A shift landing on (or numerically near) a pencil eigenvalue makes
             # K - sigma*B (numerically) singular (LinearAlgebra.SingularException).
-            # Retry with progressively larger inward jitters instead of abandoning
-            # the range augmentation. HTP 511002: sigma = EIGRL v2 = 0.6 sits 7e-4
-            # from a clustered mode (0.5996); a 0.3% jitter stays inside the
-            # cluster, so the ladder steps 2% and 5% inward as well.
+            # Retry with progressively larger outward jitters instead of
+            # abandoning the requested range. Lower-bound (:LR) targets move
+            # below V1; upper-bound (:SR) targets move above V2, so the retry
+            # cannot skip roots immediately inside the requested interval.
             if e isa LinearAlgebra.SingularException && !occursin("_jitter", attempt_name)
                 for (tag, frac) in (("_jitter1", 3.0e-3), ("_jitter2", 2.0e-2), ("_jitter3", 5.0e-2))
-                    sigma_j = sigma * (1.0 - frac) - 1.0e-9
+                    direction = spectrum_selector == :SR ? 1.0 : -1.0
+                    step = max(abs(sigma) * frac, 1.0e-9)
+                    sigma_j = sigma + direction * step
                     res = attempt_shifted_buckling_search(sigma_j, attempt_name * tag;
                         modes_request_override=modes_request_override,
-                        force_full_request=force_full_request)
+                        force_full_request=force_full_request,
+                        spectrum_selector=spectrum_selector,
+                        excluded_pairs=excluded_pairs)
                     res === nothing || return res
                 end
             end
@@ -2486,9 +2868,40 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         added = 0
         for j in eachindex(add_vals)
             lam = Float64(add_vals[j])
-            duplicate = any(existing ->
+            close_indices = findall(existing ->
                 abs(existing - lam) <= max(abs_tol, rel_tol * max(abs(existing), abs(lam), 1.0)),
                 merged_vals)
+            # Equal/near-equal eigenvalues can represent a genuine eigenspace.
+            # Treat a candidate as a duplicate only when its vector is also in
+            # the span already retained for that eigenvalue cluster.
+            duplicate = false
+            if !isempty(close_indices)
+                candidate = Vector{Float64}(add_vecs[:, j])
+                candidate_norm = norm(candidate)
+                if !(isfinite(candidate_norm) && candidate_norm > eps(Float64))
+                    duplicate = true
+                else
+                    # Repeated eigenvectors need not be mutually orthogonal
+                    # in physical coordinates. Repeated projections against
+                    # those raw vectors do not project onto their span and
+                    # can count the same eigenspace again after a retry.
+                    cluster = hcat(merged_vec_cols[close_indices]...)
+                    for k in axes(cluster, 2)
+                        column = view(cluster, :, k)
+                        column ./= norm(column)
+                    end
+                    basis = qr(cluster, ColumnNorm())
+                    pivots = abs.(diag(basis.R))
+                    rank_tol = eps(Float64) * max(size(cluster)...) * maximum(pivots)
+                    basis_rank = count(>(rank_tol), pivots)
+                    # Apply implicit Q': never materialize the n-by-n Q on a
+                    # large model. Close but distinct modes retain their
+                    # component outside the existing cluster's span.
+                    coordinates = basis.Q' * candidate
+                    duplicate = norm(view(coordinates, (basis_rank + 1):length(coordinates))) <=
+                                1e-7 * candidate_norm
+                end
+            end
             if duplicate
                 continue
             end
@@ -2552,13 +2965,172 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         return unique_sigmas
     end
 
+    # ND-limited extraction starts with one exact-count solve.  Ranged requests
+    # target the lower bound; unbounded requests retain the smallest-magnitude
+    # convention.  A tiny outward shift preserves inclusion when V1 itself is
+    # an eigenvalue and avoids a singular pencil.
+    strict_range_target_failed = false
+    if strict_requested_count && !will_use_dense
+        target_from_upper = has_range && !positive_range &&
+                            !isfinite(range_lower) && isfinite(range_upper)
+        target_base = target_from_upper ? range_upper :
+            (has_range ?
+                (positive_range ? max(range_lower, 0.0) : range_lower) : 0.0)
+        target_selector = target_from_upper ? :SR :
+            (has_range && isfinite(target_base) ? :LR : :LM)
+        target_sigma = if isfinite(target_base) && target_base != 0.0
+            delta = max(abs(target_base) * 1e-12,
+                        16 * eps(max(abs(target_base), 1.0)))
+            target_base + (target_from_upper ? delta : -delta)
+        else
+            0.0
+        end
+        targeted = nothing
+        best_partial_target = nothing
+        excluded_pairs = Tuple{Vector{Float64},Vector{Float64}}[]
+        boundary_retries = 0
+        boundary_retry_limit = max(solver_env_int("JFEM_SOL105_BOUNDARY_RETRIES", 8), 0)
+        accuracy_attempt = 1
+        while accuracy_attempt <= 2
+            attempt_name = boundary_retries > 0 ?
+                "krylov_eigrl_target_boundary_retry_$boundary_retries" :
+                (accuracy_attempt == 1 ? "krylov_eigrl_target" : "krylov_eigrl_target_retry")
+            candidate = attempt_shifted_buckling_search(
+                target_sigma, attempt_name;
+                modes_request_override=num_modes_request,
+                spectrum_selector=target_selector,
+                excluded_pairs=excluded_pairs)
+            added_exclusions = 0
+            if candidate !== nothing
+                candidate_vals, candidate_vecs = candidate
+                in_range = findall(lam -> !has_range ||
+                    (v1_eff <= lam <= v2_eff && (!positive_range || lam > positive_tol)),
+                    candidate_vals)
+                # Only a rejected root on the targeted side can mask the next
+                # in-range root. Do not chase roots beyond the far boundary.
+                if has_range && boundary_retries < boundary_retry_limit
+                    for j in eachindex(candidate_vals)
+                        lam = candidate_vals[j]
+                        masked = target_from_upper ? lam > v2_eff : lam < v1_eff
+                        if masked && _buckling_add_excluded_pair!(
+                            excluded_pairs, K_ff, view(candidate_vecs, :, j))
+                            added_exclusions += 1
+                        end
+                    end
+                end
+                candidate = (candidate_vals[in_range], candidate_vecs[:, in_range])
+                if best_partial_target === nothing
+                    best_partial_target = candidate
+                else
+                    merged_vals, merged_vecs, _ = merge_unique_eigenpairs(
+                        best_partial_target[1], best_partial_target[2],
+                        candidate[1], candidate[2])
+                    order = sortperm(abs.(merged_vals .- target_sigma))
+                    keep = order[1:min(num_modes_request, length(order))]
+                    best_partial_target = (merged_vals[keep], merged_vecs[:, keep])
+                end
+                if length(best_partial_target[1]) >= num_modes_request
+                    targeted = best_partial_target
+                    break
+                end
+                # A finite far bound may admit fewer than ND even when every
+                # requested Ritz pair converged and passed the original-pencil
+                # residual. For an SPD shifted matrix A=K+sigma*Kg, the roots
+                # to its right have the symmetric-definite inertia count of
+                # A+t*Kg. Certify that count before skipping an accuracy retry;
+                # an indefinite factor, masked root, missing multiplicity, or
+                # unstable endpoint retains the normal retry path.
+                shift_state = shifted_search_cache[]
+                attempt_diag = diagnostics["solver_attempts"][end]
+                if accuracy_attempt == 1 && has_range && !target_from_upper && isfinite(v2_eff) &&
+                   isempty(excluded_pairs) && shift_state !== nothing &&
+                   shift_state.sigma <= v1_eff && shift_state.sigma < v2_eff &&
+                   occursin("cholesky", lowercase(string(shift_state.factor_backend))) &&
+                   get(attempt_diag, "pairs_retained", 0) == num_modes_request &&
+                   length(candidate_vals) == num_modes_request
+                    certificate = Dict{String,Any}(
+                        "basis" => "SPD_shifted_pencil_inertia",
+                        "sigma" => shift_state.sigma,
+                        "upper_bound" => v2_eff,
+                        "returned_count" => length(best_partial_target[1]),
+                        "requested_nd" => num_modes_request)
+                    diagnostics["nd_interval_certificate"] = certificate
+                    if size(shift_state.M, 1) > 600
+                        # Sparse LDL inertia can cost more than the accuracy
+                        # retry (measured on the 58,704-DOF MR8 pencil). Keep
+                        # the existing retry contract on large systems and
+                        # reuse its shifted factor; never buy speed by making
+                        # an unproved interval-completeness assumption.
+                        certificate["status"] = "not_attempted_large_interval"
+                        certificate["maximum_certificate_dofs"] = 600
+                    else
+                    try
+                        # A count alone cannot distinguish a true repeated
+                        # eigenspace from duplicated vectors. Check the small
+                        # retained block without forming a squared-condition
+                        # Gram matrix; uncertainty simply preserves the retry.
+                        returned = length(best_partial_target[1])
+                        independent = if returned <= 1
+                            returned
+                        else
+                            columns = copy(best_partial_target[2])
+                            for j in axes(columns, 2)
+                                column = view(columns, :, j)
+                                column ./= norm(column)
+                            end
+                            pivots = abs.(diag(qr(columns, ColumnNorm()).R))
+                            count(>(sqrt(eps(Float64)) * maximum(pivots)), pivots)
+                        end
+                        certificate["independent_returned_count"] = independent
+                        available = _eigb_interval_count(shift_state.M, -shift_state.B,
+                            0.0, v2_eff - shift_state.sigma)
+                        certificate["interval_count"] = available
+                        complete = available == returned == independent
+                        certificate["status"] = complete ? "all_interval_modes_returned" : "count_mismatch"
+                        if complete
+                            targeted = best_partial_target
+                            certificate["accuracy_retry_skipped"] = true
+                            log_msg("[BUCKLING] SPD shifted-pencil inertia confirms $available modes in the bounded interval (ND=$num_modes_request)")
+                            break
+                        end
+                    catch err
+                        certificate["status"] = "unresolved"
+                        certificate["error"] = sprint(showerror, err)
+                    end
+                    end
+                end
+            end
+            if added_exclusions > 0
+                boundary_retries += 1
+            else
+                accuracy_attempt += 1
+            end
+        end
+        diagnostics["boundary_targeting"] = Dict{String,Any}(
+            "retries" => boundary_retries,
+            "excluded_pairs" => length(excluded_pairs),
+            "retry_limit" => boundary_retry_limit,
+        )
+        targeted === nothing && (targeted = best_partial_target)
+        if targeted !== nothing
+            eigenvalues, eigenvectors = targeted
+            solved = true
+            diagnostics["solver_backend"] = "krylov_eigrl_target"
+        elseif has_range
+            # Do not silently replace a failed [V1,V2] search with roots near
+            # zero or the legacy hard-coded sigma=1 fallback. Those spectra can
+            # be numerically valid yet completely outside the requested band.
+            strict_range_target_failed = true
+        end
+    end
+
     # Strategy 1: Dense symmetric-definite eigensolver for SMALL systems only.
     # K is positive definite after SPC elimination, so solve the Cholesky-reduced
     # symmetric problem C*y = θ*y with C = L⁻¹*B*L⁻ᵀ, θ = 1/λ, B = -Kg.
-    # Gated by _buckling_dense_max_dof() (default 200, was 4000) — larger systems
-    # use the iterative shift-invert Lanczos/Krylov path below, which is then
-    # checked for completeness with a Sturm inertia count.
-    if will_use_dense
+    # Gated by _buckling_dense_max_dof() (default 200, was 4000) for blank-ND
+    # requests. Explicit full-spectrum requests also use this path because a
+    # partial eigensolver cannot return all n roots.
+    if !solved && will_use_dense
         push!(diagnostics["solver_attempts"], Dict("name" => "dense_symmetric_definite", "status" => "attempted"))
         try
             log_msg("[BUCKLING] Using dense symmetric-definite eigensolver ($n_free DOFs)...")
@@ -2569,12 +3141,22 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             C = L \ (Bgd / L')
             C = 0.5 * (C + C')
             theta_vals, theta_vecs = eigen(Symmetric(C))
-            valid = findall(x -> isfinite(x) && abs(x) > 1e-12, theta_vals)
+            # theta = 1/lambda. A fixed lower cutoff on |theta| silently
+            # discards perfectly finite, very large buckling factors (for
+            # example lambda >= 1e12 with the former 1e-12 threshold). Exclude
+            # only exact transformed zeros/infinite roots here; the signed
+            # EIGRL bounds below decide which finite factors are requested.
+            valid = findall(x -> isfinite(x) && !iszero(x), theta_vals)
             if !isempty(valid)
                 thetas = theta_vals[valid]
                 lambdas = 1.0 ./ thetas
                 vecs = K_factor.U \ theta_vecs[:, valid]
-                perm = sortperm(abs.(lambdas))
+                residual_tol = max(solver_env_float(
+                    "JFEM_SOL105_EIGENPAIR_RESIDUAL_TOL", 1e-6), 0.0)
+                residuals = [_buckling_original_pencil_residual(
+                    Kd, Bgd, view(vecs, :, i), lambdas[i]) for i in eachindex(lambdas)]
+                accepted = findall(r -> isfinite(r) && r <= residual_tol, residuals)
+                perm = accepted[sortperm(abs.(lambdas[accepted]))]
                 # Dense solves already computed the whole spectrum. For ranged
                 # SOL105 extraction, keep it until the positive/range filter
                 # below; indefinite prestress can put many load-reversal roots
@@ -2582,10 +3164,17 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 n_out = has_range ? length(perm) : min(num_modes_request, length(perm))
                 eigenvalues = real.(lambdas[perm[1:n_out]])
                 eigenvectors = real.(vecs[:, perm[1:n_out]])
-                solved = true
+                solved = n_out > 0
                 diagnostics["solver_backend"] = "dense_symmetric_definite"
-                diagnostics["solver_attempts"][end] = Dict("name" => "dense_symmetric_definite", "status" => "succeeded", "returned_modes" => n_out)
-                log_msg("[BUCKLING] Dense symmetric-definite eigensolver converged ($n_out modes)")
+                diagnostics["solver_attempts"][end] = Dict(
+                    "name" => "dense_symmetric_definite",
+                    "status" => solved ? "succeeded" : "no_valid_eigenpairs",
+                    "returned_modes" => n_out,
+                    "candidate_pairs_examined" => length(lambdas),
+                    "pairs_retained" => n_out,
+                    "accepted_residuals" => residuals[perm[1:n_out]],
+                    "residual_rejections" => length(lambdas) - length(accepted))
+                log_msg("[BUCKLING] Dense symmetric-definite eigensolver accepted $n_out modes")
             else
                 diagnostics["solver_attempts"][end] = Dict("name" => "dense_symmetric_definite", "status" => "no_valid_eigenvalues")
                 log_msg("[BUCKLING] Dense symmetric-definite eigensolver: no valid eigenvalues found")
@@ -2602,18 +3191,30 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 Kd = Matrix(K_ff)
                 Bgd = Matrix(-Kg_ff)
                 all_vals, all_vecs = eigen(Kd, Bgd)
-                valid = findall(x -> isfinite(x) && isreal(x) && abs(real(x)) > 1e-6, all_vals)
+                valid = findall(x -> isfinite(x) && isreal(x) && abs(real(x)) > positive_tol, all_vals)
                 if !isempty(valid)
                     lambdas = real.(all_vals[valid])
                     vecs = real.(all_vecs[:, valid])
-                    perm = sortperm(abs.(lambdas))
+                    residual_tol = max(solver_env_float(
+                        "JFEM_SOL105_EIGENPAIR_RESIDUAL_TOL", 1e-6), 0.0)
+                    residuals = [_buckling_original_pencil_residual(
+                        Kd, Bgd, view(vecs, :, i), lambdas[i]) for i in eachindex(lambdas)]
+                    accepted = findall(r -> isfinite(r) && r <= residual_tol, residuals)
+                    perm = accepted[sortperm(abs.(lambdas[accepted]))]
                     n_out = has_range ? length(perm) : min(num_modes_request, length(perm))
                     eigenvalues = lambdas[perm[1:n_out]]
                     eigenvectors = vecs[:, perm[1:n_out]]
-                    solved = true
+                    solved = n_out > 0
                     diagnostics["solver_backend"] = "dense_generalized"
-                    diagnostics["solver_attempts"][end] = Dict("name" => "dense_generalized", "status" => "succeeded", "returned_modes" => n_out)
-                    log_msg("[BUCKLING] Fallback dense generalized eigensolver converged ($n_out modes)")
+                    diagnostics["solver_attempts"][end] = Dict(
+                        "name" => "dense_generalized",
+                        "status" => solved ? "succeeded" : "no_valid_eigenpairs",
+                        "returned_modes" => n_out,
+                        "candidate_pairs_examined" => length(lambdas),
+                        "pairs_retained" => n_out,
+                        "accepted_residuals" => residuals[perm[1:n_out]],
+                        "residual_rejections" => length(lambdas) - length(accepted))
+                    log_msg("[BUCKLING] Fallback dense generalized eigensolver accepted $n_out modes")
                 else
                     diagnostics["solver_attempts"][end] = Dict("name" => "dense_generalized", "status" => "no_valid_eigenvalues")
                     log_msg("[BUCKLING] Fallback dense generalized eigensolver: no valid eigenvalues found")
@@ -2625,11 +3226,26 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         end
     end
 
+    if !solved && will_use_dense
+        # Both dense backends were attempted for a genuinely full-spectrum
+        # request. The iterative fallback can return only n_free-1 pairs and
+        # cannot establish that this full request was satisfied.
+        full_request_residual_tol = max(solver_env_float(
+            "JFEM_SOL105_EIGENPAIR_RESIDUAL_TOL", 1e-6), 0.0)
+        throw(ErrorException(
+            "SOL105 full-spectrum extraction failed: neither dense backend produced " *
+            "an accepted finite eigenpair for $n_free free DOFs " *
+            "(buckling subcase=$(buckling_subcase), " *
+            "residual tolerance=$full_request_residual_tol). " *
+            "Refusing an incomplete n_free-1 iterative fallback. " *
+            "Check the pencil and its numerical conditioning, or specify a partial ND request."))
+    end
+
     # Strategy 2: KrylovKit inverse iteration (pure Julia, no Fortran deps)
     # Generalized problem: K*x = λ*B*x where B = -Kg
     # Zero-shift inverse iteration: K⁻¹*B*x = θ*x where θ = 1/λ
     # Largest |θ| from KrylovKit → smallest |λ| (lowest buckling load)
-    if !solved
+    if !solved && !strict_range_target_failed
         push!(diagnostics["solver_attempts"], Dict("name" => "krylov_inverse_iteration", "status" => "attempted"))
         try
             log_msg("[BUCKLING] Using KrylovKit inverse iteration ($n_free DOFs)...")
@@ -2645,11 +3261,10 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 log_msg("[BUCKLING] K factorization succeeded ($(eigen_ctx.factor_backend))")
             end
 
-            # Request extra eigenvalues for robustness. Buckling modes on aircraft
-            # shell structures often have nearly-degenerate pairs (symmetric/
-            # antisymmetric about a plane of near-symmetry); tight tol + eager=false
-            # ensures consistent ordering of those pairs across formulation changes.
-            nev_full = min(num_modes_request + 5, n_free - 1)
+            # Preserve the resolved extraction request. For explicit ND this is
+            # exactly ND; the only full-spectrum value is the separately guarded
+            # small-system blank-ND all-roots form.
+            nev_full = min(num_modes_request, n_free - 1)
             krylov_tol = _buckling_krylovtol()
             krylov_maxiter = _buckling_krylovmaxiter()
 
@@ -2731,6 +3346,12 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             for (rung_i, nev_try) in enumerate(nev_ladder)
                 nev_request = nev_try
                 kd = _buckling_krylovdim(nev_request, n_free)
+                push!(diagnostics["eigsolve_requests"], Dict{String,Any}(
+                    "attempt" => "krylov_inverse_iteration",
+                    "requested_eigenpairs" => nev_request,
+                    "selector" => "LM",
+                    "sigma" => 0.0,
+                ))
                 if symm_ctx !== nothing
                     LTs, pperm, Bp = symm_ctx
                     vals_kk, vecs_kk, info = eigsolve(
@@ -2752,14 +3373,17 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 pos_in_range = 0
                 brackets = false
                 if info.converged >= nev_try
-                    for theta in vals_kk[1:min(info.converged, length(vals_kk))]
+                    n_ladder_examined = min(info.converged, length(vals_kk),
+                                            length(vecs_kk), nev_try)
+                    for theta in vals_kk[1:n_ladder_examined]
                         theta_r = real(theta)
-                        (abs(imag(theta)) > 1e-6 * max(abs(theta_r), 1e-20) ||
-                         abs(theta_r) < 1e-14) && continue
+                        (!isfinite(theta_r) || !isfinite(abs(imag(theta))) ||
+                         abs(imag(theta)) > 1e-6 * max(abs(theta_r), 1e-20) ||
+                         iszero(theta_r)) && continue
                         lam = 1.0 / theta_r
                         # mirror the θ→λ conversion floor exactly, so the
                         # ladder never counts a root the output would drop
-                        (lam > positive_tol && abs(lam) > 1e-6) || continue
+                        (isfinite(lam) && lam > positive_tol) || continue
                         # hysteresis: clear V2 by 1e-6 rel to count as
                         # bracketing (decision-boundary robustness)
                         lam > v2_eff + max(1e-6 * abs(v2_eff), 1e-12) && (brackets = true)
@@ -2780,15 +3404,21 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             isempty(adaptive_attempts) ||
                 (diagnostics["adaptive_nev"] = adaptive_attempts)
 
+            ritz_values_returned = length(vals_kk)
+            ritz_vectors_returned = length(vecs_kk)
+
             # Congruence back-map: eigsolve returned y-space vectors;
             # u = Pᵀ L⁻ᵀ y restores pencil eigenvectors (θ values unchanged).
             if symm_ctx !== nothing
                 LTs, pperm, _ = symm_ctx
+                n_backmap = min(nev_request, info.converged,
+                                ritz_vectors_returned)
+                vecs_y = vecs_kk
                 vecs_kk = [begin
                     u = zeros(Float64, n_free)
-                    u[pperm] = LTs' \ real.(y)
+                    u[pperm] = LTs' \ real.(vecs_y[i])
                     u
-                end for y in vecs_kk]
+                end for i in 1:n_backmap]
                 diagnostics["symm_lanczos"] = true
             end
 
@@ -2797,18 +3427,31 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             # Convert θ → λ = 1/θ
             actual_lambdas = Float64[]
             actual_vecs = Vector{Float64}[]
-            for (i, theta) in enumerate(vals_kk)
+            accepted_residuals = Float64[]
+            residual_tol = max(solver_env_float(
+                "JFEM_SOL105_EIGENPAIR_RESIDUAL_TOL", 1e-6), 0.0)
+            n_converged = min(info.converged, length(vals_kk), length(vecs_kk),
+                              nev_request)
+            for i in 1:n_converged
+                theta = vals_kk[i]
                 theta_r = real(theta)
                 theta_i = abs(imag(theta))
                 # Skip complex and near-zero eigenvalues
-                if theta_i > 1e-6 * max(abs(theta_r), 1e-20) || abs(theta_r) < 1e-14
+                if !isfinite(theta_r) || !isfinite(theta_i) ||
+                   theta_i > 1e-6 * max(abs(theta_r), 1e-20) || iszero(theta_r)
                     continue
                 end
                 lam = 1.0 / theta_r
-                if abs(lam) > 1e-6
-                    push!(actual_lambdas, lam)
-                    push!(actual_vecs, real.(vecs_kk[i]))
-                end
+                isfinite(lam) || continue
+                abs(lam) > positive_tol || continue
+                u = real.(vecs_kk[i])
+                u_norm = norm(u)
+                isfinite(u_norm) && u_norm > eps(Float64) || continue
+                rel_res = _buckling_original_pencil_residual(K_ff, B, u, lam)
+                isfinite(rel_res) && rel_res <= residual_tol || continue
+                push!(actual_lambdas, lam)
+                push!(actual_vecs, u)
+                push!(accepted_residuals, rel_res)
             end
             if !isempty(actual_lambdas)
                 perm = sortperm(abs.(actual_lambdas))
@@ -2819,9 +3462,16 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 diagnostics["solver_backend"] = "krylov_inverse_iteration"
                 diagnostics["solver_attempts"][end] = Dict(
                     "name" => "krylov_inverse_iteration",
-                    "status" => "succeeded",
+                    "status" => n_out == nev_request ? "succeeded" : "succeeded_partial",
                     "returned_modes" => n_out,
+                    "requested_eigenpairs" => nev_request,
+                    "ritz_values_returned" => ritz_values_returned,
+                    "ritz_vectors_returned" => ritz_vectors_returned,
+                    "operator_applications" => hasproperty(info, :numops) ? getproperty(info, :numops) : nothing,
+                    "candidate_pairs_examined" => n_converged,
+                    "pairs_retained" => n_out,
                     "converged" => info.converged,
+                    "accepted_residuals" => accepted_residuals,
                     "krylovdim" => kd,
                     "krylov_tol" => krylov_tol,
                     "krylov_maxiter" => krylov_maxiter,
@@ -2865,7 +3515,19 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     end
                 end
             else
-                diagnostics["solver_attempts"][end] = Dict("name" => "krylov_inverse_iteration", "status" => "no_valid_eigenvalues", "converged" => info.converged)
+                diagnostics["solver_attempts"][end] = Dict(
+                    "name" => "krylov_inverse_iteration",
+                    "status" => isempty(actual_lambdas) ?
+                        "no_valid_eigenvalues" : "insufficient_converged_eigenpairs",
+                    "requested_eigenpairs" => nev_request,
+                    "ritz_values_returned" => ritz_values_returned,
+                    "ritz_vectors_returned" => ritz_vectors_returned,
+                    "operator_applications" => hasproperty(info, :numops) ? getproperty(info, :numops) : nothing,
+                    "candidate_pairs_examined" => n_converged,
+                    "pairs_retained" => length(actual_lambdas),
+                    "converged" => info.converged,
+                    "accepted" => length(actual_lambdas),
+                    "accepted_residuals" => accepted_residuals)
                 log_msg("[BUCKLING] KrylovKit: no valid real eigenvalues found")
             end
         catch e
@@ -2875,7 +3537,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     end
 
     # Strategy 3: KrylovKit with shift near first mode (refine if Strategy 2 failed)
-    if !solved
+    if !solved && !strict_range_target_failed
         push!(diagnostics["solver_attempts"], Dict("name" => "krylov_shifted", "status" => "attempted"))
         try
             log_msg("[BUCKLING] Fallback: KrylovKit with small shift...")
@@ -2891,26 +3553,46 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 M_factor = lu(M)
             end
 
-            nev_request = min(num_modes_request + 5, n_free - 1)
+            nev_request = min(num_modes_request, n_free - 1)
             kd = _buckling_krylovdim(nev_request, n_free)
             krylov_tol = _buckling_krylovtol()
             krylov_maxiter = _buckling_krylovmaxiter()
+            push!(diagnostics["eigsolve_requests"], Dict{String,Any}(
+                "attempt" => "krylov_shifted",
+                "requested_eigenpairs" => nev_request,
+                "selector" => "LM",
+                "sigma" => sigma,
+            ))
             vals_kk, vecs_kk, info = eigsolve(
                 x -> M_factor \ (B * x), next_start_vector(), nev_request, :LM;
                 krylovdim=kd, maxiter=krylov_maxiter, tol=krylov_tol, eager=true)
 
             actual_lambdas = Float64[]
             actual_vecs = Vector{Float64}[]
-            for (i, theta) in enumerate(vals_kk)
+            accepted_residuals = Float64[]
+            residual_tol = max(solver_env_float(
+                "JFEM_SOL105_EIGENPAIR_RESIDUAL_TOL", 1e-6), 0.0)
+            n_converged = min(info.converged, length(vals_kk), length(vecs_kk),
+                              nev_request)
+            for i in 1:n_converged
+                theta = vals_kk[i]
                 theta_r = real(theta)
-                if abs(imag(theta)) > 1e-6 * max(abs(theta_r), 1e-20) || abs(theta_r) < 1e-14
+                theta_i = abs(imag(theta))
+                if !isfinite(theta_r) || !isfinite(theta_i) ||
+                   theta_i > 1e-6 * max(abs(theta_r), 1e-20) || iszero(theta_r)
                     continue
                 end
                 lam = sigma + 1.0 / theta_r
-                if abs(lam) > 1e-6
-                    push!(actual_lambdas, lam)
-                    push!(actual_vecs, real.(vecs_kk[i]))
-                end
+                isfinite(lam) || continue
+                abs(lam) > positive_tol || continue
+                u = real.(vecs_kk[i])
+                u_norm = norm(u)
+                isfinite(u_norm) && u_norm > eps(Float64) || continue
+                rel_res = _buckling_original_pencil_residual(K_ff, B, u, lam)
+                isfinite(rel_res) && rel_res <= residual_tol || continue
+                push!(actual_lambdas, lam)
+                push!(actual_vecs, u)
+                push!(accepted_residuals, rel_res)
             end
             if !isempty(actual_lambdas)
                 perm = sortperm(abs.(actual_lambdas))
@@ -2921,14 +3603,35 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                 diagnostics["solver_backend"] = "krylov_shifted"
                 diagnostics["solver_attempts"][end] = Dict(
                     "name" => "krylov_shifted",
-                    "status" => "succeeded",
+                    "status" => n_out == nev_request ? "succeeded" : "succeeded_partial",
                     "returned_modes" => n_out,
+                    "requested_eigenpairs" => nev_request,
+                    "ritz_values_returned" => length(vals_kk),
+                    "ritz_vectors_returned" => length(vecs_kk),
+                    "operator_applications" => hasproperty(info, :numops) ? getproperty(info, :numops) : nothing,
+                    "candidate_pairs_examined" => n_converged,
+                    "pairs_retained" => n_out,
                     "converged" => info.converged,
+                    "accepted_residuals" => accepted_residuals,
                     "krylovdim" => kd,
                     "krylov_tol" => krylov_tol,
                     "krylov_maxiter" => krylov_maxiter,
                 )
                 log_msg("[BUCKLING] Fallback KrylovKit converged ($n_out modes)")
+            else
+                diagnostics["solver_attempts"][end] = Dict(
+                    "name" => "krylov_shifted",
+                    "status" => isempty(actual_lambdas) ?
+                        "no_valid_eigenvalues" : "insufficient_converged_eigenpairs",
+                    "requested_eigenpairs" => nev_request,
+                    "ritz_values_returned" => length(vals_kk),
+                    "ritz_vectors_returned" => length(vecs_kk),
+                    "operator_applications" => hasproperty(info, :numops) ? getproperty(info, :numops) : nothing,
+                    "candidate_pairs_examined" => n_converged,
+                    "pairs_retained" => length(actual_lambdas),
+                    "converged" => info.converged,
+                    "accepted" => length(actual_lambdas),
+                    "accepted_residuals" => accepted_residuals)
             end
         catch e
             diagnostics["solver_attempts"][end] = Dict("name" => "krylov_shifted", "status" => "failed", "error" => sprint(showerror, e))
@@ -2939,6 +3642,8 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     if !solved
         log_msg("[BUCKLING] ERROR: All eigenvalue solvers failed")
         diagnostics["solver_backend"] = "failed"
+        diagnostics["output_request_status"] = "shortage"
+        diagnostics["output_pairs_shortage"] = num_modes_request
         buckling_timings["eigensolver_search"] = (time_ns() - t_eigen_search) * 1e-9
         buckling_timings["total"] = (time_ns() - t_buckling_total) * 1e-9
         diagnostics["timings"] = buckling_timings
@@ -2955,10 +3660,9 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     # tensile-direction roots printed by Nastran and can move the first reported
     # eigenvalue by orders of magnitude on probe decks.
     #
-    # If an explicit bounded range is present, keep the historical compression
-    # design behavior: positive load factors in [max(V1,+tol), V2]. This
-    # preserves the GAME SOL105 range semantics and avoids re-admitting negative
-    # load-reversal modes through common decks with V1=-1e-4.
+    # Explicit EIGRL bounds are inclusive and signed. A non-negative V1 selects
+    # the usual positive compression branch; a negative or blank V1 retains
+    # load-reversal roots in the requested interval.
     n_found = length(eigenvalues)
     log_msg("[BUCKLING] Found $n_found eigenvalues (raw, pre-filter)")
 
@@ -3023,7 +3727,11 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     # used to switch this on were whole-model deck fingerprints (aspect/ply-count/h-L windows
     # with a >=250 matching-quad count); they are removed with the rest of the machinery.
     signed_magnitude_output = false
-    valid_idx = findall(x -> isfinite(x) && x > positive_tol, eigenvalues)
+    valid_idx = if has_range && positive_range
+        findall(x -> isfinite(x) && x > positive_tol, eigenvalues)
+    else
+        findall(x -> isfinite(x) && abs(x) > positive_tol, eigenvalues)
+    end
     if length(valid_idx) < n_found
         dropped = n_found - length(valid_idx)
         if signed_magnitude_output
@@ -3036,11 +3744,11 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     # Apply EIGRL V1/V2 range filter if specified (v1_eff/v2_eff are the
     # hoisted effective bounds shared with the adaptive-nev ladder).
     if has_range
-        range_idx = bounded_signed_magnitude_output ?
-            filter(i -> abs(eigenvalues[i]) >= v1_eff && abs(eigenvalues[i]) <= v2_eff, valid_idx) :
-            filter(i -> eigenvalues[i] >= v1_eff && eigenvalues[i] <= v2_eff, valid_idx)
-        range_kind = bounded_signed_magnitude_output ? "signed-magnitude" : "positive"
-        if v2_eff > eigrl_v2
+        range_idx = filter(i ->
+            eigenvalues[i] >= v1_eff && eigenvalues[i] <= v2_eff, valid_idx)
+        diagnostics["range_rejected_candidates"] = length(valid_idx) - length(range_idx)
+        range_kind = positive_range ? "positive" : "signed"
+        if eigrl_v2_specified && v2_eff > eigrl_v2
             log_msg("[BUCKLING] EIGRL range [$eigrl_v1, $eigrl_v2] with upper tolerance -> $v2_eff: $(length(range_idx)) of $(length(valid_idx)) $range_kind eigenvalues in range")
         else
             log_msg("[BUCKLING] EIGRL range [$eigrl_v1, $eigrl_v2]: $(length(range_idx)) of $(length(valid_idx)) $range_kind eigenvalues in range")
@@ -3146,7 +3854,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         # When a buckling range upper bound is present, augment the in-range spectrum
         # with a targeted shift-invert search near V2 so upper-branch modes are not
         # missed behind lower-|lambda| or negative clusters.
-        if !will_use_dense
+        if !will_use_dense && !strict_requested_count
             # --- Gate: should we run the augmentation at all? ---
             # Safe auto-skip: Strategy 2 has already produced eigenvalues BOTH
             # above V2 and below V1, AND returned enough in-range modes. That
@@ -3335,7 +4043,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         # certificate and increase the local shifted-solve budget. This is a
         # numerical recovery step only: it does not use case names, groups,
         # stresses, or reference answers, and it runs before any reporting cap.
-        if !will_use_dense &&
+        if !will_use_dense && !strict_requested_count &&
            solver_env_bool("JFEM_SOL105_RANGE_COMPLETENESS_AUGMENT", true) &&
            !isempty(valid_idx)
 
@@ -3570,8 +4278,12 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         buckling_timings["sturm_completeness"] = (time_ns() - t_sturm) * 1e-9
     end
 
-    # Sort by lambda ascending — Nastran's root order. Never by |lambda|.
-    sorted_idx = valid_idx[sortperm(eigenvalues[valid_idx])]
+    # Every explicitly bounded or half-bounded range is ordered algebraically;
+    # only a completely unbounded request uses increasing magnitude.
+    sort_by_magnitude = !has_range
+    sorted_idx = sort_by_magnitude ?
+        valid_idx[sortperm(abs.(eigenvalues[valid_idx]))] :
+        valid_idx[sortperm(eigenvalues[valid_idx])]
 
     # 2026-07-27 (strip Stage 1): the localization filter and its rescue windows are GONE.
     # It discarded eigenvalues whose elastic strain energy was concentrated in few elements
@@ -3583,24 +4295,15 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     # Removed here: ~887 lines of thresholds, keep/reject windows and energy-share
     # machinery. The spectrum is now reported as found: see `sorted_idx` above.
 
-    # By default, honor EIGRL ND even when V1/V2 is present. Range augmentation
-    # may discover many more in-range roots than MSC reports for an ND-limited
-    # deck; returning all of them is useful for completeness diagnostics but
-    # makes first-N parity and exported mode numbering drift away from Nastran.
-    #
-    # Opt in to the expanded diagnostic output with
-    # JFEM_SOL105_RETURN_ALL_IN_RANGE=true. The hard cap avoids accidentally
-    # exporting a huge mode set from a broad range.
+    # Honor explicit EIGRL ND exactly. Blank ND with V2 present has the distinct
+    # Nastran meaning "all roots in range" and therefore returns the complete
+    # in-range set rather than applying an invented mode cap.
     if has_range
         if return_all_range
-            cap_raw = strip(get(ENV, "JFEM_SOL105_RETURN_ALL_IN_RANGE_MAX", "256"))
-            cap = tryparse(Int, cap_raw)
-            cap = cap === nothing ? 256 : clamp(cap, 1, max(length(sorted_idx), 1))
-            n_out = min(length(sorted_idx), cap)
+            n_out = length(sorted_idx)
             diagnostics["range_output"] = Dict{String,Any}(
                 "mode" => "all_in_range",
                 "available_in_range_modes" => length(sorted_idx),
-                "cap" => cap,
             )
         else
             n_out = min(num_modes, length(sorted_idx))
@@ -3611,7 +4314,11 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             )
         end
     else
-        n_out = min(num_modes_request, length(sorted_idx))
+        n_out = min(num_modes, length(sorted_idx))
+    end
+    if strict_requested_count
+        diagnostics["output_request_status"] = n_out < num_modes_request ? "shortage" : "satisfied"
+        diagnostics["output_pairs_shortage"] = max(num_modes_request - n_out, 0)
     end
     if n_out == 0
         log_msg("[BUCKLING] WARNING: No valid eigenvalues found")
@@ -3676,9 +4383,10 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
 
     # Normalize mode shapes (max component = 1.0)
     for m in 1:n_out
-        max_val = maximum(abs.(mode_shapes_global[:, m]))
+        column = view(mode_shapes_global, :, m)
+        max_val = maximum(abs, column)
         if max_val > 1e-30
-            mode_shapes_global[:, m] ./= max_val
+            column ./= max_val
         end
     end
     buckling_timings["expand_modes"] = (time_ns() - t_expand_modes) * 1e-9
@@ -3692,10 +4400,9 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
 
     # Phase A2 (architectural-cleanup 2026-05-24): expose the pre-filter
     # eigenvalue set + per-mode filter decisions to the caller via the
-    # diagnostics dict. Cheap (eigenvalues only — no expansion). The caller
-    # (`_solve_sol105`) lifts these into BucklingSubcaseResult.raw_eigenvalues
-    # / .filter_decisions so off-line MAC analysis can see what the filters
-    # dropped without re-running with JFEM_BUCKLING_RAW_OUTPUT=true.
+    # diagnostics dict. These are candidate-only values (no raw vector
+    # expansion). Structured raw value/vector fields remain a reported mirror;
+    # diagnostics retain this legacy key and expose explicit candidate aliases.
     #
     # raw_eigenvalues is in ASCENDING order over sorted_idx (the validity-
     # passed eigenspectrum the post-filter selection runs against).
@@ -3723,9 +4430,11 @@ end
     if raw isa AbstractString
         token = uppercase(strip(raw))
         isempty(token) && return default
+        numeric = tryparse(Float64,token)
+        numeric === nothing || return isfinite(numeric) && numeric > 0.0
         return !(token in ("NO", "N", "FALSE", "F", "OFF", "0", "NONE"))
     elseif raw isa Number
-        return abs(Float64(raw)) > 1e-12
+        return isfinite(Float64(raw)) && Float64(raw) > 0.0
     elseif raw === nothing
         return default
     end
@@ -3767,9 +4476,7 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
                        constraint_map=nothing)
     log_msg("[SOLVER] Assembling Mass Matrix (SOL103)...")
     n_nodes = length(id_map)
-    max_nid = maximum(keys(id_map))
-    id_vec = zeros(Int, max_nid)
-    for (nid, idx) in id_map; id_vec[nid] = idx; end
+    id_vec = _assembly_grid_lookup(id_map)
 
     # Flat node_R for transformation
     node_R_flat = zeros(3, 3, n_nodes)
@@ -3819,7 +4526,7 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
         valid = true
         for k in 1:n
             nid = nids[k]
-            (nid < 1 || nid > max_nid || id_vec[nid] == 0) && (valid = false; break)
+            (nid < 1 || get(id_vec, nid, 0) == 0) && (valid = false; break)
         end
         !valid && continue
 
@@ -4232,144 +4939,66 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
         end
     end
 
-    # --- CONM2 concentrated mass ---
+    # Concentrated mass blocks are formed in basic axes, then transformed
+    # into the same GRID analysis coordinates as the structural matrices.
+    function scatter_nodal_mass!(idx, mass_basic)
+        R6 = zeros(6, 6)
+        R6[1:3, 1:3] = node_R[idx]
+        R6[4:6, 4:6] = node_R[idx]
+        block = R6' * mass_basic * R6
+        base = (idx - 1) * 6
+        for c in 1:6, r in 1:6
+            _push_nonzero_triplet!(I_idx, J_idx, V_val, base+r, base+c, block[r,c])
+        end
+    end
+
     for (_, cm) in conm2s
         gid = cm["GID"]
-        !haskey(id_map, gid) && continue
+        haskey(id_map, gid) || error("[SOLVER] CONM2 references missing GRID $gid")
         idx = id_map[gid]
-        m = Float64(cm["M"])
-        m < 1e-30 && continue
-        base = (idx-1)*6
-
-        # CONM2 offset vector (X1, X2, X3) in basic coordinate system
-        x_off = get(cm, "X", [0.0, 0.0, 0.0])
-        x1, x2, x3 = Float64(x_off[1]), Float64(x_off[2]), Float64(x_off[3])
-        has_offset = (abs(x1) + abs(x2) + abs(x3)) > 1e-30
-
-        # Translational mass (diagonal 3×3)
-        for d in 1:3
-            push!(I_idx, base+d); push!(J_idx, base+d); push!(V_val, m)
-        end
-
-        # Rotational inertia (if provided)
-        inertia = get(cm, "I", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-        I11, I21, I22, I31, I32, I33 = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-        if length(inertia) >= 6
-            I11, I21, I22, I31, I32, I33 = Float64.(inertia)
-        end
-
-        # Parallel axis theorem: transfer inertia from CG offset to grid point
-        # I_total = I_cg + m * [y²+z², -xy, -xz; -xy, x²+z², -yz; -xz, -yz, x²+y²]
-        if has_offset
-            I11 += m * (x2^2 + x3^2)
-            I22 += m * (x1^2 + x3^2)
-            I33 += m * (x1^2 + x2^2)
-            I21 -= m * x1 * x2
-            I31 -= m * x1 * x3
-            I32 -= m * x2 * x3
-        end
-
-        # Diagonal rotational inertia
-        if abs(I11) > 0; push!(I_idx, base+4); push!(J_idx, base+4); push!(V_val, I11); end
-        if abs(I22) > 0; push!(I_idx, base+5); push!(J_idx, base+5); push!(V_val, I22); end
-        if abs(I33) > 0; push!(I_idx, base+6); push!(J_idx, base+6); push!(V_val, I33); end
-
-        # Off-diagonal rotational inertia (symmetric)
-        if abs(I21) > 0
-            push!(I_idx, base+4); push!(J_idx, base+5); push!(V_val, I21)
-            push!(I_idx, base+5); push!(J_idx, base+4); push!(V_val, I21)
-        end
-        if abs(I31) > 0
-            push!(I_idx, base+4); push!(J_idx, base+6); push!(V_val, I31)
-            push!(I_idx, base+6); push!(J_idx, base+4); push!(V_val, I31)
-        end
-        if abs(I32) > 0
-            push!(I_idx, base+5); push!(J_idx, base+6); push!(V_val, I32)
-            push!(I_idx, base+6); push!(J_idx, base+5); push!(V_val, I32)
-        end
-
-        # Translation-rotation coupling from offset (Nastran CONM2 formulation)
-        # Couples translational DOFs to rotational DOFs via mass × offset
-        if has_offset
-            # M_tr = m * [0, z, -y; -z, 0, x; y, -x, 0]  (skew-symmetric)
-            coupling = [( 0.0,    m*x3,  -m*x2),   # row 4 couples to DOFs 1,2,3
-                        (-m*x3,   0.0,    m*x1),   # row 5
-                        ( m*x2,  -m*x1,   0.0 )]   # row 6
-            for r in 1:3
-                for c in 1:3
-                    val = coupling[r][c]
-                    abs(val) < 1e-30 && continue
-                    push!(I_idx, base+3+r); push!(J_idx, base+c); push!(V_val, val)
-                    push!(I_idx, base+c); push!(J_idx, base+3+r); push!(V_val, val)
-                end
-            end
-        end
+        scatter_nodal_mass!(idx, _conm2_mass_basic(model, cm, view(node_coords, idx, :)))
     end
 
-    # --- CONM1 concentrated mass (full 6×6 diagonal mass matrix) ---
-    conm1s = get(model, "CONM1s", Dict())
-    for (_, cm) in conm1s
+    # CONM1 supplies the complete symmetric six-by-six mass block in CID.
+    for (_, cm) in get(model, "CONM1s", Dict())
         gid = cm["GID"]
-        !haskey(id_map, gid) && continue
+        haskey(id_map, gid) || error("[SOLVER] CONM1 references missing GRID $gid")
         idx = id_map[gid]
-        base = (idx-1)*6
-        raw_full = get(cm, "M_FULL", nothing)
-        if raw_full === nothing
-            m_diag = get(cm, "M_DIAG", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-            for d in 1:min(6, length(m_diag))
-                if abs(m_diag[d]) > 1e-30
-                    push!(I_idx, base+d); push!(J_idx, base+d); push!(V_val, Float64(m_diag[d]))
-                end
+        scatter_nodal_mass!(idx, _conm1_mass_basic(model, cm, view(node_coords, idx, :)))
+    end
+
+    # A two-terminal scalar mass acts on their relative scalar acceleration.
+    # Grounded endpoints contribute only the remaining diagonal entry.
+    function scatter_scalar_mass!(cm, mass)
+        isfinite(mass) || error("[SOLVER] Scalar mass must be finite")
+        dofs = Int[]
+        for terminal in 1:2
+            gid = Int(get(cm,"G$terminal",0)); component = Int(get(cm,"C$terminal",0))
+            if gid == 0
+                push!(dofs,0)
+                continue
             end
-        else
-            m_full = Matrix{Float64}(raw_full)
-            n = min(6, size(m_full, 1), size(m_full, 2))
-            for r in 1:n, c in 1:n
-                val = m_full[r, c]
-                abs(val) > 1e-30 || continue
-                push!(I_idx, base+r); push!(J_idx, base+c); push!(V_val, val)
-            end
+            1 <= component <= 6 || error("[SOLVER] Scalar mass GRID component must be in 1:6; SPOINT terminals are unsupported")
+            haskey(id_map,gid) || error("[SOLVER] Scalar mass references missing GRID $gid")
+            push!(dofs,(id_map[gid]-1)*6+component)
+        end
+        dofs[1] != dofs[2] || error("[SOLVER] Scalar mass terminals must be distinct")
+        for i in 1:2, j in 1:2
+            dofs[i] == 0 || dofs[j] == 0 ||
+                _push_nonzero_triplet!(I_idx,J_idx,V_val,dofs[i],dofs[j],i == j ? mass : -mass)
         end
     end
-
-    # --- CMASS2 scalar mass (mass value on the card itself) ---
-    cmass2s = get(model, "CMASS2s", Dict())
-    for (_, cm) in cmass2s
-        mass = Float64(get(cm, "M", 0.0))
-        abs(mass) < 1e-30 && continue
-        g1 = get(cm, "G1", 0); c1 = get(cm, "C1", 0)
-        if g1 > 0 && c1 > 0 && haskey(id_map, g1)
-            dof1 = (id_map[g1]-1)*6 + c1
-            push!(I_idx, dof1); push!(J_idx, dof1); push!(V_val, mass)
-        end
-        g2 = get(cm, "G2", 0); c2 = get(cm, "C2", 0)
-        if g2 > 0 && c2 > 0 && haskey(id_map, g2)
-            dof2 = (id_map[g2]-1)*6 + c2
-            push!(I_idx, dof2); push!(J_idx, dof2); push!(V_val, mass)
-        end
+    for (_,cm) in get(model,"CMASS2s",Dict())
+        scatter_scalar_mass!(cm,Float64(get(cm,"M",0.0)))
+    end
+    for (_,cm) in get(model,"CMASS1s",Dict())
+        pid = string(get(cm,"PID",0))
+        pm = get(get(model,"PMASSs",Dict()),pid,nothing)
+        pm === nothing && error("[SOLVER] CMASS1 references missing PMASS $pid")
+        scatter_scalar_mass!(cm,Float64(get(pm,"M",0.0)))
     end
 
-    # --- CMASS1 scalar mass (mass value from PMASS property) ---
-    cmass1s = get(model, "CMASS1s", Dict())
-    pmasses = get(model, "PMASSs", Dict())
-    for (_, cm) in cmass1s
-        pid = string(get(cm, "PID", 0))
-        pm = get(pmasses, pid, nothing)
-        pm === nothing && continue
-        mass = Float64(get(pm, "M", 0.0))
-        abs(mass) < 1e-30 && continue
-        g1 = get(cm, "G1", 0); c1 = get(cm, "C1", 0)
-        if g1 > 0 && c1 > 0 && haskey(id_map, g1)
-            dof1 = (id_map[g1]-1)*6 + c1
-            push!(I_idx, dof1); push!(J_idx, dof1); push!(V_val, mass)
-        end
-        g2 = get(cm, "G2", 0); c2 = get(cm, "C2", 0)
-        if g2 > 0 && c2 > 0 && haskey(id_map, g2)
-            dof2 = (id_map[g2]-1)*6 + c2
-            push!(I_idx, dof2); push!(J_idx, dof2); push!(V_val, mass)
-        end
-    end
-
+    append_direct_matrix_triplets!(I_idx,J_idx,V_val,model,id_map;kind=:mass)
     log_msg("[SOLVER] Mass matrix: $(length(V_val)) triplets assembled")
 
     # K is assembled in the MPC-reduced coordinate space by redistributing
