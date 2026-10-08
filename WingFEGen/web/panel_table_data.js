@@ -29,6 +29,8 @@
   return{material:1,...saved,...array('materials.bars').find(row=>row.component==='stringer'),...Object.fromEntries(FIELDS.stringers.filter(f=>f.type==='number').map((f,i)=>[f.name,p['properties.stringer_'+f.name]??saved[f.name]??panel.stringer_dimensions_m?.[i]]))};
  }
  function override(snapshot,key){return rows(snapshot.parameters).find(row=>row.key===key)||null;}
+ function fieldState(snapshot,kind,key,field){const value=override(snapshot,key)?.[section(kind)]?.[field];return value===undefined?{present:false}:{present:true,value};}
+ function sameField(a,b){return !!a&&!!b&&a.present===b.present&&(!a.present||a.value===b.value);}
  function effective(snapshot,panel,kind){return{...inherited(snapshot,panel,kind),...override(snapshot,panel.key)?.[section(kind)]};}
  function validateSection(value,kind,p){
   const ids=new Set(materialList(p).map(m=>m.id)),positive=(v,name)=>{if(typeof v!=='number'||!Number.isFinite(v)||v<=0)throw Error(name+' must be a finite positive number.');},material=(v,name)=>{if(!Number.isInteger(v)||!ids.has(v))throw Error(name+' must use a material in the Study library.');};
@@ -60,9 +62,9 @@
  }
  function compact(raw={}){
   const panels=(raw.panels||[]).map(({shell_eids,stringer_eids,stringer_grid_ids,...p})=>p);
-  return{parameters:parameters(raw.parameters),panels:clone(panels),layout_token:raw.layout_token||'',modelDirty:!!raw.modelDirty,busy:!!raw.busy,error:raw.error?String(raw.error):''};
+  return{parameters:parameters(raw.parameters),panels:clone(panels),layout_token:raw.layout_token||'',modelDirty:!!raw.modelDirty,busy:!!raw.busy,updating:!!raw.updating,resultsCurrent:raw.resultsCurrent===true,error:raw.error?String(raw.error):''};
  }
  function matrix(snapshot,skin){const panels=(snapshot.panels||[]).filter(p=>p.skin===skin),stringers=[...new Set(panels.map(p=>Number(p.stringer)))].sort((a,b)=>a-b),bays=[...new Set(panels.map(p=>Number(p.rib_bay)))].sort((a,b)=>a-b),cells=new Map();for(const p of panels){const key=p.stringer+':'+p.rib_bay;if(!cells.has(key))cells.set(key,[]);cells.get(key).push(p);}for(const list of cells.values())list.sort((a,b)=>a.segment-b.segment||a.id-b.id);return{stringers,bays,cells};}
  function display(value,field){return typeof value==='number'?String(Number((value*(field.scale||1)).toPrecision(10))):String(value??'');}
- return{PARAMETER,FIELDS,section,parameters,rows,materialList,inherited,override,effective,validateSection,update,compact,matrix,display};
+ return{PARAMETER,FIELDS,section,parameters,rows,materialList,inherited,override,fieldState,sameField,effective,validateSection,update,compact,matrix,display};
 });

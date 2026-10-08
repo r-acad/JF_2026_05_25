@@ -19,10 +19,13 @@
 #model-error p { margin:4px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.5; user-select:text; }
 #mesh-status[data-state="invalid"] { color:var(--bad); }
 .model-warning { padding:8px; border:1px solid #9d7b41; background:#3b3020; color:#ffe3ad; white-space:pre-wrap; overflow-wrap:anywhere; }
-#tab-results[data-analysis-current="false"], #analysis-validity[data-analysis-current="false"] { color:#ff858d; }
-#tab-results[data-analysis-current="true"], #analysis-validity[data-analysis-current="true"] { color:#71e4ad; }
-#tab-results[data-analysis-current="false"].active { border-bottom-color:#ff858d; }
-#tab-results[data-analysis-current="true"].active { border-bottom-color:#71e4ad; }
+#tab-resultsmenu[data-analysis-current="false"], #tab-results[data-analysis-current="false"], #tab-sensitivityresults[data-analysis-current="false"], #analysis-validity[data-analysis-current="false"] { color:#ff858d; }
+#tab-resultsmenu[data-analysis-current="true"], #tab-results[data-analysis-current="true"], #tab-sensitivityresults[data-analysis-current="true"], #analysis-validity[data-analysis-current="true"] { color:#71e4ad; }
+#tab-resultsmenu[data-analysis-current="false"].active { border-bottom-color:#ff858d; }
+#tab-resultsmenu[data-analysis-current="true"].active { border-bottom-color:#71e4ad; }
+.properties-menu button:disabled { color:#8393a3!important; opacity:.65; cursor:not-allowed; }
+[data-sensitivity-display="ready"] { background:#935317; border-color:#ffc477; color:#fff3df; }
+[data-sensitivity-display="active"] { background:#176245; border-color:#71e4ad; color:#edfff5; }
 #btn-jfem[data-analysis-current="false"] { background:#8d2935; border-color:#ff858d; color:#fff0f1; }
 #btn-jfem[data-analysis-current="true"] { background:#176245; border-color:#71e4ad; color:#edfff5; }
 #group-leading-edge [id="row-leading_edge.rib_orientation"] { grid-template-columns:minmax(0,1fr); align-items:stretch; gap:7px; }

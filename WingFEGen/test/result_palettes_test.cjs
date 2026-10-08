@@ -1,0 +1,16 @@
+'use strict';
+const assert=require('node:assert/strict'),L=require('../web/viewport-legends.js');let checks=0;
+const eq=(a,b)=>{assert.deepEqual(a,b);checks++;},rejects=f=>{assert.throws(f);checks++;};
+const events=[];L.configure({getPalette:scope=>scope==='sensitivity'?'coolwarm':'spectrum',setPalette:(value,scope)=>events.push({value,scope}),onChange:state=>events.push(state)});
+L.restore(null);eq(['fe','vlm','sensitivity'].map(k=>L.getPalette(k)),['spectrum','spectrum','coolwarm']);
+L.setPalette('fe','viridis');eq(L.getPalette('vlm'),'spectrum');eq(L.getPalette('sensitivity'),'coolwarm');eq(events[0],{value:'viridis',scope:'fe'});
+L.setPalette('vlm','inferno');L.setPalette('sensitivity','grayscale');
+eq(['fe','vlm','sensitivity'].map(k=>L.getPalette(k)),['viridis','inferno','grayscale']);
+const n=events.length;eq(L.setPalette('fe','viridis'),false);eq(events.length,n);
+const saved=L.capture();saved.palettes.fe='spectrum';eq(L.getPalette('fe'),'viridis');
+const serialized=JSON.parse(JSON.stringify(L.capture()));L.restore(null);L.restore(serialized);eq(L.capture(),serialized);eq(events.length,n);
+L.restore({collapsed:{}},{legacyPalette:'inferno'});eq(['fe','vlm','sensitivity'].map(k=>L.getPalette(k)),['inferno','inferno','coolwarm']);
+L.restore({collapsed:{},palettes:{fe:'viridis'}},{legacyPalette:'inferno'});eq(['fe','vlm','sensitivity'].map(k=>L.getPalette(k)),['viridis','spectrum','coolwarm']);
+for(const value of [{palettes:{fe:'unknown'}},{palettes:[]},{palettes:null},{palettes:{constructor:'viridis'}},JSON.parse('{"palettes":{"__proto__":"inferno"}}'),{palettes:{'bad scope':'inferno'}},{palettes:Object.fromEntries(Array.from({length:33},(_,i)=>['p'+i,'viridis']))}])rejects(()=>L.restore({collapsed:{},...value}));
+for(const args of [['','inferno'],['fe',''],['__proto__','viridis'],['fe',null]])rejects(()=>L.setPalette(...args));
+L.restore(null);eq(L.capture(),{collapsed:{}});console.log('Independent result palettes: '+checks+' assertions passed');

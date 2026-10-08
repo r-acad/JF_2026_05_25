@@ -14,7 +14,7 @@
 .viewport-scale .legend-restore { width:27px; height:27px; min-width:27px; border-radius:50%; border:1px solid #86caff; color:#fff; background:#167dd1; box-shadow:0 2px 6px #0006; }
 .viewport-scale .legend-restore:hover { background:#2799ec; }
 .legend-palette-menu { position:relative; z-index:1; display:flex; flex-direction:column; gap:3px; margin:7px 0; padding:7px; border:1px solid #5f809d; border-radius:4px; background:#091a2b; }
-.legend-palette-heading { font-size:10px; color:#b9cedf; margin:0 0 3px; }
+.legend-palette-heading { font-size:10px; color:#b9cedf; margin:0 0 3px; overflow-wrap:anywhere; }
 .legend-palette-menu button { display:flex; align-items:center; gap:8px; width:100%; min-height:26px; padding:4px 6px; text-align:left; border:1px solid transparent; border-radius:3px; background:#142c43; color:#eaf2fb; font:11px/1.3 "Segoe UI",sans-serif; cursor:pointer; }
 .legend-palette-menu button:hover { background:#294d6d; }
 .legend-palette-menu button[aria-checked="true"] { border-color:#82c9ff; background:#214c70; }

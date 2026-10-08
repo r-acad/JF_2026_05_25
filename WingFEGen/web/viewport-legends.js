@@ -2,17 +2,17 @@
   "use strict";
   const escape=(value)=>String(value).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const number=value=>(numbers||root.WingNumbers)?.format(value,5)??(root.eng?root.eng(value,5):String(value));
-  const hosts=new Map(),collapsed=new Set(),limits=new Map();
+  const hosts=new Map(),collapsed=new Set(),limits=new Map(),palettes=new Map();
   const defaultPalettes=[{value:"spectrum",label:"Blue–green–red"},{value:"viridis",label:"Viridis"},
     {value:"inferno",label:"Inferno"},{value:"coolwarm",label:"Blue–white–red"},{value:"grayscale",label:"Grayscale"}];
   const paletteIcon='<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2a8 8 0 1 0 0 16h1.2a1.9 1.9 0 0 0 1.3-3.3 1.2 1.2 0 0 1 .8-2.1H15a3 3 0 0 0 3-3C18 5.5 14.4 2 10 2Z"/><circle cx="5.5" cy="9" r=".8"/><circle cx="7.5" cy="5.8" r=".8"/><circle cx="11.1" cy="5.2" r=".8"/><circle cx="14.2" cy="7.3" r=".8"/></svg>';
   const restoreIcon='<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h12"/><path d="M5 3v4M10 8v4M15 13v4"/></svg>';
-  let config={getPalette:()=>"spectrum",setPalette:null,onChange:null,onLimitsChange:null,palettes:defaultPalettes},openKey=null,openLimits=null,hostSerial=0;
+  let config={getPalette:scope=>scope==="sensitivity"?"coolwarm":"spectrum",setPalette:null,onChange:null,onLimitsChange:null,palettes:defaultPalettes},openKey=null,openLimits=null,hostSerial=0;
   const stateKey=(host,kind)=>host+":"+String(kind);
   const keyPattern=/^[a-zA-Z0-9_-]{1,80}:[a-zA-Z0-9_-]{1,40}$/;
   function validateState(value){
     if(value==null)return{collapsed:{}};
-    if(typeof value!=="object"||Array.isArray(value)||Object.keys(value).some(key=>!["collapsed","limits"].includes(key))||
+    if(typeof value!=="object"||Array.isArray(value)||Object.keys(value).some(key=>!["collapsed","limits","palettes"].includes(key))||
       !value.collapsed||typeof value.collapsed!=="object"||Array.isArray(value.collapsed)||Object.keys(value.collapsed).length>64)
       throw Error("Invalid color-scale visibility settings.");
     const clean={};
@@ -28,7 +28,23 @@
         Object.defineProperty(ranges,key,{value:range.slice(),enumerable:true});
       }
     }
-    return{collapsed:clean,...(Object.keys(ranges).length?{limits:ranges}:{})};
+    const colors={};
+    if(value.palettes!==undefined){
+      if(!value.palettes||typeof value.palettes!=="object"||Array.isArray(value.palettes)||Object.keys(value.palettes).length>32)throw Error("Invalid result color palettes.");
+      for(const [scope,palette]of Object.entries(value.palettes)){
+        if(!validPaletteScope(scope)||!defaultPalettes.some(p=>p.value===palette))throw Error("Invalid result color palette: "+scope);
+        Object.defineProperty(colors,scope,{value:palette,enumerable:true});
+      }
+    }
+    return{collapsed:clean,...(Object.keys(ranges).length?{limits:ranges}:{}),...(Object.keys(colors).length?{palettes:colors}:{})};
+  }
+  function validPaletteScope(scope){return typeof scope==="string"&&/^[a-z][a-z0-9_-]{0,39}$/.test(scope)&&!["__proto__","constructor","prototype"].includes(scope);}
+  function getPalette(scope="fe"){return palettes.get(scope)||config.getPalette?.(scope)||"spectrum";}
+  function setPalette(scope,value){
+    if(!validPaletteScope(scope)||!defaultPalettes.some(p=>p.value===value))throw Error("Invalid result color palette.");
+    if(getPalette(scope)===value)return false;
+    if(!palettes.has(scope)&&palettes.size>=32)throw Error("Too many result color palettes.");
+    palettes.set(scope,value);config.setPalette?.(value,scope);refresh();config.onChange?.(capture());return true;
   }
   function validLimitKey(key){return typeof key==="string"&&key.length>0&&key.length<=512&&!/[\x00-\x1f]/.test(key)&&!["__proto__","constructor","prototype"].includes(key);}
   function getLimits(key){return limits.has(key)?limits.get(key).slice():null;}
@@ -40,10 +56,15 @@
       if(!limits.has(key)&&limits.size>=256)throw Error("Too many saved color-scale ranges; reset unused ranges to Automatic.");limits.set(key,[min,max]);}
     openLimits=null;config.onLimitsChange?.(key);refresh();config.onChange?.(capture());
   }
-  function capture(){return{collapsed:Object.fromEntries([...collapsed].sort().map(key=>[key,true])),...(limits.size?{limits:Object.fromEntries([...limits].sort().map(([key,range])=>[key,range.slice()]))}:{})};}
-  function restore(value){
+  function capture(){return{collapsed:Object.fromEntries([...collapsed].sort().map(key=>[key,true])),...(limits.size?{limits:Object.fromEntries([...limits].sort().map(([key,range])=>[key,range.slice()]))}:{}),...(palettes.size?{palettes:Object.fromEntries([...palettes].sort())}:{})};}
+  function restore(value,{legacyPalette}={}){
     const clean=validateState(value);collapsed.clear();for(const key of Object.keys(clean.collapsed))collapsed.add(key);
     limits.clear();for(const [key,range]of Object.entries(clean.limits||{}))limits.set(key,range.slice());
+    palettes.clear();for(const [scope,palette]of Object.entries(clean.palettes||{}))palettes.set(scope,palette);
+    // Older Studies had one shared control; preserve their FE and VLM appearance.
+    if(value?.palettes===undefined&&defaultPalettes.some(p=>p.value===legacyPalette)&&legacyPalette!=="spectrum"){
+      palettes.set("fe",legacyPalette);palettes.set("vlm",legacyPalette);
+    }
     openKey=null;openLimits=null;refresh();return capture();
   }
   function configure(options={}){
@@ -74,9 +95,9 @@
       if(openKey){host.querySelector('[data-palette-menu][data-legend-key="'+key+'"] [aria-checked="true"]')?.focus({preventScroll:true});}
       else focusAction(host,key,"palette");
     }else if(action==="choose"&&config.palettes.some(p=>p.value===value)){
-      const changed=value!==(config.getPalette?.()||"spectrum");
-      openKey=null;if(changed)config.setPalette?.(value);refresh();focusAction(host,key,"palette");
-      if(changed)config.onChange?.(capture());
+      const record=hosts.get(host),entry=record?.entries.find(entry=>stateKey(record.scope,entry.kind)===key);
+      if(!entry)return;
+      openKey=null;setPalette(entry.paletteKey||entry.kind,value);refresh();focusAction(host,key,"palette");
     }else if(action==="limits"){
       openKey=null;openLimits=openLimits===key?null:key;refresh();
       host.querySelector('[data-limit-form] input')?.focus({preventScroll:true});
@@ -124,17 +145,17 @@
   }
   function draw(host,record){
     host.classList.add("wing-legends");host.hidden=!record.entries.length;
-    const palette=config.getPalette?.()||"spectrum",chosen=config.palettes.find(p=>p.value===palette),paletteName=chosen?.label||palette;
     host.innerHTML=record.entries.map(entry=>{
       const key=stateKey(record.scope,entry.kind),title=entry.title||"Quantity",hidden=collapsed.has(key),opened=openKey===key;
+      const palette=getPalette(entry.paletteKey||entry.kind),chosen=config.palettes.find(p=>p.value===palette),paletteName=chosen?.label||palette;
       if(hidden)return'<section class="viewport-scale is-collapsed" data-scale="'+escape(entry.kind)+'" aria-label="'+escape(title)+' color scale">'+
         actionButton("restore",key,"Show "+title+" color scale",restoreIcon)+"</section>";
-      const paletteButton=config.setPalette?actionButton("palette",key,"Choose color scale for all result and aerodynamic contours ("+paletteName+")",paletteIcon,
+      const paletteButton=config.setPalette?actionButton("palette",key,"Choose "+title+" color scale ("+paletteName+")",paletteIcon,
         'aria-haspopup="menu" aria-expanded="'+opened+'"'):"";
       const range=getLimits(entry.limitKey),limitsButton=entry.limitKey?actionButton("limits",key,"Set "+title+" color-scale limits",restoreIcon,'aria-expanded="'+(openLimits===key)+'"'):"";
       const limitsForm=openLimits===key?'<div class="legend-limits" data-limit-form><div>Range in '+escape(entry.unit||"dimensionless")+'</div><label>Minimum<input name="minimum" type="number" step="any" value="'+escape(range?.[0]??entry.min)+'"></label><label>Maximum<input name="maximum" type="number" step="any" value="'+escape(range?.[1]??entry.max)+'"></label><div class="legend-limits-actions">'+actionButton("limits-apply",key,"Apply color-scale limits","Apply")+actionButton("limits-auto",key,"Use automatic color-scale limits","Automatic")+'</div><div role="alert"></div><small>Values outside these limits use the end colors. Data values remain unchanged.</small></div>':"";
-      const menu=opened?'<div class="legend-palette-menu" role="menu" aria-label="Color scale for all contours" data-palette-menu data-legend-key="'+escape(key)+'">'+
-        '<div class="legend-palette-heading">All result and aerodynamic contours</div>'+config.palettes.map(p=>
+      const menu=opened?'<div class="legend-palette-menu" role="menu" aria-label="'+escape(title)+' color scale" data-palette-menu data-legend-key="'+escape(key)+'">'+
+        '<div class="legend-palette-heading">'+escape(title)+'</div>'+config.palettes.map(p=>
           '<button type="button" role="menuitemradio" aria-checked="'+(p.value===palette)+'" data-legend-action="choose" data-legend-key="'+escape(key)+'" data-palette-value="'+escape(p.value)+'">'+
           (p.gradient?'<span class="legend-palette-swatch" style="background:'+escape(p.gradient)+'"></span>':"")+escape(p.label)+"</button>").join("")+"</div>":"";
       return'<section class="viewport-scale" data-scale="'+escape(entry.kind)+'" aria-label="'+escape(title)+' color scale">'+
@@ -146,5 +167,5 @@
         (range?'<div class="viewport-scale-note">Manual limits · end colors clip out-of-range values</div>':"")+(entry.note?'<div class="viewport-scale-note">'+escape(entry.note)+'</div>':"")+"</section>";
     }).join("");
   }
-  return{render,number,configure,entries,capture,restore,validateState,getLimits,setLimits,resolveLimits};
+  return{render,number,configure,entries,capture,restore,validateState,getLimits,setLimits,resolveLimits,getPalette,setPalette};
 });

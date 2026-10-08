@@ -34,6 +34,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
   structural geometric formulation remain unchanged; dead loads are the default.
 
 ### Fixed
+- **WingFEGen result and Study state.** FE, sensitivity and VLM legends keep
+  independent saved palettes. Results separates FE Results from Sensitivity,
+  exposes the sensitivity primal solution and marks stale fields explicitly.
+  Detached panel tables accept consecutive property edits without starting an
+  analysis or losing drafts during live mesh updates. Save Study reuses its
+  chosen file, Save Study as selects another, and save/display controls show
+  whether their data is current.
+
 - **Rectangular anisotropic PSHELL recovery.** Eligible homogeneous MAT2/MAT8
   rectangular quadrilaterals now recover center force resultants and fiber
   stresses/strains using their physical constitutive laws. Unsupported corner,

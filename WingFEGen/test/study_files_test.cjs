@@ -1,0 +1,38 @@
+"use strict";
+const assert=require("node:assert/strict");
+const W=require("../web/workspace.js");
+(async()=>{
+  let activated=true,called=false,options,closed=false,written,aborted=false;
+  const handle={name:"chosen.wingfem.json",createWritable:async()=>({write:async text=>{written=text;},close:async()=>{closed=true;}})};
+  const requested=W.requestSaveDestination("study","suggested.wingfem.json",{isSecureContext:true,showSaveFilePicker:opts=>{
+    assert(activated,"picker runs synchronously inside the activating call");called=true;options=opts;return Promise.resolve(handle);
+  }});
+  activated=false;assert(called);const destination=await requested;
+  assert.equal(destination.name,"chosen.wingfem.json");assert.equal(destination.method,"picker");
+  assert.equal(options.suggestedName,"suggested.wingfem.json");assert.deepEqual(options.types[0].accept,{"application/json":[".wingfem.json"]});
+  await W.writeDestination(destination,"study contents","application/json",null);
+  assert.equal(written,"study contents");assert(closed);
+  const cancel=await W.requestSaveDestination("toml","input.toml",{showSaveFilePicker:()=>Promise.reject(Object.assign(new Error("cancelled"),{name:"AbortError"}))});
+  assert(cancel.cancelled);assert.equal(await W.writeDestination(cancel,"ignored","text/plain",null),false);
+  assert.deepEqual(await W.requestSaveDestination("toml","input.toml",{}),{method:"download",name:"input.toml"});
+  assert.equal((await W.requestSaveDestination("toml","input.toml",{isSecureContext:false,showSaveFilePicker:()=>{throw Error("must not call");}})).method,"download");
+  const blocked=await W.requestSaveDestination("toml","input.toml",{showSaveFilePicker:()=>{throw Object.assign(new Error("blocked"),{name:"SecurityError"});}});
+  assert.equal(blocked.method,"download");assert.match(blocked.guidance,/blocked/);
+  const denied=await W.requestSaveDestination("toml","input.toml",{showSaveFilePicker:()=>Promise.reject(new Error("denied"))});
+  await assert.rejects(W.writeDestination(denied,"ignored","text/plain",null),/denied/);
+  await assert.rejects(W.writeDestination({method:"picker",handle:{createWritable:async()=>({write:async()=>{throw Error("disk full");},abort:async()=>{aborted=true;},close:async()=>{throw Error("must not close");}})}},"contents","text/plain",null),/disk full/);
+  assert(aborted);
+  let pickerCalls=0,permissionCalls=0;
+  const linked={...handle,requestPermission:opts=>{permissionCalls++;assert.equal(opts.mode,"readwrite");return "granted";}};
+  const host={showSaveFilePicker:()=>{pickerCalls++;return handle;}};
+  const reuse=await W.requestStudyDestination("suggested.wingfem.json",{handle:linked},host);
+  assert.equal(reuse.handle,linked);assert.equal(pickerCalls,0);assert.equal(permissionCalls,1);
+  const copy=await W.requestStudyDestination("suggested.wingfem.json",{handle:linked,saveAs:true},host);
+  assert.equal(copy.handle,handle);assert.equal(pickerCalls,1);
+  assert.equal((await W.requestStudyDestination("new.wingfem.json",{},host)).handle,handle);assert.equal(pickerCalls,2);
+  const refuse=await W.requestStudyDestination("chosen.wingfem.json",{handle:{...linked,requestPermission:()=>"denied"}},host);
+  await assert.rejects(W.writeDestination(refuse,"ignored","application/json",null),/Save Study as/);assert.equal(pickerCalls,2);
+  const controls={"show-picked-axes":false,"measure-snap-nodes":true};
+  assert.doesNotThrow(()=>W.validateView({controls,layers:{},camera:{target:[0,0,0],alpha:0,beta:1,radius:2,mode:0},activeCase:1,workspace:{activeTab:"planform",width:360,collapsed:false,maximizedTab:null}}));
+  console.log("Study save-dialog, cancellation, fallback, write-failure and persisted control checks passed.");
+})().catch(error=>{console.error(error);process.exitCode=1;});

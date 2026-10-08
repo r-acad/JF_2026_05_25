@@ -9,6 +9,9 @@
 #study-file-status { overflow-wrap: anywhere; }
 #study-file-status[data-saved="false"] { color:#ff858d; }
 #study-file-status[data-saved="true"] { color:#71e4ad; }
+#btn-save-model[data-saved="false"] { background:#935317; border-color:#ffc078; color:#fff3df; }
+#btn-save-model[data-saved="true"] { background:#206d4d; border-color:#70dda7; color:#fff; }
+#btn-save-model[data-saved]:not(:disabled):hover { filter:brightness(1.15); }
 #file-save-status { color: #b9d5bc; margin-left: auto; overflow-wrap: anywhere; }
 #server-input-menu { flex: 0 0 auto; position: relative; }
 #server-input-menu summary { cursor: pointer; padding: 2px 5px; }

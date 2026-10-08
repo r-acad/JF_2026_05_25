@@ -77,11 +77,14 @@ optional external-resource details.
    fuel state and inertia options. Aerodynamic loads use rib-plane RBE3s; mass
    loads use rib-bay-center references. The default multiplier of 1.5 converts
    specified limit aerodynamic loads to ultimate loads.
-6. Use **Analysis / Run in JFEM**. Open **Results** for displacements, shell/bar
+6. Use **Analysis / Run in JFEM**. Open **Results / FE Results** for displacements, shell/bar
    stresses and forces, modes, buckling or linear/nonlinear comparisons.
 7. **Save Study** stores the complete model definition, display settings and
    selected portable reference data. **Save TOML** exports the text definition.
-   The browser's file picker/download settings determine the destination.
+   The first save chooses a destination; subsequent saves update that linked
+   file. **Save Study as…** selects another filename and folder. The Save Study
+   button is orange for unsaved changes and green after saving. Browsers without
+   file-picker support use their download settings instead.
 
 The definition is saved independently from solved results. Exported decks and
 solver result files remain in their run directories. A stale model/result is
@@ -98,11 +101,17 @@ Planform and structural 2D editors support pan/zoom, background images, snapping
 distance/angle dimensions and SVG export. The dimensioned plan view and property
 tables can open in separate browser tabs for another monitor. Detached property
 and sensitivity tables include a shared light/dark theme switch.
+Consecutive table edits are queued without starting an analysis. Live mesh waits
+for unfinished cell edits, then rebuilds after they settle. Existing results stay
+marked out of date until an explicitly requested analysis matches the definition;
+fields are not mapped onto an incompatible rebuilt mesh.
 
 Every active quantitative color scale provides palette selection, hide/show and
 manual minimum/maximum limits. **Automatic** restores the data-driven range.
 Manual limits clip only the endpoint colors; numerical data are not changed.
-Settings are independent for each quantity/unit and saved with the Study.
+Limits are independent for each quantity/unit. FE, sensitivity and VLM displays
+have independent palettes, so changing one legend leaves the others unchanged.
+These settings are saved with the Study.
 
 ## Analyses and sensitivities
 
@@ -132,8 +141,11 @@ property attached to each element, not a new local stress solution. A shared
 property repeats its one derivative on its member elements. Local panel
 derivatives take precedence over shared defaults in the corresponding field.
 
-**Show baseline case** displays the original solved case through ordinary
-Results; the retained baseline deck and native/portable result files can be
+**Results / Sensitivity** becomes available after a sensitivity analysis. Its
+**Show sensitivity field** button is orange until the field is displayed, then
+green. The primal solution is also available in **Results / FE Results** without
+another solve. **Show baseline case** selects that original solved case;
+the retained baseline deck and native/portable result files can be
 downloaded. Existing solved cases remain available. Completed sensitivity runs
 can be reopened without solving. Historical/stale compatibility is checked before
 mapping values onto a current mesh.
@@ -160,6 +172,8 @@ when running those developer checks; Node is not a runtime prerequisite.
 
 ```sh
 node WingFEGen/test/portable_frontend_test.cjs
+node WingFEGen/test/study_files_test.cjs
+node WingFEGen/test/result_palettes_test.cjs
 julia --project=WingFEGen WingFEGen/test/portable_paths_test.jl
 ```
 

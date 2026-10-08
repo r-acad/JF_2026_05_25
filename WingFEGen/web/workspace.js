@@ -199,10 +199,10 @@
   function captureView(document,state,workspace) {
     const controls={};
     for (const id of CONTROL_IDS) { const el=document.getElementById(id); if (el) controls[id]=CHECK_IDS.has(id) ? el.checked : el.value; }
-    // Property-effect previews temporarily hide ordinary overlays and replace
-    // the palette/animation. Save the underlying display preferences.
+    // Property-effect previews temporarily change ordinary overlays and
+    // animation. Their independent palette is saved in the legends state.
     const preview=state.sensitivityMap?.previous;
-    if(preview){controls["result-palette"]=preview.palette;controls.animate=preview.animate;}
+    if(preview){controls.animate=preview.animate;}
     const c=state.camera, camera={target:c.target.asArray(),alpha:c.alpha,beta:c.beta,radius:c.radius,mode:c.mode};
     for (const key of ["fov","minZ","maxZ","orthoLeft","orthoRight","orthoTop","orthoBottom","lowerRadiusLimit","upperRadiusLimit"]) camera[key]=c[key]===undefined?null:c[key];
     return {controls,layers:Object.fromEntries(Array.from(state.layers,([name,layer])=>[name,preview?.overlays?.get(name)?.visible??state.panelView?.previous.get(name)??layer.visible])),
@@ -252,6 +252,16 @@
     const blob=new Blob([text],{type}),url=URL.createObjectURL(blob),a=document.createElement("a");
     a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
+  // A normal Save keeps the linked destination. Save as always opens a new
+  // chooser. Permission is requested synchronously while click activation is live.
+  function requestStudyDestination(name, {handle=null,saveAs=false} = {}, host=globalThis) {
+    if (saveAs || !handle || typeof handle.createWritable!=="function") return requestSaveDestination("study",name,host);
+    let request;
+    try { request=typeof handle.requestPermission==="function" ? handle.requestPermission({mode:"readwrite"}) : "granted"; }
+    catch(error) { request=Promise.reject(error); }
+    return Promise.resolve(request).then(permission=>permission==="granted" ? {method:"picker",handle,name:handle.name||name} :
+      {error:new Error("Write access to the linked Study was not granted. Use Save Study as… to choose another file.")},error=>({error}));
+  }
   async function writeDestination(destination,text,type,document) {
     if (destination.error) throw destination.error;
     if (destination.cancelled) return false;
@@ -265,5 +275,5 @@
   function download(data,name,document) {
     downloadText(JSON.stringify(data,null,2),name,"application/json",document);
   }
-  return {FORMAT,VERSION,CONTROL_IDS,MAX_NOTE_LENGTH,MAX_NOTE_ENTRIES,normalizeNotes,notesForSave,completeView,parse,snapshot,captureView,applyControls,validateView,bytesToBase64,base64ToBytes,filename,download,requestSaveDestination,writeDestination,downloadText};
+  return {FORMAT,VERSION,CONTROL_IDS,MAX_NOTE_LENGTH,MAX_NOTE_ENTRIES,normalizeNotes,notesForSave,completeView,parse,snapshot,captureView,applyControls,validateView,bytesToBase64,base64ToBytes,filename,download,requestSaveDestination,requestStudyDestination,writeDestination,downloadText};
 });

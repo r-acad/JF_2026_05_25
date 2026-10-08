@@ -49,9 +49,10 @@
       <span class="file-action-group" aria-label="Study files">
         <button id="btn-new-study" disabled aria-describedby="study-help" title="Reset parameters and cases to application defaults and clear references. Display preferences are retained; saved files are unchanged.">New Study</button>
         <button id="btn-save-model" disabled aria-describedby="study-help">Save Study</button>
+        <button id="btn-save-model-as" disabled aria-describedby="study-help" title="Choose another filename and folder for a complete Study copy, then use that file for subsequent saves.">Save Study as…</button>
         <button id="btn-load-model" disabled aria-describedby="study-help" title="Browse Study files or reopen a recent saved Study" aria-haspopup="dialog">Load Study ▾</button>
         <button id="btn-study-notes" title="Describe the intent of your latest modification; Save Study records the note and save time">Notes</button>
-        <span id="study-help" class="file-tooltip" role="tooltip">A Study (.wingfem.json) contains parameters, load cases, supports, embedded reference geometry, all 2D background images and placements, display settings, the view and timestamped modification notes. Solver results are kept separately. Save chooses a folder and filename when supported; otherwise your browser downloads the file. New Study resets parameters and cases to application defaults and clears references, notes and drawing images. It retains other display preferences and leaves saved files unchanged.</span>
+        <span id="study-help" class="file-tooltip" role="tooltip">A Study (.wingfem.json) contains parameters, load cases, supports, embedded references, 2D drawings, display settings and timestamped notes. Solver results are separate. Save Study updates the linked file; the first save chooses its filename and folder. Save Study as… selects a new destination. Without file-picker support, the browser downloads the file using its download settings. Orange means unsaved changes; green means saved. New Study resets the definition and references without changing saved files.</span>
       </span>
       <span class="file-action-group" aria-label="TOML parameter files">
         <button id="btn-save-toml" disabled aria-describedby="toml-help">Save TOML as…</button>
@@ -296,7 +297,7 @@
         <div id="stats"><p class="muted">Use Create FEM to generate the model: in Mesh, or beside Live mesh when automatic updates are disabled.</p></div>
       </div>
       </section>
-      <section id="panel-results" class="workspace-panel" data-workspace-panel="results" role="tabpanel" aria-labelledby="tab-results" hidden>
+      <section id="panel-sensitivityresults" class="workspace-panel" data-workspace-panel="sensitivityresults" role="tabpanel" aria-labelledby="tab-sensitivityresults" hidden>
         <div class="hud" id="sensitivity-map-card">
           <div class="hud-title">Sensitivity fields</div>
           <div class="hud-row"><button type="button" class="mini" id="sensitivity-open-summary">Open summary / saved runs</button><button type="button" class="mini" id="sensitivity-map-clear" hidden>Restore analysis view</button></div>
@@ -311,13 +312,16 @@
             <label class="display-control" id="sensitivity-metric-row">Color quantity <select id="sensitivity-map-metric"><option value="percent">Response change (% of baseline)</option><option value="absolute">Response change (response units)</option></select></label>
             <button type="button" class="mini" id="sensitivity-map-show">Show property effect on model</button>
             <p id="sensitivity-map-estimate" class="pick-note"></p>
-            <p class="pick-note">Fields color the selected response derivative on each visible skin or beam. Select panel properties in Sensitivity to compare panels independently; their derivatives take precedence over shared defaults. Missing derivatives are gray. Use Display to choose components. The single-property preview estimates a response change without a new solve. Ordinary loads and VLM contours are hidden during sensitivity display.</p>
+            <p class="pick-note">Fields color the selected response derivative on each visible skin or beam. Select panel properties in Sensitivity to compare panels independently; their derivatives take precedence over shared defaults. Missing derivatives are gray. Use Display to choose components. The single-property preview estimates a response change without a new solve. Applied loads and VLM contours may remain visible; deformation and support reactions return in FE Results.</p>
           </div>
           <p id="sensitivity-map-status" class="pick-note" role="status"></p>
         </div>
+      </section>
+      <section id="panel-results" class="workspace-panel" data-workspace-panel="results" role="tabpanel" aria-labelledby="tab-results" hidden>
+      <p id="fe-results-validity" class="pick-note model-warning" role="status" aria-live="polite" hidden></p>
       <div class="hud" id="results-card" hidden>
         <div class="hud-title">
-          JFEM results
+          FE Results
           <button id="btn-clear-results" class="mini right">clear</button>
         </div>
         <div id="results-summary"></div>
@@ -439,6 +443,7 @@
 <div id="viewport-legends" hidden aria-label="Active result color scales"></div>
     <div id="result-notices">
       <div id="nonlinear-viewport-warning" class="nonlinear-warning" role="status" hidden></div>
+      <div id="stale-results-viewport-warning" class="nonlinear-warning" role="status" hidden></div>
       <div id="comparison-key" hidden aria-label="Analysis comparison key"></div>
     </div>
     <div id="load-clock" hidden aria-label="SOL106 load progress">
