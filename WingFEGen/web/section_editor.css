@@ -1,0 +1,25 @@
+.section-editor { margin: 12px 0; padding: 11px; border: 1px solid #364a5d; border-radius: 9px; background: #14202d; }
+.section-editor h3 { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 4px; color: #e8f0f8; font-size: 14px; }
+.section-card-type { color: #a9bacb; font-size: 10px; font-weight: 500; white-space: nowrap; }
+.section-preview { display: block; width: 100%; height: auto; overflow: visible; color: #c4d3e1; background: #101a25; border-radius: 6px; }
+.section-preview[hidden] { display: none; }
+.section-preview text { fill: #dce7f2; font-size: 12px; font-family: inherit; }
+.section-preview .section-small-label { font-size: 11px; }
+.section-preview .section-note-label { fill: #94b8d4; font-size: 11px; }
+.section-polygon { stroke-width: 1.2; stroke-linejoin: round; }
+.section-stringer { fill: #b5a52b; stroke: #ffdf00; }
+.section-cap { fill: #b56722; stroke: #ff9c39; }
+.section-skin { stroke: #82b6d8; stroke-width: 1.3; stroke-dasharray: 5 3; }
+.section-dimension { stroke: #c4d3e1; stroke-width: 1; }
+.section-extension { stroke: #74899d; stroke-width: .8; }
+.section-centroid { fill: #f7fafc; stroke: #14202d; stroke-width: 1; }
+.section-triad { stroke-width: 1.2; }
+.section-triad text { font-size: 11px; }
+.section-properties { padding: 7px 0 0; border-top: 1px solid #344454; color: #d6e2ee; font-size: 11px; line-height: 1.5; }
+.section-orientation-note { color: #9cafc1; font-size: 11px; line-height: 1.5; margin-bottom: 0; }
+.section-editor-status { color: #ffb3a8; font-size: 12px; line-height: 1.45; padding: 8px 0; }
+.section-editor-invalid { border-color: #b76b63; }
+.section-dimension-invalid input { border-color: #e79588; background: #3b252b; }
+.section-dimensions .row { margin: 7px 0; }
+.section-preview-canvas { min-width:0; overflow:hidden; }
+:is(.workspace-maximized,.drawing-maximized) .section-preview-canvas svg { min-height:min(60vh,670px); max-height:none; }

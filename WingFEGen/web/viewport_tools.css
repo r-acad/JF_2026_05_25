@@ -1,0 +1,15 @@
+#viewport-tools { position:absolute; top:12px; right:12px; z-index:8; display:flex; flex-wrap:wrap; justify-content:flex-end; max-width:calc(100% - 24px); gap:4px; padding:4px; background:#152538e8; border:1px solid #4a627c; border-radius:7px; }
+.viewport-tool { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; min-width:46px; padding:5px 7px; font-size:10px; color:#d7eaff; }
+.viewport-tool svg { width:21px; height:21px; fill:none; stroke:currentColor; stroke-width:1.4; stroke-linejoin:round; stroke-linecap:round; }
+.viewport-tool[aria-pressed="true"] { background:#295476; border-color:#79bbec; }
+.viewport-export-tool[aria-busy="true"] { color:#9bd4ff; cursor:progress; }
+.viewport-inspection-filter { display:flex; flex-direction:column; justify-content:center; gap:3px; min-width:116px; max-width:158px; padding:2px 4px; color:#d7eaff; font-size:10px; }
+.viewport-inspection-filter select { width:100%; min-width:0; max-width:100%; padding:5px 22px 5px 6px; border:1px solid #4a627c; border-radius:4px; background:#0e1c2b; color:#e3efff; font:12px system-ui,sans-serif; }
+#viewport-tools [hidden] { display:none; }
+#viewport-tools.is-collapsed { padding:0; background:transparent; border:0; border-radius:50%; }
+.viewport-tools-hide { min-width:32px; padding-inline:5px; }
+.viewport-tools-show { display:grid; place-items:center; width:32px; height:32px; padding:7px; border:1px solid #85caff; border-radius:50%; background:#1675c6; color:#fff; box-shadow:0 2px 8px #0006; }
+.viewport-tools-show:hover { background:#268cdd; border-color:#c0e5ff; }
+.viewport-tools-show svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.5; }
+#viewport-tools button:focus-visible,#viewport-tools select:focus-visible { outline:2px solid #b7e5ff; outline-offset:3px; }
+@media(max-width:800px){#viewport-tools{right:6px;top:6px}.viewport-tool{min-width:29px;padding:5px}.viewport-tool span{display:none}}

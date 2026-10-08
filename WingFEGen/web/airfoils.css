@@ -1,0 +1,28 @@
+.airfoil-source-editor { min-width:0; border:1px solid #354b60; border-radius:5px; padding:10px; margin:12px 0; }
+.airfoil-source-editor legend { padding:0 5px; color:#c4daed; font-size:12px; }
+.airfoil-source-editor .row { margin:7px 0; }
+.airfoil-source-editor .row :is(input:not([type=checkbox]),select) { min-width:0; padding:6px; color:#e2eff8; background:#0f1a24; border:1px solid #4b657a; border-radius:4px; font:inherit; }
+.airfoil-source-editor .row:has(select) { grid-template-columns:minmax(0,1fr); gap:5px; }
+.airfoil-database[hidden],.airfoil-browser[hidden] { display:none; }
+.airfoil-selected { font-size:11px; overflow-wrap:anywhere; }
+.airfoil-selected svg { width:100%; max-height:130px; background:#0e1822; border-radius:3px; }
+.airfoil-selected svg path { fill:#79c2eb22; stroke:#79c2eb; stroke-width:.003; }
+.airfoil-selected a { color:#79c2eb; }
+.airfoil-selected details { margin:7px 0; }
+.airfoil-browser input,.airfoil-browser select { width:100%; box-sizing:border-box; padding:5px; margin:7px 0; font:inherit; color:#deebf7; background:#111c28; border:1px solid #40566c; border-radius:3px; }
+.airfoil-browser select { font-size:11px; }
+.airfoil-browser .mini { margin:0 5px 5px 0; }
+.airfoil-preview-canvas { min-width:0; overflow:hidden; margin:7px 0; }
+.airfoil-preview-canvas svg path { stroke-width:1.4px; vector-effect:non-scaling-stroke; }
+.airfoil-preview-error { padding:8px; border:1px solid #a25b67; border-radius:4px; background:#48242d; color:#ffd3d9; font-size:12px; line-height:1.5; }
+.airfoil-preview-error[hidden] { display:none; }
+.airfoil-preview-warning { color:#ffd29a; font-size:12px; line-height:1.5; }
+.airfoil-stations-editor { margin:14px 0; padding:10px; border:1px solid #426078; border-radius:5px; }
+.airfoil-stations-heading,.airfoil-station-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; }
+.airfoil-stations-heading h3 { margin:0; color:#d5e8f5; font-size:13px; }
+.airfoil-station-header { border-bottom:1px solid #354b60; padding-bottom:8px; margin-bottom:8px; }
+.airfoil-station-header label { display:flex; align-items:center; gap:7px; font-size:12px; }
+.airfoil-station-header input { width:95px; padding:6px; color:#e2eff8; background:#0f1a24; border:1px solid #4b657a; border-radius:4px; font:inherit; }
+.airfoil-station-header input:disabled { opacity:.5; }
+.airfoil-station-list .airfoil-source-editor:last-child { margin-bottom:0; }
+:is(.workspace-maximized,.drawing-maximized) .airfoil-preview-canvas svg { min-height:min(48vh,580px); max-height:none; }

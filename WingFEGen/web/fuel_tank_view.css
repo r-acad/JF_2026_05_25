@@ -1,0 +1,33 @@
+.fuel-tank-view { margin:14px 0 8px; padding:11px; border:1px solid #3d5a69; border-radius:6px; background:#152632; min-width:0; }
+.fuel-tank-view h3 { margin:0 0 7px; color:#e2f0f8; font-size:13px; }
+.fuel-tank-view p { margin:6px 0; color:#c0d2dd; font-size:11px; line-height:1.5; overflow-wrap:anywhere; }
+.fuel-tank-view .ftv-status { color:#dbefe6; }
+.ftv-canvas { overflow:hidden; margin:8px -3px 3px; border:1px solid #2c4658; border-radius:4px; background:#10202b; }
+.ftv-canvas[hidden], .fuel-tank-view .ftv-error[hidden] { display:none; }
+.ftv-canvas svg { display:block; width:100%; height:auto; min-height:120px; max-height:250px; }
+.ftv-canvas svg text { font:14px system-ui,sans-serif; fill:#bed0de; }
+.ftv-canvas .ftv-wing { fill:#263d4b; stroke:#668092; stroke-width:1.2; }
+.ftv-canvas .ftv-box { fill:#294452; stroke:#57768b; stroke-width:1; }
+.ftv-canvas .ftv-tank { fill:#50dfa354; stroke:#50dfa3; stroke-width:1.3; }
+.ftv-canvas .ftv-tank-off { fill:none; stroke:#73aa95; stroke-dasharray:6 4; }
+.ftv-canvas .ftv-dry { fill:#d7a65524; stroke:#d7a655; stroke-width:1.2; stroke-dasharray:5 3; }
+.ftv-canvas .ftv-dry-label { fill:#f0c680; font-size:11px; font-weight:600; }
+.ftv-canvas .ftv-rib { stroke:#688698; stroke-width:1; opacity:.65; }
+.ftv-canvas .ftv-rib-selected { stroke:#75bfa3; opacity:.85; }
+.ftv-canvas .ftv-rib-boundary { stroke:#a4ffd0; stroke-width:3; opacity:1; }
+.ftv-canvas .ftv-spar { fill:none; stroke-width:2.4; }
+.ftv-canvas .ftv-front { stroke:#66cfef; }
+.ftv-canvas .ftv-rear { stroke:#d1aff3; }
+.ftv-canvas .ftv-bound-label { fill:#bdffdd; font-weight:650; }
+.ftv-canvas .ftv-axis { fill:#8caabd; font-size:13px; }
+.ftv-legend { display:flex; flex-wrap:wrap; gap:5px 12px; font-size:10px; color:#c3d6e2; }
+.ftv-legend span { display:inline-flex; align-items:center; gap:5px; }
+.ftv-legend i { display:inline-block; width:13px; height:3px; background:#668092; }
+.ftv-legend .front { background:#66cfef; }
+.ftv-legend .rear { background:#d1aff3; }
+.ftv-legend .tank { height:8px; border:1px solid #50dfa3; background:#50dfa354; }
+.ftv-legend .dry { height:8px; border:1px dashed #d7a655; background:#d7a65524; }
+.fuel-tank-view .ftv-error { margin-top:9px; padding:7px; border:1px solid #a7684f; border-radius:4px; color:#ffd4bd; background:#3d2b27; }
+.fuel-tank-view .ftv-note { color:#9bb6c8; font-size:10px; }
+.fuel-tank-view.ftv-disabled .ftv-legend .tank { border-style:dashed; background:transparent; }
+:is(.workspace-maximized,.drawing-maximized) .ftv-canvas svg { min-height:min(60vh,700px); max-height:none; }

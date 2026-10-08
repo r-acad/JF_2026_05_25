@@ -1,0 +1,12 @@
+.geometry-tools-overlay { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:5; }
+.geometry-tool-label { position:absolute; top:0; left:0; margin:5px 0 0 5px; padding:2px 5px; border-radius:3px; background:#101923df; font:600 12px/1.3 system-ui,sans-serif; white-space:nowrap; text-shadow:0 1px 1px #000; }
+.geometry-tool-label[hidden] { display:none; }
+#render.measuring { cursor:crosshair; }
+#measure-tool { margin:18px 0; padding-top:14px; border-top:1px solid #334356; }
+#measure-tool h3 { margin:0 0 10px; font-size:13px; }
+#measure-tool .hud-row { flex-wrap:wrap; }
+#measure-values table { width:100%; border-collapse:collapse; margin-top:10px; font-size:12px; }
+#measure-values th, #measure-values td { padding:5px 3px; text-align:left; vertical-align:top; overflow-wrap:anywhere; }
+#measure-values th { width:32%; color:#a9bdce; font-weight:500; }
+#measure-values td { font-variant-numeric:tabular-nums; }
+#picked-axes-note { border-left:2px solid #4a6681; padding-left:8px; }

@@ -1,8 +1,8 @@
 # OpenJFEM
 
-> **Last pushed: 2026-09-17.** `main` is the current, default branch — a
-> plain clone includes the September solver audit, corrected buckling and
-> sensitivity algorithms, output improvements, and deployment checks:
+> **Updated: 2026-10-08.** `main` is the current, default branch — a
+> plain clone includes the solver, the WingFEGen web app and FEM generator,
+> corrected buckling and sensitivity algorithms, and deployment checks:
 >
 > ```bash
 > git clone https://github.com/r-acad/JF_2026_05_25.git
@@ -26,6 +26,26 @@ The recommended workflow is intentionally small:
 4. For Python-driven optimization loops, keep one JSONL worker open and submit
    batch manifests repeatedly so Julia startup and compilation are not paid per
    iteration.
+
+## WingFEGen Web App And FEM Generator
+
+[WingFEGen](WingFEGen/README.md) is included with the solver. It defines wing
+geometry, meshes, materials, structural panels, aerodynamic and inertia loads,
+runs analyses and displays results and sensitivities in a local browser.
+
+From the repository root, install both project environments and start the app:
+
+```sh
+julia WingFEGen/setup.jl
+julia --project=WingFEGen WingFEGen/run.jl
+```
+
+Use Julia 1.12.x. Setup downloads the pinned dependencies; a solver sysimage is
+optional. The app opens `http://127.0.0.1:8080` and discovers the enclosing solver
+without private workspace paths. Platform launchers, a factory example, bundled
+browser libraries and portable checks are included. No user study or private
+validation data is needed. See the [application guide](WingFEGen/README.md) and
+[semi-analytic adjoint explanation](WingFEGen/SENSITIVITY_METHOD.md).
 
 ## One-Click Installation
 
@@ -81,6 +101,7 @@ line-continuation character.
 .
 |-- Project.toml
 |-- Manifest.toml
+|-- WingFEGen/                         web app, FEM generator and sensitivity UI
 |-- JFEM_installation/
 |   |-- CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd
 |   |-- RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh

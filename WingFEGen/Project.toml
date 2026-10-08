@@ -1,0 +1,16 @@
+[deps]
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+MsgPack = "99f44e22-a591-53d1-9472-aa23ef4bd671"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
+Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
+VortexLattice = "7a09bdf8-3785-11e9-0bdd-57d0ec69af3f"
+
+[compat]
+julia = "1.12"
+VortexLattice = "=0.2.3"

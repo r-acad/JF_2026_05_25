@@ -1,0 +1,87 @@
+.planform-view-open { margin:0 0 14px; width:100%; padding:9px 12px; border:1px solid #3d759b; border-radius:5px; background:#183749; color:#ddf1ff; font:600 12px system-ui,sans-serif; cursor:pointer; }
+.planform-view-open:hover { background:#23516c; }
+.planform-view-dialog { width:min(1240px,calc(100vw - 32px)); max-width:none; max-height:92vh; padding:0; border:1px solid #52718a; border-radius:10px; background:#111c27; color:#dce9f2; box-sizing:border-box; overflow:auto; }
+.planform-view-dialog::backdrop { background:#020810b8; }
+.planform-view-header { display:flex; justify-content:space-between; align-items:center; gap:18px; padding:18px 22px; border-bottom:1px solid #344656; }
+.planform-view-header h2 { margin:0 0 5px; font-size:19px; }
+.planform-view-header p { margin:0; color:#a9bdce; font-size:12px; }
+.planform-view-header button { padding:8px 15px; border:1px solid #526b81; border-radius:5px; background:#243749; color:#eef7ff; cursor:pointer; }
+.planform-view-options { display:flex; flex-wrap:wrap; justify-content:space-between; gap:12px; padding:14px 22px 0; font-size:12px; color:#bed1df; }
+.planform-view-options label { display:flex; align-items:center; gap:8px; }
+.planform-view-layout { display:grid; grid-template-columns:minmax(0,1fr) 276px; gap:14px; padding:12px 20px 5px; }
+.planform-view-canvas { min-width:0; overflow:auto; border:1px solid #304557; border-radius:6px; background:#0c1520; display:flex; align-items:center; }
+.planform-view-canvas svg { width:100%; min-width:600px; height:auto; display:block; color:#c8dcea; font:15px system-ui,sans-serif; }
+.planform-view-canvas text { fill:#d4e4ef; }
+.planform-view-canvas .pf-wing { fill:#24759978; stroke:#77ceef; stroke-width:2; }
+.planform-view-canvas .pf-base { fill:none; stroke:#c2bacd; stroke-width:1.6; stroke-dasharray:7 5; }
+.planform-view-canvas .pf-mirror { fill:#3a536137; stroke:#738693; stroke-width:1.4; stroke-dasharray:7 5; }
+.planform-view-canvas .pf-root { stroke:#e8f5ff; stroke-width:1.5; }
+.planform-view-canvas .pf-reference { stroke:#f7d77e; stroke-width:1.8; stroke-dasharray:9 5; }
+.planform-view-canvas .pf-left-reference { opacity:.45; }
+.planform-view-canvas .pf-extension { stroke:#637d90; stroke-width:1; }
+.planform-view-canvas .pf-dimension { stroke:#c8dcea; stroke-width:1.4; }
+.planform-view-canvas .pf-dim-label { font-size:16px; paint-order:stroke; stroke:#0c1520; stroke-width:4px; stroke-linejoin:round; }
+.planform-view-canvas .pf-angle-baseline { stroke:#997d49; stroke-width:1; stroke-dasharray:4 4; }
+.planform-view-canvas .pf-angle { stroke:#f7d77e; fill:none; stroke-width:1.5; }
+.planform-view-canvas .pf-angle-label,.planform-view-canvas .pf-origin-label { fill:#ffe5a3; paint-order:stroke; stroke:#0c1520; stroke-width:3px; }
+.planform-view-canvas .pf-origin { fill:#f8d676; stroke:#0c1520; stroke-width:2; }
+.planform-view-canvas .pf-box-end { stroke:#ffac70; stroke-width:2; stroke-dasharray:4 4; }
+.planform-view-canvas .pf-box-label { fill:#ffc493; font-size:13px; paint-order:stroke; stroke:#0c1520; stroke-width:3px; }
+.planform-view-canvas .pf-caption { fill:#91adbf; font-size:13px; }
+.planform-view-canvas .pf-fe-axes { font-size:12px; }
+.planform-view-canvas .pf-fe-axes line { stroke-width:2; }
+#planform-view-values h3 { margin:4px 0 10px; font-size:14px; }
+#planform-view-values table { width:100%; border-collapse:collapse; font-size:12px; }
+#planform-view-values th,#planform-view-values td { padding:7px 4px; border-bottom:1px solid #293c4b; text-align:left; vertical-align:top; overflow-wrap:anywhere; }
+#planform-view-values th { width:49%; color:#9eb7c8; font-weight:500; }
+#planform-view-values td { font-variant-numeric:tabular-nums; }
+.planform-view-note { padding:0 22px; margin:9px 0 14px; color:#a6bfce; font-size:12px; line-height:1.5; }
+.planform-view-error { margin:22px; padding:15px; border:1px solid #aa5861; border-radius:5px; color:#ffccd0; background:#482027; font-size:14px; line-height:1.6; }
+@media(max-width:900px) { .planform-view-layout { grid-template-columns:minmax(0,1fr); } #planform-view-values table { font-size:13px; } .planform-view-header { padding:14px; } .planform-view-layout { padding:12px; } }
+.planform-editor { display:contents; }
+.planform-editor-sticky { position:sticky; top:0; z-index:8; margin:0 -2px 12px; padding:8px 2px 4px; background:#17232e; border-bottom:1px solid #344656; }
+.planform-editor-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:7px 12px; margin:0 0 8px; font-size:12px; }
+.planform-editor-toolbar strong { font-size:14px; }
+.planform-editor-toolbar .planform-view-open { margin:0 0 0 auto; width:auto; padding:5px 8px; font-size:11px; }
+.pf-legend { display:flex; gap:6px; align-items:center; color:#b7cddd; font-size:10px; }
+.pf-legend i { width:15px; border-top:2px solid #77ceef; }
+.pf-legend i.base { border-top:2px dashed #c2bacd; margin-left:5px; }
+.planform-editor-canvas { overflow:hidden; }
+.planform-editor-canvas svg { width:100%; min-width:0; max-height:240px; touch-action:none; user-select:none; outline-offset:-2px; }
+.planform-editor-canvas svg.dragging { cursor:grabbing; }
+.planform-editor-canvas .pf-editor-axis { fill:#9eb7ca; font-size:17px; }
+.planform-editor-metrics { margin:5px 1px 3px; font-size:11px; color:#bcd2df; font-variant-numeric:tabular-nums; }
+.planform-editor-error { margin:6px 0 2px; padding:7px; border:1px solid #aa5861; color:#ffccd0; background:#482027; font-size:12px; line-height:1.4; }
+.planform-editor-help { color:#a9c0ce; font-size:12px; line-height:1.5; margin:8px 0 13px; }
+.planform-point-tables { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; margin:10px 0; }
+.planform-edge-table { border:1px solid #354d60; border-radius:5px; padding:9px; }
+.planform-edge-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+.planform-edge-heading h3 { margin:0; font-size:12px; }
+.planform-edge-heading button,.planform-point-remove { padding:4px 8px; border:1px solid #49657b; border-radius:4px; background:#20384b; color:#e0f0fc; cursor:pointer; font-size:11px; }
+.planform-edge-table table { width:100%; border-collapse:collapse; font-size:11px; table-layout:fixed; }
+.planform-edge-table th { color:#b2c8d7; font-weight:500; padding:4px; text-align:left; }
+.planform-edge-table th:first-child { width:34px; }
+.planform-edge-table th:last-child { width:25px; }
+.planform-edge-table td { padding:4px 3px; }
+.planform-edge-table input { width:100%; min-width:0; box-sizing:border-box; padding:6px 5px; font-size:12px; color:#e0ecf4; background:#0e1821; border:1px solid #3c566a; border-radius:4px; }
+.planform-edge-table tr:focus-within { background:#244459; }
+.planform-edge-empty { margin:2px 0; color:#8fa9bb; font-size:11px; }
+.planform-edge-note { margin:8px 0 2px; color:#b8ccda; font-size:11px; line-height:1.5; }
+.planform-edge-table button:disabled,.planform-edge-table input:disabled { opacity:.5; cursor:not-allowed; }
+.planform-editor-canvas .pf-point { cursor:grab; outline:none; }
+.planform-editor-canvas .pf-point[aria-disabled=true] { cursor:default; }
+.planform-editor-canvas .pf-point-hit { fill:transparent; stroke:transparent; stroke-width:3; }
+.planform-editor-canvas .pf-point-dot { stroke:#0c1520; stroke-width:2; fill:#8ce3cf; }
+.planform-editor-canvas .pf-trailing .pf-point-dot { fill:#f5c38c; }
+.planform-editor-canvas .pf-point text { font-size:20px; fill:#dcebf4; paint-order:stroke; stroke:#0c1520; stroke-width:3px; }
+.planform-editor-canvas .pf-point:focus .pf-point-hit,.planform-editor-canvas .pf-selected .pf-point-hit { stroke:#ffffffb8; }
+.planform-editor-canvas .pf-invalid-point { fill:#ff566b55; stroke:#ff7788; stroke-width:2; }
+.pf-sr-only { position:absolute; width:1px; height:1px; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+/* Keep the drawing dominant in the expanded workspace while its parameter
+   fields remain available directly below it. */
+.planform-editor-canvas:has(.svgv-toolbar) { display:flex; flex-direction:column; align-items:stretch; }
+:is(.workspace-maximized,.drawing-maximized) .planform-editor-sticky { position:relative; }
+:is(.workspace-maximized,.drawing-maximized) .planform-editor-canvas { min-height: min(65vh,750px); }
+:is(.workspace-maximized,.drawing-maximized) .planform-editor-canvas svg { max-height:none; min-height:min(58vh,670px); flex:1; }
+:is(.workspace-maximized,.drawing-maximized) .planform-point-tables { grid-template-columns:repeat(2,minmax(0,1fr)); }
+@media(max-width:800px) { :is(.workspace-maximized,.drawing-maximized) .planform-point-tables { grid-template-columns:minmax(0,1fr); } }

@@ -1,0 +1,5 @@
+#panel-geometry-export .display-control { display:grid; grid-template-columns:1fr; gap:5px; margin:10px 0; }
+#panel-geometry-export .display-control select,
+#panel-geometry-export .display-control input { width:100%; min-width:0; }
+#panel-geometry-export .hud-row { margin-top:12px; }
+#export-status { overflow-wrap:anywhere; }

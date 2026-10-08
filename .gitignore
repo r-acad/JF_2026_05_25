@@ -17,6 +17,12 @@ __pycache__/
 output/
 tmp_*
 
+# WingFEGen local definitions, imported reference assets and run products
+WingFEGen/input/
+WingFEGen/output/
+WingFEGen/**/*.wingfem.json
+WingFEGen/**/*.reference_assets/
+
 # Locally generated sysimages created by each user's installation script
 sysimage/
 POST/panel_runs/

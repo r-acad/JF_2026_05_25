@@ -1,0 +1,11 @@
+.planform-input-method{border-top:1px solid #354b60;margin:10px 0;padding-top:12px;min-width:0}
+.planform-method-label{display:grid;gap:6px;color:#c9dbea;font-size:12px}
+.planform-method-label select{width:100%;min-width:0;box-sizing:border-box;padding:7px;color:#deebf7;background:#111c28;border:1px solid #40566c;border-radius:4px;font:inherit}
+.planform-direct-inputs{margin-top:10px}
+.planform-direct-inputs[hidden]{display:none}
+.planform-direct-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(90px,42%);gap:8px;align-items:center;margin:8px 0;font-size:12px}
+.planform-direct-row input{min-width:0;width:100%;box-sizing:border-box;padding:7px;color:#deebf7;background:#111c28;border:1px solid #40566c;border-radius:4px;font:inherit}
+.planform-direct-row input:disabled{opacity:.55}
+.planform-method-note{font-size:11px;line-height:1.45;color:#8fa9bf;margin:8px 0}
+.planform-direct-error{padding:8px;border-left:3px solid #ffae7d;background:#4c2c2438;color:#ffd3b5;font-size:12px;line-height:1.4}
+.planform-direct-error[hidden]{display:none}

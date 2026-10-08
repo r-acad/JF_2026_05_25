@@ -1,0 +1,157 @@
+# =========================================================================
+#  Wing torsion-box FE model generator - input file
+#  Written by WingFEGen on 2026-10-08 17:46:34
+#  Units: SI  (m, N, kg, Pa)
+#  Axes:  x aft, y towards the tip, z up. Right-hand semi-span wing.
+# =========================================================================
+
+[airfoil]
+root_source           = "naca"                  # Generate a NACA profile or choose UIUC database coordinates
+root                  = "NACA2412"              # NACA 4- or 5-digit code, e.g. NACA2412 or NACA23012
+root_profile          = ""                      # UIUC coordinates and provenance, stored with the model for offline use
+tip_source            = "naca"                  # Generate a NACA profile or choose UIUC database coordinates
+tip                   = "NACA2410"              # NACA 4- or 5-digit code at the tip section
+tip_profile           = ""                      # UIUC coordinates and provenance, stored with the model for offline use
+interpolation         = "cosine"                # Cosine blends adjacent sections with (1-cos(pi*t))/2 for smooth station transitions; linear preserves the legacy loft
+n_points              = 121                     # NACA generating points per surface, cosine spaced; database profiles retain their coordinate tables
+closed_trailing_edge  = true                    # Use the NACA closed-TE coefficient; database profiles retain their original trailing-edge gap
+
+[planform]
+area                  = 16.0                    # m2, Projected area of the full base trapezoid. Perturbation points change the actual area reported with the mesh
+aspect_ratio          = 8.0                     # b^2 / S of the full base trapezoid; together with base area fixes the span
+taper_ratio           = 0.45                    # c_tip / c_root of the base trapezoid, before edge perturbations
+twist_tip             = -3.0                    # deg, Linear from zero at the root. Positive is nose up
+sweep                 = 15.0                    # deg, Sweep of the BASE trapezoid datum at the reference x/c. Edge perturbations follow this base when sweep changes
+sweep_ref_xc          = 0.25                    # x/c, Base chord fraction of the swept datum. Structural skins and aerodynamic surfaces share the refined airfoil loft; spar path inputs remain measured in base-trapezoid coordinates
+dihedral              = 5.0                     # deg, Applied to the reference line
+twist_axis_xc         = 0.25                    # x/c, Fraction of the refined chord about which both the aerodynamic surface and structural section are pitched
+root_ref_x            = 0.0                     # m, Global x of the BASE trapezoid reference point at the root. Refined edge points can move the common aerodynamic/structural loft relative to this reference datum
+root_ref_y            = 0.0                     # m, Global y translation of the entire wing, supports and aerodynamic geometry; symmetry remains about the translated root plane
+root_ref_z            = 0.0                     # m, Global z translation of the entire wing, supports and aerodynamic geometry
+leading_edge_points   = []                      # Leading-edge eta/dxc perturbations: dxc=0 follows the nominal leading edge; +0.2 moves aft by 20% of the base chord, -0.2 forward. Offsets follow changes to the base trapezoid. Missing endpoints have zero offset. Legacy xc coordinates are migrated on load
+trailing_edge_points  = []                      # Trailing-edge eta/dxc perturbations: dxc=0 follows the nominal trailing edge, positive moves aft and negative forward by that fraction of the base chord. Missing endpoints have zero offset. The refined chord must contain both spars throughout the modeled box
+
+[box]
+front_spar_xc         = 0.2                     # x/c, Nominal front spar location in the BASE trapezoid chord. Every front spar perturbation is an offset from this value and follows changes to it
+rear_spar_xc          = 0.55                    # x/c, Nominal rear spar location in the BASE trapezoid chord. Every rear spar perturbation is an offset from this value and follows changes to it
+front_spar_points     = []                      # Front-spar eta/dxc offsets from the nominal Front spar location: zero nominal, positive aft, negative forward in base-chord fractions. Straight segments join the physical points. Missing endpoints use zero offset. Both spars must remain inside the refined wing through End ETA
+rear_spar_points      = []                      # Rear-spar eta/dxc offsets from the nominal Rear spar location: zero nominal, positive aft, negative forward in base-chord fractions. Each point has stringer_angle in degrees (default 0) for its incoming segment relative to the rear spar; the final segment repeats the last angle. An eta=0 angle is unused unless it is the only point
+end_eta               = 0.9                     # Final closed rib position as a fraction of the full wing semispan (0 < ETA <= 1). Aerodynamics retain the full wing; outboard loads transfer to this rib with their moment arms
+rib_pitch             = 0.6                     # m, Target pitch from the root master to the next master. With intermediate masters, pitch is measured along the 3D rear-spar reference path and rounded to whole bays per interval. Without intermediate masters the existing reference-line spacing is preserved
+stringer_pitch        = 0.15                    # m, Exact root x-spacing, constant along the span between parallel stringer planes
+stringer_angle        = 0.0                     # deg, Used only when there are no rear-spar perturbation points: angle relative to the untwisted rear-spar datum, positive aft. With rear-spar points, their individual Stringer angle values define continuous kinked stringer paths and this global value is ignored
+
+[ribs]
+masters               = []                      # Intermediate masters: ETA at the rear spar, orientation, angle in degrees from the immediately inboard rear-spar segment's outboard tangent toward the nose (90 is perpendicular), and outgoing pitch in metres. Root/final closures are fixed line of flight. Secondary positions and absolute directions interpolate between masters; pitch follows the 3D rear-spar reference path
+
+[leading_edge]
+enabled               = false                   # Structural skins from the nose to the front spar, between the selected physical ribs. Shares front-spar nodes and includes a closing rib at both ends
+rib_orientation       = "flight_direction"      # Line of flight keeps the existing constant-span ribs. Front-spar angle uses the same inboard/root spar segment as the reference for every leading-edge rib
+rib_angle             = 90.0                    # deg, Plan-view angle from the root front-spar segment's outboard tangent toward the nose; 90 degrees is perpendicular. Uses the same reference for all ribs. Rib planes hinge on the existing front-spar nodes. Angled closure ribs must reach the nose inside the wing; choose interior first/last ribs or adjust the angle if a closure would leave the wing
+rib_orientations      = []                      # Optional overrides by physical rib number: flight_direction or front_spar_angle and angle in degrees. Unlisted ribs inherit the global leading-edge setting. The common inboard front-spar segment is the angle reference
+start_rib             = 1                       # Physical rib number at the inboard end; rib 1 is the root. Shell mesh subdivisions do not change the numbering
+end_rib               = 0                       # Physical rib number at the outboard end; 0 follows the final box rib at End ETA. Must be beyond the first selected rib
+disabled_bays         = ""                      # Physical bay numbers or inclusive ranges, e.g. 2,4-6. Bay b lies between ribs b and b+1. Removes leading-edge structure only in those bays; remaining segments have closing ribs. Empty means no gaps. Valid exclusions outside the selected first/last ribs are retained but ignored; bay bounds are checked when leading-edge structure is enabled
+chord_elements        = 8                       # Elements on each skin between the shared nose and front spar; approximately equal surface arc-length spacing, 2 to 100
+t_skin                = 0.0015                  # m, Monolithic thickness of both leading-edge skins; sandwich construction uses its face/core dimensions
+t_rib                 = 0.0015                  # m, Monolithic thickness of leading-edge rib extensions; sandwich construction uses its face/core dimensions
+
+[fuel]
+enabled               = false                   # Gross enclosed volume between selected ribs, skins and spars. Adds a six-DOF fuel RBE3 per bay; Cases defines fuel fill and acceleration. Structure, equipment and unusable fuel are not deducted
+start_rib             = 1                       # Physical rib number, starting with rib 1 at the root; unaffected by shell mesh subdivisions
+end_rib               = 0                       # Physical rib number; 0 automatically selects the final closed rib at End ETA. Must be beyond the first tank rib
+disabled_bays         = ""                      # Bays excluded from fuel capacity, mass, inertia and loads. Bay b is between physical ribs b and b+1. Use numbers or ranges, for example 2,4-6; blank keeps all selected bays. Exclusions outside the selected tank range are retained and ignored. All selected bays may be dry
+density               = 800.0                   # kg/m3, Density used for per-bay CONM2 fuel masses and inertia. Edit for the actual fuel and temperature; 800 kg/m3 is an assumption, not a fuel specification
+fill_fraction         = 1.0                     # 0 to 1, Legacy input retained for compatibility. New Studies define Fuel status separately in every load case; a legacy file without that setting inherits this fraction
+
+[mesh]
+elements_between_ribs = 3                       # Shell elements spanwise between two consecutive ribs
+elements_between_stringers= 1                   # Shell subdivisions across each stringer bay, including spar margins; 1 to 100
+elements_spar_height  = 3                       # Shell elements through the spar web and rib height
+aero_chord_points     = 41                      # Points per surface of the aerodynamic loft mesh
+
+[rbe3]
+enabled               = true                    # One RBE3 per rib station with the reference node on the chord line
+ref_xc                = 0.25                    # x/c, Chord fraction of the independent RBE3 node
+
+[supports]
+mode                  = "root"                  # Root fixes global translations 1,2,3 on the main-box root skin/spar perimeter. Custom uses only the rib support sets below; an empty table leaves the structure unsupported
+items                 = []                      # Select a physical rib (root is 1), a spar/skin intersection or corner, and global DOFs 1=x,2=y,3=z,4=Rx,5=Ry,6=Rz. Overlapping selections are combined per GRID. Leading-edge extension and RBE3 reference nodes are excluded
+
+[loads]
+label                 = "Load case 1"           # Name of the first load case in the deck and results selector
+method                = "analytic"              # Prescribed lift distribution, or aerodynamic forces and moments from VortexLattice.jl
+lift_total            = 6000.0                  # N, Unscaled prescribed lift carried by the modelled half wing; define the intended base load level before applying the load multiplier
+load_factor           = 1.5                     # dimensionless, Dimensionless multiplier applied once to prescribed lift, VLM forces and moments, and prescribed torque. A value of 1.5 converts limit loads to ultimate only when the defined case already represents limit loads; it is not an additional n-g conversion. Negative values reverse forces and moments.
+distribution          = "elliptical"            # elliptical, proportional to the local chord, or constant
+torque_y              = 0.0                     # N m, Unscaled prescribed couple at RBE3 centers; right-hand +y, distributed by tributary strips and scaled once by the same load multiplier
+follower_forces       = false                   # OpenJFEM FORCE directions follow RBE3 station rotation. SOL101 uses a first-order load linearization at zero rotation; SOL106 rotates forces during every equilibrium trial. MOMENT vectors, including prescribed global-y torque, remain fixed. This does not recompute aerodynamic pressures.
+cases                 = []                      # Independent cases inherit unspecified lift, torque and flight inputs from load case 1
+fuel_percent          = 100.0                   # %, 0 empty to 100 full in each tank bay, filling upward from the lower surface. Creates fuel mass, CG and inertia for this case. Enable and bound the tank in Fuel tank
+structure_inertia     = true                    # Apply the same signed global acceleration and load multiplier to dry structural shell/bar mass as to fuel. Includes bar centroid offsets; excludes separate aerodynamic display/export shells. Existing definitions without this setting retain fuel-only acceleration until enabled
+fuel_accel_x          = 0.0                     # g, Signed global force per unit mass, multiplied by standard gravity and the load multiplier. Applies to fuel and, when Include structural inertia is enabled, the dry structure. Zero all axes for mass without inertia loads
+fuel_accel_y          = 0.0                     # g, Signed global y acceleration shared by fuel and enabled structural inertia; scaled once by the load multiplier
+fuel_accel_z          = -1.0                    # g, Signed global z acceleration shared by fuel and enabled structural inertia. Default -1 applies downward weight; scaled once by the load multiplier. Fixed global directions, including in SOL106; no inferred reversal for aircraft acceleration
+
+[aero]
+speed                 = 70.0                    # m/s, Vortex lattice: steady, incompressible, attached flow; no viscous drag or stall
+density               = 1.225                   # kg/m3
+alpha                 = 5.0                     # deg, Root chord incidence relative to the flow; positive gives positive lift. Large local incidence is allowed with an attached-flow validity warning; no stall prediction
+speed_of_sound        = 340.0                   # m/s, Used to enforce Mach <= 0.3 for the incompressible model
+span_panels           = 20                      # Requested minimum, 4 to 64, with cosine spacing towards the tip. Twisted geometry adds panels automatically
+chord_panels          = 9                       # Requested minimum, 2 to 24, with cosine spacing. Camber and twist may add panels to resolve curved geometry and local normals
+
+[material]
+name                  = "AL2024"
+E                     = 7.1e10                  # Pa
+nu                    = 0.33
+rho                   = 2780.0                  # kg/m3
+
+[materials]
+library               = [{E = 2.1e11, id = 2, name = "Steel (generic)", nu = 0.3, rho = 7850.0}, {E = 1.0e8, id = 3, name = "Foam core (effective isotropic)", nu = 0.3, rho = 80.0}, {E = 2.0e8, id = 4, name = "Honeycomb core (effective isotropic)", nu = 0.25, rho = 50.0}]  # Material 1 uses the values above. Additional rows define id >= 2, name, E in Pa, nu and rho in kg/m3. Illustrative editable isotropic elastic properties, not certified design allowables. Foam and honeycomb use effective isotropic MAT1 approximations; directional core behavior, crushing, damage and failure criteria are not modeled.
+shells                = [{component = "upper_skin", core_material = 3, core_thickness = 0.01, face_material = 1, face_thickness = 0.0005, kind = "monolithic", material = 1}, {component = "lower_skin", core_material = 3, core_thickness = 0.01, face_material = 1, face_thickness = 0.0005, kind = "monolithic", material = 1}, {component = "spar_web", core_material = 3, core_thickness = 0.01, face_material = 1, face_thickness = 0.0005, kind = "monolithic", material = 1}, {component = "rib_web", core_material = 3, core_thickness = 0.01, face_material = 1, face_thickness = 0.0005, kind = "monolithic", material = 1}, {component = "leading_edge_skin", core_material = 3, core_thickness = 0.01, face_material = 1, face_thickness = 0.0005, kind = "monolithic", material = 1}, {component = "leading_edge_rib", core_material = 3, core_thickness = 0.01, face_material = 1, face_thickness = 0.0005, kind = "monolithic", material = 1}]  # Per-component monolithic MAT1 or symmetric face/core/face PCOMP. Face thickness is per face. Rib and spar-bay overrides are total thickness and change the core only, requiring total > twice face thickness
+bars                  = [{component = "stringer", material = 1}, {component = "spar_cap", material = 1}, {component = "rib_stiffener", material = 1}, {component = "runout", material = 1}]  # Select an isotropic material for stringers, spar caps, rib stiffeners and fixed-area runout connectors
+
+[properties]
+t_skin_upper          = 0.0025                  # m
+t_skin_lower          = 0.0022                  # m
+panels                = []                      # Physical panel key and layout token, with sparse skin and stringer properties. Blank values inherit shared defaults. Reset overrides before changing the geometry or rib/stringer/runout layout
+t_spar_web            = 0.003                   # m, Default for both spars. Individual physical rib bays can override either web thickness below
+t_rib_web             = 0.002                   # m, Default main-box rib thickness; override individual physical ribs below
+rib_stiffeners_enabled= true                    # Vertical T bars at physical stringer columns of each main-box rib. Skin mesh subdivisions do not add stiffeners
+rib_stiffener_flange_width= 0.03                # m
+rib_stiffener_height  = 0.032                   # m
+rib_stiffener_flange_thickness= 0.002           # m
+rib_stiffener_web_thickness= 0.002              # m
+ribs                  = []                      # Overrides by physical rib number: web thickness, vertical stiffeners enabled, and PBARL T dimensions. Unset values inherit the defaults
+spar_bays             = []                      # Optional front/rear web thickness overrides. Bay b spans physical ribs b and b+1; unset values inherit the default thickness
+stringer_flange_width = 0.03                    # m, PBARL T DIM1. Flange lies against the skin; the web points into the box
+stringer_height       = 0.032                   # m, PBARL T DIM2, including flange thickness. The centroid offset is included in the CBAR
+stringer_flange_thickness= 0.002                # m, PBARL T DIM3; must be less than the overall height
+stringer_web_thickness= 0.002                   # m, PBARL T DIM4; must be less than the flange width
+spar_cap_side         = 0.02                    # m, PBARL BAR with equal DIM1 and DIM2. One face lies against the skin; the square extends into the box
+
+[output]
+title                 = "Wing torsion box"
+nastran_file          = "output/wing_box.bdf"   # Relative paths resolve against the application folder
+solution              = "103"                   # 103 normal modes, 101 linear static, 105 linear buckling, 106 experimental geometric nonlinear static with a matching SOL101 comparison for every enabled load case
+n_modes               = 10                      # Eigenvalues requested for SOL 103 and SOL 105
+buckling_max_factor   = 50.0                    # x load, SOL 105 looks for load factors between 0 and this. Raise it if the run finds no roots
+include_aero_shells   = false                   # Also write the aerodynamic loft as CQUAD4 elements
+t_aero_shell          = 0.0005                  # m
+
+[nonlinear]
+load_steps            = 8                       # SOL106 nominal increments to the full selected load; native JFEM can cut back failed increments
+max_iterations        = 25                      # SOL106 maximum equilibrium iterations per attempted load increment
+displacement_tolerance= 1.0e-6                  # SOL106 relative displacement-correction tolerance (JFEM NLTOL)
+residual_tolerance    = 1.0e-6                  # SOL106 relative force-residual tolerance (JFEM NLRESTOL)
+max_cutbacks          = 8                       # SOL106 cutback attempts before reporting incomplete convergence. If full load fails, the last verified accepted state is compared with SOL101 scaled to the same load, with a red warning
+
+[sensitivity]
+settings              = ""                      # Saved sensitivity objective and property selections; evaluated only when a sensitivity job is started
+
+[jfem]
+repo                  = ""                      # Folder holding src/OpenJFEM.jl and the jfem launcher. Leave empty to find the enclosing solver checkout automatically. Relative paths are resolved from the app; jfem.path is accepted as an input alias.
+output_dir            = "output/jfem"           # Parent results folder, relative to the app. Each run keeps its own timestamped folder; SOL106 comparisons keep separate case/SOL101 and case/SOL106 decks and results
+output_formats        = "jrs"                   # Letters passed to the launcher: j viewer file, r report, s results JSON, v VTK, h HDF5
+timeout_minutes       = 30                      # min, Timeout for each individual solver run, including each SOL101/SOL106 case. The first run also precompiles the solver and is slow

@@ -1,0 +1,25 @@
+#panel-loadplots { max-width: 1200px; margin: 0 auto; }
+#plots-case-select { width:100%; padding:8px; border:1px solid var(--line,#2b3d4b); background:#101820; color:#dce7ef; border-radius:4px; }
+.plot-status { font-size:12px; color:#9ac7df; margin:12px 0; }
+.plot-status.stale { color:#ffbe71; }
+.plot-controls { margin:0 0 8px; padding:10px; border:1px solid #344b60; border-radius:5px; }
+.plot-controls legend { color:#c5d7e7; font-size:12px; padding:0 5px; }
+.plot-mode-label { display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:12px; }
+.plot-mode-label select { min-width:165px; max-width:65%; background:#101820; color:#dce7ef; border:1px solid #344b60; border-radius:4px; padding:6px; }
+.plot-component-toggles { display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:12px; }
+.plot-component { display:flex; gap:6px; align-items:center; color:#d4e2ed; font-size:12px; cursor:pointer; }
+.plot-component input { margin:0; }
+.plot-swatch { width:15px; height:3px; border-radius:2px; }
+.plot-explanation { color:#a9bfd0; font-size:12px; line-height:1.5; margin:8px 0 12px; }
+.span-plot-stack { display:flex; flex-direction:column; gap:14px; }
+.span-plot { background:#111c27; border:1px solid #2a3c4d; border-radius:7px; overflow:hidden; padding:12px; }
+.span-plot h3 { margin:0 0 8px; color:#e0eaf2; font-size:13px; font-weight:600; }
+.span-plot svg { display:block; overflow:visible; touch-action:pan-y; }
+.plot-tick { fill:#a6bbcd; font-family:system-ui,sans-serif; font-size:11px; }
+.plot-grid { stroke:#26394a; stroke-width:1; }
+.plot-zero { stroke:#72899a; stroke-width:1; }
+.plot-readout { min-height:30px; margin:5px 0 0; font-size:11px; line-height:15px; color:#bbcedd; font-variant-numeric:tabular-nums; }
+.plot-notes { margin-top:15px; font-size:12px; }
+.vlm-force-scale { display:flex; gap:5px; align-items:center; justify-content:flex-end; }
+.vlm-force-scale input { width:85px; }
+#fuel-view-actions { margin:8px 0; }

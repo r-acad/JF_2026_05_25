@@ -9,3 +9,8 @@
 *.yaml text eol=lf
 
 *.bat text eol=crlf
+
+# Portable app scripts use LF; vendor archives keep exact verified upstream bytes.
+WingFEGen/** text eol=lf
+WingFEGen/*.cmd text eol=crlf
+WingFEGen/web/vendor/** -text whitespace=cr-at-eol

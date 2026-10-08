@@ -1,0 +1,4 @@
+.toml-preview{box-sizing:border-box;width:min(1050px,94vw);height:85vh;max-width:100vw;max-height:100vh;padding:16px;border:1px solid #6686ab;border-radius:8px;background:#122339;color:#e4effc}
+.toml-preview[open]{display:flex;flex-direction:column;gap:10px}.toml-preview::backdrop{background:#020a16aa}.toml-preview.is-maximized{width:98vw;height:97vh}
+.toml-preview header,.toml-preview-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.toml-preview h2{font-size:17px;margin:0 auto 0 0}.toml-preview p{margin:0;overflow-wrap:anywhere;font-size:12px}.toml-preview [data-toml=status]{font-weight:600}
+.toml-preview pre{flex:1;min-height:0;margin:0;padding:14px;overflow:auto;background:#071b36;color:#d4e7ff;border:1px solid #315477;border-radius:4px;font:12px/1.55 Consolas,monospace;white-space:pre;tab-size:4;user-select:text}.toml-preview select{width:auto;max-width:65vw}.toml-preview button{font-size:12px;padding:6px 9px}

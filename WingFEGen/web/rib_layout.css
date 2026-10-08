@@ -1,0 +1,21 @@
+.rib-layout-editor { min-width:0; color:#d2e1ec; margin:0 0 18px; font-size:12px; }
+.rl-title { display:flex; align-items:center; justify-content:space-between; gap:8px; }.rl-title h3{margin:8px 0;font-size:14px}.rl-title button{padding:4px 7px;font-size:11px}
+.rl-help{padding:10px;background:#192c3a;border:1px solid #426078;line-height:1.65;border-radius:5px}.rl-help[hidden],.rl-error[hidden]{display:none}
+.rl-preview{position:sticky;top:0;background:#17232d;z-index:3;padding-top:5px}.rl-preview svg{width:100%;display:block;touch-action:none;background:#0c1721;border:1px solid #355064;border-radius:5px;overflow:hidden}
+.rl-preview svg *{vector-effect:non-scaling-stroke}.rl-box{fill:#21405266;stroke:#4b7895;stroke-width:1}.rl-rib{fill:none;stroke:#789bae;stroke-width:.8}.rl-master{stroke:#dfebfa;stroke-width:1.8}.rl-invalid,.rl-fallback{stroke:#ff5964!important;color:#ff8d95}.rl-front{stroke:#65d6b1;stroke-width:1.5;fill:none}.rl-rear{stroke:#ffad68;stroke-width:1.5;fill:none}.rl-leading{stroke:#9cceee;stroke-width:1.1}.rl-handle circle,.rl-angle-handle circle{fill:#1f84c6;stroke:#b7e7ff;stroke-width:1.5}.rl-angle-handle circle{fill:#d5982b;stroke:#ffe0a2}.rl-handle,.rl-angle-handle{cursor:grab}.rl-handle[aria-disabled=true],.rl-angle-handle[aria-disabled=true]{cursor:default}.rl-handle[aria-disabled=true] circle{fill:#8a99a2}.rl-handle text{fill:#e0efff;font-size:17px;paint-order:stroke;stroke:#0c1721;stroke-width:3px}.rl-selected circle,.rl-handle:focus-visible circle,.rl-angle-handle:focus-visible circle{stroke:#fff;stroke-width:3}.rl-status{font-size:11px;color:#abc1d1;margin:6px 0}.rl-error{color:#ffc2c6;background:#482830;padding:7px;border:1px solid #944e5b;border-radius:4px;line-height:1.4;max-height:80px;overflow:auto}
+.rl-table-wrap{overflow:auto;margin:10px 0}.rib-layout-editor table{width:100%;border-collapse:collapse;background:#101c26;table-layout:fixed}.rib-layout-editor th{font-size:10px;color:#abc9de;font-weight:600;padding:5px 2px;text-align:left;overflow-wrap:anywhere}.rib-layout-editor td{padding:5px 2px;border-top:1px solid #314756;overflow-wrap:anywhere}.rib-layout-editor th:first-child{width:35px}.rib-layout-editor th:last-child{width:23px}.rib-layout-editor th:nth-child(3){width:86px}.rib-layout-editor input,.rib-layout-editor select{box-sizing:border-box;min-width:0;width:100%;padding:5px 3px;background:#0b151e;color:#e0effa;border:1px solid #3d566b;border-radius:3px;font-size:11px}.rib-layout-editor input:disabled,.rib-layout-editor select:disabled{opacity:.55}.rib-layout-editor td button{padding:4px;width:23px}.rl-fixed{font-size:10px;color:#95aebf}.rl-row-status{font-size:10px}.le-rib-editor th:nth-child(2){width:95px}.le-rib-editor th:nth-child(3){width:auto}
+.rl-preview :is(.rl-front,.rl-rear,.rl-rib,.rl-box,.rl-leading){pointer-events:none}
+.rl-error.rl-warning { color:#ffe1a1; background:#433a24; border-color:#8c7343; }
+.rl-line-handle { stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:crosshair; }
+.rl-line-handle:hover,.rl-line-handle:focus-visible { stroke:#83cffa33;outline:none; }
+.rl-line-handle[aria-disabled=true] { pointer-events:none; }
+:is(.workspace-maximized,.drawing-maximized) .rl-preview { position:relative; }
+:is(.workspace-maximized,.drawing-maximized) .rl-preview svg { min-height:min(60vh,700px); max-height:none; }
+@media(min-width:1100px) {
+ :is(.workspace-maximized,.drawing-maximized) .rib-layout-editor { display:grid; grid-template-columns:minmax(0,1fr) 365px; grid-template-rows:auto auto min-content 1fr; grid-template-areas:"title title" "help help" "preview table" "preview add"; column-gap:15px; align-items:start; }
+ :is(.workspace-maximized,.drawing-maximized) .rl-title { grid-area:title; }
+ :is(.workspace-maximized,.drawing-maximized) .rl-help { grid-area:help; }
+ :is(.workspace-maximized,.drawing-maximized) .rl-preview { grid-area:preview; min-width:0; }
+ :is(.workspace-maximized,.drawing-maximized) .rl-table-wrap { grid-area:table; max-height:60vh; margin-top:5px; }
+ :is(.workspace-maximized,.drawing-maximized) .rib-layout-editor > button[data-rl=add] { grid-area:add; justify-self:start; align-self:start; }
+}

@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WingFEGen - wing torsion box FE generator</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="activity.css">
+  <link rel="stylesheet" href="reference.css">
+  <link rel="stylesheet" href="section_editor.css">
+  <link rel="stylesheet" href="component_properties.css">
+  <link rel="stylesheet" href="airfoils.css">
+  <link rel="stylesheet" href="geometry_export.css">
+  <link rel="stylesheet" href="display_groups.css">
+  <link rel="stylesheet" href="weights.css">
+  <link rel="stylesheet" href="annotations.css">
+  <link rel="stylesheet" href="geometry_tools.css">
+  <link rel="stylesheet" href="svg_viewport.css">
+  <link rel="stylesheet" href="planform_view.css">
+  <link rel="stylesheet" href="spar_view.css">
+  <link rel="stylesheet" href="rib_layout.css">
+  <link rel="stylesheet" href="dimensioned_plan_view.css">
+  <link rel="stylesheet" href="fuel_tank_view.css">
+  <link rel="stylesheet" href="planform_inputs.css">
+  <link rel="stylesheet" href="viewport_tools.css">
+  <link rel="stylesheet" href="toml_preview.css">
+  <link rel="stylesheet" href="leading_edge_gaps.css">
+  <link rel="stylesheet" href="load_plots.css">
+  <link rel="stylesheet" href="sensitivity.css">
+  <link rel="stylesheet" href="viewport-legends.css">
+  <link rel="stylesheet" href="study_files.css">
+  <link rel="stylesheet" href="recent_studies.css">
+  <link rel="stylesheet" href="model_workspace.css">
+  <link rel="stylesheet" href="supports.css">
+  <link rel="stylesheet" href="scene_lighting.css">
+  <link rel="stylesheet" href="startup_study.css">
+  <link rel="stylesheet" href="mass_properties.css">
+  <link rel="stylesheet" href="materials_editor.css">
+</head>
+<body>
+
+<div id="app">
+  <header id="workspace-header">
+    <div class="workspace-brand">
+      <h1>WingFEGen</h1>
+    </div>
+    <div id="actions">
+      <button id="btn-open-plan-view" title="Open a synchronized dimensioned drawing in a separate browser tab. Move that tab to another monitor while editing this Study.">Plan View ↗</button>
+      <span class="file-action-group" aria-label="Study files">
+        <button id="btn-new-study" disabled aria-describedby="study-help" title="Reset parameters and cases to application defaults and clear references. Display preferences are retained; saved files are unchanged.">New Study</button>
+        <button id="btn-save-model" disabled aria-describedby="study-help">Save Study</button>
+        <button id="btn-load-model" disabled aria-describedby="study-help" title="Browse Study files or reopen a recent saved Study" aria-haspopup="dialog">Load Study ▾</button>
+        <button id="btn-study-notes" title="Describe the intent of your latest modification; Save Study records the note and save time">Notes</button>
+        <span id="study-help" class="file-tooltip" role="tooltip">A Study (.wingfem.json) contains parameters, load cases, supports, embedded reference geometry, all 2D background images and placements, display settings, the view and timestamped modification notes. Solver results are kept separately. Save chooses a folder and filename when supported; otherwise your browser downloads the file. New Study resets parameters and cases to application defaults and clears references, notes and drawing images. It retains other display preferences and leaves saved files unchanged.</span>
+      </span>
+      <span class="file-action-group" aria-label="TOML parameter files">
+        <button id="btn-save-toml" disabled aria-describedby="toml-help">Save TOML as…</button>
+        <button id="btn-load-toml" disabled aria-describedby="toml-help">Load TOML</button>
+        <button id="btn-view-toml" disabled title="Inspect the current definition as TOML, or read the configured server TOML file. This does not save or reload anything.">View TOML</button>
+        <span id="toml-help" class="file-tooltip" role="tooltip">TOML stores model parameters, supports, load cases, all loaded reference placements and cache paths, and the Plan view background image. Saving caches unlinked references without overwriting the server input. Reference paths depend on this server's input folder; use Save Study to move embedded geometry, all display settings, other images and notes between computers. Import validates before replacing the current Study.</span>
+      </span>
+      <input id="model-file" type="file" accept=".wingfem.json,application/json" hidden>
+      <input id="toml-file" type="file" accept=".toml,text/plain,application/toml" hidden>
+    </div>
+    <div class="workspace-live">
+      <span id="manual-mesh-action" hidden></span>
+      <label class="live-switch" title="Automatically rebuild after parameter edits"><input id="auto-mesh" type="checkbox" checked><span>Live mesh</span></label>
+      <span id="jfem-running" class="jfem-running" role="status" aria-live="polite" hidden>JFEM is running</span>
+      <span id="mesh-status" role="status" aria-live="polite">Starting…</span>
+    </div>
+    <button id="btn-study-information" type="button" class="workspace-help" aria-label="Information: Study and server input" aria-controls="study-information" aria-expanded="false" title="Information: current Study, save status, TOML and server input">ⓘ</button>
+    <label class="background-picker" title="Change the viewport background color">Background<input id="background-color" type="color" value="#0e131a" aria-label="Viewport background color"></label>
+    <button id="btn-quick-help" class="workspace-help" title="Workflow and controls" aria-label="Help: workflow and controls">?</button>
+    <section id="study-information" class="file-status-row" role="region" aria-label="Study and server information" hidden>
+      <div class="study-information-heading"><strong>Study information</strong><button id="btn-close-study-information" type="button" aria-label="Close Study information">×</button></div>
+      <span id="study-file-status" role="status" aria-live="polite">Study: unsaved · TOML: reading…</span>
+      <span id="file-save-status" role="status" aria-live="polite"></span>
+      <details id="server-input-menu">
+        <summary aria-describedby="server-input-help">Server input</summary>
+        <div class="server-input-popover">
+          <p id="server-input-help">These actions use the configured server file. Overwrite replaces that file with the current parameters.</p>
+          <p id="server-input-path"></p>
+          <button id="btn-save" disabled>Overwrite server input</button>
+          <button id="btn-reload" disabled>Reload server input</button>
+        </div>
+      </details>
+    </section>
+    <div id="model-error" role="alert" hidden><strong id="model-error-title">Model update failed</strong><p id="model-error-text"></p></div>
+  </header>
+
+  <nav id="workspace-nav" aria-label="Wing workspace">
+    <div id="workspace-tablist" role="tablist" aria-label="Workspace tools"></div>
+  </nav>
+
+  <div id="workspace-body" class="workspace-body">
+  <aside id="sidebar">
+    <div class="hud-title panel-heading"><span id="workspace-title">Planform</span><button id="btn-max-drawing" class="mini" type="button" aria-pressed="false" title="Maximize the 2D drawing and its parameters">Maximize</button></div>
+    <div id="workspace-content">
+      <section id="panel-mesh-actions" class="workspace-panel workspace-action-panel" data-workspace-panel="mesh" role="tabpanel" aria-labelledby="tab-mesh" hidden>
+        <div id="mesh-create-slot" class="workspace-actions"><button id="btn-create" disabled class="primary" title="Rebuild the FEM using the current geometry, mesh, properties and loads">Create FEM</button></div>
+        <p class="pick-note">Live mesh rebuilds after edits. When disabled, Create FEM moves beside Live mesh in the top bar. Red means the current model needs updating.</p>
+      </section>
+      <section id="panel-analysis-actions" class="workspace-panel workspace-action-panel" data-workspace-panel="analysis" role="tabpanel" aria-labelledby="tab-analysis" hidden>
+        <div class="workspace-actions"><button id="btn-jfem" disabled class="primary accent" title="Run the selected analysis for every enabled load case">Run in JFEM</button><button id="btn-stop-jfem" class="ghost danger" hidden>Stop the run</button></div>
+        <p class="pick-note">Choose the solution below and define the loading in Cases. Solver progress remains visible in the header and Log. Red means analysis is needed; green means completed results match this model.</p>
+        <p id="analysis-validity" class="pick-note" role="status" aria-live="polite" data-analysis-current="false">No analysis results are available. Run JFEM for this model.</p>
+      </section>
+      <div id="form"><p class="muted">reading parameters&hellip;</p></div>
+
+      <section id="panel-mesh-labels" class="workspace-panel" data-workspace-panel="mesh" role="tabpanel" aria-labelledby="tab-mesh" hidden>
+        <fieldset class="mesh-label-controls">
+          <legend>Rib and stringer labels</legend>
+          <label class="layer"><input id="mesh-labels-none" name="mesh-labels" type="radio" value="none" checked><span>Off</span></label>
+          <label class="layer"><input id="mesh-labels-ribs" name="mesh-labels" type="radio" value="ribs"><span>Ribs</span></label>
+          <label class="layer"><input id="mesh-labels-stringers" name="mesh-labels" type="radio" value="stringers"><span>Stringers</span></label>
+          <label class="layer"><input id="mesh-labels-both" name="mesh-labels" type="radio" value="both"><span>Ribs and stringers</span></label>
+          <label class="layer"><input id="show-rib-datums" type="checkbox"><span>Show rib datum squares</span></label>
+          <label class="display-control" for="rib-datum-size">Square side (m)<input id="rib-datum-size" type="number" min="0.001" step="any" value="1"></label>
+          <p id="rib-datum-status" class="pick-note">Translucent squares at the front spar: orange for master ribs, blue for secondary ribs.</p>
+          <p class="pick-note">Rib 1 is at the root. Stringers are numbered front to rear: U = upper skin, L = lower skin. These numbers remain independent of shell subdivisions. Hide a skin or use translucent surfaces to see internal labels.</p>
+        </fieldset>
+      </section>
+
+      <section id="panel-fuel-volume" class="workspace-panel" data-workspace-panel="fuel" role="tabpanel" aria-labelledby="tab-fuel" hidden>
+        <p id="fuel-volume-summary" class="pick-note" role="status" aria-live="polite">Create the mesh to report the selected tank's gross capacity.</p>
+        <label class="layer"><input id="show-fuel-tank" type="checkbox" disabled><span>Show fuel tank volume</span></label>
+        <div id="fuel-view-actions" class="hud-row"><button id="btn-isolate-fuel" class="mini" disabled>Isolate tank</button></div>
+        <p class="pick-note">The green volume encloses the wet bays between the selected ribs; dry and vent bays remain empty. Use Isolate tank or Display / Appearance / Translucent structural surfaces to see it behind the skins. Fuel status in each load case sets its CONM2 masses and inertial loads; Summary &rarr; Mass properties reports the fuel separately.</p>
+        <p id="fuel-display-note" class="pick-note" role="status" aria-live="polite"></p>
+      </section>
+
+      <section id="panel-input" class="workspace-panel" data-workspace-panel="analysis" role="tabpanel" aria-labelledby="tab-analysis" hidden>
+        <div class="parameter-heading"><h2>Input and export</h2></div>
+        <div id="input-actions" class="hud-row">
+          <button id="btn-nastran" title="Write and show the NASTRAN file">Write deck</button>
+        </div>
+        <details class="input-details"><summary>Input file and units</summary><p id="input-file" class="muted">loading the input file&hellip;</p></details>
+      </section>
+
+      <section id="panel-geometry-export" class="workspace-panel" data-workspace-panel="analysis" role="tabpanel" aria-labelledby="tab-analysis" hidden>
+        <div class="parameter-heading"><h2>Geometry export</h2><button id="export-help" class="mini" aria-label="Help: geometry export">?</button></div>
+        <label class="display-control" for="export-scope">Entities <select id="export-scope"><option value="all">All model entities and load cases</option><option value="visible">Visible layers and selected case</option></select></label>
+        <label class="display-control" for="export-state">Geometry <select id="export-state"><option value="undeformed">Undeformed model</option><option value="displayed">Displayed deformation and scale</option></select></label>
+        <label class="layer"><input id="export-references" type="checkbox" checked><span>Include imported references</span></label>
+        <label class="display-control" for="export-line-radius">Line radius (m) <input id="export-line-radius" type="number" min="0.00000001" step="0.0001" placeholder="Automatic"></label>
+        <div class="hud-row"><button id="export-stl">Export STL</button><button id="export-glb">Export GLB</button></div>
+        <p class="pick-note">Includes shells, full beam sections, nodes, supports, RBE3 spiders, aero/VLM, tank and load glyphs. STL keeps FE XYZ in metres; GLB preserves colors, groups and IDs with standard Y-up placement. Labels and camera helpers are excluded.</p>
+        <p id="export-status" class="pick-note" role="status" aria-live="polite">Create a model, then choose an export format.</p>
+      </section>
+
+      <section id="panel-vlm-view" class="workspace-panel" data-workspace-panel="vlm" role="tabpanel" aria-labelledby="tab-vlm" hidden>
+        <div class="parameter-heading"><h2>Aerodynamic view</h2></div>
+        <label class="case-picker-label" for="vlm-case-select">Displayed load case</label>
+        <select id="vlm-case-select" aria-label="VLM load case"></select>
+        <div class="vlm-view-buttons" role="group" aria-label="VLM visualization">
+          <button id="btn-vlm-mesh" class="mini" aria-pressed="false">Mesh</button>
+          <button id="btn-vlm-pressure" class="mini" aria-pressed="false">Pressure (Pa)</button>
+          <button id="btn-vlm-cp" class="mini" aria-pressed="false">Cp</button>
+          <button id="btn-vlm-hide" class="mini">Hide VLM</button>
+        </div>
+        <label class="layer"><input id="vlm-show-forces" type="checkbox"><span>Forces at RBE3 centers</span></label>
+        <label class="layer"><input id="vlm-show-moments" type="checkbox"><span>Moments at RBE3 centers</span></label>
+        <label class="layer"><input id="show-vlm-panel-forces" type="checkbox" disabled><span>Force vectors at VLM quad centers</span></label>
+        <label class="display-control" for="vlm-force-scale">Arrow length multiplier</label>
+        <div class="vlm-force-scale"><button id="btn-vlm-force-smaller" class="mini" title="Halve arrow lengths">−</button><input id="vlm-force-scale" type="number" min="0.01" max="100" step="0.1" value="1" aria-label="VLM force arrow length multiplier"><button id="btn-vlm-force-larger" class="mini" title="Double arrow lengths">+</button></div>
+        <p id="vlm-force-scale-note" class="pick-note" role="status"></p>
+        <p id="vlm-view-status" class="pick-note" role="status"></p>
+        <p id="vlm-model-warning" class="pick-note model-warning" role="status" hidden></p>
+        <div id="vlm-view-legend"></div>
+        <p class="pick-note">The lattice and pressures use the undeformed aerodynamic wing. Pressure and Cp are lower-minus-upper jumps. Fully solid skins can hide the internal lattice; select Translucent in Display or hide a skin to see it.</p>
+      </section>
+
+      <section id="panel-vlm-mesh" class="workspace-panel" data-workspace-panel="vlmmesh" role="tabpanel" aria-labelledby="tab-vlmmesh" hidden>
+        <p class="pick-note">This lattice controls the aerodynamic solution, independently of the structural shell subdivisions. Air speed, incidence and density belong to each load case.</p>
+        <div class="hud-row"><button class="mini" data-workspace-target="vlm">View VLM mesh and aerodynamic results</button><button class="mini" data-workspace-target="cases">Flight conditions</button></div>
+      </section>
+      <section id="panel-sensitivity" class="workspace-panel" data-workspace-panel="sensitivity" role="tabpanel" aria-labelledby="tab-sensitivity" hidden>
+        <div class="parameter-heading"><h2>Sensitivity analysis</h2><button id="btn-help-sensitivity" class="help-button" aria-label="Help: sensitivity analysis">?</button><button id="btn-max-sensitivity" class="mini">Maximize</button></div>
+        <div id="sensitivity-editor"></div>
+      </section>
+
+      <section id="panel-loadplots" class="workspace-panel" data-workspace-panel="loadplots" role="tabpanel" aria-labelledby="tab-loadplots" hidden>
+        <div class="parameter-heading"><h2>Spanwise load distributions</h2><button id="btn-help-loadplots" class="help-button" aria-label="Help: load plots">?</button><button id="btn-max-loadplots" class="mini" title="Maximize load plots">Maximize</button></div>
+        <div id="load-plots"></div>
+      </section>
+
+      <section id="panel-weights" class="workspace-panel" data-workspace-panel="weights" role="tabpanel" aria-labelledby="tab-weights" hidden>
+        <div class="hud-row"><button class="mini" data-workspace-target="fuel">Define fuel tank</button><button class="mini" data-workspace-target="material">Structural density</button></div>
+        <div id="weights-report"><p class="pick-note">Create FEM to calculate component masses.</p></div>
+      </section>
+
+      <section id="panel-display" class="workspace-panel display-pane" data-workspace-panel="display" role="tabpanel" aria-labelledby="tab-display" hidden>
+      <div id="hud-left" class="hud">
+      <div class="parameter-heading"><h2>Entities</h2></div>
+      <label class="layer"><input id="show-panels" type="checkbox" disabled><span>Panels · isolate stiffened skins</span></label>
+      <p id="stiffened-panel-note" class="pick-note">Create FEM to identify stiffened panels.</p>
+      <label class="display-control">Load case <select id="load-case-select" aria-label="Displayed load case"></select></label>
+      <div class="entity-actions"><button id="entities-show-all" class="mini" disabled>Show all model entities</button><button id="entities-hide-all" class="mini" disabled>Hide all model entities</button></div>
+      <p class="pick-note">Group checkboxes include available model layers. Deformation overlays require results. Bulk actions leave imported references and context planes unchanged.</p>
+      <div id="layers"><p class="muted">no model yet</p></div>
+      <div id="vlm-controls" hidden>
+        <label class="display-control">VLM contour <select id="vlm-field"><option value="none">Mesh only</option><option value="pressure">Pressure jump (Pa)</option><option value="cp">Cp jump</option></select></label>
+        <div id="vlm-legend"></div>
+        <p class="pick-note">VLM pressures are the lower-minus-upper pressure jump on the undeformed aerodynamic lattice.</p>
+      </div>
+      <p class="pick-note">Straight arrows show applied forces; curved arrows show moments. Appearance, axes, environment and fuel inertia have separate Display sub-tabs.</p>
+      </div>
+      </section>
+
+      <section id="panel-displayappearance" class="workspace-panel display-pane" data-workspace-panel="displayappearance" role="tabpanel" aria-labelledby="tab-displayappearance" hidden>
+      <div class="parameter-heading"><h2>Appearance</h2></div>
+      <label class="display-control">Structural surfaces
+        <select id="surface-mode"><option value="solid" selected>Fully solid</option><option value="translucent">Translucent</option></select>
+      </label>
+      <p class="pick-note">Fully solid hides rear surfaces and bars. Translucent reveals internal structure. Show bars through surfaces overrides depth.</p>
+      <label class="display-control">Beam sections
+        <select id="beam-style"><option value="lines">Lines</option><option value="sections">Full 3D sections</option></select>
+      </label>
+      <label class="layer"><input id="show-bars-through" type="checkbox"><span>Show bars through surfaces</span></label>
+      <label class="layer"><input id="show-aero-overlay" type="checkbox" disabled><span>Aerodynamic loft overlay</span></label>
+      <p class="pick-note">The loft shows the full wing shape outside the structural box. Its visibility is independent of structural opacity and the VLM mesh.</p>
+      <label class="display-control">Node radius (m)<input id="node-radius" type="number" min="0" step="any" value="0.005"></label>
+      <label class="display-control">Marker radius (m)<input id="marker-radius" type="number" min="0" step="any" value="0.01"></label>
+      <p class="pick-note">Supports: cones for translations 1–3, with their tips at the node along +x, +y and +z; open cubes for rotations 4–6. Global x is red, y green, z blue. Cone base radius equals Marker radius, length is twice that radius. Cubes keep their half-radius offset.</p>
+      <div id="aerodynamic-appearance">
+        <label class="display-control">Deformed aerodynamic loft
+          <select id="aero-deformed-style" disabled><option value="wireframe">Wireframe</option><option value="steel" selected>Polished aluminium · specular</option></select>
+        </label>
+        <p id="aero-display-note" class="pick-note">Create FEM to show the defined airfoil sections. Load results to display the deformed aerodynamic loft.</p>
+      </div>
+      <div class="hud-row">
+        <button id="btn-fit" class="mini">Fit view</button>
+        <button id="btn-iso" class="mini">Iso</button>
+        <button id="btn-front" class="mini">Front</button>
+        <button id="btn-top" class="mini">Top</button>
+      </div>
+      </section>
+
+      <section id="panel-displaylabels" class="workspace-panel display-pane" data-workspace-panel="displaylabels" role="tabpanel" aria-labelledby="tab-displaylabels" hidden>
+      <div class="parameter-heading"><h2>Axes and labels</h2></div>
+      <fieldset id="display-axes-labels">
+        <legend>Axes &amp; labels</legend>
+        <label class="layer"><input id="show-shell-axes" type="checkbox" disabled><span>Shell local x axes</span></label>
+        <label class="layer"><input id="show-bar-axes" type="checkbox" disabled><span>Bar axes (x / y / z)</span></label>
+        <p class="display-axis-key"><span class="axis-x">x</span> red &middot; <span class="axis-y">y</span> green &middot; <span class="axis-z">z</span> blue</p>
+        <label class="layer"><input id="show-node-ids" type="checkbox"><span>Node IDs</span></label>
+        <label class="layer"><input id="show-element-ids" type="checkbox"><span>Element IDs</span></label>
+        <label class="display-control">Label size (px)<input id="id-label-size" type="number" min="8" max="24" step="1" value="11"></label>
+        <p id="id-label-status" class="pick-note" role="status" aria-live="polite"></p>
+        <div id="entity-color-legend"></div>
+      </fieldset>
+      <p id="axes-note" class="pick-note" hidden>Skin x follows the stringers; rib x follows global +x (horizontal); spar x uses the projected stringer direction. Shell results use these axes. x red, y green, z blue. Reference directions remain undeformed.</p>
+      <button class="mini" data-workspace-target="mesh">Rib / stringer labels and rib datums</button>
+      </section>
+
+      <section id="panel-displayenvironment" class="workspace-panel display-pane" data-workspace-panel="displayenvironment" role="tabpanel" aria-labelledby="tab-displayenvironment" hidden>
+      <div class="parameter-heading"><h2>Environment and lighting</h2></div>
+      <div id="scene-lighting-controls"></div>
+      <fieldset id="display-view-planes">
+        <legend>Context planes</legend>
+        <label class="layer"><input id="show-ground-plane" type="checkbox"><span>Ground plane</span></label>
+        <label class="display-control">Ground z (m)<input id="ground-plane-z" type="number" step="any" value="0" title="Ground height in global FE z; display only"></label>
+        <label class="display-control">Grid spacing (m)<input id="ground-grid-spacing" type="number" min="0" step="any" value="5" title="Positive checkerboard tile and grid-line spacing; display only"></label>
+        <label class="layer"><input id="show-symmetry-plane" type="checkbox"><span>Root symmetry plane</span></label>
+        <p id="view-planes-note" class="pick-note">Ground defaults to global z = 0 with 5 m tiles and grid lines. Symmetry follows the root reference y. These display settings do not change the FE model.</p>
+      </fieldset>
+      <p class="pick-note">The Background color selector remains available in the top bar.</p>
+      </section>
+
+      <section id="panel-displaymass" class="workspace-panel display-pane" data-workspace-panel="displaymass" role="tabpanel" aria-labelledby="tab-displaymass" hidden>
+      <div class="parameter-heading"><h2>Fuel mass properties</h2></div>
+      <fieldset id="fuel-mass-display">
+        <legend>Fuel mass properties</legend>
+        <div class="entity-actions"><button id="fuel-mass-show" class="mini">Show inertia ellipsoids</button><button id="fuel-mass-hide" class="mini">Hide mass properties</button><button id="fuel-mass-report" class="mini">Mass report</button></div>
+        <label class="layer"><input id="show-fuel-inertia" type="checkbox"><span>Fuel inertia ellipsoids</span></label>
+        <label class="layer"><input id="show-fuel-cg" type="checkbox" checked><span>Show fuel center of gravity and offset</span></label>
+        <label class="display-control">Radius scale<input id="fuel-inertia-scale" type="number" min="0.01" max="100" step="0.1" value="1"></label>
+        <p class="pick-note">Selected load case, undeformed coordinates. Translucent ellipsoids are centered on the fuel node, aligned with its principal inertia axes I₁/I₂/I₃ (red/green/blue). The three colored ellipses show the principal cross sections. Radii are √(I/m) in metres, multiplied by the display scale; they do not represent the tank shape. Cyan marks the fuel node; orange marks its CG and offset.</p>
+        <p id="fuel-mass-status" class="pick-note" role="status">Create FEM with an enabled fuel tank.</p>
+        <div id="fuel-mass-details"></div>
+      </fieldset>
+      <button class="mini" data-workspace-target="display">Choose displayed load case and entities</button>
+      </section>
+
+      <div id="hud-right">
+      <section id="panel-summary" class="workspace-panel" data-workspace-panel="summary" role="tabpanel" aria-labelledby="tab-summary" hidden>
+      <section id="study-notes-panel" class="group">
+        <h2>Study modification notes</h2>
+        <label for="study-note">Intent of the latest modification</label>
+        <textarea id="study-note" rows="5" maxlength="20000" placeholder="Describe what you changed and why…"></textarea>
+        <p id="study-notes-saved" class="pick-note">Save Study records this text with the save time. Notes do not change the FEM.</p>
+        <details><summary>Saved modification history</summary><ol id="study-note-history"></ol></details>
+      </section>
+      <div class="hud" id="model-card">
+        <div class="hud-title">General model summary</div>
+        <div id="stats"><p class="muted">Use Create FEM to generate the model: in Mesh, or beside Live mesh when automatic updates are disabled.</p></div>
+      </div>
+      </section>
+      <section id="panel-results" class="workspace-panel" data-workspace-panel="results" role="tabpanel" aria-labelledby="tab-results" hidden>
+        <div class="hud" id="sensitivity-map-card">
+          <div class="hud-title">Sensitivity fields</div>
+          <div class="hud-row"><button type="button" class="mini" id="sensitivity-open-summary">Open summary / saved runs</button><button type="button" class="mini" id="sensitivity-map-clear" hidden>Restore analysis view</button></div>
+          <p id="sensitivity-map-summary" class="pick-note">Open a completed sensitivity run under Loads → Sensitivity to compare property effects.</p>
+          <div id="sensitivity-map-controls" hidden>
+            <label class="display-control">View <select id="sensitivity-map-mode"><option value="field">Property sensitivity field</option><option value="preview">Single-property change preview</option></select></label>
+            <label class="display-control" id="sensitivity-field-row">Property family <select id="sensitivity-field-family"></select></label>
+            <label class="display-control" id="sensitivity-field-quantity-row">Field quantity <select id="sensitivity-field-quantity"><option value="normalized">Normalized sensitivity (p/f × df/dp)</option><option value="derivative">Derivative df/dp (response / property units)</option></select></label>
+            <label class="layer" id="sensitivity-visible-row"><input id="sensitivity-visible-range" type="checkbox" checked> Scale colors to visible elements</label>
+            <label class="display-control" id="sensitivity-property-row">Property <select id="sensitivity-map-property"></select></label>
+            <label class="display-control" id="sensitivity-change-row">Preview property change (%) <input id="sensitivity-map-change" type="number" min="-99" max="100" step="0.1" value="1"></label>
+            <label class="display-control" id="sensitivity-metric-row">Color quantity <select id="sensitivity-map-metric"><option value="percent">Response change (% of baseline)</option><option value="absolute">Response change (response units)</option></select></label>
+            <button type="button" class="mini" id="sensitivity-map-show">Show property effect on model</button>
+            <p id="sensitivity-map-estimate" class="pick-note"></p>
+            <p class="pick-note">Fields color the selected response derivative on each visible skin or beam. Select panel properties in Sensitivity to compare panels independently; their derivatives take precedence over shared defaults. Missing derivatives are gray. Use Display to choose components. The single-property preview estimates a response change without a new solve. Ordinary loads and VLM contours are hidden during sensitivity display.</p>
+          </div>
+          <p id="sensitivity-map-status" class="pick-note" role="status"></p>
+        </div>
+      <div class="hud" id="results-card" hidden>
+        <div class="hud-title">
+          JFEM results
+          <button id="btn-clear-results" class="mini right">clear</button>
+        </div>
+        <div id="results-summary"></div>
+        <p id="nonlinear-warning" class="nonlinear-warning" role="alert" hidden></p>
+        <label class="display-control" id="result-case-control" hidden>Load case <select id="result-case-select" aria-label="Result load case"></select></label>
+        <div id="result-comparison" hidden>
+          <label class="display-control">Analysis <select id="result-analysis-select" aria-label="Result analysis"></select></label>
+          <div id="comparison-summary"></div>
+          <label class="ctl check"><input id="compare-results" type="checkbox"><span>Show both solutions</span></label>
+          <p class="pick-note">The selected analysis supplies contours and inspected results. The other shape appears as a colored wireframe through surfaces. Both use the same physical magnification. SOL106 is experimental geometric nonlinear analysis.</p>
+        </div>
+
+        <div id="mode-list-wrap" hidden>
+          <div class="sub-title" id="mode-list-title">Modes</div>
+          <div id="mode-list"></div>
+          <div class="hud-row">
+            <button id="btn-mode-prev" class="mini">&uarr; previous</button>
+            <button id="btn-mode-next" class="mini">&darr; next</button>
+          </div>
+        </div>
+
+        <div id="result-controls" hidden>
+          <div class="sub-title">Deformed shape</div>
+          <div class="hud-row"><button id="btn-real-scale" class="mini" aria-pressed="false" title="Show actual static translations and rotations, with magnification exactly one">Real scale (1:1)</button><button id="btn-auto-scale" class="mini" title="Magnify the peak deflection to fit the model">Auto magnify</button></div>
+          <p id="comparison-scale" class="pick-note"></p>
+          <label class="ctl">
+            <span>Magnify</span>
+            <input id="deform-scale" type="range" min="-1" max="1.2" step="0.02" value="0">
+            <span id="deform-scale-txt" class="ctl-val">1.0&times;</span>
+          </label>
+          <label class="ctl check">
+            <input id="animate" type="checkbox" checked>
+            <span>Animate</span>
+          </label>
+          <label class="ctl check"><input id="show-undeformed" type="checkbox"><span>Undeformed model</span></label>
+          <label class="ctl check" title="Original aerodynamic surface, filled and translucent"><input id="show-reference-aero" type="checkbox"><span>Undeformed aero · translucent</span></label>
+          <label class="ctl check" title="Aerodynamic surface following the active displacement shape. Choose specular aluminium or wireframe in Display."><input id="show-deformed-aero" type="checkbox" checked><span id="deformed-aero-label">Deformed aero · specular</span></label>
+          <div class="sub-title">Contour</div>
+          <select id="contour-select"></select>
+          <label class="display-control">Color scale<select id="result-palette"><option value="spectrum">Blue–green–red</option><option value="viridis">Viridis</option><option value="inferno">Inferno</option><option value="coolwarm">Blue–white–red</option><option value="grayscale">Grayscale</option></select></label>
+          <div id="contour-legend"></div>
+          <div class="sub-title">Support reactions</div>
+          <label class="ctl check"><input id="show-support-forces" type="checkbox" checked><span>Forces at supported nodes</span></label>
+          <label class="display-control">Arrow length multiplier<input id="support-force-scale" type="number" min="0.01" max="100" step="0.1" value="1"></label>
+          <p id="support-force-note" class="pick-note"></p>
+        </div>
+
+        <details id="report-details">
+          <summary>Solver report</summary>
+          <pre id="report-text"></pre>
+        </details>
+      </div>
+      <div class="workspace-empty results-empty"><span class="empty-icon" aria-hidden="true">&#x25A5;</span><h2>No analysis results yet</h2><p>Set the analysis and load cases, then use <b>Run in JFEM</b>. Results appear here when the solve finishes.</p><button class="mini" data-workspace-target="analysis">Analysis settings</button></div>
+      </section>
+      <section id="panel-inspect" class="workspace-panel" data-workspace-panel="inspect" role="tabpanel" aria-labelledby="tab-inspect" hidden>
+      <label class="case-picker-label" for="inspect-entity">Entity to inspect</label>
+      <select id="inspect-entity" aria-label="Entity type to inspect">
+        <option value="all">All elements</option><option value="nodes">Nodes (GRID)</option>
+        <option value="shells">Shells</option><option value="quad">Quadrilaterals (CQUAD4)</option>
+        <option value="tria">Triangles (CTRIA3)</option><option value="bar">Bars (CBAR)</option>
+        <option value="stringer">Stringers and runouts</option><option value="cap">Spar caps</option>
+        <option value="rbe3">RBE3 spiders</option>
+      </select>
+      <div class="inspect-find"><input id="inspect-id" type="number" min="1" step="1" placeholder="Entity ID" aria-label="Entity ID"><button id="btn-inspect-id" class="mini">Inspect ID</button></div>
+      <p id="inspect-status" class="pick-note" role="status">Left-click a matching entity, or enter its ID.</p>
+      <div class="hud-row"><label class="ctl check"><input id="show-picked-axes" type="checkbox" checked><span>Selected element local axes</span></label><button id="btn-clear-pick" class="mini">Clear selection</button></div>
+      <p id="picked-axes-note" class="pick-note">Pick a shell or bar to show its local x, y and z axes.</p>
+      <section id="measure-tool" aria-label="Two-point measurement">
+        <h3>Measure two points <button id="btn-measure-help" class="help-button" type="button" aria-label="Measurement and local axes help">?</button></h3>
+        <div class="hud-row"><button id="btn-measure" class="mini" type="button" aria-pressed="false">Start measurement</button><button id="btn-measure-clear" class="mini" type="button" disabled>Clear</button></div>
+        <label class="ctl check"><input id="measure-snap-nodes" type="checkbox"><span>Snap to visible FE nodes</span></label>
+        <p id="measure-status" class="pick-note" role="status">Measure two points on the displayed geometry.</p>
+        <div id="measure-values" aria-live="polite"></div>
+      </section>
+      <div class="hud" id="pick-card" hidden>
+        <div class="hud-title">Picked entity</div>
+        <div id="pick-content"></div>
+      </div>
+      <div class="workspace-empty inspect-empty"><span class="empty-icon" aria-hidden="true">&#x2316;</span><h2>Inspect an entity</h2><p>Choose a type above. Left-click a visible matching entity, or use its ID to inspect hidden entities as well.</p></div>
+      </section>
+      </div>
+
+      <section id="panel-log" class="workspace-panel" data-workspace-panel="log" role="tabpanel" aria-labelledby="tab-log" hidden>
+      <div id="log-wrap">
+      <div class="hud-title">
+        Log
+        <span id="run-badge" class="badge" hidden></span>
+        <button id="btn-clear-log" class="mini right">clear</button>
+        <button id="btn-max-log" class="mini right" title="Maximize log" aria-label="Maximize log">&#x26F6;</button>
+        <a id="log-download" class="mini right" download hidden>Full log</a>
+      </div>
+      <p id="solver-progress" class="pick-note" hidden></p>
+      <p id="log-retention" class="pick-note">The complete solver log is preserved on disk.</p>
+      <div id="log" role="region" aria-label="Recent solver log"></div>
+      </div>
+      </section>
+      <section id="panel-deck" class="workspace-panel" data-workspace-panel="deck" role="tabpanel" aria-labelledby="tab-deck" hidden>
+      <div id="deck-panel" class="hud" hidden>
+      <div class="hud-title">NASTRAN deck <button id="btn-close-deck" class="mini right">close</button><button id="btn-max-deck" class="mini right" title="Maximize deck" aria-label="Maximize deck">Maximize</button><a id="deck-download" class="mini right" download>download</a></div>
+      <div id="deck-path" class="muted"></div>
+      <label id="deck-case-control" class="display-control" hidden>Fuel case deck <select id="deck-case-select" aria-label="Fuel case deck"></select></label>
+      <p id="deck-metadata" class="pick-note"></p>
+      <p id="deck-status" class="pick-note" role="status"></p>
+      <pre id="deck-text" tabindex="0"></pre>
+      </div>
+      <div class="workspace-empty deck-empty"><span class="empty-icon" aria-hidden="true">&#x2261;</span><h2>No deck written yet</h2><p id="deck-empty-status">Use <b>Write deck</b> or <b>Run in JFEM</b>. The last created deck remains here after closing this panel, refreshing the browser or restarting the app.</p></div>
+      </section>
+      <section id="panel-reference" class="workspace-panel" data-workspace-panel="reference" role="tabpanel" aria-labelledby="tab-reference" hidden>
+        <div id="reference-panel"></div>
+      </section>
+    </div>
+  </aside>
+
+  <div id="pane-resizer" role="separator" aria-label="Resize options pane" aria-controls="sidebar" aria-orientation="vertical" aria-valuemin="260" aria-valuemax="680" aria-valuenow="360" tabindex="0" title="Drag to resize the options pane. Arrow keys adjust width; Home/End choose minimum/maximum."></div>
+
+  <main id="viewport">
+    <div id="viewport-tools"></div>
+    <canvas id="render" touch-action="none" aria-label="Wing model viewport"></canvas>
+<div id="viewport-legends" hidden aria-label="Active result color scales"></div>
+    <div id="result-notices">
+      <div id="nonlinear-viewport-warning" class="nonlinear-warning" role="status" hidden></div>
+      <div id="comparison-key" hidden aria-label="Analysis comparison key"></div>
+    </div>
+    <div id="load-clock" hidden aria-label="SOL106 load progress">
+      <div id="load-clock-face" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span id="load-clock-value">0%</span></div>
+      <div><strong id="load-clock-title">SOL106 load level</strong><span id="load-clock-accepted">Accepted 0%</span><small id="load-clock-detail">Load fraction, not elapsed time</small></div>
+    </div>
+    <div id="viewport-hint">Drag to orbit &middot; right-drag to pan &middot; wheel to zoom</div>
+    <div id="splash">
+      <div>
+        <h2>Wing torsion box</h2>
+        <p>Choose a tool above to define your wing.</p>
+        <p class="muted">
+          The model updates as you edit. <b>Create FEM</b> also rebuilds it on demand.<br>
+          <b>Run in JFEM</b> solves the enabled load cases.<br>
+          Click the model to center without rotating. Middle-click centers on a node; select Inspect to pick elements.
+        </p>
+      </div>
+    </div>
+  </main>
+  </div>
+</div>
+
+<dialog id="help-dialog" aria-labelledby="help-title">
+  <div class="help-heading"><h2 id="help-title"></h2><button id="btn-close-help" class="mini" aria-label="Close help">Close</button></div>
+  <div id="help-content"></div>
+</dialog>
+
+<div id="activity-status" role="status" aria-live="polite" aria-busy="true">
+  <span class="activity-spinner" aria-hidden="true"></span>
+  <div><strong id="activity-label">Starting WingFEGen</strong><small id="activity-detail">Loading the viewer…</small></div>
+  <span id="activity-time" aria-label="Elapsed time">0:00</span>
+</div>
+<script src="activity.js"></script>
+<script src="numbers.js" defer></script>
+<script src="parameter_locks.js" defer></script>
+<script src="vendor/babylon.js" defer></script>
+<script src="vendor/babylonjs.loaders.min.js" defer></script>
+<script src="vendor/msgpack.min.js" defer></script>
+<script src="sections.js" defer></script>
+<script src="geometry_tools.js" defer></script>
+<script src="svg_viewport.js" defer></script>
+<script src="planform_view.js" defer></script>
+<script src="planform_inputs.js" defer></script>
+<script src="spar_view.js" defer></script>
+<script src="rib_layout.js" defer></script>
+<script src="leading_edge_gaps.js" defer></script>
+<script src="dimensioned_plan_view.js" defer></script>
+<script src="plan_view_window.js" defer></script>
+<script src="fuel_tank_view.js" defer></script>
+<script src="support_glyphs.js" defer></script>
+<script src="scene_lighting.js" defer></script>
+<script src="mass_properties.js" defer></script>
+<script src="aero_display.js" defer></script>
+<script src="geometry_export.js" defer></script>
+<script src="view_planes.js" defer></script>
+<script src="viewport_tools.js" defer></script>
+<script src="viewport_svg.js" defer></script>
+<script src="toml_preview.js" defer></script>
+<script src="rib_datums.js" defer></script>
+<script src="section_editor.js" defer></script>
+<script src="component_properties.js" defer></script>
+<script src="materials_editor.js" defer></script>
+<script src="airfoils.js" defer></script>
+<script src="weights.js" defer></script>
+<script src="reference.js" defer></script>
+<script src="workspace.js" defer></script>
+<script src="recent_studies.js" defer></script>
+<script src="startup_study.js" defer></script>
+<script src="annotations.js" defer></script>
+<script src="load_plots.js" defer></script>
+<script src="sensitivity_results.js" defer></script>
+<script src="sensitivity_table_data.js" defer></script>
+<script src="sensitivity_table_window.js" defer></script>
+<script src="sensitivity_map.js" defer></script>
+<script src="stiffened_panels.js" defer></script>
+<script src="sensitivity.js" defer></script>
+<script src="panel_table_data.js" defer></script>
+<script src="panel_table_window.js" defer></script>
+<script src="viewport-legends.js" defer></script>
+<script src="supports.js" defer></script>
+<script src="app.js" defer></script>
+</body>
+</html>

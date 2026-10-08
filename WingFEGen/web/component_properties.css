@@ -1,0 +1,18 @@
+.component-properties { margin-top: 1rem; border-top: 1px solid var(--border,#354553); padding-top: .8rem; }
+.component-table-scroll { overflow-x: auto; margin-bottom: .7rem; }
+.component-table { width: 100%; border-collapse: collapse; }
+.component-table th { text-align: left; font-size: .8rem; padding: .3rem; white-space: nowrap; }
+.component-table td { padding: .25rem; }
+.component-table input { width: 5.3rem; min-width: 4rem; padding: .4rem; background: #0b1620; color: #dae7f0; border: 1px solid #496278; border-radius: 5px; }
+.component-table input[data-field="rib"],.component-table input[data-field="bay"] { width: 4rem; }
+.component-table select { padding: .4rem; background: #0b1620; color: #dae7f0; border: 1px solid #496278; border-radius: 5px; }
+.component-property-error { color: #ffd0d0; background: #652b35; padding: .65rem; }
+#group-rib-properties .section-preview-canvas svg,#group-spar-properties .section-preview-canvas svg { height: clamp(230px,30vh,360px); min-height: 0; max-height: 360px; }
+@media (min-width: 1000px) {
+  .drawing-maximized :is(#group-rib-properties,#group-spar-properties) { display: grid; grid-template-columns: minmax(330px,38%) minmax(440px,1fr); column-gap: 1.4rem; align-content: start; }
+  .drawing-maximized :is(#group-rib-properties,#group-spar-properties) > .parameter-heading { grid-column: 1 / -1; }
+  .drawing-maximized :is(#group-rib-properties,#group-spar-properties) > :not(.parameter-heading):not(.component-properties) { grid-column: 1; }
+  .drawing-maximized :is(#group-rib-properties,#group-spar-properties) > .component-properties { grid-column: 2; grid-row: 2 / span 8; margin-top: 0; border-top: 0; padding-top: 0; }
+}
+.startup-study-notice { position: fixed; top: 4rem; right: 1rem; z-index: 3000; max-width: min(34rem,85vw); background: #164f91; color: white; border: 1px solid #83b7f0; border-radius: .5rem; box-shadow: 0 3px 16px #0007; padding: .8rem 2.8rem .8rem 1rem; white-space: pre-line; }
+.startup-study-notice button { position: absolute; top: .3rem; right: .3rem; padding: .25rem .5rem; }

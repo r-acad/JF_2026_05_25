@@ -1,0 +1,32 @@
+#reference-panel { padding: 12px; font-size: 12px; }
+#reference-panel .reference-intro { display: flex; align-items: center; gap: 10px; }
+#reference-panel .reference-intro p { flex: 1; }
+#reference-panel .reference-help { padding: 9px; border: 1px solid var(--border, #334357); border-radius: 6px; line-height: 1.55; }
+#reference-panel .reference-upload { display: block; padding: 12px; background: #182534; border: 1px dashed #526c8a; border-radius: 7px; font-weight: 600; }
+#reference-panel .reference-upload input { display: block; width: 100%; margin-top: 8px; font-size: 11px; }
+#reference-panel .reference-status, #reference-panel .reference-info { color: #a9bace; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+#reference-panel .reference-status.err { color: #ff8293; }
+#reference-panel .reference-status.good { color: #7de2ab; }
+#reference-panel .reference-field { display: grid; gap: 5px; margin: 10px 0; }
+#reference-panel select, #reference-panel input[type=number] { box-sizing: border-box; width: 100%; min-width: 0; background: #0d1722; color: #e8eff8; border: 1px solid #364b63; border-radius: 4px; padding: 6px; }
+#reference-panel .reference-modes, #reference-panel .reference-actions { display: flex; flex-wrap: wrap; gap: 5px; margin: 12px 0; }
+#reference-panel .reference-modes button.active { background: #285783; color: white; border-color: #73b4ee; }
+#reference-panel .reference-transform { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; border: 1px solid #2e4257; border-radius: 6px; margin: 10px 0; padding: 9px; }
+#reference-panel .reference-transform legend { padding: 0 4px; }
+#reference-panel .reference-transform label { display: grid; gap: 4px; }
+#reference-panel .reference-transform label:nth-of-type(1) { color: #ef5f6b; }
+#reference-panel .reference-transform label:nth-of-type(2) { color: #4cc38a; }
+#reference-panel .reference-transform label:nth-of-type(3) { color: #56a8f5; }
+#reference-panel .reference-check { display: flex; align-items: center; gap: 7px; margin: 8px 0; }
+#reference-panel .reference-lock { padding: 9px; border: 1px solid #526b86; border-radius: 5px; background: #1a2b3b; font-weight: 600; }
+#reference-panel .reference-lock-status { margin: 5px 0 10px; color: #a9bace; font-size: 11px; line-height: 1.5; }
+#reference-panel .reference-lock-status.locked { color: #ffd38a; }
+#reference-panel input:disabled, #reference-panel select:disabled { opacity: .6; cursor: not-allowed; }
+#reference-panel [hidden] { display: none !important; }
+#reference-panel .reference-persistence { border: 1px solid #456886; border-radius: 6px; background: #152637; padding: 9px; margin: 10px 0; }
+#reference-panel .reference-persistence p { margin: 6px 0; line-height: 1.45; }
+#reference-panel .reference-persistence button { margin: 4px 4px 4px 0; }
+#reference-panel .reference-saved-status.unsaved { color: #ffd079; }
+#reference-panel .reference-saved-path, #reference-panel .reference-missing { color: #adbcd0; font-size: 10px; overflow-wrap: anywhere; }
+#reference-panel .reference-missing { border: 1px solid #7b6034; padding: 8px; margin: 8px 0; }
+#reference-panel .reference-missing button { display: block; margin-top: 6px; }

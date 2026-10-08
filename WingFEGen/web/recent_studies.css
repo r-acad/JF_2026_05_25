@@ -1,0 +1,22 @@
+.recent-studies-dialog{box-sizing:border-box;width:min(760px,calc(100vw - 32px));max-height:calc(100dvh - 40px);padding:20px;border:1px solid #425b73;border-radius:10px;background:#16222f;color:#dce9f4;font:14px/1.45 system-ui,sans-serif;box-shadow:0 14px 65px #0009}
+.recent-studies-dialog::backdrop{background:#040c17b8}
+.recent-studies-header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:10px}
+.recent-studies-header h2{margin:0;font-size:20px}
+.recent-studies-dialog button{padding:7px 11px;border:1px solid #425d76;border-radius:5px;background:#22364b;color:#e6f2ff;font:inherit;cursor:pointer}
+.recent-studies-dialog button:hover{background:#2c4967}
+.recent-studies-dialog button:focus-visible{outline:2px solid #75bdff;outline-offset:2px}
+.recent-studies-dialog button:disabled{cursor:wait;opacity:.55}
+.recent-studies-dialog .recent-studies-browse{background:#2460a0;border-color:#3c83c6;margin-bottom:14px}
+.recent-studies-intro,.recent-study-description{color:#b3c5d6;margin:8px 0 12px}
+.recent-studies-list{display:grid;gap:10px}
+.recent-study{border:1px solid #33495f;border-radius:6px;padding:13px;background:#111d29;min-width:0}
+.recent-study-name{margin:0;overflow-wrap:anywhere;font-size:15px}
+.recent-study-meta{color:#91a8bd;margin:4px 0;font-size:12px}
+.recent-study-description{font-size:12px;margin:7px 0 10px}
+.recent-study-actions{display:flex;flex-wrap:wrap;gap:7px}
+.recent-study-actions button{font-size:12px}
+.recent-study-actions .recent-study-remove{margin-left:auto;background:transparent;color:#a9bdcf}
+.recent-studies-status,.recent-study-session{color:#ffcf95;background:#55402445;padding:9px;border-left:3px solid #d69c56;font-size:12px}
+.recent-study-session{display:block;margin-bottom:10px}
+.recent-studies-status[hidden]{display:none}
+.recent-studies-empty{color:#a9bdcf;padding:12px 0}

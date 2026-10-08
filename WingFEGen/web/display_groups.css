@@ -1,0 +1,10 @@
+.entity-actions { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
+.entity-group { border:1px solid #344653; border-radius:5px; margin:9px 0; padding:7px 8px 4px; }
+.entity-group legend { padding:0 4px; font-size:12px; font-weight:600; }
+.entity-group legend label { display:inline-flex; align-items:center; gap:7px; cursor:pointer; }
+.entity-group .layer { display:flex; align-items:center; gap:7px; min-height:25px; cursor:pointer; }
+.entity-group .layer-name { flex:1; min-width:0; }
+.entity-group .count { margin-left:auto; white-space:nowrap; }
+.entity-group legend .entity-group-count { font-weight:400; color:var(--muted,#98aabc); margin-left:4px; }
+#display-view-planes { border:1px solid #344653; border-radius:5px; padding:8px; margin:12px 0; }
+#display-view-planes legend { font-weight:600; font-size:12px; padding:0 4px; }

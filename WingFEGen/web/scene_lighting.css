@@ -1,0 +1,10 @@
+.scene-lighting{display:grid;gap:10px;padding:12px 0;color:var(--text,#d8e2ef)}
+.scene-lighting h3{margin:0;font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.scene-lighting>label{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.scene-lighting input,.scene-lighting select{box-sizing:border-box;color:inherit;background:#0d1722;border:1px solid #3b4b60;border-radius:5px;padding:6px;min-width:0}
+.scene-lighting>label input{width:90px}.scene-lighting select{max-width:165px}
+.scene-lighting details{padding:8px 0}.scene-lighting summary{cursor:pointer;font-size:12px;color:#a9c5e3}
+.scene-lighting fieldset{display:flex;gap:6px;border:1px solid #3b4b60;border-radius:5px;margin:10px 0;padding:8px}
+.scene-lighting legend{font-size:12px}.scene-lighting fieldset label{display:grid;gap:4px;flex:1;min-width:0;font-size:12px}.scene-lighting fieldset input{width:100%}
+.scene-lighting p{font-size:12px;color:#a9b9cc;margin:6px 0}.scene-lighting .scene-lighting-error{color:#ff8995}
+.scene-lighting :focus-visible{outline:2px solid #58afff;outline-offset:2px}

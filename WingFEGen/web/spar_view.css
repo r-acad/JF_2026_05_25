@@ -1,0 +1,15 @@
+.spar-editor .pf-legend .sf-front { border-color:#81d9ad; }
+.spar-editor .pf-legend .sf-rear { border-color:#ffa978; }
+.spar-editor .pf-legend .surface { border-color:#8ecfe4; }
+.spar-editor .planform-view-canvas .sf-surface { fill:#24759930; stroke:#8ecfe4; stroke-width:1.5; }
+.spar-editor .planform-view-canvas .sf-box { fill:#344a7159; stroke:#7c94bc; stroke-width:1; }
+.spar-editor .planform-view-canvas .sf-spar { fill:none; stroke-width:3; }
+.spar-editor .planform-view-canvas .sf-front { stroke:#81d9ad; }
+.spar-editor .planform-view-canvas .sf-rear { stroke:#ffa978; }
+.spar-editor .planform-view-canvas .sf-extension { stroke-dasharray:7 5; opacity:.4; }
+.spar-editor .planform-view-canvas .sf-front .pf-point-dot { fill:#81d9ad; }
+.spar-editor .planform-view-canvas .sf-rear .pf-point-dot { fill:#ffa978; }
+.spar-editor .planform-view-canvas .sf-point text { stroke:#0c1520; }
+.spar-editor .planform-view-canvas .sf-end-label { fill:#ffc493; font-size:16px; paint-order:stroke; stroke:#0c1520; stroke-width:3px; }
+.spar-editor.point-editor-invalid .sf-point.pf-selected .pf-point-dot { fill:#ff566b; stroke:#fff1f3; }
+.spar-editor.point-editor-invalid .sf-point.pf-selected text { fill:#ffb6c1; }

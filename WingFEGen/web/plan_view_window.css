@@ -1,0 +1,5 @@
+body.detached-plan-view { display:flex; flex-direction:column; height:100vh; height:100dvh; margin:0; overflow:hidden; }
+#plan-window-status { color:#a6bdd2; font-size:12px; margin:0; padding:8px 16px; }
+.dpv-help #plan-window-status { padding:0 0 8px; color:#b4e8d1; }
+#plan-window-status.plan-window-disconnected { color:#ffd0cb; background:#4b2930; border-bottom:1px solid #a76773; }
+#detached-plan-view { flex:1; min-width:0; min-height:0; width:100%; box-sizing:border-box; }

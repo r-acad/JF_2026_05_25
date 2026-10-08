@@ -6,6 +6,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **WingFEGen application and FEM generator.** The repository now includes the
+  Julia geometry/mesh/load generator, browser editor and viewer, panel properties,
+  VLM loading, solver integration and semi-analytic adjoint sensitivity workflow.
+  Portable setup/launchers, pinned environments, factory example, browser assets
+  with third-party notices, and self-contained checks support a fresh checkout.
+  Solver discovery accepts arbitrary clone paths; user studies, private fixtures
+  and generated analysis outputs are excluded. Documentation distinguishes the
+  shared adjoint solve from finite-difference operator derivative evaluations.
+
 - **Explicit concentrated follower forces for SOL101/SOL106.** The OpenJFEM
   extension `PARAM,JFFOLLOW,1` activates selected `FORCE` entries marked `ROT`.
   SOL101 solves the first-order force-direction linearization at zero rotation;
