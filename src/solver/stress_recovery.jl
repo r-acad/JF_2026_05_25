@@ -119,6 +119,76 @@ function _pshell_local_constitutive_gap(prop, model)
     return false
 end
 
+"""Bounded center recovery for homogeneous anisotropic rectangular PSHELLs.
+The common MID1/MID2 identifies a physical through-thickness tensor. MID3
+supplies an independent positive transverse law. Corners and other shell
+formulations retain their unavailable-field status.
+"""
+function _pshell_rectangular_anisotropic_recovery_data(model,prop,el,id_map,X,snorm_normals)
+    get(prop,"TYPE","")=="PCOMP_CLT" && return nothing
+    get(model,"SOL",101) in (101,105) || return nothing
+    nids=get(el,"NODES",Int[]);length(nids)==4 || return nothing
+    all(k->get(id_map,k,0)>0,nids) || return nothing
+    mid=Int(get(prop,"MID",0));mid>0 && Int(get(prop,"MID2",0))==mid || return nothing
+    Int(get(prop,"MID3",0))>0 && Int(get(prop,"MID4",0))==0 || return nothing
+    Float64(get(prop,"BEND_RATIO",1.))==1. || return nothing
+    h=Float64(get(prop,"T",0.));isfinite(h)&&h>0 || return nothing
+    tst=Float64(get(prop,"TS_T",5/6));isfinite(tst)&&tst>0 || return nothing
+    iszero(get(el,"ZOFFS",0.)) || return nothing
+    get(model,"_active_temp_sid",nothing)===nothing || return nothing
+    all(k->!haskey(snorm_normals,id_map[k]),nids) || return nothing
+    # Experimental kinematics have separate force-recovery contracts. An
+    # explicitly supplied research option must not silently select this path.
+    for key in keys(ENV)
+        any(p->startswith(key,p),("JFEM_Q4_","JFEM_PSHELL_","JFEM_MAT8_",
+            "JFEM_SOL101_","JFEM_SOL105_STATIC_","JFEM_PARAM_SNORM")) && return nothing
+    end
+    mats=get(model,"MATs",Dict());mat=get(mats,string(mid),nothing)
+    mat!==nothing && get(mat,"TYPE","") in ("MAT2","MAT8") || return nothing
+    required=get(mat,"TYPE","")=="MAT8" ? ("E1","E2","NU12","G12") : ("G11","G12","G13","G22","G23","G33")
+    all(k->get(mat,k,nothing) isa Real && isfinite(mat[k]),required) || return nothing
+    shear=get(mats,string(prop["MID3"]),nothing);shear===nothing && return nothing
+    typ=get(shear,"TYPE","");typ in ("MAT1","MAT2","MAT8") || return nothing
+    if typ=="MAT2"
+        all(iszero(get(shear,k,0.)) for k in ("G13","G23","G33")) || return nothing
+    elseif typ=="MAT8"
+        get(shear,"G1Z",0.)>0 && get(shear,"G2Z",0.)>0 || return nothing
+    end
+    p=[SVector{3}(X[id_map[k],:]) for k in nids]
+    v1,v2,v3=shell_element_frame_quad4(p...,q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_STATIC"))
+    center=sum(p)/4;xy=[dot(q-center,v) for q in p,v in (v1,v2)]
+    FEM.quad4_is_axis_aligned_rectangle(xy) || return nothing
+    xyz=reduce(vcat,permutedims.(p))
+    FEM.quad4_finite_warp_displacement_map(xy,xyz)===nothing || return nothing
+    beta=shell_pcomp_material_rotation(:element,v1,v2,v3,p[1],p[2],
+        deg2rad(Float64(get(el,"THETA",0.))),Int(get(el,"MCID",0)),model["CORDs"])
+    C=pshell_plane_stress_matrix(mat,beta)
+    Cs,_=shell_transverse_shear_matrix(shear,h,tst,beta)
+    all(isfinite,C)&&all(isfinite,Cs)&&isposdef(Symmetric(C))&&isposdef(Symmetric(Cs)) || return nothing
+    (C=C,Cm=h*C,Cb=(h^3/12)*C,Cs=Cs,h=h)
+end
+
+function _pshell_rectangular_anisotropic_center(coords,u,data;recover_resultants::Bool=true)
+    dr,ds=FEM.shape_derivs_quad(0.,0.);d=([dr';ds']*coords)\[dr';ds']
+    eps=zeros(3);kap=zeros(3)
+    for k=1:4
+        j=6(k-1)
+        eps[1]+=d[1,k]*u[j+1];eps[2]+=d[2,k]*u[j+2]
+        eps[3]+=d[2,k]*u[j+1]+d[1,k]*u[j+2]
+        kap[1]+=d[1,k]*u[j+5];kap[2]-=d[2,k]*u[j+4]
+        kap[3]+=d[2,k]*u[j+5]-d[1,k]*u[j+4]
+    end
+    lower=eps-(data.h/2)*kap;upper=eps+(data.h/2)*kap
+    # Compact SOL105 export consumes only the two fiber stresses and strains.
+    # Keep their arithmetic identical while avoiding discarded force products
+    # and the MacNeal transverse-shear workspace.
+    if recover_resultants
+        q=FEM.quad4_macneal_center_shear_resultant(coords,u,data.Cb,data.Cs,data.h;Cm=data.Cm)
+        return data.Cm*eps,-data.Cb*kap,q,data.C*lower,data.C*upper,lower,upper
+    end
+    nothing,nothing,nothing,data.C*lower,data.C*upper,lower,upper
+end
+
 # Validation cache is local to one recovery invocation. It contains no frame,
 # THETA/MCID transform, constitutive result or output row from another element.
 function _recovery_compact_ply_data_safe(ply_data)
@@ -155,13 +225,19 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
         pid = string(el["PID"])
         if !haskey(model["PSHELLs"], pid); continue; end
         prop = model["PSHELLs"][pid]
-        if _pshell_local_constitutive_gap(prop, model)
+        constitutive_gap = _pshell_local_constitutive_gap(prop, model)
+        anisotropic_center = constitutive_gap ?
+            _pshell_rectangular_anisotropic_recovery_data(model,prop,el,id_map,X,snorm_normals) : nothing
+        if constitutive_gap && anisotropic_center === nothing
             diagnostic = get!(results_json, "recovery_diagnostics") do
                 Dict{String,Any}("status" => "partial",
                     "unavailable_shell_eids" => Int[],
                     "unavailable_fields" => ["forces", "forces_bilin", "stresses", "strains"],
                     "reason" => "PSHELL anisotropic, independent-material or MID4 constitutive recovery is unsupported, including thermal anisotropic recovery.")
             end
+            get!(diagnostic,"unavailable_shell_eids",Int[])
+            union!(get!(diagnostic,"unavailable_fields",String[]),["forces","forces_bilin","stresses","strains"])
+            get!(diagnostic,"reason","PSHELL anisotropic, independent-material or MID4 constitutive recovery is unsupported, including thermal anisotropic recovery.")
             if isempty(diagnostic["unavailable_shell_eids"])
                 @warn "Shell force/stress/strain recovery unavailable for anisotropic, independent-material or MID4 PSHELLs; affected element fields are omitted. Displacements and support reactions remain available."
             end
@@ -279,6 +355,15 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                     ply_strain_transform=[c2 s2 cs;s2 c2 -cs;-2cs 2cs c2-s2]
                 end
             end
+            if anisotropic_center !== nothing
+                N,M,Q,s_z1,s_z2,e_z1,e_z2 = _pshell_rectangular_anisotropic_center(view(lc_buf,1:4,:),u_el,anisotropic_center;recover_resultants=static_fields === nothing)
+                if static_fields === nothing
+                    diagnostic=get!(results_json,"recovery_diagnostics",Dict{String,Any}("status"=>"partial"))
+                    push!(get!(diagnostic,"unavailable_corner_force_eids",Int[]),eid)
+                    diagnostic["corner_force_reason"]="Anisotropic PSHELL center resultants and fiber fields are recovered; corner-force interpolation remains unsupported."
+                    get!(results_json,"solver_diagnostics",Dict{String,Any}())["shell_recovery"]=diagnostic
+                end
+            else
             try
                 recovered = FEM.stress_strain_quad4(view(lc_buf,1:4,:), u_el, mat["E"], mat["NU"], Float64(prop["T"]), Float64(prop["T"]);
                     bend_ratio=br,
@@ -337,6 +422,7 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
             catch e
                 @warn "Stress recovery failed for QUAD4 $eid: $e"
                 stress_ok = false
+            end
             end
             elem_key = "quad4"
         elseif n==3

@@ -10403,16 +10403,19 @@ end
 # =============================================================================
 
 """
-    consistent_mass_quad4(coords, rho, h) -> 24×24 Matrix
+    consistent_mass_quad4(coords, rho, h; mass_moments=nothing) -> 24×24 Matrix
 
 Consistent mass matrix for a 4-node bilinear shell element.
 Integrates M = ∫ ρh NᵀN dA using 2×2 Gauss quadrature.
 Translational DOFs (1,2,3) get full inertia; rotational DOFs (4,5) get
-h²/12 rotary inertia; drilling DOF (6) gets zero mass.
+h²/12 rotary inertia; drilling DOF (6) gets zero mass. Optional laminate
+`mass_moments=(∫ρ dz, ∫ρ z dz, ∫ρ z² dz)` are about the shell reference plane.
+The first moment couples u with ry and v with -rx, as rigid-body kinematics require.
 """
-function consistent_mass_quad4(coords::AbstractMatrix, rho::Float64, h::Float64)
+function consistent_mass_quad4(coords::AbstractMatrix, rho::Float64, h::Float64; mass_moments=nothing)
     Me = zeros(24, 24)
     if rho < 1e-30 || h < 1e-30; return Me; end
+    m0,m1,m2 = mass_moments === nothing ? (rho*h,0.0,rho*h^3/12) : mass_moments
 
     pt = 1.0 / sqrt(3.0)
     gauss_pts = ((-pt,-pt), (pt,-pt), (pt,pt), (-pt,pt))
@@ -10431,8 +10434,8 @@ function consistent_mass_quad4(coords::AbstractMatrix, rho::Float64, h::Float64)
         detJ = abs(J11*J22 - J12*J21)
         if detJ < 1e-30; continue; end
 
-        mass_t = rho * h * detJ       # translational mass per unit area × |J|
-        mass_r = rho * h^3/12 * detJ  # rotary inertia
+        mass_t = m0 * detJ       # translational mass per unit area × |J|
+        mass_r = m2 * detJ       # rotary inertia about the reference plane
 
         for j in 1:4, i in 1:4
             NiNj = Nv[i] * Nv[j]
@@ -10444,6 +10447,11 @@ function consistent_mass_quad4(coords::AbstractMatrix, rho::Float64, h::Float64)
             # Rotational DOFs (rx, ry) — rotary inertia
             Me[bi+4, bj+4] += mass_r * NiNj
             Me[bi+5, bj+5] += mass_r * NiNj
+            if !iszero(m1)
+                coupling=m1*detJ*NiNj
+                Me[bi+1,bj+5]+=coupling;Me[bi+5,bj+1]+=coupling
+                Me[bi+2,bj+4]-=coupling;Me[bi+4,bj+2]-=coupling
+            end
             # DOF 6 (drilling): zero mass
         end
     end
@@ -10451,14 +10459,16 @@ function consistent_mass_quad4(coords::AbstractMatrix, rho::Float64, h::Float64)
 end
 
 """
-    consistent_mass_tria3(coords, rho, h) -> 18×18 Matrix
+    consistent_mass_tria3(coords, rho, h; mass_moments=nothing) -> 18×18 Matrix
 
 Consistent mass matrix for a 3-node constant-strain triangle shell element.
 Analytical integration (no quadrature needed for linear shape functions).
+Optional density moments have the same definition as `consistent_mass_quad4`.
 """
-function consistent_mass_tria3(coords::AbstractMatrix, rho::Float64, h::Float64)
+function consistent_mass_tria3(coords::AbstractMatrix, rho::Float64, h::Float64; mass_moments=nothing)
     Me = zeros(18, 18)
     if rho < 1e-30 || h < 1e-30; return Me; end
+    m0,m1,m2 = mass_moments === nothing ? (rho*h,0.0,rho*h^3/12) : mass_moments
 
     # Triangle area
     x1, y1 = coords[1,1], coords[1,2]
@@ -10467,8 +10477,8 @@ function consistent_mass_tria3(coords::AbstractMatrix, rho::Float64, h::Float64)
     A = 0.5 * abs((x2-x1)*(y3-y1) - (x3-x1)*(y2-y1))
     if A < 1e-30; return Me; end
 
-    mass_t = rho * h * A
-    mass_r = rho * h^3/12 * A
+    mass_t = m0 * A
+    mass_r = m2 * A
 
     # Consistent mass for linear triangle: M_ij = (ρhA/12) * (1+δ_ij)
     # i.e. diagonal = ρhA/6, off-diagonal = ρhA/12
@@ -10481,6 +10491,11 @@ function consistent_mass_tria3(coords::AbstractMatrix, rho::Float64, h::Float64)
         Me[bi+3, bj+3] += factor
         Me[bi+4, bj+4] += factor_r
         Me[bi+5, bj+5] += factor_r
+        if !iszero(m1)
+            coupling=m1*A/(i==j ? 6.0 : 12.0)
+            Me[bi+1,bj+5]+=coupling;Me[bi+5,bj+1]+=coupling
+            Me[bi+2,bj+4]-=coupling;Me[bi+4,bj+2]-=coupling
+        end
     end
     return Me
 end

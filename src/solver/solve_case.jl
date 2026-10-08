@@ -346,7 +346,7 @@ function _formal_von_karman_shell_support_report(model, id_map, X)
     )
 end
 
-function _formal_shell_membrane_constitutive(prop, el, mat, v1, v2, v3, p1, p2; tri::Bool=false)
+function _formal_shell_membrane_constitutive(model, prop, el, mat, v1, v2, v3, p1, p2; tri::Bool=false)
     if get(prop, "TYPE", "") == "PCOMP_CLT" && haskey(prop, "Cm")
         Cm = copy(prop["Cm"])
         beta =
@@ -548,7 +548,7 @@ function _formal_vk_accumulate_local_contribution!(I_idx::Vector{Int}, J_idx::Ve
     end
 end
 
-function _formal_vk_tria3_global_contribution(prop, el, mat, tri_indices::NTuple{3,Int},
+function _formal_vk_tria3_global_contribution(model, prop, el, mat, tri_indices::NTuple{3,Int},
                                               tri_points::NTuple{3,SVector{3,Float64}},
                                               node_R, u_state, snorm_normals;
                                               constitutive_tri::Bool=true,
@@ -575,7 +575,7 @@ function _formal_vk_tria3_global_contribution(prop, el, mat, tri_indices::NTuple
     end
 
     ref_p1, ref_p2 = constitutive_edge
-    Cm = _formal_shell_membrane_constitutive(prop, el, mat, v1, v2, v3, ref_p1, ref_p2; tri=constitutive_tri)
+    Cm = _formal_shell_membrane_constitutive(model, prop, el, mat, v1, v2, v3, ref_p1, ref_p2; tri=constitutive_tri)
     f_loc, K_loc, e_extra = _formal_vk_tria3_extra_local(lc, u_loc, Cm)
     f_glob = T_buf' * f_loc
     K_glob = T_buf' * K_loc * T_buf
@@ -630,7 +630,7 @@ function _assemble_formal_shell_von_karman_extra(model, id_map, X, node_R, ndof,
                     u_loc[base+1:base+3] .= TR * u_state[(idx-1)*6+1:(idx-1)*6+3]
                     u_loc[base+4:base+6] .= TR * u_state[(idx-1)*6+4:(idx-1)*6+6]
                 end
-                Cm = _formal_shell_membrane_constitutive(prop, el, mat, v1, v2, v3, p1, p2; tri=false)
+                Cm = _formal_shell_membrane_constitutive(model, prop, el, mat, v1, v2, v3, p1, p2; tri=false)
                 f_loc, K_loc, e_extra = _formal_vk_quad4_extra_local(lc, u_loc, Cm)
                 energy_extra += e_extra
                 f_glob = T_buf' * f_loc
@@ -645,7 +645,7 @@ function _assemble_formal_shell_von_karman_extra(model, id_map, X, node_R, ndof,
                     ((i1, i3, i4), (p1, p3, p4)),
                 )
                     dofs, f_glob, K_glob, e_extra = _formal_vk_tria3_global_contribution(
-                        prop, el, mat, tri_indices, tri_points, node_R, u_state, snorm_normals;
+                        model, prop, el, mat, tri_indices, tri_points, node_R, u_state, snorm_normals;
                         constitutive_tri=false,
                         constitutive_edge=constitutive_edge,
                     )
@@ -663,7 +663,7 @@ function _assemble_formal_shell_von_karman_extra(model, id_map, X, node_R, ndof,
             mid = string(get(prop, "MID", 0))
             mat = get(model["MATs"], mid, Dict{String,Any}())
             dofs, f_glob, K_glob, e_extra = _formal_vk_tria3_global_contribution(
-                prop, el, mat, (i1, i2, i3), (p1, p2, p3), node_R, u_state, snorm_normals;
+                model, prop, el, mat, (i1, i2, i3), (p1, p2, p3), node_R, u_state, snorm_normals;
                 constitutive_tri=true,
                 constitutive_edge=(p1, p2),
             )
@@ -728,6 +728,7 @@ _state_field(state, name::Symbol, default) =
     name in propertynames(state) ? getproperty(state, name) : default
 
 @inline function _metric_reduced(after::Real, before::Real; rtol::Float64=1e-12, atol::Float64=1e-30)
+    isfinite(after) && isfinite(before) || return false
     slack = max(atol, rtol * max(abs(before), abs(after), 1.0))
     return after <= before + slack
 end
@@ -760,7 +761,7 @@ end
     return -(residual_norm * residual_norm)
 end
 
-function _step_growth_quality(step_records)
+function _step_growth_quality(step_records; max_growth_iterations::Int=4)
     if isempty(step_records)
         return (
             eligible=false,
@@ -769,6 +770,7 @@ function _step_growth_quality(step_records)
             used_best_available_trial=false,
             max_line_search_backtracks=0,
             max_accepted_trial_index=0,
+            iteration_budget_satisfied=false,
         )
     end
 
@@ -792,7 +794,12 @@ function _step_growth_quality(step_records)
         max_accepted_trial_index = max(max_accepted_trial_index, Int(get(iter, "accepted_trial_index", 0)))
     end
 
+    # Full steps alone do not make an increment cheap: a slowly converging
+    # fixed-point correction may accept every trial while using its whole
+    # iteration budget. Grow only after a small number of Newton corrections.
+    iteration_budget_satisfied = length(step_records) <= max_growth_iterations
     eligible =
+        iteration_budget_satisfied &&
         all_full_step_iterations &&
         monotone_residual_acceptance &&
         !used_best_available_trial &&
@@ -805,6 +812,7 @@ function _step_growth_quality(step_records)
         used_best_available_trial=used_best_available_trial,
         max_line_search_backtracks=max_line_search_backtracks,
         max_accepted_trial_index=max_accepted_trial_index,
+        iteration_budget_satisfied=iteration_budget_satisfied,
     )
 end
 
@@ -827,8 +835,21 @@ function _cutback_recovery_quality(initial_relative_residual::Real, final_relati
     )
 end
 
+struct _NonlinearNumericalFailure <: Exception
+    message::String
+end
+Base.showerror(io::IO, error::_NonlinearNumericalFailure) = print(io, error.message)
+
+# Only numerical breakdowns are eligible for a load retry. Bounds errors,
+# missing model data and arbitrary callback exceptions must remain visible.
+_nonlinear_numerical_failure(error) = error isa Union{
+    _NonlinearNumericalFailure, LinearAlgebra.SingularException,
+    LinearAlgebra.PosDefException, LinearAlgebra.ZeroPivotException,
+    LinearAlgebra.LAPACKException}
+
 function _solve_nonlinear_correction(K_eff, residual_rhs, ndof, model, id_map, spc_id, rbe3_map;
-                                     free_dofs=nothing, fixed_dofs=nothing, bc_diagnostics=nothing)
+                                     free_dofs=nothing, fixed_dofs=nothing, bc_diagnostics=nothing,
+                                     unsymmetric::Bool=false)
     reused_state_partition = !(isnothing(free_dofs) || isnothing(fixed_dofs) || isnothing(bc_diagnostics))
     if !reused_state_partition
         free_dofs, fixed_dofs, bc_diagnostics = compute_free_dofs(
@@ -849,23 +870,31 @@ function _solve_nonlinear_correction(K_eff, residual_rhs, ndof, model, id_map, s
     end
 
     K_ff = K_eff[free_dofs, free_dofs]
-    K_ff = 0.5 * (K_ff + K_ff')
+    unsymmetric || (K_ff = 0.5 * (K_ff + K_ff'))
     rhs_ff = residual_rhs[free_dofs]
+    if !all(isfinite, nonzeros(K_ff)) || !all(isfinite, rhs_ff)
+        throw(_NonlinearNumericalFailure("nonfinite correction tangent or residual"))
+    end
     backend = "direct_cholesky"
     used_lu_fallback = false
 
     delta_ff = if norm(rhs_ff) <= 1e-30
         zeros(length(free_dofs))
+    elseif unsymmetric
+        backend = "direct_lu_unsymmetric"
+        lu(K_ff) \ rhs_ff
     else
         try
             cholesky(Symmetric(K_ff)) \ rhs_ff
-        catch
+        catch error
+            _nonlinear_numerical_failure(error) || rethrow()
             backend = "direct_lu"
             used_lu_fallback = true
             lu(K_ff) \ rhs_ff
         end
     end
 
+    all(isfinite, delta_ff) || throw(_NonlinearNumericalFailure("nonfinite correction solution"))
     correction[free_dofs] = delta_ff
     if !isempty(rbe3_map)
         for (dep_dof, pairs) in rbe3_map
@@ -957,6 +986,13 @@ function _solve_case_impl(K, ndof, model, id_map, X, load_id, spc_id, node_R;
         temp_load_id=temp_load_id,
         log_rbe3=true,
     )
+    followers = _follower_context(ndof,model,id_map,X,load_id,node_R,rbe3_map)
+    structural_bc_matrix=K
+    if followers !== nothing
+        _,load_tangent=_follower_load_update(followers,zeros(ndof),load_scale;linearized=true)
+        K=K-load_tangent
+        log_msg("[SOLVER] SOL101 first-order follower FORCE linearization; nonsymmetric load stiffness; MOMENT loads remain fixed")
+    end
 
     # SPCD enforced displacements (selected by the LOAD set, Nastran
     # semantics; the dof must also be SPC'd).  Applied as the equivalent
@@ -1000,7 +1036,7 @@ function _solve_case_impl(K, ndof, model, id_map, X, load_id, spc_id, node_R;
     try
         u_global, fixed_dofs, spc_dofs, solver_diagnostics = apply_bc_and_solve(
             K, ndof, model, id_map, F_applied, node_R, rbe3_map, max_elem_stiff, orig_diag;
-            linear_cache=linear_cache)
+            linear_cache=linear_cache,unsymmetric=followers!==nothing,autospc_matrix=structural_bc_matrix)
     finally
         if had_prev_spc_id
             model["_spc_id"] = prev_spc_id
@@ -1028,6 +1064,9 @@ function _solve_case_impl(K, ndof, model, id_map, X, load_id, spc_id, node_R;
     end
 
     R = K * u_global - F_resid
+    if followers !== nothing
+        solver_diagnostics["follower_loading"]=_follower_result_metadata(followers,u_global,load_scale;linearized=true)
+    end
     u_out, stresses, results_json = _build_results_from_state(
         ndof, model, id_map, X, node_R, u_global, R, snorm_normals, solver_diagnostics;
         active_load_id=load_id,
@@ -1086,6 +1125,9 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
     load_history = Any[]
     final_bundle = nothing
     final_state_summary = nothing
+    exported_step_index = 0
+    exported_load_scale = 0.0
+    exported_state_accepted = false
     nominal_increment = 1.0 / load_steps
     next_increment = nominal_increment
     current_load_scale = 0.0
@@ -1094,8 +1136,10 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
     state_evaluation_count = 0
     correction_partition_reuse_count = 0
     accepted_state_reuse_count = 0
+    iteration_state_reuse_count = 0
     step_growth_applied_count = 0
-    evaluate_state = nonlinear_state_builder !== nothing ?
+    followers = _follower_context(ndof,model,id_map,X,load_id,node_R,rbe3_map)
+    evaluate_structural_state = nonlinear_state_builder !== nothing ?
         (u_state, F_step) -> nonlinear_state_builder(
             K_linear, F_step, ndof, model, id_map, X, spc_id, node_R,
             u_state, snorm_normals, rbe3_map;
@@ -1110,6 +1154,16 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
             residual_model=residual_model,
             geometric_stiffness_builder=geometric_stiffness_builder,
         )
+    # Follower forces are nonconservative. Update their residual and exact load
+    # Jacobian at every state evaluation and disable potential-based acceptance.
+    follower_scale = 0.0
+    evaluate_state = followers === nothing ? evaluate_structural_state :
+        (u_state,F_step) -> begin
+            change,load_tangent=_follower_load_update(followers,u_state,follower_scale)
+            applied=F_step+change
+            state=evaluate_structural_state(u_state,applied)
+            merge(state,(K_eff=state.K_eff-load_tangent,potential_energy=nothing,applied_force=applied))
+        end
 
     while current_load_scale < 1.0 - 1e-12
         remaining = 1.0 - current_load_scale
@@ -1123,6 +1177,7 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
         step_accepted = false
 
         while !step_accepted
+            follower_scale=attempted_scale
             F_step = _assemble_applied_force(
                 ndof, model, id_map, X, load_id, node_R, rbe3_map;
                 load_scale=attempted_scale,
@@ -1137,20 +1192,46 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
             final_relative_incremental_work = Inf
             initial_rel_residual = Inf
             last_accepted_state = nothing
+            line_search_failed = false
+            correction_failure = nothing
+            initial_state_failure = nothing
             for iter in 1:max_iter
-                current_state = evaluate_state(u_iter, F_step)
-                state_evaluation_count += 1
+                # The accepted trial already evaluated this exact u and load.
+                # Reuse its tangent, residual and BC partition within this
+                # attempt; a new load increment always evaluates a new state.
+                current_state = if last_accepted_state === nothing
+                    state_evaluation_count += 1
+                    try
+                        evaluate_state(u_iter, F_step)
+                    catch error
+                        _nonlinear_numerical_failure(error) || rethrow()
+                        initial_state_failure = error
+                        nothing
+                    end
+                else
+                    iteration_state_reuse_count += 1
+                    last_accepted_state
+                end
+                current_state === nothing && break
                 if iter == 1
                     initial_rel_residual = current_state.relative_residual
                 end
 
                 residual_rhs = -current_state.residual_vector
-                delta_u, correction_diagnostics = _solve_nonlinear_correction(
-                    current_state.K_eff, residual_rhs, ndof, model, id_map, spc_id, rbe3_map,
-                    free_dofs=current_state.free_dofs,
-                    fixed_dofs=current_state.fixed_dofs,
-                    bc_diagnostics=current_state.bc_diagnostics,
-                )
+                delta_u, correction_diagnostics = try
+                    _solve_nonlinear_correction(
+                        current_state.K_eff, residual_rhs, ndof, model, id_map, spc_id, rbe3_map,
+                        free_dofs=current_state.free_dofs,
+                        fixed_dofs=current_state.fixed_dofs,
+                        bc_diagnostics=current_state.bc_diagnostics,
+                        unsymmetric=followers!==nothing,
+                    )
+                catch error
+                    _nonlinear_numerical_failure(error) || rethrow()
+                    correction_failure = sprint(showerror, error)
+                    (zeros(ndof), Dict{String,Any}("backend"=>"numerical_failure",
+                        "message"=>correction_failure))
+                end
                 if get(correction_diagnostics, "reused_state_partition", false)
                     correction_partition_reuse_count += 1
                 end
@@ -1179,14 +1260,37 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
                 current_line_search_merit = _line_search_merit(current_state)
                 line_search_merit_directional_derivative = _line_search_merit_directional_derivative(current_state)
 
-                for ls_trial in 1:(line_search_max_backtracks + 1)
+                for ls_trial in 1:(correction_failure === nothing ? line_search_max_backtracks + 1 : 0)
                     candidate = u_iter .+ alpha .* delta_u
-                    candidate_state = evaluate_state(candidate, F_step)
                     state_evaluation_count += 1
+                    candidate_state = try
+                        evaluate_state(candidate, F_step)
+                    catch error
+                        _nonlinear_numerical_failure(error) || rethrow()
+                        push!(line_search_trials, Dict{String,Any}(
+                            "trial"=>ls_trial,"step_scale"=>alpha,"finite_state"=>false,
+                            "acceptance_reason"=>"rejected","numerical_failure"=>sprint(showerror,error),
+                            "relative_residual"=>Inf,"merit"=>Inf))
+                        alpha *= line_search_reduction
+                        continue
+                    end
                     candidate_rel_change = norm(alpha .* delta_u) / max(norm(candidate), 1e-30)
                     candidate_formal = _state_field(candidate_state, :formal_diagnostics, Dict{String,Any}())
                     candidate_potential = _state_field(candidate_state, :potential_energy, nothing)
                     candidate_merit = _line_search_merit(candidate_state)
+                    candidate_finite = all(isfinite, candidate) &&
+                        isfinite(candidate_state.relative_residual) &&
+                        isfinite(candidate_merit) &&
+                        isfinite(candidate_state.internal_force_norm) &&
+                        isfinite(candidate_state.linear_force_norm) &&
+                        isfinite(candidate_state.geometric_force_norm) &&
+                        (isnothing(candidate_potential) || isfinite(candidate_potential)) &&
+                        let energy = _state_field(candidate_state, :internal_energy, nothing)
+                            isnothing(energy) || isfinite(energy)
+                        end &&
+                        all(isfinite, candidate_state.residual_vector) &&
+                        all(isfinite, nonzeros(candidate_state.K_eff)) &&
+                        all(isfinite, nonzeros(candidate_state.Kg))
                     armijo_satisfied = false
                     if nonlinear_method === :formal_shell_von_karman &&
                        !(isnothing(current_potential) || isnothing(candidate_potential)) &&
@@ -1203,7 +1307,9 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
                             _metric_reduced(candidate_potential, current_potential)
                         end
                     acceptance_reason =
-                        if candidate_state.relative_residual <= residual_tol
+                        if !candidate_finite
+                            "rejected"
+                        elseif candidate_state.relative_residual <= residual_tol
                             "residual_tolerance"
                         elseif residual_reduced
                             "residual_reduction"
@@ -1232,6 +1338,7 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
                         "internal_force_reduced" => internal_force_reduced,
                         "potential_reduced" => potential_reduced,
                         "acceptance_reason" => acceptance_reason,
+                        "finite_state" => candidate_finite,
                         "kg_nnz" => nnz(candidate_state.Kg),
                         "kg_norm" => norm(candidate_state.Kg.nzval),
                     ))
@@ -1328,17 +1435,22 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
                     accepted_reason = best_accepted_reason
                     accepted_trial_index = best_accepted_trial_index
                 elseif accepted_state === nothing
-                    accepted_alpha = best_alpha
-                    accepted_candidate = best_candidate
-                    accepted_state = best_state
-                    accepted_reason = "best_available_trial"
-                    accepted_trial_index = best_trial_index
+                    # A rejected trial is not an acceptable fallback, even if
+                    # it is the least bad trial. Keep the current state and
+                    # retry a smaller load increment. Explicit failure guards
+                    # below prevent the zero correction being called converged.
+                    accepted_alpha = 0.0
+                    accepted_candidate = u_iter
+                    accepted_state = current_state
+                    accepted_reason = correction_failure === nothing ? "line_search_failed" : "correction_failed"
+                    accepted_trial_index = 0
+                    line_search_failed = true
                 end
 
                 u_iter .= accepted_candidate
                 last_accepted_state = accepted_state
                 rel_change = norm(accepted_alpha .* delta_u) / max(norm(u_iter), 1e-30)
-                reference_work = max(abs(dot(u_iter, F_step)), 1e-30)
+                reference_work = max(abs(dot(u_iter, _state_field(accepted_state,:applied_force,F_step))), 1e-30)
                 relative_incremental_work =
                     abs(dot(accepted_alpha .* delta_u, current_state.residual_vector)) / reference_work
                 final_rel_change = rel_change
@@ -1346,8 +1458,8 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
                 final_relative_incremental_work = relative_incremental_work
                 current_formal = _state_field(current_state, :formal_diagnostics, Dict{String,Any}())
                 accepted_formal = _state_field(accepted_state, :formal_diagnostics, Dict{String,Any}())
-                accepted_residual_reduced = _metric_reduced(accepted_state.relative_residual, current_state.relative_residual)
-                accepted_internal_force_reduced = _metric_reduced(accepted_state.internal_force_norm, current_state.internal_force_norm)
+                accepted_residual_reduced = !line_search_failed && _metric_reduced(accepted_state.relative_residual, current_state.relative_residual)
+                accepted_internal_force_reduced = !line_search_failed && _metric_reduced(accepted_state.internal_force_norm, current_state.internal_force_norm)
                 accepted_potential = _state_field(accepted_state, :potential_energy, nothing)
                 accepted_potential_reduced =
                     if isnothing(current_potential) || isnothing(accepted_potential)
@@ -1428,11 +1540,56 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
 
                 log_msg("[SOLVER] NL target=$(round(attempted_scale, sigdigits=4)) iter $iter: rel_change=$(round(rel_change, sigdigits=4)), rel_res_before=$(round(current_state.relative_residual, sigdigits=4)), rel_res_after=$(round(accepted_state.relative_residual, sigdigits=4)), alpha=$(round(accepted_alpha, sigdigits=4))")
 
-                if accepted_state.relative_residual < residual_tol &&
+                if line_search_failed
+                    message = correction_failure === nothing ?
+                        "line search failed: no finite acceptable trial" : "correction failed: $correction_failure"
+                    log_msg("[SOLVER] NL $message; requesting load cutback")
+                    break
+                elseif accepted_state.relative_residual < residual_tol &&
                    (rel_change < tol || relative_incremental_work < tol)
                     step_converged = true
                     break
                 end
+            end
+
+            if initial_state_failure !== nothing
+                message = sprint(showerror, initial_state_failure)
+                retry = cutback_count < max_cutbacks && attempted_increment > 1e-12
+                push!(attempt_history, Dict{String,Any}(
+                    "attempt"=>cutback_count+1,"load_scale"=>attempted_scale,
+                    "load_increment"=>attempted_increment,"cutback_count"=>cutback_count,
+                    "converged"=>false,"iterations"=>step_records,
+                    "initial_relative_residual"=>Inf,"final_relative_change"=>Inf,
+                    "final_relative_residual"=>Inf,"final_relative_incremental_work"=>Inf,
+                    "recovery_relative_change"=>0.0,"reused_final_state"=>false,
+                    "initial_state_failure"=>message,
+                    "termination_reason"=>retry ? "cutback_retry" : "cutback_exhausted"))
+                log_msg("[SOLVER] NL initial state failed: $message; requesting load cutback")
+                if retry
+                    recovery_reference_increment = attempted_increment
+                    attempted_increment *= cutback_reduction
+                    attempted_scale = current_load_scale + attempted_increment
+                    cutback_count += 1
+                    log_msg("[SOLVER] NL cutback: retrying with reduced load increment $(round(attempted_increment, sigdigits=4)) (target scale $(round(attempted_scale, sigdigits=4)))")
+                    continue
+                end
+                # No evaluated trial exists to recover here. Export only a
+                # real earlier checkpoint; with none, preserve the failure.
+                final_bundle === nothing && throw(initial_state_failure)
+                accepted_step += 1
+                push!(load_history, Dict{String,Any}(
+                    "step"=>accepted_step,"load_scale"=>attempted_scale,
+                    "load_increment"=>attempted_increment,"accepted"=>false,"converged"=>false,
+                    "cutback_count"=>cutback_count,"attempts"=>attempt_history,"iterations"=>step_records,
+                    "initial_relative_residual"=>Inf,"final_relative_change"=>Inf,
+                    "final_relative_residual"=>Inf,"final_relative_incremental_work"=>Inf,
+                    "recovery_relative_change"=>0.0,"reused_final_state"=>false,
+                    "initial_state_failure"=>message,"terminated_early"=>true,
+                    "termination_reason"=>"cutback_exhausted",
+                    "tiny_increment_step"=>attempted_increment<=max(1e-12,nominal_increment*1e-4)))
+                terminated_early = true
+                step_accepted = true
+                break
             end
 
             reused_final_state = last_accepted_state !== nothing
@@ -1449,17 +1606,23 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
                 "residual_norm" => final_state.residual_norm,
                 "relative_residual" => final_state.relative_residual,
             )
+            if followers !== nothing
+                final_solver_diagnostics["follower_loading"]=_follower_result_metadata(followers,u_iter,attempted_scale)
+            end
             u_out, stresses, sub_res = _build_results_from_state(
                 ndof, model, id_map, X, node_R, u_iter, final_state.residual_vector, snorm_normals, final_solver_diagnostics;
                 active_load_id=load_id,
                 active_load_scale=Float64(attempted_scale),
+                # Dependent MPC/RBE3 residuals are constraint forces, not SPC
+                # reactions. Mask in the analysis frame before rotating.
+                spc_dofs=Set(d for d in final_state.fixed_dofs if !haskey(rbe3_map,d)),
             )
             recovery_relative_change = 0.0
             final_rel_residual = final_state.relative_residual
-            step_converged = step_converged || (
+            step_converged = !line_search_failed && (step_converged || (
                 final_rel_residual < residual_tol &&
                 (final_rel_change < tol || final_relative_incremental_work < tol)
-            )
+            ))
             attempt_termination_reason = step_converged ? "converged" :
                 ((cutback_count < max_cutbacks && attempted_increment > 1e-12) ? "cutback_retry" : "cutback_exhausted")
 
@@ -1476,6 +1639,8 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
                 "final_relative_incremental_work" => final_relative_incremental_work,
                 "recovery_relative_change" => recovery_relative_change,
                 "reused_final_state" => reused_final_state,
+                "line_search_failed" => line_search_failed,
+                "correction_failure" => correction_failure,
                 "termination_reason" => attempt_termination_reason,
             )
             push!(attempt_history, attempt_record)
@@ -1486,6 +1651,9 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
                 u_committed .= u_iter
                 final_bundle = (u_out, stresses, sub_res, copy(u_committed), final_state.fixed_dofs, final_state.Kg)
                 final_state_summary = final_state
+                exported_step_index = accepted_step
+                exported_load_scale = current_load_scale
+                exported_state_accepted = true
                 remaining_after_accept = max(1.0 - current_load_scale, 0.0)
                 tiny_increment_threshold = max(1e-12, nominal_increment * 1e-4)
                 tiny_increment_step = attempted_increment <= tiny_increment_threshold
@@ -1517,6 +1685,7 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
                     "growth_used_best_available_trial" => growth_quality.used_best_available_trial,
                     "growth_max_line_search_backtracks" => growth_quality.max_line_search_backtracks,
                     "growth_max_accepted_trial_index" => growth_quality.max_accepted_trial_index,
+                    "growth_iteration_budget_satisfied" => growth_quality.iteration_budget_satisfied,
                     "tiny_increment_step" => tiny_increment_step,
                 ))
                 if cutback_count > 0
@@ -1526,18 +1695,25 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
                         attempted_increment,
                         requested_increment,
                     )
+                    if !fast_convergence
+                        cutback_recovery_quality = merge(cutback_recovery_quality, (accepted_ratio=1.0,))
+                    end
                     recovered_increment = attempted_increment * cutback_recovery_quality.accepted_ratio
                     candidate_next_increment = min(nominal_increment, recovered_increment)
                     next_increment_reason =
                         candidate_next_increment > attempted_increment + 1e-12 ?
                         "cutback_recovery" :
-                        "nominal_schedule"
+                        "hold_converged_increment"
                 elseif fast_convergence && step_growth > 1.0
                     candidate_next_increment = max(nominal_increment, attempted_increment * step_growth)
                     next_increment_reason = "fast_convergence_growth"
                 else
-                    candidate_next_increment = nominal_increment
-                    next_increment_reason = "nominal_schedule"
+                    # Do not undo a successful cutback on the next slow step.
+                    # Returning directly to the nominal increment can recreate
+                    # the same rejected load jump indefinitely.
+                    candidate_next_increment = min(nominal_increment, attempted_increment)
+                    next_increment_reason = candidate_next_increment < nominal_increment ?
+                        "hold_converged_increment" : "nominal_schedule"
                 end
                 next_increment = min(remaining_after_accept, candidate_next_increment)
                 if next_increment_reason == "fast_convergence_growth" && next_increment > nominal_increment + 1e-12
@@ -1570,9 +1746,15 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
                 log_msg("[SOLVER] NL cutback: retrying with reduced load increment $(round(attempted_increment, sigdigits=4)) (target scale $(round(attempted_scale, sigdigits=4)))")
             else
                 accepted_step += 1
-                u_committed .= u_iter
-                final_bundle = (u_out, stresses, sub_res, copy(u_committed), final_state.fixed_dofs, final_state.Kg)
-                final_state_summary = final_state
+                # Keep the last accepted checkpoint, including its reactions,
+                # element recovery and Kg. Never relabel this failed attempt
+                # with the previous accepted load. No all-step arrays are kept.
+                if final_bundle === nothing
+                    final_bundle = (u_out, stresses, sub_res, copy(u_iter), final_state.fixed_dofs, final_state.Kg)
+                    final_state_summary = final_state
+                    exported_step_index = accepted_step
+                    exported_load_scale = attempted_scale
+                end
                 push!(load_history, Dict(
                     "step" => accepted_step,
                     "load_scale" => attempted_scale,
@@ -1616,6 +1798,8 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
         "residual_reduction" => 0,
         "armijo" => 0,
         "best_available_trial" => 0,
+        "line_search_failed" => 0,
+        "correction_failed" => 0,
     )
     line_search_trial_count = 0
     line_search_backtrack_count = 0
@@ -1963,6 +2147,7 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
         "state_evaluation_count" => state_evaluation_count,
         "correction_partition_reuse_count" => correction_partition_reuse_count,
         "accepted_state_reuse_count" => accepted_state_reuse_count,
+        "iteration_state_reuse_count" => iteration_state_reuse_count,
         "step_growth_applied_count" => step_growth_applied_count,
         "line_search_acceptance_counts" => line_search_acceptance_counts,
         "line_search_trial_count" => line_search_trial_count,
@@ -2010,6 +2195,13 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
         "termination_reason" => converged ? "full_load_converged" :
             (terminated_early ? "cutback_exhausted" : "stopped_before_full_load"),
         "final_load_scale" => current_load_scale,
+        "exported_state_kind" => exported_state_accepted ? "accepted_checkpoint" : "failed_iterate",
+        "exported_state_accepted" => exported_state_accepted,
+        "exported_load_scale" => exported_load_scale,
+        "exported_step" => exported_step_index,
+        "exported_relative_residual" => get(load_history[exported_step_index], "final_relative_residual", Inf),
+        "exported_relative_change" => get(load_history[exported_step_index], "final_relative_change", Inf),
+        "exported_relative_incremental_work" => get(load_history[exported_step_index], "final_relative_incremental_work", Inf),
         "final_relative_change" => isempty(load_history) ? Inf : get(last(load_history), "final_relative_change", Inf),
         "final_relative_residual" => isempty(load_history) ? Inf : get(last(load_history), "final_relative_residual", Inf),
         "final_relative_incremental_work" =>
@@ -4472,6 +4664,28 @@ end
     return string(sol103_shell_mass_formulation(model))
 end
 
+"""Integrate current ply densities about the laminate reference surface.
+
+Read PLY_DATA and MATs afresh so BDF/JSON inputs and design updates agree.
+Uniform property-thickness scaling follows the existing CLT T/T_REF convention;
+the zeroth, first and second density moments scale by s, s² and s³.
+"""
+function _pcomp_mass_moments(prop, mats)
+    get(prop,"TYPE","") == "PCOMP_CLT" || return nothing
+    plies=get(prop,"PLY_DATA",nothing)
+    (plies === nothing || isempty(plies)) && return nothing
+    m0=0.0;m1=0.0;m2=0.0;ply_thickness=0.0
+    for ply in plies
+        zb=Float64(ply["z_bot"]);zt=Float64(ply["z_top"])
+        rho=Float64(get(mats[string(ply["mid"])],"RHO",0.0))
+        m0+=rho*(zt-zb);m1+=rho*(zt^2-zb^2)/2;m2+=rho*(zt^3-zb^3)/3
+        ply_thickness+=zt-zb
+    end
+    tref=Float64(get(prop,"T_REF",ply_thickness))
+    scale=tref > 0.0 ? Float64(prop["T"])/tref : 1.0
+    return (m0*scale,m1*scale^2,m2*scale^3)
+end
+
 function assemble_mass(model, id_map, node_coords, node_R, ndof;
                        constraint_map=nothing)
     log_msg("[SOLVER] Assembling Mass Matrix (SOL103)...")
@@ -4506,6 +4720,9 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
     dofs_buf_solid = Vector{Int}(undef, 24)
     shell_mass_formulation = sol103_shell_mass_formulation(model)
     log_msg("[SOLVER] SOL103 shell mass formulation: $(shell_mass_formulation)")
+    # Per-assembly cache only: ply thicknesses and material densities may change
+    # between assemblies during optimization or a native API update.
+    shell_mass_moments=Dict{String,Union{Nothing,NTuple{3,Float64}}}()
 
     # --- Shell elements ---
     for (_, el) in cshells
@@ -4518,10 +4735,17 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
         h = Float64(prop["T"])
         rho = Float64(get(mat, "RHO", 0.0))
         nsm = Float64(get(prop, "NSM", 0.0))  # non-structural mass per unit area
-        # Skip if no mass source at all
-        (rho < 1e-30 && nsm < 1e-30) && continue
-        # Effective mass/area = rho*h + NSM. Pass equivalent rho to kernel: rho_eff = (rho*h + NSM)/h
-        rho_eff = h > 1e-30 ? (rho * h + nsm) / h : rho
+        laminate_mass_moments=get!(shell_mass_moments,pid) do
+            _pcomp_mass_moments(prop,mats)
+        end
+        mass_per_area=laminate_mass_moments === nothing ? rho*h+nsm : laminate_mass_moments[1]+nsm
+        # Use current ply mass before the skip test; synthetic equivalent
+        # material density can lag an individual ply-density design update.
+        mass_per_area < 1e-30 && continue
+        rho_eff=h > 1e-30 ? mass_per_area/h : rho
+        # NSM, where supported, is a point mass per area at the reference plane.
+        laminate_mass_moments === nothing ||
+            (laminate_mass_moments=(laminate_mass_moments[1]+nsm,laminate_mass_moments[2],laminate_mass_moments[3]))
 
         valid = true
         for k in 1:n
@@ -4546,7 +4770,7 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
             end
 
             Me_loc = shell_mass_formulation === :coupled_consistent ?
-                FEM.consistent_mass_quad4(lc_buf4, rho_eff, h) :
+                FEM.consistent_mass_quad4(lc_buf4, rho_eff, h;mass_moments=laminate_mass_moments) :
                 FEM.nastran_lumped_mass_quad4(lc_buf4, rho_eff, h)
 
             # Build T (24×24)
@@ -4600,7 +4824,7 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
             end
 
             Me_loc = shell_mass_formulation === :coupled_consistent ?
-                FEM.consistent_mass_tria3(lc3, rho_eff, h) :
+                FEM.consistent_mass_tria3(lc3, rho_eff, h;mass_moments=laminate_mass_moments) :
                 FEM.nastran_lumped_mass_tria3(lc3, rho_eff, h)
 
             T18 = zeros(18, 18)

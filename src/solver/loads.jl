@@ -276,17 +276,137 @@ function _beam_pload1_local_load_vector_for_sid(
     end
 end
 
+function _accel1_data(model, card, id_map)
+    cid = get(card,"CID",0)
+    cid isa Integer && cid >= 0 || throw(ArgumentError("ACCEL1 CID must be a nonnegative integer"))
+    a = get(card,"A",nothing)
+    a isa Real && isfinite(a) || throw(ArgumentError("ACCEL1 A must be finite"))
+    n = get(card,"N",nothing)
+    n isa AbstractVector && length(n) == 3 && all(v -> v isa Real && isfinite(v),n) && any(!iszero,n) ||
+        throw(ArgumentError("ACCEL1 N must contain three finite, nonzero-vector components"))
+    grids = get(card,"GRIDS",nothing)
+    grids isa AbstractVector && !isempty(grids) &&
+        all(g -> g isa Integer && g > 0 && haskey(id_map,g),grids) ||
+        throw(ArgumentError("ACCEL1 GRIDS must list existing positive integer GRID IDs"))
+    if cid != 0
+        cord = get(get(model,"CORDs",Dict()),string(cid),nothing)
+        cord !== nothing || throw(ArgumentError("ACCEL1 references undefined CID=$cid"))
+        get(cord,"TYPE","RECTANGULAR") == "RECTANGULAR" ||
+            throw(ArgumentError("ACCEL1 currently requires a rectangular acceleration CID"))
+    end
+    return cid, Float64(a), Float64.(n), unique(grids)
+end
+
+function _guard_accel1_context(model, card, id_map)
+    _accel1_data(model,card,id_map)
+    get(model,"SOL",get(get(model,"CASE_CONTROL",Dict()),"SOL",101)) in (101,105) ||
+        throw(ArgumentError("ACCEL1 is currently supported only for SOL101/SOL105 static loads"))
+    get(model,"PARAM_WTMASS",1.0) == 1.0 ||
+        throw(ArgumentError("ACCEL1 with nonunit WTMASS requires independently verified load scaling"))
+    _selected_direct_matrix(model,"M2GG") === nothing ||
+        throw(ArgumentError("ACCEL1 with an external M2GG mass contribution is unsupported"))
+    all(g -> get(g,"SEID",0) == 0, values(model["GRIDs"])) ||
+        throw(ArgumentError("ACCEL1 does not support superelements"))
+    for key in ("CMASS1s","CMASS2s"), cm in values(get(model,key,Dict())), t in 1:2
+        get(cm,"G$t",0) == 0 && continue
+        get(cm,"C$t",0) in 1:6 ||
+            throw(ArgumentError("ACCEL1 scalar-point mass exclusion is unsupported; GRID-connected scalar masses require components 1:6"))
+    end
+    return nothing
+end
+
+function _check_selected_acceleration_loads(model, sid, scale, id_map, path=Int[])
+    isfinite(scale) || throw(ArgumentError("Acceleration LOAD scale must be finite"))
+    iszero(scale) && return nothing
+    sid in path && throw(ArgumentError("Cyclic LOAD combination: " * join([path;sid]," -> ")))
+    push!(path,sid)
+    try
+        any(c -> Int(c["SID"]) == sid,get(model,"ACCELs",[])) &&
+            throw(ArgumentError("Selected ACCEL SID=$sid is unsupported; its spatial acceleration table must not be silently omitted"))
+        cards = [c for c in get(model,"ACCEL1s",[]) if Int(c["SID"]) == sid]
+        if !isempty(cards)
+            # MSC QRG ACCEL1 requires its SID to be distinct from any other load entry.
+            owners = length(cards)
+            for key in ("FORCEs","MOMENTs","GRAVs","RFORCEs","PLOADs","PLOAD1s","PLOAD4s","SPCDs","LOAD_COMBOS")
+                owners += count(c -> Int(c["SID"]) == sid,get(model,key,[]))
+            end
+            owners == 1 || throw(ArgumentError("ACCEL1 SID=$sid must be unique among load entries"))
+            _guard_accel1_context(model,only(cards),id_map)
+        end
+        for combo in get(model,"LOAD_COMBOS",[])
+            Int(combo["SID"]) == sid || continue
+            for sub in combo["COMPS"]
+                _check_selected_acceleration_loads(model,Int(sub["LID"]),
+                    scale*combo["S"]*sub["S"],id_map,path)
+            end
+        end
+    finally
+        pop!(path)
+    end
+    return nothing
+end
+
+function _accel1_mass_context(model,id_map,node_coords)
+    n = length(id_map)
+    rotations = [Matrix{Float64}(I,3,3) for _ in 1:n]
+    for (gid,idx) in id_map
+        grid = model["GRIDs"][string(gid)]
+        rotations[idx] = get_coord_transform(model,Int(get(grid,"CD",0)),Matrix{Float64}(I,3,3);
+            position=view(node_coords,idx,:))
+    end
+    return (rotations=rotations,mass=assemble_mass(model,id_map,node_coords,rotations,6n))
+end
+
+function _add_accel1_load!(F_acc, model, card, scale, id_map, node_coords, mass_cache=nothing)
+    iszero(scale) && return nothing
+    cid, factor, direction, grids = _accel1_data(model,card,id_map)
+    n = length(id_map)
+    acceleration = zeros(6n)
+    basic = factor .* get_coord_transform(model,cid,direction)
+    all(isfinite,basic) || throw(ArgumentError("ACCEL1 acceleration overflows"))
+    context = mass_cache === nothing ? nothing : mass_cache[]
+    if context === nothing
+        context = _accel1_mass_context(model,id_map,node_coords)
+        mass_cache === nothing || (mass_cache[] = context)
+    end
+    rotations = context.rotations
+    for gid in grids
+        idx = id_map[gid]; base = 6(idx-1)
+        acceleration[base+1:base+3] = rotations[idx]' * basic
+    end
+    # ACCEL1 prescribes translational acceleration only at its listed GRIDs.
+    # Form the physical unreduced mass load before ordinary CD/MPC load mapping;
+    # off-diagonal mass terms can also load an unlisted GRID or rotational DOF.
+    load = context.mass * acceleration
+    all(isfinite,load) && all(isfinite,scale .* load) ||
+        throw(ArgumentError("ACCEL1 mass load is nonfinite"))
+    for idx in 1:n
+        base = 6(idx-1); R = rotations[idx]
+        F_acc[base+1:base+3] .+= scale .* (R * view(load,base+1:base+3))
+        F_acc[base+4:base+6] .+= scale .* (R * view(load,base+4:base+6))
+    end
+    return nothing
+end
+
 function resolve_loads(model, sid, scale, id_map, elem_map, node_coords, F_acc)
     _filter_shell_normal_moments_enabled() # Warn once only for an explicit retired option.
+    if !isempty(get(model,"ACCEL1s",[])) || !isempty(get(model,"ACCELs",[]))
+        # Capability preflight precedes accumulation, including nested LOADs.
+        _check_selected_acceleration_loads(model,Int(sid),scale,id_map)
+    end
     return _resolve_loads!(model, Int(sid), scale, id_map, elem_map, node_coords,
-                          F_acc, Int[])
+                          F_acc, Int[], Ref{Any}(nothing))
 end
 
 function _resolve_loads!(model, sid::Int, scale, id_map, elem_map, node_coords,
-                         F_acc, load_path::Vector{Int})
+                         F_acc, load_path::Vector{Int}, accel_mass_cache=nothing)
     sid in load_path && throw(ArgumentError("Cyclic LOAD combination: " * join([load_path; sid], " -> ")))
     push!(load_path, sid)
     try
+    for card in get(model,"ACCEL1s",[])
+        Int(card["SID"]) == sid || continue
+        _add_accel1_load!(F_acc,model,card,scale,id_map,node_coords,accel_mass_cache)
+    end
     raw_forces = Dict{Int, Vector{Float64}}()
     add_force = (gid, vec) -> begin
         if !haskey(raw_forces, gid); raw_forces[gid] = zeros(6); end
@@ -1087,7 +1207,7 @@ function _resolve_loads!(model, sid::Int, scale, id_map, elem_map, node_coords,
         if Int(c["SID"]) == sid
             for sub in c["COMPS"]
                 _resolve_loads!(model, Int(sub["LID"]), scale * c["S"] * sub["S"],
-                    id_map, elem_map, node_coords, F_acc, load_path)
+                    id_map, elem_map, node_coords, F_acc, load_path, accel_mass_cache)
             end
         end
     end

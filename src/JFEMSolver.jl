@@ -114,13 +114,17 @@ function _report_card_inventory(cards)
         "PSHELL", "PSHEAR", "PBARL", "PBAR", "PBAR*", "PBEAM", "PBEAM*", "PBEAML", "PROD", "PCOMP", "PELAS", "PBUSH", "PSOLID",
         "MAT1", "MAT2", "MAT8", "MATT1", "TABLEM1",
         "DESVAR", "DRESP1", "DVPREL1", "DVMREL1", "DCONSTR", "DOPTPRM",
-        "FORCE", "MOMENT", "PLOAD4", "PLOAD2", "PLOAD", "PLOAD1", "GRAV", "RFORCE",
+        "FORCE", "MOMENT", "PLOAD4", "PLOAD2", "PLOAD", "PLOAD1", "GRAV", "RFORCE", "ACCEL1",
         "SPC1", "SPC", "SPCADD", "SPCD", "MPC", "MPCADD", "LOAD",
         "CONM2", "CONM1", "CMASS1", "CMASS2", "PMASS",
         "CTETRA", "CHEXA", "CPENTA",
         "EIGRL", "EIGB", "TEMP", "TEMPD", "DMIG", "PARAM"])
     unprocessed = Dict{String,Int}()
     for (cname, clist) in cards
+        if cname == "ACCEL"
+            println("    ACCEL: $(length(clist)) retained unsupported load card(s); selecting one raises a capability error.")
+            continue
+        end
         if !(cname in processed)
             unprocessed[cname] = length(clist)
         end
@@ -2186,6 +2190,9 @@ function solve_model(backend::TACSFormulationBackend, model::Dict)
 end
 
 function _solve_model_tacs(backend::TACSFormulationBackend, model::Dict)
+    if get(model,"PARAM_JFFOLLOW",0)==1 && any(force->uppercase(string(get(force,"FLLW","")))=="ROT",get(model,"FORCEs",[]))
+        throw(ArgumentError("PARAM,JFFOLLOW with FORCE ROT requires the native Nastran-parity SOL101/SOL106 backend; the TACS backend does not implement follower load stiffness."))
+    end
     sol_type = _canonical_sol_type(get(model, "SOL", get(get(model, "CASE_CONTROL", Dict()), "SOL", 101)))
     if _model_has_temperature_dependent_mat1(model)
         cc = get(model,"CASE_CONTROL",Dict())

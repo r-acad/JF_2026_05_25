@@ -5,7 +5,63 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Explicit concentrated follower forces for SOL101/SOL106.** The OpenJFEM
+  extension `PARAM,JFFOLLOW,1` activates selected `FORCE` entries marked `ROT`.
+  SOL101 solves the first-order force-direction linearization at zero rotation;
+  SOL106 updates directions with nodal rotation vectors at every nonlinear trial.
+  Both retain the unsymmetric external-load Jacobian, constraint transformations
+  and structural support partition. Singular follower equilibria fail without
+  artificial diagonal regularization. Exported diagnostics record actual force
+  vectors at the accepted state. Moments, pressure/body loads and the existing
+  structural geometric formulation remain unchanged; dead loads are the default.
+
 ### Fixed
+- **Rectangular anisotropic PSHELL recovery.** Eligible homogeneous MAT2/MAT8
+  rectangular quadrilaterals now recover center force resultants and fiber
+  stresses/strains using their physical constitutive laws. Unsupported corner,
+  warped, thermal and independent-material recovery remains explicitly unavailable.
+
+- **HDF output string conversion.** Ordinary String IDs and values use direct
+  parsing instead of constructing conversion exceptions for each field. Generic
+  conversion/default semantics and written numerical data remain unchanged.
+
+- **PCOMP consistent shell mass.** `PARAM,COUPMASS,1` now uses the integrated
+  ply density moments for rotary inertia and translation/rotation coupling in
+  CQUAD4 and CTRIA3 shells, including asymmetric or offset laminates. The default
+  Nastran lumped shell mass remains translation-only, and monolithic consistent
+  mass retains its existing homogeneous formulation.
+
+- **SOL106 composite-shell material axes.** The nonlinear membrane constitutive
+  routine now receives the model explicitly before resolving PCOMP material
+  coordinates for quadrilateral and triangular shells. This removes an undefined
+  `model` lookup in the laminate path and preserves the existing ply stiffness
+  transformation.
+
+- **SOL106 rejected trials and adaptive increments.** Exhausted line searches
+  keep the current state and request a load cutback instead of advancing to a
+  rejected or nonfinite trial. Slow increments no longer trigger step growth or
+  jump straight back to a previously unsuccessful nominal increment. Accepted
+  trial residuals, tangents and constraint partitions are reused at the next
+  iteration without changing the nonlinear force model or convergence tolerances.
+  Expected singular-factorization and nonfinite-tangent failures retry a smaller
+  increment and retain accepted checkpoints; programming exceptions still propagate.
+
+- **SOL106 last accepted state and support reactions.** Cutback exhaustion
+  retains the last converged positive-load displacement, element recovery and
+  reaction checkpoint instead of exporting the rejected iterate in its place.
+  Export diagnostics identify the actual state and load fraction while preserving
+  the failed full-load status. Nonlinear SPC forces now exclude free and MPC
+  dependent residual components.
+
+- **Selected acceleration loads.** BDF and JSON retain ACCEL1 GRID selections,
+  including THRU/BY. Supported SOL101/SOL105 cases apply the full unreduced mass
+  operator to the specified nodal acceleration, retaining mass coupling, offsets
+  and GRID coordinate transformations. Nested LOAD combinations share mass
+  assembly within one invocation. Selected unsupported ACCEL tables and ACCEL1
+  contexts now fail explicitly instead of silently returning an unloaded model.
+  Inertial sensitivity guards include both card families.
+
 - **Coupled rectangular composite shells.** The eligible MacNeal PCOMP route
   uses a common projected elastic and initial-stress formulation, with distinct
   physical, elastic-work and geometric resultants. Transverse shear and rotated

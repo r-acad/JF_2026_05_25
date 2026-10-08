@@ -1008,6 +1008,31 @@ must be finite with a nonzero first coefficient. RBE3 UM dependent selection
 requires `JFEM_RBE3_USE_UM_DEPENDENT=true` and a valid, complete dependent set;
 otherwise it reports an error. JSON input retains SPCD prescriptions.
 
+Concentrated follower forces are an explicit native-backend extension for
+SOL101 and experimental SOL106. `PARAM,JFFOLLOW,1` activates only `FORCE`
+entries whose optional field after `N3` is `ROT`; JSON FORCE records use
+`"FLLW":"ROT"`. Other FORCE entries, MOMENT entries and pressure/body loads
+remain fixed. In SOL101 the direction law is linearized at zero rotation,
+`f=f0+theta cross f0`, and the solver retains the unsymmetric load stiffness
+in `(Kstruct-Kload)*u=F0`. This is a first-order load linearization, not a
+finite-rotation SOL101 formulation. In SOL106, force direction follows the
+nodal rotation vector through Rodrigues' formula at every trial; the matching
+load Jacobian is included without symmetrization. GRID frames and MPC/RBE3
+transformations apply to both force and tangent. Structural support detection
+does not use follower stiffness, and a singular follower equilibrium fails
+without diagonal regularization. The TACS backend rejects this extension.
+
+Follower loads disable conservative potential-energy line-search acceptance;
+residual checks, cutbacks and accepted-state recovery remain active. Each
+exported subcase's solver diagnostics includes `follower_loading`, identifying
+the force law and actual BASIC force/rotation vectors at the exported state.
+The existing structural geometric
+formulation and linear constraint kinematics are unchanged, and no pressure
+update or aerodynamic iteration is implied. A follower SOL101 baseline at a
+different physical load must be solved again because its load stiffness changes;
+uniformly scaling a full-load result is not equivalent. The activation is
+OpenJFEM-specific and does not claim full external-solver FLLWER compatibility.
+
 Thermal strain recovery is available for the supported isotropic linear
 shell, line and solid elements. SOL106 rejects nonzero thermal expansion;
 its nonlinear residual does not yet include thermal eigenstrain. TACS rejects
@@ -1039,6 +1064,19 @@ require METHOD=2. Superelement MB/IDRF selections are diagnosed as unsupported.
 WTMASS scales dynamic mass matrices and does not rescale GRAV/RFORCE loads.
 Negative or zero COUPMASS selects lumped shell mass; positive values select
 coupled shell mass, subject to an explicit shell-mass environment override.
+
+ACCEL1 supports SOL101/SOL105 static loading at selected GRID points, with
+basic or rectangular acceleration CID and unit WTMASS. Its acceleration is
+`A*N` without normalizing N; unlisted GRID accelerations are zero. The full
+unreduced mass operator retains coupling and offset moments before ordinary
+constraint mapping. THRU/BY lists and signed nested LOAD factors are supported;
+mass assembly is reused only within that load-resolution call. Selected ACCEL
+tables, curvilinear acceleration CID, nonunit WTMASS, external M2GG,
+superelements and scalar-point masses report capability errors. Inactive or
+zero-weight unsupported load branches do not block supported loading.
+Acceleration-dependent optimization derivatives remain guarded. The legacy
+Nastran reference executable used for validation rejects ACCEL1; support is checked against the
+card specification, independent mechanics and equivalent FORCE cases.
 
 Sensitivity results are scoped to each subcase. Material-E buckling
 derivatives reuse the actual forward operators and equilibrium derivative.

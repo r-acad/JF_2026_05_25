@@ -8,7 +8,11 @@ function extract_loads(cards)
         cid = to_id(parse_nastran_number(safe_get(c, 5), 0))
         mag = parse_nastran_number(safe_get(c, 6), 0.0)
         dir = [parse_nastran_number(safe_get(c, 7),0.0), parse_nastran_number(safe_get(c, 8),0.0), parse_nastran_number(safe_get(c, 9),0.0)]
-        push!(f, Dict("TYPE"=>"FORCE", "SID"=>sid, "GID"=>gid, "CID"=>cid, "Mag"=>mag, "Dir"=>dir))
+        record=Dict{String,Any}("TYPE"=>"FORCE", "SID"=>sid, "GID"=>gid, "CID"=>cid, "Mag"=>mag, "Dir"=>dir)
+        follower=uppercase(strip(string(safe_get(c,10,""))))
+        follower in ("","ROT") || throw(ArgumentError("FORCE follower flag must be blank or ROT"))
+        isempty(follower) || (record["FLLW"]=follower)
+        push!(f,record)
     end
     return f
 end
@@ -132,6 +136,83 @@ function extract_pload1(cards)
         end
     end
     return p
+end
+
+function _acceleration_integer(value, label; minimum=0)
+    number = parse_nastran_number(value, nothing)
+    number isa Real && isfinite(number) && isinteger(number) &&
+        minimum <= number <= typemax(Int) ||
+        throw(ArgumentError("$label must be an integer >= $minimum"))
+    return Int(number)
+end
+
+"""Strict ACCEL1 GRID list, including THRU/BY; duplicates denote one GRID."""
+function acceleration_grid_list(fields)
+    tokens = Any[]
+    for field in fields
+        field === nothing && continue
+        if field isa AbstractString
+            append!(tokens, split(uppercase(strip(field))))
+        else
+            push!(tokens, field)
+        end
+    end
+    grids = Int[]
+    i = 1
+    while i <= length(tokens)
+        first = _acceleration_integer(tokens[i], "ACCEL1 GRID"; minimum=1)
+        i += 1
+        if i <= length(tokens) && tokens[i] == "THRU"
+            i + 1 <= length(tokens) || throw(ArgumentError("ACCEL1 THRU requires an end GRID"))
+            last = _acceleration_integer(tokens[i+1], "ACCEL1 THRU end"; minimum=1)
+            last >= first || throw(ArgumentError("ACCEL1 THRU must be ascending"))
+            i += 2
+            step = 1
+            if i <= length(tokens) && tokens[i] == "BY"
+                i + 1 <= length(tokens) || throw(ArgumentError("ACCEL1 BY requires a positive step"))
+                step = _acceleration_integer(tokens[i+1], "ACCEL1 BY step"; minimum=1)
+                i += 2
+            end
+            append!(grids, first:step:last)
+        else
+            push!(grids, first)
+        end
+    end
+    isempty(grids) && throw(ArgumentError("ACCEL1 requires at least one GRID"))
+    return unique(grids)
+end
+
+function normalize_accel1(card::AbstractDict)
+    sid = _acceleration_integer(get(card,"SID",nothing), "ACCEL1 SID"; minimum=1)
+    blank(v) = v === nothing || (v isa AbstractString && isempty(strip(v)))
+    raw_cid = get(card,"CID",0)
+    cid = _acceleration_integer(blank(raw_cid) ? 0 : raw_cid, "ACCEL1 CID")
+    a = parse_nastran_number(get(card,"A",nothing), nothing)
+    a isa Real && isfinite(a) || throw(ArgumentError("ACCEL1 A must be finite"))
+    raw_n = get(card,"N",nothing)
+    raw_n isa AbstractVector && length(raw_n) == 3 ||
+        throw(ArgumentError("ACCEL1 N must contain three components"))
+    n = [blank(v) ? 0.0 : parse_nastran_number(v,nothing) for v in raw_n]
+    all(v -> v isa Real && isfinite(v), n) && any(!iszero,n) ||
+        throw(ArgumentError("ACCEL1 N must be finite and nonzero"))
+    raw_grids = get(card,"GRIDS",nothing)
+    raw_grids isa AbstractVector || throw(ArgumentError("ACCEL1 GRIDS must be a list"))
+    return Dict{String,Any}("TYPE"=>"ACCEL1", "SID"=>sid, "CID"=>cid,
+        "A"=>Float64(a), "N"=>Float64.(n), "GRIDS"=>acceleration_grid_list(raw_grids))
+end
+
+function extract_accel1(cards)
+    return [normalize_accel1(Dict("SID"=>safe_get(c,3), "CID"=>safe_get(c,4,0),
+        "A"=>safe_get(c,5), "N"=>[safe_get(c,k,0.0) for k in 6:8],
+        "GRIDS"=>c[11:end])) for c in cards]
+end
+
+# Retain unsupported ACCEL ownership so selecting it, directly or through LOAD,
+# fails explicitly instead of silently producing an unloaded model.
+function extract_accel(cards)
+    return [Dict{String,Any}("TYPE"=>"ACCEL",
+        "SID"=>_acceleration_integer(safe_get(c,3),"ACCEL SID";minimum=1),
+        "FIELDS"=>copy(c[4:end])) for c in cards]
 end
 
 function extract_grav(cards)

@@ -785,6 +785,19 @@ catch
     parsed === nothing ? Float64(default) : parsed
 end
 
+# Ordinary String inputs always reach the parsing fallback below in the
+# generic methods. Avoid constructing an exception for every textual ID/value;
+# keep generic conversion and rounding semantics for all other input types.
+@inline function _msc_i64(x::String, default::Integer=0)
+    parsed = tryparse(Int, x)
+    return parsed === nothing ? Int64(default) : Int64(parsed)
+end
+
+@inline function _msc_f64(x::String, default::Real=0.0)
+    parsed = tryparse(Float64, x)
+    return parsed === nothing ? Float64(default) : parsed
+end
+
 @inline _msc_tuple_f64(values, n::Int) =
     ntuple(i -> i <= length(values) ? _msc_f64(values[i]) : 0.0, n)
 

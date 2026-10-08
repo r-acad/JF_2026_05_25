@@ -1223,12 +1223,12 @@ function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diag
 end
 
 function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map, max_elem_stiff, orig_diag;
-                            linear_cache=nothing)
+                            linear_cache=nothing, unsymmetric::Bool=false, autospc_matrix=K)
     log_msg("[SOLVER] Processing Boundary Conditions...")
 
     spc_id = get(model, "_spc_id", nothing)
     load_path_protect_enabled = sol101_load_path_autospc_protect_enabled(model)
-    cache_enabled = linear_cache !== nothing && ndof >= linear_solve_cache_min_ndof() && !load_path_protect_enabled
+    cache_enabled = !unsymmetric && linear_cache !== nothing && ndof >= linear_solve_cache_min_ndof() && !load_path_protect_enabled
     cache_key = cache_enabled ? _linear_solve_cache_key(K, ndof, model, spc_id, rbe3_map) : nothing
     cached_entry = (cache_enabled && cache_key !== nothing) ? get(linear_cache, cache_key, nothing) : nothing
 
@@ -1428,7 +1428,9 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
             log_msg("[SOLVER] SOL101 load-path AUTOSPC protection: protected=$(get(load_path_diag, "protected_translational_dofs", 0)) translational DOFs across $(get(load_path_diag, "protected_nodes", 0)) nodes")
         end
 
-        autospc_diag = _diagonal_autospc!(fixed_dofs, spc_dofs, K, ndof, model, id_map, protected_trans_dofs)
+        # Follower load stiffness may cancel a diagonal without creating a
+        # structural mechanism. Detect unsupported DOFs on structural K only.
+        autospc_diag = _diagonal_autospc!(fixed_dofs, spc_dofs, autospc_matrix, ndof, model, id_map, protected_trans_dofs)
         diagnostics["bc_partition"]["autospc_diagonal_dofs"] = autospc_diag["dofs"]
         diagnostics["bc_partition"]["autospc_diagonal_translational_dofs"] = autospc_diag["translational_dofs"]
         diagnostics["bc_partition"]["autospc_diagonal_rotational_dofs"] = autospc_diag["rotational_dofs"]
@@ -1443,7 +1445,7 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
             log_msg("[SOLVER] AUTOSPC load-path protection skipped $(autospc_diag["load_path_autospc_skipped_dofs"]) low-diagonal translational candidates")
         end
         if gpst_enabled()
-            gpst = _grid_point_singularity_autospc!(fixed_dofs, spc_dofs, K, ndof, model, id_map,
+            gpst = _grid_point_singularity_autospc!(fixed_dofs, spc_dofs, autospc_matrix, ndof, model, id_map,
                                                     protected_trans_dofs)
             diagnostics["bc_partition"]["autospc_gpst_dofs"] = gpst["dofs"]
             diagnostics["bc_partition"]["autospc_gpst_translational_dofs"] = gpst["translational_dofs"]
@@ -1523,6 +1525,14 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
         diagnostics["linear_solver"]["strategy"] = "empty"
         diagnostics["linear_solver"]["backend"] = "empty_active_system"
         u_ff = Float64[]
+    elseif unsymmetric
+        # Follower-load stiffness is generally nonsymmetric. Neither discard
+        # its skew part nor regularize a singular follower equilibrium.
+        diagnostics["linear_solver"]["strategy"] = "direct"
+        diagnostics["linear_solver"]["backend"] = "direct_lu_unsymmetric"
+        solve_factor=lu(K_ff)
+        u_ff=solve_factor\F_ff
+        all(isfinite,u_ff) || throw(ArgumentError("Nonfinite unsymmetric static solution"))
     elseif n_free <= 2000000
         diagnostics["linear_solver"]["strategy"] = "direct"
         log_msg("[SOLVER] Using Direct Solver (Cholesky) for $n_free DOFs...")
@@ -1730,6 +1740,8 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
     r_solve = K_ff * u_ff - F_ff
     r_norm = norm(r_solve)
     rel_residual = r_norm / max(norm(F_ff), 1e-30)
+    unsymmetric && (!isfinite(rel_residual) || rel_residual>1e-8) &&
+        throw(ArgumentError("Unsymmetric static equilibrium residual $rel_residual exceeds 1e-8"))
     diagnostics["linear_solver"]["residual_norm"] = r_norm
     diagnostics["linear_solver"]["relative_residual"] = rel_residual
     log_msg("[SOLVER] Residual: |r|=$(r_norm), |r|/|F|=$rel_residual")

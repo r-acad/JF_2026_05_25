@@ -2003,7 +2003,7 @@ end
 function _adjoint_guard_load_derivatives!(model, load_id, dvs; constraint_map=Dict())
     scales = _load_sid_scales(model,load_id)
     active(key) = [card for card in get(model,key,[]) if haskey(scales,Int(card["SID"]))]
-    inertia = !isempty(active("GRAVs")) || !isempty(active("RFORCEs"))
+    inertia = any(key -> !isempty(active(key)), ("GRAVs","RFORCEs","ACCEL1s","ACCELs"))
     distributed = inertia || any(key->!isempty(active(key)),("PLOADs","PLOAD4s","PLOAD1s"))
     function curved(cid)
         cid == 0 && return false
@@ -2013,7 +2013,7 @@ function _adjoint_guard_load_derivatives!(model, load_id, dvs; constraint_map=Di
     for dv in dvs
         typ = dv["type"]
         if inertia && typ in ("shell_thickness","bar_area","pcomp_ply_thickness","material_RHO","topology_density")
-            error("[ADJOINT] $typ under GRAV/RFORCE requires mass-dependent load derivatives; use end-to-end finite differences.")
+            error("[ADJOINT] $typ under GRAV/RFORCE/ACCEL1/ACCEL requires mass-dependent load derivatives; use end-to-end finite differences.")
         end
         if typ == "node_coord"
             mapped = !isempty(constraint_map) ||
