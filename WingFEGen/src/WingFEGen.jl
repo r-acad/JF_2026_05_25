@@ -68,6 +68,10 @@ include("sensitivity.jl")
 include("sensitivity_compute.jl")
 include("sensitivity_operators.jl")
 include("sensitivity_eigen_adjoint.jl")
+include("sensitivity_analytic_beams.jl")
+include("sensitivity_analytic_loads.jl")
+include("sensitivity_analytic_geometric.jl")
+include("sensitivity_analytic.jl")
 include("server.jl")
 
 export Airfoil, naca_airfoil, Wing, make_wing, Model, BoxGrid

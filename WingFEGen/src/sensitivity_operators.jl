@@ -17,7 +17,7 @@ function sensitivity_preload_subcase(subs,solution)
     only([row for row in values(subs) if haskey(row,"LOAD")])
 end
 
-function sensitivity_assemble(native, parsed_model; solution=Int(parsed_model["SOL"]))
+function sensitivity_assemble(native, parsed_model; solution=Int(parsed_model["SOL"]),analytic=false)
     S=native.Solver
     model=native._model_with_selected_mpc(parsed_model)
     isempty(get(model,"SPCDs",Any[]))||error("Adjoint operator adapter does not support enforced SPCD displacements")
@@ -28,15 +28,17 @@ function sensitivity_assemble(native, parsed_model; solution=Int(parsed_model["S
     load_id=solution==103 ? nothing : get(sub,"LOAD",nothing);spc_id=get(sub,"SPC",nothing)
     membrane=solution==105 ? S.sol105_static_membrane_incomp_enabled() : solution==101 ? native._sol101_static_membrane_incomp_enabled(model) : true
     snorm=solution==105 ? S.sol105_snorm_angle_override() : nothing
-    K,id_map,X,ndof,node_R,max_elem_stiff,rbe3_map,snorm_normals,orig_diag=S.assemble_stiffness(model;
-        snorm_angle_override=snorm,membrane_incomp=membrane,sol105_context=solution==105,sol101_context=solution==101)
+    shell_capture=analytic ? S.AnalyticShellCapture(model) : nothing
+    assembly_options=(;snorm_angle_override=snorm,membrane_incomp=membrane,sol105_context=solution==105,sol101_context=solution==101)
+    K,id_map,X,ndof,node_R,max_elem_stiff,rbe3_map,snorm_normals,orig_diag=analytic ?
+        S.assemble_stiffness(model;assembly_options...,shell_capture) : S.assemble_stiffness(model;assembly_options...)
     F=S._assemble_applied_force(ndof,model,id_map,X,load_id,node_R,rbe3_map;log_rbe3=false)
     followers=solution==101 ? S._follower_context(ndof,model,id_map,X,load_id,node_R,rbe3_map) : nothing
     A=followers===nothing ? K : K-last(S._follower_load_update(followers,zeros(ndof),1.;linearized=true))
     # A property derivative cannot silently differentiate through a changed
     # automatic support set. The forward partition is checked separately.
     free,fixed=S.compute_free_dofs(K,ndof,model,id_map,spc_id,rbe3_map;allow_factorization_autospc=false)
-    return (;model,K,A,F,id_map,X,ndof,node_R,max_elem_stiff,rbe3_map,snorm_normals,orig_diag,load_id,spc_id,free,fixed,followers)
+    return (;model,K,A,F,id_map,X,ndof,node_R,max_elem_stiff,rbe3_map,snorm_normals,orig_diag,load_id,spc_id,free,fixed,followers,shell_capture)
 end
 
 function sensitivity_check_operators(base,trial)
@@ -148,9 +150,9 @@ function sensitivity_feature_response(features,objective;gradient=false)
     return (value=Float64(value),gradient=coeff)
 end
 
-function sensitivity_static_context(native,forward,wing,objective)
+function sensitivity_static_context(native,forward,wing,objective;analytic=false)
     Int(forward["sol_type"])==101||error("Static adjoint requires SOL101 forward results")
-    sub=only(forward["subcases"]);op=sensitivity_assemble(native,deepcopy(forward["model"]);solution=101)
+    sub=only(forward["subcases"]);op=sensitivity_assemble(native,deepcopy(forward["model"]);solution=101,analytic)
     get(sub,"temp_load_id",nothing)===nothing||error("Thermal adjoint recovery is unsupported")
     op.id_map==sub["id_map"]&&op.X==sub["node_coords"]&&op.node_R==sub["node_R"]||error("Adjoint assembly changed forward coordinate ordering")
     Set(op.fixed)==Set(sub["fixed_dofs"])||error("Forward automatic support partition differs from adjoint partition")

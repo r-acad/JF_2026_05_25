@@ -116,16 +116,16 @@ design variables. Supported responses are SOL101 displacement/shell/bar stress,
 SOL103 eigenvalues and SOL105 buckling factors. Panel-local variables and shared
 defaults are distinct variables; the interface shows their actual scope.
 
-The implementation is a **semi-analytic discrete adjoint**. For a static scalar
-response it uses one forward solve and one shared adjoint solve. It then uses
-finite differences of assembled operators and fixed-state response recovery for
-each property. These evaluations are not perturbed equilibrium solves. Thus the
-solve count is independent of property count, while assembly work is not.
-Read [SENSITIVITY_METHOD.md](SENSITIVITY_METHOD.md) for equations, sample counts,
-step-size effects and the distinction from a fully analytic adjoint.
+The default is an **analytic discrete adjoint**. For a static scalar response it
+uses one forward solve and one shared adjoint solve, followed by exact chain-rule
+element derivatives and contractions. Explicit formulas and automatic
+differentiation of native kernels replace property finite differences. The
+legacy operator-difference method remains an explicit comparison option.
+Read [SENSITIVITY_METHOD.md](SENSITIVITY_METHOD.md) for equations, work counts,
+supported formulations and limitations.
 
-Results include signed and normalized derivatives, residual checks, step-size
-comparisons, solve/operator counts and stage timings. **Open data table** opens
+Results include signed and normalized derivatives, residual checks, analytic
+derivative/solve counts and timings (step comparisons in legacy mode). **Open data table** opens
 panel grids and complete/shared-property lists with CSV export. Color fields
 display the derivative of the selected scalar response with respect to the
 property attached to each element, not a new local stress solution. A shared

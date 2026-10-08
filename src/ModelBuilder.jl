@@ -13,7 +13,7 @@ using Dates
     return raw in ("1", "true", "yes", "on")
 end
 
-@inline function laminate_plane_stress_qbar(E1::Float64, E2::Float64, nu12::Float64, G12::Float64, theta::Float64)
+@inline function laminate_plane_stress_qbar(E1, E2, nu12, G12, theta)
     nu21 = nu12 * E2 / max(E1, 1e-30)
     denom = 1.0 - nu12 * nu21
     Q11 = E1 / denom
@@ -27,7 +27,7 @@ end
     s2 = s^2
     cs = c * s
 
-    Qb = zeros(3, 3)
+    Qb = zeros(promote_type(typeof(E1), typeof(E2), typeof(nu12), typeof(G12), typeof(theta)), 3, 3)
     Qb[1,1] = Q11*c2^2 + 2*(Q12 + 2*Q66)*c2*s2 + Q22*s2^2
     Qb[2,2] = Q11*s2^2 + 2*(Q12 + 2*Q66)*c2*s2 + Q22*c2^2
     Qb[1,2] = (Q11 + Q22 - 4*Q66)*c2*s2 + Q12*(c2^2 + s2^2)
@@ -40,7 +40,7 @@ end
     return Qb
 end
 
-@inline function laminate_transverse_shear_qbar(G13::Float64, G23::Float64, theta::Float64)
+@inline function laminate_transverse_shear_qbar(G13, G23, theta)
     c = cos(theta)
     s = sin(theta)
     return [
@@ -82,15 +82,16 @@ equilibrium under cylindrical bending.
 For a homogeneous isotropic ply this returns 5/6 exactly. For symmetric
 balanced CFRP layups, typically returns 0.7–0.9 depending on layup details.
 """
-function pcomp_whitney_kappa(ply_data::Vector, total_t::Float64)
+function pcomp_whitney_kappa(ply_data::Vector, total_t)
     n = length(ply_data)
     n == 0 && return (5.0/6.0, 5.0/6.0)
 
     # Pull per-ply Q̄ and Q̄_shear from ply_data; assume z_bot/z_top are populated.
-    Qb = [Float64.(ply_data[k]["Qbar"])   for k in 1:n]
-    Qs = [Float64.(ply_data[k]["Qshear"]) for k in 1:n]
-    z_bot = [Float64(ply_data[k]["z_bot"]) for k in 1:n]
-    z_top = [Float64(ply_data[k]["z_top"]) for k in 1:n]
+    Qb = [ply_data[k]["Qbar"]   for k in 1:n]
+    Qs = [ply_data[k]["Qshear"] for k in 1:n]
+    z_bot = [ply_data[k]["z_bot"] for k in 1:n]
+    z_top = [ply_data[k]["z_top"] for k in 1:n]
+    scalar_type = promote_type(typeof(total_t), eltype(Qb[1]), eltype(Qs[1]), eltype(z_bot), eltype(z_top))
 
     function kappa_for(α::Int)
         D_αα = sum(Qb[k][α, α] * (z_top[k]^3 - z_bot[k]^3) / 3 for k in 1:n)
@@ -99,7 +100,7 @@ function pcomp_whitney_kappa(ply_data::Vector, total_t::Float64)
 
         # Build piecewise τ̃(z) = D · τ(z) at ply boundaries.
         # Top of laminate: τ̃ = 0. Recurrence: τ̃_top_k = τ̃_bot_{k+1}.
-        tau_top = zeros(n + 1)  # τ̃ at top of ply k for k=1..n+1 (last = 0)
+        tau_top = zeros(scalar_type, n + 1)  # τ̃ at top of ply k for k=1..n+1 (last = 0)
         tau_top[n + 1] = 0.0
         for k in n:-1:1
             tau_top[k] = tau_top[k + 1] + Qb[k][α, α] * (z_top[k]^2 - z_bot[k]^2) / 2

@@ -6,6 +6,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Analytic WingFEGen property adjoints.** Exact section/material/load chain
+  rules and automatic differentiation of captured native shell kernels replace
+  per-property finite differences by default. Element contractions cover static
+  displacement/stress, modal mass and buckling preload effects, including
+  sandwich skins, T-section offsets and routed structural inertia. The explicit
+  legacy comparison mode remains available; unsupported branches fail clearly.
+  Progress distinguishes analytic derivatives from solves and operator samples.
+
 - **WingFEGen application and FEM generator.** The repository now includes the
   Julia geometry/mesh/load generator, browser editor and viewer, panel properties,
   VLM loading, solver integration and semi-analytic adjoint sensitivity workflow.

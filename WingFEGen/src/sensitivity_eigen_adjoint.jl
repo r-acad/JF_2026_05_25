@@ -1,5 +1,6 @@
-# Discrete eigenvalue adjoints. Property differences reassemble native operators
-# at fixed baseline fields; no perturbed static or eigenproblem is solved here.
+# Discrete eigenvalue adjoints. The analytic path differentiates native element
+# energies at the fixed baseline. The explicit legacy path retains operator
+# differences for comparison; neither path solves a perturbed equilibrium here.
 using LinearAlgebra
 
 function sensitivity_eigen_matrix_check(a,b,label;rtol=1e-9)
@@ -23,7 +24,7 @@ function sensitivity_eigen_mass(native,op)
     native.Solver._apply_constraint_congruence(physical,op.rbe3_map;expected_ndof=op.ndof)
 end
 
-function sensitivity_geometric_matrix(native,op,state;physical=false)
+function sensitivity_geometric_matrix(native,op,state;physical=false,geometric_capture=nothing)
     model=op.model;mapping=op.rbe3_map
     if physical
         # An empty prebuilt map alone is insufficient: native assembly rebuilds
@@ -38,9 +39,11 @@ function sensitivity_geometric_matrix(native,op,state;physical=false)
     end
     cc=model["CASE_CONTROL"]
     buckling_sid=only([sid for (sid,sub) in cc["SUBCASES"] if get(sub,"STATSUB",nothing)!==nothing])
-    native.Solver.assemble_geometric_stiffness(model,op.id_map,op.X,op.node_R,op.ndof,state,
-        op.snorm_normals,mapping;snorm_angle_override=native.Solver.sol105_snorm_angle_override(),
+    options=(;snorm_angle_override=native.Solver.sol105_snorm_angle_override(),
         buckling_subcase=buckling_sid,static_load_id=op.load_id)
+    geometric_capture===nothing ? native.Solver.assemble_geometric_stiffness(model,op.id_map,op.X,op.node_R,op.ndof,state,
+        op.snorm_normals,mapping;options...) : native.Solver.assemble_geometric_stiffness(model,op.id_map,op.X,op.node_R,op.ndof,state,
+        op.snorm_normals,mapping;options...,geometric_capture)
 end
 
 """Node supports of the physical geometric-stiffness derivative (before MPCs)."""
@@ -116,10 +119,53 @@ function sensitivity_buckling_state_gradient(native,op,state,phi;progress=(_)->n
         "state_gradient_directional_error"=>relative_error,"state_dofs"=>count(!isempty,supports)*6)
 end
 
-function sensitivity_eigen_context(native,result,wing,objective;progress=(_)->nothing,cancelled=()->false)
+"""Exact coefficients of an affine physical geometric operator.
+
+Unit states evaluate the operator's linear basis, without perturbing a property
+or using a finite-difference step. Independent affine identities at the actual
+preload and mixed signed states guard against nonlocal or nonlinear branches.
+"""
+function sensitivity_buckling_state_gradient_analytic(native,op,state,phi;progress=(_)->nothing,cancelled=()->false)
+    supports=sensitivity_geometric_supports(op);colors=sensitivity_support_colors(supports)
+    gradient=zeros(op.ndof);zero_state=zeros(op.ndof)
+    cancelled()&&error("Sensitivity study cancelled")
+    zero_matrix=sensitivity_geometric_matrix(native,op,zero_state;physical=true)
+    zero_action=zero_matrix*phi;assemblies=1
+    for (ordinal,nodes) in enumerate(colors),component in 1:6
+        cancelled()&&error("Sensitivity study cancelled")
+        unit_state=zeros(op.ndof)
+        for node in nodes;unit_state[6(node-1)+component]=1.;end
+        action=sensitivity_geometric_matrix(native,op,unit_state;physical=true)*phi-zero_action
+        assemblies+=1
+        for node in nodes
+            gradient[6(node-1)+component]=sum(phi[6(j-1)+c]*action[6(j-1)+c] for j in supports[node] for c in 1:6)
+        end
+        progress(Dict("detail"=>"Exact buckling preload influence: color $ordinal/$(length(colors)), component $component/6"))
+    end
+    mixed=[sin(.731i)+cos(.193i) for i in eachindex(state)]
+    for component in 1:6
+        # These are independent physical test states, not derivative steps.
+        mixed[component:6:end].*=max(maximum(abs,state[component:6:end];init=0.),1e-3)
+    end
+    q0=dot(phi,zero_action);errors=Float64[]
+    for test_state in (state,2.3 .* state,mixed,state .- .71 .* mixed)
+        cancelled()&&error("Sensitivity study cancelled")
+        actual=dot(phi,sensitivity_geometric_matrix(native,op,test_state;physical=true)*phi)
+        predicted=q0+dot(gradient,test_state);assemblies+=1
+        scale=max(abs(actual),abs(predicted),sum(abs.(gradient.*test_state))*1e-6,eps())
+        push!(errors,abs(actual-predicted)/scale)
+    end
+    relative_error=maximum(errors)
+    relative_error<=1e-8||throw(ArgumentError("Analytic buckling preload requires an affine, element-local geometric operator; its affine replay failed ($relative_error). The active nonlinear recovery branch is unsupported."))
+    gradient,Dict("state_gradient_method"=>"exact_unit_influence","state_colors"=>length(colors),
+        "geometric_assemblies"=>assemblies,"state_gradient_affine_error"=>relative_error,
+        "state_dofs"=>count(!isempty,supports)*6)
+end
+
+function sensitivity_eigen_context(native,result,wing,objective;progress=(_)->nothing,cancelled=()->false,analytic=false)
     kind=objective["type"];sol=kind=="frequency_eigenvalue" ? 103 : 105
     selected=sensitivity_response(result,wing,objective)
-    op=sensitivity_assemble(native,result["model"];solution=sol)
+    op=sensitivity_assemble(native,result["model"];solution=sol,analytic)
     op.id_map==result["id_map"]||error("Eigenvalue adapter changed the native GRID ordering")
     # Native SOL103 exports its eigenpairs and model but does not retain K.
     # Its assembled pencil is verified below against the actual eigenvector.
@@ -166,7 +212,12 @@ function sensitivity_eigen_context(native,result,wing,objective;progress=(_)->no
     physical_kg=sensitivity_geometric_matrix(native,op,state;physical=true)
     replay=native.Solver._apply_constraint_congruence(physical_kg,op.rbe3_map;expected_ndof=op.ndof)
     constraint_error=sensitivity_eigen_matrix_check(replay,kg,"Physical geometric stiffness MPC congruence")
-    gradient,details=sensitivity_buckling_state_gradient(native,op,state,physical_phi;progress,cancelled)
+    if analytic
+        gradient,details,geometric_contexts=sensitivity_buckling_state_gradient_captured(native,op,wing,state,physical_phi;progress,cancelled)
+        ctx["geometric_contexts"]=geometric_contexts
+    else
+        gradient,details=sensitivity_buckling_state_gradient(native,op,state,physical_phi;progress,cancelled)
+    end
     rhs=native.Solver._adjoint_reduce_rhs(lambda.*gradient,op.rbe3_map)
     adjoint=zeros(op.ndof);adjoint[op.free]=op.A[op.free,op.free]'\rhs[op.free]
     adjoint_residual=norm((op.A'*adjoint-rhs)[op.free])/max(norm(rhs[op.free]),eps())

@@ -45,7 +45,7 @@ optional. The app opens `http://127.0.0.1:8080` and discovers the enclosing solv
 without private workspace paths. Platform launchers, a factory example, bundled
 browser libraries and portable checks are included. No user study or private
 validation data is needed. See the [application guide](WingFEGen/README.md) and
-[semi-analytic adjoint explanation](WingFEGen/SENSITIVITY_METHOD.md).
+[analytic adjoint explanation](WingFEGen/SENSITIVITY_METHOD.md).
 
 ## One-Click Installation
 

@@ -1,141 +1,112 @@
-# What the WingFEGen adjoint calculation does
+# Analytic adjoint sensitivities in WingFEGen
 
-The current implementation is a **semi-analytic discrete adjoint with finite
-differences of native assembled operators**. It is not a fully analytic or
-automatically differentiated implementation. It also does not use full-response
-finite differences that solve a new equilibrium problem for each property.
+The default method is an **analytic discrete adjoint**. Property derivatives
+use exact chain rules: explicit section/material/load formulas and forward-mode
+automatic differentiation of the actual native shell kernels. Automatic
+differentiation propagates derivatives through arithmetic; it does not evaluate
+the model at nearby property values or choose a finite-difference step.
+
+The explicit **Legacy · operator finite differences** option retains the old
+semi-analytic implementation for comparison. Saved results identify their method.
+Analytic mode never silently falls back to finite differences.
 
 ## Static scalar response
 
-For a fixed mesh and support/constraint partition, write the reduced linear
-equations as
+For a fixed mesh and constraint partition, the reduced equations and adjoint are
 
 \[
-K(p)u(p)=f(p).
+K(p)u(p)=f(p), \qquad K(p_0)^T\lambda=J_{,u}(u_0,p_0).
 \]
 
-Here `p` is the vector of properties, `u` the independent displacement vector,
-`K` the assembled system matrix and `f` the assembled load vector. Let the scalar
-response be `J(u,p)`, such as a displacement component or a recovered stress.
-
-The baseline forward analysis solves for `u0` at `p0`. The adjoint solves
+One forward solve supplies `u0`; one adjoint solve supplies `lambda`. For every
+selected property, the same vectors give
 
 \[
-K(p_0)^T\lambda_0=\frac{\partial J}{\partial u}(u_0,p_0).
+\frac{dJ}{dp_i}=J_{,i}|_u+\lambda^T(f_{,i}-K_{,i}u_0).
 \]
 
-For every property `pi`, the derivative is
+The implementation contracts affected element derivatives directly with the
+expanded state and adjoint. It does not assemble and solve a new global system
+for every property. A new scalar response generally needs its own adjoint.
+Native RBE/MPC reductions and GRID frames are retained. Supported SOL101 follower
+loads use the nonsymmetric load tangent and its transpose in the adjoint;
+the current structural variables do not change prescribed aerodynamic follower
+loads. Property-dependent structural inertia is differentiated.
 
-\[
-\frac{dJ}{dp_i}=
-\left.\frac{\partial J}{\partial p_i}\right|_u+
-\lambda_0^T\left(
-\frac{\partial f}{\partial p_i}-\frac{\partial K}{\partial p_i}u_0
-\right).
-\]
+## What is differentiated
 
-The same `u0` and `lambda0` are used for all selected properties. A new scalar
-response generally needs its own adjoint right-hand side and solve. This is the
-reason the static solve count depends on the number of responses, not on the
-number of properties.
+- Native shell stiffness: constitutive laws, thickness, symmetric sandwich
+  layers, condensation, drilling terms and the active warped-shell formulation.
+  Fixed element and GRID transformations are replayed exactly.
+- T-section dimensions, centroid offsets, stiffness, shear correction and
+  recovered beam stresses; square caps and fixed runout bars follow their native
+  section definitions.
+- Explicit dependence of shell/beam stress on properties, including the viewer's
+  shell axes and actual T-section polygon vertices.
+- Structural body loads and offset moments, routed to fixed mid-bay references.
+  Fuel fill and density remain fixed for the selected load case.
+- Modal mass, including shell mass moments and the native bar mass formulation.
+  The solver's mass scale is applied once.
+- Buckling geometric stiffness and the static preload state, using one shared
+  preload adjoint.
 
-The actual adapter uses the native reduced equations after RBE/MPC handling.
-For supported SOL101 follower loads, the reduced operator includes the
-nonsymmetric load tangent and the adjoint uses its transpose. The fixed-state
-operator samples include property-dependent body loads, beam offsets and
-explicit stress recovery, rather than differentiating stiffness alone.
-
-## Where finite differences enter
-
-The current code rebuilds the native operators at nearby property values. In
-schematic form, a central derivative uses
-
-\[
-K_{,i}\simeq\frac{K(p_0+h_i e_i)-K(p_0-h_i e_i)}{2h_i},
-\qquad
-f_{,i}\simeq\frac{f(p_0+h_i e_i)-f(p_0-h_i e_i)}{2h_i}.
-\]
-
-Explicit property dependence in `J` is evaluated with `u0` held fixed. In the
-implementation these terms can be combined by sampling a fixed-state
-Lagrangian:
-
-\[
-L_i(\delta)=J(u_0,p_0+\delta e_i)+
-\lambda_0^T\big[f(p_0+\delta e_i)-K(p_0+\delta e_i)u_0\big].
-\]
-
-The central difference of `L_i` gives the derivative above. There is no
-calculation of `u(p0 + delta ei)` in these samples. They parse the sample deck,
-assemble operators, recover the requested response at the fixed state and
-perform matrix-vector products/dot products. They do not factor and solve a
-perturbed equilibrium system. Samples are retained as operator diagnostics,
-not exported as new physical load cases.
+Panel-local variables act on their panel even when the value is inherited.
+Shared defaults act only where the field has not been overridden. These are
+distinct, potentially overlapping variables; do not simply add their derivatives.
 
 ## Work for 166 properties
 
-| Operation | Count for one static response |
-| --- | ---: |
-| Baseline forward analysis | 1 |
-| Shared adjoint solve | 1 |
-| Perturbed forward analyses | 0 |
-| Central operator samples without step checking | 332 |
-| Central operator samples with half-step checking | 664 |
-| Baseline operator replay/check | 1 |
+| Operation | Analytic static response | Legacy with half-step checking |
+| --- | ---: | ---: |
+| Baseline forward analysis | 1 | 1 |
+| Shared adjoint solve | 1 | 1 |
+| Perturbed forward analyses | 0 | 0 |
+| Property finite-difference samples | 0 | 664 |
+| Exact property derivative contractions | 166 | 0 |
+| Baseline operator replay/check | 1 | 1 |
 
-With the check enabled, each property is sampled at `+h`, `-h`, `+h/2`, `-h/2`.
-The displayed operator-evaluation total is therefore `1 + 4 * 166 = 665`.
-The finer derivative is reported and compared with the coarse one. Near a
-property bound, the code uses a labeled second-order one-sided stencil; its
-half-step check reuses a sample and can need three unique samples rather than
-four. Counts report the calls actually made.
+The previous `665 evaluations` counted the baseline replay plus four operator
+samples per property (`+h`, `-h`, `+h/2`, `-h/2`). Those samples are absent in
+analytic mode. Each property still needs its affected element derivatives and
+contractions. Compilation, baseline analysis and replay also take time; constant
+solve count does not imply constant total time.
 
-The total work is approximately
+Progress and saved results distinguish analytic derivatives from finite-difference
+samples. Analytic rows have no step or step-error estimate and generate no
+perturbed `variable_*` decks.
 
-`one forward + one adjoint + N * (two or four operator samples)`.
+## Scope and accuracy
 
-Matrix assembly is usually cheaper than a solve, but can still be substantial.
-This implementation currently reassembles the whole model for each sample.
-Deck generation/parsing, response recovery and fresh-worker Julia compilation
-also contribute. Hence constant solve count does not imply constant total time.
+This is the derivative of the **discrete FE equations**, evaluated to floating
+point and solver tolerances. It does not remove modelling error or poor
+conditioning. Independent finite differences of rebuilt decks and solved
+responses are used in validation tests only.
 
-## Accuracy and a fully analytic alternative
+The adapter supports fixed geometry/connectivity, isotropic PSHELL, centered
+symmetric isotropic PCOMP sandwich, and generated T-section, square-cap and
+fixed runout bars. Unsupported constitutive/kernel branches fail explicitly,
+including anisotropic or independent-material PSHELL, unsymmetric/off-center
+laminates and experimental shell recovery branches. Optional aerodynamic shells
+exported as structural deck elements must be disabled for analytic sensitivity;
+the normal aerodynamic load surface is supported.
 
-The adjoint equation is solved numerically to solver tolerances. The property
-derivatives additionally have finite-difference truncation and roundoff errors.
-Central differences are second-order in the step for smooth responses. Steps
-that are too large cause truncation error; steps that are too small cause
-cancellation. The half-step check is a useful consistency check, not proof of
-convergence and not an independent comparison against solved perturbed models.
+Static displacement and stress objectives use SOL101. SOL103 uses the baseline
+eigenvector and analytic stiffness/mass derivatives without a static adjoint.
+SOL105 also needs the static-preload adjoint; its workload is not simply two
+linear static solves. SOL106 response sensitivities are not implemented.
 
-A fully analytic discrete adjoint would supply exact formulas, or suitable
-automatic differentiation, for the required operator/response derivatives.
-It would remove the property finite-difference step. Element-local derivative
-contractions could also avoid repeated full-model assembly. It would still
-need to evaluate and output each requested property derivative; total gradient
-work does not become independent of the number of variables.
+Individual derivatives require a smooth response branch. Repeated eigenvalues,
+ambiguous stress extrema and tied material maxima with unequal directional
+derivatives are rejected where relevant. Nodes, property IDs, constraints and
+active numerical branches must remain consistent with the baseline replay.
 
-The current method has been checked against independent full-response finite
-differences in separate numerical regressions. That validation does not turn
-the production operator derivatives into analytic ones.
+## Source map
 
-## Supported scope
-
-Static displacement and stress sensitivities use SOL101. SOL103 eigenvalue
-derivatives reuse the baseline eigenvector and do not require a separate static
-adjoint equation. SOL105 buckling derivatives include the baseline eigenproblem
-and a shared static-preload adjoint; they are not simply a generic pair of
-linear static solves. SOL106 nonlinear response sensitivities are not offered
-by this adapter.
-
-Connectivity, property IDs, coordinate ordering and the support/constraint
-partition must remain fixed. The adapter checks replay consistency and rejects
-unsupported changes. Repeated eigenvalues and nondifferentiable objective
-branches cannot be treated as ordinary unique scalar derivatives.
-
-Relevant implementation files:
-
-- [sensitivity_compute.jl](src/sensitivity_compute.jl): property stencils, counts and orchestration.
-- [sensitivity_operators.jl](src/sensitivity_operators.jl): static adjoint and fixed-state native assembly.
-- [sensitivity_eigen_adjoint.jl](src/sensitivity_eigen_adjoint.jl): modal/buckling derivatives.
-- [sensitivity_baseline.jl](src/sensitivity_baseline.jl): retained physical baseline results.
+- [sensitivity_compute.jl](src/sensitivity_compute.jl): method selection and progress.
+- [sensitivity_analytic.jl](src/sensitivity_analytic.jl): direct element contractions.
+- [sensitivity_analytic_properties.jl](src/sensitivity_analytic_properties.jl): ownership and layer/material chain rules.
+- [sensitivity_analytic_beams.jl](src/sensitivity_analytic_beams.jl): section, offset, stiffness, mass and stress derivatives.
+- [sensitivity_analytic_loads.jl](src/sensitivity_analytic_loads.jl): body loads and shell mass.
+- [sensitivity_analytic_geometric.jl](src/sensitivity_analytic_geometric.jl): native geometric stiffness and preload gradients.
+- [native analytic_shells.jl](../src/solver/analytic_shells.jl): shell kernel replay and differentiation.
+- [sensitivity_eigen_adjoint.jl](src/sensitivity_eigen_adjoint.jl): modal and buckling equations.

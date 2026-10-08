@@ -55,6 +55,10 @@ tests=@testset "Portable WingFEGen" begin
         answer=status["result"]
         @test answer["solver_counts"]["forward_solves"]==answer["solver_counts"]["adjoint_solves"]==1
         @test answer["solver_counts"]["perturbed_forward_solves"]==0
+        @test answer["method"]=="analytic_discrete_adjoint"
+        @test answer["solver_counts"]["finite_difference_samples"]==0
+        @test answer["solver_counts"]["analytic_property_derivatives"]==1
+        @test isempty(only(answer["rows"])["samples"])
         @test only(answer["rows"])["normalized_derivative"]≈-1 rtol=1e-3
         @test answer["baseline_analysis"]["available"]
     end

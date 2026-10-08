@@ -2201,7 +2201,8 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                             iso_no_incomp::Bool=false,
                             sol105_context::Bool=false,
                             sol101_context::Bool=false,
-                            elem_shear_dominant::Union{Nothing,Dict{Int,Bool}}=nothing)
+                            elem_shear_dominant::Union{Nothing,Dict{Int,Bool}}=nothing,
+                            shell_capture=nothing)
     # JFEM_Q4_STATIC_BENDING_INCOMP: optional override of the bending
     # incompatible-mode enrichment on the static/pencil assembly path (the
     # eigen path has its own JFEM_SOL105_EIG_BENDING_INCOMP).  Unset by
@@ -2826,6 +2827,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
 
     # Pre-allocate TRIA3 arrays
     t3_idx     = Matrix{Int}(undef, n_t3, 3)
+    t3_eid_int = zeros(Int,n_t3); t3_pid_int = zeros(Int,n_t3)
     t3_h       = Vector{Float64}(undef, n_t3)
     t3_br      = Vector{Float64}(undef, n_t3)
     t3_tst     = Vector{Float64}(undef, n_t3)
@@ -2991,6 +2993,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             end
         elseif n == 3
             it3 += 1
+            t3_eid_int[it3]=parse(Int,string(el["ID"])); t3_pid_int[it3]=parse(Int,pid)
             i1 = id_vec[nids[1]]; i2 = id_vec[nids[2]]; i3 = id_vec[nids[3]]
             t3_idx[it3,1] = i1; t3_idx[it3,2] = i2; t3_idx[it3,3] = i3
             t3_h[it3] = h; t3_br[it3] = br; t3_tst[it3] = tst; t3_Eref[it3] = E_ref_e
@@ -4527,7 +4530,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             if mitc4_3d_ply_integration &&
                is_pcomp_ei &&
                q4_ply_data[ei] !== nothing
-                Ke_t = FEM.stiffness_quad4_mitc4_3d_ply_matrices(
+                Ke_t = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_mitc4_3d_ply_matrices,
                     c3d_local, dirs_local, q4_ply_data[ei], Cs_local,
                     q4_h[ei], q4_Eref[ei];
                     k6rot=elem_k6rot,
@@ -4537,7 +4540,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                     local_bending_scale=bend_const_scale,
                 )
             else
-                Ke_t = FEM.stiffness_quad4_mitc4_3d_resultant_matrices(
+                Ke_t = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_mitc4_3d_resultant_matrices,
                     c3d_local, dirs_local, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei];
                     k6rot=elem_k6rot,
@@ -4548,7 +4551,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 )
             end
         elseif elem_shear_center_only && is_iso_ei
-            Ke_center = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
+            Ke_center = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_matrices, lc, Cm_local, Cb_local, Cs_local,
                 q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
                 drill_scale=elem_drill_scale,
                 ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=true,
@@ -4570,7 +4573,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
-            Ke_full = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
+            Ke_full = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_matrices, lc, Cm_local, Cb_local, Cs_local,
                 q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
                 drill_scale=elem_drill_scale,
                 ws=per_thread_ws_alt[tid], msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=false,
@@ -4598,7 +4601,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                                elem_curved_iso_blend * Ke_full[ii, jj]
             end
         elseif elem_flat_dkmq_branch
-            Ke_t = FEM.stiffness_quad4_plate_dkmq_matrices(
+            Ke_t = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_plate_dkmq_matrices,
                 lc, Cm_local, Cb_local, Cs_local, q4_h[ei], q4_Eref[ei];
                 k6rot=elem_k6rot,
                 drill_scale=elem_drill_scale,
@@ -4609,7 +4612,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 material_shear_rotation=elem_material_shear_rotation,
             )
         elseif elem_rect_plate_branch
-            Ke_t = FEM.stiffness_quad4_plate_adini_matrices(
+            Ke_t = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_plate_adini_matrices,
                 lc, Cm_local, Cb_local, Cs_local, q4_h[ei], q4_Eref[ei];
                 k6rot=elem_k6rot,
                 drill_scale=elem_drill_scale,
@@ -4620,7 +4623,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 material_shear_rotation=elem_material_shear_rotation,
             )
         elseif elem_flat_plate_branch
-            Ke_t = FEM.stiffness_quad4_plate_dkq_matrices(
+            Ke_t = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_plate_dkq_matrices,
                 lc, Cm_local, Cb_local, Cs_local, q4_h[ei], q4_Eref[ei];
                 k6rot=elem_k6rot,
                 drill_scale=elem_drill_scale,
@@ -4632,7 +4635,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             )
         elseif elem_shear_center_only && is_pcomp_ei
             if elem_is_flat && !is_pcomp_iso_ei
-                Ke_t = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
+                Ke_t = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_matrices, lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
                     drill_scale=elem_drill_scale,
                     ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=true,
@@ -4656,7 +4659,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
             elseif curved_pcomp_blend < 1.0
-                Ke_center = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
+                Ke_center = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_matrices, lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
                     drill_scale=elem_drill_scale,
                     ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=true,
@@ -4678,7 +4681,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 kernel_mode=elem_q4_kernel_mode_static,
                 macneal_rbf_flex_mode=elem_macneal_rbf_flex_mode,
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
-                Ke_full = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
+                Ke_full = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_matrices, lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
                     drill_scale=elem_drill_scale,
                     ws=per_thread_ws_alt[tid], msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=false,
@@ -4706,7 +4709,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                                    curved_pcomp_blend * Ke_full[ii, jj]
                 end
             else
-                Ke_t = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
+                Ke_t = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_matrices, lc, Cm_local, Cb_local, Cs_local,
                     q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
                     drill_scale=elem_drill_scale,
                     ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=false,
@@ -4731,7 +4734,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 membrane_hourglass_skew=elem_membrane_hourglass_skew)
             end
         else
-            Ke_t = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
+            Ke_t = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_matrices, lc, Cm_local, Cb_local, Cs_local,
                 q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
                 drill_scale=elem_drill_scale,
                 ws=ws_stiff, msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp, shear_center_only=elem_shear_center_only,
@@ -4757,7 +4760,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         end
         if elem_pcomp_k_macneal_blend > 0.0
             Ke_ref = copyto!(sep_Ke_ref[tid], Ke_t)
-            Ke_macneal = FEM.stiffness_quad4_matrices(lc, Cm_local, Cb_local, Cs_local,
+            Ke_macneal = _analytic_shell_call(shell_capture, q4_eid_int[ei], FEM.stiffness_quad4_matrices, lc, Cm_local, Cb_local, Cs_local,
                 q4_h[ei], q4_Eref[ei]; bend_ratio=q4_br[ei], k6rot=elem_k6rot, Bmb=Bmb_local, coupled_projected=elem_coupled_projected,
                 drill_scale=elem_drill_scale,
                 ws=per_thread_ws_alt[tid], msws=per_thread_msws[tid], bending_incomp=elem_bending_incomp,
@@ -4820,6 +4823,21 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             geom_vec, node_R_flat,
             snorm_director, snorm_has, snorm_vec,
             all_I, all_J, all_V)
+        if shell_capture !== nothing
+            drill=ones(24)
+            for (k,idx) in enumerate((i1,i2,i3,i4))
+                node_has_frame[idx] && (drill[6k]=sol101_line_node_drill_sqrt_scale)
+            end
+            cm_axes=sqrt.([elem_static_component_cm11_scale,elem_static_component_cm22_scale,elem_static_component_cm66_scale])
+            blend=elem_shear_center_only && is_iso_ei ? elem_curved_iso_blend : curved_pcomp_blend
+            _analytic_shell_finish!(shell_capture,q4_eid_int[ei],q4_pid_int[ei],sep_dofs[tid],sep_T[tid],sep_global[tid];
+                blend=blend,macneal_blend=elem_pcomp_k_macneal_blend,drill=drill,
+                raw_shear=shear_center_only && elem_is_flat && is_pcomp_ei && !is_pcomp_iso_ei,
+                cm_scale=elem_static_component_cm_scale*(cm_axes*cm_axes'),
+                cb_scale=bend_const_scale*elem_static_component_cb_scale,
+                cs_scale=elem_static_component_cs_scale,
+                unsupported=elem_mitc4_3d_kernel ? "MITC4 3D kernel is not supported by analytic shell derivatives" : "")
+        end
     end
 
     LinearAlgebra.BLAS.set_num_threads(prev_blas_threads)
@@ -4932,7 +4950,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         lc_buf[2,1] = dot(p2-c, v1); lc_buf[2,2] = dot(p2-c, v2)
         lc_buf[3,1] = dot(p3-c, v1); lc_buf[3,2] = dot(p3-c, v2)
         elem_k6rot_t3 = t3_br[ei] <= 1e-12 ? 0.0 : k6rot
-        Ke_loc = FEM.stiffness_tria3_matrices(lc_buf, Cm_t3, Cb_t3, Cs_t3,
+        Ke_loc = _analytic_shell_call(shell_capture,t3_eid_int[ei],FEM.stiffness_tria3_matrices,lc_buf, Cm_t3, Cb_t3, Cs_t3,
                     t3_h[ei], t3_Eref[ei]; bend_ratio=t3_br[ei], k6rot=elem_k6rot_t3, Bmb=Bmb_t3)
         if sol101_line_node_drill_sqrt_scale != 1.0 &&
            (node_has_frame[i1] || node_has_frame[i2] || node_has_frame[i3])
@@ -4962,6 +4980,13 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         end
         for cc in 1:18, rr in 1:18
             push!(I_idx, dofs_t3[rr]); push!(J_idx, dofs_t3[cc]); push!(V_val, Ke[rr,cc])
+        end
+        if shell_capture !== nothing
+            drill=ones(18)
+            for (k,idx) in enumerate((i1,i2,i3))
+                node_has_frame[idx] && (drill[6k]=sol101_line_node_drill_sqrt_scale)
+            end
+            _analytic_shell_finish!(shell_capture,t3_eid_int[ei],t3_pid_int[ei],dofs_t3,T_buf,Ke;drill=drill)
         end
     end
 
@@ -5464,7 +5489,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                                       buckling_subcase=nothing,
                                       static_load_id=nothing,
                                       timings=nothing,
-                                      csc_cache=nothing)
+                                      csc_cache=nothing,
+                                      geometric_capture=nothing)
     kg_t_total = time_ns()
     kg_timings = Dict{String,Any}()
     kg_t_setup = time_ns()
@@ -7383,6 +7409,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 b = (idx-1)*6
                 for d in 1:6; dofs_buf24[(k-1)*6+d] = b+d; end
             end
+            geometric_capture === nothing || geometric_capture(shell_eids[_shell_ei], Base.@locals)
             local _k = 0
             @inbounds for cc in 1:24, rr in 1:24
                 _k += 1
@@ -7538,6 +7565,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 b = (idx-1)*6
                 for d in 1:6; dofs_t3[(k-1)*6+d] = b+d; end
             end
+            geometric_capture === nothing || geometric_capture(shell_eids[_shell_ei], Base.@locals)
             local _k = 0
             @inbounds for cc in 1:18, rr in 1:18
                 _k += 1

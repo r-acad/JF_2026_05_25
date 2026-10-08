@@ -3990,7 +3990,7 @@ end
 # which reproduces it to 0.003-0.020 % at rho2 = 0.098 / 0.331 / 0.391 / 0.490 / 0.640 / 1.563 /
 # 6.250 -- i.e. across aspect 0.5-4 AND taper 0.15-0.60 with no free parameter. The apparent
 # taper dependence of this term is entirely rho2 moving with the taper.
-@inline function q4_taper_cross_factor(rho2::Float64)
+@inline function q4_taper_cross_factor(rho2)
     eps = 0.025
     c = eps / (1 - eps)
     r = rho2 < 0.0 ? 0.0 : rho2
@@ -4003,7 +4003,7 @@ end
 # 0.05-0.85 (F itself spans 1.0002-1.618). ⚠ it degrades to 6.8e-3 on the extreme aspect-0.25
 # slivers, where the saturation is not exactly this form -- the one place the element is still
 # knowingly approximate.
-@inline function q4_taper_diff_factor(g::Float64, rho2::Float64)
+@inline function q4_taper_diff_factor(g, rho2)
     g <= 1e-12 && return 1.0
     gg = g > 1.0 ? 1.0 : g          # a valid convex quad has |gr| + |gs| < 1; clamp defensively
     b = 39.0
@@ -4032,13 +4032,13 @@ end
 # working range and hidden between the sample points. This form is pole-free by construction and
 # was checked monotone and positive over the whole of q in [0,1]. h(0) = 1, so parallelograms are
 # untouched.
-@inline function q4_taper_shear_diff_h(g::Float64)
+@inline function q4_taper_shear_diff_h(g)
     g <= 1e-12 && return 1.0
     x = g > 1.0 ? 1.0 : g * g
     1.0 + x*(0.240645040092 + x*(0.603483673803 + x*(-0.818416784763 + x*0.4962374002)))
 end
 
-@inline function q4_taper_shear_cross_D(g::Float64)
+@inline function q4_taper_shear_cross_D(g)
     g <= 1e-12 && return 0.0
     x = g > 1.0 ? 1.0 : g * g
     num = ((-155.893116996 * x + 113.08382495) * x + 79.1160661624) * x + 3.08637764718
@@ -6273,7 +6273,8 @@ function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, 
     # Recover incompatible mode amplitudes via static condensation
     # α = -K_bb^{-1} * K_ba * u  (K_ba = K_ab')
     # Recompute K_ab and K_bb (membrane incompatible coupling)
-    K_ab_sr = zeros(24, 4); K_bb_sr = zeros(4, 4)
+    scalar_type = promote_type(eltype(Cm), eltype(u_elem), typeof(h))
+    K_ab_sr = zeros(scalar_type, 24, 4); K_bb_sr = zeros(scalar_type, 4, 4)
     pt = 1.0/sqrt(3.0)
     gauss_pts = [-pt -pt; pt -pt; pt pt; -pt pt]
     for i in 1:4
@@ -6325,8 +6326,8 @@ function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, 
 
     # Centroid and bilinear output use the same condensed displacement field.
     # Recover both in one GP pass when the caller requests corner forces.
-    N_gp = recover_corners ? zeros(4, 3) : nothing
-    M_gp = recover_corners ? zeros(4, 3) : nothing
+    N_gp = recover_corners ? zeros(scalar_type, 4, 3) : nothing
+    M_gp = recover_corners ? zeros(scalar_type, 4, 3) : nothing
     Cb_corners = recover_corners ?
         (Cb_override === nothing ? bend_ratio * D_mem * (h^3 / 12.0) : Cb_override) : nothing
 
@@ -6339,8 +6340,8 @@ function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, 
 
     # For stress recovery, compute the average strain including incompatible modes
     # by integrating over Gauss points
-    eps_mem_avg = zeros(3)
-    kappa_avg = zeros(3)
+    eps_mem_avg = zeros(scalar_type, 3)
+    kappa_avg = zeros(scalar_type, 3)
     total_area = 0.0
     for i in 1:4
         r, s = gauss_pts[i,1], gauss_pts[i,2]
@@ -6424,8 +6425,8 @@ function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, 
 
     if recover_corners
         corner_points = ((-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0))
-        N_corners = zeros(4, 3)
-        M_corners = zeros(4, 3)
+        N_corners = zeros(scalar_type, 4, 3)
+        M_corners = zeros(scalar_type, 4, 3)
         for (i, (r, s)) in enumerate(corner_points)
             N_corners[i, :] .= interp_2x2_gauss_sigma(N_gp, r, s)
             M_corners[i, :] .= interp_2x2_gauss_sigma(M_gp, r, s)
@@ -6628,6 +6629,7 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
     # gives wildly wrong N (and therefore wildly wrong K_g and λ_buckle) on
     # asymmetric stacks. Detected by the skew_sweep asymmetric layup probes
     # 2026-05-23 (λ_buckle +254 % on flat 3ply [0/45/90]).
+    scalar_type = promote_type(eltype(u_elem),typeof(E),typeof(nu),typeof(h),Cm_override === nothing ? Float64 : eltype(Cm_override))
     const_mem = E / (1 - nu^2)
     D_mem = const_mem .* [1 nu 0; nu 1 0; 0 0 (1-nu)/2]
     Cm = isnothing(Cm_override) ? D_mem * h : Cm_override
@@ -6663,13 +6665,13 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
     iJ11c = invJ_c[1,1]; iJ12c = invJ_c[1,2]
     iJ21c = invJ_c[2,1]; iJ22c = invJ_c[2,2]
 
-    alpha = zeros(use_enhanced_modes ? 6 : 4)
+    alpha = zeros(scalar_type, use_enhanced_modes ? 6 : 4)
     if !compatible_only && (use_enhanced_modes || use_incompatible_modes)
-        K_ab_sr = zeros(24, 4)
-        K_bb_sr = zeros(4, 4)
+        K_ab_sr = zeros(scalar_type, 24, 4)
+        K_bb_sr = zeros(scalar_type, 4, 4)
         if use_enhanced_modes
-            K_ab_sr = zeros(24, 6)
-            K_bb_sr = zeros(6, 6)
+            K_ab_sr = zeros(scalar_type, 24, 6)
+            K_bb_sr = zeros(scalar_type, 6, 6)
         end
         for i in 1:4
             r, s = gauss_pts[i,1], gauss_pts[i,2]
@@ -6680,7 +6682,7 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
             iJ = inv(J_g)
             dN_dxy_g = iJ * [dNr_g'; dNs_g']
 
-            Bm_g = zeros(3, 24)
+            Bm_g = zeros(scalar_type, 3, 24)
             # Compute Marguerre slope at this GP from the 4 nodal slopes (used
             # only when slope_membrane is provided). Same convention as the
             # K-side application in stiffness_quad4_matrices (line ~3650).
@@ -6732,7 +6734,7 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
             end
 
             if use_enhanced_modes
-                Bi = zeros(3, 6)
+                Bi = zeros(scalar_type, 3, 6)
                 fill_quad4_membrane_enhanced_B!(
                     Bi,
                     r,
@@ -6748,7 +6750,7 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
                     membrane_incomp_center_jacobian,
                 )
             else
-                Bi = zeros(3, 4)
+                Bi = zeros(scalar_type, 3, 4)
                 fill_quad4_membrane_incompatible_B!(
                     Bi,
                     r,
@@ -6784,9 +6786,9 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
         end
     end
 
-    N_gp = zeros(4, 3)
-    N_avg = zeros(3)
-    area_w = zeros(4)
+    N_gp = zeros(scalar_type, 4, 3)
+    N_avg = zeros(scalar_type, 3)
+    area_w = zeros(scalar_type, 4)
 
     for i in 1:4
         r, s = gauss_pts[i,1], gauss_pts[i,2]
@@ -6797,7 +6799,7 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
         iJ = inv(J_g)
         dN_dxy_g = iJ * [dNr_g'; dNs_g']
 
-        Bm_g = zeros(3, 24)
+        Bm_g = zeros(scalar_type, 3, 24)
         slope_fx = 0.0; slope_fy = 0.0; slope_handover = false
         if slope_membrane !== nothing
             for j in 1:4
@@ -6846,7 +6848,7 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
         eps_gp = Bm_g * u_elem
         if !compatible_only && (use_enhanced_modes || use_incompatible_modes)
             if use_enhanced_modes
-                Bi = zeros(3, 6)
+                Bi = zeros(scalar_type, 3, 6)
                 fill_quad4_membrane_enhanced_B!(
                     Bi,
                     r,
@@ -6862,7 +6864,7 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
                     membrane_incomp_center_jacobian,
                 )
             else
-                Bi = zeros(3, 4)
+                Bi = zeros(scalar_type, 3, 4)
                 fill_quad4_membrane_incompatible_B!(
                     Bi,
                     r,
@@ -6889,7 +6891,7 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
             #   κ_xx = +∂θy/∂x = sum_k dN_dx[k] · θy_k     (θy at idx+5)
             #   κ_yy = -∂θx/∂y = sum_k (-dN_dy[k]) · θx_k  (θx at idx+4)
             #   κ_xy = +∂θy/∂y − ∂θx/∂x
-            Bb_snorm = zeros(3, 24)
+            Bb_snorm = zeros(scalar_type, 3, 24)
             @inbounds for k in 1:4
                 idx = (k - 1) * 6
                 dN_dx_k = dN_dxy_g[1, k]
@@ -7093,8 +7095,9 @@ function quad4_membrane_incompatible_condensation_map(coords::AbstractMatrix,
                                                       membrane_shear_center_row::Bool=false,
                                                       material_shear_rotation::Float64=0.0,
                                                       membrane_incomp_center_jacobian::Bool=false)
-    K_ab = zeros(24, 4)
-    K_bb = zeros(4, 4)
+    scalar_type = promote_type(eltype(coords),eltype(Cm))
+    K_ab = zeros(scalar_type, 24, 4)
+    K_bb = zeros(scalar_type, 4, 4)
 
     pt = 1.0 / sqrt(3.0)
     gauss_pts = (SVector(-pt, -pt), SVector(pt, -pt), SVector(pt, pt), SVector(-pt, pt))
@@ -7116,7 +7119,7 @@ function quad4_membrane_incompatible_condensation_map(coords::AbstractMatrix,
         iJ = inv(J_g)
         dN_dxy_g = iJ * [dNr_g'; dNs_g']
 
-        Bm_g = zeros(3, 24)
+        Bm_g = zeros(scalar_type, 3, 24)
         for k in 1:4
             idx = (k - 1) * 6
             N_k = 0.25 * (1 + (k == 2 || k == 3 ? r : -r)) * (1 + (k >= 3 ? s : -s))
@@ -7140,7 +7143,7 @@ function quad4_membrane_incompatible_condensation_map(coords::AbstractMatrix,
             )
         end
 
-        Bi = zeros(3, 4)
+        Bi = zeros(scalar_type, 3, 4)
         fill_quad4_membrane_incompatible_B!(
             Bi,
             r,
@@ -7169,8 +7172,9 @@ function quad4_membrane_enhanced_condensation_map(coords::AbstractMatrix,
                                                   membrane_shear_center_row::Bool=false,
                                                   material_shear_rotation::Float64=0.0,
                                                   membrane_incomp_center_jacobian::Bool=false)
-    K_ab = zeros(24, 6)
-    K_bb = zeros(6, 6)
+    scalar_type = promote_type(eltype(coords),eltype(Cm))
+    K_ab = zeros(scalar_type, 24, 6)
+    K_bb = zeros(scalar_type, 6, 6)
 
     pt = 1.0 / sqrt(3.0)
     gauss_pts = (SVector(-pt, -pt), SVector(pt, -pt), SVector(pt, pt), SVector(-pt, pt))
@@ -7192,7 +7196,7 @@ function quad4_membrane_enhanced_condensation_map(coords::AbstractMatrix,
         iJ = inv(J_g)
         dN_dxy_g = iJ * [dNr_g'; dNs_g']
 
-        Bm_g = zeros(3, 24)
+        Bm_g = zeros(scalar_type, 3, 24)
         for k in 1:4
             idx = (k - 1) * 6
             N_k = 0.25 * (1 + (k == 2 || k == 3 ? r : -r)) * (1 + (k >= 3 ? s : -s))
@@ -7216,7 +7220,7 @@ function quad4_membrane_enhanced_condensation_map(coords::AbstractMatrix,
             )
         end
 
-        Bi = zeros(3, 6)
+        Bi = zeros(scalar_type, 3, 6)
         fill_quad4_membrane_enhanced_B!(
             Bi,
             r,
@@ -7242,11 +7246,11 @@ end
 @inline function add_geometric_gradient_block!(Kg::AbstractMatrix,
                                                gdx::AbstractVector,
                                                gdy::AbstractVector,
-                                               scale::Float64,
-                                               s_xx::Float64,
-                                               s_yy::Float64,
-                                               s_xy::Float64,
-                                               block_scale::Float64=1.0)
+                                               scale::Real,
+                                               s_xx::Real,
+                                               s_yy::Real,
+                                               s_xy::Real,
+                                               block_scale::Real=1.0)
     @inbounds @fastmath for j in eachindex(gdx), i in eachindex(gdx)
         Kg[i, j] += block_scale * scale * (
             s_xx * gdx[i] * gdx[j] +
@@ -7262,12 +7266,12 @@ end
                                                  ux_dy::AbstractVector,
                                                  w_dx::AbstractVector,
                                                  w_dy::AbstractVector,
-                                                 scale::Float64,
-                                                 s_xy::Float64,
-                                                 u_xx_scale::Float64,
-                                                 w_xx_scale::Float64,
-                                                 u_xy_scale::Float64,
-                                                 w_xy_scale::Float64)
+                                                 scale::Real,
+                                                 s_xy::Real,
+                                                 u_xx_scale::Real,
+                                                 w_xx_scale::Real,
+                                                 u_xy_scale::Real,
+                                                 w_xy_scale::Real)
     if s_xy == 0.0 ||
        (u_xx_scale == 0.0 && w_xx_scale == 0.0 &&
         u_xy_scale == 0.0 && w_xy_scale == 0.0)
@@ -7293,13 +7297,13 @@ end
                                                      vy_dy::AbstractVector,
                                                      w_dx::AbstractVector,
                                                      w_dy::AbstractVector,
-                                                     scale::Float64,
-                                                     s_xx::Float64,
-                                                     s_yy::Float64,
-                                                     u_xx_extra::Float64,
-                                                     v_yy_extra::Float64,
-                                                     w_xx_extra::Float64,
-                                                     w_yy_extra::Float64)
+                                                     scale::Real,
+                                                     s_xx::Real,
+                                                     s_yy::Real,
+                                                     u_xx_extra::Real,
+                                                     v_yy_extra::Real,
+                                                     w_xx_extra::Real,
+                                                     w_yy_extra::Real)
     if (s_xx == 0.0 && s_yy == 0.0) ||
        (u_xx_extra == 0.0 && v_yy_extra == 0.0 &&
         w_xx_extra == 0.0 && w_yy_extra == 0.0)
@@ -7320,12 +7324,12 @@ end
                                                   ux_dy::AbstractVector,
                                                   vy_dx::AbstractVector,
                                                   vy_dy::AbstractVector,
-                                                  scale::Float64,
-                                                  s_xy::Float64,
-                                                  u_yy_scale::Float64,
-                                                  v_xx_scale::Float64,
-                                                  v_yy_scale::Float64,
-                                                  v_xy_scale::Float64)
+                                                  scale::Real,
+                                                  s_xy::Real,
+                                                  u_yy_scale::Real,
+                                                  v_xx_scale::Real,
+                                                  v_yy_scale::Real,
+                                                  v_xy_scale::Real)
     if s_xy == 0.0 ||
        (u_yy_scale == 0.0 && v_xx_scale == 0.0 &&
         v_yy_scale == 0.0 && v_xy_scale == 0.0)
@@ -7347,11 +7351,11 @@ end
 @inline function add_geometric_nyy_u_extra_block!(Kg::AbstractMatrix,
                                                   ux_dx::AbstractVector,
                                                   ux_dy::AbstractVector,
-                                                  scale::Float64,
-                                                  s_yy::Float64,
-                                                  u_xx_scale::Float64,
-                                                  u_yy_scale::Float64,
-                                                  u_xy_scale::Float64)
+                                                  scale::Real,
+                                                  s_yy::Real,
+                                                  u_xx_scale::Real,
+                                                  u_yy_scale::Real,
+                                                  u_xy_scale::Real)
     if s_yy == 0.0 ||
        (u_xx_scale == 0.0 && u_yy_scale == 0.0 && u_xy_scale == 0.0)
         return Kg
@@ -7372,11 +7376,11 @@ end
                                                    vy_dx::AbstractVector,
                                                    w_dx::AbstractVector,
                                                    w_dy::AbstractVector,
-                                                   scale::Float64,
-                                                   s_yy::Float64,
-                                                   v_xx_scale::Float64,
-                                                   w_xx_scale::Float64,
-                                                   w_xy_scale::Float64)
+                                                   scale::Real,
+                                                   s_yy::Real,
+                                                   v_xx_scale::Real,
+                                                   w_xx_scale::Real,
+                                                   w_xy_scale::Real)
     if s_yy == 0.0 ||
        (v_xx_scale == 0.0 && w_xx_scale == 0.0 && w_xy_scale == 0.0)
         return Kg
@@ -7394,7 +7398,20 @@ end
 end
 
 
-@inline function principal_stress_2d_components(s_xx::Float64, s_yy::Float64, s_xy::Float64)
+@inline _geometric_active_dual(x) = x isa ForwardDiff.Dual && !iszero(ForwardDiff.partials(x))
+@inline function _geometric_principal_ad_guard(sxx,syy,sxy)
+    zero_state=all(v->abs(ForwardDiff.value(v))<=1e-30,(sxx,syy,sxy))
+    if zero_state
+        count(_geometric_active_dual,(sxx,syy,sxy))<=1||throw(ArgumentError(
+            "Mixed in-plane principal stress has no unique analytic tangent at zero stress; superpose the independent stress channels"))
+    elseif abs(ForwardDiff.value(sxx-syy))<=1e-30 && abs(ForwardDiff.value(sxy))<=1e-30 &&
+           (_geometric_active_dual(sxx-syy)||_geometric_active_dual(sxy))
+        throw(ArgumentError("Mixed in-plane principal stress has no unique analytic tangent at repeated principal stresses"))
+    end
+    nothing
+end
+
+@inline function principal_stress_2d_components(s_xx::Real, s_yy::Real, s_xy::Real)
     mean_s = 0.5 * (s_xx + s_yy)
     half_d = 0.5 * (s_xx - s_yy)
     radius = sqrt(half_d * half_d + s_xy * s_xy)
@@ -7415,19 +7432,19 @@ end
     duy_dy::AbstractVector,
     duz_dx::AbstractVector,
     duz_dy::AbstractVector,
-    scale::Float64,
-    lambda::Float64,
-    c::Float64,
-    s::Float64,
-    p22_factor::Float64,
-    p12_factor::Float64,
-    z_factor::Float64,
-    local_u_factor::Float64=1.0,
-    local_v_factor::Float64=1.0,
-    local_uv_factor::Float64=1.0,
-    local_w_factor::Float64=1.0,
+    scale::Real,
+    lambda::Real,
+    c::Real,
+    s::Real,
+    p22_factor::Real,
+    p12_factor::Real,
+    z_factor::Real,
+    local_u_factor::Real=1.0,
+    local_v_factor::Real=1.0,
+    local_uv_factor::Real=1.0,
+    local_w_factor::Real=1.0,
 )
-    abs(lambda) <= 1e-30 && return Kg
+    abs(lambda) <= 1e-30 && !_geometric_active_dual(lambda) && return Kg
     p11 = local_u_factor * s * s
     p22 = local_v_factor * p22_factor * c * c
     p12 = local_uv_factor * p12_factor * -c * s
@@ -7457,19 +7474,41 @@ end
     duy_dy::AbstractVector,
     duz_dx::AbstractVector,
     duz_dy::AbstractVector,
-    scale::Float64,
-    s_xx::Float64,
-    s_yy::Float64,
-    s_xy::Float64,
-    shear_yy_factor::Float64=1.0,
-    shear_xy_factor::Float64=1.0,
-    shear_z_factor::Float64=1.0,
-    shear_ratio_min::Float64=1.0,
-    local_u_factor::Float64=1.0,
-    local_v_factor::Float64=1.0,
-    local_uv_factor::Float64=1.0,
-    local_w_factor::Float64=1.0,
+    scale::Real,
+    s_xx::Real,
+    s_yy::Real,
+    s_xy::Real,
+    shear_yy_factor::Real=1.0,
+    shear_xy_factor::Real=1.0,
+    shear_z_factor::Real=1.0,
+    shear_ratio_min::Real=1.0,
+    local_u_factor::Real=1.0,
+    local_v_factor::Real=1.0,
+    local_uv_factor::Real=1.0,
+    local_w_factor::Real=1.0,
 )
+    if any(v->v isa ForwardDiff.Dual,(s_xx,s_yy,s_xy))
+        if local_u_factor==0 && local_v_factor==0 && local_uv_factor==0
+            shear_z_factor==1||throw(ArgumentError("Analytic transverse metric requires unit principal shear scaling"))
+            return add_geometric_gradient_block!(Kg,duz_dx,duz_dy,scale,s_xx,s_yy,s_xy,local_w_factor)
+        end
+        _geometric_principal_ad_guard(s_xx,s_yy,s_xy)
+    end
+    # The production caller superposes the in-plane xx/yy/xy channels and
+    # uses the complete stress only for the linear transverse metric. At a
+    # zero stress, principal directions are undefined; evaluate those exact
+    # linear coefficients rather than losing an active Dual derivative to
+    # the zero-eigenvalue early return.
+    if all(v->abs(ForwardDiff.value(v))<=1e-30,(s_xx,s_yy,s_xy)) && any(_geometric_active_dual,(s_xx,s_yy,s_xy))
+        (shear_yy_factor==1&&shear_xy_factor==1&&shear_z_factor==1)||
+            throw(ArgumentError("Anisotropic principal shear scaling has no unique analytic tangent at zero stress"))
+        for (stress,unit) in ((s_xx,(1.,0.,0.)),(s_yy,(0.,1.,0.)),(s_xy,(0.,0.,1.)))
+            add_geometric_principal_transverse_block!(Kg,dux_dx,dux_dy,duy_dx,duy_dy,duz_dx,duz_dy,
+                scale*stress,unit...,shear_yy_factor,shear_xy_factor,shear_z_factor,shear_ratio_min,
+                local_u_factor,local_v_factor,local_uv_factor,local_w_factor)
+        end
+        return Kg
+    end
     l1, c1, s1, l2, c2, s2 = principal_stress_2d_components(s_xx, s_yy, s_xy)
     denom = abs(s_xx) + abs(s_yy) + abs(s_xy)
     shear_ratio = denom > 1e-30 ? abs(s_xy) / denom : 0.0
@@ -7491,23 +7530,23 @@ end
     Kg::AbstractMatrix,
     row0::Int,
     col0::Int,
-    dNi_dx::Float64,
-    dNi_dy::Float64,
-    dNj_dx::Float64,
-    dNj_dy::Float64,
-    scale::Float64,
-    lambda::Float64,
-    c::Float64,
-    s::Float64,
-    p22_factor::Float64,
-    p12_factor::Float64,
-    z_factor::Float64,
-    local_u_factor::Float64=1.0,
-    local_v_factor::Float64=1.0,
-    local_uv_factor::Float64=1.0,
-    local_w_factor::Float64=1.0,
+    dNi_dx::Real,
+    dNi_dy::Real,
+    dNj_dx::Real,
+    dNj_dy::Real,
+    scale::Real,
+    lambda::Real,
+    c::Real,
+    s::Real,
+    p22_factor::Real,
+    p12_factor::Real,
+    z_factor::Real,
+    local_u_factor::Real=1.0,
+    local_v_factor::Real=1.0,
+    local_uv_factor::Real=1.0,
+    local_w_factor::Real=1.0,
 )
-    abs(lambda) <= 1e-30 && return Kg
+    abs(lambda) <= 1e-30 && !_geometric_active_dual(lambda) && return Kg
     gi = c * dNi_dx + s * dNi_dy
     gj = c * dNj_dx + s * dNj_dy
     val = scale * lambda * gi * gj
@@ -7526,23 +7565,42 @@ end
     Kg::AbstractMatrix,
     row0::Int,
     col0::Int,
-    dNi_dx::Float64,
-    dNi_dy::Float64,
-    dNj_dx::Float64,
-    dNj_dy::Float64,
-    scale::Float64,
-    s_xx::Float64,
-    s_yy::Float64,
-    s_xy::Float64,
-    shear_yy_factor::Float64=1.0,
-    shear_xy_factor::Float64=1.0,
-    shear_z_factor::Float64=1.0,
-    shear_ratio_min::Float64=1.0,
-    local_u_factor::Float64=1.0,
-    local_v_factor::Float64=1.0,
-    local_uv_factor::Float64=1.0,
-    local_w_factor::Float64=1.0,
+    dNi_dx::Real,
+    dNi_dy::Real,
+    dNj_dx::Real,
+    dNj_dy::Real,
+    scale::Real,
+    s_xx::Real,
+    s_yy::Real,
+    s_xy::Real,
+    shear_yy_factor::Real=1.0,
+    shear_xy_factor::Real=1.0,
+    shear_z_factor::Real=1.0,
+    shear_ratio_min::Real=1.0,
+    local_u_factor::Real=1.0,
+    local_v_factor::Real=1.0,
+    local_uv_factor::Real=1.0,
+    local_w_factor::Real=1.0,
 )
+    if any(v->v isa ForwardDiff.Dual,(s_xx,s_yy,s_xy))
+        if local_u_factor==0 && local_v_factor==0 && local_uv_factor==0
+            shear_z_factor==1||throw(ArgumentError("Analytic transverse metric requires unit principal shear scaling"))
+            Kg[row0+3,col0+3]+=scale*local_w_factor*(s_xx*dNi_dx*dNj_dx+s_yy*dNi_dy*dNj_dy+
+                s_xy*(dNi_dx*dNj_dy+dNi_dy*dNj_dx))
+            return Kg
+        end
+        _geometric_principal_ad_guard(s_xx,s_yy,s_xy)
+    end
+    if all(v->abs(ForwardDiff.value(v))<=1e-30,(s_xx,s_yy,s_xy)) && any(_geometric_active_dual,(s_xx,s_yy,s_xy))
+        (shear_yy_factor==1&&shear_xy_factor==1&&shear_z_factor==1)||
+            throw(ArgumentError("Anisotropic principal shear scaling has no unique analytic tangent at zero stress"))
+        for (stress,unit) in ((s_xx,(1.,0.,0.)),(s_yy,(0.,1.,0.)),(s_xy,(0.,0.,1.)))
+            add_geometric_principal_transverse_pair!(Kg,row0,col0,dNi_dx,dNi_dy,dNj_dx,dNj_dy,
+                scale*stress,unit...,shear_yy_factor,shear_xy_factor,shear_z_factor,shear_ratio_min,
+                local_u_factor,local_v_factor,local_uv_factor,local_w_factor)
+        end
+        return Kg
+    end
     l1, c1, s1, l2, c2, s2 = principal_stress_2d_components(s_xx, s_yy, s_xy)
     denom = abs(s_xx) + abs(s_yy) + abs(s_xy)
     shear_ratio = denom > 1e-30 ? abs(s_xy) / denom : 0.0
@@ -7563,17 +7621,17 @@ end
 @inline function add_geometric_linear_principal_transverse_pair!(
     Kg::AbstractMatrix,
     row0::Int, col0::Int,
-    dNi_dx::Float64, dNi_dy::Float64,
-    dNj_dx::Float64, dNj_dy::Float64,
-    scale::Float64, s_xx::Float64, s_yy::Float64, s_xy::Float64,
-    shear_yy_factor::Float64=1.0,
-    shear_xy_factor::Float64=1.0,
-    shear_z_factor::Float64=1.0,
-    shear_ratio_min::Float64=1.0,
-    local_u_factor::Float64=1.0,
-    local_v_factor::Float64=1.0,
-    local_uv_factor::Float64=1.0,
-    local_w_factor::Float64=1.0,
+    dNi_dx::Real, dNi_dy::Real,
+    dNj_dx::Real, dNj_dy::Real,
+    scale::Real, s_xx::Real, s_yy::Real, s_xy::Real,
+    shear_yy_factor::Real=1.0,
+    shear_xy_factor::Real=1.0,
+    shear_z_factor::Real=1.0,
+    shear_ratio_min::Real=1.0,
+    local_u_factor::Real=1.0,
+    local_v_factor::Real=1.0,
+    local_uv_factor::Real=1.0,
+    local_w_factor::Real=1.0,
 )
     # Match the condensed Q4 path: the in-plane initial-stress work is
     # additive in xx, yy and xy. Diagonalizing their sum before building
@@ -8039,11 +8097,12 @@ end
 
 function geometric_stiffness_quad4_nastran_kdjj_iso(coords::AbstractMatrix,
                                                     u_e::AbstractVector,
-                                                    E::Float64,
-                                                    nu::Float64,
-                                                    h::Float64;
+                                                    E::Real,
+                                                    nu::Real,
+                                                    h::Real;
                                                     assumed_transverse::Bool=false)
-    Kg = zeros(24, 24)
+    scalar_type = promote_type(eltype(u_e),typeof(E),typeof(nu),typeof(h))
+    Kg = zeros(scalar_type, 24, 24)
     h < 1e-30 && return Kg
     x1 = coords[1,1]; y1 = coords[1,2]
     x2 = coords[2,1]; y2 = coords[2,2]
@@ -8074,8 +8133,8 @@ function geometric_stiffness_quad4_nastran_kdjj_iso(coords::AbstractMatrix,
     lb < 1e-12 && return Kg
     ce = bx / lb; se = by / lb
     # in-plane nodal displacements in the element (primed) frame
-    up = MVector{4,Float64}(undef)
-    vp = MVector{4,Float64}(undef)
+    up = MVector{4,scalar_type}(undef)
+    vp = MVector{4,scalar_type}(undef)
     @inbounds for k in 1:4
         ux = u_e[(k-1)*6 + 1]
         uy = u_e[(k-1)*6 + 2]
@@ -9059,7 +9118,7 @@ end
 # Geometric stiffness for CQUAD4 shell element (24×24)
 # Uses membrane stress state [σxx, σyy, σxy] from SOL101.
 # coords = 4×2 local coordinates (same as stiffness computation).
-function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem::AbstractVector, h::Float64;
+function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem::AbstractVector, h::Real;
                                    trans_mode::Symbol=:all,
                                    curvature::Union{Nothing,SVector{3,Float64}}=nothing,
                                    curvature_sign::Float64=1.0,
@@ -9085,7 +9144,8 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem::AbstractVe
                                      local_shear_extra_scales_override::Union{Nothing,NTuple{4,Float64}}=nothing,
                                     local_nyy_u_extra_scales_override::Union{Nothing,NTuple{3,Float64}}=nothing,
                                     local_nyy_vw_extra_scales_override::Union{Nothing,NTuple{3,Float64}}=nothing)
-    sigma_gp = zeros(4, 3)
+    scalar_type = promote_type(eltype(sigma_mem),typeof(h),Cm === nothing ? Float64 : eltype(Cm))
+    sigma_gp = zeros(scalar_type, 4, 3)
     @inbounds for gp in 1:4
         sigma_gp[gp, 1] = sigma_mem[1]
         sigma_gp[gp, 2] = sigma_mem[2]
@@ -9119,7 +9179,7 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem::AbstractVe
                                      local_nyy_vw_extra_scales_override=local_nyy_vw_extra_scales_override)
 end
 
-function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::AbstractMatrix, h::Float64;
+function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::AbstractMatrix, h::Real;
                                     trans_mode::Symbol=:all,
                                     curvature::Union{Nothing,SVector{3,Float64}}=nothing,
                                     curvature_sign::Float64=1.0,
@@ -9145,7 +9205,8 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                                      local_shear_extra_scales_override::Union{Nothing,NTuple{4,Float64}}=nothing,
                                     local_nyy_u_extra_scales_override::Union{Nothing,NTuple{3,Float64}}=nothing,
                                     local_nyy_vw_extra_scales_override::Union{Nothing,NTuple{3,Float64}}=nothing)
-    Kg = zeros(24, 24)
+    scalar_type = promote_type(eltype(sigma_mem_gp),typeof(h),Cm === nothing ? Float64 : eltype(Cm))
+    Kg = zeros(scalar_type, 24, 24)
     if h < 1e-30; return Kg; end
     local_trans_split = local_trans_split_override === nothing ?
         fem_env_bool("JFEM_KG_SHELL_LOCAL_TRANS_SPLIT", false) :
@@ -9290,8 +9351,8 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
     inv_det_c = 1.0 / detJ_c
     iJ11_c = J22_c*inv_det_c; iJ12_c = -J12_c*inv_det_c
     iJ21_c = -J21_c*inv_det_c; iJ22_c = J11_c*inv_det_c
-    dNdx_c = zeros(4)
-    dNdy_c = zeros(4)
+    dNdx_c = zeros(scalar_type, 4)
+    dNdy_c = zeros(scalar_type, 4)
     if membrane_shear_center_row
         @inbounds for i in 1:4
             dNdx_c[i] = iJ11_c*dNr_c[i] + iJ12_c*dNs_c[i]
@@ -9390,7 +9451,7 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
     end
     # residual (gradient-part) consistent nodal in-plane forces, for the
     # meanstring edge terms: df = sum_gp w_gp * Bm(gp)' * (sigma_gp - mean) * h
-    dfx = zeros(4); dfy = zeros(4)
+    dfx = zeros(scalar_type, 4); dfy = zeros(scalar_type, 4)
 
     @inbounds @fastmath for gp in 1:4
         s_xx = sigma_mem_gp[gp, 1]
@@ -9418,10 +9479,10 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
         iJ21 = -J21*inv_det; iJ22 = J11*inv_det
 
         if membrane_A !== nothing
-            dux_dx = zeros(24); dux_dy = zeros(24)
-            duy_dx = zeros(24); duy_dy = zeros(24)
-            duz_dx = zeros(24); duz_dy = zeros(24)
-            ux_val = zeros(24); uy_val = zeros(24); uz_val = zeros(24)
+            dux_dx = zeros(scalar_type, 24); dux_dy = zeros(scalar_type, 24)
+            duy_dx = zeros(scalar_type, 24); duy_dy = zeros(scalar_type, 24)
+            duz_dx = zeros(scalar_type, 24); duz_dy = zeros(scalar_type, 24)
+            ux_val = zeros(scalar_type, 24); uy_val = zeros(scalar_type, 24); uz_val = zeros(scalar_type, 24)
             for i in 1:4
                 dNi_dx = iJ11*dNr[i] + iJ12*dNs[i]
                 dNi_dy = iJ21*dNr[i] + iJ22*dNs[i]
@@ -10082,7 +10143,7 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                    ("1", "true", "yes", "on") ?
             ((1, 2), (2, 3), (3, 4), (4, 1), (1, 3), (2, 4)) :
             ((1, 2), (2, 3), (3, 4), (4, 1))
-        ms_A = zeros(8, length(ms_edges))
+        ms_A = zeros(scalar_type, 8, length(ms_edges))
         for (k, (a, b)) in enumerate(ms_edges)
             ex = coords[b, 1] - coords[a, 1]
             ey = coords[b, 2] - coords[a, 2]
@@ -10092,7 +10153,7 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
             ms_A[2a-1, k] += ex; ms_A[2a, k] += ey
             ms_A[2b-1, k] -= ex; ms_A[2b, k] -= ey
         end
-        ms_rhs = zeros(8)
+        ms_rhs = zeros(scalar_type, 8)
         for i in 1:4
             ms_rhs[2i-1] = -dfx[i]
             ms_rhs[2i] = -dfy[i]
@@ -10133,11 +10194,12 @@ end
 
 # Geometric stiffness for CTRIA3 shell element (18×18)
 # Constant strain triangle — single integration point.
-function geometric_stiffness_tria3(coords::AbstractMatrix, sigma_mem::AbstractVector, h::Float64;
+function geometric_stiffness_tria3(coords::AbstractMatrix, sigma_mem::AbstractVector, h::Real;
                                    trans_mode::Symbol=:all,
                                    curvature::Union{Nothing,SVector{3,Float64}}=nothing,
                                    curvature_sign::Float64=1.0)
-    Kg = zeros(18, 18)
+    scalar_type = promote_type(eltype(sigma_mem),typeof(h))
+    Kg = zeros(scalar_type, 18, 18)
     if h < 1e-30; return Kg; end
 
     x, y = coords[:,1], coords[:,2]

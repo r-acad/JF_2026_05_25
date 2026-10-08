@@ -5,6 +5,7 @@ import Serialization
 include("sensitivity_runtime.jl")
 include("sensitivity_saved.jl")
 include("sensitivity_baseline.jl")
+include("sensitivity_analytic_properties.jl")
 
 const SENSITIVITY_OBJECTIVES=Dict(
     "displacement"=>["x","y","z","magnitude"],
@@ -18,7 +19,7 @@ function normalize_sensitivity_settings(raw)
     ncodeunits(raw)<=1024*1024||throw(ArgumentError("Sensitivity settings exceed 1 MiB"))
     data=try JSON.parse(raw) catch; throw(ArgumentError("Sensitivity settings must contain valid JSON"));end
     data isa AbstractDict||throw(ArgumentError("Sensitivity settings must be an object"))
-    allowed=Set(("case_id","objective","variables","relative_step","check_step"))
+    allowed=Set(("case_id","objective","variables","relative_step","check_step","derivative_method"))
     all(k->k in allowed,keys(data))||throw(ArgumentError("Unsupported sensitivity setting"))
     vars=get(data,"variables",Any[])
     vars isa AbstractVector&&length(vars)<=4096&&all(x->x isa AbstractString&&ncodeunits(x)<=240,vars)||throw(ArgumentError("Select at most 4096 property variables"))
@@ -26,6 +27,7 @@ function normalize_sensitivity_settings(raw)
     objective isa AbstractDict&&length(objective)<=8||throw(ArgumentError("Invalid sensitivity objective settings"))
     all(k->k in ("type","node_id","element_id","component","surface","mode"),keys(objective))||throw(ArgumentError("Unsupported sensitivity objective field"))
     haskey(data,"check_step")&&!(data["check_step"] isa Bool)&&throw(ArgumentError("Sensitivity step check must be true or false"))
+    get(data,"derivative_method","analytic") in ("analytic","operator_differences")||throw(ArgumentError("Select analytic chain-rule derivatives or legacy operator differences"))
     for (key,lo,hi) in (("case_id",1,49999999),("relative_step",1e-4,.1))
         v=get(data,key,nothing);v in (nothing,"")&&continue
         v isa Real&&!(v isa Bool)&&isfinite(v)&&lo<=v<=hi||throw(ArgumentError("Sensitivity $key is outside its allowed range"))
@@ -83,19 +85,12 @@ function sensitivity_catalog(m::Model)
             add("materials.library#$(row["id"])#$field","$(row["name"]): $field",Any["materials.library",i,field],row[field],unit;scale)
         end
     end
-    # Only offer values that affect a referenced property card on this fixed
-    # topology. Inactive defaults or equal-valued non-PID overrides are omitted.
-    baseline=Dict(d["pid"]=>d for d in model_property_definitions(m));variables=Dict{String,Any}[]
+    # Resolve actual property ownership, including sparse panel overrides.
+    # No trial values are needed to discover which cards a variable controls.
+    definitions=model_property_definitions(m)
+    baseline=Dict(d["pid"]=>d for d in definitions);variables=Dict{String,Any}[]
     for d in candidates
-        value=d["value"];step=max(abs(value)*.001,1e-7)
-        q=sensitivity_set!(deepcopy(p),d,value+step)
-        changed=try
-            Dict(x["pid"]=>x for x in model_property_definitions(sensitivity_model(m,q)))
-        catch
-            q=sensitivity_set!(deepcopy(p),d,value-step)
-            Dict(x["pid"]=>x for x in model_property_definitions(sensitivity_model(m,q)))
-        end
-        ids=sort!([pid for pid in keys(baseline) if baseline[pid]!=changed[pid]])
+        ids=sort!(collect(keys(sensitivity_analytic_property_directions(m,d;properties=definitions))))
         isempty(ids)&&continue
         d["pids"]=ids;d["element_count"]=sum(length(g.eids) for g in m.groups if g.pid in ids)
         d["group"]=startswith(d["id"],"material") ? "Materials" : any(baseline[pid]["kind"]=="bar" for pid in ids) ? "Beam sections" : "Shell properties"
@@ -126,7 +121,7 @@ function sensitivity_catalog(m::Model)
     return Dict{String,Any}("variables"=>variables,"max_variables"=>4096,"objectives"=>SENSITIVITY_OBJECTIVES,
         "cases"=>[Dict("id"=>s.id,"label"=>s.label) for s in load_case_specs(p)],
         "surfaces"=>["z1","z2"],"method"=>"discrete_adjoint",
-        "note"=>"Fixed nodes, connectivity and property IDs. Every stiffened panel offers independent skin thickness or sandwich face/core dimensions and T-section dimensions, including values inherited from shared defaults. Shared defaults remain separate overlapping variables; do not sum them with panel-local derivatives. One baseline analysis and shared adjoint; operator derivatives regenerate loads and offsets without perturbed forward solves. SOL103 uses the chosen case's fuel mass; SOL105 uses its static preload.")
+        "note"=>"Fixed nodes, connectivity and property IDs. Every stiffened panel offers independent skin thickness or sandwich face/core dimensions and T-section dimensions, including values inherited from shared defaults. Shared defaults remain separate overlapping variables; do not sum them with panel-local derivatives. Analytic mode uses exact element chain rules with one baseline analysis and a shared static adjoint, without property finite differences. SOL103 uses the chosen case's fuel mass; SOL105 uses its static preload.")
 end
 
 function sensitivity_request(m,raw)
@@ -152,10 +147,14 @@ function sensitivity_request(m,raw)
         mode=get(obj,"mode",1);mode isa Integer&&!(mode isa Bool)&&1<=mode<=20||throw(ArgumentError("Mode must be 1 to 20"));obj["mode"]=mode
     end
     request["objective"]=obj;request["case_id"]=case
+    request["derivative_method"]=get(request,"derivative_method","analytic")
     step=get(request,"relative_step",.01)
+    request["derivative_method"]=="analytic"&&(step===nothing||step=="")&&(step=.01)
     step isa Real&&!(step isa Bool)&&isfinite(step)&&1e-4<=step<=.1||throw(ArgumentError("Set a sensitivity step between 0.01% and 10%"))
     request["relative_step"]=Float64(step);request["check_step"]=get(request,"check_step",true)
-    for id in vars;sensitivity_stencil(m,available[id],request["relative_step"]);end
+    if request["derivative_method"]=="operator_differences"
+        for id in vars;sensitivity_stencil(m,available[id],request["relative_step"]);end
+    end
     return request
 end
 
