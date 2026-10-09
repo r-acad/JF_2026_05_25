@@ -18,8 +18,9 @@
     if (group.kind === "quad") return { prefix: "Q", name: "CQUAD4", color: COLORS.quad };
     if (group.kind === "tria") return { prefix: "T", name: "CTRIA3", color: COLORS.tria };
     if (group.kind === "rbe3") return { prefix: "R", name: "RBE3", color: name === "FUEL_RBE3" ? COLORS.fuel : COLORS.rbe3 };
+    if (group.kind === "connection") return { prefix:"C",name:group.card_types?.[element.id]||"Connection",color:COLORS.rbe3 };
     if (group.kind === "conm2") return { prefix: "M", name: "CONM2", color: COLORS.fuel };
-    return { prefix: "B", name: "CBAR", color: name === "SPAR_CAPS" ? COLORS.cap :
+    return { prefix: "B", name: group.card_types?.[element.id]||"CBAR", color: name === "SPAR_CAPS" ? COLORS.cap :
       name === "RIB_STIFFENERS" ? COLORS.ribStiffener : name.startsWith("STRINGER") ? COLORS.stringer : COLORS.bar };
   }
   function centroid(positions, nodes) {

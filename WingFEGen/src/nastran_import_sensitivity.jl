@@ -22,9 +22,20 @@ end
 function imported_sensitivity_catalog(m)
     model=imported_native(m);variables=Dict{String,Any}[]
     active=Set(g.pid for g in m.groups)
+    counts=Dict{Int,Int}();material_owners=Dict{Int,Set{Int}}()
+    for g in m.groups;counts[g.pid]=get(counts,g.pid,0)+length(g.eids);end
+    for (key,prop) in model["PSHELLs"]
+        pid=parse(Int,key);pid in active||continue
+        mids=haskey(prop,"PLY_DATA") ? unique(Int(p["mid"]) for p in prop["PLY_DATA"]) : [Int(prop["MID"])]
+        for mid in mids;push!(get!(material_owners,mid,Set{Int}()),pid);end
+    end
+    for (key,prop) in model["PBARLs"]
+        pid=parse(Int,key);pid in active&&get(prop,"TYPE","") in ("T","BAR","ROD")||continue
+        push!(get!(material_owners,Int(prop["MID"]),Set{Int}()),pid)
+    end
     function add(id,label,value,unit,pids,field,directions)
         push!(variables,Dict{String,Any}("id"=>id,"label"=>label,"value"=>Float64(value),"unit"=>unit,"pids"=>sort!(collect(pids)),"field_key"=>field,"field_label"=>label,"directions"=>directions,
-            "element_count"=>sum(length(g.eids) for g in m.groups if g.pid in pids),"group"=>startswith(id,"nastran.MAT1") ? "Imported materials" : "Imported properties"))
+            "element_count"=>sum(get(counts,pid,0) for pid in pids),"group"=>startswith(id,"nastran.MAT1") ? "Imported materials" : "Imported properties"))
     end
     for (key,prop) in sort!(collect(model["PSHELLs"]);by=first)
         pid=parse(Int,key);pid in active||continue
@@ -48,15 +59,7 @@ function imported_sensitivity_catalog(m)
     for (key,mat) in sort!(collect(model["MATs"]);by=first)
         (haskey(mat,"E1")||haskey(mat,"G11"))&&continue
         haskey(mat,"E")&&haskey(mat,"NU")||continue
-        mid=parse(Int,key);owners=Int[]
-        for (pidstring,prop) in model["PSHELLs"]
-            pid=parse(Int,pidstring);pid in active||continue
-            mids=haskey(prop,"PLY_DATA") ? [Int(p["mid"]) for p in prop["PLY_DATA"]] : [Int(prop["MID"])]
-            mid in mids&&push!(owners,pid)
-        end
-        for (pidstring,prop) in model["PBARLs"]
-            pid=parse(Int,pidstring);pid in active&&Int(prop["MID"])==mid&&get(prop,"TYPE","") in ("T","BAR","ROD")&&push!(owners,pid)
-        end
+        mid=parse(Int,key);owners=sort!(collect(get(material_owners,mid,Set{Int}())))
         isempty(owners)&&continue
         for (field,nativekey,unit,scale,label) in (("E","E","GPa",1e9,"Elastic modulus"),("nu","NU","1",1.,"Poisson ratio"),("rho","RHO","kg/m3",1.,"Density"))
             directions=Dict{Int,Any}()

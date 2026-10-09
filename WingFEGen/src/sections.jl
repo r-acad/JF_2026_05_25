@@ -55,7 +55,7 @@ skin or rib datum. Areas and bending inertias are exact; J uses the JFEM PBARL
 approximations, explicitly identified in `torsion_model`.
 """
 function section_definition(p::AbstractDict, pid::Integer)
-    haskey(p,"imported.native")&&return imported_section(p["imported.native"]["PBARLs"][string(pid)])
+    haskey(p,"imported.native")&&return imported_section(imported_native(p)["PBARLs"][string(pid)])
     base_pid=component_base_pid(pid)
     if base_pid in (PID_STRINGER,PID_RIB_STIFFENER)
         dimensions=base_pid==PID_STRINGER ? panel_stringer_dimensions(p,pid) :

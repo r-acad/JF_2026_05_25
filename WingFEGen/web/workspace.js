@@ -184,6 +184,9 @@
   function parseObject(data) {
     if (!object(data) || data.format!==FORMAT || data.version!==VERSION) throw new Error("Unsupported Study file format or version. Choose a WingFEGen .wingfem.json file.");
     if (!object(data.parameters) || !Array.isArray(data.references)) throw new Error("Study parameters or embedded references are missing.");
+    // Legacy panel property keys must retain their original runout boundaries.
+    // New Studies receive the schema default (0.75) before being saved.
+    if(data.parameters["mesh.stringer_runout_ratio"]===undefined)data.parameters["mesh.stringer_runout_ratio"]=1;
     data.notes=normalizeNotes(data.notes);
     if(data.model_source!==undefined)data.model_source=nastran.source(data.model_source);
     if(data.saved_at!==undefined)isoTime(data.saved_at);

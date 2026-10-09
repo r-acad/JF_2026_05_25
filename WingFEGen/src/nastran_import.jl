@@ -1,7 +1,19 @@
 # Imported decks are authoritative models. The Model facade supplies the
 # existing viewer/job ID ordering; its placeholder Wing is never regenerated.
 is_imported_model(m::Model)=haskey(m.params,"imported.native")
-imported_native(m::Model)=m.params["imported.native"]
+const IMPORTED_NATIVE_LOCK=ReentrantLock()
+imported_native(m::Model)=imported_native(m.params)
+function imported_native(params::AbstractDict)
+    lock(IMPORTED_NATIVE_LOCK) do
+        native=params["imported.native"];native!==nothing&&return native
+        path=get(params,"imported.native_path",nothing)
+        path isa AbstractString&&isfile(path)||throw(ArgumentError("The cached native deck is unavailable; read the original deck or saved Study again"))
+        # The complete native data remain on disk after import. Viewer payloads
+        # already contain all properties/cases; only a backend operation needs
+        # this second process's copy of the solver dictionary.
+        params["imported.native"]=Serialization.deserialize(path)
+    end
+end
 const IMPORTED_MODELS=Dict{String,Model}()
 const IMPORTED_MODELS_LOCK=ReentrantLock()
 
@@ -130,6 +142,9 @@ function imported_material(model,mid)
     for (source,target) in (("E","E_Pa"),("NU","nu"),("RHO","rho_kg_m3"));haskey(mat,source)&&(result[target]=mat[source]);end
     return result
 end
+imported_material(model,mid,cache)=cache===nothing ? imported_material(model,mid) : get!(cache,Int(mid)) do
+    imported_material(model,mid)
+end
 
 function imported_section(nativeprop)
     shape=String(get(nativeprop,"TYPE","PBAR"));dimensions=Float64.(get(nativeprop,"DIMS",Float64[]))
@@ -143,26 +158,30 @@ function imported_section(nativeprop)
     return section
 end
 
-function imported_properties(model,group)
+function imported_properties(model,group;material_cache=nothing)
     pid=group.pid
     if group.kind===:bar
+        if startswith(group.name,"IMPORTED_CROD_")
+            prop=model["PRODs"][string(pid)]
+            return Dict{String,Any}("type"=>"PROD","pid"=>pid,"material"=>imported_material(model,prop["MID"],material_cache),"section"=>Dict{String,Any}("type"=>"PROD","area_m2"=>prop["A"],"J_m4"=>get(prop,"J",0.)))
+        end
         prop=model["PBARLs"][string(pid)]
-        return Dict{String,Any}("type"=>isempty(get(prop,"DIMS",[])) ? "PBAR" : "PBARL","pid"=>pid,"material"=>imported_material(model,prop["MID"]),"section"=>imported_section(prop))
+        return Dict{String,Any}("type"=>isempty(get(prop,"DIMS",[])) ? "PBAR" : "PBARL","pid"=>pid,"material"=>imported_material(model,prop["MID"],material_cache),"section"=>imported_section(prop))
     end
     prop=model["PSHELLs"][string(pid)];thickness=Float64(prop["T"])
     if haskey(prop,"PLY_DATA")
         plies=Any[]
         for ply in prop["PLY_DATA"]
             mid=Int(ply["mid"]);t=Float64(ply["z_top"]-ply["z_bot"])
-            push!(plies,Dict("material"=>imported_material(model,mid),"thickness_m"=>t,"angle_deg"=>get(ply,"theta",0.)))
+            push!(plies,Dict{String,Any}("material"=>imported_material(model,mid,material_cache),"thickness_m"=>t,"angle_deg"=>get(ply,"theta",0.)))
         end
         result=Dict{String,Any}("type"=>"PCOMP","pid"=>pid,"thickness_m"=>thickness,"plies"=>plies,"areal_mass_kg_m2"=>sum(p["thickness_m"]*get(p["material"],"rho_kg_m3",0.) for p in plies)+get(prop,"NSM",0.),"construction"=>"Imported laminate (original stacking sequence)","sandwich"=>false)
         if length(plies)==3&&plies[1]["material"]["id"]==plies[3]["material"]["id"]&&isapprox(plies[1]["thickness_m"],plies[3]["thickness_m"];rtol=1e-12)&&plies[1]["angle_deg"]==plies[3]["angle_deg"]
-            merge!(result,Dict("sandwich"=>true,"face_thickness_m"=>plies[1]["thickness_m"],"core_thickness_m"=>plies[2]["thickness_m"],"face_material"=>plies[1]["material"],"core_material"=>plies[2]["material"]))
+            merge!(result,Dict{String,Any}("sandwich"=>true,"face_thickness_m"=>plies[1]["thickness_m"],"core_thickness_m"=>plies[2]["thickness_m"],"face_material"=>plies[1]["material"],"core_material"=>plies[2]["material"]))
         end
         return result
     end
-    mat=imported_material(model,prop["MID"])
+    mat=imported_material(model,prop["MID"],material_cache)
     Dict{String,Any}("type"=>"PSHELL","pid"=>pid,"thickness_m"=>thickness,"material"=>mat,"material_id"=>prop["MID"],"areal_mass_kg_m2"=>thickness*get(mat,"rho_kg_m3",0.)+get(prop,"NSM",0.))
 end
 
@@ -180,26 +199,31 @@ function imported_model(native,source,p;cards=Dict())
     rows=Dict{String,Any}[merge(row,Dict("result_required"=>Int(native["SOL"])!=105||get(get(subs,row["id"],Dict()),"STATSUB",nothing)!==nothing)) for row in rows]
     params["imported.cases"]=rows
     groups=ElemGroup[];lookup=Dict{Tuple{Symbol,Int},ElemGroup}();warnings=String[];unsupported=Dict{String,Int}()
-    for (key,family) in (("CSHELLs",:shell),("CBARs",:bar))
-        for (keyid,el) in sort!(collect(native[key]);by=x->Int(last(x)["ID"]))
+    for (key,family) in (("CSHELLs",:shell),("CBARs",:bar),("CBEAMs",:beam),("CRODs",:rod))
+        for (keyid,el) in sort!(collect(get(native,key,Dict()));by=x->Int(last(x)["ID"]))
             eid=Int(el["ID"]);pid=Int(el["PID"])
-            nodes=family===:bar ? [el["GA"],el["GB"]] : el["NODES"]
-            kind=family===:bar ? :bar : length(nodes)==3 ? :tria : length(nodes)==4 ? :quad : :unsupported
+            nodes=family!==:shell ? [el["GA"],el["GB"]] : el["NODES"]
+            kind=family!==:shell ? :bar : length(nodes)==3 ? :tria : length(nodes)==4 ? :quad : :unsupported
             if kind===:unsupported;card=String(el["TYPE"]);unsupported[card]=get(unsupported,card,0)+1;continue;end
             all(id->haskey(index,id),nodes)||throw(ArgumentError("Element $eid references a missing GRID"))
-            gr=get!(lookup,(kind,pid)) do
-                result=ElemGroup("IMPORTED_$(uppercase(string(kind)))_P$pid",kind,pid);push!(groups,result);result
+            gr=get!(lookup,(family===:beam||family===:rod ? family : kind,pid)) do
+                label=family===:beam ? "CBEAM" : family===:rod ? "CROD" : uppercase(string(kind))
+                result=ElemGroup("IMPORTED_$(label)_P$pid",kind,pid);push!(groups,result);result
             end
             push!(gr.eids,eid);append!(gr.conn,[index[id] for id in nodes])
             if kind===:bar
                 g0=Int(get(el,"G0",0));v=g0==0 ? Float64.(get(el,"V",get(el,"X",[0.,1.,0.]))) : Float64.(native["GRIDs"][string(g0)]["X"])-Float64.(native["GRIDs"][string(nodes[1])]["X"])
+                if family===:rod
+                    direction=Float64.(native["GRIDs"][string(nodes[2])]["X"])-Float64.(native["GRIDs"][string(nodes[1])]["X"])
+                    v=zeros(3);v[argmin(abs.(direction))]=1.
+                end
                 append!(gr.orient,v)
             end
         end
     end
-    visual=Set(("CQUAD4","CQUADR","CTRIA3","CSHEAR","CBAR","RBE3","GRID"))
+    visual=Set(("CQUAD4","CQUADR","CTRIA3","CSHEAR","CBAR","CBEAM","CROD","RBE3","RBE2","RBAR","RBE1","RSPLINE","CELAS1","CELAS2","CONM2","GRID"))
     for (card,data) in cards
-        (startswith(card,"C")||startswith(card,"RBE")||card=="RSPLINE")&&!(card in visual)&&(unsupported[card]=length(data))
+        ((startswith(card,"C")&&!startswith(card,"CORD"))||startswith(card,"RBE")||card=="RSPLINE")&&!(card in visual)&&(unsupported[card]=length(data))
     end
     isempty(groups)&&push!(warnings,"No supported shell or CBAR elements are present; GRID locations are retained.")
     any(g->g.kind===:bar,groups)&&push!(warnings,"Beam section/axis glyphs use GRID reference lines and the source orientation vector. OFFT/CD transformations and WA/WB offsets are not represented by these glyphs; native analysis retains their exact source definitions.")
@@ -213,9 +237,22 @@ function imported_model(native,source,p;cards=Dict())
     return model
 end
 
+function imported_display_bbox(m)
+    used=falses(length(m.node_ids))
+    for group in m.groups,node in group.conn;used[node]=true;end
+    lo=fill(Inf,3);hi=fill(-Inf,3)
+    for node in eachindex(used)
+        used[node]||continue
+        for axis in 1:3;value=m.xyz[3*(node-1)+axis];lo[axis]=min(lo[axis],value);hi[axis]=max(hi[axis],value);end
+    end
+    any(!isfinite,lo)&&return bbox_of(m)
+    Dict{String,Any}("min"=>lo,"max"=>hi)
+end
+
 function imported_mesh_payload(m)
-    native=imported_native(m);params=m.params;source=params["imported.source"];index=Dict(id=>i for (i,id) in enumerate(m.node_ids))
-    groups=Any[Dict("name"=>gr.name,"kind"=>string(gr.kind),"pid"=>gr.pid,"base_pid"=>0,"base_group"=>gr.name,"card_types"=>Dict(string(eid)=>String(get(native[gr.kind===:bar ? "CBARs" : "CSHELLs"][string(eid)],"TYPE",gr.kind===:bar ? "CBAR" : "shell")) for eid in gr.eids),"count"=>length(gr.eids),"eids"=>blob_i32(gr.eids),"conn"=>blob_i32(gr.conn;offset=-1),"orient"=>blob_f32(gr.orient),"properties"=>imported_properties(native,gr),"axes"=>imported_element_axes(m,gr)) for gr in m.groups]
+    native=imported_native(m);params=m.params;source=params["imported.source"];index=Dict(id=>i for (i,id) in enumerate(m.node_ids));material_cache=Dict{Int,Any}()
+    groups=Any[Dict{String,Any}("name"=>gr.name,"kind"=>string(gr.kind),"pid"=>gr.pid,"base_pid"=>0,"base_group"=>gr.name,"card_types"=>Dict(string(eid)=>String(get(native[startswith(gr.name,"IMPORTED_CBEAM_") ? "CBEAMs" : startswith(gr.name,"IMPORTED_CROD_") ? "CRODs" : gr.kind===:bar ? "CBARs" : "CSHELLs"][string(eid)],"TYPE",gr.kind===:bar ? "CBAR" : "shell")) for eid in gr.eids),"count"=>length(gr.eids),"eids"=>blob_i32(gr.eids),"conn"=>blob_i32(gr.conn;offset=-1),"orient"=>blob_f32(gr.orient),"properties"=>imported_properties(native,gr;material_cache),"axes"=>imported_element_axes(m,gr)) for gr in m.groups]
+    buffers=imported_compact_buffers!(groups)
     emptyspider=Dict("count"=>0,"refs"=>blob_i32(Int[]),"eids"=>blob_i32(Int[]),"lines"=>blob_i32(Int[]),"elements"=>Any[])
     rbe=deepcopy(emptyspider);refs=Int[];eids=Int[];lines=Int[];elements=Any[]
     for (key,el) in get(native,"RBE3s",Dict())
@@ -233,10 +270,69 @@ function imported_mesh_payload(m)
     publicparams=Dict(k=>v for (k,v) in params if !startswith(k,"imported."))
     return Dict{String,Any}("ok"=>true,"format"=>"wingfegen-mesh-1","title"=>source["name"],"model_params"=>publicparams,
         "imported_signature"=>source["signature"],"imported_deck"=>Dict("signature"=>source["signature"],"name"=>source["name"],"solution"=>params["output.solution"],"cases"=>[Dict(k=>v for (k,v) in row if k!="spc") for row in params["imported.cases"]],"warnings"=>params["imported.warnings"],"unsupported_visual_cards"=>params["imported.unsupported_visual_cards"],"card_inventory"=>params["imported.inventory"],"unprocessed_cards"=>unprocessed,"source_card_count"=>source_card_count,"parsed_card_count"=>parsed_card_count,"case_control"=>get(params,"imported.case_control",Dict())),
-        "nodes"=>Dict("count"=>length(m.node_ids),"n_structural"=>m.n_struct,"ids"=>blob_i32(m.node_ids),"xyz"=>blob_f32(m.xyz)),"groups"=>groups,
-        "rbe3"=>rbe,"fuel_rbe3"=>deepcopy(emptyspider),"spc"=>imported_supports(m),
+        "nodes"=>Dict("count"=>length(m.node_ids),"n_structural"=>m.n_struct,"ids"=>blob_i32(m.node_ids),"xyz"=>blob_f32(m.xyz)),"groups"=>groups,"imported_buffers"=>buffers,
+        "rbe3"=>rbe,"fuel_rbe3"=>deepcopy(emptyspider),"imported_connections"=>imported_connection_payload(native,index),"spc"=>imported_supports(m),
         "aero"=>Dict("count"=>0,"sections"=>Any[],"n_loop"=>0,"xyz"=>blob_f32(Float64[]),"conn"=>blob_i32(Int[]),"n_per_node"=>0,"map"=>blob_i32(Int[]),"weights"=>blob_f32(Float64[])),
-        "fuel"=>Dict("enabled"=>false,"bays"=>Any[],"volume_m3"=>0.),"weights"=>Dict("components"=>Any[]),"annotations"=>Dict("ribs"=>Any[],"stringers"=>Any[]),"stiffened_panels"=>Dict("panels"=>Any[]),"load_cases"=>cases,"loads"=>first(cases)["loads"],"bbox"=>bbox_of(m),"info"=>Any[Any[k,v] for (k,v) in m.info],"checks"=>Any[Any[n,d,ok] for (n,d,ok) in m.checks],"checks_pass"=>true)
+        "fuel"=>Dict("enabled"=>false,"bays"=>Any[],"volume_m3"=>0.),"weights"=>Dict("components"=>Any[]),"annotations"=>Dict("ribs"=>Any[],"stringers"=>Any[]),"stiffened_panels"=>Dict("panels"=>Any[]),"load_cases"=>cases,"loads"=>first(cases)["loads"],"bbox"=>bbox_of(m),"display_bbox"=>imported_display_bbox(m),"info"=>Any[Any[k,v] for (k,v) in m.info],"checks"=>Any[Any[n,d,ok] for (n,d,ok) in m.checks],"checks_pass"=>true)
+end
+
+"""Pack large imported meshes into a few binary buffers, keeping all property rows.
+Hundreds of thousands of tiny bin fields cost far more browser structured-clone
+time than the geometry itself. Offsets reconstruct identical per-group views.
+"""
+function imported_compact_buffers!(groups;threshold=1000)
+    length(groups)>threshold||return nothing
+    fields=("eids","conn","orient","centers","x","y","z","lengths")
+    buffers=Dict{String,Vector{UInt8}}()
+    for (i,field) in enumerate(fields)
+        total=sum(length((i<=3 ? g[field] : g["axes"][field]).bytes) for g in groups)
+        buffers[field]=Vector{UInt8}(undef,total)
+    end
+    cursors=zeros(Int,length(fields))
+    materials=Any[];material_indices=Dict{Int,Int}()
+    function material_ref!(owner,key)
+        material=get(owner,key,nothing);material===nothing&&return
+        id=Int(material["id"])
+        index=get!(material_indices,id) do;push!(materials,material);length(materials)-1;end
+        owner[key]=index
+    end
+    for group in groups
+        offsets=copy(cursors)
+        for (i,field) in enumerate(fields)
+            bytes=(i<=3 ? pop!(group,field) : group["axes"][field]).bytes
+            copyto!(buffers[field],cursors[i]+1,bytes,1,length(bytes));cursors[i]+=length(bytes)
+        end
+        group["binary_offsets"]=offsets
+        delete!(group,"axes");delete!(group,"base_group");delete!(group,"base_pid")
+        section=get(group["properties"],"section",nothing);section===nothing||delete!(section,"placement")
+        properties=group["properties"]
+        for key in ("material","face_material","core_material");material_ref!(properties,key);end
+        for ply in get(properties,"plies",Any[]);material_ref!(ply,"material");end
+    end
+    result=Dict{String,Any}(field=>Blob(buffers[field]) for field in fields)
+    result["materials"]=materials;result
+end
+
+"""Source constraint/spring topology and point masses, without inventing beam stiffness.
+These are inspection glyphs; their original DOF definitions remain in the native model.
+"""
+function imported_connection_payload(native,index)
+    result=Any[]
+    for (key,card) in (("RBE2s","RBE2/RBAR"),("RBE1s","RBE1"),("RSPLINEs","RSPLINE"),("CELASs","CELAS"),("CONM2s","CONM2"))
+        records=Any[]
+        for (_,el) in get(native,key,Dict())
+            grids=key=="RBE2s" ? vcat(el["GN"],el["GM"]) : key=="RBE1s" ? unique([first(p) for p in vcat(el["INDEP"],el["DEP"])]) : key=="RSPLINEs" ? unique(vcat(el["INDEP_GRIDS"],[first(p) for p in el["DEP"]])) : key=="CELASs" ? [el["G1"],el["G2"]] : [el["GID"]]
+            filter!(gid->haskey(index,gid),grids);isempty(grids)&&continue
+            properties=Dict{String,Any}(el)
+            if key=="CELASs"&&haskey(el,"PID")
+                properties["property"]=get(get(native,"PELASs",Dict()),string(el["PID"]),Dict())
+            end
+            properties["display_note"]=key=="CONM2s" ? "Marker is at the attachment GRID; the mass offset and inertia are retained in the original CID and native analysis." : "Connection topology only; DOF definitions are shown below and remain unchanged in native analysis."
+            push!(records,Dict("eid"=>el["ID"],"type"=>get(el,"TYPE",card),"nodes"=>[index[id]-1 for id in grids],"properties"=>properties))
+        end
+        isempty(records)||push!(result,Dict("name"=>"IMPORTED_"*replace(card,"/"=>"_"),"card"=>card,"point_mass"=>key=="CONM2s","elements"=>records))
+    end
+    result
 end
 
 function imported_element_axes(m,gr)
@@ -262,7 +358,7 @@ function imported_element_axes(m,gr)
         lengths[e]=minimum(norm3(points[mod1(i+1,stride)].-points[i]) for i in 1:stride)
     end
     note=gr.kind===:bar ? "GRID-reference axes only: OFFT/CD transformations and WA/WB offsets are not displayed; native analysis retains the source beam frame." : "Imported geometric shell axes; source material orientation cards remain unchanged."
-    Dict("centers"=>blob_f32(centers),"x"=>blob_f32(xs),"y"=>blob_f32(ys),"z"=>blob_f32(zs),"lengths"=>blob_f32(lengths),"frame_note"=>note)
+    Dict{String,Any}("centers"=>blob_f32(centers),"x"=>blob_f32(xs),"y"=>blob_f32(ys),"z"=>blob_f32(zs),"lengths"=>blob_f32(lengths),"frame_note"=>note)
 end
 
 function imported_supports(m)

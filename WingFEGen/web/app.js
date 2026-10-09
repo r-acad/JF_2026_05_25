@@ -432,7 +432,7 @@ const HELP_TOPICS = {
     "Span and chord panels control the aerodynamic resolution, independently of the structural shell mesh. The vortex lattice lies on the wing camber surface. Increase the resolution and compare loads to check convergence.",
     "Once the model updates, use Aerodynamic view below: choose a load case, then Mesh, Pressure (Pa) or Cp. Hide VLM removes the lattice and contour. The force/moment switches show loads transferred to RBE3 centers. The same controls remain available in Display. Fully solid skins can hide the camber sheet; use Translucent or hide a skin to see internal panels.",
     "Pressure and Cp are lower-minus-upper jumps, not separate upper/lower surface pressures. Cp divides the pressure difference by dynamic pressure.",
-    "VortexLattice.jl models steady, incompressible, attached flow and induced drag. It does not model stall or viscous drag. The speed of sound is used to limit Mach to 0.3. Forces and moments transfer to the RBE3 centers while preserving total force and moment.",
+    "VortexLattice.jl models steady attached flow and induced drag, with a Prandtl?Glauert transformation for subsonic compressibility through Mach 0.5. It does not model shocks, stall, viscous drag or aeroelastic feedback. Forces and moments transfer to rib RBE3 centers preserving total force and moment.",
   ] },
   "Beam sections": { title: "Stringers and spar caps", paragraphs: [
     "The two section cards show proportional cross sections as you edit the dimensions, including dimension arrows, centroid, area, skin contact and local axes. Inputs use metres; the drawing labels use millimetres. Invalid dimensions clear the preview until corrected.",
@@ -1195,6 +1195,8 @@ function analysisValidity() {
     const variants = String(solution) === "106" && !state.importedDeck ? [record?.variants?.get("sol101"),record?.variants?.get("sol106")] : [record];
     if (variants.some(r => !r || r.available === false || !r.matches || r.signature&&r.signature!==state.modelSignature || (!r.static && !r.modes?.length)))
       return invalid("Matching results are missing for one or more load cases or analyses. Run JFEM again.");
+    if (variants.some(r => r.historical))
+      return invalid("Historical results retain an earlier aerodynamic model or load application convention. Run JFEM again for the current formulation.");
     if (variants.some(r => /failed|cancelled|canceled|timeout|stopped/i.test(r.status || "") || r.convergence &&
       (r.convergence.partial || r.convergence.converged !== true || r.convergence.full_load !== true)))
       return invalid("An analysis is incomplete or did not converge at full load. Available converged states can still be inspected.");
@@ -1203,16 +1205,16 @@ function analysisValidity() {
 }
 
 function sensitivityResultsAvailable() {
-  return !!state.sensitivityResult?.rows?.length;
+  return Number(state.sensitivityResult?.case_id ?? state.sensitivityResult?.request?.case_id ?? 1)===Number(state.activeCase)&&
+    !!state.sensitivityResult?.rows?.some(row=>Number.isFinite(row.derivative)&&!['failed','unavailable','error'].includes(String(row.status||'').toLowerCase()));
 }
 
 function physicalResultsAvailable() {
   const usable=result=>!!result&&result.available!==false&&!!(result.static||result.modes?.length||result.contours?.length);
   if(usable(state.results))return true;
-  for(const result of state.resultCases?.values()||[]){
-    if(usable(result))return true;
-    for(const variant of result?.variants?.values()||[])if(usable(variant))return true;
-  }
+  const result=state.resultCases?.get(Number(state.activeCase));
+  if(usable(result))return true;
+  for(const variant of result?.variants?.values()||[])if(usable(variant))return true;
   return false;
 }
 
@@ -1249,7 +1251,7 @@ function updateAnalysisValidity() {
   const status = analysisValidity(),sensitivity=sensitivityResultValidity();
   const feAvailable=physicalResultsAvailable(),sensitivityAvailable=sensitivityResultsAvailable();
   const anyCurrent=status.current||sensitivity.current;
-  const combined={current:anyCurrent,reason:status.current?status.reason:sensitivity.current?sensitivity.reason:status.reason};
+  const combined={current:anyCurrent,reason:!feAvailable&&!sensitivityAvailable?"No FE or sensitivity results are available for case "+state.activeCase+". Select a solved case or run an analysis.":status.current?status.reason:sensitivity.current?sensitivity.reason:status.reason};
   const selected=state.results;
   const feCurrent=!!selected&&!state.modelDirty&&!resultsHavePendingDrafts()&&selected.matches&&selected.available!==false&&!selected.historical&&
     !/failed|cancelled|canceled|timeout|stopped/i.test(selected.status||"")&&
@@ -1260,9 +1262,9 @@ function updateAnalysisValidity() {
     const el = document.getElementById(id); if (!el) continue;
     const shown=id==="btn-jfem"?status:id==="tab-sensitivityresults"?sensitivity:id==="tab-results"?feStatus:combined;
     const available=id==="tab-sensitivityresults"?sensitivityAvailable:id==="tab-resultsmenu"?feAvailable||sensitivityAvailable:feAvailable;
-    el.setAttribute("data-analysis-current",String(shown.current));
+    el.setAttribute("data-analysis-current",String(available&&shown.current));
     el.setAttribute("data-analysis-state",!available?"empty":shown.current?"current":"stale");
-    el.title = (id === "btn-jfem" ? "Run the selected analysis for every enabled load case. " : "") + shown.reason;
+    el.title = (id === "btn-jfem" ? "Run the selected analysis for every enabled load case. " : "") + (!available?"No "+(id==="tab-sensitivityresults"?"sensitivity ":id==="tab-results"?"FE ":"")+"results are available for case "+state.activeCase+".":shown.reason);
     el.setAttribute("aria-label",(id === "btn-jfem" ? "Run in JFEM" : id==="tab-results"?"FE Results":id==="tab-sensitivityresults"?"Sensitivity results":"Results") + (!available?" — no results available":shown.current ? " — results current" : " — analysis required"));
   }
   const sensitivityTab=document.getElementById("tab-sensitivityresults");
@@ -1595,12 +1597,13 @@ const activity = () => globalThis.WingActivity;
 const paintActivity = () => activity()?.yieldFrame() || Promise.resolve();
 async function decodePayload(buffer) {
   await paintActivity();
+  const expand=data=>data?.imported_buffers&&typeof WingImportedRender!=="undefined"?WingImportedRender.expand(data):data;
   if (typeof Worker === "undefined" || buffer.byteLength < 1024 * 1024)
-    return MessagePack.decode(new Uint8Array(buffer));
+    return expand(MessagePack.decode(new Uint8Array(buffer)));
   const worker = new Worker("decode-worker.js");
   try {
     return await new Promise((resolve, reject) => {
-      worker.onmessage = ({data}) => data.error ? reject(new Error(data.error)) : resolve(data.data);
+      worker.onmessage = ({data}) => {try{data.error ? reject(new Error(data.error)) : resolve(expand(data.data));}catch(error){reject(error);}};
       worker.onerror = event => reject(new Error(event.message || "Payload decoder failed"));
       worker.postMessage(buffer, [buffer]);
     });
@@ -1621,7 +1624,7 @@ async function buildModelResponsive(data, options = {}, token) {
       // Buffer/property batches are prepared off screen. Updating and painting
       // the progress DOM for every small property group needlessly slows large
       // imported decks; only publish progress at the responsive frame boundary.
-      if(!group||elapsed>=12)activity().update(token, {detail:group?"Preparing geometry buffers · "+groupCount+" / "+data.groups.length+" property groups. The complete model will appear together.":detail});
+      if(!group||elapsed>=12)activity().update(token, {detail:group?"Preparing geometry batch "+groupCount+" · "+data.groups.length+" property groups retained. The complete model will appear together.":detail});
       const concise=detail.replace(/ p\d+/g,"");
       if(!detail.startsWith("Drawing ")&&concise!==lastLogged){log("Viewport +"+((performance.now()-started)/1000).toFixed(2)+" s: "+concise);lastLogged=concise;}
       if(elapsed>=12){await paintActivity();painted=performance.now();}
@@ -2622,6 +2625,7 @@ async function loadModelDefinition(file, options = {}) {
       const buffer = await response.arrayBuffer(), byteLength = buffer.byteLength, decodeStarted=performance.now();
       if(importRequest)activity()?.update(token,{detail:"Decoding "+(byteLength/1048576).toFixed(1)+" MiB of model data before preparing the complete view…"});
       const data = await decodePayload(buffer);
+      if(importRequest&&response.headers.get("X-Wing-Import-Timings"))data.import_timings=JSON.parse(response.headers.get("X-Wing-Import-Timings"));
       if(importRequest)log("Imported model transfer: "+((decodeStarted-transferStarted)/1000).toFixed(2)+" s; browser decoding: "+((performance.now()-decodeStarted)/1000).toFixed(2)+" s; "+(byteLength/1048576).toFixed(1)+" MiB. Preparing the complete viewport next.");
       if (!data.ok || !data.nodes || !data.groups) throw new Error("The prepared model is incomplete.");
       if(options.importDeck)definition.model_source=WingNastranImport.source(data.model_source || options.importRequest);
@@ -2975,16 +2979,24 @@ function decodeResultCase(payload,r,signature) {
   const importedSignatures=[r.imported_signature,payload.imported_signature].filter(value=>value!==undefined);
   const sourceMatches=state.importedDeck ? importedSignatures.length>0&&importedSignatures.every(value=>value===state.importedDeck.signature) :
     importedSignatures.length===0&&[r.model_params,payload.model_params].filter(Boolean).every(params=>formSignature(params)===state.modelSignature);
+  const expectedLoadVersion=state.data?.loads?.load_application_version;
+  const resultLoadVersions=[r.load_application_version,payload.load_application_version].filter(value=>value!==undefined);
+  // Missing or old generated-load metadata must not turn an earlier
+  // incompressible baseline green. Geometry still permits historical viewing.
+  // Imported decks have their own source identity and are unaffected by PG.
+  const historicalLoads=!state.importedDeck&&!!expectedLoadVersion&&
+    (!resultLoadVersions.length||resultLoadVersions.some(value=>value!==expectedLoadVersion));
   const results = {
     analysis: payload.analysis_type || r.analysis_type,
     signature,
     meshIdentity:signature===state.modelSignature?state.meshIdentity:null,
     variantId: payload.variant_id || (payload.id === "sol101" || payload.id === "sol106" ? payload.id : null),
-    source:payload.source||r.source, historical:payload.historical===true||r.historical===true,
+    source:payload.source||r.source, historical:payload.historical===true||r.historical===true||historicalLoads,
+    loadApplicationVersion:payload.load_application_version??r.load_application_version??null,
     variantLabel: payload.label || "",
     available: payload.available !== false,
     status: payload.status || "complete",
-    message: payload.message || "",
+    message: (payload.message || "")+(historicalLoads?" Historical load formulation: rerun the analysis to use the current aerodynamic model and load application convention.":""),
     convergence: payload.convergence || null,
     loadScale: payload.load_scale ?? payload.convergence?.exported_load_scale ?? 1,
     followerLoading: payload.follower_loading || null,
@@ -3087,7 +3099,7 @@ function initScene() {
   state.camera.wheelDeltaPercentage = 0.02;
   // Pan sensitivity is recomputed in screen units after each fit/zoom, so
   // millimetre decks and metre wings respond to the same pointer gesture.
-  state.camera.panningSensibility = 400;
+  state.camera.panningSensibility = 400 / 1.5;
   state.camera.useInputToRestoreState = false;
   // Reserve the middle button for node centering, without moving on drag.
   state.camera.inputs.attached.pointers.buttons = [0, 2];
@@ -3304,17 +3316,19 @@ function shellMesh(name, positions, conn, nodesPerElement, hex, alpha, deformabl
 }
 
 function lineMesh(name, positions, pairs, hex, alpha, deformable, colorable) {
-  const lines = [];
-  for (let i = 0; i < pairs.length; i += 2) {
-    lines.push([vec(positions, pairs[i]), vec(positions, pairs[i + 1])]);
-  }
-  if (!lines.length) return null;
-  const options = { lines: lines, useVertexAlpha: false, updatable: true };
+  if (!pairs.length) return null;
+  // Allocate typed buffers directly. CreateLineSystem materializes two
+  // Vector3 objects per edge and millions of temporary JS arrays on a deck.
+  const mesh = new BABYLON.LinesMesh(name,state.scene,null,undefined,false,!!colorable,false);
+  const vd=new BABYLON.VertexData(),points=new Float32Array(pairs.length*3),indices=new Int32Array(pairs.length);
+  for(let i=0;i<pairs.length;i++){const k=3*pairs[i];points[3*i]=positions[k];points[3*i+1]=positions[k+1];points[3*i+2]=positions[k+2];indices[i]=i;}
+  vd.positions=points;vd.indices=indices;
   if (colorable) {
-    const color = color3(hex);
-    options.colors = lines.map(() => [new BABYLON.Color4(color.r, color.g, color.b, 1), new BABYLON.Color4(color.r, color.g, color.b, 1)]);
+    const color=color3(hex),colors=new Float32Array(pairs.length*4);
+    for(let i=0;i<pairs.length;i++)colors.set([color.r,color.g,color.b,1],i*4);
+    vd.colors=colors;
   }
-  const mesh = BABYLON.MeshBuilder.CreateLineSystem(name, options, state.scene);
+  vd.applyToMesh(mesh,true);
   mesh.color = colorable ? BABYLON.Color3.White() : color3(hex);
   mesh.baseColorHex = hex;
   // A LinesMesh blends as soon as its alpha drops below one.
@@ -3376,8 +3390,11 @@ function barSectionMesh(group, positions, conn, hex, reference) {
 function applyBeamStyle() {
   const control = document.getElementById("beam-style");
   const sections = control && control.value === "sections";
+  const visited=new Set();
   for (const layer of state.layers.values()) {
     for (const mesh of layer.meshes) {
+      if(visited.has(mesh))continue;visited.add(mesh);
+      if(mesh.importedRanges){WingImportedRender.sync(mesh,state.layers);continue;}
       if (!mesh.barRepresentation) continue;
       const active = mesh.barRepresentation === "sections" ? sections : !sections || !mesh.hasSectionShape;
       mesh.setEnabled(layer.visible && active);
@@ -3469,6 +3486,7 @@ function* buildModelSteps(data, options = {}) {
   state.scene.blockMaterialDirtyMechanism=true;
   try {
   yield "Preparing viewport geometry…";
+  if(data.imported_buffers)WingImportedRender.expand(data);
   const restorePanels=document.getElementById("show-panels").checked;
   if(state.panelView)setPanelDisplay(false,false);
   if (!options.preserveView || options.resetIsolation) state.fuelIsolation = null;
@@ -3494,7 +3512,7 @@ function* buildModelSteps(data, options = {}) {
   state.nodeIds = asI32(data.nodes.ids);
   state.baseline = positions;
   state.deformed = new Float32Array(positions.length);
-  const bb = data.bbox;
+  const bb = WingImportedRender.bounds(data);
   const diag = Math.hypot(bb.max[0] - bb.min[0],
                           bb.max[1] - bb.min[1],
                           bb.max[2] - bb.min[2]) || 1;
@@ -3509,14 +3527,17 @@ function* buildModelSteps(data, options = {}) {
   // Structural element groups.
   const fallbackByElement=new Map();
   for(const rib of data.leading_edge?.ribs || []) if(rib.fallback) for(const eid of rib.eids || []) fallbackByElement.set(eid,rib);
-  for (const g of data.groups) {
+  const renderGroups=data.imported_deck&&typeof WingImportedRender!=="undefined"?WingImportedRender.batches(data.groups,asI32,asF32):data.groups;
+  for (const g of renderGroups) {
     yield "Drawing " + g.name.toLowerCase().replaceAll("_", " ") + "…";
     const style = GROUP_STYLE[g.base_group || g.name] || { color: "#9aa6b2", alpha: 0.9 };
     const conn = asI32(g.conn);
     const ids = groupIds(g);
     const stride = g.n_per_elem || (g.kind === "tria" ? 3 : g.kind === "quad" ? 4 : 2);
+    let rangeIndex=0;
     for (let e = 0; e < ids.length; e++) {
-      state.elements.set(ids[e], { id: ids[e], group: g, nodes: conn.slice(e * stride, (e + 1) * stride), leadingEdgeFallback:fallbackByElement.get(ids[e]) });
+      while(g.sourceRanges&&e>=g.sourceRanges[rangeIndex].start+g.sourceRanges[rangeIndex].count)rangeIndex++;
+      state.elements.set(ids[e], { id: ids[e], group: g.sourceRanges?.[rangeIndex].group||g, nodes: conn.slice(e * stride, (e + 1) * stride), leadingEdgeFallback:fallbackByElement.get(ids[e]) });
     }
     const family=state.importedDeck?0:Math.floor(g.pid/1000000),physical=g.pid%1000000;
     const label = g.panel_id!=null ? (state.panelIndex.byId.get(g.panel_id)?.label||"Panel "+g.panel_id)+" · "+(g.kind==="bar"?"stringer":"skin") : family ? (g.base_group||g.name).replace(/_/g," ").toLowerCase()+" · "+(family<=2?"R ":"bay ")+physical : g.name.replace(/_/g, " ").toLowerCase();
@@ -3552,6 +3573,11 @@ function* buildModelSteps(data, options = {}) {
       addLayer(g.name, label, style.color, g.count + " bars",
                [mesh, solid].filter(Boolean));
     }
+    if(g.sourceRanges){
+      const batch=state.layers.get(g.name);state.layers.delete(g.name);
+      for(const mesh of batch.meshes){mesh.importedRanges=g.sourceRanges.map(range=>({...range}));mesh.importedIndicesPerElement=g.kind==="quad"?6:g.kind==="tria"?3:2;}
+      for(const range of g.sourceRanges)addLayer(range.group.name,range.group.name.replaceAll("_"," ").toLowerCase(),style.color,range.count+(g.kind==="bar"?" bars":" shells"),batch.meshes);
+    }
   }
 
   // Element edges of the shells, drawn as the FE wireframe.
@@ -3559,7 +3585,7 @@ function* buildModelSteps(data, options = {}) {
   const edges = shellEdgePairs(data.groups);
   const ghost = lineMesh("UNDEFORMED", positions, edges, "#c5d1df", 0.42, false);
   const referenceMeshes = ghost ? [ghost] : [];
-  for (const g of data.groups) {
+  for (const g of renderGroups) {
     if (g.kind !== "bar") continue;
     const conn = asI32(g.conn);
     const lines = lineMesh(g.name + "-reference", positions, conn, "#c5d1df", 0.42, false);
@@ -3619,6 +3645,23 @@ function* buildModelSteps(data, options = {}) {
              marks || []);
   }
 
+  // Native constraint topology, springs and mass attachment GRID markers.
+  // They remain separate from physical beam elements and retain source DOFs.
+  for(const collection of data.imported_connections||[]){
+    const pairs=[],faces=[],ids=Int32Array.from(collection.elements,el=>el.eid),color=collection.point_mass?"#ffd68a":"#f4b8d6";
+    for(let i=0;i<collection.elements.length;i++){
+      const el=collection.elements[i],group={name:collection.name,kind:collection.point_mass?"conm2":"connection",card_types:{[el.eid]:el.type},properties:el.properties};
+      state.elements.set(el.eid,{id:el.eid,group,nodes:Int32Array.from(el.nodes)});
+      for(let n=1;n<el.nodes.length;n++){pairs.push(el.nodes[0],el.nodes[n]);faces.push(i);}
+    }
+    const mesh=lineMesh(collection.name,positions,Int32Array.from(pairs),color,.7,true),meshes=mesh?[mesh]:[];
+    if(mesh){mesh.isPickable=true;mesh.intersectionThreshold=.002*diag;mesh.elementIds=ids;mesh.metadata={feGroup:{name:collection.name,kind:"connection"},faceElements:faces,facesPerElement:1};}
+    // Zero-length springs and masses still have a visible attachment marker.
+    const points=collection.elements.filter(el=>collection.point_mass||el.nodes.length<2||el.nodes.every(n=>n===el.nodes[0]));
+    if(points.length)meshes.push(...markerMesh(collection.name,positions,points.map(el=>el.nodes[0]),color,Math.max(markerRadius(),diag*1e-8)));
+    addLayer(collection.name,collection.card+(collection.point_mass?" mass attachment nodes":" connections"),color,collection.elements.length+" elements",meshes);
+  }
+
   // Generated supports or the imported subcase's effective SPC selection.
   refreshSupportLayer(data,positions);
 
@@ -3666,7 +3709,7 @@ function* buildModelSteps(data, options = {}) {
   refreshFuelMassProperties();
   syncRibDatums(data);
   yield "Building element axes and aerodynamic loads…";
-  addElementAxes(data.groups);
+  yield* elementAxesSteps(data.groups);
   refreshLoadLayers();
   buildCaseSelectors();
   yield "Finalizing display and reports…";
@@ -3891,8 +3934,8 @@ function syncLayerGroupControls() {
 function setModelEntitiesVisible(names, on) {
   // A new explicit group choice ends the temporary tank-isolation mode.
   state.fuelIsolation = null;
-  state.edgeUpdateBatch=true;
-  try{for (const name of names) setLayerVisible(name, on);}finally{state.edgeUpdateBatch=false;syncMeshEdges();if(state.sensitivityMap?.contour.kind==="sensitivity_field")applyContour();}
+  batchLayerVisibility(()=>{for (const name of names) setLayerVisible(name, on);});
+  if(state.sensitivityMap?.contour.kind==="sensitivity_field")applyContour();
   syncFuelControls(); syncLayerGroupControls();applyAeroOverlayStyles();updateViewportLegends();
   state.annotations?.invalidate();
 }
@@ -3928,8 +3971,17 @@ function buildLayerPanel() {
     toggle.onclick=()=>{state.layerGroupCollapsed.set(group.id,!body.hidden);collapse(!body.hidden);markStudyViewModified();};
     label.append(checkbox, title, count);legend.append(toggle,label);fieldset.append(legend,body);
     const rows=componentLayerRows(group);
-    state.layerGroupControls.set(group.id, { checkbox, count, names: group.names, rows });
-    for (const item of rows) {
+    state.layerGroupControls.set(group.id, { checkbox, count, names: group.names, rows,collapse });
+    const pageSize=200;let page=0,filtered=rows;
+    const list=document.createElement("div"),pager=document.createElement("div");
+    const search=document.createElement("input"),previous=document.createElement("button"),next=document.createElement("button"),pageInfo=document.createElement("span");
+    if(rows.length>pageSize){search.type="search";search.placeholder="Find property or entity…";search.setAttribute("aria-label","Filter "+group.label);previous.textContent="Previous";next.textContent="Next";previous.type=next.type="button";pager.append(search,previous,pageInfo,next);pager.className="entity-list-pager";body.append(pager);}
+    body.append(list);
+    const renderRows=()=>{
+    for(const key of state.layerRowControls.keys())if(key.startsWith(group.id+":"))state.layerRowControls.delete(key);
+    list.replaceChildren();
+    page=Math.max(0,Math.min(page,Math.ceil(filtered.length/pageSize)-1));
+    for (const item of filtered.slice(page*pageSize,(page+1)*pageSize)) {
       const name=item.names[0],layer=state.layers.get(name),row=document.createElement("label");row.className="layer";
       row.dataset.component=item.key;
       if(name === "AERO_MOMENTS")row.title=appliedMomentHint();
@@ -3941,19 +3993,26 @@ function buildLayerPanel() {
       if(group.id==="loads")sw.title=name==="VLM_FORCES"?"Magenta: signed panel-normal pressure force":"Global X red, Y green, Z blue";
       const text = document.createElement("span"); text.className = "layer-name"; text.textContent = item.label;
       const count = document.createElement("span"); count.className = "count"; count.textContent = item.count;
-      row.append(cb, sw, text, count); body.appendChild(row);
+      row.append(cb, sw, text, count); list.appendChild(row);
     }
+    previous.disabled=page===0;next.disabled=(page+1)*pageSize>=filtered.length;pageInfo.textContent=filtered.length?`${page*pageSize+1}–${Math.min((page+1)*pageSize,filtered.length)} / ${filtered.length}`:"No matches";
+    };
+    previous.onclick=()=>{page--;renderRows();syncLayerGroupControls();};next.onclick=()=>{page++;renderRows();syncLayerGroupControls();};
+    search.oninput=()=>{const query=search.value.toLowerCase().trim();filtered=rows.filter(row=>row.label.toLowerCase().includes(query));page=0;renderRows();syncLayerGroupControls();};
+    renderRows();
     if(group.id==="aerodynamics" && aeroAppearance)body.appendChild(aeroAppearance);
     host.appendChild(fieldset);
   }
   if(aeroAppearance && !aeroAppearance.parentElement)host.appendChild(aeroAppearance);
+  for(const [id,collapsed]of [["btn-collapse-layer-groups",true],["btn-expand-layer-groups",false]]){const button=document.getElementById(id);if(button)button.onclick=()=>{for(const [key,control]of state.layerGroupControls){state.layerGroupCollapsed.set(key,collapsed);control.collapse(collapsed);}markStudyViewModified();};}
   syncLayerGroupControls(); syncAxesControls(); syncAeroOverlayControl(); syncFuelControls();
 }
 
 function updateViewPlanes(data = state.data) {
   if (!state.scene || !data || typeof WingViewPlanes === "undefined") return;
   if (!state.viewPlanes) state.viewPlanes = WingViewPlanes.create({ scene: state.scene });
-  state.viewPlanes.update(data, groundViewSettings() || undefined); syncViewPlanes();
+  const bounds=WingImportedRender.bounds(data,!!state.layers.get("NODES")?.visible);
+  state.viewPlanes.update(bounds===data.bbox?data:{...data,bbox:bounds}, groundViewSettings() || undefined); syncViewPlanes();
 }
 
 function groundViewSettings(report = false) {
@@ -4038,6 +4097,7 @@ function setLayerVisible(name, on) {
     updateMarkerRadii();
   }
   layer.visible = on;
+  if(name==="NODES"&&state.importedDeck)updateViewPlanes();
   if(name!=="FUEL_INERTIA")for (const m of layer.meshes) m.setEnabled(on);
   if(name==="FUEL_INERTIA") {document.getElementById("show-fuel-inertia").checked=on;refreshFuelMassProperties();}
   if(!state.layerVisibilityBatch)applyBeamStyle();
@@ -4152,10 +4212,23 @@ function rebuildComparisonOverlay() {
   const result = comparisonResult();
   if (!result || !state.baseline) return;
   const hex = result.variantId === "sol101" ? "#59ddff" : "#ed87ff";
-  for (const group of state.data.groups) {
-    const pairs = group.kind === "bar" ? asI32(group.conn) : shellEdgePairs([group]);
+  let sectionBuffer;
+  const groups=state.importedDeck?WingImportedRender.batches(state.data.groups,asI32,asF32):state.data.groups;
+  for (const group of groups) {
+    // Keep one stable edge segment range per element in batched overlays so
+    // hiding a PID never changes the numbering of neighbouring elements.
+    let pairs;
+    if(group.kind==="bar")pairs=asI32(group.conn);
+    else if(group.sourceRanges){
+      const conn=asI32(group.conn),stride=group.kind==="quad"?4:3;
+      pairs=new Int32Array(group.count*stride*2);
+      for(let e=0;e<group.count;e++)for(let k=0;k<stride;k++){
+        pairs[(e*stride+k)*2]=conn[e*stride+k];pairs[(e*stride+k)*2+1]=conn[e*stride+(k+1)%stride];
+      }
+    }else pairs=shellEdgePairs([group]);
     const mesh = lineMesh("COMPARE_" + group.name, state.baseline, pairs, hex, 1, false);
     if (!mesh) continue;
+    if(group.sourceRanges){mesh.importedRanges=group.sourceRanges.map(range=>({...range}));mesh.importedIndicesPerElement=group.kind==="bar"?2:group.kind==="quad"?8:6;}
     // Explicit comparison overlay: the legend identifies its wireframe as
     // visible through surfaces, while ordinary model layers retain depth.
     mesh.renderingGroupId = BAR_RENDER_GROUP;
@@ -4175,7 +4248,7 @@ function rebuildComparisonOverlay() {
       section.material.disableDepthWrite = true;
       section.renderingGroupId = BAR_RENDER_GROUP;
       state.comparisonMeshes.push({mesh: section, group:group.name, result, representation:"sections", barSection:true,
-        buf: new Float32Array(state.baseline.length)});
+        buf: sectionBuffer||(sectionBuffer=new Float32Array(state.baseline.length))});
     }
   }
   const key = document.getElementById("comparison-key");
@@ -4192,13 +4265,17 @@ function rebuildComparisonOverlay() {
 function updateComparisonPositions(amp) {
   const base = state.baseline;
   if (!base) return;
+  const sectionPositions=new Map();
   for (const {mesh, pairs, buf, result} of state.comparisonMeshes) {
     const shape = result.static.disp;
     if (mesh.sectionGeometry) {
-      for (let n = 0; n < base.length; n += 3) {
-        buf[n] = base[n] + amp * shape[n + 1]; buf[n + 1] = base[n + 1] + amp * shape[n + 2]; buf[n + 2] = base[n + 2] + amp * shape[n];
+      let positions=sectionPositions.get(result);
+      if(!positions){positions=buf;sectionPositions.set(result,positions);
+        for (let n = 0; n < base.length; n += 3) {
+          positions[n] = base[n] + amp * shape[n + 1]; positions[n + 1] = base[n + 1] + amp * shape[n + 2]; positions[n + 2] = base[n + 2] + amp * shape[n];
+        }
       }
-      WingSections.updateMesh(BABYLON, mesh, buf, result.static.rotation, amp);
+      WingSections.updateMesh(BABYLON, mesh, positions, result.static.rotation, amp);
       continue;
     }
     for (let i = 0; i < pairs.length; i++) {
@@ -4214,8 +4291,11 @@ function updateComparisonPositions(amp) {
 function syncComparisonVisibility() {
   const representation = document.getElementById("beam-style")?.value || "lines";
   const available = !state.sensitivityMap && !!comparisonResult();
-  for (const item of state.comparisonMeshes) item.mesh.setEnabled(!!state.layers.get(item.group)?.visible && available &&
-    (!item.representation || item.representation === representation));
+  for (const item of state.comparisonMeshes) {
+    if(item.mesh.importedRanges)WingImportedRender.sync(item.mesh,state.layers);
+    const visible=item.mesh.importedRanges?item.mesh.isEnabled():!!state.layers.get(item.group)?.visible;
+    item.mesh.setEnabled(visible && available && (!item.representation || item.representation === representation));
+  }
 }
 
 function activeShape() {
@@ -4354,25 +4434,13 @@ function pushPositions(dp, rotations, rotationScale = 1) {
     m.mesh.position.set(dp[3 * n], dp[3 * n + 1], dp[3 * n + 2]);
   }
   state.supportGlyphs?.update({positions:dp});
+  updateVlmPose(dp, rotations, rotationScale);
   applyPanelMeshOffsets();
   updateSelection(dp);
 }
 
-/* A blue to red ramp for the contours. */
-const CMAP = [
-  [0.00, [0.14, 0.24, 0.50]],
-  [0.25, [0.16, 0.56, 0.74]],
-  [0.50, [0.28, 0.72, 0.44]],
-  [0.75, [0.94, 0.79, 0.26]],
-  [1.00, [0.86, 0.24, 0.22]],
-];
-const COLOR_SCALES = {
-  spectrum: CMAP,
-  viridis: [[0,[.267,.005,.329]],[.25,[.230,.322,.546]],[.5,[.128,.567,.551]],[.75,[.369,.789,.383]],[1,[.993,.906,.144]]],
-  inferno: [[0,[.001,.000,.014]],[.25,[.342,.062,.429]],[.5,[.735,.216,.330]],[.75,[.978,.558,.035]],[1,[.988,.998,.645]]],
-  coolwarm: [[0,[.230,.299,.754]],[.25,[.554,.690,.996]],[.5,[.865,.865,.865]],[.75,[.957,.598,.477]],[1,[.706,.016,.150]]],
-  grayscale: [[0,[.10,.10,.10]],[1,[1,1,1]]],
-};
+const COLOR_SCALES = WingColorScales.scales;
+const CMAP = COLOR_SCALES.spectrum;
 function contourPaletteKey(contour) {
   if(contour?.kind==="properties")return "properties";
   return contour?.kind?.startsWith("sensitivity") ? "sensitivity" : "fe";
@@ -4517,7 +4585,7 @@ function updateViewportLegends() {
     const {min,max,limitKey}=vlmColorRange(field,values);
     const current=modelCases().find(c=>Number(c.id)===state.activeCase);
     entries.push({kind:"vlm",limitKey,title:field==="pressure"?"VLM pressure jump":"VLM Cp jump",unit:field==="pressure"?"Pa":"dimensionless",min,max,
-      caseLabel:"Case "+state.activeCase+(current?.label?" · "+current.label:""),gradient:contourGradient(min,max,"vlm"),note:"Lower minus upper · undeformed lattice"});
+      caseLabel:"Case "+state.activeCase+(current?.label?" · "+current.label:""),gradient:contourGradient(min,max,"vlm"),note:"Lower minus upper · prescribed pressure; lattice follows displayed shape"});
   }
   WingLegends.render(document.getElementById("viewport-legends"),entries);
 }
@@ -4856,7 +4924,7 @@ function esc(s) {
 /* --- camera -------------------------------------------------------------- */
 
 function modelCentre() {
-  const bb = state.bbox;
+  const bb = state.data?WingImportedRender.bounds(state.data,!!state.layers.get("NODES")?.visible):state.bbox;
   if (!bb) return { target: BABYLON.Vector3.Zero(), diag: 10 };
   // Centre in Babylon axes, remembering the permutation.
   const cx = 0.5 * (bb.min[1] + bb.max[1]);
@@ -4884,7 +4952,7 @@ function syncCameraClipping() {
   if(camera.mode!==BABYLON.Camera.ORTHOGRAPHIC_CAMERA&&camera.fovMode===BABYLON.Camera.FOVMODE_HORIZONTAL_FIXED)worldHeight/=Math.max(.01,(canvas?.clientWidth||state.engine.getRenderWidth())/height);
   // ArcRotate accumulates pan in world units, including its inertial tail.
   // Target approximately 0.65 screen pixels per pointer pixel at every scale.
-  if(Number.isFinite(worldHeight)&&worldHeight>0)camera.panningSensibility=height/(worldHeight*.65*Math.max(.001,1-camera.panningInertia));
+  if(Number.isFinite(worldHeight)&&worldHeight>0)camera.panningSensibility=height/(worldHeight*.65*1.5*Math.max(.001,1-camera.panningInertia));
   camera.lowerRadiusLimit=Math.max(diag*1e-6,1e-10);
 }
 
@@ -4979,8 +5047,9 @@ function refreshSupportLayer(data=state.data,positions=currentPositions()) {
   setLayerVisible('SPC',visible);
 }
 
-// Contours and force glyphs describe the selected physical solution; the VLM
-// mesh and load plots continue to describe the prescribed undeformed loading.
+// Contours and force glyphs describe the selected physical solution. The VLM
+// geometry follows its displayed shape; pressure coefficients and load plots
+// remain the prescribed aerodynamic solution (no aeroelastic recalculation).
 function appliedResultLoads() {
   const source = activeLoads(), result = state.results;
   const loads=source?{...source,stations:WingGeometryExport.loadStations(source)}:null;
@@ -5031,6 +5100,8 @@ function refreshAppliedLoadLayers() {
   addAeroLoads(loads); addAeroMoments(loads);
   for (const name of ["AERO_LOADS", "AERO_MOMENTS"])
     if (state.loadLayerVisibility.has(name)) setLayerVisible(name, state.loadLayerVisibility.get(name));
+  updateVlmPose(currentPositions(), activeShape()?.rotation,
+    activeShape() ? amplitude() * (animating() ? Math.sin(state.phase) : 1) : 0);
 }
 
 function refreshLoadPlots() {
@@ -5130,11 +5201,47 @@ function rebuildVlmForceArrows() {
     glyphs.push({...record,first_vertex,vertex_count:vertices.length,scale});
   }
   const mesh=lineMesh("VLM_FORCES",Float32Array.from(points),Int32Array.from({length:points.length/3},(_,i)=>i),EXTRA_STYLE.VLM_FORCES.color,1,false);
-  if(mesh){mesh.renderingGroupId=2;mesh.metadata={forceScale:scale,multiplier,panelCount:vlm.count,glyphs,force_basis:"signed panel-normal pressure force",invalidPanels:normalLoads.invalid};}
+  if(mesh){mesh.renderingGroupId=2;mesh.metadata={forceScale:scale,multiplier,panelCount:vlm.count,glyphs,force_basis:"signed panel-normal pressure force",invalidPanels:normalLoads.invalid};
+    const centers=Float32Array.from(glyphs.flatMap(g=>[g.position[1],g.position[2],g.position[0]]));
+    mesh.vlmPose={bindings:WingVlmDeformation.attach(centers,activeLoads()?.stations,state.baseline,
+      {etas:glyphs.map(g=>activeLoads()?.panels?.[g.panel_id-1]?.eta)}),buf:Float32Array.from(points)};}
   addLayer("VLM_FORCES",EXTRA_STYLE.VLM_FORCES.label,EXTRA_STYLE.VLM_FORCES.color,glyphs.length+" normal arrows",mesh?[mesh]:[]);
   setLayerVisible("VLM_FORCES",visible);
-  if(note)note.textContent=(maxForce>0?eng(scale,5)+" m/N; common scale across cases. Magenta arrows show signed panel-normal pressure force (pressure times area), including the load multiplier. The full force, including tangential components, remains applied at the RBE3s.":"All panel-normal forces are zero; no arrows are drawn.")+
+  updateVlmPose(currentPositions(),activeShape()?.rotation,activeShape()?amplitude()*(animating()?Math.sin(state.phase):1):0);
+  if(note)note.textContent=(maxForce>0?eng(scale,5)+" m/N; common scale across cases. Magenta arrows show signed panel-normal pressure force. Origins follow the displayed shape; follower directions use the actual solved rotations, not exaggerated display rotations. Fixed loads keep their global directions. The full force remains applied at the RBE3s; no aerodynamic recomputation is performed.":"All panel-normal forces are zero; no arrows are drawn.")+
     (normalLoads.invalid.length?" "+normalLoads.invalid.length+" invalid panel geometries/loads were omitted.":"");
+}
+
+/** Reuse the existing VLM meshes; deformation never rebuilds the model or
+ * allocates one draw call per aerodynamic panel. Geometry is display-scaled,
+ * force directions/magnitudes describe the accepted physical result. */
+function updateVlmPose(positions=state.baseline,rotations=null,rotationScale=0) {
+  if(!positions||!state.baseline||typeof WingVlmDeformation==='undefined')return;
+  const pose=state.vlm?.pose;
+  if(pose){
+    for(let i=0;i<pose.bindings.length;i++)pose.buf.set(WingVlmDeformation.point(pose.bindings[i],state.baseline,positions,rotations,rotationScale),3*i);
+    for(const item of pose.meshes){const mesh=item.mesh;if(!mesh||mesh.isDisposed())continue;
+      const buf=item.map?item.buf:pose.buf;
+      if(item.map)for(let i=0;i<item.map.length;i++)buf.set(pose.buf.subarray(3*item.map[i],3*item.map[i]+3),3*i);
+      mesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind,buf,true,false);updateSurfaceNormals(mesh,buf);}
+  }
+  const result=!state.sensitivityMap&&state.activeMode<0&&state.results?.matches&&state.results.available!==false&&state.results.static?state.results:null;
+  const loading=result?.followerLoading,followers=loading?.enabled?new Map((loading.forces||[]).map(row=>[Number(row.grid_id),row.rotation_basic])):null;
+  const scale=Number.isFinite(result?.loadScale)?result.loadScale:1;
+  for(const mesh of state.layers.get('VLM_FORCES')?.meshes||[]){
+    const data=mesh.vlmPose;if(!data)continue;
+    const glyphs=mesh.metadata.glyphs;
+    for(let i=0;i<glyphs.length;i++){
+      const glyph=glyphs[i],binding=data.bindings[i],center=WingVlmDeformation.point(binding,state.baseline,positions,rotations,rotationScale);
+      const force=WingVlmDeformation.force(glyph.force,binding,{scale,followers,linear:loading?.mode==='first_order'});
+      const vertices=WingLoadGlyphs.vectorArrow(force,{scale:mesh.metadata.forceScale,diag:state.diag});
+      for(let j=0;j<glyph.vertex_count;j++){const p=vertices[j]||[0,0,0];data.buf.set([center[0]+p[1],center[1]+p[2],center[2]+p[0]],3*(glyph.first_vertex+j));}
+      glyph.display_force=force;glyph.display_position=[center[2],center[0],center[1]];
+    }
+    mesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind,data.buf,true,false);
+    mesh.metadata.force_basis=followers?'Prescribed panel-normal force rotated with solved rib reference rotations':'Prescribed panel-normal force in fixed global axes';
+    mesh.metadata.physical_load_scale=scale;
+  }
 }
 
 function buildCaseSelectors() {
@@ -5215,9 +5322,14 @@ function arrowVertices(vector) {
 }
 
 function addElementAxes(groups) {
+  for(const unused of elementAxesSteps(groups)) { /* synchronous callers */ }
+}
+
+function* elementAxesSteps(groups) {
   for (const [kind, name] of [["shell", "SHELL_AXES"], ["bar", "BAR_AXES"]]) {
     const meshes = []; let count = 0;
     for (const axis of (kind === "bar" ? ["x", "y", "z"] : ["x"])) {
+      yield "Preparing "+kind+" local "+axis+" axes…";
       const points = [], offsets = [], centers = [];
       for (const g of groups) {
         if ((g.kind === "bar") !== (kind === "bar") || !g.axes || !g.axes[axis]) continue;
@@ -5260,7 +5372,15 @@ function addVlm(vlm) {
   mesh.renderingGroupId = 1;
   mesh.material.disableLighting = true; mesh.material.emissiveColor = BABYLON.Color3.White();
   addLayer("VLM_PRESSURE", EXTRA_STYLE.VLM_PRESSURE.label, EXTRA_STYLE.VLM_PRESSURE.color, vlm.count + " panels", [mesh]);
-  state.vlm = { mesh, pressure: vlm.pressure ? asF32(vlm.pressure) : null, cp: vlm.cp ? asF32(vlm.cp) : null, count: vlm.count };
+  // Physical y = root y + eta * half-span. Use the original panel station
+  // metadata to recover this affine relation, including nonzero root offsets.
+  // An oblique rib reference center is not generally at its nominal eta.
+  const stations=(activeLoads()?.panels||[]).filter(p=>Number.isFinite(p.eta)&&Number.isFinite(p.position?.[1])).sort((a,b)=>a.eta-b.eta),first=stations[0],last=stations.at(-1);
+  const halfSpan=last&&last.eta>first.eta?(last.position[1]-first.position[1])/(last.eta-first.eta):NaN,rootY=first?first.position[1]-first.eta*halfSpan:NaN;
+  const etas=halfSpan>0?Array.from({length:points.length/3},(_,i)=>(points[3*i]-rootY)/halfSpan):null;
+  state.vlm = { mesh, pressure: vlm.pressure ? asF32(vlm.pressure) : null, cp: vlm.cp ? asF32(vlm.cp) : null, count: vlm.count,
+    pose:{meshes:[{mesh:edges,map:Int32Array.from(pairs),buf:new Float32Array(pairs.length*3)},{mesh}],buf:new Float32Array(points),bindings:WingVlmDeformation.attach(points,activeLoads()?.stations,state.baseline,{etas})} };
+  updateVlmPose(currentPositions(),activeShape()?.rotation,activeShape()?amplitude()*(animating()?Math.sin(state.phase):1):0);
 }
 
 function vlmColorRange(field,values){
@@ -5286,7 +5406,7 @@ function applyVlmContour() {
   state.vlm.mesh.updateVerticesData(BABYLON.VertexBuffer.ColorKind, colors, false, false);
   const current=modelCases().find(c=>Number(c.id)===state.activeCase);
   WingLegends.render(host,[{kind:"vlm",limitKey,title:field==="pressure"?"VLM pressure jump":"VLM Cp jump",unit:field==="pressure"?"Pa":"dimensionless",min,max,
-    caseLabel:"Case "+state.activeCase+(current?.label?" · "+current.label:""),gradient:contourGradient(min,max,"vlm"),note:"Lower minus upper · undeformed lattice"}]);
+    caseLabel:"Case "+state.activeCase+(current?.label?" · "+current.label:""),gradient:contourGradient(min,max,"vlm"),note:"Lower minus upper · prescribed pressure; lattice follows displayed shape"}]);
   syncVlmControls();
 }
 
@@ -5434,12 +5554,14 @@ function applySurfaceMode() {
   const solid = document.getElementById("surface-mode").value === "solid";
   const translucency=Number(document.getElementById("surface-translucency").value),structuralAlpha=1-Math.max(0,Math.min(100,Number.isFinite(translucency)?translucency:45))/100;
   document.getElementById("surface-translucency-control").hidden=solid;
+  const visited=new Set();
   for (const [name, layer] of state.layers) {
     if (name === "REFERENCE_AERO") continue;
     // The loft is a context overlay. Making it opaque hides skin elements
     // (especially runout triangles) wherever the two surfaces overlap.
     const opaque = solid && name !== "AERO_SURFACE" && name !== "FUEL_TANK";
     for (const mesh of layer.meshes) {
+      if(visited.has(mesh))continue;visited.add(mesh);
       if (mesh.translucentAlpha === undefined) continue;
       mesh.hasVertexAlpha = false;
       mesh.material.alpha = opaque ? 1 : mesh.metadata?.feGroup&&["quad","tria"].includes(mesh.metadata.feGroup.kind)?structuralAlpha:mesh.translucentAlpha;
@@ -6168,9 +6290,8 @@ if (typeof WingWorkspace !== "undefined") {
   document.getElementById("btn-load-toml").onclick=()=>{if(workspaceOperationAvailable())document.getElementById("toml-file").click();};
   document.getElementById("toml-file").onchange=async event=>{const file=event.target.files[0];event.target.value="";await loadTomlDefinition(file);};
   document.getElementById("btn-new-study").onclick=newStudy;
-  state.nastranImport=WingNastranImport.create({onImport:loadNastranSource,browseFiles:async({path,all,offset,signal})=>{
-    const query=new URLSearchParams({path,all:all?"1":"0",offset:String(offset||0)});
-    const response=await fetch("/api/import_nastran/browse?"+query,{cache:"no-store",signal});
+  state.nastranImport=WingNastranImport.create({onImport:loadNastranSource,pickFile:async({path})=>{
+    const response=await fetch("/api/import_nastran/pick",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path})});
     if(!response.ok)throw Error(await readError(response));return response.json();
   },prepareImporter:async start=>{
     const response=await fetch("/api/import_nastran/prepare",{method:start?"POST":"GET",cache:"no-store"});

@@ -320,7 +320,8 @@ end
 
 """
 Build variable-width skin rows, retiring a line at the first station where
-either skin comes within one pitch of a spar in projected x. Both skin lines
+either skin comes within the requested fraction of a pitch of a spar in
+projected x. Both skin lines
 terminate together, preserving a conforming rib web. A terminating line is
 merged into the cap at that station; the preceding edge becomes a runout.
 Refine a span strip if several lines would terminate at the same spar, so
@@ -331,6 +332,7 @@ function stringer_grid(w, p, xcs, base_etas, base_ribs, nh)
     any(!iszero,layout.deltas)&&return oriented_stringer_grid(w,p,xcs,base_etas,base_ribs,nh,layout)
     spars = spar_geometry(p)
     pitch = p["box.stringer_pitch"]
+    clearance = pitch * get(p, "mesh.stringer_runout_ratio", 1.0)
     path = stringer_path(w, p)
     roots = [section_point(w, 0.0, xc, 0.0)[1] for xc in xcs]
     count = length(xcs)
@@ -349,7 +351,7 @@ function stringer_grid(w, p, xcs, base_etas, base_ribs, nh)
             prev[i] == 0 || continue
             x = roots[i] + stringer_offset(path, eta)
             df, dr = x - front, rear - x
-            if min(df, dr) < pitch - tol
+            if min(df, dr) < clearance - tol
                 next[i] = df <= dr ? -1 : 1
             end
         end
@@ -1082,6 +1084,8 @@ function model_info(m::Model, n_str_bays::Int, n_rib_bays::Int)
         ("Stringers per skin at final rib", string(count(i -> g.collapsed[i+1,end] == 0,
                                                    g.stringer_indices))),
         ("Stringer pitch (constant)", fmt(p["box.stringer_pitch"]) * " m"),
+        ("Stringer runout distance / pitch", fmt(get(p,"mesh.stringer_runout_ratio",1.0))),
+        ("Stringer runout clearance", fmt(p["box.stringer_pitch"]*get(p,"mesh.stringer_runout_ratio",1.0))*" m in projected x"),
         ("Shell elements per stringer bay", string(get(p, "mesh.elements_between_stringers", 1))),
         ("Stringer direction", isempty(get(p,"box.rear_spar_points",Any[])) ?
             fmt(p["box.stringer_angle"]) * " deg to the base rear spar (straight paths)" :

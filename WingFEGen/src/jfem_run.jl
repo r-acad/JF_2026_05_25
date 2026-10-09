@@ -1494,6 +1494,7 @@ function jfem_case_results_payload(job::JfemJob, path::AbstractString, d::Abstra
         "report_md" => report,
         "node_count" => n,
         "model_params" => copy(m.params),
+        "load_application_version" => is_imported_model(m) ? IMPORTED_LOAD_VERSION : APPLIED_LOAD_VERSION,
         "mode_kind" => mode_kind,
         "modes" => modes,
         "static" => static,

@@ -1,5 +1,5 @@
 /* Read-only derivative tables. Fixed-state operator samples are not responses. */
-(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./sensitivity_results.js'):root.WingSensitivityResults);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingSensitivityTableData=api;})(globalThis,function(effects){
+(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./sensitivity_results.js'):root.WingSensitivityResults,typeof module==='object'&&module.exports?require('./color_scales.js'):root.WingColorScales);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingSensitivityTableData=api;})(globalThis,function(effects,colors){
  'use strict';const clone=value=>JSON.parse(JSON.stringify(value));
  function panel(row){const key=row.panel_key||/^properties\.panels#([^#]+)#/.exec(row.id||'')?.[1],match=/^(upper|lower):bay([1-9]\d*):stringer([1-9]\d*):segment([1-9]\d*)$/.exec(key||'');if(!match)return null;
   const ids=[...new Set((row.pids||[]).map(Number).filter(pid=>[5,6,7].includes(Math.floor(pid/1000000))).map(pid=>pid%1000000))],id=ids.length===1?ids[0]:Number(/^P(\d+)\b/.exec(row.label||'')?.[1])||null;
@@ -55,8 +55,9 @@
   }
   return scales;
  }
- function valueColor(number,scale){
+ function valueColor(number,scale,palette='signed'){
   const min=scale?.min,max=scale?.max;if(!Number.isFinite(number)||!Number.isFinite(min)||!Number.isFinite(max)||min>max)return null;
+  if(palette!=='signed'&&colors.scales[palette])return 'rgb('+colors.sample(palette,min===max?.5:(number-min)/(max-min)).map(v=>Math.round(v*255)).join(', ')+')';
   const blue=[92,161,215],orange=[232,142,75],zero=[242,243,239],mix=(a,b,t)=>'rgb('+a.map((c,i)=>Math.round(c+(b[i]-c)*Math.min(1,Math.max(0,t)))).join(', ')+')';
   if(min===max)return mix(zero,number<0?blue:number>0?orange:zero,.55);
   // Exact one-sided ranges use the full corresponding hue. If the values
@@ -65,10 +66,11 @@
   if(min>=0)return mix([251,235,222],orange,(number-min)/(max-min));
   return number<0?mix(zero,blue,number/min):mix(zero,orange,number/max);
  }
- function colorStops(scale){
-  const {min,max}=scale;if(min===max)return[{value:min,position:0,color:valueColor(min,scale)}];
+ function colorStops(scale,palette='signed'){
+  const {min,max}=scale;if(min===max)return[{value:min,position:0,color:valueColor(min,scale,palette)}];
+  if(palette!=='signed'&&colors.scales[palette])return colors.scales[palette].map(([position])=>{const value=min+(max-min)*position;return {value,position,color:valueColor(value,scale,palette)};});
   const values=min<0&&max>0?[min,0,max]:[min,min/2+max/2,max];
-  return values.map(value=>({value,position:(value-min)/(max-min),color:valueColor(value,scale)}));
+  return values.map(value=>({value,position:(value-min)/(max-min),color:valueColor(value,scale,palette)}));
  }
  return{panel,family,families,propertyLabel,value,compact,matrix,selectRows,csv,colorScales,valueColor,colorStops};
 });

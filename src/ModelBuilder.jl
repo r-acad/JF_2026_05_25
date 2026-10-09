@@ -602,7 +602,7 @@ function build_model(cards, cc)
                 Ash .+= Qs .* (z_top - z_bot)
 
                 # Store ply data for stress recovery
-                push!(ply_data, Dict("Qbar"=>copy(Qb), "z_bot"=>z_bot, "z_top"=>z_top,
+                push!(ply_data, Dict{String,Any}("Qbar"=>copy(Qb), "z_bot"=>z_bot, "z_top"=>z_top,
                                      "Qshear"=>copy(Qs), "theta"=>ply["THETA"], "mid"=>Int(ply["MID"]),
                                      "sout"=>get(ply, "SOUT", "")))
 
@@ -648,12 +648,12 @@ function build_model(cards, cc)
 
             pid_int = pc["PID"]
             synth_mid = _unused_laminate_material_id(mats, pid_int)
-            mats[string(synth_mid)] = Dict("MID"=>synth_mid, "E"=>E_eq, "G"=>G_eq, "NU"=>nu_eq, "RHO"=>rho_eff, "TYPE"=>"MAT1_EQUIV")
+            mats[string(synth_mid)] = Dict{String,Any}("MID"=>synth_mid, "E"=>E_eq, "G"=>G_eq, "NU"=>nu_eq, "RHO"=>rho_eff, "TYPE"=>"MAT1_EQUIV")
             # Check if B is effectively zero (symmetric laminate)
             B_max = maximum(abs.(B))
             Bmb = B_max > 1e-10 * maximum(abs.(A)) ? B : nothing
 
-            pshells[pid] = Dict("PID"=>pid_int, "MID"=>synth_mid, "T"=>total_t,
+            pshells[pid] = Dict{String,Any}("PID"=>pid_int, "MID"=>synth_mid, "T"=>total_t,
                                 "TYPE"=>"PCOMP_CLT",
                                 "Cm" => A, "Bmb" => Bmb, "Cb" => D, "Cs" => Cs_lam, "Cs_raw" => copy(Ash), "E_ref" => E_max,
                                 "T_REF" => total_t, "Cm_ref" => copy(A), "Bmb_ref" => Bmb === nothing ? nothing : copy(Bmb),
@@ -712,7 +712,10 @@ function build_model(cards, cc)
 
     grdset = haskey(cards, "GRDSET") ? NastranParser.extract_grdset(cards["GRDSET"]) : Dict{String,Any}()
 
-    model = Dict(
+    # Entity dictionaries intentionally mix IDs, vectors, matrices and strings.
+    # An explicit value type avoids repeated widening/copying while Julia's
+    # generic Dict constructor discovers those heterogeneous values.
+    model = Dict{String,Any}(
         "CASE_CONTROL" => cc,
         "GRIDs"       => haskey(cards,"GRID")   ? NastranParser.extract_grid(cards["GRID"]; grdset=grdset) : Dict(),
         "CORDs"       => merge(haskey(cards,"CORD2R") ? NastranParser.extract_coords(cards["CORD2R"]; coord_type="RECTANGULAR") : Dict(),

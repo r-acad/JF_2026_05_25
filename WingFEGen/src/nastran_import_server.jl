@@ -22,9 +22,9 @@ function imported_worker(st,repo)
         runtime=sensitivity_worker_runtime(repo)
         base=joinpath(st.deck_store_dir,"imports");mkpath(base)
         queue=mktempdir(base;prefix="worker_",cleanup=false)
-        # Imports do no numerical solve. -O0 reduces first-use parser/viewer
-        # compilation while still reusing the native package's compiled cache.
-        command=`$(runtime.command) --startup-file=no -O0 --threads=1 --project=$repo $(joinpath(@__DIR__,"nastran_import_worker.jl")) --serve $queue $repo $(st.root)`
+        # Imports do no numerical solve. -O1 keeps startup compilation modest
+        # while avoiding -O0's roughly doubled cost on large mixed decks.
+        command=`$(runtime.command) --startup-file=no -O1 --threads=1 --project=$repo $(joinpath(@__DIR__,"nastran_import_worker.jl")) --serve $queue $repo $(st.root)`
         Sys.iswindows()&&(command=Cmd(command;windows_hide=true))
         process=open(joinpath(queue,"worker.log"),"w") do output
             run(pipeline(addenv(command,"OPENBLAS_NUM_THREADS"=>"1","JFEM_SUPPRESS_THREAD_HINT"=>"1");stdout=output,stderr=output);wait=false)
@@ -80,10 +80,11 @@ function handle_import_nastran_prepare(st,req)
                     IMPORT_PREPARATIONS[worker.queue]=record
                     @async try
                         directory=mktempdir(dirname(worker.queue);prefix="preparation_",cleanup=false)
-                        # One tiny shell warms parsing/model/serialization paths.
+                        # A tiny mixed deck warms the actual shell, laminate,
+                        # line-element, connection and point-mass import paths.
                         # It never assembles K, solves, or changes the open Study.
                         source=imported_source(Dict("name"=>"importer_preparation.bdf","text"=>
-                            "SOL 101\nCEND\nSPC=1\nLOAD=2\nBEGIN BULK\nGRID,1,,0.,0.,0.\nGRID,2,,1.,0.,0.\nGRID,3,,1.,1.,0.\nGRID,4,,0.,1.,0.\nCQUAD4,1,1,1,2,3,4\nPSHELL,1,1,.01\nMAT1,1,7.E10,,.3,2700.\nSPC1,1,123456,1\nFORCE,2,3,0,1.,0.,0.,1.\nENDDATA\n"))
+                            "SOL 101\nCEND\nSPC=1\nLOAD=2\nBEGIN BULK\nGRID,1,,0.,0.,0.\nGRID,2,,1.,0.,0.\nGRID,3,,1.,1.,0.\nGRID,4,,0.,1.,0.\nCQUAD4,1,1,1,2,3,4\nCTRIA3,2,4,1,2,3\nPSHELL,1,1,.01\nMAT1,1,7.E10,,.3,2700.\nMAT8,2,7.E10,7.E9,.3,3.E9,,,1500.\nPCOMP,4,-.001,0.,,,,,\n+,2,.002,0.,YES\nPBAR,12,1,.001,1.E-6,1.E-6,1.E-6\nCBAR,12,12,1,2,0.,0.,1.\nCBEAM,13,12,3,4,0.,0.,1.\nPROD,14,1,.001\nCROD,14,14,1,3\nPELAS,15,1000.\nCELAS1,15,15,2,1,3,1\nCONM2,16,3,0,1.\nRBE2,17,1,123,2\nRBE3,18,,4,123456,1.,123,1,2,3\nSPC1,1,123456,1\nFORCE,2,3,0,1.,0.,0.,1.\nENDDATA\n"))
                         Serialization.serialize(joinpath(directory,"input.jls"),(source,default_params()))
                         report=stage->lock(IMPORT_PREPARATIONS_LOCK) do;record["stage"]=stage;end
                         imported_run_worker(st,repo,directory,report)
@@ -153,6 +154,32 @@ function handle_import_nastran_browse(st,req)
     end
 end
 
+function handle_import_nastran_pick(st,req)
+    try
+        Sys.iswindows()||throw(ArgumentError("The native path picker is available on Windows. Paste the full main-deck path to read this computer's INCLUDE tree."))
+        raw=isempty(req.body) ? Dict() : JSON.parse(String(req.body))
+        initial=String(get(raw,"path",st.root))
+        length(initial)<=32767&&!occursin('\0',initial)||throw(ArgumentError("Invalid initial path"))
+        script=joinpath(@__DIR__,"nastran_pick_file.ps1")
+        command=Cmd(`powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File $script -InitialPath $initial`;windows_hide=true)
+        result=mktemp() do path,io
+            errors=IOBuffer()
+            process=run(pipeline(command;stdout=io,stderr=errors);wait=false)
+            started=time()
+            while process_running(process)&&time()-started<300;sleep(.1);end
+            if process_running(process)
+                kill(process);wait(process)
+                throw(ArgumentError("File selection timed out after five minutes. Click Browse to reopen the system dialog."))
+            end
+            success(process)||throw(ArgumentError(String(take!(errors))))
+            flush(io);seekstart(io);JSON.parse(read(io,String))
+        end
+        json_response(result)
+    catch err
+        error_response("Open file dialog: "*describe_error(err))
+    end
+end
+
 function handle_import_nastran(st::AppState,req)
     progress=request_progress(st,req)
     try
@@ -163,23 +190,19 @@ function handle_import_nastran(st::AppState,req)
         t=time();Serialization.serialize(joinpath(dir,"input.jls"),(source,st.params));capture_seconds=time()-t
         wait_timings=imported_run_worker(st,repo,dir,progress)
         progress("Loading imported geometry into the viewer")
-        t=time();model=Serialization.deserialize(joinpath(dir,"model.jls"));payload=Serialization.deserialize(joinpath(dir,"payload.jls"));restore_seconds=time()-t
+        t=time();model=Serialization.deserialize(joinpath(dir,"model.jls"));restore_seconds=time()-t
         token=bytes2hex(SHA.sha256(source["signature"]*dir));model.params["imported.token"]=token
         lock(IMPORTED_MODELS_LOCK) do
             length(IMPORTED_MODELS)>=16&&delete!(IMPORTED_MODELS,first(keys(IMPORTED_MODELS)))
             IMPORTED_MODELS[token]=model
         end
-        payload["imported_deck"]["token"]=token;payload["generate_seconds"]=time()-started
-        payload["model_source"]=Dict(key=>source[key] for key in ("kind","name","text","includes"))
-        payload["imported_deck"]["source_file_count"]=source["source_file_count"]
-        payload["imported_deck"]["source_bytes"]=source["source_bytes"]
         timings=merge(JSON.parsefile(joinpath(dir,"timings.json")),wait_timings,
             Dict("source_seconds"=>source_seconds,"source_capture_seconds"=>capture_seconds,"server_restore_seconds"=>restore_seconds,
                 "server_seconds_before_encoding"=>time()-started))
-        payload["import_timings"]=timings
         progress("Import timing: source $(round(source_seconds;digits=2)) s; parser/viewport $(round(timings["worker_seconds"];digits=2)) s; worker wait $(round(wait_timings["worker_wait_seconds"];digits=2)) s; restore $(round(restore_seconds;digits=2)) s")
         st.model=model;progress("done")
-        return msgpack_response(payload)
+        return HTTP.Response(200,["Content-Type"=>"application/x-msgpack","Cache-Control"=>"no-store",
+            "X-Wing-Import-Timings"=>JSON.json(timings)],read(joinpath(dir,"payload.msgpack")))
     catch err
         return error_response("Read Nastran: "*describe_error(err))
     end

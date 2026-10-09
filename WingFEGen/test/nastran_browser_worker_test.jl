@@ -36,6 +36,7 @@ records=Any[]
 function readdeck(raw,label)
     started=time();response=W.handle_import_nastran(st,request("POST","/api/import_nastran",raw));response.status==200||error(String(response.body))
     seconds=time()-started;data=W.MsgPack.unpack(response.body)
+    data["import_timings"]=W.JSON.parse(W.HTTP.header(response,"X-Wing-Import-Timings"))
     write(joinpath(OUT,label*".msgpack"),response.body)
     push!(records,Dict("label"=>label,"seconds"=>seconds,"timings"=>data["import_timings"]))
     data
@@ -49,7 +50,7 @@ try
     @test listing["next_offset"]==2
     @test only(W.imported_directory_listing(directory;offset=2)["entries"])["name"]=="second.dat"
     @test W.imported_directory_listing(directory;all_files=true)["total"]==4
-    @test W.imported_directory_listing(joinpath(directory,"panel.bdf"))["directory"]==directory
+    @test W.imported_directory_listing(joinpath(directory,"panel.bdf"))["directory"]==normpath(directory)
     @test_throws ArgumentError W.imported_directory_listing(joinpath(directory,"missing"))
     response=W.handle_import_nastran_browse(st,request("GET","/api/import_nastran/browse?path="*W.HTTP.escapeuri(directory)))
     @test response.status==200
@@ -90,7 +91,7 @@ try
     push!(records,Dict("label"=>"preparation","seconds"=>status["seconds"],"timings"=>status["timings"]))
     if !isempty(ARGS)
         started=time();response=W.handle_import_nastran(prepared,request("POST","/api/import_nastran",Dict("path"=>ARGS[1])));response.status==200||error(String(response.body));elapsed=time()-started
-        data=W.MsgPack.unpack(response.body);@test data["nodes"]==cold["nodes"]
+        data=W.MsgPack.unpack(response.body);data["import_timings"]=W.JSON.parse(W.HTTP.header(response,"X-Wing-Import-Timings"));@test data["nodes"]==cold["nodes"]
         @test data["groups"]==cold["groups"]
         @test data["load_cases"]==cold["load_cases"]
         push!(records,Dict("label"=>"actual-after-preparation","seconds"=>elapsed,"timings"=>data["import_timings"]))

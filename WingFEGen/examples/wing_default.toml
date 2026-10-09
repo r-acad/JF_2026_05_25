@@ -65,6 +65,7 @@ density               = 800.0                   # kg/m3, Density used for per-ba
 fill_fraction         = 1.0                     # 0 to 1, Legacy input retained for compatibility. New Studies define Fuel status separately in every load case; a legacy file without that setting inherits this fraction
 
 [mesh]
+stringer_runout_ratio = 0.75                    # Minimum projected spar clearance / stringer pitch; 0 < ratio <= 1
 elements_between_ribs = 3                       # Shell elements spanwise between two consecutive ribs
 elements_between_stringers= 1                   # Shell subdivisions across each stringer bay, including spar margins; 1 to 100
 elements_spar_height  = 3                       # Shell elements through the spar web and rib height
@@ -94,10 +95,10 @@ fuel_accel_y          = 0.0                     # g, Signed global y acceleratio
 fuel_accel_z          = -1.0                    # g, Signed global z acceleration shared by fuel and enabled structural inertia. Default -1 applies downward weight; scaled once by the load multiplier. Fixed global directions, including in SOL106; no inferred reversal for aircraft acceleration
 
 [aero]
-speed                 = 70.0                    # m/s, Vortex lattice: steady, incompressible, attached flow; no viscous drag or stall
+speed                 = 70.0                    # m/s, Steady attached VLM with linear subsonic compressibility; no viscous drag or stall
 density               = 1.225                   # kg/m3
 alpha                 = 5.0                     # deg, Root chord incidence relative to the flow; positive gives positive lift. Large local incidence is allowed with an attached-flow validity warning; no stall prediction
-speed_of_sound        = 340.0                   # m/s, Used to enforce Mach <= 0.3 for the incompressible model
+speed_of_sound        = 340.0                   # m/s, Mach = speed / speed of sound; Prandtl-Glauert approximation through Mach 0.5
 span_panels           = 20                      # Requested minimum, 4 to 64, with cosine spacing towards the tip. Twisted geometry adds panels automatically
 chord_panels          = 9                       # Requested minimum, 2 to 24, with cosine spacing. Camber and twist may add panels to resolve curved geometry and local normals
 

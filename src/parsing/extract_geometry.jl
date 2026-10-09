@@ -42,7 +42,7 @@ function extract_grid(cards; grdset=nothing)
         seid = isempty(seid_raw) ? Int(get(defaults, "SEID", 0)) : to_id(parse_nastran_number(seid_raw, 0))
 
         if id > 0
-            d[string(id)] = Dict("ID"=>id, "CP"=>cp, "CD"=>cd, "X"=>x, "PS"=>ps, "SEID"=>seid)
+            d[string(id)] = Dict{String,Any}("ID"=>id, "CP"=>cp, "CD"=>cd, "X"=>x, "PS"=>ps, "SEID"=>seid)
         end
     end
     return d
@@ -134,7 +134,7 @@ function extract_shells(cards)
             end
         end
         if id > 0 && length(nodes) >= 3
-            d[string(id)] = Dict("ID"=>id, "PID"=>pid, "NODES"=>nodes, "THETA"=>theta, "MCID"=>mcid, "TYPE"=>card_name)
+            d[string(id)] = Dict{String,Any}("ID"=>id, "PID"=>pid, "NODES"=>nodes, "THETA"=>theta, "MCID"=>mcid, "TYPE"=>card_name)
         end
     end
     return d
@@ -196,7 +196,7 @@ function extract_cbar(cards)
         wa = [parse_nastran_number(safe_get(c, b + 3), 0.0), parse_nastran_number(safe_get(c, b + 4), 0.0), parse_nastran_number(safe_get(c, b + 5), 0.0)]
         wb = [parse_nastran_number(safe_get(c, b + 6), 0.0), parse_nastran_number(safe_get(c, b + 7), 0.0), parse_nastran_number(safe_get(c, b + 8), 0.0)]
 
-        d[string(id)] = Dict("ID"=>id, "PID"=>pid, "GA"=>ga, "GB"=>gb, "V"=>v, "G0"=>g0, "PA"=>pa, "PB"=>pb, "WA"=>wa, "WB"=>wb, "TYPE"=>"CBAR")
+        d[string(id)] = Dict{String,Any}("ID"=>id, "PID"=>pid, "GA"=>ga, "GB"=>gb, "V"=>v, "G0"=>g0, "PA"=>pa, "PB"=>pb, "WA"=>wa, "WB"=>wb, "TYPE"=>"CBAR")
     end
     return d
 end

@@ -51,14 +51,28 @@ function import_one(directory)
         t=time();stage("Preparing source load vectors (no analysis is run)")
         Base.invokelatest(W.imported_prepare_loads!,ImportNative,imported)
         timings["loads_seconds"]=time()-t
-        t=time();stage("Packing imported geometry")
-        W.Serialization.serialize(joinpath(directory,"model.jls"),imported)
+        t=time();stage("Preparing complete viewport properties and binary geometry")
         payload=Base.invokelatest(W.imported_mesh_payload,imported)
-        # Preserve Blob wrappers across the worker boundary. Unpacking and then
-        # repacking MessagePack converts bin buffers into arrays of byte values,
-        # corrupting every browser Float32/Int32 coordinate/connectivity array.
-        W.Serialization.serialize(joinpath(directory,"payload.jls"),payload)
-        timings["payload_seconds"]=time()-t;timings["worker_seconds"]=time()-started
+        timings["payload_seconds"]=time()-t
+        token=bytes2hex(W.SHA.sha256(source["signature"]*directory))
+        imported.params["imported.token"]=token;payload["imported_deck"]["token"]=token
+        payload["model_source"]=Dict(key=>source[key] for key in ("kind","name","text","includes"))
+        for key in ("source_file_count","source_bytes");payload["imported_deck"][key]=get(source,key,key=="source_file_count" ? 1 : sizeof(source["text"]));end
+        t=time();stage("Caching authoritative native cards for later analysis")
+        nativepath=joinpath(directory,"native.jls")
+        W.Serialization.serialize(nativepath,model)
+        timings["native_cache_seconds"]=time()-t
+        t=time();stage("Caching lightweight viewer model")
+        imported.params["imported.native"]=nothing;imported.params["imported.native_path"]=nativepath
+        W.Serialization.serialize(joinpath(directory,"model.jls"),imported)
+        timings["viewer_cache_seconds"]=time()-t
+        t=time();stage("Encoding complete model for the browser")
+        payload["generate_seconds"]=time()-started
+        payload["import_timings"]=merge(copy(IMPORT_BOOT_TIMINGS),timings)
+        # Encode once in the worker. The HTTP server sends these bytes directly;
+        # it must not deserialize and re-encode 150,000 property dictionaries.
+        write(joinpath(directory,"payload.msgpack"),W.MsgPack.pack(payload))
+        timings["encode_seconds"]=time()-t;timings["worker_seconds"]=time()-started
         import_json_write(joinpath(directory,"timings.json"),merge(copy(IMPORT_BOOT_TIMINGS),timings))
     catch err
         import_json_write(joinpath(directory,"error.json"),Dict("error"=>sprint(showerror,err,catch_backtrace())))

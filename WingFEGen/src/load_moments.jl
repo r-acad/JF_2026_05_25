@@ -1,5 +1,5 @@
 # Conservative force/couple transfer to the two load-bearing RBE3 families.
-const APPLIED_LOAD_VERSION = "rib_aero_bay_mass_wrenches_v1"
+const APPLIED_LOAD_VERSION = "rib_aero_bay_mass_wrenches_pg_v2"
 const APPLIED_MOMENT_ROUTING_NOTE = "All aerodynamic forces and moments act at rib-plane external RBE3 centers. All fuel and structural inertia forces and moments act at fuel/mass bay RBE3 centers. Bracketing span weights preserve force and global moment; moved forces add (source position - target position) cross force. Massless bay references add no fuel capacity or CONM2 mass. Inertia loads and all applied couples remain fixed in global axes."
 
 function moment_span_weights(station_ys, y)

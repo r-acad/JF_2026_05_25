@@ -182,10 +182,16 @@ function sensitivity_result_matches_model(result,m)
         decoded=JSON.parse(value);decoded===nothing||((decoded isa AbstractDict||decoded isa AbstractVector)&&isempty(decoded))
         catch;false;end) : value===nothing||((value isa AbstractDict||value isa AbstractVector)&&isempty(value))
     optional=[key for key in (version==1 ? ("view.drawings","properties.panels") : ("properties.panels",)) if haskey(m.params,key)&&isempty_default(m.params[key])]
+    # Before the ratio existed all definitions used one pitch. Permit the
+    # original parameter signature only for that identical physical rule.
+    # The independent load-version check still marks pre-PG runs historical.
+    get(m.params,"mesh.stringer_runout_ratio",nothing)==1.0&&push!(optional,"mesh.stringer_runout_ratio")
     for bits in 1:(2^length(optional)-1)
         params=copy(m.params)
         for (i,key) in enumerate(optional);!iszero(bits&(1<<(i-1)))&&delete!(params,key);end
-        saved==sensitivity_model_signature(sensitivity_model(m,params);version)&&return true
+        candidate=sensitivity_model(m,params)
+        saved==sensitivity_model_signature(candidate;version)&&return true
+        version==2&&saved==sensitivity_model_signature(candidate;version,legacy_empty_panels=true)&&return true
     end
     false
 end
@@ -215,7 +221,7 @@ function sensitivity_saved_load(params,root,id;model=nothing)
     load_match=get(result,"load_application_version",nothing)==load_version
     model_match||push!(reasons,model===nothing ? "Create the current FEM to check saved-result compatibility; the saved table is available now." : "The saved study definition differs from the current FEM.")
     topology_match||push!(reasons,"The saved element topology and coordinates have not been confirmed on the current FEM.")
-    load_match||push!(reasons,"Historical result: this study uses a different or unrecorded inertia-moment application convention. Its values have not been recalculated.")
+    load_match||push!(reasons,"Historical result: this study uses a different or unrecorded aerodynamic model or load application convention. Its values have not been recalculated; rerun the analysis to use the current formulation.")
     compatibility=Dict("model_match"=>model_match,"topology_match"=>topology_match,"load_application_match"=>load_match,
         "is_current"=>model_match&&topology_match&&load_match,"map_allowed"=>model_match&&topology_match,
         "reasons"=>reasons,"current_load_application_version"=>load_version)

@@ -113,7 +113,7 @@ function sensitivity_baseline_load(directory,model;result=nothing)
     historical=get(record,"load_application_version",nothing)!=(is_imported_model(model) ? IMPORTED_LOAD_VERSION : APPLIED_LOAD_VERSION)
     payload["compatibility"]=Dict("model_match"=>true,"topology_match"=>true,"map_allowed"=>true,"is_current"=>!historical,"load_application_match"=>!historical)
     payload["historical"]=historical
-    payload["message"]=historical ? "Historical sensitivity baseline: these solved fields retain their original load application convention." : "Original sensitivity baseline solution."
+    payload["message"]=historical ? "Historical sensitivity baseline: these solved fields retain their original aerodynamic model and load application convention; rerun the analysis for the current formulation." : "Original sensitivity baseline solution."
     for item in payload["load_cases"]
         get!(item,"analysis_params",copy(item["model_params"]))
         item["model_params"]=is_imported_model(model) ? imported_public_params(model) : copy(model.params)

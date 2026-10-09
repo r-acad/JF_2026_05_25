@@ -102,11 +102,14 @@ automatically relative to their containing files. The former 32 MiB import
 limit is removed. Import progress shows elapsed time and the current stage;
 errors remain fully visible in the import dialog.
 
-Browse opens an in-app local file browser with drives, folders, Up, a path field
-and an All files option. It does not rely on a separate Windows dialog that can
-open behind the browser. Opening Read Nastran starts parser preparation with a
-visible stage and timer while you select a file. The first import can include
-Julia package loading and compilation; later imports reuse the same parser.
+Read Nastran opens the normal Windows **Open** dialog immediately. **Browse**
+reopens it; the selected full path remains editable in the import form. A
+foreground owner keeps the dialog above the browser. Cancel returns to the
+form, and **Read deck** starts the import. The Windows picker supplies the
+actual folder so INCLUDE files can be resolved without selecting them again.
+On other platforms, paste the main deck's full local path. Parser preparation
+starts while you choose the file, with a stage and timer. The first import can
+include Julia package loading and compilation; later imports reuse the parser.
 The Log reports source/INCLUDE reading, parser startup, native model creation,
 viewport conversion and delivery separately. Preparation runs no analysis and
 does not modify the current Study.
@@ -118,6 +121,18 @@ and viewport preparation. Large imported property groups use preallocated axis
 buffers, and viewport material/visibility updates are batched to avoid repeated
 whole-model work. These optimizations preserve element/property identities,
 case-specific supports and loads, and inspection data.
+
+Large imported models retain their individual property groups for visibility and
+inspection, while sharing bounded GPU geometry batches. Entity lists are paged
+instead of creating thousands of controls at once. Binary arrays and repeated
+material records share transport storage; native model data is restored only
+when a later backend operation needs it. Import still includes building material
+and composite constitutive data, preparing viewer geometry and caching the model.
+These stages can exceed the time spent reading and parsing a large deck; the
+stage timings in Log distinguish them from file I/O and from an analysis solve.
+Fit view and context planes use the connected structural extent by default, so
+distant orientation or unused GRIDs do not dwarf the model. Showing all GRID
+markers includes their full source extent; no source nodes are removed.
 
 The form needs only the main file on your computer; no model-folder selection
 is required. Missing files and cyclic INCLUDE dependencies are reported.
@@ -164,7 +179,8 @@ or loading a generated Study returns to the wing generator.
 ## Display and editing
 
 Every left pane collapses with **−** and restores with **+**. Drawing panes
-retain a separate Maximize action while expanded. Rib/stringer labels and rib
+retain a separate Maximize action while expanded. **Collapse all trees / Expand all trees** changes the entity-list layout without
+changing model visibility. Rib/stringer labels and rib
 datum squares are together under **Display / Axes & labels**.
 **Ribs** and **Stringers** are independent on/off checkboxes, like the datum
 toggle. Enable both to show both label sets or clear both to hide them. Older
@@ -203,6 +219,23 @@ labels, axes and picking follow the displayed panel; shared GRID markers,
 loads, aerodynamic geometry and comparison overlays stay at their physical
 positions. This changes neither the FEM nor any result. SVG captures the
 exploded view; STL/GLB retain physical geometry. The settings travel with a Study.
+
+**Structural Mesh / Stringer runout distance / pitch** defaults to 0.75 for
+new studies. A normal stringer terminates at a spar when either skin's
+projected x-clearance is below that fraction of its pitch. The ratio must be
+greater than zero and at most one. Legacy studies and TOML definitions retain
+the original ratio of 1.0 so their existing panel overrides stay attached to
+the same physical panels; root stringer pitch is unchanged.
+
+VLM flight cases now support **Mach up to 0.5**, using a Prandtl-Glauert
+wind-axis lattice transformation and physical Kutta-Joukowski force recovery.
+For example, 120 m/s with a speed of sound of 340 m/s is valid. The model
+assumes attached, subsonic small-disturbance flow and does not predict shocks,
+stall or aeroelastic feedback. Displayed geometry and applied loads remain in
+physical coordinates. The full guide documents the transformation and tests.
+Previously saved generated results remain inspectable as historical values
+when their geometry matches; rerun analyses before treating them as current.
+Imported Nastran results retain their independent source-based checks.
 
 **Display / Environment / Lighting** includes an adjustable camera fill for
 underside views. Neutral ambient light and a balanced directional key improve
@@ -244,6 +277,9 @@ manual minimum/maximum limits. **Automatic** restores the data-driven range.
 Manual limits clip only the endpoint colors; numerical data are not changed.
 Limits are independent for each quantity/unit. FE, sensitivity and VLM displays
 have independent palettes, so changing one legend leaves the others unchanged.
+The detached **Sensitivity data** table also has an independent Color scale
+selector. Its legend and cell colors use the same fitted data limits; CSV values
+remain unchanged. Text contrast adapts to the selected palette.
 Unavailable result types have gray labels. Current results are green, while
 retained results from an outdated definition retain their warning state. JFEM
 activity indicators alternate blue and white (steady blue with reduced motion).
@@ -381,3 +417,14 @@ part of this distribution.
 Original application source is covered by the repository [LICENSE](../LICENSE).
 Third-party libraries retain their own licenses; see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+Results availability is evaluated for the selected load case. With no physical
+or sensitivity results for that case, its Results labels are gray; retained
+results that no longer match the definition remain marked as stale.
+
+For static result display, load-glyph origins, the VLM lattice and VLM force
+centers follow the deformed structural shape. Participating aerodynamic FORCE
+vectors use SOL101's first-order or SOL106's finite-rotation follower law.
+Display magnification affects geometry but never the physical force direction.
+Inertial loads and MOMENT directions remain fixed in global axes. Prescribed
+VLM pressure is not recomputed as an aeroelastic solution.

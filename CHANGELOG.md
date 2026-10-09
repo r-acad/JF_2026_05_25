@@ -6,6 +6,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **WingFEGen Nastran import, subsonic loading and case display.** Restore the
+  normal Windows Open dialog with a foreground owner and automatic INCLUDE
+  resolution. Batch large imported geometry while retaining element/property
+  identities, compact binary payloads, page entity lists and add Collapse/Expand
+  all. Display supported beams, rods, rigid links, springs and concentrated
+  masses previously missing from imported views. Reduce native heterogeneous
+  record allocations without changing parsed/model data; log import stages.
+  Add independent table palettes, case-specific empty Results states and 1.5x
+  screen-scaled panning. Verify SOL101/SOL106 follower FORCE behavior and move
+  VLM geometry/load glyphs with the displayed deformation, preserving physical
+  force directions and fixed-global moment directions.
+- **WingFEGen compressible VLM and runout clearance.** Support Mach through 0.5
+  using a wind-axis Prandtl-Glauert transformation with physical load recovery,
+  checked against AVL and the high-aspect-ratio limit. Add a stringer spar
+  clearance/pitch ratio (0.75 for new definitions); legacy definitions retain
+  their original cutoff. Mark pre-correction generated results as historical.
+  Retain the rigid, attached-flow approximation and explicit validity limits.
+
 - **WingFEGen sensitivity bounds, labels and large-deck imports.** Fit automatic
   sensitivity scales to relevant finite min/max in tables and visible model
   fields; preserve manual limits and exclude missing values. Make rib/stringer

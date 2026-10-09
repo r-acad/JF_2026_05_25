@@ -146,6 +146,8 @@ const SCHEMA = ParamSpec[
               help = "Shell elements spanwise between two consecutive ribs"),
     ParamSpec("mesh.elements_between_stringers", "Elements between stringers", :int, 1, "Mesh";
               help = "Shell subdivisions across each stringer bay, including spar margins; 1 to 100"),
+    ParamSpec("mesh.stringer_runout_ratio", "Stringer runout distance / pitch", :float, 0.75, "Mesh";
+              help = "Retire a stringer when either skin's projected x-clearance to a spar falls below this fraction of the stringer pitch (greater than 0, at most 1). 0.75 means 75% of the pitch. Root stringer spacing is unchanged; 1 reproduces the original runout rule"),
     ParamSpec("mesh.elements_spar_height", "Elements over height", :int, 3, "Mesh";
               help = "Shell elements through the spar web and rib height"),
     ParamSpec("mesh.aero_chord_points", "Aero chord points", :int, 41, "Mesh";
@@ -194,13 +196,13 @@ const SCHEMA = ParamSpec[
 
     # --- aerodynamics ------------------------------------------------------
     ParamSpec("aero.speed", "Air speed", :float, 70.0, "Aerodynamics";
-              unit = "m/s", help = "Vortex lattice: steady, incompressible, attached flow; no viscous drag or stall"),
+              unit = "m/s", help = "Steady attached VLM with linear Prandtl-Glauert subsonic compressibility through Mach 0.5; no shocks, viscous drag or stall"),
     ParamSpec("aero.density", "Air density", :float, 1.225, "Aerodynamics";
               unit = "kg/m3"),
     ParamSpec("aero.alpha", "Angle of attack", :float, 5.0, "Aerodynamics";
               unit = "deg", help = "Root chord incidence relative to the flow; positive gives positive lift. Large local incidence is allowed with an attached-flow validity warning; no stall prediction"),
     ParamSpec("aero.speed_of_sound", "Speed of sound", :float, 340.0, "Aerodynamics";
-              unit = "m/s", help = "Used to enforce Mach <= 0.3 for the incompressible model"),
+              unit = "m/s", help = "Mach = speed / speed of sound; maximum 0.5. A Prandtl-Glauert transformation accounts for linear subsonic compressibility. Attached flow is assumed; shocks and stall are not modeled"),
     ParamSpec("aero.span_panels", "Panels per semi-span", :int, 20, "Aerodynamics";
               help = "Requested minimum, 4 to 64, with cosine spacing towards the tip. Twisted geometry adds panels automatically"),
     ParamSpec("aero.chord_panels", "Panels per chord", :int, 9, "Aerodynamics";
@@ -505,6 +507,10 @@ function normalize_params(flat::AbstractDict)
         flat["jfem.repo"]=pop!(flat,"jfem.path")
     end
     p = default_params()
+    # Saved panel overrides refer to the old physical runout boundaries. Keep
+    # their original one-pitch rule; genuinely new definitions use 0.75.
+    !isempty(flat) && !haskey(flat,"mesh.stringer_runout_ratio") &&
+        (p["mesh.stringer_runout_ratio"]=1.0)
     if !isempty(flat)&&!haskey(flat,"loads.structure_inertia")
         p["loads.structure_inertia"]=false
         p["structure_inertia_migration_note"]="Legacy definition: structural inertia remains disabled, preserving its prior fuel-only acceleration loads. Enable Include structural inertia to load the dry structure too."
@@ -584,7 +590,7 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
     pos(key) = p[key] > 0 ||
         throw(ArgumentError("$key must be positive, got $(p[key])"))
     for k in ("planform.area", "planform.aspect_ratio", "box.rib_pitch",
-              "box.stringer_pitch", "material.E", "material.rho",
+              "box.stringer_pitch", "mesh.stringer_runout_ratio", "material.E", "material.rho",
               "properties.t_skin_upper", "properties.t_skin_lower",
               "properties.t_spar_web", "properties.t_rib_web",
               "properties.stringer_flange_width", "properties.stringer_height",
@@ -634,6 +640,8 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
 
     p["mesh.elements_between_ribs"] >= 1 ||
         throw(ArgumentError("mesh.elements_between_ribs must be at least 1"))
+    p["mesh.stringer_runout_ratio"] <= 1 ||
+        throw(ArgumentError("mesh.stringer_runout_ratio must be greater than 0 and at most 1; the root layout reserves at least one pitch beside each spar"))
     2 <= p["leading_edge.chord_elements"] <= 100 ||
         throw(ArgumentError("leading_edge.chord_elements must be between 2 and 100"))
     1 <= p["mesh.elements_between_stringers"] <= 100 ||
@@ -697,8 +705,8 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
     if p["loads.method"] == "vortex_lattice"
         p["rbe3.enabled"] || throw(ArgumentError(
             "vortex_lattice transfers loads to RBE3 centers; rbe3.enabled must be true"))
-        p["aero.speed"] / p["aero.speed_of_sound"] <= 0.3 || throw(ArgumentError(
-            "incompressible vortex_lattice requires Mach <= 0.3"))
+        p["aero.speed"] / p["aero.speed_of_sound"] <= 0.5 || throw(ArgumentError(
+            "vortex_lattice supports Mach <= 0.5 with a linear Prandtl-Glauert compressibility approximation; reduce speed or increase the physically appropriate speed of sound. Shocks and transonic flow are not modeled"))
         abs(p["aero.alpha"]) < 89 ||
             throw(ArgumentError("vortex_lattice angle of attack must stay strictly within +/-89 deg"))
         abs(p["planform.sweep"]) <= 60 && abs(p["planform.dihedral"]) <= 30 ||

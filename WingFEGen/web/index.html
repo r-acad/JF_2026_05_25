@@ -203,6 +203,7 @@
       <label class="display-control">Load case <select id="load-case-select" aria-label="Displayed load case"></select></label>
       <div class="entity-actions"><button id="entities-show-all" class="mini" disabled>Show all model entities</button><button id="entities-hide-all" class="mini" disabled>Hide all model entities</button></div>
       <p class="pick-note">Group checkboxes include available model layers. Deformation overlays require results. Bulk actions leave imported references and context planes unchanged.</p>
+      <div class="button-row"><button id="btn-collapse-layer-groups" type="button">Collapse all trees</button><button id="btn-expand-layer-groups" type="button">Expand all trees</button></div>
       <div id="layers"><p class="muted">no model yet</p></div>
       <div id="vlm-controls" hidden>
         <label class="display-control">VLM contour <select id="vlm-field"><option value="none">Mesh only</option><option value="pressure">Pressure jump (Pa)</option><option value="cp">Cp jump</option></select></label>
@@ -521,6 +522,7 @@
 <script src="fuel_tank_view.js" defer></script>
 <script src="support_glyphs.js" defer></script>
 <script src="load_glyphs.js" defer></script>
+<script src="vlm_deformation.js" defer></script>
 <script src="scene_lighting.js" defer></script>
 <script src="mass_properties.js" defer></script>
 <script src="property_display.js" defer></script>
@@ -555,6 +557,8 @@
 <script src="panel_table_window.js" defer></script>
 <script src="viewport-legends.js" defer></script>
 <script src="supports.js" defer></script>
+<script src="imported_render.js" defer></script>
+<script src="color_scales.js"></script>
 <script src="app.js" defer></script>
 </body>
 </html>

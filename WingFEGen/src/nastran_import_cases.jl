@@ -172,6 +172,7 @@ function imported_prepare_inventory!(native,m,cards,reportpath)
     for line in eachline(IOBuffer(report))
         found=match(r"^\s+([A-Z][A-Z0-9*]+):\s+(\d+)(.*)$",line);found===nothing&&continue
         name=found[1];count=parse(Int,found[2]);guarded=occursin("retained unsupported",found[3])
+        name=="ENDDATA"&&continue # deck terminator, not an unprocessed physical card
         haskey(cards,name)&&(isempty(strip(found[3]))||guarded)||continue
         push!(unprocessed,Dict("name"=>name,"count"=>count,"status"=>guarded ? "unsupported_if_selected" : "unprocessed","message"=>guarded ? "Retained by the native parser; selecting this load raises a solver capability error." : "Source text is retained unchanged, but this native solver does not process this card type. Its physical contribution is not analyzed."))
     end

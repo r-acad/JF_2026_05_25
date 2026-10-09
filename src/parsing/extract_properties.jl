@@ -22,7 +22,7 @@ function extract_props_shell(cards)
         z2 = isnothing(z2_value) ?  0.5 * t : z2_value
         mid4_val = parse_nastran_number(safe_get(c, 13), nothing)
         mid4 = (isnothing(mid4_val) || mid4_val == 0) ? 0 : to_id(mid4_val)
-        d[string(pid)] = Dict(
+        d[string(pid)] = Dict{String,Any}(
             "PID"=>pid,
             "MID"=>mid,
             "MID2"=>mid2,
@@ -233,7 +233,7 @@ function extract_pbar(cards)
         K2 = parse_nastran_number(safe_get(c, 20), 0.0)
         I12 = parse_nastran_number(safe_get(c, 21), 0.0)
         if pid > 0
-            d[string(pid)] = Dict(
+            d[string(pid)] = Dict{String,Any}(
                 "PID"=>pid, "MID"=>mid, "A"=>Float64(A),
                 "I1"=>Float64(I1), "I2"=>Float64(I2), "I12"=>Float64(I12), "J"=>Float64(J),
                 "I"=>Float64(I1), "NSM"=>Float64(NSM),
@@ -347,7 +347,7 @@ function extract_pbeam(cards)
         J_avg   = (J_a + J_b) / 2.0
 
         if pid > 0
-            d[string(pid)] = Dict(
+            d[string(pid)] = Dict{String,Any}(
                 "PID"=>pid, "MID"=>mid, "A"=>A_avg,
                 "I1"=>I1_avg, "I2"=>I2_avg, "I12"=>I12_avg, "J"=>J_avg,
                 "I"=>I1_avg,
@@ -413,7 +413,7 @@ function extract_pcomp(cards)
             ply_theta = parse_nastran_number(safe_get(c, k+2), 0.0)
             ply_sout  = strip(string(safe_get(c, k+3, "")))
             if ply_mid > 0 && ply_t > 0
-                push!(plies, Dict("MID"=>ply_mid, "T"=>Float64(ply_t),
+                push!(plies, Dict{String,Any}("MID"=>ply_mid, "T"=>Float64(ply_t),
                                   "THETA"=>Float64(ply_theta), "SOUT"=>ply_sout))
             end
             k += 4
@@ -432,7 +432,7 @@ function extract_pcomp(cards)
         total_t = sum(p["T"] for p in plies; init=0.0)
 
         if pid > 0
-            d[string(pid)] = Dict("PID"=>pid, "Z0"=>isnothing(z0) ? -total_t/2 : Float64(z0),
+            d[string(pid)] = Dict{String,Any}("PID"=>pid, "Z0"=>isnothing(z0) ? -total_t/2 : Float64(z0),
                 "Z0_DEFAULT"=>isnothing(z0),
                 "NSM"=>Float64(nsm), "LAM"=>lam_field, "PLIES"=>plies,
                 "T"=>Float64(total_t), "TYPE"=>"PCOMP")
@@ -451,7 +451,7 @@ function extract_prod(cards)
         C   = parse_nastran_number(safe_get(c, 7), 0.0)
         NSM = parse_nastran_number(safe_get(c, 8), 0.0)
         if pid > 0
-            d[string(pid)] = Dict("PID"=>pid, "MID"=>mid, "A"=>Float64(A), "J"=>Float64(J),
+            d[string(pid)] = Dict{String,Any}("PID"=>pid, "MID"=>mid, "A"=>Float64(A), "J"=>Float64(J),
                                   "C"=>Float64(C), "NSM"=>Float64(NSM), "TYPE"=>"PROD")
         end
     end

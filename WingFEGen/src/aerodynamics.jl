@@ -151,6 +151,34 @@ function vlm_incidence_warnings(w::Wing, p::AbstractDict)
     return (; root, tip, warnings)
 end
 
+"""Prandtl-Glauert map in wind axes, with the symmetry plane left unchanged.
+
+For beta=sqrt(1-M^2), (x',y',z')=(x,beta*y,beta*z) and
+phi'=beta^2*phi turn the linear subsonic potential equation into Laplace's
+equation. Thus Gamma=Gamma'/beta^2 and the disturbance velocity transforms
+as (u,v,w)=(u'/beta^2,v'/beta,w'/beta). Only the disturbance is scaled: the
+freestream remains U. Recover forces with Kutta-Joukowski on the original
+vortex segments, and moments with their original lever arms. This avoids
+applying a two-dimensional 1/beta multiplier indiscriminately to a finite
+wing or to induced drag. See MIT AVL User Primer, Compressibility:
+https://web.mit.edu/drela/Public/web/avl/avl_doc.txt
+"""
+function vlm_pg_map(alpha, mach)
+    beta=sqrt(1-mach^2)
+    s,c=sincos(alpha)
+    to_wind(v)=(c*v[1]+s*v[3],v[2],-s*v[1]+c*v[3])
+    to_body(v)=(c*v[1]-s*v[3],v[2],s*v[1]+c*v[3])
+    point(v)=to_body((v[1],v[2]/beta,v[3]/beta))
+    normal(v)=begin
+        n=to_body((v[1],beta*v[2],beta*v[3]));n./norm3(n)
+    end
+    velocity(v,speed)=to_body((speed+(v[1]-speed)/beta^2,v[2]/beta,v[3]/beta))
+    forward(v)=begin
+        q=to_wind(v);(q[1],beta*q[2],beta*q[3])
+    end
+    return (;beta,to_wind,to_body,point,normal,velocity,forward)
+end
+
 """
     solve_vlm(w, p)
 
@@ -177,12 +205,24 @@ function solve_vlm(w::Wing, p::AbstractDict)
     local_grid = grid .- reshape(collect(origin),3,1,1)
     speed, rho = Float64(p["aero.speed"]), Float64(p["aero.density"])
     alpha = deg2rad(p["aero.alpha"])
+    mach=speed/Float64(p["aero.speed_of_sound"])
+    pg=vlm_pg_map(alpha,mach)
+    # Keep the exact established M=0 path. At finite Mach the rotated and
+    # compressed lattice is only a solver coordinate system; all exported
+    # positions, normals and dimensions remain on the physical camber mesh.
+    compressible=pg.beta!=1.0
+    solve_grid=compressible ? similar(local_grid) : local_grid
+    if compressible
+        for j in axes(local_grid,3),i in axes(local_grid,2)
+            solve_grid[:,i,j].=pg.forward(view(local_grid,:,i,j))
+        end
+    end
     ref = VortexLattice.Reference(w.area, w.mac, w.span, [0.0, 0.0, 0.0], speed)
-    fs = VortexLattice.Freestream(speed, alpha, 0.0, [0.0, 0.0, 0.0])
+    fs = VortexLattice.Freestream(speed, compressible ? 0.0 : alpha, 0.0, [0.0, 0.0, 0.0])
     # Explicit ratios avoid VortexLattice 0.2.3's uninitialized default array.
     # Control points are mid-span and at 3/4 of each panel chord.
     ratios = zeros(2, actual_nc, actual_ns) .+ [0.5, 0.75]
-    system = VortexLattice.System([local_grid]; ratios = [ratios])
+    system = VortexLattice.System([solve_grid]; ratios = [ratios])
     VortexLattice.steady_analysis!(system, ref, fs;
         symmetric = true, derivatives = false, trailing_vortices = true,
         xhat = VortexLattice.freestream_velocity(fs) / speed)
@@ -190,19 +230,35 @@ function solve_vlm(w::Wing, p::AbstractDict)
     q = 0.5 * rho * speed^2
     scale = q * w.area * Float64(p["loads.load_factor"])
     panels = NamedTuple[]
+    coefficient_total=AERO_ZERO
     for (k, (panel, prop)) in enumerate(zip(system.surfaces[1], system.properties[1]))
-        local_center = Tuple(VortexLattice.top_center(panel))
+        i, j = mod1(k, actual_nc), cld(k, actual_nc)
+        unmap(v)=compressible ? pg.point(v) : Tuple(v)
+        local_center = unmap(VortexLattice.top_center(panel))
         center = local_center .+ origin
         force, moment = AERO_ZERO, AERO_ZERO
-        for (point, coefficient) in (
-            (VortexLattice.top_center(panel), prop.cfb),
-            (VortexLattice.left_center(panel), prop.cfl),
-            (VortexLattice.right_center(panel), prop.cfr))
-            f = Tuple(coefficient .* scale)
-            force = force .+ f
-            moment = moment .+ cross3(Tuple(point) .- local_center, f)
+        coefficients=(prop.cfb,prop.cfl,prop.cfr)
+        if compressible
+            gamma=prop.gamma*speed/pg.beta^2
+            gamma_bound=(i==1 ? prop.gamma : prop.gamma-system.properties[1][i-1,j].gamma)*speed/pg.beta^2
+            velocity=pg.velocity(prop.velocity.*speed,speed)
+            freestream=pg.to_body((speed,0.0,0.0))
+            # Match VortexLattice's near-field convention: bound segments see
+            # the induced velocity, side segments see the freestream only.
+            coefficients=(
+                gamma_bound.*cross3(velocity,unmap(VortexLattice.top_vector(panel)))./(0.5speed^2*w.area),
+                gamma.*cross3(freestream,unmap(VortexLattice.left_vector(panel)))./(0.5speed^2*w.area),
+                gamma.*cross3(freestream,unmap(VortexLattice.right_vector(panel)))./(0.5speed^2*w.area))
         end
-        i, j = mod1(k, actual_nc), cld(k, actual_nc)
+        for (point, coefficient) in (
+            (VortexLattice.top_center(panel), coefficients[1]),
+            (VortexLattice.left_center(panel), coefficients[2]),
+            (VortexLattice.right_center(panel), coefficients[3]))
+            f = Tuple(coefficient .* scale)
+            coefficient_total=coefficient_total.+Tuple(coefficient)
+            force = force .+ f
+            moment = moment .+ cross3(unmap(point) .- local_center, f)
+        end
         metric = mesh.metrics[i,j]
         corners, area, normal = metric.corners, metric.area, metric.normal
         # Equivalent panel-average normal traction on the original camber grid.
@@ -213,10 +269,10 @@ function solve_vlm(w::Wing, p::AbstractDict)
         isfinite(pressure) || error("Vortex lattice returned non-finite panel pressure")
         push!(panels, (eta = local_center[2] / w.semispan, position = center,
                        force = force, moment = moment, corners = corners,
-                       area = area, normal = normal, control_normal = Tuple(panel.ncp),
+                       area = area, normal = normal, control_normal = compressible ? pg.normal(panel.ncp) : Tuple(panel.ncp),
                        pressure = pressure, cp = pressure / q))
     end
-    cf, _ = VortexLattice.body_forces(system; frame = VortexLattice.Wind())
+    cf=2 .* pg.to_wind(coefficient_total)
     total_force, total_moment = load_resultant(panels)
     incidence = vlm_incidence_warnings(w, p)
     summary = Dict{String,Any}(
@@ -233,13 +289,15 @@ function solve_vlm(w::Wing, p::AbstractDict)
         "reference_area_m2" => w.area, "reference_mac_m" => w.mac,
         "base_trapezoid_area_m2" => w.base_area,
         "speed_m_s" => speed, "density_kg_m3" => rho, "alpha_deg" => p["aero.alpha"],
-        "Mach" => speed / p["aero.speed_of_sound"], "q_Pa" => q,
+        "Mach" => mach, "q_Pa" => q,
+        "compressibility" => "Prandtl-Glauert wind-axis geometry transformation with physical Kutta-Joukowski forces",
+        "pg_beta" => pg.beta,
         "load_factor" => p["loads.load_factor"], "load_multiplier_note" => LOAD_MULTIPLIER_NOTE, "CL" => cf[3],
-        "CDi" => VortexLattice.far_field_drag(system), "CDi_nearfield" => cf[1],
+        "CDi" => VortexLattice.far_field_drag(system)/pg.beta^4, "CDi_nearfield" => cf[1],
         "force_N" => collect(total_force), "moment_Nm" => collect(total_moment),
         "lift_N" => -sin(alpha) * total_force[1] + cos(alpha) * total_force[3],
         "coefficient_basis" => "unscaled full real-planform area and MAC; forces/moments are the scaled right semi-span; edge kinks and twist refinement add panels",
-        "limitations" => "Steady symmetric incompressible attached flow; rigid mean-camber surface; straight freestream wake. No stall, viscous/profile drag, compressibility or aeroelastic feedback.",
+        "limitations" => "Steady symmetric attached flow with linear Prandtl-Glauert subsonic compressibility, limited to Mach 0.5; small-disturbance approximation on a rigid mean-camber surface with a straight freestream wake. No shocks, transonic flow, stall, viscous/profile drag or aeroelastic feedback.",
     )
     return (panels = panels, summary = summary)
 end

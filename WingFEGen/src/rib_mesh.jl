@@ -45,6 +45,7 @@ end
 
 function oriented_row(w,context,eta,previous,pitch,cuts)
     plane=main_rib_plane(w,context,eta);count=length(context.roots)
+    clearance=pitch*get(context.params,"mesh.stringer_runout_ratio",1.0)
     states=copy(previous);lx=zeros(count);ux=zeros(count);le=zeros(count);ue=zeros(count)
     function intersect(index,state,upper)
         if index==count||state>0
@@ -85,9 +86,9 @@ function oriented_row(w,context,eta,previous,pitch,cuts)
                 front=sum((lower_point(w,eta,spar_surface_xc(w,context.arc.spar,eta,:front))[1],upper_point(w,eta,spar_surface_xc(w,context.arc.spar,eta,:front))[1]))/2
                 rear=(plane.lower[1]+plane.upper[1])/2
                 df,dr=x-front,rear-x
-                min(df,dr)>=pitch&&throw(ArgumentError("stringer $index cannot intersect master-rib row at rear ETA $eta; reduce the rib angle or adjust the stringer path"))
+                min(df,dr)>=clearance&&throw(ArgumentError("stringer $index cannot intersect master-rib row at rear ETA $eta; reduce the rib angle or adjust the stringer path"))
             end
-            min(df,dr)<pitch-1e-10*max(w.chord_root,pitch)&&(states[index]=df<=dr ? -1 : 1)
+            min(df,dr)<clearance-1e-10*max(w.chord_root,pitch)&&(states[index]=df<=dr ? -1 : 1)
         end
         if states[index]!=0
             source=states[index]<0 ? 1 : count

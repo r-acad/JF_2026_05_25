@@ -21,3 +21,12 @@ const constant=M.build(snapshot.result,rows[0],{variables},1,'absolute');assert.
 const global={...row(8,-9000),id:'shared',panel_key:undefined},local=row(9,-3),r={...snapshot.result,rows:[global,local]};
 const owned=M.buildField(r,{variables:{shared:{eids:[1]},[local.id]:{eids:[1]}}},options.field,'derivative');assert.equal(owned.min,-3);assert.equal(owned.max,-3);
 console.log('Sensitivity bounds: exact finite, scoped, signed, uniform, normalized, ownership and missing-value checks passed');
+
+// Palette selection uses the same ramps as the viewport, without expanding limits.
+const C=require('../web/color_scales.js');for(const name of Object.keys(C.scales)){
+ const scale={min:-8,max:-2},rgb=t=>'rgb('+C.sample(name,t).map(v=>Math.round(v*255)).join(', ')+')';
+ assert.equal(T.valueColor(-8,scale,name),rgb(0));assert.equal(T.valueColor(-2,scale,name),rgb(1));
+ assert.equal(T.valueColor(-5,scale,name),rgb(.5));assert.equal(T.valueColor(3,{min:3,max:3},name),rgb(.5));
+ const stops=T.colorStops(scale,name);assert.equal(stops[0].value,-8);assert.equal(stops.at(-1).value,-2);
+}
+console.log('All table palettes preserve finite limits and match viewport colors');
