@@ -11,14 +11,14 @@
   const MAX_NOTE_LENGTH=20000,MAX_NOTE_ENTRIES=2000;
   const PANEL_IDS = ["sidebar","hud-left","model-card","results-card","pick-card","log-wrap","deck-panel"];
   const DRAWING_KEYS = new Set(["planform","spars","master-ribs","leading-edge-ribs","fuel-tank","stringer-section","spar-cap-section","rib-stiffener-section","rib-override-section","airfoil-root","airfoil-tip",...(["upper_skin","lower_skin","spar_web","rib_web","leading_edge_skin","leading_edge_rib"].map(name=>"material-"+name))]);
-  const CONTROL_IDS = ["surface-mode","beam-style","show-bars-through","show-aero-overlay","aero-deformed-style","background-color","inspect-entity",
+  const CONTROL_IDS = ["surface-mode","surface-translucency","beam-style","show-bars-through","show-aero-overlay","aero-deformed-style","background-color","inspect-entity",
     "show-fuel-inertia","show-fuel-cg","show-fuel-mass-labels","fuel-inertia-scale",
     "node-radius","marker-radius","show-ground-plane","show-symmetry-plane","ground-plane-z","ground-grid-spacing","show-shell-axes","show-bar-axes","show-node-ids","show-element-ids","id-label-size",
     "mesh-labels-none","mesh-labels-ribs","mesh-labels-stringers","mesh-labels-both","show-rib-datums","rib-datum-size","vlm-field",
-    "vlm-force-scale","show-vlm-panel-forces","show-fuel-tank","show-panels","result-palette","show-support-forces","support-force-scale",
+    "vlm-force-scale","show-vlm-panel-forces","show-fuel-tank","show-panels","result-palette","show-support-forces","show-support-force-values","support-force-scale",
     "deform-scale","animate","show-undeformed","show-reference-aero","show-deformed-aero","contour-select","compare-results","auto-mesh","show-picked-axes","measure-snap-nodes"];
   const CHECK_IDS = new Set(CONTROL_IDS.filter((id) => id.startsWith("show-") || id.startsWith("mesh-labels-") || ["animate","auto-mesh","compare-results","measure-snap-nodes"].includes(id)));
-  const SELECTS = {"surface-mode":["solid","translucent"],"beam-style":["lines","sections"],"aero-deformed-style":["wireframe","steel"],
+  const SELECTS = {"surface-mode":["solid","translucent"],"beam-style":["lines","sections"],"aero-deformed-style":["auto","wireframe","steel","metallic","translucent"],
     "inspect-entity":["all","nodes","shells","quad","tria","bar","stringer","cap","rbe3"],"vlm-field":["none","pressure","cp"],
     "result-palette":["spectrum","viridis","inferno","coolwarm","grayscale"]};
   const object = (value) => value && typeof value === "object" && !Array.isArray(value);
@@ -83,8 +83,10 @@
       if (id === "vlm-force-scale" && (!Number.isFinite(Number(value)) || Number(value)<0.01 || Number(value)>100)) throw new Error("VLM force scale must be between 0.01 and 100.");
       if (id === "fuel-inertia-scale" && (!Number.isFinite(Number(value)) || Number(value)<0.01 || Number(value)>100)) throw new Error("Fuel inertia scale must be between 0.01 and 100.");
       if (id === "support-force-scale" && (!Number.isFinite(Number(value)) || Number(value)<0.01 || Number(value)>100)) throw new Error("Support-force scale must be between 0.01 and 100.");
+      if(id==="surface-translucency"&&(value.trim()===""||!Number.isFinite(Number(value))||Number(value)<0||Number(value)>100))throw new Error("Surface translucency must be between 0 and 100 percent.");
     }
     for (const [name,value] of Object.entries(view.layers)) if (!/^[A-Z_0-9]+$/.test(name) || typeof value!=="boolean") throw new Error("Invalid layer visibility.");
+    if(view.layerGroups!==undefined&&(!object(view.layerGroups)||Object.entries(view.layerGroups).some(([key,value])=>!["shells","beams","connections","aerodynamics","loads","masses","overlays","aids","other"].includes(key)||typeof value!=="boolean")))throw new Error("Invalid entity-list collapse settings.");
     if (view.loadLayers !== undefined && (!object(view.loadLayers) || Object.entries(view.loadLayers).some(([name,value])=>!["AERO_LOADS","AERO_MOMENTS","VLM_MESH","VLM_FORCES"].includes(name)||typeof value!=="boolean"))) throw new Error("Invalid load-layer display preferences.");
     const camera=view.camera;
     triple(camera.target,"camera target");
@@ -163,7 +165,7 @@
     view.controls=controls;
     view.editingCase??=1;view.resultVariant??="";view.contourPreference??=null;view.realScale??=false;view.loadLayers??={};view.parameterLocks??={planform:false,mesh:false};
     view.reference??={selectedIndex:-1,mode:"off"};view.drawings??={};view.viewportTools??={collapsed:false};view.planformInputs??={method:"area"};view.legends??={collapsed:{}};
-    view.panelExplosion??={enabled:false,origin:"centroid",distance:1};
+    view.panelExplosion??={enabled:false,origin:"centroid",distance:1};view.layerGroups??={};
     view.loadPlots??={mode:"distributed",visible:["aerodynamic","structure","fuel","total"]};
     view.camera.mode??=0;view.camera.fov??=.8;
     for(const key of ["orthoLeft","orthoRight","orthoTop","orthoBottom"])view.camera[key]??=null;
@@ -222,7 +224,7 @@
     const c=state.camera, camera={target:c.target.asArray(),alpha:c.alpha,beta:c.beta,radius:c.radius,mode:c.mode};
     for (const key of ["fov","minZ","maxZ","orthoLeft","orthoRight","orthoTop","orthoBottom","lowerRadiusLimit","upperRadiusLimit"]) camera[key]=c[key]===undefined?null:c[key];
     return {controls,layers:Object.fromEntries(Array.from(state.layers,([name,layer])=>[name,preview?.overlays?.get(name)?.visible??state.panelView?.previous.get(name)??layer.visible])),
-      loadLayers:Object.fromEntries(state.loadLayerVisibility || []),camera,
+      loadLayers:Object.fromEntries(state.loadLayerVisibility || []),layerGroups:Object.fromEntries(state.layerGroupCollapsed||[]),camera,
       activeCase:Number(state.activeCase)||1,editingCase:Number(state.editingCase)||1,
       resultVariant:state.resultVariantPreference || state.results?.variantId || "",
       contourPreference:state.contourPreference ? {kind:state.contourPreference.kind,name:state.contourPreference.name} : null,
@@ -245,6 +247,7 @@
     for (const [id,value] of Object.entries(controls)) {
       const el=document.getElementById(id); if (!el) continue;
       if (CHECK_IDS.has(id)) el.checked=value;
+      else if(id==="aero-deformed-style"&&value==="steel")el.value="auto";
       else if (el.tagName!=="SELECT" || Array.from(el.options).some((o)=>o.value===value)) el.value=value;
     }
   }

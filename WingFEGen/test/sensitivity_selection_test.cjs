@@ -1,0 +1,16 @@
+'use strict';
+const assert=require('node:assert/strict'),A=require('../web/sensitivity_table_data.js');
+const make=(skin,bay,stringer,part,field,number)=>({id:`properties.panels#${skin}:bay${bay}:stringer${stringer}:segment1#${part}#${field}`,field_key:(part==='skin'?'shell.':'section.')+field,field_label:field,pids:[(part==='skin'?(skin==='upper'?5000000:6000000):7000000)+number],unit:'m',derivative_unit:'m / m',value:.002,derivative:-number/10,status:'ok'});
+const lower=make('lower',1,1,'stringer','flange_width',1),upper=make('upper',1,1,'skin','thickness',16),extra=make('upper',2,2,'skin','thickness',17);
+const result={status:'complete',baseline:{value:1,unit:'m'},rows:[lower,upper],request:{variables:[lower.id,upper.id]}};
+let checks=0;const check=fn=>{fn();checks++;};
+check(()=>{assert.deepEqual(A.families(result,'upper').map(f=>f.key),['shell.thickness|m / m']);assert.deepEqual(A.families(result,'lower').map(f=>f.key),['section.flange_width|m / m']);assert.equal(A.families(result)[0].key,'shell.thickness|m / m');});
+check(()=>{const cell=A.matrix({result},'upper','shell.thickness|m / m').cells.get('1:1')[0];assert.equal(cell.id,16);assert.equal(cell.rows[0].derivative,-1.6);});
+check(()=>{const cell=A.matrix({result},'upper','section.flange_width|m / m').cells.get('1:1')[0];assert.equal(cell.rows.length,0);assert.equal(cell.missing.status,'not_selected');assert.match(cell.missing.label,/Not selected/);});
+check(()=>{const selected={...result,request:{variables:[...result.request.variables,extra.id]}};const cell=A.matrix({result:selected},'upper','shell.thickness|m / m').cells.get('2:2')[0];assert.equal(cell.property_id,extra.id);assert.equal(cell.missing.status,'missing');assert.match(cell.missing.label,/Selected/);assert.equal(cell.id,null);});
+check(()=>{const partial={...result,status:'partial',request:{variables:[...result.request.variables,extra.id]}};assert.equal(A.matrix({result:partial},'upper','shell.thickness|m / m').cells.get('2:2')[0].missing.status,'pending');});
+check(()=>{const old={...result,request:undefined};assert.equal(A.matrix({result:old},'upper','section.flange_width|m / m').cells.get('1:1')[0].missing.status,'not_recorded');});
+check(()=>{const failed={...upper,status:'failed',derivative:null,warning:'Unsupported response'};const cell=A.matrix({result:{...result,rows:[lower,failed]}},'upper','shell.thickness|m / m').cells.get('1:1')[0];assert.equal(cell.rows[0].status,'failed');assert.equal(A.value(result,cell.rows[0]).reason,'Unsupported response');});
+check(()=>{const selectedOnly={...result,rows:[],request:{variables:[upper.id]}};assert.equal(A.families(selectedOnly,'upper')[0].key,'shell.thickness|m / m');assert.equal(A.matrix({result:selectedOnly},'upper','shell.thickness|m / m').cells.get('1:1')[0].missing.status,'missing');});
+check(()=>{const snapshot={result,compatibility:{topology_match:true},panels:[A.panel(extra)]};assert.equal(A.matrix(snapshot,'upper','shell.thickness|m / m').cells.get('2:2')[0].missing.status,'not_selected');snapshot.compatibility.topology_match=false;assert(!A.matrix(snapshot,'upper','shell.thickness|m / m').cells.has('2:2'));});
+console.log('Sensitivity selection status: '+checks+' checks passed');

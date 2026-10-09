@@ -11,7 +11,11 @@
  function propertyLabel(row){const p=panel(row);if(!p)return effects.propertyLabel(row);const parts=String(row.id||'').split('#'),part=parts.at(-2),field=parts.at(-1),name=(part==='skin'?'Skin ':part==='stringer'?'Stringer ':'')+field.replaceAll('_',' ');
   return(p.id?'P'+p.id:'Panel')+' \u00b7 '+(p.skin==='upper'?'Upper':'Lower')+' R'+p.rib_bay+'\u2013R'+(p.rib_bay+1)+', stringer '+p.stringer+', segment '+p.segment+': '+name;
  }
- function families(result){const groups=new Map();for(const row of result?.rows||[])if(panel(row)){const f=family(row);if(!groups.has(f.key))groups.set(f.key,f);}return[...groups.values()];}
+ function requestedPanels(result){
+  const recorded=new Set((result?.rows||[]).map(row=>row.id)),unit=effects.baseline(result).unit;
+  return(result?.request?.variables||[]).filter(id=>!recorded.has(id)&&panel({id})).map(id=>({id,unit:'m',derivative_unit:unit?unit+' / m':''}));
+ }
+ function families(result,skin){const groups=new Map();for(const row of [...(result?.rows||[]),...requestedPanels(result)]){const p=panel(row);if(!p||(skin&&p.skin!==skin))continue;const f=family(row);if(!groups.has(f.key))groups.set(f.key,f);}return[...groups.values()].sort((a,b)=>(a.key.startsWith('shell.thickness|')?0:1)-(b.key.startsWith('shell.thickness|')?0:1));}
  function value(result,row,quantity='derivative'){
   if(['failed','unavailable','error'].includes(String(row.status||'').toLowerCase()))return{value:null,reason:row.warning||row.message||'Derivative unavailable ('+row.status+').',status:row.status};
   if(!Number.isFinite(row.derivative))return{value:null,reason:row.warning||row.message||'No finite derivative was returned.',status:'unavailable'};
@@ -25,11 +29,15 @@
   return{result,compatibility:clone(raw.compatibility||raw.result?.compatibility||{}),sourcePath:String(raw.sourcePath||raw.source_path||''),error:String(raw.error||''),panels:(raw.panels||[]).map(({id,key,skin,rib_bay,stringer,segment})=>({id,key,skin,rib_bay,stringer,segment}))};
  }
  function matrix(snapshot,skin,field){
-  const definitions=new Map(),records=new Map(),rows=snapshot.result?.rows||[];
+  const definitions=new Map(),records=new Map(),rows=snapshot.result?.rows||[],requested=snapshot.result?.request?.variables,selection=Array.isArray(requested)?new Set(requested):null;
   if(snapshot.compatibility?.topology_match===true)for(const p of snapshot.panels||[])if(p.skin===skin)definitions.set(p.key,p);
   for(const row of rows){const p=panel(row);if(!p||p.skin!==skin)continue;definitions.set(p.key,p);if(family(row).key===field){if(!records.has(p.key))records.set(p.key,[]);records.get(p.key).push(row);}}
+  for(const row of requestedPanels(snapshot.result)){const p=panel(row);if(p.skin===skin&&!definitions.has(p.key))definitions.set(p.key,p);}
   const panels=[...definitions.values()],stringers=[...new Set(panels.map(p=>p.stringer))].sort((a,b)=>a-b),bays=[...new Set(panels.map(p=>p.rib_bay))].sort((a,b)=>a-b),cells=new Map();
-  for(const p of panels){const key=p.stringer+':'+p.rib_bay;if(!cells.has(key))cells.set(key,[]);cells.get(key).push({...p,rows:records.get(p.key)||[]});}for(const cell of cells.values())cell.sort((a,b)=>a.segment-b.segment||a.id-b.id);
+  const [part,name]=field.split('|')[0].split('.'),suffix=(part==='shell'?'skin':part==='section'?'stringer':part)+'#'+name;
+  for(const p of panels){const key=p.stringer+':'+p.rib_bay,id='properties.panels#'+p.key+'#'+suffix,selected=selection?.has(id),pending=['running','partial'].includes(String(snapshot.result?.status).toLowerCase());
+   const missing=selected?{status:pending?'pending':'missing',label:pending?'Selected · pending':'Selected · result missing',reason:'This property was selected in the recorded run, but no derivative row was returned. '+(pending?'The run is not complete.':'Inspect the run log or rerun this property.')}:selection?{status:'not_selected',label:'Not selected for this property',reason:'This panel/property combination was not selected in this recorded run. Selections in the Study may have changed since then.'}:{status:'not_recorded',label:'No result in this run',reason:'No derivative row is recorded and this older run does not record its selected variables.'};
+   if(!cells.has(key))cells.set(key,[]);cells.get(key).push({...p,rows:records.get(p.key)||[],property_id:id,missing});}for(const cell of cells.values())cell.sort((a,b)=>a.segment-b.segment||a.id-b.id);
   return{stringers,bays,cells};
  }
  function selectRows(snapshot,{mode='all',skin='upper',field='',filter=''}={}){const query=filter.toLowerCase();return(snapshot.result?.rows||[]).filter(row=>{const p=panel(row);return(mode==='other'?!p:mode==='panels'?p?.skin===skin&&family(row).key===field:true)&&(!query||[propertyLabel(row),row.id,row.field_label,p?.key].join(' ').toLowerCase().includes(query));});}

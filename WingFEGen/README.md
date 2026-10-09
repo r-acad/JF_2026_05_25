@@ -102,6 +102,15 @@ automatically relative to their containing files. The former 32 MiB import
 limit is removed. Import progress shows elapsed time and the current stage;
 errors remain fully visible in the import dialog.
 
+Browse opens an in-app local file browser with drives, folders, Up, a path field
+and an All files option. It does not rely on a separate Windows dialog that can
+open behind the browser. Opening Read Nastran starts parser preparation with a
+visible stage and timer while you select a file. The first import can include
+Julia package loading and compilation; later imports reuse the same parser.
+The Log reports source/INCLUDE reading, parser startup, native model creation,
+viewport conversion and delivery separately. Preparation runs no analysis and
+does not modify the current Study.
+
 The form needs only the main file on your computer; no model-folder selection
 is required. Missing files and cyclic INCLUDE dependencies are reported.
 A local import is saved as a self-contained expanded source in the Study, so
@@ -173,10 +182,12 @@ Saved copies of the old unedited lighting presets adopt the improved defaults;
 custom lighting remains unchanged.
 
 **Display / Entities / Explode stiffened panels** moves each panel and its
-normal stringer rigidly away from the structural-node centroid, midspan, or
-its own rib-bay center. The rib-bay option follows the actual adjacent rib
-centers, including sweep and twist; runout panels keep their owning bay.
-Choose the separation distance; uncheck Explode panels to reassemble. Panel edges,
+normal stringer rigidly away from the structural-node centroid, midspan,
+its own rib-bay center, or the corresponding inboard rib center. Rib origins
+follow the actual rib centers, including sweep and twist; runout panels keep
+their owning bay. For a panel in R3–R4, the corresponding rib is R3.
+Choose the separation distance with the numeric input or manual slider;
+uncheck Explode panels to reassemble. Panel edges,
 labels, axes and picking follow the displayed panel; shared GRID markers,
 loads, aerodynamic geometry and comparison overlays stay at their physical
 positions. This changes neither the FEM nor any result. SVG captures the
@@ -184,11 +195,22 @@ exploded view; STL/GLB retain physical geometry. The settings travel with a Stud
 
 **Display / Environment / Lighting** includes an adjustable camera fill for
 underside views. Neutral ambient light and a balanced directional key improve
-underside visibility without washing out face contrast. To keep shell colors visible, the aerodynamic loft uses
-wireframe while FE, sensitivity, property or panel colors are displayed on
-visible shells. The saved polished-aluminium choice resumes for aero-only or
-uncolored views. A note explains this automatic display change. Loading a
-sensitivity primal case also exits temporary fuel isolation.
+underside visibility without washing out face contrast. The aerodynamic loft
+offers Auto, Metallic, Wireframe and Translucent finishes. Auto uses wireframe
+while shell contours are displayed; explicit finishes are always respected.
+Sensitivity fields use the undeformed geometry; switch to the primal case in
+FE Results for the deformed aero surface. Imported decks without an aero loft
+explain why these controls are unavailable. Loading a sensitivity primal case
+also exits temporary fuel isolation.
+
+The viewport toolbar switches bars between lines and 3D sections. Selecting
+Translucent reveals a percentage slider; Fully solid restores opaque shells.
+Ground elevation appears only when the ground is visible, with source units
+identified for imported decks. Panning scales to the viewport and model size,
+including millimetre-scale decks; ground bounds follow the imported geometry.
+Entity lists have independent collapse/expand buttons saved in the Study.
+RBE3 lines are light pink. **Label support force and moment values** adds signed
+component values at the visible reaction arrows, using the axis colors.
 Returning to **FE Results** exits temporary panel/fuel isolation and restores
 the selected physical deformation. Saved sensitivity baselines retain their
 binary displacement/rotation buffers through the server response. Malformed
@@ -227,8 +249,8 @@ Under **Loads / Sensitivity**, select one load case, one scalar response and the
 design variables. Supported responses are SOL101 displacement/shell/bar stress,
 SOL103 eigenvalues and SOL105 buckling factors. Panel-local variables and shared
 defaults are distinct variables; the interface shows their actual scope.
-The property filter defaults to **Wildcards**: `P*` (or `P_`) selects names
-beginning with P, `skin*` finds "skin" anywhere, and `*bar*lower*` finds "bar"
+The property filter defaults to **Wildcards**. Examples: `P*` (or `P_`) selects names
+beginning with P, `*skin*` finds "skin" anywhere, and `*bar*lower*` finds "bar"
 followed by "lower" within a name, group or ID. Other characters are literal;
 a trailing underscore is a name-prefix shortcut. **Text** and **Regex** modes
 remain available for literal phrases and regular expressions. **Add matches**

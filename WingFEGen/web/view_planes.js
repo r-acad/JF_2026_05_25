@@ -12,9 +12,12 @@
  function layout(data,options){
   const {z,spacing}=settings(options);
   const min=data?.bbox?.min||[-5,-5,-5],max=data?.bbox?.max||[5,5,5],params=data?.model_params||{};
-  const root=[Number(params["planform.root_ref_x"])||0,Number(params["planform.root_ref_y"])||0,Number(params["planform.root_ref_z"])||0];
-  const diagonal=Math.hypot(...max.map((v,i)=>v-min[i]))||1,margin=Math.max(5,.15*diagonal);
-  const low=min.map((v,i)=>5*Math.floor((Math.min(v,root[i])-margin)/5)),high=max.map((v,i)=>5*Math.ceil((Math.max(v,root[i])+margin)/5));
+  const imported=!!data?.imported_deck;
+  // A native deck has no generated-wing root. Do not stretch its guides from
+  // a far-offset model to an unrelated origin inherited from wing defaults.
+  const root=imported?[(min[0]+max[0])/2,0,(min[2]+max[2])/2]:[Number(params["planform.root_ref_x"])||0,Number(params["planform.root_ref_y"])||0,Number(params["planform.root_ref_z"])||0];
+  const diagonal=Math.hypot(...max.map((v,i)=>v-min[i]))||1,margin=imported?.15*diagonal:Math.max(5,.15*diagonal);
+  const low=min.map((v,i)=>imported?v-margin:5*Math.floor((Math.min(v,root[i])-margin)/5)),high=max.map((v,i)=>imported?v+margin:5*Math.ceil((Math.max(v,root[i])+margin)/5));
   return{root,spacing,z,ground:[[low[0],low[1],z],[high[0],low[1],z],[high[0],high[1],z],[low[0],high[1],z]],
    symmetry:[[low[0],root[1],low[2]],[high[0],root[1],low[2]],[high[0],root[1],high[2]],[low[0],root[1],high[2]]]};
  }

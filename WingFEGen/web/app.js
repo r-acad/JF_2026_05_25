@@ -45,9 +45,9 @@ const EXTRA_STYLE = {
   NODES:        { color: "#ecf4ff", label: "Structural nodes" },
   AERO_SURFACE: { color: "#8fa0b3", alpha: 0.12, label: "Aerodynamic loft overlay" },
   MESH_EDGES:   { color: "#101720", label: "Element edges" },
-  RBE3:         { color: "#b57ce0", label: "RBE3 spiders" },
-  RBE3_NODES:   { color: "#dcb3ff", label: "RBE3 ref nodes" },
-  FUEL_RBE3:    { color: "#43d5ac", label: "Fuel RBE3 spiders · 123456" },
+  RBE3:         { color: "#f4b8d6", label: "RBE3 spiders" },
+  RBE3_NODES:   { color: "#f8cee2", label: "RBE3 ref nodes" },
+  FUEL_RBE3:    { color: "#f4b8d6", label: "Fuel RBE3 spiders · 123456" },
   FUEL_RBE3_NODES: {color: "#91f5d5", label: "Fuel mass reference nodes"},
   SPC:          { color: "#ff4d6d", label: "Supports (SPC)" },
   SUPPORT_FORCES: { color: "#b8cadb", label: "Support forces / moments (XYZ)" },
@@ -125,6 +125,7 @@ const state = {
   supportGlyphs: null,
   aeroDisplay: null,
   layerGroupControls: new Map(),
+  layerGroupCollapsed: new Map(),
   deckUrl: null,
   lastDeck: null,
   deckLoadPromise: null,
@@ -2127,7 +2128,7 @@ function installSensitivity() {
   }
   document.getElementById("btn-max-sensitivity").onclick=()=>setWorkspaceMaximized(workspaceUI.maximizedTab==="sensitivity"?null:"sensitivity");
   document.getElementById("btn-help-sensitivity").onclick=()=>openHelp({title:"Sensitivity analysis",paragraphs:[
-    "Create the FEM, choose Sensitivity under Loads, and read its properties. Choose Text for a literal filter or Regex for a case-insensitive regular expression, for example upper.*thickness|spar. Add matches retains selections from earlier filters; Remove matches removes only the matching selected variables. Clear filter leaves the selection unchanged. Invalid expressions are shown beside the filter. Select an enabled case, a scalar objective and active property variables. Use Inspect to find node or element IDs. Shell components follow displayed local axes; z1/z2 recover toward negative/positive local z (outer ply midpoints for sandwich shells).",
+    "Create the FEM, choose Sensitivity under Loads, and read its properties. Wildcard examples (replace these words with your own): P* or P_ matches names starting with P; *skin* matches names containing skin; *bar*lower* matches bar followed by lower. Text is a literal filter; Regex accepts a case-insensitive regular expression, for example upper.*thickness|spar. Add matches retains selections from earlier filters; Remove matches removes only matching selected variables. Clear filter leaves selections unchanged. Invalid expressions are shown beside the filter. Select an enabled case, a scalar objective and active property variables. Use Inspect to find node or element IDs. Shell components follow displayed local axes; z1/z2 recover toward negative/positive local z (outer ply midpoints for sandwich shells).",
     "When Run sensitivity is unavailable, its inline message explains the reason and provides a recovery action where possible. Finish property-table drafts before updating the FEM. A previously read property list refreshes automatically when you return to Sensitivity after a mesh rebuild; selected variables are kept. This refresh never starts an analysis. A changed model response arriving late is discarded. Missing properties require explicit removal from the selection. An unavailable idle action uses a blocked cursor; a progress cursor means an operation is actually running.",
     "The default is an analytic discrete adjoint. One baseline analysis supplies the state; one shared transpose adjoint supplies static-response derivatives for all selected variables. Modal eigenvalues use the baseline mode directly; buckling includes an adjoint for the static preload. No perturbed forward solutions are used.",
     "Analytic mode differentiates the actual native element formulas using exact chain rules and automatic differentiation, including stiffness, mass, inertia loads, T-section offsets and explicit stress recovery. It uses no property perturbations or finite-difference step. Each property still needs its affected element derivatives and contractions. Unsupported formulations fail explicitly. The separate legacy operator-difference option retains property steps and an optional half-step comparison for checking earlier calculations.",
@@ -2442,6 +2443,7 @@ async function saveModelDefinition({saveAs=false} = {}) {
 }
 
 function restoreWorkspaceView(view) {
+  state.layerGroupCollapsed=new Map(Object.entries(view.layerGroups||{}));
   if(state.panelView)setPanelDisplay(false,false);
   state.propertyDisplay?.restore(view.propertyDisplay);
   if(typeof WingLegends!=="undefined")WingLegends.restore(view.legends,{legacyPalette:view.controls["result-palette"]});
@@ -3030,6 +3032,9 @@ function viewportDisplayActions() {
     {id:"surfaces",icon:'<path d="m3 7 9-4 9 4-9 4zM3 7v10l9 4 9-4V7M12 11v10M5 9l14 7M5 13l10 5"/>',
       read:()=>{const solid=document.getElementById("surface-mode").value==="solid";return{label:solid?"Solid":"Translucent",active:solid,title:solid?"Structural surfaces are solid. Click for translucent surfaces.":"Structural surfaces are translucent. Click for solid surfaces."};},
       toggle:()=>change("surface-mode",document.getElementById("surface-mode").value==="solid"?"translucent":"solid")},
+    {id:"beams",icon:'<path d="M5 3h14v4h-5v10h5v4H5v-4h5V7H5z"/>',
+      read:()=>{const sections=document.getElementById("beam-style").value==="sections";return{label:sections?"Bars 3D":"Bars lines",active:sections,title:sections?"Bars use full 3D sections where available. Click to show lines.":"Bars use centerlines. Click to show available 3D sections."};},
+      toggle:()=>change("beam-style",document.getElementById("beam-style").value==="sections"?"lines":"sections")},
     ...[["ground","show-ground-plane","Ground",'<path d="m2 15 10-8 10 8-10 7zM6 12l12 6M10 9l12 6M6 18 16 10M10 21l10-8"/>'],["symmetry","show-symmetry-plane","Symmetry",'<path d="M12 2v20M3 7l6-3v16l-6-3zm18 0-6-3v16l6-3z"/>']].map(([id,control,label,icon])=>({id,icon,read:()=>({label,active:document.getElementById(control)?.checked===true,title:(document.getElementById(control)?.checked?"Hide ":"Show ")+label.toLowerCase()+" plane"}),toggle:()=>change(control,!document.getElementById(control).checked)})),
   ];
 }
@@ -3060,6 +3065,8 @@ function initScene() {
     "cam", -Math.PI / 3, Math.PI / 3, 12, BABYLON.Vector3.Zero(), scene);
   state.camera.attachControl(canvas, true);
   state.camera.wheelDeltaPercentage = 0.02;
+  // Pan sensitivity is recomputed in screen units after each fit/zoom, so
+  // millimetre decks and metre wings respond to the same pointer gesture.
   state.camera.panningSensibility = 400;
   state.camera.useInputToRestoreState = false;
   // Reserve the middle button for node centering, without moving on drag.
@@ -3078,8 +3085,12 @@ function initScene() {
     onView:(_name,alpha,beta)=>setView(alpha,beta),onChange:markStudyViewModified,
     onSaveSVG:saveViewportSVG,onExportError:error=>log("SVG export: "+error.message,"err"),
     displayActions: viewportDisplayActions(),
+    translucency:{
+      read:()=>({value:document.getElementById("surface-translucency").value,visible:document.getElementById("surface-mode").value==="translucent"}),
+      change:value=>{const input=document.getElementById("surface-translucency");input.value=value;input.dispatchEvent(new Event("input",{bubbles:true}));},
+    },
     ground: {
-      read:()=>{const input=document.getElementById("ground-plane-z");return{value:input.value,error:input.validationMessage,visible:document.getElementById("show-ground-plane").checked};},
+      read:()=>{const input=document.getElementById("ground-plane-z");return{value:input.value,error:input.validationMessage,visible:document.getElementById("show-ground-plane").checked,units:state.importedDeck?'source':'m'};},
       change:(value,commit)=>{const input=document.getElementById("ground-plane-z");input.value=value;input.dispatchEvent(new Event(commit?"change":"input",{bubbles:true}));},
     },
     inspection: {
@@ -3353,6 +3364,7 @@ function applyBeamStyle() {
     }
   }
   syncComparisonVisibility();
+  state.viewportTools?.syncDisplay();
 }
 
 function markerMesh(name, positions, nodes, hex, radius) {
@@ -3667,6 +3679,9 @@ function syncPanelExplosionControls(){
   document.getElementById("explode-panels").disabled=!state.panelIndex?.panels.length;
   document.getElementById("explode-origin").value=settings.origin;
   document.getElementById("explode-distance").value=settings.distance;
+  const slider=document.getElementById("explode-slider"),limit=Math.min(10000,Math.max(1,(state.diag||20)*.5,settings.distance));
+  slider.max=limit;slider.step="any";slider.value=settings.distance;slider.disabled=!state.panelIndex?.panels.length;
+  slider.setAttribute("aria-valuetext",eng(settings.distance,4)+" metres");
 }
 function applyPanelMeshOffsets(){
   if(!state.panelExplosion)return;
@@ -3689,6 +3704,11 @@ function editPanelExplosion(){
   }catch(problem){error.textContent=problem.message;error.hidden=false;}
 }
 for(const id of ["explode-panels","explode-origin","explode-distance"])document.getElementById(id).addEventListener("change",()=>editPanelExplosion());
+let pendingPanelExplosion=null;
+document.getElementById("explode-slider").oninput=event=>{
+  document.getElementById("explode-distance").value=event.target.value;document.getElementById("explode-panels").checked=true;
+  if(pendingPanelExplosion===null)pendingPanelExplosion=requestAnimationFrame(()=>{pendingPanelExplosion=null;editPanelExplosion();});
+};
 
 function setPanelDisplay(enabled,redraw=true){
   enabled=!!enabled&&!!state.panelIndex?.panels.length;
@@ -3872,7 +3892,13 @@ function buildLayerPanel() {
     checkbox.onchange = () => setModelEntitiesVisible(group.names, checkbox.checked);
     const title = document.createElement("span"); title.textContent = group.label;
     const count = document.createElement("span"); count.className = "entity-group-count";
-    label.append(checkbox, title, count); legend.appendChild(label); fieldset.appendChild(legend);
+    const toggle=document.createElement("button"),body=document.createElement("div");
+    toggle.type="button";toggle.className="entity-list-toggle mini";toggle.id="entity-list-toggle-"+group.id;
+    body.id="entity-list-"+group.id;body.className="entity-list-body";toggle.setAttribute("aria-controls",body.id);
+    const collapse=value=>{body.hidden=value;toggle.textContent=value?"+":"−";toggle.setAttribute("aria-expanded",String(!value));toggle.setAttribute("aria-label",(value?"Expand ":"Collapse ")+group.label.toLowerCase()+" list");};
+    collapse(state.layerGroupCollapsed.get(group.id)===true);
+    toggle.onclick=()=>{state.layerGroupCollapsed.set(group.id,!body.hidden);collapse(!body.hidden);markStudyViewModified();};
+    label.append(checkbox, title, count);legend.append(toggle,label);fieldset.append(legend,body);
     const rows=componentLayerRows(group);
     state.layerGroupControls.set(group.id, { checkbox, count, names: group.names, rows });
     for (const item of rows) {
@@ -3887,9 +3913,9 @@ function buildLayerPanel() {
       if(group.id==="loads")sw.title=name==="VLM_FORCES"?"Magenta: signed panel-normal pressure force":"Global X red, Y green, Z blue";
       const text = document.createElement("span"); text.className = "layer-name"; text.textContent = item.label;
       const count = document.createElement("span"); count.className = "count"; count.textContent = item.count;
-      row.append(cb, sw, text, count); fieldset.appendChild(row);
+      row.append(cb, sw, text, count); body.appendChild(row);
     }
-    if(group.id==="aerodynamics" && aeroAppearance)fieldset.appendChild(aeroAppearance);
+    if(group.id==="aerodynamics" && aeroAppearance)body.appendChild(aeroAppearance);
     host.appendChild(fieldset);
   }
   if(aeroAppearance && !aeroAppearance.parentElement)host.appendChild(aeroAppearance);
@@ -3923,18 +3949,21 @@ function syncViewPlanes(report = false) {
   state.viewportTools?.syncDisplay();
   const note = document.getElementById("view-planes-note");
   const plane = state.viewPlanes?.layout;
-  if (note && plane) note.textContent = "Ground: global z = " + eng(plane.z, 5) + " m, with " + eng(plane.spacing, 5) + " m tiles and grid lines. Symmetry: global y = " +
-    eng(plane.root[1], 5) + " m. Ground is a background guide; symmetry is translucent. These display settings do not remesh or change the FE model, picking, mass or export.";
+  const units=state.data?.imported_deck?"source units":"m";
+  if (note && plane) note.textContent = "Ground: global z = " + eng(plane.z, 5) + " "+units+", with " + eng(plane.spacing, 5) + " "+units+" tiles and grid lines. Symmetry: global y = " +
+    eng(plane.root[1], 5) + " "+units+". "+(state.data?.imported_deck?"Imported deck coordinates are retained without unit conversion. ":"")+"Ground is a background guide; symmetry is translucent. These display settings do not remesh or change the FE model, picking, mass or export.";
 }
 
 function syncAeroOverlayControl() {
   const control = document.getElementById("show-aero-overlay"), layer = state.layers.get("AERO_SURFACE");
   if (control) { control.disabled = !layer; control.checked = !!layer?.visible; }
-  if (layer) document.getElementById("show-deformed-aero").checked = layer.visible;
+  const resultToggle=document.getElementById("show-deformed-aero");if(resultToggle){resultToggle.disabled=!layer;resultToggle.checked=!!layer?.visible;}
   const style=document.getElementById("aero-deformed-style"),note=document.getElementById("aero-display-note");
-  const label=document.getElementById("deformed-aero-label");if(label)label.textContent="Deformed aero · "+(aeroContourProtection()?"wireframe for contours":style?.value==="steel"?"specular":"wireframe");
+  const effective=aeroSurfaceStyle(),finish={steel:"metallic",wireframe:"wireframe",translucent:"translucent"}[effective];
+  const label=document.getElementById("deformed-aero-label");if(label)label.textContent=(activeShape()?"Deformed aero":"Undeformed aero")+" · "+finish;
   if(style)style.disabled=!layer || !state.aeroDisplay;
-  if(note)note.textContent="Airfoil wires show the defined, undeformed sections at their exact span positions. "+(aeroContourProtection()?"The aero loft is temporarily wireframe so visible shell contours remain readable. Your selected finish is retained and returns when contours are off or shells are hidden.":!activeShape()?"Load a result to display the deformed loft in wireframe or polished aluminium.":"The deformed loft follows the selected result and deformation scale.");
+  if(note)note.textContent="Airfoil wires show the defined, undeformed sections at their exact span positions. "+(state.sensitivityMap?"Sensitivity colors describe property derivatives; the aero loft is undeformed. Open FE Results to see the primal deformed shape. ":activeShape()?"The loft follows the selected FE result and deformation scale. ":"The loft is undeformed because no displacement shape is displayed. ")+(style?.value==="auto"?"Auto uses wireframe over colored structural results and panels, metallic for other deformed views, and translucent otherwise.":"The selected finish is used directly; metallic surfaces may cover underlying structural colors.");
+  if(note&&!layer)note.textContent=state.data?.imported_deck?"This imported deck has no aerodynamic loft. Its shell elements remain available in Display and Results.":"Create FEM to display the aerodynamic loft and defined airfoil sections.";
 }
 
 function syncAxesControls() {
@@ -4437,7 +4466,7 @@ function updateViewportLegends() {
   if (c&&c.kind!=="panels") entries.push({kind:c.kind==="properties"?"properties":"fe",paletteKey:contourPaletteKey(c),categories:propertyLegendCategories(c),limitKey:c.limitKey,title:c.name,unit:c.unit,min:c.min,max:c.max,caseLabel:c.caseLabel||resultCaseLabel(),
     gradient:contourGradient(c.min,c.max,contourPaletteKey(c)),note:[c.kind?.startsWith("sensitivity")?"Undeformed model · full element values":c.location==="node"?"Element mean displacement · no cross-element averaging":
       beamContourApplies(c)?"Full elements · gray = unavailable":"Full elements · gray = unavailable; beams keep group colors",
-      typeof c.note==="string"?c.note:"",aeroContourProtection()&&state.layers.get("AERO_SURFACE")?.visible?"Aero loft uses wireframe to reveal shell contours":""].filter(Boolean).join(" · ")});
+      typeof c.note==="string"?c.note:"",aeroSurfaceStyle()==="wireframe"&&aeroContourProtection()&&state.layers.get("AERO_SURFACE")?.visible?"Aero loft uses wireframe to reveal shell contours":""].filter(Boolean).join(" · ")});
   const field=document.getElementById("vlm-field")?.value,values=state.vlm?.[field];
   if (state.layers.get("VLM_PRESSURE")?.visible && values) {
     const {min,max,limitKey}=vlmColorRange(field,values);
@@ -4805,6 +4834,13 @@ function syncCameraClipping() {
   const far = Math.max(diag * 10, radius + diag * 3);
   if (camera.minZ !== near) camera.minZ = near;
   if (camera.maxZ !== far) camera.maxZ = far;
+  const canvas=document.getElementById("render"),height=Math.max(1,canvas?.clientHeight||state.engine.getRenderHeight());
+  let worldHeight=camera.mode===BABYLON.Camera.ORTHOGRAPHIC_CAMERA?Math.abs(camera.orthoTop-camera.orthoBottom):2*radius*Math.tan(camera.fov/2);
+  if(camera.mode!==BABYLON.Camera.ORTHOGRAPHIC_CAMERA&&camera.fovMode===BABYLON.Camera.FOVMODE_HORIZONTAL_FIXED)worldHeight/=Math.max(.01,(canvas?.clientWidth||state.engine.getRenderWidth())/height);
+  // ArcRotate accumulates pan in world units, including its inertial tail.
+  // Target approximately 0.65 screen pixels per pointer pixel at every scale.
+  if(Number.isFinite(worldHeight)&&worldHeight>0)camera.panningSensibility=height/(worldHeight*.65*Math.max(.001,1-camera.panningInertia));
+  camera.lowerRadiusLimit=Math.max(diag*1e-6,1e-10);
 }
 
 function fitView() {
@@ -5296,11 +5332,13 @@ function addAeroLoads(loads) {
 
 /** Native SPC reactions in BASIC axes; display only actual modeled supports. */
 function rebuildSupportForces() {
+  state.annotations?.invalidate();
   const old=state.layers.get("SUPPORT_FORCES");
   if(old){const removed=new Set(old.meshes);state.deformable=state.deformable.filter(d=>!removed.has(d.mesh));old.meshes.forEach(mesh=>mesh.dispose(false,true));state.layers.delete("SUPPORT_FORCES");}
   const control=document.getElementById("show-support-forces"),note=document.getElementById("support-force-note");
   const result=state.results,reactions=result?.matches&&result.available!==false&&state.activeMode<0?result.reactions:null;
   if(control)control.disabled=!reactions;
+  document.getElementById("show-support-force-values").disabled=!reactions;
   if(!reactions||!state.baseline||!state.data?.spc){if(note)note.textContent=state.activeMode>=0?"Support reactions are available for static solutions.":"No support reactions are available for this result.";return;}
   const supports=new Set(asI32(state.data.spc.nodes)),records=[];let peak=0,momentPeak=0;
   for(let i=0;i<reactions.nodes.length;i++){
@@ -5349,6 +5387,8 @@ function updateMarkerRadii() {
 
 function applySurfaceMode() {
   const solid = document.getElementById("surface-mode").value === "solid";
+  const translucency=Number(document.getElementById("surface-translucency").value),structuralAlpha=1-Math.max(0,Math.min(100,Number.isFinite(translucency)?translucency:45))/100;
+  document.getElementById("surface-translucency-control").hidden=solid;
   for (const [name, layer] of state.layers) {
     if (name === "REFERENCE_AERO") continue;
     // The loft is a context overlay. Making it opaque hides skin elements
@@ -5357,7 +5397,7 @@ function applySurfaceMode() {
     for (const mesh of layer.meshes) {
       if (mesh.translucentAlpha === undefined) continue;
       mesh.hasVertexAlpha = false;
-      mesh.material.alpha = opaque ? 1 : mesh.translucentAlpha;
+      mesh.material.alpha = opaque ? 1 : mesh.metadata?.feGroup&&["quad","tria"].includes(mesh.metadata.feGroup.kind)?structuralAlpha:mesh.translucentAlpha;
       mesh.material.transparencyMode = opaque ? BABYLON.Material.MATERIAL_OPAQUE : BABYLON.Material.MATERIAL_ALPHABLEND;
       mesh.material.separateCullingPass = !opaque;
       mesh.material.disableDepthWrite = false;
@@ -5380,15 +5420,20 @@ function aeroContourProtection(){
   const hasContour=!!state.propertyDisplay?.enabled||!!state.sensitivityMap||!!state.panelView||!!selected&&selected.kind!=="none"||workspaceUI.activeTab==="results"&&!!activeShape();
   return hasContour && (state.data?.groups||[]).some(group=>["quad","tria"].includes(group.kind)&&state.layers.get(group.name)?.visible);
 }
+function aeroSurfaceStyle(){
+  const style=document.getElementById("aero-deformed-style")?.value||"auto";
+  return style==="auto"||style==="steel"?(aeroContourProtection()?"wireframe":activeShape()?"steel":"translucent"):style==="metallic"?"steel":style;
+}
 function applyAeroOverlayStyles() {
-  const deformed=!!activeShape(),protect=aeroContourProtection();
+  const deformed=!!activeShape(),style=aeroSurfaceStyle();
   for (const mesh of state.layers.get("AERO_SURFACE")?.meshes || []) {
-    const steel=state.aeroDisplay?.apply(mesh,{deformed,style:protect?"wireframe":document.getElementById("aero-deformed-style")?.value || "wireframe"});
+    const steel=state.aeroDisplay?.apply(mesh,{deformed,style});
     if(steel)continue;
-    mesh.material.wireframe=deformed||protect;
-    mesh.material.alpha=deformed||protect ? .75 : mesh.translucentAlpha;
+    mesh.material.wireframe=style==="wireframe";
+    mesh.material.alpha=style==="wireframe" ? .75 : mesh.translucentAlpha;
     mesh.material.transparencyMode=BABYLON.Material.MATERIAL_ALPHABLEND;
-    mesh.material.separateCullingPass=!(deformed||protect);
+    mesh.material.separateCullingPass=style!=="wireframe";
+    mesh.material.disableDepthWrite=false;
   }
   for (const mesh of state.layers.get("REFERENCE_AERO")?.meshes || []) {
     mesh.material.wireframe=false; mesh.material.alpha=mesh.translucentAlpha;
@@ -5983,9 +6028,10 @@ document.getElementById("surface-mode").onchange = () => {
   applySurfaceMode();
 };
 document.getElementById("show-bars-through").onchange = applyBarDepthPolicy;
+document.getElementById("surface-translucency").oninput = ()=>{applySurfaceMode();markStudyViewModified();};
 document.getElementById("show-aero-overlay").onchange = (event) => setLayerVisible("AERO_SURFACE", event.target.checked);
 document.getElementById("aero-deformed-style").onchange = () => {
-  if(activeShape())setLayerVisible("AERO_SURFACE",true);
+  setLayerVisible("AERO_SURFACE",true);
   applyAeroOverlayStyles();syncAeroOverlayControl();state.annotations?.invalidate();markStudyViewModified();
 };
 document.getElementById("show-shell-axes").onchange = (event) => setLayerVisible("SHELL_AXES", event.target.checked);
@@ -6031,7 +6077,7 @@ for (const id of ["ground-plane-z", "ground-grid-spacing"]) {
 }
 document.getElementById("show-undeformed").onchange = syncResultOverlays;
 document.getElementById("show-reference-aero").onchange = syncResultOverlays;
-document.getElementById("show-deformed-aero").onchange = syncResultOverlays;
+document.getElementById("show-deformed-aero").onchange = event => setLayerVisible("AERO_SURFACE",event.target.checked);
 
 document.getElementById("btn-create").onclick = createFEM;
 document.getElementById("auto-mesh").onchange = autoMeshChanged;
@@ -6077,9 +6123,15 @@ if (typeof WingWorkspace !== "undefined") {
   document.getElementById("btn-load-toml").onclick=()=>{if(workspaceOperationAvailable())document.getElementById("toml-file").click();};
   document.getElementById("toml-file").onchange=async event=>{const file=event.target.files[0];event.target.value="";await loadTomlDefinition(file);};
   document.getElementById("btn-new-study").onclick=newStudy;
-  state.nastranImport=WingNastranImport.create({onImport:loadNastranSource,pickFile:async()=>{
-    const response=await fetch("/api/import_nastran/pick",{cache:"no-store"});
+  state.nastranImport=WingNastranImport.create({onImport:loadNastranSource,browseFiles:async({path,all,offset,signal})=>{
+    const query=new URLSearchParams({path,all:all?"1":"0",offset:String(offset||0)});
+    const response=await fetch("/api/import_nastran/browse?"+query,{cache:"no-store",signal});
     if(!response.ok)throw Error(await readError(response));return response.json();
+  },prepareImporter:async start=>{
+    const response=await fetch("/api/import_nastran/prepare",{method:start?"POST":"GET",cache:"no-store"});
+    if(!response.ok)throw Error(await readError(response));const data=await response.json();
+    if(data.stage&&data.stage!==state.importerPreparationStage){state.importerPreparationStage=data.stage;log("Importer preparation +"+Number(data.seconds||0).toFixed(2)+" s: "+data.stage);}
+    return data;
   }});
   document.getElementById("btn-read-nastran").onclick=()=>state.nastranImport.open();
 }
@@ -6102,6 +6154,7 @@ WingLegends.configure({getPalette:scope=>scope==="sensitivity"?"coolwarm":scope=
   palettes:Array.from(document.getElementById("result-palette").options).map(option=>({value:option.value,label:option.textContent,
     gradient:"linear-gradient(90deg,"+COLOR_SCALES[option.value].map(([t,c])=>"rgb("+c.map(v=>Math.round(v*255)).join(",")+") "+(100*t)+"%").join(",")+")"}))});
 document.getElementById("show-support-forces").onchange = event => setLayerVisible("SUPPORT_FORCES", event.target.checked);
+document.getElementById("show-support-force-values").onchange=()=>{state.annotations?.invalidate();markStudyViewModified();};
 document.getElementById("support-force-scale").oninput = () => { rebuildSupportForces(); buildLayerPanel(); };
 document.getElementById("animate").onchange = () => {
   state.phase = Math.PI / 2;

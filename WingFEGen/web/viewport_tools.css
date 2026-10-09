@@ -8,6 +8,8 @@
 .viewport-ground-height { display:flex; flex-direction:column; justify-content:center; gap:3px; width:91px; padding:2px 3px; color:#d7eaff; font-size:10px; }
 .viewport-ground-height input { width:100%; min-width:0; box-sizing:border-box; padding:5px 3px 5px 6px; border:1px solid #4a627c; border-radius:4px; background:#0e1c2b; color:#e3efff; font:12px system-ui,sans-serif; }
 .viewport-ground-height input:invalid { border-color:#ffa24b; }
+.viewport-translucency{display:flex;flex-direction:column;justify-content:center;gap:7px;width:115px;padding:2px 4px;color:#d7eaff;font-size:10px}
+.viewport-translucency input{width:100%;margin:0;accent-color:#79bbec}
 #viewport-tools input:focus-visible { outline:2px solid #b7e5ff; outline-offset:3px; }
 #viewport-tools [hidden] { display:none; }
 #viewport-tools.is-collapsed { padding:0; background:transparent; border:0; border-radius:50%; }

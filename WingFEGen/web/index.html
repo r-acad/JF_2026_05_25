@@ -193,10 +193,11 @@
       <fieldset id="panel-explosion-controls">
         <legend>Exploded stiffened panels</legend>
         <label class="layer"><input id="explode-panels" type="checkbox" disabled><span>Explode panels</span></label>
-        <label class="display-control">Spread from <select id="explode-origin"><option value="centroid">Structural GRID centroid</option><option value="midspan">Bounding-box midspan center</option><option value="ribbay">Individual rib-bay centers</option></select></label>
+        <label class="display-control">Spread from <select id="explode-origin"><option value="centroid">Structural GRID centroid</option><option value="midspan">Bounding-box midspan center</option><option value="ribbay">Individual rib-bay centers</option><option value="rib">Corresponding rib center (inboard)</option></select></label>
         <label class="display-control">Distance (m)<input id="explode-distance" type="number" min="0" max="10000" step="0.1" value="1"></label>
+        <label class="display-control">Manual spread<input id="explode-slider" type="range" min="0" max="10" step="0.01" value="1" aria-label="Manually spread panels" title="Drag to change the view-only distance and enable explosion. Zero restores physical positions."></label>
         <p id="explode-note" class="pick-note">View only: each panel skin and stringer move together. Elements, their axes and P labels follow; shared GRID markers, rib/stringer datums, loads and aero stay assembled. Results retain physical values. Distances between moved panels are display distances. SVG captures this view; STL/GLB retain physical coordinates.</p>
-        <p class="pick-note">Individual rib-bay centers use the midpoint between adjacent ribs. Uncheck Explode panels to restore the assembled view.</p>
+        <p class="pick-note">Rib-bay centers use the midpoint between adjacent ribs. Corresponding rib centers use the inboard rib of each panel's bay (R1 for R1–R2), including runouts. Uncheck Explode panels to restore the assembled view.</p>
         <p id="explode-error" class="pick-note" role="alert" hidden></p>
       </fieldset>
       <label class="display-control">Load case <select id="load-case-select" aria-label="Displayed load case"></select></label>
@@ -226,6 +227,7 @@
         <select id="surface-mode"><option value="solid" selected>Fully solid</option><option value="translucent">Translucent</option></select>
       </label>
       <p class="pick-note">Fully solid hides rear surfaces and bars. Translucent reveals internal structure. Show bars through surfaces overrides depth.</p>
+      <label class="display-control" id="surface-translucency-control" hidden>Translucency (%)<input id="surface-translucency" type="range" min="0" max="100" step="1" value="45" aria-label="Structural surface translucency percentage"></label>
       <label class="display-control">Beam sections
         <select id="beam-style"><option value="lines">Lines</option><option value="sections">Full 3D sections</option></select>
       </label>
@@ -236,8 +238,8 @@
       <label class="display-control">Marker radius (m)<input id="marker-radius" type="number" min="0" step="any" value="0.01"></label>
       <p class="pick-note">Supports: cones for translations 1–3, with their tips at the node along +x, +y and +z; open cubes for rotations 4–6. Global x is red, y green, z blue. Cone base radius equals Marker radius, length is twice that radius. Cubes keep their half-radius offset.</p>
       <div id="aerodynamic-appearance">
-        <label class="display-control">Deformed aerodynamic loft
-          <select id="aero-deformed-style" disabled><option value="wireframe">Wireframe</option><option value="steel" selected>Polished aluminium · specular</option></select>
+        <label class="display-control">Aerodynamic loft finish
+          <select id="aero-deformed-style" disabled><option value="auto" selected>Auto · contour-friendly</option><option value="metallic">Metallic · polished aluminium</option><option value="wireframe">Wireframe</option><option value="translucent">Translucent</option></select>
         </label>
         <p id="aero-display-note" class="pick-note">Create FEM to show the defined airfoil sections. Load results to display the deformed aerodynamic loft.</p>
       </div>
@@ -383,13 +385,14 @@
           </label>
           <label class="ctl check"><input id="show-undeformed" type="checkbox"><span>Undeformed model</span></label>
           <label class="ctl check" title="Original aerodynamic surface, filled and translucent"><input id="show-reference-aero" type="checkbox"><span>Undeformed aero · translucent</span></label>
-          <label class="ctl check" title="Aerodynamic surface following the active displacement shape. Choose specular aluminium or wireframe in Display."><input id="show-deformed-aero" type="checkbox" checked><span id="deformed-aero-label">Deformed aero · specular</span></label>
+          <label class="ctl check" title="Show the aerodynamic loft. It follows the active FE displacement shape; sensitivity fields use the undeformed loft. Select metallic, wireframe or translucent in Display."><input id="show-deformed-aero" type="checkbox" checked><span id="deformed-aero-label">Aerodynamic loft</span></label>
           <div class="sub-title">Contour</div>
           <select id="contour-select"></select>
           <label class="display-control">Color scale<select id="result-palette"><option value="spectrum">Blue–green–red</option><option value="viridis">Viridis</option><option value="inferno">Inferno</option><option value="coolwarm">Blue–white–red</option><option value="grayscale">Grayscale</option></select></label>
           <div id="contour-legend"></div>
           <div class="sub-title">Support reactions</div>
           <label class="ctl check"><input id="show-support-forces" type="checkbox" checked><span>Forces and moments at supported nodes</span></label>
+          <label class="ctl check"><input id="show-support-force-values" type="checkbox"><span>Label support force and moment values</span></label>
           <label class="display-control">Arrow length multiplier<input id="support-force-scale" type="number" min="0.01" max="100" step="0.1" value="1"></label>
           <p id="support-force-note" class="pick-note"></p>
         </div>

@@ -6,6 +6,19 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **WingFEGen viewer controls and sensitivity table recovery.** Add rigid panel
+  spreading from each inboard rib with a manual slider, toolbar beam sections
+  and translucency, collapsible entity lists, signed support reaction labels,
+  and light-pink RBE3s. Scale imported-model panning to screen size and bound
+  ground guides to actual imported geometry. Offer explicit metallic, wireframe
+  and translucent aero finishes alongside contour-aware Auto. Sensitivity tables
+  select property families for the chosen skin and distinguish unselected,
+  missing, pending and failed values; existing results require no rerun.
+  Replace the ownerless desktop Browse dialog with an in-app local filesystem
+  browser. Prepare the parser visibly while choosing a deck, use an import-only
+  worker runtime, avoid duplicate payload packing and report import-stage timings.
+  Correct imported CBAR orientation indexing for section display.
+
 - **WingFEGen case inspection and workspace refinements.** Add read-only imported
   case-control, load-card and boundary-condition tables. The selected subcase
   controls support markers, including prescribed SPC/SPCD values, permanent

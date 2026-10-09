@@ -5,7 +5,7 @@
  function normalize(value){
   if(value!=null&&(typeof value!=='object'||Array.isArray(value)))throw Error('Panel explosion settings must be an object.');
   const v=value||{},enabled=v.enabled??false,origin=v.origin??'centroid',distance=v.distance??1;
-  if(typeof enabled!=='boolean'||!['centroid','midspan','ribbay'].includes(origin)||typeof distance!=='number'||!Number.isFinite(distance)||distance<0||distance>10000)throw Error('Panel explosion needs a valid origin and distance from 0 to 10000 m.');
+  if(typeof enabled!=='boolean'||!['centroid','midspan','ribbay','rib'].includes(origin)||typeof distance!=='number'||!Number.isFinite(distance)||distance<0||distance>10000)throw Error('Panel explosion needs a valid origin and distance from 0 to 10000 m.');
   return{enabled,origin,distance};
  }
  function create(){
@@ -41,7 +41,7 @@
     const members=new Set();for(const id of panel.shell_eids)for(const n of elements.get(id)?.nodes||[])members.add(n);
     if(!members.size)for(const id of panel.stringer_eids)for(const n of elements.get(id)?.nodes||[])members.add(n);
     const p=[0,0,0];for(const n of members)for(let a=0;a<3;a++)p[a]+=positions[3*n+a]/members.size;
-    const origin=settings.origin==='ribbay'?(bayOrigins.get(bayId(panel))||center):center;origins.set(panel.id,origin);
+    const bay=bayId(panel),origin=settings.origin==='rib'?(ribOrigins.get(bay)||bayOrigins.get(bay)||center):settings.origin==='ribbay'?(bayOrigins.get(bay)||center):center;origins.set(panel.id,origin);
     let v=p.map((x,a)=>x-origin[a]),length=Math.hypot(...v);
     if(length<1e-12){v=[0,panel.skin==='lower'?-1:1,0];length=1;}
     offsets.set(panel.id,v.map(x=>settings.enabled?x/length*settings.distance:0));

@@ -9,7 +9,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
   const COLORS = { node: "#78e1ed", support: "#ff8190", quad: "#8bbcff", tria: "#81e1ad",
-    stringer: "#ffdf00", cap: "#ff9c39", ribStiffener: "#a9e4ef", bar: "#ffe8a0", rbe3: "#d9b1ff", fuel: "#91f5d5", selected: "#ffe478" };
+    stringer: "#ffdf00", cap: "#ff9c39", ribStiffener: "#a9e4ef", bar: "#ffe8a0", rbe3: "#f4b8d6", fuel: "#91f5d5", selected: "#ffe478" };
   const LEGEND = [["GRID", "node"], ["Supported GRID", "support"], ["CQUAD4", "quad"],
     ["CTRIA3", "tria"], ["Stringer", "stringer"], ["Spar cap", "cap"], ["Rib stiffener", "ribStiffener"], ["RBE3", "rbe3"], ["Fuel reference", "fuel"]];
   const baseGroup = (name) => name.replace(/_KINKS$/, "").replace(/_P\d+$/, "");
@@ -203,6 +203,24 @@
     }
     return candidates;
   }
+  function supportValueCandidates(state) {
+    const layer=state.layers.get("SUPPORT_FORCES"),candidates=[];
+    if(!layer?.visible)return candidates;
+    for(const mesh of layer.meshes){
+      if(mesh.isDisposed?.()||mesh.isEnabled?.()===false||mesh.isVisible===false)continue;
+      const vertices=mesh.getVerticesData?.("position"),matrix=mesh.computeWorldMatrix?.(true)?.m;
+      if(!vertices)continue;
+      for(const glyph of mesh.metadata?.glyphs||[]){
+        const offset=glyph.first_vertex+(glyph.kind==="moment"?glyph.vertex_count-4:1),local=Array.from(vertices.slice(3*offset,3*offset+3));
+        if(local.length!==3||!local.every(Number.isFinite)||!Number.isFinite(glyph.value))continue;
+        const point=matrix?[0,1,2].map(a=>matrix[a]*local[0]+matrix[4+a]*local[1]+matrix[8+a]*local[2]+matrix[12+a]):local;
+        const value=globalThis.WingNumbers?.format(glyph.value,5)??String(Number(glyph.value.toPrecision(5)));
+        candidates.push({kind:"reaction",id:glyph.node_index,component:glyph.component,color:glyph.color,
+          text:(glyph.kind==="moment"?"M":"F")+glyph.axis.toLowerCase()+" "+value+" "+(glyph.kind==="moment"?"N·m":"N"),point});
+      }
+    }
+    return candidates;
+  }
   function create(options) {
     const B = options.BABYLON || globalThis.BABYLON;
     const { scene, camera, engine, canvas, getState, getPositions } = options;
@@ -230,12 +248,13 @@
       const showRibs = !!(control("mesh-labels-ribs")?.checked || control("mesh-labels-both")?.checked);
       const showStringers = !!(control("mesh-labels-stringers")?.checked || control("mesh-labels-both")?.checked);
       const showPanels=!!state.panelView||!!state.panelExplosion?.active;
+      const showReactions=!!control("show-support-force-values")?.checked;
       const selected = state.elements.get(state.selectedElement);
       const size = Math.max(8, Math.min(24, Number(control("id-label-size")?.value) || 11));
       const width = canvas.clientWidth, height = canvas.clientHeight;
       const occluders = opaqueOccluders(scene);
       const occluderKey = occluders.map((mesh) => mesh.uniqueId + ":" + Array.from(mesh.computeWorldMatrix().m).join(",")).join(";");
-      const key = [width, height, showNodes, showElements, showRibs, showStringers, showPanels, size, state.selectedElement,
+      const key = [width, height, showNodes, showElements, showRibs, showStringers, showPanels, showReactions, size, state.selectedElement,
         occluderKey, ...scene.getTransformMatrix().m, ...Array.from(state.layers, ([, layer]) => +layer.visible)].join("|");
       const now = performance.now();
       if (!force && (!dirty && key === lastKey && state.data === lastData && positions === lastPositions || now - lastTime < 30)) return;
@@ -322,19 +341,20 @@
             stats.selected = { id: state.selectedElement, text, ...center };
         }
       }
-      if (showNodes || showElements || showRibs || showStringers || showPanels) {
-        const candidates = [...panelLabelCandidates(state,positions),...labelCandidates(state, positions, showNodes, showElements),
+      if (showNodes || showElements || showRibs || showStringers || showPanels || showReactions) {
+        const candidates = [...(showReactions?supportValueCandidates(state):[]),...panelLabelCandidates(state,positions),...labelCandidates(state, positions, showNodes, showElements),
           ...physicalLabelCandidates(state, positions, showRibs, showStringers)].map((candidate) => ({ ...candidate, screen: project(candidate.point) }))
           .filter((item) => item.screen && item.screen.x >= 0 && item.screen.x <= width && item.screen.y >= 0 && item.screen.y <= height)
           .sort((a, b) => (b.kind==='panel')-(a.kind==='panel') || a.screen.z - b.screen.z);
         stats.eligible = candidates.length;
         stats.panelsShown=[];
+        stats.supportValuesShown=[];
         for (const item of candidates) {
           if (item.kind === "element" && item.id === state.selectedElement && stats.selected) { stats.shown++; continue; }
-          if (badge(item.text, item.screen, item.color, false, item)){stats.shown++;if(item.kind==='panel')stats.panelsShown.push(item.id);}
+          if (badge(item.text, item.screen, item.color, false, item)){stats.shown++;if(item.kind==='panel')stats.panelsShown.push(item.id);if(item.kind==='reaction')stats.supportValuesShown.push(item.text);}
         }
         stats.occlusion = occlusion && occlusion.metrics;
-        setStatus(stats.shown + " / " + stats.eligible + " IDs shown" + (stats.occluded ? " · hidden IDs behind opaque surfaces omitted" : "") + (stats.shown + stats.occluded < stats.eligible ? " · zoom in to separate overlapping labels" : ""));
+        setStatus(stats.shown + " / " + stats.eligible + " labels shown" + (stats.occluded ? " · labels behind opaque surfaces omitted" : "") + (stats.shown + stats.occluded < stats.eligible ? " · zoom in to separate overlapping labels" : ""));
       } else setStatus("");
     }
     function setStatus(text) {
@@ -342,11 +362,11 @@
       const host = control("id-label-status"); if (host) host.textContent = text;
     }
     legend();
-    for (const id of ["show-node-ids", "show-element-ids", "id-label-size", "mesh-labels-none", "mesh-labels-ribs", "mesh-labels-stringers", "mesh-labels-both"]) {
+    for (const id of ["show-node-ids", "show-element-ids", "id-label-size", "mesh-labels-none", "mesh-labels-ribs", "mesh-labels-stringers", "mesh-labels-both", "show-support-force-values"]) {
       const input = control(id); if (input) input.addEventListener("input", invalidate);
     }
     const observer = scene.onAfterRenderObservable.add(() => render());
     return { render, invalidate, get stats() { return stats; }, dispose() { scene.onAfterRenderObservable.remove(observer); overlay.remove(); } };
   }
-  return { create, COLORS, LEGEND, elementStyle, centroid, labelCandidates, physicalLabelCandidates, panelLabelCandidates, visibleElement, opaqueOccluders, buildOcclusionIndex };
+  return { create, COLORS, LEGEND, elementStyle, centroid, labelCandidates, physicalLabelCandidates, panelLabelCandidates, supportValueCandidates, visibleElement, opaqueOccluders, buildOcclusionIndex };
 });

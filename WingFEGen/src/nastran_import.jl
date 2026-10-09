@@ -241,7 +241,7 @@ function imported_element_axes(m,gr)
     for e in 1:n_elements(gr)
         points=[Tuple(m.xyz[3i-2:3i]) for i in gr.conn[stride*(e-1)+1:stride*e]]
         x,y,z=if gr.kind===:bar
-            x=unit3(points[2].-points[1]);z=unit3(cross3(x,Tuple(gr.orient[3e-2:3e])));(x,cross3(z,x),z)
+            x=unit3(points[2].-points[1]);z=unit3(cross3(x,Tuple(gr.orient[3*e-2:3*e])));(x,cross3(z,x),z)
         else
             shell_geometric_frame(points)
         end

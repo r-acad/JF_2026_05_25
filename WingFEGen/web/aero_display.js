@@ -33,7 +33,7 @@
   }
   function updateNormals(mesh){if(!steel||mesh.material!==steel)return false;const positions=mesh.getVerticesData(B.VertexBuffer.PositionKind),indices=mesh.getIndices();if(!positions||!indices)return false;let normals=normalBuffers.get(mesh);if(!normals||normals.length!==positions.length){normals=new Float32Array(positions.length);normalBuffers.set(mesh,normals);}B.VertexData.ComputeNormals(positions,indices,normals,{useRightHandedSystem:!!scene.useRightHandedSystem});mesh.updateVerticesData(B.VertexBuffer.NormalKind,normals,false,false);return true;}
   function apply(mesh,{deformed=false,style="wireframe"}={}){
-   if(disposed||!mesh)return false;const selected=!!deformed&&style==="steel";
+   if(disposed||!mesh)return false;const selected=style==="steel";
    if(selected){if(!originals.has(mesh))originals.set(mesh,mesh.material);const changed=mesh.material!==material();mesh.material=steel;mesh.hasVertexAlpha=false;steel.alpha=1;steel.transparencyMode=B.Material.MATERIAL_OPAQUE;steel.wireframe=false;steel.separateCullingPass=false;steel.disableDepthWrite=false;if(changed)updateNormals(mesh);return true;}
    if(originals.has(mesh)){mesh.material=originals.get(mesh);originals.delete(mesh);}return false;
   }
