@@ -100,7 +100,7 @@ function sensitivity_baseline_load(directory,model;result=nothing)
     matches=is_imported_model(model) ? imported_saved_topology_matches(directory,model,record) : sensitivity_topology_matches(model,sensitivity_deck_topology(directory))
     matches||throw(ArgumentError("The baseline GRID coordinates, element connectivity or properties differ from the current FEM"))
     if isfile(joinpath(directory,"baseline_results.msgpack"))
-        payload=MsgPack.unpack(read(sensitivity_baseline_file(directory,"results")))
+        payload=unpack_view_payload(read(sensitivity_baseline_file(directory,"results")))
     else
         # Compatibility with historical exports, using only validated data.
         record===nothing&&error("Historical baseline has no case metadata")

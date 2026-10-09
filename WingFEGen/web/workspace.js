@@ -172,6 +172,11 @@
   }
   function parse(text) {
     let data; try { data=JSON.parse(text); } catch (_) { throw new Error("Choose a valid .wingfem.json Study file."); }
+    return parseObject(data);
+  }
+  // Validate in-memory definitions without serializing and parsing large native
+  // deck/include strings a second time during import or Save Study.
+  function parseObject(data) {
     if (!object(data) || data.format!==FORMAT || data.version!==VERSION) throw new Error("Unsupported Study file format or version. Choose a WingFEGen .wingfem.json file.");
     if (!object(data.parameters) || !Array.isArray(data.references)) throw new Error("Study parameters or embedded references are missing.");
     data.notes=normalizeNotes(data.notes);
@@ -205,7 +210,7 @@
       references:assets.map(({metadata,bytes})=>({...metadata,data_base64:bytesToBase64(bytes)})),view:display};
     // Apply the same checks on export and import, including the total limit.
     if(options.modelSource)data.model_source=nastran.source(options.modelSource);
-    parse(JSON.stringify(data)); return data;
+    parseObject(data); return data;
   }
   function captureView(document,state,workspace) {
     const controls={};
@@ -288,5 +293,5 @@
   function download(data,name,document) {
     downloadText(JSON.stringify(data,null,2),name,"application/json",document);
   }
-  return {FORMAT,VERSION,CONTROL_IDS,MAX_NOTE_LENGTH,MAX_NOTE_ENTRIES,normalizeNotes,notesForSave,completeView,parse,snapshot,captureView,applyControls,validateView,bytesToBase64,base64ToBytes,filename,download,requestSaveDestination,requestStudyDestination,writeDestination,downloadText};
+  return {FORMAT,VERSION,CONTROL_IDS,MAX_NOTE_LENGTH,MAX_NOTE_ENTRIES,normalizeNotes,notesForSave,completeView,parse,parseObject,snapshot,captureView,applyControls,validateView,bytesToBase64,base64ToBytes,filename,download,requestSaveDestination,requestStudyDestination,writeDestination,downloadText};
 });

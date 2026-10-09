@@ -22,6 +22,21 @@ end
 MsgPack.msgpack_type(::Type{Blob}) = MsgPack.BinaryType()
 MsgPack.to_msgpack(::MsgPack.BinaryType, b::Blob) = b.bytes
 
+"""Restore MessagePack binary tags when a saved viewport payload is resent.
+
+MsgPack.unpack returns binary fields as Vector{UInt8}, but packing that vector
+again emits a numeric array unless it is wrapped in Blob. Ordinary MessagePack
+arrays decode as Vector{Any}; preserve them as arrays, including empty arrays
+and lists of small integers that happen to fit in a byte.
+"""
+restore_payload_binary(value) = value
+restore_payload_binary(value::Vector{UInt8}) = Blob(value)
+restore_payload_binary(value::AbstractDict) = Dict{Any,Any}(key => restore_payload_binary(item) for (key,item) in value)
+restore_payload_binary(value::AbstractVector) = Any[restore_payload_binary(item) for item in value]
+
+"""Read a stored viewport payload without losing its typed binary buffers."""
+unpack_view_payload(bytes) = restore_payload_binary(MsgPack.unpack(bytes))
+
 """
     blob_f32(v) -> Blob
 

@@ -833,6 +833,7 @@ Wire the endpoints and the static file handler.
 function make_router(st::AppState)
     router = HTTP.Router()
     HTTP.register!(router, "POST", "/api/import_nastran", req -> handle_import_nastran(st,req))
+    HTTP.register!(router, "GET", "/api/import_nastran/pick", req -> handle_import_nastran_pick(st,req))
     HTTP.register!(router, "GET", "/api/input", req -> handle_input(st, req))
     HTTP.register!(router, "GET", "/api/input_text", req -> handle_input_text(st, req))
     HTTP.register!(router, "POST", "/api/sensitivity/catalog", req -> handle_sensitivity_catalog(st, req))

@@ -21,4 +21,16 @@ check(()=>{const first=addMatchingVariables([],variables,propertyFilter('thickne
 check(()=>{const answer=addMatchingVariables(['lower.t'],variables,propertyFilter(''),3);assert.deepEqual(Array.from(answer.values),['lower.t','upper.t','spar.t']);assert.equal(answer.omitted,2);});
 check(()=>{const answer=addMatchingVariables(['upper.t'],variables,propertyFilter('[' ,'regex'),10);assert.deepEqual(Array.from(answer.values),['upper.t']);});
 check(()=>{const filter=propertyFilter('upper','regex');assert.equal(filter.test(variables[0]),true);assert.equal(filter.test(variables[0]),true);});
+check(()=>assert.deepEqual(ids(propertyFilter('P*','wildcard')),['upper.t','lower.t','stringer.h','stringer.w']));
+check(()=>assert.deepEqual(ids(propertyFilter('p_','wildcard')),['upper.t','lower.t','stringer.h','stringer.w']));
+check(()=>assert.deepEqual(ids(propertyFilter('skin*','wildcard')),['upper.t','lower.t']));
+check(()=>{const filter=propertyFilter('*bar*lower*','wildcard');assert(filter.test({label:'Outer BAR section for LOWER skin'}));assert(!filter.test({label:'Lower skin bar section'}));assert(!filter.test({label:'bar section',group:'lower skin'}));});
+check(()=>assert(!propertyFilter('P*','wildcard').test({id:'properties.spar',label:'Front spar',group:'Panel properties',pids:[23]})));
+check(()=>assert(propertyFilter('***BAR**lower***','wildcard').test({label:'BAR for lower'})));
+check(()=>assert(propertyFilter('area[1].*','wildcard').test({label:'Lower area[1]. section'})));
+check(()=>assert(!propertyFilter('area[1].*','wildcard').test({label:'area1x section'})));
+check(()=>assert.deepEqual(ids(propertyFilter('*','wildcard')),variables.map(v=>v.id)));
+check(()=>assert.deepEqual(ids(propertyFilter('','wildcard')),variables.map(v=>v.id)));
+check(()=>{const first=addMatchingVariables(['spar.t'],variables,propertyFilter('P*','wildcard'),10),second=addMatchingVariables(first.values,variables,propertyFilter('skin*','wildcard'),10);assert.deepEqual(Array.from(second.values),['spar.t','upper.t','lower.t','stringer.h','stringer.w']);});
+check(()=>assert.equal(ids(propertyFilter('skin*','text')).length,0));
 console.log('Sensitivity filters: '+checks+' checks passed');

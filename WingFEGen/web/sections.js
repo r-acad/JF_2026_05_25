@@ -18,8 +18,12 @@
     return a.map((v) => v / n);
   }
   const point = (positions, node) => Array.from(positions.subarray(3 * node, 3 * node + 3));
-  function frame(a, b, orientation) {
-    const x = unit(sub(b, a));
+  function frame(a, b, orientation, referenceX) {
+    const axis = sub(b, a);
+    // A displayed, magnified shape can bring the two ends together. The
+    // original frame still defines the cross-section at this instant; this
+    // does not alter the FE coordinates or relax the undeformed-bar check.
+    const x = unit(referenceX && Math.hypot(...axis) <= 1e-14 ? referenceX : axis);
     let projected = orientation.map((v, i) => v - dot(orientation, x) * x[i]);
     // An exaggerated deformation can turn the bar parallel to its reference
     // orientation. Choose the least parallel global direction in this limit.
@@ -34,9 +38,14 @@
 
   /** Finite rotation of the displayed section from its nodal rotation vector. */
   function rotate(vector, rotation, scale) {
-    const angle = Math.hypot(...rotation) * scale;
+    const magnitude = Math.hypot(...rotation);
+    const angle = magnitude * scale;
     if (Math.abs(angle) < 1e-14) return vector;
-    const axis = unit(rotation), c = Math.cos(angle), s = Math.sin(angle);
+    // Eigenvectors may contain arbitrarily small, nonzero rotations. A large
+    // display scale makes their angle visible, but the geometry-length
+    // tolerance in unit() must not reject their rotation axis.
+    if (!Number.isFinite(angle) || !Number.isFinite(magnitude)) throw new Error("Non-finite CBAR rotation in section display");
+    const axis = rotation.map(v => v / magnitude), c = Math.cos(angle), s = Math.sin(angle);
     const normal = cross(axis, vector), axial = dot(axis, vector);
     return vector.map((v, i) => c * v + s * normal[i] + (1 - c) * axial * axis[i]);
   }
@@ -85,10 +94,12 @@
       positions: new Float32Array(3 * nv), indices: Int32Array.from({ length: nv }, (_, i) => i),
       vertexElements: new Int32Array(nv), faceElements: new Int32Array(nv / 3),
       conn, orientations, section, template, verticesPerElement: template.length,
-      referenceY: new Float32Array(3 * count),
+      referenceX: new Float32Array(3 * count), referenceY: new Float32Array(3 * count),
     };
     for (let e = 0; e < count; e++) {
-      result.referenceY.set(frame(point(positions, conn[2 * e]), point(positions, conn[2 * e + 1]), point(orientations, e)).y, 3 * e);
+      const reference = frame(point(positions, conn[2 * e]), point(positions, conn[2 * e + 1]), point(orientations, e));
+      result.referenceX.set(reference.x, 3 * e);
+      result.referenceY.set(reference.y, 3 * e);
       result.vertexElements.fill(e, e * template.length, (e + 1) * template.length);
       result.faceElements.fill(e, e * template.length / 3, (e + 1) * template.length / 3);
     }
@@ -101,9 +112,10 @@
     const offsetY = section.offset_y_m || 0, offsetZ = section.offset_z_m || 0;
     for (let e = 0; e < conn.length / 2; e++) {
       const a = point(positions, conn[2 * e]), b = point(positions, conn[2 * e + 1]);
+      const referenceX = point(geometry.referenceX, e);
       const endFrames = rotations && rotationScale !== 0 ? [0, 1].map((end) => frame(a, b,
-        rotate(point(geometry.referenceY, e), point(rotations, conn[2 * e + end]), rotationScale))) :
-        [frame(a, b, point(orientations, e))];
+        rotate(point(geometry.referenceY, e), point(rotations, conn[2 * e + end]), rotationScale), referenceX)) :
+        [frame(a, b, point(orientations, e), referenceX)];
       template.forEach(([end, index], v) => {
         const origin = end ? b : a, yz = section.polygon_yz_m[index];
         const { y, z } = endFrames[end] || endFrames[0];

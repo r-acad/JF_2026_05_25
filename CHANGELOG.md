@@ -6,6 +6,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **WingFEGen wildcard selection and reliable result/import buffers.** Add
+  default wildcard property matching with additive selection. Preserve binary
+  coordinate, connectivity and displacement buffers when stored sensitivity
+  baselines and imported decks are sent over HTTP; malformed buffers now fail
+  clearly. Restore FE deformation after temporary isolation, handle very small
+  modal rotations and magnified bar display limits, and scale camera clipping
+  to the model. Read local Nastran decks with automatic INCLUDE resolution,
+  remove the 32 MiB import cap, retain full errors, and reuse a parser worker
+  with reduced first-use compilation and a single native parse.
+
 - **WingFEGen native-deck workflow and display tools.** Read Nastran retains
   uploaded deck/INCLUDE sources, native identifiers and cases for ordinary
   analysis, property inspection and supported static analytic sensitivities.

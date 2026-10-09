@@ -95,9 +95,18 @@ identified in the GUI rather than being silently presented as current.
 ### Read an existing Nastran deck
 
 **Read Nastran** in the top bar opens a complete `.bdf`, `.dat` or `.nas` deck
-using the native JFEM parser. Upload its INCLUDE files or folder as well
-(32 MiB total, up to 128 INCLUDEs). Paths must be relative to the uploaded
-files; missing, cyclic or unsafe INCLUDE paths are reported.
+using the native JFEM parser. By default, **Browse** selects a file on the
+WingFEGen computer, or you can paste its full path. INCLUDE files are read
+automatically relative to their containing files. The former 32 MiB import
+limit is removed. Import progress shows elapsed time and the current stage;
+errors remain fully visible in the import dialog.
+
+For a server on another computer, choose **Upload from another computer** and
+select the main file and model folder. The browser can only read files made
+available through that selection; referenced INCLUDEs are resolved within it.
+Missing files and cyclic INCLUDE dependencies are reported. A local import is
+saved as a self-contained expanded source in the Study, so reopening does not
+depend on the original file locations.
 
 The imported source is authoritative: original GRID/EID/PID values, solution,
 subcases, constraints and loads are retained. **Run in JFEM** solves that deck;
@@ -159,6 +168,13 @@ wireframe while FE, sensitivity, property or panel colors are displayed on
 visible shells. The saved polished-aluminium choice resumes for aero-only or
 uncolored views. A note explains this automatic display change. Loading a
 sensitivity primal case also exits temporary fuel isolation.
+Returning to **FE Results** exits temporary panel/fuel isolation and restores
+the selected physical deformation. Saved sensitivity baselines retain their
+binary displacement/rotation buffers through the server response. Malformed
+buffers are rejected before they can corrupt the displayed geometry. Modal
+section rendering tolerates very small rotations and exaggerated display
+scales; an unavailable section shape falls back to its source beam line with
+a diagnostic, leaving the analysis deck unchanged.
 
 Planform and structural 2D editors support pan/zoom, background images, snapping,
 distance/angle dimensions and SVG export. The dimensioned plan view and property
@@ -190,7 +206,11 @@ Under **Loads / Sensitivity**, select one load case, one scalar response and the
 design variables. Supported responses are SOL101 displacement/shell/bar stress,
 SOL103 eigenvalues and SOL105 buckling factors. Panel-local variables and shared
 defaults are distinct variables; the interface shows their actual scope.
-The property filter accepts plain text or regular expressions. **Add matches**
+The property filter defaults to **Wildcards**: `P*` (or `P_`) selects names
+beginning with P, `skin*` finds "skin" anywhere, and `*bar*lower*` finds "bar"
+followed by "lower" within a name, group or ID. Other characters are literal;
+a trailing underscore is a name-prefix shortcut. **Text** and **Regex** modes
+remain available for literal phrases and regular expressions. **Add matches**
 adds matching variables without clearing earlier selections, so successive
 patterns build a selection. Invalid expressions show an error without changing
 it. After a mesh update, an existing catalog refreshes to the new definition;
@@ -225,6 +245,10 @@ separate package loading, baseline parsing, analysis, compilation and export.
 Installation or source changes can still require a one-time cache rebuild, and
 first-use compilation can remain within the generator/solver process. No
 stiffness, solve tolerance or derivative formula is changed by this optimization.
+Native imports use a separate reusable parser process and avoid parsing the
+same deck twice. Its reduced compilation optimization affects import only;
+analysis workers retain their normal solver settings. First import still
+includes package startup/compilation; subsequent imports reuse that work.
 
 **Results / Sensitivity** becomes available after a sensitivity analysis. Its
 **Show sensitivity field** button is orange until the field is displayed, then
@@ -264,7 +288,11 @@ node WingFEGen/test/load_glyphs_test.cjs
 node WingFEGen/test/sensitivity_filter_test.cjs
 node WingFEGen/test/import_and_table_colors_test.cjs
 node WingFEGen/test/panel_explode_test.cjs
+node WingFEGen/test/nastran_import_large_test.cjs
+node WingFEGen/test/sections_viewer_test.cjs
 julia --project=WingFEGen WingFEGen/test/portable_paths_test.jl
+julia --project=WingFEGen WingFEGen/test/payload_roundtrip_test.jl
+julia --project=WingFEGen WingFEGen/test/nastran_source_test.jl
 julia --project=. WingFEGen/test/nastran_import_smoke_test.jl
 ```
 

@@ -5,8 +5,75 @@ imported_native(m::Model)=m.params["imported.native"]
 const IMPORTED_MODELS=Dict{String,Model}()
 const IMPORTED_MODELS_LOCK=ReentrantLock()
 
+function imported_source_signature(files)
+    # Keep the original Study/result identity (sorted filenames and exact
+    # original contents), but hash bytes in bounded chunks. Passing one large
+    # String directly to SHA is markedly slower on supported Julia versions.
+    encoded=JSON.json([(key,files[key]) for key in sort!(collect(keys(files)))])
+    bytes2hex(SHA.sha256(IOBuffer(encoded)))
+end
+
+"""Expand INCLUDE records using a caller-owned resolver; never truncate large decks.
+
+The iterator also accepts quoted paths continued on following lines. Local
+imports resolve against each containing file, then save a portable, expanded
+source so reopening a Study never depends on files outside that Study.
+"""
+function imported_expand_includes(resolve,text)
+    output=IOBuffer();lines=eachline(IOBuffer(text));pending=""
+    for line in lines
+        stripped=strip(line)
+        if !isempty(pending)||occursin(r"^INCLUDE(?:\s|,|$)"i,stripped)
+            pending*=stripped
+            spec=match(r"^INCLUDE\s*,?\s*(?:'([^']+)'|\"([^\"]+)\"|([^\s$'\"]+))\s*(?:\$.*)?$"i,pending)
+            if spec===nothing
+                count(==('\''),pending)%2==1||count(==('"'),pending)%2==1||throw(ArgumentError("Malformed INCLUDE: $pending"))
+                continue
+            end
+            included=resolve(strip(something(spec.captures...)))
+            write(output,included)
+            endswith(included,"\n")||write(output,'\n')
+            pending=""
+        else
+            write(output,line,'\n')
+        end
+    end
+    isempty(pending)||throw(ArgumentError("Unterminated INCLUDE filename: $pending"))
+    result=String(take!(output))
+    endswith(text,"\n")||isempty(result) ? result : String(chop(result;tail=1))
+end
+
+function imported_local_source(path)
+    path isa AbstractString||throw(ArgumentError("Nastran path must be text"))
+    isempty(strip(path))&&throw(ArgumentError("Select a Nastran file or enter its full path"))
+    isabspath(path)||throw(ArgumentError("Use the full path to the Nastran file"))
+    visited=Set{String}();active=Set{String}();sizes=Dict{String,Int}()
+    function readfile(file)
+        isfile(file)||throw(ArgumentError("Nastran file or INCLUDE does not exist: $file"))
+        canonical=realpath(file);key=Sys.iswindows() ? lowercase(canonical) : canonical
+        key in active&&throw(ArgumentError("Cyclic INCLUDE dependency: $file"))
+        length(active)<64||throw(ArgumentError("INCLUDE nesting exceeds 64 levels: $file"))
+        push!(active,key);push!(visited,key)
+        try
+            text=read(canonical,String);sizes[key]=ncodeunits(text)
+            occursin('\0',text)&&throw(ArgumentError("Nastran source contains a NUL byte: $file"))
+            imported_expand_includes(text) do relative
+                relative=replace(relative,'\\'=>'/')
+                readfile(isabspath(relative) ? relative : normpath(joinpath(dirname(canonical),relative)))
+            end
+        finally
+            delete!(active,key)
+        end
+    end
+    flattened=readfile(abspath(path))
+    source=Dict{String,Any}("kind"=>"nastran","name"=>basename(path),"text"=>flattened,"includes"=>Any[],"flattened"=>flattened,
+        "signature"=>imported_source_signature(Dict(basename(path)=>flattened)),"source_file_count"=>length(visited),"source_bytes"=>sum(values(sizes)))
+    source
+end
+
 function imported_source(raw)
     raw isa AbstractDict||throw(ArgumentError("Nastran import needs a name and source text"))
+    haskey(raw,"path")&&return imported_local_source(raw["path"])
     function filename(value)
         value isa AbstractString||throw(ArgumentError("Imported filenames must be text"))
         entry=replace(String(value),'\\'=>'/')
@@ -17,36 +84,36 @@ function imported_source(raw)
     name=filename(get(raw,"name","imported.bdf"));source=get(raw,"text",nothing)
     source isa AbstractString||throw(ArgumentError("Nastran source text is missing"))
     files=Dict(name=>String(source));includes=get(raw,"includes",Any[])
-    includes isa AbstractVector&&length(includes)<=128||throw(ArgumentError("At most 128 uploaded INCLUDE files are allowed"))
+    includes isa AbstractVector||throw(ArgumentError("Uploaded INCLUDE files must be a list"))
     for row in includes
         row isa AbstractDict||throw(ArgumentError("Each INCLUDE needs name and text"))
-        key=filename(get(row,"name",""));haskey(files,key)&&throw(ArgumentError("Duplicate uploaded filename $key"))
+        key=filename(get(row,"name",""));any(candidate->lowercase(candidate)==lowercase(key),keys(files))&&throw(ArgumentError("Duplicate uploaded filename $key"))
         value=get(row,"text",nothing);value isa AbstractString||throw(ArgumentError("INCLUDE $key has no text"));files[key]=String(value)
     end
-    sum(ncodeunits,values(files))<=32*1024*1024||throw(ArgumentError("Uploaded Nastran source exceeds 32 MiB"))
     any(text->occursin('\0',text),values(files))&&throw(ArgumentError("Nastran source contains a NUL byte"))
     function resolve(key,active=String[])
-        key in active&&throw(ArgumentError("Cyclic uploaded INCLUDE: $key"))
-        length(active)<10||throw(ArgumentError("Uploaded INCLUDE nesting exceeds ten levels"))
-        haskey(files,key)||throw(ArgumentError("Upload the referenced INCLUDE file: $key"))
-        out=String[]
-        for line in split(replace(files[key],"\r\n"=>"\n"),'\n')
-            stripped=strip(line)
-            if occursin(r"^INCLUDE(?:\s|,|$)"i,stripped)
-                matchline=match(r"^INCLUDE\s*,?\s*(?:'([^']+)'|\"([^\"]+)\"|([^\s$]+))\s*(?:\$.*)?$"i,stripped)
-                matchline===nothing&&throw(ArgumentError("Unsupported multiline or malformed INCLUDE: $stripped"))
-                relative=filename(strip(something(matchline.captures...)))
-                prefix=replace(dirname(key),'\\'=>'/');target=isempty(prefix)||prefix=="." ? relative : filename(prefix*"/"*relative)
-                append!(out,resolve(target,vcat(active,key)))
-            else
-                push!(out,String(line))
-            end
+        # Windows-authored decks often vary filename case between references.
+        # Uploaded files are immutable, so a case-insensitive unique lookup is
+        # safe on all server platforms and agrees with the local Windows path.
+        if !haskey(files,key)
+            matches=filter(candidate->lowercase(candidate)==lowercase(key),collect(keys(files)))
+            length(matches)==1&&(key=only(matches))
         end
-        return out
+        key in active&&throw(ArgumentError("Cyclic uploaded INCLUDE: $key"))
+        length(active)<64||throw(ArgumentError("Uploaded INCLUDE nesting exceeds 64 levels"))
+        haskey(files,key)||throw(ArgumentError("Upload the referenced INCLUDE file: $key"))
+        imported_expand_includes(files[key]) do relative
+            # Uploaded Windows-authored paths must resolve identically on a
+            # Linux server; normalize separators before resolving parent dirs.
+            relative=replace(relative,'\\'=>'/')
+            isabspath(relative)&&throw(ArgumentError("For absolute INCLUDE paths, open the main file using its local path"))
+            target=filename(replace(normpath(joinpath(dirname(key),relative)),'\\'=>'/'))
+            resolve(target,vcat(active,key))
+        end
     end
-    flattened=join(resolve(name),"\n")
-    signature=bytes2hex(SHA.sha256(JSON.json([(key,files[key]) for key in sort!(collect(keys(files)))])))
-    return Dict{String,Any}("kind"=>"nastran","name"=>name,"text"=>String(source),"includes"=>deepcopy(includes),"flattened"=>flattened,"signature"=>signature)
+    flattened=resolve(name)
+    signature=imported_source_signature(files)
+    return Dict{String,Any}("kind"=>"nastran","name"=>name,"text"=>String(source),"includes"=>deepcopy(includes),"flattened"=>flattened,"signature"=>signature,"source_file_count"=>length(files),"source_bytes"=>sum(ncodeunits,values(files)))
 end
 
 function imported_case_specs(p)

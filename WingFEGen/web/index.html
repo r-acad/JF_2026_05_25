@@ -63,7 +63,7 @@
         <button id="btn-view-toml" disabled title="Inspect the current definition as TOML, or read the configured server TOML file. This does not save or reload anything.">View TOML</button>
         <span id="toml-help" class="file-tooltip" role="tooltip">TOML stores model parameters, supports, load cases, all loaded reference placements and cache paths, and the Plan view background image. Saving caches unlinked references without overwriting the server input. Reference paths depend on this server's input folder; use Save Study to move embedded geometry, all display settings, other images and notes between computers. Import validates before replacing the current Study.</span>
       </span>
-      <button id="btn-read-nastran" disabled title="Import a Nastran deck and its INCLUDE files. Review native properties, solve its load cases and compute supported sensitivities. Save Study embeds the complete deck source.">Read Nastran</button>
+      <button id="btn-read-nastran" disabled title="Choose a local Nastran deck; its INCLUDE files are read automatically. Review native properties, solve its load cases and compute supported sensitivities. Save Study embeds the complete deck source.">Read Nastran</button>
       <input id="model-file" type="file" accept=".wingfem.json,application/json" hidden>
       <input id="toml-file" type="file" accept=".toml,text/plain,application/toml" hidden>
     </div>
@@ -110,7 +110,7 @@
         <p class="pick-note">Choose the solution below and define the loading in Cases. Solver progress remains visible in the header and Log. Red means analysis is needed; green means completed results match this model.</p>
         <p id="analysis-validity" class="pick-note" role="status" aria-live="polite" data-analysis-current="false">No analysis results are available. Run JFEM for this model.</p>
       </section>
-      <details id="imported-deck-info" hidden><summary id="imported-deck-title"></summary><p>Imported deck is authoritative. Review properties in Display ? Properties or Inspect; use Analysis, Sensitivity and Results normally. Read Nastran replaces the deck; New Study returns to generated geometry. Save Study embeds the deck and INCLUDE files. TOML describes generated wings only.</p><ul id="imported-deck-warnings"></ul></details>
+      <details id="imported-deck-info" hidden><summary id="imported-deck-title"></summary><p>Imported deck is authoritative. Review properties in Display → Properties or Inspect; use Analysis, Sensitivity and Results normally. Read Nastran replaces the deck; New Study returns to generated geometry. Save Study embeds the complete source, including INCLUDE content. TOML describes generated wings only.</p><ul id="imported-deck-warnings"></ul></details>
       <div id="form"><p class="muted">reading parameters&hellip;</p></div>
 
       <section id="panel-mesh-labels" class="workspace-panel" data-workspace-panel="mesh" role="tabpanel" aria-labelledby="tab-mesh" hidden>

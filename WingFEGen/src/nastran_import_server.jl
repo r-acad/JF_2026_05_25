@@ -9,36 +9,89 @@ function request_imported_model(raw)
     end
 end
 
+const IMPORT_WORKERS=Dict{String,Any}()
+const IMPORT_WORKERS_LOCK=ReentrantLock()
+
+function imported_worker(st,repo)
+    lock(IMPORT_WORKERS_LOCK) do
+        key=abspath(repo)*"\n"*st.deck_store_dir
+        existing=get(IMPORT_WORKERS,key,nothing)
+        existing!==nothing&&process_running(existing.process)&&return existing
+        runtime=sensitivity_worker_runtime(repo)
+        base=joinpath(st.deck_store_dir,"imports");mkpath(base)
+        queue=mktempdir(base;prefix="worker_",cleanup=false)
+        # Imports do no numerical solve. -O0 reduces first-use parser/viewer
+        # compilation while still reusing the native package's compiled cache.
+        command=`$(runtime.command) --startup-file=no -O0 --threads=1 --project=$repo $(joinpath(@__DIR__,"nastran_import_worker.jl")) --serve $queue $repo $(st.root)`
+        Sys.iswindows()&&(command=Cmd(command;windows_hide=true))
+        process=open(joinpath(queue,"worker.log"),"w") do output
+            run(pipeline(addenv(command,"OPENBLAS_NUM_THREADS"=>"1","JFEM_SUPPRESS_THREAD_HINT"=>"1");stdout=output,stderr=output);wait=false)
+        end
+        worker=(process=process,queue=queue,lock=ReentrantLock())
+        IMPORT_WORKERS[key]=worker
+        worker
+    end
+end
+
+function imported_run_worker(st,repo,dir,progress)
+    worker=imported_worker(st,repo)
+    lock(worker.lock) do
+        process_running(worker.process)||throw(ArgumentError("Import worker stopped; try Read Nastran again"))
+        progress("Starting native parser (first import compiles the parser; later imports reuse it)")
+        temporary=joinpath(worker.queue,"request.tmp")
+        write(temporary,dir);mv(temporary,joinpath(worker.queue,"request.txt");force=true)
+        laststage=""
+        while !isfile(joinpath(dir,"done.txt"))
+            if !process_running(worker.process)
+                detail=read(joinpath(worker.queue,"worker.log"),String)
+                throw(ArgumentError("Native parser process stopped. $detail"))
+            end
+            stagefile=joinpath(dir,"stage.txt")
+            if isfile(stagefile)
+                stage=read(stagefile,String)
+                !isempty(stage)&&stage!=laststage&&(progress(stage);laststage=stage)
+            end
+            sleep(.1)
+        end
+        isfile(joinpath(dir,"error.json"))&&throw(ArgumentError("Native Nastran import failed: "*String(JSON.parsefile(joinpath(dir,"error.json"))["error"])))
+    end
+end
+
+function handle_import_nastran_pick(st,req)
+    Sys.iswindows()||return error_response("The server file picker is available on Windows. Enter the full local file path instead.")
+    # The app binds only to localhost. A native file dialog preserves the full
+    # selected path, which browser File objects deliberately do not expose.
+    script="Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Application]::EnableVisualStyles(); \$dialog = New-Object System.Windows.Forms.OpenFileDialog; \$dialog.Title = 'Read Nastran (INCLUDE files are read automatically)'; \$dialog.Filter = 'Nastran files (*.bdf;*.dat;*.nas)|*.bdf;*.dat;*.nas|All files (*.*)|*.*'; if (\$dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::Write(\$dialog.FileName) }; \$dialog.Dispose()"
+    try
+        command=Cmd(`powershell.exe -NoProfile -STA -Command $script`;windows_hide=true)
+        path=strip(read(command,String))
+        json_response(Dict("ok"=>true,"path"=>isempty(path) ? nothing : path,"cancelled"=>isempty(path)))
+    catch err
+        error_response("Could not open the native file picker: "*describe_error(err)*". Enter the full file path instead.")
+    end
+end
+
 function handle_import_nastran(st::AppState,req)
     progress=request_progress(st,req)
     try
-        source=imported_source(JSON.parse(String(req.body)));progress("import_parser")
+        started=time();progress("Reading Nastran source and resolving INCLUDE files automatically")
+        source=imported_source(JSON.parse(String(req.body)))
         repo,_=find_jfem(st.root;hint=String(st.params["jfem.repo"]));repo===nothing&&throw(ArgumentError("JFEM native parser is unavailable; configure the solver repository"))
-        runtime=sensitivity_worker_runtime(repo)
         base=joinpath(st.deck_store_dir,"imports");mkpath(base);dir=mktempdir(base;prefix="deck_",cleanup=false)
-        sensitivity_json_write(joinpath(dir,"source.json"),source);sensitivity_json_write(joinpath(dir,"params.json"),st.params)
-        command=`$(runtime.command) --startup-file=no --threads=1 --project=$repo $(joinpath(@__DIR__,"nastran_import_worker.jl")) $dir $repo $(st.root)`
-        Sys.iswindows()&&(command=Cmd(command;windows_hide=true))
-        proc=open(joinpath(dir,"import.log"),"w") do output
-            run(pipeline(addenv(command,"OPENBLAS_NUM_THREADS"=>"1");stdout=output,stderr=output);wait=false)
-        end
-        started=time()
-        while process_running(proc)
-            if time()-started>300;kill(proc);throw(ArgumentError("Native deck import exceeded five minutes; inspect $(joinpath(dir,"import.log"))"));end
-            sleep(.1)
-        end
-        wait(proc)
-        if proc.exitcode!=0
-            detail=isfile(joinpath(dir,"error.json")) ? JSON.parsefile(joinpath(dir,"error.json"))["error"] : read(joinpath(dir,"import.log"),String)
-            throw(ArgumentError("Native Nastran import failed: $detail"))
-        end
-        model=Serialization.deserialize(joinpath(dir,"model.jls"));payload=MsgPack.unpack(read(joinpath(dir,"payload.msgpack")))
+        Serialization.serialize(joinpath(dir,"input.jls"),(source,st.params))
+        imported_run_worker(st,repo,dir,progress)
+        progress("Loading imported geometry into the viewer")
+        model=Serialization.deserialize(joinpath(dir,"model.jls"));payload=Serialization.deserialize(joinpath(dir,"payload.jls"))
         token=bytes2hex(SHA.sha256(source["signature"]*dir));model.params["imported.token"]=token
         lock(IMPORTED_MODELS_LOCK) do
             length(IMPORTED_MODELS)>=16&&delete!(IMPORTED_MODELS,first(keys(IMPORTED_MODELS)))
             IMPORTED_MODELS[token]=model
         end
         payload["imported_deck"]["token"]=token;payload["generate_seconds"]=time()-started
+        payload["model_source"]=Dict(key=>source[key] for key in ("kind","name","text","includes"))
+        payload["imported_deck"]["source_file_count"]=source["source_file_count"]
+        payload["imported_deck"]["source_bytes"]=source["source_bytes"]
+        payload["import_timings"]=JSON.parsefile(joinpath(dir,"timings.json"))
         st.model=model;progress("done")
         return msgpack_response(payload)
     catch err

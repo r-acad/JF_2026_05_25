@@ -294,6 +294,8 @@ const LITTLE_ENDIAN = (() => {
 })();
 
 function alignedBuffer(u8) {
+  if (!ArrayBuffer.isView(u8) || u8.BYTES_PER_ELEMENT !== 1 || u8.byteLength % 4 !== 0)
+    throw new Error("Invalid model/result buffer: expected binary 32-bit data. Reload the app and restart the server after updating; no geometry or results have been decoded from this malformed payload.");
   return (u8.byteOffset % 4 === 0)
     ? { buf: u8.buffer, off: u8.byteOffset }
     : { buf: u8.slice().buffer, off: 0 };
@@ -579,6 +581,15 @@ function activateWorkspaceTab(id, options = {}) {
   if (id === "sensitivityresults" && !sensitivityResultsAvailable()) id = "results";
   if (id === "results" && state.sensitivityMap) clearSensitivityMap();
   if (id === "results" && state.propertyDisplay?.enabled) {state.propertyDisplay.setEnabled(false);applyContour();}
+  if (id === "results" && state.data) {
+    // Panel/tank inspection can be entered after the baseline was loaded.
+    // These temporary isolation modes must not lock the shell switches or
+    // keep the physical solution hidden when returning to FE Results.
+    if (state.panelView) setPanelDisplay(false);
+    restoreFuelIsolation();
+    document.getElementById("results-card").hidden = !state.results;
+    applyContour(); applyDeformation();
+  }
   const tab = WORKSPACE_TABS.find((item) => item[1] === id);
   if (!tab) return false;
   if (workspaceUI.activeTab !== id) workspaceUI.previousTab = workspaceUI.activeTab;
@@ -609,6 +620,7 @@ function activateWorkspaceTab(id, options = {}) {
   }
   if (id === "log" && liveLog.follow) logEl.scrollTop = logEl.scrollHeight;
   if (id === "sensitivity") state.sensitivity?.refreshContext();
+  if (state.data) applyAeroOverlayStyles();
   state.viewportTools?.syncInspection?.();
   if (state.engine) state.engine.resize();
   return true;
@@ -2544,7 +2556,7 @@ async function loadModelDefinition(file, options = {}) {
     state.studyRestoring = true;
     try {
     const parametersOnly=options.toml || options.newStudy || options.serverInput;
-    activity()?.update(token, {label:options.newStudy ? "Creating new Study" : parametersOnly ? "Loading TOML" : "Loading Study", detail:"Validating parameters and reference geometry…"});
+    activity()?.update(token, {label:options.importDeck ? "Reading Nastran" : options.newStudy ? "Creating new Study" : parametersOnly ? "Loading TOML" : "Loading Study", detail:options.importDeck ? "Reading the main deck and resolving INCLUDE files automatically…" : "Validating parameters and reference geometry…"});
     meshStatus("Preparing "+file.name+"…", "building");
     let definition,items,input,studyText;
     if (parametersOnly) {
@@ -2572,15 +2584,25 @@ async function loadModelDefinition(file, options = {}) {
       view.contourPreference=null;
       if (options.newStudy) view.workspace.activeTab="planform";
       definition={parameters,view};items=await linkedReferenceItems(parameters["references.items"]);
+    } else if(options.importDeck) {
+      const view=WingWorkspace.captureView(document,state,workspaceUI);
+      view.workspace.activeTab="analysis";view.controls["show-panels"]=false;
+      definition=await WingWorkspace.snapshot(state.values,state.reference,view);
+      ({data:definition,items}=WingWorkspace.parseObject(definition));
     } else { studyText=await file.text(); ({data:definition,items}=WingWorkspace.parse(studyText));definition.view=WingWorkspace.completeView(definition.view,document); }
     let staged = null, previous = null, commitStarted = false;
     try {
       staged = await state.reference.stagePortable(items, definition.view.reference, {linked:parametersOnly});
-      const response = await postParams(definition.model_source ? "/api/import_nastran" : "/api/prepare_workspace", definition.model_source || definition.parameters, token);
+      const importRequest=options.importRequest || definition.model_source;
+      const response = await postParams(importRequest ? "/api/import_nastran" : "/api/prepare_workspace", importRequest || definition.parameters, token);
       if (response.status === 404) throw new Error("Portable model files need the updated server. Restart WingFEGen and refresh.");
       if (!response.ok) throw new Error(await readError(response));
       const buffer = await response.arrayBuffer(), byteLength = buffer.byteLength, data = await decodePayload(buffer);
       if (!data.ok || !data.nodes || !data.groups) throw new Error("The prepared model is incomplete.");
+      if(options.importDeck)definition.model_source=WingNastranImport.source(data.model_source || options.importRequest);
+      // Keep one authoritative reference to the portable source; it is not
+      // geometry data and need not travel through renderer/export snapshots.
+      delete data.model_source;
       previous = { importedDeck:state.importedDeck, data:state.data, values:state.values, signature:state.modelSignature, lastEditedSignature:state.lastEditedSignature, dirty:state.modelDirty,
         pending:state.autoMeshPending, resultCases:state.resultCases, results:state.results,
         activeMode:state.activeMode, contourIdx:state.contourIdx, transfer:state.lastTransfer,
@@ -2646,18 +2668,18 @@ async function loadModelDefinition(file, options = {}) {
       throw error;
     }
     } finally { state.studyRestoring = false; }
-  });
+  },options.importDeck ? "Reading Nastran" : "Preparing Study file");
 }
 
 function newStudy() { return loadModelDefinition({name:"New Study"},{newStudy:true}); }
 function loadTomlDefinition(file) { return loadModelDefinition(file,{toml:true}); }
 
 async function loadNastranSource(raw) {
-  if(!workspaceOperationAvailable())return false;
-  const source=WingNastranImport.source(raw),view=WingWorkspace.captureView(document,state,workspaceUI);
-  view.workspace.activeTab="analysis";view.controls["show-panels"]=false;
-  const definition=await WingWorkspace.snapshot(state.values,state.reference,view,{modelSource:source});
-  return loadModelDefinition(new File([JSON.stringify(definition)],source.name+".wingfem.json"),{importDeck:true});
+  if(!workspaceOperationAvailable())throw Error("Finish the active mesh, solver or Study operation before reading another deck.");
+  const request=typeof raw?.path==='string' ? {path:raw.path} : WingNastranImport.source(raw);
+  const loaded=await loadModelDefinition({name:fileBasename(request.path || request.name)},{importDeck:true,importRequest:request});
+  if(!loaded)throw Error(document.getElementById("model-error-text")?.textContent || "The deck could not be read. See Log for details.");
+  return true;
 }
 
 function syncImportedModelMode(disabled=false) {
@@ -2903,6 +2925,13 @@ async function loadJfemResults() {
 
 function decodeResultCase(payload,r,signature) {
   const n=state.data?.nodes.count||0;
+  const resultNodes=payload.node_count??r.node_count;
+  const vector=(bytes,label)=>{
+    const values=asF32(bytes);
+    if(values.length!==3*resultNodes||!values.every(Number.isFinite))
+      throw Error("Invalid "+label+" in analysis results: expected "+(3*resultNodes)+" finite components, received "+values.length+". The result was not applied to the model.");
+    return values;
+  };
   // Both the response envelope and case must belong to this source. Checking
   // only one lets mixed/imported cases inherit the current generated signature.
   const importedSignatures=[r.imported_signature,payload.imported_signature].filter(value=>value!==undefined);
@@ -2946,16 +2975,16 @@ function decodeResultCase(payload,r,signature) {
       eigenvalue: m.eigenvalue,
       maxDisp: m.max_disp,
       meffX: m.meff_x, meffY: m.meff_y, meffZ: m.meff_z,
-      shape: asF32(m.shape),
+      shape: vector(m.shape,"mode "+m.mode+" translations"),
       // Rotations are axial vectors; the cyclic, right-handed model-to-view
       // permutation applies to them exactly as it does to translations.
-      rotation: m.rotation ? permute(asF32(m.rotation)) : null,
+      rotation: m.rotation ? permute(vector(m.rotation,"mode "+m.mode+" rotations")) : null,
     });
   }
   if (payload.static && results.available) {
     results.static = {
-      disp: asF32(payload.static.disp),
-      rotation: payload.static.rotation ? permute(asF32(payload.static.rotation)) : null,
+      disp: vector(payload.static.disp,"static translations"),
+      rotation: payload.static.rotation ? permute(vector(payload.static.rotation,"static rotations")) : null,
       maxDisp: payload.static.max_disp,
     };
   }
@@ -3076,6 +3105,7 @@ function initScene() {
   installPicking(canvas);
 
   scene.onBeforeRenderObservable.add(() => {
+    syncCameraClipping();
     enforcePanelIsolation();
     syncHistoricalBaselineOverlays();
     suppressSensitivityOverlays();
@@ -3260,10 +3290,21 @@ function barSectionMesh(group, positions, conn, hex, reference) {
   const orientation = group.orient ? permute(asF32(group.orient)) :
     group.axes && group.axes.y ? permute(asF32(group.axes.y)) : null;
   if (!orientation) return null;
-  const mesh = WingSections.createMesh(BABYLON, {
-    name: group.name + (reference ? "-reference-sections" : "-sections"),
-    scene: state.scene, positions, conn, orientations: orientation, section,
-  });
+  let mesh;
+  try {
+    mesh = WingSections.createMesh(BABYLON, {
+      name: group.name + (reference ? "-reference-sections" : "-sections"),
+      scene: state.scene, positions, conn, orientations: orientation, section,
+    });
+  } catch (error) {
+    if (!/Degenerate CBAR frame in section display/.test(error.message)) throw error;
+    // A failed display frame must not discard already built skins or block
+    // analysis. Keep this group's original centerlines and section metadata;
+    // the native solver still validates the unchanged source coordinates.
+    if (!reference) log("Section display for " + group.name + " uses beam lines: " + error.message +
+      ". No FE coordinates or properties were changed; inspect this beam group if solver validation also reports a problem.", "warn");
+    return null;
+  }
   mesh.material = shellMaterial(mesh.name + "-mat", "#ffffff", reference ? 0.25 : 1);
   // PBARL sections are closed solids with outward normals. Unlike an open
   // shell midsurface their underside must not flip toward the viewing eye.
@@ -4745,6 +4786,19 @@ function modelCentre() {
   return { target: new BABYLON.Vector3(cx, cy, cz), diag: diag };
 }
 
+function syncCameraClipping() {
+  const camera = state.camera, diag = state.diag;
+  if (!camera || !(diag > 0)) return;
+  // Fixed metre-sized clip planes destroy depth precision for imported decks
+  // expressed in millimetres. Scale with the model and reduce near distance
+  // during a close zoom; neither FE coordinates nor source units are changed.
+  const radius = Math.max(camera.radius || diag, diag * 1e-8);
+  const near = Math.max(diag * 1e-8, Math.min(diag * .001, radius * .01));
+  const far = Math.max(diag * 10, radius + diag * 3);
+  if (camera.minZ !== near) camera.minZ = near;
+  if (camera.maxZ !== far) camera.maxZ = far;
+}
+
 function fitView() {
   const { target, diag } = modelCentre();
   const camera = state.camera;
@@ -4769,6 +4823,7 @@ function fitView() {
   camera.setTarget(target,false,true,true);
   camera.radius = radius;
   camera.upperRadiusLimit = Math.max(12 * diag, radius * 2);
+  syncCameraClipping();
   state.viewportTools?.fit();
 }
 
@@ -5294,7 +5349,7 @@ function applyBarDepthPolicy() {
 
 function aeroContourProtection(){
   const options=contourOptions(),selected=options[Math.min(state.contourIdx,options.length-1)];
-  const hasContour=!!state.propertyDisplay?.enabled||!!state.sensitivityMap||!!state.panelView||!!selected&&selected.kind!=="none";
+  const hasContour=!!state.propertyDisplay?.enabled||!!state.sensitivityMap||!!state.panelView||!!selected&&selected.kind!=="none"||workspaceUI.activeTab==="results"&&!!activeShape();
   return hasContour && (state.data?.groups||[]).some(group=>["quad","tria"].includes(group.kind)&&state.layers.get(group.name)?.visible);
 }
 function applyAeroOverlayStyles() {
@@ -5990,7 +6045,10 @@ if (typeof WingWorkspace !== "undefined") {
   document.getElementById("btn-load-toml").onclick=()=>{if(workspaceOperationAvailable())document.getElementById("toml-file").click();};
   document.getElementById("toml-file").onchange=async event=>{const file=event.target.files[0];event.target.value="";await loadTomlDefinition(file);};
   document.getElementById("btn-new-study").onclick=newStudy;
-  const nastranImport=WingNastranImport.create({onImport:loadNastranSource});
+  const nastranImport=WingNastranImport.create({onImport:loadNastranSource,pickFile:async()=>{
+    const response=await fetch("/api/import_nastran/pick",{cache:"no-store"});
+    if(!response.ok)throw Error(await readError(response));return response.json();
+  }});
   document.getElementById("btn-read-nastran").onclick=()=>nastranImport.open();
 }
 document.getElementById("btn-clear-results").onclick = clearResults;
