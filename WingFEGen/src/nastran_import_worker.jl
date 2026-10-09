@@ -34,6 +34,7 @@ function import_one(directory)
         timings["native_model_seconds"]=time()-t
         t=time();stage("Preparing viewport geometry and element axes")
         imported=W.imported_model(model,source,params;cards)
+        W.imported_prepare_inventory!(ImportNative,imported,cards,joinpath(directory,"card_inventory.log"))
         timings["viewer_model_seconds"]=time()-t
         t=time();stage("Preparing source load vectors (no analysis is run)")
         Base.invokelatest(W.imported_prepare_loads!,ImportNative,imported)

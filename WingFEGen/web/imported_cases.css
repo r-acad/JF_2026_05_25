@@ -1,0 +1,11 @@
+.imported-definition{display:grid;grid-template-columns:minmax(90px,1fr) minmax(0,2fr);gap:6px 12px;font-size:12px;line-height:1.5}
+.imported-definition dt{color:var(--muted);overflow-wrap:anywhere;min-width:0}
+.imported-definition dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
+.imported-table-wrapper{max-width:100%;overflow:auto;margin:8px 0 16px}
+.imported-table-wrapper table{border-collapse:collapse;font-size:12px;width:100%}
+.imported-table-wrapper th,.imported-table-wrapper td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+.imported-table-wrapper th{background:#11283d;color:#e3edf5}
+.imported-table-wrapper td .mini{padding:3px 6px}
+.imported-table-controls{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:12px;font-size:11px;color:var(--muted)}
+.imported-table-controls input{flex:1 1 100%;min-width:0;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:5px;padding:6px 8px;font:inherit}
+.imported-table-controls input:focus{outline:1px solid var(--accent)}

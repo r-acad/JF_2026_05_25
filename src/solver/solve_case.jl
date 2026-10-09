@@ -919,13 +919,13 @@ function _solve_nonlinear_correction(K_eff, residual_rhs, ndof, model, id_map, s
 end
 
 """Accumulate direct and nested LOAD coefficients, rejecting cyclic references."""
-function _load_sid_scales(model, load_id, scale=1.0)
+function _load_sid_scales(model, load_id, scale=1.0; include_zero::Bool=false)
     totals = Dict{Int,Float64}()
     load_id === nothing && return totals
     path = Int[]
     function visit(sid, factor)
         isfinite(factor) || throw(ArgumentError("Nonfinite LOAD scale for SID $sid"))
-        iszero(factor) && return
+        !include_zero && iszero(factor) && return
         sid in path && throw(ArgumentError("Cyclic LOAD combination: " * join([path;sid], " -> ")))
         totals[sid] = get(totals,sid,0.0) + factor
         push!(path,sid)
@@ -941,7 +941,7 @@ function _load_sid_scales(model, load_id, scale=1.0)
         end
     end
     visit(Int(load_id),Float64(scale))
-    filter!(pair -> !iszero(last(pair)),totals)
+    include_zero || filter!(pair -> !iszero(last(pair)),totals)
     return totals
 end
 
@@ -995,16 +995,15 @@ function _solve_case_impl(K, ndof, model, id_map, X, load_id, spc_id, node_R;
     end
 
     # SPCD enforced displacements (selected by the LOAD set, Nastran
-    # semantics; the dof must also be SPC'd).  Applied as the equivalent
-    # load on the free set (F -= K[:,s]*u_s), with the prescribed values
-    # scattered into u_global after the solve.
+    # semantics; the dof must also be SPC'd). Override the selected SPC
+    # value inside the BC solve so its equivalent RHS is applied once.
     spcd_entries = Dict{Int,Float64}()
     selected_scales = isempty(get(model,"SPCDs",[])) ? Dict{Int,Float64}() :
-        _load_sid_scales(model,load_id,load_scale)
+        _load_sid_scales(model,load_id,load_scale;include_zero=true)
     for e in get(model, "SPCDs", [])
         e isa AbstractDict || continue
-        factor = get(selected_scales,Int(get(e,"SID",-1)),0.0)
-        iszero(factor) && continue
+        sid=Int(get(e,"SID",-1));haskey(selected_scales,sid)||continue
+        factor = selected_scales[sid]
         g = Int(get(e, "GID", 0))
         haskey(id_map, g) || throw(ArgumentError("SPCD references missing GRID $g"))
         d = Int(get(e, "C", 0))
@@ -1017,11 +1016,6 @@ function _solve_case_impl(K, ndof, model, id_map, X, load_id, spc_id, node_R;
     end
     F_resid = F_applied
     if !isempty(spcd_entries)
-        F_applied = copy(F_applied)
-        for (dof, val) in spcd_entries
-            val == 0.0 && continue
-            F_applied .-= Vector(K[:, dof]) .* val
-        end
         log_msg("[SOLVER] SPCD: $(length(spcd_entries)) enforced displacement(s) applied (load set $load_id)")
     end
 
@@ -1036,22 +1030,13 @@ function _solve_case_impl(K, ndof, model, id_map, X, load_id, spc_id, node_R;
     try
         u_global, fixed_dofs, spc_dofs, solver_diagnostics = apply_bc_and_solve(
             K, ndof, model, id_map, F_applied, node_R, rbe3_map, max_elem_stiff, orig_diag;
-            linear_cache=linear_cache,unsymmetric=followers!==nothing,autospc_matrix=structural_bc_matrix)
+            linear_cache=linear_cache,unsymmetric=followers!==nothing,autospc_matrix=structural_bc_matrix,
+            enforced_overrides=spcd_entries)
     finally
         if had_prev_spc_id
             model["_spc_id"] = prev_spc_id
         else
             delete!(model, "_spc_id")
-        end
-    end
-
-    if !isempty(spcd_entries)
-        for (dof, val) in spcd_entries
-            if dof in fixed_dofs
-                u_global[dof] = val
-            else
-                throw(ArgumentError("SPCD on unconstrained DOF $dof is invalid; select its SPC set before applying the enforced displacement"))
-            end
         end
     end
 
@@ -1077,6 +1062,25 @@ function _solve_case_impl(K, ndof, model, id_map, X, load_id, spc_id, node_R;
     return u_out, stresses, results_json, u_global, fixed_dofs
 end
 
+function _assert_nonlinear_prescribed_supported(model, load_id, spc_id)
+    sets=selected_spc_sets(model,spc_id)
+    for entry in get(model,"SPC1s",[])
+        Int(entry["SID"]) in sets || continue
+        iszero(Float64(get(entry,"D",0.))) || throw(ArgumentError(
+            "SOL106 prescribed motion from a nonzero SPC is unsupported; use SOL101 or SOL105 static preload. The imposed motion must not be silently ignored."))
+    end
+    scales=_load_sid_scales(model,load_id;include_zero=true)
+    prescribed=Dict{Tuple{Int,Int},Float64}()
+    for entry in get(model,"SPCDs",[])
+        sid=Int(entry["SID"]);haskey(scales,sid)||continue
+        key=(Int(entry["GID"]),Int(entry["C"]))
+        prescribed[key]=get(prescribed,key,0.)+scales[sid]*Float64(entry["D"])
+    end
+    all(iszero,values(prescribed)) || throw(ArgumentError(
+        "SOL106 prescribed motion from a selected SPCD load is unsupported; use SOL101 or SOL105 static preload. The imposed motion must not be silently ignored."))
+    nothing
+end
+
 function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_id, node_R;
                                 load_steps::Int=4,
                                 max_iter::Int=8,
@@ -1098,6 +1102,7 @@ function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_i
                                 geometric_stiffness_builder=nothing,
                                 nonlinear_state_builder=nothing)
     _assert_nonlinear_thermal_supported(model, temp_load_id)
+    _assert_nonlinear_prescribed_supported(model, load_id, spc_id)
     load_steps = max(load_steps, 1)
     max_iter = max(max_iter, 1)
     relaxation = clamp(relaxation, 1e-3, 1.0)

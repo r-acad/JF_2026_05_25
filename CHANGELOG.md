@@ -6,6 +6,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **WingFEGen case inspection and workspace refinements.** Add read-only imported
+  case-control, load-card and boundary-condition tables. The selected subcase
+  controls support markers, including prescribed SPC/SPCD values, permanent
+  GRID constraints and displacement-coordinate directions. Report native card
+  coverage while retaining complete source. Share SPC selection validation
+  across static, eigen and export paths; include permanent constraints in exports.
+  Apply selected SPCD values once when they override nonzero SPCs, including
+  constraint recovery and reused factorizations across load cases.
+  Preserve zero prescribed-load selections and explicitly reject unsupported
+  nonzero SOL106 prescribed motion instead of silently omitting it.
+  Add explosion from individual rib-bay centers and improve underside lighting
+  without washing out face contrast. Use consistent collapse/restore controls,
+  move rib/stringer labels to Axes & labels, and offer a local-only Nastran file
+  reader from Study Options. Remove the redundant assembled-view button.
+
 - **WingFEGen wildcard selection and reliable result/import buffers.** Add
   default wildcard property matching with additive selection. Preserve binary
   coordinate, connectivity and displacement buffers when stored sensitivity

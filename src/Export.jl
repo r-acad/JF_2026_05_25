@@ -2963,16 +2963,14 @@ end
 function collect_spc_data(model, spc_id)
     # Returns Dict{Int, Int} mapping nid → dof_mask (e.g., 123456)
     spc_nodes = Dict{Int, Set{Int}}()
-    if isnothing(spc_id); return Dict{Int,Int}(); end
-
-    # Resolve SPCADD
-    sets = Set{Int}()
-    sid = Int(spc_id)
-    if haskey(model["SPCADDs"], sid)
-        union!(sets, model["SPCADDs"][sid])
-    else
-        push!(sets, sid)
+    # Permanent GRID/GRDSET constraints apply to every case, even without SPC.
+    for (key,grid) in get(model,"GRIDs",Dict())
+        comps=Solver._permanent_grid_components(get(grid,"PS",""))
+        isempty(comps)&&continue
+        spc_nodes[Int(get(grid,"ID",parse(Int,string(key))))]=Set(comps)
     end
+
+    sets = Solver.selected_spc_sets(model,spc_id)
 
     # Collect SPC1 entries matching the set
     for spc in model["SPC1s"]

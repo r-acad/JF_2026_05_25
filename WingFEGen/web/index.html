@@ -35,6 +35,7 @@
   <link rel="stylesheet" href="supports.css">
   <link rel="stylesheet" href="scene_lighting.css">
   <link rel="stylesheet" href="panel_explode.css">
+  <link rel="stylesheet" href="imported_cases.css">
   <link rel="stylesheet" href="startup_study.css">
   <link rel="stylesheet" href="nastran_import.css">
   <link rel="stylesheet" href="mass_properties.css">
@@ -110,22 +111,11 @@
         <p class="pick-note">Choose the solution below and define the loading in Cases. Solver progress remains visible in the header and Log. Red means analysis is needed; green means completed results match this model.</p>
         <p id="analysis-validity" class="pick-note" role="status" aria-live="polite" data-analysis-current="false">No analysis results are available. Run JFEM for this model.</p>
       </section>
-      <details id="imported-deck-info" hidden><summary id="imported-deck-title"></summary><p>Imported deck is authoritative. Review properties in Display → Properties or Inspect; use Analysis, Sensitivity and Results normally. Read Nastran replaces the deck; New Study returns to generated geometry. Save Study embeds the complete source, including INCLUDE content. TOML describes generated wings only.</p><ul id="imported-deck-warnings"></ul></details>
+      <details id="imported-deck-info" hidden><summary id="imported-deck-title"></summary><p>Imported deck is authoritative. Review source cases in Loads → Cases and boundary conditions in Model → Supports. These forms are read-only; selecting a case updates the loads and supports in the viewport. Review properties in Display → Properties or Inspect; use Analysis, Sensitivity and Results normally. Read Nastran replaces the deck; New Study returns to generated geometry. Save Study embeds the complete source, including INCLUDE content. TOML describes generated wings only.</p><ul id="imported-deck-warnings"></ul></details>
       <div id="form"><p class="muted">reading parameters&hellip;</p></div>
+      <section class="workspace-panel" data-workspace-panel="cases" data-imported-only role="tabpanel" aria-labelledby="tab-cases" hidden><div id="imported-cases" hidden></div></section>
+      <section class="workspace-panel" data-workspace-panel="supports" data-imported-only role="tabpanel" aria-labelledby="tab-supports" hidden><div id="imported-supports" hidden></div></section>
 
-      <section id="panel-mesh-labels" class="workspace-panel" data-workspace-panel="mesh" role="tabpanel" aria-labelledby="tab-mesh" hidden>
-        <fieldset class="mesh-label-controls">
-          <legend>Rib and stringer labels</legend>
-          <label class="layer"><input id="mesh-labels-none" name="mesh-labels" type="radio" value="none" checked><span>Off</span></label>
-          <label class="layer"><input id="mesh-labels-ribs" name="mesh-labels" type="radio" value="ribs"><span>Ribs</span></label>
-          <label class="layer"><input id="mesh-labels-stringers" name="mesh-labels" type="radio" value="stringers"><span>Stringers</span></label>
-          <label class="layer"><input id="mesh-labels-both" name="mesh-labels" type="radio" value="both"><span>Ribs and stringers</span></label>
-          <label class="layer"><input id="show-rib-datums" type="checkbox"><span>Show rib datum squares</span></label>
-          <label class="display-control" for="rib-datum-size">Square side (m)<input id="rib-datum-size" type="number" min="0.001" step="any" value="1"></label>
-          <p id="rib-datum-status" class="pick-note">Translucent squares at the front spar: orange for master ribs, blue for secondary ribs.</p>
-          <p class="pick-note">Rib 1 is at the root. Stringers are numbered front to rear: U = upper skin, L = lower skin. These numbers remain independent of shell subdivisions. Hide a skin or use translucent surfaces to see internal labels.</p>
-        </fieldset>
-      </section>
 
       <section id="panel-fuel-volume" class="workspace-panel" data-workspace-panel="fuel" role="tabpanel" aria-labelledby="tab-fuel" hidden>
         <p id="fuel-volume-summary" class="pick-note" role="status" aria-live="polite">Create the mesh to report the selected tank's gross capacity.</p>
@@ -203,10 +193,10 @@
       <fieldset id="panel-explosion-controls">
         <legend>Exploded stiffened panels</legend>
         <label class="layer"><input id="explode-panels" type="checkbox" disabled><span>Explode panels</span></label>
-        <label class="display-control">Spread from <select id="explode-origin"><option value="centroid">Structural GRID centroid</option><option value="midspan">Bounding-box midspan center</option></select></label>
+        <label class="display-control">Spread from <select id="explode-origin"><option value="centroid">Structural GRID centroid</option><option value="midspan">Bounding-box midspan center</option><option value="ribbay">Individual rib-bay centers</option></select></label>
         <label class="display-control">Distance (m)<input id="explode-distance" type="number" min="0" max="10000" step="0.1" value="1"></label>
-        <button id="explode-reset" class="mini">Restore assembled view</button>
         <p id="explode-note" class="pick-note">View only: each panel skin and stringer move together. Elements, their axes and P labels follow; shared GRID markers, rib/stringer datums, loads and aero stay assembled. Results retain physical values. Distances between moved panels are display distances. SVG captures this view; STL/GLB retain physical coordinates.</p>
+        <p class="pick-note">Individual rib-bay centers use the midpoint between adjacent ribs. Uncheck Explode panels to restore the assembled view.</p>
         <p id="explode-error" class="pick-note" role="alert" hidden></p>
       </fieldset>
       <label class="display-control">Load case <select id="load-case-select" aria-label="Displayed load case"></select></label>
@@ -273,7 +263,20 @@
         <div id="entity-color-legend"></div>
       </fieldset>
       <p id="axes-note" class="pick-note" hidden>Skin x follows the stringers; rib x follows global +x (horizontal); spar x uses the projected stringer direction. Shell results use these axes. x red, y green, z blue. Reference directions remain undeformed.</p>
-      <button class="mini" data-workspace-target="mesh">Rib / stringer labels and rib datums</button>
+      </section>
+
+      <section id="panel-mesh-labels" class="workspace-panel" data-workspace-panel="displaylabels" role="tabpanel" aria-labelledby="tab-displaylabels" hidden>
+        <fieldset class="mesh-label-controls">
+          <legend>Rib and stringer labels</legend>
+          <label class="layer"><input id="mesh-labels-none" name="mesh-labels" type="radio" value="none" checked><span>Off</span></label>
+          <label class="layer"><input id="mesh-labels-ribs" name="mesh-labels" type="radio" value="ribs"><span>Ribs</span></label>
+          <label class="layer"><input id="mesh-labels-stringers" name="mesh-labels" type="radio" value="stringers"><span>Stringers</span></label>
+          <label class="layer"><input id="mesh-labels-both" name="mesh-labels" type="radio" value="both"><span>Ribs and stringers</span></label>
+          <label class="layer"><input id="show-rib-datums" type="checkbox"><span>Show rib datum squares</span></label>
+          <label class="display-control" for="rib-datum-size">Square side (m)<input id="rib-datum-size" type="number" min="0.001" step="any" value="1"></label>
+          <p id="rib-datum-status" class="pick-note">Translucent squares at the front spar: orange for master ribs, blue for secondary ribs.</p>
+          <p class="pick-note">Rib 1 is at the root. Stringers are numbered front to rear: U = upper skin, L = lower skin. These numbers remain independent of shell subdivisions. Hide a skin or use translucent surfaces to see internal labels.</p>
+        </fieldset>
       </section>
 
       <section id="panel-displayenvironment" class="workspace-panel display-pane" data-workspace-panel="displayenvironment" role="tabpanel" aria-labelledby="tab-displayenvironment" hidden>
@@ -534,6 +537,7 @@
 <script src="weights.js" defer></script>
 <script src="reference.js" defer></script>
 <script src="nastran_import.js" defer></script>
+<script src="imported_cases.js" defer></script>
 <script src="workspace.js" defer></script>
 <script src="recent_studies.js" defer></script>
 <script src="startup_study.js" defer></script>

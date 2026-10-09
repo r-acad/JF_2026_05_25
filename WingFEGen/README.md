@@ -62,7 +62,8 @@ optional external-resource details.
 
 ## First study
 
-1. Choose **Start new study**, **Load last study**, or **Open existing study**.
+1. In **Study Options**, choose **Start new study**, **Load last study**,
+   **Open existing study**, or **Read Nastran file**.
 2. Define the planform, airfoils, spars, ribs and optional leading-edge mesh.
    Planform edge perturbations refine the aerodynamic outline; spar perturbations
    define the structural spar paths independently.
@@ -101,12 +102,25 @@ automatically relative to their containing files. The former 32 MiB import
 limit is removed. Import progress shows elapsed time and the current stage;
 errors remain fully visible in the import dialog.
 
-For a server on another computer, choose **Upload from another computer** and
-select the main file and model folder. The browser can only read files made
-available through that selection; referenced INCLUDEs are resolved within it.
-Missing files and cyclic INCLUDE dependencies are reported. A local import is
-saved as a self-contained expanded source in the Study, so reopening does not
-depend on the original file locations.
+The form needs only the main file on your computer; no model-folder selection
+is required. Missing files and cyclic INCLUDE dependencies are reported.
+A local import is saved as a self-contained expanded source in the Study, so
+reopening does not depend on the original file locations. **Study Options**
+also offers **Read Nastran file** directly at startup.
+
+**Loads / Cases** displays imported case-control settings, selected load sets,
+equivalent nodal loads and the source-card inventory. **Model / Supports**
+displays the selected case's effective SPC constraints, prescribed values,
+source sets and GRID displacement coordinate systems. Both selectors update
+the viewport. Click a GRID in the tables to inspect its conditions and results.
+Tables can be filtered and paged for large models. Support cones and rotation
+boxes follow each GRID's displacement axes, including non-BASIC coordinates.
+The inventory reports cards without a native interpretation; retaining every
+source card does not imply that every Nastran formulation is supported.
+Linear static solves apply selected SPCD prescribed values before constraint
+recovery, overriding SPC values without double-counting them. SOL106 currently
+rejects nonzero prescribed SPC/SPCD motion with an explicit capability message;
+it must not silently solve a different boundary condition.
 
 The imported source is authoritative: original GRID/EID/PID values, solution,
 subcases, constraints and loads are retained. **Run in JFEM** solves that deck;
@@ -132,6 +146,10 @@ or loading a generated Study returns to the wing generator.
 
 ## Display and editing
 
+Every left pane collapses with **−** and restores with **+**. Drawing panes
+retain a separate Maximize action while expanded. Rib/stringer labels and rib
+datum squares are together under **Display / Axes & labels**.
+
 The viewport supports entity filters, inspection, node/element IDs, local axes,
 solid/translucent surfaces, beam sections, reference STL/OBJ/GLB geometry,
 measurement and geometry export. Fuel-tank volume and mass properties include
@@ -155,15 +173,18 @@ Saved copies of the old unedited lighting presets adopt the improved defaults;
 custom lighting remains unchanged.
 
 **Display / Entities / Explode stiffened panels** moves each panel and its
-normal stringer rigidly away from the structural-node centroid or midspan.
-Choose the separation distance or reset to assembled geometry. Panel edges,
+normal stringer rigidly away from the structural-node centroid, midspan, or
+its own rib-bay center. The rib-bay option follows the actual adjacent rib
+centers, including sweep and twist; runout panels keep their owning bay.
+Choose the separation distance; uncheck Explode panels to reassemble. Panel edges,
 labels, axes and picking follow the displayed panel; shared GRID markers,
 loads, aerodynamic geometry and comparison overlays stay at their physical
 positions. This changes neither the FEM nor any result. SVG captures the
 exploded view; STL/GLB retain physical geometry. The settings travel with a Study.
 
 **Display / Environment / Lighting** includes an adjustable camera fill for
-underside views. To keep shell colors visible, the aerodynamic loft uses
+underside views. Neutral ambient light and a balanced directional key improve
+underside visibility without washing out face contrast. To keep shell colors visible, the aerodynamic loft uses
 wireframe while FE, sensitivity, property or panel colors are displayed on
 visible shells. The saved polished-aluminium choice resumes for aero-only or
 uncolored views. A note explains this automatic display change. Loading a
@@ -288,12 +309,15 @@ node WingFEGen/test/load_glyphs_test.cjs
 node WingFEGen/test/sensitivity_filter_test.cjs
 node WingFEGen/test/import_and_table_colors_test.cjs
 node WingFEGen/test/panel_explode_test.cjs
+node WingFEGen/test/scene_lighting_test.cjs
+node WingFEGen/test/support_glyphs_test.cjs
 node WingFEGen/test/nastran_import_large_test.cjs
 node WingFEGen/test/sections_viewer_test.cjs
 julia --project=WingFEGen WingFEGen/test/portable_paths_test.jl
 julia --project=WingFEGen WingFEGen/test/payload_roundtrip_test.jl
 julia --project=WingFEGen WingFEGen/test/nastran_source_test.jl
 julia --project=. WingFEGen/test/nastran_import_smoke_test.jl
+julia --project=. WingFEGen/test/nastran_case_metadata_test.jl
 ```
 
 The solver's separate curated validation suite is described in the repository

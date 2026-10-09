@@ -1,21 +1,24 @@
 /* Scene-owned studio lighting. Directions are saved in FE global XYZ. */
 (function(root,factory){const api=factory();if(typeof module==="object"&&module.exports)module.exports=api;else root.WingSceneLighting=api;})(typeof globalThis!=="undefined"?globalThis:this,function(){
  "use strict";
- // Keep a directional key stronger than the ambient/fill. Summing three
- // bright lights clips saturated contour colours and erases face contrast.
- // Explicit intensities in an existing Study still override these defaults.
- const PRESETS={balanced:{ambient:.32,key:.8,fill:.24,headlight:.35,keyDirection:[-.5,-.7,-1],fillDirection:[.6,.35,.8]},soft:{ambient:.44,key:.58,fill:.28,headlight:.3,keyDirection:[-.25,-.5,-1],fillDirection:[.4,.5,.7]},technical:{ambient:.23,key:.88,fill:.18,headlight:.28,keyDirection:[-.8,-.5,-1],fillDirection:[.5,.7,.8]}};
+ // Balance fixed studio lights with camera fill so the underside remains
+ // readable without clipping saturated colours or erasing face contrast.
+ // Custom intensities in an existing Study still override these defaults.
+ const PRESETS={balanced:{ambient:.3,key:.3,fill:.2,headlight:.48,keyDirection:[-.5,-.7,-1],fillDirection:[.6,.35,.8]},soft:{ambient:.38,key:.18,fill:.18,headlight:.44,keyDirection:[-.25,-.5,-1],fillDirection:[.4,.5,.7]},technical:{ambient:.24,key:.43,fill:.16,headlight:.4,keyDirection:[-.8,-.5,-1],fillDirection:[.5,.7,.8]}};
+ const PREVIOUS_PRESETS={balanced:{ambient:.32,key:.8,fill:.24,headlight:.35,keyDirection:[-.5,-.7,-1],fillDirection:[.6,.35,.8]},soft:{ambient:.44,key:.58,fill:.28,headlight:.3,keyDirection:[-.25,-.5,-1],fillDirection:[.4,.5,.7]},technical:{ambient:.23,key:.88,fill:.18,headlight:.28,keyDirection:[-.8,-.5,-1],fillDirection:[.5,.7,.8]}};
  const LEGACY_PRESETS={balanced:{ambient:.92,key:.82,fill:.56,keyDirection:[-.5,-.7,-1],fillDirection:[.6,.35,.8]},soft:{ambient:1.05,key:.5,fill:.42,keyDirection:[-.25,-.5,-1],fillDirection:[.4,.5,.7]},technical:{ambient:.78,key:1,fill:.7,keyDirection:[-.8,-.5,-1],fillDirection:[.5,.7,.8]}};
  const clone=value=>JSON.parse(JSON.stringify(value));
  function normalize(value){
   if(value!=null&&(typeof value!=="object"||Array.isArray(value)))throw Error("Lighting settings must be an object.");
   let input=value||{};const preset=input.preset??"balanced";
   if(![...Object.keys(PRESETS),"custom"].includes(preset))throw Error("Unknown lighting preset.");
-  const legacy=LEGACY_PRESETS[preset];
+  const legacy=LEGACY_PRESETS[preset],previous=PREVIOUS_PRESETS[preset];
+  const matches=record=>record&&Object.entries(record).every(([key,expected])=>(key==='headlight'&&input[key]===undefined)||(Array.isArray(expected)?
+    Array.isArray(input[key])&&input[key].length===expected.length&&expected.every((x,i)=>input[key][i]===x):input[key]===expected));
   // Studies capture expanded preset values. Upgrade only an exact old named
   // preset; a custom preset or any edited intensity/direction is intentional.
-  if(legacy&&input.preset===preset&&Object.entries(legacy).every(([key,expected])=>Array.isArray(expected)?
-    Array.isArray(input[key])&&input[key].length===expected.length&&expected.every((x,i)=>input[key][i]===x):input[key]===expected))input={preset,...(input.headlight===undefined?{}:{headlight:input.headlight})};
+  if(input.preset===preset&&matches(previous))input={preset};
+  else if(input.preset===preset&&matches(legacy))input={preset,...(input.headlight===undefined?{}:{headlight:input.headlight})};
   const defaults=PRESETS[preset]||PRESETS.balanced,result={preset};
   for(const key of["ambient","key","fill","headlight"]){const number=input[key]??(key==="headlight"&&preset==="custom"?0:defaults[key]);if(typeof number!=="number"||!Number.isFinite(number)||number<0||number>3)throw Error("Light intensities must be between 0 and 3.");result[key]=number;}
   for(const key of["keyDirection","fillDirection"]){const direction=input[key]??(key==="headlight"&&preset==="custom"?0:defaults[key]);if(!Array.isArray(direction)||direction.length!==3||!direction.every(x=>typeof x==="number"&&Number.isFinite(x)&&Math.abs(x)<=100)||Math.hypot(...direction)<1e-9)throw Error("Light directions need three finite components and cannot be zero.");result[key]=direction.slice();}
@@ -25,7 +28,7 @@
   if(!B||!scene)throw Error("Lighting needs a Babylon scene.");
   const hemi=new B.HemisphericLight("wing-studio-ambient",new B.Vector3(0,1,0),scene),key=new B.DirectionalLight("wing-studio-key",new B.Vector3(0,-1,0),scene),fill=new B.DirectionalLight("wing-studio-fill",new B.Vector3(0,1,0),scene),headlight=new B.DirectionalLight("wing-studio-headlight",new B.Vector3(0,0,-1),scene),lights=[hemi,key,fill,headlight];
   // Neutral light colours preserve the hue of numerical colour scales.
-  hemi.groundColor=new B.Color3(.4,.4,.4);key.diffuse=B.Color3.White();fill.diffuse=B.Color3.White();headlight.diffuse=B.Color3.White();headlight.specular=B.Color3.Black();
+  hemi.groundColor=new B.Color3(.72,.72,.72);key.diffuse=B.Color3.White();fill.diffuse=B.Color3.White();headlight.diffuse=B.Color3.White();headlight.specular=B.Color3.Black();
   let state=normalize(),root=null,disposed=false,observer=null,frameObserver=null;const controls=new Map();
   function capture(){return clone(state);}
   function sync(){for(const[name,input]of controls){if(name==="preset")input.value=state.preset;else if(name.includes(".")){const[k,i]=name.split(".");input.value=state[k][+i];}else input.value=state[name];}}
@@ -36,7 +39,7 @@
    const heading=el("h3","Lighting"),presetLabel=el("label","Studio preset"),preset=el("select");preset.setAttribute("aria-label","Lighting preset");for(const[value,label]of[["balanced","Balanced studio"],["soft","Soft studio"],["technical","Technical contrast"],["custom","Custom"]]){const option=el("option",label);option.value=value;preset.append(option);}presetLabel.append(preset);controls.set("preset",preset);preset.onchange=()=>{if(preset.value==="custom")apply({...capture(),preset:"custom"},{notify:true});else apply({preset:preset.value},{notify:true});};root.append(heading,presetLabel);
    const error=el("p");error.className="scene-lighting-error";error.setAttribute("role","alert");error.hidden=true;
    function edit(name,value){try{const next=capture();next.preset="custom";if(name.includes(".")){const[k,i]=name.split(".");next[k][+i]=value;}else next[name]=value;apply(next,{notify:true});error.hidden=true;}catch(problem){error.textContent=problem.message;error.hidden=false;}}
-   for(const[name,label]of[["ambient","Ambient brightness"],["key","Main light"],["fill","Fill light"],["headlight","Camera fill (underside)"]]){const row=el("label",label),input=el("input");input.type="number";input.min="0";input.max="3";input.step="0.05";input.setAttribute("aria-label",label);input.oninput=()=>edit(name,input.value===""?NaN:Number(input.value));controls.set(name,input);row.append(input);root.append(row);}
+   for(const[name,label]of[["ambient","Ambient brightness"],["key","Main light"],["fill","Fill light"],["headlight","Camera fill (all angles)"]]){const row=el("label",label),input=el("input");input.type="number";input.min="0";input.max="3";input.step="0.05";input.setAttribute("aria-label",label);input.oninput=()=>edit(name,input.value===""?NaN:Number(input.value));controls.set(name,input);row.append(input);root.append(row);}
    const directions=el("details"),summary=el("summary","Light directions (global X, Y, Z)");directions.append(summary);
    for(const[name,label]of[["keyDirection","Main direction"],["fillDirection","Fill direction"]]){const group=el("fieldset"),legend=el("legend",label);group.append(legend);for(let i=0;i<3;i++){const row=el("label",["X","Y","Z"][i]),input=el("input");input.type="number";input.min="-100";input.max="100";input.step="0.1";input.setAttribute("aria-label",label+" "+["X","Y","Z"][i]);input.oninput=()=>edit(name+"."+i,input.value===""?NaN:Number(input.value));controls.set(name+"."+i,input);row.append(input);group.append(row);}directions.append(group);}
    directions.append(el("p","Directions describe the travel of light in global axes. Camera fill follows the viewing direction and lights faces viewed from below; set it to zero to switch it off."));root.append(directions,error);host.append(root);sync();return root;

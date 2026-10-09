@@ -18,14 +18,21 @@
     throw Error("Invalid support index list.");
   }
   function components(value){return Array.from(new Set(String(value??"").split("").filter(c=>/^[1-6]$/.test(c)))).sort();}
+  const basicAxes=[[1,0,0],[0,1,0],[0,0,1]];
+  const transformed=(axes,vector,component)=>vector.reduce((sum,value,k)=>sum+value*axes[k][component],0);
+  function frameAxes(value){
+    if(value==null)return basicAxes;
+    if(!Array.isArray(value)||value.length!==3||value.some(axis=>!Array.isArray(axis)||axis.length!==3||!axis.every(Number.isFinite)))throw Error('Invalid GRID displacement axes for support display.');
+    return value;
+  }
   function layout(data,radius=.01){
     radius=radiusValue(radius);
-    const spc=data?.spc||{},ids=integers(data?.nodes?.ids),listed=integers(spc.nodes),assignments=new Map(),perNode=new Map(),records=[];
+    const spc=data?.spc||{},ids=integers(data?.nodes?.ids),listed=integers(spc.nodes),assignments=new Map(),frames=new Map(),unresolved=new Set(),perNode=new Map(),records=[];
     const count=data?.nodes?.count??ids.length;
-    for(const row of spc.assignments||[]){if(Number.isInteger(row?.node)){const existing=assignments.get(row.node)||[];assignments.set(row.node,[...existing,...components(row.components)]);}}
+    for(const row of spc.assignments||[]){if(Number.isInteger(row?.node)){const existing=assignments.get(row.node)||[];assignments.set(row.node,[...existing,...components(row.components)]);if(row.axes===null&&Number(row.coordinate_id)!==0)unresolved.add(row.node);else frames.set(row.node,frameAxes(row.axes));}}
     const candidates=listed.length?Array.from(listed):Array.from(assignments.keys());
     for(let i=0;i<candidates.length;i++){
-      const node=candidates[i];if(!Number.isInteger(node)||node<0||(count>0&&node>=count))continue;
+      const node=candidates[i];if(!Number.isInteger(node)||node<0||(count>0&&node>=count)||unresolved.has(node))continue;
       // New payloads carry exact per-node masks. Assignment metadata is the
       // next fallback; old payloads use one common mask for every root node.
       const mask=spc.node_components?.[i]??(assignments.has(node)?assignments.get(node).join(""):spc.components??"123");
@@ -33,8 +40,8 @@
     }
     const byDof={1:0,2:0,3:0,4:0,5:0,6:0},nodes=[];
     for(const [node,dofs]of perNode){if(!dofs.size)continue;nodes.push(node);for(const dof of [...dofs].sort()){
-      const axis=(dof-1)%3,centerOffset=[0,0,0];centerOffset[axis]=(dof<=3?-1:.5)*radius;byDof[dof]++;
-      records.push({node,grid:ids[node]??null,dof,type:dof<=3?"translation":"rotation",shape:dof<=3?"cone":"box-outline",axis:AXES[axis],color:COLORS[axis],centerOffset});
+      const axis=(dof-1)%3,axes=frames.get(node)||basicAxes,centerOffset=axes[axis].map(value=>value*(dof<=3?-1:.5)*radius);byDof[dof]++;
+      records.push({node,grid:ids[node]??null,dof,type:dof<=3?"translation":"rotation",shape:dof<=3?"cone":"box-outline",axis:AXES[axis],color:COLORS[axis],centerOffset,axes});
     }}
     return{nodes,records,counts:{byDof,translations:byDof[1]+byDof[2]+byDof[3],rotations:byDof[4]+byDof[5]+byDof[6],total:records.length,nodes:nodes.length}};
   }
@@ -67,7 +74,8 @@
   function triangles(record,origin,radius=.01){
     radius=radiusValue(radius);if(!origin||origin.length!==3||!Array.from(origin).every(Number.isFinite))throw Error("Support marker origin must contain three finite coordinates.");
     const shape=record.shape||(+record.dof<=3?"cone":"box-outline"),unit=template(shape),axis=(+record.dof-1)%3,out=new Float32Array(unit.indices.length*3);
-    for(let i=0;i<unit.indices.length;i++)for(let j=0;j<3;j++)out[3*i+j]=origin[j]+radius*localCoordinate(unit,shape,axis,unit.indices[i],j);
+    const axes=frameAxes(record.axes);
+    for(let i=0;i<unit.indices.length;i++){const local=[0,1,2].map(j=>localCoordinate(unit,shape,axis,unit.indices[i],j));for(let j=0;j<3;j++)out[3*i+j]=origin[j]+radius*transformed(axes,local,j);}
     return out;
   }
   function create({BABYLON:B=globalThis.BABYLON,scene,data,positions,radius=.01,name="SPC"}){
@@ -79,7 +87,10 @@
       const axis=(dof-1)%3;
       for(let k=0;k<records.length;k++){
         map.fill(records[k].node,k*n,(k+1)*n);
-        for(let i=0;i<n;i++)for(let j=0;j<3;j++){const viewAxis=VIEW_AXIS[j],offset=3*(k*n+i)+viewAxis;local[offset]=localCoordinate(unit,records[0].shape,axis,i,j);normals[offset]=unit.normals[3*i+unitAxis(records[0].shape,axis,j)];}
+        for(let i=0;i<n;i++){
+          const v=[0,1,2].map(j=>localCoordinate(unit,records[0].shape,axis,i,j)),normal=[0,1,2].map(j=>unit.normals[3*i+unitAxis(records[0].shape,axis,j)]);
+          for(let j=0;j<3;j++){const viewAxis=VIEW_AXIS[j],offset=3*(k*n+i)+viewAxis;local[offset]=transformed(records[k].axes,v,j);normals[offset]=transformed(records[k].axes,normal,j);}
+        }
         for(let i=0;i<unit.indices.length;i++)indices[k*unit.indices.length+i]=k*n+unit.indices[i];
       }
       const mesh=new B.Mesh(name+"-DOF"+dof,scene),material=new B.StandardMaterial(name+"-DOF"+dof+"-material",scene);
@@ -95,7 +106,7 @@
       if(!nextPositions||nextPositions.length%3)throw Error("Support marker positions require viewport YZX triples.");
       for(const node of current.nodes)if(3*node+2>=nextPositions.length||![nextPositions[3*node],nextPositions[3*node+1],nextPositions[3*node+2]].every(Number.isFinite))throw Error("A supported node has invalid viewport coordinates.");
       currentPositions=nextPositions;currentRadius=nextRadius;
-      for(const record of current.records)record.centerOffset[(record.dof-1)%3]=(record.dof<=3?-1:.5)*nextRadius;
+      for(const record of current.records)record.centerOffset=record.axes[(record.dof-1)%3].map(value=>value*(record.dof<=3?-1:.5)*nextRadius);
       for(const batch of batches){for(let i=0;i<batch.map.length;i++)for(let j=0;j<3;j++)batch.buf[3*i+j]=nextPositions[3*batch.map[i]+j]+nextRadius*batch.local[3*i+j];batch.mesh.updateVerticesData(B.VertexBuffer.PositionKind,batch.buf,true,false);}
       return current;
     }

@@ -1,5 +1,32 @@
 # boundary_conditions.jl - SPC application, AUTOSPC, and linear solve
 
+"""Resolve the selected SPC/SPC1 sets with SPCADD selection precedence.
+
+Keep one resolver for static/eigen partitions and boundary-condition exports.
+SPCADD members must name SPC/SPC1 sets, not other SPCADD entries. Unsupported
+nested references and missing sets must not silently lose constraints.
+"""
+function selected_spc_sets(model, spc_id)
+    sets=Set{Int}()
+    (spc_id===nothing||Int(spc_id)==0)&&return sets
+    available=Set(Int(row["SID"]) for row in get(model,"SPC1s",[]))
+    combinations=get(model,"SPCADDs",Dict());sid=Int(spc_id)
+    children=get(combinations,sid,get(combinations,string(sid),nothing))
+    if children===nothing
+        sid in available||throw(ArgumentError("Selected SPC references undefined SPC/SPC1 set $sid"))
+        push!(sets,sid)
+    else
+        isempty(children)&&throw(ArgumentError("SPCADD $sid contains no referenced SPC sets"))
+        for child in children
+            leaf=Int(child)
+            (haskey(combinations,leaf)||haskey(combinations,string(leaf)))&&throw(ArgumentError("SPCADD $sid references SPCADD $leaf; nested or cyclic SPCADD entries are unsupported. Members must name SPC/SPC1 sets."))
+            leaf in available||throw(ArgumentError("SPCADD $sid references undefined SPC/SPC1 set $leaf"))
+            push!(sets,leaf)
+        end
+    end
+    sets
+end
+
 @inline function model_autospc_enabled(model)
     if haskey(ENV, "JFEM_AUTOSPC")
         raw_env = lowercase(strip(ENV["JFEM_AUTOSPC"]))
@@ -1144,15 +1171,7 @@ function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diag
     diagnostics["permanent_grid_constraints"] = permanent_grid_constraints
 
     # SPC DOFs
-    sets = Set{Int}()
-    if !isnothing(spc_id)
-        sid = Int(spc_id)
-        if haskey(model["SPCADDs"], sid)
-            union!(sets, model["SPCADDs"][sid])
-        else
-            push!(sets, sid)
-        end
-    end
+    sets = selected_spc_sets(model, spc_id)
     fixed_before_spc = length(fixed_dofs)
     for spc in model["SPC1s"]
         if Int(spc["SID"]) in sets
@@ -1223,13 +1242,19 @@ function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diag
 end
 
 function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map, max_elem_stiff, orig_diag;
-                            linear_cache=nothing, unsymmetric::Bool=false, autospc_matrix=K)
+                            linear_cache=nothing, unsymmetric::Bool=false, autospc_matrix=K,
+                            enforced_overrides=Dict{Int,Float64}())
     log_msg("[SOLVER] Processing Boundary Conditions...")
 
     spc_id = get(model, "_spc_id", nothing)
     load_path_protect_enabled = sol101_load_path_autospc_protect_enabled(model)
     cache_enabled = !unsymmetric && linear_cache !== nothing && ndof >= linear_solve_cache_min_ndof() && !load_path_protect_enabled
     cache_key = cache_enabled ? _linear_solve_cache_key(K, ndof, model, spc_id, rbe3_map) : nothing
+    # SPCD values vary between load cases without changing the factorization.
+    # Distinguish only their column layout, then refresh values on cache hits.
+    if cache_key !== nothing && !isempty(enforced_overrides)
+        cache_key = (cache_key, :spcd, Tuple(sort!(collect(keys(enforced_overrides)))))
+    end
     cached_entry = (cache_enabled && cache_key !== nothing) ? get(linear_cache, cache_key, nothing) : nothing
 
     diagnostics = Dict{String,Any}(
@@ -1323,8 +1348,11 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
         # an omitted coordinate and must fail rather than reuse a zero value.
         _validate_inactive_static_loads(cached_entry.inactive_dofs, F_applied, id_map)
         F_ff = F_applied[cached_entry.free_dofs]
+        prescribed_values = [Float64(get(enforced_overrides, dof, value))
+            for (dof, value) in zip(cached_entry.enforced_dofs, cached_entry.enforced_values)]
+        all(isfinite, prescribed_values) || throw(ArgumentError("SPCD requires finite displacements"))
         if cached_entry.K_fs !== nothing
-            F_ff = F_ff - cached_entry.K_fs * cached_entry.enforced_values
+            F_ff = F_ff - cached_entry.K_fs * prescribed_values
             log_msg("[SOLVER] Enforced displacement RHS correction applied ($(length(cached_entry.enforced_dofs)) DOFs)")
         end
 
@@ -1340,7 +1368,7 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
         log_msg("[SOLVER] Post-Processing...")
         u_global = zeros(ndof)
         u_global[cached_entry.free_dofs] = u_ff
-        for (gdof, dval) in zip(cached_entry.enforced_dofs, cached_entry.enforced_values)
+        for (gdof, dval) in zip(cached_entry.enforced_dofs, prescribed_values)
             u_global[gdof] = dval
         end
 
@@ -1380,16 +1408,8 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
         log_msg("[SOLVER] Permanent GRID/GRDSET constraints: $permanent_grid_dofs DOFs across $permanent_grid_constraints grid(s)")
     end
 
-    sets = Set{Int}()
     spc_id = get(model, "_spc_id", nothing)
-    if !isnothing(spc_id)
-        sid = Int(spc_id)
-        if haskey(model["SPCADDs"], sid)
-            union!(sets, model["SPCADDs"][sid])
-        else
-            push!(sets, sid)
-        end
-    end
+    sets = selected_spc_sets(model, spc_id)
     fixed_before_spc = length(fixed_dofs)
     for spc in model["SPC1s"]
         if Int(spc["SID"]) in sets
@@ -1413,6 +1433,16 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
     end
     log_msg("[SOLVER] SPC: $(length(spc_dofs)) constrained DOFs from SPC1 cards")
     diagnostics["bc_partition"]["explicit_spc_dofs"] = max(length(fixed_dofs) - fixed_before_spc, 0)
+    # A selected SPCD replaces the value on an explicitly constrained DOF.
+    # Merge before the single K_fs*u_s correction and before MPC recovery.
+    # Keep zero entries so a cached factorization can reuse these columns for
+    # a subsequent nonzero SPCD without inheriting another case's values.
+    for (dof, value) in enforced_overrides
+        dof in spc_dofs || throw(ArgumentError("SPCD on unconstrained DOF $dof is invalid; select its SPC set before applying the enforced displacement"))
+        haskey(rbe3_map,dof) && throw(ArgumentError("SPCD on a dependent constraint DOF is unsupported"))
+        isfinite(value) || throw(ArgumentError("SPCD requires a finite displacement"))
+        enforced_disp[dof] = Float64(value)
+    end
     if !isempty(enforced_disp)
         log_msg("[SOLVER] Enforced displacements: $(length(enforced_disp)) DOFs")
     end

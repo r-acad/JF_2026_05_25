@@ -222,10 +222,13 @@ function imported_mesh_payload(m)
     end
     merge!(rbe,Dict("count"=>length(refs),"refs"=>blob_i32(refs;offset=-1),"eids"=>blob_i32(eids),"lines"=>blob_i32(lines;offset=-1),"elements"=>elements))
     emptyloads=Dict("stations"=>Any[],"force_stations"=>Any[],"moment_stations"=>Any[],"fuel_stations"=>Any[],"structure_stations"=>Any[],"method"=>"imported","load_application_version"=>IMPORTED_LOAD_VERSION,"note"=>"Original Nastran load cards are authoritative; not wing-generated aerodynamic loads.")
-    cases=[Dict("id"=>row["id"],"label"=>row["label"],"loads"=>get(get(params,"imported.loads",Dict()),row["id"],deepcopy(emptyloads))) for row in params["imported.cases"]]
+    cases=[merge(Dict{String,Any}(row),Dict("loads"=>get(get(params,"imported.loads",Dict()),row["id"],deepcopy(emptyloads)))) for row in params["imported.cases"]]
+    source_card_count=sum(values(params["imported.inventory"]);init=0)
+    unprocessed=get(params,"imported.unprocessed_cards",Any[])
+    parsed_card_count=source_card_count-sum(row["count"] for row in unprocessed if row["status"]=="unprocessed";init=0)
     publicparams=Dict(k=>v for (k,v) in params if !startswith(k,"imported."))
     return Dict{String,Any}("ok"=>true,"format"=>"wingfegen-mesh-1","title"=>source["name"],"model_params"=>publicparams,
-        "imported_signature"=>source["signature"],"imported_deck"=>Dict("signature"=>source["signature"],"name"=>source["name"],"solution"=>params["output.solution"],"cases"=>params["imported.cases"],"warnings"=>params["imported.warnings"],"unsupported_visual_cards"=>params["imported.unsupported_visual_cards"],"card_inventory"=>params["imported.inventory"]),
+        "imported_signature"=>source["signature"],"imported_deck"=>Dict("signature"=>source["signature"],"name"=>source["name"],"solution"=>params["output.solution"],"cases"=>[Dict(k=>v for (k,v) in row if k!="spc") for row in params["imported.cases"]],"warnings"=>params["imported.warnings"],"unsupported_visual_cards"=>params["imported.unsupported_visual_cards"],"card_inventory"=>params["imported.inventory"],"unprocessed_cards"=>unprocessed,"source_card_count"=>source_card_count,"parsed_card_count"=>parsed_card_count,"case_control"=>get(params,"imported.case_control",Dict())),
         "nodes"=>Dict("count"=>length(m.node_ids),"n_structural"=>m.n_struct,"ids"=>blob_i32(m.node_ids),"xyz"=>blob_f32(m.xyz)),"groups"=>groups,
         "rbe3"=>rbe,"fuel_rbe3"=>deepcopy(emptyspider),"spc"=>imported_supports(m),
         "aero"=>Dict("count"=>0,"sections"=>Any[],"n_loop"=>0,"xyz"=>blob_f32(Float64[]),"conn"=>blob_i32(Int[]),"n_per_node"=>0,"map"=>blob_i32(Int[]),"weights"=>blob_f32(Float64[])),
@@ -250,6 +253,8 @@ function imported_element_axes(m,gr)
 end
 
 function imported_supports(m)
+    cases=get(m.params,"imported.cases",Any[])
+    !isempty(cases)&&haskey(first(cases),"spc")&&return first(cases)["spc"]
     index=Dict(id=>i for (i,id) in enumerate(m.node_ids));components=Dict{Int,Set{Char}}()
     for row in imported_native(m)["SPC1s"],gid in row["NODES"]
         haskey(index,gid)||continue;union!(get!(components,index[gid],Set{Char}()),string(row["C"]))
@@ -259,10 +264,12 @@ function imported_supports(m)
 end
 
 function imported_prepare_loads!(native,m)
+    imported_prepare_cases!(native,m)
     model=imported_native(m);index=Dict(id=>i for (i,id) in enumerate(m.node_ids));X=permutedims(reshape(m.xyz,3,:));cases=Dict{Int,Any}()
-    for (sid,row) in model["CASE_CONTROL"]["SUBCASES"]
+    for spec in m.params["imported.cases"]
+        sid=spec["id"];row=spec["case_control"]
         loads=Dict{String,Any}("stations"=>Any[],"force_stations"=>Any[],"moment_stations"=>Any[],"fuel_stations"=>Any[],"structure_stations"=>Any[],"method"=>"imported","load_application_version"=>IMPORTED_LOAD_VERSION,"summary"=>Any[])
-        F=zeros(6length(m.node_ids));load=get(row,"LOAD",nothing)
+        F=zeros(6length(m.node_ids));load=imported_case_selector(row,"LOAD")
         try
             load===nothing||native.Solver.resolve_loads(model,load,1.,index,Dict{Int,Any}(),X,F)
             for (i,gid) in enumerate(m.node_ids)
@@ -272,8 +279,12 @@ function imported_prepare_loads!(native,m)
                 !iszero(norm(moment))&&push!(loads["moment_stations"],merge(record,Dict("force"=>zeros(3),"moment"=>moment)))
             end
             loads["note"]="Native equivalent applied nodal loads in BASIC axes, before constraint redistribution. Original load-card application remains unchanged."
+            loads["available"]=true
+            get(spec,"load_source_case_id",sid)!=sid&&(loads["note"]*=" Loads belong to static preload subcase $(spec["load_source_case_id"]).")
+            any(haskey(row,key) for key in ("TEMP","TEMPERATURE"))&&(loads["note"]*=" Thermal equivalent loads are computed by the solver; they are not included in these arrows.")
         catch err
             loads["note"]="Load visualization unavailable: "*sprint(showerror,err)
+            loads["available"]=false
             push!(m.params["imported.warnings"],"Subcase $sid: "*loads["note"])
         end
         cases[Int(sid)]=loads
@@ -281,6 +292,8 @@ function imported_prepare_loads!(native,m)
     m.params["imported.loads"]=cases
     m
 end
+
+include("nastran_import_cases.jl")
 
 imported_public_params(m)=Dict(k=>v for (k,v) in m.params if !startswith(k,"imported."))
 

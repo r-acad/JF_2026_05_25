@@ -389,7 +389,7 @@ const HELP_TOPICS = {
   ] },
   "Fuel tank": { title: "Fuel tank volume", paragraphs: [
     "Show fuel tank volume draws the undeformed green envelope. Isolate tank hides surrounding layers; Restore model layers brings them back. The fuel overlay is suspended while FE result colors are active so the contour colors stay accurate.",
-    "Enable the tank and select its first and last physical ribs. Rib 1 is the root; last rib 0 follows the current final rib automatically. Mesh > Rib and stringer labels identifies the ribs in the viewport. The tank fills the box between front/rear spars and upper/lower skins. Dry / vent bays uses physical bay numbers or ranges such as 2,4-6; bay b is between ribs b and b+1. Dry bays contribute no fuel volume, mass, inertia, attachments or loads, while structural elements remain.",
+    "Enable the tank and select its first and last physical ribs. Rib 1 is the root; last rib 0 follows the current final rib automatically. Display > Axes & labels > Rib and stringer labels identifies the ribs in the viewport. The tank fills the box between front/rear spars and upper/lower skins. Dry / vent bays uses physical bay numbers or ranges such as 2,4-6; bay b is between ribs b and b+1. Dry bays contribute no fuel volume, mass, inertia, attachments or loads, while structural elements remain.",
     "After mesh creation, Summary → General reports gross volume in cubic metres and litres. Summary → Mass properties reports fuel for the selected case, including each rib bay. Cases defines Fuel status and global acceleration in g; the default −Z at 1g applies fuel weight, scaled by the case load multiplier. Set all accelerations to zero for mass and inertia only. Different fuel states use separate analysis decks, including separate normal-mode solutions.",
   ] },
   "Load plots": { title: "Spanwise load distributions", paragraphs: [
@@ -596,7 +596,7 @@ function activateWorkspaceTab(id, options = {}) {
   workspaceUI.activeTab = id;
   const parent = parentTab(id);
   if (parent) WORKSPACE_MENUS[parent].current = id;
-  for (const panel of document.querySelectorAll("[data-workspace-panel]")) panel.hidden = panel.dataset.workspacePanel !== id;
+  for (const panel of document.querySelectorAll("[data-workspace-panel]")) panel.hidden = panel.dataset.workspacePanel !== id || panel.hasAttribute("data-imported-only") && !state.importedDeck;
   for (const button of document.querySelectorAll("[data-workspace-tab]")) {
     const selected = button.dataset.workspaceTab === id || button.dataset.workspaceTab === parent;
     const submenu = button.getAttribute("role") === "menuitemradio";
@@ -1628,7 +1628,14 @@ function logModelDetails(data){
   const groups=data.groups||[],count=kind=>groups.filter(g=>kind.includes(g.kind)).reduce((n,g)=>n+g.count,0);
   if(data.imported_deck){
     log("Imported FEM: "+count(["quad","tria"])+" displayed shells, "+count(["bar"])+" displayed bars, "+(data.rbe3?.count||0)+" source RBE3s. Original deck cards and case control remain authoritative.");
-    for(const item of data.load_cases||[])log("Native subcase "+item.id+" · "+item.label+"; original source loads and supports.");
+    for(const item of data.load_cases||[]){
+      const spc=item.spc,loads=item.loads;
+      log("Native subcase "+item.id+" · "+item.label+"; SPC "+(spc?.selected_spc_id??item.case_control?.SPC??"none")+
+        ": "+(spc?.count??"unknown")+" GRID nodes / "+(spc?.constrained_dofs??"unknown")+" constrained DOFs; "+
+        (loads?.force_stations?.length||0)+" force and "+(loads?.moment_stations?.length||0)+" moment application nodes.");
+      for(const warning of [...(item.warnings||[]),...(spc?.warnings||[])])log("Subcase "+item.id+": "+warning,"warn");
+    }
+    for(const card of data.imported_deck.unprocessed_cards||[])log("Source card "+card.name+" ("+card.count+"): "+(card.message||card.status)+". The original card is retained in the deck.","warn");
     return;
   }
   log("FEM: "+count(["quad","tria"])+" shells, "+count(["bar"])+" bars; "+(data.rbe3?.count||0)+" rib-plane aerodynamic RBE3s and "+(data.fuel_rbe3?.count||0)+" mid-bay mass RBE3s.");
@@ -2685,6 +2692,15 @@ async function loadNastranSource(raw) {
 function syncImportedModelMode(disabled=false) {
   const imported=state.importedDeck,info=document.getElementById("imported-deck-info");
   info.hidden=!imported;document.getElementById("form").hidden=!!imported;
+  for(const panel of document.querySelectorAll('[data-imported-only]'))panel.hidden=!imported||panel.dataset.workspacePanel!==workspaceUI.activeTab;
+  if(!state.importedCases&&typeof WingImportedCases!=='undefined')state.importedCases=WingImportedCases.create({
+    casesHost:document.getElementById('imported-cases'),supportsHost:document.getElementById('imported-supports'),
+    read:()=>({deck:state.importedDeck,data:state.data,caseId:state.activeCase}),selectCase:selectLoadCase,
+    inspectNode:grid=>{const index=state.nodeIds?.indexOf(Number(grid));if(index>=0){activateWorkspaceTab('inspect');document.getElementById('inspect-entity').value='nodes';inspectFilterChanged();showNode(index);}},
+    showSupports:()=>{setLayerVisible('SPC',true);buildLayerPanel();},
+    showLoads:()=>{setLayerVisible('AERO_LOADS',true);setLayerVisible('AERO_MOMENTS',true);buildLayerPanel();},
+  });
+  state.importedCases?.refresh();
   document.getElementById("auto-mesh").disabled=!!imported||disabled;
   for(const id of ["btn-create","btn-save","btn-save-toml","btn-view-toml","btn-open-plan-view"]){
     const button=document.getElementById(id);if(!button)continue;
@@ -3564,16 +3580,8 @@ function* buildModelSteps(data, options = {}) {
              marks || []);
   }
 
-  // Constrained structural nodes, at any configured rib.
-  const spc = Array.from(asI32(data.spc.nodes));
-  let spcMarks;
-  if(typeof WingSupportGlyphs !== "undefined") {
-    state.supportGlyphs=WingSupportGlyphs.create({scene:state.scene,positions,data,radius:markerRadius()});
-    spcMarks=state.supportGlyphs.meshes;
-    for(const mesh of spcMarks)mesh.parent=state.root;
-  } else spcMarks=markerMesh("SPC",positions,spc,EXTRA_STYLE.SPC.color,Math.max(markerRadius(),diag*1e-8));
-  addLayer("SPC", EXTRA_STYLE.SPC.label, EXTRA_STYLE.SPC.color,
-           spc.length + " nodes"+(state.supportGlyphs ? " · "+state.supportGlyphs.counts.total+" DOFs" : ""), spcMarks || []);
+  // Generated supports or the imported subcase's effective SPC selection.
+  refreshSupportLayer(data,positions);
 
   // Aerodynamic surface. It has its own node set, so Julia sends structural
   yield "Building aerodynamic surfaces…";
@@ -3610,7 +3618,7 @@ function* buildModelSteps(data, options = {}) {
       state.aeroDisplay.count+" sections",state.aeroDisplay.meshes);
   }
   state.panelExplosion ??= WingPanelExplode.create();
-  state.panelExplosion.configure(state.panelIndex,state.elements,state.baseline);
+  state.panelExplosion.configure(state.panelIndex,state.elements,state.baseline,data.rib_layout);
   syncPanelExplosionControls();
   addAxes(diag);
   yield "Drawing fuel tank…";
@@ -3671,16 +3679,16 @@ function refreshPanelExplosion(){
   if(activeShape())applyDeformation();else restoreBaseline();
   state.annotations?.invalidate();
 }
-function editPanelExplosion(reset=false){
+function editPanelExplosion(){
   const error=document.getElementById("explode-error");
   try{
     state.panelExplosion ??= WingPanelExplode.create();
-    state.panelExplosion.restore({enabled:!reset&&document.getElementById("explode-panels").checked,origin:document.getElementById("explode-origin").value,distance:Number(document.getElementById("explode-distance").value||NaN)});
+    const text=document.getElementById("explode-distance").value.trim();
+    state.panelExplosion.restore({enabled:document.getElementById("explode-panels").checked,origin:document.getElementById("explode-origin").value,distance:text===""?NaN:Number(text)});
     syncPanelExplosionControls();refreshPanelExplosion();error.hidden=true;markStudyViewModified();
   }catch(problem){error.textContent=problem.message;error.hidden=false;}
 }
 for(const id of ["explode-panels","explode-origin","explode-distance"])document.getElementById(id).addEventListener("change",()=>editPanelExplosion());
-document.getElementById("explode-reset").onclick=()=>editPanelExplosion(true);
 
 function setPanelDisplay(enabled,redraw=true){
   enabled=!!enabled&&!!state.panelIndex?.panels.length;
@@ -4872,6 +4880,24 @@ function activeLoads() {
   return selected && selected.loads || null;
 }
 
+function refreshSupportLayer(data=state.data,positions=currentPositions()) {
+  if(!data?.spc||!state.scene)return;
+  const previous=state.layers.get('SPC'),visible=previous?.visible??true;
+  const selected=data.imported_deck&&WingImportedCases.supports(data,state.activeCase);
+  // All support consumers (node inspection, reactions, export) use the same
+  // active mask; individual subcase masks remain immutable in load_cases.
+  if(selected)data.spc=selected;
+  state.supportGlyphs?.dispose();state.supportGlyphs=null;
+  for(const mesh of previous?.meshes||[])if(!mesh.isDisposed())mesh.dispose(false,true);
+  const nodes=Array.from(asI32(data.spc.nodes));let meshes;
+  if(typeof WingSupportGlyphs!=='undefined'){
+    state.supportGlyphs=WingSupportGlyphs.create({scene:state.scene,positions,data,radius:markerRadius()});
+    meshes=state.supportGlyphs.meshes;for(const mesh of meshes)mesh.parent=state.root;
+  }else meshes=markerMesh('SPC',positions,nodes,EXTRA_STYLE.SPC.color,Math.max(markerRadius(),state.diag*1e-8));
+  addLayer('SPC',EXTRA_STYLE.SPC.label,EXTRA_STYLE.SPC.color,nodes.length+' nodes'+(state.supportGlyphs?' · '+state.supportGlyphs.counts.total+' DOFs':''),meshes||[]);
+  setLayerVisible('SPC',visible);
+}
+
 // Contours and force glyphs describe the selected physical solution; the VLM
 // mesh and load plots continue to describe the prescribed undeformed loading.
 function appliedResultLoads() {
@@ -5042,6 +5068,7 @@ function buildCaseSelectors() {
     select.disabled = cases.length < 2;
   }
   document.getElementById("result-case-control").hidden = cases.length < 2;
+  state.importedCases?.refresh();
   syncVlmControls();
   refreshLoadPlots();
 }
@@ -5053,6 +5080,7 @@ function selectLoadCase(id,{preserveSensitivity=false}={}) {
   if (!modelCases().some((c) => Number(c.id) === Number(id))) id = modelCases()[0]?.id||1;
   restoreBaseline();
   state.activeCase = Number(id);
+  if(state.data?.imported_deck)refreshSupportLayer(state.data,state.baseline);
   const commonModes = state.resultCases && state.resultCases.get(1);
   const record = state.resultCases && (state.resultCases.get(state.activeCase) ||
     (state.resultsLoadCaseIndependent && commonModes && commonModes.modeKind === "frequency" ? commonModes : null));
@@ -5424,7 +5452,7 @@ function installPanels() {
     const title = panel.querySelector(".hud-title");
     if (!title) continue;
     const toggle = document.createElement("button");
-    const panelName = title.textContent.trim().split("\n")[0];
+    const panelName = id === "sidebar" ? "options pane" : title.textContent.trim().split("\n")[0];
     toggle.className = "mini panel-toggle";
     toggle.textContent = "−";
     toggle.title = "Hide panel";
@@ -5716,9 +5744,13 @@ function showNode(index) {
   const connected = Array.from(state.elements, ([id, e]) => e.nodes.includes(index) ? id : null).filter(id => id !== null);
   const supported = asI32(state.data.spc.nodes).includes(index);
   let html = resultTable({ "Node ID": state.nodeIds[index], Type: "GRID",
-    "Coordinates x, y, z (m)": modelVectorAt(state.baseline, index),
+    [state.importedDeck ? "Coordinates x, y, z (source units)" : "Coordinates x, y, z (m)"]: modelVectorAt(state.baseline, index),
     "SPC components": supported ? String(state.data.spc.node_components?.[Array.from(asI32(state.data.spc.nodes)).indexOf(index)] || state.data.spc.components || "123").split("").join(", ") : "None",
     "Connected element IDs": connected });
+  if(state.importedDeck&&supported){const assignment=state.data.spc.assignments?.find(row=>row.node===index);if(assignment)html+='<details open><summary>Boundary conditions · subcase '+esc(String(state.activeCase))+'</summary>'+resultTable({
+    'SPC set':state.data.spc.selected_spc_id??'None','Source sets':assignment.source_sets||[],
+    'GRID displacement coordinates (CD)':assignment.coordinate_id??0,'Prescribed values by DOF':assignment.values||{},'Source constraints':assignment.sources||[],
+  })+'</details>';}
   const applied = WingGeometryExport.loadsByNode(appliedResultLoads()?.stations).get(index);
   if(applied){
     const values={"Applied force Fx, Fy, Fz (N, global)":applied.force,"Applied moment Mx, My, Mz (Nm, global)":applied.moment};
@@ -6045,11 +6077,11 @@ if (typeof WingWorkspace !== "undefined") {
   document.getElementById("btn-load-toml").onclick=()=>{if(workspaceOperationAvailable())document.getElementById("toml-file").click();};
   document.getElementById("toml-file").onchange=async event=>{const file=event.target.files[0];event.target.value="";await loadTomlDefinition(file);};
   document.getElementById("btn-new-study").onclick=newStudy;
-  const nastranImport=WingNastranImport.create({onImport:loadNastranSource,pickFile:async()=>{
+  state.nastranImport=WingNastranImport.create({onImport:loadNastranSource,pickFile:async()=>{
     const response=await fetch("/api/import_nastran/pick",{cache:"no-store"});
     if(!response.ok)throw Error(await readError(response));return response.json();
   }});
-  document.getElementById("btn-read-nastran").onclick=()=>nastranImport.open();
+  document.getElementById("btn-read-nastran").onclick=()=>state.nastranImport.open();
 }
 document.getElementById("btn-clear-results").onclick = clearResults;
 document.getElementById("btn-mode-prev").onclick = () => stepMode(-1);
@@ -6128,10 +6160,12 @@ function showStartupStudyNotice(notice) {
       // Keep the native file dialog inside the originating user gesture.
       state.startupChoiceCancelled=false;
       if(value==="open")openRequest=new Promise(resolve=>{state.startupFileComplete=resolve;document.getElementById("model-file").click();});
+      if(value==="nastran")openRequest=state.nastranImport.open();
     }});
     choiceMessage="";
     if(choice==="new")loaded=await newStudy()===true;
     else if(choice==="open")loaded=await openRequest;
+    else if(choice==="nastran"){loaded=await openRequest;if(!loaded)state.startupChoiceCancelled=true;}
     else {
       const restored=await state.recentStudies?.restoreLatest({automatic:false,retry:true,onNotice:showStartupStudyNotice});
       loaded=restored?.status==="restored";
