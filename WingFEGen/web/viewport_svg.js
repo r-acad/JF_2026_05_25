@@ -46,16 +46,35 @@
  }
  function legendSVG(legends,width,height){
   if(!Array.isArray(legends)||legends.length>32)throw Error("SVG export supports up to 32 color scales.");
-  const defs=[],output=[],panelWidth=Math.min(224,Math.max(140,width-24)),panelHeight=147;
-  legends.forEach((legend,index)=>{if(legend.hidden||legend.collapsed)return;if(!finite(legend.min)||!finite(legend.max))return;
+  const defs=[],output=[],panelWidth=Math.min(224,Math.max(140,width-24)),maxColumns=Math.max(1,Math.floor((width-16)/(panelWidth+8)));let nextY=12,column=0,omitted=0;
+  const expanded=[];
+  for(const legend of legends){
+   if(legend.categories){
+    if(!Array.isArray(legend.categories)||legend.categories.length>2048)throw Error("SVG category legends support up to 2048 categories.");
+    const perPanel=Math.max(1,Math.floor((height-90)/34));
+    for(let i=0;i<legend.categories.length;i+=perPanel)expanded.push({...legend,categories:legend.categories.slice(i,i+perPanel),title:legend.title+(i?" (continued)":"")});
+   }else expanded.push(legend);
+  }
+  expanded.forEach((legend,index)=>{if(legend.hidden||legend.collapsed)return;if(!finite(legend.min)||!finite(legend.max))return;
+   const panelHeight=legend.categories?58+34*legend.categories.length:147;
+   if(nextY>12&&nextY+panelHeight>height-12){column++;nextY=12;}
+   if(column>=maxColumns){omitted++;return;}
+   const x=finite(legend.x)?legend.x:Math.max(8,width-12-panelWidth-column*(panelWidth+8)),y=finite(legend.y)?legend.y:nextY;nextY=y+panelHeight+8;
+   if(legend.categories){
+    const title=String(legend.title||"Properties");
+    output.push(`<g class="color-scale categorical-scale" aria-label="${escape(title)}"><rect x="${number(x)}" y="${number(y)}" width="${panelWidth}" height="${panelHeight}" rx="5" fill="#112335" fill-opacity=".92" stroke="#6b8297"/><text x="${number(x+10)}" y="${number(y+19)}" fill="#eef6ff" font-size="12" font-weight="600">${escape(title.slice(0,35))}</text><text x="${number(x+10)}" y="${number(y+35)}" fill="#bcd0df" font-size="10">${escape(String(legend.subtitle||"").slice(0,42))}</text>${legend.categories.map((category,i)=>{const label=String(category.label||category.value),at=y+48+i*34,lines=[label.slice(0,30),label.slice(30,60)+(label.length>60?"…":"")];return`<g class="category"><title>${escape(label)}</title><rect x="${number(x+10)}" y="${number(at)}" width="13" height="13" fill="${hex(category.color)}" stroke="#bcd0df"/><text x="${number(x+30)}" y="${number(at+10)}" fill="#e5eff7" font-size="10">${lines.map((line,j)=>`<tspan x="${number(x+30)}" dy="${j?12:0}">${escape(line)}</tspan>`).join("")}</text></g>`;}).join("")}</g>`);return;
+   }
    let stops=Array.isArray(legend.stops)&&legend.stops.length?legend.stops:[{offset:0,color:"#2355dd"},{offset:.5,color:"#35bc80"},{offset:1,color:"#e74633"}];if(stops.length>256)throw Error("An SVG color scale supports up to 256 color stops.");
    if(stops.some(stop=>!finite(stop.offset)||stop.offset<0||stop.offset>1))throw Error("Invalid SVG color stop position.");if(legend.min===legend.max){const color=midpointColor(stops);stops=[{offset:0,color},{offset:1,color}];}
    const id="color-scale-"+index;defs.push(`<linearGradient id="${id}" x1="0" y1="1" x2="0" y2="0">${stops.map(stop=>{if(!finite(stop.offset)||stop.offset<0||stop.offset>1)throw Error("Invalid SVG color stop position.");return`<stop offset="${stop.offset}" stop-color="${hex(stop.color)}"/>`;}).join("")}</linearGradient>`);
-   const rows=Math.max(1,Math.floor((height-24)/(panelHeight+8))),column=Math.floor(index/rows),row=index%rows;
-   const x=finite(legend.x)?legend.x:Math.max(8,width-12-panelWidth-column*(panelWidth+8)),y=finite(legend.y)?legend.y:12+row*(panelHeight+8),title=String(legend.title||"Results"),units=String(legend.units||""),label=value=>Math.abs(value)>=100?value.toFixed(2):String(Number(value.toPrecision(5)));
+   const title=String(legend.title||"Results"),units=String(legend.units||""),label=value=>Math.abs(value)>=100?value.toFixed(2):String(Number(value.toPrecision(5)));
    const ticks=legend.ticks||[0,.5,1].map(offset=>({offset,value:legend.min+(legend.max-legend.min)*offset}));
    output.push(`<g class="color-scale" aria-label="${escape(title)}"><rect x="${number(x)}" y="${number(y)}" width="${panelWidth}" height="${panelHeight}" rx="5" fill="#112335" fill-opacity=".92" stroke="#6b8297"/><text x="${number(x+10)}" y="${number(y+19)}" fill="#eef6ff" font-size="12" font-weight="600">${escape(title.slice(0,35))}</text><text x="${number(x+10)}" y="${number(y+35)}" fill="#bcd0df" font-size="10">${escape((legend.subtitle||units).slice(0,42))}</text><rect x="${number(x+13)}" y="${number(y+45)}" width="18" height="88" fill="url(#${id})"/>${ticks.map(t=>{const offset=finite(t.offset)?clamp(t.offset):legend.max===legend.min?.5:clamp((t.value-legend.min)/(legend.max-legend.min));const text=t.label??label(t.value??legend.min+(legend.max-legend.min)*offset);return`<text x="${number(x+41)}" y="${number(y+133-88*offset+4)}" fill="#e5eff7" font-size="11">${escape(text)}${units?" "+escape(units):""}</text>`;}).join("")}</g>`);
-  });return{defs:defs.join(""),body:output.join("")};
+  });
+  if(omitted)output.push(`<text x="8" y="${number(height-6)}" fill="#ffd29b" font-size="11">${omitted} legend panels omitted to fit; complete category labels are stored in SVG metadata.</text>`);
+  const categoryMetadata=legends.filter(legend=>legend.categories).map(legend=>({title:legend.title,categories:legend.categories}));
+  if(categoryMetadata.length)output.push(`<metadata id="wing-property-categories">${escape(JSON.stringify(categoryMetadata))}</metadata>`);
+  return{defs:defs.join(""),body:output.join("")};
  }
  // An indexed depth comparison clips line segments to visible intervals. This
  // keeps bars/edges behind opaque skins out of a vector export even when their

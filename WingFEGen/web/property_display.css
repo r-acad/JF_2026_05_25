@@ -1,0 +1,8 @@
+#property-display-controls .display-control { display:grid; grid-template-columns:minmax(0,1fr); align-items:start; gap:7px; }
+#property-display-controls select { width:100%; max-width:100%; min-width:0; }
+#property-display-controls .entity-actions { margin-top:14px; }
+#property-display-show.active { background:#206d4d; border-color:#70dda7; color:white; }
+.property-display-warning { padding:10px; border:1px solid #b78238; color:#ffd29b; background:#402d18; line-height:1.5; }
+.legend-categories { display:grid; gap:6px; max-height:240px; overflow:auto; margin-top:8px; }
+.legend-category { display:flex; align-items:start; gap:7px; overflow-wrap:anywhere; }
+.legend-category-swatch { flex:none; width:14px; height:12px; border:1px solid #ffffff66; margin-top:1px; }

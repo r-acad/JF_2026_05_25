@@ -3,9 +3,10 @@
  */
 (function(root,factory){
  const api=factory(typeof module==="object"&&module.exports?require("./sections.js"):root.WingSections,
-   typeof module==="object"&&module.exports?require("./support_glyphs.js"):root.WingSupportGlyphs);
+   typeof module==="object"&&module.exports?require("./support_glyphs.js"):root.WingSupportGlyphs,
+   typeof module==="object"&&module.exports?require("./load_glyphs.js"):root.WingLoadGlyphs);
  if(typeof module==="object"&&module.exports)module.exports=api;else root.WingGeometryExport=api;
-})(typeof globalThis!=="undefined"?globalThis:this,function(Sections,SupportGlyphs){
+})(typeof globalThis!=="undefined"?globalThis:this,function(Sections,SupportGlyphs,LoadGlyphs){
  "use strict";
  const pause=()=>new Promise(resolve=>setTimeout(resolve,0));
  const sub=(a,b)=>a.map((v,i)=>v-b[i]),add=(a,b)=>a.map((v,i)=>v+b[i]),mul=(a,s)=>a.map(v=>v*s);
@@ -60,19 +61,9 @@
   const axes=[[r,0,0],[-r,0,0],[0,r,0],[0,-r,0],[0,0,r],[0,0,-r]].map(a=>add(p,a)),out=[];
   for(const [a,b,c]of[[0,2,4],[2,1,4],[1,3,4],[3,0,4],[2,0,5],[1,2,5],[3,1,5],[0,3,5]])out.push(...axes[a],...axes[b],...axes[c]);return out;
  }
- function arrow(origin,vector,r){
-  const length=Math.hypot(...vector);if(!(length>0))return[];
-  const end=add(origin,vector),axis=unit(vector),side=unit(cross(axis,Math.abs(axis[2])<.9?[0,0,1]:[0,1,0]));
-  const h=length*.22,base=sub(end,mul(axis,h)),out=cylinder(origin,end,r);
-  out.push(...cylinder(end,add(base,mul(side,h*.45)),r),...cylinder(end,sub(base,mul(side,h*.45)),r));return out;
- }
- function moment(origin,vector,r,diag){
-  const magnitude=Math.hypot(...vector);if(!(magnitude>0))return[];
-  const axis=unit(vector),u=unit(cross(axis,Math.abs(axis[2])<.9?[0,0,1]:[0,1,0])),v=cross(axis,u),radius=diag*.022;
-  const at=t=>add(origin,add(mul(u,radius*Math.cos(t)),mul(v,radius*Math.sin(t)))),out=[];let previous=at(0);
-  for(let k=1;k<=20;k++){const next=at(k*Math.PI*1.55/20);out.push(...cylinder(previous,next,r,6));previous=next;}
-  const t=Math.PI*1.55,tangent=add(mul(u,-Math.sin(t)),mul(v,Math.cos(t)));out.push(...arrow(sub(previous,mul(tangent,radius*.25)),mul(tangent,radius*.25),r));return out;
- }
+ function loadGlyphTriangles(origin,glyph,r){const out=[];for(let i=0;i<glyph.vertices.length;i+=2)out.push(...cylinder(add(origin,glyph.vertices[i]),add(origin,glyph.vertices[i+1]),r,6));return out;}
+ function loadGlyphMetadata(glyph){return{axis:glyph.axis,component:glyph.component,component_value:glyph.value,component_vector:glyph.vector,arrow_scale_m_per_N:glyph.scale,arc_radius_m:glyph.radius};}
+
  async function collect(snapshot,options={},progress=()=>{}){
   const data=snapshot.data;if(!data?.nodes)throw Error("Create a model before exporting geometry.");
   const parts=[],visible=options.scope==="visible",shown=name=>!visible||(snapshot.visibility?.[name]??snapshot.visibility?.[baseGroup(name)])!==false;
@@ -115,9 +106,12 @@
    }
   }
   if(snapshot.reactions&&shown("SUPPORT_FORCES")){
-   const reactions=snapshot.reactions,supports=new Set(data.spc?.nodes?i32(data.spc.nodes):[]),build=builder(parts,"SUPPORT_FORCES","#ff86aa",{entity_type:"support_reaction",case_id:snapshot.activeCase,analysis:snapshot.analysis});let peak=0;
-   for(let i=0;i<reactions.nodes.length;i++)if(supports.has(reactions.nodes[i]))peak=Math.max(peak,Math.hypot(...reactions.forces.subarray(3*i,3*i+3)));
-   for(let i=0;i<reactions.nodes.length;i++){const node=reactions.nodes[i],force=Array.from(reactions.forces.subarray(3*i,3*i+3));if(supports.has(node)&&Math.hypot(...force)>0)build.entity(ids[node],arrow(point(xyz,node),mul(force,.09*diag*(snapshot.supportForceMultiplier||1)/peak),r),{force_N:force});await tick();}build.finish();
+   const reactions=snapshot.reactions,supports=new Set(data.spc?.nodes?i32(data.spc.nodes):[]),records=[];let peak=0,momentPeak=0;
+   for(let i=0;i<reactions.nodes.length;i++){const node=reactions.nodes[i];if(!supports.has(node))continue;const force=Array.from(reactions.forces.subarray(3*i,3*i+3)),moment=reactions.moments?Array.from(reactions.moments.subarray(3*i,3*i+3)):[0,0,0];records.push({node,force,moment});peak=Math.max(peak,Math.hypot(...force));momentPeak=Math.max(momentPeak,...moment.map(Math.abs));}
+   for(const kind of ["force","moment"]){
+    const builds=LoadGlyphs.AXES.map((axis,k)=>builder(parts,"SUPPORT_"+(kind==="force"?"FORCES_":"MOMENTS_")+axis,LoadGlyphs.COLORS[k],{entity_type:"support_reaction",kind,axis,case_id:snapshot.activeCase,analysis:snapshot.analysis}));
+    for(const record of records){for(const glyph of LoadGlyphs.components(record[kind],{kind,diag,scale:peak>0?.09*diag*(snapshot.supportForceMultiplier||1)/peak:0,peak:momentPeak,multiplier:snapshot.supportForceMultiplier||1}))builds[glyph.component].entity(ids[record.node],loadGlyphTriangles(point(xyz,record.node),glyph,r),{force_N:record.force,moment_Nm:record.moment,...loadGlyphMetadata(glyph)});await tick();}builds.forEach(build=>build.finish());
+   }
   }
   for(const [name,attachments]of[["RBE3",data.rbe3],["FUEL_RBE3",data.fuel_rbe3]])if(shown(name)&&attachments?.elements){
    const lookup=new Map(Array.from(ids,(id,n)=>[id,n])),build=builder(parts,name,colors[name],{entity_type:"RBE3"});
@@ -139,14 +133,15 @@
    }
    if(loads.vlm?.forces&&loads.vlm.centers&&shown("VLM_FORCES")){
     const forces=f32(loads.vlm.forces),centers=f32(loads.vlm.centers),scale=peakPanelForce>0?.1*diag*(snapshot.vlmForceMultiplier||1)/peakPanelForce:0;
-    const build=builder(parts,label+"VLM_FORCES","#c49bff",{...caseMeta,entity_type:"panel_force",arrow_scale_m_per_N:scale});
-    for(let e=0;e<loads.vlm.count;e++){const force=point(forces,e);if(Math.hypot(...force)>0)build.entity(e+1,arrow(point(centers,e),mul(force,scale),r),{force_N:force});await tick();}build.finish();
+    const builds=LoadGlyphs.AXES.map((axis,k)=>builder(parts,label+"VLM_FORCES_"+axis,LoadGlyphs.COLORS[k],{...caseMeta,entity_type:"panel_force",axis,arrow_scale_m_per_N:scale}));
+    for(let e=0;e<loads.vlm.count;e++){const force=point(forces,e);for(const glyph of LoadGlyphs.components(force,{diag,scale}))builds[glyph.component].entity(e+1,loadGlyphTriangles(point(centers,e),glyph,r),{force_N:force,...loadGlyphMetadata(glyph)});await tick();}builds.forEach(build=>build.finish());
    }
    const displayedLoads=options.displayed&&Number(loadCase.id)===Number(snapshot.activeCase)&&Array.isArray(snapshot.appliedLoadStations);
-   const stations=displayedLoads?snapshot.appliedLoadStations:loadStations(loads);let peak=0;for(const station of stations)peak=Math.max(peak,Math.hypot(...station.force));
-   for(const [layer,color,type]of[["AERO_LOADS",colors.AERO_LOADS,"force"],["AERO_MOMENTS",colors.AERO_MOMENTS,"moment"]]){
-    if(!shown(layer))continue;const build=builder(parts,label+layer,color,{...caseMeta,entity_type:"applied_"+type,glyph_radius_m:r,load_basis:displayedLoads?"selected displayed result":"prescribed undeformed loads",moment_routing_note:loads.moment_routing_note});
-    for(const station of stations){const origin=point(xyz,station.node_index),vector=station[type]||[0,0,0];if(Math.hypot(...vector)>0)build.entity(station.gid,type==="force"?arrow(origin,mul(vector,.09*diag/peak),r):moment(origin,vector,r,diag),{vector,unit:type==="force"?"N":"N m",source:station.source,target_kind:station.target_kind,target_rbe3_eid:station.target_rbe3_eid,massless:station.massless,source_forces_N:type==="force"?station.source_forces_N:undefined,fuel_bay:station.fuel_bay,application_point_m:origin,routed_moment:station.routed_moment===true,source_moments_Nm:type==="moment"?station.source_moments_Nm:undefined,follower_forces:type==="moment"?false:station.follower_forces});await tick();}build.finish();
+   const stations=displayedLoads?snapshot.appliedLoadStations:loadStations(loads);let peak=0,momentPeak=0;for(const station of stations){peak=Math.max(peak,Math.hypot(...station.force));momentPeak=Math.max(momentPeak,...(station.moment||[0,0,0]).map(Math.abs));}
+   for(const [layer,type]of[["AERO_LOADS","force"],["AERO_MOMENTS","moment"]]){
+    if(!shown(layer))continue;
+    const builds=LoadGlyphs.AXES.map((axis,k)=>builder(parts,label+layer+"_"+axis,LoadGlyphs.COLORS[k],{...caseMeta,entity_type:"applied_"+type,axis,glyph_radius_m:r,load_basis:displayedLoads?"selected displayed result":"prescribed undeformed loads",moment_routing_note:loads.moment_routing_note}));
+    for(const station of stations){const origin=point(xyz,station.node_index),vector=station[type]||[0,0,0];for(const glyph of LoadGlyphs.components(vector,{kind:type,diag,scale:peak>0?.09*diag/peak:0,peak:momentPeak}))builds[glyph.component].entity(station.gid,loadGlyphTriangles(origin,glyph,r),{vector,unit:type==="force"?"N":"N m",source:station.source,target_kind:station.target_kind,target_rbe3_eid:station.target_rbe3_eid,massless:station.massless,source_forces_N:type==="force"?station.source_forces_N:undefined,fuel_bay:station.fuel_bay,application_point_m:origin,routed_moment:station.routed_moment===true,source_moments_Nm:type==="moment"?station.source_moments_Nm:undefined,follower_forces:type==="moment"?false:station.follower_forces,...loadGlyphMetadata(glyph)});await tick();}builds.forEach(build=>build.finish());
    }
   }
   if(options.references!==false)for(const ref of snapshot.references||[]){if(visible&&!ref.visible)continue;const build=builder(parts,"REFERENCE "+ref.name,ref.color||"#b8c7d4",{entity_type:"imported_reference",source_name:ref.name});for(const mesh of ref.meshes){for(let start=0;start<mesh.positions.length;start+=589824){build.entity(mesh.name,mesh.positions.subarray(start,start+589824));progress(.65,"Triangulating imported references");await pause();}}build.finish();}

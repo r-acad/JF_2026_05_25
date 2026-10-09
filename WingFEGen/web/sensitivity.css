@@ -9,7 +9,15 @@
 .sensitivity-setup input:focus,.sensitivity-setup select:focus{outline:2px solid #5aabef;outline-offset:1px}
 .sensitivity-setup input[type=checkbox]{accent-color:#55a7ee}
 .sensitivity-setup :disabled{opacity:.55}
-#sensitivity-filter{box-sizing:border-box;width:100%;margin-top:8px}
+[data-sensitivity-busy=true] button:disabled{cursor:progress}
+#sensitivity-filter{box-sizing:border-box;width:100%;min-width:0}
+.sensitivity-filter-row{display:grid;grid-template-columns:76px minmax(90px,1fr) auto;align-items:center;gap:6px;margin-top:10px}
+.sensitivity-filter-row select{width:100%}.sensitivity-filter-row button{white-space:nowrap}
+#sensitivity-filter-status{margin:6px 0;line-height:1.45}
+#sensitivity-filter[aria-invalid=true]{border-color:#e88091}
+#sensitivity-context{line-height:1.5;overflow-wrap:anywhere}
+.sensitivity-recovery{margin:0 0 10px;border-color:#6fbaff!important;color:#d8edff!important}
+#app[data-maximized-pane=sensitivity]>.sensitivity-recovery,#app[data-maximized-pane=sensitivity] #sensitivity-editor>.sensitivity-recovery{grid-column:1/-1;justify-self:start}
 #sensitivity-variables{max-height:340px;overflow:auto;margin-top:7px}
 .sensitivity-variable{display:flex;gap:9px;align-items:flex-start;padding:7px 3px;border-bottom:1px solid #2a3a47;font-size:12px}
 .sensitivity-variable input{margin-top:3px;flex:none}.sensitivity-variable span{min-width:0;overflow-wrap:anywhere}

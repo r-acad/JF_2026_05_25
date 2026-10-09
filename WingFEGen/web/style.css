@@ -77,7 +77,7 @@ button {
 }
 
 button:hover:not(:disabled) { background: #26313e; border-color: #3a4756; }
-button:disabled { opacity: 0.45; cursor: progress; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 button.primary {
   grid-column: 1 / -1;

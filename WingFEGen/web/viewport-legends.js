@@ -152,7 +152,7 @@
         actionButton("restore",key,"Show "+title+" color scale",restoreIcon)+"</section>";
       const paletteButton=config.setPalette?actionButton("palette",key,"Choose "+title+" color scale ("+paletteName+")",paletteIcon,
         'aria-haspopup="menu" aria-expanded="'+opened+'"'):"";
-      const range=getLimits(entry.limitKey),limitsButton=entry.limitKey?actionButton("limits",key,"Set "+title+" color-scale limits",restoreIcon,'aria-expanded="'+(openLimits===key)+'"'):"";
+      const range=getLimits(entry.limitKey),limitsButton=entry.limitKey&&!entry.categories?actionButton("limits",key,"Set "+title+" color-scale limits",restoreIcon,'aria-expanded="'+(openLimits===key)+'"'):"";
       const limitsForm=openLimits===key?'<div class="legend-limits" data-limit-form><div>Range in '+escape(entry.unit||"dimensionless")+'</div><label>Minimum<input name="minimum" type="number" step="any" value="'+escape(range?.[0]??entry.min)+'"></label><label>Maximum<input name="maximum" type="number" step="any" value="'+escape(range?.[1]??entry.max)+'"></label><div class="legend-limits-actions">'+actionButton("limits-apply",key,"Apply color-scale limits","Apply")+actionButton("limits-auto",key,"Use automatic color-scale limits","Automatic")+'</div><div role="alert"></div><small>Values outside these limits use the end colors. Data values remain unchanged.</small></div>':"";
       const menu=opened?'<div class="legend-palette-menu" role="menu" aria-label="'+escape(title)+' color scale" data-palette-menu data-legend-key="'+escape(key)+'">'+
         '<div class="legend-palette-heading">'+escape(title)+'</div>'+config.palettes.map(p=>
@@ -162,8 +162,9 @@
         '<div class="viewport-scale-header"><div class="viewport-scale-title">'+escape(title)+' <span>'+escape(entry.unit||"dimensionless")+'</span></div>'+
         '<div class="legend-actions">'+limitsButton+paletteButton+actionButton("collapse",key,"Hide "+title+" color scale (keep contours visible)","−")+'</div></div>'+
         menu+limitsForm+'<div class="viewport-scale-case">'+escape(entry.caseLabel||"")+'</div>'+
+        (entry.categories?'<div class="legend-categories">'+entry.categories.map(category=>'<div class="legend-category"><span class="legend-category-swatch" style="background:'+escape(category.color)+'"></span><span>'+escape(category.label)+'</span></div>').join('')+'</div>':
         '<div class="viewport-scale-ramp" style="background:'+escape(entry.gradient)+'"></div>'+
-        '<div class="viewport-scale-ticks"><span>'+number(entry.min)+'</span><span>'+number(entry.min/2+entry.max/2)+'</span><span>'+number(entry.max)+'</span></div>'+
+        '<div class="viewport-scale-ticks"><span>'+number(entry.min)+'</span><span>'+number(entry.min/2+entry.max/2)+'</span><span>'+number(entry.max)+'</span></div>')+
         (range?'<div class="viewport-scale-note">Manual limits · end colors clip out-of-range values</div>':"")+(entry.note?'<div class="viewport-scale-note">'+escape(entry.note)+'</div>':"")+"</section>";
     }).join("");
   }

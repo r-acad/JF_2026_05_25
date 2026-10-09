@@ -132,6 +132,8 @@
       if(!api)throw new Error("Lighting settings need the updated viewer.");
       view.lighting=api.normalize(view.lighting);
     }
+    if(view.propertyDisplay!==undefined){const api=typeof WingPropertyDisplay!=="undefined"?WingPropertyDisplay:typeof require==="function"?require("./property_display.js"):null;
+      if(!api)throw new Error("Property colors require the updated viewer.");view.propertyDisplay=api.validateState(view.propertyDisplay);}
     if(view.legends!==undefined){const api=typeof WingLegends!=="undefined"?WingLegends:typeof require==="function"?require("./viewport-legends.js"):null;
       if(!api)throw new Error("Color-scale settings require the updated viewer.");view.legends=api.validateState(view.legends);}
     if(view.loadPlots!==undefined){const api=typeof WingLoadPlots!=="undefined"?WingLoadPlots:typeof require==="function"?require("./load_plots.js"):null;
@@ -217,6 +219,7 @@
       ...(state.planformInputs ? {planformInputs:state.planformInputs.capture()} : {}),
       ...(state.viewportTools ? {viewportTools:state.viewportTools.capture()} : {}),
       ...(state.sceneLighting ? {lighting:state.sceneLighting.capture()} : {}),
+      ...(state.propertyDisplay ? {propertyDisplay:state.propertyDisplay.capture()} : {}),
       ...(typeof WingLegends!=="undefined" ? {legends:WingLegends.capture()} : {}),
       loadPlots:state.loadPlots?.capture()||{mode:"distributed",visible:["aerodynamic","structure","fuel","total"]},
       workspace:{activeTab:workspace.activeTab,width:workspace.preferredWidth,collapsed:document.getElementById("sidebar").classList.contains("panel-collapsed"),maximizedTab:workspace.maximizedTab||null,

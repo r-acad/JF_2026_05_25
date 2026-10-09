@@ -83,7 +83,9 @@ optional external-resource details.
    selected portable reference data. **Save TOML** exports the text definition.
    The first save chooses a destination; subsequent saves update that linked
    file. **Save Study as…** selects another filename and folder. The Save Study
-   button is orange for unsaved changes and green after saving. Browsers without
+   button is orange for unsaved definition changes and green after saving.
+   Camera, palette and display edits leave its status unchanged; an explicit
+   save still captures their current settings. Browsers without
    file-picker support use their download settings instead.
 
 The definition is saved independently from solved results. Exported decks and
@@ -96,6 +98,14 @@ The viewport supports entity filters, inspection, node/element IDs, local axes,
 solid/translucent surfaces, beam sections, reference STL/OBJ/GLB geometry,
 measurement and geometry export. Fuel-tank volume and mass properties include
 rib-bay contributions. Panel isolation assigns distinct colors and P-labels.
+**Display / Properties** colors the generated shell and beam properties and
+material assignments without an analysis. Values include thickness, area,
+section inertias and material E/nu/density, with units and a color scale. For a
+sandwich, select its face or core material; no equivalent elastic modulus is
+invented. This view uses the current generated FEM and warns about pending edits.
+The **Ground** toolbar control includes a synchronized elevation input. Applied
+forces and moments are drawn as signed global-axis components (X red, Y green,
+Z blue); their lengths/radii retain the chosen display scaling.
 
 Planform and structural 2D editors support pan/zoom, background images, snapping,
 distance/angle dimensions and SVG export. The dimensioned plan view and property
@@ -124,6 +134,12 @@ Under **Loads / Sensitivity**, select one load case, one scalar response and the
 design variables. Supported responses are SOL101 displacement/shell/bar stress,
 SOL103 eigenvalues and SOL105 buckling factors. Panel-local variables and shared
 defaults are distinct variables; the interface shows their actual scope.
+The property filter accepts plain text or regular expressions. **Add matches**
+adds matching variables without clearing earlier selections, so successive
+patterns build a selection. Invalid expressions show an error without changing
+it. After a mesh update, an existing catalog refreshes to the new definition;
+the Run button explains any remaining blocker and offers the relevant recovery
+action. Refreshing properties or editing a selection never starts a solve.
 
 The default is an **analytic discrete adjoint**. For a static scalar response it
 uses one forward solve and one shared adjoint solve, followed by exact chain-rule
@@ -174,6 +190,9 @@ when running those developer checks; Node is not a runtime prerequisite.
 node WingFEGen/test/portable_frontend_test.cjs
 node WingFEGen/test/study_files_test.cjs
 node WingFEGen/test/result_palettes_test.cjs
+node WingFEGen/test/property_display_test.cjs
+node WingFEGen/test/load_glyphs_test.cjs
+node WingFEGen/test/sensitivity_filter_test.cjs
 julia --project=WingFEGen WingFEGen/test/portable_paths_test.jl
 ```
 

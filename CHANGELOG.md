@@ -6,6 +6,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **WingFEGen property display and sensitivity selection.** Display structural
+  thicknesses, beam section values and actual material assignments/properties
+  without solving. Add matching variables using successive regular-expression
+  filters. Sensitivity refreshes stale catalogs and explains disabled actions.
+  The viewport toolbar adds ground elevation, panel-table buttons use dark blue,
+  and force/moment components use their global-axis colors. Save status tracks
+  definition edits independently of camera and display preferences.
+
 - **Analytic WingFEGen property adjoints.** Exact section/material/load chain
   rules and automatic differentiation of captured native shell kernels replace
   per-property finite differences by default. Element contractions cover static

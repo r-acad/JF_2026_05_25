@@ -12,6 +12,8 @@
 #btn-save-model[data-saved="false"] { background:#935317; border-color:#ffc078; color:#fff3df; }
 #btn-save-model[data-saved="true"] { background:#206d4d; border-color:#70dda7; color:#fff; }
 #btn-save-model[data-saved]:not(:disabled):hover { filter:brightness(1.15); }
+button.panel-table-open { background:#123861; border-color:#4975a6; color:#eff6ff; }
+button.panel-table-open:not(:disabled):hover { background:#1a4b7b; }
 #file-save-status { color: #b9d5bc; margin-left: auto; overflow-wrap: anywhere; }
 #server-input-menu { flex: 0 0 auto; position: relative; }
 #server-input-menu summary { cursor: pointer; padding: 2px 5px; }

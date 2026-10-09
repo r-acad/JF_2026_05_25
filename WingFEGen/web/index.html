@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="airfoils.css">
   <link rel="stylesheet" href="geometry_export.css">
   <link rel="stylesheet" href="display_groups.css">
+  <link rel="stylesheet" href="property_display.css">
   <link rel="stylesheet" href="weights.css">
   <link rel="stylesheet" href="annotations.css">
   <link rel="stylesheet" href="geometry_tools.css">
@@ -52,7 +53,7 @@
         <button id="btn-save-model-as" disabled aria-describedby="study-help" title="Choose another filename and folder for a complete Study copy, then use that file for subsequent saves.">Save Study as…</button>
         <button id="btn-load-model" disabled aria-describedby="study-help" title="Browse Study files or reopen a recent saved Study" aria-haspopup="dialog">Load Study ▾</button>
         <button id="btn-study-notes" title="Describe the intent of your latest modification; Save Study records the note and save time">Notes</button>
-        <span id="study-help" class="file-tooltip" role="tooltip">A Study (.wingfem.json) contains parameters, load cases, supports, embedded references, 2D drawings, display settings and timestamped notes. Solver results are separate. Save Study updates the linked file; the first save chooses its filename and folder. Save Study as… selects a new destination. Without file-picker support, the browser downloads the file using its download settings. Orange means unsaved changes; green means saved. New Study resets the definition and references without changing saved files.</span>
+        <span id="study-help" class="file-tooltip" role="tooltip">A Study (.wingfem.json) contains parameters, load cases, supports, embedded references, 2D drawings, display settings and timestamped notes. Solver results are separate. Save Study updates the linked file; the first save chooses its filename and folder. Save Study as… selects a new destination. Without file-picker support, browser download settings apply. Orange means unsaved definition changes; green means the definition is saved. Camera and display changes leave this indicator unchanged, but their current settings are included when you save.</span>
       </span>
       <span class="file-action-group" aria-label="TOML parameter files">
         <button id="btn-save-toml" disabled aria-describedby="toml-help">Save TOML as…</button>
@@ -159,9 +160,9 @@
           <button id="btn-vlm-cp" class="mini" aria-pressed="false">Cp</button>
           <button id="btn-vlm-hide" class="mini">Hide VLM</button>
         </div>
-        <label class="layer"><input id="vlm-show-forces" type="checkbox"><span>Forces at RBE3 centers</span></label>
-        <label class="layer"><input id="vlm-show-moments" type="checkbox"><span>Moments at RBE3 centers</span></label>
-        <label class="layer"><input id="show-vlm-panel-forces" type="checkbox" disabled><span>Force vectors at VLM quad centers</span></label>
+        <label class="layer"><input id="vlm-show-forces" type="checkbox"><span>Force components at RBE3 centers</span></label>
+        <label class="layer"><input id="vlm-show-moments" type="checkbox"><span>Moment components at RBE3 centers</span></label>
+        <label class="layer"><input id="show-vlm-panel-forces" type="checkbox" disabled><span>Force components at VLM quad centers</span></label>
         <label class="display-control" for="vlm-force-scale">Arrow length multiplier</label>
         <div class="vlm-force-scale"><button id="btn-vlm-force-smaller" class="mini" title="Halve arrow lengths">−</button><input id="vlm-force-scale" type="number" min="0.01" max="100" step="0.1" value="1" aria-label="VLM force arrow length multiplier"><button id="btn-vlm-force-larger" class="mini" title="Double arrow lengths">+</button></div>
         <p id="vlm-force-scale-note" class="pick-note" role="status"></p>
@@ -204,8 +205,16 @@
         <div id="vlm-legend"></div>
         <p class="pick-note">VLM pressures are the lower-minus-upper pressure jump on the undeformed aerodynamic lattice.</p>
       </div>
-      <p class="pick-note">Straight arrows show applied forces; curved arrows show moments. Appearance, axes, environment and fuel inertia have separate Display sub-tabs.</p>
+      <p class="pick-note">Straight arrows show force components; curved arrows show signed moments by the right-hand rule. Global X is red, Y green, Z blue. Appearance, axes, environment and fuel inertia have separate Display sub-tabs.</p>
       </div>
+      </section>
+
+      <section id="panel-displayproperties" class="workspace-panel display-pane" data-workspace-panel="displayproperties" role="tabpanel" aria-labelledby="tab-displayproperties" hidden>
+        <div class="parameter-heading"><h2>Structural properties</h2></div>
+        <p class="pick-note">Color the generated FEM by its actual shell, beam and material properties, including local overrides. No analysis is required. Entity visibility and the current deformation setting are preserved.</p>
+        <div id="property-display-controls"></div>
+        <div id="property-legend"></div>
+        <p class="pick-note">Gray means this quantity does not apply or was not supplied. Material IDs and names use separate category colors. For sandwich elastic properties, select a face or core material; no equivalent laminate modulus is assumed. Inspect an element to see its full definition.</p>
       </section>
 
       <section id="panel-displayappearance" class="workspace-panel display-pane" data-workspace-panel="displayappearance" role="tabpanel" aria-labelledby="tab-displayappearance" hidden>
@@ -364,7 +373,7 @@
           <label class="display-control">Color scale<select id="result-palette"><option value="spectrum">Blue–green–red</option><option value="viridis">Viridis</option><option value="inferno">Inferno</option><option value="coolwarm">Blue–white–red</option><option value="grayscale">Grayscale</option></select></label>
           <div id="contour-legend"></div>
           <div class="sub-title">Support reactions</div>
-          <label class="ctl check"><input id="show-support-forces" type="checkbox" checked><span>Forces at supported nodes</span></label>
+          <label class="ctl check"><input id="show-support-forces" type="checkbox" checked><span>Forces and moments at supported nodes</span></label>
           <label class="display-control">Arrow length multiplier<input id="support-force-scale" type="number" min="0.01" max="100" step="0.1" value="1"></label>
           <p id="support-force-note" class="pick-note"></p>
         </div>
@@ -494,8 +503,10 @@
 <script src="plan_view_window.js" defer></script>
 <script src="fuel_tank_view.js" defer></script>
 <script src="support_glyphs.js" defer></script>
+<script src="load_glyphs.js" defer></script>
 <script src="scene_lighting.js" defer></script>
 <script src="mass_properties.js" defer></script>
+<script src="property_display.js" defer></script>
 <script src="aero_display.js" defer></script>
 <script src="geometry_export.js" defer></script>
 <script src="view_planes.js" defer></script>

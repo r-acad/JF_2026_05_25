@@ -24,8 +24,18 @@
    .filter(([key])=>Number.isInteger(counts[key])&&counts[key]>=0)
    .map(([key,label])=>counts[key]+' '+label+(counts[key]===1?'':'s'));
  }
+ function propertyFilter(value,mode='text'){
+  const pattern=String(value||'').trim();let regex=null;
+  if(mode==='regex'&&pattern){try{regex=new RegExp(pattern,'i');}catch(error){return{valid:false,error:'Invalid regular expression: '+error.message,test:()=>false};}}
+  return{valid:true,error:'',test:variable=>{const text=[variable.id,variable.label,variable.group,variable.kind,variable.field_label,variable.panel_key,...(variable.pids||[]).map(id=>'PID '+id)].filter(value=>value!=null).join(' ');return!pattern||(regex?regex.test(text):text.toLowerCase().includes(pattern.toLowerCase()));}};
+ }
+ function addMatchingVariables(selected,variables,filter,limit){
+  const values=new Set(selected);let omitted=0;
+  for(const variable of variables){if(!filter.test(variable)||values.has(variable.id))continue;if(values.size>=limit){omitted++;continue;}values.add(variable.id);}
+  return{values:Array.from(values),omitted};
+ }
  function create(host,options){
-  const doc=host.ownerDocument;let config=defaults(),catalog=null,catalogSignature=null,busy=false,loading=false,result=null,resultSignature=null,lastContext=null,timer=null,started=0,resultSetup=null,runSetup=null,invalidStep=false;
+  const doc=host.ownerDocument;let config=defaults(),catalog=null,catalogSignature=null,catalogMesh=null,busy=false,loading=false,result=null,resultSignature=null,lastContext=null,timer=null,started=0,resultSetup=null,runSetup=null,invalidStep=false,catalogRequested=false,autoAttempt=null,readGeneration=0;
   const interpretation=root.WingSensitivityResults;
   function setupSignature(value){const p=parse(value),o=p.objective,legacy=p.derivative_method==='operator_differences';return JSON.stringify([p.case_id,o.type,o.component??null,o.node_id??null,o.element_id??null,o.mode??null,o.surface??null,[...p.variables].sort(),p.derivative_method,legacy?p.relative_step:null,legacy?p.check_step:null]);}
   let previewPercent=1,previewMetric='percent',selectedProperty=null,resultMeta={},savedBusy=false,savedRuns=[],mapActive=false,destroyed=false;
@@ -37,12 +47,19 @@
   const methodRow=make('label','','Derivative method'),method=make('select');method.id='sensitivity-method';
   for(const [value,label]of [['analytic','Analytic · exact chain rule'],['operator_differences','Legacy · operator finite differences']]){const choice=make('option','',label);choice.value=value;method.append(choice);}methodRow.append(method);el('step').parentElement.before(methodRow);
   const liveCounts=make('p','pick-note');liveCounts.id='sensitivity-live-counts';liveCounts.hidden=true;el('status').after(liveCounts);
-  const selectShown=make('button','mini','Select shown');selectShown.id='sensitivity-select-shown';selectShown.type='button';selectShown.title='Select all properties matching the filter, up to the catalogue limit. Existing selections are retained.';el('clear').before(selectShown);
+  const selectShown=make('button','mini','Add matches');selectShown.id='sensitivity-select-shown';selectShown.type='button';selectShown.title='Add properties matching this filter. Existing selections from earlier filters are retained.';el('clear').before(selectShown);
+  const removeShown=make('button','mini','Remove matches');removeShown.id='sensitivity-remove-matches';removeShown.type='button';removeShown.title='Remove matching properties from the selection; keep selections hidden by this filter.';selectShown.after(removeShown);
+  const filterRow=make('div','sensitivity-filter-row'),filterMode=make('select');filterMode.id='sensitivity-filter-mode';filterMode.setAttribute('aria-label','Property filter type');
+  for(const [value,label]of [['text','Text'],['regex','Regex']]){const item=make('option','',label);item.value=value;filterMode.append(item);}
+  const clearFilter=make('button','mini','Clear filter');clearFilter.id='sensitivity-clear-filter';clearFilter.type='button';el('filter').before(filterRow);filterRow.append(filterMode,el('filter'),clearFilter);
+  const filterHelp=make('p','pick-note','Text matches labels, property IDs and groups. Regex supports alternatives such as upper.*thickness|spar. Add matches keeps your previous selections.'),filterStatus=make('p','pick-note');filterStatus.id='sensitivity-filter-status';filterStatus.setAttribute('role','status');filterRow.after(filterHelp,filterStatus);
+  const recovery=make('button','mini sensitivity-recovery');recovery.id='sensitivity-recover';recovery.type='button';recovery.hidden=true;el('context').after(recovery);
+  let filter=propertyFilter(''),recoveryAction=null;
   const labelOf=row=>interpretation?.propertyLabel(row,catalog)||row.label||row.id;
   const saved=make('fieldset','sensitivity-saved');saved.innerHTML='<legend>Saved sensitivity results</legend><div class="hud-row"><button id="sensitivity-saved-refresh" class="mini" type="button">Find saved results</button><button id="sensitivity-saved-open" class="mini" type="button" disabled>Open result</button></div><label for="sensitivity-saved-select">Completed runs</label><select id="sensitivity-saved-select" aria-label="Saved sensitivity run"><option value="">Find saved results to browse earlier runs</option></select><p id="sensitivity-saved-status" class="pick-note" role="status"></p>';
   saved.hidden=!options.listRuns||!options.loadRun;el('results').before(saved);
   function variableLimit(){return Number.isInteger(catalog?.max_variables)&&catalog.max_variables>0?catalog.max_variables:256;}
-  function matchesFilter(variable){const filter=el('filter').value.toLowerCase();return !filter||((variable.label||variable.id)+' '+(variable.group||variable.kind||'')).toLowerCase().includes(filter);}
+  function matchesFilter(variable){return filter.test(variable);}
   function renderWork(){
    const limit=variableLimit(),count=config.variables.length,samples=(config.check_step?4:2)*count;
    const analytic=config.derivative_method==='analytic';host.firstElementChild.textContent=analytic?'Choose one load case, a scalar response and property variables. Analytic adjoints reuse the baseline and adjoint solutions and differentiate the actual element formulas by the chain rule. No property steps, perturbed decks or per-property equilibrium solves are needed. Results include response-change estimates, tables and colors.':'Discrete adjoints reuse the baseline and adjoint solutions. Legacy operator finite differences use property steps to differentiate the assembled matrices, loads and direct response terms. They do not run per-property equilibrium solves.';method.value=config.derivative_method;el('step').parentElement.hidden=analytic;el('check-step').parentElement.hidden=analytic;
@@ -50,7 +67,11 @@
    const work=config.objective.type==='frequency_eigenvalue'?'1 baseline eigen solve':config.objective.type==='buckling_factor'?'1 preload solve + 1 eigen solve + 1 preload adjoint':'1 baseline solve + 1 adjoint solve';
    el('variable-count').textContent=count+' / '+limit+' variables · '+work+(analytic?' · '+count+' analytic property derivative'+(count===1?'':'s')+'. No perturbed decks.':' · up to '+samples+' property operator evaluations. No per-property full analyses.');
    el('variable-count').classList.toggle('sensitivity-error',count>limit);
-   selectShown.disabled=busy||loading||count>=limit||!(catalog?.variables||[]).some(v=>matchesFilter(v)&&!config.variables.includes(v.id));
+   const variables=catalog?.variables||[],shown=variables.filter(matchesFilter),visibleSelected=shown.filter(v=>config.variables.includes(v.id)).length;
+   selectShown.disabled=busy||loading||!filter.valid||count>=limit||!shown.some(v=>!config.variables.includes(v.id));
+   removeShown.disabled=busy||loading||!filter.valid||!visibleSelected;
+   filterStatus.textContent=filter.valid?shown.length+' / '+variables.length+' properties match · '+count+' selected ('+visibleSelected+' shown, '+(count-visibleSelected)+' outside this filter).':filter.error;
+   filterStatus.classList.toggle('sensitivity-error',!filter.valid);el('filter').setAttribute('aria-invalid',String(!filter.valid));clearFilter.disabled=!el('filter').value;
   }
   function error(message){el('error').textContent=message||"";el('error').hidden=!message;}
   function changed(){options.onEdit?.(JSON.stringify(config));sync();}
@@ -63,7 +84,7 @@
    el('surface-row').hidden=type[0]!=='shell_stress';el('surface').value=config.objective.surface||'z1';el('target').max=type[3]==='mode'?'20':'';el('use-pick').hidden=type[3]==='mode';el('target-note').textContent=type[3]==='mode'?'The selected baseline eigenmode defines this derivative. Repeated or nearly repeated modes do not have a unique individual-mode derivative.':'Use the numeric ID of a physical structural entity. Inspect it first if its ID is unknown.';
   }
   for(const [value,label]of TYPES){const option=make('option','',label);option.value=value;el('objective').append(option);}
-  function renderVariables(){const list=el('variables');list.replaceChildren();const variables=catalog?.variables||[];
+  function renderVariables(){filter=propertyFilter(el('filter').value,filterMode.value);const list=el('variables');list.replaceChildren();const variables=catalog?.variables||[];
    const known=new Set(variables.map(v=>v.id)),missing=config.variables.filter(id=>!known.has(id));
    if(missing.length&&catalog){const note=make('p','sensitivity-error','Selected properties are no longer available: '+missing.join(', ')+'. Clear the selection or restore the model.');list.append(note);}
    for(const variable of variables){if(!matchesFilter(variable))continue;
@@ -144,27 +165,62 @@
    for(const row of result.rows||[]){const tr=make('tr');tr.dataset.property=row.id;for(const text of [labelOf(row),format(row.value)+' '+(row.unit||''),format(row.derivative)+(row.derivative_unit?' '+row.derivative_unit:''),format(row.normalized_derivative),...(!analyticResult?[Number.isFinite(row.step_error)?format(100*row.step_error)+'%':'—']:[]),row.warning||row.message||row.status||'Complete'])tr.append(make('td','',text));body.append(tr);}table.append(body);wrap.append(table);box.append(wrap);
    box.append(make('p','pick-note','Normalized derivative = property value / baseline response × derivative. Undefined at zero baseline. '+(analyticResult?'Analytic derivatives use exact element chain rules, without property perturbations or step-size comparisons. Unsupported or nonsmooth responses are reported explicitly.':(['discrete_adjoint','eigenvalue_adjoint'].includes(result.method)?'Step difference compares operator derivatives evaluated at h and h/2; it does not add full analyses. ':'Step difference compares h and h/2 where enabled. ')+'High differences require a smaller step or review of nonsmooth responses.')));
   }
-  function sync(){const context=options.context?.()||{};lastContext=context;const changedModel=catalog&&context.signature!==catalogSignature,stale=result&&(context.dirty||context.signature!==resultSignature||setupSignature(config)!==resultSetup);
-   el('context').textContent=!context.ready?'Create FEM before reading properties or running sensitivity.':context.dirty?'The model definition has changed. Recreate the FEM before running sensitivity.':stale?'Results belong to an earlier model or sensitivity setup.':changedModel?'The mesh has changed. Read its current properties before running.':'The analysis uses the current created FEM and the selected case.';
+  function catalogChanged(context){return !!catalog&&(context.signature!==catalogSignature||(context.meshIdentity??null)!==catalogMesh);}
+  function contextKey(context){return JSON.stringify([context.signature,context.meshIdentity??null]);}
+  function runBlocker(context){
+   if(busy)return{message:'Sensitivity is running. Progress is shown below; wait for completion or use Stop sensitivity.'};
+   if(loading)return{message:'Reading current model properties. Please wait; your selected variables are kept.'};
+   if(context.blocked)return{message:context.blockedReason||'Another model operation is running. Finish it before reading properties or starting sensitivity.'};
+   if(context.dirty||!context.ready)return{message:context.dirtyReason||(!context.ready?'Create FEM before reading properties or running sensitivity.':'The model definition has changed. Create FEM to update it before running sensitivity.'),action:!context.pendingDrafts&&options.rebuild?'rebuild':null,label:'Create FEM and read properties'};
+   if(!catalog||catalogChanged(context))return{message:catalog?'The FEM has changed. Refresh its current properties; existing selections are kept.':'Read the current FEM properties, then select the variables to analyze.',action:'catalog',label:'Read current properties'};
+   const missing=config.variables.filter(id=>!catalog.variables?.some(v=>v.id===id));
+   if(missing.length)return{message:missing.length+' selected '+(missing.length===1?'property is':'properties are')+' no longer present in this FEM. Remove unavailable selections or restore the earlier model.',action:'missing',label:'Remove unavailable selections'};
+   if(!config.variables.length)return{message:'Select at least one property. Filter the list and use Add matches, or select individual checkboxes.'};
+   if(config.variables.length>variableLimit())return{message:'The selection exceeds '+variableLimit()+' variables. Remove some selections before running.'};
+   if(invalidStep)return{message:'Correct the operator derivative step (0.01% to 10%), or choose the analytic method.'};
+   const target=config.objective[objectiveType()[3]];
+   if(!Number.isInteger(target)||target<1)return{message:'Enter a positive '+(objectiveType()[3]==='mode'?'mode number':'node or element ID')+' for the response, or use the inspected entity.',action:'target',label:'Set response target'};
+   if(!(options.cases?.()||[]).some(item=>Number(item.id)===Number(config.case_id)))return{message:'The selected load case is unavailable. Choose an enabled case.',action:'case',label:'Choose load case'};
+   return null;
+  }
+  function sync(){const context=options.context?.()||{};lastContext=context;const changedModel=catalogChanged(context),stale=result&&(context.dirty||context.signature!==resultSignature||setupSignature(config)!==resultSetup),blocker=runBlocker(context);
+   el('context').textContent=(blocker?.message||'Ready to run sensitivity on the current FEM and selected case.')+(stale?' Results shown below belong to an earlier model or sensitivity setup.':'');
    el('context').classList.toggle('sensitivity-error',!!(context.dirty||stale));
-   const available=context.ready&&!context.dirty&&!context.blocked;el('refresh').disabled=busy||loading||!available;el('run').disabled=busy||loading||!available||!catalog||changedModel||invalidStep||!config.variables.length||config.variables.length>variableLimit()||config.variables.some(id=>!catalog.variables?.some(v=>v.id===id));
-   el('stop').hidden=!busy;for(const node of host.querySelectorAll('.sensitivity-setup input,.sensitivity-setup select,#sensitivity-clear,#sensitivity-use-pick'))node.disabled=busy||loading||(node.closest('#sensitivity-variables')&&!node.checked&&config.variables.length>=variableLimit());el('filter').disabled=false;
+   el('context').dataset.blocked=String(!!blocker);host.dataset.sensitivityBusy=String(busy||loading||!!context.working);recoveryAction=blocker?.action||null;recovery.hidden=!recoveryAction;recovery.textContent=blocker?.label||'';recovery.disabled=busy||loading;
+   const available=context.ready&&!context.dirty&&!context.blocked;el('refresh').disabled=busy||loading||!available;el('refresh').textContent=loading?'Reading properties…':'Refresh model properties';el('run').disabled=!!blocker;el('run').title=blocker?.message||'Run the selected sensitivity study';el('run').setAttribute('aria-describedby','sensitivity-context');
+   el('stop').hidden=!busy;for(const node of host.querySelectorAll('.sensitivity-setup input,.sensitivity-setup select,#sensitivity-clear,#sensitivity-use-pick'))node.disabled=busy||loading||(node.closest('#sensitivity-variables')&&!node.checked&&config.variables.length>=variableLimit());el('filter').disabled=false;filterMode.disabled=false;
    renderWork();
    if(context.dirty||result&&context.signature!==resultSignature)clearVisualization();syncPreviewButtons();syncSaved();
    el('status').classList.toggle('sensitivity-running',busy);
+   // Rebuilds invalidate only the catalogue, not its selected variable IDs.
+   // Refresh once after the new mesh settles; failed requests require an explicit retry.
+   const key=contextKey(context);
+   if(options.autoRefreshCatalog!==false&&context.catalogVisible!==false&&catalogRequested&&(!catalog||changedModel)&&available&&!busy&&!loading&&autoAttempt!==key){queueMicrotask(()=>{const now=options.context?.()||{};if(!destroyed&&!loading&&!busy&&contextKey(now)===key&&now.catalogVisible!==false&&now.ready&&!now.dirty&&!now.blocked)readCatalog();});}
   }
   function refreshContext(){const cases=options.cases?.()||[];el('case').replaceChildren();for(const item of cases){const option=make('option','',item.id+' · '+item.label);option.value=item.id;el('case').append(option);}el('case').value=String(config.case_id);if(!cases.some(c=>Number(c.id)===Number(config.case_id))){const option=make('option','','Unavailable case '+config.case_id);option.value=config.case_id;el('case').append(option);el('case').value=String(config.case_id);}sync();}
-  async function readCatalog(){error('');loading=true;sync();el('status').textContent='Reading model properties…';try{const signature=options.context().signature;const data=await options.catalog();catalog=data.catalog||data;catalogSignature=signature;renderVariables();el('status').textContent=catalog.variables.length+' editable property variables available.';}catch(e){error(e.message);}finally{loading=false;sync();}}
+  async function readCatalog(){
+   if(destroyed||loading||busy)return false;
+   const before=options.context?.()||{};
+   if(!before.ready||before.dirty||before.blocked){sync();return false;}
+   const generation=++readGeneration,key=contextKey(before);catalogRequested=true;autoAttempt=key;error('');loading=true;sync();el('status').textContent='Reading model properties…';
+   try{const data=await options.catalog();if(destroyed||generation!==readGeneration)return false;const after=options.context?.()||{};
+    if(!after.ready||after.dirty||contextKey(after)!==key||data.model_signature!==undefined&&data.model_signature!==before.signature||data.mesh_identity!==undefined&&data.mesh_identity!==(before.meshIdentity??null)){el('status').textContent='The FEM changed while properties were being read. The obsolete response was discarded; selections are kept.';return false;}
+    const next=data.catalog||data;if(!Array.isArray(next.variables))throw Error('The property catalogue response has no variable list. Refresh model properties to retry.');
+    catalog=next;catalogSignature=before.signature;catalogMesh=before.meshIdentity??null;renderVariables();el('status').textContent=catalog.variables.length+' editable property variables available.';return true;
+   }catch(e){if(!destroyed){error(e.message);el('status').textContent='Could not read properties. Use Refresh model properties to retry.';}return false;}finally{loading=false;if(!destroyed)sync();}
+  }
   function restore(value){invalidStep=false;try{config=parse(value);}catch{config=defaults();error('Invalid saved sensitivity setup. Select the response and variables again.');}renderObjective();el('step').value=100*config.relative_step;el('check-step').checked=config.check_step;renderVariables();refreshContext();}
   el('case').onchange=()=>{config.case_id=Number(el('case').value);changed();};
   el('objective').onchange=()=>{const previous=config.objective;config.objective={type:el('objective').value};const type=objectiveType();if(type[2].length)config.objective.component=type[2][0][0];config.objective[type[3]]=previous[type[3]]??(type[3]==='mode'?1:null);renderObjective();changed();};
   el('surface').onchange=()=>{config.objective.surface=el('surface').value;changed();};el('component').onchange=()=>{config.objective.component=el('component').value;changed();};el('target').oninput=()=>{config.objective[objectiveType()[3]]=el('target').value===''?null:Number(el('target').value);changed();};
   el('step').onchange=()=>{const step=Number(el('step').value)/100;if(!Number.isFinite(step)||step<1e-4||step>.1){invalidStep=true;error('Choose an operator derivative step between 0.01% and 10%.');sync();return;}invalidStep=false;config.relative_step=step;error('');changed();};
   method.onchange=()=>{config.derivative_method=method.value;invalidStep=false;error('');changed();renderWork();sync();};
-  el('check-step').onchange=()=>{config.check_step=el('check-step').checked;changed();renderVariables();};el('filter').oninput=renderVariables;el('clear').onclick=()=>{config.variables=[];changed();renderVariables();};el('refresh').onclick=readCatalog;
-  selectShown.onclick=()=>{const selected=new Set(config.variables);for(const variable of catalog?.variables||[]){if(selected.size>=variableLimit())break;if(matchesFilter(variable))selected.add(variable.id);}config.variables=Array.from(selected);changed();renderVariables();};
+  el('check-step').onchange=()=>{config.check_step=el('check-step').checked;changed();renderVariables();};el('filter').oninput=renderVariables;filterMode.onchange=renderVariables;clearFilter.onclick=()=>{el('filter').value='';renderVariables();el('filter').focus();};el('clear').onclick=()=>{config.variables=[];changed();renderVariables();};el('refresh').onclick=readCatalog;
+  selectShown.onclick=()=>{if(!filter.valid||busy||loading)return;const added=addMatchingVariables(config.variables,catalog?.variables||[],filter,variableLimit());config.variables=added.values;changed();renderVariables();if(added.omitted)error('The '+variableLimit()+'-variable limit was reached; '+added.omitted+' matching properties were not added. Existing selections were preserved.');};
+  removeShown.onclick=()=>{if(!filter.valid||busy||loading)return;const ids=new Set((catalog?.variables||[]).filter(matchesFilter).map(v=>v.id));config.variables=config.variables.filter(id=>!ids.has(id));changed();renderVariables();};
+  recovery.onclick=async()=>{const action=recoveryAction;if(action==='catalog')return readCatalog();if(action==='target'||action==='case'){el(action).focus();el(action).scrollIntoView({block:'center'});return;}if(action==='missing'){const known=new Set(catalog.variables.map(v=>v.id));config.variables=config.variables.filter(id=>known.has(id));changed();renderVariables();return;}if(action==='rebuild'){recovery.disabled=true;try{await options.rebuild();await readCatalog();}catch(e){error(e.message);}finally{sync();}}};
   el('use-pick').onclick=()=>{const id=options.inspected?.(objectiveType()[3]);if(!Number.isInteger(id)||id<1){error('Use Inspect to pick a matching node or element, then return here and press Use inspected entity.');return;}config.objective[objectiveType()[3]]=id;renderObjective();error('');changed();};
-  el('run').onclick=async()=>{error('');const target=config.objective[objectiveType()[3]];if(!Number.isInteger(target)||target<1){error('Enter a positive '+(objectiveType()[3]==='mode'?'mode number':'entity ID')+'.');return;}try{runSetup=JSON.stringify(config);await options.run(JSON.parse(runSetup));}catch(e){error(e.message);}};
+  el('run').onclick=async()=>{error('');const blocker=runBlocker(options.context?.()||{});if(blocker){error(blocker.message);sync();return;}try{runSetup=JSON.stringify(config);await options.run(JSON.parse(runSetup));}catch(e){error(e.message);}};
   el('stop').onclick=async()=>{el('stop').disabled=true;try{await options.cancel();}catch(e){error(e.message);}finally{el('stop').disabled=false;}};
   el('csv').onclick=()=>{const quote=x=>'"'+String(typeof x==='string'&&/^[=+@-]/.test(x)?"'"+x:x??'').replace(/"/g,'""')+'"',rows=[['Property','Value','Unit','Derivative','Derivative unit','Normalized derivative','Relative step difference','Status']];for(const row of result?.rows||[])rows.push([labelOf(row),row.value,row.unit,row.derivative,row.derivative_unit,row.normalized_derivative,row.step_error,row.warning||row.status]);options.download?.(rows.map(r=>r.map(quote).join(',')).join('\r\n')+'\r\n');};
   function acceptResult(data,signature,metadata={}){clearVisualization();result=data;resultSignature=signature;resultMeta=metadata;resultSetup=setupSignature(data.request?{...data.request,derivative_method:data.request.derivative_method||(/^analytic_/.test(data.method)?'analytic':'operator_differences')}:runSetup||config);selectedProperty=null;previewPercent=1;renderResults();sync();options.onResultChanged?.();}
@@ -178,5 +234,5 @@
    destroy(){destroyed=true;clearInterval(timer);clearVisualization();host.replaceChildren();}
   };
  }
- root.WingSensitivity={create,parse,TYPES,methodLabel,solverCounts};
+ root.WingSensitivity={create,parse,TYPES,methodLabel,solverCounts,propertyFilter,addMatchingVariables};
 })(globalThis);
