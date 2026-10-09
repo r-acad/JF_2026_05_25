@@ -6,6 +6,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **WingFEGen rendering and visibility corrections.** Unavailable Results labels
+  are gray and running indicators alternate blue/white. VLM panel arrows again
+  show magenta signed normal pressure forces. Panel isolation locks shell/beam
+  controls while preserving other entities, and sensitivity restores usable
+  structural visibility. Lit shell/beam materials improve face contrast, including
+  scalar contours. Saved sensitivity-baseline analysis selections now roundtrip
+  through Study files. Remove redundant sensitivity navigation buttons.
+
 - **WingFEGen property display and sensitivity selection.** Display structural
   thicknesses, beam section values and actual material assignments/properties
   without solving. Add matching variables using successive regular-expression

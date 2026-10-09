@@ -105,7 +105,8 @@
     if (workspace.panels !== undefined && (!object(workspace.panels) || Object.entries(workspace.panels).some(([id,value])=>!PANEL_IDS.includes(id)||typeof value!=="boolean"))) throw new Error("Invalid panel visibility settings.");
     if (!Number.isInteger(view.activeCase) || view.activeCase<1) throw new Error("Invalid displayed load case.");
     if (view.editingCase!==undefined&&(!Number.isInteger(view.editingCase)||view.editingCase<1))throw new Error("Invalid edited load case.");
-    if (view.resultVariant !== undefined && !["","sol101","sol106"].includes(view.resultVariant)) throw new Error("Invalid selected result analysis.");
+    if (view.resultVariant !== undefined && !["","sol101","sol103","sol105","sol106"].includes(view.resultVariant) &&
+        !(typeof view.resultVariant==="string" && /^sensitivity_[A-Za-z0-9_-]{1,180}_sol(?:101|103|105)$/.test(view.resultVariant))) throw new Error("Invalid selected result analysis.");
     if (view.contourPreference != null && (!object(view.contourPreference) || Object.keys(view.contourPreference).some(key=>!["kind","name"].includes(key)) || !["none","disp","data"].includes(view.contourPreference.kind) || typeof view.contourPreference.name!=="string" || view.contourPreference.name.length>200)) throw new Error("Invalid selected result quantity.");
     if (view.realScale !== undefined && typeof view.realScale !== "boolean") throw new Error("Invalid deformation scale mode.");
     if (view.parameterLocks !== undefined && (!object(view.parameterLocks) || Object.entries(view.parameterLocks).some(([key,value])=>!["planform","mesh"].includes(key)||typeof value!=="boolean"))) throw new Error("Invalid parameter lock settings.");

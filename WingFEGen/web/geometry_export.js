@@ -123,7 +123,8 @@
   }
   await surface("AERO_SURFACE",data.aero,4,[...rgba(colors.AERO_SURFACE).slice(0,3),.12],{entity_type:"aerodynamic_loft"},options.displayed?snapshot.aeroPositions:null);
   if(data.fuel?.surface){const s=data.fuel.surface;await surface("FUEL_TANK",{...s,count:i32(s.conn).length/3},3,[...rgba(colors.FUEL_TANK).slice(0,3),.42],{entity_type:"fuel_envelope",state:"undeformed",volume_m3:data.fuel.volume_m3});}
-  let peakPanelForce=0;for(const c of cases){const forces=c.loads?.vlm?.forces?f32(c.loads.vlm.forces):null;if(forces)for(let i=0;i<forces.length;i+=3)peakPanelForce=Math.max(peakPanelForce,Math.hypot(...forces.subarray(i,i+3)));}
+  const normalPanels=new Map(cases.map(c=>[c.id,LoadGlyphs.panelNormalForces(c.loads?.vlm)]));
+  let peakPanelForce=0;for(const normal of normalPanels.values())peakPanelForce=Math.max(peakPanelForce,normal.peak);
   for(const loadCase of cases){
    if(visible&&Number(loadCase.id)!==Number(snapshot.activeCase))continue;
    const loads=loadCase.loads;if(!loads)continue;const label="CASE "+loadCase.id+" ",caseMeta={case_id:loadCase.id,case_label:loadCase.label};
@@ -131,10 +132,10 @@
     const v=loads.vlm,conn=i32(v.conn),positions=f32(v.xyz),build=builder(parts,label+"VLM",[...rgba(colors.VLM).slice(0,3),.6],{...caseMeta,entity_type:"vortex_lattice",pressure_Pa:v.pressure?Array.from(f32(v.pressure)):undefined,Cp:v.cp?Array.from(f32(v.cp)):undefined});
     for(let e=0;e<v.count;e++){build.entity(e+1,triangles(positions,conn.subarray(4*e,4*e+4)));await tick();}build.finish();
    }
-   if(loads.vlm?.forces&&loads.vlm.centers&&shown("VLM_FORCES")){
-    const forces=f32(loads.vlm.forces),centers=f32(loads.vlm.centers),scale=peakPanelForce>0?.1*diag*(snapshot.vlmForceMultiplier||1)/peakPanelForce:0;
-    const builds=LoadGlyphs.AXES.map((axis,k)=>builder(parts,label+"VLM_FORCES_"+axis,LoadGlyphs.COLORS[k],{...caseMeta,entity_type:"panel_force",axis,arrow_scale_m_per_N:scale}));
-    for(let e=0;e<loads.vlm.count;e++){const force=point(forces,e);for(const glyph of LoadGlyphs.components(force,{diag,scale}))builds[glyph.component].entity(e+1,loadGlyphTriangles(point(centers,e),glyph,r),{force_N:force,...loadGlyphMetadata(glyph)});await tick();}builds.forEach(build=>build.finish());
+   if(loads.vlm&&shown("VLM_FORCES")){
+    const normal=normalPanels.get(loadCase.id),scale=peakPanelForce>0?.1*diag*(snapshot.vlmForceMultiplier||1)/peakPanelForce:0;
+    const build=builder(parts,label+"VLM_FORCES",LoadGlyphs.VLM_COLOR,{...caseMeta,entity_type:"panel_force",force_basis:"signed panel-normal pressure force",arrow_scale_m_per_N:scale,invalid_panels:normal.invalid});
+    for(const record of normal.records){const vertices=LoadGlyphs.vectorArrow(record.force,{diag,scale});if(vertices.length)build.entity(record.panel_id,loadGlyphTriangles(record.position,{vertices},r),{force_N:record.force,resultant_force_N:record.resultant_force_N,normal:record.normal,normal_force_N:record.normal_force_N,pressure_Pa:record.pressure_Pa,area_m2:record.area_m2,basis:record.basis,application_point_m:record.position});await tick();}build.finish();
    }
    const displayedLoads=options.displayed&&Number(loadCase.id)===Number(snapshot.activeCase)&&Array.isArray(snapshot.appliedLoadStations);
    const stations=displayedLoads?snapshot.appliedLoadStations:loadStations(loads);let peak=0,momentPeak=0;for(const station of stations){peak=Math.max(peak,Math.hypot(...station.force));momentPeak=Math.max(momentPeak,...(station.moment||[0,0,0]).map(Math.abs));}

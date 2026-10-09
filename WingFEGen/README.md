@@ -98,6 +98,8 @@ The viewport supports entity filters, inspection, node/element IDs, local axes,
 solid/translucent surfaces, beam sections, reference STL/OBJ/GLB geometry,
 measurement and geometry export. Fuel-tank volume and mass properties include
 rib-bay contributions. Panel isolation assigns distinct colors and P-labels.
+While isolation is active, it controls the shell/beam visibility switches;
+loads, aerodynamic surfaces, supports and other overlays remain independent.
 **Display / Properties** colors the generated shell and beam properties and
 material assignments without an analysis. Values include thickness, area,
 section inertias and material E/nu/density, with units and a color scale. For a
@@ -106,6 +108,12 @@ invented. This view uses the current generated FEM and warns about pending edits
 The **Ground** toolbar control includes a synchronized elevation input. Applied
 forces and moments are drawn as signed global-axis components (X red, Y green,
 Z blue); their lengths/radii retain the chosen display scaling.
+VLM-panel arrows are magenta and show the signed normal pressure force at each
+panel center. The full aerodynamic resultant is still applied at the rib RBE3s.
+Structural faces and solid beam sections use lighting to distinguish orientation,
+including when quantitative colors are shown; legends retain the selected palette.
+Saved copies of the old unedited lighting presets adopt the improved defaults;
+custom lighting remains unchanged.
 
 Planform and structural 2D editors support pan/zoom, background images, snapping,
 distance/angle dimensions and SVG export. The dimensioned plan view and property
@@ -121,6 +129,9 @@ manual minimum/maximum limits. **Automatic** restores the data-driven range.
 Manual limits clip only the endpoint colors; numerical data are not changed.
 Limits are independent for each quantity/unit. FE, sensitivity and VLM displays
 have independent palettes, so changing one legend leaves the others unchanged.
+Unavailable result types have gray labels. Current results are green, while
+retained results from an outdated definition retain their warning state. JFEM
+activity indicators alternate blue and white (steady blue with reduced motion).
 These settings are saved with the Study.
 
 ## Analyses and sensitivities

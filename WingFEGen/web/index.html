@@ -162,7 +162,7 @@
         </div>
         <label class="layer"><input id="vlm-show-forces" type="checkbox"><span>Force components at RBE3 centers</span></label>
         <label class="layer"><input id="vlm-show-moments" type="checkbox"><span>Moment components at RBE3 centers</span></label>
-        <label class="layer"><input id="show-vlm-panel-forces" type="checkbox" disabled><span>Force components at VLM quad centers</span></label>
+        <label class="layer"><input id="show-vlm-panel-forces" type="checkbox" disabled><span>Normal pressure-force arrows at VLM quad centers</span></label>
         <label class="display-control" for="vlm-force-scale">Arrow length multiplier</label>
         <div class="vlm-force-scale"><button id="btn-vlm-force-smaller" class="mini" title="Halve arrow lengths">−</button><input id="vlm-force-scale" type="number" min="0.01" max="100" step="0.1" value="1" aria-label="VLM force arrow length multiplier"><button id="btn-vlm-force-larger" class="mini" title="Double arrow lengths">+</button></div>
         <p id="vlm-force-scale-note" class="pick-note" role="status"></p>
@@ -205,7 +205,7 @@
         <div id="vlm-legend"></div>
         <p class="pick-note">VLM pressures are the lower-minus-upper pressure jump on the undeformed aerodynamic lattice.</p>
       </div>
-      <p class="pick-note">Straight arrows show force components; curved arrows show signed moments by the right-hand rule. Global X is red, Y green, Z blue. Appearance, axes, environment and fuel inertia have separate Display sub-tabs.</p>
+      <p class="pick-note">RBE3 and support loads: straight arrows show force components; curved arrows show signed moments by the right-hand rule. Global X is red, Y green, Z blue. VLM pressure forces use magenta arrows normal to the panels. Appearance, axes, environment and fuel inertia have separate Display sub-tabs.</p>
       </div>
       </section>
 
@@ -309,7 +309,7 @@
       <section id="panel-sensitivityresults" class="workspace-panel" data-workspace-panel="sensitivityresults" role="tabpanel" aria-labelledby="tab-sensitivityresults" hidden>
         <div class="hud" id="sensitivity-map-card">
           <div class="hud-title">Sensitivity fields</div>
-          <div class="hud-row"><button type="button" class="mini" id="sensitivity-open-summary">Open summary / saved runs</button><button type="button" class="mini" id="sensitivity-map-clear" hidden>Restore analysis view</button></div>
+          <div class="hud-row" id="sensitivity-map-actions"></div>
           <p id="sensitivity-map-summary" class="pick-note">Open a completed sensitivity run under Loads → Sensitivity to compare property effects.</p>
           <div id="sensitivity-map-controls" hidden>
             <label class="display-control">View <select id="sensitivity-map-mode"><option value="field">Property sensitivity field</option><option value="preview">Single-property change preview</option></select></label>

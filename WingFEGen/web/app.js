@@ -55,7 +55,7 @@ const EXTRA_STYLE = {
   AERO_MOMENTS: { color: "#b8cadb", label: "Applied moment components (Nm)" },
   VLM_MESH:     { color: "#b5cbdf", label: "Vortex lattice mesh" },
   VLM_PRESSURE: { color: "#e9b04d", label: "VLM pressure jump" },
-  VLM_FORCES:   { color: "#b8cadb", label: "VLM panel force components (XYZ)" },
+  VLM_FORCES:   { color: "#e45ad4", label: "VLM normal pressure forces" },
   FUEL_TANK:    { color: "#50dfa3", label: "Fuel tank volume (undeformed)" },
   SHELL_AXES:   { color: "#ef5f6b", label: "Shell local x axes" },
   BAR_AXES:     { color: "#4cc38a", label: "Bar local x/y/z axes" },
@@ -420,7 +420,7 @@ const HELP_TOPICS = {
     "Live mesh applies edits to the loads and their display automatically. Create FEM also updates on demand. Run in JFEM solves all included cases in Linear static, Nonlinear comparison or Buckling analysis. The Display and Results case selectors inspect generated cases; this editor defines their inputs.",
   ] },
   "VLM settings": { title: "What VLM settings control", paragraphs: [
-    "Force vectors at VLM quad centers show each panel's scaled resultant. Arrow length multiplier and the minus/plus buttons change only their drawn size, using a common metres-per-newton scale across cases. Load plots provides the four spanwise distributions for each case.",
+    "Magenta arrows at VLM quad centers show signed panel-normal pressure force: pressure jump times panel area. Tangential and induced-drag components remain in the full resultant transferred to the RBE3s. Arrow length multiplier changes only drawn size, using a common metres-per-newton scale across cases. Load plots provides the spanwise distributions.",
     "The VLM tab defines a shared aerodynamic lattice for every case whose load method is Aerodynamic (VLM). Define the flight conditions in the Cases tab. Prescribed-lift cases do not use this lattice.",
     "Span and chord panels control the aerodynamic resolution, independently of the structural shell mesh. The vortex lattice lies on the wing camber surface. Increase the resolution and compare loads to check convergence.",
     "Once the model updates, use Aerodynamic view below: choose a load case, then Mesh, Pressure (Pa) or Cp. Hide VLM removes the lattice and contour. The force/moment switches show loads transferred to RBE3 centers. The same controls remain available in Display. Fully solid skins can hide the camber sheet; use Translucent or hide a skin to see internal panels.",
@@ -1187,6 +1187,16 @@ function sensitivityResultsAvailable() {
   return !!state.sensitivityResult?.rows?.length;
 }
 
+function physicalResultsAvailable() {
+  const usable=result=>!!result&&result.available!==false&&!!(result.static||result.modes?.length||result.contours?.length);
+  if(usable(state.results))return true;
+  for(const result of state.resultCases?.values()||[]){
+    if(usable(result))return true;
+    for(const variant of result?.variants?.values()||[])if(usable(variant))return true;
+  }
+  return false;
+}
+
 function resultsHavePendingDrafts(){return !!state.panelTables?.hasDrafts?.();}
 
 function sensitivityResultValidity() {
@@ -1218,6 +1228,7 @@ function refreshSensitivityDisplayButtons() {
 function updateAnalysisValidity() {
   if(resultsHavePendingDrafts()&&state.sensitivityMap)clearSensitivityMap();
   const status = analysisValidity(),sensitivity=sensitivityResultValidity();
+  const feAvailable=physicalResultsAvailable(),sensitivityAvailable=sensitivityResultsAvailable();
   const anyCurrent=status.current||sensitivity.current;
   const combined={current:anyCurrent,reason:status.current?status.reason:sensitivity.current?sensitivity.reason:status.reason};
   const selected=state.results;
@@ -1229,14 +1240,16 @@ function updateAnalysisValidity() {
   for (const id of ["tab-resultsmenu","tab-results","tab-sensitivityresults","btn-jfem"]) {
     const el = document.getElementById(id); if (!el) continue;
     const shown=id==="btn-jfem"?status:id==="tab-sensitivityresults"?sensitivity:id==="tab-results"?feStatus:combined;
+    const available=id==="tab-sensitivityresults"?sensitivityAvailable:id==="tab-resultsmenu"?feAvailable||sensitivityAvailable:feAvailable;
     el.setAttribute("data-analysis-current",String(shown.current));
+    el.setAttribute("data-analysis-state",!available?"empty":shown.current?"current":"stale");
     el.title = (id === "btn-jfem" ? "Run the selected analysis for every enabled load case. " : "") + shown.reason;
-    el.setAttribute("aria-label",(id === "btn-jfem" ? "Run in JFEM" : id==="tab-results"?"FE Results":id==="tab-sensitivityresults"?"Sensitivity results":"Results") + (shown.current ? " — results current" : " — analysis required"));
+    el.setAttribute("aria-label",(id === "btn-jfem" ? "Run in JFEM" : id==="tab-results"?"FE Results":id==="tab-sensitivityresults"?"Sensitivity results":"Results") + (!available?" — no results available":shown.current ? " — results current" : " — analysis required"));
   }
   const sensitivityTab=document.getElementById("tab-sensitivityresults");
   if(sensitivityTab){sensitivityTab.disabled=!sensitivityResultsAvailable();sensitivityTab.setAttribute("aria-disabled",String(sensitivityTab.disabled));}
   const note = document.getElementById("analysis-validity");
-  if (note) { note.textContent = status.reason; note.setAttribute("data-analysis-current",String(status.current)); }
+  if (note) { note.textContent = status.reason; note.setAttribute("data-analysis-current",String(status.current));note.setAttribute("data-analysis-state",!feAvailable?"empty":status.current?"current":"stale"); }
   const warning=document.getElementById("fe-results-validity");
   if(warning){
     const stale=!!selected&&(state.modelDirty||resultsHavePendingDrafts()||selected.signature&&selected.signature!==state.modelSignature||!selected.matches||selected.historical);
@@ -2071,10 +2084,8 @@ function installSensitivity() {
     },onError:message=>log(message,"error")});
     state.sensitivityTables.installButton(document.getElementById("sensitivity-csv").parentElement);
     const button=document.createElement("button");button.id="sensitivity-open-data-table";button.type="button";button.className="mini";button.textContent="Open data table ↗";
-    button.onclick=()=>state.sensitivityTables.open();document.getElementById("sensitivity-open-summary").after(button);
+    button.onclick=()=>state.sensitivityTables.open();document.getElementById("sensitivity-map-actions").append(button);
   }
-  document.getElementById("sensitivity-open-summary").onclick=()=>activateWorkspaceTab("sensitivity");
-  document.getElementById("sensitivity-map-clear").onclick=clearSensitivityMap;
   document.getElementById("sensitivity-map-show").onclick=()=>showSensitivityMapSelection();
   for(const id of ["sensitivity-map-property","sensitivity-map-change","sensitivity-map-metric","sensitivity-map-mode","sensitivity-field-family","sensitivity-field-quantity","sensitivity-visible-range"]){
     document.getElementById(id).onchange=()=>{refreshSensitivityMapCard();if(state.sensitivityMap)showSensitivityMapSelection();};
@@ -2126,7 +2137,6 @@ function refreshSensitivityMapCard(){
   state.sensitivityTables?.refresh();
   const result=state.sensitivityResult,controls=document.getElementById("sensitivity-map-controls");if(!controls)return;
   controls.hidden=!result;
-  document.getElementById("sensitivity-map-clear").hidden=!state.sensitivityMap;
   const status=document.getElementById("sensitivity-map-status");if(!result){status.textContent="";return;}
   const base=WingSensitivityResults.baseline(result),row=result.rows?.find(r=>r.id===document.getElementById("sensitivity-map-property").value);
   const change=Number(document.getElementById("sensitivity-map-change").value),effect=WingSensitivityResults.rowEffect(result,row,change);
@@ -2198,6 +2208,7 @@ function showSensitivityMap(result,row,options={}){
 function displaySensitivityContour(contour){
   state.propertyDisplay?.setEnabled(false);
   if(state.panelView)setPanelDisplay(false);
+  restoreFuelIsolation();
   if(!state.sensitivityMeta.compatibility.is_current&&!contour.caseLabel?.startsWith("Historical · "))contour.caseLabel="Historical · "+contour.caseLabel;
   const previous=state.sensitivityMap?.previous||{animate:document.getElementById("animate").checked,
     resultsHidden:document.getElementById("results-card").hidden,overlays:new Map()};
@@ -3039,11 +3050,18 @@ function color3(hex) {
   return BABYLON.Color3.FromHexString(hex);
 }
 
+/** Lit surfaces retain palette RGB while their normals supply face contrast. */
+function setSurfaceLighting(material, color) {
+  material.disableLighting = false;
+  material.diffuseColor = color.scale(.86);
+  material.emissiveColor = color.scale(.035);
+  material.specularColor = new BABYLON.Color3(.045, .045, .045);
+  material.specularPower = 48;
+}
+
 function shellMaterial(name, hex, alpha) {
   const m = new BABYLON.StandardMaterial(name, state.scene);
-  m.diffuseColor = color3(hex);
-  m.specularColor = new BABYLON.Color3(0.08, 0.08, 0.08);
-  m.emissiveColor = color3(hex).scale(0.16);
+  setSurfaceLighting(m, color3(hex));
   m.backFaceCulling = false;
   m.twoSidedLighting = true;
   m.alpha = alpha === undefined ? 1 : alpha;
@@ -3117,7 +3135,7 @@ function shellMesh(name, positions, conn, nodesPerElement, hex, alpha, deformabl
   vd.positions = points;
   vd.indices = idx;
   const normals = new Float32Array(points.length);
-  BABYLON.VertexData.ComputeNormals(points, idx, normals);
+  BABYLON.VertexData.ComputeNormals(points, idx, normals, { useRightHandedSystem: state.scene.useRightHandedSystem });
   vd.normals = normals;
   // White vertex colours leave the material colour showing; a contour
   // overwrites them and the material is set to white so the colours show true.
@@ -3127,10 +3145,15 @@ function shellMesh(name, positions, conn, nodesPerElement, hex, alpha, deformabl
   // Color buffers carry RGB contours; material.alpha alone controls opacity.
   mesh.hasVertexAlpha = false;
   mesh.material = shellMaterial(name + "-mat", hex, alpha);
+  // These indices use the right-hand normal convention, rather than the
+  // inward winding of Babylon's built-in primitive builders in an RH scene.
+  mesh.sideOrientation = state.scene.useRightHandedSystem ? BABYLON.Material.CounterClockWiseSideOrientation : BABYLON.Material.ClockWiseSideOrientation;
   mesh.baseColorHex = hex;
   mesh.translucentAlpha = alpha === undefined ? 0.55 : alpha;
   mesh.nodeMap = vertexMap;
   mesh.nodesPerElement = nodesPerElement;
+  mesh.surfaceNormals = normals;
+  mesh.surfaceIndices = idx;
   mesh.elementIds = group ? groupIds(group) : null;
   mesh.parent = state.root;
   mesh.isPickable = !!group;
@@ -3181,7 +3204,10 @@ function barSectionMesh(group, positions, conn, hex, reference) {
     scene: state.scene, positions, conn, orientations: orientation, section,
   });
   mesh.material = shellMaterial(mesh.name + "-mat", "#ffffff", reference ? 0.25 : 1);
-  mesh.material.emissiveColor = color3("#ffffff").scale(0.15);
+  // PBARL sections are closed solids with outward normals. Unlike an open
+  // shell midsurface their underside must not flip toward the viewing eye.
+  mesh.material.twoSidedLighting = false;
+  mesh.sideOrientation = BABYLON.Material.CounterClockWiseSideOrientation;
   mesh.baseColorHex = hex;
   mesh.parent = state.root;
   mesh.elementIds = groupIds(group);
@@ -3189,8 +3215,7 @@ function barSectionMesh(group, positions, conn, hex, reference) {
   mesh.metadata = reference ? null : { feGroup: group, faceElements: mesh.sectionGeometry.faceElements };
   mesh.renderingGroupId = reference ? 1 : BAR_RENDER_GROUP;
   if (reference) {
-    mesh.material.diffuseColor = color3(hex);
-    mesh.material.emissiveColor = color3(hex).scale(0.12);
+    setSurfaceLighting(mesh.material, color3(hex));
   } else {
     state.deformable.push({ mesh, barSection: true });
     state.barMeshes.push(mesh);
@@ -3321,7 +3346,7 @@ function* buildModelSteps(data, options = {}) {
   state.panelIndex=WingStiffenedPanels.index(data);
   const panelToggle=document.getElementById("show-panels");panelToggle.disabled=!state.panelIndex.panels.length;
   document.getElementById("stiffened-panel-note").textContent=state.panelIndex.panels.length?
-    state.panelIndex.panels.length+" panels; each P label matches the panel property tables. Dark edges show individual elements. Each color joins a normal stringer segment with its skin; other model entities are hidden. "+(data.stiffened_panels.coverage?.unassigned_shells||0)+" shells have no normal stringer and remain outside the panels.":"No stiffened panels: this mesh has no normal stringer segments between ribs.";
+    state.panelIndex.panels.length+" panels; each P label matches the panel property tables. Each color joins a normal stringer segment with its skin. Shell and beam visibility is controlled by Panels while it is on; all other entity controls remain available. "+(data.stiffened_panels.coverage?.unassigned_shells||0)+" shells have no normal stringer and remain outside the panels.":"No stiffened panels: this mesh has no normal stringer segments between ribs.";
   updateViewPlanes(data);
 
   // Structural element groups.
@@ -3525,37 +3550,45 @@ function* buildModelSteps(data, options = {}) {
 function setPanelDisplay(enabled,redraw=true){
   enabled=!!enabled&&!!state.panelIndex?.panels.length;
   if(enabled&&!state.panelView){
+    // Restore the underlying model before taking another isolation snapshot.
+    // Otherwise a tank-only view becomes the saved state and hides skins again
+    // when panel coloring is later replaced by sensitivity or FE results.
+    restoreFuelIsolation();
     state.propertyDisplay?.setEnabled(false);
     clearSensitivityMap();
-    const controls=new Map(["show-deformed-aero","show-reference-aero","show-undeformed","show-aero-overlay"].map(id=>[id,document.getElementById(id)?.checked]));
-    const names=[...state.layers.keys()];
     const previous=new Map();
-    for(const name of new Set(names)){
-      const layer=state.layers.get(name);if(!layer)continue;previous.set(name,layer.visible);
-      const group=state.data?.groups?.find(g=>g.name===name),on=name==="MESH_EDGES"||!!group&&group.panel_id!=null;
+    for(const group of state.data?.groups||[]){
+      if(!["quad","tria","bar"].includes(group.kind))continue;
+      const name=group.name,layer=state.layers.get(name);if(!layer)continue;previous.set(name,layer.visible);
+      const on=group.panel_id!=null;
       layer.visible=on;for(const mesh of layer.meshes)mesh.setEnabled(on);
       const checkbox=document.getElementById("layer-"+name);if(checkbox)checkbox.checked=on;
     }
-    state.panelView={previous,controls,contour:WingStiffenedPanels.contour(state.panelIndex)};
+    state.panelView={previous,contour:WingStiffenedPanels.contour(state.panelIndex)};
   }else if(!enabled&&state.panelView){
-    const {previous,controls}=state.panelView;state.panelView=null;
-    for(const [id,checked]of controls||[]){const control=document.getElementById(id);if(control)control.checked=checked;}
+    const {previous}=state.panelView;state.panelView=null;
     for(const [name,visible]of previous){const layer=state.layers.get(name);if(!layer)continue;layer.visible=visible;for(const mesh of layer.meshes)mesh.setEnabled(visible);const cb=document.getElementById("layer-"+name);if(cb)cb.checked=visible;}
   }
   document.getElementById("show-panels").checked=enabled;
+  // A structural layer can contain both line and full-section meshes.
+  // Restoring its switch must still respect the selected beam representation.
+  applyBeamStyle();syncMeshEdges();syncLayerGroupControls();
   if(redraw&&state.data){syncResultOverlays();applyContour();syncLayerGroupControls();state.annotations?.invalidate();}
 }
 
 function enforcePanelIsolation(){
   if(!state.panelView)return;
   const panelGroups=new Set((state.data?.groups||[]).filter(g=>g.panel_id!=null).map(g=>g.name));
+  const sections=document.getElementById("beam-style").value==="sections";
   for(const name of state.panelView.previous.keys()){
-    if(panelGroups.has(name)||name==="MESH_EDGES")continue;
     const layer=state.layers.get(name);if(!layer)continue;
-    layer.visible=false;for(const mesh of layer.meshes)mesh.setEnabled(false);
-    const checkbox=document.getElementById("layer-"+name);if(checkbox)checkbox.checked=false;
+    const on=panelGroups.has(name);layer.visible=on;
+    for(const mesh of layer.meshes){const representation=!mesh.barRepresentation||mesh.barRepresentation===(sections?"sections":"lines")||mesh.barRepresentation==="lines"&&!mesh.hasSectionShape;if(mesh.isEnabled()!==!!(on&&representation))mesh.setEnabled(on&&representation);}
+    const checkbox=document.getElementById("layer-"+name);if(checkbox)checkbox.checked=on;
   }
 }
+
+function panelControlsLayer(name){return!!state.panelView?.previous.has(name);}
 
 // Only draw edges belonging to visible shells, retaining opaque depth so
 // hidden ribs/lower surfaces do not bleed through an isolated skin.
@@ -3630,10 +3663,13 @@ function appliedMomentHint() {
 }
 
 function syncLayerGroupControls() {
-  for (const { checkbox, count, names, rows } of state.layerGroupControls.values()) {
+  const panelLockNote="Panels controls shell and beam visibility. Turn Panels off to choose these components.";
+  for (const [groupId,{ checkbox, count, names, rows }] of state.layerGroupControls) {
     const available = names.filter(modelEntityLayerAvailable);
     const enabled = available.filter(name => state.layers.get(name)?.visible).length;
-    checkbox.disabled = !available.length;
+    const locked=!!state.panelView&&["shells","beams"].includes(groupId);
+    checkbox.disabled = locked||!available.length;checkbox.title=locked?panelLockNote:"";
+    const fieldset=document.getElementById("entity-group-"+groupId);if(fieldset){fieldset.dataset.panelLocked=String(locked);fieldset.title=locked?panelLockNote:"";}
     checkbox.checked = !!available.length && enabled === available.length;
     checkbox.indeterminate = enabled > 0 && enabled < available.length;
     checkbox.setAttribute("aria-checked", checkbox.indeterminate ? "mixed" : String(checkbox.checked));
@@ -3641,14 +3677,15 @@ function syncLayerGroupControls() {
     for (const name of names) {
       const rowControl = document.getElementById("layer-" + name);
       if (rowControl) {
-        rowControl.disabled = !modelEntityLayerAvailable(name);
-        rowControl.title = rowControl.disabled ? "Available when a deformed result is displayed" : name === "AERO_MOMENTS" ? appliedMomentHint() : "";
+        rowControl.disabled = locked||!modelEntityLayerAvailable(name);
+        rowControl.title = locked?panelLockNote:rowControl.disabled ? "Available when a deformed result is displayed" : name === "AERO_MOMENTS" ? appliedMomentHint() : "";
       }
     }
   }
   for(const {checkbox,names}of state.layerRowControls.values()){
     const available=names.filter(modelEntityLayerAvailable),enabled=available.filter(name=>state.layers.get(name)?.visible).length;
-    checkbox.disabled=!available.length;checkbox.checked=!!available.length&&enabled===available.length;
+    const locked=names.some(panelControlsLayer);
+    checkbox.disabled=locked||!available.length;checkbox.title=locked?panelLockNote:!available.length?"Available when a deformed result is displayed":"";checkbox.checked=!!available.length&&enabled===available.length;
     checkbox.indeterminate=enabled>0&&enabled<available.length;
     checkbox.setAttribute("aria-checked",checkbox.indeterminate?"mixed":String(checkbox.checked));
   }
@@ -3700,8 +3737,8 @@ function buildLayerPanel() {
       cb.onchange=()=>setModelEntitiesVisible(item.names,cb.checked);
       state.layerRowControls.set(group.id+":"+item.key,{checkbox:cb,names:item.names});
       const sw = document.createElement("span"); sw.className = "swatch";
-      sw.style.background=group.id==="loads"?"linear-gradient(90deg, #ef5f6b 0% 33.33%, #4cc38a 33.33% 66.66%, #56a8f5 66.66% 100%)":item.color;
-      if(group.id==="loads")sw.title="Global X red, Y green, Z blue";
+      sw.style.background=group.id==="loads"&&name!=="VLM_FORCES"?"linear-gradient(90deg, #ef5f6b 0% 33.33%, #4cc38a 33.33% 66.66%, #56a8f5 66.66% 100%)":item.color;
+      if(group.id==="loads")sw.title=name==="VLM_FORCES"?"Magenta: signed panel-normal pressure force":"Global X red, Y green, Z blue";
       const text = document.createElement("span"); text.className = "layer-name"; text.textContent = item.label;
       const count = document.createElement("span"); count.className = "count"; count.textContent = item.count;
       row.append(cb, sw, text, count); fieldset.appendChild(row);
@@ -3762,7 +3799,7 @@ function syncAxesControls() {
 
 function setLayerVisible(name, on) {
   on = !!on;
-  if(on&&name!=="MESH_EDGES"&&state.panelView&&state.panelView.previous.has(name)&&!state.data?.groups?.some(g=>g.name===name&&g.panel_id!=null))setPanelDisplay(false);
+  if(panelControlsLayer(name)){if(!state.edgeUpdateBatch)syncLayerGroupControls();return;}
   if (on && !modelEntityLayerAvailable(name)) on = false;
   if (name === "VLM_PRESSURE" && state.vlm) {
     const field = document.getElementById("vlm-field");
@@ -4017,6 +4054,13 @@ function restoreBaseline() {
   pushPositions(state.baseline);
 }
 
+function updateSurfaceNormals(mesh, positions) {
+  if (!mesh.surfaceNormals) return;
+  BABYLON.VertexData.ComputeNormals(positions, mesh.surfaceIndices, mesh.surfaceNormals,
+    { useRightHandedSystem: state.scene.useRightHandedSystem });
+  mesh.updateVerticesData(BABYLON.VertexBuffer.NormalKind, mesh.surfaceNormals);
+}
+
 function pushPositions(dp, rotations, rotationScale = 1) {
   state.geometryTools?.setPose(dp, rotations, rotationScale);
   const base = state.baseline;
@@ -4069,6 +4113,7 @@ function pushPositions(dp, rotations, rotationScale = 1) {
       state.aeroDisplay?.updateNormals(d.mesh);
     } else if (d.map === null) {
       d.mesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, dp, true, false);
+      updateSurfaceNormals(d.mesh, dp);
     } else {
       const buf = d.buf;
       const map = d.map;
@@ -4079,6 +4124,7 @@ function pushPositions(dp, rotations, rotationScale = 1) {
         buf[3 * v + 2] = dp[3 * n + 2] + (d.offsets ? d.offsets[3 * v + 2] : 0);
       }
       d.mesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, buf, true, false);
+      updateSurfaceNormals(d.mesh, buf);
     }
   }
   for (const m of state.markers) {
@@ -4275,8 +4321,7 @@ function applyContour() {
     });
     mesh.updateVerticesData(BABYLON.VertexBuffer.ColorKind, colors);
     if (mesh.sectionGeometry) {
-      mesh.material.disableLighting = barContour;
-      mesh.material.emissiveColor = BABYLON.Color3.White().scale(barContour ? 1 : .15);
+      setSurfaceLighting(mesh.material, BABYLON.Color3.White());
     }
   }
   for (const mesh of state.shellMeshes) {
@@ -4284,17 +4329,14 @@ function applyContour() {
     const colors = new Float32Array(nv * 4);
     if (!c) {
       colors.fill(1);
-      mesh.material.diffuseColor = color3(mesh.baseColorHex);
-      mesh.material.emissiveColor = color3(mesh.baseColorHex).scale(0.16);
-      mesh.material.disableLighting = false;
+      setSurfaceLighting(mesh.material, color3(mesh.baseColorHex));
       if(mesh.fallbackElements?.some(Boolean)) {
         const base=color3(mesh.baseColorHex);
         for(let e=0;e<mesh.fallbackElements.length;e++) {
           const rgb=mesh.fallbackElements[e] ? [1,.08,.12] : [base.r,base.g,base.b];
           for(let k=0;k<mesh.nodesPerElement;k++) colors.set([...rgb,1],4*(e*mesh.nodesPerElement+k));
         }
-        mesh.material.diffuseColor=BABYLON.Color3.White();
-        mesh.material.emissiveColor=BABYLON.Color3.White().scale(.16);
+        setSurfaceLighting(mesh.material, BABYLON.Color3.White());
       }
     } else {
       for (let e = 0; e < nv / mesh.nodesPerElement; e++) {
@@ -4306,9 +4348,7 @@ function applyContour() {
           colors[4 * i + 2] = rgb[2]; colors[4 * i + 3] = 1;
         }
       }
-      mesh.material.diffuseColor = new BABYLON.Color3(1, 1, 1);
-      mesh.material.emissiveColor = BABYLON.Color3.White();
-      mesh.material.disableLighting = true;
+      setSurfaceLighting(mesh.material, BABYLON.Color3.White());
     }
     mesh.setVerticesData(BABYLON.VertexBuffer.ColorKind, colors, true);
   }
@@ -4746,7 +4786,7 @@ function syncFuelControls() {
 
 function syncFuelResultOverlay(contour = contourValues()) {
   const layer = state.layers.get("FUEL_TANK"), note = document.getElementById("fuel-display-note");
-  const suspended = !!(layer?.visible && contour);
+  const suspended = !!(layer?.visible && contour && contour.kind!=="panels");
   if (layer) for (const mesh of layer.meshes) mesh.setEnabled(layer.visible && !suspended);
   if (note) note.textContent = suspended ? "Fuel overlay is hidden while FE result colors are active." : "";
 }
@@ -4766,12 +4806,23 @@ function addFuelTank(fuel) {
   syncFuelControls();
 }
 
+function restoreFuelIsolation() {
+  const saved=state.fuelIsolation;if(!saved)return false;
+  state.fuelIsolation=null;const batching=state.edgeUpdateBatch;state.edgeUpdateBatch=true;
+  try{for(const [name,visible]of saved)setLayerVisible(name,visible);}
+  finally{state.edgeUpdateBatch=batching;if(!batching){syncMeshEdges();syncLayerGroupControls();}}
+  syncFuelControls();return true;
+}
+
 function isolateFuelTank() {
   if (!state.layers.has("FUEL_TANK")) return;
   if (state.fuelIsolation) {
-    const saved = state.fuelIsolation; state.fuelIsolation = null;
-    for (const [name, visible] of saved) setLayerVisible(name, visible);
+    restoreFuelIsolation();
   } else {
+    // Only one temporary isolation may own structural visibility at a time.
+    if(state.panelView)setPanelDisplay(false);
+    state.propertyDisplay?.setEnabled(false);
+    clearSensitivityMap();
     state.fuelIsolation = new Map(Array.from(state.layers, ([name, layer]) => [name, layer.visible]));
     state.contourIdx = 0;
     document.getElementById("contour-select").value = "0";
@@ -4800,25 +4851,25 @@ function rebuildVlmForceArrows() {
   previous?.meshes.forEach(mesh => mesh.dispose(false, true));
   state.layers.delete("VLM_FORCES");
   const vlm = activeLoads()?.vlm;
-  if (!vlm?.forces || !vlm.centers || !state.scene) {
+  if (!vlm?.xyz || !vlm.conn || !state.scene) {
     if (note) note.textContent = "Panel arrows are available for Aerodynamic (VLM) cases after mesh creation.";
     syncVlmControls(); return;
   }
-  let maxForce = 0;
-  for (const c of modelCases()) {
-    if (!c.loads?.vlm?.forces) continue;
-    const values = asF32(c.loads.vlm.forces);
-    for (let i=0; i<values.length; i+=3) maxForce = Math.max(maxForce, Math.hypot(values[i],values[i+1],values[i+2]));
+  let maxForce=0;
+  for(const c of modelCases())maxForce=Math.max(maxForce,WingLoadGlyphs.panelNormalForces(c.loads?.vlm).peak);
+  const normalLoads=WingLoadGlyphs.panelNormalForces(vlm),scale=maxForce>0?state.diag*.1*multiplier/maxForce:0,points=[],glyphs=[];
+  for(const record of normalLoads.records){
+    const vertices=WingLoadGlyphs.vectorArrow(record.force,{scale,diag:state.diag});if(!vertices.length)continue;
+    const first_vertex=points.length/3;
+    for(const p of vertices)points.push(record.position[1]+p[1],record.position[2]+p[2],record.position[0]+p[0]);
+    glyphs.push({...record,first_vertex,vertex_count:vertices.length,scale});
   }
-  const scale = maxForce > 0 ? state.diag * .1 * multiplier / maxForce : 0;
-  const centers=asF32(vlm.centers),forces=asF32(vlm.forces),records=[];
-  for(let i=0;i<vlm.count;i++)records.push({panel_id:i+1,position:Array.from(centers.subarray(3*i,3*i+3)),force:Array.from(forces.subarray(3*i,3*i+3))});
-  const meshes=loadComponentMeshes("VLM_FORCES",records,{scale,metadata:{forceScale:scale,multiplier,panelCount:vlm.count}});
-  addLayer("VLM_FORCES",EXTRA_STYLE.VLM_FORCES.label,EXTRA_STYLE.VLM_FORCES.color,
-    vlm.count+" panel force vectors",meshes);
-  setLayerVisible("VLM_FORCES", visible);
-  if (note) note.textContent = maxForce > 0 ? eng(scale, 5) + " m/N · common scale across cases. Arrows include each case's load multiplier; changing their size does not change the loads." :
-    "All panel forces are zero; no arrows are drawn.";
+  const mesh=lineMesh("VLM_FORCES",Float32Array.from(points),Int32Array.from({length:points.length/3},(_,i)=>i),EXTRA_STYLE.VLM_FORCES.color,1,false);
+  if(mesh){mesh.renderingGroupId=2;mesh.metadata={forceScale:scale,multiplier,panelCount:vlm.count,glyphs,force_basis:"signed panel-normal pressure force",invalidPanels:normalLoads.invalid};}
+  addLayer("VLM_FORCES",EXTRA_STYLE.VLM_FORCES.label,EXTRA_STYLE.VLM_FORCES.color,glyphs.length+" normal arrows",mesh?[mesh]:[]);
+  setLayerVisible("VLM_FORCES",visible);
+  if(note)note.textContent=(maxForce>0?eng(scale,5)+" m/N; common scale across cases. Magenta arrows show signed panel-normal pressure force (pressure times area), including the load multiplier. The full force, including tangential components, remains applied at the RBE3s.":"All panel-normal forces are zero; no arrows are drawn.")+
+    (normalLoads.invalid.length?" "+normalLoads.invalid.length+" invalid panel geometries/loads were omitted.":"");
 }
 
 function buildCaseSelectors() {

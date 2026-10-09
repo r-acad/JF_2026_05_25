@@ -647,20 +647,20 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 #log-wrap.panel-collapsed { height: auto; min-height: 0; }
 #log { contain: content; overflow-anchor: none; }
 #log-retention, #solver-progress { flex: 0 0 auto; margin: 0 0 8px; font-size: 11px; line-height: 1.4; }
-#solver-progress { color: #e8eef6; padding: 8px; border: 1px solid #634047; border-radius: 4px; }
+#solver-progress { color: #e8eef6; padding: 8px; border: 1px solid #3e668d; border-radius: 4px; }
 @keyframes jfem-running-flash {
-  0%, 49.99% { background-color: #ae2434; color: #fff; }
-  50%, 100% { background-color: #fff; color: #ae2434; }
+  0%, 49.99% { background-color: #175aa0; color: #fff; }
+  50%, 100% { background-color: #fff; color: #175aa0; }
 }
 .jfem-running { animation: jfem-running-flash 1.6s step-end infinite; }
-#jfem-running { padding: 4px 8px; border: 1px solid #d65160; border-radius: 4px; font-size: 11px; font-weight: 700; white-space: nowrap; }
-#tab-log.jfem-running { border-bottom: 2px solid #e36270; }
-#run-badge.jfem-running { border-color: #d65160; }
+#jfem-running { padding: 4px 8px; border: 1px solid #72b6f0; border-radius: 4px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+#tab-log.jfem-running { border-bottom: 2px solid #72b6f0; }
+#run-badge.jfem-running { border-color: #72b6f0; }
 #log-download { color: #72bcff; text-decoration: none; margin-left: 5px; }
 #log-download:hover, #log-download:focus-visible { color: #c3e2ff; text-decoration: underline; }
 .workspace-live:has(#jfem-running:not([hidden])) #mesh-status[data-state="running"] { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  .jfem-running { animation: none; background-color: #ae2434; color: white; }
+  #jfem-running, #tab-log.jfem-running, #run-badge.jfem-running { animation: none; transition:none; background-color: #175aa0; color: white; }
 }
 #panel-deck { height: 100%; min-height: 0; }
 #deck-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
