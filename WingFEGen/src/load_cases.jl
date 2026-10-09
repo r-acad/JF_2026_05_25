@@ -52,6 +52,7 @@ end
 
 """Base case 1 plus enabled extras, with each case's inherited effective inputs."""
 function load_case_specs(p::AbstractDict)
+    haskey(p,"imported.cases")&&return imported_case_specs(p)
     base = copy(p)
     base["loads.cases"] = Any[]
     label = strip(String(get(p, "loads.label", "Load case 1")))

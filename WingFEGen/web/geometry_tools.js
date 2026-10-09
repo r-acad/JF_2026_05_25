@@ -126,6 +126,7 @@
     const changed=current!==state.baseline;
     if(selectedFrame?.eid!==state.selectedElement||axisMeshes.length!==3)clearFrame();
     selectedFrame=g.kind==="bar"?barFrame(baseline,displayed,g.orient?toView(point(options.decodeFloat(g.orient),index)):axis("y"),g.properties?.section,pose?.rotations?nodes.map(n=>point(pose.rotations,n)):null,pose?.rotationScale??1,options.sections):shellFrame(baseline,displayed,axis("x"),axis("y"));
+    selectedFrame.origin=state.panelExplosion?.point(state.selectedElement,selectedFrame.origin)||selectedFrame.origin;
     selectedFrame.eid=state.selectedElement;selectedFrame.kind=g.kind;
     const edges=displayed.map((p,i)=>Math.hypot(...sub(p,displayed[(i+1)%displayed.length]))).filter(n=>n>0),size=Math.max(state.diag*.008,Math.min(Math.min(...edges)*.3,state.diag*.05));
     for(const [i,name]of ["x","y","z"].entries()){const color={x:"#ef5f6b",y:"#4cc38a",z:"#56a8f5"}[name],origin=new B.Vector3(...selectedFrame.origin),vector=new B.Vector3(...selectedFrame[name]).scale(size),tip=origin.add(vector),direction=vector.normalizeToNew(),side=B.Vector3.Cross(direction,Math.abs(direction.y)<.9?B.Axis.Y:B.Axis.X).normalize().scale(size*.08),back=tip.subtract(direction.scale(size*.22)),lines=[[origin,tip],[tip,back.add(side)],[tip,back.subtract(side)]];

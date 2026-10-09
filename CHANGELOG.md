@@ -6,6 +6,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **WingFEGen native-deck workflow and display tools.** Read Nastran retains
+  uploaded deck/INCLUDE sources, native identifiers and cases for ordinary
+  analysis, property inspection and supported static analytic sensitivities.
+  Studies embed the sources. Add rigid panel explosion, adjustable camera fill,
+  filter help and unit-aware sensitivity-table color scales. Ground elevation
+  appears only with the ground visible. Sensitivity workers reuse the native
+  package cache and report actual loading/compilation/solve stages.
+
 - **WingFEGen rendering and visibility corrections.** Unavailable Results labels
   are gray and running indicators alternate blue/white. VLM panel arrows again
   show magenta signed normal pressure forces. Panel isolation locks shell/beam
@@ -50,6 +58,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
   structural geometric formulation remain unchanged; dead loads are the default.
 
 ### Fixed
+- **Sensitivity shell visibility.** Opaque polished aerodynamic overlays now
+  yield to wireframe while visible shells show contours. The material preference
+  is retained for aero-only/uncolored views. Automatic primal-result loading
+  explicitly restores structural layers from temporary fuel isolation.
+
 - **WingFEGen result and Study state.** FE, sensitivity and VLM legends keep
   independent saved palettes. Results separates FE Results from Sensitivity,
   exposes the sensitivity primal solution and marks stale fields explicitly.

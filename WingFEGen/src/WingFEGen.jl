@@ -72,7 +72,10 @@ include("sensitivity_analytic_beams.jl")
 include("sensitivity_analytic_loads.jl")
 include("sensitivity_analytic_geometric.jl")
 include("sensitivity_analytic.jl")
+include("nastran_import.jl")
+include("nastran_import_sensitivity.jl")
 include("server.jl")
+include("nastran_import_server.jl")
 
 export Airfoil, naca_airfoil, Wing, make_wing, Model, BoxGrid
 export default_params, read_input, validate_params, params_to_toml

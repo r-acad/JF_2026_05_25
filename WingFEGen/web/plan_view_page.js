@@ -4,6 +4,13 @@
   const status=document.getElementById("plan-window-status");
   let view=null,values={},connected=false,revision=0,lastSeen=Date.now();
   const send=(type,payload={})=>{if(parent&&!parent.closed)parent.postMessage({channel:CHANNEL,token,type,revision,...payload},origin);};
+  function refreshModel(){
+    const host=document.getElementById("detached-plan-view");host.hidden=!!values?._unavailable;
+    status.classList.toggle("plan-window-disconnected",!!values?._unavailable);
+    status.textContent=values?._unavailable||"Live from Study";
+    if(values?._unavailable)document.body.insertBefore(status,host);
+    else{view?.refresh();document.querySelector(".dpv-help")?.prepend(status);}
+  }
   window.addEventListener("message",event=>{
     const data=event.data;
     if(event.source!==parent||event.origin!==origin||!data||data.channel!==CHANNEL||data.token!==token)return;
@@ -14,11 +21,8 @@
       if(!view)view=WingDimensionedPlanView.install(document.getElementById("detached-plan-view"),{
         readValues:()=>values,onChange(){send("changed",{saved:view.capture()});}
       });
-      view.restore(data.saved);view.refresh();connected=true;
-      status.textContent="Live from Study";
-      status.classList.remove("plan-window-disconnected");
-      document.querySelector(".dpv-help").prepend(status);
-    }else if(data.type==="values"&&view){values=data.values;view.refresh();}
+      view.restore(data.saved);connected=true;refreshModel();
+    }else if(data.type==="values"&&view){values=data.values;refreshModel();}
     else if(data.type==="restore"&&view){revision=data.revision;view.restore(data.saved);}
     else if(data.type==="disconnected")disconnect();
   });

@@ -2,11 +2,13 @@ sensitivity_canonical(v::AbstractDict)=[(String(k),sensitivity_canonical(v[k])) 
 sensitivity_canonical(v::AbstractVector)=sensitivity_canonical.(v)
 sensitivity_canonical(v)=v
 function sensitivity_definition(params;version=2,omit_empty_panels=true)
+    haskey(params,"imported.source")&&return [("imported_signature",String(params["imported.source"]["signature"]))]
     sensitivity_canonical(Dict(k=>v for (k,v) in params if !startswith(k,"sensitivity.")&&
         (version==1||!startswith(k,"view."))&&
         !(version==2&&omit_empty_panels&&k=="properties.panels"&&v isa AbstractVector&&isempty(v))))
 end
 function sensitivity_model_signature(m;version=2,legacy_empty_panels=false)
+    is_imported_model(m)&&return m.params["imported.source"]["signature"]
     data=(params=sensitivity_definition(m.params;version,omit_empty_panels=!legacy_empty_panels),
         nodes=m.node_ids,xyz=m.xyz,groups=[(g.pid,g.eids,g.conn) for g in m.groups])
     bytes2hex(SHA.sha256(JSON.json(data)))
@@ -27,6 +29,7 @@ tests; production analytic mode has no implicit finite-difference fallback.
 """
 function compute_sensitivity(m,raw,dir;native=nothing,solve,progress=(data)->nothing,
                              cancelled=()->false,context_builder=nothing,sample_evaluator=nothing)
+    is_imported_model(m)&&return compute_imported_sensitivity(m,raw,dir;native,solve,progress,cancelled)
     native===nothing&&(context_builder===nothing||sample_evaluator===nothing)&&
         throw(ArgumentError("Discrete adjoint sensitivity requires the native assembled-operator backend"))
     request=sensitivity_request(m,raw);catalog=sensitivity_catalog(m)

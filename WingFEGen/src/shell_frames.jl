@@ -84,6 +84,7 @@ shell_material_cid(m::Model, gr::ElemGroup, e::Int) = gr.eids[e]
 
 function shell_result_rotation(m::Model, gr::ElemGroup, e::Int;
                                path=stringer_path(m.grid.wing,m.params))
+    is_imported_model(m)&&return (1.,0.) # native geometric result axes; no wing reorientation
     gx, gy, _ = shell_geometric_frame(element_points(m, gr, e))
     x, _, _ = shell_material_frame(m, gr, e;path)
     return (sum(x .* gx), sum(x .* gy))

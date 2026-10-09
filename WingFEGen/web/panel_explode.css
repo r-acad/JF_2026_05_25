@@ -1,0 +1,6 @@
+#panel-explosion-controls{margin:14px 0;padding:12px;border:1px solid #34495b;border-radius:5px;min-width:0}
+#panel-explosion-controls legend{padding:0 5px;color:#c8d8e8}
+#panel-explosion-controls .display-control{display:flex;flex-direction:column;align-items:stretch;gap:5px;margin:12px 0}
+#panel-explosion-controls .display-control input,#panel-explosion-controls .display-control select{box-sizing:border-box;width:100%;max-width:100%}
+#panel-explosion-controls .pick-note{margin-bottom:0}
+#explode-error{color:#ff8c8c}

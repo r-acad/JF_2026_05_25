@@ -57,6 +57,7 @@ function sensitivity_set!(p,d,value)
 end
 
 function sensitivity_catalog(m::Model)
+    is_imported_model(m)&&return imported_sensitivity_catalog(m)
     p=m.params;candidates=Dict{String,Any}[]
     context=register_panel_properties!(p,m.grid)
     add(id,label,path,value,unit;scale=1.)=push!(candidates,Dict{String,Any}(
@@ -148,6 +149,7 @@ function sensitivity_request(m,raw)
     end
     request["objective"]=obj;request["case_id"]=case
     request["derivative_method"]=get(request,"derivative_method","analytic")
+    is_imported_model(m)&&request["derivative_method"]!="analytic"&&throw(ArgumentError("Imported-deck sensitivities require analytic derivatives"))
     step=get(request,"relative_step",.01)
     request["derivative_method"]=="analytic"&&(step===nothing||step=="")&&(step=.01)
     step isa Real&&!(step isa Bool)&&isfinite(step)&&1e-4<=step<=.1||throw(ArgumentError("Set a sensitivity step between 0.01% and 10%"))

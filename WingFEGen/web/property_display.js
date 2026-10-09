@@ -38,15 +38,16 @@
  }
  const finite=value=>typeof value==='number'&&Number.isFinite(value);
  const scaled=(value,factor=1)=>finite(value)?value*factor:undefined;
+ const sandwich=p=>p?.plies?.length===3&&(p.construction==='sandwich'||finite(p.face_thickness_m)&&finite(p.core_thickness_m));
  function material(p,role){
   if(p?.type!=='PCOMP')return role==='single'?p?.material:undefined;
   const plies=p.plies;
   if(!Array.isArray(plies)||!plies.length||role==='single')return undefined;
   // The generator writes explicit face/core/face plies. Do not guess another layup.
-  if(plies.length!==3)return undefined;
+  if(!sandwich(p))return undefined;
   return plies[role==='face'?0:1]?.material;
  }
- function materialLabel(m){return Number.isInteger(m?.id)?'MAT1 '+m.id+(m.name?' · '+m.name:''):null;}
+ function materialLabel(m){return Number.isInteger(m?.id)?(m.type||'MAT1')+' '+m.id+(m.name?' · '+m.name:''):null;}
  function value(group,field,settings){
   const p=group.properties||{},beam=group.kind==='bar',s=p.section||{},d=s.dimensions_m||[];
   if(field==='pid')return Number.isInteger(group.pid)?{key:String(group.pid),label:'PID '+group.pid}:undefined;
@@ -54,10 +55,10 @@
    if(p.type==='PCOMP'){
     if(!Array.isArray(p.plies)||!p.plies.length)return undefined;
     const names=p.plies.map(ply=>materialLabel(ply.material));if(names.some(n=>!n))return undefined;
-    const standard=p.plies.length===3&&p.plies[0].material.id===p.plies[2].material.id;
+    const standard=sandwich(p)&&p.plies[0].material.id===p.plies[2].material.id;
     return{key:'PCOMP:'+p.plies.map(ply=>ply.material.id).join('/'),label:standard?'Faces: '+names[0]+'; core: '+names[1]:'Plies: '+names.join(' / ')};
    }
-   const label=materialLabel(p.material);return label?{key:'MAT1:'+p.material.id,label}:undefined;
+   const label=materialLabel(p.material);return label?{key:(p.material.type||'MAT1')+':'+p.material.id,label}:undefined;
   }
   if(['E','nu','rho'].includes(field)){
    const m=material(p,settings.materialRole);return scaled(m?.[({E:'E_Pa',nu:'nu',rho:'rho_kg_m3'})[field]],field==='E'?1e-9:1);
@@ -92,14 +93,14 @@
   const indices=new Map(categories.map(c=>[c.key,c.value]));let min=Infinity,max=-Infinity;
   for(const group of groups){const scalar=field.categorical?indices.get(group.value.key):group.value;min=Math.min(min,scalar);max=Math.max(max,scalar);for(const eid of group.eids)byId.set(Number(eid),scalar);}
   if(!byId.size)min=max=0;
-  let note='Generated FEM properties · full element values; gray = not applicable or unavailable.';
+  let note=(data?.imported_deck?'Imported Nastran properties':'Generated FEM properties')+' · full element values; gray = not applicable or unavailable.';
   if(field.sample)note+=' '+roles[settings.materialRole]+'. No equivalent sandwich elastic modulus or Poisson ratio is assumed.';
   if(field.id==='mean_density')note+=' Shell areal mass divided by total thickness; this is a mass average, not an elastic equivalent.';
   if(field.id==='beam_J')note+=' J is the torsion constant used by the deck, including its PBARL approximation.';
   if(['beam_I1','beam_I2'].includes(field.id))note+=' About the section centroid in the beam’s local section frame.';
   return{kind:'properties',location:'element',domain:'all',name:field.group+' · '+field.label+(field.sample?' · '+roles[settings.materialRole]:''),
    unit:field.unit,field:field.id,materialRole:settings.materialRole,byId,min,max,categories:field.categorical?categories:undefined,
-   count:byId.size,total,caseLabel:'Generated model · independent of load case',note};
+   count:byId.size,total,caseLabel:(data?.imported_deck?'Imported deck':'Generated model')+' · independent of load case',note};
  }
  function create(host,options={}){
   const doc=host.ownerDocument;let settings={...defaults},current=null,lastData=null;

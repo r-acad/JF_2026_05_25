@@ -36,9 +36,22 @@ function bootstrap_write(file,data)
 end
 const WORKER_STARTED=time()
 const LAST_PROGRESS=Ref{Any}(Dict{String,Any}())
+const WORKER_TIMINGS=Dict{String,Any}()
 function progress(data)
     state=Dict{String,Any}(data);state["worker_seconds"]=time()-WORKER_STARTED
+    state["worker_timings"]=copy(WORKER_TIMINGS)
     LAST_PROGRESS[]=state;bootstrap_write("progress.json",state)
+end
+function measured_worker_stage(action,name)
+    measurement=@timed action()
+    WORKER_TIMINGS[name]=Dict("seconds"=>measurement.time,
+        "compile_seconds"=>get(measurement,:compile_time,0.),
+        "recompile_seconds"=>get(measurement,:recompile_time,0.),
+        "gc_seconds"=>measurement.gctime)
+    bootstrap_write("worker_timings.json",WORKER_TIMINGS)
+    println("[Timing] ",name,": ",round(measurement.time;digits=3),
+        " s (compilation ",round(get(measurement,:compile_time,0.);digits=3)," s)");flush(stdout)
+    measurement.value
 end
 const WORKER_STAGE=Ref("bootstrap")
 try
@@ -58,12 +71,18 @@ try
     LinearAlgebra.BLAS.set_num_threads(1)
     push!(LOAD_PATH,dirname(@__DIR__))
     WORKER_STAGE[]="generator dependencies"
-    include(joinpath(@__DIR__,"WingFEGen.jl"))
+    measured_worker_stage("generator_load") do
+        include(joinpath(@__DIR__,"WingFEGen.jl"))
+    end
     @eval const W=WingFEGen
     WORKER_STAGE[]="native solver"
-    progress(Dict("completed"=>0,"total"=>0,"detail"=>"Loading JFEM native solver; first compilation may take several minutes"))
-    @eval module SensitivityNative
-        include(joinpath(Main.REPOSITORY,"src","jfem_bootstrap.jl"))
+    include(joinpath(@__DIR__,"native_solver_loader.jl"))
+    progress(Dict("completed"=>0,"total"=>0,"phase"=>"bootstrap",
+        "detail"=>"Loading the cached JFEM solver package; an installation or source change may require precompilation"))
+    measured_worker_stage("native_package_load") do
+        # The ordinary launcher uses this package too. Including the same source
+        # in a new module bypasses its precompile cache on every sensitivity run.
+        @eval const SensitivityNative=load_cached_jfem(REPOSITORY)
     end
     WORKER_STAGE[]="saved model"
     model=try Base.invokelatest(W.Serialization.deserialize,joinpath(DIRECTORY,"model.jls")) catch failure
@@ -71,8 +90,22 @@ try
     end
     request=Base.invokelatest(W.JSON.parsefile,joinpath(DIRECTORY,"request.json"))
     WORKER_STAGE[]="adjoint analysis"
-    result=Base.invokelatest(W.compute_sensitivity,model,request,DIRECTORY;native=SensitivityNative,solve=path->Base.invokelatest(SensitivityNative.solve_model,
-        Base.invokelatest(SensitivityNative.bdf_to_model,path)),progress)
+    function solve_baseline(path)
+        progress(merge(LAST_PROGRESS[],Dict("detail"=>"Reading the baseline deck and building its native model; first-use compilation is measured separately")))
+        parsed=measured_worker_stage("baseline_parse") do
+            Base.invokelatest(SensitivityNative.bdf_to_model,path)
+        end
+        progress(merge(LAST_PROGRESS[],Dict("detail"=>"Assembling and solving the baseline; timings include any first-use compilation and physical result recovery")))
+        forward=measured_worker_stage("baseline_analysis") do
+            Base.invokelatest(SensitivityNative.solve_model,parsed)
+        end
+        WORKER_TIMINGS["native_analysis"]=get(forward,"timings",Dict())
+        bootstrap_write("worker_timings.json",WORKER_TIMINGS)
+        forward
+    end
+    result=Base.invokelatest(W.compute_sensitivity,model,request,DIRECTORY;native=SensitivityNative,solve=solve_baseline,progress)
+    result["worker_timings"]=copy(WORKER_TIMINGS)
+    result["worker_seconds"]=time()-WORKER_STARTED
     Base.invokelatest(W.sensitivity_json_write,joinpath(DIRECTORY,"result.json"),result)
 catch failure
     detail=sprint(showerror,failure,catch_backtrace())

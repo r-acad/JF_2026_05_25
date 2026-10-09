@@ -196,23 +196,29 @@ function sensitivity_saved_load(params,root,id;model=nothing)
     model_match=sensitivity_result_matches_model(result,model)
     topology_match=false;scope=nothing
     try
-        saved=sensitivity_deck_topology(directory)
-        groups=Any[]
-        for (pid,kind) in unique((e.pid,e.kind) for e in saved.elements)
-            push!(groups,Dict("pid"=>pid,"kind"=>kind,"eids"=>[e.eid for e in saved.elements if e.pid==pid&&e.kind==kind]))
+        if haskey(params,"imported.source")
+            topology_match=imported_saved_topology_matches(directory,model,result)
+            scope=model===nothing ? get(result,"scope",nothing) : sensitivity_scope(model,result["rows"])
+        else
+            saved=sensitivity_deck_topology(directory)
+            groups=Any[]
+            for (pid,kind) in unique((e.pid,e.kind) for e in saved.elements)
+                push!(groups,Dict("pid"=>pid,"kind"=>kind,"eids"=>[e.eid for e in saved.elements if e.pid==pid&&e.kind==kind]))
+            end
+            scope=sensitivity_scope_variables!(Dict{String,Any}("groups"=>groups),result["rows"])
+            topology_match=model!==nothing&&sensitivity_topology_matches(model,saved)
         end
-        scope=sensitivity_scope_variables!(Dict{String,Any}("groups"=>groups),result["rows"])
-        topology_match=model!==nothing&&sensitivity_topology_matches(model,saved)
     catch error
         push!(reasons,"The saved table is available; element mapping is unavailable: "*sprint(showerror,error))
     end
-    load_match=get(result,"load_application_version",nothing)==APPLIED_LOAD_VERSION
+    load_version=haskey(params,"imported.native") ? IMPORTED_LOAD_VERSION : APPLIED_LOAD_VERSION
+    load_match=get(result,"load_application_version",nothing)==load_version
     model_match||push!(reasons,model===nothing ? "Create the current FEM to check saved-result compatibility; the saved table is available now." : "The saved study definition differs from the current FEM.")
     topology_match||push!(reasons,"The saved element topology and coordinates have not been confirmed on the current FEM.")
     load_match||push!(reasons,"Historical result: this study uses a different or unrecorded inertia-moment application convention. Its values have not been recalculated.")
     compatibility=Dict("model_match"=>model_match,"topology_match"=>topology_match,"load_application_match"=>load_match,
         "is_current"=>model_match&&topology_match&&load_match,"map_allowed"=>model_match&&topology_match,
-        "reasons"=>reasons,"current_load_application_version"=>APPLIED_LOAD_VERSION)
+        "reasons"=>reasons,"current_load_application_version"=>load_version)
     result["scope"]=scope;result["compatibility"]=compatibility;result["source_path"]=joinpath(directory,"result.json")
     result["baseline_analysis"]=sensitivity_baseline_summary(directory)
     Dict("result"=>result,"source_path"=>result["source_path"],"compatibility"=>compatibility,"scope"=>scope)

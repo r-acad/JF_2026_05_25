@@ -121,6 +121,8 @@ function sensitivity_analytic_bar(native,op,wing,g,e,direction,state=nothing)
     eid=g.eids[e];section=section_definition(wing.params,g.pid)
     dims=_analytic_bar_direction(direction,"dimensions",zeros(length(section["dimensions_m"])))
     sd=sensitivity_analytic_section(section,dims)
+    # Imported offsets are fixed source-card data, independent of dimensions.
+    is_imported_model(wing)&&(sd=merge(sd,(offset_y=0.,doffset_y=0.)))
     bd=native.Solver._get_beam_element_data(eid,op.model,op.id_map,op.X,op.node_R)
     bd===nothing&&error("Native CBAR $eid was not found")
     bar=bd.beam;prop=bd.prop
@@ -141,7 +143,7 @@ function sensitivity_analytic_bar(native,op,wing,g,e,direction,state=nothing)
     ia=op.id_map[bar["GA"]];ib=op.id_map[bar["GB"]]
     R=T[1:3,1:3]*transpose(op.node_R[ia])
     doffset=sd.doffset_y.*vec(R[2,:]);offset=sd.offset_y.*vec(R[2,:])
-    norm(wa-offset)<=1e-10max(norm(offset),1.)||error("Analytic CBAR $eid offset does not match its generated section placement")
+    is_imported_model(wing)||norm(wa-offset)<=1e-10max(norm(offset),1.)||error("Analytic CBAR $eid offset does not match its generated section placement")
     dT[1:3,4:6]=-R*native.Solver.skew3(doffset)*op.node_R[ia]
     dT[7:9,10:12]=-R*native.Solver.skew3(doffset)*op.node_R[ib]
     Ke=transpose(T)*kernel.K*T

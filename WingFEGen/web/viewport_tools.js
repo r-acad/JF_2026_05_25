@@ -20,7 +20,7 @@
  function create({BABYLON:B=globalThis.BABYLON,scene,camera,engine,host,onView,onChange=()=>{},displayActions=[],ground=null,inspection=null,onSaveSVG=null,onExportError=null}){
   const labels={top:["Top","Top: look down global -Z, with global +X downwards"],iso:["Isometric","Isometric view"],side:["Side","Side: look along global +Y (span)"],front:["Front","Front: look aft along global +X"]};
   host.innerHTML="";host.setAttribute("role","toolbar");host.setAttribute("aria-label","Model views and display controls");
-  const buttons={};let disposed=false;
+  const buttons={};let disposed=false,collapsed=false;
   for(const name of [...Object.keys(VIEWS),"projection"]){
    const button=host.ownerDocument.createElement("button");button.type="button";button.id="view-"+name;button.className="viewport-tool";
    button.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true">'+ICONS[name]+'</svg><span></span>';host.appendChild(button);buttons[name]=button;
@@ -64,7 +64,7 @@
    inspectionSelect.disabled=value.disabled===true||!options.length;
    const active=value.active===true,button=buttons.inspect;button.disabled=value.disabled===true;button.setAttribute("aria-pressed",String(active));button.setAttribute("aria-label","Inspect entities");button.title=active?"Inspect is active. Left-click a visible entity matching the selected type.":"Open Inspect to pick visible entities and see their properties and results.";
   }
-  function syncDisplay(){for(const {action,button} of actionButtons){const value=action.read();button.disabled=value.disabled===true;button.querySelector("span").textContent=value.label;button.title=value.title;button.setAttribute("aria-label",value.title);button.setAttribute("aria-pressed",String(!!value.active));}if(groundInput){const value=ground.read();if(groundInput.value!==String(value.value))groundInput.value=String(value.value??'');groundInput.disabled=value.disabled===true;groundInput.setCustomValidity(value.error||'');}syncInspection();}
+  function syncDisplay(){for(const {action,button} of actionButtons){const value=action.read();button.disabled=value.disabled===true;button.querySelector("span").textContent=value.label;button.title=value.title;button.setAttribute("aria-label",value.title);button.setAttribute("aria-pressed",String(!!value.active));}if(groundInput){const value=ground.read();groundControl.hidden=collapsed||value.visible===false;if(groundInput.value!==String(value.value))groundInput.value=String(value.value??'');groundInput.disabled=value.disabled===true;groundInput.setCustomValidity(value.error||'');}syncInspection();}
   syncDisplay();
   const hide=host.ownerDocument.createElement("button"),show=host.ownerDocument.createElement("button");
   hide.type=show.type="button";hide.id="viewport-tools-hide";show.id="viewport-tools-show";
@@ -75,12 +75,11 @@
   hide.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 7 7-7 7"/></svg><span>Hide</span>';
   show.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h5v5H5zm9 0h5v5h-5zM5 14h5v5H5zm9 0h5v5h-5z"/></svg>';
   host.appendChild(hide);host.appendChild(show);
-  let collapsed=false;
   function collapse(value,notify=false,focus=false){
    const changed=collapsed!==value;collapsed=value;host.classList.toggle("is-collapsed",collapsed);
    for(const button of Object.values(buttons))button.hidden=collapsed;
    if(inspectionFilter)inspectionFilter.hidden=collapsed;
-   if(groundControl)groundControl.hidden=collapsed;
+   if(groundControl)groundControl.hidden=collapsed||ground.read().visible===false;
    hide.hidden=collapsed;show.hidden=!collapsed;
    hide.setAttribute("aria-expanded",String(!collapsed));show.setAttribute("aria-expanded",String(!collapsed));
    if(focus)(collapsed?show:hide).focus();

@@ -73,6 +73,7 @@ const state = {
   schema: [],
   values: {},
   inputFile: "",
+  importedDeck: null,
   data: null,
   engine: null,
   scene: null,
@@ -229,7 +230,8 @@ function solverActivity(running, progress = null) {
   if (running && !state.solverActivityToken) state.solverActivityToken = activity()?.begin("JFEM is running", {detail:"Solver output is available in Log."});
   if (running && progress && state.solverActivityToken) activity()?.update(state.solverActivityToken, {
     detail:(progress.solution ? "SOL" + progress.solution + " · " : "") +
-      (Number.isFinite(progress.target_percent) ? "Attempting " + progress.target_percent.toFixed(1) + "% load; accepted " + (progress.accepted_percent || 0).toFixed(1) + "%" : "See Log for solver progress.")});
+      (Number.isFinite(progress.target_percent) ? "Attempting " + progress.target_percent.toFixed(1) + "% load; accepted " + (progress.accepted_percent || 0).toFixed(1) + "%" : progress.message || "See Log for solver progress.")+
+      (!Number.isFinite(progress.target_percent)&&Number.isFinite(progress.stage_seconds)?" · "+progress.stage_seconds.toFixed(0)+" s in this stage":"")});
   if (!running && state.solverActivityToken) { activity()?.end(state.solverActivityToken); state.solverActivityToken = null; }
   if (progress) state.solverProgress = progress;
   else if (running) state.solverProgress = null;
@@ -246,7 +248,9 @@ function solverActivity(running, progress = null) {
     const percent = Number.isFinite(progress.target_percent) ? " · applied load target " + progress.target_percent.toFixed(2) + "%" : "";
     const accepted = Number.isFinite(progress.accepted_percent) ? " · last accepted " + progress.accepted_percent.toFixed(2) + "%" : "";
     status.textContent = label + (progress.solution ? "SOL" + progress.solution : "JFEM") + percent + accepted +
-      (progress.iteration ? " · iteration " + progress.iteration : "");
+      (progress.iteration ? " · iteration " + progress.iteration : "")+
+      (progress.message ? " · "+progress.message : "")+
+      (Number.isFinite(progress.stage_seconds)?" · "+progress.stage_seconds.toFixed(0)+" s":"");
     status.hidden = false;
   } else if (status && running) { status.textContent = "Starting solver…"; status.hidden = false; }
   const runBadge = document.getElementById("run-badge");
@@ -1091,6 +1095,7 @@ function currentSupportRibs() {
 }
 
 function formSignature(params) {
+  if(state.importedDeck)return state.importedDeck.signature;
   return JSON.stringify(state.schema.filter((s) => affectsModel(s.key)).map((s) => {
     if (["materials","shellmaterials","barmaterials"].includes(s.kind)) {
       const rows=params ? params[s.key]||[] : state.materialsEditor?.readDrafts()?.[s.key] ?? JSON.parse(document.getElementById("p-"+s.key).value||"[]");
@@ -1166,14 +1171,15 @@ function syncLeadingEdgeOrientation() {
 function analysisValidity() {
   const invalid = reason => ({current:false,reason});
   if (state.polling || state.solverStarting) return invalid("Analysis is running; waiting for matching completed results.");
-  if (state.modelDirty || resultsHavePendingDrafts() || document.querySelector?.(".planform-input-method.invalid")) return invalid("The model definition has changed or is incomplete. Run JFEM for matching results.");
+  if (state.modelDirty || resultsHavePendingDrafts() || !state.importedDeck&&document.querySelector?.(".planform-input-method.invalid")) return invalid("The model definition has changed or is incomplete. Run JFEM for matching results.");
   if (!state.resultCases?.size) return invalid("No analysis results are available. Run JFEM for this model.");
   if (!state.modelSignature || state.jobSignature !== state.modelSignature) return invalid("Existing results do not match the current model definition. Run JFEM again.");
-  const solution = document.getElementById("p-output.solution")?.value || state.values["output.solution"] || "101";
-  const cases = String(solution) === "103" && state.resultCases.size<=1 ? [{id:1}] : (state.data?.load_cases?.length ? state.data.load_cases.filter(c => c.enabled !== false) : [{id:1}]);
+  const solution = state.importedDeck?.solution || document.getElementById("p-output.solution")?.value || state.values["output.solution"] || "101";
+  const cases = state.importedDeck ? state.importedDeck.cases.filter(c => c.result_required !== false) :
+    String(solution) === "103" && state.resultCases.size<=1 ? [{id:1}] : (state.data?.load_cases?.length ? state.data.load_cases.filter(c => c.enabled !== false) : [{id:1}]);
   for (const c of cases) {
     const record = state.resultCases.get(Number(c.id));
-    const variants = String(solution) === "106" ? [record?.variants?.get("sol101"),record?.variants?.get("sol106")] : [record];
+    const variants = String(solution) === "106" && !state.importedDeck ? [record?.variants?.get("sol101"),record?.variants?.get("sol106")] : [record];
     if (variants.some(r => !r || r.available === false || !r.matches || r.signature&&r.signature!==state.modelSignature || (!r.static && !r.modes?.length)))
       return invalid("Matching results are missing for one or more load cases or analyses. Run JFEM again.");
     if (variants.some(r => /failed|cancelled|canceled|timeout|stopped/i.test(r.status || "") || r.convergence &&
@@ -1202,7 +1208,7 @@ function resultsHavePendingDrafts(){return !!state.panelTables?.hasDrafts?.();}
 function sensitivityResultValidity() {
   const result=state.sensitivityResult;
   const current=sensitivityResultsAvailable()&&!state.sensitivityBusy&&!state.modelDirty&&!resultsHavePendingDrafts()&&
-    !document.querySelector?.(".planform-input-method.invalid")&&
+    (state.importedDeck||!document.querySelector?.(".planform-input-method.invalid"))&&
     state.sensitivityMeta?.signature===state.modelSignature&&state.sensitivityMeta?.compatibility?.is_current===true&&
     (state.sensitivityMeta?.meshIdentity===undefined||state.sensitivityMeta.meshIdentity===state.meshIdentity)&&
     state.sensitivity?.isSetupCurrent?.()!==false&&
@@ -1295,6 +1301,7 @@ function syncLeadingEdgeFallbackNotice() {
 }
 
 function parameterEdited(key) {
+  if(state.importedDeck && key!=="sensitivity.settings")return;
   if (state.parameterLocks?.guard(key)) return;
   if(key.startsWith("airfoil."))state.airfoilEditor?.refresh?.();
   markStudyModified();
@@ -1375,7 +1382,7 @@ function readSurfacePreviewParams(module) {
 function installDimensionedPlanView() {
   if (typeof WingPlanViewWindow === "undefined") return;
   if (!state.planView) state.planView = WingPlanViewWindow.connect({
-    readValues: () => readSurfacePreviewParams(WingDimensionedPlanView),
+    readValues: () => state.importedDeck ? {_unavailable:"The current Study is an imported Nastran deck. Its original GRID coordinates are shown in the 3D viewport; a generated-wing planform does not apply."} : readSurfacePreviewParams(WingDimensionedPlanView),
     onChange() { state.values["view.plan_view"] = JSON.stringify(state.planView.capture()); markStudyViewModified(); },
     onError(message) { meshStatus(message, "error"); },
   });
@@ -1433,6 +1440,7 @@ function requestAutoMesh(delay = AUTO_MESH_DELAY_MS) {
 // One request owns the model at a time. Changes during a request remain
 // pending; unlocking schedules only the latest form state after its debounce.
 function scheduleAutoMesh() {
+  if(state.importedDeck)return;
   cancelAutoMeshTimer();
   if (!state.autoMeshPending || !state.autoMeshReady) return;
   if (!state.autoMeshEnabled) {
@@ -1482,6 +1490,7 @@ function syncManualMeshAction() {
 }
 
 function collectParams({includeView = false} = {}) {
+  if(state.importedDeck)return {imported_deck:{token:state.importedDeck.token}};
   state.panelTables?.assertValidDraft?.();
   state.parameterLocks?.enforce();
   state.planformInputs?.assertValidDraft();
@@ -1605,6 +1614,11 @@ async function buildModelResponsive(data, options = {}, token) {
 
 function logModelDetails(data){
   const groups=data.groups||[],count=kind=>groups.filter(g=>kind.includes(g.kind)).reduce((n,g)=>n+g.count,0);
+  if(data.imported_deck){
+    log("Imported FEM: "+count(["quad","tria"])+" displayed shells, "+count(["bar"])+" displayed bars, "+(data.rbe3?.count||0)+" source RBE3s. Original deck cards and case control remain authoritative.");
+    for(const item of data.load_cases||[])log("Native subcase "+item.id+" · "+item.label+"; original source loads and supports.");
+    return;
+  }
   log("FEM: "+count(["quad","tria"])+" shells, "+count(["bar"])+" bars; "+(data.rbe3?.count||0)+" rib-plane aerodynamic RBE3s and "+(data.fuel_rbe3?.count||0)+" mid-bay mass RBE3s.");
   const panels=data.stiffened_panels;
   if(panels)log("Stiffened panels: "+(panels.panels?.length||0)+"; each owns shell and normal-stringer properties. Runout bars retain their fixed properties.");
@@ -1706,16 +1720,18 @@ function setBusy(on) {
   updateAnalysisValidity();
   const disabled = on || state.sensitivityBusy || state.workspaceBusy || state.exportBusy || state.polling || state.solverStarting || state.loadingInput || state.meshRequestInFlight;
   for (const id of ["btn-create", "btn-nastran", "btn-save", "btn-reload",
-                    "btn-jfem", "btn-save-model", "btn-save-model-as", "btn-load-model", "btn-save-toml", "btn-load-toml", "btn-view-toml", "btn-new-study"]) {
+                    "btn-jfem", "btn-save-model", "btn-save-model-as", "btn-load-model", "btn-save-toml", "btn-load-toml", "btn-view-toml", "btn-new-study", "btn-read-nastran"]) {
     const button = document.getElementById(id); if (button) button.disabled = disabled;
   }
   syncManualMeshAction();
   state.sensitivity?.refreshContext();
   state.panelTables?.refresh();
+  syncImportedModelMode(disabled);
   if (!disabled) scheduleAutoMesh();
 }
 
 async function createFEM(options = {}) {
+  if(state.importedDeck)return !!state.data;
   const automatic = options.automatic === true;
   if (state.workspaceBusy || state.exportBusy || state.busy || state.loadingInput || state.meshRequestInFlight || state.polling || state.sensitivityBusy ||
       (state.solverStarting && !options.forSolver)) return false;
@@ -2054,7 +2070,7 @@ function installSensitivity() {
       const context=sensitivityOperationContext();
       if(context.blocked||context.dirty||!context.ready)throw Error(context.blockedReason||context.dirtyReason||"Create the current FEM before reading sensitivity properties.");
       const parameters=collectParams(),signature=state.modelSignature,meshIdentity=state.meshIdentity,token=activity()?.begin("Reading sensitivity properties");setBusy(true);
-      try{const response=await postParams("/api/sensitivity/catalog",{parameters},token);if(!response.ok)throw Error(await readError(response));return{...await response.json(),model_signature:signature,mesh_identity:meshIdentity};}
+      try{const response=await postParams("/api/sensitivity/catalog",{parameters},token);if(!response.ok)throw Error(await readError(response));return{...await response.json(),imported:!!state.importedDeck,model_signature:signature,mesh_identity:meshIdentity};}
       finally{activity()?.end(token);setBusy(false);}
     },
     rebuild:()=>createFEM({preserveView:true}),
@@ -2268,7 +2284,7 @@ async function showSensitivityBaseline(result,context,options={}){
     const response=await postParams("/api/sensitivity/baseline",{parameters,...handle},token);if(!response.ok)throw Error(await readError(response));
     const payload=await decodePayload(await response.arrayBuffer());
     if(state.modelDirty||state.modelSignature!==signature||payload.node_count!==state.data.nodes.count||payload.compatibility?.map_allowed!==true)throw Error("The sensitivity baseline does not match the displayed FEM.");
-    clearSensitivityMap();if(state.panelView)setPanelDisplay(false);
+    clearSensitivityMap();if(state.panelView)setPanelDisplay(false);restoreFuelIsolation();
     state.resultCases??=new Map();let selected;
     for(const c of payload.load_cases||[]){
       const baseline=decodeResultCase(c,payload,signature);if(!baseline.matches)throw Error("Baseline parameters no longer match the Study.");
@@ -2368,7 +2384,8 @@ async function saveModelDefinition({saveAs=false} = {}) {
   if (!workspaceOperationAvailable()) return false;
   try { state.panelTables?.assertValidDraft?.(); }
   catch(error) { showOperationError("Study not saved",error.message);log(error.message,"warn");return false; }
-  const name=state.studyFile || WingWorkspace.filename(state.values["output.title"]);
+  const title=state.importedDeck ? fileBasename(state.importedDeck.source.name).replace(/\.(bdf|dat|nas)$/i,"") : state.values["output.title"];
+  const name=state.studyFile || WingWorkspace.filename(title);
   const requested=WingWorkspace.requestStudyDestination(name,{handle:state.studyFileHandle,saveAs},window);
   return workspaceOperation(async token => {
     const destination=await requested;
@@ -2376,15 +2393,22 @@ async function saveModelDefinition({saveAs=false} = {}) {
     if (destination.error) throw destination.error;
     activity()?.update(token, {label:"Saving Study", detail:"Embedding references and display settings…"});
     meshStatus("Saving Study…", "building");
-    const params = collectParams(); params["references.items"] = [];
-    const response = await postParams("/api/validate_workspace", params);
-    if (response.status === 404) throw new Error("Portable model files need the updated server. Restart WingFEGen and refresh.");
-    if (!response.ok) throw new Error(await readError(response));
-    const validated = await response.json();
+    const params = state.importedDeck ? {...state.values,"sensitivity.settings":state.sensitivity?.serialize()||""} : collectParams(); params["references.items"] = [];
+    let validated={parameters:params};
+    // Imported GRID/cards are authoritative. Dormant wing-form metadata must
+    // not require a valid generated wing just to save the original source.
+    // snapshot still validates the source, view and portable reference data;
+    // serialize above validates the current sensitivity setup independently.
+    if(!state.importedDeck){
+      const response = await postParams("/api/validate_workspace", params);
+      if (response.status === 404) throw new Error("Portable model files need the updated server. Restart WingFEGen and refresh.");
+      if (!response.ok) throw new Error(await readError(response));
+      validated = await response.json();
+    }
     const view = WingWorkspace.captureView(document, state, workspaceUI);
     const savedRevision = state.studyRevision;
     const savedAt=new Date().toISOString(),notes=WingWorkspace.notesForSave(state.studyNotes,document.getElementById("study-note")?.value || "",savedAt);
-    const data = await WingWorkspace.snapshot(validated.parameters, state.reference, view,{notes,savedAt,createdAt:state.studyCreatedAt});
+    const data = await WingWorkspace.snapshot(validated.parameters, state.reference, view,{notes,savedAt,createdAt:state.studyCreatedAt,modelSource:state.importedDeck?.source});
     const text = JSON.stringify(data,null,2);
     await WingWorkspace.writeDestination(destination,text,"application/json",document);
     state.studyFileHandle=destination.handle || null;
@@ -2403,6 +2427,7 @@ function restoreWorkspaceView(view) {
   state.propertyDisplay?.restore(view.propertyDisplay);
   if(typeof WingLegends!=="undefined")WingLegends.restore(view.legends,{legacyPalette:view.controls["result-palette"]});
   state.sceneLighting?.restore(view.lighting);
+  state.panelExplosion?.restore(view.panelExplosion);syncPanelExplosionControls();
   if (typeof WingSVGViewport !== "undefined") WingSVGViewport.restoreAll(view.drawings || {});
   state.viewportTools?.restore(view.viewportTools);
   state.planformInputs?.restore(view.planformInputs);
@@ -2434,7 +2459,7 @@ function restoreWorkspaceView(view) {
   WingWorkspace.applyControls(document, view.controls);
   document.getElementById("result-palette").value=WingLegends.getPalette("fe");
   applySurfaceMode(); applyBeamStyle(); updateMarkerRadii(); applyVlmContour(); syncResultOverlays(); updateScaleText();
-  rebuildSupportForces(); applyContour(); applyDeformation();
+  rebuildSupportForces(); applyContour(); applyDeformation();refreshPanelExplosion();
   setPanelDisplay(document.getElementById("show-panels").checked);
   if (typeof rebuildVlmForceArrows === "function") rebuildVlmForceArrows();
   if (typeof applyBackgroundColor === "function") applyBackgroundColor(view.controls["background-color"], false);
@@ -2551,12 +2576,12 @@ async function loadModelDefinition(file, options = {}) {
     let staged = null, previous = null, commitStarted = false;
     try {
       staged = await state.reference.stagePortable(items, definition.view.reference, {linked:parametersOnly});
-      const response = await postParams("/api/prepare_workspace", definition.parameters, token);
+      const response = await postParams(definition.model_source ? "/api/import_nastran" : "/api/prepare_workspace", definition.model_source || definition.parameters, token);
       if (response.status === 404) throw new Error("Portable model files need the updated server. Restart WingFEGen and refresh.");
       if (!response.ok) throw new Error(await readError(response));
       const buffer = await response.arrayBuffer(), byteLength = buffer.byteLength, data = await decodePayload(buffer);
       if (!data.ok || !data.nodes || !data.groups) throw new Error("The prepared model is incomplete.");
-      previous = { data:state.data, values:state.values, signature:state.modelSignature, lastEditedSignature:state.lastEditedSignature, dirty:state.modelDirty,
+      previous = { importedDeck:state.importedDeck, data:state.data, values:state.values, signature:state.modelSignature, lastEditedSignature:state.lastEditedSignature, dirty:state.modelDirty,
         pending:state.autoMeshPending, resultCases:state.resultCases, results:state.results,
         activeMode:state.activeMode, contourIdx:state.contourIdx, transfer:state.lastTransfer,
         selectedElement:state.selectedElement, selectedNode:state.selectedNode, fuelIsolation:state.fuelIsolation,
@@ -2565,7 +2590,9 @@ async function loadModelDefinition(file, options = {}) {
           const element=document.getElementById("p-"+spec.key); return [spec.key, element?.value, element?.checked];
         }) };
       commitStarted = true;
-      state.values = data.model_params;
+      state.importedDeck=definition.model_source ? {...data.imported_deck,source:definition.model_source} : null;
+      if(state.importedDeck && (!state.importedDeck.token||!state.importedDeck.signature))throw Error("The imported deck response is missing its session identity.");
+      state.values = state.importedDeck ? definition.parameters : data.model_params;
       buildForm(state.schema, state.values);
       WingWorkspace.applyControls(document, definition.view.controls);
       state.data = data;
@@ -2587,19 +2614,21 @@ async function loadModelDefinition(file, options = {}) {
       state.studySavedAt=parametersOnly ? null : definition.saved_at || definition.created_at || null;
       syncStudyNotes();
       if (input) {state.inputFile=input.input_file;state.defaults=input.defaults || state.defaults;}
-      state.studyFile=parametersOnly ? null : file.name;
+      state.studyFile=parametersOnly || options.importDeck ? null : file.name;
       state.studyFileHandle=parametersOnly ? null : options.handle || null;
       state.tomlFile=parametersOnly && !options.newStudy ? file.name : null;
-      state.studyDirty = !!parametersOnly;
+      state.studyDirty = !!parametersOnly || !!options.importDeck;
       state.studyRecentId = parametersOnly ? null : options.recentId || null;
       updateFileStatus();
       meshStatus("Loaded " + file.name, "current");
       log((options.newStudy ? "Created new Study" : "Loaded "+file.name)+": " + data.nodes.count + " nodes, " + items.length + (parametersOnly ? " linked references." : " embedded references.")+" Run analysis for fresh results. The server input file is unchanged.", "good");
-      if (!parametersOnly && !options.recent) await rememberStudy({name:file.name,text:studyText,source:"loaded"});
+      if(options.importDeck){state.studyNotes={text:"",history:[]};state.studySavedAt=null;state.studyCreatedAt=null;syncStudyNotes();selectLoadCase(data.load_cases?.[0]?.id||1);fitView();activateWorkspaceTab("analysis");}
+      if (!parametersOnly && !options.importDeck && !options.recent) await rememberStudy({name:file.name,text:studyText,source:"loaded"});
       return true;
     } catch (error) {
       staged?.rollback();
       if (commitStarted && previous) {
+        state.importedDeck=previous.importedDeck;
         state.values = previous.values; state.data = previous.data;
         buildForm(state.schema, previous.values); state.loadCases = previous.loadCases;
         for (const [key,value,checked] of previous.fields) { const el=document.getElementById("p-"+key); if (el) { el.value=value; el.checked=checked; } }
@@ -2622,6 +2651,32 @@ async function loadModelDefinition(file, options = {}) {
 
 function newStudy() { return loadModelDefinition({name:"New Study"},{newStudy:true}); }
 function loadTomlDefinition(file) { return loadModelDefinition(file,{toml:true}); }
+
+async function loadNastranSource(raw) {
+  if(!workspaceOperationAvailable())return false;
+  const source=WingNastranImport.source(raw),view=WingWorkspace.captureView(document,state,workspaceUI);
+  view.workspace.activeTab="analysis";view.controls["show-panels"]=false;
+  const definition=await WingWorkspace.snapshot(state.values,state.reference,view,{modelSource:source});
+  return loadModelDefinition(new File([JSON.stringify(definition)],source.name+".wingfem.json"),{importDeck:true});
+}
+
+function syncImportedModelMode(disabled=false) {
+  const imported=state.importedDeck,info=document.getElementById("imported-deck-info");
+  info.hidden=!imported;document.getElementById("form").hidden=!!imported;
+  document.getElementById("auto-mesh").disabled=!!imported||disabled;
+  for(const id of ["btn-create","btn-save","btn-save-toml","btn-view-toml","btn-open-plan-view"]){
+    const button=document.getElementById(id);if(!button)continue;
+    if(!button.dataset.generatedTitle)button.dataset.generatedTitle=button.title||"";
+    button.disabled=!!imported||disabled;button.title=imported?"This action applies to generated wings. The imported deck is authoritative; use Write deck or Save Study to export it.":button.dataset.generatedTitle;
+  }
+  const analysisNote=document.querySelector('#panel-analysis-actions > .pick-note');
+  if(analysisNote){analysisNote.dataset.generatedNote??=analysisNote.textContent;analysisNote.textContent=imported?'Run the original deck with its own solution, subcases, loads and supports. Solver progress is shown in Log. Properties are available through Display and Inspect.':analysisNote.dataset.generatedNote;}
+  if(imported){
+    document.getElementById("imported-deck-title").textContent=imported.name+" · SOL"+imported.solution+" · "+(imported.cases?.length||1)+" cases · imported Nastran";
+    const warnings=document.getElementById("imported-deck-warnings");warnings.replaceChildren();
+    for(const warning of imported.warnings||[]){const item=document.createElement("li");item.textContent=warning;warnings.append(item);}
+  }
+}
 
 function syncStudyNotes() {
   const input=document.getElementById("study-note"),history=document.getElementById("study-note-history"),status=document.getElementById("study-notes-saved");
@@ -2832,7 +2887,9 @@ async function loadJfemResults() {
       }
       return [Number(c.id), record];
     }));
-  selectLoadCase(state.activeCase);
+  // A SOL105 source may open on its static preload subcase; only its STATSUB
+  // eigen subcases have completed result records in the native response.
+  selectLoadCase(state.importedDeck&&!state.resultCases.has(state.activeCase) ? state.resultCases.keys().next().value : state.activeCase);
   const results = state.results || state.resultCases.values().next().value;
 
   log("results read: " + results.analysis +
@@ -2846,6 +2903,11 @@ async function loadJfemResults() {
 
 function decodeResultCase(payload,r,signature) {
   const n=state.data?.nodes.count||0;
+  // Both the response envelope and case must belong to this source. Checking
+  // only one lets mixed/imported cases inherit the current generated signature.
+  const importedSignatures=[r.imported_signature,payload.imported_signature].filter(value=>value!==undefined);
+  const sourceMatches=state.importedDeck ? importedSignatures.length>0&&importedSignatures.every(value=>value===state.importedDeck.signature) :
+    importedSignatures.length===0&&[r.model_params,payload.model_params].filter(Boolean).every(params=>formSignature(params)===state.modelSignature);
   const results = {
     analysis: payload.analysis_type || r.analysis_type,
     signature,
@@ -2871,8 +2933,7 @@ function decodeResultCase(payload,r,signature) {
     modes: [],
     static: null,
     contours: [],
-    matches: r.node_count === n && signature === state.modelSignature &&
-      (!r.model_params || formSignature(r.model_params) === state.modelSignature),
+    matches: r.node_count === n && (payload.node_count===undefined||payload.node_count===n) && signature === state.modelSignature && sourceMatches,
     elementResults: payload.available === false ? {} : payload.element_results || {},
     modelParams: payload.model_params || r.model_params || state.values,
   };
@@ -2973,7 +3034,7 @@ function initScene() {
     onSaveSVG:saveViewportSVG,onExportError:error=>log("SVG export: "+error.message,"err"),
     displayActions: viewportDisplayActions(),
     ground: {
-      read:()=>{const input=document.getElementById("ground-plane-z");return{value:input.value,error:input.validationMessage};},
+      read:()=>{const input=document.getElementById("ground-plane-z");return{value:input.value,error:input.validationMessage,visible:document.getElementById("show-ground-plane").checked};},
       change:(value,commit)=>{const input=document.getElementById("ground-plane-z");input.value=value;input.dispatchEvent(new Event(commit?"change":"input",{bubbles:true}));},
     },
     inspection: {
@@ -3329,7 +3390,7 @@ function* buildModelSteps(data, options = {}) {
   clearResults();
   state.meshIdentity=resultMeshIdentity(data);
   state.propertyDisplay?.refresh(data);
-  state.activeCase = 1;
+  state.activeCase = Number(data.load_cases?.[0]?.id)||1;
   document.getElementById("axes-note").hidden = true;
   document.getElementById("splash").classList.add("hidden");
 
@@ -3361,7 +3422,7 @@ function* buildModelSteps(data, options = {}) {
     for (let e = 0; e < ids.length; e++) {
       state.elements.set(ids[e], { id: ids[e], group: g, nodes: conn.slice(e * stride, (e + 1) * stride), leadingEdgeFallback:fallbackByElement.get(ids[e]) });
     }
-    const family=Math.floor(g.pid/1000000),physical=g.pid%1000000;
+    const family=state.importedDeck?0:Math.floor(g.pid/1000000),physical=g.pid%1000000;
     const label = g.panel_id!=null ? (state.panelIndex.byId.get(g.panel_id)?.label||"Panel "+g.panel_id)+" · "+(g.kind==="bar"?"stringer":"skin") : family ? (g.base_group||g.name).replace(/_/g," ").toLowerCase()+" · "+(family<=2?"R ":"bay ")+physical : g.name.replace(/_/g, " ").toLowerCase();
     if (g.kind === "quad" || g.kind === "tria") {
       const stride = g.n_per_elem || (g.kind === "tria" ? 3 : 4);
@@ -3507,6 +3568,9 @@ function* buildModelSteps(data, options = {}) {
     if(state.aeroDisplay.count) addLayer("AIRFOIL_SECTIONS","Defined airfoils · wireframes",WingAeroDisplay.SECTION_COLOR,
       state.aeroDisplay.count+" sections",state.aeroDisplay.meshes);
   }
+  state.panelExplosion ??= WingPanelExplode.create();
+  state.panelExplosion.configure(state.panelIndex,state.elements,state.baseline);
+  syncPanelExplosionControls();
   addAxes(diag);
   yield "Drawing fuel tank…";
   addFuelTank(data.fuel);
@@ -3545,7 +3609,37 @@ function* buildModelSteps(data, options = {}) {
     selectLoadCase(retainedResults.caseId);
   }
   if(restorePanels&&state.panelIndex.panels.length)setPanelDisplay(true);
+  refreshPanelExplosion();
 }
+
+function syncPanelExplosionControls(){
+  const settings=state.panelExplosion?.capture()||WingPanelExplode.normalize();
+  document.getElementById("explode-panels").checked=settings.enabled;
+  document.getElementById("explode-panels").disabled=!state.panelIndex?.panels.length;
+  document.getElementById("explode-origin").value=settings.origin;
+  document.getElementById("explode-distance").value=settings.distance;
+}
+function applyPanelMeshOffsets(){
+  if(!state.panelExplosion)return;
+  for(const mesh of [...state.shellMeshes,...state.barMeshes,...(state.layers.get("MESH_EDGES")?.meshes||[])])state.panelExplosion.applyMesh(mesh);
+}
+function refreshPanelExplosion(){
+  if(!state.baseline)return;
+  syncMeshEdges();
+  applyPanelMeshOffsets();
+  if(activeShape())applyDeformation();else restoreBaseline();
+  state.annotations?.invalidate();
+}
+function editPanelExplosion(reset=false){
+  const error=document.getElementById("explode-error");
+  try{
+    state.panelExplosion ??= WingPanelExplode.create();
+    state.panelExplosion.restore({enabled:!reset&&document.getElementById("explode-panels").checked,origin:document.getElementById("explode-origin").value,distance:Number(document.getElementById("explode-distance").value||NaN)});
+    syncPanelExplosionControls();refreshPanelExplosion();error.hidden=true;markStudyViewModified();
+  }catch(problem){error.textContent=problem.message;error.hidden=false;}
+}
+for(const id of ["explode-panels","explode-origin","explode-distance"])document.getElementById(id).addEventListener("change",()=>editPanelExplosion());
+document.getElementById("explode-reset").onclick=()=>editPanelExplosion(true);
 
 function setPanelDisplay(enabled,redraw=true){
   enabled=!!enabled&&!!state.panelIndex?.panels.length;
@@ -3595,13 +3689,15 @@ function panelControlsLayer(name){return!!state.panelView?.previous.has(name);}
 function syncMeshEdges(){
   const layer=state.layers.get("MESH_EDGES");if(!layer||!state.data||state.edgeUpdateBatch)return;
   const groups=state.data.groups.filter(g=>(g.kind==="quad"||g.kind==="tria")&&state.layers.get(g.name)?.visible);
-  const key=groups.map(g=>g.name).join("|");
+  const key=groups.map(g=>g.name).join("|")+"/explode:"+!!state.panelExplosion?.active;
   if(key!==state.edgeVisibilityKey){
     const disposed=new Set(layer.meshes);for(const mesh of disposed)mesh.dispose(false,true);
     state.deformable=state.deformable.filter(item=>!disposed.has(item.mesh));
-    const edges=shellEdgePairs(groups),mesh=lineMesh("MESH_EDGES",currentPositions(),edges,"#101720",1,true);
-    if(mesh){mesh.renderingGroupId=1;mesh.material.zOffset=-1;}
-    layer.meshes=mesh?[mesh]:[];layer.count=edges.length/2+" edges";state.edgeVisibilityKey=key;
+    const batches=new Map();for(const group of groups){const id=state.panelExplosion?.active?(group.panel_id??null):null;if(!batches.has(id))batches.set(id,[]);batches.get(id).push(group);}
+    layer.meshes=[];let count=0;
+    for(const [id,members]of batches){const edges=shellEdgePairs(members),mesh=lineMesh("MESH_EDGES"+(id==null?"":"-P"+id),currentPositions(),edges,"#101720",1,true);count+=edges.length/2;
+      if(mesh){mesh.renderingGroupId=1;mesh.material.zOffset=-1;mesh.explodedPanelId=id;state.panelExplosion?.applyMesh(mesh,id);layer.meshes.push(mesh);}}
+    layer.count=count+" edges";state.edgeVisibilityKey=key;
   }
   for(const mesh of layer.meshes)mesh.setEnabled(layer.visible);
 }
@@ -3609,6 +3705,7 @@ function syncMeshEdges(){
 function refreshWeights(data = state.data) {
   const host = document.getElementById("weights-report");
   if (!host || typeof WingWeights === "undefined") return;
+  if(state.importedDeck){const note=document.createElement("p");note.className="pick-note";note.textContent="Component mass accounting is not available for imported decks. Original material densities, section properties and mass cards remain authoritative in the solver; inspect the source deck and solver report.";host.replaceChildren(note);return;}
   if (!state.weightsView) state.weightsView = WingWeights.create(host,selectLoadCase);
   const cases=data?.load_cases || [],selected=cases.find(c=>Number(c.id)===state.activeCase);
   state.weightsView.update(selected?.weights || data?.weights, state.modelDirty,cases,state.activeCase);
@@ -3699,7 +3796,7 @@ function setModelEntitiesVisible(names, on) {
   state.fuelIsolation = null;
   state.edgeUpdateBatch=true;
   try{for (const name of names) setLayerVisible(name, on);}finally{state.edgeUpdateBatch=false;syncMeshEdges();if(state.sensitivityMap?.contour.kind==="sensitivity_field")applyContour();}
-  syncFuelControls(); syncLayerGroupControls();
+  syncFuelControls(); syncLayerGroupControls();applyAeroOverlayStyles();updateViewportLegends();
   state.annotations?.invalidate();
 }
 
@@ -3770,6 +3867,7 @@ function groundViewSettings(report = false) {
 }
 
 function syncViewPlanes(report = false) {
+  document.getElementById("ground-height-field").hidden=!document.getElementById("show-ground-plane").checked;
   const settings = groundViewSettings(report === true), previous = state.viewPlanes?.layout;
   if (settings && previous && (settings.z !== previous.z || settings.spacing !== previous.spacing)) state.viewPlanes.configure(settings);
   state.viewPlanes?.setVisible(document.getElementById("show-ground-plane")?.checked, document.getElementById("show-symmetry-plane")?.checked);
@@ -3785,9 +3883,9 @@ function syncAeroOverlayControl() {
   if (control) { control.disabled = !layer; control.checked = !!layer?.visible; }
   if (layer) document.getElementById("show-deformed-aero").checked = layer.visible;
   const style=document.getElementById("aero-deformed-style"),note=document.getElementById("aero-display-note");
-  const label=document.getElementById("deformed-aero-label");if(label)label.textContent="Deformed aero · "+(style?.value==="steel"?"specular":"wireframe");
+  const label=document.getElementById("deformed-aero-label");if(label)label.textContent="Deformed aero · "+(aeroContourProtection()?"wireframe for contours":style?.value==="steel"?"specular":"wireframe");
   if(style)style.disabled=!layer || !state.aeroDisplay;
-  if(note)note.textContent="Airfoil wires show the defined, undeformed sections at their exact span positions. "+(!activeShape() ? "Load a result to display the deformed loft in wireframe or polished aluminium." : "The deformed loft follows the selected result and deformation scale. Polished aluminium is opaque and can cover the structural mesh; hide the loft to inspect element contours.");
+  if(note)note.textContent="Airfoil wires show the defined, undeformed sections at their exact span positions. "+(aeroContourProtection()?"The aero loft is temporarily wireframe so visible shell contours remain readable. Your selected finish is retained and returns when contours are off or shells are hidden.":!activeShape()?"Load a result to display the deformed loft in wireframe or polished aluminium.":"The deformed loft follows the selected result and deformation scale.");
 }
 
 function syncAxesControls() {
@@ -3827,14 +3925,14 @@ function setLayerVisible(name, on) {
   if (name === "SHELL_AXES" || name === "BAR_AXES") syncAxesControls();
   if (name === "UNDEFORMED") document.getElementById("show-undeformed").checked = on;
   if (name === "REFERENCE_AERO") document.getElementById("show-reference-aero").checked = on;
-  if (name === "AERO_SURFACE") syncAeroOverlayControl();
+  if (name === "AERO_SURFACE") {syncAeroOverlayControl();updateViewportLegends();}
   if (name === "FUEL_TANK") syncFuelControls();
   if (name === "SUPPORT_FORCES") document.getElementById("show-support-forces").checked = on;
   if (state.selectedElement !== null || state.selectedNode !== null) updateSelection();
   if (["VLM_MESH", "VLM_PRESSURE", "VLM_FORCES", "AERO_LOADS", "AERO_MOMENTS"].includes(name)) syncVlmControls();
   syncComparisonVisibility();
   syncMeshEdges();
-  if(!state.edgeUpdateBatch){syncLayerGroupControls();if(state.sensitivityMap?.contour.kind==="sensitivity_field")applyContour();}
+  if(!state.edgeUpdateBatch){syncLayerGroupControls();if(state.sensitivityMap?.contour.kind==="sensitivity_field")applyContour();else if(layer.meshes.some(mesh=>["quad","tria"].includes(mesh.metadata?.feGroup?.kind)))applyAeroOverlayStyles();}
   state.annotations?.invalidate();
 }
 
@@ -4070,6 +4168,7 @@ function pushPositions(dp, rotations, rotationScale = 1) {
     } else if (d.axisCenters) {
       for (const frame of d.axisCenters) {
         const origin = frame.origin.clone();
+        const explosion=state.panelExplosion?.offsetElement(frame.eid)||[0,0,0];origin.addInPlaceFromFloats(...explosion);
         for (const node of frame.nodes) {
           origin.x += (dp[3 * node] - base[3 * node]) / frame.nodes.length;
           origin.y += (dp[3 * node + 1] - base[3 * node + 1]) / frame.nodes.length;
@@ -4132,6 +4231,7 @@ function pushPositions(dp, rotations, rotationScale = 1) {
     m.mesh.position.set(dp[3 * n], dp[3 * n + 1], dp[3 * n + 2]);
   }
   state.supportGlyphs?.update({positions:dp});
+  applyPanelMeshOffsets();
   updateSelection(dp);
 }
 
@@ -4200,7 +4300,7 @@ function contourValues() {
   if(!c||c.kind==="panels")return c;
   if(c.kind==="properties"){
     const stale=state.modelDirty||resultsHavePendingDrafts(),note=c.note+(stale?" Definition changed: showing the last generated FEM.":"");
-    const shape=activeShape(),caseLabel=shape?"Generated properties · geometry: "+resultCaseLabel()+" · deformation ×"+eng(amplitude(),5)+(animating()?" (animated peak)":""):c.caseLabel+" · undeformed";
+    const shape=activeShape(),caseLabel=shape?(state.importedDeck?"Imported properties":"Generated properties")+" · geometry: "+resultCaseLabel()+" · deformation ×"+eng(amplitude(),5)+(animating()?" (animated peak)":""):c.caseLabel+" · undeformed";
     if(c.categories)return{...c,note,caseLabel};
     const limitKey=JSON.stringify(["properties",c.field,c.materialRole]);
     return{...c,note,caseLabel,limitKey,...WingLegends.resolveLimits(limitKey,c.min,c.max)};
@@ -4288,7 +4388,7 @@ function updateViewportLegends() {
   if (c&&c.kind!=="panels") entries.push({kind:c.kind==="properties"?"properties":"fe",paletteKey:contourPaletteKey(c),categories:propertyLegendCategories(c),limitKey:c.limitKey,title:c.name,unit:c.unit,min:c.min,max:c.max,caseLabel:c.caseLabel||resultCaseLabel(),
     gradient:contourGradient(c.min,c.max,contourPaletteKey(c)),note:[c.kind?.startsWith("sensitivity")?"Undeformed model · full element values":c.location==="node"?"Element mean displacement · no cross-element averaging":
       beamContourApplies(c)?"Full elements · gray = unavailable":"Full elements · gray = unavailable; beams keep group colors",
-      typeof c.note==="string"?c.note:""].filter(Boolean).join(" · ")});
+      typeof c.note==="string"?c.note:"",aeroContourProtection()&&state.layers.get("AERO_SURFACE")?.visible?"Aero loft uses wireframe to reveal shell contours":""].filter(Boolean).join(" · ")});
   const field=document.getElementById("vlm-field")?.value,values=state.vlm?.[field];
   if (state.layers.get("VLM_PRESSURE")?.visible && values) {
     const {min,max,limitKey}=vlmColorRange(field,values);
@@ -4353,6 +4453,7 @@ function applyContour() {
     mesh.setVerticesData(BABYLON.VertexBuffer.ColorKind, colors, true);
   }
 
+  applyAeroOverlayStyles();
   syncFuelResultOverlay(c);
   if (!c||c.kind==="panels") {
     legend.className = "empty";
@@ -4374,11 +4475,13 @@ function resultModelParams() {
 
 /** Use the solved model snapshot, not a possibly edited parameter form. */
 function loadFactorApplied() {
+  if(state.importedDeck)return 1; // Native eigenvalues multiply the deck preload.
   const v = parseFloat(resultModelParams()["loads.load_factor"]);
   return Number.isFinite(v) ? v : 1;
 }
 
 function bucklingLoadLabel(multiplier) {
+  if(state.importedDeck)return eng(multiplier,3)+" × source deck preload";
   const aero = resultModelParams()["loads.method"] === "vortex_lattice";
   return eng(multiplier * loadFactorApplied(), 3) + (aero ? " × aero loads" : " × prescribed loads");
 }
@@ -4453,7 +4556,7 @@ function showResults() {
       row.onclick = () => selectMode(-1);
       row.innerHTML = '<span class="n">0</span><span>Static preload</span>' +
         '<span class="meff">' + eng(r.static.maxDisp, 3) + " m</span>";
-      row.title = "the prebuckling deflection under the applied lift";
+      row.title = state.importedDeck ? "Prebuckling deflection under the original deck preload" : "the prebuckling deflection under the applied lift";
       host.appendChild(row);
     }
 
@@ -4469,7 +4572,7 @@ function showResults() {
       row.innerHTML = '<span class="n">' + m.mode + "</span>" +
         "<span>" + value + "</span>" +
         '<span class="meff">' + right + "</span>";
-      row.title = buckling
+      row.title = buckling && state.importedDeck ? "Buckling root "+m.mode+"\nMultiplier on the original deck preload: "+eng(m.loadFactor,6) : buckling
         ? "buckling root " + m.mode + "\nload factor on the applied lift " +
           eng(m.loadFactor, 6) +
           (resultModelParams()["loads.method"] === "vortex_lattice"
@@ -4593,7 +4696,7 @@ function showStats(data, bytes, seconds) {
   for (const [k, v] of data.info) {
     rows.push(["<td>" + esc(k) + "</td><td>" + esc(reportValue(v)) + "</td>"]);
   }
-  if (activeLoads() && activeLoads().summary) {
+  if (activeLoads() && activeLoads().summary && !state.importedDeck) {
     const loads = activeLoads().summary;
     rows.push(['<td class="section" colspan="2">Aerodynamic loads</td>']);
     for (const [label, key, unit] of [["Method", "method", ""], ["Lift", "lift_N", " N"],
@@ -4892,7 +4995,7 @@ function selectLoadCase(id,{preserveSensitivity=false}={}) {
   const sensitivityContour=preserveSensitivity?state.sensitivityMap?.contour:null;
   restoreHistoricalBaselineOverlays();
   clearSensitivityMap();
-  if (!modelCases().some((c) => Number(c.id) === Number(id))) id = 1;
+  if (!modelCases().some((c) => Number(c.id) === Number(id))) id = modelCases()[0]?.id||1;
   restoreBaseline();
   state.activeCase = Number(id);
   const commonModes = state.resultCases && state.resultCases.get(1);
@@ -4954,7 +5057,7 @@ function addElementAxes(groups) {
       const points = [], offsets = [], centers = [];
       for (const g of groups) {
         if ((g.kind === "bar") !== (kind === "bar") || !g.axes || !g.axes[axis]) continue;
-        const directions = permute(asF32(g.axes[axis])), origins = permute(asF32(g.axes.centers));
+        const directions = permute(asF32(g.axes[axis])), origins = permute(asF32(g.axes.centers)), ids=groupIds(g);
         const conn = asI32(g.conn), stride = g.n_per_elem || (g.kind === "quad" ? 4 : g.kind === "tria" ? 3 : 2);
         for (let e = 0; e < g.count; e++) {
           const nodes = conn.slice(e * stride, (e + 1) * stride);
@@ -4964,7 +5067,7 @@ function addElementAxes(groups) {
           const direction = vec(directions, e).normalize().scale(Math.min(size * 0.28, state.diag * 0.025));
           const vertices = arrowVertices(direction), start = points.length / 3;
           for (const v of vertices) { points.push(origin.x + v.x, origin.y + v.y, origin.z + v.z); offsets.push(v.x, v.y, v.z); }
-          centers.push({ nodes, start, count: vertices.length, origin });
+          centers.push({ nodes, start, count: vertices.length, origin, eid:ids[e] });
           if (axis === "x") count++;
         }
       }
@@ -5189,20 +5292,26 @@ function applyBarDepthPolicy() {
   state.annotations?.invalidate();
 }
 
+function aeroContourProtection(){
+  const options=contourOptions(),selected=options[Math.min(state.contourIdx,options.length-1)];
+  const hasContour=!!state.propertyDisplay?.enabled||!!state.sensitivityMap||!!state.panelView||!!selected&&selected.kind!=="none";
+  return hasContour && (state.data?.groups||[]).some(group=>["quad","tria"].includes(group.kind)&&state.layers.get(group.name)?.visible);
+}
 function applyAeroOverlayStyles() {
-  const deformed=!!activeShape();
+  const deformed=!!activeShape(),protect=aeroContourProtection();
   for (const mesh of state.layers.get("AERO_SURFACE")?.meshes || []) {
-    const steel=state.aeroDisplay?.apply(mesh,{deformed,style:document.getElementById("aero-deformed-style")?.value || "wireframe"});
+    const steel=state.aeroDisplay?.apply(mesh,{deformed,style:protect?"wireframe":document.getElementById("aero-deformed-style")?.value || "wireframe"});
     if(steel)continue;
-    mesh.material.wireframe=deformed;
-    mesh.material.alpha=deformed ? .75 : mesh.translucentAlpha;
+    mesh.material.wireframe=deformed||protect;
+    mesh.material.alpha=deformed||protect ? .75 : mesh.translucentAlpha;
     mesh.material.transparencyMode=BABYLON.Material.MATERIAL_ALPHABLEND;
-    mesh.material.separateCullingPass=!deformed;
+    mesh.material.separateCullingPass=!(deformed||protect);
   }
   for (const mesh of state.layers.get("REFERENCE_AERO")?.meshes || []) {
     mesh.material.wireframe=false; mesh.material.alpha=mesh.translucentAlpha;
     mesh.material.transparencyMode=BABYLON.Material.MATERIAL_ALPHABLEND;
   }
+  syncAeroOverlayControl();
 }
 
 function syncResultOverlays() {
@@ -5364,13 +5473,15 @@ function refreshDeckMetadata() {
   if (!deck || !host || !status) return;
   host.textContent = [deck.solution, deck.created_at ? "Created " + new Date(deck.created_at).toLocaleString() : "",
     deck.source, deck.input_path ? "Input: " + deck.input_path : ""].filter(Boolean).join(" · ");
-  let differs = false;
-  if (deck.model_params) {
+  const importedSnapshot=deck.imported_signature!==undefined||deck.source==="Imported Nastran source";
+  let differs = !!state.importedDeck!==importedSnapshot;
+  if(state.importedDeck&&importedSnapshot)differs=deck.imported_signature!==state.importedDeck.signature;
+  else if (!state.importedDeck&&!importedSnapshot&&deck.model_params) {
     try { differs = formSignature(deck.model_params) !== formSignature(); } catch (_) { differs = true; }
   }
   const pathKey = path => String(path || "").replace(/\\/g, "/").toLowerCase();
-  const otherInput = !!(deck.input_path && state.inputFile && pathKey(deck.input_path) !== pathKey(state.inputFile));
-  status.textContent = "Saved deck snapshot" + (differs || otherInput ? " — " + [differs ? "current parameters differ" : "", otherInput ? "created from a different input file" : ""].filter(Boolean).join("; ") + "." : ". Later parameter edits do not change this text.");
+  const otherInput = !importedSnapshot&&!!(deck.input_path && state.inputFile && pathKey(deck.input_path) !== pathKey(state.inputFile));
+  status.textContent = "Saved deck snapshot" + (differs || otherInput ? " — " + [differs ? importedSnapshot ? "source deck differs or its identity cannot be verified" : "current model parameters differ" : "", otherInput ? "created from a different input file" : ""].filter(Boolean).join("; ") + "." : ". Later parameter edits do not change this text.");
   status.classList.toggle("deck-stale", differs || otherInput);
 }
 
@@ -5418,7 +5529,7 @@ function showElement(eid) {
   state.selectedElement = eid;
   state.selectedNode = null;
   const g = element.group;
-  const kind = g.kind === "quad" ? "CQUAD4" : g.kind === "tria" ? "CTRIA3" : g.kind === "rbe3" ? "RBE3" : "CBAR";
+  const kind = g.card_types?.[eid] || (g.kind === "quad" ? "CQUAD4" : g.kind === "tria" ? "CTRIA3" : g.kind === "rbe3" ? "RBE3" : "CBAR");
   let html = resultTable({ "Element ID": eid, Type: kind, Group: g.name,
     "Property ID": g.pid === undefined ? "—" : g.pid,
     "GRID IDs": Array.from(element.nodes, (i) => state.nodeIds[i]) });
@@ -5505,6 +5616,7 @@ function updateSelection(positions) {
     state.selectionMesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, points, true);
   }
   const layer = state.layers.get(element.group.name);
+  state.selectionMesh.position.copyFromFloats(...(state.panelExplosion?.offsetElement(element.id)||[0,0,0]));
   state.selectionMesh.setEnabled(!layer || layer.visible);
 }
 
@@ -5878,6 +5990,8 @@ if (typeof WingWorkspace !== "undefined") {
   document.getElementById("btn-load-toml").onclick=()=>{if(workspaceOperationAvailable())document.getElementById("toml-file").click();};
   document.getElementById("toml-file").onchange=async event=>{const file=event.target.files[0];event.target.value="";await loadTomlDefinition(file);};
   document.getElementById("btn-new-study").onclick=newStudy;
+  const nastranImport=WingNastranImport.create({onImport:loadNastranSource});
+  document.getElementById("btn-read-nastran").onclick=()=>nastranImport.open();
 }
 document.getElementById("btn-clear-results").onclick = clearResults;
 document.getElementById("btn-mode-prev").onclick = () => stepMode(-1);

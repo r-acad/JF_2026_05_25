@@ -47,10 +47,12 @@ function sensitivity_baseline_payload(source,baseline,data,path,directory,metada
     item["id"]=id;item["physical_case_id"]=id;item["label"]="Sensitivity baseline · "*label*" · SOL"*sol
     item["variant_id"]="sensitivity_"*basename(directory)*"_sol"*sol
     item["source"]="sensitivity_baseline";item["solution"]=sol;item["baseline_analysis"]=metadata
-    item["model_params"]=copy(source.params);item["analysis_params"]=copy(baseline.params);item["fuel_mass"]=fuel_mass_state(baseline)
+    item["model_params"]=is_imported_model(source) ? imported_public_params(source) : copy(source.params)
+    item["analysis_params"]=is_imported_model(baseline) ? imported_public_params(baseline) : copy(baseline.params)
+    is_imported_model(source) ? (item["imported_signature"]=source.params["imported.source"]["signature"]) : (item["fuel_mass"]=fuel_mass_state(baseline))
     push!(item["summary"],Any["Sensitivity baseline","Physical case $id: $label; original forward analysis, no operator perturbations"])
     payload=copy(item);payload["load_cases"]=Any[item];payload["load_case_independent"]=false
-    payload["model_params"]=copy(source.params)
+    payload["model_params"]=copy(item["model_params"])
     payload
 end
 
@@ -67,7 +69,7 @@ function sensitivity_export_baseline(native,forward,source,baseline,directory,sp
         "variant_id"=>"sensitivity_"*basename(directory)*"_sol"*solution,
         "deck_file"=>"baseline.bdf","native_file"=>"baseline_native.json","results_file"=>"baseline_results.msgpack",
         "baseline_model_signature"=>sensitivity_model_signature(source),"baseline_model_signature_version"=>2,
-        "baseline_topology_signature"=>sensitivity_topology_signature(source),"load_application_version"=>APPLIED_LOAD_VERSION,
+        "baseline_topology_signature"=>sensitivity_topology_signature(source),"load_application_version"=>is_imported_model(source) ? IMPORTED_LOAD_VERSION : APPLIED_LOAD_VERSION,
         "message"=>"Original solved baseline; no additional forward solve and no operator perturbation fields.")
     payload=sensitivity_baseline_payload(source,baseline,data,path,directory,metadata)
     payload["available"]===true||error("Native baseline has no displayable solution")
@@ -95,7 +97,8 @@ function sensitivity_baseline_load(directory,model;result=nothing)
     get(metadata,"available",false)===true||throw(ArgumentError(get(metadata,"message","This run has no saved baseline fields")))
     record=haskey(metadata,"baseline_model_signature") ? metadata : result
     record isa AbstractDict&&sensitivity_result_matches_model(record,model)||throw(ArgumentError("The baseline model definition differs from the current FEM; open its matching Study before displaying it"))
-    sensitivity_topology_matches(model,sensitivity_deck_topology(directory))||throw(ArgumentError("The baseline GRID coordinates, element connectivity or properties differ from the current FEM"))
+    matches=is_imported_model(model) ? imported_saved_topology_matches(directory,model,record) : sensitivity_topology_matches(model,sensitivity_deck_topology(directory))
+    matches||throw(ArgumentError("The baseline GRID coordinates, element connectivity or properties differ from the current FEM"))
     if isfile(joinpath(directory,"baseline_results.msgpack"))
         payload=MsgPack.unpack(read(sensitivity_baseline_file(directory,"results")))
     else
@@ -107,13 +110,13 @@ function sensitivity_baseline_load(directory,model;result=nothing)
         metadata=merge(metadata,Dict("case_id"=>id,"case_label"=>spec.label,"solution"=>sol))
         payload=sensitivity_baseline_payload(model,baseline,JSON.parsefile(path),path,directory,metadata)
     end
-    historical=get(record,"load_application_version",nothing)!=APPLIED_LOAD_VERSION
+    historical=get(record,"load_application_version",nothing)!=(is_imported_model(model) ? IMPORTED_LOAD_VERSION : APPLIED_LOAD_VERSION)
     payload["compatibility"]=Dict("model_match"=>true,"topology_match"=>true,"map_allowed"=>true,"is_current"=>!historical,"load_application_match"=>!historical)
     payload["historical"]=historical
     payload["message"]=historical ? "Historical sensitivity baseline: these solved fields retain their original load application convention." : "Original sensitivity baseline solution."
     for item in payload["load_cases"]
         get!(item,"analysis_params",copy(item["model_params"]))
-        item["model_params"]=copy(model.params)
+        item["model_params"]=is_imported_model(model) ? imported_public_params(model) : copy(model.params)
         item["compatibility"]=copy(payload["compatibility"]);item["historical"]=historical
         item["baseline_analysis"]=metadata;item["message"]=payload["message"]
     end

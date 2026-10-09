@@ -1,0 +1,9 @@
+"use strict";
+const assert=require('node:assert/strict'),P=require('../web/panel_explode.js'),B=require('../web/vendor/babylon.js');
+const positions=Float32Array.from([0,1,0,2,1,0,0,-1,0,2,-1,0,1,0,0]);
+const elements=new Map([[1,{nodes:[0,1],group:{kind:'quad'}}],[2,{nodes:[0,1],group:{kind:'bar'}}],[3,{nodes:[2,3],group:{kind:'quad'}}],[4,{nodes:[2,3],group:{kind:'bar'}}],[5,{nodes:[0,4],group:{kind:'bar'}}]]);
+const panels=[{id:1,skin:'upper',shell_eids:[1],stringer_eids:[2]},{id:2,skin:'lower',shell_eids:[3],stringer_eids:[4]}],p=P.create(),original=Array.from(positions);p.configure({panels},elements,positions);
+assert.equal(p.active,false);assert.deepEqual(p.offsetElement(1),[0,0,0]);p.restore({enabled:true,distance:2,origin:'centroid'});assert.equal(p.active,true);assert.deepEqual(p.center,[1,0,0]);assert.deepEqual(p.offsetElement(1),[0,2,0]);assert.deepEqual(p.offsetElement(2),p.offsetElement(1));assert.deepEqual(p.offsetElement(3),[0,-2,0]);assert.deepEqual(p.offsetElement(5),[0,0,0]);assert.deepEqual(p.point(1,[1,1,0]),[1,3,0]);assert.deepEqual(Array.from(positions),original);
+p.restore({enabled:true,distance:.6,origin:'midspan'});assert.deepEqual(p.center,[1,0,0]);assert.equal(Math.hypot(...p.offsetElement(1)),.6);
+const engine=new B.NullEngine(),scene=new B.Scene(engine),mesh=new B.Mesh('panel',scene);mesh.metadata={feGroup:{panel_id:1}};p.applyMesh(mesh);assert.deepEqual(mesh.position.asArray(),[0,.6,0]);p.restore({...p.capture(),enabled:false});p.applyMesh(mesh);assert.deepEqual(mesh.position.asArray(),[0,0,0]);
+for(const value of [{distance:-1},{distance:NaN},{distance:10001},{enabled:'yes'},{origin:'bad'},[]])assert.throws(()=>p.restore(value));assert.equal(p.active,false);p.configure({panels:[]},new Map(),null);assert.deepEqual(p.center,[0,0,0]);scene.dispose();engine.dispose();console.log('Panel explosion: 22 geometric/validation assertions passed.');

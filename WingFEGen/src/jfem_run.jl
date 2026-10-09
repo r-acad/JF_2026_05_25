@@ -213,8 +213,36 @@ function job_lines_from(j::JfemJob,from::Int)
     return batch.lines,batch.next_line
 end
 
-"""Parse only native load-iteration evidence; attempted load is not acceptance."""
+"""Describe observed solver stages without inventing numerical percentages."""
+function update_job_stage!(job::JfemJob,line::AbstractString)
+    isempty(job.runs)||return
+    stage,message=if occursin("Reading BDF file",line)
+        ("deck","Reading the deck and constructing the native model (first-use compilation may occur)")
+    elseif occursin("Computing Element Stiffness",line)
+        ("assembly","Assembling element stiffness and constraints (first-use compilation may occur)")
+    elseif occursin("Using Direct Solver",line)||occursin("Using Iterative Solver",line)
+        ("linear_solve","Solving the constrained system")
+    elseif occursin("Post-Processing",line)
+        ("recovery","Recovering physical displacements, stresses, forces and reactions")
+    elseif occursin("Exporting",line)
+        ("export","Writing the solved results for the viewer")
+    else
+        return
+    end
+    p=job.progress
+    if get(p,"stage",nothing)!=stage
+        previous=get(p,"stage",nothing);started=get(p,"stage_started",nothing)
+        previous===nothing||started===nothing|| (get!(p,"stage_timings_seconds",Dict{String,Float64}())[previous]=time()-started)
+        p["stage"]=stage;p["stage_started"]=time()
+    end
+    p["stage_message"]=message
+    get(p,"phase","") in ("iterating","cutback")|| (p["message"]=message)
+    nothing
+end
+
+"""Parse native load-iteration evidence; attempted load is not acceptance."""
 function update_job_progress!(job::JfemJob,line::AbstractString)
+    update_job_stage!(job,line)
     job.model.params["output.solution"]=="106" && isempty(job.runs) || return nothing
     occursin("NL ",line) || return nothing
     p=job.progress
@@ -259,6 +287,8 @@ function job_progress(job::JfemJob)
     end
     lock(job.lk) do
         result=copy(job.progress)
+        stage_started=pop!(result,"stage_started",nothing)
+        stage_started===nothing|| (result["stage_seconds"]=max(0.,(job.finished===nothing ? time() : job.finished)-stage_started))
         result["case_id"]=job.case_id;result["case_label"]=job.case_label
         result["solution"]=String(job.model.params["output.solution"])
         get!(result,"phase",String(job.state))
@@ -364,6 +394,8 @@ function launch_jfem_process!(job::JfemJob)
     proc = lock(job.lk) do
         job.cancel_requested && return nothing
         job.started=time(); job.state=:running
+        job.progress["stage"]="startup";job.progress["stage_started"]=job.started
+        job.progress["message"]="Starting Julia and loading the cached solver; an installation or source change may require precompilation"
         child=run(pipeline(cmd; stdout = pipe, stderr = pipe); wait = false)
         job.proc=child
         return child
@@ -477,6 +509,7 @@ end
 
 function start_jfem_job(model::Model,params::AbstractDict,root::AbstractString,
                         bdf::AbstractString,id::AbstractString)
+    is_imported_model(model)&&return launch_jfem_process!(prepare_jfem_job(model,params,root,bdf,id))
     if params["output.solution"] == "106" || fuel_states_differ(model)
         return start_jfem_comparison(model,params,root,bdf,id)
     end
@@ -1132,8 +1165,14 @@ end moments with the same signed CBAR convention instead. Axial stays separate.
 """
 function complete_stringer_stresses!(m::Model, records::AbstractDict)
     for gr in m.groups
-        component_base_pid(gr.pid) in (PID_STRINGER,PID_RIB_STIFFENER) || continue
-        section = section_definition(m.params, gr.pid)
+        if is_imported_model(m)
+            gr.kind===:bar||continue
+            section=imported_properties(imported_native(m),gr)["section"]
+            get(section,"shape","")=="T"&&haskey(section,"polygon_yz_m")||continue
+        else
+            component_base_pid(gr.pid) in (PID_STRINGER,PID_RIB_STIFFENER) || continue
+            section = section_definition(m.params, gr.pid)
+        end
         points = section["polygon_yz_m"]
         for eid in gr.eids
             record = get(records, string(eid), nothing)
@@ -1186,7 +1225,7 @@ or averaged between adjacent elements; missing results stay absent, never zero.
 """
 function element_results_payload(m::Model, results::AbstractDict)
     supported = Dict{Int,Symbol}(eid => gr.kind for gr in m.groups for eid in gr.eids)
-    coordinate_systems = Dict(eid => (gr.kind === :bar ? "CBAR local section axes" :
+    coordinate_systems = Dict(eid => (gr.kind === :bar ? "CBAR local section axes" : is_imported_model(m) ? "Native geometric shell element axes" :
         shell_material_description(gr)) for gr in m.groups for eid in gr.eids)
     frame_path = stringer_path(m.grid.wing, m.params)
     rotations = Dict(gr.eids[e] => shell_result_rotation(m, gr, e; path=frame_path)
@@ -1233,7 +1272,7 @@ function element_results_payload(m::Model, results::AbstractDict)
         values = Float64[]
         for gr in m.groups
             gr.kind in kinds || continue
-            pids === nothing || component_base_pid(gr.pid) in pids || continue
+            pids === nothing || is_imported_model(m) || component_base_pid(gr.pid) in pids || continue
             for eid in gr.eids
                 record = get(records, string(eid), nothing)
                 record === nothing && continue
@@ -1767,6 +1806,7 @@ end
 
 """Build one result payload per load case, preserving the default top-level view."""
 function jfem_results_payload(job::JfemJob)
+    is_imported_model(job.model)&&return imported_results_payload(job)
     if !isempty(job.runs)
         return String(job.model.params["output.solution"])=="106" ?
             jfem_comparison_results_payload(job) : jfem_isolated_results_payload(job)

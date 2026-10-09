@@ -256,6 +256,8 @@ end
 function sensitivity_parameters(req)
     raw=JSON.parse(String(req.body))
     raw isa AbstractDict&&get(raw,"parameters",nothing) isa AbstractDict||throw(ArgumentError("Sensitivity needs the current model parameters"))
+    imported=request_imported_model(raw)
+    imported===nothing||return imported.params,raw
     params,unknown=normalize_params(raw["parameters"])
     isempty(unknown)||throw(ArgumentError("Unsupported sensitivity model parameters: "*join(unknown,", ")))
     return params,raw
@@ -263,8 +265,9 @@ end
 
 function handle_sensitivity_catalog(st::AppState,req)
     try
-        params,_=sensitivity_parameters(req)
-        model=build_model(params;progress=request_progress(st,req))
+        params,raw=sensitivity_parameters(req)
+        imported=request_imported_model(raw)
+        model=imported===nothing ? build_model(params;progress=request_progress(st,req)) : imported
         return json_response(Dict("ok"=>true,"catalog"=>sensitivity_catalog(model)))
     catch error
         return error_response("Sensitivity properties: "*describe_error(error))
@@ -277,7 +280,8 @@ function handle_sensitivity_run(st::AppState,req;start_job=start_sensitivity_job
         any(job.state===:running for job in values(st.jobs))&&throw(ArgumentError("Wait for the current JFEM analysis before starting sensitivity"))
         any(job.state===:running for job in values(st.sensitivity_jobs))&&throw(ArgumentError("A sensitivity job is already running; wait or stop it first"))
         params,raw=sensitivity_parameters(req)
-        model=build_model(params;progress=request_progress(st,req))
+        imported=request_imported_model(raw)
+        model=imported===nothing ? build_model(params;progress=request_progress(st,req)) : imported
         all_checks_pass(model)||throw(ArgumentError("Correct the FEM connectivity checks before sensitivity analysis"))
         st.job_counter+=1;id="sensitivity"*string(st.job_counter)
         job=start_job(model,get(raw,"settings",Dict()),st.root,id)
@@ -498,7 +502,7 @@ end
 deck_metadata(snapshot) = Dict{String,Any}(k => v for (k, v) in snapshot if k != "deck_text")
 
 """Atomically preserve a completed deck independently of its original filename."""
-function preserve_deck!(st::AppState, path::AbstractString, params; source::String, case_files=Any[])
+function preserve_deck!(st::AppState, path::AbstractString, params; source::String, case_files=Any[],imported_signature=nothing)
     text = read(path, String)
     cases=Any[]
     for file in case_files
@@ -517,6 +521,7 @@ function preserve_deck!(st::AppState, path::AbstractString, params; source::Stri
             "lines" => count(==('\n'), text), "bytes" => sizeof(text),
             "sha256" => bytes2hex(SHA.sha256(text)), "model_params" => deepcopy(params),
             "case_decks"=>cases,"case_decks_sha256"=>case_decks_digest(cases))
+        imported_signature===nothing||(snapshot["imported_signature"]=String(imported_signature))
         validate_case_decks(snapshot)
         mkpath(st.deck_store_dir)
         temporary, io = mktemp(st.deck_store_dir)
@@ -586,6 +591,8 @@ end
 function handle_nastran(st::AppState, req)
     progress = request_progress(st, req)
     try
+        imported=request_imported_model(JSON.parse(String(req.body)))
+        imported===nothing||return handle_imported_nastran(st,imported)
         params = params_from_request(st, req)
         model = build_model(params; progress)
         st.params = params
@@ -645,6 +652,8 @@ function handle_run_jfem(st::AppState, req; start_job=start_jfem_job)
                     "Wait for it or stop it first."))
             end
         end
+        imported=request_imported_model(JSON.parse(String(req.body)))
+        imported===nothing||return handle_imported_nastran(st,imported;run=true,start_job)
         params = params_from_request(st, req)
         model = build_model(params; progress)
         st.params = params
@@ -823,6 +832,7 @@ Wire the endpoints and the static file handler.
 """
 function make_router(st::AppState)
     router = HTTP.Router()
+    HTTP.register!(router, "POST", "/api/import_nastran", req -> handle_import_nastran(st,req))
     HTTP.register!(router, "GET", "/api/input", req -> handle_input(st, req))
     HTTP.register!(router, "GET", "/api/input_text", req -> handle_input_text(st, req))
     HTTP.register!(router, "POST", "/api/sensitivity/catalog", req -> handle_sensitivity_catalog(st, req))

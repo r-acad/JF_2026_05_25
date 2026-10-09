@@ -27,6 +27,7 @@
     for (const node of nodes) for (let a = 0; a < 3; a++) p[a] += positions[3 * node + a] / nodes.length;
     return p;
   }
+  function displayedPoint(state,id,p){return state.panelExplosion?.point(id,p)||p;}
   function visibleElement(state, element) {
     const layer = state.layers.get(element.group.name) || state.layers.get(element.group.base_group || baseGroup(element.group.name));
     return !layer || layer.visible;
@@ -39,7 +40,7 @@
       if (showElements) {
         const style = elementStyle(element);
         candidates.push({ text: style.prefix + " " + id, id, kind: "element", color: style.color,
-          point: centroid(positions, element.group.kind === "rbe3" ? element.nodes.slice(0, 1) : element.nodes) });
+          point: displayedPoint(state,id,centroid(positions, element.group.kind === "rbe3" ? element.nodes.slice(0, 1) : element.nodes)) });
       }
     }
     if (showNodes) {
@@ -188,13 +189,13 @@
     return candidates;
   }
   function panelLabelCandidates(state,positions){
-    if(!state.panelView)return [];
+    if(!state.panelView&&!state.panelExplosion?.active)return [];
     const candidates=[];
     for(const panel of state.panelIndex?.panels||[]){
       let elements=panel.shell_eids.map(id=>state.elements.get(id)).filter(e=>e&&visibleElement(state,e));
       if(!elements.length)elements=panel.stringer_eids.map(id=>state.elements.get(id)).filter(e=>e&&visibleElement(state,e));
       if(!elements.length)continue;
-      const centers=elements.map(e=>centroid(positions,e.nodes));
+      const centers=elements.map(e=>displayedPoint(state,e.id,centroid(positions,e.nodes)));
       const mean=[0,1,2].map(a=>centers.reduce((sum,p)=>sum+p[a],0)/centers.length);
       let nearest=0,distance=Infinity;
       centers.forEach((p,i)=>{const d=p.reduce((sum,v,a)=>sum+(v-mean[a])**2,0);if(d<distance){nearest=i;distance=d;}});
@@ -228,7 +229,7 @@
       const showNodes = !!control("show-node-ids")?.checked, showElements = !!control("show-element-ids")?.checked;
       const showRibs = !!(control("mesh-labels-ribs")?.checked || control("mesh-labels-both")?.checked);
       const showStringers = !!(control("mesh-labels-stringers")?.checked || control("mesh-labels-both")?.checked);
-      const showPanels=!!state.panelView;
+      const showPanels=!!state.panelView||!!state.panelExplosion?.active;
       const selected = state.elements.get(state.selectedElement);
       const size = Math.max(8, Math.min(24, Number(control("id-label-size")?.value) || 11));
       const width = canvas.clientWidth, height = canvas.clientHeight;
@@ -280,7 +281,7 @@
         return true;
       }
       if (selected && visibleElement(state, selected)) {
-        const anchors = Array.from(selected.nodes, (i) => Array.from(positions.subarray(3 * i, 3 * i + 3)));
+        const anchors = Array.from(selected.nodes, (i) => displayedPoint(state,selected.id,Array.from(positions.subarray(3 * i, 3 * i + 3))));
         const points = anchors.map(project);
         const pairs = selected.group.kind === "rbe3" ? points.slice(1).map((_, i) => [0, i + 1]) :
           selected.nodes.length === 2 ? [[0, 1]] : points.map((_, i) => [i, (i + 1) % points.length]);
@@ -313,7 +314,7 @@
         }
         stats.selectedOutlineSegments = segments;
         ctx.restore();
-        const anchor = centroid(positions, selected.group.kind === "rbe3" ? selected.nodes.slice(0, 1) : selected.nodes);
+        const anchor = displayedPoint(state,selected.id,centroid(positions, selected.group.kind === "rbe3" ? selected.nodes.slice(0, 1) : selected.nodes));
         const center = project(anchor);
         if (center && center.x >= 0 && center.x <= width && center.y >= 0 && center.y <= height) {
           const text = elementStyle(selected).name + " " + state.selectedElement;

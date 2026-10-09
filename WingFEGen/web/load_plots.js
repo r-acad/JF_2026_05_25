@@ -98,7 +98,7 @@
       for(const c of cases){const option=element("option","",c.id+" · "+c.label);option.value=c.id;select.appendChild(option);}
       select.value=String(active);select.disabled=cases.length<2;select.onchange=()=>onCase(Number(select.value));host.append(label,select);
       const current=cases.find(c=>Number(c.id)===Number(active)),data=current?.loads?.spanwise;
-      if(!data){host.appendChild(element("p","pick-note","Create the model to plot its load distributions. A supported load case with RBE3 stations is required."));return;}
+      if(!data){host.appendChild(element("p","pick-note",current?.loads?.method==="imported" ? "Wing spanwise load plots do not apply to imported decks. The viewport shows native equivalent nodal loads; the original load cards and subcase selections remain authoritative." : "Create the model to plot its load distributions. A supported load case with RBE3 stations is required."));return;}
       const status=element("p",dirty?"plot-status stale":"plot-status",dirty?"Parameters changed — these graphs belong to the last created mesh.":"Applied loads · "+current.label);status.setAttribute("role","status");host.appendChild(status);
       if(data.components){
         const tools=element("fieldset","plot-controls"),legend=element("legend","","Resultant curves");tools.appendChild(legend);

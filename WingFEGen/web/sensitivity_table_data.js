@@ -38,5 +38,19 @@
   for(const row of selectRows(snapshot,options)){const p=panel(row),raw=value(result,row,'derivative'),normalized=value(result,row,'normalized'),selected=options.quantity==='normalized'?normalized:raw;rows.push([result.case_label||result.case_id,effects.objectiveLabel(result),baseline.value,baseline.unit,propertyLabel(row),row.id,p?.id? 'P'+p.id:'',p?.skin,p?.stringer,p?.rib_bay,p?.segment,row.value,row.unit,raw.value,raw.unit,normalized.value,options.quantity==='normalized'?'p/f * df/dp':'df/dp',selected.value,selected.status,selected.reason]);}
   return rows.map(row=>row.map(csvCell).join(',')).join('\r\n')+'\r\n';
  }
- return{panel,family,families,propertyLabel,value,compact,matrix,selectRows,csv};
+ // Raw derivatives with different units cannot share a numerical color range.
+ function colorScales(snapshot,options={}){
+  const scales=new Map();for(const row of selectRows(snapshot,options)){
+   const item=value(snapshot.result,row,options.quantity),unit=item.unit||row.derivative_unit||'unspecified units';
+   if(!Number.isFinite(item.value))continue;
+   const scale=scales.get(unit)||{unit,extent:0,count:0};scale.extent=Math.max(scale.extent,Math.abs(item.value));scale.count++;scales.set(unit,scale);
+  }
+  return scales;
+ }
+ function valueColor(number,extent){
+  if(!Number.isFinite(number)||!Number.isFinite(extent)||extent<0)return null;
+  const t=extent>0?Math.min(1,Math.abs(number)/extent):0,zero=[242,243,239],end=number<0?[92,161,215]:[232,142,75];
+  return 'rgb('+zero.map((c,i)=>Math.round(c+(end[i]-c)*t)).join(', ')+')';
+ }
+ return{panel,family,families,propertyLabel,value,compact,matrix,selectRows,csv,colorScales,valueColor};
 });

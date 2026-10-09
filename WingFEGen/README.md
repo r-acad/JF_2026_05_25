@@ -92,6 +92,35 @@ The definition is saved independently from solved results. Exported decks and
 solver result files remain in their run directories. A stale model/result is
 identified in the GUI rather than being silently presented as current.
 
+### Read an existing Nastran deck
+
+**Read Nastran** in the top bar opens a complete `.bdf`, `.dat` or `.nas` deck
+using the native JFEM parser. Upload its INCLUDE files or folder as well
+(32 MiB total, up to 128 INCLUDEs). Paths must be relative to the uploaded
+files; missing, cyclic or unsafe INCLUDE paths are reported.
+
+The imported source is authoritative: original GRID/EID/PID values, solution,
+subcases, constraints and loads are retained. **Run in JFEM** solves that deck;
+**Results** displays its supported physical fields. **Inspect** and
+**Display / Properties** show native shell/beam/material data where supported.
+Cards without a viewport representation are reported and remain in the source;
+solver support is still governed by JFEM. Displayed units assume consistent SI
+input because Nastran files do not declare a unit system.
+
+Imported static sensitivities use analytic adjoints for supported PSHELL,
+symmetric isotropic PCOMP, MAT1 and T/BAR/ROD PBARL variables. The catalog and
+failed-row messages identify unsupported formulations and load-derivative
+branches; no finite-difference fallback is used. Imported modal/buckling
+sensitivity objectives are unavailable. Generated wing sensitivities retain
+their existing modal/buckling support.
+
+**Save Study** embeds the original deck and INCLUDE sources along with view
+settings, references, notes and sensitivity setup. Reopening reparses those
+sources; it does not depend on an old server token. **Write deck** produces a
+self-contained deck with INCLUDE text expanded. Wing geometry/property forms
+and TOML export are disabled for imported models. **New Study**, **Load TOML**
+or loading a generated Study returns to the wing generator.
+
 ## Display and editing
 
 The viewport supports entity filters, inspection, node/element IDs, local axes,
@@ -105,7 +134,8 @@ material assignments without an analysis. Values include thickness, area,
 section inertias and material E/nu/density, with units and a color scale. For a
 sandwich, select its face or core material; no equivalent elastic modulus is
 invented. This view uses the current generated FEM and warns about pending edits.
-The **Ground** toolbar control includes a synchronized elevation input. Applied
+The **Ground** toolbar control includes a synchronized elevation input, shown
+only while the ground is visible. Applied
 forces and moments are drawn as signed global-axis components (X red, Y green,
 Z blue); their lengths/radii retain the chosen display scaling.
 VLM-panel arrows are magenta and show the signed normal pressure force at each
@@ -114,6 +144,21 @@ Structural faces and solid beam sections use lighting to distinguish orientation
 including when quantitative colors are shown; legends retain the selected palette.
 Saved copies of the old unedited lighting presets adopt the improved defaults;
 custom lighting remains unchanged.
+
+**Display / Entities / Explode stiffened panels** moves each panel and its
+normal stringer rigidly away from the structural-node centroid or midspan.
+Choose the separation distance or reset to assembled geometry. Panel edges,
+labels, axes and picking follow the displayed panel; shared GRID markers,
+loads, aerodynamic geometry and comparison overlays stay at their physical
+positions. This changes neither the FEM nor any result. SVG captures the
+exploded view; STL/GLB retain physical geometry. The settings travel with a Study.
+
+**Display / Environment / Lighting** includes an adjustable camera fill for
+underside views. To keep shell colors visible, the aerodynamic loft uses
+wireframe while FE, sensitivity, property or panel colors are displayed on
+visible shells. The saved polished-aluminium choice resumes for aero-only or
+uncolored views. A note explains this automatic display change. Loading a
+sensitivity primal case also exits temporary fuel isolation.
 
 Planform and structural 2D editors support pan/zoom, background images, snapping,
 distance/angle dimensions and SVG export. The dimensioned plan view and property
@@ -124,7 +169,7 @@ for unfinished cell edits, then rebuilds after they settle. Existing results sta
 marked out of date until an explicitly requested analysis matches the definition;
 fields are not mapped onto an incompatible rebuilt mesh.
 
-Every active quantitative color scale provides palette selection, hide/show and
+Every active viewport quantitative color scale provides palette selection, hide/show and
 manual minimum/maximum limits. **Automatic** restores the data-driven range.
 Manual limits clip only the endpoint colors; numerical data are not changed.
 Limits are independent for each quantity/unit. FE, sensitivity and VLM displays
@@ -151,6 +196,8 @@ patterns build a selection. Invalid expressions show an error without changing
 it. After a mesh update, an existing catalog refreshes to the new definition;
 the Run button explains any remaining blocker and offers the relevant recovery
 action. Refreshing properties or editing a selection never starts a solve.
+The **? Help** button beside the filter explains regex syntax, examples,
+additive selection and the difference between clearing a filter and selection.
 
 The default is an **analytic discrete adjoint**. For a static scalar response it
 uses one forward solve and one shared adjoint solve, followed by exact chain-rule
@@ -167,6 +214,17 @@ display the derivative of the selected scalar response with respect to the
 property attached to each element, not a new local stress solution. A shared
 property repeats its one derivative on its member elements. Local panel
 derivatives take precedence over shared defaults in the corresponding field.
+Sensitivity table numbers use a labeled blue–neutral–orange scale centered on
+zero. Raw derivatives have separate ranges for each unit; normalized values
+share a dimensionless range. Limits follow the displayed rows and filter.
+Failed/unavailable values remain uncolored, and CSV keeps full precision.
+
+Sensitivity and import workers reuse the selected solver's precompiled package
+instead of loading a fresh copy of its source module. Progress and timing files
+separate package loading, baseline parsing, analysis, compilation and export.
+Installation or source changes can still require a one-time cache rebuild, and
+first-use compilation can remain within the generator/solver process. No
+stiffness, solve tolerance or derivative formula is changed by this optimization.
 
 **Results / Sensitivity** becomes available after a sensitivity analysis. Its
 **Show sensitivity field** button is orange until the field is displayed, then
@@ -204,7 +262,10 @@ node WingFEGen/test/result_palettes_test.cjs
 node WingFEGen/test/property_display_test.cjs
 node WingFEGen/test/load_glyphs_test.cjs
 node WingFEGen/test/sensitivity_filter_test.cjs
+node WingFEGen/test/import_and_table_colors_test.cjs
+node WingFEGen/test/panel_explode_test.cjs
 julia --project=WingFEGen WingFEGen/test/portable_paths_test.jl
+julia --project=. WingFEGen/test/nastran_import_smoke_test.jl
 ```
 
 The solver's separate curated validation suite is described in the repository

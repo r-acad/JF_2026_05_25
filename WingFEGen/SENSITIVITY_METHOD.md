@@ -100,6 +100,29 @@ ambiguous stress extrema and tied material maxima with unequal directional
 derivatives are rejected where relevant. Nodes, property IDs, constraints and
 active numerical branches must remain consistent with the baseline replay.
 
+## Imported Nastran decks
+
+Read Nastran uses the original deck, identifiers and chosen subcase for the
+baseline. Imported sensitivity currently supports SOL101 displacement and
+shell/bar stress objectives, with PSHELL thickness, proportional symmetric
+isotropic PCOMP thickness, MAT1 E/nu/density and T/BAR/ROD PBARL dimensions.
+It uses the same analytic element derivatives and shared adjoint; there are no
+property finite differences or automatic legacy fallback.
+
+An imported deck can contain cards beyond the viewport and derivative adapters.
+Unsupported owners of a selected property/material, releases, offsets,
+constitutive branches and mass-dependent load tangents must be supported before
+their derivatives can be reported. Otherwise the row fails explicitly instead
+of returning a partial contribution. Ordinary analyses still use the source
+deck and the solver's native card support. Imported modal/buckling sensitivity
+objectives are unavailable; the generated-wing workflow retains those objectives.
+
+Workers load the selected solver's precompiled package and verify its source
+path. This removes repeated source-module compilation without changing numerical
+operators. Package loading, deck parsing, analysis, compilation and export have
+separate recorded timings. First use after source/package changes can still
+require cache rebuilding and compilation.
+
 ## Source map
 
 - [sensitivity_compute.jl](src/sensitivity_compute.jl): method selection and progress.
@@ -110,3 +133,5 @@ active numerical branches must remain consistent with the baseline replay.
 - [sensitivity_analytic_geometric.jl](src/sensitivity_analytic_geometric.jl): native geometric stiffness and preload gradients.
 - [native analytic_shells.jl](../src/solver/analytic_shells.jl): shell kernel replay and differentiation.
 - [sensitivity_eigen_adjoint.jl](src/sensitivity_eigen_adjoint.jl): modal and buckling equations.
+- [nastran_import_sensitivity.jl](src/nastran_import_sensitivity.jl): native-source catalog, coverage checks and static adjoints.
+- [native_solver_loader.jl](src/native_solver_loader.jl): verified package-cache loading.

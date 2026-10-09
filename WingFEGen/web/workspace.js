@@ -2,10 +2,10 @@
  * every reference source file and its current placement travel with the model.
  */
 (function (root, factory) {
-  const api = factory();
+  const api = factory(typeof module === 'object' && module.exports ? require('./nastran_import.js') : root.WingNastranImport);
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.WingWorkspace = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function () {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (nastran) {
   "use strict";
   const FORMAT = "wingfegen-workspace", VERSION = 1, MAX_BYTES = 256 * 1024 * 1024;
   const MAX_NOTE_LENGTH=20000,MAX_NOTE_ENTRIES=2000;
@@ -128,6 +128,11 @@
       view.drawings = Object.fromEntries(Object.entries(view.drawings).map(([key,value]) => [key,api.validateState(value)]));
     }
     if (view.viewportTools !== undefined && (!object(view.viewportTools) || Object.keys(view.viewportTools).some(key=>key!=="collapsed") || typeof view.viewportTools.collapsed!=="boolean")) throw new Error("Invalid viewport toolbar settings.");
+    if (view.panelExplosion !== undefined) {
+      const api=typeof WingPanelExplode!=="undefined" ? WingPanelExplode : typeof require==="function" ? require("./panel_explode.js") : null;
+      if(!api)throw new Error("Panel explosion settings cannot be validated.");
+      view.panelExplosion=api.normalize(view.panelExplosion);
+    }
     if (view.lighting !== undefined) {
       const api=typeof WingSceneLighting!=="undefined" ? WingSceneLighting : typeof require==="function" ? require("./scene_lighting.js") : null;
       if(!api)throw new Error("Lighting settings need the updated viewer.");
@@ -158,6 +163,7 @@
     view.controls=controls;
     view.editingCase??=1;view.resultVariant??="";view.contourPreference??=null;view.realScale??=false;view.loadLayers??={};view.parameterLocks??={planform:false,mesh:false};
     view.reference??={selectedIndex:-1,mode:"off"};view.drawings??={};view.viewportTools??={collapsed:false};view.planformInputs??={method:"area"};view.legends??={collapsed:{}};
+    view.panelExplosion??={enabled:false,origin:"centroid",distance:1};
     view.loadPlots??={mode:"distributed",visible:["aerodynamic","structure","fuel","total"]};
     view.camera.mode??=0;view.camera.fov??=.8;
     for(const key of ["orthoLeft","orthoRight","orthoTop","orthoBottom"])view.camera[key]??=null;
@@ -169,6 +175,7 @@
     if (!object(data) || data.format!==FORMAT || data.version!==VERSION) throw new Error("Unsupported Study file format or version. Choose a WingFEGen .wingfem.json file.");
     if (!object(data.parameters) || !Array.isArray(data.references)) throw new Error("Study parameters or embedded references are missing.");
     data.notes=normalizeNotes(data.notes);
+    if(data.model_source!==undefined)data.model_source=nastran.source(data.model_source);
     if(data.saved_at!==undefined)isoTime(data.saved_at);
     validateView(data.view);
     let total=0;
@@ -197,6 +204,7 @@
     const data={format:FORMAT,version:VERSION,created_at:options.createdAt||savedAt,saved_at:savedAt,notes,parameters:params,
       references:assets.map(({metadata,bytes})=>({...metadata,data_base64:bytesToBase64(bytes)})),view:display};
     // Apply the same checks on export and import, including the total limit.
+    if(options.modelSource)data.model_source=nastran.source(options.modelSource);
     parse(JSON.stringify(data)); return data;
   }
   function captureView(document,state,workspace) {
@@ -220,6 +228,7 @@
       ...(state.planformInputs ? {planformInputs:state.planformInputs.capture()} : {}),
       ...(state.viewportTools ? {viewportTools:state.viewportTools.capture()} : {}),
       ...(state.sceneLighting ? {lighting:state.sceneLighting.capture()} : {}),
+      ...(state.panelExplosion ? {panelExplosion:state.panelExplosion.capture()} : {}),
       ...(state.propertyDisplay ? {propertyDisplay:state.propertyDisplay.capture()} : {}),
       ...(typeof WingLegends!=="undefined" ? {legends:WingLegends.capture()} : {}),
       loadPlots:state.loadPlots?.capture()||{mode:"distributed",visible:["aerodynamic","structure","fuel","total"]},
