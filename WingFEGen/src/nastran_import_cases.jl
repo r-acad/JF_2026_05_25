@@ -64,8 +64,8 @@ function imported_load_selection(native,model,control)
     rows,scales,warnings
 end
 
-function imported_case_supports(native,m,control,scales)
-    model=imported_native(m);index=Dict(id=>i for (i,id) in enumerate(m.node_ids));assignments=Dict{Int,Dict{String,Any}}();warnings=String[]
+function imported_case_supports(native,m,control,scales;index=Dict(id=>i for (i,id) in enumerate(m.node_ids)))
+    model=imported_native(m);assignments=Dict{Int,Dict{String,Any}}();warnings=String[]
     spc_id=imported_case_selector(control,"SPC");valid=true
     sets=try native.Solver.selected_spc_sets(model,spc_id) catch err
         valid=false;push!(warnings,sprint(showerror,err));Set{Int}()
@@ -97,7 +97,8 @@ function imported_case_supports(native,m,control,scales)
         end
     end
     for (key,grid) in model["GRIDs"]
-        add(parse(Int,key),get(grid,"PS",""),0.,"GRID/GRDSET PS",nothing)
+        ps=get(grid,"PS","");(ps==""||ps==0)&&continue
+        add(parse(Int,key),ps,0.,"GRID/GRDSET PS",nothing)
     end
     for entry in model["SPC1s"]
         sid=Int(entry["SID"]);sid in sets||continue
@@ -125,6 +126,7 @@ end
 
 function imported_prepare_cases!(native,m)
     model=imported_native(m);sourcecontrol=imported_source_case_control(m.params["imported.source"])
+    index=Dict(id=>i for (i,id) in enumerate(m.node_ids))
     m.params["imported.case_control"]=sourcecontrol["globals"]
     for row in m.params["imported.cases"]
         control=imported_effective_case_control(model,sourcecontrol,row["id"])
@@ -140,7 +142,7 @@ function imported_prepare_cases!(native,m)
         end
         rows,scales,warnings=imported_load_selection(native,model,control)
         row["case_control"]=control;row["load_cards"]=rows
-        row["spc"]=imported_case_supports(native,m,control,scales)
+        row["spc"]=imported_case_supports(native,m,control,scales;index)
         row["label"]=String(get(control,"LABEL",get(control,"SUBTITLE","Subcase $(row["id"])")))
         row["warnings"]=unique(vcat(warnings,row["spc"]["warnings"]))
         if Int(model["SOL"])==106

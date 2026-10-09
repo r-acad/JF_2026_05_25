@@ -270,10 +270,8 @@
       <section id="panel-mesh-labels" class="workspace-panel" data-workspace-panel="displaylabels" role="tabpanel" aria-labelledby="tab-displaylabels" hidden>
         <fieldset class="mesh-label-controls">
           <legend>Rib and stringer labels</legend>
-          <label class="layer"><input id="mesh-labels-none" name="mesh-labels" type="radio" value="none" checked><span>Off</span></label>
-          <label class="layer"><input id="mesh-labels-ribs" name="mesh-labels" type="radio" value="ribs"><span>Ribs</span></label>
-          <label class="layer"><input id="mesh-labels-stringers" name="mesh-labels" type="radio" value="stringers"><span>Stringers</span></label>
-          <label class="layer"><input id="mesh-labels-both" name="mesh-labels" type="radio" value="both"><span>Ribs and stringers</span></label>
+          <label class="layer"><input id="mesh-labels-ribs" type="checkbox"><span>Ribs</span></label>
+          <label class="layer"><input id="mesh-labels-stringers" type="checkbox"><span>Stringers</span></label>
           <label class="layer"><input id="show-rib-datums" type="checkbox"><span>Show rib datum squares</span></label>
           <label class="display-control" for="rib-datum-size">Square side (m)<input id="rib-datum-size" type="number" min="0.001" step="any" value="1"></label>
           <p id="rib-datum-status" class="pick-note">Translucent squares at the front spar: orange for master ribs, blue for secondary ribs.</p>

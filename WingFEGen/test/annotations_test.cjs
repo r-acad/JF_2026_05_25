@@ -39,7 +39,7 @@ assert.deepEqual(A.physicalLabelCandidates(state,positions,false,true)[0].point,
 state.layers.get("STRINGER_RUNOUTS").visible=false; state.layers.get("RIB_WEBS").visible=false;
 assert.equal(A.physicalLabelCandidates(state,positions,true,true).length,0,"hidden physical members contribute no labels");
 const drawing=[], controls=new Map([...["show-node-ids","show-element-ids"].map(id=>[id,{checked:true,addEventListener(){}}]),
-  ...["mesh-labels-none","mesh-labels-ribs","mesh-labels-stringers","mesh-labels-both"].map(id=>[id,{checked:false,addEventListener(){}}]),
+  ...["mesh-labels-ribs","mesh-labels-stringers"].map(id=>[id,{checked:false,addEventListener(){}}]),
   ["id-label-size",{value:"12",addEventListener(){}}],["id-label-status",{textContent:""}]]);
 const ctx={ measureText:text=>({width:text.length*7}), setTransform(){},clearRect(){drawing.length=0;},
   save(){},restore(){},beginPath(){},closePath(){},moveTo(){},lineTo(){},fill(){},fillRect(){},strokeRect(){},
@@ -71,13 +71,14 @@ state.selectedElement=null;
 state.layers.set("RIB_WEBS",{visible:true});state.layers.set("STRINGERS",{visible:true});
 state.data.annotations={ribs:[{index:1,label:"Rib 1",anchor_nodes:[0],anchor_weights:[1]}],
   stringers:[{index:2,label:"Stringer 2",anchor_nodes:[3],anchor_weights:[1],eids:[12]}]};
-controls.get("mesh-labels-both").checked=true;
-annotations.render(true);assert.equal(annotations.stats.eligible,2,"Both radio includes physical ribs/stringers without FE ID switches");
+controls.get("mesh-labels-ribs").checked=true;controls.get("mesh-labels-stringers").checked=true;
+annotations.render(true);assert.equal(annotations.stats.eligible,2,"Independent label checkboxes can show both physical ribs/stringers without FE ID switches");
 assert(drawing.some(x=>x.text==="R 1"));assert(drawing.some(x=>x.text==="Stringer 2"));
 state.layers.get("RIB_WEBS").visible=false;
 annotations.render(true);assert.equal(annotations.stats.eligible,1,"physical label follows structural layer visibility");
-controls.get("mesh-labels-both").checked=false;controls.get("mesh-labels-ribs").checked=true;
-annotations.render(true);assert.equal(annotations.stats.eligible,0,"Ribs radio does not include stringers");
+controls.get("mesh-labels-stringers").checked=false;
+annotations.render(true);assert.equal(annotations.stats.eligible,0,"Turning stringers off retains the independent rib choice and respects hidden ribs");
 state.layers.get("RIB_WEBS").visible=true;annotations.render(true);assert.equal(annotations.stats.eligible,1);
+controls.get("mesh-labels-ribs").checked=false;annotations.render(true);assert.equal(annotations.stats.eligible,0,"Both labels may be off without a separate Off choice");
 annotations.dispose();assert(overlay.removed);scene.dispose();engine.dispose();
 console.log("Annotation checks passed: typed IDs/colors, visible entities, luminous selection/ID, deformation, toggles, overlap status, resized projection and disposal.");

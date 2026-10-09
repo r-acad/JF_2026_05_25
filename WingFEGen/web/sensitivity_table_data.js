@@ -51,14 +51,24 @@
   const scales=new Map();for(const row of selectRows(snapshot,options)){
    const item=value(snapshot.result,row,options.quantity),unit=item.unit||row.derivative_unit||'unspecified units';
    if(!Number.isFinite(item.value))continue;
-   const scale=scales.get(unit)||{unit,extent:0,count:0};scale.extent=Math.max(scale.extent,Math.abs(item.value));scale.count++;scales.set(unit,scale);
+   const scale=scales.get(unit)||{unit,min:Infinity,max:-Infinity,count:0};scale.min=Math.min(scale.min,item.value);scale.max=Math.max(scale.max,item.value);scale.count++;scales.set(unit,scale);
   }
   return scales;
  }
- function valueColor(number,extent){
-  if(!Number.isFinite(number)||!Number.isFinite(extent)||extent<0)return null;
-  const t=extent>0?Math.min(1,Math.abs(number)/extent):0,zero=[242,243,239],end=number<0?[92,161,215]:[232,142,75];
-  return 'rgb('+zero.map((c,i)=>Math.round(c+(end[i]-c)*t)).join(', ')+')';
+ function valueColor(number,scale){
+  const min=scale?.min,max=scale?.max;if(!Number.isFinite(number)||!Number.isFinite(min)||!Number.isFinite(max)||min>max)return null;
+  const blue=[92,161,215],orange=[232,142,75],zero=[242,243,239],mix=(a,b,t)=>'rgb('+a.map((c,i)=>Math.round(c+(b[i]-c)*Math.min(1,Math.max(0,t)))).join(', ')+')';
+  if(min===max)return mix(zero,number<0?blue:number>0?orange:zero,.55);
+  // Exact one-sided ranges use the full corresponding hue. If the values
+  // straddle zero, the neutral stop sits at zero's true numerical position.
+  if(max<=0)return mix(blue,[222,236,247],(number-min)/(max-min));
+  if(min>=0)return mix([251,235,222],orange,(number-min)/(max-min));
+  return number<0?mix(zero,blue,number/min):mix(zero,orange,number/max);
  }
- return{panel,family,families,propertyLabel,value,compact,matrix,selectRows,csv,colorScales,valueColor};
+ function colorStops(scale){
+  const {min,max}=scale;if(min===max)return[{value:min,position:0,color:valueColor(min,scale)}];
+  const values=min<0&&max>0?[min,0,max]:[min,min/2+max/2,max];
+  return values.map(value=>({value,position:(value-min)/(max-min),color:valueColor(value,scale)}));
+ }
+ return{panel,family,families,propertyLabel,value,compact,matrix,selectRows,csv,colorScales,valueColor,colorStops};
 });

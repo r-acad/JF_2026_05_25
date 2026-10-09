@@ -2,15 +2,18 @@
    never divided among elements or presented as a local stress sensitivity. */
 (function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./sensitivity_results.js'):root.WingSensitivityResults);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingSensitivityMap=api;})(globalThis,function(effects){
  'use strict';
+ function valueRange(values){
+  let min=Infinity,max=-Infinity,count=0;for(const value of values){if(!Number.isFinite(value))continue;min=Math.min(min,value);max=Math.max(max,value);count++;}
+  return count?{min:min||0,max:max||0,count}:{min:0,max:0,count:0};
+ }
  function build(result,row,scope,changePercent=1,metric='percent'){
   const effect=effects.rowEffect(result,row,changePercent);
   if(!effect.valid)throw Error(effect.reason);
   const ids=scope?.variables?.[row.id]?.eids;
   if(!Array.isArray(ids)||!ids.length)throw Error('No verified element scope is available for this property. Open the matching Study and create its FEM, then reopen the saved run.');
-  const ranked=effects.rankEffects(result,changePercent,metric),usePercent=metric==='percent'&&effect.percentOfBaseline!==null;
-  const value=usePercent?effect.percentOfBaseline:effect.deltaResponse;
-  const extent=Math.max(...ranked.map(item=>Math.abs(item.chartValue)),Math.abs(value),0);
-  return {kind:'sensitivity',location:'element',domain:'all',byId:new Map(ids.map(id=>[Number(id),value])),min:-extent,max:extent,
+  const usePercent=metric==='percent'&&effect.percentOfBaseline!==null;
+  const value=(usePercent?effect.percentOfBaseline:effect.deltaResponse)||0;
+  return {kind:'sensitivity',location:'element',domain:'all',byId:new Map(ids.map(id=>[Number(id),value])),min:value,max:value,
    name:'Predicted response change · '+effects.propertyLabel(row),unit:usePercent?'% of baseline':effect.responseUnit,
    caseLabel:(result.case_label||'Case '+result.case_id)+' · '+effects.objectiveLabel(result),
    note:'Shared whole-property effect for '+changePercent+'% change. Gray = other properties. First-order estimate; not a local sensitivity field.',effect,row};
@@ -56,10 +59,9 @@
    }
   }
   if(!byId.size)throw Error(metric==='normalized'?'No unambiguous normalized derivatives are available. For a zero baseline, choose df/dp.':'No unambiguous finite derivatives are available for this field.');
-  let extent=0,ambiguous=0;
-  for(const value of byId.values())extent=Math.max(extent,Math.abs(value));
+  const {min,max}=valueRange(byId.values());let ambiguous=0;
   for(const owner of owners.values())if(owner===null)ambiguous++;
-  return{kind:'sensitivity_field',location:'element',domain:'all',byId,rowsById,min:-extent,max:extent,
+  return{kind:'sensitivity_field',location:'element',domain:'all',byId,rowsById,min,max,
    name:(metric==='derivative'?'Sensitivity df/dp':'Normalized sensitivity')+' · '+field.label,
    unit:metric==='derivative'?(field.rows[0].derivative_unit||effects.baseline(result).unit+' / '+field.rows[0].unit):'p/f × df/dp',
    caseLabel:(result.case_label||'Case '+result.case_id)+' · '+effects.objectiveLabel(result),field,metric,
@@ -67,5 +69,5 @@
     (ambiguous?' '+ambiguous+' elements have overlapping variables and are gray; inspect the individual property preview.':'')+
     (invalid?' '+invalid+' unavailable property derivatives.':'')+' Gray = no selected property derivative.'};
  }
- return {build,family,fields,buildField};
+ return {build,family,fields,buildField,valueRange};
 });

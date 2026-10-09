@@ -14,10 +14,11 @@
   const CONTROL_IDS = ["surface-mode","surface-translucency","beam-style","show-bars-through","show-aero-overlay","aero-deformed-style","background-color","inspect-entity",
     "show-fuel-inertia","show-fuel-cg","show-fuel-mass-labels","fuel-inertia-scale",
     "node-radius","marker-radius","show-ground-plane","show-symmetry-plane","ground-plane-z","ground-grid-spacing","show-shell-axes","show-bar-axes","show-node-ids","show-element-ids","id-label-size",
-    "mesh-labels-none","mesh-labels-ribs","mesh-labels-stringers","mesh-labels-both","show-rib-datums","rib-datum-size","vlm-field",
+    "mesh-labels-ribs","mesh-labels-stringers","show-rib-datums","rib-datum-size","vlm-field",
     "vlm-force-scale","show-vlm-panel-forces","show-fuel-tank","show-panels","result-palette","show-support-forces","show-support-force-values","support-force-scale",
     "deform-scale","animate","show-undeformed","show-reference-aero","show-deformed-aero","contour-select","compare-results","auto-mesh","show-picked-axes","measure-snap-nodes"];
   const CHECK_IDS = new Set(CONTROL_IDS.filter((id) => id.startsWith("show-") || id.startsWith("mesh-labels-") || ["animate","auto-mesh","compare-results","measure-snap-nodes"].includes(id)));
+  const LEGACY_LABEL_IDS = new Set(["mesh-labels-none","mesh-labels-both"]);
   const SELECTS = {"surface-mode":["solid","translucent"],"beam-style":["lines","sections"],"aero-deformed-style":["auto","wireframe","steel","metallic","translucent"],
     "inspect-entity":["all","nodes","shells","quad","tria","bar","stringer","cap","rbe3"],"vlm-field":["none","pressure","cp"],
     "result-palette":["spectrum","viridis","inferno","coolwarm","grayscale"]};
@@ -69,8 +70,8 @@
     if (!object(view) || !object(view.controls) || !object(view.layers) || !object(view.camera) || !object(view.workspace))
       throw new Error("The model file has incomplete display settings.");
     for (const [id,value] of Object.entries(view.controls)) {
-      if (!CONTROL_IDS.includes(id)) throw new Error("Unsupported display setting: " + id);
-      if (CHECK_IDS.has(id)) { if (typeof value !== "boolean") throw new Error("Invalid checkbox setting: "+id); }
+      if (!CONTROL_IDS.includes(id) && !LEGACY_LABEL_IDS.has(id)) throw new Error("Unsupported display setting: " + id);
+      if (CHECK_IDS.has(id) || LEGACY_LABEL_IDS.has(id)) { if (typeof value !== "boolean") throw new Error("Invalid checkbox setting: "+id); }
       else if (typeof value !== "string" || value.length>100) throw new Error("Invalid display setting: "+id);
       if (SELECTS[id] && !SELECTS[id].includes(value)) throw new Error("Invalid display option: "+id);
       if (id === "background-color" && !/^#[0-9a-f]{6}$/i.test(value)) throw new Error("Invalid background colour.");
@@ -84,6 +85,11 @@
       if (id === "fuel-inertia-scale" && (!Number.isFinite(Number(value)) || Number(value)<0.01 || Number(value)>100)) throw new Error("Fuel inertia scale must be between 0.01 and 100.");
       if (id === "support-force-scale" && (!Number.isFinite(Number(value)) || Number(value)<0.01 || Number(value)>100)) throw new Error("Support-force scale must be between 0.01 and 100.");
       if(id==="surface-translucency"&&(value.trim()===""||!Number.isFinite(Number(value))||Number(value)<0||Number(value)>100))throw new Error("Surface translucency must be between 0 and 100 percent.");
+    }
+    if([...LEGACY_LABEL_IDS].some(id=>Object.hasOwn(view.controls,id))){
+      const both=view.controls["mesh-labels-both"]===true,off=view.controls["mesh-labels-none"]===true;
+      for(const id of ["mesh-labels-ribs","mesh-labels-stringers"])view.controls[id]=both||!off&&view.controls[id]===true;
+      for(const id of LEGACY_LABEL_IDS)delete view.controls[id];
     }
     for (const [name,value] of Object.entries(view.layers)) if (!/^[A-Z_0-9]+$/.test(name) || typeof value!=="boolean") throw new Error("Invalid layer visibility.");
     if(view.layerGroups!==undefined&&(!object(view.layerGroups)||Object.entries(view.layerGroups).some(([key,value])=>!["shells","beams","connections","aerodynamics","loads","masses","overlays","aids","other"].includes(key)||typeof value!=="boolean")))throw new Error("Invalid entity-list collapse settings.");
@@ -159,9 +165,6 @@
       else controls[id]=element.defaultValue??element.getAttribute?.("value")??"";
     }
     Object.assign(controls,view.controls);
-    const radios=["mesh-labels-none","mesh-labels-ribs","mesh-labels-stringers","mesh-labels-both"],selected=radios.filter(id=>view.controls[id]===true);
-    if(selected.length>1)throw new Error("Choose only one rib/stringer label option.");
-    if(radios.some(id=>Object.hasOwn(controls,id)))for(const id of radios)controls[id]=id===(selected[0]||"mesh-labels-none");
     view.controls=controls;
     view.editingCase??=1;view.resultVariant??="";view.contourPreference??=null;view.realScale??=false;view.loadLayers??={};view.parameterLocks??={planform:false,mesh:false};
     view.reference??={selectedIndex:-1,mode:"off"};view.drawings??={};view.viewportTools??={collapsed:false};view.planformInputs??={method:"area"};view.legends??={collapsed:{}};

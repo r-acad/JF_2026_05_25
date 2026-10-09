@@ -1609,18 +1609,25 @@ async function decodePayload(buffer) {
 
 async function buildModelResponsive(data, options = {}, token) {
   if (!activity()) return buildModel(data, options);
-  const started=performance.now();let painted=started,lastLogged="";
+  const started=performance.now();let painted=started,lastLogged="",groupCount=0;
   const body = document.getElementById("workspace-body"), wasInert = body?.inert;
+  const wasBuilding=state.buildingScene;
   if (body) body.inert = true;
   state.buildingScene = true;
   try {
     for (const detail of buildModelSteps(data, options)) {
-      activity().update(token, {detail});
+      const group=detail.startsWith("Drawing ")&&!detail.includes("fuel tank"),elapsed=performance.now()-painted;
+      if(group)groupCount++;
+      // Buffer/property batches are prepared off screen. Updating and painting
+      // the progress DOM for every small property group needlessly slows large
+      // imported decks; only publish progress at the responsive frame boundary.
+      if(!group||elapsed>=12)activity().update(token, {detail:group?"Preparing geometry buffers · "+groupCount+" / "+data.groups.length+" property groups. The complete model will appear together.":detail});
       const concise=detail.replace(/ p\d+/g,"");
       if(!detail.startsWith("Drawing ")&&concise!==lastLogged){log("Viewport +"+((performance.now()-started)/1000).toFixed(2)+" s: "+concise);lastLogged=concise;}
-      if(performance.now()-painted>=12){await paintActivity();painted=performance.now();}
+      if(elapsed>=12){await paintActivity();painted=performance.now();}
     }
-  } finally { state.buildingScene = false; if (body) body.inert = wasInert; }
+  } finally { state.buildingScene = wasBuilding; if (body) body.inert = wasInert; }
+  state.lastViewportBuild={milliseconds:performance.now()-started,groups:data.groups.length,nodes:data.nodes.count,atomic:true};
   log("Viewport ready in "+((performance.now()-started)/1000).toFixed(2)+" s.","good");
   logModelDetails(data);
 }
@@ -2209,13 +2216,14 @@ function selectedSensitivityField(){return WingSensitivityMap.buildField(state.s
 function updateSensitivityVisibleRange(contour){
   if(contour?.kind!=="sensitivity_field")return;
   const visibleOnly=document.getElementById("sensitivity-visible-range")?.checked;
-  let extent=0,count=0;
+  const values=[];
   for(const [eid,value]of contour.byId){
     const element=state.elements.get(eid);
     if(visibleOnly&&(!element||!state.layers.get(element.group.name)?.visible))continue;
-    extent=Math.max(extent,Math.abs(value));count++;
+    values.push(value);
   }
-  contour.min=-extent;contour.max=extent;contour.visibleCount=count;
+  const {min,max,count}=WingSensitivityMap.valueRange(values);
+  contour.min=min;contour.max=max;contour.visibleCount=count;
   contour.baseNote??=contour.note;
   contour.note=contour.baseNote+(visibleOnly?" Color range uses "+count+" visible elements.":"");
 }
@@ -2474,9 +2482,11 @@ function restoreWorkspaceView(view) {
   syncManualMeshAction();
   // Case changes rebuild load layers; restore their visibility afterwards.
   state.loadLayerVisibility = new Map(Object.entries(view.loadLayers || {}));
-  for (const [name, visible] of state.loadLayerVisibility) setLayerVisible(name, visible);
-  for (const [name, visible] of Object.entries(view.layers)) setLayerVisible(name, visible);
-  for (const name of state.layers.keys()) if(name.endsWith("_KINKS") && view.layers[name]===undefined && typeof view.layers[name.slice(0,-6)]==="boolean") setLayerVisible(name,view.layers[name.slice(0,-6)]);
+  batchLayerVisibility(()=>{
+    for (const [name, visible] of state.loadLayerVisibility) setLayerVisible(name, visible);
+    for (const [name, visible] of Object.entries(view.layers)) setLayerVisible(name, visible);
+    for (const name of state.layers.keys()) if(name.endsWith("_KINKS") && view.layers[name]===undefined && typeof view.layers[name.slice(0,-6)]==="boolean") setLayerVisible(name,view.layers[name.slice(0,-6)]);
+  });
   WingWorkspace.applyControls(document, view.controls);
   document.getElementById("result-palette").value=WingLegends.getPalette("fe");
   applySurfaceMode(); applyBeamStyle(); updateMarkerRadii(); applyVlmContour(); syncResultOverlays(); updateScaleText();
@@ -2600,13 +2610,19 @@ async function loadModelDefinition(file, options = {}) {
       ({data:definition,items}=WingWorkspace.parseObject(definition));
     } else { studyText=await file.text(); ({data:definition,items}=WingWorkspace.parse(studyText));definition.view=WingWorkspace.completeView(definition.view,document); }
     let staged = null, previous = null, commitStarted = false;
+    const wasBuilding=state.buildingScene;
     try {
       staged = await state.reference.stagePortable(items, definition.view.reference, {linked:parametersOnly});
       const importRequest=options.importRequest || definition.model_source;
       const response = await postParams(importRequest ? "/api/import_nastran" : "/api/prepare_workspace", importRequest || definition.parameters, token);
       if (response.status === 404) throw new Error("Portable model files need the updated server. Restart WingFEGen and refresh.");
       if (!response.ok) throw new Error(await readError(response));
-      const buffer = await response.arrayBuffer(), byteLength = buffer.byteLength, data = await decodePayload(buffer);
+      const transferStarted=performance.now();
+      if(importRequest)activity()?.update(token,{detail:"Receiving the complete deck geometry. The previous model stays visible until the new model is ready."});
+      const buffer = await response.arrayBuffer(), byteLength = buffer.byteLength, decodeStarted=performance.now();
+      if(importRequest)activity()?.update(token,{detail:"Decoding "+(byteLength/1048576).toFixed(1)+" MiB of model data before preparing the complete view…"});
+      const data = await decodePayload(buffer);
+      if(importRequest)log("Imported model transfer: "+((decodeStarted-transferStarted)/1000).toFixed(2)+" s; browser decoding: "+((performance.now()-decodeStarted)/1000).toFixed(2)+" s; "+(byteLength/1048576).toFixed(1)+" MiB. Preparing the complete viewport next.");
       if (!data.ok || !data.nodes || !data.groups) throw new Error("The prepared model is incomplete.");
       if(options.importDeck)definition.model_source=WingNastranImport.source(data.model_source || options.importRequest);
       // Keep one authoritative reference to the portable source; it is not
@@ -2621,6 +2637,10 @@ async function loadModelDefinition(file, options = {}) {
           const element=document.getElementById("p-"+spec.key); return [spec.key, element?.value, element?.checked];
         }) };
       commitStarted = true;
+      // Retain the previous complete canvas until geometry, visibility, cases
+      // and camera have all been committed. Never publish an intermediate
+      // mesh, including during recovery from a failed import.
+      state.buildingScene=true;
       state.importedDeck=definition.model_source ? {...data.imported_deck,source:definition.model_source} : null;
       if(state.importedDeck && (!state.importedDeck.token||!state.importedDeck.signature))throw Error("The imported deck response is missing its session identity.");
       state.values = state.importedDeck ? definition.parameters : data.model_params;
@@ -2675,7 +2695,7 @@ async function loadModelDefinition(file, options = {}) {
         setModelDirty(previous.dirty);
       }
       throw error;
-    }
+    } finally { state.buildingScene=wasBuilding; }
     } finally { state.studyRestoring = false; }
   },options.importDeck ? "Reading Nastran" : "Preparing Study file");
 }
@@ -3441,6 +3461,13 @@ function resultMeshIdentity(data) {
 }
 
 function* buildModelSteps(data, options = {}) {
+  // Babylon material setters scan the scene's submeshes for invalidation.
+  // Repeating that for every property during construction is quadratic even
+  // though the meshes have never been drawn. Invalidate once when all buffers
+  // and appearance settings are ready; restore the prior mode on failure too.
+  const wasMaterialBatch=state.scene.blockMaterialDirtyMechanism;
+  state.scene.blockMaterialDirtyMechanism=true;
+  try {
   yield "Preparing viewport geometry…";
   const restorePanels=document.getElementById("show-panels").checked;
   if(state.panelView)setPanelDisplay(false,false);
@@ -3651,7 +3678,7 @@ function* buildModelSteps(data, options = {}) {
   syncResultOverlays();
   if (savedView) {
     if (savedView.activeCase !== state.activeCase) selectLoadCase(savedView.activeCase);
-    for (const [name, visible] of savedView.layers) setLayerVisible(name, visible);
+    batchLayerVisibility(()=>{for (const [name, visible] of savedView.layers) setLayerVisible(name, visible);});
     // Building meshes never changes the camera; omit fitView so ongoing
     // orbit/pan/zoom gestures and a user-selected node center stay untouched.
     if (state.camera) state.camera.maxZ = Math.max(state.camera.maxZ, state.diag * 100);
@@ -3671,6 +3698,7 @@ function* buildModelSteps(data, options = {}) {
   }
   if(restorePanels&&state.panelIndex.panels.length)setPanelDisplay(true);
   refreshPanelExplosion();
+  } finally { state.scene.blockMaterialDirtyMechanism=wasMaterialBatch; }
 }
 
 function syncPanelExplosionControls(){
@@ -3973,6 +4001,23 @@ function syncAxesControls() {
   }
 }
 
+// Restoration paths finish with contour/aero appearance synchronization.
+// Restore hundreds of property switches with one shared edge/form update,
+// not one for every property. Nested batches retain edge-update suspension.
+function batchLayerVisibility(action) {
+  const wasBatch=state.layerVisibilityBatch,wasEdges=state.edgeUpdateBatch;
+  state.layerVisibilityBatch=true;state.edgeUpdateBatch=true;
+  try{return action();}
+  finally{
+    state.layerVisibilityBatch=wasBatch;state.edgeUpdateBatch=wasEdges;
+    if(!wasBatch){
+      applyBeamStyle();syncMeshEdges();syncLayerGroupControls();syncAeroOverlayControl();syncVlmControls();
+      if(state.selectedElement!==null||state.selectedNode!==null)updateSelection();
+      state.annotations?.invalidate();
+    }
+  }
+}
+
 function setLayerVisible(name, on) {
   on = !!on;
   if(panelControlsLayer(name)){if(!state.edgeUpdateBatch)syncLayerGroupControls();return;}
@@ -3995,7 +4040,7 @@ function setLayerVisible(name, on) {
   layer.visible = on;
   if(name!=="FUEL_INERTIA")for (const m of layer.meshes) m.setEnabled(on);
   if(name==="FUEL_INERTIA") {document.getElementById("show-fuel-inertia").checked=on;refreshFuelMassProperties();}
-  applyBeamStyle();
+  if(!state.layerVisibilityBatch)applyBeamStyle();
   const cb = document.getElementById("layer-" + name);
   if (cb) cb.checked = on;
   if (name === "SHELL_AXES" || name === "BAR_AXES") document.getElementById("axes-note").hidden =
@@ -4003,12 +4048,12 @@ function setLayerVisible(name, on) {
   if (name === "SHELL_AXES" || name === "BAR_AXES") syncAxesControls();
   if (name === "UNDEFORMED") document.getElementById("show-undeformed").checked = on;
   if (name === "REFERENCE_AERO") document.getElementById("show-reference-aero").checked = on;
-  if (name === "AERO_SURFACE") {syncAeroOverlayControl();updateViewportLegends();}
+  if (name === "AERO_SURFACE"&&!state.layerVisibilityBatch) {syncAeroOverlayControl();updateViewportLegends();}
   if (name === "FUEL_TANK") syncFuelControls();
   if (name === "SUPPORT_FORCES") document.getElementById("show-support-forces").checked = on;
-  if (state.selectedElement !== null || state.selectedNode !== null) updateSelection();
-  if (["VLM_MESH", "VLM_PRESSURE", "VLM_FORCES", "AERO_LOADS", "AERO_MOMENTS"].includes(name)) syncVlmControls();
-  syncComparisonVisibility();
+  if (!state.layerVisibilityBatch&&(state.selectedElement !== null || state.selectedNode !== null)) updateSelection();
+  if (!state.layerVisibilityBatch&&["VLM_MESH", "VLM_PRESSURE", "VLM_FORCES", "AERO_LOADS", "AERO_MOMENTS"].includes(name)) syncVlmControls();
+  if(!state.layerVisibilityBatch)syncComparisonVisibility();
   syncMeshEdges();
   if(!state.edgeUpdateBatch){syncLayerGroupControls();if(state.sensitivityMap?.contour.kind==="sensitivity_field")applyContour();else if(layer.meshes.some(mesh=>["quad","tria"].includes(mesh.metadata?.feGroup?.kind)))applyAeroOverlayStyles();}
   state.annotations?.invalidate();

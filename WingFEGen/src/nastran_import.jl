@@ -20,6 +20,10 @@ imports resolve against each containing file, then save a portable, expanded
 source so reopening a Study never depends on files outside that Study.
 """
 function imported_expand_includes(resolve,text)
+    # Most large sources are already standalone, and most INCLUDE children
+    # contain only bulk data. Do not copy every line just to discover this.
+    # Preserve the legacy line-ending normalization and source signatures.
+    occursin(r"(?im)^\s*INCLUDE(?:\s|,|$)",text)||return occursin('\r',text) ? replace(text,"\r\n"=>"\n") : text
     output=IOBuffer();lines=eachline(IOBuffer(text));pending=""
     for line in lines
         stripped=strip(line)
@@ -236,17 +240,26 @@ function imported_mesh_payload(m)
 end
 
 function imported_element_axes(m,gr)
-    centers=Float64[];xs=Float64[];ys=Float64[];zs=Float64[];lengths=Float64[]
+    count=n_elements(gr)
+    centers=Vector{Float64}(undef,3*count);xs=similar(centers);ys=similar(centers);zs=similar(centers);lengths=Vector{Float64}(undef,count)
     stride=gr.kind===:bar ? 2 : gr.kind===:quad ? 4 : 3
-    for e in 1:n_elements(gr)
+    for e in 1:count
         points=[Tuple(m.xyz[3i-2:3i]) for i in gr.conn[stride*(e-1)+1:stride*e]]
         x,y,z=if gr.kind===:bar
             x=unit3(points[2].-points[1]);z=unit3(cross3(x,Tuple(gr.orient[3*e-2:3*e])));(x,cross3(z,x),z)
         else
             shell_geometric_frame(points)
         end
-        append!(centers,sum.(eachrow(reduce(hcat,collect.(points))))./stride);append!(xs,x);append!(ys,y);append!(zs,z)
-        push!(lengths,minimum(norm3(points[mod1(i+1,stride)].-points[i]) for i in 1:stride))
+        # append!(Vector, Tuple) takes Julia's generic copy path, whose
+        # LinearIndices bounds membership scans the growing destination on
+        # supported runtimes. Preallocation makes this O(elements), rather
+        # than quadratic for a large group sharing one shell property.
+        for c in 1:3
+            k=3*(e-1)+c
+            centers[k]=sum(p[c] for p in points)/stride
+            xs[k]=x[c];ys[k]=y[c];zs[k]=z[c]
+        end
+        lengths[e]=minimum(norm3(points[mod1(i+1,stride)].-points[i]) for i in 1:stride)
     end
     note=gr.kind===:bar ? "GRID-reference axes only: OFFT/CD transformations and WA/WB offsets are not displayed; native analysis retains the source beam frame." : "Imported geometric shell axes; source material orientation cards remain unchanged."
     Dict("centers"=>blob_f32(centers),"x"=>blob_f32(xs),"y"=>blob_f32(ys),"z"=>blob_f32(zs),"lengths"=>blob_f32(lengths),"frame_note"=>note)
@@ -266,25 +279,43 @@ end
 function imported_prepare_loads!(native,m)
     imported_prepare_cases!(native,m)
     model=imported_native(m);index=Dict(id=>i for (i,id) in enumerate(m.node_ids));X=permutedims(reshape(m.xyz,3,:));cases=Dict{Int,Any}()
+    # Source equivalent loads depend on LOAD, not SPC or the output request.
+    # Reuse them for shared load sets (especially SOL105 preload/result pairs).
+    # Only the case-specific explanatory note is copied; no solve is performed.
+    resolved=Dict{Union{Nothing,Int},Dict{String,Any}}()
     for spec in m.params["imported.cases"]
         sid=spec["id"];row=spec["case_control"]
-        loads=Dict{String,Any}("stations"=>Any[],"force_stations"=>Any[],"moment_stations"=>Any[],"fuel_stations"=>Any[],"structure_stations"=>Any[],"method"=>"imported","load_application_version"=>IMPORTED_LOAD_VERSION,"summary"=>Any[])
-        F=zeros(6length(m.node_ids));load=imported_case_selector(row,"LOAD")
-        try
-            load===nothing||native.Solver.resolve_loads(model,load,1.,index,Dict{Int,Any}(),X,F)
-            for (i,gid) in enumerate(m.node_ids)
-                force=F[6i-5:6i-3];moment=F[6i-2:6i]
-                record=Dict{String,Any}("gid"=>gid,"node_index"=>i-1,"position"=>m.xyz[3i-2:3i],"eta"=>0.,"target_kind"=>"imported_grid","follower_forces"=>false)
-                !iszero(norm(force))&&push!(loads["force_stations"],merge(record,Dict("force"=>force,"moment"=>zeros(3))))
-                !iszero(norm(moment))&&push!(loads["moment_stations"],merge(record,Dict("force"=>zeros(3),"moment"=>moment)))
+        load=imported_case_selector(row,"LOAD")
+        loads=copy(get!(resolved,load) do
+            result=Dict{String,Any}("stations"=>Any[],"force_stations"=>Any[],"moment_stations"=>Any[],"fuel_stations"=>Any[],"structure_stations"=>Any[],"method"=>"imported","load_application_version"=>IMPORTED_LOAD_VERSION,"summary"=>Any[])
+            try
+                if load!==nothing
+                    F=zeros(6length(m.node_ids))
+                    native.Solver.resolve_loads(model,load,1.,index,Dict{Int,Any}(),X,F)
+                    for (i,gid) in enumerate(m.node_ids)
+                        k=6*i
+                        hasforce=!(iszero(F[k-5])&&iszero(F[k-4])&&iszero(F[k-3]))
+                        hasmoment=!(iszero(F[k-2])&&iszero(F[k-1])&&iszero(F[k]))
+                        # Allocating dictionaries and sliced vectors for every
+                        # unloaded node multiplied import costs by case count.
+                        hasforce||hasmoment||continue
+                        record=Dict{String,Any}("gid"=>gid,"node_index"=>i-1,"position"=>m.xyz[3*i-2:3*i],"eta"=>0.,"target_kind"=>"imported_grid","follower_forces"=>false)
+                        hasforce&&push!(result["force_stations"],merge(record,Dict("force"=>F[k-5:k-3],"moment"=>zeros(3))))
+                        hasmoment&&push!(result["moment_stations"],merge(record,Dict("force"=>zeros(3),"moment"=>F[k-2:k])))
+                    end
+                end
+                result["note"]="Native equivalent applied nodal loads in BASIC axes, before constraint redistribution. Original load-card application remains unchanged."
+                result["available"]=true
+            catch err
+                result["note"]="Load visualization unavailable: "*sprint(showerror,err)
+                result["available"]=false
             end
-            loads["note"]="Native equivalent applied nodal loads in BASIC axes, before constraint redistribution. Original load-card application remains unchanged."
-            loads["available"]=true
+            result
+        end)
+        if loads["available"]
             get(spec,"load_source_case_id",sid)!=sid&&(loads["note"]*=" Loads belong to static preload subcase $(spec["load_source_case_id"]).")
             any(haskey(row,key) for key in ("TEMP","TEMPERATURE"))&&(loads["note"]*=" Thermal equivalent loads are computed by the solver; they are not included in these arrows.")
-        catch err
-            loads["note"]="Load visualization unavailable: "*sprint(showerror,err)
-            loads["available"]=false
+        else
             push!(m.params["imported.warnings"],"Subcase $sid: "*loads["note"])
         end
         cases[Int(sid)]=loads

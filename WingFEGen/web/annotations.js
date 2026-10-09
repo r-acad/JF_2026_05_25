@@ -245,8 +245,8 @@
       if (!ctx) return;
       const state = getState(), positions = getPositions();
       const showNodes = !!control("show-node-ids")?.checked, showElements = !!control("show-element-ids")?.checked;
-      const showRibs = !!(control("mesh-labels-ribs")?.checked || control("mesh-labels-both")?.checked);
-      const showStringers = !!(control("mesh-labels-stringers")?.checked || control("mesh-labels-both")?.checked);
+      const showRibs = !!control("mesh-labels-ribs")?.checked;
+      const showStringers = !!control("mesh-labels-stringers")?.checked;
       const showPanels=!!state.panelView||!!state.panelExplosion?.active;
       const showReactions=!!control("show-support-force-values")?.checked;
       const selected = state.elements.get(state.selectedElement);
@@ -362,7 +362,7 @@
       const host = control("id-label-status"); if (host) host.textContent = text;
     }
     legend();
-    for (const id of ["show-node-ids", "show-element-ids", "id-label-size", "mesh-labels-none", "mesh-labels-ribs", "mesh-labels-stringers", "mesh-labels-both", "show-support-force-values"]) {
+    for (const id of ["show-node-ids", "show-element-ids", "id-label-size", "mesh-labels-ribs", "mesh-labels-stringers", "show-support-force-values"]) {
       const input = control(id); if (input) input.addEventListener("input", invalidate);
     }
     const observer = scene.onAfterRenderObservable.add(() => render());

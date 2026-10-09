@@ -6,6 +6,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **WingFEGen sensitivity bounds, labels and large-deck imports.** Fit automatic
+  sensitivity scales to relevant finite min/max in tables and visible model
+  fields; preserve manual limits and exclude missing values. Make rib/stringer
+  labels independent checkboxes with migration of saved radio selections.
+  Remove quadratic imported-axis buffer growth and repeated material invalidation
+  during scene construction. Reuse equivalent source loads across subcases,
+  skip unloaded-node allocations and batch saved visibility updates. Commit the
+  complete model view at once, preserve rollback, and log preparation stages.
+
 - **WingFEGen viewer controls and sensitivity table recovery.** Add rigid panel
   spreading from each inboard rib with a manual slider, toolbar beam sections
   and translucency, collapsible entity lists, signed support reaction labels,

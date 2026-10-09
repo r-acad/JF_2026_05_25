@@ -111,6 +111,14 @@ The Log reports source/INCLUDE reading, parser startup, native model creation,
 viewport conversion and delivery separately. Preparation runs no analysis and
 does not modify the current Study.
 
+The previous complete model remains on screen while the new one is decoded
+and prepared. Geometry, property visibility and camera are committed together;
+an import error restores the previous view. Logs separate transfer, decoding
+and viewport preparation. Large imported property groups use preallocated axis
+buffers, and viewport material/visibility updates are batched to avoid repeated
+whole-model work. These optimizations preserve element/property identities,
+case-specific supports and loads, and inspection data.
+
 The form needs only the main file on your computer; no model-folder selection
 is required. Missing files and cyclic INCLUDE dependencies are reported.
 A local import is saved as a self-contained expanded source in the Study, so
@@ -158,6 +166,9 @@ or loading a generated Study returns to the wing generator.
 Every left pane collapses with **−** and restores with **+**. Drawing panes
 retain a separate Maximize action while expanded. Rib/stringer labels and rib
 datum squares are together under **Display / Axes & labels**.
+**Ribs** and **Stringers** are independent on/off checkboxes, like the datum
+toggle. Enable both to show both label sets or clear both to hide them. Older
+Studies using Off/Ribs/Stringers/Both are migrated without losing the choice.
 
 The viewport supports entity filters, inspection, node/element IDs, local axes,
 solid/translucent surfaces, beam sections, reference STL/OBJ/GLB geometry,
@@ -273,6 +284,15 @@ supported formulations and limitations.
 Results include signed and normalized derivatives, residual checks, analytic
 derivative/solve counts and timings (step comparisons in legacy mode). **Open data table** opens
 panel grids and complete/shared-property lists with CSV export. Color fields
+automatically fit the actual finite minimum and maximum of the relevant data.
+The panel table uses its selected skin, property family, quantity and filter;
+raw derivatives with different units have separate scales. All-negative or
+all-positive values no longer create an unused opposite half of the scale.
+The viewport uses mapped properties and, when enabled, only visible elements.
+Explicit manual viewport limits still take precedence. Uniform values have a
+single-valued scale; missing derivatives stay gray and are excluded from bounds.
+
+Sensitivity color fields
 display the derivative of the selected scalar response with respect to the
 property attached to each element, not a new local stress solution. A shared
 property repeats its one derivative on its member elements. Local panel
