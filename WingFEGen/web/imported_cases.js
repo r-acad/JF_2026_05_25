@@ -39,7 +39,7 @@
       if(!deck||!context.data)return;
       const c=selected(context.data,context.caseId);if(!c)return;
       const constraints=supports(context.data,c.id)||{},control=c.case_control||{};
-      heading(casesHost,'Imported load cases',context);note(casesHost,'Read-only source definition. Selecting a case updates applied loads and supports in the 3D view. Edit the BDF and read it again to change the analysis.');
+      heading(casesHost,'Imported load cases',context);note(casesHost,'Read-only source load and constraint definitions. Selecting a case updates the 3D view. Analysis lets you choose SOL101/103/105/106 and follower FORCE loads; edit and reread the BDF to change source load sets or supports.');
       definition(casesHost,{'Solution':'SOL '+deck.solution,'Subcase':c.id,'Label':c.label,...control});
       for(const warning of c.warnings||[])note(casesHost,warning);
       const actions=make('div',undefined,'hud-row');actions.append(button('Show applied loads',showLoads),button('Show supports',showSupports));casesHost.append(actions);

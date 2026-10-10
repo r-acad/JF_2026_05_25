@@ -13,7 +13,8 @@
   // Do not encode/copy entire decks just to check their size. Large native
   // files and their INCLUDE trees are normal inputs, not an import error.
   const file=item=>{if(!item||typeof item.text!=='string'||item.text.includes('\0'))throw Error('Nastran files must contain plain text.');const name=path(item.name),key=name.toLowerCase();if(seen.has(key))throw Error('Duplicate imported filename: '+name);seen.add(key);return{name,text:item.text};};
- const main=file(raw),includes=(raw.includes||[]).map(file);return{kind:'nastran',...main,includes};
+ const main=file(raw),includes=(raw.includes||[]).map(file),result={kind:'nastran',...main,includes};
+ if(raw.analysis!=null){if(typeof raw.analysis!=='object'||Array.isArray(raw.analysis))throw Error('Invalid imported analysis settings.');result.analysis=JSON.parse(JSON.stringify(raw.analysis));}return result;
  }
  function includeReferences(text,name){
   const references=[];let pending='';

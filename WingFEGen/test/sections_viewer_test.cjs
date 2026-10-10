@@ -63,7 +63,7 @@ const document = { getElementById(id) { if (!controls.has(id)) controls.set(id, 
 // Legend DOM is covered in the browser suite; this harness tests real section
 // meshes and material/contour geometry without mounting the full application.
 const WingLegends={resolveLimits:(_key,min,max)=>({min,max}),getPalette:()=>"spectrum",render(){}};
-const sandbox = { BABYLON, WingSections, WingLegends, document, console, Float32Array, Int32Array, Int16Array, Uint8Array,
+const sandbox = { BABYLON, WingSections, WingLegends, WingColorScales:require('../web/color_scales.js'), document, console, Float32Array, Int32Array, Int16Array, Uint8Array,
   ArrayBuffer, DataView, Map, Set, window: { addEventListener() {} } };
 vm.createContext(sandbox);
 const source = fs.readFileSync(path.join(__dirname, "../web/app.js"), "utf8");

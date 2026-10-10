@@ -423,6 +423,7 @@ function mesh_payload(m::Model; progress = stage -> nothing)
             "xyz" => blob_f32(m.xyz),
         ),
         "groups" => groups,
+        "coordinate_systems" => generated_coordinate_payload(groups),
         "rbe3" => Dict{String,Any}(
             "count" => length(m.rbe3),
             "refs" => blob_i32(rbe3_refs; offset = -1),

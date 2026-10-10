@@ -78,6 +78,24 @@
     return { triangles, order };
   }
 
+  /** Area alone does not determine the real section or its I/J. This display
+   * proxy preserves A only; source properties and analysis remain untouched. */
+  function displaySection(section, rod = false) {
+    if (section?.polygon_yz_m?.length >= 3) return section;
+    if (!section) return null;
+    const areas = section.areas_m2, area = Number(section.area_m2);
+    if (areas ? !areas.length || Array.from(areas).some(a => !(a > 0) || !Number.isFinite(a)) : !(area > 0) || !Number.isFinite(area)) return null;
+    rod = rod || section.equivalent_shape === "round" || section.type === "PROD";
+    // An eight-sided circular approximation preserves exact area, including
+    // its end caps. Its circumradius is not an inferred physical radius.
+    const n = rod ? 8 : 4, radius = Math.sqrt(2 / (n * Math.sin(2 * Math.PI / n)));
+    const polygon = rod ? Array.from({length:n}, (_,i) => [radius*Math.cos(2*Math.PI*i/n),radius*Math.sin(2*Math.PI*i/n)]) : [[-.5,-.5],[.5,-.5],[.5,.5],[-.5,.5]];
+    return {...section, equivalent: true, equivalent_shape: rod ? "round" : "square",
+      display_note: "Area-equivalent " + (rod ? "circular approximation" : "square") + "; actual cross-section shape and I/J are not inferred. Display geometry only.",
+      polygon_yz_m: areas ? polygon : polygon.map(p => p.map(v => v*Math.sqrt(area))),
+      element_scales: areas ? Float64Array.from(areas, Math.sqrt) : null, offset_y_m:0, offset_z_m:0};
+  }
+
   function geometry(positions, conn, orientations, section) {
     const polygon = section.polygon_yz_m;
     if (!Array.isArray(polygon) || polygon.length < 3) throw new Error("Missing physical bar section polygon");
@@ -117,10 +135,10 @@
         rotate(point(geometry.referenceY, e), point(rotations, conn[2 * e + end]), rotationScale), referenceX)) :
         [frame(a, b, point(orientations, e), referenceX)];
       template.forEach(([end, index], v) => {
-        const origin = end ? b : a, yz = section.polygon_yz_m[index];
+        const origin = end ? b : a, yz = section.polygon_yz_m[index], scale = section.element_scales?.[e] ?? 1;
         const { y, z } = endFrames[end] || endFrames[0];
         for (let c = 0; c < 3; c++) geometry.positions[3 * (e * template.length + v) + c] =
-          origin[c] + (yz[0] + offsetY) * y[c] + (yz[1] + offsetZ) * z[c];
+          origin[c] + (scale*yz[0] + offsetY) * y[c] + (scale*yz[1] + offsetZ) * z[c];
       });
     }
     return geometry.positions;
@@ -148,5 +166,5 @@
     BABYLON.VertexData.ComputeNormals(data.positions, data.indices, data.normals, { useRightHandedSystem: true });
     mesh.updateVerticesData(BABYLON.VertexBuffer.NormalKind, data.normals);
   }
-  return { frame, rotate, triangulate, geometry, update, createMesh, updateMesh };
+  return { frame, rotate, triangulate, displaySection, geometry, update, createMesh, updateMesh };
 });

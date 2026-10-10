@@ -31,19 +31,24 @@
  function batches(groups,read,readFloat,threshold=1000,maxElements=8192){
   if(groups.length<=threshold)return groups;
   const output=[],pending=new Map(),sizes=new Map();
-  function flush(kind){const members=pending.get(kind);if(!members?.length)return;
+  function flush(bucket){const members=pending.get(bucket);if(!members?.length)return;const kind=members[0].kind;
    const count=members.reduce((n,g)=>n+g.count,0),stride=kind==='quad'?4:kind==='tria'?3:2;
    const conn=new Int32Array(count*stride),ids=new Int32Array(count),orient=new Float32Array(kind==='bar'?count*3:0),ranges=[];let e=0;
    for(const group of members){conn.set(read(group.conn),e*stride);ids.set(read(group.eids),e);if(group.orient?.byteLength)orient.set(readFloat(group.orient),e*3);ranges.push({group,start:e,count:group.count});e+=group.count;}
-   output.push({name:'IMPORTED_BATCH_'+kind+'_'+output.length,kind,count,pid:0,conn:new Uint8Array(conn.buffer),eids:new Uint8Array(ids.buffer),orient:new Uint8Array(orient.buffer),sourceRanges:ranges});pending.set(kind,[]);sizes.set(kind,0);
+   const batch={name:'IMPORTED_BATCH_'+kind+'_'+output.length,kind,count,pid:0,conn:new Uint8Array(conn.buffer),eids:new Uint8Array(ids.buffer),orient:new Uint8Array(orient.buffer),sourceRanges:ranges};
+   if(kind==='bar'&&bucket!==kind){const areas=new Float64Array(count);for(const r of ranges)areas.fill(r.group.properties.section.area_m2,r.start,r.start+r.count);batch.properties={section:{type:'AREA_EQUIVALENT',areas_m2:areas,equivalent_shape:bucket.endsWith('_round')?'round':'square'}};}
+   output.push(batch);pending.set(bucket,[]);sizes.set(bucket,0);
   }
   for(const group of groups){
    // Shaped sections retain their actual section definitions. Unshaped beam
    // centerlines can batch across PIDs just like shells.
    if(group.properties?.section?.polygon_yz_m){output.push(group);continue;}
-   let members=pending.get(group.kind);if(!members)pending.set(group.kind,members=[]);
-   if(members.length&&(sizes.get(group.kind)||0)+group.count>maxElements){flush(group.kind);members=pending.get(group.kind);}
-   members.push(group);sizes.set(group.kind,(sizes.get(group.kind)||0)+group.count);
+   const area=Number(group.properties?.section?.area_m2),round=group.properties?.type==='PROD'||/C(?:ON)?ROD/.test(group.name);
+   const thickness=Number(group.properties?.thickness_m),thick=thickness>0&&Number.isFinite(thickness)&&group.properties?.thickness_display_supported!==false;
+   const bucket=group.kind==='bar'?(area>0&&Number.isFinite(area)?'bar_'+(round?'round':'square'):'bar'):group.kind+(thick?'_thickness':'_surface');
+   let members=pending.get(bucket);if(!members)pending.set(bucket,members=[]);
+   if(members.length&&(sizes.get(bucket)||0)+group.count>maxElements){flush(bucket);members=pending.get(bucket);}
+   members.push(group);sizes.set(bucket,(sizes.get(bucket)||0)+group.count);
   }
   for(const kind of pending.keys())flush(kind);return output;
  }

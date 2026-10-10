@@ -120,8 +120,9 @@ function imported_case_supports(native,m,control,scales;index=Dict(id=>i for (i,
     end
     rows=sort!(collect(values(assignments));by=row->row["node"])
     for row in rows;row["components"]=join(sort!(collect(keys(row["values"]))));sort!(row["source_sets"]);end
-    dofs=[row["components"] for row in rows]
-    Dict{String,Any}("count"=>length(rows),"nodes"=>blob_i32([row["node"] for row in rows]),"node_components"=>dofs,"components"=>length(unique(dofs))==1 ? first(dofs) : "mixed","mode"=>"imported","assignments"=>rows,"selected_spc_id"=>spc_id,"expanded_sets"=>sort!(collect(sets)),"selection_valid"=>valid,"constrained_dofs"=>sum(row->length(row["values"]),rows;init=0),"enforced_displacements"=>prescribed,"warnings"=>unique(warnings),"note"=>"Selected case only: SPC/SPC1, SPCADD unions and permanent GRID/GRDSET PS. Values are in source units and GRID CD components. Automatic numerical constraints are determined during analysis.")
+    dofs=String[row["components"] for row in rows]
+    nodes=Int[row["node"] for row in rows]
+    Dict{String,Any}("count"=>length(rows),"nodes"=>blob_i32(nodes),"node_components"=>dofs,"components"=>length(unique(dofs))==1 ? first(dofs) : "mixed","mode"=>"imported","assignments"=>rows,"selected_spc_id"=>spc_id,"expanded_sets"=>sort!(collect(sets)),"selection_valid"=>valid,"constrained_dofs"=>sum(row->length(row["values"]),rows;init=0),"enforced_displacements"=>prescribed,"warnings"=>unique(warnings),"note"=>"Selected case only: SPC/SPC1, SPCADD unions and permanent GRID/GRDSET PS. Values are in source units and GRID CD components. Automatic numerical constraints are determined during analysis.")
 end
 
 function imported_prepare_cases!(native,m)

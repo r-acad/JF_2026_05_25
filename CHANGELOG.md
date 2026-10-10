@@ -6,6 +6,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **WingFEGen imported analysis, startup and solid display.** Select SOL101,
+  SOL103, SOL105 or SOL106 for imported sources using separate run-deck overrides;
+  retain source IDs, loads, supports and saved analysis settings. Validate source
+  and analysis identity when restoring results, and explicitly reject follower
+  FORCE loads in modal/buckling overrides. Stream large-deck checksums to remove
+  a prelaunch stall; imported Run preparation avoids wing generation and native
+  graph restoration in the web process. Report package versions, loading phases,
+  elapsed compilation and listener readiness at startup. Add coordinate triads
+  and CID/type labels, inspectable pink/violet miscellaneous entities, equivalent
+  area sections and property-thickness shell display. Restore filled shell state
+  after visibility/result changes; preserve collocated fixed loads when displaying
+  rotated imported follower forces.
 - **WingFEGen Nastran import, subsonic loading and case display.** Restore the
   normal Windows Open dialog with a foreground owner and automatic INCLUDE
   resolution. Batch large imported geometry while retaining element/property

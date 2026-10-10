@@ -741,3 +741,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .display-pane .layer {padding:4px 0}
 .display-pane .pick-note {line-height:1.5}
 .display-pane fieldset {min-width:0}
+
+/* Imported solution names and follower settings need the full pane width. */
+#imported-analysis .display-control {display:flex;flex-direction:column;align-items:stretch;gap:6px;margin:12px 0}
+#imported-analysis .display-control select {width:100%;max-width:100%;min-width:0}
+#imported-analysis .display-control input {width:100%;max-width:100%;box-sizing:border-box}

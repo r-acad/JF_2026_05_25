@@ -50,6 +50,10 @@ function sensitivity_baseline_payload(source,baseline,data,path,directory,metada
     item["model_params"]=is_imported_model(source) ? imported_public_params(source) : copy(source.params)
     item["analysis_params"]=is_imported_model(baseline) ? imported_public_params(baseline) : copy(baseline.params)
     is_imported_model(source) ? (item["imported_signature"]=source.params["imported.source"]["signature"]) : (item["fuel_mass"]=fuel_mass_state(baseline))
+    if is_imported_model(source)
+        item["imported_analysis"]=get(source.params,"imported.analysis",imported_analysis_options())
+        item["imported_analysis_signature"]=imported_analysis_signature(source)
+    end
     push!(item["summary"],Any["Sensitivity baseline","Physical case $id: $label; original forward analysis, no operator perturbations"])
     payload=copy(item);payload["load_cases"]=Any[item];payload["load_case_independent"]=false
     payload["model_params"]=copy(item["model_params"])

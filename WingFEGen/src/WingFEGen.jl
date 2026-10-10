@@ -26,15 +26,51 @@
 # ===========================================================================
 module WingFEGen
 
-using Printf
-using Dates
-using TOML
-import HTTP
-import JSON
-import MsgPack
-import VortexLattice
-import SHA
+"""Report real startup stages when the command-line launcher installs a listener."""
+function _startup_stage(message::AbstractString)
+    parent = parentmodule(@__MODULE__)
+    isdefined(parent, :wingfegen_startup_progress) || return nothing
+    Base.invokelatest(getfield(parent, :wingfegen_startup_progress), String(message))
+    return nothing
+end
 
+const _startup_package_started = Ref(time())
+function _startup_begin_package(name::String)
+    _startup_stage("Loading package $name")
+    _startup_package_started[] = time()
+end
+function _startup_end_package(package::Module, name::String)
+    version = try Base.pkgversion(package) catch; nothing end
+    suffix = version === nothing ? "" : " v$version"
+    _startup_stage("Loaded $name$suffix in $(round(time()-_startup_package_started[];digits=2)) s")
+end
+
+_startup_begin_package("Printf")
+using Printf
+_startup_end_package(Printf, "Printf")
+_startup_begin_package("Dates")
+using Dates
+_startup_end_package(Dates, "Dates")
+_startup_begin_package("TOML")
+using TOML
+_startup_end_package(TOML, "TOML")
+_startup_begin_package("HTTP")
+import HTTP
+_startup_end_package(HTTP, "HTTP")
+_startup_begin_package("JSON")
+import JSON
+_startup_end_package(JSON, "JSON")
+_startup_begin_package("MsgPack")
+import MsgPack
+_startup_end_package(MsgPack, "MsgPack")
+_startup_begin_package("VortexLattice")
+import VortexLattice
+_startup_end_package(VortexLattice, "VortexLattice")
+_startup_begin_package("SHA")
+import SHA
+_startup_end_package(SHA, "SHA")
+
+_startup_stage("Loading input definitions, airfoils, materials and reference geometry")
 include("runtime_bootstrap.jl")
 include("airfoil.jl")
 include("airfoil_database.jl")
@@ -42,6 +78,7 @@ include("reference_assets.jl")
 include("plan_view_state.jl")
 include("materials.jl")
 include("params.jl")
+_startup_stage("Loading wing geometry, rib layout and structural meshing code")
 include("geometry.jl")
 include("rib_layout.jl")
 include("mesh.jl")
@@ -51,18 +88,22 @@ include("panel_properties.jl")
 include("supports.jl")
 include("rib_mesh.jl")
 include("leading_edge_orientation.jl")
+_startup_stage("Loading fuel, mass properties and element coordinate frames")
 include("fuel.jl")
 include("fuel_masses.jl")
 include("shell_frames.jl")
+include("coordinate_payload.jl")
 include("sections.jl")
 include("weights.jl")
 include("structure_loads.jl")
 include("load_cases.jl")
+_startup_stage("Loading Nastran output and aerodynamic load transfer code")
 include("nastran.jl")
 include("aerodynamics.jl")
 include("load_moments.jl")
 include("load_plots.jl")
 include("payload.jl")
+_startup_stage("Loading JFEM job management and sensitivity analysis code")
 include("jfem_run.jl")
 include("sensitivity.jl")
 include("sensitivity_compute.jl")
@@ -72,10 +113,13 @@ include("sensitivity_analytic_beams.jl")
 include("sensitivity_analytic_loads.jl")
 include("sensitivity_analytic_geometric.jl")
 include("sensitivity_analytic.jl")
+_startup_stage("Loading Nastran import and imported-property sensitivity code")
 include("nastran_import.jl")
 include("nastran_import_sensitivity.jl")
+_startup_stage("Loading HTTP routes, study storage and local file operations")
 include("server.jl")
 include("nastran_import_server.jl")
+_startup_stage("Application code loaded; no FEM or analysis has been created")
 
 export Airfoil, naca_airfoil, Wing, make_wing, Model, BoxGrid
 export default_params, read_input, validate_params, params_to_toml
@@ -166,6 +210,7 @@ function main(args::AbstractVector{<:AbstractString} = ARGS; on_ready::Function 
         i += 1
     end
 
+    _startup_stage("Resolving the input definition and command-line options")
     isempty(input) && (input = ensure_default_input(root))
     isfile(input) || error("input file not found: $input")
 

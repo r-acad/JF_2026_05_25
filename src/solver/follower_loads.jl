@@ -88,6 +88,7 @@ function _follower_result_metadata(context,u,scale; linearized::Bool=false)
         force=scale*station.force
         current=linearized ? force+cross(theta,force) : _rotate_follower_vector(theta,force)
         push!(forces,Dict("grid_id"=>station.gid,"force_basic"=>collect(station.frame*current),
+            "reference_force_basic"=>collect(station.frame*force),
             "rotation_basic"=>collect(station.frame*theta)))
     end
     return Dict{String,Any}("enabled"=>true,"force_only"=>true,

@@ -76,7 +76,7 @@ end
 function imported_sensitivity_deck(m,id,solution="101")
     original=imported_native(m);subs=original["CASE_CONTROL"]["SUBCASES"]
     haskey(subs,id)||throw(ArgumentError("Imported subcase $id is missing"));row=subs[id]
-    lines=split(m.params["imported.source"]["flattened"],'\n');bulk=findfirst(line->occursin(r"^\s*BEGIN\s+BULK"i,line),lines)
+    lines=split(get(m.params,"imported.analysis_deck",m.params["imported.source"]["flattened"]),'\n');bulk=findfirst(line->occursin(r"^\s*BEGIN\s+BULK"i,line),lines)
     bulk===nothing&&throw(ArgumentError("Imported sensitivities require an explicit BEGIN BULK delimiter"))
     io=IOBuffer();println(io,"SOL $solution\nCEND\nTITLE = Imported sensitivity baseline\nDISPLACEMENT(PRINT) = ALL\nSTRESS(PRINT) = ALL\nFORCE(PRINT) = ALL\nSPCFORCES(PRINT) = ALL\nSUBCASE 1")
     for key in ("SPC","LOAD","MPC","TEMP","TEMPERATURE","NLPARM")
@@ -158,6 +158,7 @@ function imported_derivative_coverage(m,d)
 end
 
 function compute_imported_sensitivity(m,raw,dir;native,solve,progress,cancelled)
+    m.params["output.solution"]=="101"||throw(ArgumentError("Imported-deck sensitivities currently support SOL101 static adjoints only. Choose SOL101 in Analysis; imported SOL103/SOL105 eigenvalue and SOL106 nonlinear adjoints are not implemented."))
     request=sensitivity_request(m,raw);objective=request["objective"]
     objective["type"] in ("displacement","shell_stress","bar_stress")||throw(ArgumentError("Imported-deck sensitivity currently supports static displacement and stress objectives"))
     request["derivative_method"]=="analytic"||throw(ArgumentError("Imported-deck sensitivities use exact analytic adjoints; legacy operator differences are not available"))

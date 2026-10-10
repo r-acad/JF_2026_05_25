@@ -214,7 +214,7 @@ function request_progress(st::AppState, req)
         yield() # allow progress requests between CPU-intensive stages on one-thread Julia
         nothing
     end
-    report("geometry")
+    report("Preparing requested operation…")
     return report
 end
 
@@ -470,7 +470,7 @@ function validate_case_decks(snapshot)
                 get(row,"path",nothing) isa String || throw(ArgumentError("the saved case-deck metadata is invalid"))
             push!(used,id)
             text=get(row,"deck_text",nothing)
-            text isa String && get(row,"sha256","")==bytes2hex(SHA.sha256(text)) &&
+            text isa String && get(row,"sha256","")==bytes2hex(SHA.sha256(IOBuffer(text))) &&
                 get(row,"bytes",nothing)==sizeof(text) && get(row,"lines",nothing)==count(==('\n'),text) ||
                 throw(ArgumentError("saved deck for case $id failed its integrity check"))
         end
@@ -493,7 +493,7 @@ function read_deck_snapshot(st::AppState)
     snapshot isa AbstractDict && get(snapshot, "version", 0) == 1 ||
         throw(ArgumentError("unsupported saved deck snapshot"))
     text = get(snapshot, "deck_text", nothing)
-    text isa String && get(snapshot, "sha256", "") == bytes2hex(SHA.sha256(text)) ||
+    text isa String && get(snapshot, "sha256", "") == bytes2hex(SHA.sha256(IOBuffer(text))) ||
         throw(ArgumentError("the saved deck snapshot failed its integrity check"))
     validate_case_decks(snapshot)
     return Dict{String,Any}(snapshot)
@@ -502,15 +502,17 @@ end
 deck_metadata(snapshot) = Dict{String,Any}(k => v for (k, v) in snapshot if k != "deck_text")
 
 """Atomically preserve a completed deck independently of its original filename."""
-function preserve_deck!(st::AppState, path::AbstractString, params; source::String, case_files=Any[],imported_signature=nothing)
+function preserve_deck!(st::AppState, path::AbstractString, params; source::String, case_files=Any[],imported_signature=nothing,imported_analysis=nothing)
     text = read(path, String)
+    # Hash bytes through bounded reads. SHA's String slicing path can become
+    # extremely slow on multi-megabyte decks; IOBuffer produces the same SHA256.
     cases=Any[]
     for file in case_files
         case_text=abspath(file["path"])==abspath(path) ? text : read(file["path"],String)
         push!(cases,Dict{String,Any}("case_id"=>file["case_id"],"label"=>String(file["label"]),
             "fuel_percent"=>file["fuel_percent"],"path"=>abspath(file["path"]),"deck_text"=>case_text,
             "lines"=>count(==('\n'),case_text),"bytes"=>sizeof(case_text),
-            "sha256"=>bytes2hex(SHA.sha256(case_text))))
+            "sha256"=>bytes2hex(SHA.sha256(IOBuffer(case_text)))))
     end
     lock(st.deck_lock)
     try
@@ -519,9 +521,10 @@ function preserve_deck!(st::AppState, path::AbstractString, params; source::Stri
             "input_path" => st.input_path, "created_at" => string(Dates.now(Dates.UTC)) * "Z",
             "solution" => "SOL " * String(params["output.solution"]), "source" => source,
             "lines" => count(==('\n'), text), "bytes" => sizeof(text),
-            "sha256" => bytes2hex(SHA.sha256(text)), "model_params" => deepcopy(params),
+            "sha256" => bytes2hex(SHA.sha256(IOBuffer(text))), "model_params" => deepcopy(params),
             "case_decks"=>cases,"case_decks_sha256"=>case_decks_digest(cases))
         imported_signature===nothing||(snapshot["imported_signature"]=String(imported_signature))
+        imported_analysis===nothing||(snapshot["imported_analysis"]=deepcopy(imported_analysis))
         validate_case_decks(snapshot)
         mkpath(st.deck_store_dir)
         temporary, io = mktemp(st.deck_store_dir)
@@ -652,8 +655,11 @@ function handle_run_jfem(st::AppState, req; start_job=start_jfem_job)
                     "Wait for it or stop it first."))
             end
         end
-        imported=request_imported_model(JSON.parse(String(req.body)))
-        imported===nothing||return handle_imported_nastran(st,imported;run=true,start_job)
+        raw=JSON.parse(String(req.body))
+        haskey(get(raw,"parameters",raw),"imported_deck")&&progress("Preparing imported Nastran analysis settings; preserving source geometry and load cases")
+        imported=request_imported_model(raw)
+        imported===nothing||return handle_imported_nastran(st,imported;run=true,start_job,progress)
+        st.model!==nothing&&is_imported_model(st.model)&&throw(ArgumentError("The current model is an imported Nastran deck, but this request omitted its source handle. Read the deck or reopen its Study before running; no wing model was generated."))
         params = params_from_request(st, req)
         model = build_model(params; progress)
         st.params = params
@@ -907,14 +913,17 @@ function run_app(input_path::AbstractString;
                  root::AbstractString = dirname(@__DIR__),
                  launch_browser::Bool = true,
                  on_ready::Function = () -> nothing)
+    _startup_stage("Reading input defaults and locating saved studies: $(abspath(input_path))")
     st = AppState(root, input_path)
     isdir(st.webdir) || error("web assets not found at $(st.webdir)")
+    _startup_stage("Registering HTTP routes and checking bundled viewer assets")
     router = make_router(st)
 
     server = nothing
     actual = port
     for p in port:port+20
         try
+            _startup_stage("Starting the local HTTP listener at http://127.0.0.1:$p/")
             server = HTTP.serve!(router, "127.0.0.1", p)
             actual = p
             break
@@ -926,6 +935,7 @@ function run_app(input_path::AbstractString;
     server === nothing && error("no free port in the range $port to $(port+20)")
 
     url = "http://127.0.0.1:$actual/"
+    _startup_stage("HTTP listener ready at $url; choose a study or import a Nastran deck in the browser")
     on_ready()
     println()
     println("  WingFEGen is running")
@@ -933,6 +943,7 @@ function run_app(input_path::AbstractString;
     println("  web app    : ", url)
     println("  press Ctrl-C in this window to stop")
     println()
+    flush(stdout)
     launch_browser && open_browser(url)
 
     try

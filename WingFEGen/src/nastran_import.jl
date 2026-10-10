@@ -5,13 +5,19 @@ const IMPORTED_NATIVE_LOCK=ReentrantLock()
 imported_native(m::Model)=imported_native(m.params)
 function imported_native(params::AbstractDict)
     lock(IMPORTED_NATIVE_LOCK) do
-        native=params["imported.native"];native!==nothing&&return native
+        native=params["imported.native"]
+        if native!==nothing
+            return params["imported.native"]=imported_analysis_native(params,native)
+        end
         path=get(params,"imported.native_path",nothing)
         path isa AbstractString&&isfile(path)||throw(ArgumentError("The cached native deck is unavailable; read the original deck or saved Study again"))
         # The complete native data remain on disk after import. Viewer payloads
         # already contain all properties/cases; only a backend operation needs
         # this second process's copy of the solver dictionary.
-        params["imported.native"]=Serialization.deserialize(path)
+        started=time();@info "Restoring cached imported native properties; no wing geometry is generated" path
+        native=Serialization.deserialize(path)
+        @info "Restored imported native properties" seconds=round(time()-started;digits=2)
+        params["imported.native"]=imported_analysis_native(params,native)
     end
 end
 const IMPORTED_MODELS=Dict{String,Model}()
@@ -175,14 +181,15 @@ function imported_properties(model,group;material_cache=nothing)
             mid=Int(ply["mid"]);t=Float64(ply["z_top"]-ply["z_bot"])
             push!(plies,Dict{String,Any}("material"=>imported_material(model,mid,material_cache),"thickness_m"=>t,"angle_deg"=>get(ply,"theta",0.)))
         end
-        result=Dict{String,Any}("type"=>"PCOMP","pid"=>pid,"thickness_m"=>thickness,"plies"=>plies,"areal_mass_kg_m2"=>sum(p["thickness_m"]*get(p["material"],"rho_kg_m3",0.) for p in plies)+get(prop,"NSM",0.),"construction"=>"Imported laminate (original stacking sequence)","sandwich"=>false)
+        bottom=Float64(get(prop,"PCOMP_Z0",isempty(prop["PLY_DATA"]) ? -thickness/2 : first(prop["PLY_DATA"])["z_bot"]))
+        result=Dict{String,Any}("type"=>"PCOMP","pid"=>pid,"thickness_m"=>thickness,"z_bottom_m"=>bottom,"z_top_m"=>bottom+thickness,"plies"=>plies,"areal_mass_kg_m2"=>sum(p["thickness_m"]*get(p["material"],"rho_kg_m3",0.) for p in plies)+get(prop,"NSM",0.),"construction"=>"Imported laminate (original stacking sequence)","sandwich"=>false)
         if length(plies)==3&&plies[1]["material"]["id"]==plies[3]["material"]["id"]&&isapprox(plies[1]["thickness_m"],plies[3]["thickness_m"];rtol=1e-12)&&plies[1]["angle_deg"]==plies[3]["angle_deg"]
             merge!(result,Dict{String,Any}("sandwich"=>true,"face_thickness_m"=>plies[1]["thickness_m"],"core_thickness_m"=>plies[2]["thickness_m"],"face_material"=>plies[1]["material"],"core_material"=>plies[2]["material"]))
         end
         return result
     end
     mat=imported_material(model,prop["MID"],material_cache)
-    Dict{String,Any}("type"=>"PSHELL","pid"=>pid,"thickness_m"=>thickness,"material"=>mat,"material_id"=>prop["MID"],"areal_mass_kg_m2"=>thickness*get(mat,"rho_kg_m3",0.)+get(prop,"NSM",0.))
+    Dict{String,Any}("type"=>"PSHELL","pid"=>pid,"thickness_m"=>thickness,"z_bottom_m"=>-thickness/2,"z_top_m"=>thickness/2,"material"=>mat,"material_id"=>prop["MID"],"areal_mass_kg_m2"=>thickness*get(mat,"rho_kg_m3",0.)+get(prop,"NSM",0.))
 end
 
 function imported_model(native,source,p;cards=Dict())
@@ -194,6 +201,7 @@ function imported_model(native,source,p;cards=Dict())
     params=Dict{String,Any}(deepcopy(p));params["fuel.enabled"]=false;params["loads.structure_inertia"]=false
     params["output.title"]=source["name"];params["output.solution"]=string(native["SOL"])
     params["imported.native"]=native;params["imported.source"]=source
+    params["imported.entity_sources"]=imported_entity_sources(cards)
     subs=native["CASE_CONTROL"]["SUBCASES"]
     rows=isempty(subs) ? [Dict("id"=>1,"label"=>"Subcase 1")] : [Dict("id"=>Int(sid),"label"=>String(get(row,"LABEL",get(row,"SUBTITLE","Subcase $sid")))) for (sid,row) in sort!(collect(subs);by=x->Int(first(x)))]
     rows=Dict{String,Any}[merge(row,Dict("result_required"=>Int(native["SOL"])!=105||get(get(subs,row["id"],Dict()),"STATSUB",nothing)!==nothing)) for row in rows]
@@ -251,6 +259,7 @@ end
 
 function imported_mesh_payload(m)
     native=imported_native(m);params=m.params;source=params["imported.source"];index=Dict(id=>i for (i,id) in enumerate(m.node_ids));material_cache=Dict{Int,Any}()
+    coordinates=imported_coordinate_payload(native)
     groups=Any[Dict{String,Any}("name"=>gr.name,"kind"=>string(gr.kind),"pid"=>gr.pid,"base_pid"=>0,"base_group"=>gr.name,"card_types"=>Dict(string(eid)=>String(get(native[startswith(gr.name,"IMPORTED_CBEAM_") ? "CBEAMs" : startswith(gr.name,"IMPORTED_CROD_") ? "CRODs" : gr.kind===:bar ? "CBARs" : "CSHELLs"][string(eid)],"TYPE",gr.kind===:bar ? "CBAR" : "shell")) for eid in gr.eids),"count"=>length(gr.eids),"eids"=>blob_i32(gr.eids),"conn"=>blob_i32(gr.conn;offset=-1),"orient"=>blob_f32(gr.orient),"properties"=>imported_properties(native,gr;material_cache),"axes"=>imported_element_axes(m,gr)) for gr in m.groups]
     buffers=imported_compact_buffers!(groups)
     emptyspider=Dict("count"=>0,"refs"=>blob_i32(Int[]),"eids"=>blob_i32(Int[]),"lines"=>blob_i32(Int[]),"elements"=>Any[])
@@ -259,7 +268,8 @@ function imported_mesh_payload(m)
         weights=[row isa NamedTuple ? Dict("wt"=>row.wt,"comps"=>row.comps,"grids"=>row.grids) : row for row in get(el,"WT_GROUPS",Any[])]
         ref=Int(el["REFGRID"]);connected=unique(Int[id for row in weights for id in row["grids"]]);haskey(index,ref)||continue
         filter!(id->haskey(index,id),connected);push!(refs,index[ref]);push!(eids,Int(el["ID"]));append!(lines,Int[i for id in connected for i in (index[ref],index[id])])
-        push!(elements,Dict("eid"=>Int(el["ID"]),"ref"=>index[ref]-1,"reference_grid"=>ref,"connected_grids"=>connected,"reference_components"=>string(el["REFC"]),"weight_groups"=>weights))
+        push!(elements,Dict("eid"=>Int(el["ID"]),"ref"=>index[ref]-1,"reference_grid"=>ref,"connected_grids"=>connected,"reference_components"=>string(el["REFC"]),"weight_groups"=>weights,
+            "source_properties"=>merge(Dict{String,Any}(el),Dict("WT_GROUPS"=>weights)),"source_definition"=>get(get(params,"imported.entity_sources",Dict()),Int(el["ID"]),Dict())))
     end
     merge!(rbe,Dict("count"=>length(refs),"refs"=>blob_i32(refs;offset=-1),"eids"=>blob_i32(eids),"lines"=>blob_i32(lines;offset=-1),"elements"=>elements))
     emptyloads=Dict("stations"=>Any[],"force_stations"=>Any[],"moment_stations"=>Any[],"fuel_stations"=>Any[],"structure_stations"=>Any[],"method"=>"imported","load_application_version"=>IMPORTED_LOAD_VERSION,"note"=>"Original Nastran load cards are authoritative; not wing-generated aerodynamic loads.")
@@ -269,9 +279,10 @@ function imported_mesh_payload(m)
     parsed_card_count=source_card_count-sum(row["count"] for row in unprocessed if row["status"]=="unprocessed";init=0)
     publicparams=Dict(k=>v for (k,v) in params if !startswith(k,"imported."))
     return Dict{String,Any}("ok"=>true,"format"=>"wingfegen-mesh-1","title"=>source["name"],"model_params"=>publicparams,
-        "imported_signature"=>source["signature"],"imported_deck"=>Dict("signature"=>source["signature"],"name"=>source["name"],"solution"=>params["output.solution"],"cases"=>[Dict(k=>v for (k,v) in row if k!="spc") for row in params["imported.cases"]],"warnings"=>params["imported.warnings"],"unsupported_visual_cards"=>params["imported.unsupported_visual_cards"],"card_inventory"=>params["imported.inventory"],"unprocessed_cards"=>unprocessed,"source_card_count"=>source_card_count,"parsed_card_count"=>parsed_card_count,"case_control"=>get(params,"imported.case_control",Dict())),
+        "imported_signature"=>source["signature"],"imported_deck"=>Dict("signature"=>source["signature"],"name"=>source["name"],"solution"=>params["output.solution"],"cases"=>[Dict(k=>v for (k,v) in row if k!="spc") for row in params["imported.cases"]],"warnings"=>vcat(params["imported.warnings"],coordinates["warnings"]),"unsupported_visual_cards"=>params["imported.unsupported_visual_cards"],"card_inventory"=>params["imported.inventory"],"unprocessed_cards"=>unprocessed,"source_card_count"=>source_card_count,"parsed_card_count"=>parsed_card_count,"case_control"=>get(params,"imported.case_control",Dict())),
         "nodes"=>Dict("count"=>length(m.node_ids),"n_structural"=>m.n_struct,"ids"=>blob_i32(m.node_ids),"xyz"=>blob_f32(m.xyz)),"groups"=>groups,"imported_buffers"=>buffers,
-        "rbe3"=>rbe,"fuel_rbe3"=>deepcopy(emptyspider),"imported_connections"=>imported_connection_payload(native,index),"spc"=>imported_supports(m),
+        "rbe3"=>rbe,"fuel_rbe3"=>deepcopy(emptyspider),"imported_connections"=>imported_connection_payload(native,index;source_entities=get(params,"imported.entity_sources",Dict())),"spc"=>imported_supports(m),
+        "coordinate_systems"=>coordinates,
         "aero"=>Dict("count"=>0,"sections"=>Any[],"n_loop"=>0,"xyz"=>blob_f32(Float64[]),"conn"=>blob_i32(Int[]),"n_per_node"=>0,"map"=>blob_i32(Int[]),"weights"=>blob_f32(Float64[])),
         "fuel"=>Dict("enabled"=>false,"bays"=>Any[],"volume_m3"=>0.),"weights"=>Dict("components"=>Any[]),"annotations"=>Dict("ribs"=>Any[],"stringers"=>Any[]),"stiffened_panels"=>Dict("panels"=>Any[]),"load_cases"=>cases,"loads"=>first(cases)["loads"],"bbox"=>bbox_of(m),"display_bbox"=>imported_display_bbox(m),"info"=>Any[Any[k,v] for (k,v) in m.info],"checks"=>Any[Any[n,d,ok] for (n,d,ok) in m.checks],"checks_pass"=>true)
 end
@@ -316,21 +327,25 @@ end
 """Source constraint/spring topology and point masses, without inventing beam stiffness.
 These are inspection glyphs; their original DOF definitions remain in the native model.
 """
-function imported_connection_payload(native,index)
-    result=Any[]
+function imported_connection_payload(native,index;source_entities=Dict())
+    result=Any[];collections=Dict{String,Any}()
     for (key,card) in (("RBE2s","RBE2/RBAR"),("RBE1s","RBE1"),("RSPLINEs","RSPLINE"),("CELASs","CELAS"),("CONM2s","CONM2"))
-        records=Any[]
         for (_,el) in get(native,key,Dict())
             grids=key=="RBE2s" ? vcat(el["GN"],el["GM"]) : key=="RBE1s" ? unique([first(p) for p in vcat(el["INDEP"],el["DEP"])]) : key=="RSPLINEs" ? unique(vcat(el["INDEP_GRIDS"],[first(p) for p in el["DEP"]])) : key=="CELASs" ? [el["G1"],el["G2"]] : [el["GID"]]
             filter!(gid->haskey(index,gid),grids);isempty(grids)&&continue
-            properties=Dict{String,Any}(el)
+            properties=Dict{String,Any}(el);source=get(source_entities,Int(el["ID"]),Dict())
+            type=String(get(source,"type",get(el,"TYPE",key=="RBE2s" ? "RBE2" : card)))
+            isempty(source)||(properties["source_definition"]=source)
             if key=="CELASs"&&haskey(el,"PID")
                 properties["property"]=get(get(native,"PELASs",Dict()),string(el["PID"]),Dict())
             end
             properties["display_note"]=key=="CONM2s" ? "Marker is at the attachment GRID; the mass offset and inertia are retained in the original CID and native analysis." : "Connection topology only; DOF definitions are shown below and remain unchanged in native analysis."
-            push!(records,Dict("eid"=>el["ID"],"type"=>get(el,"TYPE",card),"nodes"=>[index[id]-1 for id in grids],"properties"=>properties))
+            collection=get!(collections,type) do
+                entry=Dict("name"=>"IMPORTED_"*type,"card"=>type,"point_mass"=>key=="CONM2s","elements"=>Any[])
+                push!(result,entry);entry
+            end
+            push!(collection["elements"],Dict("eid"=>el["ID"],"type"=>type,"nodes"=>[index[id]-1 for id in grids],"properties"=>properties))
         end
-        isempty(records)||push!(result,Dict("name"=>"IMPORTED_"*replace(card,"/"=>"_"),"card"=>card,"point_mass"=>key=="CONM2s","elements"=>records))
     end
     result
 end
@@ -421,6 +436,7 @@ function imported_prepare_loads!(native,m)
 end
 
 include("nastran_import_cases.jl")
+include("nastran_import_analysis.jl")
 
 imported_public_params(m)=Dict(k=>v for (k,v) in m.params if !startswith(k,"imported."))
 
@@ -428,16 +444,20 @@ function imported_results_payload(job)
     path,data=find_results_json(job.outdir);path===nothing&&throw(ArgumentError("No native result JSON was produced; inspect the solver log"))
     m=job.model;specs=load_case_specs(m.params);atype=String(get(data,"analysis_type",""));cases=Any[]
     subs=imported_native(m)["CASE_CONTROL"]["SUBCASES"]
-    startswith(atype,"SOL105")&&(specs=filter(spec->get(subs[spec.id],"STATSUB",nothing)!==nothing,specs))
+    mapping=get(m.params,"imported.analysis_cases",Dict{Int,Int}())
+    startswith(atype,"SOL105")&&(specs=filter(spec->get(subs[get(mapping,spec.id,spec.id)],"STATSUB",nothing)!==nothing,specs))
     isempty(specs)&&throw(ArgumentError("Native results have no matching source analysis subcase"))
     for spec in specs
-        selected=imported_case_result(data,spec.id,subs,[s.id for s in specs])
-        item=jfem_case_results_payload(job,path,selected;native_sid=spec.id)
+        sid=get(mapping,spec.id,spec.id)
+        selected=imported_case_result(data,sid,subs,[get(mapping,s.id,s.id) for s in specs])
+        item=jfem_case_results_payload(job,path,selected;native_sid=sid)
         item["id"]=spec.id;item["label"]=spec.label;item["static_subcase_id"]=spec.id
         if startswith(atype,"SOL105")
-            item["static_subcase_id"]=Int(subs[spec.id]["STATSUB"]);item["buckling_subcase_id"]=spec.id
+            item["static_subcase_id"]=Int(subs[sid]["STATSUB"]);item["buckling_subcase_id"]=sid
         end
         item["model_params"]=imported_public_params(m);item["imported_signature"]=m.params["imported.source"]["signature"]
+        item["imported_analysis"]=get(m.params,"imported.analysis",imported_analysis_options())
+        item["imported_analysis_signature"]=imported_analysis_signature(m)
         push!(cases,item)
     end
     payload=copy(first(cases));payload["load_cases"]=cases;payload["load_case_independent"]=false

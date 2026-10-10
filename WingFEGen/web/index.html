@@ -110,6 +110,7 @@
         <div class="workspace-actions"><button id="btn-jfem" disabled class="primary accent" title="Run the selected analysis for every enabled load case">Run in JFEM</button><button id="btn-stop-jfem" class="ghost danger" hidden>Stop the run</button></div>
         <p class="pick-note">Choose the solution below and define the loading in Cases. Solver progress remains visible in the header and Log. Red means analysis is needed; green means completed results match this model.</p>
         <p id="analysis-validity" class="pick-note" role="status" aria-live="polite" data-analysis-current="false">No analysis results are available. Run JFEM for this model.</p>
+        <div id="imported-analysis" hidden></div>
       </section>
       <details id="imported-deck-info" hidden><summary id="imported-deck-title"></summary><p>Imported deck is authoritative. Review source cases in Loads → Cases and boundary conditions in Model → Supports. These forms are read-only; selecting a case updates the loads and supports in the viewport. Review properties in Display → Properties or Inspect; use Analysis, Sensitivity and Results normally. Read Nastran replaces the deck; New Study returns to generated geometry. Save Study embeds the complete source, including INCLUDE content. TOML describes generated wings only.</p><ul id="imported-deck-warnings"></ul></details>
       <div id="form"><p class="muted">reading parameters&hellip;</p></div>
@@ -229,6 +230,10 @@
       </label>
       <p class="pick-note">Fully solid hides rear surfaces and bars. Translucent reveals internal structure. Show bars through surfaces overrides depth.</p>
       <label class="display-control" id="surface-translucency-control" hidden>Translucency (%)<input id="surface-translucency" type="range" min="0" max="100" step="1" value="45" aria-label="Structural surface translucency percentage"></label>
+      <label class="display-control">Shell geometry
+        <select id="shell-geometry"><option value="midsurface" selected>Midsurface</option><option value="thickness">Physical thickness</option></select>
+      </label>
+      <p id="shell-geometry-note" class="pick-note">Midsurface shows the shell reference surface. Physical thickness is a display of its section thickness; the analysis model is unchanged.</p>
       <label class="display-control">Beam sections
         <select id="beam-style"><option value="lines">Lines</option><option value="sections">Full 3D sections</option></select>
       </label>
@@ -261,6 +266,7 @@
         <p class="display-axis-key"><span class="axis-x">x</span> red &middot; <span class="axis-y">y</span> green &middot; <span class="axis-z">z</span> blue</p>
         <label class="layer"><input id="show-node-ids" type="checkbox"><span>Node IDs</span></label>
         <label class="layer"><input id="show-element-ids" type="checkbox"><span>Element IDs</span></label>
+        <label class="layer"><input id="show-coordinate-labels" type="checkbox"><span>Coordinate IDs and types</span></label>
         <label class="display-control">Label size (px)<input id="id-label-size" type="number" min="8" max="24" step="1" value="11"></label>
         <p id="id-label-status" class="pick-note" role="status" aria-live="polite"></p>
         <div id="entity-color-legend"></div>
@@ -408,11 +414,13 @@
       <select id="inspect-entity" aria-label="Entity type to inspect">
         <option value="all">All elements</option><option value="nodes">Nodes (GRID)</option>
         <option value="shells">Shells</option><option value="quad">Quadrilaterals (CQUAD4)</option>
-        <option value="tria">Triangles (CTRIA3)</option><option value="bar">Bars (CBAR)</option>
+        <option value="tria">Triangles (CTRIA3)</option><option value="bar">Bars, beams and rods</option>
         <option value="stringer">Stringers and runouts</option><option value="cap">Spar caps</option>
         <option value="rbe3">RBE3 spiders</option>
+        <option value="connection">Rigid connections</option><option value="spring">Springs</option>
+        <option value="conm2">Concentrated masses</option><option value="coordinate">Coordinate systems (CID)</option>
       </select>
-      <div class="inspect-find"><input id="inspect-id" type="number" min="1" step="1" placeholder="Entity ID" aria-label="Entity ID"><button id="btn-inspect-id" class="mini">Inspect ID</button></div>
+      <div class="inspect-find"><input id="inspect-id" type="number" min="0" step="1" placeholder="Entity ID" aria-label="Entity ID"><button id="btn-inspect-id" class="mini">Inspect ID</button></div>
       <p id="inspect-status" class="pick-note" role="status">Left-click a matching entity, or enter its ID.</p>
       <div class="hud-row"><label class="ctl check"><input id="show-picked-axes" type="checkbox" checked><span>Selected element local axes</span></label><button id="btn-clear-pick" class="mini">Clear selection</button></div>
       <p id="picked-axes-note" class="pick-note">Pick a shell or bar to show its local x, y and z axes.</p>
@@ -510,6 +518,7 @@
 <script src="vendor/babylonjs.loaders.min.js" defer></script>
 <script src="vendor/msgpack.min.js" defer></script>
 <script src="sections.js" defer></script>
+<script src="shell_thickness.js" defer></script>
 <script src="geometry_tools.js" defer></script>
 <script src="svg_viewport.js" defer></script>
 <script src="planform_view.js" defer></script>
@@ -540,10 +549,12 @@
 <script src="weights.js" defer></script>
 <script src="reference.js" defer></script>
 <script src="nastran_import.js" defer></script>
+<script src="imported_analysis.js" defer></script>
 <script src="imported_cases.js" defer></script>
 <script src="workspace.js" defer></script>
 <script src="recent_studies.js" defer></script>
 <script src="startup_study.js" defer></script>
+<script src="model_entities.js" defer></script>
 <script src="annotations.js" defer></script>
 <script src="load_plots.js" defer></script>
 <script src="sensitivity_results.js" defer></script>

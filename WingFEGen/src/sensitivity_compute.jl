@@ -8,7 +8,7 @@ function sensitivity_definition(params;version=2,omit_empty_panels=true)
         !(version==2&&omit_empty_panels&&k=="properties.panels"&&v isa AbstractVector&&isempty(v))))
 end
 function sensitivity_model_signature(m;version=2,legacy_empty_panels=false)
-    is_imported_model(m)&&return m.params["imported.source"]["signature"]
+    is_imported_model(m)&&return imported_analysis_signature(m)
     data=(params=sensitivity_definition(m.params;version,omit_empty_panels=!legacy_empty_panels),
         nodes=m.node_ids,xyz=m.xyz,groups=[(g.pid,g.eids,g.conn) for g in m.groups])
     bytes2hex(SHA.sha256(JSON.json(data)))

@@ -1,12 +1,20 @@
 function request_imported_model(raw)
     raw isa AbstractDict||return nothing
-    value=get(get(raw,"parameters",raw),"imported_deck",nothing);value===nothing&&return nothing
+    parameters=get(raw,"parameters",raw)
+    value=get(parameters,"imported_deck",nothing)
+    if value===nothing
+        get(parameters,"model_kind",nothing)=="nastran"&&throw(ArgumentError("Imported deck identity is missing. Read the deck or reopen its saved Study; a generated wing will not be substituted."))
+        return nothing
+    end
     value isa AbstractDict||throw(ArgumentError("Invalid imported deck handle"))
     token=get(value,"token",nothing);token isa AbstractString||throw(ArgumentError("Imported deck token is missing; read the deck again"))
-    lock(IMPORTED_MODELS_LOCK) do
+    model=lock(IMPORTED_MODELS_LOCK) do
         haskey(IMPORTED_MODELS,token)||throw(ArgumentError("Imported deck is no longer in this server session; read the saved source again"))
         IMPORTED_MODELS[token]
     end
+    signature=get(value,"signature",nothing)
+    signature===nothing||signature==model.params["imported.source"]["signature"]||throw(ArgumentError("The imported deck handle belongs to a different source. Read the deck again."))
+    imported_analysis_model(model,get(value,"analysis",nothing))
 end
 
 const IMPORT_WORKERS=Dict{String,Any}()
@@ -211,19 +219,23 @@ end
 function imported_written_deck(st,model)
     base=joinpath(st.deck_store_dir,"imported_decks");mkpath(base)
     dir=mktempdir(base;prefix="deck_",cleanup=false);path=joinpath(dir,basename(model.params["imported.source"]["name"]))
-    write(path,model.params["imported.source"]["flattened"])
+    write(path,get(model.params,"imported.analysis_deck",model.params["imported.source"]["flattened"]))
     publicparams=Dict(k=>v for (k,v) in model.params if !startswith(k,"imported."))
-    snapshot=preserve_deck!(st,path,publicparams;source="Imported Nastran source",imported_signature=model.params["imported.source"]["signature"])
+    snapshot=preserve_deck!(st,path,publicparams;source="Imported Nastran source",imported_signature=model.params["imported.source"]["signature"],imported_analysis=get(model.params,"imported.analysis",imported_analysis_options()))
     return path,snapshot
 end
 
-function handle_imported_nastran(st,model;run=false,start_job=start_jfem_job)
+function handle_imported_nastran(st,model;run=false,start_job=start_jfem_job,progress=(_)->nothing)
+    progress("Imported deck: $(model.params["imported.source"]["name"]) · SOL$(model.params["output.solution"]) · $(length(model.node_ids)) original GRID nodes; writing source analysis without wing generation")
+    @info "Routing imported analysis directly to source deck" name=model.params["imported.source"]["name"] solution=model.params["output.solution"] nodes=length(model.node_ids)
     path,snapshot=imported_written_deck(st,model)
     response=Dict{String,Any}("ok"=>true,"path"=>path,"deck"=>path,"deck_text"=>snapshot["deck_text"],"deck_lines"=>snapshot["lines"],"deck_metadata"=>deck_metadata(snapshot),"solution"=>"SOL "*model.params["output.solution"],"imported_signature"=>model.params["imported.source"]["signature"])
     if run
+        progress("Launching JFEM on the imported deck; native parsing, assembly and solve progress follow in Log")
         st.job_counter+=1;id="job"*string(st.job_counter)
         job=start_job(model,model.params,st.root,path,id);st.jobs[id]=job
         merge!(response,Dict("job"=>id,"out_dir"=>job.outdir,"repo"=>job.repo,"command"=>job.cmdline,"runs"=>Any[]))
     end
+    progress("done")
     return json_response(response)
 end

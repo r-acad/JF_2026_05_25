@@ -154,13 +154,50 @@ recovery, overriding SPC values without double-counting them. SOL106 currently
 rejects nonzero prescribed SPC/SPCD motion with an explicit capability message;
 it must not silently solve a different boundary condition.
 
-The imported source is authoritative: original GRID/EID/PID values, solution,
-subcases, constraints and loads are retained. **Run in JFEM** solves that deck;
+Coordinate systems are available in **Display > Entities**, with optional
+CID/type labels in **Axes & Labels**. Their triads use resolved BASIC origins
+and defining axes for rectangular, cylindrical and spherical systems.
+Generated shell MCIDs retain their actual shared BASIC origin; element-centered
+shell axes remain a separate display. **Inspect** also accepts coordinate IDs
+(including 0), rigid connections, springs and concentrated masses. Miscellaneous
+element families use distinct pink/magenta/violet colors, with pickable lines
+and mass/zero-length-spring markers and retained source properties.
+
+The imported source is authoritative: original GRID/EID/PID values,
+subcases, constraints and loads are retained. **Analysis > Imported deck analysis**
+selects the original solution or SOL101, SOL103, SOL105 or SOL106. An analysis
+override creates a separate run deck; it never modifies the stored source or
+regenerates wing geometry. SOL105 adds a buckling companion for each static
+case. Imported SOL106 runs only the selected nonlinear solution. Modes and
+nonlinear convergence controls appear for the corresponding solution.
+
+Concentrated FORCE loads can keep their source settings, use fixed directions,
+or follow nodal rotation in SOL101/SOL106. SOL101 uses the first-order load
+tangent; SOL106 updates directions during nonlinear iterations. MOMENT,
+pressure and body loads stay fixed. Modal/buckling overrides reject retained
+follower FORCE cards; choose fixed directions for those analyses. Source
+geometry and analysis options both participate in result compatibility checks.
+Study files preserve these options. **Run in JFEM** solves the selected deck;
 **Results** displays its supported physical fields. **Inspect** and
 **Display / Properties** show native shell/beam/material data where supported.
 Cards without a viewport representation are reported and remain in the source;
 solver support is still governed by JFEM. Displayed units assume consistent SI
 input because Nastran files do not declare a unit system.
+
+**Bars 3D** preserves explicit section shapes. Where only an area is available,
+it shows an equal-area square for bars/beams or a polygonal circular section for
+rods. These are display approximations and do not infer section inertias.
+**Display > Appearance > Shell geometry > Physical thickness** extrudes the
+property thickness, including laminate Z0. Midsurface remains the default.
+Imported element-level ZOFFS and corner thickness overrides are not represented
+by this display. Filled shell state is restored when layers are re-enabled,
+including after sensitivity and FE-result changes.
+
+Imported Run preparation streams the deck bytes for checksums and reuses the
+imported source without restoring the native graph in the GUI process. Log
+separates preparation from worker parsing, assembly and solve. A first request
+can still include Julia compilation; the solver worker independently reads and
+assembles the chosen run deck.
 
 Imported static sensitivities use analytic adjoints for supported PSHELL,
 symmetric isotropic PCOMP, MAT1 and T/BAR/ROD PBARL variables. The catalog and
@@ -364,6 +401,11 @@ the prescribed undeformed lattice, not a newly computed aeroelastic solution.
 
 ## Portable checks
 
+Startup prints the Julia version, thread count, package names and versions,
+package timings, source-loading phases and local-listener readiness. A separate
+progress process keeps elapsed-time messages visible during first-use Julia
+compilation. No FEM or analysis is run while loading the application.
+
 From the repository root:
 
 ```sh
@@ -391,11 +433,20 @@ node WingFEGen/test/scene_lighting_test.cjs
 node WingFEGen/test/support_glyphs_test.cjs
 node WingFEGen/test/nastran_import_large_test.cjs
 node WingFEGen/test/sections_viewer_test.cjs
+node WingFEGen/test/solid_geometry_test.cjs
+node WingFEGen/test/imported_analysis_test.cjs
+node WingFEGen/test/imported_follower_display_test.cjs
+julia --project=WingFEGen WingFEGen/test/startup_progress_test.jl
+julia --project=WingFEGen WingFEGen/test/imported_analysis_overlay_test.jl
+julia --project=WingFEGen WingFEGen/test/shell_display_payload_test.jl
 julia --project=WingFEGen WingFEGen/test/portable_paths_test.jl
 julia --project=WingFEGen WingFEGen/test/payload_roundtrip_test.jl
 julia --project=WingFEGen WingFEGen/test/nastran_source_test.jl
 julia --project=. WingFEGen/test/nastran_import_smoke_test.jl
 julia --project=. WingFEGen/test/nastran_case_metadata_test.jl
+julia --project=. WingFEGen/test/model_entities_payload_test.jl
+julia --project=. WingFEGen/test/follower_metadata_test.jl
+julia --project=. WingFEGen/test/imported_analysis_test.jl
 ```
 
 The solver's separate curated validation suite is described in the repository

@@ -61,7 +61,7 @@ const EXTRA_STYLE = {
   BAR_AXES:     { color: "#4cc38a", label: "Bar local x/y/z axes" },
 };
 
-const DEFAULT_HIDDEN = new Set(["NODES", "UNDEFORMED", "AERO_SURFACE", "AIRFOIL_SECTIONS", "REFERENCE_AERO", "VLM_MESH", "VLM_PRESSURE", "VLM_FORCES", "SHELL_AXES", "BAR_AXES"]);
+const DEFAULT_HIDDEN = new Set(["NODES", "UNDEFORMED", "AERO_SURFACE", "AIRFOIL_SECTIONS", "REFERENCE_AERO", "VLM_MESH", "VLM_PRESSURE", "VLM_FORCES", "SHELL_AXES", "BAR_AXES", "COORDINATE_SYSTEMS"]);
 
 /* A mode is animated at a fixed, comfortable rate rather than its real
    frequency, which would be a blur above the first few modes. */
@@ -116,6 +116,7 @@ const state = {
   modelSignature: null,
   jobSignature: null,
   selectedElement: null,
+  selectedCoordinate: null,
   selectedNode: null,
   selectionMesh: null,
   geometryTools: null,
@@ -1108,7 +1109,7 @@ function currentSupportRibs() {
 }
 
 function formSignature(params) {
-  if(state.importedDeck)return state.importedDeck.signature;
+  if(state.importedDeck)return WingImportedAnalysis.signature(state.importedDeck);
   return JSON.stringify(state.schema.filter((s) => affectsModel(s.key)).map((s) => {
     if (["materials","shellmaterials","barmaterials"].includes(s.kind)) {
       const rows=params ? params[s.key]||[] : state.materialsEditor?.readDrafts()?.[s.key] ?? JSON.parse(document.getElementById("p-"+s.key).value||"[]");
@@ -1187,8 +1188,8 @@ function analysisValidity() {
   if (state.modelDirty || resultsHavePendingDrafts() || !state.importedDeck&&document.querySelector?.(".planform-input-method.invalid")) return invalid("The model definition has changed or is incomplete. Run JFEM for matching results.");
   if (!state.resultCases?.size) return invalid("No analysis results are available. Run JFEM for this model.");
   if (!state.modelSignature || state.jobSignature !== state.modelSignature) return invalid("Existing results do not match the current model definition. Run JFEM again.");
-  const solution = state.importedDeck?.solution || document.getElementById("p-output.solution")?.value || state.values["output.solution"] || "101";
-  const cases = state.importedDeck ? state.importedDeck.cases.filter(c => c.result_required !== false) :
+  const solution = state.importedDeck ? WingImportedAnalysis.solution(state.importedDeck) : document.getElementById("p-output.solution")?.value || state.values["output.solution"] || "101";
+  const cases = state.importedDeck ? WingImportedAnalysis.cases(state.importedDeck) :
     String(solution) === "103" && state.resultCases.size<=1 ? [{id:1}] : (state.data?.load_cases?.length ? state.data.load_cases.filter(c => c.enabled !== false) : [{id:1}]);
   for (const c of cases) {
     const record = state.resultCases.get(Number(c.id));
@@ -1505,7 +1506,8 @@ function syncManualMeshAction() {
 }
 
 function collectParams({includeView = false} = {}) {
-  if(state.importedDeck)return {imported_deck:{token:state.importedDeck.token}};
+  if(state.importedDeck)return {model_kind:'nastran',imported_deck:{token:state.importedDeck.token,signature:state.importedDeck.signature,analysis:WingImportedAnalysis.options(state.importedDeck.source?.analysis)}};
+  if(state.data?.imported_deck)throw Error('Imported deck identity is unavailable. Read the deck or reopen its Study; a generated wing will not be substituted.');
   state.panelTables?.assertValidDraft?.();
   state.parameterLocks?.enforce();
   state.planformInputs?.assertValidDraft();
@@ -2727,6 +2729,12 @@ function syncImportedModelMode(disabled=false) {
     showLoads:()=>{setLayerVisible('AERO_LOADS',true);setLayerVisible('AERO_MOMENTS',true);buildLayerPanel();},
   });
   state.importedCases?.refresh();
+  if(!state.importedAnalysis)state.importedAnalysis=WingImportedAnalysis.create({host:document.getElementById('imported-analysis'),read:()=>state.importedDeck,onChange:analysis=>{
+    state.importedDeck.source.analysis=analysis;state.modelSignature=formSignature();state.modelDirty=false;
+    state.sensitivity?.refreshContext?.();markStudyModified();updateAnalysisValidity();
+    log('Imported analysis changed to SOL'+WingImportedAnalysis.solution(state.importedDeck)+'. Run JFEM explicitly to calculate new results.');
+  }});
+  state.importedAnalysis.refresh(disabled);
   document.getElementById("auto-mesh").disabled=!!imported||disabled;
   for(const id of ["btn-create","btn-save","btn-save-toml","btn-view-toml","btn-open-plan-view"]){
     const button=document.getElementById(id);if(!button)continue;
@@ -2734,7 +2742,7 @@ function syncImportedModelMode(disabled=false) {
     button.disabled=!!imported||disabled;button.title=imported?"This action applies to generated wings. The imported deck is authoritative; use Write deck or Save Study to export it.":button.dataset.generatedTitle;
   }
   const analysisNote=document.querySelector('#panel-analysis-actions > .pick-note');
-  if(analysisNote){analysisNote.dataset.generatedNote??=analysisNote.textContent;analysisNote.textContent=imported?'Run the original deck with its own solution, subcases, loads and supports. Solver progress is shown in Log. Properties are available through Display and Inspect.':analysisNote.dataset.generatedNote;}
+  if(analysisNote){analysisNote.dataset.generatedNote??=analysisNote.textContent;analysisNote.textContent=imported?'Choose the imported-deck solution below. Source geometry, properties, loads and supports are retained. Solver progress is shown in Log.':analysisNote.dataset.generatedNote;}
   if(imported){
     document.getElementById("imported-deck-title").textContent=imported.name+" · SOL"+imported.solution+" · "+(imported.cases?.length||1)+" cases · imported Nastran";
     const warnings=document.getElementById("imported-deck-warnings");warnings.replaceChildren();
@@ -2779,12 +2787,14 @@ async function runJfem() {
   cancelAutoMeshTimer();
   state.autoMeshPending = false;
   state.solverStarting = true;
-  const token = activity()?.begin("Preparing JFEM analysis", {detail:"Building the model and writing solver inputs…"});
+  const token = activity()?.begin("Preparing JFEM analysis", {detail:state.importedDeck?'Using the imported Nastran model and writing its analysis deck…':"Building the model and writing solver inputs…"});
   let launched = false;
   try {
   // The results are indexed onto the current mesh, so regenerate first and
   // make sure what is on screen is what gets solved.
-  const built = await createFEM({ forSolver: true, preserveView: true });
+  if(state.data?.imported_deck&&!state.importedDeck)throw Error('Imported source identity is missing. Reopen the saved Study or read the deck again; wing generation has been prevented.');
+  const built = state.importedDeck ? !!state.data : await createFEM({ forSolver: true, preserveView: true });
+  if(state.importedDeck)log('Imported deck route: '+state.importedDeck.name+' · SOL'+WingImportedAnalysis.solution(state.importedDeck)+' · original geometry is reused; no wing meshing or aerodynamic calculation.');
   if (!built) return;
   if (state.modelDirty) {
     log("The parameters changed during generation; update the model before running JFEM.", "warn");
@@ -2820,8 +2830,7 @@ async function runJfem() {
         j.solution + ")");
     log("solver: " + j.repo);
     log("running " + j.command);
-    log("the first run on a machine also precompiles the solver, which takes " +
-        "a few minutes; later runs take seconds", "warn");
+    log("Log reports native deck parsing, assembly, constraints and solver progress. First-use package compilation can add time; solve time depends on model size and analysis.");
     document.getElementById("btn-stop-jfem").hidden = false;
     state.polling = true;
     solverActivity(true);
@@ -2977,7 +2986,8 @@ function decodeResultCase(payload,r,signature) {
   // Both the response envelope and case must belong to this source. Checking
   // only one lets mixed/imported cases inherit the current generated signature.
   const importedSignatures=[r.imported_signature,payload.imported_signature].filter(value=>value!==undefined);
-  const sourceMatches=state.importedDeck ? importedSignatures.length>0&&importedSignatures.every(value=>value===state.importedDeck.signature) :
+  const importedAnalyses=[r.imported_analysis,payload.imported_analysis].filter(value=>value!==undefined);
+  const sourceMatches=state.importedDeck ? importedSignatures.length>0&&importedSignatures.every(value=>value===state.importedDeck.signature)&&(importedAnalyses.length?importedAnalyses:[undefined]).every(value=>WingImportedAnalysis.matches(value,state.importedDeck)) :
     importedSignatures.length===0&&[r.model_params,payload.model_params].filter(Boolean).every(params=>formSignature(params)===state.modelSignature);
   const expectedLoadVersion=state.data?.loads?.load_application_version;
   const resultLoadVersions=[r.load_application_version,payload.load_application_version].filter(value=>value!==undefined);
@@ -3065,7 +3075,7 @@ function viewportDisplayActions() {
       read:()=>{const solid=document.getElementById("surface-mode").value==="solid";return{label:solid?"Solid":"Translucent",active:solid,title:solid?"Structural surfaces are solid. Click for translucent surfaces.":"Structural surfaces are translucent. Click for solid surfaces."};},
       toggle:()=>change("surface-mode",document.getElementById("surface-mode").value==="solid"?"translucent":"solid")},
     {id:"beams",icon:'<path d="M5 3h14v4h-5v10h5v4H5v-4h5V7H5z"/>',
-      read:()=>{const sections=document.getElementById("beam-style").value==="sections";return{label:sections?"Bars 3D":"Bars lines",active:sections,title:sections?"Bars use full 3D sections where available. Click to show lines.":"Bars use centerlines. Click to show available 3D sections."};},
+      read:()=>{const sections=document.getElementById("beam-style").value==="sections";return{label:sections?"Bars 3D":"Bars lines",active:sections,title:sections?"Explicit sections, or area-equivalent squares/circular rod approximations when the shape is unknown. Display only; I/J are unchanged. Click for lines.":"Bar centerlines. Click for explicit or area-equivalent 3D sections."};},
       toggle:()=>change("beam-style",document.getElementById("beam-style").value==="sections"?"lines":"sections")},
     ...[["ground","show-ground-plane","Ground",'<path d="m2 15 10-8 10 8-10 7zM6 12l12 6M10 9l12 6M6 18 16 10M10 21l10-8"/>'],["symmetry","show-symmetry-plane","Symmetry",'<path d="M12 2v20M3 7l6-3v16l-6-3zm18 0-6-3v16l6-3z"/>']].map(([id,control,label,icon])=>({id,icon,read:()=>({label,active:document.getElementById(control)?.checked===true,title:(document.getElementById(control)?.checked?"Hide ":"Show ")+label.toLowerCase()+" plane"}),toggle:()=>change(control,!document.getElementById(control).checked)})),
   ];
@@ -3239,6 +3249,7 @@ function disposeModel() {
   state.selectionMesh = null;
   state.selectedElement = null;
   state.selectedNode = null;
+  state.selectedCoordinate = null;
   state.elements.clear();
   document.getElementById("pick-card").hidden = true;
   state.deformable = [];
@@ -3346,8 +3357,9 @@ function lineMesh(name, positions, pairs, hex, alpha, deformable, colorable) {
 }
 
 function barSectionMesh(group, positions, conn, hex, reference) {
-  const section = group.properties && group.properties.section;
-  if (!section || section.type !== "PBARL" || !section.polygon_yz_m || typeof WingSections === "undefined") return null;
+  if (typeof WingSections === "undefined") return null;
+  const section = WingSections.displaySection(group.properties?.section,/C(?:ON)?ROD/.test(group.name));
+  if (!section) return null;
   const orientation = group.orient ? permute(asF32(group.orient)) :
     group.axes && group.axes.y ? permute(asF32(group.axes.y)) : null;
   if (!orientation) return null;
@@ -3390,18 +3402,77 @@ function barSectionMesh(group, positions, conn, hex, reference) {
 function applyBeamStyle() {
   const control = document.getElementById("beam-style");
   const sections = control && control.value === "sections";
-  const visited=new Set();
+  if(control)control.title="Explicit PBARL shapes are preserved. Unknown sections use area-equivalent squares, or circular approximations for rods; I/J and the analysis are unchanged.";
+  const visited=new Set();let created=false;
   for (const layer of state.layers.values()) {
     for (const mesh of layer.meshes) {
       if(visited.has(mesh))continue;visited.add(mesh);
-      if(mesh.importedRanges){WingImportedRender.sync(mesh,state.layers);continue;}
+      if(mesh.importedRanges)WingImportedRender.sync(mesh,state.layers);
       if (!mesh.barRepresentation) continue;
+      const visible=mesh.importedRanges?mesh.isEnabled():layer.visible;
+      if(sections&&visible&&mesh.createSolid){const make=mesh.createSolid;mesh.createSolid=null;const solid=make();mesh.hasSectionShape=!!solid;created=created||!!solid;}
       const active = mesh.barRepresentation === "sections" ? sections : !sections || !mesh.hasSectionShape;
-      mesh.setEnabled(layer.visible && active);
+      mesh.setEnabled(visible && active);
     }
   }
   syncComparisonVisibility();
+  applyShellGeometry(true);
+  if(created)applyContour();
   state.viewportTools?.syncDisplay();
+}
+
+function importedRepresentation(mesh,group) {
+  if(!mesh||!group.sourceRanges)return;
+  mesh.importedRanges=group.sourceRanges.map(range=>({...range}));
+  mesh.importedIndicesPerElement=mesh.sectionGeometry?.verticesPerElement||mesh.shellThicknessGeometry?.verticesPerElement||(group.kind==="quad"?6:group.kind==="tria"?3:2);
+}
+
+function prepareBarSolid(line,peers,group,positions,conn,color,reference) {
+  if(!line||typeof WingSections==="undefined")return;
+  const section=WingSections.displaySection(group.properties?.section,/C(?:ON)?ROD/.test(group.name));
+  if(!section?.equivalent)return;
+  line.hasSectionShape=true;
+  line.createSolid=()=>{
+    const solid=barSectionMesh(group,positions,conn,color,reference);if(!solid)return null;
+    importedRepresentation(solid,reference?{}:group);peers.push(solid);
+    if(!reference){const shape=activeShape();WingSections.updateMesh(BABYLON,solid,currentPositions(),shape?.rotation,amplitude()*(animating()?Math.sin(state.phase):1));state.panelExplosion?.applyMesh(solid);}
+    return solid;
+  };
+}
+
+function prepareShellThickness(surface,peers,group,positions,conn,stride,color,alpha) {
+  surface.shellRepresentation="midsurface";
+  const bounds=globalThis.WingShellThickness?.boundsForGroup(group);
+  surface.hasPhysicalThickness=!!bounds;
+  if(!bounds)return;
+  surface.createThickness=()=>{
+    const mesh=WingShellThickness.createMesh(BABYLON,{name:group.name+"-thickness",scene:state.scene,positions,conn,nodesPerElement:stride,bounds});
+    mesh.material=shellMaterial(mesh.name+"-mat",color,alpha);mesh.material.twoSidedLighting=false;
+    mesh.sideOrientation=BABYLON.Material.CounterClockWiseSideOrientation;
+    mesh.parent=state.root;mesh.isPickable=true;mesh.elementIds=groupIds(group);mesh.baseColorHex=color;mesh.translucentAlpha=alpha;
+    mesh.nodesPerElement=mesh.shellThicknessGeometry.verticesPerElement;mesh.contourNodeMap=conn;mesh.contourNodesPerElement=stride;
+    mesh.shellRepresentation="thickness";mesh.metadata={feGroup:group,faceElements:mesh.shellThicknessGeometry.faceElements};
+    mesh.fallbackElements=surface.fallbackElements;importedRepresentation(mesh,group);
+    peers.push(mesh);state.shellMeshes.push(mesh);state.deformable.push({mesh,shellThickness:true});
+    WingShellThickness.updateMesh(BABYLON,mesh,currentPositions());state.panelExplosion?.applyMesh(mesh);return mesh;
+  };
+}
+
+function applyShellGeometry(fromBeamStyle=false) {
+  const thick=document.getElementById("shell-geometry")?.value==="thickness",visited=new Set();let created=false;
+  for(const layer of state.layers.values())for(const mesh of layer.meshes){
+    if(visited.has(mesh)||!mesh.shellRepresentation)continue;visited.add(mesh);
+    if(mesh.importedRanges)WingImportedRender.sync(mesh,state.layers);
+    const visible=mesh.importedRanges?mesh.isEnabled():layer.visible;
+    if(thick&&visible&&mesh.createThickness){const make=mesh.createThickness;mesh.createThickness=null;created=!!make()||created;}
+    const selected=mesh.shellRepresentation==="thickness"?thick:!thick||!mesh.hasPhysicalThickness;
+    mesh.setEnabled(visible&&selected);
+  }
+  const note=document.getElementById("shell-geometry-note");
+  if(note){const unavailable=thick?(state.data?.groups||[]).filter(g=>["quad","tria"].includes(g.kind)&&(!(g.properties?.thickness_m>0)||!Number.isFinite(g.properties?.thickness_m)||g.properties?.thickness_display_supported===false)).reduce((n,g)=>n+g.count,0):0;
+    note.textContent="Display geometry only: midsurfaces retain the FE reference plane; physical thickness uses each property’s T and the laminate Z0 where available. Nodal coordinates, properties and analysis are unchanged."+(state.importedDeck?" Imported shell element offsets and corner-thickness overrides are not represented.":"")+(unavailable?" "+unavailable+" shells remain midsurfaces because thickness display data are unavailable.":"");}
+  if(created||!fromBeamStyle){applySurfaceMode();applyContour();}
+  state.annotations?.invalidate();
 }
 
 function markerMesh(name, positions, nodes, hex, radius) {
@@ -3555,11 +3626,14 @@ function* buildModelSteps(data, options = {}) {
         warning.material.depthFunction=BABYLON.Constants.ALWAYS;
         warning.material.disableDepthWrite=true;
       }
+      const peers=[mesh,warning].filter(Boolean);
+      prepareShellThickness(mesh,peers,g,positions,conn,stride,style.color,style.alpha);
       addLayer(g.name, label, style.color,
-               g.count + (stride === 3 ? " triangles" : " quads"), [mesh,warning].filter(Boolean));
+               g.count + (stride === 3 ? " triangles" : " quads"), peers);
     } else {
       const mesh = lineMesh(g.name, positions, conn, style.color, undefined, true, true);
-      const solid = barSectionMesh(g, positions, conn, style.color, false);
+      const physical=!!g.properties?.section?.polygon_yz_m;
+      const solid = physical?barSectionMesh(g, positions, conn, style.color, false):null;
       if (mesh) {
         mesh.isPickable = true;
         mesh.intersectionThreshold = 0.004 * diag;
@@ -3570,12 +3644,12 @@ function* buildModelSteps(data, options = {}) {
         state.barMeshes.push(mesh);
       }
       if (mesh && isForegroundBar(g)) mesh.renderingGroupId = BAR_RENDER_GROUP;
-      addLayer(g.name, label, style.color, g.count + " bars",
-               [mesh, solid].filter(Boolean));
+      const peers=[mesh,solid].filter(Boolean);prepareBarSolid(mesh,peers,g,positions,conn,style.color,false);
+      addLayer(g.name, label, style.color, g.count + " bars",peers);
     }
     if(g.sourceRanges){
       const batch=state.layers.get(g.name);state.layers.delete(g.name);
-      for(const mesh of batch.meshes){mesh.importedRanges=g.sourceRanges.map(range=>({...range}));mesh.importedIndicesPerElement=g.kind==="quad"?6:g.kind==="tria"?3:2;}
+      for(const mesh of batch.meshes)importedRepresentation(mesh,g);
       for(const range of g.sourceRanges)addLayer(range.group.name,range.group.name.replaceAll("_"," ").toLowerCase(),style.color,range.count+(g.kind==="bar"?" bars":" shells"),batch.meshes);
     }
   }
@@ -3589,9 +3663,10 @@ function* buildModelSteps(data, options = {}) {
     if (g.kind !== "bar") continue;
     const conn = asI32(g.conn);
     const lines = lineMesh(g.name + "-reference", positions, conn, "#c5d1df", 0.42, false);
-    const solid = barSectionMesh(g, positions, conn, "#c5d1df", true);
+    const solid = g.properties?.section?.polygon_yz_m?barSectionMesh(g, positions, conn, "#c5d1df", true):null;
     if (lines) { lines.barRepresentation = "lines"; lines.hasSectionShape = !!solid; referenceMeshes.push(lines); }
     if (solid) referenceMeshes.push(solid);
+    prepareBarSolid(lines,referenceMeshes,g,positions,conn,"#c5d1df",true);
   }
   addLayer("UNDEFORMED", "Undeformed model", "#c5d1df", "reference", referenceMeshes);
   addLayer("NODES", EXTRA_STYLE.NODES.label, EXTRA_STYLE.NODES.color, data.nodes.n_structural + " nodes", []);
@@ -3645,21 +3720,11 @@ function* buildModelSteps(data, options = {}) {
              marks || []);
   }
 
-  // Native constraint topology, springs and mass attachment GRID markers.
-  // They remain separate from physical beam elements and retain source DOFs.
-  for(const collection of data.imported_connections||[]){
-    const pairs=[],faces=[],ids=Int32Array.from(collection.elements,el=>el.eid),color=collection.point_mass?"#ffd68a":"#f4b8d6";
-    for(let i=0;i<collection.elements.length;i++){
-      const el=collection.elements[i],group={name:collection.name,kind:collection.point_mass?"conm2":"connection",card_types:{[el.eid]:el.type},properties:el.properties};
-      state.elements.set(el.eid,{id:el.eid,group,nodes:Int32Array.from(el.nodes)});
-      for(let n=1;n<el.nodes.length;n++){pairs.push(el.nodes[0],el.nodes[n]);faces.push(i);}
-    }
-    const mesh=lineMesh(collection.name,positions,Int32Array.from(pairs),color,.7,true),meshes=mesh?[mesh]:[];
-    if(mesh){mesh.isPickable=true;mesh.intersectionThreshold=.002*diag;mesh.elementIds=ids;mesh.metadata={feGroup:{name:collection.name,kind:"connection"},faceElements:faces,facesPerElement:1};}
-    // Zero-length springs and masses still have a visible attachment marker.
-    const points=collection.elements.filter(el=>collection.point_mass||el.nodes.length<2||el.nodes.every(n=>n===el.nodes[0]));
-    if(points.length)meshes.push(...markerMesh(collection.name,positions,points.map(el=>el.nodes[0]),color,Math.max(markerRadius(),diag*1e-8)));
-    addLayer(collection.name,collection.card+(collection.point_mass?" mass attachment nodes":" connections"),color,collection.elements.length+" elements",meshes);
+  if(typeof WingModelEntities!=='undefined'){
+    WingModelEntities.renderConnections({data,state,positions,lineMesh,markerMesh,markerRadius,addLayer,diag});
+    const systems=data.coordinate_systems?.systems||[];
+    if(systems.length)addLayer('COORDINATE_SYSTEMS','Coordinate systems · global positions',WingModelEntities.COLORS.coordinate,
+      systems.length+' frames',[]);
   }
 
   // Generated supports or the imported subcase's effective SPC selection.
@@ -3814,10 +3879,15 @@ function enforcePanelIsolation(){
   if(!state.panelView)return;
   const panelGroups=new Set((state.data?.groups||[]).filter(g=>g.panel_id!=null).map(g=>g.name));
   const sections=document.getElementById("beam-style").value==="sections";
+  const thick=document.getElementById("shell-geometry")?.value==="thickness";
   for(const name of state.panelView.previous.keys()){
     const layer=state.layers.get(name);if(!layer)continue;
     const on=panelGroups.has(name);layer.visible=on;
-    for(const mesh of layer.meshes){const representation=!mesh.barRepresentation||mesh.barRepresentation===(sections?"sections":"lines")||mesh.barRepresentation==="lines"&&!mesh.hasSectionShape;if(mesh.isEnabled()!==!!(on&&representation))mesh.setEnabled(on&&representation);}
+    for(const mesh of layer.meshes){
+      const bar=!mesh.barRepresentation||mesh.barRepresentation===(sections?"sections":"lines")||mesh.barRepresentation==="lines"&&!mesh.hasSectionShape;
+      const shell=!mesh.shellRepresentation||(mesh.shellRepresentation==="thickness"?thick:!thick||!mesh.hasPhysicalThickness);
+      if(mesh.isEnabled()!==!!(on&&bar&&shell))mesh.setEnabled(on&&bar&&shell);
+    }
     const checkbox=document.getElementById("layer-"+name);if(checkbox)checkbox.checked=on;
   }
 }
@@ -3883,6 +3953,7 @@ function modelEntityGroups() {
     ["masses", "Mass properties", ["FUEL_INERTIA"]],
     ["overlays", "Context and result overlays", ["FUEL_TANK", "UNDEFORMED", "REFERENCE_AERO"]],
     ["aids", "Mesh and element axes", ["MESH_EDGES", "SHELL_AXES", "BAR_AXES"]],
+    ["coordinates", "Coordinate systems", ["COORDINATE_SYSTEMS"]],
   ];
   const seen = new Set(definitions.flatMap(item => item[2]));
   definitions.push(["other", "Other model entities", Array.from(state.layers.keys()).filter(name => !seen.has(name))]);
@@ -4070,7 +4141,7 @@ function batchLayerVisibility(action) {
   finally{
     state.layerVisibilityBatch=wasBatch;state.edgeUpdateBatch=wasEdges;
     if(!wasBatch){
-      applyBeamStyle();syncMeshEdges();syncLayerGroupControls();syncAeroOverlayControl();syncVlmControls();
+      applyBeamStyle();applySurfaceMode();syncMeshEdges();syncLayerGroupControls();syncAeroOverlayControl();syncVlmControls();
       if(state.selectedElement!==null||state.selectedNode!==null)updateSelection();
       state.annotations?.invalidate();
     }
@@ -4090,6 +4161,9 @@ function setLayerVisible(name, on) {
   const layer = state.layers.get(name);
   if (!layer) return;
   if (layer.visible !== on && !state.busy && !state.buildingScene) markStudyViewModified();
+  if(name==='COORDINATE_SYSTEMS'&&on&&!layer.meshes.length){
+    layer.meshes=WingModelEntities.coordinateMeshes(BABYLON,{scene:state.scene,parent:state.root,payload:state.data?.coordinate_systems,diag:state.diag});
+  }
   if (name === "NODES" && on && !layer.meshes.length && state.baseline) {
     const nodes = Array.from({ length: state.data.nodes.n_structural }, (_, i) => i);
     layer.meshes = markerMesh("NODES", currentPositions(), nodes, EXTRA_STYLE.NODES.color,
@@ -4101,6 +4175,7 @@ function setLayerVisible(name, on) {
   if(name!=="FUEL_INERTIA")for (const m of layer.meshes) m.setEnabled(on);
   if(name==="FUEL_INERTIA") {document.getElementById("show-fuel-inertia").checked=on;refreshFuelMassProperties();}
   if(!state.layerVisibilityBatch)applyBeamStyle();
+  if(on&&!state.layerVisibilityBatch&&layer.meshes.some(mesh=>mesh.shellRepresentation))applySurfaceMode();
   const cb = document.getElementById("layer-" + name);
   if (cb) cb.checked = on;
   if (name === "SHELL_AXES" || name === "BAR_AXES") document.getElementById("axes-note").hidden =
@@ -4366,7 +4441,9 @@ function pushPositions(dp, rotations, rotationScale = 1) {
   state.geometryTools?.setPose(dp, rotations, rotationScale);
   const base = state.baseline;
   for (const d of state.deformable) {
-    if (d.barSection) {
+    if (d.shellThickness) {
+      WingShellThickness.updateMesh(BABYLON,d.mesh,dp);
+    } else if (d.barSection) {
       WingSections.updateMesh(BABYLON, d.mesh, dp, rotations, rotationScale);
     } else if (d.axisCenters) {
       for (const frame of d.axisCenters) {
@@ -4530,7 +4607,7 @@ function elementContourValue(c, mesh, e) {
   // Nodal displacement is reduced only within this element, for a full,
   // constant fill. Stress/force data never take this nodal path.
   let sum = 0;
-  const nodes = mesh.nodeMap ? mesh.nodeMap.slice(e * mesh.nodesPerElement, (e + 1) * mesh.nodesPerElement) :
+  const nodes = mesh.contourNodeMap ? mesh.contourNodeMap.slice(e*mesh.contourNodesPerElement,(e+1)*mesh.contourNodesPerElement) : mesh.nodeMap ? mesh.nodeMap.slice(e * mesh.nodesPerElement, (e + 1) * mesh.nodesPerElement) :
     state.elements.get(mesh.elementIds[e])?.nodes || mesh.sectionGeometry?.conn.slice(2*e,2*e+2);
   if (!nodes?.length) return undefined;
   for (const node of nodes) {
@@ -5055,9 +5132,24 @@ function appliedResultLoads() {
   const loads=source?{...source,stations:WingGeometryExport.loadStations(source)}:null;
   if (!loads || state.sensitivityMap || !result?.matches || result.available === false || !result.static) return loads;
   const scale = Number.isFinite(result.loadScale) ? result.loadScale : 1;
-  const actual = new Map((result.followerLoading?.forces || []).map(row => [Number(row.grid_id), row.force_basic]));
-  return {...loads, stations:(loads.stations || []).map(station => {
-    const force = station.source === "aerodynamic" && station.follower_forces !== false ? actual.get(Number(state.nodeIds[station.node_index])) : null;
+  const actual = new Map((result.followerLoading?.forces || []).map(row => [Number(row.grid_id), row]));
+  const stations=(loads.stations||[]).slice(),imported=loads.method==="imported";
+  const finiteVector=v=>v?.length===3&&v.every(Number.isFinite);
+  if(imported&&actual.size){
+    // Exactly cancelling source contributions can have no undeformed glyph.
+    // Keep those nodes: their follower correction need not remain zero.
+    const present=new Set(stations.filter(s=>!s.routed_moment).map(s=>Number(state.nodeIds[s.node_index])));
+    const missing=new Set([...actual.keys()].filter(gid=>!present.has(gid)));
+    for(let i=0;missing.size&&i<state.nodeIds.length;i++)if(missing.delete(Number(state.nodeIds[i])))
+      stations.push({node_index:i,gid:Number(state.nodeIds[i]),target_kind:"imported_grid",source:"imported loads",routed_force:true,force:[0,0,0],moment:[0,0,0]});
+  }
+  return {...loads, stations:stations.map(station => {
+    const row=actual.get(Number(state.nodeIds[station.node_index]));
+    let force=station.source === "aerodynamic" && station.follower_forces !== false ? row?.force_basic : null;
+    // Imported equivalent nodal loads also contain fixed pressures, body loads
+    // and unmarked FORCE cards. Replace only the follower contribution.
+    if(imported&&!station.routed_moment&&finiteVector(row?.force_basic)&&finiteVector(row?.reference_force_basic))
+      force=station.force.map((v,i)=>v*scale+row.force_basic[i]-row.reference_force_basic[i]);
     return {...station, force:force?.length === 3 && force.every(Number.isFinite) ? force : station.force.map(v => v*scale),
       moment:(station.moment || [0,0,0]).map(v => v*scale),
       source_forces_N:station.source_forces_N?Object.fromEntries(Object.entries(station.source_forces_N).map(([key,vector])=>[key,force?.length===3&&key==="aerodynamic"?force:vector.map(v=>v*scale)])):undefined,
@@ -5563,6 +5655,7 @@ function applySurfaceMode() {
     for (const mesh of layer.meshes) {
       if(visited.has(mesh))continue;visited.add(mesh);
       if (mesh.translucentAlpha === undefined) continue;
+      if(["quad","tria"].includes(mesh.metadata?.feGroup?.kind))mesh.material.wireframe=false;
       mesh.hasVertexAlpha = false;
       mesh.material.alpha = opaque ? 1 : mesh.metadata?.feGroup&&["quad","tria"].includes(mesh.metadata.feGroup.kind)?structuralAlpha:mesh.translucentAlpha;
       mesh.material.transparencyMode = opaque ? BABYLON.Material.MATERIAL_OPAQUE : BABYLON.Material.MATERIAL_ALPHABLEND;
@@ -5770,7 +5863,7 @@ function refreshDeckMetadata() {
     deck.source, deck.input_path ? "Input: " + deck.input_path : ""].filter(Boolean).join(" · ");
   const importedSnapshot=deck.imported_signature!==undefined||deck.source==="Imported Nastran source";
   let differs = !!state.importedDeck!==importedSnapshot;
-  if(state.importedDeck&&importedSnapshot)differs=deck.imported_signature!==state.importedDeck.signature;
+  if(state.importedDeck&&importedSnapshot)differs=deck.imported_signature!==state.importedDeck.signature||!WingImportedAnalysis.matches(deck.imported_analysis,state.importedDeck);
   else if (!state.importedDeck&&!importedSnapshot&&deck.model_params) {
     try { differs = formSignature(deck.model_params) !== formSignature(); } catch (_) { differs = true; }
   }
@@ -5822,6 +5915,7 @@ function showElement(eid) {
   const element = state.elements.get(eid);
   if (!element) return;
   state.selectedElement = eid;
+  state.selectedCoordinate = null;
   state.selectedNode = null;
   const g = element.group;
   const kind = g.card_types?.[eid] || (g.kind === "quad" ? "CQUAD4" : g.kind === "tria" ? "CTRIA3" : g.kind === "rbe3" ? "RBE3" : "CBAR");
@@ -5837,6 +5931,10 @@ function showElement(eid) {
     delete properties.section.polygon_yz_m;
   }
   html += "<details open><summary>Properties (SI)</summary>" + resultTable(properties) + "</details>";
+  if(g.kind==="bar"){
+    const displaySection=WingSections.displaySection(g.properties?.section,/C(?:ON)?ROD/.test(g.name));
+    if(displaySection?.equivalent)html+='<p class="pick-note">'+esc(displaySection.display_note)+'</p>';
+  }
   if(state.propertyDisplay?.enabled){
     const c=state.propertyDisplay.contour(),value=c.byId.get(eid),label=c.categories?.find(category=>category.value===value)?.label;
     html+='<details open><summary>Displayed property</summary><p>'+esc(c.name)+': '+esc(label??(Number.isFinite(value)?eng(value,6)+' '+c.unit:'Not applicable / unavailable'))+'</p></details>';
@@ -5894,7 +5992,7 @@ function updateSelection(positions) {
   const dp = positions || currentPositions();
   const nodes = element.nodes;
   const pairs = [];
-  if (element.group.kind === "rbe3") {
+  if (element.group.kind === "rbe3" || element.group.kind === "connection") {
     for (let i = 1; i < nodes.length; i++) pairs.push(nodes[0], nodes[i]);
   } else {
     for (let i = 0; i < (nodes.length === 2 ? 1 : nodes.length); i++) pairs.push(nodes[i], nodes[(i + 1) % nodes.length]);
@@ -5921,6 +6019,15 @@ function inspectionMatches(group, filter = document.getElementById("inspect-enti
   if (filter === "stringer") return group.kind === "bar" && group.name.startsWith("STRINGER");
   if (filter === "cap") return group.kind === "bar" && group.name === "SPAR_CAPS";
   return group.kind === filter;
+}
+
+function showCoordinate(cid){
+  const frame=state.data?.coordinate_systems?.systems?.find(frame=>frame.id===cid);if(!frame)return false;
+  clearInspection();state.selectedCoordinate=cid;
+  document.getElementById('pick-content').innerHTML=resultTable({'Coordinate ID':cid,Type:WingModelEntities.typeLabel(frame.type),'Source card':frame.card,
+    'Origin (global BASIC)':frame.origin,'Defining x axis (BASIC)':frame.x,'Defining y axis (BASIC)':frame.y,'Defining z axis (BASIC)':frame.z})+
+    '<details open><summary>Source definition</summary>'+resultTable(frame.properties||{})+'</details><p class="pick-note">'+esc(state.data.coordinate_systems.note||'')+'</p>';
+  document.getElementById('pick-card').hidden=false;state.annotations?.invalidate();return true;
 }
 
 function modelVectorAt(values, index) {
@@ -5952,7 +6059,7 @@ function inspectionDepthTest() {
 
 function showNode(index) {
   if (!state.baseline || index < 0 || index >= state.nodeIds.length) return false;
-  state.selectedElement = null; state.selectedNode = index;
+  state.selectedElement = null; state.selectedNode = index;state.selectedCoordinate=null;
   const connected = Array.from(state.elements, ([id, e]) => e.nodes.includes(index) ? id : null).filter(id => id !== null);
   const supported = asI32(state.data.spc.nodes).includes(index);
   let html = resultTable({ "Node ID": state.nodeIds[index], Type: "GRID",
@@ -5989,7 +6096,7 @@ function showNode(index) {
 }
 
 function clearInspection() {
-  state.selectedElement = null; state.selectedNode = null;
+  state.selectedElement = null; state.selectedNode = null;state.selectedCoordinate=null;
   if (state.selectionMesh) state.selectionMesh.dispose(false, true);
   state.selectionMesh = null;
   document.getElementById("pick-card").hidden = true;
@@ -6001,7 +6108,7 @@ function clearInspection() {
 function inspectFilterChanged() {
   const filter = document.getElementById("inspect-entity")?.value || "all";
   const element = state.elements.get(state.selectedElement);
-  if (state.selectedNode !== null && filter !== "nodes" || element && !inspectionMatches(element.group, filter)) {
+  if (state.selectedCoordinate!=null&&filter!=="coordinate" || state.selectedNode !== null && filter !== "nodes" || element && !inspectionMatches(element.group, filter)) {
     clearInspection();
   }
   document.getElementById("inspect-status").textContent = "Left-click a matching visible entity, or enter its ID. Hidden entities can be inspected by ID.";
@@ -6011,11 +6118,12 @@ function inspectFilterChanged() {
 function inspectById() {
   const id = Number(document.getElementById("inspect-id").value), filter = document.getElementById("inspect-entity").value;
   let found = false;
-  if (Number.isInteger(id) && id > 0) {
-    if (filter === "nodes") found = showNode(state.nodeIds ? state.nodeIds.indexOf(id) : -1);
+  if (Number.isInteger(id) && (id > 0 || filter==='coordinate'&&id===0)) {
+    if (filter === 'coordinate') found=showCoordinate(id);
+    else if (filter === "nodes") found = showNode(state.nodeIds ? state.nodeIds.indexOf(id) : -1);
     else { const element = state.elements.get(id); if (element && inspectionMatches(element.group, filter)) { showElement(id); found = true; } }
   }
-  document.getElementById("inspect-status").textContent = found ? "Inspecting " + (filter === "nodes" ? "GRID " : "element ") + id : "No matching entity with that ID in the current model.";
+  document.getElementById("inspect-status").textContent = found ? "Inspecting " + (filter === "nodes" ? "GRID " : filter==='coordinate'?'coordinate ':'element ') + id : "No matching entity with that ID in the current model.";
 }
 
 function pickNode(x, y) {
@@ -6036,6 +6144,11 @@ function pickNode(x, y) {
 
 function pickElement(x, y) {
   if (document.getElementById("inspect-entity")?.value === "nodes") return pickNode(x, y);
+  if(document.getElementById('inspect-entity')?.value==='coordinate'){
+    const pick=state.scene.pick(x,y,mesh=>mesh.isEnabled()&&mesh.isPickable&&mesh.metadata?.coordinateIds);
+    const cid=WingModelEntities.pickedCoordinateId(pick);if(cid===undefined)return null;
+    showCoordinate(cid);expandPanel('pick-card');return cid;
+  }
   const eligible = (mesh) => mesh.isEnabled() && mesh.isPickable && mesh.metadata?.feGroup && inspectionMatches(mesh.metadata.feGroup);
   const foreground = !!document.getElementById("show-bars-through")?.checked;
   const occluded = inspectionDepthTest();
@@ -6043,15 +6156,13 @@ function pickElement(x, y) {
   // are rejected unless the user explicitly enabled their through view.
   let pick = state.scene.pick(x, y, (mesh) => eligible(mesh) && isForegroundBar(mesh.metadata.feGroup));
   if (pick?.hit && pick.pickedPoint && !foreground) {
-    const meta = pick.pickedMesh.metadata, local = meta.faceElements ? meta.faceElements[pick.faceId] : Math.floor(pick.faceId / meta.facesPerElement);
-    if (occluded(pick.pickedPoint.asArray(), "element", pick.pickedMesh.elementIds[local])) pick = null;
+    if (occluded(pick.pickedPoint.asArray(), "element", WingModelEntities.pickedElementId(pick))) pick = null;
   }
   if (!pick || !pick.hit) pick = state.scene.pick(x, y, eligible);
-  if (!pick || !pick.hit || pick.faceId < 0) return null;
+  if (!pick || !pick.hit) return null;
   const mesh = pick.pickedMesh;
   const metadata = mesh.metadata;
-  const index = metadata.faceElements ? metadata.faceElements[pick.faceId] : Math.floor(pick.faceId / metadata.facesPerElement);
-  const eid = mesh.elementIds[index];
+  const eid = WingModelEntities.pickedElementId(pick);
   if (pick.pickedPoint && !(foreground && isForegroundBar(metadata.feGroup)) &&
       occluded(pick.pickedPoint.asArray(), "element", eid)) return null;
   if (eid !== undefined) {
@@ -6222,6 +6333,7 @@ for (const [id, field] of [["mesh", "none"], ["pressure", "pressure"], ["cp", "c
 document.getElementById("vlm-show-forces").onchange = (event) => setLayerVisible("AERO_LOADS", event.target.checked);
 document.getElementById("vlm-show-moments").onchange = (event) => setLayerVisible("AERO_MOMENTS", event.target.checked);
 document.getElementById("beam-style").onchange = applyBeamStyle;
+document.getElementById("shell-geometry").onchange = ()=>{applyShellGeometry();markStudyViewModified();};
 document.getElementById("load-case-select").onchange = (e) => selectLoadCase(e.target.value);
 document.getElementById("result-case-select").onchange = (e) => selectLoadCase(e.target.value);
 document.getElementById("result-analysis-select").onchange = (e) => selectResultAnalysis(e.target.value);

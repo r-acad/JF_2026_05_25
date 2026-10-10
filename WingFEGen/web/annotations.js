@@ -9,17 +9,18 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
   const COLORS = { node: "#78e1ed", support: "#ff8190", quad: "#8bbcff", tria: "#81e1ad",
-    stringer: "#ffdf00", cap: "#ff9c39", ribStiffener: "#a9e4ef", bar: "#ffe8a0", rbe3: "#f4b8d6", fuel: "#91f5d5", selected: "#ffe478" };
+    stringer: "#ffdf00", cap: "#ff9c39", ribStiffener: "#a9e4ef", bar: "#ffe8a0", rbe3: "#f4b8d6", rbe2:'#ef87bb',rbar:'#db92ee',rbe1:'#ac8bea',rspline:'#cb7fda',spring:'#eb61cc',mass:'#ddc2ff',coordinate:'#c8cfff',fuel: "#91f5d5", selected: "#ffe478" };
   const LEGEND = [["GRID", "node"], ["Supported GRID", "support"], ["CQUAD4", "quad"],
-    ["CTRIA3", "tria"], ["Stringer", "stringer"], ["Spar cap", "cap"], ["Rib stiffener", "ribStiffener"], ["RBE3", "rbe3"], ["Fuel reference", "fuel"]];
+    ["CTRIA3", "tria"], ["Stringer", "stringer"], ["Spar cap", "cap"], ["Rib stiffener", "ribStiffener"], ["RBE3", "rbe3"], ['RBE2','rbe2'],['RBAR','rbar'],['RBE1','rbe1'],['RSPLINE','rspline'],['Spring','spring'],['CONM2','mass'],['Coordinate','coordinate'], ["Fuel reference", "fuel"]];
   const baseGroup = (name) => name.replace(/_KINKS$/, "").replace(/_P\d+$/, "");
   function elementStyle(element) {
     const group = element.group, name = group.base_group || baseGroup(group.name);
     if (group.kind === "quad") return { prefix: "Q", name: "CQUAD4", color: COLORS.quad };
     if (group.kind === "tria") return { prefix: "T", name: "CTRIA3", color: COLORS.tria };
     if (group.kind === "rbe3") return { prefix: "R", name: "RBE3", color: name === "FUEL_RBE3" ? COLORS.fuel : COLORS.rbe3 };
-    if (group.kind === "connection") return { prefix:"C",name:group.card_types?.[element.id]||"Connection",color:COLORS.rbe3 };
-    if (group.kind === "conm2") return { prefix: "M", name: "CONM2", color: COLORS.fuel };
+    if (group.kind === "connection") {const card=group.card_types?.[element.id]||'Connection';return { prefix:'C',name:card,color:group.color||COLORS[card.toLowerCase()]||COLORS.rbe1 };}
+    if (group.kind === "spring") return {prefix:'S',name:group.card_types?.[element.id]||'Spring',color:COLORS.spring};
+    if (group.kind === "conm2") return { prefix: "M", name: "CONM2", color: COLORS.mass };
     return { prefix: "B", name: group.card_types?.[element.id]||"CBAR", color: name === "SPAR_CAPS" ? COLORS.cap :
       name === "RIB_STIFFENERS" ? COLORS.ribStiffener : name.startsWith("STRINGER") ? COLORS.stringer : COLORS.bar };
   }
@@ -250,12 +251,13 @@
       const showStringers = !!control("mesh-labels-stringers")?.checked;
       const showPanels=!!state.panelView||!!state.panelExplosion?.active;
       const showReactions=!!control("show-support-force-values")?.checked;
+      const showCoordinates=!!control('show-coordinate-labels')?.checked;
       const selected = state.elements.get(state.selectedElement);
       const size = Math.max(8, Math.min(24, Number(control("id-label-size")?.value) || 11));
       const width = canvas.clientWidth, height = canvas.clientHeight;
       const occluders = opaqueOccluders(scene);
       const occluderKey = occluders.map((mesh) => mesh.uniqueId + ":" + Array.from(mesh.computeWorldMatrix().m).join(",")).join(";");
-      const key = [width, height, showNodes, showElements, showRibs, showStringers, showPanels, showReactions, size, state.selectedElement,
+      const key = [width, height, showNodes, showElements, showRibs, showStringers, showPanels, showReactions,showCoordinates,state.selectedCoordinate, size, state.selectedElement,
         occluderKey, ...scene.getTransformMatrix().m, ...Array.from(state.layers, ([, layer]) => +layer.visible)].join("|");
       const now = performance.now();
       if (!force && (!dirty && key === lastKey && state.data === lastData && positions === lastPositions || now - lastTime < 30)) return;
@@ -303,7 +305,7 @@
       if (selected && visibleElement(state, selected)) {
         const anchors = Array.from(selected.nodes, (i) => displayedPoint(state,selected.id,Array.from(positions.subarray(3 * i, 3 * i + 3))));
         const points = anchors.map(project);
-        const pairs = selected.group.kind === "rbe3" ? points.slice(1).map((_, i) => [0, i + 1]) :
+        const pairs = ['rbe3','connection'].includes(selected.group.kind) ? points.slice(1).map((_, i) => [0, i + 1]) :
           selected.nodes.length === 2 ? [[0, 1]] : points.map((_, i) => [i, (i + 1) % points.length]);
         ctx.save(); ctx.lineJoin = "round"; ctx.lineCap = "round";
         if (!occluders.length && ["quad", "tria"].includes(selected.group.kind) && points.every(Boolean)) {
@@ -333,6 +335,9 @@
           ctx.shadowBlur = 0; ctx.strokeStyle = "#fffbea"; ctx.lineWidth = 2; ctx.stroke();
         }
         stats.selectedOutlineSegments = segments;
+        if(points[0]&&anchors.every(p=>p.every((value,axis)=>value===anchors[0][axis]))&&!depthIndex().isOccluded({kind:'element',id:state.selectedElement,point:anchors[0]},points[0])){
+          ctx.beginPath();ctx.arc(points[0].x,points[0].y,10,0,Math.PI*2);ctx.strokeStyle=COLORS.selected;ctx.lineWidth=3;ctx.shadowColor=COLORS.selected;ctx.shadowBlur=12;ctx.stroke();
+        }
         ctx.restore();
         const anchor = displayedPoint(state,selected.id,centroid(positions, selected.group.kind === "rbe3" ? selected.nodes.slice(0, 1) : selected.nodes));
         const center = project(anchor);
@@ -342,8 +347,11 @@
             stats.selected = { id: state.selectedElement, text, ...center };
         }
       }
-      if (showNodes || showElements || showRibs || showStringers || showPanels || showReactions) {
-        const candidates = [...(showReactions?supportValueCandidates(state):[]),...panelLabelCandidates(state,positions),...labelCandidates(state, positions, showNodes, showElements),
+      const coordinateLabels=typeof WingModelEntities!=='undefined'?WingModelEntities.coordinateCandidates(state,showCoordinates||state.selectedCoordinate!=null):[];
+      const pickedCoordinate=coordinateLabels.find(row=>row.id===state.selectedCoordinate);
+      if(pickedCoordinate){const point=project(pickedCoordinate.point);if(point)badge(pickedCoordinate.text,point,COLORS.selected,true,pickedCoordinate);}
+      if (showNodes || showElements || showRibs || showStringers || showPanels || showReactions || showCoordinates) {
+        const candidates = [...(showCoordinates?coordinateLabels:[]),...(showReactions?supportValueCandidates(state):[]),...panelLabelCandidates(state,positions),...labelCandidates(state, positions, showNodes, showElements),
           ...physicalLabelCandidates(state, positions, showRibs, showStringers)].map((candidate) => ({ ...candidate, screen: project(candidate.point) }))
           .filter((item) => item.screen && item.screen.x >= 0 && item.screen.x <= width && item.screen.y >= 0 && item.screen.y <= height)
           .sort((a, b) => (b.kind==='panel')-(a.kind==='panel') || a.screen.z - b.screen.z);
@@ -363,7 +371,7 @@
       const host = control("id-label-status"); if (host) host.textContent = text;
     }
     legend();
-    for (const id of ["show-node-ids", "show-element-ids", "id-label-size", "mesh-labels-ribs", "mesh-labels-stringers", "show-support-force-values"]) {
+    for (const id of ["show-node-ids", "show-element-ids", "show-coordinate-labels", "id-label-size", "mesh-labels-ribs", "mesh-labels-stringers", "show-support-force-values"]) {
       const input = control(id); if (input) input.addEventListener("input", invalidate);
     }
     const observer = scene.onAfterRenderObservable.add(() => render());
