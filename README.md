@@ -20,7 +20,7 @@ human-readable reports and optional visualization files.
 
 The recommended workflow is intentionally small:
 
-1. Install Julia 1.12.x.
+1. Install Julia 1.13.1.
 2. Click one platform setup file in `JFEM_installation/`.
 3. Run single cases or batches with the `jfem` launcher.
 4. For Python-driven optimization loops, keep one JSONL worker open and submit
@@ -40,7 +40,7 @@ julia WingFEGen/setup.jl
 julia --project=WingFEGen WingFEGen/run.jl
 ```
 
-Use Julia 1.12.x. Setup downloads the pinned dependencies; a solver sysimage is
+Use Julia 1.13.1. Setup downloads the pinned dependencies; a solver sysimage is
 optional. The app opens `http://127.0.0.1:8080` and discovers the enclosing solver
 without private workspace paths. Platform launchers, a factory example, bundled
 browser libraries and portable checks are included. No user study or private
@@ -85,7 +85,7 @@ troubleshooting.
 
 ## Requirements
 
-- Julia 1.12.x
+- Julia 1.13.1
 - Git
 - One or more bulk-data input decks, usually with `.bdf`, `.dat`, or `.nas`
   extension
@@ -530,7 +530,7 @@ jfem  -jrsvh    model.bdf  out       :: viewer + report + JSON + VTK + HDF5
 ```
 
 A `run_manifest.json` recording the exact inputs and flags is always written.
-The wrappers use whatever `julia` is on `PATH` (Julia 1.12.x; no juliaup
+The wrappers use whatever `julia` is on `PATH` (Julia 1.13.1; no juliaup
 needed) and automatically load a prebuilt sysimage from `sysimage/` when its
 build receipt matches. (See "How to invoke it" above to call `jfem` from any
 directory.)

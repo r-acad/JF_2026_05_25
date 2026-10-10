@@ -26,6 +26,6 @@ for ext in so dylib; do
   fi
 done
 
-# Use whatever "julia" is on PATH (Julia 1.12.x). No juliaup / no "+release":
+# Use whatever "julia" is on PATH (Julia 1.13.1). No juliaup / no "+release":
 # a standalone julia treats "+release" as a bad path argument and errors.
 exec julia "${SYSIMG_ARG[@]}" --project="$REPO_ROOT" --threads=auto "$APP_DIR/panel_launch.jl" "$@"

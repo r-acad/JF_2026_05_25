@@ -18,7 +18,7 @@ where "%WINGFEGEN_BIN%" >nul 2>&1
 if errorlevel 1 if not exist "%WINGFEGEN_BIN%" (
   echo.
   echo   Julia was not found on the PATH.
-  echo   Install Julia 1.12, or set WINGFEGEN_JULIA to its executable.
+  echo   Install Julia 1.13.1, or set WINGFEGEN_JULIA to its executable.
   echo   Run setup.cmd once to install the recorded package dependencies.
   echo.
   exit /b 1

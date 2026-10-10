@@ -24,7 +24,7 @@
 #      portable: build it on each machine, and rebuild after a Julia upgrade or
 #      a change to the OpenJFEM packages.
 #    * If you never build it, everything still works - just slower to start.
-#    * Needs a Julia 1.12.x on PATH.
+#    * Needs Julia 1.13.1 on PATH.
 # ====================================================================
 set -euo pipefail
 
@@ -70,7 +70,7 @@ echo "  single native image. Several minutes; this is normal."
 echo
 
 if ! command -v julia >/dev/null 2>&1; then
-  echo "ERROR: 'julia' was not found on PATH. Install Julia 1.12.x first." >&2
+  echo "ERROR: 'julia' was not found on PATH. Install Julia 1.13.1 first." >&2
   exit 1
 fi
 

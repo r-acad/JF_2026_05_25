@@ -7,7 +7,7 @@ fast startup.
 
 ## Before You Click
 
-Install Julia 1.12.x and make sure the `julia` command is available on `PATH`.
+Install Julia 1.13.1 and make sure the `julia` command is available on `PATH`.
 Git is also recommended so the repository can be cloned and updated normally.
 
 ## Click One File
@@ -119,7 +119,7 @@ A JSON batch manifest can also be supplied:
 
 ## Troubleshooting
 
-- If `julia` is not found, install Julia 1.12.x and put it on `PATH`.
+- If `julia` is not found, install Julia 1.13.1 and put it on `PATH`.
 - If package installation fails on a machine without internet access, see
   `OFFLINE_DEPENDENCIES.md`.
 - If the sysimage build fails on Linux/macOS, install a native toolchain

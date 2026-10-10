@@ -6,6 +6,10 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Julia 1.13.1 runtime migration.** Resolve the solver and WingFEGen environments
+  with Julia 1.13.1, updating bundled standard libraries and runtime artifacts
+  while preserving registered package versions. Align installation instructions
+  and runtime-selection checks with the recorded environments.
 - **WingFEGen imported analysis, startup and solid display.** Select SOL101,
   SOL103, SOL105 or SOL106 for imported sources using separate run-deck overrides;
   retain source IDs, loads, supports and saved analysis settings. Validate source

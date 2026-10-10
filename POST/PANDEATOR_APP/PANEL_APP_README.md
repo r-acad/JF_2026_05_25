@@ -58,7 +58,7 @@ required at runtime).
 
 The launcher starts the Julia server and, after a moment, opens your default
 browser at `http://127.0.0.1:8088/`. The launcher uses whatever `julia` is on
-your `PATH` (a 1.12.x Julia; **no juliaup / no `+release` needed**). The
+your `PATH` (Julia 1.13.1; **no juliaup / no `+release` needed**). The
 **first** start compiles the server + solver (~1-2 min, shown in the startup
 banner); later analyses in the same session are warm. Press **Ctrl+C** in the
 terminal (or close the window) to stop.

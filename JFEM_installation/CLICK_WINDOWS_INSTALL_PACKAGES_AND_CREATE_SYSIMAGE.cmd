@@ -24,7 +24,7 @@ REM    * The .dll is tied to THIS machine's Julia version + OS + CPU. It is NOT
 REM      portable: build it on each machine, and rebuild after a Julia upgrade
 REM      or a change to the OpenJFEM packages.
 REM    * If you never build it, everything still works - just slower to start.
-REM    * Needs a Julia 1.12.x on PATH (no juliaup / no "+release" required).
+REM    * Needs Julia 1.13.1 on PATH (no juliaup / no "+release" required).
 REM ====================================================================
 REM EnableDelayedExpansion so an install path with parentheses/spaces (e.g.
 REM "...\JF_2026_05_25-main (7)\...") does not break the if-blocks below.
@@ -49,7 +49,7 @@ echo.
 
 where julia >nul 2>nul
 if errorlevel 1 (
-    echo ERROR: Julia was not found on PATH. Install Julia 1.12.x first.
+    echo ERROR: Julia was not found on PATH. Install Julia 1.13.1 first.
     echo.
     if not "%OPENJFEM_NO_PAUSE%"=="1" (
         echo Press any key to close this window.

@@ -15,7 +15,7 @@ REM  order): j=.jfem viewer  r=REPORT.md  s=results JSON  v=VTK  h=HDF5
 REM  m=model JSON  c=card inventory.  e.g.  jfem -jrsv model.bdf out
 REM
 REM  Tip: add this folder to your PATH so you can run `jfem` from anywhere.
-REM  Uses whatever `julia` is on PATH (Julia 1.12.x; no juliaup needed) and
+REM  Uses whatever `julia` is on PATH (Julia 1.13.1; no juliaup needed) and
 REM  auto-loads a local sysimage only when its source/build provenance matches.
 REM ====================================================================
 REM EnableDelayedExpansion so an install path containing parentheses or spaces

@@ -43,8 +43,8 @@ if exist "!SYSIMG_DLL!" (
     )
 )
 
-REM Use whatever "julia" is on PATH. The packages were precompiled with Julia
-REM 1.12.x, so make sure a 1.12.x Julia is installed and on PATH on this machine.
+REM Use whatever "julia" is on PATH. The current manifest uses Julia 1.13.1;
+REM make sure Julia 1.13.1 is installed and on PATH on this machine.
 REM (No juliaup here: do NOT add "+release" - plain julia.exe treats it as a
 REM bad path argument and fails with a "+release ... not found" error.)
 REM SYSIMG_ARG is quoted as one token (it is either empty or --sysimage="..path..").

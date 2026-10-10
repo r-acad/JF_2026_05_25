@@ -29,7 +29,7 @@ output, the file goes in the private development workspace, not here.
 
 ## Code Standards
 
-- Julia 1.12 is the supported runtime; do not depend on nightly features.
+- Julia 1.13.1 is the supported runtime; do not depend on nightly features.
 - Match the surrounding style; no auto-formatter is enforced.
 - Prefer typed `Dict{Symbol,Any}` payloads at module boundaries so payloads
   round-trip through JSON without surprise.

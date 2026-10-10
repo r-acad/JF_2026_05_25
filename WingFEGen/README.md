@@ -11,7 +11,7 @@ or Python environment is needed to run the application.
 
 ## Install and start
 
-Install **Julia 1.12.x**, then clone the repository:
+Install **Julia 1.13.1**, then clone the repository:
 
 ```sh
 git clone https://github.com/r-acad/JF_2026_05_25.git

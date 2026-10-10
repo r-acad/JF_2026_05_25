@@ -10,8 +10,10 @@ This file lists what must be present. **The authoritative, exact set is the
 committed `Manifest.toml`** at the repository root — these tables are generated
 from it for convenience.
 
-> Julia version: the Manifest was resolved with Julia **1.12.3**. Use a
-> **1.12.x** Julia on the target machine. Packages with native binaries
+> Use Julia **1.13.1** on both the connected and target machines for the current
+> manifest. The package tables below are the earlier Julia **1.12.3** snapshot;
+> consult the current `Manifest.toml` for exact versions, including standard
+> libraries. Packages with native binaries
 > (the `*_jll` entries) are **OS- and CPU-specific** — a Linux target needs the
 > Linux artifacts; you cannot reuse a Windows depot.
 
@@ -200,7 +202,7 @@ the `*_jll` binaries are wrong.
 On a connected **Linux** machine (a laptop, a VM, or WSL2 all work):
 
 ```bash
-# 1) Same Julia 1.12.x and the JFEM repo on the connected machine.
+# 1) Same Julia 1.13.1 and the JFEM repo on the connected machine.
 cd /path/to/JFEM
 export JULIA_DEPOT_PATH="$PWD/offline_depot"          # collect into a portable folder
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'

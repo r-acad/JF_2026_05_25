@@ -17,7 +17,7 @@
 #  Make it executable once:   chmod +x jfem
 #  Tip: symlink it onto your PATH (e.g. ln -s "$PWD/jfem" ~/.local/bin/jfem)
 #  so you can run `jfem` from anywhere. Uses whatever `julia` is on PATH
-# (Julia 1.12.x); auto-images require matching source/build provenance.
+# (Julia 1.13.1); auto-images require matching source/build provenance.
 # ====================================================================
 set -euo pipefail
 
