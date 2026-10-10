@@ -6,6 +6,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **WingFEGen translucent depth ordering and consecutive BDF imports.** Use
+  GPU depth peeling for batched translucent surfaces on supported graphics
+  devices, keeping normal geometry in one compositing group and preserving
+  explicit overlays. Restore opaque rendering groups in Solid mode. Accept
+  coordinate-system list settings when saving/restoring Studies. A new BDF
+  resets views, menus, references and analysis selections after successful
+  import; failed imports retain the previous model and saved Studies retain
+  their intentional display settings.
 - **Julia 1.13.1 runtime migration.** Resolve the solver and WingFEGen environments
   with Julia 1.13.1, updating bundled standard libraries and runtime artifacts
   while preserving registered package versions. Align installation instructions

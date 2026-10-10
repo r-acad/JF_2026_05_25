@@ -102,6 +102,12 @@ automatically relative to their containing files. The former 32 MiB import
 limit is removed. Import progress shows elapsed time and the current stage;
 errors remain fully visible in the import dialog.
 
+Opening another BDF starts with a fitted isometric view, default entity
+visibility, expanded lists and fresh case/result/sensitivity selections. Filters,
+external references and analysis results from the previous model are cleared
+only after the new deck loads successfully. A failed import leaves the previous
+model available. Opening a saved Study restores its saved display settings.
+
 Read Nastran opens the normal Windows **Open** dialog immediately. **Browse**
 reopens it; the selected full path remains editable in the import form. A
 foreground owner keeps the dialog above the browser. Cancel returns to the
@@ -286,6 +292,13 @@ also exits temporary fuel isolation.
 
 The viewport toolbar switches bars between lines and 3D sections. Selecting
 Translucent reveals a percentage slider; Fully solid restores opaque shells.
+Supported WebGL 2 devices order translucent fragments by pixel depth, including
+batched imported shells. Five dual passes retain up to ten depth layers per
+pixel; deeper interiors can be omitted in dense or grazing views, and coincident
+faces remain ambiguous. Isolate components or use Solid to inspect such regions.
+Unsupported devices keep approximate mesh sorting and report the fallback in
+the Log. Explicit **Show bars through surfaces** and measurement overlays stay
+visible above the composed surfaces.
 Ground elevation appears only when the ground is visible, with source units
 identified for imported decks. Panning scales to the viewport and model size,
 including millimetre-scale decks; ground bounds follow the imported geometry.

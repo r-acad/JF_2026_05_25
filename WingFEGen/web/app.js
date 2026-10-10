@@ -416,6 +416,7 @@ const HELP_TOPICS = {
     "Drag the boundary beside the options pane to change its width. Focus the boundary and use Left/Right arrows for fine adjustment, Shift for larger steps, or Home/End for the limits. The 2D geometry and structure tabs, Deck and Log offer Maximize and Restore. In 2D drawings, drag a handle to edit geometry; drag elsewhere or middle-drag to pan. Wheel to zoom; hold Alt for fine adjustment. Ctrl/Cmd moves or scales only the reference image. Image settings controls its scale and opacity. White background toggles the drawing sheet; Export SVG downloads the visible drawing with its embedded image. Study and TOML retain all 2D drawing images, alignment, grids, snapping and dimensions. Enable Snap to points and/or lines when measuring. After selecting two distance anchors or three angle anchors, move the mouse to place the annotation and click once more to finish; Escape cancels the unfinished dimension.",
     "Save TOML as saves parameters, load cases, linked 3D reference paths and all embedded 2D drawing images, view settings and dimensions. Other display preferences and embedded 3D geometry use Study files; results stay separate. Save Study updates its linked file; the first save and Save Study as open a filename and folder picker where supported. Orange means unsaved changes and green means saved. Otherwise the browser downloads the file using its download settings; enable Ask where to save each file to choose a folder. The header reports filenames because browsers do not disclose full picker paths.",
     "Live mesh automatically rebuilds after geometry, mesh, material, section, support or load edits. Turn it off for manual updates with Create FEM, which moves immediately to its left in the top bar. The header's Server input menu shows the configured server path: Overwrite server input explicitly replaces that file; Reload server input restores its parameters. Study/TOML imports never overwrite it. TOML reference paths resolve relative to this server input folder; use a Study when moving embedded geometry between folders or computers.",
+    "Translucent uses per-pixel depth ordering on supported WebGL 2 graphics devices, including imported shell batches. Up to ten transparent depth layers are retained per pixel; deeper interiors may be omitted in dense or grazing views, and coincident faces remain ambiguous. Isolate components or use Solid to inspect them. Unsupported devices use approximate mesh sorting and report the fallback in the Log.",
   ] },
   "Load cases": { title: "Define load cases", paragraphs: [
     "Each named case is a separate loading condition on the same structural model. Select a case to edit it. Add creates a new case using case 1 as a starting point; Duplicate copies the selected case. All values in new cases are independent.",
@@ -2151,8 +2152,15 @@ function installSensitivity() {
 
 async function savedSensitivityRequest(action,extra) {
   if(!workspaceOperationAvailable())throw Error("Finish the active operation before opening saved sensitivity results.");
-  const parameters=collectParams(),token=activity()?.begin(action==="list"?"Finding saved sensitivity runs":"Opening sensitivity results");
-  try{const response=await postParams("/api/sensitivity/saved/"+action,{parameters,...extra},token);if(!response.ok)throw Error(await readError(response));return await response.json();}
+  const model=state.data,signature=state.modelSignature,parameters=collectParams(),token=activity()?.begin(action==="list"?"Finding saved sensitivity runs":"Opening sensitivity results");
+  try{
+    const response=await postParams("/api/sensitivity/saved/"+action,{parameters,...extra},token);if(!response.ok)throw Error(await readError(response));
+    const data=await response.json();
+    // These lightweight requests do not lock the Study. Never install an old
+    // model's saved results while a replacement deck is loading or afterwards.
+    if(state.data!==model||state.modelSignature!==signature||state.workspaceBusy)throw Error("The model changed while saved sensitivity data were being read. The obsolete response was discarded.");
+    return data;
+  }
   finally{activity()?.end(token);}
 }
 
@@ -2609,10 +2617,13 @@ async function loadModelDefinition(file, options = {}) {
       if (options.newStudy) view.workspace.activeTab="planform";
       definition={parameters,view};items=await linkedReferenceItems(parameters["references.items"]);
     } else if(options.importDeck) {
-      const view=WingWorkspace.captureView(document,state,workspaceUI);
-      view.workspace.activeTab="analysis";view.controls["show-panels"]=false;
-      definition=await WingWorkspace.snapshot(state.values,state.reference,view);
-      ({data:definition,items}=WingWorkspace.parseObject(definition));
+      // Do not export/reimport the previous Study just to open another deck.
+      // Besides retaining its filters, that used to validate unrelated old
+      // display state and copy all embedded references before reading a BDF.
+      const parameters=JSON.parse(JSON.stringify(state.defaults||state.values));
+      parameters["references.items"]=[];parameters["sensitivity.settings"]="";
+      definition={parameters,view:WingWorkspace.newModelView(document),notes:{text:"",history:[]}};
+      items=[];
     } else { studyText=await file.text(); ({data:definition,items}=WingWorkspace.parse(studyText));definition.view=WingWorkspace.completeView(definition.view,document); }
     let staged = null, previous = null, commitStarted = false;
     const wasBuilding=state.buildingScene;
@@ -2630,7 +2641,10 @@ async function loadModelDefinition(file, options = {}) {
       if(importRequest&&response.headers.get("X-Wing-Import-Timings"))data.import_timings=JSON.parse(response.headers.get("X-Wing-Import-Timings"));
       if(importRequest)log("Imported model transfer: "+((decodeStarted-transferStarted)/1000).toFixed(2)+" s; browser decoding: "+((performance.now()-decodeStarted)/1000).toFixed(2)+" s; "+(byteLength/1048576).toFixed(1)+" MiB. Preparing the complete viewport next.");
       if (!data.ok || !data.nodes || !data.groups) throw new Error("The prepared model is incomplete.");
-      if(options.importDeck)definition.model_source=WingNastranImport.source(data.model_source || options.importRequest);
+      if(options.importDeck){
+        definition.model_source=WingNastranImport.source(data.model_source || options.importRequest);
+        definition.view.activeCase=definition.view.editingCase=Number(data.load_cases?.[0]?.id)||1;
+      }
       // Keep one authoritative reference to the portable source; it is not
       // geometry data and need not travel through renderer/export snapshots.
       delete data.model_source;
@@ -2679,7 +2693,13 @@ async function loadModelDefinition(file, options = {}) {
       updateFileStatus();
       meshStatus("Loaded " + file.name, "current");
       log((options.newStudy ? "Created new Study" : "Loaded "+file.name)+": " + data.nodes.count + " nodes, " + items.length + (parametersOnly ? " linked references." : " embedded references.")+" Run analysis for fresh results. The server input file is unchanged.", "good");
-      if(options.importDeck){state.studyNotes={text:"",history:[]};state.studySavedAt=null;state.studyCreatedAt=null;syncStudyNotes();selectLoadCase(data.load_cases?.[0]?.id||1);fitView();activateWorkspaceTab("analysis");}
+      if(options.importDeck){
+        resetImportedModelMenus();
+        state.studyNotes={text:"",history:[]};state.studySavedAt=null;state.studyCreatedAt=null;syncStudyNotes();
+        selectLoadCase(data.load_cases?.[0]?.id||1);fitView();activateWorkspaceTab("analysis");
+        workspaceUI.previousTab="analysis";
+        log("New deck view reset: fitted isometric camera, default entity visibility, expanded menus and fresh analysis/sensitivity selections. Previous references and results are not attached to this model.","good");
+      }
       if (!parametersOnly && !options.importDeck && !options.recent) await rememberStudy({name:file.name,text:studyText,source:"loaded"});
       return true;
     } catch (error) {
@@ -2708,6 +2728,17 @@ async function loadModelDefinition(file, options = {}) {
 
 function newStudy() { return loadModelDefinition({name:"New Study"},{newStudy:true}); }
 function loadTomlDefinition(file) { return loadModelDefinition(file,{toml:true}); }
+
+function resetImportedModelMenus() {
+  // This runs only after successful import/commit. Ordinary remeshing and
+  // loading a saved Study keep their deliberate view and historical results.
+  state.jobId=null;state.jobSignature=null;state.resultsLoadCaseIndependent=false;
+  state.sensitivityResult=null;state.sensitivityMeta=null;state.sensitivitySignature=null;state.sensitivityJob=null;
+  state.sensitivity?.resetModel(state.activeCase);
+  state.sensitivityTables?.refresh();
+  for(const [id,menu]of Object.entries(WORKSPACE_MENUS)){menu.current=menu.tabs.values().next().value;closeWorkspaceMenu(id);}
+  refreshSensitivityMapCard();updateAnalysisValidity();
+}
 
 async function loadNastranSource(raw) {
   if(!workspaceOperationAvailable())throw Error("Finish the active mesh, solver or Study operation before reading another deck.");
@@ -3102,6 +3133,11 @@ function initScene() {
   scene.setRenderingAutoClearDepthStencil(1, false);
   scene.setRenderingAutoClearDepthStencil(2, false);
   applyBarDepthPolicy();
+  if(typeof WingTransparency!=="undefined")state.transparency=WingTransparency.create({
+    BABYLON,scene,
+    throughMeshes:()=>document.getElementById("show-bars-through")?.checked?state.barMeshes:[],
+    onUnsupported:()=>log("This graphics device uses approximate transparency sorting; overlapping surfaces may change order while rotating. Solid display remains available.","warn"),
+  });
 
   state.camera = new BABYLON.ArcRotateCamera(
     "cam", -Math.PI / 3, Math.PI / 3, 12, BABYLON.Vector3.Zero(), scene);
@@ -3226,7 +3262,7 @@ function shellMaterial(name, hex, alpha) {
   m.twoSidedLighting = true;
   m.alpha = alpha === undefined ? 1 : alpha;
   m.transparencyMode = m.alpha < 1 ? BABYLON.Material.MATERIAL_ALPHABLEND : BABYLON.Material.MATERIAL_OPAQUE;
-  m.separateCullingPass = m.alpha < 1;
+  m.separateCullingPass = m.alpha < 1 && !state.transparency?.enabled;
   m.disableDepthWrite = false;
   return m;
 }
@@ -5644,6 +5680,7 @@ function updateMarkerRadii() {
 
 function applySurfaceMode() {
   const solid = document.getElementById("surface-mode").value === "solid";
+  state.transparency?.setEnabled(!solid);
   const translucency=Number(document.getElementById("surface-translucency").value),structuralAlpha=1-Math.max(0,Math.min(100,Number.isFinite(translucency)?translucency:45))/100;
   document.getElementById("surface-translucency-control").hidden=solid;
   const visited=new Set();
@@ -5658,8 +5695,8 @@ function applySurfaceMode() {
       if(["quad","tria"].includes(mesh.metadata?.feGroup?.kind))mesh.material.wireframe=false;
       mesh.hasVertexAlpha = false;
       mesh.material.alpha = opaque ? 1 : mesh.metadata?.feGroup&&["quad","tria"].includes(mesh.metadata.feGroup.kind)?structuralAlpha:mesh.translucentAlpha;
-      mesh.material.transparencyMode = opaque ? BABYLON.Material.MATERIAL_OPAQUE : BABYLON.Material.MATERIAL_ALPHABLEND;
-      mesh.material.separateCullingPass = !opaque;
+      mesh.material.transparencyMode = mesh.material.alpha===1 ? BABYLON.Material.MATERIAL_OPAQUE : BABYLON.Material.MATERIAL_ALPHABLEND;
+      mesh.material.separateCullingPass = !opaque && !state.transparency?.enabled;
       mesh.material.disableDepthWrite = false;
     }
   }
@@ -5692,7 +5729,7 @@ function applyAeroOverlayStyles() {
     mesh.material.wireframe=style==="wireframe";
     mesh.material.alpha=style==="wireframe" ? .75 : mesh.translucentAlpha;
     mesh.material.transparencyMode=BABYLON.Material.MATERIAL_ALPHABLEND;
-    mesh.material.separateCullingPass=style!=="wireframe";
+    mesh.material.separateCullingPass=style!=="wireframe"&&!state.transparency?.enabled;
     mesh.material.disableDepthWrite=false;
   }
   for (const mesh of state.layers.get("REFERENCE_AERO")?.meshes || []) {

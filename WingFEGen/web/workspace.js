@@ -10,6 +10,7 @@
   const FORMAT = "wingfegen-workspace", VERSION = 1, MAX_BYTES = 256 * 1024 * 1024;
   const MAX_NOTE_LENGTH=20000,MAX_NOTE_ENTRIES=2000;
   const PANEL_IDS = ["sidebar","hud-left","model-card","results-card","pick-card","log-wrap","deck-panel"];
+  const LAYER_GROUP_IDS = ["shells","beams","connections","aerodynamics","loads","masses","overlays","aids","coordinates","other"];
   const DRAWING_KEYS = new Set(["planform","spars","master-ribs","leading-edge-ribs","fuel-tank","stringer-section","spar-cap-section","rib-stiffener-section","rib-override-section","airfoil-root","airfoil-tip",...(["upper_skin","lower_skin","spar_web","rib_web","leading_edge_skin","leading_edge_rib"].map(name=>"material-"+name))]);
   const CONTROL_IDS = ["surface-mode","surface-translucency","shell-geometry","beam-style","show-bars-through","show-aero-overlay","aero-deformed-style","background-color","inspect-entity",
     "show-fuel-inertia","show-fuel-cg","show-fuel-mass-labels","fuel-inertia-scale",
@@ -92,7 +93,7 @@
       for(const id of LEGACY_LABEL_IDS)delete view.controls[id];
     }
     for (const [name,value] of Object.entries(view.layers)) if (!/^[A-Z_0-9]+$/.test(name) || typeof value!=="boolean") throw new Error("Invalid layer visibility.");
-    if(view.layerGroups!==undefined&&(!object(view.layerGroups)||Object.entries(view.layerGroups).some(([key,value])=>!["shells","beams","connections","aerodynamics","loads","masses","overlays","aids","other"].includes(key)||typeof value!=="boolean")))throw new Error("Invalid entity-list collapse settings.");
+    if(view.layerGroups!==undefined&&(!object(view.layerGroups)||Object.entries(view.layerGroups).some(([key,value])=>!LAYER_GROUP_IDS.includes(key)||typeof value!=="boolean")))throw new Error("Invalid entity-list collapse settings.");
     if (view.loadLayers !== undefined && (!object(view.loadLayers) || Object.entries(view.loadLayers).some(([name,value])=>!["AERO_LOADS","AERO_MOMENTS","VLM_MESH","VLM_FORCES"].includes(name)||typeof value!=="boolean"))) throw new Error("Invalid load-layer display preferences.");
     const camera=view.camera;
     triple(camera.target,"camera target");
@@ -174,6 +175,14 @@
     for(const key of ["orthoLeft","orthoRight","orthoTop","orthoBottom"])view.camera[key]??=null;
     view.workspace.maximizedTab??=null;view.workspace.panels={...Object.fromEntries(PANEL_IDS.map(id=>[id,false])),...view.workspace.panels};
     validateView(view);return view;
+  }
+  // A different source deck is a new model, not a portable snapshot of the
+  // previously open one. Reuse markup defaults without copying its case IDs,
+  // hidden entities, result filters, references or enlarged/collapsed panels.
+  function newModelView(document) {
+    return completeView({controls:{"contour-select":"0","auto-mesh":false},layers:{},activeCase:1,
+      camera:{target:[0,0,0],alpha:-Math.PI/4,beta:Math.acos(1/Math.sqrt(3)),radius:12,mode:0},
+      workspace:{activeTab:"analysis",width:360,collapsed:false}},document);
   }
   function parse(text) {
     let data; try { data=JSON.parse(text); } catch (_) { throw new Error("Choose a valid .wingfem.json Study file."); }
@@ -302,5 +311,5 @@
   function download(data,name,document) {
     downloadText(JSON.stringify(data,null,2),name,"application/json",document);
   }
-  return {FORMAT,VERSION,CONTROL_IDS,MAX_NOTE_LENGTH,MAX_NOTE_ENTRIES,normalizeNotes,notesForSave,completeView,parse,parseObject,snapshot,captureView,applyControls,validateView,bytesToBase64,base64ToBytes,filename,download,requestSaveDestination,requestStudyDestination,writeDestination,downloadText};
+  return {FORMAT,VERSION,CONTROL_IDS,LAYER_GROUP_IDS,MAX_NOTE_LENGTH,MAX_NOTE_ENTRIES,normalizeNotes,notesForSave,completeView,newModelView,parse,parseObject,snapshot,captureView,applyControls,validateView,bytesToBase64,base64ToBytes,filename,download,requestSaveDestination,requestStudyDestination,writeDestination,downloadText};
 });
