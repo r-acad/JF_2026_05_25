@@ -12,7 +12,7 @@
     const doc = options.document || globalThis.document, host = options.host || doc.defaultView || globalThis;
     if(typeof options.onOpen!=="function")throw new Error("Recent Studies requires an onOpen Study loader.");
     const entries = new Map(); let db = null, stopped = false, dialog = null, list = null, status = null, busy = false;
-    let queue = Promise.resolve(), warning = "", lastTime = 0, startupPromise = null;
+    let queue = Promise.resolve(), warning = "", lastTime = 0, startupPromise = null, choicePromise = null, choiceResolve = null;
     const el = (tag, cls, text) => { const node=doc.createElement(tag); if(cls)node.className=cls; if(text!==undefined)node.textContent=text; return node; };
     function notice(message, error) {
       warning=message; if(status) {status.textContent=message; status.hidden=!message;}
@@ -123,12 +123,14 @@
     }
     function button(label,action,cls="") {const node=el("button",cls,label);node.type="button";node.addEventListener("click",action);return node;}
     function setBusy(value) {busy=value;if(dialog)for(const node of dialog.querySelectorAll("button"))node.disabled=value;}
-    function close() {if(dialog?.open)dialog.close();}
+    function hide() {if(dialog?.open)dialog.close();}
+    function finishChoice(value) {const resolve=choiceResolve;choiceResolve=null;choicePromise=null;resolve?.(value);}
+    function close() {hide();finishChoice(false);}
     async function deliver(file,context) {
-      const text=await file.text();close();
+      const text=await file.text();hide();
       const result=await options.onOpen?.(file,context);
-      if(result===false)return false;
-      await record({name:file.name,text,handle:context.handle,id:context.id,source:"loaded",replaceLink:context.source==="relink"});return true;
+      if(result===false){if(choiceResolve){notice("The Study could not be loaded. Check the Study window and Log, then select another file or close this list.");await open();}return false;}
+      await record({name:file.name,text,handle:context.handle,id:context.id,source:"loaded",replaceLink:context.source==="relink"});finishChoice(true);return true;
     }
     async function run(action) {
       if(busy||stopped)return false;setBusy(true);
@@ -213,7 +215,7 @@
         let request;try{request=pickerRequest();}catch(error){request=Promise.reject(error);}
         return run(async()=>{const handles=await request;if(!handles?.length)return false;const handle=handles[0],file=await handle.getFile();return deliver(file,{id:row?.id,handle,source:row?"relink":"browse"});});
       }
-      if(!row&&typeof options.onBrowse==="function"){close();options.onBrowse();return Promise.resolve(false);}
+      if(!choiceResolve&&!row&&typeof options.onBrowse==="function"){close();options.onBrowse();return Promise.resolve(false);}
       const input=el("input");input.type="file";input.accept=".wingfem.json,application/json";input.hidden=true;doc.body.appendChild(input);
       input.addEventListener("change",()=>{const file=input.files?.[0];input.remove();if(file)run(()=>deliver(file,{id:row?.id,handle:null,source:"relink"}));},{once:true});
       input.addEventListener("cancel",()=>input.remove(),{once:true});input.click();return Promise.resolve(false);
@@ -245,11 +247,19 @@
       const browseButton=button("Browse for a Study\u2026",()=>browse(),"recent-studies-browse");
       status=el("p","recent-studies-status",warning);status.setAttribute("role","status");status.hidden=!warning;
       list=el("div","recent-studies-list");dialog.append(head,intro,browseButton,status,list);doc.body.appendChild(dialog);
-      dialog.addEventListener("cancel",event=>{if(busy)event.preventDefault();});
+      dialog.addEventListener("cancel",event=>{if(busy)event.preventDefault();else finishChoice(false);});
     }
     async function open() {if(stopped)return;mount();if(!dialog.open)dialog.showModal();status.textContent="Loading recent Studies\u2026";status.hidden=false;await ready;if(stopped)return;status.textContent=warning;status.hidden=!warning;render();}
+    // Startup uses the same complete catalogue as Project / Load Study and
+    // awaits an accepted load. Browsing/cancelling a picker leaves the list open.
+    function choose() {
+      if(stopped)return Promise.resolve(false);
+      if(choicePromise)return choicePromise;
+      choicePromise=new Promise(resolve=>{choiceResolve=resolve;});
+      const pending=choicePromise;open().catch(error=>{notice(error.message||"Could not open recent Studies.",error);finishChoice(false);});return pending;
+    }
     function destroy() {stopped=true;close();dialog?.remove();dialog=list=status=null;db?.close();db=null;}
-    return {open,close,browse,record,remove,destroy,ready,restoreLatest,list:async()=>{await ready;await queue;return sort(Array.from(entries.values())).map(row=>({id:row.id,name:row.name,updatedAt:row.updatedAt,persisted:row.persisted,diskLinked:row.diskLinked,hasHandle:!!row.handle}));}};
+    return {open,choose,close,browse,record,remove,destroy,ready,restoreLatest,list:async()=>{await ready;await queue;return sort(Array.from(entries.values())).map(row=>({id:row.id,name:row.name,updatedAt:row.updatedAt,persisted:row.persisted,diskLinked:row.diskLinked,hasHandle:!!row.handle}));}};
   }
   return {create,DATABASE,STORE,CONTENTS};
 });

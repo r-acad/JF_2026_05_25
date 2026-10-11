@@ -30,4 +30,31 @@ function fixture(supported=true){
  t.setEnabled(false);assert.equal(a.renderingGroupId,1);assert.equal(b.renderingGroupId,1);assert.equal(added.renderingGroupId,2);assert(a.material.separateCullingPass&&b.material.separateCullingPass);
  t.setEnabled(true);f.scene.onBeforeActiveMeshesEvaluationObservable.notify();t.dispose();assert.equal(a.renderingGroupId,1);assert.equal(f.scene.onAfterRenderObservable.items.length,0);assert.equal(f.scene.onBeforeActiveMeshesEvaluationObservable.items.length,0);
 }
-console.log('Transparency capability fallback, mode/group lifecycle and exception-safe overlay state passed.');
+{
+ const f=fixture(),calls={all:0,prepass:0,cached:0,prepassUpdate:0,fallback:0},context={},oldContext={};
+ const a=f.mesh(3),b=f.mesh(0);for(const mesh of [a,b]){
+  mesh._markSubMeshesAsDirty=()=>{};mesh.material._materialContext=context;
+  mesh.subMeshes=[{getMaterial:()=>mesh.material,_drawWrappers:[{materialContext:context,defines:{markAllAsDirty(){calls.all++;},markAsPrePassDirty(){calls.prepass++;}}},
+   {materialContext:oldContext,defines:{markAllAsDirty(){throw Error('Stale material wrapper changed');},markAsPrePassDirty(){throw Error('Stale prepass wrapper changed');}}}]}];
+ }
+ b.material._blockDirtyMechanism=true;
+ f.scene._forceBlockMaterialDirtyMechanism=value=>f.scene.blockMaterialDirtyMechanism=value;
+ f.scene.markAllMaterialsAsDirty=()=>calls.fallback++;
+ f.scene.resetCachedMaterial=()=>calls.cached++;
+ const originalPrepass=()=>calls.fallback++;
+ f.scene.prePassRenderer={markAsDirty(){calls.prepassUpdate++;},_markAllMaterialsAsPrePassDirty:originalPrepass};
+ const originalGlobal=f.scene.markAllMaterialsAsDirty;
+ const engineAPI={...B,AbstractMesh:{prototype:{_markSubMeshesAsDirty(){}}},Material:{AllDirtyFlag:127}};
+ const t=T.create({BABYLON:engineAPI,scene:f.scene});
+ f.scene.markAllMaterialsAsDirty(127);assert.equal(calls.all,1);assert.equal(calls.fallback,0);
+ f.scene.markAllMaterialsAsDirty(32);f.scene.markAllMaterialsAsDirty(127,()=>true);assert.equal(calls.fallback,2);
+ let nested=false;
+ T.batchMaterials(f.scene,()=>{assert(f.scene.blockMaterialDirtyMechanism);T.batchMaterials(f.scene,()=>{nested=true;});assert.equal(calls.all,1);});
+ assert(nested);assert.equal(calls.all,2);assert(!f.scene.blockMaterialDirtyMechanism);
+ assert.throws(()=>T.batchMaterials(f.scene,()=>{throw Error('Mode failure');}),/Mode failure/);assert(!f.scene.blockMaterialDirtyMechanism);assert.equal(calls.all,3);
+ assert(t.setEnabled(true));f.scene.prePassRenderer._markAllMaterialsAsPrePassDirty();assert.equal(calls.prepass,1);
+ f.scene.blockMaterialDirtyMechanism=true;f.scene.markAllMaterialsAsDirty(127);f.scene.prePassRenderer._markAllMaterialsAsPrePassDirty();const before=calls.all;
+ T.batchMaterials(f.scene,()=>{});assert(f.scene.blockMaterialDirtyMechanism);assert.equal(calls.all,before);assert.equal(calls.prepass,1);
+ f.scene.blockMaterialDirtyMechanism=false;t.dispose();assert.equal(f.scene.markAllMaterialsAsDirty,originalGlobal);assert.equal(f.scene.prePassRenderer._markAllMaterialsAsPrePassDirty,originalPrepass);
+}
+console.log('Transparency capability fallback, mode/group lifecycle, linear material/prepass invalidation, nested/failed batch restoration and exception-safe overlay state passed.');

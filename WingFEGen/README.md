@@ -22,6 +22,10 @@ significant digits; CSV retains full precision. Units sit beside the scales.
 **Display / Axes & labels** includes RBE3 component, weight and UM markers.
 **Display / Appearance** can draw CELAS components as symbolic cylinders,
 colored x red, y green and z blue in each endpoint's coordinate system.
+The adjacent **Radius** input sizes these display symbols independently of
+other markers: metres for generated models, unconverted source length units
+for imported decks. The default is 0.01; the setting is retained in Studies
+and changes no spring stiffness or physical dimensions.
 **Loads / Aerodynamics** contains both Visualization and VLM settings.
 
 SOL105 results include the actual **SOL101 preload** as a separate analysis
@@ -89,6 +93,11 @@ optional external-resource details.
 
 1. In **Study Options**, choose **Start new study**, **Load last study**,
    **Open existing study**, or **Read Nastran file**.
+   **Open existing study** shows the same newest-first catalogue as
+   **Project / Load Study**, with all studies previously saved or opened at
+   this browser address. Open a linked disk file or its identified stored copy,
+   or use **Browse for a Study** to select another file. Closing the catalogue
+   returns to Study Options; cancelling Browse leaves the list available.
 2. Define the planform, airfoils, spars, ribs and optional leading-edge mesh.
    Planform edge perturbations refine the aerodynamic outline; spar perturbations
    define the structural spar paths independently.
@@ -109,7 +118,7 @@ optional external-resource details.
    fuel state and inertia options. Aerodynamic loads use rib-plane RBE3s; mass
    loads use rib-bay-center references. The default multiplier of 1.5 converts
    specified limit aerodynamic loads to ultimate loads.
-6. Use **Analysis / Run in JFEM**. Open **Results / FE Results** for displacements, shell/bar
+6. Use **Analysis / FE Analysis / Run in JFEM**. Open **Results / FE Results** for displacements, shell/bar
    stresses and forces, modes, buckling or linear/nonlinear comparisons.
 7. **Save Study** stores the complete model definition, display settings and
    selected portable reference data. **Save TOML** exports the text definition.
@@ -198,7 +207,9 @@ rejects nonzero prescribed SPC/SPCD motion with an explicit capability message;
 it must not silently solve a different boundary condition.
 
 Coordinate systems are available in **Display > Entities**, with optional
-CID/type labels in **Axes & Labels**. Their triads use resolved BASIC origins
+CID/type labels in **Axes & Labels**. Labels also identify the parent RID for
+CORD2 definitions (including BASIC 0), or the defining G1/G2/G3 nodes for CORD1.
+Their triads use resolved BASIC origins
 and defining axes for rectangular, cylindrical and spherical systems.
 Generated shell MCIDs retain their actual shared BASIC origin; element-centered
 shell axes remain a separate display. **Inspect** also accepts coordinate IDs
@@ -207,7 +218,7 @@ element families use distinct pink/magenta/violet colors, with pickable lines
 and mass/zero-length-spring markers and retained source properties.
 
 The imported source is authoritative: original GRID/EID/PID values,
-subcases, constraints and loads are retained. **Analysis > Imported deck analysis**
+subcases, constraints and loads are retained. **Analysis > FE Analysis > Imported deck analysis**
 selects the original solution or SOL101, SOL103, SOL105 or SOL106. An analysis
 override creates a separate run deck; it never modifies the stored source or
 regenerates wing geometry. SOL105 adds a buckling companion for each static
@@ -351,9 +362,17 @@ faces remain ambiguous. Isolate components or use Solid to inspect such regions.
 Unsupported devices keep approximate mesh sorting and report the fallback in
 the Log. Explicit **Show bars through surfaces** and measurement overlays stay
 visible above the composed surfaces.
+Surface-mode changes batch shader invalidation in one traversal instead of
+rescanning the scene for each material. This reduces CPU switching cost on
+models with many property groups; first-use shader compilation and depth-peeling
+GPU work still depend on the device and visible geometry.
 Ground elevation appears only when the ground is visible, with source units
 identified for imported decks. Panning scales to the viewport and model size,
 including millimetre-scale decks; ground bounds follow the imported geometry.
+For CATIA-style zoom, hold **middle + right mouse buttons** together and drag
+up to zoom in or down to zoom out. It works in perspective and parallel views.
+Release both buttons before resuming pan/orbit; the chord does not recenter,
+rotate or pan the model. Wheel zoom remains available.
 Entity lists have independent collapse/expand buttons saved in the Study.
 RBE3 lines are light pink. **Label support force and moment values** adds signed
 component values at the visible reaction arrows, using the axis colors.
@@ -393,8 +412,11 @@ The GUI supports SOL101 static, SOL103 modal, SOL105 linear buckling and an
 experimental SOL106 geometric nonlinear comparison. SOL106 also runs a linear
 case for comparison and labels partial convergence and accepted load levels.
 Follower-force options follow the solver's documented supported formulations.
+**Analysis / FE Analysis** contains the solver form; **Analysis / Sensitivity**
+contains sensitivity setup. The **Results** menu separately presents FE results
+and completed sensitivity results.
 
-Under **Loads / Sensitivity**, select one load case, one scalar response and the
+Under **Analysis / Sensitivity**, select one load case, one scalar response and the
 design variables. Supported responses are SOL101 displacement/shell/bar stress,
 SOL103 eigenvalues and SOL105 buckling factors. Panel-local variables and shared
 defaults are distinct variables; the interface shows their actual scope.
@@ -421,9 +443,15 @@ supported formulations and limitations.
 
 Results include signed and normalized derivatives, residual checks, analytic
 derivative/solve counts and timings (step comparisons in legacy mode). **Open data table** opens
-panel grids and complete/shared-property lists with CSV export. Color fields
+component grids and complete/shared-property lists with CSV export. Choose
+upper/lower skins and stringers, spar webs, spar caps, rib webs, rib stiffeners,
+leading-edge skins or leading-edge ribs. Local derivatives are arranged by
+component and rib/bay; shared default/material derivatives appear once in a
+separate list with their full scope. They are not divided into artificial local
+sensitivities. Groups reflect the recorded run; uncomputed values are explicit.
+Color fields
 automatically fit the actual finite minimum and maximum of the relevant data.
-The panel table uses its selected skin, property family, quantity and filter;
+The component table uses its selected group, property family, quantity and filter;
 raw derivatives with different units have separate scales. All-negative or
 all-positive values no longer create an unused opposite half of the scale.
 The viewport uses mapped properties and, when enabled, only visible elements.
@@ -435,8 +463,8 @@ display the derivative of the selected scalar response with respect to the
 property attached to each element, not a new local stress solution. A shared
 property repeats its one derivative on its member elements. Local panel
 derivatives take precedence over shared defaults in the corresponding field.
-Sensitivity table numbers use a labeled blue–neutral–orange scale centered on
-zero. Raw derivatives have separate ranges for each unit; normalized values
+Sensitivity table numbers use a selectable signed scale with a neutral zero
+where zero is within the actual range. Raw derivatives have separate ranges for each unit; normalized values
 share a dimensionless range. Limits follow the displayed rows and filter.
 Failed/unavailable values remain uncolored, and CSV keeps full precision.
 

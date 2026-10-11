@@ -532,8 +532,8 @@ const WORKSPACE_TABS = [
   ["Model", "mesh", "Structural Mesh"], ["Model", "material", "Materials"], ["Model", "shells", "Skins"],
   ["Model", "sections", "Stringers"], ["Model", "ribproperties", "Ribs"], ["Model", "sparproperties", "Spars"], ["Model", "leproperties", "Leading Edge"], ["Model", "supports", "Supports"],
   ["Summary", "weights", "Mass properties"], ["Summary", "summary", "General"],
-  ["Loads", "cases", "Cases"], ["Loads", "vlm", "Visualization"], ["Loads", "vlmmesh", "VLM settings"], ["Loads", "loadplots", "Load plots"], ["Loads", "sensitivity", "Sensitivity"],
-  ["Solve", "analysis", "Analysis"], ["Solve", "results", "FE Results"], ["Solve", "sensitivityresults", "Sensitivity"], ["Solve", "deck", "Deck"], ["Solve", "log", "Log"],
+  ["Loads", "cases", "Cases"], ["Loads", "vlm", "Visualization"], ["Loads", "vlmmesh", "VLM settings"], ["Loads", "loadplots", "Load plots"],
+  ["Solve", "analysis", "FE Analysis"], ["Solve", "sensitivity", "Sensitivity"], ["Solve", "results", "FE Results"], ["Solve", "sensitivityresults", "Sensitivity"], ["Solve", "deck", "Deck"], ["Solve", "log", "Log"],
   ["View", "display", "Entities"], ["View", "displayproperties", "Properties"], ["View", "displayappearance", "Appearance"], ["View", "displaylabels", "Axes & labels"], ["View", "displayenvironment", "Environment"], ["View", "displaymass", "Mass properties"], ["View", "reference", "Reference"], ["View", "inspect", "Inspect"],
 ];
 const WORKSPACE_GROUP_TAB = {
@@ -553,10 +553,11 @@ const WORKSPACE_MENUS = {
   aerodynamics:{tabs:new Set(["vlm","vlmmesh"]),current:"vlm",label:"Aerodynamics"},
   properties:{tabs:PROPERTY_TABS,current:"shells",label:"Properties"},
   overview:{tabs:SUMMARY_TABS,current:"weights",label:"Summary"},
+  analysismenu:{tabs:new Set(["analysis","sensitivity"]),current:"analysis",label:"Analysis"},
   resultsmenu:{tabs:new Set(["results","sensitivityresults"]),current:"results",label:"Results"},
   displaymenu:{tabs:new Set(["display","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"]),current:"display",label:"Display"},
 };
-const WORKSPACE_MAIN_TABS = WORKSPACE_TABS.filter(([,id]) => !["sections","ribproperties","sparproperties","leproperties","summary","ribs","stringerlayout","leadingedge","vlmmesh","sensitivityresults","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"].includes(id)).map(tab => tab[1] === "box" ? ["Geometry","structure","Structure"] : tab[1] === "vlm" ? ["Loads","aerodynamics","Aerodynamics"] : tab[1] === "shells" ? ["Model", "properties", "Properties"] : tab[1] === "weights" ? ["Summary","overview","Summary"] : tab[1] === "results" ? ["Solve","resultsmenu","Results"] : tab[1] === "display" ? ["View","displaymenu","Display"] : tab);
+const WORKSPACE_MAIN_TABS = WORKSPACE_TABS.filter(([,id]) => !["sections","ribproperties","sparproperties","leproperties","summary","ribs","stringerlayout","leadingedge","vlmmesh","sensitivity","sensitivityresults","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"].includes(id)).map(tab => tab[1] === "box" ? ["Geometry","structure","Structure"] : tab[1] === "vlm" ? ["Loads","aerodynamics","Aerodynamics"] : tab[1] === "shells" ? ["Model", "properties", "Properties"] : tab[1] === "weights" ? ["Summary","overview","Summary"] : tab[1] === "analysis" ? ["Solve","analysismenu","Analysis"] : tab[1] === "results" ? ["Solve","resultsmenu","Results"] : tab[1] === "display" ? ["View","displaymenu","Display"] : tab);
 const parentTab = id => Object.keys(WORKSPACE_MENUS).find(key=>WORKSPACE_MENUS[key].tabs.has(id));
 
 function closeWorkspaceMenu(id, focus = false) {
@@ -1240,7 +1241,7 @@ function sensitivityResultValidity() {
     result.rows.every(row=>row.status!=="failed"&&Number.isFinite(row.derivative));
   return {current,reason:current?"Completed sensitivity results match this model."+(result.baseline_analysis?.available?" The original solved baseline is available in FE Results.":""):
     state.sensitivity?.isSetupCurrent?.()===false?"Sensitivity setup changed. Retained values describe the recorded response and properties; the physical FE baseline is still available.":
-    sensitivityResultsAvailable()?"Retained sensitivity results belong to an earlier or incomplete analysis. Their table remains available; stale values cannot be mapped onto the current model.":"Run a sensitivity analysis under Loads to enable Sensitivity results."};
+    sensitivityResultsAvailable()?"Retained sensitivity results belong to an earlier or incomplete analysis. Their table remains available; stale values cannot be mapped onto the current model.":"Run Analysis / Sensitivity to enable Sensitivity results."};
 }
 
 function refreshSensitivityDisplayButtons() {
@@ -2166,7 +2167,7 @@ function installSensitivity() {
   }
   document.getElementById("btn-max-sensitivity").onclick=()=>setWorkspaceMaximized(workspaceUI.maximizedTab==="sensitivity"?null:"sensitivity");
   document.getElementById("btn-help-sensitivity").onclick=()=>openHelp({title:"Sensitivity analysis",paragraphs:[
-    "Create the FEM, choose Sensitivity under Loads, and read its properties. Wildcard examples (replace these words with your own): P* or P_ matches names starting with P; *skin* matches names containing skin; *bar*lower* matches bar followed by lower. Text is a literal filter; Regex accepts a case-insensitive regular expression, for example upper.*thickness|spar. Add matches retains selections from earlier filters; Remove matches removes only matching selected variables. Clear filter leaves selections unchanged. Invalid expressions are shown beside the filter. Select an enabled case, a scalar objective and active property variables. Use Inspect to find node or element IDs. Shell components follow displayed local axes; z1/z2 recover toward negative/positive local z (outer ply midpoints for sandwich shells).",
+    "Create the FEM, choose Analysis / Sensitivity, and read its properties. Wildcard examples (replace these words with your own): P* or P_ matches names starting with P; *skin* matches names containing skin; *bar*lower* matches bar followed by lower. Text is a literal filter; Regex accepts a case-insensitive regular expression, for example upper.*thickness|spar. Add matches retains selections from earlier filters; Remove matches removes only matching selected variables. Clear filter leaves selections unchanged. Invalid expressions are shown beside the filter. Select an enabled case, a scalar objective and active property variables. Use Inspect to find node or element IDs. Shell components follow displayed local axes; z1/z2 recover toward negative/positive local z (outer ply midpoints for sandwich shells).",
     "When Run sensitivity is unavailable, its inline message explains the reason and provides a recovery action where possible. Finish property-table drafts before updating the FEM. A previously read property list refreshes automatically when you return to Sensitivity after a mesh rebuild; selected variables are kept. This refresh never starts an analysis. A changed model response arriving late is discarded. Missing properties require explicit removal from the selection. An unavailable idle action uses a blocked cursor; a progress cursor means an operation is actually running.",
     "The default is an analytic discrete adjoint. One baseline analysis supplies the state; one shared transpose adjoint supplies static-response derivatives for all selected variables. Modal eigenvalues use the baseline mode directly; buckling includes an adjoint for the static preload. No perturbed forward solutions are used.",
     "Analytic mode differentiates the actual native element formulas using exact chain rules and automatic differentiation, including stiffness, mass, inertia loads, T-section offsets and explicit stress recovery. It uses no property perturbations or finite-difference step. Each property still needs its affected element derivatives and contractions. Unsupported formulations fail explicitly. The separate legacy operator-difference option retains property steps and an optional half-step comparison for checking earlier calculations.",
@@ -3174,8 +3175,11 @@ function initScene() {
   // millimetre decks and metre wings respond to the same pointer gesture.
   state.camera.panningSensibility = 400 / 1.5;
   state.camera.useInputToRestoreState = false;
-  // Reserve the middle button for node centering, without moving on drag.
+  // Middle click centers a node; middle+right drag performs CATIA-style zoom.
   state.camera.inputs.attached.pointers.buttons = [0, 2];
+  state.catiaZoom?.destroy();
+  state.catiaZoom=WingViewportTools.installCatiaZoom({canvas,camera:state.camera,onChange:()=>{state.viewportTools?.refresh();markStudyViewModified();}});
+  canvas.title="Left drag: orbit · Right drag: pan · Wheel or middle + right drag: zoom · Middle click: center a node";
   state.camera.minZ = 0.01;
   state.camera.lowerRadiusLimit = 0.05;
   state.camera.lowerBetaLimit = 0.001;
@@ -3486,9 +3490,12 @@ function applyBeamStyle() {
 }
 
 function syncSpringStyle() {
+  const input=document.getElementById("celas-radius"),caption=document.getElementById("celas-radius-label");
+  if(caption)caption.textContent=state.importedDeck?"Radius (source units)":"Radius (m)";
+  if(input){input.disabled=!document.getElementById("show-celas-cylinders").checked;try{WingModelEntities.springRadius(input.value);input.setCustomValidity("");}catch(error){input.setCustomValidity(error.message);if(!input.disabled)return;}}
   if (!state.scene || !state.data || typeof WingModelEntities === "undefined") return;
   WingModelEntities.syncSpringStyle({state,positions:currentPositions(),
-    enabled:!!document.getElementById("show-celas-cylinders")?.checked,markerRadius:markerRadius()});
+    enabled:!!document.getElementById("show-celas-cylinders")?.checked,radius:input?.value??.01});
 }
 
 function importedRepresentation(mesh,group) {
@@ -5730,6 +5737,7 @@ function updateMarkerRadii() {
 }
 
 function applySurfaceMode() {
+  const update=()=>{
   const solid = document.getElementById("surface-mode").value === "solid";
   state.transparency?.setEnabled(!solid);
   const translucency=Number(document.getElementById("surface-translucency").value),structuralAlpha=1-Math.max(0,Math.min(100,Number.isFinite(translucency)?translucency:45))/100;
@@ -5755,6 +5763,10 @@ function applySurfaceMode() {
   applyAeroOverlayStyles();
   state.annotations?.invalidate();
   state.viewportTools?.syncDisplay();
+  };
+  // Alpha and OIT changes only change appearance. Batch shader invalidation
+  // so a many-property deck does not rescan all meshes for every material.
+  return typeof WingTransparency!=="undefined"?WingTransparency.batchMaterials(state.scene,update):update();
 }
 
 function applyBarDepthPolicy() {
@@ -6300,6 +6312,7 @@ function centerOnSurface(x,y) {
 
 function installPicking(canvas) {
   let down = null;
+  canvas.addEventListener("catiazoomstart",()=>{down=null;});
   canvas.addEventListener("pointerdown", (event) => {
     if(event.isPrimary===false){down=null;return;}
     if (state.reference && state.reference.isInteracting()) { down = null; return; }
@@ -6426,6 +6439,7 @@ document.getElementById("vlm-show-forces").onchange = (event) => setLayerVisible
 document.getElementById("vlm-show-moments").onchange = (event) => setLayerVisible("AERO_MOMENTS", event.target.checked);
 document.getElementById("beam-style").onchange = applyBeamStyle;
 document.getElementById("show-celas-cylinders").onchange = () => { syncSpringStyle(); markStudyViewModified(); };
+document.getElementById("celas-radius").onchange = event => { syncSpringStyle();if(!event.target.checkValidity())event.target.reportValidity();markStudyViewModified(); };
 document.getElementById("show-rbe3-dofs").onchange = () => { state.annotations?.invalidate?.(); markStudyViewModified(); };
 document.getElementById("shell-geometry").onchange = ()=>{applyShellGeometry();markStudyViewModified();};
 document.getElementById("load-case-select").onchange = (e) => selectLoadCase(e.target.value);
@@ -6584,12 +6598,12 @@ function showStartupStudyNotice(notice) {
     const choice=await WingStartupStudy.choose({recentStudies:state.recentStudies,message:choiceMessage,onChoose:value=>{
       // Keep the native file dialog inside the originating user gesture.
       state.startupChoiceCancelled=false;
-      if(value==="open")openRequest=new Promise(resolve=>{state.startupFileComplete=resolve;document.getElementById("model-file").click();});
+      if(value==="open")openRequest=state.recentStudies?.choose()||new Promise(resolve=>{state.startupFileComplete=resolve;document.getElementById("model-file").click();});
       if(value==="nastran")openRequest=state.nastranImport.open();
     }});
     choiceMessage="";
     if(choice==="new")loaded=await newStudy()===true;
-    else if(choice==="open")loaded=await openRequest;
+    else if(choice==="open"){loaded=await openRequest;if(!loaded)state.startupChoiceCancelled=true;}
     else if(choice==="nastran"){loaded=await openRequest;if(!loaded)state.startupChoiceCancelled=true;}
     else {
       const restored=await state.recentStudies?.restoreLatest({automatic:false,retry:true,onNotice:showStartupStudyNotice});

@@ -3,7 +3,47 @@
  // With the right-handed FE -> Babylon [y,z,x] mapping, +PI/2 puts FE +X
  // downwards on screen and FE +Y to the right.
  const VIEWS={top:[Math.PI/2,.001],iso:[-Math.PI/4,Math.acos(1/Math.sqrt(3))],side:[Math.PI,Math.PI/2],front:[-Math.PI/2,Math.PI/2]};
- function stopMotion(camera){for(const key of["inertialAlphaOffset","inertialBetaOffset","inertialRadiusOffset","inertialPanningX","inertialPanningY"])camera[key]=0;}
+ function stopMotion(camera){
+  for(const key of["inertialAlphaOffset","inertialBetaOffset","inertialRadiusOffset","inertialPanningX","inertialPanningY"])camera[key]=0;
+  // Babylon 9 also keeps frame-independent pointer velocities. Clearing
+  // only the legacy offsets leaves residual pan/orbit after a click/chord.
+  camera.movement?.resetRotationVelocity?.();camera.movement?.resetPanVelocity?.();camera.movement?.resetZoomVelocity?.();camera.stopInterpolation?.();
+ }
+ // Mouse PointerEvents emit only one down/up for a chord; subsequent button
+ // presses/releases arrive as pointermove. Keep the gesture latched until
+ // *all* buttons are released so the remaining button cannot orbit or pan.
+ function installCatiaZoom({canvas,camera,onChange=()=>{}}){
+  const win=canvas.ownerDocument.defaultView;let latched=false,lastY=0,pointers=null,disposed=false;
+  function swallow(event){event.preventDefault();event.stopImmediatePropagation();}
+  function finish(){if(!latched)return;latched=false;stopMotion(camera);pointers?.attachControl(true);pointers=null;}
+  function handle(event){
+   if(disposed||event.pointerType&&event.pointerType!=='mouse')return;
+   const buttons=event.buttons||0,chord=(buttons&6)===6;
+   if(!latched){
+    if(!chord||event.target!==canvas)return;
+    latched=true;lastY=event.clientY;stopMotion(camera);
+    pointers=camera.inputs?.attached?.pointers;pointers?.detachControl();
+    canvas.dispatchEvent(new CustomEvent('catiazoomstart'));
+   }
+   swallow(event);
+   if(chord&&event.type==='pointermove'){
+    const dy=event.clientY-lastY;
+    if(dy){
+     const minimum=Math.max(1e-12,camera.lowerRadiusLimit??1e-12),maximum=camera.upperRadiusLimit??Number.MAX_VALUE;
+     camera.radius=Math.min(maximum,Math.max(minimum,camera.radius*Math.exp(Math.max(-10,Math.min(10,dy*.008)))));
+     stopMotion(camera);onChange();
+    }
+   }
+   lastY=event.clientY;
+   if(!buttons)finish();
+  }
+  const events=['pointerdown','pointermove','pointerup'];
+  for(const name of events)win.addEventListener(name,handle,true);
+  const cancel=()=>finish(),context=event=>{if(latched)swallow(event);};
+  win.addEventListener('blur',cancel);win.addEventListener('pointercancel',cancel,true);
+  canvas.addEventListener('contextmenu',context,true);
+  return{get active(){return latched;},destroy(){finish();disposed=true;for(const name of events)win.removeEventListener(name,handle,true);win.removeEventListener('blur',cancel);win.removeEventListener('pointercancel',cancel,true);canvas.removeEventListener('contextmenu',context,true);}};
+ }
  function center(camera,target){
   // ArcRotateCamera.setTarget normally rebuilds angles from the old eye.
   // Translate both eye and target instead, retaining orientation and scale.
@@ -115,5 +155,5 @@
   const observer=scene.onBeforeRenderObservable.add(()=>refresh());refresh(true);
   return{refresh,fit,projection,syncDisplay,syncInspection,capture:()=>({collapsed}),restore(value){collapse(validateState(value).collapsed);syncDisplay();},setCollapsed(value){collapse(validateState({collapsed:value}).collapsed,true);},destroy(){disposed=true;scene.onBeforeRenderObservable.remove(observer);host.replaceChildren();host.classList.remove("is-collapsed");}};
  }
- return{VIEWS,validateState,create,center,stopMotion};
+ return{VIEWS,validateState,create,center,stopMotion,installCatiaZoom};
 });

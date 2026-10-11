@@ -1,12 +1,55 @@
 /* Read-only derivative tables. Fixed-state operator samples are not responses. */
-(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./sensitivity_results.js'):root.WingSensitivityResults,typeof module==='object'&&module.exports?require('./color_scales.js'):root.WingColorScales);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingSensitivityTableData=api;})(globalThis,function(effects,colors){
+(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./sensitivity_results.js'):root.WingSensitivityResults,typeof module==='object'&&module.exports?require('./color_scales.js'):root.WingColorScales,()=>typeof module==='object'&&module.exports?require('./component_table_data.js').CATALOG:root.WingComponentTableData?.CATALOG);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingSensitivityTableData=api;})(globalThis,function(effects,colors,componentCatalog){
  'use strict';const clone=value=>JSON.parse(JSON.stringify(value));
  function panel(row){const key=row.panel_key||/^properties\.panels#([^#]+)#/.exec(row.id||'')?.[1],match=/^(upper|lower):bay([1-9]\d*):stringer([1-9]\d*):segment([1-9]\d*)$/.exec(key||'');if(!match)return null;
   const ids=[...new Set((row.pids||[]).map(Number).filter(pid=>[5,6,7].includes(Math.floor(pid/1000000))).map(pid=>pid%1000000))],id=ids.length===1?ids[0]:Number(/^P(\d+)\b/.exec(row.label||'')?.[1])||null;
   return{key,skin:match[1],rib_bay:Number(match[2]),stringer:Number(match[3]),segment:Number(match[4]),id};
  }
- function family(row){const parts=String(row.id||'').split('#'),part=parts.at(-2),field=parts.at(-1),key=row.field_key||(part==='skin'?'shell.':part==='stringer'?'section.':'')+field;
-  return{key:key+'|'+(row.derivative_unit||row.unit||''),name:row.field_label||field.replaceAll('_',' '),unit:row.derivative_unit||''};
+ const GROUPS={upper:'Upper skin / stringers',lower:'Lower skin / stringers',sparwebs:'Spar webs',sparcaps:'Spar caps',ribwebs:'Rib webs',ribstiffeners:'Rib stiffeners',leskins:'Leading-edge skins',leribs:'Leading-edge ribs'},isPanelGroup=group=>group==='upper'||group==='lower';
+ const PART_GROUP={front_web:'sparwebs',rear_web:'sparwebs',front_upper_cap:'sparcaps',front_lower_cap:'sparcaps',rear_upper_cap:'sparcaps',rear_lower_cap:'sparcaps',rib_web:'ribwebs',rib_stiffener:'ribstiffeners',leading_upper_skin:'leskins',leading_lower_skin:'leskins',leading_rib:'leribs'};
+ // Physical location comes from the recorded variable ID, never an arbitrary
+ // imported PID. Shared material/default derivatives retain their full scope.
+ function component(row){const id=String(row.id||'');let match=/^properties\.components#([a-z_]+):([1-9]\d*)#/.exec(id),part,index;
+  if(match){part=match[1];index=Number(match[2]);}
+  else if((match=/^properties\.ribs#([1-9]\d*)#(.+)$/.exec(id))){part=match[2]==='thickness'?'rib_web':'rib_stiffener';index=Number(match[1]);}
+  else if((match=/^properties\.spar_bays#([1-9]\d*)#(front|rear)_thickness$/.exec(id))){part=match[2]+'_web';index=Number(match[1]);}
+  if(!PART_GROUP[part]||!Number.isSafeInteger(index))return null;
+  return{key:part+':'+index,part,index,group:PART_GROUP[part]};
+ }
+ function rowGroups(snapshot,row){const physical=component(row);if(physical)return[physical.group];const p=panel(row);if(p)return[p.skin];const id=String(row.id||''),fixed={'properties.t_spar_web':'sparwebs','properties.spar_cap_side':'sparcaps','properties.t_rib_web':'ribwebs','leading_edge.t_skin':'leskins','leading_edge.t_rib':'leribs'};
+  if(fixed[id])return[fixed[id]];if(id.startsWith('properties.rib_stiffener_'))return['ribstiffeners'];
+  const sandwich=/^materials\.shells#([^#]+)#/.exec(id),shellGroups={spar_web:'sparwebs',rib_web:'ribwebs',leading_edge_skin:'leskins',leading_edge_rib:'leribs'};
+  if(sandwich&&shellGroups[sandwich[1]])return[shellGroups[sandwich[1]]];
+  const ownership=snapshot.ownership||snapshot.scope||snapshot.result?.scope||{},pids=new Set((row.pids||ownership.variables?.[row.id]?.pids||[]).map(Number)),groups=new Set();
+  for(const item of ownership.groups||[]){if(!pids.has(Number(item.pid)))continue;const name=String(item.name||'').replace(/_P\d+$/,'');const group={FRONT_SPAR_WEB:'sparwebs',REAR_SPAR_WEB:'sparwebs',SPAR_CAPS:'sparcaps',RIB_WEBS:'ribwebs',RIB_STIFFENERS:'ribstiffeners',LE_UPPER_SKIN:'leskins',LE_LOWER_SKIN:'leskins',LE_RIB_WEBS:'leribs',LE_RIB_NOSE:'leribs'}[name];if(group)groups.add(group);}
+  return[...groups];
+ }
+ // Only generated, physical length variables have an inferable unit when no
+ // row was returned. Do not invent units for absent material/imported rows.
+ function requestedComponents(snapshot){const recorded=new Set((snapshot.result?.rows||[]).map(row=>row.id)),unit=effects.baseline(snapshot.result).unit;return(snapshot.result?.request?.variables||[]).filter(id=>!recorded.has(id)&&component({id})&&/#(?:side|thickness|face_thickness|core_thickness|front_thickness|rear_thickness|flange_width|height|flange_thickness|web_thickness)$/.test(id)).map(id=>({id,pids:snapshot.ownership?.variables?.[id]?.pids||[],unit:'m',derivative_unit:unit?unit+' / m':''}));}
+ function groupFamilies(snapshot,group){if(isPanelGroup(group))return families(snapshot.result,group);const groups=new Map();for(const row of [...(snapshot.result?.rows||[]),...requestedComponents(snapshot)])if(rowGroups(snapshot,row).includes(group)){const f=family(row);if(!groups.has(f.key))groups.set(f.key,f);}return[...groups.values()].sort((a,b)=>(a.key.startsWith('shell.thickness|')?0:a.key.startsWith('section.')?1:2)-(b.key.startsWith('shell.thickness|')?0:b.key.startsWith('section.')?1:2)||a.key.localeCompare(b.key));}
+ function availableGroups(snapshot){return Object.keys(GROUPS).filter(group=>groupFamilies(snapshot,group).length);}
+ function componentMatrix(snapshot,group,field){const meta=componentCatalog()?.[group],definitions=new Map(),result=snapshot.result||{},returned=new Set(result.rows||[]),requested=new Set(result.request?.variables||[]),hasSelection=Array.isArray(result.request?.variables),all=[...(result.rows||[]),...requestedComponents(snapshot)];
+  for(const row of all){const p=component(row);if(p?.group!==group)continue;if(!definitions.has(p.key))definitions.set(p.key,{...p,rows:[]});if(family(row).key!==field)continue;const item=definitions.get(p.key);if(!item.property_ids)item.property_ids=[];item.property_ids.push(row.id);if(returned.has(row))item.rows.push(row);}
+  if(![...definitions.values()].some(item=>item.property_ids?.length))definitions.clear();
+  const parts=(meta?.parts||[]).filter(part=>[...definitions.values()].some(item=>item.part===part)),indices=[...new Set([...definitions.values()].map(item=>item.index))].sort((a,b)=>a-b),cells=new Map();
+  for(const item of definitions.values()){
+   const selected=(item.property_ids||[]).some(id=>requested.has(id)),pending=['running','partial'].includes(String(result.status).toLowerCase());
+   item.missing=selected?{status:pending?'pending':'missing',label:pending?'Selected · pending':'Selected · result missing',reason:'This local property was selected, but no derivative row was returned. '+(pending?'The run is not complete.':'Inspect the run log or rerun this property.')}:hasSelection?{status:'not_selected',label:'Not selected for this property',reason:'This local component/property combination was not selected in this recorded run.'}:{status:'not_recorded',label:'No result in this run',reason:'This older run does not record selected variables.'};
+   cells.set(item.part+':'+item.index,item);
+  }
+  const shared=selectRows(snapshot,{mode:'panels',skin:group,field}).filter(row=>!component(row));
+  return{parts,indices,cells,shared,ribs:!!meta?.ribs,partLabel:part=>meta?.rows?.[meta.parts.indexOf(part)]||part.replaceAll('_',' ')};
+ }
+ function family(row){const id=String(row.id||''),parts=id.split('#'),part=parts.at(-2),field=parts.at(-1),square=id==='properties.spar_cap_side'||/^properties\.components#(?:front|rear)_(?:upper|lower)_cap:\d+#side$/.test(id);
+  let key=square?'section.square_side':row.field_key,name=square?'Square spar cap side':row.field_label;
+  if(!key){if(/(?:^material\.|^materials\.library#).*?(?:[.#])(E|nu|rho)$/.test(id)){const f=id.split(/[.#]/).at(-1);key='material.'+f;name={E:'Elastic modulus',nu:'Poisson ratio',rho:'Material density'}[f];}
+   else if(/(?:face|core)_thickness$/.test(id)){const f=id.endsWith('face_thickness')?'face_thickness':'core_thickness';key='shell.'+f;name='Sandwich '+f.replaceAll('_',' ');}
+   else if(/(?:flange_width|flange_thickness|web_thickness|height)$/.test(id)){const f=id.match(/(flange_width|flange_thickness|web_thickness|height)$/)[1];key='section.'+f;name='T '+f.replaceAll('_',' ');}
+   else if(component(row)||/^properties\.t_|^leading_edge\.t_|^properties\.spar_bays#/.test(id)||part==='skin'){key='shell.thickness';name='Shell thickness';}
+   else key=(part==='stringer'?'section.':'')+field;
+  }
+  return{key:key+'|'+(row.derivative_unit||row.unit||''),name:name||field.replaceAll('_',' '),unit:row.derivative_unit||''};
  }
  function propertyLabel(row){const p=panel(row);if(!p)return effects.propertyLabel(row);const parts=String(row.id||'').split('#'),part=parts.at(-2),field=parts.at(-1),name=(part==='skin'?'Skin ':part==='stringer'?'Stringer ':'')+field.replaceAll('_',' ');
   return(p.id?'P'+p.id:'Panel')+' \u00b7 '+(p.skin==='upper'?'Upper':'Lower')+' R'+p.rib_bay+'\u2013R'+(p.rib_bay+1)+', stringer '+p.stringer+', segment '+p.segment+': '+name;
@@ -26,7 +69,8 @@
  }
  function compact(raw={}){
   const result=raw.result?clone({...raw.result,rows:(raw.result.rows||[]).map(({samples,...row})=>row),scope:undefined,baseline_analysis:undefined}):null;
-  return{result,compatibility:clone(raw.compatibility||raw.result?.compatibility||{}),sourcePath:String(raw.sourcePath||raw.source_path||''),error:String(raw.error||''),panels:(raw.panels||[]).map(({id,key,skin,rib_bay,stringer,segment})=>({id,key,skin,rib_bay,stringer,segment}))};
+  const scope=raw.ownership||raw.scope||raw.result?.scope||{},ownership={groups:(scope.groups||[]).map(({pid,kind,name})=>({pid,kind,name})),variables:Object.fromEntries(Object.entries(scope.variables||{}).map(([id,item])=>[id,{pids:[...(item.pids||[])]}]))};
+  return{result,ownership,compatibility:clone(raw.compatibility||raw.result?.compatibility||{}),sourcePath:String(raw.sourcePath||raw.source_path||''),error:String(raw.error||''),panels:(raw.panels||[]).map(({id,key,skin,rib_bay,stringer,segment})=>({id,key,skin,rib_bay,stringer,segment}))};
  }
  function matrix(snapshot,skin,field){
   const definitions=new Map(),records=new Map(),rows=snapshot.result?.rows||[],requested=snapshot.result?.request?.variables,selection=Array.isArray(requested)?new Set(requested):null;
@@ -40,10 +84,10 @@
    if(!cells.has(key))cells.set(key,[]);cells.get(key).push({...p,rows:records.get(p.key)||[],property_id:id,missing});}for(const cell of cells.values())cell.sort((a,b)=>a.segment-b.segment||a.id-b.id);
   return{stringers,bays,cells};
  }
- function selectRows(snapshot,{mode='all',skin='upper',field='',filter=''}={}){const query=filter.toLowerCase();return(snapshot.result?.rows||[]).filter(row=>{const p=panel(row);return(mode==='other'?!p:mode==='panels'?p?.skin===skin&&family(row).key===field:true)&&(!query||[propertyLabel(row),row.id,row.field_label,p?.key].join(' ').toLowerCase().includes(query));});}
+ function selectRows(snapshot,{mode='all',skin='upper',field='',filter=''}={}){const query=filter.toLowerCase();return(snapshot.result?.rows||[]).filter(row=>{const p=panel(row);return(mode==='other'?!p:mode==='panels'?(isPanelGroup(skin)?p?.skin===skin:rowGroups(snapshot,row).includes(skin))&&family(row).key===field:true)&&(!query||[propertyLabel(row),row.id,row.field_label,p?.key].join(' ').toLowerCase().includes(query));});}
  const csvCell=value=>{let text=value==null?'':String(value);if(typeof value==='string'&&/^\s*[=+@-]/.test(text))text="'"+text;return '"'+text.replaceAll('"','""')+'"';};
- function csv(snapshot,options={}){const result=snapshot.result||{},baseline=effects.baseline(result),rows=[['Case','Objective','Baseline','Response unit','Property','Property ID','Panel','Skin','Stringer','Rib bay','Segment','Property value','Property unit','df/dp','Derivative unit','p/f * df/dp','Selected quantity','Selected value','Status','Note']];
-  for(const row of selectRows(snapshot,options)){const p=panel(row),raw=value(result,row,'derivative'),normalized=value(result,row,'normalized'),selected=options.quantity==='normalized'?normalized:raw;rows.push([result.case_label||result.case_id,effects.objectiveLabel(result),baseline.value,baseline.unit,propertyLabel(row),row.id,p?.id? 'P'+p.id:'',p?.skin,p?.stringer,p?.rib_bay,p?.segment,row.value,row.unit,raw.value,raw.unit,normalized.value,options.quantity==='normalized'?'p/f * df/dp':'df/dp',selected.value,selected.status,selected.reason]);}
+ function csv(snapshot,options={}){const result=snapshot.result||{},baseline=effects.baseline(result),rows=[['Case','Objective','Baseline','Response unit','Property','Property ID','Panel','Skin','Stringer','Rib bay','Segment','Property value','Property unit','df/dp','Derivative unit','p/f * df/dp','Selected quantity','Selected value','Structural groups','Component','Rib / bay index','Property cards','Status','Note']];
+  for(const row of selectRows(snapshot,options)){const p=panel(row),c=component(row),raw=value(result,row,'derivative'),normalized=value(result,row,'normalized'),selected=options.quantity==='normalized'?normalized:raw;rows.push([result.case_label||result.case_id,effects.objectiveLabel(result),baseline.value,baseline.unit,propertyLabel(row),row.id,p?.id? 'P'+p.id:'',p?.skin,p?.stringer,p?.rib_bay,p?.segment,row.value,row.unit,raw.value,raw.unit,normalized.value,options.quantity==='normalized'?'p/f * df/dp':'df/dp',selected.value,rowGroups(snapshot,row).map(group=>GROUPS[group]).join('; '),c?.part,c?.index,(row.pids||[]).join('; '),selected.status,selected.reason]);}
   return rows.map(row=>row.map(csvCell).join(',')).join('\r\n')+'\r\n';
  }
  // Raw derivatives with different units cannot share a numerical color range.
@@ -72,5 +116,5 @@
   const values=min<0&&max>0?[min,0,max]:[min,min/2+max/2,max];
   return values.map(value=>({value,position:(value-min)/(max-min),color:valueColor(value,scale,palette)}));
  }
- return{panel,family,families,propertyLabel,value,compact,matrix,selectRows,csv,colorScales,valueColor,colorStops};
+ return{GROUPS,isPanelGroup,component,rowGroups,groupFamilies,availableGroups,componentMatrix,panel,family,families,propertyLabel,value,compact,matrix,selectRows,csv,colorScales,valueColor,colorStops};
 });

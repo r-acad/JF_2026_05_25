@@ -6,6 +6,21 @@
   const AXIS_COLORS=['#ef5f6b','#4cc38a','#56a8f5'];
   const toView=p=>[p[1],p[2],p[0]];
   const typeLabel=type=>({RECTANGULAR:'Rectangular',CYLINDRICAL:'Cylindrical',SPHERICAL:'Spherical'})[type]||String(type);
+  function coordinateReference(frame){
+    const source=frame.properties||{};
+    if(frame.card==='BASIC'||frame.id===0)return 'BASIC · no parent';
+    // CORD1 has no RID: its three defining GRIDs may each have their own CP.
+    if(/^CORD1/.test(frame.card||'')||['G1','G2','G3'].every(key=>source[key]!=null))
+      return 'GRIDs '+['G1','G2','G3'].map(key=>key+' '+(source[key]??'?')).join(', ');
+    const rid=source.RID??source['Reference ID'];
+    return rid!=null?'RID '+rid+(Number(rid)===0?' (BASIC)':''):'Reference unavailable';
+  }
+  function springRadius(value){
+    if(value==null||String(value).trim()==='')throw new Error('Spring radius must be between 1e-12 and 1e12 model units.');
+    const radius=Number(value);
+    if(!Number.isFinite(radius)||radius<1e-12||radius>1e12)throw new Error('Spring radius must be between 1e-12 and 1e12 model units.');
+    return radius;
+  }
   const color=card=>COLORS[card]||(/^CELAS/.test(card)?COLORS.CELAS:COLORS.RBE1);
   const kind=card=>card==='CONM2'?'conm2':/^CELAS/.test(card)?'spring':'connection';
   function pickedElementId(pick){
@@ -40,7 +55,8 @@
       }
       addLayer(collection.name,collection.card+(collection.point_mass?' mass attachment nodes':' connections'),hex,collection.elements.length+' elements',meshes);
     }
-    syncSpringStyle({state,positions,enabled:!!globalThis.document?.getElementById('show-celas-cylinders')?.checked,markerRadius:markerRadius()});
+    const radius=globalThis.document?.getElementById('celas-radius')?.value??.01;
+    syncSpringStyle({state,positions,enabled:!!globalThis.document?.getElementById('show-celas-cylinders')?.checked,radius});
   }
   function springGlyphs(collection){
     const glyphs=[];
@@ -85,12 +101,12 @@
     }
     return meshes;
   }
-  function syncSpringStyle({state,positions,enabled,markerRadius=0,BABYLON=globalThis.BABYLON}){
+  function syncSpringStyle({state,positions,enabled,radius=.01,BABYLON=globalThis.BABYLON}){
     if(!state?.scene||!positions||!BABYLON)return;
+    if(enabled){try{radius=springRadius(radius);}catch(_){return;}}
     for(const collection of state.data?.imported_connections||[]){
       if(!/^CELAS/.test(collection.card))continue;
       const layer=state.layers.get(collection.name);if(!layer)continue;
-      const radius=Math.max(Number(markerRadius)||0,(state.diag||1)*.001,1e-9);
       if(enabled&&layer.springRadius!==radius){
         const old=new Set(layer.meshes.filter(mesh=>mesh.springCylinders));state.deformable=state.deformable.filter(record=>!old.has(record.mesh));
         old.forEach(mesh=>mesh.dispose(false,true));layer.meshes=layer.meshes.filter(mesh=>!old.has(mesh));
@@ -118,7 +134,7 @@
   function pickedCoordinateId(pick){const meta=pick?.pickedMesh?.metadata;return pick?.hit&&pick.faceId>=0?meta?.coordinateIds?.[meta.faceCoordinates?.[pick.faceId]]:undefined;}
   function coordinateCandidates(state,enabled){
     if(!enabled||!state.layers.get('COORDINATE_SYSTEMS')?.visible)return[];
-    return(state.data?.coordinate_systems?.systems||[]).map(frame=>({kind:'coordinate',id:frame.id,text:'CID '+frame.id+' · '+typeLabel(frame.type),color:COLORS.coordinate,point:toView(frame.origin)}));
+    return(state.data?.coordinate_systems?.systems||[]).map(frame=>({kind:'coordinate',id:frame.id,text:'CID '+frame.id+' · '+typeLabel(frame.type)+' · '+coordinateReference(frame),color:COLORS.coordinate,point:toView(frame.origin)}));
   }
-  return{COLORS,AXIS_COLORS,typeLabel,color,kind,toView,pickedElementId,attachMarker,renderConnections,springGlyphs,springMeshes,syncSpringStyle,coordinateMeshes,pickedCoordinateId,coordinateCandidates};
+  return{COLORS,AXIS_COLORS,typeLabel,coordinateReference,springRadius,color,kind,toView,pickedElementId,attachMarker,renderConnections,springGlyphs,springMeshes,syncSpringStyle,coordinateMeshes,pickedCoordinateId,coordinateCandidates};
 });

@@ -9,12 +9,26 @@ assert.equal(R.candidates(state,positions,true).length,3);assert.deepEqual(R.can
 const collection={name:'IMPORTED_CELAS1',card:'CELAS1',elements:[{eid:201,endpoints:[{node:0,component:1,axis:[0,1,0]},{node:1,component:5,axis:[1,0,0]}]},{eid:202,endpoints:[{node:2,component:3,axis:[0,0,1]},{node:-1,grounded:true,component:0,axis:null}]},{eid:203,endpoints:[{node:0,component:0,axis:null}]}]};
 const glyphs=E.springGlyphs(collection);assert.equal(glyphs.length,3);assert.deepEqual(glyphs[0].axis,[1,0,0]);assert.equal(glyphs[0].color,E.AXIS_COLORS[0]);assert(glyphs[1].rotational);assert.equal(glyphs[1].color,E.AXIS_COLORS[1]);
 const engine=new B.NullEngine(),scene=new B.Scene(engine),model={scene,root:new B.TransformNode('model',scene),data:{imported_connections:[collection]},layers:new Map([[collection.name,{visible:true,meshes:[]}]]),diag:10,deformable:[]};
-E.syncSpringStyle({BABYLON:B,state:model,positions,enabled:true,markerRadius:.02});const layer=model.layers.get(collection.name);assert.equal(layer.meshes.length,3);assert.equal(model.deformable.length,3);
+E.syncSpringStyle({BABYLON:B,state:model,positions,enabled:true,radius:.02});const layer=model.layers.get(collection.name);assert.equal(layer.meshes.length,3);assert.equal(model.deformable.length,3);
 const first=layer.meshes[0],p=first.getVerticesData('position'),xs=[];for(let i=0;i<p.length;i+=3)xs.push(p[i]);assert(Math.abs(Math.max(...xs)-Math.min(...xs)-.08)<1e-5);assert.equal(E.pickedElementId({hit:true,pickedMesh:first,faceId:0}),201);
-E.syncSpringStyle({BABYLON:B,state:model,positions,enabled:true,markerRadius:.02});assert.equal(layer.meshes.length,3,'Repeated style sync does not allocate more meshes');
-layer.visible=false;E.syncSpringStyle({BABYLON:B,state:model,positions,enabled:true,markerRadius:.02});assert(layer.meshes.every(mesh=>!mesh.isEnabled()));
-layer.visible=true;E.syncSpringStyle({BABYLON:B,state:model,positions,enabled:false,markerRadius:.02});assert(layer.meshes.every(mesh=>!mesh.isEnabled()));
-E.syncSpringStyle({BABYLON:B,state:model,positions,enabled:true,markerRadius:.04});assert.equal(model.deformable.length,3);assert.equal(layer.meshes.length,3);assert(first.isDisposed());
-const controls={'show-rbe3-dofs':true,'show-celas-cylinders':true};W.validateView({controls,layers:{},camera:{target:[0,0,0],alpha:0,beta:1,radius:2,mode:0},activeCase:1,workspace:{activeTab:'display',width:360,collapsed:false,maximizedTab:null}});
+E.syncSpringStyle({BABYLON:B,state:model,positions,enabled:true,radius:.02});assert.equal(layer.meshes.length,3,'Repeated style sync does not allocate more meshes');
+layer.visible=false;E.syncSpringStyle({BABYLON:B,state:model,positions,enabled:true,radius:.02});assert(layer.meshes.every(mesh=>!mesh.isEnabled()));
+layer.visible=true;E.syncSpringStyle({BABYLON:B,state:model,positions,enabled:false,radius:.02});assert(layer.meshes.every(mesh=>!mesh.isEnabled()));
+E.syncSpringStyle({BABYLON:B,state:model,positions,enabled:true,radius:.04});assert.equal(model.deformable.length,3);assert.equal(layer.meshes.length,3);assert(first.isDisposed());
+const controls={'show-rbe3-dofs':true,'show-celas-cylinders':true,'celas-radius':'.04'};W.validateView({controls,layers:{},camera:{target:[0,0,0],alpha:0,beta:1,radius:2,mode:0},activeCase:1,workspace:{activeTab:'display',width:360,collapsed:false,maximizedTab:null}});
 assert.throws(()=>W.validateView({controls:{'show-rbe3-dofs':'true'},layers:{},camera:{target:[0,0,0],alpha:0,beta:1,radius:2,mode:0},activeCase:1,workspace:{activeTab:'display',width:360,collapsed:false,maximizedTab:null}}));
+const view={controls,layers:{},camera:{target:[0,0,0],alpha:0,beta:1,radius:2},activeCase:1,workspace:{activeTab:'display',width:360,collapsed:false}};
+for(const value of ['', '0', '-1', 'NaN', 'Infinity', '1e13', '1e-13']){
+ assert.throws(()=>E.springRadius(value));
+ assert.throws(()=>W.validateView({...view,controls:{'celas-radius':value}}));
+ const old=layer.meshes[0];E.syncSpringStyle({BABYLON:B,state:model,positions,enabled:true,radius:value});assert.strictEqual(layer.meshes[0],old);
+}
+assert.equal(E.springRadius('.000001'),.000001);
+E.syncSpringStyle({BABYLON:B,state:model,positions,enabled:true,radius:.000001});assert.equal(layer.springRadius,.000001,'No model-diagonal floor overrides the chosen radius');
+assert.equal(E.coordinateReference({id:0,card:'BASIC'}),'BASIC \u00b7 no parent');
+assert.equal(E.coordinateReference({id:10,card:'CORD2R',properties:{RID:0}}),'RID 0 (BASIC)');
+assert.equal(E.coordinateReference({id:20,card:'CORD2C',properties:{RID:10}}),'RID 10');
+assert.equal(E.coordinateReference({id:71,card:'CORD2R',properties:{'Reference ID':0}}),'RID 0 (BASIC)');
+assert.equal(E.coordinateReference({id:40,card:'CORD1R',properties:{G1:501,G2:502,G3:503}}),'GRIDs G1 501, G2 502, G3 503');
+assert.equal(E.coordinateReference({id:99,card:'Resolved R'}),'Reference unavailable');
 scene.dispose();engine.dispose();console.log('RBE3 source/UM roles, thermal markers, hidden/deformed labels; batched CELAS axes, colors, picking, resize, visibility and Study controls passed.');

@@ -50,6 +50,8 @@ tests=@testset "Physical component table cards and persistence" begin
     vars=W.sensitivity_catalog(m)["variables"]
     cap=only(filter(v->v["id"]=="properties.components#front_upper_cap:1#side",vars))
     @test cap["pids"]==[pid("front_upper_cap",1)]
+    @test cap["field_key"]=="section.square_side"
+    @test cap["field_label"]=="Square spar cap side"
     shared=only(filter(v->v["id"]=="properties.spar_cap_side",vars));@test !(pid("front_upper_cap",1) in shared["pids"])
     @test pid("front_web",1) in only(filter(v->v["id"]=="properties.components#front_web:1#thickness",vars))["pids"]
     for bad in ([row("front_web:0","thickness"=>.004)],[row("rib_web:2","thickness"=>-.004)],[row("rib_web:2","unknown"=>1.)],[row("front_web:1","material"=>1.2)])

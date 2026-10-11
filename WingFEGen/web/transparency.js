@@ -5,8 +5,58 @@
  */
 (function(root,factory){const api=factory();if(typeof module==="object"&&module.exports)module.exports=api;else root.WingTransparency=api;})(typeof globalThis!=="undefined"?globalThis:this,function(){
  "use strict";
+ function invalidateMaterialDraws(scene,dirty=defines=>defines.markAllAsDirty()){
+  for(const mesh of scene.meshes)for(const sub of mesh.subMeshes||[]){
+   const material=sub.getMaterial()||(scene._hasDefaultMaterial?scene.defaultMaterial:null);
+   if(!material||material._blockDirtyMechanism)continue;
+   for(const draw of sub._drawWrappers||[])if(draw?.defines?.markAllAsDirty&&draw.materialContext===material._materialContext)dirty(draw.defines);
+  }
+  scene.resetCachedMaterial();
+ }
+ function linearGlobalInvalidation(scene,B){
+  const original=scene.markAllMaterialsAsDirty;
+  if(typeof original!=="function"||typeof B.AbstractMesh?.prototype?._markSubMeshesAsDirty!=="function")return()=>{};
+  // Keep other full-scene operations (including the end of mesh construction)
+  // linear as well. Narrower or filtered calls retain the engine implementation. This is scene-local;
+  // no vendor source or global Babylon prototypes are modified.
+  function markAll(flags,predicate){
+   if(flags!==B.Material.AllDirtyFlag||predicate)return original.call(this,flags,predicate);
+   if(!this.blockMaterialDirtyMechanism)invalidateMaterialDraws(this);
+  }
+  scene.markAllMaterialsAsDirty=markAll;
+  return()=>{if(scene.markAllMaterialsAsDirty===markAll)scene.markAllMaterialsAsDirty=original;};
+ }
+ // Babylon 9's material invalidation visits every scene mesh for each
+ // material. A global OIT switch followed by hundreds of alpha changes
+ // therefore costs materials * meshes, even though geometry is unchanged.
+ // Use the bundled engine's batch guard and invalidate each existing draw
+ // wrapper once. This retains cached shader effects, instances, contours and
+ // all render-pass wrappers (including depth peeling), without rebuilding
+ // any mesh. Fall back to ordinary setters on an unsupported engine version.
+ function batchMaterials(scene,update){
+  if(!scene||scene.blockMaterialDirtyMechanism||typeof scene._forceBlockMaterialDirtyMechanism!=="function"||
+    !scene.meshes.every(mesh=>typeof mesh._markSubMeshesAsDirty==="function"))return update();
+  scene._forceBlockMaterialDirtyMechanism(true);
+  try{return update();}
+  finally{
+   scene._forceBlockMaterialDirtyMechanism(false);
+   invalidateMaterialDraws(scene);scene.prePassRenderer?.markAsDirty();
+  }
+ }
  function create({BABYLON:B=globalThis.BABYLON,scene,throughMeshes=()=>[],onUnsupported=()=>{}}){
   const engine=scene.getEngine(),caps=engine.getCaps(),groups=new Map();
+  const restoreInvalidation=linearGlobalInvalidation(scene,B);
+  const prepasses=new Map();
+  function preparePrePass(){
+   const renderer=scene.prePassRenderer;
+   if(!renderer||prepasses.has(renderer)||typeof renderer._markAllMaterialsAsPrePassDirty!=="function"||
+     typeof B.AbstractMesh?.prototype?._markSubMeshesAsDirty!=="function")return;
+   // Babylon's prepass uses its own material loop rather than the scene
+   // helper. Only dirty the prepass flag once per material draw wrapper.
+   const original=renderer._markAllMaterialsAsPrePassDirty;
+   const mark=()=>{if(!scene.blockMaterialDirtyMechanism)invalidateMaterialDraws(scene,defines=>defines.markAsPrePassDirty());};
+   renderer._markAllMaterialsAsPrePassDirty=mark;prepasses.set(renderer,{original,mark});
+  }
   let culling=new WeakSet();
   const supported=!!(engine.isWebGPU||(engine.webGLVersion>=2&&caps.drawBuffersExtension&&caps.textureFloatRender&&caps.textureHalfFloatRender&&caps.blendFloat));
   let enabled=false,warned=false;
@@ -18,10 +68,12 @@
   function setEnabled(value){
    if(value&&!supported&&!warned){warned=true;onUnsupported();}
    const next=!!value&&supported;if(next===enabled)return enabled;
-   enabled=next;scene.useOrderIndependentTransparency=next;
-   // Five dual passes retain up to ten depth layers. This bounds the cost for
-   // large imported decks; deeper interiors may be omitted at grazing views.
-   if(next)scene.depthPeelingRenderer.passCount=5;else restoreGroups();
+   batchMaterials(scene,()=>{
+    enabled=next;scene.useOrderIndependentTransparency=next;
+    // Five dual passes retain up to ten depth layers. This bounds the cost for
+    // large imported decks; deeper interiors may be omitted at grazing views.
+    if(next){scene.depthPeelingRenderer.passCount=5;preparePrePass();}else restoreGroups();
+   });
    return enabled;
   }
   const before=scene.onBeforeActiveMeshesEvaluationObservable.add(()=>{
@@ -57,8 +109,8 @@
     }
    }finally{engine.setDepthFunction(depthFunction);engine.setDepthWrite(depthWrite);engine.setAlphaMode(alpha);scene.resetCachedMaterial();}
   });
-  function dispose(){setEnabled(false);scene.onBeforeActiveMeshesEvaluationObservable.remove(before);scene.onAfterRenderObservable.remove(after);}
+  function dispose(){setEnabled(false);restoreInvalidation();for(const[renderer,{original,mark}]of prepasses)if(renderer._markAllMaterialsAsPrePassDirty===mark)renderer._markAllMaterialsAsPrePassDirty=original;prepasses.clear();scene.onBeforeActiveMeshesEvaluationObservable.remove(before);scene.onAfterRenderObservable.remove(after);}
   return{setEnabled,dispose,supported,get enabled(){return enabled;}};
  }
- return{create};
+ return{create,batchMaterials};
 });

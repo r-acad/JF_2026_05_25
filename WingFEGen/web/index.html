@@ -240,7 +240,8 @@
       </label>
       <label class="layer"><input id="show-bars-through" type="checkbox"><span>Show bars through surfaces</span></label>
       <label class="layer"><input id="show-celas-cylinders" type="checkbox"><span>CELAS springs as axis-colored cylinders</span></label>
-      <p class="pick-note">Spring components use their node coordinate systems: x red, y green, z blue. Scalar or undefined directions use neutral markers. Cylinder size follows Marker radius.</p>
+      <label class="display-control" id="celas-radius-control"><span id="celas-radius-label">Radius (m)</span><input id="celas-radius" type="number" min="0.000000000001" max="1000000000000" step="any" value="0.01" aria-label="CELAS cylinder radius" title="Display radius only; does not change spring stiffness. Imported models use their source deck length units." disabled></label>
+      <p class="pick-note">Spring components use their node coordinate systems: x red, y green, z blue. Scalar or undefined directions use neutral markers. Radius controls the display cylinders independently of other markers.</p>
       <label class="layer"><input id="show-aero-overlay" type="checkbox" disabled><span>Aerodynamic loft overlay</span></label>
       <p class="pick-note">The loft shows the full lifting-surface shape outside the structural box. Its visibility is independent of structural opacity and the VLM mesh.</p>
       <label class="display-control">Node radius (m)<input id="node-radius" type="number" min="0" step="any" value="0.005"></label>
@@ -273,6 +274,7 @@
         <label class="layer"><input id="show-node-ids" type="checkbox"><span>Node IDs</span></label>
         <label class="layer"><input id="show-element-ids" type="checkbox"><span>Element IDs</span></label>
         <label class="layer"><input id="show-coordinate-labels" type="checkbox"><span>Coordinate IDs and types</span></label>
+        <p class="pick-note">Coordinate labels include their parent RID, or the defining G1/G2/G3 GRID IDs for CORD1 systems.</p>
         <label class="layer"><input id="show-rbe3-dofs" type="checkbox"><span>RBE3 DOFs and markers (REF / independent / UM)</span></label>
         <label class="display-control">Label size (px)<input id="id-label-size" type="number" min="8" max="24" step="1" value="11"></label>
         <p id="id-label-status" class="pick-note" role="status" aria-live="polite"></p>
@@ -340,7 +342,7 @@
         <div class="hud" id="sensitivity-map-card">
           <div class="hud-title">Sensitivity fields</div>
           <div class="hud-row" id="sensitivity-map-actions"></div>
-          <p id="sensitivity-map-summary" class="pick-note">Open a completed sensitivity run under Loads → Sensitivity to compare property effects.</p>
+          <p id="sensitivity-map-summary" class="pick-note">Open a completed sensitivity run under Analysis → Sensitivity to compare property effects.</p>
           <div id="sensitivity-map-controls" hidden>
             <label class="display-control">View <select id="sensitivity-map-mode"><option value="field">Property sensitivity field</option><option value="preview">Single-property change preview</option></select></label>
             <label class="display-control" id="sensitivity-field-row">Property family <select id="sensitivity-field-family"></select></label>
@@ -492,7 +494,7 @@
       <div id="load-clock-face" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span id="load-clock-value">0%</span></div>
       <div><strong id="load-clock-title">SOL106 load level</strong><span id="load-clock-accepted">Accepted 0%</span><small id="load-clock-detail">Load fraction, not elapsed time</small></div>
     </div>
-    <div id="viewport-hint">Drag to orbit &middot; right-drag to pan &middot; wheel to zoom</div>
+    <div id="viewport-hint">Drag to orbit &middot; right-drag to pan &middot; wheel or middle + right drag to zoom (up: in, down: out)</div>
     <div id="splash">
       <div>
         <h2>Lifting surface torsion box</h2>

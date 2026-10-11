@@ -6,6 +6,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Study history, analysis navigation and component sensitivity tables.**
+  Open existing study now presents the complete saved/opened browser catalogue
+  before browsing a file. Group FE Analysis and Sensitivity under Analysis.
+  Extend sensitivity grids to spar webs/caps, rib webs/stiffeners and leading-edge
+  skins/ribs, retaining separate shared derivatives, missing-value states,
+  field-specific color limits and CSV ownership. Correct spar-cap side metadata.
+- **Viewport controls and faster translucency changes.** Add middle/right-button
+  CATIA-style zoom, an independent saved CELAS cylinder radius, and coordinate
+  labels identifying parent RIDs or defining GRIDs. Clear residual camera motion
+  when centering or switching gestures. Replace quadratic material and prepass
+  invalidation with bounded scene traversals while preserving depth peeling,
+  contours, overlays and inspection. First-use GPU compilation remains.
 - **Consistent planar laminate shear recovery.** Recover PCOMP transverse
   resultants with the laminate MacNeal shear operator used by stiffness, replacing
   the isotropic recovery surrogate on eligible planar quadrilaterals. Identify

@@ -14,7 +14,7 @@
   const DRAWING_KEYS = new Set(["planform","spars","master-ribs","leading-edge-ribs","fuel-tank","stringer-section","spar-cap-section","rib-stiffener-section","rib-override-section","airfoil-root","airfoil-tip",...(["upper_skin","lower_skin","spar_web","rib_web","leading_edge_skin","leading_edge_rib"].map(name=>"material-"+name))]);
   const CONTROL_IDS = ["surface-mode","surface-translucency","shell-geometry","beam-style","show-bars-through","show-aero-overlay","aero-deformed-style","aero-surface-color","show-aero-curvature","background-color","inspect-entity",
     "show-fuel-inertia","show-fuel-cg","show-fuel-mass-labels","fuel-inertia-scale",
-    "node-radius","marker-radius","show-ground-plane","show-symmetry-plane","ground-plane-z","ground-grid-spacing","show-shell-axes","show-bar-axes","show-node-ids","show-element-ids","show-coordinate-labels","show-rbe3-dofs","show-celas-cylinders","id-label-size",
+    "node-radius","marker-radius","celas-radius","show-ground-plane","show-symmetry-plane","ground-plane-z","ground-grid-spacing","show-shell-axes","show-bar-axes","show-node-ids","show-element-ids","show-coordinate-labels","show-rbe3-dofs","show-celas-cylinders","id-label-size",
     "mesh-labels-ribs","mesh-labels-stringers","show-rib-datums","rib-datum-size","vlm-field",
     "vlm-force-scale","show-vlm-panel-forces","show-fuel-tank","show-panels","result-palette","show-support-forces","show-support-force-values","support-force-scale",
     "deform-scale","animate","show-undeformed","show-reference-aero","show-deformed-aero","contour-select","compare-results","auto-mesh","show-picked-axes","measure-snap-nodes"];
@@ -79,6 +79,7 @@
       if (id === "aero-surface-color" && !/^#[0-9a-f]{6}$/i.test(value)) throw new Error("Invalid aerodynamic surface color.");
       if (id === "ground-plane-z" && (value.trim()==="" || !Number.isFinite(Number(value)))) throw new Error("Ground z must be a finite number of metres.");
       if (id === "ground-grid-spacing" && (value.trim()==="" || !Number.isFinite(Number(value)) || Number(value)<=0)) throw new Error("Ground grid spacing must be a finite number greater than zero.");
+      if (id === "celas-radius" && (value.trim()==="" || !Number.isFinite(Number(value)) || Number(value)<1e-12 || Number(value)>1e12)) throw new Error("Spring radius must be between 1e-12 and 1e12 model units.");
       if (id === "rib-datum-size" && (value.trim()==="" || !Number.isFinite(Number(value)) || Number(value)<=0)) throw new Error("Rib datum square size must be a finite number greater than zero.");
       if (["node-radius","marker-radius","id-label-size","deform-scale"].includes(id) &&
           (value.trim()==="" || !Number.isFinite(Number(value)) || id !== "deform-scale" && Number(value)<0))
