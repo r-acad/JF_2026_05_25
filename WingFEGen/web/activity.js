@@ -49,7 +49,7 @@
   }
   root.WingActivity = {begin, update, end, yieldFrame, run, elapsed,
     get count() { return jobs.size; }};
-  root.WingActivity.startup = begin("Starting WingFEGen", {detail:"Loading the 3D viewer and parameter definitions…"});
+  root.WingActivity.startup = begin("Starting Lifting surface FEGen", {detail:"Loading the 3D viewer and parameter definitions…"});
   root.addEventListener("error", event => {
     if (!root.WingActivity.startup) return;
     const resource = event.target?.getAttribute?.("src");

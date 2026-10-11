@@ -27,7 +27,7 @@
     else if(data.type==="disconnected")disconnect();
   });
   function disconnect(){connected=false;status.textContent="Study window disconnected. This drawing is the last received view; reopen Plan View from your Study to reconnect.";status.classList.add("plan-window-disconnected");document.body.insertBefore(status,document.getElementById("detached-plan-view"));}
-  if(!parent||!token){status.textContent="Open Plan View using the Plan View button in the main WingFEGen Study window.";return;}
+  if(!parent||!token){status.textContent="Open Plan View using the Plan View button in the main Lifting surface FEGen Study window.";return;}
   send("ready");
   const timer=setInterval(()=>{
     if(parent.closed){disconnect();clearInterval(timer);}

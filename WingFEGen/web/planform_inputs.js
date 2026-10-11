@@ -33,7 +33,7 @@
   for(const[key,label]of[["root","Root chord (m)"],["tip","Tip chord (m)"],["span","Full projected span (m)"]]){
    const row=doc.createElement("label"),span=doc.createElement("span"),input=doc.createElement("input");row.className="planform-direct-row";span.textContent=label;input.id="planform-dimension-"+key;input.type="number";input.step="any";input.min="0";input.setAttribute("aria-label",label);input.setAttribute("aria-describedby","planform-dimension-help");row.append(span,input);direct.append(row);inputs[key]=input;
   }
-  const help=doc.createElement("p");help.id="planform-dimension-help";help.className="planform-method-note";help.textContent="Span is the full projected tip-to-tip distance, twice the modeled half-span; it is not the sloping length along a dihedral wing. Chords describe the base trapezoid before perturbations.";direct.append(help);
+  const help=doc.createElement("p");help.id="planform-dimension-help";help.className="planform-method-note";help.textContent="Span is the full projected tip-to-tip distance, twice the modeled half-span; it is not the sloping length along a lifting surface with dihedral. Chords describe the base trapezoid before perturbations.";direct.append(help);
   if(rows[0])rows[0].before(section);else host.append(section);
   const priorHidden=rows.map(row=>row?.hidden||false);
   let method="area",dirty=false,destroyed=false,lastSignature="";

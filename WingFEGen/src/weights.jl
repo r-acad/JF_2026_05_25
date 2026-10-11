@@ -93,7 +93,7 @@ function weights_payload(m::Model)
             "groups"=>["AERO_LOFT"],"count"=>count,"area_m2"=>area,"length_m"=>0.,"thickness_m"=>thickness,
             "volume_m3"=>volume,"mass_kg"=>aero_mass,"weight_N"=>aero_mass*WEIGHT_GRAVITY,
             "in_structure"=>false,"in_deck"=>true,
-            "note"=>"Optional unconnected FE shells over the full aerodynamic half wing; included in deck mass, separate from structural mass."))
+            "note"=>"Optional unconnected FE shells over the full aerodynamic half lifting surface; included in deck mass, separate from structural mass."))
     end
     tank=fuel_summary(m)
     fuel_state=fuel_mass_state(m)
@@ -126,16 +126,16 @@ function weights_payload(m::Model)
     return Dict{String,Any}("components"=>rows,"totals"=>totals,"fuel"=>fuel,
         "gravity_m_s2"=>WEIGHT_GRAVITY,"material_density_kg_m3"=>p["material.rho"],
         "materials"=>[material_payload(material) for material in model_material_definitions(m)],
-        "scope"=>"Modeled half wing, from the root to the final structural rib",
+        "scope"=>"Modeled half lifting surface, from the root to the final structural rib",
         "method"=>"FE shell projected midsurface area × sum of ply thickness × assigned density (one ply for PSHELL); PBARL/PBAR area × CBAR effective length × assigned MAT1 density",
         "note"=>"Fuel uses gross tank capacity; structure, equipment and unusable fuel are not deducted. Per-bay CONM2 masses and fuel inertia use the selected case's fill. Include structural inertia applies the same signed acceleration to the dry shell/bar mass using explicit dead forces and section-offset couples. RBE3 constraints and display meshes have no material mass.")
 end
 
 function weights_info(m::Model)
     data=weights_payload(m);total=data["totals"]
-    rows=Tuple{String,String}[("Dry half-wing structure mass",@sprintf("%.9g kg",total["structure_mass_kg"])),
+    rows=Tuple{String,String}[("Dry half lifting surface structure mass",@sprintf("%.9g kg",total["structure_mass_kg"])),
         ("Fuel FE mass",@sprintf("%.9g kg in per-bay CONM2 elements",total["fuel_mass_kg"])),
-        ("Loaded half-wing mass",@sprintf("%.9g kg (structure + fuel)",total["loaded_mass_kg"]))]
+        ("Loaded half lifting surface mass",@sprintf("%.9g kg (structure + fuel)",total["loaded_mass_kg"]))]
     m.params["output.include_aero_shells"] && push!(rows,("Exported deck mass",@sprintf("%.9g kg, including separate unconnected aero shells",total["deck_mass_kg"])))
     rows
 end

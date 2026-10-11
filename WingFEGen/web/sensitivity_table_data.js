@@ -58,13 +58,13 @@
  function valueColor(number,scale,palette='signed'){
   const min=scale?.min,max=scale?.max;if(!Number.isFinite(number)||!Number.isFinite(min)||!Number.isFinite(max)||min>max)return null;
   if(palette!=='signed'&&colors.scales[palette])return 'rgb('+colors.sample(palette,min===max?.5:(number-min)/(max-min)).map(v=>Math.round(v*255)).join(', ')+')';
-  const blue=[92,161,215],orange=[232,142,75],zero=[242,243,239],mix=(a,b,t)=>'rgb('+a.map((c,i)=>Math.round(c+(b[i]-c)*Math.min(1,Math.max(0,t)))).join(', ')+')';
-  if(min===max)return mix(zero,number<0?blue:number>0?orange:zero,.55);
+  const red=[195,52,66],blue=[48,112,196],zero=[242,243,239],mix=(a,b,t)=>'rgb('+a.map((c,i)=>Math.round(c+(b[i]-c)*Math.min(1,Math.max(0,t)))).join(', ')+')';
+  if(min===max)return mix(zero,number<0?red:number>0?blue:zero,.55);
   // Exact one-sided ranges use the full corresponding hue. If the values
   // straddle zero, the neutral stop sits at zero's true numerical position.
-  if(max<=0)return mix(blue,[222,236,247],(number-min)/(max-min));
-  if(min>=0)return mix([251,235,222],orange,(number-min)/(max-min));
-  return number<0?mix(zero,blue,number/min):mix(zero,orange,number/max);
+  if(max<=0)return mix(red,max===0?zero:[251,225,228],(number-min)/(max-min));
+  if(min>=0)return mix(min===0?zero:[220,233,250],blue,(number-min)/(max-min));
+  return number<0?mix(zero,red,number/min):mix(zero,blue,number/max);
  }
  function colorStops(scale,palette='signed'){
   const {min,max}=scale;if(min===max)return[{value:min,position:0,color:valueColor(min,scale,palette)}];

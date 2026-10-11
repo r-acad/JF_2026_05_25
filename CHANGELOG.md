@@ -6,6 +6,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Lifting-surface property tables and display annotations.** Add detached,
+  editable rib, spar-web, spar-cap and leading-edge tables with inherited
+  defaults, material/sandwich choices, Study/TOML persistence and exact
+  sensitivity ownership. Add RBE3 component/weight/UM labels and optional CELAS
+  cylinders in each endpoint's component coordinate system. Use lifting-surface
+  terminology in the interface while retaining compatible file/schema names;
+  move VLM settings under Aerodynamics and rename rib datum planes.
+- **Compact sensitivity presentation.** Offer red-negative/blue-positive table
+  colors with relevant bounds and unit-specific scales. Display at most five
+  significant digits, retain full-precision exports, remove repeated cell units
+  and match the data-table button to the property-table styling.
+- **SOL105 static preload results.** Recover the actual cached static preload
+  during JSON export without repeating the equilibrium solve. Respect requested
+  result fields and expose a separate SOL101 preload analysis alongside buckling
+  modes for generated and imported cases, preserving native subcase identity.
 - **Locally scaled singular-system regularization.** Use each nonzero
   diagonal to scale the SOL101 singular-LU fallback, avoiding a uniform
   artificial stiffness controlled by the largest transformed coefficient.

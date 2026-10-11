@@ -119,7 +119,7 @@ function leading_edge_plane_intersection(w::Wing,reference,plane,f::Float64,uppe
         (isempty(unique_roots)||eta-last(unique_roots)>1e-10) && push!(unique_roots,eta)
     end
     isempty(unique_roots) && throw(LeadingEdgeIntersectionMiss(
-        "$label does not intersect the $(f==0.0 ? "nose" : "skin") inside wing ETA 0 to 1"))
+        "$label does not intersect the $(f==0.0 ? "nose" : "skin") inside lifting surface ETA 0 to 1"))
     length(unique_roots)==1 || throw(ArgumentError(
         "$label has multiple skin intersections with its angled plane. Adjust the rib angle or front-spar/planform geometry to avoid folded leading-edge bays"))
     eta = only(unique_roots)
@@ -293,7 +293,7 @@ function leading_edge_orientation_metadata(m::Model)
         record["eids"]=Int[];record["nodes"]=Int[]
     end
     for group in m.groups
-        group.pid==PID_LE_RIB || continue
+        component_base_pid(group.pid)==PID_LE_RIB || continue
         nn=group.kind==:tria ? 3 : 4
         for e in 1:n_elements(group)
             ids=group.conn[nn*(e-1)+1:nn*e]
@@ -315,7 +315,7 @@ function validate_oriented_le_elements(m::Model)
         all(get(record,"effective_mode","flight_direction")=="flight_direction" for record in leading_edge_stored_metadata(m))
     ordinary && return
     for group in m.groups
-        group.pid in (PID_LE_SKIN,PID_LE_RIB) || continue
+        component_base_pid(group.pid) in (PID_LE_SKIN,PID_LE_RIB) || continue
         for e in 1:n_elements(group)
             points = element_points(m,group,e)
             corners = length(points)==3 ? ((1,2,3),) : ((1,2,3),(2,3,4),(3,4,1),(4,1,2))
@@ -323,12 +323,12 @@ function validate_oriented_le_elements(m::Model)
             all(norm3(n)>1e-16*m.wing.chord_root^2 for n in normals) &&
                 all(sum(first(normals).*n)>0 for n in normals) || throw(ArgumentError(
                     "angled leading-edge shell EID $(group.eids[e]) is folded or collapsed. Adjust the rib angle, geometry, or mesh refinement"))
-            if group.pid==PID_LE_RIB
+            if component_base_pid(group.pid)==PID_LE_RIB
                 nn=group.kind==:tria ? 3 : 4
                 j=m.node_keys[group.conn[nn*(e-1)+1]][2]
                 plane=leading_edge_effective_rib_plane(m,j)
                 all(sum(n.*plane.normal)<0 for n in normals) || throw(ArgumentError(
-                    "$(leading_edge_row_label(m.grid,j)) reverses inside the wing; adjust its angle or the front-spar geometry"))
+                    "$(leading_edge_row_label(m.grid,j)) reverses inside the lifting surface; adjust its angle or the front-spar geometry"))
             end
         end
     end

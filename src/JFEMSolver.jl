@@ -2770,6 +2770,41 @@ function _recover_sol105_static_fields(model, id_map, X, node_R, u_static, snorm
     return out
 end
 
+"""Recover and cache SOL101-compatible fields from a solved SOL105 preload.
+
+This performs result recovery only: the retained displacement, force and
+stiffness states are reused without another equilibrium solve. Case-control
+output requests are applied by the exporter, leaving this raw cache reusable.
+"""
+function _sol105_static_results!(results, static_sid::Int)
+    states = get(results, "static_states", nothing)
+    states === nothing && return nothing
+    haskey(states, static_sid) || error("SOL105 has no static preload state $static_sid")
+    state = states[static_sid]
+    hasproperty(state, :recovery) && state.recovery !== nothing || return nothing
+    cache = get!(results, "static_results_by_subcase", Dict{Int,Any}())
+    return get!(cache, static_sid) do
+        recovery = state.recovery
+        residual = recovery.K * state.u_static - recovery.force
+        model = results["model"]
+        _, _, data = _with_active_temperature_material(model, state.temp_load_id) do
+            Solver._with_solver_thermal_state(model, state.temp_load_id, recovery.load_scale) do
+                Solver._build_results_from_state(length(state.u_static), model, state.id_map,
+                    state.X, state.node_R, state.u_static, residual, state.snorm_normals,
+                    deepcopy(recovery.diagnostics); active_load_id=recovery.load_id,
+                    active_load_scale=recovery.load_scale, spc_dofs=recovery.spc_dofs)
+            end
+        end
+        delete!(data, "raw_residual_analysis")
+        data["analysis_type"] = "SOL101_STATIC"
+        data["coordinate_frame"] = "BASIC_GLOBAL"
+        data["static_subcase_id"] = static_sid
+        data["source"] = "SOL105_PRELOAD"
+        data["solver_diagnostics"] = [Dict("sid"=>static_sid, "details"=>data["solver_diagnostics"])]
+        data
+    end
+end
+
 """Recover export-only shell fields once per preload, in its material context."""
 function _sol105_static_fields!(results, static_sid::Int)
     states = get(results, "static_states", nothing)
@@ -2982,6 +3017,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
 
     static_cache = Dict{Int, Any}()
     static_states = Dict{Int,Any}()
+    static_recovery_states = Dict{Int,Any}()
     kg_cache = Dict{Int,Any}()
     # Custom builders may depend on buckling-subcase identity. Diagnostic CSV
     # output also needs one assembly per subcase to preserve its rows.
@@ -3033,6 +3069,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         static_wall_seconds = 0.0
 
         if !haskey(static_cache, stat_sid)
+            recovery_state = Ref{Any}(nothing)
             sol105_static_cache_misses += 1
             println(">>> Solving static reference subcase $stat_sid (LOAD=$load_id, SPC=$spc_id_static)")
             K_static = K
@@ -3061,7 +3098,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                     K_static, ndof_static, model, id_map_static, X_static, load_id, spc_id_static, node_R_static;
                     max_elem_stiff=max_elem_stiff_static, rbe3_map=rbe3_map_static, snorm_normals=snorm_normals_static, orig_diag=orig_diag_static,
                     temp_load_id=temp_load_id_static, linear_cache=static_linear_solve_cache,
-                    build_results=false)
+                    build_results=false, recovery_state=recovery_state)
                 return u_static_analysis, fixed_dofs_static
             end
 
@@ -3140,7 +3177,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                             max_elem_stiff=max_elem_stiff_la, rbe3_map=rbe3_map_la,
                             snorm_normals=snorm_normals_la, orig_diag=orig_diag_la,
                             temp_load_id=temp_load_id_static, linear_cache=nothing,
-                            build_results=false)
+                            build_results=false, recovery_state=recovery_state)
                         u_static_analysis = u_la
                         fixed_dofs_static = fixed_la
                         K_static = K_la
@@ -3161,6 +3198,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                 id_map_static, X_static, ndof_static, node_R_static,
                 max_elem_stiff_static, rbe3_map_static, snorm_normals_static, orig_diag_static,
             )
+            static_recovery_states[stat_sid] = recovery_state[]
         else
             sol105_static_cache_hits += 1
         end
@@ -3177,7 +3215,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             (id_map=id_map_static, X=X_static, node_R=node_R_static,
              snorm_normals=snorm_normals_static, u_static=u_static,
              K=K_static, K_eig=K_eig_static, fixed_dofs=fixed_dofs_static,
-             temp_load_id=temp_load_id_static)
+             temp_load_id=temp_load_id_static, recovery=static_recovery_states[stat_sid])
         end
 
         t_kg = time_ns()

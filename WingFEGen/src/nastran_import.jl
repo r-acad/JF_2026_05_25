@@ -14,7 +14,7 @@ function imported_native(params::AbstractDict)
         # The complete native data remain on disk after import. Viewer payloads
         # already contain all properties/cases; only a backend operation needs
         # this second process's copy of the solver dictionary.
-        started=time();@info "Restoring cached imported native properties; no wing geometry is generated" path
+        started=time();@info "Restoring cached imported native properties; no lifting surface geometry is generated" path
         native=Serialization.deserialize(path)
         @info "Restored imported native properties" seconds=round(time()-started;digits=2)
         params["imported.native"]=imported_analysis_native(params,native)
@@ -272,7 +272,7 @@ function imported_mesh_payload(m)
             "source_properties"=>merge(Dict{String,Any}(el),Dict("WT_GROUPS"=>weights)),"source_definition"=>get(get(params,"imported.entity_sources",Dict()),Int(el["ID"]),Dict())))
     end
     merge!(rbe,Dict("count"=>length(refs),"refs"=>blob_i32(refs;offset=-1),"eids"=>blob_i32(eids),"lines"=>blob_i32(lines;offset=-1),"elements"=>elements))
-    emptyloads=Dict("stations"=>Any[],"force_stations"=>Any[],"moment_stations"=>Any[],"fuel_stations"=>Any[],"structure_stations"=>Any[],"method"=>"imported","load_application_version"=>IMPORTED_LOAD_VERSION,"note"=>"Original Nastran load cards are authoritative; not wing-generated aerodynamic loads.")
+    emptyloads=Dict("stations"=>Any[],"force_stations"=>Any[],"moment_stations"=>Any[],"fuel_stations"=>Any[],"structure_stations"=>Any[],"method"=>"imported","load_application_version"=>IMPORTED_LOAD_VERSION,"note"=>"Original Nastran load cards are authoritative; not generated aerodynamic loads.")
     cases=[merge(Dict{String,Any}(row),Dict("loads"=>get(get(params,"imported.loads",Dict()),row["id"],deepcopy(emptyloads)))) for row in params["imported.cases"]]
     source_card_count=sum(values(params["imported.inventory"]);init=0)
     unprocessed=get(params,"imported.unprocessed_cards",Any[])
@@ -344,7 +344,13 @@ function imported_connection_payload(native,index;source_entities=Dict())
                 entry=Dict("name"=>"IMPORTED_"*type,"card"=>type,"point_mass"=>key=="CONM2s","elements"=>Any[])
                 push!(result,entry);entry
             end
-            push!(collection["elements"],Dict("eid"=>el["ID"],"type"=>type,"nodes"=>[index[id]-1 for id in grids],"properties"=>properties))
+            record=Dict{String,Any}("eid"=>el["ID"],"type"=>type,"nodes"=>[index[id]-1 for id in grids],"properties"=>properties)
+            if key=="CELASs"
+                record["endpoints"]=imported_spring_endpoints(native,el,index)
+                properties["display_endpoints"]=record["endpoints"]
+                properties["display_note"]="Axis cylinders mark each spatial GRID/component in its local displacement coordinate system. Red/green/blue identify local axes 1/2/3 (also rotations 4/5/6). Cylinder size is symbolic, not a physical section. Scalar or unresolved components retain their topology markers."
+            end
+            push!(collection["elements"],record)
         end
     end
     result
@@ -458,6 +464,7 @@ function imported_results_payload(job)
         item["model_params"]=imported_public_params(m);item["imported_signature"]=m.params["imported.source"]["signature"]
         item["imported_analysis"]=get(m.params,"imported.analysis",imported_analysis_options())
         item["imported_analysis_signature"]=imported_analysis_signature(m)
+        startswith(atype,"SOL105") && attach_buckling_preload!(job,path,item,selected,item["static_subcase_id"])
         push!(cases,item)
     end
     payload=copy(first(cases));payload["load_cases"]=cases;payload["load_case_independent"]=false
@@ -479,9 +486,11 @@ function imported_case_result(data,sid,subs,ids)
         selected["modes"]=tagged ? filter(row->Int(row["buckling_subcase_id"])==sid&&Int(row["static_subcase_id"])==preload,modes) : modes
         states=get(data,"static_subcases",Any[])
         if !isempty(states)
+            delete!(selected,"static_displacements");delete!(selected,"static_result")
             matching=filter(row->get(row,"static_subcase_id",nothing)==preload,states)
             length(matching)==1||throw(ArgumentError("No unique native preload for subcase $preload"))
             selected["static_displacements"]=only(matching)["static_displacements"]
+            haskey(only(matching),"static_result") && (selected["static_result"]=only(matching)["static_result"])
         elseif length(ids)>1
             throw(ArgumentError("Native buckling results lack preload ownership"))
         end

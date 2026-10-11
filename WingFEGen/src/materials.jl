@@ -99,14 +99,14 @@ function bar_material_definition(p,pid)
     base=component_base_pid(pid)
     component=base==PID_STRINGER ? "stringer" : base==PID_SPAR_CAP ? "spar_cap" : base==PID_RIB_STIFFENER ? "rib_stiffener" :
         base==PID_STRINGER_RUNOUT ? "runout" : throw(ArgumentError("No bar material component for property $pid"))
-    override=panel_property_override(p,pid,"stringer")
+    override=merge(panel_property_override(p,pid,"stringer"),component_table_override(p,pid))
     return material_definition(p,Int(get(override,"material",material_assignment(p,component;shell=false)["material"])))
 end
 
 """PSHELL or explicit face/core/face PCOMP, with resolved physical-bay/rib total thickness."""
 function shell_material_definition(p,pid::Integer)
     component=shell_material_component(pid);assignment=component=="aero" ? default_shell_material(component) : material_assignment(p,component)
-    assignment=merge(assignment,panel_property_override(p,pid,"skin"))
+    assignment=merge(assignment,panel_property_override(p,pid,"skin"),component_table_override(p,pid))
     if assignment["kind"]=="monolithic"
         material=material_definition(p,Int(assignment["material"]));thickness=nominal_shell_thickness(p,pid)
         return Dict{String,Any}("type"=>"PSHELL","construction"=>"monolithic","thickness_m"=>thickness,
@@ -115,8 +115,15 @@ function shell_material_definition(p,pid::Integer)
     face=Float64(assignment["face_thickness"]);core=Float64(assignment["core_thickness"])
     family,index=divrem(pid,COMPONENT_PID_STRIDE)
     row=family==1 ? component_property_row(p,"properties.ribs",index) : family in (3,4) ? component_property_row(p,"properties.spar_bays",index) : Dict{String,Any}()
+    family==15&&(row=component_property_row(p,"properties.ribs",index);family=1)
+    family in (17,18)&&(family-=14;row=component_property_row(p,"properties.spar_bays",index))
     key=family==1 ? "thickness" : family==3 ? "front_thickness" : "rear_thickness"
-    haskey(row,key)&&(core=Float64(row[key])-2face)
+    localrow=component_table_override(p,pid)
+    if haskey(localrow,"core_thickness")
+        core=Float64(localrow["core_thickness"])
+    elseif haskey(row,key)
+        core=Float64(row[key])-2face
+    end
     core>0||throw(ArgumentError("$component property $pid sandwich total thickness must exceed twice the face thickness ($(2face) m); a rib/bay thickness override changes the core only"))
     face_material=material_definition(p,Int(assignment["face_material"]));core_material=material_definition(p,Int(assignment["core_material"]))
     thickness=2face+core
@@ -144,6 +151,12 @@ function validate_materials(p)
     for row in get(p,"properties.ribs",Any[]);haskey(row,"thickness")&&shell_material_definition(p,COMPONENT_PID_STRIDE+row["rib"]);end
     for row in get(p,"properties.spar_bays",Any[]), (field,family) in (("front_thickness",3),("rear_thickness",4))
         haskey(row,field)&&shell_material_definition(p,family*COMPONENT_PID_STRIDE+row["bay"])
+    end
+    for row in get(p,"properties.components",Any[])
+        part,indextext=split(row["key"],':');pid=component_table_family(part)*COMPONENT_PID_STRIDE+parse(Int,indextext)
+        if component_table_iscap(part)||part=="rib_stiffener"
+            bar_material_definition(p,pid);section_definition(p,pid)
+        else;shell_material_definition(p,pid);end
     end
     return nothing
 end

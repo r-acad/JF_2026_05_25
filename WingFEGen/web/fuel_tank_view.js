@@ -95,7 +95,7 @@
     const polygon = (points, cls) => `<polygon class="${cls}" points="${points.map(point => map(point).join(",")).join(" ")}"/>`;
     const line = (a, b, cls, attributes = "") => { const p = map(a), q = map(b); return `<line class="${cls}" x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}" ${attributes}/>`; };
     const text = (x, y, value, cls = "", attributes = "") => `<text x="${x}" y="${y}" class="${cls}" ${attributes}>${escape(value)}</text>`;
-    let svg = `<title>Fuel tank extent before FEM generation</title><desc>Untwisted right half-wing plan. Front and rear spar paths enclose the box. ${data.selection ? `Selected tank extends from physical rib ${data.first} to rib ${data.last}, ETA ${number(data.selection.etaStart)} to ${number(data.selection.etaEnd)}. ${data.enabled ? "Tank calculation is enabled." : "Tank calculation is off; the selected extent is retained."}` : "No valid fuel extent is shown until the rib selection and geometry are valid."}</desc>`;
+    let svg = `<title>Fuel tank extent before FEM generation</title><desc>Untwisted right half lifting surface plan. Front and rear spar paths enclose the box. ${data.selection ? `Selected tank extends from physical rib ${data.first} to rib ${data.last}, ETA ${number(data.selection.etaStart)} to ${number(data.selection.etaEnd)}. ${data.enabled ? "Tank calculation is enabled." : "Tank calculation is off; the selected extent is retained."}` : "No valid fuel extent is shown until the rib selection and geometry are valid."}</desc>`;
     svg += polygon(geometry.surfaceRight, "ftv-wing") + polygon(geometry.right, "ftv-box");
     if (data.selection){for(const region of data.selection.regions)svg += polygon(region.polygon, "ftv-tank" + (data.enabled ? "" : " ftv-tank-off"));
       for(const region of data.selection.dryRegions){svg+=polygon(region.polygon,"ftv-dry");const center=region.polygon.reduce((p,q)=>p.map((v,i)=>v+q[i]/region.polygon.length),[0,0,0]),p=map(center);svg+=text(p[0],p[1],region.last===region.first+1?`Dry ${region.first}`:`Dry ${region.first}–${region.last-1}`,"ftv-dry-label",'text-anchor="middle"');}}
@@ -127,7 +127,7 @@
     const section = doc.createElement("section");
     section.className = "fuel-tank-view";
     section.setAttribute("aria-label", "Live fuel tank extent");
-    section.innerHTML = '<h3>Tank extent</h3><p class="ftv-status" role="status" aria-live="polite"></p><div class="ftv-canvas"><svg id="fuel-tank-preview-svg" viewBox="0 0 580 250" role="img" aria-label="Live fuel tank span preview"></svg></div><div class="ftv-legend"><span><i class="front"></i>Front spar</span><span><i class="rear"></i>Rear spar</span><span><i class="tank"></i>Wet fuel bays</span><span><i class="dry"></i>Dry / vent bays</span></div><p class="ftv-error" role="status" aria-live="polite" hidden></p><p class="ftv-note">Untwisted half-wing plan; numbered ribs are physical ribs, independent of FE subdivisions. Create FEM to calculate volume.</p>';
+    section.innerHTML = '<h3>Tank extent</h3><p class="ftv-status" role="status" aria-live="polite"></p><div class="ftv-canvas"><svg id="fuel-tank-preview-svg" viewBox="0 0 580 250" role="img" aria-label="Live fuel tank span preview"></svg></div><div class="ftv-legend"><span><i class="front"></i>Front spar</span><span><i class="rear"></i>Rear spar</span><span><i class="tank"></i>Wet fuel bays</span><span><i class="dry"></i>Dry / vent bays</span></div><p class="ftv-error" role="status" aria-live="polite" hidden></p><p class="ftv-note">Untwisted half lifting surface plan; numbered ribs are physical ribs, independent of FE subdivisions. Create FEM to calculate volume.</p>';
     host.appendChild(section);
     const status = section.querySelector(".ftv-status"), error = section.querySelector(".ftv-error");
     const canvas = section.querySelector(".ftv-canvas"), svg = section.querySelector("svg");
@@ -139,7 +139,7 @@
       if (destroyed) return null;
       let data;
       try { data = derive(readValues()); }
-      catch (exception) { data = {valid: false, drawable: false, error: exception.message || "Complete the tank and wing inputs to preview the extent."}; }
+      catch (exception) { data = {valid: false, drawable: false, error: exception.message || "Complete the tank and lifting surface inputs to preview the extent."}; }
       error.hidden = data.valid;
       error.textContent = data.error || "";
       canvas.hidden = !data.drawable;
@@ -153,8 +153,8 @@
       if (data.selection) {
         const s = data.selection;
         status.textContent = `${data.enabled ? "Tank" : "Tank off · selected extent"}: ribs ${s.first}–${s.last} of ${data.ribCount} · ${s.bays} ${s.dryBays.length?"wet bays · "+s.dryBays.length+" dry / vent bays":s.bays===1?"bay":"bays"}. ETA ${number(s.etaStart)}–${number(s.etaEnd)} · ${number(s.spanMetres)} m projected span.${s.bays===0?" All selected bays are dry: zero fuel capacity.":""}`;
-      } else status.textContent = data.ribCount ? `${data.ribCount} physical ribs · complete a valid tank range to show its extent.` : "Complete the wing and rib geometry to show the tank extent.";
-      note.textContent = "Untwisted half-wing plan; numbered ribs are physical ribs, independent of FE subdivisions. " +
+      } else status.textContent = data.ribCount ? `${data.ribCount} physical ribs · complete a valid tank range to show its extent.` : "Complete the lifting surface and rib geometry to show the tank extent.";
+      note.textContent = "Untwisted half lifting surface plan; numbered ribs are physical ribs, independent of FE subdivisions. " +
         (data.sampledRibs ? "Intermediate rib lines are sampled for clarity; selected boundaries are exact. " : "") +
         (data.selection?.ignored.length?"Dry-bay exclusions outside the selected tank range are retained and ignored: "+data.selection.ignored.join(", ")+". ":"")+"Dry / vent bays contribute no fuel volume, mass, inertia or loads. Create FEM to calculate volume.";
       return data;

@@ -351,7 +351,7 @@ function reportValue(value) {
 
 const CASE_FIELDS = [
   ["method", "Load method", "loads.method"],
-  ["lift_total", "Half-wing lift (N)", "loads.lift_total", "analytic"],
+  ["lift_total", "Half lifting-surface lift (N)", "loads.lift_total", "analytic"],
   ["distribution", "Lift distribution", "loads.distribution", "analytic"],
   ["speed", "Air speed (m/s)", "aero.speed", "vortex_lattice"],
   ["density", "Air density (kg/m³)", "aero.density", "vortex_lattice"],
@@ -384,7 +384,7 @@ const HELP_TOPICS = {
     "A rib that misses the aerodynamic surface uses flight direction automatically. Its requested setting stays saved so later geometry edits can restore it. Red geometry and red result outlines identify fallbacks; the form and log report the affected ribs. Crossing or folded ribs still require editing. Leading-edge bays and bounds use the physical rib numbers from Structure > Ribs."
   ]},
   "Weights": { title: "Component masses and fuel", paragraphs: [
-    "This tab reports the modeled half wing from its root to the final structural rib, in kilograms and newtons. Dry structure includes both skins, spar and rib webs, T stringers, square spar caps and fixed-area runout connectors. Each skin total includes its runout triangles.",
+    "This tab reports the modeled half lifting surface from its root to the final structural rib, in kilograms and newtons. Dry structure includes both skins, spar and rib webs, T stringers, square spar caps and fixed-area runout connectors. Each skin total includes its runout triangles.",
     "Shell mass is the projected FE midsurface area times its PSHELL thickness and MAT1 density. Quad area follows the native JFEM shell-mass plane, so warped quads do not depend on the viewer triangulation. Bar mass uses the PBARL or PBAR area times its effective CBAR length and the same material density. Equal end offsets preserve this length. Overlapping modeled members are counted as their FE properties specify.",
     "Enable and bound the tank in Fuel tank, set density here, and define Fuel status (0–100%) in each load case. The default 800 kg/m³ is an editable assumption. Each bay fills upward to its own horizontal global-Z level. Its CONM2 stores actual mass, CG offset and inertia and connects through a separate six-DOF fuel RBE3. Structure, equipment and unusable fuel are not deducted from capacity.",
     "RBE3 constraints, local reference geometry and the displayed aerodynamic/VLM meshes have no material mass. If optional aero-shell FE cards are exported, their mass appears separately in Exported FE deck. They remain unconnected to the structure. Weight in newtons uses standard gravity 9.80665 m/s²; this is a report, not an applied gravity load.",
@@ -403,14 +403,14 @@ const HELP_TOPICS = {
     "Enter Young's modulus in GPa, for example 71 for aluminium with E = 71000000000 Pa. The interface converts it to Pa for calculations, input-file storage and MAT1 export. Density remains kg/m3; Poisson's ratio is dimensionless.",
   ] },
   workflow: { title: "Build, load and solve", paragraphs: [
-    "1. Use Geometry and Model to define the wing and mesh. Create FEM is in Mesh, or beside Live mesh when automatic updates are disabled. Model → Properties groups Skins, Stringers, Ribs, Spars and Leading Edge. Materials defines the library; each component selects its material or shell sandwich construction in Properties. Ribs provides web thickness and vertical T stiffeners per physical rib. Spars provides square spar caps and optional web thickness per bay. Summary groups Mass properties and General. Supports defaults to the main-box root perimeter in DOFs 1,2,3; Custom supports select other rib intersections and DOFs.",
+    "1. Use Geometry and Model to define the lifting surface and mesh. Create FEM is in Mesh, or beside Live mesh when automatic updates are disabled. Model → Properties groups Skins, Stringers, Ribs, Spars and Leading Edge. Materials defines the library; each component selects its material or shell sandwich construction in Properties. Ribs provides web thickness and vertical T stiffeners per physical rib. Spars provides square spar caps and optional web thickness per bay. Summary groups Mass properties and General. Supports defaults to the main-box root perimeter in DOFs 1,2,3; Custom supports select other rib intersections and DOFs.",
     "Planform shows a live drawing beside its definition. The dashed outline is the base trapezoid; the solid outline follows the aerodynamic leading- and trailing-edge perturbation points. Add points in either table, edit their eta and ?x/c, or drag them on the drawing. Eta runs from root 0 to tip 1. ?x/c is an offset from the selected nominal edge: 0 is unchanged, +0.2 moves aft by 20% of the local base chord and -0.2 moves forward by 20%. Straight segments join the points; unedited endpoints stay on the base outline. The normalized coordinates stay fixed when you change the base trapezoid. Edge points change the shared aerodynamic and structural outer surface, including skin/nose geometry, spar heights and fuel volume. Spar reference paths retain their separate base-trapezoid coordinates. Plan View in the top bar opens a separate browser tab with dimensions, spars and physical ribs; move that tab to another monitor to watch live changes. Drag or use the wheel to move or zoom the drawing and background together. Hold Ctrl (Cmd on Mac) to adjust only the background image. Fit view restores the overall view while keeping image alignment. Study and TOML saves retain the embedded image, its alignment and the view placement.",
     "Spars has a separate live drawing and point tables for the front and rear spars. Spar points use eta and ?x/c offsets from their scalar Front spar or Rear spar locations, independently of aerodynamic edges. Zero follows the nominal spar, and positive/negative values shift aft/forward by that fraction of the base chord. Legacy absolute xc records load without moving the geometry. Points at eta 0 or 1 replace the normal endpoint; other unspecified endpoints use the Front spar and Rear spar values. Both spars must stay inside the refined surface over the modeled box, with the front ahead of the rear. Spar kinks change the structural box, caps, runouts and tank boundaries. Spar reference paths use the base trapezoid, while the structural skin, nose and spar heights follow the refined airfoil loft. Extra kink mesh rows do not add physical ribs.",
     "Each rear-spar point has a Stringer angle in degrees, default 0, measured from the rear-spar segment arriving from the previous point (or the root). Stringers follow continuous piecewise paths and may kink at those stations. The final segment to the tip reuses the last angle relative to its own rear-spar segment. With rear points present, these values replace the hidden global stringer angle. Removing every rear point restores the global angle. A point at the root has no incoming segment; its angle is used only when it is the sole rear point.",
     "Structure groups Spars, Ribs and Leading Edge in separate forms. Leading Edge contains Pylon / leading-edge gaps. Enter excluded physical bay numbers or ranges, for example 2,4-6, or check numbered bays. Bay b spans ribs b and b+1. Exclusions outside the selected leading-edge rib range remain saved but are ignored; excluding all selected bays produces no leading-edge mesh. The Mesh lock protects the gap definition.",
-    "Lock Planform protects the base wing geometry, aerodynamic edge points and airfoils; Lock Mesh protects spar points, box layout, subdivisions and RBE3/support parameters. Use both locks to keep geometry and meshing inputs fixed while editing material or property tables. Blank property-table cells inherit the defaults. Study and TOML saves retain all panel, rib and spar-bay overrides; Studies also retain the editing locks.",
+    "Lock Planform protects the base lifting-surface geometry, aerodynamic edge points and airfoils; Lock Mesh protects spar points, box layout, subdivisions and RBE3/support parameters. Use both locks to keep geometry and meshing inputs fixed while editing material or property tables. Blank property-table cells inherit the defaults. Study and TOML saves retain all panel, rib and spar-bay overrides; Studies also retain the editing locks.",
     "2. Open Cases under Loads. Name each case and choose Prescribed lift, or Aerodynamic (VLM) to compute loads from speed, density and angle of attack. Add or duplicate cases to compare conditions. VLM controls the shared aerodynamic mesh.",
-    "3. Open VLM for Mesh, Pressure (Pa) and Cp views and transferred forces/moments. Choose Linear static (101), Buckling (105), or Nonlinear comparison (106 + 101) in Analysis and press Run in JFEM; all included cases are solved. Results, the written Deck and the Log each have their own tab. Normal modes (103) use no applied loads.",
+    "3. Open Loads ? Aerodynamics ? Visualization for Mesh, Pressure (Pa) and Cp views and transferred forces/moments. Buckling results include the corresponding SOL101 preload as a separate analysis. Choose Linear static (101), Buckling (105), or Nonlinear comparison (106 + 101) in Analysis and press Run in JFEM; all included cases are solved. Results, the written Deck and the Log each have their own tab. Normal modes (103) use no applied loads.",
     "Save Study and Load Study in the top header use a portable .wingfem.json file containing parameters, load cases, embedded 3D references, display options and camera/panel settings. Load Study offers recent projects and a Browse action. Open latest disk file reads the current file; Open stored copy restores its last saved or loaded snapshot. Results stay in their analysis folders. Loading regenerates the mesh; run the analysis for fresh results from Analysis → Run in JFEM. New Study starts from the application defaults without writing a file.",
     "Display starts with Axes & labels: show shell x directions, bar axes, node IDs and element IDs there. Beam sections switches between lines and full 3D sections. Left-click the model to center without changing view direction; in Inspect or measurement mode, the click performs that tool's action instead. Middle-click a node to center precisely, drag to orbit, right-drag to pan and wheel to zoom. Top points global +X downwards. Notes opens the modification-intent field; Save Study records changed notes with their save time.",
     "Drag the boundary beside the options pane to change its width. Focus the boundary and use Left/Right arrows for fine adjustment, Shift for larger steps, or Home/End for the limits. The 2D geometry and structure tabs, Deck and Log offer Maximize and Restore. In 2D drawings, drag a handle to edit geometry; drag elsewhere or middle-drag to pan. Wheel to zoom; hold Alt for fine adjustment. Ctrl/Cmd moves or scales only the reference image. Image settings controls its scale and opacity. White background toggles the drawing sheet; Export SVG downloads the visible drawing with its embedded image. Study and TOML retain all 2D drawing images, alignment, grids, snapping and dimensions. Enable Snap to points and/or lines when measuring. After selecting two distance anchors or three angle anchors, move the mouse to place the annotation and click once more to finish; Escape cancels the unfinished dimension.",
@@ -420,25 +420,25 @@ const HELP_TOPICS = {
   ] },
   "Load cases": { title: "Define load cases", paragraphs: [
     "Each named case is a separate loading condition on the same structural model. Select a case to edit it. Add creates a new case using case 1 as a starting point; Duplicate copies the selected case. All values in new cases are independent.",
-    "Prescribed lift: enter the total lift on this half wing and choose its spanwise distribution. Aerodynamic (VLM): enter air speed, density and angle of attack; the solver uses the wing camber, sweep, twist and dihedral to compute lift and induced drag.",
+    "Prescribed lift: enter the total lift on this half lifting surface and choose its spanwise distribution. Aerodynamic (VLM): enter air speed, density and angle of attack; the solver uses the lifting-surface camber, sweep, twist and dihedral to compute lift and induced drag.",
     "Added y torque is a total couple about global y, distributed to the RBE3 centers. Positive follows the right-hand rule. Load multiplier defaults to 1.5 to convert limit loads to ultimate loads, provided the prescribed lift or VLM flight condition already represents limit loading. It scales forces and moments together; a negative value reverses them. It does not calculate an aircraft maneuver load factor.",
     "Aerodynamic forces and moments, including added torque, act at the external-load RBE3 centers on rib planes. Fuel and structural inertia forces and moments act at mid-bay mass RBE3 centers. If there are no fuel references, massless bay RBE3s use the same rib-to-skin attachments without adding mass. Transferring a force adds its lever-arm moment so the full force and moment resultant is preserved. Tip overhang loads therefore create a moment at the last rib. Display > Entities > Applied moments shows these moments; inspect either RBE3 family or its reference GRID for signed source contributions. The Log reports transfer checks and the terminal moment breakdown.",
     "To enable follower forces: open Cases, select the case under Case to edit, and check Follower forces (SOL101 / SOL106). Repeat for other cases as needed. In Analysis choose Linear static (101) or Nonlinear comparison (106 + 101), then Run in JFEM. The checkbox and status below it show the selected case's setting; study and TOML files preserve it.",
-    "SOL106 rotates each station's FORCE direction with its rotation vector; SOL101 retains the first-order load stiffness about zero rotation. Mass inertia forces and all applied moments remain fixed in global axes. VLM pressures are generated once on the undeformed wing. Turning Follower forces off keeps all loads fixed. Normal modes (103) ignores applied loads, and follower forces are not supported for Buckling (105).",
+    "SOL106 rotates each station's FORCE direction with its rotation vector; SOL101 retains the first-order load stiffness about zero rotation. Mass inertia forces and all applied moments remain fixed in global axes. VLM pressures are generated once on the undeformed lifting surface. Turning Follower forces off keeps all loads fixed. Normal modes (103) ignores applied loads, and follower forces are not supported for Buckling (105).",
     "The first case is always included. Extra cases can be excluded without deleting their values. Imported inputs may inherit fields from case 1: these show the effective value and a From case 1 note until edited.",
     "Live mesh applies edits to the loads and their display automatically. Create FEM also updates on demand. Run in JFEM solves all included cases in Linear static, Nonlinear comparison or Buckling analysis. The Display and Results case selectors inspect generated cases; this editor defines their inputs.",
   ] },
   "VLM settings": { title: "What VLM settings control", paragraphs: [
     "Magenta arrows at VLM quad centers show signed panel-normal pressure force: pressure jump times panel area. Tangential and induced-drag components remain in the full resultant transferred to the RBE3s. Arrow length multiplier changes only drawn size, using a common metres-per-newton scale across cases. Load plots provides the spanwise distributions.",
     "The VLM tab defines a shared aerodynamic lattice for every case whose load method is Aerodynamic (VLM). Define the flight conditions in the Cases tab. Prescribed-lift cases do not use this lattice.",
-    "Span and chord panels control the aerodynamic resolution, independently of the structural shell mesh. The vortex lattice lies on the wing camber surface. Increase the resolution and compare loads to check convergence.",
+    "Span and chord panels control the aerodynamic resolution, independently of the structural shell mesh. The vortex lattice lies on the lifting-surface camber surface. Increase the resolution and compare loads to check convergence.",
     "Once the model updates, use Aerodynamic view below: choose a load case, then Mesh, Pressure (Pa) or Cp. Hide VLM removes the lattice and contour. The force/moment switches show loads transferred to RBE3 centers. The same controls remain available in Display. Fully solid skins can hide the camber sheet; use Translucent or hide a skin to see internal panels.",
     "Pressure and Cp are lower-minus-upper jumps, not separate upper/lower surface pressures. Cp divides the pressure difference by dynamic pressure.",
     "VortexLattice.jl models steady attached flow and induced drag, with a Prandtl?Glauert transformation for subsonic compressibility through Mach 0.5. It does not model shocks, stall, viscous drag or aeroelastic feedback. Forces and moments transfer to rib RBE3 centers preserving total force and moment.",
   ] },
   "Beam sections": { title: "Stringers and spar caps", paragraphs: [
     "The two section cards show proportional cross sections as you edit the dimensions, including dimension arrows, centroid, area, skin contact and local axes. Inputs use metres; the drawing labels use millimetres. Invalid dimensions clear the preview until corrected.",
-    "Stringers use T sections. Define the flange width, total height, flange thickness and web thickness in metres. The flange lies against the skin and the web points into the wing box. Spar caps use solid square sections, defined by side length.",
+    "Stringers use T sections. Define the flange width, total height, flange thickness and web thickness in metres. The flange lies against the skin and the web points into the lifting-surface box. Spar caps use solid square sections, defined by side length.",
     "These dimensions determine the PBARL properties written to NASTRAN and the 3D shapes. Use Display → Beam sections → Full 3D sections to inspect their orientation. The shapes use the physical dimensions without display enlargement.",
     "The section surface lies at the skin and its profile extends into the box, with the same offsets used in the deck. Runout bars retain their prescribed area of 0.001 m² and are displayed as lines. Skin local x follows the stringers; rib shell x stays horizontal in the rib plane, signed toward global +X, including angled leading-edge ribs. The element connectivity may have a different first-edge direction.",
   ] },
@@ -497,7 +497,7 @@ function parameterModelValue(key, value) {
   return key === "material.E" ? Number((value * 1e9).toPrecision(15)) : value;
 }
 
-const JSON_TABLE_KINDS = new Set(["planformpoints","masterribs","riborientations","airfoilstations","supportsets","ribproperties","sparproperties","panelproperties","materials","shellmaterials","barmaterials"]);
+const JSON_TABLE_KINDS = new Set(["planformpoints","masterribs","riborientations","airfoilstations","supportsets","ribproperties","sparproperties","panelproperties","componentproperties","materials","shellmaterials","barmaterials"]);
 function parameterRow(spec, values) {
   const unitText = spec.key === "material.E" ? "GPa" : spec.unit;
   const helpText = spec.key === "material.E" ? "Young's modulus in GPa: 71 GPa = 71000000000 Pa. Calculations, saved inputs and NASTRAN use Pa." : spec.help;
@@ -528,10 +528,10 @@ function parameterRow(spec, values) {
 const WORKSPACE_TABS = [
   ["Geometry", "planform", "Planform"], ["Geometry", "airfoils", "Airfoils"], ["Geometry", "box", "Spars"], ["Geometry", "ribs", "Ribs"],
   ["Geometry", "leadingedge", "Leading Edge"], ["Geometry", "fuel", "Fuel tank"],
-  ["Model", "mesh", "Structural Mesh"], ["Model", "vlmmesh", "VLM"], ["Model", "material", "Materials"], ["Model", "shells", "Skins"],
+  ["Model", "mesh", "Structural Mesh"], ["Model", "material", "Materials"], ["Model", "shells", "Skins"],
   ["Model", "sections", "Stringers"], ["Model", "ribproperties", "Ribs"], ["Model", "sparproperties", "Spars"], ["Model", "leproperties", "Leading Edge"], ["Model", "supports", "Supports"],
   ["Summary", "weights", "Mass properties"], ["Summary", "summary", "General"],
-  ["Loads", "cases", "Cases"], ["Loads", "vlm", "Aerodynamics"], ["Loads", "loadplots", "Load plots"], ["Loads", "sensitivity", "Sensitivity"],
+  ["Loads", "cases", "Cases"], ["Loads", "vlm", "Visualization"], ["Loads", "vlmmesh", "VLM settings"], ["Loads", "loadplots", "Load plots"], ["Loads", "sensitivity", "Sensitivity"],
   ["Solve", "analysis", "Analysis"], ["Solve", "results", "FE Results"], ["Solve", "sensitivityresults", "Sensitivity"], ["Solve", "deck", "Deck"], ["Solve", "log", "Log"],
   ["View", "display", "Entities"], ["View", "displayproperties", "Properties"], ["View", "displayappearance", "Appearance"], ["View", "displaylabels", "Axes & labels"], ["View", "displayenvironment", "Environment"], ["View", "displaymass", "Mass properties"], ["View", "reference", "Reference"], ["View", "inspect", "Inspect"],
 ];
@@ -549,13 +549,13 @@ const PROPERTY_TABS = new Set(["shells", "sections", "ribproperties", "sparprope
 const SUMMARY_TABS = new Set(["weights", "summary"]);
 const WORKSPACE_MENUS = {
   structure:{tabs:new Set(["box","ribs","leadingedge"]),current:"box",label:"Structure"},
-  meshing:{tabs:new Set(["mesh","vlmmesh"]),current:"mesh",label:"Mesh"},
+  aerodynamics:{tabs:new Set(["vlm","vlmmesh"]),current:"vlm",label:"Aerodynamics"},
   properties:{tabs:PROPERTY_TABS,current:"shells",label:"Properties"},
   overview:{tabs:SUMMARY_TABS,current:"weights",label:"Summary"},
   resultsmenu:{tabs:new Set(["results","sensitivityresults"]),current:"results",label:"Results"},
   displaymenu:{tabs:new Set(["display","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"]),current:"display",label:"Display"},
 };
-const WORKSPACE_MAIN_TABS = WORKSPACE_TABS.filter(([,id]) => !["sections","ribproperties","sparproperties","leproperties","summary","ribs","leadingedge","vlmmesh","sensitivityresults","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"].includes(id)).map(tab => tab[1] === "box" ? ["Geometry","structure","Structure"] : tab[1] === "mesh" ? ["Model","meshing","Mesh"] : tab[1] === "shells" ? ["Model", "properties", "Properties"] : tab[1] === "weights" ? ["Summary","overview","Summary"] : tab[1] === "results" ? ["Solve","resultsmenu","Results"] : tab[1] === "display" ? ["View","displaymenu","Display"] : tab);
+const WORKSPACE_MAIN_TABS = WORKSPACE_TABS.filter(([,id]) => !["sections","ribproperties","sparproperties","leproperties","summary","ribs","leadingedge","vlmmesh","sensitivityresults","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"].includes(id)).map(tab => tab[1] === "box" ? ["Geometry","structure","Structure"] : tab[1] === "vlm" ? ["Loads","aerodynamics","Aerodynamics"] : tab[1] === "shells" ? ["Model", "properties", "Properties"] : tab[1] === "weights" ? ["Summary","overview","Summary"] : tab[1] === "results" ? ["Solve","resultsmenu","Results"] : tab[1] === "display" ? ["View","displaymenu","Display"] : tab);
 const parentTab = id => Object.keys(WORKSPACE_MENUS).find(key=>WORKSPACE_MENUS[key].tabs.has(id));
 
 function closeWorkspaceMenu(id, focus = false) {
@@ -1047,7 +1047,7 @@ function buildLoadCaseEditor() {
     }
     if (key === "method") {
       const note = document.createElement("p"); note.className = "case-method-note";
-      note.textContent = current.method === "vortex_lattice" ? "Computes loads from these flight conditions using the wing camber surface. Set the shared resolution in the VLM tab." : "Distributes the prescribed half-wing lift to the RBE3 centers; no aerodynamic solve is needed.";
+      note.textContent = current.method === "vortex_lattice" ? "Computes loads from these flight conditions using the lifting-surface camber surface. Set the shared resolution in Aerodynamics ? VLM settings." : "Distributes the prescribed half lifting-surface lift to the RBE3 centers; no aerodynamic solve is needed.";
       host.appendChild(note);
     }
   }
@@ -1117,7 +1117,7 @@ function formSignature(params) {
       const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof value==="object"?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value;
       return [s.key,canonical([...rows].sort((a,b)=>String(a.component??a.id).localeCompare(String(b.component??b.id))))];
     }
-    if(s.kind==="panelproperties"){
+    if(["panelproperties","componentproperties"].includes(s.kind)){
       const value=params?params[s.key]||[]:JSON.parse(document.getElementById("p-"+s.key).value||"[]");
       const rows=typeof value==="string"?JSON.parse(value):value;
       const canonical=v=>Array.isArray(v)?v.map(canonical):v&&typeof v==="object"?Object.fromEntries(Object.keys(v).sort().map(key=>[key,canonical(v[key])])):v;
@@ -1399,7 +1399,7 @@ function readSurfacePreviewParams(module) {
 function installDimensionedPlanView() {
   if (typeof WingPlanViewWindow === "undefined") return;
   if (!state.planView) state.planView = WingPlanViewWindow.connect({
-    readValues: () => state.importedDeck ? {_unavailable:"The current Study is an imported Nastran deck. Its original GRID coordinates are shown in the 3D viewport; a generated-wing planform does not apply."} : readSurfacePreviewParams(WingDimensionedPlanView),
+    readValues: () => state.importedDeck ? {_unavailable:"The current Study is an imported Nastran deck. Its original GRID coordinates are shown in the 3D viewport; a generated lifting-surface planform does not apply."} : readSurfacePreviewParams(WingDimensionedPlanView),
     onChange() { state.values["view.plan_view"] = JSON.stringify(state.planView.capture()); markStudyViewModified(); },
     onError(message) { meshStatus(message, "error"); },
   });
@@ -1421,9 +1421,10 @@ function installPanelTables(){
   if(typeof WingPanelTables==='undefined')return;
   if(!state.panelTables)state.panelTables=WingPanelTables.connect({
     readSnapshot:()=>({parameters:collectParams(),panels:state.data?.stiffened_panels?.panels||[],
+      ribs:state.data?.annotations?.ribs||[],readOnly:!!state.importedDeck,
       layout_token:state.data?.stiffened_panels?.layout_token,modelDirty:state.modelDirty,
       busy:state.workspaceBusy||state.loadingInput,updating:state.meshRequestInFlight}),
-    onEdit:(key,rows)=>{const input=document.getElementById('p-'+key);if(!input)throw Error('Restart WingFEGen and refresh to load the panel-property schema.');input.value=JSON.stringify(rows);parameterEdited(key);},
+    onEdit:(key,rows)=>{const input=document.getElementById('p-'+key);if(!input)throw Error('Restart Lifting surface FEGen and refresh to load the panel-property schema.');input.value=JSON.stringify(rows);parameterEdited(key);},
     onDraftChange:pending=>{
       if(pending){markStudyModified();cancelAutoMeshTimer();}
       else if(state.autoMeshPending){state.autoMeshDueAt=performance.now()+AUTO_MESH_DELAY_MS;scheduleAutoMesh();}
@@ -1508,7 +1509,7 @@ function syncManualMeshAction() {
 
 function collectParams({includeView = false} = {}) {
   if(state.importedDeck)return {model_kind:'nastran',imported_deck:{token:state.importedDeck.token,signature:state.importedDeck.signature,analysis:WingImportedAnalysis.options(state.importedDeck.source?.analysis)}};
-  if(state.data?.imported_deck)throw Error('Imported deck identity is unavailable. Read the deck or reopen its Study; a generated wing will not be substituted.');
+  if(state.data?.imported_deck)throw Error('Imported deck identity is unavailable. Read the deck or reopen its Study; a generated lifting surface will not be substituted.');
   state.panelTables?.assertValidDraft?.();
   state.parameterLocks?.enforce();
   state.planformInputs?.assertValidDraft();
@@ -2132,7 +2133,7 @@ function installSensitivity() {
         panels:current?state.data?.stiffened_panels?.panels||[]:[]};
     },onError:message=>log(message,"error")});
     state.sensitivityTables.installButton(document.getElementById("sensitivity-csv").parentElement);
-    const button=document.createElement("button");button.id="sensitivity-open-data-table";button.type="button";button.className="mini";button.textContent="Open data table ↗";
+    const button=document.createElement("button");button.id="sensitivity-open-data-table";button.type="button";button.className="mini panel-table-open";button.textContent="Open data table ↗";
     button.onclick=()=>state.sensitivityTables.open();document.getElementById("sensitivity-map-actions").append(button);
   }
   document.getElementById("sensitivity-map-show").onclick=()=>showSensitivityMapSelection();
@@ -2200,9 +2201,9 @@ function refreshSensitivityMapCard(){
   const fieldMode=document.getElementById("sensitivity-map-mode").value==="field";
   for(const id of ["sensitivity-property-row","sensitivity-change-row","sensitivity-metric-row"])document.getElementById(id).hidden=fieldMode;
   for(const id of ["sensitivity-field-row","sensitivity-field-quantity-row","sensitivity-visible-row"])document.getElementById(id).hidden=!fieldMode;
-  document.getElementById("sensitivity-map-summary").textContent=(historical?"Historical run · ":"")+(result.case_label||"Case "+(result.case_id||result.request?.case_id||""))+" · "+WingSensitivityResults.objectiveLabel(result)+" · baseline "+eng(base.value,6)+" "+(base.unit||"");
+  document.getElementById("sensitivity-map-summary").textContent=(historical?"Historical run · ":"")+(result.case_label||"Case "+(result.case_id||result.request?.case_id||""))+" · "+WingSensitivityResults.objectiveLabel(result)+" · baseline "+WingSensitivityResults.format(base.value)+" "+(base.unit||"");
   const estimate=document.getElementById("sensitivity-map-estimate");
-  estimate.textContent=effect.valid?"Predicted response change: "+eng(effect.deltaResponse,6)+" "+effect.responseUnit+(effect.percentOfBaseline!==null?" ("+eng(effect.percentOfBaseline,4)+"%)":"")+" · predicted response: "+eng(effect.predictedResponse,6)+" "+effect.responseUnit+" · first-order estimate.":effect.reason;
+  estimate.textContent=effect.valid?"Predicted response change: "+WingSensitivityResults.format(effect.deltaResponse)+" "+effect.responseUnit+(effect.percentOfBaseline!==null?" ("+WingSensitivityResults.format(effect.percentOfBaseline)+"%)":"")+" · predicted response: "+WingSensitivityResults.format(effect.predictedResponse)+" "+effect.responseUnit+" · first-order estimate.":effect.reason;
   let fieldError="";
   if(fieldMode){try{const c=selectedSensitivityField();estimate.textContent=c.field.rows.length+" property derivatives mapped onto "+c.byId.size+" elements. "+c.note;}catch(error){fieldError=error.message;estimate.textContent=fieldError;}}
   const show=document.getElementById("sensitivity-map-show");show.textContent=fieldMode?"Show sensitivity field":"Show property effect on model";
@@ -2442,7 +2443,7 @@ async function saveModelDefinition({saveAs=false} = {}) {
     // serialize above validates the current sensitivity setup independently.
     if(!state.importedDeck){
       const response = await postParams("/api/validate_workspace", params);
-      if (response.status === 404) throw new Error("Portable model files need the updated server. Restart WingFEGen and refresh.");
+      if (response.status === 404) throw new Error("Portable model files need the updated server. Restart Lifting surface FEGen and refresh.");
       if (!response.ok) throw new Error(await readError(response));
       validated = await response.json();
     }
@@ -2594,7 +2595,7 @@ async function loadModelDefinition(file, options = {}) {
     if (parametersOnly) {
       let parameters;
       if (options.newStudy) {
-        if (!state.defaults) throw new Error("New Study requires the updated server. Restart WingFEGen and refresh.");
+        if (!state.defaults) throw new Error("New Study requires the updated server. Restart Lifting surface FEGen and refresh.");
         parameters=JSON.parse(JSON.stringify(state.defaults));
       } else if (options.serverInput) {
         const response=await fetch("/api/input",{cache:"no-store"});
@@ -2631,7 +2632,7 @@ async function loadModelDefinition(file, options = {}) {
       staged = await state.reference.stagePortable(items, definition.view.reference, {linked:parametersOnly});
       const importRequest=options.importRequest || definition.model_source;
       const response = await postParams(importRequest ? "/api/import_nastran" : "/api/prepare_workspace", importRequest || definition.parameters, token);
-      if (response.status === 404) throw new Error("Portable model files need the updated server. Restart WingFEGen and refresh.");
+      if (response.status === 404) throw new Error("Portable model files need the updated server. Restart Lifting surface FEGen and refresh.");
       if (!response.ok) throw new Error(await readError(response));
       const transferStarted=performance.now();
       if(importRequest)activity()?.update(token,{detail:"Receiving the complete deck geometry. The previous model stays visible until the new model is ready."});
@@ -2770,7 +2771,7 @@ function syncImportedModelMode(disabled=false) {
   for(const id of ["btn-create","btn-save","btn-save-toml","btn-view-toml","btn-open-plan-view"]){
     const button=document.getElementById(id);if(!button)continue;
     if(!button.dataset.generatedTitle)button.dataset.generatedTitle=button.title||"";
-    button.disabled=!!imported||disabled;button.title=imported?"This action applies to generated wings. The imported deck is authoritative; use Write deck or Save Study to export it.":button.dataset.generatedTitle;
+    button.disabled=!!imported||disabled;button.title=imported?"This action applies to generated lifting surfaces. The imported deck is authoritative; use Write deck or Save Study to export it.":button.dataset.generatedTitle;
   }
   const analysisNote=document.querySelector('#panel-analysis-actions > .pick-note');
   if(analysisNote){analysisNote.dataset.generatedNote??=analysisNote.textContent;analysisNote.textContent=imported?'Choose the imported-deck solution below. Source geometry, properties, loads and supports are retained. Solver progress is shown in Log.':analysisNote.dataset.generatedNote;}
@@ -3031,7 +3032,7 @@ function decodeResultCase(payload,r,signature) {
     analysis: payload.analysis_type || r.analysis_type,
     signature,
     meshIdentity:signature===state.modelSignature?state.meshIdentity:null,
-    variantId: payload.variant_id || (payload.id === "sol101" || payload.id === "sol106" ? payload.id : null),
+    variantId: payload.variant_id || (["sol101","sol103","sol105","sol106"].includes(payload.id) ? payload.id : null),
     source:payload.source||r.source, historical:payload.historical===true||r.historical===true||historicalLoads,
     loadApplicationVersion:payload.load_application_version??r.load_application_version??null,
     variantLabel: payload.label || "",
@@ -3455,6 +3456,13 @@ function applyBeamStyle() {
   applyShellGeometry(true);
   if(created)applyContour();
   state.viewportTools?.syncDisplay();
+  syncSpringStyle();
+}
+
+function syncSpringStyle() {
+  if (!state.scene || !state.data || typeof WingModelEntities === "undefined") return;
+  WingModelEntities.syncSpringStyle({state,positions:currentPositions(),
+    enabled:!!document.getElementById("show-celas-cylinders")?.checked,markerRadius:markerRadius()});
 }
 
 function importedRepresentation(mesh,group) {
@@ -4237,7 +4245,7 @@ function currentResultVariants() {
 }
 
 function resultAnalysisLabel(result) {
-  const label = result?.source === "sensitivity_baseline" ? (result.historical?"Historical ":"")+(result.variantLabel||"Sensitivity baseline "+result.analysis) : result?.variantId === "sol101" ? "Linear SOL101" : result?.variantId === "sol106" ? "Nonlinear SOL106" : result?.analysis || "Analysis";
+  const label = result?.source === "sensitivity_baseline" ? (result.historical?"Historical ":"")+(result.variantLabel||"Sensitivity baseline "+result.analysis) : result?.source === "buckling_preload" ? "SOL101 preload" : result?.variantId === "sol101" ? "Linear SOL101" : result?.variantId === "sol106" ? "Nonlinear SOL106" : result?.variantId === "sol105" ? "SOL105 buckling" : result?.analysis || "Analysis";
   return label + (result?.available !== false && Number.isFinite(result?.loadScale) && result.loadScale < 1 ? " · " + (100 * result.loadScale).toFixed(2) + "% load" : "");
 }
 
@@ -4286,8 +4294,13 @@ function syncAnalysisControls() {
     select.appendChild(option);
   }
   select.value = state.results?.variantId || "";
-  const available = Array.from(variants.values()).filter(r => r.available !== false && r.matches && r.static);
-  document.getElementById("compare-results").disabled = available.length < 2;
+  const available = Array.from(variants.values()).filter(r => r.available !== false && r.matches && r.static && !r.modes.length);
+  const compare = document.getElementById("compare-results");
+  compare.disabled = available.length < 2 || !!state.results?.modes.length;
+  compare.title = compare.disabled ? "Select the analysis above. Simultaneous comparison requires two static solutions; eigenmode amplitudes are normalized independently." : "Compare the static solutions at the same physical displacement scale.";
+  const modalVariants=Array.from(variants.values()).some(r=>r.modes.length);
+  compare.closest("label").hidden=modalVariants&&available.length<2;
+  document.getElementById("result-comparison-note").textContent=modalVariants ? (variants.has("sol105")?"Select SOL101 preload for the physical static response and SOL105 buckling for normalized eigenmodes. ":"Select an analysis to view its available static response or normalized eigenmodes. ")+"The selected analysis supplies contours and inspected results; eigenmode amplitudes are independent of the static displacement scale." : "The selected analysis supplies contours and inspected results. The other shape appears as a colored wireframe through surfaces. Both use the same physical magnification. SOL106 is experimental geometric nonlinear analysis.";
   const rows = Array.from(variants.values()).map(r => {
     const cv = r.convergence;
     const status = r.available === false ? r.status + (r.message ? ": " + r.message : "") :
@@ -4296,19 +4309,19 @@ function syncAnalysisControls() {
       Number.isFinite(cv.exported_relative_residual ?? cv.final_relative_residual) ? (cv.partial ? "accepted-state relative residual " : "relative residual ") + eng(cv.exported_relative_residual ?? cv.final_relative_residual, 4) : "",
       cv.termination_reason || ""].filter(Boolean).join("; ") : "";
     return "<tr><th scope=\"row\">" + esc(resultAnalysisLabel(r)) + "</th><td>" +
-      (r.available !== false && r.static ? eng(r.static.maxDisp, 6) + " m" : "Unavailable") +
+      (r.available === false ? "Unavailable" : r.modeKind === "buckling" && r.modes.length ? "First buckling factor: " + eng(r.modes[0].loadFactor,5) : r.static ? "Peak displacement: " + eng(r.static.maxDisp, 6) + " m" : r.modes.length ? "First frequency: " + eng(r.modes[0].freq,5) + " Hz" : "Unavailable") +
       "<small>" + esc(status) + (details ? "<br>" + esc(details) : "") + "</small></td></tr>";
   });
   const linear = variants.get("sol101"), nonlinear = variants.get("sol106");
   if (linear?.available !== false && nonlinear?.available !== false && linear?.static?.maxDisp > 0 && nonlinear?.static) {
     rows.push("<tr><th scope=\"row\">Peak ratio NL / linear</th><td>" + eng(nonlinear.static.maxDisp / linear.static.maxDisp, 5) + "</td></tr>");
   }
-  document.getElementById("comparison-summary").innerHTML = "<table><caption>Peak displacement · current load case</caption>" + rows.join("") + "</table>";
+  document.getElementById("comparison-summary").innerHTML = "<table><caption>Analysis outcomes · current load case</caption>" + rows.join("") + "</table>";
 }
 
 function comparisonResult() {
-  if (!document.getElementById("compare-results")?.checked || !activeShape()) return null;
-  return Array.from(currentResultVariants().values()).find(r => r !== state.results && r.available !== false && r.matches && r.static) || null;
+  if (!document.getElementById("compare-results")?.checked || !activeShape() || state.results?.modes.length) return null;
+  return Array.from(currentResultVariants().values()).find(r => r !== state.results && r.available !== false && r.matches && r.static && !r.modes.length) || null;
 }
 
 function disposeComparisonOverlay() {
@@ -4689,7 +4702,7 @@ function resultCaseLabel() {
 function updateViewportLegends() {
   if (typeof WingLegends === "undefined") return;
   const entries=[], c=contourValues();
-  if (c&&c.kind!=="panels") entries.push({kind:c.kind==="properties"?"properties":"fe",paletteKey:contourPaletteKey(c),categories:propertyLegendCategories(c),limitKey:c.limitKey,title:c.name,unit:c.unit,min:c.min,max:c.max,caseLabel:c.caseLabel||resultCaseLabel(),
+  if (c&&c.kind!=="panels") entries.push({kind:c.kind==="properties"?"properties":"fe",paletteKey:contourPaletteKey(c),categories:propertyLegendCategories(c),formatNumber:c.kind?.startsWith("sensitivity")?WingSensitivityResults.format:undefined,limitKey:c.limitKey,title:c.name,unit:c.unit,min:c.min,max:c.max,caseLabel:c.caseLabel||resultCaseLabel(),
     gradient:contourGradient(c.min,c.max,contourPaletteKey(c)),note:[c.kind?.startsWith("sensitivity")?"Undeformed model · full element values":c.location==="node"?"Element mean displacement · no cross-element averaging":
       beamContourApplies(c)?"Full elements · gray = unavailable":"Full elements · gray = unavailable; beams keep group colors",
       typeof c.note==="string"?c.note:"",aeroSurfaceStyle()==="wireframe"&&aeroContourProtection()&&state.layers.get("AERO_SURFACE")?.visible?"Aero loft uses wireframe to reveal shell contours":""].filter(Boolean).join(" · ")});
@@ -4766,7 +4779,7 @@ function applyContour() {
     return;
   }
   legend.className = "";
-  WingLegends.render(legend,[{kind:c.kind==="properties"?"properties":"fe",paletteKey:contourPaletteKey(c),categories:propertyLegendCategories(c),limitKey:c.limitKey,title:c.name,unit:c.unit,min:c.min,max:c.max,caseLabel:c.caseLabel||resultCaseLabel(),gradient:contourGradient(c.min,c.max,contourPaletteKey(c)),
+  WingLegends.render(legend,[{kind:c.kind==="properties"?"properties":"fe",paletteKey:contourPaletteKey(c),categories:propertyLegendCategories(c),formatNumber:c.kind?.startsWith("sensitivity")?WingSensitivityResults.format:undefined,limitKey:c.limitKey,title:c.name,unit:c.unit,min:c.min,max:c.max,caseLabel:c.caseLabel||resultCaseLabel(),gradient:contourGradient(c.min,c.max,contourPaletteKey(c)),
     note:["Full elements · no averaging across elements",c.location==="node"?"Element mean displacement":"Gray = unavailable",barContour?"Bar contour replaces stringer/cap colors.":"No applicable beam values; beams retain group colors.",typeof c.note==="string"?c.note:""].filter(Boolean).join(" · ")}]);
   updateViewportLegends();
   if (state.selectedElement !== null) showElement(state.selectedElement);
@@ -4966,7 +4979,7 @@ function updateScaleText() {
   }
   const note = document.getElementById("comparison-scale");
   if (note) note.textContent = activeShape() ?
-    "Physical magnification: ×" + eng(amplitude(), 5) + (currentResultVariants().size ? ". Both analyses use this same scale." : ".") : "";
+    "Physical magnification: ×" + eng(amplitude(), 5) + (Array.from(currentResultVariants().values()).filter(r=>r.static&&!r.modes.length).length>1 ? ". Both static analyses use this same scale." : ".") : "";
   if(state.propertyDisplay?.enabled)applyContour();
 }
 
@@ -4991,7 +5004,7 @@ function showStats(data, bytes, seconds) {
   if (fuelHost) {
     const fuel = data.fuel;
     fuelHost.textContent = fuel?.enabled ? "Ribs " + fuel.start_rib + " to " + fuel.end_rib + ": " + eng(fuel.volume_m3, 6) +
-      " m³ (" + eng(fuel.volume_litres, 6) + " L), gross half-wing capacity."+(fuel.active_bay_count!==undefined ? " "+fuel.active_bay_count+" wet bays; "+(fuel.excluded_bays?.length||0)+" dry/vent bays excluded." : "")+" See Summary for the volume basis." :
+      " m³ (" + eng(fuel.volume_litres, 6) + " L), gross half lifting-surface capacity."+(fuel.active_bay_count!==undefined ? " "+fuel.active_bay_count+" wet bays; "+(fuel.excluded_bays?.length||0)+" dry/vent bays excluded." : "")+" See Summary for the volume basis." :
       "Enable the tank to compute its capacity when the mesh updates.";
   }
   const host = document.getElementById("stats");
@@ -5115,7 +5128,7 @@ function syncRibDatums(data = state.data) {
   state.ribDatums.update(data,side);
   state.ribDatums.setVisible(document.getElementById("show-rib-datums").checked);
   const count=(data.annotations?.ribs || []).filter(rib=>rib.datum_origin).length;
-  if(note)note.textContent=count ? count+" undeformed rib datums. Orange: master ribs; blue: secondary ribs. Side length in metres." : "Create FEM with the updated generator to locate the rib datum squares.";
+  if(note)note.textContent=count ? count+" undeformed rib datums. Orange: master ribs; blue: secondary ribs. Side length in metres." : "Create FEM with the updated generator to locate the rib datum planes.";
 }
 
 document.getElementById("btn-fit").onclick = fitView;
@@ -5671,6 +5684,7 @@ function currentPositions() {
 function updateMarkerRadii() {
   refreshFuelMassProperties();
   state.geometryTools?.updateRadii();
+  syncSpringStyle();
   state.supportGlyphs?.update({positions:currentPositions(),radius:markerRadius()});
   for (const marker of state.markers) {
     const radius = marker.kind === "NODES" ? nodeRadius() : markerRadius();
@@ -5981,8 +5995,8 @@ function showElement(eid) {
   if(state.sensitivityMap){
     const contour=state.sensitivityMap.contour,affected=contour.byId.has(eid),effect=contour.effect;
     const row=contour.rowsById?.get(eid);
-    const detail=contour.kind==="sensitivity_field"?(row?WingSensitivityResults.propertyLabel(row)+": "+eng(contour.byId.get(eid),6)+" "+contour.unit+". Derivative belongs to the attached property; shared elements repeat its value.":"No unambiguous derivative for the selected property family."):
-      affected?WingSensitivityResults.propertyLabel(contour.row)+": "+eng(effect.changePercent,4)+"% property change predicts "+eng(effect.deltaResponse,6)+" "+effect.responseUnit+" change in the selected response. This shared effect is not an element-local derivative.":"This element is not governed by the selected property.";
+    const detail=contour.kind==="sensitivity_field"?(row?WingSensitivityResults.propertyLabel(row)+": "+WingSensitivityResults.format(contour.byId.get(eid))+" "+contour.unit+". Derivative belongs to the attached property; shared elements repeat its value.":"No unambiguous derivative for the selected property family."):
+      affected?WingSensitivityResults.propertyLabel(contour.row)+": "+WingSensitivityResults.format(effect.changePercent)+"% property change predicts "+WingSensitivityResults.format(effect.deltaResponse)+" "+effect.responseUnit+" change in the selected response. This shared effect is not an element-local derivative.":"This element is not governed by the selected property.";
     html+='<details open><summary>Sensitivity</summary><p class="pick-note">'+esc(contour.caseLabel)+"</p><p>"+esc(detail)+"</p></details>";
   }
   if (g.orient && g.kind === "bar") {
@@ -6370,6 +6384,8 @@ for (const [id, field] of [["mesh", "none"], ["pressure", "pressure"], ["cp", "c
 document.getElementById("vlm-show-forces").onchange = (event) => setLayerVisible("AERO_LOADS", event.target.checked);
 document.getElementById("vlm-show-moments").onchange = (event) => setLayerVisible("AERO_MOMENTS", event.target.checked);
 document.getElementById("beam-style").onchange = applyBeamStyle;
+document.getElementById("show-celas-cylinders").onchange = () => { syncSpringStyle(); markStudyViewModified(); };
+document.getElementById("show-rbe3-dofs").onchange = () => { state.annotations?.invalidate?.(); markStudyViewModified(); };
 document.getElementById("shell-geometry").onchange = ()=>{applyShellGeometry();markStudyViewModified();};
 document.getElementById("load-case-select").onchange = (e) => selectLoadCase(e.target.value);
 document.getElementById("result-case-select").onchange = (e) => selectLoadCase(e.target.value);
@@ -6542,7 +6558,7 @@ function showStartupStudyNotice(notice) {
     if(!loaded&&!state.startupChoiceCancelled&&!choiceMessage)choiceMessage=document.getElementById("model-error-text")?.textContent || "The Study could not be loaded. Choose another file or start a new Study.";
   }
   state.autoMeshReady=true;
-  log("Study loaded; WingFEGen is ready.", "good");
+  log("Study loaded; Lifting surface FEGen is ready.", "good");
   probeJfem();
   loadLastDeck();
   } catch (e) {

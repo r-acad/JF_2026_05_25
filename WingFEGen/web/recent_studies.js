@@ -55,7 +55,7 @@
             const metadata=request.transaction.objectStore(STORE),bodies=request.transaction.objectStore(CONTENTS),cursor=metadata.openCursor();
             cursor.onsuccess=()=>{const item=cursor.result;if(!item)return;const row=item.value;if(typeof row.text==="string"){bodies.put({id:row.id,text:row.text});row.contentLength=row.text.length;delete row.text;item.update(row);}item.continue();};
           };
-          request.onsuccess=()=>finish(null,request.result);request.onerror=()=>finish(request.error);request.onblocked=()=>finish(new Error("Close other WingFEGen tabs to unlock Recent Studies storage."));
+          request.onsuccess=()=>finish(null,request.result);request.onerror=()=>finish(request.error);request.onblocked=()=>finish(new Error("Close other Lifting surface FEGen tabs to unlock Recent Studies storage."));
         });
         db.onversionchange=()=>{db?.close();db=null;};
         for(const row of await transaction("readonly",s=>s.getAll())) if(valid(row)&&(!entries.has(row.id)||entries.get(row.id).updatedAt<row.updatedAt))entries.set(row.id,{...row,persisted:true});
@@ -204,7 +204,7 @@
       return startupPromise;
     }
     function pickerRequest() {
-      return host.showOpenFilePicker({id:"wingfegen-study",multiple:false,types:[{description:"WingFEGen Study",accept:{"application/json":[".wingfem.json"]}}]});
+      return host.showOpenFilePicker({id:"wingfegen-study",multiple:false,types:[{description:"Lifting surface FEGen Study",accept:{"application/json":[".wingfem.json"]}}]});
     }
     function browse(row=null) {
       if(busy||stopped)return Promise.resolve(false);
@@ -241,7 +241,7 @@
       dialog=el("dialog","recent-studies-dialog");dialog.setAttribute("aria-labelledby","recent-studies-title");
       const head=el("header","recent-studies-header"),title=el("h2","","Load Study");title.id="recent-studies-title";
       const dismiss=button("Close",close);dismiss.setAttribute("aria-label","Close recent Studies");head.append(title,dismiss);
-      const intro=el("p","recent-studies-intro","Recent Studies are stored in this browser for this WingFEGen address. Clearing browser data removes this list and its stored copies; your disk files remain unchanged.");
+      const intro=el("p","recent-studies-intro","Recent Studies are stored in this browser for this Lifting surface FEGen address. Clearing browser data removes this list and its stored copies; your disk files remain unchanged.");
       const browseButton=button("Browse for a Study\u2026",()=>browse(),"recent-studies-browse");
       status=el("p","recent-studies-status",warning);status.setAttribute("role","status");status.hidden=!warning;
       list=el("div","recent-studies-list");dialog.append(head,intro,browseButton,status,list);doc.body.appendChild(dialog);

@@ -3,7 +3,7 @@ function request_imported_model(raw)
     parameters=get(raw,"parameters",raw)
     value=get(parameters,"imported_deck",nothing)
     if value===nothing
-        get(parameters,"model_kind",nothing)=="nastran"&&throw(ArgumentError("Imported deck identity is missing. Read the deck or reopen its saved Study; a generated wing will not be substituted."))
+        get(parameters,"model_kind",nothing)=="nastran"&&throw(ArgumentError("Imported deck identity is missing. Read the deck or reopen its saved Study; a generated lifting surface will not be substituted."))
         return nothing
     end
     value isa AbstractDict||throw(ArgumentError("Invalid imported deck handle"))
@@ -226,7 +226,7 @@ function imported_written_deck(st,model)
 end
 
 function handle_imported_nastran(st,model;run=false,start_job=start_jfem_job,progress=(_)->nothing)
-    progress("Imported deck: $(model.params["imported.source"]["name"]) · SOL$(model.params["output.solution"]) · $(length(model.node_ids)) original GRID nodes; writing source analysis without wing generation")
+    progress("Imported deck: $(model.params["imported.source"]["name"]) · SOL$(model.params["output.solution"]) · $(length(model.node_ids)) original GRID nodes; writing source analysis without lifting surface generation")
     @info "Routing imported analysis directly to source deck" name=model.params["imported.source"]["name"] solution=model.params["output.solution"] nodes=length(model.node_ids)
     path,snapshot=imported_written_deck(st,model)
     response=Dict{String,Any}("ok"=>true,"path"=>path,"deck"=>path,"deck_text"=>snapshot["deck_text"],"deck_lines"=>snapshot["lines"],"deck_metadata"=>deck_metadata(snapshot),"solution"=>"SOL "*model.params["output.solution"],"imported_signature"=>model.params["imported.source"]["signature"])

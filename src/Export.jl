@@ -3659,6 +3659,21 @@ function export_sol105_json(filename, output_dir, results)
             global_u = _export_rotate_vector!(similar(sc.u_static), sc.u_static, state.id_map, state.node_R)
             print(io, "{\"static_subcase_id\":", sc.static_subcase_id, ",\"static_displacements\":")
             _export_json_nodal_vector(io, global_u, state.id_map, _msc_node_order(state.id_map))
+            static_result = _sol105_static_results!(results, sc.static_subcase_id)
+            if static_result !== nothing
+                print(io, ",\"static_result\":")
+                subcases = get(get(results["model"], "CASE_CONTROL", Dict()), "SUBCASES", Dict())
+                sub_ctrl = get(subcases, sc.static_subcase_id, Dict())
+                # Honour the static subcase's requests, just like SOL101.
+                # The separate retained preload vector above is always
+                # available for visualising the buckling reference state.
+                static_export = merge(copy(static_result), filtered_subcase_result_payload(static_result, sub_ctrl))
+                static_export["result_requests"] = Dict(key => subcase_result_request_enabled(sub_ctrl, key)
+                    for key in ("DISPLACEMENT", "SPCFORCES", "FORCE", "STRESS", "STRAIN"))
+                static_export["solver_diagnostics"] = deepcopy(static_result["solver_diagnostics"])
+                sanitize!(static_export)
+                JSON.print(io, static_export)
+            end
             write(io, UInt8('}'))
         end
         write(io, UInt8(']'))

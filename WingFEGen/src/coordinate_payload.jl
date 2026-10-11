@@ -63,3 +63,51 @@ function imported_entity_sources(cards)
     end
     records
 end
+
+"""A GRID displacement axis in BASIC, including point-dependent CORD*C/S bases.
+The importer runs without the solver module in the server process. These basis
+formulae match the native GRID CD transformation; tests compare both paths.
+"""
+function imported_grid_component_axis(native,grid,component)
+    component in 1:6||return nothing
+    cid=Int(get(grid,"CD",0));axis=mod1(component,3)
+    cid==0&&return Float64[i==axis for i in 1:3]
+    frame=get(get(native,"CORDs",Dict()),string(cid),nothing)
+    frame===nothing&&throw(ArgumentError("Undefined GRID displacement coordinate $cid"))
+    basis=hcat(Float64.(frame["U"]),Float64.(frame["V"]),Float64.(frame["W"]))
+    type=uppercase(string(get(frame,"TYPE","RECTANGULAR")))
+    type=="RECTANGULAR"&&return collect(basis[:,axis])
+    localpoint=basis'*(Float64.(grid["X"])-Float64.(frame["Origin"]))
+    if type=="CYLINDRICAL"
+        theta=atan(localpoint[2],localpoint[1]);c=cos(theta);s=sin(theta)
+        return collect(basis*([c s 0.;-s c 0.;0. 0. 1.]'[:,axis]))
+    elseif type=="SPHERICAL"
+        theta=atan(hypot(localpoint[1],localpoint[2]),localpoint[3]);phi=atan(localpoint[2],localpoint[1])
+        localbasis=[sin(theta)*cos(phi) cos(theta)*cos(phi) -sin(phi);
+                    sin(theta)*sin(phi) cos(theta)*sin(phi) cos(phi);
+                    cos(theta) -sin(theta) 0.]
+        return collect(basis*localbasis[:,axis])
+    end
+    throw(ArgumentError("Unsupported GRID displacement coordinate type $type"))
+end
+
+function imported_spring_endpoints(native,element,index)
+    endpoints=Any[]
+    for endindex in 1:2
+        gid=Int(get(element,"G$endindex",0));component=Int(get(element,"C$endindex",0))
+        endpoint=Dict{String,Any}("end"=>endindex,"grid"=>gid,"component"=>component,
+            "grounded"=>gid==0,"node"=>get(index,gid,0)-1,"axis"=>nothing)
+        if haskey(index,gid)&&component in 1:6
+            grid=native["GRIDs"][string(gid)];endpoint["coordinate_id"]=Int(get(grid,"CD",0))
+            try
+                endpoint["axis"]=imported_grid_component_axis(native,grid,component)
+            catch error
+                endpoint["warning"]=sprint(showerror,error)
+            end
+        elseif gid!=0
+            endpoint["warning"]=component==0 ? "Scalar component: no spatial axis is defined" : "Undefined GRID or component"
+        end
+        push!(endpoints,endpoint)
+    end
+    endpoints
+end

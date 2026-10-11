@@ -13,7 +13,7 @@
 include(joinpath(@__DIR__,"src","runtime_bootstrap.jl"))
 WingFEGenBootstrap.restart_if_needed(@__DIR__,@__FILE__)
 const startup_started = time()
-println("Starting WingFEGen with Julia ", VERSION, " (", Threads.nthreads(), " threads).")
+println("Starting Lifting surface FEGen with Julia ", VERSION, " (", Threads.nthreads(), " threads).")
 println("  Project: ", @__DIR__)
 println("  First use or a code update can compile packages; the stages below report actual work.")
 flush(stdout)
@@ -63,7 +63,7 @@ code = 1
 try
     wingfegen_startup_progress("Loading Julia package/environment manager Pkg")
     using Pkg
-    wingfegen_startup_progress("Activating the WingFEGen dependency environment")
+    wingfegen_startup_progress("Activating the Lifting surface FEGen dependency environment")
     Pkg.activate(@__DIR__;io=devnull)
     include(joinpath(@__DIR__, "src", "WingFEGen.jl"))
     wingfegen_startup_progress("Preparing startup entry point (first-use Julia compilation); no FEM or analysis is running")

@@ -216,7 +216,7 @@ function spanwise_load_data(m::Model, loads)
             push!(chords,chord(w,e)); push!(lifts,-sin(alpha)*force[1]+cos(alpha)*force[3])
             push!(lows,(lo-w.root_ref_y)/w.semispan); push!(highs,(hi-w.root_ref_y)/w.semispan)
         end
-        coefficient_note = "VLM wind-axis lift: (-sin(alpha)*Fx + cos(alpha)*Fz)/(q*projected strip width). Includes the dimensionless load multiplier; differs from the unscaled whole-wing CL."
+        coefficient_note = "VLM wind-axis lift: (-sin(alpha)*Fx + cos(alpha)*Fz)/(q*projected strip width). Includes the dimensionless load multiplier; differs from the unscaled whole lifting surface CL."
     else
         # Exact bin integrals of the prescribed distribution preserve total
         # lift even at an elliptical tip; the plotted value is a bin average.
@@ -286,7 +286,7 @@ function spanwise_load_data(m::Model, loads)
     reference = section_point(w,0.0,Float64(p["rbe3.ref_xc"]),0.0)
     return Dict{String,Any}("distribution"=>distribution,"resultants"=>resultants,"components"=>components,"fe_resultants"=>fe,
         "box_end_eta"=>last(m.grid.etas),"semispan_m"=>w.semispan,"root_ref_y_m"=>w.root_ref_y,"reference_xc"=>p["rbe3.ref_xc"],
-        "reference_note"=>"Moments about the refined wing's swept/twisted chord-line point at the RBE3 reference x/c at each cut; components remain global x/y/z.",
+        "reference_note"=>"Moments about the refined lifting surface's swept/twisted chord-line point at the RBE3 reference x/c at each cut; components remain global x/y/z.",
         "sign_note"=>"Outboard applied-load resultant: positive shear is global +z, bending is right-hand +x, torque is right-hand +y. The balancing internal cut action has opposite sign. At a station, inboard includes its applied load and outboard excludes it.",
         "resultant_note"=>"Exact FE point loads shows only the written RBE3 loads: aerodynamic FORCE/MOMENT at rib references and combined fuel/structural inertia FORCE/MOMENT at bay references, including moved-force lever arms. Distributed view instead reconstructs the original physical aerodynamic strips, filled fuel volume and structural mass at their actual centroids. It does not add the transfer couples a second time. Both views preserve each source's complete root force and moment. No spline smoothing. Unboxed aerodynamic loading extends beyond the final rib only in the distributed source view. These are applied-load diagrams, not recovered stresses.",
         "moment_routing_note"=>APPLIED_MOMENT_ROUTING_NOTE,

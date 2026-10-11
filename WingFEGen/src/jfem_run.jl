@@ -1306,7 +1306,7 @@ function element_results_payload(m::Model, results::AbstractDict)
         side = face == "z1" ? "negative" : "positive"
         add_contour("$label (local, $face)", "Pa", (:quad,:tria),
             record -> nested(record,"stress",face,component);
-            note="Signed stress in the element material axes shown by the shell-axis arrows. $face is the $side local-z thickness face, not the wing's lower/upper skin. Each element retains its own value; no nodal averaging.")
+            note="Signed stress in the element material axes shown by the shell-axis arrows. $face is the $side local-z thickness face, not the lifting surface's lower/upper skin. Each element retains its own value; no nodal averaging.")
     end
     add_contour("Bar axial stress", "Pa", (:bar,), record -> nested(record, "stress", "axial"))
     for ending in ("a", "b"), (label, extreme) in (("max", maximum), ("min", minimum))
@@ -1587,13 +1587,76 @@ function buckling_case_result(d::AbstractDict, case_id::Int, case_count::Int)
     states = get(d, "static_subcases", Any[])
     if !isempty(states)
         delete!(selected, "static_displacements")
+        delete!(selected, "static_result")
         matching = filter(row -> get(row, "static_subcase_id", nothing) == sid, states)
         length(matching) == 1 || throw(ArgumentError("SOL105 has no unique static preload for subcase $sid"))
         selected["static_displacements"] = matching[1]["static_displacements"]
+        haskey(matching[1], "static_result") && (selected["static_result"] = matching[1]["static_result"])
     elseif case_count > 1
         throw(ArgumentError("SOL105 does not identify the per-case static preloads"))
     end
     return selected
+end
+
+"""Expose the actual SOL105 preload as a separate static result, without a second solve."""
+function attach_buckling_preload!(job, path, item, selected, static_sid)
+    buckling = copy(item)
+    buckling["id"], buckling["variant_id"], buckling["label"] = "sol105", "sol105", "SOL105 buckling"
+    buckling["native_subcase_id"] = get(item, "buckling_subcase_id", get(item, "native_subcase_id", 2))
+    source = get(selected, "static_result", nothing)
+    complete_recovery = source isa AbstractDict
+    rows = get(selected, "static_displacements", nothing)
+    rows isa AbstractDict && (rows = get(rows, "displacements", collect(values(rows))))
+    if !complete_recovery
+        rows isa AbstractVector && !isempty(rows) || return item
+        source = Dict{String,Any}("displacements" => rows)
+    else
+        source = copy(source)
+        get(source, "static_subcase_id", static_sid) == static_sid ||
+            throw(ArgumentError("Static preload result does not belong to subcase $static_sid"))
+        # Static DISPLACEMENT=NONE suppresses ordinary output, but SOL105
+        # still retains the true preload vector needed for its reference
+        # shape. Reuse that vector rather than displaying a false zero field.
+        if isempty(get(source, "displacements", Any[])) && rows isa AbstractVector && !isempty(rows)
+            source["displacements"] = rows
+            source["displacement_source"] = "SOL105_PRELOAD_STATE"
+        end
+    end
+    source["analysis_type"] = "SOL101_STATIC"
+    for key in ("backend", "backend_version")
+        haskey(selected, key) && (source[key] = selected[key])
+    end
+    validate_static_result_coverage(job.model, source)
+    preload = copy(item)
+    merge!(preload, jfem_case_results_payload(job, path, source; native_sid=Int(static_sid)))
+    haskey(item, "model_params") && (preload["model_params"] = copy(item["model_params"]))
+    preload["id"], preload["variant_id"], preload["label"] = "sol101", "sol101", "SOL101 preload"
+    preload["static_subcase_id"] = Int(static_sid)
+    preload["native_subcase_id"] = Int(static_sid)
+    preload["source"] = "buckling_preload"
+    preload["message"] = "Static preload used by this SOL105 calculation (subcase $static_sid)."
+    push!(preload["summary"], Any["Result source", preload["message"]])
+    complete_recovery || push!(preload["summary"], Any["Legacy results", "Displacements only; rerun SOL105 to export stresses, forces and reactions."])
+    if haskey(source, "result_requests")
+        preload["result_requests"] = source["result_requests"]
+        suppressed = [key for key in ("SPCFORCES", "FORCE", "STRESS", "STRAIN")
+            if get(source["result_requests"], key, true) !== true]
+        isempty(suppressed) || push!(preload["summary"], Any["Unrequested fields", join(suppressed, ", ")])
+    end
+    if haskey(source, "recovery_diagnostics")
+        preload["recovery_diagnostics"] = source["recovery_diagnostics"]
+        recovery = source["recovery_diagnostics"]
+        get(recovery, "status", "") == "partial" && push!(preload["summary"], Any["Partial field recovery",
+            get(recovery, "reason", get(recovery, "corner_force_reason", "Some element fields are unavailable; no missing values were filled."))])
+    end
+    get(source, "stress_recovery_skipped", false) === true &&
+        push!(preload["summary"], Any["Field recovery", "Element force/stress/strain recovery was disabled for this run."])
+    for variant in (preload, buckling), key in ("variants", "default_variant", "analysis_variants", "comparison")
+        delete!(variant, key)
+    end
+    item["variants"], item["default_variant"] = Any[preload, buckling], "sol105"
+    item["comparison"], item["analysis_variants"] = true, ["sol101", "sol105"]
+    return item
 end
 
 """Reject accidental pairing of different FE meshes, properties or applied loads."""
@@ -1678,6 +1741,7 @@ function jfem_isolated_results_payload(job::JfemJob)
                 complete=jfem_case_results_payload(child,path,selected)
                 fuel=fuel_mass_state(child.model)
                 merge!(item,complete)
+                solution=="105" && attach_buckling_preload!(child,path,item,selected,1)
                 item["fuel_mass"]=fuel
                 push!(item["summary"],Any["Fuel mass","$(eng(fuel["mass_kg"])) kg at $(eng(fuel["fuel_percent"]))% fill"])
                 solution=="103" && push!(item["summary"],Any["Modal mass state","Unloaded modes for this physical case's fuel mass"])
@@ -1690,6 +1754,18 @@ function jfem_isolated_results_payload(job::JfemJob)
         item["model_params"]=copy(spec.params)
         solution=="103" ? (item["modal_subcase_id"]=1) : (item["static_subcase_id"]=1)
         solution=="105" && (item["buckling_subcase_id"]=2)
+        for variant in get(item,"variants",Any[])
+            variant["physical_case_id"]=spec.id
+            variant["model_params"]=copy(spec.params)
+            variant["static_subcase_id"]=1
+            variant["native_subcase_id"]=variant["id"]=="sol101" ? 1 : 2
+            variant["buckling_subcase_id"]=2
+            haskey(item,"fuel_mass") && (variant["fuel_mass"]=item["fuel_mass"])
+            if variant["id"]=="sol101"
+                push!(variant["summary"],Any["Load case","$(spec.id): $(spec.label)"])
+                haskey(item,"fuel_mass") && push!(variant["summary"],Any["Fuel mass","$(eng(item["fuel_mass"]["mass_kg"])) kg"])
+            end
+        end
         !item["available"] && (item["summary"]=Any[Any["Analysis","SOL$solution"],Any["Status",item["message"]]])
         push!(item["summary"],Any["Load case","$(spec.id): $(spec.label)"])
         push!(cases,item)
@@ -1833,6 +1909,7 @@ function jfem_results_payload(job::JfemJob)
         item["model_params"] = copy(spec.params)
         item["static_subcase_id"] = static_subcase_id(spec.id, startswith(atype, "SOL105") ? "105" : "101")
         startswith(atype, "SOL105") && (item["buckling_subcase_id"] = buckling_subcase_id(spec.id))
+        startswith(atype, "SOL105") && attach_buckling_preload!(job,path,item,selected,item["static_subcase_id"])
         push!(item["summary"], Any["Load case", "$(spec.id): $(spec.label)"])
         push!(cases, item)
     end

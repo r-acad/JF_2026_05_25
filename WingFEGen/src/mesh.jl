@@ -595,6 +595,8 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
     NI = ni(g)
     NJ = nj(g)
     properties=resolved_component_properties(p,length(ribs))
+    component_rows=Set(row["key"] for row in get(p,"properties.components",Any[]))
+    table_pid(part,index,base)=component_table_key(part,index) in component_rows ? component_table_family(part)*COMPONENT_PID_STRIDE+index : base
     panel_layout=stiffened_panel_layout(g)
     register_panel_properties!(p,g;layout=panel_layout)
 
@@ -699,15 +701,17 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
         eid += 1
     end
 
-    gcap = ElemGroup("SPAR_CAPS", :bar, PID_SPAR_CAP)
+    cap_groups=Dict{Int,ElemGroup}()
     for i in (0, NI), upper in (false, true)
         k = upper ? nh : 0
         for j in 0:NJ-1
+            bay=searchsortedlast(ribs,j);part=(i==0 ? "front" : "rear")*(upper ? "_upper_cap" : "_lower_cap")
+            pid=table_pid(part,bay,PID_SPAR_CAP)
+            gcap=property_group!(groups,cap_groups,"SPAR_CAPS",:bar,pid,PID_SPAR_CAP)
             v = skin_normal(g, i, j, upper)
             bar!(gcap, node!(reg, g, i, j, k), node!(reg, g, i, j + 1, k), v)
         end
     end
-    push!(groups, gcap)
 
     gout = ElemGroup("STRINGER_RUNOUTS", :bar, PID_STRINGER_RUNOUT)
     for i in g.stringer_indices, upper in (false, true)
@@ -754,18 +758,20 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
         le_stations = leading_edge_mesh_stations(g,p,layout)
         hasproperty(le_stations,:metadata)&&(le_metadata=le_stations.metadata)
         le(i,j,k) = leading_edge_node!(reg,g,le_stations,i,j,k)
-        leup = ElemGroup("LE_UPPER_SKIN", :quad, PID_LE_SKIN)
-        lelo = ElemGroup("LE_LOWER_SKIN", :quad, PID_LE_SKIN)
-        lerib = ElemGroup("LE_RIB_WEBS", :quad, PID_LE_RIB)
-        lenose = ElemGroup("LE_RIB_NOSE", :tria, PID_LE_RIB)
+        leup_groups=Dict{Int,ElemGroup}();lelo_groups=Dict{Int,ElemGroup}()
+        lerib_groups=Dict{Int,ElemGroup}();lenose_groups=Dict{Int,ElemGroup}()
         for bay in layout.active_bays, j in ribs[bay]:ribs[bay+1]-1, i in 0:nl-1
+            leup=property_group!(groups,leup_groups,"LE_UPPER_SKIN",:quad,table_pid("leading_upper_skin",bay,PID_LE_SKIN),PID_LE_SKIN)
+            lelo=property_group!(groups,lelo_groups,"LE_LOWER_SKIN",:quad,table_pid("leading_lower_skin",bay,PID_LE_SKIN),PID_LE_SKIN)
             quad!(leup, le(i,j,nh), le(i+1,j,nh), le(i+1,j+1,nh), le(i,j+1,nh))
             quad!(lelo, le(i,j,0), le(i,j+1,0), le(i+1,j+1,0), le(i+1,j,0))
         end
         for jr in le_ribs, i in 0:nl-1, k in 0:nh-1
+            rib=searchsortedfirst(ribs,jr);pid=table_pid("leading_rib",rib,PID_LE_RIB)
+            lerib=property_group!(groups,lerib_groups,"LE_RIB_WEBS",:quad,pid,PID_LE_RIB)
+            lenose=property_group!(groups,lenose_groups,"LE_RIB_NOSE",:tria,pid,PID_LE_RIB)
             shell!(lerib,lenose,le(i,jr,k),le(i+1,jr,k),le(i+1,jr,k+1),le(i,jr,k+1))
         end
-        push!(groups,leup,lelo,lerib,lenose)
     end
     n_struct = length(reg.keys)
 
@@ -966,7 +972,7 @@ function aero_attachment(g::BoxGrid, reg::NodeRegistry, n_loop::Int,
                 dz = [reg.xyz[3n] - cz for n in corners]
                 aa, bb, cc = sum(abs2, dx), sum(dx .* dz), sum(abs2, dz)
                 determinant = aa * cc - bb^2
-                determinant > 0 || error("Final wing-box section cannot carry the aerodynamic overlay")
+                determinant > 0 || error("Final lifting surface box section cannot carry the aerodynamic overlay")
                 px, pz = xyz[3a-2] - cx, xyz[3a] - cz
                 alpha = (cc * px - bb * pz) / determinant
                 beta = (aa * pz - bb * px) / determinant
@@ -1000,7 +1006,7 @@ function aero_attachment_refined(g::BoxGrid, reg::NodeRegistry, n_loop::Int,
         dz = ntuple(k -> reg.xyz[3corners[k]]-cz,4)
         aa,bb,cc = sum(abs2,dx),sum(dx .* dz),sum(abs2,dz)
         determinant = aa*cc-bb^2
-        determinant > 0 || error("Wing-box section cannot carry the independent aerodynamic overlay")
+        determinant > 0 || error("Lifting-surface box section cannot carry the independent aerodynamic overlay")
         (;corners,cx,cz,dx,dz,aa,bb,cc,determinant)
     end
     nmap = Vector{Int}(undef, 8n_loop*length(aero_etas))
@@ -1062,15 +1068,15 @@ function model_info(m::Model, n_str_bays::Int, n_rib_bays::Int)
         ("Full span", fmt(w.span) * " m"),
         ("Root reference x / y / z", join(fmt.((w.root_ref_x,w.root_ref_y,w.root_ref_z)), " / ") * " m"),
         ("Semi-span modelled", fmt(w.semispan) * " m"),
-        ("Real planform area", fmt(w.area) * " m2 (full wing)"),
-        ("Base trapezoid area", fmt(w.base_area) * " m2 (full wing)"),
+        ("Real planform area", fmt(w.area) * " m2 (full lifting surface)"),
+        ("Base trapezoid area", fmt(w.base_area) * " m2 (full lifting surface)"),
         ("Real planform aspect ratio", fmt(w.aspect_ratio)),
         ("Planform perturbation stations", string(length(planform_breakpoints(w)) - 2) * " interior edge stations"),
         ("Structural geometry", "Skins and nose follow the refined aerodynamic loft; spar paths retain base-trapezoid references"),
         ("Spar perturbation stations", string(length(spar_breakpoints(p)) - 2) * " interior spar stations"),
         ("Airfoil stations", join(["ETA "*fmt(eta)*": "*af.name for (eta,af) in zip(w.airfoil_etas,airfoil_sections(w))],"; ")),
         ("Airfoil interpolation", w.airfoil_interpolation===:cosine ? "Smooth cosine blend between adjacent sections" : "Linear blend between adjacent sections"),
-        ("Wing box End ETA", string(last(g.etas))),
+        ("Lifting surface box End ETA", string(last(g.etas))),
         ("Structural box span", fmt(last(g.etas) * w.semispan) * " m"),
         ("Root chord", fmt(w.chord_root) * " m"),
         ("Tip chord", fmt(w.chord_tip) * " m"),

@@ -147,6 +147,7 @@
     host.classList.add("wing-legends");host.hidden=!record.entries.length;
     host.innerHTML=record.entries.map(entry=>{
       const key=stateKey(record.scope,entry.kind),title=entry.title||"Quantity",hidden=collapsed.has(key),opened=openKey===key;
+      const formatNumber=typeof entry.formatNumber==="function"?entry.formatNumber:number;
       const palette=getPalette(entry.paletteKey||entry.kind),chosen=config.palettes.find(p=>p.value===palette),paletteName=chosen?.label||palette;
       if(hidden)return'<section class="viewport-scale is-collapsed" data-scale="'+escape(entry.kind)+'" aria-label="'+escape(title)+' color scale">'+
         actionButton("restore",key,"Show "+title+" color scale",restoreIcon)+"</section>";
@@ -164,7 +165,7 @@
         menu+limitsForm+'<div class="viewport-scale-case">'+escape(entry.caseLabel||"")+'</div>'+
         (entry.categories?'<div class="legend-categories">'+entry.categories.map(category=>'<div class="legend-category"><span class="legend-category-swatch" style="background:'+escape(category.color)+'"></span><span>'+escape(category.label)+'</span></div>').join('')+'</div>':
         '<div class="viewport-scale-ramp" style="background:'+escape(entry.gradient)+'"></div>'+
-        '<div class="viewport-scale-ticks"><span>'+number(entry.min)+'</span><span>'+number(entry.min/2+entry.max/2)+'</span><span>'+number(entry.max)+'</span></div>')+
+        '<div class="viewport-scale-ticks"><span>'+escape(formatNumber(entry.min))+'</span><span>'+escape(formatNumber(entry.min/2+entry.max/2))+'</span><span>'+escape(formatNumber(entry.max))+'</span></div>')+
         (range?'<div class="viewport-scale-note">Manual limits · end colors clip out-of-range values</div>':"")+(entry.note?'<div class="viewport-scale-note">'+escape(entry.note)+'</div>':"")+"</section>";
     }).join("");
   }

@@ -3,6 +3,7 @@
 const RIB_STIFFENER_FIELDS=("flange_width","height","flange_thickness","web_thickness")
 const RIB_STIFFENER_DEFAULTS=(.03,.032,.002,.002)
 const COMPONENT_PID_STRIDE=1_000_000
+include("component_table_properties.jl")
 
 function normalize_component_properties(value,key::AbstractString)
     key in ("properties.ribs","properties.spar_bays")||throw(ArgumentError("unknown component property table $key"))
@@ -46,7 +47,7 @@ end
 function rib_stiffener_dimensions(p::AbstractDict,rib::Integer=0)
     defaults=ntuple(i->Float64(get(p,"properties.rib_stiffener_"*RIB_STIFFENER_FIELDS[i],RIB_STIFFENER_DEFAULTS[i])),4)
     rib==0&&return defaults
-    row=component_property_row(p,"properties.ribs",rib)
+    row=merge(component_property_row(p,"properties.ribs",rib),component_table_override(p,"rib_stiffener",rib))
     return ntuple(i->Float64(get(row,RIB_STIFFENER_FIELDS[i],defaults[i])),4)
 end
 
@@ -68,6 +69,7 @@ function validate_component_property_bounds(p::AbstractDict,rib_count::Integer)
         end
     end
     validate_rib_stiffener_defaults(p)
+    validate_component_table_bounds(p,rib_count)
     return nothing
 end
 
@@ -87,6 +89,12 @@ function component_base_pid(pid::Integer)
     family==5&&return PID_SKIN_UPPER
     family==6&&return PID_SKIN_LOWER
     family==7&&return PID_STRINGER
+    family in 8:11&&return PID_SPAR_CAP
+    family in (12,13)&&return PID_LE_SKIN
+    family==14&&return PID_LE_RIB
+    family==15&&return PID_RIB_WEB
+    family==16&&return PID_RIB_STIFFENER
+    family in (17,18)&&return PID_SPAR_WEB
     return Int(pid)
 end
 
@@ -100,18 +108,18 @@ function resolved_component_properties(p::AbstractDict,rib_count::Integer)
     tr=shell_thickness(p,PID_RIB_WEB);ts=shell_thickness(p,PID_SPAR_WEB)
     dimensions=rib_stiffener_dimensions(p);enabled=get(p,"properties.rib_stiffeners_enabled",true)
     ribs=map(1:rib_count) do rib
-        row=get(ribrows,rib,Dict{String,Any}());thickness=Float64(get(row,"thickness",tr))
-        dims=ntuple(i->Float64(get(row,RIB_STIFFENER_FIELDS[i],dimensions[i])),4)
-        (;rib,thickness,stiffener_enabled=get(row,"stiffener_enabled",enabled),dimensions=dims,
-            web_pid=thickness==tr ? PID_RIB_WEB : COMPONENT_PID_STRIDE+rib,
-            stiffener_pid=dims==dimensions ? PID_RIB_STIFFENER : 2COMPONENT_PID_STRIDE+rib)
+        row=get(ribrows,rib,Dict{String,Any}());webrow=component_table_override(p,"rib_web",rib);barrow=component_table_override(p,"rib_stiffener",rib);thickness=Float64(get(webrow,"thickness",get(row,"thickness",tr)))
+        dims=rib_stiffener_dimensions(p,rib);validate_t_section_dimensions(dims,"Rib $rib T stiffener")
+        (;rib,thickness,stiffener_enabled=get(barrow,"enabled",get(row,"stiffener_enabled",enabled)),dimensions=dims,
+            web_pid=component_table_pid(p,"rib_web",rib,thickness==tr ? PID_RIB_WEB : COMPONENT_PID_STRIDE+rib),
+            stiffener_pid=component_table_pid(p,"rib_stiffener",rib,dims==dimensions ? PID_RIB_STIFFENER : 2COMPONENT_PID_STRIDE+rib))
     end
     bays=map(1:rib_count-1) do bay
         row=get(bayrows,bay,Dict{String,Any}())
-        front=Float64(get(row,"front_thickness",ts));rear=Float64(get(row,"rear_thickness",ts))
+        front=Float64(get(component_table_override(p,"front_web",bay),"thickness",get(row,"front_thickness",ts)));rear=Float64(get(component_table_override(p,"rear_web",bay),"thickness",get(row,"rear_thickness",ts)))
         (;bay,front_thickness=front,rear_thickness=rear,
-            front_pid=front==ts ? PID_SPAR_WEB : 3COMPONENT_PID_STRIDE+bay,
-            rear_pid=rear==ts ? PID_SPAR_WEB : 4COMPONENT_PID_STRIDE+bay)
+            front_pid=component_table_pid(p,"front_web",bay,front==ts ? PID_SPAR_WEB : 3COMPONENT_PID_STRIDE+bay),
+            rear_pid=component_table_pid(p,"rear_web",bay,rear==ts ? PID_SPAR_WEB : 4COMPONENT_PID_STRIDE+bay))
     end
     return (;ribs,bays)
 end
@@ -120,6 +128,10 @@ resolved_component_properties(m::Model)=resolved_component_properties(m.params,l
 
 function nominal_shell_thickness(p::AbstractDict,pid::Integer)
     family,index=divrem(pid,COMPONENT_PID_STRIDE)
+    localrow=component_table_override(p,pid)
+    haskey(localrow,"thickness")&&return Float64(localrow["thickness"])
+    family==15&&(pid=COMPONENT_PID_STRIDE+index;family=1)
+    family in (17,18)&&(family=family-14;pid=family*COMPONENT_PID_STRIDE+index)
     if family in (PANEL_UPPER_FAMILY,PANEL_LOWER_FAMILY)
         row=panel_property_override(p,pid,"skin")
         haskey(row,"thickness")&&return Float64(row["thickness"])

@@ -40,7 +40,7 @@
  function physical(params){
   const area=params["planform.area"],ar=params["planform.aspect_ratio"],dihedral=params["planform.dihedral"],endEta=params["box.end_eta"],pitch=params["box.rib_pitch"];
   try{
-   if(![area,ar,dihedral,endEta,pitch].every(v=>typeof v==="number"&&Number.isFinite(v))||area<=0||ar<=0||pitch<=0||endEta<=0||endEta>1||Math.abs(dihedral)>=89)throw Error("Set valid wing dimensions, box End ETA and a positive root rib pitch.");
+   if(![area,ar,dihedral,endEta,pitch].every(v=>typeof v==="number"&&Number.isFinite(v))||area<=0||ar<=0||pitch<=0||endEta<=0||endEta>1||Math.abs(dihedral)>=89)throw Error("Set valid lifting surface dimensions, box End ETA and a positive root rib pitch.");
    const rows=normalizeMasters(params[KEY],endEta),masters=[{eta:0,mode:"flight_direction",angle:90,pitch,fixed:true},...rows.map((r,i)=>({...r,row:i,fixed:false})),{eta:endEta,mode:"flight_direction",angle:90,pitch:null,fixed:true}],intervals=[];
    let data=null,bayCount=0;const errors=[];if(rows.length){data=geometry(params);if(!data.drawable&&!data.valid)throw Error(data.error);}
    const deltaFor=master=>{try{return data?masterDelta(data,master):0;}catch(error){errors.push(error.message);return 0;}};

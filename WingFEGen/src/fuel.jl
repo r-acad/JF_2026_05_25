@@ -167,7 +167,7 @@ function fuel_summary(m::Model)
     result = Dict{String,Any}(
         "enabled" => enabled, "bays" => Any[],
         "rib_count" => length(g.ribs),
-        "scope" => "Gross geometric volume in the modeled half wing",
+        "scope" => "Gross geometric volume in the modeled half lifting surface",
         "method" => m.wing.airfoil_interpolation===:linear ?
             "Exact integration of the refined airfoil loft between independent base-reference spar paths and physical rib planes" :
             "Adaptive cosine-loft integration of exact tabulated airfoil sections (relative quadrature tolerance 1e-11)",
@@ -203,7 +203,7 @@ function fuel_info(m::Model)
         ("Fuel tank ribs", @sprintf("%d to %d of %d (ETA %.6g to %.6g)",
             summary["start_rib"], summary["end_rib"], summary["rib_count"],
             summary["eta_start"], summary["eta_end"])),
-        ("Fuel gross half-wing volume", @sprintf("%.9g m3 (%.9g L)", summary["volume_m3"], summary["volume_litres"])),
+        ("Fuel gross half lifting surface volume", @sprintf("%.9g m3 (%.9g L)", summary["volume_m3"], summary["volume_litres"])),
         ("Fuel wet / dry bays", "$(summary["active_bay_count"]) wet / $(length(summary["excluded_bays"])) dry in the selected tank range"),
         ("Fuel dry / vent bay IDs", isempty(summary["disabled_bays"]) ? "None" : join(summary["disabled_bays"],", ") * (isempty(summary["ignored_bays"]) ? "" : " (outside-range exclusions retained and ignored: " * join(summary["ignored_bays"],", ") * ")")),
         ("Fuel mirrored-pair volume", @sprintf("%.9g m3 (%.9g L), assuming two identical tanks", summary["mirrored_volume_m3"], summary["mirrored_volume_litres"])),

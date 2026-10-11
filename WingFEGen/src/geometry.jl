@@ -228,7 +228,7 @@ function spar_geometry(p::AbstractDict)
         front=front_changed ? edge_offset(front_etas,front_positions,eta) : Float64(p["box.front_spar_xc"])*c(eta)
         rear=rear_changed ? edge_offset(rear_etas,rear_positions,eta) : Float64(p["box.rear_spar_xc"])*c(eta)
         leading<front<rear<trailing || throw(ArgumentError(
-            "spar paths must lie strictly inside the refined wing over the modeled box: leading edge < front spar < rear spar < trailing edge; failure at eta=$eta (base x/c: LE=$(leading/c(eta)), front=$(front/c(eta)), rear=$(rear/c(eta)), TE=$(trailing/c(eta)))"))
+            "spar paths must lie strictly inside the refined lifting surface over the modeled box: leading edge < front spar < rear spar < trailing edge; failure at eta=$eta (base x/c: LE=$(leading/c(eta)), front=$(front/c(eta)), rear=$(rear/c(eta)), TE=$(trailing/c(eta)))"))
     end
     return (;front_etas,front_positions,rear_etas,rear_positions,breakpoints,
         perturbed=front_changed||rear_changed,front_perturbed=front_changed,rear_perturbed=rear_changed,

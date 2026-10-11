@@ -53,7 +53,7 @@ const SCHEMA = ParamSpec[
               "Airfoils"; help = "Use the NACA closed-TE coefficient; database profiles retain their original trailing-edge gap"),
 
     # --- planform ----------------------------------------------------------
-    ParamSpec("planform.area", "Base wing area", :float, 16.0, "Planform";
+    ParamSpec("planform.area", "Base lifting surface area", :float, 16.0, "Planform";
               unit = "m2", help = "Projected area of the full base trapezoid. Perturbation points change the actual area reported with the mesh"),
     ParamSpec("planform.aspect_ratio", "Base aspect ratio", :float, 8.0, "Planform";
               help = "b^2 / S of the full base trapezoid; together with base area fixes the span"),
@@ -72,9 +72,9 @@ const SCHEMA = ParamSpec[
     ParamSpec("planform.root_ref_x", "Root reference x", :float, 0.0, "Planform";
               unit = "m", help = "Global x of the BASE trapezoid reference point at the root. Refined edge points can move the common aerodynamic/structural loft relative to this reference datum"),
     ParamSpec("planform.root_ref_y", "Root reference y", :float, 0.0, "Planform";
-              unit = "m", help = "Global y translation of the entire wing, supports and aerodynamic geometry; symmetry remains about the translated root plane"),
+              unit = "m", help = "Global y translation of the entire lifting surface, supports and aerodynamic geometry; symmetry remains about the translated root plane"),
     ParamSpec("planform.root_ref_z", "Root reference z", :float, 0.0, "Planform";
-              unit = "m", help = "Global z translation of the entire wing, supports and aerodynamic geometry"),
+              unit = "m", help = "Global z translation of the entire lifting surface, supports and aerodynamic geometry"),
     ParamSpec("planform.leading_edge_points", "Leading-edge perturbation points", :planformpoints, Any[], "Planform";
               help = "Leading-edge eta/dxc perturbations: dxc=0 follows the nominal leading edge; +0.2 moves aft by 20% of the base chord, -0.2 forward. Offsets follow changes to the base trapezoid. Missing endpoints have zero offset. Legacy xc coordinates are migrated on load"),
     ParamSpec("planform.trailing_edge_points", "Trailing-edge perturbation points", :planformpoints, Any[], "Planform";
@@ -86,11 +86,11 @@ const SCHEMA = ParamSpec[
     ParamSpec("box.rear_spar_xc", "Rear spar", :float, 0.55, "Torsion box";
               unit = "x/c", help = "Nominal rear spar location in the BASE trapezoid chord. Every rear spar perturbation is an offset from this value and follows changes to it"),
     ParamSpec("box.front_spar_points", "Front spar perturbation points", :planformpoints, Any[], "Torsion box";
-              help = "Front-spar eta/dxc offsets from the nominal Front spar location: zero nominal, positive aft, negative forward in base-chord fractions. Straight segments join the physical points. Missing endpoints use zero offset. Both spars must remain inside the refined wing through End ETA"),
+              help = "Front-spar eta/dxc offsets from the nominal Front spar location: zero nominal, positive aft, negative forward in base-chord fractions. Straight segments join the physical points. Missing endpoints use zero offset. Both spars must remain inside the refined lifting surface through End ETA"),
     ParamSpec("box.rear_spar_points", "Rear spar perturbation points", :planformpoints, Any[], "Torsion box";
               help = "Rear-spar eta/dxc offsets from the nominal Rear spar location: zero nominal, positive aft, negative forward in base-chord fractions. Each point has stringer_angle in degrees (default 0) for its incoming segment relative to the rear spar; the final segment repeats the last angle. An eta=0 angle is unused unless it is the only point"),
     ParamSpec("box.end_eta", "End ETA", :float, 0.9, "Torsion box";
-              help = "Final closed rib position as a fraction of the full wing semispan (0 < ETA <= 1). Aerodynamics retain the full wing; outboard loads transfer to this rib with their moment arms"),
+              help = "Final closed rib position as a fraction of the full lifting surface semispan (0 < ETA <= 1). Aerodynamics retain the full lifting surface; outboard loads transfer to this rib with their moment arms"),
     ParamSpec("box.rib_pitch", "Root outgoing rib pitch", :float, 0.6, "Ribs";
               unit = "m",
               help = "Target pitch from the root master to the next master. With intermediate masters, pitch is measured along the 3D rear-spar reference path and rounded to whole bays per interval. Without intermediate masters the existing reference-line spacing is preserved"),
@@ -111,7 +111,7 @@ const SCHEMA = ParamSpec[
               choices = ["flight_direction", "front_spar_angle"],
               help = "Line of flight keeps the existing constant-span ribs. Front-spar angle uses the same inboard/root spar segment as the reference for every leading-edge rib"),
     ParamSpec("leading_edge.rib_angle", "Rib angle to inboard front spar", :float, 90.0, "Leading edge"; unit = "deg",
-              help = "Plan-view angle from the root front-spar segment's outboard tangent toward the nose; 90 degrees is perpendicular. Uses the same reference for all ribs. Rib planes hinge on the existing front-spar nodes. Angled closure ribs must reach the nose inside the wing; choose interior first/last ribs or adjust the angle if a closure would leave the wing"),
+              help = "Plan-view angle from the root front-spar segment's outboard tangent toward the nose; 90 degrees is perpendicular. Uses the same reference for all ribs. Rib planes hinge on the existing front-spar nodes. Angled closure ribs must reach the nose inside the lifting surface; choose interior first/last ribs or adjust the angle if a closure would leave the lifting surface"),
     ParamSpec("leading_edge.rib_orientations", "Individual leading-edge rib orientations", :riborientations, Any[], "Leading edge";
               help = "Optional overrides by physical rib number: flight_direction or front_spar_angle and angle in degrees. Unlisted ribs inherit the global leading-edge setting. The common inboard front-spar segment is the angle reference"),
     ParamSpec("leading_edge.start_rib", "First leading-edge rib", :int, 1, "Leading edge";
@@ -171,7 +171,7 @@ const SCHEMA = ParamSpec[
               help = "Prescribed lift distribution, or aerodynamic forces and moments from VortexLattice.jl"),
     ParamSpec("loads.lift_total", "Lift, semi-span", :float, 6000.0, "Loads";
               unit = "N",
-              help = "Unscaled prescribed lift carried by the modelled half wing; define the intended base load level before applying the load multiplier"),
+              help = "Unscaled prescribed lift carried by the modelled half lifting surface; define the intended base load level before applying the load multiplier"),
     ParamSpec("loads.load_factor", "Load multiplier", :float, 1.5, "Loads";
               unit = "dimensionless", help = LOAD_MULTIPLIER_NOTE * " Negative values reverse forces and moments."),
     ParamSpec("loads.distribution", "Spanwise distribution", :choice, "elliptical",
@@ -227,6 +227,8 @@ const SCHEMA = ParamSpec[
               "Properties"; unit = "m"),
     ParamSpec("properties.panels", "Individual stiffened-panel properties", :panelproperties, Any[], "Properties";
               help = "Physical panel key and layout token, with sparse skin and stringer properties. Blank values inherit shared defaults. Reset overrides before changing the geometry or rib/stringer/runout layout"),
+    ParamSpec("properties.components", "Physical component table overrides", :componentproperties, Any[], "Properties";
+              help = "Sparse rib, spar, cap and leading-edge table overrides; blank cells inherit shared defaults"),
     ParamSpec("properties.t_spar_web", "Spar web thickness", :float, 0.0030,
               "Spar properties"; unit = "m", help = "Default for both spars. Individual physical rib bays can override either web thickness below"),
     ParamSpec("properties.t_rib_web", "Rib web thickness", :float, 0.0020,
@@ -256,7 +258,7 @@ const SCHEMA = ParamSpec[
               help = "PBARL BAR with equal DIM1 and DIM2. One face lies against the skin; the square extends into the box"),
 
     # --- output ------------------------------------------------------------
-    ParamSpec("output.title", "Model title", :string, "Wing torsion box", "Analysis"),
+    ParamSpec("output.title", "Model title", :string, "Lifting surface torsion box", "Analysis"),
     ParamSpec("output.nastran_file", "NASTRAN file", :string, "output/wing_box.bdf",
               "Analysis"; help = "Relative paths resolve against the application folder"),
     ParamSpec("output.solution", "Solution", :choice, "103", "Analysis";
@@ -460,6 +462,7 @@ function coerce_value(spec::ParamSpec, v)
     spec.kind === :supportsets && return normalize_support_sets(v)
     spec.kind in (:ribproperties,:sparproperties) && return normalize_component_properties(v,spec.key)
     spec.kind === :panelproperties && return normalize_panel_properties(v)
+    spec.kind === :componentproperties && return normalize_component_table_properties(v)
     spec.kind === :materials && return normalize_material_library(v)
     spec.kind in (:shellmaterials,:barmaterials) && return normalize_material_assignments(v,spec.key)
     if spec.key=="leading_edge.disabled_bays"
@@ -663,7 +666,7 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
         throw(ArgumentError("planform.twist_tip must be below 45 deg"))
 
     # The edge difference is linear between the union of all point stations;
-    # a positive chord at those stations is sufficient over the whole wing.
+    # a positive chord at those stations is sufficient over the whole lifting surface.
     planform = planform_geometry(p)
     spar_geometry(p)
     normalize_rib_tables(get(p,"ribs.masters",Any[]),"ribs.masters";end_eta=p["box.end_eta"])
@@ -743,7 +746,7 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
     normalize_airfoil_stations(get(p,"airfoil.stations",Any[]))
     get(p,"airfoil.interpolation","linear") in ("linear","cosine") ||
         throw(ArgumentError("airfoil.interpolation must be linear or cosine"))
-    if p["fuel.enabled"] || p["leading_edge.enabled"] || !isempty(get(p,"ribs.masters",Any[])) || !isempty(p["properties.ribs"]) || !isempty(p["properties.spar_bays"]) || get(p,"supports.mode","root")=="custom" && !isempty(support_sets)
+    if p["fuel.enabled"] || p["leading_edge.enabled"] || !isempty(get(p,"ribs.masters",Any[])) || !isempty(p["properties.ribs"]) || !isempty(p["properties.spar_bays"]) || !isempty(get(p,"properties.components",Any[])) || get(p,"supports.mode","root")=="custom" && !isempty(support_sets)
         _, physical_ribs, _ = span_stations(make_wing(p), p)
         validate_component_property_bounds(p,length(physical_ribs))
         p["fuel.enabled"] && fuel_rib_bounds(p, length(physical_ribs))
@@ -788,7 +791,7 @@ function toml_value(spec::ParamSpec, v)
         panel_literal(x) = x isa AbstractString ? toml_string_literal(x) : x isa AbstractDict ?
             "{"*join((string(k," = ",panel_literal(value)) for (k,value) in sort!(collect(x);by=first)),", ")*"}" : string(x)
         return "["*join(panel_literal.(normalize_panel_properties(v)),", ")*"]"
-    elseif spec.kind in (:loadcases, :planformpoints, :masterribs, :riborientations, :supportsets, :ribproperties, :sparproperties, :materials, :shellmaterials, :barmaterials)
+    elseif spec.kind in (:loadcases, :planformpoints, :masterribs, :riborientations, :supportsets, :ribproperties, :sparproperties, :componentproperties, :materials, :shellmaterials, :barmaterials)
         literal(x) = x isa AbstractString ? toml_string_literal(x) : string(x)
         return "[" * join(("{" * join((string(k, " = ", literal(v)) for (k, v) in sort!(collect(row); by = first)), ", ") * "}" for row in v), ", ") * "]"
     elseif spec.kind === :bool
@@ -811,11 +814,11 @@ and the section grouping.
 function params_to_toml(p::AbstractDict)
     io = IOBuffer()
     println(io, "# =========================================================================")
-    println(io, "#  Wing torsion-box FE model generator - input file")
-    println(io, "#  Written by WingFEGen on ",
+    println(io, "#  Lifting surface torsion-box FE model generator - input file")
+    println(io, "#  Written by Lifting surface FEGen on ",
             Dates.format(Dates.now(), "yyyy-mm-dd HH:MM:SS"))
     println(io, "#  Units: SI  (m, N, kg, Pa)")
-    println(io, "#  Axes:  x aft, y towards the tip, z up. Right-hand semi-span wing.")
+    println(io, "#  Axes:  x aft, y towards the tip, z up. Right-hand semi-span lifting surface.")
     println(io, "# =========================================================================")
     section = ""
     for spec in SCHEMA

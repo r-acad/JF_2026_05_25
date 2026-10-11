@@ -14,7 +14,7 @@
   const DRAWING_KEYS = new Set(["planform","spars","master-ribs","leading-edge-ribs","fuel-tank","stringer-section","spar-cap-section","rib-stiffener-section","rib-override-section","airfoil-root","airfoil-tip",...(["upper_skin","lower_skin","spar_web","rib_web","leading_edge_skin","leading_edge_rib"].map(name=>"material-"+name))]);
   const CONTROL_IDS = ["surface-mode","surface-translucency","shell-geometry","beam-style","show-bars-through","show-aero-overlay","aero-deformed-style","background-color","inspect-entity",
     "show-fuel-inertia","show-fuel-cg","show-fuel-mass-labels","fuel-inertia-scale",
-    "node-radius","marker-radius","show-ground-plane","show-symmetry-plane","ground-plane-z","ground-grid-spacing","show-shell-axes","show-bar-axes","show-node-ids","show-element-ids","show-coordinate-labels","id-label-size",
+    "node-radius","marker-radius","show-ground-plane","show-symmetry-plane","ground-plane-z","ground-grid-spacing","show-shell-axes","show-bar-axes","show-node-ids","show-element-ids","show-coordinate-labels","show-rbe3-dofs","show-celas-cylinders","id-label-size",
     "mesh-labels-ribs","mesh-labels-stringers","show-rib-datums","rib-datum-size","vlm-field",
     "vlm-force-scale","show-vlm-panel-forces","show-fuel-tank","show-panels","result-palette","show-support-forces","show-support-force-values","support-force-scale",
     "deform-scale","animate","show-undeformed","show-reference-aero","show-deformed-aero","contour-select","compare-results","auto-mesh","show-picked-axes","measure-snap-nodes"];
@@ -123,7 +123,7 @@
     if (view.planView !== undefined) {
       const api = typeof WingDimensionedPlanView !== "undefined" ? WingDimensionedPlanView :
         typeof require === "function" ? require("./dimensioned_plan_view.js") : null;
-      if (!api) throw new Error("Plan-view images require the updated viewer. Refresh WingFEGen.");
+      if (!api) throw new Error("Plan-view images require the updated viewer. Refresh Lifting surface FEGen.");
       view.planView = api.validateState(view.planView);
     }
     if (view.planformInputs !== undefined) {
@@ -133,7 +133,7 @@
     if (view.drawings !== undefined) {
       if (!object(view.drawings) || Object.keys(view.drawings).some(key => !DRAWING_KEYS.has(key) && !/^airfoil-station-([1-9]|[1-9][0-9]|100)$/.test(key))) throw new Error("Invalid 2D drawing settings.");
       const api = typeof WingSVGViewport !== "undefined" ? WingSVGViewport : typeof require === "function" ? require("./svg_viewport.js") : null;
-      if (!api) throw new Error("2D drawing images require the updated viewer. Refresh WingFEGen.");
+      if (!api) throw new Error("2D drawing images require the updated viewer. Refresh Lifting surface FEGen.");
       view.drawings = Object.fromEntries(Object.entries(view.drawings).map(([key,value]) => [key,api.validateState(value)]));
     }
     if (view.viewportTools !== undefined && (!object(view.viewportTools) || Object.keys(view.viewportTools).some(key=>key!=="collapsed") || typeof view.viewportTools.collapsed!=="boolean")) throw new Error("Invalid viewport toolbar settings.");
@@ -191,7 +191,7 @@
   // Validate in-memory definitions without serializing and parsing large native
   // deck/include strings a second time during import or Save Study.
   function parseObject(data) {
-    if (!object(data) || data.format!==FORMAT || data.version!==VERSION) throw new Error("Unsupported Study file format or version. Choose a WingFEGen .wingfem.json file.");
+    if (!object(data) || data.format!==FORMAT || data.version!==VERSION) throw new Error("Unsupported Study file format or version. Choose a Lifting surface FEGen .wingfem.json file.");
     if (!object(data.parameters) || !Array.isArray(data.references)) throw new Error("Study parameters or embedded references are missing.");
     // Legacy panel property keys must retain their original runout boundaries.
     // New Studies receive the schema default (0.75) before being saved.
@@ -275,7 +275,7 @@
     let request;
     try {
       request=host.showSaveFilePicker({id:"wingfegen-"+kind,suggestedName:name,
-        types:[{description:kind==="study" ? "WingFEGen Study" : "WingFEGen TOML parameters",
+        types:[{description:kind==="study" ? "Lifting surface FEGen Study" : "Lifting surface FEGen TOML parameters",
           accept:kind==="study" ? {"application/json":[".wingfem.json"]} : {"text/plain":[".toml"]}}]});
     } catch(error) { request=Promise.reject(error); }
     // Resolve cancellations/errors immediately to avoid an unhandled rejection

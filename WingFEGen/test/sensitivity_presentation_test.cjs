@@ -1,0 +1,11 @@
+'use strict';
+const assert=require('node:assert/strict'),T=require('../web/sensitivity_table_data.js'),S=require('../web/sensitivity_results.js');
+for(const [input,expected] of [[7.319367,'7.3194'],[75.58522,'75.585'],[28.53046,'28.53'],[-.021165523671214437,'-0.021166'],[0,'0'],[-0,'0'],[123456789,'1.2346e+8'],[1e-8,'1e-8'],[1.234567e-9,'1.2346e-9'],[99999.9999,'1e+5'],[NaN,'\u2014'],[Infinity,'\u2014'],[Number.MAX_VALUE,'1.7977e+308'],[Number.MIN_VALUE,'4.9407e-324']])assert.equal(S.format(input),expected,String(input));
+const rgb=value=>value.match(/\d+/g).map(Number),isRed=number=>{const [r,g,b]=rgb(number);assert(r>b&&r>g,number);},isBlue=number=>{const[r,g,b]=rgb(number);assert(b>r&&b>g,number);};
+for(const scale of [{min:-8,max:-2},{min:-8,max:0},{min:-2,max:6},{min:-3,max:-3}])isRed(T.valueColor(scale.min,scale));
+for(const scale of [{min:2,max:8},{min:0,max:8},{min:-2,max:6},{min:3,max:3}])isBlue(T.valueColor(scale.max,scale));
+for(const scale of [{min:-8,max:0},{min:0,max:8},{min:-2,max:6},{min:0,max:0}])assert.equal(T.valueColor(0,scale),'rgb(242, 243, 239)');
+const rows=[{id:'a',value:0.00223456789,unit:'m',derivative:75.58522123456789,derivative_unit:'m / m',status:'ok'},{id:'b',value:71,unit:'GPa',derivative:-0.000003456789,derivative_unit:'m / GPa',status:'ok'},{id:'failed',value:1,derivative:1e20,unit:'m',derivative_unit:'m / m',status:'failed'}],snapshot={result:{baseline:{value:.036789123456789,unit:'m'},rows}};
+const scales=T.colorScales(snapshot,{mode:'all',quantity:'derivative'});assert.equal(scales.size,2);assert.equal(scales.get('m / m').max,rows[0].derivative);assert.equal(scales.get('m / GPa').min,rows[1].derivative);
+const exportText=T.csv(snapshot,{mode:'all',quantity:'derivative'});assert(exportText.includes(String(rows[0].derivative)));assert(exportText.includes(String(rows[0].value)));assert(exportText.includes(String(snapshot.result.baseline.value)));
+console.log('Sensitivity presentation: five significant digits including extremes; signed red/blue and zero; independent unit ranges; unchanged full-precision CSV passed');

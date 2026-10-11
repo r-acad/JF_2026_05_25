@@ -1,9 +1,34 @@
-# WingFEGen
+# Lifting surface FEGen
 
-WingFEGen is the wing finite-element generator and browser interface included
-with OpenJFEM. It generates shell/bar wing structures, aerodynamic lattices and
+Lifting surface FEGen is the finite-element generator and browser interface included
+with OpenJFEM. It generates shell/bar lifting surfaces, aerodynamic lattices and
 load cases, writes NASTRAN decks, launches the solver in this repository and
 displays structural results and property sensitivities.
+
+The source directory, launchers, parameter keys and `.wingfem.json` file format
+retain their existing WingFEGen names for compatibility.
+
+Detached tables in **Properties / Spars**, **Ribs** and **Leading Edge** edit
+webs, caps, stiffeners, skins and leading-edge ribs by physical rib or bay.
+They support materials, applicable section dimensions, sandwich layers and
+inherited defaults. Edits save with the Study/TOML and mark results stale;
+analysis starts only when requested. The skin/stringer panel tables remain
+available with the same dark-blue button style.
+
+Sensitivity data offers a **red-negative / blue-positive** palette, with
+unit-specific scales fitted to the displayed values. Numbers use at most five
+significant digits; CSV retains full precision. Units sit beside the scales.
+
+**Display / Axes & labels** includes RBE3 component, weight and UM markers.
+**Display / Appearance** can draw CELAS components as symbolic cylinders,
+colored x red, y green and z blue in each endpoint's coordinate system.
+**Loads / Aerodynamics** contains both Visualization and VLM settings.
+
+SOL105 results include the actual **SOL101 preload** as a separate analysis
+alongside buckling modes. Export recovers requested stress, force and reaction
+fields from the retained static state without repeating the equilibrium solve.
+Older outputs may contain only preload displacements. Eigenmode amplitudes
+remain normalized independently of static deformation.
 
 The complete application source and browser libraries are in this directory.
 No private workspace, downloaded Study, proprietary solver, Node build pipeline
@@ -67,7 +92,7 @@ optional external-resource details.
 2. Define the planform, airfoils, spars, ribs and optional leading-edge mesh.
    Planform edge perturbations refine the aerodynamic outline; spar perturbations
    define the structural spar paths independently.
-3. Use **Model / Mesh / Structural Mesh** to create or refine the FEM. Live mesh
+3. Use **Model / Structural Mesh** to create or refine the FEM. Live mesh
    rebuilds it after valid edits. Geometry and mesh locks help retain the layout
    while assigning properties.
 4. Define materials, skins, stringers, ribs, spars and leading-edge properties

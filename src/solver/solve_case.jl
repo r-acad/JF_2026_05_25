@@ -979,6 +979,7 @@ function _solve_case_impl(K, ndof, model, id_map, X, load_id, spc_id, node_R;
                     load_scale::Float64=1.0,
                     temp_load_id=nothing,
                     linear_cache=nothing,
+                    recovery_state=nothing,
                     build_results::Bool=true)
     F_applied = _assemble_applied_force(
         ndof, model, id_map, X, load_id, node_R, rbe3_map;
@@ -1044,6 +1045,14 @@ function _solve_case_impl(K, ndof, model, id_map, X, load_id, spc_id, node_R;
     # reference solve feeding Kg) skip stress recovery and result-row
     # building entirely — previously computed unconditionally and discarded
     # (measured pure waste, PERF_AUDIT_SOL105_2026_08_05 item 9).
+    if recovery_state !== nothing
+        # Retain the solved state for lazy SOL105 preload export. No extra
+        # solve or element recovery is performed until a consumer requests it.
+        followers === nothing || (solver_diagnostics["follower_loading"] =
+            _follower_result_metadata(followers,u_global,load_scale;linearized=true))
+        recovery_state[] = (K=K, force=F_resid, spc_dofs=spc_dofs,
+            diagnostics=solver_diagnostics, load_id=load_id, load_scale=Float64(load_scale))
+    end
     if !build_results
         return nothing, nothing, nothing, u_global, fixed_dofs
     end

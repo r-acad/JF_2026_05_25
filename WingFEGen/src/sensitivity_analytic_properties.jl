@@ -12,6 +12,10 @@ function sensitivity_material_direction(d,mid)
 end
 
 function sensitivity_owned_derivative(p,pid,d,part,field,owner)
+    localrow=component_table_override(p,pid)
+    if haskey(localrow,field)
+        return d["id"]=="properties.components#$(localrow["key"])#$field" ? Float64(d["scale"]) : 0.
+    end
     id=stiffened_panel_id(pid)
     if id!==nothing
         key=panel_property_context(p).keys[id]
@@ -24,6 +28,10 @@ end
 
 function sensitivity_shell_thickness_owner(p,pid)
     family,index=divrem(pid,COMPONENT_PID_STRIDE)
+    localrow=component_table_override(p,pid)
+    haskey(localrow,"thickness")&&return "properties.components#$(localrow["key"])#thickness"
+    family==15&&(family=1)
+    family in (17,18)&&(family-=14)
     if family==1&&haskey(component_property_row(p,"properties.ribs",index),"thickness")
         return "properties.ribs#$index#thickness"
     elseif family in (3,4)
@@ -49,10 +57,10 @@ function sensitivity_analytic_property_direction(m,d,property)
             row=index==0 ? Dict() : component_property_row(p,"properties.ribs",index)
             for (i,field) in enumerate(RIB_STIFFENER_FIELDS)
                 owner=haskey(row,field) ? "properties.ribs#$index#$field" : "properties.rib_stiffener_"*field
-                ddims[i]=d["id"]==owner ? Float64(d["scale"]) : 0.
+                ddims[i]=sensitivity_owned_derivative(p,pid,d,"stringer",field,owner)
             end
-        elseif base==PID_SPAR_CAP&&d["id"]=="properties.spar_cap_side"
-            fill!(ddims,Float64(d["scale"]))
+        elseif base==PID_SPAR_CAP
+            fill!(ddims,sensitivity_owned_derivative(p,pid,d,"stringer","side","properties.spar_cap_side"))
         end
         material=sensitivity_material_direction(d,property["material_id"])
         return merge(Dict{String,Any}("kind"=>"bar","dimensions"=>ddims,"active"=>any(!iszero,ddims)||any(!iszero,values(material))),material)
@@ -70,8 +78,13 @@ function sensitivity_analytic_property_direction(m,d,property)
         dc=sensitivity_owned_derivative(p,pid,d,"skin","core_thickness","materials.shells#$component#core_thickness")
         family,index=divrem(pid,COMPONENT_PID_STRIDE)
         row=family==1 ? component_property_row(p,"properties.ribs",index) : family in (3,4) ? component_property_row(p,"properties.spar_bays",index) : Dict()
+        family==15&&(row=component_property_row(p,"properties.ribs",index);family=1)
+        family in (17,18)&&(family-=14;row=component_property_row(p,"properties.spar_bays",index))
         field=family==1 ? "thickness" : family==3 ? "front_thickness" : "rear_thickness"
-        if haskey(row,field)
+        localrow=component_table_override(p,pid)
+        if haskey(localrow,"core_thickness")
+            # Explicit core thickness owns the core independently of a legacy total.
+        elseif haskey(row,field)
             owner=family==1 ? "properties.ribs#$index#$field" : "properties.spar_bays#$index#$field"
             dc=(d["id"]==owner ? Float64(d["scale"]) : 0.)-2df
         end

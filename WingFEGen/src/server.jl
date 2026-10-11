@@ -177,7 +177,7 @@ end
 # --- handlers --------------------------------------------------------------
 
 const ACTIVITY_STAGES = Dict(
-    "geometry" => "Evaluating wing geometry…", "mesh" => "Meshing skins, spars, ribs and stringers…",
+    "geometry" => "Evaluating lifting surface geometry…", "mesh" => "Meshing skins, spars, ribs and stringers…",
     "leading_edge" => "Meshing the selected leading-edge rib range…",
     "stiffened_panels" => "Assigning stiffened skin panels and inherited shell/stringer properties…",
     "aero" => "Building aerodynamic geometry…", "fuel" => "Calculating exact fuel capacity…",
@@ -659,7 +659,7 @@ function handle_run_jfem(st::AppState, req; start_job=start_jfem_job)
         haskey(get(raw,"parameters",raw),"imported_deck")&&progress("Preparing imported Nastran analysis settings; preserving source geometry and load cases")
         imported=request_imported_model(raw)
         imported===nothing||return handle_imported_nastran(st,imported;run=true,start_job,progress)
-        st.model!==nothing&&is_imported_model(st.model)&&throw(ArgumentError("The current model is an imported Nastran deck, but this request omitted its source handle. Read the deck or reopen its Study before running; no wing model was generated."))
+        st.model!==nothing&&is_imported_model(st.model)&&throw(ArgumentError("The current model is an imported Nastran deck, but this request omitted its source handle. Read the deck or reopen its Study before running; no lifting surface model was generated."))
         params = params_from_request(st, req)
         model = build_model(params; progress)
         st.params = params
@@ -938,7 +938,7 @@ function run_app(input_path::AbstractString;
     _startup_stage("HTTP listener ready at $url; choose a study or import a Nastran deck in the browser")
     on_ready()
     println()
-    println("  WingFEGen is running")
+    println("  Lifting surface FEGen is running")
     println("  input file : ", st.input_path)
     println("  web app    : ", url)
     println("  press Ctrl-C in this window to stop")
@@ -956,6 +956,6 @@ function run_app(input_path::AbstractString;
     finally
         close(server)
     end
-    println("WingFEGen stopped")
+    println("Lifting surface FEGen stopped")
     return nothing
 end

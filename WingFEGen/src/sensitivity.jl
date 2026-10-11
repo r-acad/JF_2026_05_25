@@ -74,6 +74,10 @@ function sensitivity_catalog(m::Model)
             add("$key#$(row[indexfield])#$field","$(uppercasefirst(indexfield)) $(row[indexfield]): $field",Any[key,i,field],row[field],"m")
         end
     end
+    for (i,row) in enumerate(get(p,"properties.components",Any[])),field in sort!(collect(keys(row)))
+        field in ("key","kind","enabled","material","face_material","core_material")&&continue
+        add("properties.components#$(row["key"])#$field","$(replace(row["key"],'_'=>' ')): $field",Any["properties.components",i,field],row[field],"m")
+    end
     for (i,row) in enumerate(p["materials.shells"])
         get(row,"kind","")=="sandwich"||continue
         for field in ("face_thickness","core_thickness")

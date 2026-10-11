@@ -1,8 +1,8 @@
 # =========================================================================
-#  Wing torsion-box FE model generator - input file
-#  Written by WingFEGen on 2026-10-08 17:46:34
+#  Lifting surface torsion-box FE model generator - input file
+#  Written by Lifting surface FEGen on 2026-10-08 17:46:34
 #  Units: SI  (m, N, kg, Pa)
-#  Axes:  x aft, y towards the tip, z up. Right-hand semi-span wing.
+#  Axes:  x aft, y towards the tip, z up. Right-hand semi-span lifting surface.
 # =========================================================================
 
 [airfoil]
@@ -26,17 +26,17 @@ sweep_ref_xc          = 0.25                    # x/c, Base chord fraction of th
 dihedral              = 5.0                     # deg, Applied to the reference line
 twist_axis_xc         = 0.25                    # x/c, Fraction of the refined chord about which both the aerodynamic surface and structural section are pitched
 root_ref_x            = 0.0                     # m, Global x of the BASE trapezoid reference point at the root. Refined edge points can move the common aerodynamic/structural loft relative to this reference datum
-root_ref_y            = 0.0                     # m, Global y translation of the entire wing, supports and aerodynamic geometry; symmetry remains about the translated root plane
-root_ref_z            = 0.0                     # m, Global z translation of the entire wing, supports and aerodynamic geometry
+root_ref_y            = 0.0                     # m, Global y translation of the entire lifting surface, supports and aerodynamic geometry; symmetry remains about the translated root plane
+root_ref_z            = 0.0                     # m, Global z translation of the entire lifting surface, supports and aerodynamic geometry
 leading_edge_points   = []                      # Leading-edge eta/dxc perturbations: dxc=0 follows the nominal leading edge; +0.2 moves aft by 20% of the base chord, -0.2 forward. Offsets follow changes to the base trapezoid. Missing endpoints have zero offset. Legacy xc coordinates are migrated on load
 trailing_edge_points  = []                      # Trailing-edge eta/dxc perturbations: dxc=0 follows the nominal trailing edge, positive moves aft and negative forward by that fraction of the base chord. Missing endpoints have zero offset. The refined chord must contain both spars throughout the modeled box
 
 [box]
 front_spar_xc         = 0.2                     # x/c, Nominal front spar location in the BASE trapezoid chord. Every front spar perturbation is an offset from this value and follows changes to it
 rear_spar_xc          = 0.55                    # x/c, Nominal rear spar location in the BASE trapezoid chord. Every rear spar perturbation is an offset from this value and follows changes to it
-front_spar_points     = []                      # Front-spar eta/dxc offsets from the nominal Front spar location: zero nominal, positive aft, negative forward in base-chord fractions. Straight segments join the physical points. Missing endpoints use zero offset. Both spars must remain inside the refined wing through End ETA
+front_spar_points     = []                      # Front-spar eta/dxc offsets from the nominal Front spar location: zero nominal, positive aft, negative forward in base-chord fractions. Straight segments join the physical points. Missing endpoints use zero offset. Both spars must remain inside the refined lifting surface through End ETA
 rear_spar_points      = []                      # Rear-spar eta/dxc offsets from the nominal Rear spar location: zero nominal, positive aft, negative forward in base-chord fractions. Each point has stringer_angle in degrees (default 0) for its incoming segment relative to the rear spar; the final segment repeats the last angle. An eta=0 angle is unused unless it is the only point
-end_eta               = 0.9                     # Final closed rib position as a fraction of the full wing semispan (0 < ETA <= 1). Aerodynamics retain the full wing; outboard loads transfer to this rib with their moment arms
+end_eta               = 0.9                     # Final closed rib position as a fraction of the full lifting surface semispan (0 < ETA <= 1). Aerodynamics retain the full lifting surface; outboard loads transfer to this rib with their moment arms
 rib_pitch             = 0.6                     # m, Target pitch from the root master to the next master. With intermediate masters, pitch is measured along the 3D rear-spar reference path and rounded to whole bays per interval. Without intermediate masters the existing reference-line spacing is preserved
 stringer_pitch        = 0.15                    # m, Exact root x-spacing, constant along the span between parallel stringer planes
 stringer_angle        = 0.0                     # deg, Used only when there are no rear-spar perturbation points: angle relative to the untwisted rear-spar datum, positive aft. With rear-spar points, their individual Stringer angle values define continuous kinked stringer paths and this global value is ignored
@@ -47,7 +47,7 @@ masters               = []                      # Intermediate masters: ETA at t
 [leading_edge]
 enabled               = false                   # Structural skins from the nose to the front spar, between the selected physical ribs. Shares front-spar nodes and includes a closing rib at both ends
 rib_orientation       = "flight_direction"      # Line of flight keeps the existing constant-span ribs. Front-spar angle uses the same inboard/root spar segment as the reference for every leading-edge rib
-rib_angle             = 90.0                    # deg, Plan-view angle from the root front-spar segment's outboard tangent toward the nose; 90 degrees is perpendicular. Uses the same reference for all ribs. Rib planes hinge on the existing front-spar nodes. Angled closure ribs must reach the nose inside the wing; choose interior first/last ribs or adjust the angle if a closure would leave the wing
+rib_angle             = 90.0                    # deg, Plan-view angle from the root front-spar segment's outboard tangent toward the nose; 90 degrees is perpendicular. Uses the same reference for all ribs. Rib planes hinge on the existing front-spar nodes. Angled closure ribs must reach the nose inside the lifting surface; choose interior first/last ribs or adjust the angle if a closure would leave the lifting surface
 rib_orientations      = []                      # Optional overrides by physical rib number: flight_direction or front_spar_angle and angle in degrees. Unlisted ribs inherit the global leading-edge setting. The common inboard front-spar segment is the angle reference
 start_rib             = 1                       # Physical rib number at the inboard end; rib 1 is the root. Shell mesh subdivisions do not change the numbering
 end_rib               = 0                       # Physical rib number at the outboard end; 0 follows the final box rib at End ETA. Must be beyond the first selected rib
@@ -82,7 +82,7 @@ items                 = []                      # Select a physical rib (root is
 [loads]
 label                 = "Load case 1"           # Name of the first load case in the deck and results selector
 method                = "analytic"              # Prescribed lift distribution, or aerodynamic forces and moments from VortexLattice.jl
-lift_total            = 6000.0                  # N, Unscaled prescribed lift carried by the modelled half wing; define the intended base load level before applying the load multiplier
+lift_total            = 6000.0                  # N, Unscaled prescribed lift carried by the modelled half lifting surface; define the intended base load level before applying the load multiplier
 load_factor           = 1.5                     # dimensionless, Dimensionless multiplier applied once to prescribed lift, VLM forces and moments, and prescribed torque. A value of 1.5 converts limit loads to ultimate only when the defined case already represents limit loads; it is not an additional n-g conversion. Negative values reverse forces and moments.
 distribution          = "elliptical"            # elliptical, proportional to the local chord, or constant
 torque_y              = 0.0                     # N m, Unscaled prescribed couple at RBE3 centers; right-hand +y, distributed by tributary strips and scaled once by the same load multiplier
@@ -133,7 +133,7 @@ stringer_web_thickness= 0.002                   # m, PBARL T DIM4; must be less 
 spar_cap_side         = 0.02                    # m, PBARL BAR with equal DIM1 and DIM2. One face lies against the skin; the square extends into the box
 
 [output]
-title                 = "Wing torsion box"
+title                 = "Lifting surface torsion box"
 nastran_file          = "output/wing_box.bdf"   # Relative paths resolve against the application folder
 solution              = "103"                   # 103 normal modes, 101 linear static, 105 linear buckling, 106 experimental geometric nonlinear static with a matching SOL101 comparison for every enabled load case
 n_modes               = 10                      # Eigenvalues requested for SOL 103 and SOL 105

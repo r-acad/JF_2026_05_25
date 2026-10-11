@@ -90,6 +90,10 @@ tests=@testset "Coordinate and miscellaneous source payload" begin
     @test records[202]["properties"]["source_definition"]["CNA"]=="123"
     @test records[201]["properties"]["CM"]==123
     @test records[205]["properties"]["property"]["K"]==2500.
+    @test records[205]["endpoints"][1]["component"]==3
+    @test records[205]["endpoints"][1]["axis"]==[0.,0.,1.]
+    @test records[205]["properties"]["display_endpoints"]==records[205]["endpoints"]
+    @test records[206]["endpoints"][2]["axis"]==[0.,1.,0.]
     @test records[207]["properties"]["M"]==20.
     @test records[207]["properties"]["X"]==[.1,.2,.3]
     @test only(data["rbe3"]["elements"])["source_definition"]["type"]=="RBE3"

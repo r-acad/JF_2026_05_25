@@ -103,6 +103,6 @@ function rib_curve_intersection(curve,plane,cuts,label)
     for eta in roots
         (isempty(found)||eta-last(found)>1e-9)&&push!(found,eta)
     end
-    length(found)==1||throw(ArgumentError("$label $(isempty(found) ? "does not intersect the wing" : "has multiple intersections") inside the box span; adjust master rib angles/positions to avoid crossing or leaving the surface"))
+    length(found)==1||throw(ArgumentError("$label $(isempty(found) ? "does not intersect the lifting surface" : "has multiple intersections") inside the box span; adjust master rib angles/positions to avoid crossing or leaving the surface"))
     eta=only(found);return eta,curve(eta)
 end

@@ -1,4 +1,4 @@
-# Steady, symmetric lifting-surface loads and conservative RBE3 transfer.
+# Steady, symmetric lifting surface loads and conservative RBE3 transfer.
 # VortexLattice.jl solves the mean-camber surface, not the wetted loft.
 
 const AERO_ZERO = (0.0, 0.0, 0.0)
@@ -52,7 +52,7 @@ function validate_vlm_grid(grid)
                    Tuple(grid[:, i+1, j+1]), Tuple(grid[:, i, j+1]))
         a, b, c, d = corners
         fail(detail) = throw(ArgumentError(
-            "Invalid VLM panel at chord index $i, span index $j: $detail. Check the wing edges and section geometry."))
+            "Invalid VLM panel at chord index $i, span index $j: $detail. Check the lifting surface edges and section geometry."))
         edge_lengths = (norm3(b .- a), norm3(c .- b), norm3(d .- c), norm3(a .- d))
         scale = maximum(edge_lengths)
         scale > 0 && minimum(edge_lengths) > 1e-12 * scale || fail("collapsed edge")
@@ -114,7 +114,7 @@ function vlm_mesh(w::Wing, nc::Int, ns::Int)
     xcs = [(1 - cospi(i / nc)) / 2 for i in 0:nc]
     for iteration in 1:12
         (length(xcs)-1) * (length(etas)-1) <= VLM_MAX_REFINED_PANELS ||
-            throw(ArgumentError("VLM geometry refinement exceeds $VLM_MAX_REFINED_PANELS panels. Reduce requested resolution or simplify closely spaced wing-edge points."))
+            throw(ArgumentError("VLM geometry refinement exceeds $VLM_MAX_REFINED_PANELS panels. Reduce requested resolution or simplify closely spaced lifting surface edge points."))
         grid = camber_grid(w, xcs, etas)
         metrics = validate_vlm_grid(grid)
         warped = findall(p -> p.warp_deg > VLM_MAX_PANEL_WARP_DEG, metrics)

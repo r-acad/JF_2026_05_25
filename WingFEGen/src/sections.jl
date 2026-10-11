@@ -81,7 +81,7 @@ function section_definition(p::AbstractDict, pid::Integer)
             "placement" => base_pid==PID_STRINGER ? "Flange outer face at skin; web inward; centroid offset included in CBAR" :
                 "Flange outer face on rib-web datum; web outboard (final rib inboard); centroid offset included in CBAR")
     elseif base_pid == PID_SPAR_CAP
-        side = Float64(p["properties.spar_cap_side"])
+        side = Float64(get(component_table_override(p,pid),"side",p["properties.spar_cap_side"]))
         return Dict{String,Any}(
             "type" => "PBARL", "shape" => "BAR", "dimensions_m" => [side,side],
             "polygon_yz_m" => [[side/2,-side/2], [side/2,side/2],

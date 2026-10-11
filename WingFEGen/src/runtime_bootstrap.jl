@@ -86,7 +86,7 @@ function requirements(root;repo=locate_solver(root))
     end
     pairs=unique([(v.major,v.minor) for v in versions])
     isempty(pairs)&&push!(pairs,(1,12))
-    length(pairs)==1||error("WingFEGen and JFEM manifests require different Julia minor versions; use matching project environments")
+    length(pairs)==1||error("Lifting surface FEGen and JFEM manifests require different Julia minor versions; use matching project environments")
     only(pairs)
 end
 
@@ -96,10 +96,10 @@ function restart_if_needed(root,entry,args=ARGS)
     for candidate in runtime_candidates()
         found=probe_runtime(candidate);found===nothing&&continue
         found.version.major==major&&found.version.minor==minor||continue
-        println("WingFEGen: using Julia $(found.version) for the recorded dependencies.");flush(stdout)
+        println("Lifting surface FEGen: using Julia $(found.version) for the recorded dependencies.");flush(stdout)
         command=Cmd(vcat([found.executable,"--startup-file=no","--project="*abspath(root),abspath(entry)],String.(args)))
         exit(run(ignorestatus(command)).exitcode)
     end
-    error("WingFEGen needs Julia $major.$minor.x. Install that runtime or set WINGFEGEN_JULIA to its executable. No input files were changed.")
+    error("Lifting surface FEGen needs Julia $major.$minor.x. Install that runtime or set WINGFEGEN_JULIA to its executable. No input files were changed.")
 end
 end

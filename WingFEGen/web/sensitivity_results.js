@@ -1,6 +1,13 @@
 /* Pure scalar-response interpretation. Operator samples are never responses. */
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.WingSensitivityResults=api;})(globalThis,function(){
  'use strict';
+ // Presentation only: calculations, saved derivatives and CSV stay full precision.
+ function format(value){
+  if(!Number.isFinite(value))return '\u2014';
+  if(value===0)return '0';
+  const rounded=Number(value.toPrecision(5)),magnitude=Math.abs(rounded);
+  return magnitude>=1e5||magnitude<1e-3?value.toExponential(4).replace(/(\.\d*?[1-9])0+(?=e)|\.0+(?=e)/,'$1'):String(rounded);
+ }
  function baseline(result){return typeof result?.baseline==='number'?{value:result.baseline,unit:result.unit||''}:result?.baseline||{};}
  function propertyLabel(row,catalog){
   const record=catalog?.variables?.find(item=>item.id===row.id),id=String(row.id||''),label=String(row.label||record?.label||id),pids=row.pids||record?.pids||[];
@@ -39,5 +46,5 @@
   if(obj.type==='buckling_factor')return'Mode '+obj.mode+' · buckling factor';
   return'Selected scalar response';
  }
- return{baseline,propertyLabel,rowEffect,rankEffects,summarize,objectiveLabel};
+ return{format,baseline,propertyLabel,rowEffect,rankEffects,summarize,objectiveLabel};
 });

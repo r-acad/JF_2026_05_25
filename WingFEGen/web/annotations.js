@@ -252,12 +252,13 @@
       const showPanels=!!state.panelView||!!state.panelExplosion?.active;
       const showReactions=!!control("show-support-force-values")?.checked;
       const showCoordinates=!!control('show-coordinate-labels')?.checked;
+      const showRbe3Dofs=!!control('show-rbe3-dofs')?.checked;
       const selected = state.elements.get(state.selectedElement);
       const size = Math.max(8, Math.min(24, Number(control("id-label-size")?.value) || 11));
       const width = canvas.clientWidth, height = canvas.clientHeight;
       const occluders = opaqueOccluders(scene);
       const occluderKey = occluders.map((mesh) => mesh.uniqueId + ":" + Array.from(mesh.computeWorldMatrix().m).join(",")).join(";");
-      const key = [width, height, showNodes, showElements, showRibs, showStringers, showPanels, showReactions,showCoordinates,state.selectedCoordinate, size, state.selectedElement,
+      const key = [width, height, showNodes, showElements, showRibs, showStringers, showPanels, showReactions,showCoordinates,showRbe3Dofs,state.selectedCoordinate, size, state.selectedElement,
         occluderKey, ...scene.getTransformMatrix().m, ...Array.from(state.layers, ([, layer]) => +layer.visible)].join("|");
       const now = performance.now();
       if (!force && (!dirty && key === lastKey && state.data === lastData && positions === lastPositions || now - lastTime < 30)) return;
@@ -350,8 +351,8 @@
       const coordinateLabels=typeof WingModelEntities!=='undefined'?WingModelEntities.coordinateCandidates(state,showCoordinates||state.selectedCoordinate!=null):[];
       const pickedCoordinate=coordinateLabels.find(row=>row.id===state.selectedCoordinate);
       if(pickedCoordinate){const point=project(pickedCoordinate.point);if(point)badge(pickedCoordinate.text,point,COLORS.selected,true,pickedCoordinate);}
-      if (showNodes || showElements || showRibs || showStringers || showPanels || showReactions || showCoordinates) {
-        const candidates = [...(showCoordinates?coordinateLabels:[]),...(showReactions?supportValueCandidates(state):[]),...panelLabelCandidates(state,positions),...labelCandidates(state, positions, showNodes, showElements),
+      if (showNodes || showElements || showRibs || showStringers || showPanels || showReactions || showCoordinates || showRbe3Dofs) {
+        const candidates = [...(globalThis.WingRbe3Labels?.candidates(state,positions,showRbe3Dofs)||[]),...(showCoordinates?coordinateLabels:[]),...(showReactions?supportValueCandidates(state):[]),...panelLabelCandidates(state,positions),...labelCandidates(state, positions, showNodes, showElements),
           ...physicalLabelCandidates(state, positions, showRibs, showStringers)].map((candidate) => ({ ...candidate, screen: project(candidate.point) }))
           .filter((item) => item.screen && item.screen.x >= 0 && item.screen.x <= width && item.screen.y >= 0 && item.screen.y <= height)
           .sort((a, b) => (b.kind==='panel')-(a.kind==='panel') || a.screen.z - b.screen.z);
@@ -371,7 +372,7 @@
       const host = control("id-label-status"); if (host) host.textContent = text;
     }
     legend();
-    for (const id of ["show-node-ids", "show-element-ids", "show-coordinate-labels", "id-label-size", "mesh-labels-ribs", "mesh-labels-stringers", "show-support-force-values"]) {
+    for (const id of ["show-node-ids", "show-element-ids", "show-coordinate-labels", "show-rbe3-dofs", "id-label-size", "mesh-labels-ribs", "mesh-labels-stringers", "show-support-force-values"]) {
       const input = control(id); if (input) input.addEventListener("input", invalidate);
     }
     const observer = scene.onAfterRenderObservable.add(() => render());
