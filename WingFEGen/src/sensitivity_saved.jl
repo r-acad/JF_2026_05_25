@@ -221,7 +221,7 @@ function sensitivity_saved_load(params,root,id;model=nothing)
     load_match=get(result,"load_application_version",nothing)==load_version
     model_match||push!(reasons,model===nothing ? "Create the current FEM to check saved-result compatibility; the saved table is available now." : "The saved study definition differs from the current FEM.")
     topology_match||push!(reasons,"The saved element topology and coordinates have not been confirmed on the current FEM.")
-    load_match||push!(reasons,"Historical result: this study uses a different or unrecorded aerodynamic model or load application convention. Its values have not been recalculated; rerun the analysis to use the current formulation.")
+    load_match||push!(reasons,"Historical result: this study uses different or unrecorded structural properties, aerodynamic model or load formulation. Its values have not been recalculated; rerun the analysis to use the current formulation.")
     compatibility=Dict("model_match"=>model_match,"topology_match"=>topology_match,"load_application_match"=>load_match,
         "is_current"=>model_match&&topology_match&&load_match,"map_allowed"=>model_match&&topology_match,
         "reasons"=>reasons,"current_load_application_version"=>load_version)

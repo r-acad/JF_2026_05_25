@@ -94,11 +94,11 @@ const SCHEMA = ParamSpec[
     ParamSpec("box.rib_pitch", "Root outgoing rib pitch", :float, 0.6, "Ribs";
               unit = "m",
               help = "Target pitch from the root master to the next master. With intermediate masters, pitch is measured along the 3D rear-spar reference path and rounded to whole bays per interval. Without intermediate masters the existing reference-line spacing is preserved"),
-    ParamSpec("box.stringer_pitch", "Stringer pitch", :float, 0.150, "Torsion box";
+    ParamSpec("box.stringer_pitch", "Default stringer pitch", :float, 0.150, "Stringer layout";
               unit = "m",
               help = "Exact root x-spacing, constant along the span between parallel stringer planes"),
     ParamSpec("box.stringer_angle", "Stringer angle to rear spar", :float, 0.0,
-              "Torsion box"; unit = "deg",
+              "Stringer layout"; unit = "deg",
               help = "Used only when there are no rear-spar perturbation points: angle relative to the untwisted rear-spar datum, positive aft. With rear-spar points, their individual Stringer angle values define continuous kinked stringer paths and this global value is ignored"),
 
     ParamSpec("ribs.masters", "Intermediate master ribs", :masterribs, Any[], "Ribs";
@@ -146,7 +146,8 @@ const SCHEMA = ParamSpec[
               help = "Shell elements spanwise between two consecutive ribs"),
     ParamSpec("mesh.elements_between_stringers", "Elements between stringers", :int, 1, "Mesh";
               help = "Shell subdivisions across each stringer bay, including spar margins; 1 to 100"),
-    ParamSpec("mesh.stringer_runout_ratio", "Stringer runout distance / pitch", :float, 0.75, "Mesh";
+    ParamSpec("mesh.stringer_runout_ratio", "Run-out threshold", :float, 0.75, "Stringer layout";
+              unit = "distance / nominal pitch",
               help = "Retire a stringer when either skin's projected x-clearance to a spar falls below this fraction of the stringer pitch (greater than 0, at most 1). 0.75 means 75% of the pitch. Root stringer spacing is unchanged; 1 reproduces the original runout rule"),
     ParamSpec("mesh.elements_spar_height", "Elements over height", :int, 3, "Mesh";
               help = "Shell elements through the spar web and rib height"),

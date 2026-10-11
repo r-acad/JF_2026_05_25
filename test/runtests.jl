@@ -20,6 +20,7 @@ include("constraint_coupling_test.jl")
 include("autospc_local_scale_test.jl")
 include("singular_regularization_test.jl")
 include("coupled_timoshenko_beam_test.jl")
+include("macneal_shear_resultants_test.jl")
 
 @testset "Curated public release gate" begin
     @test length(suite_rows) == 19

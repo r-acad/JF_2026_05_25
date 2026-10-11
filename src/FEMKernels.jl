@@ -6107,9 +6107,32 @@ function quad4_macneal_center_shear_resultant(coords,u,Cb,Cs,h;
         Cm=nothing,Bmb=nothing,msws=nothing,rigid_shear::Bool=false)
     quad4_is_axis_aligned_rectangle(coords) ||
         throw(ArgumentError("MacNeal center shear recovery currently requires a rectangle"))
-    T=promote_type(eltype(u),eltype(Cb),eltype(Cs),typeof(h))
+    quad4_macneal_mean_shear_resultant(coords,u,Cb,Cs,h;
+        Cm=Cm,Bmb=Bmb,msws=msws,rigid_shear=rigid_shear)
+end
+
+"""Area-mean transverse resultants, work-conjugate to uniform physical shear.
+
+Constant nodal rotations test unit gamma_x/gamma_y with no curvature. Their
+work against the same MacNeal shear/RBF operator used for stiffness therefore
+gives integral(Qx/Qy dA), including on a tapered or skew quadrilateral. This
+mean is not asserted to equal the centroid value on a distorted element.
+"""
+function quad4_macneal_mean_shear_resultant(coords,u,Cb,Cs,h;
+        Cm=nothing,Bmb=nothing,msws=nothing,rigid_shear::Bool=false)
+    # Parsed laminate matrices can have eltype Any despite numeric entries.
+    # Determine the scalar type from their values, retaining Dual derivatives.
+    T=foldl(promote_type, (typeof(x) for matrix in (Cb,Cs,Cm,Bmb) if matrix !== nothing for x in matrix);
+        init=promote_type(eltype(u),typeof(h)))
+    Cb=eltype(Cb)===T ? Cb : Matrix{T}(Cb)
+    Cs=eltype(Cs)===T ? Cs : Matrix{T}(Cs)
+    Cm=Cm===nothing || eltype(Cm)===T ? Cm : Matrix{T}(Cm)
+    Bmb=Bmb===nothing || eltype(Bmb)===T ? Bmb : Matrix{T}(Bmb)
     mw=msws===nothing ? create_macneal_shear_workspace(T) : msws
     Ke=fill!(mw.K24s,zero(T))
+    # Zero shear/thickness returns before the assembler initializes K_plate.
+    # A reused workspace must not retain the preceding element's operator.
+    fill!(mw.K_plate,zero(T))
     add_quad4_macneal_shear_rbf!(Ke,coords,Cb,Cs,h;Cm=Cm,Bmb=Bmb,msws=mw,rigid_shear=rigid_shear)
     qx=zero(T);qy=zero(T)
     for i=1:4,j=1:4,c=1:3

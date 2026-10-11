@@ -6,6 +6,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Consistent planar laminate shear recovery.** Recover PCOMP transverse
+  resultants with the laminate MacNeal shear operator used by stiffness, replacing
+  the isotropic recovery surrogate on eligible planar quadrilaterals. Identify
+  these values explicitly as area means; retain curved, warped and alternative
+  operator recovery pending separate validation. Verify virtual work, rigid
+  motions, material derivatives and generated-deck integration. Matrices,
+  displacements, buckling factors and membrane/bending fields are unchanged.
+- **Project menu and stringer layout.** Group new/read/write commands and
+  geometry export under Project, preserving Study saved-state indicators. Add
+  Structure / Stringers for pitch, rear-spar-segment angles and Run-out threshold;
+  disable leading-edge properties until that geometry is defined. Use a fixed
+  5 mm² square run-out connector with matching bending and torsional inertias,
+  and require fresh results after this structural formulation change.
+- **Property-table colors and aerodynamic surface inspection.** Color editable
+  numeric tables by the active field's actual effective range and units; show
+  material swatches and leave inactive fields neutral. Offer palettes and retain
+  inherited/editable values. Repair deformed aerodynamic wireframe visibility;
+  offer solid, translucent and reflective metallic finishes with a surface color.
+  Add discrete Gaussian curvature contours in m⁻², with independent limits and
+  explicit unavailable boundary/sharp-edge values.
 - **Lifting-surface property tables and display annotations.** Add detached,
   editable rib, spar-web, spar-cap and leading-edge tables with inherited
   defaults, material/sandwich choices, Study/TOML persistence and exact

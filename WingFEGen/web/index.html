@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="component_properties.css">
   <link rel="stylesheet" href="airfoils.css">
   <link rel="stylesheet" href="geometry_export.css">
+  <link rel="stylesheet" href="project_menu.css">
   <link rel="stylesheet" href="display_groups.css">
   <link rel="stylesheet" href="property_display.css">
   <link rel="stylesheet" href="weights.css">
@@ -247,8 +248,11 @@
       <p class="pick-note">Supports: cones for translations 1–3, with their tips at the node along +x, +y and +z; open cubes for rotations 4–6. Global x is red, y green, z blue. Cone base radius equals Marker radius, length is twice that radius. Cubes keep their half-radius offset.</p>
       <div id="aerodynamic-appearance">
         <label class="display-control">Aerodynamic loft finish
-          <select id="aero-deformed-style" disabled><option value="auto" selected>Auto · contour-friendly</option><option value="metallic">Metallic · polished aluminium</option><option value="wireframe">Wireframe</option><option value="translucent">Translucent</option></select>
+          <select id="aero-deformed-style" disabled><option value="auto" selected>Auto · contour-friendly</option><option value="wireframe">Wireframe</option><option value="solid">Solid</option><option value="translucent">Translucent</option><option value="metallic">Metallic · aluminium reflections</option></select>
         </label>
+        <label class="display-control" title="Uniform surface and wire color when Gaussian curvature is off.">Surface color<input id="aero-surface-color" type="color" value="#b8cee4" disabled></label>
+        <label class="layer"><input id="show-aero-curvature" type="checkbox" disabled><span>Gaussian curvature · m⁻²</span></label>
+        <p class="pick-note">Curvature uses the displayed surface and deformation magnification. Positive values are locally dome-shaped; negative values are saddle-shaped. Open edges and the sharp trailing edge are gray. Use real deformation scale for physical curvature.</p>
         <p id="aero-display-note" class="pick-note">Create FEM to show the defined airfoil sections. Load results to display the deformed aerodynamic loft.</p>
       </div>
       <div class="hud-row">
@@ -527,6 +531,7 @@
 <script src="planform_view.js" defer></script>
 <script src="planform_inputs.js" defer></script>
 <script src="spar_view.js" defer></script>
+<script src="stringer_layout.js" defer></script>
 <script src="rib_layout.js" defer></script>
 <script src="leading_edge_gaps.js" defer></script>
 <script src="dimensioned_plan_view.js" defer></script>
@@ -541,6 +546,7 @@
 <script src="property_display.js" defer></script>
 <script src="aero_display.js" defer></script>
 <script src="geometry_export.js" defer></script>
+<script src="project_menu.js" defer></script>
 <script src="view_planes.js" defer></script>
 <script src="viewport_tools.js" defer></script>
 <script src="viewport_svg.js" defer></script>

@@ -12,7 +12,7 @@
   const PANEL_IDS = ["sidebar","hud-left","model-card","results-card","pick-card","log-wrap","deck-panel"];
   const LAYER_GROUP_IDS = ["shells","beams","connections","aerodynamics","loads","masses","overlays","aids","coordinates","other"];
   const DRAWING_KEYS = new Set(["planform","spars","master-ribs","leading-edge-ribs","fuel-tank","stringer-section","spar-cap-section","rib-stiffener-section","rib-override-section","airfoil-root","airfoil-tip",...(["upper_skin","lower_skin","spar_web","rib_web","leading_edge_skin","leading_edge_rib"].map(name=>"material-"+name))]);
-  const CONTROL_IDS = ["surface-mode","surface-translucency","shell-geometry","beam-style","show-bars-through","show-aero-overlay","aero-deformed-style","background-color","inspect-entity",
+  const CONTROL_IDS = ["surface-mode","surface-translucency","shell-geometry","beam-style","show-bars-through","show-aero-overlay","aero-deformed-style","aero-surface-color","show-aero-curvature","background-color","inspect-entity",
     "show-fuel-inertia","show-fuel-cg","show-fuel-mass-labels","fuel-inertia-scale",
     "node-radius","marker-radius","show-ground-plane","show-symmetry-plane","ground-plane-z","ground-grid-spacing","show-shell-axes","show-bar-axes","show-node-ids","show-element-ids","show-coordinate-labels","show-rbe3-dofs","show-celas-cylinders","id-label-size",
     "mesh-labels-ribs","mesh-labels-stringers","show-rib-datums","rib-datum-size","vlm-field",
@@ -20,7 +20,7 @@
     "deform-scale","animate","show-undeformed","show-reference-aero","show-deformed-aero","contour-select","compare-results","auto-mesh","show-picked-axes","measure-snap-nodes"];
   const CHECK_IDS = new Set(CONTROL_IDS.filter((id) => id.startsWith("show-") || id.startsWith("mesh-labels-") || ["animate","auto-mesh","compare-results","measure-snap-nodes"].includes(id)));
   const LEGACY_LABEL_IDS = new Set(["mesh-labels-none","mesh-labels-both"]);
-  const SELECTS = {"surface-mode":["solid","translucent"],"shell-geometry":["midsurface","thickness"],"beam-style":["lines","sections"],"aero-deformed-style":["auto","wireframe","steel","metallic","translucent"],
+  const SELECTS = {"surface-mode":["solid","translucent"],"shell-geometry":["midsurface","thickness"],"beam-style":["lines","sections"],"aero-deformed-style":["auto","wireframe","solid","steel","metallic","translucent"],
     "inspect-entity":["all","nodes","shells","quad","tria","bar","stringer","cap","rbe3","connection","spring","conm2","coordinate"],"vlm-field":["none","pressure","cp"],
     "result-palette":["spectrum","viridis","inferno","coolwarm","grayscale"]};
   const object = (value) => value && typeof value === "object" && !Array.isArray(value);
@@ -76,6 +76,7 @@
       else if (typeof value !== "string" || value.length>100) throw new Error("Invalid display setting: "+id);
       if (SELECTS[id] && !SELECTS[id].includes(value)) throw new Error("Invalid display option: "+id);
       if (id === "background-color" && !/^#[0-9a-f]{6}$/i.test(value)) throw new Error("Invalid background colour.");
+      if (id === "aero-surface-color" && !/^#[0-9a-f]{6}$/i.test(value)) throw new Error("Invalid aerodynamic surface color.");
       if (id === "ground-plane-z" && (value.trim()==="" || !Number.isFinite(Number(value)))) throw new Error("Ground z must be a finite number of metres.");
       if (id === "ground-grid-spacing" && (value.trim()==="" || !Number.isFinite(Number(value)) || Number(value)<=0)) throw new Error("Ground grid spacing must be a finite number greater than zero.");
       if (id === "rib-datum-size" && (value.trim()==="" || !Number.isFinite(Number(value)) || Number(value)<=0)) throw new Error("Rib datum square size must be a finite number greater than zero.");

@@ -170,17 +170,32 @@
    for(let edge=0;edge<keys.length;edge++){
     const key=keys[edge],group=doc.createElement("section"),title=edgeNames[edge];group.className="planform-edge-table";group.dataset.edge=String(edge);
     const bar=doc.createElement("div");bar.className="planform-edge-heading";const h=doc.createElement("h3");h.textContent=title;const add=doc.createElement("button");add.type="button";add.className="planform-point-add";add.textContent="+ Add point";add.setAttribute("aria-label","Add "+title.toLowerCase()+" point");bar.append(h,add);group.appendChild(bar);
-    const table=doc.createElement("table");table.dataset.key=key;table.innerHTML='<thead><tr><th scope="col">Point</th><th scope="col">η (span)</th><th scope="col">\u0394x/c (offset)</th><th scope="col"><span class="pf-sr-only">Remove</span></th></tr></thead><tbody></tbody>';for(const field of extraFields[edge]){const th=doc.createElement("th");th.scope="col";th.textContent=field.label;th.title=field.help||"";table.querySelector("thead tr").insertBefore(th,table.querySelector("thead tr").lastChild);}group.appendChild(table);
+    const table=doc.createElement("table");table.dataset.key=key;table.innerHTML='<thead><tr><th scope="col">Point</th><th scope="col">η (span)</th><th scope="col">\u0394x/c (offset)</th><th scope="col"><span class="pf-sr-only">Remove</span></th></tr></thead><tbody></tbody>';for(const field of extraFields[edge]){const th=doc.createElement("th");th.scope="col";th.hidden=!!field.hidden;th.textContent=field.label;th.title=field.help||"";table.querySelector("thead tr").insertBefore(th,table.querySelector("thead tr").lastChild);}group.appendChild(table);
     if(config.edgeHelp?.[edge]){const note=doc.createElement("p");note.className="planform-edge-note";note.textContent=config.edgeHelp[edge];group.appendChild(note);}
     const rows=Array.isArray(params[key])?params[key].map(p=>({...p,dxc:p.dxc===undefined?p.xc-nominalPointXc(key,params):p.dxc})).sort((a,b)=>a.eta-b.eta):[];
     for(let i=0;i<rows.length;i++){
      const row=doc.createElement("tr"),name=doc.createElement("th");name.scope="row";name.textContent=prefixes[edge]+(i+1);row.appendChild(name);
-     for(const field of ["eta","dxc",...extraFields[edge].map(f=>f.key)]){const extra=extraFields[edge].find(f=>f.key===field),td=doc.createElement("td"),input=doc.createElement("input");input.type="number";input.step="any";input.value=String(rows[i][field]===undefined?extra?.default:rows[i][field]);input.dataset.field=field;input.setAttribute("aria-label",`${title} point ${i+1} ${extra?.label||(field==="eta"?"eta":"delta x/c")}`);if(field==="eta"){input.min="0";input.max="1";}td.appendChild(input);row.appendChild(td);input.addEventListener("input",()=>{selected={edge,eta:Number(row.querySelector('[data-field="eta"]').value)};refresh();if(config.editInvalid&&!locked())notifyDraftEdits(readDrafts());});input.addEventListener("change",()=>{if(locked())return;commit(readDrafts(),null,true);});input.addEventListener("focus",()=>{selected={edge,eta:Number(row.querySelector('[data-field="eta"]').value)};refresh();});}
+     for(const field of ["eta","dxc",...extraFields[edge].map(f=>f.key)]){const extra=extraFields[edge].find(f=>f.key===field),td=doc.createElement("td"),input=doc.createElement("input");input.type="number";input.step="any";input.value=String(rows[i][field]===undefined?extra?.default:rows[i][field]);input.dataset.field=field;input.setAttribute("aria-label",`${title} point ${i+1} ${extra?.label||(field==="eta"?"eta":"delta x/c")}`);if(field==="eta"){input.min="0";input.max="1";}td.hidden=!!extra?.hidden;td.appendChild(input);row.appendChild(td);input.addEventListener("input",()=>{selected={edge,eta:Number(row.querySelector('[data-field="eta"]').value)};refresh();if(config.editInvalid&&!locked())notifyDraftEdits(readDrafts());});input.addEventListener("change",()=>{if(locked())return;commit(readDrafts(),null,true);});input.addEventListener("focus",()=>{selected={edge,eta:Number(row.querySelector('[data-field="eta"]').value)};refresh();});}
      const td=doc.createElement("td"),remove=doc.createElement("button");remove.type="button";remove.className="planform-point-remove";remove.textContent="×";remove.setAttribute("aria-label",`Remove ${title.toLowerCase()} point ${i+1}`);remove.onclick=()=>{if(locked())return;const p=readDrafts();p[key].splice(i,1);const focus={edge,index:Math.min(i,p[key].length-1)};if(!commit(p,focus)){setTables(p);refresh();if(config.editInvalid)notifyDraftEdits(p);tableFocus(focus.edge,focus.index);}};td.appendChild(remove);row.appendChild(td);table.querySelector("tbody").appendChild(row);
     }
     if(!rows.length){const empty=doc.createElement("p");empty.className="planform-edge-empty";empty.textContent=config.emptyText||"No perturbations: follows the base edge.";group.appendChild(empty);}
     add.onclick=()=>addPoint(edge);tables.appendChild(group);
    }
+  }
+  // A detached field editor must retain partially entered point coordinates,
+  // including invalid drafts on the other edge. Rebuilding from canonical
+  // parameters here would silently discard those repairs.
+  function editExtraFields(key,rows){
+   if(locked())return false;
+   const edge=keys.indexOf(key),table=tables.querySelector(`[data-key="${key}"]`);
+   if(edge<0||!table)return false;
+   const current=Array.from(table.querySelectorAll('tbody tr'));
+   if(current.length!==rows.length)return false;
+   for(let i=0;i<current.length;i++)for(const field of extraFields[edge]){
+    const input=current[i].querySelector(`[data-field="${field.key}"]`);
+    if(input&&rows[i][field.key]!==undefined)input.value=String(rows[i][field.key]);
+   }
+   commit(readDrafts(),null,true);refresh();notifyDraftEdits(readDrafts());return true;
   }
   function commit(params,focus=null,keepTables=false){
    if(locked()){setTables(read());refresh();return false;}
@@ -219,7 +234,7 @@
   const cancelKey=event=>{if(event.key==="Escape"&&drag){event.preventDefault();endDrag(true);}};doc.addEventListener("keydown",cancelKey);
   host.addEventListener("parameterlockchange",()=>{endDrag(true);setTables(read());refresh();notifiedDrafts=Object.fromEntries(keys.map(key=>[key,JSON.stringify(readDrafts()[key])]));});
   setTables(read());refresh();notifyDraftEdits(readDrafts());
-  return{section,sticky,viewport,captureView:()=>viewport?.capture(),restoreView:value=>viewport?.restore(value),readDrafts,refresh,setContextError(message){contextError=message||"";refresh();},destroy(){endDrag(true);viewport?.destroy();doc.removeEventListener("keydown",cancelKey);},externalChange(key){if(drag)endDrag(true);if(keys.includes(key)){setTables(read());notifiedDrafts=Object.fromEntries(keys.map(key=>[key,JSON.stringify(readDrafts()[key])]));}refresh();},validate(){return deriveData(readDrafts());},assertValidDraft(){const data=deriveData(readDrafts());if(!data.valid){render(data);throw new Error((config.name||"Planform")+": "+data.error);}if(!locked())commit(readDrafts(),null,true);return data;}};
+  return{section,sticky,viewport,captureView:()=>viewport?.capture(),restoreView:value=>viewport?.restore(value),readDrafts,refresh,editExtraFields,setContextError(message){contextError=message||"";refresh();},destroy(){endDrag(true);viewport?.destroy();doc.removeEventListener("keydown",cancelKey);},externalChange(key){if(drag)endDrag(true);if(keys.includes(key)){setTables(read());notifiedDrafts=Object.fromEntries(keys.map(key=>[key,JSON.stringify(readDrafts()[key])]));}refresh();},validate(){return deriveData(readDrafts());},assertValidDraft(){const data=deriveData(readDrafts());if(!data.valid){render(data);throw new Error((config.name||"Planform")+": "+data.error);}if(!locked())commit(readDrafts(),null,true);return data;}};
  }
  function install(host,options){
   const doc=host.ownerDocument;if(host.querySelector(".planform-view-open"))return;

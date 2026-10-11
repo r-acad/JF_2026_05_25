@@ -101,7 +101,7 @@ function section_definition(p::AbstractDict, pid::Integer)
             "offset_y_m" => 0.0, "area_m2" => area,
             "I1_m4" => area^2/12, "I2_m4" => area^2/12, "J_m4" => 0.1406*area^2,
             "torsion_model" => "Fixed-area connector equivalent square",
-            "placement" => "Fixed 0.001 m2 connector centered on the GRID line")
+            "placement" => "Fixed 5 mm2 square connector centered on the GRID line")
     end
     throw(ArgumentError("no bar section for PID $pid"))
 end

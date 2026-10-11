@@ -343,7 +343,27 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                 clt_Bmb !== nothing && any(!iszero,clt_Bmb)
             clt_Cs = nothing
             ply_strain_transform = nothing
-            if rectangular_pcomp_recovery
+            # Also retain the actual laminate transverse law for ordinary
+            # planar MacNeal cells. Their stiffness does not use the isotropic
+            # surrogate G inferred from the equivalent membrane material.
+            mean_shear_recovery = complete_clt_recovery && is_pcomp_clt &&
+                get(model,"SOL",101) in (101,105) &&
+                !rectangular_pcomp_recovery && (snorm_pq === nothing || maximum(abs,snorm_pq) <= 1e-12) &&
+                curvature_membrane === nothing &&
+                (coords3d_sr === nothing || FEM.quad4_finite_warp_displacement_map(view(lc_buf,1:4,:),coords3d_sr) === nothing) &&
+                lowercase(get(ENV,"JFEM_Q4_KERNEL_STATIC",get(ENV,"JFEM_Q4_KERNEL","macneal"))) == "macneal" &&
+                !solver_env_bool("JFEM_SOL101_Q4_PCOMP_EXACT_MEMBRANE",false) &&
+                !solver_env_bool("JFEM_SOL105_STATIC_PCOMP_EXACT_MEMBRANE",false) &&
+                !solver_env_bool("JFEM_SOL105_STATIC_FLAT_PCOMP_DKMQ",false) &&
+                !solver_env_bool("JFEM_Q4_MACNEAL_RIGID_SHEAR_FORCE",false) &&
+                solver_env_float("JFEM_Q4_MACNEAL_ASPECT_MAX",1e30) >= 1e30 &&
+                all(solver_env_float(key,1.0)==1.0 for key in (
+                    "JFEM_Q4_MACNEAL_BENDING_SCALE","JFEM_Q4_MACNEAL_CURVED_BENDING_SCALE",
+                    "JFEM_Q4_MACNEAL_BENDING_ISOLATED_SCALE","JFEM_Q4_STATIC_COMPONENT_CM_SCALE",
+                    "JFEM_Q4_STATIC_COMPONENT_CM11_SCALE","JFEM_Q4_STATIC_COMPONENT_CM22_SCALE",
+                    "JFEM_Q4_STATIC_COMPONENT_CM66_SCALE","JFEM_Q4_STATIC_COMPONENT_CB_SCALE",
+                    "JFEM_Q4_STATIC_COMPONENT_CS_SCALE","JFEM_Q4_STATIC_COMPONENT_BMB_SCALE"))
+            if rectangular_pcomp_recovery || mean_shear_recovery
                 clt_Bmb=clt_Bmb === nothing ? nothing : copy(clt_Bmb)
                 clt_Cs=copy(prop["Cs"])
                 coupled_shear_workspace === nothing && (coupled_shear_workspace=FEM.create_macneal_shear_workspace())
@@ -390,6 +410,15 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                         msws=coupled_shear_workspace,
                         rigid_shear=Bool(get(prop,"TRANSVERSE_SHEAR_RIGID_LIMIT",false)) &&
                             solver_env_bool("JFEM_MAT8_BLANK_TS_RIGID_LIMIT",true))
+                elseif mean_shear_recovery
+                    Q = FEM.quad4_macneal_mean_shear_resultant(view(lc_buf,1:4,:),u_el,
+                        clt_Cb,clt_Cs,Float64(prop["T"]);Cm=clt_Cm,Bmb=clt_Bmb,
+                        msws=coupled_shear_workspace,
+                        rigid_shear=Bool(get(prop,"TRANSVERSE_SHEAR_RIGID_LIMIT",false)) &&
+                            solver_env_bool("JFEM_MAT8_BLANK_TS_RIGID_LIMIT",true))
+                    diagnostic=get!(results_json,"recovery_diagnostics",Dict{String,Any}())
+                    push!(get!(diagnostic,"area_mean_transverse_shear_eids",Int[]),eid)
+                    diagnostic["transverse_shear_location"]="Area-mean MacNeal laminate shear resultants; not a distorted-element centroid extrapolation."
                 end
                 if static_fields === nothing
                     N_corners, M_corners = recovered[8], recovered[9]

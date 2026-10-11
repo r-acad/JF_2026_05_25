@@ -92,6 +92,8 @@ optional external-resource details.
 2. Define the planform, airfoils, spars, ribs and optional leading-edge mesh.
    Planform edge perturbations refine the aerodynamic outline; spar perturbations
    define the structural spar paths independently.
+   **Structure / Stringers** contains default pitch, global or rear-spar-segment
+   angles, and the normalized **Run-out threshold**.
 3. Use **Model / Structural Mesh** to create or refine the FEM. Live mesh
    rebuilds it after valid edits. Geometry and mesh locks help retain the layout
    while assigning properties.
@@ -99,6 +101,10 @@ optional external-resource details.
    under **Model / Properties**. Detached panel tables assign local overrides;
    blank entries inherit the shared values. Rows are stringers, columns are rib
    bays, and P-numbers match the panel display.
+   All property tables color the active field using its actual effective range
+   and units, with a choice of palettes. Material fields use named swatches;
+   inactive sandwich fields and disabled stiffeners stay neutral. The Leading
+   Edge properties tab is enabled after defining a leading edge.
 5. Define supports and cases. Cases include aerodynamic settings, load multiplier,
    fuel state and inertia options. Aerodynamic loads use rib-plane RBE3s; mass
    loads use rib-bay-center references. The default multiplier of 1.5 converts
@@ -118,9 +124,15 @@ The definition is saved independently from solved results. Exported decks and
 solver result files remain in their run directories. A stale model/result is
 identified in the GUI rather than being silently presented as current.
 
+The **Project** dropdown groups New Study, Study/TOML reading and saving,
+Read Nastran, Write deck, geometry export and configured-input operations.
+**Export geometry…** opens the STL/GLB options. Save Study retains its orange
+or green saved-state indicator inside the menu. The Project button also marks
+unsaved definition changes; navigation and display changes do not affect it.
+
 ### Read an existing Nastran deck
 
-**Read Nastran** in the top bar opens a complete `.bdf`, `.dat` or `.nas` deck
+**Project / Read Nastran** opens a complete `.bdf`, `.dat` or `.nas` deck
 using the native JFEM parser. By default, **Browse** selects a file on the
 WingFEGen computer, or you can paste its full path. INCLUDE files are read
 automatically relative to their containing files. The former 32 MiB import
@@ -288,12 +300,17 @@ loads, aerodynamic geometry and comparison overlays stay at their physical
 positions. This changes neither the FEM nor any result. SVG captures the
 exploded view; STL/GLB retain physical geometry. The settings travel with a Study.
 
-**Structural Mesh / Stringer runout distance / pitch** defaults to 0.75 for
+**Structure / Stringers / Run-out threshold** defaults to 0.75 for
 new studies. A normal stringer terminates at a spar when either skin's
 projected x-clearance is below that fraction of its pitch. The ratio must be
 greater than zero and at most one. Legacy studies and TOML definitions retain
 the original ratio of 1.0 so their existing panel overrides stay attached to
 the same physical panels; root stringer pitch is unchanged.
+
+Run-out connectors use a fixed **5 mm² square section**: side 2.2361 mm,
+`I1 = I2 = 2.0833333e-12 m⁴`, and square torsional constant
+`J = 3.515e-12 m⁴`. This replaces the former 1,000 mm² connector; recreate the
+FEM and rerun analyses before treating older results as current.
 
 VLM flight cases now support **Mach up to 0.5**, using a Prandtl-Glauert
 wind-axis lattice transformation and physical Kutta-Joukowski force recovery.
@@ -308,12 +325,22 @@ Imported Nastran results retain their independent source-based checks.
 **Display / Environment / Lighting** includes an adjustable camera fill for
 underside views. Neutral ambient light and a balanced directional key improve
 underside visibility without washing out face contrast. The aerodynamic loft
-offers Auto, Metallic, Wireframe and Translucent finishes. Auto uses wireframe
+offers Auto, Solid, Metallic, Wireframe and Translucent finishes, plus a surface
+color. Metallic uses local studio reflections. Wireframe draws explicit quad
+edges that remain visible against coincident skins. Auto uses wireframe
 while shell contours are displayed; explicit finishes are always respected.
 Sensitivity fields use the undeformed geometry; switch to the primal case in
 FE Results for the deformed aero surface. Imported decks without an aero loft
 explain why these controls are unavailable. Loading a sensitivity primal case
 also exits temporary fuel isolation.
+
+**Gaussian curvature** colors the displayed aerodynamic surface in **m⁻²**,
+using discrete angle defects divided by mixed Voronoi area. Positive values
+indicate locally dome-like curvature; negative values indicate saddle-like
+curvature. Its scale has independent palette and limit controls. Open root/tip
+boundaries, the sharp trailing edge and degenerate vertices have no reliable
+smooth-surface estimate and remain grey. This display calculation uses the
+chosen displacement scale and adds no stiffness or loads to the FEM.
 
 The viewport toolbar switches bars between lines and 3D sections. Selecting
 Translucent reveals a percentage slider; Fully solid restores opaque shells.

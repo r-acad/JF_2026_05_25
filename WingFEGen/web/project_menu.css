@@ -1,0 +1,26 @@
+#project-actions{position:relative}
+#project-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:12500;width:min(320px,calc(100vw - 26px));max-height:calc(100dvh - 70px);overflow:auto;background:#152637;border:1px solid #526d88;border-radius:7px;box-shadow:0 8px 28px #0009;padding:6px;color:#dceafa}
+#project-menu[hidden]{display:none}
+.project-command-group{display:flex;flex-direction:column;gap:3px;padding:5px 2px;border-bottom:1px solid #364c60}
+.project-command-group:last-child{border-bottom:0}
+.project-command-heading{font-size:11px;letter-spacing:.05em;color:#96bbdd;padding:4px 7px}
+#actions #project-menu button{text-align:left;padding:7px 9px;font-size:12px;width:100%;border-color:transparent;background:#1c3044}
+#actions #project-menu button:hover:not(:disabled),#actions #project-menu button:focus-visible{background:#2a4b68;border-color:#77b7e8}
+#actions #project-menu #btn-save-model[data-saved="false"]{background:#935317;border-color:#ffc078;color:#fff3df}
+#actions #project-menu #btn-save-model[data-saved="true"]{background:#206d4d;border-color:#70dda7;color:#fff}
+#btn-project[data-saved="false"]{border-color:#ffc078}
+#project-menu details{padding:4px 7px;font-size:11px;line-height:1.5}
+#project-menu summary{cursor:pointer;color:#a9c5df}
+#project-menu .file-tooltip{position:static;display:block;padding:8px 0;width:auto;box-shadow:none;border:0;background:transparent;font-size:11px;pointer-events:auto}
+#project-menu details:not([open])>.file-tooltip{display:none}
+#project-menu #server-input-menu{margin:0}
+#project-menu .server-input-popover{position:static;width:auto;box-shadow:none;border:0;padding:6px 0;display:flex;flex-direction:column;gap:5px;background:transparent}
+#project-menu #server-input-menu:not([open])>.server-input-popover{display:none}
+#project-export-dialog{width:min(550px,calc(100vw - 35px));max-height:85dvh;overflow:auto;border:1px solid #587e9c;border-radius:9px;padding:20px;background:#152637;color:#dceafa}
+#project-export-dialog::backdrop{background:#0008}
+#project-export-dialog .project-dialog-close{float:right;margin:0 0 6px 8px}
+.stringer-angle-table{width:100%;border-collapse:collapse;font-size:12px}
+.stringer-angle-table th,.stringer-angle-table td{padding:7px;text-align:left;border-bottom:1px solid #34475a}
+.stringer-angle-table input{box-sizing:border-box;width:100%;min-width:70px;padding:7px 8px;border:1px solid #34475a;border-radius:4px;background:#0e1821;color:#dceafa;font:inherit}
+.stringer-angle-table input:focus{outline:1px solid #72b9ed;border-color:#72b9ed}
+.stringer-angle-table input:disabled{opacity:.5}

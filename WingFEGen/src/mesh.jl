@@ -45,7 +45,7 @@ const PID_STRINGER = 11
 const PID_SPAR_CAP = 12
 const PID_STRINGER_RUNOUT = 13
 const PID_RIB_STIFFENER = 14
-const STRINGER_RUNOUT_AREA = 0.001   # m^2, fixed connector area
+const STRINGER_RUNOUT_AREA = 5.0e-6  # m^2 = 5 mm^2, fixed square connector
 
 """
     BoxGrid
@@ -1090,7 +1090,7 @@ function model_info(m::Model, n_str_bays::Int, n_rib_bays::Int)
         ("Stringers per skin at final rib", string(count(i -> g.collapsed[i+1,end] == 0,
                                                    g.stringer_indices))),
         ("Stringer pitch (constant)", fmt(p["box.stringer_pitch"]) * " m"),
-        ("Stringer runout distance / pitch", fmt(get(p,"mesh.stringer_runout_ratio",1.0))),
+        ("Run-out threshold", fmt(get(p,"mesh.stringer_runout_ratio",1.0))),
         ("Stringer runout clearance", fmt(p["box.stringer_pitch"]*get(p,"mesh.stringer_runout_ratio",1.0))*" m in projected x"),
         ("Shell elements per stringer bay", string(get(p, "mesh.elements_between_stringers", 1))),
         ("Stringer direction", isempty(get(p,"box.rear_spar_points",Any[])) ?
