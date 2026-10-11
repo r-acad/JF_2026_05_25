@@ -671,71 +671,55 @@ end
 end
 
 function stiffness_frame3d_generic(L, A, Iy, Iz, J, E, G; As_y=Inf, As_z=Inf, I12=0.0)
-    T = promote_type(typeof(L), typeof(A), typeof(Iy), typeof(Iz), typeof(J), typeof(E), typeof(G), typeof(I12))
-    k = zeros(T, 12, 12)
+    number_type = promote_type(typeof(L), typeof(A), typeof(Iy), typeof(Iz), typeof(J),
+                               typeof(E), typeof(G), typeof(I12), typeof(As_y), typeof(As_z))
+    k = zeros(number_type, 12, 12)
     if L < 1e-9; return k; end
 
     X = E * A / L
     k[1,1] = X;  k[1,7] = -X; k[7,1] = -X; k[7,7] = X
 
-    T = G * J / L
-    k[4,4] = T;  k[4,10] = -T; k[10,4] = -T; k[10,10] = T
+    torsion = G * J / L
+    k[4,4] = torsion;  k[4,10] = -torsion
+    k[10,4] = -torsion; k[10,10] = torsion
 
-    # Timoshenko shear parameters (Φ=0 reduces to Euler-Bernoulli)
-    # NASTRAN: K1=shear area factor for plane 1 (y-dir), K2=for plane 2 (z-dir)
-    # As_y = K1*A (shear area in y), As_z = K2*A (shear area in z)
-    # xz-plane bending: deflection in z → shear in z → uses As_z (K2*A)
-    # xy-plane bending: deflection in y → shear in y → uses As_y (K1*A)
-    Phi_y = _is_infinite_like(As_z) ? zero(T) : 12*E*Iy/(G*As_z*L^2)
-    Phi_z = _is_infinite_like(As_y) ? zero(T) : 12*E*Iz/(G*As_y*L^2)
-
-    # Bending in xz-plane (uses Iy, shear via As_z=K2*A)
-    a_y = 12*E*Iy / (L^3*(1+Phi_y))
-    b_y = 6*E*Iy / (L^2*(1+Phi_y))
-    c_y = (4+Phi_y)*E*Iy / (L*(1+Phi_y))
-    d_y = (2-Phi_y)*E*Iy / (L*(1+Phi_y))
-    k[3,3] = a_y;  k[3,9] = -a_y; k[9,3] = -a_y; k[9,9] = a_y
-    k[3,5] = -b_y; k[3,11] = -b_y; k[5,3] = -b_y; k[11,3] = -b_y
-    k[9,5] = b_y;  k[9,11] = b_y;  k[5,9] = b_y;  k[11,9] = b_y
-    k[5,5] = c_y;  k[5,11] = d_y;  k[11,5] = d_y;  k[11,11] = c_y
-
-    # Bending in xy-plane (uses Iz, shear via As_y=K1*A)
-    a_z = 12*E*Iz / (L^3*(1+Phi_z))
-    b_z = 6*E*Iz / (L^2*(1+Phi_z))
-    c_z = (4+Phi_z)*E*Iz / (L*(1+Phi_z))
-    d_z = (2-Phi_z)*E*Iz / (L*(1+Phi_z))
-    k[2,2] = a_z;  k[2,8] = -a_z; k[8,2] = -a_z; k[8,8] = a_z
-    k[2,6] = b_z;  k[2,12] = b_z;  k[6,2] = b_z;  k[12,2] = b_z
-    k[8,6] = -b_z; k[8,12] = -b_z; k[6,8] = -b_z; k[12,8] = -b_z
-    k[6,6] = c_z;  k[6,12] = d_z;  k[12,6] = d_z;  k[12,12] = c_z
-
-    # Cross-coupling from I12 (product of inertia)
-    # Couples xy-plane bending {v: 2,8; θz: 6,12} with xz-plane bending {w: 3,9; θy: 5,11}
-    if abs(I12) > 0.0
-        a_yz = 12*E*I12 / L^3
-        b_yz = 6*E*I12 / L^2
-        c_yz = 4*E*I12 / L
-        d_yz = 2*E*I12 / L
-        # v-w coupling: DOFs (2,3), (2,9), (8,3), (8,9)
-        k[2,3] += a_yz;  k[3,2] += a_yz
-        k[2,9] += -a_yz; k[9,2] += -a_yz
-        k[8,3] += -a_yz; k[3,8] += -a_yz
-        k[8,9] += a_yz;  k[9,8] += a_yz
-        # v-θy coupling: DOFs (2,5), (2,11), (8,5), (8,11)
-        k[2,5] += -b_yz; k[5,2] += -b_yz
-        k[2,11] += -b_yz; k[11,2] += -b_yz
-        k[8,5] += b_yz;  k[5,8] += b_yz
-        k[8,11] += b_yz; k[11,8] += b_yz
-        # w-θz coupling: DOFs (3,6), (3,12), (9,6), (9,12)
-        k[3,6] += b_yz;  k[6,3] += b_yz
-        k[3,12] += b_yz; k[12,3] += b_yz
-        k[9,6] += -b_yz; k[6,9] += -b_yz
-        k[9,12] += -b_yz; k[12,9] += -b_yz
-        # θy-θz coupling: DOFs (5,6), (5,12), (11,6), (11,12)
-        k[5,6] += -c_yz; k[6,5] += -c_yz
-        k[5,12] += -d_yz; k[12,5] += -d_yz
-        k[11,6] += -d_yz; k[6,11] += -d_yz
-        k[11,12] += -c_yz; k[12,11] += -c_yz
+    # Coupled Timoshenko bending in transverse directions r=[v,w], with
+    # slope s=[theta_z,-theta_y]. D=E*[Iz I12; I12 Iy] is the bending tensor.
+    # Integrating beam flexibility gives Dbar=(inv(D)+12/L^2*inv(S))^-1,
+    # S=G*diag(As_y,As_z). This 2x2 expression also works with zero inertias
+    # and infinite shear areas, without inverting a singular D.
+    # Softening the diagonal bending terms alone while keeping Euler I12
+    # coupling can make a valid short beam have negative strain energy.
+    d11, d22, d12 = E*Iz, E*Iy, E*I12
+    c1 = _is_infinite_like(As_y) ? zero(number_type) : 12/(G*As_y*L^2)
+    c2 = _is_infinite_like(As_z) ? zero(number_type) : 12/(G*As_z*L^2)
+    determinant = d11*d22-d12*d12
+    denominator = 1+c1*d11+c2*d22+c1*c2*determinant
+    h11 = (d11+c2*determinant)/denominator
+    h22 = (d22+c1*determinant)/denominator
+    h12 = d12/denominator
+    bending = ((d11,d12),(d12,d22))
+    effective = ((h11,h12),(h12,h22))
+    displacement_1, displacement_2 = (2,3), (8,9)
+    slope_1, slope_2, slope_sign = (6,5), (12,11), (1,-1)
+    for i in 1:2, j in 1:2
+        a = 12*effective[i][j]/L^3
+        b = 6*effective[i][j]/L^2
+        c = (bending[i][j]+3*effective[i][j])/L
+        d = (-bending[i][j]+3*effective[i][j])/L
+        u1, u2 = displacement_1[i], displacement_2[i]
+        v1, v2 = displacement_1[j], displacement_2[j]
+        t1, t2 = slope_1[i], slope_2[i]
+        r1, r2 = slope_1[j], slope_2[j]
+        si, sj = slope_sign[i], slope_sign[j]
+        k[u1,v1] = a; k[u1,v2] = -a
+        k[u2,v1] = -a; k[u2,v2] = a
+        k[u1,r1] = b*sj; k[u1,r2] = b*sj
+        k[u2,r1] = -b*sj; k[u2,r2] = -b*sj
+        k[t1,v1] = b*si; k[t2,v1] = b*si
+        k[t1,v2] = -b*si; k[t2,v2] = -b*si
+        k[t1,r1] = c*si*sj; k[t2,r2] = c*si*sj
+        k[t1,r2] = d*si*sj; k[t2,r1] = d*si*sj
     end
 
     return k

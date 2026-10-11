@@ -402,7 +402,7 @@ function _singular_lu_regularization_matrix(K_ff::SparseMatrixCSC{Float64,Int},
                                             max_elem_stiff::Float64,
                                             exp::Int,
                                             diagnostics::Dict{String,Any})
-    mode = lowercase(strip(get(ENV, "JFEM_SOL101_SINGULAR_LU_REGULARIZATION_MODE", "global")))
+    mode = lowercase(strip(get(ENV, "JFEM_SOL101_SINGULAR_LU_REGULARIZATION_MODE", "diagonal")))
     diagnostics["linear_solver"]["regularization_mode"] = mode
     abs_shift = max(solver_env_float("JFEM_SOL101_SINGULAR_LU_REGULARIZATION_ABS_SHIFT", 0.0), 0.0)
     if abs_shift > 0.0
@@ -424,7 +424,12 @@ function _singular_lu_regularization_matrix(K_ff::SparseMatrixCSC{Float64,Int},
     end
     if mode in ("diagonal", "diag", "diagonal_relative", "diag_relative")
         diag_abs = map(abs, diag(K_ff))
-        shifts = max.(diag_abs, 1.0) .* 10.0^exp
+        # Scale each coordinate by its own stiffness. A whole-model maximum
+        # or an absolute floor changes unrelated flexible coordinates after
+        # an MPC transformation, or when the same model changes units.
+        # Preserve exact zeros: their inactive/SPC treatment belongs to the
+        # partition stage, not an invented spring in a singular LU fallback.
+        shifts = diag_abs .* 10.0^exp
         diagnostics["linear_solver"]["regularization_shift_source"] = "exponent_diagonal"
         diagnostics["linear_solver"]["regularization_shift_min"] = minimum(shifts)
         diagnostics["linear_solver"]["regularization_shift_max"] = maximum(shifts)
@@ -611,13 +616,9 @@ function autospc_rot_relative_threshold(model=nothing)
     if haskey(ENV, "JFEM_AUTOSPC_ROT_REL")
         return max(solver_env_float("JFEM_AUTOSPC_ROT_REL", default), 0.0)
     end
-    # A global rotational reference can be many orders of magnitude larger
-    # than the local shell-drilling stiffness.  In SOL103 the former 1e-8
-    # default then constrained legitimate shell rotations on large mixed
-    # models.  A 1e-14 modal floor retains only numerical-zero rotations in a
-    # validated large mixed shell/beam audit; other solution sequences retain
-    # the historical threshold until they have their own parity audit. GPST keeps its
-    # independent EPZERO-scale test below.
+    # This threshold controls the local diagonal fallback when directional
+    # GPST is explicitly disabled. With GPST enabled, relative weakness is
+    # decided by the local principal-stiffness ratios and EPZERO below.
     return default
 end
 
@@ -987,13 +988,36 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
                             protected_trans_dofs::Union{Nothing,Set{Int}}=nothing)
     autospc_rel_trans = autospc_trans_relative_threshold(model)
     autospc_rel_rot = autospc_rot_relative_threshold(model)
-    max_K_trans = maximum((abs(K[i, i]) for i in 1:ndof if mod(i - 1, 6) + 1 <= 3); init=1.0)
-    max_K_rot = maximum((abs(K[i, i]) for i in 1:ndof if mod(i - 1, 6) + 1 > 3); init=1.0)
-
+    # AUTOSPC tests local grid-point singularities after MPC elimination.
+    # A single large coefficient in T'KT (for example from an RBE3 UM set)
+    # must not impose constraints on unrelated, physically flexible grids.
+    # Leave all nonzero relative tests to the principal-stiffness GPST pass.
+    # When that pass is explicitly disabled, retain a per-GRID/component-block
+    # diagonal fallback, never a whole-model stiffness cutoff.
+    directional = gpst_enabled()
+    local_relative_trans = !directional || !gpst_translational_enabled()
+    local_relative_rot = !directional
+    local_reference = zeros(Float64, cld(ndof, 3))
+    max_K_trans = 0.0
+    max_K_rot = 0.0
+    for i in 1:ndof
+        value = abs(Float64(K[i, i]))
+        if mod(i - 1, 6) + 1 <= 3
+            max_K_trans = max(max_K_trans, value)
+        else
+            max_K_rot = max(max_K_rot, value)
+        end
+        i in fixed_dofs && continue
+        block = div(i - 1, 3) + 1
+        local_reference[block] = max(local_reference[block], value)
+    end
 
     n_autospc = 0
     n_autospc_trans = 0
     n_autospc_rot = 0
+    n_zero = 0
+    n_negative = 0
+    n_local_relative = 0
     n_load_path_skipped = 0
     negative_diagonal_enabled = autospc_negative_diagonal_enabled()
 
@@ -1004,11 +1028,13 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
         for i in 1:ndof
             dof_local = mod(i - 1, 6) + 1
             node_idx = div(i - 1, 6) + 1
-            max_K_ref = dof_local <= 3 ? max_K_trans : max_K_rot
+            max_K_ref = local_reference[div(i - 1, 3) + 1]
             rel_thresh = dof_local <= 3 ? autospc_rel_trans : autospc_rel_rot
-            thresh = rel_thresh * max(max_K_ref, 1.0)
+            use_relative = dof_local <= 3 ? local_relative_trans : local_relative_rot
+            thresh = use_relative ? rel_thresh * max_K_ref : 0.0
             k_diag = Float64(K[i, i])
-            is_below_threshold = abs(k_diag) < thresh
+            is_zero = iszero(k_diag)
+            is_below_threshold = is_zero || (use_relative && abs(k_diag) < thresh)
             raw_negative = k_diag < 0
             is_negative = negative_diagonal_enabled && raw_negative
             if !(i in fixed_dofs) && (is_below_threshold || is_negative)
@@ -1022,6 +1048,9 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
                 push!(fixed_dofs, i)
                 !isnothing(spc_dofs) && push!(spc_dofs, i)
                 n_autospc += 1
+                is_zero && (n_zero += 1)
+                is_negative && (n_negative += 1)
+                !is_zero && !is_negative && (n_local_relative += 1)
                 if dof_local <= 3
                     n_autospc_trans += 1
                 else
@@ -1030,7 +1059,8 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
 
                 if audit_io !== nothing
                     gid = 1 <= node_idx <= length(inv_id_map) ? inv_id_map[node_idx] : 0
-                    reason = is_negative ? "negative_diagonal" : "below_threshold"
+                    reason = is_negative ? "negative_diagonal" :
+                             is_zero ? "zero_diagonal" : "below_local_threshold"
                     _write_autospc_audit_row(
                         audit_io, i, gid, dof_local, k_diag, max_K_ref, rel_thresh, thresh,
                         reason,
@@ -1048,6 +1078,11 @@ function _diagonal_autospc!(fixed_dofs::Set{Int}, spc_dofs::Union{Nothing,Set{In
         "dofs" => n_autospc,
         "translational_dofs" => n_autospc_trans,
         "rotational_dofs" => n_autospc_rot,
+        "zero_diagonal_dofs" => n_zero,
+        "negative_diagonal_dofs" => n_negative,
+        "local_relative_dofs" => n_local_relative,
+        "reference_scope" => directional ? "grid_point_principal_stiffness" : "grid_point_diagonal_block",
+        "global_stiffness_cutoff" => false,
         "rel_threshold" => autospc_rel_trans,
         "rel_threshold_trans" => autospc_rel_trans,
         "rel_threshold_rot" => autospc_rel_rot,
@@ -1193,6 +1228,10 @@ function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diag
         diagnostics["autospc_diagonal_dofs"] = autospc_diag["dofs"]
         diagnostics["autospc_diagonal_translational_dofs"] = autospc_diag["translational_dofs"]
         diagnostics["autospc_diagonal_rotational_dofs"] = autospc_diag["rotational_dofs"]
+        diagnostics["autospc_diagonal_zero_dofs"] = autospc_diag["zero_diagonal_dofs"]
+        diagnostics["autospc_negative_diagonal_dofs"] = autospc_diag["negative_diagonal_dofs"]
+        diagnostics["autospc_diagonal_relative_dofs"] = autospc_diag["local_relative_dofs"]
+        diagnostics["autospc_reference_scope"] = autospc_diag["reference_scope"]
         diagnostics["autospc_load_path_protected_translational_dofs"] = autospc_diag["load_path_protected_translational_dofs"]
         diagnostics["autospc_load_path_skipped_dofs"] = autospc_diag["load_path_autospc_skipped_dofs"]
         # The eigen partition must reach the SAME constrained set as the static
@@ -1303,7 +1342,7 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
             "auto_lsmr_relative_residual" => 0.0,
             "auto_lsmr_accepted" => false,
             "auto_lsmr_error" => "",
-            "regularization_mode" => "global",
+            "regularization_mode" => "diagonal",
             "regularization_shift" => 0.0,
             "regularization_shift_min" => 0.0,
             "regularization_shift_max" => 0.0,
@@ -1464,13 +1503,14 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
         diagnostics["bc_partition"]["autospc_diagonal_dofs"] = autospc_diag["dofs"]
         diagnostics["bc_partition"]["autospc_diagonal_translational_dofs"] = autospc_diag["translational_dofs"]
         diagnostics["bc_partition"]["autospc_diagonal_rotational_dofs"] = autospc_diag["rotational_dofs"]
+        diagnostics["bc_partition"]["autospc_diagonal_zero_dofs"] = autospc_diag["zero_diagonal_dofs"]
+        diagnostics["bc_partition"]["autospc_negative_diagonal_dofs"] = autospc_diag["negative_diagonal_dofs"]
+        diagnostics["bc_partition"]["autospc_diagonal_relative_dofs"] = autospc_diag["local_relative_dofs"]
+        diagnostics["bc_partition"]["autospc_reference_scope"] = autospc_diag["reference_scope"]
         diagnostics["bc_partition"]["autospc_load_path_protected_translational_dofs"] = autospc_diag["load_path_protected_translational_dofs"]
         diagnostics["bc_partition"]["autospc_load_path_skipped_dofs"] = autospc_diag["load_path_autospc_skipped_dofs"]
         diagnostics["bc_partition"]["autospc_load_path_protection"] = load_path_diag
-        rel_trans = autospc_diag["rel_threshold_trans"]
-        rel_rot = autospc_diag["rel_threshold_rot"]
-        rel_msg = rel_trans == rel_rot ? string(rel_trans) : "trans=$(rel_trans), rot=$(rel_rot)"
-        log_msg("[SOLVER] AUTOSPC: $(autospc_diag["dofs"]) DOFs ($(autospc_diag["translational_dofs"]) trans + $(autospc_diag["rotational_dofs"]) rot, rel_thresh=$rel_msg, max_K_trans=$(round(autospc_diag["max_K_trans"], sigdigits=3)), max_K_rot=$(round(autospc_diag["max_K_rot"], sigdigits=3)))")
+        log_msg("[SOLVER] AUTOSPC: $(autospc_diag["dofs"]) DOFs ($(autospc_diag["translational_dofs"]) trans + $(autospc_diag["rotational_dofs"]) rot; zero=$(autospc_diag["zero_diagonal_dofs"]), negative=$(autospc_diag["negative_diagonal_dofs"]), local-relative=$(autospc_diag["local_relative_dofs"]); no global stiffness cutoff)")
         if autospc_diag["load_path_autospc_skipped_dofs"] > 0
             log_msg("[SOLVER] AUTOSPC load-path protection skipped $(autospc_diag["load_path_autospc_skipped_dofs"]) low-diagonal translational candidates")
         end

@@ -1,4 +1,4 @@
-# Package release gate uses only the already curated public suite.
+# Package release gate uses the curated public suite and source-level guards.
 using Test, LinearAlgebra
 BLAS.set_num_threads(1)
 ENV["JFEM_SUPPRESS_THREAD_HINT"] = "1"
@@ -14,6 +14,12 @@ finally
     empty!(ARGS)
     append!(ARGS, saved_args)
 end
+
+include("rbe3_um_test.jl")
+include("constraint_coupling_test.jl")
+include("autospc_local_scale_test.jl")
+include("singular_regularization_test.jl")
+include("coupled_timoshenko_beam_test.jl")
 
 @testset "Curated public release gate" begin
     @test length(suite_rows) == 19

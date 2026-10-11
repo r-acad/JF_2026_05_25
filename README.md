@@ -364,6 +364,30 @@ Their displacements are set to zero without adding supports. Loading such
 a coordinate raises an error, including on a cached subsequent subcase.
 Diagnostics report active, inactive and constrained coordinates separately.
 
+With `AUTOSPC` enabled, singularity decisions use each grid's remaining
+translational and rotational stiffness blocks after explicit constraints.
+`EPZERO` compares local principal stiffnesses; a very stiff region or an
+amplified RBE3 dependent-coordinate transformation does not clamp unrelated
+flexible grids through a model-wide diagonal cutoff. The preliminary diagonal
+pass handles exact zeros and retains the existing optional negative-diagonal
+rule. `JFEM_AUTOSPC_GPST_REL` overrides deck `PARAM,EPZERO`, which otherwise
+defaults to `JFEM_AUTOSPC_TRANS_REL` (normally `1e-8`). If directional processing
+is explicitly disabled, `JFEM_AUTOSPC_TRANS_REL` and `JFEM_AUTOSPC_ROT_REL`
+control a per-grid diagonal fallback. Diagnostics distinguish zero, negative,
+local diagonal, and principal-stiffness constraints.
+
+If the static system still requires singular-LU regularization, the default
+perturbation is relative to each coordinate's own absolute stiffness diagonal.
+It has no absolute stiffness floor and does not scale flexible regions from
+an unrelated large MPC coefficient. Exact zero diagonals remain zero; the
+boundary-condition partition handles inactive or constrained coordinates.
+The solver continues to report the perturbation and the residual of the
+original equations: successful regularization does not establish equilibrium
+or reference-solver agreement. Explicit
+`JFEM_SOL101_SINGULAR_LU_REGULARIZATION_MODE=global` retains the former mode;
+explicit absolute or relative shift overrides retain their existing behavior
+(the explicit relative override uses the global stiffness reference).
+
 The earlier assembly improvements remain active:
 - **Deterministic threading**: results are bit-identical at any
   `--threads` count (positional-slot assembly plus a pinned inner
@@ -1023,11 +1047,30 @@ Different selections across subcases currently require separate model runs.
 Direct matrices support one named, real symmetric GRID matrix per selector;
 unselected DMIG cards remain inactive. Varying PBEAML stations are rejected
 by the bulk-data parser until their integration is supported.
+Beam sections with a nonzero product of inertia use the complete coupled
+bending/shear flexibility, including unequal transverse shear areas. Shear
+softening applies to the coupled terms as well as the two bending directions;
+uncoupled sections retain the ordinary Timoshenko formulas. This avoids
+artificial negative element stiffness in short unsymmetric sections.
 MPC, rigid-element and SPC constraints reject missing GRID references,
 invalid component digits and repeated dependent assignments. MPC coefficients
-must be finite with a nonzero first coefficient. RBE3 UM dependent selection
-requires `JFEM_RBE3_USE_UM_DEPENDENT=true` and a valid, complete dependent set;
-otherwise it reports an error. JSON input retains SPCD prescriptions.
+must be finite with a nonzero first coefficient. RBE3 UM continuations are
+honored automatically: they redefine the dependent components, while cards
+without UM retain their REFGRID/REFC dependent set. UM must specify a complete,
+non-repeated dependent set with a nonsingular coefficient block. Invalid sets
+report an error instead of silently dropping constraint equations. The former
+`JFEM_RBE3_USE_UM_DEPENDENT` switch is no longer needed and does not override the
+input card, even when set to `false`. JSON input retains SPCD prescriptions.
+Mutually coupled MPC/rigid-element dependencies are eliminated as complete
+equation blocks when their selected dependent block is nonsingular. Singular
+cycles report an error; the solver does not drop equations or silently change
+the dependent set. The log reports the number and size of resolved blocks.
+When constraint redistribution would exceed 100 million temporary matrix
+entries, JFEM first assembles the sparse operator and then applies the same
+constraint congruence. This avoids expanding duplicate element contributions
+and exact zeros into large temporary arrays. Smaller models retain the
+original accumulation path. Solver phase messages are flushed immediately
+to redirected logs.
 
 Concentrated follower forces are an explicit native-backend extension for
 SOL101 and experimental SOL106. `PARAM,JFFOLLOW,1` activates only `FORCE`

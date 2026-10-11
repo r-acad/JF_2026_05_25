@@ -6,6 +6,33 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Locally scaled singular-system regularization.** Use each nonzero
+  diagonal to scale the SOL101 singular-LU fallback, avoiding a uniform
+  artificial stiffness controlled by the largest transformed coefficient.
+  Remove the unit-dependent minimum stiffness; retain explicit global and
+  absolute compatibility overrides. Verify unit and coordinate scaling,
+  compatible singular systems and override precedence.
+- **Consistent coupled beam shear stiffness.** Apply Timoshenko shear
+  flexibility to the complete two-direction bending tensor, including the
+  product of inertia. This prevents valid short, unsymmetric beam sections
+  from acquiring negative stiffness through uncorrected cross-coupling.
+  Retain the uncoupled formulas and verify coupled response against integrated
+  section flexibility, principal-axis rotation and analytic derivatives.
+- **Automatic RBE3 UM and coupled constraint elimination.** Honor explicit
+  RBE3 UM dependent components without an environment opt-in. Equilibrate and
+  validate dependent coefficient blocks, rejecting singular selections rather
+  than discarding equations through a pseudoinverse. Solve nonsingular coupled
+  MPC/rigid-element dependency groups together while retaining their declared
+  dependent components; preserve the existing acyclic path. Report resolved
+  groups in the solver log, flush phase messages promptly for redirected logs,
+  and add equation, energy and static-response tests.
+- **Grid-local AUTOSPC and bounded matrix redistribution.** Remove the
+  whole-model stiffness cutoff that could overconstrain flexible components
+  after RBE3 UM elimination. Use local principal-stiffness singularity checks,
+  with a local diagonal fallback when those checks are disabled. Report zero,
+  negative and local-relative automatic constraints separately. For constraint
+  expansion above 100 million temporary entries, aggregate the sparse matrix
+  before applying the same congruence, avoiding large duplicate/zero arrays.
 - **WingFEGen translucent depth ordering and consecutive BDF imports.** Use
   GPU depth peeling for batched translucent surfaces on supported graphics
   devices, keeping normal geometry in one compositing group and preserving

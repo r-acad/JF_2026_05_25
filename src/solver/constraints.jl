@@ -104,11 +104,45 @@ retain their exact original order and finite coefficients, including repeated
 DOFs and zeros. Rows containing nested dependencies combine repeated terminal
 coefficients, prune numerical zeros, and sort by terminal DOF.
 
-Returns `(flat_map, diagnostics)`. A dependency cycle raises `ArgumentError`
-with the deterministic cycle path before any matrix triplets are redistributed.
+Returns `(flat_map, diagnostics)`. Coupled dependency cycles are eliminated as
+complete equation blocks. A singular block raises `ArgumentError` with its
+deterministic cycle path before any matrix triplets are redistributed.
 """
 function _flatten_constraint_dependency_map(dependency_map;
                                             coefficient_tolerance::Real=1e-15)
+    try
+        flat_map, diagnostics = _flatten_acyclic_constraint_map(
+            dependency_map; coefficient_tolerance)
+        diagnostics["resolved_cyclic_blocks"] = 0
+        diagnostics["resolved_cyclic_dofs"] = 0
+        diagnostics["largest_cyclic_block"] = 0
+        return flat_map, diagnostics
+    catch err
+        err isa _ConstraintDependencyCycle || rethrow()
+    end
+
+    # Keep the historical path (and exact already-flat row ordering) for all
+    # acyclic models. Only a real cycle needs the additional graph pass.
+    resolved, blocks = _resolve_constraint_dependency_cycles(
+        dependency_map; coefficient_tolerance)
+    flat_map, diagnostics = _flatten_acyclic_constraint_map(
+        resolved; coefficient_tolerance)
+    diagnostics["resolved_cyclic_blocks"] = length(blocks)
+    diagnostics["resolved_cyclic_dofs"] = sum(length, blocks; init=0)
+    diagnostics["largest_cyclic_block"] = maximum(length, blocks; init=0)
+    diagnostics["input_terms"] = sum(length, values(dependency_map); init=0)
+    diagnostics["changed_dependent_dofs"] = count(
+        dof -> dependency_map[dof] != flat_map[dof], keys(dependency_map))
+    log_msg("[SOLVER] MPC/RBE: resolved $(length(blocks)) coupled constraint blocks ($(diagnostics["resolved_cyclic_dofs"]) dependent DOFs; largest block $(diagnostics["largest_cyclic_block"])) without dropping equations")
+    return flat_map, diagnostics
+end
+
+struct _ConstraintDependencyCycle <: Exception
+    dofs::Vector{Int}
+end
+
+function _flatten_acyclic_constraint_map(dependency_map;
+                                        coefficient_tolerance::Real=1e-15)
     atol = Float64(coefficient_tolerance)
     isfinite(atol) || throw(ArgumentError("Constraint coefficient tolerance must be finite"))
     atol = max(atol, 0.0)
@@ -160,8 +194,7 @@ function _flatten_constraint_dependency_map(dependency_map;
             cycle_start = findfirst(==(dep_dof), stack)
             cycle = cycle_start === nothing ? vcat(copy(stack), dep_dof) :
                     vcat(stack[cycle_start:end], dep_dof)
-            throw(ArgumentError(
-                "MPC/RBE dependency cycle detected: " * join(cycle, " -> ")))
+            throw(_ConstraintDependencyCycle(cycle))
         end
 
         states[dep_dof] = UInt8(1)
@@ -270,6 +303,121 @@ function _flatten_constraint_dependency_map(dependency_map;
     return flat_map, diagnostics
 end
 
+function _constraint_cycle_path(block, adjacency)
+    members = Set(block)
+    visiting = Set{Int}()
+    visited = Set{Int}()
+    path = Int[]
+    function visit(dof)
+        if dof in visiting
+            start = findfirst(==(dof), path)
+            return vcat(path[start:end], dof)
+        end
+        dof in visited && return nothing
+        push!(visiting, dof)
+        push!(path, dof)
+        for next in adjacency[dof]
+            next in members || continue
+            cycle = visit(next)
+            cycle === nothing || return cycle
+        end
+        pop!(path)
+        delete!(visiting, dof)
+        push!(visited, dof)
+        return nothing
+    end
+    return visit(first(block))
+end
+
+function _resolve_constraint_dependency_cycles(dependency_map;
+                                               coefficient_tolerance::Real=1e-15)
+    atol = max(Float64(coefficient_tolerance), 0.0)
+    nodes = sort!(Int.(collect(keys(dependency_map))))
+    canonical = Dict{Int,Dict{Int,Float64}}()
+    adjacency = Dict{Int,Vector{Int}}()
+    for dof in nodes
+        row = Dict{Int,Float64}()
+        for (next, coefficient) in sort!(collect(dependency_map[dof]); by=p -> (p[1], p[2]))
+            isfinite(coefficient) || throw(ArgumentError(
+                "Non-finite constraint coefficient on dependency $dof -> $next"))
+            abs(coefficient) <= atol && continue
+            row[Int(next)] = get(row, Int(next), 0.0) + Float64(coefficient)
+        end
+        filter!(pair -> abs(last(pair)) > atol, row)
+        canonical[dof] = row
+        adjacency[dof] = sort!([next for next in keys(row) if haskey(dependency_map, next)])
+    end
+
+    # Tarjan's strongly connected components isolate exactly the variables
+    # that must be eliminated simultaneously, independently of other blocks.
+    indices = Dict{Int,Int}()
+    lowlink = Dict{Int,Int}()
+    stack = Int[]
+    active = Set{Int}()
+    blocks = Vector{Int}[]
+    sequence = Ref(0)
+    function connect(dof)
+        sequence[] += 1
+        indices[dof] = sequence[]
+        lowlink[dof] = sequence[]
+        push!(stack, dof)
+        push!(active, dof)
+        for next in adjacency[dof]
+            if !haskey(indices, next)
+                connect(next)
+                lowlink[dof] = min(lowlink[dof], lowlink[next])
+            elseif next in active
+                lowlink[dof] = min(lowlink[dof], indices[next])
+            end
+        end
+        if lowlink[dof] == indices[dof]
+            block = Int[]
+            while true
+                next = pop!(stack)
+                delete!(active, next)
+                push!(block, next)
+                next == dof && break
+            end
+            if length(block) > 1 || dof in adjacency[dof]
+                push!(blocks, sort!(block))
+            end
+        end
+        return nothing
+    end
+    for dof in nodes
+        haskey(indices, dof) || connect(dof)
+    end
+
+    resolved = Dict{Int,Vector{Tuple{Int,Float64}}}(
+        dof => dependency_map[dof] for dof in nodes)
+    for block in blocks
+        positions = Dict(dof => i for (i, dof) in enumerate(block))
+        external = sort!(unique([next for dof in block for next in keys(canonical[dof])
+                                if !haskey(positions, next)]))
+        external_positions = Dict(dof => i for (i, dof) in enumerate(external))
+        A = Matrix{Float64}(I, length(block), length(block))
+        B = zeros(length(block), length(external))
+        for (i, dof) in enumerate(block), (next, coefficient) in canonical[dof]
+            if haskey(positions, next)
+                A[i, positions[next]] -= coefficient
+            else
+                B[i, external_positions[next]] += coefficient
+            end
+        end
+        label = "MPC/RBE dependency cycle detected: " *
+                join(_constraint_cycle_path(block, adjacency), " -> ")
+        # Original rows say uS = CSS*uS + CSN*uN, hence (I-CSS)*uS = CSN*uN.
+        # Repartition every row together; do not remove a dependent variable,
+        # choose a replacement master, or apply a least-squares approximation.
+        solution = _solve_constraint_dependent_block(A, -B, label)
+        for (i, dof) in enumerate(block)
+            resolved[dof] = [(next, solution[i, j]) for (j, next) in enumerate(external)
+                             if abs(solution[i, j]) > atol]
+        end
+    end
+    return resolved, blocks
+end
+
 function _rbe3_um_dependent_dofs(um_pairs, id_map)
     dep_dofs = Int[]
     seen = Set{Int}()
@@ -286,6 +434,34 @@ function _rbe3_um_dependent_dofs(um_pairs, id_map)
         end
     end
     return dep_dofs
+end
+
+function _solve_rbe3_um_dependents(A_dep, B_ind, id)
+    return _solve_constraint_dependent_block(A_dep, B_ind, "RBE3 $id UM")
+end
+
+function _solve_constraint_dependent_block(A_dep, B_ind, label)
+    # UM is a change of elimination coordinates, not a least-squares fit.
+    # A pseudoinverse of a singular selected block would silently discard
+    # original interpolation equations. Equilibrate rows AND columns before
+    # checking rank: translational/rotational components have different units,
+    # and a raw singular-value threshold would depend on model length units.
+    row_scale = vec(maximum(abs, A_dep; dims=2))
+    all(x -> isfinite(x) && x > 0, row_scale) || throw(ArgumentError(
+        "$label dependent selection is singular; every equation must have a selected dependent component"))
+    A_scaled = A_dep ./ row_scale
+    column_scale = vec(maximum(abs, A_scaled; dims=1))
+    all(x -> isfinite(x) && x > 0, column_scale) || throw(ArgumentError(
+        "$label selects a component absent from its equations"))
+    A_scaled ./= column_scale'
+    singular_values = svdvals(A_scaled)
+    tolerance = 64 * eps(Float64) * max(size(A_scaled)...)
+    minimum(singular_values) > tolerance * maximum(singular_values) ||
+        throw(ArgumentError("$label dependent selection is singular or numerically rank deficient; choose dependent components with a nonsingular coefficient block"))
+    C_dep = -(A_scaled \ (B_ind ./ row_scale)) ./ column_scale
+    all(isfinite, C_dep) || throw(ArgumentError(
+        "$label dependent coefficients are not finite"))
+    return C_dep
 end
 
 @inline function _rbe3_basic_frame_diagnostic_enabled()
@@ -593,14 +769,13 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
             push!(default_dep_dofs, (ref_idx - 1) * 6 + rdof)
         end
 
+        # An explicit UM continuation is part of the input model's constraint
+        # definition. Always honor it; the historical opt-in environment flag
+        # must neither be required nor disable the declared dependent set.
         um = get(rbe, "UM", [])
-        if !isempty(um)
-            solver_env_bool("JFEM_RBE3_USE_UM_DEPENDENT", false) ||
-                throw(ArgumentError("RBE3 $id UM dependent selection requires JFEM_RBE3_USE_UM_DEPENDENT=true; it cannot be ignored"))
-        end
         um_dep_dofs = _rbe3_um_dependent_dofs(um, id_map)
         dep_dofs = default_dep_dofs
-        if !isempty(um_dep_dofs) && solver_env_bool("JFEM_RBE3_USE_UM_DEPENDENT", false)
+        if !isempty(um_dep_dofs)
             if length(um_dep_dofs) == length(equation_rows)
                 dep_dofs = um_dep_dofs
                 n_rbe3_um += 1
@@ -629,10 +804,14 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
             end
         end
 
-        C_dep = try
-            -(A_dep \ B_ind)
-        catch
-            -(pinv(A_dep, rtol=1e-10) * B_ind)
+        C_dep = if !isempty(um_dep_dofs)
+            _solve_rbe3_um_dependents(A_dep, B_ind, id)
+        else
+            try
+                -(A_dep \ B_ind)
+            catch
+                -(pinv(A_dep, rtol=1e-10) * B_ind)
+            end
         end
         for (dep_col, dep_dof) in enumerate(dep_dofs)
             pairs = Tuple{Int,Float64}[]
@@ -718,14 +897,66 @@ end
 # independent DOFs. Split from the map build so a prebuilt map can skip the
 # build. Flattening here makes every caller (K, Kg, and M) use the same complete
 # congruence map and makes all one-pass dependent-DOF recovery paths valid.
+function _aggregate_constraint_triplets(flat_map, I_idx, J_idx, V_val, ndof)
+    # Expand the assembled sparse operator, not every individual element entry.
+    # This performs the same congruence while avoiding hundreds of millions of
+    # duplicate/zero triplets for large, highly connected constraint groups.
+    started = time_ns()
+    matrix = sparse(I_idx, J_idx, V_val, ndof, ndof)
+    dropzeros!(matrix)
+    rows = Int[]; columns = Int[]; values = Float64[]
+    sizehint!(rows, ndof + sum(length, Base.values(flat_map); init=0))
+    for dof in 1:ndof
+        if haskey(flat_map, dof)
+            for (independent, coefficient) in flat_map[dof]
+                push!(rows, dof); push!(columns, independent); push!(values, coefficient)
+            end
+        else
+            push!(rows, dof); push!(columns, dof); push!(values, 1.0)
+        end
+    end
+    transform = sparse(rows, columns, values, ndof, ndof)
+    dropzeros!(transform)
+    transformed = transpose(transform) * (matrix * transform)
+    dropzeros!(transformed)
+    new_I, new_J, new_V = findnz(transformed)
+    elapsed = round((time_ns() - started) * 1e-9; digits=2)
+    log_msg("[SOLVER] MPC sparse congruence: $(length(I_idx)) input triplets -> $(nnz(matrix)) assembled entries -> $(length(new_V)) transformed entries in $elapsed s")
+    return flat_map, new_I, new_J, new_V
+end
+
 function _redistribute_constraint_triplets(rbe3_map, I_idx, J_idx, V_val;
-                                           skip_zeros::Bool=false)
+                                           skip_zeros::Bool=false,
+                                           triplet_budget::Integer=100_000_000)
     isempty(rbe3_map) && return rbe3_map, I_idx, J_idx, V_val
     rbe3_map, flatten_diagnostics = _flatten_constraint_dependency_map(rbe3_map)
     if flatten_diagnostics["changed_dependent_dofs"] > 0
         log_msg("[SOLVER] MPC dependency map flattened: $(flatten_diagnostics["dependent_dofs"]) dependent DOFs, $(flatten_diagnostics["nested_dependency_terms"]) nested terms, depth=$(flatten_diagnostics["max_dependency_depth"]), terms $(flatten_diagnostics["input_terms"]) -> $(flatten_diagnostics["output_terms"])")
     end
     n_orig = length(I_idx)
+    # Preserve the original summation/order path for ordinary models. Bound
+    # temporary expansion for large models before allocating the output arrays.
+    if n_orig > 0
+        triplet_budget > 0 || throw(ArgumentError("Constraint triplet budget must be positive"))
+        ndof = max(maximum(I_idx), maximum(J_idx), maximum(keys(rbe3_map)))
+        for pairs in Base.values(rbe3_map), (dof, _) in pairs
+            ndof = max(ndof, dof)
+        end
+        fanout = ones(Int, ndof)
+        for (dof, pairs) in rbe3_map
+            fanout[dof] = length(pairs)
+        end
+        estimated = 0
+        for k in eachindex(I_idx)
+            skip_zeros && iszero(V_val[k]) && continue
+            estimated = Base.checked_add(estimated,
+                Base.checked_mul(fanout[I_idx[k]], fanout[J_idx[k]]))
+            if estimated > triplet_budget
+                log_msg("[SOLVER] MPC redistribution exceeds $triplet_budget temporary entries; aggregating the sparse operator before constraint congruence")
+                return _aggregate_constraint_triplets(rbe3_map, I_idx, J_idx, V_val, ndof)
+            end
+        end
+    end
     expected_triplets = skip_zeros ? 0 : n_orig + n_orig ÷ 10
     zero_input_triplets = 0
     if skip_zeros

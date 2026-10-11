@@ -105,9 +105,8 @@ function extract_rbe3(cards)
 
         # Parse multiple weight groups: WT1,C1,G1...,Gn, WT2,C2,G1...,Gm, ...
         # Continuation markers (+XX, *XX) are skipped as they are parser artifacts.
-        # Optional UM entries name alternate DOFs listed by the RBE3.  The solver
-        # keeps the historical REFGRID/REFC dependent set by default; UM-based
-        # elimination is available as an explicit diagnostic option.
+        # Optional UM entries redefine the dependent DOFs. The solver honors
+        # this explicit set and uses REFGRID/REFC only when UM is absent.
         wt_groups = []
         um_pairs = []
         alpha = 0.0

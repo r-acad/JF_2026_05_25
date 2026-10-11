@@ -2,6 +2,9 @@
 
 function log_msg(message::String)
     println("[$(Dates.format(now(), "HH:MM:SS"))] $message")
+    # Solver phases can run for minutes without yielding to an async flusher.
+    # Keep redirected GUI/file logs current as well as interactive terminals.
+    flush(stdout)
 end
 
 # EIGB counts are independent signed requests. NEP estimates work for INV;
