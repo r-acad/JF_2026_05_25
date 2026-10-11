@@ -23,7 +23,7 @@ reactionVertices.set([5,6,7],3);reactions.updateVerticesData('position',reaction
 state.layers.get('SUPPORT_FORCES').visible=false;assert.deepEqual(A.supportValueCandidates(state),[]);state.layers.get('SUPPORT_FORCES').visible=true;reactions.setEnabled(false);assert.deepEqual(A.supportValueCandidates(state),[]);reactions.dispose();state.layers.delete('SUPPORT_FORCES');
 assert.equal(candidates.length,7);
 assert.equal(candidates.find(x=>x.text==="N 101").color,A.COLORS.support);
-assert.equal(candidates.find(x=>x.text==="N 901").color,A.COLORS.rbe3);
+assert.equal(candidates.find(x=>x.text==="N 901").color,A.COLORS.aeroReference);
 assert.equal(candidates.find(x=>x.text==="T 11").color,A.COLORS.tria);
 assert.equal(candidates.find(x=>x.text==="B 12").color,A.COLORS.cap);
 assert.deepEqual(candidates.find(x=>x.text==="R 13").point,[0,0,1]);

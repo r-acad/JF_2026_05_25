@@ -46,9 +46,9 @@ const EXTRA_STYLE = {
   AERO_SURFACE: { color: "#8fa0b3", alpha: 0.12, label: "Aerodynamic loft overlay" },
   MESH_EDGES:   { color: "#101720", label: "Element edges" },
   RBE3:         { color: "#f4b8d6", label: "RBE3 spiders" },
-  RBE3_NODES:   { color: "#f8cee2", label: "RBE3 ref nodes" },
+  RBE3_NODES:   { color: "#e45ad4", label: "Aerodynamic load reference nodes" },
   FUEL_RBE3:    { color: "#f4b8d6", label: "Fuel RBE3 spiders · 123456" },
-  FUEL_RBE3_NODES: {color: "#91f5d5", label: "Fuel mass reference nodes"},
+  FUEL_RBE3_NODES: {color: "#146b3a", label: "Fuel / structural mass reference nodes"},
   SPC:          { color: "#ff4d6d", label: "Supports (SPC)" },
   SUPPORT_FORCES: { color: "#b8cadb", label: "Support forces / moments (XYZ)" },
   AERO_LOADS:   { color: "#b8cadb", label: "Applied force components · aero, structure and fuel" },
@@ -106,6 +106,9 @@ const state = {
   modelDirty: false,
   studyDirty: true,
   studyRevision: 0,
+  studyEpoch: 0,
+  autosave: null,
+  autosaveBusy: false,
   studyViewRevision: 0,
   studyRestoring: false,
   studyNotes: {text:"",history:[]},
@@ -1782,10 +1785,12 @@ function setBusy(on) {
                     "btn-jfem", "btn-save-model", "btn-save-model-as", "btn-load-model", "btn-save-toml", "btn-load-toml", "btn-view-toml", "btn-new-study", "btn-read-nastran"]) {
     const button = document.getElementById(id); if (button) button.disabled = disabled;
   }
+  const autosaveControl=document.getElementById("auto-save");if(autosaveControl)autosaveControl.disabled=disabled||!state.autoMeshReady;
   syncManualMeshAction();
   state.sensitivity?.refreshContext();
   state.panelTables?.refresh();
   syncImportedModelMode(disabled);
+  if(state.autosaveBusy)for(const id of ["btn-save-model","btn-save-model-as","btn-load-model","btn-save-toml","btn-load-toml","btn-new-study","btn-read-nastran","btn-save","btn-reload"]){const button=document.getElementById(id);if(button)button.disabled=true;}
   if (!disabled) scheduleAutoMesh();
 }
 
@@ -2051,8 +2056,8 @@ function fileBasename(path) { return String(path || "").split(/[\\/]/).pop(); }
 function markStudyModified() {
   if (state.loadingInput || state.studyRestoring) return;
   state.studyRevision++;
-  if (state.studyDirty) return;
-  state.studyDirty = true; updateFileStatus();
+  if (!state.studyDirty) {state.studyDirty = true; updateFileStatus();}
+  state.autosave?.changed();
 }
 // View preferences are included when a Study is explicitly saved, but only
 // definition edits (geometry, properties, loads, notes, etc.) dirty its indicator.
@@ -2062,6 +2067,7 @@ function markStudyViewModified() {
 }
 function markStudySaved(revision = state.studyRevision) {
   state.studyDirty = revision !== state.studyRevision || !!state.panelTables?.hasDrafts?.(); updateFileStatus();
+  state.autosave?.changed();
 }
 function updateFileStatus() {
   const status=document.getElementById("study-file-status"),saved=document.getElementById("file-save-status"),server=document.getElementById("server-input-path");
@@ -2080,9 +2086,9 @@ function updateFileStatus() {
   if (server) server.textContent=state.inputFile || "Reading server input path…";
   if (saved && state.lastFileSave) {
     const file=state.lastFileSave;
-    saved.textContent=file.method==="picker" ? "Last save: selected file "+file.name : file.method==="server" ?
+    saved.textContent=file.method==="browser" ? "Last save: browser recovery copy "+file.name : file.method==="picker" ? "Last save: selected file "+file.name : file.method==="server" ?
       "Last save: server input "+file.name : "Last save: download requested for "+file.name;
-    saved.title=file.method==="picker" ? "The browser reports the filename, not the full folder path." :
+    saved.title=file.method==="browser" ? "Saved persistently in this browser, available in Open existing study. This does not update a disk file. Use Save Study to export a portable file." : file.method==="picker" ? "The browser reports the filename, not the full folder path." :
       file.method==="server" ? file.name : "Your browser download settings choose the folder. Enable ‘Ask where to save each file’ to select a location.";
   }
 }
@@ -2094,7 +2100,7 @@ function recordFileSave(destination,kind,revision = state.studyRevision) {
   if (destination.method==="download") log((destination.guidance || "Download requested.")+" Browser download settings choose the folder; enable ‘Ask where to save each file’ to choose a location.","warn");
 }
 function workspaceOperationAvailable() {
-  return !state.workspaceBusy && !state.exportBusy && !state.busy && !state.loadingInput && !state.meshRequestInFlight &&
+  return !state.autosaveBusy && !state.workspaceBusy && !state.exportBusy && !state.busy && !state.loadingInput && !state.meshRequestInFlight &&
     !state.polling && !state.solverStarting && !state.sensitivityBusy && !state.reference?.loading && !state.reference?.saving &&
     !state.reference?.isInteracting();
 }
@@ -2108,6 +2114,7 @@ function sensitivityOperationContext() {
     state.polling||state.solverStarting?'JFEM is running or starting. Wait for the analysis to finish before starting sensitivity.':
     state.meshRequestInFlight?'Creating FEM. Sensitivity properties will refresh when the mesh is ready.':
     state.loadingInput||state.workspaceBusy?'A Study or model file operation is in progress. Wait for it to finish.':
+    state.autosaveBusy?'Autosave is writing the Study. Property editing remains available; this operation resumes when saving finishes.':
     state.exportBusy?'A model export is in progress. Wait for the export to finish.':
     state.reference?.loading||state.reference?.saving?'Reference geometry is loading or saving. Wait for it to finish.':
     state.reference?.isInteracting()?'Finish moving the reference geometry before starting sensitivity.':
@@ -2489,6 +2496,69 @@ async function saveModelDefinition({saveAs=false} = {}) {
   });
 }
 
+async function autosaveStudy(stamp) {
+  // This never uses workspaceOperation: background saves must not make the
+  // editor inert or reject queued property-table edits.
+  const epoch=state.studyEpoch,revision=state.studyRevision,handle=state.studyFileHandle;
+  const name=state.studyFile||WingWorkspace.filename(state.importedDeck?fileBasename(state.importedDeck.source.name):state.values["output.title"]);
+  const current=()=>epoch===state.studyEpoch&&revision===state.studyRevision&&document.getElementById("auto-save").checked;
+  if(stamp.epoch!==epoch||stamp.revision!==revision)return false;
+  const disk=handle&&typeof handle.createWritable==="function";
+  if(!disk&&typeof window.showSaveFilePicker==="function"&&window.isSecureContext!==false)
+    throw Error("Autosave needs a linked file. Use Project → Save Study to choose it, or turn Autosave off and on to choose now.");
+  if(disk&&typeof handle.queryPermission==="function"&&await handle.queryPermission({mode:"readwrite"})!=="granted")
+    throw Error("Autosave needs write access. Click Save Study to grant it, then re-enable Autosave. Your changes remain unsaved.");
+  if(!current())return false;
+  state.panelTables?.assertValidDraft?.();
+  // Freeze parameters, view, notes and source before any server/file awaits.
+  const parameters=JSON.parse(JSON.stringify(state.importedDeck?{...state.values,"sensitivity.settings":state.sensitivity?.serialize()||""}:collectParams()));parameters["references.items"]=[];
+  const view=WingWorkspace.captureView(document,state,workspaceUI),savedAt=new Date().toISOString();
+  const notes=WingWorkspace.notesForSave(state.studyNotes,document.getElementById("study-note")?.value||"",savedAt),createdAt=state.studyCreatedAt,source=state.importedDeck?.source;
+  let validated=parameters;
+  if(!source){const response=await postParams("/api/validate_workspace",parameters);if(!response.ok)throw Error(await readError(response));validated=(await response.json()).parameters;}
+  if(!current())return false;
+  const data=await WingWorkspace.snapshot(validated,state.reference,view,{notes,savedAt,createdAt,modelSource:source});
+  if(!current())return false;
+  const text=JSON.stringify(data,null,2),destination={method:disk?"picker":"browser",name,handle};
+  if(disk)await WingWorkspace.writeDestination(destination,text,"application/json",document);
+  const recent=await state.recentStudies?.record({name,text,handle,id:state.studyRecentId,source:"saved"});
+  if(!disk&&!recent?.persisted)throw Error("Autosave could not store a persistent browser copy. Use Save Study to download your changes; the Project indicator remains orange.");
+  if(epoch!==state.studyEpoch)return false;
+  if(recent?.id)state.studyRecentId=recent.id;
+  state.studyNotes=data.notes;state.studyCreatedAt=data.created_at;state.studySavedAt=data.saved_at;
+  if(revision===state.studyRevision)syncStudyNotes();
+  recordFileSave(destination,"study",revision);
+  log("Autosaved Study "+name+(disk?" to its linked file.":" as a browser recovery copy; the disk file is unchanged."),"good");
+  return true;
+}
+
+function installAutosave(){
+  if(state.autosave||typeof WingAutosave==="undefined")return;
+  const control=document.getElementById("auto-save"),label=document.getElementById("autosave-label"),status=document.getElementById("autosave-status");
+  state.autosave=WingAutosave.create({
+    read:()=>({enabled:control.checked,dirty:state.studyDirty||!!state.panelTables?.hasDrafts?.(),revision:state.studyRevision,epoch:state.studyEpoch,
+      blocked:!state.autoMeshReady?"Autosave waits for a Study.":state.studyRestoring||state.loadingInput||state.workspaceBusy?"Autosave waits for the Study operation.":
+        state.panelTables?.hasDrafts?.()?"Autosave waits for unfinished property-table edits.":
+        state.reference?.loading||state.reference?.saving||state.reference?.isInteracting()?"Autosave waits for reference editing.":
+        state.meshRequestInFlight||state.busy||state.exportBusy||state.polling||state.solverStarting||state.sensitivityBusy?"Autosave waits for the active model or analysis operation.":""}),
+    save:autosaveStudy,
+    onState:value=>{
+      const changed=state.autosaveBusy!==value.saving;state.autosaveBusy=value.saving;
+      status.textContent=value.message;status.dataset.status=label.dataset.status=value.status;
+      label.title=value.message+". Saves geometry, properties, loads, notes and design-variable selections after edits settle. Camera and display changes alone do not save. Without disk-write support, a persistent browser recovery copy is used.";
+      if(changed)setBusy(state.busy);
+    },
+    onError:error=>log("Autosave paused: "+error.message,"warn"),
+  });
+  control.onchange=async()=>{
+    markStudyViewModified();
+    if(control.checked&&typeof window.showSaveFilePicker==="function"&&window.isSecureContext!==false){
+      const saved=await saveModelDefinition();if(!saved)control.checked=false;
+    }
+    state.autosave.changed();
+  };
+}
+
 function restoreWorkspaceView(view) {
   state.layerGroupCollapsed=new Map(Object.entries(view.layerGroups||{}));
   if(state.panelView)setPanelDisplay(false,false);
@@ -2716,7 +2786,9 @@ async function loadModelDefinition(file, options = {}) {
       state.tomlFile=parametersOnly && !options.newStudy ? file.name : null;
       state.studyDirty = !!parametersOnly || !!options.importDeck;
       state.studyRecentId = parametersOnly ? null : options.recentId || null;
+      state.studyEpoch++;
       updateFileStatus();
+      state.autosave?.changed();
       meshStatus("Loaded " + file.name, "current");
       log((options.newStudy ? "Created new Study" : "Loaded "+file.name)+": " + data.nodes.count + " nodes, " + items.length + (parametersOnly ? " linked references." : " embedded references.")+" Run analysis for fresh results. The server input file is unchanged.", "good");
       if(options.importDeck){
@@ -3175,11 +3247,12 @@ function initScene() {
   // millimetre decks and metre wings respond to the same pointer gesture.
   state.camera.panningSensibility = 400 / 1.5;
   state.camera.useInputToRestoreState = false;
-  // Middle click centers a node; middle+right drag performs CATIA-style zoom.
+  // Middle click centers a node; middle+right, then releasing right while
+  // holding middle, arms the CATIA zoom drag without panning or orbiting.
   state.camera.inputs.attached.pointers.buttons = [0, 2];
   state.catiaZoom?.destroy();
   state.catiaZoom=WingViewportTools.installCatiaZoom({canvas,camera:state.camera,onChange:()=>{state.viewportTools?.refresh();markStudyViewModified();}});
-  canvas.title="Left drag: orbit · Right drag: pan · Wheel or middle + right drag: zoom · Middle click: center a node";
+  canvas.title="Left drag: orbit · Right drag: pan · Wheel: zoom · CATIA zoom: press middle + right, release right, then move up/down while holding middle · Middle click: center a node";
   state.camera.minZ = 0.01;
   state.camera.lowerRadiusLimit = 0.05;
   state.camera.lowerBetaLimit = 0.001;
@@ -3790,10 +3863,15 @@ function* buildModelSteps(data, options = {}) {
     addLayer(layerName, EXTRA_STYLE[layerName].label, EXTRA_STYLE[layerName].color,
              attachments.count + " elements", spider ? [spider] : []);
     const refs = Array.from(asI32(attachments.refs));
+    // Imported RBE3s have no inferred aerodynamic/mass role. Keep their
+    // generic marker color; generated attachment families have known roles.
+    const nodeStyle = data.imported_deck && layerName === "RBE3"
+      ? { color: "#f8cee2", label: "RBE3 reference nodes" }
+      : EXTRA_STYLE[nodeLayerName];
     const marks = markerMesh(nodeLayerName, positions, refs,
-                             EXTRA_STYLE[nodeLayerName].color, Math.max(markerRadius(), diag * 1e-8));
-    addLayer(nodeLayerName, EXTRA_STYLE[nodeLayerName].label,
-             EXTRA_STYLE[nodeLayerName].color, refs.length + " nodes",
+                             nodeStyle.color, Math.max(markerRadius(), diag * 1e-8));
+    addLayer(nodeLayerName, nodeStyle.label,
+             nodeStyle.color, refs.length + " nodes",
              marks || []);
   }
 
@@ -6492,6 +6570,7 @@ if (typeof WingWorkspace !== "undefined") {
     onError:message=>log(typeof message === "string" ? message : message.message,"warn"),
     onRecorded:info=>{if(info?.id)state.studyRecentId=info.id;},
   });
+  installAutosave();
   document.getElementById("btn-save-model").onclick = ()=>saveModelDefinition();
   document.getElementById("btn-save-model-as").onclick = ()=>saveModelDefinition({saveAs:true});
   document.getElementById("btn-load-model").onclick = () => {
@@ -6613,6 +6692,8 @@ function showStartupStudyNotice(notice) {
     if(!loaded&&!state.startupChoiceCancelled&&!choiceMessage)choiceMessage=document.getElementById("model-error-text")?.textContent || "The Study could not be loaded. Choose another file or start a new Study.";
   }
   state.autoMeshReady=true;
+  document.getElementById("auto-save").disabled=false;
+  state.autosave?.changed();
   log("Study loaded; Lifting surface FEGen is ready.", "good");
   probeJfem();
   loadLastDeck();

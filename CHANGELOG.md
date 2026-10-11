@@ -6,6 +6,22 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Autosave and reliable Study selections.** Add an opt-in Autosave beside Live
+  mesh, coalescing significant definition edits without triggering analysis or
+  blocking property-table editing. Save atomically to a linked file; browsers
+  without writable file handles use an explicitly identified persistent recovery
+  copy. Keep Project orange until the current revision is saved and green after
+  success; camera and display changes do not affect this status. Restore saved
+  sensitivity variable selections and load their catalogue automatically. Explain
+  the recent-study disk, stored-copy and relink choices with accessible tooltips.
+- **Component-local sensitivity properties and load references.** Generate
+  independent inherited property cards for each spar web/cap, rib web/stiffener,
+  and leading-edge skin/rib segment, including without table overrides. Preserve
+  shared defaults, materials, sandwich behavior and analytic derivative ownership;
+  require a new FEM and results for the changed property layout. Color aerodynamic
+  reference nodes magenta and fuel/structural-inertia references dark green.
+  Refine CATIA zoom to arm with middle+right, release right and then zoom vertically
+  while holding middle, with safe termination on middle release.
 - **Study history, analysis navigation and component sensitivity tables.**
   Open existing study now presents the complete saved/opened browser catalogue
   before browsing a file. Group FE Analysis and Sensitivity under Analysis.

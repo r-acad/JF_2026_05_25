@@ -106,20 +106,20 @@ function resolved_component_properties(p::AbstractDict,rib_count::Integer)
     ribrows=Dict(row["rib"]=>row for row in normalize_component_properties(get(p,"properties.ribs",Any[]),"properties.ribs"))
     bayrows=Dict(row["bay"]=>row for row in normalize_component_properties(get(p,"properties.spar_bays",Any[]),"properties.spar_bays"))
     tr=shell_thickness(p,PID_RIB_WEB);ts=shell_thickness(p,PID_SPAR_WEB)
-    dimensions=rib_stiffener_dimensions(p);enabled=get(p,"properties.rib_stiffeners_enabled",true)
+    enabled=get(p,"properties.rib_stiffeners_enabled",true)
     ribs=map(1:rib_count) do rib
         row=get(ribrows,rib,Dict{String,Any}());webrow=component_table_override(p,"rib_web",rib);barrow=component_table_override(p,"rib_stiffener",rib);thickness=Float64(get(webrow,"thickness",get(row,"thickness",tr)))
         dims=rib_stiffener_dimensions(p,rib);validate_t_section_dimensions(dims,"Rib $rib T stiffener")
         (;rib,thickness,stiffener_enabled=get(barrow,"enabled",get(row,"stiffener_enabled",enabled)),dimensions=dims,
-            web_pid=component_table_pid(p,"rib_web",rib,thickness==tr ? PID_RIB_WEB : COMPONENT_PID_STRIDE+rib),
-            stiffener_pid=component_table_pid(p,"rib_stiffener",rib,dims==dimensions ? PID_RIB_STIFFENER : 2COMPONENT_PID_STRIDE+rib))
+            web_pid=component_table_pid(p,"rib_web",rib,PID_RIB_WEB),
+            stiffener_pid=component_table_pid(p,"rib_stiffener",rib,PID_RIB_STIFFENER))
     end
     bays=map(1:rib_count-1) do bay
         row=get(bayrows,bay,Dict{String,Any}())
         front=Float64(get(component_table_override(p,"front_web",bay),"thickness",get(row,"front_thickness",ts)));rear=Float64(get(component_table_override(p,"rear_web",bay),"thickness",get(row,"rear_thickness",ts)))
         (;bay,front_thickness=front,rear_thickness=rear,
-            front_pid=component_table_pid(p,"front_web",bay,front==ts ? PID_SPAR_WEB : 3COMPONENT_PID_STRIDE+bay),
-            rear_pid=component_table_pid(p,"rear_web",bay,rear==ts ? PID_SPAR_WEB : 4COMPONENT_PID_STRIDE+bay))
+            front_pid=component_table_pid(p,"front_web",bay,PID_SPAR_WEB),
+            rear_pid=component_table_pid(p,"rear_web",bay,PID_SPAR_WEB))
     end
     return (;ribs,bays)
 end
@@ -169,7 +169,7 @@ function model_property_definitions(m::Model)
     return [entries[pid] for pid in sort!(collect(keys(entries)))]
 end
 
-"""A default family retains its familiar group name; only overrides add a PID suffix."""
+"""Keep a familiar base-group name with the physical component PID as suffix."""
 function property_group!(groups,cache,name,kind,pid,default_pid)
     return get!(cache,pid) do
         group=ElemGroup(pid==default_pid ? name : name*"_P"*string(pid),kind,pid)

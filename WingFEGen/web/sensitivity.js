@@ -109,7 +109,9 @@
     check.onchange=()=>{if(check.checked&&config.variables.length>=variableLimit()){check.checked=false;return;}config.variables=check.checked?[...config.variables,variable.id]:config.variables.filter(id=>id!==variable.id);changed();renderVariables();};
     const text=make('span'),name=make('strong','',labelOf(variable)),detail=make('small','',format(variable.value)+' '+(variable.unit||'')+(variable.group?' · '+variable.group:'')+(variable.element_count?' · '+variable.element_count+' elements':''));text.append(name,detail);row.append(check,text);row.title=typeof variable.targets==='string'?variable.targets:'Property IDs: '+(variable.pids||[]).join(', ');list.append(row);
    }
-   if(!variables.length)list.append(make('p','pick-note','Read the properties of the created FEM to select design variables.'));
+   if(!variables.length)list.append(make('p','pick-note',config.variables.length?
+    config.variables.length+' saved design variables selected. Their checkboxes will be restored when the current model properties are ready.':
+    'Read the properties of the created FEM to select design variables.'));
    renderWork();
   }
   function selectedRow(){return result?.rows?.find(row=>row.id===selectedProperty)||null;}
@@ -228,7 +230,17 @@
     catalog={...next,imported:data.imported??next.imported};catalogSignature=before.signature;catalogMesh=before.meshIdentity??null;renderVariables();el('status').textContent=catalog.variables.length+' editable property variables available.';return true;
    }catch(e){if(!destroyed&&generation===readGeneration){error(e.message);el('status').textContent='Could not read properties. Use Refresh model properties to retry.';}return false;}finally{if(!destroyed&&generation===readGeneration){loading=false;sync();}}
   }
-  function restore(value){invalidStep=false;try{config=parse(value);}catch{config=defaults();error('Invalid saved sensitivity setup. Select the response and variables again.');}renderObjective();el('step').value=100*config.relative_step;el('check-step').checked=config.check_step;renderVariables();refreshContext();}
+  function restore(value){
+   // The setup belongs to the Study, while catalogue rows and search filters
+   // belong to its current mesh. Invalidate even an in-flight response from
+   // the previous Study; never let it populate the newly restored selection.
+   readGeneration++;loading=false;catalog=null;catalogSignature=null;catalogMesh=null;autoAttempt=null;
+   invalidStep=false;error('');
+   try{config=parse(value);}catch{config=defaults();error('Invalid saved sensitivity setup. Select the response and variables again.');}
+   catalogRequested=config.variables.length>0;
+   el('filter').value='';filterMode.value='wildcard';
+   renderObjective();el('step').value=100*config.relative_step;el('check-step').checked=config.check_step;renderVariables();refreshContext();
+  }
   el('case').onchange=()=>{config.case_id=Number(el('case').value);changed();};
   el('objective').onchange=()=>{const previous=config.objective;config.objective={type:el('objective').value};const type=objectiveType();if(type[2].length)config.objective.component=type[2][0][0];config.objective[type[3]]=previous[type[3]]??(type[3]==='mode'?1:null);renderObjective();changed();};
   el('surface').onchange=()=>{config.objective.surface=el('surface').value;changed();};el('component').onchange=()=>{config.objective.component=el('component').value;changed();};el('target').oninput=()=>{config.objective[objectiveType()[3]]=el('target').value===''?null:Number(el('target').value);changed();};

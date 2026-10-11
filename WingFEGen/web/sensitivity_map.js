@@ -46,7 +46,7 @@
   // Ownership includes unavailable derivatives: two variables affecting the
   // same element cannot be represented by one property derivative.
   for(const row of field.rows)for(const rawId of scope.variables[row.id].eids){
-   const eid=Number(rawId),rank=row.panel_key?2:1;
+   const eid=Number(rawId),rank=row.panel_key||row.component_key||/^properties\.components#[a-z_]+:[1-9]\d*#/.test(String(row.id||''))?2:1;
    if(!owners.has(eid)||rank>priority.get(eid)){owners.set(eid,row.id);priority.set(eid,rank);}
    else if(rank===priority.get(eid)&&owners.get(eid)!==row.id)owners.set(eid,null);
   }
@@ -65,7 +65,7 @@
    name:(metric==='derivative'?'Sensitivity df/dp':'Normalized sensitivity')+' · '+field.label,
    unit:metric==='derivative'?(field.rows[0].derivative_unit||effects.baseline(result).unit+' / '+field.rows[0].unit):'p/f × df/dp',
    caseLabel:(result.case_label||'Case '+result.case_id)+' · '+effects.objectiveLabel(result),field,metric,
-   note:'Derivative of the selected response with respect to each attached property. Panel-local derivatives take precedence over shared defaults. Shared properties repeat the same value; values are not summed or averaged.'+
+   note:'Derivative of the selected response with respect to each attached property. Panel and component-local derivatives take precedence over shared defaults. Shared properties repeat the same value; values are not summed or averaged.'+
     (ambiguous?' '+ambiguous+' elements have overlapping variables and are gray; inspect the individual property preview.':'')+
     (invalid?' '+invalid+' unavailable property derivatives.':'')+' Gray = no selected property derivative.'};
  }

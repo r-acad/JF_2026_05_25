@@ -51,4 +51,17 @@ for(const rows of [[result.rows[0],local],[local,result.rows[0]]]){
 }
 const unavailableLocal=map.buildField({...result,rows:[result.rows[0],{...local,status:'failed'}]},localScope,key,'derivative');
 assert(!unavailableLocal.byId.has(1));assert.equal(unavailableLocal.byId.get(2),-20);
-console.log('Sensitivity fields: 36 signed-value, ownership, local-precedence, failure and dense-mesh assertions passed');
+// Default physical component cards now each have a local DV. Selecting their
+// shared default as well must show the local derivative, never average or sum.
+for(const extra of [{component_key:'front_web:1'},{}]){
+ const component=row('properties.components#front_web:1#thickness',.003,11,extra);
+ const componentScope={variables:{upper:{eids:[1,2]},[component.id]:{eids:[1]}}};
+ for(const rows of [[result.rows[0],component],[component,result.rows[0]]]){
+  const field=map.buildField({...result,rows},componentScope,key,'derivative');
+  assert.equal(field.byId.get(1),11);assert.equal(field.byId.get(2),-20);
+  assert.equal(field.rowsById.get(1).id,component.id);assert.match(field.note,/component-local derivatives take precedence/);
+ }
+ const unavailable=map.buildField({...result,rows:[result.rows[0],{...component,status:'failed'}]},componentScope,key,'derivative');
+ assert(!unavailable.byId.has(1));assert.equal(unavailable.byId.get(2),-20);
+}
+console.log('Sensitivity fields: signed-value, panel/component ownership, local-precedence, failure and dense-mesh assertions passed');

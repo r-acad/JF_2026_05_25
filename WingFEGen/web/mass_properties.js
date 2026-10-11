@@ -70,7 +70,7 @@
    const loops=[],loopColors=[];for(let normal=0;normal<3;normal++){const loop=[];for(let i=0;i<=96;i++){const p=[0,0,0],angle=2*Math.PI*i/96;p[(normal+1)%3]=Math.cos(angle);p[(normal+2)%3]=Math.sin(angle);loop.push(B.Vector3.FromArray(p));}loops.push(loop);loopColors.push(loop.map(()=>B.Color4.FromHexString(["#ff8585ff","#82e2a3ff","#90b9ffff"][normal])));}
    const rings=register(B.MeshBuilder.CreateLineSystem("fuel-mass-principal-ellipses-"+id,{lines:loops,colors:loopColors},scene));rings.renderingGroupId=2;rings.material.disableDepthWrite=true;
    const ref=register(B.MeshBuilder.CreateSphere("fuel-mass-reference-"+id,{diameter:2,segments:8},scene)),cg=register(B.MeshBuilder.CreateSphere("fuel-mass-cg-"+id,{diameter:2,segments:8},scene));
-   const material=new B.StandardMaterial("fuel-mass-reference-material-"+id,scene);material.disableLighting=true;material.emissiveColor=B.Color3.FromHexString(COLOR);ref.material=material;
+   const material=new B.StandardMaterial("fuel-mass-reference-material-"+id,scene);material.disableLighting=true;material.emissiveColor=B.Color3.FromHexString("#146b3a");ref.material=material;
    const cgMaterial=new B.StandardMaterial("fuel-mass-cg-material-"+id,scene);cgMaterial.disableLighting=true;cgMaterial.emissiveColor=B.Color3.FromHexString(CG_COLOR);cg.material=cgMaterial;
    const link=register(B.MeshBuilder.CreateLines("fuel-mass-offset-"+id,{points:[B.Vector3.Zero(),B.Vector3.Zero()],updatable:true},scene));link.color=B.Color3.FromHexString(CG_COLOR);
    const result={ellipse,axes,rings,ref,cg,link,material,cgMaterial,ellipseMaterial};entries.set(id,result);return result;

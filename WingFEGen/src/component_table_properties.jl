@@ -1,4 +1,4 @@
-# Sparse physical component overrides used by the detached property tables.
+# Stable physical component identities and sparse detached-table overrides.
 # Families 1–7 are reserved for legacy rib/spar and stiffened-panel properties.
 const COMPONENT_TABLE_PARTS=("front_upper_cap","front_lower_cap","rear_upper_cap","rear_lower_cap",
     "leading_upper_skin","leading_lower_skin","leading_rib","rib_web","rib_stiffener","front_web","rear_web")
@@ -46,7 +46,9 @@ function component_table_override(p,part,index)
 end
 component_table_override(p,pid::Integer)=isnothing(component_table_part(pid)) ? Dict{String,Any}() : component_table_override(p,component_table_part(pid),pid%COMPONENT_PID_STRIDE)
 function component_table_pid(p,part,index,default)
-    isempty(component_table_override(p,part,index)) ? default : component_table_family(part)*COMPONENT_PID_STRIDE+index
+    # Property identity follows the physical component, even when every value is
+    # inherited. Editing a default must never merge independent sensitivity DVs.
+    component_table_family(part)*COMPONENT_PID_STRIDE+index
 end
 function validate_component_table_bounds(p,rib_count)
     for row in normalize_component_table_properties(get(p,"properties.components",Any[]))

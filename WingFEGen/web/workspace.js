@@ -17,8 +17,8 @@
     "node-radius","marker-radius","celas-radius","show-ground-plane","show-symmetry-plane","ground-plane-z","ground-grid-spacing","show-shell-axes","show-bar-axes","show-node-ids","show-element-ids","show-coordinate-labels","show-rbe3-dofs","show-celas-cylinders","id-label-size",
     "mesh-labels-ribs","mesh-labels-stringers","show-rib-datums","rib-datum-size","vlm-field",
     "vlm-force-scale","show-vlm-panel-forces","show-fuel-tank","show-panels","result-palette","show-support-forces","show-support-force-values","support-force-scale",
-    "deform-scale","animate","show-undeformed","show-reference-aero","show-deformed-aero","contour-select","compare-results","auto-mesh","show-picked-axes","measure-snap-nodes"];
-  const CHECK_IDS = new Set(CONTROL_IDS.filter((id) => id.startsWith("show-") || id.startsWith("mesh-labels-") || ["animate","auto-mesh","compare-results","measure-snap-nodes"].includes(id)));
+    "deform-scale","animate","show-undeformed","show-reference-aero","show-deformed-aero","contour-select","compare-results","auto-mesh","auto-save","show-picked-axes","measure-snap-nodes"];
+  const CHECK_IDS = new Set(CONTROL_IDS.filter((id) => id.startsWith("show-") || id.startsWith("mesh-labels-") || ["animate","auto-mesh","auto-save","compare-results","measure-snap-nodes"].includes(id)));
   const LEGACY_LABEL_IDS = new Set(["mesh-labels-none","mesh-labels-both"]);
   const SELECTS = {"surface-mode":["solid","translucent"],"shell-geometry":["midsurface","thickness"],"beam-style":["lines","sections"],"aero-deformed-style":["auto","wireframe","solid","steel","metallic","translucent"],
     "inspect-entity":["all","nodes","shells","quad","tria","bar","stringer","cap","rbe3","connection","spring","conm2","coordinate"],"vlm-field":["none","pressure","cp"],

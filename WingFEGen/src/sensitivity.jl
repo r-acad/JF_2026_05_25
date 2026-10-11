@@ -49,6 +49,13 @@ function sensitivity_set!(p,d,value)
             push!(rows,Dict{String,Any}("key"=>path[2],"layout_token"=>d["layout_token"]));index=length(rows)
         end
         get!(rows[index],path[3],Dict{String,Any}())[path[4]]=value
+    elseif length(path)==3&&path[1]=="properties.components"&&path[2] isa AbstractString
+        rows=get!(p,"properties.components",Any[])
+        index=findfirst(row->row["key"]==path[2],rows)
+        if index===nothing
+            push!(rows,Dict{String,Any}("key"=>path[2]));index=length(rows)
+        end
+        rows[index][path[3]]=value
     elseif length(path)==1;p[path[1]]=value
     else;p[path[1]][path[2]][path[3]]=value
     end
@@ -74,10 +81,6 @@ function sensitivity_catalog(m::Model)
             add("$key#$(row[indexfield])#$field","$(uppercasefirst(indexfield)) $(row[indexfield]): $field",Any[key,i,field],row[field],"m")
         end
     end
-    for (i,row) in enumerate(get(p,"properties.components",Any[])),field in sort!(collect(keys(row)))
-        field in ("key","kind","enabled","material","face_material","core_material")&&continue
-        add("properties.components#$(row["key"])#$field","$(replace(row["key"],'_'=>' ')): $field",Any["properties.components",i,field],row[field],"m")
-    end
     for (i,row) in enumerate(p["materials.shells"])
         get(row,"kind","")=="sandwich"||continue
         for field in ("face_thickness","core_thickness")
@@ -102,6 +105,29 @@ function sensitivity_catalog(m::Model)
         merge!(d,sensitivity_field_descriptor(d["id"]))
         push!(variables,d)
     end
+    # Physical spar-bay and rib identities are permanent, including inherited
+    # values. Resolve their dimensions directly from the actual property card;
+    # this also covers effective sandwich cores inherited from legacy totals.
+    element_counts=Dict{Int,Int}()
+    for g in m.groups;element_counts[g.pid]=get(element_counts,g.pid,0)+length(g.eids);end
+    for property in definitions
+        pid=property["pid"];part=component_table_part(pid);part===nothing&&continue
+        index=pid%COMPONENT_PID_STRIDE;key=component_table_key(part,index)
+        override=component_table_override(p,pid)
+        label=uppercasefirst(replace(part,'_'=>' '))*" "*(component_table_isrib(part) ? "R$index" : "R$(index)–R$(index+1)")
+        fields=component_table_iscap(part) ? [("side",first(property["section"]["dimensions_m"]))] :
+            part=="rib_stiffener" ? collect(zip(RIB_STIFFENER_FIELDS,property["section"]["dimensions_m"])) :
+            property["type"]=="PCOMP" ? [("face_thickness",property["face_thickness_m"]),("core_thickness",property["core_thickness_m"])] :
+            [("thickness",property["thickness_m"])]
+        for (field,value) in fields
+            id="properties.components#$key#$field";descriptor=sensitivity_field_descriptor(id)
+            push!(variables,merge(Dict{String,Any}("id"=>id,"label"=>label*": "*descriptor["field_label"],
+                "path"=>Any["properties.components",key,field],"value"=>Float64(value),"unit"=>"m","scale"=>1.,
+                "pids"=>[pid],"element_count"=>element_counts[pid],"component_key"=>key,
+                "group"=>"Component "*(property["kind"]=="bar" ? "sections" : "shells"),
+                "inherited"=>!haskey(override,field)),descriptor))
+        end
+    end
     # Independent local variables also exist when the current value is inherited.
     # Their exact one-property scope is known without O(panel_count^2) probes.
     for panel in stiffened_panel_layout(m.grid).panels
@@ -117,7 +143,7 @@ function sensitivity_catalog(m::Model)
             push!(variables,Dict{String,Any}("id"=>"properties.panels#$key#$part#$field",
                 "label"=>label*": "*fieldlabel,"path"=>Any["properties.panels",key,part,field],
                 "value"=>Float64(value),"unit"=>"m","scale"=>1.,"pids"=>[pid],
-                "element_count"=>sum(length(g.eids) for g in m.groups if g.pid==pid),
+                "element_count"=>element_counts[pid],
                 "group"=>part=="skin" ? "Panel skins" : "Panel stringers",
                 "panel_key"=>key,"layout_token"=>context.token,"field_key"=>fieldkey,"field_label"=>fieldlabel,
                 "inherited"=>!haskey(get(override,part,Dict()),field)))
@@ -126,7 +152,7 @@ function sensitivity_catalog(m::Model)
     return Dict{String,Any}("variables"=>variables,"max_variables"=>4096,"objectives"=>SENSITIVITY_OBJECTIVES,
         "cases"=>[Dict("id"=>s.id,"label"=>s.label) for s in load_case_specs(p)],
         "surfaces"=>["z1","z2"],"method"=>"discrete_adjoint",
-        "note"=>"Fixed nodes, connectivity and property IDs. Every stiffened panel offers independent skin thickness or sandwich face/core dimensions and T-section dimensions, including values inherited from shared defaults. Shared defaults remain separate overlapping variables; do not sum them with panel-local derivatives. Analytic mode uses exact element chain rules with one baseline analysis and a shared static adjoint, without property finite differences. SOL103 uses the chosen case's fuel mass; SOL105 uses its static preload.")
+        "note"=>"Fixed nodes, connectivity and property IDs. Every stiffened panel, spar-web bay, upper/lower front/rear spar-cap bay, rib web/stiffener and leading-edge skin bay/rib offers independent section or shell dimensions, including inherited defaults. Shared defaults remain separate overlapping variables; do not sum them with local derivatives. Analytic mode uses exact element chain rules with one baseline analysis and a shared static adjoint, without property finite differences. SOL103 uses the chosen case's fuel mass; SOL105 uses its static preload.")
 end
 
 function sensitivity_request(m,raw)

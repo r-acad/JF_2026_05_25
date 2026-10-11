@@ -16,7 +16,7 @@
  const typed=(value,Type)=>value instanceof Type?value:new Type(value.buffer.slice(value.byteOffset,value.byteOffset+value.byteLength));
  const f32=value=>typed(value,Float32Array),i32=value=>typed(value,Int32Array);
  const rgba=hex=>Array.isArray(hex)?hex:[1,3,5].map(i=>parseInt((hex||"#9aa6b2").slice(i,i+2),16)/255).concat(1);
- const colors={NODES:"#ecf4ff",SPC:"#ff4d6d",RBE3:"#b57ce0",RBE3_NODES:"#dcb3ff",FUEL_RBE3:"#43d5ac",FUEL_RBE3_NODES:"#91f5d5",RIB_STIFFENERS:"#a9e4ef",AERO_SURFACE:"#8fa0b3",FUEL_TANK:"#50dfa3",VLM:"#e9b04d",AERO_LOADS:"#5df1ca",AERO_MOMENTS:"#eeb4ff"};
+ const colors={NODES:"#ecf4ff",SPC:"#ff4d6d",RBE3:"#b57ce0",RBE3_NODES:"#e45ad4",FUEL_RBE3:"#43d5ac",FUEL_RBE3_NODES:"#146b3a",RIB_STIFFENERS:"#a9e4ef",AERO_SURFACE:"#8fa0b3",FUEL_TANK:"#50dfa3",VLM:"#e9b04d",AERO_LOADS:"#5df1ca",AERO_MOMENTS:"#eeb4ff"};
  // New payloads separate forces from their routed pure couples. Treat the
  // moment list as authoritative so it can never duplicate source moments.
  function loadStations(loads){
@@ -93,7 +93,7 @@
     build.entity(eids[e],coords,{grid_ids:Array.from(nodes,n=>ids[n])});await tick();
    }build.finish();
   }
-  const markers=async(name,nodes,radius)=>{if(!shown(name))return;const build=builder(parts,name,colors[name],{entity_type:name==="SPC"?"SPC":"GRID",components:name==="SPC"?data.spc.components:undefined});for(const n of nodes){build.entity(ids[n],marker(point(xyz,n),radius),name==="FUEL_RBE3_NODES"?{fuel_mass_cases:fuelMasses.filter(record=>record.reference_node===n)}:undefined);await tick();}build.finish();};
+  const markers=async(name,nodes,radius)=>{if(!shown(name))return;const markerColor=snapshot.colors?.[name]||(name==="RBE3_NODES"&&data.imported_deck?"#f8cee2":colors[name]);const build=builder(parts,name,markerColor,{entity_type:name==="SPC"?"SPC":"GRID",components:name==="SPC"?data.spc.components:undefined});for(const n of nodes){build.entity(ids[n],marker(point(xyz,n),radius),name==="FUEL_RBE3_NODES"?{fuel_mass_cases:fuelMasses.filter(record=>record.reference_node===n)}:undefined);await tick();}build.finish();};
   await markers("NODES",Array.from({length:data.nodes.n_structural??data.nodes.count},(_,n)=>n),nodeR);
   await markers("RBE3_NODES",data.rbe3?.refs?i32(data.rbe3.refs):[],markerR);
   await markers("FUEL_RBE3_NODES",data.fuel_rbe3?.refs?i32(data.fuel_rbe3.refs):[],markerR);

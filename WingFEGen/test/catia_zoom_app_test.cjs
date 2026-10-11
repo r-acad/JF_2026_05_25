@@ -25,15 +25,24 @@ const near=(a,b)=>assert(Math.abs(a-b)<1e-8,`${a} != ${b}`),samePose=(a,b)=>{nea
    window.nodePoint=()=>{const rect=document.getElementById('render').getBoundingClientRect(),viewport=state.camera.viewport.toGlobal(state.engine.getRenderWidth(),state.engine.getRenderHeight()),p=BABYLON.Vector3.Project(new BABYLON.Vector3(1,0,0),BABYLON.Matrix.IdentityReadOnly,state.scene.getTransformMatrix(),viewport);return{x:rect.left+p.x*state.engine.getHardwareScalingLevel(),y:rect.top+p.y*state.engine.getHardwareScalingLevel()};};
   });
   const pose=()=>page.evaluate(()=>pose());
-  for(const parallel of [false,true])for(const first of ['middle','right'])for(const releaseFirst of ['middle','right']){
-   await page.evaluate(value=>reset(value),parallel);const before=await pose(),point=await page.evaluate(()=>nodePoint()),second=first==='middle'?'right':'middle',releaseLast=releaseFirst==='middle'?'right':'middle';
-   await page.mouse.move(point.x,point.y);await page.mouse.down({button:first});await page.mouse.down({button:second});await page.mouse.move(point.x+45,point.y-70,{steps:7});await page.evaluate(()=>frame());
+  for(const parallel of [false,true])for(const first of ['middle','right']){
+   await page.evaluate(value=>reset(value),parallel);const before=await pose(),point=await page.evaluate(()=>nodePoint()),second=first==='middle'?'right':'middle';
+   await page.mouse.move(point.x,point.y);await page.mouse.down({button:first});await page.mouse.down({button:second});await page.mouse.move(point.x+20,point.y-25,{steps:3});await page.evaluate(()=>frame());
+   const armed=await pose();samePose(before,armed);near(before.radius,armed.radius);assert(armed.active,'Holding the chord only arms zoom');
+   await page.mouse.up({button:'right'});await page.mouse.move(point.x+45,point.y-95,{steps:7});await page.evaluate(()=>frame());
    const zoom=await pose();samePose(before,zoom);assert(zoom.radius<before.radius*.7&&zoom.active);if(parallel)assert(zoom.orthoTop<before.orthoTop*.7);
-   await page.mouse.up({button:releaseFirst});await page.mouse.move(point.x+75,point.y-100,{steps:3});await page.evaluate(()=>frame());
-   const partial=await pose();samePose(zoom,partial);near(zoom.radius,partial.radius);assert(partial.active);
-   await page.mouse.up({button:releaseLast});await page.evaluate(()=>frame());const after=await pose();samePose(zoom,after);near(zoom.radius,after.radius);assert(!after.active);
+   await page.mouse.move(point.x+70,point.y-25,{steps:7});await page.evaluate(()=>frame());const out=await pose();samePose(before,out);near(out.radius,before.radius);
+   await page.mouse.up({button:'middle'});await page.evaluate(()=>frame());const after=await pose();samePose(out,after);near(out.radius,after.radius);assert(!after.active);
   }
-  checks.push('CATIA chords zoom both projections for both press/release orders; no rotation, pan or node recentering, and no motion while one button remains down');
+  checks.push('CATIA chord only arms; releasing right while continuously holding middle zooms up/down in both projections and press orders, without pan, orbit or node recentering');
+  for(const first of ['middle','right']){
+   await page.evaluate(()=>reset(false));const before=await pose(),point=await page.evaluate(()=>nodePoint()),second=first==='middle'?'right':'middle';
+   await page.mouse.move(point.x,point.y);await page.mouse.down({button:first});await page.mouse.down({button:second});await page.mouse.up({button:'middle'});await page.mouse.move(point.x+40,point.y+35,{steps:3});await page.evaluate(()=>frame());
+   const cancelled=await pose();samePose(before,cancelled);near(before.radius,cancelled.radius);assert(cancelled.active,'Residual right button remains swallowed');
+   await page.mouse.down({button:'middle'});await page.mouse.up({button:'right'});await page.mouse.move(point.x+65,point.y-40,{steps:4});await page.evaluate(()=>frame());const repeated=await pose();samePose(before,repeated);near(before.radius,repeated.radius);
+   await page.mouse.up({button:'middle'});await page.evaluate(()=>frame());assert(!(await pose()).active);
+  }
+  checks.push('Releasing middle first cancels; pressing it again without ending the chord cannot rearm or cause pan/orbit/centering');
   for(const button of ['left','right']){
    await page.evaluate(()=>reset(false));const before=await pose(),point=await page.evaluate(()=>nodePoint());await page.mouse.move(point.x,point.y);await page.mouse.down({button});await page.mouse.move(point.x+50,point.y+30,{steps:5});await page.evaluate(()=>frame());await page.mouse.up({button});await page.evaluate(()=>frame());const after=await pose();
    if(button==='left'){assert(Math.abs(after.alpha-before.alpha)>1e-3);before.target.forEach((x,i)=>near(x,after.target[i]));}

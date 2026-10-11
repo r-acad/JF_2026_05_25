@@ -231,8 +231,9 @@
         item.append(name,meta,el("p","recent-study-description",description));
         if(!row.persisted)item.append(el("strong","recent-study-session","Session only"));
         const actions=el("div","recent-study-actions");
-        if(row.handle)actions.append(button("Open latest disk file",()=>disk(row),"recent-study-disk"));
-        actions.append(button("Open stored copy",()=>snapshot(row),"recent-study-copy"),button("Relink file\u2026",()=>browse(row),"recent-study-relink"));
+        const actionButton=(label,action,cls,help)=>{const control=button(label,action,cls);control.title=help;control.setAttribute("aria-description",help);return control;};
+        if(row.handle)actions.append(actionButton("Open latest disk file",()=>disk(row),"recent-study-disk","Read the file from its linked folder now, including changes made outside this app. Use this for the most recent disk version. The browser may ask for file access."));
+        actions.append(actionButton("Open stored copy",()=>snapshot(row),"recent-study-copy","Restore the browser copy captured at the date above. Useful if the file was moved or is unavailable, or to recover an autosave. Later disk changes are not included. This does not overwrite the disk file; Save Study lets you choose a destination."),actionButton("Relink file\u2026",()=>browse(row),"recent-study-relink","Locate this Study on your computer after moving or renaming it, or when browser access expired. Opens the chosen file and updates this entry's disk link and recovery copy. No disk file is changed."));
         const removeButton=button("Remove",()=>remove(row.id),"recent-study-remove");removeButton.title="Remove this recent entry only. The Study file on disk is not deleted.";actions.append(removeButton);
         item.append(actions);list.append(item);
       }

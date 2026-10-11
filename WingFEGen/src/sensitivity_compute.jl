@@ -143,7 +143,7 @@ function compute_sensitivity(m,raw,dir;native=nothing,solve,progress=(data)->not
                 cancelled()&&rethrow()
                 merge!(row,Dict("derivative"=>nothing,"normalized_derivative"=>nothing,"status"=>"failed","warning"=>sprint(showerror,failure)))
             end
-            for key in ("panel_key","field_key","field_label","inherited","layout_token");haskey(d,key)&&(row[key]=d[key]);end
+            for key in ("panel_key","component_key","field_key","field_label","inherited","layout_token");haskey(d,key)&&(row[key]=d[key]);end
             push!(rows,row);completed[]+=1
             sensitivity_json_write(joinpath(dir,"partial_result.json"),result)
             continue
@@ -196,7 +196,7 @@ function compute_sensitivity(m,raw,dir;native=nothing,solve,progress=(data)->not
             push!(rows,Dict("id"=>d["id"],"label"=>d["label"],"field_key"=>d["field_key"],"field_label"=>d["field_label"],"value"=>x,"unit"=>d["unit"],"pids"=>d["pids"],
                 "derivative"=>nothing,"normalized_derivative"=>nothing,"step_error"=>nothing,"status"=>"failed","warning"=>sprint(showerror,error),"samples"=>samples))
         end
-        for key in ("panel_key","field_key","field_label","inherited","layout_token")
+        for key in ("panel_key","component_key","field_key","field_label","inherited","layout_token")
             haskey(d,key)&&(last(rows)[key]=d[key])
         end
         sensitivity_json_write(joinpath(dir,"partial_result.json"),result)

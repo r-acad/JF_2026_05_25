@@ -10,23 +10,27 @@
   camera.movement?.resetRotationVelocity?.();camera.movement?.resetPanVelocity?.();camera.movement?.resetZoomVelocity?.();camera.stopInterpolation?.();
  }
  // Mouse PointerEvents emit only one down/up for a chord; subsequent button
- // presses/releases arrive as pointermove. Keep the gesture latched until
- // *all* buttons are released so the remaining button cannot orbit or pan.
+ // presses/releases arrive as pointermove. The chord arms CATIA zoom, and
+ // releasing right starts zoom only while middle remains continuously down.
+ // Swallow the whole chord until all buttons are up, including a cancelled
+ // gesture, so a remaining button cannot accidentally orbit, pan or center.
  function installCatiaZoom({canvas,camera,onChange=()=>{}}){
-  const win=canvas.ownerDocument.defaultView;let latched=false,lastY=0,pointers=null,disposed=false;
+  const win=canvas.ownerDocument.defaultView;let latched=false,zooming=false,cancelled=false,lastY=0,pointers=null,disposed=false;
   function swallow(event){event.preventDefault();event.stopImmediatePropagation();}
-  function finish(){if(!latched)return;latched=false;stopMotion(camera);pointers?.attachControl(true);pointers=null;}
+  function finish(){if(!latched)return;latched=false;zooming=false;cancelled=false;stopMotion(camera);pointers?.attachControl(true);pointers=null;}
   function handle(event){
    if(disposed||event.pointerType&&event.pointerType!=='mouse')return;
    const buttons=event.buttons||0,chord=(buttons&6)===6;
    if(!latched){
     if(!chord||event.target!==canvas)return;
-    latched=true;lastY=event.clientY;stopMotion(camera);
+    latched=true;zooming=false;cancelled=false;lastY=event.clientY;stopMotion(camera);
     pointers=camera.inputs?.attached?.pointers;pointers?.detachControl();
     canvas.dispatchEvent(new CustomEvent('catiazoomstart'));
    }
    swallow(event);
-   if(chord&&event.type==='pointermove'){
+   if(!(buttons&4))cancelled=true;
+   const canZoom=!cancelled&&(buttons&4)!==0&&(buttons&2)===0;
+   if(canZoom&&zooming&&event.type==='pointermove'){
     const dy=event.clientY-lastY;
     if(dy){
      const minimum=Math.max(1e-12,camera.lowerRadiusLimit??1e-12),maximum=camera.upperRadiusLimit??Number.MAX_VALUE;
@@ -34,6 +38,7 @@
      stopMotion(camera);onChange();
     }
    }
+   zooming=canZoom;
    lastY=event.clientY;
    if(!buttons)finish();
   }

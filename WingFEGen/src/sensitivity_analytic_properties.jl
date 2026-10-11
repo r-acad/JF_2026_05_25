@@ -13,6 +13,11 @@ end
 
 function sensitivity_owned_derivative(p,pid,d,part,field,owner)
     localrow=component_table_override(p,pid)
+    component=component_table_part(pid)
+    if component!==nothing
+        local_id="properties.components#$(component_table_key(component,pid%COMPONENT_PID_STRIDE))#$field"
+        d["id"]==local_id&&return Float64(d["scale"])
+    end
     if haskey(localrow,field)
         return d["id"]=="properties.components#$(localrow["key"])#$field" ? Float64(d["scale"]) : 0.
     end
@@ -84,7 +89,7 @@ function sensitivity_analytic_property_direction(m,d,property)
         localrow=component_table_override(p,pid)
         if haskey(localrow,"core_thickness")
             # Explicit core thickness owns the core independently of a legacy total.
-        elseif haskey(row,field)
+        elseif haskey(row,field)&&d["id"]!="properties.components#$(component_table_key(component_table_part(pid),index))#core_thickness"
             owner=family==1 ? "properties.ribs#$index#$field" : "properties.spar_bays#$index#$field"
             dc=(d["id"]==owner ? Float64(d["scale"]) : 0.)-2df
         end

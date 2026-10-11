@@ -595,8 +595,7 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
     NI = ni(g)
     NJ = nj(g)
     properties=resolved_component_properties(p,length(ribs))
-    component_rows=Set(row["key"] for row in get(p,"properties.components",Any[]))
-    table_pid(part,index,base)=component_table_key(part,index) in component_rows ? component_table_family(part)*COMPONENT_PID_STRIDE+index : base
+    table_pid(part,index,base)=component_table_pid(p,part,index,base)
     panel_layout=stiffened_panel_layout(g)
     register_panel_properties!(p,g;layout=panel_layout)
 

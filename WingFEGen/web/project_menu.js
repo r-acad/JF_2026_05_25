@@ -34,7 +34,7 @@
   menu.addEventListener('click',event=>{if(event.target.closest('button'))close();});
   menu.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close(true);return;}if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key)||event.target.matches('input,select'))return;event.preventDefault();const buttons=visibleButtons(),index=buttons.indexOf(doc.activeElement);const next=event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length;buttons[next]?.focus();});
   doc.addEventListener('pointerdown',event=>{if(!wrap.contains(event.target))close();});
-  const save=doc.getElementById('btn-save-model');if(save){const sync=()=>{const status=save.dataset.saved;toggle.dataset.saved=status||'';toggle.title=status==='false'?'Project files · unsaved definition changes':'Project files: new, read, save and export';};new doc.defaultView.MutationObserver(sync).observe(save,{attributes:true,attributeFilter:['data-saved']});sync();}
+  const save=doc.getElementById('btn-save-model');if(save){const sync=()=>{const status=save.dataset.saved;toggle.dataset.saved=status||'';toggle.title=status==='false'?'Project · unsaved definition changes (orange). New, read, save and export.':status==='true'?'Project · study definition saved (green). New, read, save and export.':'Project · new, read, save and export.';};new doc.defaultView.MutationObserver(sync).observe(save,{attributes:true,attributeFilter:['data-saved']});sync();}
   return{open,close,menu,toggle};
  }
  return{install};

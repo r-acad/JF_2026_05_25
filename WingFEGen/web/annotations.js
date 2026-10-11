@@ -9,9 +9,9 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
   const COLORS = { node: "#78e1ed", support: "#ff8190", quad: "#8bbcff", tria: "#81e1ad",
-    stringer: "#ffdf00", cap: "#ff9c39", ribStiffener: "#a9e4ef", bar: "#ffe8a0", rbe3: "#f4b8d6", rbe2:'#ef87bb',rbar:'#db92ee',rbe1:'#ac8bea',rspline:'#cb7fda',spring:'#eb61cc',mass:'#ddc2ff',coordinate:'#c8cfff',fuel: "#91f5d5", selected: "#ffe478" };
+    stringer: "#ffdf00", cap: "#ff9c39", ribStiffener: "#a9e4ef", bar: "#ffe8a0", rbe3: "#f4b8d6", aeroReference: "#e45ad4", rbe2:'#ef87bb',rbar:'#db92ee',rbe1:'#ac8bea',rspline:'#cb7fda',spring:'#eb61cc',mass:'#ddc2ff',coordinate:'#c8cfff',fuel: "#146b3a", selected: "#ffe478" };
   const LEGEND = [["GRID", "node"], ["Supported GRID", "support"], ["CQUAD4", "quad"],
-    ["CTRIA3", "tria"], ["Stringer", "stringer"], ["Spar cap", "cap"], ["Rib stiffener", "ribStiffener"], ["RBE3", "rbe3"], ['RBE2','rbe2'],['RBAR','rbar'],['RBE1','rbe1'],['RSPLINE','rspline'],['Spring','spring'],['CONM2','mass'],['Coordinate','coordinate'], ["Fuel reference", "fuel"]];
+    ["CTRIA3", "tria"], ["Stringer", "stringer"], ["Spar cap", "cap"], ["Rib stiffener", "ribStiffener"], ["RBE3", "rbe3"], ['RBE2','rbe2'],['RBAR','rbar'],['RBE1','rbe1'],['RSPLINE','rspline'],['Spring','spring'],['CONM2','mass'],['Coordinate','coordinate'], ["Aerodynamic reference", "aeroReference"], ["Fuel / structural mass reference", "fuel"]];
   const baseGroup = (name) => name.replace(/_KINKS$/, "").replace(/_P\d+$/, "");
   function elementStyle(element) {
     const group = element.group, name = group.base_group || baseGroup(group.name);
@@ -51,8 +51,8 @@
         if (layer && layer.visible) {
           visibleNodes.add(marker.node);
           if (marker.kind === "SPC") nodeStyles.set(marker.node, COLORS.support);
-          else if (marker.kind === "RBE3_NODES") nodeStyles.set(marker.node, COLORS.rbe3);
-          else if (marker.kind === "FUEL_RBE3_NODES") nodeStyles.set(marker.node, COLORS.fuel);
+          else if (marker.kind === "RBE3_NODES") nodeStyles.set(marker.node, layer.color || (state.data?.imported_deck ? COLORS.rbe3 : COLORS.aeroReference));
+          else if (marker.kind === "FUEL_RBE3_NODES") nodeStyles.set(marker.node, layer.color || COLORS.fuel);
         }
       }
       if(state.layers.get("SPC")?.visible)for(const node of state.supportGlyphs?.nodes || []){visibleNodes.add(node);nodeStyles.set(node,COLORS.support);}

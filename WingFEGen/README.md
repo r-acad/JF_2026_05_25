@@ -15,6 +15,13 @@ inherited defaults. Edits save with the Study/TOML and mark results stale;
 analysis starts only when requested. The skin/stringer panel tables remain
 available with the same dark-blue button style.
 
+Each physical rib bay now has separate front/rear spar-web properties and four
+separate spar-cap properties (front/rear, upper/lower). Rib webs and stiffeners
+are separate by rib; leading-edge skins are separate by bay and leading-edge
+ribs by rib. These local properties exist even without overrides and inherit
+their shared defaults. They provide independent component sensitivity variables.
+Regenerate the FEM and rerun analyses to use the new property IDs.
+
 Sensitivity data offers a **red-negative / blue-positive** palette, with
 unit-specific scales fitted to the displayed values. Numbers use at most five
 significant digits; CSV retains full precision. Units sit beside the scales.
@@ -129,6 +136,16 @@ optional external-resource details.
    save still captures their current settings. Browsers without
    file-picker support use their download settings instead.
 
+**Autosave**, to the left of **Live mesh**, saves significant definition edits
+after they settle, including geometry, properties, loads, notes and selected
+design variables. Enabling it makes an initial save to the linked Study file,
+choosing a destination if needed. Subsequent background saves keep property
+editing available and combine rapid edits. Camera and display changes alone do
+not trigger saves. With no file-picker API, Autosave uses a persistent browser
+recovery copy available in Open existing study; it does not issue automatic
+downloads or update a disk file. Write or storage errors leave Project orange
+and explain what remains unsaved.
+
 The definition is saved independently from solved results. Exported decks and
 solver result files remain in their run directories. A stale model/result is
 identified in the GUI rather than being silently presented as current.
@@ -136,8 +153,15 @@ identified in the GUI rather than being silently presented as current.
 The **Project** dropdown groups New Study, Study/TOML reading and saving,
 Read Nastran, Write deck, geometry export and configured-input operations.
 **Export geometry…** opens the STL/GLB options. Save Study retains its orange
-or green saved-state indicator inside the menu. The Project button also marks
-unsaved definition changes; navigation and display changes do not affect it.
+or green saved-state indicator inside the menu. The Project button is orange
+for unsaved definition changes and green when the definition is saved;
+navigation and display changes do not affect it.
+
+Recent-study actions include explanatory tooltips. **Open latest disk file**
+reads the linked file, including changes made outside this browser. **Open
+stored copy** opens the last saved or loaded browser snapshot, useful when the
+disk file is unavailable; it does not link that snapshot for disk overwriting.
+**Relink file…** selects the file again after it moves or browser access is lost.
 
 ### Read an existing Nastran deck
 
@@ -369,12 +393,15 @@ GPU work still depend on the device and visible geometry.
 Ground elevation appears only when the ground is visible, with source units
 identified for imported decks. Panning scales to the viewport and model size,
 including millimetre-scale decks; ground bounds follow the imported geometry.
-For CATIA-style zoom, hold **middle + right mouse buttons** together and drag
-up to zoom in or down to zoom out. It works in perspective and parallel views.
-Release both buttons before resuming pan/orbit; the chord does not recenter,
-rotate or pan the model. Wheel zoom remains available.
+For CATIA-style zoom, press **middle + right mouse buttons**, then release
+**right** while continuing to hold **middle**. Drag up to zoom in or down to
+zoom out; releasing middle ends zoom. It works in perspective and parallel
+views without recentering, rotating or panning the model. Wheel zoom remains
+available.
 Entity lists have independent collapse/expand buttons saved in the Study.
-RBE3 lines are light pink. **Label support force and moment values** adds signed
+RBE3 lines are light pink. Aerodynamic-load reference nodes at rib planes are
+magenta; fuel/structural-mass reference nodes at bay centers are dark green.
+**Label support force and moment values** adds signed
 component values at the visible reaction arrows, using the axis colors.
 Returning to **FE Results** exits temporary panel/fuel isolation and restores
 the selected physical deformation. Saved sensitivity baselines retain their
@@ -420,6 +447,11 @@ Under **Analysis / Sensitivity**, select one load case, one scalar response and 
 design variables. Supported responses are SOL101 displacement/shell/bar stress,
 SOL103 eigenvalues and SOL105 buckling factors. Panel-local variables and shared
 defaults are distinct variables; the interface shows their actual scope.
+Study files save the selected design-variable IDs and response setup. On
+reopening, Sensitivity automatically reads the current property catalogue and
+restores the checked variables when the model is ready. An explicitly empty
+selection stays empty; unavailable saved IDs are reported until removed by the
+user. Restoring a selection does not start an analysis.
 The property filter defaults to **Wildcards**. Examples: `P*` (or `P_`) selects names
 beginning with P, `*skin*` finds "skin" anywhere, and `*bar*lower*` finds "bar"
 followed by "lower" within a name, group or ID. Other characters are literal;

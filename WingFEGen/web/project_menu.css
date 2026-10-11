@@ -8,7 +8,15 @@
 #actions #project-menu button:hover:not(:disabled),#actions #project-menu button:focus-visible{background:#2a4b68;border-color:#77b7e8}
 #actions #project-menu #btn-save-model[data-saved="false"]{background:#935317;border-color:#ffc078;color:#fff3df}
 #actions #project-menu #btn-save-model[data-saved="true"]{background:#206d4d;border-color:#70dda7;color:#fff}
-#btn-project[data-saved="false"]{border-color:#ffc078}
+#actions #btn-project[data-saved="false"]{background:#935317;border-color:#ffc078;color:#fff3df}
+#actions #btn-project[data-saved="true"]{background:#206d4d;border-color:#70dda7;color:#fff}
+#actions #btn-project[data-saved]:hover{filter:brightness(1.15)}
+#autosave-label[data-status="error"]{color:#ffbd7a}
+#autosave-status[data-status="error"]{color:#ffbd7a}
+#autosave-label input{appearance:none;width:13px;height:13px;min-width:13px;margin:0;border-radius:50%;border:1px solid #85a8c4;background:#182d40;cursor:pointer}
+#autosave-label input:checked{background:#69b8ef;box-shadow:inset 0 0 0 3px #182d40}
+#autosave-label input:focus-visible{outline:2px solid #bde2ff;outline-offset:3px}
+#autosave-label input:disabled{opacity:.45;cursor:default}
 #project-menu details{padding:4px 7px;font-size:11px;line-height:1.5}
 #project-menu summary{cursor:pointer;color:#a9c5df}
 #project-menu .file-tooltip{position:static;display:block;padding:8px 0;width:auto;box-shadow:none;border:0;background:transparent;font-size:11px;pointer-events:auto}
