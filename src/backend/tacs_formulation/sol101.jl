@@ -1980,8 +1980,7 @@ function _tacs_pcomp_shear_corrected(Ash::AbstractMatrix, ply_data::AbstractVect
     ts_t_default = 5.0 / 6.0
     Cs_lam =
         pcomp_whitney_shear_enabled() && !isempty(ply_data) ? begin
-            kappa_x, kappa_y = pcomp_whitney_kappa(collect(ply_data), total_t)
-            _laminate_corrected_shear(Ash, kappa_x, kappa_y)
+            pcomp_energy_shear(ply_data, total_t)
         end :
         ts_t_default .* Ash
 

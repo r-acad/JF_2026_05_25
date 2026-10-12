@@ -42,9 +42,30 @@
   for(const variable of variables){if(!filter.test(variable)||values.has(variable.id))continue;if(values.size>=limit){omitted++;continue;}values.add(variable.id);}
   return{values:Array.from(values),omitted};
  }
+ // Normalize only the editable setup. Completed result requests are historical
+ // records and must never acquire derivatives they did not actually compute.
+ function normalizeSelection(selected,catalog){
+  const replacements=catalog?.selection_replacements||{},values=new Set(),aliases=new Set(),locals=new Set();
+  for(const id of selected){const targets=Object.hasOwn(replacements,id)&&Array.isArray(replacements[id])?replacements[id]:[id];
+   if(Object.hasOwn(replacements,id)&&Array.isArray(replacements[id])){aliases.add(id);for(const target of targets)locals.add(target);}
+   for(const target of targets)values.add(target);
+  }
+  const expanded=Array.from(values);return{values:expanded,aliases:Array.from(aliases),localCount:locals.size,changed:expanded.length!==selected.length||expanded.some((id,i)=>id!==selected[i])};
+ }
+ function selectionEntries(catalog){
+  const source=catalog?.variables||[],replacements=catalog?.selection_replacements||{},metadata=catalog?.selection_aliases||{},byID=new Map(source.map(row=>[row.id,row])),aliases=[],aliasesByMember=new Map(),seen=new Set();
+  for(const [id,ids]of Object.entries(replacements)){if(!Array.isArray(ids)||!ids.length)continue;
+   const info=metadata[id]||{},alias={...byID.get(id),...info,id,label:info.label||byID.get(id)?.label||id,selection_ids:ids};
+   for(const member of ids){if(!aliasesByMember.has(member))aliasesByMember.set(member,[]);aliasesByMember.get(member).push(alias);}
+   // Legacy location aliases still migrate and match filters, but their local
+   // checkbox already provides the corresponding individual selection control.
+   const key=JSON.stringify([ids,info.field_key||null]);if(info.index!==undefined||seen.has(key))continue;seen.add(key);aliases.push(alias);
+  }
+  return{variables:source.filter(row=>!Object.hasOwn(replacements,row.id)),aliases,aliasesByMember};
+ }
  function create(host,options){
   const doc=host.ownerDocument;let config=defaults(),catalog=null,catalogSignature=null,catalogMesh=null,busy=false,loading=false,result=null,resultSignature=null,lastContext=null,timer=null,started=0,resultSetup=null,runSetup=null,invalidStep=false,catalogRequested=false,autoAttempt=null,readGeneration=0;
-  const interpretation=root.WingSensitivityResults;
+  const interpretation=root.WingSensitivityResults;let selection=selectionEntries(null);
   function setupSignature(value){const p=parse(value),o=p.objective,legacy=p.derivative_method==='operator_differences';return JSON.stringify([p.case_id,o.type,o.component??null,o.node_id??null,o.element_id??null,o.mode??null,o.surface??null,[...p.variables].sort(),p.derivative_method,legacy?p.relative_step:null,legacy?p.check_step:null]);}
   let previewPercent=1,previewMetric='percent',selectedProperty=null,resultMeta={},savedBusy=false,savedRuns=[],savedGeneration=0,mapActive=false,destroyed=false;
   const make=(tag,cls,text)=>{const el=doc.createElement(tag);if(cls)el.className=cls;if(text!==undefined)el.textContent=text;return el;};
@@ -75,7 +96,9 @@
   const saved=make('fieldset','sensitivity-saved');saved.innerHTML='<legend>Saved sensitivity results</legend><div class="hud-row"><button id="sensitivity-saved-refresh" class="mini" type="button">Find saved results</button><button id="sensitivity-saved-open" class="mini" type="button" disabled>Open result</button></div><label for="sensitivity-saved-select">Completed runs</label><select id="sensitivity-saved-select" aria-label="Saved sensitivity run"><option value="">Find saved results to browse earlier runs</option></select><p id="sensitivity-saved-status" class="pick-note" role="status"></p>';
   saved.hidden=!options.listRuns||!options.loadRun;el('results').before(saved);
   function variableLimit(){return Number.isInteger(catalog?.max_variables)&&catalog.max_variables>0?catalog.max_variables:256;}
-  function matchesFilter(variable){return filter.test(variable);}
+  function matchesFilter(variable){return filter.test(variable)||(selection.aliasesByMember.get(variable.id)||[]).some(alias=>filter.test(alias));}
+  function normalizeSetup(){const expanded=normalizeSelection(config.variables,catalog);config.variables=expanded.values;return expanded;}
+  function migrationMessage(expanded){return expanded.aliases.length+' shared or legacy component selection'+(expanded.aliases.length===1?'':'s')+' expanded to '+expanded.localCount+' independent local dimensions; '+config.variables.length+' variables selected. The Study selection was updated. Click Run sensitivity to compute new results; saved results are unchanged.';}
   function renderWork(){
    for(const option of el('objective').options)option.disabled=!!catalog?.objectives&&!Object.hasOwn(catalog.objectives,option.value);
    method.querySelector('[value="operator_differences"]').disabled=catalog?.imported===true;
@@ -86,17 +109,17 @@
    const work=config.objective.type==='frequency_eigenvalue'?'1 baseline eigen solve':config.objective.type==='buckling_factor'?'1 preload solve + 1 eigen solve + 1 preload adjoint':'1 baseline solve + 1 adjoint solve';
    el('variable-count').textContent=count+' / '+limit+' variables · '+work+(analytic?' · '+count+' analytic property derivative'+(count===1?'':'s')+'. No perturbed decks.':' · up to '+samples+' property operator evaluations. No per-property full analyses.');
    el('variable-count').classList.toggle('sensitivity-error',count>limit);
-   const variables=catalog?.variables||[],shown=variables.filter(matchesFilter),visibleSelected=shown.filter(v=>config.variables.includes(v.id)).length;
+   const variables=selection.variables,shown=variables.filter(matchesFilter),visibleSelected=shown.filter(v=>config.variables.includes(v.id)).length;
    const components=variables.filter(v=>/^properties\.components#/.test(v.id)),selectedComponents=components.filter(v=>config.variables.includes(v.id)).length;
    addComponents.hidden=!!catalog?.imported;addComponents.disabled=busy||loading||!components.length||count>=limit||selectedComponents===components.length;
-   componentSelectionNote.hidden=!components.length;componentSelectionNote.textContent=selectedComponents+' / '+components.length+' independent component dimensions selected. '+(selectedComponents===components.length?'Per-bay spar/cap/leading-edge skin and per-rib results will be computed when you run sensitivity.':'Shared defaults produce one combined derivative, not a value for each rib or bay. Add component variables for separate local results, then click Run sensitivity.');
+   componentSelectionNote.hidden=!components.length;componentSelectionNote.textContent=selectedComponents+' / '+components.length+' independent component dimensions selected. Family checkboxes select all matching bays or ribs, including local overrides. You can deselect individual dimensions. Click Run sensitivity to compute results for this selection.';
    selectShown.disabled=busy||loading||!filter.valid||count>=limit||!shown.some(v=>!config.variables.includes(v.id));
    removeShown.disabled=busy||loading||!filter.valid||!visibleSelected;
    filterStatus.textContent=filter.valid?shown.length+' / '+variables.length+' properties match · '+count+' selected ('+visibleSelected+' shown, '+(count-visibleSelected)+' outside this filter).':filter.error;
    filterStatus.classList.toggle('sensitivity-error',!filter.valid);el('filter').setAttribute('aria-invalid',String(!filter.valid));clearFilter.disabled=!el('filter').value;
   }
   function error(message){el('error').textContent=message||"";el('error').hidden=!message;}
-  function changed(){options.onEdit?.(JSON.stringify(config));sync();}
+  function changed(){const expanded=normalizeSetup();options.onEdit?.(JSON.stringify(config));if(expanded.aliases.length)el('status').textContent=migrationMessage(expanded);sync();}
   function objectiveType(){return TYPES.find(t=>t[0]===config.objective.type)||TYPES[0];}
   function renderObjective(){const type=objectiveType();el('objective').value=type[0];el('component').replaceChildren();
    for(const [value,label]of type[2]){const option=make('option','',label);option.value=value;el('component').append(option);}
@@ -106,13 +129,14 @@
    el('surface-row').hidden=type[0]!=='shell_stress';el('surface').value=config.objective.surface||'z1';el('target').max=type[3]==='mode'?'20':'';el('use-pick').hidden=type[3]==='mode';el('target-note').textContent=type[3]==='mode'?'The selected baseline eigenmode defines this derivative. Repeated or nearly repeated modes do not have a unique individual-mode derivative.':'Use the numeric ID of a physical structural entity. Inspect it first if its ID is unknown.';
   }
   for(const [value,label]of TYPES){const option=make('option','',label);option.value=value;el('objective').append(option);}
-  function renderVariables(){filter=propertyFilter(el('filter').value,filterMode.value);const list=el('variables');list.replaceChildren();const variables=catalog?.variables||[];
+  function renderVariables(){filter=propertyFilter(el('filter').value,filterMode.value);const list=el('variables');list.replaceChildren();const variables=selection.variables;
    const known=new Set(variables.map(v=>v.id)),missing=config.variables.filter(id=>!known.has(id));
    if(missing.length&&catalog){const note=make('p','sensitivity-error','Selected properties are no longer available: '+missing.join(', ')+'. Clear the selection or restore the model.');list.append(note);}
-   for(const variable of variables){if(!matchesFilter(variable))continue;
-    const row=make('label','sensitivity-variable'),check=make('input');check.type='checkbox';check.value=variable.id;check.checked=config.variables.includes(variable.id);check.disabled=busy||loading||(!check.checked&&config.variables.length>=variableLimit());
-    check.onchange=()=>{if(check.checked&&config.variables.length>=variableLimit()){check.checked=false;return;}config.variables=check.checked?[...config.variables,variable.id]:config.variables.filter(id=>id!==variable.id);changed();renderVariables();};
-    const text=make('span'),name=make('strong','',labelOf(variable)),detail=make('small','',format(variable.value)+' '+(variable.unit||'')+(variable.group?' · '+variable.group:'')+(variable.element_count?' · '+variable.element_count+' elements':''));text.append(name,detail);row.append(check,text);row.title=typeof variable.targets==='string'?variable.targets:'Property IDs: '+(variable.pids||[]).join(', ');list.append(row);
+   for(const variable of [...selection.aliases,...variables]){if(!matchesFilter(variable))continue;
+    const ids=variable.selection_ids||[variable.id],selected=ids.filter(id=>config.variables.includes(id)).length,family=!!variable.selection_ids;
+    const row=make('label','sensitivity-variable'),check=make('input');check.type='checkbox';check.value=variable.id;check.checked=selected===ids.length;check.indeterminate=selected>0&&selected<ids.length;check.disabled=busy||loading||(!check.checked&&!check.indeterminate&&config.variables.length>=variableLimit());if(family)check.dataset.selectionFamily='true';
+    check.onchange=()=>{const next=check.checked?normalizeSelection([...config.variables,variable.id],catalog).values:config.variables.filter(id=>!ids.includes(id));if(next.length>variableLimit()&&next.length>config.variables.length){error('This family would select '+next.length+' variables, exceeding the '+variableLimit()+'-variable limit. Select individual local dimensions or remove other selections.');renderVariables();return;}config.variables=next;error('');changed();renderVariables();};
+    const text=make('span'),name=make('strong','',family?variable.label:labelOf(variable)),detail=make('small','',family?'Family selection · '+selected+' / '+ids.length+' independent local dimensions':format(variable.value)+' '+(variable.unit||'')+(variable.group?' · '+variable.group:'')+(variable.element_count?' · '+variable.element_count+' elements':''));text.append(name,detail);row.append(check,text);row.title=family?variable.note||'Select all local dimensions in this family.':typeof variable.targets==='string'?variable.targets:'Property IDs: '+(variable.pids||[]).join(', ');list.append(row);
    }
    if(!variables.length)list.append(make('p','pick-note',config.variables.length?
     config.variables.length+' saved design variables selected. Their checkboxes will be restored when the current model properties are ready.':
@@ -214,7 +238,7 @@
    el('context').classList.toggle('sensitivity-error',!!(context.dirty||stale));
    el('context').dataset.blocked=String(!!blocker);host.dataset.sensitivityBusy=String(busy||loading||!!context.working);recoveryAction=blocker?.action||null;recovery.hidden=!recoveryAction;recovery.textContent=blocker?.label||'';recovery.disabled=busy||loading;
    const available=context.ready&&!context.dirty&&!context.blocked;el('refresh').disabled=busy||loading||!available;el('refresh').textContent=loading?'Reading properties…':'Refresh model properties';el('run').disabled=!!blocker;el('run').title=blocker?.message||'Run the selected sensitivity study';el('run').setAttribute('aria-describedby','sensitivity-context');
-   el('stop').hidden=!busy;for(const node of host.querySelectorAll('.sensitivity-setup input,.sensitivity-setup select,#sensitivity-clear,#sensitivity-use-pick'))node.disabled=busy||loading||(node.closest('#sensitivity-variables')&&!node.checked&&config.variables.length>=variableLimit());el('filter').disabled=false;filterMode.disabled=false;
+   el('stop').hidden=!busy;for(const node of host.querySelectorAll('.sensitivity-setup input,.sensitivity-setup select,#sensitivity-clear,#sensitivity-use-pick'))node.disabled=busy||loading||(node.closest('#sensitivity-variables')&&!node.checked&&!node.indeterminate&&config.variables.length>=variableLimit());el('filter').disabled=false;filterMode.disabled=false;
    renderWork();
    if(context.dirty||result&&context.signature!==resultSignature)clearVisualization();syncPreviewButtons();syncSaved();
    el('status').classList.toggle('sensitivity-running',busy);
@@ -232,14 +256,14 @@
    try{const data=await options.catalog();if(destroyed||generation!==readGeneration)return false;const after=options.context?.()||{};
     if(!after.ready||after.dirty||contextKey(after)!==key||data.model_signature!==undefined&&data.model_signature!==before.signature||data.mesh_identity!==undefined&&data.mesh_identity!==(before.meshIdentity??null)){el('status').textContent='The FEM changed while properties were being read. The obsolete response was discarded; selections are kept.';return false;}
     const next=data.catalog||data;if(!Array.isArray(next.variables))throw Error('The property catalogue response has no variable list. Refresh model properties to retry.');
-    catalog={...next,imported:data.imported??next.imported};catalogSignature=before.signature;catalogMesh=before.meshIdentity??null;renderVariables();el('status').textContent=catalog.variables.length+' editable property variables available.';return true;
+    catalog={...next,imported:data.imported??next.imported};selection=selectionEntries(catalog);catalogSignature=before.signature;catalogMesh=before.meshIdentity??null;const expanded=normalizeSetup();if(expanded.changed)options.onEdit?.(JSON.stringify(config));renderVariables();el('status').textContent=expanded.aliases.length?migrationMessage(expanded):selection.variables.length+' editable property variables available.';return true;
    }catch(e){if(!destroyed&&generation===readGeneration){error(e.message);el('status').textContent='Could not read properties. Use Refresh model properties to retry.';}return false;}finally{if(!destroyed&&generation===readGeneration){loading=false;sync();}}
   }
   function restore(value){
    // The setup belongs to the Study, while catalogue rows and search filters
    // belong to its current mesh. Invalidate even an in-flight response from
    // the previous Study; never let it populate the newly restored selection.
-   readGeneration++;loading=false;catalog=null;catalogSignature=null;catalogMesh=null;autoAttempt=null;
+   readGeneration++;loading=false;catalog=null;selection=selectionEntries(null);catalogSignature=null;catalogMesh=null;autoAttempt=null;
    invalidStep=false;error('');
    try{config=parse(value);}catch{config=defaults();error('Invalid saved sensitivity setup. Select the response and variables again.');}
    catalogRequested=config.variables.length>0;
@@ -252,8 +276,8 @@
   el('step').onchange=()=>{const step=Number(el('step').value)/100;if(!Number.isFinite(step)||step<1e-4||step>.1){invalidStep=true;error('Choose an operator derivative step between 0.01% and 10%.');sync();return;}invalidStep=false;config.relative_step=step;error('');changed();};
   method.onchange=()=>{config.derivative_method=method.value;invalidStep=false;error('');changed();renderWork();sync();};
   el('check-step').onchange=()=>{config.check_step=el('check-step').checked;changed();renderVariables();};el('filter').oninput=renderVariables;filterMode.onchange=renderVariables;clearFilter.onclick=()=>{el('filter').value='';renderVariables();el('filter').focus();};el('clear').onclick=()=>{config.variables=[];changed();renderVariables();};el('refresh').onclick=readCatalog;
-  selectShown.onclick=()=>{if(!filter.valid||busy||loading)return;const added=addMatchingVariables(config.variables,catalog?.variables||[],filter,variableLimit());config.variables=added.values;changed();renderVariables();if(added.omitted)error('The '+variableLimit()+'-variable limit was reached; '+added.omitted+' matching properties were not added. Existing selections were preserved.');};
-  removeShown.onclick=()=>{if(!filter.valid||busy||loading)return;const ids=new Set((catalog?.variables||[]).filter(matchesFilter).map(v=>v.id));config.variables=config.variables.filter(id=>!ids.has(id));changed();renderVariables();};
+  selectShown.onclick=()=>{if(!filter.valid||busy||loading)return;const added=addMatchingVariables(config.variables,selection.variables,{test:matchesFilter},variableLimit());config.variables=added.values;changed();renderVariables();if(added.omitted)error('The '+variableLimit()+'-variable limit was reached; '+added.omitted+' matching properties were not added. Existing selections were preserved.');};
+  removeShown.onclick=()=>{if(!filter.valid||busy||loading)return;const ids=new Set(selection.variables.filter(matchesFilter).map(v=>v.id));config.variables=config.variables.filter(id=>!ids.has(id));changed();renderVariables();};
   addComponents.onclick=()=>{if(busy||loading||!catalog)return;const added=addMatchingVariables(config.variables,catalog.variables,{test:v=>/^properties\.components#/.test(v.id)},variableLimit());config.variables=added.values;changed();renderVariables();if(added.omitted)error('The '+variableLimit()+'-variable limit was reached; '+added.omitted+' component dimensions were not added. Existing selections were preserved. Select smaller component groups with the filter.');else el('status').textContent='Independent component dimensions added. Review the selection, then click Run sensitivity; existing results have not been recomputed.';};
   recovery.onclick=async()=>{const action=recoveryAction;if(action==='catalog')return readCatalog();if(action==='target'||action==='case'){el(action).focus();el(action).scrollIntoView({block:'center'});return;}if(action==='missing'){const known=new Set(catalog.variables.map(v=>v.id));config.variables=config.variables.filter(id=>known.has(id));changed();renderVariables();return;}if(action==='rebuild'){recovery.disabled=true;try{await options.rebuild();await readCatalog();}catch(e){error(e.message);}finally{sync();}}};
   el('use-pick').onclick=()=>{const id=options.inspected?.(objectiveType()[3]);if(!Number.isInteger(id)||id<1){error('Use Inspect to pick a matching node or element, then return here and press Use inspected entity.');return;}config.objective[objectiveType()[3]]=id;renderObjective();error('');changed();};
@@ -278,5 +302,5 @@
    destroy(){destroyed=true;clearInterval(timer);clearVisualization();host.replaceChildren();}
   };
  }
- root.WingSensitivity={create,parse,TYPES,methodLabel,solverCounts,propertyFilter,addMatchingVariables};
+ root.WingSensitivity={create,parse,TYPES,methodLabel,solverCounts,propertyFilter,addMatchingVariables,normalizeSelection,selectionEntries};
 })(globalThis);

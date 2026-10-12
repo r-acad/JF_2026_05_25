@@ -60,6 +60,29 @@ function nas_field(x::AbstractString)
     return rpad(x, 8)
 end
 
+# Opt-in portable precision: four 16-column data fields per physical line.
+# Keep the exact free-field sensitivity path separate; large fields necessarily
+# round some Float64 values to the available 16 columns.
+nas_large_field(::Nothing) = " "^16
+function nas_large_field(x::Integer)
+    s=string(x)
+    length(s)<=16||throw(ArgumentError("integer $x does not fit in a large NASTRAN field"))
+    return lpad(s,16)
+end
+function nas_large_field(x::AbstractFloat)
+    isfinite(x)||throw(ArgumentError("cannot write non-finite real to a NASTRAN field"))
+    for digits in 16:-1:1
+        s=Printf.format(Printf.Format("%.$(digits)G"),x)
+        occursin('.',s)||occursin('E',s)||(s*=".")
+        length(s)<=16&&return lpad(s,16)
+    end
+    throw(ArgumentError("cannot fit $x into a large NASTRAN field"))
+end
+function nas_large_field(x::AbstractString)
+    length(x)<=16||throw(ArgumentError("string $x does not fit in a large NASTRAN field"))
+    return rpad(x,16)
+end
+
 """
     card!(io, name, fields)
 
@@ -71,6 +94,18 @@ integers and reals would promote the integers to `Float64` and the card would
 come out with grid and property ids written as reals.
 """
 function card!(io::IO, name::AbstractString, fields)
+    if get(io,:large_field,false)
+        length(name)<=7||throw(ArgumentError("card name $name cannot carry a large-field marker"))
+        # A logical 80-column record comprises two large-field physical lines.
+        # Retain the second half, including when it contains only blank fields.
+        nlines=2*cld(max(1,length(fields)),8)
+        for line in 1:nlines
+            first_field=4*(line-1)+1
+            values=[i<=length(fields) ? fields[i] : nothing for i in first_field:first_field+3]
+            println(io,rpad(line==1 ? name*"*" : "*",8)*join(nas_large_field(v) for v in values))
+        end
+        return nothing
+    end
     if get(io,:full_precision,false)
         # Sensitivity decks retain the requested perturbation exactly. Fixed
         # eight-column rounding can otherwise dominate small differences.
@@ -171,16 +206,17 @@ function analytic_lift_forces(m::Model)
 end
 
 """
-    write_nastran(m, path) -> Dict
+    write_nastran(m, path; large_field=false) -> Dict
 
 Write the model as a complete, runnable NASTRAN deck and return a summary of
-what was written.
+what was written. `large_field=true` writes portable 16-column real fields
+with paired `*` continuation lines; the default remains eight-column output.
 """
 # Native linear/nonlinear defaults differ (0 versus 100). A paired baseline
 # uses the nonlinear sequence's drilling stabilization in BOTH decks.
 const COMPARISON_K6ROT = 100.0
 
-function write_nastran(m::Model, path::AbstractString; frozen_load_cases=nothing, comparison=false)
+function write_nastran(m::Model, path::AbstractString; frozen_load_cases=nothing, comparison=false, large_field=false)
     if fuel_states_differ(m)
         cases=frozen_load_cases===nothing ? case_loads(m) : frozen_load_cases
         files=Any[];stem,extension=splitext(path)
@@ -188,7 +224,7 @@ function write_nastran(m::Model, path::AbstractString; frozen_load_cases=nothing
             params=copy(case.params);params["loads.cases"]=Any[];params["loads.label"]=case.label
             isolated=Model((field===:params ? params : getfield(m,field) for field in fieldnames(Model))...)
             destination=case.id==1 ? path : stem*"_case_$(case.id)"*extension
-            result=write_nastran(isolated,destination;frozen_load_cases=[(id=1,label=case.label,params=params,loads=case.loads)],comparison)
+            result=write_nastran(isolated,destination;frozen_load_cases=[(id=1,label=case.label,params=params,loads=case.loads)],comparison,large_field)
             push!(files,merge(result,Dict("case_id"=>case.id,"label"=>case.label,"fuel_percent"=>fuel_case_percent(params))))
         end
         result=copy(first(files));result["files"]=files
@@ -198,7 +234,7 @@ function write_nastran(m::Model, path::AbstractString; frozen_load_cases=nothing
     dir = dirname(abspath(path))
     isempty(dir) || isdir(dir) || mkpath(dir)
     open(path, "w") do io
-        write_deck(io, m; frozen_load_cases, comparison)
+        write_deck(large_field ? IOContext(io,:large_field=>true) : io, m; frozen_load_cases, comparison)
     end
     return Dict{String,Any}(
         "ok" => true,
@@ -297,6 +333,9 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
             println(io, "  DISPLACEMENT = ALL")
             println(io, "SUBCASE ", buckling_subcase_id(spec.id))
             println(io, "  LABEL = Buckling: ", first(replace(spec.label, '\$' => ' '), 50))
+            # STATSUB selects the preload; it does not transfer its SPC set
+            # into the eigenvalue subcase in MSC Nastran.
+            isempty(m.spc)||println(io, "  SPC = 1")
             println(io, "  STATSUB = ", sid)
             println(io, "  METHOD = 1")
         end
@@ -389,7 +428,11 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
                                    gr.orient[3*el-1],
                                    gr.orient[3*el]]
                 if norm3(offset) > 0
-                    append!(fields, Any["GGG", nothing, nothing, offset..., offset...])
+                    # The default OFFT convention is GGG. Leave that field
+                    # blank for older MSC readers (70.5 rejects textual GGG).
+                    # Generated GRID displacement frames are all BASIC, so
+                    # orientation and offset components retain their meaning.
+                    append!(fields, Any[nothing, nothing, nothing, offset..., offset...])
                 end
                 card!(io, "CBAR", fields)
             end

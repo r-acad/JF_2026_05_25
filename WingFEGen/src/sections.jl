@@ -88,7 +88,7 @@ function section_definition(p::AbstractDict, pid::Integer)
                                   [-side/2,side/2], [-side/2,-side/2]],
             "offset_y_m" => -side/2, "area_m2" => side^2,
             "I1_m4" => side^4/12, "I2_m4" => side^4/12,
-            "J_m4" => side^4/3 * (1 - 0.63),
+            "J_m4" => side^4/3 * (1 - 0.63 + 0.0525),
             "torsion_model" => "JFEM PBARL rectangular-section approximation",
             "placement" => "Outer face at skin; square inward; centroid offset included in CBAR")
     elseif base_pid == PID_STRINGER_RUNOUT

@@ -163,6 +163,47 @@ end
 job_seconds(j::JfemJob) = j.started <= 0 ? 0.0 :
     (j.finished === nothing ? time() : j.finished) - j.started
 
+"""Measured numerical execution, separately from process wall time and Julia JIT.
+
+Old/partial logs without timing evidence never substitute wall time for solve time.
+"""
+function job_timings(job::JfemJob)
+    children = isempty(job.runs) ? [job] : job.runs
+    measurements = Any[]
+    for child in children
+        entry = lock(child.lk) do
+            get(child.progress, "pipeline_timings", nothing)
+        end
+        entry === nothing || push!(measurements, entry)
+    end
+    available = length(measurements) == length(children) &&
+        all(d -> get(d,"solution_seconds",nothing) isa Real, measurements)
+    function phase_sum(keys...)
+        total = 0.0
+        for d in measurements, key in keys
+            phase = get(d["phases"], key, nothing)
+            phase === nothing && continue # Optional stage was not run.
+            execution = get(phase, "execution_seconds", nothing)
+            execution isa Real || return nothing # Measured, but not separable.
+            total += execution
+        end
+        return total
+    end
+    measured_wall = sum((d["measured_wall_seconds"] for d in measurements); init=0.0)
+    Dict{String,Any}(
+        "available" => available,
+        "solution_seconds" => available ? sum(d["solution_seconds"] for d in measurements) : nothing,
+        "compilation_seconds" => sum((d["compilation_seconds"] for d in measurements);init=0.0),
+        "preparation_seconds" => phase_sum("parse", "build_model"),
+        "export_seconds" => phase_sum("model_export", "export", "report"),
+        "adjoint_seconds" => phase_sum("adjoint"),
+        "startup_overhead_seconds" => available ? max(0.0,job_seconds(job)-measured_wall) : nothing,
+        "total_seconds" => job_seconds(job),
+        "measured_runs" => length(measurements), "total_runs" => length(children),
+        "solution_scope" => "Numerical assembly and solution, excluding compilation, deck preparation and export",
+        "startup_scope" => "Process startup, package loading/precompilation and other unmeasured process overhead")
+end
+
 function job_log(j::JfemJob; tail::Int = 400)
     lock(j.lk) do
         n = length(j.lines)
@@ -216,6 +257,20 @@ end
 """Describe observed solver stages without inventing numerical percentages."""
 function update_job_stage!(job::JfemJob,line::AbstractString)
     isempty(job.runs)||return
+    if startswith(line,"[JFEM_TIMINGS] ")
+        try
+            data=JSON.parse(chopprefix(line,"[JFEM_TIMINGS] "))
+            valid=get(data,"schema_version",nothing)==1 && get(data,"phases",nothing) isa AbstractDict &&
+                all(key->get(data,key,nothing) isa Real && isfinite(data[key]) && data[key]>=0,
+                    ("measured_wall_seconds","compilation_seconds"))
+            solution=get(data,"solution_seconds",nothing)
+            valid &= solution===nothing || (solution isa Real && isfinite(solution) && solution>=0)
+            valid && (job.progress["pipeline_timings"]=data)
+        catch
+            # A malformed log marker must not break streaming or stop the solver.
+        end
+        return
+    end
     stage,message=if occursin("Reading BDF file",line)
         ("deck","Reading the deck and constructing the native model (first-use compilation may occur)")
     elseif occursin("Computing Element Stiffness",line)
@@ -663,7 +718,7 @@ function job_run_summary(job::JfemJob)
         "fuel_percent"=>fuel_case_percent(job.model.params),
         "message"=>job.message,"seconds"=>round(job_seconds(job);digits=2),"exit_code"=>job.exitcode,
         "deck"=>job.bdf,"out_dir"=>job.outdir,"log_path"=>job.logpath,
-        "progress"=>job_progress(job))
+        "progress"=>job_progress(job),"timings"=>job_timings(job))
 end
 
 function write_job_manifest(job::JfemJob)
@@ -1347,6 +1402,16 @@ function jfem_case_results_payload(job::JfemJob, path::AbstractString, d::Abstra
     push!(summary, Any["Solver", string(get(d, "backend", "jfem"), " ",
                                         get(d, "backend_version", ""))])
     push!(summary, Any["Wall time", eng(job_seconds(job); digits = 1) * " s"])
+    timing=job_timings(job)
+    if timing["available"]
+        for (label,key) in (("Run solution time (compilation excluded)","solution_seconds"),
+                            ("Julia compilation in analysis stages","compilation_seconds"),
+                            ("Deck and model preparation","preparation_seconds"),
+                            ("Result export","export_seconds"),
+                            ("Startup, package loading/precompilation and overhead","startup_overhead_seconds"))
+            push!(summary,Any[label,eng(timing[key];digits=3)*" s"])
+        end
+    end
     push!(summary, Any["Nodes in results", string(n)])
 
     modes = Any[]

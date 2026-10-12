@@ -44,9 +44,11 @@ function sensitivity_analytic_section(shape::AbstractString,dimensions,direction
             throw(ArgumentError("Independent BAR dimensions at a square have no unique derivative in the current torsion approximation; vary the common square side"))
         end
         if b>=h
-            J=(b*h^3-.63h^4)/3;dJ=(h^3*db+(3b*h^2-2.52h^3)*dh)/3
+            J=(b*h^3-.63h^4+.0525h^8/b^4)/3
+            dJ=((h^3-.21h^8/b^5)*db+(3b*h^2-2.52h^3+.42h^7/b^4)*dh)/3
         else
-            J=(h*b^3-.63b^4)/3;dJ=(b^3*dh+(3h*b^2-2.52b^3)*db)/3
+            J=(h*b^3-.63b^4+.0525b^8/h^4)/3
+            dJ=((b^3-.21b^8/h^5)*dh+(3h*b^2-2.52b^3+.42b^7/h^4)*db)/3
         end
         offset_y=-h/2;doffset_y=-dh/2
         polygon=[[h/2,-b/2],[h/2,b/2],[-h/2,b/2],[-h/2,-b/2]]
@@ -148,11 +150,24 @@ function sensitivity_analytic_bar(native,op,wing,g,e,direction,state=nothing)
     dT[7:9,10:12]=-R*native.Solver.skew3(doffset)*op.node_R[ib]
     Ke=transpose(T)*kernel.K*T
     dKe=transpose(T)*kernel.dK*T+transpose(dT)*kernel.K*T+transpose(T)*kernel.K*dT
-    # Current native CBAR mass is translationally lumped on the GRID line,
-    # independently of shell consistent-mass options. WA/WB do not enter it.
+    # Match explicit COUPMASS selection in the primal CBAR assembly. Equal
+    # end offsets leave length/orientation fixed, but their dimension-dependent
+    # rigid-arm transformation contributes to coupled mass derivatives.
     mass=rho*sd.area*bd.L;dmass=bd.L*(drho*sd.area+rho*sd.darea)
     Me=zeros(12,12);dMe=zeros(12,12);wtmass=Float64(get(op.model,"PARAM_WTMASS",1.))
-    for i in (1,2,3,7,8,9);Me[i,i]=wtmass*mass/2;dMe[i,i]=wtmass*dmass/2;end
+    coupled=native.Solver._sol103_param_enabled(get(op.model,"PARAM_COUPMASS",false),false)
+    if coupled
+        # Unit line density avoids divisions by rho or area. The dedicated
+        # native kernel owns its axial interpolation and zero section inertia.
+        unit=native.Solver.FEM.nastran_coupled_mass_cbar(Float64(bd.L),1.,1.)
+        Mloc=(rho*sd.area).*unit;dMloc=(drho*sd.area+rho*sd.darea).*unit
+        Me=wtmass.*(transpose(T)*Mloc*T)
+        dMe=wtmass.*(transpose(T)*dMloc*T+transpose(dT)*Mloc*T+transpose(T)*Mloc*dT)
+    else
+        # Cardless/negative COUPMASS keeps the established translational mass
+        # lumped at the GRID line; no offset or rotational terms enter it.
+        for i in (1,2,3,7,8,9);Me[i,i]=wtmass*mass/2;dMe[i,i]=wtmass*dmass/2;end
+    end
     u=state===nothing ? zeros(12) : Float64.(state[bd.dofs])
     ul=T*u;dul=dT*u;forces=kernel.K*ul;dforces=kernel.dK*ul+kernel.K*dul
     axial=forces[7]/sd.area;daxial=(dforces[7]-axial*sd.darea)/sd.area
@@ -174,17 +189,36 @@ function sensitivity_analytic_bar(native,op,wing,g,e,direction,state=nothing)
         end
     end
     stress_gradient=reduce(vcat,transpose.(feature_rows))
-    kgunit=native.Solver.FEM.geometric_stiffness_frame3d(Float64(bd.L),1.)
-    P=forces[7];dP=dforces[7];Kg=P.*(transpose(T)*kgunit*T)
-    dKg=dP.*(transpose(T)*kgunit*T)+P.*(transpose(dT)*kgunit*T+transpose(T)*kgunit*dT)
+    # Differentiate every initial section resultant and the polar radius. The
+    # axial-only approximation misses bending/torsion-driven buckling and its
+    # sensitivity, including the section-dependent offset transformation.
+    radius2=(sd.I1+sd.I2)/sd.area
+    dradius2=(sd.dI1+sd.dI2-radius2*sd.darea)/sd.area
+    geometric=native.Solver.FEM.geometric_stiffness_frame3d
+    kglocal=geometric(bd.L,forces,radius2)
+    dkglocal=geometric(bd.L,dforces,radius2)
+    polar_tangent=forces[7]*dradius2/bd.L
+    dkglocal[4,4]+=polar_tangent;dkglocal[10,10]+=polar_tangent
+    dkglocal[4,10]-=polar_tangent;dkglocal[10,4]-=polar_tangent
+    Kg=transpose(T)*kglocal*T
+    dKg=transpose(T)*dkglocal*T+transpose(dT)*kglocal*T+transpose(T)*kglocal*dT
+    force_components=(2,3,4,5,6,7)
+    kg_force_units=map(force_components) do component
+        basis=zeros(12);basis[component]=1.
+        transpose(T)*geometric(bd.L,basis,radius2)*T
+    end
     return (;eid,dofs=bd.dofs,section=sd,Ke,dKe,Me,dMe,Kg,dKg,mass,dmass,offset,doffset,
         axial_stress=axial,daxial_stress=daxial,axial_gradient,forces,dforces,force_gradient,
         stress_features,dstress_features,stress_gradient,axial_force_gradient=vec(force_gradient[7,:]),
-        kg_unit=transpose(T)*kgunit*T,stiffness_replay_relative_error=replay)
+        kg_force_units,force_components,stiffness_replay_relative_error=replay)
 end
 
 """Local beam contribution to d(φ'Kgφ)/du, using the true offset frame."""
 function sensitivity_analytic_bar_preload_gradient(bar,phi)
     pe=phi[bar.dofs]
-    return dot(pe,bar.kg_unit*pe).*bar.axial_force_gradient
+    gradient=zeros(12)
+    for (component,unit) in zip(bar.force_components,bar.kg_force_units)
+        gradient .+= dot(pe,unit*pe).*vec(bar.force_gradient[component,:])
+    end
+    return gradient
 end

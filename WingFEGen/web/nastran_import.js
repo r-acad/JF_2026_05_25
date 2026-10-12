@@ -51,16 +51,23 @@
   dialog.innerHTML='<form><div class="nastran-import-heading"><h2>Read Nastran</h2><button id="nastran-close" type="button" aria-label="Close Nastran importer">\u00d7</button></div><p>Open a complete Nastran analysis deck (.bdf, .dat or .nas). Its IDs, case control, properties and loads are retained.</p><label for="nastran-local-path">Main deck path</label><div class="nastran-path-row"><input id="nastran-local-path" type="text" placeholder="C:\\models\\wing\\model.bdf" spellcheck="false"><button id="nastran-browse" type="button">Browse\u2026</button></div><p>Select the main deck on this computer. All INCLUDE files are read automatically relative to their containing files, without further selections. There is no file-size limit.</p><p>Save Study embeds the complete source for portable reopening. Loads \u2192 Cases and Model \u2192 Constraints show the read-only source cases and boundary conditions; selecting a case updates the viewport. Display \u2192 Properties and Inspect show supported native properties. Run in JFEM uses the original deck; Sensitivity lists supported native design variables. Lifting surface parameter forms do not modify imported decks.</p><p id="nastran-import-status" role="status" hidden></p><pre id="nastran-import-error" role="alert" hidden></pre><button id="nastran-read" type="submit" class="primary">Read deck</button></form>';
   const preparation=doc.createElement('p');preparation.id='nastran-preparation-status';preparation.setAttribute('role','status');preparation.hidden=true;dialog.querySelector('.nastran-path-row').after(preparation);
   doc.body.append(dialog);const get=id=>dialog.querySelector('#'+id),error=get('nastran-import-error'),status=get('nastran-import-status');let running=false,picking=false,settle=null,outcome=false;
-  let preparationTimer=null,preparationSerial=0;
+  let preparationTimer=null,preparationSerial=0,prepared=!prepareImporter;
+  const syncReadReady=()=>{
+   const button=get('nastran-read'),ready=prepared&&!running&&!picking&&!!get('nastran-local-path').value.trim();
+   button.classList.toggle('deck-ready',ready);
+   button.title=ready?'Importer ready. Read the selected deck and its INCLUDE files.':running?'Reading the selected deck.':!prepared?'Importer preparation is still running. Reading can wait for preparation.':'Select the main deck first.';
+  };
+  get('nastran-local-path').addEventListener('input',syncReadReady);
   const stopPreparation=()=>{preparationSerial++;clearTimeout(preparationTimer);preparationTimer=null;};
   async function prepare(start,serial){
    if(!prepareImporter)return;
-   preparation.hidden=false;if(start)preparation.textContent='Preparing importer\u2026 You can browse local files while it starts.';
+   preparation.hidden=false;if(start){prepared=false;syncReadReady();preparation.textContent='Preparing importer\u2026 You can browse local files while it starts.';}
    try{
     const data=await prepareImporter(start);if(serial!==preparationSerial)return;
     const seconds=Number(data.seconds||0).toFixed(1);
     preparation.textContent=data.state==='ready'?'Importer ready \u00b7 preparation '+seconds+' s':data.state==='failed'?'Preparation failed: '+data.stage+' Read deck can retry.':(data.stage||'Preparing importer')+' \u00b7 '+seconds+' s. You can browse while this runs.';
     preparation.dataset.state=data.state;
+    prepared=data.state==='ready';syncReadReady();
     if(data.state==='preparing')preparationTimer=setTimeout(()=>prepare(false,serial),750);
    }catch(problem){if(serial===preparationSerial)preparation.textContent='Importer preparation unavailable: '+(problem.message||problem)+'. Read deck remains available.';}
   }
@@ -70,7 +77,7 @@
   dialog.addEventListener('close',()=>{stopPreparation();const complete=settle;settle=null;complete?.(outcome);});
   async function browse(){
    if(picking||running)return;
-   picking=true;error.hidden=true;get('nastran-browse').disabled=true;get('nastran-read').disabled=true;get('nastran-close').disabled=true;
+   picking=true;syncReadReady();error.hidden=true;get('nastran-browse').disabled=true;get('nastran-read').disabled=true;get('nastran-close').disabled=true;
    status.hidden=false;status.textContent='Select your main deck in the system Open dialog. INCLUDE files will be resolved automatically.';
    try{
     if(!pickFile)throw Error('The system picker is unavailable. Paste the complete main-deck path.');
@@ -78,17 +85,17 @@
     if(data.ok===false)throw Error(data.error||'Could not open the file dialog.');
     if(!data.cancelled&&data.path){get('nastran-local-path').value=data.path;get('nastran-read').focus();}
    }catch(problem){showError(problem);}
-   finally{picking=false;status.hidden=true;get('nastran-browse').disabled=false;get('nastran-read').disabled=false;get('nastran-close').disabled=false;}
+   finally{picking=false;status.hidden=true;get('nastran-browse').disabled=false;get('nastran-read').disabled=false;get('nastran-close').disabled=false;syncReadReady();}
   }
   get('nastran-browse').onclick=browse;
   dialog.querySelector('form').onsubmit=async event=>{
    event.preventDefault();if(running||picking)return;error.hidden=true;
    const selected=get('nastran-local-path').value.trim().replace(/^"(.*)"$/,'$1');if(!selected){showError('Browse for the main deck or paste its full path. INCLUDE files will be read automatically.');return;}
-   const button=get('nastran-read'),started=Date.now();running=true;button.disabled=true;get('nastran-close').disabled=true;get('nastran-browse').disabled=true;button.textContent='Reading\u2026';status.hidden=false;
+   const button=get('nastran-read'),started=Date.now();running=true;syncReadReady();button.disabled=true;get('nastran-close').disabled=true;get('nastran-browse').disabled=true;button.textContent='Reading\u2026';status.hidden=false;
    const update=()=>{status.textContent='Importing deck \u00b7 '+Math.floor((Date.now()-started)/1000)+' s. Parser preparation, file reading and geometry stages are shown in Log.';};update();const timer=setInterval(update,1000);
    try{if(await onImport({path:selected})){outcome=true;dialog.close();}else throw Error('The deck was not loaded. Wait for the current operation to finish and try again.');}
    catch(problem){showError(problem);if(!dialog.open)dialog.showModal();}
-   finally{clearInterval(timer);running=false;status.hidden=true;button.disabled=false;get('nastran-close').disabled=false;get('nastran-browse').disabled=false;button.textContent='Read deck';}
+   finally{clearInterval(timer);running=false;status.hidden=true;button.disabled=false;get('nastran-close').disabled=false;get('nastran-browse').disabled=false;button.textContent='Read deck';syncReadReady();}
   };
   return{open(){error.hidden=true;outcome=false;dialog.showModal();get('nastran-local-path').focus();stopPreparation();prepare(true,preparationSerial);const promise=new Promise(resolve=>{settle=resolve;});browse();return promise;},destroy(){stopPreparation();settle?.(false);settle=null;dialog.remove();}};
  }

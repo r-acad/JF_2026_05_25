@@ -141,7 +141,7 @@ report=Dict{String,Any}();started=time()
  # Legacy exports may have only the actual retained preload displacement.
  legacy=deepcopy(exported);delete!(only(legacy["static_subcases"]),"static_result")
  legacy["static_result"]=Dict("static_subcase_id"=>999,"displacements"=>Any[])
- selected=W.imported_case_result(legacy,18,Dict(18=>Dict("STATSUB"=>17)),[18])
+ selected=W.imported_case_result(legacy,18,Dict(17=>Dict(),18=>Dict("STATSUB"=>17)),[18])
  @test !haskey(selected,"static_result") # Never inherit stale top-level fields.
  legacy_case=Dict{String,Any}("id"=>17,"static_subcase_id"=>17,"buckling_subcase_id"=>18,"summary"=>Any[],"model_params"=>Dict("output.solution"=>"105"))
  W.attach_buckling_preload!(job,path,legacy_case,selected,17)
@@ -161,6 +161,30 @@ report=Dict{String,Any}();started=time()
  @test first(partial_case["variants"])["static"]["disp"].bytes==preload["static"]["disp"].bytes
  @test all(!haskey(variant,"variants") for variant in partial_case["variants"])
  @test all(!haskey(variant,"default_variant") for variant in partial_case["variants"])
+ @test N.Solver.PRELOAD_EXPORT_SOLVE_CALLS[]==baseline_calls+1
+ # A native SOL105 source exposes the preload under its original Loads case,
+ # as well as inside the buckling case's analysis selector.
+ native_source=W.imported_source(Dict("name"=>"native105.bdf","text"=>read(path,String)))
+ native_model=W.imported_model(parsed,native_source,W.default_params())
+ Base.invokelatest(W.imported_prepare_loads!,N,native_model)
+ native_job=W.JfemJob("native105","",path,exportdir,joinpath(exportdir,"log"),repo,native_model,nothing,String[],ReentrantLock(),0.,0.,:done,0,"")
+ native_cases=W.imported_results_payload(native_job)["load_cases"]
+ @test Set(c["id"] for c in native_cases)==Set([17,18])
+ static_case=only(filter(c->c["id"]==17,native_cases))
+ @test static_case["source"]=="buckling_preload"
+ @test static_case["analysis_type"]=="SOL101_STATIC"
+ @test static_case["static"]["disp"].bytes==preload["static"]["disp"].bytes
+ @test !isempty(static_case["contours"])
+ @test !haskey(static_case,"variants")
+ # The solver records its actual legacy local-METHOD preload resolution.
+ legacy_subs=Dict(17=>Dict("LOAD"=>4),18=>Dict("METHOD"=>41))
+ @test W.imported_buckling_ownership(exported,legacy_subs)==Dict(18=>17)
+ @test W.imported_case_result(exported,18,legacy_subs,[18])["static_displacements"]==exported["static_displacements"]
+ empty_modes=deepcopy(exported);empty!(empty_modes["modes"])
+ @test W.imported_buckling_ownership(empty_modes,legacy_subs)==Dict(18=>17)
+ bad_ownership=deepcopy(exported);bad_ownership["subcases"][1]["static_subcase_id"]=18
+ @test_throws ArgumentError W.imported_buckling_ownership(bad_ownership,legacy_subs)
+ @test_throws ArgumentError W.imported_buckling_ownership(exported,Dict(17=>Dict(),18=>Dict("STATSUB"=>18)))
  @test N.Solver.PRELOAD_EXPORT_SOLVE_CALLS[]==baseline_calls+1
  report["equilibrium_calls"]=N.Solver.PRELOAD_EXPORT_SOLVE_CALLS[]
  report["native_static_subcase_id"]=17;report["native_buckling_subcase_id"]=18

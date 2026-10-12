@@ -49,6 +49,14 @@ function _tube_inner_radius(type, dims)
     return inner
 end
 
+"""Rectangular PBARL/PBEAML torsion approximation, including the finite-aspect term."""
+function rectangular_section_torsion(w, h)
+    a, b = max(w,h), min(w,h)
+    b > 0 || return (w*h^3+h*w^3)/12
+    ratio=b/a
+    return a*b^3/3*(1-0.63ratio+0.0525ratio^5)
+end
+
 function extract_pbarl(cards)
     d = Dict()
     for c in cards
@@ -114,13 +122,7 @@ function extract_pbarl(cards)
             # I1 = Iz (Plane 1) = DIM1*DIM2^3/12;  I2 = Iy (Plane 2) = DIM2*DIM1^3/12
             I1 = w * h^3 / 12
             I2 = h * w^3 / 12
-            if w >= h && w > 0
-                J = w * h^3 / 3 * (1 - 0.63 * h / w)
-            elseif h > 0
-                J = h * w^3 / 3 * (1 - 0.63 * w / h)
-            else
-                J = I1 + I2
-            end
+            J = rectangular_section_torsion(w,h)
         elseif type == "BOX" && length(dims) >= 4
             w = dims[1]; h = dims[2]; tw = dims[3]; th = dims[4]
             w_in = w - 2*tw; h_in = h - 2*th

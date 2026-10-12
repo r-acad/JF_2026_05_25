@@ -2225,15 +2225,14 @@ include(joinpath(@__DIR__, "experimental", "hu_washizu_kernel.jl"))
 # =============================================================================
 function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, msws::Union{Nothing,MacNealShearWorkspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, snorm_pq=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, membrane_hourglass_skew::Bool=false, distortion_corrections::Bool=true, _defer_warp_transform::Bool=false, _defer_snorm_transform::Bool=false, coupled_projected::Bool=false)
     if coupled_projected
-        Bmb !== nothing && quad4_is_axis_aligned_rectangle(coords) ||
-            throw(ArgumentError("Projected coupled Q4 requires nonzero coupling and a rectangular local cell"))
+        Bmb !== nothing && quad4_has_positive_jacobians(coords) ||
+            throw(ArgumentError("Projected coupled Q4 requires coupling data and a convex, positively oriented local cell"))
         kernel_planar && snorm_pq === nothing && curvature_membrane === nothing &&
             slope_membrane === nothing && !exact_membrane_operator &&
             !membrane_hourglass_skew && !marguerre_warp_to_uz ||
             throw(ArgumentError("Projected coupled Q4 does not support mapped/research kinematics"))
         !shear_center_only && !selective_shear && !exact_side_shear && !exact_side_rotcorr &&
-            !exact_membrane_curvature_w_coupling &&
-            (coords_3d === nothing || quad4_finite_warp_displacement_map(coords,coords_3d) === nothing) ||
+            !exact_membrane_curvature_w_coupling ||
             throw(ArgumentError("Projected coupled Q4 requires the ordinary full MacNeal shear path"))
         lowercase(strip(kernel_mode === nothing ? fem_env_str("JFEM_Q4_KERNEL","macneal") : string(kernel_mode))) == "macneal" &&
             fem_env_bool("JFEM_Q4_MACNEAL_TWIST",true) &&
@@ -4484,27 +4483,14 @@ function add_quad4_macneal_shear_rbf!(
         flex_mode_override === :diag ? "diag" :
         lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_RBF_BENDING_FLEX_MODE", "diag")))
     # ------------------------------------------------------------------
-    # SKEWED-STRIP frame for the residual-bending flexibilities (2026-07-31).
-    #
-    # eq (26)'s flexibilities are taken along the ELEMENT AXES, but MacNeal's strips run
-    # along the MID-SIDE VECTORS, tilted by atan(dx/Dx) on a skewed element.  Rotating an
-    # ISOTROPIC compliance changes nothing, so this is invisible on every isotropic cell --
-    # the recovered uniform term u is exact to 6 digits there at every skew angle -- while
-    # on a laminate it is the dominant skew error (recovered u ref/jfem = 1.620/1.279
-    # cross-ply, 1.026/0.524 quasi-isotropic, 0.910/1.312 unsymmetric at skew 45).
-    #
-    # The strips are an ORTHOGONAL PAIR aligned with the Dx mid-side vector, i.e. ONE
-    # rotation of the element frame -- not the two (non-orthogonal) mid-side vectors taken
-    # separately, which is the obvious guess and is measurably wrong.  Rotating the
-    # CONSTITUTIVE MATRICES (rather than patching flex_x/flex_y afterwards) is what makes
-    # this compose with flex_mode: "abd" must see a rotated B as well as a rotated D, or
-    # the unsymmetric-laminate correction it exists for is silently discarded.
-    #
-    # ACCEPTANCE: recovered u = 1.000000 in BOTH directions on all three laminate families
-    # (including an UNSYMMETRIC layup, B != 0), at skew 30/45 and aspect 1/5 -- twelve
-    # exact hits.  Each rival y-strip choice made exactly one family exact, the rest worse.
+    # MacNeal Eq. (26) uses the bending law in the element's diagonal-bisector
+    # frame, as does the bending stiffness. An extra rotation anchored only
+    # to the natural-r midside is not invariant under cyclic node numbering
+    # on a skew anisotropic cell: the former natural-s edge then defines a
+    # different physical material frame. Keep the common element frame by
+    # default. The former strip rotation remains an explicit diagnostic only.
     Cb_f = Cb; Cm_f = Cm; Bmb_f = Bmb
-    if distortion_corrections && fem_env_bool("JFEM_Q4_MACNEAL_RBF_STRIP_ROT", true)   # PROMOTED 2026-08-01
+    if distortion_corrections && fem_env_bool("JFEM_Q4_MACNEAL_RBF_STRIP_ROT", false)
         dxs = 0.5 * (coords[2,2] + coords[3,2] - coords[1,2] - coords[4,2])
         ls = hypot(Dx, dxs)
         if ls > 1e-30 && abs(dxs) > 1e-30
@@ -5375,18 +5361,10 @@ function add_quad4_macneal_shear_rbf!(
                             dc = max(abs(detc), T(1e-30))
                             grad_r = abs(0.25*(dj[2]+dj[3]-dj[1]-dj[4])) / dc
                             grad_s = abs(0.25*(dj[3]+dj[4]-dj[1]-dj[2])) / dc
-                            # closure-local names (gsum_l/Wc_l): the enclosing
-                            # function reuses gsum/Wc below — assigning them here
-                            # would Core.Box both (PERF de-box)
-                            gsum_l = grad_r*grad_r + grad_s*grad_s
-                            if gsum_l > 1e-24
-                                Wc_l = (q4_taper_cross_factor(rho2x)*grad_r*grad_r +
-                                      q4_taper_cross_factor(rho2y)*grad_s*grad_s) / gsum_l
-                                for (i, j) in ((1,3),(1,4),(2,3),(2,4))
-                                    ZZ[i,j] *= Wc_l
-                                    ZZ[j,i] = ZZ[i,j]
-                                end
-                            end
+                            # This companion contains physical shear only.
+                            # The taper cross factor corrects residual bending,
+                            # which is absent here; applying it to ZZ would
+                            # amplify anisotropic shear even as taper tends to zero.
                             if shear_diff_taper
                                 for (i, j, gg, rr) in
                                     ((1,2,grad_r,rho2x), (3,4,grad_s,rho2y))
@@ -5591,8 +5569,17 @@ function add_quad4_macneal_shear_rbf!(
                 Wc = (q4_taper_cross_factor(rho2x_f)*gr*gr +
                       q4_taper_cross_factor(rho2y_f)*gs*gs) / gsum
                 if abs(Wc - 1.0) > 1e-15
+                    # Wc corrects the taper-induced residual-bending coupling.
+                    # Physical shear can already have a cross-family block on
+                    # an affine anisotropic cell. Scaling all of Z_total gives
+                    # an O(1) jump for arbitrarily small taper and can make a
+                    # positive section's flexibility indefinite. Restrict the
+                    # update to Zb in the same transported sample basis.
+                    mul!(mw.t4a, Tc, Zb)
+                    mul!(mw.t4b, mw.t4a, transpose(Tc))
                     @inbounds for (i, j) in ((1,3),(1,4),(2,3),(2,4))
-                        Z_total[i,j] *= Wc; Z_total[j,i] = Z_total[i,j]
+                        Z_total[i,j] += (Wc - 1.0) * mw.t4b[i,j]
+                        Z_total[j,i] = Z_total[i,j]
                     end
                 end
             end
@@ -5863,6 +5850,17 @@ function apply_macneal_warp_correction!(Ke::AbstractMatrix{Float64},
         Ke[i, j] = K_warp[i, j]
     end
     return Ke
+end
+
+"""A bilinear Q4 is regular and convex when its four corner Jacobians are positive."""
+function quad4_has_positive_jacobians(coords::AbstractMatrix)
+    size(coords)==(4,2) || return false
+    for (r,s) in ((-1.,-1.),(1.,-1.),(1.,1.),(-1.,1.))
+        dr,ds=shape_derivs_quad(r,s)
+        jac=det([dr';ds']*coords)
+        isfinite(jac) && jac > 0 || return false
+    end
+    return true
 end
 
 @inline function quad4_is_axis_aligned_rectangle(coords::AbstractMatrix; tol::Float64=1e-8)
@@ -6143,7 +6141,14 @@ function quad4_macneal_mean_shear_resultant(coords,u,Cb,Cs,h;
     [qx/area,qy/area]
 end
 
-function quad4_coupled_projected_fields(coords, u, A, B, D)
+function quad4_coupled_projected_fields(coords, u, A, B, D;coords_3d=nothing)
+    # The elastic energy is formed in the projected plane and pulled back by
+    # the common finite-warp congruence. Its stresses must use that same
+    # physical-to-projected displacement, including for a nonzero B matrix.
+    if coords_3d !== nothing && fem_env_bool("JFEM_Q4_WARP_TRANSFORM",true)
+        W=quad4_finite_warp_displacement_map(coords,coords_3d)
+        W === nothing || (u=W*u)
+    end
     T = promote_type(eltype(coords),eltype(u),eltype(A),eltype(B),eltype(D))
     p=1/sqrt(3.0); points=((-p,-p),(p,-p),(p,p),(-p,p))
     dr,ds=shape_derivs_quad(0.0,0.0); dc=([dr';ds']*coords)\[dr';ds']
@@ -6173,7 +6178,7 @@ function quad4_coupled_projected_fields(coords, u, A, B, D)
     Nw[:,3].=dot(weights,view(N,:,3))/sum(weights)
     Mw[:,3].=dot(weights,view(M,:,3))/sum(weights)
     (N_physical=N,M_physical=M,N_work=Nw,M_work=Mw,N_geometric=Ng,
-     weights=weights,eps_center=eps0,kappa_center=kap0,
+     weights=weights,eps_center=eps0,kappa_center=kap0,projected_displacement=u,
      N_center=A*eps0+B*kap0,M_center=transpose(B)*eps0+D*kap0)
 end
 
@@ -6182,12 +6187,14 @@ function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, 
         for_kg && throw(ArgumentError("Use N_geometric explicitly for projected coupled Kg"))
         Cm_override !== nothing && Cb_override !== nothing && Bmb_override !== nothing ||
             throw(ArgumentError("Projected coupled recovery requires A/B/D"))
-        fields=quad4_coupled_projected_fields(coords,u_elem,Cm_override,Bmb_override,Cb_override)
+        fields=quad4_coupled_projected_fields(coords,u_elem,Cm_override,Bmb_override,Cb_override;coords_3d=coords_3d)
         eps=fields.eps_center;kap=fields.kappa_center
         z1=eps.-(h/2).*kap;z2=eps.+(h/2).*kap
         D=(E/(1-nu^2)).*[1 nu 0;nu 1 0;0 0 (1-nu)/2]
         Cs_override !== nothing || throw(ArgumentError("Projected coupled recovery requires physical Cs"))
-        Q=quad4_macneal_center_shear_resultant(coords,u_elem,Cb_override,Cs_override,h;
+        # This is the projected-area mean. The recovery caller reports that
+        # location explicitly; only a flat rectangle also has Qmean=Qcenter.
+        Q=quad4_macneal_mean_shear_resultant(coords,fields.projected_displacement,Cb_override,Cs_override,h;
             Cm=Cm_override,Bmb=Bmb_override,msws=shear_workspace,rigid_shear=shear_rigid_limit)
         result=(fields.N_center,-fields.M_center,Q,D*z1,D*z2,z1,z2)
         if recover_corners
@@ -8116,7 +8123,7 @@ function geometric_stiffness_quad4_nastran_kdjj_iso(coords::AbstractMatrix,
     x3 = coords[3,1]; y3 = coords[3,2]
     x4 = coords[4,1]; y4 = coords[4,2]
     # Keep the historical direct-call default. Production assembly explicitly
-    # enables the supported planar assumption. On an exact rectangle the two
+    # enables the supported projected-plane assumption. On an exact rectangle the two
     # energies coincide: normal gradients are already tied, and constant
     # center-recovered shear integrates to its center product. Retain the old
     # arithmetic there, avoiding needless tying work and last-bit drift.
@@ -8185,8 +8192,8 @@ function geometric_stiffness_quad4_nastran_kdjj_iso(coords::AbstractMatrix,
     #   1/2 sum_gp h*|J| * [bx by] * [sxx sxy; sxy syy] * [bx; by].
     # These are physical gradients at their own tying-point Jacobians, in
     # the diagonal-bisector frame. This is a w-only assumption: it does not
-    # add the rotational terms of MacNeal's full Eq. 32. Assembly disables
-    # it for warped/curvature/director paths, retaining their prior operator.
+    # add the rotational terms of MacNeal's full Eq. 32. Assembly may compose
+    # it with the common finite-warp map, but excludes curvature/director paths.
     tying = assumed_transverse ?
         (grad_p(0.0,-gp), grad_p(0.0,gp), grad_p(-gp,0.0), grad_p(gp,0.0)) : nothing
     assumed_transverse && any(isnothing, tying) && return Kg
@@ -8224,7 +8231,7 @@ function geometric_stiffness_quad4_nastran_kdjj_iso(coords::AbstractMatrix,
                         sxx * dWx[i]*dWx[j] + syy * dWy[i]*dWy[j] +
                         sxy * (dWx[i]*dWy[j] + dWy[i]*dWx[j]))
                 else
-                    # Preserve the established nonplanar route exactly.
+                    # Preserve the explicit legacy/direct-call route exactly.
                     Kg[r0+3, c0+3] += w * (
                         sxx * dNx[i]*dNx[j] +
                         syy * dNy[i]*dNy[j] +
@@ -9052,9 +9059,13 @@ end
 # Consistent geometric stiffness for beam element (Przemieniecki)
 # P = axial force from SOL101 (positive = tension, negative = compression)
 # Local DOFs: [u1,v1,w1,θx1,θy1,θz1, u2,v2,w2,θx2,θy2,θz2]
-function geometric_stiffness_frame3d(L::Float64, P::Float64)
-    kg = zeros(12, 12)
-    if L < 1e-9 || abs(P) < 1e-30; return kg; end
+function geometric_stiffness_frame3d(L::Real, P::Real;
+        torque=zero(P), shear_y=zero(P), shear_z=zero(P),
+        moment_y=zero(P), moment_z=zero(P), radius2=zero(P))
+    scalar = promote_type(typeof(L), typeof(P), typeof(torque), typeof(shear_y),
+        typeof(shear_z), typeof(moment_y), typeof(moment_z), typeof(radius2))
+    kg = zeros(scalar, 12, 12)
+    L < 1e-9 && return kg
 
     c1 = 6.0 * P / (5.0 * L)
     c2 = P / 10.0
@@ -9081,7 +9092,47 @@ function geometric_stiffness_frame3d(L::Float64, P::Float64)
     kg[9,5] = c2;   kg[5,9] = c2
     kg[9,11] = c2;  kg[11,9] = c2
 
+    # Second variation of section strain energy, using cubic Hermite transverse
+    # displacement and linear axial displacement/twist. Section resultants at A
+    # obey My(x)=moment_y+shear_z*x and Mz(x)=moment_z-shear_y*x.
+    # Bending/torsion and shear terms are essential for lateral-torsional buckling;
+    # they remain present when the axial preload is zero. The polar term uses
+    # (Iy+Iz)/A, not the Saint-Venant torsion constant J/A.
+    kg[1,2] = -shear_y/L; kg[1,3] = -shear_z/L
+    kg[1,8] = shear_y/L; kg[1,9] = shear_z/L
+    kg[2,4] = -moment_y/L; kg[2,5] = torque/L
+    kg[2,7] = shear_y/L; kg[2,10] = shear_z+moment_y/L
+    kg[2,11] = -torque/L
+    kg[3,4] = -moment_z/L; kg[3,6] = torque/L
+    kg[3,7] = shear_z/L; kg[3,10] = -shear_y+moment_z/L
+    kg[3,12] = -torque/L
+    kg[4,4] = P*radius2/L; kg[4,10] = -P*radius2/L
+    kg[4,5] = moment_z/2-L*shear_y/6
+    kg[4,6] = -moment_y/2-L*shear_z/6
+    kg[4,8] = moment_y/L; kg[4,9] = moment_z/L
+    kg[4,11] = L*shear_y/6; kg[4,12] = L*shear_z/6
+    kg[5,8] = -torque/L; kg[5,10] = L*shear_y/6
+    kg[5,12] = torque/2
+    kg[6,9] = -torque/L; kg[6,10] = L*shear_z/6
+    kg[6,11] = -torque/2
+    kg[7,8] = -shear_y/L; kg[7,9] = -shear_z/L
+    kg[8,10] = -shear_z-moment_y/L; kg[8,11] = torque/L
+    kg[9,10] = shear_y-moment_z/L; kg[9,12] = torque/L
+    kg[10,10] = P*radius2/L
+    kg[10,11] = L*shear_y/3-moment_z/2
+    kg[10,12] = L*shear_z/3+moment_y/2
+    for j in 1:12, i in (j+1):12
+        kg[i,j] = kg[j,i]
+    end
     return kg
+end
+
+"""Beam geometric stiffness from the local elastic nodal resisting-force vector."""
+function geometric_stiffness_frame3d(L::Real, force::AbstractVector, radius2::Real)
+    length(force) == 12 || throw(DimensionMismatch("Beam force vector must have 12 entries"))
+    return geometric_stiffness_frame3d(L, force[7]; torque=-force[4],
+        shear_y=-force[2], shear_z=-force[3], moment_y=-force[5],
+        moment_z=-force[6], radius2=radius2)
 end
 
 # Geometric stiffness for rod/truss element.
@@ -10690,6 +10741,27 @@ function consistent_mass_rod(L::Float64, rho::Float64, A::Float64)
     Me[2,2] = m/2; Me[3,3] = m/2
     Me[8,8] = m/2; Me[9,9] = m/2
 
+    return Me
+end
+
+"""
+    nastran_coupled_mass_cbar(L, rho, A) -> 12x12 Matrix
+
+MSC/Nastran CBAR coupled mass: Hermite bending translations, an equal blend
+of linear-consistent and end-lumped axial inertia, and no independent section
+rotary inertia. This native compatibility convention is distinct from the
+textbook consistent beam matrix and is observable in the complete axial
+spectrum, even though total mass and all bending roots are unchanged.
+See MSC Nastran 2023.2 Dynamic Analysis User's Guide, printed page 26,
+"Mass Matrix": CBAR axial coupled mass averages lumped and classical
+consistent mass. The convention is also verified against MSC/Nastran 70.5.
+"""
+function nastran_coupled_mass_cbar(L::Float64, rho::Float64, A::Float64)
+    Me = consistent_mass_frame3d(L, rho, A, 0.0, 0.0)
+    if L < 1e-12 || rho < 1e-30 || A < 1e-30; return Me; end
+    m = rho * A * L
+    Me[1,1] = Me[7,7] = 5m/12
+    Me[1,7] = Me[7,1] = m/12
     return Me
 end
 

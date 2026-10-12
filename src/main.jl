@@ -20,6 +20,7 @@ _jfem_modules_preloaded =
 println(_jfem_modules_preloaded ? ">>> Reusing Loaded Modules..." : ">>> Loading Modules...")
 
 include("jfem_bootstrap.jl")
+include("pipeline_timings.jl")
 
 # ============================================================================
 # Convenience entry point: BDF file → solve → export (backward compatible)
@@ -46,52 +47,61 @@ function main(filename::String;
 
     # --- Stage 1: BDF → Model Dict ---
     # Parse BDF once, build model, and export card inventory
-    t_parse_start = time_ns()
-    println(">>> Reading BDF file: $filename")
-    lines = readlines(filename)
-    lines = NastranParser.resolve_includes(lines, dirname(abspath(filename)))
-    println(">>> Checking format...")
-    lines = NastranParser.convert_mystran_to_nastran(lines)
-    println(">>> Parsing Bulk Data...")
-    cc, bulk = NastranParser.read_bulk_and_case(lines)
-    cards = NastranParser.process_cards(bulk)
-    if export_card_inventory
-        _ensure_export_extensions!()
-        Base.invokelatest(getfield(@__MODULE__, :export_card_inventory), cards, output_dir, filename)
+    phases = Dict{String,Any}()
+    cards, cc = _pipeline_measure!(phases, "parse") do
+        println(">>> Reading BDF file: $filename")
+        lines = readlines(filename)
+        lines = NastranParser.resolve_includes(lines, dirname(abspath(filename)))
+        println(">>> Checking format...")
+        lines = NastranParser.convert_mystran_to_nastran(lines)
+        println(">>> Parsing Bulk Data...")
+        cc, bulk = NastranParser.read_bulk_and_case(lines)
+        cards = NastranParser.process_cards(bulk)
+        if export_card_inventory
+            _ensure_export_extensions!()
+            Base.invokelatest(getfield(@__MODULE__, :export_card_inventory), cards, output_dir, filename)
+        end
+        cards, cc
     end
-    t_parse = (time_ns() - t_parse_start) * 1e-9
+    t_parse = phases["parse"]["wall_seconds"]
 
-    t_build_start = time_ns()
-    println(">>> Constructing Model Data...")
-    model = build_model(cards, cc)
-    resolve_nested_coords!(model)
-    transform_geometry!(model)
-    t_build = (time_ns() - t_build_start) * 1e-9
+    model = _pipeline_measure!(phases, "build_model") do
+        println(">>> Constructing Model Data...")
+        model = build_model(cards, cc)
+        resolve_nested_coords!(model)
+        transform_geometry!(model)
+        model
+    end
+    t_build = phases["build_model"]["wall_seconds"]
 
     # Optionally write the model dict as JSON (e.g. test.bdf → test.bdf.json)
     if export_model_json
-        json_path = filename * ".json"
-        println(">>> Exporting model JSON: $json_path")
-        Base.invokelatest(_export_write_json, json_path, model, 2)
-        println(">>> Model JSON exported: $json_path")
+        _pipeline_measure!(phases, "model_export") do
+            json_path = filename * ".json"
+            println(">>> Exporting model JSON: $json_path")
+            Base.invokelatest(_export_write_json, json_path, model, 2)
+            println(">>> Model JSON exported: $json_path")
+        end
     end
 
     # --- Stage 2: Solve ---
-    t_solve_start = time_ns()
-    results = solve_model(model)
-    t_solve = (time_ns() - t_solve_start) * 1e-9
+    results = _pipeline_measure!(phases, "solve") do
+        solve_model(model)
+    end
+    t_solve = phases["solve"]["wall_seconds"]
 
     # --- Stage 3: Export ---
     # Run the non-report exporters first so we can measure their wall time
     # and include it in the markdown report, then write the report itself.
-    t_export_start = time_ns()
-    export_results(results, filename, output_dir;
-        export_json=export_json,
-        export_vtk=export_vtk,
-        export_hdf5=export_hdf5,
-        export_jfem_binary=export_jfem_binary,
-        export_report=false)
-    t_export = (time_ns() - t_export_start) * 1e-9
+    _pipeline_measure!(phases, "export") do
+        export_results(results, filename, output_dir;
+            export_json=export_json,
+            export_vtk=export_vtk,
+            export_hdf5=export_hdf5,
+            export_jfem_binary=export_jfem_binary,
+            export_report=false)
+    end
+    t_export = phases["export"]["wall_seconds"]
 
     pipeline_timings = Dict{String,Any}(
         "parse"       => t_parse,
@@ -100,28 +110,38 @@ function main(filename::String;
         "export"      => t_export,
     )
     if export_report
-        Base.invokelatest(export_markdown_report, results, filename, output_dir; timings=pipeline_timings)
+        _pipeline_measure!(phases, "report") do
+            Base.invokelatest(export_markdown_report, results, filename, output_dir; timings=pipeline_timings)
+        end
     end
 
     # --- Adjoint sensitivity (optional) ---
     adjoint_config = joinpath(dirname(abspath(filename)), "adjoint_config.json")
     if isfile(adjoint_config)
-        sol = get(results, "sol_type", 0)
-        base_name = splitext(basename(filename))[1]
-        adj_output = joinpath(output_dir, base_name * ".ADJOINT.JSON")
-        if sol == 101
-            println(">>> Found adjoint_config.json — running adjoint sensitivity analysis (SOL 101)")
-            adj_results = solve_adjoint(results, adjoint_config)
-            export_adjoint_json(adj_results, adj_output)
-            println(">>> Adjoint results written to: $adj_output")
-        elseif sol == 105
-            println(">>> Found adjoint_config.json — running buckling sensitivity analysis (SOL 105)")
-            adj_results = solve_adjoint_buckling(results, adjoint_config)
-            export_adjoint_json(adj_results, adj_output)
-            println(">>> Buckling adjoint results written to: $adj_output")
+        _pipeline_measure!(phases, "adjoint") do
+            sol = get(results, "sol_type", 0)
+            base_name = splitext(basename(filename))[1]
+            adj_output = joinpath(output_dir, base_name * ".ADJOINT.JSON")
+            if sol == 101
+                println(">>> Found adjoint_config.json — running adjoint sensitivity analysis (SOL 101)")
+                adj_results = solve_adjoint(results, adjoint_config)
+                export_adjoint_json(adj_results, adj_output)
+                println(">>> Adjoint results written to: $adj_output")
+            elseif sol == 105
+                println(">>> Found adjoint_config.json — running buckling sensitivity analysis (SOL 105)")
+                adj_results = solve_adjoint_buckling(results, adjoint_config)
+                export_adjoint_json(adj_results, adj_output)
+                println(">>> Buckling adjoint results written to: $adj_output")
+            end
         end
     end
 
+    timing_payload = _pipeline_timing_payload(phases)
+    timing_path = joinpath(output_dir, splitext(basename(filename))[1] * ".TIMINGS.JSON")
+    Base.invokelatest(_export_write_json, timing_path, timing_payload, 2)
+    # Machine-readable log record also survives clients with bounded log tails.
+    println("[JFEM_TIMINGS] " * JSON.json(timing_payload))
+    flush(stdout)
     return results
 end
 

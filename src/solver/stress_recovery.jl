@@ -262,6 +262,7 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
         stress_ok = true
         coupled_projected_recovery = false
         rectangular_pcomp_recovery = false
+        ply_strain_transform = nothing
 
         if n==4
             i1, i2, i3, i4 = id_map[nids[1]], id_map[nids[2]], id_map[nids[3]], id_map[nids[4]]
@@ -332,14 +333,17 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
             complete_clt_recovery = get(prop,"IS_ISOTROPIC",nothing) isa Bool &&
                 get(prop,"Cs",nothing) isa AbstractMatrix && size(prop["Cs"]) == (2,2) &&
                 get(prop,"Cb",nothing) isa AbstractMatrix && size(prop["Cb"]) == (3,3)
-            rectangular_pcomp_recovery = complete_clt_recovery &&
+            planar_pcomp_recovery = complete_clt_recovery &&
                 coupled_pcomp_projected_enabled(view(lc_buf,1:4,:),clt_Bmb;
                 require_coupling=false,
                 is_pcomp=is_pcomp_clt,isotropic=get(prop,"IS_ISOTROPIC",false),
                 coords_3d=coords3d_sr,snorm_pq=snorm_pq,curvature_membrane=curvature_membrane,
                 kernel_mode=get(ENV,"JFEM_Q4_KERNEL_STATIC",get(ENV,"JFEM_Q4_KERNEL","macneal")),
                 sol_type=get(model,"SOL",101),rigid_shear=get(prop,"TRANSVERSE_SHEAR_RIGID_LIMIT",false))
-            coupled_projected_recovery = rectangular_pcomp_recovery &&
+            rectangular_pcomp_recovery = planar_pcomp_recovery &&
+                FEM.quad4_is_axis_aligned_rectangle(view(lc_buf,1:4,:)) &&
+                (coords3d_sr === nothing || FEM.quad4_finite_warp_displacement_map(view(lc_buf,1:4,:),coords3d_sr) === nothing)
+            coupled_projected_recovery = planar_pcomp_recovery &&
                 clt_Bmb !== nothing && any(!iszero,clt_Bmb)
             clt_Cs = nothing
             ply_strain_transform = nothing
@@ -363,7 +367,7 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                     "JFEM_Q4_STATIC_COMPONENT_CM11_SCALE","JFEM_Q4_STATIC_COMPONENT_CM22_SCALE",
                     "JFEM_Q4_STATIC_COMPONENT_CM66_SCALE","JFEM_Q4_STATIC_COMPONENT_CB_SCALE",
                     "JFEM_Q4_STATIC_COMPONENT_CS_SCALE","JFEM_Q4_STATIC_COMPONENT_BMB_SCALE"))
-            if rectangular_pcomp_recovery || mean_shear_recovery
+            if planar_pcomp_recovery || mean_shear_recovery
                 clt_Bmb=clt_Bmb === nothing ? nothing : copy(clt_Bmb)
                 clt_Cs=copy(prop["Cs"])
                 coupled_shear_workspace === nothing && (coupled_shear_workspace=FEM.create_macneal_shear_workspace())
@@ -410,12 +414,14 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                         msws=coupled_shear_workspace,
                         rigid_shear=Bool(get(prop,"TRANSVERSE_SHEAR_RIGID_LIMIT",false)) &&
                             solver_env_bool("JFEM_MAT8_BLANK_TS_RIGID_LIMIT",true))
-                elseif mean_shear_recovery
-                    Q = FEM.quad4_macneal_mean_shear_resultant(view(lc_buf,1:4,:),u_el,
-                        clt_Cb,clt_Cs,Float64(prop["T"]);Cm=clt_Cm,Bmb=clt_Bmb,
-                        msws=coupled_shear_workspace,
-                        rigid_shear=Bool(get(prop,"TRANSVERSE_SHEAR_RIGID_LIMIT",false)) &&
-                            solver_env_bool("JFEM_MAT8_BLANK_TS_RIGID_LIMIT",true))
+                elseif mean_shear_recovery || coupled_projected_recovery
+                    if !coupled_projected_recovery
+                        Q = FEM.quad4_macneal_mean_shear_resultant(view(lc_buf,1:4,:),u_el,
+                            clt_Cb,clt_Cs,Float64(prop["T"]);Cm=clt_Cm,Bmb=clt_Bmb,
+                            msws=coupled_shear_workspace,
+                            rigid_shear=Bool(get(prop,"TRANSVERSE_SHEAR_RIGID_LIMIT",false)) &&
+                                solver_env_bool("JFEM_MAT8_BLANK_TS_RIGID_LIMIT",true))
+                    end
                     diagnostic=get!(results_json,"recovery_diagnostics",Dict{String,Any}())
                     push!(get!(diagnostic,"area_mean_transverse_shear_eids",Int[]),eid)
                     diagnostic["transverse_shear_location"]="Area-mean MacNeal laminate shear resultants; not a distorted-element centroid extrapolation."
@@ -574,7 +580,7 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                 Qbar = pd["Qbar"]
                 z_mid = (pd["z_bot"] + pd["z_top"]) / 2.0
                 strain_ply = eps_mem .+ z_mid .* kappa
-                stress_ply = if rectangular_pcomp_recovery && ply_strain_transform !== nothing
+                stress_ply = if ply_strain_transform !== nothing
                     transpose(ply_strain_transform)*(Qbar*(ply_strain_transform*strain_ply))
                 else
                     Qbar * strain_ply

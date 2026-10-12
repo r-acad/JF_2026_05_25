@@ -711,6 +711,7 @@ function handle_jfem_status(st::AppState, req)
             "job" => job.id,
             "state" => String(job.state),
             "seconds" => round(job_seconds(job); digits = 2),
+            "timings" => job_timings(job),
             "exit_code" => job.exitcode,
             "message" => job.message,
             "lines" => batch.lines,

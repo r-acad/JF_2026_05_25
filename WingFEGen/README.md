@@ -22,6 +22,15 @@ ribs by rib. These local properties exist even without overrides and inherit
 their shared defaults. They provide independent component sensitivity variables.
 Regenerate the FEM and rerun analyses to use the new property IDs.
 
+In **Analysis / Sensitivity**, component family selections expand into their
+independent bay/rib variables, including overridden properties. Reading model
+properties converts older shared-component selections and saves the local IDs
+with the Study. Individual locations can be deselected. **Run sensitivity**
+computes a separate derivative for each selected location; no analysis runs
+automatically. Material variables keep their shared scope. Historical tables
+retain their recorded shared results until a new analysis is explicitly run;
+one shared derivative is never copied or divided among bays.
+
 Sensitivity data offers a **red-negative / blue-positive** palette, with
 unit-specific scales fitted to the displayed values. Numbers use at most five
 significant digits; CSV retains full precision. Units sit beside the scales.
@@ -549,6 +558,48 @@ VLM mesh, pressure/Cp, panel-force vectors and applied RBE3 loads can be display
 with sensitivities. Each legend names its case. The aerodynamic view represents
 the prescribed undeformed lattice, not a newly computed aeroelastic solution.
 
+## Portable Nastran export
+
+The in-process API can write 16-column large fields when additional coordinate
+and property precision is needed with traditional Nastran line-length limits:
+
+```julia
+include("WingFEGen/src/WingFEGen.jl")
+using .WingFEGen
+model = build_model(read_input("WingFEGen/examples/wing_default.toml"))
+write_nastran(model, "wing_large.bdf"; large_field=true)
+```
+
+The default eight-column export remains available. Large-field cards use paired
+`*` continuation lines. Generated CBAR entries leave the default convention
+field blank, preserving BASIC-frame bar offsets and supporting older readers
+such as MSC Nastran 70.5. SOL105 explicitly applies the selected SPC set to both
+the static preload and its buckling subcase. Exact Float64 free-field output
+used for native sensitivities remains separate from this portable format.
+
+## Analysis timings and buckling preload results
+
+The completion message reports numerical solution time with Julia compilation
+excluded. The Log and result summary separately show compilation within analysis
+stages, deck/model preparation, export, and startup/package-loading overhead.
+The solver writes the underlying per-stage measurements to `<deck>.TIMINGS.JSON`.
+Assembly, constraints, equilibrium/eigenvalue solves and numerical recovery count
+as solution work; result-file reading and viewport preparation are timed separately.
+Older solver runs without measurements report unavailable solution time rather
+than substituting their total elapsed time.
+
+Every SOL105 calculation uses a static equilibrium preload. Its actual recovered
+displacements and requested fields are available through **SOL101 preload** in
+Results, without another static solve. When an imported source deck lists a
+separate static subcase, selecting that original case also shows its preload.
+Legacy local-METHOD decks use the solver's recorded preload ownership, even when
+the source has no explicit STATSUB. Static fields suppressed by case-control
+output requests remain suppressed; the retained preload displacement is still
+available for visualizing the reference shape.
+
+Buckling modes use their own normalized display amplitude; changing the static
+preload magnitude does not change the displayed mode size.
+
 ## Portable checks
 
 Startup prints the Julia version, thread count, package names and versions,
@@ -560,7 +611,32 @@ From the repository root:
 
 ```sh
 julia --project=WingFEGen WingFEGen/test/portable_smoke_test.jl
+julia --project=WingFEGen WingFEGen/test/nastran_large_field_test.jl
 julia --project=WingFEGen WingFEGen/test/portable_smoke_test.jl --native
+```
+
+The SOL105 preload regression compares its fields with an independent SOL101
+solution and checks that exporting the preload does not solve equilibrium again.
+Its saved synthetic results can also exercise the browser case selectors:
+
+```sh
+julia --project=WingFEGen WingFEGen/test/sol105_preload_results_test.jl <preload-output-dir>
+julia --project=WingFEGen WingFEGen/test/export_sol105_preload_browser_fixtures.jl <preload-output-dir> <browser-fixture-dir>
+node WingFEGen/test/sol105_imported_case_selection_browser_test.cjs <browser-fixture-dir>
+```
+
+The optional browser check requires Playwright and its Chromium browser
+(`npx playwright install chromium` after installing the Playwright package).
+`WING_PLAYWRIGHT_MODULE` can specify the module path. By default it uses
+Playwright's bundled browser; set `CHROME_PATH` only to use an explicit browser
+executable. It reads the saved solver results and starts no new analysis.
+
+The analytic CBAR derivative regression also checks coupled mass and section
+offset derivatives against assembled native operators. Pass two scratch folders
+for its synthetic input decks and numerical outputs:
+
+```sh
+julia --project=WingFEGen WingFEGen/test/sensitivity_analytic_beams_test.jl <scratch-input-dir> <scratch-output-dir>
 ```
 
 The ordinary smoke test checks the factory model, mesh/deck generation,
@@ -577,6 +653,10 @@ node WingFEGen/test/result_palettes_test.cjs
 node WingFEGen/test/property_display_test.cjs
 node WingFEGen/test/load_glyphs_test.cjs
 node WingFEGen/test/sensitivity_filter_test.cjs
+node WingFEGen/test/sensitivity_component_selection_test.cjs
+node WingFEGen/test/jfem_timing_test.cjs
+node WingFEGen/test/sensitivity_component_availability_test.cjs
+node WingFEGen/test/sensitivity_component_tables_test.cjs
 node WingFEGen/test/import_and_table_colors_test.cjs
 node WingFEGen/test/panel_explode_test.cjs
 node WingFEGen/test/scene_lighting_test.cjs
@@ -587,9 +667,11 @@ node WingFEGen/test/solid_geometry_test.cjs
 node WingFEGen/test/imported_analysis_test.cjs
 node WingFEGen/test/imported_follower_display_test.cjs
 julia --project=WingFEGen WingFEGen/test/startup_progress_test.jl
+julia --project=WingFEGen WingFEGen/test/job_log_progress_test.jl
 julia --project=WingFEGen WingFEGen/test/imported_analysis_overlay_test.jl
 julia --project=WingFEGen WingFEGen/test/shell_display_payload_test.jl
 julia --project=WingFEGen WingFEGen/test/portable_paths_test.jl
+julia --project=WingFEGen WingFEGen/test/sensitivity_component_selection_test.jl /path/to/private-test-output
 julia --project=WingFEGen WingFEGen/test/payload_roundtrip_test.jl
 julia --project=WingFEGen WingFEGen/test/nastran_source_test.jl
 julia --project=. WingFEGen/test/nastran_import_smoke_test.jl
@@ -598,6 +680,62 @@ julia --project=. WingFEGen/test/model_entities_payload_test.jl
 julia --project=. WingFEGen/test/follower_metadata_test.jl
 julia --project=. WingFEGen/test/imported_analysis_test.jl
 ```
+
+The importer readiness check also uses Playwright's bundled Chromium by default:
+
+```sh
+node WingFEGen/test/nastran_ready_browser_test.cjs
+```
+
+For this check, `WINGFEGEN_PLAYWRIGHT_MODULE` overrides the module path and
+`CHROME_BIN` selects an explicit browser executable. No solver is started.
+
+Component-table routing can be reproduced with the included synthetic fixture
+producer. Its derivatives are deliberately synthetic and verify display routing,
+selection, and persistence only:
+
+```sh
+julia --project=WingFEGen WingFEGen/test/component_sensitivity_table_fixture.jl <table-fixture-dir>
+node WingFEGen/test/sensitivity_component_availability_test.cjs <table-fixture-dir>/table_fixture.json
+node WingFEGen/test/sensitivity_component_selection_browser_test.cjs <evidence-dir> playwright <table-fixture-dir>/table_fixture.json
+```
+
+The separate numerical-table integration check consumes an **already completed**
+SOL101 analytic-adjoint run. It does not generate derivatives or start a solve:
+
+```sh
+node WingFEGen/test/sensitivity_component_numeric_table_test.cjs <numeric-fixture.json> <evidence-dir>
+```
+
+The JSON contract is `{ "catalog": ..., "result": ..., "rib_count": R }`.
+`catalog` must come from `sensitivity_catalog` for the exact saved baseline
+model, `result` is the unchanged saved numerical result, and `R` is that model's
+rib count. The qualifying fixture has at least three ribs, all 11 component
+parts, single-thickness web/leading-edge shell families, square spar caps, and
+four-dimension T rib stiffeners. Its request and returned rows contain exactly
+all catalogue variables with a `component_key`, one successful finite derivative
+per physical PID. The result records `method="analytic_discrete_adjoint"`, one
+forward solve, one adjoint solve, zero perturbed forward solves, and zero
+finite-difference samples. At least two front-web bay derivatives must differ.
+
+To package a qualifying saved run, start `julia --project=WingFEGen` at the
+repository root and run the following, replacing the three example filenames.
+This rebuilds only the saved baseline model and retains the result values:
+
+```julia
+include("WingFEGen/src/WingFEGen.jl")
+using .WingFEGen, JSON
+model = build_model(read_input("saved_baseline.toml"))
+result = JSON.parsefile("saved_result.json")
+@assert result["baseline_model_signature"] == WingFEGen.sensitivity_model_signature(model)
+fixture = Dict("catalog" => WingFEGen.sensitivity_catalog(model),
+               "result" => result, "rib_count" => length(model.grid.ribs))
+write("numeric-fixture.json", JSON.json(fixture))
+```
+
+The synthetic routing fixture cannot substitute for this numerical fixture.
+Keep saved runs, fixtures, generated CSVs, and screenshots in a scratch directory
+outside the repository.
 
 The solver's separate curated validation suite is described in the repository
 [README](../README.md). Development campaigns and user analysis outputs are not

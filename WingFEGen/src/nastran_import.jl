@@ -446,12 +446,35 @@ include("nastran_import_analysis.jl")
 
 imported_public_params(m)=Dict(k=>v for (k,v) in m.params if !startswith(k,"imported."))
 
+"""Use the solver's resolved preload ownership, including legacy local-METHOD decks."""
+function imported_buckling_ownership(data,subs)
+    ownership=Dict{Int,Int}()
+    for row in Iterators.flatten((get(data,"subcases",Any[]),get(data,"modes",Any[])))
+        haskey(row,"buckling_subcase_id")&&haskey(row,"static_subcase_id")||continue
+        sid,preload=Int(row["buckling_subcase_id"]),Int(row["static_subcase_id"])
+        haskey(subs,sid)&&haskey(subs,preload)||throw(ArgumentError("Buckling result refers to a subcase outside the solved deck"))
+        get(ownership,sid,preload)==preload||throw(ArgumentError("Conflicting preload ownership for buckling subcase $sid"))
+        declared=get(subs[sid],"STATSUB",nothing)
+        declared===nothing||Int(declared)==preload||throw(ArgumentError("Buckling result preload conflicts with STATSUB for subcase $sid"))
+        ownership[sid]=preload
+    end
+    # Older exports may lack metadata; explicit STATSUB is still unambiguous.
+    if isempty(ownership)
+        for (sid,sub) in subs
+            get(sub,"STATSUB",nothing)===nothing||(ownership[Int(sid)]=Int(sub["STATSUB"]))
+        end
+    end
+    ownership
+end
+
 function imported_results_payload(job)
     path,data=find_results_json(job.outdir);path===nothing&&throw(ArgumentError("No native result JSON was produced; inspect the solver log"))
     m=job.model;specs=load_case_specs(m.params);atype=String(get(data,"analysis_type",""));cases=Any[]
     subs=imported_native(m)["CASE_CONTROL"]["SUBCASES"]
     mapping=get(m.params,"imported.analysis_cases",Dict{Int,Int}())
-    startswith(atype,"SOL105")&&(specs=filter(spec->get(subs[get(mapping,spec.id,spec.id)],"STATSUB",nothing)!==nothing,specs))
+    all_specs=specs
+    ownership=startswith(atype,"SOL105") ? imported_buckling_ownership(data,subs) : Dict{Int,Int}()
+    startswith(atype,"SOL105")&&(specs=filter(spec->haskey(ownership,get(mapping,spec.id,spec.id)),specs))
     isempty(specs)&&throw(ArgumentError("Native results have no matching source analysis subcase"))
     for spec in specs
         sid=get(mapping,spec.id,spec.id)
@@ -459,13 +482,27 @@ function imported_results_payload(job)
         item=jfem_case_results_payload(job,path,selected;native_sid=sid)
         item["id"]=spec.id;item["label"]=spec.label;item["static_subcase_id"]=spec.id
         if startswith(atype,"SOL105")
-            item["static_subcase_id"]=Int(subs[sid]["STATSUB"]);item["buckling_subcase_id"]=sid
+            item["static_subcase_id"]=ownership[sid];item["buckling_subcase_id"]=sid
         end
         item["model_params"]=imported_public_params(m);item["imported_signature"]=m.params["imported.source"]["signature"]
         item["imported_analysis"]=get(m.params,"imported.analysis",imported_analysis_options())
         item["imported_analysis_signature"]=imported_analysis_signature(m)
         startswith(atype,"SOL105") && attach_buckling_preload!(job,path,item,selected,item["static_subcase_id"])
         push!(cases,item)
+    end
+    # In an original SOL105 deck the preload also appears in the Loads case
+    # selector. Publish that case's actual SOL101 result, rather than leaving
+    # it unavailable while hiding it inside its companion buckling case.
+    present=Set(Int(item["id"]) for item in cases)
+    for item in copy(cases)
+        haskey(item,"variants")||continue
+        sid=Int(item["static_subcase_id"])
+        sid in present&&continue
+        spec=findfirst(s->s.id==sid&&get(mapping,s.id,s.id)==sid,all_specs)
+        spec===nothing&&continue
+        preload=only(filter(v->get(v,"source",nothing)=="buckling_preload",item["variants"]))
+        record=copy(preload);record["id"]=sid;record["label"]=all_specs[spec].label*" · SOL101 preload"
+        push!(cases,record);push!(present,sid)
     end
     payload=copy(first(cases));payload["load_cases"]=cases;payload["load_case_independent"]=false
     payload
@@ -480,7 +517,9 @@ function imported_case_result(data,sid,subs,ids)
         length(ids)>1&&!tagged&&throw(ArgumentError("Native modal results lack subcase ownership; refusing to mix source cases"))
         selected["modes"]=tagged ? filter(row->Int(row["sid"])==sid,modes) : modes
     elseif startswith(atype,"SOL105")
-        preload=Int(subs[sid]["STATSUB"])
+        ownership=imported_buckling_ownership(data,subs)
+        haskey(ownership,sid)||throw(ArgumentError("No resolved static preload for buckling subcase $sid"))
+        preload=ownership[sid]
         tagged=all(row->haskey(row,"buckling_subcase_id")&&haskey(row,"static_subcase_id"),modes)
         length(ids)>1&&!tagged&&throw(ArgumentError("Native buckling results lack subcase ownership; refusing to mix source cases"))
         selected["modes"]=tagged ? filter(row->Int(row["buckling_subcase_id"])==sid&&Int(row["static_subcase_id"])==preload,modes) : modes

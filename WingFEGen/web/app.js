@@ -2176,8 +2176,11 @@ function installSensitivity() {
   if(typeof WingSensitivityTables!=="undefined"){
     state.sensitivityTables=WingSensitivityTables.connect({readSnapshot:()=>{
       const current=!!state.data&&!state.modelDirty&&!resultsHavePendingDrafts()&&state.sensitivityMeta?.signature===state.modelSignature;
+      const setupChanged=state.sensitivity?.isSetupCurrent?.()===false;
+      const compatibility={...state.sensitivityMeta?.compatibility,...(!current?{is_current:false,topology_match:false,map_allowed:false}:{})};
+      if(setupChanged){compatibility.is_current=false;compatibility.reasons=[...(compatibility.reasons||[]),"Sensitivity selection or response changed. Run sensitivity to calculate the newly selected local properties; this table retains the recorded run."];}
       return{result:state.sensitivityResult,scope:state.sensitivityMeta?.scope,sourcePath:state.sensitivityMeta?.source_path,
-        compatibility:{...state.sensitivityMeta?.compatibility,...(!current?{is_current:false,topology_match:false,map_allowed:false}:{})},
+        compatibility,
         panels:current?state.data?.stiffened_panels?.panels||[]:[]};
     },onError:message=>log(message,"error")});
     state.sensitivityTables.installButton(document.getElementById("sensitivity-csv").parentElement);
@@ -3015,7 +3018,7 @@ async function pollJfem() {
     if (j.omitted_lines > 0) log(j.omitted_lines.toLocaleString() + " older solver lines skipped in the live view; full output remains in " + j.log_path, "warn");
     logBatch((j.lines || []).map(ln => ln.trim()).filter(Boolean).map(t => ({ text: "  " + t,
       kind: /error|failed/i.test(t) ? "err" : /applied load|load target/i.test(t) ? "good" : "info" })));
-    badge((j.state === "running" ? "JFEM is running" : "JFEM " + j.state) + "  " + j.seconds.toFixed(0) + " s",
+    badge((j.state === "running" ? "JFEM is running" : "JFEM " + j.state) + "  " + j.seconds.toFixed(0) + " s elapsed",
           j.state === "running" ? "run" : (j.state === "done" ? "" : "bad"));
     solverActivity(j.state === "running", j.progress);
 
@@ -3034,7 +3037,7 @@ async function pollJfem() {
       }
       if (!j.results_available) { finishRun(false, j.state); return; }
     }
-    log("JFEM finished in " + j.seconds.toFixed(1) + " s; reading available results…", "good");
+    for(const message of WingRunTimings.completion(j))log(message,"good");
     const loaded = await loadJfemResults();
     if (loaded !== false && typeof activateWorkspaceTab === "function") activateWorkspaceTab("results");
     finishRun(loaded !== false, j.state);
@@ -3077,6 +3080,7 @@ async function stopJfem() {
 }
 
 async function loadJfemResults() {
+  const readStarted=performance.now();
   const token = activity()?.begin("Loading analysis results", {detail:"Reading solver output and building contours…"});
   try {
   const res = await fetch("/api/jfem_results?job=" + encodeURIComponent(state.jobId),
@@ -3117,6 +3121,7 @@ async function loadJfemResults() {
       (results.modes.length ? ", " + results.modes.length + " modes" : "") +
       ", " + (byteLength / 1024).toFixed(0) + " kB", "good");
   log("solver output folder: " + results.outDir);
+  log("Results reading, decoding and display preparation: "+((performance.now()-readStarted)/1000).toFixed(1)+" s (separate from solution time).");
   return Array.from(state.resultCases.values()).some(record =>
     Array.from(record.variants?.values() || [record]).some(result => result.available !== false && result.matches && (result.static || result.modes.length)));
   } finally { activity()?.end(token); }
@@ -4590,7 +4595,9 @@ function amplitude() {
   const a = activeShape();
   if (!a) return 0;
   if (state.realScale && state.activeMode < 0) return 1;
-  const paired = Array.from(currentResultVariants().values()).filter(r => r.available !== false && r.matches && r.static);
+  // Eigenvectors have an independent normalization; the physical preload must
+  // never set their display amplitude when both analyses are available.
+  const paired = state.activeMode >= 0 ? [] : Array.from(currentResultVariants().values()).filter(r => r.available !== false && r.matches && r.static);
   const maxDisp = paired.length ? Math.max(...paired.map(r => r.static.maxDisp || 0)) : a.maxDisp;
   // Pure beam torsion can have zero grid translation. Keep its physical
   // rotation visible, with the same user-controlled scale multiplier.

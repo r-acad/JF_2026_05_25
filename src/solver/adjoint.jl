@@ -507,8 +507,7 @@ function _pcomp_response_update_ply_data!(
     Bmb = maximum(abs.(B)) > 1e-10 * maximum(abs.(A)) ? B : nothing
     builder = parentmodule(@__MODULE__)
     Cs = if prop["PCOMP_WHITNEY_SHEAR"]
-        kx, ky = builder.pcomp_whitney_kappa(updated_ply_data, total_t)
-        builder._laminate_corrected_shear(Ash, kx, ky)
+        builder.pcomp_energy_shear(updated_ply_data, total_t)
     else
         (5.0/6.0) .* Ash
     end
@@ -2116,7 +2115,11 @@ function _adjoint_pcomp_zero_limit_supported(results, pid)
             v1,v2,_ = shell_element_frame_quad4(points[1],points[2],points[3],points[4],frame)
             center = sum(points)/4
             local_xy = [dot(points[k]-center,v) for k in 1:4, v in (v1,v2)]
+            # The flat-convex nonzero-B energy domain is broader than the
+            # independently established B=0 formulation-boundary derivative.
+            FEM.quad4_is_axis_aligned_rectangle(local_xy) || return false
             xyz = [points[k][j] for k in 1:4, j in 1:3]
+            FEM.quad4_finite_warp_displacement_map(local_xy,xyz) === nothing || return false
             coupled_pcomp_projected_enabled(local_xy,get(prop,"Bmb",nothing);
                 is_pcomp=true,isotropic=Bool(get(prop,"IS_ISOTROPIC",false)),
                 coords_3d=xyz,kernel_mode=kernel,require_coupling=false,sol_type=101) || return false

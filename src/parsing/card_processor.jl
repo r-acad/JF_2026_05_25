@@ -211,7 +211,12 @@ function read_bulk_and_case(lines::Vector{String})
                 end
             end
         else
-            if length(strip(cl)) > 1
+            # An otherwise empty continuation still occupies data fields.
+            # In large-field PCOMP/PBARL, the blank second header half is
+            # essential: dropping "*" moves the first ply/section dimensions
+            # into header slots and silently changes the physical property.
+            bulk_token = strip(cl)
+            if length(bulk_token) > 1 || bulk_token == "*" || bulk_token == "+"
                 push!(bulk_lines, String(rstrip(cl)))
             end
         end

@@ -6,6 +6,70 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Laminate shell energy and prestress consistency.** Retain membrane-bending
+  coupling in triangular-shell prestress, and use the same isotropic membrane
+  operator for physically equivalent PSHELL and PCOMP sections. Recover full
+  reciprocal laminate transverse shear compliance about directional neutral
+  surfaces, including unsymmetric layups. Restore tapered MacNeal energy
+  continuity and anisotropic node-numbering invariance. Apply coherent coupled
+  laminate energy through the existing finite-warp congruence with matching
+  prestress and physical force recovery; label distorted-cell shear resultants
+  as area means. Keep unsupported analytic material and branch-crossing domains
+  explicit. Verify synthetic energy, covariance and derivative identities, plus
+  independent native section and element operators.
+- **Warped-shell buckling gradients.** Apply the isotropic assumed transverse
+  gradient energy in the projected element plane when the existing finite-warp
+  preload and stiffness maps are active. Preserve director/curvature exclusions
+  and the same captured operator in analytic buckling derivatives. Check the
+  energy by independent quadrature, rigid motions and property/preload tangents.
+- **Rectangular-section torsion.** Restore the finite-aspect-ratio term in
+  PBARL/PBEAML BAR torsional rigidity for BDF and JSON input, spar-cap property
+  display and analytic dimension derivatives. The previous slender-strip
+  truncation made a square section about 12.4% too soft in torsion. Verify square,
+  rectangular and swapped dimensions against independent native operators.
+- **Complete beam prestress for buckling.** Include transverse shear, bending,
+  torque and axial polar-area contributions in CBAR/CBEAM geometric stiffness.
+  Verify all six resultant channels against independently integrated section
+  energy and isolated native operators. Update analytic panel-bar property and
+  preload derivatives, including section inertia and offset variations; use the
+  actual oriented bar frame in native buckling adjoints. Native beam adjoint
+  derivatives explicitly reject released ends outside this validated scope.
+- **Measured solve times and import readiness.** Separate numerical solution
+  time from Julia compilation, deck/model preparation, result export and process
+  startup. Save stage measurements in `.TIMINGS.JSON`; older runs explicitly
+  report unavailable timing instead of presenting elapsed process time as solve
+  time. Turn Read deck green once the importer and selected file are ready.
+- **SOL105 static results for imported decks.** Expose the actual solved preload
+  under its original case as well as the buckling case's SOL101/SOL105 selector.
+  Follow exported preload ownership for legacy local-METHOD decks without
+  explicit STATSUB, validate conflicting ownership, and reuse the equilibrium
+  solution without a redundant static solve. Scale normalized buckling shapes
+  independently of the associated physical static displacement amplitude.
+- **Component sensitivities by rib and bay.** Expand spar-web, spar-cap, rib and
+  leading-edge dimension selections into their independent physical properties,
+  including local overrides. Convert older shared-component selections when
+  reading model properties and normalize worker requests consistently; persist
+  local IDs without starting an analysis. Keep material variables shared and
+  preserve historical results without inventing local values. Verify actual
+  local adjoint derivatives against separately solved property perturbations.
+- **Coupled CBAR mass and matching analytic derivatives.** Honor positive
+  COUPMASS with the native Hermite transverse mass and documented average of
+  lumped/classical-consistent axial mass, without spurious torsional inertia.
+  Transform coupled mass through the bar offsets and preserve the default lumped
+  behavior. Differentiate the same operator and section-placement transformations
+  for analytic modal sensitivities. Check full native beam spectra, kinetic-energy
+  identities, mass moments and assembled mass derivatives.
+  Reject unsupported coupled CBAR mass with end releases explicitly; retain the
+  existing released-bar lumped path and separate CBEAM conventions.
+- **Nastran property parsing and invariant shell/frame stiffness.** Preserve
+  blank physical continuation lines so large-field sandwich properties retain
+  every ply. Remove implicit SOL101-only drilling scaling at frame-connected
+  shell nodes, which introduced energy during rigid rotation; retain explicit
+  diagnostic overrides. Add synthetic property-field and rigid-motion regressions.
+- **Portable generator export.** Add optional paired 16-column bulk fields,
+  leave generated CBAR default offset conventions blank for older Nastran
+  readers, and explicitly select constraints in both SOL105 preload and
+  buckling subcases. Keep exact free-field sensitivity export separate.
 - **Faster deck viewing and pane resizing.** Lay out large decks in contained
   text blocks while preserving complete searchable/selectable text and downloads.
   Reuse the current deck on reopening and coalesce drag updates and viewport

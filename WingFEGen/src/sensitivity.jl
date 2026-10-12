@@ -6,6 +6,7 @@ include("sensitivity_runtime.jl")
 include("sensitivity_saved.jl")
 include("sensitivity_baseline.jl")
 include("sensitivity_analytic_properties.jl")
+include("sensitivity_selection.jl")
 
 const SENSITIVITY_OBJECTIVES=Dict(
     "displacement"=>["x","y","z","magnitude"],
@@ -149,10 +150,12 @@ function sensitivity_catalog(m::Model)
                 "inherited"=>!haskey(get(override,part,Dict()),field)))
         end
     end
+    selection=sensitivity_selection_metadata(m,variables)
     return Dict{String,Any}("variables"=>variables,"max_variables"=>4096,"objectives"=>SENSITIVITY_OBJECTIVES,
+        "selection_replacements"=>selection.replacements,"selection_aliases"=>selection.aliases,
         "cases"=>[Dict("id"=>s.id,"label"=>s.label) for s in load_case_specs(p)],
         "surfaces"=>["z1","z2"],"method"=>"discrete_adjoint",
-        "note"=>"Fixed nodes, connectivity and property IDs. Every stiffened panel, spar-web bay, upper/lower front/rear spar-cap bay, rib web/stiffener and leading-edge skin bay/rib offers independent section or shell dimensions, including inherited defaults. Shared defaults remain separate overlapping variables; do not sum them with local derivatives. Analytic mode uses exact element chain rules with one baseline analysis and a shared static adjoint, without property finite differences. SOL103 uses the chosen case's fuel mass; SOL105 uses its static preload.")
+        "note"=>"Fixed nodes, connectivity and property IDs. Every stiffened panel, spar-web bay, upper/lower front/rear spar-cap bay, rib web/stiffener and leading-edge skin bay/rib offers independent section or shell dimensions, including inherited defaults. Component-family selections expand to local bay/rib derivatives, including overridden values; material and panel selections retain their original scope. Analytic mode uses exact element chain rules with one baseline analysis and a shared static adjoint, without property finite differences. SOL103 uses the chosen case's fuel mass; SOL105 uses its static preload.")
 end
 
 function sensitivity_request(m,raw)
@@ -163,7 +166,9 @@ function sensitivity_request(m,raw)
     spec=findfirst(s->s.id==case,load_case_specs(m.params));spec===nothing&&throw(ArgumentError("The selected load case is not enabled"))
     vars=get(request,"variables",Any[]);!isempty(vars)&&length(unique(vars))==length(vars)||throw(ArgumentError("Select 1 to 4096 distinct property variables"))
     catalog=sensitivity_catalog(m);available=Dict(d["id"]=>d for d in catalog["variables"])
+    vars=sensitivity_expand_selection(catalog,vars)
     all(id->haskey(available,id),vars)||throw(ArgumentError("A selected property is no longer active on this mesh; refresh the sensitivity setup"))
+    request["variables"]=vars
     obj=Dict{String,Any}(get(request,"objective",Dict()));kind=get(obj,"type","")
     haskey(SENSITIVITY_OBJECTIVES,kind)||throw(ArgumentError("Select a sensitivity objective"))
     if kind=="displacement"

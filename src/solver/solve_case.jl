@@ -4866,8 +4866,15 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
         end
     end
 
+    # COUPMASS selects the line-element interpolation independently of the
+    # shell-only environment override. Cardless/negative values retain the
+    # established Nastran lumped CBAR convention.
+    cbar_coupled_mass = _sol103_param_enabled(get(model, "PARAM_COUPMASS", false), false)
     # --- CBAR elements ---
-    for (_, bar) in cbars
+    for (eid, bar) in cbars
+        if cbar_coupled_mass && (get(bar, "PA", 0) != 0 || get(bar, "PB", 0) != 0)
+            throw(ArgumentError("Coupled CBAR mass with PA/PB releases is not implemented (CBAR $eid)."))
+        end
         ga, gb = bar["GA"], bar["GB"]
         (!haskey(id_map, ga) || !haskey(id_map, gb)) && continue
         i1, i2 = id_map[ga], id_map[gb]
@@ -4881,7 +4888,10 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
         (rho < 1e-30 && nsm_bar < 1e-30) && continue
 
         p1 = SVector{3}(node_coords[i1,:]); p2 = SVector{3}(node_coords[i2,:])
-        L = norm(p2 - p1)
+        wa, wb, has_offset, p1_mass, p2_mass = cbar_coupled_mass ?
+            bar_offsets_and_endpoints(bar, p1, p2) :
+            (zero(p1), zero(p2), false, p1, p2)
+        L = norm(p2_mass - p1_mass)
         L < 1e-12 && continue
 
         A_bar = Float64(get(prop, "A", 0.0))
@@ -4891,11 +4901,16 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
 
         # Effective density: rho_eff = rho + NSM/A (NSM is mass per unit length)
         rho_bar = A_bar > 1e-30 ? rho + nsm_bar / A_bar : rho
-        Me_loc = FEM.nastran_lumped_mass_frame3d(L, rho_bar, A_bar, J, Iy, Iz)
+        # The CBAR convention includes Hermite bending translations, its
+        # axial consistent/lumped blend, and no section rotary inertia.
+        Me_loc = cbar_coupled_mass ?
+            FEM.nastran_coupled_mass_cbar(L, rho_bar, A_bar) :
+            FEM.nastran_lumped_mass_frame3d(L, rho_bar, A_bar, J, Iy, Iz)
 
         # Transformation
-        e1 = (p2 - p1) / L
-        vbar = haskey(bar, "V") ? SVector{3}(Float64.(bar["V"])) : SVector(0.0, 0.0, 1.0)
+        e1 = (p2_mass - p1_mass) / L
+        vbar = cbar_coupled_mass ? resolve_bar_vref(bar, p1, id_map, node_coords) :
+            (haskey(bar, "V") ? SVector{3}(Float64.(bar["V"])) : SVector(0.0, 0.0, 1.0))
         e2_raw = vbar - dot(vbar, e1)*e1
         e2_len = norm(e2_raw)
         e2 = e2_len > 1e-12 ? e2_raw/e2_len : SVector(0.0, 1.0, 0.0)
@@ -4911,6 +4926,10 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
                 T12[base+rr, base+cc] = TR[rr,cc]
                 T12[base+3+rr, base+3+cc] = TR[rr,cc]
             end
+        end
+        if has_offset
+            T12[1:3, 4:6] = -Rel_t * skew3(wa) * node_R[i1]
+            T12[7:9, 10:12] = -Rel_t * skew3(wb) * node_R[i2]
         end
         Me12 = T12' * Me_loc * T12
 

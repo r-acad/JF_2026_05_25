@@ -68,62 +68,87 @@ function _unused_laminate_material_id(mats, pid)
 end
 
 """
-Whitney–Pagano (1973) shear correction factors κ_xx and κ_yy for a laminate.
+Energy-equivalent PCOMP transverse shear stiffness.
 
-For each in-plane direction α ∈ {1, 2}, computes the strain-energy-equivalent
-shear correction:
+For each laminate direction, integrate the layer shear-stress profile about
+its directional neutral surface, using the physical cylindrical-bending
+modulus Qbar[a,a]. Integrate the full inverse ply shear law and symmetrize
+the laminate compliance before inversion, preserving reciprocal energy.
+Three Gauss points integrate the quartic energy exactly. A homogeneous
+layer reduces to (5/6)*h*Qshear.
 
-    κ_α = D_αα² / (A_55_α · ∫ τ̃_α²(z) / G_αα(z) dz)
+This convention matches MSC Nastran 70.5, independently checked on symmetric
+and unsymmetric laminates at two cell sizes. The later 2021.4 Reference Guide
+(Transverse Shear Theory, equations 4-8--4-13) describes a different convention:
+zero-Poisson bending moduli and symmetrization after the stiffness inversion.
+Neither a fitted factor nor a uniform 5/6 replacement is used for a laminate.
 
-where τ̃_α(z) = D_αα · ∫_{-h/2}^{z} Q̄_αα(z') z' dz'  is the through-thickness
-shear stress for unit shear resultant Q_α = 1, derived from CLT bending
-equilibrium under cylindrical bending.
-
-For a homogeneous isotropic ply this returns 5/6 exactly. For symmetric
-balanced CFRP layups, typically returns 0.7–0.9 depending on layup details.
+The neutral surface makes both free-face shear tractions zero even for an
+unsymmetric stack; using z=0 instead violates equilibrium when B is nonzero.
 """
-function pcomp_whitney_kappa(ply_data::Vector, total_t)
-    n = length(ply_data)
-    n == 0 && return (5.0/6.0, 5.0/6.0)
-
-    # Pull per-ply Q̄ and Q̄_shear from ply_data; assume z_bot/z_top are populated.
-    Qb = [ply_data[k]["Qbar"]   for k in 1:n]
-    Qs = [ply_data[k]["Qshear"] for k in 1:n]
-    z_bot = [ply_data[k]["z_bot"] for k in 1:n]
-    z_top = [ply_data[k]["z_top"] for k in 1:n]
-    scalar_type = promote_type(typeof(total_t), eltype(Qb[1]), eltype(Qs[1]), eltype(z_bot), eltype(z_top))
-
-    function kappa_for(α::Int)
-        D_αα = sum(Qb[k][α, α] * (z_top[k]^3 - z_bot[k]^3) / 3 for k in 1:n)
-        A55  = sum(Qs[k][α, α] * (z_top[k] - z_bot[k]) for k in 1:n)
-        (D_αα <= 0 || A55 <= 0) && return 5.0/6.0
-
-        # Build piecewise τ̃(z) = D · τ(z) at ply boundaries.
-        # Top of laminate: τ̃ = 0. Recurrence: τ̃_top_k = τ̃_bot_{k+1}.
-        tau_top = zeros(scalar_type, n + 1)  # τ̃ at top of ply k for k=1..n+1 (last = 0)
-        tau_top[n + 1] = 0.0
-        for k in n:-1:1
-            tau_top[k] = tau_top[k + 1] + Qb[k][α, α] * (z_top[k]^2 - z_bot[k]^2) / 2
+function pcomp_energy_shear(ply_data::AbstractVector, total_t)
+    isempty(ply_data) && throw(ArgumentError("Laminate shear needs at least one ply"))
+    total_t > 0 || throw(ArgumentError("Laminate thickness must be positive"))
+    all(p -> haskey(p,"Qbar") && haskey(p,"Qshear"), ply_data) ||
+        throw(ArgumentError("Laminate shear requires physical ply bending and transverse shear laws"))
+    T = promote_type(typeof(total_t), eltype(ply_data[1]["Qbar"]),
+                     eltype(ply_data[1]["Qshear"]))
+    compliance = zeros(T,2,2)
+    # A local thickness origin avoids subtracting large squared offsets.
+    zref = ply_data[1]["z_bot"]
+    gp = (-sqrt(3.0/5.0),0.0,sqrt(3.0/5.0))
+    gw = (5.0/9.0,8.0/9.0,5.0/9.0)
+    for a in 1:2
+        ea=zero(T); first_moment=zero(T)
+        for p in ply_data
+            t=p["z_top"]-p["z_bot"]; zmid=(p["z_bot"]-zref)+t/2
+            ex=p["Qbar"][a,a]
+            t > 0 && ex > 0 || throw(ArgumentError("Laminate shear requires positive ply thickness and directional bending modulus"))
+            ea += ex*t; first_moment += ex*t*zmid
         end
-
-        # Numerically integrate ∫ τ̃²/G dz over each ply (3-pt Gauss).
-        gp_loc = (-sqrt(3.0/5.0), 0.0, sqrt(3.0/5.0))
-        gp_w   = (5.0/9.0,         8.0/9.0, 5.0/9.0)
-        I_tau2_over_G = 0.0
-        for k in 1:n
-            G_k = Qs[k][α, α]
-            G_k <= 0 && continue
-            zb = z_bot[k]; zt = z_top[k]
-            half = (zt - zb) / 2; mid = (zt + zb) / 2
-            for (xi, w) in zip(gp_loc, gp_w)
-                z = mid + half * xi
-                tau_z = tau_top[k + 1] + Qb[k][α, α] * (zt^2 - z^2) / 2
-                I_tau2_over_G += w * half * (tau_z^2 / G_k)
+        neutral=first_moment/ea
+        rigidity=zero(T)
+        for p in ply_data
+            t=p["z_top"]-p["z_bot"]; zmid=(p["z_bot"]-zref)+t/2
+            rigidity += p["Qbar"][a,a]*t*((zmid-neutral)^2+t^2/12)
+        end
+        tau_bottom=zero(T)
+        for p in ply_data
+            t=p["z_top"]-p["z_bot"]; zb=p["z_bot"]-zref
+            ex=p["Qbar"][a,a]; qs=p["Qshear"]
+            detq=qs[1,1]*qs[2,2]-qs[1,2]*qs[2,1]
+            qs[1,1] > 0 && qs[2,2] > 0 && detq > 0 ||
+                throw(ArgumentError("Laminate ply transverse shear law must be positive definite"))
+            inverse_row = a==1 ? (qs[2,2]/detq,-qs[1,2]/detq) :
+                                 (-qs[2,1]/detq,qs[1,1]/detq)
+            energy=zero(T)
+            for (x,w) in zip(gp,gw)
+                dz=t*(1+x)/2
+                tau=tau_bottom+ex*dz*(neutral-zb-dz/2)
+                energy += w*t/2*(tau/rigidity)^2
             end
+            for b in 1:2
+                compliance[a,b] += energy*inverse_row[b]
+            end
+            tau_bottom += ex*t*(neutral-zb-t/2)
         end
-        return D_αα^2 / (A55 * I_tau2_over_G)
     end
-    return (kappa_for(1), kappa_for(2))
+    reciprocal=(compliance[1,2]+compliance[2,1])/2
+    detc=compliance[1,1]*compliance[2,2]-reciprocal^2
+    detc > 0 || throw(ArgumentError("Laminate shear compliance is singular or indefinite"))
+    c11=compliance[2,2]/detc; c22=compliance[1,1]/detc
+    c12=-reciprocal/detc
+    c11 > 0 && c22 > 0 && c11*c22 > c12^2 ||
+        throw(ArgumentError("Energy-equivalent laminate shear stiffness is not positive definite"))
+    return [c11 c12; c12 c22]
+end
+
+"""Diagonal correction-factor view; use `pcomp_energy_shear` for the full law."""
+function pcomp_whitney_kappa(ply_data::AbstractVector, total_t)
+    isempty(ply_data) && return (5.0/6.0,5.0/6.0)
+    cs=pcomp_energy_shear(ply_data,total_t)
+    raw=[sum(p["Qshear"][a,a]*(p["z_top"]-p["z_bot"]) for p in ply_data) for a in 1:2]
+    return (cs[1,1]/raw[1],cs[2,2]/raw[2])
 end
 
 """
@@ -614,18 +639,15 @@ function build_model(cards, cc)
             #
             # Two options for the correction:
             #
-            # 1. JFEM_PCOMP_WHITNEY_SHEAR=true — per-element Whitney–Pagano (1973)
-            #    κ_x, κ_y computed from actual through-thickness Q̄(z) and G(z)
-            #    profiles. Strain-energy-equivalent to the parabolic shear-stress
-            #    distribution from CLT bending equilibrium. Reduces to 5/6 for
-            #    iso plies. Layup-dependent (typically 0.7–0.9 for CFRP QI).
+            # 1. JFEM_PCOMP_WHITNEY_SHEAR=true — energy-equivalent full shear law
+            #    from directional neutral surfaces and inverse ply shear
+            #    stiffness. A homogeneous layer reduces to 5/6.
             #
             # 2. JFEM_PCOMP_WHITNEY_SHEAR=false — use 5/6 (Reissner).
             ts_t_default = 5.0/6.0
             whitney_on = pcomp_whitney_shear_enabled()
             if whitney_on && length(ply_data) > 0
-                κ_x, κ_y = pcomp_whitney_kappa(ply_data, total_t)
-                Cs_lam = _laminate_corrected_shear(Ash, κ_x, κ_y)
+                Cs_lam = pcomp_energy_shear(ply_data, total_t)
             else
                 Cs_lam = ts_t_default .* Ash
             end
@@ -1119,13 +1141,12 @@ function build_model_from_json(raw::AbstractDict)
 
         # First-order shear deformation laminate shear stiffness. Keep this
         # path consistent with the card-based PCOMP builder above:
-        # Whitney-Pagano is the default ply-stack-dependent kappa;
+        # The default integrates the full ply-stack-dependent shear compliance;
         # JFEM_PCOMP_WHITNEY_SHEAR=false restores 5/6.
         ts_t_default2 = 5.0/6.0
         whitney_on2 = pcomp_whitney_shear_enabled()
         if whitney_on2 && length(ply_data) > 0
-            kappa_x, kappa_y = pcomp_whitney_kappa(ply_data, total_t)
-            Cs_lam = _laminate_corrected_shear(Ash, kappa_x, kappa_y)
+            Cs_lam = pcomp_energy_shear(ply_data, total_t)
         else
             Cs_lam = ts_t_default2 .* Ash
         end
@@ -1189,7 +1210,7 @@ function build_model_from_json(raw::AbstractDict)
             R = dims[1]; A = pi*R^2; I1 = pi*R^4/4; I2 = I1; J = pi*R^4/2
         elseif type_str == "BAR" && length(dims) >= 2
             w, h = dims[1], dims[2]; A = w*h; I1 = w*h^3/12; I2 = h*w^3/12
-            J = min(w,h) > 0 ? max(w,h)*min(w,h)^3/3*(1-0.63*min(w,h)/max(w,h)) : I1+I2
+            J = NastranParser.rectangular_section_torsion(w,h)
         elseif (type_str == "TUBE" || type_str == "TUBE2") && length(dims) >= 2
             Ro, Ri = dims[1], NastranParser._tube_inner_radius(type_str, dims)
             A = pi*(Ro^2-Ri^2); I1 = pi*(Ro^4-Ri^4)/4; I2 = I1; J = pi*(Ro^4-Ri^4)/2
@@ -1215,7 +1236,7 @@ function build_model_from_json(raw::AbstractDict)
             R = dims[1]; A = pi*R^2; I1 = pi*R^4/4; I2 = I1; J = pi*R^4/2
         elseif type_str == "BAR" && length(dims) >= 2
             w, h = dims[1], dims[2]; A = w*h; I1 = w*h^3/12; I2 = h*w^3/12
-            J = min(w,h) > 0 ? max(w,h)*min(w,h)^3/3*(1-0.63*min(w,h)/max(w,h)) : I1+I2
+            J = NastranParser.rectangular_section_torsion(w,h)
         elseif (type_str == "TUBE" || type_str == "TUBE2") && length(dims) >= 2
             Ro, Ri = dims[1], NastranParser._tube_inner_radius(type_str, dims)
             A = pi*(Ro^2-Ri^2); I1 = pi*(Ro^4-Ri^4)/4; I2 = I1; J = pi*(Ro^4-Ri^4)/2

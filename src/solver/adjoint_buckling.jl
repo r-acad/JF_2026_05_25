@@ -9,7 +9,8 @@
 #
 # The adjoint RHS ∂(φᵀ·Kg·φ)/∂u exploits that Kg is linear in stress σ:
 #   For shells: Kg(σ) = σ₁·Kg₁ + σ₂·Kg₂ + σ₃·Kg₃  (unit stress geometric stiffnesses)
-#   For bars:   Kg(P) = P·Kg_unit                      (unit axial force)
+#   For bars:   Kg is linear in all six section resultants, including axial
+#               polar-area, transverse shear, bending and torque contributions.
 
 # ============================================================================
 # Full-model FD: reassemble K at perturbed parameter for exact dK/dx bilinear forms
@@ -1896,75 +1897,46 @@ function _buckling_rhs_shells!(f_adj, model, id_map, node_coords, node_R, u_glob
 end
 
 # ============================================================================
-# Bar/beam elements: ∂(φᵀ·Kg·φ)/∂u via axial force derivative
+# Bar/beam elements: ∂(φᵀ·Kg·φ)/∂u via all section-resultant derivatives
 # ============================================================================
 
+# The true bar frame includes the orientation vector and rigid offsets. A rod
+# frame is insufficient once transverse forces and moments contribute to Kg.
+function _buckling_bar_data(eid, model, id_map, node_coords, node_R)
+    bd = _get_beam_element_data(parse(Int,string(eid)), model, id_map, node_coords, node_R)
+    bd === nothing && return nothing
+    (get(bd.beam,"PA",0)==0 && get(bd.beam,"PB",0)==0) ||
+        error("[ADJOINT-BUCK] Full-resultant beam derivatives currently require unreleased beam ends")
+    return bd
+end
+
 function _buckling_rhs_bars!(f_adj, model, id_map, node_coords, node_R, u_global, phi)
-    pbarls = get(model, "PBARLs", Dict())
-    mats = model["MATs"]
-
-    for (_, bar) in get(model, "CBARs", Dict())
-        pid_str = string(bar["PID"])
-        prop = get(pbarls, pid_str, nothing)
-        if isnothing(prop); continue; end
-        mid_str = string(prop["MID"])
-        mat = get(mats, mid_str, nothing)
-        if isnothing(mat); continue; end
-        if !haskey(id_map, bar["GA"]) || !haskey(id_map, bar["GB"]); continue; end
-        i1, i2 = id_map[bar["GA"]], id_map[bar["GB"]]
-
-        rd = _rod_local_frame_and_transform(i1, i2, node_coords, node_R)
-        if isnothing(rd); continue; end
-
-        E = mat["E"]; A = prop["A"]; L = rd.L
-
-        # Kg_unit = Kg(P=1)
-        Kg_unit = FEM.geometric_stiffness_frame3d(L, 1.0)
-
-        phi_elem = [phi[rd.dofs[i]] for i in 1:12]
-        phi_local = rd.T12 * phi_elem
-        g_P = dot(phi_local, Kg_unit * phi_local)
-
-        # P = E·A/L · (u₂ₓ - u₁ₓ) in local frame → dP/du_local
-        dP_du = zeros(12)
-        dP_du[1] = -E * A / L
-        dP_du[7] = E * A / L
-
-        f_local = g_P .* dP_du
-        f_global = rd.T12' * f_local
-        for i in 1:12
-            f_adj[rd.dofs[i]] += f_global[i]
+    for collection in ("CBARs", "CBEAMs"), (eid, _) in get(model, collection, Dict())
+        bd = _buckling_bar_data(eid, model, id_map, node_coords, node_R)
+        bd === nothing && continue
+        pe = bd.T12 * phi[bd.dofs]
+        radius2 = (bd.Iy+bd.Iz)/bd.A
+        force_gradient = zeros(12)
+        for component in (2,3,4,5,6,7)
+            unit = zeros(12); unit[component] = 1.0
+            kg = FEM.geometric_stiffness_frame3d(bd.L, unit, radius2)
+            force_gradient[component] = dot(pe,kg*pe)
         end
+        f_adj[bd.dofs] .+= bd.T12' * (bd.Ke_loc' * force_gradient)
     end
+end
 
-    # CBEAM (same treatment)
-    for (_, bar) in get(model, "CBEAMs", Dict())
-        pid_str = string(bar["PID"])
-        prop = get(pbarls, pid_str, nothing)
-        if isnothing(prop); prop = get(get(model, "PBEAMs", Dict()), pid_str, nothing); end
-        if isnothing(prop); continue; end
-        mid_str = string(prop["MID"])
-        mat = get(mats, mid_str, nothing)
-        if isnothing(mat); continue; end
-        if !haskey(id_map, bar["GA"]) || !haskey(id_map, bar["GB"]); continue; end
-        i1, i2 = id_map[bar["GA"]], id_map[bar["GB"]]
-
-        rd = _rod_local_frame_and_transform(i1, i2, node_coords, node_R)
-        if isnothing(rd); continue; end
-
-        E = mat["E"]; A = prop["A"]; L = rd.L
-        Kg_unit = FEM.geometric_stiffness_frame3d(L, 1.0)
-        phi_elem = [phi[rd.dofs[i]] for i in 1:12]
-        phi_local = rd.T12 * phi_elem
-        g_P = dot(phi_local, Kg_unit * phi_local)
-
-        dP_du = zeros(12)
-        dP_du[1] = -E * A / L; dP_du[7] = E * A / L
-
-        f_local = g_P .* dP_du
-        f_global = rd.T12' * f_local
-        for i in 1:12; f_adj[rd.dofs[i]] += f_global[i]; end
-    end
+# Exact local constitutive replay at fixed geometry; ForwardDiff differentiates
+# the algebra, not perturbed analyses. Used for independent A and material nu.
+function _buckling_bar_fixed_state_energy(bd, model, u_global, phi; A=bd.A, G=bd.mat["G"])
+    k1=get(bd.prop,"K1",0.0);k2=get(bd.prop,"K2",0.0)
+    Ke=FEM.stiffness_frame3d(bd.L,A,bd.Iy,bd.Iz,bd.prop["J"],bd.mat["E"],G;
+        As_y=k1>0 ? k1*A : Inf, As_z=k2>0 ? k2*A : Inf, I12=bd.I12)
+    ue=bd.T12*u_global[bd.dofs]
+    ue[7]-=bd.L*_thermal_strain_for_nodes(model,bd.mat,(bd.beam["GA"],bd.beam["GB"]))
+    pe=bd.T12*phi[bd.dofs]
+    Kg=FEM.geometric_stiffness_frame3d(bd.L,Ke*ue,(bd.Iy+bd.Iz)/A)
+    return dot(pe,Kg*pe)
 end
 
 # ============================================================================
@@ -2188,6 +2160,13 @@ function _dKg_dx_phi_material_NU(dv, model, id_map, node_coords, node_R, u_globa
             end
             val += dot(phi_local, dKg_dnu * phi_local)
         end
+        for collection in ("CBARs","CBEAMs"), (eid,_) in get(model,collection,Dict())
+            bd=_buckling_bar_data(eid,model,id_map,node_coords,node_R)
+            bd===nothing && continue
+            bd.mid_str==mid_str || continue
+            val+=ForwardDiff.derivative(nu->_buckling_bar_fixed_state_energy(
+                bd,model,u_global,phi;G=bd.mat["E"]/(2*(1+nu))),Float64(bd.mat["NU"]))
+        end
         result["MID_$mid_str"] = val
     end
     return result
@@ -2249,35 +2228,14 @@ function _eval_phi_Kg_phi_shells_at_nu(mid_str, nu_val, model, id_map, node_coor
 end
 
 function _dKg_dx_phi_bar_area(dv, model, id_map, node_coords, node_R, u_global, phi, Kg, ndof)
-    # For bars: P = E·A/L·Δu → at fixed u, dP/dA = P/A, so dKg/dA = Kg/A
-    pids = Set(string.(dv["pids"]))
-    pbarls = get(model, "PBARLs", Dict())
-    mats = model["MATs"]
-    result = Dict{String, Float64}()
-
-    for pid_str in pids
-        val = 0.0
-        for (_, bar) in get(model, "CBARs", Dict())
-            if string(bar["PID"]) != pid_str; continue; end
-            prop = get(pbarls, pid_str, nothing)
-            if isnothing(prop); continue; end
-            mat = get(mats, string(prop["MID"]), nothing)
-            if isnothing(mat); continue; end
-            if !haskey(id_map, bar["GA"]) || !haskey(id_map, bar["GB"]); continue; end
-            i1, i2 = id_map[bar["GA"]], id_map[bar["GB"]]
-            rd = _rod_local_frame_and_transform(i1, i2, node_coords, node_R)
-            if isnothing(rd); continue; end
-
-            E = mat["E"]; A = prop["A"]; L = rd.L
-            u_elem = [u_global[rd.dofs[i]] for i in 1:12]
-            u_local = rd.T12 * u_elem
-            P = E * A / L * (u_local[7] - u_local[1])
-            Kg_elem = FEM.geometric_stiffness_frame3d(L, P)
-            phi_elem = [phi[rd.dofs[i]] for i in 1:12]
-            phi_local = rd.T12 * phi_elem
-            val += dot(phi_local, Kg_elem * phi_local) / A
-        end
-        result["PID_$pid_str"] = val
+    pids=Set(string.(dv["pids"]))
+    result=Dict("PID_$pid"=>0.0 for pid in pids)
+    for collection in ("CBARs","CBEAMs"), (eid,bar) in get(model,collection,Dict())
+        pid=string(bar["PID"]);pid in pids || continue
+        bd=_buckling_bar_data(eid,model,id_map,node_coords,node_R)
+        bd===nothing && continue
+        result["PID_$pid"]+=ForwardDiff.derivative(
+            A->_buckling_bar_fixed_state_energy(bd,model,u_global,phi;A=A),bd.A)
     end
     return result
 end
