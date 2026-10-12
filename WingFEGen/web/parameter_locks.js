@@ -3,7 +3,7 @@
   "use strict";
   const GROUPS={planform:["Planform","Airfoils"],mesh:["Torsion box","Ribs","Stringer layout","Leading edge","Mesh","RBE3 and supports"]};
   const scope=key=>/^(planform|airfoil)\./.test(key)?"planform":/^(box|ribs|mesh|rbe3|supports)\./.test(key)||/^leading_edge\.(enabled|start_rib|end_rib|disabled_bays|chord_elements|rib_orientation|rib_orientations|rib_angle)$/.test(key)?"mesh":null;
-  const explanations={planform:"Protects the base planform, aerodynamic edge points and Airfoils. Unlock to change the lifting surface definition.",mesh:"Protects spar points, box and leading-edge layout, mesh subdivisions and RBE3/support parameters. Lock Planform too to hold the base lifting surface geometry. Material, shell and beam properties remain editable."};
+  const explanations={planform:"Protects the base planform, aerodynamic edge points and Airfoils. Unlock to change the lifting surface definition.",mesh:"Protects spar points, box and leading-edge layout, mesh subdivisions and RBE3/constraint parameters. Lock Planform too to hold the base lifting surface geometry. Material, shell and beam properties remain editable."};
   function create({document:doc,getSchema}){
     const locked={planform:false,mesh:false},snapshots=new Map(),disabledBefore=new Map();
     const canonical=()=>getSchema().map(spec=>({spec,input:doc.getElementById("p-"+spec.key)})).filter(item=>item.input);

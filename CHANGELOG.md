@@ -6,6 +6,23 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Faster deck viewing and pane resizing.** Lay out large decks in contained
+  text blocks while preserving complete searchable/selectable text and downloads.
+  Reuse the current deck on reopening and coalesce drag updates and viewport
+  resizing. New run/write responses take precedence over pending cached reads.
+- **Display and navigation controls.** Save a separate undeformed-reference color;
+  label CELAS properties/direct stiffness and endpoint DOFs with defining CD/type/
+  parent systems. Toggle Inspect off and show its entity filter only when active.
+  Use constraint/constrained wording, hide unavailable panel explosion, disable
+  panel controls without panels and distinguish available Plan View in blue.
+  Group Visualization, VLM settings and Load plots under Loads; remove the fixed
+  lower-left navigation hint.
+- **Explicit component sensitivity selection and missing values.** Add an
+  additive selection command for all local spar, cap, rib and leading-edge
+  variables. Record physical component metadata in new results and preserve it
+  on saved-run loading. Show unselected locations separately from pending,
+  missing or failed results, without repeating shared-default derivatives in
+  local cells. Recover recorded v4 physical scope for older shared-only runs.
 - **Autosave and reliable Study selections.** Add an opt-in Autosave beside Live
   mesh, coalescing significant definition edits without triggering analysis or
   blocking property-table editing. Save atomically to a linked file; browsers

@@ -136,5 +136,58 @@
     if(!enabled||!state.layers.get('COORDINATE_SYSTEMS')?.visible)return[];
     return(state.data?.coordinate_systems?.systems||[]).map(frame=>({kind:'coordinate',id:frame.id,text:'CID '+frame.id+' · '+typeLabel(frame.type)+' · '+coordinateReference(frame),color:COLORS.coordinate,point:toView(frame.origin)}));
   }
-  return{COLORS,AXIS_COLORS,typeLabel,coordinateReference,springRadius,color,kind,toView,pickedElementId,attachMarker,renderConnections,springGlyphs,springMeshes,syncSpringStyle,coordinateMeshes,pickedCoordinateId,coordinateCandidates};
+  const springLabelCache=new WeakMap();
+  const springNumber=value=>value!=null&&value!==''&&Number.isFinite(Number(value))?Number(Number(value).toPrecision(5)).toString():'unavailable';
+  function springPropertyLabel(element){
+    const props=element.properties||{},card=element.type||props.TYPE||'CELAS',usesProperty=/^CELAS[13]$/.test(card)||(!/^CELAS[24]$/.test(card)&&props.PID!=null);
+    const source=usesProperty?props.property||{}:props;
+    const parts=[card+' '+element.eid,usesProperty?'PELAS '+(props.PID??'unavailable'):'direct stiffness','K='+springNumber(source.K)];
+    for(const key of ['GE','S'])if(source[key]!=null)parts.push(key+'='+springNumber(source[key]));
+    return parts.join(' · ');
+  }
+  function springEndpointLabel(endpoint,frames){
+    const component=Number(endpoint.component),number=endpoint.end??'?',gid=endpoint.grid;
+    if(endpoint.grounded||gid===0)return 'End '+number+': ground (no GRID or coordinate axes)';
+    if(component===0||endpoint.scalar)return 'End '+number+': scalar '+(gid??'?')+' · DOF 0 · no spatial coordinate axes';
+    const parts=['G'+number+' '+(gid??'?'),'DOF '+(endpoint.component??'?')],cid=endpoint.coordinate_id;
+    if(cid==null){parts.push('CD unavailable','axis unavailable');return parts.join(' · ');}
+    const frame=frames.get(Number(cid)),type=frame?.type;
+    const names=type==='CYLINDRICAL'?['r','θ','z']:type==='SPHERICAL'?['r','θ (polar)','φ (azimuth)']:type==='RECTANGULAR'?['x','y','z']:null;
+    if(component>=1&&component<=6&&names)parts[1]+=' ('+(component>3?'rotation ':'translation ')+names[(component-1)%3]+')';
+    parts.push('CD '+cid+(type?' '+typeLabel(type):' (type unavailable)'));
+    if(frame)parts.push(coordinateReference(frame));
+    if(!endpoint.axis?.every(Number.isFinite)||endpoint.axis.length!==3||!(Math.hypot(...endpoint.axis)>0))parts.push('axis unavailable');
+    return parts.join(' · ');
+  }
+  function springLabelRecords(data){
+    if(springLabelCache.has(data))return springLabelCache.get(data);
+    const frames=new Map((data.coordinate_systems?.systems||[]).map(frame=>[Number(frame.id),frame])),records=[];
+    // BASIC is defined by Nastran, even in older payloads without CID glyphs.
+    if(!frames.has(0))frames.set(0,{id:0,type:'RECTANGULAR',card:'BASIC'});
+    for(const collection of data.imported_connections||[]){
+      if(!/^CELAS/.test(collection.card))continue;
+      for(const element of collection.elements||[]){
+        const props=element.properties||{},scalar=/^CELAS[34]$/.test(element.type||collection.card);
+        const endpoints=element.endpoints||props.display_endpoints||[1,2].map(end=>({end,grid:props['G'+end]??props['S'+end],component:scalar?0:props['C'+end],scalar}));
+        const lines=[springPropertyLabel({...element,type:element.type||collection.card}),...endpoints.map(endpoint=>springEndpointLabel(endpoint,frames))];
+        records.push({layer:collection.name,id:element.eid,nodes:element.nodes||[],lines,text:lines.join('\n')});
+      }
+    }
+    springLabelCache.set(data,records);return records;
+  }
+  function springCandidates(state,positions,enabled){
+    if(!enabled||!positions||!state.data)return[];
+    const result=[];
+    for(const record of springLabelRecords(state.data)){
+      const layer=state.layers.get(record.layer);if(!layer?.visible)continue;
+      const nodes=Array.from(new Set(record.nodes)).filter(n=>Number.isInteger(n)&&n>=0&&3*n+2<positions.length&&[0,1,2].every(a=>Number.isFinite(positions[3*n+a])));
+      // Scalar points do not possess geometric coordinates. Without an
+      // actual plotted GRID there is nowhere truthful to place a label.
+      if(!nodes.length)continue;
+      const point=[0,0,0];for(const node of nodes)for(let axis=0;axis<3;axis++)point[axis]+=positions[3*node+axis]/nodes.length;
+      result.push({kind:'spring-label',id:record.id,lines:record.lines,text:record.text,color:layer.color||COLORS.CELAS,point});
+    }
+    return result;
+  }
+  return{COLORS,AXIS_COLORS,typeLabel,coordinateReference,springRadius,color,kind,toView,pickedElementId,attachMarker,renderConnections,springGlyphs,springMeshes,syncSpringStyle,coordinateMeshes,pickedCoordinateId,coordinateCandidates,springPropertyLabel,springEndpointLabel,springCandidates};
 });

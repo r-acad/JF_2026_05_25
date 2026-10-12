@@ -3,8 +3,8 @@ const SUPPORT_TARGETS=("front_spar","rear_spar","upper_skin","lower_skin",
     "front_upper","front_lower","rear_upper","rear_lower")
 
 function normalize_support_sets(value)
-    value isa AbstractVector||throw(ArgumentError("supports.items must be an array of rib support tables"))
-    length(value)<=1000||throw(ArgumentError("supports.items permits at most 1000 support sets"))
+    value isa AbstractVector||throw(ArgumentError("supports.items must be an array of rib constraint tables"))
+    length(value)<=1000||throw(ArgumentError("supports.items permits at most 1000 constraint sets"))
     out=Dict{String,Any}[]
     for (index,raw) in enumerate(value)
         raw isa AbstractDict||throw(ArgumentError("supports.items row $index must be a table"))
@@ -27,7 +27,7 @@ end
 
 function validate_support_ribs(rows,rib_count)
     for (index,row) in enumerate(rows)
-        row["rib"]<=rib_count||throw(ArgumentError("supports.items row $index selects rib $(row["rib"]), but the current model has $rib_count physical ribs; edit this support set after changing the rib layout"))
+        row["rib"]<=rib_count||throw(ArgumentError("supports.items row $index selects rib $(row["rib"]), but the current model has $rib_count physical ribs; edit this constraint set after changing the rib layout"))
     end
     return nothing
 end
@@ -71,9 +71,9 @@ function support_description(m)
     if mode=="root"
         return "Global translations 123 fixed on the main-box root skin/spar perimeter. Leading-edge extension and rib-interior nodes remain free; shared spar/skin intersections are included."
     elseif isempty(m.spc)
-        return "Custom supports: no constrained nodes. The structure is unsupported; a static solution may have rigid-body modes."
+        return "Custom constraints: no constrained nodes. The structure is unconstrained; a static solution may have rigid-body modes."
     end
-    return "Custom rib support sets in global GRID axes: 1=x, 2=y, 3=z, 4=Rx, 5=Ry, 6=Rz. Overlapping sets are united per node. Leading-edge extension and RBE3 reference nodes are excluded."
+    return "Custom rib constraint sets in global GRID axes: 1=x, 2=y, 3=z, 4=Rx, 5=Ry, 6=Rz. Overlapping sets are united per node. Leading-edge extension and RBE3 reference nodes are excluded."
 end
 
 function supports_payload(m)

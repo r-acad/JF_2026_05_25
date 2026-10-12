@@ -49,8 +49,8 @@ const EXTRA_STYLE = {
   RBE3_NODES:   { color: "#e45ad4", label: "Aerodynamic load reference nodes" },
   FUEL_RBE3:    { color: "#f4b8d6", label: "Fuel RBE3 spiders · 123456" },
   FUEL_RBE3_NODES: {color: "#146b3a", label: "Fuel / structural mass reference nodes"},
-  SPC:          { color: "#ff4d6d", label: "Supports (SPC)" },
-  SUPPORT_FORCES: { color: "#b8cadb", label: "Support forces / moments (XYZ)" },
+  SPC:          { color: "#ff4d6d", label: "Constraints (SPC)" },
+  SUPPORT_FORCES: { color: "#b8cadb", label: "Constraint forces / moments (XYZ)" },
   AERO_LOADS:   { color: "#b8cadb", label: "Applied force components · aero, structure and fuel" },
   AERO_MOMENTS: { color: "#b8cadb", label: "Applied moment components (Nm)" },
   VLM_MESH:     { color: "#b5cbdf", label: "Vortex lattice mesh" },
@@ -407,19 +407,19 @@ const HELP_TOPICS = {
     "Enter Young's modulus in GPa, for example 71 for aluminium with E = 71000000000 Pa. The interface converts it to Pa for calculations, input-file storage and MAT1 export. Density remains kg/m3; Poisson's ratio is dimensionless.",
   ] },
   workflow: { title: "Build, load and solve", paragraphs: [
-    "1. Use Geometry and Model to define the lifting surface and mesh. Create FEM is in Mesh, or beside Live mesh when automatic updates are disabled. Model → Properties groups Skins, Stringers, Ribs, Spars and Leading Edge. Materials defines the library; each component selects its material or shell sandwich construction in Properties. Ribs provides web thickness and vertical T stiffeners per physical rib. Spars provides square spar caps and optional web thickness per bay. Summary groups Mass properties and General. Supports defaults to the main-box root perimeter in DOFs 1,2,3; Custom supports select other rib intersections and DOFs.",
+    "1. Use Geometry and Model to define the lifting surface and mesh. Create FEM is in Mesh, or beside Live mesh when automatic updates are disabled. Model → Properties groups Skins, Stringers, Ribs, Spars and Leading Edge. Materials defines the library; each component selects its material or shell sandwich construction in Properties. Ribs provides web thickness and vertical T stiffeners per physical rib. Spars provides square spar caps and optional web thickness per bay. Summary groups Mass properties and General. Constraints default to the main-box root perimeter in DOFs 1,2,3; Custom constraints select other rib intersections and DOFs.",
     "Planform shows a live drawing beside its definition. The dashed outline is the base trapezoid; the solid outline follows the aerodynamic leading- and trailing-edge perturbation points. Add points in either table, edit their eta and ?x/c, or drag them on the drawing. Eta runs from root 0 to tip 1. ?x/c is an offset from the selected nominal edge: 0 is unchanged, +0.2 moves aft by 20% of the local base chord and -0.2 moves forward by 20%. Straight segments join the points; unedited endpoints stay on the base outline. The normalized coordinates stay fixed when you change the base trapezoid. Edge points change the shared aerodynamic and structural outer surface, including skin/nose geometry, spar heights and fuel volume. Spar reference paths retain their separate base-trapezoid coordinates. Plan View in the top bar opens a separate browser tab with dimensions, spars and physical ribs; move that tab to another monitor to watch live changes. Drag or use the wheel to move or zoom the drawing and background together. Hold Ctrl (Cmd on Mac) to adjust only the background image. Fit view restores the overall view while keeping image alignment. Study and TOML saves retain the embedded image, its alignment and the view placement.",
     "Spars has a separate live drawing and point tables for the front and rear spars. Spar points use eta and ?x/c offsets from their scalar Front spar or Rear spar locations, independently of aerodynamic edges. Zero follows the nominal spar, and positive/negative values shift aft/forward by that fraction of the base chord. Legacy absolute xc records load without moving the geometry. Points at eta 0 or 1 replace the normal endpoint; other unspecified endpoints use the Front spar and Rear spar values. Both spars must stay inside the refined surface over the modeled box, with the front ahead of the rear. Spar kinks change the structural box, caps, runouts and tank boundaries. Spar reference paths use the base trapezoid, while the structural skin, nose and spar heights follow the refined airfoil loft. Extra kink mesh rows do not add physical ribs.",
     "Each rear-spar point has a Stringer angle in degrees, default 0, measured from the rear-spar segment arriving from the previous point (or the root). Stringers follow continuous piecewise paths and may kink at those stations. The final segment to the tip reuses the last angle relative to its own rear-spar segment. With rear points present, these values replace the hidden global stringer angle. Removing every rear point restores the global angle. A point at the root has no incoming segment; its angle is used only when it is the sole rear point.",
     "Structure groups Spars, Ribs and Leading Edge in separate forms. Leading Edge contains Pylon / leading-edge gaps. Enter excluded physical bay numbers or ranges, for example 2,4-6, or check numbered bays. Bay b spans ribs b and b+1. Exclusions outside the selected leading-edge rib range remain saved but are ignored; excluding all selected bays produces no leading-edge mesh. The Mesh lock protects the gap definition.",
-    "Lock Planform protects the base lifting-surface geometry, aerodynamic edge points and airfoils; Lock Mesh protects spar points, box layout, subdivisions and RBE3/support parameters. Use both locks to keep geometry and meshing inputs fixed while editing material or property tables. Blank property-table cells inherit the defaults. Study and TOML saves retain all panel, rib and spar-bay overrides; Studies also retain the editing locks.",
+    "Lock Planform protects the base lifting-surface geometry, aerodynamic edge points and airfoils; Lock Mesh protects spar points, box layout, subdivisions and RBE3/constraint parameters. Use both locks to keep geometry and meshing inputs fixed while editing material or property tables. Blank property-table cells inherit the defaults. Study and TOML saves retain all panel, rib and spar-bay overrides; Studies also retain the editing locks.",
     "2. Open Cases under Loads. Name each case and choose Prescribed lift, or Aerodynamic (VLM) to compute loads from speed, density and angle of attack. Add or duplicate cases to compare conditions. VLM controls the shared aerodynamic mesh.",
-    "3. Open Loads ? Aerodynamics ? Visualization for Mesh, Pressure (Pa) and Cp views and transferred forces/moments. Buckling results include the corresponding SOL101 preload as a separate analysis. Choose Linear static (101), Buckling (105), or Nonlinear comparison (106 + 101) in Analysis and press Run in JFEM; all included cases are solved. Results, the written Deck and the Log each have their own tab. Normal modes (103) use no applied loads.",
+    "3. Open Loads / Visualization for Mesh, Pressure (Pa) and Cp views and transferred forces/moments. Buckling results include the corresponding SOL101 preload as a separate analysis. Choose Linear static (101), Buckling (105), or Nonlinear comparison (106 + 101) in Analysis and press Run in JFEM; all included cases are solved. Results, the written Deck and the Log each have their own tab. Normal modes (103) use no applied loads.",
     "Save Study and Load Study in the top header use a portable .wingfem.json file containing parameters, load cases, embedded 3D references, display options and camera/panel settings. Load Study offers recent projects and a Browse action. Open latest disk file reads the current file; Open stored copy restores its last saved or loaded snapshot. Results stay in their analysis folders. Loading regenerates the mesh; run the analysis for fresh results from Analysis → Run in JFEM. New Study starts from the application defaults without writing a file.",
     "Display starts with Axes & labels: show shell x directions, bar axes, node IDs and element IDs there. Beam sections switches between lines and full 3D sections. Left-click the model to center without changing view direction; in Inspect or measurement mode, the click performs that tool's action instead. Middle-click a node to center precisely, drag to orbit, right-drag to pan and wheel to zoom. Top points global +X downwards. Notes opens the modification-intent field; Save Study records changed notes with their save time.",
     "Drag the boundary beside the options pane to change its width. Focus the boundary and use Left/Right arrows for fine adjustment, Shift for larger steps, or Home/End for the limits. The 2D geometry and structure tabs, Deck and Log offer Maximize and Restore. In 2D drawings, drag a handle to edit geometry; drag elsewhere or middle-drag to pan. Wheel to zoom; hold Alt for fine adjustment. Ctrl/Cmd moves or scales only the reference image. Image settings controls its scale and opacity. White background toggles the drawing sheet; Export SVG downloads the visible drawing with its embedded image. Study and TOML retain all 2D drawing images, alignment, grids, snapping and dimensions. Enable Snap to points and/or lines when measuring. After selecting two distance anchors or three angle anchors, move the mouse to place the annotation and click once more to finish; Escape cancels the unfinished dimension.",
     "Save TOML as saves parameters, load cases, linked 3D reference paths and all embedded 2D drawing images, view settings and dimensions. Other display preferences and embedded 3D geometry use Study files; results stay separate. Save Study updates its linked file; the first save and Save Study as open a filename and folder picker where supported. Orange means unsaved changes and green means saved. Otherwise the browser downloads the file using its download settings; enable Ask where to save each file to choose a folder. The header reports filenames because browsers do not disclose full picker paths.",
-    "Live mesh automatically rebuilds after geometry, mesh, material, section, support or load edits. Turn it off for manual updates with Create FEM, which moves immediately to its left in the top bar. The header's Server input menu shows the configured server path: Overwrite server input explicitly replaces that file; Reload server input restores its parameters. Study/TOML imports never overwrite it. TOML reference paths resolve relative to this server input folder; use a Study when moving embedded geometry between folders or computers.",
+    "Live mesh automatically rebuilds after geometry, mesh, material, section, constraint or load edits. Turn it off for manual updates with Create FEM, which moves immediately to its left in the top bar. The header's Server input menu shows the configured server path: Overwrite server input explicitly replaces that file; Reload server input restores its parameters. Study/TOML imports never overwrite it. TOML reference paths resolve relative to this server input folder; use a Study when moving embedded geometry between folders or computers.",
     "Translucent uses per-pixel depth ordering on supported WebGL 2 graphics devices, including imported shell batches. Up to ten transparent depth layers are retained per pixel; deeper interiors may be omitted in dense or grazing views, and coincident faces remain ambiguous. Isolate components or use Solid to inspect them. Unsupported devices use approximate mesh sorting and report the fallback in the Log.",
   ] },
   "Load cases": { title: "Define load cases", paragraphs: [
@@ -461,7 +461,7 @@ const HELP_TOPICS = {
   ]},
   "Analysis": { title: "Choose an analysis", paragraphs: [
     "Static (101) computes displacement, stress and element forces for every included load case. Normal modes (103) computes the unloaded natural frequencies and shapes. Buckling (105) uses each case as a separate preload and computes its buckling factors.",
-    "Nonlinear comparison (106 + 101) runs a linear SOL101 baseline and an experimental geometric nonlinear SOL106 analysis for each included load case, using identical mesh, supports and load definitions. Materials remain elastic. Forces are fixed unless Follower forces is enabled for the case: SOL106 then rotates forces with each RBE3 station and SOL101 uses their first-order small-rotation linearization. Applied moments retain their global directions. The VLM is not recalculated during deformation; this is not a coupled aeroelastic solution.",
+    "Nonlinear comparison (106 + 101) runs a linear SOL101 baseline and an experimental geometric nonlinear SOL106 analysis for each included load case, using identical mesh, constraints and load definitions. Materials remain elastic. Forces are fixed unless Follower forces is enabled for the case: SOL106 then rotates forces with each RBE3 station and SOL101 uses their first-order small-rotation linearization. Applied moments retain their global directions. The VLM is not recalculated during deformation; this is not a coupled aeroelastic solution.",
     "In Results choose the physical load case and analysis, then enable Show both solutions to overlay their deformed shapes at the same magnification. Real scale sets static translations and rotations to exactly 1:1. The selected analysis supplies contour colors and inspected results. If full load fails, a red warning identifies the last accepted nonlinear state and its comparison at the same load. Fixed-load SOL101 results scale exactly; follower SOL101 is solved again at that load. A failed attempt is never displayed as a converged state.",
     "Run in JFEM writes the deck and solves it. Write deck opens the NASTRAN file in the Deck tab, where Maximize fills the workspace for reading. Save Study, Load Study and the TOML file actions stay in the top header; explicit server-file actions are in its Server input menu. Use Results to inspect solved conditions and Log to follow progress.",
   ] },
@@ -533,7 +533,7 @@ const WORKSPACE_TABS = [
   ["Geometry", "planform", "Planform"], ["Geometry", "airfoils", "Airfoils"], ["Geometry", "box", "Spars"], ["Geometry", "ribs", "Ribs"],
   ["Geometry", "stringerlayout", "Stringers"], ["Geometry", "leadingedge", "Leading Edge"], ["Geometry", "fuel", "Fuel tank"],
   ["Model", "mesh", "Structural Mesh"], ["Model", "material", "Materials"], ["Model", "shells", "Skins"],
-  ["Model", "sections", "Stringers"], ["Model", "ribproperties", "Ribs"], ["Model", "sparproperties", "Spars"], ["Model", "leproperties", "Leading Edge"], ["Model", "supports", "Supports"],
+  ["Model", "sections", "Stringers"], ["Model", "ribproperties", "Ribs"], ["Model", "sparproperties", "Spars"], ["Model", "leproperties", "Leading Edge"], ["Model", "supports", "Constraints"],
   ["Summary", "weights", "Mass properties"], ["Summary", "summary", "General"],
   ["Loads", "cases", "Cases"], ["Loads", "vlm", "Visualization"], ["Loads", "vlmmesh", "VLM settings"], ["Loads", "loadplots", "Load plots"],
   ["Solve", "analysis", "FE Analysis"], ["Solve", "sensitivity", "Sensitivity"], ["Solve", "results", "FE Results"], ["Solve", "sensitivityresults", "Sensitivity"], ["Solve", "deck", "Deck"], ["Solve", "log", "Log"],
@@ -553,15 +553,20 @@ const PROPERTY_TABS = new Set(["shells", "sections", "ribproperties", "sparprope
 const SUMMARY_TABS = new Set(["weights", "summary"]);
 const WORKSPACE_MENUS = {
   structure:{tabs:new Set(["box","ribs","stringerlayout","leadingedge"]),current:"box",label:"Structure"},
-  aerodynamics:{tabs:new Set(["vlm","vlmmesh"]),current:"vlm",label:"Aerodynamics"},
+  aerodynamics:{tabs:new Set(["vlm","vlmmesh","loadplots"]),current:"vlm",label:"Loads"},
   properties:{tabs:PROPERTY_TABS,current:"shells",label:"Properties"},
   overview:{tabs:SUMMARY_TABS,current:"weights",label:"Summary"},
   analysismenu:{tabs:new Set(["analysis","sensitivity"]),current:"analysis",label:"Analysis"},
   resultsmenu:{tabs:new Set(["results","sensitivityresults"]),current:"results",label:"Results"},
   displaymenu:{tabs:new Set(["display","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"]),current:"display",label:"Display"},
 };
-const WORKSPACE_MAIN_TABS = WORKSPACE_TABS.filter(([,id]) => !["sections","ribproperties","sparproperties","leproperties","summary","ribs","stringerlayout","leadingedge","vlmmesh","sensitivity","sensitivityresults","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"].includes(id)).map(tab => tab[1] === "box" ? ["Geometry","structure","Structure"] : tab[1] === "vlm" ? ["Loads","aerodynamics","Aerodynamics"] : tab[1] === "shells" ? ["Model", "properties", "Properties"] : tab[1] === "weights" ? ["Summary","overview","Summary"] : tab[1] === "analysis" ? ["Solve","analysismenu","Analysis"] : tab[1] === "results" ? ["Solve","resultsmenu","Results"] : tab[1] === "display" ? ["View","displaymenu","Display"] : tab);
+const WORKSPACE_MAIN_TABS = WORKSPACE_TABS.filter(([,id]) => !["sections","ribproperties","sparproperties","leproperties","summary","ribs","stringerlayout","leadingedge","vlmmesh","loadplots","sensitivity","sensitivityresults","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"].includes(id)).map(tab => tab[1] === "box" ? ["Geometry","structure","Structure"] : tab[1] === "vlm" ? ["Loads","aerodynamics","Loads"] : tab[1] === "shells" ? ["Model", "properties", "Properties"] : tab[1] === "weights" ? ["Summary","overview","Summary"] : tab[1] === "analysis" ? ["Solve","analysismenu","Analysis"] : tab[1] === "results" ? ["Solve","resultsmenu","Results"] : tab[1] === "display" ? ["View","displaymenu","Display"] : tab);
 const parentTab = id => Object.keys(WORKSPACE_MENUS).find(key=>WORKSPACE_MENUS[key].tabs.has(id));
+
+function leaveInspection(){
+  state.geometryTools?.cancel();clearInspection();
+  activateWorkspaceTab(workspaceUI.previousTab&&workspaceUI.previousTab!=="inspect"?workspaceUI.previousTab:"display");
+}
 
 function closeWorkspaceMenu(id, focus = false) {
   const menu = document.getElementById(id + "-menu"), button = document.getElementById("tab-" + id);
@@ -625,7 +630,9 @@ function activateWorkspaceTab(id, options = {}) {
   if (options.focus && selected && selected.focus) selected.focus();
   if (id === "deck") {
     if (state.lastDeck) { document.getElementById("deck-panel").hidden = false; refreshDeckMetadata(); }
-    if (!options.skipDeckLoad) loadLastDeck();
+    // A completed Write/Run or startup restore already owns this snapshot.
+    // Reopening its tab must not transfer and rebuild a potentially huge deck.
+    if (!options.skipDeckLoad && !state.lastDeck) loadLastDeck();
   }
   if (id === "log" && liveLog.follow) logEl.scrollTop = logEl.scrollHeight;
   if (id === "sensitivity") state.sensitivity?.refreshContext();
@@ -654,7 +661,7 @@ function installWorkspaceNavigation() {
     button.setAttribute("aria-controls", parameterGroup ? "group-" + parameterGroup.toLowerCase().replace(/[^a-z0-9]+/g, "-") : "panel-" + id);
     button.setAttribute("aria-label", group + ": " + label); button.textContent = label;
     if (WORKSPACE_MENUS[id]) { button.setAttribute("aria-haspopup", "menu"); button.setAttribute("aria-expanded", "false"); button.textContent = label + " ▾"; }
-    button.onclick = () => WORKSPACE_MENUS[id] ? openWorkspaceMenu(id) : activateWorkspaceTab(id);
+    button.onclick = () => WORKSPACE_MENUS[id] ? openWorkspaceMenu(id) : id === "inspect" && workspaceUI.activeTab === "inspect" ? leaveInspection() : activateWorkspaceTab(id);
     button.onkeydown = (event) => {
       if (WORKSPACE_MENUS[id] && event.key === "ArrowDown") { event.preventDefault(); openWorkspaceMenu(id); return; }
       const index = WORKSPACE_MAIN_TABS.findIndex((item) => item[1] === id);
@@ -694,19 +701,25 @@ function paneWidthBounds() {
   return { minimum, maximum: Math.max(minimum, Math.min(680, Math.floor(available - viewportMinimum - 7))) };
 }
 
+function schedulePaneViewportResize() {
+  if(state.paneResizeFrame!=null)return;
+  state.paneResizeFrame=requestAnimationFrame(()=>{state.paneResizeFrame=null;state.engine?.resize();});
+}
+
 function setPaneWidth(width, remember = true) {
   const { minimum, maximum } = paneWidthBounds();
   const finite = Number.isFinite(width) ? width : 360;
   const clamped = Math.round(Math.max(minimum, Math.min(maximum, finite)));
   if (remember) workspaceUI.preferredWidth = clamped;
   const app = document.getElementById("app");
-  if (app.style && app.style.setProperty) app.style.setProperty("--pane-width", clamped + "px");
+  const value=clamped+"px",changed=app.style?.getPropertyValue("--pane-width")!==value;
+  if (changed && app.style && app.style.setProperty) app.style.setProperty("--pane-width", value);
   const resizer = document.getElementById("pane-resizer");
   if (resizer) {
     resizer.setAttribute("aria-valuemin", String(minimum)); resizer.setAttribute("aria-valuemax", String(maximum));
     resizer.setAttribute("aria-valuenow", String(clamped)); resizer.setAttribute("aria-valuetext", clamped + " pixels");
   }
-  if (state.engine) state.engine.resize();
+  if(changed)schedulePaneViewportResize();
   return clamped;
 }
 
@@ -715,20 +728,23 @@ function installPaneResize() {
   if (!resizer || !resizer.getBoundingClientRect) return;
   try { const saved = Number(window.localStorage.getItem("WingFEGen.paneWidth")); if (saved > 0) workspaceUI.preferredWidth = saved; } catch (_) { /* storage can be disabled */ }
   const persist = () => { try { window.localStorage.setItem("WingFEGen.paneWidth", String(workspaceUI.preferredWidth)); } catch (_) {} };
-  let pointer = null;
+  let pointer = null,frame=null,nextWidth=null,bodyLeft=0;
+  const apply=()=>{frame=null;if(nextWidth!==null){setPaneWidth(nextWidth);nextWidth=null;}};
   const stop = (event) => {
     if (pointer === null || event && event.pointerId !== pointer) return;
+    if(frame!==null){cancelAnimationFrame(frame);frame=null;}apply();
     pointer = null; document.getElementById("app").classList.remove("pane-resizing"); persist();
   };
   resizer.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || workspaceUI.maximizedTab) return;
     event.preventDefault(); pointer = event.pointerId; resizer.setPointerCapture(pointer); resizer.focus();
+    bodyLeft=document.getElementById("workspace-body").getBoundingClientRect().left;
     document.getElementById("app").classList.add("pane-resizing");
   });
   resizer.addEventListener("pointermove", (event) => {
     if (event.pointerId !== pointer) return;
-    const body = document.getElementById("workspace-body").getBoundingClientRect();
-    setPaneWidth(event.clientX - body.left - 3.5);
+    nextWidth=event.clientX-bodyLeft-3.5;
+    if(frame===null)frame=requestAnimationFrame(apply);
   });
   resizer.addEventListener("pointerup", stop); resizer.addEventListener("pointercancel", stop);
   resizer.addEventListener("lostpointercapture", stop);
@@ -789,8 +805,8 @@ function buildForm(schema, values) {
     det.setAttribute("data-workspace-panel", tabId); det.setAttribute("role", "tabpanel"); det.setAttribute("aria-labelledby", "tab-" + tabId);
     const tabButton = document.getElementById("tab-" + tabId);
     if (tabButton && name !== "JFEM solver") tabButton.setAttribute("aria-controls", det.id);
-    const sum = document.createElement("div"); sum.className = "parameter-heading"; const text = document.createElement("h2"); text.textContent = ({"Torsion box":"Spars","Shell properties":"Skins","Beam sections":"Stringers","Rib properties":"Rib properties","Spar properties":"Spar properties","Stringer layout":"Stringers"})[name] || name;
-    sum.append(text, helpButton(name, HELP_TOPICS[name] || { title: name, paragraphs: specs.map((spec) => spec.label + ": " + (spec.help || "Set the " + spec.label.toLowerCase() + (spec.unit ? " in " + spec.unit : "") + ".")) }));
+    const sum = document.createElement("div"); sum.className = "parameter-heading"; const text = document.createElement("h2"); text.textContent = ({"Torsion box":"Spars","Shell properties":"Skins","Beam sections":"Stringers","Rib properties":"Rib properties","Spar properties":"Spar properties","Stringer layout":"Stringers","RBE3 and supports":"RBE3 and constraints"})[name] || name;
+    sum.append(text, helpButton(text.textContent, HELP_TOPICS[name] || { title: text.textContent, paragraphs: specs.map((spec) => spec.label + ": " + (spec.help || "Set the " + spec.label.toLowerCase() + (spec.unit ? " in " + spec.unit : "") + ".")) }));
     det.appendChild(sum);
     if (name === "Analysis") {
       const note = document.createElement("p"); note.id = "analysis-solution-note"; note.className = "group-note"; det.appendChild(note);
@@ -1041,7 +1057,7 @@ function buildLoadCaseEditor() {
       const hint=document.createElement("p");hint.className="case-method-note";hint.textContent="Apply the same signed acceleration to structural shell/bar mass and fuel. New definitions enable this; older files keep their previous fuel-only loads until you check this option. Structural mass is not multiplied by fuel fill percentage.";host.append(hint);
     }
     if(key==="fuel_percent") {
-      const hint=document.createElement("p");hint.className="case-method-note";hint.textContent="Enable the tank in Fuel tank. Each bay fills upward by this percentage and receives a CONM2 mass with its own CG and inertia, supported by a six-DOF RBE3. Different fuel states use separate solver decks.";host.append(hint);
+      const hint=document.createElement("p");hint.className="case-method-note";hint.textContent="Enable the tank in Fuel tank. Each bay fills upward by this percentage and receives a CONM2 mass with its own CG and inertia, connected by a six-DOF RBE3. Different fuel states use separate solver decks.";host.append(hint);
     }
     if(key==="fuel_accel_z") {
       const hint=document.createElement("p");hint.className="case-method-note";hint.textContent="Fuel weight: default (0, 0, −1) g acts downward. The case load multiplier also scales this acceleration (−1.5g with the default multiplier). Set all accelerations to zero for mass and inertia only. Fuel forces remain fixed in global axes, independently of aerodynamic follower forces.";host.append(hint);
@@ -1056,7 +1072,7 @@ function buildLoadCaseEditor() {
     }
     if (key === "method") {
       const note = document.createElement("p"); note.className = "case-method-note";
-      note.textContent = current.method === "vortex_lattice" ? "Computes loads from these flight conditions using the lifting-surface camber surface. Set the shared resolution in Aerodynamics ? VLM settings." : "Distributes the prescribed half lifting-surface lift to the RBE3 centers; no aerodynamic solve is needed.";
+      note.textContent = current.method === "vortex_lattice" ? "Computes loads from these flight conditions using the lifting-surface camber surface. Set the shared resolution in Loads / VLM settings." : "Distributes the prescribed half lifting-surface lift to the RBE3 centers; no aerodynamic solve is needed.";
       host.appendChild(note);
     }
   }
@@ -2043,9 +2059,9 @@ async function exportGeometry(format) {
 
 function geometryExportHelp() {
   openHelp({ title: "Geometry export", paragraphs: [
-    "All model entities exports every generated shell, full beam section, structural GRID, support marker, RBE3 spider and reference node, aerodynamic loft, fuel envelope and each load case's VLM panels, panel-force arrows and applied force/moment glyphs. Available support reactions for the selected static solution are included. Hidden layers are included. Imported reference geometry is included unless you clear its checkbox.",
+    "All model entities exports every generated shell, full beam section, structural GRID, constraint marker, RBE3 spider and reference node, aerodynamic loft, fuel envelope and each load case's VLM panels, panel-force arrows and applied force/moment glyphs. Available constraint reactions for the selected static solution are included. Hidden layers are included. Imported reference geometry is included unless you clear its checkbox.",
     "Visible layers exports the enabled model layers and the selected load case. Beams always use their physical section dimensions and orientation, even when the viewport uses lines. Undeformed is the default; Displayed deformation captures the selected solution, magnification and current animation phase. Fuel and VLM remain at their original geometry, as in the viewer.",
-    "STL stores triangulated surfaces in FE global XYZ and metres. Shell thickness is not extruded. Spiders and force/moment glyphs become small tubes using Line radius; nodes and supports use the display marker sizes, with Line radius as their minimum. STL has no colors or IDs and the combined model is not a watertight manufacturing solid.",
+    "STL stores triangulated surfaces in FE global XYZ and metres. Shell thickness is not extruded. Spiders and force/moment glyphs become small tubes using Line radius; nodes and constraints use the display marker sizes, with Line radius as their minimum. STL has no colors or IDs and the combined model is not a watertight manufacturing solid.",
     "GLB keeps component colors, separate groups, properties and triangle-to-element/GRID IDs in glTF extras. FE XYZ mesh coordinates are stored in metres; a proper root rotation supplies standard glTF Y-up placement without mirroring. Reference transforms are included. Labels, local-axis helpers, duplicate wireframes, selection halos and comparison ghosts are excluded. Result colors are not exported.",
     "Exports use the last created model. If parameters are waiting for a rebuild, the download status says so. Geometry export does not modify inputs or run the solver."
   ] });
@@ -2871,8 +2887,10 @@ function syncImportedModelMode(disabled=false) {
     if(!button.dataset.generatedTitle)button.dataset.generatedTitle=button.title||"";
     button.disabled=!!imported||disabled;button.title=imported?"This action applies to generated lifting surfaces. The imported deck is authoritative; use Write deck or Save Study to export it.":button.dataset.generatedTitle;
   }
+  const planButton=document.getElementById("btn-open-plan-view");
+  if(planButton){planButton.disabled=!!imported||disabled||!state.autoMeshReady;planButton.dataset.available=String(!imported&&!!state.autoMeshReady);if(imported)planButton.title="Plan view requires a generated lifting-surface definition; an imported Nastran deck has no planform drawing.";}
   const analysisNote=document.querySelector('#panel-analysis-actions > .pick-note');
-  if(analysisNote){analysisNote.dataset.generatedNote??=analysisNote.textContent;analysisNote.textContent=imported?'Choose the imported-deck solution below. Source geometry, properties, loads and supports are retained. Solver progress is shown in Log.':analysisNote.dataset.generatedNote;}
+  if(analysisNote){analysisNote.dataset.generatedNote??=analysisNote.textContent;analysisNote.textContent=imported?'Choose the imported-deck solution below. Source geometry, properties, loads and constraints are retained. Solver progress is shown in Log.':analysisNote.dataset.generatedNote;}
   if(imported){
     document.getElementById("imported-deck-title").textContent=imported.name+" · SOL"+imported.solution+" · "+(imported.cases?.length||1)+" cases · imported Nastran";
     const warnings=document.getElementById("imported-deck-warnings");warnings.replaceChildren();
@@ -3278,6 +3296,7 @@ function initScene() {
     inspection: {
       read: () => { const select=document.getElementById("inspect-entity");return {active:workspaceUI.activeTab==="inspect",value:select.value,options:Array.from(select.options,option=>({value:option.value,label:option.textContent,disabled:option.disabled}))}; },
       activate: () => activateWorkspaceTab("inspect"),
+      deactivate: leaveInspection,
       select: value => { document.getElementById("inspect-entity").value=value;inspectFilterChanged();markStudyViewModified(); },
     },
   });
@@ -3583,7 +3602,7 @@ function prepareBarSolid(line,peers,group,positions,conn,color,reference) {
   if(!section?.equivalent)return;
   line.hasSectionShape=true;
   line.createSolid=()=>{
-    const solid=barSectionMesh(group,positions,conn,color,reference);if(!solid)return null;
+    const solid=barSectionMesh(group,positions,conn,reference?document.getElementById("undeformed-color").value:color,reference);if(!solid)return null;
     importedRepresentation(solid,reference?{}:group);peers.push(solid);
     if(!reference){const shape=activeShape();WingSections.updateMesh(BABYLON,solid,currentPositions(),shape?.rotation,amplitude()*(animating()?Math.sin(state.phase):1));state.panelExplosion?.applyMesh(solid);}
     return solid;
@@ -3807,18 +3826,19 @@ function* buildModelSteps(data, options = {}) {
   // Element edges of the shells, drawn as the FE wireframe.
   yield "Building mesh edges and undeformed overlay…";
   const edges = shellEdgePairs(data.groups);
-  const ghost = lineMesh("UNDEFORMED", positions, edges, "#c5d1df", 0.42, false);
+  const referenceColor=document.getElementById("undeformed-color").value;
+  const ghost = lineMesh("UNDEFORMED", positions, edges, referenceColor, 0.42, false);
   const referenceMeshes = ghost ? [ghost] : [];
   for (const g of renderGroups) {
     if (g.kind !== "bar") continue;
     const conn = asI32(g.conn);
-    const lines = lineMesh(g.name + "-reference", positions, conn, "#c5d1df", 0.42, false);
-    const solid = g.properties?.section?.polygon_yz_m?barSectionMesh(g, positions, conn, "#c5d1df", true):null;
+    const lines = lineMesh(g.name + "-reference", positions, conn, referenceColor, 0.42, false);
+    const solid = g.properties?.section?.polygon_yz_m?barSectionMesh(g, positions, conn, referenceColor, true):null;
     if (lines) { lines.barRepresentation = "lines"; lines.hasSectionShape = !!solid; referenceMeshes.push(lines); }
     if (solid) referenceMeshes.push(solid);
-    prepareBarSolid(lines,referenceMeshes,g,positions,conn,"#c5d1df",true);
+    prepareBarSolid(lines,referenceMeshes,g,positions,conn,referenceColor,true);
   }
-  addLayer("UNDEFORMED", "Undeformed model", "#c5d1df", "reference", referenceMeshes);
+  addLayer("UNDEFORMED", "Undeformed model", referenceColor, "reference", referenceMeshes);
   addLayer("NODES", EXTRA_STYLE.NODES.label, EXTRA_STYLE.NODES.color, data.nodes.n_structural + " nodes", []);
   const edgeMesh = lineMesh("MESH_EDGES", positions, edges,
                             EXTRA_STYLE.MESH_EDGES.color, 1, true);
@@ -3829,7 +3849,7 @@ function* buildModelSteps(data, options = {}) {
   state.edgeVisibilityKey=null;
 
   // RBE3 spiders and their reference nodes.
-  yield "Building load attachments and support markers…";
+  yield "Building load attachments and constraint markers…";
   const attachmentLoads = WingGeometryExport.loadsByNode(WingGeometryExport.loadStations(data.loads));
   for(const [attachments,layerName,nodeLayerName] of [[data.rbe3,"RBE3","RBE3_NODES"],[data.fuel_rbe3,"FUEL_RBE3","FUEL_RBE3_NODES"]]) {
     if(!attachments?.count)continue;
@@ -3967,6 +3987,8 @@ function* buildModelSteps(data, options = {}) {
 
 function syncPanelExplosionControls(){
   const settings=state.panelExplosion?.capture()||WingPanelExplode.normalize();
+  const available=!!state.panelIndex?.panels.length,fieldset=document.getElementById("panel-explosion-controls");
+  fieldset.disabled=!available;fieldset.hidden=!available;
   document.getElementById("explode-panels").checked=settings.enabled;
   document.getElementById("explode-panels").disabled=!state.panelIndex?.panels.length;
   document.getElementById("explode-origin").value=settings.origin;
@@ -3974,6 +3996,13 @@ function syncPanelExplosionControls(){
   const slider=document.getElementById("explode-slider"),limit=Math.min(10000,Math.max(1,(state.diag||20)*.5,settings.distance));
   slider.max=limit;slider.step="any";slider.value=settings.distance;slider.disabled=!state.panelIndex?.panels.length;
   slider.setAttribute("aria-valuetext",eng(settings.distance,4)+" metres");
+}
+function syncUndeformedColor(){
+  const hex=document.getElementById("undeformed-color").value,layer=state.layers.get("UNDEFORMED");
+  if(!/^#[0-9a-f]{6}$/i.test(hex)||!layer)return;
+  layer.color=hex;
+  for(const mesh of layer.meshes){mesh.baseColorHex=hex;if(mesh instanceof BABYLON.LinesMesh)mesh.color=color3(hex);else if(mesh.material)setSurfaceLighting(mesh.material,color3(hex));}
+  const swatch=document.getElementById("layer-UNDEFORMED")?.closest("label")?.querySelector(".swatch");if(swatch)swatch.style.background=hex;
 }
 function applyPanelMeshOffsets(){
   if(!state.panelExplosion)return;
@@ -3987,6 +4016,7 @@ function refreshPanelExplosion(){
   state.annotations?.invalidate();
 }
 function editPanelExplosion(){
+  if(!state.panelIndex?.panels.length)return;
   const error=document.getElementById("explode-error");
   try{
     state.panelExplosion ??= WingPanelExplode.create();
@@ -4103,7 +4133,7 @@ function modelEntityGroups() {
   const definitions = [
     ["shells", "Shell elements", structural.filter(g => g.kind === "quad" || g.kind === "tria").map(g => g.name)],
     ["beams", "Beam elements", structural.filter(g => g.kind === "bar").map(g => g.name)],
-    ["connections", "Nodes, connections and supports", ["NODES", "RBE3", "RBE3_NODES", "FUEL_RBE3", "FUEL_RBE3_NODES", "SPC"]],
+    ["connections", "Nodes, connections and constraints", ["NODES", "RBE3", "RBE3_NODES", "FUEL_RBE3", "FUEL_RBE3_NODES", "SPC"]],
     ["aerodynamics", "Aerodynamic geometry", ["AERO_SURFACE", "AIRFOIL_SECTIONS", "VLM_MESH", "VLM_PRESSURE"]],
     ["loads", "Forces and moments", ["AERO_LOADS", "AERO_MOMENTS", "VLM_FORCES", "SUPPORT_FORCES"]],
     ["masses", "Mass properties", ["FUEL_INERTIA"]],
@@ -5720,8 +5750,6 @@ function applyBackgroundColor(hex, remember = true) {
   const rgb = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
   if (state.scene) state.scene.clearColor = new BABYLON.Color4(...rgb, 1);
   const viewport = document.getElementById("viewport"); if (viewport) viewport.style.background = hex;
-  const hint = document.getElementById("viewport-hint");
-  if (hint) hint.style.color = .2126 * rgb[0] + .7152 * rgb[1] + .0722 * rgb[2] > .5 ? "#314458" : "#99adbf";
   if (remember) try { localStorage.setItem("wingfegen-background", hex); } catch (_) {}
   return true;
 }
@@ -5767,7 +5795,7 @@ function rebuildSupportForces() {
   const result=state.results,reactions=result?.matches&&result.available!==false&&state.activeMode<0?result.reactions:null;
   if(control)control.disabled=!reactions;
   document.getElementById("show-support-force-values").disabled=!reactions;
-  if(!reactions||!state.baseline||!state.data?.spc){if(note)note.textContent=state.activeMode>=0?"Support reactions are available for static solutions.":"No support reactions are available for this result.";return;}
+  if(!reactions||!state.baseline||!state.data?.spc){if(note)note.textContent=state.activeMode>=0?"Constraint reactions are available for static solutions.":"No constraint reactions are available for this result.";return;}
   const supports=new Set(asI32(state.data.spc.nodes)),records=[];let peak=0,momentPeak=0;
   for(let i=0;i<reactions.nodes.length;i++){
     const node_index=reactions.nodes[i],force=Array.from(reactions.forces.subarray(3*i,3*i+3)),moment=reactions.moments?Array.from(reactions.moments.subarray(3*i,3*i+3)):[0,0,0];
@@ -5780,7 +5808,7 @@ function rebuildSupportForces() {
   const count=meshes.reduce((n,m)=>n+m.metadata.glyphs.length,0);
   addLayer("SUPPORT_FORCES",EXTRA_STYLE.SUPPORT_FORCES.label,EXTRA_STYLE.SUPPORT_FORCES.color,count+" components",meshes);
   setLayerVisible("SUPPORT_FORCES",control?.checked!==false);
-  if(note)note.textContent=resultAnalysisLabel(result)+": support forces use straight arrows; support moments use right-hand arcs. Global X red, Y green, Z blue. Peak force "+eng(peak,5)+" N; arrow scale "+eng(scale,4)+" m/N. Peak moment component "+eng(momentPeak,5)+" Nm. Inspect a supported GRID for signed values; glyph size does not change the result.";
+  if(note)note.textContent=resultAnalysisLabel(result)+": constraint forces use straight arrows; constraint moments use right-hand arcs. Global X red, Y green, Z blue. Peak force "+eng(peak,5)+" N; arrow scale "+eng(scale,4)+" m/N. Peak moment component "+eng(momentPeak,5)+" Nm. Inspect a constrained GRID for signed values; glyph size does not change the result.";
 }
 
 function addAeroMoments(loads) {
@@ -5879,6 +5907,7 @@ function applyAeroOverlayStyles() {
 }
 
 function syncResultOverlays() {
+  syncUndeformedColor();
   const deformed = !!activeShape();
   applyAeroOverlayStyles();
   for (const [name, id] of [["UNDEFORMED", "show-undeformed"], ["REFERENCE_AERO", "show-reference-aero"]]) {
@@ -6026,10 +6055,16 @@ function showDeckCase(id) {
   const selected=(deck.case_decks||[]).find(item=>Number(item.case_id)===Number(id))||deck;
   state.deckSelectedCase=selected===deck?null:selected.case_id;
   const text=selected.deck_text,path=selected.path;
-  document.getElementById("deck-text").textContent=text;
+  const host=document.getElementById("deck-text");
+  let changed;
+  if(typeof WingDeckView!=="undefined"){
+    state.deckView??=WingDeckView.create(host);changed=state.deckView.setText(text);
+  }else if(host.textContent!==text){host.textContent=text;changed=true;}
   document.getElementById("deck-path").textContent=path||"NASTRAN deck";
-  if(state.deckUrl)URL.revokeObjectURL(state.deckUrl);
-  state.deckUrl=URL.createObjectURL(new Blob([text],{type:"text/plain;charset=utf-8"}));
+  if(changed||!state.deckUrl){
+    if(state.deckUrl)URL.revokeObjectURL(state.deckUrl);
+    state.deckUrl=URL.createObjectURL(new Blob([text],{type:"text/plain;charset=utf-8"}));
+  }
   const download=document.getElementById("deck-download");download.href=state.deckUrl;download.download=(path||"wing.bdf").split(/[\\/]/).pop();
 }
 
@@ -6262,8 +6297,8 @@ function showNode(index) {
     const reactions = state.activeMode < 0 ? state.results?.reactions : null;
     const reactionIndex = supported && reactions ? reactions.nodes.indexOf(index) : -1;
     if (reactionIndex >= 0) {
-      values["Support force Fx, Fy, Fz (N, global)"] = Array.from(reactions.forces.slice(3 * reactionIndex, 3 * reactionIndex + 3));
-      if (reactions.moments) values["Support moment Mx, My, Mz (N m, global)"] = Array.from(reactions.moments.slice(3 * reactionIndex, 3 * reactionIndex + 3));
+      values["Constraint force Fx, Fy, Fz (N, global)"] = Array.from(reactions.forces.slice(3 * reactionIndex, 3 * reactionIndex + 3));
+      if (reactions.moments) values["Constraint moment Mx, My, Mz (N m, global)"] = Array.from(reactions.moments.slice(3 * reactionIndex, 3 * reactionIndex + 3));
     }
     html += "<details open><summary>Nodal results</summary><p class=\"pick-note\">" + esc(resultCaseLabel()) + "</p>" + resultTable(values) + "</details>";
   } else html += '<p class="pick-note">No matching nodal results are available.</p>';
@@ -6519,6 +6554,8 @@ document.getElementById("beam-style").onchange = applyBeamStyle;
 document.getElementById("show-celas-cylinders").onchange = () => { syncSpringStyle(); markStudyViewModified(); };
 document.getElementById("celas-radius").onchange = event => { syncSpringStyle();if(!event.target.checkValidity())event.target.reportValidity();markStudyViewModified(); };
 document.getElementById("show-rbe3-dofs").onchange = () => { state.annotations?.invalidate?.(); markStudyViewModified(); };
+document.getElementById("show-celas-labels").onchange = () => { state.annotations?.invalidate?.(); markStudyViewModified(); };
+document.getElementById("undeformed-color").oninput = () => { syncUndeformedColor(); markStudyViewModified(); };
 document.getElementById("shell-geometry").onchange = ()=>{applyShellGeometry();markStudyViewModified();};
 document.getElementById("load-case-select").onchange = (e) => selectLoadCase(e.target.value);
 document.getElementById("result-case-select").onchange = (e) => selectLoadCase(e.target.value);
@@ -6692,6 +6729,7 @@ function showStartupStudyNotice(notice) {
     if(!loaded&&!state.startupChoiceCancelled&&!choiceMessage)choiceMessage=document.getElementById("model-error-text")?.textContent || "The Study could not be loaded. Choose another file or start a new Study.";
   }
   state.autoMeshReady=true;
+  const planButton=document.getElementById("btn-open-plan-view");planButton.disabled=!!state.importedDeck;planButton.dataset.available=String(!state.importedDeck);
   document.getElementById("auto-save").disabled=false;
   state.autosave?.changed();
   log("Study loaded; Lifting surface FEGen is ready.", "good");

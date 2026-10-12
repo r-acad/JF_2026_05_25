@@ -27,13 +27,17 @@ unit-specific scales fitted to the displayed values. Numbers use at most five
 significant digits; CSV retains full precision. Units sit beside the scales.
 
 **Display / Axes & labels** includes RBE3 component, weight and UM markers.
+**CELAS properties and coordinate axes** labels visible springs with their
+element ID, PELAS property or directly specified stiffness, and each endpoint's
+DOF and GRID displacement coordinate system (CD, type and parent). Scalar or
+grounded endpoints have no spatial axis; stiffness values use source deck units.
 **Display / Appearance** can draw CELAS components as symbolic cylinders,
 colored x red, y green and z blue in each endpoint's coordinate system.
 The adjacent **Radius** input sizes these display symbols independently of
 other markers: metres for generated models, unconverted source length units
 for imported decks. The default is 0.01; the setting is retained in Studies
 and changes no spring stiffness or physical dimensions.
-**Loads / Aerodynamics** contains both Visualization and VLM settings.
+The **Loads** dropdown contains Visualization, VLM settings and Load plots.
 
 SOL105 results include the actual **SOL101 preload** as a separate analysis
 alongside buckling modes. Export recovers requested stress, force and reaction
@@ -121,7 +125,7 @@ optional external-resource details.
    and units, with a choice of palettes. Material fields use named swatches;
    inactive sandwich fields and disabled stiffeners stay neutral. The Leading
    Edge properties tab is enabled after defining a leading edge.
-5. Define supports and cases. Cases include aerodynamic settings, load multiplier,
+5. Define constraints and cases. Cases include aerodynamic settings, load multiplier,
    fuel state and inertia options. Aerodynamic loads use rib-plane RBE3s; mass
    loads use rib-bay-center references. The default multiplier of 1.5 converts
    specified limit aerodynamic loads to ultimate loads.
@@ -150,6 +154,11 @@ The definition is saved independently from solved results. Exported decks and
 solver result files remain in their run directories. A stale model/result is
 identified in the GUI rather than being silently presented as current.
 
+The **Deck** tab caches the current deck and lays out large text in contained
+blocks, so reopening or resizing does not relayout every line. The complete text
+remains searchable, selectable and downloadable. New Write deck or solver output
+replaces the cache; pane dragging coalesces viewport resizing to animation frames.
+
 The **Project** dropdown groups New Study, Study/TOML reading and saving,
 Read Nastran, Write deck, geometry export and configured-input operations.
 **Export geometry…** opens the STL/GLB options. Save Study retains its orange
@@ -162,6 +171,10 @@ reads the linked file, including changes made outside this browser. **Open
 stored copy** opens the last saved or loaded browser snapshot, useful when the
 disk file is unavailable; it does not link that snapshot for disk overwriting.
 **Relink file…** selects the file again after it moves or browser access is lost.
+
+**Plan View** is blue when a generated lifting-surface drawing is available and
+disabled for imported Nastran decks. Panel isolation, explosion and panel-property
+tables are unavailable when the model has no stiffened panels.
 
 ### Read an existing Nastran deck
 
@@ -196,7 +209,7 @@ an import error restores the previous view. Logs separate transfer, decoding
 and viewport preparation. Large imported property groups use preallocated axis
 buffers, and viewport material/visibility updates are batched to avoid repeated
 whole-model work. These optimizations preserve element/property identities,
-case-specific supports and loads, and inspection data.
+case-specific constraints and loads, and inspection data.
 
 Large imported models retain their individual property groups for visibility and
 inspection, while sharing bounded GPU geometry batches. Entity lists are paged
@@ -217,11 +230,11 @@ reopening does not depend on the original file locations. **Study Options**
 also offers **Read Nastran file** directly at startup.
 
 **Loads / Cases** displays imported case-control settings, selected load sets,
-equivalent nodal loads and the source-card inventory. **Model / Supports**
+equivalent nodal loads and the source-card inventory. **Model / Constraints**
 displays the selected case's effective SPC constraints, prescribed values,
 source sets and GRID displacement coordinate systems. Both selectors update
 the viewport. Click a GRID in the tables to inspect its conditions and results.
-Tables can be filtered and paged for large models. Support cones and rotation
+Tables can be filtered and paged for large models. Constraint cones and rotation
 boxes follow each GRID's displacement axes, including non-BASIC coordinates.
 The inventory reports cards without a native interpretation; retaining every
 source card does not imply that every Nastran formulation is supported.
@@ -306,7 +319,7 @@ solid/translucent surfaces, beam sections, reference STL/OBJ/GLB geometry,
 measurement and geometry export. Fuel-tank volume and mass properties include
 rib-bay contributions. Panel isolation assigns distinct colors and P-labels.
 While isolation is active, it controls the shell/beam visibility switches;
-loads, aerodynamic surfaces, supports and other overlays remain independent.
+loads, aerodynamic surfaces, constraints and other overlays remain independent.
 **Display / Properties** colors the generated shell and beam properties and
 material assignments without an analysis. Values include thickness, area,
 section inertias and material E/nu/density, with units and a color scale. For a
@@ -401,8 +414,13 @@ available.
 Entity lists have independent collapse/expand buttons saved in the Study.
 RBE3 lines are light pink. Aerodynamic-load reference nodes at rib planes are
 magenta; fuel/structural-mass reference nodes at bay centers are dark green.
-**Label support force and moment values** adds signed
+**Label constraint force and moment values** adds signed
 component values at the visible reaction arrows, using the axis colors.
+**Undeformed model color** changes the reference lines and beam sections without
+changing result contours. The color and CELAS label option are saved with the
+Study. Clicking **Inspect** again leaves inspection; its entity selector appears
+only while Inspect is selected. The permanent lower-left mouse hint is removed;
+the canvas tooltip retains the mouse controls.
 Returning to **FE Results** exits temporary panel/fuel isolation and restores
 the selected physical deformation. Saved sensitivity baselines retain their
 binary displacement/rotation buffers through the server response. Malformed
@@ -452,6 +470,13 @@ reopening, Sensitivity automatically reads the current property catalogue and
 restores the checked variables when the model is ready. An explicitly empty
 selection stays empty; unavailable saved IDs are reported until removed by the
 user. Restoring a selection does not start an analysis.
+Use **Add component variables** to add independent spar-web/cap, rib and
+leading-edge variables to an existing selection. Newly available variables are
+not silently added to a saved selection. Shared-default derivatives describe all
+their attached components together; separate rib/bay derivatives require selecting
+the local variables and explicitly running sensitivity again. Component grids
+show unselected physical locations as **Not selected**, rather than copying a
+shared derivative into every location.
 The property filter defaults to **Wildcards**. Examples: `P*` (or `P_`) selects names
 beginning with P, `*skin*` finds "skin" anywhere, and `*bar*lower*` finds "bar"
 followed by "lower" within a name, group or ID. Other characters are literal;

@@ -57,13 +57,13 @@
         <button id="btn-save-model-as" disabled aria-describedby="study-help" title="Choose another filename and folder for a complete Study copy, then use that file for subsequent saves.">Save Study as…</button>
         <button id="btn-load-model" disabled aria-describedby="study-help" title="Browse Study files or reopen a recent saved Study" aria-haspopup="dialog">Load Study ▾</button>
         <button id="btn-study-notes" title="Describe the intent of your latest modification; Save Study records the note and save time">Notes</button>
-        <span id="study-help" class="file-tooltip" role="tooltip">A Study (.wingfem.json) contains parameters, load cases, supports, embedded references, 2D drawings, display settings and timestamped notes. Solver results are separate. Save Study updates the linked file; the first save chooses its filename and folder. Save Study as… selects a new destination. Without file-picker support, browser download settings apply. Orange means unsaved definition changes; green means the definition is saved. Camera and display changes leave this indicator unchanged, but their current settings are included when you save.</span>
+        <span id="study-help" class="file-tooltip" role="tooltip">A Study (.wingfem.json) contains parameters, load cases, constraints, embedded references, 2D drawings, display settings and timestamped notes. Solver results are separate. Save Study updates the linked file; the first save chooses its filename and folder. Save Study as… selects a new destination. Without file-picker support, browser download settings apply. Orange means unsaved definition changes; green means the definition is saved. Camera and display changes leave this indicator unchanged, but their current settings are included when you save.</span>
       </span>
       <span class="file-action-group" aria-label="TOML parameter files">
         <button id="btn-save-toml" disabled aria-describedby="toml-help">Save TOML as…</button>
         <button id="btn-load-toml" disabled aria-describedby="toml-help">Load TOML</button>
         <button id="btn-view-toml" disabled title="Inspect the current definition as TOML, or read the configured server TOML file. This does not save or reload anything.">View TOML</button>
-        <span id="toml-help" class="file-tooltip" role="tooltip">TOML stores model parameters, supports, load cases, all loaded reference placements and cache paths, and the Plan view background image. Saving caches unlinked references without overwriting the server input. Reference paths depend on this server's input folder; use Save Study to move embedded geometry, all display settings, other images and notes between computers. Import validates before replacing the current Study.</span>
+        <span id="toml-help" class="file-tooltip" role="tooltip">TOML stores model parameters, constraints, load cases, all loaded reference placements and cache paths, and the Plan view background image. Saving caches unlinked references without overwriting the server input. Reference paths depend on this server's input folder; use Save Study to move embedded geometry, all display settings, other images and notes between computers. Import validates before replacing the current Study.</span>
       </span>
       <button id="btn-read-nastran" disabled title="Choose a local Nastran deck; its INCLUDE files are read automatically. Review native properties, solve its load cases and compute supported sensitivities. Save Study embeds the complete deck source.">Read Nastran</button>
       <input id="model-file" type="file" accept=".wingfem.json,application/json" hidden>
@@ -115,7 +115,7 @@
         <p id="analysis-validity" class="pick-note" role="status" aria-live="polite" data-analysis-current="false">No analysis results are available. Run JFEM for this model.</p>
         <div id="imported-analysis" hidden></div>
       </section>
-      <details id="imported-deck-info" hidden><summary id="imported-deck-title"></summary><p>Imported deck is authoritative. Review source cases in Loads → Cases and boundary conditions in Model → Supports. These forms are read-only; selecting a case updates the loads and supports in the viewport. Review properties in Display → Properties or Inspect; use Analysis, Sensitivity and Results normally. Read Nastran replaces the deck; New Study returns to generated geometry. Save Study embeds the complete source, including INCLUDE content. TOML describes generated lifting surfaces only.</p><ul id="imported-deck-warnings"></ul></details>
+      <details id="imported-deck-info" hidden><summary id="imported-deck-title"></summary><p>Imported deck is authoritative. Review source cases in Loads → Cases and boundary conditions in Model → Constraints. These forms are read-only; selecting a case updates the loads and constraints in the viewport. Review properties in Display → Properties or Inspect; use Analysis, Sensitivity and Results normally. Read Nastran replaces the deck; New Study returns to generated geometry. Save Study embeds the complete source, including INCLUDE content. TOML describes generated lifting surfaces only.</p><ul id="imported-deck-warnings"></ul></details>
       <div id="form"><p class="muted">reading parameters&hellip;</p></div>
       <section class="workspace-panel" data-workspace-panel="cases" data-imported-only role="tabpanel" aria-labelledby="tab-cases" hidden><div id="imported-cases" hidden></div></section>
       <section class="workspace-panel" data-workspace-panel="supports" data-imported-only role="tabpanel" aria-labelledby="tab-supports" hidden><div id="imported-supports" hidden></div></section>
@@ -144,7 +144,7 @@
         <label class="layer"><input id="export-references" type="checkbox" checked><span>Include imported references</span></label>
         <label class="display-control" for="export-line-radius">Line radius (m) <input id="export-line-radius" type="number" min="0.00000001" step="0.0001" placeholder="Automatic"></label>
         <div class="hud-row"><button id="export-stl">Export STL</button><button id="export-glb">Export GLB</button></div>
-        <p class="pick-note">Includes shells, full beam sections, nodes, supports, RBE3 spiders, aero/VLM, tank and load glyphs. STL keeps FE XYZ in metres; GLB preserves colors, groups and IDs with standard Y-up placement. Labels and camera helpers are excluded.</p>
+        <p class="pick-note">Includes shells, full beam sections, nodes, constraints, RBE3 spiders, aero/VLM, tank and load glyphs. STL keeps FE XYZ in metres; GLB preserves colors, groups and IDs with standard Y-up placement. Labels and camera helpers are excluded.</p>
         <p id="export-status" class="pick-note" role="status" aria-live="polite">Create a model, then choose an export format.</p>
       </section>
 
@@ -194,7 +194,7 @@
       <div class="parameter-heading"><h2>Entities</h2></div>
       <label class="layer"><input id="show-panels" type="checkbox" disabled><span>Panels · isolate stiffened skins</span></label>
       <p id="stiffened-panel-note" class="pick-note">Create FEM to identify stiffened panels.</p>
-      <fieldset id="panel-explosion-controls">
+      <fieldset id="panel-explosion-controls" disabled>
         <legend>Exploded stiffened panels</legend>
         <label class="layer"><input id="explode-panels" type="checkbox" disabled><span>Explode panels</span></label>
         <label class="display-control">Spread from <select id="explode-origin"><option value="centroid">Structural GRID centroid</option><option value="midspan">Bounding-box midspan center</option><option value="ribbay">Individual rib-bay centers</option><option value="rib">Corresponding rib center (inboard)</option></select></label>
@@ -214,7 +214,7 @@
         <div id="vlm-legend"></div>
         <p class="pick-note">VLM pressures are the lower-minus-upper pressure jump on the undeformed aerodynamic lattice.</p>
       </div>
-      <p class="pick-note">RBE3 and support loads: straight arrows show force components; curved arrows show signed moments by the right-hand rule. Global X is red, Y green, Z blue. VLM pressure forces use magenta arrows normal to the panels. Appearance, axes, environment and fuel inertia have separate Display sub-tabs.</p>
+      <p class="pick-note">RBE3 and constraint loads: straight arrows show force components; curved arrows show signed moments by the right-hand rule. Global X is red, Y green, Z blue. VLM pressure forces use magenta arrows normal to the panels. Appearance, axes, environment and fuel inertia have separate Display sub-tabs.</p>
       </div>
       </section>
 
@@ -248,7 +248,7 @@
       <p class="pick-note">The loft shows the full lifting-surface shape outside the structural box. Its visibility is independent of structural opacity and the VLM mesh.</p>
       <label class="display-control">Node radius (m)<input id="node-radius" type="number" min="0" step="any" value="0.005"></label>
       <label class="display-control">Marker radius (m)<input id="marker-radius" type="number" min="0" step="any" value="0.01"></label>
-      <p class="pick-note">Supports: cones for translations 1–3, with their tips at the node along +x, +y and +z; open cubes for rotations 4–6. Global x is red, y green, z blue. Cone base radius equals Marker radius, length is twice that radius. Cubes keep their half-radius offset.</p>
+      <p class="pick-note">Constraints: cones for translations 1–3, with their tips at the node along +x, +y and +z; open cubes for rotations 4–6. Global x is red, y green, z blue. Cone base radius equals Marker radius, length is twice that radius. Cubes keep their half-radius offset.</p>
       <div id="aerodynamic-appearance">
         <label class="display-control">Aerodynamic loft finish
           <select id="aero-deformed-style" disabled><option value="auto" selected>Auto · contour-friendly</option><option value="wireframe">Wireframe</option><option value="solid">Solid</option><option value="translucent">Translucent</option><option value="metallic">Metallic · aluminium reflections</option></select>
@@ -278,6 +278,7 @@
         <label class="layer"><input id="show-coordinate-labels" type="checkbox"><span>Coordinate IDs and types</span></label>
         <p class="pick-note">Coordinate labels include their parent RID, or the defining G1/G2/G3 GRID IDs for CORD1 systems.</p>
         <label class="layer"><input id="show-rbe3-dofs" type="checkbox"><span>RBE3 DOFs and markers (REF / independent / UM)</span></label>
+        <label class="layer" title="Label visible springs with EID, PELAS property or direct stiffness, each endpoint DOF, and its GRID displacement coordinate (CD), type and parent. Scalar or grounded endpoints have no spatial axis. Stiffness and damping values use the source deck units."><input id="show-celas-labels" type="checkbox"><span>CELAS properties and coordinate axes</span></label>
         <label class="display-control">Label size (px)<input id="id-label-size" type="number" min="8" max="24" step="1" value="11"></label>
         <p id="id-label-status" class="pick-note" role="status" aria-live="polite"></p>
         <div id="entity-color-legend"></div>
@@ -355,7 +356,7 @@
             <label class="display-control" id="sensitivity-metric-row">Color quantity <select id="sensitivity-map-metric"><option value="percent">Response change (% of baseline)</option><option value="absolute">Response change (response units)</option></select></label>
             <button type="button" class="mini" id="sensitivity-map-show">Show property effect on model</button>
             <p id="sensitivity-map-estimate" class="pick-note"></p>
-            <p class="pick-note">Fields color the selected response derivative on each visible skin or beam. Select panel properties in Sensitivity to compare panels independently; their derivatives take precedence over shared defaults. Missing derivatives are gray. Use Display to choose components. The single-property preview estimates a response change without a new solve. Applied loads and VLM contours may remain visible; deformation and support reactions return in FE Results.</p>
+            <p class="pick-note">Fields color the selected response derivative on each visible skin or beam. Select panel properties in Sensitivity to compare panels independently; their derivatives take precedence over shared defaults. Missing derivatives are gray. Use Display to choose components. The single-property preview estimates a response change without a new solve. Applied loads and VLM contours may remain visible; deformation and constraint reactions return in FE Results.</p>
           </div>
           <p id="sensitivity-map-status" class="pick-note" role="status"></p>
         </div>
@@ -400,15 +401,16 @@
             <span>Animate</span>
           </label>
           <label class="ctl check"><input id="show-undeformed" type="checkbox"><span>Undeformed model</span></label>
+          <label class="display-control">Undeformed model color<input id="undeformed-color" type="color" value="#c5d1df" title="Color of the undeformed structural reference lines and beam sections. Saved with the Study; does not affect result contours."></label>
           <label class="ctl check" title="Original aerodynamic surface, filled and translucent"><input id="show-reference-aero" type="checkbox"><span>Undeformed aero · translucent</span></label>
           <label class="ctl check" title="Show the aerodynamic loft. It follows the active FE displacement shape; sensitivity fields use the undeformed loft. Select metallic, wireframe or translucent in Display."><input id="show-deformed-aero" type="checkbox" checked><span id="deformed-aero-label">Aerodynamic loft</span></label>
           <div class="sub-title">Contour</div>
           <select id="contour-select"></select>
           <label class="display-control">Color scale<select id="result-palette"><option value="spectrum">Blue–green–red</option><option value="viridis">Viridis</option><option value="inferno">Inferno</option><option value="coolwarm">Blue–white–red</option><option value="grayscale">Grayscale</option></select></label>
           <div id="contour-legend"></div>
-          <div class="sub-title">Support reactions</div>
-          <label class="ctl check"><input id="show-support-forces" type="checkbox" checked><span>Forces and moments at supported nodes</span></label>
-          <label class="ctl check"><input id="show-support-force-values" type="checkbox"><span>Label support force and moment values</span></label>
+          <div class="sub-title">Constraint reactions</div>
+          <label class="ctl check"><input id="show-support-forces" type="checkbox" checked><span>Forces and moments at constrained nodes</span></label>
+          <label class="ctl check"><input id="show-support-force-values" type="checkbox"><span>Label constraint force and moment values</span></label>
           <label class="display-control">Arrow length multiplier<input id="support-force-scale" type="number" min="0.01" max="100" step="0.1" value="1"></label>
           <p id="support-force-note" class="pick-note"></p>
         </div>
@@ -496,7 +498,6 @@
       <div id="load-clock-face" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span id="load-clock-value">0%</span></div>
       <div><strong id="load-clock-title">SOL106 load level</strong><span id="load-clock-accepted">Accepted 0%</span><small id="load-clock-detail">Load fraction, not elapsed time</small></div>
     </div>
-    <div id="viewport-hint">Drag to orbit &middot; right-drag to pan &middot; wheel to zoom &middot; CATIA zoom: middle + right, release right, keep middle held and move up/down</div>
     <div id="splash">
       <div>
         <h2>Lifting surface torsion box</h2>
@@ -587,6 +588,7 @@
 <script src="supports.js" defer></script>
 <script src="imported_render.js" defer></script>
 <script src="color_scales.js"></script>
+<script src="deck_view.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>

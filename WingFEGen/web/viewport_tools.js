@@ -95,7 +95,7 @@
   if(inspection){
    const button=host.ownerDocument.createElement("button");button.type="button";button.id="view-inspect";button.className="viewport-tool viewport-inspect-tool";
    button.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 6 6M10 7v6M7 10h6"/></svg><span>Inspect</span>';host.appendChild(button);buttons.inspect=button;
-   button.onclick=()=>{inspection.activate();syncInspection();};
+   button.onclick=()=>{if(inspection.read().active&&inspection.deactivate)inspection.deactivate();else inspection.activate();syncInspection();};
    inspectionFilter=host.ownerDocument.createElement("label");inspectionFilter.id="viewport-inspection-filter";inspectionFilter.className="viewport-inspection-filter";
    const caption=host.ownerDocument.createElement("span");caption.textContent="Inspect entity";
    inspectionSelect=host.ownerDocument.createElement("select");inspectionSelect.id="view-inspect-entity";inspectionSelect.setAttribute("aria-label","Entity to inspect in viewport");inspectionSelect.title="Choose an entity type and open Inspect. Left-click a matching visible entity in the model.";
@@ -114,7 +114,7 @@
    if(signature!==inspectionOptions){inspectionOptions=signature;inspectionSelect.replaceChildren();for(const item of options){const option=host.ownerDocument.createElement("option");option.value=item.value;option.textContent=item.label;option.disabled=item.disabled===true;inspectionSelect.appendChild(option);}}
    if(options.some(option=>option.value===value.value))inspectionSelect.value=value.value;
    inspectionSelect.disabled=value.disabled===true||!options.length;
-   const active=value.active===true,button=buttons.inspect;button.disabled=value.disabled===true;button.setAttribute("aria-pressed",String(active));button.setAttribute("aria-label","Inspect entities");button.title=active?"Inspect is active. Left-click a visible entity matching the selected type.":"Open Inspect to pick visible entities and see their properties and results.";
+   const active=value.active===true,button=buttons.inspect;inspectionFilter.hidden=collapsed||!active;button.disabled=value.disabled===true;button.setAttribute("aria-pressed",String(active));button.setAttribute("aria-label","Inspect entities");button.title=active?"Inspect is active. Click again to leave Inspect, or left-click a visible entity matching the selected type.":"Open Inspect to pick visible entities and see their properties and results.";
   }
   function syncDisplay(){for(const {action,button} of actionButtons){const value=action.read();button.disabled=value.disabled===true;button.querySelector("span").textContent=value.label;button.title=value.title;button.setAttribute("aria-label",value.title);button.setAttribute("aria-pressed",String(!!value.active));}if(groundInput){const value=ground.read();groundControl.hidden=collapsed||value.visible===false;if(groundInput.value!==String(value.value))groundInput.value=String(value.value??'');groundInput.disabled=value.disabled===true;groundInput.setCustomValidity(value.error||'');groundCaption.textContent=value.units==='source'?'Ground Z (source)':'Ground Z (m)';groundInput.title='Ground plane elevation in global Z ('+(value.units==='source'?'source deck units, no conversion':'metres')+'). This display setting does not change the model.';groundInput.setAttribute('aria-label',groundInput.title);}if(translucencyInput){const value=translucency.read();translucencyControl.hidden=collapsed||value.visible===false;translucencyInput.value=String(value.value??45);translucencyCaption.textContent='Translucency '+translucencyInput.value+'%';translucencyInput.setAttribute('aria-valuetext',translucencyInput.value+' percent');}syncInspection();}
   syncDisplay();
@@ -130,7 +130,7 @@
   function collapse(value,notify=false,focus=false){
    const changed=collapsed!==value;collapsed=value;host.classList.toggle("is-collapsed",collapsed);
    for(const button of Object.values(buttons))button.hidden=collapsed;
-   if(inspectionFilter)inspectionFilter.hidden=collapsed;
+   if(inspectionFilter)inspectionFilter.hidden=collapsed||inspection.read().active!==true;
    if(groundControl)groundControl.hidden=collapsed||ground.read().visible===false;
    if(translucencyControl)translucencyControl.hidden=collapsed||translucency.read().visible===false;
    hide.hidden=collapsed;show.hidden=!collapsed;

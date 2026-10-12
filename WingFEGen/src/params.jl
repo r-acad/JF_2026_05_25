@@ -72,9 +72,9 @@ const SCHEMA = ParamSpec[
     ParamSpec("planform.root_ref_x", "Root reference x", :float, 0.0, "Planform";
               unit = "m", help = "Global x of the BASE trapezoid reference point at the root. Refined edge points can move the common aerodynamic/structural loft relative to this reference datum"),
     ParamSpec("planform.root_ref_y", "Root reference y", :float, 0.0, "Planform";
-              unit = "m", help = "Global y translation of the entire lifting surface, supports and aerodynamic geometry; symmetry remains about the translated root plane"),
+              unit = "m", help = "Global y translation of the entire lifting surface, constraints and aerodynamic geometry; symmetry remains about the translated root plane"),
     ParamSpec("planform.root_ref_z", "Root reference z", :float, 0.0, "Planform";
-              unit = "m", help = "Global z translation of the entire lifting surface, supports and aerodynamic geometry"),
+              unit = "m", help = "Global z translation of the entire lifting surface, constraints and aerodynamic geometry"),
     ParamSpec("planform.leading_edge_points", "Leading-edge perturbation points", :planformpoints, Any[], "Planform";
               help = "Leading-edge eta/dxc perturbations: dxc=0 follows the nominal leading edge; +0.2 moves aft by 20% of the base chord, -0.2 forward. Offsets follow changes to the base trapezoid. Missing endpoints have zero offset. Legacy xc coordinates are migrated on load"),
     ParamSpec("planform.trailing_edge_points", "Trailing-edge perturbation points", :planformpoints, Any[], "Planform";
@@ -159,9 +159,9 @@ const SCHEMA = ParamSpec[
               help = "One RBE3 per rib station with the reference node on the chord line"),
     ParamSpec("rbe3.ref_xc", "Reference node", :float, 0.25, "RBE3 and supports";
               unit = "x/c", help = "Chord fraction of the independent RBE3 node"),
-    ParamSpec("supports.mode", "Support definition", :choice, "root", "RBE3 and supports";
-              choices=["root","custom"], help="Root fixes global translations 1,2,3 on the main-box root skin/spar perimeter. Custom uses only the rib support sets below; an empty table leaves the structure unsupported"),
-    ParamSpec("supports.items", "Rib support sets", :supportsets, Any[], "RBE3 and supports";
+    ParamSpec("supports.mode", "Constraint definition", :choice, "root", "RBE3 and supports";
+              choices=["root","custom"], help="Root fixes global translations 1,2,3 on the main-box root skin/spar perimeter. Custom uses only the rib constraint sets below; an empty table leaves the structure unconstrained"),
+    ParamSpec("supports.items", "Rib constraint sets", :supportsets, Any[], "RBE3 and supports";
               help="Select a physical rib (root is 1), a spar/skin intersection or corner, and global DOFs 1=x,2=y,3=z,4=Rx,5=Ry,6=Rz. Overlapping selections are combined per GRID. Leading-edge extension and RBE3 reference nodes are excluded"),
 
     # --- loads -------------------------------------------------------------

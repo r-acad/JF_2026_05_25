@@ -10,7 +10,7 @@
   "use strict";
   const COLORS = { node: "#78e1ed", support: "#ff8190", quad: "#8bbcff", tria: "#81e1ad",
     stringer: "#ffdf00", cap: "#ff9c39", ribStiffener: "#a9e4ef", bar: "#ffe8a0", rbe3: "#f4b8d6", aeroReference: "#e45ad4", rbe2:'#ef87bb',rbar:'#db92ee',rbe1:'#ac8bea',rspline:'#cb7fda',spring:'#eb61cc',mass:'#ddc2ff',coordinate:'#c8cfff',fuel: "#146b3a", selected: "#ffe478" };
-  const LEGEND = [["GRID", "node"], ["Supported GRID", "support"], ["CQUAD4", "quad"],
+  const LEGEND = [["GRID", "node"], ["Constrained GRID", "support"], ["CQUAD4", "quad"],
     ["CTRIA3", "tria"], ["Stringer", "stringer"], ["Spar cap", "cap"], ["Rib stiffener", "ribStiffener"], ["RBE3", "rbe3"], ['RBE2','rbe2'],['RBAR','rbar'],['RBE1','rbe1'],['RSPLINE','rspline'],['Spring','spring'],['CONM2','mass'],['Coordinate','coordinate'], ["Aerodynamic reference", "aeroReference"], ["Fuel / structural mass reference", "fuel"]];
   const baseGroup = (name) => name.replace(/_KINKS$/, "").replace(/_P\d+$/, "");
   function elementStyle(element) {
@@ -253,12 +253,13 @@
       const showReactions=!!control("show-support-force-values")?.checked;
       const showCoordinates=!!control('show-coordinate-labels')?.checked;
       const showRbe3Dofs=!!control('show-rbe3-dofs')?.checked;
+      const showSprings=!!control('show-celas-labels')?.checked;
       const selected = state.elements.get(state.selectedElement);
       const size = Math.max(8, Math.min(24, Number(control("id-label-size")?.value) || 11));
       const width = canvas.clientWidth, height = canvas.clientHeight;
       const occluders = opaqueOccluders(scene);
       const occluderKey = occluders.map((mesh) => mesh.uniqueId + ":" + Array.from(mesh.computeWorldMatrix().m).join(",")).join(";");
-      const key = [width, height, showNodes, showElements, showRibs, showStringers, showPanels, showReactions,showCoordinates,showRbe3Dofs,state.selectedCoordinate, size, state.selectedElement,
+      const key = [width, height, showNodes, showElements, showRibs, showStringers, showPanels, showReactions,showCoordinates,showRbe3Dofs,showSprings,state.selectedCoordinate, size, state.selectedElement,
         occluderKey, ...scene.getTransformMatrix().m, ...Array.from(state.layers, ([, layer]) => +layer.visible)].join("|");
       const now = performance.now();
       if (!force && (!dirty && key === lastKey && state.data === lastData && positions === lastPositions || now - lastTime < 30)) return;
@@ -293,16 +294,28 @@
       }
       function badge(text, point, color, picked = false, candidate = null) {
         ctx.font = (picked ? "bold " : "") + (picked ? size + 2 : size) + "px Segoe UI, sans-serif";
-        const w = Math.ceil(ctx.measureText(text).width) + 10, h = size + (picked ? 12 : 7);
+        const lines=[];
+        for(const line of candidate?.lines||[text]){
+          // Keep compact spring property/endpoint records legible in narrow
+          // viewports without changing ordinary single-line ID labels.
+          if(!candidate?.lines){lines.push(line);continue;}
+          let current='';for(const part of line.split(' · ')){
+            const next=current?current+' · '+part:part;
+            if(current&&ctx.measureText(next).width>Math.max(80,width-24)){lines.push(current);current=part;}else current=next;
+          }lines.push(current);
+        }
+        const w = Math.ceil(Math.max(...lines.map(line=>ctx.measureText(line).width))) + 10, lineHeight=size+(picked?5:3),firstHeight=size+(picked?12:7),h=firstHeight+(lines.length-1)*lineHeight;
         const rect = { x: Math.max(2, Math.min(width - w - 2, point.x + 5)), y: Math.max(2, Math.min(height - h - 2, point.y - h - 3)), w, h };
         if (!picked && occupied(rect)) return false;
         if (candidate && depthIndex().isOccluded(candidate, point)) { if (!picked) stats.occluded++; return false; }
         occupied({ x: rect.x - 2, y: rect.y - 2, w: rect.w + 4, h: rect.h + 4 }, true);
         ctx.fillStyle = picked ? "#251d08" : "#08121ee8"; ctx.fillRect(rect.x, rect.y, w, h);
         ctx.strokeStyle = color; ctx.lineWidth = picked ? 2 : .65; ctx.strokeRect(rect.x, rect.y, w, h);
-        ctx.fillStyle = color; ctx.textBaseline = "middle"; ctx.fillText(text, rect.x + 5, rect.y + h / 2);
+        ctx.fillStyle = color; ctx.textBaseline = "middle";
+        lines.forEach((line,index)=>ctx.fillText(line,rect.x+5,rect.y+firstHeight/2+index*lineHeight));
         return true;
       }
+      const springLabels=typeof WingModelEntities!=='undefined'?WingModelEntities.springCandidates(state,positions,showSprings):[];
       if (selected && visibleElement(state, selected)) {
         const anchors = Array.from(selected.nodes, (i) => displayedPoint(state,selected.id,Array.from(positions.subarray(3 * i, 3 * i + 3))));
         const points = anchors.map(project);
@@ -343,25 +356,26 @@
         const anchor = displayedPoint(state,selected.id,centroid(positions, selected.group.kind === "rbe3" ? selected.nodes.slice(0, 1) : selected.nodes));
         const center = project(anchor);
         if (center && center.x >= 0 && center.x <= width && center.y >= 0 && center.y <= height) {
-          const text = elementStyle(selected).name + " " + state.selectedElement;
-          if (badge(text, center, COLORS.selected, true, { kind: "element", id: state.selectedElement, point: anchor }))
+          const springDetail=springLabels.find(row=>row.id===state.selectedElement),text=springDetail?.text||elementStyle(selected).name + " " + state.selectedElement;
+          if (badge(text, center, COLORS.selected, true, springDetail||{ kind: "element", id: state.selectedElement, point: anchor }))
             stats.selected = { id: state.selectedElement, text, ...center };
         }
       }
       const coordinateLabels=typeof WingModelEntities!=='undefined'?WingModelEntities.coordinateCandidates(state,showCoordinates||state.selectedCoordinate!=null):[];
       const pickedCoordinate=coordinateLabels.find(row=>row.id===state.selectedCoordinate);
       if(pickedCoordinate){const point=project(pickedCoordinate.point);if(point)badge(pickedCoordinate.text,point,COLORS.selected,true,pickedCoordinate);}
-      if (showNodes || showElements || showRibs || showStringers || showPanels || showReactions || showCoordinates || showRbe3Dofs) {
-        const candidates = [...(globalThis.WingRbe3Labels?.candidates(state,positions,showRbe3Dofs)||[]),...(showCoordinates?coordinateLabels:[]),...(showReactions?supportValueCandidates(state):[]),...panelLabelCandidates(state,positions),...labelCandidates(state, positions, showNodes, showElements),
+      if (showNodes || showElements || showRibs || showStringers || showPanels || showReactions || showCoordinates || showRbe3Dofs || showSprings) {
+        const candidates = [...springLabels,...(globalThis.WingRbe3Labels?.candidates(state,positions,showRbe3Dofs)||[]),...(showCoordinates?coordinateLabels:[]),...(showReactions?supportValueCandidates(state):[]),...panelLabelCandidates(state,positions),...labelCandidates(state, positions, showNodes, showElements),
           ...physicalLabelCandidates(state, positions, showRibs, showStringers)].map((candidate) => ({ ...candidate, screen: project(candidate.point) }))
           .filter((item) => item.screen && item.screen.x >= 0 && item.screen.x <= width && item.screen.y >= 0 && item.screen.y <= height)
           .sort((a, b) => (b.kind==='panel')-(a.kind==='panel') || a.screen.z - b.screen.z);
         stats.eligible = candidates.length;
         stats.panelsShown=[];
         stats.supportValuesShown=[];
+        stats.springPropertiesShown=[];
         for (const item of candidates) {
-          if (item.kind === "element" && item.id === state.selectedElement && stats.selected) { stats.shown++; continue; }
-          if (badge(item.text, item.screen, item.color, false, item)){stats.shown++;if(item.kind==='panel')stats.panelsShown.push(item.id);if(item.kind==='reaction')stats.supportValuesShown.push(item.text);}
+          if (["element","spring-label"].includes(item.kind) && item.id === state.selectedElement && stats.selected) { stats.shown++; if(item.kind==='spring-label')stats.springPropertiesShown.push(item.id);continue; }
+          if (badge(item.text, item.screen, item.color, false, item)){stats.shown++;if(item.kind==='panel')stats.panelsShown.push(item.id);if(item.kind==='reaction')stats.supportValuesShown.push(item.text);if(item.kind==='spring-label')stats.springPropertiesShown.push(item.id);}
         }
         stats.occlusion = occlusion && occlusion.metrics;
         setStatus(stats.shown + " / " + stats.eligible + " labels shown" + (stats.occluded ? " · labels behind opaque surfaces omitted" : "") + (stats.shown + stats.occluded < stats.eligible ? " · zoom in to separate overlapping labels" : ""));
@@ -372,7 +386,7 @@
       const host = control("id-label-status"); if (host) host.textContent = text;
     }
     legend();
-    for (const id of ["show-node-ids", "show-element-ids", "show-coordinate-labels", "show-rbe3-dofs", "id-label-size", "mesh-labels-ribs", "mesh-labels-stringers", "show-support-force-values"]) {
+    for (const id of ["show-node-ids", "show-element-ids", "show-coordinate-labels", "show-rbe3-dofs", "show-celas-labels", "id-label-size", "mesh-labels-ribs", "mesh-labels-stringers", "show-support-force-values"]) {
       const input = control(id); if (input) input.addEventListener("input", invalidate);
     }
     const observer = scene.onAfterRenderObservable.add(() => render());

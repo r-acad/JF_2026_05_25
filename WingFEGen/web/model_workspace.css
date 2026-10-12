@@ -10,6 +10,9 @@
 .properties-menu button:focus-visible { outline:2px solid #64b6ff; outline-offset:-2px; }
 #deck-text { background:#081c36; color:#d9e9ff; padding:12px; border:1px solid #244565; border-radius:4px; }
 #deck-text::selection { background:#365f93; color:white; }
+#deck-text.deck-chunked { line-height:18px; }
+#deck-text .deck-lines { display:block; }
+#deck-text .deck-chunk { display:block; white-space:pre; height:calc(var(--deck-chunk-lines) * 18px); content-visibility:auto; contain:layout style paint; contain-intrinsic-size:auto calc(var(--deck-chunk-lines) * 18px); }
 .workspace-action-panel { border-bottom:1px solid var(--line); padding-bottom:10px; }
 .workspace-actions { display:flex; gap:8px; flex-wrap:wrap; }
 .workspace-actions > button { flex:1; font-size:12px; }

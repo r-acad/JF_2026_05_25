@@ -112,7 +112,7 @@ function compute_sensitivity(m,raw,dir;native=nothing,solve,progress=(data)->not
         "derivative_assembly"=>analytic ? "analytic_chain_rule" : "semi_analytic_operator_differences","case_id"=>spec.id,"case_label"=>spec.label,
         "solution"=>sol,"objective"=>objective,"request"=>request,"baseline_model_signature"=>sensitivity_model_signature(m),
         "baseline_model_signature_version"=>2,
-        "baseline_topology_signature"=>sensitivity_topology_signature(m),"scope"=>sensitivity_scope(m,variables),
+        "baseline_topology_signature"=>sensitivity_topology_signature(m),"scope"=>sensitivity_scope(m,variables;catalog),
         "load_application_version"=>APPLIED_LOAD_VERSION,"result_format_version"=>2,
         "compatibility"=>Dict("model_match"=>true,"topology_match"=>true,"load_application_match"=>true,
             "is_current"=>true,"map_allowed"=>true,"reasons"=>String[],"checked_against"=>"analysis baseline",

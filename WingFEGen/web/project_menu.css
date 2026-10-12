@@ -32,3 +32,5 @@
 .stringer-angle-table input{box-sizing:border-box;width:100%;min-width:70px;padding:7px 8px;border:1px solid #34475a;border-radius:4px;background:#0e1821;color:#dceafa;font:inherit}
 .stringer-angle-table input:focus{outline:1px solid #72b9ed;border-color:#72b9ed}
 .stringer-angle-table input:disabled{opacity:.5}
+#actions #btn-open-plan-view[data-available="true"]:not(:disabled) { background:#18578c; border-color:#559bd1; color:#f1f8ff; }
+#actions #btn-open-plan-view:disabled { background:#202b35; border-color:#34414d; color:#82909d; cursor:default; }

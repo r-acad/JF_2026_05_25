@@ -4,3 +4,4 @@
 #panel-explosion-controls .display-control input,#panel-explosion-controls .display-control select{box-sizing:border-box;width:100%;max-width:100%}
 #panel-explosion-controls .pick-note{margin-bottom:0}
 #explode-error{color:#ff8c8c}
+#show-panels:disabled + span{color:#8393a3}

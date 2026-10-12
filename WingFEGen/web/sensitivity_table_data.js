@@ -27,19 +27,41 @@
  // Only generated, physical length variables have an inferable unit when no
  // row was returned. Do not invent units for absent material/imported rows.
  function requestedComponents(snapshot){const recorded=new Set((snapshot.result?.rows||[]).map(row=>row.id)),unit=effects.baseline(snapshot.result).unit;return(snapshot.result?.request?.variables||[]).filter(id=>!recorded.has(id)&&component({id})&&/#(?:side|thickness|face_thickness|core_thickness|front_thickness|rear_thickness|flange_width|height|flange_thickness|web_thickness)$/.test(id)).map(id=>({id,pids:snapshot.ownership?.variables?.[id]?.pids||[],unit:'m',derivative_unit:unit?unit+' / m':''}));}
- function groupFamilies(snapshot,group){if(isPanelGroup(group))return families(snapshot.result,group);const groups=new Map();for(const row of [...(snapshot.result?.rows||[]),...requestedComponents(snapshot)])if(rowGroups(snapshot,row).includes(group)){const f=family(row);if(!groups.has(f.key))groups.set(f.key,f);}return[...groups.values()].sort((a,b)=>(a.key.startsWith('shell.thickness|')?0:a.key.startsWith('section.')?1:2)-(b.key.startsWith('shell.thickness|')?0:b.key.startsWith('section.')?1:2)||a.key.localeCompare(b.key));}
+ function availableComponents(snapshot){
+  const result=snapshot.result||{},ownership=snapshot.ownership||snapshot.scope||result.scope||{},unit=effects.baseline(result).unit,items=new Map();
+  for(const row of ownership.available_components||[])if(component(row)&&Array.isArray(row.pids)&&row.pids.length)items.set(row.id,{...row,derivative_unit:row.derivative_unit||(unit?unit+' / '+(row.unit||'m'):''),available:true});
+  // Early local-component runs did not save the complete catalogue. Their
+  // verified generated formulation and recorded card ownership can still tell
+  // us which local dimensions a shared variable controlled, but never their
+  // uncomputed derivatives. Arbitrary imported PIDs must not be interpreted.
+  if(!result.imported_signature&&/^rib_.*localcomponents_v\d+/.test(String(result.load_application_version||''))){
+   const parts=['front_upper_cap','front_lower_cap','rear_upper_cap','rear_lower_cap','leading_upper_skin','leading_lower_skin','leading_rib','rib_web','rib_stiffener','front_web','rear_web'];
+   const names={front_upper_cap:['SPAR_CAPS'],front_lower_cap:['SPAR_CAPS'],rear_upper_cap:['SPAR_CAPS'],rear_lower_cap:['SPAR_CAPS'],leading_upper_skin:['LE_UPPER_SKIN'],leading_lower_skin:['LE_LOWER_SKIN'],leading_rib:['LE_RIB_WEBS','LE_RIB_NOSE'],rib_web:['RIB_WEBS'],rib_stiffener:['RIB_STIFFENERS'],front_web:['FRONT_SPAR_WEB'],rear_web:['REAR_SPAR_WEB']};
+   const dimensions={'shell.thickness':'thickness','shell.face_thickness':'face_thickness','shell.core_thickness':'core_thickness','section.square_side':'side','section.flange_width':'flange_width','section.height':'height','section.flange_thickness':'flange_thickness','section.web_thickness':'web_thickness'};
+   const byPid=new Map();for(const row of result.rows||[]){const f=family(row),field=dimensions[f.key.split('|')[0]];if(!field)continue;for(const value of row.pids||ownership.variables?.[row.id]?.pids||[]){const pid=Number(value);if(!parts[Math.floor(pid/1000000)-8])continue;if(!byPid.has(pid))byPid.set(pid,[]);byPid.get(pid).push({row,f,field});}}
+   for(const card of ownership.groups||[]){const pid=Number(card.pid),part=parts[Math.floor(pid/1000000)-8],index=pid%1000000,name=String(card.name||'').replace(/_KINKS$/,'').replace(/_P\d+$/,'');if(!part||!Number.isSafeInteger(index)||index<1||name&&!names[part].includes(name))continue;
+    for(const {row,f,field} of byPid.get(pid)||[]){
+     const id='properties.components#'+part+':'+index+'#'+field;if(!items.has(id))items.set(id,{id,pids:[pid],unit:row.unit||'m',derivative_unit:row.derivative_unit||(unit?unit+' / '+(row.unit||'m'):''),field_key:f.key.split('|')[0],field_label:f.name,available:true});
+    }
+   }
+  }
+  return [...items.values()];
+ }
+ function componentDefinitions(snapshot){return [...new Map([...availableComponents(snapshot),...requestedComponents(snapshot),...(snapshot.result?.rows||[])].map(row=>[row.id,row])).values()];}
+ function groupFamilies(snapshot,group){if(isPanelGroup(group))return families(snapshot.result,group);const groups=new Map();for(const row of componentDefinitions(snapshot))if(rowGroups(snapshot,row).includes(group)){const f=family(row);if(!groups.has(f.key))groups.set(f.key,f);}return[...groups.values()].sort((a,b)=>(a.key.startsWith('shell.thickness|')?0:a.key.startsWith('section.')?1:2)-(b.key.startsWith('shell.thickness|')?0:b.key.startsWith('section.')?1:2)||a.key.localeCompare(b.key));}
  function availableGroups(snapshot){return Object.keys(GROUPS).filter(group=>groupFamilies(snapshot,group).length);}
- function componentMatrix(snapshot,group,field){const meta=componentCatalog()?.[group],definitions=new Map(),result=snapshot.result||{},returned=new Set(result.rows||[]),requested=new Set(result.request?.variables||[]),hasSelection=Array.isArray(result.request?.variables),all=[...(result.rows||[]),...requestedComponents(snapshot)];
+ function componentMatrix(snapshot,group,field){const meta=componentCatalog()?.[group],definitions=new Map(),result=snapshot.result||{},returned=new Set(result.rows||[]),requested=new Set(result.request?.variables||[]),hasSelection=Array.isArray(result.request?.variables),all=componentDefinitions(snapshot);
   for(const row of all){const p=component(row);if(p?.group!==group)continue;if(!definitions.has(p.key))definitions.set(p.key,{...p,rows:[]});if(family(row).key!==field)continue;const item=definitions.get(p.key);if(!item.property_ids)item.property_ids=[];item.property_ids.push(row.id);if(returned.has(row))item.rows.push(row);}
   if(![...definitions.values()].some(item=>item.property_ids?.length))definitions.clear();
   const parts=(meta?.parts||[]).filter(part=>[...definitions.values()].some(item=>item.part===part)),indices=[...new Set([...definitions.values()].map(item=>item.index))].sort((a,b)=>a-b),cells=new Map();
   for(const item of definitions.values()){
    const selected=(item.property_ids||[]).some(id=>requested.has(id)),pending=['running','partial'].includes(String(result.status).toLowerCase());
-   item.missing=selected?{status:pending?'pending':'missing',label:pending?'Selected · pending':'Selected · result missing',reason:'This local property was selected, but no derivative row was returned. '+(pending?'The run is not complete.':'Inspect the run log or rerun this property.')}:hasSelection?{status:'not_selected',label:'Not selected for this property',reason:'This local component/property combination was not selected in this recorded run.'}:{status:'not_recorded',label:'No result in this run',reason:'This older run does not record selected variables.'};
+   item.missing=selected?{status:pending?'pending':'missing',label:pending?'Selected · pending':'Selected · result missing',reason:'This local property was selected, but no derivative row was returned. '+(pending?'The run is not complete.':'Inspect the run log or rerun this property.')}:hasSelection?{status:'not_selected',label:'Not selected',reason:'This local component dimension was not selected in this run. In Analysis → Sensitivity, use Add component variables, then Run sensitivity. Shared-default derivatives cannot be split into local values.'}:{status:'not_recorded',label:'No result in this run',reason:'This older run does not record selected variables.'};
    cells.set(item.part+':'+item.index,item);
   }
   const shared=selectRows(snapshot,{mode:'panels',skin:group,field}).filter(row=>!component(row));
-  return{parts,indices,cells,shared,ribs:!!meta?.ribs,partLabel:part=>meta?.rows?.[meta.parts.indexOf(part)]||part.replaceAll('_',' ')};
+  const localCount=[...cells.values()].filter(item=>item.property_ids?.length).length,returnedCount=[...cells.values()].filter(item=>item.rows.length).length,selectedCount=[...cells.values()].filter(item=>(item.property_ids||[]).some(id=>requested.has(id))).length;
+  return{parts,indices,cells,shared,localCount,returnedCount,selectedCount,ribs:!!meta?.ribs,partLabel:part=>meta?.rows?.[meta.parts.indexOf(part)]||part.replaceAll('_',' ')};
  }
  function family(row){const id=String(row.id||''),parts=id.split('#'),part=parts.at(-2),field=parts.at(-1),square=id==='properties.spar_cap_side'||/^properties\.components#(?:front|rear)_(?:upper|lower)_cap:\d+#side$/.test(id);
   let key=square?'section.square_side':row.field_key,name=square?'Square spar cap side':row.field_label;
@@ -69,7 +91,7 @@
  }
  function compact(raw={}){
   const result=raw.result?clone({...raw.result,rows:(raw.result.rows||[]).map(({samples,...row})=>row),scope:undefined,baseline_analysis:undefined}):null;
-  const scope=raw.ownership||raw.scope||raw.result?.scope||{},ownership={groups:(scope.groups||[]).map(({pid,kind,name})=>({pid,kind,name})),variables:Object.fromEntries(Object.entries(scope.variables||{}).map(([id,item])=>[id,{pids:[...(item.pids||[])]}]))};
+  const scope=raw.ownership||raw.scope||raw.result?.scope||{},ownership={groups:(scope.groups||[]).map(({pid,kind,name})=>({pid,kind,name})),variables:Object.fromEntries(Object.entries(scope.variables||{}).map(([id,item])=>[id,{pids:[...(item.pids||[])]}])),available_components:(scope.available_components||[]).map(({id,label,pids,unit,field_key,field_label,component_key,value})=>({id,label,pids:[...(pids||[])],unit,field_key,field_label,component_key,value}))};
   return{result,ownership,compatibility:clone(raw.compatibility||raw.result?.compatibility||{}),sourcePath:String(raw.sourcePath||raw.source_path||''),error:String(raw.error||''),panels:(raw.panels||[]).map(({id,key,skin,rib_bay,stringer,segment})=>({id,key,skin,rib_bay,stringer,segment}))};
  }
  function matrix(snapshot,skin,field){
@@ -116,5 +138,5 @@
   const values=min<0&&max>0?[min,0,max]:[min,min/2+max/2,max];
   return values.map(value=>({value,position:(value-min)/(max-min),color:valueColor(value,scale,palette)}));
  }
- return{GROUPS,isPanelGroup,component,rowGroups,groupFamilies,availableGroups,componentMatrix,panel,family,families,propertyLabel,value,compact,matrix,selectRows,csv,colorScales,valueColor,colorStops};
+ return{GROUPS,isPanelGroup,component,rowGroups,groupFamilies,availableGroups,availableComponents,componentMatrix,panel,family,families,propertyLabel,value,compact,matrix,selectRows,csv,colorScales,valueColor,colorStops};
 });

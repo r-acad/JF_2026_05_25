@@ -36,9 +36,16 @@ function sensitivity_variable_label(id,fallback)
     String(fallback)
 end
 
-function sensitivity_scope(m,variables)
+function sensitivity_scope(m,variables;catalog=nothing)
     groups=[Dict("pid"=>g.pid,"kind"=>String(g.kind),"name"=>g.name,"eids"=>collect(g.eids)) for g in m.groups]
     scope=Dict{String,Any}("groups"=>groups)
+    if catalog!==nothing
+        # Available dimensions are metadata, never calculated derivative rows.
+        # Retain the run's physical catalogue so an unselected component does
+        # not disappear from detached tables or borrow a shared derivative.
+        scope["available_components"]=[Dict(k=>d[k] for k in ("id","label","pids","unit","field_key","field_label","component_key","value") if haskey(d,k))
+            for d in catalog["variables"] if haskey(d,"component_key")]
+    end
     sensitivity_scope_variables!(scope,variables)
 end
 
@@ -207,11 +214,15 @@ function sensitivity_saved_load(params,root,id;model=nothing)
             scope=model===nothing ? get(result,"scope",nothing) : sensitivity_scope(model,result["rows"])
         else
             saved=sensitivity_deck_topology(directory)
-            groups=Any[]
+            groups=Any[];recorded_scope=get(result,"scope",Dict())
+            names=Dict((get(g,"pid",0),get(g,"kind",""))=>get(g,"name","") for g in get(recorded_scope,"groups",Any[]))
             for (pid,kind) in unique((e.pid,e.kind) for e in saved.elements)
-                push!(groups,Dict("pid"=>pid,"kind"=>kind,"eids"=>[e.eid for e in saved.elements if e.pid==pid&&e.kind==kind]))
+                push!(groups,Dict("pid"=>pid,"kind"=>kind,"name"=>get(names,(pid,kind),""),"eids"=>[e.eid for e in saved.elements if e.pid==pid&&e.kind==kind]))
             end
             scope=sensitivity_scope_variables!(Dict{String,Any}("groups"=>groups),result["rows"])
+            pids=Set(g["pid"] for g in groups)
+            scope["available_components"]=[d for d in get(recorded_scope,"available_components",Any[])
+                if d isa AbstractDict&&startswith(get(d,"id",""),"properties.components#")&&all(pid->pid in pids,get(d,"pids",Int[]))&&!isempty(get(d,"pids",Int[]))]
             topology_match=model!==nothing&&sensitivity_topology_matches(model,saved)
         end
     catch error

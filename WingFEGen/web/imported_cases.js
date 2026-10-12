@@ -39,22 +39,22 @@
       if(!deck||!context.data)return;
       const c=selected(context.data,context.caseId);if(!c)return;
       const constraints=supports(context.data,c.id)||{},control=c.case_control||{};
-      heading(casesHost,'Imported load cases',context);note(casesHost,'Read-only source load and constraint definitions. Selecting a case updates the 3D view. Analysis lets you choose SOL101/103/105/106 and follower FORCE loads; edit and reread the BDF to change source load sets or supports.');
+      heading(casesHost,'Imported load cases',context);note(casesHost,'Read-only source load and constraint definitions. Selecting a case updates the 3D view. Analysis lets you choose SOL101/103/105/106 and follower FORCE loads; edit and reread the BDF to change source load sets or constraints.');
       definition(casesHost,{'Solution':'SOL '+deck.solution,'Subcase':c.id,'Label':c.label,...control});
       for(const warning of c.warnings||[])note(casesHost,warning);
-      const actions=make('div',undefined,'hud-row');actions.append(button('Show applied loads',showLoads),button('Show supports',showSupports));casesHost.append(actions);
+      const actions=make('div',undefined,'hud-row');actions.append(button('Show applied loads',showLoads),button('Show constraints',showSupports));casesHost.append(actions);
       const cards=make('details'),cardTitle=make('summary','Selected load cards');cards.append(cardTitle);cards.open=true;casesHost.append(cards);
       table(cards,['Card','Set','Count','Scale'],(c.load_cards||[]).map(row=>[row.type,String(row.set_id),String(row.count),row.scale]));
       note(casesHost,c.loads?.note);const forces=c.loads?.force_stations||[],moments=c.loads?.moment_stations||[];
       const vectors=make('details');vectors.append(make('summary','Applied nodal force and moment components'));casesHost.append(vectors);
-      note(vectors,'Equivalent applied loads before constraint redistribution, in BASIC axes and the source deck unit system. These are loads, not support reactions.');
+      note(vectors,'Equivalent applied loads before constraint redistribution, in BASIC axes and the source deck unit system. These are loads, not constraint reactions.');
       table(vectors,['GRID','Type','X','Y','Z'],[...forces.map(row=>[row,'Force',row.force]),...moments.map(row=>[row,'Moment',row.moment])].map(([row,type,v])=>[{label:String(row.gid),action:()=>inspectNode(row.gid)},type,...(v||[0,0,0])]),{search:true});
       sourceInventory(casesHost,deck);
       heading(supportsHost,'Imported boundary conditions',context);
-      definition(supportsHost,{'Selected SPC set':constraints.selected_spc_id??control.SPC??'None','Expanded sets':constraints.expanded_sets||[], 'Supported GRID nodes':constraints.count||0,'Constrained DOFs':constraints.constrained_dofs??'Not reported'});
+      definition(supportsHost,{'Selected SPC set':constraints.selected_spc_id??control.SPC??'None','Expanded sets':constraints.expanded_sets||[], 'Constrained GRID nodes':constraints.count||0,'Constrained DOFs':constraints.constrained_dofs??'Not reported'});
       note(supportsHost,constraints.note);for(const warning of constraints.warnings||[])note(supportsHost,warning);
       note(supportsHost,'DOFs 1–3 are translations; 4–6 are rotations, in each GRID displacement coordinate system (CD). Colors identify local x/y/z. Values use the source deck units; rotational values are radians. Click a GRID number to inspect it.');
-      supportsHost.append(button('Show supports in 3D',showSupports));
+      supportsHost.append(button('Show constraints in 3D',showSupports));
       const rows=[];for(const row of constraints.assignments||[]){for(const dof of String(row.components||'')){rows.push([{label:String(row.grid),action:()=>inspectNode(row.grid)},dof,row.values?.[dof]??0,String(row.coordinate_id??0),(row.source_sets||[]).join(', ')||((row.sources||[]).map(s=>s.type).join(', '))]);}}
       table(supportsHost,['GRID','DOF','Value','CD','Source sets'],rows,{search:true,empty:'No SPC constraints are selected in this subcase.'});
     }

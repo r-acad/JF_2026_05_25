@@ -17,7 +17,7 @@
     "node-radius","marker-radius","celas-radius","show-ground-plane","show-symmetry-plane","ground-plane-z","ground-grid-spacing","show-shell-axes","show-bar-axes","show-node-ids","show-element-ids","show-coordinate-labels","show-rbe3-dofs","show-celas-cylinders","id-label-size",
     "mesh-labels-ribs","mesh-labels-stringers","show-rib-datums","rib-datum-size","vlm-field",
     "vlm-force-scale","show-vlm-panel-forces","show-fuel-tank","show-panels","result-palette","show-support-forces","show-support-force-values","support-force-scale",
-    "deform-scale","animate","show-undeformed","show-reference-aero","show-deformed-aero","contour-select","compare-results","auto-mesh","auto-save","show-picked-axes","measure-snap-nodes"];
+    "deform-scale","animate","show-undeformed","undeformed-color","show-celas-labels","show-reference-aero","show-deformed-aero","contour-select","compare-results","auto-mesh","auto-save","show-picked-axes","measure-snap-nodes"];
   const CHECK_IDS = new Set(CONTROL_IDS.filter((id) => id.startsWith("show-") || id.startsWith("mesh-labels-") || ["animate","auto-mesh","auto-save","compare-results","measure-snap-nodes"].includes(id)));
   const LEGACY_LABEL_IDS = new Set(["mesh-labels-none","mesh-labels-both"]);
   const SELECTS = {"surface-mode":["solid","translucent"],"shell-geometry":["midsurface","thickness"],"beam-style":["lines","sections"],"aero-deformed-style":["auto","wireframe","solid","steel","metallic","translucent"],
@@ -77,6 +77,7 @@
       if (SELECTS[id] && !SELECTS[id].includes(value)) throw new Error("Invalid display option: "+id);
       if (id === "background-color" && !/^#[0-9a-f]{6}$/i.test(value)) throw new Error("Invalid background colour.");
       if (id === "aero-surface-color" && !/^#[0-9a-f]{6}$/i.test(value)) throw new Error("Invalid aerodynamic surface color.");
+      if (id === "undeformed-color" && !/^#[0-9a-f]{6}$/i.test(value)) throw new Error("Invalid undeformed model color.");
       if (id === "ground-plane-z" && (value.trim()==="" || !Number.isFinite(Number(value)))) throw new Error("Ground z must be a finite number of metres.");
       if (id === "ground-grid-spacing" && (value.trim()==="" || !Number.isFinite(Number(value)) || Number(value)<=0)) throw new Error("Ground grid spacing must be a finite number greater than zero.");
       if (id === "celas-radius" && (value.trim()==="" || !Number.isFinite(Number(value)) || Number(value)<1e-12 || Number(value)>1e12)) throw new Error("Spring radius must be between 1e-12 and 1e12 model units.");
@@ -86,7 +87,7 @@
         throw new Error("Invalid display number: "+id);
       if (id === "vlm-force-scale" && (!Number.isFinite(Number(value)) || Number(value)<0.01 || Number(value)>100)) throw new Error("VLM force scale must be between 0.01 and 100.");
       if (id === "fuel-inertia-scale" && (!Number.isFinite(Number(value)) || Number(value)<0.01 || Number(value)>100)) throw new Error("Fuel inertia scale must be between 0.01 and 100.");
-      if (id === "support-force-scale" && (!Number.isFinite(Number(value)) || Number(value)<0.01 || Number(value)>100)) throw new Error("Support-force scale must be between 0.01 and 100.");
+      if (id === "support-force-scale" && (!Number.isFinite(Number(value)) || Number(value)<0.01 || Number(value)>100)) throw new Error("Constraint-force scale must be between 0.01 and 100.");
       if(id==="surface-translucency"&&(value.trim()===""||!Number.isFinite(Number(value))||Number(value)<0||Number(value)>100))throw new Error("Surface translucency must be between 0 and 100 percent.");
     }
     if([...LEGACY_LABEL_IDS].some(id=>Object.hasOwn(view.controls,id))){

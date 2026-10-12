@@ -8,21 +8,21 @@
   "use strict";
   const AXES=["x","y","z"],COLORS=["#ef5f6b","#4cc38a","#56a8f5"],VIEW_AXIS=[2,0,1],templates=new Map();
   const toView=p=>[p[1],p[2],p[0]];
-  function radiusValue(value){if(typeof value!=="number"||!Number.isFinite(value)||value<0)throw Error("Support marker radius must be a finite non-negative number.");return value;}
+  function radiusValue(value){if(typeof value!=="number"||!Number.isFinite(value)||value<0)throw Error("Constraint marker radius must be a finite non-negative number.");return value;}
   function integers(value){
     if(value==null)return[];
     if(Array.isArray(value)||value instanceof Int32Array)return value;
     if(value instanceof ArrayBuffer)return new Int32Array(value.slice(0));
-    if(ArrayBuffer.isView(value)&&value.BYTES_PER_ELEMENT===1){if(value.byteLength%4)throw Error("Invalid support index buffer.");return new Int32Array(value.buffer.slice(value.byteOffset,value.byteOffset+value.byteLength));}
+    if(ArrayBuffer.isView(value)&&value.BYTES_PER_ELEMENT===1){if(value.byteLength%4)throw Error("Invalid constraint index buffer.");return new Int32Array(value.buffer.slice(value.byteOffset,value.byteOffset+value.byteLength));}
     if(ArrayBuffer.isView(value))return Array.from(value);
-    throw Error("Invalid support index list.");
+    throw Error("Invalid constraint index list.");
   }
   function components(value){return Array.from(new Set(String(value??"").split("").filter(c=>/^[1-6]$/.test(c)))).sort();}
   const basicAxes=[[1,0,0],[0,1,0],[0,0,1]];
   const transformed=(axes,vector,component)=>vector.reduce((sum,value,k)=>sum+value*axes[k][component],0);
   function frameAxes(value){
     if(value==null)return basicAxes;
-    if(!Array.isArray(value)||value.length!==3||value.some(axis=>!Array.isArray(axis)||axis.length!==3||!axis.every(Number.isFinite)))throw Error('Invalid GRID displacement axes for support display.');
+    if(!Array.isArray(value)||value.length!==3||value.some(axis=>!Array.isArray(axis)||axis.length!==3||!axis.every(Number.isFinite)))throw Error('Invalid GRID displacement axes for constraint display.');
     return value;
   }
   function layout(data,radius=.01){
@@ -66,20 +66,20 @@
       }
       const thickness=.07;
       for(let axis=0;axis<3;axis++)for(const a of[-1,1])for(const b of[-1,1]){const center=[0,0,0],half=[thickness,thickness,thickness];half[axis]=1;center[(axis+1)%3]=a*(1-thickness);center[(axis+2)%3]=b*(1-thickness);box(center,half);}
-    }else throw Error("Unknown support marker shape.");
+    }else throw Error("Unknown constraint marker shape.");
     const result={positions:Float32Array.from(positions),normals:Float32Array.from(normals),indices:Uint32Array.from(indices)};templates.set(shape,result);return result;
   }
   const unitAxis=(shape,axis,component)=>shape==="cone"?(component-axis+2)%3:component;
   const localCoordinate=(unit,shape,axis,vertex,component)=>unit.positions[3*vertex+unitAxis(shape,axis,component)]+(shape==="cone"?0:component===axis?.5:0);
   function triangles(record,origin,radius=.01){
-    radius=radiusValue(radius);if(!origin||origin.length!==3||!Array.from(origin).every(Number.isFinite))throw Error("Support marker origin must contain three finite coordinates.");
+    radius=radiusValue(radius);if(!origin||origin.length!==3||!Array.from(origin).every(Number.isFinite))throw Error("Constraint marker origin must contain three finite coordinates.");
     const shape=record.shape||(+record.dof<=3?"cone":"box-outline"),unit=template(shape),axis=(+record.dof-1)%3,out=new Float32Array(unit.indices.length*3);
     const axes=frameAxes(record.axes);
     for(let i=0;i<unit.indices.length;i++){const local=[0,1,2].map(j=>localCoordinate(unit,shape,axis,unit.indices[i],j));for(let j=0;j<3;j++)out[3*i+j]=origin[j]+radius*transformed(axes,local,j);}
     return out;
   }
   function create({BABYLON:B=globalThis.BABYLON,scene,data,positions,radius=.01,name="SPC"}){
-    radius=radiusValue(radius);if(!positions||positions.length%3)throw Error("Support marker positions require viewport YZX triples.");
+    radius=radiusValue(radius);if(!positions||positions.length%3)throw Error("Constraint marker positions require viewport YZX triples.");
     const current=layout(data,radius),meshes=[],batches=[];let disposed=false,currentPositions=positions,currentRadius=radius;
     for(let dof=1;dof<=6;dof++){
       const records=current.records.filter(record=>record.dof===dof);if(!records.length)continue;
@@ -101,10 +101,10 @@
       meshes.push(mesh);batches.push({mesh,material,map,local,buf});
     }
     function update(options={}){
-      if(disposed)throw Error("Support glyph renderer has been disposed.");
+      if(disposed)throw Error("Constraint glyph renderer has been disposed.");
       const nextPositions=options.positions??currentPositions,nextRadius=radiusValue(options.radius??currentRadius);
-      if(!nextPositions||nextPositions.length%3)throw Error("Support marker positions require viewport YZX triples.");
-      for(const node of current.nodes)if(3*node+2>=nextPositions.length||![nextPositions[3*node],nextPositions[3*node+1],nextPositions[3*node+2]].every(Number.isFinite))throw Error("A supported node has invalid viewport coordinates.");
+      if(!nextPositions||nextPositions.length%3)throw Error("Constraint marker positions require viewport YZX triples.");
+      for(const node of current.nodes)if(3*node+2>=nextPositions.length||![nextPositions[3*node],nextPositions[3*node+1],nextPositions[3*node+2]].every(Number.isFinite))throw Error("A constrained node has invalid viewport coordinates.");
       currentPositions=nextPositions;currentRadius=nextRadius;
       for(const record of current.records)record.centerOffset=record.axes[(record.dof-1)%3].map(value=>value*(record.dof<=3?-1:.5)*nextRadius);
       for(const batch of batches){for(let i=0;i<batch.map.length;i++)for(let j=0;j<3;j++)batch.buf[3*i+j]=nextPositions[3*batch.map[i]+j]+nextRadius*batch.local[3*i+j];batch.mesh.updateVerticesData(B.VertexBuffer.PositionKind,batch.buf,true,false);}
