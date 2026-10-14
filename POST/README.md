@@ -14,6 +14,11 @@ needs no Julia server or CDN.
 Use `JFEM_results_viewer/POST_GUIDE.html` for the result viewer controls.
 Use `PANDEATOR_APP/PANEL_APP_README.md` for the server-backed case runner.
 
+Follow the [illustrated installation steps](../JFEM_installation/INSTALLATION.md)
+to install dependencies and open either tool.
+
+![PANDEATOR showing its default stiffened panel](../JFEM_installation/images/pandeator.png)
+
 Both viewers share `jfem_binary.js`, which reads JFEM binary versions 1–5 and
 validates result framing. Keep the `POST/` folder structure when copying either
 tool. Corrected and archived v5 files are supported; v5 includes the static

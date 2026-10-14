@@ -1,254 +1,182 @@
-# Install JFEM and its browser applications
+# Install JFEM and open your first application
 
-One complete checkout supplies all four tools:
+Follow the numbered steps below. One installation prepares **JFEM, FGen,
+PANDEATOR and the results viewer**. You do not need to install individual Julia
+packages, Python or Node.js.
 
-| Tool | Purpose | Environment |
-|---|---|---|
-| JFEM | Standalone finite element solver | Root Julia project |
-| FGen / `WingFEGen` | Lifting-surface geometry, FEM generation, analysis and results | `WingFEGen` project; solver runs use the root project |
-| PANDEATOR | Stiffened-panel case generation, analysis and results | Root Julia project; local Julia server |
-| JFEM results viewer | Read existing `.jfem` results in a browser | Static HTML and bundled JavaScript; no Julia server |
+[Download the illustrated PDF](jfem_2026_installation_guide.pdf) |
+[Advanced setup and sysimages](ADVANCED_SETUP.md)
 
-Normal setup installs **two package environments and verifies all four entry points**. Keep the complete repository structure: browser tools share local assets. Normal use needs no private development folders, external reference solver, Python, Node.js or separately installed web server.
-
-Printable guides: [installation and sysimages](../Reference_documentation/00_Getting_Started/jfem_2026_installation_guide.pdf) and [FGen user guide](../Reference_documentation/00_Getting_Started/jfem_2026_fgen_user_guide.pdf).
+The main steps show Windows. [macOS/Linux commands](#macos-and-linux) are at the end.
 
 ## 1. Install Julia
 
-This checkout records and is tested with **Julia 1.13.1** in both committed manifests. Setup accepts later patches in that minor release; it does not rewrite dependencies to force another minor release to work.
+1. Open [Julia's manual downloads page](https://julialang.org/downloads/manual-downloads/).
+2. Find **Julia 1.13.1**, the version recorded and tested by this checkout. For a typical Windows PC, click the **64-bit installer** in the **Windows** row.
+3. Open the downloaded installer, choose an installation folder and click **Next**.
+4. Tick **Add Julia To PATH**, then finish the installation. Close any terminal windows opened before installation.
 
-Windows, in PowerShell:
+The PATH option lets the JFEM launchers find Julia. See Julia's
+[Windows installation instructions](https://julialang.org/downloads/platform/#windows)
+if the installer looks different. If you already use Juliaup, follow the
+[short runtime-selection instructions](ADVANCED_SETUP.md#runtime-and-project-selection).
+
+![Julia manual downloads page, with the Windows 64-bit installer in the Julia 1.13.1 table](images/julia-download.png)
+
+*Julia's [official download page](https://julialang.org/downloads/manual-downloads/). Choose the installer for your operating system.*
+
+## 2. Download and extract JFEM
+
+1. Open the [JFEM repository](https://github.com/r-acad/JF_2026_05_25).
+2. Click the green **Code** button, then **Download ZIP**.
+3. In Downloads, right-click the ZIP and choose **Extract All**.
+4. Open the extracted folder. If it contains another folder, open that too until you can see **setup.cmd**, **WingFEGen**, **POST** and **JFEM_installation** together.
+
+Keep these folders together. The folder containing `setup.cmd` is the
+**repository root** used in the next steps. Do not launch files from inside the ZIP.
+
+![JFEM GitHub repository with the Code menu open and Download ZIP visible](images/github-download.png)
+
+*Click Code, then Download ZIP. Extract the complete download before continuing.*
+
+## 3. Start the automatic setup
+
+1. In the repository folder, click the File Explorer **address bar**.
+2. Type **powershell** and press **Enter**. A terminal opens in that folder.
+3. Copy the following command into the terminal and press **Enter**:
 
 ```powershell
-winget install --name Julia --id 9NJNWW8PVKMN -e -s msstore
+.\setup.cmd
 ```
 
-macOS/Linux, in a terminal:
+Setup downloads and installs the required packages for all four applications.
+It also compiles Julia packages and checks the applications. Stay connected to
+the internet and keep the terminal open.
+
+![Folder map showing setup.cmd and the four application entry points inside the extracted repository](images/launch-files.png)
+
+*Folder map: run setup.cmd from the top folder. The application files remain in their subfolders.*
+
+## 4. Wait for setup to finish
+
+The first setup can take several minutes. Messages and pauses during compilation
+are expected; do not close the window while setup is running.
+
+When the checks finish, look for:
+
+```text
+Application dependency setup complete.
+```
+
+The terminal then prints the launch commands and returns to its prompt. You can
+now open an application. If it reports **Package setup failed** or an error,
+keep the message and use [Help if something stops](#help-if-something-stops).
+
+![Successful setup output confirming JFEM, FGen, PANDEATOR and static viewer checks](images/setup-complete.png)
+
+*Typeset excerpt from a successful setup run. The completion line confirms that all four application checks finished.*
+
+## 5. Open the application you need
+
+| To do this | Open this folder and file on Windows |
+| --- | --- |
+| Build lifting-surface models, run analyses and inspect results in **FGen** | Open `WingFEGen`, then double-click `run_fe_generator.cmd`. |
+| Build and analyze a stiffened panel in **PANDEATOR** | Open `POST`, then `PANDEATOR_APP`, and double-click `RUN_PANDEATOR_WINDOWS.cmd`. |
+| View an existing **.jfem** result file | Open `POST`, then `JFEM_results_viewer`, and double-click `postv11.html`. |
+| Run **JFEM** directly on an input deck | Use the terminal example in step 6. |
+
+FGen normally opens `http://127.0.0.1:8080`; PANDEATOR normally opens
+`http://127.0.0.1:8088/`. Wait for the browser to open. Keep the application's
+terminal open while you work; **Ctrl+C** stops its server.
+
+In FGen, choose **Start new study** to begin. Follow the
+[illustrated FGen guide](../Reference_documentation/00_Getting_Started/jfem_2026_fgen_user_guide.pdf)
+for modeling, analysis and results. For panels, see the
+[PANDEATOR guide](../POST/PANDEATOR_APP/PANEL_APP_README.md).
+
+![FGen Study Options dialog with Start new study selected](images/fgen-start.png)
+
+*FGen's first screen: choose Start new study to create a model.*
+
+![PANDEATOR showing a stiffened panel, its supports and applied loads](images/pandeator.png)
+
+*PANDEATOR opens with a panel preview. Its left-hand controls define the geometry, mesh, materials and loads.*
+
+The static results viewer needs no server. Select its **Struct** tab, then click
+**Choose File** under **Model A (jfem)** and open a `.jfem` result. Keep the
+surrounding `POST` folders in place. Step 6 creates a small result to try.
+
+## 6. Try the standalone solver (optional)
+
+The repository includes a tiny model, so you do not need to prepare a deck.
+In the same PowerShell window opened in step 3, run these two commands:
+
+```powershell
+$deck = 'JFEM_installation\examples\precompile\sol101_quad_static.bdf'
+.\jfem.cmd $deck output\installation_smoke
+```
+
+When the run finishes, open **output**, then **installation_smoke**, in File Explorer.
+The folder contains a `.jfem` result, a report and results JSON. Open the `.jfem`
+file in the static viewer from step 5. A first solve may compile additional Julia
+methods even after setup has finished.
+
+![Static results viewer with the Struct tab selected and a small shell result loaded](images/results-viewer.png)
+
+*The static viewer after loading a small bundled-model result. Use Struct, then Choose File, to load your own .jfem output.*
+
+## 7. Make repeated startup faster (optional)
+
+A local **sysimage** stores compiled solver methods. To build one later, return
+to the repository's PowerShell window and run:
+
+```powershell
+.\setup.cmd --sysimage
+```
+
+This is optional. It can take substantial time and memory and does not remove
+all future compilation. The image covers JFEM and PANDEATOR; FGen's solver jobs
+can use it, but its separate application server is not included. Launchers use
+it only while its recorded source/runtime checks still match.
+
+Use the [sysimage instructions](ADVANCED_SETUP.md#build-an-optional-sysimage)
+for rebuilds, the double-click build files and other options. Normal setup and
+the applications work without an image.
+
+## macOS and Linux
+
+Use the same repository ZIP and keep the extracted folders together. Install
+Julia using the [official instructions](https://docs.julialang.org/en/v1/manual/installation/),
+then open a new terminal in the extracted repository folder.
+
+| Step | Command or action |
+| --- | --- |
+| Install application packages | `bash setup.sh` |
+| Open FGen | `julia --startup-file=no --project=WingFEGen WingFEGen/run.jl` |
+| Open PANDEATOR | `bash POST/PANDEATOR_APP/RUN_PANDEATOR_MAC_LINUX.sh` |
+| Open the static viewer | Open `POST/JFEM_results_viewer/postv11.html` in your browser. |
+| Optionally build a sysimage later | `bash setup.sh --sysimage` |
+
+For the standalone example:
 
 ```bash
-curl -fsSL https://install.julialang.org | sh
+deck='JFEM_installation/examples/precompile/sol101_quad_static.bdf'
+bash jfem "$deck" output/installation_smoke
 ```
 
-These are the official Juliaup commands. If the Windows Store is unavailable, use the alternatives on the [official installation page](https://docs.julialang.org/en/v1/manual/installation/). Reopen the terminal and check `julia --version`. If another minor release is the default:
-
-```text
-juliaup add 1.13
-julia +1.13 --version
-```
-
-The `+1.13` syntax is for Juliaup. A standalone Julia installation uses its executable directly. Setup and solver wrappers accept `JFEM_JULIA`; FGen also accepts `WINGFEGEN_JULIA`. These variables take an executable path, without extra flags. A working Juliaup default need not be changed.
-
-## 2. Obtain the complete repository
-
-With Git installed:
-
-```text
-git clone https://github.com/r-acad/JF_2026_05_25.git JFEM
-cd JFEM
-```
-
-Or choose **Code > Download ZIP** on the [repository page](https://github.com/r-acad/JF_2026_05_25), extract the entire archive, and open a terminal in its root. Do not run inside the ZIP. Use a writable folder such as `C:\Work\JFEM` or `~/JFEM`.
-
-The root contains `Project.toml`, `Manifest.toml`, `setup.cmd`, `setup.sh`, `src`, `JFEM_installation`, `WingFEGen` and `POST`. Keep FGen inside the checkout for solver discovery. Keep both `POST` app folders and their shared assets together.
-
-## 3. Run the unified setup
-
-From the repository root, choose one command:
-
-| Platform | Normal setup | Setup and optional local sysimage |
-|---|---|---|
-| Windows PowerShell | `.\setup.cmd` | `.\setup.cmd --sysimage` |
-| macOS/Linux | `bash setup.sh` | `bash setup.sh --sysimage` |
-
-Portable equivalent:
-
-```text
-julia --startup-file=no JFEM_installation/julia_tools/install_julia_packages.jl
-```
-
-With explicit Juliaup runtime selection:
-
-```text
-julia +1.13 --startup-file=no JFEM_installation/julia_tools/install_julia_packages.jl
-```
-
-Setup instantiates both Project/Manifest environments, precompiles them, and verifies the JFEM module, FGen module, PANDEATOR server/health entry point and static-viewer assets. PANDEATOR verification does not start a user server or solve a model. The viewer has no separate Julia environment. Wait for the completion message and confirm all selected checks passed.
-
-First downloads and compilation can take several minutes. Internet is needed for missing packages/artifacts. Packages normally use `~/.julia`. Normal setup changes neither the global Julia environment nor Juliaup defaults, startup files or persistent depot settings. The recorded project files remain authoritative. [Pkg environment documentation](https://pkgdocs.julialang.org/v1/environments/).
-
-Without `--sysimage`, setup does not build an image or run a user analysis. With it, the later image build executes representative precompile decks (section 6).
-
-## 4. Launch any application
-
-### FGen
-
-Windows:
-
-```powershell
-.\WingFEGen\run_fe_generator.cmd
-```
-
-Portable command:
-
-```text
-julia --startup-file=no --project=WingFEGen WingFEGen/run.jl
-```
-
-The default address is `http://127.0.0.1:8080`; use the printed URL. For another port and manual browser opening:
-
-```text
-julia --startup-file=no --project=WingFEGen WingFEGen/run.jl --port 9000 --no-browser
-```
-
-Keep the terminal open. Choose **Start new study** or **Read Reference** and follow the [FGen user guide](../Reference_documentation/00_Getting_Started/jfem_2026_fgen_user_guide.pdf). Save Studies and retain their separate solver results.
-
-### PANDEATOR
-
-Windows:
-
-```powershell
-.\POST\PANDEATOR_APP\RUN_PANDEATOR_WINDOWS.cmd
-```
-
-macOS/Linux:
-
-```bash
-bash POST/PANDEATOR_APP/RUN_PANDEATOR_MAC_LINUX.sh
-```
-
-Its default address is `http://127.0.0.1:8088/`. Both wrappers accept `--port 8090 --no-open`. Startup can warm representative solver paths before listening; wait for readiness. Keep the terminal open. Stop a server with Ctrl+C. See the [PANDEATOR guide](../POST/PANDEATOR_APP/PANEL_APP_README.md).
-
-### Standalone JFEM and viewer-ready output
-
-Run the bundled tiny SOL101 deck. Windows:
-
-```powershell
-.\jfem.cmd JFEM_installation\examples\precompile\sol101_quad_static.bdf output\installation_smoke
-```
-
-macOS/Linux:
-
-```bash
-bash jfem JFEM_installation/examples/precompile/sol101_quad_static.bdf output/installation_smoke
-```
-
-The default writes `.jfem` viewer data, a report and results JSON under `output/installation_smoke`. A successful run exits normally. `-rs` before the deck selects only report and JSON, omitting viewer binary output. A first solve can compile methods not covered by setup.
-
-### Browser results viewer
-
-Open `POST/JFEM_results_viewer/postv11.html` in a modern browser, then choose or drop a `.jfem` result. This static viewer needs no Julia server or extra packages. Its controls are described in `POST/JFEM_results_viewer/POST_GUIDE.html`. Keep the surrounding `POST` folders: local Babylon and shared `jfem_binary.js` load by relative path. The viewer reads results; it does not launch analyses.
-
-Solver/FGen/PANDEATOR launch paths check dependencies and can install missing sources before loading modules. Explicit unified setup is the clearest way to prepare or repair every app. `JFEM_AUTO_INSTALL=0` disables automatic installation for managed/offline workflows.
-
-## 5. Setup options
-
-Use `setup.cmd --help`, `bash setup.sh --help`, or the Julia helper with `--help` for the current options. `WingFEGen/setup.cmd`, `setup.sh` and `setup.jl` delegate to the same setup.
-
-| Option | Effect |
-|---|---|
-| `--dry-run` | Validate and print the plan without installing or creating an image. |
-| `--no-precompile --no-verify` | Install without explicit precompilation or module/asset verification. Later imports still compile; this does not prove the apps load. |
-| `--solver-only` | Prepare the root project and associated tools; omit the separate FGen project. |
-| `--wingfegen-only` | Prepare FGen only; not a complete solver-backed installation. Cannot combine with `--sysimage`. |
-| `--offline` | Use a populated matching cache; cannot bootstrap an empty offline machine. |
-| `--sysimage` | After setup, build the standard local solver/PANDEATOR image. |
-| `--sysimage=PATH` | Build at a custom path. Automatic launchers still search their standard path. |
-| `--sysimage-threads=N` | Set the build child's Julia threads; `auto` uses automatic selection. This is not a memory limit. |
-
-`--no-precompile` alone does not stop verification imports from compiling. Neither `--no-precompile` nor `--no-verify` cancels an explicitly requested image build. Omit `--sysimage` for dependency installation only.
-
-## 6. Build an optional sysimage
-
-A sysimage stores loaded packages and selected compiled methods to reduce repeated startup/first-use compilation. It does not replace Julia or the checkout, and it does not guarantee zero compilation for every model. Embedded package versions are fixed at build time. [PackageCompiler sysimages](https://julialang.github.io/PackageCompiler.jl/stable/sysimages.html).
-
-This image covers **OpenJFEM and the PANDEATOR server stack/workload**. Eligible native solver processes launched by FGen can also use it. **It does not compile the FGen application server or all FGen geometry/UI paths.** The static viewer does not use a Julia image.
-
-1. Stop your own solver/server processes before replacing an image they may have loaded. Keep source and representative decks unchanged during the build.
-2. Use the same compatible Julia executable that will run the apps.
-3. Run `.\setup.cmd --sysimage` or `bash setup.sh --sysimage`. Portable equivalent:
-
-```text
-julia --startup-file=no JFEM_installation/julia_tools/install_julia_packages.jl --sysimage
-```
-
-4. Wait for package setup, workload compilation, image creation and the provenance receipt. Read workload warnings. The build can use substantial CPU/RAM and several minutes; it executes representative decks to compile their methods.
-5. Check the image and adjacent receipt, then verify and run the tiny example below.
-
-| Platform | Standard image | Adjacent receipt |
-|---|---|---|
-| Windows | `sysimage/OpenJFEM_sysimage.dll` | `OpenJFEM_sysimage.dll.jfem.toml` |
-| Linux | `sysimage/OpenJFEM_sysimage.so` | `OpenJFEM_sysimage.so.jfem.toml` |
-| macOS | `sysimage/OpenJFEM_sysimage.dylib` | `OpenJFEM_sysimage.dylib.jfem.toml` |
-
-PackageCompiler requires a C compiler. It automatically provides one on Windows when needed. macOS needs an appropriate clang toolchain such as Xcode Command Line Tools; Linux needs a current gcc or clang. Use official Julia binaries. [PackageCompiler prerequisites](https://julialang.github.io/PackageCompiler.jl/stable/).
-
-### Existing click-to-build entry points
-
-These delegate to the unified setup with `--sysimage`:
-
-```text
-JFEM_installation/CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd
-JFEM_installation/CLICK_MAC_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.command
-JFEM_installation/RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh
-```
-
-Double-click the platform file, or invoke the Linux/macOS script with `bash`. Workload arguments such as `--deck` and `--manifest` are forwarded. Prefer root setup for a reproducible terminal transcript.
-
-## 7. Verify, use and rebuild the image
-
-From the root, on Windows:
-
-```powershell
-julia --startup-file=no --project=. JFEM_installation/julia_tools/check_sysimage.jl . sysimage/OpenJFEM_sysimage.dll
-```
-
-Use `.so` on Linux or `.dylib` on macOS. A zero exit code means eligibility for automatic use; success is silent. A nonzero code prints a reason and says normal package loading will be used.
-
-`jfem.cmd`/`jfem` and PANDEATOR wrappers select the standard image only after its receipt matches. FGen's eligible native solver runs check it too. Repeat the section 4 tiny solve to verify actual operation. An image build alone does not validate a user's model or every solver feature.
-
-The receipt checks exact Julia/runtime/CPU identity, checkout location, source/project inputs, image hash and representative workload. A moved checkout, changed source/manifest, changed or missing build deck, missing receipt or changed image triggers fallback. This is an eligibility check, not an audit of arbitrary package-depot edits or native system libraries.
-
-**Rebuild after:** Julia upgrades (including patches), project/dependency/code changes, checkout moves, machine/OS/CPU changes, or changed/removed representative decks. Stop your own affected runs, update the full checkout, rerun setup with `--sysimage`, check the new receipt and repeat the tiny solve. Package setup can accept a newer Julia patch while an old image still requires rebuilding for that exact runtime.
-
-**Run without an image:** start fresh Julia without `-J`/`--sysimage`:
-
-```text
-julia --startup-file=no --project=. JFEM_installation/julia_tools/run_bdf.jl JFEM_installation/examples/precompile/sol101_quad_static.bdf output/source_smoke
-```
-
-Alternatively, move the optional image and receipt together into an archive outside the standard path while no process uses them. Wrappers then load ordinary packages. Do not force a stale image with `-J`: direct loading bypasses automatic provenance checks and may load old compiled code.
-
-## 8. Advanced workload and direct build example
-
-Unified setup invokes the existing `JFEM_installation/julia_tools/deploy_fast.jl`. With no workload arguments, it uses tiny bundled decks in `JFEM_installation/examples/precompile`. Add a small representative deck:
-
-```text
-julia --startup-file=no JFEM_installation/julia_tools/install_julia_packages.jl --sysimage --deck path/to/representative.bdf --sysimage-threads=4
-```
-
-Repeat `--deck` for multiple decks. `--manifest path/to/cases.json` reads a JSON `cases` array whose entries supply `input` (or `deck`), relative to the JSON file. `--flags "NAME=value,OTHER=value"` changes workload flags. These options require `--sysimage` in unified setup. Keep build inputs at stable paths: their locations and hashes are recorded. A representative workload improves coverage, not every possible future analysis.
-
-After unified setup, experienced users can invoke the original builder directly. Windows:
-
-```powershell
-julia --threads=auto --startup-file=no --project=. JFEM_installation/julia_tools/deploy_fast.jl --sysimage=sysimage/OpenJFEM_sysimage.dll --install-packagecompiler
-```
-
-Use `.so` on Linux or `.dylib` on macOS. The current project already declares PackageCompiler; `--install-packagecompiler` allows adding it in an older project where absent, which can change dependency files. Direct `deploy_fast.jl` is not complete all-app setup. Without `--sysimage=...` it refreshes package/workload precompilation but creates no image.
-
-A custom image is not automatically discovered. Prefer the standard location. For deliberate direct use, first run `check_sysimage.jl . PATH`, require exit code zero, then pass `--sysimage=PATH` to the intended Julia process with the root project. Do not attach this solver image indiscriminately to the separate FGen server project.
-
-## 9. Repair, updates and offline use
-
-- **Interrupted installation:** rerun setup; downloaded content is reused.
-- **Julia missing/wrong minor release:** reopen the terminal, check its version and select the matching runtime. Do not edit manifests to bypass compatibility.
-- **Network/proxy/certificate failure:** retain the error, correct access to package servers and artifacts, then retry. Do not disable certificate checks.
-- **Access denied:** use a writable user folder. Stop your own process using an image before replacing it.
-- **Image build failure:** check compiler/artifact availability, build logs and memory. A smaller `--sysimage-threads` may help; it is not a memory cap. Ordinary setup/source-mode execution remains available.
-- **Image skipped:** read `runtime_changed`, `project_changed`, `project_moved`, `workload_changed`, or the reported reason, then rebuild if needed. Do not borrow an image from another machine.
-- **Browser connection refused:** wait for readiness and use the printed URL. FGen/PANDEATOR have different ports and different no-browser switches.
-- **Static viewer blank:** retain the complete `POST` tree, check browser/WebGL support and load an actual `.jfem` result. Report/JSON-only output has no viewer binary.
-- **Update:** stop active runs, update the whole checkout (`git pull` or a new ZIP), retain Studies/results, rerun setup and rebuild an image whose receipt no longer matches.
-- **Offline:** populate a complete package/artifact cache on a connected machine with matching Julia, OS and architecture, transfer it deliberately, then use `--offline`. An empty cache cannot install offline. A temporary `JULIA_DEPOT_PATH` selects an isolated cache. See [offline notes](OFFLINE_DEPENDENCIES.md); current manifests, not historical package tables, define the environment.
-
-Further reading: [installation PDF](../Reference_documentation/00_Getting_Started/jfem_2026_installation_guide.pdf), [FGen user guide](../Reference_documentation/00_Getting_Started/jfem_2026_fgen_user_guide.pdf), [PANDEATOR](../POST/PANDEATOR_APP/PANEL_APP_README.md), [result viewer controls](../POST/JFEM_results_viewer/POST_GUIDE.html).
+If your Julia version differs from the recorded 1.13 release line, use
+[explicit runtime selection](ADVANCED_SETUP.md#runtime-and-project-selection).
+
+## Help if something stops
+
+| What you see | What to do |
+| --- | --- |
+| **Julia was not found** | Finish the Julia installer with **Add Julia To PATH**, then reopen the terminal. |
+| A message about the Julia version | Use the recorded release line shown by setup; see [runtime selection](ADVANCED_SETUP.md#runtime-and-project-selection). |
+| Package download or network error | Keep the error message, restore network/proxy access and run setup again. Completed downloads are reused. |
+| The browser cannot connect | Wait for the app's terminal to report readiness and use its printed address. Keep that terminal open. |
+| The viewer has no model | Select a `.jfem` file and keep the complete `POST` folder structure. |
+
+More options: [advanced setup and repair](ADVANCED_SETUP.md),
+[offline preparation](OFFLINE_DEPENDENCIES.md),
+[documentation index](../Reference_documentation/README.md).

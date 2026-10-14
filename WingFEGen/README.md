@@ -5,6 +5,11 @@ with OpenJFEM. It generates shell/bar lifting surfaces, aerodynamic lattices and
 load cases, writes REFERENCE decks, launches the solver in this repository and
 displays structural results and property sensitivities.
 
+Start with the [illustrated installation guide](../JFEM_installation/jfem_2026_installation_guide.pdf)
+or the [numbered setup instructions](../JFEM_installation/INSTALLATION.md).
+
+![FGen displaying a generated lifting-surface model](../JFEM_installation/images/fgen-model.png)
+
 The source directory, launchers, parameter keys and `.wingfem.json` file format
 retain their existing WingFEGen names for compatibility.
 

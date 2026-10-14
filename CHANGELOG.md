@@ -5,6 +5,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Documentation
+
+- Simplify installation into illustrated numbered steps, keep advanced setup
+  options separate, and place the installation PDF beside its launch scripts in
+  `JFEM_installation`. Add app screenshots and launch-file illustrations to the
+  Markdown guides. Publish the supplied aircraft-design buckling assignment
+  unchanged in `Reference_documentation/07_Exercises` and update the guide links.
+
 ### Solver performance
 
 - Avoid constraint-triplet redistribution when dependent coordinates have no

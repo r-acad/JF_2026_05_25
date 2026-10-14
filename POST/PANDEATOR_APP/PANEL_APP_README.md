@@ -1,5 +1,10 @@
 # JFEM Buckling & FE Analysis Web App (pure Julia)
 
+![PANDEATOR with the default stiffened panel ready for analysis](../../JFEM_installation/images/pandeator.png)
+
+New users can follow the [illustrated setup steps](../../JFEM_installation/INSTALLATION.md)
+and the [original buckling assignment](../../Reference_documentation/07_Exercises/Linear_Finite_Elements_Buckling_exercises_AV_AC_DES_26.pdf).
+
 A browser app with **two analysis sources**, chosen with the *Analysis source*
 toggle at the top of the sidebar:
 

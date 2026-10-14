@@ -1,128 +1,52 @@
 # OpenJFEM
 
-> **Updated: 2026-10-14.** `main` is the current, default branch — a
-> plain clone includes the solver, the WingFEGen web app and FEM generator,
-> corrected buckling and sensitivity algorithms, and deployment checks:
->
-> ```bash
-> git clone https://github.com/r-acad/JF_2026_05_25.git
-> cd JF_2026_05_25
-> ```
->
-> `Manifest.toml` records the dependency versions. Run the curated public
-> validation suite using the commands below to check an installation.
-> The earlier `decalibration/strip-tier-a` work is merged into `main`.
+OpenJFEM is a Julia finite-element solver for structural analysis and linear
+buckling. The complete repository includes **JFEM**, the **FGen** model generator,
+**PANDEATOR** for stiffened panels, and a browser **results viewer**.
 
-OpenJFEM is a Julia finite-element solver focused on fast linear buckling
-analysis for bulk-data structural models. It reads an input deck, builds the
-finite-element model, solves the requested case, and writes a run manifest plus
-human-readable reports and optional visualization files.
+## Start here
 
-The recommended workflow is intentionally small:
+1. **Install Julia 1.13.1.** Use the [official downloads page](https://julialang.org/downloads/manual-downloads/). On Windows, select **Add Julia To PATH** in its installer.
+2. **Download and extract this repository.** Click **Code**, then **Download ZIP**, on [GitHub](https://github.com/r-acad/JF_2026_05_25). Keep the extracted folders together.
+3. **Run the automatic setup.** In the folder containing `setup.cmd`, open PowerShell and run `.\setup.cmd`. On macOS/Linux, run `bash setup.sh`. Wait for **Application dependency setup complete.**
+4. **Open your application** using the launch files below.
 
-1. Install Julia 1.13.1.
-2. Run `setup.cmd` (Windows) or `bash setup.sh` (macOS/Linux) in the repository root.
-3. Run single cases or batches with the `jfem` launcher.
-4. For Python-driven optimization loops, keep one JSONL worker open and submit
-   batch manifests repeatedly so Julia startup and compilation are not paid per
-   iteration.
+Follow the [illustrated installation PDF](JFEM_installation/jfem_2026_installation_guide.pdf)
+or the [numbered online walkthrough](JFEM_installation/INSTALLATION.md) for the
+clicks, screenshots and first example. Setup installs the packages for all four
+tools automatically; no manual package list is needed.
 
-Start with the [from-scratch installation guide](JFEM_installation/INSTALLATION.md)
-or its [printable PDF](Reference_documentation/00_Getting_Started/jfem_2026_installation_guide.pdf).
-The [illustrated FGen user's guide](Reference_documentation/00_Getting_Started/jfem_2026_fgen_user_guide.pdf)
-covers model generation, imported decks, analyses, results, sensitivities and
-display controls. See the [documentation index](Reference_documentation/README.md).
-
-## FGen Web App And FEM Generator
-
-[FGen](WingFEGen/README.md) is included in `WingFEGen/` with the solver. It defines lifting-surface
-geometry, meshes, materials, structural panels, aerodynamic and inertia loads,
-runs analyses and displays results and sensitivities in a local browser.
-
-After setup, start the app from the repository root:
-
-```sh
-julia --startup-file=no --project=WingFEGen WingFEGen/run.jl
-```
-
-Use Julia 1.13.1. Setup installs both pinned environments; launchers also install
-missing dependencies when needed. A solver sysimage is
-optional. The app opens `http://127.0.0.1:8080` and discovers the enclosing solver
-without private workspace paths. Platform launchers, a factory example, bundled
-browser libraries and portable checks are included. No user study or private
-validation data is needed. See the [application guide](WingFEGen/README.md) and
-[analytic adjoint explanation](WingFEGen/SENSITIVITY_METHOD.md).
-
-## Installation
-
-After installing Julia and cloning or extracting this repository, open a
-terminal in its root and run:
-
-```powershell
-.\setup.cmd
-```
-
-On macOS/Linux:
-
-```bash
-bash setup.sh
-```
-
-Setup installs and precompiles both pinned Julia environments, then verifies
-JFEM, FGen, PANDEATOR and the bundled static viewer. PANDEATOR shares the solver
-environment; the viewer needs only a browser.
-No manual package list or optional sysimage build is needed. The first setup
-needs internet access and may take several minutes. Later runs reuse the packages.
-
-To also build an optional solver sysimage, run `setup.cmd --sysimage` on Windows
-or `bash setup.sh --sysimage` on macOS/Linux. The following convenience launchers
-delegate to the same setup procedure with this option:
-
-| Platform | Setup file |
-|---|---|
-| Windows | `JFEM_installation\CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd` |
-| macOS | `JFEM_installation/CLICK_MAC_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.command` |
-| Linux | `JFEM_installation/RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh` |
-
-Windows users can double-click the `.cmd` file. macOS users can double-click
-the `.command` file. Linux users should run the `.sh` file from a terminal,
-making it executable once if needed:
-
-```bash
-chmod +x JFEM_installation/RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh
-./JFEM_installation/RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh
-```
-
-When the setup finishes, run a deck from the repository root:
-
-```powershell
-.\jfem C:\models\my_model.bdf
-```
-
-```bash
-./jfem ~/models/my_model.bdf
-```
-
-See the [installation walkthrough](JFEM_installation/INSTALLATION.md) for Julia
-installation, ZIP/Git downloads and a first standalone solve. The
-[advanced setup notes](JFEM_installation/README.md) cover representative sysimage
-workloads and troubleshooting.
-
-All applications use this installation:
-
-| Application | Start from the repository root |
+| Application | Start from the extracted repository |
 | --- | --- |
-| JFEM standalone solver | `jfem.cmd path/to/model.bdf` (Windows), `./jfem path/to/model.bdf` (macOS/Linux) |
-| FGen model generator and analysis app | `julia --startup-file=no --project=WingFEGen WingFEGen/run.jl` |
-| PANDEATOR panel app | `julia --startup-file=no --project=. POST/PANDEATOR_APP/panel_server.jl` |
-| Static results viewer | Open `POST/JFEM_results_viewer/postv11.html` in a browser |
+| **FGen**: lifting-surface models, analyses and results | Windows: double-click `WingFEGen/run_fe_generator.cmd`. Other systems: `julia --startup-file=no --project=WingFEGen WingFEGen/run.jl`. |
+| **PANDEATOR**: stiffened-panel analysis | Windows: double-click `POST/PANDEATOR_APP/RUN_PANDEATOR_WINDOWS.cmd`. Other systems: `bash POST/PANDEATOR_APP/RUN_PANDEATOR_MAC_LINUX.sh`. |
+| **Results viewer**: open existing `.jfem` files | Open `POST/JFEM_results_viewer/postv11.html` in a browser. |
+| **JFEM**: run an input deck directly | Windows: `.\jfem.cmd model.bdf`. Other systems: `bash jfem model.bdf`. [Try the bundled model](JFEM_installation/INSTALLATION.md#6-try-the-standalone-solver-optional). |
+
+FGen and PANDEATOR open a local browser page; keep their terminal windows open
+while using them. The static viewer needs no Julia server.
+
+![FGen displaying a lifting-surface model and its structural mesh](JFEM_installation/images/fgen-model.png)
+
+*FGen: define a lifting-surface model, generate its mesh, run analyses and inspect results in the same application.*
+
+A sysimage is an optional later step: `.\setup.cmd --sysimage` or
+`bash setup.sh --sysimage`. It can reduce repeated solver/PANDEATOR startup work
+but does not include FGen's separate server. See
+[advanced setup](JFEM_installation/ADVANCED_SETUP.md) for image builds, runtime
+selection and repair.
+
+For modeling and results, use the
+[illustrated FGen guide](Reference_documentation/00_Getting_Started/jfem_2026_fgen_user_guide.pdf),
+[FGen reference](WingFEGen/README.md), [PANDEATOR guide](POST/PANDEATOR_APP/PANEL_APP_README.md)
+and [documentation index](Reference_documentation/README.md).
 
 ## Requirements
 
 - Julia 1.13.1
 - Git, or download and extract the GitHub ZIP
-- One or more bulk-data input decks, usually with `.bdf`, `.dat`, or `.nas`
-  extension
+- For your own analyses, a bulk-data input deck (`.bdf`, `.dat` or `.nas`);
+  a tiny example is bundled for the first run
 
 Run all commands from the repository root. The repository tree below uses `/`
 as a visual convention. Command examples are written separately for Windows
@@ -178,8 +102,8 @@ line-continuation character.
 ```
 
 - `src`: solver source code.
-- `JFEM_installation/julia_tools/deploy_fast.jl`: preferred one-command fast deployment and broad
-  precompile setup.
+- `JFEM_installation/julia_tools/deploy_fast.jl`: optional sysimage builder called
+  by `setup --sysimage`.
 - `JFEM_installation/examples/precompile`: tiny bundled decks used only by
   `deploy_fast.jl` when the user does not provide representative cases.
 - `JFEM_installation/examples/manifests`: runnable JSON manifest templates for
@@ -197,7 +121,7 @@ line-continuation character.
   classical buckling, MYSTRAN cross-checks, and CRM/uCRM. It intentionally
   includes reproducible inputs, explicit tolerances and documented references.
 - `jfem` (Linux/macOS) and `jfem.cmd` (Windows): one-line wrappers to analyze a
-  single deck with good defaults — see "Quickest Way To Run A Deck" below. They
+  single deck with good defaults -- see "Quickest Way To Run A Deck" below. They
   call `JFEM_installation/julia_tools/jfem.jl`, the underlying simple single-deck runner.
 - `setup.cmd` / `setup.sh`: install, precompile and verify the solver and app
   dependencies without building a sysimage.
@@ -218,96 +142,15 @@ line-continuation character.
 
 ## Installation And Fast Deployment
 
-Clone the repository and enter it:
-
-Windows PowerShell:
-
-```powershell
-git clone https://github.com/r-acad/JF_2026_05_25.git OpenJFEM
-cd OpenJFEM
-```
-
-Linux/macOS Bash:
-
-```bash
-git clone https://github.com/r-acad/JF_2026_05_25.git OpenJFEM
-cd OpenJFEM
-```
-
-Use the root setup command above for normal installation or dependency updates.
-The optional launchers below also build the local sysimage. With no user-supplied deck, OpenJFEM
-uses bundled tiny SOL 101, SOL 103, and SOL 105 decks from
-`JFEM_installation/examples/precompile` to warm common parser, assembly, solve,
-and report paths.
-
-Windows:
-
-```powershell
-.\JFEM_installation\CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd
-```
-
-Linux:
-
-```bash
-chmod +x JFEM_installation/RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh
-./JFEM_installation/RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh
-```
-
-macOS:
-
-```bash
-open JFEM_installation/CLICK_MAC_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.command
-```
-
-For best performance on a specific model family, add one or more representative
-decks when launching from a terminal:
-
-Windows PowerShell:
-
-```powershell
-.\JFEM_installation\CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd --deck C:\models\representative_sol105.bdf
-```
-
-Linux/macOS Bash:
-
-```bash
-./JFEM_installation/RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh --deck /home/user/models/representative_sol105.bdf
-```
-
-You can also build from a JSON batch manifest:
-
-```powershell
-.\JFEM_installation\CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd --manifest C:\models\cases.json
-```
-
-What this does:
-
-- Julia downloads/instantiates the packages declared by `Project.toml` and
-  `Manifest.toml`.
-- Julia compiles functions when it first sees the specific data types and code
-  paths used by a run.
-- The bundled decks exercise common SOL 101, SOL 103, and SOL 105 paths.
-- Representative user decks exercise the exact element, material, property,
-  load, constraint, and output paths expected in production.
-- The sysimage is written under `sysimage/` and loaded automatically by
-  `jfem`, `jfem.cmd`, and the web-app launchers when its build receipt matches
-  the project, runtime, image and recorded workload.
-- The sysimage is a startup-speed optimization only. It does not change the
-  model, solver equations, load factors, or numerical results.
-
-Deployment explicitly refreshes the OpenJFEM package cache when representative
-decks or workload flags are requested. Missing explicit inputs or failed explicit
-workloads fail visibly. Automatic sysimage selection falls back to ordinary
-package loading when the receipt is absent or stale, including after moving the
-project or removing a recorded workload deck. Rebuild with `deploy_fast.jl` to
-refresh it. The receipt covers project code and dependency locks; arbitrary
-edits inside an installed global package depot are outside this check. Manual
-`julia -J` selection bypasses the automatic guard. Validating an existing image
-adds a launcher step; measure installed startup separately from warm solves.
+Use the [numbered installation walkthrough](JFEM_installation/INSTALLATION.md)
+for first setup. For optional sysimage builds, representative precompile decks,
+image provenance checks or offline repair, use
+[advanced setup](JFEM_installation/ADVANCED_SETUP.md). All legacy installation
+launchers delegate to the same root setup command.
 
 ## Fast Settings
 
-The commands below assume the one-click setup above has already been run. They
+The commands below assume normal setup has completed. They
 use the default fast operating profile:
 
 - `--threads=auto`: lets Julia use available CPU threads for assembly.
@@ -464,19 +307,19 @@ Linux/macOS (make it executable once with `chmod +x jfem`):
 ./jfem  ~/models/my_model.bdf
 ```
 
-That writes the **viewer-ready set** — the `.jfem` binary (opens in the POST 3D
-viewer), `REPORT.md`, and the results JSON — into `<deck_dir>/<deckname>_out/`,
+That writes the **viewer-ready set** -- the `.jfem` binary (opens in the POST 3D
+viewer), `REPORT.md`, and the results JSON -- into `<deck_dir>/<deckname>_out/`,
 right next to the input deck.
 
 ### How to invoke it (important): `jfem` vs `.\jfem` / `./jfem`
 
 By design, **shells do not run a program from the current directory by typing
-its bare name** — the directory must be on your `PATH` first. This is true on
+its bare name** -- the directory must be on your `PATH` first. This is true on
 Windows PowerShell, Linux, and macOS alike. So if you `cd` into the repo and
 type `jfem ...`, you will get *"jfem is not recognized"* (Windows) or
 *"command not found"* (Linux/macOS) until you do one of the following.
 
-**Option A — run it from the repo folder with a path prefix (no setup):**
+**Option A -- run it from the repo folder with a path prefix (no setup):**
 
 ```powershell
 # Windows PowerShell (runs jfem.cmd):
@@ -488,7 +331,7 @@ type `jfem ...`, you will get *"jfem is not recognized"* (Windows) or
 ./jfem  ./my_model.bdf
 ```
 
-**Option B — call `jfem` from anywhere (one-time setup):** add the repository
+**Option B -- call `jfem` from anywhere (one-time setup):** add the repository
 root to your `PATH`.
 
 ```powershell
@@ -508,7 +351,7 @@ ln -s "/path/to/JFEM/jfem" ~/.local/bin/jfem
 
 After Option B, plain `jfem my_model.bdf` works from any directory.
 
-**Linux/macOS only — the execute bit.** The `jfem` script must be executable.
+**Linux/macOS only -- the execute bit.** The `jfem` script must be executable.
 A fresh `git clone` preserves this, but if it was lost run once:
 
 ```bash
@@ -517,7 +360,7 @@ chmod +x jfem
 
 > The repo ships two launcher files: `jfem.cmd` (Windows) and `jfem` (the bash
 > script for Linux/macOS). On Windows, `.\jfem` resolves to `jfem.cmd`
-> automatically. The sysimage is platform-specific — `jfem.cmd` looks for
+> automatically. The sysimage is platform-specific -- `jfem.cmd` looks for
 > `sysimage\OpenJFEM_sysimage.dll`, while `jfem` looks for
 > `sysimage/OpenJFEM_sysimage.so` (Linux) or `.dylib` (macOS); build it on each
 > machine with the sysimage helper.
@@ -573,8 +416,8 @@ measure across differently normalized modes. Springs have no density without a
 defined volume. Rigid constraints, penalties and direct matrices are excluded;
 unsupported energies are marked unavailable. Thermal preload stored energy
 (which needs initial-strain subtraction) and non-native stiffness backends are
-not available through this output adapter. Energy units are force × length,
-and density units are force / length²; these are J and J/m³ only for N-m input.
+not available through this output adapter. Energy units are force * length,
+and density units are force / length^2; these are J and J/m^3 only for N-m input.
 
 Anisotropic, independently assigned-material and MID4 PSHELL stress recovery
 is currently incomplete. Affected force/stress/strain rows are omitted with
@@ -621,31 +464,18 @@ jfem  -jrsvh    model.bdf  out       :: viewer + report + JSON + VTK + HDF5
 ```
 
 A `run_manifest.json` recording the exact inputs and flags is always written.
-The wrappers use whatever `julia` is on `PATH` (Julia 1.13.1; no juliaup
-needed) and automatically load a prebuilt sysimage from `sysimage/` when its
+The wrappers use `JFEM_JULIA` when set, otherwise `julia` on `PATH` (the
+checkout records Julia 1.13.1) and automatically load a prebuilt sysimage from `sysimage/` when its
 build receipt matches. (See "How to invoke it" above to call `jfem` from any
 directory.)
 
 ### Rebuild The Local Sysimage
 
-Each fresh Julia environment pays one-time compilation cost. The one-click
-installation step builds a **sysimage** once per machine so the launchers start
-quickly, including the first analysis. Re-run the same setup file after
-upgrading Julia, changing package dependencies, or pulling major solver changes:
-
-```bat
-JFEM_installation\CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd          :: Windows
-```
-
-```bash
-chmod +x JFEM_installation/RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh
-./JFEM_installation/RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh              # Linux
-open JFEM_installation/CLICK_MAC_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.command      # macOS
-```
-
-The sysimage is optional for correctness: everything works without it, just
-slower to start.
-See [`JFEM_installation/README.md`](JFEM_installation/README.md) for details.
+The optional image is separate from ordinary setup. After Julia, source,
+dependencies or its recorded workload changes, rebuild with `setup.cmd --sysimage`
+on Windows or `bash setup.sh --sysimage` on macOS/Linux. Standard launchers fall
+back to normal Julia when the image receipt is absent or stale. See
+[image verification and rebuilding](JFEM_installation/ADVANCED_SETUP.md#verify-use-and-rebuild-the-image).
 
 The sections below show the fully explicit `julia ... run_bdf.jl` form, which
 the wrapper runs for you and which you may still prefer for scripting or batch
