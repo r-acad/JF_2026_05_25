@@ -92,9 +92,9 @@ suite=@testset "Imported analysis source-preserving overlays" begin
  # Routing uses the retained facade without build_model, native restoration or
  # solver execution. An invalid source handle must fail, not build a wing.
  token="test-imported-analysis";W.IMPORTED_MODELS[token]=m
- raw=Dict("model_kind"=>"nastran","imported_deck"=>Dict("token"=>token,"signature"=>source["signature"],"analysis"=>Dict("solution"=>"103")))
+ raw=Dict("model_kind"=>"reference","imported_deck"=>Dict("token"=>token,"signature"=>source["signature"],"analysis"=>Dict("solution"=>"103")))
  @test W.request_imported_model(raw).params["output.solution"]=="103"
- @test_throws ArgumentError W.request_imported_model(Dict("model_kind"=>"nastran"))
+ @test_throws ArgumentError W.request_imported_model(Dict("model_kind"=>"reference"))
  @test_throws ArgumentError W.request_imported_model(Dict("imported_deck"=>Dict("token"=>token,"signature"=>"wrong")))
  delete!(W.IMPORTED_MODELS,token)
 end

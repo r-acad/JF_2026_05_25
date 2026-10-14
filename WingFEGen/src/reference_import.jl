@@ -1,0 +1,546 @@
+# Imported decks are authoritative models. The Model facade supplies the
+# existing viewer/job ID ordering; its placeholder Wing is never regenerated.
+is_imported_model(m::Model)=haskey(m.params,"imported.native")
+const IMPORTED_NATIVE_LOCK=ReentrantLock()
+imported_native(m::Model)=imported_native(m.params)
+function imported_native(params::AbstractDict)
+    lock(IMPORTED_NATIVE_LOCK) do
+        native=params["imported.native"]
+        if native!==nothing
+            return params["imported.native"]=imported_analysis_native(params,native)
+        end
+        path=get(params,"imported.native_path",nothing)
+        path isa AbstractString&&isfile(path)||throw(ArgumentError("The cached native deck is unavailable; read the original deck or saved Study again"))
+        # The complete native data remain on disk after import. Viewer payloads
+        # already contain all properties/cases; only a backend operation needs
+        # this second process's copy of the solver dictionary.
+        started=time();@info "Restoring cached imported native properties; no lifting surface geometry is generated" path
+        native=Serialization.deserialize(path)
+        @info "Restored imported native properties" seconds=round(time()-started;digits=2)
+        params["imported.native"]=imported_analysis_native(params,native)
+    end
+end
+const IMPORTED_MODELS=Dict{String,Model}()
+const IMPORTED_MODELS_LOCK=ReentrantLock()
+
+function imported_source_signature(files)
+    # Keep the original Study/result identity (sorted filenames and exact
+    # original contents), but hash bytes in bounded chunks. Passing one large
+    # String directly to SHA is markedly slower on supported Julia versions.
+    encoded=JSON.json([(key,files[key]) for key in sort!(collect(keys(files)))])
+    bytes2hex(SHA.sha256(IOBuffer(encoded)))
+end
+
+"""Expand INCLUDE records using a caller-owned resolver; never truncate large decks.
+
+The iterator also accepts quoted paths continued on following lines. Local
+imports resolve against each containing file, then save a portable, expanded
+source so reopening a Study never depends on files outside that Study.
+"""
+function imported_expand_includes(resolve,text)
+    # Most large sources are already standalone, and most INCLUDE children
+    # contain only bulk data. Do not copy every line just to discover this.
+    # Preserve the legacy line-ending normalization and source signatures.
+    occursin(r"(?im)^\s*INCLUDE(?:\s|,|$)",text)||return occursin('\r',text) ? replace(text,"\r\n"=>"\n") : text
+    output=IOBuffer();lines=eachline(IOBuffer(text));pending=""
+    for line in lines
+        stripped=strip(line)
+        if !isempty(pending)||occursin(r"^INCLUDE(?:\s|,|$)"i,stripped)
+            pending*=stripped
+            spec=match(r"^INCLUDE\s*,?\s*(?:'([^']+)'|\"([^\"]+)\"|([^\s$'\"]+))\s*(?:\$.*)?$"i,pending)
+            if spec===nothing
+                count(==('\''),pending)%2==1||count(==('"'),pending)%2==1||throw(ArgumentError("Malformed INCLUDE: $pending"))
+                continue
+            end
+            included=resolve(strip(something(spec.captures...)))
+            write(output,included)
+            endswith(included,"\n")||write(output,'\n')
+            pending=""
+        else
+            write(output,line,'\n')
+        end
+    end
+    isempty(pending)||throw(ArgumentError("Unterminated INCLUDE filename: $pending"))
+    result=String(take!(output))
+    endswith(text,"\n")||isempty(result) ? result : String(chop(result;tail=1))
+end
+
+function imported_local_source(path)
+    path isa AbstractString||throw(ArgumentError("Reference path must be text"))
+    isempty(strip(path))&&throw(ArgumentError("Select a Reference file or enter its full path"))
+    isabspath(path)||throw(ArgumentError("Use the full path to the Reference file"))
+    visited=Set{String}();active=Set{String}();sizes=Dict{String,Int}()
+    function readfile(file)
+        isfile(file)||throw(ArgumentError("Reference file or INCLUDE does not exist: $file"))
+        canonical=realpath(file);key=Sys.iswindows() ? lowercase(canonical) : canonical
+        key in active&&throw(ArgumentError("Cyclic INCLUDE dependency: $file"))
+        length(active)<64||throw(ArgumentError("INCLUDE nesting exceeds 64 levels: $file"))
+        push!(active,key);push!(visited,key)
+        try
+            text=read(canonical,String);sizes[key]=ncodeunits(text)
+            occursin('\0',text)&&throw(ArgumentError("Reference source contains a NUL byte: $file"))
+            imported_expand_includes(text) do relative
+                relative=replace(relative,'\\'=>'/')
+                readfile(isabspath(relative) ? relative : normpath(joinpath(dirname(canonical),relative)))
+            end
+        finally
+            delete!(active,key)
+        end
+    end
+    flattened=readfile(abspath(path))
+    source=Dict{String,Any}("kind"=>"reference","name"=>basename(path),"text"=>flattened,"includes"=>Any[],"flattened"=>flattened,
+        "signature"=>imported_source_signature(Dict(basename(path)=>flattened)),"source_file_count"=>length(visited),"source_bytes"=>sum(values(sizes)))
+    source
+end
+
+function imported_source(raw)
+    raw isa AbstractDict||throw(ArgumentError("Reference import needs a name and source text"))
+    haskey(raw,"path")&&return imported_local_source(raw["path"])
+    function filename(value)
+        value isa AbstractString||throw(ArgumentError("Imported filenames must be text"))
+        entry=replace(String(value),'\\'=>'/')
+        isempty(entry)||startswith(entry,"/")||occursin(':',entry)||any(c->Int(c)<32,entry) ? throw(ArgumentError("Use a relative uploaded filename: $(repr(entry))")) : nothing
+        all(part->!isempty(part)&&part!=".."&&part!=".",split(entry,'/'))||throw(ArgumentError("Imported filenames cannot traverse directories"))
+        return entry
+    end
+    name=filename(get(raw,"name","imported.bdf"));source=get(raw,"text",nothing)
+    source isa AbstractString||throw(ArgumentError("Reference source text is missing"))
+    files=Dict(name=>String(source));includes=get(raw,"includes",Any[])
+    includes isa AbstractVector||throw(ArgumentError("Uploaded INCLUDE files must be a list"))
+    for row in includes
+        row isa AbstractDict||throw(ArgumentError("Each INCLUDE needs name and text"))
+        key=filename(get(row,"name",""));any(candidate->lowercase(candidate)==lowercase(key),keys(files))&&throw(ArgumentError("Duplicate uploaded filename $key"))
+        value=get(row,"text",nothing);value isa AbstractString||throw(ArgumentError("INCLUDE $key has no text"));files[key]=String(value)
+    end
+    any(text->occursin('\0',text),values(files))&&throw(ArgumentError("Reference source contains a NUL byte"))
+    function resolve(key,active=String[])
+        # Windows-authored decks often vary filename case between references.
+        # Uploaded files are immutable, so a case-insensitive unique lookup is
+        # safe on all server platforms and agrees with the local Windows path.
+        if !haskey(files,key)
+            matches=filter(candidate->lowercase(candidate)==lowercase(key),collect(keys(files)))
+            length(matches)==1&&(key=only(matches))
+        end
+        key in active&&throw(ArgumentError("Cyclic uploaded INCLUDE: $key"))
+        length(active)<64||throw(ArgumentError("Uploaded INCLUDE nesting exceeds 64 levels"))
+        haskey(files,key)||throw(ArgumentError("Upload the referenced INCLUDE file: $key"))
+        imported_expand_includes(files[key]) do relative
+            # Uploaded Windows-authored paths must resolve identically on a
+            # Linux server; normalize separators before resolving parent dirs.
+            relative=replace(relative,'\\'=>'/')
+            isabspath(relative)&&throw(ArgumentError("For absolute INCLUDE paths, open the main file using its local path"))
+            target=filename(replace(normpath(joinpath(dirname(key),relative)),'\\'=>'/'))
+            resolve(target,vcat(active,key))
+        end
+    end
+    flattened=resolve(name)
+    signature=imported_source_signature(files)
+    return Dict{String,Any}("kind"=>"reference","name"=>name,"text"=>String(source),"includes"=>deepcopy(includes),"flattened"=>flattened,"signature"=>signature,"source_file_count"=>length(files),"source_bytes"=>sum(ncodeunits,values(files)))
+end
+
+function imported_case_specs(p)
+    [(id=Int(row["id"]),label=String(row["label"]),params=p) for row in p["imported.cases"]]
+end
+
+function imported_material(model,mid)
+    mat=get(model["MATs"],string(mid),Dict());type=haskey(mat,"E1") ? "MAT8" : haskey(mat,"G11") ? "MAT2" : "MAT1"
+    result=Dict{String,Any}("id"=>Int(mid),"MID"=>Int(mid),"name"=>"Material $mid","type"=>type)
+    for (source,target) in (("E","E_Pa"),("NU","nu"),("RHO","rho_kg_m3"));haskey(mat,source)&&(result[target]=mat[source]);end
+    return result
+end
+imported_material(model,mid,cache)=cache===nothing ? imported_material(model,mid) : get!(cache,Int(mid)) do
+    imported_material(model,mid)
+end
+
+function imported_section(nativeprop)
+    shape=String(get(nativeprop,"TYPE","PBAR"));dimensions=Float64.(get(nativeprop,"DIMS",Float64[]))
+    section=Dict{String,Any}("type"=>isempty(dimensions) ? "PBAR" : "PBARL","shape"=>shape,"dimensions_m"=>dimensions,"offset_y_m"=>0.,"offset_z_m"=>0.,"placement"=>"Imported native CBAR reference line; original offset cards retained in the solver")
+    for (source,target) in (("A","area_m2"),("I1","I1_m4"),("I2","I2_m4"),("J","J_m4"));haskey(nativeprop,source)&&(section[target]=nativeprop[source]);end
+    if (shape=="T"&&length(dimensions)==4)||(shape=="ROD"&&length(dimensions)==1)
+        section["polygon_yz_m"]=sensitivity_analytic_section(shape,dimensions).polygon
+    elseif shape=="BAR"&&length(dimensions)==2
+        b,h=dimensions;section["polygon_yz_m"]=[[h/2,-b/2],[h/2,b/2],[-h/2,b/2],[-h/2,-b/2]]
+    end
+    return section
+end
+
+function imported_properties(model,group;material_cache=nothing)
+    pid=group.pid
+    if group.kind===:bar
+        if startswith(group.name,"IMPORTED_CROD_")
+            prop=model["PRODs"][string(pid)]
+            return Dict{String,Any}("type"=>"PROD","pid"=>pid,"material"=>imported_material(model,prop["MID"],material_cache),"section"=>Dict{String,Any}("type"=>"PROD","area_m2"=>prop["A"],"J_m4"=>get(prop,"J",0.)))
+        end
+        prop=model["PBARLs"][string(pid)]
+        return Dict{String,Any}("type"=>isempty(get(prop,"DIMS",[])) ? "PBAR" : "PBARL","pid"=>pid,"material"=>imported_material(model,prop["MID"],material_cache),"section"=>imported_section(prop))
+    end
+    prop=model["PSHELLs"][string(pid)];thickness=Float64(prop["T"])
+    if haskey(prop,"PLY_DATA")
+        plies=Any[]
+        for ply in prop["PLY_DATA"]
+            mid=Int(ply["mid"]);t=Float64(ply["z_top"]-ply["z_bot"])
+            push!(plies,Dict{String,Any}("material"=>imported_material(model,mid,material_cache),"thickness_m"=>t,"angle_deg"=>get(ply,"theta",0.)))
+        end
+        bottom=Float64(get(prop,"PCOMP_Z0",isempty(prop["PLY_DATA"]) ? -thickness/2 : first(prop["PLY_DATA"])["z_bot"]))
+        result=Dict{String,Any}("type"=>"PCOMP","pid"=>pid,"thickness_m"=>thickness,"z_bottom_m"=>bottom,"z_top_m"=>bottom+thickness,"plies"=>plies,"areal_mass_kg_m2"=>sum(p["thickness_m"]*get(p["material"],"rho_kg_m3",0.) for p in plies)+get(prop,"NSM",0.),"construction"=>"Imported laminate (original stacking sequence)","sandwich"=>false)
+        if length(plies)==3&&plies[1]["material"]["id"]==plies[3]["material"]["id"]&&isapprox(plies[1]["thickness_m"],plies[3]["thickness_m"];rtol=1e-12)&&plies[1]["angle_deg"]==plies[3]["angle_deg"]
+            merge!(result,Dict{String,Any}("sandwich"=>true,"face_thickness_m"=>plies[1]["thickness_m"],"core_thickness_m"=>plies[2]["thickness_m"],"face_material"=>plies[1]["material"],"core_material"=>plies[2]["material"]))
+        end
+        return result
+    end
+    mat=imported_material(model,prop["MID"],material_cache)
+    Dict{String,Any}("type"=>"PSHELL","pid"=>pid,"thickness_m"=>thickness,"z_bottom_m"=>-thickness/2,"z_top_m"=>thickness/2,"material"=>mat,"material_id"=>prop["MID"],"areal_mass_kg_m2"=>thickness*get(mat,"rho_kg_m3",0.)+get(prop,"NSM",0.))
+end
+
+function imported_model(native,source,p;cards=Dict())
+    ids=sort!([parse(Int,string(key)) for key in keys(native["GRIDs"])])
+    isempty(ids)&&throw(ArgumentError("The deck contains no GRID nodes"))
+    maximum(ids)<=typemax(Int32)||throw(ArgumentError("Viewer GRID IDs must fit signed Int32"))
+    index=Dict(id=>i for (i,id) in enumerate(ids));xyz=Float64[x for id in ids for x in native["GRIDs"][string(id)]["X"]]
+    all(isfinite,xyz)||throw(ArgumentError("Imported GRID coordinates must be finite"))
+    params=Dict{String,Any}(deepcopy(p));params["fuel.enabled"]=false;params["loads.structure_inertia"]=false
+    params["output.title"]=source["name"];params["output.solution"]=string(native["SOL"])
+    params["imported.native"]=native;params["imported.source"]=source
+    params["imported.entity_sources"]=imported_entity_sources(cards)
+    subs=native["CASE_CONTROL"]["SUBCASES"]
+    rows=isempty(subs) ? [Dict("id"=>1,"label"=>"Subcase 1")] : [Dict("id"=>Int(sid),"label"=>String(get(row,"LABEL",get(row,"SUBTITLE","Subcase $sid")))) for (sid,row) in sort!(collect(subs);by=x->Int(first(x)))]
+    rows=Dict{String,Any}[merge(row,Dict("result_required"=>Int(native["SOL"])!=105||get(get(subs,row["id"],Dict()),"STATSUB",nothing)!==nothing)) for row in rows]
+    params["imported.cases"]=rows
+    groups=ElemGroup[];lookup=Dict{Tuple{Symbol,Int},ElemGroup}();warnings=String[];unsupported=Dict{String,Int}()
+    for (key,family) in (("CSHELLs",:shell),("CBARs",:bar),("CBEAMs",:beam),("CRODs",:rod))
+        for (keyid,el) in sort!(collect(get(native,key,Dict()));by=x->Int(last(x)["ID"]))
+            eid=Int(el["ID"]);pid=Int(el["PID"])
+            nodes=family!==:shell ? [el["GA"],el["GB"]] : el["NODES"]
+            kind=family!==:shell ? :bar : length(nodes)==3 ? :tria : length(nodes)==4 ? :quad : :unsupported
+            if kind===:unsupported;card=String(el["TYPE"]);unsupported[card]=get(unsupported,card,0)+1;continue;end
+            all(id->haskey(index,id),nodes)||throw(ArgumentError("Element $eid references a missing GRID"))
+            gr=get!(lookup,(family===:beam||family===:rod ? family : kind,pid)) do
+                label=family===:beam ? "CBEAM" : family===:rod ? "CROD" : uppercase(string(kind))
+                result=ElemGroup("IMPORTED_$(label)_P$pid",kind,pid);push!(groups,result);result
+            end
+            push!(gr.eids,eid);append!(gr.conn,[index[id] for id in nodes])
+            if kind===:bar
+                g0=Int(get(el,"G0",0));v=g0==0 ? Float64.(get(el,"V",get(el,"X",[0.,1.,0.]))) : Float64.(native["GRIDs"][string(g0)]["X"])-Float64.(native["GRIDs"][string(nodes[1])]["X"])
+                if family===:rod
+                    direction=Float64.(native["GRIDs"][string(nodes[2])]["X"])-Float64.(native["GRIDs"][string(nodes[1])]["X"])
+                    v=zeros(3);v[argmin(abs.(direction))]=1.
+                end
+                append!(gr.orient,v)
+            end
+        end
+    end
+    visual=Set(("CQUAD4","CQUADR","CTRIA3","CSHEAR","CBAR","CBEAM","CROD","RBE3","RBE2","RBAR","RBE1","RSPLINE","CELAS1","CELAS2","CONM2","GRID"))
+    for (card,data) in cards
+        ((startswith(card,"C")&&!startswith(card,"CORD"))||startswith(card,"RBE")||card=="RSPLINE")&&!(card in visual)&&(unsupported[card]=length(data))
+    end
+    isempty(groups)&&push!(warnings,"No supported shell or CBAR elements are present; GRID locations are retained.")
+    any(g->g.kind===:bar,groups)&&push!(warnings,"Beam section/axis glyphs use GRID reference lines and the source orientation vector. OFFT/CD transformations and WA/WB offsets are not represented by these glyphs; native analysis retains their exact source definitions.")
+    !isempty(unsupported)&&push!(warnings,"Some cards are retained for solving but lack a full viewport representation: "*join(sort!(collect(keys(unsupported))),", "))
+    push!(warnings,"Reference has no declared unit system. Viewer units assume metres, newtons, kilograms and pascals; no conversion is performed.")
+    params["imported.warnings"]=warnings;params["imported.unsupported_visual_cards"]=unsupported
+    params["imported.inventory"]=Dict(key=>length(value) for (key,value) in cards)
+    wing=make_wing(p);grid=BoxGrid(wing,[.2,.55],[0.,1.],1,[0,1],fill(.2,2,2),fill(.55,2,2),zeros(Int,2,2),Int[])
+    spc=sort!(unique([index[Int(gid)] for row in native["SPC1s"] for gid in get(row,"G",get(row,"NODES",Int[])) if haskey(index,Int(gid))]))
+    model=Model(params,wing,grid,ids,xyz,[(-2,i,-1) for i in eachindex(ids)],length(ids),groups,RBE3Spider[],spc,Float64[],Int[],0,Int[],Float64[],[("Source",source["name"]),("Analysis","SOL $(native["SOL"])")],[("Native parser","Original identifiers and case control retained",true)])
+    return model
+end
+
+function imported_display_bbox(m)
+    used=falses(length(m.node_ids))
+    for group in m.groups,node in group.conn;used[node]=true;end
+    lo=fill(Inf,3);hi=fill(-Inf,3)
+    for node in eachindex(used)
+        used[node]||continue
+        for axis in 1:3;value=m.xyz[3*(node-1)+axis];lo[axis]=min(lo[axis],value);hi[axis]=max(hi[axis],value);end
+    end
+    any(!isfinite,lo)&&return bbox_of(m)
+    Dict{String,Any}("min"=>lo,"max"=>hi)
+end
+
+function imported_mesh_payload(m)
+    native=imported_native(m);params=m.params;source=params["imported.source"];index=Dict(id=>i for (i,id) in enumerate(m.node_ids));material_cache=Dict{Int,Any}()
+    coordinates=imported_coordinate_payload(native)
+    groups=Any[Dict{String,Any}("name"=>gr.name,"kind"=>string(gr.kind),"pid"=>gr.pid,"base_pid"=>0,"base_group"=>gr.name,"card_types"=>Dict(string(eid)=>String(get(native[startswith(gr.name,"IMPORTED_CBEAM_") ? "CBEAMs" : startswith(gr.name,"IMPORTED_CROD_") ? "CRODs" : gr.kind===:bar ? "CBARs" : "CSHELLs"][string(eid)],"TYPE",gr.kind===:bar ? "CBAR" : "shell")) for eid in gr.eids),"count"=>length(gr.eids),"eids"=>blob_i32(gr.eids),"conn"=>blob_i32(gr.conn;offset=-1),"orient"=>blob_f32(gr.orient),"properties"=>imported_properties(native,gr;material_cache),"axes"=>imported_element_axes(m,gr)) for gr in m.groups]
+    for group in groups
+        group["kind"] in ("quad","tria")||continue
+        ids=reinterpret(Int32,group["eids"].bytes)
+        group["material_orientation"]=Dict("mcid"=>blob_i32([Int(get(native["CSHELLs"][string(id)],"MCID",0)) for id in ids]),
+            "theta"=>blob_f32([Float64(get(native["CSHELLs"][string(id)],"THETA",0.)) for id in ids]))
+    end
+    buffers=imported_compact_buffers!(groups)
+    emptyspider=Dict("count"=>0,"refs"=>blob_i32(Int[]),"eids"=>blob_i32(Int[]),"lines"=>blob_i32(Int[]),"elements"=>Any[])
+    rbe=deepcopy(emptyspider);refs=Int[];eids=Int[];lines=Int[];elements=Any[]
+    for (key,el) in get(native,"RBE3s",Dict())
+        weights=[row isa NamedTuple ? Dict("wt"=>row.wt,"comps"=>row.comps,"grids"=>row.grids) : row for row in get(el,"WT_GROUPS",Any[])]
+        ref=Int(el["REFGRID"]);connected=unique(Int[id for row in weights for id in row["grids"]]);haskey(index,ref)||continue
+        filter!(id->haskey(index,id),connected);push!(refs,index[ref]);push!(eids,Int(el["ID"]));append!(lines,Int[i for id in connected for i in (index[ref],index[id])])
+        push!(elements,Dict("eid"=>Int(el["ID"]),"ref"=>index[ref]-1,"reference_grid"=>ref,"connected_grids"=>connected,"reference_components"=>string(el["REFC"]),"weight_groups"=>weights,
+            "source_properties"=>merge(Dict{String,Any}(el),Dict("WT_GROUPS"=>weights)),"source_definition"=>get(get(params,"imported.entity_sources",Dict()),Int(el["ID"]),Dict())))
+    end
+    merge!(rbe,Dict("count"=>length(refs),"refs"=>blob_i32(refs;offset=-1),"eids"=>blob_i32(eids),"lines"=>blob_i32(lines;offset=-1),"elements"=>elements))
+    emptyloads=Dict("stations"=>Any[],"force_stations"=>Any[],"moment_stations"=>Any[],"fuel_stations"=>Any[],"structure_stations"=>Any[],"method"=>"imported","load_application_version"=>IMPORTED_LOAD_VERSION,"note"=>"Original Reference load cards are authoritative; not generated aerodynamic loads.")
+    cases=[merge(Dict{String,Any}(row),Dict("loads"=>get(get(params,"imported.loads",Dict()),row["id"],deepcopy(emptyloads)))) for row in params["imported.cases"]]
+    source_card_count=sum(values(params["imported.inventory"]);init=0)
+    unprocessed=get(params,"imported.unprocessed_cards",Any[])
+    parsed_card_count=source_card_count-sum(row["count"] for row in unprocessed if row["status"]=="unprocessed";init=0)
+    publicparams=Dict(k=>v for (k,v) in params if !startswith(k,"imported."))
+    return Dict{String,Any}("ok"=>true,"format"=>"wingfegen-mesh-1","title"=>source["name"],"model_params"=>publicparams,
+        "imported_signature"=>source["signature"],"imported_deck"=>Dict("signature"=>source["signature"],"name"=>source["name"],"solution"=>params["output.solution"],"cases"=>[Dict(k=>v for (k,v) in row if k!="spc") for row in params["imported.cases"]],"warnings"=>vcat(params["imported.warnings"],coordinates["warnings"]),"unsupported_visual_cards"=>params["imported.unsupported_visual_cards"],"card_inventory"=>params["imported.inventory"],"unprocessed_cards"=>unprocessed,"source_card_count"=>source_card_count,"parsed_card_count"=>parsed_card_count,"case_control"=>get(params,"imported.case_control",Dict())),
+        "nodes"=>Dict("count"=>length(m.node_ids),"n_structural"=>m.n_struct,"ids"=>blob_i32(m.node_ids),"xyz"=>blob_f32(m.xyz)),"groups"=>groups,"imported_buffers"=>buffers,
+        "rbe3"=>rbe,"fuel_rbe3"=>deepcopy(emptyspider),"imported_connections"=>imported_connection_payload(native,index;source_entities=get(params,"imported.entity_sources",Dict())),"spc"=>imported_supports(m),
+        "coordinate_systems"=>coordinates,
+        "aero"=>Dict("count"=>0,"sections"=>Any[],"n_loop"=>0,"xyz"=>blob_f32(Float64[]),"conn"=>blob_i32(Int[]),"n_per_node"=>0,"map"=>blob_i32(Int[]),"weights"=>blob_f32(Float64[])),
+        "fuel"=>Dict("enabled"=>false,"bays"=>Any[],"volume_m3"=>0.),"weights"=>Dict("components"=>Any[]),"annotations"=>Dict("ribs"=>Any[],"stringers"=>Any[]),"stiffened_panels"=>Dict("panels"=>Any[]),"load_cases"=>cases,"loads"=>first(cases)["loads"],"bbox"=>bbox_of(m),"display_bbox"=>imported_display_bbox(m),"info"=>Any[Any[k,v] for (k,v) in m.info],"checks"=>Any[Any[n,d,ok] for (n,d,ok) in m.checks],"checks_pass"=>true)
+end
+
+"""Pack large imported meshes into a few binary buffers, keeping all property rows.
+Hundreds of thousands of tiny bin fields cost far more browser structured-clone
+time than the geometry itself. Offsets reconstruct identical per-group views.
+"""
+function imported_compact_buffers!(groups;threshold=1000)
+    length(groups)>threshold||return nothing
+    fields=("eids","conn","orient","centers","x","y","z","lengths")
+    buffers=Dict{String,Vector{UInt8}}()
+    for (i,field) in enumerate(fields)
+        total=sum(length((i<=3 ? g[field] : g["axes"][field]).bytes) for g in groups)
+        buffers[field]=Vector{UInt8}(undef,total)
+    end
+    cursors=zeros(Int,length(fields))
+    materials=Any[];material_indices=Dict{Int,Int}()
+    function material_ref!(owner,key)
+        material=get(owner,key,nothing);material===nothing&&return
+        id=Int(material["id"])
+        index=get!(material_indices,id) do;push!(materials,material);length(materials)-1;end
+        owner[key]=index
+    end
+    for group in groups
+        offsets=copy(cursors)
+        for (i,field) in enumerate(fields)
+            bytes=(i<=3 ? pop!(group,field) : group["axes"][field]).bytes
+            copyto!(buffers[field],cursors[i]+1,bytes,1,length(bytes));cursors[i]+=length(bytes)
+        end
+        group["binary_offsets"]=offsets
+        delete!(group,"axes");delete!(group,"base_group");delete!(group,"base_pid")
+        section=get(group["properties"],"section",nothing);section===nothing||delete!(section,"placement")
+        properties=group["properties"]
+        for key in ("material","face_material","core_material");material_ref!(properties,key);end
+        for ply in get(properties,"plies",Any[]);material_ref!(ply,"material");end
+    end
+    result=Dict{String,Any}(field=>Blob(buffers[field]) for field in fields)
+    result["materials"]=materials;result
+end
+
+"""Source constraint/spring topology and point masses, without inventing beam stiffness.
+These are inspection glyphs; their original DOF definitions remain in the native model.
+"""
+function imported_connection_payload(native,index;source_entities=Dict())
+    result=Any[];collections=Dict{String,Any}()
+    for (key,card) in (("RBE2s","RBE2/RBAR"),("RBE1s","RBE1"),("RSPLINEs","RSPLINE"),("CELASs","CELAS"),("CONM2s","CONM2"))
+        for (_,el) in get(native,key,Dict())
+            grids=key=="RBE2s" ? vcat(el["GN"],el["GM"]) : key=="RBE1s" ? unique([first(p) for p in vcat(el["INDEP"],el["DEP"])]) : key=="RSPLINEs" ? unique(vcat(el["INDEP_GRIDS"],[first(p) for p in el["DEP"]])) : key=="CELASs" ? [el["G1"],el["G2"]] : [el["GID"]]
+            filter!(gid->haskey(index,gid),grids);isempty(grids)&&continue
+            properties=Dict{String,Any}(el);source=get(source_entities,Int(el["ID"]),Dict())
+            type=String(get(source,"type",get(el,"TYPE",key=="RBE2s" ? "RBE2" : card)))
+            isempty(source)||(properties["source_definition"]=source)
+            if key=="CELASs"&&haskey(el,"PID")
+                properties["property"]=get(get(native,"PELASs",Dict()),string(el["PID"]),Dict())
+            end
+            properties["display_note"]=key=="CONM2s" ? "Marker is at the attachment GRID; the mass offset and inertia are retained in the original CID and native analysis." : "Connection topology only; DOF definitions are shown below and remain unchanged in native analysis."
+            collection=get!(collections,type) do
+                entry=Dict("name"=>"IMPORTED_"*type,"card"=>type,"point_mass"=>key=="CONM2s","elements"=>Any[])
+                push!(result,entry);entry
+            end
+            record=Dict{String,Any}("eid"=>el["ID"],"type"=>type,"nodes"=>[index[id]-1 for id in grids],"properties"=>properties)
+            if key=="CELASs"
+                record["endpoints"]=imported_spring_endpoints(native,el,index)
+                properties["display_endpoints"]=record["endpoints"]
+                properties["display_note"]="Axis cylinders mark each spatial GRID/component in its local displacement coordinate system. Red/green/blue identify local axes 1/2/3 (also rotations 4/5/6). Cylinder size is symbolic, not a physical section. Scalar or unresolved components retain their topology markers."
+            end
+            push!(collection["elements"],record)
+        end
+    end
+    result
+end
+
+function imported_element_axes(m,gr)
+    count=n_elements(gr)
+    centers=Vector{Float64}(undef,3*count);xs=similar(centers);ys=similar(centers);zs=similar(centers);lengths=Vector{Float64}(undef,count)
+    stride=gr.kind===:bar ? 2 : gr.kind===:quad ? 4 : 3
+    for e in 1:count
+        points=[Tuple(m.xyz[3i-2:3i]) for i in gr.conn[stride*(e-1)+1:stride*e]]
+        x,y,z=if gr.kind===:bar
+            x=unit3(points[2].-points[1]);z=unit3(cross3(x,Tuple(gr.orient[3*e-2:3*e])));(x,cross3(z,x),z)
+        else
+            shell_geometric_frame(points)
+        end
+        # append!(Vector, Tuple) takes Julia's generic copy path, whose
+        # LinearIndices bounds membership scans the growing destination on
+        # supported runtimes. Preallocation makes this O(elements), rather
+        # than quadratic for a large group sharing one shell property.
+        for c in 1:3
+            k=3*(e-1)+c
+            centers[k]=sum(p[c] for p in points)/stride
+            xs[k]=x[c];ys[k]=y[c];zs[k]=z[c]
+        end
+        lengths[e]=minimum(norm3(points[mod1(i+1,stride)].-points[i]) for i in 1:stride)
+    end
+    note=gr.kind===:bar ? "GRID-reference axes only: OFFT/CD transformations and WA/WB offsets are not displayed; native analysis retains the source beam frame." : "Imported geometric shell axes; source material orientation cards remain unchanged."
+    Dict{String,Any}("centers"=>blob_f32(centers),"x"=>blob_f32(xs),"y"=>blob_f32(ys),"z"=>blob_f32(zs),"lengths"=>blob_f32(lengths),"frame_note"=>note)
+end
+
+function imported_supports(m)
+    cases=get(m.params,"imported.cases",Any[])
+    !isempty(cases)&&haskey(first(cases),"spc")&&return first(cases)["spc"]
+    index=Dict(id=>i for (i,id) in enumerate(m.node_ids));components=Dict{Int,Set{Char}}()
+    for row in imported_native(m)["SPC1s"],gid in row["NODES"]
+        haskey(index,gid)||continue;union!(get!(components,index[gid],Set{Char}()),string(row["C"]))
+    end
+    nodes=sort!(collect(keys(components)));dofs=[join(sort!(collect(components[i]))) for i in nodes]
+    Dict("count"=>length(nodes),"nodes"=>blob_i32(nodes;offset=-1),"node_components"=>dofs,"components"=>length(unique(dofs))==1 ? first(dofs) : "mixed","mode"=>"imported","note"=>"Union of source SPC sets; each analysis uses its original case-control SPC selection.","assignments"=>[Dict("node"=>i-1,"grid"=>m.node_ids[i],"components"=>join(sort!(collect(components[i]))),"ribs"=>Int[],"targets"=>["Imported SPC"]) for i in nodes])
+end
+
+function imported_prepare_loads!(native,m)
+    imported_prepare_cases!(native,m)
+    model=imported_native(m);index=Dict(id=>i for (i,id) in enumerate(m.node_ids));X=permutedims(reshape(m.xyz,3,:));cases=Dict{Int,Any}()
+    # Source equivalent loads depend on LOAD, not SPC or the output request.
+    # Reuse them for shared load sets (especially SOL105 preload/result pairs).
+    # Only the case-specific explanatory note is copied; no solve is performed.
+    resolved=Dict{Union{Nothing,Int},Dict{String,Any}}()
+    for spec in m.params["imported.cases"]
+        sid=spec["id"];row=spec["case_control"]
+        load=imported_case_selector(row,"LOAD")
+        loads=copy(get!(resolved,load) do
+            result=Dict{String,Any}("stations"=>Any[],"force_stations"=>Any[],"moment_stations"=>Any[],"fuel_stations"=>Any[],"structure_stations"=>Any[],"method"=>"imported","load_application_version"=>IMPORTED_LOAD_VERSION,"summary"=>Any[])
+            try
+                if load!==nothing
+                    F=zeros(6length(m.node_ids))
+                    native.Solver.resolve_loads(model,load,1.,index,Dict{Int,Any}(),X,F)
+                    for (i,gid) in enumerate(m.node_ids)
+                        k=6*i
+                        hasforce=!(iszero(F[k-5])&&iszero(F[k-4])&&iszero(F[k-3]))
+                        hasmoment=!(iszero(F[k-2])&&iszero(F[k-1])&&iszero(F[k]))
+                        # Allocating dictionaries and sliced vectors for every
+                        # unloaded node multiplied import costs by case count.
+                        hasforce||hasmoment||continue
+                        record=Dict{String,Any}("gid"=>gid,"node_index"=>i-1,"position"=>m.xyz[3*i-2:3*i],"eta"=>0.,"target_kind"=>"imported_grid","follower_forces"=>false)
+                        hasforce&&push!(result["force_stations"],merge(record,Dict("force"=>F[k-5:k-3],"moment"=>zeros(3))))
+                        hasmoment&&push!(result["moment_stations"],merge(record,Dict("force"=>zeros(3),"moment"=>F[k-2:k])))
+                    end
+                end
+                result["note"]="Native equivalent applied nodal loads in BASIC axes, before constraint redistribution. Original load-card application remains unchanged."
+                result["available"]=true
+            catch err
+                result["note"]="Load visualization unavailable: "*sprint(showerror,err)
+                result["available"]=false
+            end
+            result
+        end)
+        if loads["available"]
+            get(spec,"load_source_case_id",sid)!=sid&&(loads["note"]*=" Loads belong to static preload subcase $(spec["load_source_case_id"]).")
+            any(haskey(row,key) for key in ("TEMP","TEMPERATURE"))&&(loads["note"]*=" Thermal equivalent loads are computed by the solver; they are not included in these arrows.")
+        else
+            push!(m.params["imported.warnings"],"Subcase $sid: "*loads["note"])
+        end
+        cases[Int(sid)]=loads
+    end
+    m.params["imported.loads"]=cases
+    m
+end
+
+include("reference_import_cases.jl")
+include("reference_import_analysis.jl")
+
+imported_public_params(m)=Dict(k=>v for (k,v) in m.params if !startswith(k,"imported."))
+
+"""Use the solver's resolved preload ownership, including legacy local-METHOD decks."""
+function imported_buckling_ownership(data,subs)
+    ownership=Dict{Int,Int}()
+    for row in Iterators.flatten((get(data,"subcases",Any[]),get(data,"modes",Any[])))
+        haskey(row,"buckling_subcase_id")&&haskey(row,"static_subcase_id")||continue
+        sid,preload=Int(row["buckling_subcase_id"]),Int(row["static_subcase_id"])
+        haskey(subs,sid)&&haskey(subs,preload)||throw(ArgumentError("Buckling result refers to a subcase outside the solved deck"))
+        get(ownership,sid,preload)==preload||throw(ArgumentError("Conflicting preload ownership for buckling subcase $sid"))
+        declared=get(subs[sid],"STATSUB",nothing)
+        declared===nothing||Int(declared)==preload||throw(ArgumentError("Buckling result preload conflicts with STATSUB for subcase $sid"))
+        ownership[sid]=preload
+    end
+    # Older exports may lack metadata; explicit STATSUB is still unambiguous.
+    if isempty(ownership)
+        for (sid,sub) in subs
+            get(sub,"STATSUB",nothing)===nothing||(ownership[Int(sid)]=Int(sub["STATSUB"]))
+        end
+    end
+    ownership
+end
+
+function imported_results_payload(job)
+    path,data=find_results_json(job.outdir);path===nothing&&throw(ArgumentError("No native result JSON was produced; inspect the solver log"))
+    m=job.model;specs=load_case_specs(m.params);atype=String(get(data,"analysis_type",""));cases=Any[]
+    subs=imported_native(m)["CASE_CONTROL"]["SUBCASES"]
+    mapping=get(m.params,"imported.analysis_cases",Dict{Int,Int}())
+    all_specs=specs
+    ownership=startswith(atype,"SOL105") ? imported_buckling_ownership(data,subs) : Dict{Int,Int}()
+    startswith(atype,"SOL105")&&(specs=filter(spec->haskey(ownership,get(mapping,spec.id,spec.id)),specs))
+    isempty(specs)&&throw(ArgumentError("Native results have no matching source analysis subcase"))
+    for spec in specs
+        sid=get(mapping,spec.id,spec.id)
+        selected=imported_case_result(data,sid,subs,[get(mapping,s.id,s.id) for s in specs])
+        item=jfem_case_results_payload(job,path,selected;native_sid=sid)
+        item["id"]=spec.id;item["label"]=spec.label;item["static_subcase_id"]=spec.id
+        if startswith(atype,"SOL105")
+            item["static_subcase_id"]=ownership[sid];item["buckling_subcase_id"]=sid
+        end
+        item["model_params"]=imported_public_params(m);item["imported_signature"]=m.params["imported.source"]["signature"]
+        item["imported_analysis"]=get(m.params,"imported.analysis",imported_analysis_options())
+        item["imported_analysis_signature"]=imported_analysis_signature(m)
+        startswith(atype,"SOL105") && attach_buckling_preload!(job,path,item,selected,item["static_subcase_id"])
+        push!(cases,item)
+    end
+    # In an original SOL105 deck the preload also appears in the Loads case
+    # selector. Publish that case's actual SOL101 result, rather than leaving
+    # it unavailable while hiding it inside its companion buckling case.
+    present=Set(Int(item["id"]) for item in cases)
+    for item in copy(cases)
+        haskey(item,"variants")||continue
+        sid=Int(item["static_subcase_id"])
+        sid in present&&continue
+        spec=findfirst(s->s.id==sid&&get(mapping,s.id,s.id)==sid,all_specs)
+        spec===nothing&&continue
+        preload=only(filter(v->get(v,"source",nothing)=="buckling_preload",item["variants"]))
+        record=copy(preload);record["id"]=sid;record["label"]=all_specs[spec].label*" · SOL101 preload"
+        push!(cases,record);push!(present,sid)
+    end
+    payload=copy(first(cases));payload["load_cases"]=cases;payload["load_case_independent"]=false
+    payload
+end
+
+function imported_case_result(data,sid,subs,ids)
+    atype=String(get(data,"analysis_type",""))
+    (startswith(atype,"SOL101")||startswith(atype,"SOL106"))&&return static_case_result(data,sid,ids)
+    selected=copy(data);modes=get(data,"modes",Any[])
+    if startswith(atype,"SOL103")
+        tagged=all(row->haskey(row,"sid"),modes)
+        length(ids)>1&&!tagged&&throw(ArgumentError("Native modal results lack subcase ownership; refusing to mix source cases"))
+        selected["modes"]=tagged ? filter(row->Int(row["sid"])==sid,modes) : modes
+    elseif startswith(atype,"SOL105")
+        ownership=imported_buckling_ownership(data,subs)
+        haskey(ownership,sid)||throw(ArgumentError("No resolved static preload for buckling subcase $sid"))
+        preload=ownership[sid]
+        tagged=all(row->haskey(row,"buckling_subcase_id")&&haskey(row,"static_subcase_id"),modes)
+        length(ids)>1&&!tagged&&throw(ArgumentError("Native buckling results lack subcase ownership; refusing to mix source cases"))
+        selected["modes"]=tagged ? filter(row->Int(row["buckling_subcase_id"])==sid&&Int(row["static_subcase_id"])==preload,modes) : modes
+        states=get(data,"static_subcases",Any[])
+        if !isempty(states)
+            delete!(selected,"static_displacements");delete!(selected,"static_result")
+            matching=filter(row->get(row,"static_subcase_id",nothing)==preload,states)
+            length(matching)==1||throw(ArgumentError("No unique native preload for subcase $preload"))
+            select_buckling_preload!(selected,only(matching))
+        elseif length(ids)>1&&!compact_buckling_output(data)
+            throw(ArgumentError("Native buckling results lack preload ownership"))
+        end
+    else
+        throw(ArgumentError("Viewport results support native SOL101, SOL103, SOL105 and SOL106; received $atype"))
+    end
+    selected["eigenvalues"]=[get(row,"eigenvalue",0.) for row in selected["modes"]]
+    selected
+end

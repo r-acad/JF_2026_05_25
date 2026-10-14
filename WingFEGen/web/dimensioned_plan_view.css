@@ -6,7 +6,7 @@
 .dimensioned-plan-view button { padding:5px 8px; border:1px solid #456279; border-radius:5px; color:#e6f4ff; background:#203648; font:inherit; cursor:pointer; }
 .dimensioned-plan-view button:hover { background:#2a4b63; }
 .dimensioned-plan-view button:disabled { opacity:.45; cursor:default; }
-.dimensioned-plan-view button[aria-pressed=true] { border-color:#83e6b4; background:#1d684e; color:#edfff5; }
+.dimensioned-plan-view button[aria-pressed=true]:not([data-dpv=theme]) { border-color:#83e6b4; background:#1d684e; color:#edfff5; }
 .dpv-options { margin-top:5px; padding:5px 0; flex-shrink:0; color:#c1d4e2; }
 .dpv-options label { display:flex; align-items:center; gap:6px; white-space:nowrap; }
 .dpv-options input[type=checkbox] { accent-color:#56aaf1; }
@@ -19,6 +19,10 @@
 .dpv-legend { margin-right:auto; gap:5px; font-size:11px; }
 .dpv-legend i { width:16px; margin-left:5px; border-top:2px solid #84badf; }
 .dpv-legend i.front { border-color:#6ce4b7; }.dpv-legend i.rear { border-color:#ffad68; }
+.dpv-fuel-legend { display:inline-flex; align-items:center; gap:5px; }
+.dpv-fuel-legend[hidden] { display:none; }
+.dpv-legend i.fuel { border-color:#6ee8db; border-top-style:dashed; }
+.dpv-legend i.dry { border-color:#e5be79; border-top-style:dotted; }
 .dpv-image-status { min-height:18px; color:#9eb8ca; margin:9px 0; font-size:12px; }
 .dpv-help { position:absolute; top:42px; right:10px; z-index:5; max-width:740px; max-height:calc(100% - 70px); overflow:auto; padding:11px 14px; color:#bed4e4; background:#172c3d; border:1px solid #3c6079; border-radius:5px; line-height:1.7; box-shadow:0 6px 22px #0008; }
 .dpv-help[hidden],.dpv-error[hidden] { display:none; }
@@ -57,6 +61,9 @@
 .dpv-geometry .dpv-fallback { stroke:#ff5964; stroke-width:1.5; }
 .dpv-geometry .dpv-spar { fill:none; stroke-width:1.5; stroke-linejoin:round; }
 .dpv-geometry .dpv-front { stroke:#6ce4b7; }.dpv-geometry .dpv-rear { stroke:#ffad68; }
+.dpv-geometry .dpv-fuel { stroke-width:2; stroke-linejoin:round; pointer-events:none; }
+.dpv-geometry .dpv-fuel-wet { fill:#a6f3de; fill-opacity:.24; stroke:#6ee8db; stroke-dasharray:8 4; }
+.dpv-geometry .dpv-fuel-dry { fill:#e5be79; fill-opacity:.07; stroke:#e5be79; stroke-dasharray:2 4; }
 .dpv-geometry .dpv-mirrored { opacity:.35; }
 .dpv-geometry .dpv-rib-label { fill:#c9e1f1; font-size:10px; paint-order:stroke; stroke:#0c1520; stroke-width:2px; stroke-linejoin:round; }
 .dpv-metrics { margin:8px 0 0; color:#b8cddd; font-size:12px; font-variant-numeric:tabular-nums; }
@@ -82,4 +89,6 @@
 .dimensioned-plan-view[data-theme=white] .dpv-front { stroke:#008652; }
 .dimensioned-plan-view[data-theme=white] .dpv-rear { stroke:#bd5607; }
 .dimensioned-plan-view[data-theme=white] .dpv-fallback { stroke:#d42136; }
+.dimensioned-plan-view[data-theme=white] .dpv-fuel-wet { fill:#47c7ab; fill-opacity:.2; stroke:#007f79; }
+.dimensioned-plan-view[data-theme=white] .dpv-fuel-dry { fill:#c59a50; fill-opacity:.07; stroke:#946312; }
 @media(max-width:800px) { .dpv-options { gap:5px 10px; }.dpv-image-tools { gap:5px; }.dimensioned-plan-view button { padding:5px 7px; }.dpv-title h2 { font-size:13px; } }

@@ -1,0 +1,13 @@
+.study-comments-dialog{box-sizing:border-box;width:min(660px,calc(100vw - 32px));max-height:calc(100dvh - 40px);overflow:auto;padding:22px;border:1px solid #57748f;border-radius:10px;background:#16222f;color:#e4edf6;font:14px/1.5 system-ui,sans-serif;box-shadow:0 14px 65px #0009}
+.study-comments-dialog::backdrop{background:#040c17b8}
+.study-comments-dialog h2{margin:0 0 10px;font-size:21px}.study-comments-dialog h3{font-size:14px;margin:16px 0 8px}
+.study-comments-intro,.study-comments-source,.study-comments-saved,.study-comments-empty{color:#b4c9db}
+.study-comments-filename{font-weight:600;overflow-wrap:anywhere}
+.study-comments-dialog label{display:block;margin:12px 0 6px}
+.study-comments-dialog textarea{box-sizing:border-box;width:100%;resize:vertical;min-height:110px;padding:10px;border:1px solid #64809b;border-radius:5px;background:#0e1b28;color:#eef6ff;font:inherit}
+.study-comments-list{list-style:none;padding:0;margin:0;max-height:32vh;overflow:auto}
+.study-comments-list li{border-top:1px solid #38516a;padding:10px 0}.study-comments-list time{color:#9fc6e8;font-size:12px}.study-comments-list p,.study-comments-current{white-space:pre-wrap;overflow-wrap:anywhere;margin:5px 0}
+.study-comments-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+.study-comments-dialog button{padding:8px 13px;border:1px solid #587995;border-radius:5px;background:#243c52;color:#eff6ff;font:inherit;cursor:pointer}
+.study-comments-dialog .study-comments-save,.study-comments-dialog .study-comments-open{background:#2568a7}
+.study-comments-dialog button:disabled{opacity:.5;cursor:default}.study-comments-dialog button:focus-visible,.study-comments-dialog textarea:focus-visible{outline:2px solid #83c4ff;outline-offset:2px}

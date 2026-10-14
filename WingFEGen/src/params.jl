@@ -46,9 +46,9 @@ const SCHEMA = ParamSpec[
     ParamSpec("airfoil.stations", "Intermediate airfoils", :airfoilstations, Any[], "Airfoils";
               help="Sections at ETA strictly between root (0) and tip (1), with NACA codes or embedded UIUC profiles"),
     ParamSpec("airfoil.interpolation", "Spanwise interpolation", :choice, "cosine", "Airfoils";
-              choices=["cosine","linear"], help="Cosine blends adjacent sections with (1-cos(pi*t))/2 for smooth station transitions; linear preserves the legacy loft"),
+              choices=["cosine","linear"], help="For adjacent eta_i, eta_j: t=(eta-eta_i)/(eta_j-eta_i). At fixed x/c, blend each surface ordinate z/c=(1-w)z_i/c+w*z_j/c. Linear uses w=t (constant interval slope); Cosine uses w=(1-cos(pi*t))/2 (zero blend slope at stations). Both reproduce station sections; chord, twist and planform follow the blend."),
     ParamSpec("airfoil.n_points", "Section points", :int, 121, "Airfoils";
-              help = "NACA generating points per surface, cosine spaced; database profiles retain their coordinate tables"),
+              help = "Number of cosine-spaced coordinates generated on each NACA airfoil surface, including nose and trailing edge; at least 21. More points resolve the section shape used by both structural and aerodynamic geometry. UIUC profiles retain their source coordinates. Structural mesh counts and Aero chord points are separate settings"),
     ParamSpec("airfoil.closed_trailing_edge", "Closed trailing edge", :bool, true,
               "Airfoils"; help = "Use the NACA closed-TE coefficient; database profiles retain their original trailing-edge gap"),
 
@@ -60,13 +60,13 @@ const SCHEMA = ParamSpec[
     ParamSpec("planform.taper_ratio", "Base taper ratio", :float, 0.45, "Planform";
               help = "c_tip / c_root of the base trapezoid, before edge perturbations"),
     ParamSpec("planform.twist_tip", "Tip twist", :float, -3.0, "Planform";
-              unit = "deg", help = "Linear from zero at the root. Positive is nose up"),
+              unit = "deg", help = "Pitch rotation of the tip section about the Twist axis, varying linearly from zero at the root. Positive is nose up; negative is washout. It changes the structural and aerodynamic loft together"),
     ParamSpec("planform.sweep", "Sweep", :float, 15.0, "Planform";
               unit = "deg", help = "Sweep of the BASE trapezoid datum at the reference x/c. Edge perturbations follow this base when sweep changes"),
     ParamSpec("planform.sweep_ref_xc", "Sweep reference", :float, 0.25, "Planform";
               unit = "x/c", help = "Base chord fraction of the swept datum. Structural skins and aerodynamic surfaces share the refined airfoil loft; spar path inputs remain measured in base-trapezoid coordinates"),
     ParamSpec("planform.dihedral", "Dihedral", :float, 5.0, "Planform";
-              unit = "deg", help = "Applied to the reference line"),
+              unit = "deg", help = "Inclination of the spanwise reference line in the global y-z plane. Positive raises the tip: reference z increases by spanwise distance times tan(dihedral). Negative gives anhedral; zero keeps the reference line level"),
     ParamSpec("planform.twist_axis_xc", "Twist axis", :float, 0.25, "Planform";
               unit = "x/c", help = "Fraction of the refined chord about which both the aerodynamic surface and structural section are pitched"),
     ParamSpec("planform.root_ref_x", "Root reference x", :float, 0.0, "Planform";
@@ -96,7 +96,7 @@ const SCHEMA = ParamSpec[
               help = "Target pitch from the root master to the next master. With intermediate masters, pitch is measured along the 3D rear-spar reference path and rounded to whole bays per interval. Without intermediate masters the existing reference-line spacing is preserved"),
     ParamSpec("box.stringer_pitch", "Default stringer pitch", :float, 0.150, "Stringer layout";
               unit = "m",
-              help = "Exact root x-spacing, constant along the span between parallel stringer planes"),
+              help = "Exact chordwise x-spacing between adjacent physical stringers at the root, in metres; 0.150 means 150 mm. Reducing it usually adds stringers. Paths follow the chosen rear-spar-relative directions and can run out into a spar. Elements between stringers refines shells without changing this physical pitch"),
     ParamSpec("box.stringer_angle", "Stringer angle to rear spar", :float, 0.0,
               "Stringer layout"; unit = "deg",
               help = "Used only when there are no rear-spar perturbation points: angle relative to the untwisted rear-spar datum, positive aft. With rear-spar points, their individual Stringer angle values define continuous kinked stringer paths and this global value is ignored"),
@@ -120,8 +120,9 @@ const SCHEMA = ParamSpec[
               help = "Physical rib number at the outboard end; 0 follows the final box rib at End ETA. Must be beyond the first selected rib"),
     ParamSpec("leading_edge.disabled_bays", "Omit leading-edge bays", :string, "", "Leading edge";
               help = "Physical bay numbers or inclusive ranges, e.g. 2,4-6. Bay b lies between ribs b and b+1. Removes leading-edge structure only in those bays; remaining segments have closing ribs. Empty means no gaps. Valid exclusions outside the selected first/last ribs are retained but ignored; bay bounds are checked when leading-edge structure is enabled"),
-    ParamSpec("leading_edge.chord_elements", "Leading-edge chord elements", :int, 8, "Leading edge";
-              help = "Elements on each skin between the shared nose and front spar; approximately equal surface arc-length spacing, 2 to 100"),
+    # Keep dotted TOML sections contiguous; the group controls its UI placement.
+    ParamSpec("leading_edge.chord_elements", "Leading-edge skin elements, nose to spar", :int, 8, "Mesh";
+              help = "Whole number from 2 to 100 of shell elements across EACH leading-edge skin, from the nose to the front spar, in every spanwise mesh interval. Also sets the chordwise columns in leading-edge ribs. Default 8 gives 8 upper and 8 lower skin elements per interval, with approximately equal surface arc-length spacing. Elements per rib bay sets spanwise refinement; Vertical elements sets rib height refinement. Front-spar boundary nodes stay shared. Applies when Create leading-edge structure is enabled; independent of Aero chord points and VLM panels"),
     ParamSpec("leading_edge.t_skin", "Leading-edge skin thickness", :float, 0.0015, "Leading-edge properties";
               unit = "m", help = "Monolithic thickness of both leading-edge skins; sandwich construction uses its face/core dimensions"),
     ParamSpec("leading_edge.t_rib", "Leading-edge rib thickness", :float, 0.0015, "Leading-edge properties";
@@ -129,13 +130,15 @@ const SCHEMA = ParamSpec[
 
     # --- fuel tank ---------------------------------------------------------
     ParamSpec("fuel.enabled", "Calculate fuel volume", :bool, false, "Fuel tank";
-              help = "Gross enclosed volume between selected ribs, skins and spars. Adds a six-DOF fuel RBE3 per bay; Cases defines fuel fill and acceleration. Structure, equipment and unusable fuel are not deducted"),
+              help = "Calculate enclosed volume between selected ribs, skins and spars, excluding dry / vent bays. Fill efficiency factor converts this gross geometry into usable capacity. Adds a six-DOF fuel RBE3 per wet bay; Cases defines fuel fill and acceleration"),
     ParamSpec("fuel.start_rib", "First tank rib", :int, 1, "Fuel tank";
               help = "Physical rib number, starting with rib 1 at the root; unaffected by shell mesh subdivisions"),
     ParamSpec("fuel.end_rib", "Last tank rib", :int, 0, "Fuel tank";
               help = "Physical rib number; 0 automatically selects the final closed rib at End ETA. Must be beyond the first tank rib"),
     ParamSpec("fuel.disabled_bays", "Dry / vent bays", :string, "", "Fuel tank";
-              help = "Bays excluded from fuel capacity, mass, inertia and loads. Bay b is between physical ribs b and b+1. Use numbers or ranges, for example 2,4-6; blank keeps all selected bays. Exclusions outside the selected tank range are retained and ignored. All selected bays may be dry"),
+              help = "Enter comma-separated physical bay numbers or inclusive ranges, for example 2,4-6 excludes bays 2, 4, 5 and 6. Bay b lies between physical ribs Rb and R(b+1), numbered from root rib R1 independently of mesh subdivisions. These dry / vent bays contribute no fuel capacity, fuel mass, fuel inertia or fuel loads; their structure remains. Blank keeps every bay within the selected first/last tank ribs. Valid bay numbers outside that tank extent are retained but ignored. All selected bays may be dry, giving zero tank capacity"),
+    ParamSpec("fuel.fill_efficiency", "Fill efficiency factor", :float, 1.0, "Fuel tank"; unit = "0 to 1",
+              help = "Usable volume fraction of every non-dry tank bay, from 0 to 1. Usable capacity = gross geometric volume × this factor; 0.9 reserves 10% of the volume. Default 1 preserves the full geometric capacity. This uniform volumetric allowance scales fuel volume, mass, inertia and acceleration loads without changing the tank boundary, or the fill height and center of gravity for a given Fuel status. It does not locate individual internal obstructions. Cases sets Fuel status separately as a percentage of this usable capacity"),
     ParamSpec("fuel.density", "Fuel density", :float, 800.0, "Weights"; unit = "kg/m3",
               help = "Density used for per-bay CONM2 fuel masses and inertia. Edit for the actual fuel and temperature; 800 kg/m3 is an assumption, not a fuel specification"),
     ParamSpec("fuel.fill_fraction", "Fuel fill fraction", :float, 1.0, "Weights"; unit = "0 to 1",
@@ -143,22 +146,22 @@ const SCHEMA = ParamSpec[
 
     # --- mesh --------------------------------------------------------------
     ParamSpec("mesh.elements_between_ribs", "Elements per rib bay", :int, 3, "Mesh";
-              help = "Shell elements spanwise between two consecutive ribs"),
+              help = "Number of spanwise shell subdivisions between consecutive physical ribs. The box skins, spar webs and enabled leading-edge skins share these rows; geometry kinks may add rows or local splits. Refining this count adds mesh elements without adding physical ribs or changing their numbering"),
     ParamSpec("mesh.elements_between_stringers", "Elements between stringers", :int, 1, "Mesh";
-              help = "Shell subdivisions across each stringer bay, including spar margins; 1 to 100"),
+              help = "Whole number from 1 to 100 of chordwise shell subdivisions in each physical stringer bay, including the margins beside both spars. Refines box skins and main ribs while keeping the physical stringer count, pitch and positions. Leading-edge skins use their separate nose-to-spar count"),
     ParamSpec("mesh.stringer_runout_ratio", "Run-out threshold", :float, 0.75, "Stringer layout";
               unit = "distance / nominal pitch",
               help = "Retire a stringer when either skin's projected x-clearance to a spar falls below this fraction of the stringer pitch (greater than 0, at most 1). 0.75 means 75% of the pitch. Root stringer spacing is unchanged; 1 reproduces the original runout rule"),
-    ParamSpec("mesh.elements_spar_height", "Elements over height", :int, 3, "Mesh";
-              help = "Shell elements through the spar web and rib height"),
+    ParamSpec("mesh.elements_spar_height", "Vertical elements: spars, ribs and leading edge", :int, 3, "Mesh";
+              help = "Positive whole number of elements from lower to upper skin, shared by both spar webs, main ribs and leading-edge rib extensions. Leading-edge ribs reuse every front-spar height node, keeping their connection congruent. Rib stiffeners follow these subdivisions. Default: 3"),
     ParamSpec("mesh.aero_chord_points", "Aero chord points", :int, 41, "Mesh";
-              help = "Points per surface of the aerodynamic loft mesh"),
+              help = "Cosine-spaced sample points along EACH upper/lower surface of the full-chord aerodynamic loft, including nose and trailing edge; at least 7, default 41. More points make the displayed wetted surface and its optional aero-shell export finer. The closed section loop has 2 times (points minus 1) vertices. This does not refine structural skins or change VLM loads; use Leading-edge skin elements for the structural nose and VLM Panels per chord for the aerodynamic calculation"),
 
     # --- RBE3 and supports -------------------------------------------------
     ParamSpec("rbe3.enabled", "Create RBE3 spiders", :bool, true, "RBE3 and supports";
-              help = "One RBE3 per rib station with the reference node on the chord line"),
+              help = "Create one external-load RBE3 reference at each physical rib, connected to its main-box skin and spar perimeter. These references receive transferred aerodynamic forces and moments. VLM loading requires this option. Fuel and structural-inertia bay references are managed separately"),
     ParamSpec("rbe3.ref_xc", "Reference node", :float, 0.25, "RBE3 and supports";
-              unit = "x/c", help = "Chord fraction of the independent RBE3 node"),
+              unit = "x/c", help = "Chord fraction for each external-load RBE3 reference: 0 is the leading edge and 1 the trailing edge. The point lies on the section chord line and follows the rib plane. Moving it changes load-transfer lever arms; transferred forces and moments retain the same overall resultant"),
     ParamSpec("supports.mode", "Constraint definition", :choice, "root", "RBE3 and supports";
               choices=["root","custom"], help="Root fixes global translations 1,2,3 on the main-box root skin/spar perimeter. Custom uses only the rib constraint sets below; an empty table leaves the structure unconstrained"),
     ParamSpec("supports.items", "Rib constraint sets", :supportsets, Any[], "RBE3 and supports";
@@ -177,7 +180,7 @@ const SCHEMA = ParamSpec[
               unit = "dimensionless", help = LOAD_MULTIPLIER_NOTE * " Negative values reverse forces and moments."),
     ParamSpec("loads.distribution", "Spanwise distribution", :choice, "elliptical",
               "Loads"; choices = ["elliptical", "chord", "uniform"],
-              help = "elliptical, proportional to the local chord, or constant"),
+              help = "Shape of prescribed lift along the full aerodynamic semispan: elliptical falls to zero at the tip, chord follows local chord length, and uniform gives constant lift per span. Each shape is normalized to Lift, semi-span before applying the load multiplier. Used by prescribed lift, not the VLM solution"),
     ParamSpec("loads.torque_y", "Torque about global y", :float, 0.0, "Loads";
               unit = "N m", help = "Unscaled prescribed couple at RBE3 centers; right-hand +y, distributed by tributary strips and scaled once by the same load multiplier"),
     ParamSpec("loads.follower_forces", "Follower forces", :bool, false, "Loads";
@@ -185,7 +188,7 @@ const SCHEMA = ParamSpec[
     ParamSpec("loads.cases", "Additional load cases", :loadcases, Any[], "Loads";
               help = "Independent cases inherit unspecified lift, torque and flight inputs from load case 1"),
     ParamSpec("loads.fuel_percent", "Fuel status", :float, 100.0, "Loads"; unit = "%",
-              help = "0 empty to 100 full in each tank bay, filling upward from the lower surface. Creates fuel mass, CG and inertia for this case. Enable and bound the tank in Fuel tank"),
+              help = "Percentage of each wet bay's usable capacity: 0 empty to 100 full. The bay fills upward at this percentage of its gross geometry, while the tank's Fill efficiency factor scales volume, mass and inertia uniformly without changing fill height or CG. Enable, bound and set the tank efficiency in Fuel tank"),
     ParamSpec("loads.structure_inertia", "Include structural inertia", :bool, true, "Loads";
               help = "Apply the same signed global acceleration and load multiplier to dry structural shell/bar mass as to fuel. Includes bar centroid offsets; excludes separate aerodynamic display/export shells. Existing definitions without this setting retain fuel-only acceleration until enabled"),
     ParamSpec("loads.fuel_accel_x", "Inertia acceleration x", :float, 0.0, "Loads"; unit = "g",
@@ -197,23 +200,27 @@ const SCHEMA = ParamSpec[
 
     # --- aerodynamics ------------------------------------------------------
     ParamSpec("aero.speed", "Air speed", :float, 70.0, "Aerodynamics";
-              unit = "m/s", help = "Steady attached VLM with linear Prandtl-Glauert subsonic compressibility through Mach 0.5; no shocks, viscous drag or stall"),
+              unit = "m/s", help = "Freestream speed used by VLM. Together with density it sets dynamic pressure q = 0.5 rho V^2; together with Speed of sound it sets Mach number. Supported through Mach 0.5 with linear Prandtl-Glauert compressibility and attached flow; no shocks, viscous drag or stall"),
     ParamSpec("aero.density", "Air density", :float, 1.225, "Aerodynamics";
-              unit = "kg/m3"),
+              unit = "kg/m3", help = "Freestream mass density for the current aerodynamic case, in kg/m3. VLM dimensional forces, moments and pressure use dynamic pressure q = 0.5 rho V^2. Set this for the modeled flight condition; prescribed lift uses its entered force directly"),
     ParamSpec("aero.alpha", "Angle of attack", :float, 5.0, "Aerodynamics";
               unit = "deg", help = "Root chord incidence relative to the flow; positive gives positive lift. Large local incidence is allowed with an attached-flow validity warning; no stall prediction"),
     ParamSpec("aero.speed_of_sound", "Speed of sound", :float, 340.0, "Aerodynamics";
               unit = "m/s", help = "Mach = speed / speed of sound; maximum 0.5. A Prandtl-Glauert transformation accounts for linear subsonic compressibility. Attached flow is assumed; shocks and stall are not modeled"),
     ParamSpec("aero.span_panels", "Panels per semi-span", :int, 20, "Aerodynamics";
-              help = "Requested minimum, 4 to 64, with cosine spacing towards the tip. Twisted geometry adds panels automatically"),
+              help = "Requested minimum VLM panel count along the aerodynamic semispan, from 4 to 64, with cosine spacing towards the tip. Geometry refinement can add panels for twist and local surface normals. Increase this to study spanwise aerodynamic load convergence. Structural shell subdivisions are controlled separately in Structural Mesh"),
     ParamSpec("aero.chord_panels", "Panels per chord", :int, 9, "Aerodynamics";
-              help = "Requested minimum, 2 to 24, with cosine spacing. Camber and twist may add panels to resolve curved geometry and local normals"),
+              help = "Requested minimum VLM panel count across the full camber-surface chord, from 2 to 24, with cosine spacing. Camber and twist may add panels to resolve curved geometry and local normals. Controls the aerodynamic solve; Aero chord points only samples the displayed wetted loft, and Leading-edge skin elements controls structural shells"),
 
     # --- material ----------------------------------------------------------
-    ParamSpec("material.name", "Material 1 name", :string, "AL2024", "Materials"),
-    ParamSpec("material.E", "Young modulus", :float, 7.1e10, "Materials"; unit = "Pa"),
-    ParamSpec("material.nu", "Poisson ratio", :float, 0.33, "Materials"),
-    ParamSpec("material.rho", "Density", :float, 2780.0, "Materials"; unit = "kg/m3"),
+    ParamSpec("material.name", "Material 1 name", :string, "AL2024", "Materials";
+              help = "Descriptive name of material ID 1, shown in material choices and deck comments. The name does not select database properties; set E, Poisson ratio and density explicitly"),
+    ParamSpec("material.E", "Young modulus", :float, 7.1e10, "Materials"; unit = "Pa",
+              help = "Elastic Young modulus of isotropic material ID 1. Higher E increases elastic stiffness for components assigned this material. Saved parameters and MAT1 use Pa; the browser entry is in GPa (71 GPa = 71000000000 Pa)"),
+    ParamSpec("material.nu", "Poisson ratio", :float, 0.33, "Materials";
+              help = "Dimensionless Poisson ratio of isotropic material ID 1, relating lateral contraction to axial extension. MAT1 derives shear modulus from E and nu. Supported range: 0 inclusive to 0.5 exclusive"),
+    ParamSpec("material.rho", "Density", :float, 2780.0, "Materials"; unit = "kg/m3",
+              help = "Mass per unit volume of material ID 1. It contributes to dry structural mass, CG, inertia, normal modes and enabled structural-inertia loads for assigned components. Fuel density is a separate parameter"),
     ParamSpec("materials.library", "Additional materials", :materials, default_material_library(), "Materials";
               help = "Material 1 uses the values above. Additional rows define id >= 2, name, E in Pa, nu and rho in kg/m3. " * MATERIAL_IDEALIZATION_NOTE),
     ParamSpec("materials.shells", "Shell materials and construction", :shellmaterials, default_shell_materials(), "Materials";
@@ -223,9 +230,9 @@ const SCHEMA = ParamSpec[
 
     # --- properties --------------------------------------------------------
     ParamSpec("properties.t_skin_upper", "Upper skin thickness", :float, 0.0025,
-              "Properties"; unit = "m"),
+              "Properties"; unit = "m", help = "Default monolithic thickness of the upper main-box skin in metres. It changes shell stiffness and mass; panel overrides can set local values. Sandwich skins use their assigned face/core thicknesses. Leading-edge skins have separate properties"),
     ParamSpec("properties.t_skin_lower", "Lower skin thickness", :float, 0.0022,
-              "Properties"; unit = "m"),
+              "Properties"; unit = "m", help = "Default monolithic thickness of the lower main-box skin in metres. It changes shell stiffness and mass; panel overrides can set local values. Sandwich skins use their assigned face/core thicknesses. Leading-edge skins have separate properties"),
     ParamSpec("properties.panels", "Individual stiffened-panel properties", :panelproperties, Any[], "Properties";
               help = "Physical panel key and layout token, with sparse skin and stringer properties. Blank values inherit shared defaults. Reset overrides before changing the geometry or rib/stringer/runout layout"),
     ParamSpec("properties.components", "Physical component table overrides", :componentproperties, Any[], "Properties";
@@ -236,10 +243,14 @@ const SCHEMA = ParamSpec[
               "Rib properties"; unit = "m", help = "Default main-box rib thickness; override individual physical ribs below"),
     ParamSpec("properties.rib_stiffeners_enabled", "Create vertical rib stiffeners", :bool, true, "Rib properties";
               help = "Vertical T bars at physical stringer columns of each main-box rib. Skin mesh subdivisions do not add stiffeners"),
-    ParamSpec("properties.rib_stiffener_flange_width", "T flange width", :float, 0.030, "Rib properties"; unit = "m"),
-    ParamSpec("properties.rib_stiffener_height", "T overall height", :float, 0.032, "Rib properties"; unit = "m"),
-    ParamSpec("properties.rib_stiffener_flange_thickness", "T flange thickness", :float, 0.002, "Rib properties"; unit = "m"),
-    ParamSpec("properties.rib_stiffener_web_thickness", "T web thickness", :float, 0.002, "Rib properties"; unit = "m"),
+    ParamSpec("properties.rib_stiffener_flange_width", "T flange width", :float, 0.030, "Rib properties"; unit = "m",
+              help = "Full width of the rib stiffener's T-section flange (PBARL DIM1), whose outer face lies on the rib-web datum. Must exceed the T web thickness. Individual rib properties can override this default"),
+    ParamSpec("properties.rib_stiffener_height", "T overall height", :float, 0.032, "Rib properties"; unit = "m",
+              help = "Total depth of the rib stiffener's T cross-section, including flange thickness (PBARL DIM2), not its skin-to-skin bar length. The web extends outboard from the rib, or inboard at the final rib. Must exceed flange thickness"),
+    ParamSpec("properties.rib_stiffener_flange_thickness", "T flange thickness", :float, 0.002, "Rib properties"; unit = "m",
+              help = "Thickness of the rib stiffener's flange plate (PBARL T DIM3). Must be positive and less than its overall cross-section height. Together with the other T dimensions it sets area, bending stiffness and centroid offset"),
+    ParamSpec("properties.rib_stiffener_web_thickness", "T web thickness", :float, 0.002, "Rib properties"; unit = "m",
+              help = "Thickness of the rib stiffener's projecting web plate (PBARL T DIM4). Must be positive and less than flange width. This is the stiffener cross-section dimension; main rib shell thickness is set separately"),
     ParamSpec("properties.ribs", "Individual rib properties", :ribproperties, Any[], "Rib properties";
               help = "Overrides by physical rib number: web thickness, vertical stiffeners enabled, and PBARL T dimensions. Unset values inherit the defaults"),
     ParamSpec("properties.spar_bays", "Individual spar bay properties", :sparproperties, Any[], "Spar properties";
@@ -259,30 +270,36 @@ const SCHEMA = ParamSpec[
               help = "PBARL BAR with equal DIM1 and DIM2. One face lies against the skin; the square extends into the box"),
 
     # --- output ------------------------------------------------------------
-    ParamSpec("output.title", "Model title", :string, "Lifting surface torsion box", "Analysis"),
-    ParamSpec("output.nastran_file", "NASTRAN file", :string, "output/wing_box.bdf",
-              "Analysis"; help = "Relative paths resolve against the application folder"),
+    ParamSpec("output.title", "Model title", :string, "Lifting surface torsion box", "Analysis";
+              help = "Descriptive model title written to the generated REFERENCE deck header and TITLE entry. It identifies the model in solver output; load-case labels are set separately in Cases"),
+    ParamSpec("output.reference_file", "REFERENCE file", :string, "output/wing_box.bdf",
+              "Analysis"; help = "Destination filename for the generated REFERENCE/BDF deck when writing it to the server filesystem. Relative paths resolve against the application folder. Solver runs retain their own decks in timestamped results folders"),
     ParamSpec("output.solution", "Solution", :choice, "103", "Analysis";
               choices = ["103", "101", "105", "106"],
               help = "103 normal modes, 101 linear static, 105 linear buckling, 106 experimental geometric nonlinear static with a matching SOL101 comparison for every enabled load case"),
     ParamSpec("output.n_modes", "Modes or buckling roots", :int, 10, "Analysis";
-              help = "Eigenvalues requested for SOL 103 and SOL 105"),
+              help = "EIGRL ND: number of normal modes requested in SOL103, or buckling roots requested within the search interval in SOL105. The solver may find fewer roots within that interval"),
     ParamSpec("output.buckling_max_factor", "Buckling search limit", :float,
               50.0, "Analysis"; unit = "x load",
-              help = "SOL 105 looks for load factors between 0 and this. " *
-                     "Raise it if the run finds no roots"),
+              help = "EIGRL V2: upper bound of the SOL105 buckling search. The generated lower bound V1 is 1e-6. Both bounds are dimensionless multipliers of each case's static preload, not frequencies in Hz. Raise this upper bound to widen the search if the run finds no roots"),
+    ParamSpec("output.buckling_deformation_energy", "Export element deformation energy", :bool, false, "Analysis";
+              help = "SOL105: export true element strain energy, one half of uᵀ Kₑ u, for the static preload and each buckling mode separately. Preload energy is in joules for SI inputs. Modal energy depends on the solver eigenvector normalization and is not energy at a physical buckling displacement. Unsupported elements are identified, never assigned a stress-based proxy. Compact eigenvalue output takes precedence"),
+    ParamSpec("output.buckling_energy_density", "Export element energy density", :bool, false, "Analysis";
+              help = "SOL105: export element deformation energy divided by physical element volume, in J/m³ for SI inputs, for the preload and each normalized mode separately. Shell volume includes physical thickness; beam volume includes cross-section area. This is an element average of true energy, not a stress-based proxy. Modal values scale with the square of the chosen eigenvector amplitude. Compact eigenvalue output takes precedence"),
+    ParamSpec("output.buckling_compact", "Only eigenvalues and peak-node properties", :bool, false, "Analysis";
+              help = "Writes PARAM,JFBKCOMP,1, an optional JFEM-specific output request (not a material, stiffness or buckling-accuracy parameter). JFBKCOMP means JFEM buckling compact output. Use it for small reports or repeated studies needing only eigenvalues and the properties at each mode's largest translation. It retains each eigenvalue, preload/subcase identity, tied maximum-translation GRID IDs (relative tolerance 1e-6) and the property IDs of directly attached elements; rotations are excluded from the peak measure. The solve and eigenvalues are unchanged and eigenvectors are still computed internally. Compact output omits exported mode vectors, preload fields and energy data, so deformation and contour viewing are unavailable. Leave this off (or omit the PARAM, or set it to 0) for normal graphical results. Default off"),
     ParamSpec("output.include_aero_shells", "Export aero shells", :bool, false,
-              "Analysis"; help = "Also write the aerodynamic loft as CQUAD4 elements"),
+              "Analysis"; help = "Add the displayed full-chord aerodynamic loft to the exported deck as separate GRID/CQUAD4/PSHELL entries. These shells are disconnected from the structural box and form a free body; connect or remove them before solving that exported deck. Their resolution follows Aero chord points, not the VLM lattice"),
     ParamSpec("output.t_aero_shell", "Aero shell thickness", :float, 0.0005,
-              "Analysis"; unit = "m"),
+              "Analysis"; unit = "m", help = "PSHELL thickness in metres for the optional exported aerodynamic-loft shells. Used only when Export aero shells is enabled. It does not set structural skin thickness, VLM panel properties or displayed loft sampling"),
     ParamSpec("nonlinear.load_steps", "Nonlinear load increments", :int, 8, "Analysis";
               help = "SOL106 nominal increments to the full selected load; native JFEM can cut back failed increments"),
     ParamSpec("nonlinear.max_iterations", "Iterations per increment", :int, 25, "Analysis";
-              help = "SOL106 maximum equilibrium iterations per attempted load increment"),
+              help = "Maximum equilibrium iterations in one attempted SOL106 load increment. Raising it permits more nonlinear correction work; if the increment still fails, the solver can reduce its size within the cutback limit. Range: 1 to 1000"),
     ParamSpec("nonlinear.displacement_tolerance", "Displacement convergence tolerance", :float, 1.0e-6, "Analysis";
-              help = "SOL106 relative displacement-correction tolerance (JFEM NLTOL)"),
+              help = "Dimensionless relative displacement-correction tolerance for SOL106, written as JFEM NLTOL. A smaller value demands a tighter displacement correction before accepting convergence and may require more iterations. Must be at least 1e-12 and less than 1"),
     ParamSpec("nonlinear.residual_tolerance", "Residual convergence tolerance", :float, 1.0e-6, "Analysis";
-              help = "SOL106 relative force-residual tolerance (JFEM NLRESTOL)"),
+              help = "Dimensionless relative force-residual tolerance for SOL106, written as JFEM NLRESTOL. A smaller value demands tighter equilibrium before accepting convergence and may require more iterations. Must be at least 1e-12 and less than 1"),
     ParamSpec("nonlinear.max_cutbacks", "Maximum increment cutbacks", :int, 8, "Analysis";
               help = "SOL106 cutback attempts before reporting incomplete convergence. If full load fails, the last verified accepted state is compared with SOL101 scaled to the same load, with a red warning"),
 
@@ -455,6 +472,26 @@ function normalize_rib_tables(value, key::AbstractString; end_eta::Real=1.0)
     return out
 end
 
+"""One shared whole-number height subdivision for spars and all rib extensions."""
+function vertical_mesh_count(value)
+    number = value isa AbstractString ? tryparse(Float64, strip(value)) : value
+    number isa Real && !(number isa Bool) && isfinite(number) && isinteger(number) && number >= 1 ||
+        throw(ArgumentError("mesh.elements_spar_height must be a positive whole number"))
+    try
+        return Int(number)
+    catch
+        throw(ArgumentError("mesh.elements_spar_height is outside the supported integer range"))
+    end
+end
+
+"""Independent nose-to-spar shell subdivision count, shared with LE rib columns."""
+function leading_edge_chord_count(value)
+    number = value isa AbstractString ? tryparse(Float64, strip(value)) : value
+    number isa Real && !(number isa Bool) && isfinite(number) && isinteger(number) && 2 <= number <= 100 ||
+        throw(ArgumentError("leading_edge.chord_elements must be a whole number between 2 and 100"))
+    return Int(number)
+end
+
 function coerce_value(spec::ParamSpec, v)
     # Preserve useful row-specific diagnostics for interactive point editing.
     spec.kind === :planformpoints && return normalize_planform_points(v, spec.key)
@@ -466,6 +503,8 @@ function coerce_value(spec::ParamSpec, v)
     spec.kind === :componentproperties && return normalize_component_table_properties(v)
     spec.kind === :materials && return normalize_material_library(v)
     spec.kind in (:shellmaterials,:barmaterials) && return normalize_material_assignments(v,spec.key)
+    spec.key == "mesh.elements_spar_height" && return vertical_mesh_count(v)
+    spec.key == "leading_edge.chord_elements" && return leading_edge_chord_count(v)
     if spec.key=="leading_edge.disabled_bays"
         v isa AbstractString||throw(ArgumentError("leading_edge.disabled_bays must be a string such as 2,4-6"))
         leading_edge_disabled_bays(v)
@@ -625,6 +664,7 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
     p["fuel.start_rib"] >= 1 || throw(ArgumentError("fuel.start_rib must be at least 1 (the root rib)"))
     p["fuel.end_rib"] >= 0 || throw(ArgumentError("fuel.end_rib must be 0 (the final rib) or a positive rib number"))
     fuel_disabled_bays(p)
+    fuel_fill_efficiency(p)
     p["leading_edge.start_rib"] >= 1 || throw(ArgumentError("leading_edge.start_rib must be at least 1 (the root rib)"))
     p["leading_edge.end_rib"] >= 0 || throw(ArgumentError("leading_edge.end_rib must be 0 (the final rib) or a positive rib number"))
     get(p,"leading_edge.rib_orientation","flight_direction") in ("flight_direction","front_spar_angle") ||
@@ -646,12 +686,10 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
         throw(ArgumentError("mesh.elements_between_ribs must be at least 1"))
     p["mesh.stringer_runout_ratio"] <= 1 ||
         throw(ArgumentError("mesh.stringer_runout_ratio must be greater than 0 and at most 1; the root layout reserves at least one pitch beside each spar"))
-    2 <= p["leading_edge.chord_elements"] <= 100 ||
-        throw(ArgumentError("leading_edge.chord_elements must be between 2 and 100"))
+    leading_edge_chord_count(p["leading_edge.chord_elements"])
     1 <= p["mesh.elements_between_stringers"] <= 100 ||
         throw(ArgumentError("mesh.elements_between_stringers must be between 1 and 100"))
-    p["mesh.elements_spar_height"] >= 1 ||
-        throw(ArgumentError("mesh.elements_spar_height must be at least 1"))
+    vertical_mesh_count(p["mesh.elements_spar_height"])
     p["airfoil.n_points"] >= 21 ||
         throw(ArgumentError("airfoil.n_points must be at least 21"))
     p["mesh.aero_chord_points"] >= 7 ||
@@ -721,7 +759,7 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
     # Aerodynamic loads use station spiders; fuel has separate bay spiders.
     if sol in ("101", "105", "106")
         aero_loading=p["loads.method"]=="vortex_lattice" || abs(p["loads.lift_total"])+abs(p["loads.torque_y"])>0
-        fuel_loading=p["fuel.enabled"] && p["loads.fuel_percent"]>0 &&
+        fuel_loading=p["fuel.enabled"] && fuel_fill_efficiency(p)>0 && p["loads.fuel_percent"]>0 &&
             any(p["loads.fuel_accel_"*axis]!=0 for axis in ("x","y","z"))
         structure_loading=p["loads.structure_inertia"] && any(p["loads.fuel_accel_"*axis]!=0 for axis in ("x","y","z"))
         (!aero_loading || p["rbe3.enabled"]) || throw(ArgumentError(

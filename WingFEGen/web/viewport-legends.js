@@ -49,12 +49,12 @@
   function validLimitKey(key){return typeof key==="string"&&key.length>0&&key.length<=512&&!/[\x00-\x1f]/.test(key)&&!["__proto__","constructor","prototype"].includes(key);}
   function getLimits(key){return limits.has(key)?limits.get(key).slice():null;}
   function resolveLimits(key,min,max){const range=getLimits(key);return range?{min:range[0],max:range[1],manual:true}:{min,max,manual:false};}
-  function setLimits(key,min,max){
+  function setLimits(key,min,max,{keepOpen=false}={}){
     if(!validLimitKey(key))throw Error("Invalid color-scale quantity.");
     if(min===null&&max===null)limits.delete(key);
     else{if(!Number.isFinite(min)||!Number.isFinite(max)||!(min<max)||!Number.isFinite(max-min))throw Error("Enter finite limits with minimum less than maximum and a finite range.");
       if(!limits.has(key)&&limits.size>=256)throw Error("Too many saved color-scale ranges; reset unused ranges to Automatic.");limits.set(key,[min,max]);}
-    openLimits=null;config.onLimitsChange?.(key);refresh();config.onChange?.(capture());
+    if(!keepOpen)openLimits=null;config.onLimitsChange?.(key);refresh();config.onChange?.(capture());
   }
   function capture(){return{collapsed:Object.fromEntries([...collapsed].sort().map(key=>[key,true])),...(limits.size?{limits:Object.fromEntries([...limits].sort().map(([key,range])=>[key,range.slice()]))}:{}),...(palettes.size?{palettes:Object.fromEntries([...palettes].sort())}:{})};}
   function restore(value,{legacyPalette}={}){
@@ -106,9 +106,21 @@
       if(!form||!entry?.limitKey)return;
       try{const lo=form.querySelector('[name="minimum"]').value.trim(),hi=form.querySelector('[name="maximum"]').value.trim();
         if(action==="limits-apply"&&(!lo||!hi))throw Error("Enter both minimum and maximum.");
-        setLimits(entry.limitKey,action==="limits-auto"?null:Number(lo),action==="limits-auto"?null:Number(hi));focusAction(host,key,"limits");
+        const factor=entry.displayFactor||1;
+        setLimits(entry.limitKey,action==="limits-auto"?null:Number(lo)/factor,action==="limits-auto"?null:Number(hi)/factor);focusAction(host,key,"limits");
       }catch(error){form.querySelector('[role="alert"]').textContent=error.message;}
     }
+  }
+  function slide(host,event){
+    const slider=event.target;if(!slider.matches?.('[data-limit-slider]'))return;
+    const form=slider.closest('[data-limit-form]'),record=hosts.get(host),entry=record.entries.find(entry=>entry.limitKey===form.dataset.limitKey);
+    if(!entry)return;
+    const lo=form.querySelector('[data-limit-slider="minimum"]'),hi=form.querySelector('[data-limit-slider="maximum"]');
+    if(slider===lo)lo.value=String(Math.min(Number(lo.value),Number(hi.value)-1));
+    else hi.value=String(Math.max(Number(hi.value),Number(lo.value)+1));
+    const a=Number(form.dataset.sliderMin),b=Number(form.dataset.sliderMax),value=t=>a*(1-t/1000)+b*(t/1000),min=value(Number(lo.value)),max=value(Number(hi.value)),factor=entry.displayFactor||1;
+    for(const [name,v]of [['minimum',min],['maximum',max]]){form.querySelector('[name="'+name+'"]').value=String(Number((v*factor).toPrecision(12)));form.querySelector('[data-limit-slider="'+name+'"]').setAttribute('aria-valuetext',number(v*factor)+' '+(entry.displayUnit||entry.unit||''));}
+    try{setLimits(entry.limitKey,min,max,{keepOpen:true});form.querySelector('[role="alert"]').textContent='';}catch(error){form.querySelector('[role="alert"]').textContent=error.message;}
   }
   function keydown(host,event){
     if(event.key==="Escape"&&openLimits){const key=openLimits;openLimits=null;event.preventDefault();event.stopPropagation();refresh();focusAction(host,key,"limits");return;}
@@ -128,6 +140,7 @@
     if(!record){
       record={scope:host.id||"legend-"+(++hostSerial),entries:[]};hosts.set(host,record);
       host.addEventListener("click",event=>activate(host,event));host.addEventListener("keydown",event=>keydown(host,event));
+      host.addEventListener("input",event=>slide(host,event));
       // Interactions with overlays must not start viewport orbit/pan gestures.
       for(const type of["pointerdown","dblclick","wheel"])host.addEventListener(type,event=>event.stopPropagation());
       host.ownerDocument.addEventListener("pointerdown",event=>{
@@ -145,22 +158,24 @@
   }
   function draw(host,record){
     host.classList.add("wing-legends");host.hidden=!record.entries.length;
-    host.innerHTML=record.entries.map(entry=>{
+    const oldForm=host.querySelector('[data-limit-form]'),oldSection=oldForm?.closest('.viewport-scale');
+    const html=record.entries.map(entry=>{
       const key=stateKey(record.scope,entry.kind),title=entry.title||"Quantity",hidden=collapsed.has(key),opened=openKey===key;
-      const formatNumber=typeof entry.formatNumber==="function"?entry.formatNumber:number;
+      const format=typeof entry.formatNumber==="function"?entry.formatNumber:number,factor=entry.displayFactor||1,unit=entry.displayUnit||entry.unit,formatNumber=value=>format(value*factor);
       const palette=getPalette(entry.paletteKey||entry.kind),chosen=config.palettes.find(p=>p.value===palette),paletteName=chosen?.label||palette;
       if(hidden)return'<section class="viewport-scale is-collapsed" data-scale="'+escape(entry.kind)+'" aria-label="'+escape(title)+' color scale">'+
         actionButton("restore",key,"Show "+title+" color scale",restoreIcon)+"</section>";
       const paletteButton=config.setPalette?actionButton("palette",key,"Choose "+title+" color scale ("+paletteName+")",paletteIcon,
         'aria-haspopup="menu" aria-expanded="'+opened+'"'):"";
       const range=getLimits(entry.limitKey),limitsButton=entry.limitKey&&!entry.categories?actionButton("limits",key,"Set "+title+" color-scale limits",restoreIcon,'aria-expanded="'+(openLimits===key)+'"'):"";
-      const limitsForm=openLimits===key?'<div class="legend-limits" data-limit-form><div>Range in '+escape(entry.unit||"dimensionless")+'</div><label>Minimum<input name="minimum" type="number" step="any" value="'+escape(range?.[0]??entry.min)+'"></label><label>Maximum<input name="maximum" type="number" step="any" value="'+escape(range?.[1]??entry.max)+'"></label><div class="legend-limits-actions">'+actionButton("limits-apply",key,"Apply color-scale limits","Apply")+actionButton("limits-auto",key,"Use automatic color-scale limits","Automatic")+'</div><div role="alert"></div><small>Values outside these limits use the end colors. Data values remain unchanged.</small></div>':"";
+      const low=range?.[0]??entry.min,high=range?.[1]??entry.max,padding=high>low?0:Math.max(Math.abs(low)*.1,1e-12),sliderMin=low-padding,sliderMax=high+padding;
+      const limitsForm=openLimits===key?'<div class="legend-limits" data-limit-form data-limit-key="'+escape(entry.limitKey)+'" data-slider-min="'+sliderMin+'" data-slider-max="'+sliderMax+'"><div>Range in '+escape(unit||"dimensionless")+'</div>'+[['minimum',low],['maximum',high]].map(([name,value])=>'<label>'+name[0].toUpperCase()+name.slice(1)+'<input name="'+name+'" type="number" step="any" value="'+escape(Number((value*factor).toPrecision(12)))+'"></label><input type="range" data-limit-slider="'+name+'" min="0" max="1000" step="1" value="'+(sliderMax>sliderMin?Math.round(1000*(value-sliderMin)/(sliderMax-sliderMin)):500)+'" aria-label="'+name[0].toUpperCase()+name.slice(1)+' color-scale limit" aria-valuetext="'+escape(formatNumber(value)+' '+(unit||''))+'">').join('')+'<div class="legend-limits-actions">'+actionButton("limits-apply",key,"Apply color-scale limits","Apply")+actionButton("limits-auto",key,"Use automatic color-scale limits","Automatic")+'</div><div role="alert"></div><small>Sliders update colors immediately. Enter numbers and Apply to extend the range. Values outside the limits use the end colors. Data and exports remain unchanged.</small></div>':"";
       const menu=opened?'<div class="legend-palette-menu" role="menu" aria-label="'+escape(title)+' color scale" data-palette-menu data-legend-key="'+escape(key)+'">'+
         '<div class="legend-palette-heading">'+escape(title)+'</div>'+config.palettes.map(p=>
           '<button type="button" role="menuitemradio" aria-checked="'+(p.value===palette)+'" data-legend-action="choose" data-legend-key="'+escape(key)+'" data-palette-value="'+escape(p.value)+'">'+
           (p.gradient?'<span class="legend-palette-swatch" style="background:'+escape(p.gradient)+'"></span>':"")+escape(p.label)+"</button>").join("")+"</div>":"";
       return'<section class="viewport-scale" data-scale="'+escape(entry.kind)+'" aria-label="'+escape(title)+' color scale">'+
-        '<div class="viewport-scale-header"><div class="viewport-scale-title">'+escape(title)+' <span>'+escape(entry.unit||"dimensionless")+'</span></div>'+
+        '<div class="viewport-scale-header"><div class="viewport-scale-title">'+escape(title)+' <span>'+escape(unit||"dimensionless")+'</span></div>'+
         '<div class="legend-actions">'+limitsButton+paletteButton+actionButton("collapse",key,"Hide "+title+" color scale (keep contours visible)","−")+'</div></div>'+
         menu+limitsForm+'<div class="viewport-scale-case">'+escape(entry.caseLabel||"")+'</div>'+
         (entry.categories?'<div class="legend-categories">'+entry.categories.map(category=>'<div class="legend-category"><span class="legend-category-swatch" style="background:'+escape(category.color)+'"></span><span>'+escape(category.label)+'</span></div>').join('')+'</div>':
@@ -168,6 +183,20 @@
         '<div class="viewport-scale-ticks"><span>'+escape(formatNumber(entry.min))+'</span><span>'+escape(formatNumber(entry.min/2+entry.max/2))+'</span><span>'+escape(formatNumber(entry.max))+'</span></div>')+
         (range?'<div class="viewport-scale-note">Manual limits · end colors clip out-of-range values</div>':"")+(entry.note?'<div class="viewport-scale-note">'+escape(entry.note)+'</div>':"")+"</section>";
     }).join("");
+    // Keep the live range input attached: replacing it during input breaks
+    // native pointer capture and keyboard focus while dragging or animating.
+    if(oldForm&&openLimits&&record.entries.some(entry=>stateKey(record.scope,entry.kind)===openLimits&&entry.limitKey===oldForm.dataset.limitKey)){
+      const template=host.ownerDocument.createElement('div');template.innerHTML=html;
+      const fresh=[...template.children],replacement=fresh.find(section=>section.dataset.scale===oldSection.dataset.scale),newForm=replacement?.querySelector('[data-limit-form]');
+      if(newForm){
+        for(const child of [...oldSection.children])if(child!==oldForm)child.remove();
+        let after=false;for(const child of [...replacement.children]){if(child===newForm){after=true;continue;}after?oldSection.append(child):oldSection.insertBefore(child,oldForm);}
+        for(const child of [...host.children])if(child!==oldSection)child.remove();
+        after=false;for(const section of fresh){if(section===replacement){after=true;continue;}after?host.append(section):host.insertBefore(section,oldSection);}
+        return;
+      }
+    }
+    host.innerHTML=html;
   }
   return{render,number,configure,entries,capture,restore,validateState,getLimits,setLimits,resolveLimits,getPalette,setPalette};
 });

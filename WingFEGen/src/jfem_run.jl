@@ -169,12 +169,18 @@ Old/partial logs without timing evidence never substitute wall time for solve ti
 """
 function job_timings(job::JfemJob)
     children = isempty(job.runs) ? [job] : job.runs
-    measurements = Any[]
-    for child in children
+    measurements = Any[]; stages=Any[]
+    for (run_index,child) in enumerate(children)
         entry = lock(child.lk) do
             get(child.progress, "pipeline_timings", nothing)
         end
-        entry === nothing || push!(measurements, entry)
+        if entry !== nothing
+            push!(measurements,entry)
+            for row in get(entry,"stages",Any[])
+                push!(stages,merge(Dict{String,Any}(row),Dict("run_index"=>run_index,
+                    "case_id"=>child.case_id,"solution"=>String(child.model.params["output.solution"]))))
+            end
+        end
     end
     available = length(measurements) == length(children) &&
         all(d -> get(d,"solution_seconds",nothing) isa Real, measurements)
@@ -189,18 +195,38 @@ function job_timings(job::JfemJob)
         end
         return total
     end
+    function category_sum(category,legacy_keys...)
+        total=0.
+        for d in measurements
+            if get(d,"schema_version",1)>=2
+                value=get(d,category*"_seconds",nothing)
+                value isa Real || return nothing
+                total+=value
+            else
+                for key in legacy_keys
+                    phase=get(d["phases"],key,nothing);phase===nothing && continue
+                    value=get(phase,"execution_seconds",nothing)
+                    value isa Real || return nothing
+                    total+=value
+                end
+            end
+        end
+        return total
+    end
     measured_wall = sum((d["measured_wall_seconds"] for d in measurements); init=0.0)
     Dict{String,Any}(
         "available" => available,
         "solution_seconds" => available ? sum(d["solution_seconds"] for d in measurements) : nothing,
         "compilation_seconds" => sum((d["compilation_seconds"] for d in measurements);init=0.0),
-        "preparation_seconds" => phase_sum("parse", "build_model"),
-        "export_seconds" => phase_sum("model_export", "export", "report"),
+        "preparation_seconds" => category_sum("preparation","parse", "build_model"),
+        "export_seconds" => category_sum("export","model_export", "export", "report"),
+        "stages" => stages,
+        "stage_measurement" => "Inclusive children are included in their parent; totals use exclusive stage time. Compilation includes recompilation.",
         "adjoint_seconds" => phase_sum("adjoint"),
         "startup_overhead_seconds" => available ? max(0.0,job_seconds(job)-measured_wall) : nothing,
         "total_seconds" => job_seconds(job),
         "measured_runs" => length(measurements), "total_runs" => length(children),
-        "solution_scope" => "Numerical assembly and solution, excluding compilation, deck preparation and export",
+        "solution_scope" => "Numerical stage execution, including deferred recovery; excludes measured compilation, deck preparation and file export. Wall time, not CPU time.",
         "startup_scope" => "Process startup, package loading/precompilation and other unmeasured process overhead")
 end
 
@@ -257,20 +283,74 @@ end
 """Describe observed solver stages without inventing numerical percentages."""
 function update_job_stage!(job::JfemJob,line::AbstractString)
     isempty(job.runs)||return
+    if startswith(line,"[JFEM_PROGRESS] ")
+        try
+            data=JSON.parse(chopprefix(line,"[JFEM_PROGRESS] "))
+            valid=get(data,"schema_version",nothing)==1 &&
+                get(data,"phase",nothing) isa AbstractString && get(data,"label",nothing) isa AbstractString &&
+                get(data,"category",nothing) in ("preparation","numerical","export") &&
+                get(data,"state",nothing) in ("started","completed","failed")
+            valid || return
+            p=job.progress;state=String(data["state"])
+            p["stage_source"]="structured";p["stage"]=String(data["phase"])
+            p["stage_category"]=String(data["category"]);p["stage_state"]=state
+            p["stage_id"]=get(data,"id","");p["stage_parent"]=get(data,"parent",nothing)
+            p["stage_depth"]=get(data,"depth",0)
+            p["compilation_live"]=state=="started" ? "not_separable" : "measured_retrospectively"
+            elapsed=get(data,"elapsed_seconds",0.)
+            elapsed=elapsed isa Real && isfinite(elapsed) && elapsed>=0 ? Float64(elapsed) : 0.
+            p["stage_started"]=time()-elapsed;p["stage_completed_seconds"]=elapsed
+            message=String(data["label"])
+            state=="started" && (message*="; Julia compilation may occur (separated after completion)")
+            p["stage_message"]=message
+            get(p,"phase","") in ("iterating","cutback") || (p["message"]=message)
+            timing=get(data,"timing",nothing)
+            if timing isa AbstractDict && all(key->get(timing,key,nothing) isa Real && isfinite(timing[key]) && timing[key]>=0,
+                    ("wall_seconds","compilation_seconds","recompilation_seconds","gc_seconds")) &&
+                    (get(timing,"execution_seconds",nothing)===nothing ||
+                    (timing["execution_seconds"] isa Real && isfinite(timing["execution_seconds"]) && timing["execution_seconds"]>=0))
+                p["stage_timing"]=timing
+                p["last_completed_stage"]=data
+            else
+                delete!(p,"stage_timing")
+            end
+        catch
+            # Timing telemetry never disrupts the solve or its log stream.
+        end
+        return
+    end
     if startswith(line,"[JFEM_TIMINGS] ")
         try
             data=JSON.parse(chopprefix(line,"[JFEM_TIMINGS] "))
-            valid=get(data,"schema_version",nothing)==1 && get(data,"phases",nothing) isa AbstractDict &&
+            valid=get(data,"schema_version",nothing) in (1,2) && get(data,"phases",nothing) isa AbstractDict &&
                 all(key->get(data,key,nothing) isa Real && isfinite(data[key]) && data[key]>=0,
                     ("measured_wall_seconds","compilation_seconds"))
             solution=get(data,"solution_seconds",nothing)
             valid &= solution===nothing || (solution isa Real && isfinite(solution) && solution>=0)
+            valid &= all(value->value isa AbstractDict,values(get(data,"phases",Dict())))
+            if valid && data["schema_version"]==2
+                seconds(value)=value===nothing || (value isa Real && isfinite(value) && value>=0)
+                rows=get(data,"stages",nothing)
+                valid=all(key->haskey(data,key) && seconds(data[key]),("preparation_seconds","export_seconds")) &&
+                    rows isa AbstractVector && all(rows) do row
+                        row isa AbstractDict || return false
+                        get(row,"phase",nothing) isa AbstractString || return false
+                        get(row,"category",nothing) in ("preparation","numerical","export") || return false
+                        all(("inclusive","exclusive")) do kind
+                            metrics=get(row,kind,nothing)
+                            metrics isa AbstractDict || return false
+                            all(key->haskey(metrics,key) && seconds(metrics[key]),
+                                ("wall_seconds","compilation_seconds","recompilation_seconds","execution_seconds","gc_seconds"))
+                        end
+                    end
+            end
             valid && (job.progress["pipeline_timings"]=data)
         catch
             # A malformed log marker must not break streaming or stop the solver.
         end
         return
     end
+    get(job.progress,"stage_source",nothing)=="structured" && return
     stage,message=if occursin("Reading BDF file",line)
         ("deck","Reading the deck and constructing the native model (first-use compilation may occur)")
     elseif occursin("Computing Element Stiffness",line)
@@ -291,6 +371,8 @@ function update_job_stage!(job::JfemJob,line::AbstractString)
         p["stage"]=stage;p["stage_started"]=time()
     end
     p["stage_message"]=message
+    p["stage_category"]=stage=="deck" ? "preparation" : stage=="export" ? "export" : "numerical"
+    p["stage_state"]="started";p["compilation_live"]="not_separable"
     get(p,"phase","") in ("iterating","cutback")|| (p["message"]=message)
     nothing
 end
@@ -343,7 +425,9 @@ function job_progress(job::JfemJob)
     lock(job.lk) do
         result=copy(job.progress)
         stage_started=pop!(result,"stage_started",nothing)
-        stage_started===nothing|| (result["stage_seconds"]=max(0.,(job.finished===nothing ? time() : job.finished)-stage_started))
+        stage_started===nothing || (result["stage_seconds"]=get(result,"stage_state","") in ("completed","failed") ?
+            get(result,"stage_completed_seconds",0.) : max(0.,(job.finished===nothing ? time() : job.finished)-stage_started))
+        pop!(result,"stage_completed_seconds",nothing)
         result["case_id"]=job.case_id;result["case_label"]=job.case_label
         result["solution"]=String(job.model.params["output.solution"])
         get!(result,"phase",String(job.state))
@@ -450,6 +534,8 @@ function launch_jfem_process!(job::JfemJob)
         job.cancel_requested && return nothing
         job.started=time(); job.state=:running
         job.progress["stage"]="startup";job.progress["stage_started"]=job.started
+        job.progress["stage_category"]="preparation";job.progress["stage_state"]="started"
+        job.progress["compilation_live"]="not_separable"
         job.progress["message"]="Starting Julia and loading the cached solver; an installation or source change may require precompilation"
         child=run(pipeline(cmd; stdout = pipe, stderr = pipe); wait = false)
         job.proc=child
@@ -700,7 +786,7 @@ function prepare_jfem_case_jobs(model::Model,params::AbstractDict,root::Abstract
         # prepared child owns its immutable snapshot inside its result folder.
         source=joinpath(parent.outdir,"case_$(spec.id)_SOL$solution.bdf")
         frozen=[(id=1,label=spec.label,params=child_params,loads=spec.loads)]
-        write_nastran(child_model,source;frozen_load_cases=frozen,comparison)
+        write_reference(child_model,source;frozen_load_cases=frozen,comparison)
         child=prepare_jfem_job(child_model,child_params,root,source,"$(id)_$(spec.id)_$solution";outdir=directory)
         child.case_id=spec.id; child.case_label=spec.label
         push!(parent.runs,child)
@@ -756,7 +842,7 @@ function prepare_partial_follower_baseline!(parent::JfemJob, nonlinear::JfemJob)
     params["loads.load_factor"]=Float64(params["loads.load_factor"])*scale
     model=Model((field===:params ? params : getfield(nonlinear.model,field) for field in fieldnames(Model))...)
     source=joinpath(parent.outdir,"case_$(nonlinear.case_id)_lin_part.bdf")
-    write_nastran(model,source;comparison=true)
+    write_reference(model,source;comparison=true)
     child=prepare_jfem_job(model,params,parent.repo,source,"$(parent.id)_$(nonlinear.case_id)_101_partial";
         outdir=joinpath(parent.outdir,"case_$(nonlinear.case_id)","S101_L"))
     child.case_id=nonlinear.case_id;child.case_label=nonlinear.case_label
@@ -854,7 +940,8 @@ function find_results_json(outdir::AbstractString)
             continue
         end
         d isa AbstractDict && haskey(d, "analysis_type") || continue
-        any(key -> haskey(d, key), ("displacements", "modes", "static_displacements")) || continue
+        (any(key -> haskey(d, key), ("displacements", "modes", "static_displacements")) ||
+            startswith(string(d["analysis_type"]),"SOL105")&&compact_buckling_output(d)&&haskey(d,"eigenvalues")) || continue
         return (path, d)
     end
     return (nothing, nothing)
@@ -986,11 +1073,16 @@ function support_reactions_payload(m::Model,d::AbstractDict)
         push!(seen,node);push!(nodes,node);push!(ids,Int(gid))
         append!(forces,values[1:3]);append!(moments,values[4:6])
     end
-    return Dict{String,Any}("available"=>rows isa AbstractVector,"frame"=>"BASIC",
+    requested=get(get(d,"result_requests",Dict()),"SPCFORCES",true)===true
+    available=requested&&!isempty(nodes)
+    reason=!requested ? "SPCFORCES was suppressed for this static subcase. Request SPCFORCES and rerun to display reactions." :
+        !(rows isa AbstractVector) ? "This result did not export SPC reaction forces." :
+        isempty(nodes) ? "No exported reactions belong to explicit modeled constrained nodes." : ""
+    return Dict{String,Any}("available"=>available,"reason"=>reason,"frame"=>"BASIC",
         "count"=>length(nodes),"nodes"=>blob_i32(nodes;offset=-1),"node_ids"=>blob_i32(ids),
         "forces"=>blob_f32(forces),"moments"=>blob_f32(moments),
         "units"=>Dict("force"=>"N","moment"=>"N m"),
-        "note"=>"Support on structure, BASIC XYZ. Explicit modeled SPC nodes only; AUTOSPC reactions at other nodes are excluded.")
+        "note"=>"Constraint reaction on structure, BASIC XYZ. Explicit modeled constrained nodes only; AUTOSPC reactions at other nodes are excluded.")
 end
 
 """Scale this generator's linear zero-SPC response, preserving IDs and fibers."""
@@ -1058,7 +1150,7 @@ end
 """
     grid_index_map(model) -> Dict{Int,Int}
 
-Map from NASTRAN grid id to the index of that node in the model arrays, which
+Map from REFERENCE grid id to the index of that node in the model arrays, which
 is the index the browser uses in its vertex buffers.
 """
 grid_index_map(m::Model) = Dict{Int,Int}(id => i for (i, id) in enumerate(m.node_ids))
@@ -1415,6 +1507,7 @@ function jfem_case_results_payload(job::JfemJob, path::AbstractString, d::Abstra
     push!(summary, Any["Nodes in results", string(n)])
 
     modes = Any[]
+    buckling_roots = Any[]
     contours = Any[]
     element_results = Dict{String,Any}()
     static = nothing
@@ -1424,6 +1517,11 @@ function jfem_case_results_payload(job::JfemJob, path::AbstractString, d::Abstra
     # How the eigenvalues of this run should be read and labelled.
     mode_kind = startswith(atype, "SOL103") ? "frequency" :
                 startswith(atype, "SOL105") ? "buckling" : "none"
+    compact=mode_kind=="buckling"&&compact_buckling_output(d)
+    if compact
+        message="Compact SOL105 output: eigenvalues and peak-translation GRID/property IDs are available. Mode vectors, preload fields and energy contours were intentionally omitted. Disable compact output and rerun to display shapes."
+        push!(summary,Any["Output",message])
+    end
 
     if mode_kind != "none"
         meff = Dict{Int,Any}()
@@ -1433,14 +1531,20 @@ function jfem_case_results_payload(job::JfemJob, path::AbstractString, d::Abstra
         end
         eigs = get(d, "eigenvalues", Any[])
         for md in get(d, "modes", Any[])
-            shape, mx = gather_translations(get(md, "mode_shape", Any[]), idx, n)
-            mno = Int(get(md, "mode_number", length(modes) + 1))
+            mno = Int(get(md, "mode_number", length(buckling_roots) + length(modes) + 1))
             e = get(meff, mno, nothing)
             # SOL 105 eigenvalues are load factors on the static subcase; they
             # are not always repeated on the mode entry, so fall back to the
             # top level list.
             eig = fnum(get(md, "eigenvalue",
                            mno <= length(eigs) ? eigs[mno] : 0.0))
+            if compact
+                push!(buckling_roots,Dict{String,Any}("mode"=>mno,"eigenvalue"=>eig,"load_factor"=>eig,
+                    "static_subcase_id"=>get(md,"static_subcase_id",nothing),"buckling_subcase_id"=>get(md,"buckling_subcase_id",nothing),
+                    "peak_translation"=>get(md,"peak_translation",nothing)))
+                continue
+            end
+            shape, mx = gather_translations(get(md, "mode_shape", Any[]), idx, n)
             push!(modes, Dict{String,Any}(
                 "mode" => mno,
                 "freq_hz" => fnum(get(md, "frequency_hz", 0.0)),
@@ -1452,6 +1556,9 @@ function jfem_case_results_payload(job::JfemJob, path::AbstractString, d::Abstra
                 "meff_z" => e === nothing ? 0.0 : fnum(get(e, "meff_z", 0.0)),
                 "shape" => blob_f32(shape),
                 "rotation" => blob_f32(gather_rotations(get(md, "mode_shape", Any[]), idx, n)),
+                "peak_translation"=>get(md,"peak_translation",nothing),
+                "element_energy"=>get(md,"element_energy",nothing),
+                "energy_contours"=>element_energy_contours(m,get(md,"element_energy",nothing)),
             ))
         end
         if mode_kind == "frequency"
@@ -1462,7 +1569,7 @@ function jfem_case_results_payload(job::JfemJob, path::AbstractString, d::Abstra
                 push!(summary, Any["Highest frequency", eng(freqs[end]) * " Hz"])
             end
         else
-            lf = [md["load_factor"] for md in modes]
+            lf = [md["load_factor"] for md in (compact ? buckling_roots : modes)]
             if !isempty(lf)
                 push!(summary, Any["Buckling roots", string(length(lf))])
                 push!(summary, Any["Critical load factor", eng(lf[1])])
@@ -1521,6 +1628,7 @@ function jfem_case_results_payload(job::JfemJob, path::AbstractString, d::Abstra
         push!(summary, Any["Max displacement", eng(mx) * " m"])
         stresses = get(d, "stresses", Dict{String,Any}())
         contours, element_results = element_results_payload(m, d)
+        append!(contours,element_energy_contours(m,get(d,"element_energy",nothing)))
         vm = findfirst(c -> c["name"] == "Von Mises stress", contours)
         if vm !== nothing
             push!(summary, Any["Max von Mises", eng(contours[vm]["max"]) * " Pa"])
@@ -1561,6 +1669,11 @@ function jfem_case_results_payload(job::JfemJob, path::AbstractString, d::Abstra
         "model_params" => copy(m.params),
         "load_application_version" => is_imported_model(m) ? IMPORTED_LOAD_VERSION : APPLIED_LOAD_VERSION,
         "mode_kind" => mode_kind,
+        "compact_buckling"=>compact,
+        "buckling_roots"=>buckling_roots,
+        "output_options"=>get(d,"output_options",nothing),
+        "element_energy"=>get(d,"element_energy",nothing),
+        "preload_energy_contours"=>element_energy_contours(m,get(get(d,"static_result",Dict()),"element_energy",nothing)),
         "modes" => modes,
         "static" => static,
         "reactions" => reactions,
@@ -1655,9 +1768,8 @@ function buckling_case_result(d::AbstractDict, case_id::Int, case_count::Int)
         delete!(selected, "static_result")
         matching = filter(row -> get(row, "static_subcase_id", nothing) == sid, states)
         length(matching) == 1 || throw(ArgumentError("SOL105 has no unique static preload for subcase $sid"))
-        selected["static_displacements"] = matching[1]["static_displacements"]
-        haskey(matching[1], "static_result") && (selected["static_result"] = matching[1]["static_result"])
-    elseif case_count > 1
+        select_buckling_preload!(selected,only(matching))
+    elseif case_count > 1 && !compact_buckling_output(d)
         throw(ArgumentError("SOL105 does not identify the per-case static preloads"))
     end
     return selected
@@ -1665,6 +1777,7 @@ end
 
 """Expose the actual SOL105 preload as a separate static result, without a second solve."""
 function attach_buckling_preload!(job, path, item, selected, static_sid)
+    compact_buckling_output(selected)&&return item
     buckling = copy(item)
     buckling["id"], buckling["variant_id"], buckling["label"] = "sol105", "sol105", "SOL105 buckling"
     buckling["native_subcase_id"] = get(item, "buckling_subcase_id", get(item, "native_subcase_id", 2))
@@ -1716,6 +1829,10 @@ function attach_buckling_preload!(job, path, item, selected, static_sid)
     end
     get(source, "stress_recovery_skipped", false) === true &&
         push!(preload["summary"], Any["Field recovery", "Element force/stress/strain recovery was disabled for this run."])
+    # The optional static-shape row on a buckling variant is this same physical
+    # preload. The viewer hides these forces whenever an eigenmode is selected.
+    buckling["reactions"] = preload["reactions"]
+    item["reactions"] = preload["reactions"]
     for variant in (preload, buckling), key in ("variants", "default_variant", "analysis_variants", "comparison")
         delete!(variant, key)
     end
@@ -1799,7 +1916,7 @@ function jfem_isolated_results_payload(job::JfemJob)
                     validate_static_result_coverage(child.model,selected)
                 else
                     modes=get(selected,"modes",Any[])
-                    isempty(modes) && throw(ArgumentError("SOL$solution produced no mode shapes."))
+                    isempty(modes)&&!compact_buckling_output(selected) && throw(ArgumentError("SOL$solution produced no eigenvalue records."))
                     solution=="103" && any(md->haskey(md,"sid") && md["sid"]!=1,modes) &&
                         throw(ArgumentError("SOL103 modes do not belong to this child's native subcase 1"))
                 end

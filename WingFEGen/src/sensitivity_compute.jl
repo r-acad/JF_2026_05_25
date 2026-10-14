@@ -40,7 +40,11 @@ function compute_sensitivity(m,raw,dir;native=nothing,solve,progress=(data)->not
     params=deepcopy(spec.params);params["loads.cases"]=Any[];params["loads.label"]=spec.label
     objective=request["objective"];kind=objective["type"]
     eigen=kind in ("frequency_eigenvalue","buckling_factor")
-    sol=kind=="frequency_eigenvalue" ? "103" : kind=="buckling_factor" ? "105" : "101"
+    sol=String(get(request,"solution",kind=="frequency_eigenvalue" ? "103" : kind=="buckling_factor" ? "105" : "101"))
+    nonlinear=sol=="106"
+    nonlinear&&!analytic&&throw(ArgumentError("SOL106 sensitivity requires analytic derivatives; operator differences are not supported"))
+    nonlinear&&kind!="displacement"&&throw(ArgumentError("SOL106 sensitivity supports final-load displacement objectives only"))
+    nonlinear&&get(params,"loads.follower_forces",false)&&throw(ArgumentError("SOL106 follower-load adjoints are not implemented; choose fixed-direction loads"))
     sol=="105"&&get(params,"loads.follower_forces",false)&&throw(ArgumentError("SOL105 sensitivity requires a fixed-direction preload; disable follower forces in the selected case"))
     params["output.solution"]=sol;params["output.n_modes"]=min(24,max(Int(get(objective,"mode",1))+4,6))
     baseline=sensitivity_model(m,params);aero=aerodynamic_loads(baseline);mkpath(dir)
@@ -71,6 +75,7 @@ function compute_sensitivity(m,raw,dir;native=nothing,solve,progress=(data)->not
     end
     report("Preparing the single baseline deck (SOL$sol); first compilation may take several minutes","baseline_deck")
     baseline_started=time();stage_started=time();_,path=deck(params,"baseline")
+    nonlinear&&Base.invokelatest(sensitivity_nonlinear_supported_model,native,Base.invokelatest(native.bdf_to_model,path),objective)
     timings["baseline_deck"]=time()-stage_started
     report("Solving baseline analysis 1/1 (SOL$sol); no property solves will follow","forward")
     stage_started=time();forward=solve(path);timings["baseline_solve"]=time()-stage_started
@@ -83,10 +88,10 @@ function compute_sensitivity(m,raw,dir;native=nothing,solve,progress=(data)->not
     timings["baseline_export"]=time()-stage_started
     base=sensitivity_response(forward,baseline,objective)
     report(kind=="frequency_eigenvalue" ? "Baseline eigenproblem solved; preparing the self-adjoint contraction (no second solve)" : "Baseline solved; preparing and solving shared adjoint equation 1/1","adjoint")
-    builder=context_builder===nothing ? (eigen ? sensitivity_eigen_context : sensitivity_static_context) : context_builder
+    builder=context_builder===nothing ? (eigen ? sensitivity_eigen_context : nonlinear ? sensitivity_nonlinear_context : sensitivity_static_context) : context_builder
     evaluator=sample_evaluator===nothing ? (eigen ? sensitivity_eigen_sample : sensitivity_static_sample) : sample_evaluator
     stage_started=time()
-    context=if context_builder===nothing&&eigen
+    context=if context_builder===nothing&&(eigen||nonlinear)
         Base.invokelatest(builder,native,forward,baseline,objective;
             progress=step->report(get(step,"detail","Preparing eigenvalue adjoint"),"adjoint"),cancelled,analytic)
     elseif context_builder===nothing
@@ -101,14 +106,14 @@ function compute_sensitivity(m,raw,dir;native=nothing,solve,progress=(data)->not
     merge!(counts,sensitivity_context_get(context,"solver_counts",Dict()))
     counts["forward_solves"]=1;counts["perturbed_forward_solves"]=0
     diagnostics=sensitivity_context_get(context,"diagnostics",Dict())
-    analytic_cache=analytic ? sensitivity_analytic_prepare(native,context,baseline,objective) : nothing
+    analytic_cache=analytic&&!nonlinear ? sensitivity_analytic_prepare(native,context,baseline,objective) : nothing
     timings["adjoint_setup_and_solve"]=time()-stage_started
     if analytic
         counts["analytic_property_derivatives"]=0;counts["property_operator_evaluations"]=0
         counts["finite_difference_samples"]=0;timings["analytic_derivatives"]=0.
     end
     rows=Any[]
-    result=Dict{String,Any}("method"=>(analytic ? "analytic_" : "")*(kind=="frequency_eigenvalue" ? "eigenvalue_adjoint" : "discrete_adjoint"),
+    result=Dict{String,Any}("method"=>(analytic ? "analytic_" : "")*(nonlinear ? "nonlinear_adjoint" : kind=="frequency_eigenvalue" ? "eigenvalue_adjoint" : "discrete_adjoint"),
         "derivative_assembly"=>analytic ? "analytic_chain_rule" : "semi_analytic_operator_differences","case_id"=>spec.id,"case_label"=>spec.label,
         "solution"=>sol,"objective"=>objective,"request"=>request,"baseline_model_signature"=>sensitivity_model_signature(m),
         "baseline_model_signature_version"=>2,
@@ -126,6 +131,7 @@ function compute_sensitivity(m,raw,dir;native=nothing,solve,progress=(data)->not
             analytic ? "Unsupported formulations and nondifferentiable branches are reported explicitly; there is no automatic finite-difference fallback. Numerical replay checks verify that derivative contexts match the actual native baseline." : "The smaller operator step is reported when checking is enabled. A large step difference calls for a smaller step or review of an active material/property branch. This is not an independent full-response finite-difference validation.",
             "Normalized derivative = property / baseline response times derivative; undefined at zero baseline. E is measured in GPa. The property-effect map repeats a property's shared scalar response effect on its governed elements; it is not an element-local sensitivity field."])
     sensitivity_json_write(joinpath(dir,"baseline_response.json"),result["baseline"])
+    nonlinear&&push!(result["notes"],"SOL106 differentiates the accepted full-load equilibrium of the selected legacy_geometric formulation, including the prestress-state derivative in its generally nonsymmetric residual Jacobian. It does not substitute a SOL101 solution or differentiate the nonlinear iteration matrix.")
     for (index,d) in enumerate(variables)
         if analytic
             merge!(property_progress,Dict("index"=>index,"sample"=>0,"samples"=>0,"id"=>d["id"],"label"=>d["label"],"unit"=>d["unit"]))
@@ -134,7 +140,8 @@ function compute_sensitivity(m,raw,dir;native=nothing,solve,progress=(data)->not
                 "value"=>d["value"],"unit"=>d["unit"],"pids"=>d["pids"],"derivative_unit"=>base.unit*" / "*d["unit"],
                 "step"=>nothing,"step_error"=>nothing,"samples"=>Any[],"derivative_assembly"=>"analytic_chain_rule")
             try
-                sample=sensitivity_analytic_derivative(native,context,baseline,d,analytic_cache;cancelled)
+                sample=nonlinear ? sensitivity_nonlinear_derivative(native,context,baseline,d;cancelled) :
+                    sensitivity_analytic_derivative(native,context,baseline,d,analytic_cache;cancelled)
                 derivative=sample["value"];timings["analytic_derivatives"]+=sample["seconds"]
                 merge!(row,Dict("derivative"=>derivative,"normalized_derivative"=>!iszero(base.value) ? d["value"]/base.value*derivative : nothing,
                     "status"=>"ok","warning"=>"","analytic_diagnostics"=>sample))
@@ -272,6 +279,7 @@ function sensitivity_response(result,m,objective;reference=nothing)
         return merge(matched,(unit=kind=="frequency_eigenvalue" ? "rad²/s²" : "1",))
     end
     sub=only(result["subcases"])
+    Int(get(result,"sol_type",101))==106&&sensitivity_nonlinear_convergence(sub)
     diagnostics=get(sub,"solver_diagnostics",Dict())
     residual=get(get(diagnostics,"linear_solver",Dict()),"relative_residual",0.)
     residual isa Real&&isfinite(residual)&&residual<1e-6||error("The forward solution residual is too large for a reliable sensitivity")
@@ -320,7 +328,7 @@ function compute_sensitivity_fd_validation(m,raw,dir;solve,progress=(data)->noth
     spec=only(filter(s->s.id==request["case_id"],load_case_specs(m.params)))
     params=deepcopy(spec.params);params["loads.cases"]=Any[];params["loads.label"]=spec.label
     objective=request["objective"];kind=objective["type"]
-    sol=kind=="frequency_eigenvalue" ? "103" : kind=="buckling_factor" ? "105" : "101"
+    sol=String(get(request,"solution",kind=="frequency_eigenvalue" ? "103" : kind=="buckling_factor" ? "105" : "101"))
     sol=="105"&&get(params,"loads.follower_forces",false)&&throw(ArgumentError("SOL105 sensitivity requires a fixed-direction preload; disable follower forces in the selected case"))
     params["output.solution"]=sol;params["output.n_modes"]=min(24,max(Int(get(objective,"mode",1))+4,6))
     baseline=sensitivity_model(m,params);aero=aerodynamic_loads(baseline)

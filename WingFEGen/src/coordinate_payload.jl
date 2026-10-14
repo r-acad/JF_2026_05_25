@@ -3,11 +3,42 @@
 # radial/tangential displacement basis still depends on the evaluation point.
 function basic_coordinate_record()
     Dict{String,Any}("id"=>0,"type"=>"RECTANGULAR","card"=>"BASIC","origin"=>[0.,0.,0.],
-        "x"=>[1.,0.,0.],"y"=>[0.,1.,0.],"z"=>[0.,0.,1.],"properties"=>Dict("Definition"=>"Global BASIC frame"))
+        "x"=>[1.,0.,0.],"y"=>[0.,1.,0.],"z"=>[0.,0.,1.],"properties"=>Dict{String,Any}("Definition"=>"Global BASIC frame"))
 end
 
-function generated_coordinate_payload(groups)
-    records=Any[basic_coordinate_record()]
+coordinate_usage_record()=Dict{String,Any}("grid_cp"=>0,"grid_cd"=>0,"shell_mcid"=>0,"shell_eids"=>Int[])
+
+# Usage follows references, never coincident positions or matching GRID/CID IDs.
+# MCID=0 is also the parser's default for a THETA-oriented shell, so that value
+# cannot prove an explicit material-coordinate reference and is not counted.
+function coordinate_usage(native)
+    usage=Dict{Int,Dict{String,Any}}()
+    for grid in values(get(native,"GRIDs",Dict())),(field,key) in (("CP","grid_cp"),("CD","grid_cd"))
+        row=get!(coordinate_usage_record,usage,Int(get(grid,field,0)));row[key]+=1
+    end
+    for shell in values(get(native,"CSHELLs",Dict()))
+        cid=Int(get(shell,"MCID",0));cid>0||continue
+        row=get!(coordinate_usage_record,usage,cid);row["shell_mcid"]+=1
+        length(row["shell_eids"])<8&&push!(row["shell_eids"],Int(shell["ID"]))
+    end
+    for row in values(usage);sort!(row["shell_eids"]);end
+    usage
+end
+
+function coordinate_usage!(frame,usage)
+    frame["usage"]=usage;properties=frame["properties"]
+    properties["GRID position uses (CP)"]=usage["grid_cp"]
+    properties["GRID displacement uses (CD)"]=usage["grid_cd"]
+    properties["Shell material uses (nonzero MCID)"]=usage["shell_mcid"]
+    if usage["shell_mcid"]>0
+        properties["Example shell EIDs"]=usage["shell_eids"]
+    end
+    frame
+end
+
+function generated_coordinate_payload(groups;node_count=0)
+    basic=coordinate_usage_record();basic["grid_cp"]=basic["grid_cd"]=node_count
+    records=Any[coordinate_usage!(basic_coordinate_record(),basic)]
     for group in groups
         group["kind"] in ("quad","tria")||continue
         # Reuse the already computed MCID axes at the viewer's Float32
@@ -15,17 +46,19 @@ function generated_coordinate_payload(groups)
         ids=reinterpret(Int32,group["eids"].bytes)
         axes=Dict(key=>reinterpret(Float32,group["axes"][key].bytes) for key in ("x","y","z"))
         for (index,id) in enumerate(ids)
-            push!(records,Dict{String,Any}("id"=>Int(id),"type"=>"RECTANGULAR","card"=>"CORD2R",
+            usage=coordinate_usage_record();usage["shell_mcid"]=1;push!(usage["shell_eids"],Int(id))
+            push!(records,coordinate_usage!(Dict{String,Any}("id"=>Int(id),"type"=>"RECTANGULAR","card"=>"CORD2R",
                 "origin"=>[0.,0.,0.],"x"=>Float64.(axes["x"][3index-2:3index]),
                 "y"=>Float64.(axes["y"][3index-2:3index]),"z"=>Float64.(axes["z"][3index-2:3index]),
-                "properties"=>Dict("Role"=>"Shell material coordinate system (MCID)","Element ID"=>Int(id),"Reference ID"=>0)))
+                "properties"=>Dict("Role"=>"Shell material coordinate system (MCID)","Element ID"=>Int(id),"Reference ID"=>0,"Reference type"=>"RECTANGULAR")),usage))
         end
     end
-    Dict("systems"=>records,"warnings"=>String[],"note"=>"Generated shell MCIDs share the BASIC origin, exactly as written in CORD2R. Their triads and labels can overlap. Shell local axes display these directions at element centers.")
+    Dict("systems"=>records,"warnings"=>String[],"note"=>"One material-orientation frame (MCID) is defined per shell to follow swept/twisted skins, spars and ribs. This controls anisotropic/composite material directions and directional stress output; isotropic stiffness is orientation-independent. Their CORD2R origins deliberately share BASIC (0,0,0); rectangular material directions need orientation, not a node attachment. A nearby RBE3 node does not own these frames. GRID positions (CP) and displacement axes (CD) use BASIC. Shell material axes draws directions at shell centers; Material coordinate labels independently shows each shell's EID and MCID.")
 end
 
 function imported_coordinate_payload(native)
-    records=Any[basic_coordinate_record()];warnings=String[]
+    usage=coordinate_usage(native)
+    records=Any[coordinate_usage!(basic_coordinate_record(),get(coordinate_usage_record,usage,0))];warnings=String[]
     for (key,frame) in sort!(collect(get(native,"CORDs",Dict()));by=p->parse(Int,string(first(p))))
         id=parse(Int,string(key));id==0&&continue
         type=String(get(frame,"TYPE",""))
@@ -39,13 +72,25 @@ function imported_coordinate_payload(native)
             card=(haskey(frame,"G1") ? "CORD1" : haskey(frame,"A_raw") ? "CORD2" : "Resolved ")*Dict("RECTANGULAR"=>"R","CYLINDRICAL"=>"C","SPHERICAL"=>"S")[type]
             properties=Dict{String,Any}("Coordinate ID"=>id,"Type"=>type,"Source card"=>card)
             for key in ("RID","G1","G2","G3","A_raw","B_raw","C_raw");haskey(frame,key)&&(properties[key]=frame[key]);end
+            coordinate_type(cid)=cid==0 ? "RECTANGULAR" : get(get(get(native,"CORDs",Dict()),string(cid),Dict()),"TYPE","UNKNOWN")
+            if haskey(frame,"G1")
+                # CORD1 has no parent RID. Each defining GRID has its own CP.
+                properties["Defining GRID coordinates"]=[begin
+                    gid=Int(frame[key]);grid=get(get(native,"GRIDs",Dict()),string(gid),Dict())
+                    cp=Int(get(grid,"CP",0))
+                    Dict("definition"=>key,"grid"=>gid,"id"=>cp,"type"=>coordinate_type(cp))
+                end for key in ("G1","G2","G3")]
+            elseif haskey(frame,"RID")
+                properties["Reference ID"]=Int(frame["RID"])
+                properties["Reference type"]=coordinate_type(Int(frame["RID"]))
+            end
             type=="RECTANGULAR"||(properties["Triad note"]="Defining Cartesian triad of this curvilinear system; radial/tangential directions vary with the evaluation point.")
-            push!(records,Dict("id"=>id,"type"=>type,"card"=>card,"origin"=>origin,"x"=>x,"y"=>y,"z"=>z,"properties"=>properties))
+            push!(records,coordinate_usage!(Dict{String,Any}("id"=>id,"type"=>type,"card"=>card,"origin"=>origin,"x"=>x,"y"=>y,"z"=>z,"properties"=>properties),get(coordinate_usage_record,usage,id)))
         catch error
             push!(warnings,"Coordinate $id is not drawn: "*sprint(showerror,error))
         end
     end
-    Dict("systems"=>records,"warnings"=>warnings,"note"=>"Coordinate origins and defining axes are resolved to global BASIC, including nested RID and CORD1 GRID definitions. Cylindrical/spherical triads show their defining axes, not a displacement basis at an arbitrary point.")
+    Dict("systems"=>records,"warnings"=>warnings,"note"=>"Coordinate origins and defining axes are resolved to BASIC from the deck. Coincident origins are valid and do not attach frames to a nearby GRID or RBE3. Usage distinguishes GRID positions (CP), GRID displacement axes (CD), and shell material orientation (MCID). Cylindrical/spherical triads show defining axes; their displacement directions depend on the point.")
 end
 
 function imported_entity_sources(cards)

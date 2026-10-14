@@ -191,15 +191,29 @@ function analytic_shell_stress_tangent(ctx,direction,u,id_map,X,node_R,snorm_nor
         ue[(6k-5+offset):(6k-3+offset)] = R*node_R[i]*u[(6i-5+offset):(6i-3+offset)]
     end
     snpq=n==4 ? snorm_element_pq(v1,v2,v3,indices,snorm_normals) : nothing
+    if n == 3
+        tri_pq = tria3_snorm_element_pq(v1, v2, v3, indices, snorm_normals)
+        tri_pq === nothing || (ue = tria3_snorm_normal_moment_displacement_map(lc, tri_pq) * ue)
+    end
     coords3d=n==4 ? reduce(vcat,transpose.(points)) : nothing
     prop=ctx.model["PSHELLs"][string(ctx.pid)];isclt=get(prop,"TYPE","")=="PCOMP_CLT"
     br=get(prop,"BEND_RATIO",1.0)
+    compatible_center=n==4 && q4_pcomp_compatible_recovery_enabled(ctx.model,prop,lc,coords3d,snpq)
+    if compatible_center
+        length(ctx.calls)==1 || throw(ArgumentError("Analytic compatible-center stress does not support blended shell operators"))
+        kw=only(ctx.calls).kwargs
+        (!get(kw,:membrane_incomp,true) && get(kw,:membrane_shear_center_row,false) &&
+         get(kw,:material_shear_rotation,0.0)==0.0) ||
+            throw(ArgumentError("Analytic compatible-center stress requires the captured selective-center membrane operator"))
+    end
     function features(x)
         state=analytic_shell_constitutive(ctx.model,ctx.pid,direction,x)
         recovered=if n==4
             FEM.stress_strain_quad4(lc,ue,state.E,state.nu,state.h,state.h;
                 bend_ratio=br,Cm_override=isclt ? state.Cm : nothing,
                 Cb_override=isclt ? state.Cb : nothing,
+                Cs_override=compatible_center ? state.Cs : nothing,
+                compatible_center=compatible_center,recover_shear=false,
                 snorm_pq=snpq,coords_3d=coords3d,recover_corners=false,
                 membrane_incomp_center_jacobian=q4_sol105_membrane_incomp_center_jacobian_enabled())
         else

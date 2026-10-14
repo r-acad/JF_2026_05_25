@@ -1,13 +1,7 @@
 # Pure artifact/path helpers shared by the panel service and its focused tests.
 
 function _panel_default_run_root(app_dir)
-    workspace = normpath(joinpath(app_dir, "..", "..", "..", ".."))
-    private_root = joinpath(workspace, "02_PROJECT_DEVELOPMENT", "02.3_PRIVATE_VALIDATION")
-    if isdir(private_root)
-        stamp = Dates.now()
-        return joinpath(private_root, "RUN_OUTPUTS", "SOL105", "$(Dates.year(stamp))Q$(cld(Dates.month(stamp),3))", "PANDEATOR")
-    end
-    return joinpath(homedir(), ".openjfem", "panel_runs")
+    return normpath(joinpath(app_dir, "..", "..", "output", "panel_runs"))
 end
 
 function _panel_case_id(value)

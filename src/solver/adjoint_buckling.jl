@@ -348,7 +348,7 @@ function _buckling_local_rhs_has_operator_gap(model)
         prop = get(get(model,"PSHELLs",Dict()),string(el["PID"]),Dict())
         _pshell_local_constitutive_gap(prop, model) && return true
     end
-    kg_quad4_iso_nastran_kdjj_mode() === :off && return false
+    kg_quad4_iso_reference_kdjj_mode() === :off && return false
     for el in values(get(model,"CSHELLs",Dict()))
         length(el["NODES"]) == 4 || continue
         prop = get(get(model,"PSHELLs",Dict()),string(el["PID"]),Dict())
@@ -2287,7 +2287,8 @@ end
 # ============================================================================
 
 function _adjoint_has_active_completed_q4_snorm(model, id_map, node_coords)
-    snorm_curvature_enabled() || return false
+    # Historical name; the native local builders also omit the CTRIA3 map.
+    (snorm_curvature_enabled() || tria3_snorm_normal_moment_enabled()) || return false
     base_angle = Float64(get(model, "PARAM_SNORM", 0.0))
     sol105_angle = sol105_snorm_angle_override()
 
@@ -2318,8 +2319,19 @@ function _adjoint_has_active_completed_q4_snorm(model, id_map, node_coords)
         for (_, el) in get(model, "CSHELLs", Dict())
             nids = get(el, "NODES", nothing)
             nids === nothing && continue
-            length(nids) == 4 || continue
+            length(nids) in (3, 4) || continue
             all(nid -> haskey(id_map, nid), nids) || continue
+            if length(nids) == 3
+                indices = ntuple(k -> id_map[nids[k]], 3)
+                p = ntuple(k -> SVector{3}(
+                    node_coords[indices[k],1], node_coords[indices[k],2],
+                    node_coords[indices[k],3]), 3)
+                frame = shell_element_frame_fast(p..., SVector(0.0,0.0,0.0), 3)
+                pq = tria3_snorm_element_pq(frame..., indices, normals)
+                pq !== nothing && any(!iszero, pq) && return true
+                continue
+            end
+            snorm_curvature_enabled() || continue
             indices = ntuple(k -> id_map[nids[k]], 4)
             p = ntuple(k -> SVector{3}(
                 node_coords[indices[k],1],
@@ -2472,8 +2484,8 @@ function _solve_adjoint_buckling_case(results::Dict, config)
     active_warp = _adjoint_has_active_q4_finite_warp(model, id_map, X)
     if active_snorm || active_warp
         maps = active_snorm && active_warp ?
-            "nonzero PARAM,SNORM and finite-warp CQUAD4 maps" :
-            active_snorm ? "a nonzero PARAM,SNORM CQUAD4 map" :
+            "nonzero PARAM,SNORM shell and finite-warp CQUAD4 maps" :
+            active_snorm ? "a nonzero PARAM,SNORM CQUAD4/CTRIA3 map" :
                            "a nonzero finite-warp CQUAD4 map"
         error(
             "[ADJOINT-BUCK] Analytical buckling sensitivities are unsupported " *

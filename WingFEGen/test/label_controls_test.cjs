@@ -19,5 +19,12 @@ for(const showRibs of [false,true])for(const showStringers of [false,true]){
 }
 const defaults=W.completeView(view({}),document);assert.equal(defaults.controls[ribs],false);assert.equal(defaults.controls[stringers],false);checks++;
 for(const id of [ribs,stringers,none,both])assert.throws(()=>W.validateView(view({[id]:'true'})),/checkbox/);
+for(const visible of [false,true]){
+ const source=view({'show-panel-ids':visible,'show-panels':!visible,'show-fuel-tank':!visible});source.fuelTankVisible=visible;
+ const restored=W.completeView(source,document);assert.equal(restored.controls['show-panel-ids'],visible);assert.equal(restored.controls['show-panels'],!visible);assert.equal(restored.controls['show-fuel-tank'],visible);checks++;
+}
+const legacyEmpty=W.completeView(view({'show-fuel-tank':false}),document);assert.equal(legacyEmpty.controls['show-fuel-tank'],true);checks++;
+const legacyHidden=view({'show-fuel-tank':true});legacyHidden.layers.FUEL_TANK=false;assert.equal(W.completeView(legacyHidden,document).controls['show-fuel-tank'],false);checks++;
+assert.throws(()=>W.validateView({...view({}),fuelTankVisible:'false'}),/fuel-tank visibility/);
 assert(!W.CONTROL_IDS.includes(none));assert(!W.CONTROL_IDS.includes(both));
 console.log('Independent label controls and legacy Study migration: '+checks+' scenarios passed');

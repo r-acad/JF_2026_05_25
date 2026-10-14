@@ -22,6 +22,7 @@ using SparseArrays
 using Printf
 using Statistics
 using JSON
+include("BucklingOutput.jl")
 
 # ============================================================================
 # Stage 1: BDF → Model Dict
@@ -30,7 +31,7 @@ using JSON
 """
     bdf_to_model(filename::String; export_json::Bool=false) -> Dict
 
-Parse a Nastran BDF file and return a self-contained model Dict.
+Parse a Reference BDF file and return a self-contained model Dict.
 This Dict can be serialized to JSON for cross-language interop.
 
 If `export_json=true`, writes the model to `<filename>.json`
@@ -43,14 +44,14 @@ function bdf_to_model(filename::String; export_json::Bool=false)
 
     println(">>> Reading BDF file: $filename")
     lines = readlines(filename)
-    lines = NastranParser.resolve_includes(lines, dirname(abspath(filename)))
+    lines = ReferenceParser.resolve_includes(lines, dirname(abspath(filename)))
 
     println(">>> Checking format...")
-    lines = NastranParser.convert_mystran_to_nastran(lines)
+    lines = ReferenceParser.convert_mystran_to_reference(lines)
 
     println(">>> Parsing Bulk Data...")
-    cc, bulk = NastranParser.read_bulk_and_case(lines)
-    cards = NastranParser.process_cards(bulk)
+    cc, bulk = ReferenceParser.read_bulk_and_case(lines)
+    cards = ReferenceParser.process_cards(bulk)
 
     # Report card inventory
     _report_card_inventory(cards)
@@ -2131,7 +2132,7 @@ Returns a Dict with keys:
 """
 function solve_model(model::Dict)
     backend = backend_from_model(model)
-    if backend isa NastranParityBackend && _model_has_cquadr_shells(model)
+    if backend isa ReferenceParityBackend && _model_has_cquadr_shells(model)
         forced_model = deepcopy(model)
         forced_model["backend"] = JFEM_BACKEND_TACS
         results = solve_model(TACSFormulationBackend(), forced_model)
@@ -2191,7 +2192,7 @@ end
 
 function _solve_model_tacs(backend::TACSFormulationBackend, model::Dict)
     if get(model,"PARAM_JFFOLLOW",0)==1 && any(force->uppercase(string(get(force,"FLLW","")))=="ROT",get(model,"FORCEs",[]))
-        throw(ArgumentError("PARAM,JFFOLLOW with FORCE ROT requires the native Nastran-parity SOL101/SOL106 backend; the TACS backend does not implement follower load stiffness."))
+        throw(ArgumentError("PARAM,JFFOLLOW with FORCE ROT requires the native Reference-parity SOL101/SOL106 backend; the TACS backend does not implement follower load stiffness."))
     end
     sol_type = _canonical_sol_type(get(model, "SOL", get(get(model, "CASE_CONTROL", Dict()), "SOL", 101)))
     if _model_has_temperature_dependent_mat1(model)
@@ -2199,7 +2200,7 @@ function _solve_model_tacs(backend::TACSFormulationBackend, model::Dict)
         selections = collect(values(get(cc,"SUBCASES",Dict())))
         isempty(selections) && push!(selections,Dict{String,Any}())
         any(sub->Solver._subcase_temp_load_sid(sub,cc) !== nothing,selections) && error(
-            "TACS-formulation SOL$sol_type does not support temperature-dependent MAT1 reassembly; select the Nastran-parity backend.")
+            "TACS-formulation SOL$sol_type does not support temperature-dependent MAT1 reassembly; select the Reference-parity backend.")
     end
     t_solve_start = time_ns()
     results =
@@ -2230,11 +2231,11 @@ function _solve_model_tacs(backend::TACSFormulationBackend, model::Dict)
     return results
 end
 
-function solve_model(backend::NastranParityBackend, model::Dict)
+function solve_model(backend::ReferenceParityBackend, model::Dict)
     return _solve_model_parity(backend, _model_with_selected_mpc(model))
 end
 
-function _solve_model_parity(backend::NastranParityBackend, model::Dict)
+function _solve_model_parity(backend::ReferenceParityBackend, model::Dict)
     t_solve_start = time_ns()
     cc = model["CASE_CONTROL"]
     raw_sol_type = get(model, "SOL", get(cc, "SOL", 101))
@@ -2749,6 +2750,13 @@ end
 # ============================================================================
 function _recover_sol105_static_fields(model, id_map, X, node_R, u_static, snorm_normals;
                                       recovery_diagnostics=nothing)
+    _pipeline_detail_measure!("recovery", "Recover compact preload fields") do
+        _recover_sol105_static_fields_impl(model, id_map, X, node_R, u_static, snorm_normals;
+                                          recovery_diagnostics)
+    end
+end
+function _recover_sol105_static_fields_impl(model, id_map, X, node_R, u_static, snorm_normals;
+                                           recovery_diagnostics=nothing)
     out = Dict{Int,NTuple{3,Float64}}()
     try
         stresses = Dict{Int,Float64}()
@@ -2787,12 +2795,14 @@ function _sol105_static_results!(results, static_sid::Int)
         recovery = state.recovery
         residual = recovery.K * state.u_static - recovery.force
         model = results["model"]
+        fields = Dict{Int,NTuple{3,Float64}}()
         _, _, data = _with_active_temperature_material(model, state.temp_load_id) do
             Solver._with_solver_thermal_state(model, state.temp_load_id, recovery.load_scale) do
                 Solver._build_results_from_state(length(state.u_static), model, state.id_map,
                     state.X, state.node_R, state.u_static, residual, state.snorm_normals,
                     deepcopy(recovery.diagnostics); active_load_id=recovery.load_id,
-                    active_load_scale=recovery.load_scale, spc_dofs=recovery.spc_dofs)
+                    active_load_scale=recovery.load_scale, spc_dofs=recovery.spc_dofs,
+                    shell_static_fields_capture=fields)
             end
         end
         delete!(data, "raw_residual_analysis")
@@ -2801,6 +2811,25 @@ function _sol105_static_results!(results, static_sid::Int)
         data["static_subcase_id"] = static_sid
         data["source"] = "SOL105_PRELOAD"
         data["solver_diagnostics"] = [Dict("sid"=>static_sid, "details"=>data["solver_diagnostics"])]
+        # JSON and binary export share a preload. Full shell recovery already
+        # evaluated its endpoint fields: reuse them without a second kernel
+        # pass. On skipped/partial full recovery retain the independent compact
+        # fallback, which can still recover fields when corner output fails.
+        if !get(data, "stress_recovery_skipped", false) && length(fields) == length(model["CSHELLs"])
+            field_cache = get!(results, "static_shell_fields_by_subcase") do
+                Dict{Int,Dict{Int,NTuple{3,Float64}}}()
+            end
+            get!(field_cache, static_sid, fields)
+            if haskey(data, "recovery_diagnostics")
+                get!(results, "static_recovery_diagnostics_by_subcase", Dict{Int,Any}())[static_sid] =
+                    deepcopy(data["recovery_diagnostics"])
+            end
+            br = get(results, "buckling", nothing)
+            if br isa Solver.BucklingResult && !isempty(br.subcases) &&
+               last(br.subcases).static_subcase_id == static_sid
+                results["static_shell_fields"] = field_cache[static_sid]
+            end
+        end
         data
     end
 end
@@ -2821,8 +2850,15 @@ function _sol105_static_fields!(results, static_sid::Int)
         started = time_ns()
         recovery_diagnostics = Dict{String,Any}()
         fields = _with_active_temperature_material(results["model"], state.temp_load_id) do
-            _recover_sol105_static_fields(results["model"], state.id_map, state.X,
-                state.node_R, state.u_static, state.snorm_normals; recovery_diagnostics=recovery_diagnostics)
+            # Binary-only output needs the same thermal strain and load scale
+            # as full preload recovery. Material activation alone does not
+            # establish the selected nodal temperature field.
+            recovery = hasproperty(state, :recovery) ? state.recovery : nothing
+            scale = recovery !== nothing && hasproperty(recovery, :load_scale) ? recovery.load_scale : 1.0
+            Solver._with_solver_thermal_state(results["model"], state.temp_load_id, scale) do
+                _recover_sol105_static_fields(results["model"], state.id_map, state.X,
+                    state.node_R, state.u_static, state.snorm_normals; recovery_diagnostics=recovery_diagnostics)
+            end
         end
         if !isempty(recovery_diagnostics)
             get!(results, "static_recovery_diagnostics_by_subcase", Dict{Int,Any}())[static_sid] = recovery_diagnostics
@@ -2979,7 +3015,7 @@ function _resolve_sol105_eigen_request(model, cc, sub, buckling_sid::Integer)
     nd = if nd_specified
         _sol105_request_count(entry, source, method_id)
     else
-        # Nastran EIGRL: all-blank and V1-only forms request the lowest
+        # Reference EIGRL: all-blank and V1-only forms request the lowest
         # qualifying root. A specified V2 makes this an all-roots-in-range
         # request; solve_buckling uses nd_specified=false as that marker and
         # needs only a positive numeric seed count here.
@@ -3011,6 +3047,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     # reproduces pre-cleanup behavior for legacy scripts that don't yet
     # construct an options object explicitly.
     opts = options === nothing ? Solver.from_env() : options
+    output_options = _sol105_output_options(model)
     println("\n>>> SOL 105 Linear Buckling Analysis")
 
     buckling_subcases = _sol105_select_buckling_subcases(cc, sorted_sids)
@@ -3018,6 +3055,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     static_cache = Dict{Int, Any}()
     static_states = Dict{Int,Any}()
     static_recovery_states = Dict{Int,Any}()
+    energy_shear_maps = Dict{Int,Any}()
     kg_cache = Dict{Int,Any}()
     # Custom builders may depend on buckling-subcase identity. Diagnostic CSV
     # output also needs one assembly per subcase to preserve its rows.
@@ -3150,7 +3188,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             end
 
             # Load-aware static (2-pass): the default kernel routes warped/curved
-            # elements onto MITC4, which matches Nastran under compression but
+            # elements onto MITC4, which matches Reference under compression but
             # diverges under shear. The right kernel depends on the element's
             # internal stress, known only after this first static solve. If any
             # element is non-flat AND shear-dominated, reassemble the static
@@ -3165,6 +3203,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                         u_static_analysis, snorm_normals_static)
                     n_shear = count(values(shear_map))
                     if n_shear > 0
+                        energy_shear_maps[stat_sid] = shear_map
                         println(">>> Load-aware static: $n_shear shear-dominated non-flat element(s) → MacNeal kernel; re-solving static")
                         K_la, id_map_la, X_la, ndof_la, node_R_la, max_elem_stiff_la, rbe3_map_la, snorm_normals_la, orig_diag_la =
                             Solver.assemble_stiffness(model;
@@ -3215,7 +3254,10 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             (id_map=id_map_static, X=X_static, node_R=node_R_static,
              snorm_normals=snorm_normals_static, u_static=u_static,
              K=K_static, K_eig=K_eig_static, fixed_dofs=fixed_dofs_static,
-             temp_load_id=temp_load_id_static, recovery=static_recovery_states[stat_sid])
+             temp_load_id=temp_load_id_static, recovery=static_recovery_states[stat_sid],
+             assembly_options=geometric_stiffness_builder === nothing ? (snorm_angle_override=sol105_snorm_angle,
+                membrane_incomp=static_membrane_incomp_for_load,sol105_context=true,
+                elem_shear_dominant=get(energy_shear_maps,stat_sid,nothing)) : nothing)
         end
 
         t_kg = time_ns()
@@ -3456,7 +3498,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     println(">>> ============================================")
 
     eigenvalues_only = Solver.solver_env_bool("JFEM_SOL105_EIGENVALUES_ONLY", false)
-    store_public_mode_shapes = !eigenvalues_only &&
+    store_public_mode_shapes = !output_options["compact"] && !eigenvalues_only &&
         Solver.solver_env_bool("JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES", true)
     mode_shapes_out = store_public_mode_shapes ?
         _mode_shapes_to_list(mode_shapes, id_map) : Any[]
@@ -3466,6 +3508,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         "eigenvalues" => collect(eigenvalues),
         "mode_shapes" => mode_shapes_out,
         "mode_metadata" => mode_metadata,
+        "output_options" => output_options,
         "solver_diagnostics" => buckling_case_diagnostics,
         "mode_shape_storage" => Dict{String,Any}(
             "public_list_stored" => store_public_mode_shapes,
@@ -3856,12 +3899,26 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
     _export_ensure_dir!(output_dir)
 
     sol_type = results["sol_type"]
+    if sol_type == 105
+        options = get(results,"output_options",_sol105_output_options(results["model"]))
+        results["output_options"] = options
+        if options["compact"]
+            # This explicit output code selects one compact result file even
+            # when the caller's default format is the heavy binary output.
+            export_sol105_json(filename,output_dir,results)
+            export_report && export_markdown_report(results,filename,output_dir;timings=timings)
+            return
+        end
+        # Energy has no representation in the legacy fixed binary slots.
+        # Requesting either quantity also emits its typed JSON result fields.
+        export_json |= options["energy_density"] || options["deformation_energy"]
+    end
     if sol_type == 200
         if export_json
             export_optimization_json(filename, output_dir, results)
         end
         if export_hdf5
-            println(">>> Compact MSC/Nastran-like HDF5 export is not implemented for SOL 200 optimization; skipping HDF5.")
+            println(">>> Compact Reference-like HDF5 export is not implemented for SOL 200 optimization; skipping HDF5.")
         end
         if export_report
             export_markdown_report(results, filename, output_dir; timings=timings)
@@ -3929,7 +3986,7 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
                 backend_metadata=_export_backend_metadata(results))
         end
         if export_hdf5
-            getfield(@__MODULE__, :export_nastran_hdf5)(filename, output_dir, results)
+            getfield(@__MODULE__, :export_reference_hdf5)(filename, output_dir, results)
         end
         if export_jfem_binary
             export_jfem_buckling(filename, output_dir, id_map, X,
@@ -3946,7 +4003,7 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
             export_sol105_json(filename, output_dir, results)
         end
         if export_hdf5
-            getfield(@__MODULE__, :export_nastran_hdf5)(filename, output_dir, results)
+            getfield(@__MODULE__, :export_reference_hdf5)(filename, output_dir, results)
         end
         if export_jfem_binary
             export_sol105_jfem(filename, output_dir, results,
@@ -4067,7 +4124,7 @@ function _export_sol101(results, filename, output_dir, model, id_map, X,
         getfield(@__MODULE__, :export_json)(filename, output_dir, global_results)
     end
     if export_hdf5
-        getfield(@__MODULE__, :export_nastran_hdf5)(filename, output_dir, results)
+        getfield(@__MODULE__, :export_reference_hdf5)(filename, output_dir, results)
     end
     if is_nonlinear
         if export_json

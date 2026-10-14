@@ -11,7 +11,7 @@
   for(const [label,ids,helpId]of [
    ['Study',['btn-new-study','btn-load-model','btn-save-model','btn-save-model-as','btn-study-notes'],'study-help'],
    ['TOML parameters',['btn-load-toml','btn-save-toml','btn-view-toml'],'toml-help'],
-   ['Nastran',['btn-read-nastran','btn-nastran'],null]]){
+   ['Reference',['btn-read-reference','btn-reference'],null]]){
     const host=group(label);for(const id of ids)move(id,host);
     const help=helpId&&doc.getElementById(helpId);if(help){const details=doc.createElement('details'),summary=doc.createElement('summary');summary.textContent='About '+label.toLowerCase()+' files';details.append(summary,help);host.append(details);}
   }

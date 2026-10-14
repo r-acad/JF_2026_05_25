@@ -38,9 +38,15 @@ function sensitivity_geometric_matrix(native,op,state;physical=false,geometric_c
         mapping=Dict{Int,Vector{Tuple{Int,Float64}}}()
     end
     cc=model["CASE_CONTROL"]
-    buckling_sid=only([sid for (sid,sub) in cc["SUBCASES"] if get(sub,"STATSUB",nothing)!==nothing])
-    options=(;snorm_angle_override=native.Solver.sol105_snorm_angle_override(),
-        buckling_subcase=buckling_sid,static_load_id=op.load_id)
+    options=if Int(model["SOL"])==106
+        # Match solve_nonlinear_static exactly: its geometric residual uses
+        # ordinary assembly, without SOL105-specific recovery overrides.
+        (;)
+    else
+        buckling_sid=only([sid for (sid,sub) in cc["SUBCASES"] if get(sub,"STATSUB",nothing)!==nothing])
+        (;snorm_angle_override=native.Solver.sol105_snorm_angle_override(),
+            buckling_subcase=buckling_sid,static_load_id=op.load_id)
+    end
     geometric_capture===nothing ? native.Solver.assemble_geometric_stiffness(model,op.id_map,op.X,op.node_R,op.ndof,state,
         op.snorm_normals,mapping;options...) : native.Solver.assemble_geometric_stiffness(model,op.id_map,op.X,op.node_R,op.ndof,state,
         op.snorm_normals,mapping;options...,geometric_capture)

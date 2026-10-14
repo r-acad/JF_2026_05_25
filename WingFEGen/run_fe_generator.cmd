@@ -7,7 +7,7 @@ rem  opens it in the default browser.
 rem
 rem    run_fe_generator.cmd                    start the web app
 rem    run_fe_generator.cmd my_wing.toml       use another input file
-rem    run_fe_generator.cmd --nastran          generate and write, no browser
+rem    run_fe_generator.cmd --reference          generate and write, no browser
 rem    run_fe_generator.cmd --port 9000
 rem ==========================================================================
 setlocal

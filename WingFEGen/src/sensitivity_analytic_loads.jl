@@ -13,7 +13,10 @@ sensitivity_direction_value(direction,key,default=0.) =
 
 Shell directions contain `areal_mass`. Bar directions contain `area`, `density`,
 and `offset_y`. Current design variables affect structural properties only:
-fuel fill/density, aerodynamic loads, geometry and RBE3 interpolation stay fixed.
+fuel fill, fill efficiency and density, aerodynamic loads, geometry and RBE3
+interpolation stay fixed. The baseline deck includes efficiency-scaled fuel
+CONM2 properties and fuel acceleration loads; their structural-property tangent
+is zero because the geometric tank volume is independent of these properties.
 """
 function sensitivity_analytic_load_tangent(m::Model,directions;params=m.params)
     acceleration=structure_acceleration(params)
@@ -110,7 +113,7 @@ function sensitivity_analytic_shell_mass(native,op,directions)
         local_mass=if consistent
             n==4 ? F.consistent_mass_quad4(coords,1.,1.;mass_moments=dm) : F.consistent_mass_tria3(coords,1.,1.;mass_moments=dm)
         else
-            dm[1].*(n==4 ? F.nastran_lumped_mass_quad4(coords,1.,1.) : F.nastran_lumped_mass_tria3(coords,1.,1.))
+            dm[1].*(n==4 ? F.reference_lumped_mass_quad4(coords,1.,1.) : F.reference_lumped_mass_tria3(coords,1.,1.))
         end
         transform=zeros(6n,6n);dofs=Int[]
         for (k,i) in enumerate(indices)

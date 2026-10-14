@@ -5,7 +5,113 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Solver performance
+
+- Avoid constraint-triplet redistribution when dependent coordinates have no
+  matrix entries, and keep the general transformation in a typed kernel.
+  Matrix entry order, constraint validation and numerical equations are retained.
+- Avoid scalar boxing in the geometric-stiffness coordinate transformation.
+- Reuse shell endpoint fields recovered for SOL105 preload JSON in the binary
+  export. Full, compact-only and incomplete-recovery paths retain their outputs.
+- Apply the selected preload temperature and load scale during binary-only
+  SOL105 recovery, matching full results and avoiding false thermal stresses.
+- Recover default MacNeal composite-shell membrane and transverse-shear
+  resultants with the compatible strain field, laminate shear law and mapped
+  displacements used by assembly. Keep centroid/area-mean and split-frame
+  recovery limitations explicit. Preserve the existing equilibrium and
+  buckling operators and the supported analytic stress derivative path.
+
 ### Added
+- **Unified app installation and published getting-started guides.** Group the
+  illustrated FGen and installation PDFs under `Reference_documentation/00_Getting_Started`.
+  Use one setup procedure for JFEM, FGen, PANDEATOR and the bundled results viewer,
+  with optional sysimage creation and documented build/rebuild/use commands.
+  Remove workspace and infrastructure documents from the public documentation
+  tree, retaining indexed private copies. Remove publication-exclusion discussion
+  and anonymize internal comparison labels as Reference in maintained text and
+  documents; benchmark input cards, reference numbers and solver equations remain
+  unchanged by that terminology cleanup. Import the production timing helpers
+  in standalone constraint test harnesses and declare installer-test standard
+  libraries so the complete release suite can run in Julia's isolated test environment.
+- **FGen installation and illustrated guides.** Install both Julia project
+  environments through one setup command, with missing-package checks on first
+  launch. Document Julia installation, GitHub download, standalone solving and
+  the app workflow with screenshots captured from a running synthetic study.
+  Keep numerical activity blue and preparation/precompilation orange; retain
+  measured compilation and numerical times in the Log.
+- **Visible ground and direct reaction controls.** Integrate the procedural
+  ground shader with depth peeling so translucent models retain every ground
+  finish without changing model lighting. Display constraint reactions directly
+  from FE Results or Display / Loads&Constraints, with synchronized independent
+  value labels and availability messages. Rename the loads connection display
+  label to "RNE3 for Loads" as requested; retain the actual RBE3 card type.
+- **Preparation visibility, detailed timings and Display organization.**
+  Distinguish preparation/input-output from numerical activity by color,
+  noting possible live Julia compilation in the phase text. Report measured
+  execution, compilation, recompilation
+  and GC per solver stage without summing nested times twice. Group plane
+  appearance in Environment and force, connection and reaction controls in
+  Display / Loads&Constraints. Explain that JFBKCOMP is an optional compact
+  output request with no change to stiffness, eigenvalues or buckling accuracy.
+- **SOL105 compact roots, element energies and property inspection.** Add
+  optional eigenvalue/peak-GRID/incident-PID JSON output and true element
+  deformation energy and volume-normalized density for static preloads and
+  normalized buckling modes (`-b`, `-e`, `-d`, or `JFBKCOMP`, `JFBKENG`,
+  `JFBKDEN` deck parameters). Preserve default outputs and imported source
+  settings; expose saved controls, compact tables and energy fields in FEGen.
+  Add view-only explosion by actual PID with the panel origin/distance controls,
+  independently saved shell material-axis and coordinate-label switches, and
+  detailed buckling preload-factor guidance. Correct plan/section dimension
+  arrow direction and endpoint anchoring.
+- **Usable fuel capacity and clearer model/results displays.** Add the saved
+  Fuel tank fill efficiency factor and propagate it through usable volume,
+  mass, inertia, exported cards and loads. Shade wet tank bays in plan view.
+  Add lazy shell material-axis glyphs with MCID/THETA labels, empty-canvas
+  double-click fitting, filename-bearing load progress, GPa stress displays,
+  independent live legend-range sliders and buckling peak GRID/property IDs.
+  Clarify buckling factors relative to the complete case preload. Isolate
+  metallic-ground reflection passes from depth-peeling/prepass state to fix
+  main-model shading corruption; wireframe and translucent ground retain the
+  regular grid without increasing geometry size.
+- **Useful parameter help, leading-edge refinement and deck search.** Show
+  substantive help on question-mark hover and expand parameter-specific usage
+  text. Move the independent leading-edge skin nose-to-spar count into
+  Structural Mesh, preserving its saved key and validating whole numbers.
+  Deck search highlights and reveals the first literal match without rebuilding
+  large text views. Distinguish CP/CD/MCID coordinate usage and explain shared
+  material-frame origins. Consolidate undeformed-aero visibility and add ground
+  finishes, including a live model reflection for metallic ground.
+- **Study comments and grouped geometry display.** Manual Save/Save As offers
+  timestamped change comments with accumulated history and previews comments
+  before loading a Study. Undefined tanks expose Create Fuel Tank and the
+  dimensioned plan shows wet/dry bay boundaries. Display / Geometry groups
+  geometric layers, individual airfoils, reference files and planes with saved
+  appearance controls. Clarify and validate the shared spar/rib/leading-edge
+  vertical subdivision count and explain the EIGRL extraction fields live in
+  the Analysis form, including compact exponent syntax and buckling units.
+- **Model-aware display and dimensioned airfoils.** Disable unavailable physical
+  rib/stringer labels, preserve defined-tank visibility and give panel IDs an
+  independent saved toggle. Coordinate labels enable their glyph layer, remain
+  legible when origins lie inside opaque geometry, and group coincident origins
+  with individual CID inspection including type and parent frame. Airfoil
+  previews show the sampled midcamber line, maximum thickness/camber and their
+  chord locations; help documents the linear/cosine spanwise blending equations.
+- **Reference terminology throughout maintained project code.** Rename importer
+  modules/files, parser and exporter APIs, routes, backend options and display
+  text to Reference. Synchronize tests, launch references and the application
+  publication manifest. This intentionally changes internal and saved-source
+  identifiers; reopen imported decks to create studies using the current names.
+- **Explicit sensitivity solutions and physical constraint reactions.** Save an
+  independent SOL101/SOL103/SOL105/SOL106 choice with the Study and expose only
+  compatible objectives and load cases. Extend imported decks to analytic modal
+  and buckling derivatives, including native mass and static-preload dependence.
+  Add the exact final-load residual transpose adjoint for supported geometric
+  nonlinear shell/CBAR displacement responses; retain explicit guards for
+  unsupported formulations, loads and unconverged states. Preserve SOL105
+  sensitivity preloads as ordinary FE results with physical constraint reactions
+  and distinct result identities. Explain unavailable reactions for eigenmodes
+  or suppressed output. Add independently re-solved numerical checks and browser
+  regressions for solution selection, persistence and reaction display.
 - **Laminate shell energy and prestress consistency.** Retain membrane-bending
   coupling in triangular-shell prestress, and use the same isotropic membrane
   operator for physically equivalent PSHELL and PCOMP sections. Recover full
@@ -61,13 +167,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
   identities, mass moments and assembled mass derivatives.
   Reject unsupported coupled CBAR mass with end releases explicitly; retain the
   existing released-bar lumped path and separate CBEAM conventions.
-- **Nastran property parsing and invariant shell/frame stiffness.** Preserve
+- **Reference property parsing and invariant shell/frame stiffness.** Preserve
   blank physical continuation lines so large-field sandwich properties retain
   every ply. Remove implicit SOL101-only drilling scaling at frame-connected
   shell nodes, which introduced energy during rigid rotation; retain explicit
   diagnostic overrides. Add synthetic property-field and rigid-motion regressions.
 - **Portable generator export.** Add optional paired 16-column bulk fields,
-  leave generated CBAR default offset conventions blank for older Nastran
+  leave generated CBAR default offset conventions blank for older Reference
   readers, and explicitly select constraints in both SOL105 preload and
   buckling subcases. Keep exact free-field sensitivity export separate.
 - **Faster deck viewing and pane resizing.** Lay out large decks in contained
@@ -201,7 +307,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   area sections and property-thickness shell display. Restore filled shell state
   after visibility/result changes; preserve collocated fixed loads when displaying
   rotated imported follower forces.
-- **WingFEGen Nastran import, subsonic loading and case display.** Restore the
+- **WingFEGen Reference import, subsonic loading and case display.** Restore the
   normal Windows Open dialog with a foreground owner and automatic INCLUDE
   resolution. Batch large imported geometry while retaining element/property
   identities, compact binary payloads, page entity lists and add Collapse/Expand
@@ -253,7 +359,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   nonzero SOL106 prescribed motion instead of silently omitting it.
   Add explosion from individual rib-bay centers and improve underside lighting
   without washing out face contrast. Use consistent collapse/restore controls,
-  move rib/stringer labels to Axes & labels, and offer a local-only Nastran file
+  move rib/stringer labels to Axes & labels, and offer a local-only Reference file
   reader from Study Options. Remove the redundant assembled-view button.
 
 - **WingFEGen wildcard selection and reliable result/import buffers.** Add
@@ -262,11 +368,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
   baselines and imported decks are sent over HTTP; malformed buffers now fail
   clearly. Restore FE deformation after temporary isolation, handle very small
   modal rotations and magnified bar display limits, and scale camera clipping
-  to the model. Read local Nastran decks with automatic INCLUDE resolution,
+  to the model. Read local Reference decks with automatic INCLUDE resolution,
   remove the 32 MiB import cap, retain full errors, and reuse a parser worker
   with reduced first-use compilation and a single native parse.
 
-- **WingFEGen native-deck workflow and display tools.** Read Nastran retains
+- **WingFEGen native-deck workflow and display tools.** Read Reference retains
   uploaded deck/INCLUDE sources, native identifiers and cases for ordinary
   analysis, property inspection and supported static analytic sensitivities.
   Studies embed the sources. Add rigid panel explosion, adjustable camera fill,
@@ -318,6 +424,45 @@ Versions follow [Semantic Versioning](https://semver.org/).
   structural geometric formulation remain unchanged; dead loads are the default.
 
 ### Fixed
+- **Equilibrium checks for finite LU solutions.** Validate displacements against
+  the original reduced static equations, including each new cached load. Use
+  bounded iterative refinement and check existing diagonal regularization
+  candidates against the same equations. Reject unresolved or nonfinite
+  solutions explicitly instead of treating successful factorization as valid
+  equilibrium. Preserve accurate solves and test compatible and incompatible
+  mechanisms without adding physical constraints.
+- **Triangle averaged-normal consistency.** Replace the single tilted CTRIA3
+  frame with the nodal normal-moment equilibrium map. Preserve rigid motions
+  and the common free drilling direction across folded shell edges. Use the
+  complete nodal transformation in stiffness, buckling-preload recovery,
+  geometric stiffness, stress output and analytic constitutive tangents.
+  Verify folded and rotated reference operators and physical regression tests.
+- **Planar anisotropic PSHELL membrane energy.** Route supported MAT2 quads
+  through the existing Gauss-normal/center-shear strain projection. Transform
+  THETA-based material tensors from the G1-G2 side into the element frame;
+  preserve equivalent MCID definitions. Apply the same projection and frame
+  to buckling-preload membrane recovery. Keep warped, coupled and active
+  director regimes outside this bounded extension, and retain explicit
+  unsupported anisotropic analytic-derivative and nonrectangular stress-field
+  guards. Add energy, rigid-motion, material-axis and recovery regressions.
+- **Variational Q4 internal-mode selection.** Condense only the active
+  incompatible-mode basis, including its coupled internal stiffness block,
+  instead of weighting one side of a full inverse. This restores reciprocal
+  elastic stiffness for coupled anisotropic laws. Use the same selected
+  compliance in weighted membrane-force recovery and analytic kernel replay;
+  define fractional diagnostic weights through nested energy blends. Add
+  stationarity, symmetry, recovered-force and derivative regression checks.
+- **Element-local shell stiffness.** Keep SOL101 flat-shell membrane
+  condensation independent of unrelated rigid elements or MPCs elsewhere in
+  the model. Add a disconnected-connection regression for isotropic and
+  anisotropic shells; retain the former global switch only for diagnostics.
+- **RSPLINE elastic interpolation.** Preserve the ordered Gi/Ci path and use
+  minimum-energy thin-tube interpolation with the specified D/L, including
+  transverse bending, endpoint slopes, curved paths and GRID displacement
+  frames. Retain partial dependent components and interior independent grids.
+  Replace same-component linear ties; reject unordered legacy JSON records
+  with an explicit reimport instruction. Add analytic, coordinate-invariance
+  and constrained-equilibrium regression tests.
 - **Sensitivity shell visibility.** Opaque polished aerodynamic overlays now
   yield to wireframe while visible shells show contours. The material preference
   is retained for aero-only/uncolored views. Automatic primal-result loading
@@ -343,7 +488,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - **PCOMP consistent shell mass.** `PARAM,COUPMASS,1` now uses the integrated
   ply density moments for rotary inertia and translation/rotation coupling in
   CQUAD4 and CTRIA3 shells, including asymmetric or offset laminates. The default
-  Nastran lumped shell mass remains translation-only, and monolithic consistent
+  Reference lumped shell mass remains translation-only, and monolithic consistent
   mass retains its existing homogeneous formulation.
 
 - **SOL106 composite-shell material axes.** The nonlinear membrane constitutive
@@ -718,7 +863,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   SOL103 rotational diagonal AUTOSPC now defaults to `1e-14`, independently
   of the EPZERO/GPST `1e-8` test needed for weak translations, and every
   partition-changing switch participates in the eigen cache key. On a
-  51,623-grid free-free shell/beam model, using the explicit modern-MSC
+  51,623-grid free-free shell/beam model, using the explicit modern-REFERENCE
   `K6ROT=100` compatibility override reproduced all six rigid roots, the exact
   126-rotation plus 14-translation singularity set, 0.553% mean elastic
   frequency error, 0.976 mean one-to-one MAC, and 0.99991 mean modal-subspace
@@ -737,7 +882,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   `JFEM_Q4_MACNEAL_SHEAR_EDGE_LINEAR=interaction_hybrid` retains the distinct
   diagnostic errors for formulation work. This covers both the geometric and
   the remaining MITC/tangential row-space and edge-map conditioning guards.
-  On `NAPA_101_no_bad_rspline.bdf`, 12 of 112,738 CQUAD4 elements took the
+  On `the large shell model`, 12 of 112,738 CQUAD4 elements took the
   fallback and the SOL 101 run completed. Verified with a targeted reachable
   edge-map degeneracy, unchanged happy-path allocations, a 0-ulp assembled-K
   differential battery, and a byte-identical 19-row public suite.
@@ -765,11 +910,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
   values). Computed values are unchanged against the previous release.
 
 ### Changed
-- **CHEXA8 now uses MSC/Nastran 70.5's actual formulation — the solid
+- **CHEXA8 now uses Reference 70.5's actual formulation — the solid
   static gap is closed.** The 8-node hexahedron previously used 9
   Wilson-Taylor incompatible DISPLACEMENT modes; matrix extraction against
   the reference (12-geometry corpus, 24 unit-displacement columns each)
-  showed MSC uses an enhanced assumed STRAIN element instead: isoparametric
+  showed REFERENCE uses an enhanced assumed STRAIN element instead: isoparametric
   2x2x2 plus 21 EAS modes mapped through the POLAR factor of the centre
   Jacobian, det(J0)/det(J)-scaled and statically condensed. The difference
   was a rank-3 deficiency — the reference softens the trilinear mode triple
@@ -778,7 +923,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   (`mu_d = E/[(lam+2mu) + mu(L_d/L_e)^2 + mu(L_d/L_f)^2]`, exactly
   `(1+nu)(1-2nu)/(2-3nu) = 26/55` on a cube).
 
-  Measured effect on the solid validation probes, against MSC 70.5:
+  Measured effect on the solid validation probes, against REFERENCE 70.5:
 
   | probe | before | after |
   | --- | --- | --- |
@@ -822,7 +967,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   and tau is the axis slope; the square root is elementary because
   `det T = 12 A2^2` identically. Physically the director is the element
   axis pulled back toward the mid-plane normal by the inverse of the
-  in-plane gyration tensor scaled by height. Measured against MSC/Nastran
+  in-plane gyration tensor scaled by height. Measured against Reference
   70.5 over a 76-deck tilted extraction corpus (9 base triangles, 3
   scalene): worst relative operator error **1.6e-1 -> 1.3e-2**, median
   **7.8e-2 -> 5.9e-3**; tapered and twisted wedges also improve
@@ -924,7 +1069,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   margin-rule violations), public suite values exactly equal (19/19), and
   a 20-repeat stability battery with exact-zero drift. Measured: corpus
   eigen wall −17% on top of certificate-first (−35% cumulative vs the
-  pre-program state); the HTP-class ND=16 battery halved. Opt out with
+  pre-program state); the tail-box-class ND=16 battery halved. Opt out with
   `JFEM_SOL105_ADAPTIVE_NEV=false`.
 - **Adaptive eigensolve request on EIGRL-range decks (env-flagged, default
   OFF).** With `JFEM_SOL105_ADAPTIVE_NEV=true`, the SOL 105 zero-shift
@@ -968,7 +1113,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   cache is now shared between this gate and the completeness augmentation,
   so the completeness pass re-certifies for free after a skip. Gate record
   (6-deck battery, one deck per augmentation outcome class + both
-  HTP_launch pair-order decks): flag-OFF outputs semantically identical to
+  tail-box model pair-order decks): flag-OFF outputs semantically identical to
   the pre-change state 6/6; flag-ON spectra and mode shapes bit-identical
   to flag-OFF on 12/12 subcases while skipping the augmentation eigensolve
   on 10 of 12; augmentation+completeness wall -42% on the battery. Default
@@ -1046,7 +1191,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - **SOL 105 static reference solves no longer compute-and-discard stress
   recovery and result rows** (`build_results=false` on the preload path);
   recovery for export still runs exactly as before where consumed.
-- **Parser fast paths**: NASTRAN field numbers take a zero-allocation
+- **Parser fast paths**: REFERENCE field numbers take a zero-allocation
   `tryparse` fast path (embedded-exponent forms fall through to the exact
   legacy path unchanged; measured 4.4x on the tokenizer), and the
   `BEGIN BULK` presence scan no longer uppercases a copy of every line.
@@ -1126,7 +1271,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   full print precision. No retained validation deck used the THRU pressure
   form, so no recorded parity number changes.
 - **SOL 103 cardless shell-mass default now matches the reference solver
-  (lumped).** Without `PARAM,COUPMASS`, MSC/Nastran builds lumped mass; the
+  (lumped).** Without `PARAM,COUPMASS`, Reference builds lumped mass; the
   previous cardless default selected the coupled-consistent shell mass, a
   silent divergence that inflated first shell modes by +18..+19% on
   single-element modal probes (invisible on refined meshes, where the two
@@ -1188,7 +1333,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   half only.
 - **The effective `PARAM,K6ROT` and where it came from are now echoed on every
   run.** `[SOLVER] Drilling stabilisation: K6ROT=100.0 (OpenJFEM default;
-  MSC/Nastran 70.5 linear SOLs default to 0.0)` on a deck that declares nothing,
+  Reference 70.5 linear SOLs default to 0.0)` on a deck that declares nothing,
   or `K6ROT=0.0 (from the deck's PARAM,K6ROT)` when it does. K6ROT is a numerical
   stabiliser that solvers default differently, so on a cardless deck two codes
   silently run different problems — which is exactly how it surfaced, as an
@@ -1236,7 +1381,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - **BREAKING (cardless decks only): `PARAM,K6ROT` now defaults to the reference
-  solver's per-solution-sequence value instead of a flat 100.0.** MSC/Nastran
+  solver's per-solution-sequence value instead of a flat 100.0.** Reference
   70.5 has no single global default — its delivery source says so outright
   (`param.ddl:142-143`: *"K6ROT MUST NOT BE DEFINED HERE BECAUSE ITS DEFAULT
   VALUE IS DIFFERENT ACROSS SOLUTION SEQUENCES"*). It declares `K6ROT=0.` in
@@ -1264,9 +1409,9 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 - **CBAR/CBEAM continuation fields were read one slot early, silently applying a
-  pin release the deck never requested.** The processed-card layout includes MSC
+  pin release the deck never requested.** The processed-card layout includes REFERENCE
   field 10, so an explicit continuation marker such as `+CB1` lands where `PA`
-  was being read — and `parse_nastran_number` does not reject `"+CB1"`, it
+  was being read — and `parse_reference_number` does not reject `"+CB1"`, it
   returns a number, which was then interpreted as a pin-flag DOF list. A bar with
   `PB=456` came out with its tip displacement wrong by five orders of magnitude
   while the solver reported a clean residual throughout. Now fixed for both card
@@ -1279,7 +1424,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   stabilisation coefficient — is not part of any of these benchmark definitions
   and solvers default it differently: `0.0` in the reference solver's SOL 101
   (and in every one of its linear solution sequences), `100.0` in current
-  MSC.Nastran and in OpenJFEM. Every tabulated parity reference had been
+  Reference and in OpenJFEM. Every tabulated parity reference had been
   produced at `0.0` on a deck that declared nothing, while OpenJFEM ran the same
   deck at `100.0`. That single unstated difference was the entire residual
   parity error on all six shell rows; it only exceeded tolerance on the pinched
@@ -1344,20 +1489,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
   spectral delta is `2.91049e-15`, and all 24 cached tapered/combined cases
   improve while eight controls change only at roundoff.  The cached worst is
   `2.154037192e-2` and the worst six-mode rigid residual is `4.796e-17`.
-- `JFEM_SOL105_PCOMP_MEMBRANE_SELC` (default OFF): the exact Nastran QUAD4
+- `JFEM_SOL105_PCOMP_MEMBRANE_SELC` (default OFF): the exact Reference QUAD4
   flat-membrane operator for composite CQUAD4 — per-Gauss-point normal
   strains with the membrane-shear row sampled once at the element center,
   evaluated in the element (diagonal-bisector) frame with the
   frame-consistent laminate Cm (requires `JFEM_SOL105_PCOMP_SKEW_MEMBRANE`
   for the constitutive rotation). Identified 2026-07-17 by direct operator
-  matching against MATPRN KGG extractions: reproduces the Nastran membrane
+  matching against MATPRN KGG extractions: reproduces the Reference membrane
   block to 0.00% on parallelogram probes across skew 0–30 deg x aspect 1–5
   for both [0/90/0] and 9-ply quasi-isotropic laminates, and to 0.001–0.002%
   in the live assembly. This is the same selective-center operator the
   flat-isotropic exact membrane already used (for isotropic C the frame is
   irrelevant, which is why iso was already exact); it supersedes the Wilson
   incompatible-mode membrane and the anisotropic hourglass restabilization
-  for these elements. The previously believed "Nastran membrane = Wilson
+  for these elements. The previously believed "Reference membrane = Wilson
   bubbles" (2026-07-04, 1.6–2.3% match) was approximate; Wilson degrades to
   7–20% on skewed elements while this operator stays exact.
 
@@ -1379,7 +1524,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   rejected, and missing rows remain W-only. This prevents geometric tilt from
   being counted twice. A forced-`SNORM,20` warped twisted-beam holdout changes
   from `+66.55%` relative to the SNORM0 response to `+0.00513%`, landing within
-  `0.07581%` of the independent NAST705 response; manual congruence and rigid
+  `0.07581%` of the independent Reference response; manual congruence and rigid
   residuals are `2.501e-16` and `1.839e-16`. Same-deck SNORM-effect errors on
   the standalone ladder are at most `9.204e-4`
   percentage points over two independent folds and the 4/8/16 hemisphere
@@ -1408,7 +1553,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   relative error to `2.212e-5` (`0.0022%`).
 - The composite-skew investigation gates `JFEM_SOL105_PCOMP_SKEW_MEMBRANE` /
   `JFEM_SOL105_PCOMP_SKEW_BENDING` (default OFF; membrane Cm frame-consistency,
-  anisotropic membrane hourglass restabilization, Nastran-KDJJ composite Kg,
+  anisotropic membrane hourglass restabilization, Reference-KDJJ composite Kg,
   directional skew-bending zb law) now compute the membrane frame-consistency
   rotation objectively: the angle is the in-plane projected side-1-2 -> v1
   angle (`shell_material_rotation_from_g12`), replacing a `-atan(v1_y, v1_x)`
@@ -1426,12 +1571,12 @@ Versions follow [Semantic Versioning](https://semver.org/).
   (indefinite membrane block). Both gates remain default OFF.
 - The two composite-skew OPERATOR SWAPS under `JFEM_SOL105_PCOMP_SKEW_MEMBRANE`
   (Wilson membrane -> bilinear + anisotropic hourglass restabilization, and
-  legacy Kg -> Nastran-KDJJ composite kernel) are now scoped to genuinely
+  legacy Kg -> Reference-KDJJ composite kernel) are now scoped to genuinely
   skewed elements: corner-angle deviation >=
   `JFEM_SOL105_PCOMP_SKEW_MEMBRANE_MIN_DEG` (default 10.0, the first nonzero
   calibration knot band). Ungated they fired on every flat composite CQUAD4 —
   on the box guardrail that replaced the element-validated Wilson membrane
-  (Nastran's own rectangle membrane) and the ratio-1.00 legacy rectangle Kg
+  (Reference's own rectangle membrane) and the ratio-1.00 legacy rectangle Kg
   (with an element-mean resultant broadcast that erases per-GP stress
   gradients) on ~93% rectangular fleets, regressing a mild-skew box case from
   +0.36% to -13.0% (threshold sweep: 2 deg -5.1%, 10 deg -2.2%). Rectangles
@@ -1445,11 +1590,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - SOL105 flat isotropic (non-PCOMP) CQUAD4 geometric stiffness on skewed
-  elements now uses a Nastran-KDJJ-exact element kernel
-  (`geometric_stiffness_quad4_nastran_kdjj_iso`), gated by
-  `JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ` (default `all`: every flat isotropic
+  elements now uses a Reference-KDJJ-exact element kernel
+  (`geometric_stiffness_quad4_reference_kdjj_iso`), gated by
+  `JFEM_KG_QUAD4_ISO_REFERENCE_KDJJ` (default `all`: every flat isotropic
   non-PCOMP CQUAD4; `skew` restricts to corner-angle deviation >
-  `JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ_SKEW_MIN_DEG` (2.0°), `off` restores the
+  `JFEM_KG_QUAD4_ISO_REFERENCE_KDJJ_SKEW_MIN_DEG` (2.0°), `off` restores the
   legacy operator). The reference in-plane differential stiffness was identified
   entry-exactly from single-element MATPRN KDJJ extractions under pure uniform
   sigma_xx/yy/xy states: it is the component-wise transverse "string" rule
@@ -1473,40 +1618,40 @@ Versions follow [Semantic Versioning](https://semver.org/).
   isotropic-only skew law (`JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SKEW_LAW_ISO`, default
   true): the box-calibrated `JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SCALE=0.625`
   under-softens transverse shear on skewed isotropic elements, leaving the
-  element bending block 1 + 0.57·sin²(skew) over-stiff vs Nastran KGG (1.28×
+  element bending block 1 + 0.57·sin²(skew) over-stiff vs Reference KGG (1.28×
   at 45°). The law multiplies zb_dx/zb_dy by a piecewise-linear factor in the
   corner-angle deviation (measured knots 11.31/21.80/30.96/41.99° →
   1.024/1.091/1.194/1.369, calibrated by matching the uz diagonal of the
-  element K to Nastran KGG on the skew atomic family; flat extrapolation
+  element K to Reference KGG on the skew atomic family; flat extrapolation
   beyond). With the law the skew_45 bending diagonals match KGG exactly
   (ratio 1.000). Applied only for `is_iso && !is_pcomp` elements — identity on
   rectangles and inert on all-PCOMP models.
 - SOL105 MacNeal warp-eligibility is now raised for isotropic elements
-  (`JFEM_Q4_MACNEAL_WARP_TOL_ISO`, default 1.0). Element-level Nastran KGG
+  (`JFEM_Q4_MACNEAL_WARP_TOL_ISO`, default 1.0). Element-level Reference KGG
   extraction on the warp atomics showed the shared 1e-4 `macneal_warp_tol`
   gate flips mildly-warped isotropic PSHELL/MAT1 CQUAD4 elements off the
   MacNeal kernel onto the legacy MITC path, which over-stiffens them: at
   warp_ratio > 1e-4 the atomic_warp_0p05/0p5 mode-1 lambda jumps discontinuously
-  from -5.29% to +19.7% vs Nastran (bisected transition at warp_ratio ~1e-4;
-  the whole spectrum steps up), even though Nastran is warp-insensitive
+  from -5.29% to +19.7% vs Reference (bisected transition at warp_ratio ~1e-4;
+  the whole spectrum steps up), even though Reference is warp-insensitive
   (~34.29 at every warp level). Keeping isotropic elements on MacNeal restores
   the flat-case -5.29%. The bound is raised ONLY for genuinely isotropic
   (non-PCOMP) elements — the original 1e-4 threshold, tuned for PCOMP curved
-  routing (HTP_3wp_disp), is unchanged for PCOMP, so PCOMP element eligibility
-  and the HTP/box routing are byte-identical (the all-PCOMP box/tail-box
+  routing (tail-box bending case), is unchanged for PCOMP, so PCOMP element eligibility
+  and the tail-box/box routing are byte-identical (the all-PCOMP box/tail-box
   guardrail has zero non-PCOMP elements, verified inert). Env
   `JFEM_Q4_MACNEAL_WARP_TOL_ISO=1e-4` restores the previous shared threshold.
 - SOL105 high-skew MITC4-3D auto-gate (`JFEM_Q4_MITC4_3D_HIGH_SKEW_AUTO`) now
-  defaults **off** (previously on for SOL105/eigen). Element-level Nastran KGG
+  defaults **off** (previously on for SOL105/eigen). Element-level Reference KGG
   extraction showed the experimental `mitc4_3d` kernel this gate routes skewed
   non-PCOMP PSHELL/MAT1 elements into over-stiffens the transverse-shear (uz)
-  block 27-65x vs Nastran (atomic_skew_45: uz diag 37454/106720 vs Nastran
-  1368/1646), driving skew-atomic mode-1 lambda +15..+29% over Nastran; the
+  block 27-65x vs Reference (atomic_skew_45: uz diag 37454/106720 vs Reference
+  1368/1646), driving skew-atomic mode-1 lambda +15..+29% over Reference; the
   MacNeal RBF kernel the elements fall back to lands within -6..-10%
   (skew_20 +28.9% -> -6.4%, skew_30 +15.6% -> -9.7%, skew_45 +14.6% -> -6.9%).
   The gate requires `!is_pcomp` (allow_pcomp=false), so it fires on zero
   elements of the all-PCOMP box/tail-box guardrail assemblies -- verified
-  bit-identical (0 regressions) across the 49-case BOXES_LE+GAME sweep and by
+  bit-identical (0 regressions) across the 49-case box-model+validation sweep and by
   per-element kernel-selection diagnostics (`JFEM_K_DIAG_EID_CSV`). It only
   ever routed non-PCOMP skewed isotropic elements into the over-stiff kernel.
   Env `JFEM_Q4_MITC4_3D_HIGH_SKEW_AUTO=true` restores the previous route.
@@ -1566,7 +1711,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Added `JFEM_Q4_FLAT_TOL_REL` (default `1e-6`, legacy-strict, behavior
   unchanged): the relative facet-flatness classification tolerance is now
   configurable.  Real aerodynamic meshes carry microscopic facet warp
-  (HTP-class: warp/L median `1.5e-5`, max `1.6e-3`) that the reference
+  (tail-box-class: warp/L median `1.5e-5`, max `1.6e-3`) that the reference
   CQUAD4 treats as flat; the strict test silently disabled the identified
   flat-element stack (cross/shear membrane weights, Kg recovery
   consistency) on such elements.  Applied consistently at the static,
@@ -1574,7 +1719,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 - SPCD enforced-displacement support: SPCD bulk cards are parsed and
-  applied in the static solve with Nastran semantics (selected by the
+  applied in the static solve with Reference semantics (selected by the
   LOAD set; the dof must also belong to the SPC set; equivalent-load
   reduction `F -= K[:,s]*u_s` with the prescribed values scattered into
   the displacement vector after the solve, so downstream stress recovery
@@ -1637,7 +1782,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   square) to `+335%` (aspect 8) on the in-plane hourglass channel.  The
   reference stiffness is one physical operator independent of solution
   sequence, so the SOL105 path can now use the same verified projection.
-- Added `JFEM_Q4_DRILL_LUMPED_NASTRAN` (default OFF): reference-measured
+- Added `JFEM_Q4_DRILL_LUMPED_REFERENCE` (default OFF): reference-measured
   drilling stiffness.  Single-element extraction shows the reference CQUAD4
   drilling block is a pure lumped nodal spring `K6ROT * 1e-6 * A66 * Area`
   per theta-z with no inter-node coupling (laminate ratios match `A66/G12`
@@ -1660,15 +1805,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
   enrichment on the static/pencil assembly path, complementing the existing
   eigen-path control.  Needed to run the reference-identified element
   configuration end to end.
-- Added `JFEM_Q4_NASTRAN_ASPECT_BAND` (default OFF): reference-solver-
+- Added `JFEM_Q4_REFERENCE_ASPECT_BAND` (default OFF): reference-solver-
   measured mid-aspect bending softening band for the CQUAD4.  Fine
   single-element sweeps (aspect 1.0..8.0, four laminates) show the
-  reference bending block is uniformly softer than the Nastran-matched JFEM
+  reference bending block is uniformly softer than the Reference-matched JFEM
   configuration inside a finite band (peaks `1.10` at aspect 2.5 and
   `~1.11` at 4.0, piecewise linear, laminate-independent, exactly `1.0`
   outside `1.5..4.52`).  The switch multiplies `Cb` by the inverse band
   factor (scaling bending and the MacNeal RBF shear stiffness uniformly).
-  With the full Nastran-matched v1 set enabled, the bending-block MEDIAN
+  With the full Reference-matched v1 set enabled, the bending-block MEDIAN
   mode ratio vs the reference is `1.00000` across the whole extraction
   library (~50 reference matrices, aspects 1.0-4.5, cross-ply / 9-ply /
   11-ply / heavy-pm45); residual per-mode spread is within `-1.6%..+4%`
@@ -1729,9 +1874,9 @@ Versions follow [Semantic Versioning](https://semver.org/).
   `w=1.19` rule improves first-four parity to `22/56` rows within `2%` (max
   `6.5522%`, versus `21/56` / `7.8404%` for the previous frontier) but the
   two corrections overlap on the same strips and the `w` weight needs joint
-  re-tuning.  GAME-pack production-driver check: uniform 9-ply launch models
-  bit-identical, HTP_3wp first root improves `+1.99% -> +0.16%`,
-  VTP_3wp first root shifts `-0.18% -> -0.97%` (in spec).
+  re-tuning.  validation-pack production-driver check: uniform 9-ply launch models
+  bit-identical, tail-box bending case first root improves `+1.99% -> +0.16%`,
+  curved-shell bending case first root shifts `-0.18% -> -0.97%` (in spec).
 - Added default-off aggregate model-descriptor gates for the SOL105 CQUAD4
   local and square-local descriptor-gated geometric-stiffness split selectors.
   The gates use only whole-model geometry/material/laminate statistics such as
@@ -1751,7 +1896,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   element geometry/material filters; they do not use case names, PID/EID,
   groups, external calibration tables, or formulation selection from internal
   stress state. Private guard
-  `FRONTIER_SIGNEDMAG_HTP_DUAL_MODEL_FINAL_20260702_01` achieved `14/14`
+  `paired-model regression run` achieved `14/14`
   comparable BOXES large-frontier first-root rows within `2%`, mean absolute
   error `0.8231%`, median absolute error `0.6800%`, and max `1.9233%`.
 - Added a default-off descriptor-gated SOL105 bounded signed-magnitude
@@ -1764,7 +1909,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   BOXES large-case frontier to `12/14` comparable first-root rows within `2%`,
   mean absolute error `1.2032%`, median absolute error `0.8809%`, and max
   `3.7829%`. MS and MS_Mfg rows are now in spec; the remaining frontier
-  blocker is the HTP pair at `-2.5292%` and `+3.7829%`.
+  blocker is the tail-box pair at `-2.5292%` and `+3.7829%`.
 - Tightened the existing SOL105 high-aspect `+/-45` PCOMP `Kg` scale gate with
   additional `+/-90` ply-fraction and ply-count limits so the correction is
   selected by geometry/material descriptors rather than by model identity.
@@ -1811,9 +1956,9 @@ Versions follow [Semantic Versioning](https://semver.org/).
   laminate descriptors. The N4 compact shear row is `+0.0472%` in
   `ELEMENTARY_CORE_AFTER_HARNESS_DEFAULT_SYNC_20260630_01`.
 - Verified the promoted defaults on the optimized large comparable SOL105
-  guard in two slices: `LARGE_GUARD_NO_VTP_OPT_AFTER_DESCRIPTOR_PROMOTION_20260630_01`
+  guard in two slices: `large-model regression slice`
   achieved `10/10` rows within `2%`, mean absolute error `0.8046%`, max
-  `1.9645%`; `GAME_VTP_OPT_AFTER_DESCRIPTOR_PROMOTION_20260630_01` achieved
+  `1.9645%`; `curved-shell regression slice` achieved
   `2/2` rows within `2%`, mean absolute error `1.1931%`, max `1.6117%`.
 - Retuned the existing descriptor-gated SOL105 isotropic PSHELL flat-square
   `Kg` scale from `1.03` to `0.947`. The gate remains generic and narrow:
@@ -1823,7 +1968,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   `-8.05%` first-root bias on flat square PSHELL probes while avoiding the
   broader skew/warp cases that need separate operator work.
 - Added default-off descriptor-gated SOL105 CQUAD4 shell `Kg` compact
-  operator hooks for NAST705/N4 formulation discovery, including local
+  operator hooks for Reference/N4 formulation discovery, including local
   shear-extra and `Nyy`/`v-w` coupling terms inside the existing
   `JFEM_KG_SHELL_DESCRIPTOR_LOCAL_TRANS_SPLIT` branch. Added an independent
   square-laminate descriptor band controlled by
@@ -1833,7 +1978,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   opt-in and use only element geometry, thickness, ply count, ply-angle
   fractions, and Nemeth-style laminate descriptors. Private verification
   `COMBINED_LOWWARP_SQUARE_MIXED_TIGHT_ASPECT_20260630_01` achieved `20/20`
-  comparable SOL105 first-root rows within `2%` of Nastran, mean absolute
+  comparable SOL105 first-root rows within `2%` of Reference, mean absolute
   error `0.7469%`, worst `1.9645%`.
 - Added default-off experimental SOL105 CQUAD4 shell `Kg` shear-axis operator
   hooks for private formulation discovery. The descriptor-gated coefficients
@@ -1861,14 +2006,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
   cover per-case run manifests, solver output directories, and batch summary
   files, avoiding false failed rows in deeply nested validation campaigns.
 - Added a generic SOL105 model-descriptor selector for split static/eigen
-  stiffness, HTP-like PCOMP shell `Kg` component scaling, and thick
+  stiffness, tail-box-like PCOMP shell `Kg` component scaling, and thick
   high-aspect PCOMP shell `Kg` scaling. The default rules use only element
   geometry, thickness, ply-angle fractions, ply count, and Nemeth-style
   laminate descriptors; they avoid case names, IDs, groups, external
   calibration tables, and internal stress-state formulation gates. The thick
-  branch recovers the BOXES HTP574 guard as a comparable SOL105 case while
-  leaving the thinner HTP Launch branch on the existing component rule.
-- Promoted the HTP-like branch SOL105 candidate made of descriptor-only PCOMP
+  branch recovers the BOXES tail-box comparison guard as a comparable SOL105 case while
+  leaving the thinner tail-box Launch branch on the existing component rule.
+- Promoted the tail-box-like branch SOL105 candidate made of descriptor-only PCOMP
   `Kg` refinements for 13-ply and 11-ply strip laminates plus a balanced
   9-ply mid-aspect top-10 localization window. The candidate is based on
   element geometry, thickness ratio, ply count, ply-angle fractions, and modal
@@ -1895,7 +2040,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   operator hooks for private formulation discovery.  The new hooks allow
   descriptor-gated local translational-gradient scaling controlled by
   `JFEM_KG_SHELL_DESCRIPTOR_LOCAL_TRANS_SPLIT`.  Defaults remain unchanged;
-  the private NAST705/N4 scans show the mechanism is useful evidence but not
+  the private Reference/N4 scans show the mechanism is useful evidence but not
   yet a production promotion candidate.
 - Fixed the public validation-suite lazy `OpenJFEM` loader for Julia 1.12 so
   the documented `julia --project=.. run_public_suite.jl` command runs without
@@ -1924,19 +2069,19 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Promoted the FSLoad mode-family SOL105 PCOMP `Kg` refinement as generic
   Nemeth descriptor bands 7 and 8, plus a second descriptor-only physical
   local-buckling keep window. The promoted candidate
-  `FSDUAL_GUARD23C` keeps `12/12` large comparable GAME/BOXES_LE first roots
+  `FSDUAL_GUARD23C` keeps `12/12` large comparable validation/box-model first roots
   within `2%`, improves mean absolute error to `0.8694%`, and makes the
-  FSLoadswLE iter 532 `511002` first mode the compact Nastran-like strip,
+  FSLoadswLE iter 532 `511002` first mode the compact Reference-like strip,
   using only element geometry, thickness, laminate/Nemeth descriptors, and
   ply-angle fractions.
 - Promoted the generic SOL105 PCOMP `Kg` selector defaults for the large
   comparable guard set. The confirmed production guard
-  `PROD_LG_20260623_02` has `12/12` comparable GAME/BOXES_LE first roots
-  within `2%` of Nastran, with mean absolute error `1.0631%` and worst error
+  `PROD_LG_20260623_02` has `12/12` comparable validation/box-model first roots
+  within `2%` of Reference, with mean absolute error `1.0631%` and worst error
   `1.9645%`, using only geometry, thickness, material/laminate, and
   Nemeth-style laminate descriptors.
 - Added an opt-in experimental SOL105 CQUAD4 `Kg` shape-basis synthesis branch
-  (`JFEM_SOL105_KG_SHAPE11_SYNTH=true`) reconstructed from elementary Nastran
+  (`JFEM_SOL105_KG_SHAPE11_SYNTH=true`) reconstructed from elementary Reference
   MATPRN `KDJJ` triplets using geometry-only `shape11` coefficients and an
   optional laminate-invariant `Nxx` law. The branch is disabled by default:
   private guard sweeps showed sub-1% elementary translational-operator fits but
@@ -1950,7 +2095,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   principled step.
 - Added an opt-in experimental SOL105 warped CQUAD4 `Kg` matrix-law synthesis
   branch (`JFEM_SOL105_KG_WARPED_MATRIX_SYNTH=true`) reconstructed from
-  elementary Nastran MATPRN `KDJJ` triplets. The law is based on element
+  elementary Reference MATPRN `KDJJ` triplets. The law is based on element
   geometry plus laminate bending descriptors, including Nemeth-style
   `alpha`, `beta`, `gamma`, and `delta`, and remains disabled by default:
   private large-guard testing showed excellent elementary operator fits but
@@ -1958,7 +2103,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Added a generic SOL105 shell `Kg` model-descriptor scale for all-PCOMP,
   moderate-aspect panels with a high-aspect tail and low warp. The selector is
   based only on aggregate element geometry/thickness/material descriptors and
-  brought the FSLoadswLE iter 532 BOXES_LE guard first roots inside 2% without
+  brought the FSLoadswLE iter 532 box-model guard first roots inside 2% without
   using case names, IDs, groups, or stress-state discriminators.
 - Added a descriptor-gated top-10 elastic-energy patch check to the SOL105
   localization filter. The default remains generic: compact patch modes are
@@ -1990,7 +2135,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   compare `K`/`Kg` on the exact free-DOF set used by the eigensolver without
   changing default user runs.
 - Added an opt-in experimental SOL105 flat rectangular CQUAD4 `Kg` synthesis
-  branch (`JFEM_SOL105_KG_RECT_SYNTH=true`) reconstructed from Nastran MATPRN
+  branch (`JFEM_SOL105_KG_RECT_SYNTH=true`) reconstructed from Reference MATPRN
   operator triplets as a geometry-only `q`, `1/q`, and constant metric law.
   The branch is disabled by default while it is validated on larger meshes.
   Added neutral rectangular-only `Nxx`, `Nyy`, and `Nxy` component probes
@@ -1998,7 +2143,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   `..._NXY_SCALE`) for private operator-sensitivity campaigns.
 - Added an opt-in experimental SOL105 flat rectangular PCOMP CQUAD4 elastic
   `K` synthesis branch (`JFEM_SOL105_K_RECT_SYNTH=true`) reconstructed from
-  Nastran MATPRN `KGG` operators as a geometry/material law using `Cm`, `Cb`,
+  Reference MATPRN `KGG` operators as a geometry/material law using `Cm`, `Cb`,
   `Cs`, `q^3`, `q^2`, `q`, `1`, `1/q`, `1/q^2`, and `1/q^3`. The branch
   affects only the separate SOL105 eigen-stiffness path and remains disabled
   by default. Added `JFEM_SOL105_K_RECT_SYNTH_BLEND` so the experimental
@@ -2043,7 +2188,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Changed the SOL105 non-flat anisotropic PCOMP CQUAD4 `Kg` selector so the
   production default keeps the full principal-transverse translational
   differential-stiffness operator instead of forcing a normal-only branch.
-  Matrix-level Nastran KDJJ probes show the non-flat composite operator carries
+  Matrix-level Reference KDJJ probes show the non-flat composite operator carries
   in-plane translational coupling; the old normal-only branch is now an
   explicit research override.
 - Fixed the SOL105 CQUAD4 static/eigen kernel plumbing so
@@ -2094,14 +2239,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Expanded the public installation documentation so new users can install
   Julia packages and build the local sysimage by running one platform-specific
   setup file from `JFEM_installation/`.
-- Updated workspace-facing public documentation references for the renamed
-  private areas: code-development state now lives under
-  `02_PROJECT_DEVELOPMENT/02.2_CODE_DEVELOPMENT/`, while in-progress document sources and publication
-  staging live under `02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/`.
-- Updated public documentation guidance to the new private-document workspace
-  layout: reviewed public PDFs live under
-  `02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/PUBLIC_PDFS/`, while editable document sources
-  live under `02_PROJECT_DEVELOPMENT/02.5_PROJECT_DOCUMENTS/DOCUMENTS_IN_PROGRESS/`.
+- Separated private development state, editable document sources and reviewed
+  publication PDFs in the documentation workflow.
 - Refreshed `Reference_documentation/` as a PDF-only folder populated from the
   curated public PDF drop; presentations and Markdown side files are no longer
   published there.
@@ -2116,9 +2255,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Moved the top-level `tools/` tree out of the GitHub-published repository.
   User-facing runtime entry points now live under
   `JFEM_installation/julia_tools/`, while non-public development, guard, and
-  validation helper scripts are kept in the
-  private development workspace under
-  `02_PROJECT_DEVELOPMENT/02.2_CODE_DEVELOPMENT/PRIVATE_CODE_TOOLS/OpenJFEM_tools_private_2026_06_12/`.
+  validation helper scripts are kept in the private development workspace.
   The public validation suite remains under `validation/`.
 - Grouped all Julia helper scripts in `JFEM_installation/julia_tools/` so the
   installation folder keeps only launchers, assets, and documentation at the
@@ -2512,13 +2649,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Top-level `validation/` folder prepared as the paper-facing public
   validation set. It contains only public or permissively licensed cases
   (MacNeal-Harder, classical buckling, MYSTRAN cross-checks, and CRM/uCRM),
-  explicitly excludes GAME/HTP/VTP private cases, and keeps a compatibility
+  explicitly excludes validation/tail-box/curved-shell private cases, and keeps a compatibility
   wrapper under `tools/validation_suite/`. The folder now includes
   `CASE_INVENTORY.csv`, `PAPER_VALIDATION_SUMMARY.md`, and convenience launchers.
 - SOL 105 buckling: optional **load-aware shear kernel** (opt-in via
   `JFEM_SOL105_LOAD_AWARE_KERNEL`, default off). On warped/curved PCOMP elements
   under shear preload, JFEM's default MITC4+phi2 transverse shear diverges from
-  MSC Nastran's released CQUAD4 (flat MacNeal RBF) by up to ~46% on the buckling
+  Reference's released CQUAD4 (flat MacNeal RBF) by up to ~46% on the buckling
   eigenvalue, while compression stays ~1%. The discriminator is a conjunction —
   an element is non-flat AND shear-dominated
   (`|Nxy|/(|Nx|+|Ny|+|Nxy|) >= JFEM_SOL105_LOAD_AWARE_SHEAR_RATIO_MIN`, default
@@ -2527,8 +2664,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
   static: solve, classify shear-dominated elements from the static field,
   reassemble the static stiffness forcing those elements onto the flat MacNeal
   kernel, and re-solve. Thresholds are probe-population separation values
-  (a documented heuristic, not benchmark-fitted; the GAME decks are held out).
-  Validated: the strongest warped-shear probe goes 46.2% → 2.3% vs Nastran with
+  (a documented heuristic, not benchmark-fitted; the validation decks are held out).
+  Validated: the strongest warped-shear probe goes 46.2% → 2.3% vs Reference with
   zero regressions across the 23-deck probe set. Flag OFF is byte-identical to
   prior behavior. Known limitation: combined-load / lower-warp shear cases are
   not yet covered (the per-element shear metric is entangled with the kernel it
@@ -2567,8 +2704,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
   geometry/material-only `Kg` membrane normalization
   (`JFEM_SOL105_GEOM_PSHELL_ISO_FLAT_SQUARE_KG_*`, default scale `1.03`).
   The Timoshenko plate public row moves from 3.23% high to 0.22% relative
-  error, while the private SOL105 guard remains inside the 2% target: NAST705
-  atomic 25/25, NAST705 patch 13/13, and GAME 10/10 trusted rows.
+  error, while the private SOL105 guard remains inside the 2% target: Reference
+  atomic 25/25, Reference patch 13/13, and validation 10/10 trusted rows.
 - Public validation suite CSV output now quotes fields containing commas,
   quotes, or newlines, so solver error notes remain parseable.
 - Public validation suite analytical-reference lookup now wraps both runtime
@@ -2586,8 +2723,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
   through a Windows long-path helper when paths approach the classic
   260-character limit. Long SOL105 validation case names could solve
   successfully but fail at `*.BUCKLING.JSON` export with `ENOENT`; a
-  409-character smoke path and the 13-case NAST705 patch rerun now pass.
-- SOL 105 GAME parity: the spectral-gap buckling cluster filter is now opt-in
+  409-character smoke path and the 13-case Reference patch rerun now pass.
+- SOL 105 validation parity: the spectral-gap buckling cluster filter is now opt-in
   (`JFEM_BUCKLING_CLUSTER_FILTER=false` by default), so broad physical low-mode
   bands remain available to MAC/Rayleigh comparison. A generic orthotropic PCOMP
   geometric-stiffness scale was added for thick high-aspect elements
@@ -2644,8 +2781,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
     and fell through to a dense `lu(Matrix(M))` fallback — densifying the
     26k–60k+ sparse pencil into tens of GB and effectively hanging large-model
     SOL 105 runs. The dense fallback is removed; the sparse path is the right
-    algorithm and is fast (≈1.5 s per shift at 60k DOF). The GAME aircraft-tail
-    decks (VTP 27k DOF, HTP 61k DOF ~42 s end-to-end) now complete with the
+    algorithm and is fast (≈1.5 s per shift at 60k DOF). The validation aircraft-tail
+    decks (curved-shell 27k DOF, tail-box 61k DOF ~42 s end-to-end) now complete with the
     diagnostic on; both previously stalled. The size valve
     `JFEM_SOL105_STURM_MAX_DOF` is retained but its default is raised to
     **200000** (effectively off for realistic models; 0 = never skip).
@@ -2718,7 +2855,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   user-facing diagnostics from MAT1-only wording to material-route wording now
   that the route executes both MAT1 and MAT8 material design relations.
 - `CQUADR` shell cards are now accepted directly and are always solved through
-  the TACS formulation. When the requested/default backend is `nastran_parity`,
+  the TACS formulation. When the requested/default backend is `reference_parity`,
   `solve_model(model)` forces the actual route to `tacs_formulation` and
   records `backend_forced_by = "CQUADR"`.
 - Expanded the `CQUADR` TACS validation envelope beyond the initial SOL101
@@ -2749,7 +2886,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   `auto`, and SOL105 static preload K enables Wilson membrane modes only for
   simple-compression loads accepted by the direct-FORCE classifier. Broad
   SOL101 membrane transfer and `macneal_all` remain experimental because they
-  regressed shear/mixed NAST705 probes and the GAME guard, respectively. The
+  regressed shear/mixed Reference probes and the validation guard, respectively. The
   current TACS-formulation SOL105 route pins the auto-load static reassembly
   off until it has a native load-classified reassembly path.
 
@@ -2852,7 +2989,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Exported static, modal/buckling, nonlinear, and SOL200-lite optimization
   JSON payloads now carry solver backend metadata when the solve result
   provides it, making manifest and worker outputs self-describing across
-  `nastran_parity` and `tacs_formulation` runs.
+  `reference_parity` and `tacs_formulation` runs.
 - Extended `tools/testing/tacs_sol101_fd_check.jl` with PCOMP ply-level
   design-gradient regression checks. The generated suite now verifies
   symmetric PCOMP ply thickness and unsymmetric off-axis ply thickness/angle
@@ -2860,11 +2997,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
   response checks.
 - Backend selection scaffold and first TACS-formulation vertical slice:
   public backend types, `JFEM_BACKEND`/model/manifest selection, explicit
-  `nastran_parity` default metadata, plus a restricted residual-first
+  `reference_parity` default metadata, plus a restricted residual-first
   `tacs_formulation` SOL 101 path for CQUAD4 + PSHELL + MAT1 models.
 - Added `tools/testing/backend_default_check.jl` to guard the backend
   selection contract: blank/default/parity aliases normalize to
-  `nastran_parity`, `JFEM_BACKEND=tacs_formulation` remains opt-in, explicit
+  `reference_parity`, `JFEM_BACKEND=tacs_formulation` remains opt-in, explicit
   model backend selection overrides the environment, and default metadata
   stays on the existing calibrated JFEM formulation.
 - Added `tools/testing/backend_manifest_check.jl` to guard JSON batch
@@ -2873,11 +3010,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
   exported static JSON preserve the selected backend.
 - Added `tools/testing/backend_sol200_shared_route_check.jl` to guard the
   Phase 3 SOL200 contract. The generated deck runs once through the implicit
-  `nastran_parity` default and once through `tacs_formulation`, proving the
+  `reference_parity` default and once through `tacs_formulation`, proving the
   same SOL200-lite route surface dispatches both backend forward solves.
 - Added `tools/testing/backend_parity_smoke_check.jl` to guard that bundled
   SOL101, SOL103, and SOL105 production-path examples still solve through the
-  implicit `nastran_parity` backend and report the existing calibrated JFEM
+  implicit `reference_parity` backend and report the existing calibrated JFEM
   formulation.
 - Added `tools/testing/tacs_backend_roadmap_audit.jl`, a static roadmap
   closure guard that maps the documented Phase 0-3 TACS backend requirements
@@ -3032,8 +3169,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   for MAT2 bending under SOL 101). New tracking array `q4_pshell_mat2`.
 
 ### Added (continued)
-- `Reference_documentation/` now publishes three additional PDFs sourced
-  from `02_PROJECT_DEVELOPMENT/03_DOCUMENTS_IN_PROGRESS/`:
+- `Reference_documentation/` added three reviewed PDFs:
   `jfem_openludwig_overview.pdf`, `agentic_coding_lessons.pdf`,
   `gpu_workstation_pitch.pdf` (plus a duplicate
   `agentic_coding_lessons copy.pdf`).

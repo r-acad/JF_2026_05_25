@@ -1,0 +1,14 @@
+'use strict';
+const assert=require('node:assert/strict'),W=require('../web/workspace.js'),C=require('../web/study_comments.js');
+const t1='2026-10-13T09:00:00.000Z',t2='2026-10-13T09:30:00.000Z';
+const first=W.notesForSave(null,'Initial structure',t1),second=W.notesForSave(first,'Revise ribs.\nCompare stiffness.',t2);
+assert.deepEqual(first,{text:'Initial structure',history:[{text:'Initial structure',saved_at:t1}]});
+assert.equal(second.history.length,2);assert.equal(second.history[1].saved_at,t2);
+assert.deepEqual(W.notesForSave(second,second.text,t2),second,'Repeated saves must not duplicate comments');
+const file={format:W.FORMAT,version:W.VERSION,notes:second,saved_at:t2,references:[{data_base64:'preview must never decode this invalid geometry'}]};
+assert.deepEqual(C.metadata(JSON.stringify(file)),{notes:second,savedAt:t2,createdAt:null});
+assert.deepEqual(C.metadata(JSON.stringify({format:W.FORMAT,version:W.VERSION})).notes,{text:'',history:[]});
+assert.throws(()=>C.metadata('{broken'),SyntaxError);assert.throws(()=>C.metadata('{}'),/valid/);
+assert.throws(()=>C.metadata(JSON.stringify({...file,notes:{text:'broken',history:[{text:'unsafe timestamp',saved_at:'yesterday'}]}})),/timestamp/);
+const markup='<img src=x onerror=alert(1)>\nUnicode: Δ';assert.equal(C.metadata(JSON.stringify({...file,notes:W.notesForSave(second,markup,t2)})).notes.history.at(-1).text,markup);
+console.log('Study comments: append-only metadata, duplicate-free repeat saves, legacy files, validation and geometry-free preview passed.');

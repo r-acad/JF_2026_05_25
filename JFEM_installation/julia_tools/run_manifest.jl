@@ -1,3 +1,8 @@
+# Check dependencies before JSON/OpenJFEM imports, including direct worker runs.
+if !isdefined(@__MODULE__,:JFEMEnvironmentSetup)
+    include(joinpath(@__DIR__,"environment_setup.jl"))
+end
+JFEMEnvironmentSetup.ensure_environment(normpath(joinpath(@__DIR__,"..","..")))
 using Dates
 using JSON
 using SHA

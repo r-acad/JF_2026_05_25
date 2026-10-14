@@ -1,6 +1,6 @@
 # ModelBuilder.jl
-# Functions for building the finite element model from parsed Nastran cards.
-# This file is included at the top level and has access to the NastranParser module.
+# Functions for building the finite element model from parsed Reference cards.
+# This file is included at the top level and has access to the ReferenceParser module.
 #
 # Contains:
 #   transform_geometry!(model) - Transforms grid coordinates from local coordinate systems
@@ -77,7 +77,7 @@ the laminate compliance before inversion, preserving reciprocal energy.
 Three Gauss points integrate the quartic energy exactly. A homogeneous
 layer reduces to (5/6)*h*Qshear.
 
-This convention matches MSC Nastran 70.5, independently checked on symmetric
+This convention matches Reference 70.5, independently checked on symmetric
 and unsymmetric laminates at two cell sizes. The later 2021.4 Reference Guide
 (Transverse Shear Theory, equations 4-8--4-13) describes a different convention:
 zero-Poisson bending moduli and symmetrization after the stiffness inversion.
@@ -163,7 +163,7 @@ function _coordinate_point_to_basic(cord, point)
         r, theta, z = x
         x = [r * cosd(theta), r * sind(theta), z]
     elseif ctype == "SPHERICAL"
-        # Nastran theta is measured from +Z; phi is the azimuth from +X.
+        # Reference theta is measured from +Z; phi is the azimuth from +X.
         r, theta, phi = x
         x = [r * sind(theta) * cosd(phi), r * sind(theta) * sind(phi), r * cosd(theta)]
     elseif ctype != "RECTANGULAR"
@@ -212,7 +212,7 @@ function resolve_nested_coords!(model)
             get(cord, "RID", 0) == 0 || throw(ArgumentError("Coordinate system $cid_str lacks raw defining points for its RID"))
             A = cord["Origin"]; B = A + cord["W"]; C = A + cord["U"]
         end
-        A, u, v, w = NastranParser._coordinate_frame(A, B, C, cid_str)
+        A, u, v, w = ReferenceParser._coordinate_frame(A, B, C, cid_str)
         cord["Origin"] = A
         cord["U"] = u; cord["V"] = v; cord["W"] = w
         delete!(active, cid_str)
@@ -515,61 +515,61 @@ function build_model(cards, cc)
     println("[" * Dates.format(Dates.now(), "HH:MM:SS") * "] Constructing Model Data...")
 
     # Parse PBARL and PBAR, then merge into unified PBARLs dict
-    pbarls = haskey(cards,"PBARL") ? NastranParser.extract_pbarl(cards["PBARL"]) : Dict()
-    pbars  = haskey(cards,"PBAR")  ? NastranParser.extract_pbar(cards["PBAR"])   : Dict()
+    pbarls = haskey(cards,"PBARL") ? ReferenceParser.extract_pbarl(cards["PBARL"]) : Dict()
+    pbars  = haskey(cards,"PBAR")  ? ReferenceParser.extract_pbar(cards["PBAR"])   : Dict()
     # Also handle PBAR* (long-field PBAR) - process_cards stores these under "PBAR*"
     if haskey(cards, "PBAR*")
-        pbars_long = NastranParser.extract_pbar(cards["PBAR*"])
+        pbars_long = ReferenceParser.extract_pbar(cards["PBAR*"])
         merge!(pbars, pbars_long)
     end
     # Merge PBAR into PBARLs (PBAR takes precedence if same PID)
     merged_bars = merge(pbarls, pbars)
 
     # Parse PBEAM/PBEAML and merge into unified bar properties
-    pbeams = haskey(cards,"PBEAM") ? NastranParser.extract_pbeam(cards["PBEAM"]) : Dict()
+    pbeams = haskey(cards,"PBEAM") ? ReferenceParser.extract_pbeam(cards["PBEAM"]) : Dict()
     if haskey(cards, "PBEAM*")
-        merge!(pbeams, NastranParser.extract_pbeam(cards["PBEAM*"]))
+        merge!(pbeams, ReferenceParser.extract_pbeam(cards["PBEAM*"]))
     end
     merge!(merged_bars, pbeams)
-    pbeamls = haskey(cards,"PBEAML") ? NastranParser.extract_pbeaml(cards["PBEAML"]) : Dict()
+    pbeamls = haskey(cards,"PBEAML") ? ReferenceParser.extract_pbeaml(cards["PBEAML"]) : Dict()
     merge!(merged_bars, pbeamls)
 
     # Parse PLOAD2 and merge with PLOAD4
-    pload4s = haskey(cards,"PLOAD4") ? NastranParser.extract_pload4(cards["PLOAD4"]) : []
+    pload4s = haskey(cards,"PLOAD4") ? ReferenceParser.extract_pload4(cards["PLOAD4"]) : []
     if haskey(cards, "PLOAD2")
-        pload2s = NastranParser.extract_pload2(cards["PLOAD2"])
+        pload2s = ReferenceParser.extract_pload2(cards["PLOAD2"])
         append!(pload4s, pload2s)
     end
 
     # Parse SPC (non-SPC1) and merge with SPC1
-    spc1s = haskey(cards,"SPC1") ? NastranParser.extract_spc1(cards["SPC1"]) : []
+    spc1s = haskey(cards,"SPC1") ? ReferenceParser.extract_spc1(cards["SPC1"]) : []
     if haskey(cards, "SPC")
-        spcs = NastranParser.extract_spc(cards["SPC"])
+        spcs = ReferenceParser.extract_spc(cards["SPC"])
         append!(spc1s, spcs)
     end
 
     # Parse PROD properties
-    prods = haskey(cards,"PROD") ? NastranParser.extract_prod(cards["PROD"]) : Dict()
+    prods = haskey(cards,"PROD") ? ReferenceParser.extract_prod(cards["PROD"]) : Dict()
 
     # Parse MAT8, MAT2 and merge with MAT1
-    mats = haskey(cards,"MAT1") ? NastranParser.extract_mats(cards["MAT1"]) : Dict()
+    mats = haskey(cards,"MAT1") ? ReferenceParser.extract_mats(cards["MAT1"]) : Dict()
     if haskey(cards, "MAT8")
-        mat8s = NastranParser.extract_mat8(cards["MAT8"])
+        mat8s = ReferenceParser.extract_mat8(cards["MAT8"])
         merge!(mats, mat8s)
     end
     if haskey(cards, "MAT2")
-        mat2s = NastranParser.extract_mat2(cards["MAT2"])
+        mat2s = ReferenceParser.extract_mat2(cards["MAT2"])
         merge!(mats, mat2s)
     end
 
     # Parse PELAS properties
-    pelases = haskey(cards,"PELAS") ? NastranParser.extract_pelas(cards["PELAS"]) : Dict()
+    pelases = haskey(cards,"PELAS") ? ReferenceParser.extract_pelas(cards["PELAS"]) : Dict()
 
     # Parse PCOMP and merge with PSHELL
     # PCOMP uses proper CLT (Classical Laminate Theory) to compute full ABD matrices
-    pshells = haskey(cards,"PSHELL") ? NastranParser.extract_props_shell(cards["PSHELL"]) : Dict()
+    pshells = haskey(cards,"PSHELL") ? ReferenceParser.extract_props_shell(cards["PSHELL"]) : Dict()
     if haskey(cards, "PCOMP")
-        pcomps = NastranParser.extract_pcomp(cards["PCOMP"])
+        pcomps = ReferenceParser.extract_pcomp(cards["PCOMP"])
         for (pid, pc) in pcomps
             if isempty(pc["PLIES"]); continue; end
             total_t = pc["T"]
@@ -690,7 +690,7 @@ function build_model(cards, cc)
 
     # Parse PSHEAR and create shear-only shell properties
     if haskey(cards, "PSHEAR")
-        pshear_raw = NastranParser.extract_pshear(cards["PSHEAR"])
+        pshear_raw = ReferenceParser.extract_pshear(cards["PSHEAR"])
         for (pid, ps) in pshear_raw
             mid = string(ps["MID"])
             if !haskey(mats, mid); continue; end
@@ -714,8 +714,8 @@ function build_model(cards, cc)
     end
 
     # Parse RBAR and convert to RBE2-equivalent constraints
-    rbars = haskey(cards,"RBAR") ? NastranParser.extract_rbar(cards["RBAR"]) : Dict()
-    rbe2s_base = haskey(cards,"RBE2") ? NastranParser.extract_rbe2(cards["RBE2"]) : Dict()
+    rbars = haskey(cards,"RBAR") ? ReferenceParser.extract_rbar(cards["RBAR"]) : Dict()
+    rbe2s_base = haskey(cards,"RBE2") ? ReferenceParser.extract_rbe2(cards["RBE2"]) : Dict()
     for (rid, rbar) in rbars
         # Determine master/slave: node with independent DOFs (CN) is master
         cna = rbar["CNA"]; cnb = rbar["CNB"]
@@ -732,83 +732,83 @@ function build_model(cards, cc)
         rbe2s_base[rid] = Dict("ID"=>rbar["ID"], "GN"=>master, "CM"=>cm, "GM"=>[slave])
     end
 
-    grdset = haskey(cards, "GRDSET") ? NastranParser.extract_grdset(cards["GRDSET"]) : Dict{String,Any}()
+    grdset = haskey(cards, "GRDSET") ? ReferenceParser.extract_grdset(cards["GRDSET"]) : Dict{String,Any}()
 
     # Entity dictionaries intentionally mix IDs, vectors, matrices and strings.
     # An explicit value type avoids repeated widening/copying while Julia's
     # generic Dict constructor discovers those heterogeneous values.
     model = Dict{String,Any}(
         "CASE_CONTROL" => cc,
-        "GRIDs"       => haskey(cards,"GRID")   ? NastranParser.extract_grid(cards["GRID"]; grdset=grdset) : Dict(),
-        "CORDs"       => merge(haskey(cards,"CORD2R") ? NastranParser.extract_coords(cards["CORD2R"]; coord_type="RECTANGULAR") : Dict(),
-                               haskey(cards,"CORD1R") ? NastranParser.extract_coords1(cards["CORD1R"]; coord_type="RECTANGULAR") : Dict(),
-                               haskey(cards,"CORD1C") ? NastranParser.extract_coords1(cards["CORD1C"]; coord_type="CYLINDRICAL") : Dict(),
-                               haskey(cards,"CORD1S") ? NastranParser.extract_coords1(cards["CORD1S"]; coord_type="SPHERICAL") : Dict(),
-                               haskey(cards,"CORD2C") ? NastranParser.extract_coords(cards["CORD2C"]; coord_type="CYLINDRICAL") : Dict(),
-                               haskey(cards,"CORD2S") ? NastranParser.extract_coords(cards["CORD2S"]; coord_type="SPHERICAL") : Dict()),
+        "GRIDs"       => haskey(cards,"GRID")   ? ReferenceParser.extract_grid(cards["GRID"]; grdset=grdset) : Dict(),
+        "CORDs"       => merge(haskey(cards,"CORD2R") ? ReferenceParser.extract_coords(cards["CORD2R"]; coord_type="RECTANGULAR") : Dict(),
+                               haskey(cards,"CORD1R") ? ReferenceParser.extract_coords1(cards["CORD1R"]; coord_type="RECTANGULAR") : Dict(),
+                               haskey(cards,"CORD1C") ? ReferenceParser.extract_coords1(cards["CORD1C"]; coord_type="CYLINDRICAL") : Dict(),
+                               haskey(cards,"CORD1S") ? ReferenceParser.extract_coords1(cards["CORD1S"]; coord_type="SPHERICAL") : Dict(),
+                               haskey(cards,"CORD2C") ? ReferenceParser.extract_coords(cards["CORD2C"]; coord_type="CYLINDRICAL") : Dict(),
+                               haskey(cards,"CORD2S") ? ReferenceParser.extract_coords(cards["CORD2S"]; coord_type="SPHERICAL") : Dict()),
         "CSHELLs"     => _merge_entity_groups_preserve_ids(
-                               haskey(cards,"CTRIA3") ? NastranParser.extract_shells(cards["CTRIA3"]) : Dict(),
-                               haskey(cards,"CTRIA6") ? NastranParser.extract_shells(cards["CTRIA6"]) : Dict(),
-                               haskey(cards,"CQUAD4") ? NastranParser.extract_shells(cards["CQUAD4"]) : Dict(),
-                               haskey(cards,"CQUADR") ? NastranParser.extract_shells(cards["CQUADR"]) : Dict(),
-                               haskey(cards,"CQUAD8") ? NastranParser.extract_shells(cards["CQUAD8"]) : Dict(),
-                               haskey(cards,"CSHEAR") ? NastranParser.extract_shells(cards["CSHEAR"]) : Dict()),
-        "CBARs"       => haskey(cards,"CBAR")   ? NastranParser.extract_cbar(cards["CBAR"]) : Dict(),
-        "CBEAMs"      => haskey(cards,"CBEAM")  ? NastranParser.extract_cbeam(cards["CBEAM"]) : Dict(),
-        "CRODs"       => haskey(cards,"CROD")   ? NastranParser.extract_crod(cards["CROD"]) : Dict(),
-        "CONRODs"     => haskey(cards,"CONROD") ? NastranParser.extract_conrod(cards["CONROD"]) : Dict(),
+                               haskey(cards,"CTRIA3") ? ReferenceParser.extract_shells(cards["CTRIA3"]) : Dict(),
+                               haskey(cards,"CTRIA6") ? ReferenceParser.extract_shells(cards["CTRIA6"]) : Dict(),
+                               haskey(cards,"CQUAD4") ? ReferenceParser.extract_shells(cards["CQUAD4"]) : Dict(),
+                               haskey(cards,"CQUADR") ? ReferenceParser.extract_shells(cards["CQUADR"]) : Dict(),
+                               haskey(cards,"CQUAD8") ? ReferenceParser.extract_shells(cards["CQUAD8"]) : Dict(),
+                               haskey(cards,"CSHEAR") ? ReferenceParser.extract_shells(cards["CSHEAR"]) : Dict()),
+        "CBARs"       => haskey(cards,"CBAR")   ? ReferenceParser.extract_cbar(cards["CBAR"]) : Dict(),
+        "CBEAMs"      => haskey(cards,"CBEAM")  ? ReferenceParser.extract_cbeam(cards["CBEAM"]) : Dict(),
+        "CRODs"       => haskey(cards,"CROD")   ? ReferenceParser.extract_crod(cards["CROD"]) : Dict(),
+        "CONRODs"     => haskey(cards,"CONROD") ? ReferenceParser.extract_conrod(cards["CONROD"]) : Dict(),
         "CELASs"      => _merge_entity_groups_preserve_ids(
-                               haskey(cards,"CELAS1") ? NastranParser.extract_celas1(cards["CELAS1"]) : Dict(),
-                               haskey(cards,"CELAS2") ? NastranParser.extract_celas2(cards["CELAS2"]) : Dict()),
+                               haskey(cards,"CELAS1") ? ReferenceParser.extract_celas1(cards["CELAS1"]) : Dict(),
+                               haskey(cards,"CELAS2") ? ReferenceParser.extract_celas2(cards["CELAS2"]) : Dict()),
         "PELASs"      => pelases,
-        "CBUSHs"      => haskey(cards,"CBUSH") ? NastranParser.extract_cbush(cards["CBUSH"]) : Dict(),
-        "PBUSHs"      => haskey(cards,"PBUSH") ? NastranParser.extract_pbush(cards["PBUSH"]) : Dict(),
-        "CONM2s"      => haskey(cards,"CONM2")  ? NastranParser.extract_conm2(cards["CONM2"]) : Dict(),
-        "CONM1s"      => haskey(cards,"CONM1")  ? NastranParser.extract_conm1(cards["CONM1"]) : Dict(),
-        "CMASS1s"     => haskey(cards,"CMASS1") ? NastranParser.extract_cmass1(cards["CMASS1"]) : Dict(),
-        "CMASS2s"     => haskey(cards,"CMASS2") ? NastranParser.extract_cmass2(cards["CMASS2"]) : Dict(),
-        "PMASSs"      => haskey(cards,"PMASS")  ? NastranParser.extract_pmass(cards["PMASS"]) : Dict(),
+        "CBUSHs"      => haskey(cards,"CBUSH") ? ReferenceParser.extract_cbush(cards["CBUSH"]) : Dict(),
+        "PBUSHs"      => haskey(cards,"PBUSH") ? ReferenceParser.extract_pbush(cards["PBUSH"]) : Dict(),
+        "CONM2s"      => haskey(cards,"CONM2")  ? ReferenceParser.extract_conm2(cards["CONM2"]) : Dict(),
+        "CONM1s"      => haskey(cards,"CONM1")  ? ReferenceParser.extract_conm1(cards["CONM1"]) : Dict(),
+        "CMASS1s"     => haskey(cards,"CMASS1") ? ReferenceParser.extract_cmass1(cards["CMASS1"]) : Dict(),
+        "CMASS2s"     => haskey(cards,"CMASS2") ? ReferenceParser.extract_cmass2(cards["CMASS2"]) : Dict(),
+        "PMASSs"      => haskey(cards,"PMASS")  ? ReferenceParser.extract_pmass(cards["PMASS"]) : Dict(),
         "RBE2s"       => rbe2s_base,
-        "RBE1s"       => haskey(cards,"RBE1")   ? NastranParser.extract_rbe1(cards["RBE1"]) : Dict(),
-        "RSPLINEs"    => haskey(cards,"RSPLINE") ? NastranParser.extract_rspline(cards["RSPLINE"]) : Dict(),
-        "RBE3s"       => haskey(cards,"RBE3")   ? NastranParser.extract_rbe3(cards["RBE3"]) : Dict(),
-        "MPCs"        => haskey(cards,"MPC")    ? NastranParser.extract_mpc(cards["MPC"]) : [],
-        "MPCADDs"     => haskey(cards,"MPCADD") ? NastranParser.extract_mpcadd(cards["MPCADD"]) : Dict(),
+        "RBE1s"       => haskey(cards,"RBE1")   ? ReferenceParser.extract_rbe1(cards["RBE1"]) : Dict(),
+        "RSPLINEs"    => haskey(cards,"RSPLINE") ? ReferenceParser.extract_rspline(cards["RSPLINE"]) : Dict(),
+        "RBE3s"       => haskey(cards,"RBE3")   ? ReferenceParser.extract_rbe3(cards["RBE3"]) : Dict(),
+        "MPCs"        => haskey(cards,"MPC")    ? ReferenceParser.extract_mpc(cards["MPC"]) : [],
+        "MPCADDs"     => haskey(cards,"MPCADD") ? ReferenceParser.extract_mpcadd(cards["MPCADD"]) : Dict(),
         "PSHELLs"     => pshells,
         "PBARLs"      => merged_bars,
         "PRODs"       => prods,
         "CSOLIDs"     => _merge_entity_groups_preserve_ids(
-                               haskey(cards,"CTETRA") ? NastranParser.extract_ctetra(cards["CTETRA"]) : Dict(),
-                               haskey(cards,"CHEXA")  ? NastranParser.extract_chexa(cards["CHEXA"])   : Dict(),
-                               haskey(cards,"CPENTA") ? NastranParser.extract_cpenta(cards["CPENTA"]) : Dict()),
-        "PSOLIDs"     => haskey(cards,"PSOLID") ? NastranParser.extract_psolid(cards["PSOLID"]) : Dict(),
+                               haskey(cards,"CTETRA") ? ReferenceParser.extract_ctetra(cards["CTETRA"]) : Dict(),
+                               haskey(cards,"CHEXA")  ? ReferenceParser.extract_chexa(cards["CHEXA"])   : Dict(),
+                               haskey(cards,"CPENTA") ? ReferenceParser.extract_cpenta(cards["CPENTA"]) : Dict()),
+        "PSOLIDs"     => haskey(cards,"PSOLID") ? ReferenceParser.extract_psolid(cards["PSOLID"]) : Dict(),
         "MATs"        => mats,
-        "MATT1s"      => haskey(cards,"MATT1") ? NastranParser.extract_matt1(cards["MATT1"]) : Dict{String,Dict{String,Any}}(),
-        "TABLEM1s"    => haskey(cards,"TABLEM1") ? NastranParser.extract_tablem1(cards["TABLEM1"]) : Dict{String,Dict{String,Any}}(),
-        "FORCEs"      => haskey(cards,"FORCE")  ? NastranParser.extract_loads(cards["FORCE"]) : [],
-        "MOMENTs"     => haskey(cards,"MOMENT") ? NastranParser.extract_moments(cards["MOMENT"]) : [],
+        "MATT1s"      => haskey(cards,"MATT1") ? ReferenceParser.extract_matt1(cards["MATT1"]) : Dict{String,Dict{String,Any}}(),
+        "TABLEM1s"    => haskey(cards,"TABLEM1") ? ReferenceParser.extract_tablem1(cards["TABLEM1"]) : Dict{String,Dict{String,Any}}(),
+        "FORCEs"      => haskey(cards,"FORCE")  ? ReferenceParser.extract_loads(cards["FORCE"]) : [],
+        "MOMENTs"     => haskey(cards,"MOMENT") ? ReferenceParser.extract_moments(cards["MOMENT"]) : [],
         "PLOAD4s"     => pload4s,
-        "PLOADs"      => haskey(cards,"PLOAD") ? NastranParser.extract_pload(cards["PLOAD"]) : [],
-        "PLOAD1s"     => haskey(cards,"PLOAD1") ? NastranParser.extract_pload1(cards["PLOAD1"]) : [],
-        "GRAVs"       => haskey(cards,"GRAV")   ? NastranParser.extract_grav(cards["GRAV"]) : [],
-        "ACCEL1s"     => haskey(cards,"ACCEL1") ? NastranParser.extract_accel1(cards["ACCEL1"]) : [],
-        "ACCELs"      => haskey(cards,"ACCEL")  ? NastranParser.extract_accel(cards["ACCEL"]) : [],
-        "SPCDs"       => haskey(cards,"SPCD")   ? NastranParser.extract_spcd(cards["SPCD"]) : [],
-        "RFORCEs"     => haskey(cards,"RFORCE") ? NastranParser.extract_rforce(cards["RFORCE"]) : [],
-        "LOAD_COMBOS" => haskey(cards,"LOAD")   ? NastranParser.extract_load_combos(cards["LOAD"]) : [],
+        "PLOADs"      => haskey(cards,"PLOAD") ? ReferenceParser.extract_pload(cards["PLOAD"]) : [],
+        "PLOAD1s"     => haskey(cards,"PLOAD1") ? ReferenceParser.extract_pload1(cards["PLOAD1"]) : [],
+        "GRAVs"       => haskey(cards,"GRAV")   ? ReferenceParser.extract_grav(cards["GRAV"]) : [],
+        "ACCEL1s"     => haskey(cards,"ACCEL1") ? ReferenceParser.extract_accel1(cards["ACCEL1"]) : [],
+        "ACCELs"      => haskey(cards,"ACCEL")  ? ReferenceParser.extract_accel(cards["ACCEL"]) : [],
+        "SPCDs"       => haskey(cards,"SPCD")   ? ReferenceParser.extract_spcd(cards["SPCD"]) : [],
+        "RFORCEs"     => haskey(cards,"RFORCE") ? ReferenceParser.extract_rforce(cards["RFORCE"]) : [],
+        "LOAD_COMBOS" => haskey(cards,"LOAD")   ? ReferenceParser.extract_load_combos(cards["LOAD"]) : [],
         "SPC1s"       => spc1s,
-        "SPCADDs"     => haskey(cards,"SPCADD") ? NastranParser.extract_spcadd(cards["SPCADD"]) : Dict(),
-        "EIGRLs"      => haskey(cards,"EIGRL")  ? NastranParser.extract_eigrl(cards["EIGRL"]) : Dict(),
-        "EIGBs"       => haskey(cards,"EIGB")   ? NastranParser.extract_eigb(cards["EIGB"]) : Dict(),
-        "TEMPs"       => haskey(cards,"TEMP")   ? NastranParser.extract_temp(cards["TEMP"]) : Dict{Int,Dict{Int,Float64}}(),
-        "TEMPDs"      => haskey(cards,"TEMPD")  ? NastranParser.extract_tempd(cards["TEMPD"]) : Dict{Int,Float64}(),
-        "DMIGs"       => haskey(cards,"DMIG")   ? NastranParser.extract_dmig(cards["DMIG"]) : Dict{String,Dict{String,Any}}(),
-        "DESVARs"     => haskey(cards,"DESVAR") ? NastranParser.extract_desvar(cards["DESVAR"]) : Dict(),
-        "DRESP1s"     => haskey(cards,"DRESP1") ? NastranParser.extract_dresp1(cards["DRESP1"]) : Dict(),
-        "DVPREL1s"    => haskey(cards,"DVPREL1") ? NastranParser.extract_dvprel1(cards["DVPREL1"]) : Dict(),
-        "DVMREL1s"    => haskey(cards,"DVMREL1") ? NastranParser.extract_dvmrel1(cards["DVMREL1"]) : Dict(),
-        "DCONSTRs"    => haskey(cards,"DCONSTR") ? NastranParser.extract_dconstr(cards["DCONSTR"]) : Dict(),
-        "DOPTPRMs"    => haskey(cards,"DOPTPRM") ? NastranParser.extract_doptprm(cards["DOPTPRM"]) : Dict(),
+        "SPCADDs"     => haskey(cards,"SPCADD") ? ReferenceParser.extract_spcadd(cards["SPCADD"]) : Dict(),
+        "EIGRLs"      => haskey(cards,"EIGRL")  ? ReferenceParser.extract_eigrl(cards["EIGRL"]) : Dict(),
+        "EIGBs"       => haskey(cards,"EIGB")   ? ReferenceParser.extract_eigb(cards["EIGB"]) : Dict(),
+        "TEMPs"       => haskey(cards,"TEMP")   ? ReferenceParser.extract_temp(cards["TEMP"]) : Dict{Int,Dict{Int,Float64}}(),
+        "TEMPDs"      => haskey(cards,"TEMPD")  ? ReferenceParser.extract_tempd(cards["TEMPD"]) : Dict{Int,Float64}(),
+        "DMIGs"       => haskey(cards,"DMIG")   ? ReferenceParser.extract_dmig(cards["DMIG"]) : Dict{String,Dict{String,Any}}(),
+        "DESVARs"     => haskey(cards,"DESVAR") ? ReferenceParser.extract_desvar(cards["DESVAR"]) : Dict(),
+        "DRESP1s"     => haskey(cards,"DRESP1") ? ReferenceParser.extract_dresp1(cards["DRESP1"]) : Dict(),
+        "DVPREL1s"    => haskey(cards,"DVPREL1") ? ReferenceParser.extract_dvprel1(cards["DVPREL1"]) : Dict(),
+        "DVMREL1s"    => haskey(cards,"DVMREL1") ? ReferenceParser.extract_dvmrel1(cards["DVMREL1"]) : Dict(),
+        "DCONSTRs"    => haskey(cards,"DCONSTR") ? ReferenceParser.extract_dconstr(cards["DCONSTR"]) : Dict(),
+        "DOPTPRMs"    => haskey(cards,"DOPTPRM") ? ReferenceParser.extract_doptprm(cards["DOPTPRM"]) : Dict(),
     )
 
     # Store SOL type from case control
@@ -821,12 +821,12 @@ function build_model(cards, cc)
                          "NLMETHOD", "NLRESMODEL"])
     if haskey(cards, "PARAM")
         for c in cards["PARAM"]
-            pname = uppercase(strip(string(NastranParser.safe_get(c, 3))))
-            raw_val = strip(string(NastranParser.safe_get(c, 4, "")))
+            pname = uppercase(strip(string(ReferenceParser.safe_get(c, 3))))
+            raw_val = strip(string(ReferenceParser.safe_get(c, 4, "")))
             if pname in string_params && !isempty(raw_val) && occursin(r"[A-Za-z]", raw_val)
                 model["PARAM_$pname"] = uppercase(raw_val)
             else
-                pval = NastranParser.parse_nastran_number(NastranParser.safe_get(c, 4), 0.0)
+                pval = ReferenceParser.parse_reference_number(ReferenceParser.safe_get(c, 4), 0.0)
                 model["PARAM_$pname"] = pval
             end
         end
@@ -1210,9 +1210,9 @@ function build_model_from_json(raw::AbstractDict)
             R = dims[1]; A = pi*R^2; I1 = pi*R^4/4; I2 = I1; J = pi*R^4/2
         elseif type_str == "BAR" && length(dims) >= 2
             w, h = dims[1], dims[2]; A = w*h; I1 = w*h^3/12; I2 = h*w^3/12
-            J = NastranParser.rectangular_section_torsion(w,h)
+            J = ReferenceParser.rectangular_section_torsion(w,h)
         elseif (type_str == "TUBE" || type_str == "TUBE2") && length(dims) >= 2
-            Ro, Ri = dims[1], NastranParser._tube_inner_radius(type_str, dims)
+            Ro, Ri = dims[1], ReferenceParser._tube_inner_radius(type_str, dims)
             A = pi*(Ro^2-Ri^2); I1 = pi*(Ro^4-Ri^4)/4; I2 = I1; J = pi*(Ro^4-Ri^4)/2
         elseif type_str == "BOX" && length(dims) >= 4
             w, h, tw, th = dims[1], dims[2], dims[3], dims[4]
@@ -1236,9 +1236,9 @@ function build_model_from_json(raw::AbstractDict)
             R = dims[1]; A = pi*R^2; I1 = pi*R^4/4; I2 = I1; J = pi*R^4/2
         elseif type_str == "BAR" && length(dims) >= 2
             w, h = dims[1], dims[2]; A = w*h; I1 = w*h^3/12; I2 = h*w^3/12
-            J = NastranParser.rectangular_section_torsion(w,h)
+            J = ReferenceParser.rectangular_section_torsion(w,h)
         elseif (type_str == "TUBE" || type_str == "TUBE2") && length(dims) >= 2
-            Ro, Ri = dims[1], NastranParser._tube_inner_radius(type_str, dims)
+            Ro, Ri = dims[1], ReferenceParser._tube_inner_radius(type_str, dims)
             A = pi*(Ro^2-Ri^2); I1 = pi*(Ro^4-Ri^4)/4; I2 = I1; J = pi*(Ro^4-Ri^4)/2
         elseif type_str == "BOX" && length(dims) >= 4
             w, h, tw, th = dims[1], dims[2], dims[3], dims[4]
@@ -1371,9 +1371,9 @@ function build_model_from_json(raw::AbstractDict)
         "PLOADs"      => get(bd, "PLOAD", []),
         "PLOAD1s"     => get(bd, "PLOAD1", []),
         "GRAVs"       => get(bd, "GRAV", []),
-        "ACCEL1s"     => [NastranParser.normalize_accel1(c) for c in get(bd,"ACCEL1",[])],
+        "ACCEL1s"     => [ReferenceParser.normalize_accel1(c) for c in get(bd,"ACCEL1",[])],
         "ACCELs"      => [merge(Dict{String,Any}(c), Dict("TYPE"=>"ACCEL",
-            "SID"=>NastranParser._acceleration_integer(get(c,"SID",nothing),"ACCEL SID";minimum=1)))
+            "SID"=>ReferenceParser._acceleration_integer(get(c,"SID",nothing),"ACCEL SID";minimum=1)))
             for c in get(bd,"ACCEL",[])],
         "RFORCEs"     => get(bd, "RFORCE", []),
         "LOAD_COMBOS" => get(bd, "LOAD", []),

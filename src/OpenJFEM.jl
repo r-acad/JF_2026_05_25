@@ -23,9 +23,9 @@ using PrecompileTools
 include("FEMKernels.jl")
 using .FEM
 
-# ---- Submodule: NastranParser -------------------------------------------
-include("parsing/NastranParser.jl")
-using .NastranParser
+# ---- Submodule: ReferenceParser -------------------------------------------
+include("parsing/ReferenceParser.jl")
+using .ReferenceParser
 
 # ---- Submodule: Solver --------------------------------------------------
 include("solver/SolverCore.jl")
@@ -75,7 +75,7 @@ end
 export main,
        bdf_to_model, bdf_to_model_json, json_to_model,
        solve_model,
-       AbstractJFEMBackend, NastranParityBackend, TACSFormulationBackend,
+       AbstractJFEMBackend, ReferenceParityBackend, TACSFormulationBackend,
        backend_from_model, backend_from_name, backend_name,
        static_compliance_thickness_gradient, static_displacement_thickness_gradient,
        static_compliance_design_gradient, static_displacement_design_gradient,
@@ -91,6 +91,6 @@ export main,
        optimize_thickness, optimize_sizing,
        build_model, resolve_nested_coords!, transform_geometry!,
        export_results, export_adjoint_json,
-       FEM, NastranParser, Solver
+       FEM, ReferenceParser, Solver
 
 end # module OpenJFEM

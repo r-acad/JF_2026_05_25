@@ -5,7 +5,7 @@
 #  Usage:
 #      julia --project=. run.jl                    start the web application
 #      julia --project=. run.jl my_wing.toml       use another input file
-#      julia --project=. run.jl --nastran          generate and write, no UI
+#      julia --project=. run.jl --reference          generate and write, no UI
 #      julia --project=. run.jl --port 9000
 #      julia --project=. run.jl --no-browser
 # ===========================================================================
@@ -65,6 +65,16 @@ try
     using Pkg
     wingfegen_startup_progress("Activating the Lifting surface FEGen dependency environment")
     Pkg.activate(@__DIR__;io=devnull)
+    solver_root=WingFEGenBootstrap.locate_solver(@__DIR__)
+    if solver_root!==nothing
+        wingfegen_startup_progress("Checking recorded FGen and JFEM dependencies; missing packages install automatically")
+        include(joinpath(solver_root,"JFEM_installation","julia_tools","environment_setup.jl"))
+        JFEMEnvironmentSetup.ensure_environment(solver_root)
+        JFEMEnvironmentSetup.ensure_environment(@__DIR__)
+    else
+        wingfegen_startup_progress("Installing/checking recorded FGen dependencies (standalone generator)")
+        Pkg.instantiate(;allow_autoprecomp=false)
+    end
     include(joinpath(@__DIR__, "src", "WingFEGen.jl"))
     wingfegen_startup_progress("Preparing startup entry point (first-use Julia compilation); no FEM or analysis is running")
     global code = WingFEGen.main(ARGS; on_ready=startup_ready)

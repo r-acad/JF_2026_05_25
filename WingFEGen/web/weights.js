@@ -39,12 +39,12 @@
       const fuel=data.fuel;
       if(fuel){
         const note=el("p","weights-fuel");note.id="weights-fuel-summary";
-        note.textContent=fuel.enabled?"Fuel: "+format(fuel.fill_fraction*100)+"% of "+format(fuel.volume_m3*1000)+" L at "+format(fuel.density_kg_m3)+" kg/m³. Full-capacity mass: "+format(fuel.capacity_mass_kg)+" kg. Ribs "+fuel.start_rib+"–"+fuel.end_rib+".":"Fuel tank is disabled: reported fuel mass is zero. Enable the tank and choose its bounding ribs in Fuel tank.";
+        note.textContent=fuel.enabled?"Fuel: "+format(fuel.fill_fraction*100)+"% of "+format(fuel.volume_m3*1000)+" L usable capacity at "+format(fuel.density_kg_m3)+" kg/m³. Fill efficiency: "+format(fuel.fill_efficiency??1)+"; gross envelope: "+format((fuel.gross_volume_m3??fuel.volume_m3)*1000)+" L. Full-capacity mass: "+format(fuel.capacity_mass_kg)+" kg. Ribs "+fuel.start_rib+"–"+fuel.end_rib+".":"Fuel tank is disabled: reported fuel mass is zero. Enable the tank and choose its bounding ribs in Fuel tank.";
         host.append(note);
         if(fuel.enabled&&fuel.bays?.length){
           host.append(el("h3","","Fuel by physical rib bay"));
           const table=el("table","weights-table weights-fuel-bays"),head=el("thead"),heading=el("tr");
-          for(const title of ["Ribs","Gross (L)","Filled (L)","Fuel (kg)","Weight (N)"]){const cell=el("th","",title);cell.scope="col";heading.append(cell);}head.append(heading);table.append(head);
+          for(const title of ["Ribs","Usable (L)","Filled (L)","Fuel (kg)","Weight (N)"]){const cell=el("th","",title);cell.scope="col";heading.append(cell);}head.append(heading);table.append(head);
           const body=el("tbody");
           for(const bay of fuel.bays){
             const row=el("tr");row.dataset.bay=String(bay.index);

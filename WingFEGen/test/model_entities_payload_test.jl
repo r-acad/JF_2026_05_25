@@ -57,9 +57,9 @@ CORD1C,50,501,502,503
 CORD1S,60,501,502,503
 ENDDATA
 """
-function fixture()
-    source=W.imported_source(Dict("name"=>"coordinate_misc.bdf","text"=>SOURCE))
-    cc,bulk=N.NastranParser.read_bulk_and_case(readlines(IOBuffer(SOURCE)));cards=N.NastranParser.process_cards(bulk)
+function fixture(text=SOURCE,name="coordinate_misc.bdf")
+    source=W.imported_source(Dict("name"=>name,"text"=>text))
+    cc,bulk=N.ReferenceParser.read_bulk_and_case(readlines(IOBuffer(text)));cards=N.ReferenceParser.process_cards(bulk)
     native=N.build_model(cards,cc);N.resolve_nested_coords!(native);N.transform_geometry!(native)
     model=W.imported_model(native,source,W.default_params();cards)
     W.imported_prepare_inventory!(N,model,cards,joinpath(OUT,"inventory.log"));W.imported_prepare_loads!(N,model)
@@ -77,12 +77,18 @@ tests=@testset "Coordinate and miscellaneous source payload" begin
     @test frames[20]["origin"]≈[1.,4.,3.]
     @test frames[30]["origin"]≈[-1.,4.,4.]
     @test frames[30]["x"]≈[-1.,0.,0.]
+    @test frames[10]["properties"]["Reference ID"]==0
+    @test frames[10]["properties"]["Reference type"]=="RECTANGULAR"
+    @test frames[30]["properties"]["Reference ID"]==20
+    @test frames[30]["properties"]["Reference type"]=="CYLINDRICAL"
     for (cid,type,card) in ((40,"RECTANGULAR","CORD1R"),(50,"CYLINDRICAL","CORD1C"),(60,"SPHERICAL","CORD1S"))
         @test frames[cid]["origin"]≈[1.,2.,3.]
         @test frames[cid]["x"]≈[0.,1.,0.]
         @test frames[cid]["type"]==type
         @test frames[cid]["card"]==card
         @test frames[cid]["properties"]["G1"]==501
+        @test all(row->row["id"]==10&&row["type"]=="RECTANGULAR",frames[cid]["properties"]["Defining GRID coordinates"])
+        @test !haskey(frames[cid]["properties"],"Reference ID")
     end
     records=Dict(row["eid"]=>row for group in data["imported_connections"] for row in group["elements"])
     @test Set(keys(records))==Set(201:207)

@@ -57,7 +57,8 @@ t_skin                = 0.0015                  # m, Monolithic thickness of bot
 t_rib                 = 0.0015                  # m, Monolithic thickness of leading-edge rib extensions; sandwich construction uses its face/core dimensions
 
 [fuel]
-enabled               = false                   # Gross enclosed volume between selected ribs, skins and spars. Adds a six-DOF fuel RBE3 per bay; Cases defines fuel fill and acceleration. Structure, equipment and unusable fuel are not deducted
+enabled               = false                   # Enclosed tank between selected ribs, skins and spars. Cases defines fuel fill and acceleration; fill_efficiency reduces usable volume uniformly
+fill_efficiency       = 1.0                     # 0 to 1: usable capacity / gross envelope volume. Scales fuel mass, inertia and loads; case Fuel status remains a separate percentage
 start_rib             = 1                       # Physical rib number, starting with rib 1 at the root; unaffected by shell mesh subdivisions
 end_rib               = 0                       # Physical rib number; 0 automatically selects the final closed rib at End ETA. Must be beyond the first tank rib
 disabled_bays         = ""                      # Bays excluded from fuel capacity, mass, inertia and loads. Bay b is between physical ribs b and b+1. Use numbers or ranges, for example 2,4-6; blank keeps all selected bays. Exclusions outside the selected tank range are retained and ignored. All selected bays may be dry
@@ -134,7 +135,7 @@ spar_cap_side         = 0.02                    # m, PBARL BAR with equal DIM1 a
 
 [output]
 title                 = "Lifting surface torsion box"
-nastran_file          = "output/wing_box.bdf"   # Relative paths resolve against the application folder
+reference_file          = "output/wing_box.bdf"   # Relative paths resolve against the application folder
 solution              = "103"                   # 103 normal modes, 101 linear static, 105 linear buckling, 106 experimental geometric nonlinear static with a matching SOL101 comparison for every enabled load case
 n_modes               = 10                      # Eigenvalues requested for SOL 103 and SOL 105
 buckling_max_factor   = 50.0                    # x load, SOL 105 looks for load factors between 0 and this. Raise it if the run finds no roots

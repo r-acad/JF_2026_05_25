@@ -22,6 +22,13 @@ REM EnableDelayedExpansion so an install path containing parentheses or spaces
 REM (e.g. "...\JF_2026_05_25-main (7)\...") does not break the if-blocks below.
 setlocal EnableDelayedExpansion
 set "REPO_ROOT=%~dp0"
+set "JFEM_BIN=%JFEM_JULIA%"
+if not defined JFEM_BIN set "JFEM_BIN=julia"
+where "!JFEM_BIN!" >nul 2>&1
+if errorlevel 1 if not exist "!JFEM_BIN!" (
+  echo Julia was not found. Install it from https://julialang.org/downloads/ and run setup.cmd.
+  exit /b 1
+)
 if "%~1"=="" (
   echo usage:  jfem  [-formats]  ^<model.bdf^>  [output_folder]
   echo example: jfem  C:\models\my_model.bdf
@@ -34,16 +41,16 @@ REM Build it with JFEM_installation\CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SY
 set "SYSIMG_DLL=%REPO_ROOT%sysimage\OpenJFEM_sysimage.dll"
 set "SYSIMG_ARG="
 if exist "!SYSIMG_DLL!" (
-  julia --startup-file=no --threads=1 --project="!REPO_ROOT!." "!REPO_ROOT!JFEM_installation\julia_tools\check_sysimage.jl" "!REPO_ROOT!." "!SYSIMG_DLL!"
+  "!JFEM_BIN!" --startup-file=no --threads=1 --project="!REPO_ROOT!." "!REPO_ROOT!JFEM_installation\julia_tools\check_sysimage.jl" "!REPO_ROOT!." "!SYSIMG_DLL!"
   if not errorlevel 1 set "SYSIMG_ARG=--sysimage=!SYSIMG_DLL!"
 )
 
 REM Quote each path token so spaces/parentheses are handled; branch on whether a
 REM sysimage was found so we never pass an empty quoted argument to julia.
 if defined SYSIMG_ARG (
-  julia "!SYSIMG_ARG!" --project="!REPO_ROOT!." --threads=auto --startup-file=no "!REPO_ROOT!JFEM_installation\julia_tools\jfem.jl" %*
+  "!JFEM_BIN!" "!SYSIMG_ARG!" --project="!REPO_ROOT!." --threads=auto --startup-file=no "!REPO_ROOT!JFEM_installation\julia_tools\jfem.jl" %*
 ) else (
-  julia --project="!REPO_ROOT!." --threads=auto --startup-file=no "!REPO_ROOT!JFEM_installation\julia_tools\jfem.jl" %*
+  "!JFEM_BIN!" --project="!REPO_ROOT!." --threads=auto --startup-file=no "!REPO_ROOT!JFEM_installation\julia_tools\jfem.jl" %*
 )
 
 set "JFEM_EXIT=!errorlevel!"

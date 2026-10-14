@@ -4,7 +4,7 @@
 # (stiffness + geometric stiffness overloads), plus the shared
 # add_quad4_membrane_translation_geometric! helper.
 #
-# RESEARCH only — none of these fire under default GAME SOL 105 routing.
+# RESEARCH only — none of these fire under default validation SOL 105 routing.
 # Reached only via JFEM_SOL105_EIG_FLAT_PCOMP_DKMQ / _RECT_ADINI /
 # _PLATE_BRANCH env knobs (all default false).
 #

@@ -14,10 +14,10 @@ function extract_grdset(cards)
         ps_raw = strip(string(safe_get(c, 9, "")))
         seid_raw = strip(string(safe_get(c, 10, "")))
 
-        !isempty(cp_raw) && (defaults["CP"] = to_id(parse_nastran_number(cp_raw, 0)))
-        !isempty(cd_raw) && (defaults["CD"] = to_id(parse_nastran_number(cd_raw, 0)))
+        !isempty(cp_raw) && (defaults["CP"] = to_id(parse_reference_number(cp_raw, 0)))
+        !isempty(cd_raw) && (defaults["CD"] = to_id(parse_reference_number(cd_raw, 0)))
         !isempty(ps_raw) && (defaults["PS"] = ps_raw == "0" ? "" : ps_raw)
-        !isempty(seid_raw) && (defaults["SEID"] = to_id(parse_nastran_number(seid_raw, 0)))
+        !isempty(seid_raw) && (defaults["SEID"] = to_id(parse_reference_number(seid_raw, 0)))
     end
 
     return defaults
@@ -27,19 +27,19 @@ function extract_grid(cards; grdset=nothing)
     defaults = isnothing(grdset) ? Dict{String,Any}("CP"=>0, "CD"=>0, "PS"=>"", "SEID"=>0) : grdset
     d = Dict()
     for c in cards
-        id = to_id(parse_nastran_number(safe_get(c, 3)))
+        id = to_id(parse_reference_number(safe_get(c, 3)))
         cp_raw = strip(string(safe_get(c, 4, "")))
-        x = [parse_nastran_number(safe_get(c, 5), 0.0),
-             parse_nastran_number(safe_get(c, 6), 0.0),
-             parse_nastran_number(safe_get(c, 7), 0.0)]
+        x = [parse_reference_number(safe_get(c, 5), 0.0),
+             parse_reference_number(safe_get(c, 6), 0.0),
+             parse_reference_number(safe_get(c, 7), 0.0)]
         cd_raw = strip(string(safe_get(c, 8, "")))
         ps_raw = strip(string(safe_get(c, 9, "")))
         seid_raw = strip(string(safe_get(c, 10, "")))
 
-        cp = isempty(cp_raw) ? Int(get(defaults, "CP", 0)) : to_id(parse_nastran_number(cp_raw, 0))
-        cd = isempty(cd_raw) ? Int(get(defaults, "CD", 0)) : to_id(parse_nastran_number(cd_raw, 0))
+        cp = isempty(cp_raw) ? Int(get(defaults, "CP", 0)) : to_id(parse_reference_number(cp_raw, 0))
+        cd = isempty(cd_raw) ? Int(get(defaults, "CD", 0)) : to_id(parse_reference_number(cd_raw, 0))
         ps = isempty(ps_raw) ? string(get(defaults, "PS", "")) : (ps_raw == "0" ? "" : ps_raw)
-        seid = isempty(seid_raw) ? Int(get(defaults, "SEID", 0)) : to_id(parse_nastran_number(seid_raw, 0))
+        seid = isempty(seid_raw) ? Int(get(defaults, "SEID", 0)) : to_id(parse_reference_number(seid_raw, 0))
 
         if id > 0
             d[string(id)] = Dict{String,Any}("ID"=>id, "CP"=>cp, "CD"=>cd, "X"=>x, "PS"=>ps, "SEID"=>seid)
@@ -68,11 +68,11 @@ end
 function extract_coords(cards; coord_type::String="RECTANGULAR")
     d = Dict()
     for c in cards
-        id = to_id(parse_nastran_number(safe_get(c, 3)))
-        rid = to_id(parse_nastran_number(safe_get(c, 4), 0))
-        A = [parse_nastran_number(safe_get(c, 5),0.0), parse_nastran_number(safe_get(c, 6),0.0), parse_nastran_number(safe_get(c, 7),0.0)]
-        B = [parse_nastran_number(safe_get(c, 8),0.0), parse_nastran_number(safe_get(c, 9),0.0), parse_nastran_number(safe_get(c, 10),0.0)]
-        C = [parse_nastran_number(safe_get(c, 11),0.0), parse_nastran_number(safe_get(c, 12),0.0), parse_nastran_number(safe_get(c, 13),0.0)]
+        id = to_id(parse_reference_number(safe_get(c, 3)))
+        rid = to_id(parse_reference_number(safe_get(c, 4), 0))
+        A = [parse_reference_number(safe_get(c, 5),0.0), parse_reference_number(safe_get(c, 6),0.0), parse_reference_number(safe_get(c, 7),0.0)]
+        B = [parse_reference_number(safe_get(c, 8),0.0), parse_reference_number(safe_get(c, 9),0.0), parse_reference_number(safe_get(c, 10),0.0)]
+        C = [parse_reference_number(safe_get(c, 11),0.0), parse_reference_number(safe_get(c, 12),0.0), parse_reference_number(safe_get(c, 13),0.0)]
         # With RID != 0, these may be cylindrical/spherical triples. Construct
         # the actual frame only after resolving RID and converting the points.
         _, u, v, w = rid == 0 ? _coordinate_frame(A, B, C, id) :
@@ -86,9 +86,9 @@ end
 function extract_coords1(cards; coord_type::String="RECTANGULAR")
     d = Dict{String,Any}()
     for c in cards, k in (3, 7)
-        id = to_id(parse_nastran_number(safe_get(c, k), 0))
+        id = to_id(parse_reference_number(safe_get(c, k), 0))
         id == 0 && continue
-        gids = [to_id(parse_nastran_number(safe_get(c, k + j), 0)) for j in 1:3]
+        gids = [to_id(parse_reference_number(safe_get(c, k + j), 0)) for j in 1:3]
         all(>(0), gids) && length(unique(gids)) == 3 ||
             throw(ArgumentError("CORD1 coordinate system $id requires three distinct positive GRID IDs"))
         d[string(id)] = Dict{String,Any}("TYPE"=>coord_type, "G1"=>gids[1], "G2"=>gids[2], "G3"=>gids[3])
@@ -99,8 +99,8 @@ end
 function extract_shells(cards)
     d = Dict()
     for c in cards
-        id = to_id(parse_nastran_number(safe_get(c, 3)))
-        pid = to_id(parse_nastran_number(safe_get(c, 4)))
+        id = to_id(parse_reference_number(safe_get(c, 3)))
+        pid = to_id(parse_reference_number(safe_get(c, 4)))
         # Determine node count from card name suffix: CTRIA3 -> 3,
         # CQUAD4 -> 4, CTRIA6 -> 6, CQUAD8 -> 8. CQUADR has no suffix
         # but shares the four-corner shell field layout.
@@ -128,9 +128,9 @@ function extract_shells(cards)
                 !occursin('E', theta_upper) &&
                 !occursin('D', theta_upper)
             if is_mcid
-                mcid = to_id(parse_nastran_number(theta_str, 0))
+                mcid = to_id(parse_reference_number(theta_str, 0))
             else
-                theta = Float64(parse_nastran_number(theta_str, 0.0))
+                theta = Float64(parse_reference_number(theta_str, 0.0))
             end
         end
         if id > 0 && length(nodes) >= 3
@@ -145,15 +145,15 @@ end
 
 Index after which a CBAR/CBEAM's continuation data begins.
 
-Fields 3..10 of the processed card hold the parent line's data (MSC fields
-2..9). MSC field 10 is the continuation marker, and a free-field deck may or may
+Fields 3..10 of the processed card hold the parent line's data (REFERENCE fields
+2..9). REFERENCE field 10 is the continuation marker, and a free-field deck may or may
 not emit one: `CBAR,...,1.0` produces no marker, while `CBAR,...,1.0, ,+CB1`
 produces `"+CB1"` at index 11. When the marker IS present it occupies a slot and
 shifts every continuation field by one.
 
 That shift used to be silent and harmful. `PA` was read from index 11, so on a
 deck with an explicit marker it read the marker itself -- and
-`parse_nastran_number` does not reject `"+CB1"`, it returns a number. The result
+`parse_reference_number` does not reject `"+CB1"`, it returns a number. The result
 was a pin release the deck never requested, applied to whatever DOF that number
 happened to name, with no warning. On the T5 validation bar it made the tip
 displacement wrong by five orders of magnitude while the solve still reported a
@@ -167,10 +167,10 @@ end
 function extract_cbar(cards)
     d = Dict()
     for c in cards
-        id = to_id(parse_nastran_number(safe_get(c, 3)))
-        pid = to_id(parse_nastran_number(safe_get(c, 4)))
-        ga = to_id(parse_nastran_number(safe_get(c, 5)))
-        gb = to_id(parse_nastran_number(safe_get(c, 6)))
+        id = to_id(parse_reference_number(safe_get(c, 3)))
+        pid = to_id(parse_reference_number(safe_get(c, 4)))
+        ga = to_id(parse_reference_number(safe_get(c, 5)))
+        gb = to_id(parse_reference_number(safe_get(c, 6)))
 
         # Detect G0 (grid point) vs X1,X2,X3 (vector) format
         x1_raw = strip(string(safe_get(c, 7, "")))
@@ -181,9 +181,9 @@ function extract_cbar(cards)
         v = [0.0, 0.0, 0.0]
         if tryparse(Int, x1_raw) !== nothing && isempty(x2_raw) && isempty(x3_raw)
             # G0 format: integer grid ID, X2/X3 blank
-            g0 = to_id(parse_nastran_number(x1_raw, 0))
+            g0 = to_id(parse_reference_number(x1_raw, 0))
         else
-            v = [parse_nastran_number(safe_get(c, 7),0.0), parse_nastran_number(safe_get(c, 8),0.0), parse_nastran_number(safe_get(c, 9),0.0)]
+            v = [parse_reference_number(safe_get(c, 7),0.0), parse_reference_number(safe_get(c, 8),0.0), parse_reference_number(safe_get(c, 9),0.0)]
         end
         if g0 == 0 && norm(v) < 1e-6; v = [0.0, 0.0, 1.0]; end
 
@@ -191,10 +191,10 @@ function extract_cbar(cards)
         # skipping the continuation marker when the deck emits one. See
         # _bar_continuation_base.
         b = _bar_continuation_base(c)
-        pa = to_id(parse_nastran_number(safe_get(c, b + 1), 0))
-        pb = to_id(parse_nastran_number(safe_get(c, b + 2), 0))
-        wa = [parse_nastran_number(safe_get(c, b + 3), 0.0), parse_nastran_number(safe_get(c, b + 4), 0.0), parse_nastran_number(safe_get(c, b + 5), 0.0)]
-        wb = [parse_nastran_number(safe_get(c, b + 6), 0.0), parse_nastran_number(safe_get(c, b + 7), 0.0), parse_nastran_number(safe_get(c, b + 8), 0.0)]
+        pa = to_id(parse_reference_number(safe_get(c, b + 1), 0))
+        pb = to_id(parse_reference_number(safe_get(c, b + 2), 0))
+        wa = [parse_reference_number(safe_get(c, b + 3), 0.0), parse_reference_number(safe_get(c, b + 4), 0.0), parse_reference_number(safe_get(c, b + 5), 0.0)]
+        wb = [parse_reference_number(safe_get(c, b + 6), 0.0), parse_reference_number(safe_get(c, b + 7), 0.0), parse_reference_number(safe_get(c, b + 8), 0.0)]
 
         d[string(id)] = Dict{String,Any}("ID"=>id, "PID"=>pid, "GA"=>ga, "GB"=>gb, "V"=>v, "G0"=>g0, "PA"=>pa, "PB"=>pb, "WA"=>wa, "WB"=>wb, "TYPE"=>"CBAR")
     end
@@ -204,10 +204,10 @@ end
 function extract_cbeam(cards)
     d = Dict()
     for c in cards
-        id = to_id(parse_nastran_number(safe_get(c, 3)))
-        pid = to_id(parse_nastran_number(safe_get(c, 4)))
-        ga = to_id(parse_nastran_number(safe_get(c, 5)))
-        gb = to_id(parse_nastran_number(safe_get(c, 6)))
+        id = to_id(parse_reference_number(safe_get(c, 3)))
+        pid = to_id(parse_reference_number(safe_get(c, 4)))
+        ga = to_id(parse_reference_number(safe_get(c, 5)))
+        gb = to_id(parse_reference_number(safe_get(c, 6)))
 
         x1_raw = strip(string(safe_get(c, 7, "")))
         x2_raw = strip(string(safe_get(c, 8, "")))
@@ -216,18 +216,18 @@ function extract_cbeam(cards)
         g0 = 0
         v = [0.0, 0.0, 0.0]
         if tryparse(Int, x1_raw) !== nothing && isempty(x2_raw) && isempty(x3_raw)
-            g0 = to_id(parse_nastran_number(x1_raw, 0))
+            g0 = to_id(parse_reference_number(x1_raw, 0))
         else
-            v = [parse_nastran_number(safe_get(c, 7),0.0), parse_nastran_number(safe_get(c, 8),0.0), parse_nastran_number(safe_get(c, 9),0.0)]
+            v = [parse_reference_number(safe_get(c, 7),0.0), parse_reference_number(safe_get(c, 8),0.0), parse_reference_number(safe_get(c, 9),0.0)]
         end
         if g0 == 0 && norm(v) < 1e-6; v = [0.0, 0.0, 1.0]; end
 
         # Same continuation-marker shift as CBAR; see _bar_continuation_base.
         b = _bar_continuation_base(c)
-        pa = to_id(parse_nastran_number(safe_get(c, b + 1), 0))
-        pb = to_id(parse_nastran_number(safe_get(c, b + 2), 0))
-        wa = [parse_nastran_number(safe_get(c, b + 3), 0.0), parse_nastran_number(safe_get(c, b + 4), 0.0), parse_nastran_number(safe_get(c, b + 5), 0.0)]
-        wb = [parse_nastran_number(safe_get(c, b + 6), 0.0), parse_nastran_number(safe_get(c, b + 7), 0.0), parse_nastran_number(safe_get(c, b + 8), 0.0)]
+        pa = to_id(parse_reference_number(safe_get(c, b + 1), 0))
+        pb = to_id(parse_reference_number(safe_get(c, b + 2), 0))
+        wa = [parse_reference_number(safe_get(c, b + 3), 0.0), parse_reference_number(safe_get(c, b + 4), 0.0), parse_reference_number(safe_get(c, b + 5), 0.0)]
+        wb = [parse_reference_number(safe_get(c, b + 6), 0.0), parse_reference_number(safe_get(c, b + 7), 0.0), parse_reference_number(safe_get(c, b + 8), 0.0)]
 
         d[string(id)] = Dict("ID"=>id, "PID"=>pid, "GA"=>ga, "GB"=>gb, "V"=>v, "G0"=>g0, "PA"=>pa, "PB"=>pb, "WA"=>wa, "WB"=>wb, "TYPE"=>"CBEAM")
     end

@@ -112,9 +112,9 @@ end
 
 function _solid_body_mass(X, rho)
     n = size(X,1)
-    n == 4 && return FEM.nastran_lumped_mass_tetra4(X,Float64(rho))
-    n == 6 && return FEM.nastran_lumped_mass_cpenta6(X,Float64(rho))
-    n == 8 && return FEM.nastran_lumped_mass_hexa8(X,Float64(rho))
+    n == 4 && return FEM.reference_lumped_mass_tetra4(X,Float64(rho))
+    n == 6 && return FEM.reference_lumped_mass_cpenta6(X,Float64(rho))
+    n == 8 && return FEM.reference_lumped_mass_hexa8(X,Float64(rho))
     throw(ArgumentError("Body loads require a supported 4-, 6-, or 8-node solid"))
 end
 
@@ -325,7 +325,7 @@ function _check_selected_acceleration_loads(model, sid, scale, id_map, path=Int[
             throw(ArgumentError("Selected ACCEL SID=$sid is unsupported; its spatial acceleration table must not be silently omitted"))
         cards = [c for c in get(model,"ACCEL1s",[]) if Int(c["SID"]) == sid]
         if !isempty(cards)
-            # MSC QRG ACCEL1 requires its SID to be distinct from any other load entry.
+            # REFERENCE QRG ACCEL1 requires its SID to be distinct from any other load entry.
             owners = length(cards)
             for key in ("FORCEs","MOMENTs","GRAVs","RFORCEs","PLOADs","PLOAD1s","PLOAD4s","SPCDs","LOAD_COMBOS")
                 owners += count(c -> Int(c["SID"]) == sid,get(model,key,[]))

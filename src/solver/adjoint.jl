@@ -1070,6 +1070,15 @@ function _get_shell_element_data(eid::Int, model, id_map, node_coords, node_R)
     nids = el["NODES"]
     n_nodes = length(nids)
     if !all(n -> haskey(id_map, n), nids); return nothing; end
+    if n_nodes == 3
+        # A response may target a mapped triangle even when the design variable
+        # belongs to a bar. Guard its frame independently of the DV selection;
+        # captured analytic shell responses already carry the full map.
+        selection = Dict{String,Any}("type"=>"topology_density",
+            "eids"=>[eid], "id"=>"shell_response")
+        _guard_mapped_quad4_local_dkdx!(selection, model, id_map, node_coords;
+            response_context=true)
+    end
     idxs = [id_map[n] for n in nids]
 
     h = Float64(prop["T"])

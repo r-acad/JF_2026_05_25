@@ -101,6 +101,8 @@ function weights_payload(m::Model)
     volume=get(tank,"volume_m3",0.)
     capacity=volume*density;fuel_mass=fuel_state["mass_kg"]
     fuel=Dict{String,Any}("enabled"=>tank["enabled"],"density_kg_m3"=>density,"fill_fraction"=>fill,
+        "fill_efficiency"=>fuel_state["fill_efficiency"],"gross_volume_m3"=>get(tank,"gross_volume_m3",0.),
+        "gross_filled_volume_m3"=>fuel_state["gross_filled_volume_m3"],"filled_volume_m3"=>fuel_state["filled_volume_m3"],
         "volume_m3"=>volume,"capacity_mass_kg"=>capacity,"mass_kg"=>fuel_mass,
         "weight_N"=>fuel_mass*WEIGHT_GRAVITY,"start_rib"=>get(tank,"start_rib",nothing),
         "end_rib"=>get(tank,"end_rib",nothing),"in_deck"=>fuel_mass>0,"fuel_percent"=>100fill)
@@ -115,7 +117,7 @@ function weights_payload(m::Model)
         end
     end
     fuel["bays"]=bays
-    fuel["bay_note"]="Each bay fills upward to its own horizontal global-Z level at this case's percentage. CONM2 carries its actual mass, center of gravity and inertia; acceleration loads act through its separate fuel RBE3."
+    fuel["bay_note"]="Fuel status is a percentage of usable capacity. Each bay fills upward to its own horizontal global-Z level at that percentage of gross geometry; uniform fill efficiency scales volume, mass and inertia without changing the level or CG. CONM2 carries the resulting mass, center of gravity and inertia; acceleration loads act through its separate fuel RBE3."
     totals=Dict{String,Any}("structure_mass_kg"=>structure,"exported_aero_mass_kg"=>aero_mass,
         "deck_mass_kg"=>structure+aero_mass+fuel_mass,"fuel_mass_kg"=>fuel_mass,"fuel_capacity_mass_kg"=>capacity,
         "loaded_mass_kg"=>structure+fuel_mass)
@@ -128,7 +130,7 @@ function weights_payload(m::Model)
         "materials"=>[material_payload(material) for material in model_material_definitions(m)],
         "scope"=>"Modeled half lifting surface, from the root to the final structural rib",
         "method"=>"FE shell projected midsurface area × sum of ply thickness × assigned density (one ply for PSHELL); PBARL/PBAR area × CBAR effective length × assigned MAT1 density",
-        "note"=>"Fuel uses gross tank capacity; structure, equipment and unusable fuel are not deducted. Per-bay CONM2 masses and fuel inertia use the selected case's fill. Include structural inertia applies the same signed acceleration to the dry shell/bar mass using explicit dead forces and section-offset couples. RBE3 constraints and display meshes have no material mass.")
+        "note"=>"Fuel usable capacity equals gross wet-bay volume times the uniform fill efficiency factor; no separate structure, equipment or wall-thickness deductions are made. Per-bay CONM2 masses and fuel inertia use the selected case's percentage of usable capacity. Include structural inertia applies the same signed acceleration to the dry shell/bar mass using explicit dead forces and section-offset couples. RBE3 constraints and display meshes have no material mass.")
 end
 
 function weights_info(m::Model)

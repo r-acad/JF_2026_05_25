@@ -30,7 +30,7 @@ tests=@testset "Portable WingFEGen" begin
     model=W.build_model(p)
     @test W.all_checks_pass(model)
     @test model.n_struct>0&&!isempty(model.groups)
-    deck=joinpath(out,"portable_smoke.bdf");W.write_nastran(model,deck)
+    deck=joinpath(out,"portable_smoke.bdf");W.write_reference(model,deck)
     @test isfile(deck)&&occursin("SOL 101",read(deck,String))
     aero=W.aerodynamic_loads(model)
     @test !isempty(aero.panels)&&!isempty(aero.stations)

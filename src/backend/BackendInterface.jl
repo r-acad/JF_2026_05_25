@@ -1,21 +1,21 @@
 # BackendInterface.jl -- solver backend selection and shared metadata.
 #
-# The default backend preserves the existing calibrated JFEM/Nastran-parity
+# The default backend preserves the existing calibrated JFEM/Reference-parity
 # route.  The TACS-formulation backend is intentionally opt-in and grows as a
 # residual-first implementation behind the same public solver API.
 
 abstract type AbstractJFEMBackend end
 
-struct NastranParityBackend <: AbstractJFEMBackend end
+struct ReferenceParityBackend <: AbstractJFEMBackend end
 struct TACSFormulationBackend <: AbstractJFEMBackend end
 
-const JFEM_BACKEND_DEFAULT = "nastran_parity"
+const JFEM_BACKEND_DEFAULT = "reference_parity"
 const JFEM_BACKEND_TACS = "tacs_formulation"
 
 function normalize_backend_name(raw)::String
     name = lowercase(strip(string(raw)))
     name = replace(name, "-" => "_", " " => "_")
-    if name in ("", "default", "nastran", "nastran_parity", "parity", "jfem")
+    if name in ("", "default", "reference", "reference_parity", "parity", "jfem")
         return JFEM_BACKEND_DEFAULT
     elseif name in ("tacs", "tacs_formulation", "tacs_backend", "clean_formulation")
         return JFEM_BACKEND_TACS
@@ -23,16 +23,16 @@ function normalize_backend_name(raw)::String
     error("Unsupported JFEM backend '$raw'. Supported backends are '$JFEM_BACKEND_DEFAULT' and '$JFEM_BACKEND_TACS'.")
 end
 
-backend_name(::NastranParityBackend) = JFEM_BACKEND_DEFAULT
+backend_name(::ReferenceParityBackend) = JFEM_BACKEND_DEFAULT
 backend_name(::TACSFormulationBackend) = JFEM_BACKEND_TACS
 
-backend_version(::NastranParityBackend) = "0.1.0"
+backend_version(::ReferenceParityBackend) = "0.1.0"
 backend_version(::TACSFormulationBackend) = "0.1.0-dev"
 
 function backend_from_name(raw)::AbstractJFEMBackend
     name = normalize_backend_name(raw)
     if name == JFEM_BACKEND_DEFAULT
-        return NastranParityBackend()
+        return ReferenceParityBackend()
     elseif name == JFEM_BACKEND_TACS
         return TACSFormulationBackend()
     end
@@ -47,7 +47,7 @@ end
 function backend_metadata(backend::AbstractJFEMBackend)::Dict{String,Any}
     name = backend_name(backend)
     formulation =
-        backend isa NastranParityBackend ? Dict{String,Any}(
+        backend isa ReferenceParityBackend ? Dict{String,Any}(
             "shell" => "existing_calibrated_jfem",
             "constitutive" => "existing_model_builder_properties",
             "geometric_stiffness" => "existing_parity_route",

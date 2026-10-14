@@ -5,7 +5,7 @@
 #   PSHELL/MAT1, PSHELL/MAT2, PSHELL/MAT8, or PCOMP_CLT properties, plus
 #   guarded CROD/CONROD rod, CBAR/CBEAM beam, and CELAS/CBUSH spring slices. The element
 #   residual is R_e = K_e u_e and the tangent is K_e.
-#   This file deliberately avoids the Nastran-parity assembly switchboard;
+#   This file deliberately avoids the Reference-parity assembly switchboard;
 #   unsupported model features fail fast so future TACS slices are added
 #   explicitly.
 
@@ -459,7 +459,7 @@ function _tacs_beam_station_condensed_mass(
         As_z = K2 > 0.0 ? K2 * A : Inf
         Ke_seg = FEM.stiffness_frame3d(segL, A, I2, I1, J, E, G; As_y=As_y, As_z=As_z, I12=I12)
         rho_eff = rho + nsm / A
-        Me_seg = FEM.nastran_lumped_mass_frame3d(segL, rho_eff, A, J, I2, I1)
+        Me_seg = FEM.reference_lumped_mass_frame3d(segL, rho_eff, A, J, I2, I1)
         dofs = vcat(((s - 1) * 6 + 1):(s * 6), (s * 6 + 1):((s + 1) * 6))
         for c in 1:12, r in 1:12
             K[dofs[r], dofs[c]] += Ke_seg[r, c]
@@ -851,7 +851,7 @@ function _tacs_rod_local_stiffness(L::Real, E::Real, G::Real, A::Real, J::Real)
 end
 
 function _tacs_rod_local_mass(L::Real, rho::Real, A::Real, J::Real)
-    return FEM.nastran_lumped_mass_rod(Float64(L), Float64(rho), Float64(A), Float64(J))
+    return FEM.reference_lumped_mass_rod(Float64(L), Float64(rho), Float64(A), Float64(J))
 end
 
 function _tacs_rod_property_material(model::Dict, rod::AbstractDict)
@@ -1107,7 +1107,7 @@ function _tacs_beam_mass_tangent(model::Dict, beam::AbstractDict, id_map, X, nod
         _tacs_beam_station_condensed_mass(Float64(bd.L), pdata.prop, E, G, rho, nsm)
     Me_loc =
         Me_station === nothing ?
-        FEM.nastran_lumped_mass_frame3d(Float64(bd.L), rho_eff, A, J, Iy, Iz) :
+        FEM.reference_lumped_mass_frame3d(Float64(bd.L), rho_eff, A, J, Iy, Iz) :
         Me_station
     Me = bd.T12' * Me_loc * bd.T12
     Me .= 0.5 .* (Me .+ transpose(Me))

@@ -187,8 +187,8 @@ function prepare_eigen_solve_context(K, ndof, model, id_map, spc_id, rbe3_map;
     # otherwise re-factor — keep it and skip both the two nnz-sized
     # symmetrization temporaries and the second factorization. For
     # asymmetric K_ff the trial factored a (ulp-)different matrix: discard.
-    # Default ON 2026-08-06: gate showed cholesky(Symmetric(X)) and
-    # cholesky(X) produce identical downstream results on the full suite
+    # Default ON 2026-08-06: gate showed _timed_factorization(cholesky,Symmetric(X)) and
+    # _timed_factorization(cholesky,X) produce identical downstream results on the full suite
     # (field diff exactly equal at rtol=0) and battery (hash-identical).
     keep_trial = solver_env_bool("JFEM_EIGEN_TRIAL_FACTOR_KEEP", true) &&
                  trial_ref[] !== nothing && issymmetric(K_ff)
@@ -211,7 +211,7 @@ function prepare_eigen_solve_context(K, ndof, model, id_map, spc_id, rbe3_map;
     return entry, false
 end
 
-function ensure_eigen_solve_factorization!(entry::EigenSolveCacheEntry)
+@solver_stage "factorization" "Cached eigenvalue factorization" function ensure_eigen_solve_factorization!(entry::EigenSolveCacheEntry)
     cache_hit = entry.factor !== nothing
     if !cache_hit
         # K_ff is SPD for a well-posed problem → Cholesky is the fast path.
@@ -219,14 +219,14 @@ function ensure_eigen_solve_factorization!(entry::EigenSolveCacheEntry)
         # LU rather than letting PosDefException bubble up and abort the solve.
         backend = "cholesky"
         f = try
-            cholesky(entry.K_ff)
+            _timed_factorization(cholesky,entry.K_ff)
         catch e
             if e isa LinearAlgebra.PosDefException ||
                e isa LinearAlgebra.SingularException ||
                e isa LinearAlgebra.ZeroPivotException
                 log_msg("[EIGEN] Cholesky failed ($(typeof(e))); falling back to LU. Check model constraints.")
                 backend = "lu"
-                lu(entry.K_ff)
+                _timed_factorization(lu,entry.K_ff)
             else
                 rethrow(e)
             end
@@ -445,56 +445,121 @@ function _singular_lu_regularization_matrix(K_ff::SparseMatrixCSC{Float64,Int},
     return shift * spdiagm(0 => ones(size(K_ff, 1)))
 end
 
+"""Check a candidate against the original equations, with bounded refinement.
+
+A successful factorization does not establish equilibrium. In particular, a
+near-null rotation can give finite, enormous displacements and a poor residual.
+Reuse the existing singular-solver load-relative acceptance policy. A shifted
+factor may precondition refinement, but never replaces K_ff in this check.
+"""
+function _checked_lu_candidate(K_ff::SparseMatrixCSC{Float64,Int}, F_ff::Vector{Float64},
+                               factor, u::Vector{Float64}, diagnostics::Dict{String,Any},
+                               candidate::String)
+    tolerance = _auto_lsmr_residual_threshold()
+    finite = all(isfinite, u)
+    _, relative = finite ? _singular_solution_relative_residual(K_ff, F_ff, u) : (Inf, Inf)
+    record = Dict{String,Any}("candidate" => candidate, "threshold" => tolerance,
+        "initial_relative_residual" => relative, "refinement_steps" => 0)
+    # Two same-factor corrections are a bounded numerical refinement, not a
+    # change to constraints or the physical stiffness. Retain only improvement.
+    if factor !== nothing && finite && isfinite(relative) && relative > tolerance
+        for _ in 1:2
+            trial = try
+                u + factor \ (F_ff - K_ff * u)
+            catch err
+                err isa InterruptException && rethrow(err)
+                record["refinement_error"] = sprint(showerror, err)
+                break
+            end
+            record["refinement_steps"] += 1
+            all(isfinite, trial) || break
+            _, trial_relative = _singular_solution_relative_residual(K_ff, F_ff, trial)
+            isfinite(trial_relative) && trial_relative < relative || break
+            u = trial
+            relative = trial_relative
+            relative <= tolerance && break
+        end
+    end
+    accepted = finite && isfinite(relative) && relative <= tolerance
+    record["finite_displacements"] = finite
+    record["relative_residual"] = relative
+    record["accepted"] = accepted
+    push!(get!(diagnostics["linear_solver"], "equilibrium_candidates", Any[]), record)
+    return accepted, u
+end
+
+function _lu_equilibrium_error(diagnostics)
+    candidates = get(diagnostics["linear_solver"], "equilibrium_candidates", Any[])
+    residuals = [get(c, "relative_residual", Inf) for c in candidates]
+    best = minimum(residuals; init=Inf)
+    return ArgumentError("No LU candidate balances the original reduced static equations " *
+        "(best relative residual=$best, limit=$(_auto_lsmr_residual_threshold())). " *
+        "Check unsupported mechanisms and constraints; a finite or regularized displacement is not necessarily an equilibrium solution.")
+end
+
 function _lu_or_regularized_solve(K_ff::SparseMatrixCSC{Float64,Int}, F_ff::Vector{Float64},
                                   max_elem_stiff::Float64, diagnostics::Dict{String,Any},
                                   backend::String)
     try
-        F_lu = lu(K_ff)
+        F_lu = _timed_factorization(lu,K_ff)
         diagnostics["linear_solver"]["backend"] = backend
         diagnostics["linear_solver"]["used_lu_fallback"] = true
-        return F_lu, F_lu \ F_ff
+        accepted, u = _checked_lu_candidate(K_ff, F_ff, F_lu, F_lu \ F_ff,
+            diagnostics, backend)
+        accepted && return F_lu, u
+        log_msg("[SOLVER] Finite LU candidate rejected by original-equilibrium check; trying singular-solver fallback")
     catch err
         if !(err isa LinearAlgebra.SingularException)
             rethrow(err)
         end
-        mode = _singular_solver_mode()
-        diagnostics["linear_solver"]["singular_solver_mode"] = mode
-        if mode in ("lsmr", "minimum_norm", "minnorm", "least_squares", "least_squares_lsmr")
-            return _lsmr_singular_solve(K_ff, F_ff, diagnostics, backend; scaled=false)
-        elseif mode in ("scaled_lsmr", "equilibrated_lsmr", "diag_scaled_lsmr")
-            return _lsmr_singular_solve(K_ff, F_ff, diagnostics, backend; scaled=true)
-        elseif mode in ("auto_lsmr", "compatible_lsmr", "range_lsmr")
-            accepted, F_auto, u_auto = _auto_lsmr_singular_candidate(
-                K_ff, F_ff, diagnostics, backend; scaled=false)
-            accepted && return F_auto, u_auto
-        elseif mode in ("auto_scaled_lsmr", "compatible_scaled_lsmr", "range_scaled_lsmr")
-            accepted, F_auto, u_auto = _auto_lsmr_singular_candidate(
-                K_ff, F_ff, diagnostics, backend; scaled=true)
-            accepted && return F_auto, u_auto
-        end
-        solver_env_bool("JFEM_SOL101_SINGULAR_LU_REGULARIZATION", true) || rethrow(err)
-
-        diagnostics["linear_solver"]["used_singular_lu_regularization"] = true
-        last_err = err
-        for exp in _singular_lu_regularization_exponents()
-            try
-                D_reg = _singular_lu_regularization_matrix(K_ff, max_elem_stiff, exp, diagnostics)
-                K_reg = K_ff + D_reg
-                F_reg = lu(K_reg)
-                diagnostics["linear_solver"]["backend"] = backend * "_regularized"
-                diagnostics["linear_solver"]["used_lu_fallback"] = true
-                diagnostics["linear_solver"]["regularization_shift_exponent"] = exp
-                shift_min = diagnostics["linear_solver"]["regularization_shift_min"]
-                shift_max = diagnostics["linear_solver"]["regularization_shift_max"]
-                mode = diagnostics["linear_solver"]["regularization_mode"]
-                log_msg("[SOLVER] Singular LU regularization succeeded with mode=$(mode), shift_range=[$(shift_min), $(shift_max)] (1e$exp scale)")
-                return F_reg, F_reg \ F_ff
-            catch reg_err
-                last_err = reg_err
-            end
-        end
-        throw(last_err)
+        diagnostics["linear_solver"]["lu_factorization_error"] = sprint(showerror, err)
     end
+    mode = _singular_solver_mode()
+    diagnostics["linear_solver"]["singular_solver_mode"] = mode
+    if mode in ("lsmr", "minimum_norm", "minnorm", "least_squares", "least_squares_lsmr")
+        factor, u = _lsmr_singular_solve(K_ff, F_ff, diagnostics, backend; scaled=false)
+        accepted, u = _checked_lu_candidate(K_ff, F_ff, factor, u, diagnostics, backend * "_lsmr")
+        accepted || throw(_lu_equilibrium_error(diagnostics))
+        return factor, u
+    elseif mode in ("scaled_lsmr", "equilibrated_lsmr", "diag_scaled_lsmr")
+        factor, u = _lsmr_singular_solve(K_ff, F_ff, diagnostics, backend; scaled=true)
+        accepted, u = _checked_lu_candidate(K_ff, F_ff, factor, u, diagnostics, backend * "_scaled_lsmr")
+        accepted || throw(_lu_equilibrium_error(diagnostics))
+        return factor, u
+    elseif mode in ("auto_lsmr", "compatible_lsmr", "range_lsmr")
+        accepted, F_auto, u_auto = _auto_lsmr_singular_candidate(
+            K_ff, F_ff, diagnostics, backend; scaled=false)
+        accepted && return F_auto, u_auto
+    elseif mode in ("auto_scaled_lsmr", "compatible_scaled_lsmr", "range_scaled_lsmr")
+        accepted, F_auto, u_auto = _auto_lsmr_singular_candidate(
+            K_ff, F_ff, diagnostics, backend; scaled=true)
+        accepted && return F_auto, u_auto
+    end
+    solver_env_bool("JFEM_SOL101_SINGULAR_LU_REGULARIZATION", true) || throw(_lu_equilibrium_error(diagnostics))
+
+    diagnostics["linear_solver"]["used_singular_lu_regularization"] = true
+    for exp in _singular_lu_regularization_exponents()
+        try
+            D_reg = _singular_lu_regularization_matrix(K_ff, max_elem_stiff, exp, diagnostics)
+            K_reg = K_ff + D_reg
+            F_reg = _timed_factorization(lu,K_reg)
+            accepted, u = _checked_lu_candidate(K_ff, F_ff, F_reg, F_reg \ F_ff,
+                diagnostics, backend * "_regularized_1e$(exp)")
+            accepted || continue
+            diagnostics["linear_solver"]["backend"] = backend * "_regularized"
+            diagnostics["linear_solver"]["used_lu_fallback"] = true
+            diagnostics["linear_solver"]["regularization_shift_exponent"] = exp
+            shift_min = diagnostics["linear_solver"]["regularization_shift_min"]
+            shift_max = diagnostics["linear_solver"]["regularization_shift_max"]
+            mode = diagnostics["linear_solver"]["regularization_mode"]
+            log_msg("[SOLVER] Singular LU regularization succeeded with mode=$(mode), shift_range=[$(shift_min), $(shift_max)] (1e$exp scale)")
+            return F_reg, u
+        catch reg_err
+            reg_err isa InterruptException && rethrow(reg_err)
+            push!(get!(diagnostics["linear_solver"], "regularization_errors", String[]), sprint(showerror, reg_err))
+        end
+    end
+    throw(_lu_equilibrium_error(diagnostics))
 end
 
 function _free_dofs_from_fixed_set(ndof::Int, fixed_dofs::Set{Int})
@@ -625,7 +690,7 @@ end
 """
     autospc_gpst_relative_threshold(model=nothing)
 
-Relative eigenvalue threshold (Nastran `EPZERO`) used by grid-point
+Relative eigenvalue threshold (Reference `EPZERO`) used by grid-point
 singularity processing. `JFEM_AUTOSPC_GPST_REL` has highest precedence,
 followed by a numeric deck `PARAM,EPZERO`; when neither is present, use the
 translational AUTOSPC threshold (historically `1e-8`).
@@ -674,7 +739,7 @@ end
 """
     _grid_point_singularity_autospc!(fixed_dofs, spc_dofs, K, ndof, model, id_map, protected_trans_dofs)
 
-Nastran-equivalent grid point singularity processing.
+Reference-equivalent grid point singularity processing.
 
 The pre-existing `_diagonal_autospc!` tests one DOF at a time against its own
 diagonal. That cannot see a singular *direction* which is not aligned with a DOF
@@ -1115,7 +1180,7 @@ function factorization_autospc_free_dofs(K, ndof, fixed_dofs::Set{Int})
         # Hand the successful factor back so the caller can keep it instead
         # of paying a second, identical factorization (trial-factor keep,
         # perf program deferred item #12).
-        F_trial = cholesky(Symmetric(K_ff))
+        F_trial = _timed_factorization(cholesky,Symmetric(K_ff))
         return free_dofs, 0, diagnostics, F_trial
     catch
     end
@@ -1130,7 +1195,7 @@ function factorization_autospc_free_dofs(K, ndof, fixed_dofs::Set{Int})
             diagnostics["triggered"] = true
             diagnostics["shift_exponent"] = shift_exp
 
-            F_chol_probe = cholesky(Symmetric(K_ff); shift=shift_val)
+            F_chol_probe = _timed_factorization(cholesky,Symmetric(K_ff); shift=shift_val)
             # diag(F) reads the factor diagonal without materializing L
             # (bit-identical to diag(sparse(F.L)); 19x measured at 48k DOF,
             # and skips a transient copy of the full fill-in).
@@ -1175,7 +1240,7 @@ function factorization_autospc_free_dofs(K, ndof, fixed_dofs::Set{Int})
 end
 
 # Compute free DOFs without solving (for eigenvalue problems that need the same BC partition).
-function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diagnostics::Bool=false,
+@solver_stage "constraints" "Apply constraints and select free degrees of freedom" function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diagnostics::Bool=false,
                            trial_factor_out::Union{Nothing,Base.RefValue{Any}}=nothing,
                            allow_factorization_autospc::Bool=true)
     fixed_dofs = Set{Int}()
@@ -1280,7 +1345,7 @@ function compute_free_dofs(K, ndof, model, id_map, spc_id, rbe3_map; return_diag
     return free_dofs, fixed_dofs
 end
 
-function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map, max_elem_stiff, orig_diag;
+@solver_stage "constraints_linear_solve" "Constraints and linear equilibrium" function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map, max_elem_stiff, orig_diag;
                             linear_cache=nothing, unsymmetric::Bool=false, autospc_matrix=K,
                             enforced_overrides=Dict{Int,Float64}())
     log_msg("[SOLVER] Processing Boundary Conditions...")
@@ -1395,7 +1460,16 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
             log_msg("[SOLVER] Enforced displacement RHS correction applied ($(length(cached_entry.enforced_dofs)) DOFs)")
         end
 
+        # A factor accepted for one load need not balance a later load: a new
+        # RHS can excite its nullspace. Check the original cached equations.
+        diagnostics["linear_solver"]["equilibrium_candidates"] = Any[]
         u_ff = cached_entry.factor \ F_ff
+        accepted, u_ff = _checked_lu_candidate(cached_entry.K_ff, F_ff,
+            cached_entry.factor, u_ff, diagnostics, "cached_factor")
+        if !accepted
+            _, u_ff = _lu_or_regularized_solve(cached_entry.K_ff, F_ff,
+                max_elem_stiff, diagnostics, "direct_lu_after_cache_rejection")
+        end
         r_solve = cached_entry.K_ff * u_ff - F_ff
         r_norm = norm(r_solve)
         rel_residual = r_norm / max(norm(F_ff), 1e-30)
@@ -1600,14 +1674,14 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
         # its skew part nor regularize a singular follower equilibrium.
         diagnostics["linear_solver"]["strategy"] = "direct"
         diagnostics["linear_solver"]["backend"] = "direct_lu_unsymmetric"
-        solve_factor=lu(K_ff)
+        solve_factor=_timed_factorization(lu,K_ff)
         u_ff=solve_factor\F_ff
         all(isfinite,u_ff) || throw(ArgumentError("Nonfinite unsymmetric static solution"))
     elseif n_free <= 2000000
         diagnostics["linear_solver"]["strategy"] = "direct"
         log_msg("[SOLVER] Using Direct Solver (Cholesky) for $n_free DOFs...")
         u_ff = try
-            F_chol = cholesky(Symmetric(K_ff))
+            F_chol = _timed_factorization(cholesky,Symmetric(K_ff))
 
             # diag(F) avoids materializing the whole factor (bit-identical;
             # 19x measured); diag(K_ff) replaces n_free CSC binary searches.
@@ -1656,7 +1730,7 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
                 diagnostics["bc_partition"]["fixed_dofs"] = length(fixed_dofs)
                 diagnostics["bc_partition"]["free_dofs"] = n_free
                 log_msg("[SOLVER] Re-solving with $(length(fixed_dofs)) fixed, $n_free free DOFs")
-                F_chol = cholesky(Symmetric(K_ff))
+                F_chol = _timed_factorization(cholesky,Symmetric(K_ff))
             end
 
             diagnostics["linear_solver"]["backend"] = "direct_cholesky"
@@ -1680,9 +1754,9 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
                     diagnostics["linear_solver"]["factorization_autospc"]["shift_exponent"] = shift_exp
 
                     F_chol_probe = if sol101_factorization_probe_check_false_enabled(model)
-                        cholesky(Symmetric(K_ff); shift=shift_val, check=false)
+                        _timed_factorization(cholesky,Symmetric(K_ff); shift=shift_val, check=false)
                     else
-                        cholesky(Symmetric(K_ff); shift=shift_val)
+                        _timed_factorization(cholesky,Symmetric(K_ff); shift=shift_val)
                     end
                     L_diag = abs.(diag(F_chol_probe))
                     L_median = median(L_diag)
@@ -1765,7 +1839,7 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
             if mechanism_found
                 # Try clean Cholesky on reduced system
                 try
-                    F_chol_clean = cholesky(Symmetric(K_ff))
+                    F_chol_clean = _timed_factorization(cholesky,Symmetric(K_ff))
                     solve_factor = F_chol_clean
                     u_result = F_chol_clean \ F_ff
                     diagnostics["linear_solver"]["backend"] = "direct_cholesky_after_factorization_autospc"

@@ -9,10 +9,10 @@ if !isdefined(@__MODULE__, :FEM)
 end
 using .FEM
 
-if !isdefined(@__MODULE__, :NastranParser)
-    include(joinpath("parsing", "NastranParser.jl"))
+if !isdefined(@__MODULE__, :ReferenceParser)
+    include(joinpath("parsing", "ReferenceParser.jl"))
 end
-using .NastranParser
+using .ReferenceParser
 
 if !isdefined(@__MODULE__, :Solver)
     include(joinpath("solver", "SolverCore.jl"))

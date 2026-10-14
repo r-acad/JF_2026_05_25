@@ -30,7 +30,7 @@
     const line=(x1,y1,x2,y2,cls="")=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="${cls}"/>`;
     const arrow=(x1,y1,x2,y2)=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="section-dimension" marker-start="url(#${id}-dim)" marker-end="url(#${id}-dim)"/>`;
     const dim=length=>number(length*1000)+" mm";
-    let svg=`<defs><marker id="${id}-dim" markerWidth="5" markerHeight="5" refX="2.5" refY="2.5" orient="auto-start-reverse"><path d="M5 0 L0 2.5 L5 5" fill="none" stroke="currentColor" stroke-width="1"/></marker><marker id="${id}-axis" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto"><path d="M0 0 L5 2.5 L0 5 Z" fill="context-stroke"/></marker></defs>`;
+    let svg=`<defs><marker id="${id}-dim" markerWidth="8" markerHeight="5" markerUnits="userSpaceOnUse" viewBox="0 0 8 5" refX="8" refY="2.5" orient="auto-start-reverse" overflow="visible"><path d="M0 0 L8 2.5 L0 5 Z" fill="currentColor" stroke="none"/></marker><marker id="${id}-axis" markerWidth="5" markerHeight="5" refX="5" refY="2.5" orient="auto"><path d="M0 0 L5 2.5 L0 5 Z" fill="context-stroke"/></marker></defs>`;
     svg+=`<polygon data-section-polygon="true" points="${s.polygon.map(([z,d])=>`${cx+z*scale},${top+d*scale}`).join(" ")}" class="section-polygon ${s.kind==="T"?"section-stringer":"section-cap"}"/>`;
     svg+=line(left-10,top,right+13,top,"section-skin")+text(right+15,top+4,"skin","class=\"section-note-label\"");
     svg+=line(left,top-5,left,34,"section-extension")+line(right,top-5,right,34,"section-extension")+arrow(left,40,right,40);

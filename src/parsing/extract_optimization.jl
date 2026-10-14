@@ -7,7 +7,7 @@
     raw = strip(string(field))
     isempty(raw) && return nothing
 
-    parsed = parse_nastran_number(raw, nothing)
+    parsed = parse_reference_number(raw, nothing)
     if !isnothing(parsed)
         return parsed
     end
@@ -16,22 +16,22 @@
 end
 
 @inline function _opt_float_or_nothing(field)
-    parsed = parse_nastran_number(field, nothing)
+    parsed = parse_reference_number(field, nothing)
     return isnothing(parsed) ? nothing : Float64(parsed)
 end
 
 function extract_desvar(cards)
     d = Dict{String, Any}()
     for c in cards
-        id = to_id(parse_nastran_number(safe_get(c, 3), 0))
+        id = to_id(parse_reference_number(safe_get(c, 3), 0))
         id <= 0 && continue
 
         label = strip(string(safe_get(c, 4, "")))
-        xinit = Float64(parse_nastran_number(safe_get(c, 5), 0.0))
+        xinit = Float64(parse_reference_number(safe_get(c, 5), 0.0))
         xlb = _opt_float_or_nothing(safe_get(c, 6))
         xub = _opt_float_or_nothing(safe_get(c, 7))
         delx = _opt_float_or_nothing(safe_get(c, 8))
-        ddval = parse_nastran_number(safe_get(c, 9), nothing)
+        ddval = parse_reference_number(safe_get(c, 9), nothing)
 
         d[string(id)] = Dict(
             "ID" => id,
@@ -49,7 +49,7 @@ end
 function extract_dresp1(cards)
     d = Dict{String, Any}()
     for c in cards
-        id = to_id(parse_nastran_number(safe_get(c, 3), 0))
+        id = to_id(parse_reference_number(safe_get(c, 3), 0))
         id <= 0 && continue
 
         label = strip(string(safe_get(c, 4, "")))
@@ -81,24 +81,24 @@ end
 function _extract_relation1(cards, target_key::String)
     d = Dict{String, Any}()
     for c in cards
-        id = to_id(parse_nastran_number(safe_get(c, 3), 0))
+        id = to_id(parse_reference_number(safe_get(c, 3), 0))
         id <= 0 && continue
 
         rel_type = uppercase(strip(string(safe_get(c, 4, ""))))
-        target_id = to_id(parse_nastran_number(safe_get(c, 5), 0))
+        target_id = to_id(parse_reference_number(safe_get(c, 5), 0))
         target_id <= 0 && continue
 
         field_ref = _opt_card_token(safe_get(c, 6); make_uppercase=true)
         lower_bound = _opt_float_or_nothing(safe_get(c, 7))
         upper_bound = _opt_float_or_nothing(safe_get(c, 8))
-        c0 = Float64(parse_nastran_number(safe_get(c, 9), 0.0))
+        c0 = Float64(parse_reference_number(safe_get(c, 9), 0.0))
 
         coeffs = Any[]
         # Parent field 9 is reserved. Coefficient pairs begin on the continuation.
         # Retain the historical compact free-field form when that slot is populated.
         k = isempty(strip(string(safe_get(c, 10, "")))) ? 11 : 10
         while k <= length(c)
-            desvar_id = to_id(parse_nastran_number(safe_get(c, k), 0))
+            desvar_id = to_id(parse_reference_number(safe_get(c, k), 0))
             coef = _opt_float_or_nothing(safe_get(c, k + 1))
             if desvar_id > 0
                 push!(coeffs, Dict(
@@ -135,10 +135,10 @@ end
 function extract_dconstr(cards)
     d = Dict{String, Any}()
     for c in cards
-        id = to_id(parse_nastran_number(safe_get(c, 3), 0))
+        id = to_id(parse_reference_number(safe_get(c, 3), 0))
         id <= 0 && continue
 
-        response_id = to_id(parse_nastran_number(safe_get(c, 4), 0))
+        response_id = to_id(parse_reference_number(safe_get(c, 4), 0))
         response_id <= 0 && continue
 
         lower_allowable = _opt_float_or_nothing(safe_get(c, 5))

@@ -3,7 +3,7 @@
 """
     resolve_includes(lines, base_dir; depth=0)
 
-Recursively resolve INCLUDE cards in a Nastran BDF file.
+Recursively resolve INCLUDE cards in a Reference BDF file.
 Replaces each INCLUDE line with the contents of the referenced file.
 Supports quoted filenames, relative and absolute paths, and nested includes (max 10 levels).
 """
@@ -53,13 +53,13 @@ function process_cards(lines)
     processed = Dict{String, Vector{Any}}()
     i = 1
     while i <= length(lines)
-        line = _nastran_without_comment(lines[i])
+        line = _reference_without_comment(lines[i])
         clean_line = strip(line)
         if startswith(clean_line, '$') || isempty(clean_line)
             i += 1; continue
         end
 
-        name = get_nastran_card_name(line)
+        name = get_reference_card_name(line)
         if startswith(name, "+") || name == "*"
              i += 1; continue
         end
@@ -70,11 +70,11 @@ function process_cards(lines)
 
         if !isnothing(base_name) && !isempty(base_name)
             fields = Any["SMALL"; String(base_name)]
-            append!(fields, get_nastran_fields_from_line(line; large_field=is_large))
+            append!(fields, get_reference_fields_from_line(line; large_field=is_large))
 
             steps = 1
             while i + steps <= length(lines)
-                next_line = _nastran_without_comment(lines[i+steps])
+                next_line = _reference_without_comment(lines[i+steps])
                 next_clean = strip(next_line)
                 if isempty(next_clean)
                     steps += 1; continue
@@ -85,14 +85,14 @@ function process_cards(lines)
                 if startswith(next_clean, "*")
                     is_cont = true
                     is_cont_large = true
-                elseif isempty(get_nastran_card_name(next_line)) || startswith(next_clean, "+")
+                elseif isempty(get_reference_card_name(next_line)) || startswith(next_clean, "+")
                     is_cont = true
                 elseif occursin(",", next_line) && startswith(next_clean, ",")
                     is_cont = true
                 end
 
                 if is_cont
-                    append!(fields, get_nastran_fields_from_line(next_line; large_field=(is_large || is_cont_large)))
+                    append!(fields, get_reference_fields_from_line(next_line; large_field=(is_large || is_cont_large)))
                     steps += 1
                 else
                     break
@@ -120,7 +120,7 @@ function read_bulk_and_case(lines::Vector{String})
     # Check if BEGIN BULK exists anywhere in the file (case-insensitive
     # regex avoids allocating an uppercased copy of every line — measured
     # 42 ms + 53 MB per pass on a CRM-class deck)
-    has_begin_bulk = any(occursin(r"^\s*BEGIN\s+BULK\s*$"i, _nastran_without_comment(l)) for l in lines)
+    has_begin_bulk = any(occursin(r"^\s*BEGIN\s+BULK\s*$"i, _reference_without_comment(l)) for l in lines)
 
     # Default SOL type
     case_control["SOL"] = 101
@@ -154,7 +154,7 @@ function read_bulk_and_case(lines::Vector{String})
     end
 
     for line in lines
-        cl = uppercase(_nastran_without_comment(line))
+        cl = uppercase(_reference_without_comment(line))
         if occursin(r"^\s*BEGIN\s+BULK\s*$", cl); in_bulk=true; continue; end
         # If no BEGIN BULK in file, treat everything after CEND as bulk
         if !has_begin_bulk && past_cend && !in_bulk

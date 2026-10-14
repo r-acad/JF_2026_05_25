@@ -23,7 +23,7 @@ function sensitivity_baseline_native_file(directory)
         isfile(joinpath(directory,name))||continue
         path=sensitivity_saved_file(directory,name,SENSITIVITY_BASELINE_LIMIT)
         data=JSON.parsefile(path)
-        data isa AbstractDict&&get(data,"analysis_type","") in ("SOL101_STATIC","SOL103_MODES","SOL105_BUCKLING")||continue
+        data isa AbstractDict&&get(data,"analysis_type","") in ("SOL101_STATIC","SOL103_MODES","SOL105_BUCKLING","SOL106_NONLINEAR_STATIC")||continue
         any(haskey(data,key) for key in ("displacements","modes","static_displacements"))&&return path
     end
     nothing
@@ -42,8 +42,29 @@ function sensitivity_baseline_payload(source,baseline,data,path,directory,metada
     sol=String(metadata["solution"]);id=Int(metadata["case_id"]);label=String(metadata["case_label"])
     job=JfemJob("sensitivity_baseline", "",joinpath(directory,"baseline.bdf"),directory,
         joinpath(directory,"sensitivity.log"),"",baseline,nothing,String[],ReentrantLock(),0.,Float64(get(metadata,"seconds",0.)),:done,0,"")
-    selected=sol=="105" ? buckling_case_result(data,1,1) : sol=="101" ? static_case_result(data,1,[1]) : data
+    selected=sol in ("101","106") ? static_case_result(data,1,[1]) : data
+    static_sid=static_subcase_id(1,"105")
+    if sol=="105"
+        # A sensitivity run has exactly one owning preload, even when a retained
+        # imported export uses its original subcase numbering.
+        states=get(data,"static_subcases",Any[])
+        length(states)<=1||throw(ArgumentError("Sensitivity baseline has multiple static preloads; ownership is ambiguous"))
+        selected=copy(data)
+        if !isempty(states)
+            state=only(states);static_sid=Int(state["static_subcase_id"])
+            selected["static_displacements"]=state["static_displacements"]
+            haskey(state,"static_result")&&(selected["static_result"]=state["static_result"])
+        end
+        owners=unique(Int(md["static_subcase_id"]) for md in get(data,"modes",Any[]) if haskey(md,"static_subcase_id"))
+        isempty(states)&&length(owners)==1&&(static_sid=only(owners))
+        all(==(static_sid),owners)||throw(ArgumentError("Sensitivity modes do not share the baseline's unique static preload"))
+    end
     item=jfem_case_results_payload(job,path,selected)
+    if sol=="105"
+        owners=unique(Int(md["buckling_subcase_id"]) for md in get(selected,"modes",Any[]) if haskey(md,"buckling_subcase_id"))
+        length(owners)<=1||throw(ArgumentError("Sensitivity baseline contains multiple buckling subcases"))
+        isempty(owners)||(item["buckling_subcase_id"]=only(owners))
+    end
     item["id"]=id;item["physical_case_id"]=id;item["label"]="Sensitivity baseline · "*label*" · SOL"*sol
     item["variant_id"]="sensitivity_"*basename(directory)*"_sol"*sol
     item["source"]="sensitivity_baseline";item["solution"]=sol;item["baseline_analysis"]=metadata
@@ -55,6 +76,24 @@ function sensitivity_baseline_payload(source,baseline,data,path,directory,metada
         item["imported_analysis_signature"]=imported_analysis_signature(source)
     end
     push!(item["summary"],Any["Sensitivity baseline","Physical case $id: $label; original forward analysis, no operator perturbations"])
+    if sol=="105"
+        # Export the retained preload, never solve it again or relabel
+        # normalized eigenmode forces as physical reactions.
+        attach_buckling_preload!(job,path,item,selected,static_sid)
+        if haskey(item,"variants")
+            for variant in item["variants"]
+                variant_sol=variant["id"]=="sol101" ? "101" : "105"
+                variant["variant_id"]="sensitivity_"*basename(directory)*"_sol"*variant_sol
+                variant["id"]=variant["variant_id"]
+                variant["solution"]=variant_sol
+                variant["source"]="sensitivity_baseline"
+                variant["baseline_role"]=variant_sol=="101" ? "buckling_preload" : "buckling_modes"
+                variant["label"]="Sensitivity baseline · "*label*(variant_sol=="101" ? " · SOL101 preload" : " · SOL105 buckling")
+            end
+            item["default_variant"]=item["variant_id"]
+            item["analysis_variants"]=[variant["variant_id"] for variant in item["variants"]]
+        end
+    end
     payload=copy(item);payload["load_cases"]=Any[item];payload["load_case_independent"]=false
     payload["model_params"]=copy(item["model_params"])
     payload
@@ -123,6 +162,12 @@ function sensitivity_baseline_load(directory,model;result=nothing)
         item["model_params"]=is_imported_model(model) ? imported_public_params(model) : copy(model.params)
         item["compatibility"]=copy(payload["compatibility"]);item["historical"]=historical
         item["baseline_analysis"]=metadata;item["message"]=payload["message"]
+        for variant in get(item,"variants",Any[])
+            get!(variant,"analysis_params",copy(variant["model_params"]))
+            variant["model_params"]=copy(item["model_params"])
+            variant["compatibility"]=copy(payload["compatibility"]);variant["historical"]=historical
+            variant["baseline_analysis"]=metadata
+        end
     end
     payload
 end

@@ -6,7 +6,7 @@ toggle at the top of the sidebar:
 1. **Build stiffened panel** — define a **curved cylindrical stiffened panel**
    (skin + a central "T" stringer running along x), set materials/laminates/
    loads, refine the mesh, and run a **SOL 105 linear buckling** analysis. The
-   generated Nastran deck is written to disk as a `.bdf` for your reference.
+   generated Reference deck is written to disk as a `.bdf` for your reference.
 2. **Run a .bdf file** — give a **server-side path** to an existing
    `.bdf`/`.dat`/`.nas` deck and run it as-is. The solution sequence
    (**SOL 101** static, **103** normal modes, **105** buckling, **106**
@@ -29,8 +29,8 @@ small Julia HTTP server over **msgpack**.
 | `panel_app.html`  | The browser app: *Analysis source* toggle (build panel vs. run a deck), parameter form, cylindrical mesh + BDF generator (comma free-field), msgpack client, Babylon.js viewer (`parseJFEM`, v3/v4/v5). |
 | `panel_server.jl` | Pure-Julia **msgpack-over-HTTP** server. Serves the app, runs a deck through OpenJFEM in-process, and is **SOL-agnostic** — it detects the SOL from the deck and returns `sol`, `analysis_type`, eigenvalues, frequencies, the report text, and the `.jfem` bytes. Uses `HTTP.jl` + `MsgPack.jl`. |
 | `panel_launch.jl` | Cross-platform launcher: starts the server **and** opens the browser. |
-| `RUN_PANDEATOR_WINDOWS.cmd`   | Windows double-click launcher (calls `panel_launch.jl`). Uses plain `julia` (no `julia +release`), and auto-loads `../../sysimage/OpenJFEM_sysimage.dll` via `--sysimage` when it exists. |
-| `RUN_PANDEATOR_MAC_LINUX.sh`    | macOS/Linux launcher (`chmod +x` then run). Uses plain `julia` and auto-loads `../../sysimage/OpenJFEM_sysimage.so`/`.dylib` when it exists. |
+| `RUN_PANDEATOR_WINDOWS.cmd`   | Windows double-click launcher (calls `panel_launch.jl`). Honors `JFEM_JULIA` and loads the standard solver image only after its provenance receipt passes. |
+| `RUN_PANDEATOR_MAC_LINUX.sh`    | macOS/Linux launcher (`chmod +x` then run). Honors `JFEM_JULIA` and loads the standard solver image only after its provenance receipt passes. |
 | `vendor/`         | Local copies of the front-end libraries (`babylon.js` minified, `msgpack.min.js`) so the app loads fast and works fully offline — no CDN needed. The server serves these at `/vendor/...`. |
 | `PANEL_APP_README.md` | This runbook. |
 
@@ -38,44 +38,38 @@ small Julia HTTP server over **msgpack**.
 browser libraries are vendored under `vendor/` (no internet connection
 required at runtime).
 
-## Prerequisites
+## Installation and launch
 
-- **Julia** with the OpenJFEM project instantiated. If the new deps aren't
-  resolved yet:
+From the repository root, run `setup.cmd` on Windows or `bash setup.sh` on
+macOS/Linux. This is the shared installer for JFEM, FGen, PANDEATOR and the
+static viewer; no manual package list is needed. PANDEATOR uses the root JFEM
+environment. Missing package sources are also installed before first launch;
+explicit setup repairs missing artifacts. See
+[the installation guide](../../JFEM_installation/INSTALLATION.md).
 
-  ```
-  julia --project=<...>/JFEM -e "using Pkg; Pkg.instantiate()"
-  ```
+- **Windows:** double-click `RUN_PANDEATOR_WINDOWS.cmd`.
+- **macOS/Linux:** run `bash POST/PANDEATOR_APP/RUN_PANDEATOR_MAC_LINUX.sh` from the repository root.
 
-  (No Python, no Node, no other tooling is required.)
+The launcher uses `JFEM_JULIA` when set, otherwise `julia` on `PATH`. The
+checkout's recorded Julia release line is checked before package installation.
+The browser opens at `http://127.0.0.1:8088/` after server warm-up. First use may
+download dependencies and compile Julia code; duration depends on the machine
+and cache. Keep the terminal open; Ctrl+C stops the server. Use `--port 8090` to
+choose another port or `--no-open` to open the browser yourself.
 
-## Run
+### Optional sysimage through the same setup
 
-### Easiest - one launcher (Windows / macOS / Linux)
+From the repository root run `setup.cmd --sysimage` or
+`bash setup.sh --sysimage`. Add `--dry-run` to inspect the plan without building.
+The historical CLICK/RUN installation scripts delegate to this same command.
 
-- **Windows:** double-click **`RUN_PANDEATOR_WINDOWS.cmd`**.
-- **macOS / Linux:** `chmod +x RUN_PANDEATOR_MAC_LINUX.sh` once, then `./RUN_PANDEATOR_MAC_LINUX.sh`.
-
-The launcher starts the Julia server and, after a moment, opens your default
-browser at `http://127.0.0.1:8088/`. The launcher uses whatever `julia` is on
-your `PATH` (Julia 1.13.1; **no juliaup / no `+release` needed**). The
-**first** start compiles the server + solver (~1-2 min, shown in the startup
-banner); later analyses in the same session are warm. Press **Ctrl+C** in the
-terminal (or close the window) to stop.
-
-### Faster startup with a sysimage (optional)
-
-Build a sysimage once per machine using the scripts in the repo-root
-**`JFEM_installation/`** folder:
-
-- Windows: `JFEM_installation\CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd`
-- Linux: `./JFEM_installation/RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh` (after `chmod +x`)
-- macOS: `JFEM_installation/CLICK_MAC_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.command`
-
-From then on `RUN_PANDEATOR_WINDOWS.cmd` / `RUN_PANDEATOR_MAC_LINUX.sh` load it automatically
-(`--sysimage`), so startup and the first analysis are near-instant. The image is
-machine-specific (tied to the exact Julia version + OS + CPU) and git-ignored;
-rebuild it after a Julia upgrade. See `JFEM_installation/README.md` for details.
+PANDEATOR's launchers automatically use the standard local image only when
+its provenance receipt matches the Julia runtime, source and trained workload.
+Otherwise they start with normal Julia. Building is optional and can require
+substantial time and RAM; it does not change the solver equations. A sysimage
+for the solver/PANDEATOR does not accelerate FGen's separate web-server runtime.
+See [setup options](../../JFEM_installation/README.md) for representative decks,
+custom output paths and build thread limits.
 
 ### Manual
 
@@ -141,11 +135,9 @@ lists every ply (no reliance on the solver's SYM handling).
 
 ## Where outputs go
 
-Each run gets a separate `<case_id>_<unique>/` directory. In the development
-workspace, these directories live under
-`02_PROJECT_DEVELOPMENT/02.3_PRIVATE_VALIDATION/RUN_OUTPUTS/SOL105/<YYYYQn>/PANDEATOR/`.
-An installed copy uses `~/.openjfem/panel_runs/`. Set `JFEM_PANEL_RUN_ROOT` to
-choose a different parent directory. The response includes the actual output path.
+Each run gets a separate `<case_id>_<unique>/` directory under the repository's
+`output/panel_runs/`. Set `JFEM_PANEL_RUN_ROOT` to choose another writable parent
+directory. The response includes the actual output path.
 
 ```
 <case_id>.bdf              the form-built deck (panel mode only; file mode runs your deck in place)

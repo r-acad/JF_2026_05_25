@@ -5,9 +5,10 @@
     common ? require("./spar_view.js") : root.WingSparView,
     common ? require("./leading_edge_gaps.js") : root.WingLeadingEdgeGaps,
     common ? require("./rib_layout.js") : root.WingRibLayout,
-    common ? require("./svg_viewport.js") : root.WingSVGViewport);
+    common ? require("./svg_viewport.js") : root.WingSVGViewport,
+    common ? require("./fuel_tank_view.js") : root.WingFuelTankView);
   if (common) module.exports = api; else root.WingDimensionedPlanView = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function (root, Planform, Spar, Gaps, Ribs, Viewport) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (root, Planform, Spar, Gaps, Ribs, Viewport, Fuel) {
   "use strict";
   const PARAM_KEYS = [...new Set([...Spar.PARAM_KEYS, ...Gaps.PARAM_KEYS, "box.stringer_pitch", "fuel.enabled", "fuel.start_rib", "fuel.end_rib", "fuel.disabled_bays"])];
   const MAX_IMAGE_BYTES = 8 * 1024 * 1024, NS = "http://www.w3.org/2000/svg";
@@ -93,7 +94,9 @@
           noseActive: activeBay(bay) || activeBay(bay + 1) });
       }
     }
-    return { valid: errors.length === 0, drawable: true, error: [...new Set(errors)].join(" "), planform, spars, physical, ribs,
+    const fuel = params["fuel.enabled"] === true ? (Fuel || root.WingFuelTankView)?.derive(params) : null;
+    if (fuel && !fuel.valid) errors.push(fuel.error);
+    return { valid: errors.length === 0, drawable: true, error: [...new Set(errors)].join(" "), planform, spars, physical, ribs, fuel,
       sampledRibs: physical.valid && ribs.length < physical.ribCount,generated:!!oriented?.generated,warning:oriented?.warning||"" };
   }
   // The refined outline is piecewise linear in physical coordinates. Its area
@@ -156,6 +159,19 @@
         if (settings.mirror) svg += polyline(positions.map(mirror), "dpv-spar dpv-" + name + " dpv-mirrored");
       }
     }
+    // Exact wet/dry boundaries share the fuel editor's untwisted projection.
+    // Draw them after spars and ribs so tank limits remain visible when they
+    // coincide with structural lines or those structural layers are hidden.
+    if (data.fuel?.valid && data.fuel.enabled && data.fuel.selection) {
+      for (const [kind, regions] of [["wet", data.fuel.selection.regions], ["dry", data.fuel.selection.dryRegions]]) {
+        for (const region of regions) {
+          const positions = [...region.polygon, region.polygon[0]], cls = "dpv-fuel dpv-fuel-" + kind;
+          const attr = `data-fuel-region="${kind}" data-first-rib="${region.first}" data-last-rib="${region.last}"`;
+          svg += polyline(positions, cls, attr);
+          if (settings.mirror) svg += polyline(positions.map(mirror), cls + " dpv-mirrored", attr + ' data-mirror-fuel="true"');
+        }
+      }
+    }
     return svg;
   }
   function install(host, options = {}) {
@@ -171,7 +187,7 @@
       <button type="button" data-dpv="export" title="Export the visible drawing, annotations and embedded reference image as an SVG file">Export SVG</button>
       <button type="button" data-dpv="properties" aria-expanded="true" title="Show or hide planform properties">Properties</button>
       <button type="button" data-dpv="help" aria-expanded="false" aria-label="Plan view and image instructions">? Help</button></div></div>
-      <div class="dpv-options"><label><input type="checkbox" data-dpv="mirror" autocomplete="off">Mirror opposite half</label><label><input type="checkbox" data-dpv="showSpars">Spars</label><label><input type="checkbox" data-dpv="showRibs">Physical ribs</label><label><input type="checkbox" data-dpv="showRibLabels">Rib numbers</label><span class="dpv-legend"><i class="front"></i>Front spar <i class="rear"></i>Rear spar <i class="rib"></i>Rib</span></div>
+      <div class="dpv-options"><label><input type="checkbox" data-dpv="mirror" autocomplete="off">Mirror opposite half</label><label><input type="checkbox" data-dpv="showSpars">Spars</label><label><input type="checkbox" data-dpv="showRibs">Physical ribs</label><label><input type="checkbox" data-dpv="showRibLabels">Rib numbers</label><span class="dpv-legend"><i class="front"></i>Front spar <i class="rear"></i>Rear spar <i class="rib"></i>Rib <span class="dpv-fuel-legend" hidden><i class="fuel"></i>Fuel tank <i class="dry"></i>Dry / vent bays</span></span></div>
       <div class="dpv-image-settings" id="dpv-image-settings" hidden><label>Image opacity <input type="range" min="0" max="1" step="0.05" data-dpv="opacity"></label><div class="dpv-scale"><button type="button" data-dpv="smaller" aria-label="Scale image down">&minus;</button><label>Image scale <input type="number" min="0.01" max="1000000" step="1" data-dpv="scale">%</label><button type="button" data-dpv="larger" aria-label="Scale image up">+</button></div><button type="button" data-dpv="reset">Reset image alignment</button><button type="button" data-dpv="remove">Remove image</button></div>
       <div class="dpv-help" hidden><b>Plan View.</b> This separate browser tab can be dragged to another monitor. Drawing coordinates and dimensions use metres.<br><b>Live geometry.</b> Dimensions describe the base trapezoid. The outline follows the edge points; green/orange lines show the independent spar paths. Master and secondary rib positions and angles follow the Ribs editor. Rib numbers are physical ribs, so shell refinements do not add ribs. Current generated ribs use their actual surface projection; while parameters are changing, the preview uses the untwisted reference paths. Red leading-edge ribs indicate that the requested direction missed the surface and flight direction was used. Leading-edge rib extensions respect the selected rib range and pylon gaps. The opposite half is a mirrored reference only. Drawing strokes and arrowheads remain thin at every zoom; labels keep a readable screen size.<br><b>Navigation.</b> Drag with the left or middle mouse button to pan the drawing and background together. Use the wheel to zoom both under the pointer. Hold <b>Alt</b> for 10&times; finer wheel or +/&minus; zoom; Alt also works with Ctrl/Cmd for fine image-only scaling and with the image +/&minus; buttons. Numeric scale entry remains exact. <b>Fit view</b> restores the overall view without changing image alignment.<br><b>Image alignment.</b> Load a PNG, JPEG or WebP image (up to 8 MiB). Hold <b>Ctrl</b> (Windows/Linux) or <b>Cmd</b> (Mac) while dragging or using the wheel to move or scale only the image. The Image tools controls and Reset image alignment affect only the image. Arrow keys and +/&minus; navigate the whole view; hold Ctrl/Cmd to adjust the image instead. Shift makes larger arrow steps. Escape cancels a drag. Image data, image alignment, background theme and overall view placement are included in Save Study and Save TOML.<br><b>Grid and dimensions.</b> Grid spacing and distance labels use metres. Horizontal dimensions measure global y; vertical dimensions measure global x. Select Distance, Horizontal or Vertical and click two points. For Angle, click endpoint, vertex, endpoint. Then move the label and dimension lines and click to place them. Enable Snap geometry for visible endpoints and edges within 10 screen pixels; images, axes and annotations are excluded. Labels are positioned freely. Use Navigate or Escape to return to panning; the middle button can pan while measuring. Grid and snapping settings, dimension anchors and label positions are saved with the Study and TOML. Their picked locations stay in physical global coordinates when geometry changes.<br><b>Export SVG.</b> Exports the current visible view, including the background image, selected layers and background colour. Use Fit view first to export the complete drawing.<p class="dpv-image-details"></p><p class="dpv-metrics" aria-live="polite"></p></div>
       <p class="dpv-image-status" role="status" hidden></p><p class="dpv-error" role="alert" hidden></p><div class="dpv-content"><div class="dpv-stage planform-view-canvas"><svg viewBox="0 0 1000 630" tabindex="0" aria-label="Dimensioned lifting surface plan view and optional reference image" role="img"></svg></div><aside class="dpv-properties" aria-label="Planform and model properties"><h3>Planform properties</h3><p class="dpv-property-basis">Untwisted XY projection. Values for the full lifting surface include the mirrored half; the FE model covers one half up to Box end &eta;.</p><div class="dpv-property-tables"></div><p class="dpv-property-note">Refined area and MAC integrate the piecewise straight outline exactly. MAC = &int;c&sup2; dy / &int;c dy. Sweep values are root-to-tip secants, not local angles at kinks. Drawing chord dimensions label the basic trapezoid. Rib numbers refer to physical ribs; refinement adds no physical ribs.</p></aside></div>`;
@@ -223,6 +239,7 @@
       if (destroyed) return;
       if (updateGeometry || !cachedData) try { cachedParams = options.readValues?.() || {}; cachedData = derive(cachedParams); } catch (e) { cachedData = { valid: false, drawable: false, error: e.message, ribs: [] }; }
       const data = cachedData;
+      host.querySelector(".dpv-fuel-legend").hidden = !(data.fuel?.valid && data.fuel.enabled);
       let scene = svg.querySelector(".dpv-scene");
       if (!scene) { scene = doc.createElementNS(NS, "g"); scene.setAttribute("class", "dpv-scene"); svg.appendChild(scene); }
       scene.setAttribute("transform", `translate(${state.viewport.x} ${state.viewport.y}) scale(${state.viewport.scale})`);

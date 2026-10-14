@@ -5,8 +5,8 @@ const W = WingFEGen
 
 # Exercise the real, unmodified JFEM parser against complete generator decks.
 repo,_=W.find_jfem(dirname(@__DIR__))
-include(joinpath(repo,"src","parsing","NastranParser.jl"))
-const N = NastranParser
+include(joinpath(repo,"src","parsing","ReferenceParser.jl"))
+const N = ReferenceParser
 
 function polygon_integrals(poly)
     a = my = mz = iy = iz = 0.0

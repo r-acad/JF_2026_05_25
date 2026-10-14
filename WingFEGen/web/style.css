@@ -78,6 +78,8 @@ button {
 
 button:hover:not(:disabled) { background: #26313e; border-color: #3a4756; }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
+.mesh-label-controls .layer:has(> input:disabled),
+.layer:has(> #show-panel-ids:disabled) { opacity: 0.45; cursor: not-allowed; }
 
 button.primary {
   grid-column: 1 / -1;

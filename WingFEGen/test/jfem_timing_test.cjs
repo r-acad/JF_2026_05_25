@@ -4,7 +4,7 @@ const timing={available:true,solution_seconds:12.1,compilation_seconds:300,prepa
 const messages=T.completion({seconds:360.1,timings:timing});
 assert.match(messages[0],/12\.1 s \(compilation excluded\)/);
 assert(!messages[0].includes('360.1'));
-assert.match(messages[1],/compilation within analysis stages 300\.0 s/);
+assert.match(messages[1],/compilation within measured phases 300\.0 s/);
 assert.match(messages[1],/deck preparation 4\.0 s/);
 assert.match(messages[1],/result export 8\.0 s/);
 assert.match(messages[1],/total elapsed 360\.1 s/);
@@ -15,4 +15,19 @@ for(const timings of [undefined,{available:false}, {...timing,solution_seconds:n
  assert.match(lines[0],/solution time is unavailable/);
  assert(!lines[0].includes('solution completed in'));
 }
+const measured=(wall,compilation)=>({wall_seconds:wall,compilation_seconds:compilation,recompilation_seconds:.1,execution_seconds:wall-compilation,gc_seconds:.05});
+const stages=[{phase:'analysis',label:'Analysis',category:'numerical',calls:1,depth:0,inclusive:measured(20,5),exclusive:measured(2,1)},
+ {phase:'assembly',label:'Assemble elastic stiffness',category:'numerical',parent:'analysis',depth:1,calls:2,case_id:3,solution:'105',inclusive:measured(18,4),exclusive:measured(18,4)}];
+const entries=T.entries({state:'done',seconds:360.1,timings:{...timing,stages}});
+assert(entries.some(row=>row.kind==='numerical'&&/exclusive numerical execution 14\.0 s/.test(row.text)));
+assert(entries.some(row=>row.kind==='compilation'&&/exclusive Julia compilation 4\.0 s/.test(row.text)));
+assert(entries.some(row=>/case 3 SOL105.*Assemble elastic stiffness/.test(row.text)));
+assert(entries.some(row=>/do not add them/.test(row.text)));
+assert(!T.completion({state:'failed',timings:timing})[0].includes('solution completed'));
+const sensitivity=T.entries({state:'done',progress:{worker_timings:{native_package_load:{seconds:4,compile_seconds:1,gc_seconds:.05}}}},{label:'Sensitivity'});
+assert(sensitivity.some(row=>/native package load: wall 4\.0 s.*compilation 1\.0 s.*execution excluding compilation 3\.0 s/.test(row.text)));
+assert(sensitivity.some(row=>/not an additive total/.test(row.text)));
+const unseparated=T.entries({result:{timings_seconds:{adjoint_setup_and_solve:12,property_operators:4}}},{label:'Sensitivity'});
+assert(unseparated.some(row=>row.kind==='preparation'&&/adjoint setup and solve: 12\.0 s wall, including any compilation/.test(row.text)));
+assert(!unseparated.some(row=>row.kind==='numerical'));
 console.log('JFEM timing messages: solve time and preparation separated; unavailable timing stays explicit.');

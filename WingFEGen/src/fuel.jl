@@ -161,17 +161,25 @@ function enclosed_loft_volume(w::Wing,p::AbstractDict,eta_first::Real,eta_last::
     return volume
 end
 
+"""Uniform usable-volume allowance; geometry and partial-fill levels stay geometric."""
+function fuel_fill_efficiency(p)
+    value=get(p,"fuel.fill_efficiency",1.0)
+    value isa Real && !(value isa Bool) && isfinite(value) && 0<=value<=1 ||
+        throw(ArgumentError("fuel.fill_efficiency must be a finite number between 0 and 1"))
+    return Float64(value)
+end
+
 function fuel_summary(m::Model)
     p, g = m.params, m.grid
-    enabled = Bool(p["fuel.enabled"])
+    enabled = Bool(p["fuel.enabled"]);efficiency=fuel_fill_efficiency(p)
     result = Dict{String,Any}(
         "enabled" => enabled, "bays" => Any[],
-        "rib_count" => length(g.ribs),
-        "scope" => "Gross geometric volume in the modeled half lifting surface",
+        "rib_count" => length(g.ribs), "fill_efficiency" => efficiency,
+        "scope" => "Usable fuel capacity and gross geometric volume in the modeled half lifting surface",
         "method" => m.wing.airfoil_interpolation===:linear ?
             "Exact integration of the refined airfoil loft between independent base-reference spar paths and physical rib planes" :
             "Adaptive cosine-loft integration of exact tabulated airfoil sections (relative quadrature tolerance 1e-11)",
-        "note" => "Dry / vent bays are excluded. Structure, equipment, unusable fuel and wall thickness are not deducted. Per-case fuel adds CONM2 mass, CG/inertia and fuel-only acceleration loads through wet-bay RBE3 elements.")
+        "note" => "Dry / vent bays are excluded. Usable capacity is gross geometric volume times the fill efficiency factor, applied uniformly within each wet bay. No separate structure, equipment or wall-thickness deductions are made. Case Fuel status is a percentage of usable capacity; fill height and CG follow the gross bay geometry at that percentage. Volume, mass, inertia and acceleration loads scale with efficiency through per-bay CONM2 and RBE3 elements.")
     enabled || return result
     first_rib, last_rib = fuel_rib_bounds(p, length(g.ribs))
     selection=fuel_bay_selection(p,length(g.ribs))
@@ -181,9 +189,11 @@ function fuel_summary(m::Model)
     for bay in geometry
         rib=bay.rib
         lo,hi=(g.etas[g.ribs[r]+1] for r in (rib,rib+1))
-        bay_volume=bay.full[1];volume+=bay_volume
+        gross=bay.full[1];bay_volume=efficiency*gross;volume+=gross
         push!(result["bays"],Dict{String,Any}("index"=>rib,"start_rib"=>rib,"end_rib"=>rib+1,
-            "eta_start"=>lo,"eta_end"=>hi,"volume_m3"=>bay_volume,"volume_litres"=>1000bay_volume))
+            "eta_start"=>lo,"eta_end"=>hi,"fill_efficiency"=>efficiency,
+            "gross_volume_m3"=>gross,"gross_volume_litres"=>1000gross,
+            "volume_m3"=>bay_volume,"volume_litres"=>1000bay_volume))
     end
     merge!(result, Dict{String,Any}(
         "start_rib" => first_rib, "end_rib" => last_rib,
@@ -191,8 +201,10 @@ function fuel_summary(m::Model)
         "disabled_bays"=>selection.disabled,"excluded_bays"=>selection.excluded,"ignored_bays"=>selection.ignored,
         "active_bays"=>selection.active,"active_bay_count"=>length(selection.active),
         "regions"=>[Dict("start_rib"=>a,"end_rib"=>b) for (a,b) in selection.regions],
-        "volume_m3" => volume, "volume_litres" => 1000volume,
-        "mirrored_volume_m3" => 2volume, "mirrored_volume_litres" => 2000volume))
+        "gross_volume_m3" => volume, "gross_volume_litres" => 1000volume,
+        "mirrored_gross_volume_m3" => 2volume, "mirrored_gross_volume_litres" => 2000volume,
+        "volume_m3" => efficiency*volume, "volume_litres" => efficiency*1000volume,
+        "mirrored_volume_m3" => efficiency*2volume, "mirrored_volume_litres" => efficiency*2000volume))
     return result
 end
 
@@ -203,10 +215,12 @@ function fuel_info(m::Model)
         ("Fuel tank ribs", @sprintf("%d to %d of %d (ETA %.6g to %.6g)",
             summary["start_rib"], summary["end_rib"], summary["rib_count"],
             summary["eta_start"], summary["eta_end"])),
-        ("Fuel gross half lifting surface volume", @sprintf("%.9g m3 (%.9g L)", summary["volume_m3"], summary["volume_litres"])),
+        ("Fuel gross half lifting surface volume", @sprintf("%.9g m3 (%.9g L)", summary["gross_volume_m3"], summary["gross_volume_litres"])),
+        ("Fuel fill efficiency factor", @sprintf("%.9g (uniform usable-volume fraction)", summary["fill_efficiency"])),
+        ("Fuel usable half lifting surface capacity", @sprintf("%.9g m3 (%.9g L)", summary["volume_m3"], summary["volume_litres"])),
         ("Fuel wet / dry bays", "$(summary["active_bay_count"]) wet / $(length(summary["excluded_bays"])) dry in the selected tank range"),
         ("Fuel dry / vent bay IDs", isempty(summary["disabled_bays"]) ? "None" : join(summary["disabled_bays"],", ") * (isempty(summary["ignored_bays"]) ? "" : " (outside-range exclusions retained and ignored: " * join(summary["ignored_bays"],", ") * ")")),
-        ("Fuel mirrored-pair volume", @sprintf("%.9g m3 (%.9g L), assuming two identical tanks", summary["mirrored_volume_m3"], summary["mirrored_volume_litres"])),
+        ("Fuel usable mirrored-pair capacity", @sprintf("%.9g m3 (%.9g L), assuming two identical tanks", summary["mirrored_volume_m3"], summary["mirrored_volume_litres"])),
         ("Fuel volume basis", summary["method"]),
         ("Fuel volume exclusions", summary["note"]),
     ]
@@ -455,6 +469,6 @@ function fuel_payload(m::Model)
     result["surface"] = Dict{String,Any}("xyz"=>blob_f32(surface.xyz),
         "conn"=>blob_i32(surface.conn;offset=-1),"count"=>length(surface.conn)÷3,"n_per_elem"=>3,
         "eta_start"=>surface.eta_start,"eta_end"=>surface.eta_end,
-        "note"=>"Undeformed gross tank envelope between the selected ribs, front/rear spars and generating skins. Display triangulation approximates the curved loft; capacity and fuel moments use exact tabulated section polygons with adaptive span integration. Each case adds its own fuel CONM2 mass, CG, inertia and fuel-only acceleration loads.")
+        "note"=>"Undeformed gross tank envelope between the selected ribs, front/rear spars and generating skins. Fill efficiency uniformly scales usable volume and fuel mass/inertia; it does not shrink this envelope or change the fill height at a given case percentage. Display triangulation approximates the curved loft; fuel moments use exact tabulated section polygons with adaptive span integration. Each case adds its own fuel CONM2 mass, CG, inertia and fuel-only acceleration loads.")
     return result
 end

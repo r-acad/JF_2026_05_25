@@ -3,7 +3,7 @@
 # Hu-Washizu and hybrid-stress Q4 kernel family. RESEARCH only —
 # fires when JFEM_Q4_KERNEL=huwashizu OR when stiffness_quad4_matrices is
 # called with exact_membrane_operator=true / exact_membrane_curvature_w_coupling=true.
-# Neither path is on under default GAME parity defaults.
+# Neither path is on under default validation parity defaults.
 #
 # Members (called via `stiffness_quad4_huwashizu_matrices` dispatcher):
 #   stiffness_quad4_membrane_hybrid_stress_matrices
@@ -649,7 +649,7 @@ end
 # STATUS: RESEARCH / RETAINED — mixed Hu-Washizu variational formulation
 #         (independent stress, strain, displacement fields). Theoretically a
 #         strong cure for shear/volumetric locking; basis of high-performance
-#         shell elements in TACS and similar codes. Tested 2026-05-22 as GAME
+#         shell elements in TACS and similar codes. Tested 2026-05-22 as validation
 #         alternative → regressed (single calibration tried, not exhaustive).
 #         Retained for future calibration work. DO NOT DELETE without revisiting.
 # DISPATCHED FROM: stiffness_quad4_huwashizu_matrices when JFEM_Q4_KERNEL=huwashizu.

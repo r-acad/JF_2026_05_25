@@ -30,8 +30,18 @@ ENDDATA
             end
         end
         payload=JSON.parsefile(OpenJFEM._export_fs_path(timing))
-        @test payload["schema_version"]==1
-        @test payload["solution_seconds"]==payload["phases"]["solve"]["execution_seconds"]
+        @test payload["schema_version"]==2
+        # Schema 2 totals exclusive numerical stages once, excluding preparation
+        # and export. Unavailable compilation separation remains unavailable.
+        numerical=[row for row in payload["stages"] if row["category"]=="numerical"]
+        @test !isempty(numerical)
+        @test any(row->row["depth"]>0,numerical)
+        execution=[row["exclusive"]["execution_seconds"] for row in numerical]
+        if any(isnothing,execution)
+            @test payload["solution_seconds"]===nothing
+        else
+            @test payload["solution_seconds"]≈sum(execution) atol=1e-12
+        end
         @test payload["measured_wall_seconds"]>=payload["phases"]["solve"]["wall_seconds"]
         marker=only(filter(line->startswith(line,"[JFEM_TIMINGS] "),readlines(log)))
         @test JSON.parse(chopprefix(marker,"[JFEM_TIMINGS] "))==payload

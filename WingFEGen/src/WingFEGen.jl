@@ -14,14 +14,14 @@
 #    * root supports in 1, 2 and 3,
 #
 #  plus a quadrilateral mesh of the aerodynamic surface. The model is shown in
-#  a Babylon.js web app, can be written as a NASTRAN deck, and can be solved
+#  a Babylon.js web app, can be written as a REFERENCE deck, and can be solved
 #  in place by the JFEM solver, whose results come straight back into the
 #  viewer as mode shapes or a deformed static shape.
 #
 #  Entry points:
 #     run_app(input)          start the web application
 #     build_model(params)     generate the model in process
-#     write_nastran(m, path)  write the NASTRAN deck
+#     write_reference(m, path)  write the REFERENCE deck
 #     start_jfem_job(...)     solve the deck in JFEM
 # ===========================================================================
 module WingFEGen
@@ -97,12 +97,13 @@ include("sections.jl")
 include("weights.jl")
 include("structure_loads.jl")
 include("load_cases.jl")
-_startup_stage("Loading Nastran output and aerodynamic load transfer code")
-include("nastran.jl")
+_startup_stage("Loading Reference output and aerodynamic load transfer code")
+include("reference.jl")
 include("aerodynamics.jl")
 include("load_moments.jl")
 include("load_plots.jl")
 include("payload.jl")
+include("buckling_outputs.jl")
 _startup_stage("Loading JFEM job management and sensitivity analysis code")
 include("jfem_run.jl")
 include("sensitivity.jl")
@@ -113,17 +114,18 @@ include("sensitivity_analytic_beams.jl")
 include("sensitivity_analytic_loads.jl")
 include("sensitivity_analytic_geometric.jl")
 include("sensitivity_analytic.jl")
-_startup_stage("Loading Nastran import and imported-property sensitivity code")
-include("nastran_import.jl")
-include("nastran_import_sensitivity.jl")
+include("sensitivity_nonlinear.jl")
+_startup_stage("Loading Reference import and imported-property sensitivity code")
+include("reference_import.jl")
+include("reference_import_sensitivity.jl")
 _startup_stage("Loading HTTP routes, study storage and local file operations")
 include("server.jl")
-include("nastran_import_server.jl")
+include("reference_import_server.jl")
 _startup_stage("Application code loaded; no FEM or analysis has been created")
 
 export Airfoil, naca_airfoil, Wing, make_wing, Model, BoxGrid
 export default_params, read_input, validate_params, params_to_toml
-export build_model, write_nastran, mesh_payload, run_app
+export build_model, write_reference, mesh_payload, run_app
 export aerodynamic_loads
 export all_checks_pass
 export find_jfem, start_jfem_job, jfem_results_payload
@@ -177,7 +179,7 @@ Command line entry point.
 
     julia --project=. run.jl                       serve the web app
     julia --project=. run.jl my_wing.toml          serve with another input
-    julia --project=. run.jl --nastran             generate and write, no browser
+    julia --project=. run.jl --reference             generate and write, no browser
     julia --project=. run.jl --port 9000
     julia --project=. run.jl --no-browser
 """
@@ -191,7 +193,7 @@ function main(args::AbstractVector{<:AbstractString} = ARGS; on_ready::Function 
     i = 1
     while i <= length(args)
         a = args[i]
-        if a == "--nastran"
+        if a == "--reference"
             headless = true
         elseif a == "--no-browser"
             launch = false
@@ -219,11 +221,11 @@ function main(args::AbstractVector{<:AbstractString} = ARGS; on_ready::Function 
         params = read_input(input)
         model = build_model(params)
         print_report(model)
-        path = isabspath(params["output.nastran_file"]) ?
-               params["output.nastran_file"] :
-               normpath(joinpath(root, params["output.nastran_file"]))
-        result = write_nastran(model, path)
-        println("  NASTRAN deck: ", result["path"])
+        path = isabspath(params["output.reference_file"]) ?
+               params["output.reference_file"] :
+               normpath(joinpath(root, params["output.reference_file"]))
+        result = write_reference(model, path)
+        println("  REFERENCE deck: ", result["path"])
         println("  ", result["lines"], " lines, ", result["bytes"], " bytes")
         println()
         return all_checks_pass(model) ? 0 : 1

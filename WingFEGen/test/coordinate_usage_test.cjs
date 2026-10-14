@@ -1,0 +1,12 @@
+'use strict';
+const assert=require('node:assert/strict'),E=require('../web/model_entities.js');
+const base={id:0,card:'BASIC',type:'RECTANGULAR',origin:[0,0,0],usage:{grid_cp:9,grid_cd:9,shell_mcid:0}},shell={id:7,card:'CORD2R',type:'RECTANGULAR',origin:[0,0,0],properties:{'Reference ID':0},usage:{grid_cp:0,grid_cd:0,shell_mcid:1,shell_eids:[7]}};
+const systems=[base,shell,{...shell,id:8,usage:{...shell.usage,shell_eids:[8]}}],state={data:{coordinate_systems:{systems}},layers:new Map([['COORDINATE_SYSTEMS',{visible:true}]])};
+assert.equal(E.coordinateUsage(base),'GRID CP, GRID CD');assert.equal(E.coordinateUsage(shell),'shell MCID');
+assert.equal(E.coordinateUsage({...shell,usage:undefined,properties:{Role:'Shell material coordinate system (MCID)'}}),'shell MCID','Older generated payloads still identify their role');
+assert.equal(E.coordinateUsage({...shell,usage:undefined,properties:{}}),'','Unknown usage is not invented');
+const labels=E.coordinateCandidates(state,true),groups=E.coordinateLabelGroups(labels);
+assert.equal(groups.length,1);assert.deepEqual(groups[0].ids,[0,7,8]);assert.match(groups[0].text,/CIDs 7–8.*shell MCID/);assert.match(groups[0].text,/CID 0.*GRID CP, GRID CD/);
+assert(labels.every(row=>row.point.every(value=>value===0)),'Label anchors retain the actual deck origins');
+assert.match(E.coordinateDescription(shell,new Map([[0,base]])),/RID 0.*shell MCID/);
+console.log('Coordinate usage labels preserve distinct IDs and true origins while distinguishing shell MCID from GRID CP/CD.');

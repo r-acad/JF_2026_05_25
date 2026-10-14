@@ -159,7 +159,7 @@ function sensitivity_analytic_bar(native,op,wing,g,e,direction,state=nothing)
     if coupled
         # Unit line density avoids divisions by rho or area. The dedicated
         # native kernel owns its axial interpolation and zero section inertia.
-        unit=native.Solver.FEM.nastran_coupled_mass_cbar(Float64(bd.L),1.,1.)
+        unit=native.Solver.FEM.reference_coupled_mass_cbar(Float64(bd.L),1.,1.)
         Mloc=(rho*sd.area).*unit;dMloc=(drho*sd.area+rho*sd.darea).*unit
         Me=wtmass.*(transpose(T)*Mloc*T)
         dMe=wtmass.*(transpose(T)*dMloc*T+transpose(dT)*Mloc*T+transpose(T)*Mloc*dT)

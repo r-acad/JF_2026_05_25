@@ -20,12 +20,17 @@ let i = 1
     global port, do_open
     while i <= length(ARGS)
         a = ARGS[i]
-        if a == "--port" && i < length(ARGS)
+        if a in ("--help", "-h")
+            println("Usage: julia --startup-file=no --project=. POST/PANDEATOR_APP/panel_launch.jl [--port 8088] [--no-open]")
+            println("Missing dependencies install automatically. For explicit setup, run setup.cmd or bash setup.sh from the repository root.")
+            exit(0)
+        elseif a == "--port" && i < length(ARGS)
             port = parse(Int, ARGS[i+1]); i += 2
+            1<=port<=65535 || error("Port must be between 1 and 65535")
         elseif a == "--no-open"
             do_open = false; i += 1
         else
-            i += 1
+            error("Unknown or incomplete PANDEATOR option: $a (see --help)")
         end
     end
 end
@@ -100,13 +105,8 @@ if do_open
     end
 end
 
-# Ensure we load OpenJFEM from the right project even if --project wasn't passed.
-import Pkg
-if Base.active_project() != joinpath(_REPO_ROOT, "Project.toml")
-    Pkg.activate(_REPO_ROOT; io=devnull)
-end
-
-println(stderr, "Loading OpenJFEM + server (first load compiles; ~10-30s)...")
+# panel_server activates the project and installs missing dependencies first.
+println(stderr, "Preparing PANDEATOR dependencies and loading the server; first use can take several minutes...")
 include(joinpath(_APP_DIR, "panel_server.jl"))
 
 # Hand off to the server (blocks until Ctrl+C). Wrap it so that, whatever makes
@@ -125,5 +125,6 @@ catch err
         println(stderr,   "        cause is the machine running out of memory (the process is")
         println(stderr,   "        killed by the OS and cannot report a Julia error). Try a")
         println(stderr,   "        coarser mesh / smaller model, or a machine with more RAM.")
+        exit(1)
     end
 end

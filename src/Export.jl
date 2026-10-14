@@ -5,7 +5,7 @@
 # WriteVTK, JSON, and HDF5 packages from the parent scope.
 #
 # Contains:
-#   export_nastran_hdf5           - compact MSC/Nastran-like HDF5 export
+#   export_reference_hdf5           - compact Reference-like HDF5 export
 #   sanitize!(d)                  — NaN/Inf cleaner for JSON export
 #   build_jfem_element_tables     — builds sorted element tables for JFEM binary
 #   build_jfem_constraint_tables  — builds CELAS/RBE2/RBE3 tables for JFEM v3
@@ -201,10 +201,10 @@ end
     return 0
 end
 
-# Compact MSC/Nastran-like HDF5 export.  The former recursive Dict-to-HDF5
+# Compact Reference-like HDF5 export.  The former recursive Dict-to-HDF5
 # writer was intentionally removed because it produced very large files.
 
-struct _MSCInputDomainRec
+struct _REFERENCEInputDomainRec
     ID::Int64
     SE::Int64
     AFPM::Int64
@@ -212,13 +212,13 @@ struct _MSCInputDomainRec
     MODULE::Int64
 end
 
-struct _MSCIndexRec
+struct _REFERENCEIndexRec
     DOMAIN_ID::Int64
     POSITION::Int64
     LENGTH::Int64
 end
 
-struct _MSCResultDomainRec
+struct _REFERENCEResultDomainRec
     ID::Int64
     SUBCASE::Int64
     STEP::Int64
@@ -237,7 +237,7 @@ struct _MSCResultDomainRec
     IMPFID::Int64
 end
 
-struct _MSCNodalResultRec
+struct _REFERENCENodalResultRec
     ID::Int64
     X::Float64
     Y::Float64
@@ -248,7 +248,7 @@ struct _MSCNodalResultRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCGridWeightRec
+struct _REFERENCEGridWeightRec
     ID::Int64
     MO::NTuple{36,Float64}
     S::NTuple{9,Float64}
@@ -272,7 +272,7 @@ struct _MSCGridWeightRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCEigenvalueRec
+struct _REFERENCEEigenvalueRec
     MODE::Int64
     ORDER::Int64
     EIGEN::Float64
@@ -285,7 +285,7 @@ struct _MSCEigenvalueRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCGridRec
+struct _REFERENCEGridRec
     ID::Int64
     CP::Int64
     X::NTuple{3,Float64}
@@ -301,7 +301,7 @@ struct _JFEMGridFrameRec
     CD::Int64
 end
 
-struct _MSCCquad4Rec
+struct _REFERENCECquad4Rec
     EID::Int64
     PID::Int64
     G::NTuple{4,Int64}
@@ -313,7 +313,7 @@ struct _MSCCquad4Rec
     DOMAIN_ID::Int64
 end
 
-struct _MSCCTRIA3Rec
+struct _REFERENCECTRIA3Rec
     EID::Int64
     PID::Int64
     G::NTuple{3,Int64}
@@ -325,18 +325,18 @@ struct _MSCCTRIA3Rec
     DOMAIN_ID::Int64
 end
 
-struct _MSCCrodRec
+struct _REFERENCECrodRec
     EID::Int64
     PID::Int64
     G::NTuple{2,Int64}
     DOMAIN_ID::Int64
 end
 
-struct _MSCIdRec
+struct _REFERENCEIdRec
     ID::Int64
 end
 
-struct _MSCCbarRec
+struct _REFERENCECbarRec
     EID::Int64
     PID::Int64
     GA::Int64
@@ -357,7 +357,7 @@ struct _MSCCbarRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCCbeamRec
+struct _REFERENCECbeamRec
     EID::Int64
     PID::Int64
     GA::Int64
@@ -374,7 +374,7 @@ struct _MSCCbeamRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCCelas1Rec
+struct _REFERENCECelas1Rec
     EID::Int64
     PID::Int64
     G1::Int64
@@ -384,7 +384,7 @@ struct _MSCCelas1Rec
     DOMAIN_ID::Int64
 end
 
-struct _MSCCelas2Rec
+struct _REFERENCECelas2Rec
     EID::Int64
     K::Float64
     G1::Int64
@@ -396,7 +396,7 @@ struct _MSCCelas2Rec
     DOMAIN_ID::Int64
 end
 
-struct _MSCCmass1Rec
+struct _REFERENCECmass1Rec
     EID::Int64
     PID::Int64
     G1::Int64
@@ -406,7 +406,7 @@ struct _MSCCmass1Rec
     DOMAIN_ID::Int64
 end
 
-struct _MSCCmass2Rec
+struct _REFERENCECmass2Rec
     EID::Int64
     M::Float64
     G1::Int64
@@ -416,7 +416,7 @@ struct _MSCCmass2Rec
     DOMAIN_ID::Int64
 end
 
-struct _MSCConm2Rec
+struct _REFERENCEConm2Rec
     EID::Int64
     G::Int64
     CID::Int64
@@ -430,7 +430,7 @@ struct _MSCConm2Rec
     DOMAIN_ID::Int64
 end
 
-struct _MSCConrodRec
+struct _REFERENCEConrodRec
     EID::Int64
     G1::Int64
     G2::Int64
@@ -442,28 +442,28 @@ struct _MSCConrodRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCChexaRec
+struct _REFERENCEChexaRec
     EID::Int64
     PID::Int64
     G::NTuple{20,Int64}
     DOMAIN_ID::Int64
 end
 
-struct _MSCCpentaRec
+struct _REFERENCECpentaRec
     EID::Int64
     PID::Int64
     G::NTuple{15,Int64}
     DOMAIN_ID::Int64
 end
 
-struct _MSCCTetraRec
+struct _REFERENCECTetraRec
     EID::Int64
     PID::Int64
     G::NTuple{10,Int64}
     DOMAIN_ID::Int64
 end
 
-struct _MSCForceRec
+struct _REFERENCEForceRec
     SID::Int64
     G::Int64
     CID::Int64
@@ -472,7 +472,7 @@ struct _MSCForceRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCMomentRec
+struct _REFERENCEMomentRec
     SID::Int64
     G::Int64
     CID::Int64
@@ -481,7 +481,7 @@ struct _MSCMomentRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCPload4Rec
+struct _REFERENCEPload4Rec
     SID::Int64
     EID::Int64
     P::NTuple{4,Float64}
@@ -494,7 +494,7 @@ struct _MSCPload4Rec
     DOMAIN_ID::Int64
 end
 
-struct _MSCMat1Rec
+struct _REFERENCEMat1Rec
     MID::Int64
     E::Float64
     G::Float64
@@ -510,7 +510,7 @@ struct _MSCMat1Rec
     DOMAIN_ID::Int64
 end
 
-struct _MSCMat2Rec
+struct _REFERENCEMat2Rec
     MID::Int64
     G11::Float64
     G12::Float64
@@ -531,7 +531,7 @@ struct _MSCMat2Rec
     DOMAIN_ID::Int64
 end
 
-struct _MSCMat8Rec
+struct _REFERENCEMat8Rec
     MID::Int64
     E1::Float64
     E2::Float64
@@ -554,7 +554,7 @@ struct _MSCMat8Rec
     DOMAIN_ID::Int64
 end
 
-struct _MSCPShellRec
+struct _REFERENCEPShellRec
     PID::Int64
     MID1::Int64
     T::Float64
@@ -569,7 +569,7 @@ struct _MSCPShellRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCPBarRec
+struct _REFERENCEPBarRec
     PID::Int64
     MID::Int64
     A::Float64
@@ -592,7 +592,7 @@ struct _MSCPBarRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCPBeamRec
+struct _REFERENCEPBeamRec
     PID::Int64
     MID::Int64
     NSEGS::Int64
@@ -633,7 +633,7 @@ struct _MSCPBeamRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCProdRec
+struct _REFERENCEProdRec
     PID::Int64
     MID::Int64
     A::Float64
@@ -643,7 +643,7 @@ struct _MSCProdRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCPElasRec
+struct _REFERENCEPElasRec
     PID::Int64
     K::Float64
     GE::Float64
@@ -651,13 +651,13 @@ struct _MSCPElasRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCPMassRec
+struct _REFERENCEPMassRec
     PID::Int64
     M::Float64
     DOMAIN_ID::Int64
 end
 
-struct _MSCPSolidRec
+struct _REFERENCEPSolidRec
     PID::Int64
     MID::Int64
     CORDM::Int64
@@ -668,7 +668,7 @@ struct _MSCPSolidRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCPCOMPIdentityRec
+struct _REFERENCEPCOMPIdentityRec
     PID::Int64
     NPLIES::Int64
     Z0::Float64
@@ -682,14 +682,14 @@ struct _MSCPCOMPIdentityRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCPCOMPPlyRec
+struct _REFERENCEPCOMPPlyRec
     MID::Int64
     T::Float64
     THETA::Float64
     SOUT::Int64
 end
 
-struct _MSCSpc1IdentityRec
+struct _REFERENCESpc1IdentityRec
     SID::Int64
     C::Int64
     G_POS::Int64
@@ -697,7 +697,7 @@ struct _MSCSpc1IdentityRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCRbe2Rec
+struct _REFERENCERbe2Rec
     EID::Int64
     GN::Int64
     CM::Int64
@@ -708,7 +708,7 @@ struct _MSCRbe2Rec
     DOMAIN_ID::Int64
 end
 
-struct _MSCRbe3IdentityRec
+struct _REFERENCERbe3IdentityRec
     EID::Int64
     REFG::Int64
     REFC::Int64
@@ -721,14 +721,14 @@ struct _MSCRbe3IdentityRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCRbe3WtcgRec
+struct _REFERENCERbe3WtcgRec
     WT1::Float64
     C::Int64
     G_POS::Int64
     G_LEN::Int64
 end
 
-struct _MSCEigrlRec
+struct _REFERENCEEigrlRec
     SID::Int64
     V1::Float64
     V2::Float64
@@ -745,7 +745,7 @@ struct _MSCEigrlRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCEigbRec
+struct _REFERENCEEigbRec
     SID::Int64
     METHOD::NTuple{8,UInt8}
     L1::Float64
@@ -759,26 +759,26 @@ struct _MSCEigbRec
     DOMAIN_ID::Int64
 end
 
-struct _MSCParamIntRec
+struct _REFERENCEParamIntRec
     NAME::NTuple{8,UInt8}
     VALUE::Int64
     DOMAIN_ID::Int64
 end
 
-struct _MSCParamCharRec
+struct _REFERENCEParamCharRec
     NAME::NTuple{8,UInt8}
     VALUE::NTuple{8,UInt8}
     DOMAIN_ID::Int64
 end
 
-@inline _msc_i64(x, default::Integer=0) = try
+@inline _reference_i64(x, default::Integer=0) = try
     x === nothing ? Int64(default) : Int64(round(Float64(x)))
 catch
     parsed = tryparse(Int, string(x))
     parsed === nothing ? Int64(default) : Int64(parsed)
 end
 
-@inline _msc_f64(x, default::Real=0.0) = try
+@inline _reference_f64(x, default::Real=0.0) = try
     x === nothing ? Float64(default) : Float64(x)
 catch
     parsed = tryparse(Float64, string(x))
@@ -788,23 +788,23 @@ end
 # Ordinary String inputs always reach the parsing fallback below in the
 # generic methods. Avoid constructing an exception for every textual ID/value;
 # keep generic conversion and rounding semantics for all other input types.
-@inline function _msc_i64(x::String, default::Integer=0)
+@inline function _reference_i64(x::String, default::Integer=0)
     parsed = tryparse(Int, x)
     return parsed === nothing ? Int64(default) : Int64(parsed)
 end
 
-@inline function _msc_f64(x::String, default::Real=0.0)
+@inline function _reference_f64(x::String, default::Real=0.0)
     parsed = tryparse(Float64, x)
     return parsed === nothing ? Float64(default) : parsed
 end
 
-@inline _msc_tuple_f64(values, n::Int) =
-    ntuple(i -> i <= length(values) ? _msc_f64(values[i]) : 0.0, n)
+@inline _reference_tuple_f64(values, n::Int) =
+    ntuple(i -> i <= length(values) ? _reference_f64(values[i]) : 0.0, n)
 
-@inline _msc_tuple_i64(values, n::Int) =
-    ntuple(i -> i <= length(values) ? _msc_i64(values[i]) : 0, n)
+@inline _reference_tuple_i64(values, n::Int) =
+    ntuple(i -> i <= length(values) ? _reference_i64(values[i]) : 0, n)
 
-function _msc_require_group(parent, path::AbstractString)
+function _reference_require_group(parent, path::AbstractString)
     clean = strip(String(path), '/')
     isempty(clean) && return parent
     group = parent
@@ -814,53 +814,53 @@ function _msc_require_group(parent, path::AbstractString)
     return group
 end
 
-function _msc_parent_and_name(parent, path::AbstractString)
+function _reference_parent_and_name(parent, path::AbstractString)
     clean = strip(String(path), '/')
     parts = split(clean, '/')
     name = parts[end]
     group_path = length(parts) == 1 ? "" : join(parts[1:end-1], "/")
-    return _msc_require_group(parent, group_path), name
+    return _reference_require_group(parent, group_path), name
 end
 
-function _msc_dataset_version(path::AbstractString, version)
+function _reference_dataset_version(path::AbstractString, version)
     version !== nothing && return version
-    return startswith(String(path), "/NASTRAN/") ? 0 : nothing
+    return startswith(String(path), "/REFERENCE/") ? 0 : nothing
 end
 
-function _msc_write_records(parent, path::AbstractString, records::AbstractVector; version=nothing)
+function _reference_write_records(parent, path::AbstractString, records::AbstractVector; version=nothing)
     isempty(records) && return
-    group, name = _msc_parent_and_name(parent, path)
+    group, name = _reference_parent_and_name(parent, path)
     write(group, name, records)
-    dataset_version = _msc_dataset_version(path, version)
+    dataset_version = _reference_dataset_version(path, version)
     dataset_version === nothing || (attributes(group[name])["version"] = Int64[dataset_version])
 end
 
-@inline function _msc_array_type(::Type{T}, n::Integer) where {T}
+@inline function _reference_array_type(::Type{T}, n::Integer) where {T}
     dims = HDF5.API.hsize_t[n]
     return HDF5.API.h5t_array_create(HDF5.hdf5_type_id(T), Cuint(1), dims)
 end
 
-@inline function _msc_fixed_string_bytes(s, n::Integer=8)
+@inline function _reference_fixed_string_bytes(s, n::Integer=8)
     text = rpad(string(s), n)[1:n]
     bytes = codeunits(text)
     return ntuple(i -> UInt8(bytes[i]), n)
 end
 
-function _msc_fixed_string_type(n::Integer)
+function _reference_fixed_string_type(n::Integer)
     string_type = HDF5.API.h5t_copy(HDF5.API.H5T_C_S1)
     HDF5.API.h5t_set_size(string_type, n)
     HDF5.API.h5t_set_strpad(string_type, HDF5.API.H5T_STR_SPACEPAD)
     return string_type
 end
 
-@inline function _msc_insert_scalar!(dtype, ::Type{Rec}, field::Symbol, ::Type{T}) where {Rec,T}
+@inline function _reference_insert_scalar!(dtype, ::Type{Rec}, field::Symbol, ::Type{T}) where {Rec,T}
     idx = findfirst(==(field), fieldnames(Rec))
     HDF5.API.h5t_insert(dtype, String(field), fieldoffset(Rec, idx), HDF5.hdf5_type_id(T))
 end
 
-@inline function _msc_insert_array!(dtype, ::Type{Rec}, field::Symbol, ::Type{T}, n::Integer) where {Rec,T}
+@inline function _reference_insert_array!(dtype, ::Type{Rec}, field::Symbol, ::Type{T}, n::Integer) where {Rec,T}
     idx = findfirst(==(field), fieldnames(Rec))
-    array_type = _msc_array_type(T, n)
+    array_type = _reference_array_type(T, n)
     try
         HDF5.API.h5t_insert(dtype, String(field), fieldoffset(Rec, idx), array_type)
     finally
@@ -868,9 +868,9 @@ end
     end
 end
 
-@inline function _msc_insert_fixed_string!(dtype, ::Type{Rec}, field::Symbol, n::Integer) where {Rec}
+@inline function _reference_insert_fixed_string!(dtype, ::Type{Rec}, field::Symbol, n::Integer) where {Rec}
     idx = findfirst(==(field), fieldnames(Rec))
-    string_type = _msc_fixed_string_type(n)
+    string_type = _reference_fixed_string_type(n)
     try
         HDF5.API.h5t_insert(dtype, String(field), fieldoffset(Rec, idx), string_type)
     finally
@@ -878,14 +878,14 @@ end
     end
 end
 
-function _msc_write_custom(parent, path::AbstractString, records::Vector{T}, dtype_builder; version=nothing) where {T}
+function _reference_write_custom(parent, path::AbstractString, records::Vector{T}, dtype_builder; version=nothing) where {T}
     isempty(records) && return
-    group, name = _msc_parent_and_name(parent, path)
+    group, name = _reference_parent_and_name(parent, path)
     dtype = dtype_builder()
     dataset = create_dataset(group, name, dtype, (length(records),))
     try
         HDF5.write_dataset(dataset, dtype, records)
-        dataset_version = _msc_dataset_version(path, version)
+        dataset_version = _reference_dataset_version(path, version)
         dataset_version === nothing || (attributes(dataset)["version"] = Int64[dataset_version])
     finally
         close(dataset)
@@ -893,7 +893,7 @@ function _msc_write_custom(parent, path::AbstractString, records::Vector{T}, dty
     end
 end
 
-function _msc_dynamic_record_size(fields)
+function _reference_dynamic_record_size(fields)
     size = 0
     for (_, kind, n) in fields
         if kind == :i64 || kind == :f64
@@ -903,13 +903,13 @@ function _msc_dynamic_record_size(fields)
         elseif kind == :i64_array || kind == :f64_array
             size += 8 * n
         else
-            error("Unsupported MSC HDF5 dynamic field kind: $kind")
+            error("Unsupported REFERENCE HDF5 dynamic field kind: $kind")
         end
     end
     return size
 end
 
-function _msc_dynamic_dtype(fields, record_size::Integer)
+function _reference_dynamic_dtype(fields, record_size::Integer)
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, record_size)
     offset = 0
     for (field, kind, n) in fields
@@ -921,7 +921,7 @@ function _msc_dynamic_dtype(fields, record_size::Integer)
             HDF5.API.h5t_insert(dtype, name, offset, HDF5.hdf5_type_id(Float64))
             offset += 8
         elseif kind == :str
-            string_type = _msc_fixed_string_type(n)
+            string_type = _reference_fixed_string_type(n)
             try
                 HDF5.API.h5t_insert(dtype, name, offset, string_type)
             finally
@@ -929,7 +929,7 @@ function _msc_dynamic_dtype(fields, record_size::Integer)
             end
             offset += n
         elseif kind == :i64_array
-            array_type = _msc_array_type(Int64, n)
+            array_type = _reference_array_type(Int64, n)
             try
                 HDF5.API.h5t_insert(dtype, name, offset, array_type)
             finally
@@ -937,7 +937,7 @@ function _msc_dynamic_dtype(fields, record_size::Integer)
             end
             offset += 8 * n
         elseif kind == :f64_array
-            array_type = _msc_array_type(Float64, n)
+            array_type = _reference_array_type(Float64, n)
             try
                 HDF5.API.h5t_insert(dtype, name, offset, array_type)
             finally
@@ -949,61 +949,61 @@ function _msc_dynamic_dtype(fields, record_size::Integer)
     return dtype
 end
 
-function _msc_put_i64!(buffer::Vector{UInt8}, offset::Integer, value)
-    bytes = reinterpret(NTuple{8,UInt8}, _msc_i64(value))
+function _reference_put_i64!(buffer::Vector{UInt8}, offset::Integer, value)
+    bytes = reinterpret(NTuple{8,UInt8}, _reference_i64(value))
     for i in 1:8
         buffer[offset + i] = bytes[i]
     end
 end
 
-function _msc_put_f64!(buffer::Vector{UInt8}, offset::Integer, value)
-    bytes = reinterpret(NTuple{8,UInt8}, _msc_f64(value))
+function _reference_put_f64!(buffer::Vector{UInt8}, offset::Integer, value)
+    bytes = reinterpret(NTuple{8,UInt8}, _reference_f64(value))
     for i in 1:8
         buffer[offset + i] = bytes[i]
     end
 end
 
-function _msc_put_string!(buffer::Vector{UInt8}, offset::Integer, value, n::Integer)
-    bytes = _msc_fixed_string_bytes(value, n)
+function _reference_put_string!(buffer::Vector{UInt8}, offset::Integer, value, n::Integer)
+    bytes = _reference_fixed_string_bytes(value, n)
     for i in 1:n
         buffer[offset + i] = bytes[i]
     end
 end
 
-function _msc_put_i64_array!(buffer::Vector{UInt8}, offset::Integer, values, n::Integer)
+function _reference_put_i64_array!(buffer::Vector{UInt8}, offset::Integer, values, n::Integer)
     for i in 1:n
         value = i <= length(values) ? values[i] : 0
-        _msc_put_i64!(buffer, offset + 8 * (i - 1), value)
+        _reference_put_i64!(buffer, offset + 8 * (i - 1), value)
     end
 end
 
-function _msc_put_f64_array!(buffer::Vector{UInt8}, offset::Integer, values, n::Integer)
+function _reference_put_f64_array!(buffer::Vector{UInt8}, offset::Integer, values, n::Integer)
     for i in 1:n
         value = i <= length(values) ? values[i] : 0.0
-        _msc_put_f64!(buffer, offset + 8 * (i - 1), value)
+        _reference_put_f64!(buffer, offset + 8 * (i - 1), value)
     end
 end
 
-function _msc_default_dynamic_value(kind::Symbol, n::Integer)
+function _reference_default_dynamic_value(kind::Symbol, n::Integer)
     kind == :i64 && return Int64(0)
     kind == :f64 && return 0.0
     kind == :str && return ""
     kind == :i64_array && return zeros(Int64, n)
     kind == :f64_array && return zeros(Float64, n)
-    error("Unsupported MSC HDF5 dynamic field kind: $kind")
+    error("Unsupported REFERENCE HDF5 dynamic field kind: $kind")
 end
 
-function _msc_write_dynamic_records(parent, path::AbstractString, fields, rows::AbstractVector{<:AbstractDict}; version=nothing)
+function _reference_write_dynamic_records(parent, path::AbstractString, fields, rows::AbstractVector{<:AbstractDict}; version=nothing)
     isempty(rows) && return
-    record_size = _msc_dynamic_record_size(fields)
-    dtype_id = _msc_dynamic_dtype(fields, record_size)
+    record_size = _reference_dynamic_record_size(fields)
+    dtype_id = _reference_dynamic_dtype(fields, record_size)
     dtype = HDF5.Datatype(dtype_id, false)
-    group, name = _msc_parent_and_name(parent, path)
+    group, name = _reference_parent_and_name(parent, path)
     dataset = create_dataset(group, name, dtype, (length(rows),))
     buffer = zeros(UInt8, record_size * length(rows))
     # Defaults are read-only while packing; create array defaults once per
     # schema instead of eagerly allocating them for every populated field.
-    defaults = map(field -> _msc_default_dynamic_value(field[2], field[3]), fields)
+    defaults = map(field -> _reference_default_dynamic_value(field[2], field[3]), fields)
     try
         for (row_index, row) in enumerate(rows)
             base = (row_index - 1) * record_size
@@ -1011,25 +1011,25 @@ function _msc_write_dynamic_records(parent, path::AbstractString, fields, rows::
             for (field_index, (field, kind, n)) in enumerate(fields)
                 value = get(row, field, defaults[field_index])
                 if kind == :i64
-                    _msc_put_i64!(buffer, base + offset, value)
+                    _reference_put_i64!(buffer, base + offset, value)
                     offset += 8
                 elseif kind == :f64
-                    _msc_put_f64!(buffer, base + offset, value)
+                    _reference_put_f64!(buffer, base + offset, value)
                     offset += 8
                 elseif kind == :str
-                    _msc_put_string!(buffer, base + offset, value, n)
+                    _reference_put_string!(buffer, base + offset, value, n)
                     offset += n
                 elseif kind == :i64_array
-                    _msc_put_i64_array!(buffer, base + offset, value, n)
+                    _reference_put_i64_array!(buffer, base + offset, value, n)
                     offset += 8 * n
                 elseif kind == :f64_array
-                    _msc_put_f64_array!(buffer, base + offset, value, n)
+                    _reference_put_f64_array!(buffer, base + offset, value, n)
                     offset += 8 * n
                 end
             end
         end
         HDF5.API.h5d_write(dataset.id, dtype_id, HDF5.API.H5S_ALL, HDF5.API.H5S_ALL, HDF5.API.H5P_DEFAULT, pointer(buffer))
-        dataset_version = _msc_dataset_version(path, version)
+        dataset_version = _reference_dataset_version(path, version)
         dataset_version === nothing || (attributes(dataset)["version"] = Int64[dataset_version])
     finally
         close(dataset)
@@ -1037,456 +1037,456 @@ function _msc_write_dynamic_records(parent, path::AbstractString, fields, rows::
     end
 end
 
-function _msc_grid_dtype()
-    Rec = _MSCGridRec
+function _reference_grid_dtype()
+    Rec = _REFERENCEGridRec
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
-    _msc_insert_scalar!(dtype, Rec, :ID, Int64)
-    _msc_insert_scalar!(dtype, Rec, :CP, Int64)
-    _msc_insert_array!(dtype, Rec, :X, Float64, 3)
-    _msc_insert_scalar!(dtype, Rec, :CD, Int64)
-    _msc_insert_scalar!(dtype, Rec, :PS, Int64)
-    _msc_insert_scalar!(dtype, Rec, :SEID, Int64)
-    _msc_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :ID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :CP, Int64)
+    _reference_insert_array!(dtype, Rec, :X, Float64, 3)
+    _reference_insert_scalar!(dtype, Rec, :CD, Int64)
+    _reference_insert_scalar!(dtype, Rec, :PS, Int64)
+    _reference_insert_scalar!(dtype, Rec, :SEID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
     return HDF5.Datatype(dtype, true)
 end
 
-function _msc_grid_weight_dtype()
-    Rec = _MSCGridWeightRec
+function _reference_grid_weight_dtype()
+    Rec = _REFERENCEGridWeightRec
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
-    _msc_insert_scalar!(dtype, Rec, :ID, Int64)
-    _msc_insert_array!(dtype, Rec, :MO, Float64, 36)
-    _msc_insert_array!(dtype, Rec, :S, Float64, 9)
+    _reference_insert_scalar!(dtype, Rec, :ID, Int64)
+    _reference_insert_array!(dtype, Rec, :MO, Float64, 36)
+    _reference_insert_array!(dtype, Rec, :S, Float64, 9)
     for field in (:MX, :XX, :YX, :ZX, :MY, :XY, :YY, :ZY, :MZ, :XZ, :YZ, :ZZ)
-        _msc_insert_scalar!(dtype, Rec, field, Float64)
+        _reference_insert_scalar!(dtype, Rec, field, Float64)
     end
-    _msc_insert_array!(dtype, Rec, :I, Float64, 9)
+    _reference_insert_array!(dtype, Rec, :I, Float64, 9)
     for field in (:PIX, :PIY, :PIZ)
-        _msc_insert_scalar!(dtype, Rec, field, Float64)
+        _reference_insert_scalar!(dtype, Rec, field, Float64)
     end
-    _msc_insert_array!(dtype, Rec, :Q, Float64, 9)
-    _msc_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
+    _reference_insert_array!(dtype, Rec, :Q, Float64, 9)
+    _reference_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
     return HDF5.Datatype(dtype, true)
 end
 
-function _msc_cquad4_dtype()
-    Rec = _MSCCquad4Rec
+function _reference_cquad4_dtype()
+    Rec = _REFERENCECquad4Rec
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
-    _msc_insert_scalar!(dtype, Rec, :EID, Int64)
-    _msc_insert_scalar!(dtype, Rec, :PID, Int64)
-    _msc_insert_array!(dtype, Rec, :G, Int64, 4)
-    _msc_insert_scalar!(dtype, Rec, :THETA, Float64)
-    _msc_insert_scalar!(dtype, Rec, :ZOFFS, Float64)
-    _msc_insert_scalar!(dtype, Rec, :TFLAG, Int64)
-    _msc_insert_array!(dtype, Rec, :T, Float64, 4)
-    _msc_insert_scalar!(dtype, Rec, :MCID, Int64)
-    _msc_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :EID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :PID, Int64)
+    _reference_insert_array!(dtype, Rec, :G, Int64, 4)
+    _reference_insert_scalar!(dtype, Rec, :THETA, Float64)
+    _reference_insert_scalar!(dtype, Rec, :ZOFFS, Float64)
+    _reference_insert_scalar!(dtype, Rec, :TFLAG, Int64)
+    _reference_insert_array!(dtype, Rec, :T, Float64, 4)
+    _reference_insert_scalar!(dtype, Rec, :MCID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
     return HDF5.Datatype(dtype, true)
 end
 
-function _msc_ctria3_dtype()
-    Rec = _MSCCTRIA3Rec
+function _reference_ctria3_dtype()
+    Rec = _REFERENCECTRIA3Rec
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
-    _msc_insert_scalar!(dtype, Rec, :EID, Int64)
-    _msc_insert_scalar!(dtype, Rec, :PID, Int64)
-    _msc_insert_array!(dtype, Rec, :G, Int64, 3)
-    _msc_insert_scalar!(dtype, Rec, :THETA, Float64)
-    _msc_insert_scalar!(dtype, Rec, :ZOFFS, Float64)
-    _msc_insert_scalar!(dtype, Rec, :TFLAG, Int64)
-    _msc_insert_array!(dtype, Rec, :T, Float64, 3)
-    _msc_insert_scalar!(dtype, Rec, :MCID, Int64)
-    _msc_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :EID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :PID, Int64)
+    _reference_insert_array!(dtype, Rec, :G, Int64, 3)
+    _reference_insert_scalar!(dtype, Rec, :THETA, Float64)
+    _reference_insert_scalar!(dtype, Rec, :ZOFFS, Float64)
+    _reference_insert_scalar!(dtype, Rec, :TFLAG, Int64)
+    _reference_insert_array!(dtype, Rec, :T, Float64, 3)
+    _reference_insert_scalar!(dtype, Rec, :MCID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
     return HDF5.Datatype(dtype, true)
 end
 
-function _msc_crod_dtype()
-    Rec = _MSCCrodRec
+function _reference_crod_dtype()
+    Rec = _REFERENCECrodRec
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
-    _msc_insert_scalar!(dtype, Rec, :EID, Int64)
-    _msc_insert_scalar!(dtype, Rec, :PID, Int64)
-    _msc_insert_array!(dtype, Rec, :G, Int64, 2)
-    _msc_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :EID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :PID, Int64)
+    _reference_insert_array!(dtype, Rec, :G, Int64, 2)
+    _reference_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
     return HDF5.Datatype(dtype, true)
 end
 
-function _msc_cbeam_dtype()
-    Rec = _MSCCbeamRec
+function _reference_cbeam_dtype()
+    Rec = _REFERENCECbeamRec
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
     for field in (:EID, :PID, :GA, :GB, :SA, :SB)
-        _msc_insert_scalar!(dtype, Rec, field, Int64)
+        _reference_insert_scalar!(dtype, Rec, field, Int64)
     end
-    _msc_insert_array!(dtype, Rec, :X, Float64, 3)
+    _reference_insert_array!(dtype, Rec, :X, Float64, 3)
     for field in (:G0, :F, :PA, :PB)
-        _msc_insert_scalar!(dtype, Rec, field, Int64)
+        _reference_insert_scalar!(dtype, Rec, field, Int64)
     end
-    _msc_insert_array!(dtype, Rec, :WA, Float64, 3)
-    _msc_insert_array!(dtype, Rec, :WB, Float64, 3)
-    _msc_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
+    _reference_insert_array!(dtype, Rec, :WA, Float64, 3)
+    _reference_insert_array!(dtype, Rec, :WB, Float64, 3)
+    _reference_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
     return HDF5.Datatype(dtype, true)
 end
 
-function _msc_solid_dtype(::Type{Rec}, n::Integer) where {Rec}
+function _reference_solid_dtype(::Type{Rec}, n::Integer) where {Rec}
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
-    _msc_insert_scalar!(dtype, Rec, :EID, Int64)
-    _msc_insert_scalar!(dtype, Rec, :PID, Int64)
-    _msc_insert_array!(dtype, Rec, :G, Int64, n)
-    _msc_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :EID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :PID, Int64)
+    _reference_insert_array!(dtype, Rec, :G, Int64, n)
+    _reference_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
     return HDF5.Datatype(dtype, true)
 end
 
-_msc_chexa_dtype() = _msc_solid_dtype(_MSCChexaRec, 20)
-_msc_cpenta_dtype() = _msc_solid_dtype(_MSCCpentaRec, 15)
-_msc_ctetra_dtype() = _msc_solid_dtype(_MSCCTetraRec, 10)
+_reference_chexa_dtype() = _reference_solid_dtype(_REFERENCEChexaRec, 20)
+_reference_cpenta_dtype() = _reference_solid_dtype(_REFERENCECpentaRec, 15)
+_reference_ctetra_dtype() = _reference_solid_dtype(_REFERENCECTetraRec, 10)
 
-function _msc_conm2_dtype()
-    Rec = _MSCConm2Rec
+function _reference_conm2_dtype()
+    Rec = _REFERENCEConm2Rec
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
     for field in (:EID, :G, :CID)
-        _msc_insert_scalar!(dtype, Rec, field, Int64)
+        _reference_insert_scalar!(dtype, Rec, field, Int64)
     end
     for field in (:M, :X1, :X2, :X3, :I1)
-        _msc_insert_scalar!(dtype, Rec, field, Float64)
+        _reference_insert_scalar!(dtype, Rec, field, Float64)
     end
-    _msc_insert_array!(dtype, Rec, :I2, Float64, 2)
-    _msc_insert_array!(dtype, Rec, :I3, Float64, 3)
-    _msc_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
+    _reference_insert_array!(dtype, Rec, :I2, Float64, 2)
+    _reference_insert_array!(dtype, Rec, :I3, Float64, 3)
+    _reference_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
     return HDF5.Datatype(dtype, true)
 end
 
-function _msc_force_dtype(::Type{Rec}, force_field::Symbol) where {Rec}
+function _reference_force_dtype(::Type{Rec}, force_field::Symbol) where {Rec}
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
-    _msc_insert_scalar!(dtype, Rec, :SID, Int64)
-    _msc_insert_scalar!(dtype, Rec, :G, Int64)
-    _msc_insert_scalar!(dtype, Rec, :CID, Int64)
-    _msc_insert_scalar!(dtype, Rec, force_field, Float64)
-    _msc_insert_array!(dtype, Rec, :N, Float64, 3)
-    _msc_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :SID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :G, Int64)
+    _reference_insert_scalar!(dtype, Rec, :CID, Int64)
+    _reference_insert_scalar!(dtype, Rec, force_field, Float64)
+    _reference_insert_array!(dtype, Rec, :N, Float64, 3)
+    _reference_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
     return HDF5.Datatype(dtype, true)
 end
 
-_msc_force_card_dtype() = _msc_force_dtype(_MSCForceRec, :F)
-_msc_moment_card_dtype() = _msc_force_dtype(_MSCMomentRec, :M)
+_reference_force_card_dtype() = _reference_force_dtype(_REFERENCEForceRec, :F)
+_reference_moment_card_dtype() = _reference_force_dtype(_REFERENCEMomentRec, :M)
 
-function _msc_pload4_dtype()
-    Rec = _MSCPload4Rec
+function _reference_pload4_dtype()
+    Rec = _REFERENCEPload4Rec
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
-    _msc_insert_scalar!(dtype, Rec, :SID, Int64)
-    _msc_insert_scalar!(dtype, Rec, :EID, Int64)
-    _msc_insert_array!(dtype, Rec, :P, Float64, 4)
-    _msc_insert_scalar!(dtype, Rec, :G1, Int64)
-    _msc_insert_scalar!(dtype, Rec, :G34, Int64)
-    _msc_insert_scalar!(dtype, Rec, :CID, Int64)
-    _msc_insert_array!(dtype, Rec, :N, Float64, 3)
-    _msc_insert_fixed_string!(dtype, Rec, :SORL, 8)
-    _msc_insert_fixed_string!(dtype, Rec, :LDIR, 8)
-    _msc_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :SID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :EID, Int64)
+    _reference_insert_array!(dtype, Rec, :P, Float64, 4)
+    _reference_insert_scalar!(dtype, Rec, :G1, Int64)
+    _reference_insert_scalar!(dtype, Rec, :G34, Int64)
+    _reference_insert_scalar!(dtype, Rec, :CID, Int64)
+    _reference_insert_array!(dtype, Rec, :N, Float64, 3)
+    _reference_insert_fixed_string!(dtype, Rec, :SORL, 8)
+    _reference_insert_fixed_string!(dtype, Rec, :LDIR, 8)
+    _reference_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
     return HDF5.Datatype(dtype, true)
 end
 
-function _msc_param_int_dtype()
-    Rec = _MSCParamIntRec
+function _reference_param_int_dtype()
+    Rec = _REFERENCEParamIntRec
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
-    _msc_insert_fixed_string!(dtype, Rec, :NAME, 8)
-    _msc_insert_scalar!(dtype, Rec, :VALUE, Int64)
-    _msc_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
+    _reference_insert_fixed_string!(dtype, Rec, :NAME, 8)
+    _reference_insert_scalar!(dtype, Rec, :VALUE, Int64)
+    _reference_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
     return HDF5.Datatype(dtype, true)
 end
 
-function _msc_param_char_dtype()
-    Rec = _MSCParamCharRec
+function _reference_param_char_dtype()
+    Rec = _REFERENCEParamCharRec
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
-    _msc_insert_fixed_string!(dtype, Rec, :NAME, 8)
-    _msc_insert_fixed_string!(dtype, Rec, :VALUE, 8)
-    _msc_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
+    _reference_insert_fixed_string!(dtype, Rec, :NAME, 8)
+    _reference_insert_fixed_string!(dtype, Rec, :VALUE, 8)
+    _reference_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
     return HDF5.Datatype(dtype, true)
 end
 
-function _msc_psolid_dtype()
-    Rec = _MSCPSolidRec
+function _reference_psolid_dtype()
+    Rec = _REFERENCEPSolidRec
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
     for field in (:PID, :MID, :CORDM, :IN, :STRESS, :ISOP)
-        _msc_insert_scalar!(dtype, Rec, field, Int64)
+        _reference_insert_scalar!(dtype, Rec, field, Int64)
     end
-    _msc_insert_fixed_string!(dtype, Rec, :FCTN, 4)
-    _msc_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
+    _reference_insert_fixed_string!(dtype, Rec, :FCTN, 4)
+    _reference_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
     return HDF5.Datatype(dtype, true)
 end
 
-function _msc_eigrl_dtype()
-    Rec = _MSCEigrlRec
+function _reference_eigrl_dtype()
+    Rec = _REFERENCEEigrlRec
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
-    _msc_insert_scalar!(dtype, Rec, :SID, Int64)
-    _msc_insert_scalar!(dtype, Rec, :V1, Float64)
-    _msc_insert_scalar!(dtype, Rec, :V2, Float64)
+    _reference_insert_scalar!(dtype, Rec, :SID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :V1, Float64)
+    _reference_insert_scalar!(dtype, Rec, :V2, Float64)
     for field in (:ND, :MSGLVL, :MAXSET)
-        _msc_insert_scalar!(dtype, Rec, field, Int64)
+        _reference_insert_scalar!(dtype, Rec, field, Int64)
     end
-    _msc_insert_scalar!(dtype, Rec, :SHFSCL, Float64)
-    _msc_insert_scalar!(dtype, Rec, :FLAG1, Int64)
-    _msc_insert_scalar!(dtype, Rec, :FLAG2, Int64)
-    _msc_insert_fixed_string!(dtype, Rec, :NORM, 8)
-    _msc_insert_scalar!(dtype, Rec, :ALPH, Float64)
-    _msc_insert_scalar!(dtype, Rec, :FREQS_POS, Int64)
-    _msc_insert_scalar!(dtype, Rec, :FREQS_LEN, Int64)
-    _msc_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :SHFSCL, Float64)
+    _reference_insert_scalar!(dtype, Rec, :FLAG1, Int64)
+    _reference_insert_scalar!(dtype, Rec, :FLAG2, Int64)
+    _reference_insert_fixed_string!(dtype, Rec, :NORM, 8)
+    _reference_insert_scalar!(dtype, Rec, :ALPH, Float64)
+    _reference_insert_scalar!(dtype, Rec, :FREQS_POS, Int64)
+    _reference_insert_scalar!(dtype, Rec, :FREQS_LEN, Int64)
+    _reference_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
     return HDF5.Datatype(dtype, true)
 end
 
-function _msc_eigb_dtype()
-    Rec = _MSCEigbRec
+function _reference_eigb_dtype()
+    Rec = _REFERENCEEigbRec
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
     for field in (:SID, :NEP, :NDP, :NDN, :G, :C, :DOMAIN_ID)
-        _msc_insert_scalar!(dtype, Rec, field, Int64)
+        _reference_insert_scalar!(dtype, Rec, field, Int64)
     end
     for field in (:L1, :L2)
-        _msc_insert_scalar!(dtype, Rec, field, Float64)
+        _reference_insert_scalar!(dtype, Rec, field, Float64)
     end
     for field in (:METHOD, :NORM)
-        _msc_insert_fixed_string!(dtype, Rec, field, 8)
+        _reference_insert_fixed_string!(dtype, Rec, field, 8)
     end
     return HDF5.Datatype(dtype, true)
 end
 
-function _msc_pbeam_dtype()
-    Rec = _MSCPBeamRec
+function _reference_pbeam_dtype()
+    Rec = _REFERENCEPBeamRec
     dtype = HDF5.API.h5t_create(HDF5.API.H5T_COMPOUND, sizeof(Rec))
     for field in (:PID, :MID, :NSEGS, :CCF, :CWELD)
-        _msc_insert_scalar!(dtype, Rec, field, Int64)
+        _reference_insert_scalar!(dtype, Rec, field, Int64)
     end
     for field in (:SO, :XXB, :A, :I1, :I2, :I12, :J, :NSM, :C1, :C2, :D1, :D2, :E1, :E2, :F1, :F2)
-        _msc_insert_array!(dtype, Rec, field, Float64, 11)
+        _reference_insert_array!(dtype, Rec, field, Float64, 11)
     end
     for field in (:K1, :K2, :S1, :S2, :NSIA, :NSIB, :CWA, :CWB, :M1A, :M2A, :M1B, :M2B, :N1A, :N2A, :N1B, :N2B)
-        _msc_insert_scalar!(dtype, Rec, field, Float64)
+        _reference_insert_scalar!(dtype, Rec, field, Float64)
     end
-    _msc_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
+    _reference_insert_scalar!(dtype, Rec, :DOMAIN_ID, Int64)
     return HDF5.Datatype(dtype, true)
 end
 
-function _msc_model_value_by_id(collection, id)
+function _reference_model_value_by_id(collection, id)
     sid = string(id)
     haskey(collection, sid) && return collection[sid]
     haskey(collection, id) && return collection[id]
     return nothing
 end
 
-_msc_node_order(id_map) = sort(collect(keys(id_map)))
+_reference_node_order(id_map) = sort(collect(keys(id_map)))
 
 # Cache scalar IDs once; sorting by Dict lookup otherwise repeats conversion
 # for every comparison. sortperm preserves the original order of equal keys.
-function _msc_sorted_values_by_id(collection, field::String)
+function _reference_sorted_values_by_id(collection, field::String)
     entries = collect(values(collection))
-    sort_keys = [_msc_i64(get(entry, field, 0)) for entry in entries]
+    sort_keys = [_reference_i64(get(entry, field, 0)) for entry in entries]
     return entries[sortperm(sort_keys)]
 end
 
-function _msc_input_grid_records(model)
-    records = _MSCGridRec[]
+function _reference_input_grid_records(model)
+    records = _REFERENCEGridRec[]
     grids = get(model, "GRIDs", Dict())
     sizehint!(records, length(grids))
-    for grid in _msc_sorted_values_by_id(grids, "ID")
-        push!(records, _MSCGridRec(
-            _msc_i64(get(grid, "ID", 0)), 0,
-            _msc_tuple_f64(get(grid, "X", (0.0, 0.0, 0.0)), 3),
-            0, _msc_i64(get(grid, "PS", 0)),
-            _msc_i64(get(grid, "SEID", 0)), 1,
+    for grid in _reference_sorted_values_by_id(grids, "ID")
+        push!(records, _REFERENCEGridRec(
+            _reference_i64(get(grid, "ID", 0)), 0,
+            _reference_tuple_f64(get(grid, "X", (0.0, 0.0, 0.0)), 3),
+            0, _reference_i64(get(grid, "PS", 0)),
+            _reference_i64(get(grid, "SEID", 0)), 1,
         ))
     end
     return records
 end
 
-function _msc_input_shell_records(model)
-    quads = _MSCCquad4Rec[]
-    trias = _MSCCTRIA3Rec[]
+function _reference_input_shell_records(model)
+    quads = _REFERENCECquad4Rec[]
+    trias = _REFERENCECTRIA3Rec[]
     pshells = get(model, "PSHELLs", Dict())
-    for element in _msc_sorted_values_by_id(get(model, "CSHELLs", Dict()), "ID")
+    for element in _reference_sorted_values_by_id(get(model, "CSHELLs", Dict()), "ID")
         node_ids = get(element, "NODES", Int[])
-        pid = _msc_i64(get(element, "PID", 0))
-        prop = _msc_model_value_by_id(pshells, pid)
-        thickness = _msc_f64(prop === nothing ? 0.0 : get(prop, "T", 0.0))
-        theta = _msc_f64(get(element, "THETA", 0.0))
-        mcid = _msc_i64(get(element, "MCID", 0))
-        eid = _msc_i64(get(element, "ID", 0))
+        pid = _reference_i64(get(element, "PID", 0))
+        prop = _reference_model_value_by_id(pshells, pid)
+        thickness = _reference_f64(prop === nothing ? 0.0 : get(prop, "T", 0.0))
+        theta = _reference_f64(get(element, "THETA", 0.0))
+        mcid = _reference_i64(get(element, "MCID", 0))
+        eid = _reference_i64(get(element, "ID", 0))
         if length(node_ids) == 4
-            push!(quads, _MSCCquad4Rec(eid, pid, _msc_tuple_i64(node_ids, 4), theta, 0.0, 0, (thickness, thickness, thickness, thickness), mcid, 1))
+            push!(quads, _REFERENCECquad4Rec(eid, pid, _reference_tuple_i64(node_ids, 4), theta, 0.0, 0, (thickness, thickness, thickness, thickness), mcid, 1))
         elseif length(node_ids) == 3
-            push!(trias, _MSCCTRIA3Rec(eid, pid, _msc_tuple_i64(node_ids, 3), theta, 0.0, 0, (thickness, thickness, thickness), mcid, 1))
+            push!(trias, _REFERENCECTRIA3Rec(eid, pid, _reference_tuple_i64(node_ids, 3), theta, 0.0, 0, (thickness, thickness, thickness), mcid, 1))
         end
     end
     return quads, trias
 end
 
-function _msc_input_rod_records(model)
-    rods = _MSCCrodRec[]
-    for rod in sort(collect(values(get(model, "CRODs", Dict()))); by=x -> _msc_i64(get(x, "ID", 0)))
-        push!(rods, _MSCCrodRec(_msc_i64(get(rod, "ID", 0)), _msc_i64(get(rod, "PID", 0)),
-            (_msc_i64(get(rod, "GA", 0)), _msc_i64(get(rod, "GB", 0))), 1))
+function _reference_input_rod_records(model)
+    rods = _REFERENCECrodRec[]
+    for rod in sort(collect(values(get(model, "CRODs", Dict()))); by=x -> _reference_i64(get(x, "ID", 0)))
+        push!(rods, _REFERENCECrodRec(_reference_i64(get(rod, "ID", 0)), _reference_i64(get(rod, "PID", 0)),
+            (_reference_i64(get(rod, "GA", 0)), _reference_i64(get(rod, "GB", 0))), 1))
     end
     return rods
 end
 
-function _msc_input_bar_records(model)
-    bars = _MSCCbarRec[]
+function _reference_input_bar_records(model)
+    bars = _REFERENCECbarRec[]
     elements = get(model, "CBARs", Dict())
     sizehint!(bars, length(elements))
-    for bar in sort(collect(values(elements)); by=x -> _msc_i64(get(x, "ID", 0)))
-        v = _msc_tuple_f64(get(bar, "V", (0.0, 0.0, 1.0)), 3)
-        wa = _msc_tuple_f64(get(bar, "WA", (0.0, 0.0, 0.0)), 3)
-        wb = _msc_tuple_f64(get(bar, "WB", (0.0, 0.0, 0.0)), 3)
-        push!(bars, _MSCCbarRec(
-            _msc_i64(get(bar, "ID", 0)), _msc_i64(get(bar, "PID", 0)),
-            _msc_i64(get(bar, "GA", 0)), _msc_i64(get(bar, "GB", 0)),
-            0, v[1], v[2], v[3], _msc_i64(get(bar, "G0", 0)),
-            _msc_i64(get(bar, "PA", 0)), _msc_i64(get(bar, "PB", 0)),
+    for bar in sort(collect(values(elements)); by=x -> _reference_i64(get(x, "ID", 0)))
+        v = _reference_tuple_f64(get(bar, "V", (0.0, 0.0, 1.0)), 3)
+        wa = _reference_tuple_f64(get(bar, "WA", (0.0, 0.0, 0.0)), 3)
+        wb = _reference_tuple_f64(get(bar, "WB", (0.0, 0.0, 0.0)), 3)
+        push!(bars, _REFERENCECbarRec(
+            _reference_i64(get(bar, "ID", 0)), _reference_i64(get(bar, "PID", 0)),
+            _reference_i64(get(bar, "GA", 0)), _reference_i64(get(bar, "GB", 0)),
+            0, v[1], v[2], v[3], _reference_i64(get(bar, "G0", 0)),
+            _reference_i64(get(bar, "PA", 0)), _reference_i64(get(bar, "PB", 0)),
             wa[1], wa[2], wa[3], wb[1], wb[2], wb[3], 1,
         ))
     end
     return bars
 end
 
-function _msc_input_beam_records(model)
-    beams = _MSCCbeamRec[]
-    for beam in sort(collect(values(get(model, "CBEAMs", Dict()))); by=x -> _msc_i64(get(x, "ID", 0)))
-        push!(beams, _MSCCbeamRec(
-            _msc_i64(get(beam, "ID", 0)), _msc_i64(get(beam, "PID", 0)),
-            _msc_i64(get(beam, "GA", 0)), _msc_i64(get(beam, "GB", 0)),
-            _msc_i64(get(beam, "SA", 0)), _msc_i64(get(beam, "SB", 0)),
-            _msc_tuple_f64(get(beam, "V", [0.0, 0.0, 1.0]), 3),
-            _msc_i64(get(beam, "G0", 0)), 1,
-            _msc_i64(get(beam, "PA", 0)), _msc_i64(get(beam, "PB", 0)),
-            _msc_tuple_f64(get(beam, "WA", [0.0, 0.0, 0.0]), 3),
-            _msc_tuple_f64(get(beam, "WB", [0.0, 0.0, 0.0]), 3),
+function _reference_input_beam_records(model)
+    beams = _REFERENCECbeamRec[]
+    for beam in sort(collect(values(get(model, "CBEAMs", Dict()))); by=x -> _reference_i64(get(x, "ID", 0)))
+        push!(beams, _REFERENCECbeamRec(
+            _reference_i64(get(beam, "ID", 0)), _reference_i64(get(beam, "PID", 0)),
+            _reference_i64(get(beam, "GA", 0)), _reference_i64(get(beam, "GB", 0)),
+            _reference_i64(get(beam, "SA", 0)), _reference_i64(get(beam, "SB", 0)),
+            _reference_tuple_f64(get(beam, "V", [0.0, 0.0, 1.0]), 3),
+            _reference_i64(get(beam, "G0", 0)), 1,
+            _reference_i64(get(beam, "PA", 0)), _reference_i64(get(beam, "PB", 0)),
+            _reference_tuple_f64(get(beam, "WA", [0.0, 0.0, 0.0]), 3),
+            _reference_tuple_f64(get(beam, "WB", [0.0, 0.0, 0.0]), 3),
             1,
         ))
     end
     return beams
 end
 
-function _msc_input_conrod_records(model)
-    rods = _MSCConrodRec[]
-    for rod in sort(collect(values(get(model, "CONRODs", Dict()))); by=x -> _msc_i64(get(x, "ID", 0)))
-        push!(rods, _MSCConrodRec(
-            _msc_i64(get(rod, "ID", 0)), _msc_i64(get(rod, "GA", 0)),
-            _msc_i64(get(rod, "GB", 0)), _msc_i64(get(rod, "MID", 0)),
-            _msc_f64(get(rod, "A", 0.0)), _msc_f64(get(rod, "J", 0.0)),
-            _msc_f64(get(rod, "C", 0.0)), _msc_f64(get(rod, "NSM", 0.0)), 1,
+function _reference_input_conrod_records(model)
+    rods = _REFERENCEConrodRec[]
+    for rod in sort(collect(values(get(model, "CONRODs", Dict()))); by=x -> _reference_i64(get(x, "ID", 0)))
+        push!(rods, _REFERENCEConrodRec(
+            _reference_i64(get(rod, "ID", 0)), _reference_i64(get(rod, "GA", 0)),
+            _reference_i64(get(rod, "GB", 0)), _reference_i64(get(rod, "MID", 0)),
+            _reference_f64(get(rod, "A", 0.0)), _reference_f64(get(rod, "J", 0.0)),
+            _reference_f64(get(rod, "C", 0.0)), _reference_f64(get(rod, "NSM", 0.0)), 1,
         ))
     end
     return rods
 end
 
-function _msc_input_solid_records(model)
-    hexas = _MSCChexaRec[]
-    pentas = _MSCCpentaRec[]
-    tetras = _MSCCTetraRec[]
-    for solid in sort(collect(values(get(model, "CSOLIDs", Dict()))); by=x -> _msc_i64(get(x, "ID", 0)))
+function _reference_input_solid_records(model)
+    hexas = _REFERENCEChexaRec[]
+    pentas = _REFERENCECpentaRec[]
+    tetras = _REFERENCECTetraRec[]
+    for solid in sort(collect(values(get(model, "CSOLIDs", Dict()))); by=x -> _reference_i64(get(x, "ID", 0)))
         etype = uppercase(string(get(solid, "TYPE", "")))
         nodes = get(solid, "NODES", Int[])
-        eid = _msc_i64(get(solid, "ID", 0))
-        pid = _msc_i64(get(solid, "PID", 0))
+        eid = _reference_i64(get(solid, "ID", 0))
+        pid = _reference_i64(get(solid, "PID", 0))
         if etype == "CHEXA"
-            push!(hexas, _MSCChexaRec(eid, pid, _msc_tuple_i64(nodes, 20), 1))
+            push!(hexas, _REFERENCEChexaRec(eid, pid, _reference_tuple_i64(nodes, 20), 1))
         elseif etype == "CPENTA"
-            push!(pentas, _MSCCpentaRec(eid, pid, _msc_tuple_i64(nodes, 15), 1))
+            push!(pentas, _REFERENCECpentaRec(eid, pid, _reference_tuple_i64(nodes, 15), 1))
         elseif etype == "CTETRA"
-            push!(tetras, _MSCCTetraRec(eid, pid, _msc_tuple_i64(nodes, 10), 1))
+            push!(tetras, _REFERENCECTetraRec(eid, pid, _reference_tuple_i64(nodes, 10), 1))
         end
     end
     return hexas, pentas, tetras
 end
 
-function _msc_input_spring_records(model)
-    celas1 = _MSCCelas1Rec[]
-    celas2 = _MSCCelas2Rec[]
-    for spring in sort(collect(values(get(model, "CELASs", Dict()))); by=x -> _msc_i64(get(x, "ID", 0)))
+function _reference_input_spring_records(model)
+    celas1 = _REFERENCECelas1Rec[]
+    celas2 = _REFERENCECelas2Rec[]
+    for spring in sort(collect(values(get(model, "CELASs", Dict()))); by=x -> _reference_i64(get(x, "ID", 0)))
         etype = uppercase(string(get(spring, "TYPE", "")))
         if etype == "CELAS1"
-            push!(celas1, _MSCCelas1Rec(
-                _msc_i64(get(spring, "ID", 0)), _msc_i64(get(spring, "PID", 0)),
-                _msc_i64(get(spring, "G1", 0)), _msc_i64(get(spring, "G2", 0)),
-                _msc_i64(get(spring, "C1", 0)), _msc_i64(get(spring, "C2", 0)), 1,
+            push!(celas1, _REFERENCECelas1Rec(
+                _reference_i64(get(spring, "ID", 0)), _reference_i64(get(spring, "PID", 0)),
+                _reference_i64(get(spring, "G1", 0)), _reference_i64(get(spring, "G2", 0)),
+                _reference_i64(get(spring, "C1", 0)), _reference_i64(get(spring, "C2", 0)), 1,
             ))
         elseif etype == "CELAS2"
-            push!(celas2, _MSCCelas2Rec(
-                _msc_i64(get(spring, "ID", 0)), _msc_f64(get(spring, "K", 0.0)),
-                _msc_i64(get(spring, "G1", 0)), _msc_i64(get(spring, "G2", 0)),
-                _msc_i64(get(spring, "C1", 0)), _msc_i64(get(spring, "C2", 0)),
-                _msc_f64(get(spring, "GE", 0.0)), _msc_f64(get(spring, "S", 0.0)), 1,
+            push!(celas2, _REFERENCECelas2Rec(
+                _reference_i64(get(spring, "ID", 0)), _reference_f64(get(spring, "K", 0.0)),
+                _reference_i64(get(spring, "G1", 0)), _reference_i64(get(spring, "G2", 0)),
+                _reference_i64(get(spring, "C1", 0)), _reference_i64(get(spring, "C2", 0)),
+                _reference_f64(get(spring, "GE", 0.0)), _reference_f64(get(spring, "S", 0.0)), 1,
             ))
         end
     end
     return celas1, celas2
 end
 
-function _msc_input_mass_records(model)
-    cmass1 = _MSCCmass1Rec[]
-    cmass2 = _MSCCmass2Rec[]
-    conm2 = _MSCConm2Rec[]
-    for mass in sort(collect(values(get(model, "CMASS1s", Dict()))); by=x -> _msc_i64(get(x, "ID", 0)))
-        push!(cmass1, _MSCCmass1Rec(
-            _msc_i64(get(mass, "ID", 0)), _msc_i64(get(mass, "PID", 0)),
-            _msc_i64(get(mass, "G1", 0)), _msc_i64(get(mass, "G2", 0)),
-            _msc_i64(get(mass, "C1", 0)), _msc_i64(get(mass, "C2", 0)), 1,
+function _reference_input_mass_records(model)
+    cmass1 = _REFERENCECmass1Rec[]
+    cmass2 = _REFERENCECmass2Rec[]
+    conm2 = _REFERENCEConm2Rec[]
+    for mass in sort(collect(values(get(model, "CMASS1s", Dict()))); by=x -> _reference_i64(get(x, "ID", 0)))
+        push!(cmass1, _REFERENCECmass1Rec(
+            _reference_i64(get(mass, "ID", 0)), _reference_i64(get(mass, "PID", 0)),
+            _reference_i64(get(mass, "G1", 0)), _reference_i64(get(mass, "G2", 0)),
+            _reference_i64(get(mass, "C1", 0)), _reference_i64(get(mass, "C2", 0)), 1,
         ))
     end
-    for mass in sort(collect(values(get(model, "CMASS2s", Dict()))); by=x -> _msc_i64(get(x, "ID", 0)))
-        push!(cmass2, _MSCCmass2Rec(
-            _msc_i64(get(mass, "ID", 0)), _msc_f64(get(mass, "M", 0.0)),
-            _msc_i64(get(mass, "G1", 0)), _msc_i64(get(mass, "G2", 0)),
-            _msc_i64(get(mass, "C1", 0)), _msc_i64(get(mass, "C2", 0)), 1,
+    for mass in sort(collect(values(get(model, "CMASS2s", Dict()))); by=x -> _reference_i64(get(x, "ID", 0)))
+        push!(cmass2, _REFERENCECmass2Rec(
+            _reference_i64(get(mass, "ID", 0)), _reference_f64(get(mass, "M", 0.0)),
+            _reference_i64(get(mass, "G1", 0)), _reference_i64(get(mass, "G2", 0)),
+            _reference_i64(get(mass, "C1", 0)), _reference_i64(get(mass, "C2", 0)), 1,
         ))
     end
-    for mass in sort(collect(values(get(model, "CONM2s", Dict()))); by=x -> _msc_i64(get(x, "ID", 0)))
-        x = _msc_tuple_f64(get(mass, "X", [0.0, 0.0, 0.0]), 3)
-        inertia = _msc_tuple_f64(get(mass, "I", [0.0, 0.0, 0.0]), 3)
-        push!(conm2, _MSCConm2Rec(
-            _msc_i64(get(mass, "ID", 0)), _msc_i64(get(mass, "GID", get(mass, "G", 0))),
-            _msc_i64(get(mass, "CID", 0)), _msc_f64(get(mass, "M", 0.0)),
+    for mass in sort(collect(values(get(model, "CONM2s", Dict()))); by=x -> _reference_i64(get(x, "ID", 0)))
+        x = _reference_tuple_f64(get(mass, "X", [0.0, 0.0, 0.0]), 3)
+        inertia = _reference_tuple_f64(get(mass, "I", [0.0, 0.0, 0.0]), 3)
+        push!(conm2, _REFERENCEConm2Rec(
+            _reference_i64(get(mass, "ID", 0)), _reference_i64(get(mass, "GID", get(mass, "G", 0))),
+            _reference_i64(get(mass, "CID", 0)), _reference_f64(get(mass, "M", 0.0)),
             x[1], x[2], x[3], inertia[1], (inertia[2], 0.0), (inertia[3], 0.0, 0.0), 1,
         ))
     end
     return cmass1, cmass2, conm2
 end
 
-function _msc_input_material_records(model)
-    mat1 = _MSCMat1Rec[]
-    mat2 = _MSCMat2Rec[]
-    mat8 = _MSCMat8Rec[]
-    for mat in sort(collect(values(get(model, "MATs", Dict()))); by=x -> _msc_i64(get(x, "MID", 0)))
+function _reference_input_material_records(model)
+    mat1 = _REFERENCEMat1Rec[]
+    mat2 = _REFERENCEMat2Rec[]
+    mat8 = _REFERENCEMat8Rec[]
+    for mat in sort(collect(values(get(model, "MATs", Dict()))); by=x -> _reference_i64(get(x, "MID", 0)))
         type = uppercase(string(get(mat, "TYPE", "MAT1")))
         if type == "MAT8"
-            push!(mat8, _MSCMat8Rec(
-                _msc_i64(get(mat, "MID", 0)), _msc_f64(get(mat, "E1", get(mat, "E", 0.0))),
-                _msc_f64(get(mat, "E2", get(mat, "E", 0.0))), _msc_f64(get(mat, "NU12", get(mat, "NU", 0.0))),
-                _msc_f64(get(mat, "G12", get(mat, "G", 0.0))), _msc_f64(get(mat, "G1Z", 0.0)),
-                _msc_f64(get(mat, "G2Z", 0.0)), _msc_f64(get(mat, "RHO", 0.0)),
-                _msc_f64(get(mat, "A1", 0.0)), _msc_f64(get(mat, "A2", 0.0)),
-                _msc_f64(get(mat, "TREF", 0.0)), _msc_f64(get(mat, "XT", 0.0)),
-                _msc_f64(get(mat, "XC", 0.0)), _msc_f64(get(mat, "YT", 0.0)),
-                _msc_f64(get(mat, "YC", 0.0)), _msc_f64(get(mat, "S", 0.0)),
-                _msc_f64(get(mat, "GE", 0.0)), _msc_f64(get(mat, "F12", 0.0)),
-                _msc_f64(get(mat, "STRN", 0.0)), 1,
+            push!(mat8, _REFERENCEMat8Rec(
+                _reference_i64(get(mat, "MID", 0)), _reference_f64(get(mat, "E1", get(mat, "E", 0.0))),
+                _reference_f64(get(mat, "E2", get(mat, "E", 0.0))), _reference_f64(get(mat, "NU12", get(mat, "NU", 0.0))),
+                _reference_f64(get(mat, "G12", get(mat, "G", 0.0))), _reference_f64(get(mat, "G1Z", 0.0)),
+                _reference_f64(get(mat, "G2Z", 0.0)), _reference_f64(get(mat, "RHO", 0.0)),
+                _reference_f64(get(mat, "A1", 0.0)), _reference_f64(get(mat, "A2", 0.0)),
+                _reference_f64(get(mat, "TREF", 0.0)), _reference_f64(get(mat, "XT", 0.0)),
+                _reference_f64(get(mat, "XC", 0.0)), _reference_f64(get(mat, "YT", 0.0)),
+                _reference_f64(get(mat, "YC", 0.0)), _reference_f64(get(mat, "S", 0.0)),
+                _reference_f64(get(mat, "GE", 0.0)), _reference_f64(get(mat, "F12", 0.0)),
+                _reference_f64(get(mat, "STRN", 0.0)), 1,
             ))
         elseif type != "MAT1_EQUIV"
-            push!(mat1, _MSCMat1Rec(
-                _msc_i64(get(mat, "MID", 0)), _msc_f64(get(mat, "E", 0.0)),
-                _msc_f64(get(mat, "G", 0.0)), _msc_f64(get(mat, "NU", 0.0)),
-                _msc_f64(get(mat, "RHO", 0.0)), _msc_f64(get(mat, "ALPHA", get(mat, "A", 0.0))),
-                _msc_f64(get(mat, "TREF", 0.0)), _msc_f64(get(mat, "GE", 0.0)),
-                _msc_f64(get(mat, "ST", 0.0)), _msc_f64(get(mat, "SC", 0.0)),
-                _msc_f64(get(mat, "SS", 0.0)), _msc_i64(get(mat, "MCSID", 0)), 1,
+            push!(mat1, _REFERENCEMat1Rec(
+                _reference_i64(get(mat, "MID", 0)), _reference_f64(get(mat, "E", 0.0)),
+                _reference_f64(get(mat, "G", 0.0)), _reference_f64(get(mat, "NU", 0.0)),
+                _reference_f64(get(mat, "RHO", 0.0)), _reference_f64(get(mat, "ALPHA", get(mat, "A", 0.0))),
+                _reference_f64(get(mat, "TREF", 0.0)), _reference_f64(get(mat, "GE", 0.0)),
+                _reference_f64(get(mat, "ST", 0.0)), _reference_f64(get(mat, "SC", 0.0)),
+                _reference_f64(get(mat, "SS", 0.0)), _reference_i64(get(mat, "MCSID", 0)), 1,
             ))
         end
     end
 
-    for prop in sort(collect(values(get(model, "PSHELLs", Dict()))); by=x -> _msc_i64(get(x, "PID", 0)))
+    for prop in sort(collect(values(get(model, "PSHELLs", Dict()))); by=x -> _reference_i64(get(x, "PID", 0)))
         uppercase(string(get(prop, "TYPE", ""))) == "PCOMP_CLT" || continue
-        pid = _msc_i64(get(prop, "PID", 0))
+        pid = _reference_i64(get(prop, "PID", 0))
         rho = 0.0
         plies = get(prop, "PLY_DATA", Any[])
         if !isempty(plies)
-            first_mid = _msc_i64(get(plies[1], "MID", get(plies[1], "mid", 0)))
-            mat = _msc_model_value_by_id(get(model, "MATs", Dict()), first_mid)
-            rho = mat === nothing ? 0.0 : _msc_f64(get(mat, "RHO", 0.0))
+            first_mid = _reference_i64(get(plies[1], "MID", get(plies[1], "mid", 0)))
+            mat = _reference_model_value_by_id(get(model, "MATs", Dict()), first_mid)
+            rho = mat === nothing ? 0.0 : _reference_f64(get(mat, "RHO", 0.0))
         end
         # Symmetric laminates deliberately store `Bmb = nothing` to denote a
         # zero membrane-bending coupling matrix.  `get(..., default)` does not
@@ -1503,10 +1503,10 @@ function _msc_input_material_records(model)
             (400000000 + pid, bmb),
         )
         for (mid, m) in rows
-            push!(mat2, _MSCMat2Rec(
-                mid, _msc_f64(m[1, 1]), _msc_f64(size(m, 2) >= 2 ? m[1, 2] : 0.0),
-                _msc_f64(size(m, 2) >= 3 ? m[1, 3] : 0.0), _msc_f64(size(m, 1) >= 2 && size(m, 2) >= 2 ? m[2, 2] : 0.0),
-                _msc_f64(size(m, 1) >= 2 && size(m, 2) >= 3 ? m[2, 3] : 0.0), _msc_f64(size(m, 1) >= 3 && size(m, 2) >= 3 ? m[3, 3] : 0.0),
+            push!(mat2, _REFERENCEMat2Rec(
+                mid, _reference_f64(m[1, 1]), _reference_f64(size(m, 2) >= 2 ? m[1, 2] : 0.0),
+                _reference_f64(size(m, 2) >= 3 ? m[1, 3] : 0.0), _reference_f64(size(m, 1) >= 2 && size(m, 2) >= 2 ? m[2, 2] : 0.0),
+                _reference_f64(size(m, 1) >= 2 && size(m, 2) >= 3 ? m[2, 3] : 0.0), _reference_f64(size(m, 1) >= 3 && size(m, 2) >= 3 ? m[3, 3] : 0.0),
                 rho, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 1,
             ))
         end
@@ -1514,141 +1514,141 @@ function _msc_input_material_records(model)
     return mat1, mat2, mat8
 end
 
-_msc_beam_vec(value) = ntuple(i -> (i == 1 || i == 11) ? _msc_f64(value) : 0.0, 11)
-_msc_beam_so_vec() = ntuple(i -> (i == 1 || i == 11) ? 1.0 : 0.0, 11)
-_msc_beam_xxb_vec() = ntuple(i -> i == 11 ? 1.0 : 0.0, 11)
+_reference_beam_vec(value) = ntuple(i -> (i == 1 || i == 11) ? _reference_f64(value) : 0.0, 11)
+_reference_beam_so_vec() = ntuple(i -> (i == 1 || i == 11) ? 1.0 : 0.0, 11)
+_reference_beam_xxb_vec() = ntuple(i -> i == 11 ? 1.0 : 0.0, 11)
 
-function _msc_input_property_records(model)
-    pshell = _MSCPShellRec[]
-    pbar = _MSCPBarRec[]
-    pbeam = _MSCPBeamRec[]
-    prod = _MSCProdRec[]
-    pelas = _MSCPElasRec[]
-    pmass = _MSCPMassRec[]
-    psolid = _MSCPSolidRec[]
-    pcomp_identity = _MSCPCOMPIdentityRec[]
-    pcomp_ply = _MSCPCOMPPlyRec[]
+function _reference_input_property_records(model)
+    pshell = _REFERENCEPShellRec[]
+    pbar = _REFERENCEPBarRec[]
+    pbeam = _REFERENCEPBeamRec[]
+    prod = _REFERENCEProdRec[]
+    pelas = _REFERENCEPElasRec[]
+    pmass = _REFERENCEPMassRec[]
+    psolid = _REFERENCEPSolidRec[]
+    pcomp_identity = _REFERENCEPCOMPIdentityRec[]
+    pcomp_ply = _REFERENCEPCOMPPlyRec[]
     ply_pos = 0
 
-    for prop in sort(collect(values(get(model, "PSHELLs", Dict()))); by=x -> _msc_i64(get(x, "PID", 0)))
-        pid = _msc_i64(get(prop, "PID", 0))
+    for prop in sort(collect(values(get(model, "PSHELLs", Dict()))); by=x -> _reference_i64(get(x, "PID", 0)))
+        pid = _reference_i64(get(prop, "PID", 0))
         type = uppercase(string(get(prop, "TYPE", "PSHELL")))
         if type == "PCOMP_CLT"
             plies = get(prop, "PLY_DATA", Any[])
-            push!(pcomp_identity, _MSCPCOMPIdentityRec(
-                pid, length(plies), -0.5 * _msc_f64(get(prop, "T", 0.0)),
-                _msc_f64(get(prop, "NSM", 0.0)), 0.0, 0, 0.0, 0.0, ply_pos, length(plies), 1,
+            push!(pcomp_identity, _REFERENCEPCOMPIdentityRec(
+                pid, length(plies), -0.5 * _reference_f64(get(prop, "T", 0.0)),
+                _reference_f64(get(prop, "NSM", 0.0)), 0.0, 0, 0.0, 0.0, ply_pos, length(plies), 1,
             ))
             for ply in plies
-                thickness = haskey(ply, "T") ? get(ply, "T", 0.0) : _msc_f64(get(ply, "z_top", 0.0)) - _msc_f64(get(ply, "z_bot", 0.0))
+                thickness = haskey(ply, "T") ? get(ply, "T", 0.0) : _reference_f64(get(ply, "z_top", 0.0)) - _reference_f64(get(ply, "z_bot", 0.0))
                 sout = uppercase(strip(string(get(ply, "SOUT", get(ply, "sout", ""))))) == "YES" ? 1 : 0
-                push!(pcomp_ply, _MSCPCOMPPlyRec(
-                    _msc_i64(get(ply, "MID", get(ply, "mid", 0))), _msc_f64(thickness),
-                    _msc_f64(get(ply, "THETA", get(ply, "theta", 0.0))), sout,
+                push!(pcomp_ply, _REFERENCEPCOMPPlyRec(
+                    _reference_i64(get(ply, "MID", get(ply, "mid", 0))), _reference_f64(thickness),
+                    _reference_f64(get(ply, "THETA", get(ply, "theta", 0.0))), sout,
                 ))
             end
             ply_pos += length(plies)
-            push!(pshell, _MSCPShellRec(
-                pid, 100000000 + pid, _msc_f64(get(prop, "T", 0.0)),
+            push!(pshell, _REFERENCEPShellRec(
+                pid, 100000000 + pid, _reference_f64(get(prop, "T", 0.0)),
                 200000000 + pid, 1.0, 300000000 + pid, 1.0,
-                _msc_f64(get(prop, "NSM", 0.0)), -0.5 * _msc_f64(get(prop, "T", 0.0)),
-                0.5 * _msc_f64(get(prop, "T", 0.0)), 400000000 + pid, 1,
+                _reference_f64(get(prop, "NSM", 0.0)), -0.5 * _reference_f64(get(prop, "T", 0.0)),
+                0.5 * _reference_f64(get(prop, "T", 0.0)), 400000000 + pid, 1,
             ))
         else
-            mid = _msc_i64(get(prop, "MID", get(prop, "MID1", 0)))
-            push!(pshell, _MSCPShellRec(
-                pid, mid, _msc_f64(get(prop, "T", 0.0)),
-                _msc_i64(get(prop, "MID2", mid)), _msc_f64(get(prop, "BEND_RATIO", get(prop, "BK", 1.0))),
-                _msc_i64(get(prop, "MID3", mid)), _msc_f64(get(prop, "TS_T", get(prop, "TS", 0.8333333333333334))),
-                _msc_f64(get(prop, "NSM", 0.0)), _msc_f64(Solver._pshell_stress_fiber_distance(prop, "Z1")),
-                _msc_f64(Solver._pshell_stress_fiber_distance(prop, "Z2")), _msc_i64(get(prop, "MID4", 0)), 1,
+            mid = _reference_i64(get(prop, "MID", get(prop, "MID1", 0)))
+            push!(pshell, _REFERENCEPShellRec(
+                pid, mid, _reference_f64(get(prop, "T", 0.0)),
+                _reference_i64(get(prop, "MID2", mid)), _reference_f64(get(prop, "BEND_RATIO", get(prop, "BK", 1.0))),
+                _reference_i64(get(prop, "MID3", mid)), _reference_f64(get(prop, "TS_T", get(prop, "TS", 0.8333333333333334))),
+                _reference_f64(get(prop, "NSM", 0.0)), _reference_f64(Solver._pshell_stress_fiber_distance(prop, "Z1")),
+                _reference_f64(Solver._pshell_stress_fiber_distance(prop, "Z2")), _reference_i64(get(prop, "MID4", 0)), 1,
             ))
         end
     end
 
-    for prop in sort(collect(values(get(model, "PBARLs", Dict()))); by=x -> _msc_i64(get(x, "PID", 0)))
+    for prop in sort(collect(values(get(model, "PBARLs", Dict()))); by=x -> _reference_i64(get(x, "PID", 0)))
         type = uppercase(string(get(prop, "TYPE", "PBAR")))
         if type == "PBEAM"
-            push!(pbeam, _MSCPBeamRec(
-                _msc_i64(get(prop, "PID", 0)), _msc_i64(get(prop, "MID", 0)),
-                1, 1, 0, _msc_beam_so_vec(), _msc_beam_xxb_vec(),
-                _msc_beam_vec(get(prop, "A", 0.0)), _msc_beam_vec(get(prop, "I1", 0.0)),
-                _msc_beam_vec(get(prop, "I2", 0.0)), _msc_beam_vec(get(prop, "I12", 0.0)),
-                _msc_beam_vec(get(prop, "J", 0.0)), _msc_beam_vec(get(prop, "NSM", 0.0)),
-                _msc_beam_vec(get(prop, "C1", 0.0)), _msc_beam_vec(get(prop, "C2", 0.0)),
-                _msc_beam_vec(get(prop, "D1", 0.0)), _msc_beam_vec(get(prop, "D2", 0.0)),
-                _msc_beam_vec(get(prop, "E1", 0.0)), _msc_beam_vec(get(prop, "E2", 0.0)),
-                _msc_beam_vec(get(prop, "F1", 0.0)), _msc_beam_vec(get(prop, "F2", 0.0)),
-                _msc_f64(get(prop, "K1", 1.0)), _msc_f64(get(prop, "K2", 1.0)),
+            push!(pbeam, _REFERENCEPBeamRec(
+                _reference_i64(get(prop, "PID", 0)), _reference_i64(get(prop, "MID", 0)),
+                1, 1, 0, _reference_beam_so_vec(), _reference_beam_xxb_vec(),
+                _reference_beam_vec(get(prop, "A", 0.0)), _reference_beam_vec(get(prop, "I1", 0.0)),
+                _reference_beam_vec(get(prop, "I2", 0.0)), _reference_beam_vec(get(prop, "I12", 0.0)),
+                _reference_beam_vec(get(prop, "J", 0.0)), _reference_beam_vec(get(prop, "NSM", 0.0)),
+                _reference_beam_vec(get(prop, "C1", 0.0)), _reference_beam_vec(get(prop, "C2", 0.0)),
+                _reference_beam_vec(get(prop, "D1", 0.0)), _reference_beam_vec(get(prop, "D2", 0.0)),
+                _reference_beam_vec(get(prop, "E1", 0.0)), _reference_beam_vec(get(prop, "E2", 0.0)),
+                _reference_beam_vec(get(prop, "F1", 0.0)), _reference_beam_vec(get(prop, "F2", 0.0)),
+                _reference_f64(get(prop, "K1", 1.0)), _reference_f64(get(prop, "K2", 1.0)),
                 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1,
             ))
         else
-            push!(pbar, _MSCPBarRec(
-                _msc_i64(get(prop, "PID", 0)), _msc_i64(get(prop, "MID", 0)),
-                _msc_f64(get(prop, "A", 0.0)), _msc_f64(get(prop, "I1", 0.0)),
-                _msc_f64(get(prop, "I2", 0.0)), _msc_f64(get(prop, "J", 0.0)),
-                _msc_f64(get(prop, "NSM", 0.0)), 0.0,
-                _msc_f64(get(prop, "C1", 0.0)), _msc_f64(get(prop, "C2", 0.0)),
-                _msc_f64(get(prop, "D1", 0.0)), _msc_f64(get(prop, "D2", 0.0)),
-                _msc_f64(get(prop, "E1", 0.0)), _msc_f64(get(prop, "E2", 0.0)),
-                _msc_f64(get(prop, "F1", 0.0)), _msc_f64(get(prop, "F2", 0.0)),
-                _msc_f64(get(prop, "K1", 1.0)), _msc_f64(get(prop, "K2", 1.0)),
-                _msc_f64(get(prop, "I12", 0.0)), 1,
+            push!(pbar, _REFERENCEPBarRec(
+                _reference_i64(get(prop, "PID", 0)), _reference_i64(get(prop, "MID", 0)),
+                _reference_f64(get(prop, "A", 0.0)), _reference_f64(get(prop, "I1", 0.0)),
+                _reference_f64(get(prop, "I2", 0.0)), _reference_f64(get(prop, "J", 0.0)),
+                _reference_f64(get(prop, "NSM", 0.0)), 0.0,
+                _reference_f64(get(prop, "C1", 0.0)), _reference_f64(get(prop, "C2", 0.0)),
+                _reference_f64(get(prop, "D1", 0.0)), _reference_f64(get(prop, "D2", 0.0)),
+                _reference_f64(get(prop, "E1", 0.0)), _reference_f64(get(prop, "E2", 0.0)),
+                _reference_f64(get(prop, "F1", 0.0)), _reference_f64(get(prop, "F2", 0.0)),
+                _reference_f64(get(prop, "K1", 1.0)), _reference_f64(get(prop, "K2", 1.0)),
+                _reference_f64(get(prop, "I12", 0.0)), 1,
             ))
         end
     end
 
-    for prop in sort(collect(values(get(model, "PRODs", Dict()))); by=x -> _msc_i64(get(x, "PID", 0)))
-        push!(prod, _MSCProdRec(_msc_i64(get(prop, "PID", 0)), _msc_i64(get(prop, "MID", 0)),
-            _msc_f64(get(prop, "A", 0.0)), _msc_f64(get(prop, "J", 0.0)),
-            _msc_f64(get(prop, "C", 0.0)), _msc_f64(get(prop, "NSM", 0.0)), 1))
+    for prop in sort(collect(values(get(model, "PRODs", Dict()))); by=x -> _reference_i64(get(x, "PID", 0)))
+        push!(prod, _REFERENCEProdRec(_reference_i64(get(prop, "PID", 0)), _reference_i64(get(prop, "MID", 0)),
+            _reference_f64(get(prop, "A", 0.0)), _reference_f64(get(prop, "J", 0.0)),
+            _reference_f64(get(prop, "C", 0.0)), _reference_f64(get(prop, "NSM", 0.0)), 1))
     end
-    for prop in sort(collect(values(get(model, "PELASs", Dict()))); by=x -> _msc_i64(get(x, "PID", 0)))
-        push!(pelas, _MSCPElasRec(_msc_i64(get(prop, "PID", 0)), _msc_f64(get(prop, "K", 0.0)),
-            _msc_f64(get(prop, "GE", 0.0)), _msc_f64(get(prop, "S", 0.0)), 1))
+    for prop in sort(collect(values(get(model, "PELASs", Dict()))); by=x -> _reference_i64(get(x, "PID", 0)))
+        push!(pelas, _REFERENCEPElasRec(_reference_i64(get(prop, "PID", 0)), _reference_f64(get(prop, "K", 0.0)),
+            _reference_f64(get(prop, "GE", 0.0)), _reference_f64(get(prop, "S", 0.0)), 1))
     end
-    for prop in sort(collect(values(get(model, "PMASSs", Dict()))); by=x -> _msc_i64(get(x, "PID", 0)))
-        push!(pmass, _MSCPMassRec(_msc_i64(get(prop, "PID", 0)), _msc_f64(get(prop, "M", 0.0)), 1))
+    for prop in sort(collect(values(get(model, "PMASSs", Dict()))); by=x -> _reference_i64(get(x, "PID", 0)))
+        push!(pmass, _REFERENCEPMassRec(_reference_i64(get(prop, "PID", 0)), _reference_f64(get(prop, "M", 0.0)), 1))
     end
-    for prop in sort(collect(values(get(model, "PSOLIDs", Dict()))); by=x -> _msc_i64(get(x, "PID", 0)))
-        push!(psolid, _MSCPSolidRec(
-            _msc_i64(get(prop, "PID", 0)), _msc_i64(get(prop, "MID", 0)),
-            _msc_i64(get(prop, "CORDM", 0)), _msc_i64(get(prop, "IN", 0)),
-            _msc_i64(get(prop, "STRESS", 0)), _msc_i64(get(prop, "ISOP", 0)),
-            _msc_fixed_string_bytes(get(prop, "FCTN", "SMEC"), 4), 1,
+    for prop in sort(collect(values(get(model, "PSOLIDs", Dict()))); by=x -> _reference_i64(get(x, "PID", 0)))
+        push!(psolid, _REFERENCEPSolidRec(
+            _reference_i64(get(prop, "PID", 0)), _reference_i64(get(prop, "MID", 0)),
+            _reference_i64(get(prop, "CORDM", 0)), _reference_i64(get(prop, "IN", 0)),
+            _reference_i64(get(prop, "STRESS", 0)), _reference_i64(get(prop, "ISOP", 0)),
+            _reference_fixed_string_bytes(get(prop, "FCTN", "SMEC"), 4), 1,
         ))
     end
     return pshell, pbar, pbeam, prod, pelas, pmass, psolid, pcomp_identity, pcomp_ply
 end
 
-function _msc_input_load_records(model)
-    forces = _MSCForceRec[]
-    moments = _MSCMomentRec[]
-    pload4s = _MSCPload4Rec[]
+function _reference_input_load_records(model)
+    forces = _REFERENCEForceRec[]
+    moments = _REFERENCEMomentRec[]
+    pload4s = _REFERENCEPload4Rec[]
     for force in get(model, "FORCEs", Any[])
-        push!(forces, _MSCForceRec(
-            _msc_i64(get(force, "SID", 0)), _msc_i64(get(force, "GID", get(force, "G", 0))),
-            _msc_i64(get(force, "CID", 0)), _msc_f64(get(force, "Mag", get(force, "F", 0.0))),
-            _msc_tuple_f64(get(force, "Dir", get(force, "N", [0.0, 0.0, 0.0])), 3), 1,
+        push!(forces, _REFERENCEForceRec(
+            _reference_i64(get(force, "SID", 0)), _reference_i64(get(force, "GID", get(force, "G", 0))),
+            _reference_i64(get(force, "CID", 0)), _reference_f64(get(force, "Mag", get(force, "F", 0.0))),
+            _reference_tuple_f64(get(force, "Dir", get(force, "N", [0.0, 0.0, 0.0])), 3), 1,
         ))
     end
     for moment in get(model, "MOMENTs", Any[])
-        push!(moments, _MSCMomentRec(
-            _msc_i64(get(moment, "SID", 0)), _msc_i64(get(moment, "GID", get(moment, "G", 0))),
-            _msc_i64(get(moment, "CID", 0)), _msc_f64(get(moment, "Mag", get(moment, "M", 0.0))),
-            _msc_tuple_f64(get(moment, "Dir", get(moment, "N", [0.0, 0.0, 0.0])), 3), 1,
+        push!(moments, _REFERENCEMomentRec(
+            _reference_i64(get(moment, "SID", 0)), _reference_i64(get(moment, "GID", get(moment, "G", 0))),
+            _reference_i64(get(moment, "CID", 0)), _reference_f64(get(moment, "Mag", get(moment, "M", 0.0))),
+            _reference_tuple_f64(get(moment, "Dir", get(moment, "N", [0.0, 0.0, 0.0])), 3), 1,
         ))
     end
     for load in get(model, "PLOAD4s", Any[])
-        p = _msc_f64(get(load, "P", 0.0))
+        p = _reference_f64(get(load, "P", 0.0))
         pressures = get(load, "PVALS", [p, p, p, p])
-        push!(pload4s, _MSCPload4Rec(
-            _msc_i64(get(load, "SID", 0)), _msc_i64(get(load, "EID", 0)),
-            _msc_tuple_f64(pressures, 4), _msc_i64(get(load, "G1", 0)),
-            _msc_i64(get(load, "G34", 0)), _msc_i64(get(load, "CID", 0)),
-            _msc_tuple_f64(get(load, "N", [0.0, 0.0, 0.0]), 3),
-            _msc_fixed_string_bytes(get(load, "SORL", "SURF"), 8),
-            _msc_fixed_string_bytes(get(load, "LDIR", "NORM"), 8), 1,
+        push!(pload4s, _REFERENCEPload4Rec(
+            _reference_i64(get(load, "SID", 0)), _reference_i64(get(load, "EID", 0)),
+            _reference_tuple_f64(pressures, 4), _reference_i64(get(load, "G1", 0)),
+            _reference_i64(get(load, "G34", 0)), _reference_i64(get(load, "CID", 0)),
+            _reference_tuple_f64(get(load, "N", [0.0, 0.0, 0.0]), 3),
+            _reference_fixed_string_bytes(get(load, "SORL", "SURF"), 8),
+            _reference_fixed_string_bytes(get(load, "LDIR", "NORM"), 8), 1,
         ))
     end
     return sort!(forces; by=x -> (x.SID, x.G)),
@@ -1656,252 +1656,252 @@ function _msc_input_load_records(model)
         sort!(pload4s; by=x -> (x.SID, x.EID))
 end
 
-function _msc_input_spc1_records(model)
+function _reference_input_spc1_records(model)
     groups = Dict{Tuple{Int64,Int64}, Vector{Int64}}()
     for spc in get(model, "SPC1s", Any[])
-        key = (_msc_i64(get(spc, "SID", 0)), _msc_i64(get(spc, "C", 0)))
-        append!(get!(groups, key, Int64[]), _msc_i64.(get(spc, "NODES", Int[])))
+        key = (_reference_i64(get(spc, "SID", 0)), _reference_i64(get(spc, "C", 0)))
+        append!(get!(groups, key, Int64[]), _reference_i64.(get(spc, "NODES", Int[])))
     end
-    identities = _MSCSpc1IdentityRec[]
-    grids = _MSCIdRec[]
+    identities = _REFERENCESpc1IdentityRec[]
+    grids = _REFERENCEIdRec[]
     pos = 0
     for key in sort(collect(keys(groups)))
         nodes = sort(unique(groups[key]))
-        append!(grids, [_MSCIdRec(n) for n in nodes])
-        push!(identities, _MSCSpc1IdentityRec(key[1], key[2], pos, length(nodes), 1))
+        append!(grids, [_REFERENCEIdRec(n) for n in nodes])
+        push!(identities, _REFERENCESpc1IdentityRec(key[1], key[2], pos, length(nodes), 1))
         pos += length(nodes)
     end
     return identities, grids
 end
 
-function _msc_input_rbe_records(model)
-    rbe2_rows = _MSCRbe2Rec[]
-    rbe2_gm = _MSCIdRec[]
+function _reference_input_rbe_records(model)
+    rbe2_rows = _REFERENCERbe2Rec[]
+    rbe2_gm = _REFERENCEIdRec[]
     gm_pos = 0
-    for rbe in sort(collect(values(get(model, "RBE2s", Dict()))); by=x -> _msc_i64(get(x, "ID", 0)))
-        gm = _msc_i64.(get(rbe, "GM", Int[]))
-        append!(rbe2_gm, [_MSCIdRec(g) for g in gm])
-        push!(rbe2_rows, _MSCRbe2Rec(_msc_i64(get(rbe, "ID", 0)), _msc_i64(get(rbe, "GN", 0)),
-            _msc_i64(get(rbe, "CM", 0)), gm_pos, length(gm), 0.0, 0.0, 1))
+    for rbe in sort(collect(values(get(model, "RBE2s", Dict()))); by=x -> _reference_i64(get(x, "ID", 0)))
+        gm = _reference_i64.(get(rbe, "GM", Int[]))
+        append!(rbe2_gm, [_REFERENCEIdRec(g) for g in gm])
+        push!(rbe2_rows, _REFERENCERbe2Rec(_reference_i64(get(rbe, "ID", 0)), _reference_i64(get(rbe, "GN", 0)),
+            _reference_i64(get(rbe, "CM", 0)), gm_pos, length(gm), 0.0, 0.0, 1))
         gm_pos += length(gm)
     end
 
-    rbe3_identity = _MSCRbe3IdentityRec[]
-    rbe3_wtcg = _MSCRbe3WtcgRec[]
-    rbe3_g = _MSCIdRec[]
+    rbe3_identity = _REFERENCERbe3IdentityRec[]
+    rbe3_wtcg = _REFERENCERbe3WtcgRec[]
+    rbe3_g = _REFERENCEIdRec[]
     wtcg_pos = 0
     g_pos = 0
-    for rbe in sort(collect(values(get(model, "RBE3s", Dict()))); by=x -> _msc_i64(get(x, "ID", 0)))
+    for rbe in sort(collect(values(get(model, "RBE3s", Dict()))); by=x -> _reference_i64(get(x, "ID", 0)))
         groups = get(rbe, "WT_GROUPS", Any[])
         start_wtcg = wtcg_pos
         start_g = g_pos
         for group in groups
-            grids = _msc_i64.(collect(getproperty(group, :grids)))
-            append!(rbe3_g, [_MSCIdRec(g) for g in grids])
-            push!(rbe3_wtcg, _MSCRbe3WtcgRec(_msc_f64(getproperty(group, :wt)),
-                _msc_i64(getproperty(group, :comps)), g_pos, length(grids)))
+            grids = _reference_i64.(collect(getproperty(group, :grids)))
+            append!(rbe3_g, [_REFERENCEIdRec(g) for g in grids])
+            push!(rbe3_wtcg, _REFERENCERbe3WtcgRec(_reference_f64(getproperty(group, :wt)),
+                _reference_i64(getproperty(group, :comps)), g_pos, length(grids)))
             g_pos += length(grids)
             wtcg_pos += 1
         end
-        push!(rbe3_identity, _MSCRbe3IdentityRec(
-            _msc_i64(get(rbe, "ID", 0)), _msc_i64(get(rbe, "REFGRID", 0)),
-            _msc_i64(get(rbe, "REFC", 0)), start_wtcg, length(groups), start_g, g_pos - start_g, 0.0, 0.0, 1,
+        push!(rbe3_identity, _REFERENCERbe3IdentityRec(
+            _reference_i64(get(rbe, "ID", 0)), _reference_i64(get(rbe, "REFGRID", 0)),
+            _reference_i64(get(rbe, "REFC", 0)), start_wtcg, length(groups), start_g, g_pos - start_g, 0.0, 0.0, 1,
         ))
     end
     return rbe2_rows, rbe2_gm, rbe3_identity, rbe3_wtcg, rbe3_g
 end
 
-function _msc_input_eigrl_records(model)
-    rows = _MSCEigrlRec[]
-    for eig in sort(collect(values(get(model, "EIGRLs", Dict()))); by=x -> _msc_i64(get(x, "SID", 0)))
+function _reference_input_eigrl_records(model)
+    rows = _REFERENCEEigrlRec[]
+    for eig in sort(collect(values(get(model, "EIGRLs", Dict()))); by=x -> _reference_i64(get(x, "SID", 0)))
         nd_out = get(eig, "ND_SPECIFIED", true) == true ?
-            _msc_i64(get(eig, "ND", 0)) : _msc_i64(0)
-        push!(rows, _MSCEigrlRec(
-            _msc_i64(get(eig, "SID", 0)), _msc_f64(get(eig, "V1", 0.0)),
-            _msc_f64(get(eig, "V2", 0.0)), nd_out,
-            _msc_i64(get(eig, "MSGLVL", 0)), _msc_i64(get(eig, "MAXSET", 0)),
-            _msc_f64(get(eig, "SHFSCL", 0.0)), 0, 0,
-            _msc_fixed_string_bytes(get(eig, "NORM", "MASS"), 8), 0.0, 0, 0, 1,
+            _reference_i64(get(eig, "ND", 0)) : _reference_i64(0)
+        push!(rows, _REFERENCEEigrlRec(
+            _reference_i64(get(eig, "SID", 0)), _reference_f64(get(eig, "V1", 0.0)),
+            _reference_f64(get(eig, "V2", 0.0)), nd_out,
+            _reference_i64(get(eig, "MSGLVL", 0)), _reference_i64(get(eig, "MAXSET", 0)),
+            _reference_f64(get(eig, "SHFSCL", 0.0)), 0, 0,
+            _reference_fixed_string_bytes(get(eig, "NORM", "MASS"), 8), 0.0, 0, 0, 1,
         ))
     end
     return rows
 end
 
-function _msc_input_eigb_records(model)
-    return [_MSCEigbRec(
-        _msc_i64(get(eig, "SID", 0)), _msc_fixed_string_bytes(get(eig, "METHOD", ""), 8),
-        _msc_f64(get(eig, "L1", 0.0)), _msc_f64(get(eig, "L2", 0.0)),
-        _msc_i64(something(get(eig, "NEP", nothing), 0)),
-        _msc_i64(something(get(eig, "NDP", nothing), 0)),
-        _msc_i64(something(get(eig, "NDN", nothing), 0)),
-        _msc_fixed_string_bytes(get(eig, "NORM", "MAX"), 8),
-        _msc_i64(something(get(eig, "G", nothing), 0)),
-        _msc_i64(something(get(eig, "C", nothing), 0)), 1)
-        for eig in sort(collect(values(get(model, "EIGBs", Dict()))); by=x -> _msc_i64(get(x, "SID", 0)))]
+function _reference_input_eigb_records(model)
+    return [_REFERENCEEigbRec(
+        _reference_i64(get(eig, "SID", 0)), _reference_fixed_string_bytes(get(eig, "METHOD", ""), 8),
+        _reference_f64(get(eig, "L1", 0.0)), _reference_f64(get(eig, "L2", 0.0)),
+        _reference_i64(something(get(eig, "NEP", nothing), 0)),
+        _reference_i64(something(get(eig, "NDP", nothing), 0)),
+        _reference_i64(something(get(eig, "NDN", nothing), 0)),
+        _reference_fixed_string_bytes(get(eig, "NORM", "MAX"), 8),
+        _reference_i64(something(get(eig, "G", nothing), 0)),
+        _reference_i64(something(get(eig, "C", nothing), 0)), 1)
+        for eig in sort(collect(values(get(model, "EIGBs", Dict()))); by=x -> _reference_i64(get(x, "SID", 0)))]
 end
 
-function _msc_write_input_tables(file, model)
-    _msc_write_records(file, "/NASTRAN/INPUT/DOMAINS", [_MSCInputDomainRec(1, 0, 0, 0, 0)])
-    _msc_write_custom(file, "/NASTRAN/INPUT/NODE/GRID", _msc_input_grid_records(model), _msc_grid_dtype)
-    frames = [_JFEMGridFrameRec(_msc_i64(get(g,"ID",0)),_msc_i64(get(g,"CP",0)),_msc_i64(get(g,"CD",0)))
-        for g in _msc_sorted_values_by_id(get(model,"GRIDs",Dict()), "ID")]
-    _msc_write_records(file,"/JFEM/INPUT/ORIGINAL_GRID_FRAMES",frames)
-    attributes(file["/NASTRAN/INPUT"])["SCOPE"] = "COMPACT_SUBSET_NOT_DECK_ROUNDTRIP"
+function _reference_write_input_tables(file, model)
+    _reference_write_records(file, "/REFERENCE/INPUT/DOMAINS", [_REFERENCEInputDomainRec(1, 0, 0, 0, 0)])
+    _reference_write_custom(file, "/REFERENCE/INPUT/NODE/GRID", _reference_input_grid_records(model), _reference_grid_dtype)
+    frames = [_JFEMGridFrameRec(_reference_i64(get(g,"ID",0)),_reference_i64(get(g,"CP",0)),_reference_i64(get(g,"CD",0)))
+        for g in _reference_sorted_values_by_id(get(model,"GRIDs",Dict()), "ID")]
+    _reference_write_records(file,"/JFEM/INPUT/ORIGINAL_GRID_FRAMES",frames)
+    attributes(file["/REFERENCE/INPUT"])["SCOPE"] = "COMPACT_SUBSET_NOT_DECK_ROUNDTRIP"
     if !isempty(frames)
-        attributes(file["/NASTRAN/INPUT/NODE/GRID"])["COORDINATE_FRAME"] = "BASIC_GLOBAL"
+        attributes(file["/REFERENCE/INPUT/NODE/GRID"])["COORDINATE_FRAME"] = "BASIC_GLOBAL"
     end
-    quads, trias = _msc_input_shell_records(model)
-    _msc_write_custom(file, "/NASTRAN/INPUT/ELEMENT/CQUAD4", quads, _msc_cquad4_dtype)
-    _msc_write_custom(file, "/NASTRAN/INPUT/ELEMENT/CTRIA3", trias, _msc_ctria3_dtype)
-    _msc_write_records(file, "/NASTRAN/INPUT/ELEMENT/CBAR", _msc_input_bar_records(model))
-    _msc_write_custom(file, "/NASTRAN/INPUT/ELEMENT/CBEAM", _msc_input_beam_records(model), _msc_cbeam_dtype)
-    _msc_write_custom(file, "/NASTRAN/INPUT/ELEMENT/CROD", _msc_input_rod_records(model), _msc_crod_dtype)
-    _msc_write_records(file, "/NASTRAN/INPUT/ELEMENT/CONROD", _msc_input_conrod_records(model))
-    hexas, pentas, tetras = _msc_input_solid_records(model)
-    _msc_write_custom(file, "/NASTRAN/INPUT/ELEMENT/CHEXA", hexas, _msc_chexa_dtype)
-    _msc_write_custom(file, "/NASTRAN/INPUT/ELEMENT/CPENTA", pentas, _msc_cpenta_dtype)
-    _msc_write_custom(file, "/NASTRAN/INPUT/ELEMENT/CTETRA", tetras, _msc_ctetra_dtype)
-    celas1, celas2 = _msc_input_spring_records(model)
-    _msc_write_records(file, "/NASTRAN/INPUT/ELEMENT/CELAS1", celas1)
-    _msc_write_records(file, "/NASTRAN/INPUT/ELEMENT/CELAS2", celas2)
-    cmass1, cmass2, conm2 = _msc_input_mass_records(model)
-    _msc_write_records(file, "/NASTRAN/INPUT/ELEMENT/CMASS1", cmass1)
-    _msc_write_records(file, "/NASTRAN/INPUT/ELEMENT/CMASS2", cmass2)
-    _msc_write_custom(file, "/NASTRAN/INPUT/ELEMENT/CONM2", conm2, _msc_conm2_dtype)
+    quads, trias = _reference_input_shell_records(model)
+    _reference_write_custom(file, "/REFERENCE/INPUT/ELEMENT/CQUAD4", quads, _reference_cquad4_dtype)
+    _reference_write_custom(file, "/REFERENCE/INPUT/ELEMENT/CTRIA3", trias, _reference_ctria3_dtype)
+    _reference_write_records(file, "/REFERENCE/INPUT/ELEMENT/CBAR", _reference_input_bar_records(model))
+    _reference_write_custom(file, "/REFERENCE/INPUT/ELEMENT/CBEAM", _reference_input_beam_records(model), _reference_cbeam_dtype)
+    _reference_write_custom(file, "/REFERENCE/INPUT/ELEMENT/CROD", _reference_input_rod_records(model), _reference_crod_dtype)
+    _reference_write_records(file, "/REFERENCE/INPUT/ELEMENT/CONROD", _reference_input_conrod_records(model))
+    hexas, pentas, tetras = _reference_input_solid_records(model)
+    _reference_write_custom(file, "/REFERENCE/INPUT/ELEMENT/CHEXA", hexas, _reference_chexa_dtype)
+    _reference_write_custom(file, "/REFERENCE/INPUT/ELEMENT/CPENTA", pentas, _reference_cpenta_dtype)
+    _reference_write_custom(file, "/REFERENCE/INPUT/ELEMENT/CTETRA", tetras, _reference_ctetra_dtype)
+    celas1, celas2 = _reference_input_spring_records(model)
+    _reference_write_records(file, "/REFERENCE/INPUT/ELEMENT/CELAS1", celas1)
+    _reference_write_records(file, "/REFERENCE/INPUT/ELEMENT/CELAS2", celas2)
+    cmass1, cmass2, conm2 = _reference_input_mass_records(model)
+    _reference_write_records(file, "/REFERENCE/INPUT/ELEMENT/CMASS1", cmass1)
+    _reference_write_records(file, "/REFERENCE/INPUT/ELEMENT/CMASS2", cmass2)
+    _reference_write_custom(file, "/REFERENCE/INPUT/ELEMENT/CONM2", conm2, _reference_conm2_dtype)
 
-    mat1, mat2, mat8 = _msc_input_material_records(model)
-    _msc_write_records(file, "/NASTRAN/INPUT/MATERIAL/MAT1", mat1)
-    _msc_write_records(file, "/NASTRAN/INPUT/MATERIAL/MAT2", mat2)
-    _msc_write_records(file, "/NASTRAN/INPUT/MATERIAL/MAT8", mat8)
-    pshell, pbar, pbeam, prod, pelas, pmass, psolid, pcomp_identity, pcomp_ply = _msc_input_property_records(model)
-    _msc_write_records(file, "/NASTRAN/INPUT/PROPERTY/PSHELL", pshell)
-    _msc_write_records(file, "/NASTRAN/INPUT/PROPERTY/PBAR", pbar)
-    _msc_write_custom(file, "/NASTRAN/INPUT/PROPERTY/PBEAM", pbeam, _msc_pbeam_dtype)
-    _msc_write_records(file, "/NASTRAN/INPUT/PROPERTY/PROD", prod)
-    _msc_write_records(file, "/NASTRAN/INPUT/PROPERTY/PELAS", pelas)
-    _msc_write_records(file, "/NASTRAN/INPUT/PROPERTY/PMASS", pmass)
-    _msc_write_custom(file, "/NASTRAN/INPUT/PROPERTY/PSOLID", psolid, _msc_psolid_dtype)
-    _msc_write_records(file, "/NASTRAN/INPUT/PROPERTY/PCOMP/IDENTITY", pcomp_identity)
-    _msc_write_records(file, "/NASTRAN/INPUT/PROPERTY/PCOMP/PLY", pcomp_ply)
+    mat1, mat2, mat8 = _reference_input_material_records(model)
+    _reference_write_records(file, "/REFERENCE/INPUT/MATERIAL/MAT1", mat1)
+    _reference_write_records(file, "/REFERENCE/INPUT/MATERIAL/MAT2", mat2)
+    _reference_write_records(file, "/REFERENCE/INPUT/MATERIAL/MAT8", mat8)
+    pshell, pbar, pbeam, prod, pelas, pmass, psolid, pcomp_identity, pcomp_ply = _reference_input_property_records(model)
+    _reference_write_records(file, "/REFERENCE/INPUT/PROPERTY/PSHELL", pshell)
+    _reference_write_records(file, "/REFERENCE/INPUT/PROPERTY/PBAR", pbar)
+    _reference_write_custom(file, "/REFERENCE/INPUT/PROPERTY/PBEAM", pbeam, _reference_pbeam_dtype)
+    _reference_write_records(file, "/REFERENCE/INPUT/PROPERTY/PROD", prod)
+    _reference_write_records(file, "/REFERENCE/INPUT/PROPERTY/PELAS", pelas)
+    _reference_write_records(file, "/REFERENCE/INPUT/PROPERTY/PMASS", pmass)
+    _reference_write_custom(file, "/REFERENCE/INPUT/PROPERTY/PSOLID", psolid, _reference_psolid_dtype)
+    _reference_write_records(file, "/REFERENCE/INPUT/PROPERTY/PCOMP/IDENTITY", pcomp_identity)
+    _reference_write_records(file, "/REFERENCE/INPUT/PROPERTY/PCOMP/PLY", pcomp_ply)
 
-    forces, moments, pload4s = _msc_input_load_records(model)
-    _msc_write_custom(file, "/NASTRAN/INPUT/LOAD/FORCE", forces, _msc_force_card_dtype)
-    _msc_write_custom(file, "/NASTRAN/INPUT/LOAD/MOMENT", moments, _msc_moment_card_dtype)
-    _msc_write_custom(file, "/NASTRAN/INPUT/LOAD/PLOAD4", pload4s, _msc_pload4_dtype)
-    spc1_identity, spc1_grids = _msc_input_spc1_records(model)
-    _msc_write_records(file, "/NASTRAN/INPUT/CONSTRAINT/SPC1/SPC1_G/IDENTITY", spc1_identity)
-    _msc_write_records(file, "/NASTRAN/INPUT/CONSTRAINT/SPC1/SPC1_G/G", spc1_grids)
-    rbe2_rows, rbe2_gm, rbe3_identity, rbe3_wtcg, rbe3_g = _msc_input_rbe_records(model)
-    _msc_write_records(file, "/NASTRAN/INPUT/ELEMENT/RBE2/RB", rbe2_rows; version=20210)
-    _msc_write_records(file, "/NASTRAN/INPUT/ELEMENT/RBE2/GM", rbe2_gm)
-    _msc_write_records(file, "/NASTRAN/INPUT/ELEMENT/RBE3/IDENTITY", rbe3_identity; version=20210)
-    _msc_write_records(file, "/NASTRAN/INPUT/ELEMENT/RBE3/WTCG", rbe3_wtcg)
-    _msc_write_records(file, "/NASTRAN/INPUT/ELEMENT/RBE3/G", rbe3_g)
-    _msc_write_custom(file, "/NASTRAN/INPUT/DYNAMIC/EIGRL/IDENTITY", _msc_input_eigrl_records(model), _msc_eigrl_dtype)
-    _msc_write_custom(file, "/NASTRAN/INPUT/DYNAMIC/EIGB", _msc_input_eigb_records(model), _msc_eigb_dtype)
+    forces, moments, pload4s = _reference_input_load_records(model)
+    _reference_write_custom(file, "/REFERENCE/INPUT/LOAD/FORCE", forces, _reference_force_card_dtype)
+    _reference_write_custom(file, "/REFERENCE/INPUT/LOAD/MOMENT", moments, _reference_moment_card_dtype)
+    _reference_write_custom(file, "/REFERENCE/INPUT/LOAD/PLOAD4", pload4s, _reference_pload4_dtype)
+    spc1_identity, spc1_grids = _reference_input_spc1_records(model)
+    _reference_write_records(file, "/REFERENCE/INPUT/CONSTRAINT/SPC1/SPC1_G/IDENTITY", spc1_identity)
+    _reference_write_records(file, "/REFERENCE/INPUT/CONSTRAINT/SPC1/SPC1_G/G", spc1_grids)
+    rbe2_rows, rbe2_gm, rbe3_identity, rbe3_wtcg, rbe3_g = _reference_input_rbe_records(model)
+    _reference_write_records(file, "/REFERENCE/INPUT/ELEMENT/RBE2/RB", rbe2_rows; version=20210)
+    _reference_write_records(file, "/REFERENCE/INPUT/ELEMENT/RBE2/GM", rbe2_gm)
+    _reference_write_records(file, "/REFERENCE/INPUT/ELEMENT/RBE3/IDENTITY", rbe3_identity; version=20210)
+    _reference_write_records(file, "/REFERENCE/INPUT/ELEMENT/RBE3/WTCG", rbe3_wtcg)
+    _reference_write_records(file, "/REFERENCE/INPUT/ELEMENT/RBE3/G", rbe3_g)
+    _reference_write_custom(file, "/REFERENCE/INPUT/DYNAMIC/EIGRL/IDENTITY", _reference_input_eigrl_records(model), _reference_eigrl_dtype)
+    _reference_write_custom(file, "/REFERENCE/INPUT/DYNAMIC/EIGB", _reference_input_eigb_records(model), _reference_eigb_dtype)
     if !isempty(get(model, "EIGBs", Dict()))
-        attributes(file["/NASTRAN/INPUT/DYNAMIC/EIGB"])["JFEM_SCHEMA"] = "COMPACT_EIGB_V1"
+        attributes(file["/REFERENCE/INPUT/DYNAMIC/EIGB"])["JFEM_SCHEMA"] = "COMPACT_EIGB_V1"
     end
 
-    _msc_write_custom(file, "/NASTRAN/INPUT/PARAMETER/MDLPRM",
-        [_MSCParamIntRec(_msc_fixed_string_bytes("HDF5", 8), 1, 1)], _msc_param_int_dtype)
-    _msc_write_custom(file, "/NASTRAN/INPUT/PARAMETER/PVT/CHAR",
-        [_MSCParamCharRec(_msc_fixed_string_bytes("AUTOSPC", 8), _msc_fixed_string_bytes(get(model, "PARAM_AUTOSPC", "YES"), 8), 1)], _msc_param_char_dtype)
-    pvt_int = _MSCParamIntRec[]
-    haskey(model, "PARAM_GRDPNT") && push!(pvt_int, _MSCParamIntRec(_msc_fixed_string_bytes("GRDPNT", 8), _msc_i64(get(model, "PARAM_GRDPNT", 0)), 1))
-    haskey(model, "PARAM_POST") && push!(pvt_int, _MSCParamIntRec(_msc_fixed_string_bytes("POST", 8), _msc_i64(get(model, "PARAM_POST", 0)), 1))
-    _msc_write_custom(file, "/NASTRAN/INPUT/PARAMETER/PVT/INT", pvt_int, _msc_param_int_dtype)
-    _msc_write_casecc_subcase(file, model)
+    _reference_write_custom(file, "/REFERENCE/INPUT/PARAMETER/MDLPRM",
+        [_REFERENCEParamIntRec(_reference_fixed_string_bytes("HDF5", 8), 1, 1)], _reference_param_int_dtype)
+    _reference_write_custom(file, "/REFERENCE/INPUT/PARAMETER/PVT/CHAR",
+        [_REFERENCEParamCharRec(_reference_fixed_string_bytes("AUTOSPC", 8), _reference_fixed_string_bytes(get(model, "PARAM_AUTOSPC", "YES"), 8), 1)], _reference_param_char_dtype)
+    pvt_int = _REFERENCEParamIntRec[]
+    haskey(model, "PARAM_GRDPNT") && push!(pvt_int, _REFERENCEParamIntRec(_reference_fixed_string_bytes("GRDPNT", 8), _reference_i64(get(model, "PARAM_GRDPNT", 0)), 1))
+    haskey(model, "PARAM_POST") && push!(pvt_int, _REFERENCEParamIntRec(_reference_fixed_string_bytes("POST", 8), _reference_i64(get(model, "PARAM_POST", 0)), 1))
+    _reference_write_custom(file, "/REFERENCE/INPUT/PARAMETER/PVT/INT", pvt_int, _reference_param_int_dtype)
+    _reference_write_casecc_subcase(file, model)
 end
 
-function _msc_fill_nodal_rows!(rows, offset, id_map, vector, domain_id, node_order)
+function _reference_fill_nodal_rows!(rows, offset, id_map, vector, domain_id, node_order)
     length(vector)==6*length(id_map) || throw(DimensionMismatch("HDF5 nodal vector must contain six values per GRID"))
     for (i, nid) in enumerate(node_order)
         idx = id_map[nid]
         base = (idx - 1) * 6
-        vals = ntuple(i -> base + i <= length(vector) ? _msc_f64(vector[base + i]) : 0.0, 6)
-        rows[offset+i] = _MSCNodalResultRec(_msc_i64(nid), vals[1], vals[2], vals[3], vals[4], vals[5], vals[6], _msc_i64(domain_id))
+        vals = ntuple(i -> base + i <= length(vector) ? _reference_f64(vector[base + i]) : 0.0, 6)
+        rows[offset+i] = _REFERENCENodalResultRec(_reference_i64(nid), vals[1], vals[2], vals[3], vals[4], vals[5], vals[6], _reference_i64(domain_id))
     end
     return rows
 end
 
-function _msc_nodal_rows_from_vector(id_map, vector, domain_id::Integer)
-    rows = Vector{_MSCNodalResultRec}(undef, length(id_map))
-    return _msc_fill_nodal_rows!(rows, 0, id_map, vector, domain_id, _msc_node_order(id_map))
+function _reference_nodal_rows_from_vector(id_map, vector, domain_id::Integer)
+    rows = Vector{_REFERENCENodalResultRec}(undef, length(id_map))
+    return _reference_fill_nodal_rows!(rows, 0, id_map, vector, domain_id, _reference_node_order(id_map))
 end
 
-function _msc_eigenvector_rows(id_map, mode_shapes, domain_start::Integer)
-    rows = Vector{_MSCNodalResultRec}(undef, length(id_map) * size(mode_shapes, 2))
-    index = _MSCIndexRec[]
+function _reference_eigenvector_rows(id_map, mode_shapes, domain_start::Integer)
+    rows = Vector{_REFERENCENodalResultRec}(undef, length(id_map) * size(mode_shapes, 2))
+    index = _REFERENCEIndexRec[]
     node_count = length(id_map)
-    node_order = _msc_node_order(id_map)
+    node_order = _reference_node_order(id_map)
     position = 0
     for mode in 1:size(mode_shapes, 2)
-        domain_id = _msc_i64(domain_start + mode - 1)
-        push!(index, _MSCIndexRec(domain_id, position, node_count))
-        _msc_fill_nodal_rows!(rows, position, id_map, view(mode_shapes, :, mode), domain_id, node_order)
+        domain_id = _reference_i64(domain_start + mode - 1)
+        push!(index, _REFERENCEIndexRec(domain_id, position, node_count))
+        _reference_fill_nodal_rows!(rows, position, id_map, view(mode_shapes, :, mode), domain_id, node_order)
         position += node_count
     end
     return rows, index
 end
 
-function _msc_eigenvalue_rows(eigenvalues, domain_start::Integer; frequencies=nothing)
-    rows = _MSCEigenvalueRec[]
+function _reference_eigenvalue_rows(eigenvalues, domain_start::Integer; frequencies=nothing)
+    rows = _REFERENCEEigenvalueRec[]
     for i in eachindex(eigenvalues)
-        eig = _msc_f64(eigenvalues[i])
+        eig = _reference_f64(eigenvalues[i])
         omega = sqrt(abs(eig))
-        freq = frequencies === nothing || i > length(frequencies) ? omega / (2pi) : _msc_f64(frequencies[i])
-        push!(rows, _MSCEigenvalueRec(_msc_i64(i), _msc_i64(i), eig, omega, freq, 1.0, eig, 0, 0, _msc_i64(domain_start + i - 1)))
+        freq = frequencies === nothing || i > length(frequencies) ? omega / (2pi) : _reference_f64(frequencies[i])
+        push!(rows, _REFERENCEEigenvalueRec(_reference_i64(i), _reference_i64(i), eig, omega, freq, 1.0, eig, 0, 0, _reference_i64(domain_start + i - 1)))
     end
     return rows
 end
 
-function _msc_result_domains_static(subcases)
-    rows = _MSCResultDomainRec[_MSCResultDomainRec(1, 0, 0, 0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
+function _reference_result_domains_static(subcases)
+    rows = _REFERENCEResultDomainRec[_REFERENCEResultDomainRec(1, 0, 0, 0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
     for (i, subcase) in enumerate(subcases)
-        sid = _msc_i64(get(subcase, "sid", i))
-        push!(rows, _MSCResultDomainRec(i + 1, sid, 0, 1, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        sid = _reference_i64(get(subcase, "sid", i))
+        push!(rows, _REFERENCEResultDomainRec(i + 1, sid, 0, 1, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
     end
     return rows
 end
 
-function _msc_result_domains_modal(eigenvalues; subcase::Integer=1, analysis_code::Integer=2, summary_start::Integer=2)
+function _reference_result_domains_modal(eigenvalues; subcase::Integer=1, analysis_code::Integer=2, summary_start::Integer=2)
     count = length(eigenvalues)
-    rows = _MSCResultDomainRec[_MSCResultDomainRec(1, 0, 0, 0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
+    rows = _REFERENCEResultDomainRec[_REFERENCEResultDomainRec(1, 0, 0, 0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
     for i in 1:count
-        push!(rows, _MSCResultDomainRec(summary_start + i - 1, subcase, 0, 0, 0.0, 0.0, i, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        push!(rows, _REFERENCEResultDomainRec(summary_start + i - 1, subcase, 0, 0, 0.0, 0.0, i, 0, 0, 0, 0, 0, 0, 0, 0, 0))
     end
     vector_start = summary_start + count
     for i in 1:count
-        eig = _msc_f64(eigenvalues[i])
-        push!(rows, _MSCResultDomainRec(vector_start + i - 1, subcase, 0, analysis_code, eig, 0.0, i, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        eig = _reference_f64(eigenvalues[i])
+        push!(rows, _REFERENCEResultDomainRec(vector_start + i - 1, subcase, 0, analysis_code, eig, 0.0, i, 0, 0, 0, 0, 0, 0, 0, 0, 0))
     end
     return rows, vector_start
 end
 
-function _msc_result_domains_buckling(eigenvalues)
+function _reference_result_domains_buckling(eigenvalues)
     count = length(eigenvalues)
-    rows = _MSCResultDomainRec[
-        _MSCResultDomainRec(1, 0, 0, 0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-        _MSCResultDomainRec(2, 1, 0, 1, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    rows = _REFERENCEResultDomainRec[
+        _REFERENCEResultDomainRec(1, 0, 0, 0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+        _REFERENCEResultDomainRec(2, 1, 0, 1, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     ]
     summary_start = 3
     for i in 1:count
-        push!(rows, _MSCResultDomainRec(summary_start + i - 1, 2, 0, 0, 0.0, 0.0, i, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        push!(rows, _REFERENCEResultDomainRec(summary_start + i - 1, 2, 0, 0, 0.0, 0.0, i, 0, 0, 0, 0, 0, 0, 0, 0, 0))
     end
     vector_start = summary_start + count
     for i in 1:count
-        eig = _msc_f64(eigenvalues[i])
-        push!(rows, _MSCResultDomainRec(vector_start + i - 1, 2, 0, 8, eig, 0.0, i, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        eig = _reference_f64(eigenvalues[i])
+        push!(rows, _REFERENCEResultDomainRec(vector_start + i - 1, 2, 0, 8, eig, 0.0, i, 0, 0, 0, 0, 0, 0, 0, 0, 0))
     end
     return rows, vector_start
 end
 
-function _msc_write_common_attrs(file, results, filename)
-    sol_type = _msc_i64(get(results, "sol_type", 0))
+function _reference_write_common_attrs(file, results, filename)
+    sol_type = _reference_i64(get(results, "sol_type", 0))
     attributes(file)["SCHEMA"] = Int64[20214]
-    nastran = _msc_require_group(file, "/NASTRAN")
-    attrs = attributes(nastran)
+    reference = _reference_require_group(file, "/REFERENCE")
+    attrs = attributes(reference)
     attrs["ARCH"] = "openjfem"
     attrs["HOSTNAME"] = get(ENV, "COMPUTERNAME", get(ENV, "HOSTNAME", "openjfem"))
     attrs["IFPSTAR"] = "YES"
@@ -1911,15 +1911,15 @@ function _msc_write_common_attrs(file, results, filename)
     attrs["VERSION"] = "openjfem"
 end
 
-function _msc_grid_weight_records(results)
+function _reference_grid_weight_records(results)
     mass_summary = get(results, "mass_summary", Dict{String,Any}())
-    mx = _msc_f64(get(mass_summary, "total_mass_x", 0.0))
-    my = _msc_f64(get(mass_summary, "total_mass_y", mx))
-    mz = _msc_f64(get(mass_summary, "total_mass_z", mx))
+    mx = _reference_f64(get(mass_summary, "total_mass_x", 0.0))
+    my = _reference_f64(get(mass_summary, "total_mass_y", mx))
+    mz = _reference_f64(get(mass_summary, "total_mass_z", mx))
     mo = ntuple(i -> i == 1 ? mx : i == 8 ? my : i == 15 ? mz : 0.0, 36)
     identity3 = ntuple(i -> (i == 1 || i == 5 || i == 9) ? 1.0 : 0.0, 9)
     inertia = ntuple(_ -> 0.0, 9)
-    return [_MSCGridWeightRec(
+    return [_REFERENCEGridWeightRec(
         0, mo, identity3,
         mx, 0.0, 0.0, 0.0,
         my, 0.0, 0.0, 0.0,
@@ -1928,45 +1928,45 @@ function _msc_grid_weight_records(results)
     )]
 end
 
-function _msc_write_grid_weight(file, results)
-    rows = _msc_grid_weight_records(results)
-    _msc_write_custom(file, "/NASTRAN/RESULT/NODAL/GRID_WEIGHT",
-        rows, _msc_grid_weight_dtype)
-    _msc_write_records(file, "/INDEX/NASTRAN/RESULT/NODAL/GRID_WEIGHT",
-        [_MSCIndexRec(1, 0, length(rows))])
+function _reference_write_grid_weight(file, results)
+    rows = _reference_grid_weight_records(results)
+    _reference_write_custom(file, "/REFERENCE/RESULT/NODAL/GRID_WEIGHT",
+        rows, _reference_grid_weight_dtype)
+    _reference_write_records(file, "/INDEX/REFERENCE/RESULT/NODAL/GRID_WEIGHT",
+        [_REFERENCEIndexRec(1, 0, length(rows))])
 end
 
-const _MSC_EFORCE_BAR_FIELDS = ((:EID, :i64, 1), (:BM1A, :f64, 1), (:BM2A, :f64, 1), (:BM1B, :f64, 1), (:BM2B, :f64, 1), (:TS1, :f64, 1), (:TS2, :f64, 1), (:AF, :f64, 1), (:TRQ, :f64, 1), (:DOMAIN_ID, :i64, 1))
-const _MSC_EFORCE_BEAM_FIELDS = ((:EID, :i64, 1), (:GRID, :i64_array, 11), (:SD, :f64_array, 11), (:BM1, :f64_array, 11), (:BM2, :f64_array, 11), (:TS1, :f64_array, 11), (:TS2, :f64_array, 11), (:AF, :f64_array, 11), (:TTRQ, :f64_array, 11), (:WTRQ, :f64_array, 11), (:DOMAIN_ID, :i64, 1))
-const _MSC_EFORCE_ROD_FIELDS = ((:EID, :i64, 1), (:AF, :f64, 1), (:TRQ, :f64, 1), (:DOMAIN_ID, :i64, 1))
-const _MSC_EFORCE_ELAS_FIELDS = ((:EID, :i64, 1), (:F, :f64, 1), (:DOMAIN_ID, :i64, 1))
-const _MSC_EFORCE_QUAD_FIELDS = ((:EID, :i64, 1), (:TERM, :str, 4), (:GRID, :i64_array, 5), (:MX, :f64_array, 5), (:MY, :f64_array, 5), (:MXY, :f64_array, 5), (:BMX, :f64_array, 5), (:BMY, :f64_array, 5), (:BMXY, :f64_array, 5), (:TX, :f64_array, 5), (:TY, :f64_array, 5), (:DOMAIN_ID, :i64, 1))
-const _MSC_EFORCE_TRIA_FIELDS = ((:EID, :i64, 1), (:MX, :f64, 1), (:MY, :f64, 1), (:MXY, :f64, 1), (:BMX, :f64, 1), (:BMY, :f64, 1), (:BMXY, :f64, 1), (:TX, :f64, 1), (:TY, :f64, 1), (:DOMAIN_ID, :i64, 1))
+const _REFERENCE_EFORCE_BAR_FIELDS = ((:EID, :i64, 1), (:BM1A, :f64, 1), (:BM2A, :f64, 1), (:BM1B, :f64, 1), (:BM2B, :f64, 1), (:TS1, :f64, 1), (:TS2, :f64, 1), (:AF, :f64, 1), (:TRQ, :f64, 1), (:DOMAIN_ID, :i64, 1))
+const _REFERENCE_EFORCE_BEAM_FIELDS = ((:EID, :i64, 1), (:GRID, :i64_array, 11), (:SD, :f64_array, 11), (:BM1, :f64_array, 11), (:BM2, :f64_array, 11), (:TS1, :f64_array, 11), (:TS2, :f64_array, 11), (:AF, :f64_array, 11), (:TTRQ, :f64_array, 11), (:WTRQ, :f64_array, 11), (:DOMAIN_ID, :i64, 1))
+const _REFERENCE_EFORCE_ROD_FIELDS = ((:EID, :i64, 1), (:AF, :f64, 1), (:TRQ, :f64, 1), (:DOMAIN_ID, :i64, 1))
+const _REFERENCE_EFORCE_ELAS_FIELDS = ((:EID, :i64, 1), (:F, :f64, 1), (:DOMAIN_ID, :i64, 1))
+const _REFERENCE_EFORCE_QUAD_FIELDS = ((:EID, :i64, 1), (:TERM, :str, 4), (:GRID, :i64_array, 5), (:MX, :f64_array, 5), (:MY, :f64_array, 5), (:MXY, :f64_array, 5), (:BMX, :f64_array, 5), (:BMY, :f64_array, 5), (:BMXY, :f64_array, 5), (:TX, :f64_array, 5), (:TY, :f64_array, 5), (:DOMAIN_ID, :i64, 1))
+const _REFERENCE_EFORCE_TRIA_FIELDS = ((:EID, :i64, 1), (:MX, :f64, 1), (:MY, :f64, 1), (:MXY, :f64, 1), (:BMX, :f64, 1), (:BMY, :f64, 1), (:BMXY, :f64, 1), (:TX, :f64, 1), (:TY, :f64, 1), (:DOMAIN_ID, :i64, 1))
 
-const _MSC_BAR_STRESS_FIELDS = ((:EID, :i64, 1), (:X1A, :f64, 1), (:X2A, :f64, 1), (:X3A, :f64, 1), (:X4A, :f64, 1), (:AX, :f64, 1), (:MAXA, :f64, 1), (:MINA, :f64, 1), (:MST, :f64, 1), (:X1B, :f64, 1), (:X2B, :f64, 1), (:X3B, :f64, 1), (:X4B, :f64, 1), (:MAXB, :f64, 1), (:MINB, :f64, 1), (:MSC, :f64, 1), (:DOMAIN_ID, :i64, 1))
-const _MSC_BEAM_STRESS_FIELDS = ((:EID, :i64, 1), (:GRID, :i64_array, 11), (:SD, :f64_array, 11), (:XC, :f64_array, 11), (:XD, :f64_array, 11), (:XE, :f64_array, 11), (:XF, :f64_array, 11), (:MAX, :f64_array, 11), (:MIN, :f64_array, 11), (:MST, :f64_array, 11), (:MSC, :f64_array, 11), (:DOMAIN_ID, :i64, 1))
-const _MSC_ROD_STRESS_FIELDS = ((:EID, :i64, 1), (:A, :f64, 1), (:MSA, :f64, 1), (:T, :f64, 1), (:MST, :f64, 1), (:DOMAIN_ID, :i64, 1))
-const _MSC_ELAS_STRESS_FIELDS = ((:EID, :i64, 1), (:S, :f64, 1), (:DOMAIN_ID, :i64, 1))
-const _MSC_SOLID_STRESS_FIELDS_9 = ((:EID, :i64, 1), (:CID, :i64, 1), (:CTYPE, :str, 4), (:NODEF, :i64, 1), (:GRID, :i64_array, 9), (:X, :f64_array, 9), (:Y, :f64_array, 9), (:Z, :f64_array, 9), (:TXY, :f64_array, 9), (:TYZ, :f64_array, 9), (:TZX, :f64_array, 9), (:DOMAIN_ID, :i64, 1))
-const _MSC_SOLID_STRESS_FIELDS_7 = ((:EID, :i64, 1), (:CID, :i64, 1), (:CTYPE, :str, 4), (:NODEF, :i64, 1), (:GRID, :i64_array, 7), (:X, :f64_array, 7), (:Y, :f64_array, 7), (:Z, :f64_array, 7), (:TXY, :f64_array, 7), (:TYZ, :f64_array, 7), (:TZX, :f64_array, 7), (:DOMAIN_ID, :i64, 1))
-const _MSC_SOLID_STRESS_FIELDS_5 = ((:EID, :i64, 1), (:CID, :i64, 1), (:CTYPE, :str, 4), (:NODEF, :i64, 1), (:GRID, :i64_array, 5), (:X, :f64_array, 5), (:Y, :f64_array, 5), (:Z, :f64_array, 5), (:TXY, :f64_array, 5), (:TYZ, :f64_array, 5), (:TZX, :f64_array, 5), (:DOMAIN_ID, :i64, 1))
-const _MSC_QUAD_COMP_STRESS_FIELDS = ((:EID, :i64, 1), (:PLY, :i64, 1), (:X1, :f64, 1), (:Y1, :f64, 1), (:T1, :f64, 1), (:L1, :f64, 1), (:L2, :f64, 1), (:DOMAIN_ID, :i64, 1))
-const _MSC_QUAD_CN_STRESS_FIELDS = ((:EID, :i64, 1), (:TERM, :str, 4), (:GRID, :i64_array, 5), (:FD1, :f64_array, 5), (:X1, :f64_array, 5), (:Y1, :f64_array, 5), (:TXY1, :f64_array, 5), (:FD2, :f64_array, 5), (:X2, :f64_array, 5), (:Y2, :f64_array, 5), (:TXY2, :f64_array, 5), (:DOMAIN_ID, :i64, 1))
-const _MSC_TRIA_STRESS_FIELDS = ((:EID, :i64, 1), (:FD1, :f64, 1), (:X1, :f64, 1), (:Y1, :f64, 1), (:TXY1, :f64, 1), (:FD2, :f64, 1), (:X2, :f64, 1), (:Y2, :f64, 1), (:TXY2, :f64, 1), (:DOMAIN_ID, :i64, 1))
+const _REFERENCE_BAR_STRESS_FIELDS = ((:EID, :i64, 1), (:X1A, :f64, 1), (:X2A, :f64, 1), (:X3A, :f64, 1), (:X4A, :f64, 1), (:AX, :f64, 1), (:MAXA, :f64, 1), (:MINA, :f64, 1), (:MST, :f64, 1), (:X1B, :f64, 1), (:X2B, :f64, 1), (:X3B, :f64, 1), (:X4B, :f64, 1), (:MAXB, :f64, 1), (:MINB, :f64, 1), (:REFERENCE, :f64, 1), (:DOMAIN_ID, :i64, 1))
+const _REFERENCE_BEAM_STRESS_FIELDS = ((:EID, :i64, 1), (:GRID, :i64_array, 11), (:SD, :f64_array, 11), (:XC, :f64_array, 11), (:XD, :f64_array, 11), (:XE, :f64_array, 11), (:XF, :f64_array, 11), (:MAX, :f64_array, 11), (:MIN, :f64_array, 11), (:MST, :f64_array, 11), (:REFERENCE, :f64_array, 11), (:DOMAIN_ID, :i64, 1))
+const _REFERENCE_ROD_STRESS_FIELDS = ((:EID, :i64, 1), (:A, :f64, 1), (:MSA, :f64, 1), (:T, :f64, 1), (:MST, :f64, 1), (:DOMAIN_ID, :i64, 1))
+const _REFERENCE_ELAS_STRESS_FIELDS = ((:EID, :i64, 1), (:S, :f64, 1), (:DOMAIN_ID, :i64, 1))
+const _REFERENCE_SOLID_STRESS_FIELDS_9 = ((:EID, :i64, 1), (:CID, :i64, 1), (:CTYPE, :str, 4), (:NODEF, :i64, 1), (:GRID, :i64_array, 9), (:X, :f64_array, 9), (:Y, :f64_array, 9), (:Z, :f64_array, 9), (:TXY, :f64_array, 9), (:TYZ, :f64_array, 9), (:TZX, :f64_array, 9), (:DOMAIN_ID, :i64, 1))
+const _REFERENCE_SOLID_STRESS_FIELDS_7 = ((:EID, :i64, 1), (:CID, :i64, 1), (:CTYPE, :str, 4), (:NODEF, :i64, 1), (:GRID, :i64_array, 7), (:X, :f64_array, 7), (:Y, :f64_array, 7), (:Z, :f64_array, 7), (:TXY, :f64_array, 7), (:TYZ, :f64_array, 7), (:TZX, :f64_array, 7), (:DOMAIN_ID, :i64, 1))
+const _REFERENCE_SOLID_STRESS_FIELDS_5 = ((:EID, :i64, 1), (:CID, :i64, 1), (:CTYPE, :str, 4), (:NODEF, :i64, 1), (:GRID, :i64_array, 5), (:X, :f64_array, 5), (:Y, :f64_array, 5), (:Z, :f64_array, 5), (:TXY, :f64_array, 5), (:TYZ, :f64_array, 5), (:TZX, :f64_array, 5), (:DOMAIN_ID, :i64, 1))
+const _REFERENCE_QUAD_COMP_STRESS_FIELDS = ((:EID, :i64, 1), (:PLY, :i64, 1), (:X1, :f64, 1), (:Y1, :f64, 1), (:T1, :f64, 1), (:L1, :f64, 1), (:L2, :f64, 1), (:DOMAIN_ID, :i64, 1))
+const _REFERENCE_QUAD_CN_STRESS_FIELDS = ((:EID, :i64, 1), (:TERM, :str, 4), (:GRID, :i64_array, 5), (:FD1, :f64_array, 5), (:X1, :f64_array, 5), (:Y1, :f64_array, 5), (:TXY1, :f64_array, 5), (:FD2, :f64_array, 5), (:X2, :f64_array, 5), (:Y2, :f64_array, 5), (:TXY2, :f64_array, 5), (:DOMAIN_ID, :i64, 1))
+const _REFERENCE_TRIA_STRESS_FIELDS = ((:EID, :i64, 1), (:FD1, :f64, 1), (:X1, :f64, 1), (:Y1, :f64, 1), (:TXY1, :f64, 1), (:FD2, :f64, 1), (:X2, :f64, 1), (:Y2, :f64, 1), (:TXY2, :f64, 1), (:DOMAIN_ID, :i64, 1))
 
-_msc_element_values(model, key) = sort(collect(values(get(model, key, Dict()))); by=x -> _msc_i64(get(x, "ID", 0)))
-_msc_element_id_rows(elements) = [Dict{Symbol,Any}(:EID => _msc_i64(get(e, "ID", 0))) for e in elements]
+_reference_element_values(model, key) = sort(collect(values(get(model, key, Dict()))); by=x -> _reference_i64(get(x, "ID", 0)))
+_reference_element_id_rows(elements) = [Dict{Symbol,Any}(:EID => _reference_i64(get(e, "ID", 0))) for e in elements]
 
-function _msc_shell_groups(model)
+function _reference_shell_groups(model)
     pshells = get(model, "PSHELLs", Dict())
     quads = Any[]
     quad_standard = Any[]
     quad_composite = Any[]
     trias = Any[]
-    for elem in _msc_element_values(model, "CSHELLs")
+    for elem in _reference_element_values(model, "CSHELLs")
         nodes = get(elem, "NODES", Int[])
-        pid = _msc_i64(get(elem, "PID", 0))
-        prop = _msc_model_value_by_id(pshells, pid)
+        pid = _reference_i64(get(elem, "PID", 0))
+        prop = _reference_model_value_by_id(pshells, pid)
         is_composite = prop !== nothing && uppercase(string(get(prop, "TYPE", ""))) == "PCOMP_CLT"
         if length(nodes) == 4
             push!(quads, elem)
@@ -1978,148 +1978,148 @@ function _msc_shell_groups(model)
     return quads, quad_standard, quad_composite, trias
 end
 
-function _msc_shell_grid(elem, n::Integer)
-    nodes = _msc_i64.(get(elem, "NODES", Int[]))
+function _reference_shell_grid(elem, n::Integer)
+    nodes = _reference_i64.(get(elem, "NODES", Int[]))
     if n == 5 && length(nodes) >= 4
-        return [_msc_i64(length(nodes)); nodes[1:min(length(nodes), 4)]]
+        return [_reference_i64(length(nodes)); nodes[1:min(length(nodes), 4)]]
     end
-    return vcat([_msc_i64(length(nodes))], nodes)[1:min(n, length(nodes) + 1)]
+    return vcat([_reference_i64(length(nodes))], nodes)[1:min(n, length(nodes) + 1)]
 end
 
-function _msc_solid_grid(elem, n::Integer)
-    nodes = _msc_i64.(get(elem, "NODES", Int[]))
+function _reference_solid_grid(elem, n::Integer)
+    nodes = _reference_i64.(get(elem, "NODES", Int[]))
     return vcat([0], nodes)[1:min(n, length(nodes) + 1)]
 end
 
-function _msc_pcomp_ply_count(model, elem)
-    prop = _msc_model_value_by_id(get(model, "PSHELLs", Dict()), _msc_i64(get(elem, "PID", 0)))
+function _reference_pcomp_ply_count(model, elem)
+    prop = _reference_model_value_by_id(get(model, "PSHELLs", Dict()), _reference_i64(get(elem, "PID", 0)))
     prop === nothing && return 0
     return length(get(prop, "PLY_DATA", Any[]))
 end
 
-function _msc_with_domain(rows, domain_id)
+function _reference_with_domain(rows, domain_id)
     out = Vector{Dict{Symbol,Any}}(undef, length(rows))
     for (i, row) in enumerate(rows)
         copy_row = copy(row)
-        copy_row[:DOMAIN_ID] = _msc_i64(domain_id)
+        copy_row[:DOMAIN_ID] = _reference_i64(domain_id)
         out[i] = copy_row
     end
     return out
 end
 
-function _msc_write_element_table(file, path, fields, rows, domain_ids)
+function _reference_write_element_table(file, path, fields, rows, domain_ids)
     isempty(rows) && return
     all_rows = Dict{Symbol,Any}[]
-    index = _MSCIndexRec[]
+    index = _REFERENCEIndexRec[]
     position = 0
     for domain_id in domain_ids
-        domain_rows = _msc_with_domain(rows, domain_id)
+        domain_rows = _reference_with_domain(rows, domain_id)
         append!(all_rows, domain_rows)
-        push!(index, _MSCIndexRec(_msc_i64(domain_id), position, length(domain_rows)))
+        push!(index, _REFERENCEIndexRec(_reference_i64(domain_id), position, length(domain_rows)))
         position += length(domain_rows)
     end
-    _msc_write_dynamic_records(file, path, fields, all_rows)
-    _msc_write_records(file, "/INDEX" * path, index)
+    _reference_write_dynamic_records(file, path, fields, all_rows)
+    _reference_write_records(file, "/INDEX" * path, index)
 end
 
-function _msc_write_static_element_results(file, results, domain_ids)
+function _reference_write_static_element_results(file, results, domain_ids)
     isempty(domain_ids) && return
     model = results["model"]
-    bars = _msc_element_id_rows(_msc_element_values(model, "CBARs"))
-    beams = _msc_element_id_rows(_msc_element_values(model, "CBEAMs"))
-    rods = _msc_element_id_rows(_msc_element_values(model, "CRODs"))
-    conrods = _msc_element_id_rows(_msc_element_values(model, "CONRODs"))
-    celas1, celas2 = _msc_input_spring_records(model)
+    bars = _reference_element_id_rows(_reference_element_values(model, "CBARs"))
+    beams = _reference_element_id_rows(_reference_element_values(model, "CBEAMs"))
+    rods = _reference_element_id_rows(_reference_element_values(model, "CRODs"))
+    conrods = _reference_element_id_rows(_reference_element_values(model, "CONRODs"))
+    celas1, celas2 = _reference_input_spring_records(model)
     elas1 = [Dict{Symbol,Any}(:EID => e.EID) for e in celas1]
     elas2 = [Dict{Symbol,Any}(:EID => e.EID) for e in celas2]
-    quads, quad_standard, quad_composite, trias = _msc_shell_groups(model)
-    quad_force = [Dict{Symbol,Any}(:EID => _msc_i64(get(e, "ID", 0)), :TERM => "CEN/", :GRID => _msc_shell_grid(e, 5)) for e in quads]
-    quad_standard_rows = [Dict{Symbol,Any}(:EID => _msc_i64(get(e, "ID", 0)), :TERM => "CEN/", :GRID => _msc_shell_grid(e, 5)) for e in quad_standard]
+    quads, quad_standard, quad_composite, trias = _reference_shell_groups(model)
+    quad_force = [Dict{Symbol,Any}(:EID => _reference_i64(get(e, "ID", 0)), :TERM => "CEN/", :GRID => _reference_shell_grid(e, 5)) for e in quads]
+    quad_standard_rows = [Dict{Symbol,Any}(:EID => _reference_i64(get(e, "ID", 0)), :TERM => "CEN/", :GRID => _reference_shell_grid(e, 5)) for e in quad_standard]
     quad_comp_rows = Dict{Symbol,Any}[]
     for e in quad_composite
-        for ply in 1:max(_msc_pcomp_ply_count(model, e), 1)
-            push!(quad_comp_rows, Dict{Symbol,Any}(:EID => _msc_i64(get(e, "ID", 0)), :PLY => ply))
+        for ply in 1:max(_reference_pcomp_ply_count(model, e), 1)
+            push!(quad_comp_rows, Dict{Symbol,Any}(:EID => _reference_i64(get(e, "ID", 0)), :PLY => ply))
         end
     end
-    tria_rows = _msc_element_id_rows(trias)
+    tria_rows = _reference_element_id_rows(trias)
 
-    solids = _msc_element_values(model, "CSOLIDs")
+    solids = _reference_element_values(model, "CSOLIDs")
     hexa_rows = Dict{Symbol,Any}[]
     penta_rows = Dict{Symbol,Any}[]
     tetra_rows = Dict{Symbol,Any}[]
     for solid in solids
         etype = uppercase(string(get(solid, "TYPE", "")))
-        eid = _msc_i64(get(solid, "ID", 0))
+        eid = _reference_i64(get(solid, "ID", 0))
         if etype == "CHEXA"
-            push!(hexa_rows, Dict{Symbol,Any}(:EID => eid, :CTYPE => "GRID", :NODEF => 8, :GRID => _msc_solid_grid(solid, 9)))
+            push!(hexa_rows, Dict{Symbol,Any}(:EID => eid, :CTYPE => "GRID", :NODEF => 8, :GRID => _reference_solid_grid(solid, 9)))
         elseif etype == "CPENTA"
-            push!(penta_rows, Dict{Symbol,Any}(:EID => eid, :CTYPE => "GRID", :NODEF => 6, :GRID => _msc_solid_grid(solid, 7)))
+            push!(penta_rows, Dict{Symbol,Any}(:EID => eid, :CTYPE => "GRID", :NODEF => 6, :GRID => _reference_solid_grid(solid, 7)))
         elseif etype == "CTETRA"
-            push!(tetra_rows, Dict{Symbol,Any}(:EID => eid, :CTYPE => "GRID", :NODEF => 4, :GRID => _msc_solid_grid(solid, 5)))
+            push!(tetra_rows, Dict{Symbol,Any}(:EID => eid, :CTYPE => "GRID", :NODEF => 4, :GRID => _reference_solid_grid(solid, 5)))
         end
     end
 
-    _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/ELEMENT_FORCE/BAR", _MSC_EFORCE_BAR_FIELDS, bars, domain_ids)
-    _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/ELEMENT_FORCE/BEAM", _MSC_EFORCE_BEAM_FIELDS, beams, domain_ids)
-    _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/ELEMENT_FORCE/CONROD", _MSC_EFORCE_ROD_FIELDS, conrods, domain_ids)
-    _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/ELEMENT_FORCE/ELAS1", _MSC_EFORCE_ELAS_FIELDS, elas1, domain_ids)
-    _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/ELEMENT_FORCE/ELAS2", _MSC_EFORCE_ELAS_FIELDS, elas2, domain_ids)
-    _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/ELEMENT_FORCE/QUAD4_CN", _MSC_EFORCE_QUAD_FIELDS, quad_force, domain_ids)
-    _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/ELEMENT_FORCE/ROD", _MSC_EFORCE_ROD_FIELDS, rods, domain_ids)
-    _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/ELEMENT_FORCE/TRIA3", _MSC_EFORCE_TRIA_FIELDS, tria_rows, domain_ids)
+    _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/ELEMENT_FORCE/BAR", _REFERENCE_EFORCE_BAR_FIELDS, bars, domain_ids)
+    _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/ELEMENT_FORCE/BEAM", _REFERENCE_EFORCE_BEAM_FIELDS, beams, domain_ids)
+    _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/ELEMENT_FORCE/CONROD", _REFERENCE_EFORCE_ROD_FIELDS, conrods, domain_ids)
+    _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/ELEMENT_FORCE/ELAS1", _REFERENCE_EFORCE_ELAS_FIELDS, elas1, domain_ids)
+    _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/ELEMENT_FORCE/ELAS2", _REFERENCE_EFORCE_ELAS_FIELDS, elas2, domain_ids)
+    _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/ELEMENT_FORCE/QUAD4_CN", _REFERENCE_EFORCE_QUAD_FIELDS, quad_force, domain_ids)
+    _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/ELEMENT_FORCE/ROD", _REFERENCE_EFORCE_ROD_FIELDS, rods, domain_ids)
+    _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/ELEMENT_FORCE/TRIA3", _REFERENCE_EFORCE_TRIA_FIELDS, tria_rows, domain_ids)
 
     for family in ("STRESS", "STRAIN")
-        _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/$family/BAR", _MSC_BAR_STRESS_FIELDS, bars, domain_ids)
-        _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/$family/BEAM", _MSC_BEAM_STRESS_FIELDS, beams, domain_ids)
-        _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/$family/CONROD", _MSC_ROD_STRESS_FIELDS, conrods, domain_ids)
-        _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/$family/ELAS1", _MSC_ELAS_STRESS_FIELDS, elas1, domain_ids)
-        _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/$family/ELAS2", _MSC_ELAS_STRESS_FIELDS, elas2, domain_ids)
-        _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/$family/HEXA", _MSC_SOLID_STRESS_FIELDS_9, hexa_rows, domain_ids)
-        _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/$family/PENTA", _MSC_SOLID_STRESS_FIELDS_7, penta_rows, domain_ids)
-        _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/$family/QUAD4_COMP", _MSC_QUAD_COMP_STRESS_FIELDS, quad_comp_rows, domain_ids)
-        _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/$family/QUAD_CN", _MSC_QUAD_CN_STRESS_FIELDS, quad_standard_rows, domain_ids)
-        _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/$family/ROD", _MSC_ROD_STRESS_FIELDS, rods, domain_ids)
-        _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/$family/TETRA", _MSC_SOLID_STRESS_FIELDS_5, tetra_rows, domain_ids)
-        _msc_write_element_table(file, "/NASTRAN/RESULT/ELEMENTAL/$family/TRIA3", _MSC_TRIA_STRESS_FIELDS, tria_rows, domain_ids)
+        _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/$family/BAR", _REFERENCE_BAR_STRESS_FIELDS, bars, domain_ids)
+        _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/$family/BEAM", _REFERENCE_BEAM_STRESS_FIELDS, beams, domain_ids)
+        _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/$family/CONROD", _REFERENCE_ROD_STRESS_FIELDS, conrods, domain_ids)
+        _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/$family/ELAS1", _REFERENCE_ELAS_STRESS_FIELDS, elas1, domain_ids)
+        _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/$family/ELAS2", _REFERENCE_ELAS_STRESS_FIELDS, elas2, domain_ids)
+        _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/$family/HEXA", _REFERENCE_SOLID_STRESS_FIELDS_9, hexa_rows, domain_ids)
+        _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/$family/PENTA", _REFERENCE_SOLID_STRESS_FIELDS_7, penta_rows, domain_ids)
+        _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/$family/QUAD4_COMP", _REFERENCE_QUAD_COMP_STRESS_FIELDS, quad_comp_rows, domain_ids)
+        _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/$family/QUAD_CN", _REFERENCE_QUAD_CN_STRESS_FIELDS, quad_standard_rows, domain_ids)
+        _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/$family/ROD", _REFERENCE_ROD_STRESS_FIELDS, rods, domain_ids)
+        _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/$family/TETRA", _REFERENCE_SOLID_STRESS_FIELDS_5, tetra_rows, domain_ids)
+        _reference_write_element_table(file, "/REFERENCE/RESULT/ELEMENTAL/$family/TRIA3", _REFERENCE_TRIA_STRESS_FIELDS, tria_rows, domain_ids)
     end
 end
 
-const _MSC_CASECC_FIELD_NAMES_RAW = """
+const _REFERENCE_CASECC_FIELD_NAMES_RAW = """
 SID;MPCSET;SPCSET;ESLSET;REESET;ELDSET;THLDSET;THMATSET;TIC;NONPTSET;NONMEDIA;NONFMT;DYMLDSET;FEQRESET;TFSET;SYMFLG;LDSPTSET;LDSMEDIA;LDSFMT;DPLPTSET;DPLMEDIA;DPLFMT;STSPTSET;STSMEDIA;STSFMT;FCEPTSET;FCEMEDIA;FCEFMT;ACCPTSET;ACCMEDIA;ACCFMT;VELPTSET;VELMEDIA;VELFMT;FOCPTSET;FOCMEDIA;FOCFMT;TSTEPTRN;TITLE;SUBTITLE;LABEL;STPLTFLG;AXSYMSET;NOHARMON;TSTRU;SETKP;FLAGKP;K2PP;SETMP;FLAGMP;M2PP;SETBP;FLAGBP;B2PP;OUTRESPV;SEDR;FLDBNDY;CEESET;DAMPTBL;DYNRED;SSDSET;SSDMEDIA;SSDFMT;SSVSET;SSVMEDIA;SSVFMT;SSASET;SSAMEDIA;SSAFMT;NONLINLD;PARTIT;CYCLIC;RANDOM;NONPARAM;FLUTTER;LCC;GPFSET;GPFMEDIA;GPFFMT;ESESET;ESEMEDIA;ESEFMT;ARFPTSET;ARFMEDIA;ARFFMT;SEID;LCN;GUST;SEFINAL;SEMG;SEKR;SELG;SELR;SEEX;SETKG;FLAGKG;K2GG;SETMG;FLAGMG;M2GG;SETBG;FLAGBG;B2GG;SVSET;SVMEDIA;SVFMT;FLUPTSET;FLUMEDIA;FLUFMT;HOUT;NOUT;SETPG;FLAGPG;P2G;LOADSET;SEMR;VONMISES;SECMDFLG;GPSPTSET;GPSMEDIA;GPSFMT;STFSET;STFMEDIA;STFFMT;CLOAD;SET2ID;DSAPRT;DSASTORE;DSAOUTPT;STNSET;STNMEDIA;STNFMT;APRESS;TRIM;MODLIST;REESETF;ESDPTSET;ESDMEDIA;ESDFMT;GSDPTSET;GSDMEDIA;GSDFMT;SEDV;SERE;SERS;CNTSET;CNTMEDIA;CNTFMT;DIVERG;OUTRCV;STATSUBP;DFT1;DFT2;ADAPT;DESOBJ;DESSUB;SUBSPAN;DESGLB;ANALYSIS;GPQSTRS;GPQFORC;GPQSTRN;SUPORT1;STATSUBB;BCID;AUXMODEL;ADACT;DATSET;DATMEDIA;DATFMT;VUGSET;VUGMEDIA;VUGFMT;MPCFSET;MPCMEDIA;MPCFFMT;REUESET;DAMPTBLF;ITERMETH;NLSSET;NLSMEDIA;NLSFMT;MODTRKID;DSAFORM;DSAEXPO;DSABEGIN;DSAINTVL;DSAFINAL;DSASETID;SORTFLG;RANDBIT;AECONFIG;AESYMXY;AESYMXZ;OCIDREQ;GPEPTSET;GPEMEDIA;GPEFMT;TEMPMAT;AECSSSET;EKEPTSET;EKEMEDIA;EKEFMT;EKETHRSH;EDEPTSET;EDEMEDIA;EDEFMT;EDETHRSH;DFT3;DFR1;DFR2;DFR3;SETK4G;FLAGK4G;K42GG;A2GG;NK42GG;NA2GG;EFFMASET;EFFMAGID;EFFMATHR;EQUILMED;EQUILGRD;RCRSET;RCRFMT;AEUXREF;GCHK;GCHKOUT;GCHKSET;GCHKGID;GCHKTHR;GCHKRTHR;GCHKDREC;ASPCMED;ASPCEPS;ASPCPRT;ASPCPCH;NK2PP;NM2PP;NB2PP;NK2GG;NM2GG;NB2GG;NP2G;GEODSET;GEODMXMN;GEODOCID;GEODNUMB;GEOLSET;GEOLMXMN;GEOLOCID;GEOLNUMB;GEOSSET;GEOSMXMN;GEOSOCID;GEOSNUMB;GEOMSET;GEOMMXMN;GEOMOCID;GEOMNUMB;GEOASET;GEOAMXMN;GEOAOCID;GEOANUMB;GEOVSET;GEOVMXMN;GEOVOCID;GEOVNUMB;NTFL;GPKESET;GPKEMEDI;GPKEFMT;SEDAMP;WCHK;WCHKOUT;WCHKSET;WCHKGID;WCHKCGI;WCHKWM;EXSEOUT;EXSEMED;EXSEUNIT;EXSERES1;EXSERES2;FK2PP;FM2PP;FB2PP;FK2GG;FM2GG;FB2GG;TICTYPE;FK42GG;FA2GG;SUBSTEP;STEPID;NSMID;ROUTDISP;ROUTVELO;ROUTACCE;ROUTLOAD;ROUTSPCF;ROUTSTRS;ROUTFORC;ROUTSTRN;ROUTMSCF;MDLSSET;MDLSMEDIA;MDLSFMT;MDLSESRT;MDLSTHRE;MDLSTFVL;MDLKSET;MDLKMEDIA;MDLKFMT;MDLKESRT;MDLKTHRE;MDLKTFVL;ACPOWSET;ACPOWMED;ACPOWFMT;ACPOWCSV;NLOUT;SEEFMNO;SEEFMHV;SEEFMDLF;SEEFMBND;SEEFMSDP;CONNECTOR;ESETHRSH;POSTUNIT;POSTOPT1;POSTOPT2;TICDIFF;DSAESEID;MXMNGSET;MXMNGMDA;MXMNGFMT;MXMNESET;MXMNEMDA;MXMNEFMT;MCFRSET;MCFRSOLN;MCFRFILT;MCFROPT;ELSUMID;ELSUMOPT;ELSUMDUM;RGYRO;CMSESET;CMSEMDIA;CMSEOPTS;CMSETHRE;CMSETOPN;GPRSORT;MASSSET;AESOLN;POSTO2NM;RANDVAR;RSVCRQTS;RSVCOPTS;RSVCSTBS;RSVCRQTC;RSVCOPTC;RSVCSTBC;DESVAR;BCONTACTI;BCONTACTC;MODSELS1;MODSELS2;MODSELS3;MODSELS4;MODSELS5;MODSELS6;MODSELS7;MODSELS8;MODSELS9;MODSELF1;MODSELF2;MODSELF3;MODSELF4;MODSELF5;MODSELF6;MODSELF7;MODSELF8;MODSELF9;FTNURN;SUFNAM1;SUFNAM2;ENVELOP1;ENVELOP2;GPFLXSET;GPFLXMED;CAMPBELL;SPLINOUT;MONITOR;FBODYLD;STOCHAST;EXPTLDID;EXPTLDNM;EXPTLDSI;AERCONFIG;NLHARM;PFMSSID;PFMSMED;PFMSFMT;PFMSSSET;PFMSFLTR;PFMSOPTS;PFMSSTMP;PFMFSID;PFMFMED;PFMFFMT;PFMFSSET;PFMFPSET;PFMFFLTR;PFMFOPTS;PFMFFLMP;PFMFSTMP;PFPSID;PFPMED;PFPFMT;PFPSSET;PFPFLTR;PFPOPTS;PFPPSET;PFGSID;PFGMED;PFGFMT;PFGSSET;PFGGSET;NLICCASE;NLICSTEP;NLICLFAC;ACFPMSET;ACFPMMED;ACFPMFMT;FRFFLAG;FRFCMPID;FRFCONST;FRFUNTNO;FRFCMPNM;DESMOD;RSDAMPST;RSDAMPFL;VCCT;FP2G;FRQVAR;HADAPT;BCHANGE;BCMOVE;BSQUEAL;UNGLUE;HSUBCASE;HSTEP;HTIME;ERPSID;ERPMED;ERPFMT;ERPSSET;ERPFLTR;ERPOPTS;ERPCSV;TESTTHRR;TESTTHRI;ASMOUTFL;ASMOUTNM;ICFUNTNO;TFOSET;TFUNIT;TFLSET;TFOPTS;NLOOPH;NLSTEP;NMODES;RCPARM;NLOPCTRL;NLOPDBG;NLOPPOST;NLOPMPCH;NLICSSTP;DEACTEL;ACTIVAT;INTENSET;INTENMED;INTENFMT;NLICTOLR;PFPSSID;PFPSMED;PFPSFMT;PFPSSSET;PFPSFLTR;PFPSOPTS;PFPSPSET;ACTISET;ELSOSET;ELSRSET;ELSSSET;ELSTHRS;ELSBITS;WTSOSET;WTSRSET;WTSSSET;WTSTHRS;WTSBITS;PACOSET;PACSSET;PACBITS;IRLOAD;ICFSET;ICFMED;ICFFMT;ICFGENST;ICFGENNM;ICFUSEST;ICFUSENM;HISTSET;HISTTYPE;HISTFMT;FATIGUE;FTGMED;FTGFMT;NLOPDELI;NLOPGRID;DASAVE;GVSET;GVMEDIA;GVFMT;ERMPF;NVELOSET;NVELFDEF;NVELFDTA;NVELTHRS;NVELBITS;VITSOSET;VITSRSET;VITSSSET;VITSTHRS;VITSBITS;THLDVER;THMATVER;NPEAK;NEAR;LFREQ;HFREQ;RTYPE;PSCALE;NSAMP;MONSET;SEED;OFFD;FSORT2;MFREQ;BCONTACT;SOLNID;ExtDROut;ExtDROmd;ExtDROun;ExtDRIn;ExtDRImd;ExtDRIun;FemCheck;LSEM;SYM_LEN;SYM_POS;DOMAIN_ID
 """
-const _MSC_CASECC_FLOAT_FIELD_NAMES = Set(Symbol.(split("DFT1;DFT2;EKETHRSH;EDETHRSH;DFT3;DFR1;DFR2;DFR3;EFFMATHR;GCHKTHR;GCHKRTHR;ASPCEPS;ASPCPRT;MDLSTHRE;MDLKTHRE;ESETHRSH;MCFRFILT;CMSETHRE;MODSELS4;MODSELS5;MODSELS6;MODSELS7;MODSELS8;MODSELS9;MODSELF4;MODSELF5;MODSELF6;MODSELF7;MODSELF8;MODSELF9;PFMSFLTR;PFMFFLTR;PFPFLTR;NLICLFAC;HTIME;ERPFLTR;TESTTHRR;NLICTOLR;PFPSFLTR;ELSTHRS;WTSTHRS;NVELTHRS;VITSTHRS;NEAR;LFREQ;HFREQ;OFFD", ";")))
-const _MSC_CASECC_STRING_FIELD_SIZES = let entries = split("TITLE:128;SUBTITLE:128;LABEL:128;K2PP:8;M2PP:8;B2PP:8;K2GG:8;M2GG:8;B2GG:8;P2G:8;ANALYSIS:4;AECONFIG:8;K42GG:8;A2GG:8;TICTYPE:4;MDLSESRT:4;MDLKESRT:4;SEEFMHV:4;TICDIFF:4;AESOLN:8;POSTO2NM:8;BCONTACTC:4;ENVELOP1:4;ENVELOP2:4;EXPTLDNM:8;AERCONFIG:8;DESMOD:8;BCONTACT:4", ";")
+const _REFERENCE_CASECC_FLOAT_FIELD_NAMES = Set(Symbol.(split("DFT1;DFT2;EKETHRSH;EDETHRSH;DFT3;DFR1;DFR2;DFR3;EFFMATHR;GCHKTHR;GCHKRTHR;ASPCEPS;ASPCPRT;MDLSTHRE;MDLKTHRE;ESETHRSH;MCFRFILT;CMSETHRE;MODSELS4;MODSELS5;MODSELS6;MODSELS7;MODSELS8;MODSELS9;MODSELF4;MODSELF5;MODSELF6;MODSELF7;MODSELF8;MODSELF9;PFMSFLTR;PFMFFLTR;PFPFLTR;NLICLFAC;HTIME;ERPFLTR;TESTTHRR;NLICTOLR;PFPSFLTR;ELSTHRS;WTSTHRS;NVELTHRS;VITSTHRS;NEAR;LFREQ;HFREQ;OFFD", ";")))
+const _REFERENCE_CASECC_STRING_FIELD_SIZES = let entries = split("TITLE:128;SUBTITLE:128;LABEL:128;K2PP:8;M2PP:8;B2PP:8;K2GG:8;M2GG:8;B2GG:8;P2G:8;ANALYSIS:4;AECONFIG:8;K42GG:8;A2GG:8;TICTYPE:4;MDLSESRT:4;MDLKESRT:4;SEEFMHV:4;TICDIFF:4;AESOLN:8;POSTO2NM:8;BCONTACTC:4;ENVELOP1:4;ENVELOP2:4;EXPTLDNM:8;AERCONFIG:8;DESMOD:8;BCONTACT:4", ";")
     Dict{Symbol,Int}(Symbol(split(e, ":")[1]) => parse(Int, split(e, ":")[2]) for e in entries)
 end
-const _MSC_CASECC_ARRAY_FIELD_DIMS = let entries = split("HOUT:3;NOUT:3;SPLINOUT:2;FBODYLD:2;FRFCMPNM:2;ASMOUTNM:2;ICFGENNM:2;ICFUSENM:2", ";")
+const _REFERENCE_CASECC_ARRAY_FIELD_DIMS = let entries = split("HOUT:3;NOUT:3;SPLINOUT:2;FBODYLD:2;FRFCMPNM:2;ASMOUTNM:2;ICFGENNM:2;ICFUSENM:2", ";")
     Dict{Symbol,Int}(Symbol(split(e, ":")[1]) => parse(Int, split(e, ":")[2]) for e in entries)
 end
-const _MSC_CASECC_FIELD_NAMES = Symbol.(split(replace(strip(_MSC_CASECC_FIELD_NAMES_RAW), r"\s+" => ""), ";"))
+const _REFERENCE_CASECC_FIELD_NAMES = Symbol.(split(replace(strip(_REFERENCE_CASECC_FIELD_NAMES_RAW), r"\s+" => ""), ";"))
 
-function _msc_casecc_fields()
+function _reference_casecc_fields()
     return [(field,
-        haskey(_MSC_CASECC_STRING_FIELD_SIZES, field) ? :str :
-        haskey(_MSC_CASECC_ARRAY_FIELD_DIMS, field) ? :i64_array :
-        field in _MSC_CASECC_FLOAT_FIELD_NAMES ? :f64 : :i64,
-        get(_MSC_CASECC_STRING_FIELD_SIZES, field, get(_MSC_CASECC_ARRAY_FIELD_DIMS, field, 1)))
-        for field in _MSC_CASECC_FIELD_NAMES]
+        haskey(_REFERENCE_CASECC_STRING_FIELD_SIZES, field) ? :str :
+        haskey(_REFERENCE_CASECC_ARRAY_FIELD_DIMS, field) ? :i64_array :
+        field in _REFERENCE_CASECC_FLOAT_FIELD_NAMES ? :f64 : :i64,
+        get(_REFERENCE_CASECC_STRING_FIELD_SIZES, field, get(_REFERENCE_CASECC_ARRAY_FIELD_DIMS, field, 1)))
+        for field in _REFERENCE_CASECC_FIELD_NAMES]
 end
 
-function _msc_casecc_subcase_rows(model)
+function _reference_casecc_subcase_rows(model)
     case_control = get(model, "CASE_CONTROL", Dict{String,Any}())
     subcases = get(case_control, "SUBCASES", Dict{Int,Dict{String,Any}}())
     if isempty(subcases)
         subcases = Dict(1 => Dict{String,Any}())
     end
-    sol_type = _msc_i64(get(model, "SOL", get(model, "sol_type", 0)))
+    sol_type = _reference_i64(get(model, "SOL", get(model, "sol_type", 0)))
     title = strip(string(get(case_control, "TITLE", get(model, "TITLE", "OpenJFEM"))))
     title = isempty(title) ? "OpenJFEM" : title
     rows = Dict{Symbol,Any}[]
     for sid in sort(collect(keys(subcases)))
         sub = subcases[sid]
         row = Dict{Symbol,Any}(
-            :SID => sid, :SPCSET => _msc_i64(get(sub, "SPC", get(case_control, "SPC", 0))),
-            :MPCSET => _msc_i64(get(sub, "MPC", get(case_control, "MPC", 0))),
+            :SID => sid, :SPCSET => _reference_i64(get(sub, "SPC", get(case_control, "SPC", 0))),
+            :MPCSET => _reference_i64(get(sub, "MPC", get(case_control, "MPC", 0))),
             :TITLE => title,
             :SUBTITLE => string(get(sub, "SUBTITLE", sol_type == 105 && haskey(sub, "STATSUB") ? "BUCKLING MODES" : "")),
             :LABEL => string(get(sub, "LABEL", "SUBCASE $sid")),
@@ -2132,7 +2132,7 @@ function _msc_casecc_subcase_rows(model)
             :HSUBCASE => -1, :HSTEP => -1, :HTIME => -1.0, :DOMAIN_ID => 1,
         )
         if haskey(sub, "LOAD") && !isnothing(sub["LOAD"])
-            row[:ESLSET] = _msc_i64(sub["LOAD"])
+            row[:ESLSET] = _reference_i64(sub["LOAD"])
             row[:LDSPTSET] = -1; row[:LDSMEDIA] = 7; row[:LDSFMT] = 1
             row[:ROUTLOAD] = 1
         end
@@ -2147,11 +2147,11 @@ function _msc_casecc_subcase_rows(model)
             nothing
         end
         if !isnothing(resolved_method)
-            row[:REESET] = _msc_i64(resolved_method)
-            row[:REESETF] = _msc_i64(resolved_method)
+            row[:REESET] = _reference_i64(resolved_method)
+            row[:REESETF] = _reference_i64(resolved_method)
         end
         if haskey(sub, "STATSUB") && !isnothing(sub["STATSUB"])
-            row[:STATSUBB] = _msc_i64(sub["STATSUB"])
+            row[:STATSUBB] = _reference_i64(sub["STATSUB"])
         end
         row[:DPLPTSET] = -1; row[:DPLMEDIA] = 7; row[:DPLFMT] = 1; row[:ROUTDISP] = 1
         row[:FOCPTSET] = -1; row[:FOCMEDIA] = 7; row[:FOCFMT] = 1
@@ -2171,28 +2171,28 @@ function _msc_casecc_subcase_rows(model)
     return rows
 end
 
-function _msc_write_casecc_subcase(file, model)
-    rows = _msc_casecc_subcase_rows(model)
-    _msc_write_dynamic_records(file, "/NASTRAN/INPUT/PARAMETER/CASECC/SUBCASE", _msc_casecc_fields(), rows; version=1)
+function _reference_write_casecc_subcase(file, model)
+    rows = _reference_casecc_subcase_rows(model)
+    _reference_write_dynamic_records(file, "/REFERENCE/INPUT/PARAMETER/CASECC/SUBCASE", _reference_casecc_fields(), rows; version=1)
 end
 
-function _msc_vector_from_nodal_entries(id_map, entries)
+function _reference_vector_from_nodal_entries(id_map, entries)
     vector = zeros(Float64, 6 * length(id_map))
     for entry in entries
-        nid = _msc_i64(get(entry, "grid_id", get(entry, "ID", 0)))
+        nid = _reference_i64(get(entry, "grid_id", get(entry, "ID", 0)))
         haskey(id_map, nid) || continue
         base = (id_map[nid] - 1) * 6
-        vector[base + 1] = _msc_f64(get(entry, "t1", get(entry, "X", 0.0)))
-        vector[base + 2] = _msc_f64(get(entry, "t2", get(entry, "Y", 0.0)))
-        vector[base + 3] = _msc_f64(get(entry, "t3", get(entry, "Z", 0.0)))
-        vector[base + 4] = _msc_f64(get(entry, "r1", get(entry, "RX", 0.0)))
-        vector[base + 5] = _msc_f64(get(entry, "r2", get(entry, "RY", 0.0)))
-        vector[base + 6] = _msc_f64(get(entry, "r3", get(entry, "RZ", 0.0)))
+        vector[base + 1] = _reference_f64(get(entry, "t1", get(entry, "X", 0.0)))
+        vector[base + 2] = _reference_f64(get(entry, "t2", get(entry, "Y", 0.0)))
+        vector[base + 3] = _reference_f64(get(entry, "t3", get(entry, "Z", 0.0)))
+        vector[base + 4] = _reference_f64(get(entry, "r1", get(entry, "RX", 0.0)))
+        vector[base + 5] = _reference_f64(get(entry, "r2", get(entry, "RY", 0.0)))
+        vector[base + 6] = _reference_f64(get(entry, "r3", get(entry, "RZ", 0.0)))
     end
     return vector
 end
 
-function _msc_applied_load_vector(results, load_id)
+function _reference_applied_load_vector(results, load_id)
     id_map = results["id_map"]
     vector = zeros(Float64, 6 * length(id_map))
     isnothing(load_id) && return vector
@@ -2201,29 +2201,29 @@ function _msc_applied_load_vector(results, load_id)
         haskey(id_map, nid) || continue
         base = (id_map[nid] - 1) * 6
         for i in 1:3
-            vector[base + i] = _msc_f64(force[i])
+            vector[base + i] = _reference_f64(force[i])
         end
     end
     for (nid, moment) in moments
         haskey(id_map, nid) || continue
         base = (id_map[nid] - 1) * 6
         for i in 1:3
-            vector[base + 3 + i] = _msc_f64(moment[i])
+            vector[base + 3 + i] = _reference_f64(moment[i])
         end
     end
     return vector
 end
 
-function _msc_static_load_id(results, subcase)
+function _reference_static_load_id(results, subcase)
     model = results["model"]
-    sid = _msc_i64(get(subcase, "sid", 0))
+    sid = _reference_i64(get(subcase, "sid", 0))
     case_control = get(model, "CASE_CONTROL", Dict{String,Any}())
     subcases = get(case_control, "SUBCASES", Dict{Int,Dict{String,Any}}())
     ctrl = haskey(subcases, sid) ? subcases[sid] : Dict{String,Any}()
     return get(ctrl, "LOAD", get(case_control, "LOAD", nothing))
 end
 
-function _msc_sol105_static_load_id(results)
+function _reference_sol105_static_load_id(results)
     diagnostics = get(results, "solver_diagnostics", Any[])
     isempty(diagnostics) && return nothing
     first_diag = diagnostics[1]
@@ -2232,59 +2232,59 @@ function _msc_sol105_static_load_id(results)
     static_sid === nothing && return nothing
     case_control = get(results["model"], "CASE_CONTROL", Dict{String,Any}())
     subcases = get(case_control, "SUBCASES", Dict{Int,Dict{String,Any}}())
-    ctrl = get(subcases, _msc_i64(static_sid), Dict{String,Any}())
+    ctrl = get(subcases, _reference_i64(static_sid), Dict{String,Any}())
     return get(ctrl, "LOAD", nothing)
 end
 
-function _msc_write_nodal_table(file, path, id_map, vectors_with_domains)
-    rows = Vector{_MSCNodalResultRec}(undef, length(id_map) * length(vectors_with_domains))
-    index = _MSCIndexRec[]
+function _reference_write_nodal_table(file, path, id_map, vectors_with_domains)
+    rows = Vector{_REFERENCENodalResultRec}(undef, length(id_map) * length(vectors_with_domains))
+    index = _REFERENCEIndexRec[]
     position = 0
     node_count = length(id_map)
-    node_order = _msc_node_order(id_map)
+    node_order = _reference_node_order(id_map)
     for (domain_id, vector) in vectors_with_domains
-        _msc_fill_nodal_rows!(rows, position, id_map, vector, domain_id, node_order)
-        push!(index, _MSCIndexRec(_msc_i64(domain_id), position, node_count))
+        _reference_fill_nodal_rows!(rows, position, id_map, vector, domain_id, node_order)
+        push!(index, _REFERENCEIndexRec(_reference_i64(domain_id), position, node_count))
         position += node_count
     end
-    _msc_write_records(file, path, rows; version=1)
-    _msc_write_records(file, "/INDEX" * path, index)
+    _reference_write_records(file, path, rows; version=1)
+    _reference_write_records(file, "/INDEX" * path, index)
 end
 
-function _msc_write_sol101_results(file, results)
+function _reference_write_sol101_results(file, results)
     subcases = get(results, "subcases", Any[])
-    _msc_write_records(file, "/NASTRAN/RESULT/DOMAINS", _msc_result_domains_static(subcases); version=20200)
-    _msc_write_grid_weight(file, results)
+    _reference_write_records(file, "/REFERENCE/RESULT/DOMAINS", _reference_result_domains_static(subcases); version=20200)
+    _reference_write_grid_weight(file, results)
     # Recovered element tables are not yet mapped to the compact schema.
     # Do not turn a missing mapping into fictitious zero stresses/strains.
-    displacements = _MSCNodalResultRec[]
-    index = _MSCIndexRec[]
+    displacements = _REFERENCENodalResultRec[]
+    index = _REFERENCEIndexRec[]
     position = 0
     node_count = length(get(results, "id_map", Dict()))
     for (i, subcase) in enumerate(subcases)
         domain_id = i + 1
-        rows = _msc_nodal_rows_from_vector(results["id_map"], get(subcase, "raw_displacement", Float64[]), domain_id)
+        rows = _reference_nodal_rows_from_vector(results["id_map"], get(subcase, "raw_displacement", Float64[]), domain_id)
         append!(displacements, rows)
-        push!(index, _MSCIndexRec(domain_id, position, node_count))
+        push!(index, _REFERENCEIndexRec(domain_id, position, node_count))
         position += node_count
     end
-    _msc_write_records(file, "/NASTRAN/RESULT/NODAL/DISPLACEMENT", displacements; version=1)
-    _msc_write_records(file, "/INDEX/NASTRAN/RESULT/NODAL/DISPLACEMENT", index)
+    _reference_write_records(file, "/REFERENCE/RESULT/NODAL/DISPLACEMENT", displacements; version=1)
+    _reference_write_records(file, "/INDEX/REFERENCE/RESULT/NODAL/DISPLACEMENT", index)
 
     applied = Tuple{Int64,Vector{Float64}}[]
     spc = Tuple{Int64,Vector{Float64}}[]
     for (i, subcase) in enumerate(subcases)
-        domain_id = _msc_i64(i + 1)
-        push!(applied, (domain_id, _msc_applied_load_vector(results, _msc_static_load_id(results, subcase))))
-        push!(spc, (domain_id, _msc_vector_from_nodal_entries(results["id_map"], get(subcase, "spc_forces", Any[]))))
+        domain_id = _reference_i64(i + 1)
+        push!(applied, (domain_id, _reference_applied_load_vector(results, _reference_static_load_id(results, subcase))))
+        push!(spc, (domain_id, _reference_vector_from_nodal_entries(results["id_map"], get(subcase, "spc_forces", Any[]))))
     end
-    _msc_write_nodal_table(file, "/NASTRAN/RESULT/NODAL/APPLIED_LOAD", results["id_map"], applied)
-    _msc_write_nodal_table(file, "/NASTRAN/RESULT/NODAL/SPC_FORCE", results["id_map"], spc)
-    attributes(file["/NASTRAN/RESULT"])["COORDINATE_FRAME"] = "BASIC_GLOBAL"
-    attributes(file["/NASTRAN/RESULT"])["UNAVAILABLE_RESULTS"] = "ELEMENTAL,MPC_FORCE"
+    _reference_write_nodal_table(file, "/REFERENCE/RESULT/NODAL/APPLIED_LOAD", results["id_map"], applied)
+    _reference_write_nodal_table(file, "/REFERENCE/RESULT/NODAL/SPC_FORCE", results["id_map"], spc)
+    attributes(file["/REFERENCE/RESULT"])["COORDINATE_FRAME"] = "BASIC_GLOBAL"
+    attributes(file["/REFERENCE/RESULT"])["UNAVAILABLE_RESULTS"] = "ELEMENTAL,MPC_FORCE"
     if !isempty(applied)
-        attributes(file["/NASTRAN/RESULT/NODAL/APPLIED_LOAD"])["SOURCE"] = "FORCE_AND_MOMENT_ONLY"
-        attributes(file["/NASTRAN/RESULT/NODAL/SPC_FORCE"])["SOURCE"] = "SOLVER_EQUILIBRIUM_RESIDUAL"
+        attributes(file["/REFERENCE/RESULT/NODAL/APPLIED_LOAD"])["SOURCE"] = "FORCE_AND_MOMENT_ONLY"
+        attributes(file["/REFERENCE/RESULT/NODAL/SPC_FORCE"])["SOURCE"] = "SOLVER_EQUILIBRIUM_RESIDUAL"
     end
 end
 
@@ -2323,94 +2323,94 @@ function _sol105_legacy_mode_ownership(results)
         buckling_sids=fill(Int(get(results,"buckling_subcase_id",2)),count),modes=collect(1:count),inferred=true)
 end
 
-function _msc_write_sol103_results(file, results)
+function _reference_write_sol103_results(file, results)
     subcases = get(results,"subcases",Any[])
     isempty(subcases) && (subcases=[Dict("sid"=>get(results,"sid",1),
         "eigenvalues"=>get(results,"eigenvalues",Float64[]),
         "frequencies"=>get(results,"frequencies",nothing),
         "_raw_mode_shapes"=>get(results,"_raw_mode_shapes",zeros(0,0)),
         "modal_effective_mass"=>get(results,"modal_effective_mass",Any[]))])
-    domains = _MSCResultDomainRec[_MSCResultDomainRec(1,0,0,0,0.0,0.0,0,0,0,0,0,0,0,0,0,0)]
-    eigen_rows = _MSCEigenvalueRec[]
-    eigen_index = _MSCIndexRec[]
+    domains = _REFERENCEResultDomainRec[_REFERENCEResultDomainRec(1,0,0,0,0.0,0.0,0,0,0,0,0,0,0,0,0,0)]
+    eigen_rows = _REFERENCEEigenvalueRec[]
+    eigen_index = _REFERENCEIndexRec[]
     vectors = Tuple{Int64,Any}[]
     for sc in subcases
         eigs=sc["eigenvalues"]; shapes=sc["_raw_mode_shapes"]; frequencies=get(sc,"frequencies",nothing)
         _export_validate_modes(eigs,shapes,results["id_map"];frequencies=frequencies)
-        sid=_msc_i64(sc["sid"])
+        sid=_reference_i64(sc["sid"])
         effective=get(sc,"modal_effective_mass",Any[])
         for (mode,eig) in enumerate(eigs)
             summary_domain=length(domains)+1
-            push!(domains,_MSCResultDomainRec(summary_domain,sid,0,0,0.0,0.0,mode,0,0,0,0,0,0,0,0,0))
+            push!(domains,_REFERENCEResultDomainRec(summary_domain,sid,0,0,0.0,0.0,mode,0,0,0,0,0,0,0,0,0))
             freq=frequencies===nothing ? sqrt(abs(eig))/(2pi) : frequencies[mode]
-            mass=mode<=length(effective) ? _msc_f64(get(effective[mode],"generalized_mass",0.0)) : 0.0
-            push!(eigen_index,_MSCIndexRec(summary_domain,length(eigen_rows),1))
-            push!(eigen_rows,_MSCEigenvalueRec(mode,mode,eig,sqrt(abs(eig)),freq,mass,eig*mass,0,0,summary_domain))
+            mass=mode<=length(effective) ? _reference_f64(get(effective[mode],"generalized_mass",0.0)) : 0.0
+            push!(eigen_index,_REFERENCEIndexRec(summary_domain,length(eigen_rows),1))
+            push!(eigen_rows,_REFERENCEEigenvalueRec(mode,mode,eig,sqrt(abs(eig)),freq,mass,eig*mass,0,0,summary_domain))
             vector_domain=length(domains)+1
-            push!(domains,_MSCResultDomainRec(vector_domain,sid,0,2,eig,0.0,mode,0,0,0,0,0,0,0,0,0))
+            push!(domains,_REFERENCEResultDomainRec(vector_domain,sid,0,2,eig,0.0,mode,0,0,0,0,0,0,0,0,0))
             push!(vectors,(vector_domain,view(shapes,:,mode)))
         end
     end
-    _msc_write_records(file, "/NASTRAN/RESULT/DOMAINS", domains; version=20200)
-    _msc_write_grid_weight(file, results)
-    _msc_write_records(file, "/NASTRAN/RESULT/SUMMARY/EIGENVALUE", eigen_rows)
-    _msc_write_records(file, "/INDEX/NASTRAN/RESULT/SUMMARY/EIGENVALUE", eigen_index)
-    _msc_write_nodal_table(file,"/NASTRAN/RESULT/NODAL/EIGENVECTOR",results["id_map"],vectors)
-    attributes(file["/NASTRAN/RESULT"])["COORDINATE_FRAME"] = "BASIC_GLOBAL"
-    attributes(file["/NASTRAN/RESULT"])["UNAVAILABLE_RESULTS"] = "SPC_FORCE,MPC_FORCE"
+    _reference_write_records(file, "/REFERENCE/RESULT/DOMAINS", domains; version=20200)
+    _reference_write_grid_weight(file, results)
+    _reference_write_records(file, "/REFERENCE/RESULT/SUMMARY/EIGENVALUE", eigen_rows)
+    _reference_write_records(file, "/INDEX/REFERENCE/RESULT/SUMMARY/EIGENVALUE", eigen_index)
+    _reference_write_nodal_table(file,"/REFERENCE/RESULT/NODAL/EIGENVECTOR",results["id_map"],vectors)
+    attributes(file["/REFERENCE/RESULT"])["COORDINATE_FRAME"] = "BASIC_GLOBAL"
+    attributes(file["/REFERENCE/RESULT"])["UNAVAILABLE_RESULTS"] = "SPC_FORCE,MPC_FORCE"
 end
 
-function _msc_write_sol105_legacy_results(file, results)
+function _reference_write_sol105_legacy_results(file, results)
     eigenvalues = collect(get(results, "eigenvalues", Float64[]))
     mode_shapes = get(results, "_raw_mode_shapes", zeros(0, 0))
     ownership = _sol105_legacy_mode_ownership(results)
-    domains = _MSCResultDomainRec[
-        _MSCResultDomainRec(1,0,0,0,0.0,0.0,0,0,0,0,0,0,0,0,0,0),
-        _MSCResultDomainRec(2,ownership.static_sid,0,1,0.0,0.0,0,0,0,0,0,0,0,0,0,0)]
-    eigen_rows = _MSCEigenvalueRec[]
-    eigen_index = _MSCIndexRec[]
+    domains = _REFERENCEResultDomainRec[
+        _REFERENCEResultDomainRec(1,0,0,0,0.0,0.0,0,0,0,0,0,0,0,0,0,0),
+        _REFERENCEResultDomainRec(2,ownership.static_sid,0,1,0.0,0.0,0,0,0,0,0,0,0,0,0,0)]
+    eigen_rows = _REFERENCEEigenvalueRec[]
+    eigen_index = _REFERENCEIndexRec[]
     vector_start = 3+length(eigenvalues)
     for (i,eig) in enumerate(eigenvalues)
         sid=ownership.buckling_sids[i]; mode=ownership.modes[i]; domain=i+2
-        push!(domains,_MSCResultDomainRec(domain,sid,0,0,0.0,0.0,mode,0,0,0,0,0,0,0,0,0))
-        push!(eigen_rows,_MSCEigenvalueRec(mode,mode,eig,0.0,0.0,0.0,0.0,0,0,domain))
-        push!(eigen_index,_MSCIndexRec(domain,i-1,1))
+        push!(domains,_REFERENCEResultDomainRec(domain,sid,0,0,0.0,0.0,mode,0,0,0,0,0,0,0,0,0))
+        push!(eigen_rows,_REFERENCEEigenvalueRec(mode,mode,eig,0.0,0.0,0.0,0.0,0,0,domain))
+        push!(eigen_index,_REFERENCEIndexRec(domain,i-1,1))
     end
     for (i,eig) in enumerate(eigenvalues)
-        push!(domains,_MSCResultDomainRec(vector_start+i-1,ownership.buckling_sids[i],0,8,eig,0.0,ownership.modes[i],0,0,0,0,0,0,0,0,0))
+        push!(domains,_REFERENCEResultDomainRec(vector_start+i-1,ownership.buckling_sids[i],0,8,eig,0.0,ownership.modes[i],0,0,0,0,0,0,0,0,0))
     end
-    _msc_write_records(file, "/NASTRAN/RESULT/DOMAINS", domains; version=20200)
-    _msc_write_grid_weight(file, results)
-    _msc_write_records(file, "/NASTRAN/RESULT/SUMMARY/EIGENVALUE", eigen_rows)
-    _msc_write_records(file, "/INDEX/NASTRAN/RESULT/SUMMARY/EIGENVALUE", eigen_index)
+    _reference_write_records(file, "/REFERENCE/RESULT/DOMAINS", domains; version=20200)
+    _reference_write_grid_weight(file, results)
+    _reference_write_records(file, "/REFERENCE/RESULT/SUMMARY/EIGENVALUE", eigen_rows)
+    _reference_write_records(file, "/INDEX/REFERENCE/RESULT/SUMMARY/EIGENVALUE", eigen_index)
     if haskey(results, "u_static")
         u_basic=_export_rotate_vector!(similar(results["u_static"]),results["u_static"],results["id_map"],get(results,"node_R",nothing))
-        disp_rows = _msc_nodal_rows_from_vector(results["id_map"], u_basic, 2)
-        _msc_write_records(file, "/NASTRAN/RESULT/NODAL/DISPLACEMENT", disp_rows; version=1)
-        _msc_write_records(file, "/INDEX/NASTRAN/RESULT/NODAL/DISPLACEMENT", [_MSCIndexRec(2, 0, length(disp_rows))])
+        disp_rows = _reference_nodal_rows_from_vector(results["id_map"], u_basic, 2)
+        _reference_write_records(file, "/REFERENCE/RESULT/NODAL/DISPLACEMENT", disp_rows; version=1)
+        _reference_write_records(file, "/INDEX/REFERENCE/RESULT/NODAL/DISPLACEMENT", [_REFERENCEIndexRec(2, 0, length(disp_rows))])
 
-        static_load_id = _msc_static_load_id(results,Dict("sid"=>ownership.static_sid))
+        static_load_id = _reference_static_load_id(results,Dict("sid"=>ownership.static_sid))
         static_domain = Int64(2)
-        _msc_write_nodal_table(file, "/NASTRAN/RESULT/NODAL/APPLIED_LOAD", results["id_map"],
-            [(static_domain, _msc_applied_load_vector(results, static_load_id))])
-        attributes(file["/NASTRAN/RESULT/NODAL/APPLIED_LOAD"])["SOURCE"] = "FORCE_AND_MOMENT_ONLY"
+        _reference_write_nodal_table(file, "/REFERENCE/RESULT/NODAL/APPLIED_LOAD", results["id_map"],
+            [(static_domain, _reference_applied_load_vector(results, static_load_id))])
+        attributes(file["/REFERENCE/RESULT/NODAL/APPLIED_LOAD"])["SOURCE"] = "FORCE_AND_MOMENT_ONLY"
     end
-    evec_rows, evec_index = _msc_eigenvector_rows(results["id_map"], mode_shapes, vector_start)
-    _msc_write_records(file, "/NASTRAN/RESULT/NODAL/EIGENVECTOR", evec_rows; version=1)
-    _msc_write_records(file, "/INDEX/NASTRAN/RESULT/NODAL/EIGENVECTOR", evec_index)
+    evec_rows, evec_index = _reference_eigenvector_rows(results["id_map"], mode_shapes, vector_start)
+    _reference_write_records(file, "/REFERENCE/RESULT/NODAL/EIGENVECTOR", evec_rows; version=1)
+    _reference_write_records(file, "/INDEX/REFERENCE/RESULT/NODAL/EIGENVECTOR", evec_index)
 
-    attributes(file["/NASTRAN/RESULT"])["COORDINATE_FRAME"] = "BASIC_GLOBAL"
-    attributes(file["/NASTRAN/RESULT"])["UNAVAILABLE_RESULTS"] = "ELEMENTAL,SPC_FORCE,MPC_FORCE"
-    attributes(file["/NASTRAN/RESULT"])["SUBCASE_ID_SOURCE"] = ownership.inferred ? "LEGACY_DEFAULT_OR_EXPLICIT_IDS" : "MODE_METADATA"
+    attributes(file["/REFERENCE/RESULT"])["COORDINATE_FRAME"] = "BASIC_GLOBAL"
+    attributes(file["/REFERENCE/RESULT"])["UNAVAILABLE_RESULTS"] = "ELEMENTAL,SPC_FORCE,MPC_FORCE"
+    attributes(file["/REFERENCE/RESULT"])["SUBCASE_ID_SOURCE"] = ownership.inferred ? "LEGACY_DEFAULT_OR_EXPLICIT_IDS" : "MODE_METADATA"
 end
 
-function _msc_write_sol105_results(file, results)
+function _reference_write_sol105_results(file, results)
     br = get(results, "buckling", nothing)
-    br === nothing && return _msc_write_sol105_legacy_results(file, results)
-    domains = _MSCResultDomainRec[
-        _MSCResultDomainRec(1, 0, 0, 0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
-    eigen_rows = _MSCEigenvalueRec[]
-    eigen_index = _MSCIndexRec[]
+    br === nothing && return _reference_write_sol105_legacy_results(file, results)
+    domains = _REFERENCEResultDomainRec[
+        _REFERENCEResultDomainRec(1, 0, 0, 0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
+    eigen_rows = _REFERENCEEigenvalueRec[]
+    eigen_index = _REFERENCEIndexRec[]
     # Store each static state once even when several METHODs use its STATSUB.
     static_domains = Dict{Int,Int}()
     static_vectors = Tuple{Int64,Vector{Float64}}[]
@@ -2423,48 +2423,48 @@ function _msc_write_sol105_results(file, results)
         if !haskey(static_domains, static_sid)
             domain = length(domains) + 1
             static_domains[static_sid] = domain
-            push!(domains, _MSCResultDomainRec(domain, static_sid, 0, 1, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+            push!(domains, _REFERENCEResultDomainRec(domain, static_sid, 0, 1, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
             u_global = _export_rotate_vector!(similar(sc.u_static), sc.u_static,
                 state.id_map, state.node_R)
             push!(static_vectors, (domain, u_global))
-            load_id = _msc_static_load_id(results, Dict("sid" => static_sid))
-            push!(applied_vectors, (domain, _msc_applied_load_vector(results, load_id)))
+            load_id = _reference_static_load_id(results, Dict("sid" => static_sid))
+            push!(applied_vectors, (domain, _reference_applied_load_vector(results, load_id)))
         end
         length(sc.reported_eigenvalues) == size(sc.reported_mode_shapes, 2) ||
             throw(DimensionMismatch("SOL105 subcase $(sc.buckling_subcase_id) eigenvalue/vector counts differ"))
         for (mode, eig) in enumerate(sc.reported_eigenvalues)
             summary_domain = length(domains) + 1
-            push!(domains, _MSCResultDomainRec(summary_domain, sc.buckling_subcase_id, 0, 0,
+            push!(domains, _REFERENCEResultDomainRec(summary_domain, sc.buckling_subcase_id, 0, 0,
                 0.0, 0.0, mode, 0, 0, 0, 0, 0, 0, 0, 0, 0))
             # Buckling factors are dimensionless; modal frequency and mass
             # fields have no physical meaning in this analysis.
-            push!(eigen_index, _MSCIndexRec(summary_domain, length(eigen_rows), 1))
-            push!(eigen_rows, _MSCEigenvalueRec(mode, mode, eig, 0.0, 0.0, 0.0, 0.0, 0, 0, summary_domain))
+            push!(eigen_index, _REFERENCEIndexRec(summary_domain, length(eigen_rows), 1))
+            push!(eigen_rows, _REFERENCEEigenvalueRec(mode, mode, eig, 0.0, 0.0, 0.0, 0.0, 0, 0, summary_domain))
             vector_domain = length(domains) + 1
-            push!(domains, _MSCResultDomainRec(vector_domain, sc.buckling_subcase_id, 0, 8,
+            push!(domains, _REFERENCEResultDomainRec(vector_domain, sc.buckling_subcase_id, 0, 8,
                 eig, 0.0, mode, 0, 0, 0, 0, 0, 0, 0, 0, 0))
             push!(mode_vectors, (vector_domain, view(sc.reported_mode_shapes, :, mode)))
         end
     end
-    _msc_write_records(file, "/NASTRAN/RESULT/DOMAINS", domains; version=20200)
-    _msc_write_grid_weight(file, results)
-    _msc_write_records(file, "/NASTRAN/RESULT/SUMMARY/EIGENVALUE", eigen_rows)
-    _msc_write_records(file, "/INDEX/NASTRAN/RESULT/SUMMARY/EIGENVALUE", eigen_index)
-    _msc_write_nodal_table(file, "/NASTRAN/RESULT/NODAL/DISPLACEMENT", results["id_map"], static_vectors)
-    _msc_write_nodal_table(file, "/NASTRAN/RESULT/NODAL/APPLIED_LOAD", results["id_map"], applied_vectors)
+    _reference_write_records(file, "/REFERENCE/RESULT/DOMAINS", domains; version=20200)
+    _reference_write_grid_weight(file, results)
+    _reference_write_records(file, "/REFERENCE/RESULT/SUMMARY/EIGENVALUE", eigen_rows)
+    _reference_write_records(file, "/INDEX/REFERENCE/RESULT/SUMMARY/EIGENVALUE", eigen_index)
+    _reference_write_nodal_table(file, "/REFERENCE/RESULT/NODAL/DISPLACEMENT", results["id_map"], static_vectors)
+    _reference_write_nodal_table(file, "/REFERENCE/RESULT/NODAL/APPLIED_LOAD", results["id_map"], applied_vectors)
     if !isempty(applied_vectors)
-        attributes(file["/NASTRAN/RESULT/NODAL/APPLIED_LOAD"])["SOURCE"] = "FORCE_AND_MOMENT_ONLY"
+        attributes(file["/REFERENCE/RESULT/NODAL/APPLIED_LOAD"])["SOURCE"] = "FORCE_AND_MOMENT_ONLY"
     end
-    _msc_write_nodal_table(file, "/NASTRAN/RESULT/NODAL/EIGENVECTOR", results["id_map"], mode_vectors)
+    _reference_write_nodal_table(file, "/REFERENCE/RESULT/NODAL/EIGENVECTOR", results["id_map"], mode_vectors)
     # Do not publish invented zero stresses/reactions as solved results.
-    attributes(file["/NASTRAN/RESULT"])["COORDINATE_FRAME"] = "BASIC_GLOBAL"
-    attributes(file["/NASTRAN/RESULT"])["UNAVAILABLE_RESULTS"] = "ELEMENTAL,SPC_FORCE,MPC_FORCE"
+    attributes(file["/REFERENCE/RESULT"])["COORDINATE_FRAME"] = "BASIC_GLOBAL"
+    attributes(file["/REFERENCE/RESULT"])["UNAVAILABLE_RESULTS"] = "ELEMENTAL,SPC_FORCE,MPC_FORCE"
 end
 
-function export_nastran_hdf5(filename, output_dir, results; suffix=".h5")
+function export_reference_hdf5(filename, output_dir, results; suffix=".h5")
     _export_validate_node_map(results["id_map"])
-    sol = _msc_i64(get(results,"sol_type",0))
-    sol in (101,103,105,106) || error("MSC/Nastran-like HDF5 export is not implemented for SOL $sol")
+    sol = _reference_i64(get(results,"sol_type",0))
+    sol in (101,103,105,106) || error("Reference-like HDF5 export is not implemented for SOL $sol")
     if sol == 105
         _export_validate_sol105_states(results)
     elseif sol == 103
@@ -2482,20 +2482,20 @@ function export_nastran_hdf5(filename, output_dir, results; suffix=".h5")
         end
     end
     h5_path = joinpath(output_dir, _export_base_name(filename) * suffix)
-    println("\n>>> Exporting MSC/Nastran-like compact HDF5: $h5_path")
+    println("\n>>> Exporting Reference-like compact HDF5: $h5_path")
     _export_ensure_parent_dir!(h5_path)
     h5open(_export_fs_path(h5_path), "w") do file
-        _msc_write_common_attrs(file, results, filename)
-        _msc_write_input_tables(file, results["model"])
-        sol_type = _msc_i64(get(results, "sol_type", 0))
+        _reference_write_common_attrs(file, results, filename)
+        _reference_write_input_tables(file, results["model"])
+        sol_type = _reference_i64(get(results, "sol_type", 0))
         if sol_type == 101 || sol_type == 106
-            _msc_write_sol101_results(file, results)
+            _reference_write_sol101_results(file, results)
         elseif sol_type == 103
-            _msc_write_sol103_results(file, results)
+            _reference_write_sol103_results(file, results)
         elseif sol_type == 105
-            _msc_write_sol105_results(file, results)
+            _reference_write_sol105_results(file, results)
         else
-            error("MSC/Nastran-like HDF5 export is not implemented for SOL $sol_type")
+            error("Reference-like HDF5 export is not implemented for SOL $sol_type")
         end
     end
     println("  HDF5 exported: $h5_path")
@@ -3227,10 +3227,10 @@ function _export_shell_vonmises(model, shell_stresses, stresses)
         for (id, element) in get(model, "CSHELLs", Dict())
             eid = _export_entry_public_id(id, element)
             push!(shell_ids, eid)
-            prop = _msc_model_value_by_id(properties, get(element, "PID", 0))
+            prop = _reference_model_value_by_id(properties, get(element, "PID", 0))
             if prop !== nothing && get(prop, "TYPE", "") == "PCOMP_CLT"
                 # Full rows contain only the first and last ply midplanes.
-                value = stresses isa AbstractDict ? _msc_model_value_by_id(stresses, eid) : nothing
+                value = stresses isa AbstractDict ? _reference_model_value_by_id(stresses, eid) : nothing
                 if value isa Real && isfinite(value) && value >= 0
                     values[eid] = value
                 else
@@ -3598,7 +3598,25 @@ end
 function export_sol105_json(filename, output_dir, results)
     _export_validate_sol105_states(results)
     br = get(results, "buckling", nothing)
+    options = get(() -> _sol105_output_options(get(results,"model",Dict())), results, "output_options")
+    incidence = _buckling_property_incidence(get(results,"model",Dict()))
     if br === nothing
+        if options["compact"]
+            ownership = _sol105_legacy_mode_ownership(results)
+            payload = Dict{String,Any}("analysis_type"=>"SOL105_BUCKLING", "coordinate_frame"=>"BASIC_GLOBAL",
+                "output_options"=>options, "mode_shape_status"=>"omitted_compact",
+                "eigenvalues"=>results["eigenvalues"],
+                "static_subcases"=>[Dict("static_subcase_id"=>ownership.static_sid)],
+                "modes"=>[Dict("mode_number"=>i,"eigenvalue"=>value,
+                    "static_subcase_id"=>ownership.static_sid,"buckling_subcase_id"=>ownership.buckling_sids[i],
+                    "subcase_mode_index"=>ownership.modes[i],
+                    "peak_translation"=>_buckling_peak_translation(view(results["_raw_mode_shapes"],:,i),results["id_map"],incidence))
+                    for (i,value) in enumerate(results["eigenvalues"])])
+            merge!(payload,_export_backend_metadata(results))
+            return _export_write_json(joinpath(output_dir,_export_base_name(filename)*".BUCKLING.JSON"),payload,2)
+        end
+        (options["energy_density"] || options["deformation_energy"]) && throw(ArgumentError(
+            "Element energy output requires structured SOL105 static states; legacy result has no retained production assembly context"))
         return export_buckling_json(filename, output_dir, results["eigenvalues"],
             results["_raw_mode_shapes"], results["id_map"];
             static_displacements=_static_disp_to_list(get(results, "u_static", nothing),
@@ -3613,13 +3631,32 @@ function export_sol105_json(filename, output_dir, results)
     end)
     payload = Dict{String,Any}(
         "analysis_type" => "SOL105_BUCKLING", "coordinate_frame" => "BASIC_GLOBAL",
-        "grid_id_order" => _msc_node_order(results["id_map"]),
+        "output_options" => options,
+        "mode_shape_status" => options["compact"] ? "omitted_compact" : "available",
         "eigenvalues" => [sc.reported_eigenvalues[mode] for (sc, mode) in mode_refs],
         "subcases" => [Dict("buckling_subcase_id" => sc.buckling_subcase_id,
             "static_subcase_id" => sc.static_subcase_id,
-            "eigenvalues" => copy(sc.reported_eigenvalues)) for sc in br.subcases],
-        "solver_diagnostics" => deepcopy(get(results, "solver_diagnostics", nothing)))
+            "eigenvalues" => copy(sc.reported_eigenvalues)) for sc in br.subcases])
     merge!(payload, _export_backend_metadata(results))
+    if options["compact"]
+        # Avoid constructing/exporting repeated GRID rows or recovering preload
+        # stresses. The original subcase reference stays attached after sorting.
+        payload["diagnostics_status"]="omitted_compact"
+        payload["modes"] = [Dict("mode_number"=>number,
+            "buckling_subcase_id"=>sc.buckling_subcase_id,"static_subcase_id"=>sc.static_subcase_id,
+            "subcase_mode_index"=>mode,"global_mode_source_index"=>source_indices[(sc.buckling_subcase_id,mode)],
+            "eigenvalue"=>sc.reported_eigenvalues[mode],
+            "peak_translation"=>_buckling_peak_translation(view(sc.reported_mode_shapes,:,mode),
+                _sol105_export_state(results,sc).id_map,incidence))
+            for (number,(sc,mode)) in enumerate(mode_refs)]
+        payload["static_subcases"] = [Dict("static_subcase_id"=>sid) for sid in unique(sc.static_subcase_id for sc in br.subcases)]
+        _export_write_json(path,payload,2)
+        println(">>> Compact buckling JSON exported: $path")
+        return
+    end
+    payload["grid_id_order"]=_reference_node_order(results["id_map"])
+    payload["solver_diagnostics"]=deepcopy(get(results,"solver_diagnostics",nothing))
+    energies = options["energy_density"] || options["deformation_energy"] ? _sol105_element_energy!(results) : Dict{Int,Any}()
     sanitize!(payload)
     _export_ensure_parent_dir!(path)
     open(_export_fs_path(path), "w") do stream
@@ -3629,7 +3666,7 @@ function export_sol105_json(filename, output_dir, results)
         write(io, SubString(metadata, 1, prevind(metadata, lastindex(metadata))))
         print(io, ",\"modes\":[")
         number = 0
-        node_orders = Dict(sc.static_subcase_id => _msc_node_order(_sol105_export_state(results, sc).id_map)
+        node_orders = Dict(sc.static_subcase_id => _reference_node_order(_sol105_export_state(results, sc).id_map)
             for sc in br.subcases)
         for (sc, mode) in mode_refs
             state = _sol105_export_state(results, sc)
@@ -3647,6 +3684,12 @@ function export_sol105_json(filename, output_dir, results)
             _export_json_float(io, Float64(_export_finite(eig)))
             print(io, ",\"mode_shape\":")
             _export_json_nodal_vector(io, view(sc.reported_mode_shapes, :, mode), state.id_map, node_order)
+            print(io, ",\"peak_translation\":")
+            JSON.print(io,_buckling_peak_translation(view(sc.reported_mode_shapes,:,mode),state.id_map,incidence))
+            if haskey(energies,sc.static_subcase_id)
+                print(io, ",\"element_energy\":")
+                JSON.print(io,energies[sc.static_subcase_id].modes[(sc.buckling_subcase_id,mode)])
+            end
             write(io, UInt8('}'))
         end
         print(io, "],\"static_subcases\":[")
@@ -3658,7 +3701,11 @@ function export_sol105_json(filename, output_dir, results)
             state = _sol105_export_state(results, sc)
             global_u = _export_rotate_vector!(similar(sc.u_static), sc.u_static, state.id_map, state.node_R)
             print(io, "{\"static_subcase_id\":", sc.static_subcase_id, ",\"static_displacements\":")
-            _export_json_nodal_vector(io, global_u, state.id_map, _msc_node_order(state.id_map))
+            _export_json_nodal_vector(io, global_u, state.id_map, _reference_node_order(state.id_map))
+            if haskey(energies,sc.static_subcase_id)
+                print(io, ",\"element_energy\":")
+                JSON.print(io,energies[sc.static_subcase_id].preload)
+            end
             static_result = _sol105_static_results!(results, sc.static_subcase_id)
             if static_result !== nothing
                 print(io, ",\"static_result\":")
@@ -3671,6 +3718,7 @@ function export_sol105_json(filename, output_dir, results)
                 static_export["result_requests"] = Dict(key => subcase_result_request_enabled(sub_ctrl, key)
                     for key in ("DISPLACEMENT", "SPCFORCES", "FORCE", "STRESS", "STRAIN"))
                 static_export["solver_diagnostics"] = deepcopy(static_result["solver_diagnostics"])
+                haskey(energies,sc.static_subcase_id) && (static_export["element_energy"]=energies[sc.static_subcase_id].preload)
                 sanitize!(static_export)
                 JSON.print(io, static_export)
             end
@@ -3683,7 +3731,7 @@ function export_sol105_json(filename, output_dir, results)
             state = _sol105_export_state(results, sc)
             global_u = _export_rotate_vector!(similar(sc.u_static), sc.u_static, state.id_map, state.node_R)
             print(io, ",\"static_displacements\":")
-            _export_json_nodal_vector(io, global_u, state.id_map, _msc_node_order(state.id_map))
+            _export_json_nodal_vector(io, global_u, state.id_map, _reference_node_order(state.id_map))
         end
         write(io, UInt8('}'))
         flush(io)

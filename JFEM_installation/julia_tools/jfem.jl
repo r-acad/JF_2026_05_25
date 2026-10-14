@@ -69,6 +69,9 @@ function _usage()
       r  REPORT.md (markdown)          h  HDF5
       s  results JSON (summary)        m  model JSON dump
                                        c  card inventory
+      b  SOL105 compact eigenvalue + peak-GRID/property JSON (suppresses j/v/h/s vectors)
+      e  SOL105 element deformation energy (adds JSON)
+      d  SOL105 element energy density (adds JSON; b takes precedence)
       Omit the -string for the default set:  -jrs  (.jfem + report + JSON).
 
     examples:
@@ -79,32 +82,7 @@ function _usage()
     """)
 end
 
-# --- output-format letters ---------------------------------------------------
-# Map each letter to the OpenJFEM.main keyword it enables. Order is irrelevant.
-const _FORMAT_LETTERS = Dict(
-    'j' => :export_jfem_binary,   # .jfem binary (3D viewer)
-    'r' => :export_report,        # REPORT.md
-    's' => :export_json,          # results JSON (BUCKLING/JU/NONLINEAR per SOL)
-    'v' => :export_vtk,           # VTK
-    'h' => :export_hdf5,          # HDF5
-    'm' => :export_model_json,    # model JSON dump
-    'c' => :export_card_inventory,# card inventory
-)
-const _DEFAULT_LETTERS = "jrs"   # what you get when no -string is given
-
-# Parse a "-letters" token into the set of enabled export kwargs.
-function _parse_format_letters(tok::AbstractString)
-    letters = lowercase(strip(tok))
-    startswith(letters, "-") && (letters = letters[2:end])
-    enabled = Dict{Symbol,Bool}(v => false for v in values(_FORMAT_LETTERS))
-    for ch in letters
-        haskey(_FORMAT_LETTERS, ch) ||
-            (println(stderr, "ERROR: unknown output-format letter '$ch' in \"$tok\". " *
-                             "Valid: $(join(sort(collect(keys(_FORMAT_LETTERS)))))"); exit(2))
-        enabled[_FORMAT_LETTERS[ch]] = true
-    end
-    return enabled
-end
+include(joinpath(@__DIR__, "jfem_output_formats.jl"))
 
 if isempty(ARGS) || ARGS[1] in ("-h", "--help", "help")
     _usage()
@@ -122,8 +100,12 @@ if !isempty(args) && startswith(args[1], "-")
     fmt_token = args[1]
     args = args[2:end]
 end
-const FORMATS = isempty(fmt_token) ?
-    _parse_format_letters(_DEFAULT_LETTERS) : _parse_format_letters(fmt_token)
+const FORMATS = try
+    isempty(fmt_token) ? _parse_format_letters(_DEFAULT_LETTERS) : _parse_format_letters(fmt_token)
+catch err
+    err isa ArgumentError || rethrow()
+    println(stderr,"ERROR: ",sprint(showerror,err));exit(2)
+end
 
 isempty(args) && (println(stderr, "ERROR: no input deck given."); _usage(); exit(1))
 
@@ -187,6 +169,9 @@ OpenJFEM.main(BDF_PATH;
     export_vtk=FORMATS[:export_vtk],
     export_hdf5=FORMATS[:export_hdf5],
     export_model_json=FORMATS[:export_model_json],
-    export_card_inventory=FORMATS[:export_card_inventory])
+    export_card_inventory=FORMATS[:export_card_inventory],
+    compact_buckling=FORMATS[:compact_buckling],
+    export_element_energy=FORMATS[:export_element_energy],
+    export_energy_density=FORMATS[:export_energy_density])
 
 println(stderr, "JFEM: done. Results in $OUT_DIR")

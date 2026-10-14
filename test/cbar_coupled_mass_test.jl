@@ -44,7 +44,7 @@ end
     @test minimum(eigvals(Symmetric(Matrix(M)))) >= -1e-14
     torsion=zeros(ndof);torsion[4:6:end].=1.
     @test iszero(norm(M*torsion))
-    # Documented native CBAR axial averaging (MSC Nastran 2023.2 Dynamic
+    # Documented native CBAR axial averaging (Reference 2023.2 Dynamic
     # Analysis User's Guide, p.26), independently reduced to the complete
     # two-element fixed/free axial characteristic polynomial.
     axial=[6*(ids[i]-1)+1 for i in (2,3)]

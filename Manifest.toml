@@ -435,7 +435,7 @@ version = "1.4.0"
     [deps.JSON.weakdeps]
     ArrowTypes = "31f734f8-188a-4ce0-8406-c8a06bd891cd"
 
-[[deps.JUNASTRAN]]
+[[deps.OpenJFEM]]
 deps = ["AlgebraicMultigrid", "Dates", "ForwardDiff", "HDF5", "HTTP", "IterativeSolvers", "JSON", "KrylovKit", "LinearAlgebra", "MsgPack", "NPZ", "PackageCompiler", "PrecompileTools", "Printf", "SparseArrays", "StaticArrays", "Statistics", "WriteVTK"]
 path = "."
 uuid = "5f27aa24-1c38-4f48-8d29-0194396c76b2"

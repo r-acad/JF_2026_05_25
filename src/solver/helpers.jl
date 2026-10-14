@@ -1,3 +1,17 @@
+# Structured stage instrumentation is active only inside a measured pipeline.
+function _measure_solver_stage(f,name,label)
+    host=parentmodule(@__MODULE__)
+    isdefined(host,:_pipeline_detail_measure!) || return f()
+    return getfield(host,:_pipeline_detail_measure!)(f,name,label)
+end
+macro solver_stage(name,label,definition)
+    definition isa Expr && definition.head==:function || error("@solver_stage requires a function definition")
+    signature,body=definition.args
+    return esc(Expr(:function,signature,:( _measure_solver_stage(()->begin $body end,$name,$label))))
+end
+_timed_factorization(f,args...;kwargs...) = _measure_solver_stage(
+    ()->f(args...;kwargs...),"factorization","Matrix factorization")
+
 # helpers.jl — Small utility functions for the solver
 
 function log_msg(message::String)
@@ -9,7 +23,7 @@ end
 
 # EIGB counts are independent signed requests. NEP estimates work for INV;
 # it is never the requested total eigenpair count (and SINV does not use the
-# estimate). MSC QRG EIGB defines omitted NDP/NDN as 3*NEP when NEP exists.
+# estimate). REFERENCE QRG EIGB defines omitted NDP/NDN as 3*NEP when NEP exists.
 # With SINV, blank NEP and blank counts retain its finite-range completeness
 # contract rather than inventing a one-mode request.
 function _resolve_eigb_request(entry, sid::Int)
@@ -521,11 +535,11 @@ end
     # Default OFF (2026-04-29). Wilson-Taylor incompatible membrane modes were
     # turned on in the static K to reduce shear-locking on bending-dominant
     # cases. Empirically they soften the static stiffness too much for the
-    # bending-prestress class of GAME cases and hurt the eigenvalue magnitudes
-    # against Nastran (HTP_launch first-eigenvalue rel err: 13.3% with bubbles
-    # vs 2.9% without; 3wp magnitudes also improve). Nastran's CQUAD4 (MacNeal
+    # bending-prestress class of validation cases and hurt the eigenvalue magnitudes
+    # against Reference (tail-box model first-eigenvalue rel err: 13.3% with bubbles
+    # vs 2.9% without; 3wp magnitudes also improve). Reference's CQUAD4 (MacNeal
     # lineage) does not include Wilson-Taylor membrane bubbles, so removing
-    # them brings JFEM closer to Nastran's static K. Re-enable with
+    # them brings JFEM closer to Reference's static K. Re-enable with
     # JFEM_SOL105_STATIC_MEMBRANE_INCOMP=true for the older default.
     return solver_env_bool("JFEM_SOL105_STATIC_MEMBRANE_INCOMP", false)
 end
@@ -535,15 +549,15 @@ end
 @inline function kg_match_static_membrane_operator_enabled()
     # Default OFF (2026-04-29). Previously this cascaded from USE_STATIC_K=true,
     # which silently switched Kg σ-recovery to the bubble-augmented (Wilson-
-    # Taylor) kinematic field. For bending-dominant prestress (e.g. the GAME
+    # Taylor) kinematic field. For bending-dominant prestress (e.g. the validation
     # 3wp cases) the WT bubble correction has comparable magnitude and opposite
     # sign to the compatible σ, so it flipped the σ sign and hence the buckling
-    # eigenvalue sign — Nastran returned λ ≈ +1.14, JFEM returned λ ≈ -0.20.
-    # The bubble σ matches K_static in JFEM's own internal element but Nastran's
+    # eigenvalue sign — Reference returned λ ≈ +1.14, JFEM returned λ ≈ -0.20.
+    # The bubble σ matches K_static in JFEM's own internal element but Reference's
     # CQUAD4 (MacNeal lineage) does not use the same internal modes, so the
-    # "matching" was consistent only with JFEM's element, not Nastran's.
+    # "matching" was consistent only with JFEM's element, not Reference's.
     # Reverting to compatible-only σ restores positive eigenvalue signs across
-    # all GAME 3wp subcases.
+    # all validation 3wp subcases.
     # Re-enable explicitly with JFEM_KG_MATCH_STATIC_MEMBRANE_OPERATOR=true.
     return solver_env_bool("JFEM_KG_MATCH_STATIC_MEMBRANE_OPERATOR", false)
 end
@@ -594,7 +608,7 @@ end
 
 @inline function q4_pcomp_kg_auto_g12_enabled()
     # Default off (2026-04-21 cleanup): heuristic auto-G12 axis selector was
-    # case-tuned and net-negative on GAME. Env override retained for probes.
+    # case-tuned and net-negative on validation. Env override retained for probes.
     return solver_env_bool("JFEM_Q4_PCOMP_KG_AUTO_G12", false)
 end
 
@@ -666,7 +680,7 @@ end
 
 @inline function q4_pcomp_kg_auto_curvature_scale()
     # Default 1.0 neutral (2026-04-21 cleanup): the 7.0 multiplier was a fudge
-    # factor tuned to a synthetic laminate family; net-negative on GAME.
+    # factor tuned to a synthetic laminate family; net-negative on validation.
     return max(solver_env_float("JFEM_Q4_PCOMP_KG_AUTO_CURVATURE_SCALE", 1.0), 0.0)
 end
 
@@ -1306,7 +1320,7 @@ end
 # ------------------------------------------------
 # Foundation for SOL105 buckling fix path #2 (per handover
 # HANDOVER_SOL105_SESSION_2026_04_21_PM.md §5.4 and memory record
-# project_htp_jacobian_gap_diagnostic_2026_04_21.md).
+# the Jacobian-gap diagnostic note).
 #
 # JFEM's current CQUAD4 stiffness assembly projects 3D corner coords onto a
 # single element-center tangent plane (the `lc` 4×2 matrix at
@@ -1314,8 +1328,8 @@ end
 # Naghdi-Reissner-Mindlin (Katili-Batoz-Ibrahimbegović 2018, "DKMQ24 for
 # composite structures") integrates over the true curved mid-surface with
 # a DIFFERENT local tangent basis at each Gauss point. Diagnostic on
-# HTP_launch bad elements showed GP-local vs flat-projection Jacobian
-# differs by 0.8%/1.55% (mean/max) — accounts for 1-3pt of the 5-9% HTP
+# tail-box model bad elements showed GP-local vs flat-projection Jacobian
+# differs by 0.8%/1.55% (mean/max) — accounts for 1-3pt of the 5-9% tail-box
 # eigenvalue gap.
 #
 # `q4_curved_jacobian_enabled` env-gates the curved-integration path.  The
@@ -1328,7 +1342,7 @@ end
 # Note: the full NRM kinematic coupling (Koiter -b·w in ε, curvature in χ,
 # -b·u in γ) must be added together with the Jacobian change; partial NRM
 # breaks variational consistency (see
-# project_htp_curvature_coupling_overshoot_2026_04_21.md). The
+# the curvature-coupling diagnostic note). The
 # `q4_eig_curved_jacobian_enabled` flag gates all NRM terms in lockstep.
 
 @inline function q4_eig_curved_jacobian_enabled()

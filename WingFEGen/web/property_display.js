@@ -93,7 +93,7 @@
   const indices=new Map(categories.map(c=>[c.key,c.value]));let min=Infinity,max=-Infinity;
   for(const group of groups){const scalar=field.categorical?indices.get(group.value.key):group.value;min=Math.min(min,scalar);max=Math.max(max,scalar);for(const eid of group.eids)byId.set(Number(eid),scalar);}
   if(!byId.size)min=max=0;
-  let note=(data?.imported_deck?'Imported Nastran properties':'Generated FEM properties')+' · full element values; gray = not applicable or unavailable.';
+  let note=(data?.imported_deck?'Imported Reference properties':'Generated FEM properties')+' · full element values; gray = not applicable or unavailable.';
   if(field.sample)note+=' '+roles[settings.materialRole]+'. No equivalent sandwich elastic modulus or Poisson ratio is assumed.';
   if(field.id==='mean_density')note+=' Shell areal mass divided by total thickness; this is a mass average, not an elastic equivalent.';
   if(field.id==='beam_J')note+=' J is the torsion constant used by the deck, including its PBARL approximation.';

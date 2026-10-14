@@ -1,6 +1,6 @@
-# mystran_converter.jl — Convert MYSTRAN-format BDF files to NASTRAN format
+# mystran_converter.jl — Convert MYSTRAN-format BDF files to REFERENCE format
 
-function convert_mystran_to_nastran(lines::Vector{String})
+function convert_mystran_to_reference(lines::Vector{String})
     is_mystran = false
     for line in lines
         cl = strip(uppercase(line))
@@ -15,7 +15,7 @@ function convert_mystran_to_nastran(lines::Vector{String})
     end
 
     if is_mystran
-        println("[INFO] MYSTRAN format detected. Converting to NASTRAN format...")
+        println("[INFO] MYSTRAN format detected. Converting to REFERENCE format...")
     end
 
     # Permanent GRID/GRDSET constraints are now handled natively by the parser

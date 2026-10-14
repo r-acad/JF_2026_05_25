@@ -40,10 +40,63 @@
   if(loading.length)return "Loading the selected UIUC "+loading.join(" and ")+" airfoil coordinates. FEM generation resumes when selection completes.";
   return "Select a UIUC "+missing.join(" and ")+" airfoil in Airfoils: search the catalogue and click Use selected profile.";
  }
+ // The solver interpolates each surface linearly at fixed x/c. Differences
+ // and averages are therefore piecewise linear on the UNION of their knots;
+ // checking those knots finds their exact extrema, without a NACA assumption.
+ function tableOrdinate(xs,zs,x){
+  if(x<=xs[0])return zs[0];if(x>=xs.at(-1))return zs.at(-1);
+  let lo=0,hi=xs.length-1;while(hi-lo>1){const mid=(lo+hi)>>1;if(xs[mid]<=x)lo=mid;else hi=mid;}
+  const t=(x-xs[lo])/(xs[hi]-xs[lo]);return (1-t)*zs[lo]+t*zs[hi];
+ }
+ function profileMetrics(profile){
+  for(const [xkey,zkey]of[["xu","zu"],["xl","zl"]]){
+   const x=profile[xkey],z=profile[zkey];
+   if(!Array.isArray(x)||!Array.isArray(z)||x.length<3||x.length!==z.length||!x.every(Number.isFinite)||!z.every(Number.isFinite)||x.some((v,i)=>i&&v<=x[i-1])||Math.abs(x[0])>1e-10||Math.abs(x.at(-1)-1)>1e-10)throw Error("The preview needs finite, increasing unit-chord surface coordinates from x/c = 0 to 1.");
+  }
+  const xs=[...new Set([...profile.xu,...profile.xl])].sort((a,b)=>a-b),upper=xs.map(x=>tableOrdinate(profile.xu,profile.zu,x)),lower=xs.map(x=>tableOrdinate(profile.xl,profile.zl,x)),thickness=upper.map((z,i)=>z-lower[i]),camber=upper.map((z,i)=>(z+lower[i])/2),tol=1e-12;
+  if(Math.min(...thickness)<-1e-8)throw Error("Upper and lower airfoil surfaces cross.");
+  function extrema(values,absolute=false){
+   const scores=absolute?values.map(Math.abs):values,value=Math.max(...scores),locations=[];
+   for(let i=0;i<xs.length;i++)if(Math.abs(scores[i]-value)<=tol){
+    const last=locations.at(-1);if(last&&last.lastIndex===i-1&&Math.abs(values[i]-values[i-1])<=tol){last.end=xs[i];last.lastIndex=i;}else locations.push({start:xs[i],end:xs[i],lastIndex:i});
+   }
+   const index=scores.findIndex(v=>Math.abs(v-value)<=tol);
+   return {value,signedValue:values[index],x:xs[index],locations:locations.map(({start,end})=>({start,end})),zero:value<=tol};
+  }
+  return {xs,upper,lower,thickness,camber,maxThickness:extrema(thickness),maxCamber:extrema(camber,true)};
+ }
+ const interpolationHelp="Between adjacent stations eta_i and eta_j, t=(eta−eta_i)/(eta_j−eta_i). At fixed x/c, blend upper and lower z/c separately: z=(1−w)z_i+w z_j. Linear: w=t. Cosine: w=(1−cos(pi*t))/2. Both reproduce the station profiles. Cosine has zero blend slope at each station; Linear has constant blend rate within an interval and can change slope at a station. Chord, twist and planform transformations follow the section blend.";
+ const measurementHelp="Measurements use the plotted surface tables, linearly interpolated at a common x/c. Thickness t/c=z_upper/c−z_lower/c is perpendicular to the chord; the midcamber line is m/c=(z_upper/c+z_lower/c)/2. Maximum camber is the largest absolute chordwise midline ordinate, reported with its sign. Extrema are exact for these sampled, piecewise-linear tables, not an analytic fit or thickness normal to the curved midline. UIUC coordinates use the sampled leading edge to trailing-edge midpoint as unit chord; NACA uses its generating unit chord.";
+ function locationLabel(extremum){
+  if(extremum.zero)return "all x/c (zero throughout)";
+  const fmt=x=>x.toFixed(4),parts=extremum.locations.map(p=>p.start===p.end?fmt(p.start):fmt(p.start)+"–"+fmt(p.end));
+  return parts.length>3?parts.slice(0,3).join(", ")+" … ("+parts.length+" tied locations)":parts.join(", ");
+ }
  function plot(profile){
-  const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");svg.setAttribute("viewBox","-.03 -.22 1.06 .40");svg.setAttribute("role","img");svg.setAttribute("aria-label",profile.name+" normalized section profile");
-  const path=document.createElementNS(svg.namespaceURI,"path"),points=[...profile.xu.map((x,i)=>[x,-profile.zu[i]]).reverse(),...profile.xl.map((x,i)=>[x,-profile.zl[i]])];
-  path.setAttribute("d",points.map(([x,y],i)=>(i?"L":"M")+x+","+y).join(" ")+" Z");svg.appendChild(path);return svg;
+  const metrics=profileMetrics(profile),svg=document.createElementNS("http://www.w3.org/2000/svg","svg"),blue="#79c2eb",green="#a4deb0",muted="#8fa7b9",t=metrics.maxThickness,m=metrics.maxCamber;
+  const yMin=-Math.max(...metrics.upper,...metrics.lower),yMax=-Math.min(...metrics.upper,...metrics.lower),top=yMin-.155,bottom=yMax+.215;
+  svg.setAttribute("viewBox",[-.06,top,1.12,bottom-top].join(" "));svg.setAttribute("role","img");svg.setAttribute("class","airfoil-section-plot");svg.setAttribute("aria-label",(profile.name||profile.id||"Airfoil")+"; maximum thickness "+(100*t.value).toFixed(2)+"% of chord at x/c "+locationLabel(t)+"; maximum absolute camber "+(100*m.signedValue).toFixed(2)+"% of chord at "+locationLabel(m));
+  function node(tag,attrs={},text){const el=document.createElementNS(svg.namespaceURI,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,v);if(text!==undefined)el.textContent=text;svg.append(el);return el;}
+  node("title",{},(profile.name||profile.id||"Airfoil")+" — sampled section dimensions");node("desc",{},measurementHelp);
+  const path=(points,attrs)=>node("path",{d:points.map(([x,y],i)=>(i?"L":"M")+x+","+y).join(" "),fill:"none","stroke-width":1.2,"vector-effect":"non-scaling-stroke",...attrs});
+  const line=(x1,y1,x2,y2,color,cls,dashed=false)=>node("line",{x1,y1,x2,y2,stroke:color,"stroke-width":1,"vector-effect":"non-scaling-stroke",class:cls,...(dashed?{"stroke-dasharray":"3 3"}:{})});
+  const label=(x,y,text,color,cls,anchor="start")=>node("text",{x,y,fill:color,"font-size":.031,"font-family":"system-ui, sans-serif","text-anchor":anchor,class:cls,"data-snap-ignore":"true"},text);
+  const points=[...profile.xu.map((x,i)=>[x,-profile.zu[i]]).reverse(),...profile.xl.map((x,i)=>[x,-profile.zl[i]])];
+  const outline=path(points,{class:"airfoil-outline",stroke:blue,fill:"#79c2eb22"});outline.setAttribute("d",outline.getAttribute("d")+" Z");
+  line(0,0,1,0,muted,"airfoil-chord",true);
+  path(metrics.xs.map((x,i)=>[x,-metrics.camber[i]]),{class:"airfoil-midcamber",stroke:green,"stroke-dasharray":"5 3"});
+  function vertical(x,ya,yb,color,cls){line(x,ya,x,yb,color,cls);for(const y of[ya,yb])line(x-.012,y,x+.012,y,color,cls);}
+  vertical(t.x,-tableOrdinate(profile.xu,profile.zu,t.x),-tableOrdinate(profile.xl,profile.zl,t.x),blue,"airfoil-thickness-dimension");
+  if(!m.zero)vertical(m.x,0,-m.signedValue,green,"airfoil-camber-dimension");
+  label(.0,yMin-.102,"Max thickness t/c = "+(100*t.value).toFixed(2)+"%",blue,"airfoil-thickness-label");
+  const oppositeTies=!m.zero&&metrics.camber.some(v=>Math.abs(v+m.signedValue)<=1e-12);
+  label(.0,yMin-.047,m.zero?"Midcamber m/c = 0 (symmetric section)":oppositeTies?"Max |m|/c = "+(100*m.value).toFixed(2)+"% (±)":"Max camber m/c = "+(m.signedValue<0?"−":"+")+(100*m.value).toFixed(2)+"%",green,"airfoil-camber-label");
+  function stationDimension(extremum,y,color,cls,symbol){
+   if(!extremum.zero){line(0,y,extremum.x,y,color,cls);for(const x of[0,extremum.x])line(x,y-.009,x,y+.009,color,cls);line(extremum.x,yMax+.01,extremum.x,y,color,cls,true);}
+   label(.0,y+.044,symbol+" = "+locationLabel(extremum),color,cls+"-label");
+  }
+  stationDimension(t,yMax+.048,blue,"airfoil-thickness-station","x_t/c");stationDimension(m,yMax+.132,green,"airfoil-camber-station","x_m/c");
+  svg.airfoilMetrics=metrics;return svg;
  }
  function install(host,{onEdit,onHelp,onViewChange,isLocked=()=>false}={}){
   if(host.__wingAirfoils)return host.__wingAirfoils;
@@ -52,9 +105,9 @@
   const listen=(target,type,fn)=>{target?.addEventListener(type,fn);const remove=()=>{target?.removeEventListener(type,fn);listeners.delete(remove);};listeners.add(remove);return remove;};
   const nacaOptions=()=>({n:nInput?Number(nInput.value):121,closed:closedInput?closedInput.checked:true});
   const intro=element("p","group-note","Define root, tip and optional intermediate sections. Each section is drawn immediately. Intermediate eta is the fraction of semi-span; the selected interpolation blends adjacent sections. Saved UIUC coordinates work offline.");
-  host.insertBefore(intro,host.children[1]||null);const help=element("button","mini","?");help.type="button";help.title="Help: airfoil sources";help.setAttribute("aria-label",help.title);intro.append(" ",help);
-  const interpolation=doc.getElementById("row-airfoil.interpolation");if(interpolation)intro.insertAdjacentElement("afterend",interpolation);
-  help.onclick=()=>onHelp?.({title:"Airfoil sources",paragraphs:["Root and tip define eta 0 and 1. Add intermediate sections at distinct eta values strictly between 0 and 1. Each may use a NACA 4/5 digit code or embedded UIUC coordinates. Valid rows are saved in eta order.","Section interpolation applies separately between each adjacent pair of sections. Cosine varies the blend smoothly and flattens its slope at section stations; Linear retains a constant blend rate within each interval. Planform and twist are applied to the resulting section.","NACA previews use the same thickness-normal-to-camber construction, cosine point spacing and monotone surface tables as the generator. Section points and Closed trailing edge apply only to NACA profiles. The preview updates while typing, before any mesh is built.","Switching to UIUC opens the chooser if no coordinates are embedded. Search by filename, select a profile and press Use selected profile. Browse reopens the chooser to change an existing selection. Saved coordinates include their source provenance and need no network when reopened.","Drawing navigation, background images and SVG export work independently for each section. Image alignment stays with its section when eta is edited or another section is removed.",sourcePage]});
+  host.insertBefore(intro,host.children[1]||null);const help=element("button","mini","?");help.type="button";help.title="Define root, tip and intermediate sections with NACA codes or embedded UIUC coordinates. Spanwise interpolation blends the upper and lower ordinates separately between stations. Click for interpolation equations, profile measurements and offline storage details.";help.setAttribute("aria-label","Help: airfoil sources");intro.append(" ",help);
+  const interpolation=doc.getElementById("row-airfoil.interpolation");if(interpolation){intro.insertAdjacentElement("afterend",interpolation);const select=interpolation.querySelector("select");if(select){select.title=interpolationHelp;for(const option of select.options)option.title=option.value==="cosine"?"w=(1−cos(pi*t))/2; zero blend slope at both section stations.":"w=t; constant blend slope within each station interval.";}}
+  help.onclick=()=>onHelp?.({title:"Airfoil sources and dimensions",paragraphs:["Root and tip define eta 0 and 1. Add intermediate sections at distinct eta values strictly between 0 and 1. Each may use a NACA 4/5 digit code or embedded UIUC coordinates. Valid rows are saved in eta order.",interpolationHelp,measurementHelp,"NACA previews use the same thickness-normal-to-camber construction, cosine point spacing and monotone surface tables as the generator. The measured chordwise thickness may differ slightly from the nominal thickness in the NACA code. Section points and Closed trailing edge apply only to NACA profiles. The preview updates while typing, before any mesh is built.","Switching to UIUC opens the chooser if no coordinates are embedded. Search by filename, select a profile and press Use selected profile. Browse reopens the chooser to change an existing selection. Saved coordinates include their source provenance and need no network when reopened.","Drawing navigation, background images and SVG export work independently for each section. Image alignment stays with its section when eta is edited or another section is removed.",sourcePage]});
   function updateNacaOptions(){const allUiuc=allCards.length&&allCards.every(c=>c.source.value==="uiuc");for(const key of["n_points","closed_trailing_edge"]){const row=doc.getElementById("row-airfoil."+key);if(row)row.hidden=allUiuc;}}
   function createCard({station,label,source,stored,code,sourceRow,codeRow,storedRow,change,header}){
    const card=element("fieldset","airfoil-source-editor"),legend=element("legend","",label);card.id="airfoil-"+station+"-card";card.append(legend);if(header)card.append(header);
@@ -71,12 +124,12 @@
    function describe(force=false){
     const signature=source.value+"|"+code.value+"|"+nInput?.value+"|"+closedInput?.checked+"|"+stored.value;
     if(!force&&signature===previewSignature)return;previewSignature=signature;
-    let profile,error="";try{profile=source.value==="naca"?nacaProfile(code.value,nacaOptions()):parsed(stored);if(!profile)error="Select a UIUC "+label.toLowerCase()+" airfoil: search the catalogue and click Use selected profile.";}catch(e){error=label+": "+e.message;}
+    let profile,error="";try{profile=source.value==="naca"?nacaProfile(code.value,nacaOptions()):parsed(stored);if(!profile)error="Select a UIUC "+label.toLowerCase()+" airfoil: search the catalogue and click Use selected profile.";else profileMetrics(profile);}catch(e){error=label+": "+e.message;}
     card.dataset.invalidMessage=error;
     if(viewport){savedView=viewport.capture();viewport.destroy();viewport=null;}selected.replaceChildren();
     if(error){selected.append(element("p","airfoil-preview-error",error));return;}
     selected.append(element("strong","",profile.name||profile.id));
-    selected.append(element("p","pick-note",(profile.id||profile.name)+" | "+(profile.xu.length+profile.xl.length-1)+" points"+(Number.isFinite(profile.thickness_ratio)?" | "+(100*profile.thickness_ratio).toFixed(2)+"% thickness":"")));
+    selected.append(element("p","pick-note",(profile.id||profile.name)+" | "+(profile.xu.length+profile.xl.length-1)+" points | unit chord"));
     const canvas=element("div","airfoil-preview-canvas"),svg=plot(profile);svg.dataset.viewKey=previewKey;canvas.append(svg);selected.append(canvas);
     viewport=globalThis.WingSVGViewport?.install(svg,{host:canvas,snapSelector:"path",title:label,exportName:previewKey+".svg",onChange:onViewChange});viewport?.setMetric?.({origin:{x:0,y:0},x:{x:1,y:0},y:{x:0,y:-1},unit:"c",gridSpacing:.1});if(savedView)viewport?.restore(savedView);
     if(profile.warning)selected.append(element("p","airfoil-preview-warning",profile.warning));
@@ -148,5 +201,5 @@
   for(const card of allCards)card.update();validate();updateNacaOptions();
   const api={refresh,readDrafts:()=>({[STATIONS_KEY]:drafts()}),assertValidDraft(){const message=selectionMessage(doc);if(message)throw Error(message);},destroy(){destroyed=true;for(const remove of listeners)remove();for(const card of allCards)card.destroy();stationEditor?.remove();intro.remove();delete host.__wingAirfoils;}};host.__wingAirfoils=api;return api;
  }
- return{install,plot,selectionMessage,nacaProfile,STATIONS_KEY,MAX_STATIONS};
+ return{install,plot,profileMetrics,tableOrdinate,locationLabel,interpolationHelp,measurementHelp,selectionMessage,nacaProfile,STATIONS_KEY,MAX_STATIONS};
 });

@@ -3,24 +3,24 @@
 function extract_props_shell(cards)
     d = Dict()
     for c in cards
-        pid = to_id(parse_nastran_number(safe_get(c, 3)))
-        mid = to_id(parse_nastran_number(safe_get(c, 4)))
-        t = parse_nastran_number(safe_get(c, 5), 0.0)
-        # MID2 = field 5 (c[6]): blank → membrane-only (Nastran V70.5: blank MID2 = no bending stiffness)
+        pid = to_id(parse_reference_number(safe_get(c, 3)))
+        mid = to_id(parse_reference_number(safe_get(c, 4)))
+        t = parse_reference_number(safe_get(c, 5), 0.0)
+        # MID2 = field 5 (c[6]): blank → membrane-only (Reference V70.5: blank MID2 = no bending stiffness)
         # 12I/T^3 = field 6 (c[7]), MID3 = field 7 (c[8]), TS/T = field 8 (c[9]), NSM = field 9 (c[10])
-        mid2_val = parse_nastran_number(safe_get(c, 6), nothing)
+        mid2_val = parse_reference_number(safe_get(c, 6), nothing)
         mid2_blank = isnothing(mid2_val) || mid2_val == 0
         mid2 = mid2_blank ? 0 : to_id(mid2_val)
-        bend_ratio = mid2_blank ? 0.0 : parse_nastran_number(safe_get(c, 7), 1.0)  # 12I/T^3, default=1.0
-        mid3_val = parse_nastran_number(safe_get(c, 8), nothing)
+        bend_ratio = mid2_blank ? 0.0 : parse_reference_number(safe_get(c, 7), 1.0)  # 12I/T^3, default=1.0
+        mid3_val = parse_reference_number(safe_get(c, 8), nothing)
         mid3 = (isnothing(mid3_val) || mid3_val == 0) ? 0 : to_id(mid3_val)
-        ts_t = parse_nastran_number(safe_get(c, 9), 5.0/6.0)    # TS/T, default=5/6
-        nsm = parse_nastran_number(safe_get(c, 10), 0.0)        # NSM, non-structural mass per area
-        z1_value = parse_nastran_number(safe_get(c, 11), nothing)
-        z2_value = parse_nastran_number(safe_get(c, 12), nothing)
+        ts_t = parse_reference_number(safe_get(c, 9), 5.0/6.0)    # TS/T, default=5/6
+        nsm = parse_reference_number(safe_get(c, 10), 0.0)        # NSM, non-structural mass per area
+        z1_value = parse_reference_number(safe_get(c, 11), nothing)
+        z2_value = parse_reference_number(safe_get(c, 12), nothing)
         z1 = isnothing(z1_value) ? -0.5 * t : z1_value
         z2 = isnothing(z2_value) ?  0.5 * t : z2_value
-        mid4_val = parse_nastran_number(safe_get(c, 13), nothing)
+        mid4_val = parse_reference_number(safe_get(c, 13), nothing)
         mid4 = (isnothing(mid4_val) || mid4_val == 0) ? 0 : to_id(mid4_val)
         d[string(pid)] = Dict{String,Any}(
             "PID"=>pid,
@@ -60,21 +60,23 @@ end
 function extract_pbarl(cards)
     d = Dict()
     for c in cards
-        pid = to_id(parse_nastran_number(safe_get(c, 3)))
-        mid = to_id(parse_nastran_number(safe_get(c, 4)))
+        pid = to_id(parse_reference_number(safe_get(c, 3)))
+        mid = to_id(parse_reference_number(safe_get(c, 4)))
         group = uppercase(strip(string(safe_get(c, 5, ""))))
         type = uppercase(strip(string(safe_get(c, 6, ""))))
         dim_start_idx = 7
         # GROUP and TYPE are separate fields. Accept the legacy compact form
         # with TYPE in the GROUP slot only when the following field is numeric.
-        if !isempty(group) && parse_nastran_number(type, nothing) !== nothing
+        if !isempty(group) && parse_reference_number(type, nothing) !== nothing
             type = group; group = ""; dim_start_idx = 6
         end
-        group in ("", "MSCBML0", "MSCBML1") || throw(ArgumentError("PBARL $pid: unsupported section GROUP $group"))
+        # Standard beam-library 0/1 aliases use a three-letter vendor prefix.
+        # The actual section formulation is selected by TYPE, not that prefix.
+        (isempty(group) || occursin(r"^[A-Z]{3}BML[01]$", group)) || throw(ArgumentError("PBARL $pid: unsupported section GROUP $group"))
         isempty(type) && throw(ArgumentError("PBARL $pid requires a section TYPE"))
         numeric_values = Float64[]
         for k in dim_start_idx:length(c)
-            val = parse_nastran_number(safe_get(c, k), nothing)
+            val = parse_reference_number(safe_get(c, k), nothing)
             if isa(val, Number)
                 push!(numeric_values, Float64(val))
             end
@@ -118,7 +120,7 @@ function extract_pbarl(cards)
         elseif type == "BAR" && length(dims) >= 2
             w = dims[1]; h = dims[2]
             A = w * h
-            # NASTRAN BAR: DIM1=z-extent, DIM2=y-extent
+            # REFERENCE BAR: DIM1=z-extent, DIM2=y-extent
             # I1 = Iz (Plane 1) = DIM1*DIM2^3/12;  I2 = Iy (Plane 2) = DIM2*DIM1^3/12
             I1 = w * h^3 / 12
             I2 = h * w^3 / 12
@@ -214,26 +216,26 @@ end
 function extract_pbar(cards)
     d = Dict()
     for c in cards
-        pid = to_id(parse_nastran_number(safe_get(c, 3)))
-        mid = to_id(parse_nastran_number(safe_get(c, 4)))
-        A   = parse_nastran_number(safe_get(c, 5), 0.0)
-        I1  = parse_nastran_number(safe_get(c, 6), 0.0)
-        I2  = parse_nastran_number(safe_get(c, 7), 0.0)
-        J   = parse_nastran_number(safe_get(c, 8), 0.0)
-        NSM = parse_nastran_number(safe_get(c, 9), 0.0)
+        pid = to_id(parse_reference_number(safe_get(c, 3)))
+        mid = to_id(parse_reference_number(safe_get(c, 4)))
+        A   = parse_reference_number(safe_get(c, 5), 0.0)
+        I1  = parse_reference_number(safe_get(c, 6), 0.0)
+        I2  = parse_reference_number(safe_get(c, 7), 0.0)
+        J   = parse_reference_number(safe_get(c, 8), 0.0)
+        NSM = parse_reference_number(safe_get(c, 9), 0.0)
         # Stress recovery points on continuation line 1 (indices 11-18)
-        C1 = parse_nastran_number(safe_get(c, 11), 0.0)
-        C2 = parse_nastran_number(safe_get(c, 12), 0.0)
-        D1 = parse_nastran_number(safe_get(c, 13), 0.0)
-        D2 = parse_nastran_number(safe_get(c, 14), 0.0)
-        E1 = parse_nastran_number(safe_get(c, 15), 0.0)
-        E2 = parse_nastran_number(safe_get(c, 16), 0.0)
-        F1 = parse_nastran_number(safe_get(c, 17), 0.0)
-        F2 = parse_nastran_number(safe_get(c, 18), 0.0)
+        C1 = parse_reference_number(safe_get(c, 11), 0.0)
+        C2 = parse_reference_number(safe_get(c, 12), 0.0)
+        D1 = parse_reference_number(safe_get(c, 13), 0.0)
+        D2 = parse_reference_number(safe_get(c, 14), 0.0)
+        E1 = parse_reference_number(safe_get(c, 15), 0.0)
+        E2 = parse_reference_number(safe_get(c, 16), 0.0)
+        F1 = parse_reference_number(safe_get(c, 17), 0.0)
+        F2 = parse_reference_number(safe_get(c, 18), 0.0)
         # Second continuation: K1, K2, I12
-        K1 = parse_nastran_number(safe_get(c, 19), 0.0)
-        K2 = parse_nastran_number(safe_get(c, 20), 0.0)
-        I12 = parse_nastran_number(safe_get(c, 21), 0.0)
+        K1 = parse_reference_number(safe_get(c, 19), 0.0)
+        K2 = parse_reference_number(safe_get(c, 20), 0.0)
+        I12 = parse_reference_number(safe_get(c, 21), 0.0)
         if pid > 0
             d[string(pid)] = Dict{String,Any}(
                 "PID"=>pid, "MID"=>mid, "A"=>Float64(A),
@@ -251,25 +253,25 @@ end
 function extract_pbeam(cards)
     d = Dict()
     for c in cards
-        pid = to_id(parse_nastran_number(safe_get(c, 3)))
-        mid = to_id(parse_nastran_number(safe_get(c, 4)))
+        pid = to_id(parse_reference_number(safe_get(c, 3)))
+        mid = to_id(parse_reference_number(safe_get(c, 4)))
 
         # Station A properties (fields 5-10)
-        A_a   = Float64(parse_nastran_number(safe_get(c, 5), 0.0))
-        I1_a  = Float64(parse_nastran_number(safe_get(c, 6), 0.0))
-        I2_a  = Float64(parse_nastran_number(safe_get(c, 7), 0.0))
-        I12_a = Float64(parse_nastran_number(safe_get(c, 8), 0.0))
-        J_a   = Float64(parse_nastran_number(safe_get(c, 9), 0.0))
+        A_a   = Float64(parse_reference_number(safe_get(c, 5), 0.0))
+        I1_a  = Float64(parse_reference_number(safe_get(c, 6), 0.0))
+        I2_a  = Float64(parse_reference_number(safe_get(c, 7), 0.0))
+        I12_a = Float64(parse_reference_number(safe_get(c, 8), 0.0))
+        J_a   = Float64(parse_reference_number(safe_get(c, 9), 0.0))
 
         # Station A stress recovery (fields 11-18)
-        C1_a = Float64(parse_nastran_number(safe_get(c, 11), 0.0))
-        C2_a = Float64(parse_nastran_number(safe_get(c, 12), 0.0))
-        D1_a = Float64(parse_nastran_number(safe_get(c, 13), 0.0))
-        D2_a = Float64(parse_nastran_number(safe_get(c, 14), 0.0))
-        E1_a = Float64(parse_nastran_number(safe_get(c, 15), 0.0))
-        E2_a = Float64(parse_nastran_number(safe_get(c, 16), 0.0))
-        F1_a = Float64(parse_nastran_number(safe_get(c, 17), 0.0))
-        F2_a = Float64(parse_nastran_number(safe_get(c, 18), 0.0))
+        C1_a = Float64(parse_reference_number(safe_get(c, 11), 0.0))
+        C2_a = Float64(parse_reference_number(safe_get(c, 12), 0.0))
+        D1_a = Float64(parse_reference_number(safe_get(c, 13), 0.0))
+        D2_a = Float64(parse_reference_number(safe_get(c, 14), 0.0))
+        E1_a = Float64(parse_reference_number(safe_get(c, 15), 0.0))
+        E2_a = Float64(parse_reference_number(safe_get(c, 16), 0.0))
+        F1_a = Float64(parse_reference_number(safe_get(c, 17), 0.0))
+        F2_a = Float64(parse_reference_number(safe_get(c, 18), 0.0))
 
         stations = Dict{String,Any}[
             Dict{String,Any}(
@@ -291,22 +293,22 @@ function extract_pbeam(cards)
         while k + 7 <= length(c)
             so_raw = uppercase(strip(string(safe_get(c, k, ""))))
             if so_raw == "YES" || so_raw == "YESA" || so_raw == "NO"
-                x_b = Float64(parse_nastran_number(safe_get(c, k+1), 1.0))
-                A_b   = Float64(parse_nastran_number(safe_get(c, k+2), A_a))
-                I1_b  = Float64(parse_nastran_number(safe_get(c, k+3), I1_a))
-                I2_b  = Float64(parse_nastran_number(safe_get(c, k+4), I2_a))
-                I12_b = Float64(parse_nastran_number(safe_get(c, k+5), I12_a))
-                J_b   = Float64(parse_nastran_number(safe_get(c, k+6), J_a))
+                x_b = Float64(parse_reference_number(safe_get(c, k+1), 1.0))
+                A_b   = Float64(parse_reference_number(safe_get(c, k+2), A_a))
+                I1_b  = Float64(parse_reference_number(safe_get(c, k+3), I1_a))
+                I2_b  = Float64(parse_reference_number(safe_get(c, k+4), I2_a))
+                I12_b = Float64(parse_reference_number(safe_get(c, k+5), I12_a))
+                J_b   = Float64(parse_reference_number(safe_get(c, k+6), J_a))
                 # Stress recovery for this station (8 more fields)
                 if k + 15 <= length(c)
-                    C1_b = Float64(parse_nastran_number(safe_get(c, k+8),  0.0))
-                    C2_b = Float64(parse_nastran_number(safe_get(c, k+9),  0.0))
-                    D1_b = Float64(parse_nastran_number(safe_get(c, k+10), 0.0))
-                    D2_b = Float64(parse_nastran_number(safe_get(c, k+11), 0.0))
-                    E1_b = Float64(parse_nastran_number(safe_get(c, k+12), 0.0))
-                    E2_b = Float64(parse_nastran_number(safe_get(c, k+13), 0.0))
-                    F1_b = Float64(parse_nastran_number(safe_get(c, k+14), 0.0))
-                    F2_b = Float64(parse_nastran_number(safe_get(c, k+15), 0.0))
+                    C1_b = Float64(parse_reference_number(safe_get(c, k+8),  0.0))
+                    C2_b = Float64(parse_reference_number(safe_get(c, k+9),  0.0))
+                    D1_b = Float64(parse_reference_number(safe_get(c, k+10), 0.0))
+                    D2_b = Float64(parse_reference_number(safe_get(c, k+11), 0.0))
+                    E1_b = Float64(parse_reference_number(safe_get(c, k+12), 0.0))
+                    E2_b = Float64(parse_reference_number(safe_get(c, k+13), 0.0))
+                    F1_b = Float64(parse_reference_number(safe_get(c, k+14), 0.0))
+                    F2_b = Float64(parse_reference_number(safe_get(c, k+15), 0.0))
                 end
                 push!(stations, Dict{String,Any}(
                     "X"=>x_b, "A"=>A_b, "I1"=>I1_b, "I2"=>I2_b,
@@ -324,22 +326,22 @@ function extract_pbeam(cards)
         # default is K1 = K2 = 1.0 (shear-flexible; unlike PBAR, whose blank
         # K1/K2 omit shear flexibility). An explicit 0.0 still selects the
         # rigid-shear limit downstream (As -> Inf), matching the reference.
-        K1 = Float64(parse_nastran_number(safe_get(c, k),   1.0))
-        K2 = Float64(parse_nastran_number(safe_get(c, k+1), 1.0))
-        S1 = Float64(parse_nastran_number(safe_get(c, k+2), 0.0))
-        S2 = Float64(parse_nastran_number(safe_get(c, k+3), 0.0))
-        NSIA = Float64(parse_nastran_number(safe_get(c, k+4), 0.0))
-        NSIB = Float64(parse_nastran_number(safe_get(c, k+5), 0.0))
-        CWA = Float64(parse_nastran_number(safe_get(c, k+6), 0.0))
-        CWB = Float64(parse_nastran_number(safe_get(c, k+7), 0.0))
-        M1A = Float64(parse_nastran_number(safe_get(c, k+8), 0.0))
-        M2A = Float64(parse_nastran_number(safe_get(c, k+9), 0.0))
-        M1B = Float64(parse_nastran_number(safe_get(c, k+10), 0.0))
-        M2B = Float64(parse_nastran_number(safe_get(c, k+11), 0.0))
-        N1A = Float64(parse_nastran_number(safe_get(c, k+12), 0.0))
-        N2A = Float64(parse_nastran_number(safe_get(c, k+13), 0.0))
-        N1B = Float64(parse_nastran_number(safe_get(c, k+14), 0.0))
-        N2B = Float64(parse_nastran_number(safe_get(c, k+15), 0.0))
+        K1 = Float64(parse_reference_number(safe_get(c, k),   1.0))
+        K2 = Float64(parse_reference_number(safe_get(c, k+1), 1.0))
+        S1 = Float64(parse_reference_number(safe_get(c, k+2), 0.0))
+        S2 = Float64(parse_reference_number(safe_get(c, k+3), 0.0))
+        NSIA = Float64(parse_reference_number(safe_get(c, k+4), 0.0))
+        NSIB = Float64(parse_reference_number(safe_get(c, k+5), 0.0))
+        CWA = Float64(parse_reference_number(safe_get(c, k+6), 0.0))
+        CWB = Float64(parse_reference_number(safe_get(c, k+7), 0.0))
+        M1A = Float64(parse_reference_number(safe_get(c, k+8), 0.0))
+        M2A = Float64(parse_reference_number(safe_get(c, k+9), 0.0))
+        M1B = Float64(parse_reference_number(safe_get(c, k+10), 0.0))
+        M2B = Float64(parse_reference_number(safe_get(c, k+11), 0.0))
+        N1A = Float64(parse_reference_number(safe_get(c, k+12), 0.0))
+        N2A = Float64(parse_reference_number(safe_get(c, k+13), 0.0))
+        N1B = Float64(parse_reference_number(safe_get(c, k+14), 0.0))
+        N2B = Float64(parse_reference_number(safe_get(c, k+15), 0.0))
 
         # Average properties between station A and station B
         A_avg   = (A_a + A_b) / 2.0
@@ -374,7 +376,7 @@ function extract_pbeaml(cards)
     # stations require varying-section integration and cannot be flattened.
     cards = [Any[x for x in raw if !(x isa AbstractString && _is_continuation_marker(x))] for raw in cards]
     for c in cards
-        pid = to_id(parse_nastran_number(safe_get(c, 3)))
+        pid = to_id(parse_reference_number(safe_get(c, 3)))
         for k in 11:length(c)
             value = uppercase(strip(string(safe_get(c, k, ""))))
             value in ("YES", "YESA", "NO") &&
@@ -387,7 +389,7 @@ function extract_pbeaml(cards)
     end
     properties = extract_pbarl(cards)
     for c in cards
-        pid = to_id(parse_nastran_number(safe_get(c, 3)))
+        pid = to_id(parse_reference_number(safe_get(c, 3)))
         haskey(properties, string(pid)) || continue
         first_extra = 12 + length(properties[string(pid)]["DIMS"])
         any(k -> !isempty(strip(string(safe_get(c, k, "")))), first_extra:length(c)) &&
@@ -399,9 +401,9 @@ end
 function extract_pcomp(cards)
     d = Dict()
     for c in cards
-        pid  = to_id(parse_nastran_number(safe_get(c, 3)))
-        z0   = parse_nastran_number(safe_get(c, 4), nothing)
-        nsm  = parse_nastran_number(safe_get(c, 5), 0.0)
+        pid  = to_id(parse_reference_number(safe_get(c, 3)))
+        z0   = parse_reference_number(safe_get(c, 4), nothing)
+        nsm  = parse_reference_number(safe_get(c, 5), 0.0)
         # Field 10 (c[10]) is LAM (SYM, MEM, BEND, SMEAR, SMCORE)
         lam_field = strip(string(safe_get(c, 10, "")))
         is_sym = uppercase(lam_field) == "SYM"
@@ -410,9 +412,9 @@ function extract_pcomp(cards)
         plies = []
         k = 11
         while k + 3 <= length(c)
-            ply_mid   = to_id(parse_nastran_number(safe_get(c, k), 0))
-            ply_t     = parse_nastran_number(safe_get(c, k+1), 0.0)
-            ply_theta = parse_nastran_number(safe_get(c, k+2), 0.0)
+            ply_mid   = to_id(parse_reference_number(safe_get(c, k), 0))
+            ply_t     = parse_reference_number(safe_get(c, k+1), 0.0)
+            ply_theta = parse_reference_number(safe_get(c, k+2), 0.0)
             ply_sout  = strip(string(safe_get(c, k+3, "")))
             if ply_mid > 0 && ply_t > 0
                 push!(plies, Dict{String,Any}("MID"=>ply_mid, "T"=>Float64(ply_t),
@@ -446,12 +448,12 @@ end
 function extract_prod(cards)
     d = Dict()
     for c in cards
-        pid = to_id(parse_nastran_number(safe_get(c, 3)))
-        mid = to_id(parse_nastran_number(safe_get(c, 4)))
-        A   = parse_nastran_number(safe_get(c, 5), 0.0)
-        J   = parse_nastran_number(safe_get(c, 6), 0.0)
-        C   = parse_nastran_number(safe_get(c, 7), 0.0)
-        NSM = parse_nastran_number(safe_get(c, 8), 0.0)
+        pid = to_id(parse_reference_number(safe_get(c, 3)))
+        mid = to_id(parse_reference_number(safe_get(c, 4)))
+        A   = parse_reference_number(safe_get(c, 5), 0.0)
+        J   = parse_reference_number(safe_get(c, 6), 0.0)
+        C   = parse_reference_number(safe_get(c, 7), 0.0)
+        NSM = parse_reference_number(safe_get(c, 8), 0.0)
         if pid > 0
             d[string(pid)] = Dict{String,Any}("PID"=>pid, "MID"=>mid, "A"=>Float64(A), "J"=>Float64(J),
                                   "C"=>Float64(C), "NSM"=>Float64(NSM), "TYPE"=>"PROD")
@@ -463,10 +465,10 @@ end
 function extract_pshear(cards)
     d = Dict()
     for c in cards
-        pid = to_id(parse_nastran_number(safe_get(c, 3)))
-        mid = to_id(parse_nastran_number(safe_get(c, 4)))
-        t   = Float64(parse_nastran_number(safe_get(c, 5), 0.0))
-        nsm = Float64(parse_nastran_number(safe_get(c, 6), 0.0))
+        pid = to_id(parse_reference_number(safe_get(c, 3)))
+        mid = to_id(parse_reference_number(safe_get(c, 4)))
+        t   = Float64(parse_reference_number(safe_get(c, 5), 0.0))
+        nsm = Float64(parse_reference_number(safe_get(c, 6), 0.0))
         if pid > 0
             d[string(pid)] = Dict("PID"=>pid, "MID"=>mid, "T"=>t, "NSM"=>nsm, "TYPE"=>"PSHEAR")
         end
@@ -477,9 +479,9 @@ end
 function extract_pelas(cards)
     d = Dict()
     for c in cards
-        pid = to_id(parse_nastran_number(safe_get(c, 3)))
-        K   = Float64(parse_nastran_number(safe_get(c, 4), 0.0))
-        GE  = Float64(parse_nastran_number(safe_get(c, 5), 0.0))
+        pid = to_id(parse_reference_number(safe_get(c, 3)))
+        K   = Float64(parse_reference_number(safe_get(c, 4), 0.0))
+        GE  = Float64(parse_reference_number(safe_get(c, 5), 0.0))
         if pid > 0
             d[string(pid)] = Dict("PID"=>pid, "K"=>K, "GE"=>GE)
         end
@@ -490,8 +492,8 @@ end
 function extract_pmass(cards)
     d = Dict()
     for c in cards
-        pid  = to_id(parse_nastran_number(safe_get(c, 3)))
-        mass = Float64(parse_nastran_number(safe_get(c, 4), 0.0))
+        pid  = to_id(parse_reference_number(safe_get(c, 3)))
+        mass = Float64(parse_reference_number(safe_get(c, 4), 0.0))
         if pid > 0
             d[string(pid)] = Dict("PID"=>pid, "M"=>mass, "TYPE"=>"PMASS")
         end
@@ -506,7 +508,7 @@ end
 end
 
 function _eigen_request_positive_count(raw, card_name::AbstractString, sid::Integer, field_name::AbstractString)
-    parsed = parse_nastran_number(raw, nothing)
+    parsed = parse_reference_number(raw, nothing)
     if !(parsed isa Real) || !isfinite(parsed) || !isinteger(parsed) || parsed <= 0 || parsed > typemax(Int)
         error("$card_name SID=$sid has invalid $field_name=$(repr(raw)); expected a positive integer")
     end
@@ -521,7 +523,7 @@ function _eigrl_canonical_option_name(name::AbstractString)
 end
 
 function _eigrl_parse_option_value(raw)
-    parsed = parse_nastran_number(raw, nothing)
+    parsed = parse_reference_number(raw, nothing)
     if isnothing(parsed)
         return uppercase(strip(string(raw)))
     end
@@ -548,7 +550,7 @@ end
 function extract_eigrl(cards)
     d = Dict()
     for c in cards
-        sid = to_id(parse_nastran_number(safe_get(c, 3)))
+        sid = to_id(parse_reference_number(safe_get(c, 3)))
         sid <= 0 && continue
 
         opts = _eigrl_parse_options(c)
@@ -560,21 +562,21 @@ function extract_eigrl(cards)
         v2_specified = haskey(opts, "V2") || _eigen_request_field_is_specified(v2_field)
         nd_specified = haskey(opts, "ND") || _eigen_request_field_is_specified(nd_field)
 
-        v1_raw = haskey(opts, "V1") ? opts["V1"] : parse_nastran_number(v1_field, nothing)
-        v2_raw = haskey(opts, "V2") ? opts["V2"] : parse_nastran_number(v2_field, nothing)
-        nd_raw = haskey(opts, "ND") ? opts["ND"] : parse_nastran_number(nd_field, nothing)
-        msglvl_raw = haskey(opts, "MSGLVL") ? opts["MSGLVL"] : parse_nastran_number(safe_get(c, 7), nothing)
-        maxset_raw = haskey(opts, "MAXSET") ? opts["MAXSET"] : parse_nastran_number(safe_get(c, 8), nothing)
-        shfscl_raw = haskey(opts, "SHFSCL") ? opts["SHFSCL"] : parse_nastran_number(safe_get(c, 9), nothing)
+        v1_raw = haskey(opts, "V1") ? opts["V1"] : parse_reference_number(v1_field, nothing)
+        v2_raw = haskey(opts, "V2") ? opts["V2"] : parse_reference_number(v2_field, nothing)
+        nd_raw = haskey(opts, "ND") ? opts["ND"] : parse_reference_number(nd_field, nothing)
+        msglvl_raw = haskey(opts, "MSGLVL") ? opts["MSGLVL"] : parse_reference_number(safe_get(c, 7), nothing)
+        maxset_raw = haskey(opts, "MAXSET") ? opts["MAXSET"] : parse_reference_number(safe_get(c, 8), nothing)
+        shfscl_raw = haskey(opts, "SHFSCL") ? opts["SHFSCL"] : parse_reference_number(safe_get(c, 9), nothing)
 
         norm_field = uppercase(strip(string(safe_get(c, 10, ""))))
         norm_raw = haskey(opts, "NORM") ? uppercase(string(opts["NORM"])) : norm_field
 
-        v1 = Float64(isnothing(v1_raw) ? 0.0 : parse_nastran_number(v1_raw, 0.0))
-        v2 = Float64(isnothing(v2_raw) ? 0.0 : parse_nastran_number(v2_raw, 0.0))
+        v1 = Float64(isnothing(v1_raw) ? 0.0 : parse_reference_number(v1_raw, 0.0))
+        v2 = Float64(isnothing(v2_raw) ? 0.0 : parse_reference_number(v2_raw, 0.0))
         # Keep the legacy numeric default for callers that have not yet been
         # migrated, but preserve whether each field was actually present. In
-        # particular, blank ND has distinct Nastran semantics (for example,
+        # particular, blank ND has distinct Reference semantics (for example,
         # "all roots in V1..V2") and must not be confused with an explicit 3.
         nd = nd_specified ? _eigen_request_positive_count(nd_raw, "EIGRL", sid, "ND") : 3
 
@@ -588,9 +590,9 @@ function extract_eigrl(cards)
             "V2_SPECIFIED"=>v2_specified,
             "ND_SPECIFIED"=>nd_specified,
         )
-        !isnothing(msglvl_raw) && (entry["MSGLVL"] = to_id(parse_nastran_number(msglvl_raw, 0)))
-        !isnothing(maxset_raw) && (entry["MAXSET"] = to_id(parse_nastran_number(maxset_raw, 0)))
-        !isnothing(shfscl_raw) && (entry["SHFSCL"] = Float64(parse_nastran_number(shfscl_raw, 0.0)))
+        !isnothing(msglvl_raw) && (entry["MSGLVL"] = to_id(parse_reference_number(msglvl_raw, 0)))
+        !isnothing(maxset_raw) && (entry["MAXSET"] = to_id(parse_reference_number(maxset_raw, 0)))
+        !isnothing(shfscl_raw) && (entry["SHFSCL"] = Float64(parse_reference_number(shfscl_raw, 0.0)))
         !isempty(norm_raw) && (entry["NORM"] = norm_raw)
         !isempty(opts) && (entry["OPTIONS"] = opts)
         d[string(sid)] = entry
@@ -608,7 +610,7 @@ end
 function extract_eigb(cards)
     d = Dict()
     for c in cards
-        sid = to_id(parse_nastran_number(safe_get(c, 3)))
+        sid = to_id(parse_reference_number(safe_get(c, 3)))
         sid <= 0 && continue
 
         method = uppercase(strip(string(safe_get(c, 4, ""))))
@@ -619,8 +621,8 @@ function extract_eigb(cards)
         l2_specified = _eigen_request_field_is_specified(l2_field)
         nep_specified = _eigen_request_field_is_specified(nep_field)
 
-        l1_raw = parse_nastran_number(l1_field, nothing)
-        l2_raw = parse_nastran_number(l2_field, nothing)
+        l1_raw = parse_reference_number(l1_field, nothing)
+        l2_raw = parse_reference_number(l2_field, nothing)
         l1 = Float64(isnothing(l1_raw) ? 0.0 : l1_raw)
         l2 = Float64(isnothing(l2_raw) ? 0.0 : l2_raw)
         # EIGB does not share EIGRL's blank-ND semantics: NEP is an estimate
@@ -654,7 +656,7 @@ function extract_eigb(cards)
             specified = _eigen_request_field_is_specified(field)
             entry[key] = !specified ? nothing : key in ("NDP", "NDN") ?
                 _eigen_request_positive_count(field, "EIGB", sid, key) :
-                to_id(parse_nastran_number(field))
+                to_id(parse_reference_number(field))
             entry["$(key)_SPECIFIED"] = specified
         end
         norm_field = safe_get(c, 11, nothing)
@@ -669,12 +671,12 @@ end
 function extract_psolid(cards)
     d = Dict()
     for c in cards
-        pid   = to_id(parse_nastran_number(safe_get(c, 3)))
-        mid   = to_id(parse_nastran_number(safe_get(c, 4)))
-        cordm = to_id(parse_nastran_number(safe_get(c, 5), 0))
-        in_scheme  = to_id(parse_nastran_number(safe_get(c, 6), 0))
-        stress_loc = to_id(parse_nastran_number(safe_get(c, 7), 0))
-        isop  = to_id(parse_nastran_number(safe_get(c, 8), 0))
+        pid   = to_id(parse_reference_number(safe_get(c, 3)))
+        mid   = to_id(parse_reference_number(safe_get(c, 4)))
+        cordm = to_id(parse_reference_number(safe_get(c, 5), 0))
+        in_scheme  = to_id(parse_reference_number(safe_get(c, 6), 0))
+        stress_loc = to_id(parse_reference_number(safe_get(c, 7), 0))
+        isop  = to_id(parse_reference_number(safe_get(c, 8), 0))
         if pid > 0 && mid > 0
             d[string(pid)] = Dict("PID"=>pid, "MID"=>mid, "CORDM"=>cordm,
                 "IN"=>in_scheme, "STRESS"=>stress_loc, "ISOP"=>isop, "TYPE"=>"PSOLID")
@@ -686,7 +688,7 @@ end
 function extract_pbush(cards)
     d = Dict()
     for c in cards
-        pid = to_id(parse_nastran_number(safe_get(c, 3)))
+        pid = to_id(parse_reference_number(safe_get(c, 3)))
         # PBUSH format: PBUSH PID "K" K1 K2 K3 K4 K5 K6
         # Field 4 is the "K" keyword, fields 5-10 are stiffness values
         # But field 4 might be the keyword "K" (string) or the first stiffness value
@@ -694,10 +696,10 @@ function extract_pbush(cards)
         local K_vals::Vector{Float64}
         if uppercase(f4) == "K"
             # "K" keyword present — stiffness starts at field 5
-            K_vals = [Float64(parse_nastran_number(safe_get(c, 5+k), 0.0)) for k in 0:5]
+            K_vals = [Float64(parse_reference_number(safe_get(c, 5+k), 0.0)) for k in 0:5]
         else
             # No keyword — stiffness values start at field 4
-            K_vals = [Float64(parse_nastran_number(safe_get(c, 4+k), 0.0)) for k in 0:5]
+            K_vals = [Float64(parse_reference_number(safe_get(c, 4+k), 0.0)) for k in 0:5]
         end
         if pid > 0
             d[string(pid)] = Dict("PID"=>pid, "K"=>K_vals, "TYPE"=>"PBUSH")

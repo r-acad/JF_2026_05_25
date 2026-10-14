@@ -11,7 +11,7 @@
   "use strict";
   const UNITS = { m: 1, mm: 0.001, cm: 0.01, inch: 0.0254 };
   const HELP = [
-    "Load local STL, OBJ or self-contained GLB geometry to compare with the lifting surface. References stay in this browser session when Create FEM rebuilds the model. They are not FE elements and are not included in loads, analysis or Nastran export.",
+    "Load local STL, OBJ or self-contained GLB geometry to compare with the lifting surface. References stay in this browser session when Create FEM rebuilds the model. They are not FE elements and are not included in loads, analysis or Reference export.",
     "Choose the source units and axes. STL/OBJ default to metres and FE coordinates: x aft, y toward the tip, z up. GLB defaults to metres and Y up: file X maps to FE x, file Y to FE z, and file Z to negative FE y. Change these settings if the source uses another convention.",
     "Select Move, Rotate or Scale and drag the handles. Red is FE x, green FE y and blue FE z. Move/Rotate use global FE directions; Scale uses the reference's rotated directions. Numeric positions use metres, rotations use degrees (fixed x, then y, then z), and scales are dimensionless. Transforms act about the file origin; Reset restores its original placement.",
     "Lock placement protects the selected reference's position, rotation, scale, source units and source axes, including Reset and the transform handles. You can still select, fit, hide or change its appearance. Each reference has its own lock; unlock it before moving it again. Save Study or save its linked TOML settings to retain the lock. Older files load unlocked.",

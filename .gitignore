@@ -28,7 +28,7 @@ sysimage/
 POST/panel_runs/
 POST/PANDEATOR_APP/panel_runs/
 
-# Nastran/JFEM heavy run artifacts
+# Reference/JFEM heavy run artifacts
 *.f04
 *.f06
 *.log

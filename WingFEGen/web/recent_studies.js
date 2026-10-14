@@ -127,6 +127,7 @@
     function finishChoice(value) {const resolve=choiceResolve;choiceResolve=null;choicePromise=null;resolve?.(value);}
     function close() {hide();finishChoice(false);}
     async function deliver(file,context) {
+      if(options.onPreview && await options.onPreview(file,context)!==true)return false;
       const text=await file.text();hide();
       const result=await options.onOpen?.(file,context);
       if(result===false){if(choiceResolve){notice("The Study could not be loaded. Check the Study window and Log, then select another file or close this list.");await open();}return false;}
@@ -147,7 +148,7 @@
         return deliver(file,{id:row.id,handle,source:"disk"});
       });
     }
-    function snapshot(row) {return run(async()=>deliver(new host.File([await body(row)],row.name,{type:"application/json",lastModified:row.updatedAt}),{id:row.id,handle:row.handle,source:"snapshot"}));}
+    function snapshot(row) {return run(async()=>deliver(new host.File([await body(row)],row.name,{type:"application/json",lastModified:row.updatedAt}),{id:row.id,handle:row.handle,source:"snapshot",recordedAt:row.updatedAt}));}
     // Startup must never trigger a permission prompt or silently open a
     // different older project. Only the newest entry's disk/snapshot is used.
     let startupSettled=false;
@@ -232,6 +233,7 @@
         if(!row.persisted)item.append(el("strong","recent-study-session","Session only"));
         const actions=el("div","recent-study-actions");
         const actionButton=(label,action,cls,help)=>{const control=button(label,action,cls);control.title=help;control.setAttribute("aria-description",help);return control;};
+        if(options.onPreview)actions.append(actionButton("Show comments",()=>snapshot(row),"recent-study-comments","Preview the comments in this stored browser copy before deciding whether to load it. To review current disk comments, choose Open latest disk file."));
         if(row.handle)actions.append(actionButton("Open latest disk file",()=>disk(row),"recent-study-disk","Read the file from its linked folder now, including changes made outside this app. Use this for the most recent disk version. The browser may ask for file access."));
         actions.append(actionButton("Open stored copy",()=>snapshot(row),"recent-study-copy","Restore the browser copy captured at the date above. Useful if the file was moved or is unavailable, or to recover an autosave. Later disk changes are not included. This does not overwrite the disk file; Save Study lets you choose a destination."),actionButton("Relink file\u2026",()=>browse(row),"recent-study-relink","Locate this Study on your computer after moving or renaming it, or when browser access expired. Opens the chosen file and updates this entry's disk link and recovery copy. No disk file is changed."));
         const removeButton=button("Remove",()=>remove(row.id),"recent-study-remove");removeButton.title="Remove this recent entry only. The Study file on disk is not deleted.";actions.append(removeButton);

@@ -190,8 +190,8 @@
     }
     return candidates;
   }
-  function panelLabelCandidates(state,positions){
-    if(!state.panelView&&!state.panelExplosion?.active)return [];
+  function panelLabelCandidates(state,positions,show=true){
+    if(!show||!state.panelView&&!(state.panelExplosion?.active&&state.panelExplosion.by!=="property"))return [];
     const candidates=[];
     for(const panel of state.panelIndex?.panels||[]){
       let elements=panel.shell_eids.map(id=>state.elements.get(id)).filter(e=>e&&visibleElement(state,e));
@@ -249,17 +249,18 @@
       const showNodes = !!control("show-node-ids")?.checked, showElements = !!control("show-element-ids")?.checked;
       const showRibs = !!control("mesh-labels-ribs")?.checked;
       const showStringers = !!control("mesh-labels-stringers")?.checked;
-      const showPanels=!!state.panelView||!!state.panelExplosion?.active;
+      const showPanels=control("show-panel-ids")?.checked!==false&&(!!state.panelView||!!state.panelExplosion?.active&&state.panelExplosion.by!=="property");
       const showReactions=!!control("show-support-force-values")?.checked;
       const showCoordinates=!!control('show-coordinate-labels')?.checked;
       const showRbe3Dofs=!!control('show-rbe3-dofs')?.checked;
       const showSprings=!!control('show-celas-labels')?.checked;
+      const showMaterialAxes=!!control('show-material-axis-labels')?.checked&&!!state.layers.get('MATERIAL_AXES');
       const selected = state.elements.get(state.selectedElement);
       const size = Math.max(8, Math.min(24, Number(control("id-label-size")?.value) || 11));
       const width = canvas.clientWidth, height = canvas.clientHeight;
       const occluders = opaqueOccluders(scene);
       const occluderKey = occluders.map((mesh) => mesh.uniqueId + ":" + Array.from(mesh.computeWorldMatrix().m).join(",")).join(";");
-      const key = [width, height, showNodes, showElements, showRibs, showStringers, showPanels, showReactions,showCoordinates,showRbe3Dofs,showSprings,state.selectedCoordinate, size, state.selectedElement,
+      const key = [width, height, showNodes, showElements, showRibs, showStringers, showPanels, showReactions,showCoordinates,showRbe3Dofs,showSprings,showMaterialAxes,state.selectedCoordinate, size, state.selectedElement,
         occluderKey, ...scene.getTransformMatrix().m, ...Array.from(state.layers, ([, layer]) => +layer.visible)].join("|");
       const now = performance.now();
       if (!force && (!dirty && key === lastKey && state.data === lastData && positions === lastPositions || now - lastTime < 30)) return;
@@ -307,7 +308,9 @@
         const w = Math.ceil(Math.max(...lines.map(line=>ctx.measureText(line).width))) + 10, lineHeight=size+(picked?5:3),firstHeight=size+(picked?12:7),h=firstHeight+(lines.length-1)*lineHeight;
         const rect = { x: Math.max(2, Math.min(width - w - 2, point.x + 5)), y: Math.max(2, Math.min(height - h - 2, point.y - h - 3)), w, h };
         if (!picked && occupied(rect)) return false;
-        if (candidate && depthIndex().isOccluded(candidate, point)) { if (!picked) stats.occluded++; return false; }
+        // Coordinate definitions are reference overlays. Their shared origin
+        // may lie inside a closed shell although the defining axes are visible.
+        if (candidate && candidate.kind!=='coordinate' && depthIndex().isOccluded(candidate, point)) { if (!picked) stats.occluded++; return false; }
         occupied({ x: rect.x - 2, y: rect.y - 2, w: rect.w + 4, h: rect.h + 4 }, true);
         ctx.fillStyle = picked ? "#251d08" : "#08121ee8"; ctx.fillRect(rect.x, rect.y, w, h);
         ctx.strokeStyle = color; ctx.lineWidth = picked ? 2 : .65; ctx.strokeRect(rect.x, rect.y, w, h);
@@ -363,9 +366,12 @@
       }
       const coordinateLabels=typeof WingModelEntities!=='undefined'?WingModelEntities.coordinateCandidates(state,showCoordinates||state.selectedCoordinate!=null):[];
       const pickedCoordinate=coordinateLabels.find(row=>row.id===state.selectedCoordinate);
-      if(pickedCoordinate){const point=project(pickedCoordinate.point);if(point)badge(pickedCoordinate.text,point,COLORS.selected,true,pickedCoordinate);}
-      if (showNodes || showElements || showRibs || showStringers || showPanels || showReactions || showCoordinates || showRbe3Dofs || showSprings) {
-        const candidates = [...springLabels,...(globalThis.WingRbe3Labels?.candidates(state,positions,showRbe3Dofs)||[]),...(showCoordinates?coordinateLabels:[]),...(showReactions?supportValueCandidates(state):[]),...panelLabelCandidates(state,positions),...labelCandidates(state, positions, showNodes, showElements),
+      let coordinateSelected=false;
+      if(pickedCoordinate){const point=project(pickedCoordinate.point);if(point)coordinateSelected=badge(pickedCoordinate.text,point,COLORS.selected,true,pickedCoordinate);}
+      const coordinateGroups=showCoordinates?WingModelEntities.coordinateLabelGroups(coordinateLabels):[];
+      if (showNodes || showElements || showRibs || showStringers || showPanels || showReactions || showCoordinates || showRbe3Dofs || showSprings || showMaterialAxes) {
+        const materialLabels=showMaterialAxes?(state.materialAxisLabels||[]).filter(row=>{const el=state.elements.get(row.id);return el&&visibleElement(state,el);}).map(row=>({kind:'material-axis',id:row.id,ownEids:[row.id],point:displayedPoint(state,row.id,centroid(positions,row.nodes)),text:row.text,color:'#ffbfc6'})):[];
+        const candidates = [...materialLabels,...springLabels,...(globalThis.WingRbe3Labels?.candidates(state,positions,showRbe3Dofs)||[]),...coordinateGroups,...(showReactions?supportValueCandidates(state):[]),...panelLabelCandidates(state,positions,showPanels),...labelCandidates(state, positions, showNodes, showElements),
           ...physicalLabelCandidates(state, positions, showRibs, showStringers)].map((candidate) => ({ ...candidate, screen: project(candidate.point) }))
           .filter((item) => item.screen && item.screen.x >= 0 && item.screen.x <= width && item.screen.y >= 0 && item.screen.y <= height)
           .sort((a, b) => (b.kind==='panel')-(a.kind==='panel') || a.screen.z - b.screen.z);
@@ -373,9 +379,12 @@
         stats.panelsShown=[];
         stats.supportValuesShown=[];
         stats.springPropertiesShown=[];
+        stats.coordinateSystemsShown=[];
+        stats.materialAxesShown=[];
         for (const item of candidates) {
+          if(item.kind==='coordinate'&&coordinateSelected&&(item.ids||[item.id]).includes(state.selectedCoordinate)){stats.shown++;stats.coordinateSystemsShown.push(state.selectedCoordinate);continue;}
           if (["element","spring-label"].includes(item.kind) && item.id === state.selectedElement && stats.selected) { stats.shown++; if(item.kind==='spring-label')stats.springPropertiesShown.push(item.id);continue; }
-          if (badge(item.text, item.screen, item.color, false, item)){stats.shown++;if(item.kind==='panel')stats.panelsShown.push(item.id);if(item.kind==='reaction')stats.supportValuesShown.push(item.text);if(item.kind==='spring-label')stats.springPropertiesShown.push(item.id);}
+          if (badge(item.text, item.screen, item.color, false, item)){stats.shown++;if(item.kind==='material-axis')stats.materialAxesShown.push(item.id);if(item.kind==='panel')stats.panelsShown.push(item.id);if(item.kind==='reaction')stats.supportValuesShown.push(item.text);if(item.kind==='spring-label')stats.springPropertiesShown.push(item.id);if(item.kind==='coordinate')stats.coordinateSystemsShown.push(...(item.ids||[item.id]));}
         }
         stats.occlusion = occlusion && occlusion.metrics;
         setStatus(stats.shown + " / " + stats.eligible + " labels shown" + (stats.occluded ? " · labels behind opaque surfaces omitted" : "") + (stats.shown + stats.occluded < stats.eligible ? " · zoom in to separate overlapping labels" : ""));
@@ -386,7 +395,7 @@
       const host = control("id-label-status"); if (host) host.textContent = text;
     }
     legend();
-    for (const id of ["show-node-ids", "show-element-ids", "show-coordinate-labels", "show-rbe3-dofs", "show-celas-labels", "id-label-size", "mesh-labels-ribs", "mesh-labels-stringers", "show-support-force-values"]) {
+    for (const id of ["show-node-ids", "show-element-ids", "show-coordinate-labels", "show-rbe3-dofs", "show-celas-labels", "id-label-size", "mesh-labels-ribs", "mesh-labels-stringers", "show-panel-ids", "show-support-force-values"]) {
       const input = control(id); if (input) input.addEventListener("input", invalidate);
     }
     const observer = scene.onAfterRenderObservable.add(() => render());

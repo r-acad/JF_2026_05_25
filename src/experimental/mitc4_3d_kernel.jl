@@ -2,7 +2,7 @@
 #
 # MITC4-3D degenerate-solid Q4 development kernel family. RESEARCH only —
 # never default-on. Reached only via JFEM_Q4_KERNEL=mitc4_3d (or _all variants).
-# Memory: [[mitc4-3d-rule-out]] — VTP_3wp_strain regresses -35% if forced
+# Memory: [[mitc4-3d-rule-out]] — curved-shell model regresses -35% if forced
 # default, so this entire block is gated off by default.
 #
 # Moved out of FEMKernels.jl 2026-05-25 as part of architectural cleanup
@@ -420,8 +420,8 @@ ply-by-ply through-thickness material callbacks.
 # KERNEL: stiffness_quad4_mitc4_3d_resultant_matrices
 # STATUS: RESEARCH / RETAINED — director-based 3D degenerate-shell formulation
 #         (Bathe MITC4-3D). Last evaluated 2026-05-22 as global default →
-#         REJECTED (VTP_3wp_strain regressed −35%) but PARTIAL POSITIVE on
-#         HTP_3wp_strain (MAC 0.149 → 0.907). On master roadmap as future
+#         REJECTED (curved-shell model regressed −35%) but PARTIAL POSITIVE on
+#         tail-box model (MAC 0.149 → 0.907). On master roadmap as future
 #         capability — DO NOT DELETE.
 # DISPATCHED FROM: assembly.jl line ~3589 when elem_mitc4_3d_kernel (i.e.
 #         JFEM_Q4_KERNEL=mitc4_3d, default "macneal" — branch DEAD under default).

@@ -96,7 +96,7 @@ IterativeSolvers              0.9.4
 IteratorInterfaceExtensions   1.0.0
 JLLWrappers                   1.7.1
 JSON                          1.4.0
-JUNASTRAN                     0.1.0
+JUREFERENCE                     0.1.0
 Jieko                         0.2.1
 JuliaSyntaxHighlighting       (stdlib)
 Krylov                        0.10.5

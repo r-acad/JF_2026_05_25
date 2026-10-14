@@ -2,11 +2,32 @@
 
 Lifting surface FEGen is the finite-element generator and browser interface included
 with OpenJFEM. It generates shell/bar lifting surfaces, aerodynamic lattices and
-load cases, writes NASTRAN decks, launches the solver in this repository and
+load cases, writes REFERENCE decks, launches the solver in this repository and
 displays structural results and property sensitivities.
 
 The source directory, launchers, parameter keys and `.wingfem.json` file format
 retain their existing WingFEGen names for compatibility.
+
+The deck reader is **Read Reference** in Project. Its internal importer, parser,
+exporter and API identifiers also use Reference. Restart the application after
+updating; reimport external decks when reopening an older imported Study.
+
+**Display / Axes & labels** greys out rib and stringer labels when the model has
+no physical layout metadata. **Coordinate IDs and types** also enables the
+coordinate glyph layer. Coincident origins share a compact label; the coordinate
+selector identifies every CID, its type and parent frame separately. These
+reference labels remain visible when their origins lie inside opaque structure.
+Panel isolation has an independent **Panel IDs** toggle saved with the Study.
+A newly defined wet fuel tank is shown by default; an explicit hide is retained.
+Dry/vent bay inputs accept physical bay numbers and ranges such as `2,4-6`:
+bay `b` lies between ribs `Rb` and `R(b+1)` and contains no fuel capacity or mass.
+
+Airfoil previews dimension the maximum thickness and camber, relative to chord,
+and their `x/c` locations. The midcamber curve averages upper/lower ordinates at
+fixed `x/c`; extrema use the actual sampled piecewise-linear surfaces. Between
+stations, `t=(eta-eta_i)/(eta_j-eta_i)` and each surface ordinate is blended with
+`w=t` (Linear) or `w=(1-cos(pi*t))/2` (Cosine). Cosine gives zero blend slope at
+each station; chord, twist and planform transformations follow the section blend.
 
 Detached tables in **Properties / Spars**, **Ribs** and **Leading Edge** edit
 webs, caps, stiffeners, skins and leading-edge ribs by physical rib or bay.
@@ -60,6 +81,9 @@ or Python environment is needed to run the application.
 
 ## Install and start
 
+Read the [illustrated FGen user's guide](../Reference_documentation/00_Getting_Started/jfem_2026_fgen_user_guide.pdf)
+for the complete workflow with screenshots.
+
 Install **Julia 1.13.1**, then clone the repository:
 
 ```sh
@@ -69,8 +93,11 @@ julia WingFEGen/setup.jl
 julia --project=WingFEGen WingFEGen/run.jl
 ```
 
-Setup installs the pinned dependencies for both the generator and the enclosing
-OpenJFEM solver. The first setup and first analysis can take several minutes
+`WingFEGen/setup.jl` delegates to the same unified installer as the repository-root
+`setup.cmd` (Windows) or `bash setup.sh` (macOS/Linux). The installer prepares
+both pinned environments and verifies JFEM, FGen, PANDEATOR and the static viewer.
+See the [shared installation walkthrough](../JFEM_installation/INSTALLATION.md),
+including the optional `--sysimage` workflow. The first setup and first analysis can take several minutes
 while Julia downloads and compiles packages. A separately built solver sysimage
 is optional; the application works without one.
 
@@ -92,7 +119,7 @@ Useful command-line options, from the repository root:
 
 ```sh
 julia --project=WingFEGen WingFEGen/run.jl --port 8090 --no-browser
-julia --project=WingFEGen WingFEGen/run.jl --nastran
+julia --project=WingFEGen WingFEGen/run.jl --reference
 julia --project=WingFEGen WingFEGen/run.jl /path/to/my_wing.toml
 ```
 
@@ -112,7 +139,7 @@ optional external-resource details.
 ## First study
 
 1. In **Study Options**, choose **Start new study**, **Load last study**,
-   **Open existing study**, or **Read Nastran file**.
+   **Open existing study**, or **Read Reference file**.
    **Open existing study** shows the same newest-first catalogue as
    **Project / Load Study**, with all studies previously saved or opened at
    this browser address. Open a linked disk file or its identified stored copy,
@@ -126,6 +153,14 @@ optional external-resource details.
 3. Use **Model / Structural Mesh** to create or refine the FEM. Live mesh
    rebuilds it after valid edits. Geometry and mesh locks help retain the layout
    while assigning properties.
+   **Vertical elements: spars, ribs and leading edge** is a shared positive
+   integer (default 3). Refinement retains common nodes at the front-spar and
+   leading-edge interfaces; it does not create disconnected coincident meshes.
+   **Leading-edge skin elements, nose to spar** independently sets the chordwise
+   shell divisions on each leading-edge skin (2–100, default 8), using the saved
+   `leading_edge.chord_elements` key. Spanwise rows still follow Elements per rib
+   bay. **Aero chord points** samples the displayed wetted loft and optional
+   disconnected aero-shell export; it does not refine structural skins or VLM.
 4. Define materials, skins, stringers, ribs, spars and leading-edge properties
    under **Model / Properties**. Detached panel tables assign local overrides;
    blank entries inherit the shared values. Rows are stringers, columns are rib
@@ -167,9 +202,14 @@ The **Deck** tab caches the current deck and lays out large text in contained
 blocks, so reopening or resizing does not relayout every line. The complete text
 remains searchable, selectable and downloadable. New Write deck or solver output
 replaces the cache; pane dragging coalesces viewport resizing to animation frames.
+**Find first** (or Enter in the search box) highlights the first literal match
+in the displayed case deck, scrolls to it and reports its line/column. Search
+ignores case unless **Match case** is checked. Escape clears the highlight.
+Large-deck search changes only the matching text chunks; copying/downloading
+still gives the original deck text.
 
 The **Project** dropdown groups New Study, Study/TOML reading and saving,
-Read Nastran, Write deck, geometry export and configured-input operations.
+Read Reference, Write deck, geometry export and configured-input operations.
 **Export geometry…** opens the STL/GLB options. Save Study retains its orange
 or green saved-state indicator inside the menu. The Project button is orange
 for unsaved definition changes and green when the definition is saved;
@@ -181,13 +221,24 @@ stored copy** opens the last saved or loaded browser snapshot, useful when the
 disk file is unavailable; it does not link that snapshot for disk overwriting.
 **Relink file…** selects the file again after it moves or browser access is lost.
 
+Manual **Save Study** and **Save Study as…** offer an optional change/intent
+comment and show previous comments. Each successful save appends changed,
+nonempty text with its timestamp; canceled or failed saves do not append it.
+Autosave remains silent. **Show comments** in the recent-study list previews
+the stored copy without loading it. Opening a selected file also previews that
+file's comments before **Load Study**, so the current model can be kept intact.
+
+An undefined **Fuel tank** has a grey tab label and a **Create Fuel Tank** button.
+Click it to enable the full tank form. The **Dimensioned plan view** draws wet
+tank bays and marks dry/vent bays along the actual rib and spar boundaries.
+
 **Plan View** is blue when a generated lifting-surface drawing is available and
-disabled for imported Nastran decks. Panel isolation, explosion and panel-property
+disabled for imported Reference decks. Panel isolation, explosion and panel-property
 tables are unavailable when the model has no stiffened panels.
 
-### Read an existing Nastran deck
+### Read an existing Reference deck
 
-**Project / Read Nastran** opens a complete `.bdf`, `.dat` or `.nas` deck
+**Project / Read Reference** opens a complete `.bdf`, `.dat` or `.nas` deck
 using the native JFEM parser. By default, **Browse** selects a file on the
 WingFEGen computer, or you can paste its full path. INCLUDE files are read
 automatically relative to their containing files. The former 32 MiB import
@@ -200,7 +251,7 @@ external references and analysis results from the previous model are cleared
 only after the new deck loads successfully. A failed import leaves the previous
 model available. Opening a saved Study restores its saved display settings.
 
-Read Nastran opens the normal Windows **Open** dialog immediately. **Browse**
+Read Reference opens the normal Windows **Open** dialog immediately. **Browse**
 reopens it; the selected full path remains editable in the import form. A
 foreground owner keeps the dialog above the browser. Cancel returns to the
 form, and **Read deck** starts the import. The Windows picker supplies the
@@ -236,7 +287,7 @@ The form needs only the main file on your computer; no model-folder selection
 is required. Missing files and cyclic INCLUDE dependencies are reported.
 A local import is saved as a self-contained expanded source in the Study, so
 reopening does not depend on the original file locations. **Study Options**
-also offers **Read Nastran file** directly at startup.
+also offers **Read Reference file** directly at startup.
 
 **Loads / Cases** displays imported case-control settings, selected load sets,
 equivalent nodal loads and the source-card inventory. **Model / Constraints**
@@ -246,7 +297,7 @@ the viewport. Click a GRID in the tables to inspect its conditions and results.
 Tables can be filtered and paged for large models. Constraint cones and rotation
 boxes follow each GRID's displacement axes, including non-BASIC coordinates.
 The inventory reports cards without a native interpretation; retaining every
-source card does not imply that every Nastran formulation is supported.
+source card does not imply that every Reference formulation is supported.
 Linear static solves apply selected SPCD prescribed values before constraint
 recovery, overriding SPC values without double-counting them. SOL106 currently
 rejects nonzero prescribed SPC/SPCD motion with an explicit capability message;
@@ -282,7 +333,7 @@ Study files preserve these options. **Run in JFEM** solves the selected deck;
 **Display / Properties** show native shell/beam/material data where supported.
 Cards without a viewport representation are reported and remain in the source;
 solver support is still governed by JFEM. Displayed units assume consistent SI
-input because Nastran files do not declare a unit system.
+input because Reference files do not declare a unit system.
 
 **Bars 3D** preserves explicit section shapes. Where only an area is available,
 it shows an equal-area square for bars/beams or a polygonal circular section for
@@ -317,11 +368,37 @@ or loading a generated Study returns to the wing generator.
 
 Every left pane collapses with **−** and restores with **+**. Drawing panes
 retain a separate Maximize action while expanded. **Collapse all trees / Expand all trees** changes the entity-list layout without
-changing model visibility. Rib/stringer labels and rib
-datum squares are together under **Display / Axes & labels**.
+changing model visibility. Rib/stringer labels are under **Display / Axes & labels**;
+rib datum planes are under **Display / Geometry**.
 **Ribs** and **Stringers** are independent on/off checkboxes, like the datum
 toggle. Enable both to show both label sets or clear both to hide them. Older
 Studies using Off/Ribs/Stringers/Both are migrated without losing the choice.
+
+**Display / Geometry** groups aerodynamic surfaces and VLM layers, individual
+airfoil sections, fuel volume, undeformed/deformed overlays, ground/symmetry/rib
+planes and imported reference geometry. Each available geometric layer can be
+shown or hidden. Appearance controls provide colors and, for surfaces, solid,
+wireframe, translucent or metallic finishes with opacity where applicable.
+Individual airfoil visibility is retained when toggling the whole airfoil layer.
+Reference files retain their visibility, transform, opacity and wireframe controls.
+These settings are saved with the Study without changing FE materials or results.
+The **Ground plane / Finish** choices are solid, wireframe, translucent and
+metallic. Metallic reflects the actual visible model across the chosen ground
+height. The reflection follows visibility/deformation and uses a bounded render
+target only while the metallic ground is shown. Translucent provides opacity.
+The current aerodynamic loft has one control; a separate **Undeformed aero
+reference** appears when a deformed result can be compared with the original.
+
+Coordinate inspection identifies frame usage: **CP** locates GRIDs, **CD** defines
+GRID displacement components, and **MCID** orients shell material directions.
+Generated shells each have an explicit rectangular MCID frame at BASIC (0,0,0).
+Their coincident origins are intentional and do not attach them to an RBE3 node
+that happens to share that position. Show shell local axes to inspect directions
+at the elements. Imported coordinate locations remain those of the source deck.
+
+Hovering a **?** now shows the explanatory text; clicking opens the full help.
+Parameter help describes purpose, units, applicable ranges and the effects of
+refinement or physical changes, rather than repeating field names.
 
 The viewport supports entity filters, inspection, node/element IDs, local axes,
 solid/translucent surfaces, beam sections, reference STL/OBJ/GLB geometry,
@@ -377,7 +454,7 @@ stall or aeroelastic feedback. Displayed geometry and applied loads remain in
 physical coordinates. The full guide documents the transformation and tests.
 Previously saved generated results remain inspectable as historical values
 when their geometry matches; rerun analyses before treating them as current.
-Imported Nastran results retain their independent source-based checks.
+Imported Reference results retain their independent source-based checks.
 
 **Display / Environment / Lighting** includes an adjustable camera fill for
 underside views. Neutral ambient light and a balanced directional key improve
@@ -470,15 +547,24 @@ Follower-force options follow the solver's documented supported formulations.
 contains sensitivity setup. The **Results** menu separately presents FE results
 and completed sensitivity results.
 
-Under **Analysis / Sensitivity**, select one load case, one scalar response and the
-design variables. Supported responses are SOL101 displacement/shell/bar stress,
-SOL103 eigenvalues and SOL105 buckling factors. Panel-local variables and shared
+Under **Analysis / Sensitivity**, choose **Analysis** independently of the response,
+then select an eligible load case and the design variables. SOL101 offers
+displacement/shell/bar stress, SOL103 modal eigenvalues, SOL105 buckling factors,
+and SOL106 displacement at the converged full-load nonlinear state. The current
+model catalogue controls availability and explains disabled analyses, responses
+and load cases. SOL106 stress derivatives are not supported. The sensitivity
+analysis choice does not change the ordinary FE Analysis choice or the source
+solution of an imported deck. Panel-local variables and shared
 defaults are distinct variables; the interface shows their actual scope.
 Study files save the selected design-variable IDs and response setup. On
 reopening, Sensitivity automatically reads the current property catalogue and
 restores the checked variables when the model is ready. An explicitly empty
 selection stays empty; unavailable saved IDs are reported until removed by the
-user. Restoring a selection does not start an analysis.
+user. An unavailable saved analysis or case remains visible and blocked until
+corrected explicitly. Older studies infer SOL103 from modal objectives, SOL105
+from buckling objectives, and SOL101 from displacement/stress objectives.
+Restoring or changing a selection does not start an analysis; press **Run
+sensitivity** explicitly. Completed historical requests remain unchanged.
 Use **Add component variables** to add independent spar-web/cap, rib and
 leading-edge variables to an existing selection. Newly available variables are
 not silently added to a saved selection. Shared-default derivatives describe all
@@ -558,26 +644,37 @@ VLM mesh, pressure/Cp, panel-force vectors and applied RBE3 loads can be display
 with sensitivities. Each legend names its case. The aerodynamic view represents
 the prescribed undeformed lattice, not a newly computed aeroelastic solution.
 
-## Portable Nastran export
+## Portable Reference export
 
 The in-process API can write 16-column large fields when additional coordinate
-and property precision is needed with traditional Nastran line-length limits:
+and property precision is needed with traditional Reference line-length limits:
 
 ```julia
 include("WingFEGen/src/WingFEGen.jl")
 using .WingFEGen
 model = build_model(read_input("WingFEGen/examples/wing_default.toml"))
-write_nastran(model, "wing_large.bdf"; large_field=true)
+write_reference(model, "wing_large.bdf"; large_field=true)
 ```
 
 The default eight-column export remains available. Large-field cards use paired
 `*` continuation lines. Generated CBAR entries leave the default convention
 field blank, preserving BASIC-frame bar offsets and supporting older readers
-such as MSC Nastran 70.5. SOL105 explicitly applies the selected SPC set to both
+such as Reference 70.5. SOL105 explicitly applies the selected SPC set to both
 the static preload and its buckling subcase. Exact Float64 free-field output
 used for native sensitivities remains separate from this portable format.
 
 ## Analysis timings and buckling preload results
+
+**Analysis / FE Analysis** explains the current EIGRL fields beside the modal
+and buckling controls. The compact example
+`EIGRL          11.0000-650.00000      10` consists of eight-character fields:
+`EIGRL | SID=1 | V1=1e-6 | V2=50 | ND=10`. `METHOD=1` selects request 1;
+`ND` requests ten roots. For SOL105 the bounds are dimensionless multipliers
+of the selected static preload, not frequencies in Hz, and the interval may
+contain fewer than ten roots. `1.0000-6` is compact notation for 0.000001.
+Generated SOL103 requests leave the frequency bounds blank and use mass
+normalization. Imported decks retain their source extraction settings unless
+an analysis override is selected; inspect **Deck** for their exact values.
 
 The completion message reports numerical solution time with Julia compilation
 excluded. The Log and result summary separately show compilation within analysis
@@ -600,6 +697,14 @@ available for visualizing the reference shape.
 Buckling modes use their own normalized display amplitude; changing the static
 preload magnitude does not change the displayed mode size.
 
+**Constraint reactions** shows recovered forces and moments for ordinary SOL101,
+accepted SOL106 states, and their sensitivity baselines. SOL105 sensitivity
+baselines retain a separate **SOL101 preload** variant; its reactions also follow
+the buckling static-preload shape. Reaction arrows and numeric labels follow the
+displayed constrained nodes, while the arrow multiplier changes only glyph size.
+Normalized eigenmodes do not inherit physical preload reactions. Missing or
+suppressed SPCFORCES output is explained beside the disabled controls.
+
 ## Portable checks
 
 Startup prints the Julia version, thread count, package names and versions,
@@ -611,7 +716,7 @@ From the repository root:
 
 ```sh
 julia --project=WingFEGen WingFEGen/test/portable_smoke_test.jl
-julia --project=WingFEGen WingFEGen/test/nastran_large_field_test.jl
+julia --project=WingFEGen WingFEGen/test/reference_large_field_test.jl
 julia --project=WingFEGen WingFEGen/test/portable_smoke_test.jl --native
 ```
 
@@ -661,7 +766,7 @@ node WingFEGen/test/import_and_table_colors_test.cjs
 node WingFEGen/test/panel_explode_test.cjs
 node WingFEGen/test/scene_lighting_test.cjs
 node WingFEGen/test/support_glyphs_test.cjs
-node WingFEGen/test/nastran_import_large_test.cjs
+node WingFEGen/test/reference_import_large_test.cjs
 node WingFEGen/test/sections_viewer_test.cjs
 node WingFEGen/test/solid_geometry_test.cjs
 node WingFEGen/test/imported_analysis_test.cjs
@@ -673,9 +778,9 @@ julia --project=WingFEGen WingFEGen/test/shell_display_payload_test.jl
 julia --project=WingFEGen WingFEGen/test/portable_paths_test.jl
 julia --project=WingFEGen WingFEGen/test/sensitivity_component_selection_test.jl /path/to/private-test-output
 julia --project=WingFEGen WingFEGen/test/payload_roundtrip_test.jl
-julia --project=WingFEGen WingFEGen/test/nastran_source_test.jl
-julia --project=. WingFEGen/test/nastran_import_smoke_test.jl
-julia --project=. WingFEGen/test/nastran_case_metadata_test.jl
+julia --project=WingFEGen WingFEGen/test/reference_source_test.jl
+julia --project=. WingFEGen/test/reference_import_smoke_test.jl
+julia --project=. WingFEGen/test/reference_case_metadata_test.jl
 julia --project=. WingFEGen/test/model_entities_payload_test.jl
 julia --project=. WingFEGen/test/follower_metadata_test.jl
 julia --project=. WingFEGen/test/imported_analysis_test.jl
@@ -684,11 +789,46 @@ julia --project=. WingFEGen/test/imported_analysis_test.jl
 The importer readiness check also uses Playwright's bundled Chromium by default:
 
 ```sh
-node WingFEGen/test/nastran_ready_browser_test.cjs
+node WingFEGen/test/reference_ready_browser_test.cjs
 ```
 
 For this check, `WINGFEGEN_PLAYWRIGHT_MODULE` overrides the module path and
 `CHROME_BIN` selects an explicit browser executable. No solver is started.
+
+Analysis-selector and Study-persistence checks use synthetic capability metadata
+and do not start a solver:
+
+```sh
+node WingFEGen/test/sensitivity_setup_persistence_test.cjs
+node WingFEGen/test/sensitivity_variant_persistence_test.cjs
+node WingFEGen/test/sensitivity_solution_selection_browser_test.cjs <evidence-dir> playwright
+```
+
+The browser check uses bundled Chromium unless `CHROME_PATH` names an explicit
+browser executable. Its second argument may be an installed Playwright module
+directory. It covers all four analyses, imported case eligibility, nonlinear
+displacement restrictions, saved settings, stale catalogue responses and
+immutable historical requests.
+
+Constraint-reaction presentation can reuse the completed synthetic preload
+fixture without additional solver calls:
+
+```sh
+julia --project=WingFEGen WingFEGen/test/sensitivity_baseline_reactions_test.jl <preload-test-output> <reaction-evidence-dir>
+node WingFEGen/test/sensitivity_reactions_browser_test.cjs <reaction-evidence-dir> playwright
+```
+
+`<preload-test-output>` is the output directory of
+`sol105_preload_results_test.jl`, containing `SOL105.bdf` and its `results/`
+native JSON. The check exports a separate presentation fixture and verifies
+ordinary and sensitivity preload reactions, normalized-mode exclusions,
+deformed glyph positions, visibility controls and explicit unavailable states.
+The browser uses bundled Chromium or the explicit `CHROME_PATH` override.
+For an additional check of an already completed generated SOL106 baseline, append
+its saved study TOML and baseline run directory to the Julia command. The exporter
+rebuilds only that model and reads its existing `baseline_native.json`; the same
+browser command then also checks the actual nonlinear reactions, deformed
+positions, numeric labels and signed nodal inspection values. No new solve is run.
 
 Component-table routing can be reproduced with the included synthetic fixture
 producer. Its derivatives are deliberately synthetic and verify display routing,

@@ -1,7 +1,7 @@
 # ===========================================================================
 #  geometry.jl - base trapezoid, piecewise-linear edge refinement and lofting
 #
-#  Global axes (NASTRAN basic system):
+#  Global axes (REFERENCE basic system):
 #
 #       x   aft, along the chord
 #       y   towards the tip

@@ -7,7 +7,7 @@
 #  without decoding element by element.
 #
 #  Connectivity is sent as zero-based indices into the node array, which is
-#  what a vertex buffer needs. The NASTRAN ids travel alongside in `ids`.
+#  what a vertex buffer needs. The REFERENCE ids travel alongside in `ids`.
 # ===========================================================================
 
 """
@@ -423,7 +423,7 @@ function mesh_payload(m::Model; progress = stage -> nothing)
             "xyz" => blob_f32(m.xyz),
         ),
         "groups" => groups,
-        "coordinate_systems" => generated_coordinate_payload(groups),
+        "coordinate_systems" => generated_coordinate_payload(groups;node_count=length(m.node_ids)),
         "rbe3" => Dict{String,Any}(
             "count" => length(m.rbe3),
             "refs" => blob_i32(rbe3_refs; offset = -1),

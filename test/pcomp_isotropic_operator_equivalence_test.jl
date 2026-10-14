@@ -65,7 +65,7 @@ function operators(model, pattern)
     end
     contexts=Dict{Int,Any}(); guard=ReentrantLock()
     callback=function(eid,c)
-        value=(Kg=copy(c[:Kg_global]),iso=c[:kg_nastran_kdjj_iso_branch],
+        value=(Kg=copy(c[:Kg_global]),iso=c[:kg_reference_kdjj_iso_branch],
             E=c[:E_val],nu=c[:nu_val],h=c[:h],T=copy(c[:T_buf]),
             lc=copy(c[:lc_buf4]),u=copy(c[:u_elem24]),assumed=c[:assumed_transverse])
         lock(guard) do;contexts[eid]=value;end
@@ -124,7 +124,7 @@ function run_checks()
             # proportional ply scaling is therefore an independent derivative oracle.
             fdg=(plus[2][eid].Kg-minus[2][eid].Kg)/(2delta)
             @test isapprox(geo[eid].Kg,fdg;rtol=2e-8)
-            localg=S.FEM.geometric_stiffness_quad4_nastran_kdjj_iso(
+            localg=S.FEM.geometric_stiffness_quad4_reference_kdjj_iso(
                 geo[eid].lc,geo[eid].u,c.E,c.nu,c.h;assumed_transverse=geo[eid].assumed)
             @test isapprox(geo[eid].Kg,geo[eid].T'*localg*geo[eid].T;rtol=2e-11)
         end
@@ -138,7 +138,7 @@ function run_checks()
             fd=(plus[1].contexts[eid].Ke-minus[1].contexts[eid].Ke)/(2delta)
             @test isapprox(tangent.dKe,fd;rtol=2e-7)
             c=S.analytic_shell_constitutive(model,104,direction,S.ForwardDiff.Dual(0.,1.))
-            localg=S.FEM.geometric_stiffness_quad4_nastran_kdjj_iso(
+            localg=S.FEM.geometric_stiffness_quad4_reference_kdjj_iso(
                 geo[eid].lc,geo[eid].u,c.E,c.nu,c.h;assumed_transverse=geo[eid].assumed)
             globalg=geo[eid].T'*localg*geo[eid].T
             dg=map(v->S.ForwardDiff.partials(v)[1],globalg)

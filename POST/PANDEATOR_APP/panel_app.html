@@ -387,10 +387,10 @@ function syncMatUI(){
 document.querySelectorAll('input[name=mat]').forEach(r=>r.addEventListener('change',syncMatUI));
 syncMatUI();
 
-// Nastran COMMA free-field formatter.
-// OpenJFEM's parser (get_nastran_fields_from_line) splits on commas and maps
+// Reference COMMA free-field formatter.
+// OpenJFEM's parser (get_reference_fields_from_line) splits on commas and maps
 // data field 1 -> parser index 3, so "CARD,d1,d2,..." is the safe form used by
-// the validated NAPA probe decks. We emit real numbers with a decimal point so
+// the validation probe decks. We emit real numbers with a decimal point so
 // the parser treats them as reals, never accidental integers.
 function rstr(x){
   if (x === "" || x === null || x === undefined) return "";
@@ -596,7 +596,7 @@ function buildGeometry(P){
 // =====================================================================
 //  PART 4 - BDF generation (SOL 105 linear buckling), COMMA free-field
 //
-//  Field convention (matches OpenJFEM get_nastran_fields_from_line):
+//  Field convention (matches OpenJFEM get_reference_fields_from_line):
 //    "CARD,d1,d2,..."  -> data field d1 is parser index 3, d2 index 4, ...
 //  Continuation lines start with "+," and continue the field count.
 //  Reals carry a decimal point so the parser never reads them as ints.

@@ -1514,7 +1514,7 @@ end
 # STATUS: PRODUCTION (sensitivity path) - wraps stiffness_quad4_matrices for
 #         dKdx.jl finite-difference sensitivities (optimization / adjoint).
 # DISPATCHED FROM: JFEM/src/solver/dKdx.jl lines ~207, 263, 291, 1075.
-# Not on the GAME default K assembly path.
+# Not on the validation default K assembly path.
 # =============================================================================
 function stiffness_quad4(coords, E, nu, h; bend_ratio=1.0, ts_t=5.0/6.0, k6rot=100.0, ws::Union{Nothing,Quad4Workspace}=nothing)
     const_mem = E * h / (1 - nu^2)
@@ -1835,6 +1835,57 @@ end
     return (max(w1, 0.0), max(w2, 0.0), max(w3, 0.0), max(w4, 0.0))
 end
 
+@inline function _q4_active_mode_inverse(K, active::NTuple{N,Int}) where {N}
+    local_K = SMatrix{N,N}(ntuple(k -> K[active[mod1(k, N)], active[cld(k, N)]], Val(N*N)))
+    return inv(local_K)
+end
+
+"""
+    q4_internal_mode_compliance(Kbb, weights)
+
+Internal-mode compliance for variational static condensation. Binary weights
+select a basis: invert Kbb[A,A], never a row-weighted full inverse. Thus
+`Keff = Kaa - Kab * compliance * Kab'` is the stationary elastic energy.
+
+Nonbinary weights are a diagnostic continuation defined by a nested blend of
+active-subspace energies: integrate the selected compliance for
+`A(t) = {i : weights[i] >= t}` from zero to the largest weight. Uniform weight
+w gives w times the full compliance. Weights in [0,1] give a convex blend of
+the compatible and selected condensed energies; weights above one extrapolate
+relaxation and do not promise positive element energy. This definition keeps
+reciprocity and the exact binary endpoints without symmetrizing an invalid
+operator. Weights are fixed formulation controls, not differentiation inputs.
+"""
+function q4_internal_mode_compliance(Kbb::AbstractMatrix, weights)
+    n = size(Kbb, 1)
+    size(Kbb, 2) == n && length(weights) == n || throw(DimensionMismatch("Internal-mode weights must match Kbb"))
+    all(w -> isfinite(w) && w >= 0, weights) || throw(ArgumentError("Internal-mode weights must be finite and nonnegative"))
+    H = zeros(eltype(Kbb), n, n)
+    maximum(weights) == 0 && return H
+    # Default binary selections and uniform diagnostic scales require only
+    # one small inverse. No 24x24 temporary or general factorization is used.
+    active = Tuple(i for i in 1:n if weights[i] > 0)
+    first_weight = weights[first(active)]
+    if all(i -> weights[i] == first_weight, active)
+        block = _q4_active_mode_inverse(Kbb, active)
+        @inbounds for j in eachindex(active), i in eachindex(active)
+            H[active[i], active[j]] = first_weight * block[i,j]
+        end
+        return H
+    end
+    previous = 0.0
+    for level in sort!(unique([Float64(w) for w in weights if w > 0]))
+        selected = Tuple(i for i in 1:n if weights[i] >= level)
+        block = _q4_active_mode_inverse(Kbb, selected)
+        delta = level - previous
+        @inbounds for j in eachindex(selected), i in eachindex(selected)
+            H[selected[i], selected[j]] += delta * block[i,j]
+        end
+        previous = level
+    end
+    return H
+end
+
 @inline function fill_quad4_membrane_enhanced_B!(
     Bi::AbstractMatrix,
     r::Float64,
@@ -1875,7 +1926,7 @@ end
 # KERNEL: stiffness_quad4_membrane_enhanced_matrices
 # STATUS: RESEARCH / RETAINED - alternative membrane formulation with enhanced
 #         interpolation (Wilson incompatible modes variant). Not on the default
-#         GAME path; may be useful for distorted membrane meshes.
+#         validation path; may be useful for distorted membrane meshes.
 # CALLERS: none in current codebase - opt-in via direct call from research scripts.
 # =============================================================================
 function stiffness_quad4_membrane_enhanced_matrices(
@@ -2203,7 +2254,7 @@ include(joinpath(@__DIR__, "experimental", "hu_washizu_kernel.jl"))
 # =============================================================================
 # KERNEL: stiffness_quad4_matrices
 # STATUS: PRODUCTION — primary Q4 shell stiffness, fires for every default-path
-#         element in GAME SOL 105 (live trace 2026-05-22 confirms).
+#         element in validation SOL 105 (live trace 2026-05-22 confirms).
 # DISPATCHED FROM: assembly.jl `else` fallback (line ~3744), plus several
 #         explicit branches for iso/PCOMP curved-shell variants.
 # CALLS: add_quad4_macneal_shear_rbf! (when macneal_kernel=true);
@@ -2221,7 +2272,7 @@ include(joinpath(@__DIR__, "experimental", "hu_washizu_kernel.jl"))
 #        kernel_planar, kernel_mode, _defer_warp_transform, _defer_snorm_transform.
 # LAST VALIDATED: 2026-08-03 (CQUAD4 finite-warp + PARAM,SNORM normal-moment closure).
 # Pre-allocated workspace `ws` eliminates ALL heap allocations in the hot loop
-# (~5M alloc saved across HTP_launch).
+# (~5M alloc saved across tail-box model).
 # =============================================================================
 function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, msws::Union{Nothing,MacNealShearWorkspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, membrane_incomp_scale::Float64=1.0, membrane_incomp_weights=nothing, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, snorm_pq=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false, bmb_incomp_coupling_mode::Symbol=:env, kernel_mode=nothing, macneal_rbf_flex_mode::Symbol=:env, membrane_hourglass_skew::Bool=false, distortion_corrections::Bool=true, _defer_warp_transform::Bool=false, _defer_snorm_transform::Bool=false, coupled_projected::Bool=false)
     if coupled_projected
@@ -2739,14 +2790,14 @@ function _stiffness_quad4_core!(
 
     # phi2 shear anti-locking: phi2 = min(1, alpha*(h/L_char)^2)
     # MITC4 at 2×2 Gauss points still locks for thin plates on coarse meshes (h/L<0.05).
-    # phi2 matches Nastran CQUAD4's Selective Reduced Integration behavior.
+    # phi2 matches Reference CQUAD4's Selective Reduced Integration behavior.
     # PHI2_ALPHA=10.0 is the globally optimal coefficient across all test cases.
     _alpha = PHI2_ALPHA[]
     # (phi2_shear is assigned ONCE, below, after the center Jacobian is
     # available: it is captured by the selective-shear closure further down,
     # and a second assignment would Core.Box it and poison the GP loop types.)
     # MacNeal 1978 eq (12): 1/GA* = 1/GA + L²/(12 EI). Series-flexibility
-    # correction that makes the element match Nastran CQUAD4 for both
+    # correction that makes the element match Reference CQUAD4 for both
     # long-wavelength (launch) and short-wavelength (3wp) buckling modes.
     # When enabled, this replaces phi2 as the shear softening mechanism.
     macneal_rbf = lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_RBF", "false"))) in ("1","true","yes","on")
@@ -2773,7 +2824,7 @@ function _stiffness_quad4_core!(
         ("center", "reduced", "1pt")
     # Full MacNeal 1978 CQUAD4 kernel: replaces MITC4+phi2 shear block with
     # MacNeal's [D]ᵀ·([Z_s]+[Z_b])⁻¹·[D] formulation + twist correction.
-    # MSC/Nastran's CQUAD4 lineage uses this operator for the released QUAD4.
+    # Reference's CQUAD4 lineage uses this operator for the released QUAD4.
     # This implementation is a flat/projected CQUAD4 kernel, so the default
     # applies it to planar elements for all material types and leaves nonflat
     # facets on the covariant/MITC path unless JFEM_Q4_KERNEL=macneal_all is
@@ -2866,7 +2917,7 @@ function _stiffness_quad4_core!(
         # phi2 transverse-shear characteristic length. Default = 4*detJc (≈ element
         # area), but on a SKEWED cell the area shrinks by sin(skew) while the spans
         # (edge lengths) do not, so phi2=α h²/L² grows and the shear over-stiffens
-        # (verified vs Nastran KGG: distorted PCOMP cells 2-10× too stiff in
+        # (verified vs Reference KGG: distorted PCOMP cells 2-10× too stiff in
         # out-of-plane translation / soft bending rotation). JFEM_Q4_PHI2_LCHAR_SKEWCORR
         # replaces the area by the UNSHEARED area |r1||r2| (product of the two
         # center-Jacobian edge-vector lengths) — identical to 4*detJc on rectangles
@@ -2896,7 +2947,7 @@ function _stiffness_quad4_core!(
     phi2_eta = phi2_shear
     # For membrane-only elements (Cb≈0, bend_ratio=0) assembled with shear_center_only=true:
     # skip all shear so DOF3/4/5 are truly zero → AUTOSPC in eigenvalue solve constrains them,
-    # matching Nastran's behavior where AUTOSPC eliminates membrane-only plate out-of-plane DOFs.
+    # matching Reference's behavior where AUTOSPC eliminates membrane-only plate out-of-plane DOFs.
     pt = 1.0/sqrt(3.0)
     gauss_pts = (SVector(-pt,-pt), SVector(pt,-pt), SVector(pt,pt), SVector(-pt,pt))
 
@@ -2904,7 +2955,7 @@ function _stiffness_quad4_core!(
     G_drill = Cm[3,3] / h
     if G_drill < 1e-6; G_drill = E_ref / (2*3.0); end
     alpha_drill = drill_scale * (k6rot / 1e5) * G_drill * h
-    # JFEM_Q4_DRILL_LUMPED_NASTRAN (default OFF): reference-measured drilling.
+    # JFEM_Q4_DRILL_LUMPED_REFERENCE (default OFF): reference-measured drilling.
     # Single-element K extraction (k_extract_boxes_laminates_20260704, four
     # laminates, aspects 1..3) shows the reference CQUAD4 drilling block is a
     # PURE LUMPED nodal spring, k = K6ROT * 1e-6 * A66 * Area on each
@@ -2919,8 +2970,8 @@ function _stiffness_quad4_core!(
     # reference KGG exactly 1.0000, where the default form gives 10/9). 42-deck corpus screen
     # NEUTRAL: spec mean 0.95 -> 0.94, MAX 2.81 unchanged, |lambda1| max 14.38 -> 14.37,
     # 5 better / 3 worse / 33 unchanged, missing 0.
-    drill_lumped_nastran = fem_env_bool("JFEM_Q4_DRILL_LUMPED_NASTRAN", true)
-    if drill_lumped_nastran
+    drill_lumped_reference = fem_env_bool("JFEM_Q4_DRILL_LUMPED_REFERENCE", true)
+    if drill_lumped_reference
         alpha_drill = 0.0
     end
 
@@ -2963,7 +3014,7 @@ function _stiffness_quad4_core!(
         #   ε_xx ⊃ z₀,x · ∂w/∂x = z₀,x · Σ_k dN_k/dx · uz_k
         # The bilinear-Q4 curvature term (curvature_gp) only captures the
         # twist component (∂²z/∂ξ∂η); the linear-slope term fills in the
-        # cylindrical-warp coupling that Nastran's CQUAD4 generates and the
+        # cylindrical-warp coupling that Reference's CQUAD4 generates and the
         # standard MacNeal kernel misses (see SOL105 parity TODO, 2026-05-12).
         marguerre_z_x_gp = 0.0
         marguerre_z_y_gp = 0.0
@@ -2974,9 +3025,9 @@ function _stiffness_quad4_core!(
             # research scale, for measuring whether the exact kinematics (1.0) is what the
             # reference uses; a coefficient that optimises away from 1 means the term's FORM is
             # wrong, not its size, and must not simply be tuned (de-calibration directive)
-            msc = fem_env_float("JFEM_Q4_MARGUERRE_SCALE", 1.0)
-            marguerre_z_x_gp = msc * (iJ11*z_xi + iJ12*z_eta)
-            marguerre_z_y_gp = msc * (iJ21*z_xi + iJ22*z_eta)
+            reference = fem_env_float("JFEM_Q4_MARGUERRE_SCALE", 1.0)
+            marguerre_z_x_gp = reference * (iJ11*z_xi + iJ12*z_eta)
+            marguerre_z_y_gp = reference * (iJ21*z_xi + iJ22*z_eta)
         end
 
         # Director slope interpolated at this quadrature point. It completes
@@ -3312,7 +3363,7 @@ function _stiffness_quad4_core!(
     end
 
     # 1-point center shear (shear_center_only=true): locking-free reduced integration.
-    # Equivalent to Nastran CQUAD4 selective reduced shear; avoids locking on thin plates.
+    # Equivalent to Reference CQUAD4 selective reduced shear; avoids locking on thin plates.
     # Skipped when skip_all_shear=true (membrane-only element: DOF3 must be exactly zero).
     if shear_center_only && !skip_all_shear
         # Bs_cov at center (r=s=0): bilinear interpolation weights = 0.5 each
@@ -3459,7 +3510,7 @@ function _stiffness_quad4_core!(
     # entries nonzero where the consistent form has 24 of 24) and the second-order
     # membrane-membrane term. Dropping them left the operator incomplete.
     # For a PLANAR quad detJ is linear in (xi,eta), so 4*abs_detJc is the exact area.
-    if drill_lumped_nastran
+    if drill_lumped_reference
         A_drill = 4.0 * abs_detJc
         alpha_L = drill_scale * (k6rot * 1e-6) * Cm[3, 3] * A_drill
         corner_rs = ((-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0))
@@ -3524,7 +3575,7 @@ function _stiffness_quad4_core!(
     if Bmb !== nothing
         if membrane_incomp
             if bmb_incomp_mode in ("separate", "separate_nocross", "uncoupled")
-                inv_Kbb_m = Matrix(inv(SMatrix{4,4}(ws.K_bb)))
+                inv_Kbb_m = q4_internal_mode_compliance(ws.K_bb, membrane_incomp_mode_weights)
                 inv_Kbb_b = Matrix(inv(SMatrix{4,4}(ws.K_bb_bend)))
                 @inbounds @fastmath for j in 1:24, i in 1:24
                     sm = 0.0
@@ -3536,7 +3587,7 @@ function _stiffness_quad4_core!(
                             tmp_m += inv_Kbb_m[l,q] * ws.K_ab[j,q]
                             tmp_b += inv_Kbb_b[l,q] * ws.K_ab_bend[j,q]
                         end
-                        sm += membrane_incomp_mode_weights[l] * ws.K_ab[i,l] * tmp_m
+                        sm += ws.K_ab[i,l] * tmp_m
                         sb += ws.K_ab_bend[i,l] * tmp_b
                     end
                     ws.Ke[i,j] -= sm + sb
@@ -3544,14 +3595,13 @@ function _stiffness_quad4_core!(
             elseif bmb_incomp_mode in ("no_cross", "combined_nocross")
                 K_ab_full = hcat(ws.K_ab, ws.K_ab_bend)
                 K_bb_full = [ws.K_bb zeros(4,4); zeros(4,4) ws.K_bb_bend]
-                inv_Kbb = Matrix(inv(SMatrix{8,8}(K_bb_full)))
+                inv_Kbb = q4_internal_mode_compliance(K_bb_full, (membrane_incomp_mode_weights..., 1.0, 1.0, 1.0, 1.0))
                 tmp8x24 = zeros(8, 24)
                 ts_mul!(tmp8x24, inv_Kbb, K_ab_full')
                 @inbounds @fastmath for j in 1:24, i in 1:24
                     s = 0.0
                     for l in 1:8
-                        mode_weight = l <= 4 ? membrane_incomp_mode_weights[l] : 1.0
-                        s += mode_weight * K_ab_full[i,l] * tmp8x24[l,j]
+                        s += K_ab_full[i,l] * tmp8x24[l,j]
                     end
                     ws.Ke[i,j] -= s
                 end
@@ -3559,14 +3609,13 @@ function _stiffness_quad4_core!(
                 # Combined 8×8 condensation (B coupling creates cross-coupling between membrane/bending incomp modes)
                 K_ab_full = hcat(ws.K_ab .+ ws.K_ab_cross, ws.K_ab_bend .+ ws.K_ab_bend_cross)
                 K_bb_full = [ws.K_bb ws.K_mb_incomp; ws.K_mb_incomp' ws.K_bb_bend]
-                inv_Kbb = Matrix(inv(SMatrix{8,8}(K_bb_full)))
+                inv_Kbb = q4_internal_mode_compliance(K_bb_full, (membrane_incomp_mode_weights..., 1.0, 1.0, 1.0, 1.0))
                 tmp8x24 = zeros(8, 24)
                 ts_mul!(tmp8x24, inv_Kbb, K_ab_full')
                 @inbounds @fastmath for j in 1:24, i in 1:24
                     s = 0.0
                     for l in 1:8
-                        mode_weight = l <= 4 ? membrane_incomp_mode_weights[l] : 1.0
-                        s += mode_weight * K_ab_full[i,l] * tmp8x24[l,j]
+                        s += K_ab_full[i,l] * tmp8x24[l,j]
                     end
                     ws.Ke[i,j] -= s
                 end
@@ -3628,7 +3677,7 @@ function _stiffness_quad4_core!(
             # Separate 4×4 condensation for bending (always) and membrane (only if membrane_incomp)
             # (skipped when bend_ratio=0, i.e. membrane-only element with zero Cb)
             inv_Kbb_b = Matrix(inv(SMatrix{4,4}(ws.K_bb_bend)))
-            inv_Kbb_m = membrane_incomp ? Matrix(inv(SMatrix{4,4}(ws.K_bb))) : nothing
+            inv_Kbb_m = membrane_incomp ? q4_internal_mode_compliance(ws.K_bb, membrane_incomp_mode_weights) : nothing
             @inbounds @fastmath for j in 1:24, i in 1:24
                 sb = 0.0
                 for l in 1:4
@@ -3648,7 +3697,7 @@ function _stiffness_quad4_core!(
                         for q in 1:4
                             tmp_m += inv_Kbb_m[l,q] * ws.K_ab[j,q]
                         end
-                        sm += membrane_incomp_mode_weights[l] * ws.K_ab[i,l] * tmp_m
+                        sm += ws.K_ab[i,l] * tmp_m
                     end
                     ws.Ke[i,j] -= sm
                 end
@@ -3656,7 +3705,7 @@ function _stiffness_quad4_core!(
         else
             # Membrane-only 4×4 condensation (no bending incompatible modes)
             if membrane_incomp
-                inv_Kbb_m = Matrix(inv(SMatrix{4,4}(ws.K_bb)))
+                inv_Kbb_m = q4_internal_mode_compliance(ws.K_bb, membrane_incomp_mode_weights)
                 @inbounds @fastmath for j in 1:24, i in 1:24
                     sm = 0.0
                     for l in 1:4
@@ -3664,7 +3713,7 @@ function _stiffness_quad4_core!(
                         for q in 1:4
                             tmp_m += inv_Kbb_m[l,q] * ws.K_ab[j,q]
                         end
-                        sm += membrane_incomp_mode_weights[l] * ws.K_ab[i,l] * tmp_m
+                        sm += ws.K_ab[i,l] * tmp_m
                     end
                     ws.Ke[i,j] -= sm
                 end
@@ -3676,7 +3725,7 @@ function _stiffness_quad4_core!(
     # MacNeal 1978 warp correction (opt-in, partial). Activated only when:
     #   - JFEM_MACNEAL_WARP_ALPHA env var is set to a non-zero float
     #   - coords_3d is supplied (caller knows the 3D corner positions)
-    # Reverse-engineered from `NAST705/probes/jfem_warp_lc_sweep.jl`: closes
+    # Reverse-engineered from `Reference/probes/jfem_warp_lc_sweep.jl`: closes
     # ~70% of K[θ_x, T_x] warp gap on the iso warped probe at α=-1/3.
     # Default 0.0 = no correction = original JFEM behavior.
     if coords_3d !== nothing
@@ -3784,7 +3833,7 @@ function _stiffness_quad4_core!(
     # Skew-metric anisotropic hourglass restabilization of the membrane.
     # Requires the membrane to be pure full-bilinear here (caller passes
     # membrane_incomp=false so no Wilson membrane condensation ran); this adds the
-    # rank-2 hourglass correction that matches Nastran's split hourglass stiffness
+    # rank-2 hourglass correction that matches Reference's split hourglass stiffness
     # on skewed composite CQUAD4.  Uses the 2D in-plane coords (columns 1,2 of the
     # local coords passed in).
     if membrane_hourglass_skew
@@ -3819,7 +3868,7 @@ function _stiffness_quad4_core!(
     #      u0_i = u_i + z_i*sum_j N_{j,x}(i)*w_j,
     #      v0_i = v_i + z_i*sum_j N_{j,y}(i)*w_j.
     #    This is the compact shape-function form of the QDMEM1
-    #    construction in the NASTRAN Level 16 manual (5.8-40/41).
+    #    construction in the REFERENCE Level 16 manual (5.8-40/41).
     #
     # 2. Preserving (mx,my) while tilting the moment into the corner plane adds
     #    mz=gx*mx+gy*my. Since the equidistant diagonal-cross mean plane has
@@ -3861,7 +3910,7 @@ include(joinpath(@__DIR__, "experimental", "min4_kernel.jl"))
 # KERNEL: add_quad4_macneal_shear_rbf!
 # STATUS: PRODUCTION — fires for every default-path element with macneal_kernel=true
 #         (which is the default JFEM_Q4_KERNEL value). Reference formulation
-#         used by Nastran CQUAD4.
+#         used by Reference CQUAD4.
 # DISPATCHED FROM: stiffness_quad4_matrices line ~3798 when macneal_kernel.
 # CALIBRATION KNOBS (env): JFEM_Q4_MACNEAL_RBF (off by default — the in-RBF
 #         calculation here is *always* done; the env enables a DIFFERENT in-line
@@ -3869,11 +3918,11 @@ include(joinpath(@__DIR__, "experimental", "min4_kernel.jl"))
 #         JFEM_Q4_MACNEAL_RBF_ZB_SCALE,
 #         JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SCALE,
 #         JFEM_Q4_MACNEAL_RBF_BENDING_FLEX_MODE ("diag"), JFEM_Q4_MACNEAL_RBF_LENGTH_MODE ("paper").
-# LAST VALIDATED: 2026-05-22 (GAME mean 2.42% / max 9.10%).
+# LAST VALIDATED: 2026-05-22 (validation mean 2.42% / max 9.10%).
 # =============================================================================
 # ---------------------------------------------------------------------------
 # MacNeal 1978 CQUAD4 transverse shear with residual bending flexibility
-# (Comp. Struct. 8:175-183). Reference formulation used by Nastran CQUAD4.
+# (Comp. Struct. 8:175-183). Reference formulation used by Reference CQUAD4.
 #
 #   Strain values γx_a, γx_b at (ξ, η) = (0, ±1/√3)
 #                 γy_c, γy_d at (ξ, η) = (±1/√3, 0)
@@ -4171,9 +4220,9 @@ function add_quad4_macneal_shear_rbf!(
     # instead of direct isoparametric γ_x/γ_y at the sample points. Identical on
     # rectangles/parallelograms (uniform Jacobian). On TAPERED quads the direct
     # form tilts the shear-block range off the reference QUAD4's: single-element
-    # extraction on the HTP skin trapezoid (kex_skin268, taper 0.14%) shows a
+    # extraction on the tail-box skin trapezoid (kex_skin268, taper 0.14%) shows a
     # rank-1 spurious stiffness of 8.4e4 on the alternating-θ twist pattern that
-    # the reference treats as exactly shear-free (kex rect: JFEM==Nastran to
+    # the reference treats as exactly shear-free (kex rect: JFEM==Reference to
     # relF 3e-4; kex flat/orig: leak identical → taper, not warp).
     # 2026-07-27: default changed "false" -> "mitc". Previously measured as
     # box-INERT, but that measurement was taken with ~70 % of PCOMP elements
@@ -4187,7 +4236,7 @@ function add_quad4_macneal_shear_rbf!(
     # PHYSICAL gamma_x/gamma_y rows reconstructed per sample via J^-1 on the
     # MITC-interpolated covariant fields (skew-correct Z application). Skew
     # family extraction (kex_s*, kjunction_boxes_20260705): reproduces the
-    # reference block to 0.3% at full HTP skew where the strip form leaves a
+    # reference block to 0.3% at full tail-box skew where the strip form leaves a
     # 9x gamma_eta compliance deficit and misses the -8.9 cross coupling.
     shear_mitc = shear_cov_mode in ("mitc", "mitc_phys", "mitcphys")
     t_hat = fill!(mw.t_hat, 0.0)
@@ -4540,9 +4589,9 @@ function add_quad4_macneal_shear_rbf!(
     # penalized by its local span. Both limits are physically consistent
     # generalizations of MacNeal's original rectangular formulation.
     # Research switch: per-shear-sample-point Δ in MacNeal's eq (26).
-    # Currently off by default — first ablation on the worst VTP taper showed
+    # Currently off by default — first ablation on the worst curved-shell taper showed
     # the per-GP form (with bilinear Δ ≈ 2·J_diag at sample) shifts K closer
-    # to Nastran's overall norm but slightly worsens the directional error,
+    # to Reference's overall norm but slightly worsens the directional error,
     # i.e. it's not a clean win. Leaving the implementation in place behind
     # an env switch so further exploration can compare against the legacy form.
     per_gp_delta = lowercase(strip(fem_env_str("JFEM_Q4_MACNEAL_RBF_PER_GP_DELTA", "false"))) in ("1","true","yes","on")
@@ -4572,18 +4621,18 @@ function add_quad4_macneal_shear_rbf!(
     #   * UNIFORM γ direction (eigenvalue diag + off = 2·zb_u·c) — excited by
     #     "uniform-rotation" modes where γ is constant across the element.
     #     diff_kg_1elem_curved_bending_modes.jl shows these K_bb modes are
-    #     1.50× Nastran at zb_scale=0.667; setting zb_u=1.0 closes that gap
+    #     1.50× Reference at zb_scale=0.667; setting zb_u=1.0 closes that gap
     #     exactly for the single-element diagnostic.
     #   * DIFFERENTIAL γ direction (eigenvalue diag − off = 2·zb_d·anisotropy·c)
-    #     — excited by physical bending modes. Already matches Nastran.
-    # GAME-corpus test 2026-05-22 with zb_u=1.0 default: HTP_launch 511002
+    #     — excited by physical bending modes. Already matches Reference.
+    # validation-corpus test 2026-05-22 with zb_u=1.0 default: tail-box model 511002
     # mode-1 lambda did NOT change (+9.09% vs +9.10% baseline) and mean got
     # slightly worse (2.42 → 2.51%). So the K/Kg cascade absorbs the
     # uniform-γ K_bb shift for real curved-shell buckling modes.
     # 2026-07-27: zb_u now defaults to MacNeal's PAPER value 1.0 rather than
-    # tracking zb_scale (1.28). The 2026-05-22 "no change on HTP_launch" note
+    # tracking zb_scale (1.28). The 2026-05-22 "no change on tail-box model" note
     # above was taken with the elements routed off the MacNeal kernel by the
-    # kappa_L gate. Re-measured against Nastran KGG on an aspect rig extended
+    # kappa_L gate. Re-measured against Reference KGG on an aspect rig extended
     # past the old aspect-5 ceiling (aspect 4/8/12/20/30 x skew 0/16/30, at the
     # real skin thickness ratio h/Lmax = 0.0136), the out-of-plane block was
     # 21 % (a4) to 49 % (a30) too stiff; with zb_u = 1.0 plus the directional
@@ -5804,10 +5853,10 @@ end
 Apply a partial reverse-engineering of MacNeal 1978's warp correction to an
 element K matrix that was computed on the projected (flat-best-fit) quad.
 
-Per `NAST705/probes/jfem_warp_lc_sweep.jl`, Convention G (this function):
+Per `Reference/probes/jfem_warp_lc_sweep.jl`, Convention G (this function):
 adding rigid-offset translation↔rotation coupling scaled by α at each corner's
 warp height z_i (signed distance from the mean plane, in element-local frame)
-matches Nastran KGG[θ_x, T_x] within 4–12% on a single warped iso CQUAD4 test.
+matches Reference KGG[θ_x, T_x] within 4–12% on a single warped iso CQUAD4 test.
 
 It does NOT capture the second-order localised K[T_z, T_x] coupling at the
 warped corner that MacNeal mentions ("additional normal forces, not additional
@@ -6182,7 +6231,7 @@ function quad4_coupled_projected_fields(coords, u, A, B, D;coords_3d=nothing)
      N_center=A*eps0+B*kap0,M_center=transpose(B)*eps0+D*kap0)
 end
 
-function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, Cm_override=nothing, for_kg=false, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, snorm_pq=nothing, coords_3d=nothing, recover_corners::Bool=false, Cb_override=nothing, coupled_projected::Bool=false, Bmb_override=nothing, Cs_override=nothing, shear_workspace=nothing, shear_rigid_limit::Bool=false)
+function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, Cm_override=nothing, for_kg=false, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_incomp_center_jacobian::Bool=false, snorm_pq=nothing, coords_3d=nothing, recover_corners::Bool=false, Cb_override=nothing, coupled_projected::Bool=false, Bmb_override=nothing, Cs_override=nothing, shear_workspace=nothing, shear_rigid_limit::Bool=false, compatible_center::Bool=false, recover_shear::Bool=true)
     if coupled_projected
         for_kg && throw(ArgumentError("Use N_geometric explicitly for projected coupled Kg"))
         Cm_override !== nothing && Cb_override !== nothing && Bmb_override !== nothing ||
@@ -6194,8 +6243,8 @@ function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, 
         Cs_override !== nothing || throw(ArgumentError("Projected coupled recovery requires physical Cs"))
         # This is the projected-area mean. The recovery caller reports that
         # location explicitly; only a flat rectangle also has Qmean=Qcenter.
-        Q=quad4_macneal_mean_shear_resultant(coords,fields.projected_displacement,Cb_override,Cs_override,h;
-            Cm=Cm_override,Bmb=Bmb_override,msws=shear_workspace,rigid_shear=shear_rigid_limit)
+        Q=recover_shear ? quad4_macneal_mean_shear_resultant(coords,fields.projected_displacement,Cb_override,Cs_override,h;
+            Cm=Cm_override,Bmb=Bmb_override,msws=shear_workspace,rigid_shear=shear_rigid_limit) : zeros(eltype(eps),2)
         result=(fields.N_center,-fields.M_center,Q,D*z1,D*z2,z1,z2)
         if recover_corners
             nc=zeros(4,3);mc=zeros(4,3)
@@ -6238,6 +6287,25 @@ function stress_strain_quad4(coords, u_elem, E, nu, h, t_shell; bend_ratio=1.0, 
                 apply_quad4_snorm_director_displacement!(u_elem, snorm_pq)
             end
         end
+    end
+
+    if compatible_center
+        # The selective-center elastic membrane disables Wilson modes. Use
+        # its compatible centroid field, and the same projected MacNeal shear
+        # energy, after the complete W/SNORM displacement pullback above.
+        for_kg && throw(ArgumentError("Compatible-center recovery is not a Kg operator"))
+        (Bmb_override === nothing || all(iszero, Bmb_override)) ||
+            throw(ArgumentError("Compatible-center recovery requires zero membrane/bending coupling"))
+        curvature_membrane === nothing && snorm_pq === nothing ||
+            throw(ArgumentError("Compatible-center recovery requires projected normal-moment kinematics"))
+        Cm_override !== nothing && Cb_override !== nothing && Cs_override !== nothing ||
+            throw(ArgumentError("Compatible-center recovery requires actual A/D/Cs"))
+        return stress_strain_quad4(coords, u_elem, E, nu, h, t_shell;
+            bend_ratio=bend_ratio, Cm_override=Cm_override, Cb_override=Cb_override,
+            Bmb_override=zero(Cm_override), Cs_override=Cs_override,
+            coupled_projected=true, recover_corners=recover_corners,
+            shear_workspace=shear_workspace, shear_rigid_limit=shear_rigid_limit,
+            recover_shear=recover_shear)
     end
 
     dNr, dNs = shape_derivs_quad(0.0, 0.0)
@@ -6784,20 +6852,13 @@ function quad4_membrane_force_field(coords, u_elem, E, nu, h;
             K_ab_sr .+= (Bm_g' * Cm * Bi) .* detJ_g
             K_bb_sr .+= (Bi' * Cm * Bi) .* detJ_g
         end
-        alpha = -(K_bb_sr \ (K_ab_sr' * u_elem))
-        if mode_weights !== nothing
-            # Mirror the static-K weighted condensation (the weights are
-            # applied at bubble APPLICATION, so the consistent recovered
-            # field is N = A(eps_c + sum_l w_l alpha_l eps_b,l)).  Needed so
-            # the recovered stress field's consistent nodal forces equal the
-            # element internal forces K_e*u when the static K condenses the
-            # cross/shear Wilson modes only (report 3.29: an 8.6% gradient
-            # under-recovery otherwise, which is exactly the spurious
-            # transverse Kg residual on gradient states).
-            for l in 1:min(4, length(alpha))
-                alpha[l] *= Float64(mode_weights[l])
-            end
-        end
+        weights = mode_weights === nothing ? ntuple(_ -> 1.0, size(K_bb_sr, 1)) :
+            ntuple(i -> i <= 4 ? Float64(mode_weights[i]) : 1.0, size(K_bb_sr, 1))
+        # Same active internal basis and diagnostic energy blend as elastic K.
+        # A weighted full inverse is neither stationary nor reciprocal when
+        # the disabled internal modes couple to the retained ones.
+        alpha = -(q4_internal_mode_compliance(K_bb_sr, weights) * (K_ab_sr' * u_elem))
+
     end
 
     N_gp = zeros(scalar_type, 4, 3)
@@ -7675,8 +7736,8 @@ end
     return Kg
 end
 
-# KERNEL: geometric_stiffness_quad4_nastran_kdjj_iso
-# Exact replica of MSC Nastran (v70.5) CQUAD4 differential stiffness (KDJJ)
+# KERNEL: geometric_stiffness_quad4_reference_kdjj_iso
+# Exact replica of Reference (v70.5) CQUAD4 differential stiffness (KDJJ)
 # for FLAT ISOTROPIC PSHELL elements, identified entry-exactly from
 # element-level MATPRN KDJJ extractions (uniform sigma_xx/yy/xy single-element
 # states plus skewed cantilevers, 2026-07-12):
@@ -7696,10 +7757,10 @@ end
 #   * w block: per-GP metric with the sigma'_xy cross term evaluated from
 #     CENTER-sampled w-gradients.
 #   * Rotational and drilling blocks: exactly zero (KDJJ carries none).
-# Validation vs Nastran KDJJ: in-plane 0.001-0.003% across skew 0/10/20/30/45
+# Validation vs Reference KDJJ: in-plane 0.001-0.003% across skew 0/10/20/30/45
 # cantilevers and machine-exact on all three uniform states; w block <=1.3%
 # for skew<=20, 1.5-5.9% at skew 45 (vs ~15% for the plain metric).
-# Composite (laminate) variant of the Nastran-KDJJ Kg kernel.  Identical bisector-
+# Composite (laminate) variant of the Reference-KDJJ Kg kernel.  Identical bisector-
 # frame component-string operator, but instead of recovering the membrane stress from
 # the isotropic D(E,nu) it consumes JFEM's ALREADY-RECOVERED per-GP membrane force
 # resultant field N_gp (4x3: nxx,nyy,nxy per Gauss point, in the element-local = lc =
@@ -7709,7 +7770,7 @@ end
 # membrane badly (kernel hyper-sensitive to u), whereas N_gp is JFEM's validated field.
 # The shear component is CENTER-sampled (element mean of N_gp[:,3]) to match the KDJJ
 # rule.  N_gp is a stress RESULTANT (force/length) so the weight carries NO extra h.
-function geometric_stiffness_quad4_nastran_kdjj_pcomp_field(coords::AbstractMatrix,
+function geometric_stiffness_quad4_reference_kdjj_pcomp_field(coords::AbstractMatrix,
                                                             N_gp::AbstractMatrix)
     Kg = zeros(24, 24)
     x1 = coords[1,1]; y1 = coords[1,2]
@@ -7731,18 +7792,18 @@ function geometric_stiffness_quad4_nastran_kdjj_pcomp_field(coords::AbstractMatr
     nyy_c = 0.25 * (N_gp[1,2] + N_gp[2,2] + N_gp[3,2] + N_gp[4,2])
     # JFEM_SOL105_PCOMP_KDJJ_MEANSTRING (default OFF): add the meanstring
     # EDGE-STRING gradient terms this kernel dropped when it took over the
-    # path.  Nastran's KDJJ = mean-state metric + edge strings carrying the
+    # path.  Reference's KDJJ = mean-state metric + edge strings carrying the
     # self-equilibrated residual corner forces of the in-element stress
     # gradient (identified report 3.29; legacy :meanstring form).  Gradient-
     # state DOE 2026-07-22: without them the w-w block misses by 3.3-6.3% at
     # 15 deg (11% at 25 deg) under gradient states while uniform states are
     # exact — an EXACTLY rank-2, state-invariant edge-pair delta = this term.
-    # DOE 2026-07-22 string_cmp: the ported strings match Nastran's implied
+    # DOE 2026-07-22 string_cmp: the ported strings match Reference's implied
     # strings to principal cosines 1.000/1.000 with amplitude 0.93-1.03, BUT
     # (a) the w-block metric must then use the MEAN resultants (per-GP metric
     # already embeds ~95% of the gradient content -> double counting: 50-104%
     # deltas), and (b) the in-plane-transverse string parts do NOT match
-    # Nastran (uv 12-32% vs 1.7-5.1% baseline) -- Nastran's in-plane gradient
+    # Reference (uv 12-32% vs 1.7-5.1% baseline) -- Reference's in-plane gradient
     # content is already carried by the per-GP in-plane metric.  Hence:
     # strings act on w DOFs only (in-plane parts behind _INPLANE, default
     # off), and the w-w metric switches to mean-state when strings are on.
@@ -7925,13 +7986,13 @@ end
 
 # KERNEL: quad4_membrane_hourglass_skew_correction
 # Skew-metric ANISOTROPIC hourglass restabilization of the compatible bilinear
-# CQUAD4 membrane, identified against MSC Nastran v70.5 KGG membrane blocks on
+# CQUAD4 membrane, identified against Reference v70.5 KGG membrane blocks on
 # [0/90/0] cantilevers at skew 0/20/45 (2026-07-15).  On skewed quads the plain
 # full-2x2 bilinear membrane over-stiffens the two in-plane HOURGLASS modes
-# (the (1,-1,1,-1) corner pattern); Nastran carries a SPLIT (anisotropic)
+# (the (1,-1,1,-1) corner pattern); Reference carries a SPLIT (anisotropic)
 # hourglass stiffness -- one hourglass direction soft, the orthogonal one stiff.
 # This returns a 24x24 correction dK such that (full-bilinear membrane + dK)
-# reproduces Nastran's membrane block: element KGG membrane 15.0%->0.5% (skew45),
+# reproduces Reference's membrane block: element KGG membrane 15.0%->0.5% (skew45),
 # 5.4%->3.6% (skew20), 1.9%->0.1% (skew0).  The correction touches ONLY the
 # rank-2 hourglass subspace of the 8 in-plane DOFs -> the one-point (uniform-
 # strain) part is untouched, so the constant-strain PATCH TEST stays exact and
@@ -8013,7 +8074,7 @@ function quad4_membrane_hourglass_skew_correction(coords::AbstractMatrix,
     dK
 end
 
-function geometric_stiffness_quad4_nastran_kdjj_pcomp(coords::AbstractMatrix,
+function geometric_stiffness_quad4_reference_kdjj_pcomp(coords::AbstractMatrix,
                                                       u_e::AbstractVector,
                                                       Cm_prime::AbstractMatrix,
                                                       h::Float64)
@@ -8109,7 +8170,7 @@ function geometric_stiffness_quad4_nastran_kdjj_pcomp(coords::AbstractMatrix,
     return Kg
 end
 
-function geometric_stiffness_quad4_nastran_kdjj_iso(coords::AbstractMatrix,
+function geometric_stiffness_quad4_reference_kdjj_iso(coords::AbstractMatrix,
                                                     u_e::AbstractVector,
                                                     E::Real,
                                                     nu::Real,
@@ -9171,7 +9232,7 @@ end
 # Method dispatches: this is the (sigma_mem::Vector) variant — averaged membrane
 #         stress; the (sigma_mem_gp::Matrix) variant at line ~7302 handles per-GP
 #         stress fields.
-# LAST VALIDATED: 2026-05-22 (GAME mean 2.42% / max 9.10%).
+# LAST VALIDATED: 2026-05-22 (validation mean 2.42% / max 9.10%).
 # =============================================================================
 # Geometric stiffness for CQUAD4 shell element (24×24)
 # Uses membrane stress state [σxx, σyy, σxy] from SOL101.
@@ -9457,7 +9518,7 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
             :rot
         elseif raw in ("cross", "wtheta", "w_theta", "sym_cross")
             :cross
-        elseif raw in ("wty", "nastran_cross", "metric_cross")
+        elseif raw in ("wty", "reference_cross", "metric_cross")
             # Reference-extracted form (kd_/kdx MATPRN campaigns): the FULL
             # classic metric M(sigma) = int grad(N_i).sigma.grad(N_j) placed
             # as a symmetric w-THETA_Y cross coupling — verified entry-exact
@@ -9465,7 +9526,7 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
             # pure Nyy (the dy-dy table), and pure Nxy (the symmetrized
             # cross table).  Zero w-w, zero theta-theta, no theta_x pairing.
             :wty
-        elseif raw in ("meanstring", "mean_string", "nastran_meanstring")
+        elseif raw in ("meanstring", "mean_string", "reference_meanstring")
             # Reference form identified from CLEAN single/pair-dof pencils
             # (kdc_* SPCD apparatus, report 3.29): the transverse
             # differential stiffness is the classic Kirchhoff metric
@@ -10131,7 +10192,7 @@ function geometric_stiffness_quad4(coords::AbstractMatrix, sigma_mem_gp::Abstrac
                         # operator (principal decomposition of a single component
                         # is trivial), so axis-aligned states are unchanged, while
                         # combined states become the correct linear superposition
-                        # (offline pencil: +1.11% both modes, matching Nastran).
+                        # (offline pencil: +1.11% both modes, matching Reference).
                         if principal_inplane_linear
                             # Remove the same component-wise per-GP in-plane
                             # work accumulated by the ordinary Q4 path above.
@@ -10425,13 +10486,13 @@ function geometric_stiffness_quad4_covariant(coords3d::AbstractMatrix, sigma_mem
     pt = 1.0 / sqrt(3.0)
     gauss_pts = (SVector(-pt,-pt), SVector(pt,-pt), SVector(pt,pt), SVector(-pt,pt))
 
-    # JFEM_KG_COVARIANT_CENTER_SHEAR (default OFF): match Nastran's CQUAD4 KDJJ
-    # shear sampling on skewed/warped composite cells.  Nastran center-samples the
+    # JFEM_KG_COVARIANT_CENTER_SHEAR (default OFF): match Reference's CQUAD4 KDJJ
+    # shear sampling on skewed/warped composite cells.  Reference center-samples the
     # differential-stiffness shear resultant (element mean of the per-GP Nxy) while
-    # integrating the normal terms per-GP (see geometric_stiffness_quad4_nastran_kdjj
+    # integrating the normal terms per-GP (see geometric_stiffness_quad4_reference_kdjj
     # _pcomp_field).  The covariant kernel otherwise uses the per-GP Nxy, which on a
     # skewed cell over-weights the shear geometric-stiffness cross term and biases the
-    # transverse (w-w) block ~8% vs Nastran KGG/KDJJ.  Center-sampling only the shear
+    # transverse (w-w) block ~8% vs Reference KGG/KDJJ.  Center-sampling only the shear
     # (keeping per-GP normals + the exact covariant metric) is the missing ingredient.
     center_shear = fem_env_bool("JFEM_KG_COVARIANT_CENTER_SHEAR", false)
     nxy_c = 0.25 * (sigma_mem_gp[1,3] + sigma_mem_gp[2,3] + sigma_mem_gp[3,3] + sigma_mem_gp[4,3])
@@ -10621,15 +10682,15 @@ function consistent_mass_tria3(coords::AbstractMatrix, rho::Float64, h::Float64;
 end
 
 """
-    nastran_lumped_mass_quad4(coords, rho, h) -> 24x24 Matrix
+    reference_lumped_mass_quad4(coords, rho, h) -> 24x24 Matrix
 
-Nastran-compatible lumped shell mass for a four-node shell. Translational mass
+Reference-compatible lumped shell mass for a four-node shell. Translational mass
 is split equally over the corner grids. Shell rotations carry no default
-rotary inertia in the SOL 103 lumped-mass path; Nastran keeps the bending
+rotary inertia in the SOL 103 lumped-mass path; Reference keeps the bending
 rotations in K but gives them zero structural mass for the default PSHELL
 mass matrix.
 """
-function nastran_lumped_mass_quad4(coords::AbstractMatrix, rho::Float64, h::Float64)
+function reference_lumped_mass_quad4(coords::AbstractMatrix, rho::Float64, h::Float64)
     Me = zeros(24, 24)
     if rho < 1e-30 || h < 1e-30; return Me; end
 
@@ -10652,11 +10713,11 @@ function nastran_lumped_mass_quad4(coords::AbstractMatrix, rho::Float64, h::Floa
 end
 
 """
-    nastran_lumped_mass_tria3(coords, rho, h) -> 18x18 Matrix
+    reference_lumped_mass_tria3(coords, rho, h) -> 18x18 Matrix
 
-Nastran-compatible lumped shell mass for a three-node shell.
+Reference-compatible lumped shell mass for a three-node shell.
 """
-function nastran_lumped_mass_tria3(coords::AbstractMatrix, rho::Float64, h::Float64)
+function reference_lumped_mass_tria3(coords::AbstractMatrix, rho::Float64, h::Float64)
     Me = zeros(18, 18)
     if rho < 1e-30 || h < 1e-30; return Me; end
 
@@ -10745,18 +10806,18 @@ function consistent_mass_rod(L::Float64, rho::Float64, A::Float64)
 end
 
 """
-    nastran_coupled_mass_cbar(L, rho, A) -> 12x12 Matrix
+    reference_coupled_mass_cbar(L, rho, A) -> 12x12 Matrix
 
-MSC/Nastran CBAR coupled mass: Hermite bending translations, an equal blend
+Reference CBAR coupled mass: Hermite bending translations, an equal blend
 of linear-consistent and end-lumped axial inertia, and no independent section
 rotary inertia. This native compatibility convention is distinct from the
 textbook consistent beam matrix and is observable in the complete axial
 spectrum, even though total mass and all bending roots are unchanged.
-See MSC Nastran 2023.2 Dynamic Analysis User's Guide, printed page 26,
+See Reference 2023.2 Dynamic Analysis User's Guide, printed page 26,
 "Mass Matrix": CBAR axial coupled mass averages lumped and classical
-consistent mass. The convention is also verified against MSC/Nastran 70.5.
+consistent mass. The convention is also verified against Reference 70.5.
 """
-function nastran_coupled_mass_cbar(L::Float64, rho::Float64, A::Float64)
+function reference_coupled_mass_cbar(L::Float64, rho::Float64, A::Float64)
     Me = consistent_mass_frame3d(L, rho, A, 0.0, 0.0)
     if L < 1e-12 || rho < 1e-30 || A < 1e-30; return Me; end
     m = rho * A * L
@@ -10766,14 +10827,14 @@ function nastran_coupled_mass_cbar(L::Float64, rho::Float64, A::Float64)
 end
 
 """
-    nastran_lumped_mass_frame3d(L, rho, A, J, Iy, Iz) -> 12x12 Matrix
+    reference_lumped_mass_frame3d(L, rho, A, J, Iy, Iz) -> 12x12 Matrix
 
-Nastran-compatible lumped mass matrix for 3D CBAR/CBEAM line elements.
+Reference-compatible lumped mass matrix for 3D CBAR/CBEAM line elements.
 Translational mass is lumped equally to the two end grids. Rotary inertia is
 lumped to the corresponding local rotational DOFs when section inertias are
 available.
 """
-function nastran_lumped_mass_frame3d(L::Float64, rho::Float64, A::Float64,
+function reference_lumped_mass_frame3d(L::Float64, rho::Float64, A::Float64,
                                      J::Float64, Iy::Float64, Iz::Float64;
                                      torsion_inertia::Bool=false)
     Me = zeros(12, 12)
@@ -10801,17 +10862,17 @@ function nastran_lumped_mass_frame3d(L::Float64, rho::Float64, A::Float64,
 end
 
 """
-    nastran_lumped_mass_rod(L, rho, A, J) -> 12x12 Matrix
+    reference_lumped_mass_rod(L, rho, A, J) -> 12x12 Matrix
 
-Nastran-compatible lumped mass matrix for CROD/CONROD elements.
+Reference-compatible lumped mass matrix for CROD/CONROD elements.
 """
-function nastran_lumped_mass_rod(L::Float64, rho::Float64, A::Float64, J::Float64)
+function reference_lumped_mass_rod(L::Float64, rho::Float64, A::Float64, J::Float64)
     Me = zeros(12, 12)
     if L < 1e-12 || rho < 1e-30 || A < 1e-30; return Me; end
 
     m_node = rho * A * L / 2.0
     # 2026-08-05: translational only, matching the reference's lumped rod
-    # mass (see nastran_lumped_mass_frame3d).
+    # mass (see reference_lumped_mass_frame3d).
     @inbounds for base in (0, 6)
         Me[base + 1, base + 1] = m_node
         Me[base + 2, base + 2] = m_node
@@ -10972,11 +11033,11 @@ function _row_sum_lumped_mass(Me::AbstractMatrix{Float64})
 end
 
 """
-    nastran_lumped_mass_tetra4(coords, rho) -> 12x12 Matrix
+    reference_lumped_mass_tetra4(coords, rho) -> 12x12 Matrix
 
-Nastran-compatible lumped translational mass for a four-node tetrahedron.
+Reference-compatible lumped translational mass for a four-node tetrahedron.
 """
-function nastran_lumped_mass_tetra4(coords::AbstractMatrix{Float64}, rho::Float64)
+function reference_lumped_mass_tetra4(coords::AbstractMatrix{Float64}, rho::Float64)
     Me = zeros(12, 12)
     if rho < 1e-30; return Me; end
 
@@ -11001,20 +11062,20 @@ function nastran_lumped_mass_tetra4(coords::AbstractMatrix{Float64}, rho::Float6
 end
 
 """
-    nastran_lumped_mass_hexa8(coords, rho) -> 24x24 Matrix
+    reference_lumped_mass_hexa8(coords, rho) -> 24x24 Matrix
 
-Nastran-compatible row-sum lumped translational mass for an eight-node brick.
+Reference-compatible row-sum lumped translational mass for an eight-node brick.
 """
-function nastran_lumped_mass_hexa8(coords::AbstractMatrix{Float64}, rho::Float64)
+function reference_lumped_mass_hexa8(coords::AbstractMatrix{Float64}, rho::Float64)
     return _row_sum_lumped_mass(consistent_mass_hexa8(coords, rho))
 end
 
 """
-    nastran_lumped_mass_cpenta6(coords, rho) -> 18x18 Matrix
+    reference_lumped_mass_cpenta6(coords, rho) -> 18x18 Matrix
 
-Nastran-compatible row-sum lumped translational mass for a six-node wedge.
+Reference-compatible row-sum lumped translational mass for a six-node wedge.
 """
-function nastran_lumped_mass_cpenta6(coords::AbstractMatrix{Float64}, rho::Float64)
+function reference_lumped_mass_cpenta6(coords::AbstractMatrix{Float64}, rho::Float64)
     return _row_sum_lumped_mass(consistent_mass_cpenta6(coords, rho))
 end
 
@@ -11102,14 +11163,14 @@ end
   - Wilson-Taylor incompatible modes for shear/bending locking relief
   - 2×2×2 Gauss integration with static condensation of 9 internal DOFs
 
-This combination matches Nastran CHEXA accuracy for both tension and bending.
+This combination matches Reference CHEXA accuracy for both tension and bending.
 
 coords: 8×3 matrix of nodal coordinates [x y z].
-Nastran CHEXA node numbering:
+Reference CHEXA node numbering:
   Bottom face: 1-2-3-4, Top face: 5-6-7-8  (5 above 1, etc.)
 """
 # Enhanced-assumed-strain mode table for the CHEXA8 (Simo-Armero assignment,
-# recovered from MSC/Nastran 70.5 by the 2026-08-06 forensics campaign).
+# recovered from Reference 70.5 by the 2026-08-06 forensics campaign).
 # Each entry is (Voigt component, natural monomial): 9 linear modes (one per
 # component, plus the cross terms) + 12 bilinear modes.
 # Voigt order: 1=xx 2=yy 3=zz 4=xy 5=yz 6=zx.
@@ -11239,7 +11300,7 @@ end
 """
     _stiffness_hexa8_eas(coords, E, nu) -> Ke (24x24)
 
-MSC/Nastran 70.5's CHEXA8 formulation, recovered by matrix extraction
+Reference 70.5's CHEXA8 formulation, recovered by matrix extraction
 (2026-08-06 forensics campaign, `DIAGNOSTICS/2026Q3/CHEXA_K_FORENSICS_2026_08_06`):
 isoparametric 2x2x2 PLUS a 21-mode enhanced assumed strain field, mapped
 through the POLAR factor of the centre Jacobian and scaled by
@@ -11355,7 +11416,7 @@ end
 
 6-node pentahedral (wedge) element with 2-point Gauss in ζ × 1-point in triangle.
 coords: 6×3 matrix of nodal coordinates.
-Nastran CPENTA node numbering:
+Reference CPENTA node numbering:
   Bottom triangle: 1-2-3, Top triangle: 4-5-6  (4 above 1, etc.)
 """
 # Natural-derivative matrix (3x6) of the CPENTA6 shape functions at (r, s, z).
@@ -11503,7 +11564,7 @@ function _cpenta6_director(coords::AbstractMatrix{Float64})
 end
 
 """
-    _cpenta6_nastran_stiffness_tilted(coords, E, nu, dh) -> Ke (18x18)
+    _cpenta6_reference_stiffness_tilted(coords, E, nu, dh) -> Ke (18x18)
 
 The reference CPENTA6 operator for a tilted director `dh`: the ENTIRE vertical
 formulation re-expressed in the frame perpendicular to `dh` --
@@ -11517,10 +11578,10 @@ formulation re-expressed in the frame perpendicular to `dh` --
   - the odd/even rigidity laws use the projected invariants and the director
     thickness hd = a_z . dh.
 
-For dh = n this reduces analytically to `_cpenta6_nastran_stiffness`, which is
+For dh = n this reduces analytically to `_cpenta6_reference_stiffness`, which is
 why the untilted case keeps that path verbatim.
 """
-function _cpenta6_nastran_stiffness_tilted(coords::AbstractMatrix{Float64},
+function _cpenta6_reference_stiffness_tilted(coords::AbstractMatrix{Float64},
                                            E::Float64, nu::Float64, dh)
     D = iso_3d_constitutive(E, nu)
     G = E / (2 * (1 + nu))
@@ -11627,7 +11688,7 @@ function _cpenta6_nastran_stiffness_tilted(coords::AbstractMatrix{Float64},
 end
 
 """
-    _cpenta6_nastran_stiffness(coords, E, nu) -> Ke (18x18)
+    _cpenta6_reference_stiffness(coords, E, nu) -> Ke (18x18)
 
 Reference-matched CPENTA6, recovered from the reference solver's own element
 matrices and per-subcase stress output on a 46-geometry extraction corpus
@@ -11674,9 +11735,9 @@ The residual on tilted wedges is no longer the director: with the exactly
 stress-measured director the same 6e-3 remains, so what is left is how the two
 rigidity laws and the bubble condensation transfer to the tilted frame.
 """
-function _cpenta6_nastran_stiffness(coords::AbstractMatrix{Float64}, E::Float64, nu::Float64)
+function _cpenta6_reference_stiffness(coords::AbstractMatrix{Float64}, E::Float64, nu::Float64)
     dh = _cpenta6_director(coords)
-    dh === nothing || return _cpenta6_nastran_stiffness_tilted(coords, E, nu, dh)
+    dh === nothing || return _cpenta6_reference_stiffness_tilted(coords, E, nu, dh)
     D = iso_3d_constitutive(E, nu)
     G = E / (2 * (1 + nu))
     tri = ((1/6, 1/6), (2/3, 1/6), (1/6, 2/3))
@@ -11812,12 +11873,12 @@ function stiffness_cpenta6(coords::AbstractMatrix{Float64}, E::Float64, nu::Floa
 
     # 2026-08-05: the default is the reference-matched formulation recovered
     # from the reference solver's own element matrices (see
-    # _cpenta6_nastran_stiffness). The plain isoparametric quadrature
+    # _cpenta6_reference_stiffness). The plain isoparametric quadrature
     # variants below are retained as formulation-bisect options; the former
     # tri3_z1 reduced-z heuristic default is superseded.
-    cpenta_rule = lowercase(strip(fem_env_str("JFEM_CPENTA_STIFFNESS_INTEGRATION", "nastran")))
-    if cpenta_rule in ("nastran", "reference", "mitc")
-        return _cpenta6_nastran_stiffness(coords, E, nu)
+    cpenta_rule = lowercase(strip(fem_env_str("JFEM_CPENTA_STIFFNESS_INTEGRATION", "reference")))
+    if cpenta_rule in ("reference", "reference", "mitc")
+        return _cpenta6_reference_stiffness(coords, E, nu)
     end
     # Gauss integration: 3-point triangle × 2-point through thickness
     # Triangle: 3-point rule (midpoints of edges), weight = 1/6 each (total area = 1/2)

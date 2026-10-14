@@ -7,7 +7,7 @@
 #    GET  /<file>            static assets from web/
 #    GET  /api/input         parameter schema and current values, JSON
 #    POST /api/generate      parameters in, mesh out as MsgPack
-#    POST /api/nastran       parameters in, writes the BDF, JSON summary
+#    POST /api/reference       parameters in, writes the BDF, JSON summary
 #    POST /api/save_input    parameters in, rewrites the TOML input file
 #    POST /api/shutdown      stops the server
 #
@@ -186,7 +186,7 @@ const ACTIVITY_STAGES = Dict(
     "fuel_display" => "Building fuel tank display…", "annotations" => "Preparing entity labels…",
     "fuel_masses" => "Integrating fuel-bay volume, centre of gravity and inertia…",
     "case_preparation" => "Preparing independent load-case masses and loads…",
-    "payload" => "Packing mesh data…", "deck" => "Writing NASTRAN deck…",
+    "payload" => "Packing mesh data…", "deck" => "Writing REFERENCE deck…",
     "done" => "Sending results to the viewer…")
 
 function request_progress(st::AppState, req)
@@ -549,7 +549,7 @@ function write_and_preserve_deck!(st::AppState, model, path, params; source::Str
     # the same BDF must not pair one request's text with another's parameters.
     lock(st.deck_lock)
     try
-        written = write_nastran(model, path)
+        written = write_reference(model, path)
         return written, preserve_deck!(st, path, params; source,case_files=get(written,"files",Any[]))
     finally
         unlock(st.deck_lock)
@@ -591,26 +591,26 @@ function handle_last_deck(st::AppState, req; download::Bool = false)
     end
 end
 
-function handle_nastran(st::AppState, req)
+function handle_reference(st::AppState, req)
     progress = request_progress(st, req)
     try
         imported=request_imported_model(JSON.parse(String(req.body)))
-        imported===nothing||return handle_imported_nastran(st,imported)
+        imported===nothing||return handle_imported_reference(st,imported)
         params = params_from_request(st, req)
         model = build_model(params; progress)
         st.params = params
         st.model = model
-        path = resolve_output(st, String(params["output.nastran_file"]))
+        path = resolve_output(st, String(params["output.reference_file"]))
         progress("deck")
         result, snapshot = write_and_preserve_deck!(st, model, path, params; source = "Write deck")
         result["solution"] = "SOL " * String(params["output.solution"])
         result["checks_pass"] = all_checks_pass(model)
         result["deck_text"] = snapshot["deck_text"]
         result["deck_metadata"] = deck_metadata(snapshot)
-        @info "NASTRAN deck written" path = result["path"] lines = result["lines"]
+        @info "REFERENCE deck written" path = result["path"] lines = result["lines"]
         return json_response(result)
     catch e
-        @error "writing the NASTRAN deck failed" exception = (e, catch_backtrace())
+        @error "writing the REFERENCE deck failed" exception = (e, catch_backtrace())
         return error_response(describe_error(e))
     end
 end
@@ -656,15 +656,15 @@ function handle_run_jfem(st::AppState, req; start_job=start_jfem_job)
             end
         end
         raw=JSON.parse(String(req.body))
-        haskey(get(raw,"parameters",raw),"imported_deck")&&progress("Preparing imported Nastran analysis settings; preserving source geometry and load cases")
+        haskey(get(raw,"parameters",raw),"imported_deck")&&progress("Preparing imported Reference analysis settings; preserving source geometry and load cases")
         imported=request_imported_model(raw)
-        imported===nothing||return handle_imported_nastran(st,imported;run=true,start_job,progress)
-        st.model!==nothing&&is_imported_model(st.model)&&throw(ArgumentError("The current model is an imported Nastran deck, but this request omitted its source handle. Read the deck or reopen its Study before running; no lifting surface model was generated."))
+        imported===nothing||return handle_imported_reference(st,imported;run=true,start_job,progress)
+        st.model!==nothing&&is_imported_model(st.model)&&throw(ArgumentError("The current model is an imported Reference deck, but this request omitted its source handle. Read the deck or reopen its Study before running; no lifting surface model was generated."))
         params = params_from_request(st, req)
         model = build_model(params; progress)
         st.params = params
         st.model = model
-        bdf = resolve_output(st, String(params["output.nastran_file"]))
+        bdf = resolve_output(st, String(params["output.reference_file"]))
         progress("deck")
         written, snapshot = write_and_preserve_deck!(st, model, bdf, params; source = "Run in JFEM")
 
@@ -839,11 +839,11 @@ Wire the endpoints and the static file handler.
 """
 function make_router(st::AppState)
     router = HTTP.Router()
-    HTTP.register!(router, "POST", "/api/import_nastran", req -> handle_import_nastran(st,req))
-    HTTP.register!(router, "GET", "/api/import_nastran/browse", req -> handle_import_nastran_browse(st,req))
-    HTTP.register!(router, "POST", "/api/import_nastran/pick", req -> handle_import_nastran_pick(st,req))
-    HTTP.register!(router, "POST", "/api/import_nastran/prepare", req -> handle_import_nastran_prepare(st,req))
-    HTTP.register!(router, "GET", "/api/import_nastran/prepare", req -> handle_import_nastran_prepare(st,req))
+    HTTP.register!(router, "POST", "/api/import_reference", req -> handle_import_reference(st,req))
+    HTTP.register!(router, "GET", "/api/import_reference/browse", req -> handle_import_reference_browse(st,req))
+    HTTP.register!(router, "POST", "/api/import_reference/pick", req -> handle_import_reference_pick(st,req))
+    HTTP.register!(router, "POST", "/api/import_reference/prepare", req -> handle_import_reference_prepare(st,req))
+    HTTP.register!(router, "GET", "/api/import_reference/prepare", req -> handle_import_reference_prepare(st,req))
     HTTP.register!(router, "GET", "/api/input", req -> handle_input(st, req))
     HTTP.register!(router, "GET", "/api/input_text", req -> handle_input_text(st, req))
     HTTP.register!(router, "POST", "/api/sensitivity/catalog", req -> handle_sensitivity_catalog(st, req))
@@ -862,7 +862,7 @@ function make_router(st::AppState)
     HTTP.register!(router, "POST", "/api/prepare_workspace", req -> handle_workspace(st, req; generate = true))
     HTTP.register!(router, "POST", "/api/import_toml", req -> handle_import_toml(st, req))
     HTTP.register!(router, "POST", "/api/export_toml", req -> handle_export_toml(st, req))
-    HTTP.register!(router, "POST", "/api/nastran", req -> handle_nastran(st, req))
+    HTTP.register!(router, "POST", "/api/reference", req -> handle_reference(st, req))
     HTTP.register!(router, "GET", "/api/last_deck", req -> handle_last_deck(st, req))
     HTTP.register!(router, "GET", "/api/last_deck/download", req -> handle_last_deck(st, req; download=true))
     HTTP.register!(router, "POST", "/api/save_input", req -> handle_save_input(st, req))
@@ -936,7 +936,7 @@ function run_app(input_path::AbstractString;
     server === nothing && error("no free port in the range $port to $(port+20)")
 
     url = "http://127.0.0.1:$actual/"
-    _startup_stage("HTTP listener ready at $url; choose a study or import a Nastran deck in the browser")
+    _startup_stage("HTTP listener ready at $url; choose a study or import a Reference deck in the browser")
     on_ready()
     println()
     println("  Lifting surface FEGen is running")

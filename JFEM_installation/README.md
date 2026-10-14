@@ -1,129 +1,115 @@
-# OpenJFEM One-Click Installation
+# Unified JFEM application setup
 
-This folder contains the setup files intended for first-time users. After Julia
-is installed, the user should run one platform-specific file from this folder.
-That file installs the Julia packages and creates the local sysimage used for
-fast startup.
-
-## Before You Click
-
-Install Julia 1.13.1 and make sure the `julia` command is available on `PATH`.
-Git is also recommended so the repository can be cloned and updated normally.
-
-## Click One File
-
-| Platform | What to do |
-|---|---|
-| Windows | Double-click `CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd`. |
-| macOS | Double-click `CLICK_MAC_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.command`. |
-| Linux | Run `RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh` from a terminal. |
-
-Linux usually needs the executable bit set once:
-
-```bash
-chmod +x JFEM_installation/RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh
-./JFEM_installation/RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh
-```
-
-If macOS blocks the double-click launcher, run:
-
-```bash
-chmod +x JFEM_installation/CLICK_MAC_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.command
-open JFEM_installation/CLICK_MAC_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.command
-```
-
-The setup can take several minutes and may use a lot of CPU and memory while
-Julia compiles the solver. That is normal.
-
-## What The Setup Does
-
-1. Installs and instantiates the packages declared by the repository
-   `Project.toml` and `Manifest.toml`.
-2. Runs a small precompile workload using bundled SOL 101, SOL 103, and SOL 105
-   decks from `examples/precompile/`.
-3. Builds a PackageCompiler sysimage under the repository `sysimage/` folder.
-
-The sysimage file is platform-specific:
-
-```text
-sysimage/OpenJFEM_sysimage.dll     Windows
-sysimage/OpenJFEM_sysimage.so      Linux
-sysimage/OpenJFEM_sysimage.dylib   macOS
-```
-
-The command-line launchers and web-app launchers load it automatically when it
-exists:
-
-| Launcher | Uses the sysimage if present |
-|---|---|
-| `jfem` / `jfem.cmd` | yes |
-| `POST/PANDEATOR_APP/RUN_PANDEATOR_WINDOWS.cmd` / `POST/PANDEATOR_APP/RUN_PANDEATOR_MAC_LINUX.sh` | yes |
-
-The sysimage is a startup-speed optimization. It does not change solver
-results, model data, load factors, or equations. If it is missing, OpenJFEM
-still runs, but startup is slower.
-
-## After Installation
-
-Run a deck from the repository root:
+Follow the [from-scratch guide](INSTALLATION.md) to install the Julia version
+recorded by this checkout. From the repository root, run one command:
 
 ```powershell
-.\jfem C:\models\my_model.bdf
+.\setup.cmd
 ```
 
 ```bash
-./jfem ~/models/my_model.bdf
+bash setup.sh
 ```
 
-Open `.jfem` result files with:
+This installs the recorded JFEM and WingFEGen environments and verifies all four
+applications: the JFEM CLI, FGen, PANDEATOR and the static results viewer.
+PANDEATOR shares the solver environment; the static viewer needs only its bundled
+browser assets. Keep the complete repository folder structure. Setup does not
+change the global Julia environment, depot configuration or dependency versions.
+Normal setup does not build a sysimage.
 
-```text
-POST/JFEM_results_viewer/postv11.html
-```
+The JFEM, FGen and PANDEATOR first-launch paths also install missing package
+sources automatically. Run explicit setup to repair missing package artifacts.
+Set `JFEM_AUTO_INSTALL=0` to require explicit setup instead. Use `JFEM_JULIA` to
+select a Julia executable for the root and PANDEATOR launchers; FGen's own
+launchers use `WINGFEGEN_JULIA`.
 
-On Windows, the web case runner can be started by double-clicking:
+## Setup options
 
-```text
-POST/PANDEATOR_APP/RUN_PANDEATOR_WINDOWS.cmd
-```
+| Option | Effect |
+| --- | --- |
+| `--dry-run` | Print projects, application checks and any sysimage build command without installing or building. |
+| `--offline` | Use existing package/artifact caches; uncached dependencies cannot be downloaded. |
+| `--no-precompile` | Skip explicit package precompilation. Module verification can still compile code. |
+| `--no-verify` | Skip application checks. Combine with `--no-precompile` for dependency installation only. |
+| `--solver-only` | Install JFEM dependencies and check JFEM, PANDEATOR and static viewer. |
+| `--wingfegen-only` | Install and verify only the FGen environment. |
+| `--wingfegen-project=PATH` | Select another FGen project location. |
+| `--update-registry` | Refresh registries before installing; ignored in offline mode. |
+| `--sysimage` | After setup, build the optional local solver/PANDEATOR image. |
+| `--sysimage=PATH` | Build at a custom path instead of the standard location. |
+| `--sysimage-threads=N` | Limit build-process threads; default `auto`. |
+| `--deck PATH` / `--manifest PATH` | Supply representative image workloads; requires `--sysimage`. Decks may be repeated. |
+| `--flags VALUE` | Pass `FLAG=value,...` workload settings; requires `--sysimage`. |
 
-## Representative Decks
+Use `--help` for the CLI reference. FGen's `setup.cmd`, `setup.sh` and `setup.jl`
+delegate to this same installer. Application verification loads modules and checks
+PANDEATOR's health/static routes; it does not run a solver analysis or start a
+browser. The static viewer check confirms required local assets exist.
 
-The default setup uses tiny bundled decks so a new user does not need any model
-files. For best startup performance on a recurring model family, rebuild the
-sysimage from a terminal and pass representative decks:
+## Optional local sysimage
 
 ```powershell
-.\JFEM_installation\CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd --deck C:\models\representative_sol105.bdf
+.\setup.cmd --sysimage
+.\setup.cmd --sysimage --deck C:\models\representative_sol105.bdf
+.\setup.cmd --sysimage --dry-run
 ```
 
 ```bash
-./JFEM_installation/RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh --deck ~/models/representative_sol105.bdf
+bash setup.sh --sysimage
+bash setup.sh --sysimage --manifest ~/models/cases.json
+bash setup.sh --sysimage --sysimage-threads=2
 ```
 
-A JSON batch manifest can also be supplied:
+The same setup first installs dependencies, then invokes PackageCompiler with
+tiny bundled SOL101/103/105 examples and PANDEATOR handlers. Representative decks
+replace the default deck workload. `--no-precompile` and `--no-verify` do not
+cancel an explicitly requested image build. `--wingfegen-only --sysimage` is
+rejected because the image belongs to the solver environment.
 
-```powershell
-.\JFEM_installation\CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd --manifest C:\models\cases.json
-```
+The historical `CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd`,
+`CLICK_MAC_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.command` and
+`RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh` are compatibility wrappers
+for `setup --sysimage`; they accept the same options. Set `OPENJFEM_NO_PAUSE=1`
+for unattended Windows/macOS wrapper use.
 
-## Installation Assets
+The default output is `sysimage/OpenJFEM_sysimage.dll` on Windows, `.so` on Linux
+or `.dylib` on macOS, plus a `.jfem.toml` provenance receipt. JFEM/PANDEATOR
+launchers and FGen native solver jobs automatically select the standard image
+only when its source, workload, runtime and image hashes still match. FGen's web
+server itself uses its own environment and does not load this solver image.
+Custom image paths are not automatically selected by these launchers.
 
-- `julia_tools/`: Julia helper scripts used by setup launchers, wrappers,
-  manifest batches, and Python worker workflows.
-- `examples/precompile/`: tiny decks used only to warm common solver paths when
-  no representative user deck is supplied.
-- `examples/manifests/`: small manifest templates for checking the batch runner.
-- `python_client/`: optional Python helpers for external automation that needs
-  to write manifests or drive the JSONL worker.
+Builds can require substantial CPU, RAM and time. A build failure returns status
+2 after successful dependency setup; the applications still work without an
+image. No timing or performance gain is guaranteed for an untrained model family.
+Rebuild after changes to Julia, source, dependencies or representative workloads.
+A stale or missing receipt makes the standard launchers fall back to normal Julia.
 
-## Troubleshooting
+## Launch the applications
 
-- If `julia` is not found, install Julia 1.13.1 and put it on `PATH`.
-- If package installation fails on a machine without internet access, see
-  `OFFLINE_DEPENDENCIES.md`.
-- If the sysimage build fails on Linux/macOS, install a native toolchain
-  (`gcc`/`build-essential` on Linux, Xcode command-line tools on macOS).
-- Rebuild the sysimage after upgrading Julia or changing OpenJFEM package
-  dependencies.
-- To stop using the sysimage, delete `sysimage/OpenJFEM_sysimage.*`.
+| Application | Entry point from the repository root |
+| --- | --- |
+| JFEM CLI | `jfem.cmd model.bdf` (Windows), `bash jfem model.bdf` (macOS/Linux) |
+| FGen | `julia --startup-file=no --project=WingFEGen WingFEGen/run.jl` |
+| PANDEATOR | `POST/PANDEATOR_APP/RUN_PANDEATOR_WINDOWS.cmd` or `bash POST/PANDEATOR_APP/RUN_PANDEATOR_MAC_LINUX.sh` |
+| Static results viewer | Open `POST/JFEM_results_viewer/postv11.html` in a browser and select a `.jfem` file. No Julia server or CDN is needed. |
+
+## Troubleshooting and assets
+
+If Julia is unavailable, install it from [Julia's official downloads](https://julialang.org/downloads/)
+and reopen the terminal. The installer checks the checkout's recorded Julia
+release line before installing packages. For offline preparation see
+[OFFLINE_DEPENDENCIES.md](OFFLINE_DEPENDENCIES.md). Package/artifact download
+errors require working network/proxy access or an existing cache.
+
+Native sysimage compilation may require a compiler toolchain (for example Xcode
+command-line tools on macOS or a system C compiler on Linux). The build's error
+log identifies missing tools; ordinary application setup remains usable.
+See [PackageCompiler's installation requirements](https://julialang.github.io/PackageCompiler.jl/stable/#Installation-instructions)
+for the platform toolchain details.
+
+`julia_tools/` contains shared setup, CLI, batch and worker helpers.
+`examples/precompile/` contains redistributable tiny image workloads;
+`examples/manifests/` contains batch templates. `python_client/` is optional
+external automation and is not needed to install or launch the four applications.

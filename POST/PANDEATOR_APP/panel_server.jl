@@ -17,6 +17,12 @@
 # Normally you launch it via panel_launch.jl, which also opens the browser.
 # =============================================================================
 
+# Bootstrap before loading external packages, including direct panel_server use.
+if !isdefined(@__MODULE__, :JFEMEnvironmentSetup)
+    include(joinpath(@__DIR__, "..", "..", "JFEM_installation", "julia_tools", "environment_setup.jl"))
+end
+JFEMEnvironmentSetup.ensure_environment(normpath(joinpath(@__DIR__, "..", "..")))
+
 using HTTP
 using MsgPack
 using JSON
@@ -539,7 +545,7 @@ function serve(; host="127.0.0.1", port=8088)
         if si["custom"]
             _log("  sysimage: YES ($(si["name"]))  -  fast startup active")
         else
-            _log("  sysimage: NO (default Julia image)  -  run JFEM_installation/CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd or RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh for fast startup")
+            _log("  sysimage: NO (default Julia image) - optional build: setup.cmd --sysimage or bash setup.sh --sysimage from the repository root")
         end
         _log("  threads:  $(Threads.nthreads())")
     end

@@ -22,6 +22,9 @@
 .legend-limits[data-limit-form] { display:grid; gap:6px; margin:8px 0; padding:8px; border:1px solid #5f809d; border-radius:4px; background:#091a2b; }
 .legend-limits label { display:grid; grid-template-columns:65px minmax(0,1fr); align-items:center; gap:6px; }
 .legend-limits input { width:100%; min-width:0; box-sizing:border-box; padding:5px; border:1px solid #607b95; border-radius:3px; color:#fff; background:#142c43; }
+.legend-limits input[type="range"] { padding:0; height:18px; accent-color:#86caff; cursor:ew-resize; }
+.mode .mode-peak { grid-column:2 / -1; color:var(--muted); font-size:10.5px; overflow-wrap:anywhere; }
+.mode.active .mode-peak { color:#cfe2ff; }
 .legend-limits-actions { display:flex; gap:6px; }
 .legend-limits-actions .legend-action { width:auto; padding:5px 8px; font-size:11px; }
 .legend-limits [role="alert"] { color:#ffb6b6; }

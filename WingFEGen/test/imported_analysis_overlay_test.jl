@@ -6,8 +6,8 @@ struct Model
     xyz::Vector{Float64}
     groups::Vector{Int}
 end
-include(joinpath(@__DIR__,"..","src","nastran_import_cases.jl"))
-include(joinpath(@__DIR__,"..","src","nastran_import_analysis.jl"))
+include(joinpath(@__DIR__,"..","src","reference_import_cases.jl"))
+include(joinpath(@__DIR__,"..","src","reference_import_analysis.jl"))
 end
 const O=Overlay
 function fixture(text)

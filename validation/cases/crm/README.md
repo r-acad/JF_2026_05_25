@@ -50,7 +50,7 @@ OpenJFEM runs SOL 103 shell modes with coupled consistent PSHELL mass by
 default. That route matches the CRM modal reference family and recovers the
 first five reference eigenvalues in order. The mass route is generic:
 `PARAM,COUPMASS,YES` requests coupled mass, `PARAM,COUPMASS,NO` requests
-Nastran-style lumped shell mass, and `JFEM_SOL103_SHELL_MASS=consistent` or
+Reference-style lumped shell mass, and `JFEM_SOL103_SHELL_MASS=consistent` or
 `lumped` can force either path for diagnostics. Modal effective mass is reported
 with global rigid-translation vectors in the assembled analysis DOF frame, so
 GRID `CD` output-frame rotations preserve the same physical mass totals.

@@ -21,7 +21,7 @@ const rows=[
  row('properties.spar_cap_side',22,[12]),
  row('materials.shells#leading_edge_skin#core_thickness',23,[21]),
  row('material.E',24,[3,12,21,2000003],{value:71,unit:'GPa',derivative_unit:'m / GPa',field_key:'material.E'}),
- row('nastran.property#8000001#A',25,[8000001],{field_key:'section.area',unit:'m2',derivative_unit:'m / m2'})
+ row('reference.property#8000001#A',25,[8000001],{field_key:'section.area',unit:'m2',derivative_unit:'m / m2'})
 ];
 const pending='properties.components#rear_upper_cap:2#side',scope={groups:[
  {pid:3,name:'FRONT_SPAR_WEB',kind:'quad',eids:[1,2]},
@@ -44,9 +44,9 @@ const partial=api.compact({result:{...result,status:'partial'}});assert.equal(ap
 const ribGrid=api.componentMatrix(s,'ribwebs','shell.thickness|m / m');assert(ribGrid.ribs);assert.deepEqual(ribGrid.indices,[3,4]);assert.equal(ribGrid.cells.get('rib_web:4').missing.status,'not_selected');
 assert.deepEqual(api.matrix(s,'upper','shell.thickness|m / m').bays,[1]);checks.push('Ribs use rib indices, other components use bays; unrelated current geometry never contaminates historical results');
 assert.deepEqual(api.rowGroups(s,rows[16]),['sparwebs','sparcaps','leskins','ribstiffeners']);assert.deepEqual(api.rowGroups(s,rows[17]),[]);
-assert.equal(api.selectRows(s,{mode:'all',filter:'nastran.property'}).length,1);assert.equal(api.selectRows(s,{mode:'other',filter:'nastran.property'}).length,1);
+assert.equal(api.selectRows(s,{mode:'all',filter:'reference.property'}).length,1);assert.equal(api.selectRows(s,{mode:'other',filter:'reference.property'}).length,1);
 assert.equal(api.selectRows(s,{mode:'panels',skin:'sparcaps',field:'material.E|m / GPa'})[0].derivative,24);checks.push('Recorded PID ownership includes relevant shared materials; arbitrary imported PID numbers never masquerade as generated components');
-const unreturned=api.compact({result:{rows:[],baseline:{value:1,unit:'m'},request:{variables:['material.E','materials.library#2#nu','nastran.property#8000001#I1']},scope:{groups:[{pid:12,name:'SPAR_CAPS'}],variables:{'material.E':{pids:[12]},'materials.library#2#nu':{pids:[12]},'nastran.property#8000001#I1':{pids:[12]}}}}});
+const unreturned=api.compact({result:{rows:[],baseline:{value:1,unit:'m'},request:{variables:['material.E','materials.library#2#nu','reference.property#8000001#I1']},scope:{groups:[{pid:12,name:'SPAR_CAPS'}],variables:{'material.E':{pids:[12]},'materials.library#2#nu':{pids:[12]},'reference.property#8000001#I1':{pids:[12]}}}}});
 assert.deepEqual(api.availableGroups(unreturned),[]);assert.deepEqual(api.groupFamilies(unreturned,'sparcaps'),[]);checks.push('Missing material/imported rows never acquire fabricated metre units or false derivative families');
 const scale=api.colorScales(s,{mode:'panels',skin:'sparcaps',field:capField}).get('m / m');assert.deepEqual(scale,{unit:'m / m',min:5,max:22,count:2});
 assert.equal(api.colorScales(s,{mode:'panels',skin:'sparwebs',field:'shell.thickness|m / m'}).get('m / m').max,-3);

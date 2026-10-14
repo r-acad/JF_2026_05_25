@@ -1,18 +1,11 @@
 #!/usr/bin/env bash
-# macOS double-click wrapper for installing packages and creating the OpenJFEM sysimage.
+# Finder compatibility wrapper around the same canonical setup command.
 set -u
-
-HERE="$(cd "$(dirname "$0")" >/dev/null 2>&1 && pwd)"
-
-bash "$HERE/RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh" "$@"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+bash "$HERE/../setup.sh" --sysimage "$@"
 STATUS=$?
-
-echo
-if [ "$STATUS" -eq 0 ]; then
-  echo "Done. The OpenJFEM sysimage is ready."
-else
-  echo "Sysimage build failed - see the messages above."
+if [ "${OPENJFEM_NO_PAUSE:-0}" != "1" ]; then
+  echo "Setup exited with status $STATUS. Press Return to close this window."
+  read -r _
 fi
-echo "Press Return to close this window."
-read -r _
 exit "$STATUS"

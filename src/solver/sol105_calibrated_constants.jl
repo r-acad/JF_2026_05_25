@@ -1,7 +1,7 @@
 # sol105_calibrated_constants.jl
 #
 # Phase B2 (architectural-cleanup 2026-05-24): single canonical place for
-# the calibrated constants the GAME campaign baked into the SOL105 production
+# the calibrated constants the validation campaign baked into the SOL105 production
 # path. Each constant carries its provenance — the campaign run, the
 # observation that motivated the value, and the call site it's read from.
 #
@@ -12,12 +12,12 @@
 # them into an explicit options struct.
 #
 # Anything listed here was set deliberately during the parity campaign.
-# Changing one without re-running GAME validation will regress parity.
+# Changing one without re-running validation validation will regress parity.
 
 """
     SOL105_CALIBRATED_CONSTANTS
 
-Named record of every calibrated constant that the GAME 5-case parity
+Named record of every calibrated constant that the validation 5-case parity
 campaign baked into SOL 105 production defaults. Each entry documents the
 value, the env override key, the call site, and one-line provenance.
 
@@ -34,8 +34,8 @@ const SOL105_CALIBRATED_CONSTANTS = (
         site            = "JFEM/src/FEMKernels.jl:4968",
         description     = "MacNeal 1978 RBF Zb residual-bending-flexibility scale.",
         provenance      = ("Probe-library result 2026-05-14: 0.65 reproduces " *
-                           "Nastran's +9% iso-flat baseline λ bias. Paper value is 1.0; " *
-                           "kept at 0.65 to balance HTP_launch on the MITC4 path."),
+                           "Reference's +9% iso-flat baseline λ bias. Paper value is 1.0; " *
+                           "kept at 0.65 to balance tail-box model on the MITC4 path."),
     ),
     macneal_warp_tol = (
         value           = 1e-2,
@@ -44,10 +44,10 @@ const SOL105_CALIBRATED_CONSTANTS = (
         description     = "Maximum warp_ratio for an element to be MacNeal-eligible.",
         provenance      = ("2026-07-27: raised again 1e-4 -> 1e-2. MacNeal eligibility is tested " *
                            "BEFORE the curvature branch, so cells above this bound never reach it. " *
-                           "HTP_launch's mode-hosting cells sit at warp/L = 1.5e-4, just over the " *
-                           "old line; JFEM's energy on Nastran's OWN HTP eigenvector was 2.24x too " *
+                           "tail-box model's mode-hosting cells sit at warp/L = 1.5e-4, just over the " *
+                           "old line; JFEM's energy on Reference's OWN tail-box eigenvector was 2.24x too " *
                            "stiff and drops to 0.906x once they stay on MacNeal. A dedicated warp " *
-                           "rig (single PCOMP cell, warp/L 0 -> 3e-3, Nastran MATPRN KGG) shows the " *
+                           "rig (single PCOMP cell, warp/L 0 -> 3e-3, Reference MATPRN KGG) shows the " *
                            "reference is warp-INSENSITIVE (476.39 -> 476.48) while JFEM stepped " *
                            "459 -> 295 at the first nonzero warp. " *
                            "2026-04-30: relaxed from strict elem_is_flat tolerance " *
@@ -62,9 +62,9 @@ const SOL105_CALIBRATED_CONSTANTS = (
         provenance      = ("2026-05-25 (promoted to default): the second leg of the under-3% " *
                            "configuration. With h/L ≥ 0.015 AND aspect ≤ 3.5, an element goes " *
                            "to MacNeal RBF; otherwise it stays on MITC4+phi2 with the α gate. " *
-                           "This routing closes VTP_3wp_strain 511002 from -4.54% to -2.96% RQ. " *
+                           "This routing closes curved-shell model 511002 from -4.54% to -2.96% RQ. " *
                            "Tightening the h/L threshold further (e.g. 0.02→0.018→0.015) makes " *
-                           "diminishing-return improvements; loosening (0.025+) leaves VTP_3wp_strain " *
+                           "diminishing-return improvements; loosening (0.025+) leaves curved-shell model " *
                            "in over-ceiling territory."),
     ),
     macneal_pcomp_thick_aspect_max = (
@@ -74,9 +74,9 @@ const SOL105_CALIBRATED_CONSTANTS = (
         description     = "Maximum aspect ratio for an element to be routed to MacNeal by the thickness gate.",
         provenance      = ("2026-05-25: companion to macneal_pcomp_thick_h_over_l_min. Aspect " *
                            "upper bound is critical — without it the h/L route would catch the " *
-                           "thin+high-aspect HTP_launch elements and regress HTP_launch 511002 " *
+                           "thin+high-aspect tail-box model elements and regress tail-box model 511002 " *
                            "from +2.21% (MITC4+phi2 path with α=4.5) to +6.49% (MacNeal too stiff " *
-                           "for that geometry). HTP_launch elements have aspect>4; VTP_3wp_strain " *
+                           "for that geometry). tail-box model elements have aspect>4; curved-shell model " *
                            "elements have aspect~2.3 — this threshold cleanly separates them."),
     ),
     macneal_pcomp_thick_kappa_l_min = (
@@ -85,7 +85,7 @@ const SOL105_CALIBRATED_CONSTANTS = (
         site            = "JFEM/src/solver/assembly.jl (h/L MacNeal route, ~line 3110)",
         description     = "Minimum κ_L (curvature × char length) for an element to be routed to MacNeal by the thickness gate.",
         provenance      = ("2026-05-25: opt-in companion to macneal_pcomp_thick_h_over_l_min. " *
-                           "Defaults to 0.0 (no-op) — all current GAME elements that satisfy " *
+                           "Defaults to 0.0 (no-op) — all current validation elements that satisfy " *
                            "the h/L + aspect criteria already have non-trivial κ_L. Available as " *
                            "a future refinement knob if curved-shell parity needs differentiation " *
                            "between near-flat and strongly-curved thick PCOMP elements."),
@@ -132,7 +132,7 @@ const SOL105_CALIBRATED_CONSTANTS = (
                            "Gauss stress recovery by default but switches to averaged resultants " *
                            "only for direct-FORCE, simple-compression cases accepted by the load " *
                            "classifier. Promoted with load-classified static membrane enrichment " *
-                           "after the GAME guard stayed at 9/10 trusted, mean abs RQ bias 2.03%, " *
+                           "after the validation guard stayed at 9/10 trusted, mean abs RQ bias 2.03%, " *
                            "max trusted 4.64%."),
     ),
     # MITC4 shear-locking attenuation (phi2)
@@ -142,8 +142,8 @@ const SOL105_CALIBRATED_CONSTANTS = (
         env             = "(module Ref: JFEM.FEM.PHI2_ALPHA[])",
         site            = "JFEM/src/FEMKernels.jl:10",
         description     = "MITC4 phi2 = min(1, α·h²/L²) shear-locking attenuation factor.",
-        provenance      = ("2026-05-23 DOE: globally optimal scalar across GAME corpus. " *
-                           "α=5 catastrophically regresses HTP_3wp_strain; α=8 closes max " *
+        provenance      = ("2026-05-23 DOE: globally optimal scalar across validation corpus. " *
+                           "α=5 catastrophically regresses tail-box model; α=8 closes max " *
                            "to 7.74% on legacy comparison; α=8.5 best on Rayleigh-quotient " *
                            "(max 3.92%); per-element gating proposed but not promoted to default."),
     ),
@@ -157,7 +157,7 @@ const SOL105_CALIBRATED_CONSTANTS = (
         description     = "Relative threshold for translational DOFs vs max diagonal stiffness.",
         provenance      = ("Default 1e-8: a translational diagonal below " *
                            "this fraction of max_K_trans is treated as a near-singular DOF " *
-                           "and auto-constrained. Matches MSC convention."),
+                           "and auto-constrained. Matches REFERENCE convention."),
     ),
     autospc_rot_rel = (
         value           = 1e-8,  # inherits from trans default
@@ -173,15 +173,15 @@ const SOL105_CALIBRATED_CONSTANTS = (
     k6rot_default = (
         value           = 0.0,   # linear sequences; 100.0 in SOL 106/129
         env             = "JFEM_PARAM_K6ROT",
-        site            = "JFEM/src/solver/assembly.jl:nastran_k6rot_default + assembly.jl:2450",
+        site            = "JFEM/src/solver/assembly.jl:reference_k6rot_default + assembly.jl:2450",
         description     = "Hughes-Brezzi drilling DOF stiffness coefficient, when the deck declares no PARAM,K6ROT.",
         provenance      = ("NO LONGER A CALIBRATED VALUE (2026-08-04). This entry used to " *
-                           "record a flat 100.0 justified by an MSC recommendation to 'start " *
+                           "record a flat 100.0 justified by an REFERENCE recommendation to 'start " *
                            "with K6ROT=100' in SOL105. That is advice for a user, not the " *
                            "solver's default, and taking it as the default meant a cardless " *
                            "deck silently ran a different problem from the reference -- worth " *
                            "3.4956% on the MacNeal hemisphere, where it was mistaken for a " *
-                           "formulation gap. The default now mirrors MSC/Nastran 70.5's own " *
+                           "formulation gap. The default now mirrors Reference 70.5's own " *
                            "per-subDMAP declarations: 0. in every linear sequence " *
                            "(del/sestatic.dat:44, semodes.dat:46, sebuckl.dat:42, ...) and " *
                            "100. only in the nonlinear SOL 106/129 (nlstatic.dat:67, " *
@@ -200,8 +200,8 @@ const SOL105_CALIBRATED_CONSTANTS = (
         env             = "JFEM_BUCKLING_CLUSTER_FILTER",
         site            = "JFEM/src/solver/sol105_options.jl:167 and JFEM/src/solver/solve_case.jl:3112",
         description     = "Spectral-gap low-band skip is opt-in; production keeps the recovered spectrum.",
-        provenance      = ("2026-06-06 GAME parity continuation: the old default skipped broad low " *
-                           "physical bands on HTP 3WP 511002 and made the reference mode unavailable " *
+        provenance      = ("2026-06-06 validation parity continuation: the old default skipped broad low " *
+                           "physical bands on tail-box 3WP 511002 and made the reference mode unavailable " *
                            "to MAC/Rayleigh comparison. Keeping the full recovered spectrum is the " *
                            "safer eigenproblem default; use JFEM_BUCKLING_CLUSTER_FILTER=true only as " *
                            "a diagnostic cleanup for known cluttered spectra."),
@@ -213,7 +213,7 @@ const SOL105_CALIBRATED_CONSTANTS = (
         description     = "Opt-in spectral-gap ratio for the cluster filter to identify a post-gap band.",
         provenance      = ("2026-05-01: empirically detects the spectral gap between " *
                            "the spurious low-energy cluster and the physical buckling cluster " *
-                           "on GAME PCOMP curved decks. Only fires when post-jump cluster has " *
+                           "on validation PCOMP curved decks. Only fires when post-jump cluster has " *
                            "at least N_DENSE eigenvalues within a small relative spread (30%)."),
     ),
     # ─────────────────────────────────────────────────────────────────

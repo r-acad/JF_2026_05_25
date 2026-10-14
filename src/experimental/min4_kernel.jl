@@ -15,7 +15,7 @@
 # Reference: A. Tessler & T.J.R. Hughes, "An Improved Treatment Of Transverse
 # Shear In The Mindlin-Type Four-Node Quadrilateral Element", CMAME 39 (1983)
 # pp 311-335. Also see MYSTRAN's QPLT2/MIN4SH/BBMIN4/BSMIN4/CALC_PHI_SQ
-# (Bill Case, MIT-licensed open-source NASTRAN clone).
+# (Bill Case, MIT-licensed open-source REFERENCE clone).
 #
 # Algorithm:
 #   * w (out-of-plane) interpolated biquadratic-serendipity; mid-side w_5..w_8

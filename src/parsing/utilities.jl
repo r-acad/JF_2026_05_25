@@ -1,11 +1,11 @@
-# utilities.jl — Low-level parsing helpers for NASTRAN BDF format
+# utilities.jl — Low-level parsing helpers for REFERENCE BDF format
 
 function safe_get(arr::Vector{Any}, idx::Int, default_val=nothing)
     if idx > length(arr); return default_val; end
     return arr[idx]
 end
 
-@inline function _nastran_numeric_value(val::Float64)
+@inline function _reference_numeric_value(val::Float64)
     # Integer-valued fields are kept as IDs where representable. Large finite
     # material/load values must remain floats instead of throwing InexactError.
     if abs(val) >= 0.5 && typemin(Int) <= val < -Float64(typemin(Int))
@@ -15,12 +15,12 @@ end
     return val
 end
 
-@inline function _nastran_without_comment(line::AbstractString)
+@inline function _reference_without_comment(line::AbstractString)
     comment = findfirst(==('$'), line)
     return comment === nothing ? line : SubString(line, firstindex(line), prevind(line, comment))
 end
 
-function parse_nastran_number(field::Any, default_val=nothing)
+function parse_reference_number(field::Any, default_val=nothing)
     if isa(field, Number); return field; end
     if isnothing(field); return default_val; end
 
@@ -30,11 +30,11 @@ function parse_nastran_number(field::Any, default_val=nothing)
     # Fast path: fields already in plain Julia float syntax (the vast
     # majority) parse directly, skipping two regex replacements and the
     # try/catch (measured 4.4x on the tokenizer hot path). Fields using the
-    # NASTRAN embedded-exponent form ("1.0+3") fail tryparse and fall
+    # REFERENCE embedded-exponent form ("1.0+3") fail tryparse and fall
     # through to the exact legacy path, so results are identical.
     fast = tryparse(Float64, field_str)
     if fast !== nothing
-        return _nastran_numeric_value(fast)
+        return _reference_numeric_value(fast)
     end
 
     clean_field = replace(field_str, 'D' => 'e', 'd' => 'e')
@@ -43,7 +43,7 @@ function parse_nastran_number(field::Any, default_val=nothing)
 
     try
         val = parse(Float64, clean_field)
-        return _nastran_numeric_value(val)
+        return _reference_numeric_value(val)
     catch; return default_val; end
 end
 
@@ -53,7 +53,7 @@ function to_id(val)
     return 0
 end
 
-function expand_nastran_list(raw_fields)
+function expand_reference_list(raw_fields)
     normalized_fields = Any[]
     for field in raw_fields
         if isa(field, AbstractString)
@@ -78,11 +78,11 @@ function expand_nastran_list(raw_fields)
                 i += 1; continue
             end
             start_id = result[end]
-            end_id = to_id(parse_nastran_number(normalized_fields[i+1]))
+            end_id = to_id(parse_reference_number(normalized_fields[i+1]))
             if end_id > start_id; append!(result, (start_id+1):end_id); end
             i += 2
         else
-            parsed = to_id(parse_nastran_number(val, 0))
+            parsed = to_id(parse_reference_number(val, 0))
             if parsed > 0; push!(result, parsed); end
             i += 1
         end
@@ -90,7 +90,7 @@ function expand_nastran_list(raw_fields)
     return result
 end
 
-function get_nastran_card_name(line::AbstractString)
+function get_reference_card_name(line::AbstractString)
     comma = findfirst(==(','), line)
     if comma !== nothing
         return uppercase(strip(SubString(line, firstindex(line), prevind(line, comma))))
@@ -102,7 +102,7 @@ function get_nastran_card_name(line::AbstractString)
     return uppercase(strip(line[1:min(8, length(line))]))
 end
 
-function get_nastran_fixed_fields_from_line(line::AbstractString; large_field::Bool=false, truncate_to_line_length::Bool=false)
+function get_reference_fixed_fields_from_line(line::AbstractString; large_field::Bool=false, truncate_to_line_length::Bool=false)
     fields = Any[]
     if large_field
         # Large-field format: 4 fields of 16 chars each at cols 9-24, 25-40, 41-56, 57-72
@@ -127,7 +127,7 @@ function get_nastran_fixed_fields_from_line(line::AbstractString; large_field::B
     return fields
 end
 
-function get_nastran_fields_from_line(line::AbstractString; large_field::Bool=false)
+function get_reference_fields_from_line(line::AbstractString; large_field::Bool=false)
     fields = []
     if occursin(",", line)
         parts = split(line, ",")
@@ -141,22 +141,22 @@ function get_nastran_fields_from_line(line::AbstractString; large_field::Bool=fa
         if length(parts) > 1
             for k in 2:length(parts); push!(fields, strip(parts[k])); end
         end
-        # Pad free-field lines to 8 fields to maintain NASTRAN card field alignment
+        # Pad free-field lines to 8 fields to maintain REFERENCE card field alignment
         while length(fields) < 8; push!(fields, ""); end
     elseif occursin('\t', line)
-        # Mixed fixed-field + tab-delimited decks are common in MSCVAL.
+        # Mixed fixed-field + tab-delimited decks are common in REFERENCEVAL.
         # Preserve empty tab fields so cards like PSHELL can intentionally skip slots.
         segments = split(line, '\t'; keepempty=true)
         prefix = rstrip(segments[1])
         if ncodeunits(prefix) > 8
-            append!(fields, get_nastran_fixed_fields_from_line(prefix; large_field=large_field, truncate_to_line_length=true))
+            append!(fields, get_reference_fixed_fields_from_line(prefix; large_field=large_field, truncate_to_line_length=true))
         end
         for k in 2:length(segments)
             push!(fields, strip(segments[k]))
         end
         while length(fields) < 8; push!(fields, ""); end
     else
-        append!(fields, get_nastran_fixed_fields_from_line(line; large_field=large_field))
+        append!(fields, get_reference_fixed_fields_from_line(line; large_field=large_field))
     end
     return fields
 end

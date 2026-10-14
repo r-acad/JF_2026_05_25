@@ -1,7 +1,7 @@
 using Test, LinearAlgebra, OpenJFEM
 
 @testset "Blank physical continuation lines retain property fields" begin
-    parser = OpenJFEM.NastranParser
+    parser = OpenJFEM.ReferenceParser
     large(name, fields...) = rpad(name,8) * join(rpad(string(x),16) for x in fields)
     lines = ["SOL 103", "CEND", "SUBCASE 1", " SPC=1", " METHOD=1", "BEGIN BULK",
         large("MAT1*",1,"7.1E10","",0.33), large("*",2780.),
@@ -10,7 +10,7 @@ using Test, LinearAlgebra, OpenJFEM
         large("*",1,0.0006,0.,"YES"),
         large("*",3,0.008,0.,"YES"),
         large("*",1,0.0006,0.,"YES"), "*",
-        large("PBARL*",20,1,"MSCBML0","T"), "*",
+        large("PBARL*",20,1,"REFBML0","T"), "*",
         large("*",0.03,0.025,0.002,0.003), large("*",0.),
         "ENDDATA"]
     cc, bulk = parser.read_bulk_and_case(lines)

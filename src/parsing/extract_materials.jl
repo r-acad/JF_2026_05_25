@@ -14,10 +14,10 @@ function extract_mats(cards)
     d = Dict()
     neg_nu_mode = mat1_negative_nu_mode()
     for c in cards
-        mid = to_id(parse_nastran_number(safe_get(c, 3)))
-        E_raw = parse_nastran_number(safe_get(c, 4), nothing)
-        G_raw = parse_nastran_number(safe_get(c, 5), nothing)
-        nu_raw = parse_nastran_number(safe_get(c, 6), nothing)
+        mid = to_id(parse_reference_number(safe_get(c, 3)))
+        E_raw = parse_reference_number(safe_get(c, 4), nothing)
+        G_raw = parse_reference_number(safe_get(c, 5), nothing)
+        nu_raw = parse_reference_number(safe_get(c, 6), nothing)
         E = isnothing(E_raw) ? 0.0 : Float64(E_raw)
         G = isnothing(G_raw) ? 0.0 : Float64(G_raw)
         nu = isnothing(nu_raw) ? -1.0 : Float64(nu_raw)
@@ -39,9 +39,9 @@ function extract_mats(cards)
                 nu = 0.3
             end
         end
-        RHO = Float64(parse_nastran_number(safe_get(c, 7), 0.0))
-        ALPHA = Float64(parse_nastran_number(safe_get(c, 8), 0.0))
-        TREF = Float64(parse_nastran_number(safe_get(c, 9), 0.0))
+        RHO = Float64(parse_reference_number(safe_get(c, 7), 0.0))
+        ALPHA = Float64(parse_reference_number(safe_get(c, 8), 0.0))
+        TREF = Float64(parse_reference_number(safe_get(c, 9), 0.0))
         d[string(mid)] = Dict("MID"=>mid, "E"=>E, "G"=>G, "NU"=>nu, "RHO"=>RHO, "ALPHA"=>ALPHA, "TREF"=>TREF)
     end
     return d
@@ -50,14 +50,14 @@ end
 function extract_mat2(cards)
     d = Dict()
     for c in cards
-        mid = to_id(parse_nastran_number(safe_get(c, 3)))
-        G11 = Float64(parse_nastran_number(safe_get(c, 4), 0.0))
-        G12 = Float64(parse_nastran_number(safe_get(c, 5), 0.0))
-        G13 = Float64(parse_nastran_number(safe_get(c, 6), 0.0))
-        G22 = Float64(parse_nastran_number(safe_get(c, 7), 0.0))
-        G23 = Float64(parse_nastran_number(safe_get(c, 8), 0.0))
-        G33 = Float64(parse_nastran_number(safe_get(c, 9), 0.0))
-        RHO = Float64(parse_nastran_number(safe_get(c, 10), 0.0))
+        mid = to_id(parse_reference_number(safe_get(c, 3)))
+        G11 = Float64(parse_reference_number(safe_get(c, 4), 0.0))
+        G12 = Float64(parse_reference_number(safe_get(c, 5), 0.0))
+        G13 = Float64(parse_reference_number(safe_get(c, 6), 0.0))
+        G22 = Float64(parse_reference_number(safe_get(c, 7), 0.0))
+        G23 = Float64(parse_reference_number(safe_get(c, 8), 0.0))
+        G33 = Float64(parse_reference_number(safe_get(c, 9), 0.0))
+        RHO = Float64(parse_reference_number(safe_get(c, 10), 0.0))
         if mid > 0
             # Estimate equivalent E, G, NU for compatibility
             nu_eq = G11 > 0 ? clamp(G12 / G11, 0.0, 0.49) : 0.3
@@ -67,10 +67,10 @@ function extract_mat2(cards)
                 "G11"=>G11, "G12"=>G12, "G13"=>G13,
                 "G22"=>G22, "G23"=>G23, "G33"=>G33,
                 "RHO"=>RHO,
-                "A1"=>Float64(parse_nastran_number(safe_get(c, 11), 0.0)),
-                "A2"=>Float64(parse_nastran_number(safe_get(c, 12), 0.0)),
-                "A3"=>Float64(parse_nastran_number(safe_get(c, 13), 0.0)),
-                "TREF"=>Float64(parse_nastran_number(safe_get(c, 14), 0.0)),
+                "A1"=>Float64(parse_reference_number(safe_get(c, 11), 0.0)),
+                "A2"=>Float64(parse_reference_number(safe_get(c, 12), 0.0)),
+                "A3"=>Float64(parse_reference_number(safe_get(c, 13), 0.0)),
+                "TREF"=>Float64(parse_reference_number(safe_get(c, 14), 0.0)),
                 "E"=>E_eq, "G"=>G_eq, "NU"=>nu_eq, "TYPE"=>"MAT2")
         end
     end
@@ -80,27 +80,27 @@ end
 function extract_mat8(cards)
     d = Dict()
     for c in cards
-        mid  = to_id(parse_nastran_number(safe_get(c, 3)))
-        E1   = Float64(parse_nastran_number(safe_get(c, 4), 0.0))
-        E2   = Float64(parse_nastran_number(safe_get(c, 5), 0.0))
-        NU12 = Float64(parse_nastran_number(safe_get(c, 6), 0.0))
-        G12  = Float64(parse_nastran_number(safe_get(c, 7), 0.0))
+        mid  = to_id(parse_reference_number(safe_get(c, 3)))
+        E1   = Float64(parse_reference_number(safe_get(c, 4), 0.0))
+        E2   = Float64(parse_reference_number(safe_get(c, 5), 0.0))
+        NU12 = Float64(parse_reference_number(safe_get(c, 6), 0.0))
+        G12  = Float64(parse_reference_number(safe_get(c, 7), 0.0))
         G1Z_raw = strip(String(safe_get(c, 8, "")))
         G2Z_raw = strip(String(safe_get(c, 9, "")))
-        G1Z  = Float64(parse_nastran_number(G1Z_raw, 0.0))
-        G2Z  = Float64(parse_nastran_number(G2Z_raw, 0.0))
-        RHO  = Float64(parse_nastran_number(safe_get(c, 10), 0.0))
-        A1   = Float64(parse_nastran_number(safe_get(c, 11), 0.0))
-        A2   = Float64(parse_nastran_number(safe_get(c, 12), 0.0))
-        TREF = Float64(parse_nastran_number(safe_get(c, 13), 0.0))
-        XT   = Float64(parse_nastran_number(safe_get(c, 14), 0.0))
-        XC   = Float64(parse_nastran_number(safe_get(c, 15), 0.0))
-        YT   = Float64(parse_nastran_number(safe_get(c, 16), 0.0))
-        YC   = Float64(parse_nastran_number(safe_get(c, 17), 0.0))
-        S    = Float64(parse_nastran_number(safe_get(c, 18), 0.0))
-        GE   = Float64(parse_nastran_number(safe_get(c, 19), 0.0))
-        F12  = Float64(parse_nastran_number(safe_get(c, 20), 0.0))
-        STRN = Float64(parse_nastran_number(safe_get(c, 21), 0.0))
+        G1Z  = Float64(parse_reference_number(G1Z_raw, 0.0))
+        G2Z  = Float64(parse_reference_number(G2Z_raw, 0.0))
+        RHO  = Float64(parse_reference_number(safe_get(c, 10), 0.0))
+        A1   = Float64(parse_reference_number(safe_get(c, 11), 0.0))
+        A2   = Float64(parse_reference_number(safe_get(c, 12), 0.0))
+        TREF = Float64(parse_reference_number(safe_get(c, 13), 0.0))
+        XT   = Float64(parse_reference_number(safe_get(c, 14), 0.0))
+        XC   = Float64(parse_reference_number(safe_get(c, 15), 0.0))
+        YT   = Float64(parse_reference_number(safe_get(c, 16), 0.0))
+        YC   = Float64(parse_reference_number(safe_get(c, 17), 0.0))
+        S    = Float64(parse_reference_number(safe_get(c, 18), 0.0))
+        GE   = Float64(parse_reference_number(safe_get(c, 19), 0.0))
+        F12  = Float64(parse_reference_number(safe_get(c, 20), 0.0))
+        STRN = Float64(parse_reference_number(safe_get(c, 21), 0.0))
         if mid > 0
             d[string(mid)] = Dict("MID"=>mid, "E1"=>E1, "E2"=>E2, "NU12"=>NU12,
                 "G12"=>G12, "G1Z"=>G1Z, "G2Z"=>G2Z, "RHO"=>RHO,
@@ -118,15 +118,15 @@ end
 function extract_matt1(cards)
     d = Dict{String,Dict{String,Any}}()
     for c in cards
-        mid = to_id(parse_nastran_number(safe_get(c, 3), 0))
+        mid = to_id(parse_reference_number(safe_get(c, 3), 0))
         mid <= 0 && continue
 
         entry = Dict{String,Any}("MID" => mid)
-        e_tid = to_id(parse_nastran_number(safe_get(c, 4), 0))
-        g_tid = to_id(parse_nastran_number(safe_get(c, 5), 0))
-        nu_tid = to_id(parse_nastran_number(safe_get(c, 6), 0))
-        rho_tid = to_id(parse_nastran_number(safe_get(c, 7), 0))
-        alpha_tid = to_id(parse_nastran_number(safe_get(c, 8), 0))
+        e_tid = to_id(parse_reference_number(safe_get(c, 4), 0))
+        g_tid = to_id(parse_reference_number(safe_get(c, 5), 0))
+        nu_tid = to_id(parse_reference_number(safe_get(c, 6), 0))
+        rho_tid = to_id(parse_reference_number(safe_get(c, 7), 0))
+        alpha_tid = to_id(parse_reference_number(safe_get(c, 8), 0))
 
         e_tid > 0 && (entry["E_TABLE"] = e_tid)
         g_tid > 0 && (entry["G_TABLE"] = g_tid)
@@ -142,7 +142,7 @@ end
 function extract_tablem1(cards)
     d = Dict{String,Dict{String,Any}}()
     for c in cards
-        tid = to_id(parse_nastran_number(safe_get(c, 3), 0))
+        tid = to_id(parse_reference_number(safe_get(c, 3), 0))
         tid <= 0 && continue
 
         points = Dict{String,Float64}[]
@@ -150,7 +150,7 @@ function extract_tablem1(cards)
         for k in 4:length(c)
             token = uppercase(strip(string(safe_get(c, k, ""))))
             token == "ENDT" && break
-            value = parse_nastran_number(safe_get(c, k), nothing)
+            value = parse_reference_number(safe_get(c, k), nothing)
             value isa Number && push!(numeric_tokens, Float64(value))
         end
         for k in 1:2:length(numeric_tokens)-1

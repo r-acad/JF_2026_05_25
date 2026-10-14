@@ -100,6 +100,6 @@ function restart_if_needed(root,entry,args=ARGS)
         command=Cmd(vcat([found.executable,"--startup-file=no","--project="*abspath(root),abspath(entry)],String.(args)))
         exit(run(ignorestatus(command)).exitcode)
     end
-    error("Lifting surface FEGen needs Julia $major.$minor.x. Install that runtime or set WINGFEGEN_JULIA to its executable. No input files were changed.")
+    error("Lifting surface FEGen needs Julia $major.$minor.x for this checkout. Run `juliaup add $major.$minor` to install the latest matching patch, or set WINGFEGEN_JULIA to its executable. Then run setup.cmd (Windows) or bash setup.sh (macOS/Linux). No input files were changed.")
 end
 end

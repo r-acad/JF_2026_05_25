@@ -1,5 +1,5 @@
 case_id,quantity_name,value,notes
-MYSTRAN_sol101_simple,T1_node_1013,3.053279E-03,Reference linear-static solver; SOL 101; node 1013 T1 (X-displacement of the loaded CQUAD4 patch corner). Cross-check 2026-08-04: MSC/Nastran 70.5 on the same deck with the explicit PARAM K6ROT 0. returns the identical 3.053279E-03.
+MYSTRAN_sol101_simple,T1_node_1013,3.053279E-03,Reference linear-static solver; SOL 101; node 1013 T1 (X-displacement of the loaded CQUAD4 patch corner). Cross-check 2026-08-04: Reference 70.5 on the same deck with the explicit PARAM K6ROT 0. returns the identical 3.053279E-03.
 MYSTRAN_sol105_buckling,lambda_1,1.035817E+04,Reference linear-buckling solver; SOL 105; mode 1 eigenvalue of an Euler cantilever bar
 CRM_wingbox_modal_mode1,eigenvalue,1.117764E+02,Reference modal solver; SOL 103; mode 1 (omega^2) of the uCRM coarse wingbox modal analysis
 CRM_wingbox_modal_mode2,eigenvalue,9.903101E+02,Reference modal solver; SOL 103; mode 2

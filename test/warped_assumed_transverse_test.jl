@@ -17,7 +17,7 @@ end
 function mapped_kernel(xy,xyz,u,E,nu,h;assumed=true)
     W=F.quad4_finite_warp_displacement_map(xy,xyz)
     up=W===nothing ? u : W*u
-    kg=F.geometric_stiffness_quad4_nastran_kdjj_iso(xy,up,E,nu,h;assumed_transverse=assumed)
+    kg=F.geometric_stiffness_quad4_reference_kdjj_iso(xy,up,E,nu,h;assumed_transverse=assumed)
     W===nothing ? kg : W'*kg*W
 end
 

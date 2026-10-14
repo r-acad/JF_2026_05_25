@@ -3,10 +3,10 @@
 function extract_spc1(cards)
     spcs = []
     for c in cards
-        sid = to_id(parse_nastran_number(safe_get(c, 3)))
-        comp = string(parse_nastran_number(safe_get(c, 4), ""))
+        sid = to_id(parse_reference_number(safe_get(c, 3)))
+        comp = string(parse_reference_number(safe_get(c, 4), ""))
         raw_nodes = c[5:end]
-        nodes = expand_nastran_list(raw_nodes)
+        nodes = expand_reference_list(raw_nodes)
         push!(spcs, Dict("SID"=>sid, "C"=>comp, "NODES"=>nodes))
     end
     return spcs
@@ -15,9 +15,9 @@ end
 function extract_spcadd(cards)
     d = Dict()
     for c in cards
-        sid = to_id(parse_nastran_number(safe_get(c, 3)))
+        sid = to_id(parse_reference_number(safe_get(c, 3)))
         raw_sets = c[4:end]
-        sets = expand_nastran_list(raw_sets)
+        sets = expand_reference_list(raw_sets)
         d[sid] = sets
     end
     return d
@@ -26,17 +26,17 @@ end
 function extract_spc(cards)
     spcs = []
     for c in cards
-        sid = to_id(parse_nastran_number(safe_get(c, 3)))
-        gid = to_id(parse_nastran_number(safe_get(c, 4)))
-        comp = string(parse_nastran_number(safe_get(c, 5), ""))
-        d1 = Float64(parse_nastran_number(safe_get(c, 6), 0.0))
+        sid = to_id(parse_reference_number(safe_get(c, 3)))
+        gid = to_id(parse_reference_number(safe_get(c, 4)))
+        comp = string(parse_reference_number(safe_get(c, 5), ""))
+        d1 = Float64(parse_reference_number(safe_get(c, 6), 0.0))
         if gid > 0
             push!(spcs, Dict("SID"=>sid, "C"=>comp, "NODES"=>[gid], "D"=>d1))
         end
-        gid2 = to_id(parse_nastran_number(safe_get(c, 7), 0))
+        gid2 = to_id(parse_reference_number(safe_get(c, 7), 0))
         if gid2 > 0
-            comp2 = string(parse_nastran_number(safe_get(c, 8), ""))
-            d2 = Float64(parse_nastran_number(safe_get(c, 9), 0.0))
+            comp2 = string(parse_reference_number(safe_get(c, 8), ""))
+            d2 = Float64(parse_reference_number(safe_get(c, 9), 0.0))
             push!(spcs, Dict("SID"=>sid, "C"=>comp2, "NODES"=>[gid2], "D"=>d2))
         end
     end
@@ -46,9 +46,9 @@ end
 function extract_rbe2(cards)
     d = Dict()
     for c in cards
-        eid = to_id(parse_nastran_number(safe_get(c, 3)))
-        gn  = to_id(parse_nastran_number(safe_get(c, 4)))  # master node
-        cm  = to_id(parse_nastran_number(safe_get(c, 5)))   # constrained components (e.g. 123456)
+        eid = to_id(parse_reference_number(safe_get(c, 3)))
+        gn  = to_id(parse_reference_number(safe_get(c, 4)))  # master node
+        cm  = to_id(parse_reference_number(safe_get(c, 5)))   # constrained components (e.g. 123456)
         # GRID IDs are integers; the first real field ends that list and
         # starts optional ALPHA, TREF. Never round a thermal field into a GRID.
         slave_grids = Int[]
@@ -56,10 +56,10 @@ function extract_rbe2(cards)
         for k in 6:length(c)
             field = strip(string(safe_get(c, k, "")))
             (isempty(field) || _is_continuation_marker(field)) && continue
-            value = parse_nastran_number(field, nothing)
+            value = parse_reference_number(field, nothing)
             value isa Real && isfinite(value) ||
                 throw(ArgumentError("RBE2 $eid has an invalid GRID or thermal field: $field"))
-            if !isempty(thermal) || _is_nastran_real(field)
+            if !isempty(thermal) || _is_reference_real(field)
                 length(thermal) < 2 || throw(ArgumentError("RBE2 $eid has data after ALPHA and TREF"))
                 push!(thermal, Float64(value))
             else
@@ -83,12 +83,12 @@ end
 function _is_continuation_marker(s::AbstractString)
     st = strip(s)
     isempty(st) && return false
-    return st[1] == '*' || (st[1] == '+' && parse_nastran_number(st, nothing) === nothing)
+    return st[1] == '*' || (st[1] == '+' && parse_reference_number(st, nothing) === nothing)
 end
 
-function _is_nastran_real(s::AbstractString)
+function _is_reference_real(s::AbstractString)
     # Detect if a field is a real number (weight) vs an integer (grid ID).
-    # Nastran reals have '.', 'E', 'e', 'D', 'd', or Nastran-style +/- exponent.
+    # Reference reals have '.', 'E', 'e', 'D', 'd', or Reference-style +/- exponent.
     st = strip(s)
     isempty(st) && return false
     _is_continuation_marker(st) && return false
@@ -99,9 +99,9 @@ end
 function extract_rbe3(cards)
     d = Dict()
     for c in cards
-        eid = to_id(parse_nastran_number(safe_get(c, 3)))
-        refgrid = to_id(parse_nastran_number(safe_get(c, 5)))
-        refc = to_id(parse_nastran_number(safe_get(c, 6)))
+        eid = to_id(parse_reference_number(safe_get(c, 3)))
+        refgrid = to_id(parse_reference_number(safe_get(c, 5)))
+        refc = to_id(parse_reference_number(safe_get(c, 6)))
 
         # Parse multiple weight groups: WT1,C1,G1...,Gn, WT2,C2,G1...,Gm, ...
         # Continuation markers (+XX, *XX) are skipped as they are parser artifacts.
@@ -133,7 +133,7 @@ function extract_rbe3(cards)
         while pos < wt_stop
             wt_str = strip(safe_get(c, pos))
             if isempty(wt_str) || _is_continuation_marker(wt_str); pos += 1; continue; end
-            wt_val = parse_nastran_number(wt_str, NaN)
+            wt_val = parse_reference_number(wt_str, NaN)
             if isnan(wt_val); break; end
             pos += 1
             # Skip blanks/continuations before comps field
@@ -143,7 +143,7 @@ function extract_rbe3(cards)
                 pos += 1
             end
             if pos > length(c); break; end
-            comps_val = to_id(parse_nastran_number(safe_get(c, pos)))
+            comps_val = to_id(parse_reference_number(safe_get(c, pos)))
             pos += 1
             grids = Int[]
             while pos <= length(c)
@@ -151,8 +151,8 @@ function extract_rbe3(cards)
                 if isempty(g_str); pos += 1; continue; end
                 if _is_continuation_marker(g_str); pos += 1; continue; end
                 # New weight group starts if field looks like a real number
-                if _is_nastran_real(g_str); break; end
-                gid = parse_nastran_number(g_str, NaN)
+                if _is_reference_real(g_str); break; end
+                gid = parse_reference_number(g_str, NaN)
                 if isnan(gid); break; end
                 push!(grids, Int(gid))
                 pos += 1
@@ -175,8 +175,8 @@ function extract_rbe3(cards)
                 if uppercase(g_str) == "ALPHA"
                     break
                 end
-                gid = to_id(parse_nastran_number(g_str, 0))
-                comps_val = to_id(parse_nastran_number(c_str, 0))
+                gid = to_id(parse_reference_number(g_str, 0))
+                comps_val = to_id(parse_reference_number(c_str, 0))
                 if gid > 0 && comps_val > 0
                     push!(um_pairs, (grid=gid, comps=comps_val))
                 end
@@ -185,8 +185,8 @@ function extract_rbe3(cards)
         end
 
         if alpha_idx > 0
-            alpha = Float64(parse_nastran_number(safe_get(c, alpha_idx + 1), 0.0))
-            tref = Float64(parse_nastran_number(safe_get(c, alpha_idx + 2), 0.0))
+            alpha = Float64(parse_reference_number(safe_get(c, alpha_idx + 1), 0.0))
+            tref = Float64(parse_reference_number(safe_get(c, alpha_idx + 2), 0.0))
         end
 
         d[string(eid)] = Dict("ID"=>eid, "REFGRID"=>refgrid, "REFC"=>refc,
@@ -199,13 +199,13 @@ end
 function extract_rbar(cards)
     d = Dict()
     for c in cards
-        eid = to_id(parse_nastran_number(safe_get(c, 3)))
-        ga  = to_id(parse_nastran_number(safe_get(c, 4)))
-        gb  = to_id(parse_nastran_number(safe_get(c, 5)))
-        cna = to_id(parse_nastran_number(safe_get(c, 6), 0))
-        cnb = to_id(parse_nastran_number(safe_get(c, 7), 0))
-        cma = to_id(parse_nastran_number(safe_get(c, 8), 0))
-        cmb = to_id(parse_nastran_number(safe_get(c, 9), 0))
+        eid = to_id(parse_reference_number(safe_get(c, 3)))
+        ga  = to_id(parse_reference_number(safe_get(c, 4)))
+        gb  = to_id(parse_reference_number(safe_get(c, 5)))
+        cna = to_id(parse_reference_number(safe_get(c, 6), 0))
+        cnb = to_id(parse_reference_number(safe_get(c, 7), 0))
+        cma = to_id(parse_reference_number(safe_get(c, 8), 0))
+        cmb = to_id(parse_reference_number(safe_get(c, 9), 0))
         if eid > 0 && ga > 0 && gb > 0
             d[string(eid)] = Dict("ID"=>eid, "GA"=>ga, "GB"=>gb, "CNA"=>cna, "CNB"=>cnb, "CMA"=>cma, "CMB"=>cmb)
         end
@@ -216,7 +216,7 @@ end
 function extract_rbe1(cards)
     d = Dict()
     for c in cards
-        eid = to_id(parse_nastran_number(safe_get(c, 3)))
+        eid = to_id(parse_reference_number(safe_get(c, 3)))
         # Find "UM" marker — separates independent from dependent DOFs
         um_idx = 0
         for k in 3:length(c)
@@ -232,8 +232,8 @@ function extract_rbe1(cards)
         indep = Tuple{Int,Int}[]
         k = 4
         while k + 1 <= length(c) && k < um_idx
-            g = to_id(parse_nastran_number(safe_get(c, k), 0))
-            cn = to_id(parse_nastran_number(safe_get(c, k+1), 0))
+            g = to_id(parse_reference_number(safe_get(c, k), 0))
+            cn = to_id(parse_reference_number(safe_get(c, k+1), 0))
             if g > 0 && cn > 0
                 # Expand component digits (e.g. 123 → [1,2,3])
                 for ch in string(cn)
@@ -249,8 +249,8 @@ function extract_rbe1(cards)
         dep = Tuple{Int,Int}[]
         k = um_idx + 1
         while k + 1 <= length(c)
-            g = to_id(parse_nastran_number(safe_get(c, k), 0))
-            cn = to_id(parse_nastran_number(safe_get(c, k+1), 0))
+            g = to_id(parse_reference_number(safe_get(c, k), 0))
+            cn = to_id(parse_reference_number(safe_get(c, k+1), 0))
             if g > 0 && cn > 0
                 for ch in string(cn)
                     if isdigit(ch)
@@ -270,48 +270,48 @@ end
 
 function extract_rspline(cards)
     d = Dict()
-    for c in cards
-        eid = to_id(parse_nastran_number(safe_get(c, 3)))
-        # Field 4: D/L ratio (not used for stiffness, only for constraint weights)
-        dl = Float64(parse_nastran_number(safe_get(c, 4), 0.1))
+    for raw in cards
+        c = Any[x for x in raw if !(x isa AbstractString && _is_continuation_marker(x))]
+        eid = to_id(parse_reference_number(safe_get(c, 3)))
+        # D/L controls the elastic interpolation tube, not physical stiffness.
+        dl = Float64(parse_reference_number(safe_get(c, 4), 0.1))
         # Field 5: first independent grid
-        g1 = to_id(parse_nastran_number(safe_get(c, 5), 0))
+        g1 = to_id(parse_reference_number(safe_get(c, 5), 0))
         if eid <= 0 || g1 <= 0; continue; end
 
-        # Parse remaining fields: ordered sequence of grids
-        # Independent grids have no component after them; dependent grids do
+        # Gi/Ci are positional pairs. A blank Ci denotes an independent GRID;
+        # GRID identifiers must never be guessed from component-like digits.
+        grids = [g1]
+        components = [0]
         indep_grids = [g1]
         dep_list = Tuple{Int,Int}[]  # (grid, component)
         k = 6
         while k <= length(c)
-            val = parse_nastran_number(safe_get(c, k), 0)
-            g = to_id(val)
-            if g <= 0; k += 1; continue; end
-
-            # Check next field: if it's a small number (1-6 or combo like 123456), this grid is dependent
-            if k + 1 <= length(c)
-                next_val = parse_nastran_number(safe_get(c, k+1), -1)
-                next_int = to_id(next_val)
-                # Component numbers: single digits 1-6, or combos like 12, 123, 123456
-                # Grid IDs: typically > 1000
-                if next_int > 0 && next_int <= 123456 && all(ch -> ch in "0123456", string(next_int))
-                    # This is a dependent grid with component
-                    for ch in string(next_int)
-                        if isdigit(ch) && ch != '0'
-                            push!(dep_list, (g, parse(Int, string(ch))))
-                        end
-                    end
-                    k += 2
-                    continue
-                end
+            g = to_id(parse_reference_number(safe_get(c, k), 0))
+            if g <= 0
+                all(v -> isnothing(v) || isempty(strip(string(v))), c[k:end]) && break
+                throw(ArgumentError("RSPLINE $eid requires a positive GRID in each Gi/Ci pair"))
             end
-            # No component follows → this is an independent grid
-            push!(indep_grids, g)
-            k += 1
+            raw = safe_get(c, k+1)
+            blank = isnothing(raw) || isempty(strip(string(raw)))
+            ci = blank ? 0 : to_id(parse_reference_number(raw, 0))
+            if !blank
+                chars = collect(string(ci))
+                ci > 0 && all(ch -> ch in '1':'6', chars) && length(unique(chars)) == length(chars) ||
+                    throw(ArgumentError("RSPLINE $eid requires distinct component digits 1 through 6, or a blank Ci"))
+                append!(dep_list, [(g, Int(ch-'0')) for ch in chars])
+            else
+                push!(indep_grids, g)
+            end
+            push!(grids, g)
+            push!(components, ci)
+            k += 2
         end
-
+        isfinite(dl) && dl > 0 || throw(ArgumentError("RSPLINE $eid D/L must be finite and positive"))
+        components[end] == 0 || throw(ArgumentError("RSPLINE $eid last GRID must be independent (blank Ci)"))
         if !isempty(dep_list) && length(indep_grids) >= 2
-            d[string(eid)] = Dict("ID"=>eid, "DL"=>dl, "INDEP_GRIDS"=>indep_grids, "DEP"=>dep_list)
+            d[string(eid)] = Dict("ID"=>eid, "DL"=>dl, "GRIDS"=>grids, "COMPONENTS"=>components,
+                                  "INDEP_GRIDS"=>indep_grids, "DEP"=>dep_list)
         end
     end
     return d
@@ -321,7 +321,7 @@ function extract_mpc(cards)
     mpcs = []
     for raw in cards
         c = Any[x for x in raw if !(x isa AbstractString && _is_continuation_marker(x))]
-        sid = to_id(parse_nastran_number(safe_get(c, 3)))
+        sid = to_id(parse_reference_number(safe_get(c, 3)))
         terms = []
         # Each eight-field record reserves its first and last slots (SID
         # replaces the first slot on the parent), leaving two G/C/A triplets.
@@ -332,9 +332,9 @@ function extract_mpc(cards)
             end
             for k in (first_term, first_term + 3)
                 k + 1 <= length(c) || continue
-                gid   = to_id(parse_nastran_number(safe_get(c, k), 0))
-                comp  = to_id(parse_nastran_number(safe_get(c, k+1), 0))
-                coeff = Float64(parse_nastran_number(safe_get(c, k+2), 0.0))
+                gid   = to_id(parse_reference_number(safe_get(c, k), 0))
+                comp  = to_id(parse_reference_number(safe_get(c, k+1), 0))
+                coeff = Float64(parse_reference_number(safe_get(c, k+2), 0.0))
                 if gid > 0
                     1 <= comp <= 6 || throw(ArgumentError("MPC $sid: only GRID components 1 through 6 are supported"))
                     push!(terms, Dict("G"=>gid, "C"=>comp, "A"=>coeff))
@@ -351,10 +351,10 @@ end
 function extract_mpcadd(cards)
     d = Dict()
     for c in cards
-        sid = to_id(parse_nastran_number(safe_get(c, 3)))
+        sid = to_id(parse_reference_number(safe_get(c, 3)))
         subs = Int[]
         for k in 4:length(c)
-            s = to_id(parse_nastran_number(safe_get(c, k), 0))
+            s = to_id(parse_reference_number(safe_get(c, k), 0))
             if s > 0; push!(subs, s); end
         end
         if sid > 0 && !isempty(subs)

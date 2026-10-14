@@ -6,14 +6,26 @@
   const AXIS_COLORS=['#ef5f6b','#4cc38a','#56a8f5'];
   const toView=p=>[p[1],p[2],p[0]];
   const typeLabel=type=>({RECTANGULAR:'Rectangular',CYLINDRICAL:'Cylindrical',SPHERICAL:'Spherical'})[type]||String(type);
-  function coordinateReference(frame){
+  function coordinateReference(frame,frames){
     const source=frame.properties||{};
     if(frame.card==='BASIC'||frame.id===0)return 'BASIC · no parent';
     // CORD1 has no RID: its three defining GRIDs may each have their own CP.
-    if(/^CORD1/.test(frame.card||'')||['G1','G2','G3'].every(key=>source[key]!=null))
-      return 'GRIDs '+['G1','G2','G3'].map(key=>key+' '+(source[key]??'?')).join(', ');
+    if(/^CORD1/.test(frame.card||'')||['G1','G2','G3'].every(key=>source[key]!=null)){
+      const coordinates=source['Defining GRID coordinates']||[];
+      return 'GRIDs '+['G1','G2','G3'].map(key=>key+' '+(source[key]??'?')).join(', ')+
+        (coordinates.length?' · '+coordinates.map(row=>row.definition+' CP '+row.id+' '+typeLabel(row.type)).join(', '):'');
+    }
     const rid=source.RID??source['Reference ID'];
-    return rid!=null?'RID '+rid+(Number(rid)===0?' (BASIC)':''):'Reference unavailable';
+    const type=source['Reference type']??frames?.get(Number(rid))?.type??(Number(rid)===0?'RECTANGULAR':null);
+    return rid!=null?'RID '+rid+(Number(rid)===0?' (BASIC)':'')+(type?' '+typeLabel(type):' (type unavailable)'):'Reference unavailable';
+  }
+  function coordinateUsage(frame){
+    const usage=frame.usage;if(!usage)return frame.properties?.Role?.includes('MCID')?'shell MCID':'';
+    return [['shell_mcid','shell MCID'],['grid_cp','GRID CP'],['grid_cd','GRID CD']].filter(([key])=>usage[key]>0).map(([,label])=>label).join(', ');
+  }
+  function coordinateDescription(frame,frames){
+    const usage=coordinateUsage(frame);
+    return typeLabel(frame.type)+' · '+coordinateReference(frame,frames)+(usage?' · '+usage:'');
   }
   function springRadius(value){
     if(value==null||String(value).trim()==='')throw new Error('Spring radius must be between 1e-12 and 1e12 model units.');
@@ -45,7 +57,8 @@
         for(let n=1;n<el.nodes.length;n++){pairs.push(el.nodes[0],el.nodes[n]);faces.push(i);}
       }
       const mesh=lineMesh(collection.name,positions,Int32Array.from(pairs),hex,1,true),meshes=mesh?[mesh]:[];
-      if(mesh){mesh.isPickable=true;mesh.intersectionThreshold=.002*diag;mesh.elementIds=ids;mesh.metadata={feGroup:{name:collection.name,kind:kind(collection.card)},faceElements:faces,facesPerElement:1};}
+      if(mesh){mesh.isPickable=true;mesh.intersectionThreshold=.002*diag;mesh.elementIds=ids;mesh.metadata={feGroup:{name:collection.name,kind:kind(collection.card)},faceElements:faces,facesPerElement:1};
+        if(/^CELAS/.test(collection.card))mesh.explodedElementRanges=faces.map((index,line)=>({id:ids[index],start:2*line,count:2}));}
       // Two different GRID IDs can share one position. Those zero-length
       // springs need the same pickable marker as a one-GRID mass/connection.
       const points=collection.elements.filter(el=>collection.point_mass||el.nodes.length<2||el.nodes.every(n=>[0,1,2].every(a=>positions[3*n+a]===positions[3*el.nodes[0]+a])));
@@ -96,6 +109,8 @@
         const material=new B.StandardMaterial(mesh.name+'-material',state.scene);material.diffuseColor=B.Color3.FromHexString(AXIS_COLORS[(component-1)%3]);material.specularColor=new B.Color3(.15,.15,.15);material.backFaceCulling=false;mesh.material=material;
         mesh.parent=state.root;mesh.isPickable=true;mesh.springCylinders=true;mesh.elementIds=Int32Array.from(chunk,g=>g.eid);
         mesh.metadata={feGroup:{name:collection.name,kind:'spring'},facesPerElement:nf,springGlyphs:chunk};
+        mesh.explodedElementRanges=chunk.map((glyph,i)=>({id:glyph.eid,start:i*nv,count:nv}));
+        if(state.panelExplosion?.applyVertices(mesh,points))mesh.updateVerticesData(B.VertexBuffer.PositionKind,points,true,false);
         state.deformable.push({mesh,map,offsets,buf:points});meshes.push(mesh);
       }
     }
@@ -134,7 +149,23 @@
   function pickedCoordinateId(pick){const meta=pick?.pickedMesh?.metadata;return pick?.hit&&pick.faceId>=0?meta?.coordinateIds?.[meta.faceCoordinates?.[pick.faceId]]:undefined;}
   function coordinateCandidates(state,enabled){
     if(!enabled||!state.layers.get('COORDINATE_SYSTEMS')?.visible)return[];
-    return(state.data?.coordinate_systems?.systems||[]).map(frame=>({kind:'coordinate',id:frame.id,text:'CID '+frame.id+' · '+typeLabel(frame.type)+' · '+coordinateReference(frame),color:COLORS.coordinate,point:toView(frame.origin)}));
+    const systems=state.data?.coordinate_systems?.systems||[],frames=new Map(systems.map(frame=>[Number(frame.id),frame]));
+    return systems.map(frame=>({kind:'coordinate',id:frame.id,description:coordinateDescription(frame,frames),text:'CID '+frame.id+' · '+coordinateDescription(frame,frames),color:COLORS.coordinate,point:toView(frame.origin)}));
+  }
+  function coordinateLabelGroups(candidates){
+    const origins=new Map();
+    for(const row of candidates){const key=row.point.join(',');if(!origins.has(key))origins.set(key,[]);origins.get(key).push(row);}
+    function ranges(ids){
+      ids.sort((a,b)=>a-b);const result=[];
+      for(let i=0;i<ids.length;i++){let end=i;while(end+1<ids.length&&ids[end+1]===ids[end]+1)end++;result.push(ids[i]===ids[end]?String(ids[i]):ids[i]+'–'+ids[end]);i=end;}
+      return result.join(', ');
+    }
+    return Array.from(origins.values(),rows=>{
+      if(rows.length===1)return rows[0];
+      const types=new Map();for(const row of rows){if(!types.has(row.description))types.set(row.description,[]);types.get(row.description).push(row.id);}
+      const lines=[rows.length+' coordinate systems at this origin',...Array.from(types,([description,ids])=>(ids.length===1?'CID ':'CIDs ')+ranges(ids)+' · '+description)];
+      return {...rows[0],ids:rows.map(row=>row.id),text:lines.join('\n'),lines};
+    });
   }
   const springLabelCache=new WeakMap();
   const springNumber=value=>value!=null&&value!==''&&Number.isFinite(Number(value))?Number(Number(value).toPrecision(5)).toString():'unavailable';
@@ -162,7 +193,7 @@
   function springLabelRecords(data){
     if(springLabelCache.has(data))return springLabelCache.get(data);
     const frames=new Map((data.coordinate_systems?.systems||[]).map(frame=>[Number(frame.id),frame])),records=[];
-    // BASIC is defined by Nastran, even in older payloads without CID glyphs.
+    // BASIC is defined by Reference, even in older payloads without CID glyphs.
     if(!frames.has(0))frames.set(0,{id:0,type:'RECTANGULAR',card:'BASIC'});
     for(const collection of data.imported_connections||[]){
       if(!/^CELAS/.test(collection.card))continue;
@@ -185,9 +216,9 @@
       // actual plotted GRID there is nowhere truthful to place a label.
       if(!nodes.length)continue;
       const point=[0,0,0];for(const node of nodes)for(let axis=0;axis<3;axis++)point[axis]+=positions[3*node+axis]/nodes.length;
-      result.push({kind:'spring-label',id:record.id,lines:record.lines,text:record.text,color:layer.color||COLORS.CELAS,point});
+      result.push({kind:'spring-label',id:record.id,lines:record.lines,text:record.text,color:layer.color||COLORS.CELAS,point:state.panelExplosion?.point(record.id,point)||point});
     }
     return result;
   }
-  return{COLORS,AXIS_COLORS,typeLabel,coordinateReference,springRadius,color,kind,toView,pickedElementId,attachMarker,renderConnections,springGlyphs,springMeshes,syncSpringStyle,coordinateMeshes,pickedCoordinateId,coordinateCandidates,springPropertyLabel,springEndpointLabel,springCandidates};
+  return{COLORS,AXIS_COLORS,typeLabel,coordinateReference,coordinateUsage,coordinateDescription,springRadius,color,kind,toView,pickedElementId,attachMarker,renderConnections,springGlyphs,springMeshes,syncSpringStyle,coordinateMeshes,pickedCoordinateId,coordinateCandidates,coordinateLabelGroups,springPropertyLabel,springEndpointLabel,springCandidates};
 });

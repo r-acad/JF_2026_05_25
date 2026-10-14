@@ -1,6 +1,6 @@
 using Test,OpenJFEM
 @testset "Rectangular section torsion keeps finite aspect correction" begin
-    p=OpenJFEM.NastranParser
+    p=OpenJFEM.ReferenceParser
     # Independent Saint-Venant series checks the approximation's physical scale;
     # swapping width and height cannot change torsional rigidity.
     exact(a,b)=a*b^3/3*(1-192b/(pi^5*a)*sum(tanh(n*pi*a/(2b))/n^5 for n in 1:2:999))

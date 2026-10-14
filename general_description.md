@@ -255,7 +255,7 @@ interactive front end that both **builds and runs** a model. Its *Analysis
 source* toggle offers two paths:
 
 - **Build stiffened panel**: parameterize a curved cylindrical stiffened panel
-  (skin + T-stringer), generate the Nastran deck client-side, and run a
+  (skin + T-stringer), generate the Reference deck client-side, and run a
   SOL 105 linear buckling analysis.
 - **Run a .bdf file**: give a server-side path to an existing
   `.bdf`/`.dat`/`.nas` deck. The solution sequence (SOL 101 static, 103 normal

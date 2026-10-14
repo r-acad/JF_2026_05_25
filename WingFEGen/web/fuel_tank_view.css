@@ -1,4 +1,10 @@
 .fuel-tank-view { margin:14px 0 8px; padding:11px; border:1px solid #3d5a69; border-radius:6px; background:#152632; min-width:0; }
+.fuel-tank-uncreated > :not(.fuel-tank-create) { display:none !important; }
+.fuel-tank-unavailable { display:none !important; }
+.fuel-tank-create { margin:6px 0; }
+.fuel-tank-create[hidden] { display:none; }
+#tab-fuel.fuel-tank-undefined { color:#8b96a2; }
+#tab-fuel.fuel-tank-undefined:focus-visible { outline:2px solid #80bfff; outline-offset:-3px; }
 .fuel-tank-view h3 { margin:0 0 7px; color:#e2f0f8; font-size:13px; }
 .fuel-tank-view p { margin:6px 0; color:#c0d2dd; font-size:11px; line-height:1.5; overflow-wrap:anywhere; }
 .fuel-tank-view .ftv-status { color:#dbefe6; }

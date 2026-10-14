@@ -37,21 +37,44 @@ end
 const WORKER_STARTED=time()
 const LAST_PROGRESS=Ref{Any}(Dict{String,Any}())
 const WORKER_TIMINGS=Dict{String,Any}()
+worker_stage_category(phase)=phase in ("forward","baseline_analysis","adjoint","operators","analytic_derivatives") ?
+    "numerical" : phase in ("baseline_export","result_export") ? "export" : "preparation"
 function progress(data)
     state=Dict{String,Any}(data);state["worker_seconds"]=time()-WORKER_STARTED
     state["worker_timings"]=copy(WORKER_TIMINGS)
+    phase=String(get(state,"phase","bootstrap"))
+    state["stage_category"]=worker_stage_category(phase)
+    state["stage_state"]=phase=="complete" ? "completed" : phase=="failed" ? "failed" : "started"
+    state["compilation_live"]="not_separable"
+    state["timing_scope"]="worker_timings separates completed measured compilation; timings_seconds is inclusive wall time and may include compilation. Native baseline stages are nested within baseline_analysis, not additional time."
     LAST_PROGRESS[]=state;bootstrap_write("progress.json",state)
 end
-function measured_worker_stage(action,name)
-    measurement=@timed action()
-    WORKER_TIMINGS[name]=Dict("seconds"=>measurement.time,
-        "compile_seconds"=>get(measurement,:compile_time,0.),
-        "recompile_seconds"=>get(measurement,:recompile_time,0.),
-        "gc_seconds"=>measurement.gctime)
+function store_worker_stage(name,metrics)
+    wall=metrics["wall_seconds"];compiled=metrics["compilation_seconds"]
+    WORKER_TIMINGS[name]=merge(Dict{String,Any}(metrics),Dict(
+        "seconds"=>wall,"compile_seconds"=>compiled,
+        "recompile_seconds"=>metrics["recompilation_seconds"],
+        "category"=>worker_stage_category(name),"label"=>replace(name,'_'=>' ')))
     bootstrap_write("worker_timings.json",WORKER_TIMINGS)
-    println("[Timing] ",name,": ",round(measurement.time;digits=3),
-        " s (compilation ",round(get(measurement,:compile_time,0.);digits=3)," s)");flush(stdout)
+    println("[Timing] ",name,": ",round(wall;digits=3),
+        " s (measured compilation ",round(compiled;digits=3)," s)");flush(stdout)
+end
+function measured_worker_stage(action,name)
+    measurement=@timed Base.invokelatest(action)
+    wall=measurement.time;compiled=get(measurement,:compile_time,0.)
+    store_worker_stage(name,Dict("wall_seconds"=>wall,"compilation_seconds"=>compiled,
+        "recompilation_seconds"=>get(measurement,:recompile_time,0.),
+        "execution_seconds"=>0<=compiled<=wall ? wall-compiled : nothing,
+        "gc_seconds"=>measurement.gctime))
     measurement.value
+end
+function measured_native_baseline(action,native)
+    phases=Dict{String,Any}()
+    forward=Base.invokelatest(native._pipeline_measure!,action,phases,"solve")
+    payload=Base.invokelatest(native._pipeline_timing_payload,phases)
+    WORKER_TIMINGS["native_analysis"]=merge(Dict{String,Any}(get(forward,"timings",Dict())),payload)
+    store_worker_stage("baseline_analysis",Dict(key=>value for (key,value) in phases["solve"] if key!="stages"))
+    forward
 end
 const WORKER_STAGE=Ref("bootstrap")
 try
@@ -91,16 +114,14 @@ try
     request=Base.invokelatest(W.JSON.parsefile,joinpath(DIRECTORY,"request.json"))
     WORKER_STAGE[]="adjoint analysis"
     function solve_baseline(path)
-        progress(merge(LAST_PROGRESS[],Dict("detail"=>"Reading the baseline deck and building its native model; first-use compilation is measured separately")))
+        progress(merge(LAST_PROGRESS[],Dict("phase"=>"baseline_parse","detail"=>"Reading the baseline deck and building its native model; first-use compilation is measured separately")))
         parsed=measured_worker_stage("baseline_parse") do
             Base.invokelatest(SensitivityNative.bdf_to_model,path)
         end
-        progress(merge(LAST_PROGRESS[],Dict("detail"=>"Assembling and solving the baseline; timings include any first-use compilation and physical result recovery")))
-        forward=measured_worker_stage("baseline_analysis") do
+        progress(merge(LAST_PROGRESS[],Dict("phase"=>"forward","detail"=>"Assembling and solving the baseline; timings include any first-use compilation and physical result recovery")))
+        forward=measured_native_baseline(SensitivityNative) do
             Base.invokelatest(SensitivityNative.solve_model,parsed)
         end
-        WORKER_TIMINGS["native_analysis"]=get(forward,"timings",Dict())
-        bootstrap_write("worker_timings.json",WORKER_TIMINGS)
         forward
     end
     result=Base.invokelatest(W.compute_sensitivity,model,request,DIRECTORY;native=SensitivityNative,solve=solve_baseline,progress)

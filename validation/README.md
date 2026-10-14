@@ -4,10 +4,8 @@ A self-contained, public-domain reproducibility set for the paper validation
 of OpenJFEM. Every case here uses geometry, loads, and references that are
 in the open literature or in a permissively-licensed open-source repository.
 
-This folder is the **public validation set for the paper**. Cases used
-internally for development are kept outside the public repository and are not
-referenced from anything under this directory. In particular, the internal GAME,
-HTP, and VTP aircraft-tail cases are not part of this public validation set.
+This folder is the **public validation set for the paper**. Its manifest records
+the inputs, published references and comparison tolerances used by the runner.
 
 ## Folder Layout
 
@@ -65,7 +63,7 @@ reference set auditable from source.
 OpenJFEM's SOL 103 shell modal route uses coupled consistent PSHELL mass by
 default for quadrilateral and triangular shells. This matches the CRM modal
 reference family and gives physically meaningful modal participation factors
-from the full mass operator. Decks can request Nastran-style lumped shell mass
+from the full mass operator. Decks can request Reference-style lumped shell mass
 with `PARAM,COUPMASS,NO`; `PARAM,COUPMASS,YES` requests coupled mass explicitly.
 For diagnostics, `JFEM_SOL103_SHELL_MASS=consistent` or `lumped` can force the
 route without editing a deck. Total-mass and modal-effective-mass diagnostics
@@ -101,10 +99,6 @@ The public validation set may contain:
 - Synthetic decks generated solely from public formulas, public geometry, or
   code in this repository.
 - Small cross-solver cases from open-source suites with compatible licenses.
-
-The public validation set must not contain GAME, HTP, VTP, proprietary aircraft
-models, commercial-solver verification kits, private run outputs, or decks whose
-redistribution rights are unclear.
 
 ## Accuracy And Parity Are Scored Separately
 
@@ -168,8 +162,8 @@ its default:
 
 | solver | default in SOL 101 |
 | --- | ---: |
-| MSC/Nastran 70.5 | `0.0` |
-| MSC.Nastran 2004+ | `100.0` |
+| Reference 70.5 | `0.0` |
+| Reference 2004+ | `100.0` |
 | OpenJFEM | `100.0` |
 
 A deck that does not declare it therefore runs a *different problem* in each,

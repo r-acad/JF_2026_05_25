@@ -12,6 +12,12 @@
 #deck-text::selection { background:#365f93; color:white; }
 #deck-text.deck-chunked { line-height:18px; }
 #deck-text .deck-lines { display:block; }
+.deck-search { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:6px; }
+.deck-search input[type=search] { flex:1 1 150px; min-width:100px; width:0; }
+.deck-search label { display:flex; align-items:center; gap:5px; font-size:12px; white-space:nowrap; }
+#deck-search-status { margin:4px 0 0; }
+#deck-search-status:empty { display:none; }
+#deck-text .deck-search-match { background:#ffe181; color:#152032; outline:1px solid #b28e24; border-radius:2px; }
 #deck-text .deck-chunk { display:block; white-space:pre; height:calc(var(--deck-chunk-lines) * 18px); content-visibility:auto; contain:layout style paint; contain-intrinsic-size:auto calc(var(--deck-chunk-lines) * 18px); }
 .workspace-action-panel { border-bottom:1px solid var(--line); padding-bottom:10px; }
 .workspace-actions { display:flex; gap:8px; flex-wrap:wrap; }

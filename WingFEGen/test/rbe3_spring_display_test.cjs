@@ -26,9 +26,9 @@ for(const value of ['', '0', '-1', 'NaN', 'Infinity', '1e13', '1e-13']){
 assert.equal(E.springRadius('.000001'),.000001);
 E.syncSpringStyle({BABYLON:B,state:model,positions,enabled:true,radius:.000001});assert.equal(layer.springRadius,.000001,'No model-diagonal floor overrides the chosen radius');
 assert.equal(E.coordinateReference({id:0,card:'BASIC'}),'BASIC \u00b7 no parent');
-assert.equal(E.coordinateReference({id:10,card:'CORD2R',properties:{RID:0}}),'RID 0 (BASIC)');
-assert.equal(E.coordinateReference({id:20,card:'CORD2C',properties:{RID:10}}),'RID 10');
-assert.equal(E.coordinateReference({id:71,card:'CORD2R',properties:{'Reference ID':0}}),'RID 0 (BASIC)');
+assert.equal(E.coordinateReference({id:10,card:'CORD2R',properties:{RID:0}}),'RID 0 (BASIC) Rectangular');
+assert.equal(E.coordinateReference({id:20,card:'CORD2C',properties:{RID:10}}),'RID 10 (type unavailable)');
+assert.equal(E.coordinateReference({id:71,card:'CORD2R',properties:{'Reference ID':0}}),'RID 0 (BASIC) Rectangular');
 assert.equal(E.coordinateReference({id:40,card:'CORD1R',properties:{G1:501,G2:502,G3:503}}),'GRIDs G1 501, G2 502, G3 503');
 assert.equal(E.coordinateReference({id:99,card:'Resolved R'}),'Reference unavailable');
 scene.dispose();engine.dispose();console.log('RBE3 source/UM roles, thermal markers, hidden/deformed labels; batched CELAS axes, colors, picking, resize, visibility and Study controls passed.');

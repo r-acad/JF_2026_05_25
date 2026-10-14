@@ -1,6 +1,6 @@
 # solve_case.jl — Subcase solver orchestrator
 
-function _assemble_applied_force(ndof, model, id_map, X, load_id, node_R, rbe3_map;
+@solver_stage "loads" "Assemble applied loads" function _assemble_applied_force(ndof, model, id_map, X, load_id, node_R, rbe3_map;
                                  load_scale::Float64=1.0,
                                  temp_load_id=nothing,
                                  log_rbe3::Bool=true)
@@ -129,12 +129,12 @@ end
 # whole-model DECK FINGERPRINT: aspect 5.0-6.6 AND h/Lmax 0.0130-0.0145 AND pm45 0.40-0.48 AND
 # pm90 0.20-0.25 AND ply_count == 9 exactly AND >= 250 matching PCOMP quads. On a match it
 # switched the buckling output to |lambda| ordering, i.e. it changed which eigenvalue a matching
-# model reports as mode 1. Nastran has no such concept.
-function _build_results_from_state(ndof, model, id_map, X, node_R, u_global, residual_vector,
+# model reports as mode 1. Reference has no such concept.
+@solver_stage "recovery" "Recover displacements, forces, stresses and strains" function _build_results_from_state(ndof, model, id_map, X, node_R, u_global, residual_vector,
                                    snorm_normals, solver_diagnostics;
                                    active_load_id=nothing,
                                    active_load_scale::Float64=1.0,
-                                   spc_dofs=nothing)
+                                   spc_dofs=nothing, shell_static_fields_capture=nothing)
     results_json = Dict(
         "displacements" => [],
         "spc_forces" => [],
@@ -213,7 +213,8 @@ function _build_results_from_state(ndof, model, id_map, X, node_R, u_global, res
     if skip_stress_recovery
         results_json["stress_recovery_skipped"] = true
     else
-        recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_normals, stresses, results_json)
+        recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_normals, stresses, results_json;
+                               static_fields_capture=shell_static_fields_capture)
         recover_bar_stresses!(
             model, id_map, X, node_R, u_global, stresses, results_json;
             active_load_id=active_load_id,
@@ -882,15 +883,15 @@ function _solve_nonlinear_correction(K_eff, residual_rhs, ndof, model, id_map, s
         zeros(length(free_dofs))
     elseif unsymmetric
         backend = "direct_lu_unsymmetric"
-        lu(K_ff) \ rhs_ff
+        _timed_factorization(lu,K_ff) \ rhs_ff
     else
         try
-            cholesky(Symmetric(K_ff)) \ rhs_ff
+            _timed_factorization(cholesky,Symmetric(K_ff)) \ rhs_ff
         catch error
             _nonlinear_numerical_failure(error) || rethrow()
             backend = "direct_lu"
             used_lu_fallback = true
-            lu(K_ff) \ rhs_ff
+            _timed_factorization(lu,K_ff) \ rhs_ff
         end
     end
 
@@ -963,7 +964,7 @@ function _with_solver_thermal_state(f, model, temp_sid, scale)
     end
 end
 
-function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
+@solver_stage "static_case" "Static equilibrium and recovery" function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
                     temp_load_id=nothing, load_scale::Float64=1.0, kwargs...)
     return _with_solver_thermal_state(model,temp_load_id,load_scale) do
         _solve_case_impl(K,ndof,model,id_map,X,load_id,spc_id,node_R;
@@ -995,7 +996,7 @@ function _solve_case_impl(K, ndof, model, id_map, X, load_id, spc_id, node_R;
         log_msg("[SOLVER] SOL101 first-order follower FORCE linearization; nonsymmetric load stiffness; MOMENT loads remain fixed")
     end
 
-    # SPCD enforced displacements (selected by the LOAD set, Nastran
+    # SPCD enforced displacements (selected by the LOAD set, Reference
     # semantics; the dof must also be SPC'd). Override the selected SPC
     # value inside the BC solve so its equivalent RHS is applied once.
     spcd_entries = Dict{Int,Float64}()
@@ -1090,7 +1091,7 @@ function _assert_nonlinear_prescribed_supported(model, load_id, spc_id)
     nothing
 end
 
-function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_id, node_R;
+@solver_stage "nonlinear_solve" "Nonlinear equilibrium and recovery" function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_id, node_R;
                                 load_steps::Int=4,
                                 max_iter::Int=8,
                                 tol::Float64=1e-6,
@@ -2354,7 +2355,7 @@ end
 # NOTE on the CHOLMOD accessor: the inertia is `count(<(0), diag(F))` on the
 # Factor itself. `diag(F.D)` does NOT work — `F.D` is a CHOLMOD `FactorComponent`
 # that is not indexable (it throws CanonicalIndexError), and an earlier version
-# of this code hit that, fell through to a dense `lu(Matrix(M))` fallback, and
+# of this code hit that, fell through to a dense `_timed_factorization(lu,Matrix(M))` fallback, and
 # densified the 26k-60k+ sparse pencil into tens of GB — which is what made the
 # Sturm check appear to "hang" on large models. There is no dense fallback now:
 # the sparse LDLᵀ is the right algorithm and is fast (≈1.5 s/shift at 60k DOF).
@@ -2388,7 +2389,7 @@ function _buckling_sturm_count(K_ff, Kg_ff, sigma::Float64;
             # later in-place refactorization cannot corrupt it.
             local F
             if factor_out !== nothing
-                F = ldlt(M)
+                F = _timed_factorization(ldlt,M)
                 factor_out[] = F
             elseif reuse !== nothing && reuse[] !== nothing
                 # Julia's ldlt/ldlt! pin CHOLMOD to SIMPLICIAL mode, whose
@@ -2403,11 +2404,11 @@ function _buckling_sturm_count(K_ff, Kg_ff, sigma::Float64;
                 F = try
                     ldlt!(reuse[], M)
                 catch
-                    ldlt(M)
+                    _timed_factorization(ldlt,M)
                 end
                 reuse[] = F
             else
-                F = ldlt(M)
+                F = _timed_factorization(ldlt,M)
                 reuse !== nothing && (reuse[] = F)
             end
             return count(<(0.0), diag(F))
@@ -2418,7 +2419,7 @@ function _buckling_sturm_count(K_ff, Kg_ff, sigma::Float64;
     end
 end
 
-function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes;
+@solver_stage "eigensolve" "Buckling eigenvalue solution" function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes;
                         rbe3_map=Dict{Int,Vector{Tuple{Int,Float64}}}(),
                         max_elem_stiff=0.0, orig_diag=Float64[],
                         eigrl_v1::Float64=0.0, eigrl_v2::Float64=0.0,
@@ -2483,7 +2484,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     buckling_timings["slice_free_matrices"] = (time_ns() - t_slice) * 1e-9
     # JFEM_DUMP_ELEMENT_MATRICES: dump the FULL (pre-BC) global K and Kg, plus the
     # DOF->(grid,component) map. For a single-element model this is exactly the
-    # 24x24 element K and Kg, for entry-by-entry comparison against Nastran's
+    # 24x24 element K and Kg, for entry-by-entry comparison against Reference's
     # MATPRN KGG/KDJJ. Debug hook only; no-op when unset.
     let em_prefix = strip(get(ENV, "JFEM_DUMP_ELEMENT_MATRICES", ""))
         if !isempty(em_prefix)
@@ -2761,7 +2762,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
 
                 # AUTOSPC=NO decks can leave free dofs with no stiffness in either
                 # K or Kg (zero row/col in M for EVERY sigma) - UMFPACK then throws
-                # SingularException(0) and the whole range augmentation dies (HTP
+                # SingularException(0) and the whole range augmentation dies (tail-box
                 # iter_346: all shifts fail on both subcases). Detect and eliminate
                 # those dofs from the shifted factorization; eigenvectors get zeros
                 # there on re-embedding.
@@ -2801,7 +2802,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     # handles shifts landing exactly on eigenvalues).
                     factor_backend = "ldlt"
                     M_factor = try
-                        ldlt(M)
+                        _timed_factorization(ldlt,M)
                     catch
                         nothing
                     end
@@ -2814,10 +2815,10 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     if M_factor === nothing
                         factor_backend = "cholesky"
                         M_factor = try
-                            cholesky(M)
+                            _timed_factorization(cholesky,M)
                         catch
                             factor_backend = "lu"
-                            lu(M)
+                            _timed_factorization(lu,M)
                         end
                     else
                         keep_sturm_factor!(sigma, M_factor)
@@ -2826,10 +2827,10 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                     factor_backend = "cholesky"
                     M_factor =
                         try
-                            cholesky(M)
+                            _timed_factorization(cholesky,M)
                         catch
                             factor_backend = "lu"
-                            lu(M)
+                            _timed_factorization(lu,M)
                         end
                 end
                 shifted_search_cache[] = (
@@ -3342,7 +3343,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             log_msg("[BUCKLING] Using dense symmetric-definite eigensolver ($n_free DOFs)...")
             Kd = Matrix(K_ff)
             Bgd = Matrix(-Kg_ff)
-            K_factor = cholesky(Symmetric(Kd))
+            K_factor = _timed_factorization(cholesky,Symmetric(Kd))
             L = Matrix(K_factor.L)
             C = L \ (Bgd / L')
             C = 0.5 * (C + C')
@@ -3517,7 +3518,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             end
 
             # K⁻¹*B operator: find largest magnitude eigenvalues θ = 1/λ
-            # tol tightened from 1e-10 → 1e-13 (2026-04-21): HTP_launch has mode-1/2
+            # tol tightened from 1e-10 → 1e-13 (2026-04-21): tail-box model has mode-1/2
             # pairs separated by <0.1%; loose convergence lets order wobble between
             # solver runs and between formulation changes, masking as a "bug".
             # Symmetric Lanczos via Cholesky congruence (perf program Phase
@@ -3711,7 +3712,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
                             M = K_ff + sigma * Kg_ff
                             M = 0.5 * (M + M')
                             try
-                                F = lu(M)
+                                F = _timed_factorization(lu,M)
                                 n_neg = count(d -> d < 0.0, diag(F.U))
                                 log_msg("[BUCKLING][DBG] Sturm count at σ=$sigma: $n_neg negative diag(U) ⇒ ≈$n_neg eigenvalues below σ")
                             catch e
@@ -3754,9 +3755,9 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             M = 0.5 * (M + M')
             local M_factor
             try
-                M_factor = cholesky(M)
+                M_factor = _timed_factorization(cholesky,M)
             catch
-                M_factor = lu(M)
+                M_factor = _timed_factorization(lu,M)
             end
 
             nev_request = min(num_modes_request, n_free - 1)
@@ -3858,12 +3859,12 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     buckling_timings["eigensolver_search"] = (time_ns() - t_eigen_search) * 1e-9
     t_postprocess = time_ns()
 
-    # Post-process eigenvalues for Nastran-style SOL105 reporting.
+    # Post-process eigenvalues for Reference-style SOL105 reporting.
     #
-    # If EIGRL has no V1/V2 bounds, MSC/Nastran reports signed real buckling
+    # If EIGRL has no V1/V2 bounds, Reference reports signed real buckling
     # roots in extraction order, which is effectively increasing |lambda| for
     # the extraction used here. Keeping only positive roots in that case hides
-    # tensile-direction roots printed by Nastran and can move the first reported
+    # tensile-direction roots printed by Reference and can move the first reported
     # eigenvalue by orders of magnitude on probe decks.
     #
     # Explicit EIGRL bounds are inclusive and signed. A non-negative V1 selects
@@ -3889,7 +3890,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     end
     # 2026-07-27 (strip Stage 1): ALL signed-magnitude output conventions are disabled.
     # Both of them reported |lambda| for negative roots and ordered the spectrum by |lambda|,
-    # which silently changes which eigenvalue is reported as mode 1. Nastran does neither: its
+    # which silently changes which eigenvalue is reported as mode 1. Reference does neither: its
     # Lanczos returns the roots found in the EIGRL range, ordered by lambda ascending, sign
     # intact. The bounded variant was armed by `_sol105_signedmag_auto_high_pm45_selector`, a
     # whole-model deck fingerprint (aspect 5.0-6.6 AND h/Lmax 0.0130-0.0145 AND pm45 0.40-0.48
@@ -3928,7 +3929,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     )
     # 2026-07-27 (strip Stage 1): signed-magnitude output is DISABLED unconditionally.
     # It reported |lambda| for negative roots and sorted by |lambda|, which changes WHICH
-    # eigenvalue is called mode 1. Nastran's Lanczos reports the roots it finds in the EIGRL
+    # eigenvalue is called mode 1. Reference's Lanczos reports the roots it finds in the EIGRL
     # range, ordered by lambda ascending — so that is what we do. The two auto-selectors that
     # used to switch this on were whole-model deck fingerprints (aspect/ply-count/h-L windows
     # with a >=250 matching-quad count); they are removed with the rest of the machinery.
@@ -4067,7 +4068,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             # proves the zero-shift search spanned the range (no "upper-branch
             # modes hiding behind low-|λ| clusters" can exist). Augmentation
             # would only rediscover duplicates. This branch is intentionally
-            # strict so that the GAME validation suite (where Strategy 2 only
+            # strict so that the validation validation suite (where Strategy 2 only
             # reaches near zero) never takes it — parity preserved by default.
             #
             # Env opt-out: users may set JFEM_SOL105_SKIP_RANGE_AUGMENTATION=true
@@ -4495,14 +4496,14 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     # It discarded eigenvalues whose elastic strain energy was concentrated in few elements
     # (top-element share > 12 %, top-10 share > 40 %) and then re-admitted specific ones via
     # three descriptor windows keyed on ply_count == 9 / == 11 with h/L bands 0.0003 wide —
-    # i.e. deck fingerprints deciding which eigenvalue is reported as mode 1. Nastran applies
-    # no such test. Measured: with the filter ON, 6 of 42 corpus decks were MISSING a Nastran
+    # i.e. deck fingerprints deciding which eigenvalue is reported as mode 1. Reference applies
+    # no such test. Measured: with the filter ON, 6 of 42 corpus decks were MISSING a Reference
     # mode; with it OFF, 1. The filter introduced to fix mode selection WAS the defect.
     # Removed here: ~887 lines of thresholds, keep/reject windows and energy-share
     # machinery. The spectrum is now reported as found: see `sorted_idx` above.
 
     # Honor explicit EIGRL ND exactly. Blank ND with V2 present has the distinct
-    # Nastran meaning "all roots in range" and therefore returns the complete
+    # Reference meaning "all roots in range" and therefore returns the complete
     # in-range set rather than applying an invented mode cap.
     if has_range
         if return_all_range
@@ -4538,7 +4539,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     # 2026-07-27 (strip Stage 1): the spectral-gap CLUSTER FILTER is GONE. It skipped low
     # modes ahead of a detected eigenvalue gap so that a denser higher cluster would be
     # reported instead — another rule choosing which eigenvalue is mode 1, with no counterpart
-    # in Nastran, which returns the roots its Lanczos finds in the EIGRL range. Removed with it:
+    # in Reference, which returns the roots its Lanczos finds in the EIGRL range. Removed with it:
     # the 11 CLUSTER_FILTER_* thresholds and the n_skip re-cap branch.
     output_sorted_idx = sorted_idx[1:n_out]
 
@@ -4652,16 +4653,16 @@ end
         raw = lowercase(strip(ENV["JFEM_SOL103_SHELL_MASS"]))
         if raw in ("consistent", "coupled", "coupmass", "full")
             return :coupled_consistent
-        elseif raw in ("lumped", "nastran", "nastran_lumped", "diagonal", "default")
-            return :nastran_lumped
+        elseif raw in ("lumped", "reference", "reference_lumped", "diagonal", "default")
+            return :reference_lumped
         else
-            @warn "Ignoring unknown JFEM_SOL103_SHELL_MASS value; using Nastran lumped shell mass" value=ENV["JFEM_SOL103_SHELL_MASS"]
-            return :nastran_lumped
+            @warn "Ignoring unknown JFEM_SOL103_SHELL_MASS value; using Reference lumped shell mass" value=ENV["JFEM_SOL103_SHELL_MASS"]
+            return :reference_lumped
         end
     end
     if haskey(model, "PARAM_COUPMASS")
         return _sol103_param_enabled(get(model, "PARAM_COUPMASS", false), false) ?
-            :coupled_consistent : :nastran_lumped
+            :coupled_consistent : :reference_lumped
     end
     # 2026-08-05 de-calibration: the reference solver's cardless default is
     # lumped mass (PARAM,COUPMASS,-1). The previous coupled-consistent cardless
@@ -4671,7 +4672,7 @@ end
     # CORPUS_REGISTRY_PARITY_2026_08_05). Forcing lumped reproduces the
     # reference first modes to full F06 print precision.
     return solver_env_bool("JFEM_SOL103_SHELL_COUPLED_MASS_DEFAULT", false) ?
-        :coupled_consistent : :nastran_lumped
+        :coupled_consistent : :reference_lumped
 end
 
 @inline function sol103_shell_mass_formulation_name(model)
@@ -4700,7 +4701,7 @@ function _pcomp_mass_moments(prop, mats)
     return (m0*scale,m1*scale^2,m2*scale^3)
 end
 
-function assemble_mass(model, id_map, node_coords, node_R, ndof;
+@solver_stage "mass_assembly" "Assemble mass matrix" function assemble_mass(model, id_map, node_coords, node_R, ndof;
                        constraint_map=nothing)
     log_msg("[SOLVER] Assembling Mass Matrix (SOL103)...")
     n_nodes = length(id_map)
@@ -4785,7 +4786,7 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
 
             Me_loc = shell_mass_formulation === :coupled_consistent ?
                 FEM.consistent_mass_quad4(lc_buf4, rho_eff, h;mass_moments=laminate_mass_moments) :
-                FEM.nastran_lumped_mass_quad4(lc_buf4, rho_eff, h)
+                FEM.reference_lumped_mass_quad4(lc_buf4, rho_eff, h)
 
             # Build T (24×24)
             fill!(T_buf, 0.0)
@@ -4839,7 +4840,7 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
 
             Me_loc = shell_mass_formulation === :coupled_consistent ?
                 FEM.consistent_mass_tria3(lc3, rho_eff, h;mass_moments=laminate_mass_moments) :
-                FEM.nastran_lumped_mass_tria3(lc3, rho_eff, h)
+                FEM.reference_lumped_mass_tria3(lc3, rho_eff, h)
 
             T18 = zeros(18, 18)
             for k in 1:3
@@ -4868,7 +4869,7 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
 
     # COUPMASS selects the line-element interpolation independently of the
     # shell-only environment override. Cardless/negative values retain the
-    # established Nastran lumped CBAR convention.
+    # established Reference lumped CBAR convention.
     cbar_coupled_mass = _sol103_param_enabled(get(model, "PARAM_COUPMASS", false), false)
     # --- CBAR elements ---
     for (eid, bar) in cbars
@@ -4904,8 +4905,8 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
         # The CBAR convention includes Hermite bending translations, its
         # axial consistent/lumped blend, and no section rotary inertia.
         Me_loc = cbar_coupled_mass ?
-            FEM.nastran_coupled_mass_cbar(L, rho_bar, A_bar) :
-            FEM.nastran_lumped_mass_frame3d(L, rho_bar, A_bar, J, Iy, Iz)
+            FEM.reference_coupled_mass_cbar(L, rho_bar, A_bar) :
+            FEM.reference_lumped_mass_frame3d(L, rho_bar, A_bar, J, Iy, Iz)
 
         # Transformation
         e1 = (p2_mass - p1_mass) / L
@@ -4967,7 +4968,7 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
 
         # Effective density: rho_eff = rho + NSM/A
         rho_rod = A_rod > 1e-30 ? rho + nsm_rod / A_rod : rho
-        Me_loc = FEM.nastran_lumped_mass_rod(L, rho_rod, A_rod, J_rod)
+        Me_loc = FEM.reference_lumped_mass_rod(L, rho_rod, A_rod, J_rod)
 
         e1 = (p2 - p1) / L
         e2 = abs(e1[3]) < 0.9 ? normalize(cross(e1, SVector(0.0,0.0,1.0))) : normalize(cross(e1, SVector(1.0,0.0,0.0)))
@@ -5019,7 +5020,7 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
         nsm = Float64(get(rod, "NSM", 0.0))
 
         J_rod = Float64(get(rod, "J", 0.0))
-        Me_loc = FEM.nastran_lumped_mass_rod(L, rho, A_rod, J_rod)
+        Me_loc = FEM.reference_lumped_mass_rod(L, rho, A_rod, J_rod)
 
         # Add NSM contribution (lumped at both ends, translational only)
         if nsm > 0
@@ -5086,7 +5087,7 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
         rho_beam = A_beam > 1e-30 ? rho + nsm_beam / A_beam : rho
         # CBEAM lumped mass includes torsional inertia, unlike CBAR -- the
         # two elements' reference spectra prove their respective conventions.
-        Me_loc = FEM.nastran_lumped_mass_frame3d(L, rho_beam, A_beam, J, Iy, Iz;
+        Me_loc = FEM.reference_lumped_mass_frame3d(L, rho_beam, A_beam, J, Iy, Iz;
                                                  torsion_inertia=true)
 
         # Transformation
@@ -5157,13 +5158,13 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
         local Me_loc
         local ndof_el::Int
         if etype == "CTETRA" && nn == 4
-            Me_loc = FEM.nastran_lumped_mass_tetra4(view(coords_buf_solid, 1:4, :), rho)
+            Me_loc = FEM.reference_lumped_mass_tetra4(view(coords_buf_solid, 1:4, :), rho)
             ndof_el = 12
         elseif etype == "CHEXA" && nn == 8
-            Me_loc = FEM.nastran_lumped_mass_hexa8(view(coords_buf_solid, 1:8, :), rho)
+            Me_loc = FEM.reference_lumped_mass_hexa8(view(coords_buf_solid, 1:8, :), rho)
             ndof_el = 24
         elseif etype == "CPENTA" && nn == 6
-            Me_loc = FEM.nastran_lumped_mass_cpenta6(view(coords_buf_solid, 1:6, :), rho)
+            Me_loc = FEM.reference_lumped_mass_cpenta6(view(coords_buf_solid, 1:6, :), rho)
             ndof_el = 18
         else
             continue
@@ -5276,7 +5277,7 @@ function assemble_mass(model, id_map, node_coords, node_R, ndof;
     M = sparse(I_idx, J_idx, V_val, ndof, ndof)
 
     # Apply WTMASS parameter (unit conversion: weight-density → mass-density)
-    # Nastran: M_effective = M * WTMASS  (default WTMASS = 1.0)
+    # Reference: M_effective = M * WTMASS  (default WTMASS = 1.0)
     # Common: WTMASS = 1/g = 0.00259 (lb-in-s), 0.001 (kg-mm-s → tonnes)
     wtmass = Float64(get(model, "PARAM_WTMASS", 1.0))
     if wtmass != 1.0 && wtmass > 0.0
@@ -5396,7 +5397,7 @@ function _sol103_shifted_factorization(K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2
         A = K_ff + alpha * M_ff
         issymmetric(A) || (A = 0.5 * (A + A'))
         try
-            factor = cholesky(Symmetric(A); check=true)
+            factor = _timed_factorization(cholesky,Symmetric(A); check=true)
             push!(attempts, Dict{String,Any}(
                 "alpha" => alpha,
                 "status" => "succeeded",
@@ -5414,7 +5415,7 @@ function _sol103_shifted_factorization(K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2
     error("SOL103 could not factor K + alpha*M after $(length(attempts)) positive-shift attempts; the pencil is indefinite or has a joint K/M nullspace")
 end
 
-function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
+@solver_stage "eigensolve" "Modal eigenvalue solution" function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
                      rbe3_map=Dict{Int,Vector{Tuple{Int,Float64}}}(),
                      max_elem_stiff=0.0, orig_diag=Float64[],
                      eigrl_v1::Float64=0.0, eigrl_v2::Float64=0.0,
@@ -5459,7 +5460,7 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
     M_ff = M[free_dofs, free_dofs]
     M_ff = 0.5 * (M_ff + M_ff')
 
-    # Nastran's SOL 103 READ/Lanczos path can work with massless-but-stiff
+    # Reference's SOL 103 READ/Lanczos path can work with massless-but-stiff
     # coordinates (for example shell bending rotations): they remain in KXX,
     # while MXX is singular. Only genuinely unsupported massless coordinates
     # should be removed. The remaining singular-M cases are sent to the
@@ -5601,7 +5602,7 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
                     factor_cache_hit = true
                 else
                     try
-                        K_factor = cholesky(Symmetric(K_ff); check=true)
+                        K_factor = _timed_factorization(cholesky,Symmetric(K_ff); check=true)
                         if mass_filter_removed == 0
                             eigen_ctx.factor = K_factor
                             eigen_ctx.factor_backend = "cholesky"
@@ -6041,14 +6042,14 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
     frequencies = sqrt.(max.(eigenvalues, 0.0)) ./ (2π)
 
     # --- EIGRL V1/V2 frequency range filtering ---
-    # V1 and V2 are frequency bounds in Hz (Nastran convention)
+    # V1 and V2 are frequency bounds in Hz (Reference convention)
     has_range = (eigrl_v1 > 0.0 || eigrl_v2 > 0.0)
     if has_range
         v1 = eigrl_v1 > 0.0 ? eigrl_v1 : 0.0
         v2 = eigrl_v2 > 0.0 ? eigrl_v2 : Inf
         lambda_lower, lambda_upper = _sol103_eigrl_lambda_bounds(v1, v2)
         # Use the same tolerant squared-eigenvalue bounds as the Sturm target
-        # counts. This preserves Nastran's inclusive V1/V2 convention without
+        # counts. This preserves Reference's inclusive V1/V2 convention without
         # dropping a boundary root because of a zero inertia pivot or the last
         # few floating-point bits in sqrt(lambda)/(2*pi).
         range_idx = findall(lambda -> lambda >= lambda_lower && lambda <= lambda_upper,

@@ -45,15 +45,15 @@ const checks=[],errors=[];
 
   await page.evaluate(()=>{defer=true;editor.readCatalog();});await page.waitForFunction(()=>pending.length===1);
   await page.evaluate(()=>{
-   ctx.signature='imported';ctx.meshIdentity=3;rows=[{id:'nastran.PSHELL#123#T',label:'PSHELL 123 thickness',value:.001,unit:'m'},{id:'nastran.MAT1#2#E',label:'MAT1 2 modulus',value:70,unit:'GPa'}];
-   editor.restore({...settings,case_id:7,variables:['nastran.PSHELL#123#T']});
+   ctx.signature='imported';ctx.meshIdentity=3;rows=[{id:'reference.PSHELL#123#T',label:'PSHELL 123 thickness',value:.001,unit:'m'},{id:'reference.MAT1#2#E',label:'MAT1 2 modulus',value:70,unit:'GPa'}];
+   editor.restore({...settings,case_id:7,variables:['reference.PSHELL#123#T']});
   });
   await page.waitForFunction(()=>pending.length===2);
   await page.evaluate(()=>pending[0]());
   assert.equal(await page.locator('#sensitivity-variables input').count(),0);
   await page.evaluate(()=>pending[1]());
   await page.waitForFunction(()=>document.querySelectorAll('#sensitivity-variables input:checked').length===1);
-  assert.equal(await page.locator('#sensitivity-variables input:checked').inputValue(),'nastran.PSHELL#123#T');
+  assert.equal(await page.locator('#sensitivity-variables input:checked').inputValue(),'reference.PSHELL#123#T');
   assert.equal(await page.locator('#sensitivity-case').inputValue(),'7');
   checks.push('An old in-flight generated-model catalogue cannot replace restored imported-deck selections or release the new pending read');
 
@@ -64,12 +64,12 @@ const checks=[],errors=[];
   assert.equal(await page.locator('#sensitivity-variables input:checked').count(),0);
   checks.push('An explicitly empty saved selection stays empty after a manual refresh instead of selecting defaults');
 
-  await page.evaluate(()=>editor.restore({...settings,variables:['removed-property','nastran.PSHELL#123#T']}));
+  await page.evaluate(()=>editor.restore({...settings,variables:['removed-property','reference.PSHELL#123#T']}));
   await page.waitForFunction(()=>document.querySelectorAll('#sensitivity-variables input:checked').length===1);
-  assert.deepEqual(await page.evaluate(()=>editor.capture().variables),['removed-property','nastran.PSHELL#123#T']);
+  assert.deepEqual(await page.evaluate(()=>editor.capture().variables),['removed-property','reference.PSHELL#123#T']);
   assert.match(await page.locator('#sensitivity-context').textContent(),/no longer present/);
   assert(await page.locator('#sensitivity-run').isDisabled());assert.deepEqual(await page.evaluate(()=>edits),[]);
-  await page.locator('#sensitivity-recover').click();assert.deepEqual(await page.evaluate(()=>editor.capture().variables),['nastran.PSHELL#123#T']);
+  await page.locator('#sensitivity-recover').click();assert.deepEqual(await page.evaluate(()=>editor.capture().variables),['reference.PSHELL#123#T']);
   assert.equal(await page.evaluate(()=>edits.length),1);
   checks.push('Unavailable saved IDs remain selected and explicitly reported until the user removes them; only deliberate edits mark the Study changed');
   assert.equal(await page.evaluate(()=>runCalls),0);assert.deepEqual(errors,[]);

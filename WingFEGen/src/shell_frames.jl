@@ -1,4 +1,4 @@
-# Explicit shell material/result frames. Nastran's geometric element frame is
+# Explicit shell material/result frames. Reference's geometric element frame is
 # fixed by connectivity; MCID selects the requested skin, spar or rib axes.
 
 element_points(m::Model, gr::ElemGroup, e::Int) = begin

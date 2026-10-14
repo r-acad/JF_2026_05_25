@@ -35,7 +35,7 @@
 #  4 | JFEM_SOL105_EIG_CURVED_JACOBIAN && coords_3d    | geometric_stiffness_quad4_covariant        | OFF
 #  5 | else (fallback)                                 | geometric_stiffness_quad4                  | ON
 #
-# Live trace (2026-05-22) on HTP_launch GAME deck (10,274 PCOMP CQUAD4) under
+# Live trace (2026-05-22) on tail-box model validation deck (10,274 PCOMP CQUAD4) under
 # default settings confirms ONLY these 3 kernels actually fire:
 #   - stiffness_quad4_matrices       (K, branch #8 fallback)
 #   - add_quad4_macneal_shear_rbf!   (internal, called from stiffness_quad4_matrices)
@@ -430,7 +430,7 @@ end
         return :covariant
     elseif raw in ("auto", "curved_auto", "surface_auto")
         return :auto
-    elseif raw in ("tri_aspect", "triangle_aspect", "nastran1976", "nastran_tri")
+    elseif raw in ("tri_aspect", "triangle_aspect", "reference1976", "reference_tri")
         return :tri_aspect
     elseif raw in ("tri_center", "tri_center_adj", "triangle_center")
         return :tri_center_adj
@@ -560,7 +560,7 @@ end
 
 # ---- Load-aware shear-kernel selection (SOL105), STATIC side ----------------
 #
-# MSC Nastran's released CQUAD4 (flat MacNeal RBF transverse shear) and JFEM's
+# Reference's released CQUAD4 (flat MacNeal RBF transverse shear) and JFEM's
 # default MITC4+phi2 shear agree on flat panels and on compression, but diverge
 # on WARPED/CURVED elements under SHEAR preload (up to ~46% on the buckling
 # eigenvalue). The divergence enters through the STATIC solve: the kernel sets
@@ -568,7 +568,7 @@ end
 # (The eigenvalue stiffness itself is bit-identical either way — verified.)
 #
 # Empirical-but-principled criterion, derived from the SOL105 probe POPULATION
-# (NOT from the GAME validation set — those are held out for validation):
+# (NOT from the validation validation set — those are held out for validation):
 #   route element e to the flat MacNeal kernel iff BOTH
 #     (1) e is non-flat (warp_ratio >= JFEM_SOL105_LOAD_AWARE_WARP_MIN), AND
 #     (2) e is shear-dominated:
@@ -718,7 +718,7 @@ end
 end
 
 @inline function kg_shell_trans_mode()
-    # MSC Nastran's CQUAD4 differential stiffness acts on displacement
+    # Reference's CQUAD4 differential stiffness acts on displacement
     # gradients transverse to the local principal membrane-stress directions,
     # not on all three translational components equally. Single-element
     # MATPRN/KDJJ probes confirm this for both flat and warped quads; keep
@@ -726,7 +726,7 @@ end
     raw = lowercase(strip(get(ENV, "JFEM_KG_SHELL_TRANS_DOF_MODE", "principal_transverse")))
     if raw in ("normal_only", "normal", "w_only")
         return :normal_only
-    elseif raw in ("principal_transverse", "stress_transverse", "nastran_flat", "nastran")
+    elseif raw in ("principal_transverse", "stress_transverse", "reference_flat", "reference")
         return :principal_transverse
     elseif raw in ("curvature", "curvature_coupled", "shell_curvature")
         return :curvature
@@ -771,13 +771,13 @@ end
         !normal_transform && curvature === nothing && slope === nothing
 end
 
-@inline function kg_quad4_iso_nastran_kdjj_mode()
+@inline function kg_quad4_iso_reference_kdjj_mode()
     # Kg operator for flat isotropic CQUAD4: replace the element
-    # Kg with the Nastran-KDJJ-exact kernel
-    # (FEM.geometric_stiffness_quad4_nastran_kdjj_iso).
+    # Kg with the Reference-KDJJ-exact kernel
+    # (FEM.geometric_stiffness_quad4_reference_kdjj_iso).
     #   off  -> never
     #   skew -> only when the element corner angle deviates from 90deg by more
-    #           than JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ_SKEW_MIN_DEG (rectangular
+    #           than JFEM_KG_QUAD4_ISO_REFERENCE_KDJJ_SKEW_MIN_DEG (rectangular
     #           elements keep the legacy operator bit-identically)
     #   all  -> every uncoupled flat isotropic CQUAD4 (default: the legacy
     #           operator's element-MEAN stress destroys the per-GP field
@@ -786,7 +786,7 @@ end
     #           0.03% for this kernel; eigen load_uy +54.9%->0.000%,
     #           load_shear -30.4%->0.000%, all previously-exact atomics
     #           unchanged)
-    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ", "all")))
+    raw = lowercase(strip(get(ENV, "JFEM_KG_QUAD4_ISO_REFERENCE_KDJJ", "all")))
     if raw in ("off", "false", "0", "none")
         return :off
     elseif raw in ("all", "always", "true", "1")
@@ -796,8 +796,8 @@ end
     end
 end
 
-@inline function kg_quad4_iso_nastran_kdjj_skew_min_deg()
-    return max(solver_env_float("JFEM_KG_QUAD4_ISO_NASTRAN_KDJJ_SKEW_MIN_DEG", 2.0), 0.0)
+@inline function kg_quad4_iso_reference_kdjj_skew_min_deg()
+    return max(solver_env_float("JFEM_KG_QUAD4_ISO_REFERENCE_KDJJ_SKEW_MIN_DEG", 2.0), 0.0)
 end
 
 @inline function sol105_pcomp_skew_membrane_min_deg()
@@ -1585,7 +1585,7 @@ end
 end
 
 @inline function kg_shell_drill_zero_enabled()
-    # MSC/Nastran CQUAD4 differential stiffness is a five-DOF shell operator;
+    # Reference CQUAD4 differential stiffness is a five-DOF shell operator;
     # the drilling direction is stabilized in K, not prestressed in Kg.
     return solver_env_bool("JFEM_KG_SHELL_DRILL_ZERO", true)
 end
@@ -1685,13 +1685,13 @@ end
 
 
 """
-    nastran_k6rot_default(model)
+    reference_k6rot_default(model)
 
 The drilling-DOF stabilisation coefficient a deck gets when it declares no
 `PARAM,K6ROT`, matching the reference solver.
 
-MSC/Nastran 70.5 has no single global default -- its own delivery source says so
-outright (`msc705/nast/del/param.ddl:142-143`: *"K6ROT MUST NOT BE DEFINED HERE
+Reference 70.5 has no single global default -- its own delivery source says so
+outright (reference solver delivery file `del/param.ddl:142-143`: *"K6ROT MUST NOT BE DEFINED HERE
 BECAUSE ITS DEFAULT VALUE IS DIFFERENT ACROSS SOLUTION SEQUENCES"*). The value is
 declared per subDMAP: `K6ROT=0.` in every linear sequence (`sestatic.dat:44` for
 SOL 101, `semodes.dat:46` for 103, `sebuckl.dat:42` for 105, and likewise for
@@ -1705,7 +1705,7 @@ nothing that silently ran a different problem from the reference -- worth up to
 source. A deck that declares `PARAM,K6ROT` is unaffected, as is the
 `JFEM_PARAM_K6ROT*` environment override.
 """
-@inline function nastran_k6rot_default(model)
+@inline function reference_k6rot_default(model)
     sol = Int(round(Float64(get(model, "SOL", get(model, "sol_type", 101)))))
     return (sol == 106 || sol == 129) ? 100.0 : 0.0
 end
@@ -1718,6 +1718,24 @@ end
         return default_val
     end
     return something(tryparse(Float64, raw), default_val)
+end
+
+"""Bounded planar MAT2/PSHELL membrane projection shared by K and preload recovery.
+
+The planar quadrilateral uses Gauss-point normal strains and the center shear
+row, in one common element/material frame. Nonzero MID4 coupling, active normal
+directors and research curvature fields have separate kinematic contracts.
+The sqrt(eps) planarity bound admits coordinate roundoff in rigidly rotated
+planar input; it does not extend this route to physically warped shells.
+"""
+@inline function q4_pshell_mat2_membrane_projection(is_mat2::Bool, warp_ratio::Real;
+    Bmb=nothing, snorm_pq=nothing, curvature_membrane=nothing, slope_membrane=nothing,
+    kernel_mode="macneal")
+    is_mat2 && solver_env_bool("JFEM_Q4_PSHELL_MAT2_MEMBRANE_SELC", true) || return false
+    isfinite(warp_ratio) && abs(warp_ratio) <= sqrt(eps(Float64)) || return false
+    Bmb === nothing && curvature_membrane === nothing && slope_membrane === nothing || return false
+    snorm_pq === nothing || !FEM.quad4_snorm_pq_has_active_rows(snorm_pq) || return false
+    return lowercase(string(kernel_mode)) == "macneal"
 end
 
 """Rotate a MAT2 in-plane constitutive matrix, including its 16/26 couplings."""
@@ -1783,7 +1801,7 @@ end
 
 @inline function pshell_mid4_bmb_matrix(mat, h::Real, theta::Real=0.0)
     h_eff = Float64(h)
-    # MSC Nastran Reference Guide, material properties: CLT B = -T^2 G4.
+    # Reference Reference Guide, material properties: CLT B = -T^2 G4.
     # Bmb uses the CLT curvature convention, also used by PCOMP assembly.
     scale = solver_env_float("JFEM_PSHELL_MID4_BMB_SCALE", 1.0) * h_eff^2
     sign = solver_env_float("JFEM_PSHELL_MID4_BMB_SIGN", -1.0)
@@ -2132,7 +2150,7 @@ end
         return hcat(er, et, w)
     elseif ctype == "SPHERICAL"
         rxy = hypot(xloc[1], xloc[2])
-        # Nastran spherical components are radius, polar angle, azimuth.
+        # Reference spherical components are radius, polar angle, azimuth.
         # Their unit vectors form a right-handed basis in that order.
         theta = atan(rxy, xloc[3])
         phi = atan(xloc[2], xloc[1])
@@ -2169,6 +2187,15 @@ end
 # reporting and provides the proven zero-coupling limit to derivative guards.
 # The ordinary finite-warp congruence is supported for nonzero B; SNORM,
 # isotropic, and alternate research operators stay outside.
+# Shared elastic/recovery selection: the selective-center membrane has no
+# Wilson internal amplitudes. Recovery must use its compatible center field.
+@inline function q4_selective_center_membrane_enabled(material_ok, is_flat, Bmb)
+    solver_env_bool("JFEM_SOL105_PCOMP_MEMBRANE_SELC", true) &&
+        solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true) &&
+        material_ok && is_flat &&
+        (Bmb === nothing || solver_env_bool("JFEM_SOL105_PCOMP_SELC_ALLOW_BMB", false))
+end
+
 function coupled_pcomp_projected_enabled(coords,Bmb;is_pcomp=false,isotropic=false,
         coords_3d=nothing,snorm_pq=nothing,curvature_membrane=nothing,
         slope_membrane=nothing,kernel_mode="macneal",sol_type=101,rigid_shear=false,
@@ -2227,14 +2254,14 @@ function coupled_pcomp_projected_enabled(coords,Bmb;is_pcomp=false,isotropic=fal
     return true
 end
 
-function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only::Bool=false,
+@solver_stage "assembly" "Assemble elastic stiffness" function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only::Bool=false,
                             membrane_incomp::Bool=true, pcomp_membrane_incomp::Bool=false,
                             snorm_angle_override::Union{Nothing,Float64}=nothing,
                             iso_no_incomp::Bool=false,
                             sol105_context::Bool=false,
                             sol101_context::Bool=false,
                             elem_shear_dominant::Union{Nothing,Dict{Int,Bool}}=nothing,
-                            shell_capture=nothing)
+                            shell_capture=nothing, element_capture=nothing)
     # JFEM_Q4_STATIC_BENDING_INCOMP: optional override of the bending
     # incompatible-mode enrichment on the static/pencil assembly path (the
     # eigen path has its own JFEM_SOL105_EIG_BENDING_INCOMP).  Unset by
@@ -2377,7 +2404,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         clamp(solver_env_float("JFEM_SOL101_LINE_NODE_DRILL_SCALE", 1.0), 0.0, 1.0) :
         1.0
     sol101_line_node_drill_sqrt_scale = sqrt(sol101_line_node_drill_scale)
-    # PSHELL blank MID3 means no transverse-shear flexibility (MSC QRG,
+    # PSHELL blank MID3 means no transverse-shear flexibility (REFERENCE QRG,
     # PSHELL remark 3). Apply the existing rigid-shear limit consistently
     # to both SOL105 preload and eigen K, as well as the SOL101 path.
     pshell_blank_mid3_rigid_shear =
@@ -2411,7 +2438,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     # The reference K is one physical operator independent of solution
     # sequence: single-element extractions (k_extract_boxes_laminates_20260704,
     # membrane_hourglass_probe) show the cross/shear-only weights reproduce the
-    # Nastran flat CQUAD4 membrane block exactly (Rayleigh ratios 1.000000 on
+    # Reference flat CQUAD4 membrane block exactly (Rayleigh ratios 1.000000 on
     # all deformational modes, all laminates, aspect 1-8), while the uniform
     # full-basis condensation errs from -22% (pm45-dominant, aspect 1) to
     # +335% (aspect 8) on the in-plane hourglass channel. Default off pending
@@ -2421,7 +2448,11 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         !q4_sol101_membrane_mode_weights_overridden &&
         solver_env_bool("JFEM_SOL105_Q4_CROSS_MEMBRANE_WEIGHTS", false)
     q4_sol101_cross_membrane_weights_mixed_topology =
-        solver_env_bool("JFEM_SOL101_Q4_CROSS_MEMBRANE_WEIGHTS_MIXED_TOPOLOGY", false)
+        # An unrelated rigid/MPC connection must not change a shell's local
+        # constitutive operator. Keep the old switch only as a diagnostic:
+        # disconnected-connection tests and reference matrix extractions
+        # demonstrate that the flat membrane projection is element-local.
+        solver_env_bool("JFEM_SOL101_Q4_CROSS_MEMBRANE_WEIGHTS_MIXED_TOPOLOGY", true)
     q4_sol101_cross_membrane_weights_unconstrained_mixed_topology =
         solver_env_bool(
             "JFEM_SOL101_Q4_CROSS_MEMBRANE_WEIGHTS_UNCONSTRAINED_MIXED_TOPOLOGY",
@@ -2501,7 +2532,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     # stiffness_quad4_matrices via the `coords_3d` kwarg. The function itself
     # does not yet consume this input — the main Gauss-loop rewrite + NRM
     # kinematic coupling is the remaining work for next session. See
-    # project_htp_curved_scaffold_2026_04_21.md in memory.
+    # the curved-shell scaffold design note in memory.
     curved_jacobian_enabled = q4_curved_jacobian_enabled(shear_center_only)
     # `coords_3d` is a PREREQUISITE, not a feature. Three independent capabilities consume it
     # -- the curved-Jacobian path, the MacNeal warp correction (JFEM_MACNEAL_WARP_ALPHA) and
@@ -2535,9 +2566,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
     q4_kernel_key = shear_center_only ? "JFEM_Q4_KERNEL_EIG" : "JFEM_Q4_KERNEL_STATIC"
     # SOL101 static PCOMP: keep the MITC4-3D aspect route opt-in.
     #
-    # The route is useful as a research branch, but on NAPA-derived static
+    # The route is useful as a research branch, but on large-model-derived static
     # high-aspect PCOMP probes its transverse/shear block is too stiff versus
-    # Nastran. Disabling the automatic route is a generic element-formulation
+    # Reference. Disabling the automatic route is a generic element-formulation
     # choice (PCOMP + static analysis branch), not a case-specific calibration:
     # the standard CQUAD4/MacNeal static path gives better extracted-K and
     # displacement parity on thin high-aspect laminates without moving the
@@ -2650,7 +2681,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             solver_env_int("JFEM_Q4_MACNEAL_CURVED_BENDING_PLY_COUNT_MAX", typemax(Int)),
             q4_macneal_curved_bending_ply_count_min,
         )
-    # MSC Nastran QRG 2024.1 MAT8: blank/zero G1Z and G2Z mean zero
+    # Reference QRG 2024.1 MAT8: blank/zero G1Z and G2Z mean zero
     # transverse-shear flexibility, i.e. the infinite-stiffness limit.
     mat8_blank_ts_rigid_limit = solver_env_bool(
         "JFEM_MAT8_BLANK_TS_RIGID_LIMIT",
@@ -2717,13 +2748,13 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         !isempty(get(model, "MPCs", []))
     pshells = model["PSHELLs"]; pbarls = model["PBARLs"]; mats = model["MATs"]
     auto_pcomp_membrane_incomp_model = any(q4_sol105_pcomp_auto_membrane_incomp_candidate, values(pshells))
-    k6rot = solver_k6rot(get(model, "PARAM_K6ROT", nastran_k6rot_default(model)), shear_center_only)
+    k6rot = solver_k6rot(get(model, "PARAM_K6ROT", reference_k6rot_default(model)), shear_center_only)
 
     nt = Threads.maxthreadid()
     log_msg("[SOLVER] Computing Element Stiffness ($(Threads.nthreads()) threads)...")
     # Echo the EFFECTIVE drilling stabilisation and where it came from. K6ROT is
     # not part of any benchmark definition and solvers default it differently
-    # (MSC/Nastran 70.5 linear sequences: 0.0; MSC.Nastran 2004+ and OpenJFEM:
+    # (Reference 70.5 linear sequences: 0.0; Reference 2004+ and OpenJFEM:
     # 100.0), so on a deck that declares nothing the two run different problems.
     # That was silent until 2026-08-04, when it turned up as a 3.5% "formulation
     # gap" on the MacNeal hemisphere. Saying it out loud costs one line.
@@ -2731,7 +2762,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                    haskey(model, "PARAM_K6ROT") ? "from the deck's PARAM,K6ROT" :
                        "default for SOL " *
                        string(Int(round(Float64(get(model, "SOL", get(model, "sol_type", 101)))))) *
-                       ", matching MSC/Nastran 70.5",
+                       ", matching Reference 70.5",
                    ")"))
 
     # Use dense lookup only for sufficiently compact external GRID IDs.
@@ -2981,7 +3012,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         if br <= 1e-12
             # A PSHELL/Pcomp membrane-only shell should not retain transverse shear
             # or drilling stabilization; those artificial out-of-plane terms prevent
-            # AUTOSPC from reproducing Nastran's membrane-only mechanism handling.
+            # AUTOSPC from reproducing Reference's membrane-only mechanism handling.
             fill!(Cs_e, 0.0)
         end
         mid4 = get(prop, "MID4", 0)
@@ -3387,15 +3418,15 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         end
         L_diag_ei  = max(norm(d13_geom), norm(d24_geom))  # diagonal length (≈ √2 × edge)
         # JFEM_Q4_FLAT_TOL_REL: relative flatness classification tolerance.
-        # Real aerodynamic meshes carry microscopic facet warp (HTP-346: warp/L
+        # Real aerodynamic meshes carry microscopic facet warp (tail-box-346: warp/L
         # p50 1.5e-5, max 1.6e-3) that the reference CQUAD4 treats as flat
         # (mean-plane projection with warp corrections); the old strict 1e-6
         # test disabled the identified flat-element stack (cross membrane
         # weights, recovery consistency) on such elements.
         #
-        # 2026-07-27: default RAISED 1e-6 -> 1e-2. Measured against Nastran on a
+        # 2026-07-27: default RAISED 1e-6 -> 1e-2. Measured against Reference on a
         # purpose-built warp rig (single PCOMP cell, warp/L swept 0 -> 3e-3):
-        # Nastran's out-of-plane stiffness is warp-INSENSITIVE (476.39 ->
+        # Reference's out-of-plane stiffness is warp-INSENSITIVE (476.39 ->
         # 476.48 over the whole sweep) while JFEM dropped 459 -> 295 (-36 %) the
         # instant warp became nonzero and then stayed flat — a branch
         # discontinuity, because !elem_is_flat flips elem_shear_center_only and
@@ -3423,23 +3454,23 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # The strict `elem_is_flat` test (1e-6 of L) classifies almost all real
         # aerodynamic-mesh elements as non-flat, sending them onto the inferior
         # legacy MITC path. Setting the MacNeal eligibility threshold to 1e-4
-        # (0.01% warp) recovers HTP_3wp_disp 511002 from 85.9% rel error to
-        # 1.87% with no regression on HTP_launch (2.86% unchanged). Strongly-
-        # curved meshes like VTP still need a real curved-aware MacNeal kernel.
+        # (0.01% warp) recovers tail-box bending case 511002 from 85.9% rel error to
+        # 1.87% with no regression on tail-box model (2.86% unchanged). Strongly-
+        # curved meshes like curved-shell still need a real curved-aware MacNeal kernel.
         #
         # 2026-07-27: default RAISED 1e-4 -> 1e-2. MacNeal eligibility is tested
         # BEFORE the curvature branch, so cells above this bound never reach it.
-        # HTP_launch's mode-hosting cells sit at warp/L = 1.5e-4, just over the
+        # tail-box model's mode-hosting cells sit at warp/L = 1.5e-4, just over the
         # old line (elem_kernel_planar = 0 for the mode hosts, 1 for the rest of
-        # the deck): JFEM's energy on Nastran's own HTP eigenvector was 2.24x
+        # the deck): JFEM's energy on Reference's own tail-box eigenvector was 2.24x
         # too stiff and drops to 0.906x once they stay on MacNeal.
         macneal_warp_tol = max(solver_env_float("JFEM_Q4_MACNEAL_WARP_TOL", 1e-2), 1e-12)
         # Aspect-ratio gate (2026-05-01): research switch, default off (1e30).
-        # Distribution analysis on the GAME meshes showed HTP_launch p90 aspect
-        # ratio 10.4 (max 24) vs VTP_launch p99 only 7.7, suggesting a possible
-        # discriminator between HTP-breaking and VTP-improving curved elements
+        # Distribution analysis on the validation meshes showed tail-box model p90 aspect
+        # ratio 10.4 (max 24) vs curved-shell load case p99 only 7.7, suggesting a possible
+        # discriminator between tail-box-breaking and curved-shell-improving curved elements
         # under MacNeal. Empirical sweep with `JFEM_Q4_MACNEAL_ASPECT_MAX=10`
-        # (combined with `KAPPA_L_MAX=1.0`) did NOT cleanly recover the HTP/VTP
+        # (combined with `KAPPA_L_MAX=1.0`) did NOT cleanly recover the tail-box/curved-shell
         # trade-off — aspect ratio alone is insufficient. Left as an explicit
         # switch for further per-element classifier work.
         macneal_aspect_max = max(solver_env_float("JFEM_Q4_MACNEAL_ASPECT_MAX", 1e30), 1.0)
@@ -3447,13 +3478,13 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # extraction on the warp atomics (single warped iso PSHELL/MAT1 CQUAD4)
         # showed the 1e-4 `macneal_warp_tol` gate flips mildly-warped ISOTROPIC
         # elements off MacNeal onto the legacy MITC path, which over-stiffens
-        # them: atomic_warp_0p05/0p5 mode-1 lambda jumps +19.7% over Nastran at
-        # warp_ratio > 1e-4, while Nastran is warp-insensitive (~34.29 at all
+        # them: atomic_warp_0p05/0p5 mode-1 lambda jumps +19.7% over Reference at
+        # warp_ratio > 1e-4, while Reference is warp-insensitive (~34.29 at all
         # warp levels). Keeping isotropic elements on MacNeal restores -5.29%
         # (matching the flat/tiny-warp cases). The original 1e-4 threshold was
-        # tuned for PCOMP curved routing (HTP_3wp_disp), so raise the bound ONLY
+        # tuned for PCOMP curved routing (tail-box bending case), so raise the bound ONLY
         # for genuinely isotropic (non-PCOMP-laminate) elements — PCOMP element
-        # eligibility (and hence the HTP/box routing) is byte-identical.
+        # eligibility (and hence the tail-box/box routing) is byte-identical.
         macneal_warp_tol_iso =
             max(solver_env_float("JFEM_Q4_MACNEAL_WARP_TOL_ISO", 1.0), macneal_warp_tol)
         is_pcomp_ei = q4_is_pcomp[ei]
@@ -3694,9 +3725,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             # low-aspect" PCOMP curved elements onto the MacNeal RBF kernel while
             # leaving the thin+high-aspect ones on MITC4+phi2 (whose per-element
             # α gate in FEMKernels.jl handles them). Reason: high-aspect cases
-            # (HTP_launch) need MITC4+phi2 softening; moderate-aspect thicker
-            # cases (VTP_3wp_strain 511002, K-side -4.54% bias at default) close
-            # to Nastran on MacNeal. Both branches together bring the GAME max
+            # (tail-box model) need MITC4+phi2 softening; moderate-aspect thicker
+            # cases (curved-shell model 511002, K-side -4.54% bias at default) close
+            # to Reference on MacNeal. Both branches together bring the validation max
             # RQ bias from 6.01% down below 3.00%. Discriminators (all geometry
             # only; respects [[no-test-set-tuning]]):
             #   h/L      ≥ THICK_H_OVER_L_MIN  (default 0.015)
@@ -3734,13 +3765,13 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             elem_kernel_planar = elem_macneal_static_kernel
         end
         # JFEM_Q4_MACNEAL_RIGID_SHEAR_FORCE: research switch (default false)
-        # introduced 2026-05-12 after Nastran reverse-engineering showed that
+        # introduced 2026-05-12 after Reference reverse-engineering showed that
         # disabling the residual-bending-flexibility on transverse shear
-        # (i.e., applying rigid_shear) recovers ~92-108% of Nastran's
+        # (i.e., applying rigid_shear) recovers ~92-108% of Reference's
         # bending+shear block on the single-element probe ladder. Set this
         # env to bypass the PCOMP-only / MAT8-blank gate and apply
         # macneal_rigid_shear on every macneal-eligible Q4. Tested on
-        # GAME with TBD outcome.
+        # validation with TBD outcome.
         elem_macneal_rigid_shear =
             (mat8_blank_ts_rigid_limit &&
              elem_is_flat &&
@@ -3838,6 +3869,10 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 end
             end
         end
+        elem_mat2_membrane_selc = q4_pshell_mat2_membrane_projection(
+            q4_pshell_mat2[ei], warp_ratio_ei; Bmb=Bmb_local,
+            snorm_pq=snorm_pq_arg, curvature_membrane=curvature_membrane,
+            slope_membrane=slope_membrane, kernel_mode=q4_kernel_mode_static)
         elem_material_shear_rotation = 0.0
         if is_pcomp_ei
             # Pass all 4 corners so the rotation function can resolve
@@ -3858,7 +3893,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             # angle, so A must be rotated by that same angle to stay consistent with the
             # lc-frame B -- otherwise the bilinear Bm_lc' * A_material * Bm_lc is
             # equivalent to using A rotated by the skew angle, giving a spurious A16/A26
-            # and an ~80%-off membrane block vs Nastran KGG (which keeps B and A in one
+            # and an ~80%-off membrane block vs Reference KGG (which keeps B and A in one
             # consistent frame).  Add the element-frame angle to beta.  Gate
             # JFEM_SOL105_PCOMP_SKEW_MEMBRANE (default ON since 2026-07-28: deterministic 42-deck screen
             # per-case accounting); non-skew (v1 ~ global x) elements are unaffected.
@@ -3888,7 +3923,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             # 1-2 || v1 so they coincide; on a SKEWED element they differ by the
             # in-plane side-1-2 -> v1 angle, so Bm_lc' * Cm * Bm_lc is equivalent to
             # using Cm rotated by that angle -- spurious A16/A26 and an ~80%-off
-            # membrane block vs Nastran KGG.  Rotate Cm by the OBJECTIVE in-plane angle
+            # membrane block vs Reference KGG.  Rotate Cm by the OBJECTIVE in-plane angle
             # (shell_material_rotation_from_g12: projected edge 1-2 measured from v1),
             # NOT a global-axis proxy -- the earlier phi = -atan(v1_y, v1_x) was only
             # valid for elements in the global XY plane with side 1-2 along +X, and
@@ -3948,18 +3983,21 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                     end
                 end
             end
-        elseif q4_el_mcid[ei] > 0
+        elseif q4_el_mcid[ei] > 0 || elem_mat2_membrane_selc
             # PSHELL materials use the same CQUAD4 THETA/MCID material
             # axis convention as PCOMP. THETA-based PSHELL matrices are already
             # rotated while building the property resultants above; MCID-based
             # PSHELL matrices are unrotated until the element frame is known.
-            beta = shell_pcomp_material_rotation(
+            # A THETA tensor was already rotated relative to side G1-G2 in
+            # property extraction. It still needs the side-to-bisector angle.
+            # An MCID supplies the complete material-to-element angle instead.
+            beta = q4_el_mcid[ei] > 0 ? shell_pcomp_material_rotation(
                 :element,
                 v1, v2, v3, p1, p2, p3, p4,
                 q4_el_theta[ei],
                 q4_el_mcid[ei],
                 model["CORDs"],
-            )
+            ) : shell_material_rotation_from_g12(v1,v2,v3,p1,p2,0.0)
             elem_material_shear_rotation = beta
             if abs(beta) > 1e-10
                 cb = cos(beta); sb = sin(beta)
@@ -3980,12 +4018,12 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             end
         end
         elem_no_phi2 = shear_center_only && elem_is_flat && is_pcomp_ei && !is_pcomp_iso_ei && flat_pcomp_no_phi2
-        # Nastran QUAD4 flat-membrane operator for COMPOSITES (identified
+        # Reference QUAD4 flat-membrane operator for COMPOSITES (identified
         # 2026-07-17, calib_bisector_membrane.jl): per-GP normal strains +
         # CENTER-sampled membrane-shear row, evaluated in the lc
         # (diagonal-bisector) frame with the frame-consistent Cm (the
         # JFEM_SOL105_PCOMP_SKEW_MEMBRANE g12 rotation puts Cm in that frame).
-        # This reproduces the Nastran KGG membrane block to 0.00% on
+        # This reproduces the Reference KGG membrane block to 0.00% on
         # parallelogram probes across skew 0-30 deg x aspect 1-5 for both the
         # [0/90/0] and 9-ply quasi-isotropic laminates -- the same
         # selective-center operator the flat-ISO exact membrane already uses
@@ -4001,7 +4039,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # membrane-bending coupling block is assembled separately from
         # Bmb_local, so it is preserved.  MR-skin replica DOE 2026-07-22:
         # the legacy membrane on the unsymmetric 90-heavy aspect-5.5 skins is
-        # 5.9-12.6% off vs Nastran KGG while bending is 0.5-0.9% -- the gate,
+        # 5.9-12.6% off vs Reference KGG while bending is 0.5-0.9% -- the gate,
         # not the operator, is the gap (same pattern as the KDJJ Bmb gate).
         # JFEM_Q4_SKEW_MEMBRANE_ALLOW_ISOTROPIC (2026-07-31: PROMOTED, default ON): both skew membrane
         # operators below (SELC and the hourglass restabilization) are gated on
@@ -4024,12 +4062,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             (is_pcomp_ei && !is_pcomp_iso_ei) ||
             (solver_env_bool("JFEM_Q4_SKEW_MEMBRANE_ALLOW_ISOTROPIC", true) &&
              (q4_is_isotropic[ei] || pcomp_isotropic_membrane))
-        elem_pcomp_membrane_selc =
-            solver_env_bool("JFEM_SOL105_PCOMP_MEMBRANE_SELC", true) &&
-            solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true) &&
-            skew_membrane_material_ok && elem_is_flat &&
-            (Bmb_local === nothing ||
-             solver_env_bool("JFEM_SOL105_PCOMP_SELC_ALLOW_BMB", false))
+        elem_pcomp_membrane_selc = q4_selective_center_membrane_enabled(
+            skew_membrane_material_ok, elem_is_flat, Bmb_local)
+        elem_pcomp_membrane_selc |= elem_mat2_membrane_selc
         elem_coupled_projected = coupled_pcomp_projected_enabled(lc,Bmb_local;
             is_pcomp=is_pcomp_ei,isotropic=is_pcomp_iso_ei,coords_3d=coords_3d_arg,
             snorm_pq=snorm_pq_arg,curvature_membrane=curvature_membrane,
@@ -4109,7 +4144,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             is_pcomp_ei &&
             auto_pcomp_membrane_incomp_model
         # iso_no_incomp: disable Wilson incompatible modes for isotropic elements
-        # (matches Nastran CQUAD4 standard bilinear formulation for eigenvalue K_eig)
+        # (matches Reference CQUAD4 standard bilinear formulation for eigenvalue K_eig)
         elem_bending_incomp = bending_incomp && !(iso_no_incomp && q4_is_isotropic[ei])
         # pcomp_membrane_incomp=true: add Wilson membrane modes for PCOMP elements in K_eig
         # (softens curved PCOMP K_eig → reduces overestimate; does not affect PSHELL elements)
@@ -4122,14 +4157,14 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # Skew-metric anisotropic hourglass membrane restabilization for flat
         # non-isotropic composite CQUAD4 (JFEM_SOL105_PCOMP_SKEW_MEMBRANE).  The
         # Wilson incompatible membrane over-stiffens the skew hourglass modes
-        # (element KGG membrane 15% off at skew45); Nastran carries a SPLIT
+        # (element KGG membrane 15% off at skew45); Reference carries a SPLIT
         # hourglass stiffness.  Replace the Wilson membrane with a full-bilinear +
         # skew-metric hourglass correction (kernel quad4_membrane_hourglass_skew_
         # correction): membrane block 15->0.5% (skew45), 5.4->3.6% (skew20),
         # exact at rectangle.  Requires membrane Wilson OFF so the kernel's
         # membrane is pure bilinear before the correction.
         # SKEW-SCOPED (2026-07-16): the swap replaces the Wilson membrane, which
-        # is the element-validated Nastran-matching operator on rectangles --
+        # is the element-validated Reference-matching operator on rectangles --
         # only elements with real corner-angle deviation get the skew kernel;
         # rectangles keep the legacy membrane bit-identically.
         # SUPERSEDED by the selective-center membrane when
@@ -4146,12 +4181,10 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             elem_membrane_incomp = false
         end
         elem_membrane_incomp_scale = 1.0
-        # Nastran SOL101 CQUAD4 membrane matrix extractions for MAT1, MAT2,
-        # and PCOMP flat quads are reproduced by condensing the cross/shear
-        # Wilson membrane modes only. Mildly warped anisotropic quads still use
-        # the generic material-regime scale above, but keep the full Wilson
-        # basis because the cross/shear-only projection is a flat-operator
-        # result. For PSHELL's independent membrane/bending condensation, MID4
+        # Branches still using Wilson modes select the cross/shear internal
+        # basis on flat cells. The planar MAT2 selective-center projection
+        # bypasses this block. Warped cells keep their full internal basis.
+        # For PSHELL's independent membrane/bending condensation, MID4
         # changes the compatible cross block, not the membrane A operator.
         # Preserve this membrane projection when that coupling is present.
         # Coupled internal-mode and PCOMP formulations keep their existing gates.
@@ -4862,6 +4895,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
             geom_vec, node_R_flat,
             snorm_director, snorm_has, snorm_vec,
             all_I, all_J, all_V)
+        element_capture === nothing || element_capture(q4_eid_int[ei], q4_pid_int[ei], sep_dofs[tid], sep_global[tid])
         if shell_capture !== nothing
             drill=ones(24)
             for (k,idx) in enumerate((i1,i2,i3,i4))
@@ -4928,13 +4962,14 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         p2 = SVector{3}(node_coords[i2,1], node_coords[i2,2], node_coords[i2,3])
         p3 = SVector{3}(node_coords[i3,1], node_coords[i3,2], node_coords[i3,3])
         v1, v2, v3 = shell_element_frame_fast(p1, p2, p3, SVector{3}(0.0,0.0,0.0), 3)
+        tri_snorm_pq = tria3_snorm_element_pq(v1, v2, v3, (i1, i2, i3), snorm_normals)
 
         # SNORM adjustment
         n_avg = SVector(0.0, 0.0, 0.0); nc = 0
         for idx in (i1, i2, i3)
             if snorm_has[idx]; n_avg = n_avg + snorm_vec[idx]; nc += 1; end
         end
-        if nc > 0
+        if nc > 0 && tri_snorm_pq === nothing
             n_avg_s = n_avg / nc; len_s = norm(n_avg_s)
             if len_s > 1e-12
                 v3n = SVector{3}(n_avg_s / len_s)
@@ -4952,7 +4987,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         end
 
         # PCOMP laminate-axis rotation for TRIA3 follows the element x-axis
-        # plus the shell THETA angle, matching Nastran shell convention.
+        # plus the shell THETA angle, matching Reference shell convention.
         Cm_t3 = t3_Cm[ei]; Cb_t3 = t3_Cb[ei]; Cs_t3 = t3_Cs[ei]; Bmb_t3 = t3_Bmb[ei]
         if t3_is_pcomp[ei] || t3_el_mcid[ei] > 0
             beta = shell_pcomp_material_rotation(
@@ -5010,6 +5045,9 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 (snorm_director && snorm_has[idx]) ?
                 snorm_director_matrix(snorm_vec[idx], v1, v2, v3) * TR : TR
         end
+        if tri_snorm_pq !== nothing && !all(iszero, tri_snorm_pq)
+            T_buf = tria3_snorm_normal_moment_displacement_map(lc_buf, tri_snorm_pq) * T_buf
+        end
         Ke = T_buf' * Ke_loc * T_buf
 
         for k in 1:3
@@ -5020,6 +5058,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         for cc in 1:18, rr in 1:18
             push!(I_idx, dofs_t3[rr]); push!(J_idx, dofs_t3[cc]); push!(V_val, Ke[rr,cc])
         end
+        element_capture === nothing || element_capture(t3_eid_int[ei], t3_pid_int[ei], dofs_t3, Ke)
         if shell_capture !== nothing
             drill=ones(18)
             for (k,idx) in enumerate((i1,i2,i3))
@@ -5098,6 +5137,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         for c in 1:12, r in 1:12
             push!(I_idx, dofs[r]); push!(J_idx, dofs[c]); push!(V_val, Ke[r,c])
         end
+        element_capture === nothing || element_capture((haskey(bar, "ID") ? Int(bar["ID"]) : parse(Int, string(id))), get(bar, "PID", 0), dofs, Ke)
     end
 
     # --- CBEAMs (identical stiffness to CBAR) ---
@@ -5166,6 +5206,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         for c in 1:12, r in 1:12
             push!(I_idx, dofs[r]); push!(J_idx, dofs[c]); push!(V_val, Ke[r,c])
         end
+        element_capture === nothing || element_capture((haskey(bar, "ID") ? Int(bar["ID"]) : parse(Int, string(id))), get(bar, "PID", 0), dofs, Ke)
     end
 
     # --- CRODS ---
@@ -5211,6 +5252,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         for c in 1:12, r in 1:12
             push!(I_idx, dofs[r]); push!(J_idx, dofs[c]); push!(V_val, Ke[r,c])
         end
+        element_capture === nothing || element_capture((haskey(rod, "ID") ? Int(rod["ID"]) : parse(Int, string(id))), get(rod, "PID", 0), dofs, Ke)
     end
 
     # --- CONROD ---
@@ -5247,6 +5289,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         for c in 1:12, r in 1:12
             push!(I_idx, dofs[r]); push!(J_idx, dofs[c]); push!(V_val, Ke[r,c])
         end
+        element_capture === nothing || element_capture((haskey(rod, "ID") ? Int(rod["ID"]) : parse(Int, string(id))), get(rod, "PID", 0), dofs, Ke)
     end
 
     # --- CELAS1 / CELAS2 ---
@@ -5275,6 +5318,12 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 push!(I_idx, dof2); push!(J_idx, dof2); push!(V_val, K_spring)
                 push!(I_idx, dof1); push!(J_idx, dof2); push!(V_val, -K_spring)
                 push!(I_idx, dof2); push!(J_idx, dof1); push!(V_val, -K_spring)
+            end
+            if element_capture !== nothing
+                connected = g2 > 0 && haskey(id_map, g2) && c2 > 0
+                dofs_energy = connected ? [dof1, (id_map[g2]-1)*6+c2] : [dof1]
+                ke_energy = connected ? K_spring .* [1.0 -1.0; -1.0 1.0] : fill(K_spring, 1, 1)
+                element_capture(Int(spring["ID"]), get(spring, "PID", 0), dofs_energy, ke_energy)
             end
             n_springs += 1
         end
@@ -5316,6 +5365,20 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
                 push!(I_idx, dof1); push!(J_idx, dof2); push!(V_val, -Kk)
                 push!(I_idx, dof2); push!(J_idx, dof1); push!(V_val, -Kk)
             end
+        end
+        if element_capture !== nothing
+            connected = gb > 0 && haskey(id_map, gb)
+            dofs_energy = collect((i1-1)*6 .+ (1:6))
+            connected && append!(dofs_energy, (id_map[gb]-1)*6 .+ (1:6))
+            ke_energy = zeros(length(dofs_energy), length(dofs_energy))
+            for k in 1:6
+                kk = length(K_vals) >= k ? Float64(K_vals[k]) : 0.0
+                ke_energy[k,k] = kk
+                if connected
+                    ke_energy[k+6,k+6] = kk; ke_energy[k,k+6] = -kk; ke_energy[k+6,k] = -kk
+                end
+            end
+            element_capture(Int(bush["ID"]), get(bush, "PID", 0), dofs_energy, ke_energy)
         end
         n_bush += 1
     end
@@ -5405,6 +5468,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         for c in 1:ndof_el, r in 1:ndof_el
             push!(I_idx, dofs_solid[r]); push!(J_idx, dofs_solid[c]); push!(V_val, Ke[r,c])
         end
+        element_capture === nothing || element_capture((haskey(el, "ID") ? Int(el["ID"]) : parse(Int, string(id))), el["PID"], dofs_solid, Ke)
     end
     n_solids_total = n_tetra + n_hexa + n_penta
     if n_solids_total > 0
@@ -5523,7 +5587,27 @@ function _sparse_from_triplets_cached(I_idx, J_idx, V_val, ndof::Int, csc_cache)
     return Kg
 end
 
-function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, u_global, snorm_normals, rbe3_map;
+# A function barrier keeps the dynamically selected local shell kernel out of
+# these scalar loops. Preserve the established multiplication/accumulation order
+# and skip-zero operations; this changes neither the congruence nor its storage.
+@noinline function _transform_shell_geometric_stiffness!(Kg_global, tmp24a, Kg_loc, T_buf)
+    fill!(Kg_global, 0.0); fill!(tmp24a, 0.0)
+    @inbounds @fastmath for jj in 1:24, ll in 1:24
+        val = T_buf[ll, jj]
+        if val != 0.0
+            for ii in 1:24; tmp24a[ii, jj] += Kg_loc[ii, ll] * val; end
+        end
+    end
+    @inbounds @fastmath for jj in 1:24, ll in 1:24
+        val = tmp24a[ll, jj]
+        if val != 0.0
+            for ii in 1:24; Kg_global[ii, jj] += T_buf[ll, ii] * val; end
+        end
+    end
+    return Kg_global
+end
+
+@solver_stage "geometric_assembly" "Assemble geometric stiffness" function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, u_global, snorm_normals, rbe3_map;
                                       snorm_angle_override::Union{Nothing,Float64}=nothing,
                                       buckling_subcase=nothing,
                                       static_load_id=nothing,
@@ -5538,7 +5622,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     log_msg("[SOLVER] Assembling Geometric Stiffness Matrix (SOL105)...")
     # JFEM_DUMP_USTATIC: when set to a writable path, dump the SOL101 static
     # displacement solution (u_global, GLOBAL coords per node) as "gid ux uy uz"
-    # so it can be compared against a Nastran DISPLACEMENT punch. Debug hook only.
+    # so it can be compared against a Reference DISPLACEMENT punch. Debug hook only.
     let ust_path = strip(get(ENV, "JFEM_DUMP_USTATIC", ""))
         if !isempty(ust_path)
             try
@@ -5596,8 +5680,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
     kg_trans_mode = kg_shell_trans_mode()
     kg_principal_transverse_flat_only = kg_shell_principal_transverse_flat_only_enabled()
     kg_principal_transverse_warp_ratio_max = kg_shell_principal_transverse_warp_ratio_max()
-    kg_iso_nastran_kdjj_mode_v = kg_quad4_iso_nastran_kdjj_mode()
-    kg_iso_nastran_kdjj_skew_min_deg_v = kg_quad4_iso_nastran_kdjj_skew_min_deg()
+    kg_iso_reference_kdjj_mode_v = kg_quad4_iso_reference_kdjj_mode()
+    kg_iso_reference_kdjj_skew_min_deg_v = kg_quad4_iso_reference_kdjj_skew_min_deg()
     kg_principal_shear_yy_factor_v = kg_shell_principal_shear_yy_factor()
     kg_principal_shear_xy_factor_v = kg_shell_principal_shear_xy_factor()
     kg_principal_shear_z_factor_v = kg_shell_principal_shear_z_factor()
@@ -6017,7 +6101,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 if kg_w_form_raw in (
                     "rot", "rotation", "theta",
                     "cross", "wtheta", "w_theta", "sym_cross",
-                    "wty", "nastran_cross", "metric_cross",
+                    "wty", "reference_cross", "metric_cross",
                 )
                     throw(ArgumentError(
                         "JFEM_KG_SHELL_TRANSVERSE_W_FORM=$kg_w_form_raw is an " *
@@ -6304,7 +6388,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             slope_membrane_kg = nothing
             # For the Marguerre slope, we look at geom normals directly rather
             # than going through has_curv_normals_kg — the latter is iso-only
-            # and would block PCOMP-curved elements (e.g. HTP_launch). The
+            # and would block PCOMP-curved elements (e.g. tail-box model). The
             # Marguerre coupling needs the geometric surface slope which is
             # equally well-defined for iso and PCOMP.
             marguerre_can_compute = q4_marguerre_coupling_enabled() &&
@@ -6483,14 +6567,14 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             # Equivalent isotropic membrane sections must use the same
             # prestress-gradient operator independently of PSHELL/PCOMP syntax.
             # Nonzero B requires curvature recovery and stays on the coupled path.
-            kg_nastran_kdjj_iso_branch =
-                kg_iso_nastran_kdjj_mode_v !== :off &&
+            kg_reference_kdjj_iso_branch =
+                kg_iso_reference_kdjj_mode_v !== :off &&
                 (is_pcomp_clt ? pcomp_isotropic_membrane : is_iso_kg) &&
                 elem_is_flat_kg &&
                 get(prop, "Bmb", nothing) === nothing &&
-                (kg_iso_nastran_kdjj_mode_v === :all ||
-                 abs(90.0 - edge_skew_kg) >= kg_iso_nastran_kdjj_skew_min_deg_v)
-            # Nastran-KDJJ-exact Kg for FLAT COMPOSITE (PCOMP, non-isotropic)
+                (kg_iso_reference_kdjj_mode_v === :all ||
+                 abs(90.0 - edge_skew_kg) >= kg_iso_reference_kdjj_skew_min_deg_v)
+            # Reference-KDJJ-exact Kg for FLAT COMPOSITE (PCOMP, non-isotropic)
             # CQUAD4.  Same bisector-frame component-string operator as the iso
             # branch, but the membrane stress resultant is JFEM's ALREADY-
             # RECOVERED element field (N_res, the resultant) fed in directly --
@@ -6514,14 +6598,14 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             # per-GP recovered field, the legacy element-mean operator's
             # gradient-state defect is the thing being replaced (2026-07-17).
             # JFEM_SOL105_PCOMP_KDJJ_ALLOW_BMB (default OFF): admit UNSYMMETRIC
-            # (Bmb != nothing) laminates to the Nastran-KDJJ kernel.  The kernel
+            # (Bmb != nothing) laminates to the Reference-KDJJ kernel.  The kernel
             # consumes only the recovered membrane resultant field, so the
             # membrane-bending coupling enters through the STATIC solve (already
             # coupled), not the differential-stiffness operator itself.  DOE
-            # 2026-07-22: symmetric strongly-orthotropic stacks match Nastran
+            # 2026-07-22: symmetric strongly-orthotropic stacks match Reference
             # (A=B 0.34%, C exact) while unsymmetric stacks on the LEGACY path
             # miss by 10-33% -- the gate, not the physics, was the gap.
-            kg_nastran_kdjj_pcomp_branch =
+            kg_reference_kdjj_pcomp_branch =
                 solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true) &&
                 solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE_KG", false) &&
                 is_pcomp_clt &&
@@ -6551,8 +6635,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 # matching projected geometric-stiffness route. Standalone
                 # KDJJ/DKQ/DKMQ operators do not carry the same normal-moment
                 # and finite-warp maps, so quarantine them.
-                kg_nastran_kdjj_iso_branch = false
-                kg_nastran_kdjj_pcomp_branch = false
+                kg_reference_kdjj_iso_branch = false
+                kg_reference_kdjj_pcomp_branch = false
                 kg_flat_dkmq_branch = false
                 kg_flat_plate_branch = false
             end
@@ -6667,6 +6751,11 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     end
                 end
             end
+            kg_mat2_membrane_selc = q4_pshell_mat2_membrane_projection(
+                is_mat2, warp_ratio_kg;
+                Bmb=get(prop,"MID4",0) == 0 ? nothing : zeros(3,3),
+                snorm_pq=snorm_pq_kg, curvature_membrane=curvature_membrane,
+                slope_membrane=slope_membrane_kg, kernel_mode=q4_kernel_mode_kg)
             if !is_pcomp_clt && (is_ortho || is_mat2 || get(prop,"MID4",0) != 0)
                 # Use the physical PSHELL membrane material in preload
                 # recovery; an equivalent isotropic E/NU loses MAT2/MAT8
@@ -6674,7 +6763,8 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                 theta = deg2rad(Float64(get(el,"THETA",0.0)))
                 mcid = Int(get(el,"MCID",0))
                 beta = mcid > 0 ? shell_pcomp_material_rotation(
-                    :element,v1,v2,v3,p1,p2,p3,p4,theta,mcid,model["CORDs"]) : theta
+                    :element,v1,v2,v3,p1,p2,p3,p4,theta,mcid,model["CORDs"]) :
+                    (kg_mat2_membrane_selc ? shell_material_rotation_from_g12(v1,v2,v3,p1,p2,theta) : theta)
                 Cm_override = h .* pshell_plane_stress_matrix(mat,beta)
                 mid4 = Int(get(prop,"MID4",0))
                 if mid4 != 0 && get(prop,"BEND_RATIO",1.0) > 1e-12 && solver_env_bool("JFEM_PSHELL_MID4_BMB",true)
@@ -6716,6 +6806,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true) &&
                     is_pcomp_clt && !pcomp_is_isotropic && elem_is_flat_kg &&
                     Bmb_kg === nothing
+                kg_membrane_selc |= kg_mat2_membrane_selc
                 kg_coupled_projected = coupled_pcomp_projected_enabled(lc_buf4,Bmb_kg;
                     is_pcomp=is_pcomp_clt,isotropic=pcomp_is_isotropic,coords_3d=coords3d_local_buf4,
                     snorm_pq=snorm_pq_kg,curvature_membrane=curvature_membrane,
@@ -7206,7 +7297,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             coords3d_buf4[2,1] = p2[1]; coords3d_buf4[2,2] = p2[2]; coords3d_buf4[2,3] = p2[3]
             coords3d_buf4[3,1] = p3[1]; coords3d_buf4[3,2] = p3[2]; coords3d_buf4[3,3] = p3[3]
             coords3d_buf4[4,1] = p4[1]; coords3d_buf4[4,2] = p4[2]; coords3d_buf4[4,3] = p4[3]
-            if kg_nastran_kdjj_iso_branch
+            if kg_reference_kdjj_iso_branch
                 # This kernel recovers its own prestress. Supply the same
                 # physical-to-projected preload used by elastic K and ordinary
                 # recovery; the work-conjugate W'KgW is still applied once below.
@@ -7228,11 +7319,11 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     curvature=curvature_membrane === nothing ? kg_curvature : curvature_membrane,
                     slope=slope_membrane_kg,
                 )
-                Kg_loc = FEM.geometric_stiffness_quad4_nastran_kdjj_iso(
+                Kg_loc = FEM.geometric_stiffness_quad4_reference_kdjj_iso(
                     lc_buf4, u_kdjj, E_val, nu_val, h;
                     assumed_transverse=assumed_transverse,
                 )
-            elseif kg_nastran_kdjj_pcomp_branch
+            elseif kg_reference_kdjj_pcomp_branch
                 # Feed the composite-KDJJ operator JFEM's recovered element
                 # membrane resultant N_res (already in the lc = bisector frame).
                 # The resultant broadcast to all 4 GPs is the offline-best field
@@ -7259,7 +7350,7 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                         Ngp_kdjj[gp_i, comp] = N_res[comp]
                     end
                 end
-                Kg_loc = FEM.geometric_stiffness_quad4_nastran_kdjj_pcomp_field(
+                Kg_loc = FEM.geometric_stiffness_quad4_reference_kdjj_pcomp_field(
                     lc_buf4, Ngp_kdjj
                 )
             elseif kg_flat_dkmq_branch
@@ -7420,23 +7511,11 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     Kg_global[ii, jj] = Kg_loc[ii, jj]
                 end
             else
-                fill!(Kg_global, 0.0); fill!(tmp24a, 0.0)
-                @inbounds @fastmath for jj in 1:24, ll in 1:24
-                    val = T_buf[ll, jj]
-                    if val != 0.0
-                        for ii in 1:24; tmp24a[ii, jj] += Kg_loc[ii, ll] * val; end
-                    end
-                end
-                @inbounds @fastmath for jj in 1:24, ll in 1:24
-                    val = tmp24a[ll, jj]
-                    if val != 0.0
-                        for ii in 1:24; Kg_global[ii, jj] += T_buf[ll, ii] * val; end
-                    end
-                end
+                _transform_shell_geometric_stiffness!(Kg_global, tmp24a, Kg_loc, T_buf)
             end
 
             # Optional: zero the drilling-DOF rows/cols of Kg_global.
-            # Matches Nastran's 5-DOF-per-node Kg convention (1976 theoretical
+            # Matches Reference's 5-DOF-per-node Kg convention (1976 theoretical
             # manual §5.6): CQUAD4 geometric stiffness is not formed on the
             # drilling direction of each node_R frame. Kg_loc already has zero
             # drill rows/cols in element-local coords, but the T_buf transform
@@ -7474,13 +7553,14 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
             p3 = SVector{3}(node_coords[i3,1], node_coords[i3,2], node_coords[i3,3])
 
             v1, v2, v3 = shell_element_frame_fast(p1, p2, p3, SVector{3}(0.0,0.0,0.0), 3)
+            tri_snorm_pq = tria3_snorm_element_pq(v1, v2, v3, (i1, i2, i3), snorm_normals)
 
             # SNORM adjustment
             n_avg = SVector(0.0, 0.0, 0.0); nc = 0
             for idx in (i1, i2, i3)
                 if snorm_has[idx]; n_avg = n_avg + snorm_vec[idx]; nc += 1; end
             end
-            if nc > 0
+            if nc > 0 && tri_snorm_pq === nothing
                 n_avg_s = n_avg / nc; len_s = norm(n_avg_s)
                 if len_s > 1e-12
                     v3n = SVector{3}(n_avg_s / len_s)
@@ -7518,15 +7598,20 @@ function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, 
                     snorm_director_matrix(snorm_vec[idx], v1, v2, v3) * TR : TR
             end
 
-            # Extract element displacements in local coords
+            if tri_snorm_pq !== nothing && !all(iszero, tri_snorm_pq)
+                T18 = tria3_snorm_normal_moment_displacement_map(lc3, tri_snorm_pq) * T18
+            end
+
+            # The normal-moment map couples nodes; use the complete transform.
             u_elem18 = zeros(18)
             for k in 1:3
                 idx = k == 1 ? i1 : k == 2 ? i2 : i3
                 b_g = (idx-1)*6; b_l = (k-1)*6
                 for d in 1:6
-                    for dd in 1:6; u_elem18[b_l+dd] += T18[b_l+dd, b_l+d] * u_global[b_g+d]; end
+                    u_elem18[b_l+d] = u_global[b_g+d]
                 end
             end
+            u_elem18 = T18 * u_elem18
 
             E_val = get(mat, "E", 70000.0); nu_val = get(mat, "NU", 0.3)
             br = get(prop, "BEND_RATIO", 1.0)

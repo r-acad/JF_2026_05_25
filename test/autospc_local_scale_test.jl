@@ -2,6 +2,7 @@ using Test, LinearAlgebra, SparseArrays
 
 module LocalAUTOSPCTestHarness
 using LinearAlgebra, SparseArrays
+using OpenJFEM.Solver: @solver_stage, _measure_solver_stage, _timed_factorization
 log_msg(message) = nothing
 solver_env_bool(key, default) = haskey(ENV, key) ?
     lowercase(strip(ENV[key])) in ("1", "true", "yes", "on") : default

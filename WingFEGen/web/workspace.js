@@ -2,21 +2,21 @@
  * every reference source file and its current placement travel with the model.
  */
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./nastran_import.js') : root.WingNastranImport);
+  const api = factory(typeof module === 'object' && module.exports ? require('./reference_import.js') : root.WingReferenceImport);
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.WingWorkspace = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function (nastran) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (reference) {
   "use strict";
   const FORMAT = "wingfegen-workspace", VERSION = 1, MAX_BYTES = 256 * 1024 * 1024;
   const MAX_NOTE_LENGTH=20000,MAX_NOTE_ENTRIES=2000;
   const PANEL_IDS = ["sidebar","hud-left","model-card","results-card","pick-card","log-wrap","deck-panel"];
-  const LAYER_GROUP_IDS = ["shells","beams","connections","aerodynamics","loads","masses","overlays","aids","coordinates","other"];
+  const LAYER_GROUP_IDS = ["shells","beams","connections","constraints","aerodynamics","vlm","loads","masses","overlays","aids","coordinates","other"];
   const DRAWING_KEYS = new Set(["planform","spars","master-ribs","leading-edge-ribs","fuel-tank","stringer-section","spar-cap-section","rib-stiffener-section","rib-override-section","airfoil-root","airfoil-tip",...(["upper_skin","lower_skin","spar_web","rib_web","leading_edge_skin","leading_edge_rib"].map(name=>"material-"+name))]);
   const CONTROL_IDS = ["surface-mode","surface-translucency","shell-geometry","beam-style","show-bars-through","show-aero-overlay","aero-deformed-style","aero-surface-color","show-aero-curvature","background-color","inspect-entity",
-    "show-fuel-inertia","show-fuel-cg","show-fuel-mass-labels","fuel-inertia-scale",
+    "show-fuel-inertia","show-fuel-cg","show-fuel-mass-labels","fuel-inertia-scale","show-material-axes","show-material-axis-labels",
     "node-radius","marker-radius","celas-radius","show-ground-plane","show-symmetry-plane","ground-plane-z","ground-grid-spacing","show-shell-axes","show-bar-axes","show-node-ids","show-element-ids","show-coordinate-labels","show-rbe3-dofs","show-celas-cylinders","id-label-size",
     "mesh-labels-ribs","mesh-labels-stringers","show-rib-datums","rib-datum-size","vlm-field",
-    "vlm-force-scale","show-vlm-panel-forces","show-fuel-tank","show-panels","result-palette","show-support-forces","show-support-force-values","support-force-scale",
+    "vlm-force-scale","show-vlm-panel-forces","show-fuel-tank","show-panels","show-panel-ids","result-palette","show-support-forces","show-support-force-values","support-force-scale",
     "deform-scale","animate","show-undeformed","undeformed-color","show-celas-labels","show-reference-aero","show-deformed-aero","contour-select","compare-results","auto-mesh","auto-save","show-picked-axes","measure-snap-nodes"];
   const CHECK_IDS = new Set(CONTROL_IDS.filter((id) => id.startsWith("show-") || id.startsWith("mesh-labels-") || ["animate","auto-mesh","auto-save","compare-results","measure-snap-nodes"].includes(id)));
   const LEGACY_LABEL_IDS = new Set(["mesh-labels-none","mesh-labels-both"]);
@@ -118,9 +118,10 @@
     if (!Number.isInteger(view.activeCase) || view.activeCase<1) throw new Error("Invalid displayed load case.");
     if (view.editingCase!==undefined&&(!Number.isInteger(view.editingCase)||view.editingCase<1))throw new Error("Invalid edited load case.");
     if (view.resultVariant !== undefined && !["","sol101","sol103","sol105","sol106"].includes(view.resultVariant) &&
-        !(typeof view.resultVariant==="string" && /^sensitivity_[A-Za-z0-9_-]{1,180}_sol(?:101|103|105)$/.test(view.resultVariant))) throw new Error("Invalid selected result analysis.");
+        !(typeof view.resultVariant==="string" && /^sensitivity_[A-Za-z0-9_-]{1,180}_sol(?:101|103|105|106)$/.test(view.resultVariant))) throw new Error("Invalid selected result analysis.");
     if (view.contourPreference != null && (!object(view.contourPreference) || Object.keys(view.contourPreference).some(key=>!["kind","name"].includes(key)) || !["none","disp","data"].includes(view.contourPreference.kind) || typeof view.contourPreference.name!=="string" || view.contourPreference.name.length>200)) throw new Error("Invalid selected result quantity.");
     if (view.realScale !== undefined && typeof view.realScale !== "boolean") throw new Error("Invalid deformation scale mode.");
+    if (view.fuelTankVisible !== undefined && typeof view.fuelTankVisible !== "boolean") throw new Error("Invalid fuel-tank visibility preference.");
     if (view.parameterLocks !== undefined && (!object(view.parameterLocks) || Object.entries(view.parameterLocks).some(([key,value])=>!["planform","mesh"].includes(key)||typeof value!=="boolean"))) throw new Error("Invalid parameter lock settings.");
     if (view.reference && (!Number.isInteger(view.reference.selectedIndex) || view.reference.selectedIndex < -1 || !["move","rotate","scale","off"].includes(view.reference.mode))) throw new Error("Invalid reference selection settings.");
     if (view.planView !== undefined) {
@@ -152,6 +153,8 @@
     }
     if(view.propertyDisplay!==undefined){const api=typeof WingPropertyDisplay!=="undefined"?WingPropertyDisplay:typeof require==="function"?require("./property_display.js"):null;
       if(!api)throw new Error("Property colors require the updated viewer.");view.propertyDisplay=api.validateState(view.propertyDisplay);}
+    if(view.geometryAppearance!==undefined){const api=typeof WingGeometryDisplay!=="undefined"?WingGeometryDisplay:typeof require==="function"?require("./geometry_display.js"):null;
+      if(!api)throw new Error("Geometry appearance requires the updated viewer.");view.geometryAppearance=api.normalize(view.geometryAppearance);}
     if(view.legends!==undefined){const api=typeof WingLegends!=="undefined"?WingLegends:typeof require==="function"?require("./viewport-legends.js"):null;
       if(!api)throw new Error("Color-scale settings require the updated viewer.");view.legends=api.validateState(view.legends);}
     if(view.loadPlots!==undefined){const api=typeof WingLoadPlots!=="undefined"?WingLoadPlots:typeof require==="function"?require("./load_plots.js"):null;
@@ -169,10 +172,14 @@
       else controls[id]=element.defaultValue??element.getAttribute?.("value")??"";
     }
     Object.assign(controls,view.controls);
+    // Older Studies saved an unchecked, disabled tank control even when no
+    // tank existed. A saved physical layer is authoritative; otherwise show a
+    // newly defined tank. The explicit preference survives an absent dry tank.
+    controls["show-fuel-tank"]=view.fuelTankVisible??view.layers.FUEL_TANK??true;
     view.controls=controls;
     view.editingCase??=1;view.resultVariant??="";view.contourPreference??=null;view.realScale??=false;view.loadLayers??={};view.parameterLocks??={planform:false,mesh:false};
     view.reference??={selectedIndex:-1,mode:"off"};view.drawings??={};view.viewportTools??={collapsed:false};view.planformInputs??={method:"area"};view.legends??={collapsed:{}};
-    view.panelExplosion??={enabled:false,origin:"centroid",distance:1};view.layerGroups??={};
+    view.panelExplosion??={enabled:false,origin:"centroid",distance:1};view.layerGroups??={};view.geometryAppearance??={};
     view.loadPlots??={mode:"distributed",visible:["aerodynamic","structure","fuel","total"]};
     view.camera.mode??=0;view.camera.fov??=.8;
     for(const key of ["orthoLeft","orthoRight","orthoTop","orthoBottom"])view.camera[key]??=null;
@@ -200,7 +207,7 @@
     // New Studies receive the schema default (0.75) before being saved.
     if(data.parameters["mesh.stringer_runout_ratio"]===undefined)data.parameters["mesh.stringer_runout_ratio"]=1;
     data.notes=normalizeNotes(data.notes);
-    if(data.model_source!==undefined)data.model_source=nastran.source(data.model_source);
+    if(data.model_source!==undefined)data.model_source=reference.source(data.model_source);
     if(data.saved_at!==undefined)isoTime(data.saved_at);
     validateView(data.view);
     let total=0;
@@ -229,7 +236,7 @@
     const data={format:FORMAT,version:VERSION,created_at:options.createdAt||savedAt,saved_at:savedAt,notes,parameters:params,
       references:assets.map(({metadata,bytes})=>({...metadata,data_base64:bytesToBase64(bytes)})),view:display};
     // Apply the same checks on export and import, including the total limit.
-    if(options.modelSource)data.model_source=nastran.source(options.modelSource);
+    if(options.modelSource)data.model_source=reference.source(options.modelSource);
     parseObject(data); return data;
   }
   function captureView(document,state,workspace) {
@@ -247,6 +254,7 @@
       resultVariant:state.resultVariantPreference || state.results?.variantId || "",
       contourPreference:state.contourPreference ? {kind:state.contourPreference.kind,name:state.contourPreference.name} : null,
       realScale:state.realScale === true,
+      fuelTankVisible:controls["show-fuel-tank"]!==false,
       parameterLocks:state.parameterLocks?.capture() || {planform:false,mesh:false},
       ...(state.planView ? {planView:state.planView.capture()} : {}),
       ...(typeof WingSVGViewport !== "undefined" ? {drawings:WingSVGViewport.captureAll()} : {}),
@@ -255,6 +263,7 @@
       ...(state.sceneLighting ? {lighting:state.sceneLighting.capture()} : {}),
       ...(state.panelExplosion ? {panelExplosion:state.panelExplosion.capture()} : {}),
       ...(state.propertyDisplay ? {propertyDisplay:state.propertyDisplay.capture()} : {}),
+      geometryAppearance:JSON.parse(JSON.stringify(state.geometryAppearance||{})),
       ...(typeof WingLegends!=="undefined" ? {legends:WingLegends.capture()} : {}),
       loadPlots:state.loadPlots?.capture()||{mode:"distributed",visible:["aerodynamic","structure","fuel","total"]},
       workspace:{activeTab:workspace.activeTab,width:workspace.preferredWidth,collapsed:document.getElementById("sidebar").classList.contains("panel-collapsed"),maximizedTab:workspace.maximizedTab||null,

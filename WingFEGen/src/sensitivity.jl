@@ -14,19 +14,54 @@ const SENSITIVITY_OBJECTIVES=Dict(
     "bar_stress"=>["axial","max","min"],
     "frequency_eigenvalue"=>String[],"buckling_factor"=>String[])
 
+# Saved studies before the explicit solution selector inferred the sequence
+# from the response. Preserve that meaning instead of adopting a different FE
+# Analysis selection when an old study is reopened.
+sensitivity_solution(request)=string(get(request,"solution",
+    get(get(request,"objective",Dict()),"type","")=="frequency_eigenvalue" ? "103" :
+    get(get(request,"objective",Dict()),"type","")=="buckling_factor" ? "105" : "101"))
+
+function sensitivity_solutions(m)
+    imported=is_imported_model(m);cases=load_case_specs(m.params);ids=[s.id for s in cases]
+    definitions=(("101","SOL101 · Linear static",["displacement","shell_stress","bar_stress"]),
+        ("103","SOL103 · Normal modes",["frequency_eigenvalue"]),
+        ("105","SOL105 · Linear buckling",["buckling_factor"]),
+        ("106","SOL106 · Nonlinear static",["displacement"]))
+    result=Dict{String,Any}()
+    for (sol,label,objectives) in definitions
+        available=true
+        reasons=Dict{String,String}()
+        if !imported&&sol in ("105","106")
+            for spec in cases
+                get(spec.params,"loads.follower_forces",false)||continue
+                reasons[string(spec.id)]=sol=="105" ? "SOL105 sensitivities require a fixed-direction preload. Disable follower forces in this load case." :
+                    "SOL106 displacement adjoints currently require fixed-direction loads. Disable follower forces in this load case."
+            end
+        end
+        result[sol]=Dict("label"=>label,"available"=>available,"objectives"=>objectives,
+            "case_ids"=>[id for id in ids if !haskey(reasons,string(id))],"case_reasons"=>reasons,
+            "reason"=>"","note"=>sol=="106" ? "Final-load displacement: one converged SOL106 baseline and one exact residual transpose adjoint. Supported geometric shell/CBAR formulations require fixed-direction loads and homogeneous constraints; unsupported branches report an explicit error." :
+                sol=="105" ? "Buckling factor: static preload, eigenproblem and one preload adjoint. The preload remains available in FE Results." :
+                sol=="103" ? "Modal eigenvalue: the selected mode of the structural mass and stiffness matrices. No second equilibrium solve is required." :
+                "Linear static displacement or stress: one baseline and one shared transpose adjoint.")
+    end
+    result
+end
+
 function normalize_sensitivity_settings(raw)
     raw isa AbstractString||throw(ArgumentError("sensitivity.settings must be JSON text"))
     isempty(strip(raw))&&return ""
     ncodeunits(raw)<=1024*1024||throw(ArgumentError("Sensitivity settings exceed 1 MiB"))
     data=try JSON.parse(raw) catch; throw(ArgumentError("Sensitivity settings must contain valid JSON"));end
     data isa AbstractDict||throw(ArgumentError("Sensitivity settings must be an object"))
-    allowed=Set(("case_id","objective","variables","relative_step","check_step","derivative_method"))
+    allowed=Set(("case_id","solution","objective","variables","relative_step","check_step","derivative_method"))
     all(k->k in allowed,keys(data))||throw(ArgumentError("Unsupported sensitivity setting"))
     vars=get(data,"variables",Any[])
     vars isa AbstractVector&&length(vars)<=4096&&all(x->x isa AbstractString&&ncodeunits(x)<=240,vars)||throw(ArgumentError("Select at most 4096 property variables"))
     objective=get(data,"objective",Dict())
     objective isa AbstractDict&&length(objective)<=8||throw(ArgumentError("Invalid sensitivity objective settings"))
     all(k->k in ("type","node_id","element_id","component","surface","mode"),keys(objective))||throw(ArgumentError("Unsupported sensitivity objective field"))
+    sensitivity_solution(data) in ("101","103","105","106")||throw(ArgumentError("Sensitivity analysis supports SOL101, SOL103, SOL105 and SOL106"))
     haskey(data,"check_step")&&!(data["check_step"] isa Bool)&&throw(ArgumentError("Sensitivity step check must be true or false"))
     get(data,"derivative_method","analytic") in ("analytic","operator_differences")||throw(ArgumentError("Select analytic chain-rule derivatives or legacy operator differences"))
     for (key,lo,hi) in (("case_id",1,49999999),("relative_step",1e-4,.1))
@@ -151,7 +186,7 @@ function sensitivity_catalog(m::Model)
         end
     end
     selection=sensitivity_selection_metadata(m,variables)
-    return Dict{String,Any}("variables"=>variables,"max_variables"=>4096,"objectives"=>SENSITIVITY_OBJECTIVES,
+    return Dict{String,Any}("variables"=>variables,"max_variables"=>4096,"objectives"=>SENSITIVITY_OBJECTIVES,"solutions"=>sensitivity_solutions(m),
         "selection_replacements"=>selection.replacements,"selection_aliases"=>selection.aliases,
         "cases"=>[Dict("id"=>s.id,"label"=>s.label) for s in load_case_specs(p)],
         "surfaces"=>["z1","z2"],"method"=>"discrete_adjoint",
@@ -171,6 +206,11 @@ function sensitivity_request(m,raw)
     request["variables"]=vars
     obj=Dict{String,Any}(get(request,"objective",Dict()));kind=get(obj,"type","")
     haskey(SENSITIVITY_OBJECTIVES,kind)||throw(ArgumentError("Select a sensitivity objective"))
+    solution=sensitivity_solution(request);options=catalog["solutions"][solution]
+    options["available"]||throw(ArgumentError(options["reason"]))
+    kind in options["objectives"]||throw(ArgumentError("Objective $kind is not available for SOL$solution. Select a compatible objective."))
+    case in options["case_ids"]||throw(ArgumentError(get(options["case_reasons"],string(case),"The selected case is not available for SOL$solution sensitivity")))
+    request["solution"]=solution
     if kind=="displacement"
         get(obj,"node_id",0) in m.node_ids||throw(ArgumentError("Objective node ID is not in this model"))
         get(obj,"component","") in SENSITIVITY_OBJECTIVES[kind]||throw(ArgumentError("Choose displacement x, y, z or magnitude"))
@@ -185,6 +225,7 @@ function sensitivity_request(m,raw)
     request["objective"]=obj;request["case_id"]=case
     request["derivative_method"]=get(request,"derivative_method","analytic")
     is_imported_model(m)&&request["derivative_method"]!="analytic"&&throw(ArgumentError("Imported-deck sensitivities require analytic derivatives"))
+    solution=="106"&&request["derivative_method"]!="analytic"&&throw(ArgumentError("SOL106 sensitivities require the analytic nonlinear displacement adjoint"))
     step=get(request,"relative_step",.01)
     request["derivative_method"]=="analytic"&&(step===nothing||step=="")&&(step=.01)
     step isa Real&&!(step isa Bool)&&isfinite(step)&&1e-4<=step<=.1||throw(ArgumentError("Set a sensitivity step between 0.01% and 10%"))

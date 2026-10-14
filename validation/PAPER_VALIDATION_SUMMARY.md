@@ -1,12 +1,8 @@
 # OpenJFEM Paper Validation Summary
 
-This folder is the public validation evidence intended to accompany the
-OpenJFEM paper. It contains only redistributable cases: published benchmarks,
-synthetic decks derived from published formulas, and permissively licensed
+This folder contains the validation evidence accompanying the OpenJFEM paper:
+published benchmarks, synthetic decks derived from published formulas, and
 open-source cross-checks.
-
-Private GAME, HTP, and VTP cases are not included and are not referenced by the
-public validation manifest.
 
 ## Included Families
 
@@ -51,7 +47,7 @@ a regression.
 
 `PARAM,K6ROT`, the Hughes-Brezzi drilling-DOF stabilisation coefficient, is not
 part of any of these benchmark definitions and solvers default it differently:
-`0.0` in the reference solver's SOL 101, `100.0` in current MSC.Nastran and in
+`0.0` in the reference solver's SOL 101, `100.0` in current Reference and in
 OpenJFEM. Every tabulated parity reference had been produced at `0.0` on a deck
 that declared nothing, while OpenJFEM ran the same deck at `100.0`.
 
@@ -226,19 +222,3 @@ julia --startup-file=no --project=. validation\run_public_suite.jl --dry-run --n
 The runner never calls an external solver. Analytical references are implemented
 under `validation/analytical/`; tabulated references are in
 `validation/references/commercial_reference.csv`.
-
-## Publication Exclusion Rule
-
-Do not add any of the following to this folder:
-
-- GAME, HTP, or VTP decks or derived data.
-- Proprietary aircraft or customer models.
-- Commercial-solver verification kits.
-- Solver-generated `.f06`, `.op2`, `.xdb`, `.h5`, `.vtk`, `.jfem`, or run
-  output folders.
-- Any deck whose redistribution rights are unclear.
-
-Candidate additions should first be recorded in
-`02_PROJECT_DEVELOPMENT/02.1_AGENTIC_DEVELOPMENT/public_validation_cases.json`, then added to
-`validation/public_suite.yaml` only after provenance and license status are
-clear.

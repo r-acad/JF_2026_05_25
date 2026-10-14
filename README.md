@@ -1,6 +1,6 @@
 # OpenJFEM
 
-> **Updated: 2026-10-08.** `main` is the current, default branch — a
+> **Updated: 2026-10-14.** `main` is the current, default branch — a
 > plain clone includes the solver, the WingFEGen web app and FEM generator,
 > corrected buckling and sensitivity algorithms, and deployment checks:
 >
@@ -21,38 +21,62 @@ human-readable reports and optional visualization files.
 The recommended workflow is intentionally small:
 
 1. Install Julia 1.13.1.
-2. Click one platform setup file in `JFEM_installation/`.
+2. Run `setup.cmd` (Windows) or `bash setup.sh` (macOS/Linux) in the repository root.
 3. Run single cases or batches with the `jfem` launcher.
 4. For Python-driven optimization loops, keep one JSONL worker open and submit
    batch manifests repeatedly so Julia startup and compilation are not paid per
    iteration.
 
-## WingFEGen Web App And FEM Generator
+Start with the [from-scratch installation guide](JFEM_installation/INSTALLATION.md)
+or its [printable PDF](Reference_documentation/00_Getting_Started/jfem_2026_installation_guide.pdf).
+The [illustrated FGen user's guide](Reference_documentation/00_Getting_Started/jfem_2026_fgen_user_guide.pdf)
+covers model generation, imported decks, analyses, results, sensitivities and
+display controls. See the [documentation index](Reference_documentation/README.md).
 
-[WingFEGen](WingFEGen/README.md) is included with the solver. It defines wing
+## FGen Web App And FEM Generator
+
+[FGen](WingFEGen/README.md) is included in `WingFEGen/` with the solver. It defines lifting-surface
 geometry, meshes, materials, structural panels, aerodynamic and inertia loads,
 runs analyses and displays results and sensitivities in a local browser.
 
-From the repository root, install both project environments and start the app:
+After setup, start the app from the repository root:
 
 ```sh
-julia WingFEGen/setup.jl
-julia --project=WingFEGen WingFEGen/run.jl
+julia --startup-file=no --project=WingFEGen WingFEGen/run.jl
 ```
 
-Use Julia 1.13.1. Setup downloads the pinned dependencies; a solver sysimage is
+Use Julia 1.13.1. Setup installs both pinned environments; launchers also install
+missing dependencies when needed. A solver sysimage is
 optional. The app opens `http://127.0.0.1:8080` and discovers the enclosing solver
 without private workspace paths. Platform launchers, a factory example, bundled
 browser libraries and portable checks are included. No user study or private
 validation data is needed. See the [application guide](WingFEGen/README.md) and
 [analytic adjoint explanation](WingFEGen/SENSITIVITY_METHOD.md).
 
-## One-Click Installation
+## Installation
 
-After cloning the repository, run exactly one setup launcher from
-`JFEM_installation/`. The launcher installs every Julia package declared by
-`Project.toml` and `Manifest.toml`, then creates the local sysimage used for
-fast startup.
+After installing Julia and cloning or extracting this repository, open a
+terminal in its root and run:
+
+```powershell
+.\setup.cmd
+```
+
+On macOS/Linux:
+
+```bash
+bash setup.sh
+```
+
+Setup installs and precompiles both pinned Julia environments, then verifies
+JFEM, FGen, PANDEATOR and the bundled static viewer. PANDEATOR shares the solver
+environment; the viewer needs only a browser.
+No manual package list or optional sysimage build is needed. The first setup
+needs internet access and may take several minutes. Later runs reuse the packages.
+
+To also build an optional solver sysimage, run `setup.cmd --sysimage` on Windows
+or `bash setup.sh --sysimage` on macOS/Linux. The following convenience launchers
+delegate to the same setup procedure with this option:
 
 | Platform | Setup file |
 |---|---|
@@ -79,14 +103,24 @@ When the setup finishes, run a deck from the repository root:
 ./jfem ~/models/my_model.bdf
 ```
 
-See [`JFEM_installation/README.md`](JFEM_installation/README.md) for the
-plain-language installer guide, representative-deck options, offline notes, and
-troubleshooting.
+See the [installation walkthrough](JFEM_installation/INSTALLATION.md) for Julia
+installation, ZIP/Git downloads and a first standalone solve. The
+[advanced setup notes](JFEM_installation/README.md) cover representative sysimage
+workloads and troubleshooting.
+
+All applications use this installation:
+
+| Application | Start from the repository root |
+| --- | --- |
+| JFEM standalone solver | `jfem.cmd path/to/model.bdf` (Windows), `./jfem path/to/model.bdf` (macOS/Linux) |
+| FGen model generator and analysis app | `julia --startup-file=no --project=WingFEGen WingFEGen/run.jl` |
+| PANDEATOR panel app | `julia --startup-file=no --project=. POST/PANDEATOR_APP/panel_server.jl` |
+| Static results viewer | Open `POST/JFEM_results_viewer/postv11.html` in a browser |
 
 ## Requirements
 
 - Julia 1.13.1
-- Git
+- Git, or download and extract the GitHub ZIP
 - One or more bulk-data input decks, usually with `.bdf`, `.dat`, or `.nas`
   extension
 
@@ -101,6 +135,7 @@ line-continuation character.
 .
 |-- Project.toml
 |-- Manifest.toml
+|-- setup.cmd / setup.sh              install both Julia environments
 |-- WingFEGen/                         web app, FEM generator and sensitivity UI
 |-- JFEM_installation/
 |   |-- CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd
@@ -160,13 +195,14 @@ line-continuation character.
 - `validation`: public, paper-facing validation suite. It contains only
   public or permissively licensed decks and references: MacNeal-Harder,
   classical buckling, MYSTRAN cross-checks, and CRM/uCRM. It intentionally
-  excludes private GAME, HTP, and VTP cases.
+  includes reproducible inputs, explicit tolerances and documented references.
 - `jfem` (Linux/macOS) and `jfem.cmd` (Windows): one-line wrappers to analyze a
   single deck with good defaults — see "Quickest Way To Run A Deck" below. They
   call `JFEM_installation/julia_tools/jfem.jl`, the underlying simple single-deck runner.
-- `JFEM_installation/`: first-time setup launchers with explicit Windows,
-  Linux, and macOS filenames. Each launcher installs Julia packages and creates
-  the optional sysimage that makes the solver and web app start near-instantly.
+- `setup.cmd` / `setup.sh`: install, precompile and verify the solver and app
+  dependencies without building a sysimage.
+- `JFEM_installation/`: installation guide, dependency helpers and optional
+  platform-specific sysimage launchers that can reduce repeated startup work.
 - `JFEM_installation/julia_tools/run_bdf.jl`: explicit single-case runner (what the wrapper
   runs for you).
 - `JFEM_installation/julia_tools/run_bdf_batch.jl`: simple text-list batch runner retained
@@ -187,20 +223,19 @@ Clone the repository and enter it:
 Windows PowerShell:
 
 ```powershell
-git clone <repository-url> OpenJFEM
+git clone https://github.com/r-acad/JF_2026_05_25.git OpenJFEM
 cd OpenJFEM
 ```
 
 Linux/macOS Bash:
 
 ```bash
-git clone <repository-url> OpenJFEM
+git clone https://github.com/r-acad/JF_2026_05_25.git OpenJFEM
 cd OpenJFEM
 ```
 
-Run one setup launcher once after installation or after updating the solver.
-This is the same one-click setup described above: it installs the Julia
-packages, then builds the local sysimage. With no user-supplied deck, OpenJFEM
+Use the root setup command above for normal installation or dependency updates.
+The optional launchers below also build the local sysimage. With no user-supplied deck, OpenJFEM
 uses bundled tiny SOL 101, SOL 103, and SOL 105 decks from
 `JFEM_installation/examples/precompile` to warm common parser, assembly, solve,
 and report paths.
@@ -328,7 +363,7 @@ an output-only cap:
   avoid an unnecessary retry. Larger systems and uncertain counts retain the
   retry while reusing the unchanged shifted factor within the solve.
   `JFEM_SOL105_STURM_COMPLETENESS=true` remains an
-  optional diagnostic. Blank `ND` retains its distinct Nastran all-roots semantics for
+  optional diagnostic. Blank `ND` retains its distinct Reference all-roots semantics for
   small problems; large all-roots requests fail clearly and ask for an
   explicit `ND` instead of starting an accidental O(n^2) Krylov run.
 - **Accepted pairs are verified**: only converged Ritz pairs with a finite
@@ -508,6 +543,38 @@ the default set `-jrs`.
 | `h` | HDF5 (`.h5`) |
 | `m` | model JSON dump |
 | `c` | card inventory |
+| `b` | SOL105 compact eigenvalue and peak-node property JSON; omits full field exports |
+| `e` | SOL105 element deformation energy in results JSON |
+| `d` | SOL105 element energy density in results JSON |
+
+For example, `jfem -b model.bdf output` exports the buckling roots and the
+GRID/property IDs at maximum translational magnitude, without exporting mode
+vectors or preload fields. `jfem -sed model.bdf output` adds both element energy
+fields to full SOL105 JSON. These three letters require SOL105; `b` takes
+precedence over energy, binary, VTK and HDF5 output. It still computes
+eigenvectors internally to locate each peak. Tied maxima retain all directly
+incident PIDs, and propertyless nodes are identified explicitly.
+
+The equivalent optional deck requests are `PARAM,JFBKCOMP,1`,
+`PARAM,JFBKENG,1`, and `PARAM,JFBKDEN,1`. Each accepts 0 or 1 and defaults to 0.
+The FEGen SOL105 form exposes these options and saves them with the Study.
+`JFBKCOMP` means JFEM buckling compact output: a JFEM-specific export request,
+not a stiffness or accuracy parameter. It is useful for small reports and
+repeated studies needing only roots and peak-node properties. Omit it or set
+it to 0 to retain normal graphical results; the solved eigenproblem is unchanged.
+
+Deformation energy uses `0.5 * u_e' * K_e * u_e` from the actual assembled
+elastic element matrix, including its numerical stabilization; density divides
+this by the physical element volume. JSON separates the static preload from
+each buckling mode and records normalization, units and coverage. Static energy
+is physical for the applied load. Mode energy scales with arbitrary eigenvector
+amplitude squared, so it is not a critical-load energy or a directly comparable
+measure across differently normalized modes. Springs have no density without a
+defined volume. Rigid constraints, penalties and direct matrices are excluded;
+unsupported energies are marked unavailable. Thermal preload stored energy
+(which needs initial-strain subtraction) and non-native stiffness backends are
+not available through this output adapter. Energy units are force × length,
+and density units are force / length²; these are J and J/m³ only for N-m input.
 
 Anisotropic, independently assigned-material and MID4 PSHELL stress recovery
 is currently incomplete. Affected force/stress/strain rows are omitted with
@@ -524,7 +591,7 @@ HDF5 PSHELL metadata records the effective fiber distances at the current
 thickness. For programmatic edits, set `Z1_DEFAULT` or `Z2_DEFAULT` to `false`
 when replacing a parsed blank location with a fixed numeric distance.
 Supported shell stress rows include ordered principal stresses. Generalized
-strain rows include principal membrane strains and principal Nastran-sign
+strain rows include principal membrane strains and principal Reference-sign
 curvatures; those rows retain their existing units and are not fiber strains.
 VTK and Markdown use recovered von Mises values for ordinary shells and the
 all-ply maximum for supported composites. Principal values remain available
@@ -691,6 +758,23 @@ It is named from the input file stem: `panel_001.bdf` becomes
 
 The report contains the buckling load factors, model counts, active flags, and
 solver timing.
+
+Native runs also write `<stem>.TIMINGS.JSON` and stream structured progress and
+completed timing records. Detailed stages identify input parsing, model building,
+numerical assembly/solution/recovery and output work. Each stage records calls,
+inclusive wall time and exclusive execution/compilation time. A child stage is
+already included in its parent's inclusive time; category totals use exclusive
+execution to avoid counting it twice. Recompilation is part of compilation, and
+GC is part of wall time. These are elapsed-time measurements, not CPU usage.
+
+Measured Julia compilation is excluded from reported numerical execution.
+Package loading/precompilation before the measured pipeline belongs to startup
+overhead, and is not presented as an exact precompile-only duration. Julia's
+counters do not reliably identify live compilation inside a running numerical
+stage: the web app colors numerical phases blue and labels that uncertainty.
+Explicit preparation, compilation and file operations are orange. Completed
+Log rows show the measured split. Missing or overlapping measurements remain
+unavailable instead of substituting total elapsed time for solution time.
 
 ## First Production Interface: JSON Manifests
 
@@ -1121,7 +1205,7 @@ nonstructural mass. RFORCE defaults to METHOD=1 in BDF input. METHOD=2 applies
 the full assembled mass matrix to the rigid rotational acceleration, including
 RACC; it does not separately accelerate a CONM2 center-of-mass offset.
 METHOD=1 CONM2 force and moment follow rigid-body balance at the mass center.
-Older Nastran reference executables can differ in offset moments, so these
+Older Reference reference executables can differ in offset moments, so these
 are checked independently against particle force/moment sums. METHOD=1 requires
 lumped structural mass; scalar masses and translation/rotation-coupled CONM1
 require METHOD=2. Superelement MB/IDRF selections are diagnosed as unsupported.
@@ -1139,7 +1223,7 @@ tables, curvilinear acceleration CID, nonunit WTMASS, external M2GG,
 superelements and scalar-point masses report capability errors. Inactive or
 zero-weight unsupported load branches do not block supported loading.
 Acceleration-dependent optimization derivatives remain guarded. The legacy
-Nastran reference executable used for validation rejects ACCEL1; support is checked against the
+Reference reference executable used for validation rejects ACCEL1; support is checked against the
 card specification, independent mechanics and equivalent FORCE cases.
 
 Sensitivity results are scoped to each subcase. Material-E buckling

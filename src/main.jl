@@ -13,7 +13,7 @@ using JSON
 
 _jfem_modules_preloaded =
     isdefined(@__MODULE__, :FEM) &&
-    isdefined(@__MODULE__, :NastranParser) &&
+    isdefined(@__MODULE__, :ReferenceParser) &&
     isdefined(@__MODULE__, :Solver) &&
     isdefined(@__MODULE__, :solve_model)
 
@@ -33,6 +33,9 @@ function main(filename::String;
               export_json::Bool=false,
               export_vtk::Bool=false,
               export_hdf5::Bool=false,
+              compact_buckling::Bool=false,
+              export_element_energy::Bool=false,
+              export_energy_density::Bool=false,
               export_jfem_binary::Bool=true,
               export_report::Bool=true)
     if !isfile(filename)
@@ -51,15 +54,17 @@ function main(filename::String;
     cards, cc = _pipeline_measure!(phases, "parse") do
         println(">>> Reading BDF file: $filename")
         lines = readlines(filename)
-        lines = NastranParser.resolve_includes(lines, dirname(abspath(filename)))
+        lines = ReferenceParser.resolve_includes(lines, dirname(abspath(filename)))
         println(">>> Checking format...")
-        lines = NastranParser.convert_mystran_to_nastran(lines)
+        lines = ReferenceParser.convert_mystran_to_reference(lines)
         println(">>> Parsing Bulk Data...")
-        cc, bulk = NastranParser.read_bulk_and_case(lines)
-        cards = NastranParser.process_cards(bulk)
+        cc, bulk = ReferenceParser.read_bulk_and_case(lines)
+        cards = ReferenceParser.process_cards(bulk)
         if export_card_inventory
-            _ensure_export_extensions!()
-            Base.invokelatest(getfield(@__MODULE__, :export_card_inventory), cards, output_dir, filename)
+            _pipeline_detail_measure!("card_inventory","Write card inventory";category="export") do
+                _ensure_export_extensions!()
+                Base.invokelatest(getfield(@__MODULE__, :export_card_inventory), cards, output_dir, filename)
+            end
         end
         cards, cc
     end
@@ -73,6 +78,8 @@ function main(filename::String;
         model
     end
     t_build = phases["build_model"]["wall_seconds"]
+    _apply_sol105_output_overrides!(model; compact_buckling,
+        export_element_energy, export_energy_density)
 
     # Optionally write the model dict as JSON (e.g. test.bdf → test.bdf.json)
     if export_model_json
@@ -125,12 +132,16 @@ function main(filename::String;
             if sol == 101
                 println(">>> Found adjoint_config.json — running adjoint sensitivity analysis (SOL 101)")
                 adj_results = solve_adjoint(results, adjoint_config)
-                export_adjoint_json(adj_results, adj_output)
+                _pipeline_detail_measure!("adjoint_export", "Write adjoint results"; category="export") do
+                    export_adjoint_json(adj_results, adj_output)
+                end
                 println(">>> Adjoint results written to: $adj_output")
             elseif sol == 105
                 println(">>> Found adjoint_config.json — running buckling sensitivity analysis (SOL 105)")
                 adj_results = solve_adjoint_buckling(results, adjoint_config)
-                export_adjoint_json(adj_results, adj_output)
+                _pipeline_detail_measure!("adjoint_export", "Write adjoint results"; category="export") do
+                    export_adjoint_json(adj_results, adj_output)
+                end
                 println(">>> Buckling adjoint results written to: $adj_output")
             end
         end

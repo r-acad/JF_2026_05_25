@@ -1,60 +1,33 @@
 @echo off
-REM ====================================================================
-REM  Stiffened-panel buckling web app - Windows double-click launcher.
-REM  Starts the pure-Julia server and opens the browser automatically.
-REM ====================================================================
-REM EnableDelayedExpansion so paths containing parentheses or spaces (e.g.
-REM "...\JF_2026_05_25-main (7)\...") do not break the parenthesised if-block
-REM below: we reference the path as !VAR! which is expanded AFTER cmd parses
-REM the block, not during, so a ")" inside the path can't close the block early.
 setlocal EnableDelayedExpansion
 set "APP_DIR=%~dp0"
 set "REPO_ROOT=%APP_DIR%..\.."
-title JFEM Stiffened Panel - server
-echo ===================================================================
-echo   JFEM STIFFENED PANEL - starting...
-echo ===================================================================
-echo.
-echo   *** PLEASE WAIT ***  Julia is starting and warming up the solver.
-echo   The FIRST start can take ~2 minutes (it looks frozen - this is normal;
-echo   it is compiling the web server AND the solver so the app is fast after).
-echo.
-echo   Your browser opens AUTOMATICALLY once warm-up finishes. The page then
-echo   loads instantly and the first Analyze is quick.
-echo   If no browser appears, open this URL yourself:  http://127.0.0.1:8088/
-echo.
-echo   Keep this window OPEN while you work. Close it (or Ctrl+C) to stop.
-echo ===================================================================
-echo.
-REM Optional sysimage: if a prebuilt OpenJFEM sysimage exists, load it with -J so
-REM startup/warm-up is near-instant. Build it once per machine with
-REM JFEM_installation\CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd.
-REM The sysimage is tied to this machine's exact Julia version + OS + CPU, so it is
-REM NOT committed and must be (re)built locally; if it is absent we start normally.
+set "PANEL_JULIA=%JFEM_JULIA%"
+if not defined PANEL_JULIA set "PANEL_JULIA=julia"
+where "!PANEL_JULIA!" >nul 2>&1
+if errorlevel 1 if not exist "!PANEL_JULIA!" (
+    echo Julia was not found. Install Julia from https://julialang.org/downloads/
+    echo Set JFEM_JULIA to an installed Julia executable if it is not on PATH.
+    exit /b 1
+)
+echo Starting PANDEATOR. First use may install dependencies and compile packages.
+echo The browser opens after server warm-up. Keep this terminal open; Ctrl+C stops it.
+REM Select only an image with a matching source/runtime/workload receipt.
+REM Build the optional image with setup.cmd --sysimage from the repository root.
 set "SYSIMG_DLL=%REPO_ROOT%\sysimage\OpenJFEM_sysimage.dll"
 set "SYSIMG_ARG="
-REM Note: !SYSIMG_DLL! (delayed expansion) so a path with parentheses/spaces does
-REM not break this block. The --sysimage value is quoted so spaces are handled.
 if exist "!SYSIMG_DLL!" (
-    julia --startup-file=no --threads=1 --project="!REPO_ROOT!" "!REPO_ROOT!\JFEM_installation\julia_tools\check_sysimage.jl" "!REPO_ROOT!" "!SYSIMG_DLL!"
+    "!PANEL_JULIA!" --startup-file=no --threads=1 --project="!REPO_ROOT!" "!REPO_ROOT!\JFEM_installation\julia_tools\check_sysimage.jl" "!REPO_ROOT!" "!SYSIMG_DLL!"
     if not errorlevel 1 (
         set "SYSIMG_ARG=--sysimage=!SYSIMG_DLL!"
-        echo   Using verified sysimage: !SYSIMG_DLL!
+        echo Using verified sysimage: !SYSIMG_DLL!
     )
 )
-
-REM Use whatever "julia" is on PATH. The current manifest uses Julia 1.13.1;
-REM make sure Julia 1.13.1 is installed and on PATH on this machine.
-REM (No juliaup here: do NOT add "+release" - plain julia.exe treats it as a
-REM bad path argument and fails with a "+release ... not found" error.)
-REM SYSIMG_ARG is quoted as one token (it is either empty or --sysimage="..path..").
 if defined SYSIMG_ARG (
-    julia "!SYSIMG_ARG!" --project="!REPO_ROOT!" --threads=auto "!APP_DIR!panel_launch.jl" %*
+    "!PANEL_JULIA!" "!SYSIMG_ARG!" --startup-file=no --project="!REPO_ROOT!" --threads=auto "!APP_DIR!panel_launch.jl" %*
 ) else (
-    julia --project="!REPO_ROOT!" --threads=auto "!APP_DIR!panel_launch.jl" %*
+    "!PANEL_JULIA!" --startup-file=no --project="!REPO_ROOT!" --threads=auto "!APP_DIR!panel_launch.jl" %*
 )
 set "JFEM_EXIT=!errorlevel!"
-echo.
-echo Server stopped. Press any key to close this window.
-pause >nul
+if not "%OPENJFEM_NO_PAUSE%"=="1" pause
 endlocal & exit /b %JFEM_EXIT%

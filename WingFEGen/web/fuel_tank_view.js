@@ -18,7 +18,7 @@
     // Stringer directions do not define the tank. An unfinished angle field
     // must not prevent previewing otherwise valid spar coordinates.
     const rear = params["box.rear_spar_points"];
-    const geometryParams = {...params, "box.stringer_angle": 0};
+    const geometryParams = {...params, "box.stringer_angle": 0, _rib_geometry: null};
     if (Array.isArray(rear)) geometryParams["box.rear_spar_points"] = rear.map(point =>
       point && typeof point === "object" ? {...point, stringer_angle: 0} : point);
     const geometry = Spar.derive(geometryParams);
@@ -121,7 +121,7 @@
     return svg;
   }
 
-  function install(host, {readValues,onViewChange}) {
+  function install(host, {readValues,onViewChange,onCreate,isAvailable=()=>true}) {
     const doc = host.ownerDocument;
     instances.get(doc)?.destroy();
     const section = doc.createElement("section");
@@ -129,6 +129,19 @@
     section.setAttribute("aria-label", "Live fuel tank extent");
     section.innerHTML = '<h3>Tank extent</h3><p class="ftv-status" role="status" aria-live="polite"></p><div class="ftv-canvas"><svg id="fuel-tank-preview-svg" viewBox="0 0 580 250" role="img" aria-label="Live fuel tank span preview"></svg></div><div class="ftv-legend"><span><i class="front"></i>Front spar</span><span><i class="rear"></i>Rear spar</span><span><i class="tank"></i>Wet fuel bays</span><span><i class="dry"></i>Dry / vent bays</span></div><p class="ftv-error" role="status" aria-live="polite" hidden></p><p class="ftv-note">Untwisted half lifting surface plan; numbered ribs are physical ribs, independent of FE subdivisions. Create FEM to calculate volume.</p>';
     host.appendChild(section);
+    // A missing tank remains reachable from the grey tab. The canonical
+    // fuel.enabled field owns this state, including Study/TOML restoration.
+    const create = onCreate ? doc.createElement("button") : null;
+    const tab = onCreate ? doc.getElementById("tab-fuel") : null;
+    if (create) {
+      create.type = "button"; create.id = "btn-create-fuel-tank";
+      create.className = "fuel-tank-create"; create.textContent = "Create Fuel Tank";
+      create.onclick = () => {
+        if (!isAvailable() || create.disabled) return;
+        onCreate(); refresh(); doc.getElementById("p-fuel.start_rib")?.focus();
+      };
+      host.appendChild(create);
+    }
     const status = section.querySelector(".ftv-status"), error = section.querySelector(".ftv-error");
     const canvas = section.querySelector(".ftv-canvas"), svg = section.querySelector("svg");
     svg.dataset.viewKey="fuel-tank";
@@ -137,9 +150,21 @@
     let destroyed = false;
     function refresh() {
       if (destroyed) return null;
-      let data;
-      try { data = derive(readValues()); }
-      catch (exception) { data = {valid: false, drawable: false, error: exception.message || "Complete the tank and lifting surface inputs to preview the extent."}; }
+      let data, params;
+      try { params = readValues(); data = derive(params); }
+      catch (exception) { data = {valid: false, drawable: false, enabled: params?.["fuel.enabled"] === true, error: exception.message || "Complete the tank and lifting surface inputs to preview the extent."}; }
+      if (create) {
+        const available = isAvailable(), defined = available && data.enabled === true;
+        host.classList.toggle("fuel-tank-uncreated", !defined);
+        doc.getElementById("panel-fuel-volume")?.classList.toggle("fuel-tank-unavailable", !defined);
+        create.hidden = defined || !available;
+        create.disabled = !available || !!doc.getElementById("p-fuel.enabled")?.disabled;
+        if (tab) {
+          tab.classList.toggle("fuel-tank-undefined", !defined);
+          tab.dataset.fuelDefined = String(defined);
+          tab.title = !available ? "An imported Reference deck has no generated fuel-tank definition." : defined ? "Edit fuel tank" : "Create Fuel Tank";
+        }
+      }
       error.hidden = data.valid;
       error.textContent = data.error || "";
       canvas.hidden = !data.drawable;
@@ -169,6 +194,9 @@
       doc.removeEventListener("input", onEdit);
       doc.removeEventListener("change", onEdit);
       section.remove();
+      create?.remove(); host.classList.remove("fuel-tank-uncreated");
+      if (create) doc.getElementById("panel-fuel-volume")?.classList.remove("fuel-tank-unavailable");
+      if (tab) { tab.classList.remove("fuel-tank-undefined"); delete tab.dataset.fuelDefined; }
       if (instances.get(doc) === view) instances.delete(doc);
     }};
     instances.set(doc, view);

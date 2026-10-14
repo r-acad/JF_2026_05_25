@@ -1,3 +1,5 @@
+include("rspline.jl")
+
 # constraints.jl — RBE2, RBE3, MPC constraint assembly and DOF elimination
 
 # Extracted from assemble_stiffness: processes all constraint elements and
@@ -596,77 +598,14 @@ function assemble_constraints(model, id_map, node_coords, node_R, I_idx, J_idx, 
         log_msg("[SOLVER] RBE1: $n_rbe1 elements, $(length(rbe1_map)) dependent DOFs")
     end
 
-    # --- RSPLINE (spline interpolation constraint via linear interpolation) ---
+    # --- RSPLINE (minimum-energy interpolation along the ordered tube) ---
     rsplines = get(model, "RSPLINEs", Dict())
     rspline_map = Dict{Int, Vector{Tuple{Int, Float64}}}()
     n_rspline = 0
     for (id, rsp) in rsplines
-        indep_grids = rsp["INDEP_GRIDS"]
-        dep_list = rsp["DEP"]  # [(grid, dof_digit), ...]
-        length(indep_grids) >= 2 || throw(ArgumentError("RSPLINE $id requires at least two independent GRIDs"))
-        for g in indep_grids
-            _constraint_grid_index(id_map, g, "RSPLINE $id")
-        end
-        for (g, dof) in dep_list
-            _constraint_grid_index(id_map, g, "RSPLINE $id")
-            dof isa Integer && 1 <= dof <= 6 || throw(ArgumentError("RSPLINE $id requires individual GRID components 1 through 6"))
-        end
-
-        # Get coordinates of independent grids (spline control points)
-        indep_coords = Tuple{Int,Float64,Float64,Float64}[]
-        for g in indep_grids
-            if !haskey(id_map, g); continue; end
-            gi = id_map[g]
-            push!(indep_coords, (gi, node_coords[gi,1], node_coords[gi,2], node_coords[gi,3]))
-        end
-        if length(indep_coords) < 2; continue; end
-
-        # Compute cumulative arc length along the spline control points
-        arc_len = Float64[0.0]
-        for i in 2:length(indep_coords)
-            dx = indep_coords[i][2] - indep_coords[i-1][2]
-            dy = indep_coords[i][3] - indep_coords[i-1][3]
-            dz = indep_coords[i][4] - indep_coords[i-1][4]
-            push!(arc_len, arc_len[end] + sqrt(dx^2 + dy^2 + dz^2))
-        end
-        total_len = arc_len[end]
-        total_len >= 1e-30 || throw(ArgumentError("RSPLINE $id has zero independent span"))
-
-        for (g, dof) in dep_list
-            if !haskey(id_map, g); continue; end
-            gi = id_map[g]
-            px = node_coords[gi,1]; py = node_coords[gi,2]; pz = node_coords[gi,3]
-
-            # Project dependent point onto spline: find closest segment
-            best_seg = 1; best_t = 0.0; best_dist = Inf
-            for seg in 1:(length(indep_coords)-1)
-                ax = indep_coords[seg][2]; ay = indep_coords[seg][3]; az = indep_coords[seg][4]
-                bx = indep_coords[seg+1][2]; by = indep_coords[seg+1][3]; bz = indep_coords[seg+1][4]
-                dx = bx-ax; dy = by-ay; dz = bz-az
-                seg_len2 = dx^2 + dy^2 + dz^2
-                if seg_len2 < 1e-30; continue; end
-                t = clamp(((px-ax)*dx + (py-ay)*dy + (pz-az)*dz) / seg_len2, 0.0, 1.0)
-                cx = ax + t*dx; cy = ay + t*dy; cz = az + t*dz
-                dist = sqrt((px-cx)^2 + (py-cy)^2 + (pz-cz)^2)
-                if dist < best_dist
-                    best_dist = dist; best_seg = seg; best_t = t
-                end
-            end
-
-            # Linear interpolation between the two bounding independent nodes
-            gi_left = indep_coords[best_seg][1]
-            gi_right = indep_coords[best_seg+1][1]
-            gdof = (gi-1)*6 + dof
-            left_dof = (gi_left-1)*6 + dof
-            right_dof = (gi_right-1)*6 + dof
-            w_left = 1.0 - best_t
-            w_right = best_t
-            pairs = Tuple{Int,Float64}[]
-            if abs(w_left) > 1e-15; push!(pairs, (left_dof, w_left)); end
-            if abs(w_right) > 1e-15; push!(pairs, (right_dof, w_right)); end
-            if !isempty(pairs)
-                _store_constraint_row!(rspline_map, gdof, pairs, "RSPLINE $id")
-            end
+        rows = _rspline_constraint_rows(rsp, id, id_map, node_coords, node_R)
+        for (dof, pairs) in rows
+            _store_constraint_row!(rspline_map, dof, pairs, "RSPLINE " * string(id))
         end
         n_rspline += 1
     end
@@ -933,6 +872,15 @@ function _redistribute_constraint_triplets(rbe3_map, I_idx, J_idx, V_val;
     if flatten_diagnostics["changed_dependent_dofs"] > 0
         log_msg("[SOLVER] MPC dependency map flattened: $(flatten_diagnostics["dependent_dofs"]) dependent DOFs, $(flatten_diagnostics["nested_dependency_terms"]) nested terms, depth=$(flatten_diagnostics["max_dependency_depth"]), terms $(flatten_diagnostics["input_terms"]) -> $(flatten_diagnostics["output_terms"])")
     end
+    # Dependency resolution can return through several graph algorithms. Keep
+    # its dynamically inferred result outside the entry-wise expansion loop.
+    return _redistribute_flat_constraint_triplets(
+        rbe3_map, I_idx, J_idx, V_val; skip_zeros, triplet_budget)
+end
+
+function _redistribute_flat_constraint_triplets(rbe3_map, I_idx, J_idx, V_val;
+                                                skip_zeros::Bool=false,
+                                                triplet_budget::Integer=100_000_000)
     n_orig = length(I_idx)
     # Preserve the original summation/order path for ordinary models. Bound
     # temporary expansion for large models before allocating the output arrays.
@@ -941,6 +889,27 @@ function _redistribute_constraint_triplets(rbe3_map, I_idx, J_idx, V_val;
         ndof = max(maximum(I_idx), maximum(J_idx), maximum(keys(rbe3_map)))
         for pairs in Base.values(rbe3_map), (dof, _) in pairs
             ndof = max(ndof, dof)
+        end
+        if !skip_zeros
+            # Auxiliary load-center dependencies often do not occur in any
+            # element matrix. Then T'KT is exactly K, including its original
+            # triplet ordering and explicit zeros. Preserve the flattened map
+            # for force redistribution/recovery, without copying the operator.
+            dependent = falses(ndof)
+            for dof in keys(rbe3_map)
+                dependent[dof] = true
+            end
+            touched = false
+            @inbounds for k in eachindex(I_idx, J_idx)
+                if dependent[I_idx[k]] || dependent[J_idx[k]]
+                    touched = true
+                    break
+                end
+            end
+            if !touched
+                log_msg("[SOLVER] MPC: No matrix entries touch dependent DOFs; retaining $n_orig triplets")
+                return rbe3_map, I_idx, J_idx, V_val
+            end
         end
         fanout = ones(Int, ndof)
         for (dof, pairs) in rbe3_map

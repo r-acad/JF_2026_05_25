@@ -62,15 +62,15 @@
 # numerical stabiliser, not part of any of these published benchmark
 # definitions, and solvers disagree on its default:
 #
-#     MSC/Nastran 70.5, SOL 101   K6ROT = 0.0    (delivery source del/sestatic.dat)
-#     MSC.Nastran 2004+           K6ROT = 100.0
+#     Reference 70.5, SOL 101   K6ROT = 0.0    (delivery source del/sestatic.dat)
+#     Reference 2004+           K6ROT = 100.0
 #     OpenJFEM                    K6ROT = 100.0
 #
 # Every parity reference in references/commercial_reference.csv was produced by
 # a solver sitting at 0.0, while OpenJFEM ran at 100.0. That single unstated
 # difference -- not a formulation gap -- accounted for the whole of the
 # then-outstanding parity error on all six shell rows, up to 3.4956% on the
-# hemisphere. Confirmed from both sides: MSC/Nastran 70.5 on the hemisphere
+# hemisphere. Confirmed from both sides: Reference 70.5 on the hemisphere
 # deck returns 4.937420E-02 with no card and with `PARAM,K6ROT,0.` (the two
 # displacement blocks are bit-identical), and 4.764827E-02 with
 # `PARAM,K6ROT,100.` -- which is OpenJFEM's own default-run answer to the F06's
@@ -114,7 +114,7 @@
         fn: tip_disp_in_plane
       # tol_rel unchanged. The 6x1 mesh cannot reach the curved-beam-theory
       # target: MacNeal & Harder's own published QUAD4 result for this test is
-      # 0.833 normalised, and MSC/Nastran 70.5 on this deck gives 0.8334.
+      # 0.833 normalised, and Reference 70.5 on this deck gives 0.8334.
       # OpenJFEM gives 0.8310 and converges to 1.006 at 24x4. Left as a
       # documented FAIL rather than widened without a published per-mesh band.
       tol_rel: 0.02
@@ -225,7 +225,7 @@
       # Published 4-node spread on the identical 4x4 quarter mesh (Ko, Lee &
       # Bathe 2017, Table 10, N = 4): MITC4 0.9432, S4 1.036, IBRA4 1.047,
       # DKQ4 1.048, MITC4+ 1.048, SIMO4 1.083 -- a +-8.3% band. OpenJFEM sits
-      # at 1.0581 and MSC/Nastran 70.5 at 1.0582 on this deck; OpenJFEM
+      # at 1.0581 and Reference 70.5 at 1.0582 on this deck; OpenJFEM
       # converges to 0.9999 at 16x16. Widened 0.05 -> 0.10 to that band.
       tol_rel: 0.10
       parity:
@@ -254,7 +254,7 @@
       # and NO published 4-node element comes near 1.0 on the 4x4 octant mesh
       # (Ko, Lee & Bathe 2017, Table 8, N = 4: IBRA4 0.3700, MITC4 0.3788,
       # S4 0.3882, MITC4+ 0.3904, SIMO4 0.399, DKQ4 0.636). OpenJFEM 0.5228
-      # and MSC/Nastran 70.5 0.5241 sit inside that spread, and OpenJFEM
+      # and Reference 70.5 0.5241 sit inside that spread, and OpenJFEM
       # converges to 1.0002 at 24x24. The deck load P/4 = 0.25 is CORRECT --
       # the load point lies on two of the three symmetry planes. Left as a
       # documented FAIL; no tolerance vs the converged target is meaningful at

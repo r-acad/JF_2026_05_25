@@ -8,7 +8,14 @@
 *.yml text eol=lf
 *.yaml text eol=lf
 
+# Published documents must retain their exact reviewed binary bytes.
+*.pdf binary
+
 *.bat text eol=crlf
+*.cmd text eol=crlf
+*.sh text eol=lf
+*.command text eol=lf
+/jfem text eol=lf
 
 # Portable app scripts use LF; vendor archives keep exact verified upstream bytes.
 WingFEGen/** text eol=lf

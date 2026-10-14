@@ -117,6 +117,70 @@ end
 # construction solely for explicit formulation bisects.
 @inline snorm_director_enabled() = solver_env_bool("JFEM_SNORM_DIRECTOR", false)
 
+# A triangle retains its geometric frame. Accepted nodal directors act through
+# a work-dual normal-moment map, just as for a quadrilateral. Tilting one mean
+# frame loses rigid-spin exactness and gives adjacent shells different drilling
+# null directions. Keep the historical route only for explicit diagnostics.
+@inline tria3_snorm_normal_moment_enabled() =
+    solver_env_bool("JFEM_TRIA3_SNORM_NORMAL_MOMENT", true) && !snorm_director_enabled()
+
+function tria3_snorm_element_pq(v1, v2, v3, indices, snorm_normals)
+    tria3_snorm_normal_moment_enabled() || return nothing
+    length(indices) == 3 || throw(ArgumentError("Expected three triangle nodes"))
+    any(i -> haskey(snorm_normals, i), indices) || return nothing
+    pq = zeros(3, 2)
+    for (k, idx) in enumerate(indices)
+        haskey(snorm_normals, idx) || continue
+        normal = snorm_normals[idx]
+        dot(normal, v3) < 0 && (normal = -normal)
+        n3 = dot(normal, v3)
+        abs(n3) < 1e-3 && continue
+        pq[k, 1] = dot(normal, v1) / n3
+        pq[k, 2] = dot(normal, v2) / n3
+        # Coplanar/solo rows must remain exactly inert after frame roundoff.
+        abs(pq[k, 1]) < 1e-14 && (pq[k, 1] = 0.0)
+        abs(pq[k, 2]) < 1e-14 && (pq[k, 2] = 0.0)
+    end
+    return pq
+end
+
+"""Rigid-exact CTRIA3 normal-moment displacement map.
+
+With constant triangle gradients, omega = (v,x-u,y)/2 and delta=rz-omega:
+rx_used=rx-p*delta; ry_used=ry-q*delta;
+rz_used=rz+p*(rx-w,y)+q*(ry+w,x).
+Its transpose converts normal moments into zero-resultant force couples.
+Independent folded/rotated reference matrices select this map without fitted
+parameters. Constitutive tangents use the same fixed-geometry congruence.
+"""
+function tria3_snorm_normal_moment_displacement_map(coords, pq)
+    size(coords, 1) == 3 && size(coords, 2) >= 2 ||
+        throw(ArgumentError("Expected three triangle x/y coordinates"))
+    size(pq) == (3, 2) || throw(ArgumentError("Expected three director slope pairs"))
+    M = Matrix{Float64}(I, 18, 18)
+    all(iszero, pq) && return M
+    x1, y1 = coords[1, 1], coords[1, 2]
+    x2, y2 = coords[2, 1], coords[2, 2]
+    x3, y3 = coords[3, 1], coords[3, 2]
+    twice_area = (x2-x1)*(y3-y1)-(x3-x1)*(y2-y1)
+    abs(twice_area) > 1e-30 || throw(ArgumentError("Degenerate CTRIA3 normal-moment map"))
+    dx = ((y2-y3)/twice_area, (y3-y1)/twice_area, (y1-y2)/twice_area)
+    dy = ((x3-x2)/twice_area, (x1-x3)/twice_area, (x2-x1)/twice_area)
+    for i in 1:3
+        p, q = pq[i, 1], pq[i, 2]
+        rx = 6(i-1)+4; ry = rx+1; rz = rx+2
+        M[rx, rz] -= p; M[ry, rz] -= q
+        M[rz, rx] += p; M[rz, ry] += q
+        for j in 1:3
+            ux = 6(j-1)+1; uy = ux+1; uz = ux+2
+            M[rx, ux] -= 0.5p*dy[j]; M[rx, uy] += 0.5p*dx[j]
+            M[ry, ux] -= 0.5q*dy[j]; M[ry, uy] += 0.5q*dx[j]
+            M[rz, uz] += -p*dy[j]+q*dx[j]
+        end
+    end
+    return M
+end
+
 # Production PARAM,SNORM route. The historical function name is retained to
 # avoid churn in assembly and adjoint guards; FEMKernels selects the
 # normal-moment formulation.
@@ -172,7 +236,8 @@ end
 function apply_snorm_to_frame(v1::SVector{3,Float64}, v2::SVector{3,Float64}, v3::SVector{3,Float64},
                                indices::Vector{Int}, snorm_normals::Dict{Int, SVector{3,Float64}})
     if isempty(snorm_normals) || snorm_director_enabled() ||
-       (length(indices) == 4 && snorm_curvature_enabled())
+       (length(indices) == 4 && snorm_curvature_enabled()) ||
+       (length(indices) == 3 && tria3_snorm_normal_moment_enabled())
         return v1, v2, v3
     end
 

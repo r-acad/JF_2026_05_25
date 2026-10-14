@@ -588,7 +588,7 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
     w = make_wing(p)
     xcs, n_str_bays = chord_stations(w, p)
     etas, ribs, n_rib_bays = span_stations(w, p)
-    nh = p["mesh.elements_spar_height"]
+    nh = vertical_mesh_count(p["mesh.elements_spar_height"])
     g = refine_stringer_bays(stringer_grid(w, p, xcs, etas, ribs, nh),
                             get(p, "mesh.elements_between_stringers", 1))
     etas, ribs = g.etas, g.ribs
@@ -753,7 +753,7 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
         progress("leading_edge")
         layout=leading_edge_layout(p,length(ribs))
         le_ribs=ribs[layout.active_ribs]
-        nl = Int(p["leading_edge.chord_elements"])
+        nl = leading_edge_chord_count(p["leading_edge.chord_elements"])
         le_stations = leading_edge_mesh_stations(g,p,layout)
         hasproperty(le_stations,:metadata)&&(le_metadata=le_stations.metadata)
         le(i,j,k) = leading_edge_node!(reg,g,le_stations,i,j,k)
@@ -1092,6 +1092,7 @@ function model_info(m::Model, n_str_bays::Int, n_rib_bays::Int)
         ("Run-out threshold", fmt(get(p,"mesh.stringer_runout_ratio",1.0))),
         ("Stringer runout clearance", fmt(p["box.stringer_pitch"]*get(p,"mesh.stringer_runout_ratio",1.0))*" m in projected x"),
         ("Shell elements per stringer bay", string(get(p, "mesh.elements_between_stringers", 1))),
+        ("Vertical elements: spars, ribs and leading edge", string(g.nh)),
         ("Stringer direction", isempty(get(p,"box.rear_spar_points",Any[])) ?
             fmt(p["box.stringer_angle"]) * " deg to the base rear spar (straight paths)" :
             "Piecewise rear-spar directions with endpoint angle offsets; continuous paths"),

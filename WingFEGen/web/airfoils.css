@@ -5,15 +5,16 @@
 .airfoil-source-editor .row:has(select) { grid-template-columns:minmax(0,1fr); gap:5px; }
 .airfoil-database[hidden],.airfoil-browser[hidden] { display:none; }
 .airfoil-selected { font-size:11px; overflow-wrap:anywhere; }
-.airfoil-selected svg { width:100%; max-height:130px; background:#0e1822; border-radius:3px; }
-.airfoil-selected svg path { fill:#79c2eb22; stroke:#79c2eb; stroke-width:.003; }
+.airfoil-selected svg { display:block; width:100%; max-height:230px; background:#0e1822; border-radius:3px; }
+.airfoil-selected svg .airfoil-outline { fill:#79c2eb22; stroke:#79c2eb; }
+.airfoil-selected svg text { paint-order:stroke; stroke:#0e1822; stroke-width:.009; stroke-linejoin:round; }
 .airfoil-selected a { color:#79c2eb; }
 .airfoil-selected details { margin:7px 0; }
 .airfoil-browser input,.airfoil-browser select { width:100%; box-sizing:border-box; padding:5px; margin:7px 0; font:inherit; color:#deebf7; background:#111c28; border:1px solid #40566c; border-radius:3px; }
 .airfoil-browser select { font-size:11px; }
 .airfoil-browser .mini { margin:0 5px 5px 0; }
 .airfoil-preview-canvas { min-width:0; overflow:hidden; margin:7px 0; }
-.airfoil-preview-canvas svg path { stroke-width:1.4px; vector-effect:non-scaling-stroke; }
+.airfoil-preview-canvas svg .airfoil-outline { stroke-width:1.4px; vector-effect:non-scaling-stroke; }
 .airfoil-preview-error { padding:8px; border:1px solid #a25b67; border-radius:4px; background:#48242d; color:#ffd3d9; font-size:12px; line-height:1.5; }
 .airfoil-preview-error[hidden] { display:none; }
 .airfoil-preview-warning { color:#ffd29a; font-size:12px; line-height:1.5; }

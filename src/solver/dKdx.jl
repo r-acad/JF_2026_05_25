@@ -150,14 +150,15 @@ end
 
 """
 Fail explicitly when an element-local analytical/AD/FD derivative would omit
-one of the production CQUAD4 physical-coordinate maps.  The normal-moment and
+one of the production shell physical-coordinate maps.  The normal-moment and
 finite-warp maps are independent of material/thickness variables, but their
 work-dual congruences still have to wrap `dKe`; the current local derivative
 kernels build only the projected basic matrix.  Node-coordinate derivatives
 already use full-model finite differences and bar-only variables do not touch
-CQUAD4, so neither is restricted here.
+CQUAD4/CTRIA3, so neither is restricted here. The function name is retained
+for callers predating the triangle normal-moment map.
 """
-function _guard_mapped_quad4_local_dkdx!(dv, model, id_map, node_coords)
+function _guard_mapped_quad4_local_dkdx!(dv, model, id_map, node_coords; response_context=false)
     dv_type = string(dv["type"])
     dv_type in ("bar_area", "node_coord") && return nothing
     haskey(model, "CSHELLs") || return nothing
@@ -173,7 +174,7 @@ function _guard_mapped_quad4_local_dkdx!(dv, model, id_map, node_coords)
     snorm_angle = isempty(override_raw) ? base_angle :
         something(tryparse(Float64, override_raw), base_angle)
     snorm_normals =
-        snorm_curvature_enabled() && snorm_angle > 0.0 ?
+        (snorm_curvature_enabled() || tria3_snorm_normal_moment_enabled()) && snorm_angle > 0.0 ?
         compute_shell_nodal_normals(model, id_map, node_coords, snorm_angle) :
         Dict{Int,SVector{3,Float64}}()
     frame_mode = q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_STATIC")
@@ -182,9 +183,28 @@ function _guard_mapped_quad4_local_dkdx!(dv, model, id_map, node_coords)
     for (eid_key, el) in model["CSHELLs"]
         nids = get(el, "NODES", nothing)
         nids === nothing && continue
-        length(nids) == 4 || continue
+        length(nids) in (3, 4) || continue
         _dkdx_targets_quad4(dv, eid_key, el, model) || continue
         all(nid -> haskey(id_map, nid), nids) || continue
+
+        if length(nids) == 3
+            indices = ntuple(k -> id_map[nids[k]], 3)
+            points = ntuple(k -> SVector{3}(
+                node_coords[indices[k],1], node_coords[indices[k],2],
+                node_coords[indices[k],3]), 3)
+            frame = shell_element_frame_fast(points..., SVector(0.0,0.0,0.0), 3)
+            pq = tria3_snorm_element_pq(frame..., indices, snorm_normals)
+            if pq !== nothing && any(!iszero, pq)
+                eid = get(el, "ID", eid_key)
+                dv_label = get(dv, "id", dv_type)
+                operation = response_context ? "Native CTRIA3 shell response/gradient" : "Element-local CTRIA3 dK/dx"
+                error("[ADJOINT] $operation is unsupported for " *
+                    "an active PARAM,SNORM normal-moment map (EID $eid, DV $dv_label). " *
+                    "Use captured analytic shell operators or a full end-to-end " *
+                    "finite-difference sensitivity; node_coord already uses that route.")
+            end
+            continue
+        end
 
         indices = ntuple(k -> id_map[nids[k]], 4)
         points = ntuple(k -> SVector{3}(
@@ -196,7 +216,7 @@ function _guard_mapped_quad4_local_dkdx!(dv, model, id_map, node_coords)
             points[1], points[2], points[3], points[4], frame_mode)
 
         active_snorm = false
-        if !isempty(snorm_normals)
+        if snorm_curvature_enabled() && !isempty(snorm_normals)
             pq = snorm_element_pq(v1, v2, v3, indices, snorm_normals)
             active_snorm = pq !== nothing && FEM.quad4_snorm_pq_has_active_rows(pq)
         end
@@ -393,7 +413,7 @@ function _shell_elem_local_data(el, model, id_map, node_coords, node_R)
     # solver's per-solution-sequence value, an unpassed keyword would compute
     # dK/dx from a different operator than K, i.e. a sensitivity of the wrong
     # matrix. Resolve it once, here, from the same source the assembly uses.
-    k6rot = solver_k6rot(get(model, "PARAM_K6ROT", nastran_k6rot_default(model)), false)
+    k6rot = solver_k6rot(get(model, "PARAM_K6ROT", reference_k6rot_default(model)), false)
 
     return (n_nodes=n_nodes, lc=lc, T_mat=T_mat, dofs=dofs, ndof_elem=ndof_elem,
             prop=prop, mat=mat, pid_str=pid_str, mid_str=mid_str, idxs=idxs,

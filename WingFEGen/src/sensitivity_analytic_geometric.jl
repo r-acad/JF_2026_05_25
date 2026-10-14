@@ -3,7 +3,7 @@
 const SENSITIVITY_GEOMETRIC_KEYS=Symbol.(split("""
 n pid is_pcomp_clt pcomp_is_isotropic is_ortho is_mat2 prop
 lc_buf4 lc3 u_elem24 u_elem18 T_buf T18 dofs_buf24 dofs_t3 Kg_global Kg18
-kg_nastran_kdjj_iso_branch kg_nastran_kdjj_pcomp_branch kg_flat_dkmq_branch kg_flat_plate_branch
+kg_reference_kdjj_iso_branch kg_reference_kdjj_pcomp_branch kg_flat_dkmq_branch kg_flat_plate_branch
 kg_covariant_branch kg_global_ready assumed_transverse warp_preload_map
 elem_mitc4_3d_kg_recovery elem_snorm_curvature_kg kg_coupled_projected
 kg_compatible_membrane elem_membrane_incomp_kg kg_iso_exact_membrane kg_membrane_selc
@@ -47,11 +47,11 @@ function sensitivity_geometric_shell_replay(native,ctx,direction=Dict(),x=0.;loc
         sigma=N./c.h
         isclt&&S.kg_shell_apply_pcomp_nxy_scale!(sigma,g(:kg_shell_pcomp_nxy),g(:kg_shell_pcomp_nxy_compression_only_v))
         K=F.geometric_stiffness_tria3(g(:lc3),sigma,c.h;trans_mode=g(:kg_trans_mode),curvature=nothing,curvature_sign=g(:kg_curvature_sign))
-    elseif g(:kg_nastran_kdjj_iso_branch,false)
+    elseif g(:kg_reference_kdjj_iso_branch,false)
         warp=g(:warp_preload_map);ue=warp===nothing ? u : warp*u
-        K=F.geometric_stiffness_quad4_nastran_kdjj_iso(g(:lc_buf4),ue,c.E,c.nu,c.h;assumed_transverse=g(:assumed_transverse,false))
+        K=F.geometric_stiffness_quad4_reference_kdjj_iso(g(:lc_buf4),ue,c.E,c.nu,c.h;assumed_transverse=g(:assumed_transverse,false))
     else
-        for key in (:kg_nastran_kdjj_pcomp_branch,:kg_flat_dkmq_branch,:kg_flat_plate_branch,:kg_covariant_branch,
+        for key in (:kg_reference_kdjj_pcomp_branch,:kg_flat_dkmq_branch,:kg_flat_plate_branch,:kg_covariant_branch,
                 :kg_global_ready,:elem_mitc4_3d_kg_recovery,:kg_coupled_projected)
             g(key,false)&&reject("unsupported resolved native branch $key")
         end
