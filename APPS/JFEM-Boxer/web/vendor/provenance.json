@@ -1,0 +1,63 @@
+{
+  "verified_at": "2026-10-08",
+  "dependencies": [
+    {
+      "package": "babylonjs",
+      "version": "9.27.1",
+      "metadata_url": "https://registry.npmjs.org/babylonjs/9.27.1",
+      "tarball_url": "https://registry.npmjs.org/babylonjs/-/babylonjs-9.27.1.tgz",
+      "tarball_integrity": "sha512-OMkeegejudhCw7fTco+m7h2iu3Lp8I1jlq4vAjOIe46sgJtR1zIbuOrhHd6lUTYDDPpxpSswiCZYev2yWFvynA==",
+      "license": "Apache-2.0",
+      "upstream_file": "package/babylon.js",
+      "filename": "babylon.js",
+      "upstream_bytes": 8562017,
+      "upstream_sha256": "43c3c68af157ef26b505dc21e1041f6a2fae934259c25d8d4f936330594ef825",
+      "local_bytes": 8562017,
+      "local_sha256": "43c3c68af157ef26b505dc21e1041f6a2fae934259c25d8d4f936330594ef825",
+      "exact_match": true,
+      "same_without_crlf": true,
+      "license_entries": [
+        "package/license.md",
+        "package/NOTICE.md"
+      ]
+    },
+    {
+      "package": "babylonjs-loaders",
+      "version": "9.27.1",
+      "metadata_url": "https://registry.npmjs.org/babylonjs-loaders/9.27.1",
+      "tarball_url": "https://registry.npmjs.org/babylonjs-loaders/-/babylonjs-loaders-9.27.1.tgz",
+      "tarball_integrity": "sha512-7EjBId2OAaRtuCFIZN4asiKeAnE9JH6lIE5kXGqwzMZqr8Vf+N+x4F0lvttHKYPK4sTr+PB4JsckokkVVYE5vQ==",
+      "license": "Apache-2.0",
+      "upstream_file": "package/babylonjs.loaders.min.js",
+      "filename": "babylonjs.loaders.min.js",
+      "upstream_bytes": 846654,
+      "upstream_sha256": "326280024c28fd5db6b23917dc99040c1891ad848a044de104e8af99fa83e53e",
+      "local_bytes": 846654,
+      "local_sha256": "326280024c28fd5db6b23917dc99040c1891ad848a044de104e8af99fa83e53e",
+      "exact_match": true,
+      "same_without_crlf": true,
+      "license_entries": [
+        "package/license.md"
+      ]
+    },
+    {
+      "package": "@msgpack/msgpack",
+      "version": "2.8.0",
+      "metadata_url": "https://registry.npmjs.org/@msgpack/msgpack/2.8.0",
+      "tarball_url": "https://registry.npmjs.org/@msgpack/msgpack/-/msgpack-2.8.0.tgz",
+      "tarball_integrity": "sha512-h9u4u/jiIRKbq25PM+zymTyW6bhTzELvOoUd+AvYriWOAKpLGnIamaET3pnHYoI5iYphAHBI4ayx0MehR+VVPQ==",
+      "license": "ISC",
+      "upstream_file": "package/dist.es5+umd/msgpack.min.js",
+      "filename": "msgpack.min.js",
+      "upstream_bytes": 31572,
+      "upstream_sha256": "43f39b184e9aebefca2b258ddfcdf03ce382190bca3e2e9e78d0b9b432d181b8",
+      "local_bytes": 31572,
+      "local_sha256": "43f39b184e9aebefca2b258ddfcdf03ce382190bca3e2e9e78d0b9b432d181b8",
+      "exact_match": true,
+      "same_without_crlf": true,
+      "license_entries": [
+        "package/LICENSE"
+      ]
+    }
+  ]
+}

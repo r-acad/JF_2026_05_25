@@ -49,7 +49,12 @@ Fields are grouped by concern:
     autospc_rot_rel                  same for rotational; default 1e-8
 
   Other
-    k6rot                            drilling DOF stiffness coefficient; default 100.0
+    k6rot                            legacy provenance field; ENV general override or 0.0
+
+The legacy `k6rot` field does not drive assembly. Effective drilling stiffness
+uses the assembly's deck/sequence default and branch-specific ENV precedence.
+Use `sol105_options_metadata` for result reporting; it resolves the effective
+static setting and explicitly identifies a reused static eigen operator.
 
 These map 1:1 to entries in `SOL105_CALIBRATED_CONSTANTS`.
 """
@@ -144,6 +149,32 @@ reproducibility footer in long-running optimization runs.
 function summary(opts::SOL105Options, io::IO=stdout)
     println(io, "SOL105Options:")
     for fn in fieldnames(SOL105Options)
-        println(io, "  $fn = $(getfield(opts, fn))")
+        println(io, "  $fn = $(getfield(opts, fn))", fn === :k6rot ? " (legacy option; not consumed by assembly)" : "")
     end
+end
+
+"""
+Result metadata retaining the options fields while reporting effective K6ROT.
+The normal SOL105 pipeline reuses its static stiffness for the eigenproblem,
+so JFEM_PARAM_K6ROT_EIG is not consulted on that route. A separately supplied
+eigen operator has unknown provenance and is reported as such rather than
+assuming it was assembled with the current ENV.
+"""
+function sol105_options_metadata(opts::SOL105Options, model; shared_stiffness::Bool=true)
+    result = Dict{String,Any}(string(field)=>getfield(opts,field) for field in fieldnames(SOL105Options))
+    static = k6rot_metadata(model,false)
+    result["k6rot"] = static["value"]
+    result["k6rot_static"] = static["value"]
+    result["k6rot_eigen"] = shared_stiffness ? static["value"] : nothing
+    result["k6rot_legacy_option"] = opts.k6rot
+    result["k6rot_legacy_option_consumed"] = false
+    result["k6rot_resolution"] = Dict{String,Any}(
+        "static"=>static,
+        "eigen"=>shared_stiffness ? merge(copy(static),Dict("operator_source"=>"reused_static_stiffness")) :
+            Dict("value"=>nothing,"source"=>"unknown","operator_source"=>"separately_supplied_operator"),
+        "eigen_stiffness_reuses_static"=>shared_stiffness,
+        "eigen_override_used"=>shared_stiffness ? false : nothing,
+        "note"=>"K6ROT is the global drilling coefficient; element formulations may disable the drilling contribution for specific elements. The legacy options field does not control assembly.",
+    )
+    return result
 end

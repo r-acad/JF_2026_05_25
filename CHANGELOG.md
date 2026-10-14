@@ -5,11 +5,41 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### JFEM-Boxer and simpler installation
+
+- Rename the model-generator app to JFEM-Boxer; group browser apps in `APPS/`
+  and make `__Start here!__/` the installation entry point. Add top-level
+  double-click launchers for Boxer, PANDEATOR, the results viewer and standalone
+  JFEM with a deck chooser. Retain portable Study formats and Julia module APIs.
+- Unify the solver and all apps in one root Julia environment, with the same
+  package versions and shared sysimage built automatically by setup. Select it
+  in app/worker processes, validate source/runtime receipts, and retain an
+  explicit source-only opt-out. Keep launcher and worker repository selection
+  anchored to the same checkout, including legacy launch shortcuts.
+  Fail the build when a required application warm-up or result check fails.
+- Adapt both local servers to the shared HTTP API, preserving large uploads,
+  PANDEATOR analysis requests and automatic fallback when a port is occupied.
+- Add per-case TAS in m/s, knots or Mach and altitude in metres, feet or flight
+  levels, with ISA 1976 pressure, temperature, density and speed of sound.
+  Preserve existing studies' manually defined atmospheric data.
+- Pick sensitivity response nodes/elements directly from its form. Explain
+  saved runs, use blue cached-solver loading notices with integer seconds, and
+  publish progress safely when a Windows reader temporarily locks the file.
+- Add structural mass-distribution ellipsoids, independent ground/self-shadow
+  controls, separate Connections/Constraints selectors and dismissible errors.
+  Correct the load-connection label to RBE3 for Loads. Keep shadows visible
+  across solid/translucent rendering and let users close startup failures.
+- Report effective K6ROT settings and their origin in SOL105 metadata, matching
+  the shared operator actually assembled. Solver equations are unchanged.
+- Retain useful public tests with an explanatory README, organize validation
+  independently of a manuscript, and update the illustrated installation/user
+  guides with the new layout, automatic images and an interpretable results view.
+
 ### Documentation
 
 - Simplify installation into illustrated numbered steps, keep advanced setup
   options separate, and place the installation PDF beside its launch scripts in
-  `JFEM_installation`. Add app screenshots and launch-file illustrations to the
+  `__Start here!__`. Add app screenshots and launch-file illustrations to the
   Markdown guides. Publish the supplied aircraft-design buckling assignment
   unchanged in `Reference_documentation/07_Exercises` and update the guide links.
 
@@ -31,8 +61,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 - **Unified app installation and published getting-started guides.** Group the
-  illustrated FGen and installation PDFs under `Reference_documentation/00_Getting_Started`.
-  Use one setup procedure for JFEM, FGen, PANDEATOR and the bundled results viewer,
+  illustrated JFEM-Boxer and installation PDFs under `Reference_documentation/00_Getting_Started`.
+  Use one setup procedure for JFEM, JFEM-Boxer, PANDEATOR and the bundled results viewer,
   with optional sysimage creation and documented build/rebuild/use commands.
   Remove workspace and infrastructure documents from the public documentation
   tree, retaining indexed private copies. Remove publication-exclusion discussion
@@ -41,7 +71,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   unchanged by that terminology cleanup. Import the production timing helpers
   in standalone constraint test harnesses and declare installer-test standard
   libraries so the complete release suite can run in Julia's isolated test environment.
-- **FGen installation and illustrated guides.** Install both Julia project
+- **JFEM-Boxer installation and illustrated guides.** Install both Julia project
   environments through one setup command, with missing-package checks on first
   launch. Document Julia installation, GitHub download, standalone solving and
   the app workflow with screenshots captured from a running synthetic study.
@@ -1479,7 +1509,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   alone and remain accuracy FAILs: no published per-mesh band supports widening
   them. Both are correctly posed — in particular the pinched cylinder's
   `P/4 = 0.25` octant load is correct, superseding an earlier note in
-  `PAPER_VALIDATION_SUMMARY.md` that claimed it was under-loaded.
+  `VALIDATION_SUMMARY.md` that claimed it was under-loaded.
 
 ### Added
 - `validation/cases/macneal_harder/twisted_beam_out_of_plane.bdf` and the
@@ -2246,7 +2276,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   curvature.
 - Expanded the public installation documentation so new users can install
   Julia packages and build the local sysimage by running one platform-specific
-  setup file from `JFEM_installation/`.
+  setup file from `__Start here!__/`.
 - Separated private development state, editable document sources and reviewed
   publication PDFs in the documentation workflow.
 - Refreshed `Reference_documentation/` as a PDF-only folder populated from the
@@ -2262,27 +2292,27 @@ Versions follow [Semantic Versioning](https://semver.org/).
   moved out of the public repository into the private validation workspace.
 - Moved the top-level `tools/` tree out of the GitHub-published repository.
   User-facing runtime entry points now live under
-  `JFEM_installation/julia_tools/`, while non-public development, guard, and
+  `__Start here!__/julia_tools/`, while non-public development, guard, and
   validation helper scripts are kept in the private development workspace.
   The public validation suite remains under `validation/`.
-- Grouped all Julia helper scripts in `JFEM_installation/julia_tools/` so the
+- Grouped all Julia helper scripts in `__Start here!__/julia_tools/` so the
   installation folder keeps only launchers, assets, and documentation at the
   top level.
 - Updated the optional package precompile workload to use the bundled public
-  precompile decks under `JFEM_installation/examples/precompile/` instead of
+  precompile decks under `__Start here!__/examples/precompile/` instead of
   private validation paths.
 - Removed the repository-local `AGENTS.md` from the public tree; public-repo
   agent operating notes now live only in the private agentic-development area.
-- Split `POST/` into two user-facing app folders: `POST/JFEM_results_viewer/`
-  for standalone `.jfem` file viewing and `POST/PANDEATOR_APP/` for the
+- Split `APPS/` into two user-facing app folders: `APPS/JFEM_results_viewer/`
+  for standalone `.jfem` file viewing and `APPS/PANDEATOR_APP/` for the
   Julia-server-backed model builder/deck runner.
-- Renamed the case-runner app folder `POST/case_runner_web_app/` to
-  `POST/PANDEATOR_APP/`, and updated all code, launcher, ignore-rule, and
+- Renamed the case-runner app folder `APPS/case_runner_web_app/` to
+  `APPS/PANDEATOR_APP/`, and updated all code, launcher, ignore-rule, and
   documentation references.
-- Renamed the `POST/PANDEATOR_APP/` launchers to
+- Renamed the `APPS/PANDEATOR_APP/` launchers to
   `RUN_PANDEATOR_WINDOWS.cmd` and `RUN_PANDEATOR_MAC_LINUX.sh` (was
   `panel_app.cmd` / `panel_app.sh`), and updated all documentation references.
-- Improved the `POST/PANDEATOR_APP/` browser app: the *Analyze* button now
+- Improved the `APPS/PANDEATOR_APP/` browser app: the *Analyze* button now
   floats at the top-right of the 3D view and appears only when the model needs
   (re)analysing; SOL 105 / SOL 103 runs list every eigenvalue (buckling factors
   or natural frequencies) below the result selector; and the total model mass is
@@ -2291,20 +2321,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
 ### Added
 - Published a linear-buckling exercise presentation,
   `Reference_documentation/07_Exercises/jfem_2026_linear_buckling_exercise.pdf`.
-  It walks through the `POST/PANDEATOR_APP/` SOL 105 workflow, documents the
+  It walks through the `APPS/PANDEATOR_APP/` SOL 105 workflow, documents the
   reference axes, loads, and boundary conditions of the cylindrical stiffened
   panel, explains the eigenvalue-buckling theory and its limitations, and sets a
   structural-sizing exercise (drive the lowest buckling factor to
   $\lambda_1 \approx 1.0$ by changing thickness or laminate).
 - Published the method-origins and bibliography review,
   `Reference_documentation/03_Formulation_and_Sensitivities/jfem_method_origins_review.pdf`.
-- Added one first-time setup launcher per platform under `JFEM_installation/`.
+- Added one first-time setup launcher per platform under `__Start here!__/`.
   Each launcher installs Julia packages and creates the optional sysimage:
   `CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd`,
   `RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh`, and
   `CLICK_MAC_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.command`. Generated images are
   written under `sysimage/`. Bundled precompile decks, manifest templates, and
-  Python helper clients now live under `JFEM_installation/` instead of top-level
+  Python helper clients now live under `__Start here!__/` instead of top-level
   `examples/` and `python_client/` folders.
 - Added `src/backend/tacs_formulation/core.jl` as a no-behavior-change typed
   contract layer for future TACS-core expansion. The existing shell route now
@@ -2659,7 +2689,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   (MacNeal-Harder, classical buckling, MYSTRAN cross-checks, and CRM/uCRM),
   explicitly excludes validation/tail-box/curved-shell private cases, and keeps a compatibility
   wrapper under `tools/validation_suite/`. The folder now includes
-  `CASE_INVENTORY.csv`, `PAPER_VALIDATION_SUMMARY.md`, and convenience launchers.
+  `CASE_INVENTORY.csv`, `VALIDATION_SUMMARY.md`, and convenience launchers.
 - SOL 105 buckling: optional **load-aware shear kernel** (opt-in via
   `JFEM_SOL105_LOAD_AWARE_KERNEL`, default off). On warped/curved PCOMP elements
   under shear preload, JFEM's default MITC4+phi2 transverse shear diverges from
@@ -2811,8 +2841,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
   DOF still solve densely). Set to 0 to force the iterative path at every size.
 
 ### Fixed
-- Windows launchers (`POST/RUN_PANDEATOR_WINDOWS.cmd`, `jfem.cmd`,
-  `JFEM_installation/CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd`) now work when the install path contains
+- Windows launchers (`APPS/RUN_PANDEATOR_WINDOWS.cmd`, `jfem.cmd`,
+  `__Start here!__/CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd`) now work when the install path contains
   parentheses or spaces (e.g. a browser download named
   `...\JF_2026_05_25-main (7)\...`). Previously the `)` inside such a path
   prematurely closed the `if exist (...)` block, producing
@@ -2820,11 +2850,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
   delayed expansion and referencing/quoting paths as `!VAR!`.
 
 ### Changed
-- `POST/panel_launch.jl`: the web app now opens exactly ONE browser tab on
+- `APPS/panel_launch.jl`: the web app now opens exactly ONE browser tab on
   launch. Previously up to four tabs appeared because `explorer.exe` returns a
   non-zero exit code even on success (triggering a second `start` fallback) and
   the launcher also called the opener twice; both are fixed.
-- `POST/panel_app.html`: the Analyze button now turns RED when any model/analysis
+- `APPS/panel_app.html`: the Analyze button now turns RED when any model/analysis
   input changes (results are stale) and GREEN once results are available, giving
   clear at-a-glance feedback on whether the shown results match the inputs.
 - `README.md` and `Reference_documentation/case_submission_methods.md`: document
@@ -2834,7 +2864,7 @@ Versions follow [Semantic Versioning](https://semver.org/).
   Linux/macOS also need the execute bit (`chmod +x jfem`).
 - Dense BLAS (the Cholesky factorization in SOL 101/105 and the eigensolve in
   SOL 103/105) now runs on the physical-core count instead of OpenBLAS's
-  default (~half the logical processors). The web server (`POST/panel_server.jl`)
+  default (~half the logical processors). The web server (`APPS/panel_server.jl`)
   and the `jfem`/`tools/jfem.jl` runner set this at startup; benchmarks show the
   physical-core count is the fastest setting for FE factorization (all-logical
   hyperthreads are slower). The server logs the chosen BLAS/thread counts.
@@ -2843,16 +2873,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
   `JSON`) and a precompile workload that drives the server's own `run_analysis`
   + HTTP-handler + msgpack path on the bundled decks, so the FIRST browser
   Analyze no longer pays just-in-time compilation for the solve/export path.
-- `POST/panel_server.jl`: `/health` and the startup banner now report whether
+- `APPS/panel_server.jl`: `/health` and the startup banner now report whether
   the process is running inside a custom sysimage and the Julia/BLAS thread
   counts, and each run logs a per-phase timing breakdown (parse / build / solve
   / export). The `/analyze` response includes a `timings` map and the web app
   surfaces a phase breakdown, so a slow run is diagnosable.
-- `POST/panel_app.html`: 3D viewer camera controls. Double-clicking the empty
+- `APPS/panel_app.html`: 3D viewer camera controls. Double-clicking the empty
   background resets and recenters the view on the model (an escape hatch for
   getting lost after rotating/panning); middle-clicking a point on the model
   makes that point the camera's rotation center without moving the eye.
-- `POST/panel_server.jl`: the solve now runs on a worker thread (still
+- `APPS/panel_server.jl`: the solve now runs on a worker thread (still
   serialised by the solve lock) and `HTTP.serve` uses `readtimeout=0`, so the
   server stays responsive to health checks and other requests during long
   multi-minute solves. This removes the spurious `ECANCELED` connection errors
@@ -2899,11 +2929,11 @@ Versions follow [Semantic Versioning](https://semver.org/).
   off until it has a native load-classified reassembly path.
 
 ### Added
-- `JFEM_installation/` folder: clearly identified, cross-platform sysimage build
+- `__Start here!__/` folder: clearly identified, cross-platform sysimage build
   scripts with explicit Windows, Linux, and macOS filenames, plus a `README.md`
   with step-by-step instructions. Building a sysimage is
   optional (everything runs without one, just slower to start); the launchers
-  load it automatically when present. `POST/RUN_PANDEATOR_MAC_LINUX.sh` now loads a
+  load it automatically when present. `APPS/RUN_PANDEATOR_MAC_LINUX.sh` now loads a
   `.so`/`.dylib` sysimage when present and uses plain `julia` (dropped the
   juliaup-only `+release`), matching `RUN_PANDEATOR_WINDOWS.cmd`.
 - `Reference_documentation/jfem_method_origins_review.pdf`: literature review
@@ -3099,13 +3129,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
   derivative check on the first buckling factor.
 - `Reference_documentation/JFEM_TACS_Backend_Roadmap_Beamer.pdf`: roadmap
   slides for a TACS-style backend.
-- `POST/` stiffened-panel buckling web app: a pure-Julia HTTP + MsgPack
+- `APPS/` stiffened-panel buckling web app: a pure-Julia HTTP + MsgPack
   server (`panel_server.jl`, `panel_launch.jl`, `RUN_PANDEATOR_WINDOWS.cmd`/`RUN_PANDEATOR_MAC_LINUX.sh`) plus a
   single-file Babylon.js front-end (`panel_app.html`, vendored libs under
-  `POST/vendor/`). Generates a SOL 105 cylindrical stiffened-panel deck,
+  `APPS/vendor/`). Generates a SOL 105 cylindrical stiffened-panel deck,
   solves it through OpenJFEM in-process, and renders the buckling modes and
   static results in 3D with load/BC overlays. Adds `HTTP` and `MsgPack` to
-  the project dependencies; ignores `POST/panel_runs/` run artifacts.
+  the project dependencies; ignores `APPS/panel_runs/` run artifacts.
 - SOL 105 `.jfem` export now carries a STATIC results block (format bumped
   to v5): the static-preload nodal displacement (rotated to global) plus
   per-element von Mises stress, an equivalent membrane strain, and a
@@ -3125,19 +3155,19 @@ Versions follow [Semantic Versioning](https://semver.org/).
   PowerPoint companion (10.4 MB).
 
 ### Changed
-- `POST/RUN_PANDEATOR_WINDOWS.cmd`: launch with plain `julia` instead of `julia +release`
+- `APPS/RUN_PANDEATOR_WINDOWS.cmd`: launch with plain `julia` instead of `julia +release`
   so the app runs on machines without juliaup (a standalone `julia.exe`
   treats `+release` as a bad path and errors). Now also auto-loads a
   prebuilt sysimage via `--sysimage` when `sysimage/OpenJFEM_sysimage.dll`
   exists, for near-instant startup, and falls back to a normal start when
-  it does not. The `JFEM_installation/` helper scripts build that sysimage
+  it does not. The `__Start here!__/` helper scripts build that sysimage
   once per machine via `tools/deploy_fast.jl` (the `.dll` is git-ignored
   and machine-specific).
-- `POST/panel_app.html`: clicking "Analyze (SOL 105)" now shows a modal
+- `APPS/panel_app.html`: clicking "Analyze (SOL 105)" now shows a modal
   overlay with a spinner and a live elapsed-seconds counter (updates
   10x/sec) while the solver runs; it closes automatically when results are
   ready or on error.
-- `POST/` web app can now run an arbitrary deck, not just the form-built
+- `APPS/` web app can now run an arbitrary deck, not just the form-built
   stiffened panel. A sidebar "Analysis source" toggle switches between
   "Build stiffened panel" (unchanged) and "Run a .bdf file", where the user
   gives a server-side path to a `.bdf`/`.dat`/`.nas` deck. The deck runs in

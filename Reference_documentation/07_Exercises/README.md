@@ -8,11 +8,11 @@
    A companion exercise for the repository's solver and panel workflow.
 
 For this checkout, start with the current
-[illustrated installation guide](../../JFEM_installation/jfem_2026_installation_guide.pdf)
-or [numbered instructions with copyable commands](../../JFEM_installation/INSTALLATION.md).
+[illustrated installation guide](<../../__Start here!__/jfem_2026_installation_guide.pdf>)
+or [numbered instructions with copyable commands](<../../__Start here!__/INSTALLATION.md>).
 The original assignment's older download links and installation process have
 deliberately been retained as reference material.
 
-![Current PANDEATOR interface with its default stiffened panel](../../JFEM_installation/images/pandeator.png)
+![Current PANDEATOR interface with its default stiffened panel](<../../__Start here!__/images/pandeator.png>)
 
 This image shows the current app; the original PDF above has not been edited.

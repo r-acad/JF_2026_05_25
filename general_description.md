@@ -151,7 +151,7 @@ OpenJFEM includes several mechanisms intended for repeated SOL 105 runs:
 - Threaded shell stiffness and geometric-stiffness assembly.
 - A lean solver bootstrap path for solver-only workflows.
 - A full package precompile path using `PrecompileTools`.
-- One-command fast deployment with `JFEM_installation/julia_tools/deploy_fast.jl`, driven by
+- One-command fast deployment with `__Start here!__/julia_tools/deploy_fast.jl`, driven by
   bundled precompile decks, user representative decks, or JSON batch manifests.
 - Batch execution in one Julia process to avoid repeated startup and method
   compilation.
@@ -184,13 +184,13 @@ OpenJFEM includes several mechanisms intended for repeated SOL 105 runs:
 
 For production SOL 105 work, the recommended path is:
 
-1. Run `JFEM_installation/julia_tools/deploy_fast.jl` once with bundled or representative decks.
+1. Run `__Start here!__/julia_tools/deploy_fast.jl` once with bundled or representative decks.
 2. Use JSON manifests as the first production automation contract.
 3. Run command-line single cases with `run_bdf.jl` and command-line batches
    with `run_batch_manifest.jl`.
-4. For optimization loops, start `JFEM_installation/julia_tools/jfem_worker_jsonl.jl` once and
+4. For optimization loops, start `__Start here!__/julia_tools/jfem_worker_jsonl.jl` once and
    submit JSON manifests from Python using
-   `JFEM_installation/python_client/jfem_client.py`.
+   `__Start here!__/python_client/jfem_client.py`.
 5. Disable `.jfem` export unless interactive visualization is required.
 6. Set `output_options.eigenvalues_only=true` when the outer optimizer only
    needs SOL 105 buckling factors.
@@ -238,7 +238,7 @@ information, timing breakdowns, and solution-specific result tables.
 ## Browser Post-Processor
 
 The repository includes a standalone `.jfem` result viewer in
-`POST/JFEM_results_viewer/`:
+`APPS/JFEM_results_viewer/`:
 
 - `postv11.html`: interactive viewer.
 - `POST_GUIDE.html`: user guide for the viewer.
@@ -249,8 +249,8 @@ side-by-side model inspection.
 
 ## Interactive Analysis Web App
 
-`POST/PANDEATOR_APP/panel_app.html` (served by the pure-Julia
-`POST/PANDEATOR_APP/panel_server.jl`) is an
+`APPS/PANDEATOR_APP/panel_app.html` (served by the pure-Julia
+`APPS/PANDEATOR_APP/panel_server.jl`) is an
 interactive front end that both **builds and runs** a model. Its *Analysis
 source* toggle offers two paths:
 
@@ -265,9 +265,9 @@ source* toggle offers two paths:
 The solver runs in-process (loaded once), the browser communicates over
 msgpack-over-HTTP, and results are rendered in the same 3D viewer with
 SOL-aware labels plus the solver's markdown report. On Windows,
-`POST/PANDEATOR_APP/RUN_PANDEATOR_WINDOWS.cmd` launches the server (and, if a
+`APPS/PANDEATOR_APP/RUN_PANDEATOR_WINDOWS.cmd` launches the server (and, if a
 prebuilt sysimage is present, loads it for near-instant startup). See
-`POST/PANDEATOR_APP/PANEL_APP_README.md` for the runbook.
+`APPS/PANDEATOR_APP/PANEL_APP_README.md` for the runbook.
 
 ## Public Runner Scripts
 
@@ -275,22 +275,22 @@ The public command-line runner scripts are:
 
 - `jfem` / `jfem.cmd`: one-line wrappers (Linux/macOS and Windows) to analyze a
   single deck with good defaults and an optional `-letters` output-format
-  string; they call `JFEM_installation/julia_tools/jfem.jl`. This is the simplest entry point.
-- `JFEM_installation/julia_tools/deploy_fast.jl`: preferred fast deployment and broad precompile workflow.
-- `JFEM_installation/julia_tools/run_batch_manifest.jl`: preferred explicit JSON-manifest batch runner.
-- `JFEM_installation/julia_tools/jfem_worker_jsonl.jl`: persistent JSONL worker for Python-driven
+  string; they call `__Start here!__/julia_tools/jfem.jl`. This is the simplest entry point.
+- `__Start here!__/julia_tools/deploy_fast.jl`: preferred fast deployment and broad precompile workflow.
+- `__Start here!__/julia_tools/run_batch_manifest.jl`: preferred explicit JSON-manifest batch runner.
+- `__Start here!__/julia_tools/jfem_worker_jsonl.jl`: persistent JSONL worker for Python-driven
   optimization loops.
-- `JFEM_installation/python_client/jfem_client.py`: Python 3.8+ stdlib-only
+- `__Start here!__/python_client/jfem_client.py`: Python 3.8+ stdlib-only
   helper for writing batch manifests and controlling the JSONL worker.
-- `JFEM_installation/python_client/jfem_manifest_cli.py`: Python command-line
+- `__Start here!__/python_client/jfem_manifest_cli.py`: Python command-line
   helper for creating manifests and launching manifest-based runs from external
   workflows.
-- `JFEM_installation/julia_tools/jfem.jl`: simple single-case runner behind the `jfem`/`jfem.cmd`
+- `__Start here!__/julia_tools/jfem.jl`: simple single-case runner behind the `jfem`/`jfem.cmd`
   wrappers above (good defaults, optional `-letters` output-format string).
-- `JFEM_installation/julia_tools/run_bdf.jl`: explicit single-case runner with every flag spelled out.
-- `JFEM_installation/julia_tools/run_bdf_batch.jl`: simple text-list batch runner retained for existing
+- `__Start here!__/julia_tools/run_bdf.jl`: explicit single-case runner with every flag spelled out.
+- `__Start here!__/julia_tools/run_bdf_batch.jl`: simple text-list batch runner retained for existing
   scripts.
-- `JFEM_installation/julia_tools/run_manifest.jl`: shared manifest and environment-flag helper.
+- `__Start here!__/julia_tools/run_manifest.jl`: shared manifest and environment-flag helper.
 
 Each run writes `run_manifest.json`, recording input path, script path, command
 arguments, active flags, Git metadata when available, and output metadata.

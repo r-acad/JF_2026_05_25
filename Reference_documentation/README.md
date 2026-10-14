@@ -2,16 +2,16 @@
 
 | Guide | Contents |
 | --- | --- |
-| [Illustrated installation (PDF)](../JFEM_installation/jfem_2026_installation_guide.pdf) | Follow numbered steps to install Julia, download JFEM, run setup and open each app; optional sysimage instructions follow. |
-| [FGen user's guide (PDF)](00_Getting_Started/jfem_2026_fgen_user_guide.pdf) | Illustrated workflow for studies, geometry, meshes, properties, loads, analyses, results, sensitivities and display controls. |
+| [Illustrated installation (PDF)](<../__Start here!__/jfem_2026_installation_guide.pdf>) | Follow numbered steps to install Julia, download JFEM, run setup and open each app; optional sysimage instructions follow. |
+| [JFEM-Boxer user's guide (PDF)](00_Getting_Started/jfem_2026_fgen_user_guide.pdf) | Illustrated workflow for studies, geometry, meshes, properties, loads, analyses, results, sensitivities and display controls. |
 
-An [installation walkthrough in Markdown](../JFEM_installation/INSTALLATION.md)
-provides copyable commands. The [app README](../WingFEGen/README.md) and
-[sensitivity method notes](../WingFEGen/SENSITIVITY_METHOD.md) describe current
+An [installation walkthrough in Markdown](<../__Start here!__/INSTALLATION.md>)
+provides copyable commands. The [app README](../APPS/JFEM-Boxer/README.md) and
+[sensitivity method notes](../APPS/JFEM-Boxer/SENSITIVITY_METHOD.md) describe current
 features and limitations.
 
 Installation files and the printable guide are together in
-[JFEM_installation](../JFEM_installation/). The FGen guide remains in
+[__Start here!__](<../__Start here!__/>). The JFEM-Boxer guide remains in
 [Getting Started](00_Getting_Started/).
 Further references are organized by topic:
 
@@ -21,7 +21,7 @@ Further references are organized by topic:
 - [TACS backend](04_TACS_Backend/)
 - [Exercises](07_Exercises/)
 
-![FGen showing a generated lifting-surface model](../JFEM_installation/images/fgen-model.png)
+![JFEM-Boxer showing a generated lifting-surface model](<../__Start here!__/images/fgen-model.png>)
 
 The [original illustrated buckling assignment](07_Exercises/Linear_Finite_Elements_Buckling_exercises_AV_AC_DES_26.pdf)
 is preserved unchanged for reference. Its historical download links and installer

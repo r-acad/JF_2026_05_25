@@ -1,57 +1,15 @@
 @echo off
-REM ====================================================================
-REM  jfem.cmd - simplest way to analyze a .bdf on Windows.
-REM
-REM    jfem  model.bdf
-REM    jfem  model.bdf  my_output_folder
-REM    jfem  -rs  model.bdf            (choose which outputs to write)
-REM
-REM  The solution sequence (SOL 101/103/105/106) is auto-detected from the
-REM  deck. By default it writes the viewer-ready set (.jfem + REPORT.md + JSON)
-REM  to <deck_dir>\<deckname>_out\, or to the folder you name.
-REM
-REM  Optional output-format string BEFORE the deck (a '-' then letters, any
-REM  order): j=.jfem viewer  r=REPORT.md  s=results JSON  v=VTK  h=HDF5
-REM  m=model JSON  c=card inventory.  e.g.  jfem -jrsv model.bdf out
-REM
-REM  Tip: add this folder to your PATH so you can run `jfem` from anywhere.
-REM  Uses whatever `julia` is on PATH (Julia 1.13.1; no juliaup needed) and
-REM  auto-loads a local sysimage only when its source/build provenance matches.
-REM ====================================================================
-REM EnableDelayedExpansion so an install path containing parentheses or spaces
-REM (e.g. "...\JF_2026_05_25-main (7)\...") does not break the if-blocks below.
-setlocal EnableDelayedExpansion
-set "REPO_ROOT=%~dp0"
+setlocal DisableDelayedExpansion
 set "JFEM_BIN=%JFEM_JULIA%"
 if not defined JFEM_BIN set "JFEM_BIN=julia"
-where "!JFEM_BIN!" >nul 2>&1
-if errorlevel 1 if not exist "!JFEM_BIN!" (
-  echo Julia was not found. Install it from https://julialang.org/downloads/ and run setup.cmd.
+where "%JFEM_BIN%" >nul 2>&1
+if errorlevel 1 if not exist "%JFEM_BIN%" (
+  echo Julia was not found. Install Julia and run setup.cmd.
   exit /b 1
 )
 if "%~1"=="" (
-  echo usage:  jfem  [-formats]  ^<model.bdf^>  [output_folder]
-  echo example: jfem  C:\models\my_model.bdf
-  echo example: jfem  -rs  C:\models\my_model.bdf
+  echo usage: jfem [-formats] model.bdf [output_folder]
   exit /b 1
 )
-
-REM Optional sysimage for near-instant startup.
-REM Build it with JFEM_installation\CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd.
-set "SYSIMG_DLL=%REPO_ROOT%sysimage\OpenJFEM_sysimage.dll"
-set "SYSIMG_ARG="
-if exist "!SYSIMG_DLL!" (
-  "!JFEM_BIN!" --startup-file=no --threads=1 --project="!REPO_ROOT!." "!REPO_ROOT!JFEM_installation\julia_tools\check_sysimage.jl" "!REPO_ROOT!." "!SYSIMG_DLL!"
-  if not errorlevel 1 set "SYSIMG_ARG=--sysimage=!SYSIMG_DLL!"
-)
-
-REM Quote each path token so spaces/parentheses are handled; branch on whether a
-REM sysimage was found so we never pass an empty quoted argument to julia.
-if defined SYSIMG_ARG (
-  "!JFEM_BIN!" "!SYSIMG_ARG!" --project="!REPO_ROOT!." --threads=auto --startup-file=no "!REPO_ROOT!JFEM_installation\julia_tools\jfem.jl" %*
-) else (
-  "!JFEM_BIN!" --project="!REPO_ROOT!." --threads=auto --startup-file=no "!REPO_ROOT!JFEM_installation\julia_tools\jfem.jl" %*
-)
-
-set "JFEM_EXIT=!errorlevel!"
-endlocal & exit /b %JFEM_EXIT%
+"%JFEM_BIN%" --startup-file=no --threads=1 "%~dp0__Start here!__\julia_tools\launch.jl" solver "%~dp0." "%~dp0__Start here!__\julia_tools\jfem.jl" %*
+exit /b %errorlevel%

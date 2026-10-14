@@ -8,7 +8,7 @@
 #     in-plane (Fy) tip displacement    = 0.08734
 #     out-of-plane (Fz) tip displacement = 0.5022
 #
-# These reference values are from the cited paper and are the deep-shell /
+# These reference values are from the cited benchmark publication and are the deep-shell /
 # Bernoulli-Euler analytical results MacNeal & Harder used to score
 # finite elements.
 

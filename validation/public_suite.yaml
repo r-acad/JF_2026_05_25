@@ -91,7 +91,7 @@
 # published per-mesh spread exists for 4-node elements on the identical mesh,
 # `tol_rel` is set from that spread and the citation is given on the row. Where
 # it does not, the tolerance is left as it was and the row is allowed to FAIL
-# with the discrepancy documented in PAPER_VALIDATION_SUMMARY.md.
+# with the discrepancy documented in VALIDATION_SUMMARY.md.
 
 # ===========================================================================
 # Family 1: MacNeal -- Harder (1985) classical benchmark suite.
@@ -352,7 +352,7 @@
 #           buckling export now emits. That row verifies the stiffness matrix,
 #           the applied load and the boundary conditions on the identical mesh.
 #           It does NOT verify Kg or the eigensolver -- that remains the open
-#           item. See PAPER_VALIDATION_SUMMARY.md.
+#           item. See VALIDATION_SUMMARY.md.
 # ===========================================================================
 
 - id: TG_plate_uniaxial_buckling

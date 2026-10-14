@@ -1,0 +1,7 @@
+.flight-conditions { min-width: 0; margin: 10px 0; padding: 10px; border: 1px solid var(--border, #415062); border-radius: 7px; }
+.flight-conditions legend { font-weight: 600; padding: 0 5px; }
+.flight-conditions .case-field { margin: 5px 0; }
+.flight-conditions .case-field > label { min-width: 0; font-size: 12px; }
+.flight-conditions select, .flight-conditions input { min-width: 0; max-width: 100%; }
+.flight-conditions output { display: block; padding: 8px 0; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.flight-conditions .flight-condition-warning { color: #f6b76d; }

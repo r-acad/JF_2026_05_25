@@ -3432,7 +3432,8 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                 # footer — does not change behavior.
                 d = buckling_diag isa Dict{String,Any} ? buckling_diag :
                     Dict{String,Any}(string(k)=>v for (k,v) in buckling_diag)
-                d["sol105_options"] = opts
+                d["sol105_options"] = Solver.sol105_options_metadata(opts,model;
+                    shared_stiffness=(K_eig_static === K_static))
                 d["eigenvalue_extraction"] = Dict{String,Any}(
                     "type" => eigen_request.source,
                     "algorithm" => eigen_request.algorithm,

@@ -11,8 +11,8 @@ development notes live in a separate workspace and are deliberately kept out
 of Git. Only the following kinds of files belong here:
 
 - Julia source code in `src/`.
-- Public installation and automation helpers in `JFEM_installation/`.
-- Bundled installation/precompile decks in `JFEM_installation/examples/`.
+- Public installation and automation helpers in `__Start here!__/`.
+- Bundled installation/precompile decks in `__Start here!__/examples/`.
 - Finished PDFs and Markdown notes in `Reference_documentation/`.
 - Top-level metadata: `Project.toml`, `Manifest.toml`, `README.md`,
   `CHANGELOG.md`, `LICENSE`, `.gitignore`, `.gitattributes`.

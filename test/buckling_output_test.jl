@@ -9,7 +9,7 @@ const INPUT=abspath(ARGS[1])
 const OUTPUT=abspath(ARGS[2])
 isfile(INPUT) || throw(ArgumentError("Missing input deck: $INPUT"))
 mkpath(OUTPUT)
-include(joinpath(@__DIR__,"..","JFEM_installation","julia_tools","jfem_output_formats.jl"))
+include(joinpath(@__DIR__,"..","__Start here!__","julia_tools","jfem_output_formats.jl"))
 
 function solve_variant(name;compact=false,energy=false,density=false)
     model=O.bdf_to_model(INPUT)

@@ -42,16 +42,6 @@ if [ "$#" -lt 1 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
   [ "$#" -lt 1 ] && exit 1 || exit 0
 fi
 
-# Optional sysimage for near-instant startup (Linux .so, macOS .dylib).
-SYSIMG_ARG=()
-for ext in so dylib; do
-  cand="$REPO_ROOT/sysimage/OpenJFEM_sysimage.$ext"
-  if [ -f "$cand" ]; then
-    if "$JULIA_BIN" --startup-file=no --threads=1 --project="$REPO_ROOT" "$REPO_ROOT/JFEM_installation/julia_tools/check_sysimage.jl" "$REPO_ROOT" "$cand"; then
-      SYSIMG_ARG=(--sysimage="$cand"); break
-    fi
-  fi
-done
-
-exec "$JULIA_BIN" "${SYSIMG_ARG[@]}" --project="$REPO_ROOT" --threads=auto --startup-file=no \
-  "$REPO_ROOT/JFEM_installation/julia_tools/jfem.jl" "$@"
+exec "$JULIA_BIN" --startup-file=no --threads=1 \
+  "$REPO_ROOT/__Start here!__/julia_tools/launch.jl" solver "$REPO_ROOT" \
+  "$REPO_ROOT/__Start here!__/julia_tools/jfem.jl" "$@"

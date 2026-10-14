@@ -1,45 +1,36 @@
 # OpenJFEM
 
-OpenJFEM is a Julia finite-element solver for structural analysis and linear
-buckling. The complete repository includes **JFEM**, the **FGen** model generator,
-**PANDEATOR** for stiffened panels, and a browser **results viewer**.
+JFEM is a Julia finite-element solver for static, modal, buckling and nonlinear
+structural analysis. The repository includes **JFEM-Boxer**, **PANDEATOR** and a
+browser **results viewer**.
 
-## Start here
+## Start here / install once, double-click to run
 
-1. **Install Julia 1.13.1.** Use the [official downloads page](https://julialang.org/downloads/manual-downloads/). On Windows, select **Add Julia To PATH** in its installer.
-2. **Download and extract this repository.** Click **Code**, then **Download ZIP**, on [GitHub](https://github.com/r-acad/JF_2026_05_25). Keep the extracted folders together.
-3. **Run the automatic setup.** In the folder containing `setup.cmd`, open PowerShell and run `.\setup.cmd`. On macOS/Linux, run `bash setup.sh`. Wait for **Application dependency setup complete.**
-4. **Open your application** using the launch files below.
+1. Install **Julia 1.13.1** and **tick Add Julia to PATH** in the Windows installer.
+2. Download this repository with **Code / Download ZIP**, then **Extract All**.
+3. Double-click **setup.cmd**. Packages and the shared sysimage are installed/built automatically.
+4. Double-click **JFEM-Boxer.cmd**, **PANDEATOR.cmd**, **Results-viewer.cmd** or **JFEM-solver.cmd**.
 
-Follow the [illustrated installation PDF](JFEM_installation/jfem_2026_installation_guide.pdf)
-or the [numbered online walkthrough](JFEM_installation/INSTALLATION.md) for the
-clicks, screenshots and first example. Setup installs the packages for all four
-tools automatically; no manual package list is needed.
+The [five-step illustrated walkthrough](<__Start here!__/INSTALLATION.md>) and
+[installation PDF](<__Start here!__/jfem_2026_installation_guide.pdf>) explain every step.
+On macOS/Linux use `bash setup.sh` and `bash JFEM-Boxer.sh`.
 
-| Application | Start from the extracted repository |
+| Application | Purpose |
 | --- | --- |
-| **FGen**: lifting-surface models, analyses and results | Windows: double-click `WingFEGen/run_fe_generator.cmd`. Other systems: `julia --startup-file=no --project=WingFEGen WingFEGen/run.jl`. |
-| **PANDEATOR**: stiffened-panel analysis | Windows: double-click `POST/PANDEATOR_APP/RUN_PANDEATOR_WINDOWS.cmd`. Other systems: `bash POST/PANDEATOR_APP/RUN_PANDEATOR_MAC_LINUX.sh`. |
-| **Results viewer**: open existing `.jfem` files | Open `POST/JFEM_results_viewer/postv11.html` in a browser. |
-| **JFEM**: run an input deck directly | Windows: `.\jfem.cmd model.bdf`. Other systems: `bash jfem model.bdf`. [Try the bundled model](JFEM_installation/INSTALLATION.md#6-try-the-standalone-solver-optional). |
+| **JFEM-Boxer** | Build lifting-surface models; define loads; run FE and sensitivity analyses; inspect results. |
+| **PANDEATOR** | Generate and analyse stiffened panels. |
+| **Results viewer** | Open existing `.jfem` results without a server. |
+| **JFEM solver** | Choose a bulk-data deck and run it directly. |
 
-FGen and PANDEATOR open a local browser page; keep their terminal windows open
-while using them. The static viewer needs no Julia server.
+![JFEM-Boxer displaying a lifting-surface model](<__Start here!__/images/fgen-model.png>)
 
-![FGen displaying a lifting-surface model and its structural mesh](JFEM_installation/images/fgen-model.png)
+JFEM-Boxer, PANDEATOR and JFEM use one root Julia environment and shared sysimage.
+Source/runtime checks prevent reuse of stale compiled code. Rerun setup after an
+update. New workloads can still require some first-use compilation.
 
-*FGen: define a lifting-surface model, generate its mesh, run analyses and inspect results in the same application.*
-
-A sysimage is an optional later step: `.\setup.cmd --sysimage` or
-`bash setup.sh --sysimage`. It can reduce repeated solver/PANDEATOR startup work
-but does not include FGen's separate server. See
-[advanced setup](JFEM_installation/ADVANCED_SETUP.md) for image builds, runtime
-selection and repair.
-
-For modeling and results, use the
-[illustrated FGen guide](Reference_documentation/00_Getting_Started/jfem_2026_fgen_user_guide.pdf),
-[FGen reference](WingFEGen/README.md), [PANDEATOR guide](POST/PANDEATOR_APP/PANEL_APP_README.md)
-and [documentation index](Reference_documentation/README.md).
+[JFEM-Boxer user guide](Reference_documentation/00_Getting_Started/jfem_2026_fgen_user_guide.pdf) |
+[Apps](APPS/README.md) / [Documentation](Reference_documentation/README.md) |
+[Advanced setup](<__Start here!__/ADVANCED_SETUP.md>)
 
 ## Requirements
 
@@ -59,9 +50,8 @@ line-continuation character.
 .
 |-- Project.toml
 |-- Manifest.toml
-|-- setup.cmd / setup.sh              install both Julia environments
-|-- WingFEGen/                         web app, FEM generator and sensitivity UI
-|-- JFEM_installation/
+|-- setup.cmd / setup.sh              install the shared Julia environment
+|-- __Start here!__/
 |   |-- CLICK_WINDOWS_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.cmd
 |   |-- RUN_LINUX_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.sh
 |   |-- CLICK_MAC_INSTALL_PACKAGES_AND_CREATE_SYSIMAGE.command
@@ -86,7 +76,8 @@ line-continuation character.
 |   |-- cases/
 |   |-- analytical/
 |   `-- references/
-|-- POST/
+|-- APPS/
+|   |-- JFEM-Boxer/                  model generator, analysis and sensitivity app
 |   |-- JFEM_results_viewer/
 |   |   |-- postv11.html
 |   |   `-- POST_GUIDE.html
@@ -102,50 +93,50 @@ line-continuation character.
 ```
 
 - `src`: solver source code.
-- `JFEM_installation/julia_tools/deploy_fast.jl`: optional sysimage builder called
-  by `setup --sysimage`.
-- `JFEM_installation/examples/precompile`: tiny bundled decks used only by
+- `__Start here!__/julia_tools/deploy_fast.jl`: solver sysimage builder called
+  automatically by setup.
+- `__Start here!__/examples/precompile`: tiny bundled decks used only by
   `deploy_fast.jl` when the user does not provide representative cases.
-- `JFEM_installation/examples/manifests`: runnable JSON manifest templates for
+- `__Start here!__/examples/manifests`: runnable JSON manifest templates for
   installation and automation checks.
-- `JFEM_installation/julia_tools/run_batch_manifest.jl`: JSON manifest batch runner for explicit
+- `__Start here!__/julia_tools/run_batch_manifest.jl`: JSON manifest batch runner for explicit
   input/output mapping.
-- `JFEM_installation/julia_tools/jfem_worker_jsonl.jl`: persistent JSONL worker for Python-driven
+- `__Start here!__/julia_tools/jfem_worker_jsonl.jl`: persistent JSONL worker for Python-driven
   optimization loops.
-- `JFEM_installation/python_client/jfem_client.py`: Python 3.8+ stdlib-only
+- `__Start here!__/python_client/jfem_client.py`: Python 3.8+ stdlib-only
   helper for writing manifests and talking to the JSONL worker.
-- `JFEM_installation/python_client/jfem_manifest_cli.py`: Python command-line
+- `__Start here!__/python_client/jfem_manifest_cli.py`: Python command-line
   helper for creating and running manifests from external workflows.
-- `validation`: public, paper-facing validation suite. It contains only
+- `validation`: public reproducibility suite. It contains only
   public or permissively licensed decks and references: MacNeal-Harder,
   classical buckling, MYSTRAN cross-checks, and CRM/uCRM. It intentionally
   includes reproducible inputs, explicit tolerances and documented references.
 - `jfem` (Linux/macOS) and `jfem.cmd` (Windows): one-line wrappers to analyze a
   single deck with good defaults -- see "Quickest Way To Run A Deck" below. They
-  call `JFEM_installation/julia_tools/jfem.jl`, the underlying simple single-deck runner.
+  call `__Start here!__/julia_tools/jfem.jl`, the underlying simple single-deck runner.
 - `setup.cmd` / `setup.sh`: install, precompile and verify the solver and app
-  dependencies without building a sysimage.
-- `JFEM_installation/`: installation guide, dependency helpers and optional
-  platform-specific sysimage launchers that can reduce repeated startup work.
-- `JFEM_installation/julia_tools/run_bdf.jl`: explicit single-case runner (what the wrapper
+  dependencies and automatically build the shared app/solver sysimage.
+- `__Start here!__/`: installation guide, dependency helpers and
+  platform-specific installation launchers that can reduce repeated startup work.
+- `__Start here!__/julia_tools/run_bdf.jl`: explicit single-case runner (what the wrapper
   runs for you).
-- `JFEM_installation/julia_tools/run_bdf_batch.jl`: simple text-list batch runner retained
+- `__Start here!__/julia_tools/run_bdf_batch.jl`: simple text-list batch runner retained
   for existing scripts. New automation should use `run_batch_manifest.jl`.
-- `POST/JFEM_results_viewer/postv11.html`: browser viewer for `.jfem` result files.
-- `POST/PANDEATOR_APP/panel_app.html` +
-  `POST/PANDEATOR_APP/panel_server.jl`: interactive web app that
+- `APPS/JFEM_results_viewer/postv11.html`: browser viewer for `.jfem` result files.
+- `APPS/PANDEATOR_APP/panel_app.html` +
+  `APPS/PANDEATOR_APP/panel_server.jl`: interactive web app that
   builds a stiffened panel **or** runs an existing `.bdf`/`.dat`/`.nas` deck
   (SOL 101/103/105/106 auto-detected) and renders results in 3D. On Windows,
-  double-click `POST/PANDEATOR_APP/RUN_PANDEATOR_WINDOWS.cmd`; see
-  `POST/PANDEATOR_APP/PANEL_APP_README.md`.
+  double-click `APPS/PANDEATOR_APP/RUN_PANDEATOR_WINDOWS.cmd`; see
+  `APPS/PANDEATOR_APP/PANEL_APP_README.md`.
 - `general_description.md`: broader description of solver capabilities.
 
 ## Installation And Fast Deployment
 
-Use the [numbered installation walkthrough](JFEM_installation/INSTALLATION.md)
-for first setup. For optional sysimage builds, representative precompile decks,
+Use the [numbered installation walkthrough](<__Start here!__/INSTALLATION.md>)
+for first setup. For sysimage rebuilds, representative precompile decks,
 image provenance checks or offline repair, use
-[advanced setup](JFEM_installation/ADVANCED_SETUP.md). All legacy installation
+[advanced setup](<__Start here!__/ADVANCED_SETUP.md>). All legacy installation
 launchers delegate to the same root setup command.
 
 ## Fast Settings
@@ -400,7 +391,7 @@ incident PIDs, and propertyless nodes are identified explicitly.
 
 The equivalent optional deck requests are `PARAM,JFBKCOMP,1`,
 `PARAM,JFBKENG,1`, and `PARAM,JFBKDEN,1`. Each accepts 0 or 1 and defaults to 0.
-The FEGen SOL105 form exposes these options and saves them with the Study.
+The JFEM-Boxer SOL105 form exposes these options and saves them with the Study.
 `JFBKCOMP` means JFEM buckling compact output: a JFEM-specific export request,
 not a stiffness or accuracy parameter. It is useful for small reports and
 repeated studies needing only roots and peak-node properties. Omit it or set
@@ -475,7 +466,7 @@ The optional image is separate from ordinary setup. After Julia, source,
 dependencies or its recorded workload changes, rebuild with `setup.cmd --sysimage`
 on Windows or `bash setup.sh --sysimage` on macOS/Linux. Standard launchers fall
 back to normal Julia when the image receipt is absent or stale. See
-[image verification and rebuilding](JFEM_installation/ADVANCED_SETUP.md#verify-use-and-rebuild-the-image).
+[image verification and rebuilding](<__Start here!__/ADVANCED_SETUP.md#verify-use-and-rebuild-the-image>).
 
 The sections below show the fully explicit `julia ... run_bdf.jl` form, which
 the wrapper runs for you and which you may still prefer for scripting or batch
@@ -527,13 +518,13 @@ Use this command for a single buckling deck:
 Windows PowerShell:
 
 ```powershell
-julia --threads=auto --startup-file=no --project=. .\JFEM_installation\julia_tools\run_bdf.jl C:\models\panel_001.bdf output\panel_001 "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1"
+julia --threads=auto --startup-file=no --project=. '.\__Start here!__\julia_tools\run_bdf.jl' C:\models\panel_001.bdf output\panel_001 "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1"
 ```
 
 Linux/macOS Bash:
 
 ```bash
-julia --threads=auto --startup-file=no --project=. ./JFEM_installation/julia_tools/run_bdf.jl /home/user/models/panel_001.bdf output/panel_001 "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1"
+julia --threads=auto --startup-file=no --project=. './__Start here!__/julia_tools/run_bdf.jl' /home/user/models/panel_001.bdf output/panel_001 "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1"
 ```
 
 Read the command from left to right:
@@ -543,8 +534,8 @@ Read the command from left to right:
 - `--startup-file=no`: ignores any local Julia startup script.
 - `--project=.`: selects the OpenJFEM Julia environment in the current
   repository root.
-- `.\JFEM_installation\julia_tools\run_bdf.jl` or
-  `./JFEM_installation/julia_tools/run_bdf.jl`: runs one input deck.
+- `.\__Start here!__\julia_tools\run_bdf.jl` or
+  `./__Start here!__/julia_tools/run_bdf.jl`: runs one input deck.
 - `C:\models\panel_001.bdf` or `/home/user/models/panel_001.bdf`: this is the
   input file to solve. Replace it with your SOL 105 deck.
 - `output\panel_001` or `output/panel_001`: this is the output folder
@@ -557,13 +548,13 @@ a custom folder, change that argument:
 Windows PowerShell:
 
 ```powershell
-julia --threads=auto --startup-file=no --project=. .\JFEM_installation\julia_tools\run_bdf.jl C:\models\panel_001.bdf D:\jfem_runs\panel_001 "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1"
+julia --threads=auto --startup-file=no --project=. '.\__Start here!__\julia_tools\run_bdf.jl' C:\models\panel_001.bdf D:\jfem_runs\panel_001 "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1"
 ```
 
 Linux/macOS Bash:
 
 ```bash
-julia --threads=auto --startup-file=no --project=. ./JFEM_installation/julia_tools/run_bdf.jl /home/user/models/panel_001.bdf /home/user/jfem_runs/panel_001 "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1"
+julia --threads=auto --startup-file=no --project=. './__Start here!__/julia_tools/run_bdf.jl' /home/user/models/panel_001.bdf /home/user/jfem_runs/panel_001 "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1"
 ```
 
 Outputs are written under the output directory:
@@ -649,13 +640,13 @@ Create a manifest from one directory of decks:
 Windows PowerShell:
 
 ```powershell
-python .\JFEM_installation\python_client\jfem_manifest_cli.py make --input-dir C:\models --manifest C:\models\cases.json --output-root D:\jfem_runs\batch_001 --batch-id batch_001
+python '.\__Start here!__\python_client\jfem_manifest_cli.py' make --input-dir C:\models --manifest C:\models\cases.json --output-root D:\jfem_runs\batch_001 --batch-id batch_001
 ```
 
 Linux/macOS Bash:
 
 ```bash
-python ./JFEM_installation/python_client/jfem_manifest_cli.py make --input-dir /home/user/models --manifest /home/user/models/cases.json --output-root /home/user/jfem_runs/batch_001 --batch-id batch_001
+python './__Start here!__/python_client/jfem_manifest_cli.py' make --input-dir /home/user/models --manifest /home/user/models/cases.json --output-root /home/user/jfem_runs/batch_001 --batch-id batch_001
 ```
 
 Create a manifest from specific decks:
@@ -663,13 +654,13 @@ Create a manifest from specific decks:
 Windows PowerShell:
 
 ```powershell
-python .\JFEM_installation\python_client\jfem_manifest_cli.py make --input C:\models\panel_001.bdf --input C:\models\panel_002.bdf --manifest C:\models\cases.json --output-root D:\jfem_runs\batch_001 --batch-id batch_001
+python '.\__Start here!__\python_client\jfem_manifest_cli.py' make --input C:\models\panel_001.bdf --input C:\models\panel_002.bdf --manifest C:\models\cases.json --output-root D:\jfem_runs\batch_001 --batch-id batch_001
 ```
 
 Linux/macOS Bash:
 
 ```bash
-python ./JFEM_installation/python_client/jfem_manifest_cli.py make --input /home/user/models/panel_001.bdf --input /home/user/models/panel_002.bdf --manifest /home/user/models/cases.json --output-root /home/user/jfem_runs/batch_001 --batch-id batch_001
+python './__Start here!__/python_client/jfem_manifest_cli.py' make --input /home/user/models/panel_001.bdf --input /home/user/models/panel_002.bdf --manifest /home/user/models/cases.json --output-root /home/user/jfem_runs/batch_001 --batch-id batch_001
 ```
 
 ## Run a Batch of SOL 105 Cases
@@ -723,13 +714,13 @@ Run it:
 Windows PowerShell:
 
 ```powershell
-julia --threads=auto --startup-file=no --project=. .\JFEM_installation\julia_tools\run_batch_manifest.jl C:\models\cases.json --quiet
+julia --threads=auto --startup-file=no --project=. '.\__Start here!__\julia_tools\run_batch_manifest.jl' C:\models\cases.json --quiet
 ```
 
 Linux/macOS Bash:
 
 ```bash
-julia --threads=auto --startup-file=no --project=. ./JFEM_installation/julia_tools/run_batch_manifest.jl /home/user/models/cases.json --quiet
+julia --threads=auto --startup-file=no --project=. './__Start here!__/julia_tools/run_batch_manifest.jl' /home/user/models/cases.json --quiet
 ```
 
 Run the included manifest example:
@@ -737,13 +728,13 @@ Run the included manifest example:
 Windows PowerShell:
 
 ```powershell
-julia --threads=auto --startup-file=no --project=. .\JFEM_installation\julia_tools\run_batch_manifest.jl .\JFEM_installation\examples\manifests\sol105_batch_manifest.json --quiet
+julia --threads=auto --startup-file=no --project=. '.\__Start here!__\julia_tools\run_batch_manifest.jl' '.\__Start here!__\examples\manifests\sol105_batch_manifest.json' --quiet
 ```
 
 Linux/macOS Bash:
 
 ```bash
-julia --threads=auto --startup-file=no --project=. ./JFEM_installation/julia_tools/run_batch_manifest.jl ./JFEM_installation/examples/manifests/sol105_batch_manifest.json --quiet
+julia --threads=auto --startup-file=no --project=. './__Start here!__/julia_tools/run_batch_manifest.jl' './__Start here!__/examples/manifests/sol105_batch_manifest.json' --quiet
 ```
 
 The batch writes:
@@ -804,7 +795,7 @@ Python example:
 
 ```python
 from pathlib import Path
-from JFEM_installation.python_client.jfem_client import (
+from __Start here!__.python_client.jfem_client import (
     JFEMWorker,
     load_summary,
     write_batch_manifest,
@@ -877,13 +868,13 @@ For a simple one-manifest Python-triggered production run, use:
 Windows PowerShell:
 
 ```powershell
-python .\JFEM_installation\python_client\jfem_manifest_cli.py run-worker C:\models\cases.json --repo-root .
+python '.\__Start here!__\python_client\jfem_manifest_cli.py' run-worker C:\models\cases.json --repo-root .
 ```
 
 Linux/macOS Bash:
 
 ```bash
-python ./JFEM_installation/python_client/jfem_manifest_cli.py run-worker /home/user/models/cases.json --repo-root .
+python './__Start here!__/python_client/jfem_manifest_cli.py' run-worker /home/user/models/cases.json --repo-root .
 ```
 
 For heavy optimization, prefer the `JFEMWorker` example above so the same Julia
@@ -892,13 +883,13 @@ worker remains open across many design iterations.
 To create an eigenvalues-only manifest from the command line:
 
 ```powershell
-python .\JFEM_installation\python_client\jfem_manifest_cli.py make --input-dir C:\models --manifest C:\models\cases.json --output-root D:\jfem_runs\batch_001 --eigenvalues-only --no-report
+python '.\__Start here!__\python_client\jfem_manifest_cli.py' make --input-dir C:\models --manifest C:\models\cases.json --output-root D:\jfem_runs\batch_001 --eigenvalues-only --no-report
 ```
 
 To request eigenvectors instead:
 
 ```powershell
-python .\JFEM_installation\python_client\jfem_manifest_cli.py make --input-dir C:\models --manifest C:\models\cases.json --output-root D:\jfem_runs\batch_001 --export-eigenvectors --no-report
+python '.\__Start here!__\python_client\jfem_manifest_cli.py' make --input-dir C:\models --manifest C:\models\cases.json --output-root D:\jfem_runs\batch_001 --export-eigenvectors --no-report
 ```
 
 ## Post-Processing
@@ -907,11 +898,11 @@ The fastest commands above skip `.jfem` export. When you need interactive
 visual inspection, enable binary export for that run and open:
 
 ```text
-POST/JFEM_results_viewer/postv11.html
+APPS/JFEM_results_viewer/postv11.html
 ```
 
 The viewer loads `.jfem` result files directly in the browser. See
-`POST/JFEM_results_viewer/POST_GUIDE.html` for its controls.
+`APPS/JFEM_results_viewer/POST_GUIDE.html` for its controls.
 
 ## Reading SOL 105 Results
 

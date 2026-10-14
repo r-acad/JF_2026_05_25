@@ -6,7 +6,7 @@
 # (optionally) runs OpenJFEM on each deck, compares JFEM output to the
 # reference, and emits two artifacts in this folder:
 #     comparison.csv  -- one row per (case, quantity)
-#     comparison.md   -- paper-ready summary grouped by family
+#     comparison.md   -- validation summary grouped by family
 #
 # Usage (from this folder):
 #     julia --project=.. run_public_suite.jl                # full run

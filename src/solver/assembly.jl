@@ -1720,6 +1720,25 @@ end
     return something(tryparse(Float64, raw), default_val)
 end
 
+"""Describe the existing K6ROT resolution without changing its precedence."""
+function k6rot_metadata(model, shear_center_only::Bool=false)
+    sequence = Int(round(Float64(get(model, "SOL", get(model, "sol_type", 101)))))
+    default = get(model, "PARAM_K6ROT", reference_k6rot_default(model))
+    primary = shear_center_only ? "JFEM_PARAM_K6ROT_EIG" : "JFEM_PARAM_K6ROT_STATIC"
+    selected = haskey(ENV, primary) ? primary : "JFEM_PARAM_K6ROT"
+    raw = get(ENV, selected, "")
+    parsed = isempty(strip(raw)) ? nothing : tryparse(Float64, raw)
+    source = parsed === nothing ? (haskey(model,"PARAM_K6ROT") ? "deck:PARAM,K6ROT" : "sequence_default:SOL$sequence") : "environment:$selected"
+    return Dict{String,Any}(
+        "value"=>solver_k6rot(default,shear_center_only), "source"=>source,
+        "solution"=>sequence, "sequence_default"=>reference_k6rot_default(model),
+        "deck_value"=>get(model,"PARAM_K6ROT",nothing), "shear_center_only"=>shear_center_only,
+        "selected_override"=>haskey(ENV,selected) ? selected : nothing,
+        "override_applied"=>parsed !== nothing,
+        "override_status"=>parsed !== nothing ? "applied" : isempty(strip(raw)) ? "absent_or_blank" : "invalid_fallback_to_deck_or_default",
+    )
+end
+
 """Bounded planar MAT2/PSHELL membrane projection shared by K and preload recovery.
 
 The planar quadrilateral uses Gauss-point normal strains and the center shear
@@ -2752,17 +2771,11 @@ end
 
     nt = Threads.maxthreadid()
     log_msg("[SOLVER] Computing Element Stiffness ($(Threads.nthreads()) threads)...")
-    # Echo the EFFECTIVE drilling stabilisation and where it came from. K6ROT is
-    # not part of any benchmark definition and solvers default it differently
-    # (Reference 70.5 linear sequences: 0.0; Reference 2004+ and OpenJFEM:
-    # 100.0), so on a deck that declares nothing the two run different problems.
-    # That was silent until 2026-08-04, when it turned up as a 3.5% "formulation
-    # gap" on the MacNeal hemisphere. Saying it out loud costs one line.
+    # Report the effective value and actual precedence source, including ENV
+    # overrides. Linear defaults are zero; SOL106/129 defaults are 100.
+    drilling_metadata = k6rot_metadata(model,shear_center_only)
     log_msg(string("[SOLVER] Drilling stabilisation: K6ROT=", k6rot, " (",
-                   haskey(model, "PARAM_K6ROT") ? "from the deck's PARAM,K6ROT" :
-                       "default for SOL " *
-                       string(Int(round(Float64(get(model, "SOL", get(model, "sol_type", 101)))))) *
-                       ", matching Reference 70.5",
+                   drilling_metadata["source"],
                    ")"))
 
     # Use dense lookup only for sufficiently compact external GRID IDs.

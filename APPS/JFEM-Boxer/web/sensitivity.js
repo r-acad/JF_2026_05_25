@@ -1,0 +1,352 @@
+/* Sensitivity setup is Study data; numerical work runs in a separate JFEM worker. */
+(function(root){
+ "use strict";
+ const TYPES=[
+  ["displacement","Node displacement",[["magnitude","Magnitude"],["x","x"],["y","y"],["z","z"]],"node_id"],
+  ["shell_stress","Shell stress",[["von_mises","von Mises"],["normal_x","Local x"],["normal_y","Local y"],["shear_xy","Local xy shear"],["major","Maximum principal"],["minor","Minimum principal"]],"element_id"],
+  ["bar_stress","Bar stress",[["axial","Axial"],["max","Maximum normal"],["min","Minimum normal"]],"element_id"],
+  ["frequency_eigenvalue","Modal eigenvalue",[],"mode"],
+  ["buckling_factor","Buckling factor",[],"mode"],
+ ];
+ const SOLUTIONS=[["101","Linear static · SOL101",["displacement","shell_stress","bar_stress"]],["103","Normal modes · SOL103",["frequency_eigenvalue"]],["105","Linear buckling · SOL105",["buckling_factor"]],["106","Nonlinear static · SOL106",["displacement"]]];
+ function inferSolution(objective){return objective?.type==='frequency_eigenvalue'?'103':objective?.type==='buckling_factor'?'105':'101';}
+ const defaults=()=>({solution:"101",case_id:1,objective:{type:"displacement",component:"magnitude",node_id:null},variables:[],derivative_method:'analytic',relative_step:.01,check_step:true});
+ function parse(value){const data=typeof value==="string"?(value.trim()?JSON.parse(value):{}):value||{};return {...defaults(),...data,solution:String(data.solution??inferSolution(data.objective)),objective:{...defaults().objective,...data.objective},variables:Array.isArray(data.variables)?data.variables.slice():[]};}
+ // An explicit catalogue is authoritative. Older catalogues retain their known
+ // static/modal/buckling support, but cannot claim a nonlinear derivative route.
+ function solutionInfo(catalog,solution){
+  const id=String(solution),definition=SOLUTIONS.find(row=>row[0]===id);
+  if(!definition)return{available:false,label:'SOL'+id,objectives:[],reason:'Unknown sensitivity analysis SOL'+id+'.'};
+  if(catalog?.solutions){const entry=catalog.solutions[id];return entry?{...entry,label:entry.label||definition[1],available:entry.available===true,objectives:Array.isArray(entry.objectives)?entry.objectives:[]}:{available:false,label:definition[1],objectives:[],reason:'SOL'+id+' sensitivity is not available for this model.'};}
+  const objectives=definition[2].filter(type=>!catalog?.objectives||Object.hasOwn(catalog.objectives,type));
+  const available=!catalog||(id!=='106'&&objectives.length>0&&(!catalog.imported||id==='101'));
+  return{label:definition[1],available,objectives,reason:available?'':id==='106'?'Read a current catalogue with nonlinear sensitivity support.':'SOL'+id+' sensitivity is not available for this model.'};
+ }
+ function methodLabel(method){
+  if(method==='analytic_discrete_adjoint')return 'Analytic discrete adjoint (exact chain rule)';
+  if(method==='analytic_eigenvalue_adjoint')return 'Analytic eigenvalue adjoint (exact chain rule)';
+  if(method==='central_finite_difference')return 'Legacy full-response finite differences';
+  if(method==='discrete_adjoint')return 'Semi-analytic discrete adjoint';
+  if(method==='eigenvalue_adjoint')return 'Semi-analytic eigenvalue adjoint';
+  return typeof method==='string'?method.replaceAll('_',' '):'Not recorded';
+ }
+ function solverCounts(counts){
+  if(!counts||typeof counts!=='object')return [];
+  return [['forward_solves','forward solve'],['adjoint_solves','adjoint solve'],['eigen_solves','eigen solve'],['perturbed_forward_solves','perturbed forward solve'],['operator_evaluations','operator evaluation'],['analytic_property_derivatives','analytic property derivative']]
+   .filter(([key])=>Number.isInteger(counts[key])&&counts[key]>=0)
+   .map(([key,label])=>counts[key]+' '+label+(counts[key]===1?'':'s'));
+ }
+ function propertyFilter(value,mode='text'){
+  const pattern=String(value||'').trim();let regex=null;
+  if(mode==='regex'&&pattern){try{regex=new RegExp(pattern,'i');}catch(error){return{valid:false,error:'Invalid regular expression: '+error.message,test:()=>false};}}
+  if(mode==='wildcard'){
+   // Search ordered literal pieces, avoiding regex syntax/backtracking for globs.
+   // P* is the panel-name shortcut; a trailing underscore explicitly means a
+   // name prefix too (P_). Other patterns search within each descriptive field.
+   const prefix=/^p\*+$/i.test(pattern)?'p':/^[^*]+_$/.test(pattern)?pattern.slice(0,-1).toLowerCase():null;
+   const pieces=pattern.toLowerCase().split('*').filter(Boolean),contains=text=>{let at=0;for(const piece of pieces){at=text.indexOf(piece,at);if(at<0)return false;at+=piece.length;}return true;};
+   return{valid:true,error:'',test:variable=>prefix!==null?String(variable.label||variable.id||'').trimStart().toLowerCase().startsWith(prefix):[variable.label,variable.id,variable.group,variable.kind,variable.field_label,variable.panel_key,...(variable.pids||[]).map(id=>'PID '+id)].filter(value=>value!=null).some(value=>contains(String(value).toLowerCase()))};
+  }
+  return{valid:true,error:'',test:variable=>{const text=[variable.id,variable.label,variable.group,variable.kind,variable.field_label,variable.panel_key,...(variable.pids||[]).map(id=>'PID '+id)].filter(value=>value!=null).join(' ');return!pattern||(regex?regex.test(text):text.toLowerCase().includes(pattern.toLowerCase()));}};
+ }
+ function addMatchingVariables(selected,variables,filter,limit){
+  const values=new Set(selected);let omitted=0;
+  for(const variable of variables){if(!filter.test(variable)||values.has(variable.id))continue;if(values.size>=limit){omitted++;continue;}values.add(variable.id);}
+  return{values:Array.from(values),omitted};
+ }
+ // Normalize only the editable setup. Completed result requests are historical
+ // records and must never acquire derivatives they did not actually compute.
+ function normalizeSelection(selected,catalog){
+  const replacements=catalog?.selection_replacements||{},values=new Set(),aliases=new Set(),locals=new Set();
+  for(const id of selected){const targets=Object.hasOwn(replacements,id)&&Array.isArray(replacements[id])?replacements[id]:[id];
+   if(Object.hasOwn(replacements,id)&&Array.isArray(replacements[id])){aliases.add(id);for(const target of targets)locals.add(target);}
+   for(const target of targets)values.add(target);
+  }
+  const expanded=Array.from(values);return{values:expanded,aliases:Array.from(aliases),localCount:locals.size,changed:expanded.length!==selected.length||expanded.some((id,i)=>id!==selected[i])};
+ }
+ function selectionEntries(catalog){
+  const source=catalog?.variables||[],replacements=catalog?.selection_replacements||{},metadata=catalog?.selection_aliases||{},byID=new Map(source.map(row=>[row.id,row])),aliases=[],aliasesByMember=new Map(),seen=new Set();
+  for(const [id,ids]of Object.entries(replacements)){if(!Array.isArray(ids)||!ids.length)continue;
+   const info=metadata[id]||{},alias={...byID.get(id),...info,id,label:info.label||byID.get(id)?.label||id,selection_ids:ids};
+   for(const member of ids){if(!aliasesByMember.has(member))aliasesByMember.set(member,[]);aliasesByMember.get(member).push(alias);}
+   // Legacy location aliases still migrate and match filters, but their local
+   // checkbox already provides the corresponding individual selection control.
+   const key=JSON.stringify([ids,info.field_key||null]);if(info.index!==undefined||seen.has(key))continue;seen.add(key);aliases.push(alias);
+  }
+  return{variables:source.filter(row=>!Object.hasOwn(replacements,row.id)),aliases,aliasesByMember};
+ }
+ function create(host,options){
+  const doc=host.ownerDocument;let config=defaults(),catalog=null,catalogSignature=null,catalogMesh=null,busy=false,loading=false,result=null,resultSignature=null,lastContext=null,timer=null,started=0,resultSetup=null,runSetup=null,invalidStep=false,catalogRequested=false,autoAttempt=null,readGeneration=0;
+  const interpretation=root.WingSensitivityResults;let selection=selectionEntries(null);
+  function setupSignature(value){const p=parse(value),o=p.objective,legacy=p.derivative_method==='operator_differences';return JSON.stringify([p.solution,p.case_id,o.type,o.component??null,o.node_id??null,o.element_id??null,o.mode??null,o.surface??null,[...p.variables].sort(),p.derivative_method,legacy?p.relative_step:null,legacy?p.check_step:null]);}
+  let previewPercent=1,previewMetric='percent',selectedProperty=null,resultMeta={},savedBusy=false,savedRuns=[],savedGeneration=0,mapActive=false,destroyed=false,pickActive=false;
+  const make=(tag,cls,text)=>{const el=doc.createElement(tag);if(cls)el.className=cls;if(text!==undefined)el.textContent=text;return el;};
+  host.innerHTML='<p class="pick-note">Choose one load case, a scalar response, and property variables. Discrete adjoints share the baseline solution across variables on a fixed mesh. Property steps evaluate operator derivatives, including mass, applied loads and section offsets; they do not run a new full analysis for every variable. Results include a ranked response-change chart, estimates and a full derivative table.</p><fieldset class="sensitivity-setup"><legend>Analysis, response and load case</legend><label>Analysis<select id="sensitivity-solution"></select></label><p id="sensitivity-solution-note" class="pick-note" role="status"></p><label>Load case<select id="sensitivity-case"></select></label><label>Objective<select id="sensitivity-objective"></select></label><p id="sensitivity-objective-note" class="pick-note"></p><label id="sensitivity-component-row">Component<select id="sensitivity-component"></select></label><label id="sensitivity-surface-row">Shell fiber<select id="sensitivity-surface"><option value="z1">z1 (negative local z)</option><option value="z2">z2 (positive local z)</option></select></label><label id="sensitivity-target-row"><span id="sensitivity-target-label">Node ID</span><input id="sensitivity-target" type="number" min="1" step="1"></label><button id="sensitivity-use-pick" type="button" class="mini">Use inspected entity</button><p id="sensitivity-target-note" class="pick-note">Inspect a node or element in the viewport, then use its ID here.</p><label title="Relative step used to differentiate assembled operators and direct response terms. It does not set a step in the applied load.">Operator derivative step (%)<input id="sensitivity-step" type="number" min="0.01" max="10" step="0.1" value="1"></label><label class="layer"><input id="sensitivity-check-step" type="checkbox" checked><span>Check operator derivatives at half step</span></label></fieldset><fieldset class="sensitivity-setup"><legend>Design variables</legend><div class="hud-row"><button id="sensitivity-refresh" type="button" class="mini">Read model properties</button><button id="sensitivity-clear" type="button" class="mini">Clear selection</button></div><input id="sensitivity-filter" type="search" placeholder="Filter properties" aria-label="Filter sensitivity properties"><p id="sensitivity-variable-count" class="pick-note"></p><div id="sensitivity-variables"></div></fieldset><div class="hud-row"><button id="sensitivity-run" class="primary" type="button">Run sensitivity</button><button id="sensitivity-stop" class="danger" type="button" hidden>Stop sensitivity</button><button id="sensitivity-csv" class="mini" type="button" disabled>Save results CSV</button></div><p id="sensitivity-context" class="pick-note" role="status"></p><p id="sensitivity-status" role="status"></p><progress id="sensitivity-progress" max="1" value="0" hidden></progress><p id="sensitivity-error" class="sensitivity-error" role="alert" hidden></p><div id="sensitivity-results"></div>';
+  const el=id=>host.querySelector('#sensitivity-'+id),format=value=>interpretation?.format?interpretation.format(value):(root.WingNumbers?.format(value,5)||String(value));
+  const displayed=(value,unit)=>root.WingResultDisplay.stressText(value,unit,format),displayUnit=unit=>root.WingResultDisplay.stressUnit(unit).unit;
+  const inspect=make('button','mini','Inspect');inspect.id='sensitivity-inspect';inspect.type='button';inspect.setAttribute('aria-pressed','false');inspect.title='Pick a matching GRID, shell or bar directly in the viewport. Its ID becomes the response target and this Sensitivity panel stays open.';el('use-pick').before(inspect);
+  el('use-pick').title='Copy the matching entity already selected in the viewer. Use Inspect to choose a different response target.';
+  function pickTarget(){const type=objectiveType();return pickActive&&type[3]!=='mode'?{target:type[3],filter:type[3]==='node_id'?'nodes':type[0]==='bar_stress'?'bar':'shells'}:null;}
+  function syncInspect(){inspect.hidden=objectiveType()[3]==='mode';inspect.disabled=busy||loading||!options.context?.().ready;inspect.textContent=pickActive?'Cancel pick':'Inspect';inspect.setAttribute('aria-pressed',String(pickActive));}
+  inspect.onclick=()=>{pickActive=!pickActive;error('');syncInspect();el('target-note').textContent=pickActive?'Click a visible '+(pickTarget().filter==='nodes'?'GRID':pickTarget().filter==='bar'?'bar':'shell element')+' in the viewport to set the response target. Dragging still rotates the view.': 'Pick cancelled; the response target is unchanged.';if(pickActive)options.onInspect?.(pickTarget());};
+  function acceptPick(id){if(!pickActive)return false;if(!Number.isInteger(id)||id<1){el('target-note').textContent='No matching visible entity at that point. Pick another location, or cancel and enter its ID.';return false;}const target=pickTarget();config.objective[target.target]=id;pickActive=false;renderObjective();error('');changed();el('target-note').textContent=(target.target==='node_id'?'GRID ':'Element ')+id+' selected as the response target.';return true;}
+  const assemblyNote=make('p','pick-note','The half-step check normally uses 4 operator assemblies per property instead of 2. These reuse the solved state and adjoint; they add no forward or adjoint solves.');el('check-step').parentElement.after(assemblyNote);
+  host.firstElementChild.textContent='Choose one load case, a scalar response and property variables. Analytic adjoints reuse the baseline and adjoint solutions and differentiate the actual element formulas by the chain rule. No property steps, perturbed decks or per-property equilibrium solves are needed. Results include response-change estimates, tables and colors.';
+  const methodRow=make('label','','Derivative method'),method=make('select');method.id='sensitivity-method';
+  for(const [value,label]of [['analytic','Analytic · exact chain rule'],['operator_differences','Legacy · operator finite differences']]){const choice=make('option','',label);choice.value=value;method.append(choice);}methodRow.append(method);el('step').parentElement.before(methodRow);
+  const liveCounts=make('p','pick-note');liveCounts.id='sensitivity-live-counts';liveCounts.hidden=true;el('status').after(liveCounts);
+  const selectShown=make('button','mini','Add matches');selectShown.id='sensitivity-select-shown';selectShown.type='button';selectShown.title='Add properties matching this filter. Existing selections from earlier filters are retained.';el('clear').before(selectShown);
+  const removeShown=make('button','mini','Remove matches');removeShown.id='sensitivity-remove-matches';removeShown.type='button';removeShown.title='Remove matching properties from the selection; keep selections hidden by this filter.';selectShown.after(removeShown);
+  const addComponents=make('button','mini panel-table-open','Add component variables');addComponents.id='sensitivity-add-components';addComponents.type='button';addComponents.title='Add independent dimensions for every spar-web/cap and leading-edge skin bay, and each rib web/stiffener and leading-edge rib. Preserves current selections and does not start an analysis.';removeShown.after(addComponents);
+  const componentSelectionNote=make('p','pick-note');componentSelectionNote.id='sensitivity-component-selection';el('variable-count').after(componentSelectionNote);
+  const filterRow=make('div','sensitivity-filter-row'),filterMode=make('select');filterMode.id='sensitivity-filter-mode';filterMode.setAttribute('aria-label','Property filter type');
+  for(const [value,label]of [['wildcard','Wildcards'],['text','Text'],['regex','Regex']]){const item=make('option','',label);item.value=value;filterMode.append(item);}
+  el('filter').placeholder='Examples: P* or P_ · *skin* · *bar*lower*';
+  const clearFilter=make('button','mini','Clear filter');clearFilter.id='sensitivity-clear-filter';clearFilter.type='button';el('filter').before(filterRow);filterRow.append(filterMode,el('filter'),clearFilter);
+  const filterHelp=make('p','pick-note','Wildcard examples: P* or P_ matches names starting with P; *skin* finds skin; *bar*lower* finds bar followed by lower. Text and Regex modes are also available. Add matches keeps your previous selections.'),filterStatus=make('p','pick-note');filterStatus.id='sensitivity-filter-status';filterStatus.setAttribute('role','status');filterRow.after(filterHelp,filterStatus);
+  const filterHelpButton=make('button','mini','? Help');filterHelpButton.type='button';filterHelpButton.id='sensitivity-filter-help-button';filterHelpButton.title='How to filter and add property variables';filterHelpButton.setAttribute('aria-expanded','false');filterHelpButton.setAttribute('aria-controls','sensitivity-filter-help');filterRow.append(filterHelpButton);
+  const filterInstructions=make('div','sensitivity-filter-help');filterInstructions.id='sensitivity-filter-help';filterInstructions.hidden=true;
+  filterInstructions.innerHTML='<p><strong>Filter properties without losing your selection</strong></p><ol><li>Use <b>Read model properties</b> to list the current FEM properties.</li><li><b>Wildcards</b> is the default. It ignores letter case. <b>Examples:</b> <code>P*</code> or <code>P_</code> matches property names beginning with P, such as P8. <code>*skin*</code> finds “skin” anywhere. <code>*bar*lower*</code> finds “bar” followed by “lower” within a name, group or ID. The <code>*</code> represents any text; a trailing underscore means a name prefix. Other characters are literal.</li><li>Choose <b>Text</b> to search a literal phrase, or <b>Regex</b> for advanced patterns. Enter regex directly, without surrounding slashes.</li><li>Click <b>Add matches</b> to add every matching variable. Change the filter and add again: earlier selections are kept. You can also tick individual properties.</li><li><b>Remove matches</b> removes only the matching selections. <b>Clear filter</b> shows the whole list; <b>Clear selection</b> deselects everything.</li></ol><p><b>Regex examples:</b> <code>upper.*thickness</code> finds upper-skin thickness variables; <code>(upper|lower).*thickness</code> finds either skin; <code>PID (12|18)\\b</code> matches property ID 12 or 18. <code>.*</code> matches any text, <code>|</code> means “or”, and <code>\\b</code> ends a word or number.</p><p>The count reports selections hidden by the current filter. An invalid regex displays an error and leaves the selection unchanged. Filtering and selecting never start an analysis: click <b>Run sensitivity</b> when ready.</p>';
+  filterHelp.after(filterInstructions);filterHelpButton.onclick=()=>{filterInstructions.hidden=!filterInstructions.hidden;filterHelpButton.setAttribute('aria-expanded',String(!filterInstructions.hidden));};
+  const recovery=make('button','mini sensitivity-recovery');recovery.id='sensitivity-recover';recovery.type='button';recovery.hidden=true;el('context').after(recovery);
+  const catalogNote=make('p','pick-note');catalogNote.id='sensitivity-catalog-note';catalogNote.hidden=true;el('variable-count').after(catalogNote);
+  let filter=propertyFilter(''),recoveryAction=null;
+  const labelOf=row=>interpretation?.propertyLabel(row,catalog)||row.label||row.id;
+  const saved=make('details','sensitivity-saved');saved.innerHTML='<summary title="Reopen sensitivity runs already stored in the configured output folder, without solving again.">Saved sensitivity results</summary><p class="pick-note">Reopen a completed run from the output folder without solving again. Study files keep the setup; these saved runs keep calculated derivatives. Opening one leaves your current setup unchanged. Results from a different model or load setup are marked historical; property maps require the matching FEM.</p><div class="hud-row"><button id="sensitivity-saved-refresh" class="mini" type="button" title="Search the current output folder again for completed sensitivity runs.">Refresh list</button><button id="sensitivity-saved-open" class="mini" type="button" title="Display the selected stored derivatives. This does not rerun the solver or replace your current sensitivity setup." disabled>Open result</button></div><label for="sensitivity-saved-select">Completed runs</label><select id="sensitivity-saved-select" aria-label="Saved sensitivity run" title="Choose a stored run by its recorded name, date and number of variables."><option value="">Expand this section to find saved runs</option></select><p id="sensitivity-saved-status" class="pick-note" role="status"></p>';
+  saved.hidden=!options.listRuns||!options.loadRun;el('results').before(saved);
+  saved.ontoggle=()=>{if(saved.open&&!savedRuns.length&&!savedBusy)refreshSavedRuns();};
+  function variableLimit(){return Number.isInteger(catalog?.max_variables)&&catalog.max_variables>0?catalog.max_variables:256;}
+  function matchesFilter(variable){return filter.test(variable)||(selection.aliasesByMember.get(variable.id)||[]).some(alias=>filter.test(alias));}
+  function normalizeSetup(){const expanded=normalizeSelection(config.variables,catalog);config.variables=expanded.values;return expanded;}
+  function migrationMessage(expanded){return expanded.aliases.length+' shared or legacy component selection'+(expanded.aliases.length===1?'':'s')+' expanded to '+expanded.localCount+' independent local dimensions; '+config.variables.length+' variables selected. The Study selection was updated. Click Run sensitivity to compute new results; saved results are unchanged.';}
+  function caseList(){return Array.isArray(catalog?.cases)?catalog.cases:options.cases?.()||[];}
+  function caseReason(id,info=solutionInfo(catalog,config.solution)){
+   if(!caseList().some(item=>Number(item.id)===Number(id)))return 'The selected load case is unavailable.';
+   if(Array.isArray(info.case_ids)&&!info.case_ids.some(value=>Number(value)===Number(id)))return info.case_reasons?.[String(id)]||'Case '+id+' is not eligible for SOL'+config.solution+'.';
+   return '';
+  }
+  function renderAnalysis(){
+   const info=solutionInfo(catalog,config.solution),unavailable=[];
+   if(!Array.from(el('solution').options).some(option=>option.value===config.solution)){const option=make('option','','Unknown SOL'+config.solution);option.value=config.solution;el('solution').append(option);}
+   for(const option of el('solution').options){const item=solutionInfo(catalog,option.value);option.disabled=!item.available;option.title=item.reason||'';option.textContent=item.label+(!item.available?' - unavailable':'');if(!item.available)unavailable.push('SOL'+option.value+': '+(item.reason||'Unavailable for this model.'));}
+   el('solution').value=config.solution;
+   el('solution-note').textContent=[info.note||'',!catalog?'Read model properties to verify eligible analyses and load cases.':'',...unavailable].filter(Boolean).join(' ');
+   for(const option of el('objective').options){option.disabled=!info.available||!info.objectives.includes(option.value);option.title=option.disabled?'This response is not supported for SOL'+config.solution+'.':'';}
+   el('objective-note').textContent=info.available?'SOL'+config.solution+' responses: '+info.objectives.map(type=>TYPES.find(row=>row[0]===type)?.[1]||type).join(', ')+'.':info.reason||'Choose an available analysis.';
+   el('case').replaceChildren();for(const item of caseList()){const option=make('option','',item.id+' - '+item.label),reason=caseReason(item.id,info);option.value=item.id;option.disabled=!!reason;option.title=reason;if(reason)option.textContent+=' - unavailable';el('case').append(option);}
+   if(!caseList().some(item=>Number(item.id)===Number(config.case_id))){const option=make('option','','Unavailable case '+config.case_id);option.value=config.case_id;option.disabled=true;el('case').append(option);}el('case').value=String(config.case_id);
+  }
+  function renderWork(){
+   renderAnalysis();
+   method.querySelector('[value="operator_differences"]').disabled=catalog?.imported===true||config.solution==='106';
+   catalogNote.hidden=!catalog?.note;catalogNote.textContent=catalog?.note||'';
+   const limit=variableLimit(),count=config.variables.length,samples=(config.check_step?4:2)*count;
+   const analytic=config.derivative_method==='analytic';host.firstElementChild.textContent=analytic?'Choose one load case, a scalar response and property variables. Analytic adjoints reuse the baseline and adjoint solutions and differentiate the actual element formulas by the chain rule. No property steps, perturbed decks or per-property equilibrium solves are needed. Results include response-change estimates, tables and colors.':'Discrete adjoints reuse the baseline and adjoint solutions. Legacy operator finite differences use property steps to differentiate the assembled matrices, loads and direct response terms. They do not run per-property equilibrium solves.';method.value=config.derivative_method;el('step').parentElement.hidden=analytic;el('check-step').parentElement.hidden=analytic;
+   assemblyNote.textContent=analytic?'Exact element chain rules, including section offsets and structural inertia. No finite-difference step is used. Unsupported formulations are reported explicitly; there is no automatic fallback.':'The half-step check uses up to 4 operator assemblies per property instead of 2. The solved state and adjoint are reused.';
+   const work=config.solution==='106'?'1 nonlinear equilibrium path + 1 final-state adjoint':config.objective.type==='frequency_eigenvalue'?'1 baseline eigen solve':config.objective.type==='buckling_factor'?'1 preload solve + 1 eigen solve + 1 preload adjoint':'1 baseline solve + 1 adjoint solve';
+   el('variable-count').textContent=count+' / '+limit+' variables · '+work+(analytic?' · '+count+' analytic property derivative'+(count===1?'':'s')+'. No perturbed decks.':' · up to '+samples+' property operator evaluations. No per-property full analyses.');
+   el('variable-count').classList.toggle('sensitivity-error',count>limit);
+   const variables=selection.variables,shown=variables.filter(matchesFilter),visibleSelected=shown.filter(v=>config.variables.includes(v.id)).length;
+   const components=variables.filter(v=>/^properties\.components#/.test(v.id)),selectedComponents=components.filter(v=>config.variables.includes(v.id)).length;
+   addComponents.hidden=!!catalog?.imported;addComponents.disabled=busy||loading||!components.length||count>=limit||selectedComponents===components.length;
+   componentSelectionNote.hidden=!components.length;componentSelectionNote.textContent=selectedComponents+' / '+components.length+' independent component dimensions selected. Family checkboxes select all matching bays or ribs, including local overrides. You can deselect individual dimensions. Click Run sensitivity to compute results for this selection.';
+   selectShown.disabled=busy||loading||!filter.valid||count>=limit||!shown.some(v=>!config.variables.includes(v.id));
+   removeShown.disabled=busy||loading||!filter.valid||!visibleSelected;
+   filterStatus.textContent=filter.valid?shown.length+' / '+variables.length+' properties match · '+count+' selected ('+visibleSelected+' shown, '+(count-visibleSelected)+' outside this filter).':filter.error;
+   filterStatus.classList.toggle('sensitivity-error',!filter.valid);el('filter').setAttribute('aria-invalid',String(!filter.valid));clearFilter.disabled=!el('filter').value;
+  }
+  function error(message){el('error').textContent=message||"";el('error').hidden=!message;}
+  function changed(){const expanded=normalizeSetup();options.onEdit?.(JSON.stringify(config));if(expanded.aliases.length)el('status').textContent=migrationMessage(expanded);sync();}
+  function objectiveType(){return TYPES.find(t=>t[0]===config.objective.type)||TYPES[0];}
+  function renderObjective(){const type=objectiveType();el('objective').value=type[0];el('component').replaceChildren();
+   for(const [value,label]of type[2]){const option=make('option','',label);option.value=value;el('component').append(option);}
+   if(type[2].length&&!type[2].some(([value])=>value===config.objective.component))config.objective.component=type[2][0][0];
+   el('component').value=config.objective.component||"";el('component-row').hidden=!type[2].length;
+   el('target-label').textContent=type[3]==='mode'?'Mode number':type[3]==='node_id'?'Node ID':'Element ID';el('target').value=config.objective[type[3]]??(type[3]==='mode'?1:"");
+   el('surface-row').hidden=type[0]!=='shell_stress';el('surface').value=config.objective.surface||'z1';el('target').max=type[3]==='mode'?'20':'';el('use-pick').hidden=type[3]==='mode';el('target-note').textContent=type[3]==='mode'?'The selected baseline eigenmode defines this derivative. Repeated or nearly repeated modes do not have a unique individual-mode derivative.':'Use the numeric ID of a physical structural entity. Inspect it first if its ID is unknown.';
+   if(type[3]==='mode')pickActive=false;syncInspect();
+  }
+  for(const [value,label]of SOLUTIONS){const option=make('option','',label);option.value=value;el('solution').append(option);}
+  for(const [value,label]of TYPES){const option=make('option','',label);option.value=value;el('objective').append(option);}
+  function renderVariables(){filter=propertyFilter(el('filter').value,filterMode.value);const list=el('variables');list.replaceChildren();const variables=selection.variables;
+   const known=new Set(variables.map(v=>v.id)),missing=config.variables.filter(id=>!known.has(id));
+   if(missing.length&&catalog){const note=make('p','sensitivity-error','Selected properties are no longer available: '+missing.join(', ')+'. Clear the selection or restore the model.');list.append(note);}
+   for(const variable of [...selection.aliases,...variables]){if(!matchesFilter(variable))continue;
+    const ids=variable.selection_ids||[variable.id],selected=ids.filter(id=>config.variables.includes(id)).length,family=!!variable.selection_ids;
+    const row=make('label','sensitivity-variable'),check=make('input');check.type='checkbox';check.value=variable.id;check.checked=selected===ids.length;check.indeterminate=selected>0&&selected<ids.length;check.disabled=busy||loading||(!check.checked&&!check.indeterminate&&config.variables.length>=variableLimit());if(family)check.dataset.selectionFamily='true';
+    check.onchange=()=>{const next=check.checked?normalizeSelection([...config.variables,variable.id],catalog).values:config.variables.filter(id=>!ids.includes(id));if(next.length>variableLimit()&&next.length>config.variables.length){error('This family would select '+next.length+' variables, exceeding the '+variableLimit()+'-variable limit. Select individual local dimensions or remove other selections.');renderVariables();return;}config.variables=next;error('');changed();renderVariables();};
+    const text=make('span'),name=make('strong','',family?variable.label:labelOf(variable)),detail=make('small','',family?'Family selection · '+selected+' / '+ids.length+' independent local dimensions':displayed(variable.value,variable.unit||'')+(variable.group?' · '+variable.group:'')+(variable.element_count?' · '+variable.element_count+' elements':''));text.append(name,detail);row.append(check,text);row.title=family?variable.note||'Select all local dimensions in this family.':typeof variable.targets==='string'?variable.targets:'Property IDs: '+(variable.pids||[]).join(', ');list.append(row);
+   }
+   if(!variables.length)list.append(make('p','pick-note',config.variables.length?
+    config.variables.length+' saved design variables selected. Their checkboxes will be restored when the current model properties are ready.':
+    'Read the properties of the created FEM to select design variables.'));
+   renderWork();
+  }
+  function selectedRow(){return result?.rows?.find(row=>row.id===selectedProperty)||null;}
+  function resultContext(){return{...resultMeta,compatibility:resultMeta.compatibility||result?.compatibility||null,scope:resultMeta.scope||result?.scope||null};}
+  function historical(){const meta=resultContext();return meta.historical===true||meta.compatibility?.is_current===false;}
+  function clearVisualization(){if(mapActive)options.onClearVisualization?.();mapActive=false;}
+  function mapPermitted(){const context=options.context?.()||{},meta=resultContext();return!!options.onVisualize&&context.ready&&!context.dirty&&!context.blocked&&!busy&&context.signature===resultSignature&&meta.compatibility?.map_allowed!==false;}
+  function syncPreviewButtons(){const effect=interpretation?.rowEffect(result,selectedRow(),previewPercent),view=el('visualize');if(view){view.disabled=!effect?.valid||!mapPermitted();view.title=mapPermitted()?'Color the property’s affected elements with its effect on the selected scalar response.':'A matching created FEM and compatible saved element scope are required for a property map.';}if(el('field'))el('field').disabled=!selectedRow()||!mapPermitted();if(el('clear-map'))el('clear-map').disabled=!options.onClearVisualization;
+   const context=options.context?.()||{},meta=resultContext(),baseline=result?.baseline_analysis;
+   if(el('show-baseline'))el('show-baseline').disabled=!options.onShowBaseline||baseline?.available!==true||busy||!context.ready||context.dirty||context.blocked||context.signature!==resultSignature||meta.compatibility?.map_allowed===false;
+   for(const kind of ['deck','results','native'])if(el('baseline-'+kind))el('baseline-'+kind).disabled=!options.onDownloadBaseline||busy||!(kind==='deck'?baseline?.deck_file:kind==='results'?baseline?.results_file:baseline?.native_file);
+  }
+  function selectProperty(id){if(!result?.rows?.some(row=>row.id===id))return false;clearVisualization();selectedProperty=id;if(el('preview-property'))el('preview-property').value=id;updatePreview();return true;}
+  function updatePreview(){if(!interpretation||!result||!el('effect-chart'))return;
+   const summary=interpretation.summarize(result,previewPercent,previewMetric,catalog),ranked=summary.ranked;
+   if(!ranked.some(item=>item.row.id===selectedProperty))selectedProperty=ranked[0]?.row.id||null;
+   el('preview-property').value=selectedProperty||'';
+   const unit=summary.baseline.unit||result.unit||'',metric=ranked[0]?.metric||(summary.baseline.value===0?'absolute':previewMetric);
+   el('preview-metric').querySelector('[value=percent]').disabled=summary.baseline.value===0;
+   if(metric!==previewMetric&&ranked.length){previewMetric=metric;el('preview-metric').value=metric;}
+   el('result-counts').textContent=summary.available+' of '+summary.total+' derivatives available'+(summary.warnings?' · '+summary.warnings+' with warnings':'')+(summary.failed?' · '+summary.failed+' unavailable (excluded from the chart)':'')+'.';
+   el('effect-heading').textContent='Estimated response change for '+(previewPercent>=0?'+':'')+format(previewPercent)+'% in each property';
+   el('effect-influential').textContent=summary.influential.length?'Largest effects by magnitude: '+summary.influential.map(item=>item.label).join('; ')+'.':'No finite derivatives are available for this preview.';
+   el('effect-units').textContent=metric==='percent'?'Chart: 100 × Δresponse / baseline (%)':'Chart: Δresponse ('+(displayUnit(unit)||'response units')+').'+(summary.baseline.value===0?' Baseline is zero, so a relative percentage is undefined.':'');
+   const chart=el('effect-chart');chart.replaceChildren();const extent=Math.max(...ranked.map(item=>Math.abs(item.chartValue)),0)||1;
+   for(const item of ranked){const row=make('button','sensitivity-effect-row');row.type='button';row.dataset.property=item.row.id;row.setAttribute('aria-pressed',String(item.row.id===selectedProperty));const value=(item.chartValue>0?'+':'')+(metric==='percent'?format(item.chartValue)+'%':displayed(item.chartValue,unit));row.title=item.label+': '+(metric==='percent'?format(item.chartValue)+'%':displayed(item.chartValue,unit));row.append(make('span','sensitivity-effect-label',item.label));const track=make('span','sensitivity-effect-track'),bar=make('span','sensitivity-effect-bar '+(item.chartValue<0?'negative':'positive'));const width=50*Math.abs(item.chartValue)/extent;bar.style.width=width+'%';bar.style.left=(item.chartValue<0?50-width:50)+'%';track.append(bar);row.append(track,make('span','sensitivity-effect-value',value));row.onclick=()=>selectProperty(item.row.id);chart.append(row);}
+   const effect=interpretation.rowEffect(result,selectedRow(),previewPercent),details=el('effect-details');details.replaceChildren();
+   if(effect.valid){const entries=[['Original property',displayed(effect.originalProperty,effect.propertyUnit)],['Property change Δp',(effect.deltaProperty>0?'+':'')+displayed(effect.deltaProperty,effect.propertyUnit)],['Proposed property',displayed(effect.proposedProperty,effect.propertyUnit)],['Derivative df/dp',displayed(effect.derivative,selectedRow().derivative_unit||'')],['Estimated response change Δf',(effect.deltaResponse>0?'+':'')+displayed(effect.deltaResponse,unit)],['Relative response change',effect.percentOfBaseline===null?'Undefined at this baseline':(effect.percentOfBaseline>0?'+':'')+format(effect.percentOfBaseline)+'%'],['Estimated total response',displayed(effect.predictedResponse,unit)]];for(const [name,value]of entries)details.append(make('dt','',name),make('dd','',value));}
+   el('preview-warning').textContent=!Number.isFinite(previewPercent)?'Enter a finite property change percentage.':effect.propertyNonpositive?'This change makes a positive property nonpositive; the estimate is mathematical only and is not a valid model.':Math.abs(previewPercent)>10?'Large changes may lie outside the useful range of a first-order approximation.':effect.warning||'';el('preview-warning').hidden=!el('preview-warning').textContent;syncPreviewButtons();
+  }
+  function renderInterpretation(box){if(!interpretation)return;
+   const summary=make('section','sensitivity-result-summary');summary.append(make('h4','',interpretation.objectiveLabel(result)));summary.append(make('p','pick-note',(result.case_label||'Case '+(result.case_id||result.request?.case_id||'unknown'))+(result.solution?' / SOL'+result.solution:'')));summary.append(make('p','sensitivity-baseline','Baseline: '+displayed(interpretation.baseline(result).value,interpretation.baseline(result).unit||result.unit||'')));
+   const counts=make('p','pick-note');counts.id='sensitivity-result-counts';summary.append(counts);
+   const meta=resultContext();if(historical()){const badge=make('p','sensitivity-historical','Historical result — review the recorded model and load application before using these estimates.');badge.id='sensitivity-historical';summary.append(badge);for(const reason of meta.compatibility?.reasons||[])summary.append(make('p','pick-note',reason));}
+   const path=meta.sourcePath||meta.source_path||result.source_path;if(path){const source=make('p','sensitivity-source','Source: '+path);source.id='sensitivity-result-source';summary.append(source);}
+   summary.append(make('p','pick-note','Positive Δresponse increases the signed response; negative Δresponse decreases it. Relative change is Δresponse / baseline. Each estimate changes one property independently.'));
+   box.append(summary);
+   const preview=make('section','sensitivity-preview');preview.innerHTML='<h4>Explore a property change</h4><p class="pick-note">First-order estimate: Δf = (df/dp) × Δp. This changes neither the model nor its loads and runs no analysis. The percentage below is independent of the operator derivative step.</p><div class="sensitivity-preview-controls"><label>Property change (%)<input id="sensitivity-preview-percent" type="number" step="0.1" value="1"></label><label>Chart quantity<select id="sensitivity-preview-metric"><option value="percent">% of baseline response</option><option value="absolute">Response units</option></select></label></div><h4 id="sensitivity-effect-heading"></h4><p id="sensitivity-effect-influential" class="pick-note"></p><p id="sensitivity-effect-units" class="pick-note"></p><div id="sensitivity-effect-chart" class="sensitivity-effect-chart" aria-label="Ranked property effects"></div><label class="sensitivity-property-select">Selected property<select id="sensitivity-preview-property"></select></label><dl id="sensitivity-effect-details" class="sensitivity-effect-details"></dl><p id="sensitivity-preview-warning" class="sensitivity-historical" role="status" hidden></p><div class="hud-row"><button id="sensitivity-visualize" class="mini" type="button">Show property effect in Results</button><button id="sensitivity-clear-map" class="mini" type="button">Return to ordinary results</button></div><p class="pick-note">Property effect on the selected response; shared across affected elements, not a local stress or sensitivity field. Operator samples are fixed-state calculations, not perturbed equilibrium responses.</p>';
+   box.append(preview);el('preview-percent').value=Number.isFinite(previewPercent)?previewPercent:'';el('preview-metric').value=previewMetric;
+   for(const row of result.rows||[]){if(!interpretation.rowEffect(result,row,0).valid)continue;const option=make('option','',labelOf(row));option.value=row.id;el('preview-property').append(option);}
+   el('preview-percent').oninput=()=>{clearVisualization();previewPercent=el('preview-percent').value===''?NaN:Number(el('preview-percent').value);updatePreview();};el('preview-metric').onchange=()=>{clearVisualization();previewMetric=el('preview-metric').value;updatePreview();};el('preview-property').onchange=()=>selectProperty(el('preview-property').value);
+   el('visualize').onclick=async()=>{const row=selectedRow(),effect=interpretation.rowEffect(result,row,previewPercent);if(!effect.valid||!mapPermitted())return;try{await options.onVisualize(result,row,{...effect,metric:previewMetric,...resultContext(),historical:historical()});mapActive=true;}catch(e){error(e.message);}};
+   const fieldButton=make('button','mini','Show sensitivity field');fieldButton.id='sensitivity-field';fieldButton.type='button';fieldButton.dataset.sensitivityDisplay='ready';fieldButton.setAttribute('aria-pressed','false');el('visualize').before(fieldButton);
+   fieldButton.onclick=async()=>{if(!mapPermitted()||!selectedRow())return;try{await options.onVisualize(result,selectedRow(),{mode:'field',...resultContext()});mapActive=true;}catch(e){error(e.message);}};
+   const baselineSection=make('section','sensitivity-baseline');baselineSection.append(make('h4','','Solved baseline case'));
+   baselineSection.append(make('p','pick-note',result.baseline_analysis?.message||'This older run has no retained physical baseline fields. The scalar objective alone cannot reconstruct displacements, stresses or modes.'));
+   const baselineButtons=make('div','hud-row'),showBaseline=make('button','mini','Show baseline case');showBaseline.id='sensitivity-show-baseline';showBaseline.type='button';showBaseline.title='Add this run’s original solved baseline to ordinary Results. Operator perturbations are never shown as physical cases.';
+   showBaseline.onclick=async()=>{showBaseline.disabled=true;try{await options.onShowBaseline?.(result,resultContext());}catch(e){error(e.message);}finally{syncPreviewButtons();}};baselineButtons.append(showBaseline);
+   for(const [kind,label]of [['deck','Download baseline deck'],['results','Download baseline results'],['native','Download native results']]){const button=make('button','mini',label);button.type='button';button.id='sensitivity-baseline-'+kind;button.onclick=async()=>{button.disabled=true;try{await options.onDownloadBaseline?.(kind,result,resultContext());}catch(e){error(e.message);}finally{syncPreviewButtons();}};baselineButtons.append(button);}
+   baselineSection.append(baselineButtons);box.append(baselineSection);
+   el('clear-map').onclick=()=>{options.onClearVisualization?.();mapActive=false;};updatePreview();
+  }
+  async function refreshSavedRuns(){if(!options.listRuns||savedBusy)return;const generation=savedGeneration;savedBusy=true;syncSaved();el('saved-status').textContent='Finding completed sensitivity runs…';try{const response=await options.listRuns();if(destroyed||generation!==savedGeneration)return;savedRuns=Array.isArray(response)?response:response.runs||[];const previous=el('saved-select').value;el('saved-select').replaceChildren();for(const run of savedRuns){const option=make('option','',(run.label||run.id)+(run.modified_at?' · '+run.modified_at:'')+(run.variable_count!=null?' · '+run.variable_count+' variables':''));option.value=run.id;el('saved-select').append(option);}if(savedRuns.some(run=>run.id===previous))el('saved-select').value=previous;el('saved-status').textContent=savedRuns.length?savedRuns.length+' saved runs. Opening a result does not replace the current sensitivity setup.':'No completed sensitivity runs were found for this output folder.';}catch(e){if(!destroyed&&generation===savedGeneration)el('saved-status').textContent='Cannot list saved results: '+e.message;}finally{if(!destroyed&&generation===savedGeneration){savedBusy=false;syncSaved();}}}
+  function syncSaved(){el('saved-refresh').disabled=busy||savedBusy;el('saved-open').disabled=busy||savedBusy||!el('saved-select').value;el('saved-select').disabled=busy||savedBusy||!savedRuns.length;}
+  el('saved-refresh').onclick=refreshSavedRuns;el('saved-select').onchange=syncSaved;
+  el('saved-open').onclick=async()=>{if(!options.loadRun||savedBusy||!el('saved-select').value)return;const generation=savedGeneration;savedBusy=true;syncSaved();error('');el('saved-status').textContent='Opening saved result…';try{const data=await options.loadRun(el('saved-select').value);if(destroyed||generation!==savedGeneration)return;const compatibility=data.compatibility||data.result?.compatibility;acceptResult(data.result||data,data.signature??(compatibility?.model_match?options.context?.().signature:null),{...data,compatibility,scope:data.scope||data.result?.scope,sourcePath:data.source_path,historical:compatibility?.is_current===false,saved:true});el('saved-status').textContent='Opened saved result. The current setup has been kept.';}catch(e){if(!destroyed&&generation===savedGeneration){error(e.message);el('saved-status').textContent='The saved result could not be opened.';}}finally{if(!destroyed&&generation===savedGeneration){savedBusy=false;syncSaved();}}};
+  function renderResults(){const box=el('results');box.replaceChildren();el('csv').disabled=!result?.rows?.length;if(!result)return;
+   box.append(make('h3','',result.label||'Sensitivity results'));
+   renderInterpretation(box);
+   const baseline=typeof result.baseline==='number'?{value:result.baseline}:result.baseline||{};
+   box.append(make('p','', 'Baseline objective: '+displayed(baseline.value,baseline.unit||result.unit||'')));
+   if(result.objective){const objective=result.objective,type=TYPES.find(t=>t[0]===objective.type),target=objective.node_id?'Node '+objective.node_id:objective.element_id?'Element '+objective.element_id:'Mode '+objective.mode;box.append(make('p','pick-note',(type?.[1]||objective.type)+' / '+target+(objective.component?' / '+objective.component:'')+(objective.surface?' / '+objective.surface:'')));}if(result.method)box.append(make('p','pick-note sensitivity-method','Method: '+methodLabel(result.method)));const counts=solverCounts(result.solver_counts);if(counts.length)box.append(make('p','pick-note sensitivity-solver-counts','Completed work: '+counts.join(' / ')));if(result.case_label)box.append(make('p','pick-note',result.case_label+' / SOL'+result.solution));
+   const analyticResult=['analytic_discrete_adjoint','analytic_eigenvalue_adjoint'].includes(result.method);
+   if(result.derivative_assembly)box.append(make('p','pick-note',(analyticResult?'Derivative evaluation: ':'Operator derivatives: ')+String(result.derivative_assembly).replaceAll('_',' ')));
+   for(const warning of result.warnings||[])box.append(make('p','sensitivity-error',warning));
+   const notes=Array.isArray(result.notes)?result.notes.filter(n=>typeof n==='string'):[],diagnostics={...result,...result.diagnostics},checks=[];
+   for(const [keys,label]of [[['forward_replay_residual'],'Forward replay residual'],[['adjoint_relative_residual','adjoint_residual'],'Adjoint residual'],[['eigen_residual'],'Eigen residual'],[['preload_residual'],'Preload residual']]){const key=keys.find(k=>Number.isFinite(diagnostics[k]));if(key)checks.push([label,format(diagnostics[key])]);}
+   if(notes.length||checks.length){const details=make('details','sensitivity-method-details');details.append(make('summary','','Method notes and numerical checks'));for(const note of notes)details.append(make('p','pick-note',note));if(checks.length){const list=make('dl');for(const [label,value]of checks)list.append(make('dt','',label),make('dd','',value));details.append(list);}box.append(details);}
+   const wrap=make('div','sensitivity-table-wrap'),table=make('table'),head=make('thead'),tr=make('tr');for(const text of ['Property','Value','d response / d property','Normalized derivative',...(!analyticResult?['Step difference']:[]),'Status'])tr.append(make('th','',text));head.append(tr);table.append(head);const body=make('tbody');
+   for(const row of result.rows||[]){const tr=make('tr');tr.dataset.property=row.id;for(const text of [labelOf(row),displayed(row.value,row.unit||''),displayed(row.derivative,row.derivative_unit||''),format(row.normalized_derivative),...(!analyticResult?[Number.isFinite(row.step_error)?format(100*row.step_error)+'%':'—']:[]),row.warning||row.message||row.status||'Complete'])tr.append(make('td','',text));body.append(tr);}table.append(body);wrap.append(table);box.append(wrap);
+   box.append(make('p','pick-note','Normalized derivative = property value / baseline response × derivative. Undefined at zero baseline. '+(analyticResult?'Analytic derivatives use exact element chain rules, without property perturbations or step-size comparisons. Unsupported or nonsmooth responses are reported explicitly.':(['discrete_adjoint','eigenvalue_adjoint'].includes(result.method)?'Step difference compares operator derivatives evaluated at h and h/2; it does not add full analyses. ':'Step difference compares h and h/2 where enabled. ')+'High differences require a smaller step or review of nonsmooth responses.')));
+  }
+  function catalogChanged(context){return !!catalog&&(context.signature!==catalogSignature||(context.meshIdentity??null)!==catalogMesh);}
+  function contextKey(context){return JSON.stringify([context.signature,context.meshIdentity??null]);}
+  function runBlocker(context){
+   if(busy)return{message:'Sensitivity is running. Progress is shown below; wait for completion or use Stop sensitivity.'};
+   if(loading)return{message:'Reading current model properties. Please wait; your selected variables are kept.'};
+   if(context.blocked)return{message:context.blockedReason||'Another model operation is running. Finish it before reading properties or starting sensitivity.'};
+   if(context.dirty||!context.ready)return{message:context.dirtyReason||(!context.ready?'Create FEM before reading properties or running sensitivity.':'The model definition has changed. Create FEM to update it before running sensitivity.'),action:!context.pendingDrafts&&options.rebuild?'rebuild':null,label:'Create FEM and read properties'};
+   if(!catalog||catalogChanged(context))return{message:catalog?'The FEM has changed. Refresh its current properties; existing selections are kept.':'Read the current FEM properties, then select the variables to analyze.',action:'catalog',label:'Read current properties'};
+   const info=solutionInfo(catalog,config.solution);
+   if(!info.available)return{message:info.reason||'SOL'+config.solution+' sensitivity is unavailable for this model.'};
+   if(!info.objectives.includes(config.objective.type))return{message:'The selected response is not supported for SOL'+config.solution+'. Choose an eligible response above.'};
+   const ineligibleCase=caseReason(config.case_id,info);if(ineligibleCase)return{message:ineligibleCase+' Choose an eligible case.',action:'case',label:'Choose load case'};
+   if(config.solution==='106'&&config.derivative_method!=='analytic')return{message:'SOL106 sensitivity requires the analytic final-state adjoint. Choose Analytic in Derivative method.'};
+   if(catalog.imported&&config.derivative_method!=='analytic')return{message:'Imported Reference decks use analytic adjoints. Choose Analytic in Derivative method.'};
+   const missing=config.variables.filter(id=>!catalog.variables?.some(v=>v.id===id));
+   if(missing.length)return{message:missing.length+' selected '+(missing.length===1?'property is':'properties are')+' no longer present in this FEM. Remove unavailable selections or restore the earlier model.',action:'missing',label:'Remove unavailable selections'};
+   if(!config.variables.length)return{message:'Select at least one property. Filter the list and use Add matches, or select individual checkboxes.'};
+   if(config.variables.length>variableLimit())return{message:'The selection exceeds '+variableLimit()+' variables. Remove some selections before running.'};
+   if(invalidStep)return{message:'Correct the operator derivative step (0.01% to 10%), or choose the analytic method.'};
+   const target=config.objective[objectiveType()[3]];
+   if(!Number.isInteger(target)||target<1)return{message:'Enter a positive '+(objectiveType()[3]==='mode'?'mode number':'node or element ID')+' for the response, or use the inspected entity.',action:'target',label:'Set response target'};
+   return null;
+  }
+  function sync(){const context=options.context?.()||{};lastContext=context;const changedModel=catalogChanged(context),stale=result&&(context.dirty||context.signature!==resultSignature||setupSignature(config)!==resultSetup),blocker=runBlocker(context);
+   el('context').textContent=(blocker?.message||'Ready to run sensitivity on the current FEM and selected case.')+(stale?' Results shown below belong to an earlier model or sensitivity setup.':'');
+   el('context').classList.toggle('sensitivity-error',!!(context.dirty||stale));
+   el('context').dataset.blocked=String(!!blocker);host.dataset.sensitivityBusy=String(busy||loading||!!context.working);recoveryAction=blocker?.action||null;recovery.hidden=!recoveryAction;recovery.textContent=blocker?.label||'';recovery.disabled=busy||loading;
+   const available=context.ready&&!context.dirty&&!context.blocked;el('refresh').disabled=busy||loading||!available;el('refresh').textContent=loading?'Reading properties…':'Refresh model properties';el('run').disabled=!!blocker;el('run').title=blocker?.message||'Run the selected sensitivity study';el('run').setAttribute('aria-describedby','sensitivity-context');
+   el('stop').hidden=!busy;for(const node of host.querySelectorAll('.sensitivity-setup input,.sensitivity-setup select,#sensitivity-clear,#sensitivity-use-pick'))node.disabled=busy||loading||(node.closest('#sensitivity-variables')&&!node.checked&&!node.indeterminate&&config.variables.length>=variableLimit());el('filter').disabled=false;filterMode.disabled=false;
+   renderWork();
+   if(context.dirty||result&&context.signature!==resultSignature)clearVisualization();syncPreviewButtons();syncSaved();
+   el('status').classList.toggle('sensitivity-running',busy);
+   if(busy||loading)pickActive=false;syncInspect();
+   // Rebuilds invalidate only the catalogue, not its selected variable IDs.
+   // Refresh once after the new mesh settles; failed requests require an explicit retry.
+   const key=contextKey(context);
+   if(options.autoRefreshCatalog!==false&&context.catalogVisible!==false&&catalogRequested&&(!catalog||changedModel)&&available&&!busy&&!loading&&autoAttempt!==key){queueMicrotask(()=>{const now=options.context?.()||{};if(!destroyed&&!loading&&!busy&&contextKey(now)===key&&now.catalogVisible!==false&&now.ready&&!now.dirty&&!now.blocked)readCatalog();});}
+  }
+  function refreshContext(){sync();}
+  async function readCatalog(){
+   if(destroyed||loading||busy)return false;
+   const before=options.context?.()||{};
+   if(!before.ready||before.dirty||before.blocked){sync();return false;}
+   const generation=++readGeneration,key=contextKey(before);catalogRequested=true;autoAttempt=key;error('');loading=true;sync();el('status').textContent='Reading model properties…';
+   try{const data=await options.catalog();if(destroyed||generation!==readGeneration)return false;const after=options.context?.()||{};
+    if(!after.ready||after.dirty||contextKey(after)!==key||data.model_signature!==undefined&&data.model_signature!==before.signature||data.mesh_identity!==undefined&&data.mesh_identity!==(before.meshIdentity??null)){el('status').textContent='The FEM changed while properties were being read. The obsolete response was discarded; selections are kept.';return false;}
+    const next=data.catalog||data;if(!Array.isArray(next.variables))throw Error('The property catalogue response has no variable list. Refresh model properties to retry.');
+    catalog={...next,imported:data.imported??next.imported};selection=selectionEntries(catalog);catalogSignature=before.signature;catalogMesh=before.meshIdentity??null;const expanded=normalizeSetup();if(expanded.changed)options.onEdit?.(JSON.stringify(config));renderVariables();el('status').textContent=expanded.aliases.length?migrationMessage(expanded):selection.variables.length+' editable property variables available.';return true;
+   }catch(e){if(!destroyed&&generation===readGeneration){error(e.message);el('status').textContent='Could not read properties. Use Refresh model properties to retry.';}return false;}finally{if(!destroyed&&generation===readGeneration){loading=false;sync();}}
+  }
+  function restore(value){
+   // The setup belongs to the Study, while catalogue rows and search filters
+   // belong to its current mesh. Invalidate even an in-flight response from
+   // the previous Study; never let it populate the newly restored selection.
+   readGeneration++;loading=false;catalog=null;selection=selectionEntries(null);catalogSignature=null;catalogMesh=null;autoAttempt=null;
+   invalidStep=false;error('');
+   try{config=parse(value);}catch{config=defaults();error('Invalid saved sensitivity setup. Select the response and variables again.');}
+   catalogRequested=config.variables.length>0;
+   el('filter').value='';filterMode.value='wildcard';
+   renderObjective();el('step').value=100*config.relative_step;el('check-step').checked=config.check_step;renderVariables();refreshContext();
+  }
+  function selectObjective(value){pickActive=false;const previous=config.objective;config.objective={type:value};const type=objectiveType();if(type[2].length)config.objective.component=type[2][0][0];config.objective[type[3]]=previous[type[3]]??(type[3]==='mode'?1:null);renderObjective();}
+  el('solution').onchange=()=>{config.solution=el('solution').value;const info=solutionInfo(catalog,config.solution);if(!info.objectives.includes(config.objective.type)&&info.objectives.length)selectObjective(info.objectives[0]);if(caseReason(config.case_id,info)){const eligible=caseList().find(item=>!caseReason(item.id,info));if(eligible)config.case_id=Number(eligible.id);}changed();};
+  el('case').onchange=()=>{config.case_id=Number(el('case').value);changed();};
+  el('objective').onchange=()=>{selectObjective(el('objective').value);changed();};
+  el('surface').onchange=()=>{config.objective.surface=el('surface').value;changed();};el('component').onchange=()=>{config.objective.component=el('component').value;changed();};el('target').oninput=()=>{config.objective[objectiveType()[3]]=el('target').value===''?null:Number(el('target').value);changed();};
+  el('step').onchange=()=>{const step=Number(el('step').value)/100;if(!Number.isFinite(step)||step<1e-4||step>.1){invalidStep=true;error('Choose an operator derivative step between 0.01% and 10%.');sync();return;}invalidStep=false;config.relative_step=step;error('');changed();};
+  method.onchange=()=>{config.derivative_method=method.value;invalidStep=false;error('');changed();renderWork();sync();};
+  el('check-step').onchange=()=>{config.check_step=el('check-step').checked;changed();renderVariables();};el('filter').oninput=renderVariables;filterMode.onchange=renderVariables;clearFilter.onclick=()=>{el('filter').value='';renderVariables();el('filter').focus();};el('clear').onclick=()=>{config.variables=[];changed();renderVariables();};el('refresh').onclick=readCatalog;
+  selectShown.onclick=()=>{if(!filter.valid||busy||loading)return;const added=addMatchingVariables(config.variables,selection.variables,{test:matchesFilter},variableLimit());config.variables=added.values;changed();renderVariables();if(added.omitted)error('The '+variableLimit()+'-variable limit was reached; '+added.omitted+' matching properties were not added. Existing selections were preserved.');};
+  removeShown.onclick=()=>{if(!filter.valid||busy||loading)return;const ids=new Set(selection.variables.filter(matchesFilter).map(v=>v.id));config.variables=config.variables.filter(id=>!ids.has(id));changed();renderVariables();};
+  addComponents.onclick=()=>{if(busy||loading||!catalog)return;const added=addMatchingVariables(config.variables,catalog.variables,{test:v=>/^properties\.components#/.test(v.id)},variableLimit());config.variables=added.values;changed();renderVariables();if(added.omitted)error('The '+variableLimit()+'-variable limit was reached; '+added.omitted+' component dimensions were not added. Existing selections were preserved. Select smaller component groups with the filter.');else el('status').textContent='Independent component dimensions added. Review the selection, then click Run sensitivity; existing results have not been recomputed.';};
+  recovery.onclick=async()=>{const action=recoveryAction;if(action==='catalog')return readCatalog();if(action==='target'||action==='case'){el(action).focus();el(action).scrollIntoView({block:'center'});return;}if(action==='missing'){const known=new Set(catalog.variables.map(v=>v.id));config.variables=config.variables.filter(id=>known.has(id));changed();renderVariables();return;}if(action==='rebuild'){recovery.disabled=true;try{await options.rebuild();await readCatalog();}catch(e){error(e.message);}finally{sync();}}};
+  el('use-pick').onclick=()=>{const id=options.inspected?.(objectiveType()[3]);if(!Number.isInteger(id)||id<1){error('Use Inspect to pick a matching node or element, then return here and press Use inspected entity.');return;}config.objective[objectiveType()[3]]=id;renderObjective();error('');changed();};
+  el('run').onclick=async()=>{error('');const blocker=runBlocker(options.context?.()||{});if(blocker){error(blocker.message);sync();return;}try{runSetup=JSON.stringify(config);await options.run(JSON.parse(runSetup));}catch(e){error(e.message);}};
+  el('stop').onclick=async()=>{el('stop').disabled=true;try{await options.cancel();}catch(e){error(e.message);}finally{el('stop').disabled=false;}};
+  el('csv').onclick=()=>{const quote=x=>'"'+String(typeof x==='string'&&/^[=+@-]/.test(x)?"'"+x:x??'').replace(/"/g,'""')+'"',rows=[['Property','Value','Unit','Derivative','Derivative unit','Normalized derivative','Relative step difference','Status']];for(const row of result?.rows||[])rows.push([labelOf(row),row.value,row.unit,row.derivative,row.derivative_unit,row.normalized_derivative,row.step_error,row.warning||row.status]);options.download?.(rows.map(r=>r.map(quote).join(',')).join('\r\n')+'\r\n');};
+  function acceptResult(data,signature,metadata={}){clearVisualization();result=data;resultSignature=signature;resultMeta=metadata;resultSetup=setupSignature(data.request?{...data.request,derivative_method:data.request.derivative_method||(/^analytic_/.test(data.method)?'analytic':'operator_differences')}:runSetup||config);selectedProperty=null;previewPercent=1;renderResults();sync();options.onResultChanged?.();}
+  function resetModel(caseId=1){
+   pickActive=false;saved.open=false;
+   clearVisualization();readGeneration++;savedGeneration++;savedBusy=false;catalog=null;catalogSignature=null;catalogMesh=null;catalogRequested=false;autoAttempt=null;loading=false;
+   result=null;resultSignature=null;resultMeta={};resultSetup=null;runSetup=null;selectedProperty=null;previewPercent=1;previewMetric='percent';
+   savedRuns=[];el('saved-select').replaceChildren();el('saved-status').textContent='';el('filter').value='';filterMode.value='wildcard';
+   el('status').dataset.detail='';el('status').textContent='';liveCounts.hidden=true;liveCounts.textContent='';error('');renderResults();
+   restore({...defaults(),case_id:Number(caseId)||1});options.onResultChanged?.();
+  }
+  restore('');return{capture:()=>JSON.parse(JSON.stringify(config)),serialize:()=>{if(invalidStep)throw Error("Sensitivity operator derivative step must be between 0.01% and 10% before saving or running.");return JSON.stringify(config);},restore,refreshContext,readCatalog,
+   getResult:()=>result,getResultContext:resultContext,isSetupCurrent:()=>!result||setupSignature(config)===resultSetup,selectedRow,selectProperty,refreshSavedRuns,resetModel,pickTarget,acceptPick,
+   setBusy(value){busy=!!value;if(busy){liveCounts.hidden=true;liveCounts.textContent='';el('status').dataset.detail='';el('status').textContent='JFEM sensitivity is running';started=performance.now();clearInterval(timer);timer=setInterval(()=>{el('status').textContent=(el('status').dataset.detail||'JFEM sensitivity is running')+' · '+Math.floor((performance.now()-started)/1000)+' s';},250);}else{clearInterval(timer);timer=null;el('progress').hidden=true;}sync();renderVariables();},
+   progress(status){const progress=status.progress||{},detail=progress.detail||status.message||'JFEM sensitivity is running';el('status').dataset.detail=detail;el('status').textContent=detail+(Number.isFinite(status.seconds)?' · '+Math.floor(Math.max(0,status.seconds))+' s':'');
+    const counts=solverCounts(progress.solver_counts);liveCounts.hidden=!counts.length;liveCounts.textContent=counts.join(' · ');
+    el('progress').hidden=!busy;el('progress').max=Math.max(1,progress.total||1);el('progress').value=progress.completed||0;},
+   complete:acceptResult,error,
+   destroy(){destroyed=true;clearInterval(timer);clearVisualization();host.replaceChildren();}
+  };
+ }
+ root.WingSensitivity={create,parse,TYPES,SOLUTIONS,inferSolution,solutionInfo,methodLabel,solverCounts,propertyFilter,addMatchingVariables,normalizeSelection,selectionEntries};
+})(globalThis);

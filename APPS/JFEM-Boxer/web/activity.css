@@ -1,0 +1,18 @@
+/* Blue identifies numerical work or cached solver loading; other preparation and I/O are orange. */
+#activity-status { position:fixed; right:18px; bottom:30px; z-index:2400; display:flex; gap:12px; align-items:center; max-width:min(490px,calc(100vw - 36px)); padding:12px 16px; border:1px solid #f5b561; border-radius:8px; background:#a85400; color:#fff; box-shadow:0 4px 24px #0009; pointer-events:none; }
+#activity-status[data-category="numerical"],#activity-status[data-category="loading"] {background:#164f91;border-color:#80b5ed;}
+#activity-status[data-state="completed"] {background:#1a613c;border-color:#7ed7a3;}
+#activity-status[data-state="error"] {background:#872e32;border-color:#ff9298;}
+#activity-status[hidden] { display:none; }
+#activity-dismiss{pointer-events:auto;align-self:flex-start;border:1px solid #ffffff70;border-radius:4px;background:transparent;color:#fff;font-size:20px;line-height:1;padding:3px 6px;cursor:pointer}
+#activity-dismiss:focus-visible{outline:2px solid white;outline-offset:2px}#activity-dismiss[hidden]{display:none}
+#activity-status strong,#activity-status small { display:block; }
+#activity-status small { margin-top:4px; color:#fff3e6; }
+#activity-time { font-variant-numeric:tabular-nums; font-size:1.15em; margin-left:8px; white-space:nowrap; }
+#activity-time::before {content:"Elapsed";display:block;font-size:10px;line-height:1.4;}
+.activity-spinner { flex:none; width:22px; height:22px; border:3px solid #ffffff66; border-top-color:#fff; border-radius:50%; animation:activity-spin 1s linear infinite; will-change:transform; }
+#activity-status[data-state="completed"] .activity-spinner,#activity-status[data-state="error"] .activity-spinner,#activity-status[data-state="cancelled"] .activity-spinner {animation:none;border-color:#ffffffaa;}
+#log .numerical {color:#83c6ff;}
+#log .preparation,#log .compilation {color:#ffc078;}
+@keyframes activity-spin { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce) { .activity-spinner { animation-duration:3s; } }
