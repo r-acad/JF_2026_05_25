@@ -501,8 +501,9 @@ end
 
 include("solver_worker_client.jl")
 
-function finish_jfem_process!(job::JfemJob,exitcode::Integer)
-    message=exitcode==0 ? "" : "the solver exited with code $exitcode"
+function finish_jfem_process!(job::JfemJob,exitcode::Integer;failure_reason::AbstractString="")
+    message=exitcode==0 ? "" : isempty(strip(failure_reason)) ?
+        "the solver exited with code $exitcode" : String(failure_reason)
     if exitcode==0 && !job.cancel_requested
         try
             path,data=find_results_json(job.outdir)
@@ -543,12 +544,16 @@ function finish_jfem_process!(job::JfemJob,exitcode::Integer)
         if !job.cancel_requested
             job.finished=time(); job.state=isempty(message) ? :done : :failed
             job.message=message
-            if !haskey(job.progress,"phase") || job.progress["phase"] in ("iterating","cutback")
+            if job.state===:failed
+                job.progress["phase"]=get(job.progress,"results_available",false)===true ? "incomplete" : "failed"
+                job.progress["message"]=message
+            elseif !haskey(job.progress,"phase") || job.progress["phase"] in ("iterating","cutback")
                 job.progress["phase"]=job.state===:done ? "completed" : "failed"
                 job.progress["message"]=isempty(message) ? "Solver completed" : message
             end
         end
     end
+    !isempty(message) && !job.cancel_requested && append_job_lines!(job,["[Failure] "*message])
     return job
 end
 
@@ -819,6 +824,12 @@ function run_jfem_comparison!(parent::JfemJob; runner=launch_jfem_process!)
             done=count(child->child.state===:done,parent.runs)
             parent.state=done==length(parent.runs) ? :done : done>0 ? :partial : :failed
             parent.message="$done of $(length(parent.runs)) solver runs completed successfully"
+            failures=[child for child in parent.runs if child.state!==:done]
+            if !isempty(failures)
+                details=["Case $(child.case_id), SOL$(child.model.params["output.solution"]): "*
+                    (isempty(child.message) ? String(child.state) : child.message) for child in failures]
+                parent.message*=". "*join(details,"; ")
+            end
             parent.exitcode=parent.state===:done ? 0 : 1
         end
     catch e
@@ -826,7 +837,11 @@ function run_jfem_comparison!(parent::JfemJob; runner=launch_jfem_process!)
         parent.exitcode=1
     finally
         parent.finished=time()
-        write_job_manifest(parent)
+        try
+            write_job_manifest(parent)
+        finally
+            parent.log_done=true
+        end
     end
     return parent
 end
@@ -1807,6 +1822,24 @@ function unavailable_analysis_variant(parent::JfemJob, spec, solution::String, c
         "log" => child === nothing ? "" : job_log(child; tail=400))
 end
 
+"""Keep original Study provenance separate from effective case/variant inputs.
+
+Call after native case selection and comparison compatibility checks. Case
+model_params remain the effective physical inputs used for tables/load labels;
+source_model_params identify the original generated Study for stale guards.
+"""
+function attach_result_source!(payload::AbstractDict,params::AbstractDict)
+    source=deepcopy(params)
+    function attach!(item)
+        item["source_model_params"]=source
+        for key in ("load_cases","variants"), child in get(item,key,Any[])
+            child isa AbstractDict && attach!(child)
+        end
+    end
+    attach!(payload)
+    payload
+end
+
 """Collate mass-dependent runs without confusing their identical native SIDs.
 
 In particular SOL103 modes belong to each physical case's fuel mass, even
@@ -1880,7 +1913,7 @@ function jfem_isolated_results_payload(job::JfemJob)
     payload["out_dir"],payload["log"]=job.outdir,job_log(job;tail=400)
     payload["load_cases"],payload["load_case_independent"]=cases,false
     payload["comparison"],payload["per_case_fuel_mass"]=false,true
-    return payload
+    return attach_result_source!(payload,job.model.params)
 end
 
 """Collate isolated SOL101/SOL106 children by physical load-case identity."""
@@ -1981,7 +2014,7 @@ function jfem_comparison_results_payload(job::JfemJob)
     payload["load_cases"],payload["load_case_independent"] = cases,false
     payload["comparison"],payload["analysis_variants"] = true,["sol101","sol106"]
     payload["shared_numerical_parameters"] = Dict("K6ROT"=>COMPARISON_K6ROT)
-    return payload
+    return attach_result_source!(payload,job.model.params)
 end
 
 """Build one result payload per load case, preserving the default top-level view."""
@@ -2001,7 +2034,7 @@ function jfem_results_payload(job::JfemJob)
         payload["load_cases"] = Any[]
         payload["load_case_independent"] = true
         push!(payload["summary"], Any["Load cases", "Unloaded normal modes are common to all cases"])
-        return payload
+        return attach_result_source!(payload,job.model.params)
     end
     cases = Any[]
     for spec in specs
@@ -2020,5 +2053,5 @@ function jfem_results_payload(job::JfemJob)
     payload["model_params"] = copy(job.model.params)
     payload["load_cases"] = cases
     payload["load_case_independent"] = false
-    return payload
+    return attach_result_source!(payload,job.model.params)
 end

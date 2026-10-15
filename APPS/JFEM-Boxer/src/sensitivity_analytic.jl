@@ -17,7 +17,8 @@ function sensitivity_analytic_prepare(native,context,wing,objective)
     feature_gradient=features===nothing ? nothing : sensitivity_feature_response(features,objective;gradient=true).gradient
     geometric_contexts=kind=="buckling_factor" ? get(context,"geometric_contexts",nothing) : nothing
     kind=="buckling_factor"&&geometric_contexts===nothing&&(geometric_contexts=sensitivity_geometric_capture(native,op,state))
-    (;op,groups,state,phi,adjoint,objective,features,feature_gradient,geometric_contexts,properties=model_property_definitions(wing),
+    structural_bays=kind=="frequency_eigenvalue"&&get(wing.params,"mass.structural_representation","distributed")=="bay_concentrated" ? structural_bay_mass_properties(wing) : nothing
+    (;op,groups,state,phi,adjoint,objective,features,feature_gradient,geometric_contexts,structural_bays,properties=model_property_definitions(wing),
         stringer_path=stringer_path(wing.grid.wing,wing.params))
 end
 
@@ -31,6 +32,7 @@ function sensitivity_analytic_derivative(native,context,wing,d,cache;cancelled=(
     directions=sensitivity_analytic_property_directions(wing,d;properties=cache.properties)
     isempty(directions)&&error("Property $(d["label"]) no longer controls an active element")
     ku=kp=mp=gp=explicit=0.;shells=bars=0;max_replay=0.
+    bay_mass=get(wing.params,"mass.structural_representation","distributed")=="bay_concentrated"
     for (pid,direction) in directions
         cancelled()&&error("Sensitivity study cancelled")
         for gr in get(cache.groups,pid,Any[]),e in 1:n_elements(gr)
@@ -40,7 +42,7 @@ function sensitivity_analytic_derivative(native,context,wing,d,cache;cancelled=(
                 dofs=local_data.dofs;dk=local_data.dKe
                 direction["area"]=local_data.section.darea;direction["density"]=direction["rho"];direction["offset_y"]=local_data.section.doffset_y
                 max_replay=max(max_replay,local_data.stiffness_replay_relative_error);bars+=1
-                if cache.phi!==nothing;pe=cache.phi[dofs];mp+=dot(pe,local_data.dMe*pe);end
+                if cache.phi!==nothing&&!bay_mass;pe=cache.phi[dofs];mp+=dot(pe,local_data.dMe*pe);end
                 kind=="buckling_factor"&&(gp+=dot(cache.phi[dofs],local_data.dKg*cache.phi[dofs]))
                 if kind=="bar_stress"&&eid==cache.objective["element_id"]
                     values=cache.objective["component"]=="axial" ? [local_data.axial_stress] : local_data.stress_features
@@ -71,7 +73,7 @@ function sensitivity_analytic_derivative(native,context,wing,d,cache;cancelled=(
     df=sensitivity_analytic_reduce_load(native,op,load)
     lf=cache.adjoint===nothing ? 0. : dot(cache.adjoint[op.free],df[op.free])
     value=if kind=="frequency_eigenvalue"
-        dm=sensitivity_analytic_shell_mass(native,op,directions)
+        dm=bay_mass ? sensitivity_analytic_bay_mass(native,op,wing,directions;bays=cache.structural_bays) : sensitivity_analytic_shell_mass(native,op,directions)
         wtmass=Float64(get(op.model,"PARAM_WTMASS",1.))
         mp+=wtmass*dot(cache.phi,dm*cache.phi)
         (kp-context["lambda"]*mp)/context["denominator"]

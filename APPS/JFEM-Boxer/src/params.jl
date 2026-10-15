@@ -34,6 +34,8 @@ end
 const LOAD_MULTIPLIER_NOTE = "Dimensionless multiplier applied once to prescribed lift, VLM forces and moments, and prescribed torque. A value of 1.5 converts limit loads to ultimate only when the defined case already represents limit loads; it is not an additional n-g conversion."
 
 const SCHEMA = ParamSpec[
+    ParamSpec("mass.structural_representation", "Structural mass representation", :choice, "distributed", "Mass";
+        choices=["distributed","bay_concentrated"], help="Distributed keeps material and non-structural mass on the structural elements. Bay concentrated replaces their exported mass with one CONM2, including CG offset and inertia, at each physical rib bay's RBE3 reference. Study densities and stiffness remain unchanged; intended for global normal modes. Fuel retains its separate CONM2."),
     # Distributed additions to mass only; all physical bays of each component.
     [ParamSpec("nonstructural."*component,label,:float,0.,"Non-structural mass";
         unit=unit,help=unit=="kg/m2" ?
@@ -512,6 +514,7 @@ function coerce_value(spec::ParamSpec, v)
     spec.kind in (:masterribs,:riborientations) && return normalize_rib_tables(v,spec.key)
     spec.kind === :airfoilstations && return normalize_airfoil_stations(v)
     spec.kind === :supportsets && return normalize_support_sets(v)
+    spec.kind === :loadcases && return normalize_load_cases(v)
     spec.kind in (:ribproperties,:sparproperties) && return normalize_component_properties(v,spec.key)
     spec.kind === :panelproperties && return normalize_panel_properties(v)
     spec.kind === :componentproperties && return normalize_component_table_properties(v)
@@ -540,8 +543,6 @@ function coerce_value(spec::ParamSpec, v)
             v isa Bool && return v
             v isa Number && return v != 0
             return lowercase(strip(String(v))) in ("true", "yes", "on", "1")
-        elseif spec.kind === :loadcases
-            return normalize_load_cases(v)
         else
             return String(v)
         end
@@ -642,6 +643,8 @@ Check the parameter set for the constraints the mesh generator relies on and
 throw an `ArgumentError` naming the offending parameter.
 """
 function validate_params(p::AbstractDict; check_cases::Bool = true)
+    get(p,"mass.structural_representation","distributed") in ("distributed","bay_concentrated") ||
+        throw(ArgumentError("mass.structural_representation must be distributed or bay_concentrated"))
     normalize_sensitivity_settings(get(p,"sensitivity.settings",""))
     for spec in SCHEMA
         spec.kind in (:float, :int) || continue

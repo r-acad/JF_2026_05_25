@@ -384,6 +384,7 @@ const CHOICE_LABELS = {
   flight_direction: "Line of flight", front_spar_angle: "Angle to inboard front spar", rear_spar_angle: "Angle to local rear spar",
   analytic: "Prescribed lift", vortex_lattice: "Aerodynamic (VLM)",
   elliptical: "Elliptical", chord: "Proportional to chord", uniform: "Uniform",
+  distributed: "Distributed element mass (default)", bay_concentrated: "Bay-concentrated mass and inertia",
   "101": "101 · Linear static", "103": "103 · Normal modes", "105": "105 · Buckling",
   "106": "106 + 101 · Nonlinear comparison",
 };
@@ -559,7 +560,7 @@ const WORKSPACE_TABS = [
   ["Geometry", "planform", "Planform"], ["Geometry", "airfoils", "Airfoils"], ["Geometry", "box", "Spars"], ["Geometry", "ribs", "Ribs"],
   ["Geometry", "stringerlayout", "Stringers"], ["Geometry", "leadingedge", "Leading Edge"], ["Geometry", "fuel", "Fuel tank"],
   ["Model", "mesh", "Structural Mesh"], ["Model", "material", "Materials"], ["Model", "shells", "Skins"],
-  ["Model", "sections", "Stringers"], ["Model", "ribproperties", "Ribs"], ["Model", "sparproperties", "Spars"], ["Model", "leproperties", "Leading Edge"], ["Model", "nonstructural", "Non-structural mass"], ["Model", "supports", "Constraints"],
+  ["Model", "sections", "Stringers"], ["Model", "ribproperties", "Ribs"], ["Model", "sparproperties", "Spars"], ["Model", "leproperties", "Leading Edge"], ["Model", "nonstructural", "Mass"], ["Model", "supports", "Constraints"],
   ["Summary", "weights", "Mass properties"], ["Summary", "summary", "General"],
   ["Loads", "cases", "Cases"], ["Loads", "vlmmesh", "VLM settings"], ["Loads", "loadplots", "Load plots"],
   ["Solve", "analysis", "FE Analysis"], ["Solve", "sensitivity", "Sensitivity"], ["Solve", "results", "FE Results"], ["Solve", "sensitivityresults", "Sensitivity"], ["Solve", "deck", "Deck"], ["Solve", "log", "Log"],
@@ -570,7 +571,7 @@ const WORKSPACE_GROUP_TAB = {
   "Shell properties": "shells", "Beam sections": "sections", "RBE3 and supports": "supports", "Weights": "weights", "Leading edge": "leadingedge",
   "Rib properties": "ribproperties", "Spar properties": "sparproperties", "Leading-edge properties": "leproperties", "Materials": "material", "Stringer layout":"stringerlayout",
   "Load cases": "cases", "VLM settings": "vlmmesh", "Sensitivity":"sensitivity", "Analysis": "analysis", "JFEM solver": "analysis",
-  "Non-structural mass":"nonstructural",
+  "Mass":"nonstructural", "Non-structural mass":"nonstructural",
 };
 const WORKSPACE_CARD_TAB = { "hud-left": "display", "model-card": "summary", "results-card": "results",
   "pick-card": "inspect", "log-wrap": "log", "deck-panel": "deck", "reference-panel": "displaygeometry" };
@@ -826,7 +827,7 @@ function buildForm(schema, values) {
     byGroup.get(name).push(spec);
   }
   host.appendChild(baseInputs);
-  const order = ["Airfoils", "Planform", "Torsion box", "Ribs", "Leading edge", "Fuel tank", "Mesh", "Material", "Materials", "Shell properties", "Beam sections", "Rib properties", "Spar properties", "Leading-edge properties", "Non-structural mass", "RBE3 and supports", "Weights", "Load cases", "VLM settings", "Analysis", "JFEM solver"];
+  const order = ["Airfoils", "Planform", "Torsion box", "Ribs", "Leading edge", "Fuel tank", "Mesh", "Material", "Materials", "Shell properties", "Beam sections", "Rib properties", "Spar properties", "Leading-edge properties", "Mass", "Non-structural mass", "RBE3 and supports", "Weights", "Load cases", "VLM settings", "Analysis", "JFEM solver"];
   const groups = [...byGroup.keys()].sort((a, b) => (order.indexOf(a) < 0 ? 100 : order.indexOf(a)) - (order.indexOf(b) < 0 ? 100 : order.indexOf(b)));
   for (const name of groups) {
     const specs = byGroup.get(name), det = document.createElement("section"); det.className = "group parameter-section workspace-panel";
@@ -843,9 +844,14 @@ function buildForm(schema, values) {
     if (name === "Analysis") {
       const note = document.createElement("p"); note.id = "analysis-solution-note"; note.className = "group-note"; det.appendChild(note);
     }
+    if (name === "Mass") {
+      const note=document.createElement("p");note.className="group-note";
+      note.textContent="Choose how structural and added non-structural mass enter the FE mass matrix. Distributed is the default. Bay concentration is an approximation for global modes; local dynamics can differ. Fuel retains its separate mass definition. Recreate the FEM after changing this setting.";
+      det.appendChild(note);
+    }
     if (name === "Non-structural mass") {
       const note=document.createElement("p");note.className="group-note";
-      note.textContent="Add distributed mass to the existing structural elements. Surface densities use actual shell area (kg/m²); linear densities use bar length (kg/m). Each value applies to every rib bay of its named component. Zero adds no mass. These additions affect mass, modal results and enabled structural inertia loads, without changing stiffness. Summary → Mass properties reports the added mass.";
+      note.textContent="Add mass using actual shell area (kg/m²) or bar length (kg/m). Each value applies to every rib bay of its named component. Zero adds no mass. The structural mass representation above determines whether this mass stays on the elements or transfers to bay masses. These additions affect mass, modal results and enabled structural inertia loads, without changing stiffness. Summary → Mass properties reports the added mass.";
       det.appendChild(note);
     }
     if (name === "VLM settings" || name === "Beam sections") {
@@ -1871,11 +1877,43 @@ async function postParams(url, params, token) {
 }
 
 async function readError(res) {
+  const limit = 8192, sourceLimit = 65536;
+  const bounded = value => {
+    const text = String(value ?? "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "").trim();
+    const suffix = "\n… [response detail truncated]";
+    return text.length > limit ? text.slice(0, limit - suffix.length) + suffix : text;
+  };
+  const status = bounded(Number.isFinite(res?.status) ? "HTTP " + res.status + (res.statusText ? " " + res.statusText : "") : "Request failed");
+  const describe = (value, depth = 0) => {
+    if (value === null || value === undefined) return "";
+    if (typeof value !== "object") return bounded(value);
+    if (depth >= 6) return bounded(JSON.stringify(value));
+    if (Array.isArray(value)) return bounded(value.map(item => describe(item, depth + 1)).filter(Boolean).join("\n"));
+    const parts = [];
+    for (const key of ["error", "message", "detail", "details", "reason", "description", "cause"]) {
+      if (Object.hasOwn(value, key)) {
+        const text = describe(value[key], depth + 1);
+        if (text && !parts.includes(text)) parts.push(text);
+      }
+    }
+    if (Object.hasOwn(value, "code")) {
+      const code = describe(value.code, depth + 1);
+      if (code) parts.push("Code: " + code);
+    }
+    return bounded(parts.length ? parts.join("\n") : JSON.stringify(value, null, 2));
+  };
   try {
-    const j = await res.json();
-    return j.error || ("HTTP " + res.status);
-  } catch (e) {
-    return "HTTP " + res.status;
+    // Read once so non-JSON server/proxy failures retain their useful body.
+    // The json-only path also supports callers that provide a response adapter.
+    if (typeof res.text !== "function") return describe(await res.json()) || status;
+    const raw = await res.text();
+    if (!raw.trim()) return status;
+    if (raw.length <= sourceLimit) {
+      try { return describe(JSON.parse(raw)) || status; } catch (_) { /* plain text */ }
+    }
+    return bounded(raw) || status;
+  } catch (_) {
+    return status;
   }
 }
 
@@ -2275,6 +2313,11 @@ function installSensitivity() {
     button.onclick=()=>state.sensitivityTables.open();document.getElementById("sensitivity-map-actions").append(button);
   }
   document.getElementById("sensitivity-map-show").onclick=()=>showSensitivityMapSelection();
+  document.getElementById("sensitivity-map-choose-run").onclick=()=>{
+    activateWorkspaceTab("sensitivity");
+    const saved=document.querySelector("#sensitivity-editor .sensitivity-saved");
+    if(saved){saved.open=true;saved.scrollIntoView({block:"start"});document.getElementById("sensitivity-saved-select")?.focus();}
+  };
   for(const id of ["sensitivity-map-property","sensitivity-map-change","sensitivity-map-metric","sensitivity-map-mode","sensitivity-field-family","sensitivity-field-quantity","sensitivity-visible-range"]){
     document.getElementById(id).onchange=()=>{refreshSensitivityMapCard();if(state.sensitivityMap)showSensitivityMapSelection();};
   }
@@ -3123,6 +3166,9 @@ async function runJfem() {
     log("could not start the run: " + e.message, "err");
     setBusy(false);
   }
+  } catch (e) {
+    log("Could not prepare the JFEM analysis: " + (e.message || String(e)), "err");
+    activity()?.announce("JFEM preparation failed", {state:"error", detail:e.message || String(e)});
   } finally {
     activity()?.end(token);
     state.solverStarting = false;
@@ -3152,7 +3198,7 @@ async function pollJfem() {
           j.state === "running" ? "run" : (j.state === "done" ? "" : "bad"));
     solverActivity(j.state === "running", j.progress);
 
-    if (j.state === "running" || j.has_more) {
+    if (j.state === "running" || j.has_more || j.log_done === false) {
       // Drain bounded batches without freezing a frame or racing the result
       // request. The terminal batch must be shown before loading results.
       state.pollTimer = setTimeout(pollJfem, j.has_more ? 150 : 700);
@@ -3166,16 +3212,16 @@ async function pollJfem() {
       for (const run of j.runs || []) {
         log(run.case_label + " · SOL" + run.solution + ": " + run.state + (run.message ? " — " + run.message : ""), run.state === "done" ? "good" : "warn");
       }
-      if (!j.results_available) { finishRun(false, j.state); return; }
+      if (!j.results_available) { finishRun(false, j.state, j.message || "No completed results are available. See the solver output above."); return; }
     }
     const loaded = await loadJfemResults();
     if (loaded !== false && typeof activateWorkspaceTab === "function") activateWorkspaceTab("results");
-    finishRun(loaded !== false, j.state);
+    finishRun(loaded !== false, loaded === false && j.state === "done" ? "results_error" : j.state, loaded === false ? state.resultReadError : j.message);
   } catch (e) {
     if (state.jobId !== jobId || !state.polling) return;
     if (terminal) {
       log("The solver finished, but its results could not be read: " + e.message, "err");
-      finishRun(false);
+      finishRun(false, "results_error", e.message || String(e));
       return;
     }
     // A disconnected status request does not prove the solver has stopped.
@@ -3187,19 +3233,21 @@ async function pollJfem() {
   }
 }
 
-function finishRun(ok, outcome = "") {
+function finishRun(ok, outcome = "", detail = "") {
   if (state.pollTimer !== null) clearTimeout(state.pollTimer);
   state.pollTimer = null;
   state.polling = false;
   solverActivity(false);
-  activity()?.announce(ok&&(!outcome||outcome==="done")?"JFEM results ready":outcome==="cancelled"?"JFEM cancelled":outcome==="partial"?"JFEM partial results":"JFEM failed",{
+  const title=ok&&(!outcome||outcome==="done")?"JFEM results ready":outcome==="cancelled"?"JFEM cancelled":outcome==="partial"?"JFEM partial results":outcome==="results_error"?"JFEM results could not be displayed":"JFEM failed";
+  if(!ok)log(title+": "+(detail||"No usable results were returned. See the solver output above."), outcome==="cancelled"?"warn":"err");
+  activity()?.announce(title,{
     started:state.solverActivityStarted??performance.now(),
     state:ok&&(!outcome||outcome==="done")?"completed":outcome==="cancelled"||outcome==="partial"?"cancelled":"error",
-    detail:"See Log for numerical execution, compilation, preparation and result-reading timings."});
+    detail:detail||"See Log for numerical execution, compilation, preparation and result-reading timings."});
   meshStatus(state.modelDirty ? "Model changes are waiting" : "Model is up to date", state.modelDirty ? "stale" : "current");
   setBusy(false);
   document.getElementById("btn-stop-jfem").hidden = true;
-  if (outcome && outcome !== "done") badge("JFEM " + outcome + (ok ? " · available results shown" : ""), "bad");
+  if (outcome && outcome !== "done") badge((outcome==="results_error"?title:"JFEM " + outcome) + (ok ? " · available results shown" : ""), "bad");
   else if (!ok) badge("JFEM failed", "bad");
 }
 
@@ -3215,13 +3263,15 @@ async function stopJfem() {
 }
 
 async function loadJfemResults() {
+  state.resultReadError = "";
   const readStarted=performance.now();
   const token = activity()?.begin("Loading analysis results", {detail:"Reading solver output and building contours…"});
   try {
   const res = await fetch("/api/jfem_results?job=" + encodeURIComponent(state.jobId),
                           { cache: "no-store" });
   if (!res.ok) {
-    log("could not read the results: " + (await readError(res)), "err");
+    state.resultReadError = "Could not read the results: " + (await readError(res));
+    log(state.resultReadError, "err");
     return false;
   }
   const buf = await res.arrayBuffer();
@@ -3252,7 +3302,22 @@ async function loadJfemResults() {
   // A SOL105 source may open on its static preload subcase; only its STATSUB
   // eigen subcases have completed result records in the native response.
   selectLoadCase(state.importedDeck&&!state.resultCases.has(state.activeCase) ? state.resultCases.keys().next().value : state.activeCase);
-  const results = state.results || state.resultCases.values().next().value;
+  const usable=[];
+  for(const [caseId,record] of state.resultCases) {
+    for(const result of record.variants?.values() || [record]) {
+      const reasons=[...result.validationIssues];
+      if(result.available===false)reasons.push(result.message||"The solver did not produce results for this analysis.");
+      else if(!result.static&&!result.modes.length&&!result.compactBuckling)reasons.push("No static displacement, eigenmode or compact buckling result was returned.");
+      if(reasons.length)log("Case "+caseId+(result.variantId?" · "+result.variantId:"")+": results unavailable — "+reasons.join(" "),"warn");
+      else usable.push(result);
+    }
+  }
+  if(!usable.length) {
+    state.resultReadError="The solver output contains no results compatible with the displayed model. See the case-specific reasons above.";
+    log(state.resultReadError,"err");
+    return false;
+  }
+  const results = usable.includes(state.results) ? state.results : usable[0];
 
   log("results read: " + results.analysis +
       (results.modes.length ? ", " + results.modes.length + " modes" : "") +
@@ -3260,8 +3325,7 @@ async function loadJfemResults() {
   log("solver output folder: " + results.outDir);
   log("Results phases: requesting/receiving "+((receivedAt-readStarted)/1000).toFixed(2)+" s; decoding "+((decodedAt-receivedAt)/1000).toFixed(2)+" s; contour/display preparation "+((performance.now()-decodedAt)/1000).toFixed(2)+" s.","preparation");
   log("Results reading, decoding and display preparation: "+((performance.now()-readStarted)/1000).toFixed(2)+" s (separate from solution time).","preparation");
-  return Array.from(state.resultCases.values()).some(record =>
-    Array.from(record.variants?.values() || [record]).some(result => result.available !== false && result.matches && (result.static || result.modes.length || result.compactBuckling)));
+  return true;
   } finally { activity()?.end(token); }
 }
 
@@ -3279,7 +3343,14 @@ function decodeResultCase(payload,r,signature) {
   const importedSignatures=[r.imported_signature,payload.imported_signature].filter(value=>value!==undefined);
   const importedAnalyses=[r.imported_analysis,payload.imported_analysis].filter(value=>value!==undefined);
   const sourceMatches=state.importedDeck ? importedSignatures.length>0&&importedSignatures.every(value=>value===state.importedDeck.signature)&&(importedAnalyses.length?importedAnalyses:[undefined]).every(value=>WingImportedAnalysis.matches(value,state.importedDeck)) :
-    importedSignatures.length===0&&[r.model_params,payload.model_params].filter(Boolean).every(params=>formSignature(params)===state.modelSignature);
+    importedSignatures.length===0&&[r.source_model_params||r.model_params,payload.source_model_params||payload.model_params].filter(Boolean).every(params=>formSignature(params)===state.modelSignature);
+  // Case-effective parameters include load/fuel overrides. Their immutable
+  // source parameters identify the Study that produced them; older payloads
+  // retain the stricter original model_params check.
+  const validationIssues=[];
+  if(r.node_count!==n||resultNodes!==n)validationIssues.push("Result node count ("+resultNodes+"; envelope "+r.node_count+") differs from the displayed mesh ("+n+").");
+  if(signature!==state.modelSignature)validationIssues.push("The model changed after this analysis was started; rerun the current model.");
+  if(!sourceMatches)validationIssues.push(state.importedDeck?"The result belongs to a different imported deck or analysis configuration.":"The result source parameters do not match the current Study.");
   const expectedLoadVersion=state.data?.loads?.load_application_version;
   const resultLoadVersions=[r.load_application_version,payload.load_application_version].filter(value=>value!==undefined);
   // Fixed section constants can change without changing user parameters or
@@ -3319,7 +3390,8 @@ function decodeResultCase(payload,r,signature) {
     modes: [],
     static: null,
     contours: [],
-    matches: r.node_count === n && (payload.node_count===undefined||payload.node_count===n) && signature === state.modelSignature && sourceMatches,
+    matches: validationIssues.length===0,
+    validationIssues,
     elementResults: payload.available === false ? {} : payload.element_results || {},
     modelParams: payload.model_params || r.model_params || state.values,
   };
@@ -4336,11 +4408,13 @@ function refreshStructuralMassProperties(){
   const bays=state.data?.weights?.structural_inertia||[],input=document.getElementById('show-structural-inertia'),scaleInput=document.getElementById('structural-inertia-scale');
   input.disabled=!bays.length;scaleInput.disabled=!bays.length;
   const scale=Number(scaleInput.value),valid=Number.isFinite(scale)&&scale>=.01&&scale<=100;
-  const enabled=input.checked&&bays.length>0,result=display.update({fuel:{bays},enabled,scale:valid?scale:1,showCG:false,markerRadius:Math.max(markerRadius(),state.diag*1e-8)});
+  const enabled=input.checked&&bays.length>0,result=display.update({fuel:{bays},enabled,scale:valid?scale:1,showCG:true,markerRadius:Math.max(markerRadius(),state.diag*1e-8)});
   let layer=state.layers.get('STRUCTURAL_INERTIA');if(!layer){layer={label:'Structural mass ellipsoids - undeformed',color:'#75b88d',count:'',meshes:[],visible:false};state.layers.set('STRUCTURAL_INERTIA',layer);}
-  layer.meshes=display.meshes;layer.visible=!!enabled;layer.count=bays.length+' property groups';
+  layer.meshes=display.meshes;layer.visible=!!enabled;layer.count=bays.length+' rib bays';
   const checkbox=document.getElementById('layer-STRUCTURAL_INERTIA');if(checkbox)checkbox.checked=!!enabled;
-  document.getElementById('structural-mass-status').textContent=!valid?'Radius scale must be between 0.01 and 100.':result.errors.length?result.errors.map(e=>e.message).join('; '):bays.length?bays.length+' structural property groups; '+eng(bays.reduce((sum,b)=>sum+b.mass_kg,0))+' kg.':state.importedDeck?'Structural mass integration is unavailable for imported models; original mass cards and solver masses are unchanged.':'Create FEM to calculate structural mass properties.';
+  const status=document.getElementById('structural-mass-status');
+  status.textContent=!valid?'Radius scale must be between 0.01 and 100.':result.errors.length?result.errors.map(e=>e.message).join('; '):bays.length?bays.length+' structural rib bays; '+eng(bays.reduce((sum,b)=>sum+b.mass_kg,0))+' kg. Green markers are bay references; orange markers show the true centers of gravity.':state.importedDeck?'Structural mass integration is unavailable for imported models; original mass cards and solver masses are unchanged.':'Create FEM to calculate structural mass properties.';
+  status.title=result.bays.map(b=>b.label).join('\n\n');
 }
 
 function modelEntityGroups() {
@@ -4351,11 +4425,11 @@ function modelEntityGroups() {
     ["nodes", "Nodes", ["NODES"]],
     ["connections", "Connections", ["RBE3", "RBE3_NODES", "FUEL_RBE3", "FUEL_RBE3_NODES", ...(state.data?.imported_connections||[]).filter(group=>!group.point_mass).map(group=>group.name)]],
     ["constraints", "Constraints", ["SPC"]],
-    ["aerodynamics", "Aerodynamic geometry", ["AERO_SURFACE", "AIRFOIL_SECTIONS"]],
+    ["aerodynamics", "Aerodynamic geometry", ["AERO_SURFACE", "AIRFOIL_SECTIONS", "REFERENCE_AERO"]],
     ["vlm", "Aerodynamic lattice and pressures", ["VLM_MESH", "VLM_PRESSURE"]],
     ["loads", "Applied forces and moments", ["AERO_LOADS", "AERO_MOMENTS", "VLM_FORCES"]],
     ["masses", "Mass properties", ["FUEL_INERTIA","STRUCTURAL_INERTIA",...(state.data?.imported_connections||[]).filter(group=>group.point_mass).map(group=>group.name)]],
-    ["overlays", "Context and result overlays", ["FUEL_TANK", "UNDEFORMED", "REFERENCE_AERO"]],
+    ["overlays", "Context and result overlays", ["FUEL_TANK", "UNDEFORMED"]],
     ["aids", "Mesh and element axes", ["MESH_EDGES", "SHELL_AXES", "MATERIAL_AXES", "BAR_AXES"]],
     ["coordinates", "Coordinate systems", ["COORDINATE_SYSTEMS"]],
   ];
@@ -4430,6 +4504,7 @@ function componentLayerRows(group){
 
 function buildLayerPanel() {
   const aeroAppearance=document.getElementById("aerodynamic-appearance");aeroAppearance?.remove();
+  const aeroShapes=document.getElementById("aerodynamic-shape-controls");aeroShapes?.remove();
   const vlmControls=document.getElementById("vlm-controls");vlmControls?.remove();
   const host = document.getElementById("layers"); host.innerHTML = "";
   const geometryHost=document.getElementById("geometry-layers");geometryHost?.replaceChildren();
@@ -4450,10 +4525,9 @@ function buildLayerPanel() {
     collapse(state.layerGroupCollapsed.get(group.id)===true);
     toggle.onclick=()=>{state.layerGroupCollapsed.set(group.id,!body.hidden);collapse(!body.hidden);markStudyViewModified();};
     label.append(checkbox, title, count);legend.append(toggle,label);fieldset.append(legend,body);
-    // The undeformed aerodynamic reference already has its canonical toggle
-    // beside the current structural shape. Keep a single control for it.
-    const rows=componentLayerRows(group).filter(item=>item.key!=="REFERENCE_AERO");
-    state.layerGroupControls.set(group.id, { checkbox, count, names: group.names, rows,collapse });
+    // Current and reference lofts each have one canonical visibility control.
+    const rows=componentLayerRows(group).filter(item=>!["AERO_SURFACE","REFERENCE_AERO"].includes(item.key));
+    state.layerGroupControls.set(group.id, { checkbox, count, names: group.names, rows:group.id==="aerodynamics"?null:rows,collapse });
     const pageSize=200;let page=0,filtered=rows;
     const list=document.createElement("div"),pager=document.createElement("div");
     const search=document.createElement("input"),previous=document.createElement("button"),next=document.createElement("button"),pageInfo=document.createElement("span");
@@ -4482,10 +4556,14 @@ function buildLayerPanel() {
     previous.onclick=()=>{page--;renderRows();syncLayerGroupControls();};next.onclick=()=>{page++;renderRows();syncLayerGroupControls();};
     search.oninput=()=>{const query=search.value.toLowerCase().trim();filtered=rows.filter(row=>row.label.toLowerCase().includes(query));page=0;renderRows();syncLayerGroupControls();};
     renderRows();
-    if(group.id==="aerodynamics" && aeroAppearance)body.appendChild(aeroAppearance);
+    if(group.id==="aerodynamics"){
+      if(aeroShapes)body.appendChild(aeroShapes);
+      if(aeroAppearance)body.appendChild(aeroAppearance);
+    }
     if(group.id==="vlm" && vlmControls)body.appendChild(vlmControls);
     (["loads","constraints","vlm"].includes(group.id)&&loadsHost?loadsHost:["aerodynamics","overlays"].includes(group.id)&&geometryHost?geometryHost:host).appendChild(fieldset);
   }
+  if(aeroShapes && !aeroShapes.parentElement)(geometryHost||host).appendChild(aeroShapes);
   if(aeroAppearance && !aeroAppearance.parentElement)(geometryHost||host).appendChild(aeroAppearance);
   if(vlmControls && !vlmControls.parentElement)(loadsHost||host).appendChild(vlmControls);
   for(const [id,collapsed]of [["btn-collapse-layer-groups",true],["btn-expand-layer-groups",false]]){const button=document.getElementById(id);if(button)button.onclick=()=>{for(const [key,control]of state.layerGroupControls){state.layerGroupCollapsed.set(key,collapsed);control.collapse(collapsed);}markStudyViewModified();};}
@@ -4503,11 +4581,13 @@ function installGeometryControls(){
   const rib=document.createElement("fieldset"),legend=document.createElement("legend");legend.textContent="Rib datum planes";rib.append(legend);
   for(const id of ["show-rib-datums","rib-datum-size"]){const row=document.getElementById(id)?.closest("label");if(row)rib.append(row);}
   const note=document.getElementById("rib-datum-status");if(note)rib.append(note);context.append(rib);
-  for(const id of ["show-undeformed","undeformed-color","show-reference-aero","show-deformed-aero"]){const row=document.getElementById(id)?.closest("label");if(row)results.append(row);}
+  for(const id of ["show-undeformed","undeformed-color"]){const row=document.getElementById(id)?.closest("label");if(row)results.append(row);}
+  const aeroShapes=document.getElementById("aerodynamic-shape-controls"),aeroReferenceAppearance=document.getElementById("aerodynamic-reference-appearance");
+  for(const id of ["show-deformed-aero","show-reference-aero"]){const row=document.getElementById(id)?.closest("label");if(row)aeroShapes.insertBefore(row,aeroReferenceAppearance);}
   const referenceAero=document.getElementById("show-reference-aero")?.closest("label");
   if(referenceAero){referenceAero.querySelector("span").textContent="Undeformed aero reference";referenceAero.title="Original aerodynamic surface alongside the active deformed shape. Its finish is set below.";}
   const aeroToggle=document.getElementById("show-aero-overlay")?.closest("label");
-  if(aeroToggle){const note=aeroToggle.nextElementSibling;results.append(aeroToggle);aeroToggle.hidden=true;if(note?.tagName==="P")results.append(note);}
+  if(aeroToggle){const note=aeroToggle.nextElementSibling;aeroShapes.insertBefore(aeroToggle,aeroReferenceAppearance);aeroToggle.hidden=true;if(note?.tagName==="P")aeroShapes.insertBefore(note,aeroReferenceAppearance);}
   document.getElementById("geometry-references").appendChild(document.getElementById("reference-panel"));
   document.getElementById("geometry-show-structure").onchange=event=>setModelEntitiesVisible((state.data?.groups||[]).filter(g=>["quad","tria","bar"].includes(g.kind)).map(g=>g.name),event.target.checked);
   state.geometryDisplay=WingGeometryDisplay.create({state,document,BABYLON,onChange:markStudyViewModified,setLayerVisible,available:modelEntityLayerAvailable});
@@ -5832,7 +5912,7 @@ function updateVlmPose(positions=state.baseline,rotations=null,rotationScale=0) 
 
 function buildCaseSelectors() {
   const cases = modelCases();
-  for (const id of ["load-case-select", "result-case-select", "vlm-case-select"]) {
+  for (const id of ["load-case-select", "result-case-select", "vlm-case-select", "geometry-case-select", "mass-case-select", "summary-case-select", "inspect-case-select"]) {
     const select = document.getElementById(id); select.innerHTML = "";
     for (const c of cases) {
       const option = document.createElement("option"); option.value = String(c.id);
@@ -6948,8 +7028,8 @@ document.getElementById("show-rbe3-dofs").onchange = () => { state.annotations?.
 document.getElementById("show-celas-labels").onchange = () => { state.annotations?.invalidate?.(); markStudyViewModified(); };
 document.getElementById("undeformed-color").oninput = () => { syncUndeformedColor(); markStudyViewModified(); };
 document.getElementById("shell-geometry").onchange = ()=>{applyShellGeometry();markStudyViewModified();};
-document.getElementById("load-case-select").onchange = (e) => selectLoadCase(e.target.value);
-document.getElementById("result-case-select").onchange = (e) => selectLoadCase(e.target.value);
+for(const id of ["load-case-select", "result-case-select", "geometry-case-select", "mass-case-select", "summary-case-select", "inspect-case-select"])
+  document.getElementById(id).onchange = (e) => selectLoadCase(e.target.value);
 document.getElementById("result-analysis-select").onchange = (e) => selectResultAnalysis(e.target.value);
 document.getElementById("compare-results").onchange = () => { rebuildComparisonOverlay(); applyDeformation(); updateScaleText(); };
 document.getElementById("vlm-field").onchange = () => {

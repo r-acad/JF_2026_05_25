@@ -248,6 +248,9 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
     fuel_states_differ(m)&&throw(ArgumentError("Fuel masses vary by case; use write_reference to write separate case decks or pass an isolated case model"))
     p = m.params
     w = m.wing
+    concentrated=structural_mass_is_concentrated(m)
+    materials=model_material_definitions(m)
+    aero_mid=concentrated ? maximum(material["id"] for material in materials)+1 : MID_STRUCT
     sol = String(p["output.solution"])
     title = String(p["output.title"])
     specs = load_case_specs(p)
@@ -449,7 +452,7 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
         nq = length(m.aero_quads) ÷ 4
         id0 = maximum(gr -> isempty(gr.eids) ? 0 : maximum(gr.eids), m.groups) + 1
         id0 = max(id0, isempty(m.rbe3) ? id0 : last(m.rbe3).eid + 1)
-        id0 = max(id0, isempty(m.fuel_rbe3) ? id0 : maximum(sp.mass_eid for sp in m.fuel_rbe3)+1)
+        id0 = max(id0, isempty(m.fuel_rbe3) ? id0 : maximum(concentrated ? structural_conm2_eid(m,sp) : sp.mass_eid for sp in m.fuel_rbe3)+1)
         nid0 = length(m.node_ids) + 1
         banner!(io, "AERO_LOFT: " * string(nq) * " CQUAD4, PID " *
                     string(PID_AERO) * " (aerodynamic surface, not structural)")
@@ -474,36 +477,43 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
 
     # --- properties and material ------------------------------------------
     banner!(io, "Properties and material")
+    concentrated&&comment!(io,"Structural mass is concentrated once per physical rib bay. Structural MAT1 density and property NSM are zero here; Study material data and stiffness are retained.")
     for property in model_property_definitions(m)
         pid=property["pid"]
+        nsm=concentrated ? 0. : property[property["kind"]=="shell" ? "nonstructural_mass_kg_m2" : "nonstructural_mass_kg_m"]
         if property["kind"]=="shell"
             if property["type"]=="PCOMP"
                 comment!(io,"Symmetric isotropic face/core/face; ply thicknesses explicit, centered midsurface")
-                fields=Any[pid,property["z0_m"],property["nonstructural_mass_kg_m2"],nothing,nothing,nothing,nothing,nothing]
+                fields=Any[pid,property["z0_m"],nsm,nothing,nothing,nothing,nothing,nothing]
                 for ply in property["plies"];append!(fields,Any[ply["material_id"],ply["thickness_m"],ply["angle_deg"],"YES"]);end
                 card!(io,"PCOMP",fields)
             else
                 mid=property["material_id"]
-                card!(io,"PSHELL",(pid,mid,property["thickness_m"],mid,nothing,mid,nothing,property["nonstructural_mass_kg_m2"]))
+                card!(io,"PSHELL",(pid,mid,property["thickness_m"],mid,nothing,mid,nothing,nsm))
             end
         else
             section=property["section"];mid=property["material_id"]
             if section["type"]=="PBARL"
                 comment!(io,"PBARL "*section["shape"]*": "*section["placement"])
-                card!(io,"PBARL",Any[pid,mid,nothing,section["shape"],nothing,nothing,nothing,nothing,section["dimensions_m"]...,property["nonstructural_mass_kg_m"]])
+                card!(io,"PBARL",Any[pid,mid,nothing,section["shape"],nothing,nothing,nothing,nothing,section["dimensions_m"]...,nsm])
             else
-                card!(io,"PBAR",(pid,mid,section["area_m2"],section["I1_m4"],section["I2_m4"],section["J_m4"],property["nonstructural_mass_kg_m"]))
+                card!(io,"PBAR",(pid,mid,section["area_m2"],section["I1_m4"],section["I2_m4"],section["J_m4"],nsm))
             end
         end
     end
     if p["output.include_aero_shells"]
-        card!(io, "PSHELL", (PID_AERO, MID_STRUCT, p["output.t_aero_shell"],
-                             MID_STRUCT, nothing, MID_STRUCT))
+        card!(io, "PSHELL", (PID_AERO, aero_mid, p["output.t_aero_shell"],
+                             aero_mid, nothing, aero_mid))
     end
 
-    for material in model_material_definitions(m)
+    for material in materials
         comment!(io,"material $(material["id"]): "*material["name"])
-        card!(io,"MAT1",(material["id"],material["E"],nothing,material["nu"],material["rho"]))
+        card!(io,"MAT1",(material["id"],material["E"],nothing,material["nu"],concentrated ? 0. : material["rho"]))
+    end
+    if concentrated&&p["output.include_aero_shells"]
+        material=material_definition(p,MID_STRUCT)
+        comment!(io,"Optional disconnected aerodynamic loft retains its own material density; excluded from structural bay masses")
+        card!(io,"MAT1",(aero_mid,material["E"],nothing,material["nu"],material["rho"]))
     end
 
     # --- RBE3 spiders ------------------------------------------------------
@@ -524,14 +534,19 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
 
     # Fuel RBE3 references are deliberately separate from aerodynamic stations.
     state=fuel_mass_state(m)
+    structure_bays=concentrated ? Dict(bay["start_rib"]=>bay for bay in structural_bay_mass_properties(m)) : Dict()
     if !isempty(m.fuel_rbe3)
         banner!(io,"Fuel / inertia: $(length(m.fuel_rbe3)) bay RBE3 connections, $(state["fuel_percent"]) percent fill")
         comment!(io,"Fill efficiency $(state["fill_efficiency"]): uniform usable-volume fraction; fuel mass and inertia scaled, CG unchanged")
         comment!(io,"CONM2 CID=0: CG offsets in BASIC; inertia about fuel CG, positive product-of-inertia fields")
         fuel_bays=Dict(bay["index"]=>bay for bay in state["bays"])
         for sp in m.fuel_rbe3
-            fuel_reference_is_massless(m,sp)&&comment!(io,"Massless inertia reference for rib bay $(sp.start_rib); no fuel CONM2")
+            fuel_reference_is_massless(m,sp)&&comment!(io,"Dry inertia reference for rib bay $(sp.start_rib); no fuel CONM2")
             card!(io,"RBE3",Any[sp.eid,nothing,m.node_ids[sp.ref],123456,1.0,123,m.node_ids[sp.dep]...])
+            structural=get(structure_bays,sp.start_rib,nothing)
+            if structural!==nothing&&structural["mass_kg"]>0
+                card!(io,"CONM2",Any[structural_conm2_eid(m,sp),m.node_ids[sp.ref],0,structural["mass_kg"],structural["offset_m"]...,nothing,structural["conm2_inertia_kg_m2"]...])
+            end
             bay=get(fuel_bays,sp.start_rib,nothing);bay===nothing&&continue
             bay["mass_kg"]>0||continue
             card!(io,"CONM2",Any[sp.mass_eid,m.node_ids[sp.ref],0,bay["mass_kg"],bay["offset_m"]...,nothing,bay["conm2_inertia_kg_m2"]...])

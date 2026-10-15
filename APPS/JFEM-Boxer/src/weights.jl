@@ -29,51 +29,125 @@ weight_shell_thickness(p,pid)=shell_thickness(p,pid)
 
 weight_base_group(name::String)=component_base_group(name)
 
-"""Display-only mass moments of shell midsurfaces and bar centroid lines.
-
-Integrates the geometric distribution (not lumped GRID masses), once per
-property group. Section rotary inertia is deliberately outside this glyph's
-scope; the solver retains its full consistent element mass operators.
+"""Physical shell density moments through thickness, in the native mass convention.
+PSHELL NSM follows its uniform thickness; PCOMP NSM lies at its reference plane.
 """
-function structural_inertia_payload(m::Model)
-    result=Any[]
-    for (index,gr) in enumerate(m.groups)
-        mass=0.;first=zeros(3);second=zeros(3,3)
-        function accumulate(weight,center,covariance)
-            mass+=weight;first.+=weight.*center
-            second.+=weight.*(covariance+center*center')
+function structural_shell_mass_moments(p,pid)
+    property=shell_material_definition(p,pid)
+    if property["type"]=="PSHELL"
+        m0=property["areal_mass_kg_m2"]
+        return (m0,zero(m0),m0*property["thickness_m"]^2/12)
+    end
+    m0=property["nonstructural_mass_kg_m2"];m1=zero(m0);m2=zero(m0);z=property["z0_m"]
+    for ply in property["plies"]
+        next=z+ply["thickness_m"];rho=ply["material"]["rho_kg_m3"]
+        m0+=rho*(next-z);m1+=rho*(next^2-z^2)/2;m2+=rho*(next^3-z^3)/3;z=next
+    end
+    (m0,m1,m2)
+end
+
+"""Raw element mass moments about `origin`, shared by aggregation and tangents.
+
+Returns `(mass, first, second)` with `second = integral(r*r' dm)`, not an inertia
+tensor. Signed/zero density moments are supported without mass division or
+Float64 conversion. `shell_moments=(m0,m1,m2)` overrides thickness integration;
+`bar_properties=(linear_mass,offset,section_second)` overrides bar data, with
+global centroid offset and global section second moment *per unit length*.
+Native CBAR NSM is distributed uniformly through its section (rho + NSM/A).
+"""
+function structural_element_mass_moments(m::Model,gr::ElemGroup,e::Int;
+        shell_moments=nothing,bar_properties=nothing,origin=zeros(3))
+    points=element_points(m,gr,e);p=[collect(point)-origin for point in points]
+    if gr.kind===:bar
+        a,b=p;d=b-a;length_e=norm3(Tuple(d))
+        if bar_properties===nothing
+            section=section_definition(m.params,gr.pid);rho=bar_material_definition(m.params,gr.pid)["rho"]
+            density=rho+nonstructural_mass_density(m.params,gr.pid)/section["area_m2"]
+            x=d/length_e;v=gr.orient[3*e-2:3*e];y=collect(unit3(Tuple(v-sum(x.*v)*x)));z=collect(cross3(Tuple(x),Tuple(y)))
+            bar_properties=(linear_mass=density*section["area_m2"],offset=collect(bar_section_offset(m,gr,e)),
+                section_second=density*(section["I1_m4"]*(y*y')+section["I2_m4"]*(z*z')))
         end
-        if gr.kind===:bar
-            linear_density=bar_mass_per_length(m.params,gr.pid)
-            for e in 1:n_elements(gr)
-                points=element_points(m,gr,e);a,b=collect.(points);offset=collect(bar_section_offset(m,gr,e));d=b-a
-                accumulate(norm3(Tuple(d))*linear_density,(a+b)/2+offset,d*d'/12)
-            end
-        else
-            areal=shell_material_definition(m.params,gr.pid)["areal_mass_kg_m2"]
-            for e in 1:n_elements(gr)
-                points=element_points(m,gr,e);p=collect.(points)
-                if length(p)==3
-                    center=sum(p)/3;covariance=sum((v-center)*(v-center)' for v in p)/12
-                    accumulate(weight_shell_area(points)*areal,center,covariance)
-                else
-                    normal=unit3(cross3(points[3].-points[1],points[4].-points[2]));signs=((-1.,-1.),(1.,-1.),(1.,1.),(-1.,1.))
-                    for xi in (-inv(sqrt(3.)),inv(sqrt(3.))),eta in (-inv(sqrt(3.)),inv(sqrt(3.)))
-                        shape=[(1+sx*xi)*(1+sy*eta)/4 for (sx,sy) in signs]
-                        dx=ntuple(k->sum(signs[i][1]*(1+signs[i][2]*eta)*points[i][k]/4 for i in 1:4),3)
-                        dy=ntuple(k->sum(signs[i][2]*(1+signs[i][1]*xi)*points[i][k]/4 for i in 1:4),3)
-                        accumulate(areal*abs(sum(cross3(dx,dy).*normal)),sum(shape[i]*p[i] for i in 1:4),zeros(3,3))
-                    end
-                end
-            end
-        end
-        mass>0||continue
-        center=first/mass;central=second-mass*(center*center');trace=sum(central[i,i] for i in 1:3);inertia=[(i==j ? trace : 0.)-central[i,j] for i in 1:3,j in 1:3]
-        push!(result,Dict("index"=>index,"label"=>gr.name,"property_id"=>gr.pid,"mass_kg"=>mass,
-            "reference_m"=>center,"center_of_gravity_m"=>center,"inertia_kg_m2"=>[collect(inertia[i,:]) for i in 1:3]))
+        mass=length_e*bar_properties.linear_mass;center=(a+b)/2+collect(bar_properties.offset)
+        return (mass=mass,first=mass*center,second=mass*(center*center'+d*d'/12)+length_e*bar_properties.section_second)
+    end
+    m0,m1,m2=shell_moments===nothing ? structural_shell_mass_moments(m.params,gr.pid) : shell_moments
+    normal=collect(unit3(length(p)==3 ? cross3(points[2].-points[1],points[3].-points[1]) :
+        cross3(points[3].-points[1],points[4].-points[2])))
+    nn=normal*normal'
+    if length(p)==3
+        area=weight_shell_area(points);center=sum(p)/3;covariance=sum((v-center)*(v-center)' for v in p)/12
+        return (mass=area*m0,first=area*(m0*center+m1*normal),
+            second=area*(m0*(covariance+center*center')+m1*(center*normal'+normal*center')+m2*nn))
+    end
+    length(p)==4||throw(ArgumentError("structural mass supports shell triangles/quads and bars"))
+    scalar=m0+m1+m2+first(origin);mass=zero(scalar);first_moment=zeros(typeof(scalar),3);second=zeros(typeof(scalar),3,3)
+    signs=((-1.,-1.),(1.,-1.),(1.,1.),(-1.,1.))
+    # 2x2 Gauss integrates bilinear geometry moments with the projected Jacobian.
+    for xi in (-inv(sqrt(3.)),inv(sqrt(3.))),eta in (-inv(sqrt(3.)),inv(sqrt(3.)))
+        shape=[(1+sx*xi)*(1+sy*eta)/4 for (sx,sy) in signs]
+        dx=ntuple(k->sum(signs[i][1]*(1+signs[i][2]*eta)*p[i][k]/4 for i in 1:4),3)
+        dy=ntuple(k->sum(signs[i][2]*(1+signs[i][1]*xi)*p[i][k]/4 for i in 1:4),3)
+        jac=abs(sum(cross3(dx,dy).*normal));center=sum(shape[i]*p[i] for i in 1:4)
+        mass+=jac*m0;first_moment.+=jac.*(m0*center+m1*normal)
+        second.+=jac.*(m0*(center*center')+m1*(center*normal'+normal*center')+m2*nn)
+    end
+    (mass=mass,first=first_moment,second=second)
+end
+
+"""Physical bay ownership, using mesh topology even for swept or angled ribs.
+An interior rib's web/stiffeners contribute half to each neighboring bay;
+root/tip ribs contribute fully inward. A property is never used as a bay ID.
+"""
+function structural_element_bay_weights(m::Model,gr::ElemGroup,e::Int)
+    n=gr.kind===:bar ? 2 : gr.kind===:tria ? 3 : 4
+    rows=[m.node_keys[node][2] for node in gr.conn[n*(e-1)+1:n*e]]
+    lo,hi=extrema(rows);ribs=m.grid.ribs;nbays=length(ribs)-1
+    rib=findfirst(==(lo),ribs)
+    if lo==hi&&rib!==nothing
+        rib==1&&return [(1,1.)]
+        rib==length(ribs)&&return [(nbays,1.)]
+        return [(rib-1,.5),(rib,.5)]
+    end
+    bay=clamp(searchsortedlast(ribs,lo),1,nbays)
+    ribs[bay]<=lo<=hi<=ribs[bay+1]||throw(ArgumentError("Element $(gr.eids[e]) crosses physical rib bays"))
+    [(bay,1.)]
+end
+
+"""Conserved structural mass/CG/inertia in every physical rib bay.
+
+Existing bay reference GRIDs are reused. Otherwise the loft-volume center is
+only a computed display anchor; this function never adds FE nodes or masses.
+The central tensor retains shell-layer and beam-section rotary contributions.
+"""
+function structural_bay_mass_properties(m::Model)
+    nbays=length(m.grid.ribs)-1
+    spiders=Dict(sp.start_rib=>sp for sp in m.fuel_rbe3)
+    references=[haskey(spiders,bay) ? copy(m.xyz[3spiders[bay].ref-2:3spiders[bay].ref]) : collect(fuel_bay_geometry(m,bay).center) for bay in 1:nbays]
+    mass=zeros(nbays);first_moment=[zeros(3) for _ in 1:nbays];second=[zeros(3,3) for _ in 1:nbays]
+    properties=[Set{Int}() for _ in 1:nbays];counts=zeros(Int,nbays)
+    for gr in m.groups,e in 1:n_elements(gr),(bay,fraction) in structural_element_bay_weights(m,gr,e)
+        moment=structural_element_mass_moments(m,gr,e;origin=references[bay])
+        mass[bay]+=fraction*moment.mass;first_moment[bay].+=fraction.*moment.first;second[bay].+=fraction.*moment.second
+        push!(properties[bay],gr.pid);counts[bay]+=1
+    end
+    result=Dict{String,Any}[]
+    for bay in 1:nbays
+        ref=references[bay];offset=mass[bay]>0 ? first_moment[bay]/mass[bay] : zeros(3)
+        central=second[bay]-mass[bay]*(offset*offset');central=(central+central')/2
+        trace=sum(central[i,i] for i in 1:3);inertia=[(i==j ? trace : 0.)-central[i,j] for i in 1:3,j in 1:3]
+        sp=get(spiders,bay,nothing)
+        push!(result,Dict{String,Any}("index"=>bay,"start_rib"=>bay,"end_rib"=>bay+1,"kind"=>"structural",
+            "label"=>"Structural rib bay $bay","mass_kg"=>mass[bay],"reference_m"=>ref,
+            "center_of_gravity_m"=>ref+offset,"offset_m"=>offset,"inertia_kg_m2"=>[collect(inertia[i,:]) for i in 1:3],
+            "conm2_inertia_kg_m2"=>[inertia[1,1],-inertia[2,1],inertia[2,2],-inertia[3,1],-inertia[3,2],inertia[3,3]],
+            "reference_node"=>sp===nothing ? nothing : sp.ref-1,"reference_grid"=>sp===nothing ? nothing : m.node_ids[sp.ref],
+            "rbe3_eid"=>sp===nothing ? nothing : sp.eid,"reference_kind"=>sp===nothing ? "computed_bay_center" : "bay_reference_grid",
+            "property_ids"=>sort!(collect(properties[bay])),"element_count"=>counts[bay]))
     end
     result
 end
+
+structural_inertia_payload(m::Model)=structural_bay_mass_properties(m)
 
 function weight_component(m::Model,id,label,names)
     selected = [gr for gr in m.groups if weight_base_group(gr.name) in names]

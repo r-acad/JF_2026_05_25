@@ -1,4 +1,4 @@
-/* Fuel inertia glyphs. Axes are radii of gyration about the fuel RBE3 node,
+/* Bay inertia glyphs. Axes are radii of gyration about the bay reference,
  * not the dimensions of a solid containing the physical fuel volume. */
 (function(root,factory){const api=factory();if(typeof module==="object"&&module.exports)module.exports=api;else root.WingMassProperties=api;})(typeof globalThis!=="undefined"?globalThis:this,function(){
  "use strict";
@@ -12,11 +12,11 @@
   return a;
  }
  function referenceTensor(bay){
-  const mass=Number(bay.mass_kg);if(!Number.isFinite(mass)||mass<0)throw Error("Fuel mass must be finite and nonnegative.");
-  const ref=vector(bay.reference_m,"Fuel node"),cg=vector(bay.center_of_gravity_m,"Fuel CG"),r=cg.map((x,i)=>x-ref[i]),a=tensor(bay.inertia_kg_m2),r2=dot(r,r);
+  const mass=Number(bay.mass_kg);if(!Number.isFinite(mass)||mass<0)throw Error("Mass must be finite and nonnegative.");
+  const ref=vector(bay.reference_m,"Bay reference"),cg=vector(bay.center_of_gravity_m,"Mass CG"),r=cg.map((x,i)=>x-ref[i]),a=tensor(bay.inertia_kg_m2),r2=dot(r,r);
   principalAxes(a); // A positive offset term must not hide an invalid CG tensor.
   for(let i=0;i<3;i++)for(let j=0;j<3;j++)a[i][j]+=mass*((i===j?r2:0)-r[i]*r[j]);
-  if(!a.flat().every(Number.isFinite))throw Error("Fuel reference inertia overflowed.");
+  if(!a.flat().every(Number.isFinite))throw Error("Reference inertia overflowed.");
   return a;
  }
  function canonicalSign(v){const i=v.reduce((best,x,index)=>Math.abs(x)>Math.abs(v[best])?index:best,0);return v[i]<0?v.map(x=>-x):v;}
@@ -47,13 +47,14 @@
   return{moments,axes,degenerate};
  }
  function format(value){return Math.abs(value)>=100?value.toFixed(2):Number(value.toPrecision(4)).toString();}
- function ellipsoidData(bay,{scale=1}={}){
+ function ellipsoidData(bay,{scale=1,kind=bay.kind||"fuel"}={}){
   if(!Number.isFinite(scale)||scale<=0)throw Error("Mass glyph scale must be positive and finite.");
-  const mass=Number(bay.mass_kg),reference=vector(bay.reference_m,"Fuel node"),cg=vector(bay.center_of_gravity_m,"Fuel CG"),inertia=referenceTensor(bay),principal=principalAxes(inertia);
+  const mass=Number(bay.mass_kg),reference=vector(bay.reference_m,"Bay reference"),cg=vector(bay.center_of_gravity_m,"Mass CG"),inertia=referenceTensor(bay),principal=principalAxes(inertia);
   const radii=mass>0?principal.moments.map(x=>Math.sqrt(x/mass)): [0,0,0];
   if(!radii.every(Number.isFinite)||!radii.every(x=>Number.isFinite(x*scale)))throw Error("Mass glyph radius overflowed.");
-  return{bay:Number(bay.index??bay.start_rib),mass,reference,cg,inertia,principalMoments:principal.moments,axes:principal.axes,radii,scaledRadii:radii.map(x=>x*scale),degenerate:principal.degenerate,
-   label:"Bay "+(bay.index??bay.start_rib)+" · "+format(mass)+" kg\nI₁ / I₂ / I₃: "+principal.moments.map(format).join(" / ")+" kg·m²\nAbout fuel node · radii √(I/m) × "+format(scale)};
+  const anchor=kind==="structural"?(bay.reference_grid!=null?"bay reference GRID "+bay.reference_grid:"computed bay reference (no GRID)"):"fuel node";
+  return{bay:Number(bay.index??bay.start_rib),kind,mass,reference,cg,inertia,principalMoments:principal.moments,axes:principal.axes,radii,scaledRadii:radii.map(x=>x*scale),degenerate:principal.degenerate,
+   label:"Bay "+(bay.index??bay.start_rib)+" · "+format(mass)+" kg\nI₁ / I₂ / I₃: "+principal.moments.map(format).join(" / ")+" kg·m²\nAbout "+anchor+" · radii √(I/m) × "+format(scale)+(kind==="structural"?"\nBay reference: "+reference.map(format).join(", ")+" m\nTrue CG: "+cg.map(format).join(", ")+" m":"")};
  }
  const toView=p=>[p[1],p[2],p[0]];
  function create({BABYLON:B=globalThis.BABYLON,scene,parent=null,data=null,kind="fuel",color=COLOR}={}){
@@ -80,13 +81,13 @@
    for(const key of["scale","showCG","markerRadius"])if(key in settings)options[key]=settings[key];
    if(!Number.isFinite(options.markerRadius)||options.markerRadius<=0)throw Error("Mass marker radius must be positive and finite.");
    for(const mesh of meshes)mesh.setEnabled(false);errors.length=0;const bays=[];
-   for(const bay of currentFuel?.bays||[]){let glyph;try{glyph=ellipsoidData(bay,options);}catch(error){errors.push({bay:bay.index??bay.start_rib,message:error.message});continue;}bays.push(glyph);const e=entry(glyph.bay),active=enabled&&glyph.mass>0;
+   for(const bay of currentFuel?.bays||[]){let glyph;try{glyph=ellipsoidData(bay,{...options,kind});}catch(error){errors.push({bay:bay.index??bay.start_rib,message:error.message});continue;}bays.push(glyph);const e=entry(glyph.bay),active=enabled&&glyph.mass>0;
     const origin=point(glyph.reference),axes=glyph.axes.map(axis=>point(axis));e.ellipse.position.copyFrom(origin);e.ellipse.scaling.copyFromFloats(...glyph.scaledRadii);e.ellipse.rotationQuaternion=B.Quaternion.RotationQuaternionFromAxis(...axes);e.ellipse.setEnabled(active);e.axes.position.copyFrom(origin);e.axes.scaling.copyFrom(e.ellipse.scaling);e.axes.rotationQuaternion=e.ellipse.rotationQuaternion.clone();e.axes.setEnabled(active);
     e.rings.position.copyFrom(origin);e.rings.scaling.copyFrom(e.ellipse.scaling);e.rings.rotationQuaternion=e.ellipse.rotationQuaternion.clone();e.rings.setEnabled(active);
     e.ref.position.copyFrom(origin);e.ref.scaling.setAll(options.markerRadius);e.ref.setEnabled(active);
     e.cg.position.copyFrom(point(glyph.cg));e.cg.scaling.setAll(options.markerRadius*1.25);e.cg.setEnabled(active&&options.showCG);
     e.link.updateVerticesData(B.VertexBuffer.PositionKind,new Float32Array([...toView(glyph.reference),...toView(glyph.cg)]),true);e.link.setEnabled(active&&options.showCG&&norm(glyph.cg.map((x,i)=>x-glyph.reference[i]))>1e-12);
-    for(const mesh of[e.ellipse,e.axes,e.rings,e.ref,e.cg,e.link])mesh.metadata={wingViewHelper:true,fuelMassGlyph:kind==="fuel",structuralMassGlyph:kind==="structural",fuel_bay:glyph.bay,reference_node:bay.reference_node,reference_grid:bay.reference_grid,mass_kg:glyph.mass,principal_inertia_kg_m2:glyph.principalMoments,principal_axes_xyz:glyph.axes,radii_of_gyration_m:glyph.radii,reference_m:glyph.reference,center_of_gravity_m:glyph.cg,inertia_origin:"fuel_reference_node",...(mesh===e.ellipse||mesh===e.ref||mesh===e.cg?{svgPrimitive:"sphere"}:{}),...(mesh===e.rings?{principal_planes:[[1,2],[2,0],[0,1]]}:{})};
+    for(const mesh of[e.ellipse,e.axes,e.rings,e.ref,e.cg,e.link])mesh.metadata={wingViewHelper:true,fuelMassGlyph:kind==="fuel",structuralMassGlyph:kind==="structural",...(kind==="fuel"?{fuel_bay:glyph.bay}:{rib_bay:glyph.bay}),label:glyph.label,reference_node:bay.reference_node,reference_grid:bay.reference_grid,mass_kg:glyph.mass,principal_inertia_kg_m2:glyph.principalMoments,principal_axes_xyz:glyph.axes,radii_of_gyration_m:glyph.radii,reference_m:glyph.reference,center_of_gravity_m:glyph.cg,inertia_origin:kind==="structural"?"bay_reference":"fuel_reference_node",...(mesh===e.ellipse||mesh===e.ref||mesh===e.cg?{svgPrimitive:"sphere"}:{}),...(mesh===e.rings?{principal_planes:[[1,2],[2,0],[0,1]]}:{})};
    }return{meshes,errors:errors.slice(),bays};
   }
   function setEnabled(value){return update({enabled:!!value});}

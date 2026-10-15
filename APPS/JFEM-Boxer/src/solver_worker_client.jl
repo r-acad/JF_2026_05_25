@@ -208,7 +208,7 @@ function solver_worker_reply!(job,worker,log,cursor)
 end
 
 function run_persistent_solver_job!(job;worker_factory=create_solver_worker)
-    worker=nothing;cursor=JobDiskCursor();log="";exitcode=1
+    worker=nothing;cursor=JobDiskCursor();log="";exitcode=1;failure_reason=""
     try
         lock(SOLVER_EXECUTION_LOCK) do
             job.cancel_requested && return
@@ -239,13 +239,15 @@ function run_persistent_solver_job!(job;worker_factory=create_solver_worker)
                 get(reply,"id",nothing)==job.outdir || error("Solver worker replied for another run")
                 exitcode=Int(get(reply,"exit_code",1))
                 message=String(get(reply,"message",""))
+                exitcode==0 || (failure_reason=message)
                 isempty(message) || append_job_lines!(job,["[Worker] "*message])
                 lock(job.lk) do
                     job.progress["worker_runtime"]=get(reply,"runtime",worker.runtime)
                 end
             catch error
                 exitcode=1
-                append_job_lines!(job,["Persistent solver request failed: "*sprint(showerror,error)])
+                failure_reason="Persistent solver request failed: "*sprint(showerror,error)
+                append_job_lines!(job,[failure_reason])
                 worker===nothing || stop_solver_process!(worker)
             finally
                 job.cancel_requested && worker!==nothing && stop_solver_process!(worker)
@@ -257,9 +259,10 @@ function run_persistent_solver_job!(job;worker_factory=create_solver_worker)
         end
     catch error
         exitcode=1
-        append_job_lines!(job,["Solver worker could not start: "*sprint(showerror,error)])
+        failure_reason="Solver worker could not start: "*sprint(showerror,error)
+        append_job_lines!(job,[failure_reason])
     finally
-        try finish_jfem_process!(job,exitcode) finally
+        try finish_jfem_process!(job,exitcode;failure_reason) finally
             job.log_done=true
             lock(SOLVER_WORKER_LOCK) do;delete!(SOLVER_PENDING_JOBS,job);end
         end

@@ -1,4 +1,4 @@
-# Exact property tangents of the generated dead body loads and native shell mass.
+# Exact property tangents of generated dead body loads and structural mass.
 # Directions are SI derivatives with respect to one displayed design variable.
 using LinearAlgebra
 using SparseArrays
@@ -128,4 +128,75 @@ function sensitivity_analytic_shell_mass(native,op,directions)
         end
     end
     sparse(I,J,V,op.ndof,op.ndof)
+end
+
+"""Exact physical dM of generated per-bay structural CONM2 masses.
+
+Differentiate raw mass, first and second moments about each fixed bay GRID.
+This includes the moving section centroid and rotary inertia without dividing
+by a small mass or differentiating a computed principal-axis decomposition.
+Geometry, bay ownership and RBE3 interpolation are fixed design data. Fuel
+and optional aerodynamic-shell masses do not depend on structural variables.
+The result is in GRID analysis coordinates, before MPC congruence and WTMASS.
+"""
+function sensitivity_analytic_bay_mass(native,op,m::Model,directions;bays=structural_bay_mass_properties(m))
+    by_rib=Dict(Int(b["start_rib"])=>i for (i,b) in enumerate(bays))
+    dm=zeros(length(bays));dfirst=[zeros(3) for _ in bays];dsecond=[zeros(3,3) for _ in bays]
+    for gr in m.groups
+        direction=sensitivity_pid_direction(directions,gr.pid);direction===nothing&&continue
+        shell_moments=gr.kind===:bar ? nothing : sensitivity_direction_value(direction,"mass_moments",(0.,0.,0.))
+        if gr.kind===:bar
+            section=section_definition(m.params,gr.pid)
+            tangent=sensitivity_analytic_section(section,sensitivity_direction_value(direction,"dimensions",zeros(length(section["dimensions_m"]))))
+            rho=bar_material_definition(m.params,gr.pid)["rho"]
+            drho=sensitivity_direction_value(direction,"rho")
+            nsm=nonstructural_mass_density(m.params,gr.pid)
+            linear_mass=rho*tangent.area+nsm
+            dlinear_mass=drho*tangent.area+rho*tangent.darea
+            section_density=rho+nsm/tangent.area
+            dsection_density=drho-nsm*tangent.darea/tangent.area^2
+        end
+        for e in 1:n_elements(gr)
+            if gr.kind===:bar
+                a,b=collect.(element_points(m,gr,e));axis=b-a;length_e=norm(axis);x=axis/length_e
+                v=collect(gr.orient[3*e-2:3*e]);y=normalize(v-dot(x,v)*x);z=cross(x,y)
+                offset=tangent.offset_y*y;doffset=tangent.doffset_y*y
+                section_second=(dsection_density*tangent.I1+section_density*tangent.dI1)*(y*y')+
+                    (dsection_density*tangent.I2+section_density*tangent.dI2)*(z*z')
+                bar_properties=(;linear_mass=dlinear_mass,offset,section_second)
+            end
+            for (rib,fraction) in structural_element_bay_weights(m,gr,e)
+                index=by_rib[rib];origin=bays[index]["reference_m"]
+                moment=gr.kind===:bar ? structural_element_mass_moments(m,gr,e;bar_properties,origin) :
+                    structural_element_mass_moments(m,gr,e;shell_moments,origin)
+                dm[index]+=fraction*moment.mass
+                dfirst[index].+=fraction.*moment.first
+                dsecond[index].+=fraction.*moment.second
+                if gr.kind===:bar
+                    center=(a+b)/2+offset-origin
+                    dfirst[index].+=fraction*length_e*linear_mass.*doffset
+                    dsecond[index].+=fraction*length_e*linear_mass.*(center*doffset'+doffset*center')
+                end
+            end
+        end
+    end
+    rows=Int[];columns=Int[];entries=Float64[]
+    for (index,bay) in enumerate(bays)
+        grid=bay["reference_grid"]
+        grid===nothing&&error("Concentrated structural mass bay $(bay["start_rib"]) has no reference GRID")
+        haskey(op.id_map,grid)||error("Concentrated structural mass references missing GRID $grid")
+        node=op.id_map[grid];block=zeros(6,6)
+        block[1:3,1:3].=dm[index].*Matrix{Float64}(I,3,3)
+        block[1:3,4:6].=-native.Solver.skew3(dfirst[index])
+        block[4:6,1:3].=transpose(block[1:3,4:6])
+        block[4:6,4:6].=tr(dsecond[index]).*Matrix{Float64}(I,3,3).-dsecond[index]
+        transform=zeros(6,6)
+        transform[1:3,1:3].=op.node_R[node];transform[4:6,4:6].=op.node_R[node]
+        delta=transform'*block*transform;dofs=6(node-1).+(1:6)
+        for j in 1:6,i in 1:6
+            iszero(delta[i,j])&&continue
+            push!(rows,dofs[i]);push!(columns,dofs[j]);push!(entries,delta[i,j])
+        end
+    end
+    sparse(rows,columns,entries,op.ndof,op.ndof)
 end

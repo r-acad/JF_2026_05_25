@@ -24,8 +24,11 @@ manually specified atmosphere data retain that setting until ISA is selected.
 without leaving the sensitivity form. Saved runs let you reopen earlier results
 without solving again; the run directory must still exist and model identity is checked.
 
-**Display / Mass properties** offers structural mass ellipsoids per property
-and fuel inertia ellipsoids. **Environment** includes ground Shadows and Self
+**Display / Mass properties** offers one combined structural mass ellipsoid per
+physical rib bay, anchored at the bay center, and separate fuel inertia
+ellipsoids. Structural mass, its true center of gravity and its inertia are
+aggregated across the bay's skins, webs, caps and stiffeners; an interior rib
+contributes half to each adjacent bay. **Environment** includes ground Shadows and Self
 shadows; both are display settings. **Entities** separates Connections from Constraints.
 
 The deck reader is **Read Reference** in Project. Its internal importer, parser,
@@ -56,13 +59,37 @@ inherited defaults. Edits save with the Study/TOML and mark results stale;
 analysis starts only when requested. The skin/stringer panel tables remain
 available with the same dark-blue button style.
 
-**Properties / Non-structural mass** assigns kg/m² to upper/lower skins, spar/rib
+**Properties / Mass** selects the structural mass representation:
+
+- **Distributed shell and bar mass** is the default and retains element mass
+  for detailed local and global vibration modes.
+- **Concentrated mass per rib bay** places one structural CONM2 at each bay's
+  center GRID, coupled to its bounding ribs through an RBE3. It retains the
+  bay's total mass, true center-of-gravity offset and central inertia, while
+  removing distributed structural density and non-structural mass from the
+  exported element cards to avoid counting them twice. This is a reduced mass
+  description for global modes; local panel and stiffener vibration needs the
+  distributed option. Fuel remains a separate mass at the bay reference.
+
+The choice is saved with the Study and marks previous results stale. Run the
+analysis explicitly after updating the model. The ellipsoids show bay totals
+with either solver representation; changing their visibility changes no physics.
+
+The same form assigns non-structural kg/m² to upper/lower skins, spar/rib
 webs and leading-edge skins/ribs, and kg/m to stringers, spar caps, rib stiffeners
 and run-outs. Each structural-group value applies across bays and contributes
 to dry mass, inertia loads, exported properties and solver mass. Values default
 to zero and save with the Study. This form is for generated models; imported
 decks retain their own non-structural mass, including PCOMP values read from
 BDF or raw JSON. These values are not currently sensitivity design variables.
+
+**Displayed load case** selectors in Geometry, Mass properties, Inspect,
+Summary, Loads and FE Results stay synchronized. They switch the displayed
+loads, fuel state and available results without solving or changing the Study
+definition. Sensitivity results retain their recorded analysis case; choose a
+different saved sensitivity run to view derivatives for another case.
+**Undeformed aero** and the deformed aerodynamic loft controls are grouped
+together in **Display / Geometry / Aerodynamic geometry**.
 
 Each physical rib bay now has separate front/rear spar-web properties and four
 separate spar-cap properties (front/rear, upper/lower). Rib webs and stiffeners

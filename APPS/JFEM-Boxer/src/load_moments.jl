@@ -115,7 +115,7 @@ function routed_applied_loads(m::Model, loads; params=m.params)
         push!(targets,(node_index=sp.ref,gid=m.node_ids[sp.ref],eta=(fuel_positions[i][2]-m.wing.root_ref_y)/m.wing.semispan,
             position=fuel_positions[i],force=sources.fuel.force[i].+sources.structure.force[i],
             moment=sources.fuel.moment[i].+sources.structure.moment[i],target_kind="fuel_rbe3",
-            target_rbe3_eid=sp.eid,fuel_bay=sp.start_rib,massless=fuel_reference_is_massless(m,sp),
+            target_rbe3_eid=sp.eid,fuel_bay=sp.start_rib,massless=bay_reference_is_massless(m,sp),
             source_forces=(aerodynamic=AERO_ZERO,fuel=sources.fuel.force[i],structure=sources.structure.force[i]),
             source_moments=(aerodynamic=AERO_ZERO,fuel=sources.fuel.moment[i],structure=sources.structure.moment[i]),
             source_force_arm_moments=(aerodynamic=AERO_ZERO,fuel=sources.fuel.force_arm_moment[i],structure=sources.structure.force_arm_moment[i])))

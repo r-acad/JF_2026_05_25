@@ -63,7 +63,7 @@ fs.mkdirSync(out,{recursive:true});
   await page.evaluate(()=>activateWorkspaceTab('displaymass'));
   await page.locator('#show-structural-inertia').check();
   const mass=await page.evaluate(()=>({groups:state.data.weights.structural_inertia.length,meshes:state.structuralMassDisplay.meshes.filter(m=>m.isEnabled()).length,status:document.getElementById('structural-mass-status').textContent}));
-  assert(mass.groups>0&&mass.meshes>0);assert.match(mass.status,/structural property groups/);await page.screenshot({path:path.join(out,'structural-mass-ellipsoids.png')});checks.push('Generated structural mass groups render enabled ellipsoid glyphs with a mass summary.');
+  assert(mass.groups>0&&mass.meshes>0);assert.match(mass.status,/structural rib bays/);await page.screenshot({path:path.join(out,'structural-mass-ellipsoids.png')});checks.push('Generated structural rib bays render enabled ellipsoid glyphs with a mass summary.');
   await page.locator('#show-structural-inertia').uncheck();
   await page.evaluate(()=>activateWorkspaceTab('displayenvironment'));await page.locator('#show-ground-plane').check();
   await page.locator('#ground-plane-z').fill('-1');await page.locator('#ground-plane-z').press('Tab');

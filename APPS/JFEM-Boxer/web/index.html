@@ -59,7 +59,7 @@
         <button id="btn-save-model-as" disabled aria-describedby="study-help" title="Choose another filename and folder for a complete Study copy, then use that file for subsequent saves.">Save Study as…</button>
         <button id="btn-load-model" disabled aria-describedby="study-help" title="Browse Study files or reopen a recent saved Study" aria-haspopup="dialog">Load Study ▾</button>
         <button id="btn-study-notes" title="Describe the intent of your latest modification; Save Study records the note and save time">Notes</button>
-        <span id="study-help" class="file-tooltip" role="tooltip">A Study (.wingfem.json) contains parameters, load cases, constraints, embedded references, 2D drawings, display settings and timestamped notes. Solver results are separate. Save Study updates the linked file; the first save chooses its filename and folder. Save Study as… selects a new destination. Without file-picker support, browser download settings apply. Orange means unsaved definition changes; green means the definition is saved. Camera and display changes leave this indicator unchanged, but their current settings are included when you save.</span>
+        <span id="study-help" class="file-tooltip" role="tooltip">A Study (.wingfem.json) contains parameters, load cases, constraints, embedded references, 2D drawings, display settings and timestamped notes. Solver results are separate. Save Study updates the linked file; the first save chooses its filename and folder. Save Study as… selects a new destination with the browser picker or the local operating-system dialog. If neither is available, a browser download is offered explicitly. Orange means unsaved definition changes; green means the definition is saved. Camera and display changes leave this indicator unchanged, but their current settings are included when you save.</span>
       </span>
       <span class="file-action-group" aria-label="TOML parameter files">
         <button id="btn-save-toml" disabled aria-describedby="toml-help">Save TOML as…</button>
@@ -237,6 +237,8 @@
 
       <section id="panel-displaygeometry" class="workspace-panel display-pane" data-workspace-panel="displaygeometry" role="tabpanel" aria-labelledby="tab-displaygeometry" hidden>
         <div class="parameter-heading"><h2>Geometry</h2></div>
+        <label class="case-picker-label" for="geometry-case-select">Displayed load case</label>
+        <select id="geometry-case-select" aria-label="Geometry load case" disabled></select>
         <p class="pick-note">Show or hide surfaces, all defined airfoil sections, reference geometry and rib datums. Colors and finishes here change only the view; structural materials and analysis results are unchanged. Ground and symmetry planes are in Environment.</p>
         <fieldset id="geometry-results"><legend>Structural shape and references</legend>
           <label class="layer"><input id="geometry-show-structure" type="checkbox" disabled><span>Structural model · current FE shape</span></label>
@@ -244,6 +246,9 @@
           <button type="button" class="mini" data-workspace-target="results">FE Results · deformation and contours</button>
         </fieldset>
         <div id="geometry-layers"></div>
+        <div id="aerodynamic-shape-controls">
+          <div id="aerodynamic-reference-appearance"></div>
+        </div>
         <fieldset id="geometry-context"><legend>Rib references</legend></fieldset>
         <div id="geometry-appearance-controls"></div>
         <div id="geometry-references"></div>
@@ -363,11 +368,15 @@
 
       <section id="panel-displaymass" class="workspace-panel display-pane" data-workspace-panel="displaymass" role="tabpanel" aria-labelledby="tab-displaymass" hidden>
       <div class="parameter-heading"><h2>Mass properties</h2></div>
+      <label class="case-picker-label" for="mass-case-select">Displayed load case</label>
+      <select id="mass-case-select" aria-label="Mass properties load case" disabled></select>
+      <p class="pick-note">These controls change the mass glyphs in the view. Choose the physical FE mass representation in Properties → Mass.</p>
+      <button id="mass-representation-link" type="button" class="mini" data-workspace-target="nonstructural">Properties → Mass</button>
       <fieldset id="structural-mass-display">
         <legend>Structural mass properties</legend>
         <label class="layer"><input id="show-structural-inertia" type="checkbox"><span>Structural mass ellipsoids</span></label>
         <label class="display-control">Radius scale<input id="structural-inertia-scale" type="number" min="0.01" max="100" step="0.1" value="1"></label>
-        <p class="pick-note">One ellipsoid per structural property group, centered at its mass centroid. Principal radii are √(I/m), multiplied by the display scale. These display glyphs describe the spatial mass distribution of shell midsurfaces and bar centerlines; they are not additional masses or physical solid envelopes.</p>
+        <p class="pick-note">One ellipsoid per rib bay, centered at its bay reference GRID, or the computed bay center if no GRID exists. Green marks the reference; orange marks the true center of gravity. Inertia includes shell thickness and beam sections. Principal radii are √(I/m) about the bay reference, multiplied by the display scale. These glyphs do not add mass or change the selected FE mass representation.</p>
         <p id="structural-mass-status" class="pick-note" role="status">Create FEM to calculate structural mass properties.</p>
       </fieldset>
       <fieldset id="fuel-mass-display">
@@ -380,7 +389,6 @@
         <p id="fuel-mass-status" class="pick-note" role="status">Create FEM with an enabled fuel tank.</p>
         <div id="fuel-mass-details"></div>
       </fieldset>
-      <button class="mini" data-workspace-target="displayloads">Choose displayed load case</button>
       </section>
 
       <div id="hud-right">
@@ -394,6 +402,8 @@
       </section>
       <div class="hud" id="model-card">
         <div class="hud-title">General model summary</div>
+        <label class="case-picker-label" for="summary-case-select">Displayed load case</label>
+        <select id="summary-case-select" aria-label="General summary load case" disabled></select>
         <div id="stats"><p class="muted">Use Create FEM to generate the model: in Mesh, or beside Live mesh when automatic updates are disabled.</p></div>
       </div>
       </section>
@@ -402,6 +412,7 @@
           <div class="hud-title">Sensitivity fields</div>
           <div class="hud-row" id="sensitivity-map-actions"></div>
           <p id="sensitivity-map-summary" class="pick-note">Open a completed sensitivity run under Analysis → Sensitivity to compare property effects.</p>
+          <button id="sensitivity-map-choose-run" type="button" class="mini" title="Choose another saved run and its recorded load case. Changing the displayed FE case does not recalculate these derivatives.">Choose sensitivity run…</button>
           <div id="sensitivity-map-controls" hidden>
             <label class="display-control">View <select id="sensitivity-map-mode"><option value="field">Property sensitivity field</option><option value="preview">Single-property change preview</option></select></label>
             <label class="display-control" id="sensitivity-field-row">Property family <select id="sensitivity-field-family"></select></label>
@@ -479,6 +490,8 @@
       <div class="workspace-empty results-empty"><span class="empty-icon" aria-hidden="true">&#x25A5;</span><h2>No analysis results yet</h2><p>Set the analysis and load cases, then use <b>Run in JFEM</b>. Results appear here when the solve finishes.</p><button class="mini" data-workspace-target="analysis">Analysis settings</button></div>
       </section>
       <section id="panel-inspect" class="workspace-panel" data-workspace-panel="inspect" role="tabpanel" aria-labelledby="tab-inspect" hidden>
+      <label class="case-picker-label" for="inspect-case-select">Displayed load case</label>
+      <select id="inspect-case-select" aria-label="Inspection load case" disabled></select>
       <label class="case-picker-label" for="inspect-entity">Entity to inspect</label>
       <select id="inspect-entity" aria-label="Entity type to inspect">
         <option value="all">All elements</option><option value="nodes">Nodes (GRID)</option>

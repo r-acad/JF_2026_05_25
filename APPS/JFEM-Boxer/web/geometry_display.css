@@ -6,3 +6,5 @@
 .geometry-appearance input[type="range"] { min-width:0; max-width:65%; }
 #panel-displaygeometry #geometry-context { padding:0; border:0; }
 #panel-displaygeometry #reference-panel { margin-top:18px; }
+:is(#geometry-case-select,#mass-case-select,#summary-case-select,#inspect-case-select) { box-sizing:border-box; width:100%; min-width:0; padding:6px; margin-bottom:10px; font:inherit; font-size:12px; color:var(--text); background:#0e1319; border:1px solid var(--line); border-radius:4px; }
+#group-mass [id="row-mass.structural_representation"] { grid-template-columns:minmax(0,1fr); }

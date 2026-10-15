@@ -5,6 +5,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Multiple-case results and rib-bay mass representation
+
+- Preserve the original Study identity separately from effective load-case
+  parameters, so repeated and multiple-case results pass the viewer's model
+  compatibility checks. Retain worker failure details, drain the final log,
+  and explain rejected result fields instead of reporting an empty failure.
+- Group undeformed aerodynamic controls with Aerodynamic geometry and add
+  synchronized load-case selectors to Geometry, Mass properties, Inspect and
+  the general summary.
+- Aggregate structural mass ellipsoids per physical rib bay. Add a saved
+  Properties > Mass choice between distributed element mass and concentrated
+  bay masses for global normal modes, retaining mass, CG offsets and inertia
+  without double counting. Include exact bay-mass derivatives in modal
+  sensitivities.
+
 ### Installation, repeated analyses and distributed mass
 
 - Separate Windows, Linux and Mac setup steps and launch files under

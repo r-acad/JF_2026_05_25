@@ -64,7 +64,8 @@
   function rebuild(){
    const host=doc.getElementById('geometry-appearance-controls');if(!host)return;host.replaceChildren();
    const environmentHost=doc.getElementById('environment-appearance-controls');environmentHost?.replaceChildren();
-   for(const[key,label,color,opacity]of [['FUEL_TANK','Fuel tank','#57b88c',.22],['REFERENCE_AERO','Undeformed aerodynamic surface','#c5d1df',.14]])if(state.layers.has(key)){const box=controls(host,key,label,{color,style:'translucent',opacity});box.disabled=!available(key);}
+   const aeroHost=doc.getElementById('aerodynamic-reference-appearance');aeroHost?.replaceChildren();
+   for(const[key,label,color,opacity]of [['FUEL_TANK','Fuel tank','#57b88c',.22],['REFERENCE_AERO','Undeformed aero reference appearance','#c5d1df',.14]])if(state.layers.has(key)){const box=controls(key==='REFERENCE_AERO'&&aeroHost?aeroHost:host,key,label,{color,style:'translucent',opacity});box.disabled=!available(key);box.hidden=key==='REFERENCE_AERO'&&box.disabled;}
    if(state.viewPlanes&&environmentHost){const ground=controls(environmentHost,'GROUND','Ground plane',{color:'#bfccd7',style:'solid',opacity:1});const note=doc.createElement('p');note.className='pick-note';note.textContent='Metallic reflects the visible model across the ground height.';ground.append(note);controls(environmentHost,'SYMMETRY','Root symmetry plane',{color:'#a9c6df',style:'translucent',opacity:.09});}
    if(state.ribDatums?.layout.count)controls(host,'RIB_DATUMS','Rib datum planes',{color:'#91c8ee',style:'translucent',opacity:.18});
    const sections=state.aeroDisplay?.sections||[];

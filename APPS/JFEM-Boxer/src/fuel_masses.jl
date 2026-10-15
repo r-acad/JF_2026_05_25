@@ -114,10 +114,15 @@ function fuel_reference_is_massless(m::Model,sp::FuelBaySpider)
     return !(sp.start_rib in fuel_bay_selection(m.params,length(m.grid.ribs)).active)
 end
 
-"""Generate fuel spiders, or massless equivalents when dry structure needs targets."""
+structural_mass_is_concentrated(m::Model)=get(m.params,"mass.structural_representation","distributed")=="bay_concentrated"
+structural_conm2_eid(m::Model,sp::FuelBaySpider)=structural_mass_is_concentrated(m) ? sp.eid+2 : nothing
+bay_reference_is_massless(m::Model,sp::FuelBaySpider)=!structural_mass_is_concentrated(m)&&fuel_reference_is_massless(m,sp)
+
+"""Generate bay references for fuel, dry inertia loads, or concentrated structural mass."""
 function add_fuel_references!(m::Model)
     isempty(m.fuel_rbe3)||return m
-    bays=fuel_geometry_bays(m)
+    concentrated=structural_mass_is_concentrated(m)
+    bays=concentrated ? [fuel_bay_geometry(m,rib) for rib in 1:length(m.grid.ribs)-1] : fuel_geometry_bays(m)
     if isempty(bays)
         needs_inertia=any(spec->get(spec.params,"loads.structure_inertia",false)&&
             !iszero(spec.params["loads.load_factor"])&&any(axis->!iszero(get(spec.params,"loads.fuel_accel_"*axis,0.)),("x","y","z")),load_case_specs(m.params))
@@ -135,7 +140,7 @@ function add_fuel_references!(m::Model)
             m.node_keys[n][2] in rows&&m.node_keys[n][3] in (0,m.grid.nh)]
         length(connected)>=3||throw(ArgumentError("Fuel bay $(bay.rib) needs independent skin-intersection nodes on both bounding ribs"))
         ref=length(m.node_ids)+1;push!(m.node_ids,ref);append!(m.xyz,bay.center);push!(m.node_keys,(-2,-ref,-2))
-        push!(m.fuel_rbe3,FuelBaySpider(eid,eid+1,ref,connected,bay.rib,bay.rib+1));eid+=2
+        push!(m.fuel_rbe3,FuelBaySpider(eid,eid+1,ref,connected,bay.rib,bay.rib+1));eid+=concentrated ? 3 : 2
     end
     return m
 end
@@ -173,6 +178,7 @@ function fuel_mass_state(m::Model;params=m.params)
         return geometry,fills
     end
     rows=Dict{String,Any}[]
+    spiders=Dict(sp.start_rib=>sp for sp in m.fuel_rbe3)
     for (index,bay) in enumerate(geometry)
         # Keep geometric moments (and their cache) independent of efficiency:
         # uniform volumetric allowance scales mass and inertia, never CG/level.
@@ -181,7 +187,7 @@ function fuel_mass_state(m::Model;params=m.params)
         q=volume>0 ? [v[5] v[8] v[9];v[8] v[6] v[10];v[9] v[10] v[7]]-v[2:4]*v[2:4]'/volume : zeros(3,3)
         inertia=(density*efficiency).*[q[2,2]+q[3,3],q[1,2],q[1,1]+q[3,3],q[1,3],q[2,3],q[1,1]+q[2,2]]
         tensor=[[inertia[1],-inertia[2],-inertia[4]],[-inertia[2],inertia[3],-inertia[5]],[-inertia[4],-inertia[5],inertia[6]]]
-        spider=isempty(m.fuel_rbe3) ? nothing : m.fuel_rbe3[index]
+        spider=get(spiders,bay.rib,nothing)
         push!(rows,Dict{String,Any}("index"=>bay.rib,"start_rib"=>bay.rib,"end_rib"=>bay.rib+1,
             "eta_start"=>bay.eta_start,"eta_end"=>bay.eta_end,"fill_efficiency"=>efficiency,
             "gross_volume_m3"=>bay.full[1],"volume_m3"=>efficiency*bay.full[1],

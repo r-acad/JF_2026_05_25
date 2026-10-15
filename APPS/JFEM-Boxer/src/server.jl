@@ -722,6 +722,7 @@ function handle_jfem_status(st::AppState, req)
             "first_line" => batch.first_line,
             "omitted_lines" => batch.omitted_lines,
             "has_more" => batch.has_more,
+            "log_done" => job.log_done,
             "progress" => job_progress(job),
             "log_path" => job.logpath,
             "runs" => [job_run_summary(child) for child in job.runs],
