@@ -144,7 +144,7 @@
         let permission=typeof handle.queryPermission==="function"?await handle.queryPermission({mode:"read"}):"granted";
         if(permission!=="granted"&&typeof handle.requestPermission==="function")permission=await handle.requestPermission({mode:"read"});
         if(permission!=="granted")throw new Error("Disk access was not granted. Relink the file or explicitly open its stored copy.");
-        let file;try{file=await handle.getFile();}catch(_){throw new Error("The disk file is unavailable or has moved. Relink it, or explicitly open the stored copy.");}
+        let file;try{file=host.WingWorkspace?.nativeHandle(handle)?await host.WingWorkspace.nativeFile(handle,host):await handle.getFile();}catch(error){throw new Error("The disk file is unavailable. "+(error.message||"Relink it, or explicitly open the stored copy."));}
         return deliver(file,{id:row.id,handle,source:"disk"});
       });
     }
@@ -173,6 +173,7 @@
             let timer;
             try{
               file=await Promise.race([(async()=>{
+                if(host.WingWorkspace?.nativeHandle(row.handle))return host.WingWorkspace.nativeFile(row.handle,host);
                 if(typeof row.handle.queryPermission!=="function")throw Error("The browser cannot check existing disk permission.");
                 const permission=await row.handle.queryPermission({mode:"read"});
                 if(permission!=="granted")throw Error("Disk access is not already granted; no permission prompt was opened.");

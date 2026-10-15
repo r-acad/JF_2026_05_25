@@ -1,7 +1,7 @@
 /* Colors describe effective, active values in the visible property table. */
 (function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./color_scales.js'):root.WingColorScales);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingPropertyTableColors=api;})(globalThis,function(colors){
  'use strict';
- const PALETTES={viridis:'Viridis',spectrum:'Spectrum',inferno:'Inferno',coolwarm:'Blue–red',grayscale:'Grayscale'};
+ const PALETTES={viridis:'Viridis',spectrum:'Spectrum',inferno:'Inferno',coolwarm:'Blue–red',grayscale:'Grayscale',signed:'Signed red (-) / blue (+)'};
  const categorical=['#6db3dd','#e6a85a','#b799dc','#75c3a6','#df8da5','#c4c45a','#a4b3c3','#bf986b'];
  function dormant(kind,value,field){
   if(kind==='ribstiffeners'&&value.enabled===false&&field!=='enabled')return true;
@@ -24,14 +24,12 @@
  function valueColor(value,scale,palette='viridis'){
   if(!scale.numeric)return categoryColor(value);
   if(!Number.isFinite(value)||!Number.isFinite(scale.min)||!Number.isFinite(scale.max))return null;
-  const t=scale.min===scale.max?.5:(value-scale.min)/(scale.max-scale.min);
-  return 'rgb('+colors.sample(PALETTES[palette]?palette:'viridis',t).map(c=>Math.round(255*c)).join(', ')+')';
+  return colors.css(colors.valueColor(PALETTES[palette]?palette:'viridis',value,scale.min,scale.max));
  }
  function foreground(background){const numbers=background.startsWith('#')?background.slice(1).match(/../g).map(c=>parseInt(c,16)):background.match(/\d+/g).map(Number),linear=n=>{const v=n/255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;},l=.2126*linear(numbers[0])+.7152*linear(numbers[1])+.0722*linear(numbers[2]);return(l+.05)/.05>=1.05/(l+.05)?'#000000':'#ffffff';}
  function gradient(scale,palette='viridis'){
   if(!Number.isFinite(scale.min))return '';
-  const stops=scale.min===scale.max?[0,1]:(colors.scales[palette]||colors.scales.viridis).map(s=>s[0]);
-  return 'linear-gradient(90deg, '+stops.map(t=>valueColor(scale.min+(scale.max-scale.min)*t,scale,palette)+' '+100*t+'%').join(', ')+')';
+  return colors.gradient(PALETTES[palette]?palette:'viridis',scale.min,scale.max);
  }
  return{PALETTES,dormant,build,categoryColor,valueColor,foreground,gradient};
 });

@@ -159,6 +159,8 @@ function model_property_definitions(m::Model)
         entry=Dict{String,Any}("pid"=>group.pid,"base_pid"=>component_base_pid(group.pid),"kind"=>group.kind==:bar ? "bar" : "shell")
         if group.kind==:bar
             entry["section"]=section_definition(m.params,group.pid)
+            entry["nonstructural_mass_kg_m"]=nonstructural_mass_density(m.params,group.pid)
+            entry["linear_mass_kg_m"]=bar_mass_per_length(m.params,group.pid)
             material=bar_material_definition(m.params,group.pid)
             entry["material_id"]=material["id"];entry["material"]=material_payload(material)
         else

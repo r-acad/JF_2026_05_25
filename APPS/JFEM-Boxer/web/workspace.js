@@ -22,7 +22,7 @@
   const LEGACY_LABEL_IDS = new Set(["mesh-labels-none","mesh-labels-both"]);
   const SELECTS = {"surface-mode":["solid","translucent"],"shell-geometry":["midsurface","thickness"],"beam-style":["lines","sections"],"aero-deformed-style":["auto","wireframe","solid","steel","metallic","translucent"],
     "inspect-entity":["all","nodes","shells","quad","tria","bar","stringer","cap","rbe3","connection","spring","conm2","coordinate"],"vlm-field":["none","pressure","cp"],
-    "result-palette":["spectrum","viridis","inferno","coolwarm","grayscale"]};
+    "result-palette":["spectrum","viridis","inferno","coolwarm","grayscale","signed"]};
   const object = (value) => value && typeof value === "object" && !Array.isArray(value);
   function isoTime(value,label="save timestamp") {
     if(typeof value!=="string"||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value)||!Number.isFinite(Date.parse(value))||new Date(value).toISOString()!==value)
@@ -282,8 +282,7 @@
   // Call this before the first await in the click handler: Chromium requires
   // transient user activation when opening its filename/folder dialog.
   function requestSaveDestination(kind, name, host = globalThis) {
-    const fallback = {method:"download",name};
-    if (typeof host.showSaveFilePicker !== "function" || host.isSecureContext === false) return Promise.resolve(fallback);
+    if (typeof host.showSaveFilePicker !== "function" || host.isSecureContext === false) return requestNativeDestination(name,host);
     let request;
     try {
       request=host.showSaveFilePicker({id:"wingfegen-"+kind,suggestedName:name,
@@ -294,7 +293,32 @@
     // while the interface yields to paint its busy state.
     return Promise.resolve(request).then(handle=>({method:"picker",handle,name:handle.name}),error=>
       error?.name==="AbortError" ? {cancelled:true} : ["SecurityError","NotAllowedError"].includes(error?.name) ?
-        {...fallback,guidance:"The browser blocked the save dialog; a download was requested instead."} : {error});
+        requestNativeDestination(name,host) : {error});
+  }
+  async function nativeFileRequest(action,body,host=globalThis) {
+    if(typeof host.fetch!=="function")return {available:false,reason:"The system file picker is unavailable."};
+    const response=await host.fetch("/api/study/"+action,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    if(response.status===404)return {available:false,reason:"The app server needs to be restarted to enable the system file picker."};
+    const data=await response.json();
+    if(!response.ok||data.ok===false)throw Error(data.error||"The system file operation failed.");
+    return data;
+  }
+  async function requestNativeDestination(name,host) {
+    try{
+      const data=await nativeFileRequest("pick",{name},host);
+      if(data.cancelled)return {cancelled:true};
+      if(data.available!==false)return {method:"native",handle:data.handle,name:data.handle.name,path:data.handle.path};
+      const reason=data.reason||"Neither a browser nor a system Save dialog is available.";
+      const accepted=typeof host.confirm==="function"&&host.confirm(reason+"\n\nDownload this file instead? Your browser download settings choose the folder. Enable ‘Ask where to save each file’ in the browser to select a location. Cancel keeps your changes unsaved.");
+      return accepted?{method:"download",name,guidance:"You chose a browser download."}:{cancelled:true};
+    }catch(error){return {error};}
+  }
+  const nativeHandle=handle=>handle?.kind==="native-save"&&typeof handle.token==="string";
+  const writableHandle=handle=>nativeHandle(handle)||typeof handle?.createWritable==="function";
+  async function nativeFile(handle,host=globalThis){
+    const data=await nativeFileRequest("read",{token:handle.token},host);
+    if(data.available===false)throw Error(data.reason);
+    return new host.File([data.text],data.name,{type:"application/json",lastModified:data.lastModified});
   }
   function downloadText(text,name,type,document) {
     const blob=new Blob([text],{type}),url=URL.createObjectURL(blob),a=document.createElement("a");
@@ -303,6 +327,7 @@
   // A normal Save keeps the linked destination. Save as always opens a new
   // chooser. Permission is requested synchronously while click activation is live.
   function requestStudyDestination(name, {handle=null,saveAs=false} = {}, host=globalThis) {
+    if(!saveAs&&nativeHandle(handle))return Promise.resolve({method:"native",handle,name:handle.name||name,path:handle.path});
     if (saveAs || !handle || typeof handle.createWritable!=="function") return requestSaveDestination("study",name,host);
     let request;
     try { request=typeof handle.requestPermission==="function" ? handle.requestPermission({mode:"readwrite"}) : "granted"; }
@@ -310,18 +335,21 @@
     return Promise.resolve(request).then(permission=>permission==="granted" ? {method:"picker",handle,name:handle.name||name} :
       {error:new Error("Write access to the linked Study was not granted. Use Save Study as… to choose another file.")},error=>({error}));
   }
-  async function writeDestination(destination,text,type,document) {
+  async function writeDestination(destination,text,type,document,host=globalThis) {
     if (destination.error) throw destination.error;
     if (destination.cancelled) return false;
     if (destination.method==="picker") {
       let writer;
       try { writer=await destination.handle.createWritable();await writer.write(text);await writer.close(); }
       catch(error) { try { await writer?.abort(); } catch(_) {} throw error; }
+    } else if(destination.method==="native") {
+      const data=await nativeFileRequest("write",{token:destination.handle.token,text},host);
+      if(data.available===false)throw Error(data.reason);
     } else downloadText(text,destination.name,type,document);
     return destination;
   }
   function download(data,name,document) {
     downloadText(JSON.stringify(data,null,2),name,"application/json",document);
   }
-  return {FORMAT,VERSION,CONTROL_IDS,LAYER_GROUP_IDS,MAX_NOTE_LENGTH,MAX_NOTE_ENTRIES,normalizeNotes,notesForSave,completeView,newModelView,parse,parseObject,snapshot,captureView,applyControls,validateView,bytesToBase64,base64ToBytes,filename,download,requestSaveDestination,requestStudyDestination,writeDestination,downloadText};
+  return {FORMAT,VERSION,CONTROL_IDS,LAYER_GROUP_IDS,MAX_NOTE_LENGTH,MAX_NOTE_ENTRIES,normalizeNotes,notesForSave,completeView,newModelView,parse,parseObject,snapshot,captureView,applyControls,validateView,bytesToBase64,base64ToBytes,filename,download,requestSaveDestination,requestStudyDestination,writeDestination,downloadText,nativeHandle,writableHandle,nativeFile};
 });

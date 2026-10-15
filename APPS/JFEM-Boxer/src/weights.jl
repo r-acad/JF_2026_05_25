@@ -44,7 +44,7 @@ function structural_inertia_payload(m::Model)
             second.+=weight.*(covariance+center*center')
         end
         if gr.kind===:bar
-            linear_density=section_definition(m.params,gr.pid)["area_m2"]*bar_material_definition(m.params,gr.pid)["rho"]
+            linear_density=bar_mass_per_length(m.params,gr.pid)
             for e in 1:n_elements(gr)
                 points=element_points(m,gr,e);a,b=collect.(points);offset=collect(bar_section_offset(m,gr,e));d=b-a
                 accumulate(norm3(Tuple(d))*linear_density,(a+b)/2+offset,d*d'/12)
@@ -80,7 +80,7 @@ function weight_component(m::Model,id,label,names)
     row=Dict{String,Any}("id"=>id,"label"=>label,"groups"=>[gr.name for gr in selected],"count"=>0,
         "kind"=>id in ("stringers","spar_caps","runouts","rib_stiffeners") ? "bar" : "shell",
         "area_m2"=>0.,"length_m"=>0.,"volume_m3"=>0.,"mass_kg"=>0.,"weight_N"=>0.,
-        "in_structure"=>true,"in_deck"=>true)
+        "nonstructural_mass_kg"=>0.,"in_structure"=>true,"in_deck"=>true)
     dimensions=Float64[]
     for gr in selected
         row["count"]+=n_elements(gr)
@@ -93,7 +93,8 @@ function weight_component(m::Model,id,label,names)
                 (element_points(m,gr,e) for e in 1:n_elements(gr)));init=0.)
             row["length_m"]+=length_total
             row["volume_m3"]+=area*length_total
-            row["mass_kg"]+=area*length_total*bar_material_definition(m.params,gr.pid)["rho"]
+            row["mass_kg"]+=length_total*bar_mass_per_length(m.params,gr.pid)
+            row["nonstructural_mass_kg"]+=length_total*nonstructural_mass_density(m.params,gr.pid)
         else
             thickness=weight_shell_thickness(m.params,gr.pid)
             area=sum((weight_shell_area(element_points(m,gr,e)) for e in 1:n_elements(gr));init=0.)
@@ -101,6 +102,7 @@ function weight_component(m::Model,id,label,names)
             row["area_m2"]+=area
             row["volume_m3"]+=area*thickness
             row["mass_kg"]+=area*shell_material_definition(m.params,gr.pid)["areal_mass_kg_m2"]
+            row["nonstructural_mass_kg"]+=area*nonstructural_mass_density(m.params,gr.pid)
         end
     end
     if !isempty(dimensions)
@@ -113,6 +115,7 @@ function weight_component(m::Model,id,label,names)
         row["dimension_note"]="Scalar is length-weighted bar area or area-weighted shell thickness; minimum/maximum preserve override ranges."
     end
     row["weight_N"]=row["mass_kg"]*WEIGHT_GRAVITY
+    row["material_mass_kg"]=row["mass_kg"]-row["nonstructural_mass_kg"]
     return row
 end
 
@@ -128,6 +131,7 @@ function weights_payload(m::Model)
     end
     all(gr->weight_base_group(gr.name) in recognized,m.groups) || throw(ArgumentError("unclassified structural element group in mass accounting"))
     structure=sum(row["mass_kg"] for row in rows)
+    nonstructural=sum(row["nonstructural_mass_kg"] for row in rows)
     aero_mass=0.
     if p["output.include_aero_shells"]
         count=length(m.aero_quads)÷4
@@ -165,9 +169,10 @@ function weights_payload(m::Model)
     fuel["bays"]=bays
     fuel["bay_note"]="Fuel status is a percentage of usable capacity. Each bay fills upward to its own horizontal global-Z level at that percentage of gross geometry; uniform fill efficiency scales volume, mass and inertia without changing the level or CG. CONM2 carries the resulting mass, center of gravity and inertia; acceleration loads act through its separate fuel RBE3."
     totals=Dict{String,Any}("structure_mass_kg"=>structure,"exported_aero_mass_kg"=>aero_mass,
+        "nonstructural_mass_kg"=>nonstructural,"material_mass_kg"=>structure-nonstructural,
         "deck_mass_kg"=>structure+aero_mass+fuel_mass,"fuel_mass_kg"=>fuel_mass,"fuel_capacity_mass_kg"=>capacity,
         "loaded_mass_kg"=>structure+fuel_mass)
-    for name in ("structure","exported_aero","deck","fuel","fuel_capacity","loaded")
+    for name in ("structure","nonstructural","material","exported_aero","deck","fuel","fuel_capacity","loaded")
         totals[name*"_weight_N"]=totals[name*"_mass_kg"]*WEIGHT_GRAVITY
     end
     all(value->isfinite(value)&&value>=0,values(totals)) || throw(ArgumentError("mass calculation overflowed or produced an invalid total"))
@@ -175,13 +180,13 @@ function weights_payload(m::Model)
         "gravity_m_s2"=>WEIGHT_GRAVITY,"material_density_kg_m3"=>p["material.rho"],
         "materials"=>[material_payload(material) for material in model_material_definitions(m)],
         "scope"=>"Modeled half lifting surface, from the root to the final structural rib",
-        "method"=>"FE shell projected midsurface area × sum of ply thickness × assigned density (one ply for PSHELL); PBARL/PBAR area × CBAR effective length × assigned MAT1 density",
+        "method"=>"Shell mass = FE projected midsurface area × (ply mass per area + non-structural surface density). Bar mass = FE length × (section area × material density + non-structural linear density).",
         "note"=>"Fuel usable capacity equals gross wet-bay volume times the uniform fill efficiency factor; no separate structure, equipment or wall-thickness deductions are made. Per-bay CONM2 masses and fuel inertia use the selected case's percentage of usable capacity. Include structural inertia applies the same signed acceleration to the dry shell/bar mass using explicit dead forces and section-offset couples. RBE3 constraints and display meshes have no material mass.")
 end
 
 function weights_info(m::Model)
     data=weights_payload(m);total=data["totals"]
-    rows=Tuple{String,String}[("Dry half lifting surface structure mass",@sprintf("%.9g kg",total["structure_mass_kg"])),
+    rows=Tuple{String,String}[("Dry half lifting surface mass",@sprintf("%.9g kg (including %.9g kg non-structural)",total["structure_mass_kg"],total["nonstructural_mass_kg"])),
         ("Fuel FE mass",@sprintf("%.9g kg in per-bay CONM2 elements",total["fuel_mass_kg"])),
         ("Loaded half lifting surface mass",@sprintf("%.9g kg (structure + fuel)",total["loaded_mass_kg"]))]
     m.params["output.include_aero_shells"] && push!(rows,("Exported deck mass",@sprintf("%.9g kg, including separate unconnected aero shells",total["deck_mass_kg"])))

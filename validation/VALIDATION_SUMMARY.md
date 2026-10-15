@@ -20,7 +20,7 @@ Every row is scored against a published or closed-form target (**accuracy**).
 Seventeen of the nineteen rows are additionally scored against a tabulated
 reference-solver value obtained by running **this folder's own deck,
 unmodified**, through an established solver (**parity**). Every one of the
-twelve cases carries at least one such measurement.
+thirteen cases carries at least one such measurement.
 
 The two answer different questions and must not be conflated:
 
@@ -43,30 +43,11 @@ parity is now exact to five to eight significant figures, they were tightened
 from `2%` to `0.1%` (`0.5%` on the CRM modal rows) so the gate can still detect
 a regression.
 
-### One unstated solver parameter accounted for every residual parity error
+### Reproducible shell settings
 
-`PARAM,K6ROT`, the Hughes-Brezzi drilling-DOF stabilisation coefficient, is not
-part of any of these benchmark definitions and solvers default it differently:
-`0.0` in the reference linear sequences, while older OpenJFEM revisions
-used `100.0` for every sequence. Current JFEM defaults to `0.0` for SOL101,
-SOL103 and SOL105 and `100.0` for SOL106/129; an explicit deck value takes
-precedence. Every tabulated parity reference had been produced at `0.0` on a deck
-that declared nothing, while OpenJFEM ran the same deck at `100.0`.
-
-That single unstated difference was the *entire* residual parity error on all
-six shell rows. It only broke tolerance on the pinched hemisphere, the most
-K6ROT-sensitive case in the set, where it read as a 3.50% "formulation gap".
-
-Confirmed from both sides on the reference solver: the hemisphere deck returns
-the same answer cardless and with `PARAM,K6ROT,0.` (the full 25-node
-displacement blocks are bit-identical), and with `PARAM,K6ROT,100.` it returns
-OpenJFEM's own default-run answer to the output file's full print precision. At
-the matched setting OpenJFEM reproduces the reference's complete 25-node
-translation field to `1.5e-7` relative L2.
-
-Every shell deck here now declares the parameter — see `README.md`,
-"PARAM,K6ROT". Because `0.0` was already the reference solver's default, none of
-the previously tabulated reference values changed.
+All shell decks specify `PARAM,K6ROT` explicitly. Keep those values when
+reproducing this suite; changing drilling-rotation stabilization can change
+the response. The individual decks and the manifest record the tested inputs.
 
 ## Current Result Snapshot
 
@@ -122,89 +103,19 @@ always parity measurements, and the parity column now says so explicitly.
 | `TG_plate_uniaxial_buckling` STATSUB preload | `5.00e-8` | `1e-3` |
 | `BA_cylinder_axial_buckling` STATSUB preload | `3.90e-6` | `1e-3` |
 
-### Status notes behind the MacNeal-Harder rows
+### Limits of these results
 
-1. **The hemisphere parity gap was a solver-parameter default, not a
-   formulation gap.** It closed from `3.50%` to `3.8e-8` once `PARAM,K6ROT` was
-   declared in the deck, and the same correction took every other shell row to
-   between `1.3e-8` and `6.2e-5`. See the K6ROT subsection above.
+- The standard curved-beam and pinched-cylinder meshes miss their analytical
+  targets by 16.7% and 47.6%. They remain reported as accuracy failures. The
+  supplied refined companion decks reduce those errors to 0.64% and 0.21%.
+- The two classical buckling eigenvalue rows have analytical targets but no
+  tabulated parity values. Their static-preload rows are parity checked; this
+  does not establish agreement of their geometric stiffness or eigenvalues.
+- Accuracy and parity are separate checks. Agreement on an identical coarse
+  mesh does not demonstrate mesh convergence.
 
-2. **`twisted_beam` was scoring the wrong load case.** The deck applied the
-   out-of-plane tip load (+Y) while the row compared it against the *in-plane*
-   published target — the entire source of its former 68.5% "accuracy error".
-   At the tip the 1.1 width lies along global Z, so the in-plane direction is
-   +Z. The deck's load was rotated to +Z (`0.77%` accuracy, PASS) and the
-   out-of-plane case was split into its own deck and row (`2.66%`, PASS). Both
-   carry their own reference-solver parity value.
-
-3. **`hemispherical_shell` applied half the benchmark load and used the wrong
-   variant's reference.** The benchmark load is `P = 2.0`, so the quarter model
-   carries `1.0` at each loaded equator node, not `0.5`; and the deck is the
-   18-deg cut-out variant, whose published reference is `0.0930`, not the
-   closed-pole `0.0924`. Both are corrected. The load error was confirmed
-   independently by convergence: at `0.5`/node the response is flat in the mesh
-   at 0.507-0.516 of the reference through N = 32, i.e. it converges to exactly
-   half. The row is now `+6.2%` against a `0.10` tolerance set from the
-   published 4-node spread at this mesh (0.928-1.099).
-
-4. **`scordelis_lo`** is at `5.8%` accuracy and `3.7e-8` parity. Its tolerance
-   was widened `0.05 -> 0.10`, set from the published 4-node spread on the
-   identical 4x4 mesh (0.9432-1.083); OpenJFEM sits at 1.0581 and converges to
-   0.9999 at 16x16.
-
-5. **`curved_beam` and `pinched_cylinder` remain accuracy FAILs, deliberately.**
-   No published per-mesh band supports widening their tolerances, and widening
-   them to pass would be fitting the gate to the answer. Both are correctly
-   posed — in particular the pinched cylinder's `P/4 = 0.25` octant load is
-   *correct*, because its load point lies on two of the three symmetry planes.
-   At these meshes no published 4-node shell element approaches its converged
-   target either (pinched cylinder at N=4: 0.370 to 0.636 across six published
-   elements, OpenJFEM 0.5228, reference solver 0.5241; curved beam at 6x1:
-   MacNeal & Harder's own published QUAD4 value 0.833, OpenJFEM 0.8310,
-   reference solver 0.8334), and OpenJFEM converges onto both targets under
-   refinement.
-
-   That convergence is no longer a claim in prose: each of these two cases now
-   ships a **refined companion deck** scored against the *same* published
-   reference at the ordinary 2% tolerance —
-   `MH_curved_beam_refined` (24x4) at **0.64%** and
-   `MH_pinched_cylinder_refined` (24x24) at **0.21%**, both also in
-   `3.6e-5` / `8.8e-6` same-deck parity. The benchmark decks are untouched and
-   keep reporting the benchmark result, FAIL included; the refined decks carry
-   the convergence evidence. See `README.md`, "Benchmark Meshes vs Refined
-   Companions".
-
-   *This supersedes an earlier note in this file which stated that the pinched
-   cylinder, like the hemisphere, "applies half the load its symmetry model
-   requires". That was correct for the hemisphere and wrong for the pinched
-   cylinder: doubling its load would put the converged solution at twice the
-   published reference, trading a real coarse-mesh error for a permanent 100%
-   load error that merely cancels at N = 4.*
-
-6. **The two classical buckling EIGENVALUE rows still carry no parity target**,
-   and the reason is now characterised rather than unexplained: the reference
-   solver's eigenvalue extraction on those two decks is demonstrably incomplete
-   (its own Sturm-sequence counts contradict its printed first mode) and a
-   Sturm-guarded re-run returns a spurious near-null cluster instead. See
-   `README.md`, "Tabulated commercial-solver values". An unverified number in a
-   parity column is worse than an empty one.
-
-   Both classical *cases* are nevertheless parity-covered: each now carries a
-   second row on its SOL 105 `STATSUB` static preload field, which is well-posed
-   for both codes and agrees to `5.0e-8` (plate) and `3.9e-6` (cylinder, in the
-   deck's `CORD2C` cylindrical output frame). Be precise about the scope: those
-   rows verify the stiffness matrix, the applied load and the boundary
-   conditions on the identical mesh. They do **not** verify the geometric
-   stiffness `K_g` or the eigensolver, which remain unverified against a
-   reference solver on these two decks.
-
-Published per-mesh comparators quoted above are from Y. Ko, P.-S. Lee and
-K.-J. Bathe, "Performance of the MITC3+ and MITC4+ shell elements in
-widely-used benchmark problems", *Computers & Structures* **193** (2017)
-187-206, Tables 8, 10, 12, 13 and 15.
-
-See `public_suite.yaml` for row-level tolerances and the reasoning behind them,
-and rerun the suite to regenerate `comparison.csv` with the local values.
+See `public_suite.yaml` for quantities and tolerances. A fresh run produces
+the comparison values for your installed source revision.
 
 ## Reproduce
 

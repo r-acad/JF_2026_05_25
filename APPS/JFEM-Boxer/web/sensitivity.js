@@ -155,7 +155,7 @@
    filterStatus.textContent=filter.valid?shown.length+' / '+variables.length+' properties match · '+count+' selected ('+visibleSelected+' shown, '+(count-visibleSelected)+' outside this filter).':filter.error;
    filterStatus.classList.toggle('sensitivity-error',!filter.valid);el('filter').setAttribute('aria-invalid',String(!filter.valid));clearFilter.disabled=!el('filter').value;
   }
-  function error(message){el('error').textContent=message||"";el('error').hidden=!message;}
+  function error(message){const box=el('error');box.replaceChildren();box.hidden=!message;if(message){box.append(doc.createTextNode(message+' '));const close=make('button','mini','Close');close.type='button';close.setAttribute('aria-label','Dismiss sensitivity error');close.onclick=()=>error('');box.append(close);}}
   function changed(){const expanded=normalizeSetup();options.onEdit?.(JSON.stringify(config));if(expanded.aliases.length)el('status').textContent=migrationMessage(expanded);sync();}
   function objectiveType(){return TYPES.find(t=>t[0]===config.objective.type)||TYPES[0];}
   function renderObjective(){const type=objectiveType();el('objective').value=type[0];el('component').replaceChildren();

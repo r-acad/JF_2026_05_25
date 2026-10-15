@@ -684,7 +684,8 @@ function build_model(cards, cc)
                                 "TRANSVERSE_SHEAR_RIGID_LIMIT" => saw_mat8_ply && all_mat8_plies_blank_transverse_shear,
                                 "PLY_DATA" => ply_data,
                                 "PCOMP_Z0_DEFAULT"=>get(pc, "Z0_DEFAULT", false), "PCOMP_Z0"=>z0,
-                                "PCOMP_LAM"=>get(pc, "LAM", ""), "PCOMP_WHITNEY_SHEAR"=>whitney_on)
+                                "PCOMP_LAM"=>get(pc, "LAM", ""), "PCOMP_WHITNEY_SHEAR"=>whitney_on,
+                                "NSM"=>Float64(get(pc,"NSM",0.0)))
         end
     end
 
@@ -1179,7 +1180,8 @@ function build_model_from_json(raw::AbstractDict)
             "TRANSVERSE_SHEAR_RIGID_LIMIT"=>saw_mat8_ply && all_mat8_plies_blank_transverse_shear,
             "PLY_DATA"=>ply_data,
             "PCOMP_Z0_DEFAULT"=>z0_default, "PCOMP_Z0"=>z0,
-            "PCOMP_LAM"=>lam_field, "PCOMP_WHITNEY_SHEAR"=>whitney_on2)
+            "PCOMP_LAM"=>lam_field, "PCOMP_WHITNEY_SHEAR"=>whitney_on2,
+            "NSM"=>Float64(get(pc,"NSM",0.0)))
     end
 
     # PBARL → compute section properties (delegate to existing function)

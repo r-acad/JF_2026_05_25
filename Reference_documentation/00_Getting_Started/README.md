@@ -6,7 +6,7 @@
 2. [JFEM-Boxer user's guide](jfem_2026_fgen_user_guide.pdf): learn the model-generation,
    analysis, sensitivity and results workflows with screenshots from the app.
 
-For copyable commands, see the [installation walkthrough](<../../__Start here!__/INSTALLATION.md>).
+For copyable commands, see the [installation walkthrough](<../../__Start here!__/README.md>).
 The repository-root `setup.cmd` (Windows) or `bash setup.sh` (macOS/Linux) is
 the shared setup entry point. A sysimage is optional; the walkthrough explains
 what it accelerates and when to rebuild it.

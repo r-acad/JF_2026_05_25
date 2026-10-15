@@ -106,7 +106,7 @@
    const field=enabled?curvature(info.mesh):null,bounds=field?range(field):null,base=B.Color3.FromHexString(color),count=info.mesh.getTotalVertices();
    info.colors??=new Float32Array(count*4);
    for(let i=0;i<count;i++){
-    const value=field?.values[i],rgb=field?(Number.isFinite(value)?colorAt(bounds.max>bounds.min?(value-bounds.min)/(bounds.max-bounds.min):.5):[.42,.45,.49]):[1,1,1];
+    const value=field?.values[i],rgb=field?(Number.isFinite(value)?colorAt(bounds.max>bounds.min?(value-bounds.min)/(bounds.max-bounds.min):.5,value,bounds):[.42,.45,.49]):[1,1,1];
     info.colors.set([...rgb,1],4*i);
    }
    info.mesh.updateVerticesData(B.VertexBuffer.ColorKind,info.colors,false,false);

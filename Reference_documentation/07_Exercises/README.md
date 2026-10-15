@@ -9,7 +9,7 @@
 
 For this checkout, start with the current
 [illustrated installation guide](<../../__Start here!__/jfem_2026_installation_guide.pdf>)
-or [numbered instructions with copyable commands](<../../__Start here!__/INSTALLATION.md>).
+or [numbered instructions with copyable commands](<../../__Start here!__/README.md>).
 The original assignment's older download links and installation process have
 deliberately been retained as reference material.
 

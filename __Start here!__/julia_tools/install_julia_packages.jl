@@ -222,7 +222,7 @@ if abspath(PROGRAM_FILE)==abspath(@__FILE__)
         exit(JFEMPackageSetup.main())
     catch failure
         println(stderr,"Package setup failed: ",sprint(showerror,failure))
-        println(stderr,"Rerun setup after checking Julia version, network/proxy access and write permissions. See __Start here!__/INSTALLATION.md.")
+        println(stderr,"Rerun setup after checking Julia version, network/proxy access and write permissions. See __Start here!__/README.md.")
         exit(1)
     end
 end

@@ -5,6 +5,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Installation, repeated analyses and distributed mass
+
+- Separate Windows, Linux and Mac setup steps and launch files under
+  `__Start here!__`, with one short installation entry page. Merge useful
+  advanced/offline guidance into the normal instructions, refresh the PDF,
+  and clarify that contributions are not accepted during this early stage.
+- Keep one Julia FE solver process running between Boxer analyses. Serialize
+  requests with separate decks, output folders and timing reports; restart the
+  owned worker after cancellation, failure or source/environment changes.
+- Offer the signed red-negative/blue-positive scale throughout the field
+  viewer, with zero placed correctly in asymmetric ranges.
+- Let Save Study and Save As choose a folder through the browser or native
+  save dialog. Reuse the selected destination for Save/Autosave, preserve
+  unsaved state after cancellation/failure, and offer downloads explicitly.
+- Add Properties > Non-structural mass for distributed surface and line
+  densities. Include them in exported property cards, dry-mass summaries,
+  inertia loads and solver mass, while retaining fixed-NSM analytic derivatives.
+- Preserve PCOMP non-structural mass in both deck and raw-JSON model conversion.
+  It was previously lost when constructing the internal laminate property.
+
 ### JFEM-Boxer and simpler installation
 
 - Rename the model-generator app to JFEM-Boxer; group browser apps in `APPS/`
@@ -37,8 +57,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ### Documentation
 
-- Simplify installation into illustrated numbered steps, keep advanced setup
-  options separate, and place the installation PDF beside its launch scripts in
+- Simplify installation into illustrated numbered steps and place the
+  installation PDF beside its operating-system folders in
   `__Start here!__`. Add app screenshots and launch-file illustrations to the
   Markdown guides. Publish the supplied aircraft-design buckling assignment
   unchanged in `Reference_documentation/07_Exercises` and update the guide links.

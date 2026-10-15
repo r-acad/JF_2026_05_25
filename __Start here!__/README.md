@@ -1,15 +1,18 @@
-# Start here: install and run JFEM
+# Install and run JFEM
 
-Open the [five-step installation guide](INSTALLATION.md), or download the
-[illustrated PDF](jfem_2026_installation_guide.pdf).
+Choose your operating system. Each folder contains its setup launcher,
+application launchers and one guide covering installation, repair and offline use.
 
-1. Install Julia and **add Julia to PATH**.
-2. Download and extract the entire repository.
-3. Double-click **setup.cmd** in the top folder. Packages and the shared sysimage are automatic.
-4. Double-click **JFEM-Boxer.cmd**, **PANDEATOR.cmd**, **Results-viewer.cmd** or **JFEM-solver.cmd**.
+| System | Open this guide |
+| --- | --- |
+| Windows | [Windows/README.md](Windows/README.md) |
+| Linux | [Linux/README.md](Linux/README.md) |
+| macOS | [Mac/README.md](Mac/README.md) |
 
-![Application launchers](images/launch-files.png)
+Use the complete extracted repository in a writable location. All apps share
+the root Project/Manifest and one compiled image. The existing launchers in the
+repository root work too.
 
-The scripts and examples here support installation, precompilation and standalone
-solver runs. Everyday users do not need to open the Julia helper scripts.
-[Advanced setup](ADVANCED_SETUP.md) explains runtime overrides and troubleshooting.
+[Illustrated installation PDF](jfem_2026_installation_guide.pdf) ·
+[Solver commands and automation](julia_tools/README.md) ·
+[Application user guides](../Reference_documentation/README.md)

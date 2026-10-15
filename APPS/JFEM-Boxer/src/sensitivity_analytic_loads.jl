@@ -36,7 +36,7 @@ function sensitivity_analytic_load_tangent(m::Model,directions;params=m.params)
                 nodes=gr.conn[2*e-1:2*e];points=element_points(m,gr,e);length_e=norm3(points[2].-points[1])
                 x=unit3(points[2].-points[1]);v=ntuple(k->gr.orient[3*e-3+k],3)
                 y=unit3(v.-sum(x.*v).*x);offset=bar_section_offset(m,gr,e);delta_offset=doffset.*y
-                mass=length_e*area*rho;delta_mass=length_e*(rho*da+area*drho)
+                mass=length_e*(area*rho+nonstructural_mass_density(m.params,gr.pid));delta_mass=length_e*(rho*da+area*drho)
                 for node in nodes
                     nodal_mass[node]+=.5delta_mass
                     for k in 1:3;offset_mass[k,node]+=.5*(delta_mass*offset[k]+mass*delta_offset[k]);end

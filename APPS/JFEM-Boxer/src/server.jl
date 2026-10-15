@@ -93,6 +93,8 @@ msgpack_response(obj) =
 error_response(err; status::Int = 400) =
     json_response(Dict{String,Any}("ok" => false, "error" => err); status = status)
 
+include("study_save_server.jl")
+
 """
     describe_error(e) -> String
 
@@ -859,6 +861,9 @@ function make_router(st::AppState)
     HTTP.register!(router, "GET", "/api/airfoils/profile", req -> handle_airfoils(st, req;profile=true))
     HTTP.register!(router, "POST", "/api/generate", req -> handle_generate(st, req))
     HTTP.register!(router, "POST", "/api/validate_workspace", req -> handle_workspace(st, req))
+    HTTP.register!(router, "POST", "/api/study/pick", req -> handle_study_pick(st, req))
+    HTTP.register!(router, "POST", "/api/study/write", req -> handle_study_file(st, req))
+    HTTP.register!(router, "POST", "/api/study/read", req -> handle_study_file(st, req;read_only=true))
     HTTP.register!(router, "POST", "/api/prepare_workspace", req -> handle_workspace(st, req; generate = true))
     HTTP.register!(router, "POST", "/api/import_toml", req -> handle_import_toml(st, req))
     HTTP.register!(router, "POST", "/api/export_toml", req -> handle_export_toml(st, req))
@@ -937,6 +942,7 @@ function run_app(input_path::AbstractString;
     _startup_stage("Registering HTTP routes and checking bundled viewer assets")
     router = make_router(st)
 
+    start_solver_worker_service!()
     server = _start_app_server(router, port)
     actual = HTTP.port(server)
 
@@ -960,7 +966,11 @@ function run_app(input_path::AbstractString;
         e isa InterruptException || rethrow()
         println("\ninterrupted")
     finally
-        close(server)
+        try
+            shutdown_solver_worker!(closing=true)
+        finally
+            close(server)
+        end
     end
     println("JFEM-Boxer stopped")
     return nothing

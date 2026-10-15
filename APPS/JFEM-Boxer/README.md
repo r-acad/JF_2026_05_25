@@ -6,12 +6,12 @@ load cases, writes REFERENCE decks, launches the solver in this repository and
 displays structural results and property sensitivities.
 
 Start with the [illustrated installation guide](<../../__Start here!__/jfem_2026_installation_guide.pdf>)
-or the [numbered setup instructions](<../../__Start here!__/INSTALLATION.md>).
+or the [OS-specific setup instructions](<../../__Start here!__/README.md>).
 
 ![JFEM-Boxer displaying a generated lifting-surface model](<../../__Start here!__/images/fgen-model.png>)
 
-On Windows, double-click **JFEM-Boxer.cmd** at the repository root (or in this
-app folder). Setup builds the shared JFEM/app sysimage automatically; the launcher checks
+On Windows, double-click **JFEM-Boxer.cmd** in `__Start here!__/Windows`, at the
+repository root, or in this app folder. Setup builds the shared JFEM/app sysimage automatically; the launcher checks
 and loads it. The Julia entry point is **JFEM-Boxer.jl**. Existing `.wingfem.json`
 studies and internal parameter keys remain readable.
 
@@ -56,6 +56,14 @@ inherited defaults. Edits save with the Study/TOML and mark results stale;
 analysis starts only when requested. The skin/stringer panel tables remain
 available with the same dark-blue button style.
 
+**Properties / Non-structural mass** assigns kg/m² to upper/lower skins, spar/rib
+webs and leading-edge skins/ribs, and kg/m to stringers, spar caps, rib stiffeners
+and run-outs. Each structural-group value applies across bays and contributes
+to dry mass, inertia loads, exported properties and solver mass. Values default
+to zero and save with the Study. This form is for generated models; imported
+decks retain their own non-structural mass, including PCOMP values read from
+BDF or raw JSON. These values are not currently sensitivity design variables.
+
 Each physical rib bay now has separate front/rear spar-web properties and four
 separate spar-cap properties (front/rear, upper/lower). Rib webs and stiffeners
 are separate by rib; leading-edge skins are separate by bay and leading-edge
@@ -96,8 +104,7 @@ Older outputs may contain only preload displacements. Eigenmode amplitudes
 remain normalized independently of static deformation.
 
 The complete application source and browser libraries are in this directory.
-No private workspace, downloaded Study, proprietary solver, Node build pipeline
-or Python environment is needed to run the application.
+Run setup once to prepare the shared Julia environment, then open the app launcher.
 
 ## Install and start
 
@@ -199,18 +206,21 @@ optional external-resource details.
    file. **Save Study as…** selects another filename and folder. The Save Study
    button is orange for unsaved definition changes and green after saving.
    Camera, palette and display edits leave its status unchanged; an explicit
-   save still captures their current settings. Browsers without
-   file-picker support use their download settings instead.
+   save still captures their current settings. If the browser picker is unavailable
+   or blocked, a system Save dialog lets you choose any accessible folder. If no
+   system dialog is available, the app explicitly offers a browser download.
 
 **Autosave**, to the left of **Live mesh**, saves significant definition edits
 after they settle, including geometry, properties, loads, notes and selected
 design variables. Enabling it makes an initial save to the linked Study file,
 choosing a destination if needed. Subsequent background saves keep property
 editing available and combine rapid edits. Camera and display changes alone do
-not trigger saves. With no file-picker API, Autosave uses a persistent browser
-recovery copy available in Open existing study; it does not issue automatic
-downloads or update a disk file. Write or storage errors leave Project orange
-and explain what remains unsaved.
+not trigger saves. Autosave reuses the browser or system-selected file without
+reopening the dialog. System file links last for the running app-server session;
+after restarting it, use **Save Study as** to select the file again. If you chose
+a download because neither picker was available, Autosave keeps a persistent
+browser recovery copy and never downloads repeatedly. Write or storage errors
+leave Project orange and explain what remains unsaved.
 
 The definition is saved independently from solved results. Exported decks and
 solver result files remain in their run directories. A stale model/result is
@@ -676,12 +686,41 @@ write_reference(model, "wing_large.bdf"; large_field=true)
 
 The default eight-column export remains available. Large-field cards use paired
 `*` continuation lines. Generated CBAR entries leave the default convention
-field blank, preserving BASIC-frame bar offsets and supporting older readers
-such as Reference 70.5. SOL105 explicitly applies the selected SPC set to both
+field blank, preserving BASIC-frame bar offsets. SOL105 explicitly applies
+the selected SPC set to both
 the static preload and its buckling subcase. Exact Float64 free-field output
 used for native sensitivities remains separate from this portable format.
 
 ## Analysis timings and buckling preload results
+
+The first FE analysis starts a Julia solver worker. Later analyses reuse that
+process, its loaded packages and compiled methods. The worker uses the same
+root `Project.toml`, `Manifest.toml` and verified shared sysimage as the app.
+First-use code can still compile during an analysis. Only one FE request runs
+at a time; every request gets a fresh model, immutable deck snapshot, output
+directory, result files and log. Per-request `JFEM_*` flags and CLI output
+options are applied independently.
+
+The Log identifies the worker PID and session. Each run's `solver_worker.json`
+records its runtime, project, manifest hash, request index and start/finish
+times; `run_manifest.json` also identifies the worker. `jfem_run.log` remains
+the full downloadable log, including progress and timings. The unmodified
+per-request console log is `solver_stdout.log`; startup diagnostics remain in
+`solver_bootstrap.log` in the run that created the worker.
+
+A failed analysis normally leaves the worker available. Cancelling or timing
+out an active analysis stops its worker; the next run starts a fresh process.
+Cancelling a queued request leaves the active request alone. A crashed worker
+is replaced on the next run, and closing the app stops its owned worker and
+rejects further submissions. Source, manifest or initialization-only runtime
+setting changes also cause a fresh worker. Import and sensitivity workers keep
+their separate lifecycles; the GUI prevents FE/sensitivity overlap.
+
+The focused regression runs with
+`julia --project=. APPS/JFEM-Boxer/test/solver_worker_test.jl OUTPUT --native`
+from the repository root. It checks real SOL101/103/105/106 reuse, load and
+output isolation, recovery after errors, cancellation, crash/restart, timeout
+and application shutdown. Use a separate output folder.
 
 **Analysis / FE Analysis** explains the current EIGRL fields beside the modal
 and buckling controls. The compact example
@@ -794,7 +833,7 @@ julia --project=. APPS/JFEM-Boxer/test/job_log_progress_test.jl
 julia --project=. APPS/JFEM-Boxer/test/imported_analysis_overlay_test.jl
 julia --project=. APPS/JFEM-Boxer/test/shell_display_payload_test.jl
 julia --project=. APPS/JFEM-Boxer/test/portable_paths_test.jl
-julia --project=. APPS/JFEM-Boxer/test/sensitivity_component_selection_test.jl /path/to/private-test-output
+julia --project=. APPS/JFEM-Boxer/test/sensitivity_component_selection_test.jl /path/to/test-output
 julia --project=. APPS/JFEM-Boxer/test/payload_roundtrip_test.jl
 julia --project=. APPS/JFEM-Boxer/test/reference_source_test.jl
 julia --project=. APPS/JFEM-Boxer/test/reference_import_smoke_test.jl
@@ -896,8 +935,7 @@ Keep saved runs, fixtures, generated CSVs, and screenshots in a scratch director
 outside the repository.
 
 The solver's separate curated validation suite is described in the repository
-[README](../README.md). Development campaigns and user analysis outputs are not
-part of this distribution.
+[validation guide](../../validation/README.md).
 
 ## Source layout
 

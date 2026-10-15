@@ -29,7 +29,7 @@ try{
   state.autoMeshEnabled=false;document.getElementById('auto-mesh').checked=false;cancelAutoMeshTimer();
   window.savedFiles=[];window.pickerCalls=0;window.permissionCalls=0;window.cancelPicker=false;window.failWrite=false;window.nextName='First.wingfem.json';
   window.makeHandle=name=>({name,kind:'file',requestPermission:()=>{permissionCalls++;return Promise.resolve('granted');},createWritable:async()=>({write:async text=>{if(failWrite)throw Error('Test disk full');savedFiles.push({name,text});},close:async()=>{},abort:async()=>{}})});
-  window.showSaveFilePicker=()=>{pickerCalls++;if(cancelPicker)return Promise.reject(Object.assign(Error('Cancelled'),{name:'AbortError'}));return Promise.resolve(makeHandle(nextName));};
+  window.showSaveFilePicker=()=>{if(!navigator.userActivation.isActive)throw Error('Save picker lost the comment-button user gesture');pickerCalls++;if(cancelPicker)return Promise.reject(Object.assign(Error('Cancelled'),{name:'AbortError'}));return Promise.resolve(makeHandle(nextName));};
  });
  const save=page.locator('#btn-save-model'),saveAs=page.locator('#btn-save-model-as');
  const showSave=async button=>{if(!await button.isVisible())await page.locator('#btn-project').click();await button.click();};
@@ -100,6 +100,43 @@ try{
  await page.evaluate(()=>{const data=JSON.parse(savedFiles[4].text);data.notes=WingWorkspace.notesForSave(data.notes,'<img src=x onerror=alert(1)>\nDesign Δ',new Date().toISOString());window.previewResult=WingStudyComments.previewFile(new File([JSON.stringify(data)],'Literal.wingfem.json'),{document});});
  await page.waitForSelector('.study-comments-list li');assert.match(await page.locator('.study-comments-list').textContent(),/<img src=x onerror=alert\(1\)>/);assert.equal(await page.locator('.study-comments-list img').count(),0);await page.locator('.study-comments-cancel').click();
  assert.equal(await page.evaluate(()=>state.studyFile),'Reviewed.wingfem.json');checks.push('Legacy studies preview with an empty history, malformed files cannot load, and markup in comments is rendered as literal text without changing the active Study');
+ // Exercise the system-picker fallback, token reuse and strict write failure
+ // through the real app save hooks. The backend is separately tested on disk.
+ let nativePicks=0,nativeWrites=[],nativeCancelled=false,nativeFailed=false,nativeAvailable=true;
+ const nativeHandle={kind:'native-save',token:'test-capability',name:'Chosen.wingfem.json',path:'Selected folder/Chosen.wingfem.json'};
+ await page.route('**/api/study/**',async route=>{
+  const action=new URL(route.request().url()).pathname.split('/').at(-1),data=route.request().postDataJSON();
+  if(action==='pick'){nativePicks++;return route.fulfill({json:nativeCancelled?{ok:true,cancelled:true}:!nativeAvailable?{ok:true,available:false,reason:'No system dialog on this fixture'}:{ok:true,handle:nativeHandle}});}
+  assert.equal(data.token,nativeHandle.token);assert(!Object.hasOwn(data,'path'));
+  if(action==='read')return route.fulfill({json:{ok:true,name:nativeHandle.name,text:nativeWrites.at(-1),lastModified:Date.now()}});
+  if(nativeFailed)return route.fulfill({status:400,json:{ok:false,error:'Native write refused'}});
+  nativeWrites.push(data.text);return route.fulfill({json:{ok:true}});
+ });
+ await page.evaluate(()=>{window.showSaveFilePicker=undefined;});await submit(saveAs);await page.waitForFunction(()=>!state.workspaceBusy&&!state.studyCommentOpen);
+ assert.equal(nativePicks,1);assert.equal(nativeWrites.length,1);assert.equal(await page.evaluate(()=>state.studyFileHandle.kind),'native-save');
+ assert.match(await page.locator('#file-save-status').textContent().catch(()=>page.evaluate(()=>document.body.textContent)),/Selected folder/);
+ await submit(save);await page.waitForFunction(()=>!state.workspaceBusy&&!state.studyCommentOpen);assert.equal(nativePicks,1);assert.equal(nativeWrites.length,2);
+ await page.evaluate(()=>{document.getElementById('auto-save').checked=true;markStudyModified();return state.autosave.run();});
+ await page.waitForFunction(()=>!state.autosaveBusy);assert.equal(nativePicks,1);assert.equal(nativeWrites.length,3);
+ await page.evaluate(()=>{document.getElementById('auto-save').checked=false;state.autosave.changed();markStudyModified();});
+ nativeCancelled=true;await submit(saveAs);await page.waitForFunction(()=>!state.workspaceBusy&&!state.studyCommentOpen);
+ assert.equal(nativeWrites.length,3);assert.equal(await page.evaluate(()=>state.studyDirty),true);assert.equal(await page.evaluate(()=>state.studyFileHandle.token),nativeHandle.token);
+ nativeCancelled=false;nativeFailed=true;await submit(save);await page.waitForFunction(()=>!state.workspaceBusy&&!state.studyCommentOpen);
+ assert.equal(nativeWrites.length,3);assert.equal(await page.evaluate(()=>state.studyDirty),true);assert.match(await page.locator('#model-error').textContent(),/Native write refused/);
+ nativeFailed=false;await page.evaluate(()=>{window.showSaveFilePicker=()=>{throw Object.assign(Error('Blocked'),{name:'SecurityError'});};});
+ await submit(saveAs);await page.waitForFunction(()=>!state.workspaceBusy&&!state.studyCommentOpen);assert.equal(nativeWrites.length,4);
+ const restored=await page.evaluate(()=>state.recentStudies.restoreLatest({automatic:false}));
+ assert.equal(restored.status,'restored');assert.equal(restored.source,'disk');assert.equal(await page.evaluate(()=>state.studyFileHandle.token),nativeHandle.token);
+ checks.push('System Save fallback handles an absent or blocked browser picker; normal Save and Autosave reuse the token; cancelled/failed writes retain the link and dirty state');
+ checks.push('Latest-Study restore reads the selected native file and retains its token without a new dialog');
+ nativeAvailable=false;let confirmation='';page.once('dialog',async dialog=>{confirmation=dialog.message();await dialog.dismiss();});
+ await page.evaluate(()=>markStudyModified());await submit(saveAs);await page.waitForFunction(()=>!state.workspaceBusy&&!state.studyCommentOpen);
+ assert.match(confirmation,/Download this file instead/);assert.equal(nativeWrites.length,4);assert.equal(await page.evaluate(()=>state.studyDirty),true);
+ checks.push('When both pickers are unavailable, downloading is an explicit choice; cancelling it keeps changes unsaved');
+ await page.evaluate(()=>{document.getElementById('model-error').hidden=true;activity()?.dismiss();activateWorkspaceTab('sensitivity');state.sensitivity.error('Demonstration error');});
+ await page.locator('#sensitivity-error button').click();assert(await page.locator('#sensitivity-error').isHidden());
+ checks.push('Inline sensitivity errors have an accessible Close button');
+ await page.screenshot({path:path.join(out,'native-save-status.png')});
  assert(!requests.some(p=>/run_jfem|sensitivity\/run|jfem\/run/.test(p)));assert.deepEqual(errors,[]);
  checks.push('Save, Save as and edits start no solver or sensitivity analyses');
  fs.writeFileSync(path.join(out,'summary.json'),JSON.stringify({passed:true,checks,errors},null,2));console.log('Study Save as app: '+checks.length+' groups passed');

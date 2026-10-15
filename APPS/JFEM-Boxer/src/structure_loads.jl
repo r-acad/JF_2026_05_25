@@ -43,18 +43,17 @@ function quad_body_shape_weights(points,normal)
 end
 
 function structural_mass_data(m::Model)::StructuralMassData
-    signature=hash(sort!([k=>v for (k,v) in m.params if startswith(k,"properties.")||startswith(k,"material.")||startswith(k,"materials.")||k in ("leading_edge.t_skin","leading_edge.t_rib")];by=first))
+    signature=hash(sort!([k=>v for (k,v) in m.params if startswith(k,"properties.")||startswith(k,"material.")||startswith(k,"materials.")||startswith(k,"nonstructural.")||k in ("leading_edge.t_skin","leading_edge.t_rib")];by=first))
     lock(STRUCTURE_MASS_LOCK) do
         cached=STRUCTURE_MASS_CACHE[]
         cached!==nothing&&cached.groups===m.groups&&cached.xyz===m.xyz&&cached.signature==signature&&return cached.data
         sources=StructuralMassSource[]
         for gr in m.groups
             if gr.kind===:bar
-                section=section_definition(m.params,gr.pid);density=Float64(bar_material_definition(m.params,gr.pid)["rho"])
-                area=Float64(section["area_m2"])
+                line_mass=bar_mass_per_length(m.params,gr.pid)
                 for e in 1:n_elements(gr)
                     nodes=gr.conn[2*e-1:2*e];points=element_points(m,gr,e);offset=bar_section_offset(m,gr,e)
-                    mass=norm3(points[2].-points[1])*area*density
+                    mass=norm3(points[2].-points[1])*line_mass
                     shifted=[point.+offset for point in points];center=(shifted[1].+shifted[2])./2
                     # Span cuts follow the beam GRID line; the cross-section
                     # centroid offset contributes its actual force couple.

@@ -2,10 +2,10 @@
 
 | Guide | Contents |
 | --- | --- |
-| [Illustrated installation (PDF)](<../__Start here!__/jfem_2026_installation_guide.pdf>) | Follow numbered steps to install Julia, download JFEM, run setup and open each app; optional sysimage instructions follow. |
+| [Illustrated installation (PDF)](<../__Start here!__/jfem_2026_installation_guide.pdf>) | Follow numbered steps to install Julia, download JFEM, run setup and open each app; setup builds the shared image automatically. |
 | [JFEM-Boxer user's guide (PDF)](00_Getting_Started/jfem_2026_fgen_user_guide.pdf) | Illustrated workflow for studies, geometry, meshes, properties, loads, analyses, results, sensitivities and display controls. |
 
-An [installation walkthrough in Markdown](<../__Start here!__/INSTALLATION.md>)
+An [installation walkthrough in Markdown](<../__Start here!__/README.md>)
 provides copyable commands. The [app README](../APPS/JFEM-Boxer/README.md) and
 [sensitivity method notes](../APPS/JFEM-Boxer/SENSITIVITY_METHOD.md) describe current
 features and limitations.

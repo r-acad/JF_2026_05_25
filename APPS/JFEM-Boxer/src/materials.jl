@@ -106,11 +106,13 @@ end
 """PSHELL or explicit face/core/face PCOMP, with resolved physical-bay/rib total thickness."""
 function shell_material_definition(p,pid::Integer)
     component=shell_material_component(pid);assignment=component=="aero" ? default_shell_material(component) : material_assignment(p,component)
+    nsm=nonstructural_mass_density(p,pid)
     assignment=merge(assignment,panel_property_override(p,pid,"skin"),component_table_override(p,pid))
     if assignment["kind"]=="monolithic"
         material=material_definition(p,Int(assignment["material"]));thickness=nominal_shell_thickness(p,pid)
         return Dict{String,Any}("type"=>"PSHELL","construction"=>"monolithic","thickness_m"=>thickness,
-            "material_id"=>material["id"],"material"=>material_payload(material),"areal_mass_kg_m2"=>thickness*material["rho"])
+            "material_id"=>material["id"],"material"=>material_payload(material),"nonstructural_mass_kg_m2"=>nsm,
+            "areal_mass_kg_m2"=>thickness*material["rho"]+nsm)
     end
     face=Float64(assignment["face_thickness"]);core=Float64(assignment["core_thickness"])
     family,index=divrem(pid,COMPONENT_PID_STRIDE)
@@ -131,7 +133,8 @@ function shell_material_definition(p,pid::Integer)
         for (mat,t) in ((face_material,face),(core_material,core),(face_material,face))]
     return Dict{String,Any}("type"=>"PCOMP","construction"=>"sandwich","thickness_m"=>thickness,
         "z0_m"=>-thickness/2,"plies"=>plies,"face_thickness_m"=>face,"core_thickness_m"=>core,
-        "areal_mass_kg_m2"=>2face*face_material["rho"]+core*core_material["rho"],
+        "nonstructural_mass_kg_m2"=>nsm,
+        "areal_mass_kg_m2"=>2face*face_material["rho"]+core*core_material["rho"]+nsm,
         "recovery_note"=>"Current solver z1/z2 stress values are the first/last ply midpoint stresses, not outer-surface stresses or failure margins.")
 end
 

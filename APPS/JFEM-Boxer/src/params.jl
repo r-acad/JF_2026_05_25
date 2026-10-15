@@ -34,6 +34,12 @@ end
 const LOAD_MULTIPLIER_NOTE = "Dimensionless multiplier applied once to prescribed lift, VLM forces and moments, and prescribed torque. A value of 1.5 converts limit loads to ultimate only when the defined case already represents limit loads; it is not an additional n-g conversion."
 
 const SCHEMA = ParamSpec[
+    # Distributed additions to mass only; all physical bays of each component.
+    [ParamSpec("nonstructural."*component,label,:float,0.,"Non-structural mass";
+        unit=unit,help=unit=="kg/m2" ?
+        "Added kilograms per square metre of actual FE shell midsurface, over every bay of this component. Independent of material density and thickness; adds mass and inertia loads without stiffness. Zero adds nothing." :
+        "Added kilograms per metre of FE bar length, over every bay of this component. Independent of material density and section area; adds mass and inertia loads without stiffness. Zero adds nothing.")
+        for (component,label,unit) in NONSTRUCTURAL_COMPONENTS]...,
     # --- airfoils ----------------------------------------------------------
     ParamSpec("airfoil.root_source", "Root profile source", :choice, "naca", "Airfoils"; choices=["naca","uiuc"], help="Generate a NACA profile or choose UIUC database coordinates"),
     ParamSpec("airfoil.root", "Root airfoil", :string, "NACA2412", "Airfoils";
@@ -687,6 +693,7 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
     0 <= p["loads.fuel_percent"] <= 100 || throw(ArgumentError("Fuel status must be between 0% and 100%"))
     validate_rib_stiffener_defaults(p)
     validate_materials(p)
+    validate_nonstructural_mass(p)
     validate_panel_properties(p)
 
     for k in ("planform.sweep_ref_xc", "planform.twist_axis_xc", "rbe3.ref_xc")

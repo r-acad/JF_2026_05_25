@@ -56,7 +56,8 @@
   function phase(progress={},options={}){
     const stage=progress.stage||progress.phase||"startup",category=["compile","compilation","precompile","package_precompilation"].includes(stage)?"preparation":progress.stage_category||"preparation";
     const names={startup:"Starting Julia and loading the solver",bootstrap:"Loading sensitivity worker",native_package_load:"Loading cached JFEM solver",precompile:"Precompiling Julia packages",parse:"Reading model input",export:"Writing solver results",unknown:"Waiting for solver phase"};
-    const label=progress.stage_message||names[stage]||progress.detail||progress.message||"Waiting for solver phase";
+    const workerLabel=stage==="startup"&&progress.persistent_worker?(progress.worker_reused?"Reusing the running Julia solver":progress.message||"Waiting for the solver worker"):null;
+    const label=workerLabel||progress.stage_message||names[stage]||progress.detail||progress.message||"Waiting for solver phase";
     const completed=progress.stage_state==="completed",mixed=!completed&&category==="numerical"&&progress.compilation_live!=="excluded";
     const measured=value=>Number.isFinite(value)?value.toFixed(3)+" s":"unavailable";
     const detail=[progress.solution?"SOL"+progress.solution:null,progress.case_label?"Case "+progress.case_id+": "+progress.case_label:null,

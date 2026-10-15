@@ -77,6 +77,9 @@ function sensitivity_analytic_property_direction(m,d,property)
         dt=sensitivity_owned_derivative(p,pid,d,"skin","thickness",sensitivity_shell_thickness_owner(p,pid))
         rho=property["material"]["rho_kg_m3"];drho=materials[property["material_id"]]["rho"];h=property["thickness_m"]
         dm0=drho*h+rho*dt;dm2=drho*h^3/12+rho*h^2*dt/4;dplies=Float64[]
+        # The native PSHELL kernel spreads fixed NSM through its thickness.
+        # PCOMP instead attaches NSM at its reference plane (no rotary term).
+        dm2+=get(property,"nonstructural_mass_kg_m2",0.)*h*dt/6
     else
         component=shell_material_component(pid)
         df=sensitivity_owned_derivative(p,pid,d,"skin","face_thickness","materials.shells#$component#face_thickness")

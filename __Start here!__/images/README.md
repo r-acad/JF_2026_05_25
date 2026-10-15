@@ -1,6 +1,6 @@
 # Installation illustrations
 
-These images support the [numbered installation guide](../INSTALLATION.md).
+These images support the [numbered installation guide](../README.md).
 
 | Image | Origin |
 | --- | --- |

@@ -10,7 +10,7 @@ and creates the shared sysimage automatically. Then double-click a launcher:
 | Results viewer: open an existing `.jfem` file | `Results-viewer.cmd` | `JFEM_results_viewer/` |
 | Standalone solver: choose or drop an input deck | `JFEM-solver.cmd` | Shared solver in `../src/` |
 
-[Installation walkthrough](<../__Start here!__/INSTALLATION.md>) |
+[Installation walkthrough](<../__Start here!__/README.md>) |
 [JFEM-Boxer guide](JFEM-Boxer/README.md) |
 [PANDEATOR guide](PANDEATOR_APP/PANEL_APP_README.md) |
 [Results-viewer controls](JFEM_results_viewer/POST_GUIDE.html)

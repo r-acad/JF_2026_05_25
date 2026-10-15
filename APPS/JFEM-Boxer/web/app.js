@@ -433,7 +433,7 @@ const HELP_TOPICS = {
     "Save Study and Load Study in the top header use a portable .wingfem.json file containing parameters, load cases, embedded 3D references, display options and camera/panel settings. Load Study offers recent projects and a Browse action. Open latest disk file reads the current file; Open stored copy restores its last saved or loaded snapshot. Results stay in their analysis folders. Loading regenerates the mesh; run the analysis for fresh results from Analysis → Run in JFEM. New Study starts from the application defaults without writing a file.",
     "Display → Geometry groups aerodynamic surfaces, all airfoil sections, tank volume, undeformed/deformed overlays, reference files and planes with their visibility and appearance controls. Axes & labels contains shell x directions, bar axes, node IDs and element IDs. Beam sections switches between lines and full 3D sections. Left-click the model to center without changing view direction; Inspect and measurement modes use the click for their tool instead. Middle-click a node to center precisely, drag to orbit, right-drag to pan and wheel to zoom. Top points global +X downwards. Manual Save Study and Save Study as offer a change comment; a successful save appends changed comments with their date and time. Open existing study offers Show comments before loading a model.",
     "Drag the boundary beside the options pane to change its width. Focus the boundary and use Left/Right arrows for fine adjustment, Shift for larger steps, or Home/End for the limits. The 2D geometry and structure tabs, Deck and Log offer Maximize and Restore. In 2D drawings, drag a handle to edit geometry; drag elsewhere or middle-drag to pan. Wheel to zoom; hold Alt for fine adjustment. Ctrl/Cmd moves or scales only the reference image. Image settings controls its scale and opacity. White background toggles the drawing sheet; Export SVG downloads the visible drawing with its embedded image. Study and TOML retain all 2D drawing images, alignment, grids, snapping and dimensions. Enable Snap to points and/or lines when measuring. After selecting two distance anchors or three angle anchors, move the mouse to place the annotation and click once more to finish; Escape cancels the unfinished dimension.",
-    "Save TOML as saves parameters, load cases, linked 3D reference paths and all embedded 2D drawing images, view settings and dimensions. Other display preferences and embedded 3D geometry use Study files; results stay separate. Save Study updates its linked file; the first save and Save Study as open a filename and folder picker where supported. Orange means unsaved changes and green means saved. Otherwise the browser downloads the file using its download settings; enable Ask where to save each file to choose a folder. The header reports filenames because browsers do not disclose full picker paths.",
+    "Save TOML as saves parameters, load cases, linked 3D reference paths and all embedded 2D drawing images, view settings and dimensions. Other display preferences and embedded 3D geometry use Study files; results stay separate. Save Study updates its linked file; the first save and Save Study as open a filename and folder picker where supported. Orange means unsaved changes and green means saved. If the browser picker is blocked or unavailable, a system Save dialog chooses the folder. If neither picker is available, you may explicitly choose a browser download. The header shows the system-selected path; browser pickers disclose only the filename.",
     "Live mesh automatically rebuilds after geometry, mesh, material, section, constraint or load edits. Turn it off for manual updates with Create FEM, which moves immediately to its left in the top bar. The header's Server input menu shows the configured server path: Overwrite server input explicitly replaces that file; Reload server input restores its parameters. Study/TOML imports never overwrite it. TOML reference paths resolve relative to this server input folder; use a Study when moving embedded geometry between folders or computers.",
     "Translucent uses per-pixel depth ordering on supported WebGL 2 graphics devices, including imported shell batches. Up to ten transparent depth layers are retained per pixel; deeper interiors may be omitted in dense or grazing views, and coincident faces remain ambiguous. Isolate components or use Solid to inspect them. Unsupported devices use approximate mesh sorting and report the fallback in the Log.",
   ] },
@@ -559,7 +559,7 @@ const WORKSPACE_TABS = [
   ["Geometry", "planform", "Planform"], ["Geometry", "airfoils", "Airfoils"], ["Geometry", "box", "Spars"], ["Geometry", "ribs", "Ribs"],
   ["Geometry", "stringerlayout", "Stringers"], ["Geometry", "leadingedge", "Leading Edge"], ["Geometry", "fuel", "Fuel tank"],
   ["Model", "mesh", "Structural Mesh"], ["Model", "material", "Materials"], ["Model", "shells", "Skins"],
-  ["Model", "sections", "Stringers"], ["Model", "ribproperties", "Ribs"], ["Model", "sparproperties", "Spars"], ["Model", "leproperties", "Leading Edge"], ["Model", "supports", "Constraints"],
+  ["Model", "sections", "Stringers"], ["Model", "ribproperties", "Ribs"], ["Model", "sparproperties", "Spars"], ["Model", "leproperties", "Leading Edge"], ["Model", "nonstructural", "Non-structural mass"], ["Model", "supports", "Constraints"],
   ["Summary", "weights", "Mass properties"], ["Summary", "summary", "General"],
   ["Loads", "cases", "Cases"], ["Loads", "vlmmesh", "VLM settings"], ["Loads", "loadplots", "Load plots"],
   ["Solve", "analysis", "FE Analysis"], ["Solve", "sensitivity", "Sensitivity"], ["Solve", "results", "FE Results"], ["Solve", "sensitivityresults", "Sensitivity"], ["Solve", "deck", "Deck"], ["Solve", "log", "Log"],
@@ -570,12 +570,13 @@ const WORKSPACE_GROUP_TAB = {
   "Shell properties": "shells", "Beam sections": "sections", "RBE3 and supports": "supports", "Weights": "weights", "Leading edge": "leadingedge",
   "Rib properties": "ribproperties", "Spar properties": "sparproperties", "Leading-edge properties": "leproperties", "Materials": "material", "Stringer layout":"stringerlayout",
   "Load cases": "cases", "VLM settings": "vlmmesh", "Sensitivity":"sensitivity", "Analysis": "analysis", "JFEM solver": "analysis",
+  "Non-structural mass":"nonstructural",
 };
 const WORKSPACE_CARD_TAB = { "hud-left": "display", "model-card": "summary", "results-card": "results",
   "pick-card": "inspect", "log-wrap": "log", "deck-panel": "deck", "reference-panel": "displaygeometry" };
 const workspaceUI = { activeTab: "planform", previousTab: "planform", maximizedTab: null, preferredWidth: 360 };
 const DRAWING_TABS = new Set(["planform", "airfoils", "box", "ribs", "leadingedge", "fuel", "sections", "ribproperties", "sparproperties"]);
-const PROPERTY_TABS = new Set(["shells", "sections", "ribproperties", "sparproperties", "leproperties"]);
+const PROPERTY_TABS = new Set(["shells", "sections", "ribproperties", "sparproperties", "leproperties", "nonstructural"]);
 const SUMMARY_TABS = new Set(["weights", "summary"]);
 const WORKSPACE_MENUS = {
   structure:{tabs:new Set(["box","ribs","stringerlayout","leadingedge"]),current:"box",label:"Structure"},
@@ -586,7 +587,7 @@ const WORKSPACE_MENUS = {
   resultsmenu:{tabs:new Set(["results","sensitivityresults"]),current:"results",label:"Results"},
   displaymenu:{tabs:new Set(["display","displaygeometry","displayloads","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"]),current:"display",label:"Display"},
 };
-const WORKSPACE_MAIN_TABS = WORKSPACE_TABS.filter(([,id]) => !["sections","ribproperties","sparproperties","leproperties","summary","ribs","stringerlayout","leadingedge","loadplots","sensitivity","sensitivityresults","displaygeometry","displayloads","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"].includes(id)).map(tab => tab[1] === "box" ? ["Geometry","structure","Structure"] : tab[1] === "vlmmesh" ? ["Loads","aerodynamics","Loads"] : tab[1] === "shells" ? ["Model", "properties", "Properties"] : tab[1] === "weights" ? ["Summary","overview","Summary"] : tab[1] === "analysis" ? ["Solve","analysismenu","Analysis"] : tab[1] === "results" ? ["Solve","resultsmenu","Results"] : tab[1] === "display" ? ["View","displaymenu","Display"] : tab);
+const WORKSPACE_MAIN_TABS = WORKSPACE_TABS.filter(([,id]) => !["sections","ribproperties","sparproperties","leproperties","nonstructural","summary","ribs","stringerlayout","leadingedge","loadplots","sensitivity","sensitivityresults","displaygeometry","displayloads","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"].includes(id)).map(tab => tab[1] === "box" ? ["Geometry","structure","Structure"] : tab[1] === "vlmmesh" ? ["Loads","aerodynamics","Loads"] : tab[1] === "shells" ? ["Model", "properties", "Properties"] : tab[1] === "weights" ? ["Summary","overview","Summary"] : tab[1] === "analysis" ? ["Solve","analysismenu","Analysis"] : tab[1] === "results" ? ["Solve","resultsmenu","Results"] : tab[1] === "display" ? ["View","displaymenu","Display"] : tab);
 const parentTab = id => Object.keys(WORKSPACE_MENUS).find(key=>WORKSPACE_MENUS[key].tabs.has(id));
 
 function leaveInspection(){
@@ -825,7 +826,7 @@ function buildForm(schema, values) {
     byGroup.get(name).push(spec);
   }
   host.appendChild(baseInputs);
-  const order = ["Airfoils", "Planform", "Torsion box", "Ribs", "Leading edge", "Fuel tank", "Mesh", "Material", "Materials", "Shell properties", "Beam sections", "Rib properties", "Spar properties", "Leading-edge properties", "RBE3 and supports", "Weights", "Load cases", "VLM settings", "Analysis", "JFEM solver"];
+  const order = ["Airfoils", "Planform", "Torsion box", "Ribs", "Leading edge", "Fuel tank", "Mesh", "Material", "Materials", "Shell properties", "Beam sections", "Rib properties", "Spar properties", "Leading-edge properties", "Non-structural mass", "RBE3 and supports", "Weights", "Load cases", "VLM settings", "Analysis", "JFEM solver"];
   const groups = [...byGroup.keys()].sort((a, b) => (order.indexOf(a) < 0 ? 100 : order.indexOf(a)) - (order.indexOf(b) < 0 ? 100 : order.indexOf(b)));
   for (const name of groups) {
     const specs = byGroup.get(name), det = document.createElement("section"); det.className = "group parameter-section workspace-panel";
@@ -841,6 +842,11 @@ function buildForm(schema, values) {
     det.appendChild(sum);
     if (name === "Analysis") {
       const note = document.createElement("p"); note.id = "analysis-solution-note"; note.className = "group-note"; det.appendChild(note);
+    }
+    if (name === "Non-structural mass") {
+      const note=document.createElement("p");note.className="group-note";
+      note.textContent="Add distributed mass to the existing structural elements. Surface densities use actual shell area (kg/m²); linear densities use bar length (kg/m). Each value applies to every rib bay of its named component. Zero adds no mass. These additions affect mass, modal results and enabled structural inertia loads, without changing stiffness. Summary → Mass properties reports the added mass.";
+      det.appendChild(note);
     }
     if (name === "VLM settings" || name === "Beam sections") {
       const note = document.createElement("p"); note.className = "group-note";
@@ -2058,8 +2064,8 @@ async function saveViewportSVG(){
     try{
       const collapsed=WingLegends.capture().collapsed;
       const legends=WingLegends.entries(document.getElementById("viewport-legends")).filter(entry=>!collapsed["viewport-legends:"+entry.kind]).map(entry=>{
-        const scope=entry.paletteKey||entry.kind,stops=selectedColorScale(scope).map(([offset,color])=>({offset,color:"#"+color.map(v=>Math.round(255*v).toString(16).padStart(2,"0")).join("")}));
-        const constantColor="#"+cmap(.5,scope).map(value=>Math.round(255*value).toString(16).padStart(2,"0")).join("");
+        const scope=entry.paletteKey||entry.kind,stops=WingColorScales.stops(WingLegends.getPalette(scope),entry.min,entry.max).map(({position,color})=>({offset:position,color:WingColorScales.hex(color)}));
+        const constantColor=WingColorScales.hex(fieldColor(entry.min,entry.min,entry.max,scope)||cmap(.5,scope));
         return{title:entry.title,units:entry.displayUnit||entry.unit,min:entry.min*(entry.displayFactor||1),max:entry.max*(entry.displayFactor||1),stops:entry.max>entry.min?stops:[{offset:0,color:constantColor},{offset:1,color:constantColor}],subtitle:entry.caseLabel,
           ...(entry.categories?{categories:entry.categories}: {})};
       });
@@ -2171,7 +2177,7 @@ function updateFileStatus() {
   if (saveButton) {
     const dirty=state.studyDirty || !!state.panelTables?.hasDrafts?.();
     saveButton.dataset.saved=String(!dirty);
-    saveButton.title=(dirty ? "Unsaved definition changes. " : "Study definition saved. ")+(state.studyFileHandle ? "Save to "+state.studyFile+". Use Save Study as… to choose another file." : "Choose a filename and folder for this Study. Without file-picker support, the browser downloads it.")+" Camera and display changes do not change this indicator; saving still includes their current settings.";
+    saveButton.title=(dirty ? "Unsaved definition changes. " : "Study definition saved. ")+(state.studyFileHandle ? "Save to "+state.studyFile+". Use Save Study as… to choose another file." : "Choose a filename and folder for this Study. If the browser picker is unavailable, a system Save dialog lets you choose the folder.")+" Camera and display changes do not change this indicator; saving still includes their current settings.";
     saveButton.setAttribute("aria-description",dirty ? "Unsaved changes" : "Study saved");
   }
   if (status) {
@@ -2182,14 +2188,14 @@ function updateFileStatus() {
   if (server) server.textContent=state.inputFile || "Reading server input path…";
   if (saved && state.lastFileSave) {
     const file=state.lastFileSave;
-    saved.textContent=file.method==="browser" ? "Last save: browser recovery copy "+file.name : file.method==="picker" ? "Last save: selected file "+file.name : file.method==="server" ?
+    saved.textContent=file.method==="native" ? "Last save: "+file.path : file.method==="browser" ? "Last save: browser recovery copy "+file.name : file.method==="picker" ? "Last save: selected file "+file.name : file.method==="server" ?
       "Last save: server input "+file.name : "Last save: download requested for "+file.name;
-    saved.title=file.method==="browser" ? "Saved persistently in this browser, available in Open existing study. This does not update a disk file. Use Save Study to export a portable file." : file.method==="picker" ? "The browser reports the filename, not the full folder path." :
+    saved.title=file.method==="native" ? file.path : file.method==="browser" ? "Saved persistently in this browser, available in Open existing study. This does not update a disk file. Use Save Study to export a portable file." : file.method==="picker" ? "The browser reports the filename, not the full folder path." :
       file.method==="server" ? file.name : "Your browser download settings choose the folder. Enable ‘Ask where to save each file’ to select a location.";
   }
 }
 function recordFileSave(destination,kind,revision = state.studyRevision) {
-  state.lastFileSave={method:destination.method,name:destination.name};
+  state.lastFileSave={method:destination.method,name:destination.name,path:destination.path||destination.handle?.path};
   if (kind==="study") state.studyFile=destination.name; else state.tomlFile=destination.name;
   if (kind==="study") markStudySaved(revision);
   updateFileStatus();
@@ -2621,7 +2627,7 @@ async function saveModelDefinition({saveAs=false,noteText} = {}) {
     state.studyNotes=data.notes;state.studyCreatedAt=data.created_at;state.studySavedAt=data.saved_at;syncStudyNotes();
     recordFileSave(destination,"study",savedRevision);
     await rememberStudy({name:destination.name,text,handle:destination.handle,id:saveAs ? null : state.studyRecentId,source:"saved"});
-    const action=destination.method==="picker" ? "Saved " : "Download requested: ";
+    const action=["picker","native"].includes(destination.method) ? "Saved " : "Download requested: ";
     meshStatus(action + destination.name, state.modelDirty ? "stale" : "current");
     log(action + "Study " + destination.name + " with " + data.references.length + " embedded references. Parameters, load cases and display settings are included; results are separate.", "good");
     return data;
@@ -2635,7 +2641,7 @@ async function autosaveStudy(stamp) {
   const name=state.studyFile||WingWorkspace.filename(state.importedDeck?fileBasename(state.importedDeck.source.name):state.values["output.title"]);
   const current=()=>epoch===state.studyEpoch&&revision===state.studyRevision&&document.getElementById("auto-save").checked;
   if(stamp.epoch!==epoch||stamp.revision!==revision)return false;
-  const disk=handle&&typeof handle.createWritable==="function";
+  const disk=WingWorkspace.writableHandle(handle);
   if(!disk&&typeof window.showSaveFilePicker==="function"&&window.isSecureContext!==false)
     throw Error("Autosave needs a linked file. Use Project → Save Study to choose it, or turn Autosave off and on to choose now.");
   if(disk&&typeof handle.queryPermission==="function"&&await handle.queryPermission({mode:"readwrite"})!=="granted")
@@ -2651,10 +2657,10 @@ async function autosaveStudy(stamp) {
   if(!current())return false;
   const data=await WingWorkspace.snapshot(validated,state.reference,view,{notes,savedAt,createdAt,modelSource:source});
   if(!current())return false;
-  const text=JSON.stringify(data,null,2),destination={method:disk?"picker":"browser",name,handle};
+  const text=JSON.stringify(data,null,2),destination={method:WingWorkspace.nativeHandle(handle)?"native":disk?"picker":"browser",name,handle};
   if(disk)await WingWorkspace.writeDestination(destination,text,"application/json",document);
   const recent=await state.recentStudies?.record({name,text,handle,id:state.studyRecentId,source:"saved"});
-  if(!disk&&!recent?.persisted)throw Error("Autosave could not store a persistent browser copy. Use Save Study to download your changes; the Project indicator remains orange.");
+  if(!disk&&!recent?.persisted)throw Error("Autosave could not store a persistent browser copy. Use Save Study to choose a file for your changes; the Project indicator remains orange.");
   if(epoch!==state.studyEpoch)return false;
   if(recent?.id)state.studyRecentId=recent.id;
   state.studyNotes=data.notes;state.studyCreatedAt=data.created_at;state.studySavedAt=data.saved_at;
@@ -2684,7 +2690,7 @@ function installAutosave(){
   });
   control.onchange=async()=>{
     markStudyViewModified();
-    if(control.checked&&typeof window.showSaveFilePicker==="function"&&window.isSecureContext!==false){
+    if(control.checked&&!WingWorkspace.writableHandle(state.studyFileHandle)){
       const saved=await saveModelDefinition();if(!saved)control.checked=false;
     }
     state.autosave.changed();
@@ -2810,7 +2816,7 @@ async function saveTomlAs() {
     await WingWorkspace.writeDestination(destination,result.text,"application/toml",document);
     references.commit();
     recordFileSave(destination,"toml");
-    const action=destination.method==="picker" ? "Saved " : "Download requested: ";
+    const action=["picker","native"].includes(destination.method) ? "Saved " : "Download requested: ";
     meshStatus(action+destination.name,state.modelDirty ? "stale" : "current");
     log(action+destination.name+". TOML contains all model parameters, cases, "+references.records.length+" linked references and all 2D view images, snap settings and dimensions. Reference assets use this server's cache; use Save Study for embedded portable geometry, all display settings and notes. The server input is unchanged.","good");
     return result;
@@ -4984,6 +4990,7 @@ function contourPaletteKey(contour) {
 function selectedColorScale(scope="fe") {
   return COLOR_SCALES[WingLegends.getPalette(scope)] || CMAP;
 }
+function fieldColor(value,min,max,scope="fe") {return WingColorScales.valueColor(WingLegends.getPalette(scope),value,min,max);}
 
 function cmap(t,scope="fe") {
   const scale = selectedColorScale(scope);
@@ -5086,16 +5093,15 @@ function contourRGB(c, value) {
   if(c.categories&&Number.isFinite(value)){
     // Discrete assignments need recognizable swatches even on a dark canvas.
     // Keep numeric palettes exact; sample/tint only the categorical palette.
-    const t=c.max>c.min?(value-c.min)/(c.max-c.min):.5,rgb=cmap(.18+.70*t,contourPaletteKey(c));
+    const t=c.max>c.min?(value-c.min)/(c.max-c.min):.5,scope=contourPaletteKey(c),rgb=WingLegends.getPalette(scope)==="signed"?fieldColor(value,c.min,c.max,scope):cmap(.18+.70*t,scope);
     const luminance=.2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2],white=luminance<.40?(.40-luminance)/(1-luminance):0;
     return rgb.map(channel=>channel+(1-channel)*white);
   }
-  return Number.isFinite(value) ? cmap(c.max > c.min ? (value-c.min)/(c.max-c.min) : .5,contourPaletteKey(c)) : [0.32,0.36,0.41];
+  return Number.isFinite(value) ? fieldColor(value,c.min,c.max,contourPaletteKey(c)) : [0.32,0.36,0.41];
 }
 
 function contourGradient(min, max,scope="fe") {
-  const rgb = value => "rgb(" + cmap(value,scope).map(v=>Math.round(v*255)).join(",") + ")";
-  return max > min ? "linear-gradient(90deg," + selectedColorScale(scope).map(([t])=>rgb(t)+" "+Math.round(t*100)+"%").join(",") + ")" : rgb(.5);
+  return WingColorScales.gradient(WingLegends.getPalette(scope),min,max);
 }
 
 function propertyLegendCategories(c){
@@ -6017,7 +6023,7 @@ function applyVlmContour() {
   if (!Number.isFinite(min)||!Number.isFinite(max)) { syncVlmControls(); return; }
   const colors = new Float32Array(state.vlm.count * 16);
   for (let e = 0; e < state.vlm.count; e++) {
-    const rgb = Number.isFinite(values[e]) ? cmap(max > min ? (values[e] - min) / (max - min) : 0.5,"vlm") : [0.32, 0.32, 0.32];
+    const rgb = Number.isFinite(values[e]) ? fieldColor(values[e],min,max,"vlm") : [0.32, 0.32, 0.32];
     for (let n = 0; n < 4; n++) colors.set([...rgb, 1], 16 * e + 4 * n);
   }
   state.vlm.mesh.updateVerticesData(BABYLON.VertexBuffer.ColorKind, colors, false, false);
@@ -6240,7 +6246,7 @@ function applyAeroOverlayStyles() {
   for (const mesh of (layer?.meshes || []).filter(mesh=>!mesh.metadata?.aeroWireframe)) {
     state.aeroDisplay?.apply(mesh,{deformed,style,visible:layer.visible,
       color:document.getElementById("aero-surface-color")?.value||"#b8cee4",curvature:!!document.getElementById("show-aero-curvature")?.checked,
-      colorAt:t=>cmap(t,"aero-curvature"),range:aeroCurvatureRange});
+      colorAt:(t,value,bounds)=>fieldColor(value,bounds.min,bounds.max,"aero-curvature"),range:aeroCurvatureRange});
     const wire=state.aeroDisplay?.wireFor(mesh);if(wire&&!layer.meshes.includes(wire))layer.meshes.push(wire);
   }
   for (const mesh of state.layers.get("REFERENCE_AERO")?.meshes || []) {
@@ -7040,7 +7046,7 @@ WingLegends.configure({getPalette:scope=>scope==="sensitivity"||scope==="aero-cu
   onLimitsChange:()=>{applyContour();applyVlmContour();applyAeroOverlayStyles();updateViewportLegends();},
   setPalette:(value,scope)=>{if(scope==="fe")document.getElementById("result-palette").value=value;if(scope==="aero-curvature"){applyAeroOverlayStyles();updateViewportLegends();}else if(scope==="vlm")applyVlmContour();else applyContour();},onChange:markStudyViewModified,
   palettes:Array.from(document.getElementById("result-palette").options).map(option=>({value:option.value,label:option.textContent,
-    gradient:"linear-gradient(90deg,"+COLOR_SCALES[option.value].map(([t,c])=>"rgb("+c.map(v=>Math.round(v*255)).join(",")+") "+(100*t)+"%").join(",")+")"}))});
+    gradient:entry=>WingColorScales.gradient(option.value,entry.min??-1,entry.max??1)}))});
 document.getElementById("show-support-forces").onchange = event => setLayerVisible("SUPPORT_FORCES", event.target.checked);
 document.getElementById("show-support-force-values").onchange=()=>{syncSupportForceControls();state.annotations?.invalidate();markStudyViewModified();};
 for(const id of ["show-support-forces","show-support-force-values"])document.getElementById("results-"+id).onchange=event=>{const control=document.getElementById(id);control.checked=event.target.checked;control.dispatchEvent(new Event("change",{bubbles:true}));};

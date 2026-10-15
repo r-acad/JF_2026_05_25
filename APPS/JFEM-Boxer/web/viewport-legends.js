@@ -4,7 +4,7 @@
   const number=value=>(numbers||root.WingNumbers)?.format(value,5)??(root.eng?root.eng(value,5):String(value));
   const hosts=new Map(),collapsed=new Set(),limits=new Map(),palettes=new Map();
   const defaultPalettes=[{value:"spectrum",label:"Blue–green–red"},{value:"viridis",label:"Viridis"},
-    {value:"inferno",label:"Inferno"},{value:"coolwarm",label:"Blue–white–red"},{value:"grayscale",label:"Grayscale"}];
+    {value:"inferno",label:"Inferno"},{value:"coolwarm",label:"Blue–white–red"},{value:"grayscale",label:"Grayscale"},{value:"signed",label:"Signed red (-) / blue (+)"}];
   const paletteIcon='<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2a8 8 0 1 0 0 16h1.2a1.9 1.9 0 0 0 1.3-3.3 1.2 1.2 0 0 1 .8-2.1H15a3 3 0 0 0 3-3C18 5.5 14.4 2 10 2Z"/><circle cx="5.5" cy="9" r=".8"/><circle cx="7.5" cy="5.8" r=".8"/><circle cx="11.1" cy="5.2" r=".8"/><circle cx="14.2" cy="7.3" r=".8"/></svg>';
   const restoreIcon='<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h12"/><path d="M5 3v4M10 8v4M15 13v4"/></svg>';
   let config={getPalette:scope=>scope==="sensitivity"?"coolwarm":"spectrum",setPalette:null,onChange:null,onLimitsChange:null,palettes:defaultPalettes},openKey=null,openLimits=null,hostSerial=0;
@@ -173,7 +173,7 @@
       const menu=opened?'<div class="legend-palette-menu" role="menu" aria-label="'+escape(title)+' color scale" data-palette-menu data-legend-key="'+escape(key)+'">'+
         '<div class="legend-palette-heading">'+escape(title)+'</div>'+config.palettes.map(p=>
           '<button type="button" role="menuitemradio" aria-checked="'+(p.value===palette)+'" data-legend-action="choose" data-legend-key="'+escape(key)+'" data-palette-value="'+escape(p.value)+'">'+
-          (p.gradient?'<span class="legend-palette-swatch" style="background:'+escape(p.gradient)+'"></span>':"")+escape(p.label)+"</button>").join("")+"</div>":"";
+          (p.gradient?'<span class="legend-palette-swatch" style="background:'+escape(typeof p.gradient==='function'?p.gradient(entry):p.gradient)+'"></span>':"")+escape(p.label)+"</button>").join("")+"</div>":"";
       return'<section class="viewport-scale" data-scale="'+escape(entry.kind)+'" aria-label="'+escape(title)+' color scale">'+
         '<div class="viewport-scale-header"><div class="viewport-scale-title">'+escape(title)+' <span>'+escape(unit||"dimensionless")+'</span></div>'+
         '<div class="legend-actions">'+limitsButton+paletteButton+actionButton("collapse",key,"Hide "+title+" color scale (keep contours visible)","−")+'</div></div>'+

@@ -2,8 +2,7 @@
 
 You do not need to run these files to install or use JFEM. They are retained in
 the public repository because they protect solver correctness and let users
-verify a build or contribute a reproducible bug fix. They contain small synthetic
-models and assertions, not your analysis results or private validation decks.
+verify a build. They contain small synthetic models and assertions.
 
 `runtests.jl` is the entry point. It runs the curated `validation/` suite and then
 focused checks of constraints, beam and shell operators, mass and buckling,

@@ -2,7 +2,7 @@
 
 ![PANDEATOR with the default stiffened panel ready for analysis](<../../__Start here!__/images/pandeator.png>)
 
-New users can follow the [illustrated setup steps](<../../__Start here!__/INSTALLATION.md>)
+New users can follow the [illustrated setup steps](<../../__Start here!__/README.md>)
 and the [original buckling assignment](../../Reference_documentation/07_Exercises/Linear_Finite_Elements_Buckling_exercises_AV_AC_DES_26.pdf).
 
 A browser app with **two analysis sources**, chosen with the *Analysis source*
@@ -50,7 +50,7 @@ macOS/Linux. This is the shared installer for JFEM, JFEM-Boxer, PANDEATOR and th
 static viewer; no manual package list is needed. PANDEATOR uses the root JFEM
 environment. Missing package sources are also installed before first launch;
 explicit setup repairs missing artifacts. See
-[the installation guide](<../../__Start here!__/INSTALLATION.md>).
+[the installation guide](<../../__Start here!__/README.md>).
 
 - **Windows:** double-click `RUN_PANDEATOR_WINDOWS.cmd`.
 - **macOS/Linux:** run `bash APPS/PANDEATOR_APP/RUN_PANDEATOR_MAC_LINUX.sh` from the repository root.

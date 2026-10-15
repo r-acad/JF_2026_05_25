@@ -174,6 +174,8 @@ function element_properties(m::Model, gr::ElemGroup)
     out = Dict{String,Any}("pid" => gr.pid)
     if gr.kind === :bar
         out["material"]=material_payload(bar_material_definition(p,gr.pid))
+        out["nonstructural_mass_kg_m"]=nonstructural_mass_density(p,gr.pid)
+        out["linear_mass_kg_m"]=bar_mass_per_length(p,gr.pid)
         section = section_definition(p, gr.pid)
         out["section"] = section
         for key in ("type", "area_m2", "I1_m4", "I2_m4", "J_m4")

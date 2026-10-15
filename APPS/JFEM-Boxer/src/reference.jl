@@ -479,20 +479,20 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
         if property["kind"]=="shell"
             if property["type"]=="PCOMP"
                 comment!(io,"Symmetric isotropic face/core/face; ply thicknesses explicit, centered midsurface")
-                fields=Any[pid,property["z0_m"],0.,nothing,nothing,nothing,nothing,nothing]
+                fields=Any[pid,property["z0_m"],property["nonstructural_mass_kg_m2"],nothing,nothing,nothing,nothing,nothing]
                 for ply in property["plies"];append!(fields,Any[ply["material_id"],ply["thickness_m"],ply["angle_deg"],"YES"]);end
                 card!(io,"PCOMP",fields)
             else
                 mid=property["material_id"]
-                card!(io,"PSHELL",(pid,mid,property["thickness_m"],mid,nothing,mid))
+                card!(io,"PSHELL",(pid,mid,property["thickness_m"],mid,nothing,mid,nothing,property["nonstructural_mass_kg_m2"]))
             end
         else
             section=property["section"];mid=property["material_id"]
             if section["type"]=="PBARL"
                 comment!(io,"PBARL "*section["shape"]*": "*section["placement"])
-                card!(io,"PBARL",Any[pid,mid,nothing,section["shape"],nothing,nothing,nothing,nothing,section["dimensions_m"]...,0.])
+                card!(io,"PBARL",Any[pid,mid,nothing,section["shape"],nothing,nothing,nothing,nothing,section["dimensions_m"]...,property["nonstructural_mass_kg_m"]])
             else
-                card!(io,"PBAR",(pid,mid,section["area_m2"],section["I1_m4"],section["I2_m4"],section["J_m4"]))
+                card!(io,"PBAR",(pid,mid,section["area_m2"],section["I1_m4"],section["I2_m4"],section["J_m4"],property["nonstructural_mass_kg_m"]))
             end
         end
     end

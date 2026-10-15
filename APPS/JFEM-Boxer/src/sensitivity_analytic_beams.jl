@@ -128,8 +128,8 @@ function sensitivity_analytic_bar(native,op,wing,g,e,direction,state=nothing)
     bd=native.Solver._get_beam_element_data(eid,op.model,op.id_map,op.X,op.node_R)
     bd===nothing&&error("Native CBAR $eid was not found")
     bar=bd.beam;prop=bd.prop
-    (get(bar,"PA",0)==0&&get(bar,"PB",0)==0&&get(prop,"I12",0.)==0&&get(prop,"NSM",0.)==0)||
-        error("Generated analytic CBAR derivatives require unreleased principal sections and zero NSM")
+    (get(bar,"PA",0)==0&&get(bar,"PB",0)==0&&get(prop,"I12",0.)==0)||
+        error("Generated analytic CBAR derivatives require unreleased principal sections")
     haskey(prop,"STATIONS")&&error("Variable-station beam properties are outside the generated CBAR analytic scope")
     norm(bd.fixed_end_load)==0||error("Beam distributed fixed-end loads require a separate analytic load derivative")
     wa=Float64.(get(bar,"WA",zeros(3)));wb=Float64.(get(bar,"WB",zeros(3)))
@@ -153,14 +153,15 @@ function sensitivity_analytic_bar(native,op,wing,g,e,direction,state=nothing)
     # Match explicit COUPMASS selection in the primal CBAR assembly. Equal
     # end offsets leave length/orientation fixed, but their dimension-dependent
     # rigid-arm transformation contributes to coupled mass derivatives.
-    mass=rho*sd.area*bd.L;dmass=bd.L*(drho*sd.area+rho*sd.darea)
+    nsm=Float64(get(prop,"NSM",0.))
+    mass=(rho*sd.area+nsm)*bd.L;dmass=bd.L*(drho*sd.area+rho*sd.darea)
     Me=zeros(12,12);dMe=zeros(12,12);wtmass=Float64(get(op.model,"PARAM_WTMASS",1.))
     coupled=native.Solver._sol103_param_enabled(get(op.model,"PARAM_COUPMASS",false),false)
     if coupled
         # Unit line density avoids divisions by rho or area. The dedicated
         # native kernel owns its axial interpolation and zero section inertia.
         unit=native.Solver.FEM.reference_coupled_mass_cbar(Float64(bd.L),1.,1.)
-        Mloc=(rho*sd.area).*unit;dMloc=(drho*sd.area+rho*sd.darea).*unit
+        Mloc=(rho*sd.area+nsm).*unit;dMloc=(drho*sd.area+rho*sd.darea).*unit
         Me=wtmass.*(transpose(T)*Mloc*T)
         dMe=wtmass.*(transpose(T)*dMloc*T+transpose(dT)*Mloc*T+transpose(T)*Mloc*dT)
     else

@@ -33,6 +33,10 @@ async function activityChecks(){
   assert.equal(broken.activity.dismiss(),true);assert.equal(broken.element('activity-status').hidden,true);
  }
  const h=harness(),a=h.activity;
+ assert.match(a.phase({stage:"startup",persistent_worker:true,message:"Waiting for the solver worker"}).label,/Waiting for the solver worker/);
+ assert.match(a.phase({stage:"startup",persistent_worker:true,worker_reused:false,message:"Starting Julia and loading the shared solver packages"}).label,/Starting Julia/);
+ assert.match(a.phase({stage:"startup",persistent_worker:true,worker_reused:true,stage_message:"Old startup message"}).label,/Reusing the running Julia solver/);
+ assert.match(a.phase({stage:"factorization",persistent_worker:true,worker_reused:true,stage_message:"Matrix factorization",stage_category:"numerical"}).label,/Matrix factorization/);
  assert.equal(a.count,1);assert.equal(h.timers.size,1);assert.equal(h.element("activity-status").hidden,false);
  a.end(a.startup);a.startup=null;
  assert.equal(a.count,0);assert.equal(h.timers.size,0);assert.equal(h.element("activity-status").hidden,true);

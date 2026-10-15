@@ -2,8 +2,8 @@
 #  jfem_run.jl - run the generated deck in the JFEM solver and read it back
 #
 #  The solver is the JFEM/OpenJFEM repository that lives in this workspace.
-#  It is driven through its own launcher (`jfem.cmd` on Windows, `jfem`
-#  elsewhere), which handles the sysimage and thread selection:
+#  FE requests share a directly owned Julia worker with the canonical project
+#  and verified shared image. Each request retains the CLI output contract:
 #
 #      jfem -jrs <model.bdf> <output_dir>
 #
@@ -14,10 +14,10 @@
 #      <stem>.BUCKLING.JSON    results, SOL 103
 #      <stem>.jfem             the native JFEM viewer file
 #
-#  A run is started as a detached process and its console output is streamed
+#  Requests run sequentially in the persistent process; console output streams
 #  into a line buffer, so the web app can poll for progress rather than
-#  holding a request open. The first run on a machine also precompiles the
-#  solver, which takes minutes; later runs take seconds.
+#  holding a request open. Later cases reuse loaded packages and compiled
+#  methods. Cancellation stops that worker; the next request starts a fresh one.
 #
 #  Results are read from the JSON and re-indexed onto this model's node
 #  ordering, so the browser can apply a mode shape straight to its vertex
@@ -231,7 +231,7 @@ function job_timings(job::JfemJob)
         "total_seconds" => job_seconds(job),
         "measured_runs" => length(measurements), "total_runs" => length(children),
         "solution_scope" => "Numerical stage execution, including deferred recovery; excludes measured compilation, deck preparation and file export. Wall time, not CPU time.",
-        "startup_scope" => "Process startup, package loading/precompilation and other unmeasured process overhead")
+        "startup_scope" => "Worker queue/startup, package loading and other unmeasured request overhead; a reused worker does not repeat process startup")
 end
 
 function job_log(j::JfemJob; tail::Int = 400)
@@ -499,95 +499,7 @@ function prepare_jfem_job(model::Model, params::AbstractDict, root::AbstractStri
     return job
 end
 
-"""Launch one isolated run; timeout and cancellation also work without polling."""
-function launch_jfem_process!(job::JfemJob)
-    job.cancel_requested && return job
-    launcher = jfem_launcher(job.repo)
-    launcher === nothing && throw(ArgumentError("JFEM launcher is missing: $(job.repo)"))
-    formats = "-" * strip(String(job.model.params["jfem.output_formats"]), ['-', ' '])
-    args=[launcher,formats,job.bdf,job.outdir]
-    command = if Sys.iswindows()
-        # cmd.exe does not use the C-runtime argv quoting performed by the
-        # default Cmd constructor. /s requires an outer quote pair around the
-        # fully quoted batch invocation, particularly for paths with spaces.
-        any(arg->occursin(r"[\"%\r\n]",arg),args) && throw(ArgumentError(
-            "Windows solver paths cannot contain quotes, percent signs or newlines"))
-        body="\""*join(("\""*arg*"\"" for arg in args)," ")*"\""
-        # START assigns priority before the launcher can spawn its Julia child.
-        # /b is hidden, /wait preserves lifetime; BELOW_NORMAL is
-        # inherited by descendants and lets the normal-priority GUI preempt.
-        background="start \"\" /b /wait /belownormal cmd.exe /d /v:off /s /c "*body
-        # START's errorlevel must be evaluated on a subsequent batch line;
-        # a direct cmd /c START returns zero even when its child fails.
-        wrapper=joinpath(job.outdir,"jfem_background.cmd")
-        write(wrapper,"@echo off\r\n"*background*"\r\nexit /b %ERRORLEVEL%\r\n")
-        Cmd(Cmd(["cmd.exe","/d","/v:off","/s","/c","\"\""*wrapper*"\"\""]);
-            windows_verbatim=true,windows_hide=true)
-    else
-        Cmd(args)
-    end
-    # The stock solver launcher calls `julia` on PATH. Use the same compatible
-    # installed runtime as sensitivities even when the GUI started elsewhere.
-    runtime=sensitivity_worker_runtime(job.repo)
-    environment=Dict{String,String}(ENV)
-    separator=Sys.iswindows() ? ';' : ':'
-    environment["PATH"]=dirname(only(runtime.command.exec))*separator*get(environment,"PATH","")
-    environment["JFEM_JULIA"]=only(runtime.command.exec)
-    cmd = setenv(command, environment; dir=job.repo)
-    pipe = Pipe()
-    proc = lock(job.lk) do
-        job.cancel_requested && return nothing
-        job.started=time(); job.state=:running
-        job.progress["stage"]="startup";job.progress["stage_started"]=job.started
-        job.progress["stage_category"]="preparation";job.progress["stage_state"]="started"
-        job.progress["compilation_live"]="not_separable"
-        job.progress["message"]="Starting Julia and loading the cached solver; an installation or source change may require precompilation"
-        child=run(pipeline(cmd; stdout = pipe, stderr = pipe); wait = false)
-        job.proc=child
-        return child
-    end
-    proc === nothing && return job
-    close(pipe.in)
-
-    Threads.@spawn begin
-        try
-            open(job.logpath, "w") do lf
-                for ln in eachline(pipe)
-                    for published in record_job_lines!(job,(ln,))
-                        println(lf,published)
-                    end
-                    flush(lf)
-                end
-            end
-        catch e
-            append_job_lines!(job,["reading the solver output failed: "*sprint(showerror,e)])
-        finally
-            try
-                wait(proc)
-            catch
-            end
-            exitcode = try
-                proc.exitcode
-            catch
-                -1
-            end
-            try
-                finish_jfem_process!(job,exitcode)
-            finally
-                job.log_done=true
-            end
-        end
-    end
-
-    Threads.@spawn begin
-        while job.state === :running
-            sleep(0.25)
-            enforce_job_timeout!(job)
-        end
-    end
-    @info "JFEM run started" repo=job.repo deck=job.bdf out=job.outdir
-    return job
-end
+include("solver_worker_client.jl")
 
 function finish_jfem_process!(job::JfemJob,exitcode::Integer)
     message=exitcode==0 ? "" : "the solver exited with code $exitcode"
@@ -669,14 +581,18 @@ Stop a running solver process.
 """
 function kill_job!(j::JfemJob; message="the run was stopped", state=:cancelled)
     j.state in (:queued,:running) || return nothing
-    lock(j.lk) do
+    changed=lock(j.lk) do
+        j.state in (:queued,:running) || return false
         j.cancel_requested=true; j.state=state; j.message=message
         j.progress["phase"]=String(state);j.progress["message"]=message
         j.finished === nothing && (j.finished=time())
+        true
     end
+    changed || return nothing
     for child in j.runs
         kill_job!(child;message,state)
     end
+    cancel_persistent_solver_job!(j) && return nothing
     j.proc === nothing && return nothing
     try
         if process_running(j.proc)

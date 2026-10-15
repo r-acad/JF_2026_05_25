@@ -165,32 +165,11 @@ a generator.
 
 ## PARAM,K6ROT
 
-Every shell deck in this folder declares `PARAM,K6ROT` explicitly. This is
-deliberate and it matters.
-
-K6ROT is the Hughes-Brezzi drilling-DOF stabilisation coefficient — a numerical
-stabiliser, not part of any of these benchmark definitions. Solvers disagree on
-its default:
-
-| solver | default in SOL 101 |
-| --- | ---: |
-| Reference 70.5 | `0.0` |
-| Reference 2004+ | `100.0` |
-| OpenJFEM | `100.0` |
-
-A deck that does not declare it therefore runs a *different problem* in each,
-and neither the accuracy comparison nor the same-deck parity comparison means
-what it claims. On the pinched hemisphere the difference alone is 3.5%.
-
-The decks pin it at `0.0`: the setting under which both the published benchmark
-values and this folder's tabulated reference-solver values were produced, and
-the setting that leaves the element unstabilised so the accuracy rows measure
-the element rather than the stabiliser. Declaring it is a numerical no-op for a
-solver that already defaults to 0 — verified by re-running the reference solver
-on the decks with and without the card and getting identical output.
-
-`cases/classical/*` and `cases/crm/*` declare `PARAM,K6ROT,100.0`; those decks
-were always explicit and their reference values were produced at that setting.
+Every shell deck declares `PARAM,K6ROT` explicitly so the settings are
+reproducible. This coefficient controls numerical stabilization of the shell
+drilling rotation. The MacNeal-Harder and cross-check decks use `0.0`;
+the classical buckling and CRM decks use `100.0`. Use the supplied values when
+reproducing the tabulated comparisons.
 
 ## Current Validation Status
 
@@ -236,67 +215,16 @@ ref = macneal_curved_beam_tip_disp(:in_plane)   # -> 0.08734
 
 These never need to be regenerated; they are the references in source form.
 
-### Tabulated commercial-solver values
+### Tabulated reference values
 
-For the cross-check cases, and for the parity column, the reference numbers
-were produced once on the maintainer's machine using an established commercial
-finite-element solver that accepts the classical BDF input format, and
-tabulated in `references/commercial_reference.csv` with one row per
-(case, quantity). The solver itself is not invoked by anything in this folder,
-and no solver-generated output files are shipped here.
+`references/commercial_reference.csv` contains the same-deck comparison
+targets. The manifest associates each target with its deck, quantity and
+tolerance. The runner reads these tables directly; no other solver is needed.
 
-Two of the seventeen rows deliberately have **no** tabulated parity value: the
-two `classical` **buckling-eigenvalue** rows. This is a limitation of the
-reference solver on those two decks, and it has been characterised rather than
-left unexplained.
+The two classical buckling eigenvalue rows have no tabulated parity target.
+They are checked against their analytical references only. Each classical
+case also includes a static-preload comparison, which checks its stiffness,
+loads and constraints; it does not establish eigenvalue parity.
 
-Note that both of those *cases* are still parity-covered — each carries a
-second row measuring its SOL 105 `STATSUB` static preload field, which is
-well-posed for both codes (see below). Every case in the suite therefore has at
-least one same-deck parity measurement; what remains unverified against a
-reference solver is the buckling **eigenvalue** on these two decks specifically.
-
-The reference solver cannot produce a trustworthy *first* buckling eigenvalue
-for either deck:
-
-- On `timoshenko_plate_buckling` its unguarded inverse-power extraction reports
-  a first eigenvalue 56% away from both the analytical value and OpenJFEM's —
-  but its own Sturm-sequence messages count 14 roots below `3.003e8` while only
-  6 of the printed roots are below that. Eight roots below the printed minimum
-  were missed, so the printed "mode 1" is not the first eigenvalue of that
-  discretisation and is not comparable to anything.
-- On `cylinder_axial_buckling` it reports a first eigenvalue of `3.33e-5` with a
-  **negative** generalized mass and a failed orthogonality test (66 pairs).
-
-Re-running both with the Sturm-guarded extraction method does not rescue them:
-it returns 100+ roots dominated by a near-null spurious cluster. The reference
-solver's `K`/`K_g` pair on these decks carries a large spurious near-null
-subspace; OpenJFEM's spectrum has 5 roots below `5e8` where the reference's own
-Sturm count claims 17.
-
-Wiring in a number from a demonstrably incomplete extraction would assert a
-parity result that has not been established, so those two eigenvalue rows stay
-empty.
-
-**What is measured instead.** Each classical case carries a second row on its
-SOL 105 `SUBCASE 1` `STATSUB` preload field, requested with `DISPLACEMENT = ALL`
-and emitted by OpenJFEM under `static_displacements` in the `*.BUCKLING.JSON`.
-That field is well-posed for both codes and agrees to `5.0e-8` (plate, node 36
-T1) and `3.9e-6` (cylinder, node 1 T3, in the deck's `CORD2C` cylindrical output
-frame).
-
-Be precise about what this buys: the preload row verifies the **stiffness
-matrix, the applied load and the boundary conditions** on the identical mesh.
-It does **not** verify the geometric stiffness `K_g` or the eigensolver. Those
-remain unverified against a reference solver on these two decks, and saying so
-is the point of keeping the eigenvalue parity cells empty.
-
-## What This Suite Is Not
-
-- It is not the OpenJFEM regression test set. That lives elsewhere.
-- It is not a complete coverage of OpenJFEM's feature surface. It is the
-  minimum reproducible, citable set sufficient to support the publication.
-- It does not include any deck whose redistribution is restricted (no
-  proprietary aircraft data, no commercial-solver verification kits).
-- It does not ship any solver-generated output that may carry a third
-  party's branding or copyright.
+An empty parity cell means unmeasured, never passed. See
+[VALIDATION_SUMMARY.md](VALIDATION_SUMMARY.md) for the recorded results and limits.
