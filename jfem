@@ -43,5 +43,5 @@ if [ "$#" -lt 1 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 fi
 
 exec "$JULIA_BIN" --startup-file=no --threads=1 \
-  "$REPO_ROOT/__Start here!__/julia_tools/launch.jl" solver "$REPO_ROOT" \
-  "$REPO_ROOT/__Start here!__/julia_tools/jfem.jl" "$@"
+  "$REPO_ROOT/utils/julia_tools/launch.jl" solver "$REPO_ROOT" \
+  "$REPO_ROOT/utils/julia_tools/jfem.jl" "$@"

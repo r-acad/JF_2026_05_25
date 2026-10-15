@@ -54,8 +54,13 @@ Commands below assume Terminal opened in this Mac folder.
 
 `bash setup.command --dry-run` shows the setup plan. Build concurrency defaults to two threads;
 this does not limit normal analysis threads. Do not delete your studies or decks
-to repair an installation. See the [solver reference](../julia_tools/README.md)
+to repair an installation. See the [solver reference](../../utils/julia_tools/README.md)
 for batch commands and representative precompile workloads.
+
+The generated image (`sysimage/OpenJFEM_sysimage.dll` on Windows, `.so` on
+Linux or `.dylib` on macOS) is local installation output. It is not included
+in GitHub: it depends on the operating system, Julia version, CPU and source
+revision. Setup builds it for this computer and launchers check its receipt.
 
 ## Offline use
 

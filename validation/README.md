@@ -33,7 +33,7 @@ focused on auditable inputs and references.
 
 Running JFEM or its apps does not require opening this folder. It is kept in the
 repository so users can reproduce the accuracy checks, try small example decks,
-and verify a new installation. Unlike `test/`, which checks code behavior, this
+and verify a new installation. Unlike `utils/test/`, which checks code behavior, this
 suite compares physical responses with documented reference values.
 
 On Windows, double-click **run_public_validation.cmd** after installation. Read

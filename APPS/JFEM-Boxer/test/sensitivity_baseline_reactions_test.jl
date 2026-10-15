@@ -42,6 +42,19 @@ tests=@testset "Physical reactions and sensitivity buckling preload reuse" begin
  @test W.MsgPack.unpack(W.MsgPack.pack(payload))["load_cases"][1]["variants"][1]["reactions"]["count"]==expected["count"]
  @test !W.support_reactions_payload(model,Dict())["available"]
  @test !W.support_reactions_payload(model,Dict("spc_forces"=>Any[]))["available"]
+ # Scope recovered reactions to the physical preload rather than the facade
+ # union or the active buckling subcase's distinct constraint selection.
+ scoped=deepcopy(model);raw=deepcopy(actual);delete!(raw,"static_subcase_id")
+ assignments=first(scoped.params["imported.cases"])["spc"]["assignments"]
+ scoped.params["imported.cases"]=Any[
+   Dict("id"=>17,"spc"=>Dict("assignments"=>assignments[1:1])),
+   Dict("id"=>18,"spc"=>Dict("assignments"=>assignments[2:2]))]
+ a=W.support_reactions_payload(scoped,raw;native_sid=17)
+ b=W.support_reactions_payload(scoped,raw;native_sid=18)
+ @test a["available"]&&b["available"]&&a["count"]==b["count"]==1
+ @test a["node_ids"].bytes!=b["node_ids"].bytes
+ raw["static_subcase_id"]=17
+ @test W.support_reactions_payload(scoped,raw;native_sid=18)["node_ids"].bytes==a["node_ids"].bytes
  suppressed=W.support_reactions_payload(model,merge(copy(actual),Dict("result_requests"=>Dict("SPCFORCES"=>false))))
  @test !suppressed["available"]&&occursin("suppressed",suppressed["reason"])
  zero=deepcopy(actual)

@@ -1,23 +1,33 @@
 # Read-only source case control and native constraint metadata for imported decks.
 # The original source remains authoritative for every solve and deck export.
 function imported_source_case_control(source)
-    globals=Dict{String,Any}();subcases=Dict{Int,Dict{String,Any}}();current=globals
+    globals=Dict{String,Any}();subcases=Dict{Int,Dict{String,Any}}();current=globals;pending_set=nothing
     for raw in eachline(IOBuffer(source["flattened"]))
         line=strip(first(split(raw,'$';limit=2)));isempty(line)&&continue
         occursin(r"^BEGIN\s+BULK"i,line)&&break
         uppercase(line)=="ENDDATA"&&break
+        if pending_set!==nothing
+            if occursin(r"^\s*,?\s*\d",line)&&!occursin('=',line)
+                current[pending_set]=string(current[pending_set])*","*strip(line,[',',' ']);continue
+            end
+            pending_set=nothing
+        end
         if (found=match(r"^SOL\s+(\d+)"i,line))!==nothing
             globals["SOL"]=parse(Int,found[1]);continue
         elseif (found=match(r"^SUBCASE\s+(\d+)"i,line))!==nothing
             current=get!(subcases,parse(Int,found[1]),Dict{String,Any}());continue
         elseif uppercase(line)=="CEND"
             continue
-        elseif (found=match(r"^([^=]+)=(.*)$",line))!==nothing
+        elseif (found=match(r"^([^=(]+(?:\([^)]*\))?)\s*=(.*)$",line))!==nothing
             key=uppercase(strip(found[1]));value=strip(found[2]);number=tryparse(Int,value)
             if (modifier=match(r"^([^()]+)\(([^()]*)\)$",key))!==nothing
                 key=strip(modifier[1]);current[key*"_MODIFIER"]=strip(modifier[2])
             end
+            if (set_match=match(r"^SET\s+(\d+)$",key))!==nothing
+                key="SET "*string(parse(Int,set_match[1]))
+            end
             current[key]=key in ("TITLE","SUBTITLE","LABEL")||number===nothing ? value : number
+            startswith(key,"SET ")&&(pending_set=key)
         elseif occursin(r"^(GRID\*?|GRDSET|CORD[12][RCS]|CQUAD4|CTRIA3|MAT[128]|PARAM)(?:\s|,)"i,line)
             break # Punch-style bulk following CEND without BEGIN BULK.
         end

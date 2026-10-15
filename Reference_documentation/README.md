@@ -21,7 +21,7 @@ Further references are organized by topic:
 - [TACS backend](04_TACS_Backend/)
 - [Exercises](07_Exercises/)
 
-![JFEM-Boxer showing a generated lifting-surface model](<../__Start here!__/images/fgen-model.png>)
+![JFEM-Boxer showing a generated lifting-surface model](<../utils/images/fgen-model.png>)
 
 The [original illustrated buckling assignment](07_Exercises/Linear_Finite_Elements_Buckling_exercises_AV_AC_DES_26.pdf)
 is preserved unchanged for reference. Its historical download links and installer

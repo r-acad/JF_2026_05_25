@@ -14,5 +14,5 @@ the root Project/Manifest and one compiled image. The existing launchers in the
 repository root work too.
 
 [Illustrated installation PDF](jfem_2026_installation_guide.pdf) ·
-[Solver commands and automation](julia_tools/README.md) ·
+[Solver commands and automation](../utils/julia_tools/README.md) ·
 [Application user guides](../Reference_documentation/README.md)

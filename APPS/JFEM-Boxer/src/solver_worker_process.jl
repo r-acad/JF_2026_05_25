@@ -3,8 +3,8 @@
 length(ARGS)==1 || error("Expected the enclosing JFEM repository")
 const WORKER_REPO=realpath(ARGS[1])
 redirect_stdout(stderr) do
-    include(joinpath(WORKER_REPO,"__Start here!__","julia_tools","run_manifest.jl"))
-    include(joinpath(WORKER_REPO,"__Start here!__","julia_tools","jfem_output_formats.jl"))
+    include(joinpath(WORKER_REPO,"utils","julia_tools","run_manifest.jl"))
+    include(joinpath(WORKER_REPO,"utils","julia_tools","jfem_output_formats.jl"))
     @eval using OpenJFEM, LinearAlgebra
 end
 realpath(Base.active_project())==realpath(joinpath(WORKER_REPO,"Project.toml")) || error("Incorrect solver worker project")

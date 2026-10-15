@@ -11,28 +11,35 @@ leading_edge_column_count(stations::OrientedLeadingEdgeGrid) = size(stations.low
 leading_edge_skin_points(stations::OrientedLeadingEdgeGrid,::BoxGrid,i::Int,j::Int) =
     (stations.lower[i+1,j+1],stations.upper[i+1,j+1])
 
-"""Common untwisted plan-view reference: the first front-spar path segment."""
-function leading_edge_reference(w::Wing,p::AbstractDict)
-    spar = spar_geometry(p)
-    a,b = spar.front_etas[1:2]
+"""Local untwisted front-spar tangent at the rib attachment, with a kink side."""
+function leading_edge_reference(w::Wing,p::AbstractDict; eta::Real=0.0,
+        side::AbstractString=String(get(p,"leading_edge.rib_kink_side","inboard")),spar=spar_geometry(p))
+    side in ("inboard","outboard") || throw(ArgumentError("leading-edge kink side must be inboard or outboard"))
+    cuts=spar.front_etas
+    # Generated intersections at a breakpoint can differ by a few ulps.
+    knot=findfirst(t->abs(t-eta)<=64eps(Float64)*max(1.0,abs(eta)),cuts)
+    segment=knot===nothing ? searchsortedlast(cuts,eta) : (side=="outboard" ? knot : knot-1)
+    segment=clamp(segment,1,length(cuts)-1)
+    a,b = cuts[segment:segment+1]
     x(eta) = base_reference_point(w,eta)[1] +
         (spar_xc(w,spar,eta,:front)-w.sweep_ref)*base_chord(w,eta)
     tangent = unit3((x(b)-x(a),(b-a)*w.semispan,0.0))
     angle = Float64(get(p,"leading_edge.rib_angle",90.0))
     s,c = sind(angle),cosd(angle)
     direction = (c*tangent[1]-s*tangent[2],s*tangent[1]+c*tangent[2],0.0)
-    return (;spar,tangent,direction,angle,eta_start=a,eta_end=b)
+    return (;spar,tangent,direction,angle,eta_start=a,eta_end=b,attachment_eta=Float64(eta),kink_side=String(side))
 end
 
 """A missing row inherits the global orientation; overrides use physical rib numbers."""
 function leading_edge_rib_setting(p::AbstractDict,rib::Int)
     mode=String(get(p,"leading_edge.rib_orientation","flight_direction"))
     angle=Float64(get(p,"leading_edge.rib_angle",90.0))
+    kink_side=String(get(p,"leading_edge.rib_kink_side","inboard"))
     for row in get(p,"leading_edge.rib_orientations",Any[])
         Int(row["rib"])==rib || continue
-        return (;mode=String(row["mode"]),angle=Float64(get(row,"angle",angle)),overridden=true)
+        return (;mode=String(row["mode"]),angle=Float64(get(row,"angle",angle)),kink_side=String(get(row,"kink_side",kink_side)),overridden=true)
     end
-    return (;mode,angle,overridden=false)
+    return (;mode,angle,kink_side,overridden=false)
 end
 
 function leading_edge_front_eta(g::BoxGrid,j::Int,upper::Bool)
@@ -50,14 +57,16 @@ function leading_edge_rib_plane(g::BoxGrid,p::AbstractDict,j::Int;reference=lead
     lower,upper = grid_point(g,0,j,0),grid_point(g,0,j,g.nh)
     origin = (lower .+ upper)./2
     s,c=sind(setting.angle),cosd(setting.angle)
-    tangent=reference.tangent
+    eta=(leading_edge_front_eta(g,j,false)+leading_edge_front_eta(g,j,true))/2
+    local_reference=leading_edge_reference(g.wing,p;eta,side=setting.kink_side,spar=reference.spar)
+    tangent=local_reference.tangent
     direction = setting.mode=="flight_direction" ? (-1.0,0.0,0.0) :
         (c*tangent[1]-s*tangent[2],s*tangent[1]+c*tangent[2],0.0)
     normal = unit3(cross3(direction,upper.-lower))
     norm3(normal)>0.5 || throw(ArgumentError("leading-edge rib plane is undefined at front-spar ETA $(g.etas[j+1])"))
     hinge = unit3(upper.-lower)
     forward = unit3(direction.-sum(direction.*hinge).*hinge)
-    return (;origin,direction,normal,vertical=cross3(normal,direction),forward)
+    return (;origin,direction,normal,vertical=cross3(normal,direction),forward,reference=local_reference)
 end
 
 struct LeadingEdgeIntersectionMiss <: Exception
@@ -130,6 +139,9 @@ function leading_edge_rib_metadata(g,p,rib,requested,effective,plane,nose,reason
     j=g.ribs[rib]
     return Dict{String,Any}("rib"=>rib,"row_index"=>j,
         "requested_mode"=>requested.mode,"requested_angle"=>requested.angle,
+        "kink_side"=>requested.kink_side,"reference_eta"=>plane.reference.attachment_eta,
+        "reference_segment_eta"=>[plane.reference.eta_start,plane.reference.eta_end],
+        "reference_tangent"=>collect(plane.reference.tangent),
         "effective_mode"=>effective.mode,"effective_angle"=>effective.mode=="flight_direction" ? nothing : effective.angle,
         "overridden"=>requested.overridden,"fallback"=>!isempty(reason),"reason"=>reason,
         "plane_origin"=>collect(plane.origin),"plane_direction"=>collect(plane.direction),

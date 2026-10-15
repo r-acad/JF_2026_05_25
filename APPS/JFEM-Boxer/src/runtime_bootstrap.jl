@@ -115,7 +115,7 @@ end
 # respected both during ordinary loading and in an application sysimage.
 let repo=locate_solver(dirname(@__DIR__))
     if repo!==nothing
-        helper=joinpath(repo,"__Start here!__","julia_tools","runtime_images.jl")
+        helper=joinpath(repo,"utils","julia_tools","runtime_images.jl")
         isfile(helper)&&include(helper)
     end
 end

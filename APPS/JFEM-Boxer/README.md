@@ -8,7 +8,7 @@ displays structural results and property sensitivities.
 Start with the [illustrated installation guide](<../../__Start here!__/jfem_2026_installation_guide.pdf>)
 or the [OS-specific setup instructions](<../../__Start here!__/README.md>).
 
-![JFEM-Boxer displaying a generated lifting-surface model](<../../__Start here!__/images/fgen-model.png>)
+![JFEM-Boxer displaying a generated lifting-surface model](<../../utils/images/fgen-model.png>)
 
 On Windows, double-click **JFEM-Boxer.cmd** in `__Start here!__/Windows`, at the
 repository root, or in this app folder. Setup builds the shared JFEM/app sysimage automatically; the launcher checks
@@ -213,6 +213,16 @@ optional external-resource details.
    `leading_edge.chord_elements` key. Spanwise rows still follow Elements per rib
    bay. **Aero chord points** samples the displayed wetted loft and optional
    disconnected aero-shell export; it does not refine structural skins or VLM.
+   Leading-edge rib angles are measured from the **local front-spar segment at
+   each attachment**, toward the nose; 90 degrees is perpendicular. If an
+   attachment is exactly at a spar kink, **Spar segment at a kink** chooses the
+   inboard or outboard tangent. Individual rib overrides can inherit that choice
+   or choose their own side. Root/tip attachments use their only adjacent segment.
+   The Spars drawing includes the physical rib datum lines. **Snap to rib** beside
+   a perturbation point moves its eta onto the nearest available rib datum while
+   preserving delta x/c; it also handles oblique rib datums. This is a one-time
+   edit, not a persistent geometric constraint. Eta and x/c field arrows use 0.1
+   increments; typed values retain their full precision.
 4. Define materials, skins, stringers, ribs, spars and leading-edge properties
    under **Model / Properties**. Detached panel tables assign local overrides;
    blank entries inherit the shared values. Rows are stringers, columns are rib
@@ -777,6 +787,19 @@ Legacy local-METHOD decks use the solver's recorded preload ownership, even when
 the source has no explicit STATSUB. Static fields suppressed by case-control
 output requests remain suppressed; the retained preload displacement is still
 available for visualizing the reference shape.
+
+In **Analysis → FE Analysis**, the SOL105 **Export element strain energy and
+density (ESE)** option writes `ESE(PLOT) = ALL` in Case Control. This standard
+request includes both quantities for each static preload and buckling mode.
+Imported decks may use `ESE = NONE` to disable a subcase, or `ESE(PLOT) = n`
+to select the element IDs in Case Control `SET n`. Global requests apply to
+subcases unless overridden. The source settings remain unchanged unless the
+imported-analysis output override is enabled. The resulting energy and density
+fields are available in the results JSON and field-view contours. Their units
+are J and J/m³ for N-m inputs; modal values depend on arbitrary eigenvector
+amplitude, so they are not physical critical-load energies. Compact eigenvalue
+output suppresses these fields. See the [output request examples](../../utils/julia_tools/README.md)
+for element-set syntax and supported request qualifiers.
 
 Buckling modes use their own normalized display amplitude; changing the static
 preload magnitude does not change the displayed mode size.

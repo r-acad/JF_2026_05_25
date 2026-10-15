@@ -116,6 +116,7 @@ function read_bulk_and_case(lines::Vector{String})
     past_cend = false
     global_load, global_spc, global_mpc = nothing, nothing, nothing
     current_sub = 0
+    pending_set = nothing
 
     # Check if BEGIN BULK exists anywhere in the file (case-insensitive
     # regex avoids allocating an uppercased copy of every line — measured
@@ -164,6 +165,24 @@ function read_bulk_and_case(lines::Vector{String})
 
         if !in_bulk
             stripped_cl = strip(cl)
+            # Case Control SETs are needed by output selectors such as ESE.
+            # Keep their text for the request-specific interpreter, including
+            # comma continuations. This is distinct from Bulk Data SET cards.
+            if pending_set !== nothing
+                target, key = pending_set
+                if occursin(r"^\s*,?\s*\d", cl) && !occursin('=',cl)
+                    target[key] *= "," * strip(stripped_cl, [',',' '])
+                    continue
+                elseif !isempty(stripped_cl)
+                    pending_set = nothing
+                end
+            end
+            if (set_match = match(r"^SET\s+(\d+)\s*=\s*(.*)$",stripped_cl)) !== nothing
+                target = current_sub > 0 ? case_control["SUBCASES"][current_sub] : case_control
+                key = "SET " * string(parse(Int,set_match[1]))
+                target[key] = String(set_match[2]); pending_set = (target,key)
+                continue
+            end
 
             # Parse SOL type (executive control)
             if startswith(stripped_cl, "SOL ")
@@ -178,7 +197,6 @@ function read_bulk_and_case(lines::Vector{String})
             if startswith(stripped_cl, "ELDATA"); continue; end
             if startswith(stripped_cl, "LABEL"); continue; end
             if startswith(stripped_cl, "ECHO"); continue; end
-            if startswith(stripped_cl, "SET "); continue; end
             if startswith(stripped_cl, "GPFORCE"); continue; end
             if startswith(stripped_cl, "MPCFORCE"); continue; end
             if startswith(stripped_cl, "OLOAD"); continue; end
@@ -197,9 +215,10 @@ function read_bulk_and_case(lines::Vector{String})
                 end
             elseif occursin("=", cl)
                 # Parse key = value, handling parenthetical modifiers like DISP(PRINT,PLOT) = ALL
-                eq_parts = split(cl, "="; limit=2)
-                k_raw = strip(eq_parts[1])
-                v_raw = strip(eq_parts[2])
+                entry = match(r"^\s*([^=(]+(?:\([^)]*\))?)\s*=\s*(.*)$",cl)
+                entry === nothing && throw(ArgumentError("Malformed Case Control request: $stripped_cl"))
+                k_raw = strip(entry[1])
+                v_raw = strip(entry[2])
                 val = try parse(Int, v_raw) catch; v_raw end
                 if current_sub > 0
                     _store_case_control_entry!(case_control["SUBCASES"][current_sub], k_raw, val)

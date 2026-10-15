@@ -5,6 +5,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Preload reactions, standard energy requests and shared utilities
+
+- Display physical constraint forces and moments for SOL105 static preloads,
+  using the preload's own constraint selection. Keep reaction controls and
+  labels synchronized when switching between static results and eigenmodes.
+- Use Case Control `ESE(PLOT) = ALL` to request element strain energy and
+  density together. Support global/subcase requests, `NONE` and element
+  `SET` selectors; migrate existing Study energy controls and update guides.
+- Reference leading-edge rib angles to the local front-spar segment, with
+  inboard/outboard choices at kinks. Add rib-datum snapping in the spar editor
+  and use 0.1 increments for eta and x/c input arrows.
+- Group examples, images, Julia helpers, the Python client and solver tests
+  under `utils/`; update launchers, package workloads and documentation paths.
+  Clarify that each installation builds its own ignored sysimage cache.
+
 ### Multiple-case results and rib-bay mass representation
 
 - Preserve the original Study identity separately from effective load-case

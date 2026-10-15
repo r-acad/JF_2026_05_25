@@ -381,7 +381,7 @@ const CASE_FIELDS = [
 ];
 const CASE_GLOBAL_KEYS = new Set(["loads.label", ...CASE_FIELDS.map((field) => field[2])]);
 const CHOICE_LABELS = {
-  flight_direction: "Line of flight", front_spar_angle: "Angle to inboard front spar", rear_spar_angle: "Angle to local rear spar",
+  inboard: "Inboard", outboard: "Outboard", flight_direction: "Line of flight", front_spar_angle: "Angle to local front spar", rear_spar_angle: "Angle to local rear spar",
   analytic: "Prescribed lift", vortex_lattice: "Aerodynamic (VLM)",
   elliptical: "Elliptical", chord: "Proportional to chord", uniform: "Uniform",
   distributed: "Distributed element mass (default)", bay_concentrated: "Bay-concentrated mass and inertia",
@@ -400,7 +400,7 @@ const HELP_TOPICS = {
     "The drawing previews the untwisted reference geometry while editing and shows generated rib projections once the mesh is current. Lock mesh protects the layout. Study and TOML saves retain the master table. Leading Edge provides separate directions for individual rib extensions."
   ]},
   "Leading edge": { title:"Leading-edge ribs", paragraphs:[
-    "The global orientation is the default for every leading-edge rib. Add an override by physical rib number for individual directions. Front-spar angles use the common root front-spar segment toward the nose; 90 degrees is perpendicular.",
+    "The global orientation is the default for every leading-edge rib. Add an override by physical rib number for individual directions. Front-spar angles use the local segment at each attachment, toward the nose; 90 degrees is perpendicular. At a kink, select Inboard or Outboard globally or for that individual rib.",
     "A rib that misses the aerodynamic surface uses flight direction automatically. Its requested setting stays saved so later geometry edits can restore it. Red geometry and red result outlines identify fallbacks; the form and log report the affected ribs. Crossing or folded ribs still require editing. Leading-edge bays and bounds use the physical rib numbers from Structure > Ribs."
   ]},
   "Weights": { title: "Component masses and fuel", paragraphs: [
@@ -544,7 +544,7 @@ function parameterRow(spec, values) {
     input.value = String(values[spec.key]);
   } else {
     input.type = spec.kind === "string" ? "text" : "number";
-    input.step = spec.kind === "int" ? "1" : "any";
+    input.step = spec.kind === "int" ? "1" : /(?:^|[._])(?:eta|xc)$/.test(spec.key) || spec.unit === "x/c" ? "0.1" : "any";
     if (spec.key === "mesh.elements_spar_height") input.min = "1";
     if (spec.key === "leading_edge.chord_elements") { input.min = "2"; input.max = "100"; }
     if (spec.key === "fuel.fill_efficiency") { input.min = "0"; input.max = "1"; }
@@ -1022,7 +1022,7 @@ function updateCaseAnalysisNote() {
     else if (spec.key === "output.n_modes") row.hidden = !["103", "105"].includes(solution);
     else if (spec.key === "output.buckling_max_factor") row.hidden = solution !== "105";
     else if (["output.buckling_deformation_energy","output.buckling_energy_density","output.buckling_compact"].includes(spec.key)) {
-      row.hidden=solution!=="105";
+      row.hidden=solution!=="105"||spec.key==="output.buckling_energy_density";
       if(spec.key!=="output.buckling_compact")document.getElementById("p-"+spec.key).disabled=document.getElementById("p-output.buckling_compact")?.checked===true;
     }
   }
@@ -1287,7 +1287,7 @@ function syncLeadingEdgeOrientation() {
   let note = document.getElementById("leading-edge-orientation-note");
   if (!note) { note=document.createElement("p"); note.id="leading-edge-orientation-note"; note.className="pick-note"; row.after(note); }
   note.textContent = method.value === "front_spar_angle" ?
-    "Angle in plan view, measured from the root front-spar segment's outboard direction toward the nose. 90° is perpendicular. Rib and bay numbers follow Structure > Ribs. Individual overrides take precedence. A direction that misses the aerodynamic surface falls back to flight direction and is marked red." :
+    "Angle in plan view, measured from the local front-spar segment at each rib attachment, from its outboard direction toward the nose. At a spar kink, choose the inboard or outboard segment. 90° is perpendicular. Rib and bay numbers follow Structure > Ribs. Individual overrides take precedence. A direction that misses the aerodynamic surface falls back to flight direction and is marked red." :
     "Line of flight extends forward from each main rib?s front-spar section. Individual rib overrides take precedence.";
   method.setAttribute("aria-describedby",note.id);
 }
@@ -5460,6 +5460,7 @@ function showResults() {
   if (r.modes.length) {
     selectMode(0);
   } else {
+    rebuildSupportForces();
     applyContour();
     applyDeformation();
   }
@@ -6201,7 +6202,7 @@ function addAeroLoads(loads) {
 
 function supportReactionData(){
   const result=state.results;
-  return !state.sensitivityMap&&result?.matches&&result.available!==false&&state.activeMode<0&&state.baseline&&state.data?.spc?result.reactions:null;
+  return !state.sensitivityMap&&result?.matches&&result.available!==false&&result.static&&state.activeMode<0&&state.baseline?result.reactions:null;
 }
 
 function syncSupportForceControls(){
@@ -6217,7 +6218,7 @@ function syncSupportForceControls(){
   if(resultNote)resultNote.textContent=available?resultAnalysisLabel(result)+": forces and moments at constrained nodes, in global XYZ axes.":note?.textContent||"";
 }
 
-/** Native SPC reactions in BASIC axes; display only actual modeled supports. */
+/** Native SPC reactions in BASIC axes, scoped to the solved preload by the server. */
 function rebuildSupportForces() {
   state.annotations?.invalidate();
   const old=state.layers.get("SUPPORT_FORCES");
@@ -6225,10 +6226,12 @@ function rebuildSupportForces() {
   const control=document.getElementById("show-support-forces"),note=document.getElementById("support-force-note");
   const result=state.results,reactions=supportReactionData();
   if(!reactions){syncSupportForceControls();return;}
-  const supports=new Set(asI32(state.data.spc.nodes)),records=[];let peak=0,momentPeak=0;
+  const records=[];let peak=0,momentPeak=0;
   for(let i=0;i<reactions.nodes.length;i++){
     const node_index=reactions.nodes[i],force=Array.from(reactions.forces.subarray(3*i,3*i+3)),moment=reactions.moments?Array.from(reactions.moments.subarray(3*i,3*i+3)):[0,0,0];
-    if(!supports.has(node_index)||force.length!==3||!force.every(Number.isFinite)||moment.length!==3||!moment.every(Number.isFinite))continue;
+    // A buckling case may select different SPC nodes from its STATSUB preload.
+    // Do not filter physical preload reactions through the current menu's mask.
+    if(!Number.isInteger(node_index)||node_index<0||3*node_index+2>=state.baseline.length||force.length!==3||!force.every(Number.isFinite)||moment.length!==3||!moment.every(Number.isFinite))continue;
     peak=Math.max(peak,Math.hypot(...force));momentPeak=Math.max(momentPeak,...moment.map(Math.abs));records.push({node_index,force,moment});
   }
   const requested=Number(document.getElementById("support-force-scale")?.value),multiplier=Number.isFinite(requested)&&requested>0?Math.min(100,Math.max(.01,requested)):1;

@@ -13,3 +13,12 @@
 .spar-editor .planform-view-canvas .sf-end-label { fill:#ffc493; font-size:16px; paint-order:stroke; stroke:#0c1520; stroke-width:3px; }
 .spar-editor.point-editor-invalid .sf-point.pf-selected .pf-point-dot { fill:#ff566b; stroke:#fff1f3; }
 .spar-editor.point-editor-invalid .sf-point.pf-selected text { fill:#ffb6c1; }
+
+.spar-editor .sf-rib-datum line { stroke:#a8bfdd; stroke-width:1; stroke-dasharray:5 4; opacity:.8; }
+.spar-editor .sf-rib-datum text { fill:#cbd8e8; font-size:11px; paint-order:stroke; stroke:#0c1520; stroke-width:2px; }
+.spar-editor .planform-point-snap { font-size:11px; padding:4px 5px; margin-right:3px; white-space:nowrap; }
+.svgv-light .sf-rib-datum line { stroke:#56718b; }
+.svgv-light .sf-rib-datum text { fill:#314f69; stroke:#fff; }
+
+.spar-editor .planform-edge-table th:last-child { width:106px; }
+.spar-editor .planform-edge-table td:last-child { white-space:nowrap; }

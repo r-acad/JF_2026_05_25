@@ -78,6 +78,9 @@ const fixture=process.argv[4]?path.resolve(process.argv[4]):out;fs.mkdirSync(out
   checks.push('Reaction arrows follow displayed node positions; glyph scaling and visibility controls leave physical reaction values unchanged');
   const shape=await page.evaluate(()=>{selectResultAnalysis('sensitivity_sensitivity_retained_105_sol105');selectMode(-1);return reactionState();});
   assert.equal(shape.disabled,false);assert.deepEqual(shape.forces,initial.forces);
+  const differingMask=await page.evaluate(()=>{const saved=state.data.spc;state.data.spc={nodes:new Int32Array()};rebuildSupportForces();const result=reactionState();state.data.spc=saved;return result;});
+  assert(!differingMask.disabled&&differingMask.glyphs>0);assert.deepEqual(differingMask.forces,initial.forces);
+  checks.push('Static-preload reactions remain visible when the active buckling constraint mask differs; the server-scoped physical result owns its reaction nodes');
   await page.evaluate(()=>activateWorkspaceTab('displayloads'));assert(await page.locator('#show-support-forces').isVisible());
   // Studies persist the analysis variant, not an individual eigenmode/static-shape row.
   const restored=await page.evaluate(()=>{selectResultAnalysis('sensitivity_sensitivity_retained_105_sol101');const saved=WingWorkspace.captureView(document,state,workspaceUI);restoreWorkspaceView(saved);return{tab:workspaceUI.activeTab,...reactionState()};});

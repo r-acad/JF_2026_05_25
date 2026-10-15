@@ -13,7 +13,7 @@
    longer, including quiet periods during machine-code generation. Keep the
    window open. Later setup runs reuse a current image.
 
-![Download Julia for your operating system](../images/julia-download.png)
+![Download Julia for your operating system](../../utils/images/julia-download.png)
 
 ## Launch an app
 
@@ -30,7 +30,7 @@ The same filenames in the repository root remain valid shortcuts. Keep the
 Boxer/PANDEATOR console open while using its browser page. Close the app or
 press **Ctrl+C** in that console when finished.
 
-To try the solver, choose `__Start here!__/examples/precompile/sol101_quad_static.bdf`.
+To try the solver, choose `utils/examples/precompile/sol101_quad_static.bdf`.
 The console reports the output location. In Results viewer, use **Struct /
 Choose File** for Model A and open the resulting `.jfem` file.
 
@@ -53,8 +53,13 @@ Commands below assume PowerShell opened in this Windows folder.
 
 `.\setup.cmd --dry-run` shows the setup plan. Build concurrency defaults to two threads;
 this does not limit normal analysis threads. Do not delete your studies or decks
-to repair an installation. See the [solver reference](../julia_tools/README.md)
+to repair an installation. See the [solver reference](../../utils/julia_tools/README.md)
 for batch commands and representative precompile workloads.
+
+The generated image (`sysimage/OpenJFEM_sysimage.dll` on Windows, `.so` on
+Linux or `.dylib` on macOS) is local installation output. It is not included
+in GitHub: it depends on the operating system, Julia version, CPU and source
+revision. Setup builds it for this computer and launchers check its receipt.
 
 ## Offline use
 

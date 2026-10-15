@@ -11,5 +11,5 @@ if "%~1"=="" (
   echo usage: jfem [-formats] model.bdf [output_folder]
   exit /b 1
 )
-"%JFEM_BIN%" --startup-file=no --threads=1 "%~dp0__Start here!__\julia_tools\launch.jl" solver "%~dp0." "%~dp0__Start here!__\julia_tools\jfem.jl" %*
+"%JFEM_BIN%" --startup-file=no --threads=1 "%~dp0utils\julia_tools\launch.jl" solver "%~dp0." "%~dp0utils\julia_tools\jfem.jl" %*
 exit /b %errorlevel%

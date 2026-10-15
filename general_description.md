@@ -151,7 +151,7 @@ OpenJFEM includes several mechanisms intended for repeated SOL 105 runs:
 - Threaded shell stiffness and geometric-stiffness assembly.
 - A lean solver bootstrap path for solver-only workflows.
 - A full package precompile path using `PrecompileTools`.
-- One-command fast deployment with `__Start here!__/julia_tools/deploy_fast.jl`, driven by
+- One-command fast deployment with `utils/julia_tools/deploy_fast.jl`, driven by
   bundled precompile decks, user representative decks, or JSON batch manifests.
 - Batch execution in one Julia process to avoid repeated startup and method
   compilation.
@@ -184,13 +184,13 @@ OpenJFEM includes several mechanisms intended for repeated SOL 105 runs:
 
 For production SOL 105 work, the recommended path is:
 
-1. Run `__Start here!__/julia_tools/deploy_fast.jl` once with bundled or representative decks.
+1. Run `utils/julia_tools/deploy_fast.jl` once with bundled or representative decks.
 2. Use JSON manifests as the first production automation contract.
 3. Run command-line single cases with `run_bdf.jl` and command-line batches
    with `run_batch_manifest.jl`.
-4. For optimization loops, start `__Start here!__/julia_tools/jfem_worker_jsonl.jl` once and
+4. For optimization loops, start `utils/julia_tools/jfem_worker_jsonl.jl` once and
    submit JSON manifests from Python using
-   `__Start here!__/python_client/jfem_client.py`.
+   `utils/python_client/jfem_client.py`.
 5. Disable `.jfem` export unless interactive visualization is required.
 6. Set `output_options.eigenvalues_only=true` when the outer optimizer only
    needs SOL 105 buckling factors.
@@ -275,22 +275,22 @@ The public command-line runner scripts are:
 
 - `jfem` / `jfem.cmd`: one-line wrappers (Linux/macOS and Windows) to analyze a
   single deck with good defaults and an optional `-letters` output-format
-  string; they call `__Start here!__/julia_tools/jfem.jl`. This is the simplest entry point.
-- `__Start here!__/julia_tools/deploy_fast.jl`: preferred fast deployment and broad precompile workflow.
-- `__Start here!__/julia_tools/run_batch_manifest.jl`: preferred explicit JSON-manifest batch runner.
-- `__Start here!__/julia_tools/jfem_worker_jsonl.jl`: persistent JSONL worker for Python-driven
+  string; they call `utils/julia_tools/jfem.jl`. This is the simplest entry point.
+- `utils/julia_tools/deploy_fast.jl`: preferred fast deployment and broad precompile workflow.
+- `utils/julia_tools/run_batch_manifest.jl`: preferred explicit JSON-manifest batch runner.
+- `utils/julia_tools/jfem_worker_jsonl.jl`: persistent JSONL worker for Python-driven
   optimization loops.
-- `__Start here!__/python_client/jfem_client.py`: Python 3.8+ stdlib-only
+- `utils/python_client/jfem_client.py`: Python 3.8+ stdlib-only
   helper for writing batch manifests and controlling the JSONL worker.
-- `__Start here!__/python_client/jfem_manifest_cli.py`: Python command-line
+- `utils/python_client/jfem_manifest_cli.py`: Python command-line
   helper for creating manifests and launching manifest-based runs from external
   workflows.
-- `__Start here!__/julia_tools/jfem.jl`: simple single-case runner behind the `jfem`/`jfem.cmd`
+- `utils/julia_tools/jfem.jl`: simple single-case runner behind the `jfem`/`jfem.cmd`
   wrappers above (good defaults, optional `-letters` output-format string).
-- `__Start here!__/julia_tools/run_bdf.jl`: explicit single-case runner with every flag spelled out.
-- `__Start here!__/julia_tools/run_bdf_batch.jl`: simple text-list batch runner retained for existing
+- `utils/julia_tools/run_bdf.jl`: explicit single-case runner with every flag spelled out.
+- `utils/julia_tools/run_bdf_batch.jl`: simple text-list batch runner retained for existing
   scripts.
-- `__Start here!__/julia_tools/run_manifest.jl`: shared manifest and environment-flag helper.
+- `utils/julia_tools/run_manifest.jl`: shared manifest and environment-flag helper.
 
 Each run writes `run_manifest.json`, recording input path, script path, command
 arguments, active flags, Git metadata when available, and output metadata.

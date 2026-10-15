@@ -17,7 +17,7 @@ tests=@testset "Packaged Boxer model crosses actual import and sensitivity worke
         @test only(runtime.sysimage_args)=="--sysimage="*runtime.metadata["sysimage"]
     end
     importdir=joinpath(output,"import");mkpath(importdir)
-    deck=joinpath(repo,"__Start here!__","examples","precompile","sol101_adjoint_shell.bdf")
+    deck=joinpath(repo,"utils","examples","precompile","sol101_adjoint_shell.bdf")
     source=W.imported_source(Dict("name"=>basename(deck),"text"=>read(deck,String)))
     parameters=W.default_params();parameters["jfem.output_dir"]=output
     W.Serialization.serialize(joinpath(importdir,"input.jls"),(source,parameters))

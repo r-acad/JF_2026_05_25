@@ -3686,7 +3686,7 @@ function export_sol105_json(filename, output_dir, results)
             _export_json_nodal_vector(io, view(sc.reported_mode_shapes, :, mode), state.id_map, node_order)
             print(io, ",\"peak_translation\":")
             JSON.print(io,_buckling_peak_translation(view(sc.reported_mode_shapes,:,mode),state.id_map,incidence))
-            if haskey(energies,sc.static_subcase_id)
+            if haskey(energies,sc.static_subcase_id) && haskey(energies[sc.static_subcase_id].modes,(sc.buckling_subcase_id,mode))
                 print(io, ",\"element_energy\":")
                 JSON.print(io,energies[sc.static_subcase_id].modes[(sc.buckling_subcase_id,mode)])
             end
@@ -3702,7 +3702,7 @@ function export_sol105_json(filename, output_dir, results)
             global_u = _export_rotate_vector!(similar(sc.u_static), sc.u_static, state.id_map, state.node_R)
             print(io, "{\"static_subcase_id\":", sc.static_subcase_id, ",\"static_displacements\":")
             _export_json_nodal_vector(io, global_u, state.id_map, _reference_node_order(state.id_map))
-            if haskey(energies,sc.static_subcase_id)
+            if haskey(energies,sc.static_subcase_id) && energies[sc.static_subcase_id].preload !== nothing
                 print(io, ",\"element_energy\":")
                 JSON.print(io,energies[sc.static_subcase_id].preload)
             end
@@ -3718,7 +3718,8 @@ function export_sol105_json(filename, output_dir, results)
                 static_export["result_requests"] = Dict(key => subcase_result_request_enabled(sub_ctrl, key)
                     for key in ("DISPLACEMENT", "SPCFORCES", "FORCE", "STRESS", "STRAIN"))
                 static_export["solver_diagnostics"] = deepcopy(static_result["solver_diagnostics"])
-                haskey(energies,sc.static_subcase_id) && (static_export["element_energy"]=energies[sc.static_subcase_id].preload)
+                haskey(energies,sc.static_subcase_id) && energies[sc.static_subcase_id].preload !== nothing &&
+                    (static_export["element_energy"]=energies[sc.static_subcase_id].preload)
                 sanitize!(static_export)
                 JSON.print(io, static_export)
             end

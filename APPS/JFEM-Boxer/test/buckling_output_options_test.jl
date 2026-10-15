@@ -19,22 +19,27 @@ suite=@testset "Saved SOL105 output requests and compact result bridge" begin
     for selected in (flags,(flags[1],),(flags[2],),(flags[3],))
         params=merge(p,Dict("output."*key=>true for key in selected));variant=modelparams(params)
         deck=sprint(W.write_deck,variant)
-        for (key,name) in zip(flags,("JFBKDEN","JFBKENG","JFBKCOMP"))
-            @test occursin("PARAM,$name,1",deck)==(key in selected)
-        end
+        @test occursin("ESE(PLOT) = ALL",deck)==any(key in selected for key in flags[1:2])
+        @test occursin("PARAM,JFBKCOMP,1",deck)==("buckling_compact" in selected)
+        @test !occursin("JFBKENG",deck) && !occursin("JFBKDEN",deck)
         restored=W.normalize_params(W.flatten_toml(W.TOML.parse(W.params_to_toml(params))))[1]
-        @test all(restored["output."*key]==params["output."*key] for key in flags)
+        @test restored["output.buckling_deformation_energy"]==any(params["output."*key] for key in flags[1:2])
+        @test !restored["output.buckling_energy_density"]
+        @test restored["output.buckling_compact"]==params["output.buckling_compact"]
         @test !occursin("JFBK",sprint(W.write_deck,modelparams(merge(params,Dict("output.solution"=>"103")))))
     end
-    source_text="SOL 105\nCEND\nSUBCASE 1\n LOAD = 1\nSUBCASE 2\n STATSUB = 1\n METHOD = 7\nBEGIN BULK\nGRID,1,,0.,0.,0.\nEIGRL,7,1.e-6,70.,5\nPARAM,JFBKCOMP,1\nENDDATA\n"
+    source_text="SOL 105\nCEND\nESE = 31\nSET 31 = 101,\n102\nSUBCASE 1\n LOAD = 1\n ESE = NONE\nSUBCASE 2\n STATSUB = 1\n METHOD = 7\nBEGIN BULK\nGRID,1,,0.,0.,0.\nEIGRL,7,1.e-6,70.,5\nPARAM,JFBKCOMP,1\nENDDATA\n"
     source=W.imported_source(Dict("name"=>"source.bdf","text"=>source_text))
+    @test W.imported_source_case_control(Dict("flattened"=>"CEND\nSET   32 = 101\n102\nBEGIN BULK\n"))["globals"]["SET 32"]=="101,102"
+    @test W.imported_source_case_control(Dict("flattened"=>"CEND\nESE(PLOT,THRESH=0.)=ALL\nBEGIN BULK\n"))["globals"]["ESE"]=="ALL"
     imported=modelparams(merge(p,Dict("imported.source"=>source,"imported.native"=>Dict{String,Any}("CASE_CONTROL"=>Dict("SUBCASES"=>Dict(1=>Dict("LOAD"=>1),2=>Dict("STATSUB"=>1)))),
         "imported.cases"=>[Dict("id"=>1,"label"=>"Preload"),Dict("id"=>2,"label"=>"Buckling")])) )
     @test W.imported_analysis_model(imported)===imported
     @test_throws ArgumentError W.imported_analysis_options(Dict("buckling_compact"=>1))
     options=Dict("buckling_output_override"=>true,"buckling_energy_density"=>true)
     overlaid=W.imported_analysis_model(imported,options);deck=overlaid.params["imported.analysis_deck"]
-    @test occursin("PARAM,JFBKDEN,1",deck)&&occursin("PARAM,JFBKENG,0",deck)&&occursin("PARAM,JFBKCOMP,0",deck)
+    @test occursin("ESE(PLOT) = ALL",deck)&&occursin("PARAM,JFBKCOMP,0",deck)
+    @test !occursin("JFBKENG",deck)&&!occursin("JFBKDEN",deck)&&!occursin("ESE = NONE",deck)
     @test !occursin("PARAM,JFBKCOMP,1",deck)
     @test occursin("EIGRL,7,1.e-6,70.,5",deck)
     @test !occursin("DISPLACEMENT(PRINT)",deck)
@@ -42,8 +47,9 @@ suite=@testset "Saved SOL105 output requests and compact result bridge" begin
     restored_options=W.JSON.parse(W.JSON.json(overlaid.params["imported.analysis"]))
     @test W.imported_analysis_options(restored_options)==overlaid.params["imported.analysis"]
     alloff=W.imported_analysis_model(imported,Dict("buckling_output_override"=>true))
-    @test all(occursin("PARAM,$name,0",alloff.params["imported.analysis_deck"]) for name in ("JFBKDEN","JFBKENG","JFBKCOMP"))
-    @test W.imported_native(overlaid)["PARAM_JFBKDEN"]==1
+    @test occursin("ESE(PLOT) = NONE",alloff.params["imported.analysis_deck"])
+    @test occursin("PARAM,JFBKCOMP,0",alloff.params["imported.analysis_deck"])
+    @test W.imported_native(overlaid)["CASE_CONTROL"]["ESE"]=="ALL"
     @test W.imported_native(overlaid)["PARAM_JFBKCOMP"]==0
     write(joinpath(fixtures,"source.bdf"),source_text);write(joinpath(fixtures,"imported_energy_override.bdf"),deck)
     enabled=modelparams(merge(p,Dict("output."*key=>true for key in flags)))
@@ -52,7 +58,7 @@ suite=@testset "Saved SOL105 output requests and compact result bridge" begin
     workerparams=merge(enabled.params,Dict("jfem.output_dir"=>joinpath(evidence,"worker_snapshots"),"loads.cases"=>[Dict("id"=>2,"label"=>"Second case")]))
     workerparent=W.prepare_jfem_case_jobs(modelparams(workerparams),workerparams,dirname(@__DIR__),joinpath(fixtures,"generated.bdf"),"outputs")
     @test length(workerparent.runs)==2
-    @test all(child.proc===nothing&&all(occursin("PARAM,$name,1",read(child.bdf,String)) for name in ("JFBKDEN","JFBKENG","JFBKCOMP")) for child in workerparent.runs)
+    @test all(child.proc===nothing&&occursin("ESE(PLOT) = ALL",read(child.bdf,String))&&occursin("PARAM,JFBKCOMP,1",read(child.bdf,String)) for child in workerparent.runs)
     importedparams=merge(overlaid.params,Dict("jfem.output_dir"=>joinpath(evidence,"worker_snapshots")))
     importedworker=W.prepare_jfem_job(modelparams(importedparams),importedparams,dirname(@__DIR__),joinpath(fixtures,"imported_energy_override.bdf"),"imported_outputs")
     @test importedworker.proc===nothing&&read(importedworker.bdf,String)==deck

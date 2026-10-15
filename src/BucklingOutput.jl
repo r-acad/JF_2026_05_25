@@ -1,11 +1,83 @@
 # Optional SOL105 output. These adapters never alter the solved pencil or modes.
+function _ese_set_ids(text)
+    tokens = split(replace(uppercase(strip(string(text))), ','=>' '))
+    selected = Set{Int}(); excluding = false; i = 1
+    preceding_range = nothing; last_excluded = 0
+    while i <= length(tokens)
+        if tokens[i] == "EXCEPT"
+            preceding_range !== nothing && !excluding && i < length(tokens) ||
+                throw(ArgumentError("EXCEPT must follow a THRU range and precede excluded element IDs"))
+            last_excluded = 0
+            excluding = true; i += 1; continue
+        end
+        first_id = tryparse(Int,tokens[i])
+        first_id !== nothing && first_id > 0 || throw(ArgumentError("Invalid ESE element SET item: $(tokens[i])"))
+        # EXCEPT applies only inside the immediately preceding THRU range.
+        # The next ID outside that interval resumes the ordinary include list.
+        if excluding && !(preceding_range[1] <= first_id <= preceding_range[2])
+            excluding = false
+        end
+        if excluding
+            first_id > last_excluded || throw(ArgumentError("EXCEPT element IDs must be in ascending order"))
+            last_excluded = first_id
+        end
+        last_id = first_id; step = 1; i += 1
+        ranged = false
+        if i <= length(tokens) && tokens[i] == "THRU"
+            excluding && throw(ArgumentError("THRU cannot begin inside an EXCEPT range"))
+            ranged = true
+            i += 1; i <= length(tokens) || throw(ArgumentError("Incomplete THRU in ESE element SET"))
+            last_id = tryparse(Int,tokens[i]); i += 1
+            last_id !== nothing && last_id >= first_id || throw(ArgumentError("Invalid THRU range in ESE element SET"))
+            if i <= length(tokens) && tokens[i] == "BY"
+                i += 1; i <= length(tokens) || throw(ArgumentError("Incomplete BY in ESE element SET"))
+                step = something(tryparse(Int,tokens[i]),0); i += 1
+                step > 0 || throw(ArgumentError("ESE element SET BY must be positive"))
+            end
+        end
+        excluding || (preceding_range = ranged ? (first_id,last_id) : nothing)
+        length(first_id:step:last_id) <= 10_000_000 || throw(ArgumentError("ESE element SET range is too large"))
+        for id in first_id:step:last_id
+            excluding ? delete!(selected,id) : push!(selected,id)
+        end
+    end
+    selected
+end
+
+"""Resolve standard ESE output in one scope; a local NONE overrides global ALL."""
+function _sol105_ese_request(model, sid=0)
+    cc = get(model,"CASE_CONTROL",Dict()); sub = get(get(cc,"SUBCASES",Dict()),sid,Dict())
+    scope = haskey(sub,"ESE") ? sub : cc
+    if !haskey(scope,"ESE")
+        # Read old decks, but never emit these obsolete extension parameters.
+        legacy = get(model,"PARAM_JFBKENG",0)==1 || get(model,"PARAM_JFBKDEN",0)==1
+        return (enabled=legacy, ids=nothing, selector=legacy ? "ALL" : "NONE")
+    end
+    modifier = uppercase(strip(string(get(scope,"ESE_MODIFIER",""))))
+    all(token->strip(token) in ("","PRINT","PLOT","PUNCH","SORT1"),split(modifier,',')) ||
+        throw(ArgumentError("Unsupported ESE modifier '$modifier'; use PRINT, PLOT, PUNCH or SORT1"))
+    selector = uppercase(strip(string(scope["ESE"])))
+    selector == "NONE" && return (enabled=false,ids=nothing,selector=selector)
+    selector == "ALL" && return (enabled=true,ids=nothing,selector=selector)
+    set_id = tryparse(Int,selector)
+    set_id !== nothing && set_id > 0 || throw(ArgumentError("ESE requires ALL, NONE or a positive Case Control SET ID"))
+    key = "SET $set_id"; sets = merge(cc,sub)
+    haskey(sets,key) || throw(ArgumentError("ESE references undefined Case Control SET $set_id in subcase $sid"))
+    return (enabled=true,ids=_ese_set_ids(sets[key]),selector=selector)
+end
+
 function _sol105_output_options(model)
     flag(name) = begin
         value = get(model, "PARAM_" * name, 0)
         value isa Real && value in (0, 1) || throw(ArgumentError("PARAM,$name must be 0 or 1"))
         value == 1
     end
-    compact, density, energy = flag("JFBKCOMP"), flag("JFBKDEN"), flag("JFBKENG")
+    compact = flag("JFBKCOMP")
+    # Validate legacy values even though ESE is now the public deck syntax.
+    flag("JFBKDEN"); flag("JFBKENG")
+    subs = get(get(model,"CASE_CONTROL",Dict()),"SUBCASES",Dict())
+    requests = [_sol105_ese_request(model,sid) for sid in (isempty(subs) ? [0] : collect(keys(subs)))]
+    density = energy = any(request.enabled for request in requests)
     return Dict{String,Any}("compact"=>compact, "energy_density"=>density && !compact,
         "deformation_energy"=>energy && !compact,
         "requested_energy_density"=>density, "requested_deformation_energy"=>energy)
@@ -17,8 +89,13 @@ function _apply_sol105_output_overrides!(model; compact_buckling=false,
         sol = _canonical_sol_type(get(model,"SOL",get(get(model,"CASE_CONTROL",Dict()),"SOL",101)))
         sol == 105 || throw(ArgumentError("Buckling output codes b/e/d require SOL 105; input is SOL $sol"))
         compact_buckling && (model["PARAM_JFBKCOMP"]=1)
-        export_element_energy && (model["PARAM_JFBKENG"]=1)
-        export_energy_density && (model["PARAM_JFBKDEN"]=1)
+        if export_element_energy || export_energy_density
+            cc = get!(model,"CASE_CONTROL",Dict{String,Any}())
+            cc["ESE"]="ALL"; cc["ESE_MODIFIER"]="PLOT"
+            for sub in values(get(cc,"SUBCASES",Dict()))
+                delete!(sub,"ESE"); delete!(sub,"ESE_MODIFIER")
+            end
+        end
     end
     return model
 end
@@ -174,6 +251,9 @@ function _sol105_element_energy_impl!(results)
         cases = filter(sc->sc.static_subcase_id==static_sid,br.subcases)
         state = results["static_states"][static_sid]
         refs = [(sc,mode) for sc in cases for mode in eachindex(sc.reported_eigenvalues)]
+        requests = vcat([_sol105_ese_request(model,static_sid)],
+            [_sol105_ese_request(model,sc.buckling_subcase_id) for (sc,_) in refs])
+        any(request.enabled for request in requests) || continue
         vectors = Matrix{Float64}(undef,length(state.u_static),1+length(refs));vectors[:,1]=state.u_static
         for (column,(sc,mode)) in enumerate(refs)
             vectors[:,column+1]=view(sc.reported_mode_shapes,:,mode)
@@ -209,11 +289,17 @@ function _sol105_element_energy_impl!(results)
         end
         payloads = Any[]
         for column in axes(vectors,2)
+            request = requests[column]
+            if !request.enabled
+                push!(payloads,nothing); continue
+            end
             payload = _buckling_energy_header(column==1 ? "Physical static preload displacement; energy scales with load squared" :
                 "As-exported solver eigenvector; arbitrary amplitude. Energy and density scale with eigenvector amplitude squared and are not physical critical-load energies.")
+            payload["request"] = "ESE = " * request.selector
             reason = column==1 && state.temp_load_id!==nothing ? "Thermal preload stored energy requires initial-strain subtraction; not available" : unsupported
             available = 0; density_available=0; complete_records=0; any_records=0
             for (index,row) in enumerate(catalog)
+                request.ids !== nothing && !(row.eid in request.ids) && continue
                 energy = energies[index,column]; volume=volumes[index]
                 valid = isempty(reason) && isfinite(energy)
                 has_volume = volume!==nothing && isfinite(volume) && volume>0
@@ -235,11 +321,13 @@ function _sol105_element_energy_impl!(results)
                 valid ? (available+=1) : (record["reason"]=isempty(reason) ? "Element did not provide an assembled elastic stiffness" : reason)
                 push!(payload["records"],record)
             end
-            payload["coverage"]=Dict("elements"=>length(catalog),"energy_available"=>available,"density_available"=>density_available)
-            payload["status"]=complete_records==length(catalog) ? "complete" : any_records>0 ? "partial" : "unavailable"
+            record_count = length(payload["records"])
+            payload["coverage"]=Dict("elements"=>record_count,"energy_available"=>available,"density_available"=>density_available)
+            payload["status"]=complete_records==record_count ? "complete" : any_records>0 ? "partial" : "unavailable"
             push!(payloads,payload)
         end
-        cache[static_sid]=(preload=first(payloads),modes=Dict((sc.buckling_subcase_id,mode)=>payloads[i+1] for (i,(sc,mode)) in enumerate(refs)))
+        cache[static_sid]=(preload=first(payloads),modes=Dict((sc.buckling_subcase_id,mode)=>payloads[i+1]
+            for (i,(sc,mode)) in enumerate(refs) if payloads[i+1] !== nothing))
     end
     results["element_energy_by_subcase"] = cache
     return cache

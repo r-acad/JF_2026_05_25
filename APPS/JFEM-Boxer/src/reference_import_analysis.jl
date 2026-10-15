@@ -10,6 +10,8 @@ function imported_analysis_options(raw=nothing)
         options[key]=value
     end
     any(options[key] for key in ("buckling_energy_density","buckling_deformation_energy","buckling_compact"))&&(options["buckling_output_override"]=true)
+    options["buckling_deformation_energy"] |= options["buckling_energy_density"]
+    options["buckling_energy_density"] = false # old Study flag migrated to one ESE request
     for (key,default,lo,hi,integer) in (("modes",10,1,200,true),("buckling_max_factor",100.,1e-8,1e12,false),("load_steps",20,1,10000,true),("max_iterations",40,1,10000,true),("max_cutbacks",12,0,100,true),("displacement_tolerance",1e-6,1e-14,.1,false),("residual_tolerance",1e-5,1e-14,.1,false))
         value=get(raw,key,default)
         value isa Real&&isfinite(value)&&lo<=value<=hi&&(!integer||isinteger(value))||throw(ArgumentError("Invalid imported analysis setting $key"))
@@ -91,9 +93,7 @@ function imported_overlay_bulk(lines,options)
         println(io,"PARAM,NLMETHOD,AUTO")
     end
     if output_override
-        for (name,key) in (("JFBKDEN","buckling_energy_density"),("JFBKENG","buckling_deformation_energy"),("JFBKCOMP","buckling_compact"))
-            println(io,"PARAM,$name,",options[key] ? 1 : 0)
-        end
+        println(io,"PARAM,JFBKCOMP,",options["buckling_compact"] ? 1 : 0)
     end
     String(take!(io)),max_method+1,source_follower,rot_sets
 end
@@ -148,8 +148,10 @@ function imported_analysis_model(m,raw=nothing)
         filter!(id->get(get(control["subcases"],id,Dict()),"STATSUB",nothing)===nothing,order)
     end
     isempty(order)&&throw(ArgumentError("No source static/preload subcase is available for the selected solution"))
-    clean(row)=options["solution"]=="source" ? row : filter(line->!occursin(r"^\s*(METHOD|CMETHOD|STATSUB|NLPARM|TSTEP)(?:\s*\([^)]*\))?\s*="i,line),row)
+    clean(row)=filter(line->!(output_override && occursin(r"^\s*ESE(?:\s*\([^)]*\))?\s*="i,line)) &&
+        !(options["solution"]!="source" && occursin(r"^\s*(METHOD|CMETHOD|STATSUB|NLPARM|TSTEP)(?:\s*\([^)]*\))?\s*="i,line)),row)
     for line in clean(globals);println(io,line);end
+    output_override && println(io,"ESE(PLOT) = ",options["buckling_deformation_energy"] ? "ALL" : "NONE")
     # Output-only overlays preserve source solution requests and EIGRL limits.
     if options["solution"]!="source"||options["follower"]!="source"
         println(io,"DISPLACEMENT(PRINT) = ALL\nSTRESS(PRINT) = ALL\nFORCE(PRINT) = ALL\nSPCFORCES(PRINT) = ALL")
@@ -196,9 +198,8 @@ function imported_analysis_native(params,native)
     model["CASE_CONTROL"]=merge(globals,Dict("SUBCASES"=>subs))
     options=params["imported.analysis"]
     if options["buckling_output_override"]
-        for (name,key) in (("JFBKDEN","buckling_energy_density"),("JFBKENG","buckling_deformation_energy"),("JFBKCOMP","buckling_compact"))
-            model["PARAM_"*name]=options[key] ? 1 : 0
-        end
+        delete!(model,"PARAM_JFBKDEN"); delete!(model,"PARAM_JFBKENG")
+        model["PARAM_JFBKCOMP"]=options["buckling_compact"] ? 1 : 0
     end
     if options["follower"]!="source"
         model["PARAM_JFFOLLOW"]=options["follower"]=="force" ? 1 : 0

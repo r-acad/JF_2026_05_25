@@ -13,6 +13,6 @@ or [numbered instructions with copyable commands](<../../__Start here!__/README.
 The original assignment's older download links and installation process have
 deliberately been retained as reference material.
 
-![Current PANDEATOR interface with its default stiffened panel](<../../__Start here!__/images/pandeator.png>)
+![Current PANDEATOR interface with its default stiffened panel](<../../utils/images/pandeator.png>)
 
 This image shows the current app; the original PDF above has not been edited.

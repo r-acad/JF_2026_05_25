@@ -28,13 +28,17 @@ The existing root launchers remain available.
 | **Results viewer** | Open existing `.jfem` results without a server. |
 | **JFEM solver** | Choose a bulk-data deck and run it directly. |
 
-![JFEM-Boxer displaying a lifting-surface model](<__Start here!__/images/fgen-model.png>)
+![JFEM-Boxer displaying a lifting-surface model](<utils/images/fgen-model.png>)
+
+Supporting decks, images, automation helpers and solver regression tests are grouped
+in [`utils/`](utils/README.md). Generated Julia images in `sysimage/` stay local;
+setup builds the appropriate image on each computer.
 
 ## Guides and solver reference
 
 - [Illustrated installation PDF](<__Start here!__/jfem_2026_installation_guide.pdf>)
 - [JFEM-Boxer user guide](Reference_documentation/00_Getting_Started/jfem_2026_fgen_user_guide.pdf)
-- [Solver commands, exports and automation](<__Start here!__/julia_tools/README.md>)
+- [Solver commands, exports and automation](<utils/julia_tools/README.md>)
 - [Solver capabilities](general_description.md), [apps](APPS/README.md) and [documentation index](Reference_documentation/README.md)
 
 ## Validation
@@ -43,7 +47,7 @@ The [reproducible validation suite](validation/README.md) contains published
 benchmark models, references and explicit tolerances. Seventeen scalar rows
 have reference parity targets; two coarse-mesh analytical discrepancies remain
 documented. Reference agreement on a given mesh does not establish mesh-converged
-accuracy. See [automated tests](test/README.md) to verify a checkout.
+accuracy. See [automated tests](utils/test/README.md) to verify a checkout.
 
 ## Contribute
 

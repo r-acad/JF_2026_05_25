@@ -31,7 +31,7 @@ end
 
 function _jfem_default_precompile_bdfs()
     repo_root = normpath(joinpath(@__DIR__, ".."))
-    precompile_dir = joinpath(repo_root, "__Start here!__", "examples", "precompile")
+    precompile_dir = joinpath(repo_root, "utils", "examples", "precompile")
     candidates = String[
         joinpath(precompile_dir, "sol101_quad_static.bdf"),
         joinpath(precompile_dir, "sol103_quad_modes.bdf"),

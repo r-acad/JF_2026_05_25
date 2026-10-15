@@ -69,7 +69,7 @@ try
     wingfegen_startup_progress("Activating the shared JFEM and applications environment")
     Pkg.activate(solver_root;io=devnull)
     wingfegen_startup_progress("Checking recorded shared dependencies; missing packages install automatically")
-    include(joinpath(solver_root,"__Start here!__","julia_tools","environment_setup.jl"))
+    include(joinpath(solver_root,"utils","julia_tools","environment_setup.jl"))
     JFEMEnvironmentSetup.ensure_environment(solver_root)
     using WingFEGen
     wingfegen_startup_progress("Preparing startup entry point (first-use Julia compilation); no FEM or analysis is running")

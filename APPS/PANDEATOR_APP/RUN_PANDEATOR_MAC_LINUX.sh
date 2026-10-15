@@ -10,4 +10,4 @@ if ! command -v "$PANEL_JULIA" >/dev/null 2>&1; then
 fi
 echo "Starting PANDEATOR. First use may install dependencies and compile packages."
 echo "The browser opens after server warm-up. Keep this terminal open; Ctrl+C stops it."
-exec "$PANEL_JULIA" --startup-file=no --threads=1 "$REPO_ROOT/__Start here!__/julia_tools/launch.jl" solver "$REPO_ROOT" "$APP_DIR/panel_launch.jl" "$@"
+exec "$PANEL_JULIA" --startup-file=no --threads=1 "$REPO_ROOT/utils/julia_tools/launch.jl" solver "$REPO_ROOT" "$APP_DIR/panel_launch.jl" "$@"

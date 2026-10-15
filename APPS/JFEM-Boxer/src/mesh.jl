@@ -538,7 +538,7 @@ function leading_edge_summary(m::Model)
         "active_ribs"=>layout.active_ribs,"mesh_present"=>!isempty(layout.active_bays)))
     reference=leading_edge_reference(m.wing,m.params)
     result["inboard_front_spar_tangent"]=collect(reference.tangent)
-    result["angle_reference_note"]="Common root front-spar segment, outboard tangent toward nose in plan view; 90 degrees perpendicular. Physical rib/bay indices refer to front-spar attachments. Closure angles are not clipped at the root or tip."
+    result["angle_reference_note"]="Local front-spar segment at the rib attachment, outboard tangent toward nose in plan view; 90 degrees perpendicular. At a kink the selected inboard/outboard side supplies the tangent. Physical rib/bay indices refer to front-spar attachments. Closure angles are not clipped at the root or tip."
     orientations=leading_edge_orientation_metadata(m)
     result["ribs"]=orientations
     result["fallback_ribs"]=[row["rib"] for row in orientations if get(row,"fallback",false)]
@@ -1121,7 +1121,7 @@ function model_info(m::Model, n_str_bays::Int, n_rib_bays::Int)
     if p["leading_edge.enabled"]
         layout=leading_edge_layout(p,length(g.ribs))
         orientation=get(p,"leading_edge.rib_orientation","flight_direction")=="flight_direction" ?
-            "Line of flight" : "$(p["leading_edge.rib_angle"]) deg to common inboard front-spar segment"
+            "Line of flight" : "$(p["leading_edge.rib_angle"]) deg to local front-spar segment"
         push!(info,("Leading-edge rib orientation",orientation))
         push!(info,("Leading-edge physical ribs","$(layout.first_rib) to $(layout.last_rib)"))
         push!(info,("Leading-edge active bays",isempty(layout.active_bays) ? "None (all selected bays disabled)" : join(layout.active_bays,", ")))

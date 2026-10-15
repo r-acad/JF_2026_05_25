@@ -15,7 +15,7 @@ and creates the shared sysimage automatically. Then double-click a launcher:
 [PANDEATOR guide](PANDEATOR_APP/PANEL_APP_README.md) |
 [Results-viewer controls](JFEM_results_viewer/POST_GUIDE.html)
 
-![JFEM-Boxer model](<../__Start here!__/images/fgen-model.png>)
+![JFEM-Boxer model](<../utils/images/fgen-model.png>)
 
 Keep the full `APPS/` tree together. The two result viewers share `jfem_binary.js`,
 including static-preload and buckling-mode output support. JFEM-Boxer and PANDEATOR

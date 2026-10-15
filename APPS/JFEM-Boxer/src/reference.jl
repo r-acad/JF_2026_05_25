@@ -303,6 +303,9 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
     println(io, "ECHO = NONE")
     println(io, "DISPLACEMENT(PLOT) = ALL")
     println(io, "SPCFORCES(PLOT) = ALL")
+    if sol=="105" && (get(p,"output.buckling_deformation_energy",false) || get(p,"output.buckling_energy_density",false))
+        println(io,"ESE(PLOT) = ALL")
+    end
     if sol == "103"
         comment!(io, "SOL 103 computes common unloaded normal modes; load cases below are not applied")
         println(io, "STRESS(PLOT) = ALL")
@@ -349,9 +352,7 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
     card!(io, "PARAM", ("AUTOSPC", "YES"))
     card!(io, "PARAM", ("WTMASS", 1.0))
     if sol=="105"
-        for (name,key) in (("JFBKDEN","output.buckling_energy_density"),("JFBKENG","output.buckling_deformation_energy"),("JFBKCOMP","output.buckling_compact"))
-            get(p,key,false)&&println(io,"PARAM,",name,",1")
-        end
+        get(p,"output.buckling_compact",false)&&println(io,"PARAM,JFBKCOMP,1")
     end
     follower_enabled=any(c->get(c.params,"loads.follower_forces",false),
         frozen_load_cases===nothing ? case_loads(m) : frozen_load_cases)

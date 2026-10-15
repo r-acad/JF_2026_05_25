@@ -117,11 +117,13 @@ const SCHEMA = ParamSpec[
               help = "Structural skins from the nose to the front spar, between the selected physical ribs. Shares front-spar nodes and includes a closing rib at both ends"),
     ParamSpec("leading_edge.rib_orientation", "Leading-edge rib orientation", :choice, "flight_direction", "Leading edge";
               choices = ["flight_direction", "front_spar_angle"],
-              help = "Line of flight keeps the existing constant-span ribs. Front-spar angle uses the same inboard/root spar segment as the reference for every leading-edge rib"),
-    ParamSpec("leading_edge.rib_angle", "Rib angle to inboard front spar", :float, 90.0, "Leading edge"; unit = "deg",
-              help = "Plan-view angle from the root front-spar segment's outboard tangent toward the nose; 90 degrees is perpendicular. Uses the same reference for all ribs. Rib planes hinge on the existing front-spar nodes. Angled closure ribs must reach the nose inside the lifting surface; choose interior first/last ribs or adjust the angle if a closure would leave the lifting surface"),
+              help = "Line of flight keeps the existing constant-span ribs. Front-spar angle uses the local front-spar segment at each rib attachment. At a spar kink, select the inboard or outboard segment"),
+    ParamSpec("leading_edge.rib_angle", "Rib angle to local front spar", :float, 90.0, "Leading edge"; unit = "deg",
+              help = "Plan-view angle from the local front-spar segment at the rib attachment, measured from its outboard tangent toward the nose; 90 degrees is perpendicular. The kink-side selection resolves an attachment exactly at a spar breakpoint. Rib planes hinge on the existing front-spar nodes. Angled closure ribs must reach the nose inside the lifting surface; choose interior first/last ribs or adjust the angle if a closure would leave the lifting surface"),
+    ParamSpec("leading_edge.rib_kink_side", "Spar segment at a kink", :choice, "inboard", "Leading edge";
+              choices=["inboard","outboard"], help="When a leading-edge rib attaches exactly at a front-spar kink, use the inboard or outboard segment as its angle reference. Away from a kink the local segment is unambiguous. Individual rib overrides can select a different side."),
     ParamSpec("leading_edge.rib_orientations", "Individual leading-edge rib orientations", :riborientations, Any[], "Leading edge";
-              help = "Optional overrides by physical rib number: flight_direction or front_spar_angle and angle in degrees. Unlisted ribs inherit the global leading-edge setting. The common inboard front-spar segment is the angle reference"),
+              help = "Optional overrides by physical rib number: flight_direction or front_spar_angle and angle in degrees. Unlisted ribs inherit the global leading-edge setting. The local front-spar segment at each attachment is the angle reference; optional kink_side selects inboard or outboard at a kink, otherwise the global side is inherited"),
     ParamSpec("leading_edge.start_rib", "First leading-edge rib", :int, 1, "Leading edge";
               help = "Physical rib number at the inboard end; rib 1 is the root. Shell mesh subdivisions do not change the numbering"),
     ParamSpec("leading_edge.end_rib", "Last leading-edge rib", :int, 0, "Leading edge";
@@ -298,10 +300,10 @@ const SCHEMA = ParamSpec[
     ParamSpec("output.buckling_max_factor", "Buckling search limit", :float,
               50.0, "Analysis"; unit = "x load",
               help = "EIGRL V2: upper bound of the SOL105 buckling search. The generated lower bound V1 is 1e-6. Both bounds are dimensionless multipliers of each case's static preload, not frequencies in Hz. Raise this upper bound to widen the search if the run finds no roots"),
-    ParamSpec("output.buckling_deformation_energy", "Export element deformation energy", :bool, false, "Analysis";
-              help = "SOL105: export true element strain energy, one half of uᵀ Kₑ u, for the static preload and each buckling mode separately. Preload energy is in joules for SI inputs. Modal energy depends on the solver eigenvector normalization and is not energy at a physical buckling displacement. Unsupported elements are identified, never assigned a stress-based proxy. Compact eigenvalue output takes precedence"),
-    ParamSpec("output.buckling_energy_density", "Export element energy density", :bool, false, "Analysis";
-              help = "SOL105: export element deformation energy divided by physical element volume, in J/m³ for SI inputs, for the preload and each normalized mode separately. Shell volume includes physical thickness; beam volume includes cross-section area. This is an element average of true energy, not a stress-based proxy. Modal values scale with the square of the chosen eigenvector amplitude. Compact eigenvalue output takes precedence"),
+    ParamSpec("output.buckling_deformation_energy", "Export element strain energy and density (ESE)", :bool, false, "Analysis";
+              help = "Writes the standard Case Control request ESE(PLOT) = ALL before the subcases. SOL105 exports both element strain energy (one half of uᵀ Kₑ u) and energy divided by physical element volume, separately for the static preload and each buckling mode. Units are J and J/m³ for N-m inputs. Modal energy scales with eigenvector amplitude squared and is not physical postbuckling energy. In imported decks, ESE = NONE suppresses output in that scope; ESE = n selects Case Control SET n. Compact eigenvalue output takes precedence"),
+    ParamSpec("output.buckling_energy_density", "Legacy energy-density selection", :bool, false, "Analysis";
+              help = "Old Study setting, migrated to the combined ESE strain-energy and density request"),
     ParamSpec("output.buckling_compact", "Only eigenvalues and peak-node properties", :bool, false, "Analysis";
               help = "Writes PARAM,JFBKCOMP,1, an optional JFEM-specific output request (not a material, stiffness or buckling-accuracy parameter). JFBKCOMP means JFEM buckling compact output. Use it for small reports or repeated studies needing only eigenvalues and the properties at each mode's largest translation. It retains each eigenvalue, preload/subcase identity, tied maximum-translation GRID IDs (relative tolerance 1e-6) and the property IDs of directly attached elements; rotations are excluded from the peak measure. The solve and eigenvalues are unchanged and eigenvectors are still computed internally. Compact output omits exported mode vectors, preload fields and energy data, so deformation and contour viewing are unavailable. Leave this off (or omit the PARAM, or set it to 0) for normal graphical results. Default off"),
     ParamSpec("output.include_aero_shells", "Export aero shells", :bool, false,
@@ -458,12 +460,14 @@ function normalize_rib_tables(value, key::AbstractString; end_eta::Real=1.0)
         raw isa AbstractDict || throw(ArgumentError("$key row $index must be a table"))
         all(k->k isa AbstractString||k isa Symbol,keys(raw))||throw(ArgumentError("$key row $index has invalid field names"))
         row=Dict(String(k)=>v for (k,v) in raw)
-        allowed=master ? Set(["eta","mode","angle","pitch"]) : Set(["rib","mode","angle"])
+        allowed=master ? Set(["eta","mode","angle","pitch"]) : Set(["rib","mode","angle","kink_side"])
         all(k->k in allowed,keys(row)) || throw(ArgumentError("$key row $index has unsupported fields"))
         field=master ? "eta" : "rib"
         for required in (master ? (field,"mode","pitch") : (field,"mode"))
             haskey(row,required)||throw(ArgumentError("$key row $index needs $required"))
         end
+        !master && haskey(row,"kink_side") && !(row["kink_side"] in ("inboard","outboard")) &&
+            throw(ArgumentError("$key row $index kink_side must be inboard or outboard"))
         get!(row,"angle",90.0)
         modes=master ? ("flight_direction","rear_spar_angle") : ("flight_direction","front_spar_angle")
         row["mode"] in modes || throw(ArgumentError("$key row $index mode must be $(join(modes," or "))"))
@@ -613,6 +617,8 @@ function normalize_params(flat::AbstractDict)
         p[key] = spec.kind in (:planformpoints,:masterribs,:riborientations) ? v : coerce_value(spec, v)
     end
     p["loads.structure_inertia"] && pop!(p,"structure_inertia_migration_note",nothing)
+    p["output.buckling_deformation_energy"] |= p["output.buckling_energy_density"]
+    p["output.buckling_energy_density"] = false
     for spec in SCHEMA
         spec.kind === :planformpoints || continue
         p[spec.key] = normalize_planform_points(p[spec.key], spec.key; nominal=point_nominal(p, spec.key))
@@ -689,8 +695,10 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
     p["leading_edge.end_rib"] >= 0 || throw(ArgumentError("leading_edge.end_rib must be 0 (the final rib) or a positive rib number"))
     get(p,"leading_edge.rib_orientation","flight_direction") in ("flight_direction","front_spar_angle") ||
         throw(ArgumentError("leading_edge.rib_orientation must be flight_direction or front_spar_angle"))
+    get(p,"leading_edge.rib_kink_side","inboard") in ("inboard","outboard") ||
+        throw(ArgumentError("leading_edge.rib_kink_side must be inboard or outboard"))
     0.0 < p["leading_edge.rib_angle"] < 180.0 ||
-        throw(ArgumentError("leading_edge.rib_angle must be strictly between 0 and 180 degrees; 90 is perpendicular to the inboard front spar"))
+        throw(ArgumentError("leading_edge.rib_angle must be strictly between 0 and 180 degrees; 90 is perpendicular to the local front spar"))
     leading_edge_disabled_bays(p)
     0 <= p["fuel.fill_fraction"] <= 1 || throw(ArgumentError("fuel.fill_fraction must be between 0 (empty) and 1 (full)"))
     0 <= p["loads.fuel_percent"] <= 100 || throw(ArgumentError("Fuel status must be between 0% and 100%"))

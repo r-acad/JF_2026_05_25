@@ -19,7 +19,7 @@
 
 # Bootstrap before loading external packages, including direct panel_server use.
 if !isdefined(@__MODULE__, :JFEMEnvironmentSetup)
-    include(joinpath(@__DIR__, "..", "..", "__Start here!__", "julia_tools", "environment_setup.jl"))
+    include(joinpath(@__DIR__, "..", "..", "utils", "julia_tools", "environment_setup.jl"))
 end
 JFEMEnvironmentSetup.ensure_environment(normpath(joinpath(@__DIR__, "..", "..")))
 
@@ -41,8 +41,8 @@ const RUN_ROOT = abspath(get(ENV, "JFEM_PANEL_RUN_ROOT", _panel_default_run_root
 
 # Pull in the manifest batch runner so we reuse the exact production path
 # (export options, flags, .jfem + .BUCKLING.JSON + .REPORT.md writing).
-include(joinpath(REPO_ROOT, "__Start here!__", "julia_tools", "run_manifest.jl"))
-include(joinpath(REPO_ROOT, "__Start here!__", "julia_tools", "manifest_batch_core.jl"))
+include(joinpath(REPO_ROOT, "utils", "julia_tools", "run_manifest.jl"))
+include(joinpath(REPO_ROOT, "utils", "julia_tools", "manifest_batch_core.jl"))
 
 # Serialize solver work: one run at a time through the single process.
 const SOLVE_LOCK = ReentrantLock()

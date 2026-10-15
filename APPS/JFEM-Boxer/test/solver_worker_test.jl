@@ -7,7 +7,7 @@ length(ARGS)==1 || ARGS[2]=="--native" || error("Unknown test option")
 const OUTPUT=abspath(ARGS[1]);mkpath(OUTPUT)
 const APP=dirname(@__DIR__)
 const REPO=normpath(joinpath(APP,"..",".."))
-const BASE_DECK=read(joinpath(REPO,"__Start here!__","examples","precompile","sol101_adjoint_shell.bdf"),String)
+const BASE_DECK=read(joinpath(REPO,"utils","examples","precompile","sol101_adjoint_shell.bdf"),String)
 const RECORDS=Any[]
 
 function wait_until(predicate;seconds=120.)
@@ -29,7 +29,7 @@ function make_job(name;deck=BASE_DECK,formats="jrs",timeout=10.,solution="101")
     # The viewer model is stable; a bad deck tests solver failure without
     # requiring the viewer parser to accept an unsupported SOL.
     invalid=occursin("SOL 999",deck)
-    native=OpenJFEM.bdf_to_model(invalid ? joinpath(REPO,"__Start here!__","examples","precompile","sol101_adjoint_shell.bdf") : path)
+    native=OpenJFEM.bdf_to_model(invalid ? joinpath(REPO,"utils","examples","precompile","sol101_adjoint_shell.bdf") : path)
     source=W.imported_source(Dict("name"=>basename(path),"text"=>invalid ? BASE_DECK : deck))
     model=W.imported_model(native,source,params)
     W.prepare_jfem_job(model,params,APP,path,name)
@@ -99,7 +99,7 @@ suite=@testset "Persistent Boxer FE worker" begin
 
                 for (solution,filename) in (("103","sol103_quad_modes.bdf"),
                         ("105","sol105_quad_buckling.bdf"),("106","sol106_quad_nonlinear.bdf"))
-                    deck=read(joinpath(REPO,"__Start here!__","examples","precompile",filename),String)
+                    deck=read(joinpath(REPO,"utils","examples","precompile",filename),String)
                     mixed=make_job("native_sol"*solution;deck,formats="s",solution)
                     W.launch_jfem_process!(mixed);wait_job(mixed)
                     @test mixed.state===:done

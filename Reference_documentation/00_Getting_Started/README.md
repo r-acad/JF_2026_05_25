@@ -13,4 +13,4 @@ what it accelerates and when to rebuild it.
 
 For further theory and application references, see the [documentation index](../README.md).
 
-![JFEM-Boxer Study Options: choose Start new study after opening the app](<../../__Start here!__/images/fgen-start.png>)
+![JFEM-Boxer Study Options: choose Start new study after opening the app](<../../utils/images/fgen-start.png>)

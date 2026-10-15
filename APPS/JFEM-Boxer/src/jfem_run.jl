@@ -991,9 +991,22 @@ function nonlinear_case_convergence(d::AbstractDict, sid::Int)
 end
 
 """Explicit model support reactions in BASIC coordinates; omit AUTOSPC elsewhere."""
-function support_reactions_payload(m::Model,d::AbstractDict)
+function support_reactions_payload(m::Model,d::AbstractDict;native_sid=nothing)
     rows=get(d,"spc_forces",nothing)
     idx=grid_index_map(m);supports=Set(m.spc)
+    # Reactions belong to the solved static subcase, including a SOL105
+    # STATSUB preload. The importer facade contains a union of all SPC sets;
+    # it must not admit AUTOSPC reactions at another case's explicit supports.
+    sid=get(d,"static_subcase_id",native_sid)
+    if sid!==nothing&&is_imported_model(m)
+        cases=get(m.params,"imported.cases",Any[])
+        mapping=get(m.params,"imported.analysis_cases",Dict{Int,Int}())
+        selected=findfirst(row->Int(row["id"])==Int(sid),cases)
+        selected===nothing&&(selected=findfirst(row->get(mapping,Int(row["id"]),Int(row["id"]))==Int(sid),cases))
+        if selected!==nothing&&haskey(cases[selected],"spc")
+            supports=Set(Int(entry["node"])+1 for entry in get(cases[selected]["spc"],"assignments",Any[]))
+        end
+    end
     nodes=Int[];ids=Int[];forces=Float64[];moments=Float64[]
     seen=Set{Int}()
     for row in (rows isa AbstractVector ? rows : Any[])
@@ -1554,7 +1567,7 @@ function jfem_case_results_payload(job::JfemJob, path::AbstractString, d::Abstra
             push!(summary, Any["Final relative residual", string(convergence["final_relative_residual"])])
         end
         if available
-        reactions=support_reactions_payload(m,d)
+        reactions=support_reactions_payload(m,d;native_sid)
         disp, mx = gather_translations(get(d, "displacements", Any[]), idx, n)
         static = Dict{String,Any}(
             "disp" => blob_f32(disp),
