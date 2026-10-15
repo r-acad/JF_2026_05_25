@@ -69,7 +69,7 @@ function imported_sensitivity_catalog(m)
             add("reference.MAT1#$mid#$field","MAT1 $mid: $label",get(mat,nativekey,0.)/scale,unit,owners,"material.$field",directions)
         end
     end
-    Dict{String,Any}("variables"=>variables,"max_variables"=>4096,"cases"=>m.params["imported.cases"],"objectives"=>SENSITIVITY_OBJECTIVES,"solutions"=>sensitivity_solutions(m),"surfaces"=>["z1","z2"],"method"=>"analytic_discrete_adjoint",
+    Dict{String,Any}("variables"=>variables,"max_variables"=>length(variables),"cases"=>m.params["imported.cases"],"objectives"=>SENSITIVITY_OBJECTIVES,"solutions"=>sensitivity_solutions(m),"surfaces"=>["z1","z2"],"method"=>"analytic_discrete_adjoint",
         "note"=>"Choose the sensitivity solution independently of the source deck: SOL101 displacement/stress, SOL103 modal eigenvalue, SOL105 buckling factor, or SOL106 final-load displacement. Original loads, masses and constraints are retained; a buckling subcase uses its STATSUB preload case. SOL105 includes the static-preload adjoint. Supported variables include PSHELL thickness, proportional isotropic PCOMP thickness, MAT1 E/nu/density and T/BAR/ROD PBARL dimensions. Material G must satisfy E/(2(1+nu)); E/nu derivatives maintain that isotropic relation. SOL106 uses the exact residual Jacobian of the supported geometric nonlinear branch and requires fixed-direction loads and homogeneous constraints. Unsupported formulations and load tangents report explicit errors; no finite-difference fallback. Imported values must use consistent SI units for the displayed units.")
 end
 
@@ -343,6 +343,8 @@ function compute_imported_sensitivity(m,raw,dir;native,solve,progress,cancelled)
         "baseline_model_signature"=>sensitivity_model_signature(m),"baseline_model_signature_version"=>2,"baseline_topology_signature"=>sensitivity_topology_signature(m),"scope"=>sensitivity_scope(m,variables),"load_application_version"=>IMPORTED_LOAD_VERSION,"result_format_version"=>2,"imported_signature"=>m.params["imported.source"]["signature"],
         "compatibility"=>Dict("model_match"=>true,"topology_match"=>true,"load_application_match"=>true,"is_current"=>true,"map_allowed"=>true,"reasons"=>String[],"current_load_application_version"=>IMPORTED_LOAD_VERSION),
         "baseline"=>Dict("value"=>base.value,"unit"=>base.unit,"mode"=>base.mode),"baseline_analysis"=>metadata,"rows"=>rows,"solver_counts"=>counts,"diagnostics"=>sensitivity_context_get(context,"diagnostics",Dict()),"operator_samples_planned"=>0,"operator_samples_completed"=>0,"warnings"=>String[],"notes"=>notes)
+    checkpoint=sensitivity_result_checkpoint(dir,result)
+    sensitivity_checkpointed(checkpoint) do
     for (i,d) in enumerate(variables)
         report("Analytic imported property $i/$(length(variables)): $(d["label"])","analytic_derivatives")
         row=Dict{String,Any}(key=>d[key] for key in ("id","label","value","unit","pids","field_key","field_label"));row["derivative_unit"]=base.unit*" / "*d["unit"];row["step_error"]=nothing
@@ -358,9 +360,10 @@ function compute_imported_sensitivity(m,raw,dir;native,solve,progress,cancelled)
             cancelled()&&rethrow()
             merge!(row,Dict("derivative"=>nothing,"normalized_derivative"=>nothing,"status"=>"failed","warning"=>sprint(showerror,err)))
         end
-        push!(rows,row);completed[]+=1;sensitivity_json_write(joinpath(dir,"partial_result.json"),result)
+        push!(rows,row);completed[]+=1;checkpoint()
     end
     result["status"]=all(row->row["status"]=="ok",rows) ? "complete" : "partial";result["timings_seconds"]=Dict("total"=>time()-started)
     report("Imported SOL$sol analytic sensitivity $(result["status"]): one baseline, $(counts["adjoint_solves"]) adjoint solves, zero finite differences","complete")
     result
+    end
 end

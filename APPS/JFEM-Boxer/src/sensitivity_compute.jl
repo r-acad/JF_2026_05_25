@@ -20,6 +20,44 @@ sensitivity_context_get(context,key,default=nothing)=context isa AbstractDict ? 
 # precision. Avoid exposing binary tails such as 0.0022110000000000003.
 sensitivity_progress_number(value::Real)=abs(value)>=100 ? @sprintf("%.2f",value) : @sprintf("%.8g",value)
 
+"""Publish recoverable derivative rows without rewriting the full result per row.
+
+Count-based writes scale to at most roughly 100 snapshots for a large study;
+time-based writes retain progress for slower derivatives. Initial/final writes
+are explicit so completion metadata and even short runs are always retained.
+"""
+function sensitivity_result_checkpoint(dir,result;row_interval=max(128,cld(length(get(get(result,"request",Dict()),"variables",Any[])),100)),
+                                       seconds_interval=2.,clock=time,write_result=sensitivity_json_write)
+    row_interval>0&&seconds_interval>0||throw(ArgumentError("Checkpoint intervals must be positive"))
+    last_rows=Ref(-1);last_time=Ref(-Inf)
+    function checkpoint(;force=false)
+        count=length(result["rows"]);now=clock()
+        if !force
+            count==last_rows[]&&return false
+            count-last_rows[]<row_interval&&now-last_time[]<seconds_interval&&return false
+        end
+        write_result(joinpath(dir,"partial_result.json"),result)
+        last_rows[]=count;last_time[]=clock()
+        true
+    end
+end
+
+function sensitivity_checkpointed(compute,checkpoint)
+    checkpoint(;force=true)
+    result=try
+        compute()
+    catch
+        # Retain every completed row on cooperative cancellation or failure.
+        # A checkpoint problem must not replace the original solver exception.
+        try checkpoint(;force=true) catch failure
+            @warn "Could not preserve final sensitivity checkpoint" exception=failure
+        end
+        rethrow()
+    end
+    checkpoint(;force=true)
+    result
+end
+
 """Discrete adjoint sensitivities of the complete assembled wing equations.
 
 Only the baseline calls `solve`. Analytic mode contracts exact element chain
@@ -132,6 +170,8 @@ function compute_sensitivity(m,raw,dir;native=nothing,solve,progress=(data)->not
             "Normalized derivative = property / baseline response times derivative; undefined at zero baseline. E is measured in GPa. The property-effect map repeats a property's shared scalar response effect on its governed elements; it is not an element-local sensitivity field."])
     sensitivity_json_write(joinpath(dir,"baseline_response.json"),result["baseline"])
     nonlinear&&push!(result["notes"],"SOL106 differentiates the accepted full-load equilibrium of the selected legacy_geometric formulation, including the prestress-state derivative in its generally nonsymmetric residual Jacobian. It does not substitute a SOL101 solution or differentiate the nonlinear iteration matrix.")
+    checkpoint=sensitivity_result_checkpoint(dir,result)
+    sensitivity_checkpointed(checkpoint) do
     for (index,d) in enumerate(variables)
         if analytic
             merge!(property_progress,Dict("index"=>index,"sample"=>0,"samples"=>0,"id"=>d["id"],"label"=>d["label"],"unit"=>d["unit"]))
@@ -152,7 +192,7 @@ function compute_sensitivity(m,raw,dir;native=nothing,solve,progress=(data)->not
             end
             for key in ("panel_key","component_key","field_key","field_label","inherited","layout_token");haskey(d,key)&&(row[key]=d[key]);end
             push!(rows,row);completed[]+=1
-            sensitivity_json_write(joinpath(dir,"partial_result.json"),result)
+            checkpoint()
             continue
         end
         stencil=stencils[index];x=d["value"];h=stencil.h
@@ -206,13 +246,14 @@ function compute_sensitivity(m,raw,dir;native=nothing,solve,progress=(data)->not
         for key in ("panel_key","component_key","field_key","field_label","inherited","layout_token")
             haskey(d,key)&&(last(rows)[key]=d[key])
         end
-        sensitivity_json_write(joinpath(dir,"partial_result.json"),result)
+        checkpoint()
     end
     result["status"]=all(r->r["status"]!="failed",rows) ? "complete" : "partial"
     timings["total"]=time()-started;result["operator_samples_completed"]=operator_completed[]
     total=completed[]
     report(analytic ? "Analytic adjoint study $(result["status"]): $(counts["forward_solves"]) baseline analysis, $(counts["adjoint_solves"]) shared adjoint solves, $(counts["analytic_property_derivatives"]) exact property derivatives; zero finite-difference samples" : "Adjoint study $(result["status"]): $(counts["forward_solves"]) baseline analysis, $(counts["adjoint_solves"]) shared adjoint solves, $(operator_completed[]) property operator samples; zero perturbed forward solves","complete")
     return result
+    end
 end
 
 function sensitivity_stencil(m,d,step)

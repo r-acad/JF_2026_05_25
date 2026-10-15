@@ -18,7 +18,10 @@
 #sensitivity-context{line-height:1.5;overflow-wrap:anywhere}
 .sensitivity-recovery{margin:0 0 10px;border-color:#6fbaff!important;color:#d8edff!important}
 #app[data-maximized-pane=sensitivity]>.sensitivity-recovery,#app[data-maximized-pane=sensitivity] #sensitivity-editor>.sensitivity-recovery{grid-column:1/-1;justify-self:start}
-#sensitivity-variables{max-height:340px;overflow:auto;margin-top:7px}
+#sensitivity-variables{position:relative;max-height:340px;overflow:auto;margin-top:7px}
+.sensitivity-variable-window{position:relative}
+.sensitivity-variable-virtual{position:absolute;left:0;right:0;height:64px;box-sizing:border-box}
+.sensitivity-variable-virtual span{width:100%}.sensitivity-variable-virtual strong,.sensitivity-variable-virtual small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sensitivity-variable{display:flex;gap:9px;align-items:flex-start;padding:7px 3px;border-bottom:1px solid #2a3a47;font-size:12px}
 .sensitivity-variable input{margin-top:3px;flex:none}.sensitivity-variable span{min-width:0;overflow-wrap:anywhere}
 .sensitivity-variable small{display:block;color:#a4b7c8;margin-top:3px}

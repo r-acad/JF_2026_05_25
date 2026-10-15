@@ -49,10 +49,10 @@
   }
   return{valid:true,error:'',test:variable=>{const text=[variable.id,variable.label,variable.group,variable.kind,variable.field_label,variable.panel_key,...(variable.pids||[]).map(id=>'PID '+id)].filter(value=>value!=null).join(' ');return!pattern||(regex?regex.test(text):text.toLowerCase().includes(pattern.toLowerCase()));}};
  }
- function addMatchingVariables(selected,variables,filter,limit){
-  const values=new Set(selected);let omitted=0;
-  for(const variable of variables){if(!filter.test(variable)||values.has(variable.id))continue;if(values.size>=limit){omitted++;continue;}values.add(variable.id);}
-  return{values:Array.from(values),omitted};
+ function addMatchingVariables(selected,variables,filter){
+  const values=new Set(selected);
+  for(const variable of variables)if(filter.test(variable))values.add(variable.id);
+  return{values:Array.from(values)};
  }
  // Normalize only the editable setup. Completed result requests are historical
  // records and must never acquire derivatives they did not actually compute.
@@ -73,7 +73,8 @@
    // checkbox already provides the corresponding individual selection control.
    const key=JSON.stringify([ids,info.field_key||null]);if(info.index!==undefined||seen.has(key))continue;seen.add(key);aliases.push(alias);
   }
-  return{variables:source.filter(row=>!Object.hasOwn(replacements,row.id)),aliases,aliasesByMember};
+  const variables=source.filter(row=>!Object.hasOwn(replacements,row.id));
+  return{variables,ids:new Set(variables.map(row=>row.id)),aliases,aliasesByMember};
  }
  function create(host,options){
   const doc=host.ownerDocument;let config=defaults(),catalog=null,catalogSignature=null,catalogMesh=null,busy=false,loading=false,result=null,resultSignature=null,lastContext=null,timer=null,started=0,resultSetup=null,runSetup=null,invalidStep=false,catalogRequested=false,autoAttempt=null,readGeneration=0;
@@ -99,6 +100,7 @@
   const removeShown=make('button','mini','Remove matches');removeShown.id='sensitivity-remove-matches';removeShown.type='button';removeShown.title='Remove matching properties from the selection; keep selections hidden by this filter.';selectShown.after(removeShown);
   const addComponents=make('button','mini panel-table-open','Add component variables');addComponents.id='sensitivity-add-components';addComponents.type='button';addComponents.title='Add independent dimensions for every spar-web/cap and leading-edge skin bay, and each rib web/stiffener and leading-edge rib. Preserves current selections and does not start an analysis.';removeShown.after(addComponents);
   const componentSelectionNote=make('p','pick-note');componentSelectionNote.id='sensitivity-component-selection';el('variable-count').after(componentSelectionNote);
+  const variableRange=make('p','pick-note');variableRange.id='sensitivity-variable-range';variableRange.hidden=true;el('variables').before(variableRange);
   const filterRow=make('div','sensitivity-filter-row'),filterMode=make('select');filterMode.id='sensitivity-filter-mode';filterMode.setAttribute('aria-label','Property filter type');
   for(const [value,label]of [['wildcard','Wildcards'],['text','Text'],['regex','Regex']]){const item=make('option','',label);item.value=value;filterMode.append(item);}
   el('filter').placeholder='Examples: P* or P_ · *skin* · *bar*lower*';
@@ -115,7 +117,8 @@
   const saved=make('details','sensitivity-saved');saved.innerHTML='<summary title="Reopen sensitivity runs already stored in the configured output folder, without solving again.">Saved sensitivity results</summary><p class="pick-note">Reopen a completed run from the output folder without solving again. Study files keep the setup; these saved runs keep calculated derivatives. Opening one leaves your current setup unchanged. Results from a different model or load setup are marked historical; property maps require the matching FEM.</p><div class="hud-row"><button id="sensitivity-saved-refresh" class="mini" type="button" title="Search the current output folder again for completed sensitivity runs.">Refresh list</button><button id="sensitivity-saved-open" class="mini" type="button" title="Display the selected stored derivatives. This does not rerun the solver or replace your current sensitivity setup." disabled>Open result</button></div><label for="sensitivity-saved-select">Completed runs</label><select id="sensitivity-saved-select" aria-label="Saved sensitivity run" title="Choose a stored run by its recorded name, date and number of variables."><option value="">Expand this section to find saved runs</option></select><p id="sensitivity-saved-status" class="pick-note" role="status"></p>';
   saved.hidden=!options.listRuns||!options.loadRun;el('results').before(saved);
   saved.ontoggle=()=>{if(saved.open&&!savedRuns.length&&!savedBusy)refreshSavedRuns();};
-  function variableLimit(){return Number.isInteger(catalog?.max_variables)&&catalog.max_variables>0?catalog.max_variables:256;}
+  // Capacity comes from this FEM's independent variables, never a legacy cap.
+  function variableCapacity(){return selection.ids.size;}
   function matchesFilter(variable){return filter.test(variable)||(selection.aliasesByMember.get(variable.id)||[]).some(alias=>filter.test(alias));}
   function normalizeSetup(){const expanded=normalizeSelection(config.variables,catalog);config.variables=expanded.values;return expanded;}
   function migrationMessage(expanded){return expanded.aliases.length+' shared or legacy component selection'+(expanded.aliases.length===1?'':'s')+' expanded to '+expanded.localCount+' independent local dimensions; '+config.variables.length+' variables selected. The Study selection was updated. Click Run sensitivity to compute new results; saved results are unchanged.';}
@@ -140,17 +143,16 @@
    renderAnalysis();
    method.querySelector('[value="operator_differences"]').disabled=catalog?.imported===true||config.solution==='106';
    catalogNote.hidden=!catalog?.note;catalogNote.textContent=catalog?.note||'';
-   const limit=variableLimit(),count=config.variables.length,samples=(config.check_step?4:2)*count;
+   const capacity=variableCapacity(),selected=new Set(config.variables),count=selected.size,samples=(config.check_step?4:2)*count;
    const analytic=config.derivative_method==='analytic';host.firstElementChild.textContent=analytic?'Choose one load case, a scalar response and property variables. Analytic adjoints reuse the baseline and adjoint solutions and differentiate the actual element formulas by the chain rule. No property steps, perturbed decks or per-property equilibrium solves are needed. Results include response-change estimates, tables and colors.':'Discrete adjoints reuse the baseline and adjoint solutions. Legacy operator finite differences use property steps to differentiate the assembled matrices, loads and direct response terms. They do not run per-property equilibrium solves.';method.value=config.derivative_method;el('step').parentElement.hidden=analytic;el('check-step').parentElement.hidden=analytic;
    assemblyNote.textContent=analytic?'Exact element chain rules, including section offsets and structural inertia. No finite-difference step is used. Unsupported formulations are reported explicitly; there is no automatic fallback.':'The half-step check uses up to 4 operator assemblies per property instead of 2. The solved state and adjoint are reused.';
    const work=config.solution==='106'?'1 nonlinear equilibrium path + 1 final-state adjoint':config.objective.type==='frequency_eigenvalue'?'1 baseline eigen solve':config.objective.type==='buckling_factor'?'1 preload solve + 1 eigen solve + 1 preload adjoint':'1 baseline solve + 1 adjoint solve';
-   el('variable-count').textContent=count+' / '+limit+' variables · '+work+(analytic?' · '+count+' analytic property derivative'+(count===1?'':'s')+'. No perturbed decks.':' · up to '+samples+' property operator evaluations. No per-property full analyses.');
-   el('variable-count').classList.toggle('sensitivity-error',count>limit);
-   const variables=selection.variables,shown=variables.filter(matchesFilter),visibleSelected=shown.filter(v=>config.variables.includes(v.id)).length;
-   const components=variables.filter(v=>/^properties\.components#/.test(v.id)),selectedComponents=components.filter(v=>config.variables.includes(v.id)).length;
-   addComponents.hidden=!!catalog?.imported;addComponents.disabled=busy||loading||!components.length||count>=limit||selectedComponents===components.length;
+   el('variable-count').textContent=count+' selected / '+capacity+' available variables · '+work+(analytic?' · '+count+' analytic property derivative'+(count===1?'':'s')+'. No perturbed decks.':' · up to '+samples+' property operator evaluations. No per-property full analyses.');
+   const variables=selection.variables,shown=variables.filter(matchesFilter),visibleSelected=shown.filter(v=>selected.has(v.id)).length;
+   const components=variables.filter(v=>/^properties\.components#/.test(v.id)),selectedComponents=components.filter(v=>selected.has(v.id)).length;
+   addComponents.hidden=!!catalog?.imported;addComponents.disabled=busy||loading||!components.length||selectedComponents===components.length;
    componentSelectionNote.hidden=!components.length;componentSelectionNote.textContent=selectedComponents+' / '+components.length+' independent component dimensions selected. Family checkboxes select all matching bays or ribs, including local overrides. You can deselect individual dimensions. Click Run sensitivity to compute results for this selection.';
-   selectShown.disabled=busy||loading||!filter.valid||count>=limit||!shown.some(v=>!config.variables.includes(v.id));
+   selectShown.disabled=busy||loading||!filter.valid||!shown.some(v=>!selected.has(v.id));
    removeShown.disabled=busy||loading||!filter.valid||!visibleSelected;
    filterStatus.textContent=filter.valid?shown.length+' / '+variables.length+' properties match · '+count+' selected ('+visibleSelected+' shown, '+(count-visibleSelected)+' outside this filter).':filter.error;
    filterStatus.classList.toggle('sensitivity-error',!filter.valid);el('filter').setAttribute('aria-invalid',String(!filter.valid));clearFilter.disabled=!el('filter').value;
@@ -168,15 +170,27 @@
   }
   for(const [value,label]of SOLUTIONS){const option=make('option','',label);option.value=value;el('solution').append(option);}
   for(const [value,label]of TYPES){const option=make('option','',label);option.value=value;el('objective').append(option);}
-  function renderVariables(){filter=propertyFilter(el('filter').value,filterMode.value);const list=el('variables');list.replaceChildren();const variables=selection.variables;
-   const known=new Set(variables.map(v=>v.id)),missing=config.variables.filter(id=>!known.has(id));
+  function variableRow(variable,selectedIDs){
+    const ids=variable.selection_ids||[variable.id],selected=ids.filter(id=>selectedIDs.has(id)).length,family=!!variable.selection_ids;
+    const row=make('label','sensitivity-variable'),check=make('input');check.type='checkbox';check.value=variable.id;check.checked=selected===ids.length;check.indeterminate=selected>0&&selected<ids.length;check.disabled=busy||loading;if(family)check.dataset.selectionFamily='true';
+    check.onchange=()=>{const removed=new Set(ids);config.variables=check.checked?normalizeSelection([...config.variables,variable.id],catalog).values:config.variables.filter(id=>!removed.has(id));error('');changed();renderVariables();};
+    const text=make('span'),name=make('strong','',family?variable.label:labelOf(variable)),detail=make('small','',family?'Family selection · '+selected+' / '+ids.length+' independent local dimensions':displayed(variable.value,variable.unit||'')+(variable.group?' · '+variable.group:'')+(variable.element_count?' · '+variable.element_count+' elements':''));text.append(name,detail);row.append(check,text);row.title=[name.textContent,detail.textContent,family?variable.note||'Select all local dimensions in this family.':typeof variable.targets==='string'?variable.targets:'Property IDs: '+(variable.pids||[]).join(', ')].join('\n');return row;
+  }
+  function renderVariables(){filter=propertyFilter(el('filter').value,filterMode.value);const list=el('variables'),scrollTop=list.scrollTop,focused=list.contains(doc.activeElement)?doc.activeElement.value:null;list.onscroll=null;list.replaceChildren();const variables=selection.variables,selectedIDs=new Set(config.variables);
+   const missing=config.variables.filter(id=>!selection.ids.has(id));
    if(missing.length&&catalog){const note=make('p','sensitivity-error','Selected properties are no longer available: '+missing.join(', ')+'. Clear the selection or restore the model.');list.append(note);}
-   for(const variable of [...selection.aliases,...variables]){if(!matchesFilter(variable))continue;
-    const ids=variable.selection_ids||[variable.id],selected=ids.filter(id=>config.variables.includes(id)).length,family=!!variable.selection_ids;
-    const row=make('label','sensitivity-variable'),check=make('input');check.type='checkbox';check.value=variable.id;check.checked=selected===ids.length;check.indeterminate=selected>0&&selected<ids.length;check.disabled=busy||loading||(!check.checked&&!check.indeterminate&&config.variables.length>=variableLimit());if(family)check.dataset.selectionFamily='true';
-    check.onchange=()=>{const next=check.checked?normalizeSelection([...config.variables,variable.id],catalog).values:config.variables.filter(id=>!ids.includes(id));if(next.length>variableLimit()&&next.length>config.variables.length){error('This family would select '+next.length+' variables, exceeding the '+variableLimit()+'-variable limit. Select individual local dimensions or remove other selections.');renderVariables();return;}config.variables=next;error('');changed();renderVariables();};
-    const text=make('span'),name=make('strong','',family?variable.label:labelOf(variable)),detail=make('small','',family?'Family selection · '+selected+' / '+ids.length+' independent local dimensions':displayed(variable.value,variable.unit||'')+(variable.group?' · '+variable.group:'')+(variable.element_count?' · '+variable.element_count+' elements':''));text.append(name,detail);row.append(check,text);row.title=family?variable.note||'Select all local dimensions in this family.':typeof variable.targets==='string'?variable.targets:'Property IDs: '+(variable.pids||[]).join(', ');list.append(row);
-   }
+   const rows=[...selection.aliases,...variables].filter(matchesFilter);
+   variableRange.hidden=rows.length<=200;
+   if(rows.length>200){
+    // Keep DOM work bounded while selection always covers the complete catalogue.
+    const rowHeight=64,window=make('div','sensitivity-variable-window');window.style.height=rows.length*rowHeight+'px';list.append(window);list.scrollTop=scrollTop;let previousStart=-1,restoreFocus=focused;
+    const renderWindow=()=>{const start=Math.max(0,Math.floor((list.scrollTop-window.offsetTop)/rowHeight)-6),end=Math.min(rows.length,start+Math.max(18,Math.min(64,Math.ceil(list.clientHeight/rowHeight)+12)));if(start===previousStart)return;previousStart=start;
+     const active=list.contains(doc.activeElement)?doc.activeElement.value:restoreFocus;restoreFocus=null;window.replaceChildren();
+     for(let i=start;i<end;i++){const row=variableRow(rows[i],selectedIDs),check=row.querySelector('input');row.classList.add('sensitivity-variable-virtual');row.style.top=i*rowHeight+'px';check.dataset.variableIndex=i;window.append(row);if(rows[i].id===active)check.focus({preventScroll:true});}
+     variableRange.textContent='Rows '+(start+1)+'–'+end+' of '+rows.length+' matching entries. Scroll to browse; Add matches selects every matching variable.';
+    };list.onscroll=renderWindow;renderWindow();
+    window.onkeydown=event=>{if(event.key!=='Tab'||event.altKey||event.ctrlKey||event.metaKey||!event.target.matches('input'))return;const next=Number(event.target.dataset.variableIndex)+(event.shiftKey?-1:1);if(next<0||next>=rows.length||window.querySelector('[data-variable-index="'+next+'"]'))return;event.preventDefault();list.scrollTop=window.offsetTop+next*rowHeight;renderWindow();window.querySelector('[data-variable-index="'+next+'"]')?.focus({preventScroll:true});};
+   }else{for(const variable of rows){const row=variableRow(variable,selectedIDs);list.append(row);if(variable.id===focused)row.querySelector('input').focus({preventScroll:true});}list.scrollTop=scrollTop;}
    if(!variables.length)list.append(make('p','pick-note',config.variables.length?
     config.variables.length+' saved design variables selected. Their checkboxes will be restored when the current model properties are ready.':
     'Read the properties of the created FEM to select design variables.'));
@@ -266,10 +280,9 @@
    const ineligibleCase=caseReason(config.case_id,info);if(ineligibleCase)return{message:ineligibleCase+' Choose an eligible case.',action:'case',label:'Choose load case'};
    if(config.solution==='106'&&config.derivative_method!=='analytic')return{message:'SOL106 sensitivity requires the analytic final-state adjoint. Choose Analytic in Derivative method.'};
    if(catalog.imported&&config.derivative_method!=='analytic')return{message:'Imported Reference decks use analytic adjoints. Choose Analytic in Derivative method.'};
-   const missing=config.variables.filter(id=>!catalog.variables?.some(v=>v.id===id));
+   const missing=config.variables.filter(id=>!selection.ids.has(id));
    if(missing.length)return{message:missing.length+' selected '+(missing.length===1?'property is':'properties are')+' no longer present in this FEM. Remove unavailable selections or restore the earlier model.',action:'missing',label:'Remove unavailable selections'};
    if(!config.variables.length)return{message:'Select at least one property. Filter the list and use Add matches, or select individual checkboxes.'};
-   if(config.variables.length>variableLimit())return{message:'The selection exceeds '+variableLimit()+' variables. Remove some selections before running.'};
    if(invalidStep)return{message:'Correct the operator derivative step (0.01% to 10%), or choose the analytic method.'};
    const target=config.objective[objectiveType()[3]];
    if(!Number.isInteger(target)||target<1)return{message:'Enter a positive '+(objectiveType()[3]==='mode'?'mode number':'node or element ID')+' for the response, or use the inspected entity.',action:'target',label:'Set response target'};
@@ -280,7 +293,7 @@
    el('context').classList.toggle('sensitivity-error',!!(context.dirty||stale));
    el('context').dataset.blocked=String(!!blocker);host.dataset.sensitivityBusy=String(busy||loading||!!context.working);recoveryAction=blocker?.action||null;recovery.hidden=!recoveryAction;recovery.textContent=blocker?.label||'';recovery.disabled=busy||loading;
    const available=context.ready&&!context.dirty&&!context.blocked;el('refresh').disabled=busy||loading||!available;el('refresh').textContent=loading?'Reading properties…':'Refresh model properties';el('run').disabled=!!blocker;el('run').title=blocker?.message||'Run the selected sensitivity study';el('run').setAttribute('aria-describedby','sensitivity-context');
-   el('stop').hidden=!busy;for(const node of host.querySelectorAll('.sensitivity-setup input,.sensitivity-setup select,#sensitivity-clear,#sensitivity-use-pick'))node.disabled=busy||loading||(node.closest('#sensitivity-variables')&&!node.checked&&!node.indeterminate&&config.variables.length>=variableLimit());el('filter').disabled=false;filterMode.disabled=false;
+   el('stop').hidden=!busy;for(const node of host.querySelectorAll('.sensitivity-setup input,.sensitivity-setup select,#sensitivity-clear,#sensitivity-use-pick'))node.disabled=busy||loading;el('filter').disabled=false;filterMode.disabled=false;
    renderWork();
    if(context.dirty||result&&context.signature!==resultSignature)clearVisualization();syncPreviewButtons();syncSaved();
    el('status').classList.toggle('sensitivity-running',busy);
@@ -321,9 +334,9 @@
   el('step').onchange=()=>{const step=Number(el('step').value)/100;if(!Number.isFinite(step)||step<1e-4||step>.1){invalidStep=true;error('Choose an operator derivative step between 0.01% and 10%.');sync();return;}invalidStep=false;config.relative_step=step;error('');changed();};
   method.onchange=()=>{config.derivative_method=method.value;invalidStep=false;error('');changed();renderWork();sync();};
   el('check-step').onchange=()=>{config.check_step=el('check-step').checked;changed();renderVariables();};el('filter').oninput=renderVariables;filterMode.onchange=renderVariables;clearFilter.onclick=()=>{el('filter').value='';renderVariables();el('filter').focus();};el('clear').onclick=()=>{config.variables=[];changed();renderVariables();};el('refresh').onclick=readCatalog;
-  selectShown.onclick=()=>{if(!filter.valid||busy||loading)return;const added=addMatchingVariables(config.variables,selection.variables,{test:matchesFilter},variableLimit());config.variables=added.values;changed();renderVariables();if(added.omitted)error('The '+variableLimit()+'-variable limit was reached; '+added.omitted+' matching properties were not added. Existing selections were preserved.');};
+  selectShown.onclick=()=>{if(!filter.valid||busy||loading)return;config.variables=addMatchingVariables(config.variables,selection.variables,{test:matchesFilter}).values;changed();renderVariables();};
   removeShown.onclick=()=>{if(!filter.valid||busy||loading)return;const ids=new Set(selection.variables.filter(matchesFilter).map(v=>v.id));config.variables=config.variables.filter(id=>!ids.has(id));changed();renderVariables();};
-  addComponents.onclick=()=>{if(busy||loading||!catalog)return;const added=addMatchingVariables(config.variables,catalog.variables,{test:v=>/^properties\.components#/.test(v.id)},variableLimit());config.variables=added.values;changed();renderVariables();if(added.omitted)error('The '+variableLimit()+'-variable limit was reached; '+added.omitted+' component dimensions were not added. Existing selections were preserved. Select smaller component groups with the filter.');else el('status').textContent='Independent component dimensions added. Review the selection, then click Run sensitivity; existing results have not been recomputed.';};
+  addComponents.onclick=()=>{if(busy||loading||!catalog)return;config.variables=addMatchingVariables(config.variables,selection.variables,{test:v=>/^properties\.components#/.test(v.id)}).values;changed();renderVariables();el('status').textContent='Independent component dimensions added. Review the selection, then click Run sensitivity; existing results have not been recomputed.';};
   recovery.onclick=async()=>{const action=recoveryAction;if(action==='catalog')return readCatalog();if(action==='target'||action==='case'){el(action).focus();el(action).scrollIntoView({block:'center'});return;}if(action==='missing'){const known=new Set(catalog.variables.map(v=>v.id));config.variables=config.variables.filter(id=>known.has(id));changed();renderVariables();return;}if(action==='rebuild'){recovery.disabled=true;try{await options.rebuild();await readCatalog();}catch(e){error(e.message);}finally{sync();}}};
   el('use-pick').onclick=()=>{const id=options.inspected?.(objectiveType()[3]);if(!Number.isInteger(id)||id<1){error('Use Inspect to pick a matching node or element, then return here and press Use inspected entity.');return;}config.objective[objectiveType()[3]]=id;renderObjective();error('');changed();};
   el('run').onclick=async()=>{error('');const blocker=runBlocker(options.context?.()||{});if(blocker){error(blocker.message);sync();return;}try{runSetup=JSON.stringify(config);await options.run(JSON.parse(runSetup));}catch(e){error(e.message);}};

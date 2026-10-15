@@ -18,7 +18,9 @@ function sensitivity_analytic_prepare(native,context,wing,objective)
     geometric_contexts=kind=="buckling_factor" ? get(context,"geometric_contexts",nothing) : nothing
     kind=="buckling_factor"&&geometric_contexts===nothing&&(geometric_contexts=sensitivity_geometric_capture(native,op,state))
     structural_bays=kind=="frequency_eigenvalue"&&get(wing.params,"mass.structural_representation","distributed")=="bay_concentrated" ? structural_bay_mass_properties(wing) : nothing
-    (;op,groups,state,phi,adjoint,objective,features,feature_gradient,geometric_contexts,structural_bays,properties=model_property_definitions(wing),
+    properties=model_property_definitions(wing)
+    (;op,groups,state,phi,adjoint,objective,features,feature_gradient,geometric_contexts,structural_bays,properties,
+        properties_by_pid=Dict(property["pid"]=>property for property in properties),
         stringer_path=stringer_path(wing.grid.wing,wing.params))
 end
 
@@ -29,7 +31,7 @@ end
 
 function sensitivity_analytic_derivative(native,context,wing,d,cache;cancelled=()->false)
     started=time();op=cache.op;kind=cache.objective["type"]
-    directions=sensitivity_analytic_property_directions(wing,d;properties=cache.properties)
+    directions=sensitivity_analytic_property_directions(wing,d;properties=cache.properties,properties_by_pid=cache.properties_by_pid)
     isempty(directions)&&error("Property $(d["label"]) no longer controls an active element")
     ku=kp=mp=gp=explicit=0.;shells=bars=0;max_replay=0.
     bay_mass=get(wing.params,"mass.structural_representation","distributed")=="bay_concentrated"

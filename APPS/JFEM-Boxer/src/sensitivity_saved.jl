@@ -51,9 +51,15 @@ end
 
 function sensitivity_scope_variables!(scope,variables)
     scope["variables"]=Dict{String,Any}()
+    # Index once: independent panel variables usually touch just one property.
+    # Re-scanning every mesh group for each variable is quadratic on large models.
+    property_elements=Dict{Int,Vector{Int}}()
+    for g in scope["groups"]
+        append!(get!(property_elements,Int(g["pid"]),Int[]),Int.(g["eids"]))
+    end
     for d in variables
         pids=Int.(get(d,"pids",Int[]))
-        eids=sort!(unique([Int(eid) for g in scope["groups"] if g["pid"] in pids for eid in g["eids"]]))
+        eids=sort!(unique([eid for pid in pids for eid in get(property_elements,pid,Int[])]))
         scope["variables"][d["id"]]=Dict("pids"=>pids,"eids"=>eids,"element_count"=>length(eids))
     end
     scope
@@ -86,20 +92,20 @@ function sensitivity_saved_run(base,id)
     directory
 end
 
-function sensitivity_saved_file(directory,name,limit)
+function sensitivity_saved_file(directory,name,limit=nothing)
     path=joinpath(directory,name)
     isfile(path)||throw(ArgumentError("Saved sensitivity run has no $name"))
     sensitivity_same_path(dirname(realpath(path)),realpath(directory))||throw(ArgumentError("Saved sensitivity file points outside its run directory"))
-    filesize(path)<=limit||throw(ArgumentError("Saved sensitivity $name exceeds the supported size"))
+    limit===nothing||filesize(path)<=limit||throw(ArgumentError("Saved sensitivity $name exceeds the supported size"))
     path
 end
 
 function sensitivity_read_result(directory)
-    path=sensitivity_saved_file(directory,"result.json",64*1024*1024)
+    path=sensitivity_saved_file(directory,"result.json")
     result=JSON.parsefile(path)
     result isa AbstractDict&&get(result,"status","") in ("complete","partial")||throw(ArgumentError("This run has no completed sensitivity result"))
     rows=get(result,"rows",nothing)
-    rows isa AbstractVector&&1<=length(rows)<=4096||throw(ArgumentError("Saved sensitivity rows are invalid"))
+    rows isa AbstractVector&&!isempty(rows)||throw(ArgumentError("Saved sensitivity rows are invalid"))
     get(result,"objective",nothing) isa AbstractDict||throw(ArgumentError("Saved sensitivity objective is invalid"))
     for row in rows
         row isa AbstractDict&&get(row,"id",nothing) isa AbstractString||throw(ArgumentError("Saved sensitivity row is invalid"))
@@ -108,7 +114,7 @@ function sensitivity_read_result(directory)
             value===nothing||(value isa Real&&!(value isa Bool)&&isfinite(value))||throw(ArgumentError("Saved sensitivity $key is not finite"))
         end
         pids=get(row,"pids",Int[])
-        pids isa AbstractVector&&length(pids)<=10000&&all(p->p isa Integer&&!(p isa Bool)&&p>0,pids)||throw(ArgumentError("Saved property IDs are invalid"))
+        pids isa AbstractVector&&all(p->p isa Integer&&!(p isa Bool)&&p>0,pids)||throw(ArgumentError("Saved property IDs are invalid"))
         row["label"]=sensitivity_variable_label(row["id"],get(row,"label",row["id"]))
         for (key,value) in sensitivity_field_descriptor(row["id"])
             get!(row,key,value)

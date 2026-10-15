@@ -11,7 +11,7 @@ const checks=[],errors=[];
  try{
   page.on('pageerror',error=>errors.push(error.stack));
   await page.route('http://127.0.0.1:43957/**',route=>{const url=new URL(route.request().url());
-   if(url.pathname==='/')return route.fulfill({contentType:'text/html',body:'<!DOCTYPE html><link rel="stylesheet" href="style.css"><main id="host"></main><script src="sensitivity.js"></script><script src="workspace.js"></script>'});
+   if(url.pathname==='/')return route.fulfill({contentType:'text/html',body:'<!DOCTYPE html><link rel="stylesheet" href="style.css"><main id="host"></main><script src="result_display.js"></script><script src="sensitivity.js"></script><script src="workspace.js"></script>'});
    assert(!url.pathname.startsWith('/api/'),'Editing/restoring must not start analysis');
    return route.fulfill({path:path.join(web,decodeURIComponent(url.pathname))});
   });

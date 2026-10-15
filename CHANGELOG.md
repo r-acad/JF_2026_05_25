@@ -5,6 +5,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Large sensitivity selections
+
+- Remove the 4,096-variable selection limit from generated and imported models,
+  Study settings, family expansion and saved sensitivity results. Add matches
+  selects the complete filtered catalogue, preserving existing selections.
+- Keep large property lists responsive by rendering only a scrolling window;
+  retain every selected ID for saving and solver submission. Index property
+  ownership and batch recoverable result snapshots during derivative evaluation.
+
 ### Preload reactions, standard energy requests and shared utilities
 
 - Display physical constraint forces and moments for SOL105 static preloads,

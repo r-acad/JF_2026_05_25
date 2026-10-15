@@ -90,7 +90,7 @@ tests=@testset "Component family selections become independent physical variable
     ic=W.sensitivity_catalog(W.build_model(inactive))
     @test all(!startswith(id,"leading_edge.")&&!startswith(id,"properties.rib_stiffener_") for id in keys(ic["selection_replacements"]))
     @test W.sensitivity_expand_selection(Dict(),["imported.foo","material.E"])==["imported.foo","material.E"]
-    @test_throws ArgumentError W.sensitivity_expand_selection(Dict("selection_replacements"=>Dict("all"=>["v$i" for i in 1:4097])),["all"])
+    @test W.sensitivity_expand_selection(Dict("selection_replacements"=>Dict("all"=>["v$i" for i in 1:10580])),["all"])==["v$i" for i in 1:10580]
     # A JSON round trip retains exact effective worker-request IDs.
     write(joinpath(out,"effective_request.json"),JSON.json(effective))
     @test W.sensitivity_request(m,JSON.parsefile(joinpath(out,"effective_request.json")))==effective

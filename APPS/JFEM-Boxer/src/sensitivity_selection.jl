@@ -86,7 +86,5 @@ function sensitivity_expand_selection(catalog,variables)
         target in seen&&continue
         push!(seen,target);push!(ids,target)
     end
-    limit=Int(get(catalog,"max_variables",4096))
-    length(ids)<=limit||throw(ArgumentError("Selected component families expand to $(length(ids)) independent property variables; select at most $limit local variables"))
     ids
 end

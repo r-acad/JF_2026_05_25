@@ -647,6 +647,13 @@ patterns build a selection. Invalid expressions show an error without changing
 it. After a mesh update, an existing catalog refreshes to the new definition;
 the Run button explains any remaining blocker and offers the relevant recovery
 action. Refreshing properties or editing a selection never starts a solve.
+There is no fixed variable-count limit: **Add matches** includes every match in
+the current model, including entries outside the visible scrolling window.
+Study files and saved sensitivity results retain the complete selection. Large
+lists render only the nearby rows; the range shown above the list describes
+the displayed rows, not a limit on selection or calculation. To extend a Study
+previously stopped at 4,096 variables, refresh model properties and click
+**Add matches** with the desired filter (clear the filter to select everything).
 The **? Help** button beside the filter explains regex syntax, examples,
 additive selection and the difference between clearing a filter and selection.
 

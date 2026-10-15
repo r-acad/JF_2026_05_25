@@ -12,7 +12,8 @@ const view={controls:{'surface-mode':'solid'},layers:{},camera:{target:[0,0,0],a
   {case_id:7,objective:{type:'displacement',node_id:38,component:'z'},variables:['reference.PSHELL#123#T','reference.MAT1#2#E'],derivative_method:'analytic'},
   {case_id:1,objective:{type:'frequency_eigenvalue',mode:3},variables:[],derivative_method:'analytic'},
   {case_id:4,objective:{type:'buckling_factor',mode:1},variables:['properties.ribs#2#web_thickness'],derivative_method:'operator_differences',relative_step:.005,check_step:false},
-  {solution:'106',case_id:7,objective:{type:'displacement',node_id:38,component:'z'},variables:['reference.PSHELL#123#T'],derivative_method:'analytic'}
+  {solution:'106',case_id:7,objective:{type:'displacement',node_id:38,component:'z'},variables:['reference.PSHELL#123#T'],derivative_method:'analytic'},
+  {case_id:1,objective:{type:'displacement',node_id:38,component:'z'},variables:[...Array.from({length:12037},(_,i)=>'properties.panels#'+i+'#skin#thickness'),'unknown.saved.id'],derivative_method:'analytic'}
  ];
  for(const source of cases){
   const selected=parse(source),saved=await W.snapshot({'sensitivity.settings':JSON.stringify(selected)},null,view);
@@ -31,5 +32,5 @@ const view={controls:{'surface-mode':'solid'},layers:{},camera:{target:[0,0,0],a
  assert.equal(info({},'106').available,false);
  assert.equal(info({solutions:{'103':{available:true,objectives:['frequency_eigenvalue'],case_ids:[17]}}},'103').available,true);
  assert.equal(info({solutions:{'103':{available:true,objectives:['frequency_eigenvalue']}}},'101').available,false);
- console.log('Sensitivity Study setup persistence: 16 checks passed');
+ console.log('Sensitivity Study setup persistence: small, imported, nonlinear and 12,037-variable round trips passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -112,9 +112,13 @@ function sensitivity_analytic_property_direction(m,d,property)
         "active"=>!iszero(dt)||any(!iszero,dplies)||any(any(!iszero,values(v)) for v in values(materials)))
 end
 
-function sensitivity_analytic_property_directions(m,d;properties=model_property_definitions(m))
+function sensitivity_analytic_property_directions(m,d;properties=model_property_definitions(m),properties_by_pid=nothing)
     directions=Dict{Int,Dict{String,Any}}()
-    for property in properties
+    # Catalogue discovery must inspect every card. Once ownership is recorded,
+    # a prepared PID index restricts local derivatives to their actual cards.
+    selected=properties_by_pid===nothing||!haskey(d,"pids") ? properties :
+        (properties_by_pid[pid] for pid in d["pids"])
+    for property in selected
         direction=sensitivity_analytic_property_direction(m,d,property)
         direction["active"]&&(directions[property["pid"]]=direction)
     end

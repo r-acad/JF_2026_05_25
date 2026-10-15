@@ -51,13 +51,12 @@ end
 function normalize_sensitivity_settings(raw)
     raw isa AbstractString||throw(ArgumentError("sensitivity.settings must be JSON text"))
     isempty(strip(raw))&&return ""
-    ncodeunits(raw)<=1024*1024||throw(ArgumentError("Sensitivity settings exceed 1 MiB"))
     data=try JSON.parse(raw) catch; throw(ArgumentError("Sensitivity settings must contain valid JSON"));end
     data isa AbstractDict||throw(ArgumentError("Sensitivity settings must be an object"))
     allowed=Set(("case_id","solution","objective","variables","relative_step","check_step","derivative_method"))
     all(k->k in allowed,keys(data))||throw(ArgumentError("Unsupported sensitivity setting"))
     vars=get(data,"variables",Any[])
-    vars isa AbstractVector&&length(vars)<=4096&&all(x->x isa AbstractString&&ncodeunits(x)<=240,vars)||throw(ArgumentError("Select at most 4096 property variables"))
+    vars isa AbstractVector&&all(x->x isa AbstractString&&!isempty(x)&&ncodeunits(x)<=240,vars)||throw(ArgumentError("Sensitivity variables must be valid property IDs"))
     objective=get(data,"objective",Dict())
     objective isa AbstractDict&&length(objective)<=8||throw(ArgumentError("Invalid sensitivity objective settings"))
     all(k->k in ("type","node_id","element_id","component","surface","mode"),keys(objective))||throw(ArgumentError("Unsupported sensitivity objective field"))
@@ -186,7 +185,7 @@ function sensitivity_catalog(m::Model)
         end
     end
     selection=sensitivity_selection_metadata(m,variables)
-    return Dict{String,Any}("variables"=>variables,"max_variables"=>4096,"objectives"=>SENSITIVITY_OBJECTIVES,"solutions"=>sensitivity_solutions(m),
+    return Dict{String,Any}("variables"=>variables,"max_variables"=>length(variables),"objectives"=>SENSITIVITY_OBJECTIVES,"solutions"=>sensitivity_solutions(m),
         "selection_replacements"=>selection.replacements,"selection_aliases"=>selection.aliases,
         "cases"=>[Dict("id"=>s.id,"label"=>s.label) for s in load_case_specs(p)],
         "surfaces"=>["z1","z2"],"method"=>"discrete_adjoint",
@@ -199,7 +198,7 @@ function sensitivity_request(m,raw)
     request=Dict{String,Any}(String(k)=>v for (k,v) in raw)
     case=get(request,"case_id",1);case isa Integer&&!(case isa Bool)||throw(ArgumentError("Select a load case"))
     spec=findfirst(s->s.id==case,load_case_specs(m.params));spec===nothing&&throw(ArgumentError("The selected load case is not enabled"))
-    vars=get(request,"variables",Any[]);!isempty(vars)&&length(unique(vars))==length(vars)||throw(ArgumentError("Select 1 to 4096 distinct property variables"))
+    vars=get(request,"variables",Any[]);!isempty(vars)&&length(unique(vars))==length(vars)||throw(ArgumentError("Select at least one distinct property variable"))
     catalog=sensitivity_catalog(m);available=Dict(d["id"]=>d for d in catalog["variables"])
     vars=sensitivity_expand_selection(catalog,vars)
     all(id->haskey(available,id),vars)||throw(ArgumentError("A selected property is no longer active on this mesh; refresh the sensitivity setup"))
