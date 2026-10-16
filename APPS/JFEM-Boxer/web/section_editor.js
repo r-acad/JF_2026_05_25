@@ -5,9 +5,11 @@
   "use strict";
   const PREFIX="properties.", T_KEYS=["stringer_flange_width","stringer_height","stringer_flange_thickness","stringer_web_thickness"], CAP_KEYS=["spar_cap_side"];
   const NAMES={b:"flange width",h:"overall height",tf:"flange thickness",tw:"web thickness",s:"square side"};
-  function section(kind,values){
+  function section(kind,values,options={}){
     const names=kind==="T"?["b","h","tf","tw"]:["s"], errors=[],invalid=[];
-    names.forEach((name,i)=>{if(!Number.isFinite(values[i])||values[i]<=0){errors.push("Enter a positive "+NAMES[name]+".");invalid.push(i);}});
+    const blade=kind==="T"&&options.shell&&values[0]===0;
+    names.forEach((name,i)=>{const allowZero=options.shell&&kind==="T"&&(i===0||blade&&i===2);if(!Number.isFinite(values[i])||(allowZero?values[i]<0:values[i]<=0)){errors.push("Enter a "+(allowZero?"non-negative ":"positive ")+NAMES[name]+".");invalid.push(i);}});
+    if(!errors.length&&blade){const h=values[1],tw=values[3],area=h*tw;if(!Number.isFinite(area)||area<=0)return{valid:false,error:"Dimensions are too large or too small to calculate a finite blade area.",invalid:[1,3]};return{valid:true,kind:"BLADE",b:tw,h,tw,area,centroidDepth:h/2,polygon:[[-tw/2,0],[tw/2,0],[tw/2,h],[-tw/2,h]]};}
     if(!errors.length&&kind==="T"){
       if(values[2]>=values[1]){errors.push("Flange thickness must be smaller than overall height.");invalid.push(1,2);}
       if(values[3]>=values[0]){errors.push("Web thickness must be smaller than flange width.");invalid.push(0,3);}
@@ -31,12 +33,12 @@
     const arrow=(x1,y1,x2,y2)=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="section-dimension" marker-start="url(#${id}-dim)" marker-end="url(#${id}-dim)"/>`;
     const dim=length=>number(length*1000)+" mm";
     let svg=`<defs><marker id="${id}-dim" markerWidth="8" markerHeight="5" markerUnits="userSpaceOnUse" viewBox="0 0 8 5" refX="8" refY="2.5" orient="auto-start-reverse" overflow="visible"><path d="M0 0 L8 2.5 L0 5 Z" fill="currentColor" stroke="none"/></marker><marker id="${id}-axis" markerWidth="5" markerHeight="5" refX="5" refY="2.5" orient="auto"><path d="M0 0 L5 2.5 L0 5 Z" fill="context-stroke"/></marker></defs>`;
-    svg+=`<polygon data-section-polygon="true" points="${s.polygon.map(([z,d])=>`${cx+z*scale},${top+d*scale}`).join(" ")}" class="section-polygon ${s.kind==="T"?"section-stringer":"section-cap"}"/>`;
+    svg+=`<polygon data-section-polygon="true" points="${s.polygon.map(([z,d])=>`${cx+z*scale},${top+d*scale}`).join(" ")}" class="section-polygon ${s.kind!=="BAR"?"section-stringer":"section-cap"}"/>`;
     svg+=line(left-10,top,right+13,top,"section-skin")+text(right+15,top+4,"skin","class=\"section-note-label\"");
     svg+=line(left,top-5,left,34,"section-extension")+line(right,top-5,right,34,"section-extension")+arrow(left,40,right,40);
-    svg+=text(cx,29,(s.kind==="T"?"b":"s")+" = "+dim(s.b),"text-anchor=\"middle\"");
+    svg+=text(cx,29,(s.kind==="BLADE"?"tw":s.kind==="T"?"b":"s")+" = "+dim(s.b),"text-anchor=\"middle\"");
     svg+=line(left-5,top,left-31,top,"section-extension")+line(left-5,bottom,left-31,bottom,"section-extension")+arrow(left-26,top,left-26,bottom);
-    svg+=text(left-37,(top+bottom)/2,(s.kind==="T"?"h":"s")+" = "+dim(s.h),`text-anchor="middle" transform="rotate(-90 ${left-37} ${(top+bottom)/2})"`);
+    svg+=text(left-37,(top+bottom)/2,(s.kind!=="BAR"?"h":"s")+" = "+dim(s.h),`text-anchor="middle" transform="rotate(-90 ${left-37} ${(top+bottom)/2})"`);
     if(s.kind==="T"){
       const flangeBottom=top+s.tf*scale,wl=cx-s.tw*scale/2,wr=cx+s.tw*scale/2;
       svg+=line(right+3,flangeBottom,right+29,flangeBottom,"section-extension")+arrow(right+24,top,right+24,flangeBottom);
@@ -71,7 +73,9 @@
       if(rib)note.textContent="Default vertical rib stiffener. The flange lies in the rib plane; the web projects outboard, or inboard at the final rib. Local +x follows the bar from lower to upper skin. Dimensions are in metres; individual rib overrides below use mm.";
       host.append(card);
       const update=()=>{
-        const values=inputs.map(input=>input.value.trim()===""?NaN:Number(input.value)),value=section(kind,values);
+        const shell=kind==="T"&&!rib&&doc.getElementById("p-stringers.model")?.value==="shell",values=inputs.map(input=>input.value.trim()===""?NaN:Number(input.value)),value=section(kind,values,{shell});
+        type.textContent=shell?(value.kind==="BLADE"?"PSHELL / blade":"PSHELL / web + flange"):"PBARL / "+kind;
+        if(kind==="T"&&!rib){heading.firstChild.textContent=shell?(value.kind==="BLADE"?"Shell blade ":"Shell stringer "):"T stringer ";note.textContent=shell?"Cross-section dimensions shown to scale. The shell flange shares the skin reference surface; blade depth is h − tf, or h for a zero-width flange. Web and flange thicknesses define separate PSHELL properties. Blade direction is chosen in Structure → Stringers. The preview centroid describes the section dimensions; the solver uses the shell midsurfaces.":"Flange outer face at the skin; web inward. Local +y points outward on either skin. +x follows the bar. Preview is proportional; input dimensions are in metres.";}
         card.classList.toggle("section-editor-invalid",!value.valid);
         inputs.forEach((input,i)=>{const invalid=!value.valid&&value.invalid.includes(i);input.setAttribute("aria-invalid",String(invalid));rows[i].classList.toggle("section-dimension-invalid",invalid);});
         status.textContent=value.valid?"":value.error;status.hidden=value.valid;
@@ -81,7 +85,7 @@
         else {delete card.dataset.areaM2;delete card.dataset.centroidDepthM;stats.textContent="Correct the dimensions to update this section and the FE model.";}
         if(rib)stats.textContent=stats.textContent.replace("inward from the skin","from the rib web");
       };
-      for(const input of inputs){input.addEventListener("input",update);input.addEventListener("change",update);}update();
+      for(const input of inputs){input.addEventListener("input",update);input.addEventListener("change",update);}host.addEventListener("stringer-model-change",update);update();
     }
     return{viewports,captureView:()=>Object.fromEntries(Object.entries(viewports).map(([key,view])=>[key,view?.capture()])),restoreView:values=>Object.entries(values||{}).forEach(([key,value])=>viewports[key]?.restore(value)),destroy:()=>Object.values(viewports).forEach(view=>view?.destroy())};
   }

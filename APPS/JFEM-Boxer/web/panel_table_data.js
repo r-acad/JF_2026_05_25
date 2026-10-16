@@ -11,14 +11,14 @@
   {name:'face_material',label:'Face material',type:'material'},
   {name:'core_material',label:'Core material',type:'material'}
  ],stringers:[
-  {name:'flange_width',label:'T flange width b',unit:'mm',scale:1000,type:'number'},
-  {name:'height',label:'T total height h',unit:'mm',scale:1000,type:'number'},
-  {name:'flange_thickness',label:'T flange thickness tf',unit:'mm',scale:1000,type:'number'},
-  {name:'web_thickness',label:'T web thickness tw',unit:'mm',scale:1000,type:'number'},
+  {name:'flange_width',label:'Flange width b',unit:'mm',scale:1000,type:'number'},
+  {name:'height',label:'Total height h',unit:'mm',scale:1000,type:'number'},
+  {name:'flange_thickness',label:'Flange thickness tf',unit:'mm',scale:1000,type:'number'},
+  {name:'web_thickness',label:'Web thickness tw',unit:'mm',scale:1000,type:'number'},
   {name:'material',label:'Stringer material',type:'material'}
  ]};
  const clone=v=>JSON.parse(JSON.stringify(v)),section=kind=>kind==='skins'?'skin':'stringer';
- function parameters(raw){const p={};for(const[key,value]of Object.entries(raw||{}))if(key.startsWith('properties.')||key.startsWith('material.')||key.startsWith('materials.'))p[key]=clone(value);return p;}
+ function parameters(raw){const p={};for(const[key,value]of Object.entries(raw||{}))if(key.startsWith('properties.')||key.startsWith('material.')||key.startsWith('materials.')||key==='stringers.model')p[key]=clone(value);return p;}
  function rows(p){const value=p?.[PARAMETER]||[];const result=typeof value==='string'?JSON.parse(value):value;if(!Array.isArray(result))throw Error('Panel overrides must be a table.');return result;}
  function materialList(p){let library=p?.['materials.library']||[];if(typeof library==='string')library=JSON.parse(library);return[{id:1,name:p?.['material.name']||'Default material'},...library].map(m=>({id:Number(m.id),name:String(m.name)}));}
  function inherited(snapshot,panel,kind){
@@ -31,7 +31,7 @@
  function override(snapshot,key){return rows(snapshot.parameters).find(row=>row.key===key)||null;}
  function fieldState(snapshot,kind,key,field){const value=override(snapshot,key)?.[section(kind)]?.[field];return value===undefined?{present:false}:{present:true,value};}
  function sameField(a,b){return !!a&&!!b&&a.present===b.present&&(!a.present||a.value===b.value);}
- function effective(snapshot,panel,kind){return{...inherited(snapshot,panel,kind),...override(snapshot,panel.key)?.[section(kind)]};}
+ function effective(snapshot,panel,kind){return{...inherited(snapshot,panel,kind),...override(snapshot,panel.key)?.[section(kind)],...(kind==='stringers'?{model:snapshot.parameters?.['stringers.model']||'beam'}:{})};}
  function validateSection(value,kind,p){
   const ids=new Set(materialList(p).map(m=>m.id)),positive=(v,name)=>{if(typeof v!=='number'||!Number.isFinite(v)||v<=0)throw Error(name+' must be a finite positive number.');},material=(v,name)=>{if(!Number.isInteger(v)||!ids.has(v))throw Error(name+' must use a material in the Study library.');};
   if(kind==='skins'){
@@ -39,9 +39,10 @@
    if(value.kind==='sandwich'){positive(value.face_thickness,'Each face thickness');positive(value.core_thickness,'Core thickness');material(value.face_material,'Face material');material(value.core_material,'Core material');}
    else{positive(value.thickness,'Monolithic thickness');material(value.material,'Monolithic material');}
   }else{
-   for(const f of FIELDS.stringers.filter(f=>f.type==='number'))positive(value[f.name],f.label);
-   if(value.flange_thickness>=value.height)throw Error('T flange thickness must be smaller than total height.');
-   if(value.web_thickness>=value.flange_width)throw Error('T web thickness must be smaller than flange width.');
+   const shell=p?.['stringers.model']==='shell',blade=shell&&value.flange_width===0;
+   for(const f of FIELDS.stringers.filter(f=>f.type==='number')){if(shell&&(f.name==='flange_width'||blade&&f.name==='flange_thickness')){if(!Number.isFinite(value[f.name])||value[f.name]<0)throw Error(f.label+' must be zero or a finite positive number.');}else positive(value[f.name],f.label);}
+   if(!blade&&value.flange_thickness>=value.height)throw Error('Flange thickness must be smaller than total height.');
+   if(!blade&&value.web_thickness>=value.flange_width)throw Error('Web thickness must be smaller than flange width.');
    material(value.material,'Stringer material');
   }
  }
@@ -55,13 +56,13 @@
   const target=section(kind),value=String(raw??'').trim();row[target]={...row[target]};
   if(!value)delete row[target][field];
   else if(definition.type==='kind'){if(!['monolithic','sandwich'].includes(value))throw Error('Choose monolithic or sandwich construction.');row[target][field]=value;}
-  else{const number=Number(value)/(definition.scale||1);if(!Number.isFinite(number)||number<=0||definition.type==='material'&&!Number.isInteger(number))throw Error(definition.label+' must be a valid positive '+(definition.type==='material'?'material ID.':'number.'));row[target][field]=number;}
+  else{const number=Number(value)/(definition.scale||1),allowZero=kind==='stringers'&&snapshot.parameters?.['stringers.model']==='shell'&&(field==='flange_width'||field==='flange_thickness'&&effective(snapshot,panel,kind).flange_width===0);if(!Number.isFinite(number)||(allowZero?number<0:number<=0)||definition.type==='material'&&!Number.isInteger(number))throw Error(definition.label+' must be a valid '+(allowZero?'non-negative ':'positive ')+(definition.type==='material'?'material ID.':'number.'));row[target][field]=number;}
   validateSection({...inherited(snapshot,panel,kind),...row[target]},kind,snapshot.parameters);
   if(!Object.keys(row[target]).length)delete row[target];if(!row.skin&&!row.stringer){if(index>=0)list.splice(index,1);}else if(index<0)list.push(row);
   return list.sort((a,b)=>a.key.localeCompare(b.key,undefined,{numeric:true}));
  }
  function compact(raw={}){
-  const panels=(raw.panels||[]).map(({shell_eids,stringer_eids,stringer_grid_ids,...p})=>p);
+  const panels=(raw.panels||[]).map(({shell_eids,skin_eids,stringer_eids,stringer_web_eids,stringer_flange_eids,stringer_grid_ids,...p})=>p);
   return{parameters:parameters(raw.parameters),panels:clone(panels),layout_token:raw.layout_token||'',modelDirty:!!raw.modelDirty,busy:!!raw.busy,updating:!!raw.updating,resultsCurrent:raw.resultsCurrent===true,error:raw.error?String(raw.error):''};
  }
  function matrix(snapshot,skin){const panels=(snapshot.panels||[]).filter(p=>p.skin===skin),stringers=[...new Set(panels.map(p=>Number(p.stringer)))].sort((a,b)=>a-b),bays=[...new Set(panels.map(p=>Number(p.rib_bay)))].sort((a,b)=>a-b),cells=new Map();for(const p of panels){const key=p.stringer+':'+p.rib_bay;if(!cells.has(key))cells.set(key,[]);cells.get(key).push(p);}for(const list of cells.values())list.sort((a,b)=>a.segment-b.segment||a.id-b.id);return{stringers,bays,cells};}

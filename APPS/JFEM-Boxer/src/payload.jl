@@ -248,10 +248,24 @@ function physical_annotations(m::Model)
     bars = Dict{Tuple{Int,Int},Tuple{Int,Bool}}()
     next_bar_node = Dict{Int,Int}()
     for gr in m.groups
+        gr.kind===:bar||continue
         component_base_group(gr.name) in ("STRINGERS", "STRINGER_RUNOUTS") || continue
         for e in 1:n_elements(gr)
             bars[(gr.conn[2*e-1]-1, gr.conn[2*e]-1)] = (gr.eids[e], gr.name == "STRINGER_RUNOUTS")
             next_bar_node[gr.conn[2*e-1]-1]=gr.conn[2*e]-1
+        end
+    end
+    shell_eids=Dict{Tuple{Int,Bool},Vector{Int}}();next_shell_node=Dict{Int,Int}()
+    if shell_stringers(m.params)
+        register_shell_stringer_mass_geometry!(m.params,m.groups,m.xyz,g)
+        for edges in values(shell_stringer_attachment_edges(m.params)),(a,b) in edges
+            m.xyz[3a-1]>m.xyz[3b-1]&&((a,b)=(b,a))
+            next_shell_node[a-1]=b-1
+        end
+        owners=Dict(panel.id=>(panel.stringer,panel.upper) for panel in stiffened_panel_layout(g).panels)
+        for gr in m.groups
+            is_shell_stringer_pid(gr.pid)||continue
+            append!(get!(shell_eids,owners[stiffened_panel_id(gr.pid)],Int[]),gr.eids)
         end
     end
     stringers = Any[]
@@ -264,6 +278,15 @@ function physical_annotations(m::Model)
             g.collapsed[i+1,j+1] == 0 || break
             a, b = node_at(i, j, k), node_at(i, j+1, k)
             isempty(nodes) && push!(nodes, a)
+            if shell_stringers(m.params)&&g.collapsed[i+1,j+2]==0
+                hops=0
+                while a!=b
+                    hops+=1;hops<=length(next_shell_node)||error("stringer annotation encountered a cyclic shell attachment chain")
+                    following=next_shell_node[a]
+                    push!(nodes,following);push!(normal_edges,(a,following));a=following
+                end
+                continue
+            end
             # A physical segment can contain locally inserted spar/stringer
             # kink vertices. Follow its actual bars, retaining every EID and
             # deformation anchor instead of assuming one bar per grid row.
@@ -282,6 +305,7 @@ function physical_annotations(m::Model)
                 a=following
             end
         end
+        append!(eids,get(shell_eids,(index,upper),Int[]))
         isempty(nodes) && continue
         # Prefer the middle of the physical normal section; a stringer with
         # only a connector still receives a meaningful end-to-end anchor.

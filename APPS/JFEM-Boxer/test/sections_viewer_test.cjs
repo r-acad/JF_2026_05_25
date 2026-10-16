@@ -57,13 +57,13 @@ for (let e = 0; e < 2; e++) close(signedVolume(geometry, e), 2 * (b * tf + tw * 
 
 const controls = new Map();
 const element = () => ({ value: "", checked: false, hidden: true, className: "", innerHTML: "", style: {},
-  classList: { add() {}, remove() {} }, appendChild() {}, setAttribute() {}, addEventListener() {} });
+  classList: { add() {}, remove() {} }, appendChild() {}, setAttribute() {}, addEventListener() {}, setCustomValidity() {}, closest() { return this; } });
 const document = { getElementById(id) { if (!controls.has(id)) controls.set(id, element()); return controls.get(id); },
   createElement: element, querySelectorAll: () => [] };
 // Legend DOM is covered in the browser suite; this harness tests real section
 // meshes and material/contour geometry without mounting the full application.
 const WingLegends={resolveLimits:(_key,min,max)=>({min,max}),getPalette:()=>"spectrum",render(){}};
-const sandbox = { BABYLON, WingSections, WingLegends, WingColorScales:require('../web/color_scales.js'), document, console, Float32Array, Int32Array, Int16Array, Uint8Array,
+const sandbox = { BABYLON, WingSections, WingLegends, WingResultDisplay:require('../web/result_display.js'), WingColorScales:require('../web/color_scales.js'), document, console, Float32Array, Int32Array, Int16Array, Uint8Array,
   ArrayBuffer, DataView, Map, Set, window: { addEventListener() {} } };
 vm.createContext(sandbox);
 const source = fs.readFileSync(path.join(__dirname, "../web/app.js"), "utf8");

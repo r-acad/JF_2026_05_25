@@ -1,7 +1,7 @@
 # Explicit shell material/result frames. Reference's geometric element frame is
 # fixed by connectivity; MCID selects the requested skin, spar or rib axes.
 
-element_points(m::Model, gr::ElemGroup, e::Int) = begin
+element_points(m, gr::ElemGroup, e::Int) = begin
     n = gr.kind === :quad ? 4 : gr.kind === :tria ? 3 : 2
     [Tuple(m.xyz[3id-2:3id]) for id in gr.conn[n*(e-1)+1:n*e]]
 end
@@ -43,7 +43,7 @@ Spar webs use the nominal stringer direction projected into their own plane.
 Rib x is the horizontal intersection of its actual plane with constant-z,
 directed aft. For main-box and line-of-flight ribs this is global +x.
 """
-function shell_material_frame(m::Model, gr::ElemGroup, e::Int;
+function shell_material_frame(m, gr::ElemGroup, e::Int;
                               path=stringer_path(m.grid.wing,m.params))
     pid=component_base_pid(gr.pid)
     _, _, z = shell_geometric_frame(element_points(m, gr, e))
@@ -71,9 +71,48 @@ function shell_material_frame(m::Model, gr::ElemGroup, e::Int;
     return x, cross3(z, x), z
 end
 
+"""Resolve a blade axis on the generated structure before adding stringer shells."""
+function stringer_axis_direction(p,g,reg,groups)
+    get(p,"stringers.orientation","surface_normal")=="surface_normal" && return nothing
+    axis=get(p,"stringers.axis","z"); index=findfirst(==(axis),("x","y","z"))
+    index===nothing && throw(ArgumentError("Blade coordinate axis must be x, y or z"))
+    cid=Int(get(p,"stringers.axis_cid",0))
+    cid==0 && return ntuple(i->i==index ? 1.0 : 0.0,3)
+    cache=g.shell_columns.axis_cache
+    key=(cid,String(axis));haskey(cache,key)&&return cache[key]
+    if oriented_ribs(g)
+        # The displayed/exported frame belongs to the final split triangle,
+        # not its original quad. Reserve the same stringer EIDs on a private
+        # geometry copy, then split only the preceding structural groups.
+        # Their final EIDs/axes are independent of the chosen blade direction.
+        probe_p=copy(p);probe_p["stringers.orientation"]="surface_normal"
+        probe_g=deepcopy(g);probe_reg=deepcopy(reg);probe_groups=deepcopy(groups)
+        layout=stiffened_panel_layout(probe_g)
+        register_panel_properties!(probe_p,probe_g;layout)
+        nextid=maximum((id for gr in probe_groups for id in gr.eids);init=0)+1
+        nextid=add_shell_stringers!(probe_reg,probe_g,probe_p,probe_groups,layout,nextid)
+        filter!(gr->!is_shell_stringer_pid(gr.pid),probe_groups)
+        split_oriented_kink_edges!(probe_reg,probe_g,probe_groups,nextid;p=probe_p)
+        reg=probe_reg;groups=probe_groups;g=probe_g
+    end
+    context=(xyz=reg.xyz,node_keys=reg.keys,grid=g,wing=g.wing,params=p)
+    for gr in groups
+        gr.kind in (:quad,:tria)&&!is_shell_stringer_pid(gr.pid) || continue
+        e=findfirst(==(cid),gr.eids)
+        if e!==nothing
+            direction=shell_material_frame(context,gr,e)[index]
+            cache[key]=direction
+            return direction
+        end
+    end
+    throw(ArgumentError("Blade coordinate system $cid is not a skin, spar or rib frame on the current mesh. Select BASIC (ID 0) or an available frame in Display > Axes & Labels."))
+end
+
 """User-facing convention shared by element properties and recovered results."""
 shell_material_description(gr::ElemGroup) = component_base_pid(gr.pid) in (PID_RIB_WEB, PID_LE_RIB) ?
     "Shell material axes (MCID): x is horizontal in the rib plane, directed aft (horizontal global +x for line-of-flight ribs); z preserves the shell normal" :
+    is_shell_stringer_pid(gr.pid) ?
+    "Shell material axes (MCID): x follows the tipward stringer direction projected into the web or flange plane; z preserves the shell normal" :
     component_base_pid(gr.pid) in (PID_SKIN_UPPER, PID_SKIN_LOWER, PID_LE_SKIN) ?
     "Shell material axes (MCID): x follows the local stringer segment toward the tip; z is the outward skin normal" :
     "Shell material axes (MCID): x follows the in-plane stringer projection on the spar web; z preserves the shell normal"

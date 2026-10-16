@@ -66,7 +66,11 @@ struct BoxGrid
     lower_etas::Matrix{Float64}  # actual surface span locations on angled rows
     upper_etas::Matrix{Float64}
     rib_layout::Any
+    shell_columns::Any       # optional conforming shell-stringer footprint map
 end
+
+BoxGrid(w,xcs,etas,nh,ribs,lower,upper,collapsed,stringers,lower_etas,upper_etas,layout)=
+    BoxGrid(w,xcs,etas,nh,ribs,lower,upper,collapsed,stringers,lower_etas,upper_etas,layout,nothing)
 
 BoxGrid(w,xcs,etas,nh,ribs,lower,upper,collapsed,stringers)=BoxGrid(w,xcs,etas,nh,ribs,lower,upper,collapsed,stringers,
     repeat(reshape(etas,1,:),length(xcs),1),repeat(reshape(etas,1,:),length(xcs),1),nothing)
@@ -559,6 +563,7 @@ vector of the stringers and spar caps, which puts CBAR plane 1 in the
 out-of-plane bending direction of the skin.
 """
 function skin_normal(g::BoxGrid, i::Int, j::Int, upper::Bool)
+    g.shell_columns!==nothing&&return -1 .* shell_stringer_inward(g,i,j,upper)
     k = upper ? g.nh : 0
     # Keep the physical bar axes invariant when only the shell density changes.
     stride = isempty(g.stringer_indices) ? ni(g) : first(g.stringer_indices)
@@ -589,8 +594,9 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
     xcs, n_str_bays = chord_stations(w, p)
     etas, ribs, n_rib_bays = span_stations(w, p)
     nh = vertical_mesh_count(p["mesh.elements_spar_height"])
-    g = refine_stringer_bays(stringer_grid(w, p, xcs, etas, ribs, nh),
-                            get(p, "mesh.elements_between_stringers", 1))
+    coarse = stringer_grid(w, p, xcs, etas, ribs, nh)
+    g = get(p,"stringers.model","beam")=="shell" ? shell_stringer_grid(coarse,p) :
+        refine_stringer_bays(coarse,get(p, "mesh.elements_between_stringers", 1))
     etas, ribs = g.etas, g.ribs
     NI = ni(g)
     NJ = nj(g)
@@ -717,6 +723,7 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
         k = upper ? nh : 0
         for j in 0:NJ-1
             g.collapsed[i+1,j+1] == 0 || continue
+            g.collapsed[i+1,j+2] == 0 && get(p,"stringers.model","beam")=="shell" && continue
             gr = g.collapsed[i+1,j+2] == 0 ? panel_element_group!(groups,panel_groups,"STRINGERS",:bar,
                 panel_stringer_pid(panel_layout.bars[(i,j,upper)]),PID_STRINGER) : gout
             v = skin_normal(g, i, j, upper)
@@ -774,7 +781,11 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
     end
     n_struct = length(reg.keys)
 
-    oriented_ribs(g) && (eid=split_oriented_kink_edges!(reg,g,groups,eid))
+    if get(p,"stringers.model","beam")=="shell"
+        eid=add_shell_stringers!(reg,g,p,groups,panel_layout,eid)
+    end
+    oriented_ribs(g) && (eid=split_oriented_kink_edges!(reg,g,groups,eid;p))
+    get(p,"stringers.model","beam")=="shell" && register_shell_stringer_mass_geometry!(p,groups,reg.xyz,g)
     n_struct = length(reg.keys)
 
     # --- RBE3 spiders ------------------------------------------------------
@@ -1188,7 +1199,26 @@ function mesh_checks(m::Model)
     end
     free = get(hist, 1, 0)
     push!(out, ("Degenerate shells", string(degenerate), degenerate == 0))
-    push!(out, ("Free shell edges (closed box)", string(free), free == 0))
+    if get(m.params,"stringers.model","beam")=="shell"
+        # Blade tips and exposed ends are valid free boundaries. The closed
+        # aerodynamic box must still have no unattached shell edge.
+        boxedges=Dict{Tuple{Int,Int},Int}()
+        for gr in m.groups
+            gr.kind in (:quad,:tria)&&!(component_base_pid(gr.pid) in (PID_STRINGER_WEB,PID_STRINGER_FLANGE))||continue
+            nn=gr.kind===:quad ? 4 : 3
+            for el in eachindex(gr.eids),q in 1:nn
+                nodes=view(gr.conn,nn*(el-1)+1:nn*el);a,b=nodes[q],nodes[mod1(q+1,nn)]
+                key=minmax(a,b);boxedges[key]=get(boxedges,key,0)+1
+            end
+        end
+        boxfree=count(==(1),values(boxedges))
+        push!(out,("Free shell edges (closed box)",string(boxfree),boxfree==0))
+        unexpected=shell_stringer_unexpected_free_edges(m,edges)
+        push!(out,("Free shell stringer edges (blade tips and ends)",string(free),unexpected==0))
+        push!(out,("Unexpected free shell edges",string(unexpected),unexpected==0))
+    else
+        push!(out, ("Free shell edges (closed box)", string(free), free == 0))
+    end
     push!(out, ("Edge use 2 / 3 / 4+",
                 string(get(hist, 2, 0)) * " / " * string(get(hist, 3, 0)) * " / " *
                 string(sum((c for (u, c) in hist if u >= 4); init = 0)), true))

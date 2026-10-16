@@ -106,6 +106,9 @@ function sensitivity_catalog(m::Model)
         "id"=>id,"label"=>sensitivity_variable_label(id,label),"path"=>path,"value"=>Float64(value)/scale,"unit"=>unit,"scale"=>scale))
     for spec in SCHEMA
         key=spec.key
+        # Shell width/height move GRID points; flange thickness changes blade
+        # depth. Those require shape derivatives, outside this fixed-grid API.
+        shell_stringers(p)&&key in ("properties.stringer_flange_width","properties.stringer_height","properties.stringer_flange_thickness")&&continue
         if spec.kind===:float&&(startswith(key,"properties.")||key in ("leading_edge.t_skin","leading_edge.t_rib"))
             add(key,spec.label,Any[key],p[key],"m")
         end
@@ -166,15 +169,16 @@ function sensitivity_catalog(m::Model)
     # Independent local variables also exist when the current value is inherited.
     # Their exact one-property scope is known without O(panel_count^2) probes.
     for panel in stiffened_panel_layout(m.grid).panels
-        haskey(baseline,panel.shell_pid)&&haskey(baseline,panel.stringer_pid)||continue
+        stringer_pid=shell_stringers(p) ? panel_stringer_web_pid(panel.id) : panel.stringer_pid
+        haskey(baseline,panel.shell_pid)&&haskey(baseline,stringer_pid)||continue
         key=panel_key(panel);label="P$(panel.id) · $(panel.upper ? "Upper" : "Lower") R$(panel.bay)–R$(panel.bay+1), stringer $(panel.stringer)"
         inherited=inherited_panel_properties(p,panel.upper);override=get(context.rows,panel.id,Dict())
         skin=merge(inherited.skin,get(override,"skin",Dict()));bar=merge(inherited.stringer,get(override,"stringer",Dict()))
         fields=skin["kind"]=="sandwich" ? ("face_thickness","core_thickness") : ("thickness",)
         for (part,field,pid,value) in vcat([( "skin",f,panel.shell_pid,skin[f]) for f in fields],
-                [("stringer",f,panel.stringer_pid,bar[f]) for f in RIB_STIFFENER_FIELDS])
+                [("stringer",f,stringer_pid,bar[f]) for f in (shell_stringers(p) ? ("web_thickness",) : RIB_STIFFENER_FIELDS)])
             fieldkey=(part=="skin" ? "shell." : "section.")*field
-            fieldlabel=part=="skin" ? (field=="thickness" ? "Shell thickness" : "Sandwich "*replace(field,'_'=>' ')) : "T "*replace(field,'_'=>' ')
+            fieldlabel=part=="skin" ? (field=="thickness" ? "Shell thickness" : "Sandwich "*replace(field,'_'=>' ')) : (shell_stringers(p) ? "Shell stringer " : "T ")*replace(field,'_'=>' ')
             push!(variables,Dict{String,Any}("id"=>"properties.panels#$key#$part#$field",
                 "label"=>label*": "*fieldlabel,"path"=>Any["properties.panels",key,part,field],
                 "value"=>Float64(value),"unit"=>"m","scale"=>1.,"pids"=>[pid],
@@ -189,7 +193,8 @@ function sensitivity_catalog(m::Model)
         "selection_replacements"=>selection.replacements,"selection_aliases"=>selection.aliases,
         "cases"=>[Dict("id"=>s.id,"label"=>s.label) for s in load_case_specs(p)],
         "surfaces"=>["z1","z2"],"method"=>"discrete_adjoint",
-        "note"=>"Fixed nodes, connectivity and property IDs. Every stiffened panel, spar-web bay, upper/lower front/rear spar-cap bay, rib web/stiffener and leading-edge skin bay/rib offers independent section or shell dimensions, including inherited defaults. Component-family selections expand to local bay/rib derivatives, including overridden values; material and panel selections retain their original scope. Analytic mode uses exact element chain rules with one baseline analysis and a shared static adjoint, without property finite differences. SOL103 uses the chosen case's fuel mass; SOL105 uses its static preload.")
+        "note"=>"Fixed nodes, connectivity and property IDs. Every stiffened panel, spar-web bay, upper/lower front/rear spar-cap bay, rib web/stiffener and leading-edge skin bay/rib offers independent section or shell dimensions, including inherited defaults. Component-family selections expand to local bay/rib derivatives, including overridden values; material and panel selections retain their original scope. Analytic mode uses exact element chain rules with one baseline analysis and a shared static adjoint, without property finite differences. SOL103 uses the chosen case's fuel mass; SOL105 uses its static preload."*
+            (shell_stringers(p) ? " Shell stringers expose web thickness and material variables. Flange width, overall height and flange thickness change blade/skin geometry and are excluded from fixed-mesh property sensitivities." : ""))
 end
 
 function sensitivity_request(m,raw)

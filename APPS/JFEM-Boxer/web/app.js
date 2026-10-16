@@ -29,6 +29,8 @@ const GROUP_STYLE = {
   LE_RIB_WEBS:    { color: "#62bc7c", alpha: 0.95 },
   LE_RIB_NOSE:    { color: "#62bc7c", alpha: 0.95 },
   STRINGERS:      { color: "#ffdf00" },
+  STRINGER_WEBS:  { color: "#ffdf00", alpha: 0.95 },
+  STRINGER_FLANGES: { color: "#e9b840", alpha: 0.95 },
   STRINGER_RUNOUTS: { color: "#ffdf00" },
   SPAR_CAPS:      { color: "#ff8c00" },
 };
@@ -381,6 +383,7 @@ const CASE_FIELDS = [
 ];
 const CASE_GLOBAL_KEYS = new Set(["loads.label", ...CASE_FIELDS.map((field) => field[2])]);
 const CHOICE_LABELS = {
+  beam: "Beams · PBARL T sections", shell: "Shells · web and attached flange", surface_normal: "Normal to the local skin", coordinate_axis: "Along a coordinate-system axis", x: "X axis", y: "Y axis", z: "Z axis",
   inboard: "Inboard", outboard: "Outboard", flight_direction: "Line of flight", front_spar_angle: "Angle to local front spar", rear_spar_angle: "Angle to local rear spar",
   analytic: "Prescribed lift", vortex_lattice: "Aerodynamic (VLM)",
   elliptical: "Elliptical", chord: "Proportional to chord", uniform: "Uniform",
@@ -464,9 +467,9 @@ const HELP_TOPICS = {
   ] },
   "Beam sections": { title: "Stringers and spar caps", paragraphs: [
     "The two section cards show proportional cross sections as you edit the dimensions, including dimension arrows, centroid, area, skin contact and local axes. Inputs use metres; the drawing labels use millimetres. Invalid dimensions clear the preview until corrected.",
-    "Stringers use T sections. Define the flange width, total height, flange thickness and web thickness in metres. The flange lies against the skin and the web points into the lifting-surface box. Spar caps use solid square sections, defined by side length.",
-    "These dimensions determine the PBARL properties written to REFERENCE and the 3D shapes. Use Display → Beam sections → Full 3D sections to inspect their orientation. The shapes use the physical dimensions without display enlargement.",
-    "The section surface lies at the skin and its profile extends into the box, with the same offsets used in the deck. Runout bars retain their prescribed area of 0.001 m² and are displayed as lines. Skin local x follows the stringers; rib shell x stays horizontal in the rib plane, signed toward global +X, including angled leading-edge ribs. The element connectivity may have a different first-edge direction.",
+    "Choose beams or shells in Structure → Stringers. Beams use PBARL T sections. Shells use a web and an attached flange with separate PSHELL properties; set flange width to zero for a blade alone. Define flange width, total height, flange thickness and web thickness in metres. Spar caps use solid square beam sections, defined by side length.",
+    "Shell flanges share the skin reference surface as a thin-shell idealization. Blade depth is total height minus flange thickness, or the full height when the flange width is zero. Choose an inward local surface normal or an axis of a selected coordinate system for blade direction. Mesh → Elements through stringer blade height controls the number of shell rows through that depth. Shell stringers are rendered with Shell elements; the Bars 3D control applies to beams.",
+    "For beam stringers the flange outer face lies at the skin and the profile extends into the box with the same offsets used in the deck. Runout connectors retain their fixed 5 mm² area. Skin local x follows the stringers; rib shell x stays horizontal in the rib plane, signed toward global +X, including angled leading-edge ribs. The element connectivity may have a different first-edge direction.",
   ] },
   "Materials": {title:"Materials and component assignments",paragraphs:[
     "Material 1 retains the original material fields. Add or edit further isotropic materials below; E is entered in GPa and stored in Pa. Poisson ratio must satisfy 0 ≤ ν < 0.5; the native MAT1 path does not support negative auxetic values. The example core values are editable starting points, not product data. An isotropic core does not describe orthotropic honeycomb behavior.",
@@ -545,7 +548,8 @@ function parameterRow(spec, values) {
   } else {
     input.type = spec.kind === "string" ? "text" : "number";
     input.step = spec.kind === "int" ? "1" : /(?:^|[._])(?:eta|xc)$/.test(spec.key) || spec.unit === "x/c" ? "0.1" : "any";
-    if (spec.key === "mesh.elements_spar_height") input.min = "1";
+    if (["mesh.elements_spar_height","mesh.elements_stringer_height"].includes(spec.key)) input.min = "1";
+    if (spec.key === "stringers.axis_cid") input.min = "0";
     if (spec.key === "leading_edge.chord_elements") { input.min = "2"; input.max = "100"; }
     if (spec.key === "fuel.fill_efficiency") { input.min = "0"; input.max = "1"; }
     input.value = String(parameterDisplayValue(spec.key, values[spec.key]));
@@ -856,7 +860,7 @@ function buildForm(schema, values) {
     }
     if (name === "VLM settings" || name === "Beam sections") {
       const note = document.createElement("p"); note.className = "group-note";
-      note.textContent = name === "VLM settings" ? "Shared aerodynamic mesh. Choose Aerodynamic (VLM) and set flight conditions in the Cases tab." : "T-shaped stringers. Dimensions are in metres; inspect them with Display → Beam sections. Spar caps are in Properties → Spars.";
+      note.textContent = name === "VLM settings" ? "Shared aerodynamic mesh. Choose Aerodynamic (VLM) and set flight conditions in the Cases tab." : "Choose beam or shell stringers in Structure → Stringers. Dimensions are in metres. For shells, set flange width to zero to create blades only. Spar caps are in Properties → Spars.";
       det.appendChild(note);
     }
     for (const spec of specs) {
@@ -947,6 +951,7 @@ function buildForm(schema, values) {
   }
   state.parameterLocks?.formBuilt();
   installStringerLayout();
+  syncStringerModelControls();
   syncLeadingEdgePropertiesTab();
   syncLeadingEdgeOrientation();
   refreshSurfaceEditors();
@@ -1292,6 +1297,19 @@ function syncLeadingEdgeOrientation() {
   method.setAttribute("aria-describedby",note.id);
 }
 
+function syncStringerModelControls() {
+  const model=document.getElementById("p-stringers.model"),shell=model?.value==="shell",orientation=document.getElementById("p-stringers.orientation");
+  for(const key of ["stringers.orientation","mesh.elements_stringer_height"]) {const row=document.getElementById("row-"+key);if(row)row.hidden=!shell;}
+  for(const key of ["stringers.axis_cid","stringers.axis"]) {const row=document.getElementById("row-"+key);if(row)row.hidden=!shell||orientation?.value!=="coordinate_axis";}
+  const width=document.getElementById("p-properties.stringer_flange_width"),flange=document.getElementById("row-properties.stringer_flange_thickness");
+  if(width)width.min=shell?"0":"0.000000001";
+  if(flange)flange.hidden=shell&&width?.value.trim()!==""&&Number(width.value)===0;
+  document.getElementById("group-beam-sections")?.dispatchEvent(new Event("stringer-model-change"));
+  const host=document.getElementById("group-stringer-layout");if(!host||!model)return;
+  let note=document.getElementById("stringer-model-note");if(!note){note=document.createElement("p");note.id="stringer-model-note";note.className="group-note";host.append(note);}
+  note.textContent=shell?"Shell stringers use separate web and flange properties and share their skin attachment. A zero flange width creates blades only. Mesh → Elements through stringer blade height sets the web subdivisions. Surface normals point inward; a selected coordinate axis is signed toward the inside of each skin. An axis tangent to the skin is rejected. Coordinate 0 means global BASIC; other IDs must belong to an existing generated frame. Changing blade height, flange width or orientation rebuilds the geometry.":"Beam stringers use PBARL T sections. The flange is attached to the skin and the web points inward. Set cross-section dimensions in Properties → Stringers.";
+}
+
 // This status describes the entire requested analysis, not just the selected
 // case. A partial SOL106 checkpoint remains viewable but never reports green.
 function analysisValidity() {
@@ -1432,6 +1450,7 @@ function parameterEdited(key) {
   if(state.importedDeck && key!=="sensitivity.settings")return;
   if (state.parameterLocks?.guard(key)) return;
   if (key === "leading_edge.enabled") syncLeadingEdgePropertiesTab();
+  if (key.startsWith("stringers.")||key==="properties.stringer_flange_width") syncStringerModelControls();
   if (key.startsWith("box.")) state.stringerLayout?.refresh();
   if(key.startsWith("airfoil."))state.airfoilEditor?.refresh?.();
   markStudyModified();
@@ -3699,6 +3718,10 @@ function shellMesh(name, positions, conn, nodesPerElement, hex, alpha, deformabl
   // Color buffers carry RGB contours; material.alpha alone controls opacity.
   mesh.hasVertexAlpha = false;
   mesh.material = shellMaterial(name + "-mat", hex, alpha);
+  // Shell flanges intentionally share the skin reference surface. Give their
+  // displayed fragments a small depth bias so equal-depth faces do not flicker
+  // as the camera rotates; FE vertices, picking and export stay unchanged.
+  if(group?.base_group==="STRINGER_FLANGES")mesh.material.zOffset=-0.5;
   // These indices use the right-hand normal convention, rather than the
   // inward winding of Babylon's built-in primitive builders in an RH scene.
   mesh.sideOrientation = state.scene.useRightHandedSystem ? BABYLON.Material.CounterClockWiseSideOrientation : BABYLON.Material.ClockWiseSideOrientation;
@@ -3851,6 +3874,7 @@ function prepareShellThickness(surface,peers,group,positions,conn,stride,color,a
   surface.createThickness=()=>{
     const mesh=WingShellThickness.createMesh(BABYLON,{name:group.name+"-thickness",scene:state.scene,positions,conn,nodesPerElement:stride,bounds});
     mesh.material=shellMaterial(mesh.name+"-mat",color,alpha);mesh.material.twoSidedLighting=false;
+    if(group.base_group==="STRINGER_FLANGES")mesh.material.zOffset=-0.5;
     mesh.sideOrientation=BABYLON.Material.CounterClockWiseSideOrientation;
     mesh.parent=state.root;mesh.isPickable=true;mesh.elementIds=groupIds(group);mesh.baseColorHex=color;mesh.translucentAlpha=alpha;
     mesh.nodesPerElement=mesh.shellThicknessGeometry.verticesPerElement;mesh.contourNodeMap=conn;mesh.contourNodesPerElement=stride;
@@ -4015,7 +4039,8 @@ function* buildModelSteps(data, options = {}) {
       state.elements.set(ids[e], { id: ids[e], group: g.sourceRanges?.[rangeIndex].group||g, nodes: conn.slice(e * stride, (e + 1) * stride), leadingEdgeFallback:fallbackByElement.get(ids[e]) });
     }
     const family=state.importedDeck?0:Math.floor(g.pid/1000000),physical=g.pid%1000000;
-    const label = g.panel_id!=null ? (state.panelIndex.byId.get(g.panel_id)?.label||"Panel "+g.panel_id)+" · "+(g.kind==="bar"?"stringer":"skin") : family ? (g.base_group||g.name).replace(/_/g," ").toLowerCase()+" · "+(family<=2?"R ":"bay ")+physical : g.name.replace(/_/g, " ").toLowerCase();
+    const panelRole=({STRINGER_WEBS:"stringer web",STRINGER_FLANGES:"stringer flange"})[g.base_group]||(g.kind==="bar"?"stringer":"skin");
+    const label = g.panel_id!=null ? (state.panelIndex.byId.get(g.panel_id)?.label||"Panel "+g.panel_id)+" · "+panelRole : family ? (g.base_group||g.name).replace(/_/g," ").toLowerCase()+" · "+(family<=2?"R ":"bay ")+physical : g.name.replace(/_/g, " ").toLowerCase();
     if (g.kind === "quad" || g.kind === "tria") {
       const stride = g.n_per_elem || (g.kind === "tria" ? 3 : 4);
       const mesh = shellMesh(g.name, positions, conn, stride,
@@ -6587,7 +6612,7 @@ function showElement(eid) {
     html+='<details open><summary>Displayed property</summary><p>'+esc(c.name)+': '+esc(label??(Number.isFinite(value)?eng(value,6)+' '+c.unit:'Not applicable / unavailable'))+'</p></details>';
   }
   const panel=state.panelIndex?.byElement.get(eid);
-  if(panel)html+='<details open><summary>Stiffened panel</summary>'+resultTable({Panel:panel.label,ID:panel.id,Skin:panel.skin,"Rib bay":panel.rib_bay,"Shell PID":panel.shell_pid,"Stringer PID":panel.stringer_pid,"Shell elements":panel.shell_eids.length,"Normal stringer bars":panel.stringer_eids.length,"Start":panel.start_kind,"End":panel.end_kind})+'</details>';
+  if(panel)html+='<details open><summary>Stiffened panel</summary>'+resultTable({Panel:panel.label,ID:panel.id,Skin:panel.skin,"Rib bay":panel.rib_bay,"Skin PID":panel.shell_pid,...(panel.stringer_model==="shell"?{"Stringer web PID":panel.stringer_web_pid,"Stringer flange PID":panel.stringer_flange_pid??"None (blade only)"}:{"Stringer PID":panel.stringer_pid}),"Skin shell elements":panel.shell_eids.length,"Stringer elements":panel.stringer_eids.length,"Start":panel.start_kind,"End":panel.end_kind})+'</details>';
   if(state.sensitivityMap){
     const contour=state.sensitivityMap.contour,affected=contour.byId.has(eid),effect=contour.effect;
     const row=contour.rowsById?.get(eid);

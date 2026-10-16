@@ -74,7 +74,12 @@ function sensitivity_analytic_property_direction(m,d,property)
     materials=Dict(mid=>sensitivity_material_direction(d,mid) for mid in mids)
     dm0=dm1=dm2=0.
     if property["type"]=="PSHELL"
-        dt=sensitivity_owned_derivative(p,pid,d,"skin","thickness",sensitivity_shell_thickness_owner(p,pid))
+        dt=if is_shell_stringer_pid(pid)
+            field=base==PID_STRINGER_WEB ? "web_thickness" : "flange_thickness"
+            sensitivity_owned_derivative(p,pid,d,"stringer",field,"properties.stringer_"*field)
+        else
+            sensitivity_owned_derivative(p,pid,d,"skin","thickness",sensitivity_shell_thickness_owner(p,pid))
+        end
         rho=property["material"]["rho_kg_m3"];drho=materials[property["material_id"]]["rho"];h=property["thickness_m"]
         dm0=drho*h+rho*dt;dm2=drho*h^3/12+rho*h^2*dt/4;dplies=Float64[]
         # The native PSHELL kernel spreads fixed NSM through its thickness.

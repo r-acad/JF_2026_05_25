@@ -5,6 +5,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Shell stringers
+
+- Add a beam/shell stringer choice, with shared-node attached flanges, separate
+  panel web/flange PSHELL properties and a blade-only option at zero flange width.
+- Control blade height subdivisions and orient blades along the inward skin
+  normal or an axis of BASIC/an existing generated coordinate system.
+- Integrate shell stringers into panel inspection, property tables, mass and
+  exported decks. Preserve beam defaults and small run-out connectors. Expose
+  web-thickness/material sensitivities and exclude dimensions requiring shape
+  derivatives from the fixed-mesh property catalogue.
+
 ### Large sensitivity selections
 
 - Remove the 4,096-variable selection limit from generated and imported models,

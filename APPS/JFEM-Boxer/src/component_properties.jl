@@ -95,6 +95,8 @@ function component_base_pid(pid::Integer)
     family==15&&return PID_RIB_WEB
     family==16&&return PID_RIB_STIFFENER
     family in (17,18)&&return PID_SPAR_WEB
+    family==19&&return PID_STRINGER_WEB
+    family==20&&return PID_STRINGER_FLANGE
     return Int(pid)
 end
 
@@ -128,6 +130,10 @@ resolved_component_properties(m::Model)=resolved_component_properties(m.params,l
 
 function nominal_shell_thickness(p::AbstractDict,pid::Integer)
     family,index=divrem(pid,COMPONENT_PID_STRIDE)
+    if is_shell_stringer_pid(pid)
+        dimensions=panel_stringer_dimensions(p,pid)
+        return dimensions[component_base_pid(pid)==PID_STRINGER_WEB ? 4 : 3]
+    end
     localrow=component_table_override(p,pid)
     haskey(localrow,"thickness")&&return Float64(localrow["thickness"])
     family==15&&(pid=COMPONENT_PID_STRIDE+index;family=1)
@@ -152,6 +158,7 @@ shell_thickness(p::AbstractDict,pid::Integer)=shell_material_definition(p,pid)["
 """Actual referenced property cards, shared by deck, reports and payloads."""
 function model_property_definitions(m::Model)
     register_panel_properties!(m.params,m.grid)
+    register_shell_stringer_mass_geometry!(m.params,m.groups,m.xyz,m.grid)
     entries=Dict{Int,Dict{String,Any}}()
     for group in m.groups
         isempty(group.eids)&&continue

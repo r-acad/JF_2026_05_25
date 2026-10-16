@@ -214,6 +214,7 @@ end
 
 """Exact surface curve at a coarse or shell-only stringer column."""
 function kink_column_point(g,i,j,eta,upper)
+    g.shell_columns!==nothing&&return shell_stringer_kink_point(g,i,j,eta,upper)
     w,context=g.wing,g.rib_layout
     subdivisions=ni(g)÷(length(context.roots)-1)
     coarse,sub=divrem(i,subdivisions)
@@ -307,7 +308,7 @@ then triangulate their adjoining shells and split caps/stringers on those exact
 same vertices. Rib planes and the regular row grid stay unchanged. Leading-edge
 shells touching a split front cap use the same boundary vertices automatically.
 """
-function split_oriented_kink_edges!(reg,g,groups,eid)
+function split_oriented_kink_edges!(reg,g,groups,eid;p=nothing)
     context=g.rib_layout;w=g.wing
     breaks=sort!(unique(vcat(context.arc.spar.breakpoints,context.path.kink_etas,planform_breakpoints(w))))
     filter!(eta->1e-10<eta<last(g.etas)-1e-10,breaks)
@@ -336,6 +337,7 @@ function split_oriented_kink_edges!(reg,g,groups,eid)
         end
         push!(chain,b);splits[(a,b)]=chain;splits[(b,a)]=reverse(chain)
     end
+    g.shell_columns!==nothing&&add_shell_stringer_kink_splits!(reg,g,p,groups,splits,breaks)
     isempty(splits)&&return eid
     appended=ElemGroup[]
     for group in groups

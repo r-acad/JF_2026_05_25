@@ -8,7 +8,7 @@ const WEIGHT_COMPONENTS = (
     ("rear_spar", "Rear spar web", ("REAR_SPAR_WEB",)),
     ("ribs", "Rib webs", ("RIB_WEBS",)),
     ("rib_stiffeners", "Rib T stiffeners", ("RIB_STIFFENERS",)),
-    ("stringers", "T stringers", ("STRINGERS",)),
+    ("stringers", "Stringers", ("STRINGERS","STRINGER_WEBS","STRINGER_FLANGES")),
     ("spar_caps", "Square spar caps", ("SPAR_CAPS",)),
     ("runouts", "Stringer runout bars", ("STRINGER_RUNOUTS",)),
 )
@@ -120,6 +120,7 @@ only a computed display anchor; this function never adds FE nodes or masses.
 The central tensor retains shell-layer and beam-section rotary contributions.
 """
 function structural_bay_mass_properties(m::Model)
+    register_shell_stringer_mass_geometry!(m.params,m.groups,m.xyz,m.grid)
     nbays=length(m.grid.ribs)-1
     spiders=Dict(sp.start_rib=>sp for sp in m.fuel_rbe3)
     references=[haskey(spiders,bay) ? copy(m.xyz[3spiders[bay].ref-2:3spiders[bay].ref]) : collect(fuel_bay_geometry(m,bay).center) for bay in 1:nbays]
@@ -151,8 +152,11 @@ structural_inertia_payload(m::Model)=structural_bay_mass_properties(m)
 
 function weight_component(m::Model,id,label,names)
     selected = [gr for gr in m.groups if weight_base_group(gr.name) in names]
+    id=="stringers"&&shell_stringers(m.params)&&(label="Shell stringers")
+    kind=isempty(selected) ? (id in ("stringers","spar_caps","runouts","rib_stiffeners") ? "bar" : "shell") :
+        all(gr->gr.kind===:bar,selected) ? "bar" : "shell"
     row=Dict{String,Any}("id"=>id,"label"=>label,"groups"=>[gr.name for gr in selected],"count"=>0,
-        "kind"=>id in ("stringers","spar_caps","runouts","rib_stiffeners") ? "bar" : "shell",
+        "kind"=>kind,
         "area_m2"=>0.,"length_m"=>0.,"volume_m3"=>0.,"mass_kg"=>0.,"weight_N"=>0.,
         "nonstructural_mass_kg"=>0.,"in_structure"=>true,"in_deck"=>true)
     dimensions=Float64[]
@@ -196,6 +200,7 @@ end
 """Dry structure, optional exported aero shells, and case-specific fuel CONM2 mass."""
 function weights_payload(m::Model)
     p=m.params
+    register_shell_stringer_mass_geometry!(p,m.groups,m.xyz,m.grid)
     rows=Any[weight_component(m,id,label,names) for (id,label,names) in WEIGHT_COMPONENTS]
     recognized=Set(name for (_,_,names) in WEIGHT_COMPONENTS for name in names)
     for (id,label,names) in (("leading_edge_skins","Leading-edge skins",("LE_UPPER_SKIN","LE_LOWER_SKIN")),

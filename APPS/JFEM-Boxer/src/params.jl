@@ -102,6 +102,14 @@ const SCHEMA = ParamSpec[
     ParamSpec("box.rib_pitch", "Root outgoing rib pitch", :float, 0.6, "Ribs";
               unit = "m",
               help = "Target pitch from the root master to the next master. With intermediate masters, pitch is measured along the 3D rear-spar reference path and rounded to whole bays per interval. Without intermediate masters the existing reference-line spacing is preserved"),
+    ParamSpec("stringers.model", "Stringer elements", :choice, "beam", "Stringer layout";
+              choices=["beam","shell"], help="Beam uses a T-section PBARL and CBAR on each stringer path. Shell uses PSHELL webs and an attached flange sharing skin nodes. Set flange width to zero for blade-only stringers. Shell stringers connect to ribs through the shared skin/flange footprint; blade interiors are not welded to intersecting rib webs. Run-out links retain their small beam section."),
+    ParamSpec("stringers.orientation", "Blade direction", :choice, "surface_normal", "Stringer layout";
+              choices=["surface_normal","coordinate_axis"], help="Surface normal follows the local skin normal, directed into the box. Coordinate axis keeps the blade parallel to X, Y or Z of the selected rectangular coordinate system, choosing the inward sign on each skin. An axis tangent to the skin cannot define a blade and is rejected."),
+    ParamSpec("stringers.axis_cid", "Blade coordinate-system ID", :int, 0, "Stringer layout";
+              help="0 is the global BASIC rectangular system. A positive ID selects an existing generated skin, spar or rib material coordinate system (shown in Display > Axes & Labels). Its X/Y/Z direction is evaluated on the current mesh before adding stringer shells. IDs can change when the mesh changes; check the selected frame after remeshing."),
+    ParamSpec("stringers.axis", "Blade coordinate axis", :choice, "z", "Stringer layout";
+              choices=["x","y","z"], help="Axis of the selected coordinate system to which the blade height direction is parallel. Its sign is chosen toward the inside of the box; Z of BASIC is useful for vertical blades. The direction must not be tangent to the skin."),
     ParamSpec("box.stringer_pitch", "Default stringer pitch", :float, 0.150, "Stringer layout";
               unit = "m",
               help = "Exact chordwise x-spacing between adjacent physical stringers at the root, in metres; 0.150 means 150 mm. Reducing it usually adds stringers. Paths follow the chosen rear-spar-relative directions and can run out into a spar. Elements between stringers refines shells without changing this physical pitch"),
@@ -157,8 +165,10 @@ const SCHEMA = ParamSpec[
     # --- mesh --------------------------------------------------------------
     ParamSpec("mesh.elements_between_ribs", "Elements per rib bay", :int, 3, "Mesh";
               help = "Number of spanwise shell subdivisions between consecutive physical ribs. The box skins, spar webs and enabled leading-edge skins share these rows; geometry kinks may add rows or local splits. Refining this count adds mesh elements without adding physical ribs or changing their numbering"),
+    ParamSpec("mesh.elements_stringer_height", "Elements through stringer blade height", :int, 2, "Mesh";
+              help="Nominal number of shell elements from the skin attachment to the free blade edge, from 1 to 100. Applies only to shell stringers. Additional divisions may be inserted to share nodes where adjacent bays have different blade heights. Spanwise subdivisions follow Elements per rib bay; flange edges refine the skin automatically."),
     ParamSpec("mesh.elements_between_stringers", "Elements between stringers", :int, 1, "Mesh";
-              help = "Whole number from 1 to 100 of chordwise shell subdivisions in each physical stringer bay, including the margins beside both spars. Refines box skins and main ribs while keeping the physical stringer count, pitch and positions. Leading-edge skins use their separate nose-to-spar count"),
+              help = "Whole number from 1 to 100 of chordwise shell subdivisions in each physical stringer bay, including the margins beside both spars. With shell stringers, flange edges add columns and this count subdivides the remaining gap between flange footprints. Refines box skins and main ribs while keeping the physical stringer count, pitch and positions. Leading-edge skins use their separate nose-to-spar count"),
     ParamSpec("mesh.stringer_runout_ratio", "Run-out threshold", :float, 0.75, "Stringer layout";
               unit = "distance / nominal pitch",
               help = "Retire a stringer when either skin's projected x-clearance to a spar falls below this fraction of the stringer pitch (greater than 0, at most 1). 0.75 means 75% of the pitch. Root stringer spacing is unchanged; 1 reproduces the original runout rule"),
@@ -273,16 +283,16 @@ const SCHEMA = ParamSpec[
               help = "Overrides by physical rib number: web thickness, vertical stiffeners enabled, and PBARL T dimensions. Unset values inherit the defaults"),
     ParamSpec("properties.spar_bays", "Individual spar bay properties", :sparproperties, Any[], "Spar properties";
               help = "Optional front/rear web thickness overrides. Bay b spans physical ribs b and b+1; unset values inherit the default thickness"),
-    ParamSpec("properties.stringer_flange_width", "T flange width", :float, 0.030,
+    ParamSpec("properties.stringer_flange_width", "Stringer flange width", :float, 0.030,
               "Beam sections"; unit = "m",
-              help = "PBARL T DIM1. Flange lies against the skin; the web points into the box"),
-    ParamSpec("properties.stringer_height", "T overall height", :float, 0.032,
+              help = "Attached flange width, centred on the stringer path. Beam mode requires a positive T flange (PBARL DIM1). In shell mode, zero creates only the blade; a positive width adds flange PSHELLs sharing the skin footprint. Neighbouring flange footprints must not overlap."),
+    ParamSpec("properties.stringer_height", "Stringer overall height", :float, 0.032,
               "Beam sections"; unit = "m",
-              help = "PBARL T DIM2, including flange thickness. The centroid offset is included in the CBAR"),
-    ParamSpec("properties.stringer_flange_thickness", "T flange thickness", :float, 0.002,
-              "Beam sections"; unit = "m", help = "PBARL T DIM3; must be less than the overall height"),
-    ParamSpec("properties.stringer_web_thickness", "T web thickness", :float, 0.002,
-              "Beam sections"; unit = "m", help = "PBARL T DIM4; must be less than the flange width"),
+              help = "Beam: PBARL T DIM2, including flange thickness; the CBAR includes the centroid offset. Shell: blade depth is overall height minus flange thickness, or the full height when flange width is zero. Shell flange and skin use a shared midsurface attachment."),
+    ParamSpec("properties.stringer_flange_thickness", "Stringer flange thickness", :float, 0.002,
+              "Beam sections"; unit = "m", help = "Thickness of the attached flange (PBARL DIM3 or flange PSHELL). Must be less than overall height when a flange exists. Ignored for zero-width shell blades. In shell mode it also changes blade depth and requires remeshing."),
+    ParamSpec("properties.stringer_web_thickness", "Stringer web thickness", :float, 0.002,
+              "Beam sections"; unit = "m", help = "Blade/web thickness (PBARL DIM4 or web PSHELL). With a flange it must be smaller than flange width. A zero-width shell blade has no flange-width restriction."),
     ParamSpec("properties.spar_cap_side", "Square spar cap side", :float, 0.020,
               "Spar properties"; unit = "m",
               help = "PBARL BAR with equal DIM1 and DIM2. One face lies against the skin; the square extends into the box"),
@@ -662,18 +672,20 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
               "box.stringer_pitch", "mesh.stringer_runout_ratio", "material.E", "material.rho",
               "properties.t_skin_upper", "properties.t_skin_lower",
               "properties.t_spar_web", "properties.t_rib_web",
-              "properties.stringer_flange_width", "properties.stringer_height",
-              "properties.stringer_flange_thickness", "properties.stringer_web_thickness",
               "properties.spar_cap_side", "fuel.density", "leading_edge.t_skin", "leading_edge.t_rib")
         pos(k)
     end
     for k in ("output.t_aero_shell",)
         p[k] >= 0 || throw(ArgumentError("$k must not be negative, got $(p[k])"))
     end
-    p["properties.stringer_flange_thickness"] < p["properties.stringer_height"] ||
-        throw(ArgumentError("T stringer flange thickness must be less than its overall height"))
-    p["properties.stringer_web_thickness"] < p["properties.stringer_flange_width"] ||
-        throw(ArgumentError("T stringer web thickness must be less than its flange width"))
+    get(p,"stringers.model","beam") in ("beam","shell") || throw(ArgumentError("Stringer elements must be beam or shell"))
+    get(p,"stringers.orientation","surface_normal") in ("surface_normal","coordinate_axis") || throw(ArgumentError("Blade direction must be surface_normal or coordinate_axis"))
+    get(p,"stringers.axis","z") in ("x","y","z") || throw(ArgumentError("Blade coordinate axis must be x, y or z"))
+    cid=get(p,"stringers.axis_cid",0)
+    cid isa Integer && !(cid isa Bool) && cid>=0 || throw(ArgumentError("Blade coordinate-system ID must be a non-negative integer; 0 is BASIC"))
+    nh=get(p,"mesh.elements_stringer_height",2)
+    nh isa Integer && !(nh isa Bool) && 1<=nh<=100 || throw(ArgumentError("Elements through stringer blade height must be an integer from 1 to 100"))
+    validate_stringer_dimensions(p,Tuple(p["properties.stringer_"*f] for f in RIB_STIFFENER_FIELDS),"Stringer")
 
     0 < p["planform.taper_ratio"] <= 1.0 || throw(ArgumentError(
         "planform.taper_ratio must be in (0, 1], got $(p["planform.taper_ratio"])"))

@@ -3,9 +3,17 @@
 const PANEL_UPPER_FAMILY=5
 const PANEL_LOWER_FAMILY=6
 const PANEL_STRINGER_FAMILY=7
-stiffened_panel_id(pid::Integer)=pid÷COMPONENT_PID_STRIDE in (5,6,7) ? pid%COMPONENT_PID_STRIDE : nothing
+const PANEL_STRINGER_WEB_FAMILY=19
+const PANEL_STRINGER_FLANGE_FAMILY=20
+const PID_STRINGER_WEB=15
+const PID_STRINGER_FLANGE=16
+stiffened_panel_id(pid::Integer)=pid÷COMPONENT_PID_STRIDE in (5,6,7,19,20) ? pid%COMPONENT_PID_STRIDE : nothing
 panel_skin_pid(id,upper)=(upper ? PANEL_UPPER_FAMILY : PANEL_LOWER_FAMILY)*COMPONENT_PID_STRIDE+id
 panel_stringer_pid(id)=PANEL_STRINGER_FAMILY*COMPONENT_PID_STRIDE+id
+panel_stringer_web_pid(id)=PANEL_STRINGER_WEB_FAMILY*COMPONENT_PID_STRIDE+id
+panel_stringer_flange_pid(id)=PANEL_STRINGER_FLANGE_FAMILY*COMPONENT_PID_STRIDE+id
+shell_stringers(p)=get(p,"stringers.model","beam")=="shell"
+is_shell_stringer_pid(pid)=component_base_pid(pid) in (PID_STRINGER_WEB,PID_STRINGER_FLANGE)
 
 function stiffened_panel_layout(g::BoxGrid)
     panels=NamedTuple[];bars=Dict{Tuple{Int,Int,Bool},Int}()
@@ -53,6 +61,7 @@ end
 function stiffened_panels_payload(m::Model)
     layout=stiffened_panel_layout(m.grid)
     context=register_panel_properties!(m.params,m.grid;layout)
+    register_shell_stringer_mass_geometry!(m.params,m.groups,m.xyz,m.grid)
     owned=Dict{Int,Vector{ElemGroup}}()
     unassigned=Dict("upper"=>Int[],"lower"=>Int[])
     for group in m.groups
@@ -66,24 +75,36 @@ function stiffened_panels_payload(m::Model)
     rows=Dict{String,Any}[]
     for panel in layout.panels
         groups=get(owned,panel.id,ElemGroup[]);isempty(groups)&&continue # legacy serialized mesh
-        shells=[g for g in groups if g.kind!==:bar];bars=[g for g in groups if g.kind===:bar]
-        shellids=sort!([e for g in shells for e in g.eids]);barids=sort!([e for g in bars for e in g.eids])
+        shells=[g for g in groups if component_base_pid(g.pid) in (PID_SKIN_UPPER,PID_SKIN_LOWER)]
+        stringers=[g for g in groups if g.kind===:bar||is_shell_stringer_pid(g.pid)]
+        bars=[g for g in stringers if g.kind===:bar]
+        webids=sort!([e for g in stringers if component_base_pid(g.pid)==PID_STRINGER_WEB for e in g.eids])
+        flangeids=sort!([e for g in stringers if component_base_pid(g.pid)==PID_STRINGER_FLANGE for e in g.eids])
+        shellids=sort!([e for g in shells for e in g.eids]);stringerids=sort!([e for g in stringers for e in g.eids])
         skin=panel.upper ? "upper" : "lower"
         start_rib=panel.start_row==m.grid.ribs[panel.bay] ? panel.bay : nothing
         end_rib=panel.end_row==m.grid.ribs[panel.bay+1] ? panel.bay+1 : nothing
         area=sum((weight_shell_area(element_points(m,g,e)) for g in shells for e in eachindex(g.eids));init=0.)
         bar_length=sum((norm3(points[2].-points[1]) for g in bars for e in eachindex(g.eids) for points in (element_points(m,g,e),));init=0.)
-        nodeids=sort!(unique([m.node_ids[n] for g in bars for n in g.conn]))
+        if shell_stringers(m.params)
+            bar_length=something(shell_stringer_attachment_length(m.params,panel_stringer_web_pid(panel.id)),0.)
+        end
+        nodeids=sort!(unique([m.node_ids[n] for g in stringers for n in g.conn]))
         inherited=inherited_panel_properties(m.params,panel.upper);override=get(context.rows,panel.id,nothing)
         push!(rows,Dict{String,Any}("id"=>panel.id,"key"=>panel_key(panel),
             "label"=>"$(uppercasefirst(skin)) · R$(panel.bay)–R$(panel.bay+1) · stringer $(panel.stringer)",
             "skin"=>skin,"rib_bay"=>panel.bay,"stringer"=>panel.stringer,"segment"=>panel.segment,
             "start_rib"=>start_rib,"end_rib"=>end_rib,"start_kind"=>start_rib===nothing ? "runout" : "rib",
             "end_kind"=>end_rib===nothing ? "runout" : "rib","start_eta"=>m.grid.etas[panel.start_row+1],
-            "end_eta"=>m.grid.etas[panel.end_row+1],"shell_pid"=>panel.shell_pid,"stringer_pid"=>panel.stringer_pid,
-            "shell_eids"=>shellids,"stringer_eids"=>barids,"stringer_grid_ids"=>nodeids,
+            "end_eta"=>m.grid.etas[panel.end_row+1],"shell_pid"=>panel.shell_pid,
+            "stringer_pid"=>isempty(webids) ? panel.stringer_pid : panel_stringer_web_pid(panel.id),
+            "stringer_model"=>shell_stringers(m.params) ? "shell" : "beam",
+            "stringer_web_pid"=>isempty(webids) ? nothing : panel_stringer_web_pid(panel.id),
+            "stringer_flange_pid"=>isempty(flangeids) ? nothing : panel_stringer_flange_pid(panel.id),
+            "shell_eids"=>shellids,"skin_eids"=>shellids,"stringer_eids"=>stringerids,
+            "stringer_web_eids"=>webids,"stringer_flange_eids"=>flangeids,"stringer_grid_ids"=>nodeids,
             "skin_area_m2"=>area,"stringer_length_m"=>bar_length,"skin_thickness_m"=>shell_thickness(m.params,panel.shell_pid),
-            "stringer_dimensions_m"=>section_definition(m.params,panel.stringer_pid)["dimensions_m"],
+            "stringer_dimensions_m"=>collect(panel_stringer_dimensions(m.params,panel.stringer_pid)),
             "inherited_skin"=>inherited.skin,"inherited_stringer"=>inherited.stringer,
             "effective_skin"=>merge(inherited.skin,override===nothing ? Dict() : get(override,"skin",Dict())),
             "effective_stringer"=>merge(inherited.stringer,override===nothing ? Dict() : get(override,"stringer",Dict())),
@@ -91,7 +112,8 @@ function stiffened_panels_payload(m::Model)
     end
     Dict{String,Any}("panels"=>rows,"count"=>length(rows),"layout_token"=>context.token,"unassigned_shell_eids"=>unassigned,
         "coverage"=>Dict("assigned_shells"=>sum(length(r["shell_eids"]) for r in rows;init=0),
-            "assigned_stringer_bars"=>sum(length(r["stringer_eids"]) for r in rows;init=0),
+            "assigned_stringer_bars"=>sum(length(g.eids) for g in m.groups if g.kind===:bar&&component_base_pid(g.pid)==PID_STRINGER;init=0),
+            "assigned_stringer_shells"=>sum(length(r["stringer_web_eids"])+length(r["stringer_flange_eids"]) for r in rows;init=0),
             "unassigned_shells"=>sum(length,values(unassigned))),
-        "note"=>"One panel per skin and contiguous normal-stringer segment within a physical rib bay. Its skin extends aft to the next normal stringer or rear spar; the foremost active stringer also owns the forward strip. Kink triangles inherit their parent panel. Fixed-area runout connectors are excluded. Row strips with no normal stringer retain their original skin property and are reported as unassigned. Sparse panel overrides inherit blank fields from shared skin/stringer defaults. Each panel has independent thickness/section sensitivities, including inherited values. Geometry/layout changes require resetting overrides before regeneration.")
+        "note"=>"One panel per skin and contiguous normal-stringer segment within a physical rib bay. Its skin extends aft to the next normal stringer or rear spar; the foremost active stringer also owns the forward strip. Kink triangles inherit their parent panel. Fixed-area runout connectors are excluded. Row strips with no normal stringer retain their original skin property and are reported as unassigned. Sparse panel overrides inherit blank fields from shared skin/stringer defaults. Beam sections retain dimension sensitivities. Shell stringers expose material and web-thickness sensitivities; their width, height and flange thickness change the mesh and require regeneration. Geometry/layout changes require resetting overrides before regeneration.")
 end

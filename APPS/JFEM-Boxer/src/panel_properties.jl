@@ -25,6 +25,8 @@ function normalize_panel_properties(value)
                     v in ("monolithic","sandwich")||throw(ArgumentError("$key skin kind must be monolithic or sandwich"));values[field]=String(v)
                 elseif endswith(field,"material")
                     values[field]=material_integer(v,"$key $part $field")
+                elseif part=="stringer"&&field in ("flange_width","flange_thickness")&&v isa Real&&!(v isa Bool)&&iszero(v)
+                    values[field]=0.0
                 else
                     values[field]=material_positive(v,"$key $part $field (metres)")
                 end
@@ -56,7 +58,7 @@ function validate_panel_properties(p)
             skin[field] in ids||throw(ArgumentError("$(row["key"]) skin $field selects missing material $(skin[field])"))
         end
         bar["material"] in ids||throw(ArgumentError("$(row["key"]) stringer selects missing material $(bar["material"])"))
-        validate_t_section_dimensions(Tuple(bar[field] for field in RIB_STIFFENER_FIELDS),"$(row["key"]) stringer")
+        validate_stringer_dimensions(p,Tuple(bar[field] for field in RIB_STIFFENER_FIELDS),"$(row["key"]) stringer")
     end
     nothing
 end
@@ -110,4 +112,19 @@ end
 function panel_stringer_dimensions(p,pid)
     row=panel_property_override(p,pid,"stringer")
     Tuple(Float64(get(row,field,p["properties.stringer_"*field])) for field in RIB_STIFFENER_FIELDS)
+end
+
+"""A shell blade omits its flange; beam stringers retain the existing T rules."""
+function validate_stringer_dimensions(p,dimensions,label="Stringer")
+    if !shell_stringers(p)
+        return validate_t_section_dimensions(dimensions,label)
+    end
+    b,h,tf,tw=dimensions
+    b isa Real&&!(b isa Bool)&&isfinite(b)&&b>=0||throw(ArgumentError("$label flange width must be finite and nonnegative"))
+    all(v->v isa Real&&!(v isa Bool)&&isfinite(v)&&v>0,(h,tw))||throw(ArgumentError("$label height and web thickness must be finite positive lengths in metres"))
+    tf isa Real&&!(tf isa Bool)&&isfinite(tf)&&tf>=0||throw(ArgumentError("$label flange thickness must be finite and nonnegative"))
+    b==0&&return nothing
+    tf>0||throw(ArgumentError("$label flange thickness must be positive when its flange width is nonzero"))
+    tf<h&&tw<b||throw(ArgumentError("$label requires flange thickness < overall height and web thickness < flange width, or flange width = 0 for a shell blade"))
+    nothing
 end

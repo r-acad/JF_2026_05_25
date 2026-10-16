@@ -86,6 +86,7 @@ function material_assignment(p,component;shell=true)
 end
 function shell_material_component(pid)
     base=component_base_pid(pid)
+    base in (PID_STRINGER_WEB,PID_STRINGER_FLANGE)&&return "stringer"
     base==PID_SKIN_UPPER&&return "upper_skin"
     base==PID_SKIN_LOWER&&return "lower_skin"
     base==PID_SPAR_WEB&&return "spar_web"
@@ -105,6 +106,14 @@ end
 
 """PSHELL or explicit face/core/face PCOMP, with resolved physical-bay/rib total thickness."""
 function shell_material_definition(p,pid::Integer)
+    if is_shell_stringer_pid(pid)
+        material=bar_material_definition(p,panel_stringer_pid(something(stiffened_panel_id(pid),0)))
+        thickness=nominal_shell_thickness(p,pid);nsm=nonstructural_mass_density(p,pid)
+        return Dict{String,Any}("type"=>"PSHELL","construction"=>"monolithic","thickness_m"=>thickness,
+            "material_id"=>material["id"],"material"=>material_payload(material),"nonstructural_mass_kg_m2"=>nsm,
+            "areal_mass_kg_m2"=>thickness*material["rho"]+nsm,
+            "stringer_part"=>component_base_pid(pid)==PID_STRINGER_WEB ? "web" : "flange")
+    end
     component=shell_material_component(pid);assignment=component=="aero" ? default_shell_material(component) : material_assignment(p,component)
     nsm=nonstructural_mass_density(p,pid)
     assignment=merge(assignment,panel_property_override(p,pid,"skin"),component_table_override(p,pid))

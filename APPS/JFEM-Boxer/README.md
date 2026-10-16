@@ -15,6 +15,38 @@ repository root, or in this app folder. Setup builds the shared JFEM/app sysimag
 and loads it. The Julia entry point is **JFEM-Boxer.jl**. Existing `.wingfem.json`
 studies and internal parameter keys remain readable.
 
+**Structure / Stringers / Stringer elements** selects the existing **Beam**
+T-section or **Shell** webs with an attached flange. In **Properties / Stringers**,
+set **Stringer flange width** to **0** for a blade without a flange; panel-table
+overrides can do the same for individual panels. Positive flange widths refine
+the skin at their edges and share its nodes. Web and flange have separate PSHELL
+properties for each panel and use the assigned stringer material. No normal
+stringer beam is retained in shell mode; small run-out connectors remain beams.
+
+For shell stringers, **Blade direction** follows the inward skin normal or a
+selected coordinate-system **X**, **Y** or **Z** axis. ID **0** means global BASIC;
+a positive ID selects a generated skin, spar or rib frame visible under
+**Display / Axes & labels**. The inward sign is selected on each skin. An axis
+tangent to the skin is rejected. Coordinate IDs follow the current mesh, so
+check the selected frame after changing its discretization.
+
+**Mesh / Elements through stringer blade height** sets the nominal blade layers.
+Bay height changes may introduce extra layers to keep shared boundaries
+conforming. Spanwise refinement follows **Elements per rib bay**. Flange
+edges add chordwise columns; **Elements between stringers** subdivides
+the remaining gap between their footprints. The shell
+idealization uses a zero-offset flange on the skin midsurface and a web depth
+of overall height minus flange thickness (the full height for a blade without
+a flange). Rib attachment is through the skin/flange footprint; blade interiors
+crossing rib webs are not welded to them. Overlapping flange footprints are
+rejected. Shell stringer mass is distributed through these plates, and added
+stringer mass in kg/m is applied once through the web.
+
+Shell-stringer sensitivity variables include web thickness and materials.
+Flange width, overall height and flange thickness change the mesh geometry and
+are excluded from the fixed-mesh property adjoint. They remain editable model
+inputs and require regenerating the mesh and rerunning an analysis.
+
 Load cases support true airspeed in m/s, knots or Mach and altitude in metres,
 feet or flight levels. ISA 1976 provides pressure, temperature, density and
 sound speed. FL300 means pressure altitude 30,000 ft. Existing studies with
