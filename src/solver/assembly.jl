@@ -2341,7 +2341,8 @@ end
 @inline function coupled_pcomp_legacy_nonlinear_enabled(model)
     get(model,"SOL",101) == 106 || return false
     method=lowercase(strip(string(get(model,"PARAM_NLMETHOD","auto"))))
-    return !(method in ("formal","formal_shell_von_karman","formal_von_karman","formal_shell_vk"))
+    return !(method in ("formal","formal_shell_green_lagrange","green_lagrange",
+                       "formal_shell_von_karman","formal_von_karman","formal_shell_vk"))
 end
 
 function coupled_pcomp_projected_enabled(coords,Bmb;is_pcomp=false,isotropic=false,

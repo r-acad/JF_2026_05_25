@@ -374,6 +374,7 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
     end
     if sol == "106"
         comment!(io, "Experimental JFEM geometric nonlinear static; fixed reference aerodynamic loads, no aeroelastic update")
+        card!(io,"PARAM",("LGDISP",1))
         comment!(io, "JFEM nonlinear PARAM extensions use free fields because their names exceed eight columns")
         for (name,key) in (("NLLOADSTEPS","nonlinear.load_steps"),
                 ("NLMAXITER","nonlinear.max_iterations"),("NLTOL","nonlinear.displacement_tolerance"),

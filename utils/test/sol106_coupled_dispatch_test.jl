@@ -48,7 +48,8 @@ ENDDATA
             output
         end
         @test recovery(legacy)==recovery(model)
-        for method in ("formal","formal_shell_von_karman","formal_von_karman","formal_shell_vk")
+        for method in ("formal","formal_shell_green_lagrange","green_lagrange",
+                       "formal_shell_von_karman","formal_von_karman","formal_shell_vk")
             formal=deepcopy(legacy);formal["PARAM_NLMETHOD"]=method
             @test !S.coupled_pcomp_legacy_nonlinear_enabled(formal)
             capture=S.AnalyticShellCapture(formal)

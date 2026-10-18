@@ -1025,3 +1025,17 @@ function _apply_constraint_congruence(matrix::AbstractMatrix, constraint_map;
         constraint_map, I_idx, J_idx, V_val; skip_zeros=true)
     return sparse(I_idx, J_idx, V_val, nrow, ncol)
 end
+
+"""Pull a full GRID force back through the fixed constraint map, preserving work."""
+function _apply_constraint_transpose(force::AbstractVector, constraint_map)
+    (constraint_map === nothing || isempty(constraint_map)) && return force
+    flat_map, _ = _flatten_constraint_dependency_map(constraint_map)
+    reduced = copy(force)
+    for (dependent, pairs) in flat_map
+        for (independent, coefficient) in pairs
+            reduced[independent] += coefficient * force[dependent]
+        end
+        reduced[dependent] = zero(eltype(reduced))
+    end
+    return reduced
+end

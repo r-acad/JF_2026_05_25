@@ -919,6 +919,32 @@ OpenJFEM-specific and does not claim full external-solver FLLWER compatibility.
 
 ### SOL106 increment and convergence controls
 
+With `PARAM,LGDISP,1` and `PARAM,NLMETHOD,AUTO` (or an omitted NLMETHOD),
+planar isotropic PSHELL models use a Green-Lagrange membrane-stretching energy
+with its actual internal-force gradient and consistent tangent. CBAR members
+retain their linear elastic behavior. The membrane strain includes quadratic
+gradients of all three displacement components, preserving rigid membrane
+rotations. Bending and shear retain their existing linear reference energy;
+this is not a general finite-rotation corotational shell formulation.
+Automatic selection excludes shell offsets, smoothed shell normals,
+composite/anisotropic shells, solids and nonlinear line-element families.
+Those models retain the existing experimental path. Diagnostics record the
+chosen method, selection reason and automatic-scope check.
+
+With AUTO, omitted or disabled LGDISP keeps geometric nonlinearity off;
+CBAR-only systems also remain elastic when LGDISP is enabled. Their selected
+load increments and convergence checks still run, with a constant elastic
+tangent. This does not add material nonlinearity.
+
+`PARAM,NLMETHOD,LEGACY` explicitly retains the approximate geometric-force
+residual for comparison. An explicit `NLRESMODEL` also retains that legacy
+residual. The explicit `NLMETHOD,FORMAL` experimental option remains available;
+its canonical diagnostic name is `formal_shell_green_lagrange`. Historical
+`FORMAL_SHELL_VON_KARMAN` aliases also select this corrected energy.
+Its wider experimental scope does not widen the automatic or analytic-adjoint
+scope. Fixed MPC/RBE dependencies use the same virtual-work transformation
+for nonlinear forces and tangents as for elastic stiffness.
+
 Use the standard `NLPARM` Bulk Data card and select its ID in Case Control.
 A global selection is inherited by each subcase; a subcase selection overrides
 it. For example, this requests six nominal load increments, at most 35 Newton
@@ -933,6 +959,7 @@ SUBCASE 1
   SPC = 1
   LOAD = 1
 BEGIN BULK
+PARAM,LGDISP,1
 NLPARM,11,6,,,1,35,UPW,YES
 +,1.e-7,1.e-7,1.e-7,,,,,
 +,8

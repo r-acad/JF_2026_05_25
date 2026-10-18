@@ -2336,10 +2336,15 @@ function _solve_sol106(model, cc, K, id_map, X, ndof, node_R,
         end
     nl_method_raw = lowercase(strip(string(get(model, "PARAM_NLMETHOD", "auto"))))
     nl_method =
-        if nl_method_raw in ("formal", "formal_shell_von_karman", "formal_von_karman", "formal_shell_vk")
-            :formal_shell_von_karman
-        else
+        if nl_method_raw in ("formal", "formal_shell_green_lagrange", "green_lagrange",
+                             "formal_shell_von_karman", "formal_von_karman", "formal_shell_vk")
+            :formal_shell_green_lagrange
+        elseif nl_method_raw in ("legacy", "legacy_geometric")
+            :legacy_geometric
+        elseif nl_method_raw in ("", "auto")
             :auto
+        else
+            throw(ArgumentError("Unsupported SOL106 NLMETHOD=$nl_method_raw; use AUTO, FORMAL or LEGACY"))
         end
 
     subcases_results = []

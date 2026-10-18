@@ -5,6 +5,29 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Energy-consistent nonlinear shell equilibrium
+
+- For `LGDISP=1`, automatically select the Green-Lagrange membrane energy residual
+  and consistent tangent on planar isotropic PSHELL models with linear CBAR
+  members. Include quadratic gradients of in-plane and transverse displacements;
+  the previous approximate geometric-force residual omitted nonlinear membrane
+  work, while the transverse-only energy also lost in-plane rotation terms.
+  Retain the existing linear bending/shear energy and record the actual scope.
+- Preserve explicit legacy residual requests and the existing experimental
+  fallback outside this scope; composite/offset shells, smoothed normals and
+  nonlinear line-element families do not silently enter the new automatic route.
+- Pull nonlinear shell forces and tangents through the same fixed constraint map
+  as elastic assembly, preserving virtual work for shell-connected dependencies.
+- Honor disabled or omitted LGDISP in automatic selection and retain linear
+  CBAR-only systems under load increments, rather than adding spurious bar
+  geometric forces. Explicit experimental legacy requests remain available.
+- Extend analytic displacement adjoints to the energy and linear-elastic
+  SOL106 paths, and enable geometric nonlinearity in the bundled nonlinear
+  installation workload so the corrected kernel is compiled during setup.
+- Request LGDISP explicitly in generated geometric-nonlinear decks and supply
+  it when converting an imported analysis or sensitivity to SOL106, preserving
+  any explicit imported setting.
+
 ### Nonlinear-static control selection
 
 - Read standard NLPARM cards and resolve the selected global or subcase card

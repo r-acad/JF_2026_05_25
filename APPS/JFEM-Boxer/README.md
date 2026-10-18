@@ -683,6 +683,16 @@ The GUI supports SOL101 static, SOL103 modal, SOL105 linear buckling and an
 experimental SOL106 geometric nonlinear comparison. SOL106 also runs a linear
 case for comparison and labels partial convergence and accepted load levels.
 Follower-force options follow the solver's documented supported formulations.
+For `LGDISP=1`, eligible planar isotropic shell models use the Green-Lagrange
+membrane-energy residual and tangent automatically, with linear CBAR members.
+Composite/offset shells and smoothed normals retain the existing experimental
+path. Solver diagnostics identify the selected formulation and its scope;
+this does not establish general finite-rotation shell behavior.
+Automatic selection keeps geometric nonlinearity off when LGDISP is omitted or
+disabled, and keeps CBAR-only systems linear even when it is enabled.
+Boxer explicitly enables LGDISP in generated nonlinear models. Converting an
+imported model to SOL106 also enables it when absent; an explicit imported
+LGDISP setting is preserved for both FE analysis and sensitivity.
 **Analysis / FE Analysis** contains the solver form; **Analysis / Sensitivity**
 contains sensitivity setup. The **Results** menu separately presents FE results
 and completed sensitivity results.

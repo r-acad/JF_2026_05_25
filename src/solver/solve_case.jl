@@ -383,6 +383,37 @@ function _formal_shell_membrane_constitutive(model, prop, el, mat, v1, v2, v3, p
     return (const_mem .* [1 nu 0; nu 1 0; 0 0 (1-nu)/2]) * h
 end
 
+# Automatic selection is deliberately narrower than the explicit experimental
+# formal route. Its added energy describes planar isotropic membrane stretching;
+# it does not describe laminate coupling, offsets, normal smoothing, solids or
+# geometrically nonlinear line elements. CBAR remains an elastic line element.
+function _automatic_shell_energy_support(model, id_map, X, snorm_normals)
+    report = _formal_von_karman_shell_support_report(model, id_map, X)
+    report.supported || return (; supported=false, reason=report.unsupported_reason)
+    report.warped_quad_count == 0 || return (; supported=false, reason="warped_shell")
+    isempty(snorm_normals) || return (; supported=false, reason="smoothed_shell_normals")
+    for family in ("CSOLIDs", "CBEAMs", "CRODs", "CONRODs", "CTUBEs", "CBUSHs")
+        isempty(get(model, family, Dict())) || return (; supported=false, reason="unsupported_$family")
+    end
+    for el in values(get(model, "CSHELLs", Dict()))
+        iszero(Float64(get(el, "ZOFFS", 0.0))) || return (; supported=false, reason="shell_offset")
+        prop = model["PSHELLs"][string(el["PID"])]
+        get(prop, "TYPE", "") == "PCOMP_CLT" && return (; supported=false, reason="composite_shell")
+        get(prop, "MID4", 0) == 0 && get(prop, "Bmb", nothing) === nothing ||
+            return (; supported=false, reason="membrane_bending_coupling")
+        mat = model["MATs"][string(prop["MID"])]
+        get(mat, "TYPE", "MAT1") == "MAT1" || return (; supported=false, reason="anisotropic_shell")
+    end
+    return (; supported=true, reason="planar_isotropic_shell_energy")
+end
+
+function _automatic_linear_line_support(model)
+    for family in ("CSHELLs", "CSOLIDs", "CBEAMs", "CRODs", "CONRODs", "CTUBEs", "CBUSHs")
+        isempty(get(model, family, Dict())) || return false
+    end
+    return any(!isempty(get(model, family, Dict())) for family in ("CBARs", "CELAS1s", "CELAS2s"))
+end
+
 function _nonlinear_internal_force(K_linear, Kg, u_state; residual_model::Symbol=:tangent_operator)
     linear_force = K_linear * u_state
     geometric_force = Kg * u_state
@@ -449,6 +480,19 @@ function _evaluate_nonlinear_state(K_linear, F_applied, ndof, model, id_map, X, 
     )
 end
 
+function _evaluate_nonlinear_state_linear(K_linear, F_applied, ndof, model, id_map, spc_id, u_state, rbe3_map)
+    Kg = spzeros(ndof, ndof)
+    state = _nonlinear_residual_metrics(K_linear, Kg, K_linear, F_applied,
+        ndof, model, id_map, spc_id, rbe3_map, u_state)
+    energy = 0.5 * dot(u_state, K_linear * u_state)
+    return merge(state, (Kg=Kg, K_eff=K_linear, nonlinear_force_norm=0.0,
+        linear_strain_energy=energy, internal_energy=energy,
+        potential_energy=energy-dot(F_applied, u_state)))
+end
+
+# Historical private helper names retain the VK prefix. The membrane strain
+# now includes the complete Green-Lagrange quadratic displacement gradient;
+# retaining only transverse slopes loses in-plane rigid-rotation work.
 function _formal_vk_quad4_extra_energy(coords::AbstractMatrix, u_loc::AbstractVector{T}, Cm::AbstractMatrix) where {T}
     pt = 1.0 / sqrt(3.0)
     gauss_pts = (-pt, -pt, pt, -pt, pt, pt, -pt, pt)
@@ -477,7 +521,9 @@ function _formal_vk_quad4_extra_energy(coords::AbstractMatrix, u_loc::AbstractVe
 
         eps_lin = [ux, vy, uy + vx]
         half = T(0.5)
-        eps_nl = [half * wx^2, half * wy^2, wx * wy]
+        eps_nl = [half * (ux^2 + vx^2 + wx^2),
+                  half * (uy^2 + vy^2 + wy^2),
+                  ux * uy + vx * vy + wx * wy]
         N_lin = Cm * eps_lin
         N_tot = Cm * (eps_lin + eps_nl)
         energy_extra += (half * dot(eps_lin + eps_nl, N_tot) - half * dot(eps_lin, N_lin)) * detJ
@@ -510,7 +556,9 @@ function _formal_vk_tria3_extra_energy(coords::AbstractMatrix, u_loc::AbstractVe
 
     eps_lin = [ux, vy, uy + vx]
     half = T(0.5)
-    eps_nl = [half * wx^2, half * wy^2, wx * wy]
+    eps_nl = [half * (ux^2 + vx^2 + wx^2),
+              half * (uy^2 + vy^2 + wy^2),
+              ux * uy + vx * vy + wx * wy]
     N_lin = Cm * eps_lin
     N_tot = Cm * (eps_lin + eps_nl)
     return area * (half * dot(eps_lin + eps_nl, N_tot) - half * dot(eps_lin, N_lin))
@@ -684,6 +732,8 @@ function _assemble_formal_shell_von_karman_extra(model, id_map, X, node_R, ndof,
         "operator_nnz" => nnz(K_extra),
         "operator_norm" => nnz(K_extra) == 0 ? 0.0 : norm(K_extra.nzval),
         "operator_backend" => "forwarddiff_hessian",
+        "membrane_kinematics" => "green_lagrange",
+        "bending_shear_kinematics" => "linear_reference",
     )
 end
 
@@ -691,6 +741,13 @@ function _evaluate_nonlinear_state_formal(K_linear, F_applied, ndof, model, id_m
                                           snorm_normals, rbe3_map)
     f_extra, K_extra, formal_diag = _assemble_formal_shell_von_karman_extra(
         model, id_map, X, node_R, ndof, u_state, snorm_normals)
+    # The local energy is evaluated at the reconstructed physical displacement.
+    # Its gradient and Hessian must use the same fixed-MPC pullback as K_linear.
+    # This is also needed when a dependent DOF belongs to a shell, rather than
+    # only to an auxiliary load center.
+    f_extra = _apply_constraint_transpose(f_extra, rbe3_map)
+    K_extra = _apply_constraint_congruence(K_extra, rbe3_map; expected_ndof=ndof)
+    formal_diag["constraint_pullback"] = !isempty(rbe3_map)
     K_eff = K_linear + K_extra
     free_dofs, fixed_dofs, bc_diagnostics = compute_free_dofs(
         K_eff, ndof, model, id_map, spc_id, rbe3_map; return_diagnostics=true)
@@ -1153,10 +1210,34 @@ end
     residual_model = residual_model in (:secant_geometric, :tangent_operator) ? residual_model : :tangent_operator
     formal_support = _formal_von_karman_shell_support_report(model, id_map, X)
     formal_supported = formal_support.supported
+    nonlinear_method === :formal_shell_von_karman && (nonlinear_method = :formal_shell_green_lagrange)
+    nonlinear_method in (:auto, :legacy_geometric, :formal_shell_green_lagrange, :linear_elastic) ||
+        throw(ArgumentError("Unsupported nonlinear method $nonlinear_method"))
+    requested_nonlinear_method = nonlinear_method
+    automatic_support = _automatic_shell_energy_support(model, id_map, X, snorm_normals)
+    nonlinear_selection_reason = "explicit_legacy_or_existing_experimental_fallback"
     nonlinear_method =
-        if nonlinear_method === :formal_shell_von_karman
-            formal_supported || error("[SOLVER] PARAM_NLMETHOD=formal_shell_von_karman requested, but the model is outside the currently supported flat-shell subset")
-            :formal_shell_von_karman
+        if nonlinear_method === :formal_shell_green_lagrange
+            formal_supported || error("[SOLVER] PARAM_NLMETHOD=formal_shell_green_lagrange requested, but the model is outside the currently supported flat-shell subset")
+            nonlinear_selection_reason = "explicit_formal_shell_energy"
+            :formal_shell_green_lagrange
+        elseif nonlinear_method === :linear_elastic
+            nonlinear_selection_reason = "explicit_linear_elastic"
+            :linear_elastic
+        elseif nonlinear_method === :auto && !haskey(model, "PARAM_NLRESMODEL") &&
+               geometric_stiffness_builder === nothing && nonlinear_state_builder === nothing
+            if get(model, "PARAM_LGDISP", -1) != 1
+                nonlinear_selection_reason = "geometric_nonlinearity_disabled_by_LGDISP"
+                :linear_elastic
+            elseif automatic_support.supported
+                nonlinear_selection_reason = automatic_support.reason
+                :formal_shell_green_lagrange
+            elseif _automatic_linear_line_support(model)
+                nonlinear_selection_reason = "linear_elastic_CBAR_and_springs"
+                :linear_elastic
+            else
+                :legacy_geometric
+            end
         else
             :legacy_geometric
         end
@@ -1194,9 +1275,13 @@ end
             u_state, snorm_normals, rbe3_map;
             residual_model=residual_model,
         ) :
-        nonlinear_method === :formal_shell_von_karman ?
+        nonlinear_method === :formal_shell_green_lagrange ?
         (u_state, F_step) -> _evaluate_nonlinear_state_formal(
             K_linear, F_step, ndof, model, id_map, X, spc_id, node_R, u_state, snorm_normals, rbe3_map
+        ) :
+        nonlinear_method === :linear_elastic ?
+        (u_state, F_step) -> _evaluate_nonlinear_state_linear(
+            K_linear, F_step, ndof, model, id_map, spc_id, u_state, rbe3_map
         ) :
         (u_state, F_step) -> _evaluate_nonlinear_state(
             K_linear, F_step, ndof, model, id_map, X, spc_id, node_R, u_state, snorm_normals, rbe3_map;
@@ -1341,7 +1426,7 @@ end
                         all(isfinite, nonzeros(candidate_state.K_eff)) &&
                         all(isfinite, nonzeros(candidate_state.Kg))
                     armijo_satisfied = false
-                    if nonlinear_method === :formal_shell_von_karman &&
+                    if nonlinear_method === :formal_shell_green_lagrange &&
                        !(isnothing(current_potential) || isnothing(candidate_potential)) &&
                        directional_derivative < 0.0
                         armijo_satisfied =
@@ -1401,7 +1486,7 @@ end
                     end
 
                     if acceptance_reason != "rejected"
-                        if nonlinear_method === :formal_shell_von_karman
+                        if nonlinear_method === :formal_shell_green_lagrange
                             near_converged_cleanup_active =
                                 current_state.relative_residual <= near_converged_residual_band
                             if acceptance_reason == "residual_tolerance"
@@ -1476,7 +1561,7 @@ end
                 end
 
                 if accepted_state === nothing &&
-                   nonlinear_method === :formal_shell_von_karman &&
+                   nonlinear_method === :formal_shell_green_lagrange &&
                    best_accepted_state !== nothing
                     accepted_alpha = best_accepted_alpha
                     accepted_candidate = best_accepted_candidate
@@ -1558,29 +1643,29 @@ end
                     "line_search_merit_after" => _line_search_merit(accepted_state),
                     "relative_incremental_work" => relative_incremental_work,
                     "convergence_checks" => Dict(string(k)=>v for (k,v) in pairs(convergence)),
-                    "line_search_selection_policy" => nonlinear_method === :formal_shell_von_karman ?
+                    "line_search_selection_policy" => nonlinear_method === :formal_shell_green_lagrange ?
                         "prefer_non_worsening_residual_then_larger_armijo_step" :
                         "first_acceptable_trial",
                     "near_converged_cleanup_gate_active" =>
-                        nonlinear_method === :formal_shell_von_karman &&
+                        nonlinear_method === :formal_shell_green_lagrange &&
                         current_state.relative_residual <= near_converged_residual_band,
                     "near_converged_cleanup_efficiency_lambda" =>
-                        nonlinear_method === :formal_shell_von_karman ? near_converged_efficiency_lambda : 0.0,
+                        nonlinear_method === :formal_shell_green_lagrange ? near_converged_efficiency_lambda : 0.0,
                     "minimum_merit_trial_index" => best_trial_index,
                     "minimum_merit_step_scale" => best_alpha,
                     "minimum_merit_value" => best_metric,
                     "minimum_acceptable_trial_index" =>
-                        nonlinear_method === :formal_shell_von_karman && best_accepted_state !== nothing ?
+                        nonlinear_method === :formal_shell_green_lagrange && best_accepted_state !== nothing ?
                         best_accepted_trial_index :
                         accepted_trial_index,
                     "minimum_acceptable_step_scale" =>
-                        nonlinear_method === :formal_shell_von_karman && best_accepted_state !== nothing ?
+                        nonlinear_method === :formal_shell_green_lagrange && best_accepted_state !== nothing ?
                         best_accepted_alpha :
                         accepted_alpha,
                     "accepted_is_minimum_merit_trial" => accepted_trial_index == best_trial_index,
                     "accepted_is_minimum_acceptable_trial" =>
                         accepted_trial_index ==
-                        (nonlinear_method === :formal_shell_von_karman && best_accepted_state !== nothing ?
+                        (nonlinear_method === :formal_shell_green_lagrange && best_accepted_state !== nothing ?
                          best_accepted_trial_index :
                          accepted_trial_index),
                     "residual_reduced" => accepted_residual_reduced,
@@ -2174,10 +2259,15 @@ end
     converged = !terminated_early && !isempty(load_history) && current_load_scale >= 1.0 - 1e-12 &&
         all(get(step, "converged", false) for step in load_history)
     sub_res["nonlinear_diagnostics"] = Dict(
-        "scheme" => nonlinear_method === :formal_shell_von_karman ?
-            "formal_shell_von_karman_line_search" :
+        "scheme" => nonlinear_method === :formal_shell_green_lagrange ?
+            "formal_shell_green_lagrange_line_search" :
+            nonlinear_method === :linear_elastic ? "incremental_linear_elastic" :
             "experimental_geometric_residual_line_search",
         "nonlinear_method" => String(nonlinear_method),
+        "requested_nonlinear_method" => String(requested_nonlinear_method),
+        "nonlinear_selection_reason" => nonlinear_selection_reason,
+        "automatic_shell_energy_supported" => automatic_support.supported,
+        "automatic_shell_energy_scope" => automatic_support.reason,
         "load_steps" => load_history,
         "requested_load_step_count" => load_steps,
         "load_step_count" => length(load_history),
@@ -2191,8 +2281,10 @@ end
         "convergence_policy" => convergence_criteria == "LEGACY" ? "P AND (U OR W)" : "all selected criteria",
         "intermediate_output_requested" => intermediate_output,
         "intermediate_output_count" => length(intermediate_results),
-        "residual_model" => nonlinear_method === :formal_shell_von_karman ? "formal_internal_force" : String(residual_model),
-        "correction_tangent_model" => nonlinear_method === :formal_shell_von_karman ? "formal_consistent_tangent" : "linear_plus_geometric",
+        "residual_model" => nonlinear_method === :formal_shell_green_lagrange ? "formal_internal_force" :
+            nonlinear_method === :linear_elastic ? "linear_internal_force" : String(residual_model),
+        "correction_tangent_model" => nonlinear_method === :formal_shell_green_lagrange ? "formal_consistent_tangent" :
+            nonlinear_method === :linear_elastic ? "linear_elastic" : "linear_plus_geometric",
         "relaxation" => relaxation,
         "line_search_max_backtracks" => line_search_max_backtracks,
         "line_search_reduction" => line_search_reduction,

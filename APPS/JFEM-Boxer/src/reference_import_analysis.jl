@@ -50,6 +50,7 @@ end
 
 function imported_overlay_bulk(lines,options)
     io=IOBuffer();i=1;force_count=0;max_method=0;source_follower=false;rot_sets=Set{Int}()
+    source_lgdisp=false
     replacing=Set{String}()
     options["follower"]!="source"&&push!(replacing,"JFFOLLOW")
     options["solution"]=="106"&&union!(replacing,["NLLOADSTEPS","NLMAXITER","NLTOL","NLRESTOL","NLCUTMAX","NLMETHOD"])
@@ -64,6 +65,9 @@ function imported_overlay_bulk(lines,options)
                 j+=1
             end
             fields=imported_entry_fields(lines[i:j-1])
+            if name=="PARAM"&&!isempty(fields)&&uppercase(first(fields))=="LGDISP"
+                source_lgdisp=true
+            end
             if name=="PARAM"&&uppercase(first(fields))=="JFFOLLOW"
                 source_follower=length(fields)>1&&tryparse(Float64,fields[2])==1.
             elseif name=="FORCE"&&length(fields)>=8&&uppercase(fields[8])=="ROT"
@@ -87,6 +91,7 @@ function imported_overlay_bulk(lines,options)
         println(io,"PARAM,JFFOLLOW,",options["follower"]=="force" ? 1 : 0)
     end
     if options["solution"]=="106"
+        source_lgdisp||println(io,"PARAM,LGDISP,1")
         for (name,key) in (("NLLOADSTEPS","load_steps"),("NLMAXITER","max_iterations"),("NLTOL","displacement_tolerance"),("NLRESTOL","residual_tolerance"),("NLCUTMAX","max_cutbacks"))
             println(io,"PARAM,$name,",options[key])
         end

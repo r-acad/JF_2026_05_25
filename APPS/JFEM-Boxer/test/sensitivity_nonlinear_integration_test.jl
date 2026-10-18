@@ -103,11 +103,117 @@ checks=@testset "Actual SOL106 analytic residual adjoint" begin
         partial=deepcopy(forward);only(partial["subcases"])["nonlinear_diagnostics"]["final_load_scale"]=.5
         @test_throws ArgumentError W.sensitivity_nonlinear_context(N,partial,m,objective)
         @test_throws ErrorException W.sensitivity_nonlinear_context(N,linear,m,objective)
-        formal=deepcopy(forward);formal["model"]["PARAM_NLMETHOD"]="formal_shell_von_karman"
-        @test_throws ArgumentError W.sensitivity_nonlinear_context(N,formal,m,objective)
+        unsupported=deepcopy(forward);unsupported["model"]["PARAM_NLMETHOD"]="unknown_formulation"
+        @test_throws ArgumentError W.sensitivity_nonlinear_context(N,unsupported,m,objective)
         @test_throws ArgumentError W.sensitivity_nonlinear_context(N,forward,m,merge(objective,Dict("type"=>"shell_stress")))
         W.sensitivity_json_write(joinpath(out,"progress.json"),REPORT)
     end
 end
+
+function formal_deck(;E=7e10,thickness=.02,mixed=false,barheight=.01)
+    text=deck("shell";E,dimension=thickness)
+    if mixed
+        text=replace(text,r"(?m)^PARAM,NLRESMODEL,.*\n"=>"")
+        text=replace(text,"BEGIN BULK"=>"BEGIN BULK\nPARAM,LGDISP,1")
+    else
+        text=replace(text,"BEGIN BULK"=>"BEGIN BULK\nPARAM,LGDISP,1\nPARAM,NLMETHOD,green_lagrange")
+    end
+    # A dependent load-centre GRID checks that the forward and transpose
+    # adjoint use the same linear constraint work, not a second load solve.
+    text=replace(text,"FORCE,31,25,0,100.,0.,0.,1.\nFORCE,31,38,0,100.,0.,0.,1."=>
+        "GRID,80,,1.,.25,0.\nRBE3,900,,80,123,1.,123,25,38\nFORCE,31,80,0,200.,0.,0.,1.")
+    mixed&&(text=replace(text,"ENDDATA"=>"CBAR,702,321,25,38,0.,0.,1.\nPBARL,321,8,,BAR\n+,.02,$barheight\nENDDATA"))
+    text
+end
+
+formal_checks=@testset "Energy-consistent SOL106 analytic adjoint" begin
+    for mixed in (false,true)
+        tag=mixed ? "formal_shell_and_linear_bar" : "formal_shell"
+        dir=joinpath(out,tag);mkpath(dir)
+        text=formal_deck(;mixed);path=joinpath(stable,tag*".bdf");m=model(text,path)
+        forward=Base.invokelatest(N.solve_model,deepcopy(W.imported_native(m)))
+        objective=Dict("type"=>"displacement","node_id"=>80,"component"=>"z")
+        context=Base.invokelatest(W.sensitivity_nonlinear_context,N,forward,m,objective)
+        @test context.diagnostics["nonlinear_method"]=="formal_shell_green_lagrange"
+        @test context.diagnostics["forward_replay_residual"]<1e-8
+        @test context.diagnostics["adjoint_relative_residual"]<1e-9
+        @test context.diagnostics["geometric_replay_relative_error"]<1e-10
+        @test context.diagnostics["jacobian_nonsymmetry"]<1e-12
+        @test context.diagnostics["iteration_matrix_is_residual_jacobian"]
+        catalog=W.sensitivity_catalog(m)["variables"]
+        wanted=["reference.MAT1#8#E","reference.PSHELL#123#T"]
+        mixed&&push!(wanted,"reference.PBARL#321#DIM2")
+        selected=filter(d->d["id"] in wanted,catalog)
+        @test length(selected)==length(wanted)
+        for d in selected
+            exact=Base.invokelatest(W.sensitivity_nonlinear_derivative,N,context,m,d)
+            isE=endswith(d["id"],"#E");ist=occursin("PSHELL",d["id"])
+            x=isE ? 70. : ist ? .02 : .01;h=x*1e-4
+            fdvalues=Float64[]
+            for sign in (-1,1)
+                modified=formal_deck(;E=isE ? (x+sign*h)*1e9 : 7e10,
+                    thickness=ist ? x+sign*h : .02,mixed,
+                    barheight=(!isE&&!ist) ? x+sign*h : .01)
+                trial=solve_text(modified,joinpath(dir,replace(d["id"],"#"=>"_")*"_"*string(sign)*".bdf"))
+                push!(fdvalues,W.sensitivity_response(trial,m,objective).value)
+            end
+            fd=(fdvalues[2]-fdvalues[1])/(2h)
+            relative=abs(exact["value"]-fd)/max(abs(fd),abs(exact["value"]),eps())
+            @test relative<2e-4
+            @test exact["forward_solves"]==0
+            @test exact["derivative_assembly"]=="analytic_chain_rule"
+            push!(REPORT,Dict("case"=>tag,"variable"=>d["id"],"analytic"=>exact["value"],"fd"=>fd,
+                "relative_error"=>relative,"diagnostics"=>context.diagnostics))
+        end
+        unsupported=deepcopy(context.op)
+        first(values(unsupported.model["CSHELLs"]))["ZOFFS"]=.001
+        @test_throws ArgumentError W.sensitivity_nonlinear_formal_elements(N,unsupported)
+    end
+end
 c=Test.get_test_counts(checks)
-W.sensitivity_json_write(joinpath(out,"summary.json"),Dict("passed"=>true,"assertions"=>c.passes+c.cumulative_passes,"checks"=>REPORT))
+fc=Test.get_test_counts(formal_checks)
+function elastic_deck(kind;E=7e10,dimension=kind=="shell" ? .02 : .08)
+    text=replace(deck(kind;E,dimension),r"(?m)^PARAM,NLRESMODEL,.*\n"=>"")
+    flag=kind=="shell" ? -1 : 1
+    replace(text,"BEGIN BULK"=>"BEGIN BULK\nPARAM,LGDISP,$flag")
+end
+linear_checks=@testset "SOL106 linear-element and geometric-flag adjoints" begin
+    for kind in ("shell","bar")
+        tag="linear_"*kind;dir=joinpath(out,tag);mkpath(dir)
+        text=elastic_deck(kind);path=joinpath(stable,tag*".bdf");m=model(text,path)
+        forward=Base.invokelatest(N.solve_model,deepcopy(W.imported_native(m)))
+        objective=Dict("type"=>"displacement","node_id"=>38,"component"=>kind=="shell" ? "z" : "y")
+        context=Base.invokelatest(W.sensitivity_nonlinear_context,N,forward,m,objective)
+        @test context.diagnostics["nonlinear_method"]=="linear_elastic"
+        @test context.diagnostics["forward_replay_residual"]<1e-8
+        @test context.diagnostics["adjoint_relative_residual"]<1e-9
+        @test context.diagnostics["geometric_replay_relative_error"]==0.
+        @test context.diagnostics["residual_jacobian"]=="exact_linear_stiffness"
+        @test iszero(norm(forward["Kg"]))
+        linear=solve_text(replace(text,"SOL 106"=>"SOL 101"),joinpath(dir,"linear_control.bdf"))
+        @test isapprox(W.sensitivity_response(linear,m,objective).value,context.baseline;rtol=1e-10,atol=1e-12)
+        wanted=kind=="shell" ? ["reference.MAT1#8#E","reference.PSHELL#123#T"] : ["reference.MAT1#8#E","reference.PBARL#123#DIM2"]
+        selected=filter(d->d["id"] in wanted,W.sensitivity_catalog(m)["variables"])
+        @test length(selected)==2
+        for d in selected
+            exact=Base.invokelatest(W.sensitivity_nonlinear_derivative,N,context,m,d)
+            isE=endswith(d["id"],"#E");x=isE ? 70. : kind=="shell" ? .02 : .08
+            h=x*1e-4;fdvalues=Float64[]
+            for sign in (-1,1)
+                modified=elastic_deck(kind;E=isE ? (x+sign*h)*1e9 : 7e10,
+                    dimension=isE ? (kind=="shell" ? .02 : .08) : x+sign*h)
+                trial=solve_text(modified,joinpath(dir,replace(d["id"],"#"=>"_")*"_"*string(sign)*".bdf"))
+                push!(fdvalues,W.sensitivity_response(trial,m,objective).value)
+            end
+            fd=(fdvalues[2]-fdvalues[1])/(2h)
+            relative=abs(exact["value"]-fd)/max(abs(fd),abs(exact["value"]),eps())
+            @test relative<2e-4
+            @test exact["forward_solves"]==0
+            @test exact["geometric_residual_contraction"]==0.
+            push!(REPORT,Dict("case"=>tag,"variable"=>d["id"],"analytic"=>exact["value"],"fd"=>fd,
+                "relative_error"=>relative,"diagnostics"=>context.diagnostics))
+        end
+    end
+end
+lc=Test.get_test_counts(linear_checks)
+W.sensitivity_json_write(joinpath(out,"summary.json"),Dict("passed"=>true,"assertions"=>c.passes+c.cumulative_passes+fc.passes+fc.cumulative_passes+lc.passes+lc.cumulative_passes,"checks"=>REPORT))

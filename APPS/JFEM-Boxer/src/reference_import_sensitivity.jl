@@ -121,7 +121,7 @@ function imported_sensitivity_deck(m,id,solution="101";modes=10)
         # Retain every explicit source nonlinear control. Supply robust defaults
         # when converting a linear/modal deck, including a sensitivity-grade
         # residual tolerance for a reliable final-state derivative.
-        defaults=(("NLLOADSTEPS",options["load_steps"]),("NLMAXITER",options["max_iterations"]),
+        defaults=(("LGDISP",1),("NLLOADSTEPS",options["load_steps"]),("NLMAXITER",options["max_iterations"]),
             ("NLTOL",options["displacement_tolerance"]),("NLRESTOL",min(options["residual_tolerance"],1e-8)),
             ("NLCUTMAX",options["max_cutbacks"]),("NLMETHOD","AUTO"))
         for (name,value) in defaults
