@@ -19,9 +19,24 @@ studies and internal parameter keys remain readable.
 T-section or **Shell** webs with an attached flange. In **Properties / Stringers**,
 set **Stringer flange width** to **0** for a blade without a flange; panel-table
 overrides can do the same for individual panels. Positive flange widths refine
-the skin at their edges and share its nodes. Web and flange have separate PSHELL
-properties for each panel and use the assigned stringer material. No normal
+the skin at their edges and share its nodes. Each flange footprint replaces the
+skin faces there with one combined property: **thinnest adjacent skin thickness +
+specified added flange thickness**. The thinnest skin is selected from either
+side of that flange, within the same skin and rib bay. Equal-thickness ties use
+the lowest property ID. Skin outside the footprint remains unchanged.
+Web and combined flange have separate properties for each panel. Matching
+monolithic materials use a PSHELL when centered; different materials, composite
+layers or inward offsets use a combined PCOMP. The skin is included once in
+stiffness and mass. No normal
 stringer beam is retained in shell mode; small run-out connectors remain beams.
+
+In **Properties / Stringers**, the added-flange material initially follows the
+stringer material, including panel overrides. Clear **Use stringer material**
+to assign a separate monolithic material or sandwich. For a sandwich flange,
+**Stringer flange thickness** remains its total added thickness; the core is
+that total minus twice the face thickness. Panel thickness overrides use the
+same rule. The combined PCOMP places added-flange layers inside and the selected
+skin layers outside, preserving their individual materials and thicknesses.
 
 For shell stringers, **Blade direction** follows the inward skin normal or a
 selected coordinate-system **X**, **Y** or **Z** axis. ID **0** means global BASIC;
@@ -35,9 +50,18 @@ Bay height changes may introduce extra layers to keep shared boundaries
 conforming. Spanwise refinement follows **Elements per rib bay**. Flange
 edges add chordwise columns; **Elements between stringers** subdivides
 the remaining gap between their footprints. The shell
-idealization uses a zero-offset flange on the skin midsurface and a web depth
-of overall height minus flange thickness (the full height for a blade without
-a flange). Rib attachment is through the skin/flange footprint; blade interiors
+idealization centers the combined flange section on the skin reference nodes by
+default. **Structure / Stringers / Offset attached flanges inward** keeps the
+original selected skin outer face and places the added material inside the box.
+It uses the PCOMP reference plane (Z0), retaining bending coupling and mass
+eccentricity, without moving the nodes. **Display / Appearance / Shell thickness**
+shows these physical bounds. Web depth is overall height minus added flange
+thickness (the full height for a blade without a flange).
+With distributed structural mass, combined PCOMP flanges automatically request
+consistent mass (`PARAM,COUPMASS,1`) so modal analysis retains the laminate's
+through-thickness mass eccentricity and rotary inertia. The optional rib-bay
+concentrated-mass model continues to use its aggregated mass and inertia.
+Rib attachment is through the skin/flange footprint; blade interiors
 crossing rib webs are not welded to them. Overlapping flange footprints are
 rejected. Shell stringer mass is distributed through these plates, and added
 stringer mass in kg/m is applied once through the web.
@@ -46,6 +70,25 @@ Shell-stringer sensitivity variables include web thickness and materials.
 Flange width, overall height and flange thickness change the mesh geometry and
 are excluded from the fixed-mesh property adjoint. They remain editable model
 inputs and require regenerating the mesh and rerunning an analysis.
+Combined PCOMP flange sections, including inward-offset sections, require
+**Operator differences** for supported linear sensitivity analyses; the exact
+adjoint does not yet support their laminate coupling and reports this explicitly.
+When adjacent skins have the same minimum thickness, a variable changing only
+one of those skins has no unique derivative of the minimum. Such local variables
+are omitted from the catalogue; shared variables moving all tied skins together
+remain available. Strictly thinner skins retain their dependent flange properties
+in the sensitivity calculation.
+
+**Display constraint reactions** shows the reaction arrows. The separate
+**Label constraint forces and moments** toggle immediately below it shows signed
+force components in N and moment components in N·m. Both controls are available
+in FE Results and Display / Loads&Constraints, including static preload results.
+Labels become available when reaction arrows are shown for a result with reactions.
+
+Right-click and drag on the model to pan: the point under the cursor stays under
+it throughout the drag. Dragging empty space uses a plane through the camera
+target. This works in both perspective and parallel views and preserves the
+middle/right-button CATIA zoom gesture.
 
 Load cases support true airspeed in m/s, knots or Mach and altitude in metres,
 feet or flight levels. ISA 1976 provides pressure, temperature, density and

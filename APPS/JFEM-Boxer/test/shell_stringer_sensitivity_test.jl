@@ -15,7 +15,9 @@ function fixture(width)
     W.build_model(W.normalize_params(p)[1])
 end
 function deck(m,name)
-    path=joinpath(out,name*".bdf")
+    # Keep private deep-workspace paths below Windows' legacy filename limit.
+    filename=first(String(name),28)*"_"*bytes2hex(W.SHA.sha256(name))[1:10]
+    path=joinpath(out,filename*".bdf")
     open(path,"w") do io;W.write_deck(IOContext(io,:full_precision=>true),m);end
     path
 end

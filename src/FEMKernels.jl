@@ -1435,10 +1435,14 @@ end
     a11 = C[1,1]
     a12 = C[1,2]
     a22 = C[2,2]
-    C[1,1] = cb^2*a11 + 2.0*cb*sb*a12 + sb^2*a22
-    C[1,2] = -cb*sb*a11 + (cb^2 - sb^2)*a12 + cb*sb*a22
+    # Transverse shear is a physical two-vector: C_new = R*C*R'.
+    # Use the same coordinate-rotation convention as the engineering-strain
+    # 3x3 transform above. The opposite sign rotates anisotropic shear axes
+    # away from the membrane/bending axes and breaks elastic covariance.
+    C[1,1] = cb^2*a11 - 2.0*cb*sb*a12 + sb^2*a22
+    C[1,2] = cb*sb*a11 + (cb^2 - sb^2)*a12 - cb*sb*a22
     C[2,1] = C[1,2]
-    C[2,2] = sb^2*a11 - 2.0*cb*sb*a12 + cb^2*a22
+    C[2,2] = sb^2*a11 + 2.0*cb*sb*a12 + cb^2*a22
     return C
 end
 
@@ -3661,7 +3665,22 @@ function _stiffness_quad4_core!(
         if bending_incomp && fem_env_bool("JFEM_Q4_BENDING_INCOMP_NO_HOURGLASS", true) &&
            maximum(abs, ws.K_bb_bend) > 0.0
             hgs = (4, 5)                      # theta_x, theta_y
-            sgn4 = (1.0, -1.0, 1.0, -1.0)     # r*s at the corners
+            h4 = (1.0, -1.0, 1.0, -1.0)
+            # Under the center-twist MacNeal law, affine rotations are the
+            # constant-curvature patch space. Natural r*s is orthogonal to
+            # that space only on a parallelogram. Projecting it directly on
+            # a tapered quad reintroduces constant-curvature relaxation after
+            # the QM6 patch correction. Its geometry-dual hourglass is exactly
+            # orthogonal to 1,x,y by coordinate reproduction of dNdx/dNdy.
+            # This is the original h4 on every parallelogram, without a
+            # geometry threshold, fitted factor, or altered shear operator.
+            sgn4 = if macneal_kernel && macneal_twist && macneal_twist_center && !curved_frame_supported
+                hx=sum(h4[i]*coords[i,1] for i=1:4)
+                hy=sum(h4[i]*coords[i,2] for i=1:4)
+                ntuple(i->h4[i]-hx*dNdx_c[i]-hy*dNdy_c[i],4)
+            else
+                h4
+            end
             for c in hgs
                 nrm = 0.0
                 @inbounds for i in 1:4; nrm += sgn4[i]^2; end
@@ -3933,6 +3952,99 @@ include(joinpath(@__DIR__, "experimental", "min4_kernel.jl"))
 #
 # This REPLACES the MITC4+phi2 shear block when JFEM_Q4_KERNEL=macneal.
 # ---------------------------------------------------------------------------
+"""
+    quad4_natural_shear_flexibility!(mw, coords, Cb, Cs; rigid_shear=false)
+
+Work-conjugate flexibility for the physical shear field
+gamma_x = a + b*s, gamma_y = c + d*r. The already-filled MITC edge
+operator mw.D_mat maps nodal [w,theta_x,theta_y] to the four actual
+strain rows. Nodal rotation fields Q represent these four coefficients,
+so T=D_mat*Q transfers coefficient flexibility to those rows.
+
+The residual-bending coefficient flexibility is MacNeal's rectangle
+equations 26/27 before any geometrical row transfer. The physical shear
+coefficient stiffness is the exact integral of P'CsP on the bilinear map.
+"""
+function quad4_natural_shear_flexibility!(mw, coords, Cb, Cs; rigid_shear=false)
+    T = eltype(mw.Z_total)
+    D = mw.D_mat
+    transport = fill!(mw.Gcan, zero(T))
+    rn = (-1.0, 1.0, 1.0, -1.0)
+    sn = (-1.0, -1.0, 1.0, 1.0)
+    @inbounds for i in 1:4, k in 1:4
+        base = 3(k-1)
+        transport[i,1] += D[i,base+3]
+        transport[i,2] += sn[k]*D[i,base+3]
+        transport[i,3] -= D[i,base+2]
+        transport[i,4] -= rn[k]*D[i,base+2]
+    end
+    ax = 0.25*(-coords[1,1]+coords[2,1]+coords[3,1]-coords[4,1])
+    ay = 0.25*(-coords[1,2]+coords[2,2]+coords[3,2]-coords[4,2])
+    bx = 0.25*(-coords[1,1]-coords[2,1]+coords[3,1]+coords[4,1])
+    by = 0.25*(-coords[1,2]-coords[2,2]+coords[3,2]+coords[4,2])
+    cx = 0.25*(coords[1,1]-coords[2,1]+coords[3,1]-coords[4,1])
+    cy = 0.25*(coords[1,2]-coords[2,2]+coords[3,2]-coords[4,2])
+    det0 = ax*by-ay*bx
+    det_scale = max(hypot(ax,ay)*hypot(bx,by), eps(Float64))
+    abs(det0) > 64eps(Float64)*det_scale ||
+        throw(ArgumentError("degenerate quadrilateral in natural shear flexibility"))
+    orientation = sign(det0)
+    @inbounds for (r,s) in ((-1.0,-1.0),(1.0,-1.0),(1.0,1.0),(-1.0,1.0))
+        detJ=(ax+cx*s)*(by+cy*r)-(ay+cy*s)*(bx+cx*r)
+        orientation*detJ > 64eps(Float64)*det_scale ||
+            throw(ArgumentError("folded or degenerate quadrilateral in natural shear flexibility"))
+    end
+    area = 4abs(det0)
+    dx2 = (2ax)^2
+    dy2 = (2by)^2
+    # Preserve the existing supported domain of the tapered bending law.
+    # A single zero directional rigidity cannot be transported through a
+    # non-affine fan; both-zero and affine limits have separate valid paths.
+    fx = abs(2ax) > 1e-30 ? (cx/(2ax))^2 : 0.0
+    fy = abs(2by) > 1e-30 ? (cy/(2by))^2 : 0.0
+    if fx+fy > 1e-24 &&
+       xor(iszero(_fem_primal_value(Cb[1,1])),iszero(_fem_primal_value(Cb[2,2])))
+        throw(ArgumentError("CQUAD4 tapered residual bending requires positive bending rigidity in both directions; a partially zero directional bending law is not supported. Fully zero bending and affine elements retain their separate paths."))
+    end
+    # This direct-diagonal law belongs to the standard residual-flexibility
+    # branch only. Zero directional bending stiffness is the zero-stiffness
+    # limit, retained with the same positive floor as the previous branch.
+    ux = dx2/(12area*max(abs(Cb[1,1]),1e-30))
+    uy = dy2/(12area*max(abs(Cb[2,2]),1e-30))
+    denominator_x = dy2+39dx2
+    denominator_y = dx2+39dy2
+    denominator_x > 0 && denominator_y > 0 ||
+        throw(ArgumentError("zero projected strip extent in natural shear flexibility"))
+    zb = (ux, 3dy2/denominator_x*ux, uy, 3dx2/denominator_y*uy)
+    Zb = fill!(mw.Zb,zero(T))
+    @inbounds for j in 1:4, i in 1:4, k in 1:4
+        Zb[i,j] += transport[i,k]*zb[k]*transport[j,k]
+    end
+    Zs = fill!(mw.Zs,zero(T))
+    if !rigid_shear
+        H = fill!(mw.H1,zero(T))
+        gp = inv(sqrt(3.0))
+        @inbounds for r in (-gp,gp), s in (-gp,gp)
+            weight=abs((ax+cx*s)*(by+cy*r)-(ay+cy*s)*(bx+cx*r))
+            px=(1.0,s,0.0,0.0); py=(0.0,0.0,1.0,r)
+            for j in 1:4, i in 1:4
+                H[i,j] += weight*(px[i]*(Cs[1,1]*px[j]+Cs[1,2]*py[j])+
+                                  py[i]*(Cs[2,1]*px[j]+Cs[2,2]*py[j]))
+            end
+        end
+        _msws_inv!(mw,mw.inv4,mw.lu4a,H)
+        mul!(mw.t4a,transport,mw.inv4)
+        mul!(Zs,mw.t4a,transpose(transport))
+    end
+    fill!(mw.Zsei,zero(T))
+    @inbounds for j in 1:4, i in 1:4
+        mw.Z_total[i,j] = Zb[i,j]+Zs[i,j]
+    end
+    return mw.Z_total
+end
+
+
+
 """
     macneal_strip_bending_flex(A, B, D, dir) -> 1/D*_dir
 
@@ -4399,6 +4511,43 @@ function add_quad4_macneal_shear_rbf!(
             end
         end
     end
+    # Exact work transfer of the natural physical-shear field. Research
+    # branches and coupled strip/ABD laws retain their existing operators.
+    natural_shear_work = distortion_corrections && shear_mitc && row_full &&
+        !shear_sample_edge && (flex_mode_override in (:env,:diag)) &&
+        (Bmb === nothing || all(iszero,Bmb)) &&
+        fem_env_bool("JFEM_Q4_NATURAL_SHEAR_WORK",true) &&
+        !any(fem_env_has, (
+            "JFEM_Q4_MACNEAL_FAN_C1",
+            "JFEM_Q4_MACNEAL_FAN_COUPLING",
+            "JFEM_Q4_MACNEAL_FAN_CXX",
+            "JFEM_Q4_MACNEAL_FAN_CYYD",
+            "JFEM_Q4_MACNEAL_FAN_CYYO",
+            "JFEM_Q4_MACNEAL_RBF_BENDING_FLEX_MODE",
+            "JFEM_Q4_MACNEAL_RBF_DELTA_AREA_NORM",
+            "JFEM_Q4_MACNEAL_RBF_DELTA_MIDSIDE",
+            "JFEM_Q4_MACNEAL_RBF_LENGTH_MODE",
+            "JFEM_Q4_MACNEAL_RBF_PER_GP_DELTA",
+            "JFEM_Q4_MACNEAL_RBF_STRIP_ROT",
+            "JFEM_Q4_MACNEAL_SHEAR_EDGE_LINEAR",
+            "JFEM_Q4_MACNEAL_ZB_DIR_BETA",
+            "JFEM_Q4_MACNEAL_ZB_DIR_CINF",
+            "JFEM_Q4_MACNEAL_ZB_DIR_CINF_RIGID",
+            "JFEM_Q4_MACNEAL_ZB_FAN",
+            "JFEM_Q4_MACNEAL_ZB_SKEW",
+            "JFEM_Q4_MACNEAL_ZB_TAPER",
+            "JFEM_Q4_MACNEAL_ZB_TAPER_K",
+            "JFEM_Q4_TAPER_DIFF",
+            "JFEM_Q4_TAPER_DIFF_ZB_ONLY",
+            "JFEM_Q4_TAPER_SHEAR_CROSS",
+            "JFEM_Q4_TAPER_SHEAR_DIFF",
+        ))
+    if natural_shear_work
+        quad4_natural_shear_flexibility!(mw,coords,Cb,Cs;rigid_shear=rigid_shear)
+        Zb = mw.Zb
+        Zs = mw.Zs
+        Z_total = mw.Z_total
+    else
     # MacNeal projected side lengths Δx, Δy (eq after 26)
     Dx = 0.5 * (coords[2,1]+coords[3,1]-coords[1,1]-coords[4,1])
     Dy = 0.5 * (coords[3,2]+coords[4,2]-coords[1,2]-coords[2,2])
@@ -4840,7 +4989,19 @@ function add_quad4_macneal_shear_rbf!(
         kap = fem_env_float("JFEM_Q4_MACNEAL_ZB_TAPER_K", 1.0 / 30.0)
         fx = abs(Dx) > 1e-30 ? (fan_a3 / Dx)^2 : 0.0
         fy = abs(Dy) > 1e-30 ? (fan_b3 / Dy)^2 : 0.0
-        w = kap * (fx + fy) * sqrt(max(zbx_u * zby_u, 0.0))
+        # A taper transports residual bending from its source axis into the
+        # other shear family. Complementary energy is linear in that axis's
+        # bending compliance: an x fan uses flex_x, a y fan uses flex_y.
+        # The geometric mean sqrt(flex_x*flex_y) is valid only when both
+        # bending rigidities coincide; it creates a spurious material-ratio
+        # dependence on an orthotropic trapezoid. Separate the geometric
+        # factors before combining the two source compliances.
+        if fx + fy > 1e-24 &&
+           xor(iszero(_fem_primal_value(Cb_f[1,1])), iszero(_fem_primal_value(Cb_f[2,2])))
+            throw(ArgumentError("CQUAD4 tapered residual bending requires positive bending rigidity in both directions; a partially zero directional bending law is not supported. Fully zero bending and affine elements retain their separate paths."))
+        end
+        geom_cross = sqrt(max((zbx_u / flex_x) * (zby_u / flex_y), 0.0))
+        w = kap * (fx * flex_x + fy * flex_y) * geom_cross
         if w != 0.0
             Zb[1,3] = -w; Zb[3,1] = -w
             Zb[1,4] =  w; Zb[4,1] =  w
@@ -5641,6 +5802,14 @@ function add_quad4_macneal_shear_rbf!(
                 dd = zbfac ?
                     3.0 * 0.5 * (Zb[i,i] - Zb[i,j] - Zb[j,i] + Zb[j,j]) / 2 :
                     0.5 * (Z_total[i,i] - Z_total[i,j] - Z_total[j,i] + Z_total[j,j]) / 2
+                # The transported differential increment has the same source
+                # bending compliance as the taper cross term above, rather
+                # than the destination family's compliance already in dd.
+                # Do not apply this bending ratio to the diagnostic total-Z
+                # route, whose increment also contains physical shear.
+                if zbfac
+                    dd *= i == 1 ? flex_y / flex_x : flex_x / flex_y
+                end
                 add = (Ff - 1.0) * dd
                 Z_total[i,i] += add; Z_total[j,j] += add
                 Z_total[i,j] -= add; Z_total[j,i] -= add
@@ -5730,6 +5899,7 @@ function add_quad4_macneal_shear_rbf!(
             Z_total[i,j] = 0.5 * (mw.sym4[i,j] + mw.sym4[j,i])
         end
     end
+    end # natural/legacy residual-flexibility law
     # K_plate = Dᵀ · inv(Z_total) · D, via the same lowering as
     # D_mat' * (Z_total \ D_mat): square \ replica + one gemm.
     _msws_ldiv_sq!(mw, mw.sol4x12, mw.lu4a, Z_total, D_mat)
@@ -8170,6 +8340,42 @@ function geometric_stiffness_quad4_reference_kdjj_pcomp(coords::AbstractMatrix,
     return Kg
 end
 
+"""Replace the projected Q4 transverse bilinear metric by its assumed-gradient energy.
+
+For each stress quadrature point (r,s), the physical gradients are tied at
+bx = w,x(0,s), by = w,y(r,0), using each tying point's own Jacobian. The delta
+is the Hessian of that frozen-prestress energy minus the existing bilinear
+metric. Only the four transverse-displacement rows/columns change; membrane,
+rotation and preload recovery remain the caller's responsibility.
+"""
+function add_quad4_assumed_transverse_gradient_delta!(Kg::AbstractMatrix,
+        coords::AbstractMatrix, sigma_gp::Union{AbstractVector,AbstractMatrix}, h::Real)
+    h < 1e-30 && return Kg
+    p=1/sqrt(3.0)
+    for (q,(r,s)) in enumerate(((-p,-p),(p,-p),(p,p),(-p,p)))
+        dr,ds=shape_derivs_quad(r,s)
+        derivatives=[dr';ds'];J=derivatives*coords
+        gradient=J\derivatives
+        drx,dsx=shape_derivs_quad(0.0,s);dx=[drx';dsx']
+        dry,dsy=shape_derivs_quad(r,0.0);dy=[dry';dsy']
+        tied_x=(dx*coords)\dx;tied_y=(dy*coords)\dy
+        weight=h*max(abs(det(J)),1e-12)
+        xx,yy,xy = sigma_gp isa AbstractVector ?
+            (sigma_gp[1],sigma_gp[2],sigma_gp[3]) :
+            (sigma_gp[q,1],sigma_gp[q,2],sigma_gp[q,3])
+        for i in 1:4,j in 1:4
+            gx,gy=gradient[1,i],gradient[2,i]
+            hx,hy=gradient[1,j],gradient[2,j]
+            ax,ay=tied_x[1,i],tied_y[2,i]
+            bx,by=tied_x[1,j],tied_y[2,j]
+            Kg[6(i-1)+3,6(j-1)+3]+=weight*(
+                xx*(ax*bx-gx*hx)+yy*(ay*by-gy*hy)+
+                xy*(ax*by+ay*bx-gx*hy-gy*hx))
+        end
+    end
+    Kg
+end
+
 function geometric_stiffness_quad4_reference_kdjj_iso(coords::AbstractMatrix,
                                                     u_e::AbstractVector,
                                                     E::Real,
@@ -8617,6 +8823,39 @@ function tria3_rbf_shear(Ds, Db, A, coords = nothing)
     Ds_eff
 end
 
+"""
+    tria3_guard_bending_flexibility!(Zb, La, Lb, sine_angle, Dnormal)
+
+Safeguard the dimensionless bending-flexibility pivots of a very slender
+triangle. Eliminate the third tying mode, then bound the first diagonal and
+the complementary Schur pivot. The normalization uses the bending rigidity
+normal to the first edge (D22), including for an anisotropic laminate.
+
+The fixed 1/10000 pivot bound belongs to the element's ordered tying basis;
+it is not a global stiffness shift or an eigenvalue tolerance. Only an active
+bound changes Zb, by a nonnegative first-diagonal increment. Ordinary cells
+remain bitwise unchanged. The transverse-shear flexibility is not modified.
+"""
+@inline function tria3_guard_bending_flexibility!(Zb, La, Lb, sine_angle, Dnormal)
+    T = eltype(Zb)
+    rho = La / Lb
+    scale = 6 * rho * sine_angle * Dnormal
+    scale > zero(T) && Zb[3,3] > zero(T) || return zero(T)
+    h11 = scale * (Zb[1,1] - Zb[1,3]^2 / Zb[3,3]) / La^2
+    h22 = scale * (Zb[2,2] - Zb[2,3]^2 / Zb[3,3]) / Lb^2
+    h12 = scale * (Zb[1,2] - Zb[1,3]*Zb[2,3] / Zb[3,3]) / (La*Lb)
+    pivot_bound = one(T) / 10000
+    denominator = h22 - pivot_bound * sine_angle^4
+    denominator > zero(T) || return zero(T)
+    bounded = max(h11, pivot_bound, h12^2 / denominator)
+    if bounded > h11
+        increment = (bounded - h11) * La^2 / scale
+        Zb[1,1] += increment
+        return increment
+    end
+    return zero(T)
+end
+
 function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_ratio=1.0, k6rot=100.0, Bmb=nothing)
     T = promote_type(eltype(coords), eltype(Dm), eltype(Db), eltype(Ds), typeof(h), typeof(G_ref))
     x, y = coords[:,1], coords[:,2]
@@ -8930,6 +9169,8 @@ function stiffness_tria3_matrices_generic(coords, Dm, Db, Ds, h, G_ref; bend_rat
                 Zb3[1,3] = -s6/Gd*S1*S3;   Zb3[3,1] = Zb3[1,3]
                 Zb3[2,3] =  s6/Gd*S2*S3;   Zb3[3,2] = Zb3[2,3]
                 Zb3[3,3] =  s6/Gd*S3*S3
+                tria3_guard_bending_flexibility!(Zb3, La, Lb, sth,
+                                               dir_pair ? Dn12 : Dbend)
                 Zt = inv(Symmetric(Matrix(Wsh))) + Zb3
                 Zt = 0.5 .* (Zt .+ Zt')
                 Wsh = Matrix(inv(Symmetric(Zt)))
@@ -10434,6 +10675,15 @@ function geometric_stiffness_tria3(coords::AbstractMatrix, sigma_mem::AbstractVe
                             Kg[row, col0 + q] += val * projector_pq
                         end
                     end
+                elseif trans_mode === :principal_transverse
+                    # Use the same stress-linear transverse work as the Q4
+                    # operator. Falling through to :all adds spurious work in
+                    # the direction of a membrane preload, particularly on
+                    # narrow triangles adjoining otherwise quadrilateral meshes.
+                    add_geometric_linear_principal_transverse_pair!(
+                        Kg, (i-1)*6, (j-1)*6,
+                        bv[i], cv[i], bv[j], cv[j], h*A,
+                        s_xx, s_yy, s_xy)
                 elseif trans_mode === :normal_only
                     row = (i-1)*6 + 3
                     col = (j-1)*6 + 3
@@ -10685,7 +10935,10 @@ end
     reference_lumped_mass_quad4(coords, rho, h) -> 24x24 Matrix
 
 Reference-compatible lumped shell mass for a four-node shell. Translational mass
-is split equally over the corner grids. Shell rotations carry no default
+uses the row sums of the bilinear consistent matrix, `∫ρh Nᵢ dA`, on the
+projected element surface. Equal corner masses are valid only when the mapping
+has a constant Jacobian; they lose the centroid of a tapered quadrilateral.
+Shell rotations carry no default
 rotary inertia in the SOL 103 lumped-mass path; Reference keeps the bending
 rotations in K but gives them zero structural mass for the default PSHELL
 mass matrix.
@@ -10694,20 +10947,22 @@ function reference_lumped_mass_quad4(coords::AbstractMatrix, rho::Float64, h::Fl
     Me = zeros(24, 24)
     if rho < 1e-30 || h < 1e-30; return Me; end
 
-    area = 0.0
-    @inbounds for i in 1:4
-        j = i == 4 ? 1 : i + 1
-        area += coords[i,1] * coords[j,2] - coords[j,1] * coords[i,2]
-    end
-    area = 0.5 * abs(area)
-    if area < 1e-30; return Me; end
-
-    mass_t = rho * h * area / 4.0
-    @inbounds for k in 1:4
-        base = (k - 1) * 6
-        Me[base + 1, base + 1] = mass_t
-        Me[base + 2, base + 2] = mass_t
-        Me[base + 3, base + 3] = mass_t
+    pt = 1.0 / sqrt(3.0)
+    @inbounds for (r,s) in ((-pt,-pt),(pt,-pt),(pt,pt),(-pt,pt))
+        Nv = SVector(0.25*(1-r)*(1-s),0.25*(1+r)*(1-s),
+                     0.25*(1+r)*(1+s),0.25*(1-r)*(1+s))
+        dNr,dNs = shape_derivs_quad(r,s)
+        J11 = sum(dNr[k]*coords[k,1] for k in 1:4)
+        J12 = sum(dNr[k]*coords[k,2] for k in 1:4)
+        J21 = sum(dNs[k]*coords[k,1] for k in 1:4)
+        J22 = sum(dNs[k]*coords[k,2] for k in 1:4)
+        mass = rho*h*abs(J11*J22-J12*J21)
+        for k in 1:4
+            base = (k-1)*6
+            for d in 1:3
+                Me[base+d,base+d] += mass*Nv[k]
+            end
+        end
     end
     return Me
 end

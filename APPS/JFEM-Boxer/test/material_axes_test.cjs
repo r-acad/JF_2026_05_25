@@ -16,5 +16,15 @@ const g={kind:'tria',count:1,eids:[77],conn:[0,1,2],axes:{x:[1,0,0],y:[0,1,0],z,
 const state={data:{imported_deck:{},nodes:{xyz:[0,0,0,1,0,0,0,1,0]},coordinate_systems:{systems:[{id:42,x:[0,1,0],y:[-1,0,0]}]}}};
 const axes=M.axes(state,g,helpers);close([...axes.x],[0,1,0]);assert.match(axes.labels[0],/E 77 · MCID 42/);
 g.material_orientation={mcid:[0],theta:[45]};const rotated=M.axes(state,g,helpers);close([...rotated.x],[Math.SQRT1_2,Math.SQRT1_2,0]);assert.match(rotated.labels[0],/θ 45° · element G1/);
+// Explicit integer zero follows BASIC, independently of the first shell edge.
+state.data.nodes.xyz=[0,0,0,1,1,0,0,1,0];
+g.material_orientation={mcid:[0],mcid_specified:[1],theta:[0]};
+const basic=M.axes(state,g,helpers);close([...basic.x],[1,0,0]);assert.match(basic.labels[0],/MCID 0 · BASIC/);
+g.material_orientation.mcid_specified=[0];
+const zeroAngle=M.axes(state,g,helpers);close([...zeroAngle.x],[Math.SQRT1_2,Math.SQRT1_2,0]);assert.match(zeroAngle.labels[0],/θ 0°/);
+// BASIC works even without a coordinate glyph record, including the fallback
+// when the global X axis is normal to the shell.
+g.axes.z=[1,0,0];g.material_orientation.mcid_specified=[1];
+close([...M.axes(state,g,helpers).x],[0,1,0]);
 delete state.data.imported_deck;assert.match(M.axes(state,g,helpers).labels[0],/MCID 77/);
 console.log('Material axes PASS: THETA, skew Q4 frame, MCID projection/fallback, tilted plane and truthful labels.');

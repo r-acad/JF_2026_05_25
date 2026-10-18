@@ -800,6 +800,7 @@ function build_model(cards, cc)
         "SPC1s"       => spc1s,
         "SPCADDs"     => haskey(cards,"SPCADD") ? ReferenceParser.extract_spcadd(cards["SPCADD"]) : Dict(),
         "EIGRLs"      => haskey(cards,"EIGRL")  ? ReferenceParser.extract_eigrl(cards["EIGRL"]) : Dict(),
+        "NLPARMs"     => haskey(cards,"NLPARM") ? ReferenceParser.extract_nlparm(cards["NLPARM"]) : Dict(),
         "EIGBs"       => haskey(cards,"EIGB")   ? ReferenceParser.extract_eigb(cards["EIGB"]) : Dict(),
         "TEMPs"       => haskey(cards,"TEMP")   ? ReferenceParser.extract_temp(cards["TEMP"]) : Dict{Int,Dict{Int,Float64}}(),
         "TEMPDs"      => haskey(cards,"TEMPD")  ? ReferenceParser.extract_tempd(cards["TEMPD"]) : Dict{Int,Float64}(),
@@ -1256,7 +1257,9 @@ function build_model_from_json(raw::AbstractDict)
         )
     end
     for (pid, p) in get(bd, "PBEAM", Dict())
-        merged_bars[pid] = Dict{String,Any}(
+        # Preserve station data and the neutral/shear-axis offsets in this
+        # already-parsed input route, just as bdf_to_model does.
+        merged_bars[pid] = merge(Dict{String,Any}(p), Dict{String,Any}(
             "PID"=>Int(p["PID"]), "MID"=>Int(p["MID"]),
             "A"=>Float64(get(p, "A", 0.0)), "I"=>Float64(get(p, "I", get(p, "I1", 0.0))),
             "I1"=>Float64(get(p, "I1", 0.0)), "I2"=>Float64(get(p, "I2", 0.0)),
@@ -1267,7 +1270,7 @@ function build_model_from_json(raw::AbstractDict)
             "D1"=>Float64(get(p, "D1", 0.0)), "D2"=>Float64(get(p, "D2", 0.0)),
             "E1"=>Float64(get(p, "E1", 0.0)), "E2"=>Float64(get(p, "E2", 0.0)),
             "F1"=>Float64(get(p, "F1", 0.0)), "F2"=>Float64(get(p, "F2", 0.0)),
-        )
+        ))
     end
 
     # --- Constraints ---
@@ -1383,6 +1386,7 @@ function build_model_from_json(raw::AbstractDict)
         "SPC1s"       => spc1s,
         "SPCADDs"     => spcadds,
         "EIGRLs"      => get(bd, "EIGRL", Dict()),
+        "NLPARMs"     => Dict(string(k) => ReferenceParser.normalize_nlparm(v) for (k,v) in get(bd, "NLPARM", Dict())),
         "EIGBs"       => get(bd, "EIGB", Dict()),
         "TEMPs"       => temps,
         "TEMPDs"      => tempds,

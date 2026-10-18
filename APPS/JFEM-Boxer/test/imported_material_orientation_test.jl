@@ -35,7 +35,8 @@ CQUAD4,701,123,1,2,5,4,30.
 CQUAD4,405,123,2,3,6,5,42
 CTRIA3,900,124,4,5,8,42
 CTRIA3,802,124,4,8,7,-25.
-CQUAD4,995,125,5,6,9,8
+CQUAD4,995,125,5,6,9,8,0
+CQUAD4,996,125,5,6,9,8,0.
 CBAR,1100,92,1,2,0.,0.,1.
 PSHELL,123,8,.02,8
 PSHELL,124,8,.02,8
@@ -70,6 +71,7 @@ function check_orientation(payload,native)
         ids=group_ids(payload,group);orientation=group["material_orientation"]
         @test length(ids)==group["count"]
         @test decode(orientation["mcid"],Int32)==[native["CSHELLs"][string(id)]["MCID"] for id in ids]
+        @test decode(orientation["mcid_specified"],Int32)==Int32[native["CSHELLs"][string(id)]["MCID_SPECIFIED"] for id in ids]
         @test decode(orientation["theta"],Float32)==Float32[native["CSHELLs"][string(id)]["THETA"] for id in ids]
     end
 end
@@ -77,6 +79,7 @@ suite=@testset "Imported shell material orientation and buffer compaction" begin
     @test native["CSHELLs"]["701"]["THETA"]==30. && native["CSHELLs"]["701"]["MCID"]==0
     @test native["CSHELLs"]["405"]["MCID"]==42 && native["CSHELLs"]["405"]["THETA"]==0.
     @test native["CSHELLs"]["802"]["THETA"]==-25.
+    @test native["CSHELLs"]["995"]["MCID_SPECIFIED"] && !native["CSHELLs"]["996"]["MCID_SPECIFIED"]
     @test native["CORDs"]["42"]["U"]==[0.,1.,0.]
     before=deepcopy(native);payload=W.imported_mesh_payload(model)
     @test native==before
@@ -86,6 +89,7 @@ suite=@testset "Imported shell material orientation and buffer compaction" begin
     restored=W.unpack_view_payload(W.MsgPack.pack(payload));check_orientation(restored,native)
     frames=Dict(c["id"]=>c for c in payload["coordinate_systems"]["systems"])
     @test frames[42]["usage"]["shell_mcid"]==2 && frames[42]["usage"]["shell_eids"]==[405,900]
+    @test frames[0]["usage"]["shell_mcid"]==1 && frames[0]["usage"]["shell_eids"]==[995]
     @test isempty(payload["coordinate_systems"]["warnings"])
     # Cross the real >1000-group threshold with two differently oriented
     # elements per property. Native insertion order differs from EID order.
@@ -116,5 +120,5 @@ suite=@testset "Imported shell material orientation and buffer compaction" begin
 end
 counts=Test.get_test_counts(suite)
 write(joinpath(evidence,"summary.json"),W.JSON.json(Dict("passed"=>true,
-    "assertions"=>counts.passes+counts.cumulative_passes,"native_shells"=>5,"small_groups"=>4,
+    "assertions"=>counts.passes+counts.cumulative_passes,"native_shells"=>6,"small_groups"=>4,
     "compacted_groups"=>1001,"compacted_shells"=>2002,"native_solver_run"=>false),2))

@@ -152,23 +152,18 @@ function sensitivity_analytic_bar(native,op,wing,g,e,direction,state=nothing)
     dKe=transpose(T)*kernel.dK*T+transpose(dT)*kernel.K*T+transpose(T)*kernel.K*dT
     # Match explicit COUPMASS selection in the primal CBAR assembly. Equal
     # end offsets leave length/orientation fixed, but their dimension-dependent
-    # rigid-arm transformation contributes to coupled mass derivatives.
+    # rigid-arm transformation contributes to both lumped and coupled mass.
     nsm=Float64(get(prop,"NSM",0.))
     mass=(rho*sd.area+nsm)*bd.L;dmass=bd.L*(drho*sd.area+rho*sd.darea)
-    Me=zeros(12,12);dMe=zeros(12,12);wtmass=Float64(get(op.model,"PARAM_WTMASS",1.))
+    wtmass=Float64(get(op.model,"PARAM_WTMASS",1.))
     coupled=native.Solver._sol103_param_enabled(get(op.model,"PARAM_COUPMASS",false),false)
-    if coupled
-        # Unit line density avoids divisions by rho or area. The dedicated
-        # native kernel owns its axial interpolation and zero section inertia.
-        unit=native.Solver.FEM.reference_coupled_mass_cbar(Float64(bd.L),1.,1.)
-        Mloc=(rho*sd.area+nsm).*unit;dMloc=(drho*sd.area+rho*sd.darea).*unit
-        Me=wtmass.*(transpose(T)*Mloc*T)
-        dMe=wtmass.*(transpose(T)*dMloc*T+transpose(dT)*Mloc*T+transpose(T)*Mloc*dT)
-    else
-        # Cardless/negative COUPMASS keeps the established translational mass
-        # lumped at the GRID line; no offset or rotational terms enter it.
-        for i in (1,2,3,7,8,9);Me[i,i]=wtmass*mass/2;dMe[i,i]=wtmass*dmass/2;end
-    end
+    # Unit line density avoids divisions by rho or area. Neither CBAR kernel
+    # adds section rotary inertia; T also includes the rigid offset arms.
+    unit=coupled ? native.Solver.FEM.reference_coupled_mass_cbar(Float64(bd.L),1.,1.) :
+        native.Solver.FEM.reference_lumped_mass_frame3d(Float64(bd.L),1.,1.,0.,0.,0.)
+    Mloc=(rho*sd.area+nsm).*unit;dMloc=(drho*sd.area+rho*sd.darea).*unit
+    Me=wtmass.*(transpose(T)*Mloc*T)
+    dMe=wtmass.*(transpose(T)*dMloc*T+transpose(dT)*Mloc*T+transpose(T)*Mloc*dT)
     u=state===nothing ? zeros(12) : Float64.(state[bd.dofs])
     ul=T*u;dul=dT*u;forces=kernel.K*ul;dforces=kernel.dK*ul+kernel.K*dul
     axial=forces[7]/sd.area;daxial=(dforces[7]-axial*sd.darea)/sd.area

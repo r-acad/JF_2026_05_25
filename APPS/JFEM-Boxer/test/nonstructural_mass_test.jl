@@ -131,7 +131,8 @@ tests=@testset "Non-structural surface and line mass" begin
         ap.model["PARAM_COUPMASS"]=true;am.model["PARAM_COUPMASS"]=true
         directions=W.sensitivity_analytic_property_directions(m,variable)
         exact=W.sensitivity_analytic_shell_mass(N,op,directions)
-        fd=(mass_matrix(ap)-mass_matrix(am))/(2step)
+        modal_mass(x)=N.Solver.assemble_modal_mass(x.model,x.id_map,x.X,x.node_R,x.ndof)
+        fd=(modal_mass(ap)-modal_mass(am))/(2step)
         @test norm(exact-fd)<=1e-7max(norm(fd),1.)
     end
     # Body-load moments include fixed NSM moving with dimension-dependent offsets.

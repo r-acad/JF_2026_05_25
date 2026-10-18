@@ -485,6 +485,7 @@ function _warmup()
           SPC = 10
           LOAD = 20
         SUBCASE 2
+          SPC = 10
           STATSUB = 1
           METHOD = 30
         BEGIN BULK

@@ -161,7 +161,7 @@ function _pshell_rectangular_anisotropic_recovery_data(model,prop,el,id_map,X,sn
     xyz=reduce(vcat,permutedims.(p))
     FEM.quad4_finite_warp_displacement_map(xy,xyz)===nothing || return nothing
     beta=shell_pcomp_material_rotation(:element,v1,v2,v3,p[1],p[2],
-        deg2rad(Float64(get(el,"THETA",0.))),Int(get(el,"MCID",0)),model["CORDs"])
+        deg2rad(Float64(get(el,"THETA",0.))),shell_material_coordinate_id(el),model["CORDs"])
     C=pshell_plane_stress_matrix(mat,beta)
     Cs,_=shell_transverse_shear_matrix(shear,h,tst,beta)
     all(isfinite,C)&&all(isfinite,Cs)&&isposdef(Symmetric(C))&&isposdef(Symmetric(Cs)) || return nothing
@@ -188,7 +188,6 @@ function q4_pcomp_compatible_recovery_enabled(model, prop, coords, coords3d, sno
     curvature_keys=("JFEM_SOL101_Q4_PCOMP_EXACT_MEMBRANE","JFEM_SOL105_STATIC_PCOMP_EXACT_MEMBRANE",
         "JFEM_SOL105_STATIC_FLAT_PCOMP_DKMQ","JFEM_Q4_MACNEAL_RIGID_SHEAR_FORCE")
     any(k->solver_env_bool(k,false),curvature_keys) && return false
-    solver_env_bool("JFEM_SOL105_PCOMP_SKEW_CB_FRAME",false) && return false
     lowercase(strip(get(ENV,"JFEM_Q4_KERNEL_STATIC",get(ENV,"JFEM_Q4_KERNEL","macneal"))))=="macneal" || return false
     all(solver_env_float(k,1.0)==1.0 for k in (
         "JFEM_Q4_MACNEAL_BENDING_SCALE","JFEM_Q4_MACNEAL_CURVED_BENDING_SCALE",
@@ -356,7 +355,7 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                     pcomp_axis_mode,
                     v1, v2, v3, p1, p2,
                     theta_rad,
-                    Int(get(el, "MCID", 0)),
+                    shell_material_coordinate_id(el),
                     model["CORDs"],
                 )
                 material_shear_rotation = beta
@@ -369,7 +368,32 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                     end
                 end
             end
+            # The projected elastic law uses the edge-to-local angle for all
+            # work-conjugate tensors. MCID/g12/global_x already include it.
+            # Match the elastic projected classification, including the finite
+            # warp congruence; this is not a new geometric tolerance.
+            bending_frame_phi = 0.0
+            membrane_frame_phi = 0.0
+            if is_pcomp_clt && !get(prop,"IS_ISOTROPIC",false) &&
+               !shell_material_coordinate_active(shell_material_coordinate_id(el),model["CORDs"]) &&
+               pcomp_axis_mode !== :g12 && pcomp_axis_mode !== :global_x
+                diagonal=max(norm(p3-p1),norm(p4-p2))
+                maxdev=maximum(abs(dot(p-c,v3)) for p in (p1,p2,p3,p4))
+                flat_default=fem_env_bool_solver_warp_transform() ? 1e30 : 1e-2
+                if maxdev < max(solver_env_float("JFEM_Q4_FLAT_TOL_REL",flat_default),1e-12)*max(diagonal,1e-12)
+                    phi=shell_material_rotation_from_g12(v1,v2,v3,p1,p2,0.0)
+                    membrane_frame_phi=solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE",true) ? phi : 0.0
+                    bending_frame_phi=solver_env_bool("JFEM_SOL105_PCOMP_SKEW_CB_FRAME",true) ? phi : 0.0
+                    for (tensor,angle) in ((clt_Cm,membrane_frame_phi),(clt_Cb,bending_frame_phi))
+                        if tensor!==nothing && abs(angle)>1e-10
+                            cp=cos(angle);sp=sin(angle)
+                            _rotate_constitutive_3x3!(tensor,cp^2,sp^2,cp*sp,sp^2,cp^2,-cp*sp,-2cp*sp,2cp*sp,cp^2-sp^2)
+                        end
+                    end
+                end
+            end
             clt_Bmb = get(prop,"Bmb",nothing)
+            clt_Bmb = clt_Bmb === nothing ? nothing : copy(clt_Bmb)
             # Historical/raw PCOMP surrogates may contain only A/D/ply data.
             # Keep their existing recovery instead of inventing a transverse law.
             complete_clt_recovery = get(prop,"IS_ISOTROPIC",nothing) isa Bool &&
@@ -381,7 +405,8 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                 is_pcomp=is_pcomp_clt,isotropic=get(prop,"IS_ISOTROPIC",false),
                 coords_3d=coords3d_sr,snorm_pq=snorm_pq,curvature_membrane=curvature_membrane,
                 kernel_mode=get(ENV,"JFEM_Q4_KERNEL_STATIC",get(ENV,"JFEM_Q4_KERNEL","macneal")),
-                sol_type=get(model,"SOL",101),rigid_shear=get(prop,"TRANSVERSE_SHEAR_RIGID_LIMIT",false))
+                sol_type=get(model,"SOL",101),rigid_shear=get(prop,"TRANSVERSE_SHEAR_RIGID_LIMIT",false),
+                legacy_nonlinear=coupled_pcomp_legacy_nonlinear_enabled(model))
             rectangular_pcomp_recovery = planar_pcomp_recovery &&
                 FEM.quad4_is_axis_aligned_rectangle(view(lc_buf,1:4,:)) &&
                 (coords3d_sr === nothing || FEM.quad4_finite_warp_displacement_map(view(lc_buf,1:4,:),coords3d_sr) === nothing)
@@ -414,23 +439,14 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
             if compatible_center_recovery
                 membrane_shear_center_row=true
                 material_shear_rotation=0.0
-                # Match the committed elastic A-frame operation exactly.
-                # The legacy Cb/Cs path has a separate frame policy, so do
-                # not rotate its bending or transverse operator here.
-                mcid=Int(get(el,"MCID",0))
-                mcid_active=mcid>0 && model["CORDs"]!==nothing && haskey(model["CORDs"],string(mcid))
-                if !get(prop,"IS_ISOTROPIC",false) && !mcid_active &&
-                   pcomp_axis_mode !== :g12 && pcomp_axis_mode !== :global_x
-                    phi=shell_material_rotation_from_g12(v1,v2,v3,p1,p2,0.0)
-                    if abs(phi)>1e-10
-                        cp=cos(phi);sp=sin(phi);c2p=cp^2;s2p=sp^2;csp=cp*sp
-                        _rotate_constitutive_3x3!(clt_Cm,c2p,s2p,csp,s2p,c2p,-csp,-2csp,2csp,c2p-s2p)
-                        angle=beta+phi;ca=cos(angle);sa=sin(angle)
-                        ply_membrane_transform=[ca^2 sa^2 ca*sa;sa^2 ca^2 -ca*sa;-2ca*sa 2ca*sa ca^2-sa^2]
-                        diagnostic=get!(results_json,"recovery_diagnostics",Dict{String,Any}())
-                        push!(get!(diagnostic,"split_constitutive_frame_ply_stress_eids",Int[]),eid)
-                        diagnostic["ply_stress_convention"]="Work-conjugate ply stresses to the existing separate membrane/bending constitutive frames; not a single physical ply orientation."
-                    end
+            end
+            if abs(membrane_frame_phi)>1e-10 || abs(bending_frame_phi-membrane_frame_phi)>1e-10
+                angle=beta+membrane_frame_phi;ca=cos(angle);sa=sin(angle)
+                ply_membrane_transform=[ca^2 sa^2 ca*sa;sa^2 ca^2 -ca*sa;-2ca*sa 2ca*sa ca^2-sa^2]
+                if abs(bending_frame_phi-membrane_frame_phi)>1e-10
+                    diagnostic=get!(results_json,"recovery_diagnostics",Dict{String,Any}())
+                    push!(get!(diagnostic,"split_constitutive_frame_ply_stress_eids",Int[]),eid)
+                    diagnostic["ply_stress_convention"]="Explicit legacy opt-out: separate membrane/bending constitutive frames."
                 end
             end
             if planar_pcomp_recovery || mean_shear_recovery
@@ -440,10 +456,18 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                 if abs(beta)>1e-10
                     cb=cos(beta);sb=sin(beta);c2=cb^2;s2=sb^2;cs=cb*sb
                     clt_Bmb === nothing || _rotate_constitutive_3x3!(clt_Bmb,c2,s2,cs,s2,c2,-cs,-2cs,2cs,c2-s2)
-                    R=[cb -sb;sb cb]
-                    clt_Cs=transpose(R)*clt_Cs*R
+                    FEM.rotate_constitutive_2x2!(clt_Cs,beta)
                     ply_strain_transform=[c2 s2 cs;s2 c2 -cs;-2cs 2cs c2-s2]
                 end
+            end
+            if clt_Bmb!==nothing && abs(membrane_frame_phi)>1e-10
+                cp=cos(membrane_frame_phi);sp=sin(membrane_frame_phi)
+                _rotate_constitutive_3x3!(clt_Bmb,cp^2,sp^2,cp*sp,sp^2,cp^2,-cp*sp,-2cp*sp,2cp*sp,cp^2-sp^2)
+            end
+            if abs(bending_frame_phi)>1e-10
+                clt_Cs===nothing || FEM.rotate_constitutive_2x2!(clt_Cs,bending_frame_phi)
+                angle=beta+bending_frame_phi;ca=cos(angle);sa=sin(angle)
+                ply_strain_transform=[ca^2 sa^2 ca*sa;sa^2 ca^2 -ca*sa;-2ca*sa 2ca*sa ca^2-sa^2]
             end
             if anisotropic_center !== nothing
                 N,M,Q,s_z1,s_z2,e_z1,e_z2 = _pshell_rectangular_anisotropic_center(view(lc_buf,1:4,:),u_el,anisotropic_center;recover_resultants=static_fields === nothing)
@@ -571,7 +595,7 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                     pcomp_axis_mode,
                     v1, v2, v3, p1, p2,
                     deg2rad(Float64(get(el, "THETA", 0.0))),
-                    Int(get(el, "MCID", 0)),
+                    shell_material_coordinate_id(el),
                     model["CORDs"],
                 )
                 if abs(beta) > 1e-10
@@ -786,6 +810,19 @@ function _stress_beam_recovery_points(prop::AbstractDict, station)
     ]
 end
 
+function _stress_beam_force_flexibility_recovery(L,prop,bar,E,G,u_local,fixed_end_load)
+    _pbeam_force_flexibility_active(prop) || return nothing
+    norm(fixed_end_load)<=1e-12 || error("PLOAD1 recovery for tapered PBEAM force-flexibility elements is not implemented.")
+    stations=sort(collect(prop["STATIONS"]);by=s->Float64(s["X"]))
+    Ke=Matrix(_beam_local_stiffness(L,prop,E,G))
+    pa=Int(get(bar,"PA",0));pb=Int(get(bar,"PB",0))
+    (pa!=0 || pb!=0) && apply_bar_pin_flags!(Ke,pa,pb)
+    return (f_local=_pbeam_neutral_axis_section_forces(Ke*u_local,prop),
+        station_a=first(stations),station_b=last(stations),
+        section_a=_stress_beam_station_section(first(stations),prop),
+        section_b=_stress_beam_station_section(last(stations),prop))
+end
+
 function _stress_beam_station_condensed_force_recovery(
     L::Float64,
     prop::AbstractDict,
@@ -951,8 +988,9 @@ function recover_bar_stresses!(
         fixed_end_load = _beam_pload1_local_load_vector_for_sid(
             model, eid, active_load_id, L, active_load_scale)
 
-        station_recovery = nothing
-        if !_stress_beam_station_properties_constant(prop)
+        station_recovery = _stress_beam_force_flexibility_recovery(
+            L,prop,bar,mat["E"],mat["G"],u_el,fixed_end_load)
+        if station_recovery === nothing && !_stress_beam_station_properties_constant(prop)
             if has_offset || pa != 0 || pb != 0
                 error("SOL101 beam stress recovery for varying PBEAM/PBEAML stations with WA/WB offsets or PA/PB releases is not guarded yet.")
             end
@@ -969,12 +1007,13 @@ function recover_bar_stresses!(
             K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
             As_y = (K1 > 0.0) ? K1 * prop["A"] : Inf
             As_z = (K2 > 0.0) ? K2 * prop["A"] : Inf
-            Ke_loc = FEM.stiffness_frame3d(L, prop["A"], Iy, Iz, prop["J"], mat["E"], mat["G"]; As_y=As_y, As_z=As_z, I12=Iyz)
+            Ke_loc = _beam_local_stiffness(L,prop,mat["E"],mat["G"])
             if pa != 0 || pb != 0
                 Ke_loc = Matrix(Ke_loc)
                 apply_bar_pin_flags!(Ke_loc, pa, pb)
             end
-            forces = frame_force_dict_from_local(Ke_loc * u_el - fixed_end_load)
+            forces = frame_force_dict_from_local(_pbeam_neutral_axis_section_forces(
+                Ke_loc * u_el - fixed_end_load, prop))
             A_bar = Float64(prop["A"])
             section_a = (A=A_bar, Iy=Float64(Iy), Iz=Float64(Iz), I12=Float64(Iyz))
             section_b = section_a
@@ -1069,8 +1108,9 @@ function recover_bar_stresses!(
         fixed_end_load = _beam_pload1_local_load_vector_for_sid(
             model, eid, active_load_id, L, active_load_scale)
 
-        station_recovery = nothing
-        if !_stress_beam_station_properties_constant(prop)
+        station_recovery = _stress_beam_force_flexibility_recovery(
+            L,prop,bar,mat["E"],mat["G"],u_el,fixed_end_load)
+        if station_recovery === nothing && !_stress_beam_station_properties_constant(prop)
             if has_offset || pa != 0 || pb != 0
                 error("SOL101 beam stress recovery for varying PBEAM/PBEAML stations with WA/WB offsets or PA/PB releases is not guarded yet.")
             end
@@ -1087,12 +1127,13 @@ function recover_bar_stresses!(
             K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
             As_y = (K1 > 0.0) ? K1 * prop["A"] : Inf
             As_z = (K2 > 0.0) ? K2 * prop["A"] : Inf
-            Ke_loc = FEM.stiffness_frame3d(L, prop["A"], Iy, Iz, prop["J"], mat["E"], mat["G"]; As_y=As_y, As_z=As_z, I12=Iyz)
+            Ke_loc = _beam_local_stiffness(L,prop,mat["E"],mat["G"])
             if pa != 0 || pb != 0
                 Ke_loc = Matrix(Ke_loc)
                 apply_bar_pin_flags!(Ke_loc, pa, pb)
             end
-            forces = frame_force_dict_from_local(Ke_loc * u_el - fixed_end_load)
+            forces = frame_force_dict_from_local(_pbeam_neutral_axis_section_forces(
+                Ke_loc * u_el - fixed_end_load, prop))
             A_bar = Float64(prop["A"])
             section_a = (A=A_bar, Iy=Float64(Iy), Iz=Float64(Iz), I12=Float64(Iyz))
             section_b = section_a

@@ -467,7 +467,7 @@ const HELP_TOPICS = {
   ] },
   "Beam sections": { title: "Stringers and spar caps", paragraphs: [
     "The two section cards show proportional cross sections as you edit the dimensions, including dimension arrows, centroid, area, skin contact and local axes. Inputs use metres; the drawing labels use millimetres. Invalid dimensions clear the preview until corrected.",
-    "Choose beams or shells in Structure → Stringers. Beams use PBARL T sections. Shells use a web and an attached flange with separate PSHELL properties; set flange width to zero for a blade alone. Define flange width, total height, flange thickness and web thickness in metres. Spar caps use solid square beam sections, defined by side length.",
+    "Choose beams or shells in Structure → Stringers. Beams use PBARL T sections. Shells use separate web and combined skin/flange properties; set flange width to zero for a blade alone. The flange adds its specified thickness to the thinnest skin touching either side of its footprint, replacing the skin there. Different materials or composite layers produce a combined PCOMP. Structure → Stringers also offers inward flange offsets. Define flange width, total height, added flange thickness and web thickness in metres. Spar caps use solid square beam sections, defined by side length.",
     "Shell flanges share the skin reference surface as a thin-shell idealization. Blade depth is total height minus flange thickness, or the full height when the flange width is zero. Choose an inward local surface normal or an axis of a selected coordinate system for blade direction. Mesh → Elements through stringer blade height controls the number of shell rows through that depth. Shell stringers are rendered with Shell elements; the Bars 3D control applies to beams.",
     "For beam stringers the flange outer face lies at the skin and the profile extends into the box with the same offsets used in the deck. Runout connectors retain their fixed 5 mm² area. Skin local x follows the stringers; rib shell x stays horizontal in the rib plane, signed toward global +X, including angled leading-edge ribs. The element connectivity may have a different first-edge direction.",
   ] },
@@ -1299,7 +1299,7 @@ function syncLeadingEdgeOrientation() {
 
 function syncStringerModelControls() {
   const model=document.getElementById("p-stringers.model"),shell=model?.value==="shell",orientation=document.getElementById("p-stringers.orientation");
-  for(const key of ["stringers.orientation","mesh.elements_stringer_height"]) {const row=document.getElementById("row-"+key);if(row)row.hidden=!shell;}
+  for(const key of ["stringers.orientation","stringers.shell_offsets","mesh.elements_stringer_height"]) {const row=document.getElementById("row-"+key);if(row)row.hidden=!shell;}
   for(const key of ["stringers.axis_cid","stringers.axis"]) {const row=document.getElementById("row-"+key);if(row)row.hidden=!shell||orientation?.value!=="coordinate_axis";}
   const width=document.getElementById("p-properties.stringer_flange_width"),flange=document.getElementById("row-properties.stringer_flange_thickness");
   if(width)width.min=shell?"0":"0.000000001";
@@ -1307,7 +1307,7 @@ function syncStringerModelControls() {
   document.getElementById("group-beam-sections")?.dispatchEvent(new Event("stringer-model-change"));
   const host=document.getElementById("group-stringer-layout");if(!host||!model)return;
   let note=document.getElementById("stringer-model-note");if(!note){note=document.createElement("p");note.id="stringer-model-note";note.className="group-note";host.append(note);}
-  note.textContent=shell?"Shell stringers use separate web and flange properties and share their skin attachment. A zero flange width creates blades only. Mesh → Elements through stringer blade height sets the web subdivisions. Surface normals point inward; a selected coordinate axis is signed toward the inside of each skin. An axis tangent to the skin is rejected. Coordinate 0 means global BASIC; other IDs must belong to an existing generated frame. Changing blade height, flange width or orientation rebuilds the geometry.":"Beam stringers use PBARL T sections. The flange is attached to the skin and the web points inward. Set cross-section dimensions in Properties → Stringers.";
+  note.textContent=shell?"Each attached flange replaces the skin within its footprint: combined thickness = the thinnest adjacent skin + the added flange thickness. Composite layers or different materials are combined in a PCOMP. Enable inward flange offsets to retain the original skin outer face while adding the flange inside the box. A zero flange width creates blades only. Mesh → Elements through stringer blade height sets the web subdivisions. Blade direction follows the inward surface normal or the selected coordinate axis (0 = global BASIC). An axis tangent to the skin is rejected. Changing dimensions or orientation requires regenerating the mesh.":"Beam stringers use PBARL T sections. The flange is attached to the skin and the web points inward. Set cross-section dimensions in Properties → Stringers.";
 }
 
 // This status describes the entire requested analysis, not just the selected
@@ -3510,8 +3510,8 @@ function initScene() {
     "cam", -Math.PI / 3, Math.PI / 3, 12, BABYLON.Vector3.Zero(), scene);
   state.camera.attachControl(canvas, true);
   state.camera.wheelDeltaPercentage = 0.02;
-  // Pan sensitivity is recomputed in screen units after each fit/zoom, so
-  // millimetre decks and metre wings respond to the same pointer gesture.
+  // Retain native sensitivity for touch/control-key gestures. Right-button
+  // mouse pan below instead keeps the picked point exactly under the cursor.
   state.camera.panningSensibility = 400 / 1.5;
   state.camera.useInputToRestoreState = false;
   // Middle click centers a node; middle+right, then releasing right while
@@ -3519,6 +3519,8 @@ function initScene() {
   state.camera.inputs.attached.pointers.buttons = [0, 2];
   state.catiaZoom?.destroy();
   state.catiaZoom=WingViewportTools.installCatiaZoom({canvas,camera:state.camera,onChange:()=>{state.viewportTools?.refresh();markStudyViewModified();}});
+  state.cursorPan?.destroy();
+  state.cursorPan=WingViewportTools.installCursorPan({canvas,scene,camera:state.camera,beforeRay:()=>state.viewportTools?.refresh(),onChange:()=>{state.annotations?.invalidate();markStudyViewModified();}});
   canvas.title="Left drag: orbit · Right drag: pan · Wheel: zoom · CATIA zoom: press middle + right, release right, then move up/down while holding middle · Middle click: center a node";
   state.camera.minZ = 0.01;
   state.camera.lowerRadiusLimit = 0.05;
@@ -6059,9 +6061,9 @@ function ensureMaterialAxisLabels(){
   for(const g of state.data?.groups||[]){
     if(!['quad','tria'].includes(g.kind)||!g.axes||state.data.imported_deck&&!g.material_orientation)continue;
     const ids=groupIds(g),conn=asI32(g.conn),stride=g.n_per_elem||(g.kind==='quad'?4:3);
-    const cids=g.material_orientation?asI32(g.material_orientation.mcid):null,angles=g.material_orientation?asF32(g.material_orientation.theta):null;
+    const cids=g.material_orientation?asI32(g.material_orientation.mcid):null,specified=g.material_orientation?.mcid_specified?asI32(g.material_orientation.mcid_specified):null,angles=g.material_orientation?asF32(g.material_orientation.theta):null;
     for(let e=0;e<g.count;e++)state.materialAxisLabels.push({id:ids[e],nodes:conn.slice(e*stride,(e+1)*stride),
-      text:'E '+ids[e]+' · '+(!state.data.imported_deck?'MCID '+ids[e]:cids[e]>0?'MCID '+cids[e]:'θ '+Number(angles[e].toPrecision(5))+'° · element G1–G2')});
+      text:'E '+ids[e]+' · '+(!state.data.imported_deck?'MCID '+ids[e]:cids[e]>0||cids[e]===0&&specified?.[e]===1?'MCID '+cids[e]+(cids[e]===0?' · BASIC':''):'θ '+Number(angles[e].toPrecision(5))+'° · element G1–G2')});
   }
 }
 
@@ -6237,7 +6239,8 @@ function syncSupportForceControls(){
   const result=state.results,note=document.getElementById("support-force-note");
   if(!available&&note)note.textContent=state.sensitivityMap?"Open FE Results or Show baseline case to display physical constraint reactions.":state.activeMode>=0?(result?.modeKind==="buckling"?"Select the SOL101 preload analysis or static preload shape to display physical constraint reactions. Buckling eigenmodes have arbitrary normalization.":"Modal shapes have arbitrary normalization; physical static constraint reactions are not available for this eigenmode."):result?.reactionNote||"No constraint reactions are available for this result.";
   for(const id of ["show-support-forces","results-show-support-forces"]){const input=document.getElementById(id);if(input){input.checked=canonical.checked;input.disabled=!available;input.title=available?"Show or hide constraint force and moment vectors together.":note?.textContent||"";}}
-  for(const id of ["show-support-force-values","results-show-support-force-values"]){const input=document.getElementById(id);if(input){input.checked=values.checked;input.disabled=!shown;input.closest("label").hidden=!shown;}}
+  const labelHelp=shown?"Show signed Fx, Fy, Fz (N) and Mx, My, Mz (N·m) beside the constraint reaction arrows, in global XYZ axes.":available?"Enable Display constraint reactions to show force and moment value labels.":note?.textContent||"No constraint reactions are available for this result.";
+  for(const id of ["show-support-force-values","results-show-support-force-values"]){const input=document.getElementById(id);if(input){input.checked=values.checked;input.disabled=!shown;input.title=labelHelp;const row=input.closest("label");row.hidden=false;row.title=labelHelp;}}
   document.getElementById("support-force-scale").disabled=!available;
   const resultNote=document.getElementById("results-support-force-note");
   if(resultNote)resultNote.textContent=available?resultAnalysisLabel(result)+": forces and moments at constrained nodes, in global XYZ axes.":note?.textContent||"";

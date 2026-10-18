@@ -301,6 +301,13 @@ struct _JFEMGridFrameRec
     CD::Int64
 end
 
+struct _JFEMShellMaterialOrientationRec
+    EID::Int64
+    THETA::Float64
+    MCID::Int64
+    MCID_SPECIFIED::Int64
+end
+
 struct _REFERENCECquad4Rec
     EID::Int64
     PID::Int64
@@ -1315,6 +1322,14 @@ function _reference_input_shell_records(model)
     return quads, trias
 end
 
+function _jfem_shell_material_orientation_records(model)
+    return [_JFEMShellMaterialOrientationRec(
+        _reference_i64(get(el,"ID",0)), _reference_f64(get(el,"THETA",0.0)),
+        _reference_i64(get(el,"MCID",0)),
+        Int64(Solver.shell_material_coordinate_id(el) >= 0))
+        for el in _reference_sorted_values_by_id(get(model,"CSHELLs",Dict()), "ID")]
+end
+
 function _reference_input_rod_records(model)
     rods = _REFERENCECrodRec[]
     for rod in sort(collect(values(get(model, "CRODs", Dict()))); by=x -> _reference_i64(get(x, "ID", 0)))
@@ -1753,6 +1768,14 @@ function _reference_write_input_tables(file, model)
     quads, trias = _reference_input_shell_records(model)
     _reference_write_custom(file, "/REFERENCE/INPUT/ELEMENT/CQUAD4", quads, _reference_cquad4_dtype)
     _reference_write_custom(file, "/REFERENCE/INPUT/ELEMENT/CTRIA3", trias, _reference_ctria3_dtype)
+    # Keep the standard compact input record unchanged. This companion table
+    # preserves the distinction between an integer BASIC MCID=0 and THETA=0.
+    orientations = _jfem_shell_material_orientation_records(model)
+    _reference_write_records(file,"/JFEM/INPUT/SHELL_MATERIAL_ORIENTATION",orientations)
+    if !isempty(orientations)
+        attributes(file["/JFEM/INPUT/SHELL_MATERIAL_ORIENTATION"])["MCID_SPECIFIED"] =
+            "1: integer coordinate ID (0 is BASIC); 0: THETA angle in degrees"
+    end
     _reference_write_records(file, "/REFERENCE/INPUT/ELEMENT/CBAR", _reference_input_bar_records(model))
     _reference_write_custom(file, "/REFERENCE/INPUT/ELEMENT/CBEAM", _reference_input_beam_records(model), _reference_cbeam_dtype)
     _reference_write_custom(file, "/REFERENCE/INPUT/ELEMENT/CROD", _reference_input_rod_records(model), _reference_crod_dtype)
@@ -2580,6 +2603,7 @@ function build_nonlinear_export_payload(subcases;
             "sid" => sc["sid"],
             "linear_solver_diagnostics" => deepcopy(get(sc, "solver_diagnostics", Dict{String,Any}())),
             "nonlinear_diagnostics" => deepcopy(get(sc, "nonlinear_diagnostics", Dict{String,Any}())),
+            "nonlinear_intermediate_results" => deepcopy(get(sc, "nonlinear_intermediate_results", Any[])),
         ))
     end
 
@@ -3514,7 +3538,7 @@ function export_card_inventory(cards, output_dir, filename)
         "FORCE", "MOMENT", "PLOAD4", "PLOAD2", "PLOAD1", "PLOAD", "GRAV", "RFORCE",
         "SPC1", "SPC", "SPCADD", "MPC", "MPCADD", "LOAD",
         "CONM2", "CONM1", "CMASS1", "CMASS2", "PMASS",
-        "EIGRL", "EIGB",
+        "EIGRL", "EIGB", "NLPARM",
         "TEMP", "TEMPD", "DMIG",
         "PARAM"
     ])

@@ -44,7 +44,7 @@ end
 
 function structural_mass_data(m::Model)::StructuralMassData
     register_shell_stringer_mass_geometry!(m.params,m.groups,m.xyz,m.grid)
-    signature=hash(sort!([k=>v for (k,v) in m.params if startswith(k,"properties.")||startswith(k,"material.")||startswith(k,"materials.")||startswith(k,"nonstructural.")||k in ("leading_edge.t_skin","leading_edge.t_rib")];by=first))
+    signature=hash(sort!([k=>v for (k,v) in m.params if startswith(k,"properties.")||startswith(k,"material.")||startswith(k,"materials.")||startswith(k,"nonstructural.")||k in ("leading_edge.t_skin","leading_edge.t_rib","stringers.shell_offsets")];by=first))
     lock(STRUCTURE_MASS_LOCK) do
         cached=STRUCTURE_MASS_CACHE[]
         cached!==nothing&&cached.groups===m.groups&&cached.xyz===m.xyz&&cached.signature==signature&&return cached.data
@@ -61,10 +61,11 @@ function structural_mass_data(m::Model)::StructuralMassData
                     push!(sources,StructuralMassSource(:line,nodes,[.5,.5],points,mass,center,offset,(0.,0.,0.),0.,(0.,0.,0.)))
                 end
             else
-                areal=Float64(shell_material_definition(m.params,gr.pid)["areal_mass_kg_m2"]);n=gr.kind===:quad ? 4 : 3
+                areal,first_density,_=structural_shell_mass_moments(m.params,gr.pid);n=gr.kind===:quad ? 4 : 3
                 for e in 1:n_elements(gr)
                     nodes=gr.conn[n*(e-1)+1:n*e];points=element_points(m,gr,e)
                     normal=unit3(n==4 ? cross3(points[3].-points[1],points[4].-points[2]) : cross3(points[2].-points[1],points[3].-points[1]))
+                    offset=areal>0 ? (first_density/areal).*normal : (0.,0.,0.)
                     triangles=Tuple{Vector{NTuple{3,Float64}},Float64,NTuple{3,Float64}}[]
                     for ids in (n==4 ? ((1,2,3),(1,3,4)) : ((1,2,3),))
                         tri=[points[i] for i in ids];area=abs(sum(cross3(tri[2].-tri[1],tri[3].-tri[1]).*normal))/2
@@ -82,7 +83,7 @@ function structural_mass_data(m::Model)::StructuralMassData
                     # planar elements need no correction. Applied Q4 nodal forces
                     # always use the bilinear shape functions, without diagonal bias.
                     for (points,area,center) in triangles
-                        push!(sources,StructuralMassSource(:triangle,nodes,fractions,points,area*areal,center.+shift,(0.,0.,0.),normal,area,shift))
+                        push!(sources,StructuralMassSource(:triangle,nodes,fractions,points,area*areal,center.+shift.+offset,offset,normal,area,shift.+offset))
                     end
                 end
             end

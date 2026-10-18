@@ -81,7 +81,18 @@ function register_panel_properties!(p,g;layout=stiffened_panel_layout(g))
         id===nothing&&throw(ArgumentError("Panel $(row["key"]) no longer exists. Reset obsolete panel overrides before generating this layout."))
         rows[id]=row
     end
-    context=(;token,keys,rows)
+    flange_skins=Dict{Int,Vector{Int}}()
+    if shell_stringers(p)
+        for panel in layout.panels
+            candidates=Int[]
+            for j in panel.start_row:panel.end_row-1,i in (panel.column-1,panel.column)
+                id=layout.skins[panel.upper][i+1,j+1]
+                push!(candidates,id==0 ? (panel.upper ? PID_SKIN_UPPER : PID_SKIN_LOWER) : panel_skin_pid(id,panel.upper))
+            end
+            flange_skins[panel.id]=sort!(unique(candidates))
+        end
+    end
+    context=(;token,keys,rows,flange_skins)
     lock(PANEL_PROPERTY_LOCK) do
         filter!(entry->entry.second.owner.value!==nothing,PANEL_PROPERTY_CONTEXTS)
         PANEL_PROPERTY_CONTEXTS[objectid(p)]=(owner=WeakRef(p),context=context)

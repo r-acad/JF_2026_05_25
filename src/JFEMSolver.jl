@@ -119,7 +119,7 @@ function _report_card_inventory(cards)
         "SPC1", "SPC", "SPCADD", "SPCD", "MPC", "MPCADD", "LOAD",
         "CONM2", "CONM1", "CMASS1", "CMASS2", "PMASS",
         "CTETRA", "CHEXA", "CPENTA",
-        "EIGRL", "EIGB", "TEMP", "TEMPD", "DMIG", "PARAM"])
+        "EIGRL", "EIGB", "NLPARM", "TEMP", "TEMPD", "DMIG", "PARAM"])
     unprocessed = Dict{String,Int}()
     for (cname, clist) in cards
         if cname == "ACCEL"
@@ -2318,6 +2318,8 @@ function _solve_model_parity(backend::ReferenceParityBackend, model::Dict)
     return results
 end
 
+include("nonlinear_controls.jl")
+
 function _solve_sol106(model, cc, K, id_map, X, ndof, node_R,
                        max_elem_stiff, rbe3_map, snorm_normals, orig_diag,
                        sorted_sids, sol106_snorm_angle, mesh;
@@ -2340,17 +2342,6 @@ function _solve_sol106(model, cc, K, id_map, X, ndof, node_R,
             :auto
         end
 
-    load_steps = Int(get(model, "PARAM_NLLOADSTEPS", 4))
-    max_iter = Int(get(model, "PARAM_NLMAXITER", 8))
-    tol = Float64(get(model, "PARAM_NLTOL", 1e-6))
-    relaxation = Float64(get(model, "PARAM_NLRELAX", 1.0))
-    residual_tol = Float64(get(model, "PARAM_NLRESTOL", tol))
-    line_search_max_backtracks = Int(get(model, "PARAM_NLLSMAX", 6))
-    line_search_reduction = Float64(get(model, "PARAM_NLLSREDUCE", 0.5))
-    max_cutbacks = Int(get(model, "PARAM_NLCUTMAX", 6))
-    cutback_reduction = Float64(get(model, "PARAM_NLCUTREDUCE", 0.5))
-    step_growth = Float64(get(model, "PARAM_NLSTEPGROW", 1.25))
-
     subcases_results = []
     solver_diagnostics = Any[]
     last_Kg = spzeros(ndof, ndof)
@@ -2358,6 +2349,7 @@ function _solve_sol106(model, cc, K, id_map, X, ndof, node_R,
 
     for sid in sorted_sids
         sub = cc["SUBCASES"][sid]
+        controls = _sol106_controls(model, cc, sub, sid)
         println(">>> Solving Nonlinear Subcase $sid...")
         load_id = get(sub, "LOAD", nothing)
         spc_id = get(sub, "SPC", nothing)
@@ -2381,18 +2373,21 @@ function _solve_sol106(model, cc, K, id_map, X, ndof, node_R,
             end
             return Solver.solve_nonlinear_static(
                 K_sub, ndof_sub, model, id_map_sub, X_sub, load_id, spc_id, node_R_sub;
-                load_steps=load_steps,
-                max_iter=max_iter,
-                tol=tol,
-                relaxation=relaxation,
-                residual_tol=residual_tol,
+                load_steps=controls.load_steps,
+                max_iter=controls.max_iter,
+                tol=controls.tol,
+                relaxation=controls.relaxation,
+                residual_tol=controls.residual_tol,
+                work_tol=controls.work_tol,
+                convergence_criteria=controls.convergence_criteria,
+                intermediate_output=controls.intermediate_output,
                 residual_model=nl_residual_model,
                 nonlinear_method=nl_method,
-                line_search_max_backtracks=line_search_max_backtracks,
-                line_search_reduction=line_search_reduction,
-                max_cutbacks=max_cutbacks,
-                cutback_reduction=cutback_reduction,
-                step_growth=step_growth,
+                line_search_max_backtracks=controls.line_search_max_backtracks,
+                line_search_reduction=controls.line_search_reduction,
+                max_cutbacks=controls.max_cutbacks,
+                cutback_reduction=controls.cutback_reduction,
+                step_growth=controls.step_growth,
                 max_elem_stiff=max_elem_stiff_sub,
                 rbe3_map=rbe3_map_sub,
                 snorm_normals=snorm_normals_sub,
@@ -2409,6 +2404,7 @@ function _solve_sol106(model, cc, K, id_map, X, ndof, node_R,
                 _with_active_temperature_material(model, temp_load_id, run_subcase) :
                 run_subcase()
         wall_seconds = (time_ns() - t_sc) * 1e-9
+        sub_res["nonlinear_diagnostics"]["resolved_controls"] = controls.metadata
         last_K = K_sub
         last_Kg = Kg
         push!(solver_diagnostics, Dict(
@@ -2426,6 +2422,7 @@ function _solve_sol106(model, cc, K, id_map, X, ndof, node_R,
             "strains" => sub_res["strains"],
             "solver_diagnostics" => get(sub_res, "solver_diagnostics", Dict{String,Any}()),
             "nonlinear_diagnostics" => get(sub_res, "nonlinear_diagnostics", Dict{String,Any}()),
+            "nonlinear_intermediate_results" => get(sub_res, "nonlinear_intermediate_results", Any[]),
             "raw_displacement" => collect(u),
             "element_vonmises" => stresses,
             "u_analysis" => u_analysis,
@@ -2667,8 +2664,10 @@ function _solve_sol103(model, cc, K, id_map, X, ndof, node_R,
             "total_mass_z" => total_mass[3],
             "wtmass" => wtmass,
             "shell_mass_formulation" => Solver.sol103_shell_mass_formulation_name(model),
+            "shell_inertia_policy" => modal_mass_builder === nothing ? "reference_surface" : "custom_backend",
         )
         solver_diagnostics["shell_mass_formulation"] = mass_summary["shell_mass_formulation"]
+        solver_diagnostics["shell_inertia_policy"] = mass_summary["shell_inertia_policy"]
         solver_diagnostics["modal_effective_mass_frame"] =
             "global_translation_in_analysis_dof_frame"
         solver_diagnostics["modal_generalized_mass"] =
@@ -2970,6 +2969,13 @@ function _sol105_request_count(entry, source::AbstractString, method_id::Integer
         error("$source SID=$method_id has invalid requested eigenvalue count $field_name=$(repr(raw)); expected a positive integer")
     end
     return Int(raw)
+end
+
+function _resolve_sol105_spc(cc, sub)
+    # STATSUB selects a prestress state; it does not select its constraints.
+    # Parsed subcases already contain the global SPC default. The fallback
+    # also handles callers that construct Case Control dictionaries directly.
+    return get(sub, "SPC", get(cc, "SPC", nothing))
 end
 
 function _resolve_sol105_eigen_request(model, cc, sub, buckling_sid::Integer)
@@ -3315,15 +3321,10 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         eigrl_v2_specified = eigen_request.v2_specified
         eigrl_nd_specified = eigen_request.nd_specified
 
-        # Resolve the buckling SPC: a buckling subcase usually omits SPC and must
-        # inherit the static subcase's constraints. A subcase may carry an SPC key
-        # whose value is `nothing` (no explicit set), so `get(..., default)` is not
-        # enough - we must fall back to the static SPC when the value is nothing too.
-        # Without this the eigen pass applies no SPC, K_ff loses constraints (becomes
-        # non-SPD via rigid-body/mechanism modes), and the buckling spectrum is wrong.
-        spc_id_buck = let s = get(sub_buck, "SPC", nothing)
-            s === nothing ? spc_id_static : s
-        end
+        # Apply the eigen-subcase selection independently of the preload. An
+        # omitted SPC with no global selection leaves the eigenproblem without
+        # that SPC set, even when its preload was constrained.
+        spc_id_buck = _resolve_sol105_spc(cc, sub_buck)
         eigrl_has_range = eigrl_v1_specified || eigrl_v2_specified
         if Solver.seed_eigen_solve_cache_from_linear!(
             eigen_solve_cache, static_linear_solve_cache,
@@ -3355,6 +3356,8 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
         push!(buckling_case_diagnostics, Dict(
             "buckling_subcase" => buck_sid,
             "static_subcase" => stat_sid,
+            "static_spc_id" => spc_id_static,
+            "buckling_spc_id" => spc_id_buck,
             "num_modes_requested" => num_modes,
             "eigenvalue_extraction_type" => eigen_request.source,
             "eigenvalue_extraction_method" => eigen_request.algorithm,
@@ -3703,7 +3706,7 @@ function _sol103_modal_mass_matrices(
         model, id_map, X, node_R, ndof::Integer,
         constraint_map, modal_mass_builder)
     physical_mass = modal_mass_builder === nothing ?
-        Solver.assemble_mass(model, id_map, X, node_R, ndof) :
+        Solver.assemble_modal_mass(model, id_map, X, node_R, ndof) :
         modal_mass_builder(model, id_map, X, node_R, ndof)
     eigensolve_mass = Solver._apply_constraint_congruence(
         physical_mass, constraint_map; expected_ndof=ndof)

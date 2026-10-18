@@ -51,6 +51,7 @@ end
 
 function sensitivity_analytic_property_direction(m,d,property)
     p=m.params;pid=property["pid"];base=component_base_pid(pid)
+    get(property,"combined_flange",false)&&return sensitivity_combined_flange_direction(m,d,property)
     if property["kind"]=="bar"
         section=property["section"];dims=section["dimensions_m"];ddims=zeros(length(dims))
         if base==PID_STRINGER
@@ -117,6 +118,46 @@ function sensitivity_analytic_property_direction(m,d,property)
         "active"=>!iszero(dt)||any(!iszero,dplies)||any(any(!iszero,values(v)) for v in values(materials)))
 end
 
+function sensitivity_combined_flange_direction(m,d,property)
+    p=m.params;pid=property["pid"];sources=shell_stringer_skin_sources(p,pid);skin=first(sources)
+    ds=sensitivity_analytic_property_direction(m,d,skin)
+    dtf=sensitivity_owned_derivative(p,pid,d,"stringer","flange_thickness","properties.stringer_flange_thickness")
+    flange=shell_stringer_added_flange(p,pid)
+    df=sensitivity_owned_derivative(p,pid,d,"flange","face_thickness","materials.shells#stringer_flange#face_thickness")
+    dflange=flange.composite ? [df,dtf-2df,df] : [dtf]
+    dskin=skin["type"]=="PCOMP" ? ds["ply_thicknesses"] : [ds["thickness"]]
+    dplies=vcat(dflange,dskin);dt=sum(dplies)
+    mids=property["type"]=="PCOMP" ? unique([ply["material_id"] for ply in property["plies"]]) : [property["material_id"]]
+    materials=Dict(mid=>sensitivity_material_direction(d,mid) for mid in mids)
+    reason=""
+    for candidate in Iterators.drop(sources,1)
+        isapprox(candidate["thickness_m"],skin["thickness_m"];rtol=1e-12,atol=1e-14)||continue
+        slope=sensitivity_analytic_property_direction(m,d,candidate)["thickness"]
+        if !isapprox(slope,ds["thickness"];rtol=1e-12,atol=1e-14)
+            reason="The thinnest skin under attached flange $pid is tied: this independent thickness change can switch the selected skin, so no unique derivative exists. Use a shared thickness variable or make the adjacent thicknesses distinct."
+            break
+        end
+    end
+    dm0=dm1=dm2=0.
+    if property["type"]=="PSHELL"
+        rho=property["material"]["rho_kg_m3"];drho=materials[property["material_id"]]["rho"];h=property["thickness_m"]
+        dm0=drho*h+rho*dt;dm2=drho*h^3/12+rho*h^2*dt/4+property["nonstructural_mass_kg_m2"]*h*dt/6
+        dplies=Float64[]
+    else
+        z=property["z0_m"];dz=Bool(get(p,"stringers.shell_offsets",false)) ? -ds["thickness"]/2-dtf : -dt/2
+        for (ply,dh) in zip(property["plies"],dplies)
+            h=ply["thickness_m"];rho=ply["material"]["rho_kg_m3"];drho=materials[ply["material_id"]]["rho"]
+            top=z+h;dtop=dz+dh
+            dm0+=drho*h+rho*dh;dm1+=drho*(top^2-z^2)/2+rho*(top*dtop-z*dz)
+            dm2+=drho*(top^3-z^3)/3+rho*(top^2*dtop-z^2*dz)
+            z=top;dz=dtop
+        end
+    end
+    Dict{String,Any}("kind"=>"shell","thickness"=>dt,"ply_thicknesses"=>dplies,"materials"=>materials,
+        "areal_mass"=>dm0,"mass_moments"=>(dm0,dm1,dm2),"unsupported_reason"=>reason,
+        "active"=>!iszero(dt)||any(!iszero,dplies)||any(any(!iszero,values(v)) for v in values(materials)))
+end
+
 function sensitivity_analytic_property_directions(m,d;properties=model_property_definitions(m),properties_by_pid=nothing)
     directions=Dict{Int,Dict{String,Any}}()
     # Catalogue discovery must inspect every card. Once ownership is recorded,
@@ -125,7 +166,7 @@ function sensitivity_analytic_property_directions(m,d;properties=model_property_
         (properties_by_pid[pid] for pid in d["pids"])
     for property in selected
         direction=sensitivity_analytic_property_direction(m,d,property)
-        direction["active"]&&(directions[property["pid"]]=direction)
+        (direction["active"]||!isempty(get(direction,"unsupported_reason","")))&&(directions[property["pid"]]=direction)
     end
     directions
 end

@@ -37,21 +37,21 @@ const fixture=process.argv[4]?path.resolve(process.argv[4]):out;fs.mkdirSync(out
   assert(await page.locator('#results-show-support-forces').isVisible());
   await page.locator('#results-show-support-forces').uncheck();
   assert.deepEqual(await page.evaluate(()=>({tab:workspaceUI.activeTab,visible:reactionState().visible,canonical:document.getElementById('show-support-forces').checked})),{tab:'results',visible:false,canonical:false});
-  assert(!(await page.locator('#results-show-support-force-values').isVisible()));
+  assert(await page.locator('#results-show-support-force-values').isVisible());assert(await page.locator('#results-show-support-force-values').isDisabled());
   await page.locator('#results-show-support-forces').check();await page.locator('#results-show-support-force-values').check();
   assert(await page.evaluate(()=>document.getElementById('show-support-force-values').checked));
   const displaySaved=await page.evaluate(()=>{setLayerVisible('SUPPORT_FORCES',false);const saved=WingWorkspace.captureView(document,state,workspaceUI);setLayerVisible('SUPPORT_FORCES',true);document.getElementById('show-support-force-values').checked=false;restoreWorkspaceView(saved);return{controls:reactionControls(),visible:state.layers.get('SUPPORT_FORCES').visible,tab:workspaceUI.activeTab};});
   for(const id of ['show-support-forces','results-show-support-forces'])assert.equal(displaySaved.controls[id].checked,false);
-  for(const id of ['show-support-force-values','results-show-support-force-values'])assert(displaySaved.controls[id].checked&&displaySaved.controls[id].hidden);
+  for(const id of ['show-support-force-values','results-show-support-force-values'])assert(displaySaved.controls[id].checked&&!displaySaved.controls[id].hidden&&displaySaved.controls[id].disabled);
   assert(!displaySaved.visible&&displaySaved.tab==='results');await page.locator('#results-show-support-forces').check();
   await page.evaluate(async()=>{state.engine.resize();await state.scene.whenReadyAsync();state.scene.render();await new Promise(requestAnimationFrame);state.scene.render();state.annotations.render(true);});
   await page.screenshot({path:path.join(out,'fe-results-reaction-controls.png')});
-  checks.push('FE Results directly toggles vectors without navigation; labels are independent, hidden with vectors, synchronized and restored from existing Study controls');
+  checks.push('FE Results directly toggles vectors without navigation; the separate label toggle remains discoverable, is disabled with vectors off, synchronized and restored from existing Study controls');
   await page.evaluate(()=>activateWorkspaceTab('displayloads'));
   assert.equal(await page.locator('#layer-SUPPORT_FORCES').count(),0);assert(await page.locator('#support-force-scale').isVisible());
   assert(await page.locator('#show-support-forces').isVisible());await page.locator('#show-support-force-values').uncheck();assert(!(await page.evaluate(()=>document.getElementById('results-show-support-force-values').checked)));
   await page.locator('#show-support-forces').uncheck();assert.equal(await page.evaluate(()=>reactionState().visible),false);
-  assert(!(await page.evaluate(()=>document.getElementById('results-show-support-forces').checked)));assert(!(await page.locator('#show-support-force-values').isVisible()));
+  assert(!(await page.evaluate(()=>document.getElementById('results-show-support-forces').checked)));assert(await page.locator('#show-support-force-values').isVisible());assert(await page.locator('#show-support-force-values').isDisabled());
   await page.locator('#show-support-forces').check();assert.equal(await page.evaluate(()=>reactionState().visible),true);
   const independent=await page.evaluate(()=>{setModelEntitiesVisible(state.layerGroupControls.get('loads')?.names||[],false);return reactionState().visible;});assert(independent);
   checks.push('Original static subcase displays its actual recovered forces and moments');
@@ -59,7 +59,7 @@ const fixture=process.argv[4]?path.resolve(process.argv[4]):out;fs.mkdirSync(out
   assert.equal(loaded.variant,'sensitivity_sensitivity_retained_105_sol105');assert.equal(loaded.mode,0);assert(loaded.disabled);
   assert(loaded.variants.includes('sol101'));assert(loaded.variants.includes('sensitivity_sensitivity_retained_105_sol101'));
   assert.match(loaded.note,/arbitrary normalization/);
-  const modeControls=await page.evaluate(()=>reactionControls());assert(modeControls['results-show-support-forces'].disabled&&modeControls['results-show-support-force-values'].hidden);
+  const modeControls=await page.evaluate(()=>reactionControls());assert(modeControls['results-show-support-forces'].disabled&&modeControls['results-show-support-force-values'].disabled&&!modeControls['results-show-support-force-values'].hidden);
   checks.push('Loading a sensitivity baseline adds separate preload and buckling variants without replacing ordinary results; eigenmodes never display physical reactions');
   const physical=await page.evaluate(()=>{selectResultAnalysis('sensitivity_sensitivity_retained_105_sol101');return reactionState();});
   assert.equal(physical.mode,-1);assert.equal(physical.disabled,false);assert.equal(physical.scaleDisabled,false);assert(physical.visible&&physical.glyphs>0);assert.deepEqual(physical.forces,initial.forces);
@@ -89,7 +89,7 @@ const fixture=process.argv[4]?path.resolve(process.argv[4]):out;fs.mkdirSync(out
   checks.push('The buckling static-shape row displays preload reactions, while selecting a normalized eigenmode hides them');
   const unavailable=await page.evaluate(()=>{selectResultAnalysis('sensitivity_sensitivity_retained_105_sol101');const result=state.results;result.reactions=null;result.reactionNote='SPCFORCES was suppressed for this static subcase.';rebuildSupportForces();return reactionState();});
   assert(unavailable.disabled&&unavailable.scaleDisabled);assert.match(unavailable.note,/SPCFORCES was suppressed/);
-  const missing=await page.evaluate(()=>({controls:reactionControls(),note:document.getElementById('results-support-force-note').textContent}));assert(missing.controls['results-show-support-forces'].disabled&&missing.controls['results-show-support-force-values'].hidden);assert.match(missing.note,/SPCFORCES was suppressed/);
+  const missing=await page.evaluate(()=>({controls:reactionControls(),note:document.getElementById('results-support-force-note').textContent}));assert(missing.controls['results-show-support-forces'].disabled&&missing.controls['results-show-support-force-values'].disabled&&!missing.controls['results-show-support-force-values'].hidden);assert.match(missing.note,/SPCFORCES was suppressed/);
   checks.push('Missing or suppressed reaction data disables all reaction controls and explains why');
   if(fs.existsSync(path.join(fixture,'nonlinear_results.msgpack'))){
    const previousRequests=await page.evaluate(()=>requests);await page.close();page=await browser.newPage({viewport:{width:1500,height:1050}});await loadApp();await page.evaluate(previous=>{window.requests=previous;},previousRequests);
@@ -112,7 +112,7 @@ const fixture=process.argv[4]?path.resolve(process.argv[4]):out;fs.mkdirSync(out
     return{...reaction,error,visibleShells:state.shellMeshes.filter(mesh=>mesh.isEnabled()&&mesh.isVisible).length,converged:state.results.convergence?.full_load,labels:document.getElementById('show-support-force-values').checked,labelCandidates:WingAnnotations.supportValueCandidates(state).length,shownLabels:state.annotations.stats.supportValuesShown||[],inspection:document.getElementById('pick-content').textContent,moved:state.deformed.some((value,i)=>Math.abs(value-state.baseline[i])>1e-8),unchanged:before.every((value,i)=>value===state.results.reactions.forces[i])};
    },{model:[...fs.readFileSync(path.join(fixture,'nonlinear_model.msgpack'))],results:[...fs.readFileSync(path.join(fixture,'nonlinear_results.msgpack'))],schema:JSON.parse(fs.readFileSync(path.join(fixture,'nonlinear_schema.json'),'utf8'))});
    assert(nonlinear.converged&&nonlinear.visible&&!nonlinear.disabled&&nonlinear.glyphs>0&&nonlinear.labels&&nonlinear.labelCandidates>0&&nonlinear.shownLabels.length>0&&nonlinear.moved&&nonlinear.unchanged&&nonlinear.visibleShells>0);assert(nonlinear.error<1e-6);assert.match(nonlinear.inspection,/Constraint force/);assert.match(nonlinear.inspection,/Constraint moment/);nonlinearEvidence=nonlinear;
-   await page.locator('#results-show-support-forces').uncheck();assert.equal(await page.evaluate(()=>reactionState().visible),false);assert(!(await page.locator('#results-show-support-force-values').isVisible()));await page.locator('#results-show-support-forces').check();assert(await page.locator('#results-show-support-force-values').isChecked());
+   await page.locator('#results-show-support-forces').uncheck();assert.equal(await page.evaluate(()=>reactionState().visible),false);assert(await page.locator('#results-show-support-force-values').isVisible());assert(await page.locator('#results-show-support-force-values').isDisabled());await page.locator('#results-show-support-forces').check();assert(await page.locator('#results-show-support-force-values').isChecked());
    checks.push('Actual full-load SOL106 baseline displays retained reaction arrows and labels on the deformed model and signed force/moment inspection values');
    await page.evaluate(()=>activateWorkspaceTab('displayloads'));assert(await page.locator('#show-support-forces').isVisible());assert(!(await page.locator('#support-force-scale').isDisabled()));
   }

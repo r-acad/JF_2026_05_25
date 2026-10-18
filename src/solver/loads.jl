@@ -239,6 +239,25 @@ function _beam_pload1_equivalent_local_load_vector(pload::AbstractDict, L::Real,
     return f
 end
 
+function _assert_pbeam_pload1_supported(model, pload, scale; beam=nothing)
+    iszero(scale) && return nothing
+    iszero(get(pload,"P1",0.0)) && iszero(get(pload,"P2",0.0)) && return nothing
+    eid = Int(pload["EID"])
+    if beam === nothing
+        for family in ("CBARs","CBEAMs")
+            beam = get(get(model,family,Dict()),string(eid),nothing)
+            beam === nothing || break
+        end
+    end
+    beam === nothing && return nothing
+    prop = get(get(model,"PBARLs",Dict()),string(beam["PID"]),nothing)
+    prop === nothing && return nothing
+    if _pbeam_force_flexibility_active(prop) || _pbeam_neutral_axis_transform(prop) !== nothing
+        throw(ArgumentError("PLOAD1 on element $eid with active PBEAM neutral-axis offsets N1/N2 or varying-section force-flexibility integration is unsupported. A consistent distributed-load operator and fixed-end recovery are required for this combination; the analysis cannot use the ordinary beam load vector."))
+    end
+    return nothing
+end
+
 function _beam_pload1_local_load_vector_for_sid(
     model::AbstractDict,
     eid::Integer,
@@ -255,6 +274,7 @@ function _beam_pload1_local_load_vector_for_sid(
     f = zeros(Float64, 12)
     for pload in get(model, "PLOAD1s", [])
         if Int(get(pload, "SID", 0)) == sid_int && Int(get(pload, "EID", 0)) == Int(eid)
+            _assert_pbeam_pload1_supported(model, pload, scale)
             f .+= _beam_pload1_equivalent_local_load_vector(pload, L, scale)
         end
     end
@@ -945,6 +965,7 @@ function _resolve_loads!(model, sid::Int, scale, id_map, elem_map, node_coords,
                 end
             end
             if bar === nothing; continue; end
+            _assert_pbeam_pload1_supported(model, pload, scale; beam=bar)
             ga, gb = bar["GA"], bar["GB"]
             if !haskey(id_map, ga) || !haskey(id_map, gb); continue; end
             i1, i2 = id_map[ga], id_map[gb]
@@ -1277,6 +1298,20 @@ function _assert_supported_shell_thermal_load(model, temp_sid, scale)
     return nothing
 end
 
+function _pbeam_thermal_generalized_load(f_local, prop, bar, L, E, G)
+    (_pbeam_neutral_axis_transform(prop) === nothing && !_pbeam_force_flexibility_active(prop)) && return f_local
+    # Uniform free expansion is specified at the neutral axis. Congruence
+    # supplies the corresponding eccentric end moments; release condensation
+    # must also act on this equivalent load, using the same elastic operator.
+    A=Float64(prop["A"])
+    Ke=Matrix(_beam_local_stiffness(L,prop,E,G))
+    pa=Int(get(bar,"PA",0)); pb=Int(get(bar,"PB",0))
+    (pa!=0 || pb!=0) && apply_bar_pin_flags!(Ke,pa,pb)
+    extension=zeros(12)
+    extension[7]=f_local[7]*L/(E*A)
+    return Ke*extension
+end
+
 function resolve_thermal_loads(model, temp_sid, scale, id_map, elem_map, node_coords, F_acc; node_R=nothing)
     temp_sid = isnothing(temp_sid) ? nothing : Int(temp_sid)
     _assert_supported_shell_thermal_load(model, temp_sid, scale)
@@ -1343,6 +1378,7 @@ function resolve_thermal_loads(model, temp_sid, scale, id_map, elem_map, node_co
             f_loc = zeros(12)
             f_loc[1] = -nth
             f_loc[7] = nth
+            f_loc = _pbeam_thermal_generalized_load(f_loc,prop,bar,L,E_th,Float64(mat["G"]))
             f_glob = view(T_buf, 1:12, 1:12)' * f_loc
             dofs = [(i1-1)*6+k for k in 1:6]
             append!(dofs, [(i2-1)*6+k for k in 1:6])
@@ -1402,6 +1438,7 @@ function resolve_thermal_loads(model, temp_sid, scale, id_map, elem_map, node_co
             f_loc = zeros(12)
             f_loc[1] = -nth
             f_loc[7] = nth
+            f_loc = _pbeam_thermal_generalized_load(f_loc,prop,bar,L,E_th,Float64(mat["G"]))
             f_glob = view(T_buf, 1:12, 1:12)' * f_loc
             dofs = [(i1-1)*6+k for k in 1:6]
             append!(dofs, [(i2-1)*6+k for k in 1:6])

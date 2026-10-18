@@ -49,6 +49,51 @@
   canvas.addEventListener('contextmenu',context,true);
   return{get active(){return latched;},destroy(){finish();disposed=true;for(const name of events)win.removeEventListener(name,handle,true);win.removeEventListener('blur',cancel);win.removeEventListener('pointercancel',cancel,true);canvas.removeEventListener('contextmenu',context,true);}};
  }
+ // Translate the camera on the plane through the initially picked point,
+ // perpendicular to the view. Re-intersect that same plane on every move:
+ // the point stays under the cursor at its actual depth in either projection.
+ // Register after CATIA so its middle/right chord takes priority over pan.
+ function installCursorPan({BABYLON:B=globalThis.BABYLON,canvas,scene,camera,beforeRay=()=>{},onChange=()=>{}}){
+  const win=canvas.ownerDocument.defaultView,engine=scene.getEngine();let drag=null,disposed=false;
+  const finite=point=>point&&[point.x,point.y,point.z].every(Number.isFinite);
+  function coordinates(event){
+   const rect=canvas.getBoundingClientRect();if(!(rect.width>0&&rect.height>0))return null;
+   const hardware=engine.getHardwareScalingLevel();
+   return{x:(event.clientX-rect.left)*engine.getRenderWidth()*hardware/rect.width,y:(event.clientY-rect.top)*engine.getRenderHeight()*hardware/rect.height};
+  }
+  function rayAt(event){const xy=coordinates(event);if(!xy)return null;beforeRay();camera.getViewMatrix(true);camera.getProjectionMatrix(true);return scene.createPickingRay(xy.x,xy.y,B.Matrix.IdentityReadOnly,camera);}
+  function intersect(ray,point,normal){
+   if(!ray)return null;const denominator=B.Vector3.Dot(ray.direction,normal);if(Math.abs(denominator)<1e-12)return null;
+   const distance=B.Vector3.Dot(point.subtract(ray.origin),normal)/denominator;
+   const result=ray.origin.add(ray.direction.scale(distance));return finite(result)?result:null;
+  }
+  function swallow(event){event.preventDefault();event.stopImmediatePropagation();}
+  function finish(){const old=drag;drag=null;if(!old)return;stopMotion(camera);if(canvas.hasPointerCapture?.(old.id))canvas.releasePointerCapture(old.id);}
+  function handle(event){
+   if(disposed||event.pointerType&&event.pointerType!=='mouse')return;
+   if(!drag){
+    if(event.type!=='pointerdown'||event.button!==2||event.buttons!==2||event.target!==canvas||event.isPrimary===false)return;
+    stopMotion(camera);const ray=rayAt(event),xy=coordinates(event);if(!ray||!xy)return;
+    const pick=scene.pick(xy.x,xy.y,mesh=>mesh.isEnabled()&&mesh.isVisible&&mesh.isPickable&&mesh.visibility>0&&mesh.material?.alpha!==0&&!mesh.metadata?.wingViewHelper&&!mesh.metadata?.geometryTool,false,camera);
+    const normal=camera.getForwardRay(1).direction.normalize(),point=pick?.hit&&finite(pick.pickedPoint)?pick.pickedPoint.clone():intersect(ray,camera.target,normal);
+    if(!finite(point))return;
+    drag={id:event.pointerId,point,normal};swallow(event);canvas.setPointerCapture?.(event.pointerId);return;
+   }
+   if(event.pointerId!==drag.id)return;
+   swallow(event);
+   if(event.buttons!==2||event.type==='pointerup'){finish();return;}
+   if(event.type!=='pointermove')return;
+   const current=intersect(rayAt(event),drag.point,drag.normal);if(!current)return;
+   const delta=drag.point.subtract(current);if(delta.lengthSquared()===0)return;
+   const {alpha,beta,radius}=camera;stopMotion(camera);
+   camera.setTarget(camera.target.add(delta),false,true,true);Object.assign(camera,{alpha,beta,radius});camera.getViewMatrix(true);onChange();
+  }
+  const events=['pointerdown','pointermove','pointerup'];for(const name of events)win.addEventListener(name,handle,true);
+  const cancel=event=>{if(!event?.pointerId||event.pointerId===drag?.id)finish();},context=event=>event.preventDefault();
+  win.addEventListener('blur',cancel);win.addEventListener('pointercancel',cancel,true);
+  canvas.addEventListener('lostpointercapture',cancel);canvas.addEventListener('catiazoomstart',finish);canvas.addEventListener('contextmenu',context);
+  return{get active(){return!!drag;},destroy(){finish();disposed=true;for(const name of events)win.removeEventListener(name,handle,true);win.removeEventListener('blur',cancel);win.removeEventListener('pointercancel',cancel,true);canvas.removeEventListener('lostpointercapture',cancel);canvas.removeEventListener('catiazoomstart',finish);canvas.removeEventListener('contextmenu',context);}};
+ }
  function center(camera,target){
   // ArcRotateCamera.setTarget normally rebuilds angles from the old eye.
   // Translate both eye and target instead, retaining orientation and scale.
@@ -160,5 +205,5 @@
   const observer=scene.onBeforeRenderObservable.add(()=>refresh());refresh(true);
   return{refresh,fit,projection,syncDisplay,syncInspection,capture:()=>({collapsed}),restore(value){collapse(validateState(value).collapsed);syncDisplay();},setCollapsed(value){collapse(validateState({collapsed:value}).collapsed,true);},destroy(){disposed=true;scene.onBeforeRenderObservable.remove(observer);host.replaceChildren();host.classList.remove("is-collapsed");}};
  }
- return{VIEWS,validateState,create,center,stopMotion,installCatiaZoom};
+ return{VIEWS,validateState,create,center,stopMotion,installCatiaZoom,installCursorPan};
 });

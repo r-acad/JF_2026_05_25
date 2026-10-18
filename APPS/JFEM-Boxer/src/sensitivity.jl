@@ -136,7 +136,9 @@ function sensitivity_catalog(m::Model)
     definitions=model_property_definitions(m)
     baseline=Dict(d["pid"]=>d for d in definitions);variables=Dict{String,Any}[]
     for d in candidates
-        ids=sort!(collect(keys(sensitivity_analytic_property_directions(m,d;properties=definitions))))
+        directions=sensitivity_analytic_property_directions(m,d;properties=definitions)
+        any(!isempty(get(direction,"unsupported_reason","")) for direction in values(directions))&&continue
+        ids=sort!(collect(keys(directions)))
         isempty(ids)&&continue
         d["pids"]=ids;d["element_count"]=sum(length(g.eids) for g in m.groups if g.pid in ids)
         d["group"]=startswith(d["id"],"material") ? "Materials" : any(baseline[pid]["kind"]=="bar" for pid in ids) ? "Beam sections" : "Shell properties"
@@ -166,6 +168,13 @@ function sensitivity_catalog(m::Model)
                 "inherited"=>!haskey(override,field)),descriptor))
         end
     end
+    flange_dependents=Dict{Int,Vector{Dict{String,Any}}}()
+    for property in definitions
+        get(property,"combined_flange",false)||continue
+        for skinpid in property["underlying_skin_candidates"]
+            push!(get!(flange_dependents,skinpid,Dict{String,Any}[]),property)
+        end
+    end
     # Independent local variables also exist when the current value is inherited.
     # Their exact one-property scope is known without O(panel_count^2) probes.
     for panel in stiffened_panel_layout(m.grid).panels
@@ -179,13 +188,21 @@ function sensitivity_catalog(m::Model)
                 [("stringer",f,stringer_pid,bar[f]) for f in (shell_stringers(p) ? ("web_thickness",) : RIB_STIFFENER_FIELDS)])
             fieldkey=(part=="skin" ? "shell." : "section.")*field
             fieldlabel=part=="skin" ? (field=="thickness" ? "Shell thickness" : "Sandwich "*replace(field,'_'=>' ')) : (shell_stringers(p) ? "Shell stringer " : "T ")*replace(field,'_'=>' ')
-            push!(variables,Dict{String,Any}("id"=>"properties.panels#$key#$part#$field",
+            variable=Dict{String,Any}("id"=>"properties.panels#$key#$part#$field",
                 "label"=>label*": "*fieldlabel,"path"=>Any["properties.panels",key,part,field],
                 "value"=>Float64(value),"unit"=>"m","scale"=>1.,"pids"=>[pid],
                 "element_count"=>element_counts[pid],
                 "group"=>part=="skin" ? "Panel skins" : "Panel stringers",
                 "panel_key"=>key,"layout_token"=>context.token,"field_key"=>fieldkey,"field_label"=>fieldlabel,
-                "inherited"=>!haskey(get(override,part,Dict()),field)))
+                "inherited"=>!haskey(get(override,part,Dict()),field))
+            if shell_stringers(p)&&part=="skin"
+                scoped=vcat([baseline[pid]],get(flange_dependents,pid,Dict{String,Any}[]))
+                directions=sensitivity_analytic_property_directions(m,variable;properties=scoped)
+                any(!isempty(get(direction,"unsupported_reason","")) for direction in values(directions))&&continue
+                variable["pids"]=sort!(collect(keys(directions)))
+                variable["element_count"]=sum(get(element_counts,id,0) for id in variable["pids"])
+            end
+            push!(variables,variable)
         end
     end
     selection=sensitivity_selection_metadata(m,variables)
@@ -194,7 +211,7 @@ function sensitivity_catalog(m::Model)
         "cases"=>[Dict("id"=>s.id,"label"=>s.label) for s in load_case_specs(p)],
         "surfaces"=>["z1","z2"],"method"=>"discrete_adjoint",
         "note"=>"Fixed nodes, connectivity and property IDs. Every stiffened panel, spar-web bay, upper/lower front/rear spar-cap bay, rib web/stiffener and leading-edge skin bay/rib offers independent section or shell dimensions, including inherited defaults. Component-family selections expand to local bay/rib derivatives, including overridden values; material and panel selections retain their original scope. Analytic mode uses exact element chain rules with one baseline analysis and a shared static adjoint, without property finite differences. SOL103 uses the chosen case's fuel mass; SOL105 uses its static preload."*
-            (shell_stringers(p) ? " Shell stringers expose web thickness and material variables. Flange width, overall height and flange thickness change blade/skin geometry and are excluded from fixed-mesh property sensitivities." : ""))
+            (shell_stringers(p) ? " Shell stringers expose web thickness and material variables. Flange width, overall height and flange thickness change blade/skin geometry and are excluded from fixed-mesh property sensitivities. Skin variables also affect the combined flange that inherits that skin. Independent thickness variables at a tied thinnest-skin boundary are omitted because the minimum is not differentiable; shared thickness changes remain available. Combined PCOMP flanges require explicit operator differences; exact adjoints do not yet support their unsymmetric or offset laminate coupling." : ""))
 end
 
 function sensitivity_request(m,raw)
@@ -228,6 +245,9 @@ function sensitivity_request(m,raw)
     end
     request["objective"]=obj;request["case_id"]=case
     request["derivative_method"]=get(request,"derivative_method","analytic")
+    if request["derivative_method"]=="analytic"&&any(get(property,"combined_flange",false)&&property["type"]=="PCOMP" for property in model_property_definitions(m))
+        throw(ArgumentError("Exact analytic sensitivities do not yet support combined PCOMP attached flanges (different skin/flange materials, composite construction, or inward offsets). Primal analyses retain their full coupling. Choose the explicit operator-differences method for supported linear sensitivity cases, or use same-material centered monolithic flanges."))
+    end
     is_imported_model(m)&&request["derivative_method"]!="analytic"&&throw(ArgumentError("Imported-deck sensitivities require analytic derivatives"))
     solution=="106"&&request["derivative_method"]!="analytic"&&throw(ArgumentError("SOL106 sensitivities require the analytic nonlinear displacement adjoint"))
     step=get(request,"relative_step",.01)

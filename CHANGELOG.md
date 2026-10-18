@@ -5,6 +5,148 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Nonlinear-static control selection
+
+- Read standard NLPARM cards and resolve the selected global or subcase card
+  separately for every SOL106 case. Honor increment counts, iteration limits,
+  displacement/residual/work tolerances, convergence criteria and bisection
+  limits; record the actual controls in the nonlinear diagnostics.
+- Require every requested U/P/W convergence test to pass, retain requested
+  intermediate fields, and reject unsupported explicit nonlinear settings
+  instead of silently replacing them with defaults. Existing PARAM controls
+  and convergence behavior remain available when NLPARM is not selected.
+- Retain a fixed-field continuation containing a single value, including
+  NLPARM's MAXBIS, while preserving empty large-field header continuations.
+
+### Buckling constraint selection
+
+- Apply each buckling subcase's SPC selection independently of its static
+  preload. An omitted SPC no longer silently inherits the preload's constraints;
+  global Case Control defaults and explicit eigen-subcase selections still apply.
+- Preserve the same distinction when creating sensitivities from imported
+  buckling cases, and record both SPC selections in solver diagnostics.
+
+### Composite-shell buckling consistency
+
+- Keep eligible warped uncoupled laminates on the same projected material
+  frame, center-shear prestress recovery and assumed transverse initial-stress
+  work as their elastic operator. Preserve physical curvature classification,
+  coupled laminates and explicitly selected experimental formulations.
+- Align projected laminate bending and shear with the same physical material
+  frame used for membrane stiffness, stress recovery and ply output.
+- Preserve property tensors during recovery so repeated evaluation does not
+  rotate shared laminate coupling data in place.
+- Include the assumed transverse initial-stress work on eligible uncoupled
+  composite shells through their existing averaged-normal transformation.
+  Intrinsic-curvature and unsupported warped formulations retain their scope.
+- Prevent unsupported local buckling-adjoint formulas from silently omitting
+  anisotropic-shell preload derivatives; use the existing complete difference
+  path where existing variable/formulation guards permit, and report unsupported
+  requests explicitly.
+- Add analytical work, coordinate-invariance, tensor-immutability and normal-map
+  regression tests for composite stiffness, recovery and initial-stress energy.
+
+### Tapered quadrilateral bending
+
+- Preserve constant-curvature bending on tapered quadrilaterals by making the
+  incompatible-mode projection orthogonal to affine rotations. Parallelograms
+  retain their original projection, with no fitted geometry threshold.
+- Add anisotropic patch-energy, rigid-motion, symmetry and affine-invariance
+  regression checks for rectangular, skewed and tapered cells.
+
+### Tapered-shell and offset-bar mass
+
+- Keep analytic beam mass sensitivities consistent with lumped offset mass,
+  including section-dependent eccentricity and its rotational coupling.
+  Finite-difference checks cover generated, fixed imported and zero offsets.
+
+- Integrate quadrilateral shape functions when distributing lumped shell mass,
+  preserving the area and centroid on tapered cells.
+- Include CBAR end offsets and the physical offset-endpoint length in lumped
+  mass, including translation-rotation coupling and parallel-axis inertia.
+  Modal analysis and inertia loads now use the same offset geometry.
+- Add analytical regression checks for shell centroids, bar mass and inertia,
+  acceleration-induced moments, and coordinate transformations.
+
+### Warped laminate stiffness and initial-stress energy
+
+- Preserve the projected elastic formulation for eligible warped uncoupled
+  laminates, with the same finite-warp displacement map and bounded-domain checks.
+- Keep the isotropic membrane prestress operator active on eligible projected
+  warped shells, including equivalent laminate sections.
+- Use the assumed transverse gradient field consistently in projected coupled
+  laminate initial-stress energy; retain the other displacement blocks.
+- Rotate laminate transverse-shear rigidity consistently with membrane and
+  bending rigidity in elastic, initial-stress and adjoint calculations.
+- Safeguard nearly singular triangular bending-flexibility pivots in the
+  ordered element basis, using the bending rigidity normal to the first edge
+  for composite sections; leave ordinary cells unchanged.
+- Transfer quadrilateral bending and shear flexibility through the actual
+  assumed-strain work map. The default uncoupled formulation now integrates
+  physical shear energy consistently on combined skew and taper, replacing
+  overlapping geometric corrections without fitted coefficients.
+- Distinguish an explicit BASIC material-coordinate ID from blank and real
+  shell angle fields in assembly, initial-stress work, recovery and derivatives.
+  Preserve that distinction in exported orientation metadata and Boxer displays.
+
+### Composite modal analysis and independent buckling modes
+
+- Use the same coupled laminate elastic formulation in linear static,
+  modal and buckling analyses.
+- Keep coupled laminates on the mapped element formulation for valid warped
+  quadrilaterals, with consistent stiffness, initial-stress work and recovery.
+- Use that same laminate formulation in legacy geometric nonlinear analysis;
+  retain the separately selected formal nonlinear formulation and uncoupled
+  element behavior.
+- Separate reference-surface shell inertia in the Reference modal pencil
+  from physical laminate density moments used for loads and mass properties;
+  keep modal sensitivities consistent with that pencil.
+- Retry unresolved dense modal spectra with shift-invert instead of treating
+  large negative numerical roots as zero-frequency modes.
+- Merge buckling retry results by elastic-energy independence so a duplicate
+  Ritz direction cannot displace a requested mode; preserve genuine repeated
+  eigenspaces and the requested eigenpair count. Reuse a certified positive
+  unshifted or shifted pencil metric and retain the rank test otherwise.
+- Implement the requested stress-linear transverse initial-stress work for
+  triangular shells instead of falling through to all translation components.
+- Group saved Boxer TOML parameters by section so interleaved mesh and stringer
+  settings cannot produce duplicate table declarations.
+
+### Boxer flange shells and interaction
+
+- Replace shell-stringer flange footprints with combined skin/flange properties,
+  using the thinnest adjacent skin and avoiding duplicate skin mass and stiffness.
+- Combine different materials and composite layers as PCOMP sections; add optional
+  inward reference-plane offsets and an independent added-flange material editor.
+- Keep the constraint force/moment label toggle visible beneath the reaction
+  display toggle in Results and Loads&Constraints, including static preloads.
+- Anchor right-button panning to the picked model point in perspective and parallel
+  views while preserving CATIA zoom gestures.
+
+### Orthotropic tapered shells
+
+- Correct directional bending-compliance transport in the quadrilateral
+  taper terms. Unequal material rigidities now enter complementary energy
+  linearly, preserving the isotropic and parallelogram limits.
+- Add regression checks for energy, rigid motions, axis exchange and
+  constitutive derivatives of the corrected shell operator.
+- Report the unsupported partially zero directional bending case explicitly
+  for tapered shells, preserving the affine and fully zero-bending paths.
+- Serialize optional geometric-stiffness capture callbacks so threaded
+  element assembly cannot lose captured element data. Normal assembly
+  remains parallel when no capture callback is requested.
+
+### Beam section stiffness and neutral-axis offsets
+
+- Honor equal end neutral-axis offsets on constant-section PBEAM properties,
+  including blank end-B defaults and preservation through JSON model input.
+- Keep stress recovery and constant-section beam property/material derivatives
+  consistent with eccentric stiffness, rigid offsets and end releases.
+- Integrate tapered PBEAM flexibility using three Gauss points per station
+  interval, including coupled bending and changing neutral-axis offsets.
+- Report unsupported offset/taper geometric-stiffness and distributed-load
+  cases explicitly; local tapered-beam property sensitivities remain guarded.
+
 ### Shell stringers
 
 - Add a beam/shell stringer choice, with shared-node attached flanges, separate

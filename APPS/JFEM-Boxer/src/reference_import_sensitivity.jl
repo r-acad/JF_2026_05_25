@@ -98,8 +98,12 @@ function imported_sensitivity_deck(m,id,solution="101";modes=10)
     solution=="103"&&println(io,"  METHOD = $method")
     if solution=="105"
         println(io,"SUBCASE 2\n  LABEL = Sensitivity buckling\n  STATSUB = 1\n  METHOD = $method")
+        # An existing eigen-subcase keeps its own constraint selection. A new
+        # buckling analysis created from a load case explicitly copies that
+        # case's constraints into the companion.
+        constraint_row=get(selected_row,"STATSUB",nothing)===nothing ? row : selected_row
         for key in ("SPC","MPC")
-            value=get(selected_row,key,get(row,key,nothing));value===nothing||println(io,"  $key = $value")
+            value=get(constraint_row,key,nothing);value===nothing||println(io,"  $key = $value")
         end
     end
     println(io,"BEGIN BULK");write(io,body)

@@ -340,8 +340,8 @@ function extract_pbeam(cards)
         M2B = Float64(parse_reference_number(safe_get(c, k+11), 0.0))
         N1A = Float64(parse_reference_number(safe_get(c, k+12), 0.0))
         N2A = Float64(parse_reference_number(safe_get(c, k+13), 0.0))
-        N1B = Float64(parse_reference_number(safe_get(c, k+14), 0.0))
-        N2B = Float64(parse_reference_number(safe_get(c, k+15), 0.0))
+        N1B = Float64(parse_reference_number(safe_get(c, k+14), N1A))
+        N2B = Float64(parse_reference_number(safe_get(c, k+15), N2A))
 
         # Average properties between station A and station B
         A_avg   = (A_a + A_b) / 2.0

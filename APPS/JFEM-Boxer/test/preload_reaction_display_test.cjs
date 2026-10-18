@@ -15,11 +15,18 @@ const ctx={state,document:{getElementById:input},Number,Set,Array,Math,EXTRA_STY
 vm.createContext(ctx);vm.runInContext(source.slice(source.indexOf('function supportReactionData()'),source.indexOf('function addAeroMoments(')),ctx);
 ctx.rebuildSupportForces();assert.equal(glyphs[0].rows.length,2);assert.deepEqual(Array.from(glyphs[0].rows,r=>r.node_index),[0,1]);
 assert(!input('results-show-support-forces').disabled);assert(!input('results-show-support-force-values').row.hidden);
+// Both locations expose the separate label toggle, even while arrows are off.
+input('show-support-force-values').checked=true;
+input('show-support-forces').checked=false;state.layers.get('SUPPORT_FORCES').visible=false;ctx.syncSupportForceControls();
+for(const id of ['show-support-force-values','results-show-support-force-values']){assert(input(id).checked);assert(input(id).disabled);assert.equal(input(id).row.hidden,false);assert.match(input(id).row.title,/Enable Display constraint reactions/);}
+input('show-support-forces').checked=true;state.layers.get('SUPPORT_FORCES').visible=true;ctx.syncSupportForceControls();
+for(const id of ['show-support-force-values','results-show-support-force-values']){assert(input(id).checked);assert(!input(id).disabled);assert.match(input(id).title,/Fx, Fy, Fz \(N\).*Mx, My, Mz/);}
 // Missing current-case markers must not erase an authenticated static result.
 delete state.data.spc;ctx.rebuildSupportForces();assert(!input('results-show-support-forces').disabled);
 state.activeMode=0;ctx.rebuildSupportForces();assert(input('results-show-support-forces').disabled);assert(!state.layers.has('SUPPORT_FORCES'));
 assert.match(input('results-support-force-note').textContent,/static preload/);
+for(const id of ['show-support-force-values','results-show-support-force-values']){assert(input(id).disabled);assert.equal(input(id).row.hidden,false);assert.match(input(id).row.title,/static preload/);}
 state.activeMode=-1;ctx.rebuildSupportForces();assert(!input('show-support-forces').disabled);assert(state.layers.has('SUPPORT_FORCES'));
 state.sensitivityMap={};ctx.rebuildSupportForces();assert(input('show-support-forces').disabled);state.sensitivityMap=null;
 state.results.reactions=null;state.results.reactionNote='SPCFORCES was suppressed for this static subcase.';ctx.rebuildSupportForces();assert(input('show-support-forces').disabled);assert.match(input('results-support-force-note').textContent,/suppressed/);
-console.log('Passed 6 preload reaction display groups.');
+console.log('Passed 9 preload reaction display groups.');

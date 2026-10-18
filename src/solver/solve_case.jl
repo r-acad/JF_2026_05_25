@@ -356,7 +356,7 @@ function _formal_shell_membrane_constitutive(model, prop, el, mat, v1, v2, v3, p
                     q4_pcomp_axis_mode("JFEM_Q4_PCOMP_AXIS_MODE_STATIC"),
                     v1, v2, v3, p1, p2,
                     deg2rad(Float64(get(el, "THETA", 0.0))),
-                    Int(get(el, "MCID", 0)),
+                    shell_material_coordinate_id(el),
                     model["CORDs"],
                 )
             else
@@ -364,7 +364,7 @@ function _formal_shell_membrane_constitutive(model, prop, el, mat, v1, v2, v3, p
                 shell_pcomp_material_rotation(
                     q4_pcomp_axis_mode("JFEM_Q4_PCOMP_AXIS_MODE_STATIC"),
                     v1, v2, v3, p1, p2, theta_rad,
-                    Int(get(el, "MCID", 0)),
+                    shell_material_coordinate_id(el),
                     model["CORDs"],
                 )
             end
@@ -1091,12 +1091,35 @@ function _assert_nonlinear_prescribed_supported(model, load_id, spc_id)
     nothing
 end
 
+function _assert_nonlinear_pbeam_neutral_axis_supported(model)
+    properties = get(model, "PBARLs", Dict())
+    for family in ("CBARs", "CBEAMs"), (eid, beam) in get(model, family, Dict())
+        prop = get(properties, string(beam["PID"]), nothing)
+        prop === nothing && continue
+        (_pbeam_force_flexibility_active(prop) || _pbeam_neutral_axis_transform(prop) !== nothing) || continue
+        throw(ArgumentError("SOL106 does not support active PBEAM neutral-axis offsets N1/N2 or varying-section force-flexibility integration ($family element $eid). Linear static and normal-mode analyses support this elastic operator; nonlinear analysis requires a verified geometric-stiffness formulation."))
+    end
+    return nothing
+end
+
+function _nonlinear_convergence_checks(change, residual, work, tol, residual_tol, work_tol, criteria)
+    passed = (U=isfinite(change) && change < tol,
+              P=isfinite(residual) && residual < residual_tol,
+              W=isfinite(work) && work < work_tol)
+    converged = criteria == "LEGACY" ? passed.P && (passed.U || passed.W) :
+        all(c -> getproperty(passed, Symbol(c)), criteria)
+    return (; passed..., converged)
+end
+
 @solver_stage "nonlinear_solve" "Nonlinear equilibrium and recovery" function solve_nonlinear_static(K_linear, ndof, model, id_map, X, load_id, spc_id, node_R;
                                 load_steps::Int=4,
                                 max_iter::Int=8,
                                 tol::Float64=1e-6,
                                 relaxation::Float64=1.0,
                                 residual_tol::Float64=1e-6,
+                                work_tol::Float64=tol,
+                                convergence_criteria::String="LEGACY",
+                                intermediate_output::Bool=false,
                                 residual_model::Symbol=:tangent_operator,
                                 nonlinear_method::Symbol=:auto,
                                 line_search_max_backtracks::Int=6,
@@ -1111,12 +1134,22 @@ end
                                 temp_load_id=nothing,
                                 geometric_stiffness_builder=nothing,
                                 nonlinear_state_builder=nothing)
+    # Every nonlinear route needs this check, including formal shell models
+    # mixed with beams and custom state builders that bypass Kg assembly.
+    _assert_nonlinear_pbeam_neutral_axis_supported(model)
     _assert_nonlinear_thermal_supported(model, temp_load_id)
     _assert_nonlinear_prescribed_supported(model, load_id, spc_id)
     load_steps = max(load_steps, 1)
     max_iter = max(max_iter, 1)
     relaxation = clamp(relaxation, 1e-3, 1.0)
-    residual_tol = max(residual_tol, 1e-12)
+    isfinite(residual_tol) && residual_tol > 0.0 ||
+        throw(ArgumentError("Nonlinear residual tolerance must be positive and finite"))
+    convergence_criteria == "LEGACY" && (residual_tol = max(residual_tol, 1e-12))
+    isfinite(tol) && tol > 0.0 && isfinite(work_tol) && work_tol > 0.0 ||
+        throw(ArgumentError("Nonlinear displacement and work tolerances must be positive and finite"))
+    convergence_criteria == "LEGACY" ||
+        (!isempty(convergence_criteria) && all(c->c in ('U','P','W'), convergence_criteria)) ||
+        throw(ArgumentError("Unsupported nonlinear convergence criteria $convergence_criteria"))
     residual_model = residual_model in (:secant_geometric, :tangent_operator) ? residual_model : :tangent_operator
     formal_support = _formal_von_karman_shell_support_report(model, id_map, X)
     formal_supported = formal_support.supported
@@ -1138,6 +1171,7 @@ end
 
     u_committed = zeros(ndof)
     load_history = Any[]
+    intermediate_results = Any[]
     final_bundle = nothing
     final_state_summary = nothing
     exported_step_index = 0
@@ -1471,6 +1505,9 @@ end
                 final_rel_change = rel_change
                 final_rel_residual = accepted_state.relative_residual
                 final_relative_incremental_work = relative_incremental_work
+                convergence = _nonlinear_convergence_checks(rel_change,
+                    accepted_state.relative_residual, relative_incremental_work,
+                    tol, residual_tol, work_tol, convergence_criteria)
                 current_formal = _state_field(current_state, :formal_diagnostics, Dict{String,Any}())
                 accepted_formal = _state_field(accepted_state, :formal_diagnostics, Dict{String,Any}())
                 accepted_residual_reduced = !line_search_failed && _metric_reduced(accepted_state.relative_residual, current_state.relative_residual)
@@ -1520,6 +1557,7 @@ end
                     "used_best_available_trial" => accepted_reason == "best_available_trial",
                     "line_search_merit_after" => _line_search_merit(accepted_state),
                     "relative_incremental_work" => relative_incremental_work,
+                    "convergence_checks" => Dict(string(k)=>v for (k,v) in pairs(convergence)),
                     "line_search_selection_policy" => nonlinear_method === :formal_shell_von_karman ?
                         "prefer_non_worsening_residual_then_larger_armijo_step" :
                         "first_acceptable_trial",
@@ -1560,8 +1598,7 @@ end
                         "line search failed: no finite acceptable trial" : "correction failed: $correction_failure"
                     log_msg("[SOLVER] NL $message; requesting load cutback")
                     break
-                elseif accepted_state.relative_residual < residual_tol &&
-                   (rel_change < tol || relative_incremental_work < tol)
+                elseif convergence.converged
                     step_converged = true
                     break
                 end
@@ -1634,10 +1671,10 @@ end
             )
             recovery_relative_change = 0.0
             final_rel_residual = final_state.relative_residual
-            step_converged = !line_search_failed && (step_converged || (
-                final_rel_residual < residual_tol &&
-                (final_rel_change < tol || final_relative_incremental_work < tol)
-            ))
+            final_checks = _nonlinear_convergence_checks(final_rel_change,
+                final_rel_residual, final_relative_incremental_work,
+                tol, residual_tol, work_tol, convergence_criteria)
+            step_converged = !line_search_failed && (step_converged || final_checks.converged)
             attempt_termination_reason = step_converged ? "converged" :
                 ((cutback_count < max_cutbacks && attempted_increment > 1e-12) ? "cutback_retry" : "cutback_exhausted")
 
@@ -1652,6 +1689,7 @@ end
                 "final_relative_change" => final_rel_change,
                 "final_relative_residual" => final_rel_residual,
                 "final_relative_incremental_work" => final_relative_incremental_work,
+                "convergence_checks" => Dict(string(k)=>v for (k,v) in pairs(final_checks)),
                 "recovery_relative_change" => recovery_relative_change,
                 "reused_final_state" => reused_final_state,
                 "line_search_failed" => line_search_failed,
@@ -1669,6 +1707,15 @@ end
                 exported_step_index = accepted_step
                 exported_load_scale = current_load_scale
                 exported_state_accepted = true
+                if intermediate_output
+                    push!(intermediate_results, Dict{String,Any}(
+                        "step"=>accepted_step, "load_scale"=>current_load_scale,
+                        "displacements"=>deepcopy(sub_res["displacements"]),
+                        "spc_forces"=>deepcopy(sub_res["spc_forces"]),
+                        "forces"=>deepcopy(sub_res["forces"]),
+                        "stresses"=>deepcopy(sub_res["stresses"]),
+                        "strains"=>deepcopy(sub_res["strains"])))
+                end
                 remaining_after_accept = max(1.0 - current_load_scale, 0.0)
                 tiny_increment_threshold = max(1e-12, nominal_increment * 1e-4)
                 tiny_increment_step = attempted_increment <= tiny_increment_threshold
@@ -2139,6 +2186,11 @@ end
         "max_iterations_per_step" => max_iter,
         "tolerance" => tol,
         "residual_tolerance" => residual_tol,
+        "work_tolerance" => work_tol,
+        "convergence_criteria" => convergence_criteria,
+        "convergence_policy" => convergence_criteria == "LEGACY" ? "P AND (U OR W)" : "all selected criteria",
+        "intermediate_output_requested" => intermediate_output,
+        "intermediate_output_count" => length(intermediate_results),
         "residual_model" => nonlinear_method === :formal_shell_von_karman ? "formal_internal_force" : String(residual_model),
         "correction_tangent_model" => nonlinear_method === :formal_shell_von_karman ? "formal_consistent_tangent" : "linear_plus_geometric",
         "relaxation" => relaxation,
@@ -2224,6 +2276,7 @@ end
         "final_kg_nnz" => nnz(Kg),
         "final_kg_norm" => norm(Kg.nzval),
     )
+    sub_res["nonlinear_intermediate_results"] = intermediate_results
     return u_out, stresses, sub_res, u_analysis, fixed_dofs, Kg
 end
 
@@ -2312,6 +2365,103 @@ function _buckling_add_excluded_pair!(excluded_pairs, K, vector)
     denominator > 100 * eps(Float64) * norm(Ku) || return false
     push!(excluded_pairs, (u, Ku ./ denominator))
     return true
+end
+
+function _buckling_independence_metric(K, elastic_backend, shifted_state)
+    elastic_backend == "cholesky" && return K, true
+    # A Cholesky factor of K-sigma*B certifies that matrix, not K. It is
+    # nevertheless a valid norm for comparing directions of the same pencil.
+    # Never apply a reduced-space metric to full-space eigenvectors.
+    if shifted_state !== nothing && !shifted_state.reduced &&
+       shifted_state.factor_backend in ("cholesky", "cholesky_cached") &&
+       size(shifted_state.M) == size(K)
+        return shifted_state.M, true
+    end
+    return K, false
+end
+
+function _buckling_merge_unique_eigenpairs(K, base_vals::Vector{Float64}, base_vecs::AbstractMatrix,
+                                 add_vals::Vector{Float64}, add_vecs::AbstractMatrix;
+                                 positive_definite::Bool=false,
+                                 rel_tol::Float64=1e-4, abs_tol::Float64=1e-8)
+    merged_vals = copy(base_vals)
+    merged_vec_cols = [Vector{Float64}(base_vecs[:, i]) for i in 1:size(base_vecs, 2)]
+    added = 0
+    for j in eachindex(add_vals)
+        lam = Float64(add_vals[j])
+        close_indices = findall(existing ->
+            abs(existing - lam) <= max(abs_tol, rel_tol * max(abs(existing), abs(lam), 1.0)),
+            merged_vals)
+        # Equal/near-equal eigenvalues can represent a genuine eigenspace.
+        # Treat a candidate as a duplicate only when its vector is also in
+        # the span already retained for that eigenvalue cluster.
+        duplicate = false
+        if !isempty(close_indices)
+            candidate = Vector{Float64}(add_vecs[:, j])
+            candidate_norm = norm(candidate)
+            if !(isfinite(candidate_norm) && candidate_norm > eps(Float64))
+                duplicate = true
+            else
+                # Repeated eigenvectors need not be mutually orthogonal
+                # in physical coordinates. Repeated projections against
+                # those raw vectors do not project onto their span and
+                # can count the same eigenspace again after a retry.
+                cluster = hcat(merged_vec_cols[close_indices]...)
+                for k in axes(cluster, 2)
+                    column = view(cluster, :, k)
+                    column ./= norm(column)
+                end
+                basis = qr(cluster, ColumnNorm())
+                pivots = abs.(diag(basis.R))
+                rank_tol = eps(Float64) * max(size(cluster)...) * maximum(pivots)
+                basis_rank = count(>(rank_tol), pivots)
+                # Apply implicit Q': never materialize the n-by-n Q on a
+                # large model. Close but distinct modes retain their
+                # component outside the existing cluster's span.
+                coordinates = basis.Q' * candidate
+                duplicate = norm(view(coordinates, (basis_rank + 1):length(coordinates))) <=
+                            1e-7 * candidate_norm
+                # Arnoldi on K^-1*B can return the same Ritz direction
+                # twice with slightly different roots. Physical-coordinate
+                # angles are unreliable for a poorly scaled FE pencil;
+                # use a certified positive pencil metric to distinguish these
+                # ghosts from a genuine repeated eigenspace. The supplied K
+                # can be either the elastic matrix or its SPD shifted pencil.
+                energy = dot(candidate, K * candidate)
+                # An indefinite metric can assign zero energy to an independent
+                # direction. Only use energy as a norm after the supplied matrix
+                # has a successful Cholesky factorization; otherwise retain QR.
+                if positive_definite && energy > 0 && isfinite(energy)
+                    energy_basis = Tuple{Vector{Float64},Vector{Float64}}[]
+                    for column in eachcol(cluster)
+                        q = Vector{Float64}(column)
+                        initial_energy = dot(q, K * q)
+                        _buckling_deflate!(q, energy_basis)
+                        Kq = K * q
+                        remaining_energy = dot(q, Kq)
+                        if remaining_energy > 1e-12 * abs(initial_energy)
+                            push!(energy_basis, (q, Kq ./ remaining_energy))
+                        end
+                    end
+                    if !isempty(energy_basis)
+                        remainder = _buckling_deflate!(copy(candidate), energy_basis)
+                        remaining_energy = dot(remainder, K * remainder)
+                        if isfinite(remaining_energy) && remaining_energy >= 0
+                            duplicate = remaining_energy <= 1e-10 * energy
+                        end
+                    end
+                end
+            end
+        end
+        if duplicate
+            continue
+        end
+        push!(merged_vals, lam)
+        push!(merged_vec_cols, Vector{Float64}(add_vecs[:, j]))
+        added += 1
+    end
+    merged_vecs = isempty(merged_vec_cols) ? zeros(Float64, size(base_vecs, 1), 0) : hcat(merged_vec_cols...)
+    return merged_vals, merged_vecs, added
 end
 
 # Largest free-DOF count for which the dense symmetric-definite eigensolver is
@@ -2716,6 +2866,12 @@ end
     # just the most recent factor and matrices, independently of the optional
     # inertia-factor fusion, so those retries only repeat the Krylov work.
     shifted_search_cache = Ref{Any}(nothing)
+    function merge_independent_eigenpairs(base_vals, base_vecs, add_vals, add_vecs)
+        metric, positive_definite = _buckling_independence_metric(
+            K_ff, eigen_ctx.factor_backend, shifted_search_cache[])
+        return _buckling_merge_unique_eigenpairs(metric, base_vals, base_vecs,
+            add_vals, add_vecs; positive_definite=positive_definite)
+    end
     # Structural zero rows do not depend on the spectral shift. Compute the
     # mask once so retries do not allocate abs(K)/abs(Kg) repeatedly.
     pencil_row_activity = vec(sum(abs, K_ff; dims=2)) .+
@@ -3067,59 +3223,6 @@ end
         end
     end
 
-    function merge_unique_eigenpairs(base_vals::Vector{Float64}, base_vecs::AbstractMatrix,
-                                     add_vals::Vector{Float64}, add_vecs::AbstractMatrix;
-                                     rel_tol::Float64=1e-4, abs_tol::Float64=1e-8)
-        merged_vals = copy(base_vals)
-        merged_vec_cols = [Vector{Float64}(base_vecs[:, i]) for i in 1:size(base_vecs, 2)]
-        added = 0
-        for j in eachindex(add_vals)
-            lam = Float64(add_vals[j])
-            close_indices = findall(existing ->
-                abs(existing - lam) <= max(abs_tol, rel_tol * max(abs(existing), abs(lam), 1.0)),
-                merged_vals)
-            # Equal/near-equal eigenvalues can represent a genuine eigenspace.
-            # Treat a candidate as a duplicate only when its vector is also in
-            # the span already retained for that eigenvalue cluster.
-            duplicate = false
-            if !isempty(close_indices)
-                candidate = Vector{Float64}(add_vecs[:, j])
-                candidate_norm = norm(candidate)
-                if !(isfinite(candidate_norm) && candidate_norm > eps(Float64))
-                    duplicate = true
-                else
-                    # Repeated eigenvectors need not be mutually orthogonal
-                    # in physical coordinates. Repeated projections against
-                    # those raw vectors do not project onto their span and
-                    # can count the same eigenspace again after a retry.
-                    cluster = hcat(merged_vec_cols[close_indices]...)
-                    for k in axes(cluster, 2)
-                        column = view(cluster, :, k)
-                        column ./= norm(column)
-                    end
-                    basis = qr(cluster, ColumnNorm())
-                    pivots = abs.(diag(basis.R))
-                    rank_tol = eps(Float64) * max(size(cluster)...) * maximum(pivots)
-                    basis_rank = count(>(rank_tol), pivots)
-                    # Apply implicit Q': never materialize the n-by-n Q on a
-                    # large model. Close but distinct modes retain their
-                    # component outside the existing cluster's span.
-                    coordinates = basis.Q' * candidate
-                    duplicate = norm(view(coordinates, (basis_rank + 1):length(coordinates))) <=
-                                1e-7 * candidate_norm
-                end
-            end
-            if duplicate
-                continue
-            end
-            push!(merged_vals, lam)
-            push!(merged_vec_cols, Vector{Float64}(add_vecs[:, j]))
-            added += 1
-        end
-        merged_vecs = isempty(merged_vec_cols) ? zeros(Float64, size(base_vecs, 1), 0) : hcat(merged_vec_cols...)
-        return merged_vals, merged_vecs, added
-    end
-
     function range_augmentation_sigmas(range_idx_current)
         raw = strip(get(ENV, "JFEM_SOL105_RANGE_AUGMENTATION_SIGMAS", ""))
         sigmas = Float64[]
@@ -3210,6 +3313,11 @@ end
             added_exclusions = 0
             if candidate !== nothing
                 candidate_vals, candidate_vecs = candidate
+                original_count = length(candidate_vals)
+                candidate_vals, candidate_vecs, _ = merge_independent_eigenpairs(
+                    Float64[], zeros(Float64, n_free, 0), candidate_vals, candidate_vecs)
+                duplicates = original_count - length(candidate_vals)
+                diagnostics["solver_attempts"][end]["duplicate_ritz_pairs"] = duplicates
                 in_range = findall(lam -> !has_range ||
                     (v1_eff <= lam <= v2_eff && (!positive_range || lam > positive_tol)),
                     candidate_vals)
@@ -3229,7 +3337,7 @@ end
                 if best_partial_target === nothing
                     best_partial_target = candidate
                 else
-                    merged_vals, merged_vecs, _ = merge_unique_eigenpairs(
+                    merged_vals, merged_vecs, _ = merge_independent_eigenpairs(
                         best_partial_target[1], best_partial_target[2],
                         candidate[1], candidate[2])
                     order = sortperm(abs.(merged_vals .- target_sigma))
@@ -3239,6 +3347,16 @@ end
                 if length(best_partial_target[1]) >= num_modes_request
                     targeted = best_partial_target
                     break
+                end
+                if duplicates > 0
+                    # A duplicate has consumed an ND slot. Deflate the valid
+                    # directions and recover the missing roots with the same
+                    # per-invocation ND limit, then merge/order the results.
+                    for j in eachindex(candidate[1])
+                        _buckling_add_excluded_pair!(excluded_pairs, K_ff,
+                            view(candidate[2], :, j))
+                    end
+                    log_msg("[BUCKLING] Rejected $duplicates duplicate Ritz directions; recovering independent modes")
                 end
                 # A finite far bound may admit fewer than ND even when every
                 # requested Ritz pair converged and passed the original-pencil
@@ -4184,7 +4302,7 @@ end
                             aug_result = "recovered_from_empty"
                             log_msg("[BUCKLING] EIGRL range [$eigrl_v1, $eigrl_v2]: recovered $(length(valid_idx)) in-range eigenvalues with targeted shift sigma=$sigma")
                         else
-                            eigenvalues, eigenvectors, added = merge_unique_eigenpairs(
+                            eigenvalues, eigenvectors, added = merge_independent_eigenpairs(
                                 eigenvalues, eigenvectors, shifted_vals, shifted_vecs)
                             valid_idx = bounded_signed_magnitude_output ?
                                 findall(x -> abs(x) > positive_tol && abs(x) >= max(eigrl_v1, positive_tol) && abs(x) <= v2_eff, eigenvalues) :
@@ -4336,7 +4454,7 @@ end
                         valid_idx = collect(eachindex(eigenvalues))
                         added = length(valid_idx)
                     else
-                        eigenvalues, eigenvectors, added = merge_unique_eigenpairs(
+                        eigenvalues, eigenvectors, added = merge_independent_eigenpairs(
                             eigenvalues, eigenvectors, shifted_vals, shifted_vecs)
                         valid_idx = bounded_signed_magnitude_output ?
                             findall(x ->
@@ -4701,8 +4819,20 @@ function _pcomp_mass_moments(prop, mats)
     return (m0*scale,m1*scale^2,m2*scale^3)
 end
 
+"""Reference modal mass before MPC reduction.
+
+With COUPMASS, shell inertia is integrated over the reference surface: no
+through-thickness translation/rotation coupling or independent rotary inertia.
+Physical section moments remain available through `assemble_mass` for body
+loads and other uses. Line elements and concentrated masses are unaffected.
+"""
+assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
+    assemble_mass(model,id_map,node_coords,node_R,ndof;shell_inertia=:reference_surface,kwargs...)
+
 @solver_stage "mass_assembly" "Assemble mass matrix" function assemble_mass(model, id_map, node_coords, node_R, ndof;
-                       constraint_map=nothing)
+                       constraint_map=nothing,shell_inertia::Symbol=:physical)
+    shell_inertia in (:physical,:reference_surface) || throw(ArgumentError(
+        "Unknown shell inertia policy $shell_inertia; expected :physical or :reference_surface"))
     log_msg("[SOLVER] Assembling Mass Matrix (SOL103)...")
     n_nodes = length(id_map)
     id_vec = _assembly_grid_lookup(id_map)
@@ -4761,6 +4891,8 @@ end
         # NSM, where supported, is a point mass per area at the reference plane.
         laminate_mass_moments === nothing ||
             (laminate_mass_moments=(laminate_mass_moments[1]+nsm,laminate_mass_moments[2],laminate_mass_moments[3]))
+        inertia_moments = shell_inertia === :reference_surface ?
+            (mass_per_area,0.0,0.0) : laminate_mass_moments
 
         valid = true
         for k in 1:n
@@ -4785,7 +4917,7 @@ end
             end
 
             Me_loc = shell_mass_formulation === :coupled_consistent ?
-                FEM.consistent_mass_quad4(lc_buf4, rho_eff, h;mass_moments=laminate_mass_moments) :
+                FEM.consistent_mass_quad4(lc_buf4, rho_eff, h;mass_moments=inertia_moments) :
                 FEM.reference_lumped_mass_quad4(lc_buf4, rho_eff, h)
 
             # Build T (24×24)
@@ -4839,7 +4971,7 @@ end
             end
 
             Me_loc = shell_mass_formulation === :coupled_consistent ?
-                FEM.consistent_mass_tria3(lc3, rho_eff, h;mass_moments=laminate_mass_moments) :
+                FEM.consistent_mass_tria3(lc3, rho_eff, h;mass_moments=inertia_moments) :
                 FEM.reference_lumped_mass_tria3(lc3, rho_eff, h)
 
             T18 = zeros(18, 18)
@@ -4889,9 +5021,10 @@ end
         (rho < 1e-30 && nsm_bar < 1e-30) && continue
 
         p1 = SVector{3}(node_coords[i1,:]); p2 = SVector{3}(node_coords[i2,:])
-        wa, wb, has_offset, p1_mass, p2_mass = cbar_coupled_mass ?
-            bar_offsets_and_endpoints(bar, p1, p2) :
-            (zero(p1), zero(p2), false, p1, p2)
+        # Both interpolation choices describe inertia on the offset bar axis.
+        # Lumping removes inter-node coupling, not the rigid-arm congruence
+        # from the section endpoints to the GRID translations and rotations.
+        wa, wb, has_offset, p1_mass, p2_mass = bar_offsets_and_endpoints(bar, p1, p2)
         L = norm(p2_mass - p1_mass)
         L < 1e-12 && continue
 
@@ -4910,8 +5043,7 @@ end
 
         # Transformation
         e1 = (p2_mass - p1_mass) / L
-        vbar = cbar_coupled_mass ? resolve_bar_vref(bar, p1, id_map, node_coords) :
-            (haskey(bar, "V") ? SVector{3}(Float64.(bar["V"])) : SVector(0.0, 0.0, 1.0))
+        vbar = resolve_bar_vref(bar, p1, id_map, node_coords)
         e2_raw = vbar - dot(vbar, e1)*e1
         e2_len = norm(e2_raw)
         e2 = e2_len > 1e-12 ? e2_raw/e2_len : SVector(0.0, 1.0, 0.0)
@@ -5415,6 +5547,18 @@ function _sol103_shifted_factorization(K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2
     error("SOL103 could not factor K + alpha*M after $(length(attempts)) positive-shift attempts; the pencil is indefinite or has a joint K/M nullspace")
 end
 
+function _sol103_dense_spectrum_resolution(vals,lambda_reference)
+    scale=maximum((abs(Float64(x)) for x in vals if isfinite(x));init=1.0)
+    zero_tolerance=512eps(Float64)*max(Float64(lambda_reference),1.0)
+    spectral_error_bound=512eps(Float64)*max(scale,1.0)
+    # Tiny positive mass coordinates can make the largest dense root enormous.
+    # Its roundoff scale is evidence that the low spectrum is unresolved, not
+    # permission to relabel sizeable negative roots as rigid-body zero modes.
+    unresolved_negative=any(x->isfinite(x)&&
+        -spectral_error_bound<=x < -zero_tolerance,vals)
+    (;zero_tolerance,spectral_error_bound,unresolved_negative)
+end
+
 @solver_stage "eigensolve" "Modal eigenvalue solution" function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
                      rbe3_map=Dict{Int,Vector{Tuple{Int,Float64}}}(),
                      max_elem_stiff=0.0, orig_diag=Float64[],
@@ -5550,7 +5694,15 @@ end
                 end
             end
             lambda_reference = isempty(diagonal_ratios) ? spectral_scale : median(diagonal_ratios)
-            zero_tol = 512.0 * eps(Float64) * max(lambda_reference, spectral_scale, 1.0)
+            resolution=_sol103_dense_spectrum_resolution(vals,lambda_reference)
+            diagnostics["dense_spectrum_resolution"]=Dict(
+                "local_zero_tolerance"=>resolution.zero_tolerance,
+                "spectral_error_bound"=>resolution.spectral_error_bound,
+                "unresolved_negative_roots"=>resolution.unresolved_negative)
+            resolution.unresolved_negative && throw(ArgumentError(
+                "Dense modal spectrum is unresolved at its global roundoff scale; " *
+                "retrying with shift-invert instead of converting negative roots to zero"))
+            zero_tol = resolution.zero_tolerance
             valid = findall(x -> isfinite(x) && x >= -zero_tol, vals)
             if !isempty(valid)
                 # The dense solve has already computed the whole spectrum.

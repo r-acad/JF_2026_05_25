@@ -265,6 +265,7 @@ function imported_mesh_payload(m)
         group["kind"] in ("quad","tria")||continue
         ids=reinterpret(Int32,group["eids"].bytes)
         group["material_orientation"]=Dict("mcid"=>blob_i32([Int(get(native["CSHELLs"][string(id)],"MCID",0)) for id in ids]),
+            "mcid_specified"=>blob_i32([Int(shell_material_mcid_specified(native["CSHELLs"][string(id)])) for id in ids]),
             "theta"=>blob_f32([Float64(get(native["CSHELLs"][string(id)],"THETA",0.)) for id in ids]))
     end
     buffers=imported_compact_buffers!(groups)

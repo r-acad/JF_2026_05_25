@@ -52,7 +52,7 @@ function register_shell_stringer_mass_geometry!(p,groups,xyz,g)
     end
     existing&&return nothing
     areas=Dict{Int,Float64}();attachment_edges=Dict{Int,Set{Tuple{Int,Int}}}()
-    skin_nodes=Set(node for group in groups if component_base_pid(group.pid) in (PID_SKIN_UPPER,PID_SKIN_LOWER) for node in group.conn)
+    skin_nodes=Set(node for group in groups if component_base_pid(group.pid) in (PID_SKIN_UPPER,PID_SKIN_LOWER,PID_STRINGER_FLANGE) for node in group.conn)
     for group in groups
         component_base_pid(group.pid)==PID_STRINGER_WEB||continue
         n=group.kind===:tria ? 3 : 4

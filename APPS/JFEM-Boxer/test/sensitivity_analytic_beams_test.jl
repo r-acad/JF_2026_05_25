@@ -133,6 +133,64 @@ tests=@testset "Analytic PBARL dimensions, offsets, stiffness, mass and recovery
                 @test isapprox(ib.dMe,fd;rtol=2e-6,atol=1e-10)
                 push!(records,Dict("group"=>"imported_fixed_offset","variable"=>key,"quantity"=>"M","relative_error"=>norm(ib.dMe-fd)/max(norm(fd),1e-12)))
             end
+            # Lumped CBAR mass also follows the offset section axis. Check
+            # dimension-dependent arms, fixed imported arms, and zero arms
+            # against the primal assembler, with NSM, WTMASS, and rotated CDs.
+            lumped_directions=[("properties.stringer_"*field,Dict{String,Any}("dimensions"=>Float64[i==j for i in 1:4]))
+                for (j,field) in enumerate(("flange_width","height","flange_thickness","web_thickness"))]
+            push!(lumped_directions,("material.rho",Dict{String,Any}("rho"=>1.)))
+            translations=[1,2,3,7,8,9];rotations=[4,5,6,10,11,12]
+            original=rotated.model["CBARs"][string(g.eids[e])]
+            @test norm(original["WA"])>0
+            for (key,dir) in lumped_directions
+                h=1e-5abs(p[key]);trials=[]
+                for sign in (-1,1)
+                    q=deepcopy(p);q[key]+=sign*h;trial=W.sensitivity_model(m,q)
+                    push!(trials,deck_and_op(trial,"lumped_$(replace(key,'.'=>'_'))_$(sign)";
+                        rotations=rotated.node_R,consistent=false))
+                end
+                for placement in (:generated,:imported_fixed,:imported_zero)
+                    selected=merge(rotated,(model=deepcopy(rotated.model),))
+                    delete!(selected.model,"PARAM_COUPMASS")
+                    selected.model["PBARLs"][string(g.pid)]["NSM"]=.037
+                    if placement===:imported_zero
+                        card=selected.model["CBARs"][string(g.eids[e])]
+                        for field in ("WA","WB");card[field]=zeros(3);end
+                    end
+                    sb=placement===:generated ? W.sensitivity_analytic_bar(N,selected,m,g,e,dir,state) :
+                        W.sensitivity_analytic_bar(N,selected,imported,ig,ie,dir,state)
+                    @test sb.Me≈isolated_mass(selected,g,e,ndof) rtol=1e-12
+                    if placement===:imported_zero
+                        @test iszero(norm(sb.Me[rotations,:]))
+                        @test sb.Me[translations,translations]≈
+                            Matrix{Float64}(I,6,6).*(selected.model["PARAM_WTMASS"]*sb.mass/2) rtol=1e-12
+                    else
+                        @test norm(sb.Me[translations,rotations])>0
+                        @test norm(sb.Me[rotations,rotations])>0
+                    end
+                    samples=Matrix{Float64}[]
+                    for trialop in trials
+                        selected_trial=merge(trialop,(model=deepcopy(trialop.model),))
+                        selected_trial.model["PARAM_WTMASS"]=selected.model["PARAM_WTMASS"]
+                        selected_trial.model["PBARLs"][string(g.pid)]["NSM"]=.037
+                        if placement!==:generated
+                            card=selected_trial.model["CBARs"][string(g.eids[e])]
+                            for field in ("WA","WB");card[field]=placement===:imported_zero ? zeros(3) : copy(original[field]);end
+                        end
+                        push!(samples,isolated_mass(selected_trial,g,e,ndof))
+                    end
+                    fd=(samples[2]-samples[1])/(2h)
+                    @test isapprox(sb.dMe,fd;rtol=2e-6,atol=1e-10)
+                    fixed_arm_tangent=(sb.dmass/sb.mass).*sb.Me
+                    if placement===:generated && key=="properties.stringer_height"
+                        @test norm(sb.dMe-fixed_arm_tangent)>1e-6norm(sb.dMe)
+                    elseif placement!==:generated
+                        @test sb.dMe≈fixed_arm_tangent rtol=1e-12
+                    end
+                    push!(records,Dict("group"=>"lumped_$(placement)","variable"=>key,"quantity"=>"M",
+                        "relative_error"=>norm(sb.dMe-fd)/max(norm(fd),1e-12)))
+                end
+            end
         end
     end
 end

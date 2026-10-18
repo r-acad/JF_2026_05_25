@@ -543,6 +543,7 @@ function _dKdx_u_material_NU(dv, model, id_map, node_coords, node_R, u_global, n
         _scatter_elem_contribution!(pseudo_load, ed.T_mat, dKe_local, u_global, ed.dofs, ed.ndof_elem)
     end
 
+    _dKdx_u_material_NU_bars!(pseudo_load, mids, model, id_map, node_coords, node_R, u_global)
     _dKdx_u_material_NU_solids!(pseudo_load, mids, model, id_map, node_coords, node_R, u_global)
     return pseudo_load
 end
@@ -573,6 +574,7 @@ function _dKdx_u_material_NU_ad_forward(dv, model, id_map, node_coords, node_R, 
         _scatter_elem_contribution!(pseudo_load, ed.T_mat, dKe_local, u_global, ed.dofs, ed.ndof_elem)
     end
 
+    _dKdx_u_material_NU_bars!(pseudo_load, mids, model, id_map, node_coords, node_R, u_global)
     _dKdx_u_material_NU_solids!(pseudo_load, mids, model, id_map, node_coords, node_R, u_global)
     return pseudo_load
 end
@@ -581,67 +583,7 @@ end
 # Bar area: dK/dA via central FD on bar element stiffness
 # ============================================================================
 function _dKdx_u_bar_area(dv, model, id_map, node_coords, node_R, u_global, ndof)
-    pids = Set(string.(dv["pids"]))
-    pseudo_load = zeros(ndof)
-    pbarls = get(model, "PBARLs", Dict())
-    mats = model["MATs"]
-
-    for (_, bar) in get(model, "CBARs", Dict())
-        pid_str = string(bar["PID"])
-        if !(pid_str in pids); continue; end
-        prop = get(pbarls, pid_str, nothing)
-        if isnothing(prop); continue; end
-        mid_str = string(prop["MID"])
-        mat = get(mats, mid_str, nothing)
-        if isnothing(mat); continue; end
-
-        if !haskey(id_map, bar["GA"]) || !haskey(id_map, bar["GB"]); continue; end
-        i1, i2 = id_map[bar["GA"]], id_map[bar["GB"]]
-
-        p1 = SVector{3}(node_coords[i1,1], node_coords[i1,2], node_coords[i1,3])
-        p2 = SVector{3}(node_coords[i2,1], node_coords[i2,2], node_coords[i2,3])
-        _, _, _, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2)
-        L = norm(p2_eff - p1_eff)
-        if L < 1e-9; continue; end
-
-        vx = normalize(p2_eff - p1_eff)
-        v_ref = resolve_bar_vref(bar, p1, id_map, node_coords)
-        if norm(v_ref) < 1e-6
-            v_ref = SVector(0.0,0.0,1.0)
-            if abs(dot(vx, v_ref)) > 0.9; v_ref = SVector(0.0,1.0,0.0); end
-        end
-        vz = normalize(cross(vx, v_ref))
-        vy = cross(vz, vx)
-        Rel_t = vcat(vx', vy', vz')
-
-        T12 = zeros(12, 12)
-        TR1 = Rel_t * node_R[i1]; TR2 = Rel_t * node_R[i2]
-        T12[1:3,1:3] = TR1; T12[4:6,4:6] = TR1
-        T12[7:9,7:9] = TR2; T12[10:12,10:12] = TR2
-
-        E = mat["E"]; G = mat["G"]; A = prop["A"]
-        Iy, Iz = _bar_bending_inertias(prop)
-        Iyz = Float64(get(prop, "I12", 0.0))
-        K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
-
-        delta = max(abs(A) * 1e-6, 1e-12)
-
-        # FD on A (affects axial + shear correction terms)
-        As_y_p = (K1 > 0.0) ? K1 * (A + delta) : Inf
-        As_z_p = (K2 > 0.0) ? K2 * (A + delta) : Inf
-        Ke_plus = FEM.stiffness_frame3d(L, A + delta, Iy, Iz, prop["J"], E, G; As_y=As_y_p, As_z=As_z_p, I12=Iyz)
-
-        As_y_m = (K1 > 0.0) ? K1 * (A - delta) : Inf
-        As_z_m = (K2 > 0.0) ? K2 * (A - delta) : Inf
-        Ke_minus = FEM.stiffness_frame3d(L, A - delta, Iy, Iz, prop["J"], E, G; As_y=As_y_m, As_z=As_z_m, I12=Iyz)
-
-        dKe_loc = (Ke_plus - Ke_minus) / (2.0 * delta)
-
-        dofs = Vector{Int}(undef, 12)
-        for d in 1:6; dofs[d] = (i1-1)*6+d; dofs[6+d] = (i2-1)*6+d; end
-        _scatter_elem_contribution!(pseudo_load, T12, dKe_loc, u_global, dofs, 12)
-    end
-    return pseudo_load
+    return _beam_area_pseudo_load(dv, model, id_map, node_coords, node_R, u_global, ndof; method=:element_fd)
 end
 
 function _bar_area_dKe_forward_ad(L, A, Iy, Iz, Jtorsion, E, G, K1, K2, Iyz)
@@ -656,113 +598,92 @@ function _bar_area_dKe_forward_ad(L, A, Iy, Iz, Jtorsion, E, G, K1, K2, Iyz)
 end
 
 function _dKdx_u_bar_area_ad_forward(dv, model, id_map, node_coords, node_R, u_global, ndof)
-    pids = Set(string.(dv["pids"]))
-    pseudo_load = zeros(ndof)
-    pbarls = get(model, "PBARLs", Dict())
-    mats = model["MATs"]
+    return _beam_area_pseudo_load(dv, model, id_map, node_coords, node_R, u_global, ndof; method=:ad_forward)
+end
 
-    for (_, bar) in get(model, "CBARs", Dict())
-        pid_str = string(bar["PID"])
-        if !(pid_str in pids); continue; end
-        prop = get(pbarls, pid_str, nothing)
-        if isnothing(prop); continue; end
-        mid_str = string(prop["MID"])
-        mat = get(mats, mid_str, nothing)
-        if isnothing(mat); continue; end
-
-        if !haskey(id_map, bar["GA"]) || !haskey(id_map, bar["GB"]); continue; end
-        i1, i2 = id_map[bar["GA"]], id_map[bar["GB"]]
-
-        p1 = SVector{3}(node_coords[i1,1], node_coords[i1,2], node_coords[i1,3])
-        p2 = SVector{3}(node_coords[i2,1], node_coords[i2,2], node_coords[i2,3])
-        _, _, _, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2)
-        L = norm(p2_eff - p1_eff)
-        if L < 1e-9; continue; end
-
-        vx = normalize(p2_eff - p1_eff)
-        v_ref = resolve_bar_vref(bar, p1, id_map, node_coords)
-        if norm(v_ref) < 1e-6
-            v_ref = SVector(0.0,0.0,1.0)
-            if abs(dot(vx, v_ref)) > 0.9; v_ref = SVector(0.0,1.0,0.0); end
-        end
-        vz = normalize(cross(vx, v_ref))
-        vy = cross(vz, vx)
-        Rel_t = vcat(vx', vy', vz')
-
-        T12 = zeros(12, 12)
-        TR1 = Rel_t * node_R[i1]; TR2 = Rel_t * node_R[i2]
-        T12[1:3,1:3] = TR1; T12[4:6,4:6] = TR1
-        T12[7:9,7:9] = TR2; T12[10:12,10:12] = TR2
-
-        E = mat["E"]; G = mat["G"]; A = prop["A"]
-        Iy, Iz = _bar_bending_inertias(prop)
-        Iyz = Float64(get(prop, "I12", 0.0))
-        K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
-
-        dKe_loc = _bar_area_dKe_forward_ad(L, A, Iy, Iz, prop["J"], E, G, K1, K2, Iyz)
-
-        dofs = Vector{Int}(undef, 12)
-        for d in 1:6; dofs[d] = (i1-1)*6+d; dofs[6+d] = (i2-1)*6+d; end
-        _scatter_elem_contribution!(pseudo_load, T12, dKe_loc, u_global, dofs, 12)
+# Apply the same fixed neutral-axis map and release elimination as the primal.
+# For a condensed operator dKc = S' dK S, where S recovers the released DOFs
+# from retained displacements at the baseline. This differentiates condensation,
+# rather than incorrectly condensing the derivative matrix itself.
+function _beam_constitutive_derivative_map(bd, dK)
+    dK = _apply_pbeam_neutral_axis_coupling(dK, bd.prop)
+    pa, pb = Int(get(bd.beam,"PA",0)), Int(get(bd.beam,"PB",0))
+    pa == 0 && pb == 0 && return dK
+    released = Int[]
+    for (flags, offset) in ((pa,0), (pb,6)), ch in string(flags)
+        d = parse(Int,ch)
+        1 <= d <= 6 && push!(released,offset+d)
     end
+    unique!(released)
+    isempty(released) && return dK
+    retained = setdiff(1:12,released)
+    K1, K2 = get(bd.prop,"K1",0.), get(bd.prop,"K2",0.)
+    K = FEM.stiffness_frame3d(bd.L,bd.A,bd.Iy,bd.Iz,bd.prop["J"],bd.mat["E"],bd.mat["G"];
+        As_y=K1>0 ? K1*bd.A : Inf, As_z=K2>0 ? K2*bd.A : Inf, I12=bd.I12)
+    K = _apply_pbeam_neutral_axis_coupling(K,bd.prop)
+    S = zeros(12,12)
+    S[retained,retained] = Matrix{Float64}(I,length(retained),length(retained))
+    S[released,retained] = -pinv(K[released,released])*K[released,retained]
+    return S' * dK * S
+end
 
+function _beam_area_pseudo_load(dv, model, id_map, node_coords, node_R, u_global, ndof; method)
+    pids = Set(_dkdx_id_key.(dv["pids"]))
+    pseudo_load = zeros(ndof)
+    for group in ("CBARs","CBEAMs"), (key,bar) in get(model,group,Dict())
+        string(bar["PID"]) in pids || continue
+        eid = _stress_entry_public_id(key,bar)
+        bd = _get_beam_element_data(eid,model,id_map,node_coords,node_R)
+        bd === nothing && continue
+        K1,K2 = get(bd.prop,"K1",0.),get(bd.prop,"K2",0.)
+        E,G,J = bd.mat["E"],bd.mat["G"],bd.prop["J"]
+        dK = if method == :ad_forward
+            _bar_area_dKe_forward_ad(bd.L,bd.A,bd.Iy,bd.Iz,J,E,G,K1,K2,bd.I12)
+        else
+            delta = max(abs(bd.A)*1e-6,1e-12)
+            local_stiffness(a) = FEM.stiffness_frame3d(bd.L,a,bd.Iy,bd.Iz,J,E,G;
+                As_y=K1>0 ? K1*a : Inf, As_z=K2>0 ? K2*a : Inf, I12=bd.I12)
+            (local_stiffness(bd.A+delta)-local_stiffness(bd.A-delta))/(2delta)
+        end
+        dK = _beam_constitutive_derivative_map(bd,dK)
+        _scatter_elem_contribution!(pseudo_load,bd.T12,dK,u_global,bd.dofs,12)
+    end
     return pseudo_load
 end
 
-# ============================================================================
-# Bar/beam elements for material_E (K ∝ E)
-# ============================================================================
+# E derivatives hold nu fixed, so G scales with E too. Both the neutral-axis
+# congruence and a fixed-rank pin condensation preserve this homogeneity.
 function _dKdx_u_material_E_bars!(pseudo_load, mids, model, id_map, node_coords, node_R, u_global, ndof)
-    pbarls = get(model, "PBARLs", Dict())
-    mats = model["MATs"]
-
-    for (_, bar) in get(model, "CBARs", Dict())
-        pid_str = string(bar["PID"])
-        prop = get(pbarls, pid_str, nothing)
-        if isnothing(prop); continue; end
-        mid_str = string(prop["MID"])
-        if !(mid_str in mids); continue; end
-        mat = get(mats, mid_str, nothing)
-        if isnothing(mat); continue; end
-
-        if !haskey(id_map, bar["GA"]) || !haskey(id_map, bar["GB"]); continue; end
-        i1, i2 = id_map[bar["GA"]], id_map[bar["GB"]]
-
-        p1 = SVector{3}(node_coords[i1,1], node_coords[i1,2], node_coords[i1,3])
-        p2 = SVector{3}(node_coords[i2,1], node_coords[i2,2], node_coords[i2,3])
-        _, _, _, p1_eff, p2_eff = bar_offsets_and_endpoints(bar, p1, p2)
-        L = norm(p2_eff - p1_eff)
-        if L < 1e-9; continue; end
-
-        vx = normalize(p2_eff - p1_eff)
-        v_ref = resolve_bar_vref(bar, p1, id_map, node_coords)
-        if norm(v_ref) < 1e-6
-            v_ref = SVector(0.0,0.0,1.0)
-            if abs(dot(vx, v_ref)) > 0.9; v_ref = SVector(0.0,1.0,0.0); end
-        end
-        vz = normalize(cross(vx, v_ref))
-        vy = cross(vz, vx)
-        Rel_t = vcat(vx', vy', vz')
-
-        T12 = zeros(12, 12)
-        TR1 = Rel_t * node_R[i1]; TR2 = Rel_t * node_R[i2]
-        T12[1:3,1:3] = TR1; T12[4:6,4:6] = TR1
-        T12[7:9,7:9] = TR2; T12[10:12,10:12] = TR2
-
-        E = mat["E"]; G = mat["G"]; A = prop["A"]
-        Iy, Iz = _bar_bending_inertias(prop)
-        Iyz = Float64(get(prop, "I12", 0.0))
-        K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
-        As_y = (K1 > 0.0) ? K1 * A : Inf
-        As_z = (K2 > 0.0) ? K2 * A : Inf
-
-        Ke_loc = FEM.stiffness_frame3d(L, A, Iy, Iz, prop["J"], E, G; As_y=As_y, As_z=As_z, I12=Iyz)
-        dKe_loc = Ke_loc / E
-
-        dofs = Vector{Int}(undef, 12)
-        for d in 1:6; dofs[d] = (i1-1)*6+d; dofs[6+d] = (i2-1)*6+d; end
-        _scatter_elem_contribution!(pseudo_load, T12, dKe_loc, u_global, dofs, 12)
+    for group in ("CBARs","CBEAMs"), (key,bar) in get(model,group,Dict())
+        prop = get(get(model,"PBARLs",Dict()),string(bar["PID"]),nothing)
+        prop === nothing && continue
+        string(prop["MID"]) in mids || continue
+        bd = _get_beam_element_data(_stress_entry_public_id(key,bar),model,id_map,node_coords,node_R)
+        bd === nothing && continue
+        _scatter_elem_contribution!(pseudo_load,bd.T12,bd.Ke_loc/bd.mat["E"],u_global,bd.dofs,12)
     end
+    return pseudo_load
+end
+
+function _dKdx_u_material_NU_bars!(pseudo_load, mids, model, id_map, node_coords, node_R, u_global)
+    for group in ("CBARs","CBEAMs"), (key,bar) in get(model,group,Dict())
+        prop = get(get(model,"PBARLs",Dict()),string(bar["PID"]),nothing)
+        prop === nothing && continue
+        string(prop["MID"]) in mids || continue
+        bd = _get_beam_element_data(_stress_entry_public_id(key,bar),model,id_map,node_coords,node_R)
+        bd === nothing && continue
+        E,nu = Float64(bd.mat["E"]),Float64(bd.mat["NU"])
+        isapprox(bd.mat["G"],E/(2(1+nu));rtol=1e-10) ||
+            throw(ArgumentError("[ADJOINT] Beam material_NU requires MAT1 G=E/(2(1+nu)); independent E/G/NU has no defined derivative."))
+        K1,K2 = get(prop,"K1",0.),get(prop,"K2",0.)
+        jac = ForwardDiff.jacobian([nu]) do x
+            vec(FEM.stiffness_frame3d_generic(bd.L,bd.A,bd.Iy,bd.Iz,prop["J"],E,E/(2(1+x[1]));
+                As_y=K1>0 ? K1*bd.A : Inf, As_z=K2>0 ? K2*bd.A : Inf, I12=bd.I12))
+        end
+        dK = _beam_constitutive_derivative_map(bd,reshape(jac[:,1],12,12))
+        _scatter_elem_contribution!(pseudo_load,bd.T12,dK,u_global,bd.dofs,12)
+    end
+    return pseudo_load
 end
 
 # ============================================================================
@@ -1237,31 +1158,13 @@ function _dKdx_u_topology_density(dv, model, id_map, node_coords, node_R, u_glob
             continue
         end
 
-        # Bar elements
-        for (_, bar) in get(model, "CBARs", Dict())
-            if string(get(bar, "ID", -1)) != eid_str; continue; end
-            pid_str = string(bar["PID"])
-            prop = get(get(model, "PBARLs", Dict()), pid_str, nothing)
-            if isnothing(prop); continue; end
-            mat = get(mats, string(prop["MID"]), nothing)
-            if isnothing(mat); continue; end
-            if !haskey(id_map, bar["GA"]) || !haskey(id_map, bar["GB"]); continue; end
-            i1, i2 = id_map[bar["GA"]], id_map[bar["GB"]]
-            rd = _rod_local_frame_and_transform(i1, i2, node_coords, node_R)
-            if isnothing(rd); continue; end
-
-            E = mat["E"]; G = mat["G"]; A = prop["A"]
-            Iy, Iz = _bar_bending_inertias(prop)
-            Iyz = Float64(get(prop, "I12", 0.0))
-            K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
-            As_y = (K1 > 0.0) ? K1 * A : Inf; As_z = (K2 > 0.0) ? K2 * A : Inf
-
-            Ke0 = FEM.stiffness_frame3d(rd.L, A, Iy, Iz, prop["J"], E, G; As_y=As_y, As_z=As_z, I12=Iyz)
-            dKe = p * rho^(p - 1) * Ke0
-            dofs = Vector{Int}(undef, 12)
-            for d in 1:6; dofs[d] = (i1-1)*6+d; dofs[6+d] = (i2-1)*6+d; end
-            _scatter_elem_contribution!(pseudo_load, rd.T12, dKe, u_global, dofs, 12)
-            break
+        # Beam elements use their actual orientation, offsets, neutral-axis
+        # coupling and releases, just as in the forward stiffness.
+        bd = _get_beam_element_data(parse(Int,string(eid)), model, id_map, node_coords, node_R)
+        if bd !== nothing
+            dKe = p * rho^(p - 1) * bd.Ke_loc
+            _scatter_elem_contribution!(pseudo_load, bd.T12, dKe, u_global, bd.dofs, 12)
+            continue
         end
 
         # Rod elements

@@ -1,5 +1,5 @@
 # Shell stringers use shared skin nodes throughout their flange footprint.
-# The flange midsurface coincides with the skin midsurface (zero offset), and
+# One skin-plus-flange section replaces the skin in each flange footprint, and
 # the blade extends inward by h-tf, or h for a blade-only section. Ribs attach
 # through this skin footprint; blade/rib interior crossings are not welded or
 # rigidly linked. The existing small-area runout connector remains at runouts.
@@ -158,6 +158,7 @@ function add_shell_stringers!(reg,g,p,groups,layout,eid)
     end
     for vals in values(levels);sort!(unique!(vals));end
     nodes=Dict{Tuple{Int,Int,Bool,Float64},Int}();cache=Dict{Tuple{String,Symbol,Int},ElemGroup}()
+    replaced=Set{Tuple}()
     function blade_node(i,j,upper,height)
         height==0&&return node!(reg,g,i,j,upper ? g.nh : 0)
         get!(nodes,(i,j,upper,height)) do
@@ -196,10 +197,25 @@ function add_shell_stringers!(reg,g,p,groups,layout,eid)
                 # Match the underlying skin's starting corner as well as
                 # winding, so local kink triangulation chooses identical faces.
                 !upper&&(conn=conn[[1,4,3,2]])
+                push!(replaced,Tuple(sort(unique(conn))))
                 shell!("STRINGER_FLANGES",panel_stringer_flange_pid(panel.id),PID_STRINGER_FLANGE,conn)
             end
         end
     end
+    # The flange property already includes its selected underlying skin.
+    # Delete the coincident skin face, retaining its boundary nodes and all
+    # skins outside the exact footprint. Kink splitting runs afterwards on
+    # this single connected shell layer.
+    for group in groups
+        component_base_pid(group.pid) in (PID_SKIN_UPPER,PID_SKIN_LOWER)||continue
+        n=group.kind===:tria ? 3 : 4
+        keep=[e for e in eachindex(group.eids) if !(Tuple(sort(group.conn[n*(e-1)+1:n*e])) in replaced)]
+        kept_conn=[node for e in keep for node in group.conn[n*(e-1)+1:n*e]]
+        kept_eids=group.eids[keep]
+        empty!(group.conn);append!(group.conn,kept_conn)
+        empty!(group.eids);append!(group.eids,kept_eids)
+    end
+    filter!(group->!isempty(group.eids),groups)
     return eid
 end
 

@@ -201,7 +201,7 @@ end
 function validate_main_rib_mesh(m)
     g=m.grid;w=m.wing
     for group in m.groups
-        group.kind in (:quad,:tria)&&component_base_pid(group.pid) in (PID_SKIN_UPPER,PID_SKIN_LOWER,PID_SPAR_WEB,PID_RIB_WEB)||continue
+        group.kind in (:quad,:tria)&&component_base_pid(group.pid) in (PID_SKIN_UPPER,PID_SKIN_LOWER,PID_STRINGER_FLANGE,PID_SPAR_WEB,PID_RIB_WEB)||continue
         for e in eachindex(group.eids)
             points=element_points(m,group,e);corners=length(points)==3 ? ((1,2,3),) : ((1,2,3),(2,3,4),(3,4,1),(4,1,2))
             normals=[cross3(points[b].-points[a],points[c].-points[a]) for (a,b,c) in corners]

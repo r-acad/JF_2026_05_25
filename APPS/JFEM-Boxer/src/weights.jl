@@ -180,7 +180,7 @@ function weight_component(m::Model,id,label,names)
             row["area_m2"]+=area
             row["volume_m3"]+=area*thickness
             row["mass_kg"]+=area*shell_material_definition(m.params,gr.pid)["areal_mass_kg_m2"]
-            row["nonstructural_mass_kg"]+=area*nonstructural_mass_density(m.params,gr.pid)
+            row["nonstructural_mass_kg"]+=area*shell_material_definition(m.params,gr.pid)["nonstructural_mass_kg_m2"]
         end
     end
     if !isempty(dimensions)

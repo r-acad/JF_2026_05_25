@@ -917,6 +917,54 @@ different physical load must be solved again because its load stiffness changes;
 uniformly scaling a full-load result is not equivalent. The activation is
 OpenJFEM-specific and does not claim full external-solver FLLWER compatibility.
 
+### SOL106 increment and convergence controls
+
+Use the standard `NLPARM` Bulk Data card and select its ID in Case Control.
+A global selection is inherited by each subcase; a subcase selection overrides
+it. For example, this requests six nominal load increments, at most 35 Newton
+iterations per increment, all three convergence checks at `1e-7`, intermediate
+results, and at most eight load bisections:
+
+```text
+SOL 106
+CEND
+NLPARM = 11
+SUBCASE 1
+  SPC = 1
+  LOAD = 1
+BEGIN BULK
+NLPARM,11,6,,,1,35,UPW,YES
++,1.e-7,1.e-7,1.e-7,,,,,
++,8
+```
+
+The first data line is `SID,NINC,DT,KMETHOD,KSTEP,MAXITER,CONV,INTOUT`.
+The second starts with `EPSU,EPSP,EPSW`; `MAXBIS` is the first field of
+the third line. `CONV` selects `U` (displacement correction), `P` (force
+residual), `W` (incremental work), or a combination such as `UPW`. Every
+selected check must pass. JFEM uses the norm of the correction divided by the
+norm of the current displacement for U, the norm of the free residual divided
+by the norm of the free applied force for P, and
+`abs(correction' * preceding_residual) / abs(displacement' * applied_force)`
+for W. Each denominator has a `1e-30` zero guard. The requested tolerances and
+each iteration's pass/fail checks appear in `nonlinear_diagnostics`.
+
+`NINC` sets equal nominal load increments; failed increments can be bisected
+up to `MAXBIS`. Automatic step growth is disabled when an NLPARM is selected.
+`MAXLS` sets the residual line-search backtracking limit. `INTOUT=YES` or
+`ALL` retains each accepted increment's displacements, reactions, forces,
+stresses and strains in `nonlinear_intermediate_results`; `NO` keeps the final
+fields and diagnostic history.
+
+The supported iteration method is JFEM's updated-tangent Newton method.
+`KMETHOD=AUTO` or `ITER` selects this method; use `KSTEP=1` if explicit.
+Reference-specific automatic tangent-update and quasi-Newton heuristics are
+not reproduced. An explicit nonzero `MAXQN`, another `KMETHOD`, a nonzero
+`DT`, or explicit `MAXDIV`, `FSTRESS`, `LSTOL`, `MAXR` or `RTOLB` produces a
+clear unsupported-control error. Defining an unselected NLPARM does not affect
+other cases or solutions. Without an NLPARM selection, the existing `NL...`
+PARAM controls and `P AND (U OR W)` convergence policy remain in effect.
+
 Thermal strain recovery is available for the supported isotropic linear
 shell, line and solid elements. SOL106 rejects nonzero thermal expansion;
 its nonlinear residual does not yet include thermal eigenstrain. TACS rejects

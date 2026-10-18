@@ -9,15 +9,19 @@ end
 coordinate_usage_record()=Dict{String,Any}("grid_cp"=>0,"grid_cd"=>0,"shell_mcid"=>0,"shell_eids"=>Int[])
 
 # Usage follows references, never coincident positions or matching GRID/CID IDs.
-# MCID=0 is also the parser's default for a THETA-oriented shell, so that value
-# cannot prove an explicit material-coordinate reference and is not counted.
+# Older payloads retain the default MCID=0 for a THETA-oriented shell. The
+# parser flag distinguishes an explicitly selected BASIC material frame.
+shell_material_mcid_specified(shell) = Int(get(shell,"MCID",0)) > 0 ||
+    (Int(get(shell,"MCID",0)) == 0 && Bool(get(shell,"MCID_SPECIFIED",false)))
+
 function coordinate_usage(native)
     usage=Dict{Int,Dict{String,Any}}()
     for grid in values(get(native,"GRIDs",Dict())),(field,key) in (("CP","grid_cp"),("CD","grid_cd"))
         row=get!(coordinate_usage_record,usage,Int(get(grid,field,0)));row[key]+=1
     end
     for shell in values(get(native,"CSHELLs",Dict()))
-        cid=Int(get(shell,"MCID",0));cid>0||continue
+        shell_material_mcid_specified(shell)||continue
+        cid=Int(get(shell,"MCID",0))
         row=get!(coordinate_usage_record,usage,cid);row["shell_mcid"]+=1
         length(row["shell_eids"])<8&&push!(row["shell_eids"],Int(shell["ID"]))
     end
@@ -29,7 +33,7 @@ function coordinate_usage!(frame,usage)
     frame["usage"]=usage;properties=frame["properties"]
     properties["GRID position uses (CP)"]=usage["grid_cp"]
     properties["GRID displacement uses (CD)"]=usage["grid_cd"]
-    properties["Shell material uses (nonzero MCID)"]=usage["shell_mcid"]
+    properties["Shell material uses (MCID)"]=usage["shell_mcid"]
     if usage["shell_mcid"]>0
         properties["Example shell EIDs"]=usage["shell_eids"]
     end

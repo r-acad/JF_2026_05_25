@@ -120,6 +120,7 @@ function extract_shells(cards)
         end
         theta = 0.0
         mcid = 0
+        is_mcid = false
         if !isempty(theta_str)
             theta_upper = uppercase(theta_str)
             is_mcid =
@@ -134,7 +135,7 @@ function extract_shells(cards)
             end
         end
         if id > 0 && length(nodes) >= 3
-            d[string(id)] = Dict{String,Any}("ID"=>id, "PID"=>pid, "NODES"=>nodes, "THETA"=>theta, "MCID"=>mcid, "TYPE"=>card_name)
+            d[string(id)] = Dict{String,Any}("ID"=>id, "PID"=>pid, "NODES"=>nodes, "THETA"=>theta, "MCID"=>mcid, "MCID_SPECIFIED"=>is_mcid, "TYPE"=>card_name)
         end
     end
     return d

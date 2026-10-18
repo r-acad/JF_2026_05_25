@@ -74,14 +74,14 @@
       host.append(card);
       const update=()=>{
         const shell=kind==="T"&&!rib&&doc.getElementById("p-stringers.model")?.value==="shell",values=inputs.map(input=>input.value.trim()===""?NaN:Number(input.value)),value=section(kind,values,{shell});
-        type.textContent=shell?(value.kind==="BLADE"?"PSHELL / blade":"PSHELL / web + flange"):"PBARL / "+kind;
-        if(kind==="T"&&!rib){heading.firstChild.textContent=shell?(value.kind==="BLADE"?"Shell blade ":"Shell stringer "):"T stringer ";note.textContent=shell?"Cross-section dimensions shown to scale. The shell flange shares the skin reference surface; blade depth is h − tf, or h for a zero-width flange. Web and flange thicknesses define separate PSHELL properties. Blade direction is chosen in Structure → Stringers. The preview centroid describes the section dimensions; the solver uses the shell midsurfaces.":"Flange outer face at the skin; web inward. Local +y points outward on either skin. +x follows the bar. Preview is proportional; input dimensions are in metres.";}
+        type.textContent=shell?(value.kind==="BLADE"?"PSHELL / blade":"Shell web + bonded flange"):"PBARL / "+kind;
+        if(kind==="T"&&!rib){heading.firstChild.textContent=shell?(value.kind==="BLADE"?"Shell blade ":"Shell stringer "):"T stringer ";note.textContent=shell?"Added stringer dimensions shown to scale. Blade depth is h − tf, or h for a zero-width flange. The flange property adds tf to the thinnest skin touching either side; skin footprint elements are replaced. Different materials or sandwich construction use a combined PCOMP. Choose flange materials below, and blade direction or inward offsets in Structure → Stringers. The preview excludes the underlying skin and shows the added stringer's section centroid; the solver uses the combined shell section and its selected reference plane.":"Flange outer face at the skin; web inward. Local +y points outward on either skin. +x follows the bar. Preview is proportional; input dimensions are in metres.";}
         card.classList.toggle("section-editor-invalid",!value.valid);
         inputs.forEach((input,i)=>{const invalid=!value.valid&&value.invalid.includes(i);input.setAttribute("aria-invalid",String(invalid));rows[i].classList.toggle("section-dimension-invalid",invalid);});
         status.textContent=value.valid?"":value.error;status.hidden=value.valid;
         svg.innerHTML=rib?drawing(value,id).replace(/>skin</g,">rib web<"):drawing(value,id);svg.toggleAttribute("hidden",!value.valid);
         if(value.valid)viewport?.setMetric?.(metric(value));viewport?.refresh();
-        if(value.valid){card.dataset.areaM2=String(value.area);card.dataset.centroidDepthM=String(value.centroidDepth);stats.textContent="Area: "+number(value.area*1e6)+" mm² ("+number(value.area)+" m²) · C: "+number(value.centroidDepth*1000)+" mm inward from the skin.";}
+        if(value.valid){card.dataset.areaM2=String(value.area);card.dataset.centroidDepthM=String(value.centroidDepth);stats.textContent=(shell?"Added stringer area: ":"Area: ")+number(value.area*1e6)+" mm² ("+number(value.area)+" m²) · C: "+number(value.centroidDepth*1000)+" mm inward from the skin.";}
         else {delete card.dataset.areaM2;delete card.dataset.centroidDepthM;stats.textContent="Correct the dimensions to update this section and the FE model.";}
         if(rib)stats.textContent=stats.textContent.replace("inward from the skin","from the rib web");
       };

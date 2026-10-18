@@ -103,9 +103,11 @@ const SCHEMA = ParamSpec[
               unit = "m",
               help = "Target pitch from the root master to the next master. With intermediate masters, pitch is measured along the 3D rear-spar reference path and rounded to whole bays per interval. Without intermediate masters the existing reference-line spacing is preserved"),
     ParamSpec("stringers.model", "Stringer elements", :choice, "beam", "Stringer layout";
-              choices=["beam","shell"], help="Beam uses a T-section PBARL and CBAR on each stringer path. Shell uses PSHELL webs and an attached flange sharing skin nodes. Set flange width to zero for blade-only stringers. Shell stringers connect to ribs through the shared skin/flange footprint; blade interiors are not welded to intersecting rib webs. Run-out links retain their small beam section."),
+              choices=["beam","shell"], help="Beam uses a T-section PBARL and CBAR on each stringer path. Shell uses PSHELL webs and a bonded skin-plus-flange section sharing skin nodes. Its thickness is the additional flange thickness plus the thinnest skin on either side under its footprint; original footprint skin faces are replaced once. Mixed materials or composites use PCOMP. Set flange width to zero for blade-only stringers. Blade interiors are not welded to intersecting rib webs. Run-out links retain their small beam section."),
     ParamSpec("stringers.orientation", "Blade direction", :choice, "surface_normal", "Stringer layout";
               choices=["surface_normal","coordinate_axis"], help="Surface normal follows the local skin normal, directed into the box. Coordinate axis keeps the blade parallel to X, Y or Z of the selected rectangular coordinate system, choosing the inward sign on each skin. An axis tangent to the skin cannot define a blade and is rejected."),
+    ParamSpec("stringers.shell_offsets", "Offset attached flanges inward", :bool, false, "Stringer layout";
+              help="For shell stringers, replace each flange footprint by one skin-plus-flange section. Use the thinnest adjacent skin and add the flange thickness towards the inside of the box, preserving the skin outer face. The equivalent PCOMP reference-plane offset retains membrane/bending coupling and mass eccentricity. When off, the combined section is centered on the skin nodes. This does not move blade nodes."),
     ParamSpec("stringers.axis_cid", "Blade coordinate-system ID", :int, 0, "Stringer layout";
               help="0 is the global BASIC rectangular system. A positive ID selects an existing generated skin, spar or rib material coordinate system (shown in Display > Axes & Labels). Its X/Y/Z direction is evaluated on the current mesh before adding stringer shells. IDs can change when the mesh changes; check the selected frame after remeshing."),
     ParamSpec("stringers.axis", "Blade coordinate axis", :choice, "z", "Stringer layout";
@@ -285,12 +287,12 @@ const SCHEMA = ParamSpec[
               help = "Optional front/rear web thickness overrides. Bay b spans physical ribs b and b+1; unset values inherit the default thickness"),
     ParamSpec("properties.stringer_flange_width", "Stringer flange width", :float, 0.030,
               "Beam sections"; unit = "m",
-              help = "Attached flange width, centred on the stringer path. Beam mode requires a positive T flange (PBARL DIM1). In shell mode, zero creates only the blade; a positive width adds flange PSHELLs sharing the skin footprint. Neighbouring flange footprints must not overlap."),
+              help = "Attached flange width, centred on the stringer path. Beam mode requires a positive T flange (PBARL DIM1). In shell mode, zero creates only the blade; a positive width replaces the footprint skin by one skin-plus-flange shell section. Neighbouring flange footprints must not overlap."),
     ParamSpec("properties.stringer_height", "Stringer overall height", :float, 0.032,
               "Beam sections"; unit = "m",
               help = "Beam: PBARL T DIM2, including flange thickness; the CBAR includes the centroid offset. Shell: blade depth is overall height minus flange thickness, or the full height when flange width is zero. Shell flange and skin use a shared midsurface attachment."),
     ParamSpec("properties.stringer_flange_thickness", "Stringer flange thickness", :float, 0.002,
-              "Beam sections"; unit = "m", help = "Thickness of the attached flange (PBARL DIM3 or flange PSHELL). Must be less than overall height when a flange exists. Ignored for zero-width shell blades. In shell mode it also changes blade depth and requires remeshing."),
+              "Beam sections"; unit = "m", help = "Additional attached flange thickness (PBARL DIM3). In shell mode the combined footprint property adds the thinnest adjacent skin thickness to this value. A composite flange uses this total with its specified face thicknesses and the remaining core. Must be less than overall height when a flange exists. Ignored for zero-width shell blades. Changing it changes blade depth and requires remeshing."),
     ParamSpec("properties.stringer_web_thickness", "Stringer web thickness", :float, 0.002,
               "Beam sections"; unit = "m", help = "Blade/web thickness (PBARL DIM4 or web PSHELL). With a flange it must be smaller than flange width. A zero-width shell blade has no flange-width restriction."),
     ParamSpec("properties.spar_cap_side", "Square spar cap side", :float, 0.020,
@@ -889,8 +891,8 @@ end
 """
     params_to_toml(p) -> String
 
-Write the parameter set out as a TOML input file, preserving the schema order
-and the section grouping.
+Write the parameter set out as a TOML input file, preserving first-seen section
+order and schema order within each section.
 """
 function params_to_toml(p::AbstractDict)
     io = IOBuffer()
@@ -901,24 +903,27 @@ function params_to_toml(p::AbstractDict)
     println(io, "#  Units: SI  (m, N, kg, Pa)")
     println(io, "#  Axes:  x aft, y towards the tip, z up. Right-hand semi-span lifting surface.")
     println(io, "# =========================================================================")
-    section = ""
-    for spec in SCHEMA
-        sec, name = split(spec.key, '.'; limit = 2)
-        if sec != section
-            section = String(sec)
-            println(io)
-            println(io, "[", section, "]")
+    # UI schema groups may interleave keys from the same input section (for
+    # example box geometry, then stringer controls, then box.stringer_pitch).
+    # TOML forbids reopening a table, so collect each section before writing it.
+    sections = unique(first(split(spec.key, '.'; limit=2)) for spec in SCHEMA)
+    for section in sections
+        println(io)
+        println(io, "[", section, "]")
+        for spec in SCHEMA
+            sec, name = split(spec.key, '.'; limit = 2)
+            sec == section || continue
+            value = spec.kind === :planformpoints ? normalize_planform_points(p[spec.key], spec.key; nominal=point_nominal(p, spec.key)) : p[spec.key]
+            if spec.kind === :airfoilstations
+                # A table array changes TOML scope; emit it after scalar sections.
+                continue
+            end
+            line = string(rpad(String(name), 22), "= ", toml_value(spec, value))
+            comment = isempty(spec.unit) ? spec.help :
+                      isempty(spec.help) ? spec.unit : string(spec.unit, ", ", spec.help)
+            isempty(comment) || (line = string(rpad(line, 46), "  # ", comment))
+            println(io, line)
         end
-        value = spec.kind === :planformpoints ? normalize_planform_points(p[spec.key], spec.key; nominal=point_nominal(p, spec.key)) : p[spec.key]
-        if spec.kind === :airfoilstations
-            # A table array changes TOML scope; emit it after scalar sections.
-            continue
-        end
-        line = string(rpad(String(name), 22), "= ", toml_value(spec, value))
-        comment = isempty(spec.unit) ? spec.help :
-                  isempty(spec.help) ? spec.unit : string(spec.unit, ", ", spec.help)
-        isempty(comment) || (line = string(rpad(line, 46), "  # ", comment))
-        println(io, line)
     end
     if !isempty(get(p,"airfoil.stations",Any[]))
         println(io)

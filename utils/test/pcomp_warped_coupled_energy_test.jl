@@ -10,7 +10,9 @@ function checks()
     D=[.7 .08 .03;.08 .3 -.02;.03 -.02 .15]
     B=.007A;Cs=[9. 1.2;1.2 4.];h=.2
     for xyz in ([-1. -.5 .006;1. -.5 -.006;1. .5 .006;-1. .5 -.006],
-                [-1. -.5 .002;1. -.5 -.004;.7 .5 .007;-.8 .5 -.003])
+                [-1. -.5 .002;1. -.5 -.004;.7 .5 .007;-.8 .5 -.003],
+                [-1. -.5 .12;1. -.5 -.12;1. .5 .12;-1. .5 -.12],
+                [-1. -.5 .08;1. -.5 -.16;.7 .5 .28;-.8 .5 -.12])
         pts=[SVector{3}(xyz[i,:]) for i=1:4]
         v1,v2,v3=S.shell_element_frame_quad4(pts...,:bisector)
         center=sum(pts)/4
@@ -20,6 +22,23 @@ function checks()
         @test W !== nothing
         @test S.coupled_pcomp_projected_enabled(X,B;is_pcomp=true,coords_3d=xyz)
         @test !S.coupled_pcomp_projected_enabled(X,nothing;is_pcomp=true,coords_3d=xyz,require_coupling=false)
+        # The elastic B=0 MacNeal energy admits the same finite-warp map,
+        # independently of the stricter coupled recovery/adjoint domain.
+        elastic_domain(;kw...)=S.coupled_pcomp_projected_enabled(X,nothing;
+            is_pcomp=true,coords_3d=xyz,require_coupling=false,
+            allow_uncoupled_warp=true,kw...)
+        @test all(elastic_domain(sol_type=sol) for sol in (101,103,105))
+        @test elastic_domain(sol_type=106,legacy_nonlinear=true)
+        @test !elastic_domain(sol_type=106)
+        @test !elastic_domain(snorm_pq=ones(4,2))
+        @test !elastic_domain(curvature_membrane=ones(2,2))
+        @test !elastic_domain(shear_center_only=true)
+        @test !withenv("JFEM_Q4_WARP_TRANSFORM"=>"false") do
+            elastic_domain()
+        end
+        @test !withenv("JFEM_Q4_MACNEAL_WARP_TOL"=>"1e-8") do
+            elastic_domain()
+        end
         @test !S.coupled_pcomp_projected_enabled(X,B;is_pcomp=true,coords_3d=xyz,snorm_pq=ones(4,2))
         @test !withenv("JFEM_Q4_MACNEAL_WARP_TOL"=>"1e-8") do
             S.coupled_pcomp_projected_enabled(X,B;is_pcomp=true,coords_3d=xyz)
@@ -34,6 +53,14 @@ function checks()
         @test K ≈ W'*flat*W rtol=3e-13
         ev=eigvals(Symmetric(K))
         @test minimum(ev)>-1e-12maximum(abs,ev)
+        uncoupled(X;kw...)=F.stiffness_quad4_matrices(X,A,D,Cs,h,150.;
+            kernel_planar=true,kernel_mode="macneal",k6rot=100.,
+            membrane_shear_center_row=true,membrane_incomp=false,
+            bending_incomp=false,kw...)
+        ku=uncoupled(X;coords_3d=xyz)
+        @test ku ≈ W'*uncoupled(X)*W rtol=3e-13
+        evu=eigvals(Symmetric(ku))
+        @test minimum(evu)>-1e-12maximum(abs,evu)
         for axis=1:3,rotation in (false,true)
             e=zeros(3);e[axis]=1;u=zeros(24)
             for i=1:4
@@ -41,6 +68,7 @@ function checks()
                 rotation && (u[6i-2:6i]=e)
             end
             @test norm(K*u)<2e-12norm(K)*norm(u)
+            @test norm(ku*u)<2e-12norm(ku)*norm(u)
         end
         # Cyclic numbering with the corresponding in-plane material basis
         # must commute with the same physical finite-warp congruence.

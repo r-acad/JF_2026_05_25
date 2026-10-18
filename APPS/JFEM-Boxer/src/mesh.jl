@@ -1204,7 +1204,7 @@ function mesh_checks(m::Model)
         # aerodynamic box must still have no unattached shell edge.
         boxedges=Dict{Tuple{Int,Int},Int}()
         for gr in m.groups
-            gr.kind in (:quad,:tria)&&!(component_base_pid(gr.pid) in (PID_STRINGER_WEB,PID_STRINGER_FLANGE))||continue
+            gr.kind in (:quad,:tria)&&component_base_pid(gr.pid)!=PID_STRINGER_WEB||continue
             nn=gr.kind===:quad ? 4 : 3
             for el in eachindex(gr.eids),q in 1:nn
                 nodes=view(gr.conn,nn*(el-1)+1:nn*el);a,b=nodes[q],nodes[mod1(q+1,nn)]

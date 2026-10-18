@@ -4,7 +4,7 @@ module PcompIsotropicOperatorEquivalenceFixture
 using Test, LinearAlgebra, OpenJFEM
 const S = OpenJFEM.Solver
 
-function fixture(path, scale=1.; core_factor=1.)
+function fixture(path, scale=1.; core_factor=1., warp=0.)
     h=.002scale
     Q(E,nu)=E/(1-nu^2)*[1. nu 0.;nu 1. 0.;0. 0. (1-nu)/2]
     hs=(.0004+.0016core_factor)*scale
@@ -27,7 +27,7 @@ function fixture(path, scale=1.; core_factor=1.)
             # Same rotated cell for each representation; arbitrary material THETA
             # must not change an isotropic section's operator.
             xr=cos(.31)*x-sin(.31)*y+2eid; yr=sin(.31)*x+cos(.31)*y
-            push!(lines,"GRID,$(first+j-1),,$xr,$yr,0.")
+            push!(lines,"GRID,$(first+j-1),,$xr,$yr,$(isodd(j) ? warp : -warp)")
         end
         push!(lines,"CQUAD4,$eid,$(100+p),$first,$(first+1),$(first+2),$(first+3),37.")
     end
@@ -44,7 +44,7 @@ function fixture(path, scale=1.; core_factor=1.)
     for (eid,pid) in ((13,105),(14,106))
         first=4eid-3
         for (j,(x,y)) in enumerate(shapes[2])
-            push!(lines,"GRID,$(first+j-1),,$(x+2eid),$y,0.")
+            push!(lines,"GRID,$(first+j-1),,$(x+2eid),$y,$(isodd(j) ? warp : -warp)")
         end
         push!(lines,"CQUAD4,$eid,$pid,$first,$(first+1),$(first+2),$(first+3),37.")
     end
@@ -62,12 +62,14 @@ function operators(model, pattern)
     for el in values(model["CSHELLs"]), (j,nid) in enumerate(el["NODES"])
         i=idmap[nid]
         state[6(i-1)+1]=pattern[j][1]; state[6(i-1)+2]=pattern[j][2]
+        length(pattern[j])>2 && (state[6(i-1)+3]=pattern[j][3])
     end
     contexts=Dict{Int,Any}(); guard=ReentrantLock()
     callback=function(eid,c)
         value=(Kg=copy(c[:Kg_global]),iso=c[:kg_reference_kdjj_iso_branch],
             E=c[:E_val],nu=c[:nu_val],h=c[:h],T=copy(c[:T_buf]),
-            lc=copy(c[:lc_buf4]),u=copy(c[:u_elem24]),assumed=c[:assumed_transverse])
+            lc=copy(c[:lc_buf4]),xyz=copy(c[:coords3d_local_buf4]),
+            flat=c[:elem_is_flat_kg],u=copy(c[:u_elem24]),assumed=c[:assumed_transverse])
         lock(guard) do;contexts[eid]=value;end
     end
     S.assemble_geometric_stiffness(model,idmap,X,node_R,ndof,state,normals,mapping;
@@ -145,6 +147,44 @@ function run_checks()
             fdg=(plus[2][eid].Kg-minus[2][eid].Kg)/(2delta)
             @test isapprox(dg,fdg;rtol=2e-7)
         end
+        # Warped projected cells must retain the same isotropic membrane
+        # differential operator even when the laminate bending law is anisotropic.
+        # Check both warp signs, taper/skew, and three-dimensional preload motion.
+        pattern3=((.0002,.0001,.0004),(-.0008,.0004,-.0002),
+                  (.0004,-.0003,.0001),(.0001,.0002,-.0003))
+        for warp in (.035,-.08)
+            warped=fixture(joinpath(directory,"warped_$(warp).bdf");warp=warp)
+            _,geo=operators(warped,pattern3)
+            @test all(!c.flat && c.iso && c.assumed for c in values(geo))
+            @test isapprox(geo[13].Kg,geo[14].Kg;rtol=2e-10)
+            for (a,b) in ((1,2),(3,4),(5,6),(7,8),(9,10),(11,12))
+                @test isapprox(geo[a].Kg,geo[b].Kg;rtol=2e-10)
+            end
+            for eid in (2,6,10,13)
+                c=geo[eid]
+                W=S.FEM.quad4_finite_warp_displacement_map(c.lc,c.xyz)
+                geometric(v)=S.FEM.geometric_stiffness_quad4_reference_kdjj_iso(
+                    c.lc,W*v,c.E,c.nu,c.h;assumed_transverse=true)
+                @test isapprox(c.Kg,c.T'*W'*geometric(c.u)*W*c.T;rtol=2e-11)
+                for axis in 1:3
+                    w=zeros(3);w[axis]=1.;rigid=zeros(24)
+                    for j in 1:4
+                        rigid[6(j-1)+1:6(j-1)+3]=cross(w,c.xyz[j,:])
+                        rigid[6(j-1)+4:6j]=w
+                    end
+                    @test norm(geometric(rigid))/(c.E*c.h)<1e-10
+                end
+                @test isapprox(geometric(2c.u),2geometric(c.u);rtol=2e-12)
+            end
+        end
+        prop=model["PSHELLs"]["105"];mat=model["MATs"]["20"]
+        @test S.kg_quad4_iso_assumed_transverse_enabled(.08,prop,mat;finite_warp_projection=true)
+        @test !S.kg_quad4_iso_assumed_transverse_enabled(.08,prop,mat)
+        @test !S.kg_quad4_iso_assumed_transverse_enabled(.08,prop,mat;finite_warp_projection=true,normal_transform=true)
+        @test !S.kg_quad4_iso_assumed_transverse_enabled(.08,prop,mat;finite_warp_projection=true,curvature=[1.,0.,0.])
+        @test !S.kg_quad4_iso_assumed_transverse_enabled(.08,prop,mat;finite_warp_projection=true,slope=[1.,0.])
+        coupled=copy(prop);coupled["Bmb"]=ones(3,3)
+        @test !S.kg_quad4_iso_assumed_transverse_enabled(.08,coupled,mat;finite_warp_projection=true)
     end
 end
 end

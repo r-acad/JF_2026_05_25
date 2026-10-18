@@ -235,7 +235,12 @@ function read_bulk_and_case(lines::Vector{String})
             # essential: dropping "*" moves the first ply/section dimensions
             # into header slots and silently changes the physical property.
             bulk_token = strip(cl)
-            if length(bulk_token) > 1 || bulk_token == "*" || bulk_token == "+"
+            # A fixed-field continuation can contain just one value, for
+            # example NLPARM MAXBIS=8 in column16. Its blank card-name field
+            # is meaningful even though stripping the line leaves one digit.
+            single_fixed_value = length(bulk_token) == 1 && ncodeunits(cl) > 8 &&
+                all(isspace, SubString(cl, 1, 8))
+            if length(bulk_token) > 1 || bulk_token == "*" || bulk_token == "+" || single_fixed_value
                 push!(bulk_lines, String(rstrip(cl)))
             end
         end

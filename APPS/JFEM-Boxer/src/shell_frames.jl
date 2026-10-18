@@ -56,7 +56,7 @@ function shell_material_frame(m, gr::ElemGroup, e::Int;
         eta=((minimum(ys)+maximum(ys))/2-m.wing.root_ref_y)/m.wing.semispan
     end
     slope = stringer_slope(path,eta)
-    if pid in (PID_SKIN_UPPER, PID_SKIN_LOWER, PID_LE_SKIN)
+    if pid in (PID_SKIN_UPPER, PID_SKIN_LOWER, PID_LE_SKIN, PID_STRINGER_FLANGE)
         x = unit3(cross3(z, (1.0, -slope, 0.0)))
         x[2] < 0 && (x = -1 .* x)
     elseif pid in (PID_RIB_WEB, PID_LE_RIB)

@@ -74,6 +74,19 @@ suite=@testset "Imported SOL105 exact preload adjoints" begin
     @test parsed["CASE_CONTROL"]["SUBCASES"][1]["SPC"]==20
     @test parsed["CASE_CONTROL"]["SUBCASES"][2]["SPC"]==21
     @test_throws ArgumentError W.imported_buckling_context(N,Dict("model"=>parsed),different,Dict("type"=>"buckling_factor","mode"=>1))
+    omitted=imported(replace(companion," SPC=21\n"=>""),"omitted_eigen_constraints")
+    omitted_path=joinpath(out,"omitted_eigen_constraints.bdf")
+    write(omitted_path,W.imported_sensitivity_deck(omitted,23,"105";modes=6))
+    omitted_model=N.bdf_to_model(omitted_path)
+    @test omitted_model["CASE_CONTROL"]["SUBCASES"][1]["SPC"]==20
+    @test omitted_model["CASE_CONTROL"]["SUBCASES"][2]["SPC"]===nothing
+    eigen_row=only(filter(row->row["id"]==23,omitted.params["imported.cases"]))
+    @test eigen_row["load_source_case_id"]==17
+    @test eigen_row["spc"]["selected_spc_id"]===nothing
+    @test eigen_row["spc"]["constrained_dofs"]==0
+    created=joinpath(out,"new_eigen_constraints.bdf")
+    write(created,W.imported_sensitivity_deck(omitted,17,"105";modes=6))
+    @test N.bdf_to_model(created)["CASE_CONTROL"]["SUBCASES"][2]["SPC"]==20
     end
     for bar in (any(flag in ARGS for flag in ("--preflight-only","--static-only")) ? () : (false,true))
         tag=bar ? "bar" : "shell";m=imported(buckling_fixture(;bar),tag)

@@ -85,11 +85,13 @@ function sensitivity_analytic_reduce_load(native,op,tangent)
     native.Solver._adjoint_reduce_rhs(values,op.rbe3_map)
 end
 
-"""Physical (pre-MPC) native shell dM for fixed element frames and connectivity.
+"""Reference modal shell dM before MPC reduction, with fixed element frames.
 
 Each PID direction supplies `mass_moments=(dm0,dm1,dm2)` about the actual shell
 reference plane. The root property mapper differentiates layer boundaries,
-densities and total-thickness overrides. `areal_mass` is accepted for lumped
+densities and total-thickness overrides. The modal shell convention uses the
+zeroth moment on the reference surface; body-load and displayed physical
+moments retain their first/second moments. `areal_mass` is accepted for lumped
 mass. Signed tangents bypass the positive physical-density skip in the kernels.
 """
 function sensitivity_analytic_shell_mass(native,op,directions)
@@ -111,7 +113,8 @@ function sensitivity_analytic_shell_mass(native,op,directions)
         rotation=transpose(hcat(v1,v2,v3));center=sum(points)/n
         coords=[dot(point-center,axis) for point in points,axis in (v1,v2)]
         local_mass=if consistent
-            n==4 ? F.consistent_mass_quad4(coords,1.,1.;mass_moments=dm) : F.consistent_mass_tria3(coords,1.,1.;mass_moments=dm)
+            modal_dm=(dm[1],0.0,0.0)
+            n==4 ? F.consistent_mass_quad4(coords,1.,1.;mass_moments=modal_dm) : F.consistent_mass_tria3(coords,1.,1.;mass_moments=modal_dm)
         else
             dm[1].*(n==4 ? F.reference_lumped_mass_quad4(coords,1.,1.) : F.reference_lumped_mass_tria3(coords,1.,1.))
         end

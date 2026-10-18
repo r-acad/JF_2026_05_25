@@ -20,7 +20,7 @@ function sensitivity_mode_analysis(result,index,node_R)
 end
 
 function sensitivity_eigen_mass(native,op)
-    physical=native.Solver.assemble_mass(op.model,op.id_map,op.X,op.node_R,op.ndof)
+    physical=native.Solver.assemble_modal_mass(op.model,op.id_map,op.X,op.node_R,op.ndof)
     native.Solver._apply_constraint_congruence(physical,op.rbe3_map;expected_ndof=op.ndof)
 end
 

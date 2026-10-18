@@ -137,30 +137,60 @@ end
     return raw in ("1", "true", "yes", "on")
 end
 
-@inline function pbeam_neutral_axis_coupling_enabled()
-    raw = lowercase(strip(get(ENV, "JFEM_PBEAM_NEUTRAL_AXIS_COUPLING", "false")))
-    return raw in ("1", "true", "yes", "on")
+@inline function pbeam_neutral_axis_coupling_enabled(prop::AbstractDict)
+    raw = lowercase(strip(get(ENV, "JFEM_PBEAM_NEUTRAL_AXIS_COUPLING", "auto")))
+    raw in ("1", "true", "yes", "on") && return true
+    raw == "auto" || return false
+    uppercase(string(get(prop, "TYPE", ""))) == "PBEAM" || return false
+    # The verified route is a prismatic beam with a constant neutral-axis
+    # offset. Do not silently extend it to tapered or migrating centroids.
+    for (a,b) in (("N1A","N1B"),("N2A","N2B"))
+        x=Float64(get(prop,a,0.0)); y=Float64(get(prop,b,x))
+        isapprox(x,y;rtol=1e-12,atol=0.0) || return false
+    end
+    stations=get(prop,"STATIONS",nothing)
+    stations isa AbstractVector || return true
+    for st in stations
+        for key in ("A","I1","I2","I12","J")
+            base=Float64(get(prop,key,0.0)); value=Float64(get(st,key,base))
+            isapprox(value,base;rtol=1e-12,atol=0.0) || return false
+        end
+    end
+    return true
 end
 
 @inline function _station_value(st::AbstractDict, key::String, fallback::Float64)
     return Float64(get(st, key, fallback))
 end
 
-function _apply_pbeam_neutral_axis_coupling(Ke_loc::AbstractMatrix, prop::AbstractDict)
-    pbeam_neutral_axis_coupling_enabled() || return Ke_loc
+function _pbeam_neutral_axis_transform(prop::AbstractDict)
+    (pbeam_neutral_axis_coupling_enabled(prop) || _pbeam_force_flexibility_active(prop)) || return nothing
     n1a = Float64(get(prop, "N1A", 0.0))
     n2a = Float64(get(prop, "N2A", 0.0))
-    n1b = Float64(get(prop, "N1B", 0.0))
-    n2b = Float64(get(prop, "N2B", 0.0))
+    n1b = Float64(get(prop, "N1B", n1a))
+    n2b = Float64(get(prop, "N2B", n2a))
     if max(abs(n1a), abs(n2a), abs(n1b), abs(n2b)) <= 0.0
-        return Ke_loc
+        return nothing
     end
     C = Matrix{Float64}(I, 12, 12)
     C[1, 5] += n2a
     C[1, 6] -= n1a
     C[7, 11] += n2b
     C[7, 12] -= n1b
-    return C' * Matrix(Ke_loc) * C
+    return C
+end
+
+function _apply_pbeam_neutral_axis_coupling(Ke_loc::AbstractMatrix, prop::AbstractDict)
+    C = _pbeam_neutral_axis_transform(prop)
+    return C === nothing ? Ke_loc : C' * Ke_loc * C
+end
+
+function _pbeam_neutral_axis_section_forces(f::AbstractVector, prop::AbstractDict)
+    C = _pbeam_neutral_axis_transform(prop)
+    C === nothing && return f
+    # Work conjugacy: generalized end moments include the eccentric axial
+    # force. Stress recovery needs moments about the neutral axis itself.
+    return transpose(C) \ f
 end
 
 function _pbeam_station_condensed_stiffness(L::Float64, prop::AbstractDict, E::Float64, G::Float64)
@@ -1720,6 +1750,98 @@ end
     return something(tryparse(Float64, raw), default_val)
 end
 
+function _pbeam_force_flexibility_active(prop::AbstractDict)
+    uppercase(string(get(prop,"TYPE",""))) == "PBEAM" || return false
+    lowercase(strip(get(ENV,"JFEM_PBEAM_FORCE_FLEXIBILITY","true"))) in ("1","true","yes","on") || return false
+    # Preserve the explicitly requested legacy station-condensation diagnostic.
+    pbeam_station_condensed_enabled() && return false
+    stations=get(prop,"STATIONS",nothing)
+    stations isa AbstractVector && length(stations)>=2 || return false
+    stations=sort(collect(stations);by=s->Float64(get(s,"X",0.0)))
+    Float64(get(first(stations),"X",0.0))==0.0 || return false
+    Float64(get(last(stations),"X",0.0))==1.0 || return false
+    for key in ("S1","S2","CWA","CWB")
+        iszero(Float64(get(prop,key,0.0))) || return false
+    end
+    for key in ("K1","K2")
+        value=Float64(get(prop,key,1.0))
+        isfinite(value) && value>=0.0 || return false
+    end
+    varying=false
+    previous=-Inf
+    for st in stations
+        x=Float64(get(st,"X",0.0))
+        isfinite(x) && x>previous || return false
+        previous=x
+        a,i1,i2,i12,j=(_station_value(st,key,Float64(get(prop,key,0.0))) for key in ("A","I1","I2","I12","J"))
+        all(isfinite,(a,i1,i2,i12,j)) && a>0 && i1>0 && i2>0 && j>0 && i1*i2>i12^2 || return false
+        for key in ("A","I1","I2","I12","J")
+            ref=_station_value(first(stations),key,Float64(get(prop,key,0.0)))
+            value=_station_value(st,key,Float64(get(prop,key,0.0)))
+            varying |= !isapprox(value,ref;rtol=1e-12,atol=0.0)
+        end
+    end
+    for (ka,kb) in (("N1A","N1B"),("N2A","N2B"))
+        a=Float64(get(prop,ka,0.0));b=Float64(get(prop,kb,a))
+        isfinite(a) && isfinite(b) || return false
+        varying |= !isapprox(a,b;rtol=1e-12,atol=0.0)
+    end
+    return varying
+end
+
+function _pbeam_force_flexibility_stiffness(L,prop,E,G)
+    _pbeam_force_flexibility_active(prop) || return nothing
+    E>0 && G>0 && L>0 || error("PBEAM force-flexibility stiffness requires positive E, G and length.")
+    stations=sort(collect(prop["STATIONS"]);by=s->Float64(s["X"]))
+    flexibility=zeros(6,6)
+    K1=Float64(get(prop,"K1",1.0));K2=Float64(get(prop,"K2",1.0))
+    n1a=Float64(get(prop,"N1A",0.0));n2a=Float64(get(prop,"N2A",0.0))
+    n1b=Float64(get(prop,"N1B",n1a));n2b=Float64(get(prop,"N2B",n2a))
+    # End-force equilibrium gives constant N,T,V and linear bending moments.
+    # Integrate flexibility at three Gauss stations in EACH property interval.
+    # Increasing the quadrature order changes the defined PBEAM operator.
+    for segment in 1:length(stations)-1
+        a=stations[segment];b=stations[segment+1]
+        xa=Float64(a["X"]);xb=Float64(b["X"])
+        for (r,w) in ((-sqrt(3/5),5/9),(0.0,8/9),(sqrt(3/5),5/9))
+            t=(r+1)/2;x=xa+t*(xb-xa);weight=w*L*(xb-xa)/2
+            values=map(("A","I1","I2","I12","J")) do key
+                av=_station_value(a,key,Float64(get(prop,key,0.0)))
+                bv=_station_value(b,key,Float64(get(prop,key,0.0)))
+                (1-t)*av+t*bv
+            end
+            area,i1,i2,i12,j=values
+            flexibility[1,1]+=weight/(E*area)
+            flexibility[4,4]+=weight/(G*j)
+            K1>0 && (flexibility[2,2]+=weight/(G*K1*area))
+            K2>0 && (flexibility[3,3]+=weight/(G*K2*area))
+            B=zeros(2,6)
+            B[1,1]=(1-x)*n1a+x*n1b;B[2,1]=(1-x)*n2a+x*n2b
+            B[1,2]=B[2,3]=L*(1-x)
+            B[1,6]=1;B[2,5]=-1
+            D=E*[i1 i12;i12 i2]
+            flexibility .+= weight .* (transpose(B)*(D\B))
+        end
+    end
+    equilibrium=vcat(-Matrix{Float64}(I,6,6),Matrix{Float64}(I,6,6))
+    equilibrium[5,3]=L;equilibrium[6,2]=-L
+    factor=cholesky(Symmetric(flexibility))
+    return equilibrium*(factor\transpose(equilibrium))
+end
+
+function _beam_local_stiffness(L,prop,E,G)
+    integrated=_pbeam_force_flexibility_stiffness(L,prop,E,G)
+    integrated === nothing || return integrated
+    Ke=_pbeam_station_condensed_stiffness(Float64(L),prop,Float64(E),Float64(G))
+    if Ke === nothing
+        Iy,Iz=_bar_bending_inertias(prop)
+        K1=get(prop,"K1",0.0);K2=get(prop,"K2",0.0)
+        Ke=FEM.stiffness_frame3d(L,prop["A"],Iy,Iz,prop["J"],E,G;
+            As_y=K1>0 ? K1*prop["A"] : Inf,As_z=K2>0 ? K2*prop["A"] : Inf,I12=get(prop,"I12",0.0))
+    end
+    return _apply_pbeam_neutral_axis_coupling(Ke,prop)
+end
+
 """Describe the existing K6ROT resolution without changing its precedence."""
 function k6rot_metadata(model, shear_center_only::Bool=false)
     sequence = Int(round(Float64(get(model, "SOL", get(model, "sol_type", 101)))))
@@ -2201,7 +2323,8 @@ end
 
 
 # Shared bounded-domain predicate for projected convex coupled PCOMP energy,
-# initial stress, and physical recovery. Symmetric elasticity/Kg are unchanged;
+# initial stress, and physical recovery. The separate uncoupled elastic caller
+# explicitly opts into the finite-warp map without widening recovery or Kg;
 # require_coupling=false also admits continuous physical Q/material-frame
 # reporting and provides the proven zero-coupling limit to derivative guards.
 # The ordinary finite-warp congruence is supported for nonzero B; SNORM,
@@ -2215,14 +2338,26 @@ end
         (Bmb === nothing || solver_env_bool("JFEM_SOL105_PCOMP_SELC_ALLOW_BMB", false))
 end
 
+@inline function coupled_pcomp_legacy_nonlinear_enabled(model)
+    get(model,"SOL",101) == 106 || return false
+    method=lowercase(strip(string(get(model,"PARAM_NLMETHOD","auto"))))
+    return !(method in ("formal","formal_shell_von_karman","formal_von_karman","formal_shell_vk"))
+end
+
 function coupled_pcomp_projected_enabled(coords,Bmb;is_pcomp=false,isotropic=false,
         coords_3d=nothing,snorm_pq=nothing,curvature_membrane=nothing,
         slope_membrane=nothing,kernel_mode="macneal",sol_type=101,rigid_shear=false,
-        require_coupling::Bool=true,shear_center_only::Bool=false)
+        require_coupling::Bool=true,shear_center_only::Bool=false,
+        legacy_nonlinear::Bool=false,allow_uncoupled_warp::Bool=false)
     shear_center_only && return false
-    sol_type in (101,105) || return false
+    # Linear normal modes use the same elastic energy as static analysis.
+    # The legacy SOL106 operator must retain that same infinitesimal elastic
+    # energy and use its matching geometric-force and stress recovery. Explicit
+    # formal von Karman analyses retain their separate existing formulation.
+    (sol_type in (101,103,105) || (sol_type == 106 && legacy_nonlinear)) || return false
     is_pcomp && !isotropic || return false
-    require_coupling && (Bmb === nothing || !any(!iszero,Bmb)) && return false
+    (require_coupling || (sol_type == 106 && !allow_uncoupled_warp)) &&
+        (Bmb === nothing || !any(!iszero,Bmb)) && return false
     solver_env_bool("JFEM_PCOMP_COUPLED_PROJECTED",true) || return false
     solver_env_bool("JFEM_SOL105_PCOMP_MEMBRANE_SELC",true) &&
         solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE",true) || return false
@@ -2256,14 +2391,25 @@ function coupled_pcomp_projected_enabled(coords,Bmb;is_pcomp=false,isotropic=fal
     q4_local_edge_aspect_ratio(coords) <=
         max(solver_env_float("JFEM_Q4_MACNEAL_ASPECT_MAX",1e30),1.0) || return false
     if coords_3d !== nothing
+        all(isfinite,coords_3d) || return false
         diagonal=max(norm(coords_3d[3,:]-coords_3d[1,:]),norm(coords_3d[4,:]-coords_3d[2,:]),1e-12)
         warp=maximum(abs,FEM.quad4_local_z_from_coords3d(coords_3d))/diagonal
-        warp < max(solver_env_float("JFEM_Q4_MACNEAL_WARP_TOL",1e-2),1e-12) || return false
+        # Nonzero-B coupled energy includes the finite-warp congruence. The
+        # old flat-kernel tolerance must not switch a valid warped cell to a
+        # different elastic operator. The explicit uncoupled elastic caller
+        # opts into the same map; recovery/derivative callers retain their
+        # separately validated B=0 boundary. Honor explicit research limits.
+        if (!allow_uncoupled_warp && (Bmb === nothing || !any(!iszero,Bmb))) ||
+                FEM.fem_env_has("JFEM_Q4_MACNEAL_WARP_TOL")
+            warp < max(solver_env_float("JFEM_Q4_MACNEAL_WARP_TOL",1e-2),1e-12) || return false
+        end
     end
-    if coords_3d !== nothing && FEM.quad4_finite_warp_displacement_map(coords,coords_3d) !== nothing
-        # Do not widen the independently verified flat B=0 recovery/derivative
-        # boundary just because the nonzero-B primal accepts a warp map.
-        Bmb !== nothing && any(!iszero,Bmb) || return false
+    finite_warp = coords_3d === nothing ? nothing : FEM.quad4_finite_warp_displacement_map(coords,coords_3d)
+    if finite_warp !== nothing
+        all(isfinite,finite_warp) || return false
+        # Do not widen flat B=0 recovery/derivative callers implicitly; only
+        # the elastic selector opts into this already-supported congruence.
+        (allow_uncoupled_warp || (Bmb !== nothing && any(!iszero,Bmb))) || return false
         solver_env_bool("JFEM_Q4_WARP_TRANSFORM",true) || return false
     end
     # Existing research opt-ins must not silently change only one of K/Kg/output.
@@ -2834,6 +2980,7 @@ end
                     "NODES"=>tri_nodes,
                     "THETA"=>get(el,"THETA",0.0),
                     "MCID"=>get(el,"MCID",0),
+                    "MCID_SPECIFIED"=>get(el,"MCID_SPECIFIED",false),
                 ))
             end
             n_q8_expanded += 1
@@ -2848,6 +2995,7 @@ end
                     "NODES"=>tri_nodes,
                     "THETA"=>get(el,"THETA",0.0),
                     "MCID"=>get(el,"MCID",0),
+                    "MCID_SPECIFIED"=>get(el,"MCID_SPECIFIED",false),
                 ))
             end
             n_t6_expanded += 1
@@ -3061,7 +3209,7 @@ end
                 q4_pcomp_rigid_shear[iq4] = Bool(get(prop, "TRANSVERSE_SHEAR_RIGID_LIMIT", false))
                 q4_pcomp_auto_element_axis_prop[iq4] = q4_sol105_pcomp_auto_membrane_incomp_candidate(prop)
                 q4_el_theta[iq4] = el_theta_pcomp
-                q4_el_mcid[iq4] = Int(get(el, "MCID", 0))
+                q4_el_mcid[iq4] = shell_material_coordinate_id(el)
                 q4_pcomp_shear_ratio[iq4], q4_pcomp_d16_ratio[iq4], q4_pcomp_b_ratio[iq4] =
                     pcomp_metric_ratios(prop, el_theta_pcomp)
             else
@@ -3070,7 +3218,7 @@ end
                 q4_pshell_mat2[iq4] = is_mat2
                 q4_pshell_blank_mid3[iq4] = pshell_blank_mid3
                 q4_el_theta[iq4] = el_theta
-                q4_el_mcid[iq4] = Int(get(el, "MCID", 0))
+                q4_el_mcid[iq4] = shell_material_coordinate_id(el)
             end
         elseif n == 3
             it3 += 1
@@ -3083,11 +3231,11 @@ end
                 t3_is_pcomp[it3] = true
                 t3_is_pcomp_isotropic[it3] = pcomp_is_isotropic
                 t3_el_theta[it3] = el_theta_pcomp
-                t3_el_mcid[it3] = Int(get(el, "MCID", 0))
+                t3_el_mcid[it3] = shell_material_coordinate_id(el)
             else
                 t3_is_isotropic[it3] = !is_ortho && !is_mat2
                 t3_el_theta[it3] = el_theta
-                t3_el_mcid[it3] = Int(get(el, "MCID", 0))
+                t3_el_mcid[it3] = shell_material_coordinate_id(el)
             end
         end
     end
@@ -3920,10 +4068,10 @@ end
                 _rotate_constitutive_3x3!(Cm_local, T11, T12, T13, T21, T22, T23, T31, T32, T33)
                 _rotate_constitutive_3x3!(Cb_local, T11, T12, T13, T21, T22, T23, T31, T32, T33)
                 a11 = Cs_local[1,1]; a12 = Cs_local[1,2]; a22 = Cs_local[2,2]
-                Cs_local[1,1] = cb^2*a11 + 2*cb*sb*a12 + sb^2*a22
-                Cs_local[1,2] = -cb*sb*a11 + (cb^2-sb^2)*a12 + cb*sb*a22
+                Cs_local[1,1] = cb^2*a11 - 2*cb*sb*a12 + sb^2*a22
+                Cs_local[1,2] = cb*sb*a11 + (cb^2-sb^2)*a12 - cb*sb*a22
                 Cs_local[2,1] = Cs_local[1,2]
-                Cs_local[2,2] = sb^2*a11 - 2*cb*sb*a12 + cb^2*a22
+                Cs_local[2,2] = sb^2*a11 + 2*cb*sb*a12 + cb^2*a22
                 if Bmb_local !== nothing
                     _rotate_constitutive_3x3!(Bmb_local, T11, T12, T13, T21, T22, T23, T31, T32, T33)
                 end
@@ -3957,12 +4105,11 @@ end
             # be landable without dragging the membrane rotation along with it.
             # Enabling both reproduces the previous nested behaviour exactly.
             skew_membrane_frame = solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true)
-            skew_cb_frame = solver_env_bool("JFEM_SOL105_PCOMP_SKEW_CB_FRAME", false)
+            skew_cb_frame = solver_env_bool("JFEM_SOL105_PCOMP_SKEW_CB_FRAME", true)
             if (skew_membrane_frame || skew_cb_frame) &&
                !is_pcomp_iso_ei && elem_is_flat
                 mcid_phi = Int(q4_el_mcid[ei])
-                mcid_phi_active = mcid_phi > 0 && model["CORDs"] !== nothing &&
-                                  haskey(model["CORDs"], string(mcid_phi))
+                mcid_phi_active = shell_material_coordinate_active(mcid_phi, model["CORDs"])
                 if !mcid_phi_active &&
                    pcomp_axis_mode_eff !== :g12 && pcomp_axis_mode_eff !== :global_x
                     phi = shell_material_rotation_from_g12(v1, v2, v3, p1, p2, 0.0)
@@ -3988,15 +4135,15 @@ end
                             _rotate_constitutive_3x3!(Cb_local,
                                 c2p, s2p, csp, s2p, c2p, -csp, -2csp, 2csp, c2p - s2p)
                             a11 = Cs_local[1,1]; a12 = Cs_local[1,2]; a22 = Cs_local[2,2]
-                            Cs_local[1,1] = cbp^2*a11 + 2*cbp*sbp*a12 + sbp^2*a22
-                            Cs_local[1,2] = -cbp*sbp*a11 + (cbp^2-sbp^2)*a12 + cbp*sbp*a22
+                            Cs_local[1,1] = cbp^2*a11 - 2*cbp*sbp*a12 + sbp^2*a22
+                            Cs_local[1,2] = cbp*sbp*a11 + (cbp^2-sbp^2)*a12 - cbp*sbp*a22
                             Cs_local[2,1] = Cs_local[1,2]
-                            Cs_local[2,2] = sbp^2*a11 - 2*cbp*sbp*a12 + cbp^2*a22
+                            Cs_local[2,2] = sbp^2*a11 + 2*cbp*sbp*a12 + cbp^2*a22
                         end
                     end
                 end
             end
-        elseif q4_el_mcid[ei] > 0 || elem_mat2_membrane_selc
+        elseif q4_el_mcid[ei] >= 0 || elem_mat2_membrane_selc
             # PSHELL materials use the same CQUAD4 THETA/MCID material
             # axis convention as PCOMP. THETA-based PSHELL matrices are already
             # rotated while building the property resultants above; MCID-based
@@ -4004,7 +4151,7 @@ end
             # A THETA tensor was already rotated relative to side G1-G2 in
             # property extraction. It still needs the side-to-bisector angle.
             # An MCID supplies the complete material-to-element angle instead.
-            beta = q4_el_mcid[ei] > 0 ? shell_pcomp_material_rotation(
+            beta = q4_el_mcid[ei] >= 0 ? shell_pcomp_material_rotation(
                 :element,
                 v1, v2, v3, p1, p2, p3, p4,
                 q4_el_theta[ei],
@@ -4083,8 +4230,28 @@ end
             snorm_pq=snorm_pq_arg,curvature_membrane=curvature_membrane,
             slope_membrane=slope_membrane,kernel_mode=q4_kernel_mode_static,
             sol_type=get(model,"SOL",101),rigid_shear=q4_pcomp_rigid_shear[ei],
-            shear_center_only=shear_center_only)
+            shear_center_only=shear_center_only,
+            legacy_nonlinear=coupled_pcomp_legacy_nonlinear_enabled(model))
         elem_pcomp_membrane_selc |= elem_coupled_projected
+        # This kernel already maps the projected coupled energy back to the
+        # warped reference surface. Keep it on that path even when the legacy
+        # uncoupled planarity classifier chose the curved/MITC fallback.
+        elem_kernel_planar |= elem_coupled_projected
+        # The uncoupled laminate uses the same finite-warp map of its existing
+        # projected MacNeal bending/shear energy. A warp-only switch to MITC
+        # changes that energy instead of mapping it. Reuse the bounded domain
+        # checks while leaving the coupled-energy/recovery flag unchanged.
+        # Explicit research frame, kernel, warp and shear overrides still win.
+        if !elem_kernel_planar && (Bmb_local === nothing || all(iszero,Bmb_local))
+            elem_kernel_planar = coupled_pcomp_projected_enabled(lc,Bmb_local;
+                is_pcomp=is_pcomp_ei,isotropic=is_pcomp_iso_ei,coords_3d=coords_3d_arg,
+                snorm_pq=snorm_pq_arg,curvature_membrane=curvature_membrane,
+                slope_membrane=slope_membrane,kernel_mode=q4_kernel_mode_static,
+                sol_type=get(model,"SOL",101),rigid_shear=q4_pcomp_rigid_shear[ei],
+                shear_center_only=shear_center_only,require_coupling=false,
+                legacy_nonlinear=coupled_pcomp_legacy_nonlinear_enabled(model),
+                allow_uncoupled_warp=true)
+        end
         if elem_pcomp_membrane_selc
             elem_material_shear_rotation = 0.0
         end
@@ -5002,7 +5169,7 @@ end
         # PCOMP laminate-axis rotation for TRIA3 follows the element x-axis
         # plus the shell THETA angle, matching Reference shell convention.
         Cm_t3 = t3_Cm[ei]; Cb_t3 = t3_Cb[ei]; Cs_t3 = t3_Cs[ei]; Bmb_t3 = t3_Bmb[ei]
-        if t3_is_pcomp[ei] || t3_el_mcid[ei] > 0
+        if t3_is_pcomp[ei] || t3_el_mcid[ei] >= 0
             beta = shell_pcomp_material_rotation(
                 t3_is_pcomp[ei] ? pcomp_axis_mode : :element,
                 v1, v2, v3, p1, p2,
@@ -5020,7 +5187,9 @@ end
                 _rotate_constitutive_3x3!(Cm_t3, T11, T12, T13, T21, T22, T23, T31, T32, T33)
                 _rotate_constitutive_3x3!(Cb_t3, T11, T12, T13, T21, T22, T23, T31, T32, T33)
                 a11 = Cs_t3[1,1]; a12 = Cs_t3[1,2]; a22 = Cs_t3[2,2]
-                shear_s = t3_is_pcomp[ei] ? sb : -sb
+                # PCOMP and PSHELL shear tensors share the same physical
+                # rotation convention as their membrane and bending tensors.
+                shear_s = -sb
                 Cs_t3[1,1] = cb^2*a11 + 2*cb*shear_s*a12 + sb^2*a22
                 Cs_t3[1,2] = -cb*shear_s*a11 + (cb^2-sb^2)*a12 + cb*shear_s*a22
                 Cs_t3[2,1] = Cs_t3[1,2]
@@ -5130,11 +5299,7 @@ end
         K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
         As_y = (K1 > 0.0) ? K1 * prop["A"] : Inf
         As_z = (K2 > 0.0) ? K2 * prop["A"] : Inf
-        Ke_loc = _pbeam_station_condensed_stiffness(L, prop, mat["E"], mat["G"])
-        if isnothing(Ke_loc)
-            Ke_loc = FEM.stiffness_frame3d(L, prop["A"], Iy, Iz, prop["J"], mat["E"], mat["G"]; As_y=As_y, As_z=As_z, I12=Iyz)
-        end
-        Ke_loc = _apply_pbeam_neutral_axis_coupling(Ke_loc, prop)
+        Ke_loc = _beam_local_stiffness(L,prop,mat["E"],mat["G"])
         # Apply pin flags (PA/PB) via static condensation on local stiffness
         pa = get(bar, "PA", 0); pb = get(bar, "PB", 0)
         if pa != 0 || pb != 0
@@ -5199,11 +5364,7 @@ end
         K1 = get(prop, "K1", 0.0); K2 = get(prop, "K2", 0.0)
         As_y = (K1 > 0.0) ? K1 * prop["A"] : Inf
         As_z = (K2 > 0.0) ? K2 * prop["A"] : Inf
-        Ke_loc = _pbeam_station_condensed_stiffness(L, prop, mat["E"], mat["G"])
-        if isnothing(Ke_loc)
-            Ke_loc = FEM.stiffness_frame3d(L, prop["A"], Iy, Iz, prop["J"], mat["E"], mat["G"]; As_y=As_y, As_z=As_z, I12=Iyz)
-        end
-        Ke_loc = _apply_pbeam_neutral_axis_coupling(Ke_loc, prop)
+        Ke_loc = _beam_local_stiffness(L,prop,mat["E"],mat["G"])
         # Apply pin flags (PA/PB) via static condensation on local stiffness
         pa = get(bar, "PA", 0); pb = get(bar, "PB", 0)
         if pa != 0 || pb != 0
@@ -5620,6 +5781,16 @@ end
     return Kg_global
 end
 
+# Shell kernels remain parallel, but optional capture callbacks may accumulate
+# into an ordinary Dict or vector. Serialize their execution within one assembly
+# and finish copying each thread's scratch data before that thread reuses it.
+function _capture_geometric_element!(capture, capture_lock, eid, data)
+    lock(capture_lock) do
+        capture(eid, data)
+    end
+    return nothing
+end
+
 @solver_stage "geometric_assembly" "Assemble geometric stiffness" function assemble_geometric_stiffness(model, id_map, node_coords, node_R, ndof, u_global, snorm_normals, rbe3_map;
                                       snorm_angle_override::Union{Nothing,Float64}=nothing,
                                       buckling_subcase=nothing,
@@ -5628,6 +5799,7 @@ end
                                       csc_cache=nothing,
                                       geometric_capture=nothing)
     kg_t_total = time_ns()
+    geometric_capture_lock = geometric_capture === nothing ? nothing : ReentrantLock()
     kg_timings = Dict{String,Any}()
     kg_t_setup = time_ns()
     FEM.env_snapshot_begin!()
@@ -5913,6 +6085,12 @@ end
     conrods = get(model, "CONRODs", Dict())
     model_has_line_elements = !isempty(cbars) || !isempty(cbeams) || !isempty(crods) || !isempty(conrods)
     pshells = model["PSHELLs"]; pbarls = model["PBARLs"]; mats = model["MATs"]
+    for (group, beams) in (("CBAR",cbars),("CBEAM",cbeams)), (eid,beam) in beams
+        prop = get(pbarls,string(beam["PID"]),nothing)
+        prop === nothing && continue
+        (_pbeam_neutral_axis_transform(prop) === nothing && !_pbeam_force_flexibility_active(prop)) && continue
+        error("Geometric stiffness for $group $eid with tapered PBEAM sections or neutral-axis offsets N1/N2 is not implemented. Linear static elastic stiffness is supported; buckling and geometric-nonlinear analysis require a verified geometric-stiffness formulation for this section.")
+    end
     auto_pcomp_membrane_incomp_model = any(q4_sol105_pcomp_auto_membrane_incomp_candidate, values(pshells))
 
     n_nodes = length(id_map)
@@ -6580,13 +6758,14 @@ end
             # Equivalent isotropic membrane sections must use the same
             # prestress-gradient operator independently of PSHELL/PCOMP syntax.
             # Nonzero B requires curvature recovery and stays on the coupled path.
-            kg_reference_kdjj_iso_branch =
+            kg_reference_kdjj_iso_candidate =
                 kg_iso_reference_kdjj_mode_v !== :off &&
                 (is_pcomp_clt ? pcomp_isotropic_membrane : is_iso_kg) &&
-                elem_is_flat_kg &&
                 get(prop, "Bmb", nothing) === nothing &&
                 (kg_iso_reference_kdjj_mode_v === :all ||
                  abs(90.0 - edge_skew_kg) >= kg_iso_reference_kdjj_skew_min_deg_v)
+            kg_reference_kdjj_iso_branch =
+                kg_reference_kdjj_iso_candidate && elem_is_flat_kg
             # Reference-KDJJ-exact Kg for FLAT COMPOSITE (PCOMP, non-isotropic)
             # CQUAD4.  Same bisector-frame component-string operator as the iso
             # branch, but the membrane stress resultant is JFEM's ALREADY-
@@ -6653,6 +6832,23 @@ end
                 kg_flat_dkmq_branch = false
                 kg_flat_plate_branch = false
             end
+            # A finite-warp MacNeal element keeps a planar material operator.
+            # Match its prestress law without changing physical curvature flags.
+            kg_projected_pcomp = get(model, "SOL", 101) == 105 && !elem_is_flat_kg &&
+                get(prop, "Bmb", nothing) === nothing &&
+                kg_axis_mode_eff == q4_pcomp_axis_mode("JFEM_Q4_PCOMP_AXIS_MODE_STATIC") &&
+                !elem_mitc4_3d_kg_recovery && !use_geom_snorm_kg &&
+                !snorm_director && !snorm_transform_only &&
+                kg_surface_operator_mode !== :covariant &&
+                !FEM.fem_env_has("JFEM_Q4_FLAT_TOL_REL") &&
+                coupled_pcomp_projected_enabled(lc_buf4,get(prop,"Bmb",nothing);
+                    is_pcomp=is_pcomp_clt,isotropic=pcomp_is_isotropic,
+                    coords_3d=coords3d_local_buf4,snorm_pq=snorm_pq_kg,
+                    curvature_membrane=curvature_membrane,slope_membrane=slope_membrane_kg,
+                    kernel_mode=q4_kernel_mode_kg,sol_type=get(model,"SOL",101),
+                    require_coupling=false,allow_uncoupled_warp=true,
+                    rigid_shear=get(prop,"TRANSVERSE_SHEAR_RIGID_LIMIT",false),
+                    legacy_nonlinear=coupled_pcomp_legacy_nonlinear_enabled(model))
             if is_pcomp_clt
                 theta_deg = Float64(get(el, "THETA", 0.0))
                 theta_rad = deg2rad(theta_deg)
@@ -6702,7 +6898,7 @@ end
                     kg_axis_mode_eff,
                     v1, v2, v3, p1, p2, p3, p4,
                     theta_rad,
-                    Int(get(el, "MCID", 0)),
+                    shell_material_coordinate_id(el),
                     model["CORDs"],
                 )
                 kg_material_shear_rotation = beta_kg
@@ -6729,10 +6925,9 @@ end
                 # :g12/:global_x betas already contain the frame angle).  Rotate
                 # Cm_override AND Bmb_kg (same membrane-strain frame).
                 if solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true) &&
-                   !pcomp_is_isotropic && elem_is_flat_kg
-                    mcid_kg_phi = Int(get(el, "MCID", 0))
-                    mcid_kg_phi_active = mcid_kg_phi > 0 && model["CORDs"] !== nothing &&
-                                         haskey(model["CORDs"], string(mcid_kg_phi))
+                   !pcomp_is_isotropic && (elem_is_flat_kg || kg_projected_pcomp)
+                    mcid_kg_phi = shell_material_coordinate_id(el)
+                    mcid_kg_phi_active = shell_material_coordinate_active(mcid_kg_phi, model["CORDs"])
                     if !mcid_kg_phi_active &&
                        kg_axis_mode_eff !== :g12 && kg_axis_mode_eff !== :global_x
                         phi_kg = shell_material_rotation_from_g12(v1, v2, v3, p1, p2, 0.0)
@@ -6757,10 +6952,10 @@ end
                         _rotate_constitutive_3x3!(Cb_kg,
                             c2, s2, cs, s2, c2, -cs, -2cs, 2cs, c2-s2)
                         a11 = Cs_kg[1,1]; a12 = Cs_kg[1,2]; a22 = Cs_kg[2,2]
-                        Cs_kg[1,1] = cb^2*a11 + 2*cb*sb*a12 + sb^2*a22
-                        Cs_kg[1,2] = -cb*sb*a11 + (cb^2-sb^2)*a12 + cb*sb*a22
+                        Cs_kg[1,1] = cb^2*a11 - 2*cb*sb*a12 + sb^2*a22
+                        Cs_kg[1,2] = cb*sb*a11 + (cb^2-sb^2)*a12 - cb*sb*a22
                         Cs_kg[2,1] = Cs_kg[1,2]
-                        Cs_kg[2,2] = sb^2*a11 - 2*cb*sb*a12 + cb^2*a22
+                        Cs_kg[2,2] = sb^2*a11 + 2*cb*sb*a12 + cb^2*a22
                     end
                 end
             end
@@ -6774,8 +6969,8 @@ end
                 # recovery; an equivalent isotropic E/NU loses MAT2/MAT8
                 # anisotropy and the membrane force caused by MID4 curvature.
                 theta = deg2rad(Float64(get(el,"THETA",0.0)))
-                mcid = Int(get(el,"MCID",0))
-                beta = mcid > 0 ? shell_pcomp_material_rotation(
+                mcid = shell_material_coordinate_id(el)
+                beta = mcid >= 0 ? shell_pcomp_material_rotation(
                     :element,v1,v2,v3,p1,p2,p3,p4,theta,mcid,model["CORDs"]) :
                     (kg_mat2_membrane_selc ? shell_material_rotation_from_g12(v1,v2,v3,p1,p2,theta) : theta)
                 Cm_override = h .* pshell_plane_stress_matrix(mat,beta)
@@ -6817,14 +7012,15 @@ end
                 kg_membrane_selc =
                     solver_env_bool("JFEM_SOL105_PCOMP_MEMBRANE_SELC", true) &&
                     solver_env_bool("JFEM_SOL105_PCOMP_SKEW_MEMBRANE", true) &&
-                    is_pcomp_clt && !pcomp_is_isotropic && elem_is_flat_kg &&
+                    is_pcomp_clt && !pcomp_is_isotropic && (elem_is_flat_kg || kg_projected_pcomp) &&
                     Bmb_kg === nothing
                 kg_membrane_selc |= kg_mat2_membrane_selc
                 kg_coupled_projected = coupled_pcomp_projected_enabled(lc_buf4,Bmb_kg;
                     is_pcomp=is_pcomp_clt,isotropic=pcomp_is_isotropic,coords_3d=coords3d_local_buf4,
                     snorm_pq=snorm_pq_kg,curvature_membrane=curvature_membrane,
                     slope_membrane=slope_membrane_kg,kernel_mode=q4_kernel_mode_kg,
-                    sol_type=get(model,"SOL",101),rigid_shear=get(prop,"TRANSVERSE_SHEAR_RIGID_LIMIT",false))
+                    sol_type=get(model,"SOL",101),rigid_shear=get(prop,"TRANSVERSE_SHEAR_RIGID_LIMIT",false),
+                    legacy_nonlinear=coupled_pcomp_legacy_nonlinear_enabled(model))
                 if kg_coupled_projected
                     projected = FEM.quad4_coupled_projected_fields(lc_buf4,u_elem24,
                         Cm_override,Bmb_kg,zeros(3,3);coords_3d=coords3d_local_buf4)
@@ -7310,17 +7506,8 @@ end
             coords3d_buf4[2,1] = p2[1]; coords3d_buf4[2,2] = p2[2]; coords3d_buf4[2,3] = p2[3]
             coords3d_buf4[3,1] = p3[1]; coords3d_buf4[3,2] = p3[2]; coords3d_buf4[3,3] = p3[3]
             coords3d_buf4[4,1] = p4[1]; coords3d_buf4[4,2] = p4[2]; coords3d_buf4[4,3] = p4[3]
-            if kg_reference_kdjj_iso_branch
-                # This kernel recovers its own prestress. Supply the same
-                # physical-to-projected preload used by elastic K and ordinary
-                # recovery; the work-conjugate W'KgW is still applied once below.
-                # Omitting W here creates membrane stress from rigid rotation
-                # of a warped Q4. A planar element keeps the original vector.
-                warp_preload_map = apply_finite_warp_kg ?
-                    FEM.quad4_finite_warp_displacement_map(
-                        lc_buf4, coords3d_local_buf4) : nothing
-                u_kdjj = warp_preload_map === nothing ? u_elem24 : warp_preload_map * u_elem24
-                assumed_transverse = kg_quad4_iso_assumed_transverse_enabled(
+            assumed_transverse = kg_reference_kdjj_iso_candidate &&
+                kg_quad4_iso_assumed_transverse_enabled(
                     warp_ratio_kg, prop, mat;
                     finite_warp_projection=apply_finite_warp_kg,
                     normal_transform=nc > 0 || snorm_completion_active_kg || elem_snorm_curvature_kg ||
@@ -7332,6 +7519,23 @@ end
                     curvature=curvature_membrane === nothing ? kg_curvature : curvature_membrane,
                     slope=slope_membrane_kg,
                 )
+            # A finite-warp projected cell retains this same membrane-gradient
+            # operator. Flatness alone must not switch a centered isotropic-A
+            # laminate to a different stress recovery/geometric formulation.
+            # The helper excludes director, curvature and covariant paths and
+            # requires the same W preload map and W'KgW pullback used below.
+            kg_reference_kdjj_iso_branch |=
+                kg_reference_kdjj_iso_candidate && !elem_is_flat_kg && assumed_transverse
+            if kg_reference_kdjj_iso_branch
+                # This kernel recovers its own prestress. Supply the same
+                # physical-to-projected preload used by elastic K and ordinary
+                # recovery; the work-conjugate W'KgW is still applied once below.
+                # Omitting W here creates membrane stress from rigid rotation
+                # of a warped Q4. A planar element keeps the original vector.
+                warp_preload_map = apply_finite_warp_kg ?
+                    FEM.quad4_finite_warp_displacement_map(
+                        lc_buf4, coords3d_local_buf4) : nothing
+                u_kdjj = warp_preload_map === nothing ? u_elem24 : warp_preload_map * u_elem24
                 Kg_loc = FEM.geometric_stiffness_quad4_reference_kdjj_iso(
                     lc_buf4, u_kdjj, E_val, nu_val, h;
                     assumed_transverse=assumed_transverse,
@@ -7487,6 +7691,39 @@ end
                     principal_shear_z_factor=principal_shear_z_factor_eff,
                     principal_shear_ratio_min=principal_shear_ratio_min_eff,
                 )
+                # Flat uncoupled composite shells require the same assumed
+                # transverse gradient energy as the projected isotropic shell.
+                # The full recovered per-GP membrane resultant remains frozen;
+                # this changes only the transverse bilinear metric, not preload
+                # recovery, in-plane components, or constraint transformations.
+                # The normal-moment SNORM operation below is a linear
+                # displacement pullback, not an additional intrinsic-curvature
+                # law. The projected transverse work must be completed BEFORE
+                # that same pullback and finite-warp congruence. Excluding a
+                # projected cell merely because it has averaged nodal normals
+                # drops this energy while leaving its in-plane stress unchanged.
+                kg_projected_snorm_assumed = snorm_pq_kg !== nothing &&
+                    FEM.quad4_snorm_normal_moment_mode() &&
+                    !snorm_director && !snorm_transform_only
+                kg_flat_uncoupled_pcomp_assumed =
+                    is_pcomp_clt && !pcomp_is_isotropic && (elem_is_flat_kg || kg_projected_pcomp) &&
+                    get(prop,"Bmb",nothing) === nothing &&
+                    (kg_projected_snorm_assumed ||
+                     (snorm_pq_kg === nothing && !snorm_completion_active_kg &&
+                      !elem_snorm_curvature_kg)) && !use_geom_snorm_kg &&
+                    curvature_membrane === nothing && slope_membrane_kg === nothing
+                if !elem_mitc4_3d_kg_recovery &&
+                   (kg_coupled_projected || kg_flat_uncoupled_pcomp_assumed) &&
+                   kg_trans_mode_eff === :principal_transverse &&
+                   lowercase(strip(get(ENV,"JFEM_KG_SHELL_TRANSVERSE_W_FORM","w"))) == "w" &&
+                   !solver_env_bool("JFEM_KG_SHELL_LOCAL_TRANS_SPLIT",false)
+                    # Coupled recovery already supplies the correct frozen N.
+                    # Its transverse displacement field uses the same assumed
+                    # midsurface gradients as the projected isotropic operator.
+                    # Apply this before the common finite-warp congruence.
+                    FEM.add_quad4_assumed_transverse_gradient_delta!(
+                        Kg_loc,lc_buf4,sigma_mem_input,h)
+                end
             end
 
             # Keep SOL105 in the same physical coordinates as the elastic
@@ -7549,7 +7786,8 @@ end
                 b = (idx-1)*6
                 for d in 1:6; dofs_buf24[(k-1)*6+d] = b+d; end
             end
-            geometric_capture === nothing || geometric_capture(shell_eids[_shell_ei], Base.@locals)
+            geometric_capture === nothing || _capture_geometric_element!(
+                geometric_capture, geometric_capture_lock, shell_eids[_shell_ei], Base.@locals)
             local _k = 0
             @inbounds for cc in 1:24, rr in 1:24
                 _k += 1
@@ -7646,7 +7884,7 @@ end
                     tri_kg_axis_mode,
                     v1, v2, v3, p1, p2,
                     deg2rad(Float64(get(el, "THETA", 0.0))),
-                    Int(get(el, "MCID", 0)),
+                    shell_material_coordinate_id(el),
                     model["CORDs"],
                 )
                 if abs(beta_kg) > 1e-10
@@ -7663,8 +7901,8 @@ end
 
             if !is_pcomp_clt && (is_ortho || is_mat2 || get(prop,"MID4",0) != 0)
                 theta = deg2rad(Float64(get(el,"THETA",0.0)))
-                mcid = Int(get(el,"MCID",0))
-                beta = mcid > 0 ? shell_pcomp_material_rotation(
+                mcid = shell_material_coordinate_id(el)
+                beta = mcid >= 0 ? shell_pcomp_material_rotation(
                     :element,v1,v2,v3,p1,p2,theta,mcid,model["CORDs"]) : theta
                 Cm_override_t3 = h .* pshell_plane_stress_matrix(mat,beta)
                 mid4 = Int(get(prop,"MID4",0))
@@ -7720,7 +7958,8 @@ end
                 b = (idx-1)*6
                 for d in 1:6; dofs_t3[(k-1)*6+d] = b+d; end
             end
-            geometric_capture === nothing || geometric_capture(shell_eids[_shell_ei], Base.@locals)
+            geometric_capture === nothing || _capture_geometric_element!(
+                geometric_capture, geometric_capture_lock, shell_eids[_shell_ei], Base.@locals)
             local _k = 0
             @inbounds for cc in 1:18, rr in 1:18
                 _k += 1

@@ -146,7 +146,8 @@ function imported_prepare_cases!(native,m)
         if Int(model["SOL"])==105&&preload!==nothing&&haskey(model["CASE_CONTROL"]["SUBCASES"],preload)
             static=imported_effective_case_control(model,sourcecontrol,preload)
             control["LOAD"]=get(static,"LOAD",nothing)
-            get(control,"SPC",nothing)===nothing&&(control["SPC"]=get(static,"SPC",nothing))
+            # The displayed preload loads follow STATSUB, while constraints
+            # remain those selected by this eigen-subcase.
             row["load_source_case_id"]=preload
         else
             row["load_source_case_id"]=row["id"]

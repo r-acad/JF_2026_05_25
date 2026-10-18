@@ -1519,6 +1519,10 @@ end
                                                     coord::AbstractDict, theta_rad::Float64=0.0)
     x_ref = _coord_axis_svector(coord, "U", SVector(1.0, 0.0, 0.0))
     y_ref = _coord_axis_svector(coord, "V", SVector(0.0, 1.0, 0.0))
+    return shell_material_rotation_from_axes(v1, v2, v3, x_ref, y_ref, theta_rad)
+end
+
+@inline function shell_material_rotation_from_axes(v1, v2, v3, x_ref, y_ref, theta_rad=0.0)
     x_proj = x_ref - dot(x_ref, v3) * v3
     lenxp2 = dot(x_proj, x_proj)
     if lenxp2 <= 1e-24
@@ -1530,6 +1534,22 @@ end
     end
     x_mat = x_proj / sqrt(lenxp2)
     return theta_rad + atan(dot(x_mat, v2), dot(x_mat, v1))
+end
+
+# A blank/real THETA field and integer MCID=0 both historically stored MCID=0.
+# Preserve that dictionary representation, but use -1 for angle mode inside the
+# solver. Positive coordinate IDs remain explicit for older in-memory models.
+@inline function shell_material_coordinate_id(element::AbstractDict)
+    mcid = Int(get(element, "MCID", 0))
+    return mcid > 0 || (mcid == 0 && get(element, "MCID_SPECIFIED", false)) ? mcid : -1
+end
+
+@inline shell_material_coordinate_active(mcid::Integer, cords) =
+    mcid == 0 || (mcid > 0 && cords !== nothing && haskey(cords, string(mcid)))
+
+@inline function shell_material_basic_rotation(v1, v2, v3)
+    return shell_material_rotation_from_axes(v1, v2, v3,
+        SVector(1.0, 0.0, 0.0), SVector(0.0, 1.0, 0.0))
 end
 
 @inline function shell_pcomp_kg_rotation(mode::Symbol,
@@ -1571,6 +1591,7 @@ end
                                          theta_rad::Float64,
                                          mcid::Integer,
                                          cords)
+    mcid == 0 && return shell_material_basic_rotation(v1, v2, v3)
     if mcid > 0 && cords !== nothing && haskey(cords, string(mcid))
         return shell_material_rotation_from_coord(v1, v2, v3, cords[string(mcid)], 0.0)
     end
@@ -1606,6 +1627,7 @@ end
                                                theta_rad::Float64,
                                                mcid::Integer,
                                                cords)
+    mcid == 0 && return shell_material_basic_rotation(v1, v2, v3)
     if mcid > 0 && cords !== nothing && haskey(cords, string(mcid))
         return shell_material_rotation_from_coord(v1, v2, v3, cords[string(mcid)], 0.0)
     end

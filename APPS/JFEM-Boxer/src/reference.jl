@@ -351,6 +351,10 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
     card!(io, "PARAM", ("GRDPNT", 0))
     card!(io, "PARAM", ("AUTOSPC", "YES"))
     card!(io, "PARAM", ("WTMASS", 1.0))
+    if !concentrated&&any(get(property,"combined_flange",false)&&property["type"]=="PCOMP" for property in model_property_definitions(m))
+        comment!(io,"Combined flange laminates use coupled consistent mass to retain ply-density eccentricity and rotary inertia; lumped shell mass omits these moments")
+        card!(io,"PARAM",("COUPMASS",1))
+    end
     if sol=="105"
         get(p,"output.buckling_compact",false)&&println(io,"PARAM,JFBKCOMP,1")
     end
@@ -484,7 +488,7 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
         nsm=concentrated ? 0. : property[property["kind"]=="shell" ? "nonstructural_mass_kg_m2" : "nonstructural_mass_kg_m"]
         if property["kind"]=="shell"
             if property["type"]=="PCOMP"
-                comment!(io,"Symmetric isotropic face/core/face; ply thicknesses explicit, centered midsurface")
+                comment!(io,get(property,"combined_flange",false) ? "Bonded flange plus thinnest adjacent skin; inward flange plies first, explicit reference plane" : "Symmetric isotropic face/core/face; ply thicknesses explicit, centered midsurface")
                 fields=Any[pid,property["z0_m"],nsm,nothing,nothing,nothing,nothing,nothing]
                 for ply in property["plies"];append!(fields,Any[ply["material_id"],ply["thickness_m"],ply["angle_deg"],"YES"]);end
                 card!(io,"PCOMP",fields)

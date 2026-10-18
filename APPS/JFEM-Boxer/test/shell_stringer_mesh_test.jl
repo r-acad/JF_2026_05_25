@@ -20,7 +20,7 @@ function footprint_check(m)
         W.component_base_pid(group.pid)==W.PID_STRINGER_FLANGE||continue
         n=group.kind===:quad ? 4 : 3
         for e in eachindex(group.eids)
-            @test Tuple(sort(group.conn[n*(e-1)+1:n*e])) in skinsets
+            @test !(Tuple(sort(group.conn[n*(e-1)+1:n*e])) in skinsets)
         end
     end
 end

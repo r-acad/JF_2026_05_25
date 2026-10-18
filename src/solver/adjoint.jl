@@ -844,6 +844,11 @@ function _beam_surface_force_coefficients(prop, sample, A::Float64, Iy::Float64,
         coeff[12] += c_m1
         coeff[11] += -c_m2
     end
+    # Stresses use centroid section resultants, whereas Ke_loc returns forces
+    # work-conjugate to the beam reference line: f_ref = C' * f_section.
+    # Transform the response covector too, so dr/du uses the same operator.
+    C = _pbeam_neutral_axis_transform(prop)
+    C === nothing || (coeff = C \ coeff)
     return coeff
 end
 
@@ -860,11 +865,11 @@ function _beam_station_properties_constant(prop::AbstractDict)
         ref = _beam_station_property_value(first(stations), prop, field)
         for st in stations
             val = _beam_station_property_value(st, prop, field)
-            abs(val - ref) <= 1e-10 * max(1.0, abs(ref), abs(val)) ||
+            isapprox(val, ref; rtol=1e-12, atol=0.0) ||
                 return false
         end
         prop_val = field == "I1" ? Float64(get(prop, "I1", get(prop, "I", ref))) : Float64(get(prop, field, ref))
-        abs(prop_val - ref) <= 1e-10 * max(1.0, abs(ref), abs(prop_val)) ||
+        isapprox(prop_val, ref; rtol=1e-12, atol=0.0) ||
             return false
     end
     return true
@@ -877,7 +882,8 @@ function _get_beam_element_data(eid::Int, model, id_map, node_coords, node_R, re
     prop = get(get(model, "PBARLs", Dict()), pid_str, nothing)
     prop === nothing && return nothing
     prop_type = uppercase(strip(string(get(prop, "TYPE", "PBAR"))))
-    if (prop_type == "PBEAM" || haskey(prop, "STATIONS")) && !_beam_station_properties_constant(prop)
+    if _pbeam_force_flexibility_active(prop) ||
+       ((prop_type == "PBEAM" || haskey(prop, "STATIONS")) && !_beam_station_properties_constant(prop))
         error("[ADJOINT] beam stress sensitivities currently support constant/equivalent PBAR/PBARL/PBEAM-style CBAR/CBEAM properties only.")
     end
     mid_str = string(Int(get(prop, "MID", 0)))
@@ -929,12 +935,7 @@ function _get_beam_element_data(eid::Int, model, id_map, node_coords, node_R, re
     K2 = Float64(get(prop, "K2", 0.0))
     As_y = K1 > 0.0 ? K1 * A : Inf
     As_z = K2 > 0.0 ? K2 * A : Inf
-    Ke_loc = FEM.stiffness_frame3d(
-        L, A, Iy, Iz, J, Float64(mat["E"]), Float64(mat["G"]);
-        As_y=As_y,
-        As_z=As_z,
-        I12=I12,
-    )
+    Ke_loc = _beam_local_stiffness(L, prop, Float64(mat["E"]), Float64(mat["G"]))
     pa = Int(get(beam, "PA", 0))
     pb = Int(get(beam, "PB", 0))
     if pa != 0 || pb != 0
@@ -1096,7 +1097,7 @@ function _get_shell_element_data(eid::Int, model, id_map, node_coords, node_R)
     pcomp_rotation = 0.0
     if prop_type == "PCOMP_CLT"
         theta_rad = deg2rad(Float64(get(el, "THETA", 0.0)))
-        mcid = Int(get(el, "MCID", 0))
+        mcid = shell_material_coordinate_id(el)
         mode = q4_pcomp_axis_mode("JFEM_Q4_PCOMP_AXIS_MODE_STATIC")
         pcomp_rotation =
             n_nodes == 4 ?
@@ -1400,7 +1401,7 @@ end
 
 function _beam_design_field_from_dv(dv_type)
     norm_type = lowercase(string(dv_type))
-    norm_type == "beam_area" && return "A"
+    norm_type in ("bar_area", "beam_area") && return "A"
     norm_type == "beam_i1" && return "I1"
     norm_type == "beam_i2" && return "I2"
     norm_type == "beam_j" && return "J"
@@ -1436,6 +1437,18 @@ function _beam_model_with_property_delta(model, pid::Integer, field::AbstractStr
     prop === nothing && error("[ADJOINT] beam stress derivative could not find PBAR/PBARL property $pid.")
     value = _beam_property_value(prop, field) + Float64(delta)
     value > 0.0 || error("[ADJOINT] beam stress derivative produced nonpositive $field for property $pid.")
+    # This response route admits prismatic stations only. A uniform section
+    # variable changes every station and its equivalent property together.
+    if field in ("A", "I1", "I2", "I12", "J")
+        _beam_station_properties_constant(prop) ||
+            error("[ADJOINT] Beam property perturbation requires constant stations.")
+        stations = get(prop, "STATIONS", nothing)
+        if stations isa AbstractVector
+            for station in stations
+                station[field] = value
+            end
+        end
+    end
     prop[field] = value
     field == "I1" && (prop["I"] = value)
     return m
@@ -1450,6 +1463,10 @@ function _beam_model_with_material_delta(model, mid::Integer, field::AbstractStr
         error("[ADJOINT] beam stress derivative produced nonpositive MAT1 $field for material $mid.")
     field == "NU" && !(-0.49 < value < 0.49) &&
         error("[ADJOINT] beam stress derivative produced unsupported MAT1 NU=$value for material $mid.")
+    if field == "E"
+        # Match material_E's constitutive direction: constant nu and G/E.
+        mat["G"] = Float64(mat["G"]) * value / Float64(mat["E"])
+    end
     mat[field] = value
     field == "NU" && haskey(mat, "E") && (mat["G"] = Float64(mat["E"]) / (2.0 * (1.0 + value)))
     return m
@@ -2115,7 +2132,8 @@ function _adjoint_pcomp_zero_limit_supported(results, pid)
         nodes = el["NODES"]
         length(nodes) == 4 || return false
         # These additional transformations have no independent boundary proof.
-        all(iszero(get(el,key,0)) for key in ("THETA","MCID","ZOFFS")) || return false
+        shell_material_coordinate_id(el) < 0 || return false
+        all(iszero(get(el,key,0)) for key in ("THETA","ZOFFS")) || return false
         for sc in results["subcases"]
             ids = get(sc,"id_map",results["id_map"])
             X = get(sc,"node_coords",results["node_coords"])

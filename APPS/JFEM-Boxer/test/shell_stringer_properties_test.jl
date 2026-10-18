@@ -57,9 +57,15 @@ tests=@testset "Shell stringer properties, export and conserved mass" begin
         @test sort(vcat(panel["stringer_web_eids"],panel["stringer_flange_eids"]))==panel["stringer_eids"]
         for (field,thickness) in (("stringer_web_pid",p["properties.stringer_web_thickness"]),("stringer_flange_pid",p["properties.stringer_flange_thickness"]))
             prop=properties[panel[field]]
-            @test prop["type"]=="PSHELL"
-            @test prop["material_id"]==2
-            @test prop["thickness_m"]==thickness
+            if field=="stringer_web_pid"
+                @test prop["type"]=="PSHELL"
+                @test prop["material_id"]==2
+                @test prop["thickness_m"]==thickness
+            else
+                @test prop["type"]=="PCOMP"
+                @test [ply["material_id"] for ply in prop["plies"]]==[2,1]
+                @test prop["thickness_m"]==thickness+panel["skin_thickness_m"]
+            end
         end
     end
     annotations=W.physical_annotations(m0)
@@ -75,11 +81,17 @@ tests=@testset "Shell stringer properties, export and conserved mass" begin
     @test sum(row["mass_kg"] for row in W.structural_inertia_payload(m))≈weights["totals"]["structure_mass_kg"] rtol=1e-11
     @test sum(W.structural_mass_data(m).nodal_mass)≈weights["totals"]["structure_mass_kg"] rtol=1e-11
     native,translations,_=native_mass(m,"shell_stringers")
+    @test native["PARAM_COUPMASS"]==1
     @test all(isapprox(value,weights["totals"]["structure_mass_kg"];rtol=1e-10) for value in translations)
     for prop in W.model_property_definitions(m)
         W.is_shell_stringer_pid(prop["pid"])||continue
         card=native["PSHELLs"][string(prop["pid"])]
-        @test card["MID"]==2
+        if prop["type"]=="PSHELL"
+            @test card["MID"]==2
+        else
+            @test card["TYPE"]=="PCOMP_CLT"
+            @test [parse(Int,string(ply["mid"])) for ply in card["PLY_DATA"]]==[ply["material_id"] for ply in prop["plies"]]
+        end
         @test card["T"]≈prop["thickness_m"]
         @test card["NSM"]≈prop["nonstructural_mass_kg_m2"]
         @test !haskey(native["PBARLs"],string(prop["pid"]))
@@ -88,6 +100,7 @@ tests=@testset "Shell stringer properties, export and conserved mass" begin
     # rotary inertia while removing every distributed material/NSM copy.
     concentrated=W.build_model(W.normalize_params(merge(p,Dict("mass.structural_representation"=>"bay_concentrated")))[1])
     cnative,ctranslations,crigid=native_mass(concentrated,"shell_stringers_bay_concentrated")
+    @test !haskey(cnative,"PARAM_COUPMASS")
     moments=[W.structural_element_mass_moments(m,g,e) for g in m.groups for e in eachindex(g.eids)]
     mass=sum(row.mass for row in moments);first_moment=sum(row.first for row in moments);second=sum(row.second for row in moments)
     expected_rigid=zeros(6,6)

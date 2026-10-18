@@ -1,6 +1,6 @@
 # Editable isotropic materials and symmetric three-ply shell construction.
 # Material 1 is the legacy global material; its explicit values remain authoritative.
-const MATERIAL_SHELL_COMPONENTS=("upper_skin","lower_skin","spar_web","rib_web","leading_edge_skin","leading_edge_rib")
+const MATERIAL_SHELL_COMPONENTS=("upper_skin","lower_skin","spar_web","rib_web","leading_edge_skin","leading_edge_rib","stringer_flange")
 const MATERIAL_BAR_COMPONENTS=("stringer","spar_cap","rib_stiffener","runout")
 const MATERIAL_IDEALIZATION_NOTE="Illustrative editable isotropic elastic properties, not certified design allowables. Foam and honeycomb use effective isotropic MAT1 approximations; directional core behavior, crushing, damage and failure criteria are not modeled."
 default_material_library()=Dict{String,Any}[
@@ -9,7 +9,8 @@ default_material_library()=Dict{String,Any}[
     Dict("id"=>4,"name"=>"Honeycomb core (effective isotropic)","E"=>.2e9,"nu"=>.25,"rho"=>50.)]
 default_shell_material(component)=Dict{String,Any}("component"=>component,"kind"=>"monolithic","material"=>1,
     "face_material"=>1,"core_material"=>3,"face_thickness"=>.0005,"core_thickness"=>.01)
-default_shell_materials()=[default_shell_material(c) for c in MATERIAL_SHELL_COMPONENTS]
+# Flanges inherit the existing stringer material unless explicitly assigned.
+default_shell_materials()=[default_shell_material(c) for c in MATERIAL_SHELL_COMPONENTS if c!="stringer_flange"]
 default_bar_materials()=[Dict{String,Any}("component"=>c,"material"=>1) for c in MATERIAL_BAR_COMPONENTS]
 
 function material_integer(value,label;minimum=1)
@@ -106,6 +107,7 @@ end
 
 """PSHELL or explicit face/core/face PCOMP, with resolved physical-bay/rib total thickness."""
 function shell_material_definition(p,pid::Integer)
+    component_base_pid(pid)==PID_STRINGER_FLANGE&&return shell_stringer_flange_definition(p,pid)
     if is_shell_stringer_pid(pid)
         material=bar_material_definition(p,panel_stringer_pid(something(stiffened_panel_id(pid),0)))
         thickness=nominal_shell_thickness(p,pid);nsm=nonstructural_mass_density(p,pid)
@@ -145,6 +147,67 @@ function shell_material_definition(p,pid::Integer)
         "nonstructural_mass_kg_m2"=>nsm,
         "areal_mass_kg_m2"=>2face*face_material["rho"]+core*core_material["rho"]+nsm,
         "recovery_note"=>"Current solver z1/z2 stress values are the first/last ply midpoint stresses, not outer-surface stresses or failure margins.")
+end
+
+"""Thinnest of the actual skin properties touching either flange half."""
+function shell_stringer_skin_sources(p,pid)
+    id=stiffened_panel_id(pid)
+    id===nothing&&throw(ArgumentError("An attached flange requires a physical panel property ID"))
+    candidates=get(panel_property_context(p).flange_skins,id,Int[])
+    isempty(candidates)&&throw(ArgumentError("No underlying skin property found for attached flange $pid; regenerate the shell stringer mesh"))
+    sources=[merge(shell_material_definition(p,skinpid),Dict{String,Any}("pid"=>skinpid,"kind"=>"shell")) for skinpid in candidates]
+    sort!(sources;by=property->(property["thickness_m"],property["pid"]))
+end
+
+"""Additional flange alone, before merging it with its supporting skin."""
+function shell_stringer_added_flange(p,pid)
+    material=bar_material_definition(p,panel_stringer_pid(stiffened_panel_id(pid)))
+    thickness=nominal_shell_thickness(p,pid)
+    assignment=findfirst(row->get(row,"component",nothing)=="stringer_flange",get(p,"materials.shells",Any[]))
+    definition=assignment===nothing ? nothing : material_assignment(p,"stringer_flange")
+    if definition===nothing||definition["kind"]=="monolithic"
+        definition===nothing||(material=material_definition(p,Int(definition["material"])))
+        plies=[Dict{String,Any}("material_id"=>material["id"],"thickness_m"=>thickness,
+            "angle_deg"=>0.,"material"=>material_payload(material))]
+        return (;plies,thickness,composite=false)
+    end
+    # The user-specified flange thickness remains authoritative. The chosen
+    # sandwich supplies its face thicknesses; the remainder is its core.
+    face=Float64(definition["face_thickness"]);core=thickness-2face
+    core>0||throw(ArgumentError("Attached flange total thickness ($thickness m) must exceed twice its face thickness ($(2face) m); the remainder forms the core"))
+    fm=material_definition(p,Int(definition["face_material"]));cm=material_definition(p,Int(definition["core_material"]))
+    plies=[Dict{String,Any}("material_id"=>mat["id"],"thickness_m"=>h,"angle_deg"=>0.,"material"=>material_payload(mat))
+        for (mat,h) in ((fm,face),(cm,core),(fm,face))]
+    (;plies,thickness,composite=true)
+end
+
+"""One bonded section, with inward flange plies below outward skin plies.
+
+Offsets use the PCOMP reference plane, which retains the physical A/B/D and
+mass moments in the solver. No unsupported element ZOFFS field is emitted.
+"""
+function shell_stringer_flange_definition(p,pid)
+    sources=shell_stringer_skin_sources(p,pid);skin=first(sources)
+    flange=shell_stringer_added_flange(p,pid);ts=skin["thickness_m"];tf=flange.thickness;t=ts+tf
+    skinplies=skin["type"]=="PCOMP" ? deepcopy(skin["plies"]) :
+        [Dict{String,Any}("material_id"=>skin["material_id"],"thickness_m"=>ts,"angle_deg"=>0.,"material"=>skin["material"])]
+    plies=vcat(deepcopy(flange.plies),skinplies)
+    offset=Bool(get(p,"stringers.shell_offsets",false)) ? -tf/2 : 0.
+    nsm=skin["nonstructural_mass_kg_m2"]
+    result=Dict{String,Any}("construction"=>"combined skin and attached flange","thickness_m"=>t,
+        "stringer_part"=>"flange","combined_flange"=>true,"underlying_skin_pid"=>skin["pid"],
+        "underlying_skin_candidates"=>[s["pid"] for s in sources],"skin_thickness_m"=>ts,
+        "added_flange_thickness_m"=>tf,"shell_offset_m"=>offset,
+        "z_bottom_m"=>offset-t/2,"z_top_m"=>offset+t/2,
+        "nonstructural_mass_kg_m2"=>nsm,
+        "areal_mass_kg_m2"=>sum(ply["thickness_m"]*ply["material"]["rho_kg_m3"] for ply in plies)+nsm)
+    if skin["type"]=="PSHELL"&&!flange.composite&&all(ply["material_id"]==skin["material_id"] for ply in plies)&&iszero(offset)
+        merge!(result,Dict("type"=>"PSHELL","material_id"=>skin["material_id"],"material"=>skin["material"]))
+    else
+        merge!(result,Dict("type"=>"PCOMP","z0_m"=>offset-t/2,"plies"=>plies,
+            "recovery_note"=>"Ply order follows the outward normal: added flange on the inside, selected skin on the outside. Skin footprint elements are replaced, never duplicated."))
+    end
+    result
 end
 
 function validate_materials(p)

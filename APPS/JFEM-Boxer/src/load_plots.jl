@@ -50,7 +50,9 @@ function structural_source_moments(source,y,side;include_offsets=true)
     end
     area,center=plot_polygon_mass(plot_clip_outboard(source.points,y),source.normal)
     mass=source.mass*area/source.area
-    return mass,mass.*(center.+plot_source_shift(source))
+    shift=plot_source_shift(source)
+    include_offsets||(shift=shift.-plot_source_offset(source))
+    return mass,mass.*(center.+shift)
 end
 
 function distributed_source_resultant(source,y,side,acceleration=AERO_ZERO)

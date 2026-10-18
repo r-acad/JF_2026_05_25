@@ -346,6 +346,9 @@ function _buckling_local_rhs_has_operator_gap(model)
     # T3, independently of the optional Q4 KDJJ formulation.
     for el in values(get(model,"CSHELLs",Dict()))
         prop = get(get(model,"PSHELLs",Dict()),string(el["PID"]),Dict())
+        # A different-property DV still differentiates preload through this shell.
+        # Local RHS replay lacks its anisotropic assumed transverse gradients.
+        get(prop,"TYPE","")=="PCOMP_CLT" && !Bool(get(prop,"IS_ISOTROPIC",false)) && return true
         _pshell_local_constitutive_gap(prop, model) && return true
     end
     kg_quad4_iso_reference_kdjj_mode() === :off && return false
@@ -734,7 +737,7 @@ function _rotate_pcomp_kg_constitutive(prop, el, qd, model)
         qd.v1, qd.v2, qd.v3,
         qd.p1, qd.p2, qd.p3, qd.p4,
         theta_rad,
-        Int(get(el, "MCID", 0)),
+        shell_material_coordinate_id(el),
         model["CORDs"],
     )
 
@@ -750,10 +753,10 @@ function _rotate_pcomp_kg_constitutive(prop, el, qd, model)
         a11 = Cs_kg[1, 1]
         a12 = Cs_kg[1, 2]
         a22 = Cs_kg[2, 2]
-        Cs_kg[1, 1] = cb^2 * a11 + 2.0 * cb * sb * a12 + sb^2 * a22
-        Cs_kg[1, 2] = -cb * sb * a11 + (cb^2 - sb^2) * a12 + cb * sb * a22
+        Cs_kg[1, 1] = cb^2 * a11 - 2.0 * cb * sb * a12 + sb^2 * a22
+        Cs_kg[1, 2] = cb * sb * a11 + (cb^2 - sb^2) * a12 - cb * sb * a22
         Cs_kg[2, 1] = Cs_kg[1, 2]
-        Cs_kg[2, 2] = sb^2 * a11 - 2.0 * cb * sb * a12 + cb^2 * a22
+        Cs_kg[2, 2] = sb^2 * a11 + 2.0 * cb * sb * a12 + cb^2 * a22
     end
 
     return Cm_kg, Cb_kg, Cs_kg, beta
@@ -1905,6 +1908,8 @@ end
 function _buckling_bar_data(eid, model, id_map, node_coords, node_R)
     bd = _get_beam_element_data(parse(Int,string(eid)), model, id_map, node_coords, node_R)
     bd === nothing && return nothing
+    _pbeam_neutral_axis_transform(bd.prop) === nothing ||
+        error("[ADJOINT-BUCK] PBEAM neutral-axis offsets require a verified offset geometric-stiffness derivative; use SOL101/SOL103 or a separately validated buckling model.")
     (get(bd.beam,"PA",0)==0 && get(bd.beam,"PB",0)==0) ||
         error("[ADJOINT-BUCK] Full-resultant beam derivatives currently require unreleased beam ends")
     return bd
