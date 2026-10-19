@@ -44,3 +44,10 @@ svg.svgv-measuring,svg.svgv-measuring [role=button] { cursor:crosshair; }
 svg.svgv-pinning,svg.svgv-pinning [role=button] { cursor:crosshair; }
 /* Geometric areas only: marker glyphs, editable handles and labels retain fill. */
 .svgv-outline-only :is(path,polygon,polyline,rect,ellipse):not(defs *,marker *,[role=button] *,[data-control] *,.pf-fe-axes *) { fill:none!important; }
+.svgv-window-controls { position:relative; display:inline-flex; align-items:center; flex-wrap:wrap; gap:4px; }
+.svgv-window-controls button[aria-pressed=true] { background:#175e8e; border-color:#74caff; }
+.svgv-window-status { position:absolute; z-index:5; left:0; top:calc(100% + 3px); padding:4px 6px; white-space:nowrap; border:1px solid #426079; border-radius:3px; background:#102a3e; font:11px/1.4 system-ui,sans-serif; color:#a7ddff; pointer-events:none; }
+.svgv-window-status:empty { display:none; }
+svg.svgv-window-zoom:not(.svgv-panning):not(.dpv-dragging),svg.svgv-window-zoom:not(.svgv-panning):not(.dpv-dragging) [role=button] { cursor:crosshair; }
+.svgv-window-rectangle { fill:#3cafff; fill-opacity:.12; stroke:#75cbff; stroke-width:1.5; stroke-dasharray:6 3; vector-effect:non-scaling-stroke; pointer-events:none; }
+[data-svgv-theme=white] .svgv-window-rectangle,[data-theme=white] .svgv-window-rectangle { stroke:#006bb0; }

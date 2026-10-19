@@ -252,6 +252,12 @@
         <div id="aerodynamic-shape-controls">
           <div id="aerodynamic-reference-appearance"></div>
         </div>
+        <fieldset id="loft-cut-controls" class="geometry-appearance" disabled>
+          <legend>Spanwise loft cuts</legend>
+          <label class="layer"><input id="show-loft-cuts" type="checkbox"><span>Show loft intersections · cyan</span></label>
+          <label class="display-control">Number of cuts<input id="loft-cut-count" type="number" min="1" max="200" step="1" value="10" aria-label="Number of spanwise loft cuts"></label>
+          <p id="loft-cut-note" class="pick-note">Create a model with an aerodynamic loft to show its spanwise intersections.</p>
+        </fieldset>
         <fieldset id="geometry-context"><legend>Rib references</legend></fieldset>
         <div id="geometry-appearance-controls"></div>
         <div id="geometry-references"></div>
@@ -631,6 +637,7 @@
 <script src="mass_properties.js" defer></script>
 <script src="property_display.js" defer></script>
 <script src="aero_display.js" defer></script>
+<script src="loft_cuts.js" defer></script>
 <script src="geometry_display.js" defer></script>
 <script src="geometry_export.js" defer></script>
 <script src="project_menu.js" defer></script>

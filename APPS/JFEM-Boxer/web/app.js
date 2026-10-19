@@ -134,6 +134,7 @@ const state = {
   viewPlanes: null,
   supportGlyphs: null,
   aeroDisplay: null,
+  loftCuts: null,
   layerGroupControls: new Map(),
   layerGroupCollapsed: new Map(),
   deckUrl: null,
@@ -3702,6 +3703,7 @@ function shellMaterial(name, hex, alpha) {
 }
 
 function disposeModel() {
+  state.loftCuts?.dispose(); state.loftCuts = null;
   state.fuelMassDisplay?.dispose(); state.fuelMassDisplay = null;
   state.structuralMassDisplay?.dispose(); state.structuralMassDisplay = null;
   state.ribDatums?.setVisible(false);
@@ -4253,6 +4255,7 @@ function* buildModelSteps(data, options = {}) {
     const reference = shellMesh("REFERENCE_AERO", apos, aconn, 4, "#c5d1df", 0.14, false);
     reference.material.wireframe = false;
     addLayer("REFERENCE_AERO", "Undeformed aero · translucent", "#c5d1df", "reference", [reference]);
+    if(typeof WingLoftCuts!=="undefined")state.loftCuts=WingLoftCuts.create({BABYLON,scene:state.scene,parent:state.root,data,mesh,basePositions:apos});
   }
 
   if(typeof WingAeroDisplay !== "undefined") {
@@ -4588,6 +4591,7 @@ function componentLayerRows(group){
 }
 
 function buildLayerPanel() {
+  const loftCutControls=document.getElementById("loft-cut-controls");loftCutControls?.remove();
   const aeroAppearance=document.getElementById("aerodynamic-appearance");aeroAppearance?.remove();
   const aeroShapes=document.getElementById("aerodynamic-shape-controls");aeroShapes?.remove();
   const vlmControls=document.getElementById("vlm-controls");vlmControls?.remove();
@@ -4644,12 +4648,14 @@ function buildLayerPanel() {
     if(group.id==="aerodynamics"){
       if(aeroShapes)body.appendChild(aeroShapes);
       if(aeroAppearance)body.appendChild(aeroAppearance);
+      if(loftCutControls)body.appendChild(loftCutControls);
     }
     if(group.id==="vlm" && vlmControls)body.appendChild(vlmControls);
     (["loads","constraints","vlm"].includes(group.id)&&loadsHost?loadsHost:["aerodynamics","overlays"].includes(group.id)&&geometryHost?geometryHost:host).appendChild(fieldset);
   }
   if(aeroShapes && !aeroShapes.parentElement)(geometryHost||host).appendChild(aeroShapes);
   if(aeroAppearance && !aeroAppearance.parentElement)(geometryHost||host).appendChild(aeroAppearance);
+  if(loftCutControls && !loftCutControls.parentElement)(geometryHost||host).appendChild(loftCutControls);
   if(vlmControls && !vlmControls.parentElement)(loadsHost||host).appendChild(vlmControls);
   for(const [id,collapsed]of [["btn-collapse-layer-groups",true],["btn-expand-layer-groups",false]]){const button=document.getElementById(id);if(button)button.onclick=()=>{for(const [key,control]of state.layerGroupControls){state.layerGroupCollapsed.set(key,collapsed);control.collapse(collapsed);}markStudyViewModified();};}
   syncLayerGroupControls(); syncAxesControls(); syncAeroOverlayControl(); syncFuelControls();
@@ -4724,6 +4730,7 @@ function syncViewPlanes(report = false) {
 }
 
 function syncAeroOverlayControl() {
+  syncLoftCuts();
   const control = document.getElementById("show-aero-overlay"), layer = state.layers.get("AERO_SURFACE");
   if (control) { control.disabled = !layer; control.checked = !!layer?.visible; }
   const resultToggle=document.getElementById("show-deformed-aero");if(resultToggle){resultToggle.disabled=!layer;resultToggle.checked=!!layer?.visible;}
@@ -4734,6 +4741,17 @@ function syncAeroOverlayControl() {
   for(const id of ["aero-surface-color","show-aero-curvature"]){const input=document.getElementById(id);if(input)input.disabled=!layer||!state.aeroDisplay;}
   if(note)note.textContent="Airfoil wires show the defined, undeformed sections at their exact span positions. "+(state.sensitivityMap?"Sensitivity colors describe property derivatives; the aero loft is undeformed. Open FE Results to see the primal deformed shape. ":activeShape()?"The loft follows the selected FE result and deformation scale. ":"The loft is undeformed because no displacement shape is displayed. ")+(style?.value==="auto"?"Auto uses wireframe over colored structural results and panels, metallic for other deformed views, and translucent otherwise.":"The selected finish is used directly; metallic surfaces may cover underlying structural colors.");
   if(note&&!layer)note.textContent=state.data?.imported_deck?"This imported deck has no aerodynamic loft. Its shell elements remain available in Display and Results.":"Create FEM to display the aerodynamic loft and defined airfoil sections.";
+}
+
+function syncLoftCuts(report=false) {
+  const controls=document.getElementById("loft-cut-controls"),count=document.getElementById("loft-cut-count"),show=document.getElementById("show-loft-cuts"),note=document.getElementById("loft-cut-note");
+  if(!controls||!count||!show)return;
+  const available=!!state.loftCuts?.available,n=Number(count.value),valid=count.value.trim()!==""&&Number.isInteger(n)&&n>=1&&n<=200;
+  controls.disabled=!available;
+  count.setCustomValidity(valid?"":"Use a whole number of cuts from 1 to 200.");
+  if(!valid){if(!show.checked||!available)state.loftCuts?.configure({visible:false});if(report)count.reportValidity();return;}
+  state.loftCuts?.configure({visible:show.checked&&available,count:n});
+  if(note)note.textContent=available?"Cyan intersections of the displayed loft with "+n+" internal, equally spaced span planes at η = i / "+(n+1)+". They follow the displayed deformation, remain visible when the loft surface is hidden, and do not alter the mesh or solver. Planes retain their undeformed span positions.":state.data?.imported_deck?"This imported model has no aerodynamic loft to intersect.":"Create a model with an aerodynamic loft to show its spanwise intersections.";
 }
 
 function syncAxesControls() {
@@ -5115,6 +5133,7 @@ function pushPositions(dp, rotations, rotationScale = 1) {
       }
       d.mesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, buf, true, false);
       state.aeroDisplay?.updateNormals(d.mesh);
+      state.loftCuts?.update();
     } else if (d.map === null) {
       d.mesh.updateVerticesData(BABYLON.VertexBuffer.PositionKind, dp, true, false);
       updateSurfaceNormals(d.mesh, dp);
@@ -7143,6 +7162,9 @@ for (const id of ["ground-plane-z", "ground-grid-spacing"]) {
 document.getElementById("show-undeformed").onchange = syncResultOverlays;
 document.getElementById("show-reference-aero").onchange = syncResultOverlays;
 document.getElementById("show-deformed-aero").onchange = event => setLayerVisible("AERO_SURFACE",event.target.checked);
+document.getElementById("show-loft-cuts").onchange = () => syncLoftCuts();
+document.getElementById("loft-cut-count").oninput = () => syncLoftCuts();
+document.getElementById("loft-cut-count").onchange = () => syncLoftCuts(true);
 
 document.getElementById("btn-create").onclick = createFEM;
 document.getElementById("auto-mesh").onchange = autoMeshChanged;

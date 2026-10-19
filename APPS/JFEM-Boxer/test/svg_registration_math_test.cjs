@@ -23,4 +23,11 @@ for(const deltaMode of [0,1,2]){
 const normal=V.zoomTransform({...state,pin:null},"viewport",2,{x:100,y:80});
 assert.deepEqual(normal,{x:80,y:-144,scale:3.5});
 assert.throws(()=>V.imageTransformAtPin({image:{x:32768,y:1},drawing:{x:0,y:0}},1e4));
+for(const [a,b]of [[{x:140,y:80},{x:380,y:180}],[{x:380,y:180},{x:140,y:80}]]){
+  const visible={x:-20,y:0,width:800,height:400},selection=V.aspectWindow(a,b,visible);
+  near(selection.width/selection.height,2);near(selection.x+selection.width/2,260);near(selection.y+selection.height/2,130);
+  const original={x:90,y:-32,scale:1.75},next=V.windowZoomTransform(original,selection,visible),draw={x:(260-original.x)/original.scale,y:(130-original.y)/original.scale};
+  near(next.x+next.scale*draw.x,380);near(next.y+next.scale*draw.y,200);near(next.scale/original.scale,800/240);
+}
+assert.throws(()=>V.windowZoomTransform(state.viewport,{x:0,y:0,width:0,height:1},{x:0,y:0,width:100,height:100}));
 console.log("2D registration: validation, both affine anchors, exact percentages and 0.1 Alt log-step passed.");

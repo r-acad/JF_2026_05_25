@@ -53,7 +53,8 @@ shared aerodynamic/structural outer geometry, rather than the shell property
 thickness. Clear the schedule to keep the selected airfoils' original thickness.
 The separate **Twist** schedule accepts multiple eta/angle pairs in degrees,
 including nonzero root twist. Clear it to restore the original zero-root to
-**Tip twist** law. The twist axis is also set in Loft.
+**Tip twist** law. The twist schedule, its interpolation, twist axis and fallback
+Tip twist value are grouped in the same **Twist distribution** box.
 
 Each schedule independently selects **Linear**, `w=s`, or **Cosine**,
 `w=(1-cos(πs))/2`, between adjacent eta stations, where
@@ -66,10 +67,17 @@ All 2D drawings provide exact **View zoom (%)** entry. Hold **Alt** while using
 the wheel for one tenth of the normal zoom step; combine it with **Ctrl/Cmd**
 for fine image-only scaling. To register a reference image, choose **Pin image
 point**, pick a point on the image, then its matching point in the drawing.
-Subsequent zooms keep this match fixed until you clear the pin or move the image
+The image moves to align those two points immediately. Subsequent zooms keep this match fixed until you clear the pin or move the image
 independently. **Filled figures** switches the dimensioned plan view between
 filled areas and outlines. Image alignment, pins, zoom and fill visibility are
 saved with the Study's drawing settings.
+
+Use **right-button drag** to pan any 2D drawing, including the detached
+**Dimensioned plan view**. Choose **Window zoom**, then drag with the left button
+around the region to enlarge. The window expands to the canvas aspect ratio
+without distorting geometry; a very small selection does nothing. Press **Esc**
+to cancel window zoom. Panning remains available while other drawing tools are
+selected.
 
 On Windows, double-click **JFEM-Boxer.cmd** in `__Start here!__/Windows`, at the
 repository root, or in this app folder. Setup builds the shared JFEM/app sysimage automatically; the launcher checks
@@ -226,6 +234,15 @@ definition. Sensitivity results retain their recorded analysis case; choose a
 different saved sensitivity run to view derivatives for another case.
 **Undeformed aero** and the deformed aerodynamic loft controls are grouped
 together in **Display / Geometry / Aerodynamic geometry**.
+Each geometry entity groups its visibility and appearance controls together.
+Choose **Show loft intersections · cyan** and set **Number of cuts** (1–200)
+to slice the displayed aerodynamic loft at equally spaced internal span planes.
+For N cuts their positions are `eta = i/(N+1)`, for `i=1…N`; root and tip are
+excluded. The intersections use the rendered loft triangles, follow the active
+deformation and magnification, and can remain visible with the loft surface
+hidden. The planes retain their undeformed span positions. Changing the count
+does not remesh or rerun the solver. Imported models without an aerodynamic
+loft have these controls disabled. Visibility and count are saved in the Study.
 
 Each physical rib bay now has separate front/rear spar-web properties and four
 separate spar-cap properties (front/rear, upper/lower). Rib webs and stiffeners

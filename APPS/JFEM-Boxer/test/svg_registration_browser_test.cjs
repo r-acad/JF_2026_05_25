@@ -29,7 +29,13 @@ const near=(a,b)=>assert(Math.abs(a-b)<2e-5*Math.max(1,Math.abs(b)),`${a} != ${b
    await page.evaluate(s=>testView.restore(s),original);
    await page.locator('[data-svgv-pin="pick"]').click();await clickPoint({x:140,y:140});
    const drawing=kind==="shared"?{x:400,y:200}:await page.locator(".pf-wing").evaluate(el=>({x:el.points.getItem(0).x,y:el.points.getItem(0).y}));
+   const imageBefore=await svg.locator("image").getAttribute("transform");
    await clickPoint({x:drawing.x+3,y:drawing.y});const pinned=await capture();assert(pinned.pin);near(pinned.pin.image.x,.25);near(pinned.pin.image.y,.5);near(pinned.pin.drawing.x,drawing.x);near(pinned.pin.drawing.y,drawing.y);assert.equal(await page.evaluate(()=>modelEdits),0);
+   // Verify the rendered image itself, before any subsequent wheel or scale
+   // operation. Noncoincident selected points must move immediately on click.
+   assert.notEqual(await svg.locator("image").getAttribute("transform"),imageBefore);
+   const immediate=await svg.evaluate((el,pin)=>{const image=el.querySelector("image"),scene=el.querySelector(".svgv-scene,.dpv-scene"),map=(node,p)=>{const m=node.getScreenCTM();return{x:m.a*p.x+m.c*p.y+m.e,y:m.b*p.x+m.d*p.y+m.f};};return{image:map(image,pin.image),drawing:map(scene,pin.drawing)};},pinned.pin);
+   near(immediate.image.x,immediate.drawing.x);near(immediate.image.y,immediate.drawing.y);
    const checkPin=s=>{near(s.transform.x+s.transform.scale*s.pin.image.x,s.pin.drawing.x);near(s.transform.y+s.transform.scale*s.pin.image.y,s.pin.drawing.y);};checkPin(pinned);
    await wheel(false,true);const zoomed=await capture();checkPin(zoomed);assert.deepEqual(zoomed.viewport,pinned.viewport);
    const screenPin=s=>({x:s.viewport.x+s.viewport.scale*s.pin.drawing.x,y:s.viewport.y+s.viewport.scale*s.pin.drawing.y});const before=screenPin(zoomed);await wheel();const after=screenPin(await capture());near(before.x,after.x);near(before.y,after.y);
@@ -47,7 +53,7 @@ const near=(a,b)=>assert(Math.abs(a-b)<2e-5*Math.max(1,Math.abs(b)),`${a} != ${b
    await page.keyboard.down("Control");await page.mouse.move(at.x,at.y);await page.mouse.down();await page.mouse.move(at.x+22,at.y+14,{steps:3});await page.mouse.up();await page.keyboard.up("Control");assert.equal((await capture()).pin,null);await page.evaluate(s=>testView.restore(s),saved);
    await page.locator('[data-svgv-pin="clear"]').click();assert.equal((await capture()).pin,null);
    assert.equal(await page.evaluate(()=>JSON.stringify(parameters)),JSON.stringify(base));
-   checks.push({kind,alt_log_step:.1,pin_alignment:true,pin_blocks_geometry_edits:true,geometry_snapping:true,anchored_image_and_view_zoom:true,numeric_zoom:true,filled_geometry_only:true,roundtrip:true,escape_cancel:true,image_pan_clears_pin_cancel_restores:true});await page.close();
+   checks.push({kind,alt_log_step:.1,pin_alignment:true,immediate_image_dom_alignment:true,pin_blocks_geometry_edits:true,geometry_snapping:true,anchored_image_and_view_zoom:true,numeric_zoom:true,filled_geometry_only:true,roundtrip:true,escape_cancel:true,image_pan_clears_pin_cancel_restores:true});await page.close();
   }
   // The legacy in-page dimensioned dialog remains a valid fallback when the
   // app does not supply an external-window callback. Exercise its actual

@@ -25,6 +25,16 @@ Playwright; their first two arguments select a temporary evidence directory
 and the installed Playwright module. `CHROME_PATH` optionally selects an
 installed browser. These are developer tools, not additional app requirements.
 
+`loft_cuts_test.cjs` checks cyan span-plane intersections against analytical
+sections, degenerate/coplanar mesh edges and a deformed render mesh; it also
+checks buffer reuse and disposal. `loft_cut_workspace_test.cjs` checks saved
+counts, visibility and defaults. The 2D registration browser check covers
+right-button pan, immediate pin alignment and window zoom in shared, detached
+and fallback views. The geometry display browser check exercises compact
+entity controls across repeated panel rebuilds.
+`loft_cuts_browser_test.cjs` also checks real Babylon/WebGL pixels: intersections
+stay cyan after deformation and buffer growth, and disappear when hidden.
+
 After installation, from the repository root:
 
 ```sh

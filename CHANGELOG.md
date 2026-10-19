@@ -5,6 +5,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Loft cuts and compact geometry controls
+
+- Add cyan intersections of the displayed aerodynamic loft at a selectable
+  number of equally spaced span planes, with saved visibility and count.
+- Group each geometry entity's visibility with its appearance controls and keep
+  all twist inputs together in Loft.
+- Add right-button pan and window zoom throughout the 2D views, including the
+  dimensioned plan, and align reference images immediately when pinning.
+
 ### Loft schedules and 2D reference alignment
 
 - Group Planform, Airfoils and Loft under Geometry. Load local XFoil coordinate
