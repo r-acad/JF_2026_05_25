@@ -49,7 +49,7 @@ let created=0,disposed=0,reads=0;
 class LinesMesh{
  constructor(name){this.name=name;this.material={};this.enabled=false;created++;}
  setEnabled(value){this.enabled=value;}
- updateVerticesData(kind,positions){this.positions=positions.slice();}
+ updateVerticesData(kind,values){if(kind==='color')this.colors=values.slice();else this.positions=values.slice();}
  dispose(){this.disposed=true;disposed++;}
 }
 class VertexData{applyToMesh(mesh){mesh.positions=this.positions.slice();mesh.indices=this.indices;mesh.colors=this.colors;}}
@@ -68,6 +68,9 @@ check(Array.from(display.mesh.colors).every((v,i)=>v===(i%4===0?0:1)),'The actua
 check(!source.enabled&&display.mesh.enabled,'Cuts remain visible while the source loft is hidden.');
 const firstMesh=display.mesh,beforeReads=reads;display.configure({visible:true,count:3});
 check(reads===beforeReads&&display.mesh===firstMesh,'Unchanged UI synchronization does not recompute intersections.');
+display.configure({color:'#ff4080'});check(display.color==='#ff4080'&&display.mesh===firstMesh&&reads===beforeReads,'Changing color reuses the mesh without recomputing geometry.');
+for(let i=0;i<display.mesh.colors.length;i+=4){near(display.mesh.colors[i],1);near(display.mesh.colors[i+1],64/255,1e-7);near(display.mesh.colors[i+2],128/255,1e-7);near(display.mesh.colors[i+3],1);}
+assert.throws(()=>display.configure({color:'red'}));checks++;
 current=current.map((v,i)=>v+(i%3===1?4:0));display.update();
 check(display.mesh===firstMesh&&created===1,'Deformation with unchanged topology reuses the GPU mesh and buffers.');
 near(display.sections[0].segments[0][0][1],cuts.sections[0].segments[0][0][1]+4,1e-6);

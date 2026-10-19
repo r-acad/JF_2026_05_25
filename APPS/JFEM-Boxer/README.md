@@ -81,15 +81,20 @@ filled areas and outlines. Image alignment, pins, zoom and fill visibility are
 saved with the Study's drawing settings.
 
 Use **right-button drag** to pan any 2D drawing, including the detached
-**Dimensioned plan view**. Choose **Window zoom**, then drag with the left button
-around the region to enlarge. The window expands to the canvas aspect ratio
+**Dimensioned plan view**. Drag with the left button around the region to enlarge; window zoom is
+available immediately without choosing a tool. Middle-drag does not pan.
+Geometry handles retain their editing gestures; **Window zoom** also allows
+selection over these handles. Hold **Ctrl/Cmd** while right-dragging to move
+only the reference image. The window expands to the canvas aspect ratio
 without distorting geometry; a very small selection does nothing. Press **Esc**
 to cancel window zoom. Panning remains available while other drawing tools are
 selected.
 
 **Structure / Spars**, **Ribs** and **Stringers** use the same untwisted plan
 background: lifting-surface outline, structural box, spar paths and rib datums.
-Each drawing has its own camera and reference image. The rib editor retains
+Each drawing has its own camera and reference image. **Maximize** gives Spars,
+Ribs and Stringers a large drawing beside an independently scrolling parameter
+column. The rib editor retains
 its draggable position and angle handles. The stringer drawing shows pitch,
 segment angles and approximate run-outs before generating the FEM. When the
 current FEM is available, it shows the actual upper/lower attachment paths;
@@ -275,14 +280,14 @@ folder; enable its **Ask where to save each file** setting to choose a folder.
 **Undeformed aero** and the deformed aerodynamic loft controls are grouped
 together in **Display / Geometry / Aerodynamic geometry**.
 Each geometry entity groups its visibility and appearance controls together.
-Choose **Show loft intersections · cyan** and set **Number of cuts** (1–200)
+Choose **Show loft intersections**, select **Color** (cyan by default), and set **Number of cuts** (1–200)
 to slice the displayed aerodynamic loft at equally spaced internal span planes.
 For N cuts their positions are `eta = i/(N+1)`, for `i=1…N`; root and tip are
 excluded. The intersections use the rendered loft triangles, follow the active
 deformation and magnification, and can remain visible with the loft surface
 hidden. The planes retain their undeformed span positions. Changing the count
 does not remesh or rerun the solver. Imported models without an aerodynamic
-loft have these controls disabled. Visibility and count are saved in the Study.
+loft have these controls disabled. Visibility, count and color are saved in the Study.
 
 Each physical rib bay now has separate front/rear spar-web properties and four
 separate spar-cap properties (front/rear, upper/lower). Rib webs and stiffeners

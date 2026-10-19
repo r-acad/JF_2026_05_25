@@ -26,7 +26,7 @@ function png() {
     const origin = selector => { const m = document.querySelector(selector).getScreenCTM(); return { x: m.e, y: m.f, scale: m.a }; };
     return { image: origin(".dpv-background-image"), geometry: origin(".dpv-geometry") };
   });
-  async function drag(dx, dy, modifier = null, during = null, cancel = false, button = "left") {
+  async function drag(dx, dy, modifier = null, during = null, cancel = false, button = "right") {
     const bounds = await svg().boundingBox(), x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height / 2;
     if (modifier) await page.keyboard.down(modifier);
     await page.mouse.move(x, y); await page.mouse.down({ button }); await page.mouse.move(x + dx, y + dy, { steps: 4 });
@@ -102,7 +102,7 @@ function png() {
     near(afterOrigins.image.x - beforeOrigins.image.x, 30); near(afterOrigins.geometry.x - beforeOrigins.geometry.x, 30);
     near(afterOrigins.image.y - beforeOrigins.image.y, -16); near(afterOrigins.geometry.y - beforeOrigins.geometry.y, -16);
     assert.equal(await page.evaluate(() => notifications), notices + 1); assert.equal(await geometry(), originalGeometry);
-    checks.push("Normal drag pans image and drawing equally, reuses DOM nodes and saves once on release");
+    checks.push("Right drag pans image and drawing equally, reuses DOM nodes and saves once on release");
 
     saved = await capture(); const anchor = await wheel(-180), zoomed = await capture();
     assert(zoomed.viewport.scale > saved.viewport.scale); assert.deepEqual(zoomed.transform, saved.transform);
@@ -129,8 +129,8 @@ function png() {
     checks.push("Ctrl and Cmd wheel zoom only the image and preserve its pixel under the pointer");
 
     for (const modifier of [null, "Control"]) { saved = await capture(); await drag(40, 15, modifier, null, true); assert.deepEqual(await capture(), saved); }
-    saved = await capture(); await drag(12, 9, null, null, false, "middle"); assert.notDeepEqual((await capture()).viewport, saved.viewport); assert.deepEqual((await capture()).transform, saved.transform);
-    checks.push("Escape cancels either drag mode and middle-button panning preserves image registration");
+    saved = await capture(); await drag(12, 9, null, null, false, "middle"); assert.deepEqual(await capture(), saved);
+    checks.push("Escape cancels either drag mode; middle-button dragging leaves the view unchanged");
 
     saved = await capture(); await svg().focus(); await svg().press("Shift+ArrowDown"); near((await capture()).viewport.y, saved.viewport.y + 10); assert.deepEqual((await capture()).transform, saved.transform);
     saved = await capture(); await svg().press("Control+ArrowRight"); assert.deepEqual((await capture()).viewport, saved.viewport); near((await capture()).transform.x, saved.transform.x + 1 / saved.viewport.scale);

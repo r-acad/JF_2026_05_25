@@ -256,7 +256,8 @@
         </div>
         <fieldset id="loft-cut-controls" class="geometry-appearance" disabled>
           <legend>Spanwise loft cuts</legend>
-          <label class="layer"><input id="show-loft-cuts" type="checkbox"><span>Show loft intersections · cyan</span></label>
+          <label class="layer"><input id="show-loft-cuts" type="checkbox"><span>Show loft intersections</span></label>
+          <label class="display-control">Color<input id="loft-cut-color" type="color" value="#00ffff" aria-label="Loft intersection color"></label>
           <label class="display-control">Number of cuts<input id="loft-cut-count" type="number" min="1" max="200" step="1" value="10" aria-label="Number of spanwise loft cuts"></label>
           <p id="loft-cut-note" class="pick-note">Create a model with an aerodynamic loft to show its spanwise intersections.</p>
         </fieldset>

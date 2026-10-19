@@ -90,19 +90,20 @@
  function create({BABYLON:B=globalThis.BABYLON,scene,parent=null,data,mesh:source,basePositions}={}){
   const positionKind=B?.VertexBuffer?.PositionKind||'position',current=()=>source?.getVerticesData?.(positionKind);
   const raw=floats(data?.aero?.xyz),baseline=basePositions||current(),nativeSpan=raw.length?bounds(raw,1):bounds(baseline,0);
-  const indices=source?.getIndices?.();let available=!!(source&&indices?.length&&nativeSpan),visible=false,count=DEFAULT_COUNT,planes=[],helper=null,capacity=0,buffer=null,disposed=false,last={sections:[],segmentCount:0};
+  const indices=source?.getIndices?.();let available=!!(source&&indices?.length&&nativeSpan),visible=false,count=DEFAULT_COUNT,color=COLOR,planes=[],helper=null,capacity=0,buffer=null,colors=null,disposed=false,last={sections:[],segmentCount:0};
   if(available){try{validateTopology(current(),indices);}catch(_){available=false;}}
   function setPlanes(){planes=available?Array.from({length:count},(_,i)=>nativeSpan.min+(nativeSpan.max-nativeSpan.min)*(i+1)/(count+1)):[];}
+  function paintVertices(){const rgb=[1,3,5].map(i=>parseInt(color.slice(i,i+2),16)/255);for(let i=0;i<colors.length;i+=4){colors[i]=rgb[0];colors[i+1]=rgb[1];colors[i+2]=rgb[2];colors[i+3]=1;}}
   function ensureMesh(vertices){
    if(helper&&capacity>=vertices)return;
    helper?.dispose(false,true);capacity=2;while(capacity<vertices)capacity*=2;
-   buffer=new Float32Array(3*capacity);const colors=new Float32Array(4*capacity),vd=new B.VertexData();
+   buffer=new Float32Array(3*capacity);colors=new Float32Array(4*capacity);const vd=new B.VertexData();
    // LinesMesh's vertex-color shader uses this buffer directly; mesh.color
-   // alone does not tint white vertices. Keep every allocated vertex cyan,
+   // alone does not tint white vertices. Color every allocated vertex,
    // including spare pairs and buffers created after a cut-count increase.
-   for(let i=0;i<colors.length;i+=4){colors[i]=0;colors[i+1]=1;colors[i+2]=1;colors[i+3]=1;}
+   paintVertices();
    helper=new B.LinesMesh('aerodynamic-loft-cuts',scene,null,undefined,false,true,false);vd.positions=buffer;vd.indices=Int32Array.from({length:capacity},(_,i)=>i);vd.colors=colors;vd.applyToMesh(helper,true);
-   helper.color=B.Color3.FromHexString(COLOR);helper.alpha=1;helper.isPickable=false;helper.parent=parent;helper.renderingGroupId=1;
+   helper.color=B.Color3.FromHexString(color);helper.alpha=1;helper.isPickable=false;helper.parent=parent;helper.renderingGroupId=1;
    helper.material.zOffset=-2;helper.material.zOffsetUnits=-2;helper.material.disableDepthWrite=false;
    helper.material.alpha=1;if(B.Material)helper.material.transparencyMode=B.Material.MATERIAL_OPAQUE;
    helper.metadata={wingViewHelper:true,loftCuts:true,cutPlaneAxis:'BASIC Y',fixedBaselinePlanes:true};
@@ -120,6 +121,10 @@
   }
   function configure(options={}){
    if(disposed)return false;
+   if(options.color!==undefined){
+    if(typeof options.color!=='string'||!/^#[0-9a-f]{6}$/i.test(options.color))throw Error('Loft intersection color must be a six-digit hex color.');
+    const nextColor=options.color.toLowerCase();if(nextColor!==color){color=nextColor;if(helper){paintVertices();helper.color=B.Color3.FromHexString(color);helper.updateVerticesData(B.VertexBuffer.ColorKind||'color',colors,false,false);}}
+   }
    const next=options.count===undefined?count:normalizeCount(options.count),changed=next!==count,oldVisible=visible;count=next;
    if(options.visible!==undefined){if(typeof options.visible!=='boolean')throw Error('Loft-cut visibility must be a boolean.');visible=options.visible;}
    if(changed||!planes.length)setPlanes();
@@ -128,9 +133,9 @@
    if(!changed&&visible===oldVisible)return available&&visible;
    return update();
   }
-  function dispose(){if(disposed)return;disposed=true;helper?.dispose(false,true);helper=null;buffer=null;capacity=0;last={sections:[],segmentCount:0};}
+  function dispose(){if(disposed)return;disposed=true;helper?.dispose(false,true);helper=null;buffer=null;colors=null;capacity=0;last={sections:[],segmentCount:0};}
   setPlanes();
-  return{configure,update,dispose,get available(){return available&&!disposed;},get count(){return count;},get planes(){return planes.slice();},get visible(){return visible;},get mesh(){return helper;},get sections(){return last.sections;},get segmentCount(){return last.segmentCount;}};
+  return{configure,update,dispose,get available(){return available&&!disposed;},get count(){return count;},get color(){return color;},get planes(){return planes.slice();},get visible(){return visible;},get mesh(){return helper;},get sections(){return last.sections;},get segmentCount(){return last.segmentCount;}};
  }
  return{COLOR,DEFAULT_COUNT,MAX_COUNT,normalizeCount,equallySpacedPlanes,intersectTriangles,create};
 });

@@ -12,7 +12,7 @@
   const PANEL_IDS = ["sidebar","hud-left","model-card","results-card","pick-card","log-wrap","deck-panel"];
   const LAYER_GROUP_IDS = ["shells","beams","solids","nodes","connections","constraints","aerodynamics","vlm","loads","masses","overlays","aids","coordinates","other"];
   const DRAWING_KEYS = new Set(["planform","spars","master-ribs","stringer-layout","leading-edge-ribs","fuel-tank","stringer-section","spar-cap-section","rib-stiffener-section","rib-override-section","airfoil-root","airfoil-tip",...(["upper_skin","lower_skin","spar_web","rib_web","leading_edge_skin","leading_edge_rib","stringer_flange"].map(name=>"material-"+name))]);
-  const CONTROL_IDS = ["surface-mode","surface-translucency","shell-geometry","beam-style","show-bars-through","show-aero-overlay","aero-deformed-style","aero-surface-color","show-aero-curvature","show-loft-cuts","loft-cut-count","background-color","inspect-entity",
+  const CONTROL_IDS = ["surface-mode","surface-translucency","shell-geometry","beam-style","show-bars-through","show-aero-overlay","aero-deformed-style","aero-surface-color","show-aero-curvature","show-loft-cuts","loft-cut-count","loft-cut-color","background-color","inspect-entity",
     "show-fuel-inertia","show-fuel-cg","show-fuel-mass-labels","fuel-inertia-scale","show-structural-inertia","structural-inertia-scale","show-material-axes","show-material-axis-labels",
     "node-radius","marker-radius","celas-radius","show-ground-plane","show-symmetry-plane","ground-plane-z","ground-grid-spacing","show-shell-axes","show-bar-axes","show-node-ids","show-element-ids","show-coordinate-labels","show-rbe3-dofs","show-celas-cylinders","id-label-size",
     "mesh-labels-ribs","mesh-labels-stringers","show-rib-datums","rib-datum-size","vlm-field",
@@ -75,6 +75,7 @@
       if (CHECK_IDS.has(id) || LEGACY_LABEL_IDS.has(id)) { if (typeof value !== "boolean") throw new Error("Invalid checkbox setting: "+id); }
       else if (typeof value !== "string" || value.length>100) throw new Error("Invalid display setting: "+id);
       if (SELECTS[id] && !SELECTS[id].includes(value)) throw new Error("Invalid display option: "+id);
+      if (id === "loft-cut-color" && !/^#[0-9a-f]{6}$/i.test(value)) throw new Error("Invalid loft intersection color.");
       if (id === "background-color" && !/^#[0-9a-f]{6}$/i.test(value)) throw new Error("Invalid background colour.");
       if (id === "aero-surface-color" && !/^#[0-9a-f]{6}$/i.test(value)) throw new Error("Invalid aerodynamic surface color.");
       if (id === "loft-cut-count" && (value.trim()==="" || !Number.isInteger(Number(value)) || Number(value)<1 || Number(value)>200)) throw new Error("Use a whole number of loft cuts from 1 to 200.");

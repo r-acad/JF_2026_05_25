@@ -5,6 +5,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Consistent 2D gestures and loft colors
+
+- Use right-button drag for 2D panning and immediate left-drag window zoom;
+  retain geometry-handle editing, image pins and measurement tools. Ctrl/Cmd
+  with right-drag aligns only the reference image; middle-drag does not pan.
+- Expand the Ribs and Stringers drawings using the same maximized layout as
+  Spars, with a large drawing and independently scrolling parameter column.
+- Add a saved color picker to Show loft intersections. Color updates reuse
+  the existing geometry and remain correct after deformation or buffer growth.
+
 ### Summary exports, structural drawings and local file access
 
 - Export General and Mass properties summaries as CSV, Markdown or standalone

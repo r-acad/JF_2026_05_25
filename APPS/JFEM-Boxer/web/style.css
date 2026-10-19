@@ -596,9 +596,11 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
   .drawing-maximized .drawing-workbench { display: grid; grid-template-columns: minmax(0,1fr) 375px; gap: 16px; flex: 1; min-height: 320px; }
   .drawing-maximized .drawing-stage { display: flex; min-height: 0; min-width: 0; }
   .drawing-maximized .drawing-parameters { display: block; overflow: auto; min-height: 0; padding: 0 5px; scrollbar-width: thin; }
-  .drawing-maximized .drawing-stage > :is(.planform-editor-sticky,.fuel-tank-view) { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; margin: 0; padding: 0; position: static; }
-  .drawing-maximized .drawing-stage :is(.planform-editor-canvas,.ftv-canvas) { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-  .drawing-maximized .drawing-stage :is(.planform-editor-canvas,.ftv-canvas) svg { width: 100%; height: 100%; min-height: 0; max-height: none; flex: 1; }
+  .drawing-maximized .drawing-stage > :is(.planform-editor-sticky,.fuel-tank-view,.rl-preview,.sl-preview) { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; margin: 0; padding: 0; position: static; }
+  .drawing-maximized .drawing-stage :is(.planform-editor-canvas,.ftv-canvas,.sl-canvas) { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .drawing-maximized .drawing-stage :is(.planform-editor-canvas,.ftv-canvas,.sl-canvas) svg,
+  .drawing-maximized .drawing-stage .rl-preview > svg { width: 100%; height: 100%; min-height: 0; max-height: none; flex: 1; }
+  .drawing-maximized .drawing-parameters .rib-layout-editor { display: block; }
   .drawing-maximized .drawing-parameters .planform-point-tables { grid-template-columns: minmax(0,1fr); }
 }
 #workspace-content { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: #3c4b5c transparent; }
