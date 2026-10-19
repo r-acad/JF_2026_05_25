@@ -1,7 +1,7 @@
 # OpenJFEM General Description
 
 OpenJFEM is a Julia-based finite-element analysis code for structural models
-defined with bulk-data-style input decks. The code is organized as a complete
+defined with bulk-data decks or a supported Abaqus keyword-input subset. The code is organized as a complete
 analysis pipeline: it reads the input deck, builds a solver-ready finite-element
 model, executes the selected solution sequence, and exports reports and
 machine-readable results.
@@ -30,7 +30,9 @@ The solver follows a staged architecture:
 The main public API is exposed by `OpenJFEM.jl` and includes:
 
 - `main(filename; ...)`: parse, solve, and export in one call.
-- `bdf_to_model(filename)`: parse an input deck into a model dictionary.
+- `input_to_model(filename)`: detect bulk-data or Abaqus `.inp`/`.inp.gz` input.
+- `bdf_to_model(filename)`: parse a bulk-data deck into a model dictionary.
+- `abaqus_read_input` and `abaqus_to_model`: retain keyword source metadata and build supported static/modal models.
 - `solve_model(model)`: solve an already-built model.
 - `export_results(results, filename, output_dir; ...)`: write result files.
 - `optimize_thickness` and `optimize_sizing`: run sizing workflows.
@@ -69,6 +71,21 @@ The public README focuses on SOL 105 to keep the launch workflow simple, but
 the source tree keeps these additional paths available through the Julia API.
 
 ## Input Model Coverage
+
+Abaqus `.inp` and `.inp.gz` imports support flat isotropic small-displacement
+static and unprestressed frequency models, including full ten-node `C3D10`
+tetrahedra and `C3D8` mean-dilatation bricks. Original midside nodes are retained
+in stiffness, consistent mass, centroidal stress, native export and Boxer display.
+The Abaqus brick path does not use the native bulk-data brick's incompatible
+modes. Existing bulk-data element reading remains separate; this addition does
+not extend its CTETRA card parser to ten-node records.
+
+Named sets, surfaces and includes are retained. Mesh-only inputs can be inspected
+without fabricated physics; Boxer offers an explicit homogeneous solid analysis
+setup. Unsupported assemblies, contact, material laws, nonlinear/history
+procedures, buckling and Abaqus sensitivities are diagnosed and blocked. The
+[Abaqus workflow and exact subset](APPS/JFEM-Boxer/README.md#read-an-abaqus-input)
+describe the input contract, units and supported loads.
 
 The parser supports common bulk-data formatting styles, including fixed-field,
 large-field, free-field, and tab-delimited cards. It resolves nested `INCLUDE`

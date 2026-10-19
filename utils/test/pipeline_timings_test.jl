@@ -5,6 +5,49 @@ include(joinpath(@__DIR__, "..", "..", "src", "pipeline_timings.jl"))
 end
 const PT=PipelineTimingFixture
 
+module MarkdownTimingFixture
+using Dates, Printf
+_export_base_name(filename) = splitext(basename(filename))[1]
+_export_ensure_parent_dir!(path) = mkpath(dirname(path))
+_export_fs_path(path) = path
+include(joinpath(@__DIR__, "..", "..", "src", "MarkdownReport.jl"))
+end
+const MT = MarkdownTimingFixture
+
+@testset "Report retains authoritative pipeline timing and unavailable execution" begin
+    # Parallel compilation counters can exceed wall time. This reproduces the
+    # cold two-thread CLI case without rerunning an FE solve to test formatting.
+    phases = Dict{String,Any}(
+        "parse" => Dict("wall_seconds"=>3., "compilation_seconds"=>2., "execution_seconds"=>1.),
+        "solve" => Dict("wall_seconds"=>100., "compilation_seconds"=>120., "execution_seconds"=>nothing),
+        "export" => Dict("wall_seconds"=>2., "compilation_seconds"=>1., "execution_seconds"=>1.))
+    payload = PT._pipeline_timing_payload(phases)
+    results = Dict{String,Any}("sol_type"=>0, "timings"=>Dict("solve"=>36.62, "assembly_K"=>21.72))
+    @test MT._report_resolve_timings(results, payload) === payload
+    @test payload["solution_seconds"] === nothing
+    @test MT._report_fmt_time(nothing) == "Unavailable"
+    legacy = MT._report_resolve_timings(results, Dict("solve"=>100., "parse"=>3.))
+    @test legacy["solve"] == 100.
+    @test legacy["assembly_K"] == 21.72
+    io = IOBuffer()
+    MT._report_timing_section(io, payload)
+    text = String(take!(io))
+    @test occursin("| Numerical execution (excluding compilation) | Unavailable |", text)
+    @test occursin("| Input parsing | 3.00 s | 2.00 s | 1.00 s |", text)
+    @test occursin("| Measured pipeline wall time | " * MT._report_fmt_time(105.), text)
+    @test occursin("| Measured Julia compilation | " * MT._report_fmt_time(123.), text)
+    @test occursin("Compilation counters can overlap across threads", text)
+    @test !occursin("36.62", text)
+    @test !occursin("BDF parsing", text)
+    @test !occursin("Total (non-overlapping stages)", text)
+    mktempdir() do directory
+        report = MT.export_markdown_report(results, "model.inp", directory; timings=payload)
+        @test isfile(report)
+        @test occursin("Numerical execution (excluding compilation) | Unavailable", read(report, String))
+        @test !occursin("36.62", read(report, String))
+    end
+end
+
 @testset "Nested stage timing does not double count" begin
     phases=Dict{String,Any}();calls=Ref(0)
     PT._pipeline_measure!(phases,"solve") do

@@ -32,3 +32,8 @@ let W=WingFEGen
         precompile(W.run_app,(String,))
     end
 end
+
+# This file is part of the automatic shared-image build. Keep the new input
+# and solid specializations in that same image, not a separate app environment.
+isdefined(Main,:JFEMSharedPrecompileWorkloads)||include(joinpath(@__DIR__,"shared_precompile_workloads.jl"))
+JFEMSharedPrecompileWorkloads.run_abaqus_solids()

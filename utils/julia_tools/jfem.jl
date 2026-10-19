@@ -58,9 +58,10 @@ LinearAlgebra.BLAS.set_num_threads(clamp(_physical_cores(), 1, Sys.CPU_THREADS))
 
 function _usage()
     println(stderr, """
-    usage:  jfem  <model.bdf>  [output_dir]  [FLAG=val,FLAG2=val2]
+    usage:  jfem  <model.bdf|model.inp>  [output_dir]  [FLAG=val,FLAG2=val2]
 
-      <model.bdf>   input deck (.bdf / .dat / .nas)
+      <model>       Reference (.bdf / .dat / .nas) or Abaqus (.inp / .inp.gz)
+                    Mesh-only Abaqus inputs need an explicit material/analysis setup.
       [output_dir]  where to write results (default: <deck_dir>/<deckname>_out)
       [FLAGS]       optional JFEM_* overrides, comma-separated
 
@@ -114,7 +115,7 @@ const BDF_PATH = abspath(args[1])
 isfile(BDF_PATH) || (println(stderr, "ERROR: deck not found: $BDF_PATH"); exit(2))
 
 # --- resolve output dir (default: <deck_dir>/<deckname>_out) ------------------
-const STEM = replace(basename(BDF_PATH), r"(?i)\.(bdf|dat|nas)$" => "")
+const STEM = replace(basename(BDF_PATH), r"(?i)\.(bdf|dat|nas|inp)(\.gz)?$" => "")
 const OUT_DIR = (length(args) >= 2 && !occursin("=", args[2])) ?
     abspath(args[2]) :
     joinpath(dirname(BDF_PATH), STEM * "_out")

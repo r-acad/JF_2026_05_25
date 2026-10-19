@@ -35,6 +35,36 @@ entity controls across repeated panel rebuilds.
 `loft_cuts_browser_test.cjs` also checks real Babylon/WebGL pixels: intersections
 stay cyan after deformation and buffer growth, and disappear when hidden.
 
+The Abaqus and solid-element checks exercise portable/gzip inputs, recursive
+INCLUDE files, named sets, explicit mesh-only completion, supported mechanics
+and blocking diagnostics. Quadratic tetrahedron checks retain every midside
+node and cover stiffness, consistent mass, recovery and geometric stiffness.
+The solid-viewer checks verify exterior-face cancellation, complete parent
+connectivity, picking metadata and version 6/7 binary records. Interfaces with
+matching corner nodes but different midside IDs remain visible as separate
+faces. Focused commands from the repository root are:
+
+```sh
+julia --project=. utils/test/abaqus_input_test.jl
+julia --project=. utils/test/tetra10_test.jl
+julia --project=. APPS/JFEM-Boxer/test/abaqus_import_test.jl
+julia --project=. APPS/JFEM-Boxer/test/abaqus_import_worker_test.jl
+node APPS/JFEM-Boxer/test/abaqus_import_test.cjs
+node APPS/JFEM-Boxer/test/solid_geometry_test.cjs
+node APPS/JFEM-Boxer/test/solid_binary_test.cjs
+node APPS/JFEM-Boxer/test/abaqus_import_browser_test.cjs
+```
+
+The production importer-worker check uses a tiny synthetic input and does not
+launch an FE solve. The browser-form check uses explicit test callbacks and
+needs Playwright; `WINGFEGEN_PLAYWRIGHT_MODULE` and `CHROME_BIN` can select its
+installed module and browser. Neither dependency is needed to use Boxer.
+External mesh downloads and result campaigns are not prerequisites for these
+portable tests.
+The parser and quadratic-solid operator checks are also included in the normal
+`runtests.jl` release gate. `APPS/JFEM-Boxer/test/solid_results_payload_test.jl`
+checks live centroidal solid-stress fields and inspection by original EID.
+
 After installation, from the repository root:
 
 ```sh

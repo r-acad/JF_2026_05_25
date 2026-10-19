@@ -74,6 +74,7 @@ function imported_sensitivity_catalog(m)
 end
 
 function imported_sensitivity_deck(m,id,solution="101";modes=10)
+    get(m.params["imported.source"],"format","reference")=="abaqus"&&throw(ArgumentError("Sensitivity analysis of Abaqus inputs is not available yet. Run the supported source static or modal analysis normally; use a generated model or Reference deck for the current sensitivity workflow."))
     solution=string(solution)
     solution in ("101","103","105","106")||throw(ArgumentError("Imported sensitivity decks support SOL101, SOL103, SOL105 and SOL106"))
     original=imported_native(m);subs=original["CASE_CONTROL"]["SUBCASES"]

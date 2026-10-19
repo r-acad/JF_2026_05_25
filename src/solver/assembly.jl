@@ -5571,8 +5571,8 @@ end
     csolids = get(model, "CSOLIDs", Dict())
     psolids = get(model, "PSOLIDs", Dict())
     n_tetra = 0; n_hexa = 0; n_penta = 0
-    T_buf_solid = zeros(24, 24)
-    coords_buf = zeros(8, 3)  # max 8 nodes
+    T_buf_solid = zeros(30, 30)
+    coords_buf = zeros(10, 3)  # quadratic tetrahedra retain all midside nodes
     for (id, el) in csolids
         pid = string(el["PID"])
         if !haskey(psolids, pid); continue; end
@@ -5603,11 +5603,14 @@ end
 
         local Ke_loc
         local ndof_el::Int
-        if etype == "CTETRA" && nn == 4
+        if etype == "CTETRA" && nn == 10
+            Ke_loc = FEM.stiffness_tetra10(view(coords_buf, 1:10, :), E_mat, nu_mat)
+            ndof_el = 30; n_tetra += 1
+        elseif etype == "CTETRA" && nn == 4
             Ke_loc = FEM.stiffness_tetra4(view(coords_buf, 1:4, :), E_mat, nu_mat)
             ndof_el = 12; n_tetra += 1
         elseif etype == "CHEXA" && nn == 8
-            Ke_loc = FEM.stiffness_hexa8(view(coords_buf, 1:8, :), E_mat, nu_mat)
+            Ke_loc = get(el,"ABAQUS_TYPE","")=="C3D8" ? FEM.stiffness_hexa8_abaqus(view(coords_buf, 1:8, :), E_mat, nu_mat) : FEM.stiffness_hexa8(view(coords_buf, 1:8, :), E_mat, nu_mat)
             ndof_el = 24; n_hexa += 1
         elseif etype == "CPENTA" && nn == 6
             Ke_loc = FEM.stiffness_cpenta6(view(coords_buf, 1:6, :), E_mat, nu_mat)
@@ -8310,8 +8313,8 @@ end
     csolids_kg = get(model, "CSOLIDs", Dict())
     psolids_kg = get(model, "PSOLIDs", Dict())
     n_tetra_kg = 0; n_hexa_kg = 0; n_penta_kg = 0
-    coords_buf_kg = zeros(8, 3)
-    T_buf_kg = zeros(24, 24)
+    coords_buf_kg = zeros(10, 3)
+    T_buf_kg = zeros(30, 30)
     for (id, el) in csolids_kg
         pid = string(el["PID"])
         if !haskey(psolids_kg, pid); continue; end
@@ -8340,7 +8343,9 @@ end
         # Recover centroid stress from static displacement u_global
         local ndof_el::Int
         local B_cen
-        if etype == "CTETRA" && nn == 4
+        if etype == "CTETRA" && nn == 10
+            B_cen = FEM.solid_centroid_B_tetra10(view(coords_buf_kg, 1:10, :)); ndof_el = 30
+        elseif etype == "CTETRA" && nn == 4
             B_cen = FEM.solid_centroid_B_tetra4(view(coords_buf_kg, 1:4, :)); ndof_el = 12
         elseif etype == "CHEXA" && nn == 8
             B_cen = FEM.solid_centroid_B_hexa8(view(coords_buf_kg, 1:8, :)); ndof_el = 24
@@ -8363,7 +8368,10 @@ end
         stress_vec = D * (B_cen * u_el)
 
         local Kg_loc
-        if etype == "CTETRA"
+        if etype == "CTETRA" && nn == 10
+            Kg_loc = FEM.geometric_stiffness_tetra10(view(coords_buf_kg, 1:10, :), u_el, E_mat, nu_mat)
+            n_tetra_kg += 1
+        elseif etype == "CTETRA"
             Kg_loc = FEM.geometric_stiffness_tetra4(view(coords_buf_kg, 1:4, :), stress_vec)
             n_tetra_kg += 1
         elseif etype == "CHEXA"

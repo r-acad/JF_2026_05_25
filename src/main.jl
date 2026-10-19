@@ -51,7 +51,12 @@ function main(filename::String;
     # --- Stage 1: BDF → Model Dict ---
     # Parse BDF once, build model, and export card inventory
     phases = Dict{String,Any}()
+    input_format=input_file_format(filename)
     cards, cc = _pipeline_measure!(phases, "parse") do
+        if input_format===:abaqus
+            println(">>> Reading Abaqus input: $filename")
+            return abaqus_read_input(filename), nothing
+        end
         println(">>> Reading BDF file: $filename")
         lines = readlines(filename)
         lines = ReferenceParser.resolve_includes(lines, dirname(abspath(filename)))
@@ -72,6 +77,15 @@ function main(filename::String;
 
     model = _pipeline_measure!(phases, "build_model") do
         println(">>> Constructing Model Data...")
+        if input_format===:abaqus
+            native=abaqus_to_model(cards)
+            if export_card_inventory
+                inventory_path=joinpath(output_dir,replace(basename(filename),r"(?i)\.inp(?:\.gz)?$"=>"")*".INPUT_INVENTORY.JSON")
+                _ensure_export_extensions!()
+                Base.invokelatest(_export_write_json,inventory_path,get(native,"abaqus_import",Dict()))
+            end
+            return native
+        end
         model = build_model(cards, cc)
         resolve_nested_coords!(model)
         transform_geometry!(model)
@@ -118,7 +132,7 @@ function main(filename::String;
     )
     if export_report
         _pipeline_measure!(phases, "report") do
-            Base.invokelatest(export_markdown_report, results, filename, output_dir; timings=pipeline_timings)
+            Base.invokelatest(export_markdown_report, results, filename, output_dir; timings=_pipeline_timing_payload(phases))
         end
     end
 

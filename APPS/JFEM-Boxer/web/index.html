@@ -69,6 +69,7 @@
         <span id="toml-help" class="file-tooltip" role="tooltip">TOML stores model parameters, constraints, load cases, all loaded reference placements and cache paths, and the Plan view background image. Saving caches unlinked references without overwriting the server input. Reference paths depend on this server's input folder; use Save Study to move embedded geometry, all display settings, other images and notes between computers. Import validates before replacing the current Study.</span>
       </span>
       <button id="btn-read-reference" disabled title="Choose a local Reference deck; its INCLUDE files are read automatically. Review native properties, solve its load cases and compute supported sensitivities. Save Study embeds the complete deck source.">Read Reference</button>
+      <button id="btn-read-abaqus" disabled title="Read a local Abaqus .inp or .inp.gz file, including node sets and surfaces. Mesh-only inputs can be given an explicit material and static or modal analysis setup.">Read Abaqus</button>
       <button id="btn-read-results" disabled title="Open a stored .jfem binary with its own mesh and result states. No source deck or solver run is required.">Open JFEM results…</button>
       <input id="results-file" type="file" accept=".jfem" hidden>
       <input id="model-file" type="file" accept=".wingfem.json,application/json" hidden>
@@ -504,7 +505,7 @@
       <label class="case-picker-label" for="inspect-entity">Entity to inspect</label>
       <select id="inspect-entity" aria-label="Entity type to inspect">
         <option value="all">All elements</option><option value="nodes">Nodes (GRID)</option>
-        <option value="shells">Shells</option><option value="quad">Quadrilaterals (CQUAD4)</option>
+        <option value="solid">Solids</option><option value="shells">Shells</option><option value="quad">Quadrilaterals (CQUAD4)</option>
         <option value="tria">Triangles (CTRIA3)</option><option value="bar">Bars, beams and rods</option>
         <option value="stringer">Stringers and runouts</option><option value="cap">Spar caps</option>
         <option value="rbe3">RBE3 spiders</option>
@@ -663,6 +664,7 @@
 <script src="autosave.js" defer></script>
 <script src="startup_study.js" defer></script>
 <script src="model_entities.js" defer></script>
+<script src="solid_boundary.js" defer></script>
 <script src="material_axes.js" defer></script>
 <script src="rbe3_labels.js" defer></script>
 <script src="annotations.js" defer></script>

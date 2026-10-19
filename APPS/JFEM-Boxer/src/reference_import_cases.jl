@@ -1,6 +1,7 @@
 # Read-only source case control and native constraint metadata for imported decks.
 # The original source remains authoritative for every solve and deck export.
 function imported_source_case_control(source)
+    get(source,"format","reference")=="abaqus"&&return Dict("globals"=>Dict{String,Any}(),"subcases"=>Dict{Int,Dict{String,Any}}())
     globals=Dict{String,Any}();subcases=Dict{Int,Dict{String,Any}}();current=globals;pending_set=nothing
     for raw in eachline(IOBuffer(source["flattened"]))
         line=strip(first(split(raw,'$';limit=2)));isempty(line)&&continue
@@ -155,7 +156,7 @@ function imported_prepare_cases!(native,m)
         rows,scales,warnings=imported_load_selection(native,model,control)
         row["case_control"]=control;row["load_cards"]=rows
         row["spc"]=imported_case_supports(native,m,control,scales;index)
-        row["label"]=String(get(control,"LABEL",get(control,"SUBTITLE","Subcase $(row["id"])")))
+        row["label"]=get(get(model,"abaqus_import",Dict()),"analysis_ready",true) ? String(get(control,"LABEL",get(control,"SUBTITLE","Subcase $(row["id"])"))) : "Mesh inspection (no analysis step)"
         row["warnings"]=unique(vcat(warnings,row["spc"]["warnings"]))
         if Int(model["SOL"])==106
             try native.Solver._assert_nonlinear_prescribed_supported(model,imported_case_selector(control,"LOAD"),imported_case_selector(control,"SPC")) catch err

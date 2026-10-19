@@ -1,4 +1,4 @@
-/* Shared JFEM v1-v5 reader. Keep browser and server-backed viewers on the
+/* Shared JFEM v1-v7 reader. Keep browser and server-backed viewers on the
  * same layout; v5 extends v4 with EVAL followed by the static STAT block. */
 (function (root, factory) {
     const api = factory();
@@ -34,7 +34,7 @@
         function ints(n) { need(4 * n); const a = []; for (let i = 0; i < n; i++) a.push(i32()); return a; }
         if (marker() !== 'JFEM') throw new Error('Not a JFEM binary file');
         const version = u32();
-        if (version < 1 || version > 5) throw new Error('Unsupported JFEM version ' + version);
+        if (version < 1 || version > 7) throw new Error('Unsupported JFEM version ' + version);
         const layout = legacyV5 && version === 5 ? 3 : version;
         const nNodes=u32(), nQuads=u32(), nTrias=u32(), nBars=u32(), nRods=u32(), nSubcases=u32();
         const nCelas=layout>=3?u32():0, nRBE2=layout>=3?u32():0, nRBE3=layout>=3?u32():0;
@@ -42,7 +42,7 @@
         const nSolids=nTetras+nHexas+nPentas, nShells=nQuads+nTrias;
         // Check the minimum footprint before allocating from untrusted counts.
         const meshBytes=16*nNodes+(layout>=2?28:24)*nQuads+(layout>=2?24:20)*nTrias+
-            (layout>=2?20:16)*(nBars+nRods)+28*nCelas+16*(nRBE2+nRBE3)+24*nTetras+40*nHexas+32*nPentas;
+            (layout>=2?20:16)*(nBars+nRods)+28*nCelas+16*(nRBE2+nRBE3)+(layout>=6?28:24)*nTetras+40*nHexas+32*nPentas;
         const subcaseBytes=4+24*nNodes+28*nShells+28*nBars+8*nRods+4*nSolids+(layout>=3?12:0);
         need(meshBytes+nSubcases*subcaseBytes);
         const nodes=[], nidToIdx=Object.create(null);
@@ -67,8 +67,8 @@
         for (let i=0;i<nCelas;i++) { const eid=i32(),g1=i32(),c1=i32(),g2=i32(),c2=i32(),stiffness=f32(); f32(); celas.push({eid,g1,c1,g2,c2,stiffness}); }
         for (let i=0;i<nRBE2;i++) { const eid=i32(),gn=i32(),cm=i32(),slaves=ints(u32()); rbe2s.push({eid,gn,cm,slaves}); }
         for (let i=0;i<nRBE3;i++) { const eid=i32(),refgrid=i32(),refc=i32(),deps=ints(u32()); rbe3s.push({eid,refgrid,refc,deps}); }
-        function solids(count,n) { const a=[]; for(let i=0;i<count;i++){const eid=i32(),pid=i32(); a.push({eid,pid,nodes:ints(n)});} return a; }
-        const tetras=solids(nTetras,4),hexas=solids(nHexas,8),pentas=solids(nPentas,6);
+        function solids(count,n) { const a=[]; for(let i=0;i<count;i++){const eid=i32(),pid=i32(); const count=n===0?u32():n;if(n===0&&count!==4&&count!==10)throw new Error("Unsupported tetrahedron node count "+count);a.push({eid,pid,nodes:ints(count)});} return a; }
+        const tetras=solids(nTetras,layout>=6?0:4),hexas=solids(nHexas,8),pentas=solids(nPentas,6);
         for (const elements of [quads,trias,tetras,hexas,pentas]) for (const e of elements)
             for (const nid of e.nodes) if(nidToIdx[nid]===undefined) throw new Error('Element '+e.eid+' references missing GRID '+nid);
         for (const e of [...bars,...rods]) if(nidToIdx[e.ga]===undefined||nidToIdx[e.gb]===undefined)
@@ -92,8 +92,8 @@
             need(8*count); eigenvalues=[];
             for(let i=0;i<count;i++) { const eig=view.getFloat64(off,true); off+=8; if(!Number.isFinite(eig))throw new Error('Nonfinite JFEM eigenvalue'); eigenvalues.push(eig); }
         }
-        if(version===5) {
-            if(!eigenvalues || marker()!=='STAT') throw new Error('Missing JFEM v5 static preload');
+        if(version===5||version===7) {
+            if(!eigenvalues || marker()!=='STAT') throw new Error('Missing JFEM static preload');
             const disp=floats(nNodes*6),fields=floats(nShells*3),vm=new Float32Array(nShells),est=new Float32Array(nShells),sed=new Float32Array(nShells);
             for(let i=0;i<nShells;i++){vm[i]=fields[3*i];est[i]=fields[3*i+1];sed[i]=fields[3*i+2];}
             staticData={disp,vm,est,sed};

@@ -2,7 +2,7 @@
 
 julia_version = "1.13.1"
 manifest_format = "2.1"
-project_hash = "1524f7cd0d472263583b7fb8f7a65a7e8f2ca911"
+project_hash = "c94bbd46c5e0ee0d0b70eedfe5fc513c465ac9c0"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "f7304359109c768cf32dc5fa2d371565bb63b68a"
@@ -817,7 +817,7 @@ uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
 version = "0.3.30+0"
 
 [[deps.OpenJFEM]]
-deps = ["AlgebraicMultigrid", "Dates", "ForwardDiff", "HDF5", "HTTP", "IterativeSolvers", "JSON", "KrylovKit", "LinearAlgebra", "MsgPack", "NPZ", "PackageCompiler", "Pkg", "PrecompileTools", "Printf", "SparseArrays", "StaticArrays", "Statistics", "VortexLattice", "WingFEGen", "WriteVTK", "YAML"]
+deps = ["AlgebraicMultigrid", "CodecZlib", "Dates", "ForwardDiff", "HDF5", "HTTP", "IterativeSolvers", "JSON", "KrylovKit", "LinearAlgebra", "MsgPack", "NPZ", "PackageCompiler", "Pkg", "PrecompileTools", "Printf", "SHA", "SparseArrays", "StaticArrays", "Statistics", "VortexLattice", "WingFEGen", "WriteVTK", "YAML"]
 path = "."
 uuid = "5f27aa24-1c38-4f48-8d29-0194396c76b2"
 version = "0.1.0"
@@ -1383,7 +1383,7 @@ uuid = "ea10d353-3f73-51f8-a26c-33c1cb351aa5"
 version = "1.4.3"
 
 [[deps.WingFEGen]]
-deps = ["Dates", "HTTP", "JSON", "LinearAlgebra", "MsgPack", "Pkg", "Printf", "SHA", "Serialization", "SparseArrays", "TOML", "VortexLattice"]
+deps = ["CodecZlib", "Dates", "HTTP", "JSON", "LinearAlgebra", "MsgPack", "Pkg", "Printf", "SHA", "Serialization", "SparseArrays", "TOML", "VortexLattice"]
 path = "APPS/JFEM-Boxer"
 uuid = "88b3fba0-1c22-4de6-bb97-e868cbde42d1"
 version = "0.1.0"

@@ -4952,9 +4952,9 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
     tmp24 = zeros(24, 24)
     dofs_buf24 = Vector{Int}(undef, 24)
     lc_buf4 = zeros(4, 2)
-    coords_buf_solid = zeros(8, 3)
-    T_buf_solid = zeros(24, 24)
-    dofs_buf_solid = Vector{Int}(undef, 24)
+    coords_buf_solid = zeros(10, 3)
+    T_buf_solid = zeros(30, 30)
+    dofs_buf_solid = Vector{Int}(undef, 30)
     shell_mass_formulation = sol103_shell_mass_formulation(model)
     log_msg("[SOLVER] SOL103 shell mass formulation: $(shell_mass_formulation)")
     # Per-assembly cache only: ply thicknesses and material densities may change
@@ -5381,11 +5381,14 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
 
         local Me_loc
         local ndof_el::Int
-        if etype == "CTETRA" && nn == 4
+        if etype == "CTETRA" && nn == 10
+            Me_loc = FEM.consistent_mass_tetra10(view(coords_buf_solid, 1:10, :), rho)
+            ndof_el = 30
+        elseif etype == "CTETRA" && nn == 4
             Me_loc = FEM.reference_lumped_mass_tetra4(view(coords_buf_solid, 1:4, :), rho)
             ndof_el = 12
         elseif etype == "CHEXA" && nn == 8
-            Me_loc = FEM.reference_lumped_mass_hexa8(view(coords_buf_solid, 1:8, :), rho)
+            Me_loc = haskey(model,"abaqus_import") ? FEM.consistent_mass_hexa8(view(coords_buf_solid, 1:8, :), rho) : FEM.reference_lumped_mass_hexa8(view(coords_buf_solid, 1:8, :), rho)
             ndof_el = 24
         elseif etype == "CPENTA" && nn == 6
             Me_loc = FEM.reference_lumped_mass_cpenta6(view(coords_buf_solid, 1:6, :), rho)

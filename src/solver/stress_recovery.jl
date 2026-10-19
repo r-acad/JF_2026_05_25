@@ -1292,7 +1292,7 @@ function recover_solid_stresses!(model, id_map, X, node_R, u_global, stresses, r
     csolids = get(model, "CSOLIDs", Dict())
     psolids = get(model, "PSOLIDs", Dict())
     mats = model["MATs"]
-    coords_buf = zeros(8, 3)
+    coords_buf = zeros(10, 3)
 
     for (id, el) in csolids
         eid = _stress_entry_public_id(id, el)
@@ -1336,11 +1336,14 @@ function recover_solid_stresses!(model, id_map, X, node_R, u_global, stresses, r
         # Compute B at centroid and recover stress
         local B_cen
         local elem_key::String
-        if etype == "CTETRA" && nn == 4
+        if etype == "CTETRA" && nn == 10
+            B_cen = FEM.solid_centroid_B_tetra10(view(coords_buf, 1:10, :))
+            elem_key = "ctetra"
+        elseif etype == "CTETRA" && nn == 4
             B_cen = FEM.solid_centroid_B_tetra4(view(coords_buf, 1:4, :))
             elem_key = "ctetra"
         elseif etype == "CHEXA" && nn == 8
-            B_cen = FEM.solid_centroid_B_hexa8(view(coords_buf, 1:8, :))
+            B_cen = get(el,"ABAQUS_TYPE","")=="C3D8" ? FEM.solid_centroid_B_hexa8_abaqus(view(coords_buf, 1:8, :)) : FEM.solid_centroid_B_hexa8(view(coords_buf, 1:8, :))
             elem_key = "chexa"
         elseif etype == "CPENTA" && nn == 6
             B_cen = FEM.solid_centroid_B_cpenta6(view(coords_buf, 1:6, :))
@@ -1354,7 +1357,7 @@ function recover_solid_stresses!(model, id_map, X, node_R, u_global, stresses, r
 
         # Corner stress recovery for CHEXA8 (at 8 corner nodes)
         corner_stresses = []
-        if etype == "CHEXA" && nn == 8
+        if etype == "CHEXA" && nn == 8 && get(el,"ABAQUS_TYPE","")!="C3D8"
             xi_corners  = [-1.0, 1.0, 1.0,-1.0,-1.0, 1.0, 1.0,-1.0]
             eta_corners = [-1.0,-1.0, 1.0, 1.0,-1.0,-1.0, 1.0, 1.0]
             zet_corners = [-1.0,-1.0,-1.0,-1.0, 1.0, 1.0, 1.0, 1.0]

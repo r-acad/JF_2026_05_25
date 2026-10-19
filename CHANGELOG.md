@@ -5,6 +5,29 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Abaqus inputs and quadratic solid results
+
+- Open `.inp` and `.inp.gz` files from Project or Study Options, resolve INCLUDE
+  files, and retain original nodes, elements, named sets and source diagnostics.
+- Make incomplete meshes inspectable without invented physics. Offer an explicit
+  homogeneous solid setup for SOL101 or SOL103; save the original source and
+  setup in the Study, and write a separate completed run input.
+- Translate the supported flat isotropic static/modal input subset into native
+  JFEM models. Diagnose unsupported formulations, nonlinear/history/contact
+  mechanics and incomplete analyses; keep Abaqus sensitivities unavailable.
+- Add full ten-node tetrahedral operators and recovery. Preserve all midside
+  nodes in version 6/7 binary exports and the shared binary reader; render
+  solid exterior faces in Boxer with original volume-element/property
+  inspection and deformation.
+- Keep nonconforming quadratic interfaces visible, and avoid drawing interior
+  volume-edge glyphs over the new boundary surfaces.
+
+- Include centroidal solid stress in live Boxer results and inspection, retaining
+  original element IDs without cross-element averaging.
+- Render current pipeline timing measurements in reports with separate wall,
+  compilation and execution columns; preserve unavailable execution times when
+  concurrent compilation counters overlap stage wall time.
+
 ### Loft cuts and compact geometry controls
 
 - Add cyan intersections of the displayed aerodynamic loft at a selectable

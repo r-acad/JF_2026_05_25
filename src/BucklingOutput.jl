@@ -209,7 +209,7 @@ function _buckling_element_volume(model, family, element)
         # Unit-density consistent mass integrates the same physical volume;
         # the three translational blocks each integrate to that volume.
         kind = get(element,"TYPE","")
-        mass = kind=="CTETRA" && length(nodes)==4 ? FEM.consistent_mass_tetra4(xyz,1.0) :
+        mass = kind=="CTETRA" && length(nodes)==10 ? FEM.consistent_mass_tetra10(xyz,1.0) : kind=="CTETRA" && length(nodes)==4 ? FEM.consistent_mass_tetra4(xyz,1.0) :
             kind=="CHEXA" && length(nodes)==8 ? FEM.consistent_mass_hexa8(xyz,1.0) :
             kind=="CPENTA" && length(nodes)==6 ? FEM.consistent_mass_cpenta6(xyz,1.0) : nothing
         return mass===nothing ? nothing : sum(mass)/3

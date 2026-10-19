@@ -188,6 +188,43 @@ That writes the **viewer-ready set** -- the `.jfem` binary (opens in the POST 3D
 viewer), `REPORT.md`, and the results JSON -- into `<deck_dir>/<deckname>_out/`,
 right next to the input deck.
 
+### Run an Abaqus input
+
+The same wrapper detects supported `.inp` and gzip-compressed `.inp.gz` inputs:
+
+```powershell
+.\jfem.cmd C:\models\supported_static.inp
+.\jfem.cmd C:\models\supported_modes.inp.gz C:\results\modes
+```
+
+On Linux/macOS, use `./jfem` with the corresponding paths. A complete supported
+`*STATIC` step selects SOL101; an unprestressed `*FREQUENCY` step selects SOL103.
+The current reader accepts flat meshes, isotropic materials and the documented
+solid/shell subset. Unsupported mechanics or missing material, sections or
+analysis steps produce an explicit error; the CLI does not choose substitute
+physics. For a mesh-only solid input, use Boxer's explicit setup or author the
+required source definitions first. See the
+[Boxer Abaqus workflow and limitations](../../APPS/JFEM-Boxer/README.md#read-an-abaqus-input).
+Input values keep their source unit system; no conversion is applied.
+
+For programmatic mesh inspection, the same shared package exposes:
+
+```julia
+using OpenJFEM
+source = OpenJFEM.abaqus_read_input("mesh.inp.gz"; strict=false)
+source["inventory"]                         # nodes, element types, sets, unused nodes
+model = OpenJFEM.abaqus_to_model(source; require_analysis=false)
+model["abaqus_import"]["analysis_ready"]      # false for an incomplete/unsupported analysis
+```
+
+`strict=false` retains recognized unsupported features as diagnostics; malformed
+coordinates/connectivity still fail. `require_analysis=false` enables inspection
+of an incomplete model, whose readiness flag continues to block solving. It
+retains unassigned property IDs and diagnostics without creating materials. Normal conversion/execution requires a supported analysis.
+The APIs read [Abaqus input syntax](https://docs.software.vt.edu/abaqusv2025/English/SIMACAEMODRefMap/simamod-c-node.htm);
+meshes such as [JuliaFEM/FEModels](https://github.com/JuliaFEM/FEModels) may need
+explicit materials and boundary conditions before they are runnable.
+
 ### How to invoke it (important): `jfem` vs `.\jfem` / `./jfem`
 
 By design, **shells do not run a program from the current directory by typing
@@ -816,8 +853,14 @@ visual inspection, enable binary export for that run and open:
 APPS/JFEM_results_viewer/postv11.html
 ```
 
-The viewer loads `.jfem` result files directly in the browser. See
-`APPS/JFEM_results_viewer/POST_GUIDE.html` for its controls.
+The viewer loads `.jfem` result files directly in the browser. Boxer also opens
+them through **Project / Open JFEM results**. The shared binary reader accepts
+versions 1-7. Boxer renders solid exterior faces and inspects the original
+volume elements.
+Version 6 stores the actual tetrahedron node count, preserving all ten nodes of
+a quadratic tetrahedron; version 7 also retains an available buckling static
+preload. Older files remain readable. Archive field availability depends on the
+original export request. See `APPS/JFEM_results_viewer/POST_GUIDE.html` for controls.
 
 ## Reading SOL 105 Results
 

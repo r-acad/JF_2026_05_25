@@ -12484,4 +12484,6 @@ function geometric_stiffness_cpenta6(coords::AbstractMatrix{Float64}, stress::Ab
     return Kg
 end
 
+include("tetra10.jl")
+
 end

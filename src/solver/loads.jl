@@ -115,7 +115,8 @@ function _solid_body_mass(X, rho)
     n == 4 && return FEM.reference_lumped_mass_tetra4(X,Float64(rho))
     n == 6 && return FEM.reference_lumped_mass_cpenta6(X,Float64(rho))
     n == 8 && return FEM.reference_lumped_mass_hexa8(X,Float64(rho))
-    throw(ArgumentError("Body loads require a supported 4-, 6-, or 8-node solid"))
+    n == 10 && return FEM.consistent_mass_tetra10(X,Float64(rho))
+    throw(ArgumentError("Body loads require a supported 4-, 6-, 8- or 10-node solid"))
 end
 
 function _add_rforce_mass_acceleration!(F_acc,model,id_map,node_coords,center,omega,alpha,scale)
@@ -494,6 +495,7 @@ function _resolve_loads!(model, sid::Int, scale, id_map, elem_map, node_coords,
             nn = length(el_nodes)
             g1 = get(pload, "G1", 0); g3 = get(pload, "G3", 0)
             local face_nids::Vector{Int}
+            nn==10 && throw(ArgumentError("PLOAD4 on ten-node tetrahedra is not implemented in native bulk data; Abaqus face pressure must be imported through its consistent nodal loads"))
             if nn == 8 || (nn == 6 && g3 > 0)
                 faces = nn == 8 ?
                     ((1,2,3,4),(5,6,7,8),(1,2,6,5),(2,3,7,6),(3,4,8,7),(4,1,5,8)) :
@@ -742,7 +744,7 @@ function _resolve_loads!(model, sid::Int, scale, id_map, elem_map, node_coords,
 
             # Solid element mass: rho * V, distributed to element nodes
             psolids_m = get(model, "PSOLIDs", Dict())
-            coords_grav = zeros(8, 3)
+            coords_grav = zeros(10, 3)
             for (_, el) in get(model, "CSOLIDs", Dict())
                 if !haskey(el, "NODES"); continue; end
                 nids = el["NODES"]; nn = length(nids)
@@ -758,10 +760,10 @@ function _resolve_loads!(model, sid::Int, scale, id_map, elem_map, node_coords,
                 if any(x->x==0, idxs); continue; end
                 for k in 1:nn; coords_grav[k,:] = node_coords[idxs[k],:]; end
                 mass_block = _solid_body_mass(Matrix(view(coords_grav,1:nn,:)),rho)
+                element_force=mass_block*repeat(grav_vec,nn)
                 for (k,idx) in enumerate(idxs)
                     dof = (idx-1)*6
-                    mass_node = mass_block[3k-2,3k-2]
-                    F_acc[dof+1:dof+3] .+= mass_node .* grav_vec
+                    F_acc[dof+1:dof+3] .+= element_force[3k-2:3k]
                 end
             end
         end
@@ -873,12 +875,11 @@ function _resolve_loads!(model, sid::Int, scale, id_map, elem_map, node_coords,
                 if any(x->x==0, idxs_rf); continue; end
                 Xrf = node_coords[idxs_rf, :]
                 mass_block = _solid_body_mass(Xrf,rho)
+                nodal_acceleration=reduce(vcat,(_rotation_body_acceleration(node_coords[idx,:] .- center,axis,omega2,alpha) for idx in idxs_rf))
+                element_force=mass_block*nodal_acceleration
                 for (k,idx) in enumerate(idxs_rf)
-                    mass_node = mass_block[3k-2,3k-2]
-                    pos = node_coords[idx,:] .- center
-                    force = mass_node .* _rotation_body_acceleration(pos,axis,omega2,alpha)
                     dof = (idx-1)*6
-                    F_acc[dof+1:dof+3] .+= force
+                    F_acc[dof+1:dof+3] .+= element_force[3k-2:3k]
                 end
             end
 
@@ -1188,7 +1189,9 @@ function _resolve_loads!(model, sid::Int, scale, id_map, elem_map, node_coords,
             sig_th = E_th * alpha_th * dT_avg / (1.0 - 2.0*nu_th) * scale
             eps_0 = [sig_th, sig_th, sig_th, 0.0, 0.0, 0.0]
 
-            if nn == 4  # CTETRA
+            if nn == 10
+                throw(ArgumentError("Temperature loading of ten-node tetrahedra is not implemented; no thermal load may be silently omitted"))
+            elseif nn == 4  # CTETRA
                 B = FEM.solid_centroid_B_tetra4(view(Xth, 1:4, :))
                 J = [Xth[2,j]-Xth[1,j] for j in 1:3]'
                 J = vcat(J, [Xth[3,j]-Xth[1,j] for j in 1:3]')

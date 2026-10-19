@@ -36,5 +36,6 @@ if !isdefined(@__MODULE__, :_solve_tacs_sol101)
 end
 
 if !isdefined(@__MODULE__, :solve_model)
+    isdefined(@__MODULE__, :abaqus_to_model) || include("abaqus_input.jl")
     include("JFEMSolver.jl")
 end

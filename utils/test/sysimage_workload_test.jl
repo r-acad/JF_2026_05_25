@@ -38,10 +38,24 @@ tests = @testset "Shared image warmups require every app and propagate failures"
     @test all(result -> result["ok"], results)
     @test all(result -> result["viewer_bytes"] > 0, results)
     @test Set(result["sol"] for result in results) == (all_decks ? Set([101, 103, 105, 106]) : Set([101]))
+    # Real native .inp/.inp.gz analyses exercise complete quadratic tetrahedra
+    # and the authored C3D8 operator. No downloaded assets or sysimage build.
+    temporary_paths=String[]
+    solids=W.run_abaqus_solids(;on_case=(path,output)->append!(temporary_paths,[path,output]))
+    @test Set(row["sol"] for row in solids)==Set([101,103])
+    @test all(row->row["ok"]&&row["elements"]==2&&row["tetra_nodes"]==10,solids)
+    @test all(row->row["element_types"]==["C3D10","C3D8"],solids)
+    @test all(row->row["viewer_version"]==6&&row["viewer_bytes"]>0,solids)
+    @test only(filter(row->row["sol"]==103,solids))["modal_roots"]==3
+    @test only(filter(row->row["sol"]==103,solids))["input_gzip"]
+    @test length(temporary_paths)==4&&all(path->!ispath(path),temporary_paths)
+    automatic=read(joinpath(root,"utils","julia_tools","boxer_precompile_workload.jl"),String)
+    @test occursin("JFEMSharedPrecompileWorkloads.run_abaqus_solids()",automatic)
     evidence = get(ENV, "JFEM_WORKLOAD_TEST_EVIDENCE", "")
     if !isempty(evidence)
         mkpath(evidence)
         write(joinpath(evidence, "pandeator_warmups.json"), JSON.json(results))
+        write(joinpath(evidence,"abaqus_solid_warmups.json"),JSON.json(solids))
     end
 end
 

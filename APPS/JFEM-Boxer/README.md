@@ -10,14 +10,16 @@ to choose a `.jfem` result file from any folder with the normal system file
 browser. Boxer reads the mesh and all stored result states in the background,
 then displays the complete model together. The original deck is not required.
 Use the Results case selector for static subcases and the mode list for
-eigenmodes. Version 5 buckling files also expose their static preload as a
-separate analysis. Older eigenvalue files do not record whether they contain
-SOL103 or SOL105; choose the analysis that produced the file when prompted.
+eigenmodes. Version 5 and 7 buckling files also expose their static preload as a
+separate analysis. Eigenvalue files without an analysis identifier do not distinguish SOL103
+from SOL105; choose the analysis that produced the file when prompted.
 
 Archived results are a read-only view. They retain GRID/EID/PID IDs, shell
 thicknesses, bar/rod areas, displacements, rotations and exported field slots.
 Bars without a stored section shape use an area-equivalent display section;
-solids have inspectable connectivity and are drawn as edges. The binary does
+solids have inspectable full volume connectivity and shaded exterior faces.
+Shared interior faces are hidden. Quadratic tetrahedra retain all ten nodes,
+including midside nodes in their face tessellation. The binary does
 not embed full material/coordinate definitions, the original solver input,
 constraint reactions, units or convergence history. Values keep their source
 unit system; unrequested static field slots can contain zero placeholders.
@@ -29,6 +31,12 @@ SOL101 from SOL106 and are labeled as static archives.
 Open the corresponding Study or source deck to edit, solve or calculate
 sensitivities. Opening another result file replaces the archived view and
 resets case selections; an invalid file leaves the previous view available.
+
+The shared readers accept `.jfem` versions 1-7. Version 6 adds the actual node
+count to each tetrahedron record, preserving both four-node and ten-node
+tetrahedra; version 7 also carries an available buckling static preload.
+Older archives remain readable. These format extensions retain geometry and
+stored results; they do not add missing original material or analysis definitions.
 
 Try the ready-to-open results in the [illustrated benchmark collection](../../validation/README.md).
 
@@ -175,9 +183,9 @@ aggregated across the bay's skins, webs, caps and stiffeners; an interior rib
 contributes half to each adjacent bay. **Environment** includes ground Shadows and Self
 shadows; both are display settings. **Entities** separates Connections from Constraints.
 
-The deck reader is **Read Reference** in Project. Its internal importer, parser,
-exporter and API identifiers also use Reference. Restart the application after
-updating; reimport external decks when reopening an older imported Study.
+Project provides **Read Reference** for bulk-data decks and **Read Abaqus**
+for `.inp` and `.inp.gz` files. Both use the existing imported-model workflow.
+Restart the application after updating; reimport external decks when reopening an older imported Study.
 
 **Display / Axes & labels** greys out rib and stringer labels when the model has
 no physical layout metadata. **Coordinate IDs and types** also enables the
@@ -427,7 +435,8 @@ Large-deck search changes only the matching text chunks; copying/downloading
 still gives the original deck text.
 
 The **Project** dropdown groups New Study, Study/TOML reading and saving,
-Read Reference, Write deck, geometry export and configured-input operations.
+Read Reference, Read Abaqus input, Write deck, geometry export and
+configured-input operations.
 **Export geometry…** opens the STL/GLB options. Save Study retains its orange
 or green saved-state indicator inside the menu. The Project button is orange
 for unsaved definition changes and green when the definition is saved;
@@ -581,6 +590,91 @@ sources; it does not depend on an old server token. **Write deck** produces a
 self-contained deck with INCLUDE text expanded. Wing geometry/property forms
 and TOML export are disabled for imported models. **New Study**, **Load TOML**
 or loading a generated Study returns to the wing generator.
+
+### Read an Abaqus input
+
+1. Choose **Project / Read Abaqus**, or **Read Abaqus input** on the opening
+   screen. On Windows, select the local `.inp` or `.inp.gz` file in the normal
+   system dialog. On other platforms, enter its full path on the Boxer server.
+   Gzip inputs are decompressed automatically; `*INCLUDE, INPUT=...` files are
+   resolved relative to each containing file.
+2. Leave **Add the material, constraints and analysis below** unchecked to
+   inspect a mesh without supplying missing physics. Readiness diagnostics
+   explain missing or unsupported data. **Run in JFEM** is disabled until a
+   supported, complete analysis has been defined.
+3. Inspect named **Node sets**, **Element sets** and **Surfaces** under
+   **Analysis / FE Analysis / Imported deck analysis**. Loads and constraints
+   are shown for the selected source step. Solid picking identifies the original
+   volume-element ID, property and complete connectivity; exterior faces are a
+   display tessellation, not replacement solver elements.
+4. For a solid mesh with no authored materials, sections, constraints or steps,
+   enable the explicit setup. Enter Young modulus, Poisson ratio and density;
+   select **ALL** or an element set covering the complete mesh. Enter the
+   constrained node-set name and fixed translation components, where
+   `1=X`, `2=Y`, `3=Z`. Multiple constraint sets use semicolons, for example
+   `BLOCK_FIXED;CYLINDER_TO_BLOCK`.
+5. Select **SOL101 (linear static)** with a force node set, total force and
+   direction, or **SOL103 (normal modes)** with a positive density and requested
+   mode count. Static completion normalizes the direction and distributes the
+   total force equally among the selected nodes. The value is a resultant,
+   not a force repeated at every node or a uniform face pressure. Choose
+   **Read deck**, then run the completed analysis normally.
+
+**Units and saved Studies.** The input reader performs no unit conversion.
+Geometry, modulus, density and loads must form one consistent unit system;
+Boxer's displayed unit labels assume SI. Defaults in the optional setup are
+visible and are applied only after its checkbox is enabled. **Save Study**
+embeds the captured source and the explicit completion choices. A run uses a
+separate expanded `.inp`; a source filename ending in `.inp.gz` is not used
+for already-decompressed run text. Reopening the Study repeats the same setup
+without depending on the original file location.
+
+**Example: JuliaFEM/FEModels.** Obtain the `block-and-cylinder` mesh from the
+[upstream model collection](https://github.com/JuliaFEM/FEModels). It contains a
+hexahedral block and a quadratic-tetrahedral cylinder as two disconnected
+bodies, with named sets and surfaces but no material or analysis steps. A
+simple deliberate setup constrains `BLOCK_FIXED;CYLINDER_TO_BLOCK` and applies
+a total force to `CYLINDER_LOAD`. This independently clamps both bodies and
+loads only the cylinder; the block is unloaded. No contact, tie or interface
+load transfer is created between the bodies. Choose the boundary conditions
+that represent your intended model before interpreting its results.
+
+The tower archives in that repository use Git LFS. After cloning, run
+`git lfs pull`, or download the actual original file through GitHub. A small
+text pointer ending in `.inp.gz` is not the compressed mesh; the importer
+reports this explicitly instead of attempting to analyze the pointer.
+
+**Executable subset.** Flat meshes with isotropic `*ELASTIC` materials,
+`*DENSITY`, solid/shell sections and the following elements are translated into
+JFEM's native formulations:
+
+| Input element | Native topology |
+| --- | --- |
+| `C3D4`, `C3D10` | Four-node or full ten-node tetrahedron |
+| `C3D6`, `C3D8` | Six-node wedge or eight-node hexahedron |
+| `S3`, `S4` | Three-node or four-node shell |
+
+Small-displacement `*STATIC` maps to SOL101; unprestressed `*FREQUENCY` maps to
+SOL103. The supported load subset includes nodal `*CLOAD`, global gravity and
+supported planar element-face pressures. Named sets, boundary constraints and
+source step labels are retained. The full quadratic tetrahedral stiffness,
+consistent mass, stress recovery, geometric stiffness and all midside
+connectivity are available in the native solver; the Abaqus translator still
+limits executable procedures to the static/modal subset above.
+
+Part/instance assemblies, contact/ties, nonlinear `NLGEOM`, plasticity,
+prestressed frequency extraction, `*BUCKLE`, and other unsupported mechanics
+produce explicit diagnostics and block analysis. Reduced-integration, hybrid
+and modified element variants are not silently replaced with a different
+formulation. Abaqus-input sensitivities and Reference-only solution/follower
+controls are unavailable in this workflow. Use a supported source step or the
+explicit mesh setup; importing an element name does not establish numerical
+equivalence to every formulation bearing that name in another solver.
+
+For the source format, see the official
+[Abaqus node/set definitions](https://docs.software.vt.edu/abaqusv2025/English/SIMACAEMODRefMap/simamod-c-node.htm)
+and [exporting a flat input without parts and assemblies](https://docs.software.vt.edu/abaqusv2025/English/SIMACAECAERefMap/simacae-c-dbsflatteninput.htm).
+These describe the upstream format; JFEM implements the subset listed here.
 
 ## Display and editing
 
@@ -1044,8 +1138,10 @@ node APPS/JFEM-Boxer/test/panel_explode_test.cjs
 node APPS/JFEM-Boxer/test/scene_lighting_test.cjs
 node APPS/JFEM-Boxer/test/support_glyphs_test.cjs
 node APPS/JFEM-Boxer/test/reference_import_large_test.cjs
-node APPS/JFEM-Boxer/test/sections_viewer_test.cjs
+node APPS/JFEM-Boxer/test/abaqus_import_test.cjs
 node APPS/JFEM-Boxer/test/solid_geometry_test.cjs
+node APPS/JFEM-Boxer/test/solid_binary_test.cjs
+node APPS/JFEM-Boxer/test/sections_viewer_test.cjs
 node APPS/JFEM-Boxer/test/imported_analysis_test.cjs
 node APPS/JFEM-Boxer/test/imported_follower_display_test.cjs
 julia --project=. APPS/JFEM-Boxer/test/startup_progress_test.jl
@@ -1057,6 +1153,8 @@ julia --project=. APPS/JFEM-Boxer/test/sensitivity_component_selection_test.jl /
 julia --project=. APPS/JFEM-Boxer/test/payload_roundtrip_test.jl
 julia --project=. APPS/JFEM-Boxer/test/reference_source_test.jl
 julia --project=. APPS/JFEM-Boxer/test/reference_import_smoke_test.jl
+julia --project=. APPS/JFEM-Boxer/test/abaqus_import_test.jl
+julia --project=. APPS/JFEM-Boxer/test/abaqus_import_worker_test.jl
 julia --project=. APPS/JFEM-Boxer/test/reference_case_metadata_test.jl
 julia --project=. APPS/JFEM-Boxer/test/model_entities_payload_test.jl
 julia --project=. APPS/JFEM-Boxer/test/follower_metadata_test.jl
@@ -1067,6 +1165,7 @@ The importer readiness check also uses Playwright's bundled Chromium by default:
 
 ```sh
 node APPS/JFEM-Boxer/test/reference_ready_browser_test.cjs
+node APPS/JFEM-Boxer/test/abaqus_import_browser_test.cjs
 ```
 
 For this check, `WINGFEGEN_PLAYWRIGHT_MODULE` overrides the module path and

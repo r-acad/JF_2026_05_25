@@ -8,9 +8,9 @@ if [ -z "$deck" ]; then
     elif command -v zenity >/dev/null 2>&1; then
         deck=$(zenity --file-selection --title="Choose a finite element deck") || exit 0
     elif command -v kdialog >/dev/null 2>&1; then
-        deck=$(kdialog --getopenfilename . '*.bdf *.dat *.nas') || exit 0
+        deck=$(kdialog --getopenfilename . '*.bdf *.dat *.nas *.inp *.inp.gz') || exit 0
     else
-        read -r -p 'Deck path (.bdf, .dat or .nas): ' deck
+        read -r -p 'Input path (.bdf, .dat, .nas, .inp or .inp.gz): ' deck
     fi
     [ -n "$deck" ] || exit 0
 else

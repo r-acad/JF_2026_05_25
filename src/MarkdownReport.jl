@@ -10,6 +10,7 @@
 # ---- formatting helpers -------------------------------------------------
 
 @inline function _report_fmt_time(s)
+    s isa Real || return "Unavailable"
     s = Float64(s)
     if !isfinite(s) || s < 0
         return "—"
@@ -52,9 +53,10 @@ end
 
 Write a human-readable `.REPORT.md` next to the other outputs. Contains
 step-level timing, a mesh summary, and per-SOL quality/result tables.
-`timings` is an optional `Dict{String,Float64}` of pipeline-level stage
-durations in seconds (supplied by `main()`); per-solve timings stashed
-inside `results["timings"]` are merged automatically.
+`timings` accepts the current pipeline timing payload (including measured
+compilation and unavailable execution times), or a legacy dictionary of
+stage durations in seconds. Current pipeline measurements take precedence
+over older timings stashed inside `results["timings"]`.
 """
 function export_markdown_report(results::AbstractDict, filename::AbstractString,
                                 output_dir::AbstractString; timings=nothing)
@@ -62,14 +64,7 @@ function export_markdown_report(results::AbstractDict, filename::AbstractString,
     println("\n>>> Exporting MARKDOWN REPORT: $md_path")
     _export_ensure_parent_dir!(md_path)
 
-    merged_timings = Dict{String,Any}()
-    if timings isa AbstractDict
-        for (k, v) in timings; merged_timings[string(k)] = v; end
-    end
-    solve_timings = _report_safe_get(results, "timings", Dict{String,Any}())
-    if solve_timings isa AbstractDict
-        for (k, v) in solve_timings; merged_timings[string(k)] = v; end
-    end
+    merged_timings = _report_resolve_timings(results, timings)
 
     sol_type = Int(_report_safe_get(results, "sol_type", 0))
     analysis_type = string(_report_safe_get(results, "analysis_type", _sol_type_label(sol_type)))
@@ -161,7 +156,7 @@ end
 # ---- timing section -----------------------------------------------------
 
 const _REPORT_TIMING_ORDER = [
-    ("parse",        "BDF parsing"),
+    ("parse",        "Input parsing"),
     ("build_model",  "Model construction"),
     ("solve",        "Solve (total)"),
     ("assembly_K",   "  stiffness assembly"),
@@ -170,6 +165,62 @@ const _REPORT_TIMING_ORDER = [
     ("export",       "Export (all formats)"),
 ]
 
+function _report_resolve_timings(results, timings)
+    if timings isa AbstractDict && get(timings, "schema_version", nothing) == 2 &&
+            get(timings, "stages", nothing) isa AbstractVector
+        # These nested measurements already contain the solver's stages. A
+        # legacy solve duration may omit dispatch/JIT and must not replace them.
+        return timings
+    end
+    merged = Dict{String,Any}()
+    for source in (_report_safe_get(results, "timings", nothing), timings)
+        source isa AbstractDict || continue
+        for (key, value) in source
+            value isa Real || continue
+            merged[string(key)] = value
+        end
+    end
+    return merged
+end
+
+function _report_pipeline_timing_section(io, payload)
+    println(io, "| Measurement | Time |")
+    println(io, "|---|---:|")
+    for (key, label) in (("solution_seconds", "Numerical execution (excluding compilation)"),
+                         ("preparation_seconds", "Input/model preparation execution"),
+                         ("export_seconds", "File export execution"),
+                         ("compilation_seconds", "Measured Julia compilation"),
+                         ("measured_wall_seconds", "Measured pipeline wall time"))
+        println(io, "| ", label, " | ", _report_fmt_time(get(payload, key, nothing)), " |")
+    end
+    println(io)
+    println(io, "Wall time includes compilation. Nested stage times are included in their parent; do not add the rows together. Execution is unavailable when measured compilation overlaps or exceeds its wall interval. Compilation counters can overlap across threads, so they are not an additional wall-time interval.")
+    println(io)
+    println(io, "| Stage | Wall time | Measured compilation | Execution excluding compilation |")
+    println(io, "|---|---:|---:|---:|")
+    order = Dict(name => index for (index, name) in enumerate(
+        ("parse", "build_model", "model_export", "solve", "export", "report", "adjoint")))
+    rows = sort(collect(payload["stages"]); by = row -> begin
+        path = string(get(row, "path", get(row, "phase", "")))
+        root = first(split(path, '/'))
+        (get(order, root, length(order) + 1), path)
+    end)
+    for row in rows
+        metrics = get(row, "inclusive", Dict{String,Any}())
+        label = get(row, "phase", "") == "parse" ? "Input parsing" : string(get(row, "label", row["phase"]))
+        prefix = repeat("↳ ", max(0, Int(get(row, "depth", 0))))
+        calls = Int(get(row, "calls", 1))
+        calls > 1 && (label *= " ($(calls) calls)")
+        println(io, "| ", prefix, _report_md_table_cell(label), " | ",
+            _report_fmt_time(get(metrics, "wall_seconds", nothing)), " | ",
+            _report_fmt_time(get(metrics, "compilation_seconds", nothing)), " | ",
+            _report_fmt_time(get(metrics, "execution_seconds", nothing)), " |")
+    end
+    println(io)
+    println(io, "Numerical execution includes assembly, constraints, equilibrium/eigenvalue solution and recovery; it excludes input preparation, measured compilation and export. Package loading/precompilation before the pipeline is not measured here. This report is a snapshot of completed stages; the final `.TIMINGS.JSON` also records subsequent stages, including writing this report.")
+    println(io)
+end
+
 function _report_timing_section(io, timings)
     println(io, "## Pipeline timing")
     println(io)
@@ -177,6 +228,12 @@ function _report_timing_section(io, timings)
         println(io, "_No timing information captured._\n")
         return
     end
+    if get(timings, "schema_version", nothing) == 2 && get(timings, "stages", nothing) isa AbstractVector
+        _report_pipeline_timing_section(io, timings)
+        return
+    end
+    println(io, "Legacy stage wall times include any compilation within the measured interval; compilation and pure numerical execution were not separated.")
+    println(io)
     println(io, "| Stage | Wall time |")
     println(io, "|---|---:|")
 

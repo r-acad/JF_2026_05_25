@@ -19,6 +19,8 @@
  function cases(deck){return (deck.cases||[]).filter(row=>options(deck.source?.analysis).solution==='source'?row.result_required!==false:row.case_control?.STATSUB==null&&!String(row.analysis_role||'').startsWith('Buckling'));}
  function create({host,read,onChange}){
   host.innerHTML='<h2>Imported deck analysis</h2><label class="display-control">Solution <select data-key="solution"><option value="source">Original source solution</option><option value="101">SOL101 · linear static</option><option value="103">SOL103 · normal modes</option><option value="105">SOL105 · linear buckling</option><option value="106">SOL106 · nonlinear static</option></select></label><label class="display-control">Concentrated FORCE loads <select data-key="follower"><option value="source">Keep source follower settings</option><option value="fixed">Fixed directions</option><option value="force">Follower forces · FORCE ROT</option></select></label><p class="pick-note">Original geometry, properties, LOAD sets, SPCs and MPCs are preserved. The selected solution is written to a separate run deck. SOL105 creates a buckling companion for each original static case. Imported SOL106 runs that solution only. Save Study includes these settings; the original BDF text stays unchanged.</p><p class="pick-note">Follower mode rotates concentrated FORCE directions with nodal rotations: SOL101 uses the first-order load tangent; SOL106 updates directions during each iteration. MOMENT, pressure and body loads stay fixed. Follower forces are unavailable for SOL103/SOL105. Analysis → Sensitivity has its own SOL101, SOL103, SOL105 or SOL106 selector. SOL106 sensitivities currently support final-load displacement with fixed-direction loads and supported shell/CBAR formulations.</p><div data-eigen></div><div data-nonlinear></div><p data-note role="status"></p>';
+  const abaqusInfo=document.createElement('div');abaqusInfo.dataset.abaqusInfo='';abaqusInfo.hidden=true;abaqusInfo.className='pick-note';host.querySelector('h2').after(abaqusInfo);
+  const originalNotes=[...host.querySelectorAll(':scope > p.pick-note')];
   const eigenNote=document.createElement('div');eigenNote.dataset.eigenNote='';eigenNote.className='pick-note';host.querySelector('[data-eigen]').after(eigenNote);
   const outputs=document.createElement('div');outputs.dataset.bucklingOutputs='';eigenNote.after(outputs);
   for(const [key,label]of [['buckling_output_override','Override source SOL105 output settings'],['buckling_deformation_energy','Export element strain energy and density (ESE)'],['buckling_compact','Only eigenvalues and peak-node properties']]){
@@ -33,13 +35,24 @@
   host.addEventListener('change',event=>{if(!event.target.dataset.key)return;try{const values=Object.fromEntries([...host.querySelectorAll('[data-key]')].map(el=>[el.dataset.key,el.type==='checkbox'?el.checked:el.type==='number'?Number(el.value):el.value]));if(event.target.dataset.key==='buckling_output_override'&&!event.target.checked)for(const key of OUTPUT_KEYS)values[key]=false;onChange(options(values));refresh();}catch(error){host.querySelector('[data-note]').textContent=error.message;}});
   function refresh(disabled=false){
    const deck=read();host.hidden=!deck;if(!deck)return;
-   const value=options(deck.source?.analysis),sol=solution(deck);
-   for(const input of host.querySelectorAll('[data-key]')){if(input.type==='checkbox')input.checked=value[input.dataset.key];else input.value=value[input.dataset.key];input.disabled=disabled||(OUTPUT_KEYS.slice(1).includes(input.dataset.key)&&!value.buckling_output_override)||(value.buckling_compact&&['buckling_deformation_energy','buckling_energy_density'].includes(input.dataset.key));}
-   outputs.hidden=sol!=='105';
-   host.querySelector('[data-eigen]').hidden=!['103','105'].includes(value.solution);
+   const value=options(deck.source?.analysis),sol=solution(deck),isAbaqus=deck.source_format==='abaqus'||deck.source?.format==='abaqus';
+   abaqusInfo.hidden=!isAbaqus;
+   if(isAbaqus){
+    abaqusInfo.replaceChildren();const note=document.createElement('p');note.textContent=deck.analysis_ready===false?'This Abaqus file is a mesh-only or incomplete model. Inspect its named sets below. To solve a solid mesh, read it again and enable the explicit material, constraint and static/modal setup. No missing material or loading is invented.':'Abaqus analysis uses the authored input steps or the explicit setup saved with this Study. The original source and completion settings are retained. Reference-only solution/follower overlays are unavailable.';abaqusInfo.append(note);
+    const meta=deck.abaqus||{};for(const [key,label]of [['nsets','Node sets'],['elsets','Element sets'],['surfaces','Surfaces']]){
+     const entries=Object.entries(meta[key]||{});if(!entries.length)continue;const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent=label+' ? '+entries.length;details.append(summary);
+     for(const [name,items]of entries){const row=document.createElement('div');row.textContent=name+' ? '+(Array.isArray(items)?items.length:(items.entries||[]).length)+' '+(key==='nsets'?'nodes':key==='elsets'?'elements':'entries');row.title=Array.isArray(items)?items.slice(0,100).join(', ')+(items.length>100?', ...':''):JSON.stringify(items);details.append(row);}abaqusInfo.append(details);
+    }
+    const diagnostics=(meta.diagnostics||[]).filter(row=>row.message);if(diagnostics.length){const list=document.createElement('ul');for(const row of diagnostics){const item=document.createElement('li');item.textContent=(row.code?row.code+': ':'')+row.message;list.append(item);}abaqusInfo.append(list);}
+   }
+   for(const note of originalNotes)note.hidden=isAbaqus;
+   for(const input of host.querySelectorAll('[data-key]')){if(input.type==='checkbox')input.checked=value[input.dataset.key];else input.value=value[input.dataset.key];input.disabled=disabled||isAbaqus||(OUTPUT_KEYS.slice(1).includes(input.dataset.key)&&!value.buckling_output_override)||(value.buckling_compact&&['buckling_deformation_energy','buckling_energy_density'].includes(input.dataset.key));}
+   outputs.hidden=isAbaqus||sol!=='105';
+   host.querySelector('[data-key="follower"]').closest('label').hidden=isAbaqus;
+   host.querySelector('[data-eigen]').hidden=isAbaqus||!['103','105'].includes(value.solution);
    host.querySelector('[data-key="buckling_max_factor"]').closest('label').hidden=value.solution!=='105';
-   host.querySelector('[data-nonlinear]').hidden=value.solution!=='106';
-   eigenNote.hidden=!['103','105'].includes(sol);
+   host.querySelector('[data-nonlinear]').hidden=isAbaqus||value.solution!=='106';
+   eigenNote.hidden=isAbaqus||!['103','105'].includes(sol);
    eigenNote.replaceChildren();
    if(!eigenNote.hidden){
     const explanation=document.createElement('p');
@@ -53,7 +66,7 @@
      eigenNote.append(fields,explanation);
     }
    }
-   host.querySelector('[data-note]').textContent=value.follower==='force'&&!['101','106'].includes(sol)?'Select fixed forces for SOL103/SOL105 before running.':'Run SOL'+sol+' on '+deck.name+'; no lifting surface geometry will be generated.';
+   host.querySelector('[data-note]').textContent=isAbaqus?(deck.analysis_ready===false?'Analysis unavailable until the missing data are explicitly defined.':'Run '+(deck.solution_label||'SOL'+sol)+' on '+deck.name+'; original input steps are preserved.'):value.follower==='force'&&!['101','106'].includes(sol)?'Select fixed forces for SOL103/SOL105 before running.':'Run SOL'+sol+' on '+deck.name+'; no lifting surface geometry will be generated.';
   }
   return {refresh};
  }

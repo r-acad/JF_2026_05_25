@@ -69,6 +69,7 @@ _startup_end_package(VortexLattice, "VortexLattice")
 _startup_begin_package("SHA")
 import SHA
 _startup_end_package(SHA, "SHA")
+import CodecZlib
 
 _startup_stage("Loading input definitions, airfoils, materials and reference geometry")
 include("runtime_bootstrap.jl")

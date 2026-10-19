@@ -4,7 +4,7 @@ set "JFEM_DECK=%~1"
 if defined JFEM_DECK goto solve
 set "JFEM_PICKER=%TEMP%\jfem_deck_%RANDOM%_%RANDOM%.txt"
 set "JFEM_PICKER_OUT=%JFEM_PICKER%"
-powershell.exe -NoProfile -STA -Command "Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.OpenFileDialog; $dialog.Title = 'Choose a finite element deck'; $dialog.Filter = 'Finite element decks (*.bdf;*.dat;*.nas)|*.bdf;*.dat;*.nas|All files (*.*)|*.*'; if ($dialog.ShowDialog() -eq 'OK') { [System.IO.File]::WriteAllText($env:JFEM_PICKER_OUT, $dialog.FileName, [System.Text.Encoding]::Default) }"
+powershell.exe -NoProfile -STA -Command "Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.OpenFileDialog; $dialog.Title = 'Choose a finite element deck'; $dialog.Filter = 'Finite element inputs (*.bdf;*.dat;*.nas;*.inp;*.inp.gz)|*.bdf;*.dat;*.nas;*.inp;*.inp.gz|All files (*.*)|*.*'; if ($dialog.ShowDialog() -eq 'OK') { [System.IO.File]::WriteAllText($env:JFEM_PICKER_OUT, $dialog.FileName, [System.Text.Encoding]::Default) }"
 if not exist "%JFEM_PICKER%" exit /b 0
 set /p "JFEM_DECK=" < "%JFEM_PICKER%"
 del /q "%JFEM_PICKER%"

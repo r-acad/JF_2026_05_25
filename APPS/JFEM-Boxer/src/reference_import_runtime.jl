@@ -5,6 +5,7 @@
 module WingFEGen
 using Printf, Dates, TOML, LinearAlgebra
 import JSON, MsgPack, SHA, Serialization
+import CodecZlib
 include("airfoil.jl")
 include("materials.jl")
 include("params.jl")

@@ -1,0 +1,15 @@
+'use strict';
+const assert=require('node:assert/strict'),I=require('../web/reference_import.js'),W=require('../web/workspace.js');
+const mesh='** portable mesh\n*NODE\n11,0,0,0\n*INCLUDE, INPUT="parts/volume.inc"\n';
+const setup={enabled:true,E:7e10,nu:.3,rho:2700,element_set:'ALL',constraint_set:'FIXED',constraint_dofs:'123',force_set:'TIP',force_direction:[0,0,-2],total_force:120,solution:'101',modes:10};
+assert.equal(I.format('part.inp.gz',''),'abaqus');assert.equal(I.format('model.txt',mesh),'abaqus');assert.equal(I.format('m.bdf','SOL 101'),'reference');assert.equal(I.format('m.inp',mesh,'reference'),'reference');assert.throws(()=>I.format('x','','bad'));
+assert.deepEqual(I.includeReferences(mesh,'main.inp'),['parts/volume.inc']);assert.deepEqual(I.includeReferences('*include, input=folder\\mesh.inc\n','x'),['folder\\mesh.inc']);assert.deepEqual(I.includeReferences('** *INCLUDE, INPUT=ignored\n*NODE\n','x'),[]);assert.throws(()=>I.includeReferences('*INCLUDE, INPUT=\n','x'));
+const source=I.source({kind:'reference',name:'main.inp',text:mesh,includes:[{name:'parts/volume.inc',text:'*ELEMENT, TYPE=C3D4\n51,11,12,13,14\n'}],completion:setup});
+assert.equal(source.format,'abaqus');assert.deepEqual(source.completion,setup);assert.deepEqual(I.source(source),source);
+const view={controls:{},layers:{},camera:{target:[0,0,0],alpha:1,beta:1,radius:12},activeCase:1,workspace:{activeTab:'analysis',width:430,collapsed:false}};
+for(const change of [{E:0},{nu:.5},{rho:0},{force_direction:[0,0,0]},{force_direction:[0,1,Infinity]},{constraint_set:''},{constraint_dofs:'6'},{force_set:''},{modes:0},{modes:201},{modes:1.2},{solution:'105'},{element_set:'bad\n*STEP'}])assert.throws(()=>I.completion({...setup,...change}));
+assert.deepEqual(I.completion({enabled:false}),{enabled:false});assert.doesNotThrow(()=>I.completion({...setup,solution:'103',force_set:''}));assert.throws(()=>I.source({kind:'reference',name:'x.bdf',text:'SOL 101',completion:setup}));
+(async()=>{const study=await W.snapshot({},null,view,{modelSource:source});assert.deepEqual(W.parse(JSON.stringify(study)).data.model_source,source);let reads=[];const file=(name,text)=>({name,webkitRelativePath:'model/'+name,size:text.length,text:async()=>{reads.push(name);return text;}}),main=file('main.inp',mesh),child=file('parts/volume.inc','*NODE\n12,1,0,0\n');
+ const uploaded=await I.uploadSource(main,[main,child,file('unrelated.bin','ignored')]);assert.equal(uploaded.format,'abaqus');assert.deepEqual(uploaded.includes,[{name:'parts/volume.inc',text:'*NODE\n12,1,0,0\n'}]);assert.deepEqual(reads,['main.inp','parts/volume.inc']);
+ await assert.rejects(()=>I.uploadSource(main,[main]),/INCLUDE/);console.log('Abaqus format detection, INCLUDE capture, explicit completion validation and portable Study round trip passed.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

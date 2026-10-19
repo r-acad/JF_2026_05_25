@@ -136,7 +136,7 @@ function imported_directory_listing(raw;default_directory=homedir(),all_files=fa
     for path in readdir(directory;join=true,sort=false)
         info=try stat(path) catch;continue;end
         folder=isdir(info)
-        folder||all_files||lowercase(splitext(path)[2]) in (".bdf",".dat",".nas",".bulk",".blk")||continue
+        folder||all_files||lowercase(splitext(path)[2]) in (".bdf",".dat",".nas",".bulk",".blk",".inp",".gz")||continue
         push!(entries,Dict("name"=>basename(path),"path"=>path,"directory"=>folder,"bytes"=>folder ? nothing : info.size))
     end
     sort!(entries;by=row->(!row["directory"],lowercase(row["name"])))
@@ -166,10 +166,11 @@ function handle_import_reference_pick(st,req)
     try
         Sys.iswindows()||throw(ArgumentError("The native path picker is available on Windows. Paste the full main-deck path to read this computer's INCLUDE tree."))
         raw=isempty(req.body) ? Dict() : JSON.parse(String(req.body))
-        initial=String(get(raw,"path",st.root))
+        initial=String(get(raw,"path",st.root));format=String(get(raw,"format","auto"))
+        format in ("auto","reference","abaqus")||throw(ArgumentError("Invalid source format"))
         length(initial)<=32767&&!occursin('\0',initial)||throw(ArgumentError("Invalid initial path"))
         script=joinpath(@__DIR__,"reference_pick_file.ps1")
-        command=Cmd(`powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File $script -InitialPath $initial`;windows_hide=true)
+        command=Cmd(`powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File $script -InitialPath $initial -Format $format`;windows_hide=true)
         result=mktemp() do path,io
             errors=IOBuffer()
             process=run(pipeline(command;stdout=io,stderr=errors);wait=false)
@@ -191,7 +192,7 @@ end
 function handle_import_reference(st::AppState,req)
     progress=request_progress(st,req)
     try
-        started=time();progress("Reading Reference source and resolving INCLUDE files automatically")
+        started=time();progress("Reading model source and resolving INCLUDE files automatically")
         source=imported_source(JSON.parse(String(req.body)));source_seconds=time()-started
         repo,_=find_jfem(st.root;hint=String(st.params["jfem.repo"]));repo===nothing&&throw(ArgumentError("JFEM native parser is unavailable; configure the solver repository"))
         base=joinpath(st.deck_store_dir,"imports");mkpath(base);dir=mktempdir(base;prefix="deck_",cleanup=false)
@@ -212,20 +213,27 @@ function handle_import_reference(st::AppState,req)
         return HTTP.Response(200,["Content-Type"=>"application/x-msgpack","Cache-Control"=>"no-store",
             "X-Wing-Import-Timings"=>JSON.json(timings)],read(joinpath(dir,"payload.msgpack")))
     catch err
-        return error_response("Read Reference: "*describe_error(err))
+        return error_response("Read model deck: "*describe_error(err))
     end
 end
 
 function imported_written_deck(st,model)
     base=joinpath(st.deck_store_dir,"imported_decks");mkpath(base)
-    dir=mktempdir(base;prefix="deck_",cleanup=false);path=joinpath(dir,basename(model.params["imported.source"]["name"]))
+    dir=mktempdir(base;prefix="deck_",cleanup=false);name=basename(model.params["imported.source"]["name"])
+    # Captured gzip sources are expanded text; never pass a .gz suffix to the
+    # solver, which would otherwise attempt to decompress these plain bytes.
+    get(model.params["imported.source"],"format","reference")=="abaqus"&&(name=replace(name,r"(?i)\.gz$"=>""))
+    path=joinpath(dir,name)
     write(path,get(model.params,"imported.analysis_deck",model.params["imported.source"]["flattened"]))
     publicparams=Dict(k=>v for (k,v) in model.params if !startswith(k,"imported."))
-    snapshot=preserve_deck!(st,path,publicparams;source="Imported Reference source",imported_signature=model.params["imported.source"]["signature"],imported_analysis=get(model.params,"imported.analysis",imported_analysis_options()))
+    snapshot=preserve_deck!(st,path,publicparams;source=get(model.params["imported.source"],"format","reference")=="abaqus" ? "Imported Abaqus source" : "Imported Reference source",imported_signature=model.params["imported.source"]["signature"],imported_analysis=get(model.params,"imported.analysis",imported_analysis_options()))
     return path,snapshot
 end
 
 function handle_imported_reference(st,model;run=false,start_job=start_jfem_job,progress=(_)->nothing)
+    if run&&!get(model.params,"imported.analysis_ready",true)
+        throw(ArgumentError("This Abaqus file is a mesh only or has incomplete/unsupported analysis data. Read it again and explicitly define material, constraints and a static load or modal request. Inspect the import diagnostics for the missing items."))
+    end
     progress("Imported deck: $(model.params["imported.source"]["name"]) · SOL$(model.params["output.solution"]) · $(length(model.node_ids)) original GRID nodes; writing source analysis without lifting surface generation")
     @info "Routing imported analysis directly to source deck" name=model.params["imported.source"]["name"] solution=model.params["output.solution"] nodes=length(model.node_ids)
     path,snapshot=imported_written_deck(st,model)

@@ -1313,10 +1313,46 @@ function bar_normal_extreme(record::AbstractDict, ending::AbstractString, extrem
     return axial + extreme(points)
 end
 
+"""Attach native centroidal solid stresses using original volume element IDs."""
+function append_solid_results_payload!(contours, records, m::Model, results::AbstractDict)
+    is_imported_model(m) || return
+    solids = get(imported_native(m), "CSOLIDs", Dict())
+    isempty(solids) && return
+    supported = Dict(Int(element["ID"]) => String(element["TYPE"]) for element in values(solids))
+    source = get(results, "stresses", nothing)
+    source isa AbstractDict || return
+    values_by_eid = Dict{Int,Float64}()
+    for (family, card) in (("ctetra", "CTETRA"), ("chexa", "CHEXA"), ("cpenta", "CPENTA"))
+        for row in get(source, family, Any[])
+            row isa AbstractDict || continue
+            eid = get(row, "eid", nothing)
+            eid isa Integer && !(eid isa Bool) || continue
+            get(supported, Int(eid), nothing) == card || continue
+            value = get(row, "von_mises", nothing)
+            value isa Real && !(value isa Bool) && isfinite(value) && value >= 0 && isfinite(Float32(value)) || continue
+            haskey(values_by_eid, Int(eid)) && throw(ArgumentError("Duplicate centroidal solid stress for element $eid"))
+            haskey(records, string(eid)) && throw(ArgumentError("Solid stress element $eid conflicts with another element family"))
+            records[string(eid)] = Dict{String,Any}(
+                "type" => card, "coordinate_system" => "Native solid centroid recovery axes",
+                "stress" => Dict{String,Any}(string(key) => deepcopy(item) for (key, item) in row if key != "eid"),
+                "stress_location" => "element centroid", "stress_units" => "Pa")
+            values_by_eid[Int(eid)] = Float64(value)
+        end
+    end
+    isempty(values_by_eid) && return
+    ids = sort!(collect(keys(values_by_eid)))
+    contour_values = [values_by_eid[eid] for eid in ids]
+    push!(contours, Dict{String,Any}("name" => "Solid von Mises stress", "unit" => "Pa",
+        "location" => "element", "domain" => "solid", "ids" => blob_i32(ids),
+        "values" => blob_f32(contour_values), "min" => minimum(contour_values), "max" => maximum(contour_values),
+        "note" => "Centroidal von Mises stress of each original volume element, constant on its displayed exterior faces. No averaging between elements; missing recovery stays unavailable."))
+    return
+end
+
 """
     element_results_payload(model, results) -> (contours, element_results)
 
-Keep each shell/bar's recovered values on its own EID. No values are shared
+Keep each shell/bar/solid's recovered values on its own EID. No values are shared
 or averaged between adjacent elements; missing results stay absent, never zero.
 """
 function element_results_payload(m::Model, results::AbstractDict)
@@ -1416,6 +1452,7 @@ function element_results_payload(m::Model, results::AbstractDict)
             add_contour(name, unit, kinds, record -> nested(record, "forces", key))
         end
     end
+    append_solid_results_payload!(contours, records, m, results)
     return contours, records
 end
 
@@ -1578,9 +1615,9 @@ function jfem_case_results_payload(job::JfemJob, path::AbstractString, d::Abstra
         stresses = get(d, "stresses", Dict{String,Any}())
         contours, element_results = element_results_payload(m, d)
         append!(contours,element_energy_contours(m,get(d,"element_energy",nothing)))
-        vm = findfirst(c -> c["name"] == "Von Mises stress", contours)
-        if vm !== nothing
-            push!(summary, Any["Max von Mises", eng(contours[vm]["max"]) * " Pa"])
+        vm = [c["max"] for c in contours if c["name"] in ("Von Mises stress", "Solid von Mises stress")]
+        if !isempty(vm)
+            push!(summary, Any["Max von Mises", eng(maximum(vm)) * " Pa"])
         end
         nforces = count(r -> haskey(r, "forces"), values(element_results))
         push!(summary, Any["Elements with recovered forces", string(nforces)])

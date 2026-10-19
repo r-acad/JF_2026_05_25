@@ -26,9 +26,17 @@ The existing root launchers remain available.
 | **JFEM-Boxer** | Build lifting-surface models, define loads, run FE and sensitivity analyses, and inspect results. |
 | **PANDEATOR** | Generate and analyse stiffened panels. |
 | **Results viewer** | Open existing `.jfem` results without a server. |
-| **JFEM solver** | Choose a bulk-data deck and run it directly. |
+| **JFEM solver** | Run a Reference deck or a supported Abaqus input directly. |
 
 ![JFEM-Boxer displaying a lifting-surface model](<utils/images/fgen-model.png>)
+
+**Project / Read Abaqus** in Boxer opens local `.inp` or `.inp.gz` meshes
+and supported static/modal analyses. Inspect named sets and diagnostics, or
+explicitly add material, constraints and loads to a mesh-only solid model.
+See [Abaqus import and its supported subset](APPS/JFEM-Boxer/README.md#read-an-abaqus-input)
+for the workflow and a [JuliaFEM/FEModels](https://github.com/JuliaFEM/FEModels)
+example. Boxer renders solid surfaces and preserves all ten nodes of quadratic
+tetrahedra, including when opening current `.jfem` result files.
 
 Supporting decks, images, automation helpers and solver regression tests are grouped
 in [`utils/`](utils/README.md). Generated Julia images in `sysimage/` stay local;

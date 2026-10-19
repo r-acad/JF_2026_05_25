@@ -39,8 +39,8 @@ function run(){let checks=0;const check=(ok,message)=>{assert(ok,message);checks
  assert.throws(()=>Disk.prepare(Binary.parse(fixture({nonfinite:true}))),/Nonfinite displacement/);checks++;
  assert.throws(()=>Binary.parse(fixture().subarray(0,50)),/Truncated/);checks++;
  assert.throws(()=>Disk.prepare(eig,{kind:'static'}),/disagrees/);checks++;
- const solid=Binary.parse(fixture());solid.tetras=[{eid:70,pid:2000,nodes:[3,10,100,1000]}];solid.nSolids=solid.nTetras=1;
- const solidView=Disk.prepare(solid).mesh.imported_connections.find(c=>c.card==='CTETRA');check(solidView.elements[0].nodes.join(',')==='0,1,2,3','solid native connectivity');check(solidView.elements[0].edges.length===6,'all tetrahedral edges');check(solidView.elements[0].properties.PID===2000,'solid PID retained');
+ const solid=Binary.parse(fixture());solid.tetras=[{eid:70,pid:2000,nodes:[3,10,100,1000]}];solid.nSolids=solid.nTetras=1;for(const sc of solid.subcases)sc.solidResults=Float32Array.of(7);
+ const solidView=Disk.prepare(solid).mesh.solid_boundary;check(solidView.elements[0].nodes.join(',')==='0,1,2,3','solid native connectivity');check(solidView.edges.count===6&&solidView.triangles.count===4,'all tetrahedral boundary faces and edges');check(solidView.elements[0].properties.PID===2000,'solid PID retained');
  const duplicate=Binary.parse(fixture());duplicate.rbe2s[0].eid=51;assert.throws(()=>Disk.prepare(duplicate),/duplicate element ID/);checks++;
  check(Disk.prepare(Binary.parse(fixture()),{signature:'replacement'}).mesh.disk_signature==='replacement','repeated opens use fresh source identity');
  console.log('Stored results adapter: '+checks+' checks passed');return checks;

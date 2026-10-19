@@ -806,13 +806,17 @@ function _solid_elem_data(el, model, id_map, node_coords, node_R)
         for d in 1:3; dofs[(k-1)*3+d] = base+d; end
     end
 
-    etype = get(el, "TYPE", "")
+    etype = get(el,"ABAQUS_TYPE","")=="C3D8" ? "C3D8" : get(el, "TYPE", "")
     return (nn=nn, coords=coords, T_mat=T_mat, dofs=dofs, ndof_elem=ndof_elem,
             mat=mat, mid_str=mid_str, etype=etype)
 end
 
 function _solid_stiffness(etype, nn, coords, E, nu)
-    if etype == "CTETRA" && nn == 4
+    if etype == "C3D8" && nn == 8
+        return FEM.stiffness_hexa8_abaqus(coords, E, nu)
+    elseif etype == "CTETRA" && nn == 10
+        return FEM.stiffness_tetra10(coords, E, nu)
+    elseif etype == "CTETRA" && nn == 4
         return FEM.stiffness_tetra4(coords, E, nu)
     elseif etype == "CHEXA" && nn == 8
         return FEM.stiffness_hexa8(coords, E, nu)

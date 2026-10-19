@@ -43,6 +43,7 @@ include("backend/BackendInterface.jl")
 include("backend/tacs_formulation/core.jl")
 include("backend/tacs_formulation/sol101.jl")
 include("ModelBuilder.jl")
+include("abaqus_input.jl")
 include("JFEMSolver.jl")
 include("Export.jl")
 include("MarkdownReport.jl")
@@ -73,6 +74,8 @@ end
 
 # ---- Public API ---------------------------------------------------------
 export main,
+       abaqus_parse_input, abaqus_read_input, abaqus_to_raw_model, abaqus_to_model, abaqus_complete_input,
+       input_file_format, input_to_model,
        bdf_to_model, bdf_to_model_json, json_to_model,
        solve_model,
        AbstractJFEMBackend, ReferenceParityBackend, TACSFormulationBackend,

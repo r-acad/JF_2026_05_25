@@ -111,6 +111,12 @@ end
 
 function imported_analysis_model(m,raw=nothing)
     options=imported_analysis_options(raw)
+    if get(m.params["imported.source"],"format","reference")=="abaqus"
+        if options["solution"]!="source"||options["follower"]!="source"||options["buckling_output_override"]
+            throw(ArgumentError("Abaqus inputs use their authored analysis steps or explicit mesh completion. Edit those settings when reading the file; Reference-only solution/follower overlays are unavailable."))
+        end
+        return m
+    end
     source=m.params["imported.source"];sol=options["solution"]=="source" ? m.params["output.solution"] : options["solution"]
     output_override=options["buckling_output_override"]
     if options["solution"]=="source"&&options["follower"]=="source"&&!output_override

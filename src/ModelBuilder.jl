@@ -1400,6 +1400,7 @@ function build_model_from_json(raw::AbstractDict)
     )
 
     model["SOL"] = get(cc, "SOL", 101)
+    haskey(raw,"abaqus_import") && (model["abaqus_import"]=deepcopy(raw["abaqus_import"]))
 
     # Add parameters
     for (k, v) in params

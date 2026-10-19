@@ -8,7 +8,7 @@ if errorlevel 1 if not exist "%JFEM_BIN%" (
   exit /b 1
 )
 if "%~1"=="" (
-  echo usage: jfem [-formats] model.bdf [output_folder]
+  echo usage: jfem [-formats] model.bdf or model.inp [output_folder]
   exit /b 1
 )
 "%JFEM_BIN%" --startup-file=no --threads=1 "%~dp0utils\julia_tools\launch.jl" solver "%~dp0." "%~dp0utils\julia_tools\jfem.jl" %*

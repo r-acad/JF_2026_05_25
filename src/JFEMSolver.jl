@@ -22,7 +22,35 @@ using SparseArrays
 using Printf
 using Statistics
 using JSON
+using CodecZlib
 include("BucklingOutput.jl")
+
+"""Identify an Abaqus keyword input or a Reference bulk-data deck."""
+function input_file_format(filename::AbstractString)
+    lower=lowercase(filename)
+    (endswith(lower,".inp") || endswith(lower,".inp.gz")) && return :abaqus
+    open(filename,"r") do io
+        for line in eachline(io)
+            text=strip(replace(line,'\ufeff'=>""))
+            (isempty(text)||startswith(text,"**")||startswith(text,"\$")) && continue
+            return startswith(text,"*") ? :abaqus : :reference
+        end
+        :reference
+    end
+end
+
+"""Read a solver model, detecting Abaqus `.inp`/`.inp.gz` and Reference input."""
+function input_to_model(filename::AbstractString;kwargs...)
+    input_file_format(filename)===:abaqus ? abaqus_to_model(filename;kwargs...) : bdf_to_model(String(filename);kwargs...)
+end
+
+function _require_import_analysis(model)
+    info=get(model,"abaqus_import",nothing)
+    if info isa AbstractDict && !get(info,"analysis_ready",false)
+        throw(ArgumentError("This Abaqus input is a mesh without a complete supported analysis. Define materials, sections, constraints and an analysis step; Boxer Read Abaqus provides an explicit analysis setup for mesh-only files."))
+    end
+    nothing
+end
 
 # ============================================================================
 # Stage 1: BDF → Model Dict
@@ -2131,6 +2159,7 @@ Returns a Dict with keys:
   - ... solution-specific results (displacements, eigenvalues, etc.)
 """
 function solve_model(model::Dict)
+    _require_import_analysis(model)
     backend = backend_from_model(model)
     if backend isa ReferenceParityBackend && _model_has_cquadr_shells(model)
         forced_model = deepcopy(model)
@@ -2187,6 +2216,7 @@ function _model_with_selected_mpc(model::Dict)
 end
 
 function solve_model(backend::TACSFormulationBackend, model::Dict)
+    _require_import_analysis(model)
     return _solve_model_tacs(backend, _model_with_selected_mpc(model))
 end
 
@@ -2232,6 +2262,7 @@ function _solve_model_tacs(backend::TACSFormulationBackend, model::Dict)
 end
 
 function solve_model(backend::ReferenceParityBackend, model::Dict)
+    _require_import_analysis(model)
     return _solve_model_parity(backend, _model_with_selected_mpc(model))
 end
 

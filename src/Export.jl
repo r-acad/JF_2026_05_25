@@ -122,7 +122,7 @@ function sanitize!(d)
     return d
 end
 
-@inline _export_base_name(filename) = replace(basename(filename), r"(?i)\.(bdf|dat|nas)$" => "")
+@inline _export_base_name(filename) = replace(basename(filename), r"(?i)\.(bdf|dat|nas|inp)(\.gz)?$" => "")
 
 function _export_validate_node_map(id_map)
     seen = falses(length(id_map))
@@ -156,7 +156,7 @@ function _export_validate_mesh(id_map, X, node_ids, quads, trias, tetras, hexas,
     exported = Set(node_ids)
     for (elements, count) in ((quads,4),(trias,3),(tetras,4),(hexas,8),(pentas,6))
         for elem in elements
-            length(elem[3]) == count || throw(DimensionMismatch("Element $(elem[1]) requires $count nodes"))
+            (length(elem[3]) == count || elements === tetras && length(elem[3]) == 10) || throw(DimensionMismatch("Element $(elem[1]) has unsupported connectivity"))
             all(nid -> nid in exported, elem[3]) || throw(ArgumentError("Element $(elem[1]) references an unexported GRID"))
         end
     end
@@ -2916,7 +2916,7 @@ function build_jfem_element_tables(model, id_map)
         if !all(n -> haskey(id_map, n), nids); continue; end
         pid = get(el, "PID", 0)
         nn = length(nids)
-        if nn == 4;     push!(jfem_tetras, (eid, pid, nids))
+        if nn in (4,10); push!(jfem_tetras, (eid, pid, nids))
         elseif nn == 8; push!(jfem_hexas,  (eid, pid, nids))
         elseif nn == 6; push!(jfem_pentas, (eid, pid, nids))
         end
@@ -3321,7 +3321,9 @@ function export_vtk_subcase(filename, output_dir, sid, model, id_map, X, u, stre
         eid = _export_entry_public_id(id, el); enids = el["NODES"]
         nids = [get(id_map, n, 0) for n in enids]; if 0 in nids; continue; end
         nn = length(nids)
-        if nn == 4
+        if nn == 10
+            push!(cells, MeshCell(VTKCellTypes.VTK_QUADRATIC_TETRA, nids))
+        elseif nn == 4
             push!(cells, MeshCell(VTKCellTypes.VTK_TETRA, nids))
         elseif nn == 8
             push!(cells, MeshCell(VTKCellTypes.VTK_HEXAHEDRON, nids))
@@ -3398,7 +3400,8 @@ function export_jfem_binary(filename, output_dir, id_map, X, jfem_node_ids, jfem
     nCelas_jfem = length(jfem_celas)
     nRBE2_jfem  = length(jfem_rbe2s)
     nRBE3_jfem  = length(jfem_rbe3s)
-    println("\n>>> Exporting JFEM binary (v4): $jfem_path")
+    version = any(length(row[3])==10 for row in jfem_tetras) ? UInt32(6) : UInt32(4)
+    println("\n>>> Exporting JFEM binary (v$(Int(version))): $jfem_path")
     _export_ensure_parent_dir!(jfem_path)
     open(_export_fs_path(jfem_path), "w") do fio
         # Stage mesh and one subcase at a time; retain the staging capacity
@@ -3407,7 +3410,7 @@ function export_jfem_binary(filename, output_dir, id_map, X, jfem_node_ids, jfem
         # Magic: 'JFEM'
         write(io, UInt8('J')); write(io, UInt8('F')); write(io, UInt8('E')); write(io, UInt8('M'))
         # Header (v3: extended with constraint counts)
-        write(io, UInt32(4))                          # version 4
+        write(io, version)                            # v6 adds tetrahedron node counts
         write(io, UInt32(nNodes_jfem))
         write(io, UInt32(nQuads_jfem))
         write(io, UInt32(nTrias_jfem))
@@ -3474,9 +3477,10 @@ function export_jfem_binary(filename, output_dir, id_map, X, jfem_node_ids, jfem
             for d in rbe.deps; write(io, Int32(d)); end
         end
 
-        # v4: CTETRA table: eid(i32), pid(i32), g1-g4(i32)
+        # v6 tetrahedron records also carry a node count (4 or 10).
         for (eid, pid, nodes) in jfem_tetras
             write(io, Int32(eid)); write(io, Int32(pid))
+            version >= 6 && write(io, UInt32(length(nodes)))
             for n in nodes; write(io, Int32(n)); end
         end
 
@@ -3895,7 +3899,8 @@ function export_buckling_vtk(filename, output_dir, model, id_map, X, eigenvalues
         enids = el["NODES"]
         nids = [get(id_map, n, 0) for n in enids]; if 0 in nids; continue; end
         nn = length(nids)
-        if nn == 4;     push!(cells, MeshCell(VTKCellTypes.VTK_TETRA, nids))
+        if nn == 10;    push!(cells, MeshCell(VTKCellTypes.VTK_QUADRATIC_TETRA, nids))
+        elseif nn == 4; push!(cells, MeshCell(VTKCellTypes.VTK_TETRA, nids))
         elseif nn == 8; push!(cells, MeshCell(VTKCellTypes.VTK_HEXAHEDRON, nids))
         elseif nn == 6; push!(cells, MeshCell(VTKCellTypes.VTK_WEDGE, nids))
         end
@@ -3999,7 +4004,8 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
     if static_disp !== nothing && !has_static
         @warn "JFEM optional STATIC block omitted because shell fields are unavailable or nonfinite; buckling modes remain available. Static displacements remain in solver results and requested JSON/HDF5 outputs." unavailable_static_shell_eids
     end
-    version = has_static ? UInt32(5) : nSolids > 0 ? UInt32(4) : UInt32(3)
+    quadratic_tetra=any(length(row[3])==10 for row in jfem_tetras)
+    version = quadratic_tetra ? (has_static ? UInt32(7) : UInt32(6)) : has_static ? UInt32(5) : nSolids > 0 ? UInt32(4) : UInt32(3)
 
     println("\n>>> Exporting JFEM binary (v$(Int(version)) buckling$(has_static ? "+static" : "")): $jfem_path")
     _export_ensure_parent_dir!(jfem_path)
@@ -4073,6 +4079,7 @@ function export_jfem_buckling(filename, output_dir, id_map, X, jfem_node_ids, jf
             for elements in (jfem_tetras, jfem_hexas, jfem_pentas)
                 for (eid, pid, nodes) in elements
                     write(io, Int32(eid)); write(io, Int32(pid))
+                    version >= 6 && elements === jfem_tetras && write(io, UInt32(length(nodes)))
                     for nid in nodes; write(io, Int32(nid)); end
                 end
             end

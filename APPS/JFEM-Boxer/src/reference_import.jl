@@ -41,11 +41,18 @@ function imported_expand_includes(resolve,text)
     # Most large sources are already standalone, and most INCLUDE children
     # contain only bulk data. Do not copy every line just to discover this.
     # Preserve the legacy line-ending normalization and source signatures.
-    occursin(r"(?im)^\s*INCLUDE(?:\s|,|$)",text)||return occursin('\r',text) ? replace(text,"\r\n"=>"\n") : text
+    occursin(r"(?im)^\s*\*?INCLUDE(?:\s|,|$)",text)||return occursin('\r',text) ? replace(text,"\r\n"=>"\n") : text
     output=IOBuffer();lines=eachline(IOBuffer(text));pending=""
     for line in lines
         stripped=strip(line)
-        if !isempty(pending)||occursin(r"^INCLUDE(?:\s|,|$)"i,stripped)
+        if occursin(r"^\*INCLUDE(?:\s|,|$)"i,stripped)
+            spec=match(r"^\*INCLUDE\s*,\s*INPUT\s*=\s*(.*)$"i,stripped)
+            spec===nothing&&throw(ArgumentError("Malformed Abaqus *INCLUDE: $stripped"))
+            relative=strip(strip(spec[1]),['\'','"'])
+            isempty(relative)&&throw(ArgumentError("Abaqus *INCLUDE has no INPUT filename"))
+            included=resolve(relative);write(output,included)
+            endswith(included,"\n")||write(output,'\n')
+        elseif !isempty(pending)||occursin(r"^INCLUDE(?:\s|,|$)"i,stripped)
             pending*=stripped
             spec=match(r"^INCLUDE\s*,?\s*(?:'([^']+)'|\"([^\"]+)\"|([^\s$'\"]+))\s*(?:\$.*)?$"i,pending)
             if spec===nothing
@@ -65,7 +72,40 @@ function imported_expand_includes(resolve,text)
     endswith(text,"\n")||isempty(result) ? result : String(chop(result;tail=1))
 end
 
-function imported_local_source(path)
+function imported_source_format(name,text,requested="auto")
+    value=lowercase(String(requested));value in ("auto","reference","abaqus")||throw(ArgumentError("Unknown imported source format $requested"))
+    value!="auto"&&return value
+    occursin(r"\.inp(?:\.gz)?$"i,String(name))&&return "abaqus"
+    for line in eachline(IOBuffer(text))
+        stripped=strip(line);(isempty(stripped)||startswith(stripped,"**")||startswith(stripped,"\$"))&&continue
+        return occursin(r"^\*(HEADING|NODE|PART|PREPRINT|ELEMENT|INCLUDE)(?:,|\s|$)"i,stripped) ? "abaqus" : "reference"
+    end
+    "reference"
+end
+
+function imported_source_completion(raw)
+    raw===nothing&&return nothing
+    raw isa AbstractDict||throw(ArgumentError("Abaqus analysis completion must be an object"))
+    enabled=get(raw,"enabled",false);enabled isa Bool||throw(ArgumentError("Analysis completion enabled must be true or false"))
+    enabled||return Dict{String,Any}("enabled"=>false)
+    result=Dict{String,Any}("enabled"=>true)
+    for (key,default,lo,hi) in (("E",7e10,0.,Inf),("nu",.3,-1.,.5),("rho",2700.,0.,Inf),("total_force",1.,-Inf,Inf))
+        v=get(raw,key,default);v isa Real&&isfinite(v)&&lo<v<hi||throw(ArgumentError("Invalid completion $key"));result[key]=Float64(v)
+    end
+    direction=get(raw,"force_direction",[0.,0.,1.]);direction isa AbstractVector&&length(direction)==3&&all(v->v isa Real&&isfinite(v),direction)&&norm(direction)>0||throw(ArgumentError("Force direction needs three finite components and nonzero length"))
+    result["force_direction"]=Float64.(direction)
+    for (key,default) in (("element_set","ALL"),("constraint_set",""),("force_set",""),("constraint_dofs","123"),("solution","101"))
+        value=strip(string(get(raw,key,default)));length(value)<=200&&!occursin(r"[\r\n,]",value)||throw(ArgumentError("Invalid completion $key"));result[key]=value
+    end
+    !isempty(result["constraint_set"])||throw(ArgumentError("Specify the constrained node set"))
+    result["solution"] in ("101","103")||throw(ArgumentError("Mesh completion supports SOL101 or SOL103"))
+    result["solution"]=="101"&&isempty(result["force_set"])&&throw(ArgumentError("Specify the force node set for static analysis"))
+    occursin(r"^[123]+$",result["constraint_dofs"])||throw(ArgumentError("Solid constraint components must be 1, 2 or 3"))
+    modes=get(raw,"modes",10);modes isa Real&&isinteger(modes)&&1<=modes<=200||throw(ArgumentError("Requested mode count must be an integer from 1 to 200"));result["modes"]=Int(modes)
+    result
+end
+
+function imported_local_source(path;format="auto",completion=nothing)
     path isa AbstractString||throw(ArgumentError("Reference path must be text"))
     isempty(strip(path))&&throw(ArgumentError("Select a Reference file or enter its full path"))
     isabspath(path)||throw(ArgumentError("Use the full path to the Reference file"))
@@ -77,7 +117,15 @@ function imported_local_source(path)
         length(active)<64||throw(ArgumentError("INCLUDE nesting exceeds 64 levels: $file"))
         push!(active,key);push!(visited,key)
         try
-            text=read(canonical,String);sizes[key]=ncodeunits(text)
+            text=if endswith(lowercase(canonical),".gz")
+                open(canonical) do input
+                    prefix=String(read(input,min(100,filesize(canonical))));seekstart(input)
+                    startswith(prefix,"version https://git-lfs.github.com/spec/v1")&&throw(ArgumentError("This file is a Git LFS pointer, not a model archive: $file. Fetch the actual object with git lfs pull, or download its original LFS file from the repository."))
+                    stream=CodecZlib.GzipDecompressorStream(input)
+                    try read(stream,String) finally close(stream) end
+                end
+            else;read(canonical,String);end
+            sizes[key]=ncodeunits(text)
             occursin('\0',text)&&throw(ArgumentError("Reference source contains a NUL byte: $file"))
             imported_expand_includes(text) do relative
                 relative=replace(relative,'\\'=>'/')
@@ -90,12 +138,19 @@ function imported_local_source(path)
     flattened=readfile(abspath(path))
     source=Dict{String,Any}("kind"=>"reference","name"=>basename(path),"text"=>flattened,"includes"=>Any[],"flattened"=>flattened,
         "signature"=>imported_source_signature(Dict(basename(path)=>flattened)),"source_file_count"=>length(visited),"source_bytes"=>sum(values(sizes)))
+    source["format"]=imported_source_format(path,flattened,format)
+    completed=imported_source_completion(completion)
+    if completed!==nothing
+        source["format"]=="abaqus"||throw(ArgumentError("Analysis completion applies only to Abaqus inputs"))
+        source["completion"]=completed
+        source["signature"]=bytes2hex(SHA.sha256(source["signature"]*JSON.json(completed)))
+    end
     source
 end
 
 function imported_source(raw)
     raw isa AbstractDict||throw(ArgumentError("Reference import needs a name and source text"))
-    haskey(raw,"path")&&return imported_local_source(raw["path"])
+    haskey(raw,"path")&&return imported_local_source(raw["path"];format=get(raw,"format","auto"),completion=get(raw,"completion",nothing))
     function filename(value)
         value isa AbstractString||throw(ArgumentError("Imported filenames must be text"))
         entry=replace(String(value),'\\'=>'/')
@@ -135,7 +190,13 @@ function imported_source(raw)
     end
     flattened=resolve(name)
     signature=imported_source_signature(files)
-    return Dict{String,Any}("kind"=>"reference","name"=>name,"text"=>String(source),"includes"=>deepcopy(includes),"flattened"=>flattened,"signature"=>signature,"source_file_count"=>length(files),"source_bytes"=>sum(ncodeunits,values(files)))
+    result=Dict{String,Any}("kind"=>"reference","name"=>name,"text"=>String(source),"includes"=>deepcopy(includes),"flattened"=>flattened,"signature"=>signature,"source_file_count"=>length(files),"source_bytes"=>sum(ncodeunits,values(files)),"format"=>imported_source_format(name,flattened,get(raw,"format","auto")))
+    completed=imported_source_completion(get(raw,"completion",nothing))
+    if completed!==nothing
+        result["format"]=="abaqus"||throw(ArgumentError("Analysis completion applies only to Abaqus inputs"))
+        result["completion"]=completed;result["signature"]=bytes2hex(SHA.sha256(signature*JSON.json(completed)))
+    end
+    result
 end
 
 function imported_case_specs(p)
@@ -144,7 +205,9 @@ end
 
 function imported_material(model,mid)
     mat=get(model["MATs"],string(mid),Dict());type=haskey(mat,"E1") ? "MAT8" : haskey(mat,"G11") ? "MAT2" : "MAT1"
-    result=Dict{String,Any}("id"=>Int(mid),"MID"=>Int(mid),"name"=>"Material $mid","type"=>type)
+    original="Material $mid"
+    for (name,id) in get(get(model,"abaqus_import",Dict()),"material_ids",Dict());id==Int(mid)&&(original=name;break);end
+    result=Dict{String,Any}("id"=>Int(mid),"MID"=>Int(mid),"name"=>original,"type"=>type)
     for (source,target) in (("E","E_Pa"),("NU","nu"),("RHO","rho_kg_m3"));haskey(mat,source)&&(result[target]=mat[source]);end
     return result
 end
@@ -174,7 +237,9 @@ function imported_properties(model,group;material_cache=nothing)
         prop=model["PBARLs"][string(pid)]
         return Dict{String,Any}("type"=>isempty(get(prop,"DIMS",[])) ? "PBAR" : "PBARL","pid"=>pid,"material"=>imported_material(model,prop["MID"],material_cache),"section"=>imported_section(prop))
     end
-    prop=model["PSHELLs"][string(pid)];thickness=Float64(prop["T"])
+    prop=get(model["PSHELLs"],string(pid),nothing)
+    prop===nothing&&return Dict{String,Any}("type"=>"Unassigned shell","pid"=>pid,"thickness_m"=>0.,"display_note"=>"Source mesh has no shell section. Define material and section before analysis.")
+    thickness=Float64(prop["T"])
     if haskey(prop,"PLY_DATA")
         plies=Any[]
         for ply in prop["PLY_DATA"]
@@ -203,7 +268,7 @@ function imported_model(native,source,p;cards=Dict())
     params["imported.native"]=native;params["imported.source"]=source
     params["imported.entity_sources"]=imported_entity_sources(cards)
     subs=native["CASE_CONTROL"]["SUBCASES"]
-    rows=isempty(subs) ? [Dict("id"=>1,"label"=>"Subcase 1")] : [Dict("id"=>Int(sid),"label"=>String(get(row,"LABEL",get(row,"SUBTITLE","Subcase $sid")))) for (sid,row) in sort!(collect(subs);by=x->Int(first(x)))]
+    rows=isempty(subs) ? [Dict("id"=>1,"label"=>(get(get(native,"abaqus_import",Dict()),"analysis_ready",true) ? "Subcase 1" : "Mesh inspection (no analysis step)"))] : [Dict("id"=>Int(sid),"label"=>String(get(row,"LABEL",get(row,"SUBTITLE","Subcase $sid")))) for (sid,row) in sort!(collect(subs);by=x->Int(first(x)))]
     rows=Dict{String,Any}[merge(row,Dict("result_required"=>Int(native["SOL"])!=105||get(get(subs,row["id"],Dict()),"STATSUB",nothing)!==nothing)) for row in rows]
     params["imported.cases"]=rows
     groups=ElemGroup[];lookup=Dict{Tuple{Symbol,Int},ElemGroup}();warnings=String[];unsupported=Dict{String,Int}()
@@ -229,19 +294,22 @@ function imported_model(native,source,p;cards=Dict())
             end
         end
     end
-    visual=Set(("CQUAD4","CQUADR","CTRIA3","CSHEAR","CBAR","CBEAM","CROD","RBE3","RBE2","RBAR","RBE1","RSPLINE","CELAS1","CELAS2","CONM2","GRID"))
+    visual=Set(("CQUAD4","CQUADR","CTRIA3","CSHEAR","CBAR","CBEAM","CROD","RBE3","RBE2","RBAR","RBE1","RSPLINE","CELAS1","CELAS2","CONM2","GRID","CTETRA","CHEXA","CPENTA","C3D4","C3D10","C3D6","C3D8"))
     for (card,data) in cards
         ((startswith(card,"C")&&!startswith(card,"CORD"))||startswith(card,"RBE")||card=="RSPLINE")&&!(card in visual)&&(unsupported[card]=length(data))
     end
-    isempty(groups)&&push!(warnings,"No supported shell or CBAR elements are present; GRID locations are retained.")
+    isempty(groups)&&isempty(get(native,"CSOLIDs",Dict()))&&push!(warnings,"No supported shell, beam or solid elements are present; GRID locations are retained.")
     any(g->g.kind===:bar,groups)&&push!(warnings,"Beam section/axis glyphs use GRID reference lines and the source orientation vector. OFFT/CD transformations and WA/WB offsets are not represented by these glyphs; native analysis retains their exact source definitions.")
     !isempty(unsupported)&&push!(warnings,"Some cards are retained for solving but lack a full viewport representation: "*join(sort!(collect(keys(unsupported))),", "))
-    push!(warnings,"Reference has no declared unit system. Viewer units assume metres, newtons, kilograms and pascals; no conversion is performed.")
+    if haskey(native,"abaqus_import")
+        append!(warnings,[String(row["message"]) for row in get(native["abaqus_import"],"diagnostics",Any[])])
+    end
+    push!(warnings,"Imported input has no declared unit system. Viewer units assume metres, newtons, kilograms and pascals; no conversion is performed.")
     params["imported.warnings"]=warnings;params["imported.unsupported_visual_cards"]=unsupported
     params["imported.inventory"]=Dict(key=>length(value) for (key,value) in cards)
     wing=make_wing(p);grid=BoxGrid(wing,[.2,.55],[0.,1.],1,[0,1],fill(.2,2,2),fill(.55,2,2),zeros(Int,2,2),Int[])
     spc=sort!(unique([index[Int(gid)] for row in native["SPC1s"] for gid in get(row,"G",get(row,"NODES",Int[])) if haskey(index,Int(gid))]))
-    model=Model(params,wing,grid,ids,xyz,[(-2,i,-1) for i in eachindex(ids)],length(ids),groups,RBE3Spider[],spc,Float64[],Int[],0,Int[],Float64[],[("Source",source["name"]),("Analysis","SOL $(native["SOL"])")],[("Native parser","Original identifiers and case control retained",true)])
+    model=Model(params,wing,grid,ids,xyz,[(-2,i,-1) for i in eachindex(ids)],length(ids),groups,RBE3Spider[],spc,Float64[],Int[],0,Int[],Float64[],[("Source",source["name"]),("Analysis",get(get(native,"abaqus_import",Dict()),"analysis_ready",true) ? "SOL $(native["SOL"])" : "Mesh only; analysis is not defined")],[("Native parser","Original identifiers and case control retained",true)])
     return model
 end
 
@@ -259,6 +327,7 @@ end
 
 function imported_mesh_payload(m)
     native=imported_native(m);params=m.params;source=params["imported.source"];index=Dict(id=>i for (i,id) in enumerate(m.node_ids));material_cache=Dict{Int,Any}()
+    abaqus=get(native,"abaqus_import",nothing);ready=abaqus===nothing||get(abaqus,"analysis_ready",false)
     coordinates=imported_coordinate_payload(native)
     groups=Any[Dict{String,Any}("name"=>gr.name,"kind"=>string(gr.kind),"pid"=>gr.pid,"base_pid"=>0,"base_group"=>gr.name,"card_types"=>Dict(string(eid)=>String(get(native[startswith(gr.name,"IMPORTED_CBEAM_") ? "CBEAMs" : startswith(gr.name,"IMPORTED_CROD_") ? "CRODs" : gr.kind===:bar ? "CBARs" : "CSHELLs"][string(eid)],"TYPE",gr.kind===:bar ? "CBAR" : "shell")) for eid in gr.eids),"count"=>length(gr.eids),"eids"=>blob_i32(gr.eids),"conn"=>blob_i32(gr.conn;offset=-1),"orient"=>blob_f32(gr.orient),"properties"=>imported_properties(native,gr;material_cache),"axes"=>imported_element_axes(m,gr)) for gr in m.groups]
     for group in groups
@@ -286,10 +355,10 @@ function imported_mesh_payload(m)
     parsed_card_count=source_card_count-sum(row["count"] for row in unprocessed if row["status"]=="unprocessed";init=0)
     publicparams=Dict(k=>v for (k,v) in params if !startswith(k,"imported."))
     return Dict{String,Any}("ok"=>true,"format"=>"wingfegen-mesh-1","title"=>source["name"],"model_params"=>publicparams,
-        "imported_signature"=>source["signature"],"imported_deck"=>Dict("signature"=>source["signature"],"name"=>source["name"],"solution"=>params["output.solution"],"cases"=>[Dict(k=>v for (k,v) in row if k!="spc") for row in params["imported.cases"]],"warnings"=>vcat(params["imported.warnings"],coordinates["warnings"]),"unsupported_visual_cards"=>params["imported.unsupported_visual_cards"],"card_inventory"=>params["imported.inventory"],"unprocessed_cards"=>unprocessed,"source_card_count"=>source_card_count,"parsed_card_count"=>parsed_card_count,"case_control"=>get(params,"imported.case_control",Dict())),
+        "imported_signature"=>source["signature"],"imported_deck"=>Dict("signature"=>source["signature"],"name"=>source["name"],"source_format"=>get(source,"format","reference"),"analysis_ready"=>ready,"solution"=>(ready ? params["output.solution"] : ""),"solution_label"=>(ready ? "SOL "*params["output.solution"] : "Mesh only - analysis not defined"),"abaqus"=>abaqus,"cases"=>[Dict(k=>v for (k,v) in row if k!="spc") for row in params["imported.cases"]],"warnings"=>vcat(params["imported.warnings"],coordinates["warnings"]),"unsupported_visual_cards"=>params["imported.unsupported_visual_cards"],"card_inventory"=>params["imported.inventory"],"unprocessed_cards"=>unprocessed,"source_card_count"=>source_card_count,"parsed_card_count"=>parsed_card_count,"case_control"=>get(params,"imported.case_control",Dict())),
         "nodes"=>Dict("count"=>length(m.node_ids),"n_structural"=>m.n_struct,"ids"=>blob_i32(m.node_ids),"xyz"=>blob_f32(m.xyz)),"groups"=>groups,"imported_buffers"=>buffers,
         "rbe3"=>rbe,"fuel_rbe3"=>deepcopy(emptyspider),"imported_connections"=>imported_connection_payload(native,index;source_entities=get(params,"imported.entity_sources",Dict())),"spc"=>imported_supports(m),
-        "coordinate_systems"=>coordinates,
+        "coordinate_systems"=>coordinates,"solid_boundary"=>imported_solid_boundary(native,index),
         "aero"=>Dict("count"=>0,"sections"=>Any[],"n_loop"=>0,"xyz"=>blob_f32(Float64[]),"conn"=>blob_i32(Int[]),"n_per_node"=>0,"map"=>blob_i32(Int[]),"weights"=>blob_f32(Float64[])),
         "fuel"=>Dict("enabled"=>false,"bays"=>Any[],"volume_m3"=>0.),"weights"=>Dict("components"=>Any[]),"annotations"=>Dict("ribs"=>Any[],"stringers"=>Any[]),"stiffened_panels"=>Dict("panels"=>Any[]),"load_cases"=>cases,"loads"=>first(cases)["loads"],"bbox"=>bbox_of(m),"display_bbox"=>imported_display_bbox(m),"info"=>Any[Any[k,v] for (k,v) in m.info],"checks"=>Any[Any[n,d,ok] for (n,d,ok) in m.checks],"checks_pass"=>true)
 end
@@ -448,6 +517,7 @@ function imported_prepare_loads!(native,m)
     m
 end
 
+include("reference_import_solids.jl")
 include("reference_import_cases.jl")
 include("reference_import_analysis.jl")
 
