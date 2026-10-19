@@ -1,0 +1,219 @@
+{
+  "schema": "jfem.validation.visual_data.v1",
+  "case_id": "MYSTRAN_sol105_buckling",
+  "coordinate_frame": "BASIC_GLOBAL",
+  "node_ids": [
+    1,
+    2
+  ],
+  "xyz": [
+    [
+      90.0,
+      0.0,
+      0.0
+    ],
+    [
+      100.0,
+      0.0,
+      0.0
+    ]
+  ],
+  "elements": [
+    {
+      "id": 10,
+      "property_id": 1,
+      "type": "CBAR",
+      "nodes": [
+        1,
+        2
+      ]
+    }
+  ],
+  "states": [
+    {
+      "name": "Mode 1",
+      "kind": "buckling",
+      "displacements": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          -9.53373480641238e-17,
+          1.0,
+          -2.574482632246176e-17
+        ]
+      ],
+      "rotations": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.205684422226953e-16,
+          0.15677643628300256
+        ]
+      ],
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 1,
+      "eigenvalue": 10358.173746333156,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 2",
+      "kind": "buckling",
+      "displacements": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          4.64007260763755e-13,
+          1.0,
+          -1.369447695354707e-13
+        ]
+      ],
+      "rotations": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -4.875037614753314e-13,
+          -0.9567764362830037
+        ]
+      ],
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 2,
+      "eigenvalue": 134086.27069811246,
+      "frequency_hz": null
+    },
+    {
+      "name": "Static preload 1",
+      "kind": "preload",
+      "displacements": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          -2e-06,
+          0.0,
+          0.0
+        ]
+      ],
+      "rotations": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "normalization": "physical displacement in model length units",
+      "subcase": 1
+    }
+  ],
+  "metadata": {
+    "MATs": {
+      "1": {
+        "NU": 0.33,
+        "ALPHA": 2e-05,
+        "TREF": 0.0,
+        "MID": 1,
+        "G": 3759398.4962406014,
+        "RHO": 0.1,
+        "E": 10000000.0
+      }
+    },
+    "FORCEs": [
+      {
+        "Mag": -1,
+        "GID": 2,
+        "SID": 10,
+        "CID": 0,
+        "TYPE": "FORCE",
+        "Dir": [
+          1.0,
+          0.0,
+          0.0
+        ]
+      }
+    ],
+    "PBARLs": {
+      "1": {
+        "NSM": 0.0,
+        "F1": 0.0,
+        "MID": 1,
+        "PID": 1,
+        "I1": 0.041666666666667,
+        "A": 0.5,
+        "C2": 0.0,
+        "TYPE": "PBAR",
+        "I12": 0.0,
+        "C1": 0.0,
+        "D2": 0.0,
+        "J": 0.0,
+        "E1": 0.0,
+        "K1": 0.0,
+        "I2": 104.16666666667,
+        "I": 0.041666666666667,
+        "K2": 0.0,
+        "D1": 0.0,
+        "F2": 0.0,
+        "E2": 0.0
+      }
+    },
+    "PLOADs": [],
+    "PSHELLs": {},
+    "SPC1s": [],
+    "case_id": "MYSTRAN_sol105_buckling",
+    "sol": 105,
+    "coordinate_frame": "BASIC_GLOBAL",
+    "case_control": {
+      "DISP": "ALL",
+      "SUBCASES": {
+        "2": {
+          "MPC": null,
+          "SPC": null,
+          "METHOD": 20,
+          "LOAD": null
+        },
+        "1": {
+          "MPC": null,
+          "SPC": null,
+          "LOAD": 10
+        }
+      },
+      "SOL": 105
+    },
+    "MOMENTs": [],
+    "PLOAD4s": []
+  },
+  "loads": [
+    {
+      "node": 2,
+      "vector": [
+        -1.0,
+        -0.0,
+        -0.0
+      ],
+      "coordinate_id": 0,
+      "load_id": 10
+    }
+  ],
+  "constrained_node_ids": []
+}

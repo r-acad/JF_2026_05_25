@@ -1,0 +1,2 @@
+name,unit,value,reference,error_percent,tolerance_percent,status
+lambda 1,-,10358.173746333156,10280.837917801415,0.7522327377404991,5.0,PASS

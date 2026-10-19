@@ -1,0 +1,78 @@
+{
+  "schema": "jfem.validation.published_case.v1",
+  "case_id": "TG_plate_uniaxial_buckling",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "built_utc": "2026-10-19T10:21:14.431133+00:00",
+  "evidence_class": "Independent analytical verification",
+  "artifact_provenance": "Publicly curated input, native JFEM output and original figures; sources and limits in case.json and adjacent notices.",
+  "files": {
+    "case.json": {
+      "sha256": "683aac6f08d97eb864c68b37c5b0416c70e26a86efcacac23e193a9163893904",
+      "bytes": 2820
+    },
+    "case_card.pdf": {
+      "sha256": "74b720afa467aee2ce13f50187c0b0e407b36e5c0ad5e23edc5ae4483c4bb019",
+      "bytes": 444943
+    },
+    "case_card_receipt.json": {
+      "sha256": "027b8485120c8617cf4b9a685b3bf027621adcf49952aa46420ee0af4c5a8d20",
+      "bytes": 1305
+    },
+    "figures/deformation.png": {
+      "sha256": "12562c7931032afd9efb3ea710df00a4bae840a6558cb0cbaa51b5ece383af3f",
+      "bytes": 139944
+    },
+    "figures/deformation.svg": {
+      "sha256": "ef399f66b09e256fd97b55d8988eccdc9f96d919f7e901ddbf0efe7ac3da3878",
+      "bytes": 30414
+    },
+    "figures/modes.png": {
+      "sha256": "f55b8ac598fb013466f25557e07d6b1336b0d7987ee8a889bcffbc8f90347613",
+      "bytes": 216436
+    },
+    "figures/modes.svg": {
+      "sha256": "df0c2e0364af91df9a5878cf382b7cabe1a6d9927b19303235013686f8a39b3a",
+      "bytes": 73427
+    },
+    "figures/response.png": {
+      "sha256": "b2aa36a7cf67e1a8d25541a6d49c52a3b1011090066f99b37d6783a412f6b373",
+      "bytes": 56840
+    },
+    "figures/response.svg": {
+      "sha256": "52bd73a299c44d7011bc2ebb20d8664857574d6a58beff1cbe5f75906cad70a9",
+      "bytes": 9631
+    },
+    "metrics.csv": {
+      "sha256": "7d1a5b21fff015f54caacf8f89b3022b9884b04f70e8ad5acc13e9b68f733948",
+      "bytes": 268
+    },
+    "model.bdf": {
+      "sha256": "79e741bbb3d88882153f2fd7f2e47f65952e8a3e40b11f27f68bfa67fa2f14d5",
+      "bytes": 4784
+    },
+    "results/provenance.json": {
+      "sha256": "a88042bc71b569604c0162a6e69e5b8139ddcc284f57a6280a064dc226d440e7",
+      "bytes": 1184
+    },
+    "results/results.json": {
+      "sha256": "2f7e475dffb303b7674b10b67ab47b3dfa7db6dd53a65d105fe5e99f1001fd81",
+      "bytes": 2881
+    },
+    "results/timoshenko_plate_buckling.BUCKLING.JSON": {
+      "sha256": "2bc9847182d50ee632930bb3288ae6a1cc957e94d0ae7b3504e81d44b00f8e9c",
+      "bytes": 72409
+    },
+    "results/timoshenko_plate_buckling.jfem": {
+      "sha256": "78285cc500c6bfe33f2914d4bfd66606680c7652555d23e1cb57c507012d7486",
+      "bytes": 13624
+    },
+    "results/timoshenko_plate_buckling.TIMINGS.JSON": {
+      "sha256": "8b414c3e65cbdfa3df13615d5ec17c3762496e1c1ad9fc5b70aab38a0112c3c2",
+      "bytes": 33312
+    },
+    "results/visual_data.json": {
+      "sha256": "a8736344b4713031fd52a52f4d7d8ca994bac26bff08609bc76595bdce70ec3a",
+      "bytes": 79803
+    }
+  }
+}

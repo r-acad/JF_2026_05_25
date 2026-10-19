@@ -1,0 +1,30 @@
+{
+  "schema": "jfem.validation.recorded_results.v1",
+  "case_id": "MH_curved_beam_in_plane",
+  "input_sha256": "9b06c8c7ef8b83d0df3ebee99d9370530152c8b2293487b2f83ddeaeeb76f0bc",
+  "metrics": [
+    {
+      "name": "tip disp in plane",
+      "value": 0.07278695903495544,
+      "reference": 0.08734,
+      "error_percent": 16.662515416813093,
+      "unit": "benchmark length unit",
+      "tolerance_percent": 2.0,
+      "status": "FAIL (coarse)",
+      "reference_classification": "published",
+      "source_input": "model.bdf"
+    }
+  ],
+  "states": [
+    {
+      "name": "Static subcase 1",
+      "kind": "static",
+      "normalization": "physical displacement in model length units",
+      "subcase": 1
+    }
+  ],
+  "field_data": "visual_data.json",
+  "binary_results": [
+    "curved_beam.jfem"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "schema": "jfem.validation.provenance.v1",
+  "case_id": "TG_plate_uniaxial_buckling",
+  "input": "cases/TG_plate_uniaxial_buckling/model.bdf",
+  "input_sha256": "79e741bbb3d88882153f2fd7f2e47f65952e8a3e40b11f27f68bfa67fa2f14d5",
+  "status": "solved",
+  "input_unchanged": true,
+  "run_started_utc": "2026-10-19T09:32:02.109",
+  "run_finished_utc": "2026-10-19T09:33:18.044",
+  "julia_version": "1.13.1",
+  "wall_seconds_including_compilation": 75.9331696,
+  "source_receipt_sha256": "b694e3e39e479cab332e938720ec9d10ba4bed3c699fd3638946478ae6f5cdaf",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "published_files": {
+    "results.json": "2f7e475dffb303b7674b10b67ab47b3dfa7db6dd53a65d105fe5e99f1001fd81",
+    "timoshenko_plate_buckling.BUCKLING.JSON": "2bc9847182d50ee632930bb3288ae6a1cc957e94d0ae7b3504e81d44b00f8e9c",
+    "timoshenko_plate_buckling.jfem": "78285cc500c6bfe33f2914d4bfd66606680c7652555d23e1cb57c507012d7486",
+    "timoshenko_plate_buckling.TIMINGS.JSON": "8b414c3e65cbdfa3df13615d5ec17c3762496e1c1ad9fc5b70aab38a0112c3c2",
+    "visual_data.json": "a8736344b4713031fd52a52f4d7d8ca994bac26bff08609bc76595bdce70ec3a"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "id": "MYSTRAN_sol101_simple",
+  "title": "Open-source quadrilateral load patch",
+  "solutions": [
+    101
+  ],
+  "family": "mystran_xref",
+  "evidence_class": "Reproducibility / historical regression",
+  "description": "Single 50x50 quadrilateral shell; t=0.1, E=1e7, nu=0.25.",
+  "geometry": "4 nodes; 1 elements. Single 50x50 quadrilateral shell; t=0.1, E=1e7, nu=0.25.",
+  "material": "E=1e+07, nu=0.25; density=0.1; shell thickness=0.1. Consistent benchmark units; displacements in deck length unit, forces in deck force unit, stress in force/length^2",
+  "boundary_conditions": "Edge 1011-1012 clamped; three subcases: nodal forces, uniform PLOAD2, uniform PLOAD4.",
+  "loading": "Three distinct subcases: nodal forces, PLOAD2 uniform pressure and PLOAD4 uniform pressure; see explicit deck values.",
+  "length_unit": "benchmark length unit",
+  "metrics": [
+    {
+      "name": "T1 node 1013",
+      "value": 0.0030532786885245898,
+      "reference": 0.003053279,
+      "error_percent": 1.0201341249516105e-05,
+      "unit": "benchmark length unit",
+      "tolerance_percent": 2.0,
+      "status": "REGRESSION",
+      "reference_classification": "historical_regression",
+      "source_input": "model.bdf"
+    }
+  ],
+  "convergence": [],
+  "diagnostics": [],
+  "references": [
+    {
+      "citation": "MYSTRAN open-source test input provenance (MIT license); stored historical output values are regression targets only.",
+      "url": "https://github.com/MYSTRANsolver/MYSTRAN"
+    }
+  ],
+  "observations": [
+    "Stored historical scalar has no independently reproducible public source. This comparison is a regression check and is not independent scientific validation."
+  ],
+  "limits": [
+    "Linear elasticity and small-displacement equilibrium or linearized bifurcation/modal analysis; this is computational verification, not a material-test validation."
+  ],
+  "visual_file": "results/visual_data.json",
+  "run_date": "2026-10-19",
+  "solver_revision": "a70f997",
+  "model_files": [
+    "model.bdf"
+  ],
+  "figure_caption": "Recorded JFEM result; deformation is amplified, mode amplitudes/signs arbitrary. Green triangles mark constrained nodes; magenta arrows mark available point loads. "
+}

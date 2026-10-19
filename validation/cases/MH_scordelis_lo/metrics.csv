@@ -1,0 +1,4 @@
+name,unit,value,reference,error_percent,tolerance_percent,status
+midedge vertical disp,benchmark length unit,-0.32000281174729334,-0.3024,5.821035630718696,10.0,PASS
+N08 refined response,benchmark length unit,0.30561272306574827,0.3024,1.062408421213057,10.0,PASS
+N16 refined response,benchmark length unit,0.30269370098884196,0.3024,0.09712334287101942,10.0,PASS

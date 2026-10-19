@@ -1,0 +1,29 @@
+{
+  "schema": "jfem.validation.recorded_results.v1",
+  "case_id": "MH_scordelis_lo_N08",
+  "input_sha256": "af4b53606314866925b6f85a229cb769ba10aa7c873889c438bf63354a9cd4f8",
+  "metrics": [
+    {
+      "name": "N08 refined response",
+      "value": 0.30561272306574827,
+      "reference": 0.3024,
+      "error_percent": 1.062408421213057,
+      "unit": "benchmark length unit",
+      "tolerance_percent": 10.0,
+      "status": "PASS",
+      "source_input": "convergence/N08/model.bdf"
+    }
+  ],
+  "states": [
+    {
+      "name": "Static subcase 1",
+      "kind": "static",
+      "normalization": "physical displacement in model length units",
+      "subcase": 1
+    }
+  ],
+  "field_data": "visual_data.json",
+  "binary_results": [
+    "MH_scordelis_lo_N08.jfem"
+  ]
+}

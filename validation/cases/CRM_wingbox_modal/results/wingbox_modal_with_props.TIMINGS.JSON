@@ -1,0 +1,473 @@
+{
+  "solution_scope": "Numerical stage execution including assembly, constraints, equilibrium/eigenvalue solution, sensitivity and deferred recovery; excludes measured compilation, deck preparation and file export. Includes numerical orchestration, GC and scheduling waits; not CPU time.",
+  "schema_version": 2,
+  "export_seconds": 1.1515692000000002,
+  "measured_wall_seconds": 91.6007841,
+  "stages": [
+    {
+      "parent": null,
+      "path": "build_model",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.4988959,
+        "gc_seconds": 0.1458065,
+        "wall_seconds": 0.538168,
+        "compilation_seconds": 0.0392721
+      },
+      "label": "Construct native model",
+      "depth": 0,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.4988959,
+        "gc_seconds": 0.1458065,
+        "wall_seconds": 0.538168,
+        "compilation_seconds": 0.0392721
+      },
+      "category": "preparation",
+      "calls": 1,
+      "phase": "build_model"
+    },
+    {
+      "parent": null,
+      "path": "export",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 1.1515692000000002,
+        "gc_seconds": 0.2168368,
+        "wall_seconds": 2.3947902,
+        "compilation_seconds": 1.243221
+      },
+      "label": "Write results",
+      "depth": 0,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 1.1515692000000002,
+        "gc_seconds": 0.2168368,
+        "wall_seconds": 2.3947902,
+        "compilation_seconds": 1.243221
+      },
+      "category": "export",
+      "calls": 1,
+      "phase": "export"
+    },
+    {
+      "parent": null,
+      "path": "parse",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.1156436,
+        "gc_seconds": 0.0,
+        "wall_seconds": 0.1156436,
+        "compilation_seconds": 0.0
+      },
+      "label": "Read and parse deck",
+      "depth": 0,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.1156436,
+        "gc_seconds": 0.0,
+        "wall_seconds": 0.1156436,
+        "compilation_seconds": 0.0
+      },
+      "category": "preparation",
+      "calls": 1,
+      "phase": "parse"
+    },
+    {
+      "parent": null,
+      "path": "solve",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.3289400999999845,
+        "gc_seconds": 0.046305700000000005,
+        "wall_seconds": 4.125855999999985,
+        "compilation_seconds": 3.7969159
+      },
+      "label": "Numerical solver",
+      "depth": 0,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 80.1831488,
+        "gc_seconds": 3.7684842,
+        "wall_seconds": 88.5521823,
+        "compilation_seconds": 8.3690335
+      },
+      "category": "numerical",
+      "calls": 1,
+      "phase": "solve"
+    },
+    {
+      "parent": "solve",
+      "path": "solve/assembly",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 1.3918069000000002,
+        "gc_seconds": 0.24362740000000002,
+        "wall_seconds": 1.3918069000000002,
+        "compilation_seconds": 0.0
+      },
+      "label": "Assemble elastic stiffness",
+      "depth": 1,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 1.3918069000000002,
+        "gc_seconds": 0.24362740000000002,
+        "wall_seconds": 1.3918069000000002,
+        "compilation_seconds": 0.0
+      },
+      "category": "numerical",
+      "calls": 1,
+      "phase": "assembly"
+    },
+    {
+      "parent": "solve",
+      "path": "solve/eigensolve",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 65.0353872,
+        "gc_seconds": 2.7164479,
+        "wall_seconds": 69.4789245,
+        "compilation_seconds": 4.4435373
+      },
+      "label": "Modal eigenvalue solution",
+      "depth": 1,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 77.0504609,
+        "gc_seconds": 3.1250021,
+        "wall_seconds": 81.51586710000001,
+        "compilation_seconds": 4.4654062
+      },
+      "category": "numerical",
+      "calls": 1,
+      "phase": "eigensolve"
+    },
+    {
+      "parent": "solve/eigensolve",
+      "path": "solve/eigensolve/constraints",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.0197037,
+        "gc_seconds": 0.0,
+        "wall_seconds": 0.0197037,
+        "compilation_seconds": 0.0
+      },
+      "label": "Apply constraints and select free degrees of freedom",
+      "depth": 2,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.0197037,
+        "gc_seconds": 0.0,
+        "wall_seconds": 0.0197037,
+        "compilation_seconds": 0.0
+      },
+      "category": "numerical",
+      "calls": 1,
+      "phase": "constraints"
+    },
+    {
+      "parent": "solve/eigensolve",
+      "path": "solve/eigensolve/factorization",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 11.995370000000001,
+        "gc_seconds": 0.40855420000000003,
+        "wall_seconds": 12.0172389,
+        "compilation_seconds": 0.0218689
+      },
+      "label": "Matrix factorization",
+      "depth": 2,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 11.995370000000001,
+        "gc_seconds": 0.40855420000000003,
+        "wall_seconds": 12.0172389,
+        "compilation_seconds": 0.0218689
+      },
+      "category": "numerical",
+      "calls": 2,
+      "phase": "factorization"
+    },
+    {
+      "parent": "solve",
+      "path": "solve/mass_assembly",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 1.4119409,
+        "gc_seconds": 0.353549,
+        "wall_seconds": 1.5186523,
+        "compilation_seconds": 0.10671140000000001
+      },
+      "label": "Assemble mass matrix",
+      "depth": 1,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 1.4119409,
+        "gc_seconds": 0.353549,
+        "wall_seconds": 1.5186523,
+        "compilation_seconds": 0.10671140000000001
+      },
+      "category": "numerical",
+      "calls": 1,
+      "phase": "mass_assembly"
+    }
+  ],
+  "measurement": "Inclusive children are already contained in parent stage times; category totals sum exclusive execution only. Execution is unavailable if measured compilation overlaps/exceeds its wall interval.",
+  "preparation_seconds": 0.6145395,
+  "phases": {
+    "parse": {
+      "recompilation_seconds": 0.0,
+      "execution_seconds": 0.1156436,
+      "gc_seconds": 0.0,
+      "label": "Read and parse deck",
+      "stages": [
+        {
+          "parent": null,
+          "path": "parse",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.1156436,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.1156436,
+            "compilation_seconds": 0.0
+          },
+          "label": "Read and parse deck",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.1156436,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.1156436,
+            "compilation_seconds": 0.0
+          },
+          "category": "preparation",
+          "calls": 1,
+          "phase": "parse"
+        }
+      ],
+      "wall_seconds": 0.1156436,
+      "category": "preparation",
+      "compilation_seconds": 0.0
+    },
+    "build_model": {
+      "recompilation_seconds": 0.0,
+      "execution_seconds": 0.4988959,
+      "gc_seconds": 0.1458065,
+      "label": "Construct native model",
+      "stages": [
+        {
+          "parent": null,
+          "path": "build_model",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.4988959,
+            "gc_seconds": 0.1458065,
+            "wall_seconds": 0.538168,
+            "compilation_seconds": 0.0392721
+          },
+          "label": "Construct native model",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.4988959,
+            "gc_seconds": 0.1458065,
+            "wall_seconds": 0.538168,
+            "compilation_seconds": 0.0392721
+          },
+          "category": "preparation",
+          "calls": 1,
+          "phase": "build_model"
+        }
+      ],
+      "wall_seconds": 0.538168,
+      "category": "preparation",
+      "compilation_seconds": 0.0392721
+    },
+    "export": {
+      "recompilation_seconds": 0.0,
+      "execution_seconds": 1.1515692000000002,
+      "gc_seconds": 0.2168368,
+      "label": "Write results",
+      "stages": [
+        {
+          "parent": null,
+          "path": "export",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 1.1515692000000002,
+            "gc_seconds": 0.2168368,
+            "wall_seconds": 2.3947902,
+            "compilation_seconds": 1.243221
+          },
+          "label": "Write results",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 1.1515692000000002,
+            "gc_seconds": 0.2168368,
+            "wall_seconds": 2.3947902,
+            "compilation_seconds": 1.243221
+          },
+          "category": "export",
+          "calls": 1,
+          "phase": "export"
+        }
+      ],
+      "wall_seconds": 2.3947902,
+      "category": "export",
+      "compilation_seconds": 1.243221
+    },
+    "solve": {
+      "recompilation_seconds": 0.0,
+      "execution_seconds": 80.1831488,
+      "gc_seconds": 3.7684842,
+      "label": "Numerical solver",
+      "stages": [
+        {
+          "parent": null,
+          "path": "solve",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.3289400999999845,
+            "gc_seconds": 0.046305700000000005,
+            "wall_seconds": 4.125855999999985,
+            "compilation_seconds": 3.7969159
+          },
+          "label": "Numerical solver",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 80.1831488,
+            "gc_seconds": 3.7684842,
+            "wall_seconds": 88.5521823,
+            "compilation_seconds": 8.3690335
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "solve"
+        },
+        {
+          "parent": "solve",
+          "path": "solve/assembly",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 1.3918069000000002,
+            "gc_seconds": 0.24362740000000002,
+            "wall_seconds": 1.3918069000000002,
+            "compilation_seconds": 0.0
+          },
+          "label": "Assemble elastic stiffness",
+          "depth": 1,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 1.3918069000000002,
+            "gc_seconds": 0.24362740000000002,
+            "wall_seconds": 1.3918069000000002,
+            "compilation_seconds": 0.0
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "assembly"
+        },
+        {
+          "parent": "solve",
+          "path": "solve/eigensolve",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 65.0353872,
+            "gc_seconds": 2.7164479,
+            "wall_seconds": 69.4789245,
+            "compilation_seconds": 4.4435373
+          },
+          "label": "Modal eigenvalue solution",
+          "depth": 1,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 77.0504609,
+            "gc_seconds": 3.1250021,
+            "wall_seconds": 81.51586710000001,
+            "compilation_seconds": 4.4654062
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "eigensolve"
+        },
+        {
+          "parent": "solve/eigensolve",
+          "path": "solve/eigensolve/constraints",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.0197037,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.0197037,
+            "compilation_seconds": 0.0
+          },
+          "label": "Apply constraints and select free degrees of freedom",
+          "depth": 2,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.0197037,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.0197037,
+            "compilation_seconds": 0.0
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "constraints"
+        },
+        {
+          "parent": "solve/eigensolve",
+          "path": "solve/eigensolve/factorization",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 11.995370000000001,
+            "gc_seconds": 0.40855420000000003,
+            "wall_seconds": 12.0172389,
+            "compilation_seconds": 0.0218689
+          },
+          "label": "Matrix factorization",
+          "depth": 2,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 11.995370000000001,
+            "gc_seconds": 0.40855420000000003,
+            "wall_seconds": 12.0172389,
+            "compilation_seconds": 0.0218689
+          },
+          "category": "numerical",
+          "calls": 2,
+          "phase": "factorization"
+        },
+        {
+          "parent": "solve",
+          "path": "solve/mass_assembly",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 1.4119409,
+            "gc_seconds": 0.353549,
+            "wall_seconds": 1.5186523,
+            "compilation_seconds": 0.10671140000000001
+          },
+          "label": "Assemble mass matrix",
+          "depth": 1,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 1.4119409,
+            "gc_seconds": 0.353549,
+            "wall_seconds": 1.5186523,
+            "compilation_seconds": 0.10671140000000001
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "mass_assembly"
+        }
+      ],
+      "wall_seconds": 88.5521823,
+      "category": "numerical",
+      "compilation_seconds": 8.3690335
+    }
+  },
+  "solution_seconds": 80.18314879999998,
+  "compilation_scope": "Measured Julia compilation includes recompilation. Package loading/precompilation before main is unmeasured process startup; live compiler activity cannot be separated reliably.",
+  "compilation_seconds": 9.6515266
+}

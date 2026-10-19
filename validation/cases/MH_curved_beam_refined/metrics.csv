@@ -1,0 +1,2 @@
+name,unit,value,reference,error_percent,tolerance_percent,status
+tip disp in plane,benchmark length unit,0.08789738381919039,0.08734,0.6381770313606427,2.0,PASS

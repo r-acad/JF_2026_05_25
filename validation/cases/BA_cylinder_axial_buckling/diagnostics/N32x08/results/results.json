@@ -1,0 +1,75 @@
+{
+  "schema": "jfem.validation.recorded_results.v1",
+  "case_id": "BA_cylinder_axial_buckling_N32x08",
+  "input_sha256": "4c8c99740ce3da226dcd82a03b753996a6111d25147044d4b75d83ab651a0d67",
+  "metrics": [
+    {
+      "name": "32x8 first retained root (unqualified)",
+      "value": 1.2765007303268912,
+      "reference": 1.270977818604485,
+      "native_value": 1276500730.3268912,
+      "error_percent": 0.43454037053693995,
+      "unit": "GPa",
+      "status": "PARTIAL",
+      "tolerance_percent": null,
+      "source_input": "diagnostics/N32x08/model.bdf"
+    }
+  ],
+  "states": [
+    {
+      "name": "Mode 1",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 1,
+      "eigenvalue": 1276500730.3268912,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 2",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 2,
+      "eigenvalue": 1317935845.053293,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 3",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 3,
+      "eigenvalue": 1426341978.9658117,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 4",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 4,
+      "eigenvalue": 1479797328.7903435,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 5",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 5,
+      "eigenvalue": 1731944415.2266634,
+      "frequency_hz": null
+    },
+    {
+      "name": "Static preload 1",
+      "kind": "preload",
+      "normalization": "physical displacement in model length units",
+      "subcase": 1
+    }
+  ],
+  "field_data": "visual_data.json",
+  "binary_results": [
+    "BA_cylinder_axial_buckling_N32x08_EIGRL.jfem"
+  ]
+}

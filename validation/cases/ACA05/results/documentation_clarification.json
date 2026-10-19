@@ -1,0 +1,7 @@
+{
+  "change": "Clarify two-dimensional reduced plane stress deformation gradient and condensed thickness strain.",
+  "original_definition_sha256": "b7871dbed078d76d1cfe091952539d3500032505e6893e8a659376e78ec6d31b",
+  "public_definition_sha256": "6a98d3ec0fe84fc86a64089b2797e987214dc366cdf797f11cff6a78f7c4ea11",
+  "numerical_inputs_and_outputs_unchanged": true,
+  "explanation": "The membrane model uses F_2D and Green-Lagrange strains with thickness strain condensed by plane stress. No Fzz=1 three-dimensional restriction is imposed."
+}

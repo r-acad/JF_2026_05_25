@@ -1,0 +1,18 @@
+{
+  "schema": "jfem.validation.case_card.v1",
+  "case_id": "MH_curved_beam_refined",
+  "built_utc": "2026-10-19T10:12:23.472782+00:00",
+  "pdf_pages": 2,
+  "case_metadata_sha256": "efd4f15eec56a121b35ee8534a9c49171243270b6e17ab6206a1f90a27d09727",
+  "visual_data_sha256": "397c4d6edd514f1ea5ab3f2b40e43b43e8e330c7612e29b743a7ea03daed187a",
+  "builder_sha256": "776022314b284aee7e4ade99617497739e5e8bc30f818f4972fa3b8ee00977e7",
+  "source": "Recorded JFEM numerical fields; no synthetic deformation fields",
+  "artifacts": {
+    "case_card.pdf": "775810d0cf45c5d86038bf7325a6a22316f88b29d6b8e327a12674b5ffc8f7a7",
+    "metrics.csv": "254cae044f31e40acef461ddb4cdbba43ec30ed180d784a0b943fe096e1bdbfc",
+    "figures/deformation.png": "46a56846551dc64e4783674cd83b388cba596da9de75346f417e30c6fc09e3cc",
+    "figures/deformation.svg": "dde899ab70b1252abdb439ed1d2511f2762498b5823453bcd58e30d7f0ab72f9",
+    "figures/response.png": "295f751e0677bf05bd99d60babe7eb7ea138a06c4ea929dbc922485f734fa3eb",
+    "figures/response.svg": "3c3d72beaff53a094d86db767598c94cc11c319c6f4024378d73e5000fffa8d6"
+  }
+}

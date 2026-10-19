@@ -1,0 +1,70 @@
+{
+  "schema": "jfem.validation.published_case.v1",
+  "case_id": "MH_curved_beam_in_plane",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "built_utc": "2026-10-19T10:21:14.431133+00:00",
+  "evidence_class": "Published shell benchmark",
+  "artifact_provenance": "Publicly curated input, native JFEM output and original figures; sources and limits in case.json and adjacent notices.",
+  "files": {
+    "case.json": {
+      "sha256": "39cee407968791df753d147ae3afa94e39c47b1a0d47a759c151ea2b15a07aff",
+      "bytes": 2592
+    },
+    "case_card.pdf": {
+      "sha256": "53ed1960a43a6274ece9b1e2b05715112357217c86b470d1ed72efb45abe815c",
+      "bytes": 247178
+    },
+    "case_card_receipt.json": {
+      "sha256": "ebd6555440eabd54bc1318da188ff39ff3aa7fcfb63f6b77183c653bb7f4530b",
+      "bytes": 1114
+    },
+    "figures/deformation.png": {
+      "sha256": "94c606662542e47316317772e8463429125ed8a7344d71333ce64bfd0b84d49e",
+      "bytes": 118461
+    },
+    "figures/deformation.svg": {
+      "sha256": "2121b949ff93d2d4da92f5a8281d05d5cbf4e4066c5c728e3afa6f76023237b4",
+      "bytes": 18921
+    },
+    "figures/response.png": {
+      "sha256": "295f751e0677bf05bd99d60babe7eb7ea138a06c4ea929dbc922485f734fa3eb",
+      "bytes": 75883
+    },
+    "figures/response.svg": {
+      "sha256": "fe275286d94111102057b92122bfe0552526c21891de60b5f89a265e43576af8",
+      "bytes": 12852
+    },
+    "metrics.csv": {
+      "sha256": "f7091ba2f35fd95174b201ae02442557c94214faf43eb3f88f0c1d83a360661c",
+      "bytes": 172
+    },
+    "model.bdf": {
+      "sha256": "9b06c8c7ef8b83d0df3ebee99d9370530152c8b2293487b2f83ddeaeeb76f0bc",
+      "bytes": 2054
+    },
+    "results/curved_beam.jfem": {
+      "sha256": "0cdb96e871c46b6d9df35100d39fe4abd17d7cd8ee98b8e17143998c1e5dde15",
+      "bytes": 1016
+    },
+    "results/curved_beam.JU.JSON": {
+      "sha256": "59ad43c7553ce820669c4cc7c92ea9f615dcc9145777cf2bc31383b8b445580a",
+      "bytes": 9061
+    },
+    "results/curved_beam.TIMINGS.JSON": {
+      "sha256": "c761f059ea860a080206f8e2434c535a3ebf0013632f12a6d844b548c8f74791",
+      "bytes": 17208
+    },
+    "results/provenance.json": {
+      "sha256": "75c2e31d3cc452199e0ffdc759601f9ef92a6fdf3221d7ad5ff4fcc209140e0a",
+      "bytes": 1130
+    },
+    "results/results.json": {
+      "sha256": "66602c5c8e70bdb22e478f6c0c08471c911444a5cd867040419c1cfafa52b092",
+      "bytes": 833
+    },
+    "results/visual_data.json": {
+      "sha256": "0d4c4cc6b02944d21e0b3a2e6ac0f8579ebaee40a486df1ce76cd30e176a7009",
+      "bytes": 6553
+    }
+  }
+}

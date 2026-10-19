@@ -1,0 +1,49 @@
+{
+  "id": "MYSTRAN_sol105_buckling",
+  "title": "Single-element cantilever column buckling",
+  "solutions": [
+    105
+  ],
+  "family": "mystran_xref",
+  "evidence_class": "Independent analytical verification",
+  "description": "One CBAR of length 10; E=1e7, A=0.5, I1=1/24, I2=104.16666666667.",
+  "geometry": "2 nodes; 1 elements. One CBAR of length 10; E=1e7, A=0.5, I1=1/24, I2=104.16666666667.",
+  "material": "E=1e+07, nu=0.33; density=0.1. Consistent benchmark units; displacements in deck length unit, forces in deck force unit, stress in force/length^2",
+  "boundary_conditions": "All 6 DOFs at root GRID 1 fixed using permanent GRID constraints; unit axial compressive end force.",
+  "loading": "Unit axial compressive tip force; Euler comparison uses the weak-axis second moment of area.",
+  "length_unit": "benchmark length unit",
+  "metrics": [
+    {
+      "name": "lambda 1",
+      "value": 10358.173746333156,
+      "reference": 10280.837917801415,
+      "error_percent": 0.7522327377404991,
+      "unit": "-",
+      "tolerance_percent": 5.0,
+      "status": "PASS",
+      "reference_classification": "analytical",
+      "source_input": "model.bdf"
+    }
+  ],
+  "convergence": [],
+  "diagnostics": [],
+  "references": [
+    {
+      "citation": "MYSTRAN open-source test input provenance (MIT license); stored historical output values are regression targets only.",
+      "url": "https://github.com/MYSTRANsolver/MYSTRAN"
+    }
+  ],
+  "observations": [
+    "Actual shipped mesh has one beam element. Euler value is the independent continuum target; finite-mesh error is retained."
+  ],
+  "limits": [
+    "Linear elasticity and small-displacement equilibrium or linearized bifurcation/modal analysis; this is computational verification, not a material-test validation."
+  ],
+  "visual_file": "results/visual_data.json",
+  "run_date": "2026-10-19",
+  "solver_revision": "a70f997",
+  "model_files": [
+    "model.bdf"
+  ],
+  "figure_caption": "Recorded JFEM result; deformation is amplified, mode amplitudes/signs arbitrary. Green triangles mark constrained nodes; magenta arrows mark available point loads. "
+}

@@ -1,0 +1,22 @@
+{
+  "schema": "jfem.validation.provenance.v1",
+  "case_id": "MH_hemispherical_shell",
+  "input": "cases/MH_hemispherical_shell/model.bdf",
+  "input_sha256": "57586693c424a0119155d60c902612130fa0c7ae375c31b1875f2cb861c86108",
+  "status": "solved",
+  "input_unchanged": true,
+  "run_started_utc": "2026-10-19T09:27:47.432",
+  "run_finished_utc": "2026-10-19T09:27:47.439",
+  "julia_version": "1.13.1",
+  "wall_seconds_including_compilation": 0.0129605,
+  "source_receipt_sha256": "315145a27f6ebf0feef1396298c8ef68b1fa2d55f2c116222b19ac39741b47f1",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "published_files": {
+    "hemispherical_shell.jfem": "27e1a2d782908f37b168bceeefa81c3389512f13a7be273dc23ac59274142cb3",
+    "hemispherical_shell.JU.JSON": "29157654a1fcf24996d86cb6302f68f2ffb9d787d4499192673f4385598f2b7a",
+    "hemispherical_shell.TIMINGS.JSON": "73ccceaa3c1346ce6f23b1a10fd256d0da0ece2461c78749aa8033516e315932",
+    "plot_source.json": "5dbb6277b7ccee799f6ee27db45c46ec1878e6c8bd068551035aba64fb65399d",
+    "results.json": "60f8db11286d971c60a292d1bca8c97a70409155d1815dfb79ecf650e4b6aed1",
+    "visual_data.json": "63f79de9c39e752e67b6bb797cfdec554f0896113bf0cc513f2cbc809f4e6554"
+  }
+}

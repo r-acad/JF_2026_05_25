@@ -1,0 +1,2 @@
+name,unit,value,reference,error_percent,tolerance_percent,status
+tip disp in plane,benchmark length unit,0.07278695903495544,0.08734,16.662515416813093,2.0,FAIL (coarse)

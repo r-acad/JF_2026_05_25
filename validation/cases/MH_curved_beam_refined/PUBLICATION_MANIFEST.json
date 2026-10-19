@@ -1,0 +1,70 @@
+{
+  "schema": "jfem.validation.published_case.v1",
+  "case_id": "MH_curved_beam_refined",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "built_utc": "2026-10-19T10:21:14.431133+00:00",
+  "evidence_class": "Published shell benchmark",
+  "artifact_provenance": "Publicly curated input, native JFEM output and original figures; sources and limits in case.json and adjacent notices.",
+  "files": {
+    "case.json": {
+      "sha256": "efd4f15eec56a121b35ee8534a9c49171243270b6e17ab6206a1f90a27d09727",
+      "bytes": 2526
+    },
+    "case_card.pdf": {
+      "sha256": "775810d0cf45c5d86038bf7325a6a22316f88b29d6b8e327a12674b5ffc8f7a7",
+      "bytes": 288964
+    },
+    "case_card_receipt.json": {
+      "sha256": "10af99acf66297318a0df3091b7b097ecd8e97fd6f84d9a2d88776d9dced58dd",
+      "bytes": 1113
+    },
+    "figures/deformation.png": {
+      "sha256": "46a56846551dc64e4783674cd83b388cba596da9de75346f417e30c6fc09e3cc",
+      "bytes": 159926
+    },
+    "figures/deformation.svg": {
+      "sha256": "dde899ab70b1252abdb439ed1d2511f2762498b5823453bcd58e30d7f0ab72f9",
+      "bytes": 62080
+    },
+    "figures/response.png": {
+      "sha256": "295f751e0677bf05bd99d60babe7eb7ea138a06c4ea929dbc922485f734fa3eb",
+      "bytes": 75883
+    },
+    "figures/response.svg": {
+      "sha256": "3c3d72beaff53a094d86db767598c94cc11c319c6f4024378d73e5000fffa8d6",
+      "bytes": 12852
+    },
+    "metrics.csv": {
+      "sha256": "254cae044f31e40acef461ddb4cdbba43ec30ed180d784a0b943fe096e1bdbfc",
+      "bytes": 163
+    },
+    "model.bdf": {
+      "sha256": "4364c7ae5379089fe5d61e87dd9c09d1911a66d078bfb3715f80c369deb1fdee",
+      "bytes": 13167
+    },
+    "results/curved_beam_refined.jfem": {
+      "sha256": "407f6351185b89915b2046999df1a1dfd45333339ab2d2a2c52a0885c112dd98",
+      "bytes": 10568
+    },
+    "results/curved_beam_refined.JU.JSON": {
+      "sha256": "4f4a032d9297e1197588ce300a5c8a67fdf0bd04f5941fe701ea0b308e5da1b5",
+      "bytes": 33259
+    },
+    "results/curved_beam_refined.TIMINGS.JSON": {
+      "sha256": "169ef8e6e9940c4ab5f3d449efade2d9f20850a3f6b77ff02db5a13b6d30a4c8",
+      "bytes": 16463
+    },
+    "results/provenance.json": {
+      "sha256": "938998ad86139bbfd5bceb848fccdf226997a6716de4bc832681f3a859759c9b",
+      "bytes": 1151
+    },
+    "results/results.json": {
+      "sha256": "db14d6e9ae8d92a8ad131be895c7a509ece41b417d576a4e9f945f05d3a981f4",
+      "bytes": 831
+    },
+    "results/visual_data.json": {
+      "sha256": "397c4d6edd514f1ea5ab3f2b40e43b43e8e330c7612e29b743a7ea03daed187a",
+      "bytes": 49735
+    }
+  }
+}

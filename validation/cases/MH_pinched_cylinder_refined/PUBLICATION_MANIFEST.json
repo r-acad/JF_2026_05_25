@@ -1,0 +1,70 @@
+{
+  "schema": "jfem.validation.published_case.v1",
+  "case_id": "MH_pinched_cylinder_refined",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "built_utc": "2026-10-19T10:21:14.431133+00:00",
+  "evidence_class": "Published shell benchmark",
+  "artifact_provenance": "Publicly curated input, native JFEM output and original figures; sources and limits in case.json and adjacent notices.",
+  "files": {
+    "case.json": {
+      "sha256": "f6562e53d25656f632f4f062baf2a828ae0d976612202e74359eb686e47b5b9b",
+      "bytes": 2844
+    },
+    "case_card.pdf": {
+      "sha256": "b76ff954b1b92fbcb29b1b460a22819efe4e56b6f6ac586bee256e935e3b17e1",
+      "bytes": 329419
+    },
+    "case_card_receipt.json": {
+      "sha256": "6a0074d233f51623fb09ed5c7d39d5c2ea6d6e15bdd7dab2cae43881cc3d2195",
+      "bytes": 1118
+    },
+    "figures/deformation.png": {
+      "sha256": "eb6bb0ce8fcd8360aa0cdb5e7122d0e0ab09f40d41a647c2a890a9ed82be30cd",
+      "bytes": 199479
+    },
+    "figures/deformation.svg": {
+      "sha256": "86a87ce155b733a34b8409b4a871b8477406cfbca24e6f2b794b6998fc52978b",
+      "bytes": 292626
+    },
+    "figures/response.png": {
+      "sha256": "0ab30c2b8dffb2e925dd2e54366c67d60160b1c81a4e1cb15c48eff6436f1996",
+      "bytes": 75960
+    },
+    "figures/response.svg": {
+      "sha256": "0a60946b1b536001652175c384f5ca0b85c1d76b84fed60d794f11f85ae646d8",
+      "bytes": 13982
+    },
+    "metrics.csv": {
+      "sha256": "a8e55f56917c719cb4ab4589a652bb818f5b52e3e3240ef9ffe67eeb75e8d953",
+      "bytes": 187
+    },
+    "model.bdf": {
+      "sha256": "e3de1abebfa6bbd73e6853fdc3057f8ad37dce039a32b6ff4b41d3e750ed689c",
+      "bytes": 66069
+    },
+    "results/pinched_cylinder_refined.jfem": {
+      "sha256": "aeb4ccfddab0b56841c06f83f0a95412e8c05450afc36b0b487805d7b6b779b5",
+      "bytes": 58112
+    },
+    "results/pinched_cylinder_refined.JU.JSON": {
+      "sha256": "e5d305dcd0208fedfb2d9a2223b841ab22e7aacc06e1a805b78c11854fa28c45",
+      "bytes": 184494
+    },
+    "results/pinched_cylinder_refined.TIMINGS.JSON": {
+      "sha256": "b6d33fc62e338c3a70325caf7f5d83f0e08202cfd1115814fac938850f0b6d28",
+      "bytes": 16727
+    },
+    "results/provenance.json": {
+      "sha256": "6dcb164e694ba5a82021410fd1e7d44e4fedaf13642b47349db0e213ba2330e0",
+      "bytes": 1176
+    },
+    "results/results.json": {
+      "sha256": "85f197ff5977c7482c44d66ed35c3b380e4e4cb5bb5a40b5cc0b1372bcd93b2b",
+      "bytes": 865
+    },
+    "results/visual_data.json": {
+      "sha256": "0bff8ce0813489f4b4e9c83a6896f8f75240f20941911b4a4a3c31a8c5aea032",
+      "bytes": 304601
+    }
+  }
+}

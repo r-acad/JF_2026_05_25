@@ -1,0 +1,44 @@
+[
+  {
+    "mode": 1,
+    "m": 1,
+    "n": 1,
+    "transverse_shape_MAC": 0.9999999980566922,
+    "normalization": "Unweighted full nodal transverse shape MAC; includes constrained edges. Arbitrary mode sign and amplitude cancel."
+  },
+  {
+    "mode": 2,
+    "m": 2,
+    "n": 1,
+    "transverse_shape_MAC": 0.9999999847607557,
+    "normalization": "Unweighted full nodal transverse shape MAC; includes constrained edges. Arbitrary mode sign and amplitude cancel."
+  },
+  {
+    "mode": 3,
+    "m": 1,
+    "n": 2,
+    "transverse_shape_MAC": 0.9999999894553087,
+    "normalization": "Unweighted full nodal transverse shape MAC; includes constrained edges. Arbitrary mode sign and amplitude cancel."
+  },
+  {
+    "mode": 4,
+    "m": 2,
+    "n": 2,
+    "transverse_shape_MAC": 0.9999999769057624,
+    "normalization": "Unweighted full nodal transverse shape MAC; includes constrained edges. Arbitrary mode sign and amplitude cancel."
+  },
+  {
+    "mode": 5,
+    "m": 3,
+    "n": 1,
+    "transverse_shape_MAC": 0.9999999469854801,
+    "normalization": "Unweighted full nodal transverse shape MAC; includes constrained edges. Arbitrary mode sign and amplitude cancel."
+  },
+  {
+    "mode": 6,
+    "m": 1,
+    "n": 3,
+    "transverse_shape_MAC": 0.9999999651386905,
+    "normalization": "Unweighted full nodal transverse shape MAC; includes constrained edges. Arbitrary mode sign and amplitude cancel."
+  }
+]

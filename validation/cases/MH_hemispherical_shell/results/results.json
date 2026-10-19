@@ -1,0 +1,30 @@
+{
+  "schema": "jfem.validation.recorded_results.v1",
+  "case_id": "MH_hemispherical_shell",
+  "input_sha256": "57586693c424a0119155d60c902612130fa0c7ae375c31b1875f2cb861c86108",
+  "metrics": [
+    {
+      "name": "radial disp at load",
+      "value": 0.09874838628576382,
+      "reference": 0.093,
+      "error_percent": 6.181060522326698,
+      "unit": "benchmark length unit",
+      "tolerance_percent": 10.0,
+      "status": "PASS",
+      "reference_classification": "published",
+      "source_input": "model.bdf"
+    }
+  ],
+  "states": [
+    {
+      "name": "Static subcase 1",
+      "kind": "static",
+      "normalization": "physical displacement in model length units",
+      "subcase": 1
+    }
+  ],
+  "field_data": "visual_data.json",
+  "binary_results": [
+    "hemispherical_shell.jfem"
+  ]
+}

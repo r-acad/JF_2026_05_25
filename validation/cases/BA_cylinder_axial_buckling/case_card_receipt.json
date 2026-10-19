@@ -1,0 +1,20 @@
+{
+  "schema": "jfem.validation.case_card.v1",
+  "case_id": "BA_cylinder_axial_buckling",
+  "built_utc": "2026-10-19T10:11:30.139425+00:00",
+  "pdf_pages": 2,
+  "case_metadata_sha256": "232ebc59e3a234510b9d57cd3319f242bdaf5b6104c6d46c5b9b07a21a6bc79e",
+  "visual_data_sha256": "53175f4175f2e3ea12ffdcb59d5e32e3e93bc0e86af76ab72805d58211dbd4d8",
+  "builder_sha256": "776022314b284aee7e4ade99617497739e5e8bc30f818f4972fa3b8ee00977e7",
+  "source": "Recorded JFEM numerical fields; no synthetic deformation fields",
+  "artifacts": {
+    "case_card.pdf": "bf7b67ec0d8098ea3bd8beb5bd8bf96488ec8f25d78d6f616838da47e063d2ce",
+    "metrics.csv": "e7468fdbf85b96e7dc43518e5c00a0382ba0d7db11df2f29d8b0e1c353bd2915",
+    "figures/deformation.png": "57a68776490e8d5c29d34d83f20a1d111bb86eeb506c4bea7cfbfe5b914cd5f4",
+    "figures/deformation.svg": "542f928776dd7ce2e7626fd5848381f0d6526eff85cb639b66ea2ac1d4bbb9ae",
+    "figures/modes.png": "64265d50dc031f474be02ff8299066647397fe2da67f04c12af8b9be7e53ecee",
+    "figures/modes.svg": "fb9b0ceeaf5b7268a998b92947790868110b8b40a0dd6909d875e7abe7b2eb90",
+    "figures/response.png": "a574d478f343bdb8361899b0589146c8dc6d57bedf703d2b602e4c0bd429e2ba",
+    "figures/response.svg": "9d2c3e360e1e2acc809f1c8fb1492bd6bff30a3a883cc09a013ccd27fc57fe11"
+  }
+}

@@ -1,0 +1,142 @@
+{
+  "schema": "jfem.validation.published_case.v1",
+  "case_id": "ACA02",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "built_utc": "2026-10-19T10:21:14.431133+00:00",
+  "evidence_class": "Independent analytical equation verification",
+  "artifact_provenance": "Author-generated decks; actual JFEM numerical fields; independently computed analytical reference equations. No third-party deck or figure redistribution.",
+  "files": {
+    "case.json": {
+      "sha256": "e4281bf24566166e3ef6ee631bae486b8a1add3fd4ab3cae52696652ebd27422",
+      "bytes": 5104
+    },
+    "case_card.pdf": {
+      "sha256": "206e515ab1bd68a7356a6edace14fce0aedfef38cdddd86029fd7231ea1e4f98",
+      "bytes": 214646
+    },
+    "case_card_receipt.json": {
+      "sha256": "15df8f752e36b03703ad29644b6a93049084719a52424ac73d6f545830c5bd4e",
+      "bytes": 1096
+    },
+    "case_definition.json": {
+      "sha256": "97824dd89cfcee233669e2dc0e619f9251cf5d16466da3e8240597ba9464ba8f",
+      "bytes": 3954
+    },
+    "figures/deformation.png": {
+      "sha256": "324ff17962d96f8127348410eef615142a30df138b686a215a8d3c32f1d1e967",
+      "bytes": 76945
+    },
+    "figures/deformation.svg": {
+      "sha256": "0f7fc5b49b8c809e8823a5679a998bc0e9d24d0104f2208b39750c30a6571124",
+      "bytes": 22549
+    },
+    "figures/response.png": {
+      "sha256": "93e4344f086d6e486abf9bb251c58dfd83d5bb3cbaa450ac80a906f858b096c1",
+      "bytes": 61853
+    },
+    "figures/response.svg": {
+      "sha256": "74be7db35a680f3e0e04e55fc63193623086524027f83a60cb6fdc700f96ca31",
+      "bytes": 10309
+    },
+    "metrics.csv": {
+      "sha256": "f340cdcb0a705db3fcef54a3bbd523aaccf3d5a34572b0aab579b08998cbb7b0",
+      "bytes": 277
+    },
+    "model.bdf": {
+      "sha256": "efcd731d402d4ce83b93cae000af84f4937c0ce27cfb65db8c096961a9ad5a6f",
+      "bytes": 1419
+    },
+    "reproduce.jl": {
+      "sha256": "81f5c5d977fcb6bf0e140be06f3aa96bf34fd304ee133403cf46ef7b38d0041e",
+      "bytes": 337
+    },
+    "results/comparison.csv": {
+      "sha256": "b3f3c5c0a6e96aab353543f89c98831257563cf0acc7ce26edddf58f6a02ecdd",
+      "bytes": 1442
+    },
+    "results/metrics.csv": {
+      "sha256": "b3f3c5c0a6e96aab353543f89c98831257563cf0acc7ce26edddf58f6a02ecdd",
+      "bytes": 1442
+    },
+    "results/results.json": {
+      "sha256": "78976e1feb9438ad1912ffa1524bbcfc7f234b7642c2fdbbd0d5aa8049417b68",
+      "bytes": 4824
+    },
+    "results/run_receipts.json": {
+      "sha256": "abbf66307ede749efea131648297c92e59ae5ead31e86aee0fa401b8d6a9e3a9",
+      "bytes": 7288
+    },
+    "results/runs/timoshenko_n01/receipt.json": {
+      "sha256": "dd69cfd1f953bacd008e3270771ffc7455ac7a97fe877be47b3770f4c9337a8d",
+      "bytes": 1365
+    },
+    "results/runs/timoshenko_n01/timoshenko_n01.jfem": {
+      "sha256": "31f64314e1db43ee3bc5d38203112ef64eaf3e298de2dc30a1c660290ecceee5",
+      "bytes": 232
+    },
+    "results/runs/timoshenko_n02/receipt.json": {
+      "sha256": "6afadaff111cd1dd3c572bc0bfeb6dd301798ae8a75ba889e70aeac755335b5b",
+      "bytes": 1361
+    },
+    "results/runs/timoshenko_n02/timoshenko_n02.jfem": {
+      "sha256": "cece82d2412aee6ec059f319d9c49677dd46c151dbebb48254cb700f06101536",
+      "bytes": 328
+    },
+    "results/runs/timoshenko_n04/receipt.json": {
+      "sha256": "53562e8c8d15c16df31923bb021a94695b175ef764087e50f85a4f2bc60267bd",
+      "bytes": 1365
+    },
+    "results/runs/timoshenko_n04/timoshenko_n04.jfem": {
+      "sha256": "a357de3e91e14cca8bc005441e91913a93da45cf5f78abda03b256cff21df407",
+      "bytes": 520
+    },
+    "results/runs/timoshenko_n08/receipt.json": {
+      "sha256": "1a2654e8befd9eaabc840d78dde5b8e66ea6167dadd4459dde5118f7a2ed799b",
+      "bytes": 1363
+    },
+    "results/runs/timoshenko_n08/timoshenko_n08.jfem": {
+      "sha256": "fa3447de1ddfac80f40b2ba8c19e09e4046bbe61bcdefe945b98831f29419612",
+      "bytes": 904
+    },
+    "results/runs/timoshenko_n16/receipt.json": {
+      "sha256": "11652b0c7321534192e4b38c9ba8c7240a264f1faeb94bde46fd6d083a379296",
+      "bytes": 1364
+    },
+    "results/runs/timoshenko_n16/timoshenko_n16.jfem": {
+      "sha256": "daefcd8853efc0f2d67f8257b85df3016d26a889cb162d23385106d3f59430ad",
+      "bytes": 1672
+    },
+    "results/solver_source_sha256.json": {
+      "sha256": "2cc88c460d5e7e531b2e6abcaf992bcb799c8f0af9f9fdfd5af0ec823c21b888",
+      "bytes": 5884
+    },
+    "results/static.jfem": {
+      "sha256": "daefcd8853efc0f2d67f8257b85df3016d26a889cb162d23385106d3f59430ad",
+      "bytes": 1672
+    },
+    "results/visual_data.json": {
+      "sha256": "2ee4959917bce471ed60857ee24f834aa8591288eb8d35946dda27e8ea6d1230",
+      "bytes": 2439
+    },
+    "timoshenko_n01.bdf": {
+      "sha256": "88c0d2a3353bed1089cbcaa5c2e8913aae2068228177fa598f51269a08423117",
+      "bytes": 491
+    },
+    "timoshenko_n02.bdf": {
+      "sha256": "0b5a8bd58f8cf799ae1e24a6f2f139bc345ea852ac6fd2ac5779a04648fdf799",
+      "bytes": 548
+    },
+    "timoshenko_n04.bdf": {
+      "sha256": "253a7641453a619d425065f4b288d6714da142600912c0a4dd39a3456f58054b",
+      "bytes": 664
+    },
+    "timoshenko_n08.bdf": {
+      "sha256": "ba075a64fdabf5973c0ada999593fed62199c5821b3148073d2d7a5c6969e18c",
+      "bytes": 900
+    },
+    "timoshenko_n16.bdf": {
+      "sha256": "efcd731d402d4ce83b93cae000af84f4937c0ce27cfb65db8c096961a9ad5a6f",
+      "bytes": 1419
+    }
+  }
+}

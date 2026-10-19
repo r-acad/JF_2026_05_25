@@ -1,0 +1,510 @@
+{
+    "analysis_type": "SOL101_STATIC",
+    "displacements": [
+        {
+            "r3": 0.0,
+            "r2": 0.0,
+            "r1": 0.0,
+            "t3": 0.0,
+            "t2": 0.0,
+            "t1": 0.0,
+            "grid_id": 1
+        },
+        {
+            "r3": 0.0,
+            "r2": 0.0,
+            "r1": 0.0,
+            "t3": 0.0,
+            "t2": 0.0,
+            "t1": 0.0,
+            "grid_id": 2
+        },
+        {
+            "r3": 0.0,
+            "r2": 8.971898521861289e-6,
+            "r1": -2.727168546222831e-6,
+            "t3": -2.7936034131270416e-6,
+            "t2": 5.552143076446821e-6,
+            "t1": 5.607074620750443e-6,
+            "grid_id": 3
+        },
+        {
+            "r3": 0.0,
+            "r2": 8.971898521810625e-6,
+            "r1": 2.7271685462702712e-6,
+            "t3": -2.7936034131010415e-6,
+            "t2": 5.552143076443403e-6,
+            "t1": -5.607074620752594e-6,
+            "grid_id": 4
+        },
+        {
+            "r3": 0.0,
+            "r2": 3.4917470177293486e-5,
+            "r1": -5.358873805424365e-6,
+            "t3": -1.999591199362535e-5,
+            "t2": 2.31679122157481e-5,
+            "t1": 9.384144228775712e-6,
+            "grid_id": 5
+        },
+        {
+            "r3": 0.0,
+            "r2": 3.4917470177259015e-5,
+            "r1": 5.358873805549e-6,
+            "t3": -1.9995911993558842e-5,
+            "t2": 2.316791221573027e-5,
+            "t1": -9.384144228781166e-6,
+            "grid_id": 6
+        },
+        {
+            "r3": 0.0,
+            "r2": 7.643623827987508e-5,
+            "r1": -8.08419253055364e-6,
+            "t3": -6.293019587148203e-5,
+            "t2": 5.692291917827708e-5,
+            "t1": 1.0256725608274623e-5,
+            "grid_id": 7
+        },
+        {
+            "r3": 0.0,
+            "r2": 7.643623827983184e-5,
+            "r1": 8.084192530745958e-6,
+            "t3": -6.293019587138374e-5,
+            "t2": 5.692291917823637e-5,
+            "t1": -1.0256725608283026e-5,
+            "grid_id": 8
+        },
+        {
+            "r3": 0.0,
+            "r2": 0.0001332138497219733,
+            "r1": -1.1158462592920115e-5,
+            "t3": -0.00013879660578191533,
+            "t2": 0.00011264110549251282,
+            "t1": 7.47020530285774e-6,
+            "grid_id": 9
+        },
+        {
+            "r3": 0.0,
+            "r2": 0.0001332138497219283,
+            "r1": 1.115846259318551e-5,
+            "t3": -0.00013879660578178815,
+            "t2": 0.00011264110549243935,
+            "t1": -7.470205302869295e-6,
+            "grid_id": 10
+        },
+        {
+            "r3": 0.0,
+            "r2": 0.0002062680198605348,
+            "r1": -1.4852400355902359e-5,
+            "t3": -0.0002506096039909376,
+            "t2": 0.000196514751316486,
+            "t1": 6.094529616098957e-7,
+            "grid_id": 11
+        },
+        {
+            "r3": 0.0,
+            "r2": 0.00020626801986048328,
+            "r1": 1.48524003562414e-5,
+            "t3": -0.00025060960399078853,
+            "t2": 0.00019651475131637173,
+            "t1": -6.094529616246121e-7,
+            "grid_id": 12
+        },
+        {
+            "r3": 0.0002986549522167497,
+            "r2": 0.0,
+            "r1": 1.0786410294369338e-5,
+            "t3": -0.0003975581924545,
+            "t2": 0.000313828536912816,
+            "t1": -1.0409511352084848e-5,
+            "grid_id": 13
+        },
+        {
+            "r3": 0.00029865495221669376,
+            "r2": 0.0,
+            "r1": -1.0786410293950228e-5,
+            "t3": -0.00039755819245433817,
+            "t2": 0.00031382853691265387,
+            "t1": 1.0409511352066877e-5,
+            "grid_id": 14
+        },
+        {
+            "r3": 0.00032008047242823074,
+            "r2": 0.0,
+            "r1": 1.1931116039862875e-5,
+            "t3": -0.0005757131251686124,
+            "t2": 0.00046790942361620746,
+            "t1": -2.5341236069396775e-5,
+            "grid_id": 15
+        },
+        {
+            "r3": 0.00032008047242818206,
+            "r2": 0.0,
+            "r1": -1.1931116039371725e-5,
+            "t3": -0.0005757131251684482,
+            "t2": 0.00046790942361599387,
+            "t1": 2.5341236069375697e-5,
+            "grid_id": 16
+        },
+        {
+            "r3": 0.000332876939270938,
+            "r2": 0.0,
+            "r1": 1.2957036138350013e-5,
+            "t3": -0.0007790011787428151,
+            "t2": 0.0006593868737568605,
+            "t1": -4.3631077572991856e-5,
+            "grid_id": 17
+        },
+        {
+            "r3": 0.00033287693927089285,
+            "r2": 0.0,
+            "r1": -1.295703613778619e-5,
+            "t3": -0.0007790011787426611,
+            "t2": 0.0006593868737565924,
+            "t1": 4.363107757296763e-5,
+            "grid_id": 18
+        },
+        {
+            "r3": 0.0003367411924817206,
+            "r2": 0.0,
+            "r1": 1.3925724280693775e-5,
+            "t3": -0.001000319361328649,
+            "t2": 0.0008858190078990299,
+            "t1": -6.448441064117353e-5,
+            "grid_id": 19
+        },
+        {
+            "r3": 0.00033674119248167014,
+            "r2": 0.0,
+            "r1": -1.3925724280050577e-5,
+            "t3": -0.0010003193613285137,
+            "t2": 0.0008858190078987038,
+            "t1": 6.448441064114598e-5,
+            "grid_id": 20
+        },
+        {
+            "r3": 0.00033130503979423524,
+            "r2": 0.0,
+            "r1": 1.4853736811818135e-5,
+            "t3": -0.0012326762245440563,
+            "t2": 0.0011417150139752853,
+            "t1": -8.686302518053322e-5,
+            "grid_id": 21
+        },
+        {
+            "r3": 0.00033130503979421876,
+            "r2": 0.0,
+            "r1": -1.4853736811117891e-5,
+            "t3": -0.001232676224543957,
+            "t2": 0.001141715013974913,
+            "t1": 8.68630251805031e-5,
+            "grid_id": 22
+        },
+        {
+            "r3": 0.00031603503966076544,
+            "r2": 0.0,
+            "r1": 1.602830114239094e-5,
+            "t3": -0.001470227007661857,
+            "t2": 0.0014189078881360455,
+            "t1": -0.00010958618385353779,
+            "grid_id": 23
+        },
+        {
+            "r3": 0.00031603503966073216,
+            "r2": 0.0,
+            "r1": -1.602830114164491e-5,
+            "t3": -0.001470227007661803,
+            "t2": 0.001418907888135639,
+            "t1": 0.00010958618385350576,
+            "grid_id": 24
+        },
+        {
+            "r3": 0.0002903549056944488,
+            "r2": 0.0,
+            "r1": 1.6741712778241636e-5,
+            "t3": -0.0017091123761780933,
+            "t2": 0.0017072959959754952,
+            "t1": -0.00013138258304160703,
+            "grid_id": 25
+        },
+        {
+            "r3": 0.0002903549056944584,
+            "r2": 0.0,
+            "r1": -1.6741712777473703e-5,
+            "t3": -0.0017091123761780935,
+            "t2": 0.0017072959959750723,
+            "t1": 0.0001313825830415739,
+            "grid_id": 26
+        }
+    ],
+    "forces": {
+        "quad4": [],
+        "cbar": [],
+        "celas1": [],
+        "tria3": [],
+        "crod": [],
+        "conrod": []
+    },
+    "backend": "reference_parity",
+    "formulation": {
+        "shell": "existing_calibrated_jfem",
+        "thickness_derivative": "existing_solver_routes",
+        "geometric_stiffness": "existing_parity_route",
+        "constitutive": "existing_model_builder_properties"
+    },
+    "strains": {
+        "quad4": [],
+        "cbar": [],
+        "celas1": [],
+        "chexa": [],
+        "tria3": [],
+        "crod": [],
+        "conrod": [],
+        "ctetra": [],
+        "cpenta": []
+    },
+    "forces_bilin": {
+        "quad4": [],
+        "tria3": []
+    },
+    "solver_diagnostics": [
+        {
+            "details": {
+                "bc_partition": {
+                    "explicit_spc_dofs": 12,
+                    "autospc_enabled": true,
+                    "autospc_gpst_rotational_dofs": 24,
+                    "autospc_load_path_protection": {
+                        "enabled": false
+                    },
+                    "mpc_dependent_dofs": 0,
+                    "post_factorization_singular_rotational_dofs": 0,
+                    "fixed_dofs": 36,
+                    "autospc_diagonal_rotational_dofs": 0,
+                    "unconstrained_dofs": 120,
+                    "autospc_gpst_dofs": 24,
+                    "post_factorization_singular_translational_dofs": 0,
+                    "autospc_diagonal_zero_dofs": 0,
+                    "inactive_unloaded_dofs": 0,
+                    "post_factorization_singular_dofs": 0,
+                    "permanent_grid_dofs": 0,
+                    "autospc_gpst_eps_zero": 1.0e-8,
+                    "autospc_diagonal_translational_dofs": 0,
+                    "autospc_load_path_skipped_dofs": 0,
+                    "enforced_displacement_dofs": 0,
+                    "autospc_reference_scope": "grid_point_principal_stiffness",
+                    "permanent_grid_constraints": 0,
+                    "autospc_negative_diagonal_dofs": 0,
+                    "autospc_load_path_protected_translational_dofs": 0,
+                    "autospc_gpst_translational_dofs": 0,
+                    "autospc_diagonal_dofs": 0,
+                    "autospc_diagonal_relative_dofs": 0,
+                    "free_dofs": 120,
+                    "autospc_gpst_entries": [
+                        {
+                            "stiffness_ratio": 3.28996668221178e-11,
+                            "failed_direction": 6,
+                            "grid_id": 3
+                        },
+                        {
+                            "stiffness_ratio": 3.289943531610441e-11,
+                            "failed_direction": 6,
+                            "grid_id": 4
+                        },
+                        {
+                            "stiffness_ratio": 6.48669908903571e-13,
+                            "failed_direction": 6,
+                            "grid_id": 5
+                        },
+                        {
+                            "stiffness_ratio": 6.483226552050145e-13,
+                            "failed_direction": 6,
+                            "grid_id": 6
+                        },
+                        {
+                            "stiffness_ratio": 7.704296376655403e-12,
+                            "failed_direction": 6,
+                            "grid_id": 7
+                        },
+                        {
+                            "stiffness_ratio": 7.704296376655403e-12,
+                            "failed_direction": 6,
+                            "grid_id": 8
+                        },
+                        {
+                            "stiffness_ratio": 1.5699224761530104e-11,
+                            "failed_direction": 6,
+                            "grid_id": 9
+                        },
+                        {
+                            "stiffness_ratio": 1.5699109012851612e-11,
+                            "failed_direction": 6,
+                            "grid_id": 10
+                        },
+                        {
+                            "stiffness_ratio": 3.760615923657729e-11,
+                            "failed_direction": 6,
+                            "grid_id": 11
+                        },
+                        {
+                            "stiffness_ratio": 3.760592774140505e-11,
+                            "failed_direction": 6,
+                            "grid_id": 12
+                        },
+                        {
+                            "stiffness_ratio": 1.620459441397316e-15,
+                            "failed_direction": 5,
+                            "grid_id": 13
+                        },
+                        {
+                            "stiffness_ratio": 1.620459441397316e-15,
+                            "failed_direction": 5,
+                            "grid_id": 14
+                        },
+                        {
+                            "stiffness_ratio": 3.760558049864667e-11,
+                            "failed_direction": 5,
+                            "grid_id": 15
+                        },
+                        {
+                            "stiffness_ratio": 3.7605696246232795e-11,
+                            "failed_direction": 5,
+                            "grid_id": 16
+                        },
+                        {
+                            "stiffness_ratio": 1.569864601813763e-11,
+                            "failed_direction": 5,
+                            "grid_id": 17
+                        },
+                        {
+                            "stiffness_ratio": 1.5698414520780642e-11,
+                            "failed_direction": 5,
+                            "grid_id": 18
+                        },
+                        {
+                            "stiffness_ratio": 7.703486129139827e-12,
+                            "failed_direction": 5,
+                            "grid_id": 19
+                        },
+                        {
+                            "stiffness_ratio": 7.703486129139827e-12,
+                            "failed_direction": 5,
+                            "grid_id": 20
+                        },
+                        {
+                            "stiffness_ratio": 6.471651428764928e-13,
+                            "failed_direction": 5,
+                            "grid_id": 21
+                        },
+                        {
+                            "stiffness_ratio": 6.471651428764928e-13,
+                            "failed_direction": 5,
+                            "grid_id": 22
+                        },
+                        {
+                            "stiffness_ratio": 3.289723600897718e-11,
+                            "failed_direction": 5,
+                            "grid_id": 23
+                        },
+                        {
+                            "stiffness_ratio": 3.289735176198388e-11,
+                            "failed_direction": 5,
+                            "grid_id": 24
+                        },
+                        {
+                            "stiffness_ratio": 0.0,
+                            "failed_direction": 5,
+                            "grid_id": 25
+                        },
+                        {
+                            "stiffness_ratio": 1.1569789439078217e-16,
+                            "failed_direction": 5,
+                            "grid_id": 26
+                        }
+                    ]
+                },
+                "linear_solver": {
+                    "lsmr_btol": 0.0,
+                    "cache_hit": false,
+                    "regularization_shift_exponent": null,
+                    "auto_lsmr_accepted": false,
+                    "used_lu_fallback": false,
+                    "used_lsmr_fallback": false,
+                    "auto_lsmr_scaled": false,
+                    "regularization_shift_min": 0.0,
+                    "backend": "direct_cholesky",
+                    "regularization_shift_source": "",
+                    "regularization_mode": "diagonal",
+                    "force_max": 0.5,
+                    "auto_lsmr_residual_norm": 0.0,
+                    "auto_lsmr_relative_residual": 0.0,
+                    "auto_lsmr_error": "",
+                    "relative_residual": 2.354880199982603e-11,
+                    "lsmr_scaled": false,
+                    "singular_solver_mode": "regularized_lu",
+                    "lsmr_damping": 0.0,
+                    "factorization_autospc": {
+                        "pivot_median_relative": 0.0,
+                        "skipped_translational_dofs": 0,
+                        "max_fraction": 0.0,
+                        "pivot_shift_multiplier": 0.0,
+                        "triggered": false,
+                        "mechanism_translational_dofs": 0,
+                        "shift_exponent": null,
+                        "mechanism_dofs": 0,
+                        "skipped_as_too_aggressive": false,
+                        "mechanism_rotational_dofs": 0,
+                        "pivot_threshold": 0.0
+                    },
+                    "force_nonzero_dofs": 2,
+                    "regularization_shift_max": 0.0,
+                    "used_enforced_displacement_correction": false,
+                    "residual_norm": 1.6651517582896318e-11,
+                    "regularization_shift": 0.0,
+                    "lsmr_maxiter": 0,
+                    "auto_lsmr_threshold": 0.0,
+                    "lsmr_atol": 0.0,
+                    "strategy": "direct",
+                    "force_norm": 0.7071067811865476,
+                    "lsmr_diag_scale_max": 0.0,
+                    "used_singular_lu_regularization": false,
+                    "lsmr_conlim": 0.0,
+                    "lsmr_diag_scale_min": 0.0,
+                    "lsmr_diag_floor": 0.0,
+                    "used_factorization_autospc": false
+                },
+                "reaction_recovery": {
+                    "excluded_residual_norm": 1.6651517582896318e-11,
+                    "raw_residual_frame": "GRID_CD_ANALYSIS",
+                    "spc_forces_frame": "BASIC",
+                    "raw_residual_layout": "id_map order; six components per GRID",
+                    "support_dofs": 36,
+                    "raw_residual_norm": 15.437435521474242,
+                    "spc_forces_components": "SPC_AND_AUTOSPC_ONLY"
+                },
+                "equilibrium": {
+                    "residual": 1.000000000016386,
+                    "spc_reaction_sum": {
+                        "fx": 1.2239098623467726e-12,
+                        "fy": -1.000000000016386,
+                        "fz": 1.2800936728017168e-12
+                    },
+                    "relative_residual": 0.0
+                }
+            },
+            "sid": 1
+        }
+    ],
+    "stresses": {
+        "quad4": [],
+        "cbar": [],
+        "celas1": [],
+        "chexa": [],
+        "tria3": [],
+        "crod": [],
+        "conrod": [],
+        "ctetra": [],
+        "cpenta": []
+    },
+    "backend_version": "0.1.0",
+    "spc_forces": []
+}

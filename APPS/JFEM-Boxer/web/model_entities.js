@@ -54,7 +54,8 @@
       for(let i=0;i<collection.elements.length;i++){
         const el=collection.elements[i],group={name:collection.name,kind:kind(el.type),card_types:{[el.eid]:el.type},color:hex,properties:el.properties};
         state.elements.set(el.eid,{id:el.eid,group,nodes:Int32Array.from(el.nodes)});
-        for(let n=1;n<el.nodes.length;n++){pairs.push(el.nodes[0],el.nodes[n]);faces.push(i);}
+        const edges=el.edges||el.nodes.slice(1).map((_,n)=>[0,n+1]);
+        for(const [a,b]of edges){pairs.push(el.nodes[a],el.nodes[b]);faces.push(i);}
       }
       const mesh=lineMesh(collection.name,positions,Int32Array.from(pairs),hex,1,true),meshes=mesh?[mesh]:[];
       if(mesh){mesh.isPickable=true;mesh.intersectionThreshold=.002*diag;mesh.elementIds=ids;mesh.metadata={feGroup:{name:collection.name,kind:kind(collection.card)},faceElements:faces,facesPerElement:1};

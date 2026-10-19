@@ -1,0 +1,21 @@
+{
+  "schema": "jfem.validation.provenance.v1",
+  "case_id": "MYSTRAN_sol105_buckling",
+  "input": "cases/MYSTRAN_sol105_buckling/model.bdf",
+  "input_sha256": "d35631af5b7d223d4c5a5a3d8d9f41472be17fbaae4572464ff6adf4310a51e1",
+  "status": "solved",
+  "input_unchanged": true,
+  "run_started_utc": "2026-10-19T09:28:18.139",
+  "run_finished_utc": "2026-10-19T09:28:43.295",
+  "julia_version": "1.13.1",
+  "wall_seconds_including_compilation": 25.1449653,
+  "source_receipt_sha256": "2346ccbcdd4e34d4fdf5098d7174ea05c39e3377b6ea802f6e4952cc62c22a6d",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "published_files": {
+    "results.json": "5f66ab1423779335d78984f37b3b0c9c13f7da101120a90cd45cb8018d8c95fd",
+    "sol105_buckling.BUCKLING.JSON": "6dd5c4a1540b29c15661158d5a59133f291c1f6c2bdf8316f943edc114ff4e06",
+    "sol105_buckling.jfem": "db56a01e8be8913522df00229bfb0aacdabcdd544b4da9503a9c90e86637dfaa",
+    "sol105_buckling.TIMINGS.JSON": "9be0fec51645bb0e5ce4f199c6fdc08c5dd90bb11da0666da94d01e6c32b1219",
+    "visual_data.json": "7288bbc599332f34b594b255187c3026a13eadd01d76946466729d9f56d2fdbd"
+  }
+}

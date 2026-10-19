@@ -1,0 +1,4 @@
+name,unit,value,reference,error_percent,tolerance_percent,status
+radial disp at load,benchmark length unit,0.09874838628576382,0.093,6.181060522326698,10.0,PASS
+N08 refined response,benchmark length unit,0.09528969843758595,0.093,2.4620413307375744,10.0,PASS
+N16 refined response,benchmark length unit,0.093871924067431,0.093,0.9375527606785061,10.0,PASS

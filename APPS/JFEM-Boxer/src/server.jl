@@ -842,6 +842,10 @@ Wire the endpoints and the static file handler.
 """
 function make_router(st::AppState)
     router = HTTP.Router()
+    # One binary decoder shared by Boxer and the stand-alone result viewers.
+    HTTP.register!(router, "GET", "/shared/jfem_binary.js", req ->
+        HTTP.Response(200, ["Content-Type"=>"application/javascript; charset=utf-8"],
+            read(joinpath(dirname(st.root),"jfem_binary.js"))))
     HTTP.register!(router, "POST", "/api/import_reference", req -> handle_import_reference(st,req))
     HTTP.register!(router, "GET", "/api/import_reference/browse", req -> handle_import_reference_browse(st,req))
     HTTP.register!(router, "POST", "/api/import_reference/pick", req -> handle_import_reference_pick(st,req))

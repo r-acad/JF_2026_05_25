@@ -16,11 +16,16 @@
 #                                                           # no JFEM call
 #     julia --project=.. run_public_suite.jl --skip-jfem    # alias of --dry-run
 #     julia --project=.. run_public_suite.jl --dry-run --no-write
+#     julia --project=.. run_public_suite.jl --output-dir path/to/results
+#
+# Nested convergence cases run by default. Stored historical scalars are
+# labelled regression checks, separately from published/analytical validation.
 
 using YAML
 using Printf
 using Dates
 using JSON
+using SHA
 
 const SUITE_ROOT     = @__DIR__
 const MANIFEST_PATH  = joinpath(SUITE_ROOT, "public_suite.yaml")
@@ -28,6 +33,26 @@ const ANALYTICAL_DIR = joinpath(SUITE_ROOT, "analytical")
 const REFERENCES_DIR = joinpath(SUITE_ROOT, "references")
 const OUTPUT_CSV     = joinpath(SUITE_ROOT, "comparison.csv")
 const OUTPUT_MD      = joinpath(SUITE_ROOT, "comparison.md")
+
+# Keep retained outputs readable on Windows after an exporter creates a path
+# beyond the traditional 260-character limit. This also covers UNC shares.
+function public_suite_fs_path(path)
+    full=abspath(path)
+    Sys.iswindows() || return full
+    startswith(full,"\\\\?\\") && return full
+    return startswith(full,"\\\\") ? "\\\\?\\UNC\\"*full[3:end] : "\\\\?\\"*full
+end
+
+function expand_public_cases(cases)
+    expanded=Any[]
+    for case in cases
+        push!(expanded,case)
+        append!(expanded,expand_public_cases(get(case,"convergence",Any[])))
+    end
+    ids=[case["id"] for case in expanded]
+    length(unique(ids))==length(ids) || error("Duplicate public case ID in manifest")
+    return expanded
+end
 
 # ---------- argument parsing -------------------------------------------------
 
@@ -37,10 +62,11 @@ mutable struct Opts
     skip_jfem::Bool   # if true, references are resolved and a placeholder row
                      # is emitted, but JFEM is not invoked
     write_outputs::Bool
+    output_dir::Union{Nothing,String}
 end
 
 function parse_args(args)
-    opts = Opts(false, nothing, false, true)
+    opts = Opts(false, nothing, false, true, nothing)
     i = 1
     while i <= length(args)
         a = args[i]
@@ -54,6 +80,10 @@ function parse_args(args)
             opts.family = args[i]
         elseif a == "--no-write"
             opts.write_outputs = false
+        elseif a == "--output-dir"
+            i += 1
+            i > length(args) && error("--output-dir requires a folder")
+            opts.output_dir = public_suite_fs_path(args[i])
         else
             error("unknown argument: $a")
         end
@@ -86,7 +116,8 @@ function resolve_reference(ref::Dict, case_id::AbstractString, opts::Opts)
         # binding lookup and calling cross the world-age boundary on Julia 1.12.
         fn = Base.invokelatest(getfield, mod, Symbol(fn_name))
         val = Base.invokelatest(fn)
-        return (value=Float64(val), source="analytical:$(mod_name).$(fn_name)")
+        classification = String(get(ref,"classification","analytical"))
+        return (value=Float64(val), source="$classification:$(mod_name).$(fn_name)")
     elseif kind == "csv"
         path = joinpath(REFERENCES_DIR, ref["path"])
         col  = ref["column"]
@@ -98,8 +129,9 @@ function resolve_reference(ref::Dict, case_id::AbstractString, opts::Opts)
         for r in rows[2:end]
             cols = split(r, ',')
             cols[1] == row_match || continue
+            classification = String(get(ref,"classification","tabulated"))
             return (value=parse(Float64, cols[ix]),
-                    source="csv:$(ref["path"])#$row_match.$col")
+                    source="$classification:csv:$(ref["path"])#$row_match.$col")
         end
         error("case $case_id: row '$row_match' not found in $(ref["path"])")
     else
@@ -127,23 +159,53 @@ function run_jfem(case::Dict, opts::Opts)
         return Dict("status" => "skipped",
                     "note"   => "JFEM run skipped (--skip-jfem)")
     end
-    deck = joinpath(SUITE_ROOT, case["bdf"])
+    deck = public_suite_fs_path(joinpath(SUITE_ROOT, case["bdf"]))
     isfile(deck) || return Dict("status" => "error",
                                 "note" => "deck not found: $deck")
-    out = mktempdir(; prefix = "jfem_suite_")
+    out = public_suite_fs_path(opts.output_dir === nothing ? mktempdir(; prefix = "jfem_suite_") :
+          joinpath(opts.output_dir, case["id"]))
+    mkpath(out)
+    receipt = Dict{String,Any}("case_id" => case["id"], "input_sha256" => bytes2hex(sha256(read(deck))),
+        "input" => case["bdf"], "started_utc" => string(Dates.now(Dates.UTC)), "julia_version" => string(VERSION))
+    started = time_ns()
     try
         jfem = openjfem_module()
-        redirect_stdout(devnull) do
-            redirect_stderr(devnull) do
-                Base.invokelatest(jfem.main, deck; output_dir = out,
-                                  export_jfem_binary = false,
+        result = open(joinpath(out, "solver.log"), "w") do log
+            redirect_stdout(log) do
+                redirect_stderr(log) do
+                    Base.invokelatest(Base.invokelatest(getfield,jfem,:main), deck; output_dir = out,
+                                  export_jfem_binary = true,
                                   export_json = true,
                                   export_report = false)
+                end
             end
         end
+        mesh = Base.invokelatest(Base.invokelatest(getfield,jfem,:_build_mesh_output), result["model"], result["id_map"], result["node_coords"])
+        figure_data = Dict{String,Any}("case_id" => case["id"], "sol" => case["sol"], "mesh" => mesh,
+            "coordinate_frame" => "BASIC_GLOBAL", "case_control" => result["model"]["CASE_CONTROL"])
+        for key in ("FORCEs", "MOMENTs", "PLOADs", "PLOAD2s", "PLOAD4s", "SPCs", "SPC1s", "PSHELLs", "PBARLs", "MATs", "PARAM_K6ROT")
+            haskey(result["model"],key) && (figure_data[key] = result["model"][key])
+        end
+        open(joinpath(out, "figure_data.json"), "w") do io
+            JSON.print(io, figure_data)
+        end
+        receipt["status"] = "solved"
     catch e
+        receipt["status"] = "failed"
+        receipt["error"] = sprint(showerror, e, catch_backtrace())
+        receipt["wall_seconds_including_compilation"] = (time_ns()-started)/1e9
+        open(joinpath(out, "receipt.json"), "w") do io
+            JSON.print(io,receipt,2)
+        end
         return Dict("status" => "error",
                     "note" => "JFEM run failed: $(sprint(showerror, e))")
+    end
+    receipt["wall_seconds_including_compilation"] = (time_ns()-started)/1e9
+    receipt["finished_utc"] = string(Dates.now(Dates.UTC))
+    receipt["input_unchanged"] = receipt["input_sha256"] == bytes2hex(sha256(read(deck)))
+    receipt["outputs"] = Dict(basename(f) => bytes2hex(sha256(read(f))) for f in readdir(out;join=true) if isfile(f) && basename(f)!="receipt.json")
+    open(joinpath(out, "receipt.json"), "w") do io
+        JSON.print(io,receipt,2)
     end
     # Load whichever per-SOL results JSON was produced.
     jsons = filter(f -> endswith(f, ".JU.JSON") || endswith(f, ".BUCKLING.JSON") ||
@@ -183,7 +245,7 @@ function extract_quantity(data::AbstractDict, q::AbstractDict)
         #    which the buckling export emits under `static_displacements`. It
         #    is a well-posed same-deck quantity on a case whose buckling
         #    eigenvalue the reference solver cannot extract reliably; see
-        #    README.md, "Tabulated commercial-solver values".
+        #    README.md, reference classification.
         key = kind == "displacement" ? "displacements" : "static_displacements"
         disps = get(data, key, nothing)
         disps === nothing && return (nothing, "no $key in JFEM output")
@@ -285,14 +347,18 @@ function build_row(case::Dict, q::Dict, jfem_state::Dict, opts::Opts)
     # multipliers; a solver sign convention should not mask magnitude parity).
     # Some classical displacement references are explicitly reported as
     # magnitudes; those cases opt in with compare_abs.
-    use_abs_compare = get(q, "kind", "") == "eigenvalue" || Bool(get(q, "compare_abs", false))
+    # Signed eigenvalues must remain signed. Only quantities explicitly defined
+    # as displacement magnitudes opt into absolute-value comparison.
+    use_abs_compare = Bool(get(q, "compare_abs", false))
     cmp_jfem = (jfem_val !== nothing && use_abs_compare) ? abs(jfem_val) : jfem_val
     cmp_ref  = (ref_val !== nothing && use_abs_compare) ? abs(ref_val) : ref_val
     abs_err = (cmp_jfem !== nothing && cmp_ref !== nothing) ? abs(cmp_jfem - cmp_ref) : nothing
     rel_err = (abs_err !== nothing && cmp_ref !== nothing && abs(cmp_ref) > 1e-30) ?
               abs_err / abs(cmp_ref) : nothing
     if jfem_val !== nothing && tol !== nothing && rel_err !== nothing
-        verdict = rel_err <= tol ? "PASS" : "FAIL"
+        historical = startswith(ref_src,"historical_regression:")
+        verdict = historical ? (rel_err <= tol ? "REGRESSION_PASS" : "REGRESSION_FAIL") :
+                               (rel_err <= tol ? "PASS" : "FAIL")
     end
 
     # ---- parity: independent second reference, scored independently --------
@@ -321,7 +387,9 @@ function build_row(case::Dict, q::Dict, jfem_state::Dict, opts::Opts)
         if cmp_jfem !== nothing && cmp_par !== nothing && abs(cmp_par) > 1e-30
             parity_rel = abs(cmp_jfem - cmp_par) / abs(cmp_par)
             if parity_tol !== nothing
-                parity_verd = parity_rel <= parity_tol ? "PARITY_PASS" : "PARITY_FAIL"
+                historical = startswith(parity_src,"historical_regression:")
+                parity_verd = historical ? (parity_rel <= parity_tol ? "HISTORICAL_PASS" : "HISTORICAL_FAIL") :
+                                          (parity_rel <= parity_tol ? "PARITY_PASS" : "PARITY_FAIL")
             end
         elseif isempty(parity_verd)
             parity_verd = jfem_val === nothing ? "PARITY_NO_JFEM" : "PARITY_PENDING"
@@ -336,7 +404,7 @@ function build_row(case::Dict, q::Dict, jfem_state::Dict, opts::Opts)
                      note)
 end
 
-function emit_csv(rows::Vector{ResultRow})
+function emit_csv(rows::Vector{ResultRow}, path=OUTPUT_CSV)
     csvcell(x) = begin
         s = string(x)
         if occursin(",", s) || occursin("\"", s) || occursin("\n", s) || occursin("\r", s)
@@ -344,7 +412,7 @@ function emit_csv(rows::Vector{ResultRow})
         end
         return s
     end
-    open(OUTPUT_CSV, "w") do io
+    open(path, "w") do io
         println(io, "case_id,family,sol,quantity,jfem,reference,ref_source,abs_err,rel_err,tol_rel,verdict," *
                     "parity_ref,parity_source,parity_rel_err,parity_tol_rel,parity_verdict,note")
         for r in rows
@@ -361,10 +429,10 @@ function emit_csv(rows::Vector{ResultRow})
     end
 end
 
-function emit_md(rows::Vector{ResultRow})
+function emit_md(rows::Vector{ResultRow}, path=OUTPUT_MD)
     families = unique(r.family for r in rows)
-    open(OUTPUT_MD, "w") do io
-        println(io, "# OpenJFEM Public Validation Suite -- Comparison Report")
+    open(path, "w") do io
+        println(io, "# JFEM Public Validation and Regression Report")
         println(io)
         println(io, "Generated: ", Dates.now())
         println(io)
@@ -376,15 +444,19 @@ function emit_md(rows::Vector{ResultRow})
         nppass = count(r -> r.parity_verdict == "PARITY_PASS", rows)
         npfail = count(r -> r.parity_verdict == "PARITY_FAIL", rows)
         nprow  = count(r -> r.parity_ref !== nothing, rows)
+        nhistory = count(r -> r.verdict == "REGRESSION_PASS", rows)
+        nhistoryfail = count(r -> r.verdict == "REGRESSION_FAIL", rows)
+        nsecondary = count(r -> r.parity_verdict == "HISTORICAL_PASS", rows)
         println(io, "Summary: $n quantity rows ($npass PASS, $nfail FAIL, $nskip JFEM_SKIPPED, $nerr ERROR_REF)")
+        println(io, "Historical primary targets: $nhistory REGRESSION_PASS, $nhistoryfail REGRESSION_FAIL.")
         println(io)
-        println(io, "Parity: $nprow of $n rows carry a reference-solver parity target ($nppass PARITY_PASS, $npfail PARITY_FAIL)")
+        println(io, "Secondary targets: $nprow rows ($nppass PARITY_PASS, $npfail PARITY_FAIL, $nsecondary HISTORICAL_PASS).")
         println(io)
-        println(io, "Accuracy (`reference`, `rel_err`, `verdict`) asks whether OpenJFEM is close to the")
-        println(io, "published or closed-form value for the problem. Parity (`parity_*`) asks whether it")
-        println(io, "reproduces what an established solver produces on the SAME deck and mesh, where the")
-        println(io, "discretisation error is common to both sides and cancels. They are independent: a")
-        println(io, "parity result never changes the accuracy verdict, and vice versa.")
+        println(io, "Published and closed-form targets measure validation error including mesh discretization.")
+        println(io, "REGRESSION and HISTORICAL labels identify stored values whose independent public source")
+        println(io, "artifact is not included. These preserve reproducibility across releases and do not")
+        println(io, "establish independent published or experimental validation. Secondary results do not change")
+        println(io, "the primary verdict. Every nested convergence case is included in a full run.")
         println(io)
         for fam in families
             println(io, "## Family: $fam")
@@ -412,7 +484,7 @@ end
 function main(args)
     opts = parse_args(args)
     isfile(MANIFEST_PATH) || error("manifest not found: $MANIFEST_PATH")
-    cases = YAML.load_file(MANIFEST_PATH)
+    cases = expand_public_cases(YAML.load_file(MANIFEST_PATH))
 
     rows = ResultRow[]
     for case in cases
@@ -443,11 +515,14 @@ function main(args)
     end
 
     if opts.write_outputs
-        emit_csv(rows)
-        emit_md(rows)
+        output_csv = opts.output_dir === nothing ? OUTPUT_CSV : joinpath(opts.output_dir,"comparison.csv")
+        output_md = opts.output_dir === nothing ? OUTPUT_MD : joinpath(opts.output_dir,"comparison.md")
+        mkpath(dirname(output_csv))
+        emit_csv(rows,output_csv)
+        emit_md(rows,output_md)
         println("\nWrote $(length(rows)) rows to:")
-        println("  $OUTPUT_CSV")
-        println("  $OUTPUT_MD")
+        println("  $output_csv")
+        println("  $output_md")
     else
         n = length(rows)
         npass = count(r -> r.verdict == "PASS", rows)
@@ -458,7 +533,10 @@ function main(args)
         npfail = count(r -> r.parity_verdict == "PARITY_FAIL", rows)
         nprow  = count(r -> r.parity_ref !== nothing, rows)
         println("\nChecked $n rows without writing outputs ($npass PASS, $nfail FAIL, $nskip JFEM_SKIPPED, $nerr ERROR)")
-        println("Parity targets resolved on $nprow/$n rows ($nppass PARITY_PASS, $npfail PARITY_FAIL)")
+        println("Secondary targets resolved on $nprow/$n rows ($nppass PARITY_PASS, $npfail PARITY_FAIL; historical targets are labelled separately)")
+    end
+    if abspath(PROGRAM_FILE)==abspath(@__FILE__) && any(r -> startswith(r.verdict,"ERROR"),rows)
+        exit(1)
     end
     return rows
 end

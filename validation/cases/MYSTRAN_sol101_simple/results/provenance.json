@@ -1,0 +1,21 @@
+{
+  "schema": "jfem.validation.provenance.v1",
+  "case_id": "MYSTRAN_sol101_simple",
+  "input": "cases/MYSTRAN_sol101_simple/model.bdf",
+  "input_sha256": "eead3db4d537c961e70d01b198da3bbcd5a4579d3cf57c7b9136e006ca13441b",
+  "status": "solved",
+  "input_unchanged": true,
+  "run_started_utc": "2026-10-19T09:28:16.761",
+  "run_finished_utc": "2026-10-19T09:28:18.112",
+  "julia_version": "1.13.1",
+  "wall_seconds_including_compilation": 1.3507143,
+  "source_receipt_sha256": "48f99041ea664ed74c7f03093a5e7bfbe8f173d1ddf4660e0a9ef922db3e84d8",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "published_files": {
+    "results.json": "34c21774b98c3267dce3900e77a89c9d5d5ccd9dd5b62f830dd05b66d7eb54f5",
+    "sol101_simple.jfem": "2b14df41b126001a73dbaf849ea731074ae66530184d66b6b1074f4fc66ecf0f",
+    "sol101_simple.JU.JSON": "0fead421fad2e254892d45cb0649a0f41ee4bfd3f4ea59abd0ecd77b32a51491",
+    "sol101_simple.TIMINGS.JSON": "5b62637be2a9c3783447ed8a25e63e0799a4be688911de3658a6949a74904286",
+    "visual_data.json": "a7fe7a98416f0ea277d2b3ed3ffd1b4bf8ad4d68632b7963695836b336667f99"
+  }
+}

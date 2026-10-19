@@ -1,0 +1,30 @@
+{
+  "schema": "jfem.validation.recorded_results.v1",
+  "case_id": "MH_scordelis_lo",
+  "input_sha256": "0d21fd899773345f52f70ac192c4748530df75a82668dd0e9c828d9beed89f5b",
+  "metrics": [
+    {
+      "name": "midedge vertical disp",
+      "value": -0.32000281174729334,
+      "reference": -0.3024,
+      "error_percent": 5.821035630718696,
+      "unit": "benchmark length unit",
+      "tolerance_percent": 10.0,
+      "status": "PASS",
+      "reference_classification": "published",
+      "source_input": "model.bdf"
+    }
+  ],
+  "states": [
+    {
+      "name": "Static subcase 1",
+      "kind": "static",
+      "normalization": "physical displacement in model length units",
+      "subcase": 1
+    }
+  ],
+  "field_data": "visual_data.json",
+  "binary_results": [
+    "scordelis_lo.jfem"
+  ]
+}

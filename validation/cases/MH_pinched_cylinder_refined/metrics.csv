@@ -1,0 +1,2 @@
+name,unit,value,reference,error_percent,tolerance_percent,status
+radial disp under load (magnitude),benchmark length unit,1.8286481511132555e-05,1.8248e-05,0.21088070546118054,2.0,PASS

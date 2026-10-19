@@ -1,0 +1,154 @@
+{
+  "schema": "jfem.validation.published_case.v1",
+  "case_id": "ACA03",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "built_utc": "2026-10-19T10:21:14.431133+00:00",
+  "evidence_class": "Independent analytical equation verification",
+  "artifact_provenance": "Author-generated decks; actual JFEM numerical fields; independently computed analytical reference equations. No third-party deck or figure redistribution.",
+  "files": {
+    "case.json": {
+      "sha256": "64f3d1b3eb345b14e22e05ee449d70863791db96c4788ac8b4dca998501c4ef3",
+      "bytes": 10759
+    },
+    "case_card.pdf": {
+      "sha256": "e3628fd0923a0956eaac9854217bb397423bdda19c8c09be69bb4aed7995471b",
+      "bytes": 1027281
+    },
+    "case_card_receipt.json": {
+      "sha256": "701f2608b6caf074237f6ae8ea14e1cc7d7931bb612de820097230fcc24f923d",
+      "bytes": 1284
+    },
+    "case_definition.json": {
+      "sha256": "1565a557c724fe1fad8b502f913a60c8b374198d4244f8a059572b2009b6ee3d",
+      "bytes": 9163
+    },
+    "cross_ply_sol105_n04.bdf": {
+      "sha256": "2bd3f5d8563dc1957790ebeb8b2772e9a94b13f42a7c9c99fa5b1e0583f277c7",
+      "bytes": 2070
+    },
+    "cross_ply_sol105_n08.bdf": {
+      "sha256": "dbc9cd76a8c686737f07fd339959a9239ee6b1d3521e53f9c38c4d031d72b1df",
+      "bytes": 5643
+    },
+    "cross_ply_sol105_n16.bdf": {
+      "sha256": "e31f605ad896b9e4821f6381f9849587da980953ab5ab7b01f5db2aeb79ede34",
+      "bytes": 20295
+    },
+    "cross_ply_sol105_n32.bdf": {
+      "sha256": "c32f6e11ffe3176b051e63837999bab0281c85434a3480433370b508f4c9de17",
+      "bytes": 78809
+    },
+    "cross_ply_sol105_n64.bdf": {
+      "sha256": "468ffc96c5203dfd602d52afe32083f73fe6ff8d87c3ff8bca28a837f4f65950",
+      "bytes": 332859
+    },
+    "figures/deformation.png": {
+      "sha256": "03887acbfc7c1d2848c46fa88ddc096f476892ef60e1af350af6b824478b5a5e",
+      "bytes": 324836
+    },
+    "figures/deformation.svg": {
+      "sha256": "61bc8b2c3c7ef376f8300b8deb91359eeb797d29e49712bb949b627492b8b3db",
+      "bytes": 1933669
+    },
+    "figures/modes.png": {
+      "sha256": "f6e7052e43b8ac4ad7a25ab7ecb44c67f6d6b93d7cd786f98cad50dc5e13a467",
+      "bytes": 463569
+    },
+    "figures/modes.svg": {
+      "sha256": "80d12228df536b5bbf5f64bf7afa0e130cef706195a30ec4a3c3856d1324f5b0",
+      "bytes": 7620536
+    },
+    "figures/response.png": {
+      "sha256": "486e13c6b6caa16b6aeaa15d2564d43c15c7ac63f5446d873778c04e00e0517a",
+      "bytes": 184686
+    },
+    "figures/response.svg": {
+      "sha256": "f49ae4f8af5096a7c5d13d7461d0d33ab96bd323abe52f176084ec58b0fecb3c",
+      "bytes": 29777
+    },
+    "metrics.csv": {
+      "sha256": "f1189802be805c02952ffd0a4de150a23e3de2670a762ee71b8073a411716280",
+      "bytes": 689
+    },
+    "model.bdf": {
+      "sha256": "468ffc96c5203dfd602d52afe32083f73fe6ff8d87c3ff8bca28a837f4f65950",
+      "bytes": 332859
+    },
+    "reproduce.jl": {
+      "sha256": "5031e8afd11ec4c247848383747651c2948602891f8aac6a00c5047743a6e7fa",
+      "bytes": 337
+    },
+    "results/buckling.jfem": {
+      "sha256": "85bc0cf9e61331b0305e1cad7194414ab626a36ae4f67bec457c2b2f2a874847",
+      "bytes": 1629580
+    },
+    "results/comparison.csv": {
+      "sha256": "b684be02c2ccb7e6153a00c042951f379ce5e6183a07e2fd791bc7feeffc8fe8",
+      "bytes": 4197
+    },
+    "results/metrics.csv": {
+      "sha256": "b684be02c2ccb7e6153a00c042951f379ce5e6183a07e2fd791bc7feeffc8fe8",
+      "bytes": 4197
+    },
+    "results/mode_shape_verification.json": {
+      "sha256": "8405a2e523894478198449f0f5de1fb85420d21525c3abac550a83beae7d9ed1",
+      "bytes": 1445
+    },
+    "results/results.json": {
+      "sha256": "cd8c7ddb3bd41d254446ac279968d337f69980fd4dc65d35a22d6f7be8882ce1",
+      "bytes": 13047
+    },
+    "results/run_receipts.json": {
+      "sha256": "2428cfa3e9638d0fcb735a62dd29ff62ac88f7c1e35c4e932de9d5310602fcab",
+      "bytes": 69959
+    },
+    "results/runs/cross_ply_sol105_n04/cross_ply_sol105_n04.jfem": {
+      "sha256": "202a9b75379aff4160baad0b837f8c7ce0f84886816f90c77fa7672a21e5c17d",
+      "bytes": 8140
+    },
+    "results/runs/cross_ply_sol105_n04/receipt.json": {
+      "sha256": "ee6dc0007715fdc8756ab6e9113251679d02effbbcd8bce53b2c01a241592473",
+      "bytes": 12561
+    },
+    "results/runs/cross_ply_sol105_n08/cross_ply_sol105_n08.jfem": {
+      "sha256": "d74ecfbf34421c8fdde2f432f3fb529fbc8ea6380397410a9a7c560a354db797",
+      "bytes": 28428
+    },
+    "results/runs/cross_ply_sol105_n08/receipt.json": {
+      "sha256": "311700ef0b26644ee3be46851cb933c7aed699aba47123311459daf57b2f95a2",
+      "bytes": 12587
+    },
+    "results/runs/cross_ply_sol105_n16/cross_ply_sol105_n16.jfem": {
+      "sha256": "c441d2d44dbef6236d47f5c2b0d1a838d20118f5f57fdb1c1d97cc8065097ad3",
+      "bytes": 106636
+    },
+    "results/runs/cross_ply_sol105_n16/receipt.json": {
+      "sha256": "0cfdb6c85f1b8cc8ad164ddbb76b90e6eb45959e5a15c205305a398f47045add",
+      "bytes": 12538
+    },
+    "results/runs/cross_ply_sol105_n32/cross_ply_sol105_n32.jfem": {
+      "sha256": "5e6aa2ec06457629e34cb0b77f5a0637e6af461aad94c430f1ff71add487755e",
+      "bytes": 413580
+    },
+    "results/runs/cross_ply_sol105_n32/receipt.json": {
+      "sha256": "329ce807d3cf86ed3de9f7f546a8357b0d12f678ef5830d8889ce454ec7cad44",
+      "bytes": 14099
+    },
+    "results/runs/cross_ply_sol105_n64/cross_ply_sol105_n64.jfem": {
+      "sha256": "85bc0cf9e61331b0305e1cad7194414ab626a36ae4f67bec457c2b2f2a874847",
+      "bytes": 1629580
+    },
+    "results/runs/cross_ply_sol105_n64/receipt.json": {
+      "sha256": "9dc17fc49748e570d14d3401ac76a5f590b42caf9f786e810ef9644762d5f010",
+      "bytes": 14048
+    },
+    "results/solver_source_sha256.json": {
+      "sha256": "2cc88c460d5e7e531b2e6abcaf992bcb799c8f0af9f9fdfd5af0ec823c21b888",
+      "bytes": 5884
+    },
+    "results/visual_data.json": {
+      "sha256": "7dceb29c34c2a95fd2d7e77c1ce1184bee265462d2e292abe9e349d1a26f3808",
+      "bytes": 2369067
+    }
+  }
+}

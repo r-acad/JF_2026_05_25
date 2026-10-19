@@ -1,0 +1,113 @@
+{
+  "schema": "jfem.validation.recorded_results.v1",
+  "case_id": "CRM_wingbox_modal",
+  "input_sha256": "a35d9dbf81cf71fa43b89c998c7d50a072211008b55e31bb53e2ccfab663cb9e",
+  "metrics": [
+    {
+      "name": "eigenvalue mode1",
+      "value": 111.77639928078109,
+      "reference": 111.7764,
+      "error_percent": 6.434443200475926e-07,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 5.0,
+      "status": "REGRESSION",
+      "reference_classification": "historical_regression",
+      "source_input": "model.bdf"
+    },
+    {
+      "name": "eigenvalue mode2",
+      "value": 990.310020837362,
+      "reference": 990.3101,
+      "error_percent": 7.993722173083029e-06,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 5.0,
+      "status": "REGRESSION",
+      "reference_classification": "historical_regression",
+      "source_input": "model.bdf"
+    },
+    {
+      "name": "eigenvalue mode3",
+      "value": 1355.942551482386,
+      "reference": 1355.943,
+      "error_percent": 3.30779106438861e-05,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 5.0,
+      "status": "REGRESSION",
+      "reference_classification": "historical_regression",
+      "source_input": "model.bdf"
+    },
+    {
+      "name": "eigenvalue mode4",
+      "value": 5946.716523670495,
+      "reference": 5946.717,
+      "error_percent": 8.009957508381405e-06,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 5.0,
+      "status": "REGRESSION",
+      "reference_classification": "historical_regression",
+      "source_input": "model.bdf"
+    },
+    {
+      "name": "eigenvalue mode5",
+      "value": 10448.763874255452,
+      "reference": 10448.76,
+      "error_percent": 3.70786146008939e-05,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 5.0,
+      "status": "REGRESSION",
+      "reference_classification": "historical_regression",
+      "source_input": "model.bdf"
+    }
+  ],
+  "states": [
+    {
+      "name": "Mode 1",
+      "kind": "modal",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": null,
+      "mode": 1,
+      "eigenvalue": 111.77639928078109,
+      "frequency_hz": 1.6826554221235621
+    },
+    {
+      "name": "Mode 2",
+      "kind": "modal",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": null,
+      "mode": 2,
+      "eigenvalue": 990.310020837362,
+      "frequency_hz": 5.008477400470868
+    },
+    {
+      "name": "Mode 3",
+      "kind": "modal",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": null,
+      "mode": 3,
+      "eigenvalue": 1355.942551482386,
+      "frequency_hz": 5.860582399966894
+    },
+    {
+      "name": "Mode 4",
+      "kind": "modal",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": null,
+      "mode": 4,
+      "eigenvalue": 5946.716523670495,
+      "frequency_hz": 12.273226521210129
+    },
+    {
+      "name": "Mode 5",
+      "kind": "modal",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": null,
+      "mode": 5,
+      "eigenvalue": 10448.763874255452,
+      "frequency_hz": 16.268690200342355
+    }
+  ],
+  "field_data": "visual_data.json",
+  "binary_results": [
+    "wingbox_modal_with_props.jfem"
+  ]
+}

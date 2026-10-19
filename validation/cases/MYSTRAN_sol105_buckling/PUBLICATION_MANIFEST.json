@@ -1,0 +1,82 @@
+{
+  "schema": "jfem.validation.published_case.v1",
+  "case_id": "MYSTRAN_sol105_buckling",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "built_utc": "2026-10-19T10:21:14.431133+00:00",
+  "evidence_class": "Independent analytical verification",
+  "artifact_provenance": "Publicly curated input, native JFEM output and original figures; sources and limits in case.json and adjacent notices.",
+  "files": {
+    "case.json": {
+      "sha256": "8a3be3d3c22e1fedd080e2aadb331787c4a149d38b94c4eb314aeeaf1962fb87",
+      "bytes": 2170
+    },
+    "case_card.pdf": {
+      "sha256": "8608f5c417b947783f21dc9796fe947ca9f3311111b2a0e090ea4db2e4e0a0d6",
+      "bytes": 293739
+    },
+    "case_card_receipt.json": {
+      "sha256": "b91897660b2fe43245ef1cec1ff500dfdbfa09230a7fa3e9b5949a5a9953d0c0",
+      "bytes": 1302
+    },
+    "figures/deformation.png": {
+      "sha256": "b625a6384e6c0987e2b1b7d66221821e932ef8b7baeac4f45a42b6d65262e3ec",
+      "bytes": 96396
+    },
+    "figures/deformation.svg": {
+      "sha256": "ff49c78ae8b1048a379e9070fbeb97b6b71770837c1137f3773c1f5a041722f6",
+      "bytes": 17493
+    },
+    "figures/modes.png": {
+      "sha256": "5b8b4a268536ed47b3a983d393f4138a9a6922c39ed9120e3c2e9cab6eaea747",
+      "bytes": 71544
+    },
+    "figures/modes.svg": {
+      "sha256": "8167da0cd4710c96b890577a87034d63167f2401131cff3be8b6e33bc43d136d",
+      "bytes": 18475
+    },
+    "figures/response.png": {
+      "sha256": "85f2828f75d50a6a0577204ce8a967c7f625184e78761b94d1d45c8acd567f00",
+      "bytes": 44560
+    },
+    "figures/response.svg": {
+      "sha256": "1acd03c9cb089a9cf8e4d1b28fdd7b65bf092b8a76c718c66daf3667b98a99a8",
+      "bytes": 8653
+    },
+    "LICENSE.MYSTRAN.txt": {
+      "sha256": "e27071fd9045bb593efd6897e0aeb2ffce55fa5a97131d67e4f87ee47310524b",
+      "bytes": 1066
+    },
+    "metrics.csv": {
+      "sha256": "d5058b4c03bf77d73014f2d55d6a6a934a3dd63c12411985f1fc4f5dc0c126f8",
+      "bytes": 144
+    },
+    "model.bdf": {
+      "sha256": "d35631af5b7d223d4c5a5a3d8d9f41472be17fbaae4572464ff6adf4310a51e1",
+      "bytes": 1173
+    },
+    "results/provenance.json": {
+      "sha256": "2b67bf04e2cb79b2522c867854a398c014483ccc3c6fbf66aac66f6fe2a9ee65",
+      "bytes": 1148
+    },
+    "results/results.json": {
+      "sha256": "5f66ab1423779335d78984f37b3b0c9c13f7da101120a90cd45cb8018d8c95fd",
+      "bytes": 1279
+    },
+    "results/sol105_buckling.BUCKLING.JSON": {
+      "sha256": "6dd5c4a1540b29c15661158d5a59133f291c1f6c2bdf8316f943edc114ff4e06",
+      "bytes": 12523
+    },
+    "results/sol105_buckling.jfem": {
+      "sha256": "db56a01e8be8913522df00229bfb0aacdabcdd544b4da9503a9c90e86637dfaa",
+      "bytes": 368
+    },
+    "results/sol105_buckling.TIMINGS.JSON": {
+      "sha256": "9be0fec51645bb0e5ce4f199c6fdc08c5dd90bb11da0666da94d01e6c32b1219",
+      "bytes": 24361
+    },
+    "results/visual_data.json": {
+      "sha256": "7288bbc599332f34b594b255187c3026a13eadd01d76946466729d9f56d2fdbd",
+      "bytes": 3953
+    }
+  }
+}

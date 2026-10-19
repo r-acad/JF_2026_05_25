@@ -1,0 +1,21 @@
+{
+  "schema": "jfem.validation.provenance.v1",
+  "case_id": "MH_pinched_cylinder_refined",
+  "input": "cases/MH_pinched_cylinder_refined/model.bdf",
+  "input_sha256": "e3de1abebfa6bbd73e6853fdc3057f8ad37dce039a32b6ff4b41d3e750ed689c",
+  "status": "solved",
+  "input_unchanged": true,
+  "run_started_utc": "2026-10-19T09:27:45.714",
+  "run_finished_utc": "2026-10-19T09:27:47.398",
+  "julia_version": "1.13.1",
+  "wall_seconds_including_compilation": 1.6823679,
+  "source_receipt_sha256": "69eae106713b5de7b69f367d87e0b3b701042fcad065352b5986d0d6778059b5",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "published_files": {
+    "pinched_cylinder_refined.jfem": "aeb4ccfddab0b56841c06f83f0a95412e8c05450afc36b0b487805d7b6b779b5",
+    "pinched_cylinder_refined.JU.JSON": "e5d305dcd0208fedfb2d9a2223b841ab22e7aacc06e1a805b78c11854fa28c45",
+    "pinched_cylinder_refined.TIMINGS.JSON": "b6d33fc62e338c3a70325caf7f5d83f0e08202cfd1115814fac938850f0b6d28",
+    "results.json": "85f197ff5977c7482c44d66ed35c3b380e4e4cb5bb5a40b5cc0b1372bcd93b2b",
+    "visual_data.json": "0bff8ce0813489f4b4e9c83a6896f8f75240f20941911b4a4a3c31a8c5aea032"
+  }
+}

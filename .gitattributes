@@ -21,3 +21,9 @@
 WingFEGen/** text eol=lf
 WingFEGen/*.cmd text eol=crlf
 WingFEGen/web/vendor/** -text whitespace=cr-at-eol
+
+# Execution receipts bind exact input/output bytes. Preserve this collection on
+# every platform, including authored decks, numerical CSVs and figure sources.
+validation/** -text whitespace=cr-at-eol
+# Fixed-field decks and generated vector/numerical artifacts are verbatim data.
+validation/cases/** -whitespace

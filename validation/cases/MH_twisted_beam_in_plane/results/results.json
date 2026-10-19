@@ -1,0 +1,30 @@
+{
+  "schema": "jfem.validation.recorded_results.v1",
+  "case_id": "MH_twisted_beam_in_plane",
+  "input_sha256": "81254d673a6ea7783644162816e7a609a65c048bf7b4e789d0c740331dbad762",
+  "metrics": [
+    {
+      "name": "tip disp in plane",
+      "value": 0.005382141966966066,
+      "reference": 0.005424,
+      "error_percent": 0.7717188981182455,
+      "unit": "benchmark length unit",
+      "tolerance_percent": 2.0,
+      "status": "PASS",
+      "reference_classification": "published",
+      "source_input": "model.bdf"
+    }
+  ],
+  "states": [
+    {
+      "name": "Static subcase 1",
+      "kind": "static",
+      "normalization": "physical displacement in model length units",
+      "subcase": 1
+    }
+  ],
+  "field_data": "visual_data.json",
+  "binary_results": [
+    "twisted_beam.jfem"
+  ]
+}

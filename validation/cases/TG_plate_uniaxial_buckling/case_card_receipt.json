@@ -1,0 +1,20 @@
+{
+  "schema": "jfem.validation.case_card.v1",
+  "case_id": "TG_plate_uniaxial_buckling",
+  "built_utc": "2026-10-19T10:12:30.634310+00:00",
+  "pdf_pages": 2,
+  "case_metadata_sha256": "683aac6f08d97eb864c68b37c5b0416c70e26a86efcacac23e193a9163893904",
+  "visual_data_sha256": "a8736344b4713031fd52a52f4d7d8ca994bac26bff08609bc76595bdce70ec3a",
+  "builder_sha256": "776022314b284aee7e4ade99617497739e5e8bc30f818f4972fa3b8ee00977e7",
+  "source": "Recorded JFEM numerical fields; no synthetic deformation fields",
+  "artifacts": {
+    "case_card.pdf": "74b720afa467aee2ce13f50187c0b0e407b36e5c0ad5e23edc5ae4483c4bb019",
+    "metrics.csv": "7d1a5b21fff015f54caacf8f89b3022b9884b04f70e8ad5acc13e9b68f733948",
+    "figures/deformation.png": "12562c7931032afd9efb3ea710df00a4bae840a6558cb0cbaa51b5ece383af3f",
+    "figures/deformation.svg": "ef399f66b09e256fd97b55d8988eccdc9f96d919f7e901ddbf0efe7ac3da3878",
+    "figures/modes.png": "f55b8ac598fb013466f25557e07d6b1336b0d7987ee8a889bcffbc8f90347613",
+    "figures/modes.svg": "df0c2e0364af91df9a5878cf382b7cabe1a6d9927b19303235013686f8a39b3a",
+    "figures/response.png": "b2aa36a7cf67e1a8d25541a6d49c52a3b1011090066f99b37d6783a412f6b373",
+    "figures/response.svg": "52bd73a299c44d7011bc2ebb20d8664857574d6a58beff1cbe5f75906cad70a9"
+  }
+}

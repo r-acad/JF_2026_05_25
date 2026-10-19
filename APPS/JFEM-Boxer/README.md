@@ -5,6 +5,33 @@ with OpenJFEM. It generates shell/bar lifting surfaces, aerodynamic lattices and
 load cases, writes REFERENCE decks, launches the solver in this repository and
 displays structural results and property sensitivities.
 
+Use **Project → Open JFEM results…** (also available on the opening screen)
+to choose a `.jfem` result file from any folder with the normal system file
+browser. Boxer reads the mesh and all stored result states in the background,
+then displays the complete model together. The original deck is not required.
+Use the Results case selector for static subcases and the mode list for
+eigenmodes. Version 5 buckling files also expose their static preload as a
+separate analysis. Older eigenvalue files do not record whether they contain
+SOL103 or SOL105; choose the analysis that produced the file when prompted.
+
+Archived results are a read-only view. They retain GRID/EID/PID IDs, shell
+thicknesses, bar/rod areas, displacements, rotations and exported field slots.
+Bars without a stored section shape use an area-equivalent display section;
+solids have inspectable connectivity and are drawn as edges. The binary does
+not embed full material/coordinate definitions, the original solver input,
+constraint reactions, units or convergence history. Values keep their source
+unit system; unrequested static field slots can contain zero placeholders.
+The original shell/bar property card type is unknown; the inspector labels
+these as archived properties and retains their IDs and geometric thickness or
+area. Reconstructed element axes are geometric; material axes and their
+coordinate labels remain unavailable. Static binaries do not distinguish
+SOL101 from SOL106 and are labeled as static archives.
+Open the corresponding Study or source deck to edit, solve or calculate
+sensitivities. Opening another result file replaces the archived view and
+resets case selections; an invalid file leaves the previous view available.
+
+Try the ready-to-open results in the [illustrated benchmark collection](../../validation/README.md).
+
 Start with the [illustrated installation guide](<../../__Start here!__/jfem_2026_installation_guide.pdf>)
 or the [OS-specific setup instructions](<../../__Start here!__/README.md>).
 

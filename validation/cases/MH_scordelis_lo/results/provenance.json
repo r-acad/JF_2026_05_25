@@ -1,0 +1,22 @@
+{
+  "schema": "jfem.validation.provenance.v1",
+  "case_id": "MH_scordelis_lo",
+  "input": "cases/MH_scordelis_lo/model.bdf",
+  "input_sha256": "0d21fd899773345f52f70ac192c4748530df75a82668dd0e9c828d9beed89f5b",
+  "status": "solved",
+  "input_unchanged": true,
+  "run_started_utc": "2026-10-19T09:27:45.272",
+  "run_finished_utc": "2026-10-19T09:27:45.464",
+  "julia_version": "1.13.1",
+  "wall_seconds_including_compilation": 0.1786817,
+  "source_receipt_sha256": "4302fd415540900500e6d1ec90bda6313c88488d91ff155a6b2a09901372a324",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "published_files": {
+    "plot_source.json": "f07a9b1e45344f0d3e39bc70d10063da6b8fc917912b06043fe8cfec3d0b6657",
+    "results.json": "13d4fb4e10b310450e0b1ae8605fc912013a7ba32cd657582650384dd3e2080e",
+    "scordelis_lo.jfem": "b7eb749ba60747f13c836ef6d0a095281888d0f119fadc7f1eb146118bac730d",
+    "scordelis_lo.JU.JSON": "4775817bde4aa5e841607937911de38aa2bbf45b8338a8fdc0a42b269fc2c4b5",
+    "scordelis_lo.TIMINGS.JSON": "0103ad0dd84547d6e4ed3bd09c84f03c539cb0b87e0aab8a6d2202dc2f314741",
+    "visual_data.json": "6c029f7124fb0645c0d1fe5ce34afd8312584d23eb60c5687b5eee117ae23096"
+  }
+}

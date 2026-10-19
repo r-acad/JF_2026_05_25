@@ -1,0 +1,30 @@
+{
+  "schema": "jfem.validation.recorded_results.v1",
+  "case_id": "MH_pinched_cylinder",
+  "input_sha256": "7f9972cfd90a918df7d4a5524e9b6f59224c87152deb89c7931341f525d39706",
+  "metrics": [
+    {
+      "name": "radial disp under load (magnitude)",
+      "value": 9.563567826444352e-06,
+      "reference": 1.8248e-05,
+      "error_percent": 47.591145186078734,
+      "unit": "benchmark length unit",
+      "tolerance_percent": 10.0,
+      "status": "FAIL (coarse)",
+      "reference_classification": "published",
+      "source_input": "model.bdf"
+    }
+  ],
+  "states": [
+    {
+      "name": "Static subcase 1",
+      "kind": "static",
+      "normalization": "physical displacement in model length units",
+      "subcase": 1
+    }
+  ],
+  "field_data": "visual_data.json",
+  "binary_results": [
+    "pinched_cylinder.jfem"
+  ]
+}

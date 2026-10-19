@@ -1,0 +1,70 @@
+{
+  "schema": "jfem.validation.published_case.v1",
+  "case_id": "MH_pinched_cylinder",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "built_utc": "2026-10-19T10:21:14.431133+00:00",
+  "evidence_class": "Published shell benchmark",
+  "artifact_provenance": "Publicly curated input, native JFEM output and original figures; sources and limits in case.json and adjacent notices.",
+  "files": {
+    "case.json": {
+      "sha256": "f1ba4f9bc1c87f153fd2084bdf4cb6ceda892284b00a130d030630abd62c547f",
+      "bytes": 2866
+    },
+    "case_card.pdf": {
+      "sha256": "244c4d45c3d6c1dfad134c54d1d859c12d56c85adbf355587e52598e365e637b",
+      "bytes": 239197
+    },
+    "case_card_receipt.json": {
+      "sha256": "889c14216d2654830268b1c37dbdae7213fca586035b99cd6ef13c614fe58e4a",
+      "bytes": 1110
+    },
+    "figures/deformation.png": {
+      "sha256": "6edae5cbd29d1f1fd5ac7f35b01ac0d1b39789b02a4eeb0268a31241919a8c94",
+      "bytes": 114759
+    },
+    "figures/deformation.svg": {
+      "sha256": "407f9c5376a61e337682e3ae94436203d41c0afc9780c9fe141563b732642d18",
+      "bytes": 21974
+    },
+    "figures/response.png": {
+      "sha256": "0ab30c2b8dffb2e925dd2e54366c67d60160b1c81a4e1cb15c48eff6436f1996",
+      "bytes": 75960
+    },
+    "figures/response.svg": {
+      "sha256": "ac96a94ad7a6d2a9dc6d6daac0d119e8f4f92c4f095b2cd5117145104b62ea3f",
+      "bytes": 13982
+    },
+    "metrics.csv": {
+      "sha256": "dc78b4c518d7efe5ff86194c4fc3b4d90ed8e0f16bc3e48d3be240bfc69e0176",
+      "bytes": 195
+    },
+    "model.bdf": {
+      "sha256": "7f9972cfd90a918df7d4a5524e9b6f59224c87152deb89c7931341f525d39706",
+      "bytes": 3815
+    },
+    "results/pinched_cylinder.jfem": {
+      "sha256": "7ff6ea239adb12903a2486c2f0fd31fd9d39add359e4195a72915aea8fa1c1de",
+      "bytes": 2112
+    },
+    "results/pinched_cylinder.JU.JSON": {
+      "sha256": "c7f6c39c378b20098d63202b7d036051777488c4a1e2673d3a1dbd22e3cca950",
+      "bytes": 12428
+    },
+    "results/pinched_cylinder.TIMINGS.JSON": {
+      "sha256": "70783dad2edab5621deb15e0ef1ca7893cd25eb6889a3f239ea94c25b88c67fd",
+      "bytes": 16925
+    },
+    "results/provenance.json": {
+      "sha256": "cb6df734fce1e2468855b4e2cffc8bb130ce1f5950d27427db34f4332f1b6c7f",
+      "bytes": 1136
+    },
+    "results/results.json": {
+      "sha256": "440bd968374124cb4186ae5224f5696f77d11149e8045da7a1e13aeeff83474f",
+      "bytes": 857
+    },
+    "results/visual_data.json": {
+      "sha256": "2ad4688587f7cd55c364f8d1d71b1165be7f1d2af0414c7ac078f3bfe4182e56",
+      "bytes": 12920
+    }
+  }
+}

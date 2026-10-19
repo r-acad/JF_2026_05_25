@@ -1,0 +1,46 @@
+{
+  "case_id": "ACA02",
+  "run": "timoshenko_n16",
+  "sol": 101,
+  "mesh_n": 16,
+  "status": "solved",
+  "input_file": "timoshenko_n16.bdf",
+  "input_sha256": "efcd731d402d4ce83b93cae000af84f4937c0ce27cfb65db8c096961a9ad5a6f",
+  "started_utc": "2026-10-19T09:33:58.365",
+  "finished_utc": "2026-10-19T09:33:58.387",
+  "wall_seconds_including_compilation": 0.02200007438659668,
+  "solver_diagnostics": null,
+  "metrics": [
+    {
+      "value": 1.841428571426101e-05,
+      "error_percent": 1.341321684977097e-10,
+      "run": "timoshenko_n16",
+      "mesh_n": 16,
+      "passed": true,
+      "tolerance_percent": 0.01,
+      "quantity": "tip transverse displacement",
+      "reference": 1.841428571428571e-05,
+      "mode": null,
+      "case_id": "ACA02",
+      "sol": 101,
+      "unit": "m"
+    },
+    {
+      "value": 2.6785714285677106e-05,
+      "error_percent": 1.387724570672822e-10,
+      "run": "timoshenko_n16",
+      "mesh_n": 16,
+      "passed": true,
+      "tolerance_percent": 0.01,
+      "quantity": "tip section rotation",
+      "reference": 2.6785714285714278e-05,
+      "mode": null,
+      "case_id": "ACA02",
+      "sol": 101,
+      "unit": "rad"
+    }
+  ],
+  "outputs": {
+    "results/runs/timoshenko_n16/timoshenko_n16.jfem": "daefcd8853efc0f2d67f8257b85df3016d26a889cb162d23385106d3f59430ad"
+  }
+}

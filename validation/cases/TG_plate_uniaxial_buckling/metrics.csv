@@ -1,0 +1,3 @@
+name,unit,value,reference,error_percent,tolerance_percent,status
+Critical stress (lambda x 1 Pa),GPa,0.07718638830974536,0.07592003385453353,1.6680109200665427,3.0,PASS
+preload ux node 36,m,-4.7619047619047665e-12,-4.761905e-12,4.999999658750198e-06,0.1,REGRESSION

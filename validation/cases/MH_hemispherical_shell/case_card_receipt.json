@@ -1,0 +1,18 @@
+{
+  "schema": "jfem.validation.case_card.v1",
+  "case_id": "MH_hemispherical_shell",
+  "built_utc": "2026-10-19T10:12:24.634420+00:00",
+  "pdf_pages": 2,
+  "case_metadata_sha256": "7b785a3e8a6821156c9bd71676ede9e2b23624768ab42c8deeb0a896574a4d2e",
+  "visual_data_sha256": "0b1e71172b7fce81c695993cd6ed570eb1dd6e68d784628fb6832c1348725ecc",
+  "builder_sha256": "776022314b284aee7e4ade99617497739e5e8bc30f818f4972fa3b8ee00977e7",
+  "source": "Recorded JFEM numerical fields; no synthetic deformation fields",
+  "artifacts": {
+    "case_card.pdf": "7c44eb6868972ded3e98ff189496cf552a39b47dc45479bb21dfc1350c99f266",
+    "metrics.csv": "cff505597e0ac91b40aabc75b4fde82b334310572493c1bf5d3937c770cc811e",
+    "figures/deformation.png": "1f63dc944e39f94516d1d249e7f58f35572cebbf376ce55a98594b6881603c8f",
+    "figures/deformation.svg": "4377b2b4691b68d2a0360b07424275b127288788d45a5e995df3d7932c1dd22e",
+    "figures/response.png": "e6a63190001b1f5f674e7bd499c410579f010a6a484c9ca9290db247ff4185d9",
+    "figures/response.svg": "1f4aa37e71396d9eb452a2f37608abd53f81b23b424b8a62755c8534355189de"
+  }
+}

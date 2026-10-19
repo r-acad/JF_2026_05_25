@@ -1,0 +1,365 @@
+{
+  "schema": "jfem.validation.visual_data.v1",
+  "case_id": "MYSTRAN_sol101_simple",
+  "coordinate_frame": "BASIC_GLOBAL",
+  "node_ids": [
+    1011,
+    1012,
+    1013,
+    1014
+  ],
+  "xyz": [
+    [
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      50.0,
+      0.0,
+      0.0
+    ],
+    [
+      50.0,
+      50.0,
+      0.0
+    ],
+    [
+      0.0,
+      50.0,
+      0.0
+    ]
+  ],
+  "elements": [
+    {
+      "id": 11,
+      "property_id": 91,
+      "type": "CQUAD4",
+      "nodes": [
+        1011,
+        1012,
+        1013,
+        1014
+      ]
+    }
+  ],
+  "states": [
+    {
+      "name": "Static subcase 1",
+      "kind": "static",
+      "displacements": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0030532786885245898,
+          0.0007991803278688532,
+          0.0
+        ],
+        [
+          0.0019467213114754093,
+          0.0007991803278688519,
+          0.0
+        ]
+      ],
+      "rotations": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "normalization": "physical displacement in model length units",
+      "subcase": 1
+    },
+    {
+      "name": "Static subcase 2",
+      "kind": "static",
+      "displacements": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1336.6140123115788
+        ],
+        [
+          0.0,
+          0.0,
+          1336.6140123115808
+        ]
+      ],
+      "rotations": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          40.57377049180315,
+          7.607581967213134,
+          0.0
+        ],
+        [
+          40.57377049180323,
+          -7.607581967213051,
+          0.0
+        ]
+      ],
+      "normalization": "physical displacement in model length units",
+      "subcase": 2
+    },
+    {
+      "name": "Static subcase 3",
+      "kind": "static",
+      "displacements": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1336.6140123115788
+        ],
+        [
+          0.0,
+          0.0,
+          1336.6140123115808
+        ]
+      ],
+      "rotations": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          40.57377049180315,
+          7.607581967213134,
+          0.0
+        ],
+        [
+          40.57377049180323,
+          -7.607581967213051,
+          0.0
+        ]
+      ],
+      "normalization": "physical displacement in model length units",
+      "subcase": 3
+    }
+  ],
+  "metadata": {
+    "MATs": {
+      "20": {
+        "NU": 0.25,
+        "ALPHA": 0.0,
+        "TREF": 0.0,
+        "MID": 20,
+        "G": 4000000.0,
+        "RHO": 0.1,
+        "E": 10000000.0
+      }
+    },
+    "FORCEs": [
+      {
+        "Mag": 1000,
+        "GID": 1011,
+        "SID": 1992,
+        "CID": 0,
+        "TYPE": "FORCE",
+        "Dir": [
+          1.0,
+          1.0,
+          0.0
+        ]
+      },
+      {
+        "Mag": 1000,
+        "GID": 1012,
+        "SID": 1992,
+        "CID": 0,
+        "TYPE": "FORCE",
+        "Dir": [
+          1.0,
+          1.0,
+          0.0
+        ]
+      },
+      {
+        "Mag": 1000,
+        "GID": 1013,
+        "SID": 1992,
+        "CID": 0,
+        "TYPE": "FORCE",
+        "Dir": [
+          1.0,
+          1.0,
+          0.0
+        ]
+      }
+    ],
+    "PBARLs": {},
+    "PLOADs": [],
+    "PSHELLs": {
+      "91": {
+        "Z2": 0.05,
+        "NSM": 0.1,
+        "MID4": 0,
+        "MID2": 20,
+        "MID": 20,
+        "TS_T": 0.83333,
+        "PID": 91,
+        "Z1": -0.05,
+        "Z1_DEFAULT": true,
+        "T": 0.1,
+        "MID3": 20,
+        "Z2_DEFAULT": true,
+        "BEND_RATIO": 1
+      }
+    },
+    "SPC1s": [
+      {
+        "SID": 101,
+        "C": "123456",
+        "NODES": [
+          1011,
+          1012
+        ]
+      }
+    ],
+    "case_id": "MYSTRAN_sol101_simple",
+    "sol": 101,
+    "coordinate_frame": "BASIC_GLOBAL",
+    "case_control": {
+      "SPC": 101,
+      "DISP": "ALL",
+      "SET 1": "11",
+      "ELFORCE": "ALL",
+      "ELFORCE_MODIFIER": "PRINT,PLOT,PUNCH",
+      "STRESS_MODIFIER": "PRINT,PLOT,PUNCH",
+      "STRAIN": "ALL",
+      "DISP_MODIFIER": "PRINT,PLOT,PUNCH",
+      "STRAIN_MODIFIER": "PRINT,PLOT,PUNCH",
+      "STRESS": "ALL",
+      "SOL": 101,
+      "SUBCASES": {
+        "3": {
+          "MPC": null,
+          "SPC": 101,
+          "LOAD": 1994
+        },
+        "2": {
+          "MPC": null,
+          "SPC": 101,
+          "LOAD": 1993
+        },
+        "1": {
+          "MPC": null,
+          "SPC": 101,
+          "LOAD": 1992
+        }
+      },
+      "SPCFORCE": "ALL",
+      "SPCFORCE_MODIFIER": "PRINT,PLOT,PUNCH"
+    },
+    "PARAM_K6ROT": 0.0,
+    "MOMENTs": [],
+    "PLOAD4s": [
+      {
+        "EID": 11,
+        "SID": 1994,
+        "P": 1.1,
+        "TYPE": "PLOAD4"
+      },
+      {
+        "EID": 11,
+        "SID": 1993,
+        "P": 1.1,
+        "TYPE": "PLOAD4"
+      }
+    ]
+  },
+  "loads": [
+    {
+      "node": 1011,
+      "vector": [
+        1000.0,
+        1000.0,
+        0.0
+      ],
+      "coordinate_id": 0,
+      "load_id": 1992
+    },
+    {
+      "node": 1012,
+      "vector": [
+        1000.0,
+        1000.0,
+        0.0
+      ],
+      "coordinate_id": 0,
+      "load_id": 1992
+    },
+    {
+      "node": 1013,
+      "vector": [
+        1000.0,
+        1000.0,
+        0.0
+      ],
+      "coordinate_id": 0,
+      "load_id": 1992
+    }
+  ],
+  "constrained_node_ids": [
+    1011,
+    1012
+  ]
+}

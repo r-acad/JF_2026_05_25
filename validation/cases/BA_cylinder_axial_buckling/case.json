@@ -1,0 +1,112 @@
+{
+  "id": "BA_cylinder_axial_buckling",
+  "title": "Cylindrical strip: axial buckling",
+  "solutions": [
+    105
+  ],
+  "family": "classical",
+  "evidence_class": "Analytical screening; finer extraction remains partial",
+  "description": "Thin cylinder R=100 m, full length 200 m, t=1 m, E=210 GPa, nu=0.3; one 22.5-degree circumferential sector over half-length.",
+  "geometry": "18 nodes; 8 elements. Thin cylinder R=100 m, full length 200 m, t=1 m, E=210 GPa, nu=0.3; one 22.5-degree circumferential sector over half-length.",
+  "material": "E=2.1e+11, nu=0.3; shell thickness=1. SI: m, N, kg, s, Pa",
+  "boundary_conditions": "Cylindrical-frame symmetry and axial midpoint constraints; 1 Pa axial compression. The strip imposes axisymmetric deformation.",
+  "loading": "Uniform 1 Pa reference axial compression; consistent edge forces sum to 39.270 in +Z on the strip end.",
+  "length_unit": "m",
+  "metrics": [
+    {
+      "name": "Critical stress (lambda x 1 Pa)",
+      "value": 1.325387111881951,
+      "reference": 1.270977818604485,
+      "error_percent": 4.280900302194612,
+      "unit": "GPa",
+      "tolerance_percent": 15.0,
+      "status": "PASS",
+      "reference_classification": "analytical_screening",
+      "source_input": "model.bdf",
+      "native_value": 1325387111.8819509
+    },
+    {
+      "name": "preload uz node 1",
+      "value": 4.771601086293061e-10,
+      "reference": 4.771601e-10,
+      "error_percent": 1.8084718611532935e-06,
+      "unit": "m",
+      "tolerance_percent": 0.1,
+      "status": "REGRESSION",
+      "reference_classification": "historical_regression",
+      "source_input": "model.bdf"
+    },
+    {
+      "name": "N16x04 refined response",
+      "value": 1.277804644547062,
+      "reference": 1.270977818604485,
+      "error_percent": 0.5371317927540975,
+      "unit": "GPa",
+      "tolerance_percent": 15.0,
+      "status": "PASS",
+      "source_input": "convergence/N16x04/model.bdf",
+      "native_value": 1277804644.5470622
+    },
+    {
+      "name": "32x8 first retained root (unqualified)",
+      "value": 1.2765007303268912,
+      "reference": 1.270977818604485,
+      "native_value": 1276500730.3268912,
+      "error_percent": 0.43454037053693995,
+      "unit": "GPa",
+      "status": "PARTIAL",
+      "tolerance_percent": null,
+      "source_input": "diagnostics/N32x08/model.bdf"
+    }
+  ],
+  "convergence": [
+    {
+      "quantity": "classical_critical_stress",
+      "elements": 8,
+      "value": 1325387111.8819509,
+      "reference": 1270977818.604485
+    },
+    {
+      "quantity": "classical_critical_stress",
+      "elements": 64,
+      "value": 1277804644.5470622,
+      "reference": 1270977818.604485
+    }
+  ],
+  "diagnostics": [
+    {
+      "input": "diagnostics/N32x08/model.bdf",
+      "status": "DIAGNOSTIC_PARTIAL",
+      "requested_roots": 6,
+      "accepted_roots": 5,
+      "global_first_root_certified": false
+    }
+  ],
+  "references": [
+    {
+      "citation": "Brush and Almroth, Buckling of Bars, Plates and Shells (1975), classical perfect-cylinder theory.",
+      "url": ""
+    },
+    {
+      "citation": "Hilburger, M.W. (2020). Buckling of Thin-Walled Circular Cylinders. NASA/SP-8007-2020/REV 2. Ideal theory is distinct from imperfection-sensitive test capacity.",
+      "url": "https://ntrs.nasa.gov/citations/20205011530"
+    }
+  ],
+  "observations": [
+    "The qualified strip refinement is 16x4 (first-root error 0.537%). Finer 32x8 extraction attempts failed completeness checks: the retained five-of-six result is published as PARTIAL, with no certified global critical-root claim.",
+    "Finite strip boundary conditions differ from an unlimited ideal cylinder. The remaining discrepancy must not automatically be attributed entirely to mesh error.",
+    "The supplied input omitted SPC selection from the buckling subcase. This rerun explicitly adds SPC=1 to that subcase, preserving the intended constraints. The original failed attempt is retained in the audit record.",
+    "The figure shows the finest qualified companion; the table retains the supplied benchmark and available refinements. Each field dataset and binary file has its own input hash and run receipt."
+  ],
+  "limits": [
+    "Only the first qualified buckling root is compared with ideal theory. The 32x8 spectrum remains unqualified; this is a finite axisymmetric screening model, not an experimental capacity prediction."
+  ],
+  "visual_file": "convergence/N16x04/results/visual_data.json",
+  "run_date": "2026-10-19",
+  "solver_revision": "a70f997",
+  "model_files": [
+    "model.bdf",
+    "convergence/N16x04/model.bdf"
+  ],
+  "figure_caption": "Recorded JFEM result; deformation is amplified, mode amplitudes/signs arbitrary. Green triangles mark constrained nodes; magenta arrows mark available point loads. Finest companion shown."
+}

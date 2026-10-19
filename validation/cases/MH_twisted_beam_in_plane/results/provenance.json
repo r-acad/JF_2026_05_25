@@ -1,0 +1,21 @@
+{
+  "schema": "jfem.validation.provenance.v1",
+  "case_id": "MH_twisted_beam_in_plane",
+  "input": "cases/MH_twisted_beam_in_plane/model.bdf",
+  "input_sha256": "81254d673a6ea7783644162816e7a609a65c048bf7b4e789d0c740331dbad762",
+  "status": "solved",
+  "input_unchanged": true,
+  "run_started_utc": "2026-10-19T09:27:45.037",
+  "run_finished_utc": "2026-10-19T09:27:45.235",
+  "julia_version": "1.13.1",
+  "wall_seconds_including_compilation": 0.1971698,
+  "source_receipt_sha256": "ca89b1b1e081edc35c56c06e4b0f08a7c9b998bc0bf4c632680ea3bd6259bec7",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "published_files": {
+    "results.json": "3028c90ed7078b00cc46eca2f9ab415af664bcd128be7c7d39beb2e545db7be7",
+    "twisted_beam.jfem": "16d81bb8c54827a53fec4f2627dcfdc4fd8ec9f83c21a43f17b8ed20b8d03a2b",
+    "twisted_beam.JU.JSON": "7f26e520e81e16a2fcb77f9647436a95672bb4e3ce4c761578874e28025852f9",
+    "twisted_beam.TIMINGS.JSON": "57de068a526a182413800d01f87cd32c35e3cf6e230bf69c174e5ffabd797ea2",
+    "visual_data.json": "d0469b01bd32ef0788cecff65478171d62a76a9b038482ffeb15c1725e4f2702"
+  }
+}

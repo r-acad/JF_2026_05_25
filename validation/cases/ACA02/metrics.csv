@@ -1,0 +1,3 @@
+name,unit,value,reference,error_percent,tolerance_percent,status
+tip transverse displacement,m,1.841428571426101e-05,1.841428571428571e-05,1.341321684977097e-10,0.01,PASS
+tip section rotation,rad,2.6785714285677106e-05,2.6785714285714278e-05,1.387724570672822e-10,0.01,PASS

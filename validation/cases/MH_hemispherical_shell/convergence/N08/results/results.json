@@ -1,0 +1,29 @@
+{
+  "schema": "jfem.validation.recorded_results.v1",
+  "case_id": "MH_hemispherical_shell_N08",
+  "input_sha256": "0f1953b0c7f511c9e6a492a1e5c6de3ae7bfea85f466d7edbd220cba1d739e1f",
+  "metrics": [
+    {
+      "name": "N08 refined response",
+      "value": 0.09528969843758595,
+      "reference": 0.093,
+      "error_percent": 2.4620413307375744,
+      "unit": "benchmark length unit",
+      "tolerance_percent": 10.0,
+      "status": "PASS",
+      "source_input": "convergence/N08/model.bdf"
+    }
+  ],
+  "states": [
+    {
+      "name": "Static subcase 1",
+      "kind": "static",
+      "normalization": "physical displacement in model length units",
+      "subcase": 1
+    }
+  ],
+  "field_data": "visual_data.json",
+  "binary_results": [
+    "MH_hemispherical_shell_N08.jfem"
+  ]
+}

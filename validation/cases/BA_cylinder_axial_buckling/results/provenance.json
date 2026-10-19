@@ -1,0 +1,21 @@
+{
+  "schema": "jfem.validation.provenance.v1",
+  "case_id": "BA_cylinder_axial_buckling",
+  "input": "cases/BA_cylinder_axial_buckling/model.bdf",
+  "input_sha256": "58a07aa2f3859624c16db32e53d898fe78e43c34a9312f9f6c0d0b36ef035f70",
+  "status": "solved",
+  "input_unchanged": true,
+  "run_started_utc": "2026-10-19T09:33:18.347",
+  "run_finished_utc": "2026-10-19T09:33:36.804",
+  "julia_version": "1.13.1",
+  "wall_seconds_including_compilation": 18.4553709,
+  "source_receipt_sha256": "fd9441abd8f278f48f43141a31f7cf329eb95c9f8bdf7015e867a7cbc8b0c367",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "published_files": {
+    "cylinder_axial_buckling.BUCKLING.JSON": "9c225beeecbc91cc6b9d796f3b19a7b6323c333bcef269a0fd2a8e9124ecbebb",
+    "cylinder_axial_buckling.jfem": "e98771b4229db111e9637a84840832bdf5df6e9dfab07235ce4f3c6e0d1b4257",
+    "cylinder_axial_buckling.TIMINGS.JSON": "b37a81ece48a0090f0129bca0aeca77d7801d375fb0983ccc55b0b08ce8d5c74",
+    "results.json": "13ab39e2d592cc5c4a2e15f938f4d3ec4edf157b4f60806985510186d7d58b57",
+    "visual_data.json": "5bc766271e859d939ce6107108005d92ae4306886428d451402a4734d622ed81"
+  }
+}

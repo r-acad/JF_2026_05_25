@@ -1,0 +1,138 @@
+{
+  "schema": "jfem.validation.recorded_results.v1",
+  "case_id": "BA_cylinder_axial_buckling_N16x04",
+  "input_sha256": "02b5a35a689dffbb39e12159fc410dc33cc04656b3b8c11bf80b62180f4206b7",
+  "metrics": [
+    {
+      "name": "N16x04 refined response",
+      "value": 1.277804644547062,
+      "reference": 1.270977818604485,
+      "error_percent": 0.5371317927540975,
+      "unit": "GPa",
+      "tolerance_percent": 15.0,
+      "status": "PASS",
+      "source_input": "convergence/N16x04/model.bdf",
+      "native_value": 1277804644.5470622
+    }
+  ],
+  "states": [
+    {
+      "name": "Mode 1",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 1,
+      "eigenvalue": 1277804644.5470622,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 2",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 2,
+      "eigenvalue": 1362767539.3919735,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 3",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 3,
+      "eigenvalue": 1402558844.8355474,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 4",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 4,
+      "eigenvalue": 1593589297.508731,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 5",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 5,
+      "eigenvalue": 1920523099.6040626,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 6",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 6,
+      "eigenvalue": 1947123857.5800004,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 7",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 7,
+      "eigenvalue": 2414710845.3454223,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 8",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 8,
+      "eigenvalue": 2988896699.041062,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 9",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 9,
+      "eigenvalue": 3468552457.348582,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 10",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 10,
+      "eigenvalue": 3652166760.820518,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 11",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 11,
+      "eigenvalue": 4364729362.88817,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 12",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 12,
+      "eigenvalue": 5053974605.283151,
+      "frequency_hz": null
+    },
+    {
+      "name": "Static preload 1",
+      "kind": "preload",
+      "normalization": "physical displacement in model length units",
+      "subcase": 1
+    }
+  ],
+  "field_data": "visual_data.json",
+  "binary_results": [
+    "BA_cylinder_axial_buckling_N16x04.jfem"
+  ]
+}

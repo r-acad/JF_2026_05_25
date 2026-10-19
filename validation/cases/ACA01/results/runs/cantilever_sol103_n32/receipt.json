@@ -1,0 +1,154 @@
+{
+  "case_id": "ACA01",
+  "run": "cantilever_sol103_n32",
+  "sol": 103,
+  "mesh_n": 32,
+  "status": "solved",
+  "input_file": "cantilever_sol103_n32.bdf",
+  "input_sha256": "65d22ccfc634e902a54887fa374556c1788aa76069f51f3d14e2dcdf0427df73",
+  "started_utc": "2026-10-19T09:33:58.226",
+  "finished_utc": "2026-10-19T09:33:58.255",
+  "wall_seconds_including_compilation": 0.029000043869018555,
+  "solver_diagnostics": {
+    "solver_backend": "dense_symmetric_definite",
+    "factorization_autospc_allowed": false,
+    "singular_mass_coordinates_retained": 0,
+    "bc_partition": {
+      "explicit_spc_dofs": 134,
+      "autospc_enabled": true,
+      "autospc_gpst_rotational_dofs": 0,
+      "autospc_load_path_protection": {
+        "enabled": false
+      },
+      "autospc_diagonal_zero_dofs": 0,
+      "mpc_dependent_dofs": 0,
+      "fixed_dofs": 134,
+      "autospc_diagonal_rotational_dofs": 0,
+      "permanent_grid_dofs": 0,
+      "autospc_gpst_eps_zero": 1e-08,
+      "autospc_gpst_dofs": 0,
+      "autospc_diagonal_translational_dofs": 0,
+      "autospc_load_path_skipped_dofs": 0,
+      "factorization_autospc": {
+        "triggered": false,
+        "reason": "nullspace-preserving eigen solve",
+        "bypassed": true
+      },
+      "autospc_reference_scope": "grid_point_principal_stiffness",
+      "permanent_grid_constraints": 0,
+      "autospc_negative_diagonal_dofs": 0,
+      "autospc_load_path_protected_translational_dofs": 0,
+      "autospc_gpst_translational_dofs": 0,
+      "autospc_diagonal_dofs": 0,
+      "autospc_diagonal_relative_dofs": 0,
+      "free_dofs": 64,
+      "autospc_gpst_entries": []
+    },
+    "fixed_dofs": 134,
+    "returned_modes": 4,
+    "eigrl_range": {
+      "v2": 0.0,
+      "v1": 0.0
+    },
+    "near_zero_eigenvalue_tolerance": 0.00036403833970688275,
+    "massless_free_dofs_removed": 0,
+    "shell_inertia_policy": "reference_surface",
+    "solver_attempts": [
+      {
+        "name": "dense_symmetric_definite",
+        "returned_modes": 64,
+        "status": "succeeded"
+      }
+    ],
+    "dense_max_dof": 4000,
+    "massless_zero_stiffness_dof_tolerance": 2.2937599999977064e-05,
+    "backend_version": "0.1.0",
+    "eigen_cache": {
+      "cache_hit": false,
+      "enabled": false,
+      "factorization_cache_hit": false
+    },
+    "dense_spectrum_resolution": {
+      "spectral_error_bound": 0.005771295298158895,
+      "local_zero_tolerance": 0.00036403833970688275,
+      "unresolved_negative_roots": false
+    },
+    "requested_modes": 4,
+    "backend": "reference_parity",
+    "negative_eigenvalues_rejected": 0,
+    "massless_free_dof_tolerance": 5.014285714285715e-14,
+    "shell_mass_formulation": "coupled_consistent",
+    "modal_effective_mass_frame": "global_translation_in_analysis_dof_frame",
+    "eigrl_norm": "MASS",
+    "mpc_dependent_dofs_recovered": 0,
+    "requested_modes_internal": 12,
+    "modal_generalized_mass": [
+      1.0000000000000002,
+      1.0,
+      0.9999999999999999,
+      0.9999999999999999
+    ],
+    "free_dofs": 64
+  },
+  "metrics": [
+    {
+      "value": 2.056304473538152,
+      "error_percent": 2.9390250209463745e-06,
+      "run": "cantilever_sol103_n32",
+      "mesh_n": 32,
+      "passed": true,
+      "tolerance_percent": 0.5,
+      "quantity": "bending frequency",
+      "reference": 2.056304413102851,
+      "mode": 1,
+      "case_id": "ACA01",
+      "sol": 103,
+      "unit": "Hz"
+    },
+    {
+      "value": 12.886643922419868,
+      "error_percent": 3.2103668896557075e-05,
+      "run": "cantilever_sol103_n32",
+      "mesh_n": 32,
+      "passed": true,
+      "tolerance_percent": 0.5,
+      "quantity": "bending frequency",
+      "reference": 12.8866397853357,
+      "mode": 2,
+      "case_id": "ACA01",
+      "sol": 103,
+      "unit": "Hz"
+    },
+    {
+      "value": 36.08305518150804,
+      "error_percent": 0.00025118780398853194,
+      "run": "cantilever_sol103_n32",
+      "mesh_n": 32,
+      "passed": true,
+      "tolerance_percent": 0.5,
+      "quantity": "bending frequency",
+      "reference": 36.08296454550178,
+      "mode": 3,
+      "case_id": "ACA01",
+      "sol": 103,
+      "unit": "Hz"
+    },
+    {
+      "value": 70.70888968575225,
+      "error_percent": 0.0009622347643061984,
+      "run": "cantilever_sol103_n32",
+      "mesh_n": 32,
+      "passed": true,
+      "tolerance_percent": 0.5,
+      "quantity": "bending frequency",
+      "reference": 70.70820930678109,
+      "mode": 4,
+      "case_id": "ACA01",
+      "sol": 103,
+      "unit": "Hz"
+    }
+  ],
+  "outputs": {
+    "results/runs/cantilever_sol103_n32/cantilever_sol103_n32.jfem": "c31b06eaccad5e12e22fe78958b10719efe040a93596cdc046f98c7793b7414a"
+  }
+}

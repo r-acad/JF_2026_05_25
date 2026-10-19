@@ -1,230 +1,115 @@
-# OpenJFEM Public Validation Suite
+# JFEM validation cases
 
-A self-contained, public reproducibility set for validation
-of OpenJFEM. Every case here uses geometry, loads, and references that are
-in the open literature or in a permissively-licensed open-source repository.
+Explore the **[illustrated case gallery](index.html)**, open a two-page case card,
+or load the recorded result directly in JFEM-Boxer. The collection contains
+**18 case folders: 13 revised existing cases and five new analytical cases**.
+Each includes its model, numerical results, references and reusable PNG/SVG figures.
 
-This folder is the **public validation set**. Its manifest records
-the inputs, published references and comparison tolerances used by the runner.
+[Results and limitations](VALIDATION_SUMMARY.md) · [Case inventory CSV](CASE_INVENTORY.csv) ·
+[Current comparison table](comparison.md)
 
-## Folder Layout
+![First composite-plate buckling modes computed by JFEM](cases/ACA03/figures/modes.png)
+
+## View the results in Boxer
+
+1. Start [JFEM-Boxer](../APPS/JFEM-Boxer/README.md).
+2. Choose **Project → Open JFEM results…** and browse to a case's `results` folder.
+3. Select a `.jfem` file. Use the result controls to choose its load case,
+   normal mode, buckling mode or available static preload.
+
+For example, [ACA01](cases/ACA01/case_card.pdf) provides `results/static.jfem`
+and `results/modes.jfem`; [ACA03](cases/ACA03/case_card.pdf) provides
+`results/buckling.jfem`. These are recorded solver results and can be inspected
+without running the analysis again. Figure captions state displacement
+magnification; eigenvector sign and amplitude are arbitrary.
+
+![JFEM-Boxer opening the recorded composite-plate modes, with native frequencies and result controls](cases/ACA04/figures/boxer_results.png)
+
+This is the recorded ACA04 result opened from disk; its first frequency is
+35.018 Hz. The source model and convergence data remain alongside the result.
+
+## What is in each folder?
+
+| File or folder | Contents |
+|---|---|
+| `case_card.pdf` | Two-page model definition, reference, results and limits |
+| `model.bdf` | Representative analysis input; additional named decks cover other solutions or meshes |
+| `case.json` | Geometry, materials, constraints, loads, references and documented observations |
+| `metrics.csv` | The numerical quantities shown on the card |
+| `figures/` | PNG and SVG figures generated from recorded numerical fields |
+| `results/` | Native `.jfem` files, numerical tables and reproducibility information |
+| `convergence/` | Additional refinement models with retained comparison results |
+| `diagnostics/` | Explicitly unqualified diagnostic material where supplied |
+
+Sixteen case folders have an independent analytical or published reference.
+The CRM modal model and open-source static patch contain historical regression
+targets only. The cylinder strip is an analytical screening case with an
+explicit extraction limit. Their classifications remain visible in the cards
+and [summary](VALIDATION_SUMMARY.md).
+
+## Reproduce the comparisons
+
+Use the [normal JFEM installation](<../__Start here!__/README.md>); the shared
+Julia environment supplies the solver dependencies. On Windows, double-click
+**[run_public_validation.cmd](run_public_validation.cmd)**. It creates a new
+timestamped folder under `validation/local_runs` and retains the generated results.
+
+From the repository root, the same default check is:
 
 ```text
-validation/
-|-- README.md                       this file
-|-- CASE_INVENTORY.csv              compact provenance and coverage table
-|-- VALIDATION_SUMMARY.md     validation coverage and results
-|-- public_suite.yaml               THE manifest of cases (single source of truth)
-|-- run_public_suite.jl             top-level driver
-|-- analytical/                     Julia functions for closed-form references
-|-- cases/
-|   |-- macneal_harder/             six benchmark decks + two refined companions
-|   |-- classical/                  two closed-form plate/cylinder buckling decks
-|   |-- mystran_xref/               cross-checks against the MYSTRAN test suite
-|   `-- crm/                        Common Research Model wing-box
-`-- references/                     tabulated reference values
+julia --startup-file=no --project=. validation/run_public_suite.jl --output-dir validation/local_runs/my_check
 ```
 
-Full runs create `comparison.csv` and `comparison.md` locally in this folder.
-Those generated reports are ignored by Git so the public validation tree stays
-focused on auditable inputs and references.
+This runs **24 representative analyses and compares 44 quantities**, including
+the selected nested refinements. The retained cylinder diagnostic is excluded
+from qualification. The manifest [public_suite.yaml](public_suite.yaml) specifies
+the actual selectors, reference functions and tolerances. Preserve its deck
+settings, including explicit `PARAM,K6ROT` values, when reproducing results.
 
-## Who needs this folder?
+For a quick reference check that performs no FE solves:
 
-Running JFEM or its apps does not require opening this folder. It is kept in the
-repository so users can reproduce the accuracy checks, try small example decks,
-and verify a new installation. Unlike `utils/test/`, which checks code behavior, this
-suite compares physical responses with documented reference values.
-
-On Windows, double-click **run_public_validation.cmd** after installation. Read
-**VALIDATION_SUMMARY.md** for the coverage and known coarse-mesh limitations.
-No additional solver or proprietary software is required. Reports generated by
-your run stay local; the versioned decks and reference tables are stable inputs.
-
-## How To Run
-
-From this folder:
-
-```powershell
-# Resolve every case in public_suite.yaml, run JFEM, parse references,
-# emit comparison.csv and comparison.md.
-julia --project=.. run_public_suite.jl
-
-# Verbose mode (per-case timing and per-quantity diagnostics)
-julia --project=.. run_public_suite.jl --verbose
-
-# Run only a single family
-julia --project=.. run_public_suite.jl --family macneal_harder
-
-# Fast reference/provenance check without loading OpenJFEM or touching
-# comparison.csv / comparison.md.
-julia --project=.. run_public_suite.jl --dry-run --no-write
+```text
+julia --startup-file=no --project=. validation/run_public_suite.jl --dry-run --no-write
 ```
 
-The driver intentionally does **not** invoke any external solver at run
-time. Reference values are either:
+The complete new analytical convergence set contains **39 analyses and 126
+comparisons**. To run all its meshes and load levels:
 
-- analytical Julia functions in `analytical/`, or
-- tabulated CSVs under `references/`.
-
-This separation keeps the run-time pipeline solver-free and the suite's
-reference set auditable from source.
-
-## SOL 103 Shell Mass
-
-OpenJFEM's SOL 103 shell modal route uses coupled consistent PSHELL mass by
-default for quadrilateral and triangular shells. This matches the CRM modal
-reference family and gives physically meaningful modal participation factors
-from the full mass operator. Decks can request Reference-style lumped shell mass
-with `PARAM,COUPMASS,NO`; `PARAM,COUPMASS,YES` requests coupled mass explicitly.
-For diagnostics, `JFEM_SOL103_SHELL_MASS=consistent` or `lumped` can force the
-route without editing a deck. Total-mass and modal-effective-mass diagnostics
-are evaluated in the assembled analysis DOF frame using global rigid-translation
-vectors, so rotated GRID `CD` frames do not change the reported physical mass.
-
-## Per-Case Provenance
-
-| Case | Source | License | Reference kind |
-| --- | --- | --- | --- |
-| `macneal_harder/curved_beam.bdf` | MacNeal & Harder (1985), Sec.\ 3 | Public domain (40+ yr journal) | Analytical |
-| `macneal_harder/curved_beam_refined.bdf` | MacNeal & Harder (1985), Sec.\ 3, refined 24x4 mesh | Public domain | Analytical |
-| `macneal_harder/pinched_cylinder_refined.bdf` | MacNeal & Harder (1985), Sec.\ 8, refined 24x24 mesh | Public domain | Analytical |
-| `macneal_harder/twisted_beam.bdf` | MacNeal & Harder (1985), Sec.\ 4, in-plane load | Public domain | Analytical |
-| `macneal_harder/twisted_beam_out_of_plane.bdf` | MacNeal & Harder (1985), Sec.\ 4, out-of-plane load | Public domain | Analytical |
-| `macneal_harder/scordelis_lo.bdf` | MacNeal & Harder (1985), Sec.\ 7 | Public domain | Analytical |
-| `macneal_harder/pinched_cylinder.bdf` | MacNeal & Harder (1985), Sec.\ 8 | Public domain | Analytical |
-| `macneal_harder/hemispherical_shell.bdf` | MacNeal & Harder (1985), Sec.\ 9, 18-deg cut-out variant | Public domain | Analytical |
-| `classical/timoshenko_plate_buckling.bdf` | Timoshenko \& Gere, *Theory of Elastic Stability* (1961), Ch.\ 9 | Public domain | Closed-form |
-| `classical/cylinder_axial_buckling.bdf` | Brush \& Almroth, *Buckling of Bars, Plates and Shells* (1975), Ch.\ 5 | Public domain | Closed-form |
-| `mystran_xref/sol101_simple.bdf` | MYSTRAN test suite (MIT) | MIT | Tabulated commercial reference |
-| `mystran_xref/sol105_buckling.bdf` | MYSTRAN test suite (MIT) | MIT | Tabulated commercial reference |
-| `crm/wingbox_modal_with_props.bdf` | TACS examples/crm (Apache 2.0), augmented in-folder | Apache 2.0 | Tabulated commercial reference |
-
-## Publication Inclusion Rule
-
-The public validation set may contain:
-
-- CRM/uCRM decks from the TACS repository or similarly permissive public
-  repositories.
-- Classical published benchmark cases with analytical or clearly tabulated
-  references.
-- Synthetic decks generated solely from public formulas, public geometry, or
-  code in this repository.
-- Small cross-solver cases from open-source suites with compatible licenses.
-
-## Accuracy And Parity Are Scored Separately
-
-Each quantity in `public_suite.yaml` carries a `reference` (published or
-closed-form target) and, on 17 of the 19 rows, an optional `parity` block
-holding a tabulated reference-solver value for **this folder's own deck,
-unmodified**.
-
-They measure different things. The accuracy columns (`reference`, `rel_err`,
-`verdict`) include the discretisation error of a deliberately coarse benchmark
-mesh. The parity columns (`parity_ref`, `parity_rel_err`, `parity_tol_rel`,
-`parity_verdict`) do not: both sides run the identical mesh, so that error is
-common and cancels, and what remains is a formulation difference.
-
-The two are independent by construction — a parity result never changes the
-accuracy verdict and vice versa — because conflating them hides defects in both
-directions. A case can miss its textbook value by 6% while being in 0.02%
-parity (coarse mesh, not a defect), and a case can sit inside its accuracy
-tolerance while being hundreds of percent out of parity.
-
-Parity tolerances are deliberately **tighter** than the accuracy tolerance on
-the same row: there is no mesh-convergence allowance to spend.
-
-An empty parity cell means *unmeasured*, not passing. A quantity with no
-`parity` block behaves exactly as it did before the column existed.
-
-## Benchmark Meshes vs Refined Companions
-
-The MacNeal-Harder decks use the mesh densities the benchmark specifies. Those
-meshes are deliberately coarse, and on the two hardest cases **no** published
-4-node shell element reaches its converged target on them — the pinched
-cylinder at 4x4 puts six published elements between 0.370 and 0.636 of the
-reference, and the curved beam at 6x1 has MacNeal & Harder's own QUAD4 result at
-0.833. Scoring those meshes against the converged target measures the mesh, not
-the code.
-
-Rather than widen the tolerance until the coarse row passes — which would be
-fitting the gate to the answer — those two cases each ship a **refined
-companion** alongside the untouched benchmark deck:
-
-| benchmark deck | refined companion | mesh |
-| --- | --- | --- |
-| `curved_beam.bdf` | `curved_beam_refined.bdf` | 6x1 -> 24x4 |
-| `pinched_cylinder.bdf` | `pinched_cylinder_refined.bdf` | 4x4 -> 24x24 |
-
-Same problem, same material, same loads, same published reference, ordinary 2%
-tolerance, no per-mesh allowance. The benchmark rows keep reporting the
-benchmark result — including their honest FAIL against the converged target —
-and the refined rows show the element converging onto it. Each refined deck
-states its mesh construction rule in its header, so it is reproducible without
-a generator.
-
-## PARAM,K6ROT
-
-Every shell deck declares `PARAM,K6ROT` explicitly so the settings are
-reproducible. This coefficient controls numerical stabilization of the shell
-drilling rotation. The MacNeal-Harder and cross-check decks use `0.0`;
-the classical buckling and CRM decks use `100.0`. Use the supplied values when
-reproducing the tabulated comparisons.
-
-## Current Validation Status
-
-The maintained public-suite snapshot contains **19 scalar validation rows
-across 13 cases: 17 accuracy PASS / 2 FAIL, and 17 parity PASS / 0 parity
-FAIL** across the 17 rows that carry a parity target. Every case carries at
-least one same-deck parity measurement. Worst same-deck parity error on any
-row is `3.59e-5` (curved beam, refined mesh), with the CRM modal rows at
-`1.36e-5`, against parity tolerances of `1e-3` (`5e-3` for the CRM modal
-rows).
-
-Since 2026-08-06 the suite is also **run-to-run reproducible**: two
-independent runs produce identical values and identical error columns. The
-modal solver previously seeded its Krylov space with a random start vector,
-which made the CRM SOL 103 rows differ between runs at the `1e-11` level and
-forced comparisons to be judged on verdicts rather than numbers; it now uses
-a deterministic start vector with a Sturm completeness guard. Suite
-comparisons can therefore be gated on exact values.
-
-The two remaining accuracy failures — the curved beam (16.7%) and the pinched
-cylinder (47.6%) — are properties of the deliberately coarse standard benchmark
-meshes, not solver defects: the reference solver misses the same targets by the
-same amounts on the same decks, no published 4-node shell element comes near its
-converged value at these meshes either, and OpenJFEM converges onto both targets
-under refinement. `VALIDATION_SUMMARY.md` itemises each row.
-
-Run the suite to recreate `comparison.md` and `comparison.csv` with the exact
-values, tolerances, and relative errors for the local solver revision.
-
-## Building The Reference Set
-
-Reference values come in two flavours.
-
-### Analytical
-
-Closed-form formulas live in `analytical/` as one Julia file per problem.
-Each exposes a function returning the expected scalar quantity:
-
-```julia
-include("analytical/macneal_curved_beam.jl")
-ref = macneal_curved_beam_tip_disp(:in_plane)   # -> 0.08734
+```text
+julia --startup-file=no --project=. validation/run_academic_cases.jl validation/cases validation/local_runs/academic
 ```
 
-These never need to be regenerated; they are the references in source form.
+Each `ACA01`–`ACA05` folder also has a `reproduce.jl` entry point for that case.
+The full collection records **57 completed analyses with retained results**,
+plus one partial cylinder diagnostic. The default check selects representative analyses from this
+larger set. [VALIDATION_SUMMARY.md](VALIDATION_SUMMARY.md) explains the counts and
+the coarse-mesh failures retained in the results.
 
-### Tabulated reference values
+`PASS` means the stated quantity meets its declared tolerance for that model.
+`REGRESSION_PASS` and `HISTORICAL_PASS` compare stored values whose independent
+public source artifact is unavailable; they are reported separately from
+analytical and published-reference accuracy checks.
 
-`references/commercial_reference.csv` contains the same-deck comparison
-targets. The manifest associates each target with its deck, quantity and
-tolerance. The runner reads these tables directly; no other solver is needed.
+## Rebuild the figures and case cards
 
-The two classical buckling eigenvalue rows have no tabulated parity target.
-They are checked against their analytical references only. Each classical
-case also includes a static-preload comparison, which checks its stiffness,
-loads and constraints; it does not establish eigenvalue parity.
+The published figures and PDFs are already included. Optional regeneration uses
+the recorded fields in each case folder and requires Python packages `numpy`,
+`matplotlib`, `reportlab` and `pypdf`:
 
-An empty parity cell means unmeasured, never passed. See
-[VALIDATION_SUMMARY.md](VALIDATION_SUMMARY.md) for the recorded results and limits.
+```text
+python -m pip install numpy matplotlib reportlab pypdf
+python validation/build_case_cards.py --cases-root validation/cases --output-dir validation/_generated_cards
+```
+
+The output folder receives fresh two-page cards, PNG/SVG figures, metrics and
+artifact hashes. This operation regenerates documentation from the recorded
+results; the analysis commands above generate new solver results.
+
+The case publication manifests bind the included inputs, results and figures by
+SHA256. Git preserves their exact bytes across operating systems.
+
+JFEM software is licensed under the [GNU AGPL version 3](../LICENSE).
+Project-authored inputs follow the repository license. Adapted open-source
+inputs retain their adjacent MIT or Apache-2.0 license notices. Cited journal
+articles and books retain their own copyright; their problem definitions and
+reference values are cited rather than described as public-domain publications.

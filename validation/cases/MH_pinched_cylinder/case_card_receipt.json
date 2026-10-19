@@ -1,0 +1,18 @@
+{
+  "schema": "jfem.validation.case_card.v1",
+  "case_id": "MH_pinched_cylinder",
+  "built_utc": "2026-10-19T10:12:25.299877+00:00",
+  "pdf_pages": 2,
+  "case_metadata_sha256": "f1ba4f9bc1c87f153fd2084bdf4cb6ceda892284b00a130d030630abd62c547f",
+  "visual_data_sha256": "2ad4688587f7cd55c364f8d1d71b1165be7f1d2af0414c7ac078f3bfe4182e56",
+  "builder_sha256": "776022314b284aee7e4ade99617497739e5e8bc30f818f4972fa3b8ee00977e7",
+  "source": "Recorded JFEM numerical fields; no synthetic deformation fields",
+  "artifacts": {
+    "case_card.pdf": "244c4d45c3d6c1dfad134c54d1d859c12d56c85adbf355587e52598e365e637b",
+    "metrics.csv": "dc78b4c518d7efe5ff86194c4fc3b4d90ed8e0f16bc3e48d3be240bfc69e0176",
+    "figures/deformation.png": "6edae5cbd29d1f1fd5ac7f35b01ac0d1b39789b02a4eeb0268a31241919a8c94",
+    "figures/deformation.svg": "407f9c5376a61e337682e3ae94436203d41c0afc9780c9fe141563b732642d18",
+    "figures/response.png": "0ab30c2b8dffb2e925dd2e54366c67d60160b1c81a4e1cb15c48eff6436f1996",
+    "figures/response.svg": "ac96a94ad7a6d2a9dc6d6daac0d119e8f4f92c4f095b2cd5117145104b62ea3f"
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "schema": "jfem.validation.published_case.v1",
+  "case_id": "CRM_wingbox_modal",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "built_utc": "2026-10-19T10:21:14.431133+00:00",
+  "evidence_class": "Reproducibility / historical regression",
+  "artifact_provenance": "Publicly curated input, native JFEM output and original figures; sources and limits in case.json and adjacent notices.",
+  "files": {
+    "case.json": {
+      "sha256": "1116ee73551b8ae81da7ad47fafa7133ff36e79681486ff7be9ff8bf6ca38e3f",
+      "bytes": 3658
+    },
+    "case_card.pdf": {
+      "sha256": "a8756ab3a53ecdd73a84fbdddc3b09dfcc768bb307e0c2d7ddb27b89466bd388",
+      "bytes": 480027
+    },
+    "case_card_receipt.json": {
+      "sha256": "6cb34deb19b299b6ec8bc3e9fb228ec00fb04664fa4c1a12b65f489afe417776",
+      "bytes": 1296
+    },
+    "figures/deformation.png": {
+      "sha256": "076cf2b99a77dbfa168cf6d8a4e5728ffde9cc147f6bae84a124562bf8a128c3",
+      "bytes": 141842
+    },
+    "figures/deformation.svg": {
+      "sha256": "b2cbb6e188fbde8adf83d7f778025c3b95ac6d6f87ad8e642afc3dd03db320e0",
+      "bytes": 10823602
+    },
+    "figures/modes.png": {
+      "sha256": "bd1c7616c4198a4cdfe271619106d1f6e94a74d0ade301618bf339489a689711",
+      "bytes": 190127
+    },
+    "figures/modes.svg": {
+      "sha256": "cf665357adca4c9dc24713b9c4121daecf5d9856b6d5acf0e5f66a0084798bbb",
+      "bytes": 42734907
+    },
+    "figures/response.png": {
+      "sha256": "8394e4fc7e1ae20d61b795b0000d8bf365ac057123c1deaee4dc8fcd6ad4176c",
+      "bytes": 85812
+    },
+    "figures/response.svg": {
+      "sha256": "e989f8404834b9819379bbb61f4afde443fa069643568c9024fdb0ba88b2d00d",
+      "bytes": 11949
+    },
+    "LICENSE.TACS.txt": {
+      "sha256": "a7870c386976e607a6cc1254d97fae84ce5ed9d8c8f2f5652d1a701202457c99",
+      "bytes": 9171
+    },
+    "metrics.csv": {
+      "sha256": "f3255984e29f6ff64e0e7638ae4d453af2d06ed5f56337303acdfb0702aaa40b",
+      "bytes": 525
+    },
+    "model.bdf": {
+      "sha256": "a35d9dbf81cf71fa43b89c998c7d50a072211008b55e31bb53e2ccfab663cb9e",
+      "bytes": 5431256
+    },
+    "results/provenance.json": {
+      "sha256": "3628b2496e65bb9887f905f8396bffe36affb00c6d448c2bc920efaf36b12580",
+      "bytes": 1048
+    },
+    "results/results.json": {
+      "sha256": "788d5cc564f345073c1bcd2efefb79fa13e64d69faac6b2d39ce88cf02eedd7a",
+      "bytes": 3301
+    },
+    "results/visual_data.json": {
+      "sha256": "edf2cd06e44008a48a8b47cf360484e7ea2c4517958cabbf30e1e78ff0de9f40",
+      "bytes": 36044973
+    },
+    "results/wingbox_modal_with_props.jfem": {
+      "sha256": "c7a88f54b145ba12c58ea622c5c16ee304f0d987f8dd04905aad1124d15f69f3",
+      "bytes": 7437780
+    },
+    "results/wingbox_modal_with_props.TIMINGS.JSON": {
+      "sha256": "96dc9c7a6fd5c57340435ef487046102929e5fceb055638211961a64bcbbdae6",
+      "bytes": 15227
+    }
+  }
+}

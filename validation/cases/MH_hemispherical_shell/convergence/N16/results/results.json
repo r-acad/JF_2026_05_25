@@ -1,0 +1,29 @@
+{
+  "schema": "jfem.validation.recorded_results.v1",
+  "case_id": "MH_hemispherical_shell_N16",
+  "input_sha256": "af8e75bbf65c298fc2a37952b311e31df5b502f01ea465ea6eb22185615f951e",
+  "metrics": [
+    {
+      "name": "N16 refined response",
+      "value": 0.093871924067431,
+      "reference": 0.093,
+      "error_percent": 0.9375527606785061,
+      "unit": "benchmark length unit",
+      "tolerance_percent": 10.0,
+      "status": "PASS",
+      "source_input": "convergence/N16/model.bdf"
+    }
+  ],
+  "states": [
+    {
+      "name": "Static subcase 1",
+      "kind": "static",
+      "normalization": "physical displacement in model length units",
+      "subcase": 1
+    }
+  ],
+  "field_data": "visual_data.json",
+  "binary_results": [
+    "MH_hemispherical_shell_N16.jfem"
+  ]
+}

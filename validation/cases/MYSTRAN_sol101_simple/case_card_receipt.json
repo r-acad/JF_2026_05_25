@@ -1,0 +1,18 @@
+{
+  "schema": "jfem.validation.case_card.v1",
+  "case_id": "MYSTRAN_sol101_simple",
+  "built_utc": "2026-10-19T10:12:28.701354+00:00",
+  "pdf_pages": 2,
+  "case_metadata_sha256": "5c1de29b1872d8e8b2133f7685f0c5deb584734b14de6c3b3cbe57940f9574e3",
+  "visual_data_sha256": "a7fe7a98416f0ea277d2b3ed3ffd1b4bf8ad4d68632b7963695836b336667f99",
+  "builder_sha256": "776022314b284aee7e4ade99617497739e5e8bc30f818f4972fa3b8ee00977e7",
+  "source": "Recorded JFEM numerical fields; no synthetic deformation fields",
+  "artifacts": {
+    "case_card.pdf": "ba1d07e98134334f7c8fd969e841d041753f42f9267fa5d544d1c559805003b0",
+    "metrics.csv": "7ba77398bd1bcb3d887af165e7b763682747641e00e23ef7052c9ce662232224",
+    "figures/deformation.png": "2380c1f6ff7704e03985382681eba1cb6073bdd42c6c8029c3128d414032545f",
+    "figures/deformation.svg": "082ea3a1d6e5980f6415411e82179351707336877d7eb8e7bb46ab65d02c4a40",
+    "figures/response.png": "1eb574d4297d844f553998e3073c907f30f4929532006bdd688361609e76e9f2",
+    "figures/response.svg": "73b9f139d395446f32baef1a66931840ab70bd5e5abec611ca79d2497afca5f7"
+  }
+}

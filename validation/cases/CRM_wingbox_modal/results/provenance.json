@@ -1,0 +1,20 @@
+{
+  "schema": "jfem.validation.provenance.v1",
+  "case_id": "CRM_wingbox_modal",
+  "input": "cases/CRM_wingbox_modal/model.bdf",
+  "input_sha256": "a35d9dbf81cf71fa43b89c998c7d50a072211008b55e31bb53e2ccfab663cb9e",
+  "status": "solved",
+  "input_unchanged": true,
+  "run_started_utc": "2026-10-19T09:28:43.372",
+  "run_finished_utc": "2026-10-19T09:30:15.179",
+  "julia_version": "1.13.1",
+  "wall_seconds_including_compilation": 91.8069149,
+  "source_receipt_sha256": "0adbcb05caf4b12cfa9f2dc152d5611e7fefee9f849a85dc6a84ac9d59e83379",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "published_files": {
+    "results.json": "788d5cc564f345073c1bcd2efefb79fa13e64d69faac6b2d39ce88cf02eedd7a",
+    "visual_data.json": "edf2cd06e44008a48a8b47cf360484e7ea2c4517958cabbf30e1e78ff0de9f40",
+    "wingbox_modal_with_props.jfem": "c7a88f54b145ba12c58ea622c5c16ee304f0d987f8dd04905aad1124d15f69f3",
+    "wingbox_modal_with_props.TIMINGS.JSON": "96dc9c7a6fd5c57340435ef487046102929e5fceb055638211961a64bcbbdae6"
+  }
+}

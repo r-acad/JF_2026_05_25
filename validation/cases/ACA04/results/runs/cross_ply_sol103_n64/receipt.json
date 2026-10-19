@@ -1,0 +1,237 @@
+{
+  "case_id": "ACA04",
+  "run": "cross_ply_sol103_n64",
+  "sol": 103,
+  "mesh_n": 64,
+  "status": "solved",
+  "input_file": "cross_ply_sol103_n64.bdf",
+  "input_sha256": "a7f020fbc026c52c820abe638b21b41252f8ac61fc3cd2941e83c2e41ab17c92",
+  "started_utc": "2026-10-19T09:38:01.527",
+  "finished_utc": "2026-10-19T09:38:12.096",
+  "wall_seconds_including_compilation": 10.567000150680542,
+  "solver_diagnostics": {
+    "requested_modes": 6,
+    "eigen_residual_tolerance": 1e-06,
+    "eigrl_lambda_bounds": {
+      "upper": "Inf",
+      "lower": 0.0
+    },
+    "solver_backend": "shifted_block_lanczos",
+    "factorization_autospc_allowed": false,
+    "backend": "reference_parity",
+    "singular_mass_coordinates_retained": 8450,
+    "bc_partition": {
+      "explicit_spc_dofs": 4547,
+      "autospc_enabled": true,
+      "autospc_gpst_rotational_dofs": 0,
+      "autospc_load_path_protection": {
+        "enabled": false
+      },
+      "autospc_diagonal_zero_dofs": 0,
+      "mpc_dependent_dofs": 0,
+      "fixed_dofs": 4547,
+      "autospc_diagonal_rotational_dofs": 0,
+      "permanent_grid_dofs": 0,
+      "autospc_gpst_eps_zero": 1e-08,
+      "autospc_gpst_dofs": 0,
+      "autospc_diagonal_translational_dofs": 0,
+      "autospc_load_path_skipped_dofs": 0,
+      "factorization_autospc": {
+        "triggered": false,
+        "reason": "nullspace-preserving eigen solve",
+        "bypassed": true
+      },
+      "autospc_reference_scope": "grid_point_principal_stiffness",
+      "permanent_grid_constraints": 0,
+      "autospc_negative_diagonal_dofs": 0,
+      "autospc_load_path_protected_translational_dofs": 0,
+      "autospc_gpst_translational_dofs": 0,
+      "autospc_diagonal_dofs": 0,
+      "autospc_diagonal_relative_dofs": 0,
+      "free_dofs": 20803,
+      "autospc_gpst_entries": []
+    },
+    "scalar_arnoldi_runs": 0,
+    "fixed_dofs": 4547,
+    "returned_modes": 6,
+    "positive_mass_shift": {
+      "lambda_reference": 1737082979865.7732,
+      "alpha": 1737082979.8657732,
+      "numerical_floor": 0.20369109874411576,
+      "used": true,
+      "attempts": [
+        {
+          "alpha": 1737082979.8657732,
+          "status": "succeeded"
+        }
+      ]
+    },
+    "eigrl_range": {
+      "v2": 0.0,
+      "v1": 0.0
+    },
+    "eigenvalues_below_eigrl_v1": 0,
+    "eigenvalues_below_eigrl_v2": null,
+    "block_lanczos": {
+      "returned": 12,
+      "succeeded": true,
+      "block_size": 6,
+      "accepted": 12,
+      "converged": 12,
+      "attempted": true
+    },
+    "candidate_rejections": {
+      "negative": 0,
+      "massless": 0,
+      "duplicate_subspace": 0,
+      "residual": 0
+    },
+    "near_zero_eigenvalue_tolerance": 0.19748347084098136,
+    "massless_free_dof_tolerance": 8.33333333333336e-17,
+    "eigenvalues_in_eigrl_band": null,
+    "shell_mass_formulation": "coupled_consistent",
+    "modal_effective_mass_frame": "global_translation_in_analysis_dof_frame",
+    "krylov_dimension": 48,
+    "massless_free_dofs_removed": 0,
+    "shell_inertia_policy": "reference_surface",
+    "completeness_retry_target_modes": 6,
+    "max_accepted_relative_residual": 1.696196763520569e-14,
+    "solver_attempts": [
+      {
+        "name": "nullspace_preserving_shift_invert",
+        "returned_modes": 6,
+        "status": "succeeded",
+        "converged": 12,
+        "backend": "shifted_block_lanczos",
+        "shifted": true
+      }
+    ],
+    "eigrl_norm": "MASS",
+    "completeness_guard": [
+      {
+        "interval_gap": 0,
+        "sturm_interval_count": 6,
+        "independent_modes": 6,
+        "attempt": 0,
+        "omega_sq_bound": 1760533.286189576,
+        "retry_target_modes": 6,
+        "strict_required_modes": 0,
+        "target_gap": -6,
+        "sturm_available": true,
+        "gap": 0,
+        "strict_target_gap": -12
+      }
+    ],
+    "dense_max_dof": 4000,
+    "mpc_dependent_dofs_recovered": 0,
+    "requested_modes_internal": 6,
+    "massless_zero_stiffness_dof_tolerance": 0.00029861430872483384,
+    "backend_version": "0.1.0",
+    "modal_generalized_mass": [
+      0.9999999999999998,
+      1.0,
+      0.9999999999999996,
+      0.9999999999999999,
+      1.0,
+      0.9999999999999999
+    ],
+    "completeness_required_modes": 0,
+    "eigen_cache": {
+      "factor_backend": "positive_mass_shift_cholesky",
+      "cache_hit": false,
+      "enabled": true,
+      "factorization_cache_hit": false
+    },
+    "free_dofs": 20803,
+    "krylov_requested_modes": 12
+  },
+  "metrics": [
+    {
+      "run": "cross_ply_sol103_n64",
+      "value": 35.018064983736345,
+      "error_percent": 0.03211425020974274,
+      "mesh_n": 64,
+      "passed": true,
+      "tolerance_percent": 2.0,
+      "quantity": "natural frequency",
+      "reference": 35.02931438540483,
+      "mode": 1,
+      "case_id": "ACA04",
+      "sol": 103,
+      "unit": "Hz"
+    },
+    {
+      "run": "cross_ply_sol103_n64",
+      "value": 95.25817681008286,
+      "error_percent": 0.0003389162842524445,
+      "mesh_n": 64,
+      "passed": true,
+      "tolerance_percent": 2.0,
+      "quantity": "natural frequency",
+      "reference": 95.25849965665033,
+      "mode": 2,
+      "case_id": "ACA04",
+      "sol": 103,
+      "unit": "Hz"
+    },
+    {
+      "run": "cross_ply_sol103_n64",
+      "value": 98.47268034117522,
+      "error_percent": 0.01382861539945525,
+      "mesh_n": 64,
+      "passed": true,
+      "tolerance_percent": 2.0,
+      "quantity": "natural frequency",
+      "reference": 98.45906481577595,
+      "mode": 3,
+      "case_id": "ACA04",
+      "sol": 103,
+      "unit": "Hz"
+    },
+    {
+      "run": "cross_ply_sol103_n64",
+      "value": 140.08260451069816,
+      "error_percent": 0.024731451021206254,
+      "mesh_n": 64,
+      "passed": true,
+      "tolerance_percent": 2.0,
+      "quantity": "natural frequency",
+      "reference": 140.11725754161932,
+      "mode": 4,
+      "case_id": "ACA04",
+      "sol": 103,
+      "unit": "Hz"
+    },
+    {
+      "run": "cross_ply_sol103_n64",
+      "value": 203.11876183609417,
+      "error_percent": 0.04603803168842528,
+      "mesh_n": 64,
+      "passed": true,
+      "tolerance_percent": 2.0,
+      "quantity": "natural frequency",
+      "reference": 203.02529298737312,
+      "mode": 5,
+      "case_id": "ACA04",
+      "sol": 103,
+      "unit": "Hz"
+    },
+    {
+      "run": "cross_ply_sol103_n64",
+      "value": 211.1747724157199,
+      "error_percent": 0.07724856639573931,
+      "mesh_n": 64,
+      "passed": true,
+      "tolerance_percent": 2.0,
+      "quantity": "natural frequency",
+      "reference": 211.01176884935748,
+      "mode": 6,
+      "case_id": "ACA04",
+      "sol": 103,
+      "unit": "Hz"
+    }
+  ],
+  "outputs": {
+    "results/runs/cross_ply_sol103_n64/cross_ply_sol103_n64.jfem": "5c1d5149bf2d7d346bc7dff2639db41fa8742b91e6c3d171a72a2b93b6fbde22"
+  }
+}

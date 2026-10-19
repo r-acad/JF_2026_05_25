@@ -39,8 +39,8 @@
       if(!deck||!context.data)return;
       const c=selected(context.data,context.caseId);if(!c)return;
       const constraints=supports(context.data,c.id)||{},control=c.case_control||{};
-      heading(casesHost,'Imported load cases',context);note(casesHost,'Read-only source load and constraint definitions. Selecting a case updates the 3D view. Analysis lets you choose SOL101/103/105/106 and follower FORCE loads; edit and reread the BDF to change source load sets or constraints.');
-      definition(casesHost,{'Solution':'SOL '+deck.solution,'Subcase':c.id,'Label':c.label,...control});
+      heading(casesHost,deck.readOnly?'Archived result cases':'Imported load cases',context);note(casesHost,deck.readOnly?'Load and constraint masks retained in the .jfem binary. Selecting a case updates the 3D view. Original load-set definitions, coordinate systems and prescribed values are not embedded; open the source deck or Study to inspect or solve the original problem.':'Read-only source load and constraint definitions. Selecting a case updates the 3D view. Analysis lets you choose SOL101/103/105/106 and follower FORCE loads; edit and reread the BDF to change source load sets or constraints.');
+      definition(casesHost,{'Solution':deck.solution_label||(deck.solution?'SOL '+deck.solution:'Original solution not stored'),'Subcase':c.id,'Label':c.label,...control});
       for(const warning of c.warnings||[])note(casesHost,warning);
       const actions=make('div',undefined,'hud-row');actions.append(button('Show applied loads',showLoads),button('Show constraints',showSupports));casesHost.append(actions);
       const cards=make('details'),cardTitle=make('summary','Selected load cards');cards.append(cardTitle);cards.open=true;casesHost.append(cards);

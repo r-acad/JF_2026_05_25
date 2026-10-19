@@ -1,0 +1,291 @@
+{
+  "id": "ACA01",
+  "title": "Slender cantilever: static bending and natural frequencies",
+  "solutions": [
+    101,
+    103
+  ],
+  "evidence_class": "Independent analytical equation verification",
+  "length_unit": "m",
+  "metrics": [
+    {
+      "name": "tip transverse displacement",
+      "value": 0.0011428571428703425,
+      "reference": 0.0011428571428571427,
+      "error_percent": 1.1549761797999272e-09,
+      "tolerance_percent": 0.5,
+      "unit": "m",
+      "status": "PASS"
+    },
+    {
+      "name": "tip section rotation",
+      "value": 0.0008571428571512702,
+      "reference": 0.0008571428571428571,
+      "error_percent": 9.815264197475064e-10,
+      "tolerance_percent": 0.5,
+      "unit": "rad",
+      "status": "PASS"
+    },
+    {
+      "name": "bending frequency 1",
+      "value": 2.056304473538152,
+      "reference": 2.056304413102851,
+      "error_percent": 2.9390250209463745e-06,
+      "tolerance_percent": 0.5,
+      "unit": "Hz",
+      "status": "PASS"
+    },
+    {
+      "name": "bending frequency 2",
+      "value": 12.886643922419868,
+      "reference": 12.8866397853357,
+      "error_percent": 3.2103668896557075e-05,
+      "tolerance_percent": 0.5,
+      "unit": "Hz",
+      "status": "PASS"
+    },
+    {
+      "name": "bending frequency 3",
+      "value": 36.08305518150804,
+      "reference": 36.08296454550178,
+      "error_percent": 0.00025118780398853194,
+      "tolerance_percent": 0.5,
+      "unit": "Hz",
+      "status": "PASS"
+    },
+    {
+      "name": "bending frequency 4",
+      "value": 70.70888968575225,
+      "reference": 70.70820930678109,
+      "error_percent": 0.0009622347643061984,
+      "tolerance_percent": 0.5,
+      "unit": "Hz",
+      "status": "PASS"
+    }
+  ],
+  "convergence": [
+    {
+      "quantity": "tip transverse displacement",
+      "elements": 4,
+      "value": 0.0011428571428582883,
+      "reference": 0.0011428571428571427,
+      "error_percent": 1.0023720135171611e-10,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip section rotation",
+      "elements": 4,
+      "value": 0.0008571428571437155,
+      "reference": 0.0008571428571428571,
+      "error_percent": 1.0014233366162362e-10,
+      "unit": "rad"
+    },
+    {
+      "quantity": "tip transverse displacement",
+      "elements": 8,
+      "value": 0.0011428571428580751,
+      "reference": 0.0011428571428571427,
+      "error_percent": 8.158621347953422e-11,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip section rotation",
+      "elements": 8,
+      "value": 0.0008571428571435365,
+      "reference": 0.0008571428571428571,
+      "error_percent": 7.9258792815932e-11,
+      "unit": "rad"
+    },
+    {
+      "quantity": "tip transverse displacement",
+      "elements": 16,
+      "value": 0.001142857142859962,
+      "reference": 0.0011428571428571427,
+      "error_percent": 2.466939413164893e-10,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip section rotation",
+      "elements": 16,
+      "value": 0.0008571428571448963,
+      "reference": 0.0008571428571428571,
+      "error_percent": 2.3790286870125265e-10,
+      "unit": "rad"
+    },
+    {
+      "quantity": "tip transverse displacement",
+      "elements": 32,
+      "value": 0.0011428571428703425,
+      "reference": 0.0011428571428571427,
+      "error_percent": 1.1549761797999272e-09,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip section rotation",
+      "elements": 32,
+      "value": 0.0008571428571512702,
+      "reference": 0.0008571428571428571,
+      "error_percent": 9.815264197475064e-10,
+      "unit": "rad"
+    },
+    {
+      "quantity": "bending frequency 1",
+      "elements": 4,
+      "value": 2.0563716708627613,
+      "reference": 2.056304413102851,
+      "error_percent": 0.0032708075458952024,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "bending frequency 2",
+      "elements": 4,
+      "value": 12.901655387894872,
+      "reference": 12.8866397853357,
+      "error_percent": 0.11652069747661668,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "bending frequency 3",
+      "elements": 4,
+      "value": 36.36232954688323,
+      "reference": 36.08296454550178,
+      "error_percent": 0.7742296258090481,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "bending frequency 4",
+      "elements": 4,
+      "value": 71.73502557123251,
+      "reference": 70.70820930678109,
+      "error_percent": 1.4521881893464272,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "bending frequency 1",
+      "elements": 8,
+      "value": 2.0563086964096926,
+      "reference": 2.056304413102851,
+      "error_percent": 0.00020830120357489933,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "bending frequency 2",
+      "elements": 8,
+      "value": 12.887670186844426,
+      "reference": 12.8866397853357,
+      "error_percent": 0.007995889742330956,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "bending frequency 3",
+      "elements": 8,
+      "value": 36.10491168567769,
+      "reference": 36.08296454550178,
+      "error_percent": 0.06082410481609616,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "bending frequency 4",
+      "elements": 8,
+      "value": 70.86660404805035,
+      "reference": 70.70820930678109,
+      "error_percent": 0.22401181252099947,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "bending frequency 1",
+      "elements": 16,
+      "value": 2.05630468258017,
+      "reference": 2.056304413102851,
+      "error_percent": 1.3104933170825047e-05,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "bending frequency 2",
+      "elements": 16,
+      "value": 12.886705608557335,
+      "reference": 12.8866397853357,
+      "error_percent": 0.0005107865411963753,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "bending frequency 3",
+      "elements": 16,
+      "value": 36.08439897961671,
+      "reference": 36.08296454550178,
+      "error_percent": 0.0039753776691988894,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "bending frequency 4",
+      "elements": 16,
+      "value": 70.71889866252518,
+      "reference": 70.70820930678109,
+      "error_percent": 0.015117559684920644,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "bending frequency 1",
+      "elements": 32,
+      "value": 2.056304473538152,
+      "reference": 2.056304413102851,
+      "error_percent": 2.9390250209463745e-06,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "bending frequency 2",
+      "elements": 32,
+      "value": 12.886643922419868,
+      "reference": 12.8866397853357,
+      "error_percent": 3.2103668896557075e-05,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "bending frequency 3",
+      "elements": 32,
+      "value": 36.08305518150804,
+      "reference": 36.08296454550178,
+      "error_percent": 0.00025118780398853194,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "bending frequency 4",
+      "elements": 32,
+      "value": 70.70888968575225,
+      "reference": 70.70820930678109,
+      "error_percent": 0.0009622347643061984,
+      "unit": "Hz"
+    }
+  ],
+  "references": [
+    {
+      "citation": "University of Alberta: Euler Bernoulli Beam",
+      "url": "https://engcourses-uofa.ca/books/introduction-to-solid-mechanics/plane-beam-approximations/euler-bernoulli-beam/"
+    },
+    {
+      "citation": "Slater and Timbo: Engineering Vibration Toolbox, continuous systems",
+      "url": "https://vibrationtoolbox.github.io/vibration_toolbox/reference/continuous.html"
+    }
+  ],
+  "visual_file": "results/visual_data.json",
+  "solver_revision": "a70f997cce40",
+  "run_date": "2026-10-19",
+  "equations": [
+    "w(x)=F*x^2*(3L-x)/(6EI)",
+    "theta(x)=F*x*(2L-x)/(2EI)",
+    "cos(beta)*cosh(beta)=-1",
+    "f_j=beta_j^2/(2*pi*L^2)*sqrt(EI/(rho*A))"
+  ],
+  "description": "A clamped uniform beam tests exact static bending and the first four Euler-Bernoulli normal modes. Consistent translational mass and a single bending plane give an independently specified one-dimensional eigenproblem.",
+  "geometry": "Length 2 m; section 0.04 m by 0.01 m. Meshes of 4, 8, 16 and 32 CBAR elements.",
+  "material": "E = 70 GPa, nu = 0.3, density 2700 kg/m3; A = 4e-4 m2, I = 3.333333333e-9 m4. Shear deformation disabled.",
+  "boundary_conditions": "One bending plane: every node ux=uz=rx=ry=0; root uy=rz=0.",
+  "loading": "Static: +Y tip force 0.1 N. Modal: no load; consistent translational mass.",
+  "observations": [
+    "All four finest frequencies agree within 0.000963%; static deflection and rotation agree to roundoff.",
+    "The fourth-frequency error falls from 1.4522% with 4 elements to 0.0009623% with 32 elements."
+  ],
+  "limits": [
+    "Euler-Bernoulli equation verification with small displacement and one bending plane; no experimental calibration or general three-dimensional beam certification."
+  ]
+}

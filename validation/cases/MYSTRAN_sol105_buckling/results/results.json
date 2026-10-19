@@ -1,0 +1,48 @@
+{
+  "schema": "jfem.validation.recorded_results.v1",
+  "case_id": "MYSTRAN_sol105_buckling",
+  "input_sha256": "d35631af5b7d223d4c5a5a3d8d9f41472be17fbaae4572464ff6adf4310a51e1",
+  "metrics": [
+    {
+      "name": "lambda 1",
+      "value": 10358.173746333156,
+      "reference": 10280.837917801415,
+      "error_percent": 0.7522327377404991,
+      "unit": "-",
+      "tolerance_percent": 5.0,
+      "status": "PASS",
+      "reference_classification": "analytical",
+      "source_input": "model.bdf"
+    }
+  ],
+  "states": [
+    {
+      "name": "Mode 1",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 1,
+      "eigenvalue": 10358.173746333156,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 2",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 2,
+      "eigenvalue": 134086.27069811246,
+      "frequency_hz": null
+    },
+    {
+      "name": "Static preload 1",
+      "kind": "preload",
+      "normalization": "physical displacement in model length units",
+      "subcase": 1
+    }
+  ],
+  "field_data": "visual_data.json",
+  "binary_results": [
+    "sol105_buckling.jfem"
+  ]
+}

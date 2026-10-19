@@ -1,0 +1,18 @@
+{
+  "schema": "jfem.validation.case_card.v1",
+  "case_id": "MH_scordelis_lo",
+  "built_utc": "2026-10-19T10:12:27.096420+00:00",
+  "pdf_pages": 2,
+  "case_metadata_sha256": "8a328cd1950af00b314acdee491bdac878b529927fb119000bad66ba5e94033d",
+  "visual_data_sha256": "fcab76206947b3065f8ac9e5bde455719265e3ea064c8d70a81965e77838b271",
+  "builder_sha256": "776022314b284aee7e4ade99617497739e5e8bc30f818f4972fa3b8ee00977e7",
+  "source": "Recorded JFEM numerical fields; no synthetic deformation fields",
+  "artifacts": {
+    "case_card.pdf": "98ca0db79daea43c29c4bb0bc6d905265d1cdd6bd72dd6ed49ca5394ae566b95",
+    "metrics.csv": "167f9f766d4e46b47605744723e3986f3a36b8daba56a60112d816e749ccbcd5",
+    "figures/deformation.png": "df0eb11f95e271cd99c0356473e17d15f4a66dae5c7c002e816f931d0644c1a9",
+    "figures/deformation.svg": "5d12046c2048680bcc6289af2f4b83a082b8a02dabf283e5f37f43319b3ae742",
+    "figures/response.png": "1bfe0323c16e0a224e98ce24167628896b268468104ab09e3ee8619cff668240",
+    "figures/response.svg": "961a9025745a49511725a286faf247b509e00f16d2aff6cdf5c6c16f8db3c7a1"
+  }
+}

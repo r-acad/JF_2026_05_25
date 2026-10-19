@@ -1,0 +1,126 @@
+{
+  "id": "ACA02",
+  "slug": "shear_flexible_beam",
+  "title": "Short cantilever: Timoshenko shear flexibility",
+  "reference_kind": "independently_computed_analytical",
+  "references": [
+    {
+      "title": "University of Alberta: Timoshenko Beam",
+      "url": "https://engcourses-uofa.ca/books/introduction-to-solid-mechanics/plane-beam-approximations/timoshenko-beam/",
+      "supports": "Effective shear area and independent section rotation."
+    },
+    {
+      "title": "University of Alberta: Euler Bernoulli Beam",
+      "url": "https://engcourses-uofa.ca/books/introduction-to-solid-mechanics/plane-beam-approximations/euler-bernoulli-beam/",
+      "supports": "Beam assumptions and EI times fourth displacement derivative equals load; analytical cantilever response is independently derived."
+    }
+  ],
+  "equations": [
+    "G=E/(2*(1+nu))",
+    "A_s=kappa*A, kappa=5/6 explicitly specified",
+    "w_tip=F*L^3/(3*EI)+F*L/(kappa*G*A)",
+    "theta_tip=F*L^2/(2*EI)"
+  ],
+  "applicability": "Exact response of the one-dimensional Timoshenko model with user-selected effective shear area; not a three-dimensional elasticity reference.",
+  "boundary_conditions_and_loads": [
+    "x=0: uy=rz=0; every GRID: ux=uz=rx=ry=0 (one bending plane).",
+    "Global +Y tip force100N. Effective shear area explicitly5/6 of gross area."
+  ],
+  "units": "SI: m, N, kg, s, Pa",
+  "acceptance": {
+    "relative_error_percent": 0.01,
+    "justification": "Declared before execution. Beam/membrane values test exact element/model equations; thin laminate tolerance allows finite mesh convergence and thin-theory/model differences. All errors remain reported."
+  },
+  "runs": [
+    {
+      "name": "timoshenko_n01",
+      "deck": "timoshenko_n01.bdf",
+      "sol": 101,
+      "n": 1,
+      "parameters": {
+        "E_Pa": 70000000000.0,
+        "nu": 0.3,
+        "rho_kg_m3": 2700.0,
+        "width_m": 0.04,
+        "height_m": 0.2,
+        "length_m": 1.0,
+        "area_m2": 0.008,
+        "I_m4": 2.6666666666666673e-05,
+        "load_N": 100.0,
+        "shear_factor": 0.8333333333333334
+      }
+    },
+    {
+      "name": "timoshenko_n02",
+      "deck": "timoshenko_n02.bdf",
+      "sol": 101,
+      "n": 2,
+      "parameters": {
+        "E_Pa": 70000000000.0,
+        "nu": 0.3,
+        "rho_kg_m3": 2700.0,
+        "width_m": 0.04,
+        "height_m": 0.2,
+        "length_m": 1.0,
+        "area_m2": 0.008,
+        "I_m4": 2.6666666666666673e-05,
+        "load_N": 100.0,
+        "shear_factor": 0.8333333333333334
+      }
+    },
+    {
+      "name": "timoshenko_n04",
+      "deck": "timoshenko_n04.bdf",
+      "sol": 101,
+      "n": 4,
+      "parameters": {
+        "E_Pa": 70000000000.0,
+        "nu": 0.3,
+        "rho_kg_m3": 2700.0,
+        "width_m": 0.04,
+        "height_m": 0.2,
+        "length_m": 1.0,
+        "area_m2": 0.008,
+        "I_m4": 2.6666666666666673e-05,
+        "load_N": 100.0,
+        "shear_factor": 0.8333333333333334
+      }
+    },
+    {
+      "name": "timoshenko_n08",
+      "deck": "timoshenko_n08.bdf",
+      "sol": 101,
+      "n": 8,
+      "parameters": {
+        "E_Pa": 70000000000.0,
+        "nu": 0.3,
+        "rho_kg_m3": 2700.0,
+        "width_m": 0.04,
+        "height_m": 0.2,
+        "length_m": 1.0,
+        "area_m2": 0.008,
+        "I_m4": 2.6666666666666673e-05,
+        "load_N": 100.0,
+        "shear_factor": 0.8333333333333334
+      }
+    },
+    {
+      "name": "timoshenko_n16",
+      "deck": "timoshenko_n16.bdf",
+      "sol": 101,
+      "n": 16,
+      "parameters": {
+        "E_Pa": 70000000000.0,
+        "nu": 0.3,
+        "rho_kg_m3": 2700.0,
+        "width_m": 0.04,
+        "height_m": 0.2,
+        "length_m": 1.0,
+        "area_m2": 0.008,
+        "I_m4": 2.6666666666666673e-05,
+        "load_N": 100.0,
+        "shear_factor": 0.8333333333333334
+      }
+    }
+  ]
+}

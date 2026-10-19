@@ -1,0 +1,8 @@
+{
+  "source": "Actual JFEM-Boxer browser display of the published ACA04 finest-mesh binary; no synthetic UI or numerical editing.",
+  "screenshot_sha256": "100c1e7cc11744523b8cc02393242852e5679bf5054552569366c265c966925b",
+  "native_result": "../results/modes.jfem",
+  "native_result_sha256": "5c1d5149bf2d7d346bc7dff2639db41fa8742b91e6c3d171a72a2b93b6fbde22",
+  "check": "All six displayed frequencies independently checked against native solver JSON.",
+  "first_frequency_Hz": 35.018064983736345
+}

@@ -1,0 +1,70 @@
+{
+  "schema": "jfem.validation.published_case.v1",
+  "case_id": "MH_twisted_beam_in_plane",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "built_utc": "2026-10-19T10:21:14.431133+00:00",
+  "evidence_class": "Published shell benchmark",
+  "artifact_provenance": "Publicly curated input, native JFEM output and original figures; sources and limits in case.json and adjacent notices.",
+  "files": {
+    "case.json": {
+      "sha256": "cae939dcf4854e5d7aa8944a837594939425d120675fd75c43bd2c50d3a83640",
+      "bytes": 2092
+    },
+    "case_card.pdf": {
+      "sha256": "9e6dcd5196fb3e7fdfcbe351f68a55fe7cc43f5e9031d590c76f3c84b2af10d0",
+      "bytes": 206959
+    },
+    "case_card_receipt.json": {
+      "sha256": "efb78fdd2ef4368f354a4038cf113dae564ed38309bbeac25a31bbcb120725b0",
+      "bytes": 1115
+    },
+    "figures/deformation.png": {
+      "sha256": "c75cbf7986b368c29025b473801832cadc7a9337fc047dd0d14e6e6f285b95ec",
+      "bytes": 105730
+    },
+    "figures/deformation.svg": {
+      "sha256": "a830da27813d03f4cac52f96c7c4d3aacd5c59e6ce9a02c1673b9af7d38ad77a",
+      "bytes": 19305
+    },
+    "figures/response.png": {
+      "sha256": "669184ce5ec1eff605efb033653c536e24a33e934273e683578bcab74b71b4ca",
+      "bytes": 44967
+    },
+    "figures/response.svg": {
+      "sha256": "e8556aa0888764a199a14e29a6c5e12df0f193cab03f07358c685487318de0c3",
+      "bytes": 8793
+    },
+    "metrics.csv": {
+      "sha256": "d53d214293c35b15b71d63f1d854dbf6c1dcefec7039e7b44e2a74030715fa36",
+      "bytes": 165
+    },
+    "model.bdf": {
+      "sha256": "81254d673a6ea7783644162816e7a609a65c048bf7b4e789d0c740331dbad762",
+      "bytes": 3418
+    },
+    "results/provenance.json": {
+      "sha256": "151e546613d6dd3ec032f55a47c8e717c406bf85a166dca6f26ed03ff3cf5f07",
+      "bytes": 1134
+    },
+    "results/results.json": {
+      "sha256": "3028c90ed7078b00cc46eca2f9ab415af664bcd128be7c7d39beb2e545db7be7",
+      "bytes": 828
+    },
+    "results/twisted_beam.jfem": {
+      "sha256": "16d81bb8c54827a53fec4f2627dcfdc4fd8ec9f83c21a43f17b8ed20b8d03a2b",
+      "bytes": 1832
+    },
+    "results/twisted_beam.JU.JSON": {
+      "sha256": "7f26e520e81e16a2fcb77f9647436a95672bb4e3ce4c761578874e28025852f9",
+      "bytes": 18290
+    },
+    "results/twisted_beam.TIMINGS.JSON": {
+      "sha256": "57de068a526a182413800d01f87cd32c35e3cf6e230bf69c174e5ffabd797ea2",
+      "bytes": 16773
+    },
+    "results/visual_data.json": {
+      "sha256": "d0469b01bd32ef0788cecff65478171d62a76a9b038482ffeb15c1725e4f2702",
+      "bytes": 11896
+    }
+  }
+}

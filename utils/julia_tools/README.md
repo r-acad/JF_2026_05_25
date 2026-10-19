@@ -391,7 +391,7 @@ automation.
 
 ## Public Validation Suite
 
-The paper validation cases live in `validation/`. Run the full public suite
+The illustrated validation cases live in `validation/`. Run the default public suite
 from the repository root with:
 
 Windows PowerShell:
@@ -403,16 +403,16 @@ Windows PowerShell:
 Linux/macOS Bash:
 
 ```bash
-julia --startup-file=no --project=. validation/run_public_suite.jl
+julia --startup-file=no --project=. validation/run_public_suite.jl --output-dir validation/local_runs/my_check
 ```
 
-The suite writes `validation/comparison.csv` and `validation/comparison.md`.
-The maintained suite has 19 scalar rows. Seventeen have declared reference
-solver parity targets, and all 17 passed the September 15 run. The
-accuracy checks pass on 17 of 19 rows; the coarse curved-beam and pinched-cylinder
-meshes retain their documented analytical discrepancies. Matching a reference
-solver on the same mesh does not establish mesh-converged accuracy. Rerun the
-suite to regenerate the local report for the current solver revision.
+The output directory retains native results, numerical fields, run receipts
+and comparison tables. The default check selects 24 analyses and 44 quantities
+from 18 documented case folders. The recorded results contain 34 accuracy
+passes, two declared coarse-mesh accuracy failures and eight historical
+regression passes, with 17 additional historical checks reported separately.
+See [the validation guide](../../validation/README.md) for the complete mesh
+studies, PDF cards, figures, reference sources and scientific limits.
 
 The package release gate runs the curated suite without rewriting its reports:
 
@@ -423,7 +423,7 @@ include("utils/test/runtests.jl")
 
 Run this from Julia started with `--project=.` at the repository root. The test
 target declares its YAML dependency and fails on execution errors, skipped
-results, reference parity failures, or new analytical failure cases. The two
+results, regression failures, or new analytical failure cases. The two
 existing analytical limitations remain visible in the test output.
 
 ## Run One SOL 105 Case

@@ -5,6 +5,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Archived results and reproducible public benchmarks
+
+- Open saved `.jfem` files directly in JFEM-Boxer from Project or the startup
+  dialog. Decode the mesh and available fields in a worker, reset the previous
+  result view, and expose cases, modes, static preloads and inspection without
+  needing the original analysis deck. Preserve the active view on invalid input.
+- Interpret archived SOL103 eigenvalue records as the frequencies written by the
+  binary exporter; retain load-factor interpretation for SOL105. Ask for the
+  analysis type when older archives do not contain that distinction.
+- Rerun and document all 13 existing public benchmark cases, add five authored
+  analytical case families covering SOL101, SOL103, SOL105 and SOL106, and retain
+  native results, numerical comparisons, reproducible inputs and vector figures.
+  Supply an illustrated gallery and a two-page PDF card in each of 18 case folders.
+- Add explicit buckling-subcase constraints to two supplied classical decks,
+  document shell mesh convergence, distinguish historical regression values from
+  independent references, and preserve coarse accuracy failures and an incomplete
+  cylinder spectrum as visible limitations. No solver formulation changed here.
+- Retain validation outputs by default in the Windows launcher and support
+  Windows extended paths when collecting results and execution receipts.
+
 ### Energy-consistent nonlinear shell equilibrium
 
 - For `LGDISP=1`, automatically select the Green-Lagrange membrane energy residual

@@ -1,0 +1,336 @@
+{
+  "id": "ACA03",
+  "slug": "cross_ply_buckling",
+  "title": "Symmetric cross-ply plate: Navier buckling",
+  "reference_kind": "independently_computed_analytical",
+  "references": [
+    {
+      "title": "Weaver and Nemeth, Improved Design Formulae for Buckling of Orthotropic Plates under Combined Loading (2008)",
+      "url": "https://ntrs.nasa.gov/citations/20080015745",
+      "supports": "Orthotropic plate buckling framework; current finite rectangular Navier values are independently derived, not copied from fitted design formulae."
+    },
+    {
+      "title": "Nachiketa Tiwari / IIT Kanpur: Mechanics of Laminated Composite Structures, Lecture37 Buckling of Plates",
+      "url": "https://archive.nptel.ac.in/content/storage2/courses/112104161/L37.pdf",
+      "supports": "Finite symmetric specially orthotropic plate simply supported on all four sides, sinusoidal mode solution, uniaxial and biaxial buckling."
+    }
+  ],
+  "equations": [
+    "D_ij=sum_k Qbar_ij(k)*(z_k^3-z_(k-1)^3)/3",
+    "alpha=m*pi/a; beta=n*pi/b",
+    "H=D11*alpha^4+2*(D12+2D66)*alpha^2*beta^2+D22*beta^4",
+    "lambda_mn=H/(Nx*alpha^2)"
+  ],
+  "applicability": "Thin, flat, symmetric specially orthotropic laminate: B=D16=D26=0. Navier theory excludes transverse-shear deformation. The finite-element model adds transverse-shear flexibility and discretization effects. The modal case uses reference-surface mass without independent rotary inertia, matching that reference assumption. Edge-normal w constrained, bending rotations free. First six roots are compared in ascending order.",
+  "boundary_conditions_and_loads": [
+    "All four edges: uz=0; rotations rx,ry free. All GRID rz=0. x=0: ux=0. Origin: uy=0.",
+    "Uniform reference compression Nx=1000N/m on x=a via consistent nodal forces, one half weight at corners. Same SPC selected explicitly in preload and buckling subcases."
+  ],
+  "units": "SI: m, N, kg, s, Pa",
+  "acceptance": {
+    "relative_error_percent": 2.0,
+    "justification": "Declared before execution. Beam/membrane values test exact element/model equations; thin laminate tolerance allows finite mesh convergence and thin-theory/model differences. All errors remain reported."
+  },
+  "runs": [
+    {
+      "name": "cross_ply_sol105_n04",
+      "deck": "cross_ply_sol105_n04.bdf",
+      "sol": 105,
+      "n": 4,
+      "parameters": {
+        "a_m": 0.6,
+        "b_m": 0.4,
+        "t_m": 0.002,
+        "ply_angles_deg": [
+          0,
+          90,
+          90,
+          0
+        ],
+        "ply_t_m": 0.0005,
+        "E1_Pa": 135000000000.0,
+        "E2_Pa": 10000000000.0,
+        "nu12": 0.3,
+        "G12_Pa": 5000000000.0,
+        "rho_kg_m3": 1600.0,
+        "Nx_N_m": 1000.0,
+        "D11_Nm": 80.11744966442954,
+        "D22_Nm": 17.19798657718121,
+        "D12_Nm": 2.0134228187919465,
+        "D66_Nm": 3.333333333333334,
+        "analytical_modes": [
+          {
+            "m": 1,
+            "n": 1,
+            "value": 5.654259607963528
+          },
+          {
+            "m": 2,
+            "n": 1,
+            "value": 10.453457383875127
+          },
+          {
+            "m": 3,
+            "n": 1,
+            "value": 21.10426603141566
+          },
+          {
+            "m": 2,
+            "n": 2,
+            "value": 22.617038431854112
+          },
+          {
+            "m": 3,
+            "n": 2,
+            "value": 28.2950739149799
+          },
+          {
+            "m": 4,
+            "n": 1,
+            "value": 36.36349225948143
+          }
+        ]
+      }
+    },
+    {
+      "name": "cross_ply_sol105_n08",
+      "deck": "cross_ply_sol105_n08.bdf",
+      "sol": 105,
+      "n": 8,
+      "parameters": {
+        "a_m": 0.6,
+        "b_m": 0.4,
+        "t_m": 0.002,
+        "ply_angles_deg": [
+          0,
+          90,
+          90,
+          0
+        ],
+        "ply_t_m": 0.0005,
+        "E1_Pa": 135000000000.0,
+        "E2_Pa": 10000000000.0,
+        "nu12": 0.3,
+        "G12_Pa": 5000000000.0,
+        "rho_kg_m3": 1600.0,
+        "Nx_N_m": 1000.0,
+        "D11_Nm": 80.11744966442954,
+        "D22_Nm": 17.19798657718121,
+        "D12_Nm": 2.0134228187919465,
+        "D66_Nm": 3.333333333333334,
+        "analytical_modes": [
+          {
+            "m": 1,
+            "n": 1,
+            "value": 5.654259607963528
+          },
+          {
+            "m": 2,
+            "n": 1,
+            "value": 10.453457383875127
+          },
+          {
+            "m": 3,
+            "n": 1,
+            "value": 21.10426603141566
+          },
+          {
+            "m": 2,
+            "n": 2,
+            "value": 22.617038431854112
+          },
+          {
+            "m": 3,
+            "n": 2,
+            "value": 28.2950739149799
+          },
+          {
+            "m": 4,
+            "n": 1,
+            "value": 36.36349225948143
+          }
+        ]
+      }
+    },
+    {
+      "name": "cross_ply_sol105_n16",
+      "deck": "cross_ply_sol105_n16.bdf",
+      "sol": 105,
+      "n": 16,
+      "parameters": {
+        "a_m": 0.6,
+        "b_m": 0.4,
+        "t_m": 0.002,
+        "ply_angles_deg": [
+          0,
+          90,
+          90,
+          0
+        ],
+        "ply_t_m": 0.0005,
+        "E1_Pa": 135000000000.0,
+        "E2_Pa": 10000000000.0,
+        "nu12": 0.3,
+        "G12_Pa": 5000000000.0,
+        "rho_kg_m3": 1600.0,
+        "Nx_N_m": 1000.0,
+        "D11_Nm": 80.11744966442954,
+        "D22_Nm": 17.19798657718121,
+        "D12_Nm": 2.0134228187919465,
+        "D66_Nm": 3.333333333333334,
+        "analytical_modes": [
+          {
+            "m": 1,
+            "n": 1,
+            "value": 5.654259607963528
+          },
+          {
+            "m": 2,
+            "n": 1,
+            "value": 10.453457383875127
+          },
+          {
+            "m": 3,
+            "n": 1,
+            "value": 21.10426603141566
+          },
+          {
+            "m": 2,
+            "n": 2,
+            "value": 22.617038431854112
+          },
+          {
+            "m": 3,
+            "n": 2,
+            "value": 28.2950739149799
+          },
+          {
+            "m": 4,
+            "n": 1,
+            "value": 36.36349225948143
+          }
+        ]
+      }
+    },
+    {
+      "name": "cross_ply_sol105_n32",
+      "deck": "cross_ply_sol105_n32.bdf",
+      "sol": 105,
+      "n": 32,
+      "parameters": {
+        "a_m": 0.6,
+        "b_m": 0.4,
+        "t_m": 0.002,
+        "ply_angles_deg": [
+          0,
+          90,
+          90,
+          0
+        ],
+        "ply_t_m": 0.0005,
+        "E1_Pa": 135000000000.0,
+        "E2_Pa": 10000000000.0,
+        "nu12": 0.3,
+        "G12_Pa": 5000000000.0,
+        "rho_kg_m3": 1600.0,
+        "Nx_N_m": 1000.0,
+        "D11_Nm": 80.11744966442954,
+        "D22_Nm": 17.19798657718121,
+        "D12_Nm": 2.0134228187919465,
+        "D66_Nm": 3.333333333333334,
+        "analytical_modes": [
+          {
+            "m": 1,
+            "n": 1,
+            "value": 5.654259607963528
+          },
+          {
+            "m": 2,
+            "n": 1,
+            "value": 10.453457383875127
+          },
+          {
+            "m": 3,
+            "n": 1,
+            "value": 21.10426603141566
+          },
+          {
+            "m": 2,
+            "n": 2,
+            "value": 22.617038431854112
+          },
+          {
+            "m": 3,
+            "n": 2,
+            "value": 28.2950739149799
+          },
+          {
+            "m": 4,
+            "n": 1,
+            "value": 36.36349225948143
+          }
+        ]
+      }
+    },
+    {
+      "name": "cross_ply_sol105_n64",
+      "deck": "cross_ply_sol105_n64.bdf",
+      "sol": 105,
+      "n": 64,
+      "parameters": {
+        "a_m": 0.6,
+        "b_m": 0.4,
+        "t_m": 0.002,
+        "ply_angles_deg": [
+          0,
+          90,
+          90,
+          0
+        ],
+        "ply_t_m": 0.0005,
+        "E1_Pa": 135000000000.0,
+        "E2_Pa": 10000000000.0,
+        "nu12": 0.3,
+        "G12_Pa": 5000000000.0,
+        "rho_kg_m3": 1600.0,
+        "Nx_N_m": 1000.0,
+        "D11_Nm": 80.11744966442954,
+        "D22_Nm": 17.19798657718121,
+        "D12_Nm": 2.0134228187919465,
+        "D66_Nm": 3.333333333333334,
+        "analytical_modes": [
+          {
+            "m": 1,
+            "n": 1,
+            "value": 5.654259607963528
+          },
+          {
+            "m": 2,
+            "n": 1,
+            "value": 10.453457383875127
+          },
+          {
+            "m": 3,
+            "n": 1,
+            "value": 21.10426603141566
+          },
+          {
+            "m": 2,
+            "n": 2,
+            "value": 22.617038431854112
+          },
+          {
+            "m": 3,
+            "n": 2,
+            "value": 28.2950739149799
+          },
+          {
+            "m": 4,
+            "n": 1,
+            "value": 36.36349225948143
+          }
+        ]
+      }
+    }
+  ]
+}

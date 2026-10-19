@@ -1,0 +1,70 @@
+{
+  "schema": "jfem.validation.published_case.v1",
+  "case_id": "MH_twisted_beam_out_of_plane",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "built_utc": "2026-10-19T10:21:14.431133+00:00",
+  "evidence_class": "Published shell benchmark",
+  "artifact_provenance": "Publicly curated input, native JFEM output and original figures; sources and limits in case.json and adjacent notices.",
+  "files": {
+    "case.json": {
+      "sha256": "83a9ce37268c2592699738d339f3f70451af2b7872867b8a33221417f45e1c6a",
+      "bytes": 2320
+    },
+    "case_card.pdf": {
+      "sha256": "e6f26375173347e98158f206a9d71f1b5c30fa0074cd7fbf3705c190d088580a",
+      "bytes": 220052
+    },
+    "case_card_receipt.json": {
+      "sha256": "3430e5288bf659eafe0b2d67298910d99d13fea9b2a94980420f5bce6b8a733c",
+      "bytes": 1119
+    },
+    "figures/deformation.png": {
+      "sha256": "d733f02035a3967bd47d10321abaf34d0205a5a3acacd0cf88da8af85e1bcdca",
+      "bytes": 119909
+    },
+    "figures/deformation.svg": {
+      "sha256": "816d8f73786cfd36ee49e0d924d3e08a1af72e7421ba6996f10341f4d66fb7ac",
+      "bytes": 18903
+    },
+    "figures/response.png": {
+      "sha256": "9566e1fe28b319434fc309a25389a72ce1f65d820e7eae3ae625a3290629b678",
+      "bytes": 46351
+    },
+    "figures/response.svg": {
+      "sha256": "23ebb2e8199411b945ccd544808ac32b23877b9b0af15aca0a05719cfd6bac96",
+      "bytes": 8115
+    },
+    "metrics.csv": {
+      "sha256": "1e33def761b4e97f713130e47b4ffae0a83139751e9851bd71cec6aa01dd25c8",
+      "bytes": 170
+    },
+    "model.bdf": {
+      "sha256": "84901a7db2ef47ef90781c1e1a30c643b4285378f347c43ec30fa57ae86f5935",
+      "bytes": 3388
+    },
+    "results/provenance.json": {
+      "sha256": "443945f0e21b8ea1d581247908d93c3307c2b468f6999c0219f9f0b106d68484",
+      "bytes": 1181
+    },
+    "results/results.json": {
+      "sha256": "d5b397bd46a71adaaf24fc72c04fb3185abfe21751d0dbb30bbb94343e19ce5a",
+      "bytes": 850
+    },
+    "results/twisted_beam_out_of_plane.jfem": {
+      "sha256": "7559862f37d2360be30163103d79afba7646ecda934c0bc11b4931e028a08eb6",
+      "bytes": 1832
+    },
+    "results/twisted_beam_out_of_plane.JU.JSON": {
+      "sha256": "8a6e8544e8784c896745d0bd92a7d945fc4e4b307f5453422ad5e60c7c6bc2e3",
+      "bytes": 18254
+    },
+    "results/twisted_beam_out_of_plane.TIMINGS.JSON": {
+      "sha256": "6cac3df734037cd8cece5564f80b5bca2e808eee3a78c25300d48bed17661f9d",
+      "bytes": 16389
+    },
+    "results/visual_data.json": {
+      "sha256": "41c803fe74fd1e5ce2faed019f62034dd3093e4eef5d0b9e85f93118032a2fcb",
+      "bytes": 11889
+    }
+  }
+}

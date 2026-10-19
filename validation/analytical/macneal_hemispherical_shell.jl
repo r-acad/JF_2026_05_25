@@ -13,13 +13,13 @@
 #         radial displacement at the load = 0.0930
 #
 # Both are restated together with their problem constants (including P = 2.0)
-# in Y. Ko, P.-S. Lee and K.-J. Bathe, "Performance of the MITC3+ and MITC4+
+# in Y. Ko, Y. Lee, P.-S. Lee and K.-J. Bathe, "Performance of the MITC3+ and MITC4+
 # shell elements in widely-used benchmark problems", Computers & Structures
 # 193 (2017) 187--206: Sec. 3.7 / Table 15 for the cut-out variant
 # (u_ref = 9.3000e-2) and Sec. 3.8 / Table 17 for the closed one
 # (u_ref = 9.2400e-2).
 #
-# cases/macneal_harder/hemispherical_shell.bdf is the CUT-OUT variant, so
+# cases/MH_hemispherical_shell/model.bdf is the CUT-OUT variant, so
 # radial_disp_at_load() returns the cut-out value.
 
 radial_disp_at_load()             = 0.0930

@@ -1,0 +1,303 @@
+{
+  "id": "ACA05",
+  "slug": "nonlinear_membrane",
+  "title": "Finite-strain membrane: homogeneous uniaxial tension",
+  "reference_kind": "independently_computed_analytical",
+  "references": [
+    {
+      "title": "Idaho National Laboratory MOOSE: ComputeStVenantKirchhoffStress",
+      "url": "https://mooseframework.inl.gov/source/materials/lagrangian/ComputeStVenantKirchhoffStress.html",
+      "supports": "S=C:E using Green-Lagrange strain; P=F S. This is a theoretical benchmark, not an experimental material calibration."
+    }
+  ],
+  "equations": [
+    "F_2D=diag(lambda,mu); E_GL,2D=(F_2D^T*F_2D-I_2D)/2; thickness strain condensed by plane stress",
+    "S_yy=0 implies mu=sqrt(1-nu*(lambda^2-1))",
+    "P_xx=lambda*S_xx=E*lambda*(lambda^2-1)/2",
+    "F_total=P_xx*b*t; u_tip=(lambda-1)*L"
+  ],
+  "applicability": "Homogeneous in-plane finite-strain reduced plane-stress St Venant-Kirchhoff membrane verification. Thickness strain is condensed, not fixed to zero. All normal displacement and rotational DOFs constrained. This tests geometric nonlinear equations, not finite-rotation bending, plasticity, or measured material response.",
+  "boundary_conditions_and_loads": [
+    "Every GRID: uz=rx=ry=rz=0. x=0: ux=0. Origin: uy=0. Other in-plane DOFs free.",
+    "Constant reference-direction traction on x=L; consistent nodal forces, half weight at corners. Ten continuation steps; independent loadlevels solve from zero."
+  ],
+  "units": "SI: m, N, kg, s, Pa",
+  "acceptance": {
+    "relative_error_percent": 0.01,
+    "justification": "Declared before execution. Beam/membrane values test exact element/model equations; thin laminate tolerance allows finite mesh convergence and thin-theory/model differences. All errors remain reported."
+  },
+  "runs": [
+    {
+      "name": "membrane_n01_stretch1p005",
+      "deck": "membrane_n01_stretch1p005.bdf",
+      "sol": 106,
+      "n": 1,
+      "parameters": {
+        "length_m": 1.0,
+        "width_m": 0.4,
+        "t_m": 0.01,
+        "E_Pa": 70000000.0,
+        "nu": 0.3,
+        "stretch": 1.005,
+        "total_force_N": 1410.5174999999615,
+        "exact_tip_ux_m": 0.004999999999999893,
+        "exact_top_uy_m": -0.0006019529341686703
+      }
+    },
+    {
+      "name": "membrane_n01_stretch1p020",
+      "deck": "membrane_n01_stretch1p020.bdf",
+      "sol": 106,
+      "n": 1,
+      "parameters": {
+        "length_m": 1.0,
+        "width_m": 0.4,
+        "t_m": 0.01,
+        "E_Pa": 70000000.0,
+        "nu": 0.3,
+        "stretch": 1.02,
+        "total_force_N": 5769.119999999999,
+        "exact_tip_ux_m": 0.020000000000000018,
+        "exact_top_uy_m": -0.0024313895690455836
+      }
+    },
+    {
+      "name": "membrane_n01_stretch1p050",
+      "deck": "membrane_n01_stretch1p050.bdf",
+      "sol": 106,
+      "n": 1,
+      "parameters": {
+        "length_m": 1.0,
+        "width_m": 0.4,
+        "t_m": 0.01,
+        "E_Pa": 70000000.0,
+        "nu": 0.3,
+        "stretch": 1.05,
+        "total_force_N": 15067.500000000005,
+        "exact_tip_ux_m": 0.050000000000000044,
+        "exact_top_uy_m": -0.0061980193041177856
+      }
+    },
+    {
+      "name": "membrane_n01_stretch1p100",
+      "deck": "membrane_n01_stretch1p100.bdf",
+      "sol": 106,
+      "n": 1,
+      "parameters": {
+        "length_m": 1.0,
+        "width_m": 0.4,
+        "t_m": 0.01,
+        "E_Pa": 70000000.0,
+        "nu": 0.3,
+        "stretch": 1.1,
+        "total_force_N": 32340.00000000003,
+        "exact_tip_ux_m": 0.10000000000000009,
+        "exact_top_uy_m": -0.012804958709438008
+      }
+    },
+    {
+      "name": "membrane_n02_stretch1p005",
+      "deck": "membrane_n02_stretch1p005.bdf",
+      "sol": 106,
+      "n": 2,
+      "parameters": {
+        "length_m": 1.0,
+        "width_m": 0.4,
+        "t_m": 0.01,
+        "E_Pa": 70000000.0,
+        "nu": 0.3,
+        "stretch": 1.005,
+        "total_force_N": 1410.5174999999615,
+        "exact_tip_ux_m": 0.004999999999999893,
+        "exact_top_uy_m": -0.0006019529341686703
+      }
+    },
+    {
+      "name": "membrane_n02_stretch1p020",
+      "deck": "membrane_n02_stretch1p020.bdf",
+      "sol": 106,
+      "n": 2,
+      "parameters": {
+        "length_m": 1.0,
+        "width_m": 0.4,
+        "t_m": 0.01,
+        "E_Pa": 70000000.0,
+        "nu": 0.3,
+        "stretch": 1.02,
+        "total_force_N": 5769.119999999999,
+        "exact_tip_ux_m": 0.020000000000000018,
+        "exact_top_uy_m": -0.0024313895690455836
+      }
+    },
+    {
+      "name": "membrane_n02_stretch1p050",
+      "deck": "membrane_n02_stretch1p050.bdf",
+      "sol": 106,
+      "n": 2,
+      "parameters": {
+        "length_m": 1.0,
+        "width_m": 0.4,
+        "t_m": 0.01,
+        "E_Pa": 70000000.0,
+        "nu": 0.3,
+        "stretch": 1.05,
+        "total_force_N": 15067.500000000005,
+        "exact_tip_ux_m": 0.050000000000000044,
+        "exact_top_uy_m": -0.0061980193041177856
+      }
+    },
+    {
+      "name": "membrane_n02_stretch1p100",
+      "deck": "membrane_n02_stretch1p100.bdf",
+      "sol": 106,
+      "n": 2,
+      "parameters": {
+        "length_m": 1.0,
+        "width_m": 0.4,
+        "t_m": 0.01,
+        "E_Pa": 70000000.0,
+        "nu": 0.3,
+        "stretch": 1.1,
+        "total_force_N": 32340.00000000003,
+        "exact_tip_ux_m": 0.10000000000000009,
+        "exact_top_uy_m": -0.012804958709438008
+      }
+    },
+    {
+      "name": "membrane_n04_stretch1p005",
+      "deck": "membrane_n04_stretch1p005.bdf",
+      "sol": 106,
+      "n": 4,
+      "parameters": {
+        "length_m": 1.0,
+        "width_m": 0.4,
+        "t_m": 0.01,
+        "E_Pa": 70000000.0,
+        "nu": 0.3,
+        "stretch": 1.005,
+        "total_force_N": 1410.5174999999615,
+        "exact_tip_ux_m": 0.004999999999999893,
+        "exact_top_uy_m": -0.0006019529341686703
+      }
+    },
+    {
+      "name": "membrane_n04_stretch1p020",
+      "deck": "membrane_n04_stretch1p020.bdf",
+      "sol": 106,
+      "n": 4,
+      "parameters": {
+        "length_m": 1.0,
+        "width_m": 0.4,
+        "t_m": 0.01,
+        "E_Pa": 70000000.0,
+        "nu": 0.3,
+        "stretch": 1.02,
+        "total_force_N": 5769.119999999999,
+        "exact_tip_ux_m": 0.020000000000000018,
+        "exact_top_uy_m": -0.0024313895690455836
+      }
+    },
+    {
+      "name": "membrane_n04_stretch1p050",
+      "deck": "membrane_n04_stretch1p050.bdf",
+      "sol": 106,
+      "n": 4,
+      "parameters": {
+        "length_m": 1.0,
+        "width_m": 0.4,
+        "t_m": 0.01,
+        "E_Pa": 70000000.0,
+        "nu": 0.3,
+        "stretch": 1.05,
+        "total_force_N": 15067.500000000005,
+        "exact_tip_ux_m": 0.050000000000000044,
+        "exact_top_uy_m": -0.0061980193041177856
+      }
+    },
+    {
+      "name": "membrane_n04_stretch1p100",
+      "deck": "membrane_n04_stretch1p100.bdf",
+      "sol": 106,
+      "n": 4,
+      "parameters": {
+        "length_m": 1.0,
+        "width_m": 0.4,
+        "t_m": 0.01,
+        "E_Pa": 70000000.0,
+        "nu": 0.3,
+        "stretch": 1.1,
+        "total_force_N": 32340.00000000003,
+        "exact_tip_ux_m": 0.10000000000000009,
+        "exact_top_uy_m": -0.012804958709438008
+      }
+    },
+    {
+      "name": "membrane_n08_stretch1p005",
+      "deck": "membrane_n08_stretch1p005.bdf",
+      "sol": 106,
+      "n": 8,
+      "parameters": {
+        "length_m": 1.0,
+        "width_m": 0.4,
+        "t_m": 0.01,
+        "E_Pa": 70000000.0,
+        "nu": 0.3,
+        "stretch": 1.005,
+        "total_force_N": 1410.5174999999615,
+        "exact_tip_ux_m": 0.004999999999999893,
+        "exact_top_uy_m": -0.0006019529341686703
+      }
+    },
+    {
+      "name": "membrane_n08_stretch1p020",
+      "deck": "membrane_n08_stretch1p020.bdf",
+      "sol": 106,
+      "n": 8,
+      "parameters": {
+        "length_m": 1.0,
+        "width_m": 0.4,
+        "t_m": 0.01,
+        "E_Pa": 70000000.0,
+        "nu": 0.3,
+        "stretch": 1.02,
+        "total_force_N": 5769.119999999999,
+        "exact_tip_ux_m": 0.020000000000000018,
+        "exact_top_uy_m": -0.0024313895690455836
+      }
+    },
+    {
+      "name": "membrane_n08_stretch1p050",
+      "deck": "membrane_n08_stretch1p050.bdf",
+      "sol": 106,
+      "n": 8,
+      "parameters": {
+        "length_m": 1.0,
+        "width_m": 0.4,
+        "t_m": 0.01,
+        "E_Pa": 70000000.0,
+        "nu": 0.3,
+        "stretch": 1.05,
+        "total_force_N": 15067.500000000005,
+        "exact_tip_ux_m": 0.050000000000000044,
+        "exact_top_uy_m": -0.0061980193041177856
+      }
+    },
+    {
+      "name": "membrane_n08_stretch1p100",
+      "deck": "membrane_n08_stretch1p100.bdf",
+      "sol": 106,
+      "n": 8,
+      "parameters": {
+        "length_m": 1.0,
+        "width_m": 0.4,
+        "t_m": 0.01,
+        "E_Pa": 70000000.0,
+        "nu": 0.3,
+        "stretch": 1.1,
+        "total_force_N": 32340.00000000003,
+        "exact_tip_ux_m": 0.10000000000000009,
+        "exact_top_uy_m": -0.012804958709438008
+      }
+    }
+  ]
+}

@@ -1,0 +1,142 @@
+{
+  "schema": "jfem.validation.published_case.v1",
+  "case_id": "BA_cylinder_axial_buckling",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "built_utc": "2026-10-19T10:21:14.431133+00:00",
+  "evidence_class": "Analytical screening; finer extraction remains partial",
+  "artifact_provenance": "Publicly curated input, native JFEM output and original figures; sources and limits in case.json and adjacent notices.",
+  "files": {
+    "case.json": {
+      "sha256": "232ebc59e3a234510b9d57cd3319f242bdaf5b6104c6d46c5b9b07a21a6bc79e",
+      "bytes": 4920
+    },
+    "case_card.pdf": {
+      "sha256": "bf7b67ec0d8098ea3bd8beb5bd8bf96488ec8f25d78d6f616838da47e063d2ce",
+      "bytes": 539853
+    },
+    "case_card_receipt.json": {
+      "sha256": "e497d23a68f72818831669b8084aa2edf4e7c9f95766e7cfbca9e775e9028451",
+      "bytes": 1305
+    },
+    "convergence/N16x04/model.bdf": {
+      "sha256": "02b5a35a689dffbb39e12159fc410dc33cc04656b3b8c11bf80b62180f4206b7",
+      "bytes": 6263
+    },
+    "convergence/N16x04/results/BA_cylinder_axial_buckling_N16x04.BUCKLING.JSON": {
+      "sha256": "6ca147db48e083ee582acbdbc0c78a4a3ae33a3c811ff711fbe5aaf190cb741b",
+      "bytes": 211311
+    },
+    "convergence/N16x04/results/BA_cylinder_axial_buckling_N16x04.jfem": {
+      "sha256": "0e2c3508605114f6d4bac8455e3b580d5b3d4eac6dc37eb4201e42185a8588d2",
+      "bytes": 52300
+    },
+    "convergence/N16x04/results/BA_cylinder_axial_buckling_N16x04.TIMINGS.JSON": {
+      "sha256": "80ba1fcbd04fb935a1f9049435639d6a9f26b75ec71c3f4894fdfee7de249ef6",
+      "bytes": 34287
+    },
+    "convergence/N16x04/results/provenance.json": {
+      "sha256": "a4c7b00c901a15398839e764037a6a1c69548aea00b06185aabac5914a579ef4",
+      "bytes": 1235
+    },
+    "convergence/N16x04/results/results.json": {
+      "sha256": "3423941006117decbf2e2f000d523fe411a4de776a62cc28635381f07ac80a6a",
+      "bytes": 3675
+    },
+    "convergence/N16x04/results/visual_data.json": {
+      "sha256": "53175f4175f2e3ea12ffdcb59d5e32e3e93bc0e86af76ab72805d58211dbd4d8",
+      "bytes": 278425
+    },
+    "diagnostics/N32x08/model.bdf": {
+      "sha256": "4c8c99740ce3da226dcd82a03b753996a6111d25147044d4b75d83ab651a0d67",
+      "bytes": 22481
+    },
+    "diagnostics/N32x08/qualification.json": {
+      "sha256": "1add96b003b044a957bf411ad45b1ae376f8cf1f133740ba408b09399f823a79",
+      "bytes": 285
+    },
+    "diagnostics/N32x08/results/BA_cylinder_axial_buckling_N32x08_EIGRL.BUCKLING.JSON": {
+      "sha256": "2c16839d024107298d55b0d107ea33dffe680b06bbb16c1d0dcbc9a7f5533d9c",
+      "bytes": 383510
+    },
+    "diagnostics/N32x08/results/BA_cylinder_axial_buckling_N32x08_EIGRL.jfem": {
+      "sha256": "899283321ea1c6548d64e234e74e381e67240f39e9ad3b8cb342df299c7d2fb8",
+      "bytes": 93788
+    },
+    "diagnostics/N32x08/results/BA_cylinder_axial_buckling_N32x08_EIGRL.TIMINGS.JSON": {
+      "sha256": "3002ddba6721e2faa06d3a3ca9c6482f4d2a6e54768423c5ac38a541da71cb9e",
+      "bytes": 26328
+    },
+    "diagnostics/N32x08/results/provenance.json": {
+      "sha256": "038ebeaa289c3aed94eca5055de88ba4c4a0d5d31febb3ba92f692479dfba28b",
+      "bytes": 1253
+    },
+    "diagnostics/N32x08/results/results.json": {
+      "sha256": "2f1f6b7d2d31b7911bfc844dba21ee73977fe58520c8bb69f74bf8b710c4a971",
+      "bytes": 2063
+    },
+    "diagnostics/N32x08/results/visual_data.json": {
+      "sha256": "cb39ea69bc6be81bfa4bf2a974ff7aae9430f607b2df860e22665f13e68d2d5c",
+      "bytes": 511020
+    },
+    "figures/deformation.png": {
+      "sha256": "57a68776490e8d5c29d34d83f20a1d111bb86eeb506c4bea7cfbfe5b914cd5f4",
+      "bytes": 148169
+    },
+    "figures/deformation.svg": {
+      "sha256": "542f928776dd7ce2e7626fd5848381f0d6526eff85cb639b66ea2ac1d4bbb9ae",
+      "bytes": 54665
+    },
+    "figures/modes.png": {
+      "sha256": "64265d50dc031f474be02ff8299066647397fe2da67f04c12af8b9be7e53ecee",
+      "bytes": 240380
+    },
+    "figures/modes.svg": {
+      "sha256": "fb9b0ceeaf5b7268a998b92947790868110b8b40a0dd6909d875e7abe7b2eb90",
+      "bytes": 144539
+    },
+    "figures/response.png": {
+      "sha256": "a574d478f343bdb8361899b0589146c8dc6d57bedf703d2b602e4c0bd429e2ba",
+      "bytes": 88221
+    },
+    "figures/response.svg": {
+      "sha256": "9d2c3e360e1e2acc809f1c8fb1492bd6bff30a3a883cc09a013ccd27fc57fe11",
+      "bytes": 15258
+    },
+    "metrics.csv": {
+      "sha256": "e7468fdbf85b96e7dc43518e5c00a0382ba0d7db11df2f29d8b0e1c353bd2915",
+      "bytes": 465
+    },
+    "model.bdf": {
+      "sha256": "58a07aa2f3859624c16db32e53d898fe78e43c34a9312f9f6c0d0b36ef035f70",
+      "bytes": 4614
+    },
+    "results/cylinder_axial_buckling.BUCKLING.JSON": {
+      "sha256": "9c225beeecbc91cc6b9d796f3b19a7b6323c333bcef269a0fd2a8e9124ecbebb",
+      "bytes": 44691
+    },
+    "results/cylinder_axial_buckling.jfem": {
+      "sha256": "e98771b4229db111e9637a84840832bdf5df6e9dfab07235ce4f3c6e0d1b4257",
+      "bytes": 6548
+    },
+    "results/cylinder_axial_buckling.TIMINGS.JSON": {
+      "sha256": "b37a81ece48a0090f0129bca0aeca77d7801d375fb0983ccc55b0b08ce8d5c74",
+      "bytes": 32803
+    },
+    "results/plot_source.json": {
+      "sha256": "87f5c7263c55896c67394dc082893bc36f68333ed0f92934607ae01f5952a060",
+      "bytes": 244
+    },
+    "results/provenance.json": {
+      "sha256": "c2461115f05309f722592e6b3812f28fa6e9e2542d5a16443570d5146ad91445",
+      "bytes": 1178
+    },
+    "results/results.json": {
+      "sha256": "13ab39e2d592cc5c4a2e15f938f4d3ec4edf157b4f60806985510186d7d58b57",
+      "bytes": 3118
+    },
+    "results/visual_data.json": {
+      "sha256": "5bc766271e859d939ce6107108005d92ae4306886428d451402a4734d622ed81",
+      "bytes": 42369
+    }
+  }
+}

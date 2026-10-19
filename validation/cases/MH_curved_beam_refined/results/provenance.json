@@ -1,0 +1,21 @@
+{
+  "schema": "jfem.validation.provenance.v1",
+  "case_id": "MH_curved_beam_refined",
+  "input": "cases/MH_curved_beam_refined/model.bdf",
+  "input_sha256": "4364c7ae5379089fe5d61e87dd9c09d1911a66d078bfb3715f80c369deb1fdee",
+  "status": "solved",
+  "input_unchanged": true,
+  "run_started_utc": "2026-10-19T09:27:44.972",
+  "run_finished_utc": "2026-10-19T09:27:45.012",
+  "julia_version": "1.13.1",
+  "wall_seconds_including_compilation": 0.0252042,
+  "source_receipt_sha256": "5ba93631da2572dea2660879c20d99343af1cfe206b047749ace31baa317406c",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "published_files": {
+    "curved_beam_refined.jfem": "407f6351185b89915b2046999df1a1dfd45333339ab2d2a2c52a0885c112dd98",
+    "curved_beam_refined.JU.JSON": "4f4a032d9297e1197588ce300a5c8a67fdf0bd04f5941fe701ea0b308e5da1b5",
+    "curved_beam_refined.TIMINGS.JSON": "169ef8e6e9940c4ab5f3d449efade2d9f20850a3f6b77ff02db5a13b6d30a4c8",
+    "results.json": "db14d6e9ae8d92a8ad131be895c7a509ece41b417d576a4e9f945f05d3a981f4",
+    "visual_data.json": "397c4d6edd514f1ea5ab3f2b40e43b43e8e330c7612e29b743a7ea03daed187a"
+  }
+}

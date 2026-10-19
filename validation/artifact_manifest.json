@@ -1,0 +1,218 @@
+{
+  "schema": "jfem.validation.published_collection.v1",
+  "built_utc": "2026-10-19T10:21:14.431133+00:00",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "scope": "18 documented parent cases;57 completed analyses plus one incomplete-spectrum diagnostic. See summary for accuracy and regression distinctions.",
+  "cases": [
+    {
+      "id": "ACA01",
+      "folder": "cases/ACA01",
+      "manifest_sha256": "87c796e12bddaf17d62207befaa748955fbb03efbb9035bcf6e12c25ddcadc12",
+      "pdf_sha256": "1a7c838d072fd620473bc0bb2654c8c00aeb2b5fa39c16d35240ba9cf7f65f0f",
+      "pdf_pages": 2,
+      "native_binary_count": 10,
+      "figure_png_count": 3,
+      "file_count": 46,
+      "bytes": 1084027
+    },
+    {
+      "id": "ACA02",
+      "folder": "cases/ACA02",
+      "manifest_sha256": "e9d0a366c0e3b0e586ff098c6f30e45b1ad1c7129881e4589800987e9d6c6669",
+      "pdf_sha256": "206e515ab1bd68a7356a6edace14fce0aedfef38cdddd86029fd7231ea1e4f98",
+      "pdf_pages": 2,
+      "native_binary_count": 6,
+      "figure_png_count": 2,
+      "file_count": 33,
+      "bytes": 437976
+    },
+    {
+      "id": "ACA03",
+      "folder": "cases/ACA03",
+      "manifest_sha256": "6df5eec7e6f77534bfa58c13fa3651c31ec684c3a114657f3a811cefaa6b7e8c",
+      "pdf_sha256": "e3628fd0923a0956eaac9854217bb397423bdda19c8c09be69bb4aed7995471b",
+      "pdf_pages": 2,
+      "native_binary_count": 6,
+      "figure_png_count": 3,
+      "file_count": 36,
+      "bytes": 18728694
+    },
+    {
+      "id": "ACA04",
+      "folder": "cases/ACA04",
+      "manifest_sha256": "fb67150bb4c45a4c81f43314da9daf1caed53d43901b09d3361229682f901543",
+      "pdf_sha256": "bc6aae0f3ffe6cd4a1015d9434b868428bf87345c5ff1834af6044ca8e57b73a",
+      "pdf_pages": 2,
+      "native_binary_count": 6,
+      "figure_png_count": 4,
+      "file_count": 38,
+      "bytes": 18451163
+    },
+    {
+      "id": "ACA05",
+      "folder": "cases/ACA05",
+      "manifest_sha256": "a7ec0142f188fad9186812898b58aa8917a45a8d6784438bf1ae6ffeaa2d68bc",
+      "pdf_sha256": "75b8d437f26dd6c21c2d448f785a9e90f69539f5e0dd6e5d05d4b4950d2b5fdc",
+      "pdf_pages": 2,
+      "native_binary_count": 17,
+      "figure_png_count": 2,
+      "file_count": 67,
+      "bytes": 960226
+    },
+    {
+      "id": "BA_cylinder_axial_buckling",
+      "folder": "cases/BA_cylinder_axial_buckling",
+      "manifest_sha256": "89d741896b370809b45ada3c1d36243260578780c32fa9d931b6ecc1c101e1aa",
+      "pdf_sha256": "bf7b67ec0d8098ea3bd8beb5bd8bf96488ec8f25d78d6f616838da47e063d2ce",
+      "pdf_pages": 2,
+      "native_binary_count": 3,
+      "figure_png_count": 3,
+      "file_count": 33,
+      "bytes": 3001564
+    },
+    {
+      "id": "CRM_wingbox_modal",
+      "folder": "cases/CRM_wingbox_modal",
+      "manifest_sha256": "1b962e801d699cec1638cea5997c28da99cf3a0e4397f72e3734632ad4f7356e",
+      "pdf_sha256": "a8756ab3a53ecdd73a84fbdddc3b09dfcc768bb307e0c2d7ddb27b89466bd388",
+      "pdf_pages": 2,
+      "native_binary_count": 1,
+      "figure_png_count": 3,
+      "file_count": 17,
+      "bytes": 103416501
+    },
+    {
+      "id": "MH_curved_beam_in_plane",
+      "folder": "cases/MH_curved_beam_in_plane",
+      "manifest_sha256": "9d0a01b9d03f12e76bddc25cff3496868d15e53381dee7a9c064a7e09084aec5",
+      "pdf_sha256": "53ed1960a43a6274ece9b1e2b05715112357217c86b470d1ed72efb45abe815c",
+      "pdf_pages": 2,
+      "native_binary_count": 1,
+      "figure_png_count": 2,
+      "file_count": 15,
+      "bytes": 515028
+    },
+    {
+      "id": "MH_curved_beam_refined",
+      "folder": "cases/MH_curved_beam_refined",
+      "manifest_sha256": "edfa985512c126741d33d345e1cb2e6c932b6ec786a954d4174fae98ce9eef45",
+      "pdf_sha256": "775810d0cf45c5d86038bf7325a6a22316f88b29d6b8e327a12674b5ffc8f7a7",
+      "pdf_pages": 2,
+      "native_binary_count": 1,
+      "figure_png_count": 2,
+      "file_count": 15,
+      "bytes": 728681
+    },
+    {
+      "id": "MH_hemispherical_shell",
+      "folder": "cases/MH_hemispherical_shell",
+      "manifest_sha256": "0718172a6b5e1965a888e93056d94c563d69cc8837928806aeb4f1ca97aeb218",
+      "pdf_sha256": "7c44eb6868972ded3e98ff189496cf552a39b47dc45479bb21dfc1350c99f266",
+      "pdf_pages": 2,
+      "native_binary_count": 3,
+      "figure_png_count": 2,
+      "file_count": 30,
+      "bytes": 1107952
+    },
+    {
+      "id": "MH_pinched_cylinder",
+      "folder": "cases/MH_pinched_cylinder",
+      "manifest_sha256": "2359cd9a79a074ab66d92e0cb7d3a8aff8d2680bbde8c038a8eff41dd97f896b",
+      "pdf_sha256": "244c4d45c3d6c1dfad134c54d1d859c12d56c85adbf355587e52598e365e637b",
+      "pdf_pages": 2,
+      "native_binary_count": 1,
+      "figure_png_count": 2,
+      "file_count": 15,
+      "bytes": 520236
+    },
+    {
+      "id": "MH_pinched_cylinder_refined",
+      "folder": "cases/MH_pinched_cylinder_refined",
+      "manifest_sha256": "3d808065861d1f594a0c669bfd2216f2a2c4ecb946d2710556efbeaee9f03fdc",
+      "pdf_sha256": "b76ff954b1b92fbcb29b1b460a22819efe4e56b6f6ac586bee256e935e3b17e1",
+      "pdf_pages": 2,
+      "native_binary_count": 1,
+      "figure_png_count": 2,
+      "file_count": 15,
+      "bytes": 1547659
+    },
+    {
+      "id": "MH_scordelis_lo",
+      "folder": "cases/MH_scordelis_lo",
+      "manifest_sha256": "ef0c87bccdacd5829a5aa395a990889abd6ce0a424445a95790edd7bcbe2e311",
+      "pdf_sha256": "98ca0db79daea43c29c4bb0bc6d905265d1cdd6bd72dd6ed49ca5394ae566b95",
+      "pdf_pages": 2,
+      "native_binary_count": 3,
+      "figure_png_count": 2,
+      "file_count": 30,
+      "bytes": 1101058
+    },
+    {
+      "id": "MH_twisted_beam_in_plane",
+      "folder": "cases/MH_twisted_beam_in_plane",
+      "manifest_sha256": "ae9411a68335393cd5816f1e9456363824497820ca5f2e399fa7823fddfebc47",
+      "pdf_sha256": "9e6dcd5196fb3e7fdfcbe351f68a55fe7cc43f5e9031d590c76f3c84b2af10d0",
+      "pdf_pages": 2,
+      "native_binary_count": 1,
+      "figure_png_count": 2,
+      "file_count": 15,
+      "bytes": 443297
+    },
+    {
+      "id": "MH_twisted_beam_out_of_plane",
+      "folder": "cases/MH_twisted_beam_out_of_plane",
+      "manifest_sha256": "3211f985aea4354999eeb1cd4c7ce96baa3f3bd26582bc58f31bfcbb120728c0",
+      "pdf_sha256": "e6f26375173347e98158f206a9d71f1b5c30fa0074cd7fbf3705c190d088580a",
+      "pdf_pages": 2,
+      "native_binary_count": 1,
+      "figure_png_count": 2,
+      "file_count": 15,
+      "bytes": 470722
+    },
+    {
+      "id": "MYSTRAN_sol101_simple",
+      "folder": "cases/MYSTRAN_sol101_simple",
+      "manifest_sha256": "4fb0037eb0ed986763b7a68a245e16b48ea748ccf916d1c6922bb3ac26114046",
+      "pdf_sha256": "ba1d07e98134334f7c8fd969e841d041753f42f9267fa5d544d1c559805003b0",
+      "pdf_pages": 2,
+      "native_binary_count": 1,
+      "figure_png_count": 2,
+      "file_count": 16,
+      "bytes": 471100
+    },
+    {
+      "id": "MYSTRAN_sol105_buckling",
+      "folder": "cases/MYSTRAN_sol105_buckling",
+      "manifest_sha256": "51994c51ef5e360e109282a02f6033806f0273bc7001e479882b4a5f69db8eec",
+      "pdf_sha256": "8608f5c417b947783f21dc9796fe947ca9f3311111b2a0e090ea4db2e4e0a0d6",
+      "pdf_pages": 2,
+      "native_binary_count": 1,
+      "figure_png_count": 3,
+      "file_count": 18,
+      "bytes": 600347
+    },
+    {
+      "id": "TG_plate_uniaxial_buckling",
+      "folder": "cases/TG_plate_uniaxial_buckling",
+      "manifest_sha256": "68bc8d8ddd4d4ef0f4e7d7249537bf8589c9b37cdab5a154e81b0ecc4cdd61ff",
+      "pdf_sha256": "74b720afa467aee2ce13f50187c0b0e407b36e5c0ad5e23edc5ae4483c4bb019",
+      "pdf_pages": 2,
+      "native_binary_count": 1,
+      "figure_png_count": 3,
+      "file_count": 17,
+      "bytes": 1184025
+    }
+  ],
+  "sources_sha256": {
+    "public_suite.yaml": "a3c24f7032422118e0debd8e9cc1b4c040747f39ed90992696f012bcbceec23d",
+    "run_public_suite.jl": "a099e4562b1882d9e7d334c4adccbfa1a6b37fadb5ade53890155b192c393cd3",
+    "run_academic_cases.jl": "3f1051109f23fed784f6a866710b3755ad1809162caa522cb7ea65fb0bd38d96",
+    "generate_academic_cases.py": "6ad02e6798571c3a920de25d23f0f1f4b8cf8e9c348ae5d88f25e05e268d7d03",
+    "build_case_cards.py": "776022314b284aee7e4ade99617497739e5e8bc30f818f4972fa3b8ee00977e7",
+    "README.md": "8706451086951b7f6e374b48a0f873c23d84b855c66973f7259bd2c8247f242b",
+    "VALIDATION_SUMMARY.md": "8549b93a0752a29fcf750231478fa2857fd55c7060009ecf26b1aa2e486c802a",
+    "CASE_INVENTORY.csv": "80674f7e8ddd9ebfdb8c8593c7dd0e64d44329598c71cdfbd0c6f71c6c189a2a",
+    "comparison.csv": "1ec4d2612735a823f4247b6f80857b9f011058de87413bbd6e915cba61a87807",
+    "index.html": "4d6ee7b1cc3fb2c05e3863ac437a406a17bbe3039f19acdd783eb476c30407b9"
+  }
+}

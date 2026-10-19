@@ -1,0 +1,7 @@
+{
+  "status": "DIAGNOSTIC_PARTIAL",
+  "requested_roots": 6,
+  "accepted_roots": 5,
+  "global_first_root_certified": false,
+  "reason": "Spectrum-completeness guards did not certify the requested spectrum. A low residual alone does not prove that lower modes were not missed."
+}

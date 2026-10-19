@@ -1,0 +1,93 @@
+{
+  "id": "CRM_wingbox_modal",
+  "title": "CRM wingbox: first five modes",
+  "solutions": [
+    103
+  ],
+  "family": "crm",
+  "evidence_class": "Reproducibility / historical regression",
+  "description": "Public TACS CRM geometry; isotropic conversion E=70 GPa, nu=0.3, rho=2500 kg/m3, t=0.02 m.",
+  "geometry": "23738 nodes; 25055 elements. Public TACS CRM geometry; isotropic conversion E=70 GPa, nu=0.3, rho=2500 kg/m3, t=0.02 m.",
+  "material": "E=7e+10, nu=0.3; density=2500; shell thickness=0.02. SI: m, N, kg, s, Pa",
+  "boundary_conditions": "Upstream root constraints; consistent shell mass; PARAM K6ROT 100. Adapted CQUAD4 model.",
+  "loading": "Free vibration about the undeformed state; no applied static preload.",
+  "length_unit": "m",
+  "metrics": [
+    {
+      "name": "eigenvalue mode1",
+      "value": 111.77639928078109,
+      "reference": 111.7764,
+      "error_percent": 6.434443200475926e-07,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 5.0,
+      "status": "REGRESSION",
+      "reference_classification": "historical_regression",
+      "source_input": "model.bdf"
+    },
+    {
+      "name": "eigenvalue mode2",
+      "value": 990.310020837362,
+      "reference": 990.3101,
+      "error_percent": 7.993722173083029e-06,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 5.0,
+      "status": "REGRESSION",
+      "reference_classification": "historical_regression",
+      "source_input": "model.bdf"
+    },
+    {
+      "name": "eigenvalue mode3",
+      "value": 1355.942551482386,
+      "reference": 1355.943,
+      "error_percent": 3.30779106438861e-05,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 5.0,
+      "status": "REGRESSION",
+      "reference_classification": "historical_regression",
+      "source_input": "model.bdf"
+    },
+    {
+      "name": "eigenvalue mode4",
+      "value": 5946.716523670495,
+      "reference": 5946.717,
+      "error_percent": 8.009957508381405e-06,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 5.0,
+      "status": "REGRESSION",
+      "reference_classification": "historical_regression",
+      "source_input": "model.bdf"
+    },
+    {
+      "name": "eigenvalue mode5",
+      "value": 10448.763874255452,
+      "reference": 10448.76,
+      "error_percent": 3.70786146008939e-05,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 5.0,
+      "status": "REGRESSION",
+      "reference_classification": "historical_regression",
+      "source_input": "model.bdf"
+    }
+  ],
+  "convergence": [],
+  "diagnostics": [],
+  "references": [
+    {
+      "citation": "TACS public CRM example (Apache-2.0): source geometry and material/thickness definitions. The stored frequencies are not independently published validation targets.",
+      "url": "https://github.com/smdogroup/tacs/blob/master/examples/crm/crm_frequency.py"
+    }
+  ],
+  "observations": [
+    "Stored historical scalar has no independently reproducible public source. This comparison is a regression check and is not independent scientific validation."
+  ],
+  "limits": [
+    "Public geometry with synthesized isotropic properties. The listed historical eigenvalues have no independently published matching target; this case demonstrates industrial model scale and reproducibility."
+  ],
+  "visual_file": "results/visual_data.json",
+  "run_date": "2026-10-19",
+  "solver_revision": "a70f997",
+  "model_files": [
+    "model.bdf"
+  ],
+  "figure_caption": "Recorded JFEM result; deformation is amplified, mode amplitudes/signs arbitrary. Green triangles mark constrained nodes; magenta arrows mark available point loads. "
+}

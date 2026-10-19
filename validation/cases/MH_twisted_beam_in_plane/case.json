@@ -1,0 +1,47 @@
+{
+  "id": "MH_twisted_beam_in_plane",
+  "title": "Twisted cantilever: in-plane tip load",
+  "solutions": [
+    101
+  ],
+  "family": "macneal_harder",
+  "evidence_class": "Published shell benchmark",
+  "description": "90-degree twisted rectangular cantilever; length 12, width 1.1, thickness 0.32; E=29e6, nu=0.22.",
+  "geometry": "26 nodes; 12 elements. 90-degree twisted rectangular cantilever; length 12, width 1.1, thickness 0.32; E=29e6, nu=0.22.",
+  "material": "E=2.9e+07, nu=0.22; shell thickness=0.32. Consistent benchmark units; displacements in deck length unit, forces in deck force unit, stress in force/length^2",
+  "boundary_conditions": "Root clamped; unit total in-plane tip force along global Z.",
+  "loading": "Total Fz=1 at the twisted free section (local in-plane bending).",
+  "length_unit": "benchmark length unit",
+  "metrics": [
+    {
+      "name": "tip disp in plane",
+      "value": 0.005382141966966066,
+      "reference": 0.005424,
+      "error_percent": 0.7717188981182455,
+      "unit": "benchmark length unit",
+      "tolerance_percent": 2.0,
+      "status": "PASS",
+      "reference_classification": "published",
+      "source_input": "model.bdf"
+    }
+  ],
+  "convergence": [],
+  "diagnostics": [],
+  "references": [
+    {
+      "citation": "MacNeal, R.H.; Harder, R.L. (1985). A proposed standard set of problems to test finite element accuracy. Finite Elements in Analysis and Design 1, 3-20.",
+      "url": "https://doi.org/10.1016/0168-874X(85)90003-4"
+    }
+  ],
+  "observations": [],
+  "limits": [
+    "Linear elasticity and small-displacement equilibrium or linearized bifurcation/modal analysis; this is computational verification, not a material-test validation."
+  ],
+  "visual_file": "results/visual_data.json",
+  "run_date": "2026-10-19",
+  "solver_revision": "a70f997",
+  "model_files": [
+    "model.bdf"
+  ],
+  "figure_caption": "Recorded JFEM result; deformation is amplified, mode amplitudes/signs arbitrary. Green triangles mark constrained nodes; magenta arrows mark available point loads. "
+}

@@ -1,0 +1,105 @@
+{
+  "schema": "jfem.validation.recorded_results.v1",
+  "case_id": "TG_plate_uniaxial_buckling",
+  "input_sha256": "79e741bbb3d88882153f2fd7f2e47f65952e8a3e40b11f27f68bfa67fa2f14d5",
+  "metrics": [
+    {
+      "name": "Critical stress (lambda x 1 Pa)",
+      "value": 0.07718638830974536,
+      "reference": 0.07592003385453353,
+      "error_percent": 1.6680109200665427,
+      "unit": "GPa",
+      "tolerance_percent": 3.0,
+      "status": "PASS",
+      "reference_classification": "analytical",
+      "source_input": "model.bdf",
+      "native_value": 77186388.30974536
+    },
+    {
+      "name": "preload ux node 36",
+      "value": -4.7619047619047665e-12,
+      "reference": -4.761905e-12,
+      "error_percent": 4.999999658750198e-06,
+      "unit": "m",
+      "tolerance_percent": 0.1,
+      "status": "REGRESSION",
+      "reference_classification": "historical_regression",
+      "source_input": "model.bdf"
+    }
+  ],
+  "states": [
+    {
+      "name": "Mode 1",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 1,
+      "eigenvalue": 77186388.30974536,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 2",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 2,
+      "eigenvalue": 129499507.01449439,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 3",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 3,
+      "eigenvalue": 277546352.73649734,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 4",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 4,
+      "eigenvalue": 350916343.13460153,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 5",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 5,
+      "eigenvalue": 492705984.4038138,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 6",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 6,
+      "eigenvalue": 570639387.1236674,
+      "frequency_hz": null
+    },
+    {
+      "name": "Mode 7",
+      "kind": "buckling",
+      "normalization": "arbitrary eigenvector amplitude",
+      "subcase": 2,
+      "mode": 7,
+      "eigenvalue": 594460513.7744701,
+      "frequency_hz": null
+    },
+    {
+      "name": "Static preload 1",
+      "kind": "preload",
+      "normalization": "physical displacement in model length units",
+      "subcase": 1
+    }
+  ],
+  "field_data": "visual_data.json",
+  "binary_results": [
+    "timoshenko_plate_buckling.jfem"
+  ]
+}

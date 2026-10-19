@@ -1,0 +1,65 @@
+{
+  "id": "TG_plate_uniaxial_buckling",
+  "title": "Simply supported plate buckling",
+  "solutions": [
+    105
+  ],
+  "family": "classical",
+  "evidence_class": "Independent analytical verification",
+  "description": "Square plate a=b=1 m, t=0.01 m, E=210 GPa, nu=0.3; 5x5 shell mesh.",
+  "geometry": "36 nodes; 25 elements. Square plate a=b=1 m, t=0.01 m, E=210 GPa, nu=0.3; 5x5 shell mesh.",
+  "material": "E=2.1e+11, nu=0.3; shell thickness=0.01. SI: m, N, kg, s, Pa",
+  "boundary_conditions": "All edges transverse displacement fixed; left edge axial displacement fixed; one Y anchor; uniform 1 Pa compressive axial stress.",
+  "loading": "Uniform 1 Pa reference compression, applied as consistent edge nodal forces; multiplier equals critical stress numerically in Pa.",
+  "length_unit": "m",
+  "metrics": [
+    {
+      "name": "Critical stress (lambda x 1 Pa)",
+      "value": 0.07718638830974536,
+      "reference": 0.07592003385453353,
+      "error_percent": 1.6680109200665427,
+      "unit": "GPa",
+      "tolerance_percent": 3.0,
+      "status": "PASS",
+      "reference_classification": "analytical",
+      "source_input": "model.bdf",
+      "native_value": 77186388.30974536
+    },
+    {
+      "name": "preload ux node 36",
+      "value": -4.7619047619047665e-12,
+      "reference": -4.761905e-12,
+      "error_percent": 4.999999658750198e-06,
+      "unit": "m",
+      "tolerance_percent": 0.1,
+      "status": "REGRESSION",
+      "reference_classification": "historical_regression",
+      "source_input": "model.bdf"
+    }
+  ],
+  "convergence": [],
+  "diagnostics": [],
+  "references": [
+    {
+      "citation": "Timoshenko and Gere, Theory of Elastic Stability, 2nd ed. (1961), plate buckling.",
+      "url": ""
+    },
+    {
+      "citation": "Wierzbicki, T. MIT 2.080J Structural Mechanics, Lecture 11: Buckling of Plates and Sections (2013).",
+      "url": "https://ocw.mit.edu/courses/2-080j-structural-mechanics-fall-2013/resources/mit2_080jf13_lecture11/"
+    }
+  ],
+  "observations": [
+    "The supplied input omitted SPC selection from the buckling subcase. This rerun explicitly adds SPC=1 to that subcase, preserving the intended constraints. The original failed attempt is retained in the audit record."
+  ],
+  "limits": [
+    "Linear elasticity and small-displacement equilibrium or linearized bifurcation/modal analysis; this is computational verification, not a material-test validation."
+  ],
+  "visual_file": "results/visual_data.json",
+  "run_date": "2026-10-19",
+  "solver_revision": "a70f997",
+  "model_files": [
+    "model.bdf"
+  ],
+  "figure_caption": "Recorded JFEM result; deformation is amplified, mode amplitudes/signs arbitrary. Green triangles mark constrained nodes; magenta arrows mark available point loads. "
+}

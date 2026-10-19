@@ -1,0 +1,66 @@
+{
+  "id": "MH_pinched_cylinder",
+  "title": "Pinched cylinder: coarse octant",
+  "solutions": [
+    101
+  ],
+  "family": "macneal_harder",
+  "evidence_class": "Published shell benchmark",
+  "description": "Cylinder radius 300, full length 600, thickness 3; E=3e6, nu=0.3.",
+  "geometry": "25 nodes; 16 elements. Cylinder radius 300, full length 600, thickness 3; E=3e6, nu=0.3.",
+  "material": "E=3e+06, nu=0.3; shell thickness=3. Consistent benchmark units; displacements in deck length unit, forces in deck force unit, stress in force/length^2",
+  "boundary_conditions": "Rigid end diaphragm and octant symmetry; quarter of unit radial point load at the symmetry intersection.",
+  "loading": "Radial point force -0.25 in global X on the modeled octant symmetry corner.",
+  "length_unit": "benchmark length unit",
+  "metrics": [
+    {
+      "name": "radial disp under load (magnitude)",
+      "value": 9.563567826444352e-06,
+      "reference": 1.8248e-05,
+      "error_percent": 47.591145186078734,
+      "unit": "benchmark length unit",
+      "tolerance_percent": 10.0,
+      "status": "FAIL (coarse)",
+      "reference_classification": "published",
+      "source_input": "model.bdf"
+    }
+  ],
+  "convergence": [
+    {
+      "quantity": "radial_disp_under_load",
+      "elements": 16,
+      "value": 9.563567826444352e-06,
+      "reference": 1.8248e-05
+    },
+    {
+      "quantity": "radial_disp_under_load",
+      "elements": 576,
+      "value": 1.8286481511132555e-05,
+      "reference": 1.8248e-05
+    }
+  ],
+  "diagnostics": [],
+  "references": [
+    {
+      "citation": "MacNeal, R.H.; Harder, R.L. (1985). A proposed standard set of problems to test finite element accuracy. Finite Elements in Analysis and Design 1, 3-20.",
+      "url": "https://doi.org/10.1016/0168-874X(85)90003-4"
+    },
+    {
+      "citation": "Ko, Y.; Lee, Y.; Lee, P.-S.; Bathe, K.-J. (2017). Performance of the MITC3+ and MITC4+ shell elements in widely-used benchmark problems. Computers & Structures 193, 187-206.",
+      "url": "https://doi.org/10.1016/j.compstruc.2017.08.003"
+    }
+  ],
+  "observations": [
+    "The separately retained MH_pinched_cylinder_refined companion tests the same published target. Coarse-mesh error is displayed and is not relabeled as validation success."
+  ],
+  "limits": [
+    "Linear elasticity and small-displacement equilibrium or linearized bifurcation/modal analysis; this is computational verification, not a material-test validation."
+  ],
+  "visual_file": "results/visual_data.json",
+  "run_date": "2026-10-19",
+  "solver_revision": "a70f997",
+  "model_files": [
+    "model.bdf"
+  ],
+  "figure_caption": "Recorded JFEM result; deformation is amplified, mode amplitudes/signs arbitrary. Green triangles mark constrained nodes; magenta arrows mark available point loads. "
+}

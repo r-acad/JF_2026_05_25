@@ -43,11 +43,11 @@ setup builds the appropriate image on each computer.
 
 ## Validation
 
-The [reproducible validation suite](validation/README.md) contains published
-benchmark models, references and explicit tolerances. Seventeen scalar rows
-have reference parity targets; two coarse-mesh analytical discrepancies remain
-documented. Reference agreement on a given mesh does not establish mesh-converged
-accuracy. See [automated tests](utils/test/README.md) to verify a checkout.
+The [illustrated validation collection](validation/README.md) contains 18 case
+folders with models, recorded results, two-page cards and explicit tolerances.
+Its default check compares 44 quantities; coarse-mesh failures and historical
+regression targets remain identified. See the [results summary](validation/VALIDATION_SUMMARY.md)
+and [automated tests](utils/test/README.md) to verify a checkout.
 
 ## Contribute
 

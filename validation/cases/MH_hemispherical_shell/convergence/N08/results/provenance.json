@@ -1,0 +1,21 @@
+{
+  "schema": "jfem.validation.provenance.v1",
+  "case_id": "MH_hemispherical_shell_N08",
+  "input": "cases/MH_hemispherical_shell/convergence/N08/model.bdf",
+  "input_sha256": "0f1953b0c7f511c9e6a492a1e5c6de3ae7bfea85f466d7edbd220cba1d739e1f",
+  "status": "solved",
+  "input_unchanged": true,
+  "run_started_utc": "2026-10-19T09:36:09.348",
+  "run_finished_utc": "2026-10-19T09:36:09.467",
+  "julia_version": "1.13.1",
+  "wall_seconds_including_compilation": 0.1197113,
+  "source_receipt_sha256": "077c1d7fccd231a199932eb442b40a40765aa807b619c81e49f956677fd4b34a",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "published_files": {
+    "MH_hemispherical_shell_N08.jfem": "6a7aed0621bc72edee6ca140665fae72358c9e413ffb107649e632cdbee4434e",
+    "MH_hemispherical_shell_N08.JU.JSON": "dd7b794d43f0e68047edb4c2dc53ac7fbac2ee0b5f3ee1ef893367f31ee6b108",
+    "MH_hemispherical_shell_N08.TIMINGS.JSON": "59b28d75fcaa0da758d28365bf3db99e27ee55b6b22c82c325e39f86b4302760",
+    "results.json": "b2d0a356fe5a2d82fede0eb5420d3bdccc7c67d8e3558cee23c916d9dfbb9505",
+    "visual_data.json": "54fae62e295e4529b0dcd94b909b0ce03b9a4c1784eb1a42926316bca3b25df9"
+  }
+}

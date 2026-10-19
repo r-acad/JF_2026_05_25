@@ -1,0 +1,338 @@
+{
+  "id": "ACA03",
+  "title": "Symmetric cross-ply plate: Navier buckling",
+  "solutions": [
+    105
+  ],
+  "evidence_class": "Independent analytical equation verification",
+  "length_unit": "m",
+  "metrics": [
+    {
+      "name": "buckling load factor 1",
+      "value": 5.649493997197128,
+      "reference": 5.654259607963528,
+      "error_percent": 0.08428355075327787,
+      "tolerance_percent": 2.0,
+      "unit": "dimensionless",
+      "status": "PASS"
+    },
+    {
+      "name": "buckling load factor 2",
+      "value": 10.444994482620572,
+      "reference": 10.453457383875127,
+      "error_percent": 0.08095791606334511,
+      "tolerance_percent": 2.0,
+      "unit": "dimensionless",
+      "status": "PASS"
+    },
+    {
+      "name": "buckling load factor 3",
+      "value": 21.085569743015714,
+      "reference": 21.10426603141566,
+      "error_percent": 0.08859009061065205,
+      "tolerance_percent": 2.0,
+      "unit": "dimensionless",
+      "status": "PASS"
+    },
+    {
+      "name": "buckling load factor 4",
+      "value": 22.587703399457816,
+      "reference": 22.617038431854112,
+      "error_percent": 0.12970324335206085,
+      "tolerance_percent": 2.0,
+      "unit": "dimensionless",
+      "status": "PASS"
+    },
+    {
+      "name": "buckling load factor 5",
+      "value": 28.243184409528826,
+      "reference": 28.2950739149799,
+      "error_percent": 0.18338706450100836,
+      "tolerance_percent": 2.0,
+      "unit": "dimensionless",
+      "status": "PASS"
+    },
+    {
+      "name": "buckling load factor 6",
+      "value": 36.32073390609146,
+      "reference": 36.36349225948143,
+      "error_percent": 0.11758593779952986,
+      "tolerance_percent": 2.0,
+      "unit": "dimensionless",
+      "status": "PASS"
+    }
+  ],
+  "convergence": [
+    {
+      "quantity": "buckling load factor 1",
+      "elements": 16,
+      "value": 5.954006360808237,
+      "reference": 5.654259607963528,
+      "error_percent": 5.301255577698309,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 2",
+      "elements": 16,
+      "value": 12.897463376310334,
+      "reference": 10.453457383875127,
+      "error_percent": 23.379881915481693,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 3",
+      "elements": 16,
+      "value": 31.967076106629566,
+      "reference": 21.10426603141566,
+      "error_percent": 51.47210549300131,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 4",
+      "elements": 16,
+      "value": 37.44004735046287,
+      "reference": 22.617038431854112,
+      "error_percent": 65.5391242459572,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 5",
+      "elements": 16,
+      "value": 63.250206495510994,
+      "reference": 28.2950739149799,
+      "error_percent": 123.53787336114804,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 6",
+      "elements": 16,
+      "value": 74.25691489801575,
+      "reference": 36.36349225948143,
+      "error_percent": 104.20732521545416,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 1",
+      "elements": 64,
+      "value": 5.713097223663864,
+      "reference": 5.654259607963528,
+      "error_percent": 1.0405892155618044,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 2",
+      "elements": 64,
+      "value": 10.930491188192786,
+      "reference": 10.453457383875127,
+      "error_percent": 4.563406983927651,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 3",
+      "elements": 64,
+      "value": 23.72124509864131,
+      "reference": 21.10426603141566,
+      "error_percent": 12.400237294820096,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 4",
+      "elements": 64,
+      "value": 23.953349415336483,
+      "reference": 22.617038431854112,
+      "error_percent": 5.908426019209896,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 5",
+      "elements": 64,
+      "value": 31.96829685395551,
+      "reference": 28.2950739149799,
+      "error_percent": 12.981846062720287,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 6",
+      "elements": 64,
+      "value": 45.04504894620379,
+      "reference": 36.36349225948143,
+      "error_percent": 23.8743754993959,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 1",
+      "elements": 256,
+      "value": 5.661756512623163,
+      "reference": 5.654259607963528,
+      "error_percent": 0.132588617775459,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 2",
+      "elements": 256,
+      "value": 10.541109899575046,
+      "reference": 10.453457383875127,
+      "error_percent": 0.8385026358372694,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 3",
+      "elements": 256,
+      "value": 21.61364579388879,
+      "reference": 21.10426603141566,
+      "error_percent": 2.41363410466335,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 4",
+      "elements": 256,
+      "value": 22.802124387871622,
+      "reference": 22.617038431854112,
+      "error_percent": 0.8183474444506944,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 5",
+      "elements": 256,
+      "value": 28.76753752170333,
+      "reference": 28.2950739149799,
+      "error_percent": 1.6697733610559669,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 6",
+      "elements": 256,
+      "value": 38.04263982263549,
+      "reference": 36.36349225948143,
+      "error_percent": 4.617674097889316,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 1",
+      "elements": 1024,
+      "value": 5.652201451819952,
+      "reference": 5.654259607963528,
+      "error_percent": 0.03640009985882947,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 2",
+      "elements": 1024,
+      "value": 10.46348597676675,
+      "reference": 10.453457383875127,
+      "error_percent": 0.09593565576774311,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 3",
+      "elements": 1024,
+      "value": 21.186610132277455,
+      "reference": 21.10426603141566,
+      "error_percent": 0.3901775154806113,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 4",
+      "elements": 1024,
+      "value": 22.624291397534446,
+      "reference": 22.617038431854112,
+      "error_percent": 0.03206859157173348,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 5",
+      "elements": 1024,
+      "value": 28.328553670891004,
+      "reference": 28.2950739149799,
+      "error_percent": 0.11832362061221267,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 6",
+      "elements": 1024,
+      "value": 36.648954105499726,
+      "reference": 36.36349225948143,
+      "error_percent": 0.7850231874906403,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 1",
+      "elements": 4096,
+      "value": 5.649493997197128,
+      "reference": 5.654259607963528,
+      "error_percent": 0.08428355075327787,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 2",
+      "elements": 4096,
+      "value": 10.444994482620572,
+      "reference": 10.453457383875127,
+      "error_percent": 0.08095791606334511,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 3",
+      "elements": 4096,
+      "value": 21.085569743015714,
+      "reference": 21.10426603141566,
+      "error_percent": 0.08859009061065205,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 4",
+      "elements": 4096,
+      "value": 22.587703399457816,
+      "reference": 22.617038431854112,
+      "error_percent": 0.12970324335206085,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 5",
+      "elements": 4096,
+      "value": 28.243184409528826,
+      "reference": 28.2950739149799,
+      "error_percent": 0.18338706450100836,
+      "unit": "dimensionless"
+    },
+    {
+      "quantity": "buckling load factor 6",
+      "elements": 4096,
+      "value": 36.32073390609146,
+      "reference": 36.36349225948143,
+      "error_percent": 0.11758593779952986,
+      "unit": "dimensionless"
+    }
+  ],
+  "references": [
+    {
+      "citation": "Weaver and Nemeth, Improved Design Formulae for Buckling of Orthotropic Plates under Combined Loading (2008)",
+      "url": "https://ntrs.nasa.gov/citations/20080015745"
+    },
+    {
+      "citation": "Nachiketa Tiwari / IIT Kanpur: Mechanics of Laminated Composite Structures, Lecture37 Buckling of Plates",
+      "url": "https://archive.nptel.ac.in/content/storage2/courses/112104161/L37.pdf"
+    }
+  ],
+  "visual_file": "results/visual_data.json",
+  "solver_revision": "a70f997cce40",
+  "run_date": "2026-10-19",
+  "equations": [
+    "D_ij=sum_k Qbar_ij(k)*(z_k^3-z_(k-1)^3)/3",
+    "alpha=m*pi/a; beta=n*pi/b",
+    "H=D11*alpha^4+2*(D12+2D66)*alpha^2*beta^2+D22*beta^4",
+    "lambda_mn=H/(Nx*alpha^2)"
+  ],
+  "description": "A simply supported symmetric cross-ply laminate under uniform compression tests composite bending stiffness, prestress and the first six buckling roots against the finite-plate Navier solution.",
+  "geometry": "Plate 0.6 m by 0.4 m, thickness 2 mm; CQUAD4 meshes from 4x4 to 64x64.",
+  "material": "[0/90/90/0], four 0.5 mm plies. E1 = 135 GPa, E2 = 10 GPa, G12 = G13 = G23 = 5 GPa, nu12 = 0.3.",
+  "boundary_conditions": "All four edges uz=0; bending rotations free. ux=0 at x=0; origin uy=0; drilling rotation constrained.",
+  "loading": "Uniform reference compression Nx = 1000 N/m on x = 0.6 m, consistent nodal traction. Same constraints in preload and buckling.",
+  "observations": [
+    "All first six finest-mesh factors agree within 0.184%; smallest transverse mode-shape MAC = 0.99999847.",
+    "All coarse errors remain tabulated;64x64 refinement improves the worst error from0.7851% at32x32."
+  ],
+  "limits": [
+    "Navier theory assumes a thin, flat, symmetric specially orthotropic plate. Transverse-shear flexibility and discretization distinguish the FE model from this idealization."
+  ]
+}

@@ -1,0 +1,396 @@
+{
+  "case_id": "ACA03",
+  "run": "cross_ply_sol105_n04",
+  "sol": 105,
+  "mesh_n": 4,
+  "status": "solved",
+  "input_file": "cross_ply_sol105_n04.bdf",
+  "input_sha256": "2bd3f5d8563dc1957790ebeb8b2772e9a94b13f42a7c9c99fa5b1e0583f277c7",
+  "started_utc": "2026-10-19T09:36:10.595",
+  "finished_utc": "2026-10-19T09:37:50.014",
+  "wall_seconds_including_compilation": 99.41599988937378,
+  "solver_diagnostics": [
+    {
+      "eigrl_nd_specified": true,
+      "eigrl_v1": 0.0,
+      "eigenvalue_extraction_method": "LANCZOS",
+      "eigrl_has_range": false,
+      "buckling_subcase": 2,
+      "eigenvalue_extraction_type": "EIGRL",
+      "phase_timings": {
+        "static_reference_solve": 4.4143418,
+        "kg_assembly": 6.0217122000000005,
+        "buckling_eigensolve": 3.7111731000000003
+      },
+      "static_subcase": 1,
+      "details": {
+        "requested_modes": 6,
+        "range_nd_limited_output": false,
+        "matrix_asymmetry": {
+          "Kg_inf_rel": 6.394884621840899e-17,
+          "K_inf_rel": 0.0,
+          "status": "computed"
+        },
+        "request_all_in_range": false,
+        "range_mode_factor": null,
+        "free_dofs": 103,
+        "solver_backend": "krylov_eigrl_target",
+        "eigenpair_request_contract": {
+          "candidate_pairs_examined_limit": 6,
+          "requested_nd": 6,
+          "backend_request_limit": 6,
+          "candidate_pairs_examined_limit_scope": "per_backend_invocation",
+          "auxiliary_ritz_policy": "record_raw_count_but_do_not_examine_or_expand_beyond_request",
+          "mode": "nd_limited",
+          "output_pairs_limit": 6
+        },
+        "boundary_targeting": {
+          "retries": 0,
+          "excluded_pairs": 0,
+          "retry_limit": 8
+        },
+        "bc_partition": {
+          "explicit_spc_dofs": 47,
+          "autospc_enabled": true,
+          "autospc_gpst_rotational_dofs": 0,
+          "autospc_load_path_protection": {
+            "enabled": false
+          },
+          "autospc_diagonal_zero_dofs": 0,
+          "mpc_dependent_dofs": 0,
+          "fixed_dofs": 47,
+          "autospc_diagonal_rotational_dofs": 0,
+          "permanent_grid_dofs": 0,
+          "autospc_gpst_eps_zero": 1e-08,
+          "autospc_gpst_dofs": 0,
+          "autospc_diagonal_translational_dofs": 0,
+          "autospc_load_path_skipped_dofs": 0,
+          "factorization_autospc": {
+            "triggered": false,
+            "mechanism_translational_dofs": 0,
+            "shift_exponent": null,
+            "mechanism_dofs": 0,
+            "skipped_as_too_aggressive": false,
+            "mechanism_rotational_dofs": 0
+          },
+          "autospc_reference_scope": "grid_point_principal_stiffness",
+          "permanent_grid_constraints": 0,
+          "autospc_negative_diagonal_dofs": 0,
+          "autospc_load_path_protected_translational_dofs": 0,
+          "autospc_gpst_translational_dofs": 0,
+          "autospc_diagonal_dofs": 0,
+          "autospc_diagonal_relative_dofs": 0,
+          "free_dofs": 103,
+          "autospc_gpst_entries": []
+        },
+        "output_pairs_shortage": 0,
+        "fixed_dofs": 47,
+        "returned_modes": 6,
+        "eigrl_range": {
+          "v2": 0.0,
+          "v1": 0.0
+        },
+        "eigenvalue_extraction": {
+          "v2_specified": false,
+          "type": "EIGRL",
+          "algorithm": "LANCZOS",
+          "method_id": 1,
+          "v1_specified": false,
+          "nd_specified": true
+        },
+        "eigsolve_requests": [
+          {
+            "algorithm": "Arnoldi",
+            "selector": "LM",
+            "sigma": 0.0,
+            "attempt": "krylov_eigrl_target",
+            "requested_eigenpairs": 6
+          }
+        ],
+        "output_request_status": "satisfied",
+        "bounded_signed_magnitude_selector": {
+          "enabled": false,
+          "selector": "removed_2026_07_27",
+          "manual": false,
+          "active": false,
+          "output": false
+        },
+        "candidate_filter_decisions": [
+          "kept",
+          "kept",
+          "kept",
+          "kept",
+          "kept",
+          "kept"
+        ],
+        "raw_fields_are_reported_mirror": true,
+        "solver_attempts": [
+          {
+            "name": "krylov_eigrl_target",
+            "sigma": 0.0,
+            "ritz_vectors_returned": 7,
+            "factorization": "cholesky",
+            "duplicate_ritz_pairs": 0,
+            "krylov_tol": 1e-12,
+            "returned_modes": 6,
+            "force_full_request": false,
+            "nd_limited_range_output": false,
+            "krylovdim": 40,
+            "block_lanczos": false,
+            "accepted_residuals": [
+              3.5224993677951823e-11,
+              5.1526804207687635e-11,
+              3.324882605160049e-11,
+              6.327485404837224e-11,
+              1.817247324308171e-09,
+              1.1760554899151705e-08
+            ],
+            "pairs_retained": 6,
+            "krylov_maxiter": 1000,
+            "shifted_factor_cache_hit": false,
+            "accuracy_retry": false,
+            "candidate_pairs_examined": 6,
+            "converged": 7,
+            "requested_eigenpairs": 6,
+            "requested_modes_internal": 6,
+            "requested_modes_override": 6,
+            "range_augmentation_buffer": 0,
+            "status": "succeeded",
+            "ritz_values_returned": 7,
+            "operator_applications": 14,
+            "block_error": null
+          }
+        ],
+        "sol105_options": {
+          "macneal_pcomp_thick_h_min": 0.0,
+          "k6rot_legacy_option_consumed": false,
+          "cluster_filter_enabled": false,
+          "k6rot_legacy_option": 0.0,
+          "macneal_rbf_zb_scale": 1.28,
+          "autospc_trans_rel": 1e-08,
+          "raw_output": false,
+          "k6rot_eigen": 100.0,
+          "phi2_alpha": 10.0,
+          "macneal_pcomp_thick_kappa_l_min": 0.0,
+          "k6rot": 100.0,
+          "macneal_pcomp_thick_h_over_l_min": 0.015,
+          "cluster_filter_ratio": 1.25,
+          "autospc_rot_rel": 1e-08,
+          "macneal_pcomp_thick_aspect_max": 3.5,
+          "k6rot_resolution": {
+            "eigen_stiffness_reuses_static": true,
+            "note": "K6ROT is the global drilling coefficient; element formulations may disable the drilling contribution for specific elements. The legacy options field does not control assembly.",
+            "eigen_override_used": false,
+            "static": {
+              "source": "deck:PARAM,K6ROT",
+              "sequence_default": 0.0,
+              "selected_override": null,
+              "override_applied": false,
+              "deck_value": 100,
+              "override_status": "absent_or_blank",
+              "shear_center_only": false,
+              "solution": 105,
+              "value": 100.0
+            },
+            "eigen": {
+              "source": "deck:PARAM,K6ROT",
+              "sequence_default": 0.0,
+              "selected_override": null,
+              "override_applied": false,
+              "operator_source": "reused_static_stiffness",
+              "deck_value": 100,
+              "override_status": "absent_or_blank",
+              "shear_center_only": false,
+              "solution": 105,
+              "value": 100.0
+            }
+          },
+          "macneal_warp_tol": 0.01,
+          "k6rot_static": 100.0
+        },
+        "filter_decisions": [
+          "kept",
+          "kept",
+          "kept",
+          "kept",
+          "kept",
+          "kept"
+        ],
+        "requested_modes_internal": 6,
+        "raw_to_sorted_index": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "kept_indices_in_sorted": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "timings": {
+          "slice_free_matrices": 8.48e-05,
+          "prepare_context": 0.09914680000000001,
+          "eigensolver_search": 1.5874534,
+          "postprocess_filter_expand": 0.2426869,
+          "expand_modes": 0.1118988,
+          "total": 2.0887709,
+          "symmetry_checks": 0.1579704
+        },
+        "eigen_cache": {
+          "factor_backend": "cholesky",
+          "cache_hit": false,
+          "enabled": false,
+          "factorization_cache_hit": false
+        },
+        "eigrl_field_presence": {
+          "v2": false,
+          "nd": true,
+          "v1": false
+        },
+        "candidate_eigenvalues": [
+          5.954006360808237,
+          12.897463376310334,
+          31.967076106629566,
+          37.44004735046287,
+          63.250206495510994,
+          74.25691489801575
+        ],
+        "raw_eigenvalues": [
+          5.954006360808237,
+          12.897463376310334,
+          31.967076106629566,
+          37.44004735046287,
+          63.250206495510994,
+          74.25691489801575
+        ]
+      },
+      "method_id": 1,
+      "wall_seconds": 3.7111731000000003,
+      "kg_timings": {
+        "solids": 2.2100000000000002e-05,
+        "setup": 0.036769,
+        "bars_beams": 2.1300000000000003e-05,
+        "sparse_build": 0.028827900000000004,
+        "preload_cache_hit": false,
+        "shells": 4.2863047000000005,
+        "rods": 1.45e-05,
+        "constraint_redistribution": 0.24395650000000002,
+        "total": 4.5959418
+      },
+      "eigenvalues": [
+        5.954006360808237,
+        12.897463376310334,
+        31.967076106629566,
+        37.44004735046287,
+        63.250206495510994,
+        74.25691489801575
+      ],
+      "eigrl_v1_specified": false,
+      "static_spc_id": 1,
+      "buckling_spc_id": 1,
+      "eigrl_v2_specified": false,
+      "eigrl_v2": 0.0,
+      "num_modes_requested": 6
+    },
+    {
+      "backend_version": "0.1.0",
+      "backend": "reference_parity",
+      "phase": "backend"
+    }
+  ],
+  "metrics": [
+    {
+      "run": "cross_ply_sol105_n04",
+      "value": 5.954006360808237,
+      "error_percent": 5.301255577698309,
+      "mesh_n": 4,
+      "passed": false,
+      "tolerance_percent": 2.0,
+      "quantity": "buckling load factor",
+      "reference": 5.654259607963528,
+      "mode": 1,
+      "case_id": "ACA03",
+      "sol": 105,
+      "unit": "dimensionless"
+    },
+    {
+      "run": "cross_ply_sol105_n04",
+      "value": 12.897463376310334,
+      "error_percent": 23.379881915481693,
+      "mesh_n": 4,
+      "passed": false,
+      "tolerance_percent": 2.0,
+      "quantity": "buckling load factor",
+      "reference": 10.453457383875127,
+      "mode": 2,
+      "case_id": "ACA03",
+      "sol": 105,
+      "unit": "dimensionless"
+    },
+    {
+      "run": "cross_ply_sol105_n04",
+      "value": 31.967076106629566,
+      "error_percent": 51.47210549300131,
+      "mesh_n": 4,
+      "passed": false,
+      "tolerance_percent": 2.0,
+      "quantity": "buckling load factor",
+      "reference": 21.10426603141566,
+      "mode": 3,
+      "case_id": "ACA03",
+      "sol": 105,
+      "unit": "dimensionless"
+    },
+    {
+      "run": "cross_ply_sol105_n04",
+      "value": 37.44004735046287,
+      "error_percent": 65.5391242459572,
+      "mesh_n": 4,
+      "passed": false,
+      "tolerance_percent": 2.0,
+      "quantity": "buckling load factor",
+      "reference": 22.617038431854112,
+      "mode": 4,
+      "case_id": "ACA03",
+      "sol": 105,
+      "unit": "dimensionless"
+    },
+    {
+      "run": "cross_ply_sol105_n04",
+      "value": 63.250206495510994,
+      "error_percent": 123.53787336114804,
+      "mesh_n": 4,
+      "passed": false,
+      "tolerance_percent": 2.0,
+      "quantity": "buckling load factor",
+      "reference": 28.2950739149799,
+      "mode": 5,
+      "case_id": "ACA03",
+      "sol": 105,
+      "unit": "dimensionless"
+    },
+    {
+      "run": "cross_ply_sol105_n04",
+      "value": 74.25691489801575,
+      "error_percent": 104.20732521545416,
+      "mesh_n": 4,
+      "passed": false,
+      "tolerance_percent": 2.0,
+      "quantity": "buckling load factor",
+      "reference": 36.36349225948143,
+      "mode": 6,
+      "case_id": "ACA03",
+      "sol": 105,
+      "unit": "dimensionless"
+    }
+  ],
+  "outputs": {
+    "results/runs/cross_ply_sol105_n04/cross_ply_sol105_n04.jfem": "202a9b75379aff4160baad0b837f8c7ce0f84886816f90c77fa7672a21e5c17d"
+  }
+}

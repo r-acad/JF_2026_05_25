@@ -1,0 +1,21 @@
+{
+  "schema": "jfem.validation.provenance.v1",
+  "case_id": "BA_cylinder_axial_buckling_N16x04",
+  "input": "cases/BA_cylinder_axial_buckling/convergence/N16x04/model.bdf",
+  "input_sha256": "02b5a35a689dffbb39e12159fc410dc33cc04656b3b8c11bf80b62180f4206b7",
+  "status": "solved",
+  "input_unchanged": true,
+  "run_started_utc": "2026-10-19T09:36:46.478",
+  "run_finished_utc": "2026-10-19T09:38:35.740",
+  "julia_version": "1.13.1",
+  "wall_seconds_including_compilation": 109.2616211,
+  "source_receipt_sha256": "d925ebd39ac2bdf606ba2d5cc825a001f9737e2e830ec16e6be6c5e844dd7652",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "published_files": {
+    "BA_cylinder_axial_buckling_N16x04.BUCKLING.JSON": "6ca147db48e083ee582acbdbc0c78a4a3ae33a3c811ff711fbe5aaf190cb741b",
+    "BA_cylinder_axial_buckling_N16x04.jfem": "0e2c3508605114f6d4bac8455e3b580d5b3d4eac6dc37eb4201e42185a8588d2",
+    "BA_cylinder_axial_buckling_N16x04.TIMINGS.JSON": "80ba1fcbd04fb935a1f9049435639d6a9f26b75ec71c3f4894fdfee7de249ef6",
+    "results.json": "3423941006117decbf2e2f000d523fe411a4de776a62cc28635381f07ac80a6a",
+    "visual_data.json": "53175f4175f2e3ea12ffdcb59d5e32e3e93bc0e86af76ab72805d58211dbd4d8"
+  }
+}

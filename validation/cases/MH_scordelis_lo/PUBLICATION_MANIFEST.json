@@ -1,0 +1,130 @@
+{
+  "schema": "jfem.validation.published_case.v1",
+  "case_id": "MH_scordelis_lo",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "built_utc": "2026-10-19T10:21:14.431133+00:00",
+  "evidence_class": "Published shell benchmark",
+  "artifact_provenance": "Publicly curated input, native JFEM output and original figures; sources and limits in case.json and adjacent notices.",
+  "files": {
+    "case.json": {
+      "sha256": "8a328cd1950af00b314acdee491bdac878b529927fb119000bad66ba5e94033d",
+      "bytes": 3792
+    },
+    "case_card.pdf": {
+      "sha256": "98ca0db79daea43c29c4bb0bc6d905265d1cdd6bd72dd6ed49ca5394ae566b95",
+      "bytes": 268418
+    },
+    "case_card_receipt.json": {
+      "sha256": "85a7d1b4c752e56a24d4ad4a1c57141592d97e427671bc8ea6d5a67e901e6f61",
+      "bytes": 1106
+    },
+    "convergence/N08/model.bdf": {
+      "sha256": "af4b53606314866925b6f85a229cb769ba10aa7c873889c438bf63354a9cd4f8",
+      "bytes": 5889
+    },
+    "convergence/N08/results/MH_scordelis_lo_N08.jfem": {
+      "sha256": "8604b8fab75ad29f8c91b55df72dc34796c1bddf0f29af671038bc78e74da9cf",
+      "bytes": 7096
+    },
+    "convergence/N08/results/MH_scordelis_lo_N08.JU.JSON": {
+      "sha256": "6ed1aad0bf0049f2803f567f57e5b2808549a4742336f6f862cdb9016770be1c",
+      "bytes": 29935
+    },
+    "convergence/N08/results/MH_scordelis_lo_N08.TIMINGS.JSON": {
+      "sha256": "ae01524ad773f5bf85f456763016477e005448c8ac21910476183fe0c0fa0a60",
+      "bytes": 17202
+    },
+    "convergence/N08/results/provenance.json": {
+      "sha256": "b09373adb4d181cb1110b3610e150cc1750669214254b95eb98a4d06ec1cbf7a",
+      "bytes": 1159
+    },
+    "convergence/N08/results/results.json": {
+      "sha256": "19a202fe8d3c3937bba52cf66dd37b93846c6bfdfa6b4a56f9c9477441925fdd",
+      "bytes": 798
+    },
+    "convergence/N08/results/visual_data.json": {
+      "sha256": "2d456ef4e0578e6ceb70f299ac5ebc6585ab4186a1af826291c20c4ad4e63288",
+      "bytes": 39742
+    },
+    "convergence/N16/model.bdf": {
+      "sha256": "fb110f722035ec8614a8cc9dd277f6beb81b60b6b0721df01c74becbb57fb100",
+      "bytes": 21942
+    },
+    "convergence/N16/results/MH_scordelis_lo_N16.jfem": {
+      "sha256": "4b1ca976a4c15974665763d8c88b4a304dfa066f42cff6e029db9ec64e5f7a87",
+      "bytes": 26360
+    },
+    "convergence/N16/results/MH_scordelis_lo_N16.JU.JSON": {
+      "sha256": "5b104f38143c16470a884b3aa522cbabfe98f611f65421b8809c3823868a0df5",
+      "bytes": 91204
+    },
+    "convergence/N16/results/MH_scordelis_lo_N16.TIMINGS.JSON": {
+      "sha256": "fed3edb2d964d073ba1364af78c2fac31f6a9352e2bd88289d4d9e4d43d92742",
+      "bytes": 16346
+    },
+    "convergence/N16/results/provenance.json": {
+      "sha256": "292011fe7264610c68cfb243d0ce5b2b87d7896bb1c7bc7d2373e5a7b799b24a",
+      "bytes": 1157
+    },
+    "convergence/N16/results/results.json": {
+      "sha256": "7d25821f473c51080823e36634eb564878814db1e9f4a359399b9cbc27d6efef",
+      "bytes": 800
+    },
+    "convergence/N16/results/visual_data.json": {
+      "sha256": "fcab76206947b3065f8ac9e5bde455719265e3ea064c8d70a81965e77838b271",
+      "bytes": 141879
+    },
+    "figures/deformation.png": {
+      "sha256": "df0eb11f95e271cd99c0356473e17d15f4a66dae5c7c002e816f931d0644c1a9",
+      "bytes": 149693
+    },
+    "figures/deformation.svg": {
+      "sha256": "5d12046c2048680bcc6289af2f4b83a082b8a02dabf283e5f37f43319b3ae742",
+      "bytes": 137847
+    },
+    "figures/response.png": {
+      "sha256": "1bfe0323c16e0a224e98ce24167628896b268468104ab09e3ee8619cff668240",
+      "bytes": 76194
+    },
+    "figures/response.svg": {
+      "sha256": "961a9025745a49511725a286faf247b509e00f16d2aff6cdf5c6c16f8db3c7a1",
+      "bytes": 12382
+    },
+    "metrics.csv": {
+      "sha256": "167f9f766d4e46b47605744723e3986f3a36b8daba56a60112d816e749ccbcd5",
+      "bytes": 368
+    },
+    "model.bdf": {
+      "sha256": "0d21fd899773345f52f70ac192c4748530df75a82668dd0e9c828d9beed89f5b",
+      "bytes": 3430
+    },
+    "results/plot_source.json": {
+      "sha256": "f07a9b1e45344f0d3e39bc70d10063da6b8fc917912b06043fe8cfec3d0b6657",
+      "bytes": 230
+    },
+    "results/provenance.json": {
+      "sha256": "d03da295ad7d986323a13904dedd51f07a7cd7430fd634698463012101e25e3a",
+      "bytes": 1209
+    },
+    "results/results.json": {
+      "sha256": "13d4fb4e10b310450e0b1ae8605fc912013a7ba32cd657582650384dd3e2080e",
+      "bytes": 822
+    },
+    "results/scordelis_lo.jfem": {
+      "sha256": "b7eb749ba60747f13c836ef6d0a095281888d0f119fadc7f1eb146118bac730d",
+      "bytes": 2072
+    },
+    "results/scordelis_lo.JU.JSON": {
+      "sha256": "4775817bde4aa5e841607937911de38aa2bbf45b8338a8fdc0a42b269fc2c4b5",
+      "bytes": 13447
+    },
+    "results/scordelis_lo.TIMINGS.JSON": {
+      "sha256": "0103ad0dd84547d6e4ed3bd09c84f03c539cb0b87e0aab8a6d2202dc2f314741",
+      "bytes": 16545
+    },
+    "results/visual_data.json": {
+      "sha256": "6c029f7124fb0645c0d1fe5ce34afd8312584d23eb60c5687b5eee117ae23096",
+      "bytes": 11994
+    }
+  }
+}

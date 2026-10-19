@@ -1,0 +1,130 @@
+{
+  "schema": "jfem.validation.published_case.v1",
+  "case_id": "MH_hemispherical_shell",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "built_utc": "2026-10-19T10:21:14.431133+00:00",
+  "evidence_class": "Published shell benchmark",
+  "artifact_provenance": "Publicly curated input, native JFEM output and original figures; sources and limits in case.json and adjacent notices.",
+  "files": {
+    "case.json": {
+      "sha256": "7b785a3e8a6821156c9bd71676ede9e2b23624768ab42c8deeb0a896574a4d2e",
+      "bytes": 3791
+    },
+    "case_card.pdf": {
+      "sha256": "7c44eb6868972ded3e98ff189496cf552a39b47dc45479bb21dfc1350c99f266",
+      "bytes": 269157
+    },
+    "case_card_receipt.json": {
+      "sha256": "e0710eda9c6c34df00068d3a2448031f7116c232855dcd32ad9dd5122f65906d",
+      "bytes": 1113
+    },
+    "convergence/N08/model.bdf": {
+      "sha256": "0f1953b0c7f511c9e6a492a1e5c6de3ae7bfea85f466d7edbd220cba1d739e1f",
+      "bytes": 6899
+    },
+    "convergence/N08/results/MH_hemispherical_shell_N08.jfem": {
+      "sha256": "6a7aed0621bc72edee6ca140665fae72358c9e413ffb107649e632cdbee4434e",
+      "bytes": 7072
+    },
+    "convergence/N08/results/MH_hemispherical_shell_N08.JU.JSON": {
+      "sha256": "dd7b794d43f0e68047edb4c2dc53ac7fbac2ee0b5f3ee1ef893367f31ee6b108",
+      "bytes": 28754
+    },
+    "convergence/N08/results/MH_hemispherical_shell_N08.TIMINGS.JSON": {
+      "sha256": "59b28d75fcaa0da758d28365bf3db99e27ee55b6b22c82c325e39f86b4302760",
+      "bytes": 16699
+    },
+    "convergence/N08/results/provenance.json": {
+      "sha256": "5f1b664e09e355e275aeed9eca0ad34b0c3aeb2d9cb80adf974e35dfbfaeea1d",
+      "bytes": 1192
+    },
+    "convergence/N08/results/results.json": {
+      "sha256": "b2d0a356fe5a2d82fede0eb5420d3bdccc7c67d8e3558cee23c916d9dfbb9505",
+      "bytes": 812
+    },
+    "convergence/N08/results/visual_data.json": {
+      "sha256": "54fae62e295e4529b0dcd94b909b0ce03b9a4c1784eb1a42926316bca3b25df9",
+      "bytes": 41197
+    },
+    "convergence/N16/model.bdf": {
+      "sha256": "af8e75bbf65c298fc2a37952b311e31df5b502f01ea465ea6eb22185615f951e",
+      "bytes": 25004
+    },
+    "convergence/N16/results/MH_hemispherical_shell_N16.jfem": {
+      "sha256": "058cd3bd9e5b747fc8465ff3708e25f89e586c4167d0ebf0c869b671926bd5c9",
+      "bytes": 26272
+    },
+    "convergence/N16/results/MH_hemispherical_shell_N16.JU.JSON": {
+      "sha256": "2d07729126c03e91cf7ce8495161926597fd99999357e63c79a105946b341092",
+      "bytes": 88844
+    },
+    "convergence/N16/results/MH_hemispherical_shell_N16.TIMINGS.JSON": {
+      "sha256": "3e773433e2b9842f616de5606cb2f0c74a722a8fba268736c860f9aa967e43a8",
+      "bytes": 16270
+    },
+    "convergence/N16/results/provenance.json": {
+      "sha256": "ad413a4bbd49e5119afd53c4d0802d1467d7f04af5d02ab6c505ec1225f0d764",
+      "bytes": 1192
+    },
+    "convergence/N16/results/results.json": {
+      "sha256": "160d4e700bafec8db20bc0afe859adcef7eab50c8519ebbcac17ed44259a8d0d",
+      "bytes": 810
+    },
+    "convergence/N16/results/visual_data.json": {
+      "sha256": "0b1e71172b7fce81c695993cd6ed570eb1dd6e68d784628fb6832c1348725ecc",
+      "bytes": 145108
+    },
+    "figures/deformation.png": {
+      "sha256": "1f63dc944e39f94516d1d249e7f58f35572cebbf376ce55a98594b6881603c8f",
+      "bytes": 144498
+    },
+    "figures/deformation.svg": {
+      "sha256": "4377b2b4691b68d2a0360b07424275b127288788d45a5e995df3d7932c1dd22e",
+      "bytes": 135975
+    },
+    "figures/response.png": {
+      "sha256": "e6a63190001b1f5f674e7bd499c410579f010a6a484c9ca9290db247ff4185d9",
+      "bytes": 84048
+    },
+    "figures/response.svg": {
+      "sha256": "1f4aa37e71396d9eb452a2f37608abd53f81b23b424b8a62755c8534355189de",
+      "bytes": 12306
+    },
+    "metrics.csv": {
+      "sha256": "cff505597e0ac91b40aabc75b4fde82b334310572493c1bf5d3937c770cc811e",
+      "bytes": 359
+    },
+    "model.bdf": {
+      "sha256": "57586693c424a0119155d60c902612130fa0c7ae375c31b1875f2cb861c86108",
+      "bytes": 4283
+    },
+    "results/hemispherical_shell.jfem": {
+      "sha256": "27e1a2d782908f37b168bceeefa81c3389512f13a7be273dc23ac59274142cb3",
+      "bytes": 2080
+    },
+    "results/hemispherical_shell.JU.JSON": {
+      "sha256": "29157654a1fcf24996d86cb6302f68f2ffb9d787d4499192673f4385598f2b7a",
+      "bytes": 12807
+    },
+    "results/hemispherical_shell.TIMINGS.JSON": {
+      "sha256": "73ccceaa3c1346ce6f23b1a10fd256d0da0ece2461c78749aa8033516e315932",
+      "bytes": 16533
+    },
+    "results/plot_source.json": {
+      "sha256": "5dbb6277b7ccee799f6ee27db45c46ec1878e6c8bd068551035aba64fb65399d",
+      "bytes": 237
+    },
+    "results/provenance.json": {
+      "sha256": "4d7a94a8cd04482d2169e7be705b9ad32e5a1426bb217947cc2ff5356e2ef6af",
+      "bytes": 1244
+    },
+    "results/results.json": {
+      "sha256": "60f8db11286d971c60a292d1bca8c97a70409155d1815dfb79ecf650e4b6aed1",
+      "bytes": 831
+    },
+    "results/visual_data.json": {
+      "sha256": "63f79de9c39e752e67b6bb797cfdec554f0896113bf0cc513f2cbc809f4e6554",
+      "bytes": 12565
+    }
+  }
+}

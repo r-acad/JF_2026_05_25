@@ -1,0 +1,20 @@
+{
+  "schema": "jfem.validation.case_card.v1",
+  "case_id": "MYSTRAN_sol105_buckling",
+  "built_utc": "2026-10-19T10:12:29.579696+00:00",
+  "pdf_pages": 2,
+  "case_metadata_sha256": "8a3be3d3c22e1fedd080e2aadb331787c4a149d38b94c4eb314aeeaf1962fb87",
+  "visual_data_sha256": "7288bbc599332f34b594b255187c3026a13eadd01d76946466729d9f56d2fdbd",
+  "builder_sha256": "776022314b284aee7e4ade99617497739e5e8bc30f818f4972fa3b8ee00977e7",
+  "source": "Recorded JFEM numerical fields; no synthetic deformation fields",
+  "artifacts": {
+    "case_card.pdf": "8608f5c417b947783f21dc9796fe947ca9f3311111b2a0e090ea4db2e4e0a0d6",
+    "metrics.csv": "d5058b4c03bf77d73014f2d55d6a6a934a3dd63c12411985f1fc4f5dc0c126f8",
+    "figures/deformation.png": "b625a6384e6c0987e2b1b7d66221821e932ef8b7baeac4f45a42b6d65262e3ec",
+    "figures/deformation.svg": "ff49c78ae8b1048a379e9070fbeb97b6b71770837c1137f3773c1f5a041722f6",
+    "figures/modes.png": "5b8b4a268536ed47b3a983d393f4138a9a6922c39ed9120e3c2e9cab6eaea747",
+    "figures/modes.svg": "8167da0cd4710c96b890577a87034d63167f2401131cff3be8b6e33bc43d136d",
+    "figures/response.png": "85f2828f75d50a6a0577204ce8a967c7f625184e78761b94d1d45c8acd567f00",
+    "figures/response.svg": "1acd03c9cb089a9cf8e4d1b28fdd7b65bf092b8a76c718c66daf3667b98a99a8"
+  }
+}

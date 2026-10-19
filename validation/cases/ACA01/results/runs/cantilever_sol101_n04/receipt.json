@@ -1,0 +1,46 @@
+{
+  "case_id": "ACA01",
+  "run": "cantilever_sol101_n04",
+  "sol": 101,
+  "mesh_n": 4,
+  "status": "solved",
+  "input_file": "cantilever_sol101_n04.bdf",
+  "input_sha256": "7d860966d4c140be965792e4e4b4d3575d3626cb59d01b955d15678202510e0c",
+  "started_utc": "2026-10-19T09:32:30.643",
+  "finished_utc": "2026-10-19T09:33:54.805",
+  "wall_seconds_including_compilation": 84.15500020980835,
+  "solver_diagnostics": null,
+  "metrics": [
+    {
+      "value": 0.0011428571428582883,
+      "error_percent": 1.0023720135171611e-10,
+      "run": "cantilever_sol101_n04",
+      "mesh_n": 4,
+      "passed": true,
+      "tolerance_percent": 0.5,
+      "quantity": "tip transverse displacement",
+      "reference": 0.0011428571428571427,
+      "mode": null,
+      "case_id": "ACA01",
+      "sol": 101,
+      "unit": "m"
+    },
+    {
+      "value": 0.0008571428571437155,
+      "error_percent": 1.0014233366162362e-10,
+      "run": "cantilever_sol101_n04",
+      "mesh_n": 4,
+      "passed": true,
+      "tolerance_percent": 0.5,
+      "quantity": "tip section rotation",
+      "reference": 0.0008571428571428571,
+      "mode": null,
+      "case_id": "ACA01",
+      "sol": 101,
+      "unit": "rad"
+    }
+  ],
+  "outputs": {
+    "results/runs/cantilever_sol101_n04/cantilever_sol101_n04.jfem": "1d7451bedc37baba2289ec76bcaffa6600a02ca9fa2d58d8467e84d0303becb6"
+  }
+}

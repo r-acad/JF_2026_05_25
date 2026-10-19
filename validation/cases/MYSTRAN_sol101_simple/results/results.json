@@ -1,0 +1,42 @@
+{
+  "schema": "jfem.validation.recorded_results.v1",
+  "case_id": "MYSTRAN_sol101_simple",
+  "input_sha256": "eead3db4d537c961e70d01b198da3bbcd5a4579d3cf57c7b9136e006ca13441b",
+  "metrics": [
+    {
+      "name": "T1 node 1013",
+      "value": 0.0030532786885245898,
+      "reference": 0.003053279,
+      "error_percent": 1.0201341249516105e-05,
+      "unit": "benchmark length unit",
+      "tolerance_percent": 2.0,
+      "status": "REGRESSION",
+      "reference_classification": "historical_regression",
+      "source_input": "model.bdf"
+    }
+  ],
+  "states": [
+    {
+      "name": "Static subcase 1",
+      "kind": "static",
+      "normalization": "physical displacement in model length units",
+      "subcase": 1
+    },
+    {
+      "name": "Static subcase 2",
+      "kind": "static",
+      "normalization": "physical displacement in model length units",
+      "subcase": 2
+    },
+    {
+      "name": "Static subcase 3",
+      "kind": "static",
+      "normalization": "physical displacement in model length units",
+      "subcase": 3
+    }
+  ],
+  "field_data": "visual_data.json",
+  "binary_results": [
+    "sol101_simple.jfem"
+  ]
+}

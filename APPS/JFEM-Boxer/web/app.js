@@ -77,6 +77,7 @@ const state = {
   values: {},
   inputFile: "",
   importedDeck: null,
+  diskResults: null,
   data: null,
   engine: null,
   scene: null,
@@ -1226,6 +1227,7 @@ function currentSupportRibs() {
 }
 
 function formSignature(params) {
+  if(state.diskResults)return state.diskResults.signature;
   if(state.importedDeck)return WingImportedAnalysis.signature(state.importedDeck);
   return JSON.stringify(state.schema.filter((s) => affectsModel(s.key)).map((s) => {
     if (["materials","shellmaterials","barmaterials"].includes(s.kind)) {
@@ -1314,6 +1316,7 @@ function syncStringerModelControls() {
 // case. A partial SOL106 checkpoint remains viewable but never reports green.
 function analysisValidity() {
   const invalid = reason => ({current:false,reason});
+  if(state.diskResults)return {current:!!state.resultCases?.size,reason:"Stored .jfem results are displayed with their archived mesh. Solver input and convergence history are not embedded in this format."};
   if (state.polling || state.solverStarting) return invalid("Analysis is running; waiting for matching completed results.");
   if (state.modelDirty || resultsHavePendingDrafts() || !state.importedDeck&&document.querySelector?.(".planform-input-method.invalid")) return invalid("The model definition has changed or is incomplete. Run JFEM for matching results.");
   if (!state.resultCases?.size) return invalid("No analysis results are available. Run JFEM for this model.");
@@ -1795,6 +1798,7 @@ async function buildModelResponsive(data, options = {}, token) {
 }
 
 function logModelDetails(data){
+  if(data.disk_signature){log('Archived FEM: '+data.title+'; native IDs and source-unit values retained. The original input deck is not embedded in this binary.');return;}
   const groups=data.groups||[],count=kind=>groups.filter(g=>kind.includes(g.kind)).reduce((n,g)=>n+g.count,0);
   if(data.imported_deck){
     log("Imported FEM: "+count(["quad","tria"])+" displayed shells, "+count(["bar"])+" displayed bars, "+(data.rbe3?.count||0)+" source RBE3s. Original deck cards and case control remain authoritative.");
@@ -1941,7 +1945,7 @@ function setBusy(on) {
   updateAnalysisValidity();
   const disabled = on || state.sensitivityBusy || state.workspaceBusy || state.exportBusy || state.polling || state.solverStarting || state.loadingInput || state.meshRequestInFlight;
   for (const id of ["btn-create", "btn-reference", "btn-save", "btn-reload",
-                    "btn-jfem", "btn-save-model", "btn-save-model-as", "btn-load-model", "btn-save-toml", "btn-load-toml", "btn-view-toml", "btn-new-study", "btn-read-reference"]) {
+                    "btn-jfem", "btn-save-model", "btn-save-model-as", "btn-load-model", "btn-save-toml", "btn-load-toml", "btn-view-toml", "btn-new-study", "btn-read-reference", "btn-read-results"]) {
     const button = document.getElementById(id); if (button) button.disabled = disabled;
   }
   const autosaveControl=document.getElementById("auto-save");if(autosaveControl)autosaveControl.disabled=disabled||!state.autoMeshReady;
@@ -1954,6 +1958,7 @@ function setBusy(on) {
 }
 
 async function createFEM(options = {}) {
+  if(state.diskResults)return false;
   if(state.importedDeck)return !!state.data;
   const automatic = options.automatic === true;
   if (state.workspaceBusy || state.exportBusy || state.busy || state.loadingInput || state.meshRequestInFlight || state.polling || state.sensitivityBusy ||
@@ -2237,6 +2242,7 @@ function updateFileStatus() {
     saveButton.title=(dirty ? "Unsaved definition changes. " : "Study definition saved. ")+(state.studyFileHandle ? "Save to "+state.studyFile+". Use Save Study as… to choose another file." : "Choose a filename and folder for this Study. If the browser picker is unavailable, a system Save dialog lets you choose the folder.")+" Camera and display changes do not change this indicator; saving still includes their current settings.";
     saveButton.setAttribute("aria-description",dirty ? "Unsaved changes" : "Study saved");
   }
+  if(state.diskResults){if(status)status.textContent="Stored results: "+state.diskResults.name+" · read-only";if(saveButton){delete saveButton.dataset.saved;saveButton.title="A .jfem binary contains archived results. Open its source deck or Study to edit and save the model.";}return;}
   if (status) {
     status.textContent="Study: "+(state.studyFile || "unsaved")+" · TOML: "+(state.tomlFile || "none selected")+(state.studyDirty ? " · Unsaved changes" : " · Saved");
     status.setAttribute("data-saved",String(!state.studyDirty));
@@ -2269,7 +2275,7 @@ function sensitivityOperationContext() {
   let invalidDefinition=false,definitionChanged=false;
   try{definitionChanged=!!state.data&&formSignature()!==state.modelSignature;}catch(_){invalidDefinition=true;}
   const dirty=!!state.modelDirty||pendingDrafts||definitionChanged||invalidDefinition;
-  const blockedReason=state.sensitivityBusy?'A sensitivity analysis is running. Wait for it to finish, or use Stop sensitivity.':
+  const blockedReason=state.diskResults?'Stored .jfem results do not contain the solver input needed for sensitivities. Open the original deck or Study.':state.sensitivityBusy?'A sensitivity analysis is running. Wait for it to finish, or use Stop sensitivity.':
     state.polling||state.solverStarting?'JFEM is running or starting. Wait for the analysis to finish before starting sensitivity.':
     state.meshRequestInFlight?'Creating FEM. Sensitivity properties will refresh when the mesh is ready.':
     state.loadingInput||state.workspaceBusy?'A Study or model file operation is in progress. Wait for it to finish.':
@@ -2631,6 +2637,7 @@ async function workspaceOperation(action, label = "Preparing Study file") {
 }
 
 async function requestStudySave({saveAs=false} = {}) {
+  if(state.diskResults){showOperationError("Stored results are read-only","Open the original deck or Study to edit and save a model. The selected .jfem file is already stored on disk.");return false;}
   if (!workspaceOperationAvailable() || state.studyCommentOpen) return false;
   const input=document.getElementById("study-note"),note=input?.value || "",epoch=state.studyEpoch;
   const draft=state.studyCommentDraft?.epoch===epoch?state.studyCommentDraft.text:note!==state.studyNotes?.text?note:"";
@@ -2951,7 +2958,7 @@ async function loadModelDefinition(file, options = {}) {
       // Keep one authoritative reference to the portable source; it is not
       // geometry data and need not travel through renderer/export snapshots.
       delete data.model_source;
-      previous = { importedDeck:state.importedDeck, data:state.data, values:state.values, signature:state.modelSignature, lastEditedSignature:state.lastEditedSignature, dirty:state.modelDirty,
+      previous = { diskResults:state.diskResults, importedDeck:state.importedDeck, data:state.data, values:state.values, signature:state.modelSignature, lastEditedSignature:state.lastEditedSignature, dirty:state.modelDirty,
         pending:state.autoMeshPending, resultCases:state.resultCases, results:state.results,
         activeMode:state.activeMode, contourIdx:state.contourIdx, transfer:state.lastTransfer,
         selectedElement:state.selectedElement, selectedNode:state.selectedNode, fuelIsolation:state.fuelIsolation,
@@ -2964,6 +2971,7 @@ async function loadModelDefinition(file, options = {}) {
       // and camera have all been committed. Never publish an intermediate
       // mesh, including during recovery from a failed import.
       state.buildingScene=true;
+      state.diskResults=null;
       state.importedDeck=definition.model_source ? {...data.imported_deck,source:definition.model_source} : null;
       if(state.importedDeck && (!state.importedDeck.token||!state.importedDeck.signature))throw Error("The imported deck response is missing its session identity.");
       state.values = state.importedDeck ? definition.parameters : data.model_params;
@@ -3010,6 +3018,7 @@ async function loadModelDefinition(file, options = {}) {
     } catch (error) {
       staged?.rollback();
       if (commitStarted && previous) {
+        state.diskResults=previous.diskResults;
         state.importedDeck=previous.importedDeck;
         state.values = previous.values; state.data = previous.data;
         buildForm(state.schema, previous.values); state.loadCases = previous.loadCases;
@@ -3072,7 +3081,8 @@ function syncImportedModelMode(disabled=false) {
     state.sensitivity?.refreshContext?.();markStudyModified();updateAnalysisValidity();
     log('Imported analysis changed to SOL'+WingImportedAnalysis.solution(state.importedDeck)+'. Run JFEM explicitly to calculate new results.');
   }});
-  state.importedAnalysis.refresh(disabled);
+  state.importedAnalysis.refresh(disabled||!!state.diskResults);
+  document.getElementById('imported-analysis').hidden=!!state.diskResults;
   document.getElementById("auto-mesh").disabled=!!imported||disabled;
   for(const id of ["btn-create","btn-save","btn-save-toml","btn-view-toml","btn-open-plan-view"]){
     const button=document.getElementById(id);if(!button)continue;
@@ -3084,10 +3094,44 @@ function syncImportedModelMode(disabled=false) {
   const analysisNote=document.querySelector('#panel-analysis-actions > .pick-note');
   if(analysisNote){analysisNote.dataset.generatedNote??=analysisNote.textContent;analysisNote.textContent=imported?'Choose the imported-deck solution below. Source geometry, properties, loads and constraints are retained. Solver progress is shown in Log.':analysisNote.dataset.generatedNote;}
   if(imported){
-    document.getElementById("imported-deck-title").textContent=imported.name+" · SOL"+imported.solution+" · "+(imported.cases?.length||1)+" cases · imported Reference";
+    document.getElementById("imported-deck-title").textContent=state.diskResults?imported.name+" · archived JFEM results · read-only":imported.name+" · SOL"+imported.solution+" · "+(imported.cases?.length||1)+" cases · imported Reference";
     const warnings=document.getElementById("imported-deck-warnings");warnings.replaceChildren();
     for(const warning of imported.warnings||[]){const item=document.createElement("li");item.textContent=warning;warnings.append(item);}
   }
+  if(state.diskResults){for(const id of ['btn-jfem','btn-reference','btn-save-model','btn-save-model-as','auto-save','btn-study-notes']){const button=document.getElementById(id);if(button){button.disabled=true;button.title='Stored .jfem results are read-only. Open the original deck or Study to solve or edit.';}}if(analysisNote)analysisNote.textContent='Archived results: use Results, Display and Inspect. Open the original deck or Study to run a new analysis or sensitivities.';}
+  else document.getElementById('btn-study-notes').disabled=disabled;
+}
+
+async function loadDiskResults(file,{choose}={}) {
+  if(!file)return false;
+  return workspaceOperation(async token=>{
+    const prepared=await WingDiskResults.read(file,{choose,onProgress:detail=>activity()?.update(token,{detail})});
+    if(!prepared)return false;
+    const {mesh,results}=prepared,previous={diskResults:state.diskResults,importedDeck:state.importedDeck,data:state.data,values:state.values,signature:state.modelSignature,jobSignature:state.jobSignature,resultCases:state.resultCases,results:state.results,activeCase:state.activeCase,view:WingWorkspace.captureView(document,state,workspaceUI)};
+    const wasBuilding=state.buildingScene;state.buildingScene=true;
+    try{
+      const view=WingWorkspace.newModelView(document);WingWorkspace.applyControls(document,view.controls);
+      state.diskResults={name:file.name,signature:prepared.signature};state.importedDeck={...mesh.imported_deck,source:{kind:'results',name:file.name,analysis:{solution:'source'}}};
+      state.values=JSON.parse(JSON.stringify(state.defaults||state.values));mesh.model_params=state.values;state.data=mesh;
+      state.modelSignature=state.jobSignature=prepared.signature;state.lastEditedSignature=prepared.signature;state.autoMeshPending=false;
+      await buildModelResponsive(mesh,{preserveView:false,resetIsolation:true},token);
+      resetImportedModelMenus();state.jobSignature=prepared.signature;state.resultVariantPreference='';
+      state.resultCases=new Map(results.load_cases.map(c=>{const r=decodeResultCase(c,results,prepared.signature);if(c.variants?.length){r.variants=new Map(c.variants.map(v=>[v.id,decodeResultCase(v,results,prepared.signature)]));r.defaultVariant=c.default_variant;}return[Number(c.id),r];}));
+      state.resultsLoadCaseIndependent=false;state.modelDirty=false;state.activeCase=mesh.load_cases[0].id;
+      state.studyFile=null;state.studyFileHandle=null;state.studyRecentId=null;state.studyDirty=false;state.studyEpoch++;
+      state.studyNotes={text:'',history:[]};state.studyCreatedAt=state.studySavedAt=null;syncStudyNotes();
+      showDeck('$ Archived JFEM results: '+file.name+'\n$ The original input deck is not embedded in this binary. Open the source Study or deck to inspect the solver input.\n',file.name,{disk_results:true},{open:false});
+      document.getElementById('auto-save').checked=false;state.autosave?.changed();
+      // References belong to a Study and must never remain attached to an
+      // unrelated archived mesh. A staged empty set is reversible on error.
+      const references=await state.reference?.stagePortable([],view.reference);references?.commit();references?.finalize();
+      state.panelTables?.resetDrafts?.();setModelDirty(false);selectLoadCase(state.activeCase);fitView();
+      updateFileStatus();showStats(mesh,file.size,0);activateWorkspaceTab('results');
+      log('Opened '+file.name+': '+mesh.nodes.count+' GRID nodes; '+results.load_cases.length+' result case(s). '+mesh.imported_deck.warnings.join(' '),'good');
+      meshStatus('Stored results: '+file.name,'current');return true;
+    }catch(error){state.diskResults=previous.diskResults;state.importedDeck=previous.importedDeck;state.data=previous.data;state.values=previous.values;state.modelSignature=previous.signature;state.jobSignature=previous.jobSignature;if(previous.data)buildModel(previous.data,{preserveView:true,resetIsolation:true});else disposeModel();state.resultCases=previous.resultCases;state.results=previous.results;state.activeCase=previous.activeCase;restoreWorkspaceView(previous.view);if(state.results)showResults();throw error;
+    }finally{state.buildingScene=wasBuilding;}
+  },'Opening JFEM results');
 }
 
 function syncStudyNotes() {
@@ -3123,6 +3167,7 @@ async function probeJfem() {
 }
 
 async function runJfem() {
+  if(state.diskResults){showOperationError('Stored results are read-only','Open the original deck or Study to run JFEM.');return;}
   if (state.busy || state.exportBusy || state.polling || state.solverStarting || state.sensitivityBusy || state.loadingInput || state.meshRequestInFlight) return;
   cancelAutoMeshTimer();
   state.autoMeshPending = false;
@@ -3361,7 +3406,7 @@ function decodeResultCase(payload,r,signature) {
   // only one lets mixed/imported cases inherit the current generated signature.
   const importedSignatures=[r.imported_signature,payload.imported_signature].filter(value=>value!==undefined);
   const importedAnalyses=[r.imported_analysis,payload.imported_analysis].filter(value=>value!==undefined);
-  const sourceMatches=state.importedDeck ? importedSignatures.length>0&&importedSignatures.every(value=>value===state.importedDeck.signature)&&(importedAnalyses.length?importedAnalyses:[undefined]).every(value=>WingImportedAnalysis.matches(value,state.importedDeck)) :
+  const sourceMatches=state.diskResults ? r.disk_signature===state.diskResults.signature&&payload.disk_signature===state.diskResults.signature : state.importedDeck ? importedSignatures.length>0&&importedSignatures.every(value=>value===state.importedDeck.signature)&&(importedAnalyses.length?importedAnalyses:[undefined]).every(value=>WingImportedAnalysis.matches(value,state.importedDeck)) :
     importedSignatures.length===0&&[r.source_model_params||r.model_params,payload.source_model_params||payload.model_params].filter(Boolean).every(params=>formSignature(params)===state.modelSignature);
   // Case-effective parameters include load/fuel overrides. Their immutable
   // source parameters identify the Study that produced them; older payloads
@@ -4823,7 +4868,7 @@ function syncAnalysisControls() {
       Number.isFinite(cv.exported_relative_residual ?? cv.final_relative_residual) ? (cv.partial ? "accepted-state relative residual " : "relative residual ") + eng(cv.exported_relative_residual ?? cv.final_relative_residual, 4) : "",
       cv.termination_reason || ""].filter(Boolean).join("; ") : "";
     return "<tr><th scope=\"row\">" + esc(resultAnalysisLabel(r)) + "</th><td>" +
-      (r.available === false ? "Unavailable" : r.compactBuckling ? (r.bucklingRoots.length ? "First buckling factor: " + eng(r.bucklingRoots[0].load_factor,5) : "No roots within the requested range") : r.modeKind === "buckling" && r.modes.length ? "First buckling factor: " + eng(r.modes[0].loadFactor,5) : r.static ? "Peak displacement: " + eng(r.static.maxDisp, 6) + " m" : r.modes.length ? "First frequency: " + eng(r.modes[0].freq,5) + " Hz" : "Unavailable") +
+      (r.available === false ? "Unavailable" : r.compactBuckling ? (r.bucklingRoots.length ? "First buckling factor: " + eng(r.bucklingRoots[0].load_factor,5) : "No roots within the requested range") : r.modeKind === "buckling" && r.modes.length ? "First buckling factor: " + eng(r.modes[0].loadFactor,5) : r.static ? "Peak displacement: " + eng(r.static.maxDisp, 6) + (state.diskResults?" source length units":" m") : r.modes.length ? "First frequency: " + eng(r.modes[0].freq,5) + " Hz" : "Unavailable") +
       "<small>" + esc(status) + (details ? "<br>" + esc(details) : "") + "</small></td></tr>";
   });
   const linear = variants.get("sol101"), nonlinear = variants.get("sol106");
@@ -5126,7 +5171,7 @@ function contourOptions() {
     opts.push({
       kind: "disp",
       name: "Displacement magnitude",
-      unit: isShape ? "normalised" : "m",
+      unit: isShape ? "normalised" : state.diskResults ? "source length units" : "m",
     });
   }
   r.contours.forEach((c, i) => {
@@ -5363,7 +5408,7 @@ function selectMode(i) {
   applyContour();
   applyDeformation();
   if (i < 0) {
-    log("prebuckling static shape, peak " + eng(r.static.maxDisp, 4) + " m");
+    log("prebuckling static shape, peak " + eng(r.static.maxDisp, 4) + (state.diskResults?" source length units":" m"));
   } else if (r.modes[i]) {
     const m = r.modes[i];
     log(r.modeKind === "buckling"
@@ -5419,7 +5464,7 @@ function showResults() {
       row.id = "mode--1";
       row.onclick = () => selectMode(-1);
       row.innerHTML = '<span class="n">0</span><span>Static preload</span>' +
-        '<span class="meff">' + eng(r.static.maxDisp, 3) + " m</span>";
+        '<span class="meff">' + eng(r.static.maxDisp, 3) + (state.diskResults?" source units":" m")+"</span>";
       row.title = state.importedDeck ? "Prebuckling deflection under the original deck preload" : "Prebuckling deflection under the combined case preload, including inertial loads";
       host.appendChild(row);
     }
@@ -5717,7 +5762,7 @@ function refreshSupportLayer(data=state.data,positions=currentPositions()) {
   state.supportGlyphs?.dispose();state.supportGlyphs=null;
   for(const mesh of previous?.meshes||[])if(!mesh.isDisposed())mesh.dispose(false,true);
   const nodes=Array.from(asI32(data.spc.nodes));let meshes;
-  if(typeof WingSupportGlyphs!=='undefined'){
+  if(typeof WingSupportGlyphs!=='undefined'&&!state.diskResults){
     state.supportGlyphs=WingSupportGlyphs.create({scene:state.scene,positions,data,radius:markerRadius()});
     meshes=state.supportGlyphs.meshes;for(const mesh of meshes)mesh.parent=state.root;
   }else meshes=markerMesh('SPC',positions,nodes,EXTRA_STYLE.SPC.color,Math.max(markerRadius(),state.diag*1e-8));
@@ -6534,6 +6579,8 @@ function showDeckCase(id) {
 function refreshDeckMetadata() {
   const deck = state.lastDeck, host = document.getElementById("deck-metadata"), status = document.getElementById("deck-status");
   if (!deck || !host || !status) return;
+  document.getElementById('deck-download').hidden=!!deck.disk_results;
+  if(deck.disk_results){host.textContent=state.diskResults?.name||'Archived results';status.textContent='The input deck is not embedded in .jfem binary results. Open the source Study or deck to inspect it.';status.classList.remove('deck-stale');return;}
   host.textContent = [deck.solution, deck.created_at ? "Created " + new Date(deck.created_at).toLocaleString() : "",
     deck.source, deck.input_path ? "Input: " + deck.input_path : ""].filter(Boolean).join(" · ");
   const importedSnapshot=deck.imported_signature!==undefined||deck.source==="Imported Reference source";
@@ -6549,6 +6596,7 @@ function refreshDeckMetadata() {
 }
 
 async function loadLastDeck() {
+  if(state.diskResults)return;
   if (state.deckLoadPromise) return state.deckLoadPromise;
   const revision = state.deckRevision;
   state.deckLoadPromise = Promise.resolve().then(async () => {
@@ -6605,7 +6653,7 @@ function showElement(eid) {
     // implementation data rather than a useful picked-element property.
     delete properties.section.polygon_yz_m;
   }
-  html += "<details open><summary>Properties (SI)</summary>" + resultTable(properties) + "</details>";
+  html += "<details open><summary>Properties (" + (state.diskResults ? "source deck units" : "SI") + ")</summary>" + resultTable(properties) + "</details>";
   if(g.kind==="bar"){
     const displaySection=WingSections.displaySection(g.properties?.section,/C(?:ON)?ROD/.test(g.name));
     if(displaySection?.equivalent)html+='<p class="pick-note">'+esc(displaySection.display_note)+'</p>';
@@ -7141,6 +7189,9 @@ if (typeof WingWorkspace !== "undefined") {
   document.getElementById("btn-read-reference").onclick=()=>state.referenceImport.open();
 }
 document.getElementById("btn-clear-results").onclick = clearResults;
+document.getElementById('btn-read-results').onclick=()=>{if(workspaceOperationAvailable())document.getElementById('results-file').click();};
+document.getElementById('results-file').onchange=async event=>{const file=event.target.files[0];event.target.value='';const complete=state.startupResultsComplete;state.startupResultsComplete=null;const loaded=await loadDiskResults(file);complete?.(loaded===true);};
+document.getElementById('results-file').addEventListener('cancel',()=>{state.startupChoiceCancelled=true;state.startupResultsComplete?.(false);state.startupResultsComplete=null;});
 document.getElementById("btn-mode-prev").onclick = () => stepMode(-1);
 document.getElementById("btn-mode-next").onclick = () => stepMode(1);
 
@@ -7227,11 +7278,13 @@ function showStartupStudyNotice(notice) {
       state.startupChoiceCancelled=false;
       if(value==="open")openRequest=state.recentStudies?.choose()||new Promise(resolve=>{state.startupFileComplete=resolve;document.getElementById("model-file").click();});
       if(value==="reference")openRequest=state.referenceImport.open();
+      if(value==="results")openRequest=new Promise(resolve=>{state.startupResultsComplete=resolve;document.getElementById('results-file').click();});
     }});
     choiceMessage="";
     if(choice==="new")loaded=await newStudy()===true;
     else if(choice==="open"){loaded=await openRequest;if(!loaded)state.startupChoiceCancelled=true;}
     else if(choice==="reference"){loaded=await openRequest;if(!loaded)state.startupChoiceCancelled=true;}
+    else if(choice==="results"){loaded=await openRequest;if(!loaded)state.startupChoiceCancelled=true;}
     else {
       const restored=await state.recentStudies?.restoreLatest({automatic:false,retry:true,onNotice:showStartupStudyNotice});
       loaded=restored?.status==="restored";
@@ -7241,7 +7294,7 @@ function showStartupStudyNotice(notice) {
   }
   state.autoMeshReady=true;
   const planButton=document.getElementById("btn-open-plan-view");planButton.disabled=!!state.importedDeck;planButton.dataset.available=String(!state.importedDeck);
-  document.getElementById("auto-save").disabled=false;
+  document.getElementById("auto-save").disabled=!!state.diskResults;
   state.autosave?.changed();
   log("Study loaded; JFEM-Boxer is ready.", "good");
   probeJfem();

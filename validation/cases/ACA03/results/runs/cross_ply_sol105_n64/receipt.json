@@ -1,0 +1,435 @@
+{
+  "case_id": "ACA03",
+  "run": "cross_ply_sol105_n64",
+  "sol": 105,
+  "mesh_n": 64,
+  "status": "solved",
+  "input_file": "cross_ply_sol105_n64.bdf",
+  "input_sha256": "468ffc96c5203dfd602d52afe32083f73fe6ff8d87c3ff8bca28a837f4f65950",
+  "started_utc": "2026-10-19T09:37:53.539",
+  "finished_utc": "2026-10-19T09:37:56.272",
+  "wall_seconds_including_compilation": 2.7330000400543213,
+  "solver_diagnostics": [
+    {
+      "eigrl_nd_specified": true,
+      "eigrl_v1": 0.0,
+      "eigenvalue_extraction_method": "LANCZOS",
+      "eigrl_has_range": false,
+      "buckling_subcase": 2,
+      "eigenvalue_extraction_type": "EIGRL",
+      "phase_timings": {
+        "static_reference_solve": 0.13838440000000002,
+        "kg_assembly": 0.46084800000000004,
+        "buckling_eigensolve": 0.632069
+      },
+      "static_subcase": 1,
+      "details": {
+        "requested_modes": 6,
+        "range_nd_limited_output": false,
+        "matrix_asymmetry": {
+          "Kg_inf_rel": 1.2789769243651942e-16,
+          "K_inf_rel": 0.0,
+          "status": "computed"
+        },
+        "request_all_in_range": false,
+        "range_mode_factor": null,
+        "free_dofs": 20803,
+        "solver_backend": "krylov_eigrl_target",
+        "eigenpair_request_contract": {
+          "candidate_pairs_examined_limit": 6,
+          "requested_nd": 6,
+          "backend_request_limit": 6,
+          "candidate_pairs_examined_limit_scope": "per_backend_invocation",
+          "auxiliary_ritz_policy": "record_raw_count_but_do_not_examine_or_expand_beyond_request",
+          "mode": "nd_limited",
+          "output_pairs_limit": 6
+        },
+        "boundary_targeting": {
+          "retries": 0,
+          "excluded_pairs": 0,
+          "retry_limit": 8
+        },
+        "bc_partition": {
+          "explicit_spc_dofs": 4547,
+          "autospc_enabled": true,
+          "autospc_gpst_rotational_dofs": 0,
+          "autospc_load_path_protection": {
+            "enabled": false
+          },
+          "post_factorization_singular_translational_dofs": 0,
+          "autospc_diagonal_zero_dofs": 0,
+          "mpc_dependent_dofs": 0,
+          "post_factorization_singular_rotational_dofs": 0,
+          "inactive_unloaded_dofs": 0,
+          "fixed_dofs": 4547,
+          "autospc_diagonal_rotational_dofs": 0,
+          "unconstrained_dofs": 20803,
+          "post_factorization_singular_dofs": 0,
+          "permanent_grid_dofs": 0,
+          "autospc_gpst_eps_zero": 1e-08,
+          "autospc_gpst_dofs": 0,
+          "autospc_diagonal_translational_dofs": 0,
+          "autospc_load_path_skipped_dofs": 0,
+          "enforced_displacement_dofs": 0,
+          "autospc_reference_scope": "grid_point_principal_stiffness",
+          "permanent_grid_constraints": 0,
+          "autospc_negative_diagonal_dofs": 0,
+          "autospc_load_path_protected_translational_dofs": 0,
+          "autospc_gpst_translational_dofs": 0,
+          "autospc_diagonal_dofs": 0,
+          "autospc_diagonal_relative_dofs": 0,
+          "free_dofs": 20803,
+          "autospc_gpst_entries": []
+        },
+        "output_pairs_shortage": 0,
+        "fixed_dofs": 4547,
+        "returned_modes": 6,
+        "eigrl_range": {
+          "v2": 0.0,
+          "v1": 0.0
+        },
+        "eigenvalue_extraction": {
+          "v2_specified": false,
+          "type": "EIGRL",
+          "algorithm": "LANCZOS",
+          "method_id": 1,
+          "v1_specified": false,
+          "nd_specified": true
+        },
+        "eigsolve_requests": [
+          {
+            "algorithm": "Arnoldi",
+            "selector": "LM",
+            "sigma": 0.0,
+            "attempt": "krylov_eigrl_target",
+            "requested_eigenpairs": 6
+          },
+          {
+            "algorithm": "Arnoldi",
+            "selector": "LM",
+            "sigma": 0.0,
+            "attempt": "krylov_eigrl_target_retry",
+            "requested_eigenpairs": 6
+          }
+        ],
+        "output_request_status": "satisfied",
+        "bounded_signed_magnitude_selector": {
+          "enabled": false,
+          "selector": "removed_2026_07_27",
+          "manual": false,
+          "active": false,
+          "output": false
+        },
+        "candidate_filter_decisions": [
+          "kept",
+          "kept",
+          "kept",
+          "kept",
+          "kept",
+          "kept"
+        ],
+        "raw_fields_are_reported_mirror": true,
+        "solver_attempts": [
+          {
+            "name": "krylov_eigrl_target",
+            "sigma": 0.0,
+            "ritz_vectors_returned": 6,
+            "factorization": "cholesky_cached",
+            "duplicate_ritz_pairs": 0,
+            "krylov_tol": 1e-12,
+            "returned_modes": 5,
+            "force_full_request": false,
+            "nd_limited_range_output": false,
+            "krylovdim": 40,
+            "block_lanczos": false,
+            "accepted_residuals": [
+              5.2119440947621726e-09,
+              1.4772306627371631e-09,
+              7.392231634804374e-10,
+              1.5268093183132026e-09,
+              1.582709172422508e-08
+            ],
+            "pairs_retained": 5,
+            "krylov_maxiter": 1000,
+            "shifted_factor_cache_hit": false,
+            "accuracy_retry": false,
+            "candidate_pairs_examined": 6,
+            "converged": 6,
+            "requested_eigenpairs": 6,
+            "requested_modes_internal": 6,
+            "requested_modes_override": 6,
+            "range_augmentation_buffer": 0,
+            "status": "succeeded_partial",
+            "ritz_values_returned": 6,
+            "operator_applications": 31,
+            "block_error": null
+          },
+          {
+            "name": "krylov_eigrl_target_retry",
+            "sigma": 0.0,
+            "ritz_vectors_returned": 6,
+            "factorization": "cholesky_cached",
+            "duplicate_ritz_pairs": 0,
+            "krylov_tol": 1e-16,
+            "returned_modes": 6,
+            "force_full_request": false,
+            "nd_limited_range_output": false,
+            "krylovdim": 40,
+            "block_lanczos": false,
+            "accepted_residuals": [
+              3.0729989046328677e-08,
+              5.574224716439682e-09,
+              1.9078552805538923e-11,
+              3.0989545560037395e-09,
+              7.049079487400794e-10,
+              1.6143948112493248e-09
+            ],
+            "pairs_retained": 6,
+            "krylov_maxiter": 1000,
+            "shifted_factor_cache_hit": true,
+            "accuracy_retry": true,
+            "candidate_pairs_examined": 6,
+            "converged": 6,
+            "requested_eigenpairs": 6,
+            "requested_modes_internal": 6,
+            "requested_modes_override": 6,
+            "range_augmentation_buffer": 0,
+            "status": "succeeded",
+            "ritz_values_returned": 6,
+            "operator_applications": 36,
+            "block_error": null
+          }
+        ],
+        "sol105_options": {
+          "macneal_pcomp_thick_h_min": 0.0,
+          "k6rot_legacy_option_consumed": false,
+          "cluster_filter_enabled": false,
+          "k6rot_legacy_option": 0.0,
+          "macneal_rbf_zb_scale": 1.28,
+          "autospc_trans_rel": 1e-08,
+          "raw_output": false,
+          "k6rot_eigen": 100.0,
+          "phi2_alpha": 10.0,
+          "macneal_pcomp_thick_kappa_l_min": 0.0,
+          "k6rot": 100.0,
+          "macneal_pcomp_thick_h_over_l_min": 0.015,
+          "cluster_filter_ratio": 1.25,
+          "autospc_rot_rel": 1e-08,
+          "macneal_pcomp_thick_aspect_max": 3.5,
+          "k6rot_resolution": {
+            "eigen_stiffness_reuses_static": true,
+            "note": "K6ROT is the global drilling coefficient; element formulations may disable the drilling contribution for specific elements. The legacy options field does not control assembly.",
+            "eigen_override_used": false,
+            "static": {
+              "source": "deck:PARAM,K6ROT",
+              "sequence_default": 0.0,
+              "selected_override": null,
+              "override_applied": false,
+              "deck_value": 100,
+              "override_status": "absent_or_blank",
+              "shear_center_only": false,
+              "solution": 105,
+              "value": 100.0
+            },
+            "eigen": {
+              "source": "deck:PARAM,K6ROT",
+              "sequence_default": 0.0,
+              "selected_override": null,
+              "override_applied": false,
+              "operator_source": "reused_static_stiffness",
+              "deck_value": 100,
+              "override_status": "absent_or_blank",
+              "shear_center_only": false,
+              "solution": 105,
+              "value": 100.0
+            }
+          },
+          "macneal_warp_tol": 0.01,
+          "k6rot_static": 100.0
+        },
+        "filter_decisions": [
+          "kept",
+          "kept",
+          "kept",
+          "kept",
+          "kept",
+          "kept"
+        ],
+        "requested_modes_internal": 6,
+        "raw_to_sorted_index": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "kept_indices_in_sorted": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "timings": {
+          "slice_free_matrices": 0.0086195,
+          "prepare_context": 2.04e-05,
+          "eigensolver_search": 0.41533800000000004,
+          "postprocess_filter_expand": 0.023654400000000003,
+          "expand_modes": 0.022522900000000002,
+          "total": 0.6316172,
+          "symmetry_checks": 0.18354040000000002
+        },
+        "eigen_cache": {
+          "factor_backend": "cholesky",
+          "cache_hit": true,
+          "enabled": true,
+          "factorization_cache_hit": true
+        },
+        "eigrl_field_presence": {
+          "v2": false,
+          "nd": true,
+          "v1": false
+        },
+        "candidate_eigenvalues": [
+          5.649493997197128,
+          10.444994482620572,
+          21.085569743015714,
+          22.587703399457816,
+          28.243184409528826,
+          36.32073390609146
+        ],
+        "raw_eigenvalues": [
+          5.649493997197128,
+          10.444994482620572,
+          21.085569743015714,
+          22.587703399457816,
+          28.243184409528826,
+          36.32073390609146
+        ]
+      },
+      "method_id": 1,
+      "wall_seconds": 0.632069,
+      "kg_timings": {
+        "solids": 9.7e-06,
+        "setup": 0.0398953,
+        "bars_beams": 2.6e-06,
+        "sparse_build": 0.1502735,
+        "preload_cache_hit": false,
+        "shells": 0.2698042,
+        "rods": 5.1e-06,
+        "constraint_redistribution": 1.6100000000000002e-05,
+        "total": 0.4600248
+      },
+      "eigenvalues": [
+        5.649493997197128,
+        10.444994482620572,
+        21.085569743015714,
+        22.587703399457816,
+        28.243184409528826,
+        36.32073390609146
+      ],
+      "eigrl_v1_specified": false,
+      "static_spc_id": 1,
+      "buckling_spc_id": 1,
+      "eigrl_v2_specified": false,
+      "eigrl_v2": 0.0,
+      "num_modes_requested": 6
+    },
+    {
+      "backend_version": "0.1.0",
+      "backend": "reference_parity",
+      "phase": "backend"
+    }
+  ],
+  "metrics": [
+    {
+      "run": "cross_ply_sol105_n64",
+      "value": 5.649493997197128,
+      "error_percent": 0.08428355075327787,
+      "mesh_n": 64,
+      "passed": true,
+      "tolerance_percent": 2.0,
+      "quantity": "buckling load factor",
+      "reference": 5.654259607963528,
+      "mode": 1,
+      "case_id": "ACA03",
+      "sol": 105,
+      "unit": "dimensionless"
+    },
+    {
+      "run": "cross_ply_sol105_n64",
+      "value": 10.444994482620572,
+      "error_percent": 0.08095791606334511,
+      "mesh_n": 64,
+      "passed": true,
+      "tolerance_percent": 2.0,
+      "quantity": "buckling load factor",
+      "reference": 10.453457383875127,
+      "mode": 2,
+      "case_id": "ACA03",
+      "sol": 105,
+      "unit": "dimensionless"
+    },
+    {
+      "run": "cross_ply_sol105_n64",
+      "value": 21.085569743015714,
+      "error_percent": 0.08859009061065205,
+      "mesh_n": 64,
+      "passed": true,
+      "tolerance_percent": 2.0,
+      "quantity": "buckling load factor",
+      "reference": 21.10426603141566,
+      "mode": 3,
+      "case_id": "ACA03",
+      "sol": 105,
+      "unit": "dimensionless"
+    },
+    {
+      "run": "cross_ply_sol105_n64",
+      "value": 22.587703399457816,
+      "error_percent": 0.12970324335206085,
+      "mesh_n": 64,
+      "passed": true,
+      "tolerance_percent": 2.0,
+      "quantity": "buckling load factor",
+      "reference": 22.617038431854112,
+      "mode": 4,
+      "case_id": "ACA03",
+      "sol": 105,
+      "unit": "dimensionless"
+    },
+    {
+      "run": "cross_ply_sol105_n64",
+      "value": 28.243184409528826,
+      "error_percent": 0.18338706450100836,
+      "mesh_n": 64,
+      "passed": true,
+      "tolerance_percent": 2.0,
+      "quantity": "buckling load factor",
+      "reference": 28.2950739149799,
+      "mode": 5,
+      "case_id": "ACA03",
+      "sol": 105,
+      "unit": "dimensionless"
+    },
+    {
+      "run": "cross_ply_sol105_n64",
+      "value": 36.32073390609146,
+      "error_percent": 0.11758593779952986,
+      "mesh_n": 64,
+      "passed": true,
+      "tolerance_percent": 2.0,
+      "quantity": "buckling load factor",
+      "reference": 36.36349225948143,
+      "mode": 6,
+      "case_id": "ACA03",
+      "sol": 105,
+      "unit": "dimensionless"
+    }
+  ],
+  "outputs": {
+    "results/runs/cross_ply_sol105_n64/cross_ply_sol105_n64.jfem": "85bc0cf9e61331b0305e1cad7194414ab626a36ae4f67bec457c2b2f2a874847"
+  }
+}

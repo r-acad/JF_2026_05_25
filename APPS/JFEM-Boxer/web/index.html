@@ -68,6 +68,8 @@
         <span id="toml-help" class="file-tooltip" role="tooltip">TOML stores model parameters, constraints, load cases, all loaded reference placements and cache paths, and the Plan view background image. Saving caches unlinked references without overwriting the server input. Reference paths depend on this server's input folder; use Save Study to move embedded geometry, all display settings, other images and notes between computers. Import validates before replacing the current Study.</span>
       </span>
       <button id="btn-read-reference" disabled title="Choose a local Reference deck; its INCLUDE files are read automatically. Review native properties, solve its load cases and compute supported sensitivities. Save Study embeds the complete deck source.">Read Reference</button>
+      <button id="btn-read-results" disabled title="Open a stored .jfem binary with its own mesh and result states. No source deck or solver run is required.">Open JFEM results…</button>
+      <input id="results-file" type="file" accept=".jfem" hidden>
       <input id="model-file" type="file" accept=".wingfem.json,application/json" hidden>
       <input id="toml-file" type="file" accept=".toml,text/plain,application/toml" hidden>
     </div>
@@ -672,6 +674,7 @@
 <script src="color_scales.js"></script>
 <script src="deck_view.js" defer></script>
 <script src="jfem_timing.js" defer></script>
+<script src="disk_results.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>

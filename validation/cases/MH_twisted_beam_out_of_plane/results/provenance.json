@@ -1,0 +1,21 @@
+{
+  "schema": "jfem.validation.provenance.v1",
+  "case_id": "MH_twisted_beam_out_of_plane",
+  "input": "cases/MH_twisted_beam_out_of_plane/model.bdf",
+  "input_sha256": "84901a7db2ef47ef90781c1e1a30c643b4285378f347c43ec30fa57ae86f5935",
+  "status": "solved",
+  "input_unchanged": true,
+  "run_started_utc": "2026-10-19T09:27:45.256",
+  "run_finished_utc": "2026-10-19T09:27:45.266",
+  "julia_version": "1.13.1",
+  "wall_seconds_including_compilation": 0.0100763,
+  "source_receipt_sha256": "0d6f9c146712c901564b20c719c79e22344db5e56031cbccaff36cfcedac97ba",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "published_files": {
+    "results.json": "d5b397bd46a71adaaf24fc72c04fb3185abfe21751d0dbb30bbb94343e19ce5a",
+    "twisted_beam_out_of_plane.jfem": "7559862f37d2360be30163103d79afba7646ecda934c0bc11b4931e028a08eb6",
+    "twisted_beam_out_of_plane.JU.JSON": "8a6e8544e8784c896745d0bd92a7d945fc4e4b307f5453422ad5e60c7c6bc2e3",
+    "twisted_beam_out_of_plane.TIMINGS.JSON": "6cac3df734037cd8cece5564f80b5bca2e808eee3a78c25300d48bed17661f9d",
+    "visual_data.json": "41c803fe74fd1e5ce2faed019f62034dd3093e4eef5d0b9e85f93118032a2fcb"
+  }
+}

@@ -1,0 +1,338 @@
+{
+  "id": "ACA04",
+  "title": "Symmetric cross-ply plate: Navier vibration",
+  "solutions": [
+    103
+  ],
+  "evidence_class": "Independent analytical equation verification",
+  "length_unit": "m",
+  "metrics": [
+    {
+      "name": "natural frequency 1",
+      "value": 35.018064983736345,
+      "reference": 35.02931438540483,
+      "error_percent": 0.03211425020974274,
+      "tolerance_percent": 2.0,
+      "unit": "Hz",
+      "status": "PASS"
+    },
+    {
+      "name": "natural frequency 2",
+      "value": 95.25817681008286,
+      "reference": 95.25849965665033,
+      "error_percent": 0.0003389162842524445,
+      "tolerance_percent": 2.0,
+      "unit": "Hz",
+      "status": "PASS"
+    },
+    {
+      "name": "natural frequency 3",
+      "value": 98.47268034117522,
+      "reference": 98.45906481577595,
+      "error_percent": 0.01382861539945525,
+      "tolerance_percent": 2.0,
+      "unit": "Hz",
+      "status": "PASS"
+    },
+    {
+      "name": "natural frequency 4",
+      "value": 140.08260451069816,
+      "reference": 140.11725754161932,
+      "error_percent": 0.024731451021206254,
+      "tolerance_percent": 2.0,
+      "unit": "Hz",
+      "status": "PASS"
+    },
+    {
+      "name": "natural frequency 5",
+      "value": 203.11876183609417,
+      "reference": 203.02529298737312,
+      "error_percent": 0.04603803168842528,
+      "tolerance_percent": 2.0,
+      "unit": "Hz",
+      "status": "PASS"
+    },
+    {
+      "name": "natural frequency 6",
+      "value": 211.1747724157199,
+      "reference": 211.01176884935748,
+      "error_percent": 0.07724856639573931,
+      "tolerance_percent": 2.0,
+      "unit": "Hz",
+      "status": "PASS"
+    }
+  ],
+  "convergence": [
+    {
+      "quantity": "natural frequency 1",
+      "elements": 16,
+      "value": 36.875348457929896,
+      "reference": 35.02931438540483,
+      "error_percent": 5.269969181281565,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 2",
+      "elements": 16,
+      "value": 116.67200532151844,
+      "reference": 95.25849965665033,
+      "error_percent": 22.479364825239678,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 3",
+      "elements": 16,
+      "value": 120.23870248825077,
+      "reference": 98.45906481577595,
+      "error_percent": 22.120500243655677,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 4",
+      "elements": 16,
+      "value": 183.68173303038535,
+      "reference": 140.11725754161932,
+      "error_percent": 31.091441734667104,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 5",
+      "elements": 16,
+      "value": 322.3969966282724,
+      "reference": 203.02529298737312,
+      "error_percent": 58.79646909231327,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 6",
+      "elements": 16,
+      "value": 326.1916499173746,
+      "reference": 211.01176884935748,
+      "error_percent": 54.5845768205681,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 1",
+      "elements": 64,
+      "value": 35.437762849548484,
+      "reference": 35.02931438540483,
+      "error_percent": 1.1660190081077797,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 2",
+      "elements": 64,
+      "value": 99.92664550247304,
+      "reference": 95.25849965665033,
+      "error_percent": 4.900503222965477,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 3",
+      "elements": 64,
+      "value": 103.23274061316644,
+      "reference": 98.45906481577595,
+      "error_percent": 4.848386287562643,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 4",
+      "elements": 64,
+      "value": 147.92605589569797,
+      "reference": 140.11725754161932,
+      "error_percent": 5.5730453843340335,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 5",
+      "elements": 64,
+      "value": 227.79752151053873,
+      "reference": 203.02529298737312,
+      "error_percent": 12.20154797397893,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 6",
+      "elements": 64,
+      "value": 236.24472263196103,
+      "reference": 211.01176884935748,
+      "error_percent": 11.958078888300063,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 1",
+      "elements": 256,
+      "value": 35.108863692089,
+      "reference": 35.02931438540483,
+      "error_percent": 0.22709353031846996,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 2",
+      "elements": 256,
+      "value": 96.27281183949805,
+      "reference": 95.25849965665033,
+      "error_percent": 1.0647996625011982,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 3",
+      "elements": 256,
+      "value": 99.53138631129113,
+      "reference": 98.45906481577595,
+      "error_percent": 1.0891038804010322,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 4",
+      "elements": 256,
+      "value": 141.5950727658665,
+      "reference": 140.11725754161932,
+      "error_percent": 1.0546989358596373,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 5",
+      "elements": 256,
+      "value": 208.44269129341342,
+      "reference": 203.02529298737312,
+      "error_percent": 2.66833665221073,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 6",
+      "elements": 256,
+      "value": 216.71917534505172,
+      "reference": 211.01176884935748,
+      "error_percent": 2.704781125155533,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 1",
+      "elements": 1024,
+      "value": 35.037005293866635,
+      "reference": 35.02931438540483,
+      "error_percent": 0.021955635149422795,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 2",
+      "elements": 1024,
+      "value": 95.45734993140597,
+      "reference": 95.25849965665033,
+      "error_percent": 0.20874806497307666,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 3",
+      "elements": 1024,
+      "value": 98.6813391637127,
+      "reference": 98.45906481577595,
+      "error_percent": 0.22575305620935182,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 4",
+      "elements": 1024,
+      "value": 140.3649495668384,
+      "reference": 140.11725754161932,
+      "error_percent": 0.17677481672483789,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 5",
+      "elements": 1024,
+      "value": 204.15699795902535,
+      "reference": 203.02529298737312,
+      "error_percent": 0.5574206814333281,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 6",
+      "elements": 1024,
+      "value": 212.26039665577153,
+      "reference": 211.01176884935748,
+      "error_percent": 0.591733728039336,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 1",
+      "elements": 4096,
+      "value": 35.018064983736345,
+      "reference": 35.02931438540483,
+      "error_percent": 0.03211425020974274,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 2",
+      "elements": 4096,
+      "value": 95.25817681008286,
+      "reference": 95.25849965665033,
+      "error_percent": 0.0003389162842524445,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 3",
+      "elements": 4096,
+      "value": 98.47268034117522,
+      "reference": 98.45906481577595,
+      "error_percent": 0.01382861539945525,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 4",
+      "elements": 4096,
+      "value": 140.08260451069816,
+      "reference": 140.11725754161932,
+      "error_percent": 0.024731451021206254,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 5",
+      "elements": 4096,
+      "value": 203.11876183609417,
+      "reference": 203.02529298737312,
+      "error_percent": 0.04603803168842528,
+      "unit": "Hz"
+    },
+    {
+      "quantity": "natural frequency 6",
+      "elements": 4096,
+      "value": 211.1747724157199,
+      "reference": 211.01176884935748,
+      "error_percent": 0.07724856639573931,
+      "unit": "Hz"
+    }
+  ],
+  "references": [
+    {
+      "citation": "Leissa, Vibration of Plates, NASA SP-160 (1969)",
+      "url": "https://ntrs.nasa.gov/citations/19700009156"
+    },
+    {
+      "citation": "Nachiketa Tiwari / IIT Kanpur: Mechanics of Laminated Composite Structures, Lecture37 Buckling of Plates",
+      "url": "https://archive.nptel.ac.in/content/storage2/courses/112104161/L37.pdf"
+    }
+  ],
+  "visual_file": "results/visual_data.json",
+  "solver_revision": "a70f997cce40",
+  "run_date": "2026-10-19",
+  "equations": [
+    "D_ij=sum_k Qbar_ij(k)*(z_k^3-z_(k-1)^3)/3",
+    "alpha=m*pi/a; beta=n*pi/b",
+    "H=D11*alpha^4+2*(D12+2D66)*alpha^2*beta^2+D22*beta^4",
+    "f_mn=sqrt(H/(rho*t))/(2*pi)"
+  ],
+  "description": "The same symmetric cross-ply plate tests laminate stiffness and mass through six natural frequencies. Independent classical laminate integration supplies the Navier spectrum and sinusoidal mode families.",
+  "geometry": "Plate 0.6 m by 0.4 m, thickness 2 mm; CQUAD4 meshes from 4x4 to 64x64.",
+  "material": "[0/90/90/0], four 0.5 mm plies; E1 = 135 GPa, E2 = 10 GPa, G12 = 5 GPa, nu12 = 0.3; density 1600 kg/m3.",
+  "boundary_conditions": "All edges uz=0; bending rotations free. ux=0 on x=0; origin uy=0; drilling rotation constrained.",
+  "loading": "Free vibration; no applied load. Material density included in each ply.",
+  "observations": [
+    "All first six finest frequencies agree within 0.07725%; minimum transverse mode-shape MAC = 0.999999947.",
+    "The worst error falls from 0.5918% at 32x32 to 0.07725% at 64x64; coarse results are retained."
+  ],
+  "limits": [
+    "Both reference and FE model omit independent rotary inertia. Thin-theory differences arise from transverse-shear flexibility and mesh discretization."
+  ]
+}

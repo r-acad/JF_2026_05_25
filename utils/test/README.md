@@ -22,8 +22,9 @@ julia --project=. utils/test/runtests.jl
 These developer checks can take
 longer than ordinary app startup; they are not part of the everyday launch.
 Generated results belong in a temporary directory, never beside source tests.
-The two documented coarse-mesh accuracy misses are asserted explicitly; the
-same-deck parity checks must still pass. See `validation/VALIDATION_SUMMARY.md`.
+The two documented coarse-mesh accuracy misses are asserted explicitly.
+Historical regression checks remain separate from analytical and published
+accuracy checks. See `validation/VALIDATION_SUMMARY.md`.
 
 Three integration scripts run separately because they require input-deck and
 output-directory arguments: `buckling_output_test.jl`,

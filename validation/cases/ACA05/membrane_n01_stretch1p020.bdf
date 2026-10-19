@@ -1,0 +1,32 @@
+$ Author-generated academic verification: Homogeneous finite-strain membrane
+SOL 106
+CEND
+TITLE = Homogeneous finite-strain membrane
+SUBCASE 1
+ SPC=1
+ LOAD=1
+ NLPARM=1
+BEGIN BULK
+PARAM,LGDISP,1
+PARAM,NLMETHOD,AUTO
+PARAM,AUTOSPC,YES
+PARAM,K6ROT,100.
+MAT1,1,70000000,,0.3
+PSHELL,1,1,0.01,1,,1
+NLPARM,1,10,,,1,40,PW,NO
++,1.e-9,1.e-10,1.e-9
+GRID,1,,0,0,0.
+GRID,2,,1,0,0.
+GRID,3,,0,0.4,0.
+GRID,4,,1,0.4,0.
+CQUAD4,1,1,1,2,4,3
+SPC1,1,3456,1
+SPC1,1,1,1
+SPC1,1,3456,2
+SPC1,1,3456,3
+SPC1,1,1,3
+SPC1,1,3456,4
+SPC1,1,2,1
+FORCE,1,2,0,2884.56,1.,0.,0.
+FORCE,1,4,0,2884.56,1.,0.,0.
+ENDDATA

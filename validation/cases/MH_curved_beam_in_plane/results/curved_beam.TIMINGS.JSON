@@ -1,0 +1,519 @@
+{
+  "solution_scope": "Numerical stage execution including assembly, constraints, equilibrium/eigenvalue solution, sensitivity and deferred recovery; excludes measured compilation, deck preparation and file export. Includes numerical orchestration, GC and scheduling waits; not CPU time.",
+  "schema_version": 2,
+  "export_seconds": 0.01567659999999904,
+  "measured_wall_seconds": 124.662334,
+  "stages": [
+    {
+      "parent": null,
+      "path": "build_model",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.001919500000000518,
+        "gc_seconds": 0.1468175,
+        "wall_seconds": 6.6188995,
+        "compilation_seconds": 6.61698
+      },
+      "label": "Construct native model",
+      "depth": 0,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.001919500000000518,
+        "gc_seconds": 0.1468175,
+        "wall_seconds": 6.6188995,
+        "compilation_seconds": 6.61698
+      },
+      "category": "preparation",
+      "calls": 1,
+      "phase": "build_model"
+    },
+    {
+      "parent": null,
+      "path": "export",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.01567659999999904,
+        "gc_seconds": 0.2936486,
+        "wall_seconds": 10.1184321,
+        "compilation_seconds": 10.1027555
+      },
+      "label": "Write results",
+      "depth": 0,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.01567659999999904,
+        "gc_seconds": 0.2936486,
+        "wall_seconds": 10.1184321,
+        "compilation_seconds": 10.1027555
+      },
+      "category": "export",
+      "calls": 1,
+      "phase": "export"
+    },
+    {
+      "parent": null,
+      "path": "parse",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.000977600000000023,
+        "gc_seconds": 0.0097307,
+        "wall_seconds": 0.8487335,
+        "compilation_seconds": 0.8477559
+      },
+      "label": "Read and parse deck",
+      "depth": 0,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.000977600000000023,
+        "gc_seconds": 0.0097307,
+        "wall_seconds": 0.8487335,
+        "compilation_seconds": 0.8477559
+      },
+      "category": "preparation",
+      "calls": 1,
+      "phase": "parse"
+    },
+    {
+      "parent": null,
+      "path": "solve",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.002387200000001144,
+        "gc_seconds": 5.1324380000000005,
+        "wall_seconds": 69.5824987,
+        "compilation_seconds": 69.5801115
+      },
+      "label": "Numerical solver",
+      "depth": 0,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": null,
+        "gc_seconds": 6.6105479,
+        "wall_seconds": 107.0762689,
+        "compilation_seconds": 174.4314912
+      },
+      "category": "numerical",
+      "calls": 1,
+      "phase": "solve"
+    },
+    {
+      "parent": "solve",
+      "path": "solve/assembly",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": null,
+        "gc_seconds": 1.3742997000000001,
+        "wall_seconds": 25.7557335,
+        "compilation_seconds": 93.12032880000001
+      },
+      "label": "Assemble elastic stiffness",
+      "depth": 1,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": null,
+        "gc_seconds": 1.3742997000000001,
+        "wall_seconds": 25.7557335,
+        "compilation_seconds": 93.12032880000001
+      },
+      "category": "numerical",
+      "calls": 1,
+      "phase": "assembly"
+    },
+    {
+      "parent": "solve",
+      "path": "solve/static_case",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.0012945999999978142,
+        "gc_seconds": 0.1038102,
+        "wall_seconds": 8.6680079,
+        "compilation_seconds": 8.666713300000001
+      },
+      "label": "Static equilibrium and recovery",
+      "depth": 1,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.006985799999998932,
+        "gc_seconds": 0.1038102,
+        "wall_seconds": 11.7380367,
+        "compilation_seconds": 11.731050900000001
+      },
+      "category": "numerical",
+      "calls": 1,
+      "phase": "static_case"
+    },
+    {
+      "parent": "solve/static_case",
+      "path": "solve/static_case/constraints_linear_solve",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.002403799999999956,
+        "gc_seconds": 0.0,
+        "wall_seconds": 0.7293187,
+        "compilation_seconds": 0.7269149
+      },
+      "label": "Constraints and linear equilibrium",
+      "depth": 2,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.0028022999999999243,
+        "gc_seconds": 0.0,
+        "wall_seconds": 0.7678625,
+        "compilation_seconds": 0.7650602000000001
+      },
+      "category": "numerical",
+      "calls": 1,
+      "phase": "constraints_linear_solve"
+    },
+    {
+      "parent": "solve/static_case/constraints_linear_solve",
+      "path": "solve/static_case/constraints_linear_solve/factorization",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.000398500000000003,
+        "gc_seconds": 0.0,
+        "wall_seconds": 0.0385438,
+        "compilation_seconds": 0.0381453
+      },
+      "label": "Matrix factorization",
+      "depth": 3,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.000398500000000003,
+        "gc_seconds": 0.0,
+        "wall_seconds": 0.0385438,
+        "compilation_seconds": 0.0381453
+      },
+      "category": "numerical",
+      "calls": 1,
+      "phase": "factorization"
+    },
+    {
+      "parent": "solve/static_case",
+      "path": "solve/static_case/loads",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.0003247999999999862,
+        "gc_seconds": 0.0,
+        "wall_seconds": 0.1607578,
+        "compilation_seconds": 0.16043300000000002
+      },
+      "label": "Assemble applied loads",
+      "depth": 2,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.0003247999999999862,
+        "gc_seconds": 0.0,
+        "wall_seconds": 0.1607578,
+        "compilation_seconds": 0.16043300000000002
+      },
+      "category": "numerical",
+      "calls": 1,
+      "phase": "loads"
+    },
+    {
+      "parent": "solve/static_case",
+      "path": "solve/static_case/recovery",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.002564100000000291,
+        "gc_seconds": 0.0,
+        "wall_seconds": 2.1414085000000003,
+        "compilation_seconds": 2.1388444
+      },
+      "label": "Recover displacements, forces, stresses and strains",
+      "depth": 2,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.002564100000000291,
+        "gc_seconds": 0.0,
+        "wall_seconds": 2.1414085000000003,
+        "compilation_seconds": 2.1388444
+      },
+      "category": "numerical",
+      "calls": 1,
+      "phase": "recovery"
+    }
+  ],
+  "measurement": "Inclusive children are already contained in parent stage times; category totals sum exclusive execution only. Execution is unavailable if measured compilation overlaps/exceeds its wall interval.",
+  "preparation_seconds": 0.002897100000000541,
+  "phases": {
+    "parse": {
+      "recompilation_seconds": 0.0,
+      "execution_seconds": 0.000977600000000023,
+      "gc_seconds": 0.0097307,
+      "label": "Read and parse deck",
+      "stages": [
+        {
+          "parent": null,
+          "path": "parse",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.000977600000000023,
+            "gc_seconds": 0.0097307,
+            "wall_seconds": 0.8487335,
+            "compilation_seconds": 0.8477559
+          },
+          "label": "Read and parse deck",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.000977600000000023,
+            "gc_seconds": 0.0097307,
+            "wall_seconds": 0.8487335,
+            "compilation_seconds": 0.8477559
+          },
+          "category": "preparation",
+          "calls": 1,
+          "phase": "parse"
+        }
+      ],
+      "wall_seconds": 0.8487335,
+      "category": "preparation",
+      "compilation_seconds": 0.8477559
+    },
+    "build_model": {
+      "recompilation_seconds": 0.0,
+      "execution_seconds": 0.001919500000000518,
+      "gc_seconds": 0.1468175,
+      "label": "Construct native model",
+      "stages": [
+        {
+          "parent": null,
+          "path": "build_model",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.001919500000000518,
+            "gc_seconds": 0.1468175,
+            "wall_seconds": 6.6188995,
+            "compilation_seconds": 6.61698
+          },
+          "label": "Construct native model",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.001919500000000518,
+            "gc_seconds": 0.1468175,
+            "wall_seconds": 6.6188995,
+            "compilation_seconds": 6.61698
+          },
+          "category": "preparation",
+          "calls": 1,
+          "phase": "build_model"
+        }
+      ],
+      "wall_seconds": 6.6188995,
+      "category": "preparation",
+      "compilation_seconds": 6.61698
+    },
+    "export": {
+      "recompilation_seconds": 0.0,
+      "execution_seconds": 0.01567659999999904,
+      "gc_seconds": 0.2936486,
+      "label": "Write results",
+      "stages": [
+        {
+          "parent": null,
+          "path": "export",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.01567659999999904,
+            "gc_seconds": 0.2936486,
+            "wall_seconds": 10.1184321,
+            "compilation_seconds": 10.1027555
+          },
+          "label": "Write results",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.01567659999999904,
+            "gc_seconds": 0.2936486,
+            "wall_seconds": 10.1184321,
+            "compilation_seconds": 10.1027555
+          },
+          "category": "export",
+          "calls": 1,
+          "phase": "export"
+        }
+      ],
+      "wall_seconds": 10.1184321,
+      "category": "export",
+      "compilation_seconds": 10.1027555
+    },
+    "solve": {
+      "recompilation_seconds": 0.0,
+      "execution_seconds": null,
+      "gc_seconds": 6.6105479,
+      "label": "Numerical solver",
+      "stages": [
+        {
+          "parent": null,
+          "path": "solve",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.002387200000001144,
+            "gc_seconds": 5.1324380000000005,
+            "wall_seconds": 69.5824987,
+            "compilation_seconds": 69.5801115
+          },
+          "label": "Numerical solver",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": null,
+            "gc_seconds": 6.6105479,
+            "wall_seconds": 107.0762689,
+            "compilation_seconds": 174.4314912
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "solve"
+        },
+        {
+          "parent": "solve",
+          "path": "solve/assembly",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": null,
+            "gc_seconds": 1.3742997000000001,
+            "wall_seconds": 25.7557335,
+            "compilation_seconds": 93.12032880000001
+          },
+          "label": "Assemble elastic stiffness",
+          "depth": 1,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": null,
+            "gc_seconds": 1.3742997000000001,
+            "wall_seconds": 25.7557335,
+            "compilation_seconds": 93.12032880000001
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "assembly"
+        },
+        {
+          "parent": "solve",
+          "path": "solve/static_case",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.0012945999999978142,
+            "gc_seconds": 0.1038102,
+            "wall_seconds": 8.6680079,
+            "compilation_seconds": 8.666713300000001
+          },
+          "label": "Static equilibrium and recovery",
+          "depth": 1,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.006985799999998932,
+            "gc_seconds": 0.1038102,
+            "wall_seconds": 11.7380367,
+            "compilation_seconds": 11.731050900000001
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "static_case"
+        },
+        {
+          "parent": "solve/static_case",
+          "path": "solve/static_case/constraints_linear_solve",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.002403799999999956,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.7293187,
+            "compilation_seconds": 0.7269149
+          },
+          "label": "Constraints and linear equilibrium",
+          "depth": 2,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.0028022999999999243,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.7678625,
+            "compilation_seconds": 0.7650602000000001
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "constraints_linear_solve"
+        },
+        {
+          "parent": "solve/static_case/constraints_linear_solve",
+          "path": "solve/static_case/constraints_linear_solve/factorization",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.000398500000000003,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.0385438,
+            "compilation_seconds": 0.0381453
+          },
+          "label": "Matrix factorization",
+          "depth": 3,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.000398500000000003,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.0385438,
+            "compilation_seconds": 0.0381453
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "factorization"
+        },
+        {
+          "parent": "solve/static_case",
+          "path": "solve/static_case/loads",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.0003247999999999862,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.1607578,
+            "compilation_seconds": 0.16043300000000002
+          },
+          "label": "Assemble applied loads",
+          "depth": 2,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.0003247999999999862,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.1607578,
+            "compilation_seconds": 0.16043300000000002
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "loads"
+        },
+        {
+          "parent": "solve/static_case",
+          "path": "solve/static_case/recovery",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.002564100000000291,
+            "gc_seconds": 0.0,
+            "wall_seconds": 2.1414085000000003,
+            "compilation_seconds": 2.1388444
+          },
+          "label": "Recover displacements, forces, stresses and strains",
+          "depth": 2,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.002564100000000291,
+            "gc_seconds": 0.0,
+            "wall_seconds": 2.1414085000000003,
+            "compilation_seconds": 2.1388444
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "recovery"
+        }
+      ],
+      "wall_seconds": 107.0762689,
+      "category": "numerical",
+      "compilation_seconds": 174.4314912
+    }
+  },
+  "solution_seconds": null,
+  "compilation_scope": "Measured Julia compilation includes recompilation. Package loading/precompilation before main is unmeasured process startup; live compiler activity cannot be separated reliably.",
+  "compilation_seconds": 191.9989826
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "jfem.validation.case_card.v1",
+  "case_id": "MH_twisted_beam_out_of_plane",
+  "built_utc": "2026-10-19T10:12:28.164305+00:00",
+  "pdf_pages": 2,
+  "case_metadata_sha256": "83a9ce37268c2592699738d339f3f70451af2b7872867b8a33221417f45e1c6a",
+  "visual_data_sha256": "41c803fe74fd1e5ce2faed019f62034dd3093e4eef5d0b9e85f93118032a2fcb",
+  "builder_sha256": "776022314b284aee7e4ade99617497739e5e8bc30f818f4972fa3b8ee00977e7",
+  "source": "Recorded JFEM numerical fields; no synthetic deformation fields",
+  "artifacts": {
+    "case_card.pdf": "e6f26375173347e98158f206a9d71f1b5c30fa0074cd7fbf3705c190d088580a",
+    "metrics.csv": "1e33def761b4e97f713130e47b4ffae0a83139751e9851bd71cec6aa01dd25c8",
+    "figures/deformation.png": "d733f02035a3967bd47d10321abaf34d0205a5a3acacd0cf88da8af85e1bcdca",
+    "figures/deformation.svg": "816d8f73786cfd36ee49e0d924d3e08a1af72e7421ba6996f10341f4d66fb7ac",
+    "figures/response.png": "9566e1fe28b319434fc309a25389a72ce1f65d820e7eae3ae625a3290629b678",
+    "figures/response.svg": "23ebb2e8199411b945ccd544808ac32b23877b9b0af15aca0a05719cfd6bac96"
+  }
+}

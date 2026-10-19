@@ -1,0 +1,250 @@
+{
+  "case_id": "ACA05",
+  "run": "membrane_n01_stretch1p050",
+  "sol": 106,
+  "mesh_n": 1,
+  "status": "solved",
+  "input_file": "membrane_n01_stretch1p050.bdf",
+  "input_sha256": "23bd75cda891929e33e490e0ccf7554d9629756b7ec1da856639801ea7c73cfa",
+  "started_utc": "2026-10-19T09:34:26.139",
+  "finished_utc": "2026-10-19T09:34:26.263",
+  "wall_seconds_including_compilation": 0.12400007247924805,
+  "solver_diagnostics": [
+    {
+      "details": {
+        "requested_nonlinear_method": "auto",
+        "nonlinear_method": "formal_shell_green_lagrange",
+        "scheme": "formal_shell_green_lagrange_line_search",
+        "converged": true,
+        "termination_reason": "full_load_converged",
+        "residual_model": "formal_internal_force",
+        "correction_tangent_model": "formal_consistent_tangent",
+        "formal_support_class": "planar",
+        "automatic_shell_energy_scope": "planar_isotropic_shell_energy",
+        "convergence_criteria": "PW",
+        "convergence_policy": "all selected criteria",
+        "final_load_scale": 0.9999999999999999,
+        "requested_load_step_count": 10,
+        "accepted_load_step_count": 10,
+        "final_relative_residual": 2.0364969517307608e-16,
+        "final_relative_change": 2.6016288214887377e-08,
+        "final_relative_incremental_work": 7.377868866416947e-16,
+        "residual_tolerance": 1e-10,
+        "tolerance": 1e-09,
+        "work_tolerance": 1e-09,
+        "final_internal_energy": 367.71875,
+        "final_formal_diagnostics": {
+          "operator_backend": "forwarddiff_hessian",
+          "bending_shear_kinematics": "linear_reference",
+          "extra_energy": 17.681046495381427,
+          "warped_quad_split_triangle_count": 0,
+          "shell_count": 1,
+          "warped_quad_fallback_count": 0,
+          "operator_norm": 112793.92015071638,
+          "membrane_kinematics": "green_lagrange",
+          "operator_nnz": 80,
+          "constraint_pullback": false
+        },
+        "load_steps": [
+          {
+            "step": 1,
+            "load_scale": 0.1,
+            "accepted": true,
+            "converged": true,
+            "termination_reason": "converged",
+            "final_relative_residual": 2.176890443834989e-15,
+            "final_relative_change": 5.250728044526395e-07,
+            "final_relative_incremental_work": 2.825583863079799e-13,
+            "cutback_count": 0
+          },
+          {
+            "step": 2,
+            "load_scale": 0.2,
+            "accepted": true,
+            "converged": true,
+            "termination_reason": "converged",
+            "final_relative_residual": 9.465133670284054e-16,
+            "final_relative_change": 2.4081682860132684e-07,
+            "final_relative_incremental_work": 5.989466710906536e-14,
+            "cutback_count": 0
+          },
+          {
+            "step": 3,
+            "load_scale": 0.30000000000000004,
+            "accepted": true,
+            "converged": true,
+            "termination_reason": "converged",
+            "final_relative_residual": 2.7244882646530867e-16,
+            "final_relative_change": 1.4760736658659902e-07,
+            "final_relative_incremental_work": 2.267103049599924e-14,
+            "cutback_count": 0
+          },
+          {
+            "step": 4,
+            "load_scale": 0.4,
+            "accepted": true,
+            "converged": true,
+            "termination_reason": "converged",
+            "final_relative_residual": 6.409448428216831e-16,
+            "final_relative_change": 1.0201025356753955e-07,
+            "final_relative_incremental_work": 1.0906481001982646e-14,
+            "cutback_count": 0
+          },
+          {
+            "step": 5,
+            "load_scale": 0.5,
+            "accepted": true,
+            "converged": true,
+            "termination_reason": "converged",
+            "final_relative_residual": 1.6776870893098882e-16,
+            "final_relative_change": 7.535661705592479e-08,
+            "final_relative_incremental_work": 5.99360262262806e-15,
+            "cutback_count": 0
+          },
+          {
+            "step": 6,
+            "load_scale": 0.6,
+            "accepted": true,
+            "converged": true,
+            "termination_reason": "converged",
+            "final_relative_residual": 2.1833148846188748e-16,
+            "final_relative_change": 5.8102574962635955e-08,
+            "final_relative_incremental_work": 3.587528250729832e-15,
+            "cutback_count": 0
+          },
+          {
+            "step": 7,
+            "load_scale": 0.7,
+            "accepted": true,
+            "converged": true,
+            "termination_reason": "converged",
+            "final_relative_residual": 3.7121922097757856e-16,
+            "final_relative_change": 4.6166758312612645e-08,
+            "final_relative_incremental_work": 2.2800191936937592e-15,
+            "cutback_count": 0
+          },
+          {
+            "step": 8,
+            "load_scale": 0.7999999999999999,
+            "accepted": true,
+            "converged": true,
+            "termination_reason": "converged",
+            "final_relative_residual": 2.615955752367638e-16,
+            "final_relative_change": 3.7514975807669954e-08,
+            "final_relative_incremental_work": 1.5152497014434446e-15,
+            "cutback_count": 0
+          },
+          {
+            "step": 9,
+            "load_scale": 0.8999999999999999,
+            "accepted": true,
+            "converged": true,
+            "termination_reason": "converged",
+            "final_relative_residual": 1.8776561464617443e-16,
+            "final_relative_change": 3.1021974707322595e-08,
+            "final_relative_incremental_work": 1.0426359839992525e-15,
+            "cutback_count": 0
+          },
+          {
+            "step": 10,
+            "load_scale": 0.9999999999999999,
+            "accepted": true,
+            "converged": true,
+            "termination_reason": "converged",
+            "final_relative_residual": 2.0364969517307608e-16,
+            "final_relative_change": 2.6016288214887377e-08,
+            "final_relative_incremental_work": 7.377868866416947e-16,
+            "cutback_count": 0
+          }
+        ],
+        "requested_NLPARM": {
+          "KMETHOD": "AUTO",
+          "SID": 1,
+          "EPSW": 1e-09,
+          "TYPE": "NLPARM",
+          "KSTEP": 1,
+          "EPSU": 1e-09,
+          "RTOLB": 20.0,
+          "MAXQN": 40,
+          "INTOUT": "NO",
+          "EPSP": 1e-10,
+          "DT": 0.0,
+          "MAXLS": 4,
+          "MAXBIS": 5,
+          "NINC": 10,
+          "EXPLICIT_FIELDS": [
+            "CONV",
+            "EPSP",
+            "EPSU",
+            "EPSW",
+            "INTOUT",
+            "KSTEP",
+            "MAXITER",
+            "NINC",
+            "SID"
+          ],
+          "MAXITER": 40,
+          "CONV": "PW",
+          "FSTRESS": 0.2,
+          "LSTOL": 0.5,
+          "MAXR": 20.0,
+          "MAXDIV": 3
+        },
+        "effective_controls": {
+          "max_iter": 40,
+          "tol": 1e-09,
+          "work_tol": 1e-09,
+          "relaxation": 1.0,
+          "convergence_criteria": "PW",
+          "max_cutbacks": 5,
+          "cutback_reduction": 0.5,
+          "line_search_max_backtracks": 4,
+          "line_search_reduction": 0.5,
+          "step_growth": 1.0,
+          "intermediate_output": false,
+          "load_steps": 10,
+          "residual_tol": 1e-10
+        }
+      },
+      "sid": 1
+    },
+    {
+      "backend_version": "0.1.0",
+      "backend": "reference_parity",
+      "phase": "backend"
+    }
+  ],
+  "metrics": [
+    {
+      "value": 0.050000000000000024,
+      "error_percent": 4.163336342344333e-14,
+      "run": "membrane_n01_stretch1p050",
+      "mesh_n": 1,
+      "passed": true,
+      "tolerance_percent": 0.01,
+      "quantity": "tip axial displacement",
+      "reference": 0.050000000000000044,
+      "mode": null,
+      "case_id": "ACA05",
+      "sol": 106,
+      "unit": "m"
+    },
+    {
+      "value": -0.00619801930411777,
+      "error_percent": 2.5189517033963995e-13,
+      "run": "membrane_n01_stretch1p050",
+      "mesh_n": 1,
+      "passed": true,
+      "tolerance_percent": 0.01,
+      "quantity": "top lateral contraction",
+      "reference": -0.0061980193041177856,
+      "mode": null,
+      "case_id": "ACA05",
+      "sol": 106,
+      "unit": "m"
+    }
+  ],
+  "outputs": {
+    "results/runs/membrane_n01_stretch1p050/membrane_n01_stretch1p050.jfem": "adb3ad07dafc7d35c3967c948f909e5276880040825e8f4bb797eaaf58a0e4cf"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "schema": "jfem.validation.provenance.v1",
+  "case_id": "MH_curved_beam_in_plane",
+  "input": "cases/MH_curved_beam_in_plane/model.bdf",
+  "input_sha256": "9b06c8c7ef8b83d0df3ebee99d9370530152c8b2293487b2f83ddeaeeb76f0bc",
+  "status": "solved",
+  "input_unchanged": true,
+  "run_started_utc": "2026-10-19T09:25:05.871",
+  "run_finished_utc": "2026-10-19T09:27:44.631",
+  "julia_version": "1.13.1",
+  "wall_seconds_including_compilation": 158.762166,
+  "source_receipt_sha256": "f1abfe3285eabbdd8b43b329cd6681e4e3d27e04513cbd6731094f43657152c6",
+  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
+  "published_files": {
+    "curved_beam.jfem": "0cdb96e871c46b6d9df35100d39fe4abd17d7cd8ee98b8e17143998c1e5dde15",
+    "curved_beam.JU.JSON": "59ad43c7553ce820669c4cc7c92ea9f615dcc9145777cf2bc31383b8b445580a",
+    "curved_beam.TIMINGS.JSON": "c761f059ea860a080206f8e2434c535a3ebf0013632f12a6d844b548c8f74791",
+    "results.json": "66602c5c8e70bdb22e478f6c0c08471c911444a5cd867040419c1cfafa52b092",
+    "visual_data.json": "0d4c4cc6b02944d21e0b3a2e6ac0f8579ebaee40a486df1ce76cd30e176a7009"
+  }
+}

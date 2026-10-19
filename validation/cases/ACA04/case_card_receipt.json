@@ -1,0 +1,20 @@
+{
+  "schema": "jfem.validation.case_card.v1",
+  "case_id": "ACA04",
+  "built_utc": "2026-10-19T10:11:27.957217+00:00",
+  "pdf_pages": 2,
+  "case_metadata_sha256": "2f7db4a9c54495671a242529eae2c493899e62a163bc663a5ab36358c0397474",
+  "visual_data_sha256": "cac65a796e837b1d0db5782c60b79fef0f477320956dafbc692df7898971eef5",
+  "builder_sha256": "776022314b284aee7e4ade99617497739e5e8bc30f818f4972fa3b8ee00977e7",
+  "source": "Recorded JFEM numerical fields; no synthetic deformation fields",
+  "artifacts": {
+    "case_card.pdf": "bc6aae0f3ffe6cd4a1015d9434b868428bf87345c5ff1834af6044ca8e57b73a",
+    "metrics.csv": "7350d795ad28031e18540e186765fd2e09a01a71fe04f440d1eea722fceedecc",
+    "figures/deformation.png": "a9ab9d7d99e9b74aa966644b3337706fb3b2858224ae842001fd2d81663fe884",
+    "figures/deformation.svg": "57f028bdc12c76bd8566ed9b55e8cc6c3b2e58a811d34b83197cdcf043bebd17",
+    "figures/modes.png": "dc5ee744df5e77219804862e52838138f492c00afcb4220b790a1782d9912f3a",
+    "figures/modes.svg": "c09a859e004b2bedebb22f6a2a32618b4614f50e88a2236f4bc8e28bff7bd1d2",
+    "figures/response.png": "d1a78a6f2711a61aec981124de19c0b1757066f8ef5970bff2650b28dd145428",
+    "figures/response.svg": "6b096c0840036d865b070823073abd65cc2416137e45190817893985f03defa2"
+  }
+}

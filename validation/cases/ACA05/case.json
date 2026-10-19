@@ -1,0 +1,340 @@
+{
+  "id": "ACA05",
+  "title": "Finite-strain membrane: homogeneous uniaxial tension",
+  "solutions": [
+    106
+  ],
+  "evidence_class": "Independent analytical equation verification",
+  "length_unit": "m",
+  "metrics": [
+    {
+      "name": "tip axial displacement",
+      "value": 0.09999999999999909,
+      "reference": 0.10000000000000009,
+      "error_percent": 9.9920072216264e-13,
+      "tolerance_percent": 0.01,
+      "unit": "m",
+      "status": "PASS"
+    },
+    {
+      "name": "top lateral contraction",
+      "value": -0.012804958709438307,
+      "reference": -0.012804958709438008,
+      "error_percent": 2.3301319796376445e-12,
+      "tolerance_percent": 0.01,
+      "unit": "m",
+      "status": "PASS"
+    }
+  ],
+  "convergence": [
+    {
+      "quantity": "tip axial displacement lambda=1.005",
+      "elements": 1,
+      "value": 0.0050000000000000044,
+      "reference": 0.004999999999999893,
+      "error_percent": 2.2204460492503603e-12,
+      "unit": "m"
+    },
+    {
+      "quantity": "top lateral contraction lambda=1.005",
+      "elements": 1,
+      "value": -0.0006019529341686925,
+      "reference": -0.0006019529341686703,
+      "error_percent": 3.6923392634755335e-12,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip axial displacement lambda=1.02",
+      "elements": 1,
+      "value": 0.020000000000000007,
+      "reference": 0.020000000000000018,
+      "error_percent": 5.204170427930417e-14,
+      "unit": "m"
+    },
+    {
+      "quantity": "top lateral contraction lambda=1.02",
+      "elements": 1,
+      "value": -0.0024313895690455797,
+      "reference": -0.0024313895690455836,
+      "error_percent": 1.605307463122805e-13,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip axial displacement lambda=1.05",
+      "elements": 1,
+      "value": 0.050000000000000024,
+      "reference": 0.050000000000000044,
+      "error_percent": 4.163336342344333e-14,
+      "unit": "m"
+    },
+    {
+      "quantity": "top lateral contraction lambda=1.05",
+      "elements": 1,
+      "value": -0.00619801930411777,
+      "reference": -0.0061980193041177856,
+      "error_percent": 2.5189517033963995e-13,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip axial displacement lambda=1.1",
+      "elements": 1,
+      "value": 0.10000000000000026,
+      "reference": 0.10000000000000009,
+      "error_percent": 1.6653345369377333e-13,
+      "unit": "m"
+    },
+    {
+      "quantity": "top lateral contraction lambda=1.1",
+      "elements": 1,
+      "value": -0.012804958709438034,
+      "reference": -0.012804958709438008,
+      "error_percent": 2.032091842707248e-13,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip axial displacement lambda=1.005",
+      "elements": 4,
+      "value": 0.005000000000000007,
+      "reference": 0.004999999999999893,
+      "error_percent": 2.2724877535296658e-12,
+      "unit": "m"
+    },
+    {
+      "quantity": "top lateral contraction lambda=1.005",
+      "elements": 4,
+      "value": -0.0006019529341686923,
+      "reference": -0.0006019529341686703,
+      "error_percent": 3.656316441392845e-12,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip axial displacement lambda=1.02",
+      "elements": 4,
+      "value": 0.019999999999999993,
+      "reference": 0.020000000000000018,
+      "error_percent": 1.214306433183764e-13,
+      "unit": "m"
+    },
+    {
+      "quantity": "top lateral contraction lambda=1.02",
+      "elements": 4,
+      "value": -0.002431389569045577,
+      "reference": -0.0024313895690455836,
+      "error_percent": 2.6755124385380083e-13,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip axial displacement lambda=1.05",
+      "elements": 4,
+      "value": 0.05000000000000001,
+      "reference": 0.050000000000000044,
+      "error_percent": 6.938893903907222e-14,
+      "unit": "m"
+    },
+    {
+      "quantity": "top lateral contraction lambda=1.05",
+      "elements": 4,
+      "value": -0.006198019304117763,
+      "reference": -0.0061980193041177856,
+      "error_percent": 3.6384857937948e-13,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip axial displacement lambda=1.1",
+      "elements": 4,
+      "value": 0.10000000000000021,
+      "reference": 0.10000000000000009,
+      "error_percent": 1.2490009027033e-13,
+      "unit": "m"
+    },
+    {
+      "quantity": "top lateral contraction lambda=1.1",
+      "elements": 4,
+      "value": -0.012804958709438043,
+      "reference": -0.012804958709438008,
+      "error_percent": 2.7094557902763307e-13,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip axial displacement lambda=1.005",
+      "elements": 16,
+      "value": 0.004999999999999981,
+      "reference": 0.004999999999999893,
+      "error_percent": 1.7520707107366125e-12,
+      "unit": "m"
+    },
+    {
+      "quantity": "top lateral contraction lambda=1.005",
+      "elements": 16,
+      "value": -0.0006019529341686917,
+      "reference": -0.0006019529341686703,
+      "error_percent": 3.566259386186125e-12,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip axial displacement lambda=1.02",
+      "elements": 16,
+      "value": 0.01999999999999996,
+      "reference": 0.020000000000000018,
+      "error_percent": 2.9490299091605695e-13,
+      "unit": "m"
+    },
+    {
+      "quantity": "top lateral contraction lambda=1.02",
+      "elements": 16,
+      "value": -0.0024313895690455767,
+      "reference": -0.0024313895690455836,
+      "error_percent": 2.853879934440542e-13,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip axial displacement lambda=1.05",
+      "elements": 16,
+      "value": 0.04999999999999988,
+      "reference": 0.050000000000000044,
+      "error_percent": 3.3306690738754666e-13,
+      "unit": "m"
+    },
+    {
+      "quantity": "top lateral contraction lambda=1.05",
+      "elements": 16,
+      "value": -0.006198019304117764,
+      "reference": -0.0061980193041177856,
+      "error_percent": 3.4985440324949996e-13,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip axial displacement lambda=1.1",
+      "elements": 16,
+      "value": 0.10000000000000005,
+      "reference": 0.10000000000000009,
+      "error_percent": 4.163336342344333e-14,
+      "unit": "m"
+    },
+    {
+      "quantity": "top lateral contraction lambda=1.1",
+      "elements": 16,
+      "value": -0.012804958709438095,
+      "reference": -0.012804958709438008,
+      "error_percent": 6.773639475690827e-13,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip axial displacement lambda=1.005",
+      "elements": 64,
+      "value": 0.004999999999999909,
+      "reference": 0.004999999999999893,
+      "error_percent": 3.1225022567583194e-13,
+      "unit": "m"
+    },
+    {
+      "quantity": "top lateral contraction lambda=1.005",
+      "elements": 64,
+      "value": -0.0006019529341687044,
+      "reference": -0.0006019529341686703,
+      "error_percent": 5.67359447802338e-12,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip axial displacement lambda=1.02",
+      "elements": 64,
+      "value": 0.01999999999999976,
+      "reference": 0.020000000000000018,
+      "error_percent": 1.283695372222836e-12,
+      "unit": "m"
+    },
+    {
+      "quantity": "top lateral contraction lambda=1.02",
+      "elements": 64,
+      "value": -0.0024313895690456218,
+      "reference": -0.0024313895690455836,
+      "error_percent": 1.5696339639422982e-12,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip axial displacement lambda=1.05",
+      "elements": 64,
+      "value": 0.04999999999999945,
+      "reference": 0.050000000000000044,
+      "error_percent": 1.1934897514720423e-12,
+      "unit": "m"
+    },
+    {
+      "quantity": "top lateral contraction lambda=1.05",
+      "elements": 64,
+      "value": -0.006198019304117851,
+      "reference": -0.0061980193041177856,
+      "error_percent": 1.0495632097484999e-12,
+      "unit": "m"
+    },
+    {
+      "quantity": "tip axial displacement lambda=1.1",
+      "elements": 64,
+      "value": 0.09999999999999909,
+      "reference": 0.10000000000000009,
+      "error_percent": 9.9920072216264e-13,
+      "unit": "m"
+    },
+    {
+      "quantity": "top lateral contraction lambda=1.1",
+      "elements": 64,
+      "value": -0.012804958709438307,
+      "reference": -0.012804958709438008,
+      "error_percent": 2.3301319796376445e-12,
+      "unit": "m"
+    }
+  ],
+  "references": [
+    {
+      "citation": "Idaho National Laboratory MOOSE: ComputeStVenantKirchhoffStress",
+      "url": "https://mooseframework.inl.gov/source/materials/lagrangian/ComputeStVenantKirchhoffStress.html"
+    }
+  ],
+  "visual_file": "results/visual_data.json",
+  "solver_revision": "a70f997cce40",
+  "run_date": "2026-10-19",
+  "equations": [
+    "F_2D=diag(lambda,mu); E_GL,2D=(F_2D^T*F_2D-I_2D)/2; thickness strain condensed by plane stress",
+    "S_yy=0 implies mu=sqrt(1-nu*(lambda^2-1))",
+    "P_xx=lambda*S_xx=E*lambda*(lambda^2-1)/2",
+    "F_total=P_xx*b*t; u_tip=(lambda-1)*L"
+  ],
+  "description": "A flat membrane in homogeneous tension tests finite-strain equilibrium and Poisson contraction. The reduced plane-stress St Venant-Kirchhoff equations give an exact nonlinear force-stretch relation.",
+  "geometry": "Membrane 1 m by 0.4 m, reference thickness 0.01 m; meshes 1x1, 2x2, 4x4 and 8x8.",
+  "material": "Synthetic isotropic elastic material: E = 70 MPa, nu = 0.3. Green-Lagrange membrane energy; thickness strain condensed by plane stress.",
+  "boundary_conditions": "Every node uz=rx=ry=rz=0; ux=0 at x=0; origin uy=0. Other in-plane displacements free.",
+  "loading": "Fixed-direction edge traction for stretches 1.005, 1.02, 1.05 and 1.10; ten continuation steps per independent analysis.",
+  "observations": [
+    "All 16 solves reproduce exact axial displacement and lateral contraction within 5.7e-12%.",
+    "At 10% elongation the force is 32340 N, 15.5% above the linearized prediction."
+  ],
+  "limits": [
+    "Homogeneous reduced plane-stress membrane verification of geometric nonlinearity; no finite-rotation bending, plasticity or experimental constitutive validation."
+  ],
+  "load_curve": [
+    {
+      "tip_ux_m": 0.004999999999999909,
+      "force_N": 1410.5174999999615,
+      "stretch": 1.005
+    },
+    {
+      "tip_ux_m": 0.01999999999999976,
+      "force_N": 5769.119999999999,
+      "stretch": 1.02
+    },
+    {
+      "tip_ux_m": 0.04999999999999945,
+      "force_N": 15067.500000000005,
+      "stretch": 1.05
+    },
+    {
+      "tip_ux_m": 0.09999999999999909,
+      "force_N": 32340.00000000003,
+      "stretch": 1.1
+    }
+  ],
+  "E_Pa": 70000000.0,
+  "width_m": 0.4,
+  "thickness_m": 0.01,
+  "length_m": 1.0
+}

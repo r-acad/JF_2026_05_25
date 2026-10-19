@@ -1,0 +1,180 @@
+{
+  "id": "ACA01",
+  "slug": "cantilever_beam",
+  "title": "Slender cantilever: static bending and natural frequencies",
+  "reference_kind": "independently_computed_analytical",
+  "references": [
+    {
+      "title": "University of Alberta: Euler Bernoulli Beam",
+      "url": "https://engcourses-uofa.ca/books/introduction-to-solid-mechanics/plane-beam-approximations/euler-bernoulli-beam/",
+      "supports": "Beam assumptions and EI times fourth displacement derivative equals load; analytical cantilever response is independently derived."
+    },
+    {
+      "title": "Slater and Timbo: Engineering Vibration Toolbox, continuous systems",
+      "url": "https://vibrationtoolbox.github.io/vibration_toolbox/reference/continuous.html",
+      "supports": "Author-maintained academic continuous Euler beam eigenproblem."
+    }
+  ],
+  "equations": [
+    "w(x)=F*x^2*(3L-x)/(6EI)",
+    "theta(x)=F*x*(2L-x)/(2EI)",
+    "cos(beta)*cosh(beta)=-1",
+    "f_j=beta_j^2/(2*pi*L^2)*sqrt(EI/(rho*A))"
+  ],
+  "applicability": "One bending plane, Euler-Bernoulli idealization, linear isotropic elasticity; coupled translational mass without added rotary inertia. These are equation-verification cases rather than experiments.",
+  "boundary_conditions_and_loads": [
+    "x=0: uy=rz=0; every GRID: ux=uz=rx=ry=0 (one bending plane).",
+    "SOL101: global +Y tip force0.1N. SOL103: no applied load; coupled translational mass."
+  ],
+  "units": "SI: m, N, kg, s, Pa",
+  "acceptance": {
+    "relative_error_percent": 0.5,
+    "justification": "Declared before execution. Beam/membrane values test exact element/model equations; thin laminate tolerance allows finite mesh convergence and thin-theory/model differences. All errors remain reported."
+  },
+  "runs": [
+    {
+      "name": "cantilever_sol101_n04",
+      "deck": "cantilever_sol101_n04.bdf",
+      "sol": 101,
+      "n": 4,
+      "parameters": {
+        "E_Pa": 70000000000.0,
+        "nu": 0.3,
+        "rho_kg_m3": 2700.0,
+        "width_m": 0.04,
+        "height_m": 0.01,
+        "length_m": 2.0,
+        "area_m2": 0.0004,
+        "I_m4": 3.333333333333334e-09,
+        "load_N": 0.1,
+        "shear_factor": null
+      }
+    },
+    {
+      "name": "cantilever_sol101_n08",
+      "deck": "cantilever_sol101_n08.bdf",
+      "sol": 101,
+      "n": 8,
+      "parameters": {
+        "E_Pa": 70000000000.0,
+        "nu": 0.3,
+        "rho_kg_m3": 2700.0,
+        "width_m": 0.04,
+        "height_m": 0.01,
+        "length_m": 2.0,
+        "area_m2": 0.0004,
+        "I_m4": 3.333333333333334e-09,
+        "load_N": 0.1,
+        "shear_factor": null
+      }
+    },
+    {
+      "name": "cantilever_sol101_n16",
+      "deck": "cantilever_sol101_n16.bdf",
+      "sol": 101,
+      "n": 16,
+      "parameters": {
+        "E_Pa": 70000000000.0,
+        "nu": 0.3,
+        "rho_kg_m3": 2700.0,
+        "width_m": 0.04,
+        "height_m": 0.01,
+        "length_m": 2.0,
+        "area_m2": 0.0004,
+        "I_m4": 3.333333333333334e-09,
+        "load_N": 0.1,
+        "shear_factor": null
+      }
+    },
+    {
+      "name": "cantilever_sol101_n32",
+      "deck": "cantilever_sol101_n32.bdf",
+      "sol": 101,
+      "n": 32,
+      "parameters": {
+        "E_Pa": 70000000000.0,
+        "nu": 0.3,
+        "rho_kg_m3": 2700.0,
+        "width_m": 0.04,
+        "height_m": 0.01,
+        "length_m": 2.0,
+        "area_m2": 0.0004,
+        "I_m4": 3.333333333333334e-09,
+        "load_N": 0.1,
+        "shear_factor": null
+      }
+    },
+    {
+      "name": "cantilever_sol103_n04",
+      "deck": "cantilever_sol103_n04.bdf",
+      "sol": 103,
+      "n": 4,
+      "parameters": {
+        "E_Pa": 70000000000.0,
+        "nu": 0.3,
+        "rho_kg_m3": 2700.0,
+        "width_m": 0.04,
+        "height_m": 0.01,
+        "length_m": 2.0,
+        "area_m2": 0.0004,
+        "I_m4": 3.333333333333334e-09,
+        "load_N": 0.1,
+        "shear_factor": null
+      }
+    },
+    {
+      "name": "cantilever_sol103_n08",
+      "deck": "cantilever_sol103_n08.bdf",
+      "sol": 103,
+      "n": 8,
+      "parameters": {
+        "E_Pa": 70000000000.0,
+        "nu": 0.3,
+        "rho_kg_m3": 2700.0,
+        "width_m": 0.04,
+        "height_m": 0.01,
+        "length_m": 2.0,
+        "area_m2": 0.0004,
+        "I_m4": 3.333333333333334e-09,
+        "load_N": 0.1,
+        "shear_factor": null
+      }
+    },
+    {
+      "name": "cantilever_sol103_n16",
+      "deck": "cantilever_sol103_n16.bdf",
+      "sol": 103,
+      "n": 16,
+      "parameters": {
+        "E_Pa": 70000000000.0,
+        "nu": 0.3,
+        "rho_kg_m3": 2700.0,
+        "width_m": 0.04,
+        "height_m": 0.01,
+        "length_m": 2.0,
+        "area_m2": 0.0004,
+        "I_m4": 3.333333333333334e-09,
+        "load_N": 0.1,
+        "shear_factor": null
+      }
+    },
+    {
+      "name": "cantilever_sol103_n32",
+      "deck": "cantilever_sol103_n32.bdf",
+      "sol": 103,
+      "n": 32,
+      "parameters": {
+        "E_Pa": 70000000000.0,
+        "nu": 0.3,
+        "rho_kg_m3": 2700.0,
+        "width_m": 0.04,
+        "height_m": 0.01,
+        "length_m": 2.0,
+        "area_m2": 0.0004,
+        "I_m4": 3.333333333333334e-09,
+        "load_N": 0.1,
+        "shear_factor": null
+      }
+    }
+  ]
+}

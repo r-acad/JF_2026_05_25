@@ -80,12 +80,17 @@ include("pbeam_nonlinear_scope_test.jl")
 include("pbeam_load_scope_test.jl")
 
 @testset "Curated public release gate" begin
-    @test length(suite_rows) == 19
+    declared_cases=expand_public_cases(YAML.load_file(MANIFEST_PATH))
+    expected=Set((String(case["id"]),String(q["name"])) for case in declared_cases for q in get(case,"quantities",[]))
+    observed=Set((r.case_id,r.quantity) for r in suite_rows)
+    @test length(suite_rows) == length(expected)
+    @test observed == expected
     @test all(r -> r.jfem !== nothing && isfinite(r.jfem), suite_rows)
     @test all(r -> !startswith(r.verdict, "ERROR") && r.verdict != "JFEM_SKIPPED", suite_rows)
-    parity_rows = filter(r -> r.parity_ref !== nothing, suite_rows)
-    @test length(parity_rows) == 17
-    @test all(r -> r.parity_verdict == "PARITY_PASS", parity_rows)
+    expected_secondary=Set((String(case["id"]),String(q["name"])) for case in declared_cases for q in get(case,"quantities",[]) if haskey(q,"parity"))
+    secondary_rows = filter(r -> r.parity_ref !== nothing, suite_rows)
+    @test Set((r.case_id,r.quantity) for r in secondary_rows) == expected_secondary
+    @test all(r -> r.parity_verdict == (startswith(r.parity_source,"historical_regression:") ? "HISTORICAL_PASS" : "PARITY_PASS"), secondary_rows)
 
     # Existing coarse-mesh analytical limitations remain visible as FAIL
     # accuracy rows; reference parity never turns them into accuracy passes.
@@ -95,7 +100,7 @@ include("pbeam_load_scope_test.jl")
         ("MH_pinched_cylinder", "radial_disp_under_load"),
     ])
     for row in suite_rows
-        @test row.verdict == "PASS" ||
+        @test row.verdict == (startswith(row.ref_source,"historical_regression:") ? "REGRESSION_PASS" : "PASS") ||
             (row.verdict == "FAIL" && (row.case_id, row.quantity) in known_accuracy_limits)
     end
 end
