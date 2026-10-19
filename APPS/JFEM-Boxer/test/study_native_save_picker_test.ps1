@@ -6,13 +6,13 @@ Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.Drawing
 Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class StudyPickerTestNative { [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr w, IntPtr l); }'
-$scriptPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../src/study_save_file.ps1'))
+$scriptPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../src/native_windows_dialog.jl'))
 $selectedFolder = Join-Path $OutputDirectory 'Chosen folder outside Downloads'
 New-Item -ItemType Directory -Force -Path $selectedFolder | Out-Null
 foreach ($action in @('select','cancel')) {
     $resultPath = Join-Path $OutputDirectory ($action+'.json')
     $errorPath = Join-Path $OutputDirectory ($action+'-error.txt')
-    $pickerProcess = Start-Process powershell.exe -ArgumentList @('-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',('"'+$scriptPath+'"'),'-SuggestedName','Study.wingfem.json','-InitialDirectory',('"'+$selectedFolder+'"')) -WindowStyle Hidden -PassThru -RedirectStandardOutput $resultPath -RedirectStandardError $errorPath
+    $pickerProcess = Start-Process (Get-Command julia.exe).Source -ArgumentList @('--startup-file=no','--compile=min','-O0',('"'+$scriptPath+'"'),'save','Study.wingfem.json',('"'+$selectedFolder+'"'),'auto') -WindowStyle Hidden -PassThru -RedirectStandardOutput $resultPath -RedirectStandardError $errorPath
     try {
         $processCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $pickerProcess.Id)
         $nameCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, 'Save JFEM-Boxer file - choose a folder and filename')
@@ -40,7 +40,8 @@ foreach ($action in @('select','cancel')) {
         if (!$button) { throw 'System Save/Cancel button was not found.' }
         [StudyPickerTestNative]::PostMessage([IntPtr]$button.Current.NativeWindowHandle, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
         if (!$pickerProcess.WaitForExit(15000)) { throw 'System Save selection did not finish.' }
-        $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
+        $returned = (Get-Content -LiteralPath $resultPath -Raw).Trim()
+        $result = if ($returned -eq 'CANCEL') { [pscustomobject]@{ok=$true;cancelled=$true} } elseif ($returned.StartsWith("PATH`t")) { [pscustomobject]@{ok=$true;cancelled=$false;path=$returned.Substring(5)} } else { throw 'Invalid native picker response.' }
         if (!$result.ok) { throw 'System picker failed.' }
         if ($action -eq 'cancel') { if (!$result.cancelled) { throw 'Cancel selected a file.' } }
         elseif ($result.cancelled -or $result.path -ne (Join-Path $selectedFolder 'Study.wingfem.json')) { throw 'System picker returned the wrong folder/file.' }

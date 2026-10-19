@@ -1700,18 +1700,6 @@ function apply_bar_pin_flags!(Ke::Matrix{Float64}, pa::Int, pb::Int)
     end
 end
 
-function get_coord_transform(model, cid, vec; position=nothing)
-    if cid == 0; return vec; end
-    haskey(model["CORDs"], string(cid)) ||
-        throw(ArgumentError("Load references undefined coordinate system CID=$cid"))
-    cord = model["CORDs"][string(cid)]
-    # Body acceleration/rotation vectors use rectangular components of CID;
-    # point forces and moments use its basis at the loaded point.
-    R = isnothing(position) ? hcat(cord["U"], cord["V"], cord["W"]) :
-        _node_dof_rotation(cord, position)
-    return R * vec
-end
-
 function _conm2_offset_frame(model, cm, grid_position)
     cid = Int(get(cm, "CID", 0))
     offset = Float64.(get(cm, "X", [0.0, 0.0, 0.0]))

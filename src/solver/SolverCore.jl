@@ -12,6 +12,7 @@ using JSON
 using ForwardDiff
 using ..FEM
 
+include("input_context.jl")
 include("helpers.jl")
 include("snorm.jl")
 include("loads.jl")

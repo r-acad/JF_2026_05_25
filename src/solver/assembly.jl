@@ -2273,37 +2273,6 @@ end
     return nothing
 end
 
-@inline function _node_dof_rotation(cord::AbstractDict, xg)
-    u = Float64.(cord["U"])
-    v = Float64.(cord["V"])
-    w = Float64.(cord["W"])
-    R = hcat(u, v, w)
-    ctype = uppercase(string(get(cord, "TYPE", "RECTANGULAR")))
-    ctype == "RECTANGULAR" && return R
-
-    origin = Float64.(cord["Origin"])
-    xloc = R' * (Float64.(xg) - origin)
-
-    if ctype == "CYLINDRICAL"
-        theta = atan(xloc[2], xloc[1])
-        er = cos(theta) .* u .+ sin(theta) .* v
-        et = -sin(theta) .* u .+ cos(theta) .* v
-        return hcat(er, et, w)
-    elseif ctype == "SPHERICAL"
-        rxy = hypot(xloc[1], xloc[2])
-        # Reference spherical components are radius, polar angle, azimuth.
-        # Their unit vectors form a right-handed basis in that order.
-        theta = atan(rxy, xloc[3])
-        phi = atan(xloc[2], xloc[1])
-        er_loc = [sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta)]
-        et_loc = [cos(theta) * cos(phi), cos(theta) * sin(phi), -sin(theta)]
-        ep_loc = [-sin(phi), cos(phi), 0.0]
-        return R * hcat(er_loc, et_loc, ep_loc)
-    end
-
-    return R
-end
-
 # External GRID IDs need not be contiguous. Keep the fast vector lookup only
 # when its storage is proportional to the actual model size; otherwise retain
 # the dictionary instead of allocating up to an arbitrarily large GRID ID.

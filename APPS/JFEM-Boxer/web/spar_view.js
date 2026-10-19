@@ -63,25 +63,37 @@
   if(!candidates.length)throw Error("No unused rib datum intersects this point's delta x/c path inside the box.");
   candidates.sort((a,b)=>Math.abs(a.eta-point.eta)-Math.abs(b.eta-point.eta));return candidates[0];
  }
+ // Common untwisted plan context for Spars, Ribs and Stringers. The caller
+ // owns its viewport and editable overlays; these paths never share cameras.
+ function referenceDrawing(data,{transform=P.editorTransform(data),ribs=null}={}){
+  if(!data.valid&&!data.drawable)return"";
+  const map=transform.map,poly=(p,cls)=>`<polygon points="${p.map(v=>map(v).join(",")).join(" ")}" class="${cls}"/>`,line=(p,cls)=>`<polyline points="${p.map(v=>map(v.position).join(",")).join(" ")}" class="${cls}"/>`;
+  let svg=poly(data.surfaceRight,"sf-surface")+poly(data.baseRight,"pf-base")+poly(data.right,"sf-box");
+  for(const rib of ribs||[]){const a=map(rib.front),b=map(rib.rear);svg+=`<g class="sf-rib-datum" data-rib="${rib.number}"><title>R${rib.number}: rib datum, rear eta ${number(rib.eta)}</title><line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/><text x="${b[0]+3}" y="${b[1]+12}">R${rib.number}</text></g>`;}
+  for(let edge=0;edge<2;edge++){
+   const key=POINT_KEYS[edge];
+   svg+=line(data.edgeVertices[key],`sf-spar sf-${edge===0?"front":"rear"} sf-extension`)+line(data.activeVertices[key],`sf-spar sf-${edge===0?"front":"rear"}`);
+  }
+  const a=map(data.sparEnd.front.position),b=map(data.sparEnd.rear.position);svg+=`<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" class="pf-box-end"/><text x="${b[0]-8}" y="${b[1]+24}" text-anchor="end" class="sf-end-label">Box end \u03b7 ${number(data.sparEnd.eta)}</text>`;
+  svg+=`<text x="30" y="22" class="pf-editor-axis">+x aft \u2193</text><text x="730" y="304" text-anchor="end" class="pf-editor-axis">+y toward tip \u2192</text><text x="${transform.left}" y="304" class="pf-editor-axis">\u03b7 = 0</text><text x="${transform.left+data.semispan*transform.scale}" y="325" text-anchor="end" class="pf-editor-axis">\u03b7 = 1</text>`;
+  return svg;
+ }
  function drawing(data,{transform=P.editorTransform(data),selected=null,locked=false,pointOrder=null}={}){
-  if(!data.valid&&!data.drawable)return"";const map=transform.map,poly=(p,cls)=>`<polygon points="${p.map(v=>map(v).join(",")).join(" ")}" class="${cls}"/>`,line=(p,cls)=>`<polyline points="${p.map(v=>map(v.position).join(",")).join(" ")}" class="${cls}"/>`;
-  let svg='<title>Independent front and rear spar reference paths with the refined lifting surface</title><desc>Drag spar points or edit their eta and delta x/c offsets. The actual skin and spar heights follow the refined surface; the reference paths stay independent.</desc>'+poly(data.surfaceRight,"sf-surface")+poly(data.baseRight,"pf-base")+poly(data.right,"sf-box");
-  for(const rib of data.ribDatums?.ribs||[]){const a=map(rib.front),b=map(rib.rear);svg+=`<g class="sf-rib-datum" data-rib="${rib.number}"><title>R${rib.number}: rib datum, rear eta ${number(rib.eta)}</title><line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/><text x="${b[0]+3}" y="${b[1]+12}">R${rib.number}</text></g>`;}
+  if(!data.valid&&!data.drawable)return"";const map=transform.map;
+  let svg='<title>Independent front and rear spar reference paths with the refined lifting surface</title><desc>Drag spar points or edit their eta and delta x/c offsets. The actual skin and spar heights follow the refined surface; the reference paths stay independent.</desc>'+referenceDrawing(data,{transform,ribs:data.ribDatums?.ribs});
   for(let edge=0;edge<2;edge++){
    const key=POINT_KEYS[edge],name=edge===0?"Front":"Rear",prefix=edge===0?"F":"R";
-   svg+=line(data.edgeVertices[key],`sf-spar sf-${edge===0?"front":"rear"} sf-extension`)+line(data.activeVertices[key],`sf-spar sf-${edge===0?"front":"rear"}`);
    for(let i=0;i<data.controls[key].length;i++){
     const p=data.controls[key][i],v=data.edgeVertices[key].find(q=>q.eta===p.eta),xy=map(v.position),active=selected?.edge===edge&&selected?.eta===p.eta,order=pointOrder?.[key]?.findIndex(q=>q.eta===p.eta),label=order>=0?order:i;
     svg+=`<g class="pf-point sf-point sf-${edge===0?"front":"rear"}${active?" pf-selected":""}" data-edge="${edge}" data-index="${i}" data-eta="${p.eta}" tabindex="${locked?-1:0}" role="button" aria-disabled="${locked}" aria-label="${name} spar point ${label+1}: eta ${number(p.eta)}, delta x/c ${number(p.dxc)}.${edge===1?" Stringer angle "+number(p.stringer_angle)+" degrees.":""} Arrow keys move; Enter focuses table."><circle class="pf-point-hit" cx="${xy[0]}" cy="${xy[1]}" r="17"/><circle class="pf-point-dot" cx="${xy[0]}" cy="${xy[1]}" r="7"/><text x="${xy[0]+12}" y="${xy[1]+(edge===0?-12:22)}">${prefix}${label+1}</text></g>`;
    }
   }
-  const a=map(data.sparEnd.front.position),b=map(data.sparEnd.rear.position);svg+=`<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" class="pf-box-end"/><text x="${b[0]-8}" y="${b[1]+24}" text-anchor="end" class="sf-end-label">Box end η ${number(data.sparEnd.eta)}</text>`;
-  svg+=`<text x="30" y="22" class="pf-editor-axis">+x aft ↓</text><text x="730" y="304" text-anchor="end" class="pf-editor-axis">+y toward tip →</text><text x="${transform.left}" y="304" class="pf-editor-axis">η = 0</text><text x="${transform.left+data.semispan*transform.scale}" y="325" text-anchor="end" class="pf-editor-axis">η = 1</text>`;return svg;
+  return svg;
  }
  function install(host,options){
   const doc=host.ownerDocument;let view=views.get(doc);
   if(!view){view={editor:null};for(const event of ["input","change"])doc.addEventListener(event,e=>{const key=PARAM_KEYS.find(k=>e.target?.id==="p-"+k);if(key)view.editor?.externalChange(key);});views.set(doc,view);}
   view.editor?.destroy();view.editor=P.createPointEditor(host,options,view,{pointKeys:POINT_KEYS,derive:editorGeometry,drawing,snapPoint,editInvalid:true,name:"Spar paths",className:"spar-editor",svgId:"spar-editor-svg",edgeNames:["Front spar","Rear spar"],prefixes:["F","R"],extraFields:[[],[{key:"stringer_angle",hidden:true,label:"Stringer angle (deg)",default:0,help:"Incoming segment: preceding rear point (or root) to this point. The final angle continues from the final point to the tip, relative to that rear-spar segment."}]],fieldDisabled:(edge,field,point,rows)=>edge===1&&field==="stringer_angle"&&point?.eta===0&&rows.some(p=>p.eta>0)?"Unused root angle: the next positive-eta point defines the incoming segment. A sole root point defines the full span.":"",edgeHelp:["","Edit stringer angles in Structure / Stringers. Each angle applies to the incoming rear-spar segment; the last angle continues to the tip. New points default to 0 degrees."],onRender:params=>{const legacy=doc.getElementById("row-box.stringer_angle");if(legacy)legacy.hidden=(params[POINT_KEYS[1]]||[]).length>0;},emptyText:"No perturbations: follows the base spar location.",legend:'<i class="sf-front"></i>Front <i class="sf-rear"></i>Rear <i class="surface"></i>Lifting surface <i class="base"></i>Base trapezoid',metrics:(data,locked)=>`Root box width ${number(data.rootWidth)} m · End width ${number(data.endWidth)} m${locked?" · Mesh parameters locked":""}`,helpStart:'This is the untwisted reference plan view. Define the base spar positions below, then refine each path with points. <b>η</b> is the fraction of the projected half-span. <b>\u0394x/c</b> is the offset from the corresponding nominal spar location, measured in <em>base trapezoid</em> chord fractions: 0 follows the nominal spar, +0.2 moves aft and -0.2 forward by 20% of the chord. Offsets follow changes to the nominal spar and the base trapezoid. The structural skins, nose and spar heights follow the refined lifting surface. Both spars must fit inside that surface throughout the modeled box. Dashed lines show physical rib datums in this untwisted view. Use <b>Snap to rib</b> beside a point to move its eta onto the nearest available rib datum while keeping its offset. Snapping is a one-time edit; later rib changes do not move the point.',helpEnd:'Straight segments join spar points in physical space. Missing root/tip points have zero offset from the nominal spar locations. The solid paths stop at Box end η; dashed extensions show the definition toward the tip. Drag a point, use the tables, or use arrow keys (Shift for larger steps), Enter for the table, and Escape to cancel a drag. The <b>Mesh lock</b> protects these parameters.'});return view.editor;
  }
- return{POINT_KEYS,PARAM_KEYS,derive,sample,drawing,install,ribDatums,snapPoint};
+ return{POINT_KEYS,PARAM_KEYS,derive,sample,referenceDrawing,drawing,install,ribDatums,snapPoint};
 });

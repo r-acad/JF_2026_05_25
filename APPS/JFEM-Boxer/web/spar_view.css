@@ -22,3 +22,27 @@
 
 .spar-editor .planform-edge-table th:last-child { width:106px; }
 .spar-editor .planform-edge-table td:last-child { white-space:nowrap; }
+
+/* One geometric context is shared by the independently navigable plan views. */
+:is(.rl-preview,.sl-preview) .sf-surface { fill:#24759930; stroke:#8ecfe4; stroke-width:1.5; }
+:is(.rl-preview,.sl-preview) .pf-base { fill:none; stroke:#b9aec9; stroke-width:1.5; stroke-dasharray:7 5; }
+:is(.rl-preview,.sl-preview) .sf-box { fill:#344a7159; stroke:#7c94bc; stroke-width:1; }
+:is(.rl-preview,.sl-preview) .sf-spar { fill:none; stroke-width:2; }
+:is(.rl-preview,.sl-preview) .sf-front { stroke:#81d9ad; }
+:is(.rl-preview,.sl-preview) .sf-rear { stroke:#ffa978; }
+:is(.rl-preview,.sl-preview) .sf-extension { stroke-dasharray:7 5; opacity:.4; }
+:is(.rl-preview,.sl-preview) .pf-box-end { stroke:#ffac70; stroke-width:2; stroke-dasharray:4 4; }
+:is(.rl-preview,.sl-preview) .sf-end-label { fill:#ffc493; font:14px system-ui,sans-serif; paint-order:stroke; stroke:#0c1520; stroke-width:3px; }
+:is(.rl-preview,.sl-preview) .pf-editor-axis { fill:#a2bed3; font:13px system-ui,sans-serif; }
+.sl-preview .sf-rib-datum line { stroke:#a8bfdd; stroke-width:1; stroke-dasharray:5 4; opacity:.65; }
+.sl-preview .sf-rib-datum text { fill:#cbd8e8; font:11px system-ui,sans-serif; paint-order:stroke; stroke:#0c1520; stroke-width:2px; }
+.structural-plan-legend { display:flex; flex-wrap:wrap; align-items:center; gap:4px 7px; margin:7px 0; font:11px system-ui,sans-serif; color:#bdd0df; }
+.structural-plan-legend i { display:inline-block; width:15px; height:0; border-top:2px solid #a8bfdd; margin-left:5px; }
+.structural-plan-legend .surface { border-color:#8ecfe4; }
+.structural-plan-legend .base { border-color:#b9aec9; border-top-style:dashed; }
+.structural-plan-legend .front { border-color:#81d9ad; }
+.structural-plan-legend .rear { border-color:#ffa978; }
+.structural-plan-legend .rib { border-top-style:dashed; }
+.structural-plan-legend .sl-upper { border-color:#53d9ed; }
+.structural-plan-legend .sl-lower { border-color:#e69bd4; border-top-style:dashed; }
+.structural-plan-legend .sl-reference { border-color:#f9d479; }

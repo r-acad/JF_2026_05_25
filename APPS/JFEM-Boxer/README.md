@@ -87,6 +87,27 @@ without distorting geometry; a very small selection does nothing. Press **Esc**
 to cancel window zoom. Panning remains available while other drawing tools are
 selected.
 
+**Structure / Spars**, **Ribs** and **Stringers** use the same untwisted plan
+background: lifting-surface outline, structural box, spar paths and rib datums.
+Each drawing has its own camera and reference image. The rib editor retains
+its draggable position and angle handles. The stringer drawing shows pitch,
+segment angles and approximate run-outs before generating the FEM. When the
+current FEM is available, it shows the actual upper/lower attachment paths;
+after geometry edits it returns to the labeled reference preview until the FEM
+is rebuilt. Large layouts sample only the drawing, preserving the complete
+model. Right-button pan, exact zoom, window zoom, grid, dimensions and SVG
+export work in all three views.
+
+In **Image settings** (or **Image tools** in the dimensioned plan), **Image
+zoom (%)** changes only the reference image; 100% fits it to the initial drawing
+area. **Window zoom image** enlarges the selected image region while keeping
+geometry fixed. An unpinned selection is centered; a pinned image scales about
+its registered point to retain the match. **Width / height** sets the displayed
+image aspect ratio by stretching its horizontal axis about its center or pin.
+**Original ratio** restores the image file's proportions. These controls never
+change model geometry. Image proportions, alignment and pins are retained in
+Studies, TOML and SVG exports.
+
 On Windows, double-click **JFEM-Boxer.cmd** in `__Start here!__/Windows`, at the
 repository root, or in this app folder. Setup builds the shared JFEM/app sysimage automatically; the launcher checks
 and loads it. The Julia entry point is **JFEM-Boxer.jl**. Existing `.wingfem.json`
@@ -240,6 +261,17 @@ Summary, Loads and FE Results stay synchronized. They switch the displayed
 loads, fuel state and available results without solving or changing the Study
 definition. Sensitivity results retain their recorded analysis case; choose a
 different saved sensitivity run to view derivatives for another case.
+
+**Summary / General** and **Summary / Mass properties** have **Export summary**
+buttons for **CSV**, **Markdown (.md)** and **HTML**. Select the displayed load
+case before exporting. The files capture the current summary tables and text,
+including units, model/source identification, load case, export time and any
+stale-data indication. CSV opens in a spreadsheet; Markdown works in text and
+documentation tools; the styled HTML file opens or prints independently in a
+browser without Boxer or a network connection. Exports are disabled until a
+model provides summary tables. Downloads use the browser's selected download
+folder; enable its **Ask where to save each file** setting to choose a folder.
+
 **Undeformed aero** and the deformed aerodynamic loft controls are grouped
 together in **Display / Geometry / Aerodynamic geometry**.
 Each geometry entity groups its visibility and appearance controls together.
@@ -406,7 +438,12 @@ optional external-resource details.
    Camera, palette and display edits leave its status unchanged; an explicit
    save still captures their current settings. If the browser picker is unavailable
    or blocked, a system Save dialog lets you choose any accessible folder. If no
-   system dialog is available, the app explicitly offers a browser download.
+   system dialog is available or it fails, the app explicitly offers a browser
+   download; canceling that offer leaves the Study unsaved. Browser downloads
+   use the browser's download settings, so enable **Ask where to save each file**
+   to choose a folder. Windows system dialogs are called directly through Julia
+   and the Windows file-dialog API: no unsigned PowerShell script is executed,
+   and no execution-policy changes are needed.
 
 **Autosave**, to the left of **Live mesh**, saves significant definition edits
 after they settle, including geometry, properties, loads, notes and selected
@@ -467,7 +504,7 @@ tables are unavailable when the model has no stiffened panels.
 
 **Project / Read Reference** opens a complete `.bdf`, `.dat` or `.nas` deck
 using the native JFEM parser. By default, **Browse** selects a file on the
-WingFEGen computer, or you can paste its full path. INCLUDE files are read
+JFEM-Boxer computer, or you can paste its full path. INCLUDE files are read
 automatically relative to their containing files. The former 32 MiB import
 limit is removed. Import progress shows elapsed time and the current stage;
 errors remain fully visible in the import dialog.
@@ -479,13 +516,18 @@ only after the new deck loads successfully. A failed import leaves the previous
 model available. Opening a saved Study restores its saved display settings.
 
 Read Reference opens the normal Windows **Open** dialog immediately. **Browse**
-reopens it; the selected full path remains editable in the import form. A
-foreground owner keeps the dialog above the browser. Cancel returns to the
-form, and **Read deck** starts the import. The Windows picker supplies the
+reopens it; the selected full path remains editable in the import form.
+Cancel returns to the form, and **Read deck** starts the import. The dialog
+runs in a small Julia child process and calls the Windows API directly, so
+Windows restrictions on unsigned PowerShell scripts do not affect this picker. The Windows picker supplies the
 actual folder so INCLUDE files can be resolved without selecting them again.
 On other platforms, paste the main deck's full local path. Parser preparation
 starts while you choose the file, with a stage and timer. The first import can
 include Julia package loading and compilation; later imports reuse the parser.
+The import-only worker loads the parsers, model definitions and viewer support
+without starting the numerical solver or loading its analysis/export pipeline.
+It stays warm for subsequent imports; **Run in JFEM** starts or reuses the
+separate analysis worker when a solve is actually requested.
 The Log reports source/INCLUDE reading, parser startup, native model creation,
 viewport conversion and delivery separately. Preparation runs no analysis and
 does not modify the current Study.
@@ -641,8 +683,9 @@ that represent your intended model before interpreting its results.
 
 The tower archives in that repository use Git LFS. After cloning, run
 `git lfs pull`, or download the actual original file through GitHub. A small
-text pointer ending in `.inp.gz` is not the compressed mesh; the importer
-reports this explicitly instead of attempting to analyze the pointer.
+Git LFS pointer is not the mesh, even when its filename ends in `.inp` or
+`.inp.gz`. The importer identifies these small text placeholders and explains
+how to obtain the real object, rather than parsing or analyzing the pointer.
 
 **Executable subset.** Flat meshes with isotropic `*ELASTIC` materials,
 `*DENSITY`, solid/shell sections and the following elements are translated into

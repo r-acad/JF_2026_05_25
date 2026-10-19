@@ -31,3 +31,30 @@ for(const [a,b]of [[{x:140,y:80},{x:380,y:180}],[{x:380,y:180},{x:140,y:80}]]){
 }
 assert.throws(()=>V.windowZoomTransform(state.viewport,{x:0,y:0,width:0,height:1},{x:0,y:0,width:100,height:100}));
 console.log("2D registration: validation, both affine anchors, exact percentages and 0.1 Alt log-step passed.");
+
+// Image-only controls retain geometric coordinates and intrinsic-pixel pins.
+for(const validator of [V.validateState,D.validateState]){
+  assert.equal(validator({}).imageAspectRatio,null);
+  assert.equal(validator({...state,imageAspectRatio:2.5}).imageAspectRatio,2.5);
+  for(const imageAspectRatio of [0,-1,.0001,1001,Infinity,"2"])
+    assert.throws(()=>validator({...state,imageAspectRatio}));
+}
+const anisotropic={...state,imageAspectRatio:2.5};
+near(V.imageStretch(anisotropic),2.5);
+const checkImagePin=(s,t)=>{
+  near(t.x+t.scale*V.imageStretch(s)*pin.image.x,pin.drawing.x);
+  near(t.y+t.scale*pin.image.y,pin.drawing.y);
+};
+checkImagePin(anisotropic,V.aspectRatioTransform(state,2.5));
+checkImagePin(anisotropic,V.zoomTransform(anisotropic,"transform",3,{x:100,y:200}));
+const visibleImage={x:-20,y:0,width:800,height:400},selectedImage={x:100,y:80,width:320,height:160};
+checkImagePin(anisotropic,V.imageWindowZoomTransform(anisotropic,selectedImage,visibleImage));
+const unpinned={...anisotropic,pin:null},wide=V.aspectRatioTransform(unpinned,5);
+near(wide.x+wide.scale*image.width*5/2,unpinned.transform.x+unpinned.transform.scale*image.width*2.5/2);
+near(wide.y,unpinned.transform.y);
+const imageNext=V.imageWindowZoomTransform(unpinned,selectedImage,visibleImage),v=unpinned.viewport,t=unpinned.transform;
+const pixel={x:((selectedImage.x+selectedImage.width/2-v.x)/v.scale-t.x)/(t.scale*V.imageStretch(unpinned)),y:((selectedImage.y+selectedImage.height/2-v.y)/v.scale-t.y)/t.scale};
+near(v.x+v.scale*(imageNext.x+pixel.x*imageNext.scale*V.imageStretch(unpinned)),visibleImage.x+visibleImage.width/2);
+near(v.y+v.scale*(imageNext.y+pixel.y*imageNext.scale),visibleImage.y+visibleImage.height/2);
+assert.throws(()=>V.imageWindowZoomTransform({...state,image:null},selectedImage,visibleImage));
+console.log("Image-only zoom/window, native-ratio reset, anisotropic pixel pins, validation and state round trips passed.");

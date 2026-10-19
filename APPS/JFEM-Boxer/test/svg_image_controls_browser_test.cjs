@@ -1,0 +1,40 @@
+"use strict";
+// node svg_image_controls_browser_test.cjs <evidence-dir> <playwright-module>
+const fs=require("node:fs"),path=require("node:path"),assert=require("node:assert/strict"),{chromium}=require(process.argv[3]);
+const out=path.resolve(process.argv[2]),web=path.resolve(__dirname,"../web");
+const image={name:"pixel.png",width:1,height:1,dataUrl:"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII="};
+const base={"planform.area":32,"planform.aspect_ratio":8,"planform.taper_ratio":.5,"planform.sweep":10,"planform.sweep_ref_xc":.25,"planform.root_ref_x":1,"planform.root_ref_y":2,"planform.root_ref_z":3,"planform.dihedral":0,"planform.twist_tip":0,"planform.twist_axis_xc":.25,"planform.leading_edge_points":[],"planform.trailing_edge_points":[],"box.front_spar_xc":.2,"box.rear_spar_xc":.55,"box.front_spar_points":[],"box.rear_spar_points":[],"box.stringer_angle":0,"box.end_eta":.75,"box.rib_pitch":.6,"leading_edge.enabled":false,"leading_edge.start_rib":1,"leading_edge.end_rib":0,"leading_edge.disabled_bays":""};
+const near=(a,b)=>assert(Math.abs(a-b)<3e-5*Math.max(1,Math.abs(b)),`${a} != ${b}`);
+(async()=>{
+ fs.mkdirSync(out,{recursive:true});const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{})}),checks=[],errors=[];
+ try{for(const kind of ["shared","detached"]){
+  const page=await browser.newPage({viewport:{width:1450,height:1050}});page.on("pageerror",e=>errors.push(e.message));
+  await page.setContent('<!doctype html><style>html,body{margin:0;background:#101b26;font:13px system-ui}#view{height:100vh}#shared{width:1000px;margin:20px}#shared svg{width:900px;height:600px}polygon{fill:#4682b4;stroke:#4ff}</style><div id="view"></div><div id="shared"><svg viewBox="0 0 600 400"><polygon points="100,100 450,100 450,300 100,300"/></svg></div>');
+  for(const f of ["svg_viewport.css","planform_view.css","dimensioned_plan_view.css"])await page.addStyleTag({path:path.join(web,f)});
+  for(const f of ["numbers.js","planform_view.js","spar_view.js","rib_layout.js","leading_edge_gaps.js","svg_viewport.js","fuel_tank_view.js","dimensioned_plan_view.js"])await page.addScriptTag({path:path.join(web,f)});
+  await page.evaluate(({kind,base})=>{window.parameters=base;window.changes=0;if(kind==="shared"){document.getElementById("view").remove();window.testView=WingSVGViewport.install(document.querySelector("svg"),{key:"spars",onChange:()=>changes++});}else{document.getElementById("shared").remove();window.testView=WingDimensionedPlanView.install(document.getElementById("view"),{readValues:()=>parameters,onChange:()=>changes++});}},{kind,base});
+  const svg=page.locator("svg"),capture=()=>page.evaluate(()=>testView.capture()),restore=s=>page.evaluate(s=>testView.restore(s),s),control=name=>page.locator(`[data-${kind==="shared"?"svgv":"dpv"}="${name}"]`);
+  const imageWindow=page.locator('[data-svgv-window="image"]'),geometryWindow=page.locator('[data-svgv-window="toggle"]');
+  const showTools=async()=>{if(kind==="shared"){const details=page.locator(".svgv-image-options").first();if(!await details.evaluate(el=>el.open))await details.locator("summary").click();}else if(await page.locator(".dpv-image-settings").isHidden())await control("image-tools").click();};
+  await showTools();assert(await control("aspect").isDisabled());assert(await imageWindow.isDisabled());
+  await restore({...await capture(),image,transform:{x:120,y:80,scale:180},viewport:{x:15,y:-8,scale:1.2}});await showTools();
+  const original=await capture();await control("aspect").fill("2.5");await control("aspect").press("Tab");let changed=await capture();assert.equal(changed.imageAspectRatio,2.5);assert.deepEqual(changed.viewport,original.viewport);near(changed.transform.y,original.transform.y);near(changed.transform.x+changed.transform.scale*2.5/2,original.transform.x+original.transform.scale/2);
+  const rendered=await svg.locator("image").evaluate(el=>{const m=el.getCTM();return m.a/m.d;});near(rendered,2.5);
+  await control("aspect-reset").click();assert.equal((await capture()).imageAspectRatio,null);near((await capture()).transform.x,original.transform.x);
+  const pinned={...await capture(),pin:{image:{x:.25,y:.75},drawing:{x:330,y:200}},transform:{x:285,y:65,scale:180}};await restore(pinned);
+  const checkPin=async()=>{const s=await capture(),actual=await svg.evaluate((el,s)=>{const image=el.querySelector("image"),scene=el.querySelector(".svgv-scene,.dpv-scene"),point=(node,p)=>{const m=node.getScreenCTM();return{x:m.a*p.x+m.c*p.y+m.e,y:m.b*p.x+m.d*p.y+m.f};};return{image:point(image,s.pin.image),geometry:point(scene,s.pin.drawing)};},s);near(actual.image.x,actual.geometry.x);near(actual.image.y,actual.geometry.y);};
+  await control("aspect").fill("3.25");await control("aspect").press("Tab");await checkPin();const beforeNumeric=await capture();await control("scale").fill("80");await control("scale").press("Tab");await checkPin();assert.deepEqual((await capture()).viewport,beforeNumeric.viewport);
+  const beforeWindow=await capture(),r=await svg.boundingBox(),a={x:r.x+r.width*.18,y:r.y+r.height*.48},b={x:r.x+r.width*.58,y:r.y+r.height*.78};
+  await geometryWindow.click();await imageWindow.click();assert.equal(await geometryWindow.getAttribute("aria-pressed"),"false");assert.equal(await imageWindow.getAttribute("aria-pressed"),"true");
+  await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y,{steps:3});await page.mouse.up();await checkPin();const afterWindow=await capture();near(afterWindow.transform.scale/beforeWindow.transform.scale,2.5);assert.deepEqual(afterWindow.viewport,beforeWindow.viewport);assert.deepEqual(afterWindow.pin,beforeWindow.pin);
+  await restore({...original,imageAspectRatio:2.5,pin:null});await showTools();const unpinned=await capture();
+  const selectedPixel=await svg.evaluate((el,{a,b,s})=>{const p=el.createSVGPoint();p.x=(a.x+b.x)/2;p.y=(a.y+b.y)/2;const q=p.matrixTransform(el.querySelector("image").getScreenCTM().inverse());return{x:q.x,y:q.y};},{a,b,s:unpinned});
+  await imageWindow.click();await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y,{steps:3});await page.mouse.up();
+  const centered=await svg.locator("image").evaluate((el,p)=>{const m=el.getScreenCTM();return{x:m.a*p.x+m.c*p.y+m.e,y:m.b*p.x+m.d*p.y+m.f};},selectedPixel);near(centered.x,r.x+r.width/2);near(centered.y,r.y+r.height/2);assert.deepEqual((await capture()).viewport,unpinned.viewport);
+  const saved=await capture();await restore(JSON.parse(JSON.stringify(saved)));assert.deepEqual(await capture(),saved);if(kind==="shared"){await page.evaluate(()=>WingSVGViewport.restoreAll(JSON.parse(JSON.stringify(WingSVGViewport.captureAll()))));assert.deepEqual(await capture(),saved);}
+  await imageWindow.click();await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y);await svg.press("Escape");await page.mouse.up();assert.deepEqual(await capture(),saved);assert.equal(await imageWindow.getAttribute("aria-pressed"),"false");
+  const exported=await svg.evaluate(el=>WingSVGViewport.serializeSVG(el));assert(exported.includes("data:image/png;base64,"));assert(exported.includes("scale("));assert(!exported.includes('class="svgv-window-rectangle"'));
+  await page.screenshot({path:path.join(out,kind+"-image-controls.png")});assert.equal(await page.evaluate(()=>JSON.stringify(parameters)),JSON.stringify(base));assert(await page.evaluate(()=>changes>0));
+  checks.push({kind,numeric_image_zoom:true,aspect_about_center:true,aspect_at_pin:true,original_ratio:true,pin_after_window:true,window_image_only:true,window_centers_unpinned:true,window_exclusive:true,escape_cancels:true,roundtrip:true,svg_embedded:true,no_model_edits:true});await page.close();
+ }assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,"receipt.json"),JSON.stringify({passed:true,checks,errors},null,2));console.log(JSON.stringify({passed:true,checks},null,2));}finally{await browser.close();}
+})().catch(error=>{console.error(error);process.exitCode=1;});

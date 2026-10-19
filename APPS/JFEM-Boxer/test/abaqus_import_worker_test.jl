@@ -2,6 +2,7 @@
 using Test
 using WingFEGen;const W=WingFEGen
 repo=normpath(joinpath(@__DIR__,"..","..",".."));app=normpath(joinpath(@__DIR__,".."))
+include(joinpath(app,"src","native_solver_loader.jl"))
 const TEXT="""
 *NODE
 11,0,0,0
@@ -22,7 +23,7 @@ const COMPLETION=Dict("enabled"=>true,"E"=>7e10,"nu"=>.3,"rho"=>2700.,"element_s
         W.Serialization.serialize(joinpath(dir,"input.jls"),(source,W.default_params()))
         script=joinpath(app,"src","reference_import_worker.jl")
         open(joinpath(dir,"worker.log"),"w") do output
-            run(pipeline(`$(Base.julia_cmd()) --startup-file=no --compiled-modules=existing --project=$repo $script $dir $repo $app`;stdout=output,stderr=output))
+            run(pipeline(`$(Base.julia_cmd()) --startup-file=no --compiled-modules=existing -O1 --project=$repo $script $dir $repo $app`;stdout=output,stderr=output))
         end
         @test isfile(joinpath(dir,"done.txt"))&&!isfile(joinpath(dir,"error.json"))
         payload=W.MsgPack.unpack(read(joinpath(dir,"payload.msgpack")))
@@ -49,5 +50,21 @@ const COMPLETION=Dict("enabled"=>true,"E"=>7e10,"nu"=>.3,"rho"=>2700.,"element_s
         path,_=W.imported_written_deck(st,model)
         @test basename(path)=="portable.inp"
         @test read(path,String)==model.params["imported.analysis_deck"]
+        if "--solve-roundtrip" in ARGS
+            solver=Base.invokelatest(load_cached_jfem,repo)
+            solve=Base.invokelatest(getfield,solver,:solve_model)
+            result=Base.invokelatest(solve,native)
+            @test result["sol_type"]==101
+            sub=only(result["subcases"]);idx=result["id_map"][14];dof=6(idx-1)+3
+            # A unit tetrahedron with the z=0 face fixed has K_zz=C_zz/6
+            # at its remaining vertex. This independently checks the cache
+            # produced by the lightweight importer can enter the full solver.
+            czz=COMPLETION["E"]*(1-COMPLETION["nu"])/((1+COMPLETION["nu"])*(1-2COMPLETION["nu"]))
+            @test sub["raw_displacement"][dof]≈-90/(czz/6) rtol=1e-10
+            force=zeros(result["ndof"]);force[dof]=-90.
+            reaction=result["K"]*sub["raw_displacement"]-force
+            @test sum(reaction[3:6:end])≈90 rtol=1e-10
+            @test all(isfinite,sub["raw_displacement"])
+        end
     end
 end

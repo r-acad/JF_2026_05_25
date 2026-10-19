@@ -27,12 +27,12 @@ function imported_worker(st,repo)
         key=abspath(repo)*"\n"*st.deck_store_dir
         existing=get(IMPORT_WORKERS,key,nothing)
         existing!==nothing&&process_running(existing.process)&&return existing
-        runtime=sensitivity_worker_runtime(repo;select_image=true)
+        runtime=sensitivity_worker_runtime(repo;select_image=false)
         base=joinpath(st.deck_store_dir,"imports");mkpath(base)
         queue=mktempdir(base;prefix="worker_",cleanup=false)
         # Imports do no numerical solve. -O1 keeps startup compilation modest
         # while avoiding -O0's roughly doubled cost on large mixed decks.
-        command=`$(runtime.command) $(runtime.sysimage_args) --startup-file=no -O1 --threads=1 --project=$repo $(joinpath(@__DIR__,"reference_import_worker.jl")) --serve $queue $repo $(st.root)`
+        command=`$(runtime.command) --compiled-modules=existing --startup-file=no -O1 --threads=1 --project=$repo $(joinpath(@__DIR__,"reference_import_worker.jl")) --serve $queue $repo $(st.root)`
         Sys.iswindows()&&(command=Cmd(command;windows_hide=true))
         process=open(joinpath(queue,"worker.log"),"w") do output
             run(pipeline(addenv(command,"OPENBLAS_NUM_THREADS"=>"1","JFEM_SUPPRESS_THREAD_HINT"=>"1");stdout=output,stderr=output);wait=false)
@@ -169,20 +169,7 @@ function handle_import_reference_pick(st,req)
         initial=String(get(raw,"path",st.root));format=String(get(raw,"format","auto"))
         format in ("auto","reference","abaqus")||throw(ArgumentError("Invalid source format"))
         length(initial)<=32767&&!occursin('\0',initial)||throw(ArgumentError("Invalid initial path"))
-        script=joinpath(@__DIR__,"reference_pick_file.ps1")
-        command=Cmd(`powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File $script -InitialPath $initial -Format $format`;windows_hide=true)
-        result=mktemp() do path,io
-            errors=IOBuffer()
-            process=run(pipeline(command;stdout=io,stderr=errors);wait=false)
-            started=time()
-            while process_running(process)&&time()-started<300;sleep(.1);end
-            if process_running(process)
-                kill(process);wait(process)
-                throw(ArgumentError("File selection timed out after five minutes. Click Browse to reopen the system dialog."))
-            end
-            success(process)||throw(ArgumentError(String(take!(errors))))
-            flush(io);seekstart(io);JSON.parse(read(io,String))
-        end
+        result=native_windows_file_dialog(:open;initial,format)
         json_response(result)
     catch err
         error_response("Open file dialog: "*describe_error(err))

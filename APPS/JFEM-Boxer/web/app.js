@@ -587,7 +587,7 @@ const WORKSPACE_GROUP_TAB = {
 const WORKSPACE_CARD_TAB = { "hud-left": "display", "model-card": "summary", "results-card": "results",
   "pick-card": "inspect", "log-wrap": "log", "deck-panel": "deck", "reference-panel": "displaygeometry" };
 const workspaceUI = { activeTab: "planform", previousTab: "planform", maximizedTab: null, preferredWidth: 360 };
-const DRAWING_TABS = new Set(["planform", "airfoils", "box", "ribs", "leadingedge", "fuel", "sections", "ribproperties", "sparproperties"]);
+const DRAWING_TABS = new Set(["planform", "airfoils", "box", "ribs", "stringerlayout", "leadingedge", "fuel", "sections", "ribproperties", "sparproperties"]);
 const PROPERTY_TABS = new Set(["shells", "sections", "ribproperties", "sparproperties", "leproperties", "nonstructural"]);
 const SUMMARY_TABS = new Set(["weights", "summary"]);
 const WORKSPACE_MENUS = {
@@ -812,6 +812,7 @@ function buildForm(schema, values) {
   state.airfoilEditor?.destroy?.(); state.airfoilEditor = null;
   state.loftEditor?.destroy?.(); state.loftEditor = null;
   state.supportEditor?.destroy?.(); state.supportEditor = null;
+  state.stringerLayout?.destroy?.(); state.stringerLayout = null;
   state.materialsEditor?.destroy?.(); state.materialsEditor = null;
   for(const editor of state.componentEditors || [])editor.destroy(); state.componentEditors=[];
   state.planformEditor?.destroy?.();
@@ -978,7 +979,7 @@ function buildForm(schema, values) {
 function installDrawingWorkbenches() {
   // Keep the same live controls and listeners. CSS places the drawing beside
   // independently scrolling parameters when the user maximizes the pane.
-  for (const [id,selector] of [["group-planform",".planform-editor-sticky"],["group-torsion-box",".planform-editor-sticky"],["group-fuel-tank",".fuel-tank-view"]]) {
+  for (const [id,selector] of [["group-planform",".planform-editor-sticky"],["group-torsion-box",".planform-editor-sticky"],["group-stringer-layout",".sl-preview"],["group-fuel-tank",".fuel-tank-view"]]) {
     const group=document.getElementById(id), drawing=group?.querySelector(selector);
     if (!drawing || group.querySelector(".drawing-workbench")) continue;
     const bench=document.createElement("div"),stage=document.createElement("div"),parameters=document.createElement("div");
@@ -1436,6 +1437,7 @@ function setModelDirty(dirty) {
   if (dirty && state.sensitivityMap) clearSensitivityMap();
   refreshSensitivityMapCard();
   state.ribEditor?.refresh();
+  state.stringerLayout?.refresh();
   state.leadingEdgeRibEditor?.refresh();
   state.planView?.refresh();
   state.fuelTankView?.refresh();
@@ -1464,7 +1466,6 @@ function parameterEdited(key) {
   if (state.parameterLocks?.guard(key)) return;
   if (key === "leading_edge.enabled") syncLeadingEdgePropertiesTab();
   if (key.startsWith("stringers.")||key==="properties.stringer_flange_width") syncStringerModelControls();
-  if (key.startsWith("box.")) state.stringerLayout?.refresh();
   if(key.startsWith("airfoil."))state.airfoilEditor?.refresh?.();
   if(key.startsWith("loft.")||key==="planform.twist_tip")state.loftEditor?.refresh?.();
   markStudyModified();
@@ -1472,6 +1473,7 @@ function parameterEdited(key) {
   const signature = formSignature(), wasDirty = state.modelDirty;
   // Never show paths from the previous generated mesh as the current preview.
   state.modelDirty = !state.data || signature !== state.modelSignature;
+  if (/^(planform|box|ribs|stringers|leading_edge|mesh|properties)\./.test(key)) state.stringerLayout?.refresh();
   state.panelTables?.refresh();
   if (key === "leading_edge.rib_orientation") syncLeadingEdgeOrientation();
   if (/^(planform|box|ribs|leading_edge)\./.test(key)) {state.ribEditor?.refresh();state.leadingEdgeRibEditor?.refresh();}
@@ -1600,6 +1602,8 @@ function syncLeadingEdgePropertiesTab() {
 function installStringerLayout() {
   const host=document.getElementById("group-stringer-layout");if(!host||typeof WingStringerLayout==="undefined")return;
   state.stringerLayout=WingStringerLayout.install(host,{
+    readValues:()=>readSurfacePreviewParams(WingStringerLayout),
+    readGenerated:()=>state.modelDirty||state.importedDeck||!state.data?.annotations?null:{annotations:state.data.annotations,rib_layout:state.data.rib_layout,xyz:asF32(state.data.nodes.xyz)},
     read:()=>state.sparEditor?.readDrafts()?.["box.rear_spar_points"]||JSON.parse(document.getElementById("p-box.rear_spar_points")?.value||"[]"),
     isLocked:()=>!!state.parameterLocks?.isLocked("box.stringer_angle"),
     onEdit:rows=>{state.sparEditor?.editExtraFields("box.rear_spar_points",rows);},
@@ -7253,6 +7257,12 @@ if (typeof WingWorkspace !== "undefined") {
   document.getElementById("btn-read-reference").onclick=()=>state.referenceImport.open();
   document.getElementById("btn-read-abaqus").onclick=()=>state.referenceImport.open({format:"abaqus"});
 }
+state.summaryExport=WingSummaryExport.create({document,getContext:()=>{
+  const current=state.data?.load_cases?.find(item=>Number(item.id)===state.activeCase);
+  return {model:state.data?.title||state.importedDeck?.name||state.values["output.title"]||"JFEM-Boxer",
+    source:state.studyFile||state.importedDeck?.name||state.inputFile,
+    caseLabel:current?"Case "+current.id+(current.label?" · "+current.label:""):"",stale:state.modelDirty};
+}});
 document.getElementById("btn-clear-results").onclick = clearResults;
 document.getElementById('btn-read-results').onclick=()=>{if(workspaceOperationAvailable())document.getElementById('results-file').click();};
 document.getElementById('results-file').onchange=async event=>{const file=event.target.files[0];event.target.value='';const complete=state.startupResultsComplete;state.startupResultsComplete=null;const loaded=await loadDiskResults(file);complete?.(loaded===true);};

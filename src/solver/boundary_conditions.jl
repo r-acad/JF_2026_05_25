@@ -1,32 +1,5 @@
 # boundary_conditions.jl - SPC application, AUTOSPC, and linear solve
 
-"""Resolve the selected SPC/SPC1 sets with SPCADD selection precedence.
-
-Keep one resolver for static/eigen partitions and boundary-condition exports.
-SPCADD members must name SPC/SPC1 sets, not other SPCADD entries. Unsupported
-nested references and missing sets must not silently lose constraints.
-"""
-function selected_spc_sets(model, spc_id)
-    sets=Set{Int}()
-    (spc_id===nothing||Int(spc_id)==0)&&return sets
-    available=Set(Int(row["SID"]) for row in get(model,"SPC1s",[]))
-    combinations=get(model,"SPCADDs",Dict());sid=Int(spc_id)
-    children=get(combinations,sid,get(combinations,string(sid),nothing))
-    if children===nothing
-        sid in available||throw(ArgumentError("Selected SPC references undefined SPC/SPC1 set $sid"))
-        push!(sets,sid)
-    else
-        isempty(children)&&throw(ArgumentError("SPCADD $sid contains no referenced SPC sets"))
-        for child in children
-            leaf=Int(child)
-            (haskey(combinations,leaf)||haskey(combinations,string(leaf)))&&throw(ArgumentError("SPCADD $sid references SPCADD $leaf; nested or cyclic SPCADD entries are unsupported. Members must name SPC/SPC1 sets."))
-            leaf in available||throw(ArgumentError("SPCADD $sid references undefined SPC/SPC1 set $leaf"))
-            push!(sets,leaf)
-        end
-    end
-    sets
-end
-
 @inline function model_autospc_enabled(model)
     if haskey(ENV, "JFEM_AUTOSPC")
         raw_env = lowercase(strip(ENV["JFEM_AUTOSPC"]))

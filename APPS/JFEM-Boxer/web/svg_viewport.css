@@ -51,3 +51,7 @@ svg.svgv-pinning,svg.svgv-pinning [role=button] { cursor:crosshair; }
 svg.svgv-window-zoom:not(.svgv-panning):not(.dpv-dragging),svg.svgv-window-zoom:not(.svgv-panning):not(.dpv-dragging) [role=button] { cursor:crosshair; }
 .svgv-window-rectangle { fill:#3cafff; fill-opacity:.12; stroke:#75cbff; stroke-width:1.5; stroke-dasharray:6 3; vector-effect:non-scaling-stroke; pointer-events:none; }
 [data-svgv-theme=white] .svgv-window-rectangle,[data-theme=white] .svgv-window-rectangle { stroke:#006bb0; }
+
+.svgv-image-window-host { display:flex; justify-content:flex-start; }
+.svgv-image-options small { max-width:270px; line-height:1.4; color:#b1c9dc; }
+svg.svgv-image-window-zoom:not(.svgv-panning):not(.dpv-dragging),svg.svgv-image-window-zoom:not(.svgv-panning):not(.dpv-dragging) [role=button] { cursor:crosshair; }

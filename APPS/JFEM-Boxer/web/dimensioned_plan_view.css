@@ -94,3 +94,6 @@
 .dimensioned-plan-view[data-theme=white] .dpv-fuel-wet { fill:#47c7ab; fill-opacity:.2; stroke:#007f79; }
 .dimensioned-plan-view[data-theme=white] .dpv-fuel-dry { fill:#c59a50; fill-opacity:.07; stroke:#946312; }
 @media(max-width:800px) { .dpv-options { gap:5px 10px; }.dpv-image-tools { gap:5px; }.dimensioned-plan-view button { padding:5px 7px; }.dpv-title h2 { font-size:13px; } }
+
+.dpv-image-aspect input { width:90px; min-width:0; box-sizing:border-box; color:#e1eef7; background:#0b1722; border:1px solid #466276; border-radius:4px; padding:5px; font:inherit; }
+.dpv-image-aspect input:disabled { opacity:.5; }

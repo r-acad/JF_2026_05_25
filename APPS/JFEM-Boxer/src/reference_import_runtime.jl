@@ -7,7 +7,12 @@ using Printf, Dates, TOML, LinearAlgebra
 import JSON, MsgPack, SHA, Serialization
 import CodecZlib
 include("airfoil.jl")
+include("airfoil_database.jl")
+include("reference_assets.jl")
+include("plan_view_state.jl")
 include("materials.jl")
+include("nonstructural_mass.jl")
+include("atmosphere.jl")
 include("params.jl")
 include("geometry.jl")
 include("mesh.jl")

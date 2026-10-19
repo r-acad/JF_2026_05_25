@@ -1,3 +1,5 @@
+isdefined(@__MODULE__,:native_windows_file_dialog)||include("native_dialogs.jl")
+
 # Native file access is restricted to paths selected in this server's OS dialog.
 # Browser clients receive an opaque capability; no write endpoint accepts a path.
 const STUDY_SAVE_DESTINATIONS = WeakKeyDict{Any,Dict{String,String}}()
@@ -37,8 +39,7 @@ end
 function native_study_dialog(name,initial)
     command=nothing
     if Sys.iswindows()
-        script=joinpath(@__DIR__,"study_save_file.ps1")
-        command=Cmd(`powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File $script -SuggestedName $name -InitialDirectory $initial`;windows_hide=true)
+        return native_windows_file_dialog(:save;name,initial)
     elseif Sys.isapple()
         # argv is data, never interpolated into AppleScript source.
         script="on run argv\nreturn POSIX path of (choose file name with prompt \"Save JFEM-Boxer Study\" default name (item 1 of argv))\nend run"
@@ -59,10 +60,6 @@ function native_study_dialog(name,initial)
             throw(ArgumentError("Save dialog timed out after five minutes. Choose Save Study again."))
         end
         flush(io);seekstart(io);output=strip(read(io,String));detail=String(take!(errors))
-        if Sys.iswindows()
-            success(process)||throw(ErrorException(isempty(detail) ? "System Save dialog failed." : detail))
-            return JSON.parse(output)
-        end
         if !success(process)
             (process.exitcode==1||Sys.isapple()&&occursin("-128",detail))&&return Dict("ok"=>true,"cancelled"=>true)
             throw(ErrorException("System Save dialog failed: "*detail))

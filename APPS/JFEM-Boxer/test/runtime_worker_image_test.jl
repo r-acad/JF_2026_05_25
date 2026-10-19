@@ -22,7 +22,9 @@ tests=@testset "Packaged Boxer model crosses actual import and sensitivity worke
     parameters=W.default_params();parameters["jfem.output_dir"]=output
     W.Serialization.serialize(joinpath(importdir,"input.jls"),(source,parameters))
     script=joinpath(app,"src","reference_import_worker.jl")
-    command=`$(runtime.command) $(runtime.sysimage_args) --startup-file=no --threads=1 --project=$repo $script $importdir $repo $app`
+    # The input reader deliberately uses Julia's standard image, so opening a
+    # deck never loads the solver/app sysimage or its compilation workloads.
+    command=`$(runtime.command) --compiled-modules=existing --startup-file=no --threads=1 --project=$repo $script $importdir $repo $app`
     process=open(joinpath(importdir,"process.log"),"w") do log
         run(pipeline(ignorestatus(command);stdout=log,stderr=log))
     end
@@ -34,8 +36,10 @@ tests=@testset "Packaged Boxer model crosses actual import and sensitivity worke
         "OpenJFEM"=>string(Base.pkgversion(OpenJFEM)),
         "HTTP"=>string(Base.pkgversion(W.HTTP)),"JSON"=>string(Base.pkgversion(W.JSON)),
         "ForwardDiff"=>string(Base.pkgversion(OpenJFEM.ForwardDiff)))
-    @test imported_runtime["packages"]==expected_packages
-    require_images&&(@test realpath(imported_runtime["image"])==realpath(runtime.metadata["sysimage"]))
+    @test imported_runtime["runtime"]=="import-only"
+    @test imported_runtime["packages"]["JSON"]==string(Base.pkgversion(W.JSON))
+    @test Set(keys(imported_runtime["packages"]))==Set(["JSON","MsgPack","CodecZlib"])
+    @test isempty(intersect(Set(imported_runtime["loaded_packages"]),Set(["OpenJFEM","WingFEGen","HTTP","VortexLattice","ForwardDiff","HDF5","KrylovKit"])))
     model=W.Serialization.deserialize(joinpath(importdir,"model.jls"))
     @test model isa W.Model
     @test model.node_ids==[1,2,3,4]

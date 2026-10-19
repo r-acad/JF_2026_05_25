@@ -1,0 +1,4 @@
+.summary-export-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:.25rem 0 .9rem;padding-bottom:.65rem;border-bottom:1px solid #324557}
+.summary-export-actions>span:first-child{color:#b9ccdc;font-size:.85rem;margin-right:.25rem}
+.summary-export-status{flex:1 1 100%;font-size:.8rem;color:#9bb5ca;overflow-wrap:anywhere}
+.summary-export-status:empty{display:none}

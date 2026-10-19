@@ -13,14 +13,14 @@
   const PARAM_KEYS = [...new Set([...Spar.PARAM_KEYS, ...Gaps.PARAM_KEYS, "box.stringer_pitch", "fuel.enabled", "fuel.start_rib", "fuel.end_rib", "fuel.disabled_bays", "loft.twist_stations"])];
   const MAX_IMAGE_BYTES = 8 * 1024 * 1024, NS = "http://www.w3.org/2000/svg";
   const defaults = () => ({ version: 1, mirror: false, theme: "dark", showSpars: true, showRibs: true, showRibLabels: true,
-    opacity: .55, image: null, pin: null, filledFigures: true, transform: { x: 0, y: 0, scale: 1 }, viewport: { x: 0, y: 0, scale: 1 }, ...Viewport.defaultsTools() });
+    opacity: .55, image: null, imageAspectRatio: null, pin: null, filledFigures: true, transform: { x: 0, y: 0, scale: 1 }, viewport: { x: 0, y: 0, scale: 1 }, ...Viewport.defaultsTools() });
   const finite = (value, low, high) => typeof value === "number" && Number.isFinite(value) && value >= low && value <= high;
   const object = value => !!value && typeof value === "object" && !Array.isArray(value);
   const allowedKeys = (value, names, label) => { if (Object.keys(value).some(key => !names.includes(key))) throw new Error("Unsupported " + label + " setting."); };
   function validateState(value) {
     const result = defaults(); if (value == null) return result;
     if (!object(value)) throw new Error("Plan view settings must be an object.");
-    allowedKeys(value, ["version", "mirror", "theme", "showSpars", "showRibs", "showRibLabels", "filledFigures", "opacity", "image", "pin", "transform", "viewport", "grid", "snap", "measurements"], "plan view");
+    allowedKeys(value, ["version", "mirror", "theme", "showSpars", "showRibs", "showRibLabels", "filledFigures", "opacity", "image", "imageAspectRatio", "pin", "transform", "viewport", "grid", "snap", "measurements"], "plan view");
     Object.assign(result,Viewport.validateToolsState({grid:value.grid,snap:value.snap,measurements:value.measurements}));
     if (value.version !== undefined && value.version !== 1) throw new Error("Unsupported plan view settings version.");
     if (value.theme !== undefined) {
@@ -61,6 +61,7 @@
       if (!signature) throw new Error("Plan view image content does not match its PNG, JPEG or WebP format.");
       result.image = { name: im.name, dataUrl: im.dataUrl, width: im.width, height: im.height };
     }
+    result.imageAspectRatio = Viewport.validateImageAspectRatio(value.imageAspectRatio);
     result.pin = Viewport.validatePin(value.pin, result.image);
     return result;
   }
@@ -178,7 +179,7 @@
   function install(host, options = {}) {
     const doc = host.ownerDocument, win = doc.defaultView;
     let state = defaults(), drag = null, destroyed = false, loading = false, loadToken = 0, loadError = "", wheelTimer = null, cachedData = null, cachedParams = {}, renderedImageUrl = null;
-    let screenMarkers = [], screenLabels = [], screenCircles = [], drawingTools = null, pinTools = null, windowTools = null;
+    let screenMarkers = [], screenLabels = [], screenCircles = [], drawingTools = null, pinTools = null, windowTools = null, imageWindowTools = null;
     host.classList.add("dimensioned-plan-view");
     host.innerHTML = `<div class="dpv-toolbar"><div class="dpv-title"><h2>Dimensioned plan view</h2></div><div class="dpv-image-tools">
       <label class="dpv-zoom">View zoom <input type="number" data-dpv="zoom" min="0.0001" max="1000000" step="1" aria-label="View zoom percent">%</label><button type="button" data-dpv="fit-view" title="Fit the whole drawing without changing the image alignment">Fit view</button>
@@ -189,7 +190,7 @@
       <button type="button" data-dpv="properties" aria-expanded="true" title="Show or hide planform properties">Properties</button>
       <button type="button" data-dpv="help" aria-expanded="false" aria-label="Plan view and image instructions">? Help</button></div></div>
       <div class="dpv-options"><label><input type="checkbox" data-dpv="filledFigures">Filled figures</label><label><input type="checkbox" data-dpv="mirror" autocomplete="off">Mirror opposite half</label><label><input type="checkbox" data-dpv="showSpars">Spars</label><label><input type="checkbox" data-dpv="showRibs">Physical ribs</label><label><input type="checkbox" data-dpv="showRibLabels">Rib numbers</label><span class="dpv-legend"><i class="front"></i>Front spar <i class="rear"></i>Rear spar <i class="rib"></i>Rib <span class="dpv-fuel-legend" hidden><i class="fuel"></i>Fuel tank <i class="dry"></i>Dry / vent bays</span></span></div>
-      <div class="dpv-image-settings" id="dpv-image-settings" hidden><label>Image opacity <input type="range" min="0" max="1" step="0.05" data-dpv="opacity"></label><div class="dpv-scale"><button type="button" data-dpv="smaller" aria-label="Scale image down">&minus;</button><label>Image scale <input type="number" min="0.01" max="1000000" step="1" data-dpv="scale">%</label><button type="button" data-dpv="larger" aria-label="Scale image up">+</button></div><button type="button" data-dpv="reset">Reset image alignment</button><button type="button" data-dpv="remove">Remove image</button></div>
+      <div class="dpv-image-settings" id="dpv-image-settings" hidden><label>Image opacity <input type="range" min="0" max="1" step="0.05" data-dpv="opacity"></label><div class="dpv-scale"><button type="button" data-dpv="smaller" aria-label="Scale image down">&minus;</button><label title="Scale only the reference image; 100% fits it to the initial drawing area">Image zoom <input type="number" min="0.01" max="1000000" step="1" data-dpv="scale">%</label><button type="button" data-dpv="larger" aria-label="Scale image up">+</button></div><label class="dpv-image-aspect" title="Displayed image width divided by height; stretches only the image horizontally">Width / height <input type="number" min="0.001" max="1000" step="0.1" data-dpv="aspect"></label><button type="button" data-dpv="aspect-reset" title="Restore the file proportions, keeping its pin or centre fixed">Original ratio</button><span class="dpv-image-window-host"></span><button type="button" data-dpv="reset">Reset image alignment</button><button type="button" data-dpv="remove">Remove image</button></div>
       <div class="dpv-help" hidden><b>Plan View.</b> This separate browser tab can be dragged to another monitor. Drawing coordinates and dimensions use metres.<br><b>Live geometry.</b> Dimensions describe the base trapezoid. The outline follows the edge points; green/orange lines show the independent spar paths. Master and secondary rib positions and angles follow the Ribs editor. Rib numbers are physical ribs, so shell refinements do not add ribs. Current generated ribs use their actual surface projection; while parameters are changing, the preview uses the untwisted reference paths. Red leading-edge ribs indicate that the requested direction missed the surface and flight direction was used. Leading-edge rib extensions respect the selected rib range and pylon gaps. The opposite half is a mirrored reference only. Drawing strokes and arrowheads remain thin at every zoom; labels keep a readable screen size.<br><b>Navigation.</b> Drag with the left or middle mouse button to pan the drawing and background together. Right-drag always pans the whole view, including with Ctrl/Cmd held. Use the wheel to zoom both under the pointer. Hold <b>Alt</b> for 10&times; finer wheel or +/&minus; zoom; Alt also works with Ctrl/Cmd for fine image-only scaling and with the image +/&minus; buttons. Numeric scale entry remains exact. <b>Fit view</b> restores the overall view without changing image alignment.<br><b>Image alignment.</b> Load a PNG, JPEG or WebP image (up to 8 MiB). Hold <b>Ctrl</b> (Windows/Linux) or <b>Cmd</b> (Mac) while dragging or using the wheel to move or scale only the image. The Image tools controls and Reset image alignment affect only the image. Arrow keys and +/&minus; navigate the whole view; hold Ctrl/Cmd to adjust the image instead. Shift makes larger arrow steps. Escape cancels a drag. Image data, image alignment, background theme and overall view placement are included in Save Study and Save TOML.<br><b>Grid and dimensions.</b> Grid spacing and distance labels use metres. Horizontal dimensions measure global y; vertical dimensions measure global x. Select Distance, Horizontal or Vertical and click two points. For Angle, click endpoint, vertex, endpoint. Then move the label and dimension lines and click to place them. Enable Snap geometry for visible endpoints and edges within 10 screen pixels; images, axes and annotations are excluded. Labels are positioned freely. Use Navigate or Escape to return to panning; the middle or right button can pan while measuring. Window zoom lets you left-drag an aspect-correct rectangle to fill the canvas; Escape or its button cancels. Window zoom preserves image registration. Grid and snapping settings, dimension anchors and label positions are saved with the Study and TOML. Their picked locations stay in physical global coordinates when geometry changes.<br><b>Export SVG.</b> Exports the current visible view, including the background image, selected layers and background colour. Use Fit view first to export the complete drawing.<p class="dpv-image-details"></p><p class="dpv-metrics" aria-live="polite"></p></div>
       <p class="dpv-image-status" role="status" hidden></p><p class="dpv-error" role="alert" hidden></p><div class="dpv-content"><div class="dpv-stage planform-view-canvas"><svg viewBox="0 0 1000 630" tabindex="0" aria-label="Dimensioned lifting surface plan view and optional reference image" role="img"></svg></div><aside class="dpv-properties" aria-label="Planform and model properties"><h3>Planform properties</h3><p class="dpv-property-basis">Untwisted XY projection. Values for the full lifting surface include the mirrored half; the FE model covers one half up to Box end &eta;.</p><div class="dpv-property-tables"></div><p class="dpv-property-note">Refined area and MAC integrate the piecewise straight outline exactly. MAC = &int;c&sup2; dy / &int;c dy. Sweep values are root-to-tip secants, not local angles at kinks. Drawing chord dimensions label the basic trapezoid. Rib numbers refer to physical ribs; refinement adds no physical ribs.</p></aside></div>`;
     const get = name => host.querySelector(`[data-dpv="${name}"]`), svg = host.querySelector("svg"), error = host.querySelector(".dpv-error");
@@ -197,7 +198,7 @@
     get("mirror").defaultChecked = false;
     get("mirror").checked = state.mirror;
     const changed = () => { if (!destroyed) options.onChange?.(); };
-    const fit = () => state.image ? Math.min(700 / state.image.width, 330 / state.image.height) : 1;
+    const fit = () => state.image ? Math.min(700 / (state.image.width*Viewport.imageStretch(state)), 330 / state.image.height) : 1;
     const clamp = (value, a, b) => Math.max(a, Math.min(b, value));
     // Imports/uploads are validated once. Capturing immutable image data does
     // not need to rescan megabytes of base64 on every completed image gesture.
@@ -249,7 +250,7 @@
         if (!image) { image = doc.createElementNS(NS, "image"); image.setAttribute("class", "dpv-background-image"); scene.prepend(image); }
         if (renderedImageUrl !== state.image.dataUrl) { image.setAttribute("href", state.image.dataUrl); renderedImageUrl = state.image.dataUrl; }
         image.setAttribute("width", String(state.image.width)); image.setAttribute("height", String(state.image.height));
-        image.setAttribute("transform", `translate(${state.transform.x} ${state.transform.y}) scale(${state.transform.scale})`);
+        image.setAttribute("transform", `translate(${state.transform.x} ${state.transform.y}) scale(${state.transform.scale*Viewport.imageStretch(state)} ${state.transform.scale})`);
         image.setAttribute("opacity", String(state.opacity));
       } else { image?.remove(); renderedImageUrl = null; }
       let geometry = scene.querySelector(".dpv-geometry");
@@ -263,9 +264,11 @@
       if(doc.activeElement!==get("zoom"))get("zoom").value=String(Number((state.viewport.scale*100).toPrecision(8)));
       pinTools?.render();
       windowTools?.render();
+      imageWindowTools?.render();
       get("opacity").value = String(state.opacity); get("opacity").disabled = !state.image;
-      get("scale").value = number(state.transform.scale / fit() * 100);
-      for (const name of ["scale", "smaller", "larger", "reset"]) get(name).disabled = !state.image || loading;
+      if(doc.activeElement!==get("scale"))get("scale").value = Number((state.transform.scale / fit() * 100).toPrecision(8));
+      if(doc.activeElement!==get("aspect"))get("aspect").value=state.image?Number(Viewport.imageAspectRatio(state).toPrecision(8)):"";
+      for (const name of ["scale", "aspect", "aspect-reset", "smaller", "larger", "reset"]) get(name).disabled = !state.image || loading;
       get("remove").disabled = !state.image || loading; get("upload").disabled = loading;
       svg.classList.toggle("dpv-dragging", !!drag); svg.classList.toggle("dpv-image-only", drag?.target === "transform");
       const imageStatus = host.querySelector(".dpv-image-status");
@@ -292,13 +295,13 @@
       try { state[target] = Viewport.zoomTransform(state,target,factor,canvasAnchor); render(false); }
       catch(error) { loadError=error.message; render(false); }
     }
-    function resetImage(notify = true) { if (!state.image) return; state.pin=null; pinTools?.cancel(); const scale = fit(); state.transform = { x: 130 + (700 - state.image.width * scale) / 2, y: 125 + (330 - state.image.height * scale) / 2, scale }; render(false); if (notify) changed(); }
+    function resetImage(notify = true) { if (!state.image) return; imageWindowTools?.cancel(); state.pin=null; pinTools?.cancel(); const scale = fit(); state.transform = { x: 130 + (700 - state.image.width * Viewport.imageStretch(state) * scale) / 2, y: 125 + (330 - state.image.height * scale) / 2, scale }; render(false); if (notify) changed(); }
     for (const name of ["mirror", "showSpars", "showRibs", "showRibLabels", "filledFigures"]) get(name).onchange = () => { state[name] = get(name).checked; render(); changed(); };
     get("opacity").oninput = () => { state.opacity = Number(get("opacity").value); render(false); };
     get("opacity").onchange = changed;
-    get("fit-view").onclick = () => { stopDrag(true); windowTools?.cancel(); state.viewport = { x: 0, y: 0, scale: 1 }; render(false); changed(); };
+    get("fit-view").onclick = () => { stopDrag(true); windowTools?.cancel(); imageWindowTools?.cancel(); state.viewport = { x: 0, y: 0, scale: 1 }; render(false); changed(); };
     get("reset").onclick = () => resetImage();
-    get("remove").onclick = () => { stopDrag(true); state.image = null; state.pin=null; pinTools?.cancel(); state.transform = { x: 0, y: 0, scale: 1 }; loadError = ""; render(false); changed(); };
+    get("remove").onclick = () => { stopDrag(true); state.image = null; state.imageAspectRatio=null; state.pin=null; pinTools?.cancel(); state.transform = { x: 0, y: 0, scale: 1 }; loadError = ""; render(false); changed(); };
     get("image-tools").onclick = () => { const settings = host.querySelector(".dpv-image-settings"); settings.hidden = !settings.hidden; get("image-tools").setAttribute("aria-expanded", String(!settings.hidden)); };
     get("theme").onclick = () => { state.theme = state.theme === "dark" ? "white" : "dark"; render(false); changed(); };
     get("export").onclick = () => {
@@ -309,8 +312,11 @@
     get("help").onclick = () => { const help = host.querySelector(".dpv-help"); help.hidden = !help.hidden; get("help").setAttribute("aria-expanded", String(!help.hidden)); };
     for (const [name, factor] of [["smaller", 1 / 1.1], ["larger", 1.1]]) get(name).onclick = event => { zoom("transform", Math.pow(factor, event.altKey ? .1 : 1)); changed(); };
     get("scale").onchange = () => { const percent = Number(get("scale").value); if (state.image && Number.isFinite(percent) && percent > 0) { zoom("transform", percent / 100 * fit() / state.transform.scale); changed(); } else render(false); };
+    function setAspect(ratio){if(!state.image)return;imageWindowTools.cancel();stopDrag(true);try{const transform=Viewport.aspectRatioTransform(state,ratio);state.imageAspectRatio=Viewport.validateImageAspectRatio(ratio);state.transform=transform;loadError="";render(false);changed();}catch(error){loadError=error.message;render(false);}}
+    get("aspect").onchange=()=>setAspect(Number(get("aspect").value));get("aspect-reset").onclick=()=>setAspect(null);
     get("zoom").onchange = () => { const value=Number(get("zoom").value);if(Number.isFinite(value)&&value>=.0001&&value<=1e6){zoom("viewport",value/100/state.viewport.scale);changed();}get("zoom").value=String(Number((state.viewport.scale*100).toPrecision(8))); };
     host.querySelector(".dpv-help").append(doc.createTextNode(" View zoom sets an exact percentage. Pin image point: click its image pixel, then the matching drawing point; enabled geometry snapping applies. Wheel, buttons and numeric scales keep this match fixed. Image-only panning and Reset alignment clear the pin. Escape cancels the pending pick. Filled figures removes geometric area fills while preserving annotations and point markers."));
+    host.querySelector(".dpv-help").append(doc.createTextNode(" Image zoom is separate from View zoom. Window zoom image enlarges only the selected image area; geometry stays fixed, and a pinned image scales around its registered point. Width / height is the displayed image aspect ratio: it stretches the horizontal image axis about its centre or pin. Original ratio restores the file proportions. These presentation settings are saved in Study/TOML and SVG export and do not change the FE model."));
     get("upload").onclick = () => get("file").click();
     get("file").onchange = async () => {
       const file = get("file").files[0]; if (!file) return; const token = ++loadToken;
@@ -321,7 +327,7 @@
         const dataUrl = await new Promise((resolve, reject) => { const reader = new win.FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error("The image file could not be read.")); reader.readAsDataURL(file); });
         const size = await new Promise((resolve, reject) => { const image = new win.Image(); image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight }); image.onerror = () => reject(new Error("The image could not be decoded. Choose a valid PNG, JPEG or WebP file.")); image.src = dataUrl; });
         if (destroyed || token !== loadToken) return;
-        state = validateState({ ...state, pin:null, image: { name: file.name, dataUrl, ...size } }); resetImage(false); changed();
+        state = validateState({ ...state, pin:null, imageAspectRatio:null, image: { name: file.name, dataUrl, ...size } }); resetImage(false); changed();
       } catch (e) { if (!destroyed && token === loadToken) loadError = e.message; }
       finally { if (!destroyed && token === loadToken) { loading = false; get("file").value = ""; render(false); } }
     };
@@ -343,11 +349,12 @@
     });
     const resizeObserver = win.ResizeObserver ? new win.ResizeObserver(() => { updateScreenPresentation(); pinTools?.render(); }) : null; resizeObserver?.observe(svg);
     render();
-    windowTools=Viewport.createWindowZoomTools({svg,toolbarHost:host.querySelector(".dpv-image-tools"),local,onStart(){stopDrag(true);pinTools?.cancel();drawingTools?.navigate();},onZoom(selection,visible){state.viewport=Viewport.windowZoomTransform(state.viewport,selection,visible);render(false);changed();}});
-    pinTools=Viewport.createPinTools({svg,toolbarHost:host.querySelector(".dpv-image-tools"),getState:()=>state,layer:()=>svg.querySelector(".dpv-scene"),getDrawingPoint:event=>{const p=local(event);return{x:(p.x-state.viewport.x)/state.viewport.scale,y:(p.y-state.viewport.y)/state.viewport.scale};},pickDrawingPoint:event=>drawingTools.pickDrawingPoint(event),getScale:()=>{const m=svg.getScreenCTM();return(m?Math.hypot(m.a,m.b):1)*state.viewport.scale;},onStart(){windowTools.cancel();stopDrag(true);drawingTools?.navigate();},setPin(pin){const transform=pin?Viewport.imageTransformAtPin(pin,state.transform.scale):state.transform;state.pin=Viewport.copyPin(pin);state.transform=transform;render(false);},onChange:changed});
-    drawingTools=Viewport.createTools({svg,toolbarHost:host.querySelector(".dpv-options"),layer:()=>svg.querySelector(".dpv-scene"),getSnapRoot:()=>svg.querySelector(".dpv-geometry"),snapSelector:".pf-wing,.pf-base,.pf-mirror,.pf-root,.pf-reference,.pf-origin,.pf-box-end,.dpv-rib,.dpv-spar",onModeChange:mode=>{if(mode!=="navigate"){windowTools.cancel();pinTools.cancel();}},getTheme:()=>state.theme,getDrawingPoint:event=>{const p=local(event);return{x:(p.x-state.viewport.x)/state.viewport.scale,y:(p.y-state.viewport.y)/state.viewport.scale};},getScale:()=>{const matrix=svg.getScreenCTM();return(matrix?Math.hypot(matrix.a,matrix.b):1)*state.viewport.scale;},getVisibleBounds:()=>{const rect=svg.getBoundingClientRect(),a=local({clientX:rect.left,clientY:rect.top}),b=local({clientX:rect.right,clientY:rect.bottom});return{x:(a.x-state.viewport.x)/state.viewport.scale,y:(a.y-state.viewport.y)/state.viewport.scale,width:(b.x-a.x)/state.viewport.scale,height:(b.y-a.y)/state.viewport.scale};},onChange:()=>{Object.assign(state,drawingTools.capture());changed();}});render();
-    return { refresh: render, capture, restore(value) { stopDrag(true); clearTimeout(wheelTimer); windowTools.cancel();pinTools.cancel();state = validateState(value);drawingTools.restore({grid:state.grid,snap:state.snap,measurements:state.measurements}); loadError = ""; loadToken++; loading = false; render(); return capture(); },
-      destroy() { destroyed = true; loadToken++; clearTimeout(wheelTimer); resizeObserver?.disconnect(); stopDrag(true);windowTools?.destroy();pinTools?.destroy();drawingTools?.destroy(); host.replaceChildren(); } };
+    windowTools=Viewport.createWindowZoomTools({svg,toolbarHost:host.querySelector(".dpv-image-tools"),local,onStart(){imageWindowTools?.cancel();stopDrag(true);pinTools?.cancel();drawingTools?.navigate();},onZoom(selection,visible){state.viewport=Viewport.windowZoomTransform(state.viewport,selection,visible);render(false);changed();}});
+    imageWindowTools=Viewport.createWindowZoomTools({svg,target:"image",toolbarHost:host.querySelector(".dpv-image-window-host"),local,isEnabled:()=>!!state.image&&!loading,onStart(){windowTools.cancel();stopDrag(true);pinTools?.cancel();drawingTools?.navigate();},onZoom(selection,visible){try{state.transform=Viewport.imageWindowZoomTransform(state,selection,visible);loadError="";render(false);changed();}catch(error){loadError=error.message;render(false);}}});
+    pinTools=Viewport.createPinTools({svg,toolbarHost:host.querySelector(".dpv-image-tools"),getState:()=>state,layer:()=>svg.querySelector(".dpv-scene"),getDrawingPoint:event=>{const p=local(event);return{x:(p.x-state.viewport.x)/state.viewport.scale,y:(p.y-state.viewport.y)/state.viewport.scale};},pickDrawingPoint:event=>drawingTools.pickDrawingPoint(event),getScale:()=>{const m=svg.getScreenCTM();return(m?Math.hypot(m.a,m.b):1)*state.viewport.scale;},onStart(){windowTools.cancel();imageWindowTools?.cancel();stopDrag(true);drawingTools?.navigate();},setPin(pin){const transform=pin?Viewport.imageTransformAtPin(pin,state.transform.scale,Viewport.imageStretch(state)):state.transform;state.pin=Viewport.copyPin(pin);state.transform=transform;render(false);},onChange:changed});
+    drawingTools=Viewport.createTools({svg,toolbarHost:host.querySelector(".dpv-options"),layer:()=>svg.querySelector(".dpv-scene"),getSnapRoot:()=>svg.querySelector(".dpv-geometry"),snapSelector:".pf-wing,.pf-base,.pf-mirror,.pf-root,.pf-reference,.pf-origin,.pf-box-end,.dpv-rib,.dpv-spar",onModeChange:mode=>{if(mode!=="navigate"){windowTools.cancel();imageWindowTools?.cancel();pinTools.cancel();}},getTheme:()=>state.theme,getDrawingPoint:event=>{const p=local(event);return{x:(p.x-state.viewport.x)/state.viewport.scale,y:(p.y-state.viewport.y)/state.viewport.scale};},getScale:()=>{const matrix=svg.getScreenCTM();return(matrix?Math.hypot(matrix.a,matrix.b):1)*state.viewport.scale;},getVisibleBounds:()=>{const rect=svg.getBoundingClientRect(),a=local({clientX:rect.left,clientY:rect.top}),b=local({clientX:rect.right,clientY:rect.bottom});return{x:(a.x-state.viewport.x)/state.viewport.scale,y:(a.y-state.viewport.y)/state.viewport.scale,width:(b.x-a.x)/state.viewport.scale,height:(b.y-a.y)/state.viewport.scale};},onChange:()=>{Object.assign(state,drawingTools.capture());changed();}});render();
+    return { refresh: render, capture, restore(value) { stopDrag(true); clearTimeout(wheelTimer); windowTools.cancel();imageWindowTools?.cancel();pinTools.cancel();state = validateState(value);drawingTools.restore({grid:state.grid,snap:state.snap,measurements:state.measurements}); loadError = ""; loadToken++; loading = false; render(); return capture(); },
+      destroy() { destroyed = true; loadToken++; clearTimeout(wheelTimer); resizeObserver?.disconnect(); stopDrag(true);windowTools?.destroy();imageWindowTools?.destroy();pinTools?.destroy();drawingTools?.destroy(); host.replaceChildren(); } };
   }
   return { PARAM_KEYS, MAX_IMAGE_BYTES, validateState, projection, derive, properties, overlay, install };
 });

@@ -9,24 +9,27 @@ end
     F = PlanViewRegistrationFixture
     image = Dict("name" => "pixel.png", "dataUrl" => "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=", "width" => 1, "height" => 1)
     pin = Dict("image" => Dict("x" => 0.25, "y" => 0.75), "drawing" => Dict("x" => 23.0, "y" => -15.0))
-    value = Dict("version" => 1, "image" => image, "pin" => pin, "filledFigures" => false,
+    value = Dict("version" => 1, "image" => image, "pin" => pin, "filledFigures" => false, "imageAspectRatio" => 2.5,
         "transform" => Dict("x" => 22.5, "y" => -16.5, "scale" => 2.0),
         "viewport" => Dict("x" => 90.0, "y" => -32.0, "scale" => 1.75))
     normalized = JSON.parse(F.normalize_plan_view(JSON.json(value)))
+    @test normalized["imageAspectRatio"] == 2.5
     @test normalized["pin"] == pin
     @test normalized["filledFigures"] === false
     @test normalized["viewport"] == value["viewport"]
     @test JSON.parse(F.normalize_plan_view(JSON.json(normalized))) == normalized
     legacy = JSON.parse(F.normalize_plan_view("{}"))
+    @test legacy["imageAspectRatio"] === nothing
     @test legacy["pin"] === nothing
     @test legacy["filledFigures"] === true
-    for name in ("planform", "airfoil-root", "spars", "material-stringer_flange")
+    for name in ("planform", "airfoil-root", "spars", "stringer-layout", "material-stringer_flange")
         roundtrip = JSON.parse(F.normalize_drawings(JSON.json(Dict(name => value))))
+        @test roundtrip[name]["imageAspectRatio"] == 2.5
         @test roundtrip[name]["pin"] == pin
         @test roundtrip[name]["filledFigures"] === false
         @test JSON.parse(F.normalize_drawings(JSON.json(roundtrip))) == roundtrip
     end
-    for bad in (merge(value, Dict("filledFigures" => 1)), merge(value, Dict("image" => nothing)),
+    for bad in (merge(value, Dict("imageAspectRatio" => 0)), merge(value, Dict("imageAspectRatio" => 1001)), merge(value, Dict("imageAspectRatio" => true)), merge(value, Dict("filledFigures" => 1)), merge(value, Dict("image" => nothing)),
         merge(value, Dict("pin" => Dict("image" => pin["image"]))),
         merge(value, Dict("pin" => Dict("image" => Dict("x" => -1, "y" => 0), "drawing" => pin["drawing"]))),
         merge(value, Dict("pin" => Dict("image" => pin["image"], "drawing" => Dict("x" => 1e8, "y" => 0)))))

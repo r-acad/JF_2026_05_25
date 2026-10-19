@@ -35,6 +35,36 @@ entity controls across repeated panel rebuilds.
 `loft_cuts_browser_test.cjs` also checks real Babylon/WebGL pixels: intersections
 stay cyan after deformation and buffer growth, and disappear when hidden.
 
+The shared structural drawing checks are
+`APPS/JFEM-Boxer/test/structural_plan_views_test.cjs` and
+`structural_plan_views_browser_test.cjs`. They compare the Spar/Rib/Stringer
+plan backgrounds, retain editing handles and independent cameras, and distinguish
+reference previews from generated stringer attachment paths. The browser test
+also checks viewport state across repeated form updates.
+
+`svg_image_controls_browser_test.cjs` checks image-only numeric/window zoom,
+width/height ratios, original-ratio reset, rendered pin alignment and unchanged
+model geometry in both shared and detached views. Like the structural drawing
+browser test, it takes an evidence directory and Playwright module as its two
+arguments; `CHROME_PATH` can select the browser. `plan_view_registration_test.jl`
+checks backend normalization, saved metadata and legacy defaults for those
+presentation settings.
+
+`summary_export_test.cjs` and `summary_export_browser_test.cjs` cover General
+and Mass properties CSV, Markdown and self-contained HTML exports, preserving
+units and selected-case context, escaping content and reporting unavailable or
+stale summaries. The browser test needs Playwright; use
+`WINGFEGEN_PLAYWRIGHT_MODULE` and `CHROME_BIN` to select its module and browser.
+
+`native_windows_dialog_test.jl` verifies the Windows file-dialog ABI, UTF-16
+buffers, cancellation/error protocol and argument handling without opening an
+OS dialog. `study_save_server_test.jl` and the Study browser checks cover
+session-selected file capabilities and save/fallback behavior. The production
+Windows picker uses Julia and Win32, with no PowerShell execution-policy changes.
+`import_runtime_test.jl` verifies that Reference/Abaqus input inspection uses the
+shared parser/model definitions without loading the numerical solver or
+unrelated application packages; production-worker checks cover warm reuse.
+
 The Abaqus and solid-element checks exercise portable/gzip inputs, recursive
 INCLUDE files, named sets, explicit mesh-only completion, supported mechanics
 and blocking diagnostics. Quadratic tetrahedron checks retain every midside

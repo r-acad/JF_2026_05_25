@@ -41,6 +41,8 @@ const SETUP=Dict("enabled"=>true,"E"=>7e10,"nu"=>.3,"rho"=>2700.,"element_set"=>
         problem=try W.imported_source(Dict("path"=>pointer));nothing catch err;err end
         @test problem isa ArgumentError
         @test occursin("Git LFS pointer",sprint(showerror,problem))
+        plain_pointer=joinpath(dir,"pointer.inp");write(plain_pointer,read(pointer,String))
+        @test_throws ArgumentError W.imported_source(Dict("path"=>plain_pointer))
         @test_throws ArgumentError W.imported_source(Dict("path"=>joinpath(dir,"model.inp"),"format"=>"reference","completion"=>SETUP))
     end
     source=W.imported_source(Dict("name"=>"mesh.inp","text"=>MESH))

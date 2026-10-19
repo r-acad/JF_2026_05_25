@@ -5,16 +5,16 @@ $OutputDirectory = (Resolve-Path -LiteralPath $OutputDirectory).Path
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class PickerTestNative { [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr w, IntPtr l); }'
-$scriptPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../src/reference_pick_file.ps1'))
+$scriptPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../src/native_windows_dialog.jl'))
 $deckPath = Join-Path $OutputDirectory 'picker test.bdf'
 Set-Content -LiteralPath $deckPath -Value 'BEGIN BULK' -Encoding ASCII
 $resultPath = Join-Path $OutputDirectory 'native-picker.json'
 $errorPath = Join-Path $OutputDirectory 'native-picker-error.txt'
-$pickerProcess = Start-Process powershell.exe -ArgumentList @('-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',('"'+$scriptPath+'"'),'-InitialPath',('"'+$deckPath+'"')) -WindowStyle Hidden -PassThru -RedirectStandardOutput $resultPath -RedirectStandardError $errorPath
+$pickerProcess = Start-Process (Get-Command julia.exe).Source -ArgumentList @('--startup-file=no','--compile=min','-O0',('"'+$scriptPath+'"'),'open','unused',('"'+$deckPath+'"'),'auto') -WindowStyle Hidden -PassThru -RedirectStandardOutput $resultPath -RedirectStandardError $errorPath
 try {
     $processCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $pickerProcess.Id)
     $classCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ClassNameProperty, '#32770')
-    $nameCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, 'Open Reference deck - INCLUDE files are read automatically')
+    $nameCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, 'Open model deck - INCLUDE files are read automatically')
     $condition = New-Object System.Windows.Automation.AndCondition($processCondition, $nameCondition)
     $dialog = $null
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
@@ -36,7 +36,7 @@ try {
     [PickerTestNative]::PostMessage([IntPtr]$openButton.Current.NativeWindowHandle, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
     if (!$pickerProcess.WaitForExit(15000)) { throw 'System Open selection did not finish.' }
     if ($null -ne $pickerProcess.ExitCode -and $pickerProcess.ExitCode -ne 0) { throw (Get-Content -LiteralPath $errorPath -Raw) }
-    $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
+    $result = [pscustomobject]@{ok=$true;path=(Get-Content -LiteralPath $resultPath -Raw).Trim().Substring(5)}
     if (!$result.ok -or $result.cancelled -or $result.path -ne $deckPath) { throw 'System picker returned the wrong file.' }
     Write-Output 'PASS: native Windows Open dialog foreground owner and selected full path (spaces included).'
 } finally {

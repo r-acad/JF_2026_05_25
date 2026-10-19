@@ -976,33 +976,6 @@ function _solve_nonlinear_correction(K_eff, residual_rhs, ndof, model, id_map, s
     return correction, diagnostics
 end
 
-"""Accumulate direct and nested LOAD coefficients, rejecting cyclic references."""
-function _load_sid_scales(model, load_id, scale=1.0; include_zero::Bool=false)
-    totals = Dict{Int,Float64}()
-    load_id === nothing && return totals
-    path = Int[]
-    function visit(sid, factor)
-        isfinite(factor) || throw(ArgumentError("Nonfinite LOAD scale for SID $sid"))
-        !include_zero && iszero(factor) && return
-        sid in path && throw(ArgumentError("Cyclic LOAD combination: " * join([path;sid], " -> ")))
-        totals[sid] = get(totals,sid,0.0) + factor
-        push!(path,sid)
-        try
-            for combo in get(model,"LOAD_COMBOS",[])
-                Int(combo["SID"]) == sid || continue
-                for child in combo["COMPS"]
-                    visit(Int(child["LID"]),factor * Float64(combo["S"]) * Float64(child["S"]))
-                end
-            end
-        finally
-            pop!(path)
-        end
-    end
-    visit(Int(load_id),Float64(scale))
-    include_zero || filter!(pair -> !iszero(last(pair)),totals)
-    return totals
-end
-
 function _with_solver_thermal_state(f, model, temp_sid, scale)
     keys = ("_active_temp_sid", "_active_temp_scale")
     previous = [(haskey(model,key),get(model,key,nothing)) for key in keys]
@@ -1127,25 +1100,6 @@ function _solve_case_impl(K, ndof, model, id_map, X, load_id, spc_id, node_R;
     )
 
     return u_out, stresses, results_json, u_global, fixed_dofs
-end
-
-function _assert_nonlinear_prescribed_supported(model, load_id, spc_id)
-    sets=selected_spc_sets(model,spc_id)
-    for entry in get(model,"SPC1s",[])
-        Int(entry["SID"]) in sets || continue
-        iszero(Float64(get(entry,"D",0.))) || throw(ArgumentError(
-            "SOL106 prescribed motion from a nonzero SPC is unsupported; use SOL101 or SOL105 static preload. The imposed motion must not be silently ignored."))
-    end
-    scales=_load_sid_scales(model,load_id;include_zero=true)
-    prescribed=Dict{Tuple{Int,Int},Float64}()
-    for entry in get(model,"SPCDs",[])
-        sid=Int(entry["SID"]);haskey(scales,sid)||continue
-        key=(Int(entry["GID"]),Int(entry["C"]))
-        prescribed[key]=get(prescribed,key,0.)+scales[sid]*Float64(entry["D"])
-    end
-    all(iszero,values(prescribed)) || throw(ArgumentError(
-        "SOL106 prescribed motion from a selected SPCD load is unsupported; use SOL101 or SOL105 static preload. The imposed motion must not be silently ignored."))
-    nothing
 end
 
 function _assert_nonlinear_pbeam_neutral_axis_supported(model)

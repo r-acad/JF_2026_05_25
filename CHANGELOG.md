@@ -5,6 +5,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Summary exports, structural drawings and local file access
+
+- Export General and Mass properties summaries as CSV, Markdown or standalone
+  styled HTML, retaining units, selected-case context and stale-data indications.
+- Give Spars, Ribs and Stringers the same interactive plan background and shared
+  navigation tools. Show generated stringer attachment paths when current and a
+  labeled reference preview while the FEM needs rebuilding.
+- Add image-only window zoom, exact image zoom and displayed width/height
+  controls with original-ratio reset. Preserve image pins and Study/TOML/SVG
+  presentation settings without altering model geometry.
+- Replace unsigned Windows PowerShell picker scripts with a small Julia child
+  calling the native file-dialog API. Keep cancellation explicit and offer a
+  browser download if the system Save dialog is unavailable or fails, without
+  changing Windows execution policy.
+- Keep import workers warm and load only the shared parsers, model definitions
+  and viewer support for inspection. Defer numerical solver loading to analysis
+  and diagnose Git LFS placeholders in plain or compressed-named input files.
+
 ### Abaqus inputs and quadratic solid results
 
 - Open `.inp` and `.inp.gz` files from Project or Study Options, resolve INCLUDE

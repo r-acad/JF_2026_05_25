@@ -125,6 +125,7 @@ function imported_local_source(path;format="auto",completion=nothing)
                     try read(stream,String) finally close(stream) end
                 end
             else;read(canonical,String);end
+            startswith(text,"version https://git-lfs.github.com/spec/v1")&&throw(ArgumentError("This file is a Git LFS pointer, not a finite-element mesh: $file. Fetch the actual file with git lfs pull or use the original LFS download on GitHub."))
             sizes[key]=ncodeunits(text)
             occursin('\0',text)&&throw(ArgumentError("Reference source contains a NUL byte: $file"))
             imported_expand_includes(text) do relative

@@ -5,21 +5,21 @@ const IMPORT_SERVICE=length(ARGS)==4&&ARGS[1]=="--serve"
 const IMPORT_DIR,IMPORT_REPO,IMPORT_APP=abspath.(IMPORT_SERVICE ? ARGS[2:4] : ARGS)
 const IMPORT_BOOT_STARTED=time()
 bootstrap_stage(label)=write(joinpath(IMPORT_DIR,"bootstrap_stage.txt"),label)
-bootstrap_stage("Loading the native deck parser and its package cache")
+bootstrap_stage("Loading input parsers and model definitions; no solver is started")
 include(joinpath(@__DIR__,"native_solver_loader.jl"))
-const ImportNative=load_cached_jfem(IMPORT_REPO)
+include(joinpath(@__DIR__,"reference_import_native_runtime.jl"))
 const IMPORT_NATIVE_SECONDS=time()-IMPORT_BOOT_STARTED
-bootstrap_stage("Loading cached JFEM-Boxer geometry and viewport support")
-using WingFEGen
+bootstrap_stage("Loading lightweight JFEM-Boxer geometry and viewport support")
+include(joinpath(@__DIR__,"reference_import_runtime.jl"))
 const W=WingFEGen
 import_json_write(path,data)=write(path,W.JSON.json(data))
 import_json_write(joinpath(IMPORT_DIR,"runtime.json"),Dict(
     "project"=>Base.active_project(),"image"=>unsafe_string(Base.JLOptions().image_file),
     "manifest_sha256"=>bytes2hex(W.SHA.sha256(read(joinpath(IMPORT_REPO,"Manifest.toml")))),
-    "packages"=>Dict("WingFEGen"=>string(Base.pkgversion(W)),
-        "OpenJFEM"=>string(Base.pkgversion(ImportNative)),
-        "HTTP"=>string(Base.pkgversion(W.HTTP)),"JSON"=>string(Base.pkgversion(W.JSON)),
-        "ForwardDiff"=>string(Base.pkgversion(ImportNative.ForwardDiff)))))
+    "runtime"=>"import-only","repository"=>IMPORT_REPO,
+    "packages"=>Dict("JSON"=>string(Base.pkgversion(W.JSON)),
+        "MsgPack"=>string(Base.pkgversion(W.MsgPack)),"CodecZlib"=>string(Base.pkgversion(W.CodecZlib))),
+    "loaded_packages"=>sort!([String(id.name) for id in keys(Base.loaded_modules)])))
 const IMPORT_BOOT_TIMINGS=Dict("native_startup_seconds"=>IMPORT_NATIVE_SECONDS,
     "viewer_startup_seconds"=>time()-IMPORT_BOOT_STARTED-IMPORT_NATIVE_SECONDS,
     "bootstrap_seconds"=>time()-IMPORT_BOOT_STARTED)
@@ -76,7 +76,13 @@ function import_one(directory)
         end
         timings["viewer_model_seconds"]=time()-t
         t=time();stage("Preparing source load vectors (no analysis is run)")
-        Base.invokelatest(W.imported_prepare_loads!,ImportNative,imported)
+        load_runtime=if Base.invokelatest(ImportNative.needs_numerical_load_runtime,model)
+            stage("Loading numerical mass/beam operators for selected source load arrows; no analysis is run")
+            load_cached_jfem(IMPORT_REPO)
+        else
+            ImportNative
+        end
+        Base.invokelatest(W.imported_prepare_loads!,load_runtime,imported)
         timings["loads_seconds"]=time()-t
         t=time();stage("Preparing complete viewport properties and binary geometry")
         payload=Base.invokelatest(W.imported_mesh_payload,imported)
