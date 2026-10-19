@@ -5,6 +5,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Loft schedules and 2D reference alignment
+
+- Group Planform, Airfoils and Loft under Geometry. Load local XFoil coordinate
+  files as embedded root, tip or intermediate sections.
+- Add independent optional target-thickness and multi-station twist schedules
+  with linear or cosine interpolation, preserving the existing geometry when
+  schedules are empty. Move twist controls to Loft.
+- Add exact numerical 2D zoom, Alt fine zoom, image-to-drawing point pins and
+  filled-area visibility, with Study/TOML persistence.
+- Accept the existing attached-flange material drawing in saved drawing
+  metadata, so complete Study and TOML exports can validate all defined views.
+
 ### Original published CRM structural benchmark
 
 - Add the released uCRM9 coarse wingbox, its independent structural workbook

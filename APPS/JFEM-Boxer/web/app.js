@@ -394,9 +394,14 @@ const CHOICE_LABELS = {
 };
 const HELP_TOPICS = {
   "Airfoils": { title:"Airfoil sections and spanwise interpolation", paragraphs:[
-    "Choose the root, tip and optional intermediate sections at eta = y / half-span. Airfoil plots show the upper and lower surfaces, their mid-camber line and dimensions of maximum chordwise thickness and maximum absolute camber. Percentages and x/c positions refer to the section chord; symmetric sections have zero camber and no unique maximum-camber location.",
+    "Choose the root, tip and optional intermediate sections at eta = y / half-span. Use a NACA code, the UIUC catalogue, or a local XFoil coordinate file. File coordinates are embedded in the Study so the saved section remains available offline. Airfoil plots show the original section surfaces, mid-camber line and dimensions; target loft thickness and twist are set separately in Geometry / Loft.",
     "Between adjacent stations eta_i and eta_j, set t = (eta - eta_i) / (eta_j - eta_i). At every fixed x/c, blend the normalized upper and lower ordinates separately: z/c = (1 - w) (z_i/c) + w (z_j/c). Linear uses w = t. Cosine uses w = (1 - cos(pi t)) / 2. Both exactly reproduce the station sections and remain between the two section ordinates.",
     "Linear has constant blend rate dw/deta = 1 / (eta_j - eta_i) within an interval and may change slope at a station. Cosine has dw/deta = pi sin(pi t) / (2 (eta_j - eta_i)): the blend starts and ends with zero slope and changes fastest midway. This smooths the normalized section transition at stations; it does not guarantee zero slope or curvature of the final 3D surface. Local chord scaling, twist, sweep, dihedral and planform transformations are applied after the section blend."
+  ]},
+  "Loft": {title:"Loft thickness and twist",paragraphs:[
+    "Target t/c is optional. Enter stations using eta from 0 at the root to 1 at the tip and a chordwise thickness ratio, for example 0.12 for 12%. At each eta the source airfoils are blended first. Their upper/lower half-thickness is scaled to reach the interpolated maximum t/c while the mid-camber line stays fixed. The same outer surface is used by the structural mesh and aerodynamic geometry; this is not the shell material thickness.",
+    "Twist stations specify geometric pitch in degrees about the Twist axis x/c. Positive is nose up and negative is washout. Without stations, the legacy Tip twist varies linearly from zero at the root. With a station table, the table replaces that law and can include nonzero root twist.",
+    "Each schedule has its own interpolation. Between eta_i and eta_j let s=(eta-eta_i)/(eta_j-eta_i); the value is (1-w)value_i+w value_j. Linear uses w=s. Cosine uses w=(1-cos(pi*s))/2 and has zero interpolation slope at each station. Outside the entered station range the nearest endpoint value is held constant; one station defines a constant schedule over the full span. Leave target t/c disabled to retain the original airfoil thickness."
   ]},
   "Ribs": { title:"Master rib layout", paragraphs:[
     "Root and final ribs are fixed masters in flight direction. With no intermediate masters, the root rib pitch generates the original layout. Add a master at its rear-spar ETA and set its outgoing pitch to the next master. The generator fits a whole number of evenly spaced rear-spar arc-length bays and interpolates the rib directions between masters.",
@@ -529,7 +534,7 @@ function parameterModelValue(key, value) {
   return key === "material.E" ? Number((value * 1e9).toPrecision(15)) : value;
 }
 
-const JSON_TABLE_KINDS = new Set(["planformpoints","masterribs","riborientations","airfoilstations","supportsets","ribproperties","sparproperties","panelproperties","componentproperties","materials","shellmaterials","barmaterials"]);
+const JSON_TABLE_KINDS = new Set(["planformpoints","masterribs","riborientations","airfoilstations","loftstations","supportsets","ribproperties","sparproperties","panelproperties","componentproperties","materials","shellmaterials","barmaterials"]);
 function parameterRow(spec, values) {
   const unitText = spec.key === "material.E" ? "GPa" : spec.unit;
   const helpText = spec.help || (spec.key === "material.E" ? "Elastic tensile/compressive stiffness, entered in GPa: 71 GPa = 71000000000 Pa. Calculations and saved inputs use Pa." : "");
@@ -562,7 +567,7 @@ function parameterRow(spec, values) {
 }
 
 const WORKSPACE_TABS = [
-  ["Geometry", "planform", "Planform"], ["Geometry", "airfoils", "Airfoils"], ["Geometry", "box", "Spars"], ["Geometry", "ribs", "Ribs"],
+  ["Geometry", "planform", "Planform"], ["Geometry", "airfoils", "Airfoils"], ["Geometry", "loft", "Loft"], ["Geometry", "box", "Spars"], ["Geometry", "ribs", "Ribs"],
   ["Geometry", "stringerlayout", "Stringers"], ["Geometry", "leadingedge", "Leading Edge"], ["Geometry", "fuel", "Fuel tank"],
   ["Model", "mesh", "Structural Mesh"], ["Model", "material", "Materials"], ["Model", "shells", "Skins"],
   ["Model", "sections", "Stringers"], ["Model", "ribproperties", "Ribs"], ["Model", "sparproperties", "Spars"], ["Model", "leproperties", "Leading Edge"], ["Model", "nonstructural", "Mass"], ["Model", "supports", "Constraints"],
@@ -572,7 +577,7 @@ const WORKSPACE_TABS = [
   ["View", "display", "Entities"], ["View", "displaygeometry", "Geometry"], ["View", "displayloads", "Loads&Constraints"], ["View", "displayproperties", "Properties"], ["View", "displayappearance", "Appearance"], ["View", "displaylabels", "Axes & labels"], ["View", "displayenvironment", "Environment"], ["View", "displaymass", "Mass properties"], ["View", "inspect", "Inspect"],
 ];
 const WORKSPACE_GROUP_TAB = {
-  "Planform": "planform", "Airfoils": "airfoils", "Torsion box": "box", "Ribs": "ribs", "Fuel tank": "fuel", "Mesh": "mesh", "Material": "material",
+  "Planform": "planform", "Airfoils": "airfoils", "Loft": "loft", "Torsion box": "box", "Ribs": "ribs", "Fuel tank": "fuel", "Mesh": "mesh", "Material": "material",
   "Shell properties": "shells", "Beam sections": "sections", "RBE3 and supports": "supports", "Weights": "weights", "Leading edge": "leadingedge",
   "Rib properties": "ribproperties", "Spar properties": "sparproperties", "Leading-edge properties": "leproperties", "Materials": "material", "Stringer layout":"stringerlayout",
   "Load cases": "cases", "VLM settings": "vlmmesh", "Sensitivity":"sensitivity", "Analysis": "analysis", "JFEM solver": "analysis",
@@ -585,6 +590,7 @@ const DRAWING_TABS = new Set(["planform", "airfoils", "box", "ribs", "leadingedg
 const PROPERTY_TABS = new Set(["shells", "sections", "ribproperties", "sparproperties", "leproperties", "nonstructural"]);
 const SUMMARY_TABS = new Set(["weights", "summary"]);
 const WORKSPACE_MENUS = {
+  geometrymenu:{tabs:new Set(["planform","airfoils","loft"]),current:"planform",label:"Geometry"},
   structure:{tabs:new Set(["box","ribs","stringerlayout","leadingedge"]),current:"box",label:"Structure"},
   aerodynamics:{tabs:new Set(["vlmmesh","loadplots"]),current:"vlmmesh",label:"Loads"},
   properties:{tabs:PROPERTY_TABS,current:"shells",label:"Properties"},
@@ -593,7 +599,7 @@ const WORKSPACE_MENUS = {
   resultsmenu:{tabs:new Set(["results","sensitivityresults"]),current:"results",label:"Results"},
   displaymenu:{tabs:new Set(["display","displaygeometry","displayloads","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"]),current:"display",label:"Display"},
 };
-const WORKSPACE_MAIN_TABS = WORKSPACE_TABS.filter(([,id]) => !["sections","ribproperties","sparproperties","leproperties","nonstructural","summary","ribs","stringerlayout","leadingedge","loadplots","sensitivity","sensitivityresults","displaygeometry","displayloads","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"].includes(id)).map(tab => tab[1] === "box" ? ["Geometry","structure","Structure"] : tab[1] === "vlmmesh" ? ["Loads","aerodynamics","Loads"] : tab[1] === "shells" ? ["Model", "properties", "Properties"] : tab[1] === "weights" ? ["Summary","overview","Summary"] : tab[1] === "analysis" ? ["Solve","analysismenu","Analysis"] : tab[1] === "results" ? ["Solve","resultsmenu","Results"] : tab[1] === "display" ? ["View","displaymenu","Display"] : tab);
+const WORKSPACE_MAIN_TABS = WORKSPACE_TABS.filter(([,id]) => !["airfoils","loft","sections","ribproperties","sparproperties","leproperties","nonstructural","summary","ribs","stringerlayout","leadingedge","loadplots","sensitivity","sensitivityresults","displaygeometry","displayloads","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"].includes(id)).map(tab => tab[1] === "planform" ? ["Geometry","geometrymenu","Geometry"] : tab[1] === "box" ? ["Geometry","structure","Structure"] : tab[1] === "vlmmesh" ? ["Loads","aerodynamics","Loads"] : tab[1] === "shells" ? ["Model", "properties", "Properties"] : tab[1] === "weights" ? ["Summary","overview","Summary"] : tab[1] === "analysis" ? ["Solve","analysismenu","Analysis"] : tab[1] === "results" ? ["Solve","resultsmenu","Results"] : tab[1] === "display" ? ["View","displaymenu","Display"] : tab);
 const parentTab = id => Object.keys(WORKSPACE_MENUS).find(key=>WORKSPACE_MENUS[key].tabs.has(id));
 
 function leaveInspection(){
@@ -803,6 +809,7 @@ function buildForm(schema, values) {
   if (typeof WingSVGViewport !== "undefined") { WingSVGViewport.destroyAll(); WingSVGViewport.restoreAll(drawings); }
   if (typeof WingPlanformView !== "undefined" && WingPlanformView.migratePointParams) values = WingPlanformView.migratePointParams(values);
   state.airfoilEditor?.destroy?.(); state.airfoilEditor = null;
+  state.loftEditor?.destroy?.(); state.loftEditor = null;
   state.supportEditor?.destroy?.(); state.supportEditor = null;
   state.materialsEditor?.destroy?.(); state.materialsEditor = null;
   for(const editor of state.componentEditors || [])editor.destroy(); state.componentEditors=[];
@@ -832,7 +839,7 @@ function buildForm(schema, values) {
     byGroup.get(name).push(spec);
   }
   host.appendChild(baseInputs);
-  const order = ["Airfoils", "Planform", "Torsion box", "Ribs", "Leading edge", "Fuel tank", "Mesh", "Material", "Materials", "Shell properties", "Beam sections", "Rib properties", "Spar properties", "Leading-edge properties", "Mass", "Non-structural mass", "RBE3 and supports", "Weights", "Load cases", "VLM settings", "Analysis", "JFEM solver"];
+  const order = ["Planform", "Airfoils", "Loft", "Torsion box", "Ribs", "Leading edge", "Fuel tank", "Mesh", "Material", "Materials", "Shell properties", "Beam sections", "Rib properties", "Spar properties", "Leading-edge properties", "Mass", "Non-structural mass", "RBE3 and supports", "Weights", "Load cases", "VLM settings", "Analysis", "JFEM solver"];
   const groups = [...byGroup.keys()].sort((a, b) => (order.indexOf(a) < 0 ? 100 : order.indexOf(a)) - (order.indexOf(b) < 0 ? 100 : order.indexOf(b)));
   for (const name of groups) {
     const specs = byGroup.get(name), det = document.createElement("section"); det.className = "group parameter-section workspace-panel";
@@ -878,6 +885,7 @@ function buildForm(schema, values) {
       const editor=WingComponentProperties.install(det,{kind:name==="Rib properties"?"ribs":"spar_bays",onEdit:parameterEdited,readRibs:currentSupportRibs});if(editor)state.componentEditors.push(editor);
     }
     if (name === "Airfoils" && typeof WingAirfoils !== "undefined") state.airfoilEditor = WingAirfoils.install(det, { onEdit: parameterEdited, onHelp: openHelp, isLocked: () => state.parameterLocks?.isLocked("airfoil.root") || false });
+    if (name === "Loft" && typeof WingLoft !== "undefined") state.loftEditor = WingLoft.install(det, { onEdit: parameterEdited, onHelp: openHelp, isLocked: () => state.parameterLocks?.isLocked("loft.twist_stations") || false });
     if (name === "RBE3 and supports" && typeof WingSupports !== "undefined") state.supportEditor = WingSupports.install(det, {
       onEdit:parameterEdited,readRibs:currentSupportRibs,isLocked:()=>state.parameterLocks?.isLocked("supports.items") || false,
     });
@@ -1251,8 +1259,9 @@ function formSignature(params) {
       const rows=params ? params[s.key] || [] : state.supportEditor?.readDrafts?.()?.[s.key] ?? JSON.parse(document.getElementById("p-"+s.key).value || "[]");
       return[s.key,rows.map(row=>[row.rib,row.target,String(row.dofs)])];
     }
-    if(s.kind === "airfoilstations") {
-      const rows=params ? params[s.key] || [] : state.airfoilEditor?.readDrafts?.()?.[s.key] ?? JSON.parse(document.getElementById("p-"+s.key).value || "[]");
+    if(s.kind === "airfoilstations" || s.kind === "loftstations") {
+      const editor=s.kind === "loftstations" ? state.loftEditor : state.airfoilEditor;
+      const rows=params ? params[s.key] || [] : editor?.readDrafts?.()?.[s.key] ?? JSON.parse(document.getElementById("p-"+s.key).value || "[]");
       const canonical=value=>Array.isArray(value)?value.map(canonical):value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])) : value;
       return[s.key,canonical([...rows].sort((a,b)=>a.eta-b.eta))];
     }
@@ -1456,6 +1465,7 @@ function parameterEdited(key) {
   if (key.startsWith("stringers.")||key==="properties.stringer_flange_width") syncStringerModelControls();
   if (key.startsWith("box.")) state.stringerLayout?.refresh();
   if(key.startsWith("airfoil."))state.airfoilEditor?.refresh?.();
+  if(key.startsWith("loft.")||key==="planform.twist_tip")state.loftEditor?.refresh?.();
   markStudyModified();
   if (!affectsModel(key)) return;
   const signature = formSignature(), wasDirty = state.modelDirty;
@@ -1490,6 +1500,8 @@ function parameterEdited(key) {
     const errorPanel = document.getElementById("model-error"); if (errorPanel) errorPanel.hidden = true;
     return;
   }
+  const loftError=typeof WingLoft !== "undefined" ? WingLoft.validationMessage?.(document) : "";
+  if(loftError){state.autoMeshPending=false;cancelAutoMeshTimer();meshStatus(loftError,"pending");return;}
   requestAutoMesh();
 }
 
@@ -1672,6 +1684,7 @@ function collectParams({includeView = false} = {}) {
   state.parameterLocks?.enforce();
   state.planformInputs?.assertValidDraft();
   state.airfoilEditor?.assertValidDraft?.();
+  state.loftEditor?.assertValidDraft?.();
   state.supportEditor?.assertValidDraft?.();
   state.materialsEditor?.assertValidDraft?.();
   for(const editor of state.componentEditors||[])editor.assertValidDraft();
@@ -1727,7 +1740,7 @@ function collectParams({includeView = false} = {}) {
       v = el.value.trim();
       const airfoilField = /^airfoil\.(root|tip)(_profile)?$/.exec(spec.key);
       const airfoilSource = airfoilField && document.getElementById("p-airfoil." + airfoilField[1] + "_source")?.value;
-      const inactiveAirfoilField = airfoilField && (airfoilField[2] ? airfoilSource === "naca" : airfoilSource === "uiuc");
+      const inactiveAirfoilField = airfoilField && (airfoilField[2] ? airfoilSource === "naca" : ["uiuc","file"].includes(airfoilSource));
       if (v === "" && !["jfem.repo", "leading_edge.disabled_bays", "fuel.disabled_bays"].includes(spec.key) && !inactiveAirfoilField) {
         row.classList.add("invalid");
         bad.push(spec.label);

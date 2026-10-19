@@ -20,6 +20,54 @@
   if(digits.length===5&&digits[2]!=="0"&&digits[0]!=="0")result.warning="Reflexed 5-digit mean lines are not implemented; the preview and generated model use the standard mean line.";
   return result;
  }
+ const MAX_FILE_BYTES=2000000;
+ function parseCoordinateFile(text,{filename="airfoil.dat"}={}){
+  if(typeof text!=="string"||new TextEncoder().encode(text).length>MAX_FILE_BYTES)throw Error("Choose an airfoil coordinate text file no larger than 2 MB.");
+  if(text.includes("\u0000"))throw Error("This is not a coordinate text file. Export a single airfoil as XFoil/Selig coordinates first.");
+  filename=String(filename).split(/[\\/]/).at(-1)||"airfoil.dat";
+  const numeric=/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eEdD][+-]?\d+)?$/,points=[];let name="",format="XFoil / Selig",domainHeader=false;
+  for(const [index,line]of text.replace(/^\uFEFF/,"").replace(/\u001a/g,"").split(/\r?\n/).entries()){
+   const clean=line.split("#",1)[0].trim();if(!clean||clean.startsWith("!"))continue;
+   const words=clean.replace(/,/g," ").trim().split(/\s+/),numbers=words.map(word=>numeric.test(word)?Number(word.replace(/[dD]/,"e")):NaN),allFinite=numbers.every(Number.isFinite);
+   if(words.length===2&&allFinite){if(numbers[0]===999&&numbers[1]===999)throw Error("Multiple-element MSES files are not supported. Export the desired single airfoil as a separate XFoil/Selig file; remove other elements, not just their separator.");points.push(numbers);}
+   else if(!points.length&&name&&!domainHeader&&words.length>=4&&words.length<=16&&allFinite){domainHeader=true;format="ISES single-element";}
+   else if(!points.length&&!name&&!words.every(word=>numeric.test(word)||/^[+-]?(?:NaN|Infinity)$/i.test(word)))name=clean;
+   else throw Error("Invalid coordinate line "+(index+1)+": expected two finite numbers (x y).");
+   if(points.length>40001)throw Error("Use no more than 40000 airfoil coordinates.");
+  }
+  let ordered=points;
+  const counts=points[0];
+  if(counts&&counts.every(v=>Number.isInteger(v)&&v>=3)&&counts[0]+counts[1]===points.length-1){
+   const a=points.slice(1,1+counts[0]),b=points.slice(1+counts[0]);if(a[0][0]>a.at(-1)[0])a.reverse();if(b[0][0]>b.at(-1)[0])b.reverse();
+   const scale=Math.max(Math.hypot(a.at(-1)[0]-a[0][0],a.at(-1)[1]-a[0][1]),Math.hypot(b.at(-1)[0]-b[0][0],b.at(-1)[1]-b[0][1]));
+   if(!(scale>0)||Math.hypot(a[0][0]-b[0][0],a[0][1]-b[0][1])>1e-5*scale)throw Error("The two Lednicer surfaces do not meet at one leading edge.");ordered=[...a.reverse(),...b.slice(1)];format="Lednicer surface counts";
+  }
+  ordered=ordered.filter((point,i)=>!i||point[0]!==ordered[i-1][0]||point[1]!==ordered[i-1][1]);
+  if(ordered.length<7||ordered.length>40000)throw Error("Expected 7 to 40000 coordinates around one airfoil, from trailing edge through leading edge to trailing edge.");
+  const te=[(ordered[0][0]+ordered.at(-1)[0])/2,(ordered[0][1]+ordered.at(-1)[1])/2];let nose=0;
+  for(let i=1;i<ordered.length;i++)if(Math.hypot(ordered[i][0]-te[0],ordered[i][1]-te[1])>Math.hypot(ordered[nose][0]-te[0],ordered[nose][1]-te[1]))nose=i;
+  if(nose<2||nose>ordered.length-3)throw Error("Coordinates must trace a single airfoil from trailing edge to leading edge and back, in either direction. For Lednicer files, check the two surface counts.");
+  const le=ordered[nose],dx=te[0]-le[0],dz=te[1]-le[1],chord=Math.hypot(dx,dz);
+  if(!(chord>1e-10)||!Number.isFinite(chord))throw Error("The airfoil has a zero or invalid chord.");
+  const normalized=ordered.map(p=>{const x=(p[0]-le[0])/chord,z=(p[1]-le[1])/chord;return[x*dx/chord+z*dz/chord,-x*dz/chord+z*dx/chord];});
+  function surface(values){
+   const first=values[0],last=values.at(-1);if(Math.abs(first[0])>=1e-8||Math.abs(last[0]-1)>=.01)throw Error("Each airfoil surface must span the whole chord. Check coordinate ordering and the trailing-edge endpoints.");
+   first[0]=0;first[1]=0;last[0]=1;const kept=[];
+   for(const point of values){const previous=kept.at(-1);if(previous&&Math.abs(point[0]-previous[0])<1e-10&&Math.abs(point[1]-previous[1])<1e-10)continue;if(previous&&point[0]<=previous[0])throw Error("Overhanging or multiple-element surfaces cannot be represented as one height at each x/c. Export a single monotone airfoil surface.");kept.push(point);}
+   if(kept.length<3||kept.length>20000)throw Error("Each surface needs 3 to 20000 distinct coordinates.");return{x:kept.map(p=>p[0]),z:kept.map(p=>p[1])};
+  }
+  let upper=surface(normalized.slice(0,nose+1).reverse()),lower=surface(normalized.slice(nose));
+  if(tableOrdinate(upper.x,upper.z,.5)<tableOrdinate(lower.x,lower.z,.5))[upper,lower]=[lower,upper];
+  const profile={version:1,id:filename,filename,name:name||filename,source_kind:"file",source:"Local airfoil coordinate file",format,normalization:"Unit chord from the sampled leading edge to the trailing-edge midpoint; TE x/c aligned to 1, original gap retained.",xu:upper.x,zu:upper.z,xl:lower.x,zl:lower.z};
+  const metrics=profileMetrics(profile);if(!(metrics.maxThickness.value>1e-8))throw Error("The airfoil has zero thickness.");profile.thickness_ratio=metrics.maxThickness.value;return profile;
+ }
+ async function readCoordinateFile(file){
+  if(!file||typeof file.arrayBuffer!=="function")throw Error("Choose an airfoil coordinate file.");if(file.size>MAX_FILE_BYTES)throw Error("Choose an airfoil coordinate text file no larger than 2 MB.");
+  const buffer=await file.arrayBuffer();if(buffer.byteLength>MAX_FILE_BYTES)throw Error("Choose an airfoil coordinate text file no larger than 2 MB.");let text;try{text=new TextDecoder("utf-8",{fatal:true}).decode(buffer);}catch(_){throw Error("The coordinate file is not UTF-8 text. Save a text copy in UTF-8, then select it again.");}
+  const profile=parseCoordinateFile(text,{filename:file.name});if(!globalThis.crypto?.subtle)throw Error("This browser cannot verify local file provenance. Open Boxer at its localhost address in a current browser.");
+  profile.raw_sha256=Array.from(new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256",buffer)),b=>b.toString(16).padStart(2,"0")).join("");profile.imported_at=new Date().toISOString();return profile;
+ }
+ function fileProfileReady(profile){return profile?.source_kind==="file"&&profile.version===1&&typeof profile.filename==="string"&&profile.filename.length>0&&/^[a-f0-9]{64}$/.test(profile.raw_sha256)&&typeof profile.imported_at==="string";}
  const sourcePage="https://m-selig.ae.illinois.edu/ads/coord_database.html";
  async function read(url){const activity=globalThis.WingActivity,token=activity?.begin("Loading airfoil data",{detail:url.includes("profile")?"Reading selected coordinates…":"Reading the UIUC catalogue…"});try{const response=await fetch(url,{cache:"no-store"});const data=await response.json();if(!response.ok||data.ok===false)throw Error(data.error||"Could not load airfoil data");return data;}finally{activity?.end(token);}}
  async function list(refresh=false){
@@ -34,11 +82,11 @@
  function selectionMessage(doc=document){
   const custom=doc.querySelector(".airfoil-stations-editor")?.dataset.invalidMessage;if(custom)return custom;
   for(const station of ["root","tip"]){const card=doc.getElementById("airfoil-"+station+"-card");if(card?.dataset.invalidMessage)return card.dataset.invalidMessage;}
-  const missing=["root","tip"].filter(station=>doc.getElementById("p-airfoil."+station+"_source")?.value==="uiuc"&&!parsed(doc.getElementById("p-airfoil."+station+"_profile")));
+  const missing=["root","tip"].filter(station=>{const source=doc.getElementById("p-airfoil."+station+"_source")?.value,profile=parsed(doc.getElementById("p-airfoil."+station+"_profile"));return source==="uiuc"?!profile:source==="file"&&!fileProfileReady(profile);});
   if(!missing.length)return "";
   const loading=missing.filter(station=>doc.getElementById("airfoil-"+station+"-card")?.dataset.profileState==="loading-profile");
-  if(loading.length)return "Loading the selected UIUC "+loading.join(" and ")+" airfoil coordinates. FEM generation resumes when selection completes.";
-  return "Select a UIUC "+missing.join(" and ")+" airfoil in Airfoils: search the catalogue and click Use selected profile.";
+  if(loading.length)return "Loading the selected "+loading.join(" and ")+" airfoil coordinates. FEM generation resumes when selection completes.";
+  return "Select the "+missing.join(" and ")+" airfoil coordinates in Airfoils: choose a local coordinate file or a UIUC profile.";
  }
  // The solver interpolates each surface linearly at fixed x/c. Differences
  // and averages are therefore piecewise linear on the UNION of their knots;
@@ -104,27 +152,28 @@
   const storedStations=doc.getElementById("p-"+STATIONS_KEY),nInput=doc.getElementById("p-airfoil.n_points"),closedInput=doc.getElementById("p-airfoil.closed_trailing_edge");
   const listen=(target,type,fn)=>{target?.addEventListener(type,fn);const remove=()=>{target?.removeEventListener(type,fn);listeners.delete(remove);};listeners.add(remove);return remove;};
   const nacaOptions=()=>({n:nInput?Number(nInput.value):121,closed:closedInput?closedInput.checked:true});
-  const intro=element("p","group-note","Define root, tip and optional intermediate sections. Each section is drawn immediately. Intermediate eta is the fraction of semi-span; the selected interpolation blends adjacent sections. Saved UIUC coordinates work offline.");
-  host.insertBefore(intro,host.children[1]||null);const help=element("button","mini","?");help.type="button";help.title="Define root, tip and intermediate sections with NACA codes or embedded UIUC coordinates. Spanwise interpolation blends the upper and lower ordinates separately between stations. Click for interpolation equations, profile measurements and offline storage details.";help.setAttribute("aria-label","Help: airfoil sources");intro.append(" ",help);
+  const intro=element("p","group-note","Define root, tip and optional intermediate sections using NACA codes, the UIUC database or local XFoil coordinate files. Each section is drawn immediately. Embedded coordinates are saved with the study and work offline.");
+  host.insertBefore(intro,host.children[1]||null);const help=element("button","mini","?");help.type="button";help.title="Define root, tip and intermediate sections with NACA codes, UIUC coordinates or local XFoil coordinate files. Spanwise interpolation blends the upper and lower ordinates separately between stations. Click for interpolation equations, profile measurements and offline storage details.";help.setAttribute("aria-label","Help: airfoil sources");intro.append(" ",help);
   const interpolation=doc.getElementById("row-airfoil.interpolation");if(interpolation){intro.insertAdjacentElement("afterend",interpolation);const select=interpolation.querySelector("select");if(select){select.title=interpolationHelp;for(const option of select.options)option.title=option.value==="cosine"?"w=(1−cos(pi*t))/2; zero blend slope at both section stations.":"w=t; constant blend slope within each station interval.";}}
-  help.onclick=()=>onHelp?.({title:"Airfoil sources and dimensions",paragraphs:["Root and tip define eta 0 and 1. Add intermediate sections at distinct eta values strictly between 0 and 1. Each may use a NACA 4/5 digit code or embedded UIUC coordinates. Valid rows are saved in eta order.",interpolationHelp,measurementHelp,"NACA previews use the same thickness-normal-to-camber construction, cosine point spacing and monotone surface tables as the generator. The measured chordwise thickness may differ slightly from the nominal thickness in the NACA code. Section points and Closed trailing edge apply only to NACA profiles. The preview updates while typing, before any mesh is built.","Switching to UIUC opens the chooser if no coordinates are embedded. Search by filename, select a profile and press Use selected profile. Browse reopens the chooser to change an existing selection. Saved coordinates include their source provenance and need no network when reopened.","Drawing navigation, background images and SVG export work independently for each section. Image alignment stays with its section when eta is edited or another section is removed.",sourcePage]});
-  function updateNacaOptions(){const allUiuc=allCards.length&&allCards.every(c=>c.source.value==="uiuc");for(const key of["n_points","closed_trailing_edge"]){const row=doc.getElementById("row-airfoil."+key);if(row)row.hidden=allUiuc;}}
+  help.onclick=()=>onHelp?.({title:"Airfoil sources and dimensions",paragraphs:["Root and tip define eta 0 and 1. Add intermediate sections at distinct eta values strictly between 0 and 1. Each may use a NACA 4/5 digit code, UIUC coordinates or a local XFoil coordinate file. Valid rows are saved in eta order.",interpolationHelp,measurementHelp,"NACA previews use the same thickness-normal-to-camber construction, cosine point spacing and monotone surface tables as the generator. The measured chordwise thickness may differ slightly from the nominal thickness in the NACA code. Section points and Closed trailing edge apply only to NACA profiles. The preview updates while typing, before any mesh is built.","Switching to UIUC opens the chooser if no coordinates are embedded. Search by filename, select a profile and press Use selected profile. Browse reopens the chooser to change an existing selection. Saved coordinates include their source provenance and need no network when reopened. Local files use the normal file chooser and may be plain or labelled XFoil/Selig, Lednicer, or single-element ISES. Each surface must be a single-valued height over the chord. MSES multi-element files must first be exported as one selected airfoil. Original filename and SHA-256 are saved; a malformed replacement leaves the previous embedded profile unchanged.","Drawing navigation, background images and SVG export work independently for each section. Image alignment stays with its section when eta is edited or another section is removed.",sourcePage]});
+  function updateNacaOptions(){const allEmbedded=allCards.length&&allCards.every(c=>c.source.value!=="naca");for(const key of["n_points","closed_trailing_edge"]){const row=doc.getElementById("row-airfoil."+key);if(row)row.hidden=allEmbedded;}}
   function createCard({station,label,source,stored,code,sourceRow,codeRow,storedRow,change,header}){
    const card=element("fieldset","airfoil-source-editor"),legend=element("legend","",label);card.id="airfoil-"+station+"-card";card.append(legend);if(header)card.append(header);
    if(sourceRow)card.append(sourceRow);if(codeRow)card.append(codeRow);if(storedRow){storedRow.hidden=true;card.append(storedRow);}
-   for(const option of source.options)option.textContent=option.value==="naca"?"NACA 4 / 5 digit":"UIUC database";
+   if(!Array.from(source.options).some(option=>option.value==="file")){const option=element("option","","Local XFoil / coordinate file");option.value="file";source.append(option);}for(const option of source.options)option.textContent=option.value==="naca"?"NACA 4 / 5 digit":option.value==="file"?"Local XFoil / coordinate file":"UIUC database";
    const selected=element("div","airfoil-selected"),database=element("div","airfoil-database"),browse=element("button","mini","Browse UIUC profiles"),panel=element("div","airfoil-browser");browse.type="button";browse.id="airfoil-"+station+"-browse";panel.hidden=true;
    const search=element("input"),choices=element("select"),use=element("button","mini","Use selected profile"),refresh=element("button","mini ghost","Refresh catalogue"),status=element("p","pick-note");
    search.type="search";search.placeholder="Search e.g. clarky or s1223";search.id="airfoil-"+station+"-search";search.setAttribute("aria-label","Search UIUC "+label+" profiles");
    choices.size=6;choices.id="airfoil-"+station+"-choices";choices.setAttribute("aria-label","UIUC "+label+" profile");use.type=refresh.type="button";use.id="airfoil-"+station+"-use";use.disabled=true;status.setAttribute("role","status");
-   panel.append(search,choices,use,refresh,status);database.append(browse,panel);card.append(selected,database);
+   panel.append(search,choices,use,refresh,status);database.append(browse,panel);
+   const local=element("div","airfoil-local-file"),file=element("input"),fileLabel=element("label","","Choose airfoil coordinate file"),fileStatus=element("p","pick-note"),fileError=element("p","airfoil-preview-error");file.type="file";file.accept=".dat,.txt,.xy,.foil,.csv,text/plain";file.id="airfoil-"+station+"-file";file.setAttribute("aria-label",label+" coordinate file");fileLabel.htmlFor=file.id;fileLabel.append(file);fileStatus.setAttribute("role","status");fileError.setAttribute("role","alert");fileError.hidden=true;local.append(fileLabel,element("p","pick-note","Single-element XFoil/Selig, labelled or plain coordinates, Lednicer surface counts, or ISES. Files are normalized to unit chord and embedded in the study."),fileStatus,fileError);card.append(selected,database,local);
    let request=0,catalogueRequest=0,items=[],loadingCatalogue=false,loadingProfile=false,viewport=null,savedView=null,previewKey="airfoil-"+station,previewSignature=null,alive=true;
-   const controls=()=>{const locked=isLocked();use.disabled=locked||loadingCatalogue||loadingProfile||!choices.value;for(const node of[source,code,browse,refresh,search,choices])node.disabled=locked;};
+   const controls=()=>{const locked=isLocked();use.disabled=locked||loadingCatalogue||loadingProfile||!choices.value;for(const node of[source,code,browse,refresh,search,choices,file])node.disabled=locked;};
    const state=value=>{card.dataset.profileState=value;};
    function describe(force=false){
     const signature=source.value+"|"+code.value+"|"+nInput?.value+"|"+closedInput?.checked+"|"+stored.value;
     if(!force&&signature===previewSignature)return;previewSignature=signature;
-    let profile,error="";try{profile=source.value==="naca"?nacaProfile(code.value,nacaOptions()):parsed(stored);if(!profile)error="Select a UIUC "+label.toLowerCase()+" airfoil: search the catalogue and click Use selected profile.";else profileMetrics(profile);}catch(e){error=label+": "+e.message;}
+    let profile,error="";try{profile=source.value==="naca"?nacaProfile(code.value,nacaOptions()):parsed(stored);if(source.value==="file"&&!fileProfileReady(profile))error="Choose a local coordinate file for "+label.toLowerCase()+".";else if(!profile)error="Select a UIUC "+label.toLowerCase()+" airfoil: search the catalogue and click Use selected profile.";else profileMetrics(profile);}catch(e){error=label+": "+e.message;}
     card.dataset.invalidMessage=error;
     if(viewport){savedView=viewport.capture();viewport.destroy();viewport=null;}selected.replaceChildren();
     if(error){selected.append(element("p","airfoil-preview-error",error));return;}
@@ -137,11 +186,12 @@
      const link=element("a","","UIUC coordinate source");if(String(profile.source_url).startsWith("https://m-selig.ae.illinois.edu/ads/"))link.href=profile.source_url;link.target="_blank";link.rel="noopener noreferrer";selected.append(link);
      const details=element("details"),summary=element("summary","","Saved source details"),text=element("p","pick-note","Downloaded "+profile.fetched_at+" | SHA-256 "+profile.raw_sha256+". "+profile.normalization);details.append(summary,text);selected.append(details);
     }
+    if(source.value==="file"){const details=element("details"),summary=element("summary","","Embedded file details"),text=element("p","pick-note",profile.filename+" | "+profile.format+" | imported "+profile.imported_at+" | SHA-256 "+profile.raw_sha256+". "+profile.normalization+" Coordinates are stored in the study; the original file is not required when reopening it.");details.append(summary,text);selected.append(details);}
    }
    function setOpen(open){panel.hidden=!open;browse.textContent=open?"Close browser":"Browse UIUC profiles";browse.setAttribute("aria-expanded",String(open));}
    function update(sourceChanged=false){
     request++;loadingProfile=false;if(sourceChanged){catalogueRequest++;loadingCatalogue=false;}
-    const uiuc=source.value==="uiuc";database.hidden=!uiuc;if(codeRow)codeRow.hidden=uiuc;state(uiuc?(parsed(stored)?"ready":"needs-selection"):"naca");describe();updateNacaOptions();controls();
+    const uiuc=source.value==="uiuc",fromFile=source.value==="file";database.hidden=!uiuc;local.hidden=!fromFile;if(codeRow)codeRow.hidden=source.value!=="naca";state(uiuc?(parsed(stored)?"ready":"needs-selection"):fromFile?(fileProfileReady(parsed(stored))?"ready":"needs-selection"):"naca");describe();updateNacaOptions();controls();
     if(uiuc&&!loadingCatalogue){const profile=parsed(stored);status.textContent=profile?"Using embedded "+profile.id+". Choose another profile and click Use selected profile to change it.":"Select a profile and click Use selected profile.";}
     if(uiuc&&!parsed(stored)&&!isLocked()){setOpen(true);if(!items.length&&!loadingCatalogue)loadCatalogue(false);}
    }
@@ -159,6 +209,7 @@
      const encoded=JSON.stringify(data.profile);if(!parsed({value:encoded})||data.profile.id!==id)throw Error("The downloaded coordinates do not match the selected profile.");stored.value=encoded;state("ready");describe();status.textContent="Profile selected and embedded"+(data.cached?" from cache":" from UIUC")+". Save the Study or TOML to keep it.";change("profile");
     }catch(error){if(current===request&&alive&&host.isConnected&&source.value==="uiuc"){status.textContent=error.message+" Choose a profile and retry.";state("error");}}finally{if(current===request){loadingProfile=false;controls();}}
    };
+   file.onchange=async()=>{const selectedFile=file.files?.[0];file.value="";if(!selectedFile||isLocked())return;const current=++request;loadingProfile=true;fileError.hidden=true;fileStatus.textContent="Reading "+selectedFile.name+"…";controls();try{const profile=await readCoordinateFile(selectedFile);if(current!==request||!alive||!host.isConnected||source.value!=="file"||isLocked())return;stored.value=JSON.stringify(profile);update();fileStatus.textContent="Embedded "+profile.filename+". Save the study to retain its coordinates offline.";change("profile");}catch(error){if(current===request&&alive&&host.isConnected){fileError.textContent=error.message+" The previous embedded profile has not been changed.";fileError.hidden=false;fileStatus.textContent="File not loaded.";}}finally{if(current===request){loadingProfile=false;controls();}}};
    const cardListeners=[listen(source,"change",()=>{update(true);change("source");}),listen(code,"input",()=>{describe();change("code");})];
    const api={card,source,code,stored,describe,update,registryEntry(key){return{controller:viewport,from:previewKey,key,...(!viewport&&savedView?{state:savedView}:{})};},setKey(key){previewKey=key;const svg=selected.querySelector("svg");if(svg)svg.dataset.viewKey=key;},destroy({forget=false}={}){alive=false;request++;catalogueRequest++;for(const remove of cardListeners)remove();if(viewport)viewport.destroy({forget});else if(forget)globalThis.WingSVGViewport?.forget(previewKey);savedView=null;card.remove();}};allCards.push(api);return api;
   }
@@ -168,10 +219,10 @@
    const card=createCard({station,label:station==="root"?"Root profile (eta 0)":"Tip profile (eta 1)",source,stored,code,sourceRow,codeRow,storedRow,change:kind=>{if(kind==="profile")onEdit?.(prefix+"_profile");}});host.insertBefore(card.card,anchor);anchor.remove();
   }
   function sortedRows(){return [...rows].sort((a,b)=>{const av=a.eta.value.trim()===""?NaN:Number(a.eta.value),bv=b.eta.value.trim()===""?NaN:Number(b.eta.value);return Number.isFinite(av)&&Number.isFinite(bv)?av-bv:a.uid-b.uid;});}
-  function drafts(){return sortedRows().map(row=>{const eta=row.eta.value.trim()===""?NaN:Number(row.eta.value),source=row.card.source.value,profile=parsed(row.card.stored);return{eta:Number.isFinite(eta)?eta:null,source,code:source==="naca"?row.card.code.value:(profile?.id||row.card.code.value),...(source==="uiuc"?{profile}:{} )};});}
+  function drafts(){return sortedRows().map(row=>{const eta=row.eta.value.trim()===""?NaN:Number(row.eta.value),source=row.card.source.value,profile=parsed(row.card.stored);return{eta:Number.isFinite(eta)?eta:null,source,code:source==="naca"?row.card.code.value:(profile?.id||row.card.code.value),...(["uiuc","file"].includes(source)?{profile}:{} )};});}
   function validate(){
    const values=drafts();let error="";if(values.length>MAX_STATIONS)error="Use no more than "+MAX_STATIONS+" intermediate sections.";
-   for(let i=0;!error&&i<values.length;i++){const row=values[i];if(!(row.eta>0&&row.eta<1))error="Intermediate airfoil eta must be greater than 0 and less than 1; root and tip are already defined.";else if(i&&Math.abs(row.eta-values[i-1].eta)<1e-8)error="Intermediate airfoils need distinct eta positions (at least 1e-8 apart).";else if(row.source==="uiuc"&&!row.profile)error="Select a UIUC intermediate airfoil at eta "+row.eta+": search the catalogue and click Use selected profile.";else if(row.source==="naca")try{nacaProfile(row.code,nacaOptions());}catch(e){error="Airfoil at eta "+row.eta+": "+e.message;}}
+   for(let i=0;!error&&i<values.length;i++){const row=values[i];if(!(row.eta>0&&row.eta<1))error="Intermediate airfoil eta must be greater than 0 and less than 1; root and tip are already defined.";else if(i&&Math.abs(row.eta-values[i-1].eta)<1e-8)error="Intermediate airfoils need distinct eta positions (at least 1e-8 apart).";else if(row.source==="file"&&!fileProfileReady(row.profile))error="Choose a local coordinate file for the intermediate airfoil at eta "+row.eta+".";else if(row.source==="uiuc"&&!row.profile)error="Select a UIUC intermediate airfoil at eta "+row.eta+": search the catalogue and click Use selected profile.";else try{row.source==="naca"?nacaProfile(row.code,nacaOptions()):profileMetrics(row.profile);}catch(e){error="Airfoil at eta "+row.eta+": "+e.message;}}
    if(stationEditor)stationEditor.dataset.invalidMessage=error;if(stationError){stationError.textContent=error;stationError.hidden=!error;}
    const ordered=sortedRows(),keys=ordered.map((row,i)=>row.card.registryEntry("airfoil-station-"+(i+1)));
    if(keys.some(entry=>entry.from!==entry.key))globalThis.WingSVGViewport?.rekeyAll(keys);
@@ -180,7 +231,7 @@
   function sync(notify=true){validate();if(storedStations)storedStations.value=JSON.stringify(drafts());updateNacaOptions();if(notify)onEdit?.(STATIONS_KEY);}
   function addStation(value,notify=true){
    if(rows.length>=MAX_STATIONS)return;const uid=++serial,station="station-"+uid,source=element("select"),code=element("input"),stored=element("input"),eta=element("input"),header=element("div","airfoil-station-header"),remove=element("button","mini ghost","Remove section");
-   source.id="airfoil-"+station+"-source";for(const choice of["naca","uiuc"]){const option=element("option","",choice);option.value=choice;source.append(option);}source.value=value.source||"naca";code.id="airfoil-"+station+"-code";code.value=value.code||"NACA0012";stored.type="hidden";stored.value=value.profile?JSON.stringify(value.profile):"";
+   source.id="airfoil-"+station+"-source";for(const choice of["naca","uiuc","file"]){const option=element("option","",choice);option.value=choice;source.append(option);}source.value=value.source||"naca";code.id="airfoil-"+station+"-code";code.value=value.code||"NACA0012";stored.type="hidden";stored.value=value.profile?JSON.stringify(value.profile):"";
    eta.type="number";eta.min="0";eta.max="1";eta.step="0.1";eta.value=value.eta??"";eta.setAttribute("aria-label","Intermediate airfoil eta");eta.dataset.airfoilEta=String(uid);const etaLabel=element("label","","Eta ");etaLabel.append(eta);remove.type="button";remove.dataset.airfoilRemove=String(uid);header.append(etaLabel,remove);
    const sourceRow=element("label","row","Section source"),codeRow=element("label","row","NACA code");sourceRow.append(source);codeRow.append(code);
    const card=createCard({station,label:"Intermediate section",source,stored,code,sourceRow,codeRow,header,change:()=>sync()});card.card.append(stored);const row={uid,eta,remove,card};rows.push(row);stationList.append(card.card);
@@ -189,7 +240,7 @@
   if(storedStations){
    const hidden=doc.getElementById("row-"+STATIONS_KEY);if(hidden)hidden.hidden=true;
    stationEditor=element("section","airfoil-stations-editor");stationEditor.id="airfoil-intermediate-sections";const heading=element("div","airfoil-stations-heading"),title=element("h3","","Intermediate sections"),add=element("button","mini","+ Add section");add.id="airfoil-add-station";add.type="button";heading.append(title,add);stationList=element("div","airfoil-station-list");stationError=element("p","airfoil-preview-error");stationError.setAttribute("role","alert");stationError.hidden=true;
-   stationEditor.append(heading,element("p","pick-note","Place sections by eta (0 = root, 1 = tip). Edit the NACA code or select a UIUC profile for each section. Definitions are saved in span order."),stationError,stationList);
+   stationEditor.append(heading,element("p","pick-note","Place sections by eta (0 = root, 1 = tip). Use a NACA code, UIUC profile or local coordinate file for each section. Definitions are saved in span order."),stationError,stationList);
    const tip=doc.getElementById("airfoil-tip-card");host.insertBefore(stationEditor,tip||null);
    let initial=[];try{initial=JSON.parse(storedStations.value||"[]");if(!Array.isArray(initial))throw Error("array required");}catch(_){stationEditor.dataset.invalidMessage="Intermediate airfoils must be a valid section table.";}
    for(const value of initial)addStation(value,false);
@@ -201,5 +252,5 @@
   for(const card of allCards)card.update();validate();updateNacaOptions();
   const api={refresh,readDrafts:()=>({[STATIONS_KEY]:drafts()}),assertValidDraft(){const message=selectionMessage(doc);if(message)throw Error(message);},destroy(){destroyed=true;for(const remove of listeners)remove();for(const card of allCards)card.destroy();stationEditor?.remove();intro.remove();delete host.__wingAirfoils;}};host.__wingAirfoils=api;return api;
  }
- return{install,plot,profileMetrics,tableOrdinate,locationLabel,interpolationHelp,measurementHelp,selectionMessage,nacaProfile,STATIONS_KEY,MAX_STATIONS};
+ return{install,plot,profileMetrics,tableOrdinate,locationLabel,interpolationHelp,measurementHelp,selectionMessage,nacaProfile,parseCoordinateFile,readCoordinateFile,fileProfileReady,MAX_FILE_BYTES,STATIONS_KEY,MAX_STATIONS};
 });

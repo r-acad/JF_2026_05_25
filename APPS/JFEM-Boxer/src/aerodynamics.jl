@@ -142,11 +142,13 @@ end
 vlm_grid(w::Wing, nc::Int, ns::Int) = vlm_mesh(w, nc, ns).grid
 
 function vlm_incidence_warnings(w::Wing, p::AbstractDict)
-    root = Float64(p["aero.alpha"])
-    tip = root + rad2deg(w.twist_tip)
+    alpha = Float64(p["aero.alpha"])
+    root = alpha + rad2deg(twist(w,0.0))
+    tip = alpha + rad2deg(twist(w,1.0))
+    peak = maximum(abs(alpha+rad2deg(twist(w,eta))) for eta in vcat(0.0,w.twist_etas,1.0))
     warnings = String[]
-    if max(abs(root), abs(tip)) > 12
-        push!(warnings, @sprintf("High local incidence: root %.2f deg, tip %.2f deg. The twisted geometry is resolved, but VLM still assumes attached flow; these loads are an extrapolation and do not predict separation or stall. The 12 deg warning threshold is not a stall criterion.", root, tip))
+    if peak > 12
+        push!(warnings, @sprintf("High local incidence: root %.2f deg, tip %.2f deg, maximum absolute incidence %.2f deg. The twisted geometry is resolved, but VLM still assumes attached flow; these loads are an extrapolation and do not predict separation or stall. The 12 deg warning threshold is not a stall criterion.", root, tip, peak))
     end
     return (; root, tip, warnings)
 end

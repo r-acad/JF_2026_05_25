@@ -54,23 +54,34 @@ function uiuc_catalogue(cache_dir; refresh=false, fetcher=fetch_airfoil_text)
     end
 end
 
-"""Parse Selig or count-prefixed Lednicer coordinates into two monotone tables."""
-function parse_uiuc_airfoil(text::AbstractString; id::AbstractString, source_url=UIUC_AIRFOIL_URL*id)
+"""Normalize single-element Selig/Lednicer coordinates for portable embedding."""
+function parse_coordinate_airfoil(text::AbstractString; id::AbstractString, source_kind="uiuc", source_url=UIUC_AIRFOIL_URL*id)
     sizeof(text)<=2_000_000 || throw(ArgumentError("airfoil coordinate file exceeds 2 MB"))
-    name=""; points=Tuple{Float64,Float64}[]; counts=nothing
-    for (number,line) in enumerate(split(replace(text,'\x1a'=>""),'\n'))
+    occursin('\0',text) && throw(ArgumentError("$(id): binary/NUL data is not an airfoil coordinate file"))
+    name=""; points=Tuple{Float64,Float64}[]; counts=nothing; domain_allowed=false
+    content=replace(replace(text,r"^\ufeff"=>""),'\x1a'=>"")
+    for (number,line) in enumerate(split(content,'\n'))
         clean=strip(first(split(line,'#';limit=2)))
         isempty(clean) && continue
         words=split(replace(clean,','=>' '))
-        numbers=length(words)==2 ? [tryparse(Float64,replace(word,'D'=>'E','d'=>'e')) for word in words] : [nothing]
+        numbers=[tryparse(Float64,replace(word,'D'=>'E','d'=>'e')) for word in words]
+        length(numbers)==2 && all(v->v!==nothing,numbers) && any(v->!isfinite(v),numbers) &&
+            throw(ArgumentError("$(id): invalid coordinate line $number; expected two finite numbers"))
+        if source_kind=="file" && domain_allowed && length(numbers) in (4,5) && all(v->v!==nothing&&isfinite(v),numbers)
+            # XFoil's ISES format includes a computational-domain row directly
+            # after its label. Those values are not airfoil coordinates.
+            domain_allowed=false;continue
+        end
+        domain_allowed=false
         if length(numbers)==2 && all(v->v!==nothing&&isfinite(v),numbers)
             x,z=Float64.(numbers)
+            x==999 && z==999 && throw(ArgumentError("$(id): multiple-element MSES coordinates are not supported; export one airfoil element as a separate file"))
             if isempty(points) && counts===nothing && x>=3 && z>=3 && isinteger(x)&&isinteger(z)
                 counts=(Int(x),Int(z));continue
             end
             push!(points,(x,z))
         elseif isempty(points) && counts===nothing && isempty(name)
-            name=clean
+            name=clean;domain_allowed=true
         else
             throw(ArgumentError("$(id): invalid coordinate line $number; expected two finite numbers"))
         end
@@ -115,13 +126,32 @@ function parse_uiuc_airfoil(text::AbstractString; id::AbstractString, source_url
         xu,xl=xl,xu;zu,zl=zl,zu
     end
     profile=Dict{String,Any}("version"=>1,"id"=>String(id),"name"=>isempty(name) ? String(id) : name,
-        "source"=>"UIUC Airfoil Coordinates Database","source_url"=>source_url,
-        "fetched_at"=>string(Dates.now(Dates.UTC))*"Z","raw_sha256"=>bytes2hex(SHA.sha256(text)),
+        "raw_sha256"=>bytes2hex(SHA.sha256(text)),
         "normalization"=>"Unit chord from the sampled leading edge to the trailing-edge midpoint; TE x/c aligned to 1, original gap retained.",
         "xu"=>xu,"zu"=>zu,"xl"=>xl,"zl"=>zl)
+    if source_kind=="file"
+        merge!(profile,Dict("source_kind"=>"file","filename"=>String(id),
+            "source"=>"Imported single-element airfoil coordinate file","imported_at"=>string(Dates.now(Dates.UTC))*"Z"))
+    else
+        merge!(profile,Dict("source"=>"UIUC Airfoil Coordinates Database","source_url"=>source_url,
+            "fetched_at"=>string(Dates.now(Dates.UTC))*"Z"))
+    end
     af=airfoil_from_profile(profile);profile["thickness_ratio"]=af.thickness
     return profile
 end
+
+"""Parse UIUC Selig/count-prefixed Lednicer coordinates, retaining source provenance."""
+parse_uiuc_airfoil(text::AbstractString;id::AbstractString,source_url=UIUC_AIRFOIL_URL*id)=
+    parse_coordinate_airfoil(text;id,source_url)
+
+"""Import a local XFoil plain/labelled/ISES or Lednicer single-element file.
+
+Coordinates are embedded in the study; the server never reopens the original
+filename. See the XFoil User Primer, Airfoil File Formats:
+https://web.mit.edu/drela/Public/web/xfoil/xfoil_doc.txt
+"""
+parse_xfoil_airfoil(text::AbstractString;filename::AbstractString="airfoil.dat")=
+    parse_coordinate_airfoil(text;id=filename,source_kind="file")
 
 function uiuc_profile(id::AbstractString,cache_dir;refresh=false,fetcher=fetch_airfoil_text)
     valid_uiuc_id(id) || throw(ArgumentError("Invalid UIUC profile filename"))

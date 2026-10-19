@@ -234,13 +234,26 @@ z_lower(af::Airfoil, xc::Float64) = table_interp(af.xl, af.zl, xc)
 mean_camber(af::Airfoil, xc::Float64) = af.source === :naca ?
     first(camber_line(naca_digits(af.name), xc)) : (z_upper(af, xc) + z_lower(af, xc)) / 2
 
-"""Validate embedded UIUC coordinates; loading/building never needs the network."""
-function airfoil_from_profile(profile::AbstractDict)
+"""Validate portable source coordinates without accessing a file or the network."""
+function airfoil_from_profile(profile::AbstractDict; expected_source=nothing)
     get(profile, "version", 0) == 1 || throw(ArgumentError("unsupported embedded airfoil profile version"))
     id=get(profile,"id",nothing);hash=get(profile,"raw_sha256",nothing)
-    id isa AbstractString && valid_uiuc_id(id) && get(profile,"source_url","")==UIUC_AIRFOIL_URL*id &&
-        hash isa AbstractString && occursin(r"^[0-9a-f]{64}$",hash) && get(profile,"fetched_at",nothing) isa AbstractString ||
-        throw(ArgumentError("embedded UIUC profile has missing or invalid source provenance; select the profile again"))
+    source=get(profile,"source_kind","uiuc")
+    source in ("uiuc","file") || throw(ArgumentError("unsupported embedded airfoil profile source"))
+    expected_source===nothing || source==String(expected_source) ||
+        throw(ArgumentError("embedded airfoil source does not match the selected source"))
+    valid_hash=hash isa AbstractString && occursin(r"^[0-9a-f]{64}$",hash)
+    if source=="file"
+        filename=get(profile,"filename",nothing)
+        filename isa AbstractString && 0<sizeof(filename)<=512 && !occursin(r"[/\\\x00]",filename) &&
+            id isa AbstractString && id==filename && valid_hash &&
+            get(profile,"imported_at",nothing) isa AbstractString ||
+            throw(ArgumentError("embedded coordinate file has missing or invalid filename/hash/import metadata; import the file again"))
+    else
+        id isa AbstractString && valid_uiuc_id(id) && get(profile,"source_url","")==UIUC_AIRFOIL_URL*id &&
+            valid_hash && get(profile,"fetched_at",nothing) isa AbstractString ||
+            throw(ArgumentError("embedded UIUC profile has missing or invalid source provenance; select the profile again"))
+    end
     tables = map(("xu", "zu", "xl", "zl")) do key
         values = get(profile, key, nothing)
         values isa AbstractVector && 3 <= length(values) <= 20000 || throw(ArgumentError("embedded airfoil $key needs 3 to 20000 coordinates"))
@@ -257,29 +270,29 @@ function airfoil_from_profile(profile::AbstractDict)
     stations = sort!(unique(vcat(xu, xl)))
     gaps = [table_interp(xu,zu,x)-table_interp(xl,zl,x) for x in stations]
     minimum(gaps) >= -1e-8 && maximum(gaps) > 1e-8 || throw(ArgumentError("airfoil surfaces cross or have zero thickness"))
-    return Airfoil(String(get(profile,"name",get(profile,"id","UIUC profile"))), maximum(gaps), xu,zu,xl,zl,:uiuc)
+    return Airfoil(String(get(profile,"name",get(profile,"id","Coordinate profile"))), maximum(gaps), xu,zu,xl,zl,Symbol(source))
 end
 
 function embedded_airfoil(p, station)
     key = "airfoil.$(station)_profile"
     text = get(p,key,"")
-    text isa AbstractString && !isempty(strip(text)) || throw(ArgumentError("Choose and load a UIUC $station profile in Airfoils before creating the model."))
+    text isa AbstractString && !isempty(strip(text)) || throw(ArgumentError("Choose and load a coordinate $station profile in Airfoils before creating the model."))
     sizeof(text) <= 2_000_000 || throw(ArgumentError("embedded $station airfoil exceeds 2 MB"))
     profile = try JSON.parse(text) catch; throw(ArgumentError("embedded $station airfoil is not valid JSON")); end
     profile isa AbstractDict || throw(ArgumentError("embedded $station airfoil must be an object"))
-    return airfoil_from_profile(profile)
+    return airfoil_from_profile(profile;expected_source=get(p,"airfoil.$(station)_source","uiuc"))
 end
 
 function validate_airfoil_selection(p, station)
     source = get(p,"airfoil.$(station)_source","naca")
-    source in ("naca","uiuc") || throw(ArgumentError("airfoil.$(station)_source must be naca or uiuc"))
+    source in ("naca","uiuc","file") || throw(ArgumentError("airfoil.$(station)_source must be naca, uiuc or file"))
     source == "naca" ? naca_digits(p["airfoil.$station"]) : embedded_airfoil(p,station)
     return nothing
 end
 
 function airfoil_from_params(p, station::AbstractString)
     validate_airfoil_selection(p,station)
-    return get(p,"airfoil.$(station)_source","naca") == "uiuc" ? embedded_airfoil(p,station) :
+    return get(p,"airfoil.$(station)_source","naca") != "naca" ? embedded_airfoil(p,station) :
         naca_airfoil(p["airfoil.$station"]; n=p["airfoil.n_points"],closed_te=p["airfoil.closed_trailing_edge"])
 end
 
@@ -303,7 +316,7 @@ function normalize_airfoil_stations(value)
             throw(ArgumentError("$prefix duplicates another section ETA; separate sections by at least 1e-8"))
         push!(seen,eta)
         source=get(row,"source","naca");code=get(row,"code",nothing)
-        source in ("naca","uiuc") || throw(ArgumentError("$prefix source must be naca or uiuc"))
+        source in ("naca","uiuc","file") || throw(ArgumentError("$prefix source must be naca, uiuc or file"))
         code isa AbstractString && !isempty(strip(code)) || throw(ArgumentError("$prefix needs an airfoil code"))
         result=Dict{String,Any}("eta"=>eta,"source"=>String(source),"code"=>strip(String(code)))
         if source=="naca"
@@ -311,10 +324,10 @@ function normalize_airfoil_stations(value)
             parse(Int,digits[end-1:end])>0 || throw(ArgumentError("$prefix has zero thickness"))
         else
             profile=get(row,"profile",nothing)
-            profile isa AbstractDict || throw(ArgumentError("$prefix needs a loaded UIUC profile; select it in Airfoils"))
+            profile isa AbstractDict || throw(ArgumentError("$prefix needs a loaded coordinate profile; select or import it in Airfoils"))
             sizeof(JSON.json(profile))<=2_000_000 || throw(ArgumentError("$prefix embedded profile exceeds 2 MB"))
-            airfoil_from_profile(profile)
-            String(profile["id"])==result["code"] || throw(ArgumentError("$prefix code does not match its embedded UIUC profile"))
+            airfoil_from_profile(profile;expected_source=source)
+            String(profile["id"])==result["code"] || throw(ArgumentError("$prefix code does not match its embedded coordinate profile"))
             result["profile"]=deepcopy(profile)
         end
         push!(out,result)
@@ -324,6 +337,6 @@ function normalize_airfoil_stations(value)
 end
 
 function intermediate_airfoil(p,row)
-    return row["source"]=="uiuc" ? airfoil_from_profile(row["profile"]) :
+    return row["source"]!="naca" ? airfoil_from_profile(row["profile"];expected_source=row["source"]) :
         naca_airfoil(row["code"];n=p["airfoil.n_points"],closed_te=p["airfoil.closed_trailing_edge"])
 end

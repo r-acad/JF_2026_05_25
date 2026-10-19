@@ -11,7 +11,9 @@
 #
 #  A section is placed by
 #
-#    1. blending adjacent spanwise section ordinates at constant x/c,
+#    1. blending adjacent spanwise section ordinates at constant x/c and,
+#       when specified, scaling their separation to a target t/c about the
+#       unchanged upper/lower midpoint,
 #    2. pitching the unit-chord section about `twist_axis_xc` by the local
 #       twist,
 #    3. scaling by the local chord,
@@ -24,12 +26,19 @@
 #  the base projected span. Reported actual metrics are before section twist.
 # ===========================================================================
 
+"""Exact upper envelope of piecewise-linear profile-gap blend functions."""
+struct ThicknessEnvelope
+    starts::Vector{Float64}
+    intercepts::Vector{Float64}
+    slopes::Vector{Float64}
+end
+
 """
     Wing
 
-Everything the mesh generator needs to evaluate the lofted wing surface.
-Angles are stored in radians and the derived planform dimensions are
-precomputed.
+Everything the mesh generator needs to evaluate the lofted lifting surface.
+Angles are stored in radians; planform dimensions and thickness envelopes are
+precomputed once per definition.
 """
 struct Wing
     root_af::Airfoil
@@ -64,6 +73,83 @@ struct Wing
     airfoil_etas::Vector{Float64}
     intermediate_afs::Vector{Airfoil}
     airfoil_interpolation::Symbol
+    thickness_etas::Vector{Float64}
+    thickness_values::Vector{Float64}
+    thickness_interpolation::Symbol
+    twist_etas::Vector{Float64}
+    twist_values::Vector{Float64} # rad
+    twist_interpolation::Symbol
+    # Exact maximum gap of each adjacent-profile blend, queried in O(log n).
+    thickness_envelopes::Vector{ThicknessEnvelope}
+end
+
+function section_thickness_data(afs::AbstractVector{Airfoil})
+    return [(let a=afs[i],b=afs[i+1]
+        knots=sort!(unique(vcat(a.xu,a.xl,b.xu,b.xl)))
+        left=[z_upper(a,x)-z_lower(a,x) for x in knots]
+        right=[z_upper(b,x)-z_lower(b,x) for x in knots]
+        thickness_envelope(left,right)
+    end) for i in 1:length(afs)-1]
+end
+
+"""Upper envelope of affine gap functions left+(right-left)*blend_weight.
+
+Each section is piecewise linear in x/c, so its true maximum vertical gap is
+at the union of the four surface-knot arrays. Precomputing their affine upper
+envelope avoids a full coordinate scan for every skin/mesh evaluation.
+"""
+function thickness_envelope(left::AbstractVector,right::AbstractVector)
+    order=sortperm(eachindex(left);by=i->(right[i]-left[i],left[i]))
+    starts=Float64[];intercepts=Float64[];slopes=Float64[]
+    for i in order
+        a,b=Float64(left[i]),Float64(right[i]-left[i])
+        if !isempty(slopes) && b==last(slopes)
+            a<=last(intercepts) && continue
+            pop!(starts);pop!(intercepts);pop!(slopes)
+        end
+        crossing=-Inf
+        while !isempty(slopes)
+            crossing=(last(intercepts)-a)/(b-last(slopes))
+            crossing>last(starts) && break
+            pop!(starts);pop!(intercepts);pop!(slopes)
+        end
+        push!(starts,isempty(slopes) ? -Inf : crossing)
+        push!(intercepts,a);push!(slopes,b)
+    end
+    return ThicknessEnvelope(starts,intercepts,slopes)
+end
+
+function maximum_section_gap(envelope::ThicknessEnvelope,weight::Real)
+    i=clamp(searchsortedlast(envelope.starts,weight),1,length(envelope.starts))
+    return envelope.intercepts[i]+weight*envelope.slopes[i]
+end
+
+"""Independent bounded scalar interpolation; callers handle empty legacy schedules."""
+function loft_scalar(etas::AbstractVector, values::AbstractVector, method::Symbol, eta::Real)
+    length(etas)==1 && return only(values)
+    eta<=first(etas) && return first(values)
+    eta>=last(etas) && return last(values)
+    i=clamp(searchsortedlast(etas,eta),1,length(etas)-1)
+    t=(eta-etas[i])/(etas[i+1]-etas[i])
+    weight=method===:cosine ? (1-cospi(t))/2 : t
+    return (1-weight)*values[i]+weight*values[i+1]
+end
+
+loft_control_etas(w::Wing)=sort!(unique(vcat(w.thickness_etas,w.twist_etas)))
+
+"""Quadrature cuts at scalar anchors and changes of the maximum-gap location.
+
+These extra cuts do not create FE rows. They keep target/max-gap rescaling
+smooth within each fuel-volume/moment integration interval.
+"""
+function loft_integration_etas(w::Wing)
+    cuts=vcat(w.airfoil_etas,loft_control_etas(w))
+    for (i,envelope) in enumerate(w.thickness_envelopes),weight in envelope.starts
+        0<weight<1 || continue
+        t=w.airfoil_interpolation===:cosine ? acos(clamp(1-2weight,-1.,1.))/pi : weight
+        push!(cuts,w.airfoil_etas[i]+t*(w.airfoil_etas[i+1]-w.airfoil_etas[i]))
+    end
+    return sort!(unique(cuts))
 end
 
 """Linear interpolation of physical edge displacement, independent of root translation."""
@@ -163,6 +249,13 @@ function make_wing(p::AbstractDict)
     root_af = airfoil_from_params(p, "root")
     tip_af = airfoil_from_params(p, "tip")
     stations=normalize_airfoil_stations(get(p,"airfoil.stations",Any[]))
+    intermediate=Airfoil[intermediate_airfoil(p,row) for row in stations]
+    thickness=normalize_loft_stations(get(p,"loft.thickness_stations",Any[]),"loft.thickness_stations")
+    twists=normalize_loft_stations(get(p,"loft.twist_stations",Any[]),"loft.twist_stations")
+    thickness_method=Symbol(get(p,"loft.thickness_interpolation","linear"))
+    twist_method=Symbol(get(p,"loft.twist_interpolation","linear"))
+    thickness_method in (:linear,:cosine) && twist_method in (:linear,:cosine) ||
+        throw(ArgumentError("loft interpolation must be linear or cosine"))
 
     g = planform_geometry(p)
     return Wing(root_af, tip_af, g.area, g.aspect_ratio, g.taper,
@@ -179,8 +272,11 @@ function make_wing(p::AbstractDict)
                 g.leading_etas, g.leading_offsets, g.trailing_etas,
                 g.trailing_offsets, g.perturbed,
                 vcat(0.0,[row["eta"] for row in stations],1.0),
-                Airfoil[intermediate_airfoil(p,row) for row in stations],
-                Symbol(get(p,"airfoil.interpolation","linear")))
+                intermediate,
+                Symbol(get(p,"airfoil.interpolation","linear")),
+                Float64[row["eta"] for row in thickness],Float64[row["tc"] for row in thickness],thickness_method,
+                Float64[row["eta"] for row in twists],Float64[deg2rad(row["twist"]) for row in twists],twist_method,
+                isempty(thickness) ? ThicknessEnvelope[] : section_thickness_data(vcat(root_af,intermediate,tip_af)))
 end
 
 """Reference-only base trapezoid with the same airfoils and orientation."""
@@ -192,7 +288,9 @@ function base_wing(w::Wing)
         w.base_chord_root,w.base_chord_tip,w.base_mac,
         w.base_area,w.base_aspect_ratio,w.base_taper,w.base_chord_root,w.base_chord_tip,w.base_mac,
         [0.0,1.0],[0.0,0.0],[0.0,1.0],[0.0,0.0],false,
-        copy(w.airfoil_etas),copy(w.intermediate_afs),w.airfoil_interpolation)
+        copy(w.airfoil_etas),copy(w.intermediate_afs),w.airfoil_interpolation,
+        copy(w.thickness_etas),copy(w.thickness_values),w.thickness_interpolation,
+        copy(w.twist_etas),copy(w.twist_values),w.twist_interpolation,copy(w.thickness_envelopes))
 end
 
 """Structural skin and aerodynamic surface share the same refined airfoil loft."""
@@ -402,9 +500,11 @@ chord_area_fraction(w::Wing, eta::Real) = chord_integral(w, eta) / chord_integra
 """
     twist(w, eta)
 
-Local geometric twist in radians, linear from the root to the tip.
+Local geometric twist in radians. Empty schedules preserve the legacy linear
+root-zero to tip twist; nonempty schedules have independent interpolation.
 """
-twist(w::Wing, eta::Float64) = w.twist_tip * eta
+twist(w::Wing, eta::Real) = isempty(w.twist_etas) ? w.twist_tip * eta :
+    loft_scalar(w.twist_etas,w.twist_values,w.twist_interpolation,eta)
 
 """Point on the swept and dihedralled BASE trapezoid datum at span station eta."""
 function base_reference_point(w::Wing, eta::Real)
@@ -463,7 +563,10 @@ blending its adjacent airfoils at constant chord fraction.
 """
 function zup(w::Wing, eta::Float64, xc::Float64)
     left,right,t=airfoil_blend(w,eta)
-    return (1-t)*z_upper(left,xc)+t*z_upper(right,xc)
+    upper=(1-t)*z_upper(left,xc)+t*z_upper(right,xc)
+    isempty(w.thickness_etas) && return upper
+    lower=(1-t)*z_lower(left,xc)+t*z_lower(right,xc)
+    return (upper+lower)/2+thickness_factor(w,eta)*(upper-lower)/2
 end
 
 """
@@ -473,7 +576,19 @@ Lower surface z/c of the lofted section at span station `eta`.
 """
 function zlo(w::Wing, eta::Float64, xc::Float64)
     left,right,t=airfoil_blend(w,eta)
-    return (1-t)*z_lower(left,xc)+t*z_lower(right,xc)
+    lower=(1-t)*z_lower(left,xc)+t*z_lower(right,xc)
+    isempty(w.thickness_etas) && return lower
+    upper=(1-t)*z_upper(left,xc)+t*z_upper(right,xc)
+    return (upper+lower)/2-thickness_factor(w,eta)*(upper-lower)/2
+end
+
+"""Scale the vertical upper/lower gap while preserving its original midpoint."""
+function thickness_factor(w::Wing,eta::Real)
+    isempty(w.thickness_etas) && return 1.0
+    i,t=airfoil_blend_index(w,eta)
+    original=maximum_section_gap(w.thickness_envelopes[i],t)
+    original>0 || throw(ArgumentError("loft section has no positive thickness at ETA $eta"))
+    return loft_scalar(w.thickness_etas,w.thickness_values,w.thickness_interpolation,eta)/original
 end
 
 """Adjacent section index and bounded blend weight, with zero cosine slope at anchors."""

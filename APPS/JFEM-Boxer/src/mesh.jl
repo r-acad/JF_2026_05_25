@@ -491,13 +491,13 @@ function span_stations(w::Wing, p::AbstractDict)
     return etas, ribs, nb
 end
 
-"""Retain edge kinks as mesh rows without creating additional physical ribs.
+"""Retain edge kinks and scalar loft anchors as rows without creating physical ribs.
 
 Coincident stations retain their original coordinates, preventing tiny strips
 from decimal round-off at a rib or prescribed aerodynamic station.
 """
 function with_planform_stations(w::Wing, stations::AbstractVector)
-    return with_stations(stations, planform_breakpoints(w))
+    return with_stations(stations, vcat(planform_breakpoints(w),loft_control_etas(w)))
 end
 
 function with_stations(stations::AbstractVector, breakpoints::AbstractVector)
@@ -1086,6 +1086,10 @@ function model_info(m::Model, n_str_bays::Int, n_rib_bays::Int)
         ("Spar perturbation stations", string(length(spar_breakpoints(p)) - 2) * " interior spar stations"),
         ("Airfoil stations", join(["ETA "*fmt(eta)*": "*af.name for (eta,af) in zip(w.airfoil_etas,airfoil_sections(w))],"; ")),
         ("Airfoil interpolation", w.airfoil_interpolation===:cosine ? "Smooth cosine blend between adjacent sections" : "Linear blend between adjacent sections"),
+        ("Loft thickness", isempty(w.thickness_etas) ? "Source profile thicknesses" :
+            join(["ETA "*fmt(eta)*": t/c "*fmt(tc) for (eta,tc) in zip(w.thickness_etas,w.thickness_values)],"; ")*" ("*String(w.thickness_interpolation)*")"),
+        ("Loft twist", isempty(w.twist_etas) ? "Linear from zero at root to "*fmt(rad2deg(w.twist_tip))*" deg at tip" :
+            join(["ETA "*fmt(eta)*": "*fmt(rad2deg(angle))*" deg" for (eta,angle) in zip(w.twist_etas,w.twist_values)],"; ")*" ("*String(w.twist_interpolation)*")"),
         ("Lifting surface box End ETA", string(last(g.etas))),
         ("Structural box span", fmt(last(g.etas) * w.semispan) * " m"),
         ("Root chord", fmt(w.chord_root) * " m"),

@@ -46,7 +46,7 @@ function fuel_bay_geometry(m::Model,rib::Int)
     planes=angled ? (main_rib_plane(g,p,ja),main_rib_plane(g,p,jb)) : nothing
     cuts=if angled
         sort!(unique(vcat(0.0,last(g.etas),collect(range(max(0.,eta_a-.1),min(last(g.etas),eta_b+.1);length=25)),
-            filter(e->0<e<last(g.etas),vcat(planform_breakpoints(w),w.airfoil_etas,spar.breakpoints,
+            filter(e->0<e<last(g.etas),vcat(planform_breakpoints(w),loft_integration_etas(w),spar.breakpoints,
                 g.lower_etas[:,ja+1],g.upper_etas[:,ja+1],g.lower_etas[:,jb+1],g.upper_etas[:,jb+1])))))
     else
         integration=fuel_integration(w,p)

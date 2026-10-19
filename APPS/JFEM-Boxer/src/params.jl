@@ -43,22 +43,32 @@ const SCHEMA = ParamSpec[
         "Added kilograms per metre of FE bar length, over every bay of this component. Independent of material density and section area; adds mass and inertia loads without stiffness. Zero adds nothing.")
         for (component,label,unit) in NONSTRUCTURAL_COMPONENTS]...,
     # --- airfoils ----------------------------------------------------------
-    ParamSpec("airfoil.root_source", "Root profile source", :choice, "naca", "Airfoils"; choices=["naca","uiuc"], help="Generate a NACA profile or choose UIUC database coordinates"),
+    ParamSpec("airfoil.root_source", "Root profile source", :choice, "naca", "Airfoils"; choices=["naca","uiuc","file"], help="Generate a NACA profile, choose UIUC database coordinates, or embed a local XFoil coordinate file. Embedded coordinates remain available when the study is reopened offline"),
     ParamSpec("airfoil.root", "Root airfoil", :string, "NACA2412", "Airfoils";
               help = "NACA 4- or 5-digit code, e.g. NACA2412 or NACA23012"),
-    ParamSpec("airfoil.root_profile", "Embedded root profile", :string, "", "Airfoils"; help="UIUC coordinates and provenance, stored with the model for offline use"),
-    ParamSpec("airfoil.tip_source", "Tip profile source", :choice, "naca", "Airfoils"; choices=["naca","uiuc"], help="Generate a NACA profile or choose UIUC database coordinates"),
+    ParamSpec("airfoil.root_profile", "Embedded root profile", :string, "", "Airfoils"; help="Database or local-file coordinates and provenance, stored with the model for offline use"),
+    ParamSpec("airfoil.tip_source", "Tip profile source", :choice, "naca", "Airfoils"; choices=["naca","uiuc","file"], help="Generate a NACA profile, choose UIUC database coordinates, or embed a local XFoil coordinate file. Embedded coordinates remain available when the study is reopened offline"),
     ParamSpec("airfoil.tip", "Tip airfoil", :string, "NACA2410", "Airfoils";
               help = "NACA 4- or 5-digit code at the tip section"),
-    ParamSpec("airfoil.tip_profile", "Embedded tip profile", :string, "", "Airfoils"; help="UIUC coordinates and provenance, stored with the model for offline use"),
+    ParamSpec("airfoil.tip_profile", "Embedded tip profile", :string, "", "Airfoils"; help="Database or local-file coordinates and provenance, stored with the model for offline use"),
     ParamSpec("airfoil.stations", "Intermediate airfoils", :airfoilstations, Any[], "Airfoils";
-              help="Sections at ETA strictly between root (0) and tip (1), with NACA codes or embedded UIUC profiles"),
+              help="Sections at ETA strictly between root (0) and tip (1), with NACA codes, embedded UIUC profiles or local XFoil coordinate files"),
     ParamSpec("airfoil.interpolation", "Spanwise interpolation", :choice, "cosine", "Airfoils";
-              choices=["cosine","linear"], help="For adjacent eta_i, eta_j: t=(eta-eta_i)/(eta_j-eta_i). At fixed x/c, blend each surface ordinate z/c=(1-w)z_i/c+w*z_j/c. Linear uses w=t (constant interval slope); Cosine uses w=(1-cos(pi*t))/2 (zero blend slope at stations). Both reproduce station sections; chord, twist and planform follow the blend."),
+              choices=["cosine","linear"], help="For adjacent eta_i, eta_j: t=(eta-eta_i)/(eta_j-eta_i). At fixed x/c, blend each surface ordinate z/c=(1-w)z_i/c+w*z_j/c. Linear uses w=t (constant interval slope); Cosine uses w=(1-cos(pi*t))/2 (zero blend slope at stations). Both reproduce station sections. Chord and planform remain independent; Loft thickness and twist schedules have their own interpolation controls."),
     ParamSpec("airfoil.n_points", "Section points", :int, 121, "Airfoils";
               help = "Number of cosine-spaced coordinates generated on each NACA airfoil surface, including nose and trailing edge; at least 21. More points resolve the section shape used by both structural and aerodynamic geometry. UIUC profiles retain their source coordinates. Structural mesh counts and Aero chord points are separate settings"),
     ParamSpec("airfoil.closed_trailing_edge", "Closed trailing edge", :bool, true,
               "Airfoils"; help = "Use the NACA closed-TE coefficient; database profiles retain their original trailing-edge gap"),
+
+    # Independent scalar schedules applied to the common structural/aero loft.
+    ParamSpec("loft.thickness_stations", "Thickness stations", :loftstations, Any[], "Loft";
+              help="Optional ETA and target maximum t/c pairs. At each span station, scale upper/lower separation about their existing midpoint so the largest vertical thickness equals target t/c; camber is preserved. Empty retains the source profiles' thickness. Values outside the first/last station remain constant; one station sets a constant t/c"),
+    ParamSpec("loft.thickness_interpolation", "Thickness interpolation", :choice, "linear", "Loft";
+              choices=["linear","cosine"], help="Interpolate target t/c independently of airfoil shape and twist: for s=(eta-eta_i)/(eta_j-eta_i), linear weight is s and cosine weight is (1-cos(pi*s))/2. Cosine has zero slope at each anchor; both reproduce the specified thicknesses"),
+    ParamSpec("loft.twist_stations", "Twist stations", :loftstations, Any[], "Loft";
+              help="Optional ETA and section twist in degrees, about the Twist axis. Positive is nose up. Empty retains the legacy linear twist from zero at root to Tip twist. A nonempty schedule replaces Tip twist; outside its first/last station the angle is constant"),
+    ParamSpec("loft.twist_interpolation", "Twist interpolation", :choice, "linear", "Loft";
+              choices=["linear","cosine"], help="Interpolate twist independently of airfoil shape and thickness: s=(eta-eta_i)/(eta_j-eta_i), linear weight s or cosine weight (1-cos(pi*s))/2. Cosine reaches each specified angle with zero spanwise slope. Shared by the structural mesh and aerodynamic camber surface"),
 
     # --- planform ----------------------------------------------------------
     ParamSpec("planform.area", "Base lifting surface area", :float, 16.0, "Planform";
@@ -67,15 +77,15 @@ const SCHEMA = ParamSpec[
               help = "b^2 / S of the full base trapezoid; together with base area fixes the span"),
     ParamSpec("planform.taper_ratio", "Base taper ratio", :float, 0.45, "Planform";
               help = "c_tip / c_root of the base trapezoid, before edge perturbations"),
-    ParamSpec("planform.twist_tip", "Tip twist", :float, -3.0, "Planform";
-              unit = "deg", help = "Pitch rotation of the tip section about the Twist axis, varying linearly from zero at the root. Positive is nose up; negative is washout. It changes the structural and aerodynamic loft together"),
+    ParamSpec("planform.twist_tip", "Tip twist", :float, -3.0, "Loft";
+              unit = "deg", help = "Legacy tip section pitch: used when Twist stations is empty, varying linearly from zero at the root. Positive is nose up; negative is washout. A nonempty Twist stations table replaces this value for both structural and aerodynamic geometry"),
     ParamSpec("planform.sweep", "Sweep", :float, 15.0, "Planform";
               unit = "deg", help = "Sweep of the BASE trapezoid datum at the reference x/c. Edge perturbations follow this base when sweep changes"),
     ParamSpec("planform.sweep_ref_xc", "Sweep reference", :float, 0.25, "Planform";
               unit = "x/c", help = "Base chord fraction of the swept datum. Structural skins and aerodynamic surfaces share the refined airfoil loft; spar path inputs remain measured in base-trapezoid coordinates"),
     ParamSpec("planform.dihedral", "Dihedral", :float, 5.0, "Planform";
               unit = "deg", help = "Inclination of the spanwise reference line in the global y-z plane. Positive raises the tip: reference z increases by spanwise distance times tan(dihedral). Negative gives anhedral; zero keeps the reference line level"),
-    ParamSpec("planform.twist_axis_xc", "Twist axis", :float, 0.25, "Planform";
+    ParamSpec("planform.twist_axis_xc", "Twist axis", :float, 0.25, "Loft";
               unit = "x/c", help = "Fraction of the refined chord about which both the aerodynamic surface and structural section are pitched"),
     ParamSpec("planform.root_ref_x", "Root reference x", :float, 0.0, "Planform";
               unit = "m", help = "Global x of the BASE trapezoid reference point at the root. Refined edge points can move the common aerodynamic/structural loft relative to this reference datum"),
@@ -524,11 +534,40 @@ function leading_edge_chord_count(value)
     return Int(number)
 end
 
+"""Validate independent scalar loft schedules without adding implicit endpoints."""
+function normalize_loft_stations(value, key::AbstractString)
+    field = key == "loft.thickness_stations" ? "tc" : key == "loft.twist_stations" ? "twist" :
+        throw(ArgumentError("unknown loft station table $key"))
+    value isa AbstractVector || throw(ArgumentError("$key must be an array of ETA/$field rows"))
+    length(value)<=100 || throw(ArgumentError("$key allows at most 100 stations"))
+    rows=Dict{String,Float64}[]
+    for (i,row) in enumerate(value)
+        row isa AbstractDict || throw(ArgumentError("$key row $i must be an ETA/$field object"))
+        Set(String.(keys(row)))==Set(["eta",field]) || throw(ArgumentError("$key row $i requires only eta and $field"))
+        eta,scalar=get(row,"eta",nothing),get(row,field,nothing)
+        eta isa Real && !(eta isa Bool) && isfinite(eta) && 0<=eta<=1 ||
+            throw(ArgumentError("$key row $i ETA must be finite and between 0 and 1"))
+        scalar isa Real && !(scalar isa Bool) && isfinite(scalar) ||
+            throw(ArgumentError("$key row $i $field must be finite"))
+        if field=="tc"
+            0<scalar<=1 || throw(ArgumentError("$key row $i t/c must be greater than 0 and at most 1"))
+        else
+            abs(scalar)<45 || throw(ArgumentError("$key row $i twist must be strictly between -45 and 45 degrees"))
+        end
+        push!(rows,Dict("eta"=>Float64(eta),field=>Float64(scalar)))
+    end
+    sort!(rows;by=row->row["eta"])
+    all(i->rows[i+1]["eta"]-rows[i]["eta"]>=1e-8,1:length(rows)-1) ||
+        throw(ArgumentError("$key ETA stations must be distinct (separation at least 1e-8)"))
+    return rows
+end
+
 function coerce_value(spec::ParamSpec, v)
     # Preserve useful row-specific diagnostics for interactive point editing.
     spec.kind === :planformpoints && return normalize_planform_points(v, spec.key)
     spec.kind in (:masterribs,:riborientations) && return normalize_rib_tables(v,spec.key)
     spec.kind === :airfoilstations && return normalize_airfoil_stations(v)
+    spec.kind === :loftstations && return normalize_loft_stations(v,spec.key)
     spec.kind === :supportsets && return normalize_support_sets(v)
     spec.kind === :loadcases && return normalize_load_cases(v)
     spec.kind in (:ribproperties,:sparproperties) && return normalize_component_properties(v,spec.key)
@@ -829,6 +868,12 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
     normalize_airfoil_stations(get(p,"airfoil.stations",Any[]))
     get(p,"airfoil.interpolation","linear") in ("linear","cosine") ||
         throw(ArgumentError("airfoil.interpolation must be linear or cosine"))
+    for table in ("loft.thickness_stations","loft.twist_stations")
+        normalize_loft_stations(get(p,table,Any[]),table)
+    end
+    for key in ("loft.thickness_interpolation","loft.twist_interpolation")
+        get(p,key,"linear") in ("linear","cosine") || throw(ArgumentError("$key must be linear or cosine"))
+    end
     if p["fuel.enabled"] || p["leading_edge.enabled"] || !isempty(get(p,"ribs.masters",Any[])) || !isempty(p["properties.ribs"]) || !isempty(p["properties.spar_bays"]) || !isempty(get(p,"properties.components",Any[])) || get(p,"supports.mode","root")=="custom" && !isempty(support_sets)
         _, physical_ribs, _ = span_stations(make_wing(p), p)
         validate_component_property_bounds(p,length(physical_ribs))
@@ -874,7 +919,7 @@ function toml_value(spec::ParamSpec, v)
         panel_literal(x) = x isa AbstractString ? toml_string_literal(x) : x isa AbstractDict ?
             "{"*join((string(k," = ",panel_literal(value)) for (k,value) in sort!(collect(x);by=first)),", ")*"}" : string(x)
         return "["*join(panel_literal.(normalize_panel_properties(v)),", ")*"]"
-    elseif spec.kind in (:loadcases, :planformpoints, :masterribs, :riborientations, :supportsets, :ribproperties, :sparproperties, :componentproperties, :materials, :shellmaterials, :barmaterials)
+    elseif spec.kind in (:loftstations, :loadcases, :planformpoints, :masterribs, :riborientations, :supportsets, :ribproperties, :sparproperties, :componentproperties, :materials, :shellmaterials, :barmaterials)
         literal(x) = x isa AbstractString ? toml_string_literal(x) : string(x)
         return "[" * join(("{" * join((string(k, " = ", literal(v)) for (k, v) in sort!(collect(row); by = first)), ", ") * "}" for row in v), ", ") * "]"
     elseif spec.kind === :bool

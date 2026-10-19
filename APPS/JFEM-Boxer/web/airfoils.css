@@ -4,6 +4,12 @@
 .airfoil-source-editor .row :is(input:not([type=checkbox]),select) { min-width:0; padding:6px; color:#e2eff8; background:#0f1a24; border:1px solid #4b657a; border-radius:4px; font:inherit; }
 .airfoil-source-editor .row:has(select) { grid-template-columns:minmax(0,1fr); gap:5px; }
 .airfoil-database[hidden],.airfoil-browser[hidden] { display:none; }
+.airfoil-local-file[hidden] { display:none; }
+.airfoil-local-file { margin:9px 0; padding-top:8px; border-top:1px solid #354b60; }
+.airfoil-local-file label { display:flex; flex-direction:column; gap:7px; font-size:12px; }
+.airfoil-local-file input[type=file] { width:100%; min-width:0; box-sizing:border-box; color:#dcebf6; font:inherit; }
+.airfoil-local-file input[type=file]::file-selector-button { padding:6px 9px; margin-right:8px; border:1px solid #526b80; border-radius:4px; background:#243b4f; color:#edf5fb; cursor:pointer; }
+.airfoil-local-file input:disabled { opacity:.5; }
 .airfoil-selected { font-size:11px; overflow-wrap:anywhere; }
 .airfoil-selected svg { display:block; width:100%; max-height:230px; background:#0e1822; border-radius:3px; }
 .airfoil-selected svg .airfoil-outline { fill:#79c2eb22; stroke:#79c2eb; }

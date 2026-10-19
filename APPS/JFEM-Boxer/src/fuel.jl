@@ -67,8 +67,9 @@ end
 
 Integrate the actual generating loft between two span-normal rib planes.
 Normalized section area uses the same station interpolation as the generating
-loft. Linear interpolation has an exactly integrable cubic area; cosine blends
-use bounded adaptive quadrature between airfoil and planform stations.
+loft. Linear interpolation without target-thickness scaling has an exactly
+integrable cubic area. Other lofts use bounded adaptive quadrature between
+profile, planform, scalar anchors and maximum-gap envelope crossings.
 """
 function enclosed_loft_volume(w::Wing, fs::Real, rs::Real, eta_first::Real, eta_last::Real;
         section_areas = nothing)
@@ -79,10 +80,10 @@ function enclosed_loft_volume(w::Wing, fs::Real, rs::Real, eta_first::Real, eta_
     length(areas)==length(w.airfoil_etas)||throw(ArgumentError("fuel section areas must include every spanwise airfoil"))
     section_area(eta) = begin
         i,t=airfoil_blend_index(w,eta)
-        chord(w,Float64(eta))^2*((1-t)*areas[i]+t*areas[i+1])
+        chord(w,Float64(eta))^2*((1-t)*areas[i]+t*areas[i+1])*thickness_factor(w,eta)
     end
     cuts = with_planform_stations(w, sort!(unique(vcat(eta_first,eta_last,
-        filter(e->eta_first<e<eta_last,w.airfoil_etas)))))
+        filter(e->eta_first<e<eta_last,loft_integration_etas(w))))))
     volume = 0.0
     for i in 1:length(cuts)-1
         volume += w.semispan*fuel_span_integral(w,section_area,cuts[i],cuts[i+1])
@@ -114,11 +115,11 @@ function fuel_integration(w::Wing,p::AbstractDict)
     spar=spar_geometry(p)
     if !spar.perturbed&&!w.perturbed
         fs,rs=spar.front_default,spar.rear_default
-        return (;spar,cuts=copy(w.airfoil_etas),section_areas=[airfoil_box_area(af,fs,rs) for af in airfoil_sections(w)])
+        return (;spar,cuts=loft_integration_etas(w),section_areas=[airfoil_box_area(af,fs,rs) for af in airfoil_sections(w)])
     end
     profiles=[airfoil_area_primitive(af) for af in airfoil_sections(w)]
     knots=airfoil_knots(w)
-    stations=sort!(unique(vcat(spar.breakpoints,planform_breakpoints(w),w.airfoil_etas)))
+    stations=sort!(unique(vcat(spar.breakpoints,planform_breakpoints(w),loft_integration_etas(w))))
     cuts=copy(stations)
     for edge in (:front,:rear)
         distance(eta)=base_chord(w,eta)*spar_xc(w,spar,eta,edge)-edge_offset(w.leading_etas,w.leading_offsets,eta)
@@ -150,7 +151,7 @@ function enclosed_loft_volume(w::Wing,p::AbstractDict,eta_first::Real,eta_last::
         i,t=airfoil_blend_index(w,eta)
         ar=area_to(data.profiles[i],rs)-area_to(data.profiles[i],fs)
         at=area_to(data.profiles[i+1],rs)-area_to(data.profiles[i+1],fs)
-        return chord(w,eta)^2*((1-t)*ar+t*at)
+        return chord(w,eta)^2*((1-t)*ar+t*at)*thickness_factor(w,eta)
     end
     cuts=vcat(Float64(eta_first),filter(eta->eta_first<eta<eta_last,data.cuts),Float64(eta_last))
     volume=0.0
@@ -176,9 +177,9 @@ function fuel_summary(m::Model)
         "enabled" => enabled, "bays" => Any[],
         "rib_count" => length(g.ribs), "fill_efficiency" => efficiency,
         "scope" => "Usable fuel capacity and gross geometric volume in the modeled half lifting surface",
-        "method" => m.wing.airfoil_interpolation===:linear ?
+        "method" => m.wing.airfoil_interpolation===:linear && isempty(m.wing.thickness_etas) ?
             "Exact integration of the refined airfoil loft between independent base-reference spar paths and physical rib planes" :
-            "Adaptive cosine-loft integration of exact tabulated airfoil sections (relative quadrature tolerance 1e-11)",
+            "Adaptive integration of the actual tabulated airfoil loft and target-thickness schedule (relative quadrature tolerance 1e-11)",
         "note" => "Dry / vent bays are excluded. Usable capacity is gross geometric volume times the fill efficiency factor, applied uniformly within each wet bay. No separate structure, equipment or wall-thickness deductions are made. Case Fuel status is a percentage of usable capacity; fill height and CG follow the gross bay geometry at that percentage. Volume, mass, inertia and acceleration loads scale with efficiency through per-bay CONM2 and RBE3 elements.")
     enabled || return result
     first_rib, last_rib = fuel_rib_bounds(p, length(g.ribs))
@@ -292,9 +293,9 @@ function fuel_surface_segment(m::Model,summary)
     fs,rs = p["box.front_spar_xc"],p["box.rear_spar_xc"]
     spars=spar_geometry(p)
     first_eta,last_eta = summary["eta_start"],summary["eta_end"]
-    variable=spars.perturbed||w.perturbed
+    variable=spars.perturbed||w.perturbed||!isempty(w.thickness_etas)
     boundaries=sort!(unique(vcat(first_eta,last_eta,filter(eta->first_eta<eta<last_eta,
-        vcat(spars.breakpoints,planform_breakpoints(w),w.airfoil_etas)))))
+        vcat(spars.breakpoints,planform_breakpoints(w),w.airfoil_etas,loft_control_etas(w))))))
     if variable
         fs=minimum(spar_surface_xc(w,spars,eta,:front) for eta in boundaries)
         rs=maximum(spar_surface_xc(w,spars,eta,:rear) for eta in boundaries)
@@ -386,7 +387,7 @@ end
 """Keep the exact linear fast path and resolve smooth cosine blends to tight tolerance."""
 function fuel_span_integral(w::Wing,f,a,b)
     mid=(a+b)/2;half=(b-a)/2
-    w.airfoil_interpolation===:linear && return half*(f(mid-half/sqrt(3))+f(mid+half/sqrt(3)))
+    w.airfoil_interpolation===:linear && isempty(w.thickness_etas) && return half*(f(mid-half/sqrt(3))+f(mid+half/sqrt(3)))
     scale=max(abs(f(a)),abs(f(mid)),abs(f(b)),1e-12)*(b-a)
     return fuel_adaptive_integral(f,a,b,1e-11*scale)
 end
@@ -416,7 +417,7 @@ function angled_fuel_bay_volume(m::Model,rib::Int)
         # Integrate the full modeled span, retaining the sampled boundary
         # extrema as cuts rather than using them to truncate the domain.
         stations=sort!(unique(vcat(0.0,last(g.etas),collect(range(eta_lo,eta_hi;length=17)),filter(e->0<e<last(g.etas),
-            vcat(planform_breakpoints(w),w.airfoil_etas,g.rib_layout.arc.spar.breakpoints,g.lower_etas[:,ja+1],g.upper_etas[:,ja+1],g.lower_etas[:,jb+1],g.upper_etas[:,jb+1])))))
+            vcat(planform_breakpoints(w),loft_integration_etas(w),g.rib_layout.arc.spar.breakpoints,g.lower_etas[:,ja+1],g.upper_etas[:,ja+1],g.lower_etas[:,jb+1],g.upper_etas[:,jb+1])))))
         area(eta)=w.semispan*fuel_clipped_section_area(w,g.rib_layout.arc.spar,eta,a,b,knots)
         total=sum(fuel_adaptive_integral(area,stations[i],stations[i+1],1e-9*scale*(stations[i+1]-stations[i])/last(g.etas)) for i in 1:length(stations)-1)
         isfinite(total)&&total>0||throw(ArgumentError("angled fuel bay $rib has nonpositive or nonfinite volume"))

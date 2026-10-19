@@ -9,7 +9,7 @@ function normalize_plan_view(value)
     sizeof(value) <= 12 * 1024 * 1024 || throw(ArgumentError("Plan-view metadata exceeds 12 MiB"))
     data = try JSON.parse(value) catch; throw(ArgumentError("Invalid plan-view JSON metadata")) end
     data isa AbstractDict || throw(ArgumentError("Plan-view metadata must be an object"))
-    allowed = Set(["version", "theme", "mirror", "showSpars", "showRibs", "showRibLabels", "opacity", "image", "transform", "viewport", "grid", "snap", "measurements"])
+    allowed = Set(["version", "theme", "mirror", "showSpars", "showRibs", "showRibLabels", "filledFigures", "opacity", "image", "pin", "transform", "viewport", "grid", "snap", "measurements"])
     all(k -> k in allowed, keys(data)) || throw(ArgumentError("Unknown plan-view setting"))
     version = get(data, "version", 1)
     version isa Real && !(version isa Bool) && version == 1 || throw(ArgumentError("Unsupported plan-view version"))
@@ -17,7 +17,7 @@ function normalize_plan_view(value)
     theme = get(data, "theme", "dark")
     theme in ("dark", "white") || throw(ArgumentError("Plan-view theme must be dark or white"))
     out["theme"] = theme
-    for key in ("mirror", "showSpars", "showRibs", "showRibLabels")
+    for key in ("mirror", "showSpars", "showRibs", "showRibLabels", "filledFigures")
         v = get(data, key, key != "mirror")
         v isa Bool || throw(ArgumentError("Plan-view $key must be true or false"))
         out[key] = v
@@ -99,6 +99,20 @@ function normalize_plan_view(value)
     else
         out["image"] = nothing
     end
+    pin = get(data, "pin", nothing)
+    if pin !== nothing
+        image !== nothing && pin isa AbstractDict && Set(keys(pin)) == Set(["image", "drawing"]) || throw(ArgumentError("An image pin needs a reference image and two points"))
+        normalized_pin = Dict{String,Any}()
+        for key in ("image", "drawing")
+            point = pin[key]
+            point isa AbstractDict && Set(keys(point)) == Set(["x", "y"]) && all(k -> finite_number(point[k]) && abs(point[k]) <= 1e7, ("x", "y")) || throw(ArgumentError("Invalid image pin point"))
+            normalized_pin[key] = Dict("x" => Float64(point["x"]), "y" => Float64(point["y"]))
+        end
+        0 <= pin["image"]["x"] <= image["width"] && 0 <= pin["image"]["y"] <= image["height"] || throw(ArgumentError("The pinned image point must lie inside the image"))
+        out["pin"] = normalized_pin
+    else
+        out["pin"] = nothing
+    end
     return JSON.json(out)
 end
 
@@ -111,8 +125,8 @@ function normalize_drawings(value)
     data isa AbstractDict || throw(ArgumentError("Drawing metadata must be an object"))
     names = Set(["planform", "spars", "master-ribs", "leading-edge-ribs", "fuel-tank", "stringer-section",
         "spar-cap-section", "rib-stiffener-section", "rib-override-section", "airfoil-root", "airfoil-tip",
-        ("material-" * name for name in ("upper_skin", "lower_skin", "spar_web", "rib_web", "leading_edge_skin", "leading_edge_rib"))...])
-    fields = Set(["version", "theme", "opacity", "image", "transform", "viewport", "grid", "snap", "measurements"])
+        ("material-" * name for name in ("upper_skin", "lower_skin", "spar_web", "rib_web", "leading_edge_skin", "leading_edge_rib", "stringer_flange"))...])
+    fields = Set(["version", "theme", "opacity", "image", "pin", "filledFigures", "transform", "viewport", "grid", "snap", "measurements"])
     out = Dict{String,Any}()
     for (name, state) in data
         name in names || occursin(r"^airfoil-station-([1-9]|[1-9][0-9]|100)$", name) || throw(ArgumentError("Unknown drawing metadata key: $name"))

@@ -7,7 +7,7 @@
     const api=root.WingDimensionedPlanView, origin=root.location.origin;
     const token=Array.from(root.crypto.getRandomValues(new Uint32Array(4)),n=>n.toString(16).padStart(8,"0")).join("");
     let saved=api.validateState(), child=null, ready=false, revision=0;
-    const copy=()=>({...saved,image:saved.image&&{...saved.image},transform:{...saved.transform},viewport:{...saved.viewport},grid:{...saved.grid},snap:{...saved.snap},measurements:saved.measurements.map(row=>({type:row.type,points:row.points.map(point=>({...point})),...(row.label?{label:{...row.label}}:{})}))});
+    const copy=()=>({...saved,image:saved.image&&{...saved.image},pin:saved.pin?{image:{...saved.pin.image},drawing:{...saved.pin.drawing}}:null,transform:{...saved.transform},viewport:{...saved.viewport},grid:{...saved.grid},snap:{...saved.snap},measurements:saved.measurements.map(row=>({type:row.type,points:row.points.map(point=>({...point})),...(row.label?{label:{...row.label}}:{})}))});
     const send=(type,payload={})=>{if(child&&!child.closed&&ready)child.postMessage({channel:CHANNEL,token,type,revision,...payload},origin);};
     const receive=event=>{
       const data=event.data;

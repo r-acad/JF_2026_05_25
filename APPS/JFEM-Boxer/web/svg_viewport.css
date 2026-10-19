@@ -36,3 +36,11 @@ svg.svgv-measuring,svg.svgv-measuring [role=button] { cursor:crosshair; }
 .svgv-snap-controls input[type=checkbox] { width:auto; margin:0; accent-color:#65bfff; }
 .svgv-snap-options small { max-width:245px; font:11px/1.4 system-ui,sans-serif; color:#b1c9dc; }
 .svgv-snap-marker { pointer-events:none; }
+.svgv-zoom,.svgv-fill,.svgv-pin-controls { display:inline-flex; align-items:center; flex-wrap:wrap; gap:4px; margin:0; color:#c8dce9; }
+.svgv-zoom input { box-sizing:border-box; width:76px; min-width:0; padding:4px; border:1px solid #426079; border-radius:3px; background:#0c1924; color:#dfecf5; font:inherit; }
+.svgv-fill input[type=checkbox] { width:auto; margin:0; }
+.svgv-pin-status { font:11px/1.4 system-ui,sans-serif; color:#ffce80; }
+.svgv-pin-controls button[aria-pressed=true] { background:#72501b; border-color:#edb960; }
+svg.svgv-pinning,svg.svgv-pinning [role=button] { cursor:crosshair; }
+/* Geometric areas only: marker glyphs, editable handles and labels retain fill. */
+.svgv-outline-only :is(path,polygon,polyline,rect,ellipse):not(defs *,marker *,[role=button] *,[data-control] *,.pf-fe-axes *) { fill:none!important; }

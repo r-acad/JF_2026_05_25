@@ -1,0 +1,10 @@
+.loft-editor { min-width:0; border:1px solid #426078; border-radius:5px; padding:10px; margin:12px 0; }
+.loft-editor legend { color:#c4daed; padding:0 5px; font-size:12px; }
+.loft-actions { display:flex; flex-wrap:wrap; gap:7px; margin:9px 0; }
+.loft-station-row { display:flex; align-items:end; flex-wrap:wrap; gap:8px; padding:8px 0; border-top:1px solid #354b60; }
+.loft-station-row label { display:flex; flex:1 1 90px; min-width:0; flex-direction:column; gap:5px; font-size:12px; }
+.loft-station-row input { min-width:0; width:100%; box-sizing:border-box; padding:6px; color:#e2eff8; background:#0f1a24; border:1px solid #4b657a; border-radius:4px; font:inherit; }
+.loft-station-row .mini { margin-bottom:1px; }
+.loft-editor :is(input,select,button):disabled { opacity:.5; }
+.loft-error { padding:8px; border:1px solid #a25b67; border-radius:4px; background:#48242d; color:#ffd3d9; font-size:12px; line-height:1.5; }
+.loft-error[hidden] { display:none; }

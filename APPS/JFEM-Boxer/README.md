@@ -37,6 +37,40 @@ or the [OS-specific setup instructions](<../../__Start here!__/README.md>).
 
 ![JFEM-Boxer displaying a generated lifting-surface model](<../../utils/images/fgen-model.png>)
 
+**Geometry** groups **Planform**, **Airfoils** and **Loft**. In Airfoils, each root,
+tip or intermediate section can use a NACA code, the catalogue, or **XFoil file**.
+Browse to a local coordinate file; its normalized coordinates and filename are
+embedded in the Study and TOML definition, so reopening does not need the
+original file or a network connection. The [XFoil coordinate formats](https://web.mit.edu/drela/Public/web/xfoil/xfoil_doc.txt)
+describe a contour from the trailing edge around the leading edge and back to
+the trailing edge, with an optional name line. These are geometry coordinates,
+not polar or pressure-coefficient output.
+
+In **Loft**, add optional **Target t/c** stations: `0.12` means a maximum
+chordwise thickness of 12% of local chord. The generator scales the blended
+section's half-thickness about its unchanged mid-camber line. This changes the
+shared aerodynamic/structural outer geometry, rather than the shell property
+thickness. Clear the schedule to keep the selected airfoils' original thickness.
+The separate **Twist** schedule accepts multiple eta/angle pairs in degrees,
+including nonzero root twist. Clear it to restore the original zero-root to
+**Tip twist** law. The twist axis is also set in Loft.
+
+Each schedule independently selects **Linear**, `w=s`, or **Cosine**,
+`w=(1-cos(πs))/2`, between adjacent eta stations, where
+`s=(eta-eta_i)/(eta_j-eta_i)` and `value=(1-w)value_i+w value_j`.
+Cosine gives zero interpolation slope at the anchors. Outside the entered
+range, the nearest value is held constant; one station defines a constant
+schedule. Airfoil shape interpolation remains a separate choice in Airfoils.
+
+All 2D drawings provide exact **View zoom (%)** entry. Hold **Alt** while using
+the wheel for one tenth of the normal zoom step; combine it with **Ctrl/Cmd**
+for fine image-only scaling. To register a reference image, choose **Pin image
+point**, pick a point on the image, then its matching point in the drawing.
+Subsequent zooms keep this match fixed until you clear the pin or move the image
+independently. **Filled figures** switches the dimensioned plan view between
+filled areas and outlines. Image alignment, pins, zoom and fill visibility are
+saved with the Study's drawing settings.
+
 On Windows, double-click **JFEM-Boxer.cmd** in `__Start here!__/Windows`, at the
 repository root, or in this app folder. Setup builds the shared JFEM/app sysimage automatically; the launcher checks
 and loads it. The Julia entry point is **JFEM-Boxer.jl**. Existing `.wingfem.json`

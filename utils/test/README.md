@@ -14,6 +14,17 @@ Individual
 large application model. The JFEM-Boxer browser/generator checks live separately
 under `APPS/JFEM-Boxer/test/`.
 
+The Boxer geometry checks cover local coordinate-file parsing, loft thickness
+and twist interpolation, exact maximum-thickness evaluation, shared structural/
+aerodynamic/fuel geometry, and portable drawing settings. Run
+`APPS/JFEM-Boxer/test/loft_controls_test.jl` from the shared Julia environment.
+The adjacent `airfoil_file_test.cjs`, `loft_test.cjs` and
+`svg_registration_math_test.cjs` use Node's built-in assertions. Browser checks
+in `loft_file_browser_test.cjs` and `svg_registration_browser_test.cjs` also need
+Playwright; their first two arguments select a temporary evidence directory
+and the installed Playwright module. `CHROME_PATH` optionally selects an
+installed browser. These are developer tools, not additional app requirements.
+
 After installation, from the repository root:
 
 ```sh

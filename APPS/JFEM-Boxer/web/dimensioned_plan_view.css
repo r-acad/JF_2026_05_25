@@ -16,6 +16,8 @@
 .dpv-image-settings[hidden],.dpv-image-status[hidden] { display:none; }
 .dpv-scale input { width:80px; min-width:0; box-sizing:border-box; color:#e1eef7; background:#0b1722; border:1px solid #466276; border-radius:4px; padding:5px; font:inherit; }
 .dpv-scale input:disabled { opacity:.5; }
+.dpv-zoom { display:inline-flex; align-items:center; gap:4px; }
+.dpv-zoom input { box-sizing:border-box; width:80px; min-width:0; color:#e1eef7; background:#0b1722; border:1px solid #466276; border-radius:4px; padding:5px; font:inherit; }
 .dpv-legend { margin-right:auto; gap:5px; font-size:11px; }
 .dpv-legend i { width:16px; margin-left:5px; border-top:2px solid #84badf; }
 .dpv-legend i.front { border-color:#6ce4b7; }.dpv-legend i.rear { border-color:#ffad68; }
