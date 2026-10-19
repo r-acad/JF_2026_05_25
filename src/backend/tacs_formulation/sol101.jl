@@ -130,6 +130,7 @@ function _tacs_validate_shell_slice(
     allow_springs::Bool=false,
     allow_masses::Bool=false,
     allow_conm1::Bool=false,
+    allow_rigid_constraints::Bool=false,
     require_shell::Bool=true,
     allow_beam_offsets_releases::Union{Nothing,Bool}=nothing,
     allow_varying_pbeam_stations::Bool=false,
@@ -143,9 +144,14 @@ function _tacs_validate_shell_slice(
     unsupported_groups = String[]
     for key in ("CSOLIDs", "CSHEARs",
                 "CELAS1s", "CELAS2s",
-                "RBE1s", "RBE2s", "RBE3s",
+                "RBE1s",
                 "RBARs", "RSPLINEs", "MPCs")
         _tacs_nonempty_group(model, key) && push!(unsupported_groups, key)
+    end
+    if !allow_rigid_constraints
+        for key in ("RBE2s", "RBE3s")
+            _tacs_nonempty_group(model, key) && push!(unsupported_groups, key)
+        end
     end
     if !allow_beams
         for key in ("CBARs", "CBEAMs")
@@ -1311,7 +1317,25 @@ function _tacs_ensure_pcomp_reference!(prop::AbstractDict)
     return prop
 end
 
-function _tacs_shell_constitutive(model::Dict, prop::AbstractDict, el::AbstractDict)
+function _tacs_shell_material_angle(model::Dict, el::AbstractDict, ctx, X)
+    mcid = Solver.shell_material_coordinate_id(el)
+    mcid == 0 && return Solver.shell_material_basic_rotation(ctx.v1, ctx.v2, ctx.v3)
+    if mcid > 0
+        coord = get(get(model, "CORDs", Dict()), string(mcid), nothing)
+        coord === nothing && error("TACS shell $(ctx.element_id) references missing material coordinate $mcid.")
+        return Solver.shell_material_rotation_from_coord(ctx.v1, ctx.v2, ctx.v3, coord)
+    end
+    theta = deg2rad(Float64(get(el, "THETA", 0.0)))
+    if uppercase(string(get(ctx.property, "TYPE", "PSHELL"))) == "PSHELL"
+        p1 = SVector{3,Float64}(X[ctx.node_indices[1], :])
+        p2 = SVector{3,Float64}(X[ctx.node_indices[2], :])
+        return Solver.shell_material_rotation_from_g12(ctx.v1, ctx.v2, ctx.v3, p1, p2, theta)
+    end
+    return theta
+end
+
+function _tacs_shell_constitutive(model::Dict, prop::AbstractDict, el::AbstractDict;
+                                  material_angle=deg2rad(Float64(get(el, "THETA", 0.0))))
     prop_type = uppercase(string(get(prop, "TYPE", "PSHELL")))
     if prop_type == "PCOMP_CLT"
         _tacs_ensure_pcomp_reference!(prop)
@@ -1333,7 +1357,7 @@ function _tacs_shell_constitutive(model::Dict, prop::AbstractDict, el::AbstractD
             end
         Eref > 0.0 || (Eref = 1.0)
 
-        beta = deg2rad(Float64(get(el, "THETA", 0.0)))
+        beta = material_angle
         if abs(beta) > 1e-12
             FEM.rotate_constitutive_3x3!(Cm, beta)
             FEM.rotate_constitutive_3x3!(Cb, beta)
@@ -1343,15 +1367,50 @@ function _tacs_shell_constitutive(model::Dict, prop::AbstractDict, el::AbstractD
         return Cm, Cb, Cs, h, Eref, Bmb_local
     end
 
-    mat = model["MATs"][string(Int(prop["MID"]))]
+    # PSHELL's four materials describe independent membrane, bending,
+    # transverse-shear and membrane/bending-coupling operators. Reuse the
+    # common tensor semantics, including MAT2's *leading 2x2* MID3 block.
+    # Build unit-thickness tensors so ForwardDiff can retain h's dual type.
+    h = get(prop, "T", 0.0)
+    h > 0 || error("TACS-formulation PSHELL thickness must be positive.")
+    mats = model["MATs"]
+    mid = Int(prop["MID"])
+    mat = mats[string(mid)]
+    material(id) = get(mats, string(id), nothing)
+    mid2 = Int(get(prop, "MID2", mid))
+    mid3 = Int(get(prop, "MID3", mid))
+    mid4 = Int(get(prop, "MID4", 0))
+    br = Float64(get(prop, "BEND_RATIO", 1.0))
+    tst = Float64(get(prop, "TS_T", 5.0 / 6.0))
+    theta = material_angle
+    Qm = Solver.pshell_plane_stress_matrix(mat, theta)
+    Cm = h .* Qm
+    bend_mat = mid2 == 0 ? nothing : material(mid2)
+    mid2 != 0 && bend_mat === nothing && error("PSHELL references missing MID2 $mid2.")
+    Cb = h^3 .* Solver.pshell_bending_constitutive_matrix(bend_mat, 1.0, br, theta)
+    shear_mat = mid3 == 0 ? mat : material(mid3)
+    shear_mat === nothing && error("PSHELL references missing MID3 $mid3.")
+    Qs, _ = Solver.shell_transverse_shear_matrix(shear_mat, 1.0, tst, theta)
+    Cs = (mid2 == 0 || br <= 1e-12) ? zero(h) .* Qs : h .* Qs
+    Bmb = if mid4 != 0 && mid2 != 0 && br > 1e-12
+        bmat = material(mid4)
+        bmat === nothing && error("PSHELL references missing MID4 $mid4.")
+        h^2 .* Solver.pshell_mid4_bmb_matrix(bmat, 1.0, theta)
+    else
+        nothing
+    end
+    # Retain the material-specific stabilization modulus used by the
+    # existing shell operator; changing PSHELL's section tensors must not
+    # also change an isotropic/orthotropic drilling penalty.
     mat_type = uppercase(string(get(mat, "TYPE", "MAT1")))
-    Cm, Cb, Cs, h, Eref =
-        mat_type == "MAT8" ?
-        _tacs_mat8_pshell_constitutive(prop, mat, el) :
-        mat_type == "MAT2" ?
-        _tacs_mat2_pshell_constitutive(prop, mat, el) :
-        _tacs_mat1_pshell_constitutive(prop, mat)
-    return Cm, Cb, Cs, h, Eref, nothing
+    Eref = if mat_type == "MAT1" || mat_type == "MAT1_EQUIV"
+        Float64(get(mat, "E", 0.0))
+    elseif mat_type == "MAT8"
+        maximum(Float64(get(mat, key, 0.0)) for key in ("E1", "E2", "G12", "G1Z", "G2Z"))
+    else
+        max(maximum(abs, Qm), 1.0)
+    end
+    return Cm, Cb, Cs, h, Eref, Bmb
 end
 
 function _tacs_shell_supports_thickness_derivative(prop::AbstractDict)::Bool
@@ -1431,7 +1490,8 @@ function _tacs_quad4_shell_operator(model::Dict, el::AbstractDict, id_map, X, no
     ctx = _tacs_shell_element_context(model, el, id_map, X, node_R)
     ctx.kernel.node_count == 4 ||
         error("TACS-formulation quad shell operator received $(ctx.kernel.node_count)-node element.")
-    Cm, Cb, Cs, h, Eref, Bmb = _tacs_shell_constitutive(model, ctx.property, el)
+    Cm, Cb, Cs, h, Eref, Bmb = _tacs_shell_constitutive(model, ctx.property, el;
+        material_angle=_tacs_shell_material_angle(model, el, ctx, X))
     Ke_local = FEM.stiffness_quad4_matrices(
         ctx.local_coords, Cm, Cb, Cs, h, Eref;
         Bmb=Bmb,
@@ -1451,7 +1511,8 @@ function _tacs_tria3_shell_operator(model::Dict, el::AbstractDict, id_map, X, no
     ctx = _tacs_shell_element_context(model, el, id_map, X, node_R)
     ctx.kernel.node_count == 3 ||
         error("TACS-formulation CTRIA3 shell operator received $(ctx.kernel.node_count)-node element.")
-    Cm, Cb, Cs, h, Eref, Bmb = _tacs_shell_constitutive(model, ctx.property, el)
+    Cm, Cb, Cs, h, Eref, Bmb = _tacs_shell_constitutive(model, ctx.property, el;
+        material_angle=_tacs_shell_material_angle(model, el, ctx, X))
     Ke_local = FEM.stiffness_tria3_matrices(
         ctx.local_coords, Cm, Cb, Cs, h, Eref;
         bend_ratio=1.0,
@@ -1523,7 +1584,8 @@ function _tacs_quad4_shell_geometric_stiffness_operator(
     ctx = _tacs_shell_element_context(model, el, id_map, X, node_R)
     ctx.kernel.node_count == 4 ||
         error("TACS-formulation quad shell Kg operator received $(ctx.kernel.node_count)-node element.")
-    Cm, Cb, Cs, h, Eref, Bmb = _tacs_shell_constitutive(model, ctx.property, el)
+    Cm, Cb, Cs, h, Eref, Bmb = _tacs_shell_constitutive(model, ctx.property, el;
+        material_angle=_tacs_shell_material_angle(model, el, ctx, X))
     _ = Cb, Cs, Eref
 
     u_local = ctx.transform * Float64.(u_global[ctx.dofs])
@@ -1558,7 +1620,8 @@ function _tacs_tria3_shell_geometric_stiffness_operator(
     ctx = _tacs_shell_element_context(model, el, id_map, X, node_R)
     ctx.kernel.node_count == 3 ||
         error("TACS-formulation CTRIA3 shell Kg operator received $(ctx.kernel.node_count)-node element.")
-    Cm, Cb, Cs, h, Eref, Bmb = _tacs_shell_constitutive(model, ctx.property, el)
+    Cm, Cb, Cs, h, Eref, Bmb = _tacs_shell_constitutive(model, ctx.property, el;
+        material_angle=_tacs_shell_material_angle(model, el, ctx, X))
     _ = Cb, Cs, Bmb
 
     u_local = ctx.transform * Float64.(u_global[ctx.dofs])
@@ -3095,7 +3158,9 @@ function _tacs_assemble_sol101(
     allow_rod_slice = sol_type in (101, 103, 105) && sol_type in allowed_sol_types
     allow_beam_slice = sol_type in (101, 103, 105) && sol_type in allowed_sol_types
     allow_spring_slice = sol_type in (101, 103) && sol_type in allowed_sol_types
-    allow_mass_slice = sol_type == 103 && 103 in allowed_sol_types
+    physical_stiffness = thickness_derivative_pid === nothing
+    allow_linear_connections = physical_stiffness && sol_type in (101, 103) && sol_type in allowed_sol_types
+    allow_mass_slice = allow_linear_connections || (sol_type == 103 && 103 in allowed_sol_types)
     allow_varying_stations =
         allow_varying_pbeam_stations === nothing ?
         _tacs_default_allow_varying_pbeam_stations(thickness_derivative_pid, allowed_sol_types, route_label) :
@@ -3109,13 +3174,13 @@ function _tacs_assemble_sol101(
         allow_springs=allow_spring_slice,
         allow_masses=allow_mass_slice,
         allow_conm1=allow_mass_slice,
+        allow_rigid_constraints=allow_linear_connections,
         require_shell=!(allow_rod_slice || allow_beam_slice || allow_spring_slice),
         allow_varying_pbeam_stations=allow_varying_stations,
     )
     id_map, X, ndof, node_R = _tacs_node_tables(model)
     cshells = get(model, "CSHELLs", Dict())
     # Only shells using the selected property depend on this thickness.
-    physical_stiffness = thickness_derivative_pid === nothing
     cbars = physical_stiffness ? get(model, "CBARs", Dict()) : ()
     cbeams = physical_stiffness ? get(model, "CBEAMs", Dict()) : ()
     crods = physical_stiffness ? get(model, "CRODs", Dict()) : ()
@@ -3202,9 +3267,20 @@ function _tacs_assemble_sol101(
     if physical_stiffness
         Solver.append_direct_matrix_triplets!(I_idx, J_idx, V_val, model, id_map; kind=:stiffness)
     end
-    K = sparse(I_idx, J_idx, V_val, ndof, ndof)
-    orig_diag = collect(diag(K))
+    orig_diag = zeros(ndof)
+    for i in eachindex(V_val)
+        I_idx[i] == J_idx[i] && (orig_diag[I_idx[i]] += V_val[i])
+    end
     rbe3_map = Dict{Int,Vector{Tuple{Int,Float64}}}()
+    if allow_linear_connections &&
+       (_tacs_nonempty_group(model, "RBE2s") || _tacs_nonempty_group(model, "RBE3s"))
+        # Preserve the uncondensed diagonal for AUTOSPC, then use the same
+        # merged dependency map as the shared load, modal-mass and recovery
+        # paths. K, M and F must all receive the corresponding congruence.
+        rbe3_map, I_idx, J_idx, V_val = Solver.assemble_constraints(
+            model, id_map, X, node_R, I_idx, J_idx, V_val)
+    end
+    K = sparse(I_idx, J_idx, V_val, ndof, ndof)
     snorm_normals = Dict{Int,SVector{3,Float64}}()
     return K, id_map, X, ndof, node_R, max_elem_stiff, rbe3_map, snorm_normals, orig_diag
 end
@@ -3372,6 +3448,7 @@ function _tacs_sol103_modal_mass_builder(model::Dict, id_map, X, node_R, ndof::I
         allow_springs=true,
         allow_masses=true,
         allow_conm1=true,
+        allow_rigid_constraints=true,
         require_shell=false,
         allow_varying_pbeam_stations=true,
     )

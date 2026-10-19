@@ -1,0 +1,314 @@
+{
+  "status": "PASS",
+  "created_utc": "2026-10-19T11:41:28.166875+00:00",
+  "review": "Independent view_image inspection of all6 final original-uCRM9 result PNGs, actual pixel/header verification, exact static native component checks and production archive decode with native receipt/comparison frequency crosschecks.",
+  "images": [
+    {
+      "name": "31_published_static_displacement.png",
+      "sha256": "2539d034b6d2aa1f4f13bac3ac1c4c4a6b47a0d4aab5c05cb72301fe43d6f4fa",
+      "sidecar_sha256": "10316f6cb945ea439f76e3c1128c37903beb8c7aabf91a1c14a6321cc06ff094",
+      "width": 4728,
+      "height": 2832,
+      "source": "actual Boxer server with original BDF and production decoded retained native SOL101 payload",
+      "analysis": "SOL101_STATIC",
+      "native_node_count": 23812,
+      "visual_entity_count": 25203,
+      "shell_count": 25055,
+      "property_groups": 242,
+      "physical_magnification": 1,
+      "maximum_translation_m": 2.5348396558362323,
+      "white_pixel_samples": [
+        [
+          255,
+          255,
+          255
+        ],
+        [
+          255,
+          255,
+          255
+        ],
+        [
+          255,
+          255,
+          255
+        ]
+      ],
+      "visual_findings": [
+        "Complete deformed lifting surface and original undeformed wireframe fit within canvas.",
+        "Displacement magnitude legend in m reads0 to2.5348 and remains legible at native resolution."
+      ],
+      "limitations": [
+        "Pink outboard-of-box engine cage is original source connection geometry, not a scene-axis artifact.",
+        "The reported2.5348m is global maximum translation norm; it is not the ambiguous published vertical tip displacement.",
+        "No stress/element-force accuracy or availability is implied."
+      ]
+    },
+    {
+      "name": "32_published_static_results_ui.png",
+      "sha256": "0626581d0322d11fd7d31d494fd6d6d790ff24d397ba27d9e6004f0f4218bfdc",
+      "sidecar_sha256": "57bfafacd1be6eeeb862027312e6a84d774e655eb02819aa87c85c193bbd1acb",
+      "width": 4800,
+      "height": 3000,
+      "source": "actual Boxer server with original BDF and production decoded retained native SOL101 payload",
+      "analysis": "SOL101_STATIC",
+      "native_node_count": 23812,
+      "visual_entity_count": 25203,
+      "shell_count": 25055,
+      "property_groups": 242,
+      "physical_magnification": 1,
+      "maximum_translation_m": 2.5348396558362323,
+      "white_pixel_samples": [
+        [
+          255,
+          255,
+          255
+        ],
+        [
+          255,
+          255,
+          255
+        ],
+        [
+          255,
+          255,
+          255
+        ]
+      ],
+      "visual_findings": [
+        "Complete deformed lifting surface and original undeformed wireframe fit within canvas.",
+        "Displacement magnitude legend in m reads0 to2.5348 and remains legible at native resolution.",
+        "Full-UI image confirms selected Real scale (1:1), Physical magnification ?1, source deck name and23812 result nodes."
+      ],
+      "limitations": [
+        "Pink outboard-of-box engine cage is original source connection geometry, not a scene-axis artifact.",
+        "The reported2.5348m is global maximum translation norm; it is not the ambiguous published vertical tip displacement.",
+        "No stress/element-force accuracy or availability is implied."
+      ]
+    },
+    {
+      "name": "41_published_mode_01.png",
+      "sha256": "f6e0203553742a2fcbd2ac0d0de529c8b5a7c27dbf7b58096c3fc37e63799d05",
+      "sidecar_sha256": "45a7f2888b8ac26101afa24eacac1d90845800cb6e0ec2dcd4c02db2af2aa71f",
+      "width": 4728,
+      "height": 2832,
+      "source": "Actual Boxer loading final20-mode native binary through its normal disk-result path.",
+      "archive_sha256": "d2feab7a2ac3e1aaad39ce6331966f74b1155317d51c1a07c0d47038b0ea4b20",
+      "mode": 1,
+      "frequency_hz": 1.624820768817301,
+      "native_node_count": 23812,
+      "visual_entity_count": 25129,
+      "visual_entity_breakdown": {
+        "shells": 25055,
+        "RBE2": 12,
+        "RBE3": 62
+      },
+      "deformation": {
+        "multiplier": 1,
+        "amplitude": 96.64820840884717,
+        "maxRaw": 0.037137245517454696,
+        "peakDisplayed": 3.5892482445014866
+      },
+      "white_pixel_samples": [
+        [
+          255,
+          255,
+          255
+        ],
+        [
+          255,
+          255,
+          255
+        ],
+        [
+          255,
+          255,
+          255
+        ]
+      ],
+      "visual_findings": [
+        "Full magnified mode shape and white undeformed wireframe are visible with clear margins; no clipped tip or root.",
+        "Displacement legend correctly says normalized and identifies the corresponding modal index.",
+        "RBE display layers are hidden for a clean shape view; source connections remain in the unchanged solved model."
+      ],
+      "limitations": [
+        "Original CONM2 definitions and constitutive laws are unavailable in the archive; modal vectors came from the unchanged original mass model.",
+        "These are normalized, magnified eigenmodes, not displacements at physical scale.",
+        "Frequency is recorded in the sidecar and verified against actual native output; it is not printed in the canvas legend."
+      ]
+    },
+    {
+      "name": "42_published_mode_03.png",
+      "sha256": "33819a1ad894bddecbf71f6eb01f1e24190e7893cbcae919ec511a0957871f59",
+      "sidecar_sha256": "22afe2b9634b466c842838bcfad0515f079ff6c97f911136c2bd2ad234ac9c52",
+      "width": 4728,
+      "height": 2832,
+      "source": "Actual Boxer loading final20-mode native binary through its normal disk-result path.",
+      "archive_sha256": "d2feab7a2ac3e1aaad39ce6331966f74b1155317d51c1a07c0d47038b0ea4b20",
+      "mode": 3,
+      "frequency_hz": 3.8075781865411913,
+      "native_node_count": 23812,
+      "visual_entity_count": 25129,
+      "visual_entity_breakdown": {
+        "shells": 25055,
+        "RBE2": 12,
+        "RBE3": 62
+      },
+      "deformation": {
+        "multiplier": 1,
+        "amplitude": 89.46313480741476,
+        "maxRaw": 0.0401198577741321,
+        "peakDisplayed": 3.589248244501487
+      },
+      "white_pixel_samples": [
+        [
+          255,
+          255,
+          255
+        ],
+        [
+          255,
+          255,
+          255
+        ],
+        [
+          255,
+          255,
+          255
+        ]
+      ],
+      "visual_findings": [
+        "Full magnified mode shape and white undeformed wireframe are visible with clear margins; no clipped tip or root.",
+        "Displacement legend correctly says normalized and identifies the corresponding modal index.",
+        "RBE display layers are hidden for a clean shape view; source connections remain in the unchanged solved model."
+      ],
+      "limitations": [
+        "Original CONM2 definitions and constitutive laws are unavailable in the archive; modal vectors came from the unchanged original mass model.",
+        "These are normalized, magnified eigenmodes, not displacements at physical scale.",
+        "Frequency is recorded in the sidecar and verified against actual native output; it is not printed in the canvas legend."
+      ]
+    },
+    {
+      "name": "43_published_mode_10.png",
+      "sha256": "7582de1ce2577b3610c7be6accf021d73f4c6087d00954d17e8d493853f596f0",
+      "sidecar_sha256": "74d350e5085568e0d3eb2097cbd6cb63f7ed0b950f92cdfda4d43d6c33074671",
+      "width": 4728,
+      "height": 2832,
+      "source": "Actual Boxer loading final20-mode native binary through its normal disk-result path.",
+      "archive_sha256": "d2feab7a2ac3e1aaad39ce6331966f74b1155317d51c1a07c0d47038b0ea4b20",
+      "mode": 10,
+      "frequency_hz": 18.94989118019925,
+      "native_node_count": 23812,
+      "visual_entity_count": 25129,
+      "visual_entity_breakdown": {
+        "shells": 25055,
+        "RBE2": 12,
+        "RBE3": 62
+      },
+      "deformation": {
+        "multiplier": 1,
+        "amplitude": 46.332294426989584,
+        "maxRaw": 0.07746752646056464,
+        "peakDisplayed": 3.589248244501487
+      },
+      "white_pixel_samples": [
+        [
+          255,
+          255,
+          255
+        ],
+        [
+          255,
+          255,
+          255
+        ],
+        [
+          255,
+          255,
+          255
+        ]
+      ],
+      "visual_findings": [
+        "Full magnified mode shape and white undeformed wireframe are visible with clear margins; no clipped tip or root.",
+        "Displacement legend correctly says normalized and identifies the corresponding modal index.",
+        "RBE display layers are hidden for a clean shape view; source connections remain in the unchanged solved model."
+      ],
+      "limitations": [
+        "Original CONM2 definitions and constitutive laws are unavailable in the archive; modal vectors came from the unchanged original mass model.",
+        "These are normalized, magnified eigenmodes, not displacements at physical scale.",
+        "Frequency is recorded in the sidecar and verified against actual native output; it is not printed in the canvas legend."
+      ]
+    },
+    {
+      "name": "44_published_mode_20.png",
+      "sha256": "03975cdcc4b40ea011b35e42f27bb799ed1d6a414233c523aff5bad32ea35c1b",
+      "sidecar_sha256": "28873dbb8f4f024d84a35b53900d4e556b70c79829de904eb21b353bfca3dd9e",
+      "width": 4728,
+      "height": 2832,
+      "source": "Actual Boxer loading final20-mode native binary through its normal disk-result path.",
+      "archive_sha256": "d2feab7a2ac3e1aaad39ce6331966f74b1155317d51c1a07c0d47038b0ea4b20",
+      "mode": 20,
+      "frequency_hz": 39.23807025190432,
+      "native_node_count": 23812,
+      "visual_entity_count": 25129,
+      "visual_entity_breakdown": {
+        "shells": 25055,
+        "RBE2": 12,
+        "RBE3": 62
+      },
+      "deformation": {
+        "multiplier": 1,
+        "amplitude": 170.93063284321082,
+        "maxRaw": 0.02099827388923195,
+        "peakDisplayed": 3.589248244501487
+      },
+      "white_pixel_samples": [
+        [
+          255,
+          255,
+          255
+        ],
+        [
+          255,
+          255,
+          255
+        ],
+        [
+          255,
+          255,
+          255
+        ]
+      ],
+      "visual_findings": [
+        "Full magnified mode shape and white undeformed wireframe are visible with clear margins; no clipped tip or root.",
+        "Displacement legend correctly says normalized and identifies the corresponding modal index.",
+        "RBE display layers are hidden for a clean shape view; source connections remain in the unchanged solved model."
+      ],
+      "limitations": [
+        "Original CONM2 definitions and constitutive laws are unavailable in the archive; modal vectors came from the unchanged original mass model.",
+        "These are normalized, magnified eigenmodes, not displacements at physical scale.",
+        "Frequency is recorded in the sidecar and verified against actual native output; it is not printed in the canvas legend."
+      ]
+    }
+  ],
+  "native_json_sha256": "04b518baf3b679570d777e48551581a87f990c67ed24354fbd5fd2e19a0d7f84",
+  "production_payload_sha256": "b270d7fbe27c17042f5b5da50cdbfc98e27ddad86ed58add2a122aaf851f4423",
+  "parser_validation_sha256": "639ddb2c15f030d13eeb3a49f2d298411e4a917010fec59ebc190fbf4e6a0910",
+  "native_result_checks": {
+    "node_count": 23812,
+    "reactions_available": true,
+    "reaction_count": 1389,
+    "stress_available": false,
+    "element_force_available": false,
+    "unavailable_shell_count": 25055,
+    "native_component_assertions": 177886
+  },
+  "screenshot_capture_not_modified_by_reviewer": true,
+  "browser_state_changed_by_reviewer": false,
+  "problems": [],
+  "modal_archive_validation_sha256": "407591990a10292fdce57bd7062284663956ab346b71ff3e73d1ce14cbe67a9c",
+  "modal_archive_sha256": "d2feab7a2ac3e1aaad39ce6331966f74b1155317d51c1a07c0d47038b0ea4b20",
+  "modal_native_json_sha256": "8258d9cb86d7789502f8089d953732f02d640e1011036d191bad469ed1241cca",
+  "all20_modes_finite_and_frequency_checked": true,
+  "final_capture_review": "Modal41?44 were recaptured by the parent with connection display layers hidden, independently viewed again, and current PNG/sidecar hashes recorded. Static31/32 remain unchanged physical1?."
+}

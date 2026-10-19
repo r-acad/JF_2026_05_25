@@ -1,0 +1,75 @@
+{
+  "source": "source_bdf",
+  "counts": {
+    "nodes": 23738,
+    "elements": 25055,
+    "groups": 242
+  },
+  "mode": -1,
+  "camera": {
+    "alpha": -0.3,
+    "beta": 0.55,
+    "radius": 39.22732668340184,
+    "target_B": [
+      14.6912566755,
+      3.6629949805,
+      36.634116175
+    ],
+    "mode": 1
+  },
+  "background": [
+    1,
+    1,
+    1,
+    1
+  ],
+  "render_pixels": [
+    4728,
+    2832
+  ],
+  "devicePixelRatio": 2,
+  "lighting": {
+    "preset": "technical",
+    "shadows": false,
+    "selfShadows": false,
+    "ambient": 0.24,
+    "key": 0.43,
+    "fill": 0.16,
+    "headlight": 0.4,
+    "keyDirection": [
+      -0.8,
+      -0.5,
+      -1
+    ],
+    "fillDirection": [
+      0.5,
+      0.7,
+      0.8
+    ]
+  },
+  "property": {
+    "enabled": false,
+    "field": "pid",
+    "materialRole": "single"
+  },
+  "translucent": false,
+  "thickness": false,
+  "config": {
+    "name": "01_model_solid_isometric",
+    "alpha": -0.3,
+    "beta": 0.55,
+    "zoom": 0.76,
+    "edges": false
+  },
+  "screenshot_sha256": "9ed79aaabe1e3a0047ec8b66169a83a68e62b7701db3cf6dd1344ab83cf15faa",
+  "screenshot_pixels": [
+    4728,
+    2832
+  ],
+  "capture": "Direct Chrome DevTools screenshot of the running JFEM-Boxer WebGL canvas and native UI; no image alteration, compositing, synthetic model, or fake UI.",
+  "source_bdf": "../../model.bdf",
+  "source_bdf_sha256": "a35d9dbf81cf71fa43b89c998c7d50a072211008b55e31bb53e2ccfab663cb9e",
+  "native_result": null,
+  "native_result_sha256": null,
+  "caption": "Complete uniform-shell CRM wingbox. This adaptation has 23,738 nodes, 25,055 quadrilateral shells and 242 property regions."
+}

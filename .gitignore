@@ -85,6 +85,7 @@ tools/validation_suite/comparison.md
 !validation/cases/*/convergence/*/results/*.jfem
 !validation/cases/*/diagnostics/*/results/*.jfem
 !validation/cases/*/results/*.JU.JSON
+!validation/cases/*/results/**/*.JU.JSON
 !validation/cases/*/convergence/*/results/*.JU.JSON
 validation/cases/*/reruns/
 validation/local_runs/

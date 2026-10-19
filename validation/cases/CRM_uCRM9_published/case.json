@@ -1,0 +1,467 @@
+{
+  "id": "CRM_uCRM9_published",
+  "title": "Original uCRM9 wingbox: published structural comparison",
+  "solutions": [
+    101,
+    103
+  ],
+  "family": "crm",
+  "evidence_class": "Published computational structural reference",
+  "description": "Original released coarse uCRM9 wingbox, with anisotropic smeared panels, engine cage, control-surface and fuel masses, fixed cruise loads and the first 20 published natural frequencies.",
+  "geometry": "23,812 total GRIDs;25,055 CQUADR shells;242 PSHELL;968 MAT2;12 RBE2;62 RBE3;74 CONM2.",
+  "material": "Original independent PSHELL MID1/2/3/4 tensors, local frames and thicknesses; density2780kg/m3.",
+  "boundary_conditions": "Original root and side-of-body SPCs;1389 unique constrained nodes. No source constraint removed.",
+  "loading": "Original fixed nominal-cruise aero forces plus gravity;original20%fuel,LETE andengine masses.",
+  "length_unit": "m",
+  "metrics": [
+    {
+      "name": "Global Uz at inferred GRID833",
+      "value": 2.4825351024648463,
+      "reference": 2.5239,
+      "error_percent": 1.638927752096101,
+      "unit": "m",
+      "tolerance_percent": 0.5,
+      "status": "AMBIGUOUS_POINT",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode1",
+      "value": 1.624820768817301,
+      "reference": 1.629275,
+      "error_percent": 0.2733873153825439,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode1",
+      "value": 104.2247015233993,
+      "reference": 104.79692124385261,
+      "error_percent": 0.5460272245229447,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "FAIL",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode2",
+      "value": 2.6279265555385374,
+      "reference": 2.631756,
+      "error_percent": 0.14550909968336073,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode2",
+      "value": 272.637872280794,
+      "reference": 273.43303323360954,
+      "error_percent": 0.29080647038581625,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode3",
+      "value": 3.8075781865411913,
+      "reference": 3.816032,
+      "error_percent": 0.22153413437855288,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode3",
+      "value": 572.3443459879345,
+      "reference": 574.8886738800048,
+      "error_percent": 0.44257749503017685,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode4",
+      "value": 4.674548902693426,
+      "reference": 4.683773,
+      "error_percent": 0.19693732609530884,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode4",
+      "value": 862.6589883042602,
+      "reference": 866.0668471054918,
+      "error_percent": 0.3934868090865114,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode5",
+      "value": 6.3234743098129025,
+      "reference": 6.315011,
+      "error_percent": 0.1340189243202004,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode5",
+      "value": 1578.5969294640252,
+      "reference": 1574.3741830294657,
+      "error_percent": 0.26821745936114655,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode6",
+      "value": 8.097363958966522,
+      "reference": 8.112136,
+      "error_percent": 0.18209804462693593,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode6",
+      "value": 2588.4933723404392,
+      "reference": 2597.9463767337265,
+      "error_percent": 0.36386449227532214,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode7",
+      "value": 10.585275750908133,
+      "reference": 10.59417,
+      "error_percent": 0.08395418510243717,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode7",
+      "value": 4423.4802119285005,
+      "reference": 4430.91696935136,
+      "error_percent": 0.16783788715292983,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode8",
+      "value": 12.828735749288908,
+      "reference": 12.84292,
+      "error_percent": 0.1104441257213406,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode8",
+      "value": 6497.21825224765,
+      "reference": 6511.593654832843,
+      "error_percent": 0.2207662723936072,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode9",
+      "value": 13.964485731645963,
+      "reference": 13.97464,
+      "error_percent": 0.07266211046608466,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode9",
+      "value": 7698.562323855786,
+      "reference": 7709.762405420477,
+      "error_percent": 0.14527142310917726,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode10",
+      "value": 18.94989118019925,
+      "reference": 18.96142,
+      "error_percent": 0.06080145791165394,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode10",
+      "value": 14176.635638565182,
+      "reference": 14193.89057615255,
+      "error_percent": 0.1215659476504499,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode11",
+      "value": 19.560590223728273,
+      "reference": 19.55673,
+      "error_percent": 0.01973859499144793,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode11",
+      "value": 15105.101466293372,
+      "reference": 15099.140161765108,
+      "error_percent": 0.03948108610422439,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode12",
+      "value": 21.95933290884607,
+      "reference": 21.96473,
+      "error_percent": 0.024571625300793338,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode12",
+      "value": 19036.978624479238,
+      "reference": 19046.337463878783,
+      "error_percent": 0.04913721295390289,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode13",
+      "value": 24.23827585283984,
+      "reference": 24.24123,
+      "error_percent": 0.012186457371017902,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode13",
+      "value": 23193.334116277354,
+      "reference": 23198.9880413261,
+      "error_percent": 0.024371429644585624,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode14",
+      "value": 25.92174890641997,
+      "reference": 25.94732,
+      "error_percent": 0.09855003746063246,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode14",
+      "value": 26527.012109902407,
+      "reference": 26579.37426230667,
+      "error_percent": 0.19700295382242303,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode15",
+      "value": 28.901385918820683,
+      "reference": 28.95591,
+      "error_percent": 0.18830035450212546,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode15",
+      "value": 32975.93170554216,
+      "reference": 33100.47094940371,
+      "error_percent": 0.37624613876917945,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode16",
+      "value": 31.065099590658484,
+      "reference": 31.07021,
+      "error_percent": 0.01644793949418276,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode16",
+      "value": 38098.26841281712,
+      "reference": 38110.80426584035,
+      "error_percent": 0.032893173641233155,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode17",
+      "value": 33.804787003950416,
+      "reference": 33.81524,
+      "error_percent": 0.030912085939909684,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode17",
+      "value": 45114.49958643962,
+      "reference": 45142.404190382666,
+      "error_percent": 0.061814616309230026,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode18",
+      "value": 35.781155481738615,
+      "reference": 35.80227,
+      "error_percent": 0.05897536178958701,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode18",
+      "value": 50543.86621173955,
+      "reference": 50603.53584804707,
+      "error_percent": 0.11791594264616963,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode19",
+      "value": 38.376524222106966,
+      "reference": 38.39277,
+      "error_percent": 0.042314680324011957,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode19",
+      "value": 58142.14001165932,
+      "reference": 58191.37658226,
+      "error_percent": 0.08461145532634166,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Natural frequency mode20",
+      "value": 39.23807025190432,
+      "reference": 39.28811,
+      "error_percent": 0.12736613722493878,
+      "unit": "Hz",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    },
+    {
+      "name": "Angular eigenvalue mode20",
+      "value": 60782.004384324435,
+      "reference": 60937.132073815,
+      "error_percent": 0.25457005312074227,
+      "unit": "rad^2/s^2",
+      "tolerance_percent": 0.5,
+      "status": "PASS",
+      "reference_classification": "published_computational_reference"
+    }
+  ],
+  "convergence": [],
+  "diagnostics": [
+    "diagnostics/element_energy_fixture.json"
+  ],
+  "references": [
+    {
+      "citation": "Brooks,Kenway,Martins,uCRMversion1(2019),CC BY4.0,DOI10.17632/gpk4zn73xn.1",
+      "url": "https://data.mendeley.com/datasets/gpk4zn73xn/1"
+    },
+    {
+      "citation": "Benchmark Aerostructural Models for the Study of Transonic Aircraft Wings,AIAA Journal56(7),2840-2855(2018)",
+      "url": "https://doi.org/10.2514/1.J056603"
+    }
+  ],
+  "observations": [
+    "Ordered scalar frequencies compared; published mode vectors not provided.",
+    "Tip target has no author-specified GRID/chord station; all 21 tip nodes and predeclared GRID 833 are retained."
+  ],
+  "limits": [
+    "Structural targets are from the author-published workbook; separate coupled MACH results and paper Table 4 are excluded.",
+    "The workbook does not identify the tip sampling point. GRID833 is an a priori inferred selector; the 21 tip-rib nodes differ in span by only 3.25e-5 m. No tip value is selected by agreement with the target and no qualified static PASS is claimed.",
+    "K6ROT=100000 is retained in the original input. The current CQUADR backend uses its own internal drilling policy, so retaining this card does not imply identical drilling stiffness semantics.",
+    "Missing modes and negative finite eigenvalues are failures/diagnostics, never numerical agreement. No mass, material coupling, load or boundary condition is removed to obtain reference agreement.",
+    "Negative candidate residuals use the recorded scale-normalized definition; they are not a certificate that all negative finite eigenvalues were found.",
+    "Modal comparison uses ascending frequency order. The author workbook supplies scalar natural frequencies, not corresponding eigenvectors; modal assurance/correlation is not established by this scalar comparison."
+  ],
+  "run_date": "2026-10-19",
+  "solver_revision": "b74dcdff + reviewed source changes (exact SHA256 in results/run_receipt.json)",
+  "model_files": [
+    "run_uCRM-9_static_cruise_coarse.bdf",
+    "run_uCRM-9_modal_coarse.bdf"
+  ],
+  "native_result_available": true,
+  "gallery_preview": "figures/boxer/21_published_uCRM9_shell_thickness.png",
+  "gallery_preview_note": "Actual Boxer model; original released property data",
+  "gallery_results": "results/comparison.json",
+  "gallery_status_class": "caution",
+  "gallery_assessment": "20/20 modes; see measured errors and static point caveat",
+  "gallery_interpretation": "Maximum frequency error 0.2734%; angular eigenvalue error 0.546%. Static tip sampling is ambiguous."
+}

@@ -1,0 +1,75 @@
+{
+  "source": "native_jfem_archive",
+  "result": "run_uCRM-9_modal_coarse.jfem",
+  "counts": {
+    "nodes": 23812,
+    "elements": 25129,
+    "groups": 242
+  },
+  "mode": 19,
+  "frequency": 39.23807025190432,
+  "deformation": {
+    "multiplier": 1,
+    "amplitude": 170.93063284321082,
+    "maxRaw": 0.02099827388923195,
+    "peakDisplayed": 3.589248244501487
+  },
+  "camera": {
+    "alpha": -0.3,
+    "beta": 1.05,
+    "radius": 33.54968729138672,
+    "target_B": [
+      14.69125667330809,
+      3.6629949808120728,
+      36.63411617279053
+    ],
+    "mode": 1
+  },
+  "background": [
+    1,
+    1,
+    1,
+    1
+  ],
+  "render_pixels": [
+    4728,
+    2832
+  ],
+  "devicePixelRatio": 2,
+  "lighting": {
+    "preset": "technical",
+    "shadows": false,
+    "selfShadows": false,
+    "ambient": 0.24,
+    "key": 0.43,
+    "fill": 0.16,
+    "headlight": 0.4,
+    "keyDirection": [
+      -0.8,
+      -0.5,
+      -1
+    ],
+    "fillDirection": [
+      0.5,
+      0.7,
+      0.8
+    ]
+  },
+  "property": {
+    "enabled": false,
+    "field": "pid",
+    "materialRole": "single"
+  },
+  "translucent": false,
+  "thickness": false,
+  "config": {
+    "name": "44_published_mode_20",
+    "mode": 19,
+    "alpha": -0.3,
+    "beta": 1.05,
+    "zoom": 0.65,
+    "undeformed": true,
+    "edges": false,
+    "explode": 0
+  }
+}

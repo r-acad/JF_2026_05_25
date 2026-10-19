@@ -1,0 +1,659 @@
+{
+  "schema": "jfem.crm.published_comparison.v1",
+  "dataset_doi": "10.17632/gpk4zn73xn.1",
+  "static": {
+    "reference_displacement_m": 2.5239,
+    "tip_rib": [
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.86721802,
+          29.38150024,
+          4.145702362
+        ],
+        "translation_m": [
+          0.10146707220087028,
+          -0.021231510121202925,
+          2.5324510456467744
+        ],
+        "node_id": 831,
+        "vertical_displacement_m": 2.5324510456467744,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 0.33880287042967466,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.18533707,
+          29.38150024,
+          4.150185585
+        ],
+        "translation_m": [
+          0.10107826865231678,
+          -0.01916878184064988,
+          2.4725105972394568
+        ],
+        "node_id": 832,
+        "vertical_displacement_m": 2.4725105972394568,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 2.036110890310355,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.29914093,
+          29.3815136,
+          4.275279522
+        ],
+        "translation_m": [
+          0.09007269287334767,
+          -0.03699268775711234,
+          2.4825351024648463
+        ],
+        "node_id": 833,
+        "vertical_displacement_m": 2.4825351024648463,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 1.638927752096101,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.41290665,
+          29.38150024,
+          4.270970345
+        ],
+        "translation_m": [
+          0.0904525462108153,
+          -0.03685018313660012,
+          2.492549084257352
+        ],
+        "node_id": 834,
+        "vertical_displacement_m": 2.492549084257352,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 1.2421615651431397,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.5266037,
+          29.38150787,
+          4.265191078
+        ],
+        "translation_m": [
+          0.09097170376287221,
+          -0.03648041362180892,
+          2.50254714620624
+        ],
+        "node_id": 835,
+        "vertical_displacement_m": 2.50254714620624,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 0.8460261418344607,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.64022827,
+          29.38150024,
+          4.258045197
+        ],
+        "translation_m": [
+          0.09161472664649929,
+          -0.035913820772606554,
+          2.512527636219289
+        ],
+        "node_id": 836,
+        "vertical_displacement_m": 2.512527636219289,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 0.45058694008124744,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.75376129,
+          29.38150787,
+          4.24963522
+        ],
+        "translation_m": [
+          0.09234922249696059,
+          -0.035228164407004346,
+          2.5224919224309392
+        ],
+        "node_id": 837,
+        "vertical_displacement_m": 2.5224919224309392,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 0.055789752726359366,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.29914474,
+          29.38148117,
+          4.02101326
+        ],
+        "translation_m": [
+          0.11244362209940409,
+          -0.0016862511767516877,
+          2.4825302932158038
+        ],
+        "node_id": 838,
+        "vertical_displacement_m": 2.4825302932158038,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 1.6391183004158663,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.41294861,
+          29.38150024,
+          4.022521496
+        ],
+        "translation_m": [
+          0.1123074237393278,
+          -0.002334274906458551,
+          2.492548016556505
+        ],
+        "node_id": 839,
+        "vertical_displacement_m": 2.492548016556505,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 1.2422038687545067,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.52669144,
+          29.38148499,
+          4.026546001
+        ],
+        "translation_m": [
+          0.11193902405669334,
+          -0.0033573426637477227,
+          2.5025503756368783
+        ],
+        "node_id": 840,
+        "vertical_displacement_m": 2.5025503756368783,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 0.8458981878490229,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.64033508,
+          29.38150024,
+          4.032842636
+        ],
+        "translation_m": [
+          0.11136861481781023,
+          -0.004703966063115424,
+          2.512533965298849
+        ],
+        "node_id": 841,
+        "vertical_displacement_m": 2.512533965298849,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 0.45033617422047656,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.7538414,
+          29.3814888,
+          4.041188717
+        ],
+        "translation_m": [
+          0.11063550984577177,
+          -0.006278468575309112,
+          2.522496864043717
+        ],
+        "node_id": 842,
+        "vertical_displacement_m": 2.522496864043717,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 0.055593959993777156,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.18533325,
+          29.38150024,
+          4.27821064
+        ],
+        "translation_m": [
+          0.08980802799961125,
+          -0.03696713758523226,
+          2.472512328237722
+        ],
+        "node_id": 3693,
+        "vertical_displacement_m": 2.472512328237722,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 2.036042306045322,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.18533707,
+          29.38150024,
+          4.022161007
+        ],
+        "translation_m": [
+          0.11235882126499193,
+          -0.0013669624163051247,
+          2.4725100004526563
+        ],
+        "node_id": 3694,
+        "vertical_displacement_m": 2.4725100004526563,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 2.0361345357321396,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.86721802,
+          29.38150024,
+          4.051187515
+        ],
+        "translation_m": [
+          0.10975911799854678,
+          -0.008078755396602808,
+          2.532449357939339
+        ],
+        "node_id": 3791,
+        "vertical_displacement_m": 2.532449357939339,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 0.33873600140017335,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.86721802,
+          29.38150024,
+          4.240217209
+        ],
+        "translation_m": [
+          0.09317333863588605,
+          -0.0343839291455788,
+          2.5324510936286067
+        ],
+        "node_id": 3792,
+        "vertical_displacement_m": 2.5324510936286067,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 0.33880477152846167,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.29914474,
+          29.38150024,
+          4.148146152
+        ],
+        "translation_m": [
+          0.10125871410896821,
+          -0.019342542800655334,
+          2.4825349125253604
+        ],
+        "node_id": 11845,
+        "vertical_displacement_m": 2.4825349125253604,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 1.638935277730473,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.41292953,
+          29.38150024,
+          4.146745682
+        ],
+        "translation_m": [
+          0.10138015864076633,
+          -0.019597025129396876,
+          2.492549732164446
+        ],
+        "node_id": 11846,
+        "vertical_displacement_m": 2.492549732164446,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 1.242135894272909,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.52664948,
+          29.38150024,
+          4.145868301
+        ],
+        "translation_m": [
+          0.10145564282002273,
+          -0.019921618527873337,
+          2.502552634798214
+        ],
+        "node_id": 11847,
+        "vertical_displacement_m": 2.502552634798214,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 0.8458086771181785,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.64028168,
+          29.38150024,
+          4.145443916
+        ],
+        "translation_m": [
+          0.10149121306619949,
+          -0.020310090763797833,
+          2.5125322968887827
+        ],
+        "node_id": 11848,
+        "vertical_displacement_m": 2.5125322968887827,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 0.4504022786646521,
+        "comparison_status": "AMBIGUOUS_POINT"
+      },
+      {
+        "subcase": 1,
+        "xyz_m": [
+          46.75380325,
+          29.38150024,
+          4.145411968
+        ],
+        "translation_m": [
+          0.10149310604878949,
+          -0.020753592311633134,
+          2.5224942555587386
+        ],
+        "node_id": 11849,
+        "vertical_displacement_m": 2.5224942555587386,
+        "reference_m": 2.5239,
+        "error_percent_if_same_point": 0.05569731135390391,
+        "comparison_status": "AMBIGUOUS_POINT"
+      }
+    ],
+    "inferred_node_id": 833,
+    "inferred_displacement_m": 2.4825351024648463,
+    "inferred_error_percent": 1.638927752096101,
+    "status": "AMBIGUOUS_POINT"
+  },
+  "modes": [
+    {
+      "mode": 1,
+      "frequency_Hz": 1.624820768817301,
+      "reference_frequency_Hz": 1.629275,
+      "frequency_error_percent": 0.2733873153825439,
+      "angular_eigenvalue_rad2_s2": 104.2247015233993,
+      "reference_angular_eigenvalue_rad2_s2": 104.79692124385261,
+      "eigenvalue_error_percent": 0.5460272245229447,
+      "relative_residual": 4.141847883164355e-11,
+      "scale_normalized_residual": 4.3471566220469875e-17
+    },
+    {
+      "mode": 2,
+      "frequency_Hz": 2.6279265555385374,
+      "reference_frequency_Hz": 2.631756,
+      "frequency_error_percent": 0.14550909968336073,
+      "angular_eigenvalue_rad2_s2": 272.637872280794,
+      "reference_angular_eigenvalue_rad2_s2": 273.43303323360954,
+      "eigenvalue_error_percent": 0.29080647038581625,
+      "relative_residual": 1.6849028371108766e-12,
+      "scale_normalized_residual": 3.2292708348645763e-16
+    },
+    {
+      "mode": 3,
+      "frequency_Hz": 3.8075781865411913,
+      "reference_frequency_Hz": 3.816032,
+      "frequency_error_percent": 0.22153413437855288,
+      "angular_eigenvalue_rad2_s2": 572.3443459879345,
+      "reference_angular_eigenvalue_rad2_s2": 574.8886738800048,
+      "eigenvalue_error_percent": 0.44257749503017685,
+      "relative_residual": 1.0033680782748869e-11,
+      "scale_normalized_residual": 2.028858288955405e-16
+    },
+    {
+      "mode": 4,
+      "frequency_Hz": 4.674548902693426,
+      "reference_frequency_Hz": 4.683773,
+      "frequency_error_percent": 0.19693732609530884,
+      "angular_eigenvalue_rad2_s2": 862.6589883042602,
+      "reference_angular_eigenvalue_rad2_s2": 866.0668471054918,
+      "eigenvalue_error_percent": 0.3934868090865114,
+      "relative_residual": 8.796091479473216e-12,
+      "scale_normalized_residual": 6.865559255884024e-17
+    },
+    {
+      "mode": 5,
+      "frequency_Hz": 6.3234743098129025,
+      "reference_frequency_Hz": 6.315011,
+      "frequency_error_percent": 0.1340189243202004,
+      "angular_eigenvalue_rad2_s2": 1578.5969294640252,
+      "reference_angular_eigenvalue_rad2_s2": 1574.3741830294657,
+      "eigenvalue_error_percent": 0.26821745936114655,
+      "relative_residual": 4.19490698164678e-13,
+      "scale_normalized_residual": 9.801456405994459e-17
+    },
+    {
+      "mode": 6,
+      "frequency_Hz": 8.097363958966522,
+      "reference_frequency_Hz": 8.112136,
+      "frequency_error_percent": 0.18209804462693593,
+      "angular_eigenvalue_rad2_s2": 2588.4933723404392,
+      "reference_angular_eigenvalue_rad2_s2": 2597.9463767337265,
+      "eigenvalue_error_percent": 0.36386449227532214,
+      "relative_residual": 3.2544605119970485e-12,
+      "scale_normalized_residual": 7.867685605953775e-17
+    },
+    {
+      "mode": 7,
+      "frequency_Hz": 10.585275750908133,
+      "reference_frequency_Hz": 10.59417,
+      "frequency_error_percent": 0.08395418510243717,
+      "angular_eigenvalue_rad2_s2": 4423.4802119285005,
+      "reference_angular_eigenvalue_rad2_s2": 4430.91696935136,
+      "eigenvalue_error_percent": 0.16783788715292983,
+      "relative_residual": 2.0457953647287095e-12,
+      "scale_normalized_residual": 9.146593996703558e-17
+    },
+    {
+      "mode": 8,
+      "frequency_Hz": 12.828735749288908,
+      "reference_frequency_Hz": 12.84292,
+      "frequency_error_percent": 0.1104441257213406,
+      "angular_eigenvalue_rad2_s2": 6497.21825224765,
+      "reference_angular_eigenvalue_rad2_s2": 6511.593654832843,
+      "eigenvalue_error_percent": 0.2207662723936072,
+      "relative_residual": 7.651634364901731e-13,
+      "scale_normalized_residual": 6.927540384999662e-17
+    },
+    {
+      "mode": 9,
+      "frequency_Hz": 13.964485731645963,
+      "reference_frequency_Hz": 13.97464,
+      "frequency_error_percent": 0.07266211046608466,
+      "angular_eigenvalue_rad2_s2": 7698.562323855786,
+      "reference_angular_eigenvalue_rad2_s2": 7709.762405420477,
+      "eigenvalue_error_percent": 0.14527142310917726,
+      "relative_residual": 6.715745426504889e-13,
+      "scale_normalized_residual": 6.008552415441765e-17
+    },
+    {
+      "mode": 10,
+      "frequency_Hz": 18.94989118019925,
+      "reference_frequency_Hz": 18.96142,
+      "frequency_error_percent": 0.06080145791165394,
+      "angular_eigenvalue_rad2_s2": 14176.635638565182,
+      "reference_angular_eigenvalue_rad2_s2": 14193.89057615255,
+      "eigenvalue_error_percent": 0.1215659476504499,
+      "relative_residual": 5.844416863721061e-13,
+      "scale_normalized_residual": 6.108557384844854e-17
+    },
+    {
+      "mode": 11,
+      "frequency_Hz": 19.560590223728273,
+      "reference_frequency_Hz": 19.55673,
+      "frequency_error_percent": 0.01973859499144793,
+      "angular_eigenvalue_rad2_s2": 15105.101466293372,
+      "reference_angular_eigenvalue_rad2_s2": 15099.140161765108,
+      "eigenvalue_error_percent": 0.03948108610422439,
+      "relative_residual": 3.007575574324691e-13,
+      "scale_normalized_residual": 7.725021310687833e-17
+    },
+    {
+      "mode": 12,
+      "frequency_Hz": 21.95933290884607,
+      "reference_frequency_Hz": 21.96473,
+      "frequency_error_percent": 0.024571625300793338,
+      "angular_eigenvalue_rad2_s2": 19036.978624479238,
+      "reference_angular_eigenvalue_rad2_s2": 19046.337463878783,
+      "eigenvalue_error_percent": 0.04913721295390289,
+      "relative_residual": 6.576429297049296e-13,
+      "scale_normalized_residual": 9.244114789322054e-17
+    },
+    {
+      "mode": 13,
+      "frequency_Hz": 24.23827585283984,
+      "reference_frequency_Hz": 24.24123,
+      "frequency_error_percent": 0.012186457371017902,
+      "angular_eigenvalue_rad2_s2": 23193.334116277354,
+      "reference_angular_eigenvalue_rad2_s2": 23198.9880413261,
+      "eigenvalue_error_percent": 0.024371429644585624,
+      "relative_residual": 2.647127663063071e-13,
+      "scale_normalized_residual": 6.544164181445852e-17
+    },
+    {
+      "mode": 14,
+      "frequency_Hz": 25.92174890641997,
+      "reference_frequency_Hz": 25.94732,
+      "frequency_error_percent": 0.09855003746063246,
+      "angular_eigenvalue_rad2_s2": 26527.012109902407,
+      "reference_angular_eigenvalue_rad2_s2": 26579.37426230667,
+      "eigenvalue_error_percent": 0.19700295382242303,
+      "relative_residual": 6.455841614307161e-13,
+      "scale_normalized_residual": 1.525450655713979e-16
+    },
+    {
+      "mode": 15,
+      "frequency_Hz": 28.901385918820683,
+      "reference_frequency_Hz": 28.95591,
+      "frequency_error_percent": 0.18830035450212546,
+      "angular_eigenvalue_rad2_s2": 32975.93170554216,
+      "reference_angular_eigenvalue_rad2_s2": 33100.47094940371,
+      "eigenvalue_error_percent": 0.37624613876917945,
+      "relative_residual": 4.761741904318652e-13,
+      "scale_normalized_residual": 1.0973700023479003e-16
+    },
+    {
+      "mode": 16,
+      "frequency_Hz": 31.065099590658484,
+      "reference_frequency_Hz": 31.07021,
+      "frequency_error_percent": 0.01644793949418276,
+      "angular_eigenvalue_rad2_s2": 38098.26841281712,
+      "reference_angular_eigenvalue_rad2_s2": 38110.80426584035,
+      "eigenvalue_error_percent": 0.032893173641233155,
+      "relative_residual": 2.8675144724068915e-13,
+      "scale_normalized_residual": 8.995897694557104e-17
+    },
+    {
+      "mode": 17,
+      "frequency_Hz": 33.804787003950416,
+      "reference_frequency_Hz": 33.81524,
+      "frequency_error_percent": 0.030912085939909684,
+      "angular_eigenvalue_rad2_s2": 45114.49958643962,
+      "reference_angular_eigenvalue_rad2_s2": 45142.404190382666,
+      "eigenvalue_error_percent": 0.061814616309230026,
+      "relative_residual": 1.4855949368585012e-12,
+      "scale_normalized_residual": 2.1660703804847746e-16
+    },
+    {
+      "mode": 18,
+      "frequency_Hz": 35.781155481738615,
+      "reference_frequency_Hz": 35.80227,
+      "frequency_error_percent": 0.05897536178958701,
+      "angular_eigenvalue_rad2_s2": 50543.86621173955,
+      "reference_angular_eigenvalue_rad2_s2": 50603.53584804707,
+      "eigenvalue_error_percent": 0.11791594264616963,
+      "relative_residual": 1.5153379686197899e-12,
+      "scale_normalized_residual": 3.9905653258833275e-16
+    },
+    {
+      "mode": 19,
+      "frequency_Hz": 38.376524222106966,
+      "reference_frequency_Hz": 38.39277,
+      "frequency_error_percent": 0.042314680324011957,
+      "angular_eigenvalue_rad2_s2": 58142.14001165932,
+      "reference_angular_eigenvalue_rad2_s2": 58191.37658226,
+      "eigenvalue_error_percent": 0.08461145532634166,
+      "relative_residual": 6.111057968708539e-13,
+      "scale_normalized_residual": 2.005891987286297e-16
+    },
+    {
+      "mode": 20,
+      "frequency_Hz": 39.23807025190432,
+      "reference_frequency_Hz": 39.28811,
+      "frequency_error_percent": 0.12736613722493878,
+      "angular_eigenvalue_rad2_s2": 60782.004384324435,
+      "reference_angular_eigenvalue_rad2_s2": 60937.132073815,
+      "eigenvalue_error_percent": 0.25457005312074227,
+      "relative_residual": 2.087827937982119e-12,
+      "scale_normalized_residual": 5.395958044352562e-16
+    }
+  ],
+  "modal_diagnostics": {
+    "sol": 103,
+    "expected_modes": 20,
+    "returned_modes": 20,
+    "execution_status": "complete",
+    "solver_backend": "shifted_block_lanczos",
+    "positive_mass_shift": {
+      "lambda_reference": 2098452875.5402453,
+      "alpha": 2098452.8755402453,
+      "numerical_floor": 1.1112486392825742e-08,
+      "used": true,
+      "attempts": [
+        {
+          "factor_backend": "positive_mass_shift_cholesky",
+          "alpha": 2098452.8755402453,
+          "status": "succeeded"
+        }
+      ]
+    },
+    "inertia_origin": {
+      "negative_pivots": 0,
+      "lambda": -0.00023856647152800239,
+      "used": true
+    },
+    "candidate_rejections": {
+      "negative": 0,
+      "massless": 0,
+      "duplicate_subspace": 0,
+      "residual": 0
+    },
+    "negative_finite_eigenvalues": [],
+    "negative_finite_eigenvalue_residuals": [],
+    "negative_finite_spectrum_complete": false,
+    "error": null
+  },
+  "all_20_modes_present": true,
+  "notes": [
+    "Structural targets are from the author-published workbook; separate coupled MACH results and paper Table 4 are excluded.",
+    "The workbook does not identify the tip sampling point. GRID833 is an a priori inferred selector; the 21 tip-rib nodes differ in span by only 3.25e-5 m. No tip value is selected by agreement with the target and no qualified static PASS is claimed.",
+    "K6ROT=100000 is retained in the original input. The current CQUADR backend uses its own internal drilling policy, so retaining this card does not imply identical drilling stiffness semantics.",
+    "Missing modes and negative finite eigenvalues are failures/diagnostics, never numerical agreement. No mass, material coupling, load or boundary condition is removed to obtain reference agreement.",
+    "Negative candidate residuals use the recorded scale-normalized definition; they are not a certificate that all negative finite eigenvalues were found.",
+    "Modal comparison uses ascending frequency order. The author workbook supplies scalar natural frequencies, not corresponding eigenvectors; modal assurance/correlation is not established by this scalar comparison."
+  ],
+  "raw_comparison": "published_comparison.json",
+  "run_receipt": "run_receipt.json"
+}

@@ -1,0 +1,60 @@
+{
+  "cache_model_sha256": "0b614971b5cd2051178ca4626fa5fb3312a3c6f57802aee568a4aac1c8de1703",
+  "payload_bytes": 1245831,
+  "scope": "Conversion of actual retained native output for Boxer display; not a new solve or independent accuracy certification",
+  "builder_sha256": "21004021374fcb3ee7e00f4eb8a39178ae89dd4cca808562b8ae789d179f5806",
+  "analysis_type": "SOL101_STATIC",
+  "payload_file": "native_static_payload.msgpack",
+  "native_force_rows": {
+    "quad4": 0,
+    "cbar": 0,
+    "celas1": 0,
+    "tria3": 0,
+    "crod": 0,
+    "conrod": 0
+  },
+  "run_receipt_sha256": "76609425e15efa74e36ae9b82a75a3e6ca80e5a5547ef63805573e1b84a1d26b",
+  "node_count": 23812,
+  "imported_signature": "7a72074a2969b404ef0b045551697ad58314a1c9bbc154b50040b7794563ce0a",
+  "payload_element_stress_records": 0,
+  "payload_element_force_records": 0,
+  "original_include_sha256": {
+    "run_uCRM-9_static_cruise_coarse.bdf": "eac1d58b300a7200cdf17722c3a37fdc4f82efc7af20c8388cdace94fd163450",
+    "uCRM-9_fuel_mass_20_percent_coarse.bdf": "34931ad3c95e428b7b88a1f0ae1f9f491612e2079544573254227e3f1c0d03c4",
+    "uCRM-9_wingbox_coarse.bdf": "aa3157a63562a23f9cbf669d0d4d371d24997e9dfb28fb8b72d013319f7c23dd",
+    "uCRM-9_aero_forces_1.0g_coarse.bdf": "060cb06a281703486a5edcf482b0c377ca61f7ad5a9fa1ee8278193670bb7ebe",
+    "uCRM-9_LETE_masses_coarse.bdf": "60bf849dc22a3645e7b56f47fbea17dd3b5e7338aed21e31a61a3d93d7f6abf3",
+    "uCRM-9_engine_mass_coarse.bdf": "a3165142a10692c4226d7c6c264f6d0becd85d14f582ebd8529a456a30a0261e"
+  },
+  "case_ids": [
+    1
+  ],
+  "execution_receipt_sha256": "311e5db8e0557fe017276b86e905dbcfbb543f65b655272882e6b151db17d0ad",
+  "imported_analysis_signature": "7a72074a2969b404ef0b045551697ad58314a1c9bbc154b50040b7794563ce0a",
+  "payload_sha256": "b270d7fbe27c17042f5b5da50cdbfc98e27ddad86ed58add2a122aaf851f4423",
+  "created_utc": "2026-10-19T11:33:29.581",
+  "native_json_sha256": "04b518baf3b679570d777e48551581a87f990c67ed24354fbd5fd2e19a0d7f84",
+  "native_stress_rows": {
+    "quad4": 0,
+    "cbar": 0,
+    "celas1": 0,
+    "chexa": 0,
+    "tria3": 0,
+    "crod": 0,
+    "conrod": 0,
+    "ctetra": 0,
+    "cpenta": 0
+  },
+  "production_sources_sha256": {
+    "reference_import.jl": "fe450523539aedc8012e7e03c51048fe5117c62d882fcc564b9c3f5343cad550",
+    "jfem_run.jl": "165b3444930bfee2f681ed8d509988cd2dd78687c4c88e5f86f011bbe1048bf1"
+  },
+  "contour_names": [],
+  "displayed_wall_time_scope": "Original retained run start-to-finish timestamps, including first-use preparation; not pure solver time",
+  "status": "PRODUCTION_PAYLOAD_PREPARED",
+  "native_availability_metadata": {},
+  "original_deck": "run_uCRM-9_static_cruise_coarse.bdf",
+  "native_result_fields_modified": false,
+  "source_model_modified_on_disk": false,
+  "solver_called": false
+}

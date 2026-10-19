@@ -1,0 +1,187 @@
+{
+  "status": "PASS",
+  "created_utc": "2026-10-19T11:40:36.498Z",
+  "actual_archive_sha256": "d2feab7a2ac3e1aaad39ce6331966f74b1155317d51c1a07c0d47038b0ea4b20",
+  "source_receipt_sha256": "c912b70f99959f3be20de66d09e0b8958be4c1c8930086c0cf3f59063bbaa711",
+  "native_modal_json_sha256": "8258d9cb86d7789502f8089d953732f02d640e1011036d191bad469ed1241cca",
+  "comparison_sha256": "a759c63208d14a9f07b2772bb278d516f649ec868bff980b286820dcae023bcb",
+  "comparison_integrity_receipt_sha256": "41e75ccde057d0e8f6e04f0bb2ce8e2e99c556f3d9cf3d39ff3fd4544f36c8f2",
+  "parser_sha256": "fb352c67439406ac31955a1491bcd65ed2b33301e0c2f7011e598a94cf045a0f",
+  "adapter_sha256": "57a67e4faf122b996362748ac21dfda3caa63f9319e65cb3c9502bf4d33669d5",
+  "nodes": 23812,
+  "shells": 25055,
+  "RBE2": 12,
+  "RBE3": 62,
+  "groups": 242,
+  "all20_modal_vectors_finite": true,
+  "all20_hz_match_native_receipt_and_comparison": true,
+  "modes": [
+    {
+      "mode": 1,
+      "frequency_hz": 1.624820768817301,
+      "angular_eigenvalue_rad2_s2": 104.22470152339929,
+      "archive_float32_shape_peak": 0.037137245517454696,
+      "reference_frequency_hz": 1.629275,
+      "error_percent": 0.2733873153825439
+    },
+    {
+      "mode": 2,
+      "frequency_hz": 2.6279265555385374,
+      "angular_eigenvalue_rad2_s2": 272.63787228079406,
+      "archive_float32_shape_peak": 0.015210418392793917,
+      "reference_frequency_hz": 2.631756,
+      "error_percent": 0.14550909968336073
+    },
+    {
+      "mode": 3,
+      "frequency_hz": 3.8075781865411913,
+      "angular_eigenvalue_rad2_s2": 572.3443459879345,
+      "archive_float32_shape_peak": 0.0401198577741321,
+      "reference_frequency_hz": 3.816032,
+      "error_percent": 0.22153413437855288
+    },
+    {
+      "mode": 4,
+      "frequency_hz": 4.674548902693426,
+      "angular_eigenvalue_rad2_s2": 862.6589883042602,
+      "archive_float32_shape_peak": 0.05121226278732155,
+      "reference_frequency_hz": 4.683773,
+      "error_percent": 0.19693732609530884
+    },
+    {
+      "mode": 5,
+      "frequency_hz": 6.3234743098129025,
+      "angular_eigenvalue_rad2_s2": 1578.5969294640252,
+      "archive_float32_shape_peak": 0.02069728726048674,
+      "reference_frequency_hz": 6.315011,
+      "error_percent": 0.1340189243202004
+    },
+    {
+      "mode": 6,
+      "frequency_hz": 8.097363958966522,
+      "angular_eigenvalue_rad2_s2": 2588.49337234044,
+      "archive_float32_shape_peak": 0.06832629244379726,
+      "reference_frequency_hz": 8.112136,
+      "error_percent": 0.18209804462693593
+    },
+    {
+      "mode": 7,
+      "frequency_hz": 10.585275750908133,
+      "angular_eigenvalue_rad2_s2": 4423.480211928501,
+      "archive_float32_shape_peak": 0.0652708497721497,
+      "reference_frequency_hz": 10.59417,
+      "error_percent": 0.08395418510243717
+    },
+    {
+      "mode": 8,
+      "frequency_hz": 12.828735749288908,
+      "angular_eigenvalue_rad2_s2": 6497.218252247649,
+      "archive_float32_shape_peak": 0.04857238487970742,
+      "reference_frequency_hz": 12.84292,
+      "error_percent": 0.1104441257213406
+    },
+    {
+      "mode": 9,
+      "frequency_hz": 13.964485731645963,
+      "angular_eigenvalue_rad2_s2": 7698.562323855786,
+      "archive_float32_shape_peak": 0.07439144814906759,
+      "reference_frequency_hz": 13.97464,
+      "error_percent": 0.07266211046608466
+    },
+    {
+      "mode": 10,
+      "frequency_hz": 18.94989118019925,
+      "angular_eigenvalue_rad2_s2": 14176.635638565178,
+      "archive_float32_shape_peak": 0.07746752646056464,
+      "reference_frequency_hz": 18.96142,
+      "error_percent": 0.06080145791165394
+    },
+    {
+      "mode": 11,
+      "frequency_hz": 19.560590223728273,
+      "angular_eigenvalue_rad2_s2": 15105.10146629337,
+      "archive_float32_shape_peak": 0.04526022494286246,
+      "reference_frequency_hz": 19.55673,
+      "error_percent": 0.01973859499144793
+    },
+    {
+      "mode": 12,
+      "frequency_hz": 21.95933290884607,
+      "angular_eigenvalue_rad2_s2": 19036.978624479238,
+      "archive_float32_shape_peak": 0.06741290790107661,
+      "reference_frequency_hz": 21.96473,
+      "error_percent": 0.024571625300793338
+    },
+    {
+      "mode": 13,
+      "frequency_hz": 24.23827585283984,
+      "angular_eigenvalue_rad2_s2": 23193.334116277354,
+      "archive_float32_shape_peak": 0.05217416617583792,
+      "reference_frequency_hz": 24.24123,
+      "error_percent": 0.012186457371017902
+    },
+    {
+      "mode": 14,
+      "frequency_hz": 25.92174890641997,
+      "angular_eigenvalue_rad2_s2": 26527.012109902404,
+      "archive_float32_shape_peak": 0.0531069736975639,
+      "reference_frequency_hz": 25.94732,
+      "error_percent": 0.09855003746063246
+    },
+    {
+      "mode": 15,
+      "frequency_hz": 28.901385918820683,
+      "angular_eigenvalue_rad2_s2": 32975.93170554216,
+      "archive_float32_shape_peak": 0.020453931374770737,
+      "reference_frequency_hz": 28.95591,
+      "error_percent": 0.18830035450212546
+    },
+    {
+      "mode": 16,
+      "frequency_hz": 31.065099590658484,
+      "angular_eigenvalue_rad2_s2": 38098.26841281712,
+      "archive_float32_shape_peak": 0.04842827174570663,
+      "reference_frequency_hz": 31.07021,
+      "error_percent": 0.01644793949418276
+    },
+    {
+      "mode": 17,
+      "frequency_hz": 33.804787003950416,
+      "angular_eigenvalue_rad2_s2": 45114.499586439604,
+      "archive_float32_shape_peak": 0.08052926842121455,
+      "reference_frequency_hz": 33.81524,
+      "error_percent": 0.030912085939909684
+    },
+    {
+      "mode": 18,
+      "frequency_hz": 35.781155481738615,
+      "angular_eigenvalue_rad2_s2": 50543.86621173954,
+      "archive_float32_shape_peak": 0.046021597833100836,
+      "reference_frequency_hz": 35.80227,
+      "error_percent": 0.05897536178958701
+    },
+    {
+      "mode": 19,
+      "frequency_hz": 38.376524222106966,
+      "angular_eigenvalue_rad2_s2": 58142.14001165933,
+      "archive_float32_shape_peak": 0.03666190917261382,
+      "reference_frequency_hz": 38.39277,
+      "error_percent": 0.042314680324011957
+    },
+    {
+      "mode": 20,
+      "frequency_hz": 39.23807025190432,
+      "angular_eigenvalue_rad2_s2": 60782.00438432441,
+      "archive_float32_shape_peak": 0.02099827388923195,
+      "reference_frequency_hz": 39.28811,
+      "error_percent": 0.12736613722493878
+    }
+  ],
+  "limitations": [
+    "Original CONM2 definitions, constitutive laws and material axes are not encoded in the binary; the original solved mass model is not altered by viewing.",
+    "The archive EVAL values for SOL103 are frequencies in Hz. Derived angular eigenvalues are (2*pi*f)^2.",
+    "Mode vector amplitudes are arbitrary and visually magnified; contour units are normalized, not physical static m."
+  ],
+  "solver_called": false,
+  "browser_state_changed": false
+}

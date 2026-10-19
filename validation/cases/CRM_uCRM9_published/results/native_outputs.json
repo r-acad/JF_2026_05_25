@@ -1,0 +1,33 @@
+{
+  "included": [
+    {
+      "file": "SOL101/run_uCRM-9_static_cruise_coarse.JU.JSON",
+      "sha256": "04b518baf3b679570d777e48551581a87f990c67ed24354fbd5fd2e19a0d7f84",
+      "bytes": 7929064
+    },
+    {
+      "file": "SOL101/run_uCRM-9_static_cruise_coarse.TIMINGS.JSON",
+      "sha256": "d6dab01c78845585bae9baebbaf96a449820fcf18c9231a43b2cdfb86284bca7",
+      "bytes": 15351
+    },
+    {
+      "file": "SOL103/run_uCRM-9_modal_coarse.jfem",
+      "sha256": "d2feab7a2ac3e1aaad39ce6331966f74b1155317d51c1a07c0d47038b0ea4b20",
+      "bytes": 26545860
+    },
+    {
+      "file": "SOL103/run_uCRM-9_modal_coarse.TIMINGS.JSON",
+      "sha256": "29d1ceda6b64a1c173eceaa3497882c61dc03ae98e91b7c51485b1c048409bd4",
+      "bytes": 13469
+    }
+  ],
+  "large_duplicate_text_outputs": [
+    {
+      "filename": "run_uCRM-9_modal_coarse.BUCKLING.JSON",
+      "sha256": "8258d9cb86d7789502f8089d953732f02d640e1011036d191bad469ed1241cca",
+      "bytes": 365147367,
+      "publication": "Large duplicate text field arrays are retained in the recorded run. Native .jfem vectors, full-precision scalar metrics and diagnostics are bundled here."
+    }
+  ],
+  "static_fields": "Displacements and constraint reactions only; unavailable independent-material/MID4 shell stresses and energies are not set to zero."
+}

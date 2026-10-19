@@ -1,0 +1,263 @@
+{
+  "schema_version": 1,
+  "title": "Local energy diagnosis and correction for the original published uCRM9 model",
+  "created_utc": "2026-10-19T11:30:11.771656+00:00",
+  "scope": "Local elastic-energy consistency and regression evidence; this is not a claim that published global modal frequencies have passed. Original author input cards, constitutive data, constraints, masses and loading remain unchanged.",
+  "source": {
+    "title": "uCRM: undeflected Common Research Model",
+    "contributors": [
+      "T. R. Brooks",
+      "G. K. W. Kenway",
+      "J. R. R. A. Martins"
+    ],
+    "doi": "10.17632/gpk4zn73xn.1",
+    "url": "https://data.mendeley.com/datasets/gpk4zn73xn/1",
+    "license": "CC BY 4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+    "description": "Coordinates and local elastic-section matrices independently extracted from original coarse wing-box elements22498/property229 and19371/property222. No material, geometry or source-deck values were adjusted."
+  },
+  "source_hashes_after": {
+    "src/FEMKernels.jl": "12a2bc78892b9e21e9223092dad7858e8a28e727f2b8d5b8eee50f5dcac256b1",
+    "src/backend/tacs_formulation/sol101.jl": "8dc134a46493f853e4afc46200a6b422d16868a56f828ed26e20362868193cd9",
+    "src/solver/solve_case.jl": "27bd6f9b849e4473035ae84a63655d3dcc361dbb6ff02b5945d007f8fa2c867e"
+  },
+  "source_hashes_before": {
+    "src/FEMKernels.jl": "935b0773241d9b22cdf5d9e6557b892ed622b6ea8f6832ae913f75c2a14bce9f"
+  },
+  "corrections": [
+    {
+      "issue": "Unrequested and inconsistent coupled internal-mode condensation",
+      "diagnosis": "Supplying B triggered bending internal-mode condensation even when bending_incomp=false. The uncoupled-only D12/D16 decoupling was also applied to internal curvature blocks while compatible energy retained full D and B. For the rotated anisotropic section this made the modified internal D indefinite despite positive full ABD.",
+      "correction": "Honor membrane and bending flags independently; use a single complete D throughout coupled ABD energy; retain the historical D-entry decoupling only when no B law is supplied. Preserve dual-valued temporary storage for coupled AD.",
+      "element_id": 22498,
+      "property_id": 229,
+      "before": {
+        "property_id": 229,
+        "centroid": [
+          26.8400912275,
+          2.64668440825,
+          4.90283882625
+        ],
+        "minimum_relative_eigenvalue": -0.0009334744141341689,
+        "minimum_eigenvalue": -1544662.597695252,
+        "negative_1e14": 2,
+        "element_id": 22498,
+        "material_angle_rad": 0.967997491346047,
+        "negative_1e10": 2,
+        "node_ids": [
+          26837,
+          26826,
+          26836,
+          26838
+        ],
+        "maximum_absolute_eigenvalue": 1654745512.3641305,
+        "negative_1e12": 2
+      },
+      "after": {
+        "property_id": 229,
+        "centroid": [
+          26.8400912275,
+          2.64668440825,
+          4.90283882625
+        ],
+        "minimum_relative_eigenvalue": -1.0627385633166878e-16,
+        "minimum_eigenvalue": -1.7585624894512877e-07,
+        "negative_1e14": 0,
+        "element_id": 22498,
+        "material_angle_rad": 0.967997491346047,
+        "negative_1e10": 0,
+        "node_ids": [
+          26837,
+          26826,
+          26836,
+          26838
+        ],
+        "maximum_absolute_eigenvalue": 1654746096.6909976,
+        "negative_1e12": 0
+      },
+      "verification": "Independent enlarged ABD quadrature and stationary Schur complement for all four internal-mode flag combinations, section positivity, reciprocal stiffness, ForwardDiff versus finite differences, and zero-B/omitted-B identity."
+    },
+    {
+      "issue": "Missing reduced-axis Gauss integration weights in selective shear",
+      "diagnosis": "The one-point rule on [-1,1] has weight 2. Each reduced diagonal shear rule used weight 1, while full 2x2 cross terms retained full strength. A positive anisotropic shear law could therefore yield negative discrete work.",
+      "correction": "Use weight 2 for reduced diagonal shear integration and weight 1 for full integration, including sx_only and sy_only policies. No section matrices or source geometry were adjusted.",
+      "element_id": 19371,
+      "property_id": 222,
+      "before": {
+        "property_id": 222,
+        "centroid": [
+          32.211079600000005,
+          3.24465483425,
+          3.157942116
+        ],
+        "minimum_relative_eigenvalue": -0.023155844240697165,
+        "minimum_eigenvalue": -86365236.13610218,
+        "negative_1e14": 1,
+        "element_id": 19371,
+        "material_angle_rad": -1.1996144216833327,
+        "negative_1e10": 1,
+        "node_ids": [
+          1492,
+          1493,
+          23157,
+          23159
+        ],
+        "maximum_absolute_eigenvalue": 3729738170.5613832,
+        "negative_1e12": 1
+      },
+      "after": {
+        "property_id": 222,
+        "centroid": [
+          32.211079600000005,
+          3.24465483425,
+          3.157942116
+        ],
+        "minimum_relative_eigenvalue": -9.074514887330032e-17,
+        "minimum_eigenvalue": -3.384556456078687e-07,
+        "negative_1e14": 0,
+        "element_id": 19371,
+        "material_angle_rad": -1.1996144216833327,
+        "negative_1e10": 0,
+        "node_ids": [
+          1492,
+          1493,
+          23157,
+          23159
+        ],
+        "maximum_absolute_eigenvalue": 3729738171.2429094,
+        "negative_1e12": 0
+      },
+      "verification": "Rectangular and skew affine-cell selective rules equal full 2x2 integration and the analytic constant-shear work for all three selective policies."
+    }
+  ],
+  "local_spectrum_sign_convention": "Stiffness eigenvalues use mixed translational/rotational coordinates and are not physical modal eigenvalues. Negative signs and quadratic energies are stability witnesses; relative minima divide by the largest absolute local stiffness eigenvalue.",
+  "scans": [
+    {
+      "stage": "Original production policy, stratified sample",
+      "elements": 50,
+      "strongly_negative_elements": 8,
+      "criterion_relative": 1e-10,
+      "local_scan_seconds": 15.651000022888184
+    },
+    {
+      "stage": "Coupled internal-policy correction; previous shear quadrature retained",
+      "elements": 25055,
+      "strongly_negative_elements": 9,
+      "criterion_relative": 1e-10,
+      "local_scan_seconds": 14.208000183105469
+    },
+    {
+      "stage": "Both corrections; every original coarse CQUADR",
+      "elements": 25055,
+      "negative_elements_relative_1e10": 0,
+      "negative_elements_relative_1e12": 0,
+      "negative_elements_relative_1e14": 0,
+      "worst_relative_minimum": -3.088032929792442e-16,
+      "local_scan_seconds": 11.915000200271606,
+      "timing_scope": "Local operator/spectrum loop only; excludes package loading, compilation, deck parsing and test preparation."
+    }
+  ],
+  "tests": {
+    "new_regression": "utils/test/coupled_quad4_internal_policy_test.jl",
+    "assertions_passed": 49,
+    "assertions_failed": 0,
+    "first_use_test_seconds_including_compilation": 47.8,
+    "focused_existing_regressions_status": "PASS",
+    "focused_existing_assertions_passed": 583,
+    "total_new_and_focused_assertions_passed": 632,
+    "focused_existing_assertions_failed": 0,
+    "focused_existing_testsets": [
+      {
+        "file": "utils/test/pcomp_planar_coupled_energy_test.jl",
+        "testset": "Flat convex coupled laminate energy and recovery",
+        "passed": 68,
+        "failed": 0,
+        "elapsed_seconds_including_first_use": 42.5,
+        "compiler_mode": "O1"
+      },
+      {
+        "file": "utils/test/pcomp_warped_coupled_energy_test.jl",
+        "testset": "Warped coupled laminate work-dual energy and recovery",
+        "passed": 164,
+        "failed": 0,
+        "elapsed_seconds_including_first_use": 13.6,
+        "compiler_mode": "O1"
+      },
+      {
+        "file": "utils/test/warped_pcomp_prestress_test.jl",
+        "testset": "Manufactured warped anisotropic laminate prestress energy",
+        "passed": 256,
+        "failed": 0,
+        "elapsed_seconds_including_first_use": 56.7,
+        "compiler_mode": "minimal compilation"
+      },
+      {
+        "file": "utils/test/warped_pcomp_prestress_test.jl",
+        "testset": "Warped uncoupled laminate actual assembly exclusions",
+        "passed": 19,
+        "failed": 0,
+        "elapsed_seconds_including_first_use": 11.1,
+        "compiler_mode": "minimal compilation"
+      },
+      {
+        "file": "utils/test/sol106_coupled_dispatch_test.jl",
+        "testset": "Legacy nonlinear coupled laminate dispatch and linear limit",
+        "passed": 23,
+        "failed": 0,
+        "elapsed_seconds_including_first_use": 69.6,
+        "compiler_mode": "minimal compilation"
+      },
+      {
+        "file": "utils/test/tacs_linear_compatibility_test.jl",
+        "testset": "TACS linear PSHELL sections and rigidly connected masses",
+        "passed": 53,
+        "failed": 0,
+        "elapsed_seconds_including_first_use": 10.3,
+        "compiler_mode": "minimal compilation"
+      }
+    ],
+    "completed_tail_process_exit_code": 0,
+    "first_O1_tail_attempt": "Original O1 process completed the first two testsets (232 assertions), then spent over 10 CPU minutes in first-use geometric-stiffness compilation. It was stopped only after the same remaining checks passed with minimal compilation; this interrupted attempt is not counted as a completed test run."
+  },
+  "limitations": [
+    "The full global boundary-value solution is checked separately on the unchanged author model.",
+    "Local PSD does not establish a frequency or static-displacement accuracy threshold.",
+    "No new inertia, stiffness stabilization, model constraints or source-deck edits were introduced by these corrections."
+  ],
+  "fixture_files": [
+    "element_energy_fixture.json",
+    "element_shear_fixture_19371.json",
+    "element_energy_before_after.json"
+  ],
+  "negative_direction_energy_witness": {
+    "element_id": 22498,
+    "old_direction_before_twice_energy": -1544662.597695048,
+    "old_direction_after_twice_energy": 175886.93561401148,
+    "before_negative_count": 2,
+    "after_negative_count": 0,
+    "negative_threshold_relative": 1e-12,
+    "legacy_core_sha256": "586edeb1576f10c2bf7c08c85cb8425d83c4193417b68372d0914820ead9035c",
+    "file": "element_energy_before_after.json"
+  },
+  "evidence_hashes": {
+    "element_energy_fixture.json": "54d3fd9da5cb7d1ab740fa7e4c987d79969354e5b01f5366918b3ada06ee9c2d",
+    "element_shear_fixture_19371.json": "0b0000044c8583d0c9736ae5c760185734db04b99b1b94e8fd21d10a51b8f09a",
+    "element_energy_before_after.json": "65c874e01b2f73e860bc4164ef51ae44bb62497e3241fcbbb74733bcbd9eb042"
+  },
+  "completed_utc": "2026-10-19T11:38:50.727909+00:00",
+  "source_input_sha256": {
+    "run_uCRM-9_modal_coarse.bdf": "7d20a82a1ffb9d5115f563ba2e8033b445d478fe47cc2e5eac9c8c664eb886d4",
+    "uCRM-9_wingbox_coarse.bdf": "aa3157a63562a23f9cbf669d0d4d371d24997e9dfb28fb8b72d013319f7c23dd"
+  },
+  "source_summary_sha256": "94924acbe539e9629e87648da25510f5fcaa5997714fb116ff9150cd527a9361",
+  "status": "LOCAL_ENERGY_AND_REGRESSION_CHECKS_PASS",
+  "units": {
+    "xyz": "m",
+    "A": "N/m",
+    "B": "N",
+    "D": "N m",
+    "S": "N/m",
+    "strain_convention": "Engineering shear strain; matrices expressed in each fixture element local axes.",
+    "energy_witness": "u^T K u is twice the elastic quadratic energy for the explicitly stored mixed displacement/rotation coordinate vector. Stiffness eigenvalues are sign witnesses, not modal frequencies."
+  }
+}

@@ -1,0 +1,328 @@
+{
+  "title": "uCRM-9 original author-published structural benchmark",
+  "reference_state": "Independent author-published structural targets; see comparison files for actual JFEM results.",
+  "dataset": {
+    "title": "uCRM: undeflected Common Research Model",
+    "version": 1,
+    "published": "2019-07-09",
+    "doi": "10.17632/gpk4zn73xn.1",
+    "url": "https://data.mendeley.com/datasets/gpk4zn73xn/1",
+    "authors": [
+      "Timothy R. Brooks",
+      "Gaetan G. W. Kenway",
+      "Joaquim R. R. A. Martins"
+    ],
+    "license": "CC BY 4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "archive": {
+    "filename": "uCRM9.zip",
+    "bytes": 510165577,
+    "sha256_reported_by_publisher": "231ef07e23d25062b8b0f8595cb4fe1d294d008b84e9b4003a555311c1c82b50",
+    "full_archive_sha256_independently_verified": false,
+    "retrieval": "Selected-member HTTP-range extraction with per-member ZIP CRC verification",
+    "extracted_members": [
+      {
+        "name": "uCRM9/Data/uCRM-9_Results.xlsx",
+        "bytes": 18614,
+        "crc32": "13c0ae59",
+        "sha256": "b5cc0692cb3ca634fc07091b5ac7c52b3db1d83a63ed1d62345fdbadcfe84acf"
+      },
+      {
+        "name": "uCRM9/Data/uCRM-9_Design_Specifications.xlsx",
+        "bytes": 9964,
+        "crc32": "eb7f4d63",
+        "sha256": "c42badfd027f16b9bf78127acccca792aa0d579ca8e3ddf1eedfaffbc4550a7d"
+      },
+      {
+        "name": "uCRM9/Geometry/uCRM-9_wingbox_panel_sizing.txt",
+        "bytes": 48701,
+        "crc32": "4891ff0f",
+        "sha256": "efece59636c6c7db8844f9de6f0a9392bd73c6489258a9af16f59c22953706fe"
+      },
+      {
+        "name": "uCRM9/Mesh/Coarse/FEM/run_uCRM-9_static_cruise_coarse.bdf",
+        "bytes": 1008,
+        "crc32": "56b02ef6",
+        "sha256": "eac1d58b300a7200cdf17722c3a37fdc4f82efc7af20c8388cdace94fd163450"
+      },
+      {
+        "name": "uCRM9/Mesh/Coarse/FEM/run_uCRM-9_modal_coarse.bdf",
+        "bytes": 816,
+        "crc32": "f9c7aaaf",
+        "sha256": "7d20a82a1ffb9d5115f563ba2e8033b445d478fe47cc2e5eac9c8c664eb886d4"
+      },
+      {
+        "name": "uCRM9/Mesh/Coarse/FEM/uCRM-9_wingbox_coarse.bdf",
+        "bytes": 5840830,
+        "crc32": "c9b7bbc2",
+        "sha256": "aa3157a63562a23f9cbf669d0d4d371d24997e9dfb28fb8b72d013319f7c23dd"
+      },
+      {
+        "name": "uCRM9/Mesh/Coarse/FEM/uCRM-9_aero_forces_1.0g_coarse.bdf",
+        "bytes": 883199,
+        "crc32": "eb60c94e",
+        "sha256": "060cb06a281703486a5edcf482b0c377ca61f7ad5a9fa1ee8278193670bb7ebe"
+      },
+      {
+        "name": "uCRM9/Mesh/Coarse/FEM/uCRM-9_fuel_mass_20_percent_coarse.bdf",
+        "bytes": 16163,
+        "crc32": "3d385a5e",
+        "sha256": "34931ad3c95e428b7b88a1f0ae1f9f491612e2079544573254227e3f1c0d03c4"
+      },
+      {
+        "name": "uCRM9/Mesh/Coarse/FEM/uCRM-9_fuel_mass_full_coarse.bdf",
+        "bytes": 16164,
+        "crc32": "28c37f35",
+        "sha256": "50b1de24ed14a12eb4d365461264920d43fab618e65def635cf36d6b2780e751"
+      },
+      {
+        "name": "uCRM9/Mesh/Coarse/FEM/uCRM-9_engine_mass_coarse.bdf",
+        "bytes": 3308,
+        "crc32": "13c0d406",
+        "sha256": "a3165142a10692c4226d7c6c264f6d0becd85d14f582ebd8529a456a30a0261e"
+      },
+      {
+        "name": "uCRM9/Mesh/Coarse/FEM/uCRM-9_LETE_masses_coarse.bdf",
+        "bytes": 6864,
+        "crc32": "eb8c355a",
+        "sha256": "60bf849dc22a3645e7b56f47fbea17dd3b5e7338aed21e31a61a3d93d7f6abf3"
+      }
+    ]
+  },
+  "workbooks": [
+    {
+      "member": "uCRM9/Data/uCRM-9_Results.xlsx",
+      "sha256": "b5cc0692cb3ca634fc07091b5ac7c52b3db1d83a63ed1d62345fdbadcfe84acf"
+    },
+    {
+      "member": "uCRM9/Data/uCRM-9_Design_Specifications.xlsx",
+      "sha256": "c42badfd027f16b9bf78127acccca792aa0d579ca8e3ddf1eedfaffbc4550a7d"
+    }
+  ],
+  "reference_table": {
+    "filename": "published_structural_references.csv",
+    "sha256": "6b96f2ffadd23f79f0c182e27216b2a6e138e46d4bab9d6da24802bf0c940fcc",
+    "rows": 63,
+    "modal_rows": 60,
+    "static_rows": 3,
+    "source_sheet": "Reference",
+    "source_sheet_note": "Reference is the public alias for the original solver-named structural worksheet, the first worksheet in the unchanged source workbook. Numeric cells and addresses are unmodified.",
+    "static_cells": "C5:E5",
+    "frequency_cells": "C10:E29",
+    "extraction": "Original numeric cell values read from OOXML; workbook was not modified; no formulas in selected cells"
+  },
+  "excluded_coupled_target": {
+    "sheet": "MACH",
+    "cell": "B11",
+    "value": 2.591,
+    "units": "m",
+    "reason": "Coupled aerodynamic-structural target, not the structural-only load-deck comparison"
+  },
+  "tip_selector": {
+    "component": "global Uz",
+    "axis": "global Y",
+    "max_span_m": 29.3815136,
+    "tolerance_m": 1e-08,
+    "candidates": [
+      {
+        "node": 833,
+        "coordinates_m": [
+          46.29914093,
+          29.3815136,
+          4.275279522
+        ]
+      }
+    ],
+    "tip_rib_neighborhood_tolerance_m": 0.001,
+    "tip_rib_neighborhood": [
+      {
+        "node": 831,
+        "coordinates_m": [
+          46.86721802,
+          29.38150024,
+          4.145702362
+        ]
+      },
+      {
+        "node": 832,
+        "coordinates_m": [
+          46.18533707,
+          29.38150024,
+          4.150185585
+        ]
+      },
+      {
+        "node": 833,
+        "coordinates_m": [
+          46.29914093,
+          29.3815136,
+          4.275279522
+        ]
+      },
+      {
+        "node": 834,
+        "coordinates_m": [
+          46.41290665,
+          29.38150024,
+          4.270970345
+        ]
+      },
+      {
+        "node": 835,
+        "coordinates_m": [
+          46.5266037,
+          29.38150787,
+          4.265191078
+        ]
+      },
+      {
+        "node": 836,
+        "coordinates_m": [
+          46.64022827,
+          29.38150024,
+          4.258045197
+        ]
+      },
+      {
+        "node": 837,
+        "coordinates_m": [
+          46.75376129,
+          29.38150787,
+          4.24963522
+        ]
+      },
+      {
+        "node": 838,
+        "coordinates_m": [
+          46.29914474,
+          29.38148117,
+          4.02101326
+        ]
+      },
+      {
+        "node": 839,
+        "coordinates_m": [
+          46.41294861,
+          29.38150024,
+          4.022521496
+        ]
+      },
+      {
+        "node": 840,
+        "coordinates_m": [
+          46.52669144,
+          29.38148499,
+          4.026546001
+        ]
+      },
+      {
+        "node": 841,
+        "coordinates_m": [
+          46.64033508,
+          29.38150024,
+          4.032842636
+        ]
+      },
+      {
+        "node": 842,
+        "coordinates_m": [
+          46.7538414,
+          29.3814888,
+          4.041188717
+        ]
+      },
+      {
+        "node": 3693,
+        "coordinates_m": [
+          46.18533325,
+          29.38150024,
+          4.27821064
+        ]
+      },
+      {
+        "node": 3694,
+        "coordinates_m": [
+          46.18533707,
+          29.38150024,
+          4.022161007
+        ]
+      },
+      {
+        "node": 3791,
+        "coordinates_m": [
+          46.86721802,
+          29.38150024,
+          4.051187515
+        ]
+      },
+      {
+        "node": 3792,
+        "coordinates_m": [
+          46.86721802,
+          29.38150024,
+          4.240217209
+        ]
+      },
+      {
+        "node": 11845,
+        "coordinates_m": [
+          46.29914474,
+          29.38150024,
+          4.148146152
+        ]
+      },
+      {
+        "node": 11846,
+        "coordinates_m": [
+          46.41292953,
+          29.38150024,
+          4.146745682
+        ]
+      },
+      {
+        "node": 11847,
+        "coordinates_m": [
+          46.52664948,
+          29.38150024,
+          4.145868301
+        ]
+      },
+      {
+        "node": 11848,
+        "coordinates_m": [
+          46.64028168,
+          29.38150024,
+          4.145443916
+        ]
+      },
+      {
+        "node": 11849,
+        "coordinates_m": [
+          46.75380325,
+          29.38150024,
+          4.145411968
+        ]
+      }
+    ],
+    "published_node_specified": false,
+    "interpretation": "GRID833 is the coordinate maximum, not a physically unique tip. Small coordinate-rounding differences span the 21-node tip rib. Workbook does not identify a GRID or chord station; report the full declared tip-rib Uz range as well."
+  },
+  "scope": "Published finite-element structural-code comparison; not experimental validation and not the simplified uniform-thickness CRM model",
+  "modifications": "The source workbook and extracted numeric cell values are unchanged. Public CSV and metadata are attributed excerpts with a neutral worksheet alias. One BDF software-name comment is neutralized as recorded in curation_receipt.json; every active card is unchanged. Newly generated JFEM results are stored separately under results/.",
+  "publication": {
+    "title": "Benchmark Aerostructural Models for the Study of Transonic Aircraft Wings",
+    "authors": [
+      "Timothy R. Brooks",
+      "Gaetan K. W. Kenway",
+      "Joaquim R. R. A. Martins"
+    ],
+    "doi": "10.2514/1.J056603",
+    "journal": "AIAA Journal",
+    "year": 2018,
+    "volume": 56,
+    "issue": 7,
+    "pages": "2840-2855",
+    "primary_source_url": "https://mdolab.engin.umich.edu/bibliography/Brooks2018a"
+  }
+}

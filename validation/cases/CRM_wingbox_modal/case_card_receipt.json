@@ -1,14 +1,14 @@
 {
   "schema": "jfem.validation.case_card.v1",
   "case_id": "CRM_wingbox_modal",
-  "built_utc": "2026-10-19T10:12:20.754669+00:00",
+  "built_utc": "2026-10-19T10:53:59.756886+00:00",
   "pdf_pages": 2,
-  "case_metadata_sha256": "1116ee73551b8ae81da7ad47fafa7133ff36e79681486ff7be9ff8bf6ca38e3f",
+  "case_metadata_sha256": "a373fd204a9ab439a3e9ea1ceb827459fa042e17b7b97612ed94dda92582d325",
   "visual_data_sha256": "edf2cd06e44008a48a8b47cf360484e7ea2c4517958cabbf30e1e78ff0de9f40",
   "builder_sha256": "776022314b284aee7e4ade99617497739e5e8bc30f818f4972fa3b8ee00977e7",
   "source": "Recorded JFEM numerical fields; no synthetic deformation fields",
   "artifacts": {
-    "case_card.pdf": "a8756ab3a53ecdd73a84fbdddc3b09dfcc768bb307e0c2d7ddb27b89466bd388",
+    "case_card.pdf": "119a9c30ca9d99966dbb17710b7cf42946efc19829aac786f079ec96ae4d482e",
     "metrics.csv": "f3255984e29f6ff64e0e7638ae4d453af2d06ed5f56337303acdfb0702aaa40b",
     "figures/deformation.png": "076cf2b99a77dbfa168cf6d8a4e5728ffde9cc147f6bae84a124562bf8a128c3",
     "figures/deformation.svg": "b2cbb6e188fbde8adf83d7f778025c3b95ac6d6f87ad8e642afc3dd03db320e0",
@@ -16,5 +16,6 @@
     "figures/modes.svg": "cf665357adca4c9dc24713b9c4121daecf5d9856b6d5acf0e5f66a0084798bbb",
     "figures/response.png": "8394e4fc7e1ae20d61b795b0000d8bf365ac057123c1deaee4dc8fcd6ad4176c",
     "figures/response.svg": "e989f8404834b9819379bbb61f4afde443fa069643568c9024fdb0ba88b2d00d"
-  }
+  },
+  "publication_note": "The corrected PDF and metadata were rebuilt from the same recorded fields. Existing SVG figures are retained byte-for-byte to avoid changes only to generated IDs and timestamps; PNG scientific figures are unchanged."
 }

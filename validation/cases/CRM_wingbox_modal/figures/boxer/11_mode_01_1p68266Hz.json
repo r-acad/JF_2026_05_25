@@ -1,0 +1,87 @@
+{
+  "source": "native_jfem_archive",
+  "result": "wingbox_modal_with_props.jfem",
+  "counts": {
+    "nodes": 23738,
+    "elements": 25055,
+    "groups": 242
+  },
+  "mode": 0,
+  "frequency": 1.6826554221235621,
+  "deformation": {
+    "multiplier": 0.72443596007499,
+    "amplitude": 82.02259108023054,
+    "maxRaw": 0.03170078467052493,
+    "peakDisplayed": 2.6001804979529073
+  },
+  "camera": {
+    "alpha": -0.3,
+    "beta": 1.05,
+    "radius": 32.00124018563041,
+    "target_B": [
+      14.69125667330809,
+      3.6629949808120728,
+      36.63411617279053
+    ],
+    "mode": 1
+  },
+  "background": [
+    1,
+    1,
+    1,
+    1
+  ],
+  "render_pixels": [
+    4728,
+    2832
+  ],
+  "devicePixelRatio": 2,
+  "lighting": {
+    "preset": "technical",
+    "shadows": false,
+    "selfShadows": false,
+    "ambient": 0.24,
+    "key": 0.43,
+    "fill": 0.16,
+    "headlight": 0.4,
+    "keyDirection": [
+      -0.8,
+      -0.5,
+      -1
+    ],
+    "fillDirection": [
+      0.5,
+      0.7,
+      0.8
+    ]
+  },
+  "property": {
+    "enabled": false,
+    "field": "pid",
+    "materialRole": "single"
+  },
+  "translucent": false,
+  "thickness": false,
+  "config": {
+    "name": "11_mode_01_1p68266Hz",
+    "mode": 0,
+    "alpha": -0.3,
+    "beta": 1.05,
+    "zoom": 0.62,
+    "edges": false,
+    "palette": "viridis",
+    "undeformed": true,
+    "scale": -0.15
+  },
+  "screenshot_sha256": "673341adcaf098c21f050c992dc5cbecc34a502de21e7251dcabf21ae2c76f9e",
+  "screenshot_pixels": [
+    4728,
+    2832
+  ],
+  "capture": "Direct Chrome DevTools screenshot of the running JFEM-Boxer WebGL canvas and native UI; no image alteration, compositing, synthetic model, or fake UI.",
+  "source_bdf": "../../model.bdf",
+  "source_bdf_sha256": "a35d9dbf81cf71fa43b89c998c7d50a072211008b55e31bb53e2ccfab663cb9e",
+  "native_result": "../../results/wingbox_modal_with_props.jfem",
+  "native_result_sha256": "c7a88f54b145ba12c58ea622c5c16ee304f0d987f8dd04905aad1124d15f69f3",
+  "caption": "First recorded mode of the uniform isotropic adaptation. Frequency 1.682655 Hz. Color shows normalized element-mean displacement magnitude; eigenvector sign and amplitude are arbitrary. The undeformed mesh is a reference. Peak displayed translation is 2.6 m, chosen solely for visibility."
+}

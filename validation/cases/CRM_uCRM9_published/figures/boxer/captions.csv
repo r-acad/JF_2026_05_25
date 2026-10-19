@@ -1,0 +1,10 @@
+image,title,caption
+21_published_uCRM9_shell_thickness.png,Original shell thickness,"Original source PSHELL thickness, 3.7296–57.201 mm; this is a property field, not a result."
+22_published_uCRM9_connections.png,Translucent model and rigid connections,"Original shell surfaces shown translucently, with the engine cage and load/mass connections. Stiffeners are represented by smeared anisotropic panels."
+23_published_uCRM9_internal_structure.png,Internal ribs and spar webs,Skin property regions hidden through Boxer visibility controls. Property ID colors distinguish the remaining internal structure.
+31_published_static_displacement.png,Static cruise displacement at physical scale,"Actual SOL101 translations, magnification exactly one. Color is displacement magnitude in metres; the wireframe is the undeformed reference."
+32_published_static_results_ui.png,Static results in Boxer,Actual Boxer controls and retained native SOL101 translations. Physical scale is 1:1. Anisotropic stress fields are unavailable and are not replaced by zero.
+41_published_mode_01.png,Mode 1 · 1.6248208 Hz,"First original-model normal mode. Shape amplitude is arbitrary, amplified for visibility. The color legend is normalized displacement magnitude, not physical metres."
+42_published_mode_03.png,Mode 3 · 3.8075782 Hz,Third normal mode with the undeformed wireframe reference. Rigid connections are hidden for clarity in result views; they remain in the solved model.
+43_published_mode_10.png,Mode 10 · 18.949891 Hz,"Tenth normal mode. No reference mode vectors are published, so the scalar frequency agreement does not establish a mode-shape MAC match."
+44_published_mode_20.png,Mode 20 · 39.238070 Hz,Twentieth of 20 certified finite modes. Mode shapes retain their arbitrary native normalization; the visible deformation is magnified.

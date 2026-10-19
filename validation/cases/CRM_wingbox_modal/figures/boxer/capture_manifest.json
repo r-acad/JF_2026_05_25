@@ -1,0 +1,137 @@
+{
+  "schema": "jfem.boxer.direct_screenshots.v1",
+  "captured_utc": "2026-10-19T10:58:29.664947+00:00",
+  "case_id": "CRM_wingbox_modal",
+  "reviewed_images": 16,
+  "method": "Actual JFEM-Boxer, loaded source BDF for model views and the retained native archive for modal views; direct CDP PNG capture. No postprocessing.",
+  "images": [
+    {
+      "file": "01_model_solid_isometric.png",
+      "title": "Solid model",
+      "caption": "Complete uniform-shell CRM wingbox. This adaptation has 23,738 nodes, 25,055 quadrilateral shells and 242 property regions.",
+      "width_px": 4728,
+      "height_px": 2832,
+      "sha256": "9ed79aaabe1e3a0047ec8b66169a83a68e62b7701db3cf6dd1344ab83cf15faa"
+    },
+    {
+      "file": "02_model_finite_element_mesh.png",
+      "title": "Finite element mesh",
+      "caption": "The complete shell mesh. This model contains no bar or rod elements: the source stiffener effect is smeared into the shell properties.",
+      "width_px": 4728,
+      "height_px": 2832,
+      "sha256": "9ee436c1ec5e2ff941b49c3a6a50568ddaecc6111af2b2e5548342b62bb5d31f"
+    },
+    {
+      "file": "03_model_translucent_structure.png",
+      "title": "Translucent structure",
+      "caption": "Translucent shell surfaces reveal ribs and spar webs inside the closed box.",
+      "width_px": 4728,
+      "height_px": 2832,
+      "sha256": "5b58c42b8e2ed8fde419d99e5c9e30d7237c81058c5fde2bf25789130fc529f7"
+    },
+    {
+      "file": "04_property_regions.png",
+      "title": "Property regions",
+      "caption": "Property ID colors identify regions. The isotropic adaptation uses the same 20 mm thickness and material in every region; this view does not imply a varying thickness field.",
+      "width_px": 4728,
+      "height_px": 2832,
+      "sha256": "01a1d4d8d91cef12ed72d336a7eb462b588cafb8eca04d54d544113c9d753645"
+    },
+    {
+      "file": "05_boxer_properties_interface.png",
+      "title": "Properties in Boxer",
+      "caption": "Actual JFEM-Boxer interface with the imported source deck and its structural property display.",
+      "width_px": 4800,
+      "height_px": 3000,
+      "sha256": "a8c43171c91c96bedef2605678efb25c5ea4bbbddfd5a0e80918c6727b1750f0"
+    },
+    {
+      "file": "06_model_constraints.png",
+      "title": "Structural constraints",
+      "caption": "Source-deck constraints, including the root and side-of-body restraints. Constraints are obtained from the BDF, not inferred from the mode shapes.",
+      "width_px": 4728,
+      "height_px": 2832,
+      "sha256": "094d0d1fefe52b5cb768d764a17a5ecbf7705e75f92adb82e2b986c577ba203d"
+    },
+    {
+      "file": "07_internal_ribs_and_spars.png",
+      "title": "Internal ribs and spars",
+      "caption": "Skin property regions are hidden using the normal entity visibility controls. Remaining shells are rendered with their physical thickness.",
+      "width_px": 4728,
+      "height_px": 2832,
+      "sha256": "bca042e8aaccf27eb11dfb4696d9e3026a21a4747d1406139c16f8deac5252ab"
+    },
+    {
+      "file": "08_inboard_mesh_and_shell_thickness.png",
+      "title": "Inboard structure",
+      "caption": "Selected inboard spar-web and rib properties, with the skins hidden and 20 mm shell thickness shown. Other regions are hidden, not removed from the FE model.",
+      "width_px": 4728,
+      "height_px": 2832,
+      "sha256": "89612345b16319394df172d8fa3bc65a02c5d895a2e866db70423fc09526dd09"
+    },
+    {
+      "file": "09_exploded_property_regions.png",
+      "title": "Exploded property regions",
+      "caption": "Normal Boxer property explosion, spread radially about the model centroid. This separation changes the view only.",
+      "width_px": 4728,
+      "height_px": 2832,
+      "sha256": "5fb70bbf604bf3ae879741394d994ff3707913c7223c18677fa6c83cd8a759d2"
+    },
+    {
+      "file": "10_inboard_mesh_detail.png",
+      "title": "Inboard mesh detail",
+      "caption": "Selected spar-web and rib patches shown at their reference surfaces with element edges.",
+      "width_px": 4728,
+      "height_px": 2832,
+      "sha256": "4742f34adf8fe2cacc0f203b4f8279260ab096ba9c5e48a9c347d7535846ac97"
+    },
+    {
+      "file": "11_mode_01_1p68266Hz.png",
+      "title": "Mode 1",
+      "caption": "First recorded mode of the uniform isotropic adaptation. Frequency 1.682655 Hz. Color shows normalized element-mean displacement magnitude; eigenvector sign and amplitude are arbitrary. The undeformed mesh is a reference. Peak displayed translation is 2.6 m, chosen solely for visibility.",
+      "width_px": 4728,
+      "height_px": 2832,
+      "sha256": "673341adcaf098c21f050c992dc5cbecc34a502de21e7251dcabf21ae2c76f9e"
+    },
+    {
+      "file": "12_mode_02_5p00848Hz.png",
+      "title": "Mode 2",
+      "caption": "Second recorded mode of the uniform isotropic adaptation. Frequency 5.008477 Hz. Color shows normalized element-mean displacement magnitude; eigenvector sign and amplitude are arbitrary. The undeformed mesh is a reference. Peak displayed translation is 2.6 m, chosen solely for visibility.",
+      "width_px": 4728,
+      "height_px": 2832,
+      "sha256": "946e1feb7e009137211b659371e0f478b60d4e0f690dbf5f23cbcf5d8a37d9b5"
+    },
+    {
+      "file": "13_mode_03_5p86058Hz.png",
+      "title": "Mode 3",
+      "caption": "Third recorded mode of the uniform isotropic adaptation. Frequency 5.860582 Hz. Color shows normalized element-mean displacement magnitude; eigenvector sign and amplitude are arbitrary. The undeformed mesh is a reference. Peak displayed translation is 2.6 m, chosen solely for visibility.",
+      "width_px": 4728,
+      "height_px": 2832,
+      "sha256": "7536c4a8b7af57a6b21e5aa1c54dd0758f7728d38a399253caedce60f2311c06"
+    },
+    {
+      "file": "14_mode_04_12p2732Hz.png",
+      "title": "Mode 4",
+      "caption": "Fourth recorded mode of the uniform isotropic adaptation. Frequency 12.27323 Hz. Color shows normalized element-mean displacement magnitude; eigenvector sign and amplitude are arbitrary. The undeformed mesh is a reference. Peak displayed translation is 2.6 m, chosen solely for visibility.",
+      "width_px": 4728,
+      "height_px": 2832,
+      "sha256": "f99fc8fb20ccb862b2aeb6b63fbaf2be6e229ee2c8ea38b952b9157383c23838"
+    },
+    {
+      "file": "15_mode_05_16p2687Hz.png",
+      "title": "Mode 5",
+      "caption": "Fifth recorded mode of the uniform isotropic adaptation. Frequency 16.26869 Hz. Color shows normalized element-mean displacement magnitude; eigenvector sign and amplitude are arbitrary. The undeformed mesh is a reference. Peak displayed translation is 2.6 m, chosen solely for visibility.",
+      "width_px": 4728,
+      "height_px": 2832,
+      "sha256": "c126cfb3e439e97a4e84a81ec734b679b5da4112bb87ffda814adb9ffe0dd7a3"
+    },
+    {
+      "file": "16_boxer_modal_results_interface.png",
+      "title": "Modal results in Boxer",
+      "caption": "Actual Boxer result controls and selected archived frequency, with the first mode and undeformed reference. Frequency 1.682655 Hz. Color shows normalized element-mean displacement magnitude; eigenvector sign and amplitude are arbitrary. The undeformed mesh is a reference. Peak displayed translation is 2.6 m, chosen solely for visibility.",
+      "width_px": 4800,
+      "height_px": 3000,
+      "sha256": "db59ba551e59eebd6fee7ac78042421f57cbb94cb51c947e45cdb3fb51925be5"
+    }
+  ]
+}

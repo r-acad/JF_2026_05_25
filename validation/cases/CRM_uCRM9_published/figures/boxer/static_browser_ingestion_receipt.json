@@ -1,0 +1,32 @@
+{
+  "status": "REAL_NATIVE_STATIC_RESULTS_LOADED",
+  "sourceSignature": "7a72074a2969b404ef0b045551697ad58314a1c9bbc154b50040b7794563ce0a",
+  "analysis": "SOL101_STATIC",
+  "nodeCount": 23812,
+  "caseIds": [
+    1
+  ],
+  "nativeStressRows": {
+    "quad4": 0,
+    "cbar": 0,
+    "celas1": 0,
+    "chexa": 0,
+    "tria3": 0,
+    "crod": 0,
+    "conrod": 0,
+    "ctetra": 0,
+    "cpenta": 0
+  },
+  "nativeForceRows": {
+    "quad4": 0,
+    "cbar": 0,
+    "celas1": 0,
+    "tria3": 0,
+    "crod": 0,
+    "conrod": 0
+  },
+  "contours": [],
+  "modelObjectPreserved": true,
+  "resultFieldsFabricated": false,
+  "httpInterception": false
+}

@@ -1,0 +1,33 @@
+{
+  "status": "PASS",
+  "created_utc": "2026-10-19T11:35:20.993Z",
+  "scope": "Independent production MessagePack decoder, full native-vs-payload Float32 component checks, actual source mesh ordering and frozen core audit. No browser touched; no new solve.",
+  "assertions": 177886,
+  "payload_sha256": "b270d7fbe27c17042f5b5da50cdbfc98e27ddad86ed58add2a122aaf851f4423",
+  "payload_bytes": 1245831,
+  "payload_receipt_sha256": "1a4789d4e66490b5a026bea892ad0dab2d8c20eeeed98d8f49deca9209ae2366",
+  "native_json_sha256": "04b518baf3b679570d777e48551581a87f990c67ed24354fbd5fd2e19a0d7f84",
+  "cache_mesh_sha256": "71e57dcf745fa43654259fb3711f16897c23fc10fafd0cc8bd0265c6ad8b5241",
+  "decoder_sha256": "43f39b184e9aebefca2b258ddfcdf03ce382190bca3e2e9e78d0b9b432d181b8",
+  "source_signature": "7a72074a2969b404ef0b045551697ad58314a1c9bbc154b50040b7794563ce0a",
+  "node_count": 23812,
+  "translation_components_checked": 71436,
+  "rotation_components_checked": 71436,
+  "reaction_count": 1389,
+  "reaction_force_components_checked": 4167,
+  "reaction_moment_components_checked": 4167,
+  "reaction_frame": "BASIC",
+  "maximum_translation_m": 2.5348396558362323,
+  "static_cases": [
+    1
+  ],
+  "stress_available": false,
+  "element_force_available": false,
+  "contours": [],
+  "unavailable_shell_count": 25055,
+  "unavailable_reason": "PSHELL anisotropic, independent-material or MID4 constitutive recovery is unsupported, including thermal anisotropic recovery.",
+  "source_files_unchanged": 57,
+  "result_fields_fabricated": false,
+  "solver_called": false,
+  "browser_state_changed": false
+}

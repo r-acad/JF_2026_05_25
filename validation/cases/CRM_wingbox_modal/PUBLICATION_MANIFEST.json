@@ -1,22 +1,162 @@
 {
   "schema": "jfem.validation.published_case.v1",
   "case_id": "CRM_wingbox_modal",
-  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
-  "built_utc": "2026-10-19T10:21:14.431133+00:00",
+  "solver_revision": "a70f997",
+  "built_utc": "2026-10-19T11:48:55.289007+00:00",
   "evidence_class": "Reproducibility / historical regression",
-  "artifact_provenance": "Publicly curated input, native JFEM output and original figures; sources and limits in case.json and adjacent notices.",
+  "artifact_provenance": "Explicitly curated public source inputs, actual JFEM numerical outputs, independent references and reviewed figures/PDF. See attribution, source and image receipts.",
   "files": {
     "case.json": {
-      "sha256": "1116ee73551b8ae81da7ad47fafa7133ff36e79681486ff7be9ff8bf6ca38e3f",
-      "bytes": 3658
+      "sha256": "a373fd204a9ab439a3e9ea1ceb827459fa042e17b7b97612ed94dda92582d325",
+      "bytes": 3699
     },
     "case_card.pdf": {
-      "sha256": "a8756ab3a53ecdd73a84fbdddc3b09dfcc768bb307e0c2d7ddb27b89466bd388",
-      "bytes": 480027
+      "sha256": "119a9c30ca9d99966dbb17710b7cf42946efc19829aac786f079ec96ae4d482e",
+      "bytes": 480095
     },
     "case_card_receipt.json": {
-      "sha256": "6cb34deb19b299b6ec8bc3e9fb228ec00fb04664fa4c1a12b65f489afe417776",
-      "bytes": 1296
+      "sha256": "8d8cf37b5d5f822863ac827a71a70a92e335f12806059bacb6f41bb53d1e07a7",
+      "bytes": 1538
+    },
+    "figures/boxer/01_model_solid_isometric.json": {
+      "sha256": "253c2ab690640ac770a7a637ac051739ec91fc57385d3ba275ea8ba6d84edab4",
+      "bytes": 1704
+    },
+    "figures/boxer/01_model_solid_isometric.png": {
+      "sha256": "9ed79aaabe1e3a0047ec8b66169a83a68e62b7701db3cf6dd1344ab83cf15faa",
+      "bytes": 154612
+    },
+    "figures/boxer/02_model_finite_element_mesh.json": {
+      "sha256": "5e302b98833025f8cf6d17b5b8d0c06620395d932dc601147a7d14545ddc8706",
+      "bytes": 1718
+    },
+    "figures/boxer/02_model_finite_element_mesh.png": {
+      "sha256": "9ee436c1ec5e2ff941b49c3a6a50568ddaecc6111af2b2e5548342b62bb5d31f",
+      "bytes": 494805
+    },
+    "figures/boxer/03_model_translucent_structure.json": {
+      "sha256": "614bd6d0b38f817f1f09bfa188e551a3a3b35b120d815c81c3b80f95e934d004",
+      "bytes": 1712
+    },
+    "figures/boxer/03_model_translucent_structure.png": {
+      "sha256": "5b58c42b8e2ed8fde419d99e5c9e30d7237c81058c5fde2bf25789130fc529f7",
+      "bytes": 127893
+    },
+    "figures/boxer/04_property_regions.json": {
+      "sha256": "33b214fbeafa43feb5e1c99d07ad2a91fd8281a8fb16a8fd36a93df05b74400a",
+      "bytes": 1772
+    },
+    "figures/boxer/04_property_regions.png": {
+      "sha256": "01a1d4d8d91cef12ed72d336a7eb462b588cafb8eca04d54d544113c9d753645",
+      "bytes": 203935
+    },
+    "figures/boxer/05_boxer_properties_interface.json": {
+      "sha256": "0096ccbab88770dd0b7e82755f30ccbb7c98f427c232e80387abca5c385b4976",
+      "bytes": 1724
+    },
+    "figures/boxer/05_boxer_properties_interface.png": {
+      "sha256": "a8c43171c91c96bedef2605678efb25c5ea4bbbddfd5a0e80918c6727b1750f0",
+      "bytes": 537157
+    },
+    "figures/boxer/06_model_constraints.json": {
+      "sha256": "3eb50a722c70ce73ba128e8be700411295fd375d4bdf8007481711bd5d88be1e",
+      "bytes": 2320
+    },
+    "figures/boxer/06_model_constraints.png": {
+      "sha256": "094d0d1fefe52b5cb768d764a17a5ecbf7705e75f92adb82e2b986c577ba203d",
+      "bytes": 510271
+    },
+    "figures/boxer/07_internal_ribs_and_spars.json": {
+      "sha256": "596cd03036b0d9c60960cc0d680cdc1b950e109ce5729457635e5e60b7960164",
+      "bytes": 3433
+    },
+    "figures/boxer/07_internal_ribs_and_spars.png": {
+      "sha256": "bca042e8aaccf27eb11dfb4696d9e3026a21a4747d1406139c16f8deac5252ab",
+      "bytes": 449717
+    },
+    "figures/boxer/08_inboard_mesh_and_shell_thickness.json": {
+      "sha256": "12e125d774338a470195e522a723e4a2065a4e10aaa01b235c29f44fa789ee77",
+      "bytes": 2243
+    },
+    "figures/boxer/08_inboard_mesh_and_shell_thickness.png": {
+      "sha256": "89612345b16319394df172d8fa3bc65a02c5d895a2e866db70423fc09526dd09",
+      "bytes": 538778
+    },
+    "figures/boxer/09_exploded_property_regions.json": {
+      "sha256": "41f51e33cddb6fa80755f520acf08ac9ea2b3e5b3b7566923a0aa8b3bbdaba5c",
+      "bytes": 1885
+    },
+    "figures/boxer/09_exploded_property_regions.png": {
+      "sha256": "5fb70bbf604bf3ae879741394d994ff3707913c7223c18677fa6c83cd8a759d2",
+      "bytes": 214792
+    },
+    "figures/boxer/10_inboard_mesh_detail.json": {
+      "sha256": "7afad70ff3ebc0c03d0e40bed55dea99ce00aacaa066cf0adb102086d1bf78f5",
+      "bytes": 1887
+    },
+    "figures/boxer/10_inboard_mesh_detail.png": {
+      "sha256": "4742f34adf8fe2cacc0f203b4f8279260ab096ba9c5e48a9c347d7535846ac97",
+      "bytes": 306308
+    },
+    "figures/boxer/11_mode_01_1p68266Hz.json": {
+      "sha256": "49711d3a957b9acd5c06ae79830abf3cacc35d365b8f38cdc157c9bf0f5a53be",
+      "bytes": 2339
+    },
+    "figures/boxer/11_mode_01_1p68266Hz.png": {
+      "sha256": "673341adcaf098c21f050c992dc5cbecc34a502de21e7251dcabf21ae2c76f9e",
+      "bytes": 523400
+    },
+    "figures/boxer/12_mode_02_5p00848Hz.json": {
+      "sha256": "dc19f2a465e23ffb4d16d43a90ae65fb3392353f26441a8145197cccf3b3189e",
+      "bytes": 2340
+    },
+    "figures/boxer/12_mode_02_5p00848Hz.png": {
+      "sha256": "946e1feb7e009137211b659371e0f478b60d4e0f690dbf5f23cbcf5d8a37d9b5",
+      "bytes": 643307
+    },
+    "figures/boxer/13_mode_03_5p86058Hz.json": {
+      "sha256": "8c0f360d8ab1f9e6d248eef0f96cdae2c1d6f74a22a808f32dfce7552e0da2c0",
+      "bytes": 2339
+    },
+    "figures/boxer/13_mode_03_5p86058Hz.png": {
+      "sha256": "7536c4a8b7af57a6b21e5aa1c54dd0758f7728d38a399253caedce60f2311c06",
+      "bytes": 614869
+    },
+    "figures/boxer/14_mode_04_12p2732Hz.json": {
+      "sha256": "d64fe9f0f29d7d37bc7273a4fc011f711cdfe121a75c7e12b923fd5d4a43fab5",
+      "bytes": 2339
+    },
+    "figures/boxer/14_mode_04_12p2732Hz.png": {
+      "sha256": "f99fc8fb20ccb862b2aeb6b63fbaf2be6e229ee2c8ea38b952b9157383c23838",
+      "bytes": 383920
+    },
+    "figures/boxer/15_mode_05_16p2687Hz.json": {
+      "sha256": "6b2325920583d355e7f309e19f6be89c9fe373b9da185dc11f1d13620101d026",
+      "bytes": 2340
+    },
+    "figures/boxer/15_mode_05_16p2687Hz.png": {
+      "sha256": "c126cfb3e439e97a4e84a81ec734b679b5da4112bb87ffda814adb9ffe0dd7a3",
+      "bytes": 510808
+    },
+    "figures/boxer/16_boxer_modal_results_interface.json": {
+      "sha256": "0b37cde22cbcf604fe34824377a68d916b86a25306b9633441820b3544195b04",
+      "bytes": 2423
+    },
+    "figures/boxer/16_boxer_modal_results_interface.png": {
+      "sha256": "db59ba551e59eebd6fee7ac78042421f57cbb94cb51c947e45cdb3fb51925be5",
+      "bytes": 765692
+    },
+    "figures/boxer/captions.csv": {
+      "sha256": "a828d6bae5f5e51786af7593307fd8a96763a673aa38db4b359d97828128b4ea",
+      "bytes": 5052
+    },
+    "figures/boxer/capture_manifest.json": {
+      "sha256": "e9d8f127151c9428df902c0568c776b420296948ee41ccc54ec09395b7752833",
+      "bytes": 7449
+    },
+    "figures/boxer/index.html": {
+      "sha256": "af88bfc0b85f892be4528069097fc83fd72d68e6449eeaa5837f4744b2b6b349",
+      "bytes": 10929
     },
     "figures/deformation.png": {
       "sha256": "076cf2b99a77dbfa168cf6d8a4e5728ffde9cc147f6bae84a124562bf8a128c3",

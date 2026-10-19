@@ -1,28 +1,37 @@
 # JFEM validation results
 
 Recorded results, 19 October 2026. **[Browse the illustrated gallery](index.html)**
-or consult the [18-case inventory](CASE_INVENTORY.csv). Every case has its own
-[two-page card, model, figures and numerical data](README.md).
+or consult the [19-case inventory](CASE_INVENTORY.csv). Every case has its own
+[case card, model, figures and numerical data](README.md).
 
 ## Coverage and interpretation
 
 | Recorded collection | Analyses | Comparisons and outcome |
 |---|---:|---|
-| Existing cases and selected refinements | 18 | 24 quantities: 14 PASS, two coarse-mesh FAIL, eight REGRESSION_PASS |
-| Five new analytical cases, all meshes and load levels | 39 | 126 comparisons: 98 PASS, 28 coarse-mesh FAIL |
-| Total completed analyses with retained results | **57** | Results and failed accuracy comparisons remain recorded |
+| Earlier cases and selected refinements | 18 | 24 quantities: 14 PASS, two coarse-mesh FAIL, eight REGRESSION_PASS |
+| Five analytical cases, all meshes and load levels | 39 | 126 comparisons: 98 PASS, 28 coarse-mesh FAIL |
+| Original published uCRM9, static and modal | **2** | 20/20 frequencies and 19/20 angular eigenvalues below 0.5%; static sampling point unqualified |
+| Total distinct completed analyses with retained results | **59** | 57 earlier analyses plus two runs of the original published uCRM9 model |
 | Retained cylinder diagnostic | **1** | Partial spectrum; excluded from qualification |
-| Default manifest check, selected from the collection | **24** | **44 quantities: 34 PASS, two coarse-mesh FAIL, eight REGRESSION_PASS** |
+| Earlier selected-manifest snapshot | **24** | **44 quantities: 34 PASS, two coarse-mesh FAIL, eight REGRESSION_PASS** |
 
 The existing cases additionally carry **17 secondary HISTORICAL_PASS** checks.
 These secondary numbers are not extra analyses or independent validation
 comparisons. The full new set has **28 quantities on its finest meshes; all 28
 pass** their declared tolerances, across the relevant load levels.
 
-Sixteen of the 18 case folders have independent analytical or published targets.
-The CRM modal model and open-source static patch provide historical regression
-and model-scale demonstrations. Stored historical numbers lack an independently
-reproducible public result artifact and therefore establish regression only.
+The earlier 57 analyses retain their recorded solver revisions. The two original
+uCRM9 analyses use the corrected shell implementation described below; this
+addition does not represent a rerun of the complete collection on that source.
+The uniform CRM's five-mode historical control was repeated and changed by at
+most 9.18e-9% in angular eigenvalue. It is a repeat of an existing analysis and
+does not increase the distinct-analysis count.
+
+Seventeen of the 19 case folders have independent analytical or published
+computational targets. The uniform-material CRM modal model and open-source
+static patch provide historical regression and model-scale demonstrations.
+Their stored historical numbers establish regression only. The original
+anisotropic uCRM9 is a separate case with author-published structural targets.
 
 All comparisons use the production solver and documented input controls. A
 completed analysis can still fail its continuum accuracy tolerance on a coarse mesh.
@@ -93,6 +102,66 @@ documented, while its stored comparison values remain historical regression
 targets. The [quadrilateral static patch](cases/MYSTRAN_sol101_simple/case_card.pdf)
 has the same regression-only classification. Neither case is presented as an
 independent accuracy certificate.
+
+## Original published uCRM9 structural model
+
+The [original uCRM9 case](cases/CRM_uCRM9_published/README.md) uses the authors'
+released coarse model and structural reference workbook from the
+[uCRM dataset](https://data.mendeley.com/datasets/gpk4zn73xn/1)
+(DOI 10.17632/gpk4zn73xn.1, CC BY 4.0). Its associated article is
+[Brooks, Kenway and Martins, *Benchmark Aerostructural Models for the Study of
+Transonic Aircraft Wings*](https://doi.org/10.2514/1.J056603), 2018.
+All original active cards, material frames, anisotropic section tensors, rigid
+connections, masses, restraints and fixed cruise loads were retained.
+
+The model contains 23,812 total nodes, 25,055 shell elements, 242 section
+properties and 74 concentrated masses. Static equilibrium and the first 20
+normal modes were solved. The [case card](cases/CRM_uCRM9_published/case_card.pdf),
+[full-precision metrics](cases/CRM_uCRM9_published/metrics.csv) and
+[numerical record](cases/CRM_uCRM9_published/results/comparison.json) preserve
+the individual values and reference cells.
+
+| Quantity | Available | Largest relative error | Interpretation at 0.5% |
+|---|---:|---:|---|
+| Natural frequency, Hz | 20/20 | **0.273387%** | **20/20 PASS** |
+| Angular eigenvalue, `(2πf)²` | 20/20 | **0.546027%** | **19/20 PASS; first mode FAIL** |
+| Static vertical displacement at inferred GRID 833 | 1 inferred point | 1.63893% | **AMBIGUOUS_POINT; no qualified PASS** |
+
+Frequency and angular eigenvalue are two representations of the same modal
+information; their percentage errors differ. The first computed frequency is
+1.624820769 Hz against 1.629275 Hz. Its angular eigenvalue is 104.2247015 against
+104.7969212 rad²/s², so frequency agreement below 0.5% does not imply that every
+angular eigenvalue meets that threshold.
+
+The static workbook gives 2.5239 m without identifying its observation node or
+chord position. The predeclared inferred GRID 833 gives 2.4825351 m, while all
+21 tip-rib nodes span 2.4725100–2.5324511 m. The complete
+[tip-node table](cases/CRM_uCRM9_published/results/tip_comparison.csv) is retained;
+no point is selected by matching the target. The references belong to the
+workbook's fixed-load structural solution. The case documentation distinguishes
+them from the publication's coupled aeroelastic results.
+
+This run exposed two shell-energy defects. A bending internal-mode correction
+could be applied while that option was disabled, and reduced shear integration
+omitted the one-point quadrature weight on its diagonal terms. The corrections
+also keep coupled internal-mode terms consistent with the complete section
+energy. A scan of every source shell now finds zero negative-energy elements
+at relative thresholds of 1e-14, 1e-12 and 1e-10; the worst remaining relative
+eigenvalue is −3.09e-16, at roundoff level.
+
+The corrected global static matrix factors by Cholesky with a relative
+equilibrium residual of 3.29e-11 and zero regularization. The modal pencil has
+zero negative inertia at the origin; an inertia-based completeness check counts
+20 roots below the last-mode bound. All 20 independent returned modes satisfy
+the original eigenproblem, with maximum relative residual **4.14e-11**. Ordered
+frequency agreement does not establish mode-shape identity because the
+reference workbook supplies no eigenvectors.
+
+The original `K6ROT=1e5` card remains present; the native CQUADR operator uses its
+internal drilling policy. The case card records this formulation limit.
+Static displacements and constraint reactions are available, while independent-
+material/MID4 shell stress and force recovery remain unavailable. This case does
+not establish accuracy for those absent fields.
 
 ## Reproduce and inspect
 

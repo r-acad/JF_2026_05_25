@@ -1,0 +1,56 @@
+{
+  "dataset_doi": "10.17632/gpk4zn73xn.1",
+  "physics_preservation": "All active cards are byte-identical to the published inputs used in the recorded runs; only a software-name comment in the static wrapper is neutralized. Unused full-fuel input is not part of either selected run.",
+  "reference_table_curation": "The public CSV uses Reference as an alias for the original solver-named first structural worksheet. All 63 numeric values, coarse/medium/fine columns and cell addresses are unchanged. reference_provenance.json binds the original workbook and current curated CSV independently.",
+  "files": [
+    {
+      "file": "run_uCRM-9_modal_coarse.bdf",
+      "author_source_sha256": "7d20a82a1ffb9d5115f563ba2e8033b445d478fe47cc2e5eac9c8c664eb886d4",
+      "curated_sha256": "7d20a82a1ffb9d5115f563ba2e8033b445d478fe47cc2e5eac9c8c664eb886d4",
+      "changed": false,
+      "change": "Unchanged byte-for-byte."
+    },
+    {
+      "file": "run_uCRM-9_static_cruise_coarse.bdf",
+      "author_source_sha256": "eac1d58b300a7200cdf17722c3a37fdc4f82efc7af20c8388cdace94fd163450",
+      "curated_sha256": "ba4eefc759a50e69db1070077b0e5efd9668fc1f30557ca72d14a94ec5cf6c9b",
+      "changed": true,
+      "change": "One software-name comment header neutralized; every active card and every INCLUDE path is byte-identical."
+    },
+    {
+      "file": "uCRM-9_aero_forces_1.0g_coarse.bdf",
+      "author_source_sha256": "060cb06a281703486a5edcf482b0c377ca61f7ad5a9fa1ee8278193670bb7ebe",
+      "curated_sha256": "060cb06a281703486a5edcf482b0c377ca61f7ad5a9fa1ee8278193670bb7ebe",
+      "changed": false,
+      "change": "Unchanged byte-for-byte."
+    },
+    {
+      "file": "uCRM-9_engine_mass_coarse.bdf",
+      "author_source_sha256": "a3165142a10692c4226d7c6c264f6d0becd85d14f582ebd8529a456a30a0261e",
+      "curated_sha256": "a3165142a10692c4226d7c6c264f6d0becd85d14f582ebd8529a456a30a0261e",
+      "changed": false,
+      "change": "Unchanged byte-for-byte."
+    },
+    {
+      "file": "uCRM-9_fuel_mass_20_percent_coarse.bdf",
+      "author_source_sha256": "34931ad3c95e428b7b88a1f0ae1f9f491612e2079544573254227e3f1c0d03c4",
+      "curated_sha256": "34931ad3c95e428b7b88a1f0ae1f9f491612e2079544573254227e3f1c0d03c4",
+      "changed": false,
+      "change": "Unchanged byte-for-byte."
+    },
+    {
+      "file": "uCRM-9_LETE_masses_coarse.bdf",
+      "author_source_sha256": "60bf849dc22a3645e7b56f47fbea17dd3b5e7338aed21e31a61a3d93d7f6abf3",
+      "curated_sha256": "60bf849dc22a3645e7b56f47fbea17dd3b5e7338aed21e31a61a3d93d7f6abf3",
+      "changed": false,
+      "change": "Unchanged byte-for-byte."
+    },
+    {
+      "file": "uCRM-9_wingbox_coarse.bdf",
+      "author_source_sha256": "aa3157a63562a23f9cbf669d0d4d371d24997e9dfb28fb8b72d013319f7c23dd",
+      "curated_sha256": "aa3157a63562a23f9cbf669d0d4d371d24997e9dfb28fb8b72d013319f7c23dd",
+      "changed": false,
+      "change": "Unchanged byte-for-byte."
+    }
+  ]
+}

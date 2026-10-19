@@ -1,0 +1,78 @@
+{
+  "source": "source_bdf",
+  "counts": {
+    "nodes": 23812,
+    "elements": 25203,
+    "groups": 242
+  },
+  "mode": -1,
+  "deformation": {
+    "multiplier": 1,
+    "amplitude": 0,
+    "peakDisplayed": 0
+  },
+  "camera": {
+    "alpha": -0.3,
+    "beta": 0.75,
+    "radius": 39.22732668340184,
+    "target_B": [
+      14.6912566755,
+      3.6629949805,
+      36.634116175
+    ],
+    "mode": 1
+  },
+  "background": [
+    1,
+    1,
+    1,
+    1
+  ],
+  "render_pixels": [
+    4728,
+    2832
+  ],
+  "devicePixelRatio": 2,
+  "lighting": {
+    "preset": "technical",
+    "shadows": false,
+    "selfShadows": false,
+    "ambient": 0.24,
+    "key": 0.43,
+    "fill": 0.16,
+    "headlight": 0.4,
+    "keyDirection": [
+      -0.8,
+      -0.5,
+      -1
+    ],
+    "fillDirection": [
+      0.5,
+      0.7,
+      0.8
+    ]
+  },
+  "property": {
+    "enabled": false,
+    "field": "shell_thickness",
+    "materialRole": "single"
+  },
+  "translucent": true,
+  "thickness": false,
+  "config": {
+    "name": "22_published_uCRM9_connections",
+    "alpha": -0.3,
+    "beta": 0.75,
+    "zoom": 0.76,
+    "translucent": true,
+    "translucency": 65,
+    "explode": 0,
+    "edges": false,
+    "markerRadius": 0.025
+  },
+  "caption": "Original published uCRM9 model with translucent shells, RBE2/RBE3 connections and retained concentrated masses. The outboard/inboard connection geometry includes the original engine mass cage. No source mass or connection is removed from the analysis.",
+  "capture": "Unedited direct Chrome screenshot of the actual running JFEM-Boxer app with the original static wrapper imported; geometry/property view, no solution field.",
+  "screenshot_sha256": "7445547023a4a6780f20883ca940d9897130e49002a2d4205f7bbaac20f9ac3a",
+  "input": "../../run_uCRM-9_static_cruise_coarse.bdf",
+  "input_physics": "Active source cards are unchanged; see ../../curation_receipt.json for the single neutralized comment header."
+}

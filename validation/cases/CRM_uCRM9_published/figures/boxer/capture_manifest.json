@@ -1,0 +1,196 @@
+{
+  "schema": "jfem.boxer.direct_screenshots.v1",
+  "image_count": 9,
+  "images": [
+    {
+      "name": "21_published_uCRM9_shell_thickness.png",
+      "sha256": "49106bca7ed023120c874d8e972ce8334ff203b4129ba52bad57a69e5b282453",
+      "metadata_sha256": "7a328e768dfe2452bf5a7ac7f434cd0ca24aaca8bbebaa083659a71f75a4108b",
+      "actual_pixels": [
+        4728,
+        2832
+      ],
+      "pure_white_pixel_fraction": 0.9355688881958186,
+      "source": "source_bdf",
+      "source_counts": {
+        "nodes": 23812,
+        "elements": 25203,
+        "groups": 242
+      },
+      "mode_index": -1,
+      "displayed_deformation": 0,
+      "visual_status": "PASS",
+      "visual_observation": "Whole original coarse model with shell thickness colors and readable millimetre scale. Range3.7296?57.201mm agrees with originalPSHELL fields. No mode or deformed result is shown."
+    },
+    {
+      "name": "22_published_uCRM9_connections.png",
+      "sha256": "7445547023a4a6780f20883ca940d9897130e49002a2d4205f7bbaac20f9ac3a",
+      "metadata_sha256": "451beb4e54250483d690a97657ea5a67412b9566e70cb843e2e0f1866641dbb0",
+      "actual_pixels": [
+        4728,
+        2832
+      ],
+      "pure_white_pixel_fraction": 0.955539543242804,
+      "source": "source_bdf",
+      "source_counts": {
+        "nodes": 23812,
+        "elements": 25203,
+        "groups": 242
+      },
+      "mode_index": -1,
+      "displayed_deformation": 0,
+      "visual_status": "PASS",
+      "visual_observation": "Translucent original model with RBE connections and engine mass-cage geometry visible. Engine cage outside wingbox is real source geometry. This is model visualization, not static results or modal output."
+    },
+    {
+      "name": "23_published_uCRM9_internal_structure.png",
+      "sha256": "b11f24fafb1c5752420b8a6b83d7e5c61b7afd57932529dfde6e17d04a9a4fd7",
+      "metadata_sha256": "2b2edb1e033beb11de6eea24bcf9e99a8cd02dabe6e5640ac71c6dd03f199984",
+      "actual_pixels": [
+        4728,
+        2832
+      ],
+      "pure_white_pixel_fraction": 0.9326258788847782,
+      "source": "source_bdf",
+      "source_counts": {
+        "nodes": 23812,
+        "elements": 25203,
+        "groups": 242
+      },
+      "mode_index": -1,
+      "displayed_deformation": 0,
+      "visual_status": "PASS",
+      "visual_observation": "Original internal ribs/spars exposed by hiding skin property groups; complete selected structure framed. PID legend visible. Connections are originalmodel entities, not added stiffeners."
+    },
+    {
+      "name": "31_published_static_displacement.png",
+      "sha256": "2539d034b6d2aa1f4f13bac3ac1c4c4a6b47a0d4aab5c05cb72301fe43d6f4fa",
+      "metadata_sha256": "10316f6cb945ea439f76e3c1128c37903beb8c7aabf91a1c14a6321cc06ff094",
+      "actual_pixels": [
+        4728,
+        2832
+      ],
+      "source": "retained_native_json",
+      "source_counts": {
+        "nodes": 23812,
+        "elements": 25203,
+        "groups": 242
+      },
+      "mode_index": -1,
+      "frequency_Hz": null,
+      "displayed_deformation": 2.534839655836232,
+      "visual_status": "PASS",
+      "caption": "Actual SOL101 translations, magnification exactly one. Color is displacement magnitude in metres; the wireframe is the undeformed reference."
+    },
+    {
+      "name": "32_published_static_results_ui.png",
+      "sha256": "0626581d0322d11fd7d31d494fd6d6d790ff24d397ba27d9e6004f0f4218bfdc",
+      "metadata_sha256": "57bfafacd1be6eeeb862027312e6a84d774e655eb02819aa87c85c193bbd1acb",
+      "actual_pixels": [
+        4800,
+        3000
+      ],
+      "source": "retained_native_json",
+      "source_counts": {
+        "nodes": 23812,
+        "elements": 25203,
+        "groups": 242
+      },
+      "mode_index": -1,
+      "frequency_Hz": null,
+      "displayed_deformation": 2.534839655836232,
+      "visual_status": "PASS",
+      "caption": "Actual Boxer controls and retained native SOL101 translations. Physical scale is 1:1. Anisotropic stress fields are unavailable and are not replaced by zero."
+    },
+    {
+      "name": "41_published_mode_01.png",
+      "sha256": "f6e0203553742a2fcbd2ac0d0de529c8b5a7c27dbf7b58096c3fc37e63799d05",
+      "metadata_sha256": "45a7f2888b8ac26101afa24eacac1d90845800cb6e0ec2dcd4c02db2af2aa71f",
+      "actual_pixels": [
+        4728,
+        2832
+      ],
+      "source": "native_jfem_archive",
+      "source_counts": {
+        "nodes": 23812,
+        "elements": 25129,
+        "groups": 242
+      },
+      "mode_index": 0,
+      "frequency_Hz": 1.624820768817301,
+      "displayed_deformation": 3.5892482445014866,
+      "visual_status": "PASS",
+      "caption": "First original-model normal mode. Shape amplitude is arbitrary, amplified for visibility. The color legend is normalized displacement magnitude, not physical metres."
+    },
+    {
+      "name": "42_published_mode_03.png",
+      "sha256": "33819a1ad894bddecbf71f6eb01f1e24190e7893cbcae919ec511a0957871f59",
+      "metadata_sha256": "22afe2b9634b466c842838bcfad0515f079ff6c97f911136c2bd2ad234ac9c52",
+      "actual_pixels": [
+        4728,
+        2832
+      ],
+      "source": "native_jfem_archive",
+      "source_counts": {
+        "nodes": 23812,
+        "elements": 25129,
+        "groups": 242
+      },
+      "mode_index": 2,
+      "frequency_Hz": 3.8075781865411913,
+      "displayed_deformation": 3.589248244501487,
+      "visual_status": "PASS",
+      "caption": "Third normal mode with the undeformed wireframe reference. Rigid connections are hidden for clarity in result views; they remain in the solved model."
+    },
+    {
+      "name": "43_published_mode_10.png",
+      "sha256": "7582de1ce2577b3610c7be6accf021d73f4c6087d00954d17e8d493853f596f0",
+      "metadata_sha256": "74d350e5085568e0d3eb2097cbd6cb63f7ed0b950f92cdfda4d43d6c33074671",
+      "actual_pixels": [
+        4728,
+        2832
+      ],
+      "source": "native_jfem_archive",
+      "source_counts": {
+        "nodes": 23812,
+        "elements": 25129,
+        "groups": 242
+      },
+      "mode_index": 9,
+      "frequency_Hz": 18.94989118019925,
+      "displayed_deformation": 3.589248244501487,
+      "visual_status": "PASS",
+      "caption": "Tenth normal mode. No reference mode vectors are published, so the scalar frequency agreement does not establish a mode-shape MAC match."
+    },
+    {
+      "name": "44_published_mode_20.png",
+      "sha256": "03975cdcc4b40ea011b35e42f27bb799ed1d6a414233c523aff5bad32ea35c1b",
+      "metadata_sha256": "28873dbb8f4f024d84a35b53900d4e556b70c79829de904eb21b353bfca3dd9e",
+      "actual_pixels": [
+        4728,
+        2832
+      ],
+      "source": "native_jfem_archive",
+      "source_counts": {
+        "nodes": 23812,
+        "elements": 25129,
+        "groups": 242
+      },
+      "mode_index": 19,
+      "frequency_Hz": 39.23807025190432,
+      "displayed_deformation": 3.589248244501487,
+      "visual_status": "PASS",
+      "caption": "Twentieth of 20 certified finite modes. Mode shapes retain their arbitrary native normalization; the visible deformation is magnified."
+    }
+  ],
+  "model_nodes": 23812,
+  "shells": 25055,
+  "other_elements": 148,
+  "analysis_shape": "undeformed source geometry only",
+  "result_visual_qa_sha256": "f336008ab7d0f8ca9680ebb4b78d71d36429d1124acf07bb1fe9bb3c53852428",
+  "static_native_json_sha256": "04b518baf3b679570d777e48551581a87f990c67ed24354fbd5fd2e19a0d7f84",
+  "modal_native_archive_sha256": "d2feab7a2ac3e1aaad39ce6331966f74b1155317d51c1a07c0d47038b0ea4b20",
+  "capture_method": "Actual JFEM-Boxer page, production model/result decoding and Babylon WebGL rendering; native Chrome screenshot; white background; no image retouching or pixel rescaling.",
+  "static_ingestion": "Actual retained native JSON converted by the production JFEM result payload adapter and decoded by the production Boxer functions. Source signature and every GRID vector verified; no new solve, fabricated field or network interception.",
+  "native_archive_limit": "The legacy modal archive retains mass-node geometry and rigid links but not CONM2 mass/inertia values. The solved weights and inertia remain in the original source decks and solver receipts."
+}

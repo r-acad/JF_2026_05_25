@@ -1,0 +1,19 @@
+uCRM-9 model and published reference data
+
+Timothy R. Brooks, Gaetan G. W. Kenway and Joaquim R. R. A. Martins.
+uCRM: undeflected Common Research Model. Version 1, 9 July 2019.
+Mendeley Data. https://doi.org/10.17632/gpk4zn73xn.1
+Dataset: https://data.mendeley.com/datasets/gpk4zn73xn/1
+Licensed CC BY 4.0: https://creativecommons.org/licenses/by/4.0/
+
+Related publication:
+Brooks, T. R., Kenway, G. K. W., and Martins, J. R. R. A.
+Benchmark Aerostructural Models for the Study of Transonic Aircraft Wings.
+AIAA Journal 56(7), 2840-2855, 2018. https://doi.org/10.2514/1.J056603
+
+Original extracted author model files are unchanged. The reference CSV,
+extracted-cell metadata and case-card text are newly prepared excerpts.
+Any subsequent JFEM plots and comparisons must identify their JFEM origin.
+No author endorsement is implied. The dataset license is recorded from
+the versioned Mendeley Data source page. It is not asserted to license
+the separate journal article; that article is cited, not redistributed.

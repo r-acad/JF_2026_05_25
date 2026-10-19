@@ -2,7 +2,8 @@
 
 You do not need to run these files to install or use JFEM. They are retained in
 the public repository because they protect solver correctness and let users
-verify a build. They contain small synthetic models and assertions.
+verify a build. They contain small synthetic models, isolated attributed public
+element fixtures and assertions.
 
 `runtests.jl` is the entry point. It runs the curated `validation/` suite and then
 focused checks of constraints, beam and shell operators, mass and buckling,
@@ -25,6 +26,13 @@ Generated results belong in a temporary directory, never beside source tests.
 The two documented coarse-mesh accuracy misses are asserted explicitly.
 Historical regression checks remain separate from analytical and published
 accuracy checks. See `validation/VALIDATION_SUMMARY.md`.
+
+The coupled-quadrilateral checks independently integrate the section energy and
+test quadrature weights, enrichment switches and derivatives. Their isolated
+uCRM9 element fixture retains the original public dataset attribution under
+`validation/cases/CRM_uCRM9_published/diagnostics`. The modal pencil tests use
+exact small eigenproblems to check singular mass, negative finite roots and
+coupled coordinates whose diagonal stiffness is zero.
 
 Three integration scripts run separately because they require input-deck and
 output-directory arguments: `buckling_output_test.jl`,

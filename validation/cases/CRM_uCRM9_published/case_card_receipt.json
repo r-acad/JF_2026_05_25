@@ -1,0 +1,17 @@
+{
+  "schema": "jfem.validation.case_card.v1",
+  "case_id": "CRM_uCRM9_published",
+  "built_utc": "2026-10-19T11:47:28.959138+00:00",
+  "pdf_pages": 3,
+  "builder": "build_case_card.py",
+  "builder_sha256": "c073917c5018eb49a86ca84cea9846d0ba28c5783a1f0b29482967e943de2832",
+  "case_metadata_sha256": "cff9a1c976db33720e79e8f8da179cd7ef8c79dd58fdd4f28359993a21f35353",
+  "comparison_sha256": "e28e263fab1afe6567f43d6d249f4a4b7429b2b4b49a1b6dc1345268308a10b7",
+  "artifacts": {
+    "case_card.pdf": "864a5e0333e5749cdd7d927a627df4b0f4b815189939de71b2a71fa53803fd73",
+    "figures/modal_comparison.png": "cfa7d013324c410489c980c805e99c45179e30e30ddd5f1f414047134d936c4c",
+    "figures/modal_comparison.svg": "250455c234bfa2e569f261fd3f1a456dd899e27f823aca5972d7c5acbe0b8fb4",
+    "figures/static_tip_sampling.png": "cf665d599831a9ad18e77670fe5bc6392d34744c715873582c42a589fd41aa50",
+    "figures/static_tip_sampling.svg": "5952ef8bf641b129f10ff9d386afa59cc3af8ec3c09c5ea628c48edde689bf70"
+  }
+}

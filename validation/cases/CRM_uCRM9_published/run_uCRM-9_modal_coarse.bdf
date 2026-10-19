@@ -1,0 +1,39 @@
+$ This is an example run file used to perform modal analysis of
+$  the uCRM-9 coarse structural model
+SOL 103
+CEND
+ECHO = NONE
+RESVEC = NO
+SUBCASE 1
+   SUBTITLE=Default
+   SPC = 1
+   METHOD = 1
+   VECTOR(SORT1,REAL)=ALL
+$
+BEGIN BULK
+$ Analysis parameters
+PARAM,AUTOSPC,NO
+PARAM,GRDPNT,1
+PARAM,K6ROT,1e5
+PARAM,OGEOM,YES
+PARAM,COUPMASS,-1
+PARAM,MAXRATIO,1.0e7
+PARAM,POST,-1
+PARAM   PRTMAXIM YES
+PARAM,WTMASS,1.0
+$PARAM,AUTOMSET,YES
+$
+EIGRL    1                       20      0
+$ Include wingbox model
+INCLUDE 'uCRM-9_wingbox_coarse.bdf'
+
+$ Include external masses
+INCLUDE 'uCRM-9_LETE_masses_coarse.bdf'
+INCLUDE 'uCRM-9_engine_mass_coarse.bdf'
+
+$ Include internal fuel mass 
+$ NOTE: Can change replace this with 100 percent fuel file, 
+$ if fullfuel is desired
+INCLUDE 'uCRM-9_fuel_mass_20_percent_coarse.bdf'
+
+ENDDATA

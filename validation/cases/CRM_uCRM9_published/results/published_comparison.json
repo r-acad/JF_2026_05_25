@@ -1,0 +1,2604 @@
+{
+  "schema_version": 2,
+  "dataset_doi": "10.17632/gpk4zn73xn.1",
+  "publication_doi": "10.2514/1.J056603",
+  "unmodified_author_inputs": true,
+  "original_parameters": {
+    "K6ROT": 100000,
+    "COUPMASS": -1,
+    "AUTOSPC": "NO"
+  },
+  "input_and_source_receipt": {
+    "file": "run_receipt.json",
+    "sha256": "05c2b25437b5a951c761a03f47ff34a3d76901a87b0897151c91992a8dfb2a3b",
+    "source_unchanged": true,
+    "git_head_at_start": "b74dcdff3fee727f93400f328dc44691bd9ad9e3"
+  },
+  "run_statuses": [
+    {
+      "sol": 101,
+      "status": "complete",
+      "error": null
+    },
+    {
+      "sol": 103,
+      "status": "complete",
+      "error": null
+    }
+  ],
+  "comparisons": [
+    {
+      "solution": "SOL101",
+      "quantity": "Global Uz at inferred GRID833",
+      "mode": null,
+      "node_id": 833,
+      "value": 2.4825351024648463,
+      "reference": 2.5239,
+      "error_percent": 1.638927752096101,
+      "unit": "m",
+      "relative_residual": null,
+      "scale_normalized_residual": null,
+      "execution_status": "complete",
+      "comparison_status": "AMBIGUOUS_POINT",
+      "reference_locator": "Results.xlsx structural sheet C5"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 1,
+      "node_id": null,
+      "value": 1.624820768817301,
+      "reference": 1.629275,
+      "error_percent": 0.2733873153825439,
+      "unit": "Hz",
+      "relative_residual": 4.141847883164355e-11,
+      "scale_normalized_residual": 4.3471566220469875e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C10"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 1,
+      "node_id": null,
+      "value": 104.2247015233993,
+      "reference": 104.79692124385261,
+      "error_percent": 0.5460272245229447,
+      "unit": "rad^2/s^2",
+      "relative_residual": 4.141847883164355e-11,
+      "scale_normalized_residual": 4.3471566220469875e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C10"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 2,
+      "node_id": null,
+      "value": 2.6279265555385374,
+      "reference": 2.631756,
+      "error_percent": 0.14550909968336073,
+      "unit": "Hz",
+      "relative_residual": 1.6849028371108766e-12,
+      "scale_normalized_residual": 3.2292708348645763e-16,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C11"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 2,
+      "node_id": null,
+      "value": 272.637872280794,
+      "reference": 273.43303323360954,
+      "error_percent": 0.29080647038581625,
+      "unit": "rad^2/s^2",
+      "relative_residual": 1.6849028371108766e-12,
+      "scale_normalized_residual": 3.2292708348645763e-16,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C11"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 3,
+      "node_id": null,
+      "value": 3.8075781865411913,
+      "reference": 3.816032,
+      "error_percent": 0.22153413437855288,
+      "unit": "Hz",
+      "relative_residual": 1.0033680782748869e-11,
+      "scale_normalized_residual": 2.028858288955405e-16,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C12"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 3,
+      "node_id": null,
+      "value": 572.3443459879345,
+      "reference": 574.8886738800048,
+      "error_percent": 0.44257749503017685,
+      "unit": "rad^2/s^2",
+      "relative_residual": 1.0033680782748869e-11,
+      "scale_normalized_residual": 2.028858288955405e-16,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C12"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 4,
+      "node_id": null,
+      "value": 4.674548902693426,
+      "reference": 4.683773,
+      "error_percent": 0.19693732609530884,
+      "unit": "Hz",
+      "relative_residual": 8.796091479473216e-12,
+      "scale_normalized_residual": 6.865559255884024e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C13"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 4,
+      "node_id": null,
+      "value": 862.6589883042602,
+      "reference": 866.0668471054918,
+      "error_percent": 0.3934868090865114,
+      "unit": "rad^2/s^2",
+      "relative_residual": 8.796091479473216e-12,
+      "scale_normalized_residual": 6.865559255884024e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C13"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 5,
+      "node_id": null,
+      "value": 6.3234743098129025,
+      "reference": 6.315011,
+      "error_percent": 0.1340189243202004,
+      "unit": "Hz",
+      "relative_residual": 4.19490698164678e-13,
+      "scale_normalized_residual": 9.801456405994459e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C14"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 5,
+      "node_id": null,
+      "value": 1578.5969294640252,
+      "reference": 1574.3741830294657,
+      "error_percent": 0.26821745936114655,
+      "unit": "rad^2/s^2",
+      "relative_residual": 4.19490698164678e-13,
+      "scale_normalized_residual": 9.801456405994459e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C14"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 6,
+      "node_id": null,
+      "value": 8.097363958966522,
+      "reference": 8.112136,
+      "error_percent": 0.18209804462693593,
+      "unit": "Hz",
+      "relative_residual": 3.2544605119970485e-12,
+      "scale_normalized_residual": 7.867685605953775e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C15"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 6,
+      "node_id": null,
+      "value": 2588.4933723404392,
+      "reference": 2597.9463767337265,
+      "error_percent": 0.36386449227532214,
+      "unit": "rad^2/s^2",
+      "relative_residual": 3.2544605119970485e-12,
+      "scale_normalized_residual": 7.867685605953775e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C15"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 7,
+      "node_id": null,
+      "value": 10.585275750908133,
+      "reference": 10.59417,
+      "error_percent": 0.08395418510243717,
+      "unit": "Hz",
+      "relative_residual": 2.0457953647287095e-12,
+      "scale_normalized_residual": 9.146593996703558e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C16"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 7,
+      "node_id": null,
+      "value": 4423.4802119285005,
+      "reference": 4430.91696935136,
+      "error_percent": 0.16783788715292983,
+      "unit": "rad^2/s^2",
+      "relative_residual": 2.0457953647287095e-12,
+      "scale_normalized_residual": 9.146593996703558e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C16"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 8,
+      "node_id": null,
+      "value": 12.828735749288908,
+      "reference": 12.84292,
+      "error_percent": 0.1104441257213406,
+      "unit": "Hz",
+      "relative_residual": 7.651634364901731e-13,
+      "scale_normalized_residual": 6.927540384999662e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C17"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 8,
+      "node_id": null,
+      "value": 6497.21825224765,
+      "reference": 6511.593654832843,
+      "error_percent": 0.2207662723936072,
+      "unit": "rad^2/s^2",
+      "relative_residual": 7.651634364901731e-13,
+      "scale_normalized_residual": 6.927540384999662e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C17"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 9,
+      "node_id": null,
+      "value": 13.964485731645963,
+      "reference": 13.97464,
+      "error_percent": 0.07266211046608466,
+      "unit": "Hz",
+      "relative_residual": 6.715745426504889e-13,
+      "scale_normalized_residual": 6.008552415441765e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C18"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 9,
+      "node_id": null,
+      "value": 7698.562323855786,
+      "reference": 7709.762405420477,
+      "error_percent": 0.14527142310917726,
+      "unit": "rad^2/s^2",
+      "relative_residual": 6.715745426504889e-13,
+      "scale_normalized_residual": 6.008552415441765e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C18"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 10,
+      "node_id": null,
+      "value": 18.94989118019925,
+      "reference": 18.96142,
+      "error_percent": 0.06080145791165394,
+      "unit": "Hz",
+      "relative_residual": 5.844416863721061e-13,
+      "scale_normalized_residual": 6.108557384844854e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C19"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 10,
+      "node_id": null,
+      "value": 14176.635638565182,
+      "reference": 14193.89057615255,
+      "error_percent": 0.1215659476504499,
+      "unit": "rad^2/s^2",
+      "relative_residual": 5.844416863721061e-13,
+      "scale_normalized_residual": 6.108557384844854e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C19"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 11,
+      "node_id": null,
+      "value": 19.560590223728273,
+      "reference": 19.55673,
+      "error_percent": 0.01973859499144793,
+      "unit": "Hz",
+      "relative_residual": 3.007575574324691e-13,
+      "scale_normalized_residual": 7.725021310687833e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C20"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 11,
+      "node_id": null,
+      "value": 15105.101466293372,
+      "reference": 15099.140161765108,
+      "error_percent": 0.03948108610422439,
+      "unit": "rad^2/s^2",
+      "relative_residual": 3.007575574324691e-13,
+      "scale_normalized_residual": 7.725021310687833e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C20"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 12,
+      "node_id": null,
+      "value": 21.95933290884607,
+      "reference": 21.96473,
+      "error_percent": 0.024571625300793338,
+      "unit": "Hz",
+      "relative_residual": 6.576429297049296e-13,
+      "scale_normalized_residual": 9.244114789322054e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C21"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 12,
+      "node_id": null,
+      "value": 19036.978624479238,
+      "reference": 19046.337463878783,
+      "error_percent": 0.04913721295390289,
+      "unit": "rad^2/s^2",
+      "relative_residual": 6.576429297049296e-13,
+      "scale_normalized_residual": 9.244114789322054e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C21"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 13,
+      "node_id": null,
+      "value": 24.23827585283984,
+      "reference": 24.24123,
+      "error_percent": 0.012186457371017902,
+      "unit": "Hz",
+      "relative_residual": 2.647127663063071e-13,
+      "scale_normalized_residual": 6.544164181445852e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C22"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 13,
+      "node_id": null,
+      "value": 23193.334116277354,
+      "reference": 23198.9880413261,
+      "error_percent": 0.024371429644585624,
+      "unit": "rad^2/s^2",
+      "relative_residual": 2.647127663063071e-13,
+      "scale_normalized_residual": 6.544164181445852e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C22"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 14,
+      "node_id": null,
+      "value": 25.92174890641997,
+      "reference": 25.94732,
+      "error_percent": 0.09855003746063246,
+      "unit": "Hz",
+      "relative_residual": 6.455841614307161e-13,
+      "scale_normalized_residual": 1.525450655713979e-16,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C23"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 14,
+      "node_id": null,
+      "value": 26527.012109902407,
+      "reference": 26579.37426230667,
+      "error_percent": 0.19700295382242303,
+      "unit": "rad^2/s^2",
+      "relative_residual": 6.455841614307161e-13,
+      "scale_normalized_residual": 1.525450655713979e-16,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C23"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 15,
+      "node_id": null,
+      "value": 28.901385918820683,
+      "reference": 28.95591,
+      "error_percent": 0.18830035450212546,
+      "unit": "Hz",
+      "relative_residual": 4.761741904318652e-13,
+      "scale_normalized_residual": 1.0973700023479003e-16,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C24"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 15,
+      "node_id": null,
+      "value": 32975.93170554216,
+      "reference": 33100.47094940371,
+      "error_percent": 0.37624613876917945,
+      "unit": "rad^2/s^2",
+      "relative_residual": 4.761741904318652e-13,
+      "scale_normalized_residual": 1.0973700023479003e-16,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C24"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 16,
+      "node_id": null,
+      "value": 31.065099590658484,
+      "reference": 31.07021,
+      "error_percent": 0.01644793949418276,
+      "unit": "Hz",
+      "relative_residual": 2.8675144724068915e-13,
+      "scale_normalized_residual": 8.995897694557104e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C25"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 16,
+      "node_id": null,
+      "value": 38098.26841281712,
+      "reference": 38110.80426584035,
+      "error_percent": 0.032893173641233155,
+      "unit": "rad^2/s^2",
+      "relative_residual": 2.8675144724068915e-13,
+      "scale_normalized_residual": 8.995897694557104e-17,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C25"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 17,
+      "node_id": null,
+      "value": 33.804787003950416,
+      "reference": 33.81524,
+      "error_percent": 0.030912085939909684,
+      "unit": "Hz",
+      "relative_residual": 1.4855949368585012e-12,
+      "scale_normalized_residual": 2.1660703804847746e-16,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C26"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 17,
+      "node_id": null,
+      "value": 45114.49958643962,
+      "reference": 45142.404190382666,
+      "error_percent": 0.061814616309230026,
+      "unit": "rad^2/s^2",
+      "relative_residual": 1.4855949368585012e-12,
+      "scale_normalized_residual": 2.1660703804847746e-16,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C26"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 18,
+      "node_id": null,
+      "value": 35.781155481738615,
+      "reference": 35.80227,
+      "error_percent": 0.05897536178958701,
+      "unit": "Hz",
+      "relative_residual": 1.5153379686197899e-12,
+      "scale_normalized_residual": 3.9905653258833275e-16,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C27"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 18,
+      "node_id": null,
+      "value": 50543.86621173955,
+      "reference": 50603.53584804707,
+      "error_percent": 0.11791594264616963,
+      "unit": "rad^2/s^2",
+      "relative_residual": 1.5153379686197899e-12,
+      "scale_normalized_residual": 3.9905653258833275e-16,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C27"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 19,
+      "node_id": null,
+      "value": 38.376524222106966,
+      "reference": 38.39277,
+      "error_percent": 0.042314680324011957,
+      "unit": "Hz",
+      "relative_residual": 6.111057968708539e-13,
+      "scale_normalized_residual": 2.005891987286297e-16,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C28"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 19,
+      "node_id": null,
+      "value": 58142.14001165932,
+      "reference": 58191.37658226,
+      "error_percent": 0.08461145532634166,
+      "unit": "rad^2/s^2",
+      "relative_residual": 6.111057968708539e-13,
+      "scale_normalized_residual": 2.005891987286297e-16,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C28"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Natural frequency",
+      "mode": 20,
+      "node_id": null,
+      "value": 39.23807025190432,
+      "reference": 39.28811,
+      "error_percent": 0.12736613722493878,
+      "unit": "Hz",
+      "relative_residual": 2.087827937982119e-12,
+      "scale_normalized_residual": 5.395958044352562e-16,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C29"
+    },
+    {
+      "solution": "SOL103",
+      "quantity": "Angular eigenvalue",
+      "mode": 20,
+      "node_id": null,
+      "value": 60782.004384324435,
+      "reference": 60937.132073815,
+      "error_percent": 0.25457005312074227,
+      "unit": "rad^2/s^2",
+      "relative_residual": 2.087827937982119e-12,
+      "scale_normalized_residual": 5.395958044352562e-16,
+      "execution_status": "complete",
+      "comparison_status": "AVAILABLE",
+      "reference_locator": "Results.xlsx structural sheet C29"
+    }
+  ],
+  "tip_nodes": [
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.86721802,
+        29.38150024,
+        4.145702362
+      ],
+      "translation_m": [
+        0.10146707220087028,
+        -0.021231510121202925,
+        2.5324510456467744
+      ],
+      "node_id": 831,
+      "vertical_displacement_m": 2.5324510456467744,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 0.33880287042967466,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.18533707,
+        29.38150024,
+        4.150185585
+      ],
+      "translation_m": [
+        0.10107826865231678,
+        -0.01916878184064988,
+        2.4725105972394568
+      ],
+      "node_id": 832,
+      "vertical_displacement_m": 2.4725105972394568,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 2.036110890310355,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.29914093,
+        29.3815136,
+        4.275279522
+      ],
+      "translation_m": [
+        0.09007269287334767,
+        -0.03699268775711234,
+        2.4825351024648463
+      ],
+      "node_id": 833,
+      "vertical_displacement_m": 2.4825351024648463,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 1.638927752096101,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.41290665,
+        29.38150024,
+        4.270970345
+      ],
+      "translation_m": [
+        0.0904525462108153,
+        -0.03685018313660012,
+        2.492549084257352
+      ],
+      "node_id": 834,
+      "vertical_displacement_m": 2.492549084257352,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 1.2421615651431397,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.5266037,
+        29.38150787,
+        4.265191078
+      ],
+      "translation_m": [
+        0.09097170376287221,
+        -0.03648041362180892,
+        2.50254714620624
+      ],
+      "node_id": 835,
+      "vertical_displacement_m": 2.50254714620624,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 0.8460261418344607,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.64022827,
+        29.38150024,
+        4.258045197
+      ],
+      "translation_m": [
+        0.09161472664649929,
+        -0.035913820772606554,
+        2.512527636219289
+      ],
+      "node_id": 836,
+      "vertical_displacement_m": 2.512527636219289,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 0.45058694008124744,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.75376129,
+        29.38150787,
+        4.24963522
+      ],
+      "translation_m": [
+        0.09234922249696059,
+        -0.035228164407004346,
+        2.5224919224309392
+      ],
+      "node_id": 837,
+      "vertical_displacement_m": 2.5224919224309392,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 0.055789752726359366,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.29914474,
+        29.38148117,
+        4.02101326
+      ],
+      "translation_m": [
+        0.11244362209940409,
+        -0.0016862511767516877,
+        2.4825302932158038
+      ],
+      "node_id": 838,
+      "vertical_displacement_m": 2.4825302932158038,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 1.6391183004158663,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.41294861,
+        29.38150024,
+        4.022521496
+      ],
+      "translation_m": [
+        0.1123074237393278,
+        -0.002334274906458551,
+        2.492548016556505
+      ],
+      "node_id": 839,
+      "vertical_displacement_m": 2.492548016556505,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 1.2422038687545067,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.52669144,
+        29.38148499,
+        4.026546001
+      ],
+      "translation_m": [
+        0.11193902405669334,
+        -0.0033573426637477227,
+        2.5025503756368783
+      ],
+      "node_id": 840,
+      "vertical_displacement_m": 2.5025503756368783,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 0.8458981878490229,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.64033508,
+        29.38150024,
+        4.032842636
+      ],
+      "translation_m": [
+        0.11136861481781023,
+        -0.004703966063115424,
+        2.512533965298849
+      ],
+      "node_id": 841,
+      "vertical_displacement_m": 2.512533965298849,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 0.45033617422047656,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.7538414,
+        29.3814888,
+        4.041188717
+      ],
+      "translation_m": [
+        0.11063550984577177,
+        -0.006278468575309112,
+        2.522496864043717
+      ],
+      "node_id": 842,
+      "vertical_displacement_m": 2.522496864043717,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 0.055593959993777156,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.18533325,
+        29.38150024,
+        4.27821064
+      ],
+      "translation_m": [
+        0.08980802799961125,
+        -0.03696713758523226,
+        2.472512328237722
+      ],
+      "node_id": 3693,
+      "vertical_displacement_m": 2.472512328237722,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 2.036042306045322,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.18533707,
+        29.38150024,
+        4.022161007
+      ],
+      "translation_m": [
+        0.11235882126499193,
+        -0.0013669624163051247,
+        2.4725100004526563
+      ],
+      "node_id": 3694,
+      "vertical_displacement_m": 2.4725100004526563,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 2.0361345357321396,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.86721802,
+        29.38150024,
+        4.051187515
+      ],
+      "translation_m": [
+        0.10975911799854678,
+        -0.008078755396602808,
+        2.532449357939339
+      ],
+      "node_id": 3791,
+      "vertical_displacement_m": 2.532449357939339,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 0.33873600140017335,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.86721802,
+        29.38150024,
+        4.240217209
+      ],
+      "translation_m": [
+        0.09317333863588605,
+        -0.0343839291455788,
+        2.5324510936286067
+      ],
+      "node_id": 3792,
+      "vertical_displacement_m": 2.5324510936286067,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 0.33880477152846167,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.29914474,
+        29.38150024,
+        4.148146152
+      ],
+      "translation_m": [
+        0.10125871410896821,
+        -0.019342542800655334,
+        2.4825349125253604
+      ],
+      "node_id": 11845,
+      "vertical_displacement_m": 2.4825349125253604,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 1.638935277730473,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.41292953,
+        29.38150024,
+        4.146745682
+      ],
+      "translation_m": [
+        0.10138015864076633,
+        -0.019597025129396876,
+        2.492549732164446
+      ],
+      "node_id": 11846,
+      "vertical_displacement_m": 2.492549732164446,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 1.242135894272909,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.52664948,
+        29.38150024,
+        4.145868301
+      ],
+      "translation_m": [
+        0.10145564282002273,
+        -0.019921618527873337,
+        2.502552634798214
+      ],
+      "node_id": 11847,
+      "vertical_displacement_m": 2.502552634798214,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 0.8458086771181785,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.64028168,
+        29.38150024,
+        4.145443916
+      ],
+      "translation_m": [
+        0.10149121306619949,
+        -0.020310090763797833,
+        2.5125322968887827
+      ],
+      "node_id": 11848,
+      "vertical_displacement_m": 2.5125322968887827,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 0.4504022786646521,
+      "comparison_status": "AMBIGUOUS_POINT"
+    },
+    {
+      "subcase": 1,
+      "xyz_m": [
+        46.75380325,
+        29.38150024,
+        4.145411968
+      ],
+      "translation_m": [
+        0.10149310604878949,
+        -0.020753592311633134,
+        2.5224942555587386
+      ],
+      "node_id": 11849,
+      "vertical_displacement_m": 2.5224942555587386,
+      "reference_m": 2.5239,
+      "error_percent_if_same_point": 0.05569731135390391,
+      "comparison_status": "AMBIGUOUS_POINT"
+    }
+  ],
+  "modal_diagnostics": [
+    {
+      "sol": 103,
+      "expected_modes": 20,
+      "returned_modes": 20,
+      "execution_status": "complete",
+      "solver_backend": "shifted_block_lanczos",
+      "positive_mass_shift": {
+        "lambda_reference": 2098452875.5402453,
+        "alpha": 2098452.8755402453,
+        "numerical_floor": 1.1112486392825742e-08,
+        "used": true,
+        "attempts": [
+          {
+            "factor_backend": "positive_mass_shift_cholesky",
+            "alpha": 2098452.8755402453,
+            "status": "succeeded"
+          }
+        ]
+      },
+      "inertia_origin": {
+        "negative_pivots": 0,
+        "lambda": -0.00023856647152800239,
+        "used": true
+      },
+      "candidate_rejections": {
+        "negative": 0,
+        "massless": 0,
+        "duplicate_subspace": 0,
+        "residual": 0
+      },
+      "negative_finite_eigenvalues": [],
+      "negative_finite_eigenvalue_residuals": [],
+      "negative_finite_spectrum_complete": false,
+      "error": null
+    }
+  ],
+  "static_diagnostics": [
+    {
+      "subcase": 1,
+      "source": "SOL101/run_uCRM-9_static_cruise_coarse.JU.JSON",
+      "sha256": "04b518baf3b679570d777e48551581a87f990c67ed24354fbd5fd2e19a0d7f84",
+      "linear_solver": {
+        "lsmr_btol": 0.0,
+        "cache_hit": false,
+        "regularization_shift_exponent": null,
+        "auto_lsmr_accepted": false,
+        "used_lu_fallback": false,
+        "used_lsmr_fallback": false,
+        "auto_lsmr_scaled": false,
+        "regularization_shift_min": 0.0,
+        "backend": "direct_cholesky",
+        "regularization_shift_source": "",
+        "regularization_mode": "diagonal",
+        "force_max": 126743.37197151344,
+        "auto_lsmr_residual_norm": 0.0,
+        "auto_lsmr_relative_residual": 0.0,
+        "auto_lsmr_error": "",
+        "relative_residual": 3.288340555065424e-11,
+        "lsmr_scaled": false,
+        "singular_solver_mode": "regularized_lu",
+        "lsmr_damping": 0.0,
+        "factorization_autospc": {
+          "pivot_median_relative": 0.0,
+          "skipped_translational_dofs": 0,
+          "max_fraction": 0.0,
+          "pivot_shift_multiplier": 0.0,
+          "triggered": false,
+          "mechanism_translational_dofs": 0,
+          "shift_exponent": null,
+          "mechanism_dofs": 0,
+          "skipped_as_too_aggressive": false,
+          "mechanism_rotational_dofs": 0,
+          "pivot_threshold": 0.0
+        },
+        "force_nonzero_dofs": 50924,
+        "regularization_shift_max": 0.0,
+        "used_enforced_displacement_correction": false,
+        "residual_norm": 1.0190821084888727e-05,
+        "regularization_shift": 0.0,
+        "lsmr_maxiter": 0,
+        "auto_lsmr_threshold": 0.0,
+        "lsmr_atol": 0.0,
+        "strategy": "direct",
+        "force_norm": 309958.64692062093,
+        "lsmr_diag_scale_max": 0.0,
+        "used_singular_lu_regularization": false,
+        "lsmr_conlim": 0.0,
+        "lsmr_diag_scale_min": 0.0,
+        "lsmr_diag_floor": 0.0,
+        "used_factorization_autospc": false
+      },
+      "boundary_partition": {
+        "explicit_spc_dofs": 5210,
+        "autospc_enabled": false,
+        "autospc_diagonal_translational_dofs": 0,
+        "enforced_displacement_dofs": 0,
+        "autospc_load_path_skipped_dofs": 0,
+        "autospc_load_path_protection": {
+          "enabled": false
+        },
+        "permanent_grid_constraints": 0,
+        "post_factorization_singular_translational_dofs": 0,
+        "mpc_dependent_dofs": 444,
+        "post_factorization_singular_rotational_dofs": 0,
+        "autospc_load_path_protected_translational_dofs": 0,
+        "fixed_dofs": 5654,
+        "autospc_diagonal_rotational_dofs": 0,
+        "post_factorization_singular_dofs": 0,
+        "inactive_unloaded_dofs": 0,
+        "unconstrained_dofs": 137218,
+        "permanent_grid_dofs": 0,
+        "autospc_diagonal_dofs": 0,
+        "free_dofs": 137218
+      },
+      "reaction_recovery": {
+        "excluded_residual_norm": 1.0190821084888817e-05,
+        "raw_residual_frame": "GRID_CD_ANALYSIS",
+        "spc_forces_frame": "BASIC",
+        "raw_residual_layout": "id_map order; six components per GRID",
+        "support_dofs": 5210,
+        "raw_residual_norm": 1203916.2336511586,
+        "spc_forces_components": "SPC_AND_AUTOSPC_ONLY"
+      },
+      "shell_recovery_available": false,
+      "unavailable_shell_count": 25055,
+      "shell_recovery_limitation": "PSHELL anisotropic, independent-material or MID4 constitutive recovery is unsupported, including thermal anisotropic recovery."
+    }
+  ],
+  "pipeline_timing_reports_execution_order": [
+    {
+      "solution_scope": "Numerical stage execution including assembly, constraints, equilibrium/eigenvalue solution, sensitivity and deferred recovery; excludes measured compilation, deck preparation and file export. Includes numerical orchestration, GC and scheduling waits; not CPU time.",
+      "schema_version": 2,
+      "export_seconds": 0.09598440000000075,
+      "measured_wall_seconds": 182.1563316,
+      "stages": [
+        {
+          "parent": null,
+          "path": "build_model",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.6283376,
+            "gc_seconds": 0.3214673,
+            "wall_seconds": 12.3153655,
+            "compilation_seconds": 11.6870279
+          },
+          "label": "Construct native model",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.6283376,
+            "gc_seconds": 0.3214673,
+            "wall_seconds": 12.3153655,
+            "compilation_seconds": 11.6870279
+          },
+          "category": "preparation",
+          "calls": 1,
+          "phase": "build_model"
+        },
+        {
+          "parent": null,
+          "path": "export",
+          "exclusive": {
+            "recompilation_seconds": 0.0062583,
+            "execution_seconds": 0.09598440000000075,
+            "gc_seconds": 0.3640044,
+            "wall_seconds": 13.9327842,
+            "compilation_seconds": 13.8367998
+          },
+          "label": "Write results",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0062583,
+            "execution_seconds": 0.09598440000000075,
+            "gc_seconds": 0.3640044,
+            "wall_seconds": 13.9327842,
+            "compilation_seconds": 13.8367998
+          },
+          "category": "export",
+          "calls": 1,
+          "phase": "export"
+        },
+        {
+          "parent": null,
+          "path": "parse",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.3200955000000001,
+            "gc_seconds": 0.1073107,
+            "wall_seconds": 1.4034237,
+            "compilation_seconds": 1.0833282
+          },
+          "label": "Read and parse deck",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.3200955000000001,
+            "gc_seconds": 0.1073107,
+            "wall_seconds": 1.4034237,
+            "compilation_seconds": 1.0833282
+          },
+          "category": "preparation",
+          "calls": 1,
+          "phase": "parse"
+        },
+        {
+          "parent": null,
+          "path": "solve",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 8.3387539,
+            "gc_seconds": 12.9205813,
+            "wall_seconds": 137.8993235,
+            "compilation_seconds": 129.5605696
+          },
+          "label": "Numerical solver",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.2181276,
+            "execution_seconds": 9.770238199999994,
+            "gc_seconds": 13.1469283,
+            "wall_seconds": 154.5047582,
+            "compilation_seconds": 144.73452
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "solve"
+        },
+        {
+          "parent": "solve",
+          "path": "solve/static_case",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.013145299999999693,
+            "gc_seconds": 0.09531500000000001,
+            "wall_seconds": 12.8433118,
+            "compilation_seconds": 12.8301665
+          },
+          "label": "Static equilibrium and recovery",
+          "depth": 1,
+          "inclusive": {
+            "recompilation_seconds": 0.2181276,
+            "execution_seconds": 1.4314842999999993,
+            "gc_seconds": 0.22634700000000002,
+            "wall_seconds": 16.6054347,
+            "compilation_seconds": 15.1739504
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "static_case"
+        },
+        {
+          "parent": "solve/static_case",
+          "path": "solve/static_case/constraints_linear_solve",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.17235749999999994,
+            "gc_seconds": 0.0,
+            "wall_seconds": 1.2038295,
+            "compilation_seconds": 1.0314720000000002
+          },
+          "label": "Constraints and linear equilibrium",
+          "depth": 2,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 1.0627016,
+            "gc_seconds": 0.0816545,
+            "wall_seconds": 2.1811733,
+            "compilation_seconds": 1.1184717000000002
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "constraints_linear_solve"
+        },
+        {
+          "parent": "solve/static_case/constraints_linear_solve",
+          "path": "solve/static_case/constraints_linear_solve/factorization",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.8903441000000001,
+            "gc_seconds": 0.0816545,
+            "wall_seconds": 0.9773438000000001,
+            "compilation_seconds": 0.0869997
+          },
+          "label": "Matrix factorization",
+          "depth": 3,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.8903441000000001,
+            "gc_seconds": 0.0816545,
+            "wall_seconds": 0.9773438000000001,
+            "compilation_seconds": 0.0869997
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "factorization"
+        },
+        {
+          "parent": "solve/static_case",
+          "path": "solve/static_case/loads",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.1516444,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.5775352,
+            "compilation_seconds": 0.4258908
+          },
+          "label": "Assemble applied loads",
+          "depth": 2,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.1516444,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.5775352,
+            "compilation_seconds": 0.4258908
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "loads"
+        },
+        {
+          "parent": "solve/static_case",
+          "path": "solve/static_case/recovery",
+          "exclusive": {
+            "recompilation_seconds": 0.2181276,
+            "execution_seconds": 0.20399299999999998,
+            "gc_seconds": 0.049377500000000005,
+            "wall_seconds": 1.0034144,
+            "compilation_seconds": 0.7994214000000001
+          },
+          "label": "Recover displacements, forces, stresses and strains",
+          "depth": 2,
+          "inclusive": {
+            "recompilation_seconds": 0.2181276,
+            "execution_seconds": 0.20399299999999998,
+            "gc_seconds": 0.049377500000000005,
+            "wall_seconds": 1.0034144,
+            "compilation_seconds": 0.7994214000000001
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "recovery"
+        }
+      ],
+      "measurement": "Inclusive children are already contained in parent stage times; category totals sum exclusive execution only. Execution is unavailable if measured compilation overlaps/exceeds its wall interval.",
+      "preparation_seconds": 0.9484331000000001,
+      "phases": {
+        "parse": {
+          "recompilation_seconds": 0.0,
+          "execution_seconds": 0.3200955000000001,
+          "gc_seconds": 0.1073107,
+          "label": "Read and parse deck",
+          "stages": [
+            {
+              "parent": null,
+              "path": "parse",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.3200955000000001,
+                "gc_seconds": 0.1073107,
+                "wall_seconds": 1.4034237,
+                "compilation_seconds": 1.0833282
+              },
+              "label": "Read and parse deck",
+              "depth": 0,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.3200955000000001,
+                "gc_seconds": 0.1073107,
+                "wall_seconds": 1.4034237,
+                "compilation_seconds": 1.0833282
+              },
+              "category": "preparation",
+              "calls": 1,
+              "phase": "parse"
+            }
+          ],
+          "wall_seconds": 1.4034237,
+          "category": "preparation",
+          "compilation_seconds": 1.0833282
+        },
+        "build_model": {
+          "recompilation_seconds": 0.0,
+          "execution_seconds": 0.6283376,
+          "gc_seconds": 0.3214673,
+          "label": "Construct native model",
+          "stages": [
+            {
+              "parent": null,
+              "path": "build_model",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.6283376,
+                "gc_seconds": 0.3214673,
+                "wall_seconds": 12.3153655,
+                "compilation_seconds": 11.6870279
+              },
+              "label": "Construct native model",
+              "depth": 0,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.6283376,
+                "gc_seconds": 0.3214673,
+                "wall_seconds": 12.3153655,
+                "compilation_seconds": 11.6870279
+              },
+              "category": "preparation",
+              "calls": 1,
+              "phase": "build_model"
+            }
+          ],
+          "wall_seconds": 12.3153655,
+          "category": "preparation",
+          "compilation_seconds": 11.6870279
+        },
+        "export": {
+          "recompilation_seconds": 0.0062583,
+          "execution_seconds": 0.09598440000000075,
+          "gc_seconds": 0.3640044,
+          "label": "Write results",
+          "stages": [
+            {
+              "parent": null,
+              "path": "export",
+              "exclusive": {
+                "recompilation_seconds": 0.0062583,
+                "execution_seconds": 0.09598440000000075,
+                "gc_seconds": 0.3640044,
+                "wall_seconds": 13.9327842,
+                "compilation_seconds": 13.8367998
+              },
+              "label": "Write results",
+              "depth": 0,
+              "inclusive": {
+                "recompilation_seconds": 0.0062583,
+                "execution_seconds": 0.09598440000000075,
+                "gc_seconds": 0.3640044,
+                "wall_seconds": 13.9327842,
+                "compilation_seconds": 13.8367998
+              },
+              "category": "export",
+              "calls": 1,
+              "phase": "export"
+            }
+          ],
+          "wall_seconds": 13.9327842,
+          "category": "export",
+          "compilation_seconds": 13.8367998
+        },
+        "solve": {
+          "recompilation_seconds": 0.2181276,
+          "execution_seconds": 9.770238199999994,
+          "gc_seconds": 13.1469283,
+          "label": "Numerical solver",
+          "stages": [
+            {
+              "parent": null,
+              "path": "solve",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 8.3387539,
+                "gc_seconds": 12.9205813,
+                "wall_seconds": 137.8993235,
+                "compilation_seconds": 129.5605696
+              },
+              "label": "Numerical solver",
+              "depth": 0,
+              "inclusive": {
+                "recompilation_seconds": 0.2181276,
+                "execution_seconds": 9.770238199999994,
+                "gc_seconds": 13.1469283,
+                "wall_seconds": 154.5047582,
+                "compilation_seconds": 144.73452
+              },
+              "category": "numerical",
+              "calls": 1,
+              "phase": "solve"
+            },
+            {
+              "parent": "solve",
+              "path": "solve/static_case",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.013145299999999693,
+                "gc_seconds": 0.09531500000000001,
+                "wall_seconds": 12.8433118,
+                "compilation_seconds": 12.8301665
+              },
+              "label": "Static equilibrium and recovery",
+              "depth": 1,
+              "inclusive": {
+                "recompilation_seconds": 0.2181276,
+                "execution_seconds": 1.4314842999999993,
+                "gc_seconds": 0.22634700000000002,
+                "wall_seconds": 16.6054347,
+                "compilation_seconds": 15.1739504
+              },
+              "category": "numerical",
+              "calls": 1,
+              "phase": "static_case"
+            },
+            {
+              "parent": "solve/static_case",
+              "path": "solve/static_case/constraints_linear_solve",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.17235749999999994,
+                "gc_seconds": 0.0,
+                "wall_seconds": 1.2038295,
+                "compilation_seconds": 1.0314720000000002
+              },
+              "label": "Constraints and linear equilibrium",
+              "depth": 2,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 1.0627016,
+                "gc_seconds": 0.0816545,
+                "wall_seconds": 2.1811733,
+                "compilation_seconds": 1.1184717000000002
+              },
+              "category": "numerical",
+              "calls": 1,
+              "phase": "constraints_linear_solve"
+            },
+            {
+              "parent": "solve/static_case/constraints_linear_solve",
+              "path": "solve/static_case/constraints_linear_solve/factorization",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.8903441000000001,
+                "gc_seconds": 0.0816545,
+                "wall_seconds": 0.9773438000000001,
+                "compilation_seconds": 0.0869997
+              },
+              "label": "Matrix factorization",
+              "depth": 3,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.8903441000000001,
+                "gc_seconds": 0.0816545,
+                "wall_seconds": 0.9773438000000001,
+                "compilation_seconds": 0.0869997
+              },
+              "category": "numerical",
+              "calls": 1,
+              "phase": "factorization"
+            },
+            {
+              "parent": "solve/static_case",
+              "path": "solve/static_case/loads",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.1516444,
+                "gc_seconds": 0.0,
+                "wall_seconds": 0.5775352,
+                "compilation_seconds": 0.4258908
+              },
+              "label": "Assemble applied loads",
+              "depth": 2,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.1516444,
+                "gc_seconds": 0.0,
+                "wall_seconds": 0.5775352,
+                "compilation_seconds": 0.4258908
+              },
+              "category": "numerical",
+              "calls": 1,
+              "phase": "loads"
+            },
+            {
+              "parent": "solve/static_case",
+              "path": "solve/static_case/recovery",
+              "exclusive": {
+                "recompilation_seconds": 0.2181276,
+                "execution_seconds": 0.20399299999999998,
+                "gc_seconds": 0.049377500000000005,
+                "wall_seconds": 1.0034144,
+                "compilation_seconds": 0.7994214000000001
+              },
+              "label": "Recover displacements, forces, stresses and strains",
+              "depth": 2,
+              "inclusive": {
+                "recompilation_seconds": 0.2181276,
+                "execution_seconds": 0.20399299999999998,
+                "gc_seconds": 0.049377500000000005,
+                "wall_seconds": 1.0034144,
+                "compilation_seconds": 0.7994214000000001
+              },
+              "category": "numerical",
+              "calls": 1,
+              "phase": "recovery"
+            }
+          ],
+          "wall_seconds": 154.5047582,
+          "category": "numerical",
+          "compilation_seconds": 144.73452
+        }
+      },
+      "solution_seconds": 9.770238200000001,
+      "compilation_scope": "Measured Julia compilation includes recompilation. Package loading/precompilation before main is unmeasured process startup; live compiler activity cannot be separated reliably.",
+      "compilation_seconds": 171.3416759
+    },
+    {
+      "solution_scope": "Numerical stage execution including assembly, constraints, equilibrium/eigenvalue solution, sensitivity and deferred recovery; excludes measured compilation, deck preparation and file export. Includes numerical orchestration, GC and scheduling waits; not CPU time.",
+      "schema_version": 2,
+      "export_seconds": 4.7954155,
+      "measured_wall_seconds": 100.47861350000001,
+      "stages": [
+        {
+          "parent": null,
+          "path": "build_model",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.5015028,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.5401742,
+            "compilation_seconds": 0.0386714
+          },
+          "label": "Construct native model",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.5015028,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.5401742,
+            "compilation_seconds": 0.0386714
+          },
+          "category": "preparation",
+          "calls": 1,
+          "phase": "build_model"
+        },
+        {
+          "parent": null,
+          "path": "export",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 4.7954155,
+            "gc_seconds": 1.6642035,
+            "wall_seconds": 6.0822804,
+            "compilation_seconds": 1.2868649
+          },
+          "label": "Write results",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 4.7954155,
+            "gc_seconds": 1.6642035,
+            "wall_seconds": 6.0822804,
+            "compilation_seconds": 1.2868649
+          },
+          "category": "export",
+          "calls": 1,
+          "phase": "export"
+        },
+        {
+          "parent": null,
+          "path": "parse",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.17500649999999998,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.1890883,
+            "compilation_seconds": 0.0140818
+          },
+          "label": "Read and parse deck",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.17500649999999998,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.1890883,
+            "compilation_seconds": 0.0140818
+          },
+          "category": "preparation",
+          "calls": 1,
+          "phase": "parse"
+        },
+        {
+          "parent": null,
+          "path": "solve",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 8.917937300000007,
+            "gc_seconds": 1.3530819000000003,
+            "wall_seconds": 15.938009500000007,
+            "compilation_seconds": 7.0200721999999995
+          },
+          "label": "Numerical solver",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 80.7641988,
+            "gc_seconds": 5.4211695,
+            "wall_seconds": 93.6670706,
+            "compilation_seconds": 12.9028718
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "solve"
+        },
+        {
+          "parent": "solve",
+          "path": "solve/eigensolve",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 56.23411580000001,
+            "gc_seconds": 2.1303447,
+            "wall_seconds": 61.77004790000001,
+            "compilation_seconds": 5.5359321
+          },
+          "label": "Modal eigenvalue solution",
+          "depth": 1,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 67.6344655,
+            "gc_seconds": 2.5853763,
+            "wall_seconds": 73.1969655,
+            "compilation_seconds": 5.5625
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "eigensolve"
+        },
+        {
+          "parent": "solve/eigensolve",
+          "path": "solve/eigensolve/constraints",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.016964700000000003,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.016964700000000003,
+            "compilation_seconds": 0.0
+          },
+          "label": "Apply constraints and select free degrees of freedom",
+          "depth": 2,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.016964700000000003,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.016964700000000003,
+            "compilation_seconds": 0.0
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "constraints"
+        },
+        {
+          "parent": "solve/eigensolve",
+          "path": "solve/eigensolve/factorization",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 11.383384999999999,
+            "gc_seconds": 0.45503160000000004,
+            "wall_seconds": 11.4099529,
+            "compilation_seconds": 0.026567900000000005
+          },
+          "label": "Matrix factorization",
+          "depth": 2,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 11.383384999999999,
+            "gc_seconds": 0.45503160000000004,
+            "wall_seconds": 11.4099529,
+            "compilation_seconds": 0.026567900000000005
+          },
+          "category": "numerical",
+          "calls": 2,
+          "phase": "factorization"
+        },
+        {
+          "parent": "solve",
+          "path": "solve/mass_assembly",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 4.2117960000000005,
+            "gc_seconds": 1.4827113,
+            "wall_seconds": 4.5320956,
+            "compilation_seconds": 0.3202996
+          },
+          "label": "Assemble mass matrix",
+          "depth": 1,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 4.2117960000000005,
+            "gc_seconds": 1.4827113,
+            "wall_seconds": 4.5320956,
+            "compilation_seconds": 0.3202996
+          },
+          "category": "numerical",
+          "calls": 2,
+          "phase": "mass_assembly"
+        }
+      ],
+      "measurement": "Inclusive children are already contained in parent stage times; category totals sum exclusive execution only. Execution is unavailable if measured compilation overlaps/exceeds its wall interval.",
+      "preparation_seconds": 0.6765093,
+      "phases": {
+        "parse": {
+          "recompilation_seconds": 0.0,
+          "execution_seconds": 0.17500649999999998,
+          "gc_seconds": 0.0,
+          "label": "Read and parse deck",
+          "stages": [
+            {
+              "parent": null,
+              "path": "parse",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.17500649999999998,
+                "gc_seconds": 0.0,
+                "wall_seconds": 0.1890883,
+                "compilation_seconds": 0.0140818
+              },
+              "label": "Read and parse deck",
+              "depth": 0,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.17500649999999998,
+                "gc_seconds": 0.0,
+                "wall_seconds": 0.1890883,
+                "compilation_seconds": 0.0140818
+              },
+              "category": "preparation",
+              "calls": 1,
+              "phase": "parse"
+            }
+          ],
+          "wall_seconds": 0.1890883,
+          "category": "preparation",
+          "compilation_seconds": 0.0140818
+        },
+        "build_model": {
+          "recompilation_seconds": 0.0,
+          "execution_seconds": 0.5015028,
+          "gc_seconds": 0.0,
+          "label": "Construct native model",
+          "stages": [
+            {
+              "parent": null,
+              "path": "build_model",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.5015028,
+                "gc_seconds": 0.0,
+                "wall_seconds": 0.5401742,
+                "compilation_seconds": 0.0386714
+              },
+              "label": "Construct native model",
+              "depth": 0,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.5015028,
+                "gc_seconds": 0.0,
+                "wall_seconds": 0.5401742,
+                "compilation_seconds": 0.0386714
+              },
+              "category": "preparation",
+              "calls": 1,
+              "phase": "build_model"
+            }
+          ],
+          "wall_seconds": 0.5401742,
+          "category": "preparation",
+          "compilation_seconds": 0.0386714
+        },
+        "export": {
+          "recompilation_seconds": 0.0,
+          "execution_seconds": 4.7954155,
+          "gc_seconds": 1.6642035,
+          "label": "Write results",
+          "stages": [
+            {
+              "parent": null,
+              "path": "export",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 4.7954155,
+                "gc_seconds": 1.6642035,
+                "wall_seconds": 6.0822804,
+                "compilation_seconds": 1.2868649
+              },
+              "label": "Write results",
+              "depth": 0,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 4.7954155,
+                "gc_seconds": 1.6642035,
+                "wall_seconds": 6.0822804,
+                "compilation_seconds": 1.2868649
+              },
+              "category": "export",
+              "calls": 1,
+              "phase": "export"
+            }
+          ],
+          "wall_seconds": 6.0822804,
+          "category": "export",
+          "compilation_seconds": 1.2868649
+        },
+        "solve": {
+          "recompilation_seconds": 0.0,
+          "execution_seconds": 80.7641988,
+          "gc_seconds": 5.4211695,
+          "label": "Numerical solver",
+          "stages": [
+            {
+              "parent": null,
+              "path": "solve",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 8.917937300000007,
+                "gc_seconds": 1.3530819000000003,
+                "wall_seconds": 15.938009500000007,
+                "compilation_seconds": 7.0200721999999995
+              },
+              "label": "Numerical solver",
+              "depth": 0,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 80.7641988,
+                "gc_seconds": 5.4211695,
+                "wall_seconds": 93.6670706,
+                "compilation_seconds": 12.9028718
+              },
+              "category": "numerical",
+              "calls": 1,
+              "phase": "solve"
+            },
+            {
+              "parent": "solve",
+              "path": "solve/eigensolve",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 56.23411580000001,
+                "gc_seconds": 2.1303447,
+                "wall_seconds": 61.77004790000001,
+                "compilation_seconds": 5.5359321
+              },
+              "label": "Modal eigenvalue solution",
+              "depth": 1,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 67.6344655,
+                "gc_seconds": 2.5853763,
+                "wall_seconds": 73.1969655,
+                "compilation_seconds": 5.5625
+              },
+              "category": "numerical",
+              "calls": 1,
+              "phase": "eigensolve"
+            },
+            {
+              "parent": "solve/eigensolve",
+              "path": "solve/eigensolve/constraints",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.016964700000000003,
+                "gc_seconds": 0.0,
+                "wall_seconds": 0.016964700000000003,
+                "compilation_seconds": 0.0
+              },
+              "label": "Apply constraints and select free degrees of freedom",
+              "depth": 2,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.016964700000000003,
+                "gc_seconds": 0.0,
+                "wall_seconds": 0.016964700000000003,
+                "compilation_seconds": 0.0
+              },
+              "category": "numerical",
+              "calls": 1,
+              "phase": "constraints"
+            },
+            {
+              "parent": "solve/eigensolve",
+              "path": "solve/eigensolve/factorization",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 11.383384999999999,
+                "gc_seconds": 0.45503160000000004,
+                "wall_seconds": 11.4099529,
+                "compilation_seconds": 0.026567900000000005
+              },
+              "label": "Matrix factorization",
+              "depth": 2,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 11.383384999999999,
+                "gc_seconds": 0.45503160000000004,
+                "wall_seconds": 11.4099529,
+                "compilation_seconds": 0.026567900000000005
+              },
+              "category": "numerical",
+              "calls": 2,
+              "phase": "factorization"
+            },
+            {
+              "parent": "solve",
+              "path": "solve/mass_assembly",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 4.2117960000000005,
+                "gc_seconds": 1.4827113,
+                "wall_seconds": 4.5320956,
+                "compilation_seconds": 0.3202996
+              },
+              "label": "Assemble mass matrix",
+              "depth": 1,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 4.2117960000000005,
+                "gc_seconds": 1.4827113,
+                "wall_seconds": 4.5320956,
+                "compilation_seconds": 0.3202996
+              },
+              "category": "numerical",
+              "calls": 2,
+              "phase": "mass_assembly"
+            }
+          ],
+          "wall_seconds": 93.6670706,
+          "category": "numerical",
+          "compilation_seconds": 12.9028718
+        }
+      },
+      "solution_seconds": 80.76419880000003,
+      "compilation_scope": "Measured Julia compilation includes recompilation. Package loading/precompilation before main is unmeasured process startup; live compiler activity cannot be separated reliably.",
+      "compilation_seconds": 14.242489899999999
+    },
+    {
+      "solution_scope": "Numerical stage execution including assembly, constraints, equilibrium/eigenvalue solution, sensitivity and deferred recovery; excludes measured compilation, deck preparation and file export. Includes numerical orchestration, GC and scheduling waits; not CPU time.",
+      "schema_version": 2,
+      "export_seconds": 1.1040947,
+      "measured_wall_seconds": 122.24713410000001,
+      "stages": [
+        {
+          "parent": null,
+          "path": "build_model",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.49845189999999995,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.520589,
+            "compilation_seconds": 0.0221371
+          },
+          "label": "Construct native model",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.49845189999999995,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.520589,
+            "compilation_seconds": 0.0221371
+          },
+          "category": "preparation",
+          "calls": 1,
+          "phase": "build_model"
+        },
+        {
+          "parent": null,
+          "path": "export",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 1.1040947,
+            "gc_seconds": 0.2996964,
+            "wall_seconds": 1.1040947,
+            "compilation_seconds": 0.0
+          },
+          "label": "Write results",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 1.1040947,
+            "gc_seconds": 0.2996964,
+            "wall_seconds": 1.1040947,
+            "compilation_seconds": 0.0
+          },
+          "category": "export",
+          "calls": 1,
+          "phase": "export"
+        },
+        {
+          "parent": null,
+          "path": "parse",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.1538795,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.1745607,
+            "compilation_seconds": 0.0206812
+          },
+          "label": "Read and parse deck",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.1538795,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.1745607,
+            "compilation_seconds": 0.0206812
+          },
+          "category": "preparation",
+          "calls": 1,
+          "phase": "parse"
+        },
+        {
+          "parent": null,
+          "path": "solve",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.2791030000000134,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.7476448000000033,
+            "compilation_seconds": 0.4685417999999899
+          },
+          "label": "Numerical solver",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 1.1e-06,
+            "execution_seconds": 56.51537750000001,
+            "gc_seconds": 6.018903,
+            "wall_seconds": 120.4478897,
+            "compilation_seconds": 63.9325122
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "solve"
+        },
+        {
+          "parent": "solve",
+          "path": "solve/assembly",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": null,
+            "gc_seconds": 2.0632457,
+            "wall_seconds": 34.228954900000005,
+            "compilation_seconds": 63.32986390000001
+          },
+          "label": "Assemble elastic stiffness",
+          "depth": 1,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": null,
+            "gc_seconds": 2.0632457,
+            "wall_seconds": 34.228954900000005,
+            "compilation_seconds": 63.32986390000001
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "assembly"
+        },
+        {
+          "parent": "solve",
+          "path": "solve/eigensolve",
+          "exclusive": {
+            "recompilation_seconds": 1.1e-06,
+            "execution_seconds": 72.92081850000001,
+            "gc_seconds": 2.9658336,
+            "wall_seconds": 73.05086250000001,
+            "compilation_seconds": 0.13004400000000002
+          },
+          "label": "Modal eigenvalue solution",
+          "depth": 1,
+          "inclusive": {
+            "recompilation_seconds": 1.1e-06,
+            "execution_seconds": 83.43923410000001,
+            "gc_seconds": 3.3765,
+            "wall_seconds": 83.5692781,
+            "compilation_seconds": 0.13004400000000002
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "eigensolve"
+        },
+        {
+          "parent": "solve/eigensolve",
+          "path": "solve/eigensolve/constraints",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.024735800000000002,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.024735800000000002,
+            "compilation_seconds": 0.0
+          },
+          "label": "Apply constraints and select free degrees of freedom",
+          "depth": 2,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.024735800000000002,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.024735800000000002,
+            "compilation_seconds": 0.0
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "constraints"
+        },
+        {
+          "parent": "solve/eigensolve",
+          "path": "solve/eigensolve/factorization",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 10.4936798,
+            "gc_seconds": 0.41066640000000004,
+            "wall_seconds": 10.4936798,
+            "compilation_seconds": 0.0
+          },
+          "label": "Matrix factorization",
+          "depth": 2,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 10.4936798,
+            "gc_seconds": 0.41066640000000004,
+            "wall_seconds": 10.4936798,
+            "compilation_seconds": 0.0
+          },
+          "category": "numerical",
+          "calls": 2,
+          "phase": "factorization"
+        },
+        {
+          "parent": "solve",
+          "path": "solve/mass_assembly",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 1.8979494000000001,
+            "gc_seconds": 0.5791573,
+            "wall_seconds": 1.9020119000000002,
+            "compilation_seconds": 0.0040625
+          },
+          "label": "Assemble mass matrix",
+          "depth": 1,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 1.8979494000000001,
+            "gc_seconds": 0.5791573,
+            "wall_seconds": 1.9020119000000002,
+            "compilation_seconds": 0.0040625
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "mass_assembly"
+        }
+      ],
+      "measurement": "Inclusive children are already contained in parent stage times; category totals sum exclusive execution only. Execution is unavailable if measured compilation overlaps/exceeds its wall interval.",
+      "preparation_seconds": 0.6523314,
+      "phases": {
+        "parse": {
+          "recompilation_seconds": 0.0,
+          "execution_seconds": 0.1538795,
+          "gc_seconds": 0.0,
+          "label": "Read and parse deck",
+          "stages": [
+            {
+              "parent": null,
+              "path": "parse",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.1538795,
+                "gc_seconds": 0.0,
+                "wall_seconds": 0.1745607,
+                "compilation_seconds": 0.0206812
+              },
+              "label": "Read and parse deck",
+              "depth": 0,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.1538795,
+                "gc_seconds": 0.0,
+                "wall_seconds": 0.1745607,
+                "compilation_seconds": 0.0206812
+              },
+              "category": "preparation",
+              "calls": 1,
+              "phase": "parse"
+            }
+          ],
+          "wall_seconds": 0.1745607,
+          "category": "preparation",
+          "compilation_seconds": 0.0206812
+        },
+        "build_model": {
+          "recompilation_seconds": 0.0,
+          "execution_seconds": 0.49845189999999995,
+          "gc_seconds": 0.0,
+          "label": "Construct native model",
+          "stages": [
+            {
+              "parent": null,
+              "path": "build_model",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.49845189999999995,
+                "gc_seconds": 0.0,
+                "wall_seconds": 0.520589,
+                "compilation_seconds": 0.0221371
+              },
+              "label": "Construct native model",
+              "depth": 0,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.49845189999999995,
+                "gc_seconds": 0.0,
+                "wall_seconds": 0.520589,
+                "compilation_seconds": 0.0221371
+              },
+              "category": "preparation",
+              "calls": 1,
+              "phase": "build_model"
+            }
+          ],
+          "wall_seconds": 0.520589,
+          "category": "preparation",
+          "compilation_seconds": 0.0221371
+        },
+        "export": {
+          "recompilation_seconds": 0.0,
+          "execution_seconds": 1.1040947,
+          "gc_seconds": 0.2996964,
+          "label": "Write results",
+          "stages": [
+            {
+              "parent": null,
+              "path": "export",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 1.1040947,
+                "gc_seconds": 0.2996964,
+                "wall_seconds": 1.1040947,
+                "compilation_seconds": 0.0
+              },
+              "label": "Write results",
+              "depth": 0,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 1.1040947,
+                "gc_seconds": 0.2996964,
+                "wall_seconds": 1.1040947,
+                "compilation_seconds": 0.0
+              },
+              "category": "export",
+              "calls": 1,
+              "phase": "export"
+            }
+          ],
+          "wall_seconds": 1.1040947,
+          "category": "export",
+          "compilation_seconds": 0.0
+        },
+        "solve": {
+          "recompilation_seconds": 1.1e-06,
+          "execution_seconds": 56.51537750000001,
+          "gc_seconds": 6.018903,
+          "label": "Numerical solver",
+          "stages": [
+            {
+              "parent": null,
+              "path": "solve",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.2791030000000134,
+                "gc_seconds": 0.0,
+                "wall_seconds": 0.7476448000000033,
+                "compilation_seconds": 0.4685417999999899
+              },
+              "label": "Numerical solver",
+              "depth": 0,
+              "inclusive": {
+                "recompilation_seconds": 1.1e-06,
+                "execution_seconds": 56.51537750000001,
+                "gc_seconds": 6.018903,
+                "wall_seconds": 120.4478897,
+                "compilation_seconds": 63.9325122
+              },
+              "category": "numerical",
+              "calls": 1,
+              "phase": "solve"
+            },
+            {
+              "parent": "solve",
+              "path": "solve/assembly",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": null,
+                "gc_seconds": 2.0632457,
+                "wall_seconds": 34.228954900000005,
+                "compilation_seconds": 63.32986390000001
+              },
+              "label": "Assemble elastic stiffness",
+              "depth": 1,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": null,
+                "gc_seconds": 2.0632457,
+                "wall_seconds": 34.228954900000005,
+                "compilation_seconds": 63.32986390000001
+              },
+              "category": "numerical",
+              "calls": 1,
+              "phase": "assembly"
+            },
+            {
+              "parent": "solve",
+              "path": "solve/eigensolve",
+              "exclusive": {
+                "recompilation_seconds": 1.1e-06,
+                "execution_seconds": 72.92081850000001,
+                "gc_seconds": 2.9658336,
+                "wall_seconds": 73.05086250000001,
+                "compilation_seconds": 0.13004400000000002
+              },
+              "label": "Modal eigenvalue solution",
+              "depth": 1,
+              "inclusive": {
+                "recompilation_seconds": 1.1e-06,
+                "execution_seconds": 83.43923410000001,
+                "gc_seconds": 3.3765,
+                "wall_seconds": 83.5692781,
+                "compilation_seconds": 0.13004400000000002
+              },
+              "category": "numerical",
+              "calls": 1,
+              "phase": "eigensolve"
+            },
+            {
+              "parent": "solve/eigensolve",
+              "path": "solve/eigensolve/constraints",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.024735800000000002,
+                "gc_seconds": 0.0,
+                "wall_seconds": 0.024735800000000002,
+                "compilation_seconds": 0.0
+              },
+              "label": "Apply constraints and select free degrees of freedom",
+              "depth": 2,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 0.024735800000000002,
+                "gc_seconds": 0.0,
+                "wall_seconds": 0.024735800000000002,
+                "compilation_seconds": 0.0
+              },
+              "category": "numerical",
+              "calls": 1,
+              "phase": "constraints"
+            },
+            {
+              "parent": "solve/eigensolve",
+              "path": "solve/eigensolve/factorization",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 10.4936798,
+                "gc_seconds": 0.41066640000000004,
+                "wall_seconds": 10.4936798,
+                "compilation_seconds": 0.0
+              },
+              "label": "Matrix factorization",
+              "depth": 2,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 10.4936798,
+                "gc_seconds": 0.41066640000000004,
+                "wall_seconds": 10.4936798,
+                "compilation_seconds": 0.0
+              },
+              "category": "numerical",
+              "calls": 2,
+              "phase": "factorization"
+            },
+            {
+              "parent": "solve",
+              "path": "solve/mass_assembly",
+              "exclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 1.8979494000000001,
+                "gc_seconds": 0.5791573,
+                "wall_seconds": 1.9020119000000002,
+                "compilation_seconds": 0.0040625
+              },
+              "label": "Assemble mass matrix",
+              "depth": 1,
+              "inclusive": {
+                "recompilation_seconds": 0.0,
+                "execution_seconds": 1.8979494000000001,
+                "gc_seconds": 0.5791573,
+                "wall_seconds": 1.9020119000000002,
+                "compilation_seconds": 0.0040625
+              },
+              "category": "numerical",
+              "calls": 1,
+              "phase": "mass_assembly"
+            }
+          ],
+          "wall_seconds": 120.4478897,
+          "category": "numerical",
+          "compilation_seconds": 63.9325122
+        }
+      },
+      "solution_seconds": null,
+      "compilation_scope": "Measured Julia compilation includes recompilation. Package loading/precompilation before main is unmeasured process startup; live compiler activity cannot be separated reliably.",
+      "compilation_seconds": 63.9753305
+    }
+  ],
+  "separate_uniform_crm_control": {
+    "kind": "historical_regression",
+    "receipt": "CRM_UNIFORM_REGRESSION/receipt.json",
+    "sha256": "3ff8dc289a7754c95b47eca7196852092d845cd3b7504228b6c6bd2d79f10da5",
+    "status": "complete",
+    "mode_count": 5,
+    "metrics": [
+      {
+        "eigenvalue": 111.77639929103142,
+        "reference": 111.77639928078109,
+        "mode": 1,
+        "error_percent": 9.170390354846401e-09
+      },
+      {
+        "eigenvalue": 990.3100208299442,
+        "reference": 990.310020837362,
+        "mode": 2,
+        "error_percent": 7.490420809220741e-10
+      },
+      {
+        "eigenvalue": 1355.9425514823622,
+        "reference": 1355.942551482386,
+        "mode": 3,
+        "error_percent": 1.7607114619597138e-12
+      },
+      {
+        "eigenvalue": 5946.716523671701,
+        "reference": 5946.716523670495,
+        "mode": 4,
+        "error_percent": 2.0279930441455263e-11
+      },
+      {
+        "eigenvalue": 10448.763874248354,
+        "reference": 10448.763874255452,
+        "mode": 5,
+        "error_percent": 6.792857737099254e-11
+      }
+    ],
+    "maximum_eigenvalue_change_percent": 9.170390354846401e-09,
+    "limitation": "The uniform-material CRM is a separate historical control, not the published anisotropic uCRM mass/stiffness model."
+  },
+  "native_outputs": [
+    {
+      "path": "CRM_UNIFORM_REGRESSION/model.jfem",
+      "bytes": 7437780,
+      "sha256": "8c0d34bd555fe727f54ead6389caeea20481278a940c79f063cde223ed3ab79d"
+    },
+    {
+      "path": "SOL103/run_uCRM-9_modal_coarse.jfem",
+      "bytes": 26545860,
+      "sha256": "d2feab7a2ac3e1aaad39ce6331966f74b1155317d51c1a07c0d47038b0ea4b20"
+    }
+  ],
+  "all_20_modes_present": true,
+  "accuracy_summary": {
+    "threshold_percent": 0.5,
+    "requested_modes": 20,
+    "frequencies_available": 20,
+    "frequency_errors_below_threshold": 20,
+    "angular_eigenvalues_available": 20,
+    "angular_eigenvalue_errors_below_threshold": 19,
+    "largest_frequency_error_percent": 0.2733873153825439,
+    "largest_angular_eigenvalue_error_percent": 0.5460272245229447,
+    "static_comparison_status": "AMBIGUOUS_POINT"
+  },
+  "largest_frequency_error_percent": 0.2733873153825439,
+  "limitations": [
+    "Structural targets are from the author-published workbook; separate coupled MACH results and paper Table 4 are excluded.",
+    "The workbook does not identify the tip sampling point. GRID833 is an a priori inferred selector; the 21 tip-rib nodes differ in span by only 3.25e-5 m. No tip value is selected by agreement with the target and no qualified static PASS is claimed.",
+    "K6ROT=100000 is retained in the original input. The current CQUADR backend uses its own internal drilling policy, so retaining this card does not imply identical drilling stiffness semantics.",
+    "Missing modes and negative finite eigenvalues are failures/diagnostics, never numerical agreement. No mass, material coupling, load or boundary condition is removed to obtain reference agreement.",
+    "Negative candidate residuals use the recorded scale-normalized definition; they are not a certificate that all negative finite eigenvalues were found.",
+    "Modal comparison uses ascending frequency order. The author workbook supplies scalar natural frequencies, not corresponding eigenvectors; modal assurance/correlation is not established by this scalar comparison."
+  ]
+}

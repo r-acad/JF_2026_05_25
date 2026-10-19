@@ -1,0 +1,139 @@
+{
+  "units": "SI: m, kg, s, N, Pa; frequencies in Hz",
+  "source_mesh": "uCRM9/Mesh/Coarse/FEM/uCRM-9_wingbox_coarse.bdf",
+  "scope": "Right semi-wing structural FE model; aspect ratio 9 aircraft benchmark",
+  "wingbox_nodes": 23738,
+  "wingbox_elements": 25055,
+  "element_card": "CQUADR",
+  "properties": {
+    "PSHELL": 242,
+    "MAT2": 968,
+    "CORD2R": 242,
+    "stiffeners": "Equivalent anisotropic smeared stiffness; no discrete beam/stringer substitution",
+    "thickness_range_m": [
+      0.003729598769,
+      0.05720089597
+    ]
+  },
+  "boundary_conditions": {
+    "SPC_set": 1,
+    "homogeneous": true,
+    "groups": {
+      "1": {
+        "cards": 11,
+        "distinct_nodes": 11,
+        "coordinate_ranges_m": [
+          [
+            26.40106583,
+            26.40106583
+          ],
+          [
+            3.099999905,
+            3.099999905
+          ],
+          [
+            3.741944313,
+            4.883428097
+          ]
+        ]
+      },
+      "3": {
+        "cards": 668,
+        "distinct_nodes": 627,
+        "coordinate_ranges_m": [
+          [
+            26.40106583,
+            32.31689072
+          ],
+          [
+            3.099998951,
+            3.100000858
+          ],
+          [
+            3.05604291,
+            4.902104378
+          ]
+        ]
+      },
+      "654321": {
+        "cards": 762,
+        "distinct_nodes": 762,
+        "coordinate_ranges_m": [
+          [
+            26.40106583,
+            32.31689072
+          ],
+          [
+            0.000999751,
+            0.00100031
+          ],
+          [
+            2.418988466,
+            4.802761078
+          ]
+        ]
+      }
+    },
+    "instruction": "Retain every source SPC and RBE2/RBE3 equation. The source is not described adequately by a replacement root clamp."
+  },
+  "source_parameters": {
+    "AUTOSPC": "NO",
+    "GRDPNT": 1,
+    "K6ROT": 100000,
+    "COUPMASS": -1,
+    "MAXRATIO": 10000000,
+    "WTMASS": 1
+  },
+  "included_mass": {
+    "structural_mass": "Use the original MAT2/PSHELL density data and nonstructural-mass fields, without resizing or rescaling",
+    "engine_CONM2_kg": 7501.0,
+    "leading_trailing_edge_CONM2_kg": 3669.0,
+    "fuel_20_percent_CONM2_kg": 11000.002,
+    "mass_rounding": "Nominal engine comment says 7500 kg; exact 13-card sum is 7501 kg. Retain exact source values.",
+    "connections": {
+      "RBE2": 12,
+      "RBE3": 62
+    },
+    "additional_nodes": 74,
+    "CONM2": 74,
+    "full_fuel_deck_included": false,
+    "design_weight_factor": "Design-specification weight factors are aircraft bookkeeping; do not apply them again to the FE deck."
+  },
+  "SOL101": {
+    "source_wrapper": "run_uCRM-9_static_cruise_coarse.bdf",
+    "SPC": 1,
+    "LOAD": 1001,
+    "combination": "1.0 times aerodynamic FORCE set 1 plus 1.0 times gravity set 2",
+    "aero_force_cards": 13586,
+    "gravity_acceleration_m_per_s2": [
+      0,
+      0,
+      -9.81
+    ],
+    "aerodynamics": "Use published cruise nodal forces directly; no new aerodynamic solve or coupled update",
+    "target": {
+      "sheet": "Reference",
+      "cell": "C5",
+      "vertical_tip_displacement_m": 2.5239
+    }
+  },
+  "SOL103": {
+    "source_wrapper": "run_uCRM-9_modal_coarse.bdf",
+    "SPC": 1,
+    "METHOD": 1,
+    "requested_modes": 20,
+    "EIGRL_SID": 1,
+    "RESVEC": "NO",
+    "mass": "Original distributed and concentrated masses; COUPMASS=-1",
+    "preload": "No static-prestress request in original modal wrapper",
+    "target_cells": "Reference!C10:C29",
+    "target_units": "Hz"
+  },
+  "flight_condition_context": {
+    "Mach": 0.85,
+    "altitude_ft": 37000,
+    "CL": 0.5,
+    "fuel_percent": 20,
+    "meaning": "Context for the author-provided cruise load file, not new inputs to recompute its force vectors"
+  }
+}

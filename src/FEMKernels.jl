@@ -2853,12 +2853,16 @@ function _stiffness_quad4_core!(
         macneal_twist = true  # twist correction is part of full MacNeal kernel
     end
     # Default OFF; see the K_ab_bend accumulation below for the evidence.
-    bending_incomp_decouple_d16 =
+    # A coupled section requires the same complete D in every block of the
+    # enlarged [A B; B' D] energy. Decoupling an entry only in the internal
+    # curvature blocks can make an otherwise positive section indefinite.
+    # Retain the historical uncoupled policy only when no B law is supplied.
+    bending_incomp_decouple_d16 = Bmb === nothing &&
         fem_env_bool("JFEM_Q4_BENDING_INCOMP_DECOUPLE_D16", false)
     # PROMOTED 2026-08-02: control 8.55e-4 -> 2.19e-8, aspect 8.82e-4 -> 2.19e-8,
     # h_over_L 9.02e-3 -> 3.38e-8 (all -100 %); skew -10..-15 %, warp x h -4.1 %; taper +0.6 %
     # (within tolerance) and every triangle axis bit-unchanged. Ratchet PASS.
-    bending_incomp_decouple_d12 =
+    bending_incomp_decouple_d12 = Bmb === nothing &&
         fem_env_bool("JFEM_Q4_BENDING_INCOMP_DECOUPLE_D12", true)
     # Patch-test correction for the BENDING incompatible modes on a NON-PARALLELOGRAM cell.
     #
@@ -3389,17 +3393,18 @@ function _stiffness_quad4_core!(
         # e_xiz term on 1x2, e_etaz term on 2x1, cross-coupling on 2x2.
         # This targets thick flat orthotropic shells without replacing the
         # rest of the MITC4 shell operator.
-        function accumulate_shear_terms!(r::Float64, s::Float64, mode::Symbol)
+        function accumulate_shear_terms!(r::Float64, s::Float64, mode::Symbol, weight::Float64)
             dNr, dNs = shape_derivs_quad(r, s)
             J11 = dNr[1]*coords[1,1] + dNr[2]*coords[2,1] + dNr[3]*coords[3,1] + dNr[4]*coords[4,1]
             J12 = dNr[1]*coords[1,2] + dNr[2]*coords[2,2] + dNr[3]*coords[3,2] + dNr[4]*coords[4,2]
             J21 = dNs[1]*coords[1,1] + dNs[2]*coords[2,1] + dNs[3]*coords[3,1] + dNs[4]*coords[4,1]
             J22 = dNs[1]*coords[1,2] + dNs[2]*coords[2,2] + dNs[3]*coords[3,2] + dNs[4]*coords[4,2]
             detJ = J11*J22 - J12*J21
-            abs_detJ = abs(detJ)
-            if abs_detJ < 1e-12
-                abs_detJ = 1e-12
-            end
+            # A one-point Gauss rule on [-1,1] has weight 2; each point of
+            # the two-point rule has weight 1. Omitting the collapsed-axis
+            # weight halves a reduced diagonal term relative to the full
+            # cross term and can turn a positive shear law indefinite.
+            abs_detJ = weight * max(abs(detJ), 1e-12)
             inv_det = 1.0 / detJ
             iJ11 = J22*inv_det; iJ12 = -J12*inv_det
             iJ21 = -J21*inv_det; iJ22 = J11*inv_det
@@ -3440,32 +3445,32 @@ function _stiffness_quad4_core!(
 
         if selective_shear_mode === :all
             for s in (-pt, pt)
-                accumulate_shear_terms!(0.0, s, :sx)
+                accumulate_shear_terms!(0.0, s, :sx, 2.0)
             end
             for r in (-pt, pt)
-                accumulate_shear_terms!(r, 0.0, :sy)
+                accumulate_shear_terms!(r, 0.0, :sy, 2.0)
             end
             for gp in 1:4
                 r, s = gauss_pts[gp][1], gauss_pts[gp][2]
-                accumulate_shear_terms!(r, s, :cross)
+                accumulate_shear_terms!(r, s, :cross, 1.0)
             end
         elseif selective_shear_mode === :sx_only
             for s in (-pt, pt)
-                accumulate_shear_terms!(0.0, s, :sx)
+                accumulate_shear_terms!(0.0, s, :sx, 2.0)
             end
             for gp in 1:4
                 r, s = gauss_pts[gp][1], gauss_pts[gp][2]
-                accumulate_shear_terms!(r, s, :sy)
-                accumulate_shear_terms!(r, s, :cross)
+                accumulate_shear_terms!(r, s, :sy, 1.0)
+                accumulate_shear_terms!(r, s, :cross, 1.0)
             end
         elseif selective_shear_mode === :sy_only
             for r in (-pt, pt)
-                accumulate_shear_terms!(r, 0.0, :sy)
+                accumulate_shear_terms!(r, 0.0, :sy, 2.0)
             end
             for gp in 1:4
                 r, s = gauss_pts[gp][1], gauss_pts[gp][2]
-                accumulate_shear_terms!(r, s, :sx)
-                accumulate_shear_terms!(r, s, :cross)
+                accumulate_shear_terms!(r, s, :sx, 1.0)
+                accumulate_shear_terms!(r, s, :cross, 1.0)
             end
         else
             error("unsupported selective_shear_mode=$(selective_shear_mode)")
@@ -3577,7 +3582,7 @@ function _stiffness_quad4_core!(
          max(Float64(membrane_incomp_weights[3]), 0.0),
          max(Float64(membrane_incomp_weights[4]), 0.0))
     if Bmb !== nothing
-        if membrane_incomp
+        if membrane_incomp && bending_incomp
             if bmb_incomp_mode in ("separate", "separate_nocross", "uncoupled")
                 inv_Kbb_m = q4_internal_mode_compliance(ws.K_bb, membrane_incomp_mode_weights)
                 inv_Kbb_b = Matrix(inv(SMatrix{4,4}(ws.K_bb_bend)))
@@ -3600,7 +3605,7 @@ function _stiffness_quad4_core!(
                 K_ab_full = hcat(ws.K_ab, ws.K_ab_bend)
                 K_bb_full = [ws.K_bb zeros(4,4); zeros(4,4) ws.K_bb_bend]
                 inv_Kbb = q4_internal_mode_compliance(K_bb_full, (membrane_incomp_mode_weights..., 1.0, 1.0, 1.0, 1.0))
-                tmp8x24 = zeros(8, 24)
+                tmp8x24 = zeros(eltype(ws.Ke), 8, 24)
                 ts_mul!(tmp8x24, inv_Kbb, K_ab_full')
                 @inbounds @fastmath for j in 1:24, i in 1:24
                     s = 0.0
@@ -3614,7 +3619,7 @@ function _stiffness_quad4_core!(
                 K_ab_full = hcat(ws.K_ab .+ ws.K_ab_cross, ws.K_ab_bend .+ ws.K_ab_bend_cross)
                 K_bb_full = [ws.K_bb ws.K_mb_incomp; ws.K_mb_incomp' ws.K_bb_bend]
                 inv_Kbb = q4_internal_mode_compliance(K_bb_full, (membrane_incomp_mode_weights..., 1.0, 1.0, 1.0, 1.0))
-                tmp8x24 = zeros(8, 24)
+                tmp8x24 = zeros(eltype(ws.Ke), 8, 24)
                 ts_mul!(tmp8x24, inv_Kbb, K_ab_full')
                 @inbounds @fastmath for j in 1:24, i in 1:24
                     s = 0.0
@@ -3624,7 +3629,24 @@ function _stiffness_quad4_core!(
                     ws.Ke[i,j] -= s
                 end
             end
-        elseif maximum(abs, ws.K_bb_bend) > 0.0
+        elseif membrane_incomp
+            # Only the explicitly requested membrane internal coordinates
+            # participate. Their coupling to compatible curvature still uses
+            # the full B law, even though no bending internal modes exist.
+            inv_Kbb_m = q4_internal_mode_compliance(ws.K_bb, membrane_incomp_mode_weights)
+            K_ab_m =
+                bmb_incomp_mode in ("no_cross", "combined_nocross", "separate", "separate_nocross", "uncoupled") ?
+                ws.K_ab : ws.K_ab .+ ws.K_ab_cross
+            @inbounds @fastmath for j in 1:24, i in 1:24
+                sm = 0.0
+                for l in 1:4
+                    tmp_m = 0.0
+                    for q in 1:4; tmp_m += inv_Kbb_m[l,q] * K_ab_m[j,q]; end
+                    sm += K_ab_m[i,l] * tmp_m
+                end
+                ws.Ke[i,j] -= sm
+            end
+        elseif bending_incomp && maximum(abs, ws.K_bb_bend) > 0.0
             # Bending-only 4×4 condensation (no membrane incompatible modes)
             # K_ab_bend_cross = Bm' * Bmb * Bi_bend — B-coupling cross term still relevant
             inv_Kbb_b = Matrix(inv(SMatrix{4,4}(ws.K_bb_bend)))

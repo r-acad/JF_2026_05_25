@@ -5625,6 +5625,7 @@ function _sol103_shifted_factorization(K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2
             push!(attempts, Dict{String,Any}(
                 "alpha" => alpha,
                 "status" => "succeeded",
+                "factor_backend" => "positive_mass_shift_cholesky",
             ))
             return factor, alpha, lambda_reference, numerical_floor, attempts
         catch err
@@ -5636,7 +5637,32 @@ function _sol103_shifted_factorization(K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2
         end
     end
 
-    error("SOL103 could not factor K + alpha*M after $(length(attempts)) positive-shift attempts; the pencil is indefinite or has a joint K/M nullspace")
+    # A regular symmetric pencil may have indefinite stiffness in its
+    # massless coordinates. No positive mass shift can make those directions
+    # positive definite. Sparse LU still represents the *same* full pencil;
+    # its nonsymmetric shift-invert operator must use Arnoldi, not the
+    # Cholesky-only symmetric square-root transform below. A genuine joint
+    # K/M nullspace remains singular and is not regularized here.
+    alpha = alpha0
+    A = K_ff + alpha * M_ff
+    issymmetric(A) || (A = 0.5 * (A + A'))
+    try
+        factor = _timed_factorization(lu, A; check=true)
+        push!(attempts, Dict{String,Any}(
+            "alpha" => alpha,
+            "status" => "succeeded",
+            "factor_backend" => "positive_mass_shift_lu",
+        ))
+        return factor, alpha, lambda_reference, numerical_floor, attempts
+    catch err
+        push!(attempts, Dict{String,Any}(
+            "alpha" => alpha,
+            "status" => "failed",
+            "factor_backend" => "positive_mass_shift_lu",
+            "error" => sprint(showerror, err),
+        ))
+    end
+    error("SOL103 could not factor the unchanged K + alpha*M pencil using positive-shift Cholesky or sparse LU; the pencil may have a joint K/M nullspace")
 end
 
 function _sol103_dense_spectrum_resolution(vals,lambda_reference)
@@ -5720,7 +5746,18 @@ end
     # can still leave a joint K/M nullspace; the shifted-factorization
     # diagnostic reports that profile mismatch instead of deleting physical
     # free-body modes through a full-K factorization AUTOSPC pass.
-    drop_mass_idx = [i for i in massless_idx if stiff_diag[i] <= stiff_tol]
+    # Zero diagonal implies a zero row only for positive-semidefinite K.
+    # An indefinite but regular pencil can have a coupled massless coordinate
+    # with K_ii=0; fixing it changes its finite spectrum. Check the actual
+    # stiffness column before classifying a coordinate as unsupported.
+    function stiffness_column_is_zero(i)
+        if K_ff isa SparseMatrixCSC
+            values = nonzeros(K_ff)
+            return all(p -> abs(values[p]) <= stiff_tol, nzrange(K_ff, i))
+        end
+        return maximum(abs, view(K_ff, :, i); init=0.0) <= stiff_tol
+    end
+    drop_mass_idx = [i for i in massless_idx if stiff_diag[i] <= stiff_tol && stiffness_column_is_zero(i)]
     keep_mass_idx = isempty(drop_mass_idx) ? collect(1:n_free) : setdiff(collect(1:n_free), drop_mass_idx)
     mass_filter_removed = length(drop_mass_idx)
     if mass_filter_removed > 0
@@ -5879,7 +5916,7 @@ end
                 K_factor, alpha, lambda_reference, shift_floor, shift_attempts =
                     _sol103_shifted_factorization(
                         K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2)
-                factor_backend = "positive_mass_shift_cholesky"
+                factor_backend = get(last(shift_attempts), "factor_backend", "positive_mass_shift_cholesky")
                 log_msg("[MODES] Free/nullspace partition detected; using positive mass shift alpha=$alpha (reference lambda=$lambda_reference)")
             elseif factor_cache_hit
                 log_msg("[MODES] Reusing zero-shift SOL103 Cholesky factorization")
@@ -5906,6 +5943,25 @@ end
             # to pass them and still recover ND roots inside [V1,V2].
             sturm_reuse_modal = Base.RefValue{Any}(nothing)
             mass_neg = -M_ff
+            indefinite_shift = factor_backend == "positive_mass_shift_lu"
+            sturm_origin_parameter = -512.0 * eps(Float64) * max(lambda_reference, abs(alpha), 1.0)
+            # For an indefinite pencil, inertia(K-lambda*M) contains the
+            # negative stiffness of massless coordinates and negative finite
+            # roots as a constant offset. Count a finite nonnegative interval
+            # by subtracting its lower inertia, never by assuming it is zero.
+            sturm_origin = shifted ? _buckling_sturm_count(
+                K_ff, mass_neg, sturm_origin_parameter; reuse=sturm_reuse_modal) : 0
+            nonnegative_inertia_count(bound) = begin
+                count_at_bound = _buckling_sturm_count(
+                    K_ff, mass_neg, bound; reuse=sturm_reuse_modal)
+                count_at_bound === nothing || sturm_origin === nothing || count_at_bound < sturm_origin ? nothing :
+                    count_at_bound - sturm_origin
+            end
+            diagnostics["inertia_origin"] = Dict{String,Any}(
+                "used" => shifted,
+                "lambda" => sturm_origin_parameter,
+                "negative_pivots" => sturm_origin,
+            )
             eigrl_lambda_lower, eigrl_lambda_upper =
                 _sol103_eigrl_lambda_bounds(eigrl_v1, eigrl_v2)
             diagnostics["eigrl_lambda_bounds"] = Dict{String,Any}(
@@ -5913,16 +5969,12 @@ end
                 "upper" => eigrl_lambda_upper,
             )
             lower_mode_count = if eigrl_v1 > 0.0
-                _buckling_sturm_count(
-                    K_ff, mass_neg, eigrl_lambda_lower;
-                    reuse=sturm_reuse_modal)
+                nonnegative_inertia_count(eigrl_lambda_lower)
             else
                 0
             end
             upper_mode_count = if eigrl_v2 > 0.0
-                _buckling_sturm_count(
-                    K_ff, mass_neg, eigrl_lambda_upper;
-                    reuse=sturm_reuse_modal)
+                nonnegative_inertia_count(eigrl_lambda_upper)
             else
                 nothing
             end
@@ -5984,6 +6036,8 @@ end
             rejected_residual = Ref(0)
             rejected_massless = Ref(0)
             rejected_duplicate = Ref(0)
+            negative_finite_lambdas = Float64[]
+            negative_finite_residuals = Float64[]
 
             function accept_mode!(lambda_seed, vector_seed)
                 isfinite(lambda_seed) || return false
@@ -6027,6 +6081,13 @@ end
                     lambda_value = 0.0
                 elseif lambda_value < -zero_tol
                     rejected_negative[] += 1
+                    negative_residual = norm(kv - lambda_value .* mv) /
+                        max((k_scale + abs(lambda_value) * m_scale) * norm(v), eps(Float64))
+                    if isfinite(negative_residual) && negative_residual <= residual_tol &&
+                       all(x -> !isapprox(x, lambda_value; rtol=1.0e-7, atol=zero_tol), negative_finite_lambdas)
+                        push!(negative_finite_lambdas, lambda_value)
+                        push!(negative_finite_residuals, negative_residual)
+                    end
                     return false
                 end
 
@@ -6054,7 +6115,7 @@ end
                     theta_imag = abs(imag(theta))
                     theta_imag <= 1.0e-7 * max(abs(theta_real), 1.0e-20) || continue
                     if shifted_operator
-                        theta_real > 1.0e-14 || continue
+                        (indefinite_shift ? abs(theta_real) : theta_real) > 1.0e-14 || continue
                         lambda_seed = alpha * ((1.0 - theta_real) / theta_real)
                         vector_seed = vector_transform === nothing ?
                             vecs[i] : vector_transform(vecs[i])
@@ -6076,7 +6137,7 @@ end
             block_succeeded = false
             block_error = nothing
 
-            if shifted && solver_env_bool("JFEM_SOL103_BLOCK_LANCZOS", true)
+            if shifted && !indefinite_shift && solver_env_bool("JFEM_SOL103_BLOCK_LANCZOS", true)
                 try
                     starts = Block([next_modal_start() for _ in 1:min(block_size, nev)])
                     backmap(y) = Vector{Float64}(K_factor.UP \ Vector(y))
@@ -6161,10 +6222,7 @@ end
                 n_report = min(max(num_modes_request, 1), length(ordered))
                 highest = ordered[n_report]
                 bound = highest + max(abs(highest) * 1.0e-6, zero_tol)
-                count_b = _buckling_sturm_count(
-                    K_ff, mass_neg, bound; reuse=sturm_reuse_modal)
-                # K is either checked SPD (zero shift) or K+alpha*M is checked
-                # SPD, so the lower inertia at 0 or -alpha is exactly zero.
+                count_b = nonnegative_inertia_count(bound)
                 expected = count_b
                 found = count(value -> value <= bound, accepted_lambdas)
                 interval_gap = expected === nothing ? nothing : expected - found
@@ -6242,6 +6300,13 @@ end
                 "massless" => rejected_massless[],
                 "duplicate_subspace" => rejected_duplicate[],
             )
+            negative_order = sortperm(negative_finite_lambdas)
+            diagnostics["negative_finite_eigenvalues"] = negative_finite_lambdas[negative_order]
+            diagnostics["negative_finite_eigenvalue_residuals"] = negative_finite_residuals[negative_order]
+            diagnostics["negative_finite_spectrum_complete"] = false
+            if !isempty(negative_finite_lambdas)
+                log_msg("[MODES] WARNING: Residual-verified negative finite eigenvalues observed: $(negative_finite_lambdas[negative_order]); these indicate an unstable or indefinite model and are excluded from real-frequency results, not relabelled as rigid modes")
+            end
             diagnostics["scalar_arnoldi_runs"] = scalar_runs[]
 
             if !isempty(accepted_lambdas)
@@ -6252,7 +6317,7 @@ end
                 eigenvectors = hcat(accepted_vecs[selected]...)
                 solved = true
                 backend = shifted ?
-                    (block_succeeded ? "shifted_block_lanczos" : "shifted_multistart_arnoldi") :
+                    (indefinite_shift ? "shifted_lu_arnoldi" : block_succeeded ? "shifted_block_lanczos" : "shifted_multistart_arnoldi") :
                     "krylov_shift_invert"
                 diagnostics["solver_backend"] = backend
                 diagnostics["solver_attempts"][end] = Dict{String,Any}(
@@ -6321,6 +6386,26 @@ end
         eigenvectors = eigenvectors[:, 1:num_modes]
         n_out = num_modes
     end
+
+    # Bind each reported root to the unchanged reduced K/M pencil before
+    # dependent-coordinate reconstruction or output-frame normalization.
+    eigenpair_residuals = Float64[]
+    eigenpair_scaled_residuals = Float64[]
+    k_diag_scale = maximum(abs, diag(K_ff); init=1.0)
+    m_diag_scale = maximum(abs, diag(M_ff); init=1.0)
+    for m in 1:n_out
+        phi = view(eigenvectors, :, m)
+        kv = K_ff * phi
+        mv = M_ff * phi
+        residual_norm = norm(kv - eigenvalues[m] .* mv)
+        push!(eigenpair_residuals, residual_norm /
+            max(norm(kv) + abs(eigenvalues[m]) * norm(mv), eps(Float64)))
+        push!(eigenpair_scaled_residuals, residual_norm /
+            max((k_diag_scale + abs(eigenvalues[m]) * m_diag_scale) * norm(phi), eps(Float64)))
+    end
+    diagnostics["eigenpair_relative_residuals"] = eigenpair_residuals
+    diagnostics["eigenpair_scale_normalized_residuals"] = eigenpair_scaled_residuals
+    diagnostics["eigenpair_relative_residual_definition"] = "norm(K*phi-lambda*M*phi)/(norm(K*phi)+abs(lambda)*norm(M*phi)); reduced original pencil before output normalization"
 
     # Expand to the full DOF set.
     mode_shapes = zeros(ndof, n_out)

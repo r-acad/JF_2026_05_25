@@ -1,0 +1,118 @@
+{
+  "source": "source_bdf",
+  "counts": {
+    "nodes": 23738,
+    "elements": 25055,
+    "groups": 242
+  },
+  "mode": -1,
+  "deformation": {
+    "multiplier": 1,
+    "amplitude": 0,
+    "peakDisplayed": 0
+  },
+  "camera": {
+    "alpha": 2.1,
+    "beta": 0.75,
+    "radius": 12.387576847390056,
+    "target_B": [
+      1.8,
+      3.7,
+      29.5
+    ],
+    "mode": 1
+  },
+  "background": [
+    1,
+    1,
+    1,
+    1
+  ],
+  "render_pixels": [
+    4728,
+    2832
+  ],
+  "devicePixelRatio": 2,
+  "lighting": {
+    "preset": "technical",
+    "shadows": false,
+    "selfShadows": false,
+    "ambient": 0.24,
+    "key": 0.43,
+    "fill": 0.16,
+    "headlight": 0.4,
+    "keyDirection": [
+      -0.8,
+      -0.5,
+      -1
+    ],
+    "fillDirection": [
+      0.5,
+      0.7,
+      0.8
+    ]
+  },
+  "property": {
+    "enabled": false,
+    "field": "shell_thickness",
+    "materialRole": "single"
+  },
+  "translucent": true,
+  "thickness": false,
+  "config": {
+    "name": "06_model_constraints",
+    "alpha": 2.1,
+    "beta": 0.75,
+    "zoom": 0.24,
+    "target": [
+      29.5,
+      1.8,
+      3.7
+    ],
+    "edges": false,
+    "constraints": true,
+    "markerRadius": 0.045,
+    "translucent": true,
+    "translucency": 80,
+    "panel": "displayloads",
+    "pids": [
+      1,
+      2,
+      3,
+      4,
+      48,
+      49,
+      50,
+      51,
+      95,
+      96,
+      97,
+      98,
+      229,
+      230,
+      231,
+      232,
+      233,
+      234,
+      235,
+      236,
+      238,
+      239,
+      240,
+      241,
+      242
+    ],
+    "explode": 0
+  },
+  "screenshot_sha256": "094d0d1fefe52b5cb768d764a17a5ecbf7705e75f92adb82e2b986c577ba203d",
+  "screenshot_pixels": [
+    4728,
+    2832
+  ],
+  "capture": "Direct Chrome DevTools screenshot of the running JFEM-Boxer WebGL canvas and native UI; no image alteration, compositing, synthetic model, or fake UI.",
+  "source_bdf": "../../model.bdf",
+  "source_bdf_sha256": "a35d9dbf81cf71fa43b89c998c7d50a072211008b55e31bb53e2ccfab663cb9e",
+  "native_result": null,
+  "native_result_sha256": null,
+  "caption": "Source-deck constraints, including the root and side-of-body restraints. Constraints are obtained from the BDF, not inferred from the mode shapes."
+}

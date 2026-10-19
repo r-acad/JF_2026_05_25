@@ -484,6 +484,9 @@ def main():
     parser.add_argument("--case", action="append", default=[])
     args = parser.parse_args()
     paths = sorted(args.cases_root.rglob("case.json"))
+    # Some large published studies have a dedicated card layout and numerical
+    # schema. Their adjacent builder documents how to reproduce those cards.
+    paths = [p for p in paths if not (p.parent / "build_case_card.py").is_file()]
     if args.case:
         paths = [p for p in paths if read_json(p)["id"] in args.case]
     if not paths:

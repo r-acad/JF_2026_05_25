@@ -5,6 +5,28 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Original published CRM structural benchmark
+
+- Add the released uCRM9 coarse wingbox, its independent structural workbook
+  targets, retained static/modal outputs and a documented comparison. Keep the
+  original anisotropic section tensors, masses, rigid links and mixed constraints.
+- Honor separate PSHELL membrane, bending, transverse-shear and coupling material
+  tensors in the native TACS-formulation shell path. Support the common rigid-link
+  and concentrated-mass assembly in guarded forward SOL101/SOL103 models.
+- Respect the membrane/bending enrichment switches for coupled shells and retain
+  a consistent coupled section in their internal energy. Prevent unintended
+  bending condensation and an anisotropic internal stiffness that can become
+  indefinite after partial bending-tensor decoupling.
+- Apply the missing one-point Gauss weights in directionally reduced shear
+  integration. Verify both energy corrections against independent quadrature,
+  isolated source elements and all 25,055 original CRM shell operators.
+- Solve regular modal pencils with singular mass and indefinite stiffness using
+  an exact sparse-LU shift-invert fallback. Retain stiff massless coordinates,
+  report observed negative finite roots, and record original-pencil residuals.
+- Add direct high-resolution Boxer views of the CRM geometry, shell thickness,
+  properties, connections and archived modes, with white backgrounds and image
+  provenance. Correct the older uniform CRM card's lumped-mass description.
+
 ### Archived results and reproducible public benchmarks
 
 - Open saved `.jfem` files directly in JFEM-Boxer from Project or the startup

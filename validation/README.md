@@ -1,8 +1,9 @@
 # JFEM validation cases
 
-Explore the **[illustrated case gallery](index.html)**, open a two-page case card,
+Explore the **[illustrated case gallery](index.html)**, open a concise case card,
 or load the recorded result directly in JFEM-Boxer. The collection contains
-**18 case folders: 13 revised existing cases and five new analytical cases**.
+**19 case folders: 13 revised existing cases, five analytical case families and
+the original published uCRM9 structural study**.
 Each includes its model, numerical results, references and reusable PNG/SVG figures.
 
 [Results and limitations](VALIDATION_SUMMARY.md) · [Case inventory CSV](CASE_INVENTORY.csv) ·
@@ -28,12 +29,19 @@ magnification; eigenvector sign and amplitude are arbitrary.
 This is the recorded ACA04 result opened from disk; its first frequency is
 35.018 Hz. The source model and convergence data remain alongside the result.
 
+The [original uCRM9 study](cases/CRM_uCRM9_published/README.md) compares the
+released anisotropic wingbox, masses and loads with 20 author-published
+frequencies and a static tip scalar. Its separate report keeps the unresolved
+tip observation location explicit. The [CRM Boxer image gallery](cases/CRM_wingbox_modal/figures/boxer/index.html)
+provides 16 unedited 4K views of the uniform-shell illustration model, including
+properties, internal structure, constraints, translucency and five archived modes.
+
 ## What is in each folder?
 
 | File or folder | Contents |
 |---|---|
-| `case_card.pdf` | Two-page model definition, reference, results and limits |
-| `model.bdf` | Representative analysis input; additional named decks cover other solutions or meshes |
+| `case_card.pdf` | Two- or three-page model definition, reference, results and limits |
+| `model.bdf` or named author decks | Representative analysis inputs; additional decks cover other solutions or meshes |
 | `case.json` | Geometry, materials, constraints, loads, references and documented observations |
 | `metrics.csv` | The numerical quantities shown on the card |
 | `figures/` | PNG and SVG figures generated from recorded numerical fields |
@@ -41,7 +49,7 @@ This is the recorded ACA04 result opened from disk; its first frequency is
 | `convergence/` | Additional refinement models with retained comparison results |
 | `diagnostics/` | Explicitly unqualified diagnostic material where supplied |
 
-Sixteen case folders have an independent analytical or published reference.
+Seventeen case folders have an independent analytical or published reference.
 The CRM modal model and open-source static patch contain historical regression
 targets only. The cylinder strip is an analytical screening case with an
 explicit extraction limit. Their classifications remain visible in the cards
@@ -80,10 +88,16 @@ julia --startup-file=no --project=. validation/run_academic_cases.jl validation/
 ```
 
 Each `ACA01`–`ACA05` folder also has a `reproduce.jl` entry point for that case.
-The full collection records **57 completed analyses with retained results**,
+The core collection records **57 completed analyses with retained results**,
 plus one partial cylinder diagnostic. The default check selects representative analyses from this
 larger set. [VALIDATION_SUMMARY.md](VALIDATION_SUMMARY.md) explains the counts and
 the coarse-mesh failures retained in the results.
+
+The original uCRM9 study adds two analyses and its own full 20-frequency
+comparison. Run its adjacent `reproduce.jl` to repeat that larger industrial
+model; it is separate from the default 24-analysis core check. Recorded core
+results retain their original solver revisions and are not described as fresh
+runs of subsequent solver changes.
 
 `PASS` means the stated quantity meets its declared tolerance for that model.
 `REGRESSION_PASS` and `HISTORICAL_PASS` compare stored values whose independent
@@ -104,6 +118,14 @@ python validation/build_case_cards.py --cases-root validation/cases --output-dir
 The output folder receives fresh two-page cards, PNG/SVG figures, metrics and
 artifact hashes. This operation regenerates documentation from the recorded
 results; the analysis commands above generate new solver results.
+
+The larger original uCRM9 study uses its adjacent `build_case_card.py` to
+regenerate its three-page card and comparison plots; the generic builder skips
+folders with a dedicated builder:
+
+```text
+python validation/cases/CRM_uCRM9_published/build_case_card.py --output-dir validation/_generated_cards/CRM_uCRM9_published
+```
 
 The case publication manifests bind the included inputs, results and figures by
 SHA256. Git preserves their exact bytes across operating systems.

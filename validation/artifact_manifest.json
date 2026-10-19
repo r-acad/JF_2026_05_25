@@ -1,8 +1,8 @@
 {
   "schema": "jfem.validation.published_collection.v1",
-  "built_utc": "2026-10-19T10:21:14.431133+00:00",
-  "solver_revision": "a70f997cce401f274a88f6cb29a067ca7fa17f0f",
-  "scope": "18 documented parent cases;57 completed analyses plus one incomplete-spectrum diagnostic. See summary for accuracy and regression distinctions.",
+  "built_utc": "2026-10-19T11:48:56.038404+00:00",
+  "solver_revision": "Per-case recorded revisions and exact source hashes; see case metadata and run receipts.",
+  "scope": "18 core benchmark folders retain57 completed analyses and one partial cylinder diagnostic; the original published uCRM9 study adds2 completed analyses. Recorded older results are not claimed as reruns of the latest solver source.",
   "cases": [
     {
       "id": "ACA01",
@@ -71,15 +71,26 @@
       "bytes": 3001564
     },
     {
+      "id": "CRM_uCRM9_published",
+      "folder": "cases/CRM_uCRM9_published",
+      "manifest_sha256": "5f942bc645c74b8ac742aa17026ec015ac8602c9bf295c30b8f3e36b58a70361",
+      "pdf_sha256": "864a5e0333e5749cdd7d927a627df4b0f4b815189939de71b2a71fa53803fd73",
+      "pdf_pages": 3,
+      "native_binary_count": 1,
+      "figure_png_count": 11,
+      "file_count": 68,
+      "bytes": 46292743
+    },
+    {
       "id": "CRM_wingbox_modal",
       "folder": "cases/CRM_wingbox_modal",
-      "manifest_sha256": "1b962e801d699cec1638cea5997c28da99cf3a0e4397f72e3734632ad4f7356e",
-      "pdf_sha256": "a8756ab3a53ecdd73a84fbdddc3b09dfcc768bb307e0c2d7ddb27b89466bd388",
+      "manifest_sha256": "3a00fda94da364f9b9e24f9e532644ee80c5b83f3907da6dc313dcabd0e6bcdf",
+      "pdf_sha256": "119a9c30ca9d99966dbb17710b7cf42946efc19829aac786f079ec96ae4d482e",
       "pdf_pages": 2,
       "native_binary_count": 1,
-      "figure_png_count": 3,
-      "file_count": 17,
-      "bytes": 103416501
+      "figure_png_count": 19,
+      "file_count": 52,
+      "bytes": 110455064
     },
     {
       "id": "MH_curved_beam_in_plane",
@@ -208,11 +219,11 @@
     "run_public_suite.jl": "a099e4562b1882d9e7d334c4adccbfa1a6b37fadb5ade53890155b192c393cd3",
     "run_academic_cases.jl": "3f1051109f23fed784f6a866710b3755ad1809162caa522cb7ea65fb0bd38d96",
     "generate_academic_cases.py": "6ad02e6798571c3a920de25d23f0f1f4b8cf8e9c348ae5d88f25e05e268d7d03",
-    "build_case_cards.py": "776022314b284aee7e4ade99617497739e5e8bc30f818f4972fa3b8ee00977e7",
-    "README.md": "8706451086951b7f6e374b48a0f873c23d84b855c66973f7259bd2c8247f242b",
-    "VALIDATION_SUMMARY.md": "8549b93a0752a29fcf750231478fa2857fd55c7060009ecf26b1aa2e486c802a",
-    "CASE_INVENTORY.csv": "80674f7e8ddd9ebfdb8c8593c7dd0e64d44329598c71cdfbd0c6f71c6c189a2a",
+    "build_case_cards.py": "b439609497262ff05c0b516406e83ffd3b952a190ae2ed549e4250f9860563fc",
+    "README.md": "0560803d423e0e10ecb92be9ca3d662bc4ccb635117bb188f29070d4f6f4bbab",
+    "VALIDATION_SUMMARY.md": "45a17614fb8cd300b914f9e7631c8620b22cb65d04a9911e1be45f7753610e38",
+    "CASE_INVENTORY.csv": "a9432d3c316e59d9dbda9c863dbd941823bd2547a6f100f48b5222e84f5838cc",
     "comparison.csv": "1ec4d2612735a823f4247b6f80857b9f011058de87413bbd6e915cba61a87807",
-    "index.html": "4d6ee7b1cc3fb2c05e3863ac437a406a17bbe3039f19acdd783eb476c30407b9"
+    "index.html": "3ef89625f98f0d0e5b21b34905ceb0da1d229dcb5bb5733b9edb8e16f198e601"
   }
 }

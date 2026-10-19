@@ -1,0 +1,427 @@
+{
+  "solution_scope": "Numerical stage execution including assembly, constraints, equilibrium/eigenvalue solution, sensitivity and deferred recovery; excludes measured compilation, deck preparation and file export. Includes numerical orchestration, GC and scheduling waits; not CPU time.",
+  "schema_version": 2,
+  "export_seconds": 4.7954155,
+  "measured_wall_seconds": 100.47861350000001,
+  "stages": [
+    {
+      "parent": null,
+      "path": "build_model",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.5015028,
+        "gc_seconds": 0.0,
+        "wall_seconds": 0.5401742,
+        "compilation_seconds": 0.0386714
+      },
+      "label": "Construct native model",
+      "depth": 0,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.5015028,
+        "gc_seconds": 0.0,
+        "wall_seconds": 0.5401742,
+        "compilation_seconds": 0.0386714
+      },
+      "category": "preparation",
+      "calls": 1,
+      "phase": "build_model"
+    },
+    {
+      "parent": null,
+      "path": "export",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 4.7954155,
+        "gc_seconds": 1.6642035,
+        "wall_seconds": 6.0822804,
+        "compilation_seconds": 1.2868649
+      },
+      "label": "Write results",
+      "depth": 0,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 4.7954155,
+        "gc_seconds": 1.6642035,
+        "wall_seconds": 6.0822804,
+        "compilation_seconds": 1.2868649
+      },
+      "category": "export",
+      "calls": 1,
+      "phase": "export"
+    },
+    {
+      "parent": null,
+      "path": "parse",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.17500649999999998,
+        "gc_seconds": 0.0,
+        "wall_seconds": 0.1890883,
+        "compilation_seconds": 0.0140818
+      },
+      "label": "Read and parse deck",
+      "depth": 0,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.17500649999999998,
+        "gc_seconds": 0.0,
+        "wall_seconds": 0.1890883,
+        "compilation_seconds": 0.0140818
+      },
+      "category": "preparation",
+      "calls": 1,
+      "phase": "parse"
+    },
+    {
+      "parent": null,
+      "path": "solve",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 8.917937300000007,
+        "gc_seconds": 1.3530819000000003,
+        "wall_seconds": 15.938009500000007,
+        "compilation_seconds": 7.0200721999999995
+      },
+      "label": "Numerical solver",
+      "depth": 0,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 80.7641988,
+        "gc_seconds": 5.4211695,
+        "wall_seconds": 93.6670706,
+        "compilation_seconds": 12.9028718
+      },
+      "category": "numerical",
+      "calls": 1,
+      "phase": "solve"
+    },
+    {
+      "parent": "solve",
+      "path": "solve/eigensolve",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 56.23411580000001,
+        "gc_seconds": 2.1303447,
+        "wall_seconds": 61.77004790000001,
+        "compilation_seconds": 5.5359321
+      },
+      "label": "Modal eigenvalue solution",
+      "depth": 1,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 67.6344655,
+        "gc_seconds": 2.5853763,
+        "wall_seconds": 73.1969655,
+        "compilation_seconds": 5.5625
+      },
+      "category": "numerical",
+      "calls": 1,
+      "phase": "eigensolve"
+    },
+    {
+      "parent": "solve/eigensolve",
+      "path": "solve/eigensolve/constraints",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.016964700000000003,
+        "gc_seconds": 0.0,
+        "wall_seconds": 0.016964700000000003,
+        "compilation_seconds": 0.0
+      },
+      "label": "Apply constraints and select free degrees of freedom",
+      "depth": 2,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 0.016964700000000003,
+        "gc_seconds": 0.0,
+        "wall_seconds": 0.016964700000000003,
+        "compilation_seconds": 0.0
+      },
+      "category": "numerical",
+      "calls": 1,
+      "phase": "constraints"
+    },
+    {
+      "parent": "solve/eigensolve",
+      "path": "solve/eigensolve/factorization",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 11.383384999999999,
+        "gc_seconds": 0.45503160000000004,
+        "wall_seconds": 11.4099529,
+        "compilation_seconds": 0.026567900000000005
+      },
+      "label": "Matrix factorization",
+      "depth": 2,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 11.383384999999999,
+        "gc_seconds": 0.45503160000000004,
+        "wall_seconds": 11.4099529,
+        "compilation_seconds": 0.026567900000000005
+      },
+      "category": "numerical",
+      "calls": 2,
+      "phase": "factorization"
+    },
+    {
+      "parent": "solve",
+      "path": "solve/mass_assembly",
+      "exclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 4.2117960000000005,
+        "gc_seconds": 1.4827113,
+        "wall_seconds": 4.5320956,
+        "compilation_seconds": 0.3202996
+      },
+      "label": "Assemble mass matrix",
+      "depth": 1,
+      "inclusive": {
+        "recompilation_seconds": 0.0,
+        "execution_seconds": 4.2117960000000005,
+        "gc_seconds": 1.4827113,
+        "wall_seconds": 4.5320956,
+        "compilation_seconds": 0.3202996
+      },
+      "category": "numerical",
+      "calls": 2,
+      "phase": "mass_assembly"
+    }
+  ],
+  "measurement": "Inclusive children are already contained in parent stage times; category totals sum exclusive execution only. Execution is unavailable if measured compilation overlaps/exceeds its wall interval.",
+  "preparation_seconds": 0.6765093,
+  "phases": {
+    "parse": {
+      "recompilation_seconds": 0.0,
+      "execution_seconds": 0.17500649999999998,
+      "gc_seconds": 0.0,
+      "label": "Read and parse deck",
+      "stages": [
+        {
+          "parent": null,
+          "path": "parse",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.17500649999999998,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.1890883,
+            "compilation_seconds": 0.0140818
+          },
+          "label": "Read and parse deck",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.17500649999999998,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.1890883,
+            "compilation_seconds": 0.0140818
+          },
+          "category": "preparation",
+          "calls": 1,
+          "phase": "parse"
+        }
+      ],
+      "wall_seconds": 0.1890883,
+      "category": "preparation",
+      "compilation_seconds": 0.0140818
+    },
+    "build_model": {
+      "recompilation_seconds": 0.0,
+      "execution_seconds": 0.5015028,
+      "gc_seconds": 0.0,
+      "label": "Construct native model",
+      "stages": [
+        {
+          "parent": null,
+          "path": "build_model",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.5015028,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.5401742,
+            "compilation_seconds": 0.0386714
+          },
+          "label": "Construct native model",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.5015028,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.5401742,
+            "compilation_seconds": 0.0386714
+          },
+          "category": "preparation",
+          "calls": 1,
+          "phase": "build_model"
+        }
+      ],
+      "wall_seconds": 0.5401742,
+      "category": "preparation",
+      "compilation_seconds": 0.0386714
+    },
+    "export": {
+      "recompilation_seconds": 0.0,
+      "execution_seconds": 4.7954155,
+      "gc_seconds": 1.6642035,
+      "label": "Write results",
+      "stages": [
+        {
+          "parent": null,
+          "path": "export",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 4.7954155,
+            "gc_seconds": 1.6642035,
+            "wall_seconds": 6.0822804,
+            "compilation_seconds": 1.2868649
+          },
+          "label": "Write results",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 4.7954155,
+            "gc_seconds": 1.6642035,
+            "wall_seconds": 6.0822804,
+            "compilation_seconds": 1.2868649
+          },
+          "category": "export",
+          "calls": 1,
+          "phase": "export"
+        }
+      ],
+      "wall_seconds": 6.0822804,
+      "category": "export",
+      "compilation_seconds": 1.2868649
+    },
+    "solve": {
+      "recompilation_seconds": 0.0,
+      "execution_seconds": 80.7641988,
+      "gc_seconds": 5.4211695,
+      "label": "Numerical solver",
+      "stages": [
+        {
+          "parent": null,
+          "path": "solve",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 8.917937300000007,
+            "gc_seconds": 1.3530819000000003,
+            "wall_seconds": 15.938009500000007,
+            "compilation_seconds": 7.0200721999999995
+          },
+          "label": "Numerical solver",
+          "depth": 0,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 80.7641988,
+            "gc_seconds": 5.4211695,
+            "wall_seconds": 93.6670706,
+            "compilation_seconds": 12.9028718
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "solve"
+        },
+        {
+          "parent": "solve",
+          "path": "solve/eigensolve",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 56.23411580000001,
+            "gc_seconds": 2.1303447,
+            "wall_seconds": 61.77004790000001,
+            "compilation_seconds": 5.5359321
+          },
+          "label": "Modal eigenvalue solution",
+          "depth": 1,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 67.6344655,
+            "gc_seconds": 2.5853763,
+            "wall_seconds": 73.1969655,
+            "compilation_seconds": 5.5625
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "eigensolve"
+        },
+        {
+          "parent": "solve/eigensolve",
+          "path": "solve/eigensolve/constraints",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.016964700000000003,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.016964700000000003,
+            "compilation_seconds": 0.0
+          },
+          "label": "Apply constraints and select free degrees of freedom",
+          "depth": 2,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 0.016964700000000003,
+            "gc_seconds": 0.0,
+            "wall_seconds": 0.016964700000000003,
+            "compilation_seconds": 0.0
+          },
+          "category": "numerical",
+          "calls": 1,
+          "phase": "constraints"
+        },
+        {
+          "parent": "solve/eigensolve",
+          "path": "solve/eigensolve/factorization",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 11.383384999999999,
+            "gc_seconds": 0.45503160000000004,
+            "wall_seconds": 11.4099529,
+            "compilation_seconds": 0.026567900000000005
+          },
+          "label": "Matrix factorization",
+          "depth": 2,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 11.383384999999999,
+            "gc_seconds": 0.45503160000000004,
+            "wall_seconds": 11.4099529,
+            "compilation_seconds": 0.026567900000000005
+          },
+          "category": "numerical",
+          "calls": 2,
+          "phase": "factorization"
+        },
+        {
+          "parent": "solve",
+          "path": "solve/mass_assembly",
+          "exclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 4.2117960000000005,
+            "gc_seconds": 1.4827113,
+            "wall_seconds": 4.5320956,
+            "compilation_seconds": 0.3202996
+          },
+          "label": "Assemble mass matrix",
+          "depth": 1,
+          "inclusive": {
+            "recompilation_seconds": 0.0,
+            "execution_seconds": 4.2117960000000005,
+            "gc_seconds": 1.4827113,
+            "wall_seconds": 4.5320956,
+            "compilation_seconds": 0.3202996
+          },
+          "category": "numerical",
+          "calls": 2,
+          "phase": "mass_assembly"
+        }
+      ],
+      "wall_seconds": 93.6670706,
+      "category": "numerical",
+      "compilation_seconds": 12.9028718
+    }
+  },
+  "solution_seconds": 80.76419880000003,
+  "compilation_scope": "Measured Julia compilation includes recompilation. Package loading/precompilation before main is unmeasured process startup; live compiler activity cannot be separated reliably.",
+  "compilation_seconds": 14.242489899999999
+}

@@ -9,7 +9,7 @@
   "description": "Public TACS CRM geometry; isotropic conversion E=70 GPa, nu=0.3, rho=2500 kg/m3, t=0.02 m.",
   "geometry": "23738 nodes; 25055 elements. Public TACS CRM geometry; isotropic conversion E=70 GPa, nu=0.3, rho=2500 kg/m3, t=0.02 m.",
   "material": "E=7e+10, nu=0.3; density=2500; shell thickness=0.02. SI: m, N, kg, s, Pa",
-  "boundary_conditions": "Upstream root constraints; consistent shell mass; PARAM K6ROT 100. Adapted CQUAD4 model.",
+  "boundary_conditions": "Upstream root and side-of-body constraints retained; lumped shell mass (cardless default); PARAM K6ROT 100. Adapted CQUAD4 model.",
   "loading": "Free vibration about the undeformed state; no applied static preload.",
   "length_unit": "m",
   "metrics": [
