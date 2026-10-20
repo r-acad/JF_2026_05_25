@@ -1042,6 +1042,15 @@ used for native sensitivities remains separate from this portable format.
 
 ## Analysis timings and buckling preload results
 
+**Analysis → FE Analysis → Run timeout (0 = unlimited)** sets an optional
+elapsed-time limit in minutes, saved with the Study. The default, **0**, allows
+FE and sensitivity analyses to finish without a time limit; **Stop** remains
+available. A positive value limits each FE run, including startup/compilation,
+or the whole sensitivity study. SOL101/SOL106 comparison children each get
+their own limit. There is no separate two-hour sensitivity cap. The control
+also applies to imported models. Existing studies retain their saved timeout;
+set it to 0 to remove that limit.
+
 The first FE analysis starts a Julia solver worker. Later analyses reuse that
 process, its loaded packages and compiled methods. The worker uses the same
 root `Project.toml`, `Manifest.toml` and verified shared sysimage as the app.

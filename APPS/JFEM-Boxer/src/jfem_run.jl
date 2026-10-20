@@ -563,8 +563,8 @@ job_results_available(job::JfemJob) = isempty(job.runs) ?
 
 function enforce_job_timeout!(job::JfemJob; now=time())
     isempty(job.runs) || return job # a pair has one independent timeout per child
-    limit=60.0*Float64(job.model.params["jfem.timeout_minutes"])
-    if job.state===:running && now-job.started>limit
+    limit=solver_timeout_seconds(job.model.params)
+    if limit>0 && job.state===:running && now-job.started>limit
         kill_job!(job;message="the run passed the $(round(Int,limit/60)) minute timeout and was stopped",state=:failed)
     end
     return job

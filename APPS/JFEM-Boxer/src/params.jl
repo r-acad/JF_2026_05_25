@@ -357,9 +357,9 @@ const SCHEMA = ParamSpec[
               "JFEM solver";
               help = "Letters passed to the launcher: j viewer file, " *
                      "r report, s results JSON, v VTK, h HDF5"),
-    ParamSpec("jfem.timeout_minutes", "Run timeout", :int, 30, "JFEM solver";
+    ParamSpec("jfem.timeout_minutes", "Run timeout (0 = unlimited)", :int, 0, "JFEM solver";
               unit = "min",
-              help = "Timeout for each individual solver run, including each SOL101/SOL106 case. The first run also precompiles the solver and is slow"),
+              help = "Optional elapsed-time limit in minutes. Zero (default) lets FE and sensitivity analyses finish without a time limit; Stop remains available. A positive value limits each individual FE run (including startup and compilation) or the whole sensitivity study. Each SOL101/SOL106 comparison child has its own limit. Saved with the Study; existing studies retain their chosen value."),
 ]
 
 const SCHEMA_BY_KEY = Dict{String,ParamSpec}(s.key => s for s in SCHEMA)
@@ -371,6 +371,14 @@ Flat, dotted-key parameter dictionary holding every schema default.
 """
 default_params() = merge(Dict{String,Any}(s.key => deepcopy(s.default) for s in SCHEMA),
                          Dict{String,Any}(REFERENCE_METADATA_KEY => Any[], PLAN_VIEW_METADATA_KEY => "", DRAWINGS_METADATA_KEY => ""))
+
+"""User-selected elapsed-time limit for FE/sensitivity jobs; zero disables it."""
+function solver_timeout_seconds(params::AbstractDict)
+    minutes=get(params,"jfem.timeout_minutes",0)
+    minutes isa Real && !(minutes isa Bool) && isfinite(minutes) && minutes>=0 ||
+        throw(ArgumentError("Run timeout must be nonnegative; use 0 for unlimited"))
+    return 60.0*Float64(minutes)
+end
 
 """
     flatten_toml(nested, prefix = "") -> Dict{String,Any}
@@ -853,8 +861,7 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
                 "SOL $sol needs nonzero lift, torque, enabled structural acceleration or fuel acceleration with fuel present, and a nonzero load multiplier"))
     end
 
-    p["jfem.timeout_minutes"] >= 1 ||
-        throw(ArgumentError("jfem.timeout_minutes must be at least 1"))
+    solver_timeout_seconds(p)
     fmt = strip(String(p["jfem.output_formats"]), ['-', ' '])
     (!isempty(fmt) && all(c -> c in "jrsvhmc", fmt)) || throw(ArgumentError(
         "jfem.output_formats must be a non-empty combination of the letters " *

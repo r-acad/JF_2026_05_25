@@ -160,4 +160,4 @@ settings              = ""                      # Saved sensitivity objective an
 repo                  = ""                      # Folder holding src/OpenJFEM.jl and the jfem launcher. Leave empty to find the enclosing solver checkout automatically. Relative paths are resolved from the app; jfem.path is accepted as an input alias.
 output_dir            = "output/jfem"           # Parent results folder, relative to the app. Each run keeps its own timestamped folder; SOL106 comparisons keep separate case/SOL101 and case/SOL106 decks and results
 output_formats        = "jrs"                   # Letters passed to the launcher: j viewer file, r report, s results JSON, v VTK, h HDF5
-timeout_minutes       = 30                      # min, Timeout for each individual solver run, including each SOL101/SOL106 case. The first run also precompiles the solver and is slow
+timeout_minutes       = 0                       # min, 0 = unlimited; positive values limit each FE run or the whole sensitivity study

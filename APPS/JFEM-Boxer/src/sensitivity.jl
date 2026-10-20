@@ -302,6 +302,14 @@ function finish_sensitivity_job!(job;monitor_error=nothing)
     job
 end
 
+function enforce_sensitivity_timeout!(job;now=time())
+    limit=solver_timeout_seconds(job.model.params)
+    if limit>0 && job.state===:running && now-job.started>limit
+        cancel_sensitivity_job!(job;message="Sensitivity study exceeded its $(limit/60)-minute timeout",state=:failed)
+    end
+    return job
+end
+
 function start_sensitivity_job(model,request,root,id)
     config=sensitivity_request(model,request)
     repo,_=find_jfem(root;hint=String(model.params["jfem.repo"]))
@@ -322,12 +330,10 @@ function start_sensitivity_job(model,request,root,id)
     Threads.@spawn begin
         monitor_error=nothing
         try
-            timeout=60clamp(Int(model.params["jfem.timeout_minutes"]),1,120)
             while process_running(job.proc)
                 sleep(.25)
-                if time()-job.started>timeout
-                    cancel_sensitivity_job!(job;message="Sensitivity study exceeded its $(timeout÷60)-minute budget",state=:failed);break
-                end
+                enforce_sensitivity_timeout!(job)
+                job.state===:running||break
             end
             try wait(job.proc) catch end
         catch failure

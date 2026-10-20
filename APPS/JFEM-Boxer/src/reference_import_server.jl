@@ -14,7 +14,14 @@ function request_imported_model(raw)
     end
     signature=get(value,"signature",nothing)
     signature===nothing||signature==model.params["imported.source"]["signature"]||throw(ArgumentError("The imported deck handle belongs to a different source. Read the deck again."))
-    imported_analysis_model(model,get(value,"analysis",nothing))
+    model=imported_analysis_model(model,get(value,"analysis",nothing))
+    if haskey(parameters,"jfem.timeout_minutes")
+        params=copy(model.params)
+        params["jfem.timeout_minutes"]=coerce_value(SCHEMA_BY_KEY["jfem.timeout_minutes"],parameters["jfem.timeout_minutes"])
+        solver_timeout_seconds(params)
+        model=Model((field===:params ? params : getfield(model,field) for field in fieldnames(Model))...)
+    end
+    return model
 end
 
 const IMPORT_WORKERS=Dict{String,Any}()

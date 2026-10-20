@@ -5,6 +5,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Optional analysis timeout
+
+- Default FE and sensitivity analyses to unlimited runtime. Set Run timeout
+  in Analysis → FE Analysis to 0 for unlimited or a positive number of minutes.
+  Keep Stop available and honor saved positive limits, including imported models.
+- Remove the hidden two-hour sensitivity cap; sensitivities use the selected
+  timeout for the complete study.
+
 ### Consistent 2D gestures and loft colors
 
 - Use right-button drag for 2D panning and immediate left-drag window zoom;

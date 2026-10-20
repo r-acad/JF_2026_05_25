@@ -556,7 +556,7 @@ function parameterRow(spec, values) {
     input.type = spec.kind === "string" ? "text" : "number";
     input.step = spec.kind === "int" ? "1" : /(?:^|[._])(?:eta|xc)$/.test(spec.key) || spec.unit === "x/c" ? "0.1" : "any";
     if (["mesh.elements_spar_height","mesh.elements_stringer_height"].includes(spec.key)) input.min = "1";
-    if (spec.key === "stringers.axis_cid") input.min = "0";
+    if (["stringers.axis_cid","jfem.timeout_minutes"].includes(spec.key)) input.min = "0";
     if (spec.key === "leading_edge.chord_elements") { input.min = "2"; input.max = "100"; }
     if (spec.key === "fuel.fill_efficiency") { input.min = "0"; input.max = "1"; }
     input.value = String(parameterDisplayValue(spec.key, values[spec.key]));
@@ -832,6 +832,8 @@ function buildForm(schema, values) {
   if (!state.loadCases.some((item) => Number(item.id) === Number(state.editingCase))) state.editingCase = 1;
   const host = document.getElementById("form"); host.innerHTML = "";
   const baseInputs = document.createElement("div"); baseInputs.hidden = true; baseInputs.id = "base-load-inputs";
+  const runtimeOptions = document.getElementById("analysis-runtime-options");
+  runtimeOptions?.replaceChildren();
   const byGroup = new Map();
   for (const spec of schema) {
     if (spec.key.startsWith("sensitivity.")) continue;
@@ -875,7 +877,8 @@ function buildForm(schema, values) {
     }
     for (const spec of specs) {
       if (spec.kind === "loadcases") { const editor = document.createElement("div"); editor.id = "load-cases-editor"; det.appendChild(editor); }
-      else {const row=parameterRow(spec, values);if(spec.key==="fuel.fill_fraction")row.hidden=true;det.appendChild(row);}
+      else {const row=parameterRow(spec, values);if(spec.key==="fuel.fill_fraction")row.hidden=true;
+        if(spec.key==="jfem.timeout_minutes"&&runtimeOptions)runtimeOptions.appendChild(row);else det.appendChild(row);}
     }
     if (name === "Analysis") {
       const note = document.createElement("div"); note.id = "analysis-eigrl-note"; note.className = "group-note"; note.hidden = true; det.appendChild(note);
@@ -1462,7 +1465,12 @@ function syncLeadingEdgeFallbackNotice() {
 }
 
 function parameterEdited(key) {
-  if(state.importedDeck && key!=="sensitivity.settings")return;
+  if(state.importedDeck && key==="jfem.timeout_minutes") {
+    const input=document.getElementById("p-"+key);
+    if(!input?.checkValidity()||input.value.trim()==="")return;
+    state.values[key]=Number(input.value);
+  }
+  if(state.importedDeck && !["sensitivity.settings","jfem.timeout_minutes"].includes(key))return;
   if (state.parameterLocks?.guard(key)) return;
   if (key === "leading_edge.enabled") syncLeadingEdgePropertiesTab();
   if (key.startsWith("stringers.")||key==="properties.stringer_flange_width") syncStringerModelControls();
@@ -1682,8 +1690,15 @@ function syncManualMeshAction() {
   if(button && destination?.appendChild && button.parentElement!==destination)destination.appendChild(button);
 }
 
+function readRunTimeout() {
+  const input=document.getElementById("p-jfem.timeout_minutes");
+  const value=input ? (input.value.trim()==="" ? NaN : Number(input.value)) : Number(state.values["jfem.timeout_minutes"]??0);
+  if(!Number.isInteger(value)||value<0)throw Error("Run timeout must be a nonnegative number of minutes; use 0 for unlimited.");
+  return value;
+}
+
 function collectParams({includeView = false} = {}) {
-  if(state.importedDeck)return {model_kind:'reference',imported_deck:{token:state.importedDeck.token,signature:state.importedDeck.signature,analysis:WingImportedAnalysis.options(state.importedDeck.source?.analysis)}};
+  if(state.importedDeck)return {model_kind:'reference',"jfem.timeout_minutes":readRunTimeout(),imported_deck:{token:state.importedDeck.token,signature:state.importedDeck.signature,analysis:WingImportedAnalysis.options(state.importedDeck.source?.analysis)}};
   if(state.data?.imported_deck)throw Error('Imported deck identity is unavailable. Read the deck or reopen its Study; a generated lifting surface will not be substituted.');
   state.panelTables?.assertValidDraft?.();
   state.parameterLocks?.enforce();
