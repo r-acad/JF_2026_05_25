@@ -12,10 +12,10 @@ const checks=[],errors=[];
  const page=await browser.newPage({viewport:{width:1440,height:1100}});
  try{
   page.on('pageerror',error=>errors.push(error.stack));
-  const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/g,'').replace(/<link\b[^>]*>/g,'');
-  await page.setContent(html);
-  for(const file of ['style.css','study_files.css','model_workspace.css'])await page.addStyleTag({path:path.join(web,file)});
-  for(const file of ['numbers.js','color_scales.js','viewport-legends.js','parameter_locks.js','workspace.js','reference_import.js','imported_analysis.js'])await page.addScriptTag({path:path.join(web,file)});
+  const html=fs.readFileSync(path.join(web,'index.html'),'utf8');
+  await page.setContent(html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g,'').replace(/<link\b[^>]*>/g,''));
+  for(const[,file]of html.matchAll(/<link\s+rel="stylesheet"\s+href="([^"]+)"/g))await page.addStyleTag({path:path.join(web,file)});
+  for(const[,file]of html.matchAll(/<script\s+src="([^"]+)"/g))if(file!=='app.js')await page.addScriptTag({path:path.join(web,file)});
   const app=fs.readFileSync(path.join(web,'app.js'),'utf8');await page.addScriptTag({content:app.slice(0,app.indexOf('(async function start()'))});
   await page.evaluate(payload=>{
    const keys=['mesh.elements_spar_height','mesh.elements_between_ribs','mesh.elements_between_stringers','mesh.aero_chord_points','leading_edge.enabled','leading_edge.chord_elements','output.solution','output.n_modes','output.buckling_max_factor'];
@@ -64,10 +64,12 @@ const checks=[],errors=[];
   checks.push('Generated Analysis shows the exact user example split into fields, tracks edited ND/V2, explains SOL105 factors and SOL103 blank bounds with MASS, and hides extraction guidance for SOL101.');
   await page.evaluate(()=>{
    const host=document.createElement('section');host.id='test-imported-analysis';document.getElementById('group-analysis').append(host);
-   window.testDeck={name:'source.bdf',solution:'105',source:{}};
+   window.testDeck={name:'source.bdf',solution:'105',source:WingReferenceImport.source({kind:'reference',name:'source.bdf',text:'SOL 105\nCEND\nSPC=1\nSUBCASE 1\n LOAD=1\nSUBCASE 2\n METHOD=1\n STATSUB=1\nBEGIN BULK\nGRID,1,,0.,0.,0.\nGRID,2,,1.,0.,0.\nMAT1,1,7.+10,,.3,2700.\nPBAR,1,1,.01,1.-6,1.-6,2.-6\nCBAR,1,1,1,2,0.,1.,0.\nSPC1,1,123456,1\nFORCE,1,2,0,1.,-1.,0.,0.\nEIGRL,1,1.-6,100.,10\nENDDATA\n'})};
    window.testImported=WingImportedAnalysis.create({host,read:()=>testDeck,onChange:value=>{testDeck.source.analysis=value;}});testImported.refresh();
   });
   const imported=page.locator('#test-imported-analysis'),importNote=imported.locator('[data-eigen-note]');
+  assert(await imported.isVisible());assert(await importNote.isHidden());
+  await imported.locator('details:has([data-eigen-note]) > summary').click();assert(await importNote.isVisible());
   assert.match(await importNote.textContent(),/retains its METHOD and EIGRL\/EIGR cards/);assert(await imported.locator('[data-eigen]').isHidden());
   await imported.locator('[data-key="solution"]').selectOption('105');
   await imported.locator('[data-key="modes"]').fill('9');await imported.locator('[data-key="modes"]').blur();

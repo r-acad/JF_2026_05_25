@@ -83,10 +83,16 @@ const fixtureFile=name=>path.join(fixture,fs.existsSync(path.join(fixture,name))
    return{groups:[...state.layerGroupControls.keys()],note:document.getElementById('vlm-view-status').textContent};
   });
   assert(imported.groups.includes('constraints'));assert.match(imported.note,/imported deck has no VLM/);assert(await page.locator('#btn-vlm-cp').isDisabled());assert.equal(await page.locator('#entity-group-vlm').count(),0);
+  // Connections are FE entities; Loads & Constraints owns their glyph options.
+  await page.evaluate(()=>activateWorkspaceTab('display'));
   for(const name of ['IMPORTED_RBE2','IMPORTED_CELAS1']){assert(await page.locator('#layer-'+name).isVisible());await page.locator('#layer-'+name).uncheck();assert(await page.evaluate(name=>state.layers.get(name).meshes.every(m=>!m.isEnabled()),name));await page.locator('#layer-'+name).check();}
+  await page.evaluate(()=>activateWorkspaceTab('displayloads'));
   await page.locator('#show-celas-cylinders').check();assert(await page.evaluate(()=>state.layers.get('IMPORTED_CELAS1').meshes.some(m=>m.springCylinders&&m.isEnabled())));
   await page.evaluate(()=>activateWorkspaceTab('displayenvironment'));assert(await page.locator('[data-geometry="GROUND"] select').isVisible());
-  checks.push('Imported decks route actual RBE and spring families into Loads&Constraints, retain usable context planes, and disable unavailable VLM results without inventing geometry');
+  await page.evaluate(()=>activateWorkspaceTab('displaygeometry'));
+  for(const selector of ['#aerodynamic-appearance','#loft-cut-controls','#geometry-airfoil-appearance','#geometry-undeformed-structure'])assert(await page.locator(selector).isHidden(),selector+' is inapplicable to imported geometry without a loft or results');
+  assert(await page.locator('#reference-file').isVisible());
+  checks.push('Imported RBE and spring visibility stays in Entities with glyph options in Loads&Constraints; unavailable aerodynamic geometry is hidden while import/reference tools and environment planes remain accessible');
   assert.deepEqual(requests,[]);assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'summary.json'),JSON.stringify({passed:true,checks,reactionCases,planes,groundInputs,restored,imported,requests,errors},null,2));console.log(`Display organization browser: ${checks.length} groups passed.`);
  }catch(error){await page.screenshot({path:path.join(out,'failure.png')});fs.writeFileSync(path.join(out,'failure.json'),JSON.stringify({error:error.stack,checks,requests,errors},null,2));throw error;}finally{await browser.close();}
 })().catch(error=>{console.error(error.stack);process.exitCode=1;});

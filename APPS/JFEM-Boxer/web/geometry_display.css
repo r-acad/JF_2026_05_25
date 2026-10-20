@@ -46,3 +46,23 @@
 #panel-displaygeometry #loft-cut-controls { margin:7px 0; padding:8px; }
 #panel-displaygeometry #loft-cut-controls :is(label,.pick-note) { font-size:11px; }
 .geometry-control-parking[hidden] { display:none!important; }
+.geometry-duplicate-control { display:none!important; }
+.geometry-plane-dimensions { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px 12px; margin-top:10px; }
+.geometry-plane-dimensions .display-control { display:grid; gap:5px; margin:0; font-size:12px; }
+.geometry-plane-dimensions .display-control input { box-sizing:border-box; width:100%; max-width:none; min-width:0; }
+.geometry-plane-dimensions .display-control[hidden] { display:none!important; }
+.geometry-card-notes { padding-top:5px; }
+.geometry-card-notes summary { padding:3px 0; line-height:1.45; }
+.geometry-card-notes summary:focus-visible { outline:2px solid var(--accent,#58afff); outline-offset:3px; border-radius:3px; }
+.geometry-entity-card:disabled { opacity:.55; }
+.geometry-entity-card[hidden],.geometry-static-card[hidden] { display:none!important; }
+.geometry-compact-references .display-section-heading { margin:18px 0 8px; font-size:13px; color:var(--text,#dce7f2); font-weight:600; }
+#panel-displayenvironment #environment-appearance-controls { margin-top:14px; }
+#panel-displayenvironment #display-view-planes[hidden] { display:none!important; }
+#panel-displaygeometry #geometry-results .geometry-card-notes { border-top:1px solid var(--border,#344a5d); }
+#panel-displaygeometry #loft-cut-controls .geometry-card-header { margin-top:2px; }
+.geometry-reference-placement { margin-top:12px; padding-top:10px; border-top:1px solid var(--border,#344a5d); }
+.geometry-reference-placement>summary { cursor:pointer; color:var(--text,#dce7f2); font-size:12px; font-weight:600; }
+.geometry-reference-placement[hidden] { display:none!important; }
+.geometry-reference-placement .reference-content { margin-top:10px; }
+.geometry-entity-card>.geometry-card-action { margin-top:8px; }

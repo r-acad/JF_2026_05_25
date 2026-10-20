@@ -75,14 +75,34 @@
   function parkControls(){
    const panel=doc.getElementById('panel-displaygeometry');if(!panel)return;
    const park=ensure('geometry-control-parking',panel,'geometry-control-parking');park.hidden=true;
-   for(const id of['show-reference-aero','show-rib-datums','rib-datum-size','layer-FUEL_TANK','layer-AIRFOIL_SECTIONS']){const row=rowFor(id);if(row)park.append(row);}
-   const status=doc.getElementById('rib-datum-status');if(status)park.append(status);
+   for(const id of['show-reference-aero','show-rib-datums','rib-datum-size','layer-FUEL_TANK','layer-AIRFOIL_SECTIONS','show-ground-plane','show-symmetry-plane','ground-plane-z','ground-grid-spacing']){const row=rowFor(id);if(row)park.append(row);}
+   for(const id of['rib-datum-status','view-planes-note']){const status=doc.getElementById(id);if(status)park.append(status);}
+  }
+  function helpDetails(host,id,label,paragraphs){
+   if(!host)return null;let details=doc.getElementById(id);
+   if(!details){details=node('details','geometry-card-notes');details.id=id;details.append(node('summary','',label));host.append(details);}
+   for(const p of paragraphs||[])if(p&&!details.contains(p))details.append(p);
+   return details;
+  }
+  function compactEnvironment(){
+   const ground=doc.querySelector('[data-geometry="GROUND"]'),symmetry=doc.querySelector('[data-geometry="SYMMETRY"]');
+   if(ground){
+    visibility(ground,rowFor('show-ground-plane'));
+    const dimensions=ensure('geometry-ground-dimensions',ground,'geometry-plane-dimensions');
+    for(const id of['ground-plane-z','ground-grid-spacing']){const row=rowFor(id);if(row)dimensions.append(row);}
+    const note=doc.getElementById('view-planes-note');
+    helpDetails(ground,'geometry-ground-help','Ground placement and reflections',[...ground.querySelectorAll(':scope > p'),note]);
+   }
+   if(symmetry)visibility(symmetry,rowFor('show-symmetry-plane'));
+   const planes=doc.getElementById('display-view-planes');if(planes){planes.hidden=!!ground;if(!ground){for(const id of['show-ground-plane','ground-plane-z','ground-grid-spacing','show-symmetry-plane']){const row=rowFor(id);if(row)planes.append(row);}const note=doc.getElementById('view-planes-note');if(note)planes.append(note);}}
   }
   function editReference(entry,edit){const reference=state.reference,previous=reference.active?.id??null;if(reference.active!==entry)reference.select(entry.id);edit(reference);if((reference.active?.id??null)!==previous)reference.select(previous);syncReferenceFields();}
   function syncReferenceFields(){for(const[entry,controls]of referenceControls){if(doc.activeElement!==controls.visible)controls.visible.checked=entry.visible!==false;if(doc.activeElement!==controls.wire)controls.wire.checked=entry.wireframe===true;if(doc.activeElement!==controls.alpha.slider)controls.alpha.slider.value=entry.opacity??1;controls.alpha.output.textContent=Math.round(100*(entry.opacity??1))+'%';}}
   function referenceCard(host,key,entry){
    const color=entry.material?.diffuseColor?.toHexString?.()||'#c5b2df',box=controls(host,key,entry.name,{color,style:'solid',opacity:1},{wire:true}),row=node('label','layer'),show=node('input'),label=node('span','',entry.name);show.type='checkbox';show.checked=entry.visible!==false;show.setAttribute('aria-label','Show reference '+entry.name);show.onchange=()=>editReference(entry,reference=>reference.setVisible(show.checked));row.append(show,label);visibility(box,row);
-   const wireRow=node('label','layer geometry-reference-wire'),wire=node('input');wire.type='checkbox';wire.checked=entry.wireframe===true;wire.setAttribute('aria-label',entry.name+' wireframe');wire.onchange=()=>editReference(entry,reference=>reference.setAppearance({wireframe:wire.checked}));wireRow.append(wire,doc.createTextNode('Wire'));box.geometryParts.fields.append(wireRow);const alpha=opacityControl(box,entry.name,entry.opacity??1,value=>editReference(entry,reference=>reference.setAppearance({opacity:value})));referenceControls.set(entry,{visible:show,wire,alpha});return box;
+   const wireRow=node('label','layer geometry-reference-wire'),wire=node('input');wire.type='checkbox';wire.checked=entry.wireframe===true;wire.setAttribute('aria-label',entry.name+' wireframe');wire.onchange=()=>editReference(entry,reference=>reference.setAppearance({wireframe:wire.checked}));wireRow.append(wire,doc.createTextNode('Wire'));box.geometryParts.fields.append(wireRow);const alpha=opacityControl(box,entry.name,entry.opacity??1,value=>editReference(entry,reference=>reference.setAppearance({opacity:value})));
+   const position=node('button','mini geometry-card-action','Position and scale');position.type='button';position.title='Select '+entry.name+' to edit its units, placement, rotation and scale.';position.onclick=()=>{state.reference.select(entry.id);const details=doc.getElementById('geometry-reference-placement');if(details){details.open=true;details.scrollIntoView({block:'nearest'});}};box.append(position);
+   referenceControls.set(entry,{visible:show,wire,alpha});return box;
   }
   function compact(){
    const results=doc.getElementById('geometry-results');if(results){results.classList.add('geometry-compact-section');const current=ensure('geometry-current-structure',results,'geometry-static-card'),reference=ensure('geometry-undeformed-structure',results,'geometry-static-card');const shown=rowFor('geometry-show-structure'),undeformed=rowFor('show-undeformed'),color=compactField(rowFor('undeformed-color'),'Color');if(shown){shown.classList.add('geometry-visibility');current.prepend(shown);}if(undeformed){undeformed.classList.add('geometry-visibility');reference.prepend(undeformed);}if(color){color.querySelector('input')?.setAttribute('aria-label','Undeformed model color');reference.append(color);}const action=results.querySelector('[data-workspace-target="results"]');if(action){action.classList.add('geometry-card-action');action.textContent='Results';current.append(action);}let appearance=current.querySelector('[data-geometry-appearance-link]');if(!appearance){appearance=node('button','mini geometry-card-action','Appearance');appearance.type='button';appearance.dataset.geometryAppearanceLink='true';appearance.title='Structural surface opacity, shell thickness and bar sections';appearance.onclick=()=>doc.getElementById('tab-displayappearance')?.click();current.append(appearance);}}
@@ -94,8 +114,28 @@
    const sections=doc.getElementById('geometry-airfoil-appearance'),master=rowFor('layer-AIRFOIL_SECTIONS');if(sections&&master){master.classList.add('geometry-section-toggle');sections.prepend(master);}
    const context=doc.getElementById('geometry-context');if(context)context.hidden=!!rib||!state.ribDatums?.layout.count;
    for(const id of['entity-group-overlays']){const group=doc.getElementById(id);if(group)group.hidden=true;}
-   const referenceHost=doc.getElementById('geometry-references');if(referenceHost)referenceHost.classList.add('geometry-compact-references');
-   const cuts=doc.getElementById('loft-cut-controls');if(cuts)cuts.classList.add('geometry-compact-section');
+   const referenceHost=doc.getElementById('geometry-references');if(referenceHost){
+    referenceHost.classList.add('geometry-compact-references');
+    let heading=doc.getElementById('geometry-reference-heading');if(!heading){heading=node('h3','display-section-heading','Reference geometry');heading.id='geometry-reference-heading';}referenceHost.prepend(heading);
+    // Appearance belongs beside each reference. Keep the original selected-item
+    // controls as synchronized API endpoints, without presenting them twice.
+    for(const id of['reference-visible','reference-wireframe','reference-opacity'])rowFor(id)?.classList.add('geometry-duplicate-control');
+    const referencePanel=doc.getElementById('reference-panel'),content=referencePanel?.querySelector('.reference-content');
+    if(content){let placement=doc.getElementById('geometry-reference-placement');if(!placement){placement=node('details','geometry-reference-placement');placement.id='geometry-reference-placement';placement.append(node('summary','','Position and scale'));referencePanel.append(placement);}if(content.parentElement!==placement)placement.append(content);placement.hidden=!state.reference?.entries?.length;}
+   }
+   const cuts=doc.getElementById('loft-cut-controls');if(cuts){
+    cuts.classList.add('geometry-compact-section');
+    const header=ensure('geometry-cuts-header',cuts,'geometry-card-header'),fields=ensure('geometry-cuts-fields',header,'geometry-card-fields'),toggle=rowFor('show-loft-cuts');
+    if(toggle){toggle.classList.add('geometry-visibility');header.prepend(toggle);}
+    const color=compactField(rowFor('loft-cut-color'),'Color');if(color)fields.append(color);
+    const count=rowFor('loft-cut-count');if(count){count.classList.add('geometry-compact-option');cuts.append(count);}
+   }
+   const hasAero=state.layers.has('AERO_SURFACE')&&available('AERO_SURFACE'),hasSections=!!state.aeroDisplay?.sections?.length;
+   if(aero)aero.hidden=!hasAero;if(cuts)cuts.hidden=!hasAero;if(shapes)shapes.hidden=!hasAero&&!hasSections;
+   const aeroGroup=doc.getElementById('entity-group-aerodynamics');if(aeroGroup)aeroGroup.hidden=!hasAero&&!hasSections;
+   const structureReference=doc.getElementById('geometry-undeformed-structure');if(structureReference)structureReference.hidden=!state.layers.has('UNDEFORMED')||!available('UNDEFORMED');
+   if(results)helpDetails(results,'geometry-structural-help','Structural shape and deformation',[...results.querySelectorAll(':scope > p')]);
+   compactEnvironment();
    return{results,aero,shapes};
   }
   function rebuild(){

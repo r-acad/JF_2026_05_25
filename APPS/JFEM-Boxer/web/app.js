@@ -564,8 +564,8 @@ function parameterRow(spec, values) {
     input.value = String(parameterDisplayValue(spec.key, values[spec.key]));
   }
   input.id = "p-" + spec.key; input.title = helpText || "";
-  input.addEventListener("input", () => { parameterEdited(spec.key); if (["output.solution","output.n_modes","output.buckling_max_factor","output.buckling_compact"].includes(spec.key)) updateCaseAnalysisNote(); });
-  input.addEventListener("change", () => { parameterEdited(spec.key); if (["output.solution","output.n_modes","output.buckling_max_factor","output.buckling_compact"].includes(spec.key)) updateCaseAnalysisNote(); });
+  input.addEventListener("input", () => { parameterEdited(spec.key); if (["output.solution","output.n_modes","output.buckling_max_factor","output.buckling_compact","output.include_aero_shells"].includes(spec.key)) updateCaseAnalysisNote(); });
+  input.addEventListener("change", () => { parameterEdited(spec.key); if (["output.solution","output.n_modes","output.buckling_max_factor","output.buckling_compact","output.include_aero_shells"].includes(spec.key)) updateCaseAnalysisNote(); });
   row.appendChild(input); return row;
 }
 
@@ -592,17 +592,18 @@ const workspaceUI = { activeTab: "planform", previousTab: "planform", maximizedT
 const DRAWING_TABS = new Set(["planform", "airfoils", "movablesurfaces", "box", "ribs", "stringerlayout", "leadingedge", "fuel", "sections", "ribproperties", "sparproperties"]);
 const PROPERTY_TABS = new Set(["shells", "sections", "ribproperties", "sparproperties", "leproperties", "nonstructural"]);
 const SUMMARY_TABS = new Set(["weights", "summary"]);
+const GENERATED_MODEL_TABS = new Set(["planform","airfoils","loft","movablesurfaces","box","ribs","stringerlayout","leadingedge","movablestructure","fuel","mesh","material","shells","sections","ribproperties","sparproperties","leproperties","nonstructural","vlmmesh"]);
 const WORKSPACE_MENUS = {
   geometrymenu:{tabs:new Set(["planform","airfoils","loft","movablesurfaces"]),current:"planform",label:"Geometry"},
   structure:{tabs:new Set(["box","ribs","stringerlayout","leadingedge","movablestructure"]),current:"box",label:"Structure"},
-  aerodynamics:{tabs:new Set(["vlmmesh","loadplots"]),current:"vlmmesh",label:"Loads"},
+  aerodynamics:{tabs:new Set(["cases","vlmmesh","loadplots"]),current:"cases",label:"Loads"},
   properties:{tabs:PROPERTY_TABS,current:"shells",label:"Properties"},
   overview:{tabs:SUMMARY_TABS,current:"weights",label:"Summary"},
   analysismenu:{tabs:new Set(["analysis","sensitivity"]),current:"analysis",label:"Analysis"},
   resultsmenu:{tabs:new Set(["results","sensitivityresults"]),current:"results",label:"Results"},
   displaymenu:{tabs:new Set(["display","displaygeometry","displayloads","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"]),current:"display",label:"Display"},
 };
-const WORKSPACE_MAIN_TABS = WORKSPACE_TABS.filter(([,id]) => !["airfoils","loft","movablesurfaces","movablestructure","sections","ribproperties","sparproperties","leproperties","nonstructural","summary","ribs","stringerlayout","leadingedge","loadplots","sensitivity","sensitivityresults","displaygeometry","displayloads","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"].includes(id)).map(tab => tab[1] === "planform" ? ["Geometry","geometrymenu","Geometry"] : tab[1] === "box" ? ["Geometry","structure","Structure"] : tab[1] === "vlmmesh" ? ["Loads","aerodynamics","Loads"] : tab[1] === "shells" ? ["Model", "properties", "Properties"] : tab[1] === "weights" ? ["Summary","overview","Summary"] : tab[1] === "analysis" ? ["Solve","analysismenu","Analysis"] : tab[1] === "results" ? ["Solve","resultsmenu","Results"] : tab[1] === "display" ? ["View","displaymenu","Display"] : tab);
+const WORKSPACE_MAIN_TABS = WORKSPACE_TABS.filter(([,id]) => !["cases","airfoils","loft","movablesurfaces","movablestructure","sections","ribproperties","sparproperties","leproperties","nonstructural","summary","ribs","stringerlayout","leadingedge","loadplots","sensitivity","sensitivityresults","displaygeometry","displayloads","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"].includes(id)).map(tab => tab[1] === "planform" ? ["Geometry","geometrymenu","Geometry"] : tab[1] === "box" ? ["Geometry","structure","Structure"] : tab[1] === "vlmmesh" ? ["Loads","aerodynamics","Loads"] : tab[1] === "shells" ? ["Model", "properties", "Properties"] : tab[1] === "weights" ? ["Summary","overview","Summary"] : tab[1] === "analysis" ? ["Solve","analysismenu","Analysis"] : tab[1] === "results" ? ["Solve","resultsmenu","Results"] : tab[1] === "display" ? ["View","displaymenu","Display"] : tab);
 const parentTab = id => Object.keys(WORKSPACE_MENUS).find(key=>WORKSPACE_MENUS[key].tabs.has(id));
 
 function leaveInspection(){
@@ -635,6 +636,7 @@ function activateWorkspaceTab(id, options = {}) {
   if(id==="vlm")id="displayloads"; // Preserve navigation in older Studies and links.
   if (id === "planview") id = "planform"; // Legacy Studies: never open a popup on restore.
   if (WORKSPACE_MENUS[id]) id = WORKSPACE_MENUS[id].current;
+  if (state.importedDeck && GENERATED_MODEL_TABS.has(id)) id = "display";
   if (id === "leproperties" && !leadingEdgePropertiesAvailable()) id = "leadingedge";
   if (id === "sensitivityresults" && !sensitivityResultsAvailable()) id = "results";
   if (id === "results" && state.sensitivityMap) clearSensitivityMap();
@@ -834,6 +836,7 @@ function buildForm(schema, values) {
   state.leadingEdgeGaps = null;
   state.loadCases = JSON.parse(JSON.stringify(values["loads.cases"] || []));
   if (!state.loadCases.some((item) => Number(item.id) === Number(state.editingCase))) state.editingCase = 1;
+  document.getElementById("analysis-deck-fields")?.remove();
   const host = document.getElementById("form"); host.innerHTML = "";
   const baseInputs = document.createElement("div"); baseInputs.hidden = true; baseInputs.id = "base-load-inputs";
   const runtimeOptions = document.getElementById("analysis-runtime-options");
@@ -988,6 +991,7 @@ function buildForm(schema, values) {
   installDimensionedPlanView();
   installPanelTables();
   installDrawingWorkbenches();
+  if(typeof WingUILayout!=="undefined"){WingUILayout.generated(document);WingUILayout.staticPanels(document);}
   for (const [id, menu] of Object.entries(WORKSPACE_MENUS)) {
     const button = document.getElementById("tab-" + id);
     if (button) button.setAttribute("aria-controls", [...document.querySelectorAll("[data-workspace-panel]")].filter(panel => menu.tabs.has(panel.dataset.workspacePanel)).map(panel => panel.id).join(" "));
@@ -1037,9 +1041,11 @@ function updateEigenvalueExplanation(solution) {
   meaning.textContent = "SID identifies the extraction request selected by METHOD=1. ND is the requested number of roots. " + (solution === "105" ?
     "V1 and V2 bound positive dimensionless buckling load factors, not frequencies in Hz. Each factor multiplies that case's static preload; fewer than ND roots may lie in this interval." :
     "SOL103 requests normal modes with no explicit lower or upper frequency bounds. NORM=MASS requests mass-normalized eigenvectors.");
-  note.replaceChildren(heading,fields,meaning);
+  const details=document.createElement('details'),summary=document.createElement('summary');
+  details.className='ui-form-help';summary.textContent='How to interpret the eigenvalue request';details.append(summary,meaning);
+  note.replaceChildren(heading,fields,details);
   if (solution === "105") {
-    const compact = document.createElement("p"); compact.textContent = "The deck uses 8-character fields without separators. 1.0000-6 means 1e-6 (0.000001); for example, 1.0000-650.00000 separates as 1.0000-6 | 50.00000."; note.appendChild(compact);
+    const compact = document.createElement("p"); compact.textContent = "The deck uses 8-character fields without separators. 1.0000-6 means 1e-6 (0.000001); for example, 1.0000-650.00000 separates as 1.0000-6 | 50.00000."; details.appendChild(compact);
   }
 }
 
@@ -1068,6 +1074,7 @@ function updateCaseAnalysisNote() {
   }
   updateEigenvalueExplanation(solution);
   updateFollowerGuidance();
+  if(typeof WingUILayout!=="undefined")WingUILayout.sync(document);
 }
 
 function updateFollowerGuidance() {
@@ -1198,6 +1205,7 @@ function buildLoadCaseEditor() {
     }
   }
   const note = document.createElement("p"); note.id = "case-analysis-note"; note.className = "case-workflow"; host.appendChild(note); updateCaseAnalysisNote();
+  if(typeof WingUILayout!=="undefined")WingUILayout.cases(document);
 }
 
 // Output naming and solver location do not alter the FE model or its loads.
@@ -3129,11 +3137,27 @@ async function loadReferenceSource(raw) {
   return true;
 }
 
+function syncModelNavigation(){
+  const imported=!!state.importedDeck;
+  for(const id of GENERATED_MODEL_TABS){
+    const button=document.getElementById('tab-'+id);if(!button)continue;
+    if(imported){if(!button.dataset.modelUnavailable)button.dataset.availableTitle=button.title;button.dataset.modelUnavailable='true';button.disabled=true;button.title='This form defines a Boxer-generated lifting surface. For this imported model, use Display, Loads / Cases, Constraints or Analysis.';}
+    else if(button.dataset.modelUnavailable){button.disabled=false;button.title=button.dataset.availableTitle||'';delete button.dataset.modelUnavailable;delete button.dataset.availableTitle;}
+  }
+  for(const[id,menu]of Object.entries(WORKSPACE_MENUS)){
+    const button=document.getElementById('tab-'+id);if(!button||!Array.from(menu.tabs).every(tab=>GENERATED_MODEL_TABS.has(tab)))continue;
+    button.disabled=imported;button.title=imported?'Available for Boxer-generated lifting surfaces. Imported model properties are in Display / Properties.':menu.label;
+  }
+  if(!imported)syncLeadingEdgePropertiesTab();
+}
+
 function syncImportedModelMode(disabled=false) {
   const imported=state.importedDeck,info=document.getElementById("imported-deck-info");
   syncLeadingEdgePropertiesTab();
   state.fuelTankView?.refresh();
+  syncModelNavigation();
   info.hidden=!imported;document.getElementById("form").hidden=!!imported;
+  for(const field of document.querySelectorAll("[data-generated-only]"))field.hidden=!!imported;
   for(const panel of document.querySelectorAll('[data-imported-only]'))panel.hidden=!imported||panel.dataset.workspacePanel!==workspaceUI.activeTab;
   if(!state.importedCases&&typeof WingImportedCases!=='undefined')state.importedCases=WingImportedCases.create({
     casesHost:document.getElementById('imported-cases'),supportsHost:document.getElementById('imported-supports'),
@@ -3149,7 +3173,7 @@ function syncImportedModelMode(disabled=false) {
     log('Imported analysis changed to SOL'+WingImportedAnalysis.solution(state.importedDeck)+'. Run JFEM explicitly to calculate new results.');
   }});
   state.importedAnalysis.refresh(disabled||!!state.diskResults);
-  document.getElementById('imported-analysis').hidden=!!state.diskResults;
+  document.getElementById('imported-analysis').hidden=!!state.diskResults||!WingImportedAnalysis.isExternalDeck(state.importedDeck);
   document.getElementById("auto-mesh").disabled=!!imported||disabled;
   for(const id of ["btn-create","btn-save","btn-save-toml","btn-view-toml","btn-open-plan-view"]){
     const button=document.getElementById(id);if(!button)continue;
@@ -4148,6 +4172,7 @@ function* buildModelSteps(data, options = {}) {
   state.panelIndex=WingStiffenedPanels.index(data);
   const panelToggle=document.getElementById("show-panels");panelToggle.disabled=!state.panelIndex.panels.length;
   syncPhysicalLabelControls(data);
+  if(typeof WingUILayout!=="undefined")WingUILayout.sync(document);
   document.getElementById("stiffened-panel-note").textContent=state.panelIndex.panels.length?
     state.panelIndex.panels.length+" panels; each P label matches the panel property tables. Each color joins a normal stringer segment with its skin. Shell and beam visibility is controlled by Panels while it is on; all other entity controls remain available. "+(data.stiffened_panels.coverage?.unassigned_shells||0)+" shells have no normal stringer and remain outside the panels.":"No stiffened panels: this mesh has no normal stringer segments between ribs.";
   updateViewPlanes(data);
@@ -6632,16 +6657,20 @@ function setLogMaximized(on) {
 function syncDrawingMaximizeButton() {
   const button = document.getElementById("btn-max-drawing");
   if (!button) return;
-  button.hidden = !DRAWING_TABS.has(workspaceUI.activeTab);
+  // Keep one maximize action in the pane header, including tables and forms.
+  // Existing specialized buttons retain their listeners and stable IDs.
+  const specialized = ["log","deck","loadplots","sensitivity"];
+  for(const id of specialized){const action=document.getElementById("btn-max-"+id);if(action){button.parentElement.append(action);action.hidden=workspaceUI.activeTab!==id;}}
+  button.hidden = specialized.includes(workspaceUI.activeTab);
   const on = workspaceUI.maximizedTab === workspaceUI.activeTab;
   button.textContent = on ? "Restore" : "Maximize";
-  button.title = on ? "Restore the drawing pane beside the 3D model" : "Maximize the 2D drawing and its parameters";
+  button.title = on ? "Restore the pane beside the 3D model" : "Maximize this form and its drawings or tables";
   button.setAttribute("aria-label", button.title);
   button.setAttribute("aria-pressed", String(on));
 }
 
 function setWorkspaceMaximized(tab) {
-  const selected = DRAWING_TABS.has(tab) || ["log", "deck", "loadplots", "sensitivity"].includes(tab) ? tab : null;
+  const selected = tab===workspaceUI.activeTab && WORKSPACE_TABS.some(([,id])=>id===tab) && !(state.importedDeck&&GENERATED_MODEL_TABS.has(tab)) ? tab : null;
   workspaceUI.maximizedTab = selected;
   const app = document.getElementById("app"); app.classList.toggle("workspace-maximized", !!selected);
   app.setAttribute("data-maximized-pane", selected || "");

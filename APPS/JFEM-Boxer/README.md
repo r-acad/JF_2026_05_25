@@ -5,6 +5,28 @@ with OpenJFEM. It generates shell/bar lifting surfaces, aerodynamic lattices and
 load cases, writes REFERENCE decks, launches the solver in this repository and
 displays structural results and property sensitivities.
 
+The forms follow the modelling workflow: **Geometry** and **Structure** define
+the lifting surface; **Materials**, **Properties** and **Constraints** define
+its FE model; **Loads → Cases** defines the conditions to solve. Shared VLM
+settings and load plots are in the same Loads menu. **Analysis → FE Analysis**
+shows the controls relevant to the selected solution. Results-file and deck
+export settings are expandable below the solution controls; file commands
+remain in **Project**.
+
+**Analysis of imported model** appears only after loading an external FE input
+file. Generated geometry forms are disabled while that model is active; use
+Display and Inspect to examine it, Loads → Cases for source cases, and Analysis
+to solve it. Opening a generated Study restores its editing forms. Archived
+`.jfem` results provide visualization without an imported-source analysis form.
+
+Use the single **Maximize / Restore** action in the pane header to enlarge any
+form or drawing. Detailed explanations and less frequent settings are under
+expandable headings; warnings and current status remain visible. The same
+controls and values are saved regardless of whether their section is expanded.
+Fuel density is in **Fuel tank**. Display → Environment groups each plane's
+visibility, finish, color and position; choose **Customize lighting** for
+individual light intensities and directions.
+
 Use **Project → Open JFEM results…** (also available on the opening screen)
 to choose a `.jfem` result file from any folder with the normal system file
 browser. Boxer reads the mesh and all stored result states in the background,

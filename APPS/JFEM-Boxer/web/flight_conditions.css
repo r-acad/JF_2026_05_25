@@ -1,7 +1,12 @@
 .flight-conditions { min-width: 0; margin: 10px 0; padding: 10px; border: 1px solid var(--border, #415062); border-radius: 7px; }
-.flight-conditions legend { font-weight: 600; padding: 0 5px; }
+.flight-conditions > h3 { margin: 0 0 10px; font-size: 12px; font-weight: 600; color: #c7d9e9; }
+.flight-conditions > .flight-coefficient-settings > summary { cursor: pointer; color: #c7d9e9; font-size: 12px; font-weight: 600; line-height: 1.4; }
+.flight-conditions > .flight-coefficient-settings[open] > summary { margin-bottom: 10px; }
+.flight-conditions[data-mode=coefficients] { padding: 9px 10px; }
+.flight-condition-fields { min-width: 0; }
 .flight-conditions .case-field { margin: 5px 0; }
 .flight-conditions .case-field > label { min-width: 0; font-size: 12px; }
 .flight-conditions select, .flight-conditions input { min-width: 0; max-width: 100%; }
 .flight-conditions output { display: block; padding: 8px 0; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .flight-conditions .flight-condition-warning { color: #f6b76d; }
+.flight-conditions > .flight-condition-warning { padding: 7px 9px; margin: 8px 0 0; border-left: 2px solid #e8b450; background: #30291d; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }

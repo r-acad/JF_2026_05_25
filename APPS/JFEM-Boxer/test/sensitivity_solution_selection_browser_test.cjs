@@ -13,7 +13,7 @@ const checks=[],errors=[];
   page.on('pageerror',error=>errors.push(error.stack));
   await page.route('http://127.0.0.1:43961/**',route=>{
    const url=new URL(route.request().url());assert(!url.pathname.startsWith('/api/'),'Selection must not launch an analysis');
-   return url.pathname==='/'?route.fulfill({contentType:'text/html',body:'<!DOCTYPE html><meta charset="utf-8"><main id="host"></main><script src="sensitivity.js"></script><script src="workspace.js"></script>'}):route.fulfill({path:path.join(web,decodeURIComponent(url.pathname))});
+   return url.pathname==='/'?route.fulfill({contentType:'text/html',body:'<!DOCTYPE html><meta charset="utf-8"><main id="host"></main><script src="result_display.js"></script><script src="sensitivity.js"></script><script src="workspace.js"></script>'}):route.fulfill({path:path.join(web,decodeURIComponent(url.pathname))});
   });
   await page.goto('http://127.0.0.1:43961/');
   await page.evaluate(()=>{

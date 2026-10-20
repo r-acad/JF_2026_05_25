@@ -40,7 +40,7 @@ fs.mkdirSync(out,{recursive:true});const errors=[],checks=[];
   checks.push('Generated SOL105 offers one combined ESE request; compact output disables it without losing its saved value, and controls hide for other solutions.');
   await page.evaluate(()=>{
    const host=document.createElement('section');host.id='imported-output-test';document.getElementById('group-analysis').append(host);
-   window.outputDeck={name:'source.bdf',solution:'105',signature:'source',source:{}};
+   window.outputDeck={name:'source.bdf',solution:'105',signature:'source',source:WingReferenceImport.source({kind:'reference',name:'source.bdf',text:'SOL 105\nCEND\nSPC=1\nSUBCASE 1\n LOAD=1\nSUBCASE 2\n METHOD=1\n STATSUB=1\nBEGIN BULK\nGRID,1,,0.,0.,0.\nGRID,2,,1.,0.,0.\nMAT1,1,7.+10,,.3,2700.\nPBAR,1,1,.01,1.-6,1.-6,2.-6\nCBAR,1,1,1,2,0.,1.,0.\nSPC1,1,123456,1\nFORCE,1,2,0,1.,-1.,0.,0.\nEIGRL,1,1.-6,100.,10\nENDDATA\n'})};
    window.outputEditor=WingImportedAnalysis.create({host,read:()=>outputDeck,onChange:value=>{outputDeck.source.analysis=value;}});outputEditor.refresh();
   });
   const imported=page.locator('#imported-output-test');assert(await imported.locator('[data-key="buckling_compact"]').isDisabled());
@@ -49,7 +49,8 @@ fs.mkdirSync(out,{recursive:true});const errors=[],checks=[];
   assert.equal(await imported.locator('[data-key="buckling_energy_density"]').count(),0);
   assert(await page.evaluate(()=>WingImportedAnalysis.options({buckling_energy_density:true}).buckling_deformation_energy));
   assert(await page.evaluate(()=>WingImportedAnalysis.options(JSON.parse(JSON.stringify(outputDeck.source.analysis))).buckling_compact));
-  assert.match(await imported.textContent(),/force × length/);await page.screenshot({path:path.join(out,'imported-output-options.png')});
+  await imported.getByText('Output contents and units',{exact:true}).click();
+  assert(await imported.getByText(/Energy exports contain true/).isVisible());assert.match(await imported.textContent(),/force × length/);await page.screenshot({path:path.join(out,'imported-output-options.png')});
   await imported.locator('[data-key="buckling_output_override"]').uncheck();assert.equal(await page.evaluate(()=>WingImportedAnalysis.signature(outputDeck)),'source');
   await page.evaluate(()=>document.getElementById('imported-output-test').remove());
   checks.push('Imported source output is preserved by default; explicit override is portable, supports compact/energy choices and resets to source. Units retain the source-deck caveat.');

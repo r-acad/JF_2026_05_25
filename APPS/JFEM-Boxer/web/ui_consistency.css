@@ -1,0 +1,191 @@
+/* Shared form grammar. Load after feature styles; scientific drawings and
+   viewport materials deliberately retain their own colors and typography. */
+:root {
+  --ui-field-height: 32px;
+  --ui-compact-height: 28px;
+  --ui-radius: 6px;
+  --ui-control-gap: 8px;
+  --ui-group-gap: 14px;
+  --ui-form-border: #3c5063;
+  --ui-form-muted: #a7b8c9;
+}
+
+/* A resizable dock needs its own responsive breakpoint, independently of the
+   browser width. Inline-size containment leaves vertical scrolling intact. */
+#workspace-content { container: boxer-pane / inline-size; scroll-padding-block: 12px; }
+.workspace-panel { padding: 14px 16px 18px; }
+.parameter-heading { align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.parameter-heading h2 { flex: 1 1 140px; min-width: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.parameter-heading > button { flex: 0 0 auto; }
+.parameter-heading :is(.help-button,.help-icon) { margin-left: 0; }
+
+/* Fallback for new/search controls without a feature-specific selector. Zero
+   specificity lets existing error, warning, and read-only treatments win. */
+:where(#workspace-content,dialog) :where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]),select,textarea) {
+  color: var(--text);
+  background: #0e1319;
+  border: 1px solid var(--ui-form-border);
+}
+#workspace-content :where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]),select,textarea),
+dialog :where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]),select,textarea) {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--ui-field-height);
+  border-radius: var(--ui-radius);
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+}
+#workspace-content :where(input[type=number],output,.ctl-val) { font-variant-numeric: tabular-nums; }
+#workspace-content textarea, dialog textarea { resize: vertical; }
+#workspace-content :where(input[type=range]) { accent-color: var(--accent); cursor: pointer; }
+#workspace-content :where(input[type=color]) { min-width: 32px; height: var(--ui-field-height); border-radius: var(--ui-radius); cursor: pointer; }
+#workspace-content :where(input[type=file]) { max-width: 100%; font: inherit; }
+
+/* Checkbox hit areas come from their labels. Do not stretch native controls,
+   or change the hidden input used by the constraint-DOF selector. */
+#workspace-content :is(.layer,.ctl.check,.geometry-visibility) { min-height: 28px; gap: 8px; line-height: 1.4; }
+#workspace-content :is(.layer,.ctl.check,.geometry-visibility) > input[type=checkbox] {
+  width: 15px; height: 15px; min-width: 15px; flex: 0 0 15px; margin: 0; accent-color: var(--accent);
+}
+#workspace-content :is(.layer,.ctl.check,.geometry-visibility) > :is(span,.layer-name) { min-width: 0; overflow-wrap: anywhere; }
+#workspace-content .layer .count { flex: 0 0 auto; white-space: nowrap; }
+
+#workspace-content :where(button):not(.help-icon):not(.help-button):not(.entity-list-toggle):not(.mode):not(.sensitivity-effect-row) {
+  min-height: var(--ui-field-height);
+  border-radius: var(--ui-radius);
+  line-height: 1.35;
+}
+#workspace-content :where(button.mini):not(.help-icon):not(.entity-list-toggle) { min-height: var(--ui-compact-height); font-size: 11px; padding: 5px 8px; }
+#workspace-content :is(.help-icon,.help-button) { display: inline-flex; align-items: center; justify-content: center; width: 25px; height: 25px; min-width: 25px; padding: 0; line-height: 1; flex: 0 0 25px; border-radius: 50%; }
+#workspace-content :where(button,input,select,textarea,summary):focus-visible,
+dialog :where(button,input,select,textarea,summary):focus-visible {
+  outline: 2px solid #80c8ff;
+  outline-offset: 2px;
+}
+#workspace-content :where(input,select,textarea):disabled { opacity: .55; cursor: not-allowed; }
+#workspace-content :where(label):has(> input:disabled),
+#workspace-content :where(label):has(> select:disabled) { color: var(--ui-form-muted); }
+
+/* Consistent groups without imposing a background on drawings or charts. */
+#workspace-content :where(fieldset) { min-width: 0; margin: 12px 0; padding: 10px 12px 12px; border: 1px solid var(--ui-form-border); border-radius: 7px; }
+#workspace-content :where(legend) { max-width: 100%; padding: 0 5px; color: #c7d9e9; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+#workspace-content :where(fieldset > :last-child) { margin-bottom: 0; }
+#workspace-content :where(fieldset fieldset) { border-color: #334655; background: transparent; }
+#workspace-content :where(.pick-note,.group-note,.case-method-note,.case-caption,.material-note,.geometry-secondary-note,.geometry-card-notes,.section-orientation-note,.planform-method-note) {
+  color: var(--ui-form-muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere;
+}
+#workspace-content :where(.pick-note) { margin: 7px 0 10px; }
+#workspace-content :where(.pick-note:empty,.group-note:empty) { display: none; }
+#workspace-content :where(summary) { cursor: pointer; line-height: 1.45; padding-block: 3px; }
+#workspace-content .ui-form-section { margin: var(--ui-group-gap) 0; }
+#workspace-content .ui-empty-group { display: none; }
+#workspace-content .ui-section-container { padding: 0; border: 0; }
+#workspace-content .ui-form-section .row { padding: 5px 0; }
+#workspace-content #analysis-deck-fields .row { display: grid; grid-template-columns: minmax(0,1fr) 120px; gap: 8px; padding: 5px 0; }
+#workspace-content #analysis-deck-fields .row:has(input[type=text]) { grid-template-columns: minmax(0,1fr); }
+#workspace-content #analysis-deck-fields input[type=text] { width: 100%; }
+#sidebar > .panel-heading { display: flex; gap: 8px; align-items: center; }
+#sidebar > .panel-heading #workspace-title { min-width: 0; flex: 1; }
+#sidebar > .panel-heading > button:not(.panel-toggle) { flex: 0 0 auto; }
+#workspace-content :is(.ui-form-disclosure,.ui-form-help,.form-help) { min-width: 0; margin: 9px 0; border-radius: var(--ui-radius); }
+#workspace-content .ui-form-disclosure { padding: 9px 12px; border: 1px solid var(--ui-form-border); }
+#workspace-content .ui-form-disclosure > summary { color: #c7d9e9; font-size: 12px; font-weight: 600; }
+#workspace-content .ui-form-disclosure[open] > summary { margin-bottom: 9px; }
+#workspace-content :is(.ui-form-help,.form-help) > summary { color: #a8cdec; font-size: 11px; }
+#workspace-content :is(.ui-form-help,.form-help)[open] { padding: 8px 10px; border-left: 2px solid #52748f; background: #14212e; }
+#workspace-content :is(.ui-form-help,.form-help) > :is(p,div) { color: var(--ui-form-muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+#workspace-content .ui-form-note { margin: 7px 0; color: var(--ui-form-muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+#workspace-content .ui-toggle-row { display: flex; align-items: center; gap: 8px; min-height: 28px; margin: 5px 0; font-size: 12px; line-height: 1.4; }
+#workspace-content .ui-toggle-row > input[type=checkbox] { width: 15px; height: 15px; min-width: 15px; flex: 0 0 15px; margin: 0; accent-color: var(--accent); }
+#imported-analysis .display-control.imported-analysis-toggle { display: flex; flex-direction: row; align-items: flex-start; justify-content: flex-start; gap: 8px; line-height: 1.4; }
+#imported-analysis .display-control.imported-analysis-toggle > input[type=checkbox] { width: 15px; height: 15px; min-width: 15px; max-width: 15px; flex: 0 0 15px; margin: 2px 0 0; padding: 0; accent-color: var(--accent); }
+#imported-analysis > h2 { margin: 14px 0 10px; font-size: 15px; line-height: 1.35; font-weight: 600; }
+#workspace-content :where(.hud-row,.button-row,.entity-actions,.workspace-actions,.case-actions,.loft-actions,.movable-actions,.vlm-view-buttons) {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-control-gap);
+}
+#workspace-content :where(.hud-row,.button-row,.entity-actions) > button { max-width: 100%; }
+#workspace-content :where(.button-row) { margin: 8px 0; }
+#workspace-content .case-actions > button { flex: 1 1 75px; }
+
+/* Numeric fields align in a predictable right column. Choice lists need room
+   for their full meaning, so their label is placed above the control. */
+#workspace-content .parameter-section .row { gap: 8px 12px; padding: 5px 0; grid-template-columns: minmax(0,1fr) 120px; }
+#workspace-content .parameter-section .row > :is(input,select) { width: 100%; }
+#workspace-content .parameter-section .row > input[type=checkbox] { width: 16px; }
+#workspace-content .row:has(> select),
+#workspace-content .parameter-section .row:has(> select) { grid-template-columns: minmax(0,1fr); gap: 5px; }
+#workspace-content .parameter-section .row:has(> input[type=text]) { grid-template-columns: minmax(0,1fr); gap: 5px; }
+#workspace-content .row:has(> select) select { width: 100%; }
+#workspace-content .field-label { min-width: 0; line-height: 1.4; overflow-wrap: anywhere; }
+#workspace-content .display-control { font-size: 12px; margin: 9px 0; gap: 8px 12px; min-width: 0; }
+#workspace-content .display-control > input[type=number] { width: 120px; flex: 0 0 120px; max-width: 55%; }
+#workspace-content .display-control:has(> select),
+#workspace-content .display-control:has(> input[type=range]) { display: grid; grid-template-columns: minmax(0,1fr); align-items: start; gap: 5px; }
+#workspace-content .display-control > :is(select,input[type=range]) { width: 100%; max-width: 100%; min-width: 0; }
+#workspace-content .case-field:has(> select) { grid-template-columns: minmax(0,1fr); gap: 5px; }
+#workspace-content .case-field > select { width: 100%; }
+#workspace-content .sensitivity-setup > label:has(> select) { display: grid; grid-template-columns: minmax(0,1fr); gap: 5px; }
+#workspace-content .sensitivity-setup > label > select { width: 100%; max-width: 100%; }
+#workspace-content .sensitivity-filter-row { grid-template-columns: minmax(74px,.38fr) minmax(0,1fr); gap: 6px; }
+#workspace-content .sensitivity-filter-row > button { grid-column: 2; justify-self: end; }
+#workspace-content .sensitivity-filter-row > input { width: 100%; }
+
+/* Color and finish belong on the same line as the entity's visibility. Keep
+   these deliberately compact despite the full-width choice-list rule above. */
+#workspace-content .geometry-card-fields { flex-wrap: wrap; gap: 6px; }
+#workspace-content .geometry-card-fields .display-control { display: flex; width: auto; margin: 0; gap: 0; }
+#workspace-content .geometry-card-fields .display-control select,
+#workspace-content .geometry-card-fields select { width: 112px; min-width: 0; max-width: 112px; min-height: 28px; font-size: 11px; padding: 4px 5px; }
+#workspace-content .geometry-card-fields input[type=color] { width: 32px; height: 28px; }
+#workspace-content .geometry-card-opacity input[type=range] { min-width: 0; max-width: none; flex: 1 1 auto; }
+#workspace-content .geometry-card-opacity,
+#workspace-content .display-control.geometry-card-opacity:has(> input[type=range]) { display: flex; align-items: center; gap: 8px; }
+#workspace-content .geometry-card-fields :is(.geometry-color,.geometry-finish) { font-size: 0; }
+#workspace-content .geometry-plane-dimensions .display-control > input[type=number] { width: 100%; max-width: none; flex: auto; }
+#workspace-content .geometry-card-opacity output { min-width: 36px; }
+#workspace-content .scene-lighting > label:has(> select) { display: grid; gap: 5px; }
+#workspace-content .scene-lighting > label > select { width: 100%; max-width: 100%; }
+
+/* Repeated editors can contain long imported names; they must shrink inside
+   the pane while their genuine data tables retain horizontal scrolling. */
+#workspace-content :where(.materials-editor-heading,.material-library-top,.airfoil-station-header,.geometry-card-header,.geometry-aero-header) { flex-wrap: wrap; }
+#workspace-content :where(.material-library-values,.movable-grid,.section-dimensions,.materials-library,.material-assignment,.section-editor,.airfoil-source-editor,.loft-editor) { min-width: 0; }
+#workspace-content .material-library-values { grid-template-columns: repeat(auto-fit,minmax(86px,1fr)); }
+#workspace-content :where(.component-table-scroll,.imported-table-wrapper,.sensitivity-table-wrap) { max-width: 100%; scrollbar-width: thin; }
+#workspace-content :where(.component-table-scroll,.imported-table-wrapper,.sensitivity-table-wrap):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#workspace-content :where(.imported-definition,.sensitivity-effect-details) { min-width: 0; }
+
+@container boxer-pane (max-width: 330px) {
+  .workspace-panel { padding: 12px 10px 16px; }
+  #workspace-content .parameter-section .row { grid-template-columns: minmax(0,1fr) 100px; gap: 7px; }
+  #workspace-content .row:has(> select),
+  #workspace-content .parameter-section .row:has(> select) { grid-template-columns: minmax(0,1fr); }
+  #workspace-content .display-control > input[type=number] { width: 100px; flex-basis: 100px; }
+  #workspace-content .geometry-card-fields { margin-left: auto; }
+  #workspace-content .materials-library,
+  #workspace-content .material-assignment { padding: 9px; }
+  #workspace-content .material-library-values { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  #workspace-content .movable-grid { grid-template-columns: minmax(0,1fr); }
+  #workspace-content .movable-grid label:first-child { grid-column: auto; }
+  #workspace-content .scene-lighting fieldset { flex-wrap: wrap; }
+  #workspace-content .scene-lighting fieldset label { flex-basis: 70px; }
+  #workspace-content .support-dofs { flex-wrap: wrap; }
+}
+
+@container boxer-pane (min-width: 660px) {
+  /* Limit text-form line length in a maximized pane. Drawing workbenches,
+     property tables and result summaries keep their available drawing area. */
+  #workspace-content :is(#panel-displayappearance,#panel-displayloads,#panel-displayenvironment,#panel-displayproperties,#panel-inspect,#panel-analysis-actions,#panel-input,#panel-geometry-export) { max-width: 820px; }
+  #workspace-content .sensitivity-filter-row { grid-template-columns: 100px minmax(0,1fr) auto; }
+  #workspace-content .sensitivity-filter-row > button { grid-column: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #workspace-content :where(button,input,select,details), dialog :where(button,input,select) { transition: none; }
+}
+
+/* Last in the cascade so flex/grid form rules never reveal a hidden control. */
+[hidden] { display: none !important; }

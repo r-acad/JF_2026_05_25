@@ -28,7 +28,7 @@ const {chromium}=require(process.env.WINGFEGEN_PLAYWRIGHT_MODULE||'playwright');
   const completion=await page.evaluate(()=>requests[1].completion);assert.equal(completion.solution,'103');assert.equal(completion.E,210e9);assert.equal(completion.rho,7850);assert.equal(completion.constraint_set,'BASE');assert.equal(completion.modes,6);assert.equal(completion.enabled,true);
   console.log('2: Invalid completion is atomic; explicit modal material and constraints reach import request.');
   await page.evaluate(()=>{
-   window.deck={name:'mesh.inp',source_format:'abaqus',analysis_ready:false,solution:'',source:{format:'abaqus'},abaqus:{nsets:{BASE:[1,2,3],TIP:[4]},elsets:{VOLUME:[41]},surfaces:{TOP:{entries:[{set_or_id:'VOLUME',face:'S1'}]}},diagnostics:[{code:'missing',message:'No solid section assigned.'}]}};
+   window.deck={name:'mesh.inp',source_format:'abaqus',analysis_ready:false,solution:'',source:WingReferenceImport.source({kind:'reference',name:'mesh.inp',format:'abaqus',text:'*NODE\n1,0,0,0\n2,1,0,0\n3,0,1,0\n4,0,0,1\n*ELEMENT, TYPE=C3D4, ELSET=VOLUME\n41,1,2,3,4\n*NSET, NSET=BASE\n1,2,3\n*NSET, NSET=TIP\n4\n*SURFACE, NAME=TOP, TYPE=ELEMENT\nVOLUME,S1\n'}),abaqus:{nsets:{BASE:[1,2,3],TIP:[4]},elsets:{VOLUME:[41]},surfaces:{TOP:{entries:[{set_or_id:'VOLUME',face:'S1'}]}},diagnostics:[{code:'missing',message:'No solid section assigned.'}]}};
    window.analysis=WingImportedAnalysis.create({host:document.getElementById('analysis'),read:()=>deck,onChange:()=>{throw Error('Abaqus Reference-only overlay must be disabled');}});analysis.refresh();
   });
   assert.equal(await page.locator('#analysis [data-key]:not(:disabled)').count(),0);

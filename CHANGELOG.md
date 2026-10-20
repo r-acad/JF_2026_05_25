@@ -5,6 +5,27 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Boxer form and navigation consistency
+
+- Show **Analysis of imported model** only for retained external FE input
+  sources, including BDF and Abaqus. Generated Studies and result archives no
+  longer expose that panel. Disable generated-model forms for imported models.
+- Group Cases with VLM settings and load plots under Loads. Organize structural
+  subdivisions, solution-specific analysis controls, output files, constraints
+  and mass densities into related sections. Keep fuel density with Fuel tank.
+  Preserve all canonical controls and Study keys when moving them.
+- Standardize form spacing, field sizes, focus and responsive pane layouts.
+  Use one maximize/restore action in the pane header for every form. Move long
+  explanations and advanced settings into disclosures while retaining visible
+  status and warning messages. Prescribed-lift coefficient flight conditions
+  are expandable; VLM flight inputs remain directly visible.
+- Consolidate ground/symmetry appearance and positioning, reference geometry
+  appearance, element axes and entity labels. Hide unavailable aerodynamic
+  controls and group custom lighting settings separately from presets/shadows.
+- Cover imported/generated transitions, repeated form rebuilding, Study
+  round trips, load-case editing, disclosure states and responsive layouts in
+  browser regressions.
+
 ### Movable-surface structures and attachments
 
 - Add Structure → Movable surfaces, linked to Geometry definitions, with

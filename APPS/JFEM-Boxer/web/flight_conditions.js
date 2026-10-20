@@ -94,17 +94,26 @@
   }
   const display = value => Number(value.toPrecision(12)).toString();
   function mount({host, read, write}) {
-    const document = host.ownerDocument, section = document.createElement("fieldset");
-    let lastValid = {...read()};
+    const document = host.ownerDocument, section = document.createElement("section");
+    let lastValid = {...read()}, lastMethod = null, warningText = "";
     section.className = "flight-conditions"; section.id = "case-flight-conditions";
-    const legend = document.createElement("legend"); legend.textContent = "Flight condition"; section.append(legend);
+    section.setAttribute("aria-label", "Flight condition");
+    const heading = document.createElement("h3"); heading.textContent = "Flight condition";
+    const disclosure = document.createElement("details"); disclosure.className = "flight-coefficient-settings";
+    const disclosureTitle = document.createElement("summary"); disclosureTitle.textContent = "Flight condition for coefficients";
+    disclosureTitle.title = "Prescribed lift sets the force directly. These conditions calculate its equivalent aerodynamic coefficients; they do not change the prescribed force.";
+    disclosure.append(disclosureTitle);
+    const fields = document.createElement("div"); fields.className = "flight-condition-fields";
+    const warning = document.createElement("p"); warning.className = "flight-condition-warning";
+    warning.id = "case-flight-condition-warning"; warning.setAttribute("role", "status"); warning.setAttribute("aria-live", "polite"); warning.hidden = true;
+    section.append(heading, disclosure, fields, warning);
     const makeRow = (key, label, choices) => {
       const row = document.createElement("div"); row.className = "case-field"; row.id = "case-row-" + key;
       const caption = document.createElement("label"); caption.htmlFor = "case-" + key; caption.textContent = label;
       const input = document.createElement(choices ? "select" : "input"); input.id = "case-" + key; input.setAttribute("aria-label", label);
       if (choices) for (const [value, text] of choices) {const option = document.createElement("option"); option.value = value; option.textContent = text; input.append(option);}
       else { input.type = "number"; input.step = "any"; }
-      row.append(caption, input); section.append(row); return {row, input, caption};
+      row.append(caption, input); fields.append(row); return {row, input, caption};
     };
     const mode = makeRow("atmosphere", "Atmosphere", [["isa1976", "ISA 1976"], ["manual", "Manual density / sound speed"]]);
     const altitude = makeRow("altitude", "Altitude"), altitudeUnit = makeRow("altitude_unit", "Altitude unit", [["m", "m (geometric)"], ["ft", "ft (geometric)"], ["FL", "Flight level (pressure)"]]);
@@ -112,21 +121,39 @@
     const speed = makeRow("speed", "True airspeed"), speedUnit = makeRow("speed_unit", "Airspeed unit", [["m/s", "m/s"], ["knots", "knots (TAS)"], ["Mach", "Mach"]]);
     speed.row.title = speedUnit.row.title = "True airspeed, not IAS/CAS/EAS. Mach uses this case's local speed of sound. Altitude edits retain the entered Mach when Mach is selected; changing a unit preserves the physical value. VLM supports Mach ≤ 0.5.";
     const density = makeRow("density", "Manual air density (kg/m³)"), sound = makeRow("speed_of_sound", "Manual speed of sound (m/s)");
-    const summary = document.createElement("output"); summary.id = "case-atmosphere-summary"; summary.setAttribute("aria-live", "polite"); section.append(summary);
+    const summary = document.createElement("output"); summary.id = "case-atmosphere-summary"; summary.setAttribute("aria-live", "polite"); fields.append(summary);
+    const help = document.createElement("details"), helpTitle = document.createElement("summary");
+    help.className = "form-help"; helpTitle.textContent = "Atmosphere, units and prescribed lift"; help.append(helpTitle);
     const note = document.createElement("p"); note.className = "case-method-note";
     note.textContent = "ISA 1976 uses a dry standard day with no weather correction, from −5 to 86 km geometric altitude. Manual mode uses the entered density and sound speed; altitude does not change them. Prescribed lift uses this condition only for its equivalent aerodynamic coefficients.";
-    section.append(note); host.append(section);
+    help.append(note); fields.append(help); host.append(section);
+    function refreshWarning() {
+      warning.hidden = !warningText || section.dataset.mode !== "coefficients" || disclosure.open;
+      warning.textContent = warningText;
+    }
+    disclosure.addEventListener("toggle", refreshWarning);
+    function refreshLayout() {
+      const method = read().method || "analytic", coefficients = method !== "vortex_lattice";
+      section.dataset.mode = coefficients ? "coefficients" : "vlm";
+      heading.hidden = coefficients; disclosure.hidden = !coefficients;
+      const parent = coefficients ? disclosure : section;
+      if (fields.parentNode !== parent) coefficients ? parent.append(fields) : warning.before(fields);
+      if (method !== lastMethod && coefficients) disclosure.open = false;
+      lastMethod = method; refreshWarning();
+    }
     function refreshSummary() {
       try {
         const c = read(), air = condition(c), isa = air.model === "isa1976";
         lastValid = {...c};
         const f = (value, digits = 6) => Number(value.toPrecision(digits)).toString();
-        summary.classList.toggle("flight-condition-warning", c.method === "vortex_lattice" && air.Mach > .5 + Number.EPSILON);
+        warningText = c.method === "vortex_lattice" && air.Mach > .5 + Number.EPSILON ? "VLM requires Mach ≤ 0.5; reduce true airspeed." : "";
+        summary.classList.toggle("flight-condition-warning", !!warningText);
         summary.textContent = (isa ? "T " + f(air.temperature_K) + " K · p " + f(air.pressure_Pa) + " Pa · " : "Manual: temperature and pressure are unspecified. ") +
           "ρ " + f(air.density_kg_m3) + " kg/m³ · a " + f(air.speed_of_sound_m_s) + " m/s · TAS " + f(air.speed_m_s) + " m/s · Mach " + f(air.Mach) + " · q " + f(air.q_Pa) + " Pa" +
           (isa ? " · geopotential height " + f(air.altitude_geopotential_m) + " m" : "") +
-          (c.method === "vortex_lattice" && air.Mach > .5 + Number.EPSILON ? ". VLM requires Mach ≤ 0.5; reduce true airspeed." : "");
-      } catch (error) { summary.classList.add("flight-condition-warning"); summary.textContent = error.message; }
+          (warningText ? ". " + warningText : "");
+      } catch (error) { warningText = error.message; summary.classList.add("flight-condition-warning"); summary.textContent = error.message; }
+      refreshWarning();
     }
     function refresh() {
       const c = read(); mode.input.value = c.atmosphere || "manual"; altitudeUnit.input.value = c.altitude_unit || "m"; speedUnit.input.value = c.speed_unit || "m/s";
@@ -135,9 +162,9 @@
       try { speed.input.value = display(speedFromSI(c.speed, speedUnit.input.value, atmosphere(c).speed_of_sound_m_s)); } catch (_) { speed.input.value = ""; }
       density.input.value = c.density ?? ""; sound.input.value = c.speed_of_sound ?? "";
       density.row.hidden = sound.row.hidden = mode.input.value !== "manual";
-      refreshSummary();
+      refreshLayout(); refreshSummary();
     }
-    mode.input.onchange = () => { try {write(modeChange(read(), mode.input.value)); refresh();} catch (error) {summary.textContent = error.message;} };
+    mode.input.onchange = () => { try {write(modeChange(read(), mode.input.value)); refresh();} catch (error) {warningText = error.message; summary.textContent = error.message; summary.classList.add("flight-condition-warning"); refreshWarning();} };
     altitudeUnit.input.onchange = () => {write({altitude_unit: altitudeUnit.input.value}); refresh();};
     speedUnit.input.onchange = () => {write({speed_unit: speedUnit.input.value}); refresh();};
     speed.input.oninput = () => {
