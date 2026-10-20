@@ -5,6 +5,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Brighter model lighting
+
+- Add neutral underside and rim lights, with a brighter studio default and six
+  lighting presets under Display → Environment. Preserve custom Study lighting
+  and upgrade unchanged historical presets.
+- Keep surface colors vivid with full six-light shading for shells, 3D sections
+  and metallic geometry. Brighten studio reflections from above and below;
+  retain numerical palette colors and optional shadows.
+- Soften element-edge contrast so dense meshes retain readable surface colors;
+  preserve selected edge colors when rebuilding visible or exploded edges.
+
 ### Optional analysis timeout
 
 - Default FE and sensitivity analyses to unlimited runtime. Set Run timeout

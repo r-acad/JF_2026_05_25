@@ -21,7 +21,7 @@
    if(!metallic){mesh.material=originals.get(mesh).material;return mesh.material;}
    if(!materials.has(mesh)){
     if(!environment){environment=new B.RawCubeTexture(state.scene,WingAeroDisplay.studioFaces(),64,B.Engine.TEXTUREFORMAT_RGBA,B.Engine.TEXTURETYPE_UNSIGNED_BYTE,true,false,B.Texture.TRILINEAR_SAMPLINGMODE);environment.coordinatesMode=B.Texture.CUBIC_MODE;environment.gammaSpace=false;}
-    const m=new B.PBRMaterial('geometry-metal-'+mesh.uniqueId,state.scene);m.metallic=1;m.roughness=.25;m.reflectionTexture=environment;m.environmentIntensity=1.5;m.backFaceCulling=false;m.twoSidedLighting=true;materials.set(mesh,m);
+    const m=new B.PBRMaterial('geometry-metal-'+mesh.uniqueId,state.scene);m.metallic=1;m.roughness=.25;m.reflectionTexture=environment;m.environmentIntensity=1.5;m.maxSimultaneousLights=6;m.backFaceCulling=false;m.twoSidedLighting=true;materials.set(mesh,m);
    }
    mesh.material=materials.get(mesh);return mesh.material;
   }

@@ -779,8 +779,19 @@ VLM-panel arrows are magenta and show the signed normal pressure force at each
 panel center. The full aerodynamic resultant is still applied at the rib RBE3s.
 Structural faces and solid beam sections use lighting to distinguish orientation,
 including when quantitative colors are shown; legends retain the selected palette.
-Saved copies of the old unedited lighting presets adopt the improved defaults;
-custom lighting remains unchanged.
+**Display → Environment → Lighting** defaults to **Bright studio**, with six
+neutral lights: ambient, main, opposite fill, camera fill, underside fill and
+an edge/rim light. The underside stays readable while directional shading
+distinguishes skins, webs and 3D beam sections. The six preset choices are Bright
+studio, Soft studio, Technical contrast, All-angle inspection, Presentation and
+Diffuse daylight. Each light intensity can also be adjusted independently.
+Metallic surfaces use a brighter local studio reflection, including below the
+model; no online image download is needed. Numerical palettes retain their RGB
+values, and shadows remain optional. Element edges use a softer slate color
+and partial opacity so dense meshes do not obscure the surface colors.
+Saved copies of old unedited lighting presets adopt the improved defaults;
+custom lighting remains unchanged. Select Bright studio to replace a saved
+custom setup with the new default. Lighting and presets are saved with Studies.
 
 **Display / Entities / Explode stiffened panels** moves each panel and its
 normal stringer rigidly away from the structural-node centroid, midspan,

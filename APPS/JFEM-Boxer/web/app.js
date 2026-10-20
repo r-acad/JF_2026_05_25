@@ -46,7 +46,7 @@ const isForegroundBar = group => !!group && FOREGROUND_BARS.has(group.base_group
 const EXTRA_STYLE = {
   NODES:        { color: "#ecf4ff", label: "Structural nodes" },
   AERO_SURFACE: { color: "#8fa0b3", alpha: 0.12, label: "Deformed Aerodynamic loft" },
-  MESH_EDGES:   { color: "#101720", label: "Element edges" },
+  MESH_EDGES:   { color: "#33465a", alpha: .65, label: "Element edges" },
   RBE3:         { color: "#f4b8d6", label: "RBE3 for Loads" },
   RBE3_NODES:   { color: "#e45ad4", label: "Aerodynamic load reference nodes" },
   FUEL_RBE3:    { color: "#f4b8d6", label: "Fuel RBE3 spiders · 123456" },
@@ -3704,10 +3704,11 @@ function color3(hex) {
 /** Lit surfaces retain palette RGB while their normals supply face contrast. */
 function setSurfaceLighting(material, color) {
   material.disableLighting = false;
-  material.diffuseColor = color.scale(.86);
-  material.emissiveColor = color.scale(.035);
-  material.specularColor = new BABYLON.Color3(.045, .045, .045);
+  material.diffuseColor = color.scale(.96);
+  material.emissiveColor = color.scale(.045);
+  material.specularColor = new BABYLON.Color3(.065, .065, .065);
   material.specularPower = 48;
+  material.maxSimultaneousLights = 6;
 }
 
 function shellMaterial(name, hex, alpha) {
@@ -4205,7 +4206,7 @@ function* buildModelSteps(data, options = {}) {
   addLayer("UNDEFORMED", "Undeformed model", referenceColor, "reference", referenceMeshes);
   addLayer("NODES", EXTRA_STYLE.NODES.label, EXTRA_STYLE.NODES.color, data.nodes.n_structural + " nodes", []);
   const edgeMesh = lineMesh("MESH_EDGES", positions, edges,
-                            EXTRA_STYLE.MESH_EDGES.color, 1, true);
+                            EXTRA_STYLE.MESH_EDGES.color, EXTRA_STYLE.MESH_EDGES.alpha, true);
   if(edgeMesh){edgeMesh.renderingGroupId=1;edgeMesh.material.zOffset=-1;}
   addLayer("MESH_EDGES", EXTRA_STYLE.MESH_EDGES.label,
            EXTRA_STYLE.MESH_EDGES.color, (edges.length / 2) + " edges",
@@ -4494,8 +4495,8 @@ function syncMeshEdges(){
       // edge only across properties, then offset each property's own copy.
       const chunks=[...batches].map(([pid,members])=>({pid,edges:shellEdgePairs(members)})),size=chunks.reduce((n,c)=>n+c.edges.length,0),pairs=new Int32Array(size),ranges=[];let start=0;
       for(const chunk of chunks){pairs.set(chunk.edges,start);ranges.push({pid:chunk.pid,start,count:chunk.edges.length});start+=chunk.edges.length;}
-      const mesh=lineMesh("MESH_EDGES-PROPERTIES",currentPositions(),pairs,"#101720",1,true);if(mesh){mesh.renderingGroupId=1;mesh.material.zOffset=-1;mesh.explodedVertexRanges=ranges;applyExplodedVertices(mesh);layer.meshes.push(mesh);}count=size/2;
-    }else for(const [id,members]of batches){const edges=shellEdgePairs(members),mesh=lineMesh("MESH_EDGES"+(id==null?"":"-P"+id),currentPositions(),edges,"#101720",1,true);count+=edges.length/2;
+      const mesh=lineMesh("MESH_EDGES-PROPERTIES",currentPositions(),pairs,layer.color,EXTRA_STYLE.MESH_EDGES.alpha,true);if(mesh){mesh.renderingGroupId=1;mesh.material.zOffset=-1;mesh.explodedVertexRanges=ranges;applyExplodedVertices(mesh);layer.meshes.push(mesh);}count=size/2;
+    }else for(const [id,members]of batches){const edges=shellEdgePairs(members),mesh=lineMesh("MESH_EDGES"+(id==null?"":"-P"+id),currentPositions(),edges,layer.color,EXTRA_STYLE.MESH_EDGES.alpha,true);count+=edges.length/2;
       if(mesh){mesh.renderingGroupId=1;mesh.material.zOffset=-1;if(property)mesh.explodedPropertyId=id;else mesh.explodedPanelId=id;state.panelExplosion?.applyMesh(mesh,id);layer.meshes.push(mesh);}}
     layer.count=count+" edges";state.edgeVisibilityKey=key;
   }

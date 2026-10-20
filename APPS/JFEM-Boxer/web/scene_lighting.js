@@ -1,10 +1,19 @@
 /* Scene-owned studio lighting. Directions are saved in FE global XYZ. */
 (function(root,factory){const api=factory();if(typeof module==="object"&&module.exports)module.exports=api;else root.WingSceneLighting=api;})(typeof globalThis!=="undefined"?globalThis:this,function(){
  "use strict";
- // Balance fixed studio lights with camera fill so the underside remains
- // readable without clipping saturated colours or erasing face contrast.
+ // Neutral studio lights reveal both faces of shells and the sides of beam
+ // sections. Broad fill keeps colours readable; key/rim preserve shape.
  // Custom intensities in an existing Study still override these defaults.
- const PRESETS={balanced:{ambient:.3,key:.3,fill:.2,headlight:.48,keyDirection:[-.5,-.7,-1],fillDirection:[.6,.35,.8]},soft:{ambient:.38,key:.18,fill:.18,headlight:.44,keyDirection:[-.25,-.5,-1],fillDirection:[.4,.5,.7]},technical:{ambient:.24,key:.43,fill:.16,headlight:.4,keyDirection:[-.8,-.5,-1],fillDirection:[.5,.7,.8]}};
+ const PRESETS={
+  balanced:{ambient:.50,key:.35,fill:.24,headlight:.42,lowerFill:.16,rim:.12,keyDirection:[-.5,-.7,-1],fillDirection:[.6,.35,.8]},
+  soft:{ambient:.58,key:.24,fill:.20,headlight:.24,lowerFill:.16,rim:.06,keyDirection:[-.25,-.5,-1],fillDirection:[.4,.5,.7]},
+  technical:{ambient:.30,key:.58,fill:.16,headlight:.24,lowerFill:.10,rim:.18,keyDirection:[-.8,-.5,-1],fillDirection:[.5,.7,.8]},
+  inspection:{ambient:.56,key:.20,fill:.24,headlight:.32,lowerFill:.18,rim:.08,keyDirection:[-.5,-.7,-1],fillDirection:[.6,.35,.8]},
+  presentation:{ambient:.38,key:.52,fill:.18,headlight:.22,lowerFill:.12,rim:.24,keyDirection:[-.8,-.3,-1],fillDirection:[.5,.7,.8]},
+  overcast:{ambient:.70,key:.12,fill:.14,headlight:.18,lowerFill:.18,rim:.04,keyDirection:[-.25,-.5,-1],fillDirection:[.4,.5,.7]},
+ };
+ const PRESET_LABELS={balanced:"Bright studio",soft:"Soft studio",technical:"Technical contrast",inspection:"All-angle inspection",presentation:"Presentation",overcast:"Diffuse daylight"};
+ const SUBDUED_PRESETS={balanced:{ambient:.3,key:.3,fill:.2,headlight:.48,keyDirection:[-.5,-.7,-1],fillDirection:[.6,.35,.8]},soft:{ambient:.38,key:.18,fill:.18,headlight:.44,keyDirection:[-.25,-.5,-1],fillDirection:[.4,.5,.7]},technical:{ambient:.24,key:.43,fill:.16,headlight:.4,keyDirection:[-.8,-.5,-1],fillDirection:[.5,.7,.8]}};
  const PREVIOUS_PRESETS={balanced:{ambient:.32,key:.8,fill:.24,headlight:.35,keyDirection:[-.5,-.7,-1],fillDirection:[.6,.35,.8]},soft:{ambient:.44,key:.58,fill:.28,headlight:.3,keyDirection:[-.25,-.5,-1],fillDirection:[.4,.5,.7]},technical:{ambient:.23,key:.88,fill:.18,headlight:.28,keyDirection:[-.8,-.5,-1],fillDirection:[.5,.7,.8]}};
  const LEGACY_PRESETS={balanced:{ambient:.92,key:.82,fill:.56,keyDirection:[-.5,-.7,-1],fillDirection:[.6,.35,.8]},soft:{ambient:1.05,key:.5,fill:.42,keyDirection:[-.25,-.5,-1],fillDirection:[.4,.5,.7]},technical:{ambient:.78,key:1,fill:.7,keyDirection:[-.8,-.5,-1],fillDirection:[.5,.7,.8]}};
  const clone=value=>JSON.parse(JSON.stringify(value));
@@ -12,24 +21,25 @@
   if(value!=null&&(typeof value!=="object"||Array.isArray(value)))throw Error("Lighting settings must be an object.");
   let input=value||{};const preset=input.preset??"balanced";
   if(![...Object.keys(PRESETS),"custom"].includes(preset))throw Error("Unknown lighting preset.");
-  const legacy=LEGACY_PRESETS[preset],previous=PREVIOUS_PRESETS[preset];
-  const matches=record=>record&&Object.entries(record).every(([key,expected])=>(key==='headlight'&&input[key]===undefined)||(Array.isArray(expected)?
+  const legacy=LEGACY_PRESETS[preset],previous=PREVIOUS_PRESETS[preset],subdued=SUBDUED_PRESETS[preset];
+  const matches=record=>record&&["lowerFill","rim"].every(key=>input[key]===undefined||input[key]===0)&&Object.entries(record).every(([key,expected])=>(key==='headlight'&&input[key]===undefined)||(Array.isArray(expected)?
     Array.isArray(input[key])&&input[key].length===expected.length&&expected.every((x,i)=>input[key][i]===x):input[key]===expected));
   // Studies capture expanded preset values. Upgrade only an exact old named
   // preset; a custom preset or any edited intensity/direction is intentional.
-  if(input.preset===preset&&matches(previous))input={preset,shadows:input.shadows,selfShadows:input.selfShadows};
+  if(input.preset===preset&&(matches(subdued)||matches(previous)))input={preset,shadows:input.shadows,selfShadows:input.selfShadows};
   else if(input.preset===preset&&matches(legacy))input={preset,shadows:input.shadows,selfShadows:input.selfShadows,...(input.headlight===undefined?{}:{headlight:input.headlight})};
   const defaults=PRESETS[preset]||PRESETS.balanced,result={preset};
   for(const name of ['shadows','selfShadows']){if(input[name]!==undefined&&typeof input[name]!== 'boolean')throw Error('Shadow switches must be boolean.');result[name]=input[name]??false;}
-  for(const key of["ambient","key","fill","headlight"]){const number=input[key]??(key==="headlight"&&preset==="custom"?0:defaults[key]);if(typeof number!=="number"||!Number.isFinite(number)||number<0||number>3)throw Error("Light intensities must be between 0 and 3.");result[key]=number;}
+  const oldExpanded=["ambient","key","fill","keyDirection","fillDirection"].every(key=>input[key]!==undefined)&&input.lowerFill===undefined&&input.rim===undefined;
+  for(const key of["ambient","key","fill","headlight","lowerFill","rim"]){const added=key==="lowerFill"||key==="rim",number=input[key]??((key==="headlight"&&preset==="custom")||(added&&(preset==="custom"||oldExpanded))?0:defaults[key]);if(typeof number!=="number"||!Number.isFinite(number)||number<0||number>3)throw Error("Light intensities must be between 0 and 3.");result[key]=number;}
   for(const key of["keyDirection","fillDirection"]){const direction=input[key]??(key==="headlight"&&preset==="custom"?0:defaults[key]);if(!Array.isArray(direction)||direction.length!==3||!direction.every(x=>typeof x==="number"&&Number.isFinite(x)&&Math.abs(x)<=100)||Math.hypot(...direction)<1e-9)throw Error("Light directions need three finite components and cannot be zero.");result[key]=direction.slice();}
   return result;
  }
  function create({BABYLON:B=globalThis.BABYLON,scene,host=null,onChange=()=>{}}){
   if(!B||!scene)throw Error("Lighting needs a Babylon scene.");
-  const hemi=new B.HemisphericLight("wing-studio-ambient",new B.Vector3(0,1,0),scene),key=new B.DirectionalLight("wing-studio-key",new B.Vector3(0,-1,0),scene),fill=new B.DirectionalLight("wing-studio-fill",new B.Vector3(0,1,0),scene),headlight=new B.DirectionalLight("wing-studio-headlight",new B.Vector3(0,0,-1),scene),lights=[hemi,key,fill,headlight];
+  const hemi=new B.HemisphericLight("wing-studio-ambient",new B.Vector3(0,1,0),scene),key=new B.DirectionalLight("wing-studio-key",new B.Vector3(0,-1,0),scene),fill=new B.DirectionalLight("wing-studio-fill",new B.Vector3(0,1,0),scene),headlight=new B.DirectionalLight("wing-studio-headlight",new B.Vector3(0,0,-1),scene),lower=new B.DirectionalLight("wing-studio-lower-fill",new B.Vector3(0,1,0),scene),rim=new B.DirectionalLight("wing-studio-rim",new B.Vector3(.8,-.25,-.6).normalize(),scene),lights=[hemi,key,fill,headlight,lower,rim];
   // Neutral light colours preserve the hue of numerical colour scales.
-  hemi.groundColor=new B.Color3(.72,.72,.72);key.diffuse=B.Color3.White();fill.diffuse=B.Color3.White();headlight.diffuse=B.Color3.White();headlight.specular=B.Color3.Black();
+  hemi.groundColor=new B.Color3(.72,.72,.72);for(const light of lights)light.diffuse=B.Color3.White();for(const light of [hemi,fill,headlight,lower])light.specular=B.Color3.Black();
   // The default camera depth range clips an off-origin FE model. The shadow
   // depth range is fitted below to both casters and the receiving ground.
   key.autoCalcShadowZBounds=false;
@@ -99,15 +109,15 @@ void main(){vec2 uv=shadowPosition.xy/shadowPosition.w*.5+.5;float receiverDepth
   }
   function capture(){return clone(state);}
   function sync(){for(const[name,input]of controls){if(input.type==='checkbox')input.checked=state[name];else if(name==="preset")input.value=state.preset;else if(name.includes(".")){const[k,i]=name.split(".");input.value=state[k][+i];}else input.value=state[name];}}
-  function apply(value,{notify=false}={}){if(disposed)throw Error("Lighting controller is disposed.");const next=normalize(value);state=next;hemi.intensity=next.ambient;key.intensity=next.key;fill.intensity=next.fill;headlight.intensity=next.headlight;for(const[light,name]of[[key,"keyDirection"],[fill,"fillDirection"]]){const p=next[name];light.direction.copyFromFloats(p[1],p[2],p[0]);light.direction.normalize();}updateShadows(true);sync();if(notify)onChange(capture());return capture();}
+  function apply(value,{notify=false}={}){if(disposed)throw Error("Lighting controller is disposed.");const next=normalize(value);state=next;hemi.intensity=next.ambient;key.intensity=next.key;fill.intensity=next.fill;headlight.intensity=next.headlight;lower.intensity=next.lowerFill;rim.intensity=next.rim;for(const[light,name]of[[key,"keyDirection"],[fill,"fillDirection"]]){const p=next[name];light.direction.copyFromFloats(p[1],p[2],p[0]);light.direction.normalize();}updateShadows(true);sync();if(notify)onChange(capture());return capture();}
   function mount(target){
    if(disposed)throw Error("Lighting controller is disposed.");root?.remove();controls.clear();host=target;if(!host)return;
    const doc=host.ownerDocument,el=(tag,text)=>{const node=doc.createElement(tag);if(text)node.textContent=text;return node;};root=el("section");root.className="scene-lighting";root.setAttribute("aria-label","Scene lighting");
-   const heading=el("h3","Lighting"),presetLabel=el("label","Studio preset"),preset=el("select");preset.setAttribute("aria-label","Lighting preset");for(const[value,label]of[["balanced","Balanced studio"],["soft","Soft studio"],["technical","Technical contrast"],["custom","Custom"]]){const option=el("option",label);option.value=value;preset.append(option);}presetLabel.append(preset);controls.set("preset",preset);preset.onchange=()=>{if(preset.value==="custom")apply({...capture(),preset:"custom"},{notify:true});else apply({...capture(),...PRESETS[preset.value],preset:preset.value},{notify:true});};root.append(heading,presetLabel);
+   const heading=el("h3","Lighting"),presetLabel=el("label","Studio preset"),preset=el("select");preset.setAttribute("aria-label","Lighting preset");for(const[value,label]of[...Object.entries(PRESET_LABELS),["custom","Custom"]]){const option=el("option",label);option.value=value;preset.append(option);}presetLabel.title="Bright studio balances shape and vivid colors. All-angle inspection uses broad fill for interiors. Technical contrast and Presentation emphasize shape; Soft studio and Diffuse daylight soften shadows. Lights stay neutral so result colors retain their hue.";presetLabel.append(preset);controls.set("preset",preset);preset.onchange=()=>{if(preset.value==="custom")apply({...capture(),preset:"custom"},{notify:true});else apply({...capture(),...PRESETS[preset.value],preset:preset.value},{notify:true});};root.append(heading,presetLabel);
    for(const[name,label,tip]of [["shadows","Shadows","Cast the model shadow onto the visible ground. Requires the main directional light."],["selfShadows","Self shadows","Allow structural faces to cast shadows on each other. Can add rendering cost on very large models."]]){const row=el("label",label),input=el("input");row.title=tip;input.type="checkbox";input.onchange=()=>apply({...capture(),[name]:input.checked},{notify:true});controls.set(name,input);row.prepend(input);root.append(row);}
    const error=el("p");error.className="scene-lighting-error";error.setAttribute("role","alert");error.hidden=true;
    function edit(name,value){try{const next=capture();next.preset="custom";if(name.includes(".")){const[k,i]=name.split(".");next[k][+i]=value;}else next[name]=value;apply(next,{notify:true});error.hidden=true;}catch(problem){error.textContent=problem.message;error.hidden=false;}}
-   for(const[name,label]of[["ambient","Ambient brightness"],["key","Main light"],["fill","Fill light"],["headlight","Camera fill (all angles)"]]){const row=el("label",label),input=el("input");input.type="number";input.min="0";input.max="3";input.step="0.05";input.setAttribute("aria-label",label);input.oninput=()=>edit(name,input.value===""?NaN:Number(input.value));controls.set(name,input);row.append(input);root.append(row);}
+   for(const[name,label,tip]of[["ambient","Ambient brightness","Broad neutral illumination on both sides of surfaces."],["key","Main light","Directional shape contrast and the source for optional shadows."],["fill","Fill light","Softens faces opposite the main light."],["headlight","Camera fill (all angles)","Follows the camera so visible faces remain readable as you orbit."],["lowerFill","Underside fill","Illuminates lower skins and downward-facing beam surfaces."],["rim","Edge / rim light","Adds side highlights that distinguish beam sections, folds and adjacent panels."]]){const row=el("label",label),input=el("input");row.title=tip;input.type="number";input.min="0";input.max="3";input.step="0.01";input.setAttribute("aria-label",label);input.oninput=()=>edit(name,input.value===""?NaN:Number(input.value));controls.set(name,input);row.append(input);root.append(row);}
    const directions=el("details"),summary=el("summary","Light directions (global X, Y, Z)");directions.append(summary);
    for(const[name,label]of[["keyDirection","Main direction"],["fillDirection","Fill direction"]]){const group=el("fieldset"),legend=el("legend",label);group.append(legend);for(let i=0;i<3;i++){const row=el("label",["X","Y","Z"][i]),input=el("input");input.type="number";input.min="-100";input.max="100";input.step="0.1";input.setAttribute("aria-label",label+" "+["X","Y","Z"][i]);input.oninput=()=>edit(name+"."+i,input.value===""?NaN:Number(input.value));controls.set(name+"."+i,input);row.append(input);group.append(row);}directions.append(group);}
    directions.append(el("p","Directions describe the travel of light in global axes. Camera fill follows the viewing direction and lights faces viewed from below; set it to zero to switch it off."));root.append(directions,error);host.append(root);sync();return root;

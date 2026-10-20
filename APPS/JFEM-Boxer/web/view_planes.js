@@ -116,7 +116,7 @@ void main(){
     !mesh.metadata?.wingViewHelper&&mesh.isEnabled()&&mesh.isVisible&&mesh.visibility>0&&mesh.getTotalVertices()>0;
    mirror.clearColor=new B.Color4(.06,.075,.09,1);
    metal=new B.PBRMaterial('view-ground-metallic',scene);metal.metallic=1;metal.roughness=.12;
-   metal.albedoColor=B.Color3.FromHexString(groundAppearance.color);metal.reflectionTexture=mirror;metal.environmentIntensity=1.5;
+   metal.albedoColor=B.Color3.FromHexString(groundAppearance.color);metal.reflectionTexture=mirror;metal.environmentIntensity=1.5;metal.maxSimultaneousLights=6;
    metal.backFaceCulling=false;metal.twoSidedLighting=true;metal.disableDepthWrite=true;
    materials.push(metal);reflectionSide();return metal;
   }

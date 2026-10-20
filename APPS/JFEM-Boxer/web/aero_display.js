@@ -47,11 +47,12 @@
   const panel=(x,z,cx,cz,width,height)=>Math.exp(-Math.pow(Math.abs((x-cx)/width),8)-Math.pow(Math.abs((z-cz)/height),8));
   return directions.map(direction=>{const pixels=new Uint8Array(size*size*4);for(let row=0;row<size;row++)for(let col=0;col<size;col++){
    let[x,y,z]=direction(2*(col+.5)/size-1,2*(row+.5)/size-1);const n=Math.hypot(x,y,z);x/=n;y/=n;z/=n;
-   const sky=.24+.20*Math.max(0,y),horizon=.10*Math.exp(-Math.pow(y/.18,2));
+   const sky=.36+.18*Math.max(0,y),horizon=.12*Math.exp(-Math.pow(y/.18,2));
    const ceiling=y>0?Math.max(panel(x/y,z/y,-.55,-.2,.2,2.4),panel(x/y,z/y,.85,.1,.13,2.8)):0;
-   const side=z<0?panel(x/-z,y/-z,-.3,.35,1.5,.09):0;
-   const light=Math.max(ceiling,side),floor=y<0?.06:0,base=sky+horizon+floor;
-   const colors=[base*.98+light*.70,base+light*.71,base*1.025+light*.72],i=4*(row*size+col);for(let c=0;c<3;c++)pixels[i+c]=Math.round(255*Math.min(1,colors[c]));pixels[i+3]=255;
+   const side=z<0?panel(x/-z,y/-z,-.3,.35,1.5,.12):.65*panel(x/z,y/z,.2,.25,1.3,.18);
+   const below=y<0?.55*panel(x/-y,z/-y,0,-.4,1.6,.32):0;
+   const light=Math.max(ceiling,side,below),floor=y<0?.08:0,base=sky+horizon+floor;
+   const colors=[base*.98+light*.58,base+light*.59,base*1.025+light*.60],i=4*(row*size+col);for(let c=0;c<3;c++)pixels[i+c]=Math.round(255*Math.min(1,colors[c]));pixels[i+3]=255;
   }return pixels;});
  }
  function create({BABYLON:B=globalThis.BABYLON,scene,parent=null,data}){
@@ -63,7 +64,7 @@
    environment=new B.RawCubeTexture(scene,studioFaces(),64,B.Engine.TEXTUREFORMAT_RGBA,B.Engine.TEXTURETYPE_UNSIGNED_BYTE,true,false,B.Texture.TRILINEAR_SAMPLINGMODE);environment.name="aero-local-studio";environment.coordinatesMode=B.Texture.CUBIC_MODE;environment.gammaSpace=false;
    // Keep the legacy "steel" choice/internal material identity so saved
    // Studies retain their metallic appearance; its finish is now aluminium.
-   steel=new B.PBRMaterial("aero-polished-steel",scene);steel.albedoColor=new B.Color3(.91,.92,.94);steel.metallic=1;steel.roughness=.18;steel.reflectionTexture=environment;steel.environmentIntensity=1.5;steel.directIntensity=.9;steel.backFaceCulling=false;steel.twoSidedLighting=true;steel.alpha=1;steel.transparencyMode=B.Material.MATERIAL_OPAQUE;steel.wireframe=false;steel.separateCullingPass=false;steel.disableDepthWrite=false;return steel;
+   steel=new B.PBRMaterial("aero-polished-steel",scene);steel.albedoColor=new B.Color3(.91,.92,.94);steel.metallic=1;steel.roughness=.18;steel.reflectionTexture=environment;steel.environmentIntensity=1.5;steel.directIntensity=.9;steel.maxSimultaneousLights=6;steel.backFaceCulling=false;steel.twoSidedLighting=true;steel.alpha=1;steel.transparencyMode=B.Material.MATERIAL_OPAQUE;steel.wireframe=false;steel.separateCullingPass=false;steel.disableDepthWrite=false;return steel;
   }
   function attach(mesh,{quads,nLoop=0}={}){
    const pairs=[],seen=new Set();
