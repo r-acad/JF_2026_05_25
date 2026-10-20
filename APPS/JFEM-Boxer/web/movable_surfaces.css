@@ -10,3 +10,10 @@
 .movable-grid :is(input,select) { min-width:0; width:100%; box-sizing:border-box; padding:6px; color:#e2eff8; background:#0f1a24; border:1px solid #4b657a; border-radius:4px; font:inherit; }
 .movable-grid input[type=color] { height:33px; padding:3px; }
 .movable-grid :disabled { opacity:.5; }
+.movable-grid label.layer { flex-direction:row; align-items:center; align-self:center; }
+.movable-grid label.layer input { width:auto; }
+.movable-bearing { min-width:0; margin:10px 0; border:1px solid #516477; border-radius:4px; padding:9px; }
+.movable-bearing legend { font-size:12px; }
+.movable-structure .movable-grid label:first-child { grid-column:1 / -1; }
+.movable-bearings .movable-grid label:first-child { grid-column:auto; }
+#movable-structure-select { min-width:0; max-width:100%; flex:1 1 120px; }

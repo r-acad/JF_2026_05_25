@@ -86,6 +86,7 @@ function material_assignment(p,component;shell=true)
     return shell ? default_shell_material(component) : Dict{String,Any}("component"=>component,"material"=>1)
 end
 function shell_material_component(pid)
+    is_movable_pid(pid)&&return "movable"
     base=component_base_pid(pid)
     base in (PID_STRINGER_WEB,PID_STRINGER_FLANGE)&&return "stringer"
     base==PID_SKIN_UPPER&&return "upper_skin"
@@ -107,6 +108,7 @@ end
 
 """PSHELL or explicit face/core/face PCOMP, with resolved physical-bay/rib total thickness."""
 function shell_material_definition(p,pid::Integer)
+    is_movable_pid(pid)&&return movable_shell_property(p,pid)
     component_base_pid(pid)==PID_STRINGER_FLANGE&&return shell_stringer_flange_definition(p,pid)
     if is_shell_stringer_pid(pid)
         material=bar_material_definition(p,panel_stringer_pid(something(stiffened_panel_id(pid),0)))

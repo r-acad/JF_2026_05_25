@@ -374,6 +374,7 @@ function mesh_payload(m::Model; progress = stage -> nothing)
             "conn" => blob_i32(gr.conn; offset = -1),
         )
         gr.kind === :bar && (entry["orient"] = blob_f32(gr.orient))
+        if is_movable_pid(gr.pid);entry["display_label"]=entry["properties"]["display_label"];end
         entry["panel_id"]=stiffened_panel_id(gr.pid)
         push!(groups, entry)
     end
@@ -405,6 +406,8 @@ function mesh_payload(m::Model; progress = stage -> nothing)
     annotations = physical_annotations(m)
 
     progress("payload")
+    coordinates=generated_coordinate_payload(groups;node_count=length(m.node_ids))
+    append!(coordinates["systems"],movable_coordinate_records(m))
     return Dict{String,Any}(
         "ok" => true,
         "format" => "wingfegen-mesh-1",
@@ -450,7 +453,9 @@ function mesh_payload(m::Model; progress = stage -> nothing)
             "xyz" => blob_f32(m.xyz),
         ),
         "groups" => groups,
-        "coordinate_systems" => generated_coordinate_payload(groups;node_count=length(m.node_ids)),
+        "coordinate_systems" => coordinates,
+        "movable_structure" => Dict("surfaces"=>movable_structure_data(m)["surfaces"],"attachments"=>movable_structure_data(m)["attachments"]),
+        "imported_connections" => movable_connection_payload(m),
         "rbe3" => Dict{String,Any}(
             "count" => length(m.rbe3),
             "refs" => blob_i32(rbe3_refs; offset = -1),

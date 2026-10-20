@@ -275,7 +275,10 @@ struct Model
     checks::Vector{Tuple{String,String,Bool}}
     le_rib_metadata::Vector{Dict{String,Any}}
     fuel_rbe3::Vector{FuelBaySpider}
+    movable_structure::Dict{String,Any}
 end
+
+Model(args::Vararg{Any,19})=Model(args...,Dict{String,Any}("surfaces"=>Any[],"attachments"=>Any[],"node_etas"=>Dict{Int,Float64}()))
 
 Model(params,wing,grid,node_ids,xyz,node_keys,n_struct,groups,rbe3,spc,aero_xyz,aero_quads,aero_nloop,aero_map,aero_weights,info,checks)=
     Model(params,wing,grid,node_ids,xyz,node_keys,n_struct,groups,rbe3,spc,aero_xyz,aero_quads,aero_nloop,aero_map,aero_weights,info,checks,Dict{String,Any}[])
@@ -788,6 +791,9 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
     get(p,"stringers.model","beam")=="shell" && register_shell_stringer_mass_geometry!(p,groups,reg.xyz,g)
     n_struct = length(reg.keys)
 
+    eid,movable_structure=add_movable_structure!(reg,g,p,groups,eid)
+    n_struct=length(reg.keys)
+
     # --- RBE3 spiders ------------------------------------------------------
     rbe3 = RBE3Spider[]
     if p["rbe3.enabled"]
@@ -846,7 +852,7 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
     model = Model(Dict{String,Any}(p), w, g, node_ids, reg.xyz, reg.keys,
                   n_struct, groups, rbe3, spc, aero_xyz, aero_quads, aero_nloop,
                   aero_map, aero_w,
-                  Tuple{String,String}[], Tuple{String,String,Bool}[],le_metadata)
+                  Tuple{String,String}[], Tuple{String,String,Bool}[],le_metadata,FuelBaySpider[],movable_structure)
 
     oriented_ribs(g)&&validate_main_rib_mesh(model)
 
@@ -1163,10 +1169,12 @@ function mesh_checks(m::Model)
     # 1. No two distinct index triples may land on the same point.
     scale = max(m.grid.wing.mac, 1.0e-3)
     tol = 1.0e-9 * scale
-    seen = Dict{NTuple{3,Int},Int}()
+    seen = Dict{NTuple{4,Int},Int}()
     dup = 0
     for n in 1:m.n_struct
-        key = (round(Int, m.xyz[3n-2] / tol),
+        m.node_keys[n][1]==-4&&continue # coincident bearing references are intentional
+        partition=m.node_keys[n][1]==-3 ? m.node_keys[n][3] : 0
+        key = (partition,round(Int, m.xyz[3n-2] / tol),
                round(Int, m.xyz[3n-1] / tol),
                round(Int, m.xyz[3n] / tol))
         haskey(seen, key) ? (dup += 1) : (seen[key] = n)

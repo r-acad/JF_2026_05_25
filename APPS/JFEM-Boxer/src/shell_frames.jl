@@ -45,6 +45,7 @@ directed aft. For main-box and line-of-flight ribs this is global +x.
 """
 function shell_material_frame(m, gr::ElemGroup, e::Int;
                               path=stringer_path(m.grid.wing,m.params))
+    is_movable_pid(gr.pid)&&return shell_geometric_frame(element_points(m,gr,e))
     pid=component_base_pid(gr.pid)
     _, _, z = shell_geometric_frame(element_points(m, gr, e))
     n=gr.kind === :quad ? 4 : 3
@@ -109,7 +110,9 @@ function stringer_axis_direction(p,g,reg,groups)
 end
 
 """User-facing convention shared by element properties and recovered results."""
-shell_material_description(gr::ElemGroup) = component_base_pid(gr.pid) in (PID_RIB_WEB, PID_LE_RIB) ?
+shell_material_description(gr::ElemGroup) = is_movable_pid(gr.pid) ?
+    "Shell material axes (MCID): native geometric element frame of the movable-surface shell; z follows its connectivity normal" :
+    component_base_pid(gr.pid) in (PID_RIB_WEB, PID_LE_RIB) ?
     "Shell material axes (MCID): x is horizontal in the rib plane, directed aft (horizontal global +x for line-of-flight ribs); z preserves the shell normal" :
     is_shell_stringer_pid(gr.pid) ?
     "Shell material axes (MCID): x follows the tipward stringer direction projected into the web or flange plane; z preserves the shell normal" :

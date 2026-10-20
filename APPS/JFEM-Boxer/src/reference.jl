@@ -481,6 +481,8 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
         end
     end
 
+    write_movable_attachments(io,m)
+
     # --- properties and material ------------------------------------------
     banner!(io, "Properties and material")
     concentrated&&comment!(io,"Structural mass is concentrated once per physical rib bay. Structural MAT1 density and property NSM are zero here; Study material data and stiffness are retained.")

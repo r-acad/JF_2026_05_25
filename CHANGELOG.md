@@ -5,6 +5,19 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Movable-surface structures and attachments
+
+- Add Structure → Movable surfaces, linked to Geometry definitions, with
+  shell skins, hinge web, optional secondary spar, ribs, materials, thicknesses
+  and mesh controls. Retain separate properties per movable rib bay.
+- Generate massless main-box and surface fittings, restrained elastic hinges
+  with actuator stiffness by default, and exact rigid attachments. Show their
+  connections and local hinge axes for inspection. Preserve all inputs in
+  Study/TOML and respect mesh editing locks.
+- Include optional deflected structural geometry, mass and enabled inertia
+  loads in FE analyses. VLM retains the existing common loft. Keep unmeshed
+  surface previews independent of FE results.
+
 ### Movable surface definitions
 
 - Add Geometry → Movable surfaces with named leading/trailing-edge surfaces,

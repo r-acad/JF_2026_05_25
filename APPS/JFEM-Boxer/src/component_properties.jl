@@ -129,6 +129,7 @@ end
 resolved_component_properties(m::Model)=resolved_component_properties(m.params,length(m.grid.ribs))
 
 function nominal_shell_thickness(p::AbstractDict,pid::Integer)
+    is_movable_pid(pid)&&return movable_shell_property(p,pid)["thickness_m"]
     family,index=divrem(pid,COMPONENT_PID_STRIDE)
     if is_shell_stringer_pid(pid)
         dimensions=panel_stringer_dimensions(p,pid)

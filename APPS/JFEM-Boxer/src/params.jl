@@ -71,7 +71,12 @@ const SCHEMA = ParamSpec[
               choices=["linear","cosine"], help="Interpolate twist independently of airfoil shape and thickness: s=(eta-eta_i)/(eta_j-eta_i), linear weight s or cosine weight (1-cos(pi*s))/2. Cosine reaches each specified angle with zero spanwise slope. Shared by the structural mesh and aerodynamic camber surface"),
 
     ParamSpec("movable_surfaces.items", "Movable surfaces", :movablesurfaces, Any[], "Movable surfaces";
-        help="Named leading- or trailing-edge regions defined by span eta, hinge x/c at each end and preview deflection. Saved with the Study and TOML. Geometry definitions only: they do not introduce structural joints, remesh the structure or alter aerodynamic loads."),
+        help="Named leading- or trailing-edge regions defined by span eta, hinge x/c at each end and preview deflection. Saved with the Study and TOML. Optional FE shells and hinge attachments are defined in Structure / Movable surfaces. Geometry without an enabled structure remains a preview; VLM uses the original common loft."),
+
+    ParamSpec("movable_structure.surfaces", "Surface structures", :movablestructure, Any[], "Movable structures";
+        help="Optional load-carrying shells for each defined movable surface: upper/lower skins, hinge web, optional secondary spar and ribs. Independent properties per movable rib bay. Monolithic materials are selected from the material library. Distributed structural mass is required."),
+    ParamSpec("movable_structure.attachments", "Attachments to main box", :movableattachments, Any[], "Movable structures";
+        help="Locate each bearing by movable-surface eta and a main-box rib/front or rear spar. RBE3 distributes loads onto the adjacent spar/rib; a rigid fitting connects the movable hinge web. Rigid joins all six DOFs. Elastic hinge uses local-axis CBUSH/PBUSH: x along the hinge, translational stiffness in N/m and rotational/actuator stiffness in Nm/rad. Zero actuator stiffness releases hinge rotation."),
 
     # --- planform ----------------------------------------------------------
     ParamSpec("planform.area", "Base lifting surface area", :float, 16.0, "Planform";
@@ -580,6 +585,7 @@ function coerce_value(spec::ParamSpec, v)
     spec.kind === :airfoilstations && return normalize_airfoil_stations(v)
     spec.kind === :loftstations && return normalize_loft_stations(v,spec.key)
     spec.kind === :movablesurfaces && return normalize_movable_surfaces(v)
+    spec.kind in (:movablestructure,:movableattachments) && return normalize_movable_structure(v,spec.key)
     spec.kind === :supportsets && return normalize_support_sets(v)
     spec.kind === :loadcases && return normalize_load_cases(v)
     spec.kind in (:ribproperties,:sparproperties) && return normalize_component_properties(v,spec.key)
@@ -880,6 +886,7 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
     get(p,"airfoil.interpolation","linear") in ("linear","cosine") ||
         throw(ArgumentError("airfoil.interpolation must be linear or cosine"))
     normalize_movable_surfaces(get(p,"movable_surfaces.items",Any[]))
+    validate_movable_structure(p)
     for table in ("loft.thickness_stations","loft.twist_stations")
         normalize_loft_stations(get(p,table,Any[]),table)
     end
@@ -931,7 +938,7 @@ function toml_value(spec::ParamSpec, v)
         panel_literal(x) = x isa AbstractString ? toml_string_literal(x) : x isa AbstractDict ?
             "{"*join((string(k," = ",panel_literal(value)) for (k,value) in sort!(collect(x);by=first)),", ")*"}" : string(x)
         return "["*join(panel_literal.(normalize_panel_properties(v)),", ")*"]"
-    elseif spec.kind in (:movablesurfaces, :loftstations, :loadcases, :planformpoints, :masterribs, :riborientations, :supportsets, :ribproperties, :sparproperties, :componentproperties, :materials, :shellmaterials, :barmaterials)
+    elseif spec.kind in (:movablestructure, :movableattachments, :movablesurfaces, :loftstations, :loadcases, :planformpoints, :masterribs, :riborientations, :supportsets, :ribproperties, :sparproperties, :componentproperties, :materials, :shellmaterials, :barmaterials)
         literal(x) = x isa AbstractString ? toml_string_literal(x) : string(x)
         return "[" * join(("{" * join((string(k, " = ", literal(v)) for (k, v) in sort!(collect(row); by = first)), ", ") * "}" for row in v), ", ") * "]"
     elseif spec.kind === :bool

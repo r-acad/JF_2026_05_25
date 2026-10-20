@@ -27,7 +27,7 @@ end
 
 weight_shell_thickness(p,pid)=shell_thickness(p,pid)
 
-weight_base_group(name::String)=component_base_group(name)
+weight_base_group(name::String)=replace(component_base_group(name),r"_TRIAS$"=>"")
 
 """Physical shell density moments through thickness, in the native mass convention.
 PSHELL NSM follows its uniform thickness; PCOMP NSM lies at its reference plane.
@@ -100,6 +100,11 @@ root/tip ribs contribute fully inward. A property is never used as a bay ID.
 """
 function structural_element_bay_weights(m::Model,gr::ElemGroup,e::Int)
     n=gr.kind===:bar ? 2 : gr.kind===:tria ? 3 : 4
+    if is_movable_pid(gr.pid)
+        nodes=gr.conn[n*(e-1)+1:n*e];etas=movable_structure_data(m)["node_etas"]
+        center=sum(etas[node] for node in nodes)/n;ribetas=m.grid.etas[m.grid.ribs.+1]
+        return [(clamp(searchsortedlast(ribetas,center),1,length(ribetas)-1),1.)]
+    end
     rows=[m.node_keys[node][2] for node in gr.conn[n*(e-1)+1:n*e]]
     lo,hi=extrema(rows);ribs=m.grid.ribs;nbays=length(ribs)-1
     rib=findfirst(==(lo),ribs)
@@ -202,7 +207,9 @@ function weights_payload(m::Model)
     p=m.params
     register_shell_stringer_mass_geometry!(p,m.groups,m.xyz,m.grid)
     rows=Any[weight_component(m,id,label,names) for (id,label,names) in WEIGHT_COMPONENTS]
-    recognized=Set(name for (_,_,names) in WEIGHT_COMPONENTS for name in names)
+    movable_names=("MOVABLE_UPPER_SKIN","MOVABLE_LOWER_SKIN","MOVABLE_HINGE_WEB","MOVABLE_SPAR_WEB","MOVABLE_RIB_WEBS")
+    if movable_enabled(p);push!(rows,weight_component(m,"movable_surfaces","Movable-surface structures",movable_names));end
+    recognized=Set(vcat([name for (_,_,names) in WEIGHT_COMPONENTS for name in names],collect(movable_names)))
     for (id,label,names) in (("leading_edge_skins","Leading-edge skins",("LE_UPPER_SKIN","LE_LOWER_SKIN")),
                             ("leading_edge_ribs","Leading-edge ribs",("LE_RIB_WEBS","LE_RIB_NOSE")))
         union!(recognized,names)

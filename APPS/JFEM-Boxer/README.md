@@ -81,9 +81,39 @@ the 3D preview rotates the trimmed loft about the straight axis joining the two
 midcamber hinge endpoints. Positive deflection lowers a horizontal trailing
 edge. Use the question-mark help for the sign convention and curved-loft limits.
 Definitions save with the Study and TOML and respect the Planform editing lock.
-These are **geometry definitions and previews**: structural joints, FE mesh,
-mass, VLM loads and analysis results remain unchanged. Editing them does not
-rebuild the FEM or invalidate existing results.
+Surfaces without an enabled structure are **geometry previews** and do not
+change FE results. Use **Structure → Movable surfaces** to add their shell
+structure and attachments. Editing geometry then invalidates the corresponding
+FEM, just as changes to the main box do.
+
+In **Structure → Movable surfaces**, select a geometry and click **Add structure**.
+Set skin, web and rib materials from the Materials library, their thicknesses,
+rib bays and mesh subdivisions. The generated monolithic shell structure has
+upper/lower skins, a hinge closure web, optional secondary spar and end/internal
+ribs sharing nodes. Each component has separate properties per movable rib bay.
+**Secondary spar fraction** is measured from the hinge toward the outer edge;
+zero omits it. **Mesh at preview deflection** uses the geometry angle in the
+actual FE mesh; otherwise the structure is generated in its neutral position.
+
+Each attachment specifies a hinge eta, physical main-box rib and front/rear
+spar. The default **Restrained hinge** uses translation stiffness in N/m,
+tilt stiffness in Nm/rad and hinge/actuator stiffness in Nm/rad, all **per
+attachment**. The local x-axis follows the straight hinge axis; actuator
+stiffness acts about x and tilt stiffness about y/z. The initial values are
+modeling examples to be replaced with joint data. A zero actuator value gives
+a free hinge and may leave a rigid-body mode or prevent static equilibrium
+under hinge torque. **Rigid attachment** joins all six relative DOFs exactly.
+Massless RBE3/RBE2 fittings distribute the load to the selected box spar/rib
+and movable hinge web. Inspect the fittings and their coordinate systems in
+Display or Inspect. Study and TOML files retain all these settings.
+
+Click **Create FEM** after edits. The added structure contributes mass and
+stiffness to FE analyses and enabled structural inertia loads. Use **Distributed**
+structural mass to retain its hinge dynamics. Its footprint must remain outside
+the adjacent main-box spar; turn off the existing Leading Edge structure before
+meshing a leading-edge movable surface. VLM continues to use the original
+common loft and does not automatically load these new surfaces. The fittings
+represent idealized load paths, without bearing contact or bracket detail.
 
 All 2D drawings provide exact **View zoom (%)** entry. Hold **Alt** while using
 the wheel for one tenth of the normal zoom step; combine it with **Ctrl/Cmd**
