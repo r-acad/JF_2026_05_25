@@ -109,7 +109,7 @@
   const fieldLabel=doc.createElement('label');fieldLabel.className='display-control';fieldLabel.textContent='Property';fieldLabel.append(select);
   const sampleLabel=doc.createElement('label');sampleLabel.className='display-control';sampleLabel.textContent='Material sample';
   const sample=doc.createElement('select');sample.id='property-display-material';for(const [value,label]of Object.entries(roles)){const option=doc.createElement('option');option.value=value;option.textContent=label;sample.append(option);}sampleLabel.append(sample);
-  const actions=doc.createElement('div');actions.className='entity-actions';const show=doc.createElement('button'),hide=doc.createElement('button');show.id='property-display-show';hide.id='property-display-hide';show.className=hide.className='mini';show.textContent='Show property colors';hide.textContent='Hide property colors';actions.append(show,hide);
+  const actions=doc.createElement('div');actions.className='entity-actions';const show=doc.createElement('button'),hide=doc.createElement('button');show.id='property-display-show';hide.id='property-display-hide';show.className='mini primary';hide.className='mini';show.textContent='Show property colors';hide.textContent='Hide property colors';actions.append(show,hide);
   const status=doc.createElement('p');status.id='property-display-status';status.className='pick-note';status.setAttribute('role','status');
   const warning=doc.createElement('p');warning.id='property-display-warning';warning.className='property-display-warning';warning.setAttribute('role','status');
   host.append(fieldLabel,sampleLabel,actions,status,warning);

@@ -1,0 +1,12 @@
+.movable-preview { position:relative; min-width:0; margin:12px 0; }
+#movable-plan-view { display:block; width:100%; min-height:180px; max-height:480px; background:#fff; border:1px solid #58748b; border-radius:5px; }
+.movable-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:9px 0; }
+.movable-actions .layer { font-size:12px; }
+.movable-surface { min-width:0; border:1px solid #426078; border-radius:5px; padding:10px; margin:12px 0; }
+.movable-surface legend { color:#c4daed; padding:0 5px; }
+.movable-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-bottom:10px; }
+.movable-grid label { display:flex; min-width:0; flex-direction:column; gap:5px; font-size:12px; }
+.movable-grid label:first-child { grid-column:1 / -1; }
+.movable-grid :is(input,select) { min-width:0; width:100%; box-sizing:border-box; padding:6px; color:#e2eff8; background:#0f1a24; border:1px solid #4b657a; border-radius:4px; font:inherit; }
+.movable-grid input[type=color] { height:33px; padding:3px; }
+.movable-grid :disabled { opacity:.5; }

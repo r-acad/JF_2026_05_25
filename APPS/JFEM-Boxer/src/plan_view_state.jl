@@ -126,7 +126,7 @@ function normalize_drawings(value)
     sizeof(value) <= 96 * 1024 * 1024 || throw(ArgumentError("Drawing metadata exceeds 96 MiB"))
     data = try JSON.parse(value) catch; throw(ArgumentError("Invalid drawing JSON metadata")) end
     data isa AbstractDict || throw(ArgumentError("Drawing metadata must be an object"))
-    names = Set(["planform", "spars", "master-ribs", "leading-edge-ribs", "fuel-tank", "stringer-layout", "stringer-section",
+    names = Set(["movable-surfaces-plan", "planform", "spars", "master-ribs", "leading-edge-ribs", "fuel-tank", "stringer-layout", "stringer-section",
         "spar-cap-section", "rib-stiffener-section", "rib-override-section", "airfoil-root", "airfoil-tip",
         ("material-" * name for name in ("upper_skin", "lower_skin", "spar_web", "rib_web", "leading_edge_skin", "leading_edge_rib", "stringer_flange"))...])
     fields = Set(["version", "theme", "opacity", "image", "imageAspectRatio", "pin", "filledFigures", "transform", "viewport", "grid", "snap", "measurements"])

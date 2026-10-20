@@ -45,7 +45,7 @@ or the [OS-specific setup instructions](<../../__Start here!__/README.md>).
 
 ![JFEM-Boxer displaying a generated lifting-surface model](<../../utils/images/fgen-model.png>)
 
-**Geometry** groups **Planform**, **Airfoils** and **Loft**. In Airfoils, each root,
+**Geometry** groups **Planform**, **Airfoils**, **Loft** and **Movable surfaces**. In Airfoils, each root,
 tip or intermediate section can use a NACA code, the catalogue, or **XFoil file**.
 Browse to a local coordinate file; its normalized coordinates and filename are
 embedded in the Study and TOML definition, so reopening does not need the
@@ -70,6 +70,20 @@ Each schedule independently selects **Linear**, `w=s`, or **Cosine**,
 Cosine gives zero interpolation slope at the anchors. Outside the entered
 range, the nearest value is held constant; one station defines a constant
 schedule. Airfoil shape interpolation remains a separate choice in Airfoils.
+
+In **Movable surfaces**, use **Add movable surface** to define a flap, aileron,
+slat, elevator, rudder, tab or other named surface. Set its leading/trailing
+edge, start/end semi-span fractions (eta), hinge x/c at each end, preview
+deflection in degrees and color. Hinge x/c interpolates linearly between the
+span limits. Adjacent surfaces may share an endpoint; overlapping footprints
+are rejected. The plan drawing shows neutral footprints and dashed hinge cuts;
+the 3D preview rotates the trimmed loft about the straight axis joining the two
+midcamber hinge endpoints. Positive deflection lowers a horizontal trailing
+edge. Use the question-mark help for the sign convention and curved-loft limits.
+Definitions save with the Study and TOML and respect the Planform editing lock.
+These are **geometry definitions and previews**: structural joints, FE mesh,
+mass, VLM loads and analysis results remain unchanged. Editing them does not
+rebuild the FEM or invalidate existing results.
 
 All 2D drawings provide exact **View zoom (%)** entry. Hold **Alt** while using
 the wheel for one tenth of the normal zoom step; combine it with **Ctrl/Cmd**

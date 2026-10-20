@@ -1,9 +1,9 @@
 /* Editing locks protect geometry inputs without disabling property studies. */
 (function(root,factory){const api=factory();if(typeof module==="object"&&module.exports)module.exports=api;else root.WingParameterLocks=api;})(typeof globalThis!=="undefined"?globalThis:this,function(){
   "use strict";
-  const GROUPS={planform:["Planform","Airfoils","Loft"],mesh:["Torsion box","Ribs","Stringer layout","Leading edge","Mesh","RBE3 and supports"]};
-  const scope=key=>/^(planform|airfoil|loft)\./.test(key)?"planform":/^(box|ribs|mesh|rbe3|supports)\./.test(key)||/^leading_edge\.(enabled|start_rib|end_rib|disabled_bays|chord_elements|rib_orientation|rib_orientations|rib_angle|rib_kink_side)$/.test(key)?"mesh":null;
-  const explanations={planform:"Protects the planform, aerodynamic edge points, airfoil sections and loft thickness/twist schedules. Unlock to change the lifting surface definition.",mesh:"Protects spar points, box and leading-edge layout, mesh subdivisions and RBE3/constraint parameters. Lock Planform too to hold the base lifting surface geometry. Material, shell and beam properties remain editable."};
+  const GROUPS={planform:["Planform","Airfoils","Loft","Movable surfaces"],mesh:["Torsion box","Ribs","Stringer layout","Leading edge","Mesh","RBE3 and supports"]};
+  const scope=key=>/^(planform|airfoil|loft|movable_surfaces)\./.test(key)?"planform":/^(box|ribs|mesh|rbe3|supports)\./.test(key)||/^leading_edge\.(enabled|start_rib|end_rib|disabled_bays|chord_elements|rib_orientation|rib_orientations|rib_angle|rib_kink_side)$/.test(key)?"mesh":null;
+  const explanations={planform:"Protects the planform, aerodynamic edge points, airfoil sections, loft thickness/twist schedules and movable-surface definitions. Unlock to change the lifting surface definition.",mesh:"Protects spar points, box and leading-edge layout, mesh subdivisions and RBE3/constraint parameters. Lock Planform too to hold the base lifting surface geometry. Material, shell and beam properties remain editable."};
   function create({document:doc,getSchema}){
     const locked={planform:false,mesh:false},snapshots=new Map(),disabledBefore=new Map();
     const canonical=()=>getSchema().map(spec=>({spec,input:doc.getElementById("p-"+spec.key)})).filter(item=>item.input);

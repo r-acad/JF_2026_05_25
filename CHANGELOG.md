@@ -5,6 +5,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Movable surface definitions
+
+- Add Geometry → Movable surfaces with named leading/trailing-edge surfaces,
+  span limits, inboard/outboard hinge x/c, deflection and color. Validate
+  overlapping footprints and retain definitions in Study and TOML files.
+- Preview neutral footprints in a zoomable plan drawing and trimmed, deflected
+  loft surfaces in 3D. These geometry definitions preserve the current FE model,
+  analysis loads and results; structural joints are not introduced.
+- Make Show property colors blue in both its available and selected states.
+
 ### Brighter model lighting
 
 - Add neutral underside and rim lights, with a brighter studio default and six
