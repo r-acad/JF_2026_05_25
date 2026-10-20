@@ -2,7 +2,7 @@
 # Material 1 is the legacy global material; its explicit values remain authoritative.
 const MATERIAL_SHELL_COMPONENTS=("upper_skin","lower_skin","spar_web","rib_web","leading_edge_skin","leading_edge_rib","stringer_flange")
 const MATERIAL_BAR_COMPONENTS=("stringer","spar_cap","rib_stiffener","runout")
-const MATERIAL_IDEALIZATION_NOTE="Illustrative editable isotropic elastic properties, not certified design allowables. Foam and honeycomb use effective isotropic MAT1 approximations; directional core behavior, crushing, damage and failure criteria are not modeled."
+const MATERIAL_IDEALIZATION_NOTE="Illustrative editable isotropic elastic properties. Optional allowables are user-supplied postprocessing criteria, not certified material strengths. Foam and honeycomb use effective isotropic MAT1 approximations; directional core behavior, crushing and damage are not modeled."
 default_material_library()=Dict{String,Any}[
     Dict("id"=>2,"name"=>"Steel (generic)","E"=>210e9,"nu"=>.30,"rho"=>7850.),
     Dict("id"=>3,"name"=>"Foam core (effective isotropic)","E"=>.1e9,"nu"=>.30,"rho"=>80.),
@@ -30,6 +30,46 @@ function material_rows(value,label,limit)
         Dict{String,Any}(String(k)=>v for (k,v) in raw)
     end for (i,raw) in enumerate(value)]
 end
+
+# Assessment criteria belong to the Study, independently of elastic material
+# data. In particular, native MAT8 strength fields do not imply a von Mises or
+# maximum-strain criterion and must never be reinterpreted as one.
+function normalize_material_allowables(value)
+    fields=("stress","e1_t","e1_c","e2_t","e2_c","g12")
+    allowed=Set(("material_id","mode",fields...))
+    out=Dict{String,Any}[];seen=Set{Int}()
+    for row in material_rows(value,"materials.allowables",100000)
+        all(key->key in allowed,keys(row))||throw(ArgumentError("Material allowables contain an unsupported field"))
+        id=material_integer(get(row,"material_id",nothing),"Allowable material ID")
+        id in seen&&throw(ArgumentError("Duplicate allowables for material $id"));push!(seen,id)
+        mode=get(row,"mode",nothing)
+        mode in ("stress","strain")||throw(ArgumentError("Material $id allowable mode must be stress or strain"))
+        result=Dict{String,Any}("material_id"=>id,"mode"=>String(mode))
+        for field in fields
+            haskey(row,field)||(continue)
+            result[field]=material_positive(row[field],"Material $id allowable $field")
+        end
+        # Partially entered criteria remain incomplete, not zero-valued. This
+        # lets a Study retain edits without implying a passing assessment.
+        push!(out,result)
+    end
+    sort!(out;by=row->row["material_id"])
+end
+
+function material_allowable(p,id::Integer)
+    for row in get(p,"materials.allowables",Any[])
+        get(row,"material_id",nothing)==id&&return deepcopy(row)
+    end
+    nothing
+end
+
+function material_with_allowable(row,p)
+    result=Dict{String,Any}(row)
+    allowable=material_allowable(p,Int(row["id"]))
+    allowable===nothing||(result["allowables"]=allowable)
+    result
+end
+
 function normalize_material_library(value)
     out=Dict{String,Any}[];seen=Set{Int}()
     for row in material_rows(value,"materials.library",256)
@@ -69,15 +109,19 @@ end
 function material_definitions(p)
     first=Dict{String,Any}("id"=>1,"name"=>String(p["material.name"]),"E"=>Float64(p["material.E"]),
         "nu"=>Float64(p["material.nu"]),"rho"=>Float64(p["material.rho"]))
-    return vcat([first],normalize_material_library(get(p,"materials.library",default_material_library())))
+    return [material_with_allowable(row,p) for row in vcat([first],normalize_material_library(get(p,"materials.library",default_material_library())))]
 end
 function material_definition(p,id::Integer)
-    id==1&&return Dict{String,Any}("id"=>1,"name"=>String(p["material.name"]),"E"=>Float64(p["material.E"]),
-        "nu"=>Float64(p["material.nu"]),"rho"=>Float64(p["material.rho"]))
-    for row in get(p,"materials.library",default_material_library());row["id"]==id&&return row;end
+    id==1&&return material_with_allowable(Dict{String,Any}("id"=>1,"name"=>String(p["material.name"]),"E"=>Float64(p["material.E"]),
+        "nu"=>Float64(p["material.nu"]),"rho"=>Float64(p["material.rho"])),p)
+    for row in get(p,"materials.library",default_material_library());row["id"]==id&&return material_with_allowable(row,p);end
     throw(ArgumentError("Material $id is not defined in the material library"))
 end
-material_payload(row)=Dict{String,Any}("id"=>row["id"],"name"=>row["name"],"E_Pa"=>row["E"],"nu"=>row["nu"],"rho_kg_m3"=>row["rho"],"type"=>"MAT1")
+function material_payload(row)
+    result=Dict{String,Any}("id"=>row["id"],"name"=>row["name"],"E_Pa"=>row["E"],"nu"=>row["nu"],"rho_kg_m3"=>row["rho"],"type"=>"MAT1")
+    haskey(row,"allowables")&&(result["allowables"]=deepcopy(row["allowables"]))
+    result
+end
 function material_assignment(p,component;shell=true)
     key=shell ? "materials.shells" : "materials.bars"
     for row in get(p,key,Any[])
@@ -213,6 +257,7 @@ function shell_stringer_flange_definition(p,pid)
 end
 
 function validate_materials(p)
+    normalize_material_allowables(get(p,"materials.allowables",Any[]))
     library=material_definitions(p);ids=Set(row["id"] for row in library)
     for row in normalize_material_assignments(get(p,"materials.shells",Any[]),"materials.shells")
         for field in (row["kind"]=="sandwich" ? ("face_material","core_material") : ("material",))

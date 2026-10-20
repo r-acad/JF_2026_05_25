@@ -271,6 +271,8 @@ const SCHEMA = ParamSpec[
               help = "Mass per unit volume of material ID 1. It contributes to dry structural mass, CG, inertia, normal modes and enabled structural-inertia loads for assigned components. Fuel density is a separate parameter"),
     ParamSpec("materials.library", "Additional materials", :materials, default_material_library(), "Materials";
               help = "Material 1 uses the values above. Additional rows define id >= 2, name, E in Pa, nu and rho in kg/m3. " * MATERIAL_IDEALIZATION_NOTE),
+    ParamSpec("materials.allowables", "Material allowables", :materialallowables, Dict{String,Any}[], "Materials";
+              help = "Optional Study assessment limits. Isotropic material stress is compared with von Mises stress; orthotropic laminate plies use signed material-axis normal strains and engineering shear strain. Positive compression limits are entered as magnitudes. Missing limits remain unassessed. These criteria do not change stiffness, mass or the solver deck."),
     ParamSpec("materials.shells", "Shell materials and construction", :shellmaterials, default_shell_materials(), "Materials";
               help = "Per-component monolithic MAT1 or symmetric face/core/face PCOMP. Face thickness is per face. Rib and spar-bay overrides are total thickness and change the core only, requiring total > twice face thickness"),
     ParamSpec("materials.bars", "Beam materials", :barmaterials, default_bar_materials(), "Materials";
@@ -592,6 +594,7 @@ function coerce_value(spec::ParamSpec, v)
     spec.kind === :panelproperties && return normalize_panel_properties(v)
     spec.kind === :componentproperties && return normalize_component_table_properties(v)
     spec.kind === :materials && return normalize_material_library(v)
+    spec.kind === :materialallowables && return normalize_material_allowables(v)
     spec.kind in (:shellmaterials,:barmaterials) && return normalize_material_assignments(v,spec.key)
     spec.key == "mesh.elements_spar_height" && return vertical_mesh_count(v)
     spec.key == "leading_edge.chord_elements" && return leading_edge_chord_count(v)
@@ -938,7 +941,7 @@ function toml_value(spec::ParamSpec, v)
         panel_literal(x) = x isa AbstractString ? toml_string_literal(x) : x isa AbstractDict ?
             "{"*join((string(k," = ",panel_literal(value)) for (k,value) in sort!(collect(x);by=first)),", ")*"}" : string(x)
         return "["*join(panel_literal.(normalize_panel_properties(v)),", ")*"]"
-    elseif spec.kind in (:movablestructure, :movableattachments, :movablesurfaces, :loftstations, :loadcases, :planformpoints, :masterribs, :riborientations, :supportsets, :ribproperties, :sparproperties, :componentproperties, :materials, :shellmaterials, :barmaterials)
+    elseif spec.kind in (:movablestructure, :movableattachments, :movablesurfaces, :loftstations, :loadcases, :planformpoints, :masterribs, :riborientations, :supportsets, :ribproperties, :sparproperties, :componentproperties, :materials, :materialallowables, :shellmaterials, :barmaterials)
         literal(x) = x isa AbstractString ? toml_string_literal(x) : string(x)
         return "[" * join(("{" * join((string(k, " = ", literal(v)) for (k, v) in sort!(collect(row); by = first)), ", ") * "}" for row in v), ", ") * "]"
     elseif spec.kind === :bool

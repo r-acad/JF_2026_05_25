@@ -15,9 +15,14 @@ function request_imported_model(raw)
     signature=get(value,"signature",nothing)
     signature===nothing||signature==model.params["imported.source"]["signature"]||throw(ArgumentError("The imported deck handle belongs to a different source. Read the deck again."))
     model=imported_analysis_model(model,get(value,"analysis",nothing))
-    if haskey(parameters,"jfem.timeout_minutes")
+    if haskey(parameters,"jfem.timeout_minutes")||haskey(parameters,"materials.allowables")
         params=copy(model.params)
-        params["jfem.timeout_minutes"]=coerce_value(SCHEMA_BY_KEY["jfem.timeout_minutes"],parameters["jfem.timeout_minutes"])
+        if haskey(parameters,"jfem.timeout_minutes")
+            params["jfem.timeout_minutes"]=coerce_value(SCHEMA_BY_KEY["jfem.timeout_minutes"],parameters["jfem.timeout_minutes"])
+        end
+        if haskey(parameters,"materials.allowables")
+            params["materials.allowables"]=normalize_material_allowables(parameters["materials.allowables"])
+        end
         solver_timeout_seconds(params)
         model=Model((field===:params ? params : getfield(model,field) for field in fieldnames(Model))...)
     end
@@ -187,10 +192,14 @@ function handle_import_reference(st::AppState,req)
     progress=request_progress(st,req)
     try
         started=time();progress("Reading model source and resolving INCLUDE files automatically")
-        source=imported_source(JSON.parse(String(req.body)));source_seconds=time()-started
+        raw=JSON.parse(String(req.body));source=imported_source(raw);source_seconds=time()-started
         repo,_=find_jfem(st.root;hint=String(st.params["jfem.repo"]));repo===nothing&&throw(ArgumentError("JFEM native parser is unavailable; configure the solver repository"))
         base=joinpath(st.deck_store_dir,"imports");mkpath(base);dir=mktempdir(base;prefix="deck_",cleanup=false)
-        t=time();Serialization.serialize(joinpath(dir,"input.jls"),(source,st.params));capture_seconds=time()-t
+        importparams=copy(st.params)
+        # A new deck may reuse MID numbers for entirely different materials.
+        # Only explicit Study restoration may carry its assessment limits in.
+        importparams["materials.allowables"]=normalize_material_allowables(get(raw,"materials.allowables",Any[]))
+        t=time();Serialization.serialize(joinpath(dir,"input.jls"),(source,importparams));capture_seconds=time()-t
         wait_timings=imported_run_worker(st,repo,dir,progress)
         progress("Loading imported geometry into the viewer")
         t=time();model=Serialization.deserialize(joinpath(dir,"model.jls"));restore_seconds=time()-t

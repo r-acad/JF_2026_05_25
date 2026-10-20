@@ -537,7 +537,7 @@ function parameterModelValue(key, value) {
   return key === "material.E" ? Number((value * 1e9).toPrecision(15)) : value;
 }
 
-const JSON_TABLE_KINDS = new Set(["planformpoints","masterribs","riborientations","airfoilstations","loftstations","movablesurfaces","movablestructure","movableattachments","supportsets","ribproperties","sparproperties","panelproperties","componentproperties","materials","shellmaterials","barmaterials"]);
+const JSON_TABLE_KINDS = new Set(["planformpoints","masterribs","riborientations","airfoilstations","loftstations","movablesurfaces","movablestructure","movableattachments","supportsets","ribproperties","sparproperties","panelproperties","componentproperties","materials","shellmaterials","barmaterials","materialallowables"]);
 function parameterRow(spec, values) {
   const unitText = spec.key === "material.E" ? "GPa" : spec.unit;
   const helpText = spec.help || (spec.key === "material.E" ? "Elastic tensile/compressive stiffness, entered in GPa: 71 GPa = 71000000000 Pa. Calculations and saved inputs use Pa." : "");
@@ -592,7 +592,7 @@ const workspaceUI = { activeTab: "planform", previousTab: "planform", maximizedT
 const DRAWING_TABS = new Set(["planform", "airfoils", "movablesurfaces", "box", "ribs", "stringerlayout", "leadingedge", "fuel", "sections", "ribproperties", "sparproperties"]);
 const PROPERTY_TABS = new Set(["shells", "sections", "ribproperties", "sparproperties", "leproperties", "nonstructural"]);
 const SUMMARY_TABS = new Set(["weights", "summary"]);
-const GENERATED_MODEL_TABS = new Set(["planform","airfoils","loft","movablesurfaces","box","ribs","stringerlayout","leadingedge","movablestructure","fuel","mesh","material","shells","sections","ribproperties","sparproperties","leproperties","nonstructural","vlmmesh"]);
+const GENERATED_MODEL_TABS = new Set(["planform","airfoils","loft","movablesurfaces","box","ribs","stringerlayout","leadingedge","movablestructure","fuel","mesh","shells","sections","ribproperties","sparproperties","leproperties","nonstructural","vlmmesh"]);
 const WORKSPACE_MENUS = {
   geometrymenu:{tabs:new Set(["planform","airfoils","loft","movablesurfaces"]),current:"planform",label:"Geometry"},
   structure:{tabs:new Set(["box","ribs","stringerlayout","leadingedge","movablestructure"]),current:"box",label:"Structure"},
@@ -682,6 +682,7 @@ function activateWorkspaceTab(id, options = {}) {
   }
   if (id === "log" && liveLog.follow) logEl.scrollTop = logEl.scrollHeight;
   if (id === "sensitivity") state.sensitivity?.refreshContext();
+  if (id === "material") refreshMaterialAllowableEditor();
   if (id === "stringerlayout") state.stringerLayout?.refresh();
   if (["displaygeometry","displayenvironment"].includes(id)) {state.geometryDisplay?.rebuild();syncGeometryControls();}
   if (state.data) applyAeroOverlayStyles();
@@ -820,6 +821,7 @@ function buildForm(schema, values) {
   state.supportEditor?.destroy?.(); state.supportEditor = null;
   state.stringerLayout?.destroy?.(); state.stringerLayout = null;
   state.materialsEditor?.destroy?.(); state.materialsEditor = null;
+  state.allowablesEditor?.destroy(); state.allowablesEditor=null;
   for(const editor of state.componentEditors || [])editor.destroy(); state.componentEditors=[];
   state.planformEditor?.destroy?.();
   const planformMethod = state.planformInputs?.capture();
@@ -1215,7 +1217,7 @@ function affectsModel(key,params) {
     return rows.some(row=>row.enabled);
   }
   return !key.startsWith("sensitivity.") && !["output.title", "output.reference_file", "jfem.repo", "jfem.output_dir",
-           "jfem.output_formats", "jfem.timeout_minutes"].includes(key);
+           "jfem.output_formats", "jfem.timeout_minutes", "materials.allowables"].includes(key);
 }
 
 function readPlanformParams() {
@@ -1470,6 +1472,7 @@ function updateAnalysisValidity() {
   refreshSensitivityDisplayButtons();
   state.propertyDisplay?.refresh();
   if(state.propertyDisplay?.enabled)updateViewportLegends();
+  syncMaterialAssessmentNote();
   return status;
 }
 
@@ -1515,6 +1518,7 @@ function parameterEdited(key) {
   if(key.startsWith("airfoil."))state.airfoilEditor?.refresh?.();
   if(key.startsWith("loft.")||key==="planform.twist_tip")state.loftEditor?.refresh?.();
   markStudyModified();
+  if(workspaceUI.activeTab==="material"&&(key.startsWith("material.")||key==="materials.library"))refreshMaterialAllowableEditor();
   if (/^(planform|airfoil|loft)\./.test(key)) state.movableEditor?.refresh();
   if(key.startsWith("movable_surfaces.")||key.startsWith("materials.")) state.movableStructureEditor?.refresh();
   if (!affectsModel(key)) return;
@@ -1737,8 +1741,73 @@ function readRunTimeout() {
   return value;
 }
 
+function readMaterialAllowables(){
+  const input=document.getElementById('p-materials.allowables');
+  if(!input)return state.values['materials.allowables']||[];
+  const raw=input.value||'[]';if(state.allowableRowsCache?.raw===raw)return state.allowableRowsCache.rows;
+  try{const rows=JSON.parse(raw);state.allowableRowsCache={raw,rows};return rows;}catch{return[];}
+}
+
+function refreshMaterialAllowableEditor(){
+  if(typeof WingMaterialAllowables==='undefined')return;
+  const host=document.getElementById('panel-material-allowables');if(!host)return;
+  if(!state.allowablesEditor)state.allowablesEditor=WingMaterialAllowables.editor({document,host,
+    readMaterials:()=>{
+      if(state.importedDeck)return state.data?.materials?.library||WingMaterialAllowables.materialsFromGroups(state.data?.groups);
+      let library=[];try{library=JSON.parse(document.getElementById('p-materials.library')?.value||'[]');}catch{}
+      return[{id:1,type:'MAT1',name:document.getElementById('p-material.name')?.value||'Material 1'},...library.map(mat=>({...mat,type:'MAT1'}))];
+    },readRows:readMaterialAllowables,sourceUnits:()=>!!state.importedDeck,
+    onChange:rows=>{
+      state.values['materials.allowables']=rows;
+      const input=document.getElementById('p-materials.allowables');if(input)input.value=JSON.stringify(rows);
+      markStudyModified();refreshMaterialAssessmentControls();
+    }});
+  else state.allowablesEditor.refresh();
+}
+
+function currentMaterialAssessment(){
+  const r=state.results;
+  if(typeof WingMaterialAllowables==='undefined'||!r||!r.matches||r.available===false||!r.static||state.activeMode>=0||state.modelDirty||resultsHavePendingDrafts()||r.historical||
+    /failed|cancelled|canceled|timeout|stopped/i.test(r.status||'')||
+    (r.convergence&&!(r.convergence.converged===true&&r.convergence.full_load===true&&!r.convergence.partial))||
+    (r.signature&&r.signature!==state.modelSignature)||(r.meshIdentity&&r.meshIdentity!==state.meshIdentity))return null;
+  const rows=readMaterialAllowables();if(!rows.length)return null;
+  if(r.allowableCache?.rows===rows&&r.allowableCache.meshIdentity===state.meshIdentity)return r.allowableCache.assessment;
+  try{const assessment=WingMaterialAllowables.build(state.elements,r.elementResults,rows);r.allowableCache={rows,meshIdentity:state.meshIdentity,assessment};return assessment;}catch{return null;}
+}
+
+function allowableDisplayValue(value,unit){
+  return unit==='strain'?eng(value,5)+' strain':eng(value*(state.importedDeck?1:1e-9),5)+(state.importedDeck?' source stress units':' GPa');
+}
+
+function syncMaterialAssessmentNote(){
+  const selector=document.getElementById('contour-select');if(!selector)return;
+  let note=document.getElementById('allowables-result-note');
+  if(!note){note=document.createElement('div');note.id='allowables-result-note';note.setAttribute('role','status');selector.closest('label')?.after(note);if(!note.isConnected)selector.after(note);}
+  const rows=readMaterialAllowables(),assessment=currentMaterialAssessment();
+  note.hidden=!rows.length;note.dataset.exceeded=String((assessment?.worst?.utilization||0)>1);
+  if(!rows.length)return;
+  const text=document.createElement('p');
+  text.textContent=assessment?assessment.contour.note+(assessment.worst?' Maximum '+WingMaterialAllowables.format(assessment.worst.utilization)+' at EID '+assessment.worst.eid+', MID '+assessment.worst.material_id+(assessment.worst.ply?', ply '+assessment.worst.ply:'')+'.':''):state.activeMode>=0?'Material checks are unavailable for normalized mode shapes. Select a physical static solution or static preload.':'Material checks require current, converged static results with recovered stresses or ply strains.';
+  const edit=document.createElement('button');edit.type='button';edit.className='mini';edit.textContent='Edit material allowables';edit.onclick=()=>activateWorkspaceTab('material');note.replaceChildren(text,edit);
+  if(assessment?.reasons.size){const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Unassessed elements';details.append(summary);for(const[reason,count]of assessment.reasons){const p=document.createElement('p');p.textContent=count+': '+reason;details.append(p);}note.append(details);}
+}
+
+function refreshMaterialAssessmentControls(){
+  const r=state.results;if(r)delete r.allowableCache;
+  const selector=document.getElementById('contour-select');
+  if(selector&&r){
+    const previous=selector.selectedOptions[0]?.textContent,options=contourOptions();selector.replaceChildren();
+    options.forEach((option,index)=>{const el=document.createElement('option');el.value=String(index);el.textContent=option.name;selector.append(el);});
+    const found=options.findIndex(option=>option.name===previous);state.contourIdx=found>=0?found:0;selector.value=String(state.contourIdx);
+    applyContour();if(state.selectedElement!==null)showElement(state.selectedElement);
+  }
+  syncMaterialAssessmentNote();
+}
+
 function collectParams({includeView = false} = {}) {
-  if(state.importedDeck)return {model_kind:'reference',"jfem.timeout_minutes":readRunTimeout(),imported_deck:{token:state.importedDeck.token,signature:state.importedDeck.signature,analysis:WingImportedAnalysis.options(state.importedDeck.source?.analysis)}};
+  state.allowablesEditor?.assertValid();
+  if(state.importedDeck)return {model_kind:'reference',"materials.allowables":readMaterialAllowables(),"jfem.timeout_minutes":readRunTimeout(),imported_deck:{token:state.importedDeck.token,signature:state.importedDeck.signature,analysis:WingImportedAnalysis.options(state.importedDeck.source?.analysis)}};
   if(state.data?.imported_deck)throw Error('Imported deck identity is unavailable. Read the deck or reopen its Study; a generated lifting surface will not be substituted.');
   state.panelTables?.assertValidDraft?.();
   state.parameterLocks?.enforce();
@@ -2749,7 +2818,8 @@ async function saveModelDefinition({saveAs=false,noteText} = {}) {
     if (destination.error) throw destination.error;
     activity()?.update(token, {label:"Saving Study", detail:"Embedding references and display settings…"});
     meshStatus("Saving Study…", "building");
-    const params = state.importedDeck ? {...state.values,"sensitivity.settings":state.sensitivity?.serialize()||""} : collectParams(); params["references.items"] = [];
+    state.allowablesEditor?.assertValid();
+    const params = state.importedDeck ? {...state.values,"materials.allowables":readMaterialAllowables(),"sensitivity.settings":state.sensitivity?.serialize()||""} : collectParams(); params["references.items"] = [];
     let validated={parameters:params};
     // Imported GRID/cards are authoritative. Dormant wing-form metadata must
     // not require a valid generated wing just to save the original source.
@@ -2793,7 +2863,8 @@ async function autosaveStudy(stamp) {
   if(!current())return false;
   state.panelTables?.assertValidDraft?.();
   // Freeze parameters, view, notes and source before any server/file awaits.
-  const parameters=JSON.parse(JSON.stringify(state.importedDeck?{...state.values,"sensitivity.settings":state.sensitivity?.serialize()||""}:collectParams()));parameters["references.items"]=[];
+  state.allowablesEditor?.assertValid();
+  const parameters=JSON.parse(JSON.stringify(state.importedDeck?{...state.values,"materials.allowables":readMaterialAllowables(),"sensitivity.settings":state.sensitivity?.serialize()||""}:collectParams()));parameters["references.items"]=[];
   const view=WingWorkspace.captureView(document,state,workspaceUI),savedAt=new Date().toISOString();
   const notes=WingWorkspace.notesForSave(state.studyNotes,document.getElementById("study-note")?.value||"",savedAt),createdAt=state.studyCreatedAt,source=state.importedDeck?.source;
   let validated=parameters;
@@ -3015,7 +3086,7 @@ async function loadModelDefinition(file, options = {}) {
     try {
       staged = await state.reference.stagePortable(items, definition.view.reference, {linked:parametersOnly});
       const importRequest=options.importRequest || definition.model_source;
-      const response = await postParams(importRequest ? "/api/import_reference" : "/api/prepare_workspace", importRequest || definition.parameters, token);
+      const response = await postParams(importRequest ? "/api/import_reference" : "/api/prepare_workspace", importRequest ? {...importRequest,"materials.allowables":options.importDeck?[]:definition.parameters["materials.allowables"]||[]} : definition.parameters, token);
       if (response.status === 404) throw new Error("Portable model files need the updated server. Restart JFEM-Boxer and refresh.");
       if (!response.ok) throw new Error(await readError(response));
       const transferStarted=performance.now();
@@ -3139,6 +3210,8 @@ async function loadReferenceSource(raw) {
 
 function syncModelNavigation(){
   const imported=!!state.importedDeck;
+  const materials=document.getElementById('tab-material');
+  if(materials){materials.setAttribute('aria-controls',imported?'panel-material-allowables':'group-materials panel-material-allowables');materials.title=imported?'Set assessment allowables for source materials. Elastic properties remain defined by the imported deck.':'Edit material properties and optional stress or strain allowables.';}
   for(const id of GENERATED_MODEL_TABS){
     const button=document.getElementById('tab-'+id);if(!button)continue;
     if(imported){if(!button.dataset.modelUnavailable)button.dataset.availableTitle=button.title;button.dataset.modelUnavailable='true';button.disabled=true;button.title='This form defines a Boxer-generated lifting surface. For this imported model, use Display, Loads / Cases, Constraints or Analysis.';}
@@ -3173,6 +3246,7 @@ function syncImportedModelMode(disabled=false) {
     log('Imported analysis changed to SOL'+WingImportedAnalysis.solution(state.importedDeck)+'. Run JFEM explicitly to calculate new results.');
   }});
   state.importedAnalysis.refresh(disabled||!!state.diskResults);
+  if(workspaceUI.activeTab==="material")refreshMaterialAllowableEditor();
   document.getElementById('imported-analysis').hidden=!!state.diskResults||!WingImportedAnalysis.isExternalDeck(state.importedDeck);
   document.getElementById("auto-mesh").disabled=!!imported||disabled;
   for(const id of ["btn-create","btn-save","btn-save-toml","btn-view-toml","btn-open-plan-view"]){
@@ -3199,12 +3273,14 @@ async function loadDiskResults(file,{choose}={}) {
   return workspaceOperation(async token=>{
     const prepared=await WingDiskResults.read(file,{choose,onProgress:detail=>activity()?.update(token,{detail})});
     if(!prepared)return false;
-    const {mesh,results}=prepared,previous={diskResults:state.diskResults,importedDeck:state.importedDeck,data:state.data,values:state.values,signature:state.modelSignature,jobSignature:state.jobSignature,resultCases:state.resultCases,results:state.results,activeCase:state.activeCase,view:WingWorkspace.captureView(document,state,workspaceUI)};
+    const {mesh,results}=prepared,previous={diskResults:state.diskResults,importedDeck:state.importedDeck,data:state.data,values:state.values,allowableInput:document.getElementById("p-materials.allowables")?.value,signature:state.modelSignature,jobSignature:state.jobSignature,resultCases:state.resultCases,results:state.results,activeCase:state.activeCase,view:WingWorkspace.captureView(document,state,workspaceUI)};
     const wasBuilding=state.buildingScene;state.buildingScene=true;
     try{
       const view=WingWorkspace.newModelView(document);WingWorkspace.applyControls(document,view.controls);
       state.diskResults={name:file.name,signature:prepared.signature};state.importedDeck={...mesh.imported_deck,source:{kind:'results',name:file.name,analysis:{solution:'source'}}};
-      state.values=JSON.parse(JSON.stringify(state.defaults||state.values));mesh.model_params=state.values;state.data=mesh;
+      state.values=JSON.parse(JSON.stringify(state.defaults||state.values));state.values['materials.allowables']=[];
+      const allowableInput=document.getElementById('p-materials.allowables');if(allowableInput)allowableInput.value='[]';state.allowablesEditor?.destroy();state.allowablesEditor=null;
+      mesh.model_params=state.values;state.data=mesh;
       state.modelSignature=state.jobSignature=prepared.signature;state.lastEditedSignature=prepared.signature;state.autoMeshPending=false;
       await buildModelResponsive(mesh,{preserveView:false,resetIsolation:true},token);
       resetImportedModelMenus();state.jobSignature=prepared.signature;state.resultVariantPreference='';
@@ -3221,7 +3297,7 @@ async function loadDiskResults(file,{choose}={}) {
       updateFileStatus();showStats(mesh,file.size,0);activateWorkspaceTab('results');
       log('Opened '+file.name+': '+mesh.nodes.count+' GRID nodes; '+results.load_cases.length+' result case(s). '+mesh.imported_deck.warnings.join(' '),'good');
       meshStatus('Stored results: '+file.name,'current');return true;
-    }catch(error){state.diskResults=previous.diskResults;state.importedDeck=previous.importedDeck;state.data=previous.data;state.values=previous.values;state.modelSignature=previous.signature;state.jobSignature=previous.jobSignature;if(previous.data)buildModel(previous.data,{preserveView:true,resetIsolation:true});else disposeModel();state.resultCases=previous.resultCases;state.results=previous.results;state.activeCase=previous.activeCase;restoreWorkspaceView(previous.view);if(state.results)showResults();throw error;
+    }catch(error){const input=document.getElementById('p-materials.allowables');if(input&&previous.allowableInput!==undefined)input.value=previous.allowableInput;state.allowablesEditor?.destroy();state.allowablesEditor=null;state.diskResults=previous.diskResults;state.importedDeck=previous.importedDeck;state.data=previous.data;state.values=previous.values;state.modelSignature=previous.signature;state.jobSignature=previous.jobSignature;if(previous.data)buildModel(previous.data,{preserveView:true,resetIsolation:true});else disposeModel();state.resultCases=previous.resultCases;state.results=previous.results;state.activeCase=previous.activeCase;restoreWorkspaceView(previous.view);if(state.results)showResults();throw error;
     }finally{state.buildingScene=wasBuilding;}
   },'Opening JFEM results');
 }
@@ -5325,6 +5401,8 @@ function contourOptions() {
   r.contours.forEach((c, i) => {
     opts.push({ kind: "data", idx: i, name: c.name, unit: c.unit });
   });
+  const assessment=currentMaterialAssessment();
+  if(assessment?.assessed)opts.push({kind:"allowable",name:"Material allowable utilization",unit:"ratio"});
   return opts;
 }
 
@@ -5351,6 +5429,7 @@ function rawContourValues() {
   const opts = contourOptions();
   const opt = opts[Math.min(state.contourIdx, opts.length - 1)];
   if (!opt || opt.kind === "none") return null;
+  if (opt.kind === "allowable") return currentMaterialAssessment()?.contour||null;
   if (opt.kind === "data") {
     const c = state.results.contours[opt.idx];
     return c;
@@ -5539,13 +5618,14 @@ function selectMode(i) {
   const previous=contourOptions()[state.contourIdx];
   state.activeMode = i;
   r.contours=[...(r.baseContours||r.contours),...(i>=0?r.modes[i]?.energyContours||[]:r.preloadEnergyContours||[])];
-  if(r.preloadEnergyContours?.length||r.modes.some(mode=>mode.energyContours?.length)){
+  if(r.preloadEnergyContours?.length||r.modes.some(mode=>mode.energyContours?.length)||readMaterialAllowables().length){
     const options=contourOptions(),selector=document.getElementById("contour-select");selector.replaceChildren();
     options.forEach((option,index)=>{const item=document.createElement("option");item.value=String(index);item.textContent=option.name;selector.append(item);});
     const selected=options.findIndex(option=>option.kind===previous?.kind&&option.name===previous?.name);
     state.contourIdx=selected>=0?selected:Math.min(state.contourIdx,options.length-1);selector.value=String(state.contourIdx);
   }
   updateScaleText();
+  syncMaterialAssessmentNote();
   rebuildSupportForces();
   state.phase = Math.PI / 2;        // start at the peak, not at zero
   for (const el of document.querySelectorAll(".mode")) {
@@ -5685,6 +5765,7 @@ function showResults() {
     applyDeformation();
   }
   updateScaleText();
+  syncMaterialAssessmentNote();
   syncResultOverlays();
 }
 
@@ -6562,6 +6643,7 @@ function applyAeroOverlayStyles() {
 }
 
 function syncResultOverlays() {
+  syncMaterialAssessmentNote();
   syncUndeformedColor();
   const deformed = !!activeShape();
   applyAeroOverlayStyles();
@@ -6832,6 +6914,11 @@ function showElement(eid) {
     html += "<details open><summary>Element results (stress: GPa)</summary><p class=\"pick-note\">" + esc(resultCaseLabel()) + " · Stress displayed in GPa; other quantities retain SI units. Files and CSV retain their recorded units.</p>" + resultTable(WingResultDisplay.stressRecord(results)) + "</details>";
   } else {
     html += '<p class="pick-note">No element stress/force results available for this element.</p>';
+  }
+  const allowable=currentMaterialAssessment()?.details.get(eid);
+  if(allowable){
+    const shown=allowable.reason?{Status:allowable.reason}: {Criterion:allowable.criterion,Material:allowable.material_id,...(allowable.ply?{Ply:allowable.ply}:{}),Face:allowable.face,...(allowable.component?{Component:allowable.component}:{}),Demand:allowableDisplayValue(allowable.demand,allowable.unit),Allowable:allowableDisplayValue(allowable.allowable,allowable.unit),Utilization:allowable.utilization,"Reserve factor":allowable.reserve_factor??"Unbounded (zero demand)","Margin (reserve factor - 1)":allowable.margin??"Unbounded (zero demand)",Status:allowable.utilization>1?"Limit exceeded":"Within the specified limit"};
+    html+='<details open><summary>Material allowable check</summary>'+resultTable(shown)+'</details>';
   }
   const shape = activeShape();
   if (shape) {

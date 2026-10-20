@@ -1,0 +1,7 @@
+#panel-material-allowables h2{font-size:15px;margin:0 0 12px}
+.allowable-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px}
+.allowable-fields .material-field:first-child{grid-column:1/-1}
+.allowable-fields input{width:100%}
+#allowables-result-note{margin:10px 0;padding:8px;border-left:3px solid #64baff;background:#14212e;font-size:12px;line-height:1.5}
+#allowables-result-note[data-exceeded=true]{border-color:#ff7f79}
+@container boxer-pane (max-width:330px){.allowable-fields{grid-template-columns:minmax(0,1fr)}}

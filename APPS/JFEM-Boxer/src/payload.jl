@@ -434,6 +434,7 @@ function mesh_payload(m::Model; progress = stage -> nothing)
             "note" => "front_xc/rear_xc are independent base-trapezoid fractions; surface_xc values locate those paths on the refined section. Physical rib numbering is unchanged by inserted edge/spar rows."),
         "leading_edge" => leading_edge_summary(m),
         "materials"=>Dict{String,Any}("library"=>[material_payload(row) for row in material_definitions(m.params)],
+            "allowables"=>deepcopy(get(m.params,"materials.allowables",Any[])),
             "note"=>MATERIAL_IDEALIZATION_NOTE),
         "rib_layout" => rib_layout_payload(m),
         "stringer_path" => Dict{String,Any}(

@@ -9,7 +9,7 @@
   const match=value.match(/^\s*([+-]?[\d.]+(?:e[+-]?\d+)?)(?:\s+to\s+([+-]?[\d.]+(?:e[+-]?\d+)?))?\s+Pa$/i);
   return match&&Number.isFinite(Number(match[1]))?format(Number(match[1])*1e-9)+(match[2]?' to '+format(Number(match[2])*1e-9):'')+' GPa':value;
  }
- const stressFields=new Set(['normal_x','normal_y','shear_xy','von_mises','major','minor','axial','axial_end_a','axial_end_b','torsional',...Array.from({length:8},(_,i)=>'p'+(i+1))]);
+ const stressFields=new Set(['normal_x','normal_y','shear_xy','s1','s2','t12','von_mises','major','minor','axial','axial_end_a','axial_end_b','torsional',...Array.from({length:8},(_,i)=>'p'+(i+1))]);
  function stressRecord(record){
   const sourceUnit=/^GPa\b/.test(record?.stress_units||'')?'GPa':'Pa';
   function visit(value,inStress=false){

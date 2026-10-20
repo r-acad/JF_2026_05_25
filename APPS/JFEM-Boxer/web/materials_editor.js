@@ -4,7 +4,7 @@
  "use strict";
  const SHELLS=[["upper_skin","Upper skin","group-shell-properties","properties.t_skin_upper"],["lower_skin","Lower skin","group-shell-properties","properties.t_skin_lower"],["spar_web","Spar webs","group-spar-properties","properties.t_spar_web"],["rib_web","Rib webs","group-rib-properties","properties.t_rib_web"],["leading_edge_skin","Leading-edge skin","group-leading-edge-properties","leading_edge.t_skin"],["leading_edge_rib","Leading-edge ribs","group-leading-edge-properties","leading_edge.t_rib"],["stringer_flange","Attached flange","group-beam-sections","properties.stringer_flange_thickness"]];
  const BARS=[["stringer","Stringers","group-beam-sections"],["spar_cap","Spar caps","group-spar-properties"],["rib_stiffener","Rib stiffeners","group-rib-properties"],["runout","Runout connectors","group-beam-sections"]];
- const KEYS=["materials.library","materials.shells","materials.bars"],SHARED_NOTE="Foam and honeycomb are editable effective isotropic elastic placeholders. Directional core behavior, crushing, damage and material failure are not modeled.";
+ const KEYS=["materials.library","materials.shells","materials.bars"],SHARED_NOTE="Foam and honeycomb are editable effective isotropic elastic placeholders. Directional core behavior, crushing and damage are not modeled. Optional material allowables compare recovered elastic results without changing the material response.";
  function install({document:doc=root.document,onEdit=()=>{}}={}){
   const canonical=Object.fromEntries(KEYS.map(key=>[key,doc.getElementById("p-"+key)]));if(KEYS.some(key=>!canonical[key]))return null;
   const nodes=[],cards=[],library=[],listeners=[],selects=[],hidden=[];let destroyed=false,updating=false;

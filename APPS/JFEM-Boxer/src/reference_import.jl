@@ -210,6 +210,13 @@ function imported_material(model,mid)
     for (name,id) in get(get(model,"abaqus_import",Dict()),"material_ids",Dict());id==Int(mid)&&(original=name;break);end
     result=Dict{String,Any}("id"=>Int(mid),"MID"=>Int(mid),"name"=>original,"type"=>type)
     for (source,target) in (("E","E_Pa"),("NU","nu"),("RHO","rho_kg_m3"));haskey(mat,source)&&(result[target]=mat[source]);end
+    for (source,target) in (("E1","E1_Pa"),("E2","E2_Pa"),("G12","G12_Pa"),("G1Z","G1Z_Pa"),("G2Z","G2Z_Pa"),("NU12","nu12"))
+        haskey(mat,source)&&(result[target]=mat[source])
+    end
+    # Source-card strengths have their own interpretation (including STRN).
+    # Display them as provenance only; user Study criteria are independent.
+    strengths=Dict{String,Any}(key=>mat[key] for key in ("XT","XC","YT","YC","S","STRN") if haskey(mat,key))
+    isempty(strengths)||(result["source_strength_fields"]=strengths)
     return result
 end
 imported_material(model,mid,cache)=cache===nothing ? imported_material(model,mid) : get!(cache,Int(mid)) do
@@ -328,6 +335,10 @@ end
 
 function imported_mesh_payload(m)
     native=imported_native(m);params=m.params;source=params["imported.source"];index=Dict(id=>i for (i,id) in enumerate(m.node_ids));material_cache=Dict{Int,Any}()
+    for mat in values(get(native,"MATs",Dict()))
+        id=Int(mat["MID"])
+        material_cache[id]=material_with_allowable(imported_material(native,id),params)
+    end
     abaqus=get(native,"abaqus_import",nothing);ready=abaqus===nothing||get(abaqus,"analysis_ready",false)
     coordinates=imported_coordinate_payload(native)
     groups=Any[Dict{String,Any}("name"=>gr.name,"kind"=>string(gr.kind),"pid"=>gr.pid,"base_pid"=>0,"base_group"=>gr.name,"card_types"=>Dict(string(eid)=>String(get(native[startswith(gr.name,"IMPORTED_CBEAM_") ? "CBEAMs" : startswith(gr.name,"IMPORTED_CROD_") ? "CRODs" : gr.kind===:bar ? "CBARs" : "CSHELLs"][string(eid)],"TYPE",gr.kind===:bar ? "CBAR" : "shell")) for eid in gr.eids),"count"=>length(gr.eids),"eids"=>blob_i32(gr.eids),"conn"=>blob_i32(gr.conn;offset=-1),"orient"=>blob_f32(gr.orient),"properties"=>imported_properties(native,gr;material_cache),"axes"=>imported_element_axes(m,gr)) for gr in m.groups]
@@ -356,6 +367,9 @@ function imported_mesh_payload(m)
     parsed_card_count=source_card_count-sum(row["count"] for row in unprocessed if row["status"]=="unprocessed";init=0)
     publicparams=Dict(k=>v for (k,v) in params if !startswith(k,"imported."))
     return Dict{String,Any}("ok"=>true,"format"=>"wingfegen-mesh-1","title"=>source["name"],"model_params"=>publicparams,
+        "materials"=>Dict{String,Any}("library"=>[material_cache[id] for id in sort!(collect(keys(material_cache)))],
+            "allowables"=>deepcopy(get(params,"materials.allowables",Any[])),
+            "note"=>"Elastic material data comes from the imported model. Study allowables are editable assessment criteria and do not modify the source deck."),
         "imported_signature"=>source["signature"],"imported_deck"=>Dict("signature"=>source["signature"],"name"=>source["name"],"source_format"=>get(source,"format","reference"),"analysis_ready"=>ready,"solution"=>(ready ? params["output.solution"] : ""),"solution_label"=>(ready ? "SOL "*params["output.solution"] : "Mesh only - analysis not defined"),"abaqus"=>abaqus,"cases"=>[Dict(k=>v for (k,v) in row if k!="spc") for row in params["imported.cases"]],"warnings"=>vcat(params["imported.warnings"],coordinates["warnings"]),"unsupported_visual_cards"=>params["imported.unsupported_visual_cards"],"card_inventory"=>params["imported.inventory"],"unprocessed_cards"=>unprocessed,"source_card_count"=>source_card_count,"parsed_card_count"=>parsed_card_count,"case_control"=>get(params,"imported.case_control",Dict())),
         "nodes"=>Dict("count"=>length(m.node_ids),"n_structural"=>m.n_struct,"ids"=>blob_i32(m.node_ids),"xyz"=>blob_f32(m.xyz)),"groups"=>groups,"imported_buffers"=>buffers,
         "rbe3"=>rbe,"fuel_rbe3"=>deepcopy(emptyspider),"imported_connections"=>imported_connection_payload(native,index;source_entities=get(params,"imported.entity_sources",Dict())),"spc"=>imported_supports(m),

@@ -146,7 +146,7 @@ function rotate_shell_results!(data::AbstractDict, field::String, c::Real, s::Re
             for k in keys; pop!(d, k, nothing); end
         end
     end
-    if field == "stress"
+    if field in ("stress", "strain")
         for face in ("z1", "z2")
             d = get(data, face, nothing)
             d isa AbstractDict || continue
@@ -154,7 +154,12 @@ function rotate_shell_results!(data::AbstractDict, field::String, c::Real, s::Re
             # owned Dict so sparse/native inputs follow the same path.
             d = Dict{String,Any}(String(k) => v for (k, v) in d)
             data[face] = d
+            # Engineering shear strain is twice tensor shear. Explicit
+            # ply_faces are already in ply axes and are deliberately untouched.
+            engineering = field == "strain" && get(d,"shear_xy",nothing) isa Real
+            engineering && (d["shear_xy"] /= 2)
             tensor!(d, "normal_x", "normal_y", "shear_xy")
+            engineering && haskey(d,"shear_xy") && (d["shear_xy"] *= 2)
         end
     elseif field == "forces"
         tensor!(data, "fx", "fy", "fxy")

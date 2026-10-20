@@ -46,6 +46,7 @@
   <link rel="stylesheet" href="reference_import.css">
   <link rel="stylesheet" href="mass_properties.css">
   <link rel="stylesheet" href="materials_editor.css">
+  <link rel="stylesheet" href="material_allowables.css">
   <link rel="stylesheet" href="flight_conditions.css">
   <link rel="stylesheet" href="ui_consistency.css">
 </head>
@@ -128,6 +129,7 @@
       </section>
       <details id="imported-deck-info" hidden><summary id="imported-deck-title"></summary><p>Imported deck is authoritative. Review source cases in Loads → Cases and boundary conditions in Model → Constraints. These forms are read-only; selecting a case updates the loads and constraints in the viewport. Review properties in Display → Properties or Inspect; use Analysis, Sensitivity and Results normally. Read Reference replaces the deck; New Study returns to generated geometry. Save Study embeds the complete source, including INCLUDE content. TOML describes generated lifting surfaces only.</p><ul id="imported-deck-warnings"></ul></details>
       <div id="form"><p class="muted">reading parameters&hellip;</p></div>
+      <section id="panel-material-allowables" class="workspace-panel" data-workspace-panel="material" role="tabpanel" aria-labelledby="tab-material" hidden></section>
       <section class="workspace-panel" data-workspace-panel="cases" data-imported-only role="tabpanel" aria-labelledby="tab-cases" hidden><div id="imported-cases" hidden></div></section>
       <section class="workspace-panel" data-workspace-panel="supports" data-imported-only role="tabpanel" aria-labelledby="tab-supports" hidden><div id="imported-supports" hidden></div></section>
 
@@ -695,6 +697,7 @@
 <script src="jfem_timing.js" defer></script>
 <script src="disk_results.js" defer></script>
 <script src="ui_layout.js" defer></script>
+<script src="material_allowables.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>

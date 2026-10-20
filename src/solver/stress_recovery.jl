@@ -49,6 +49,73 @@ end
 @inline _pshell_stress_fibers_are_default(prop) =
     _pshell_stress_fiber_is_default(prop, "Z1") && _pshell_stress_fiber_is_default(prop, "Z2")
 
+"""Engineering in-plane strain in axes rotated by `angle` from the source axes."""
+@inline function _recovery_rotate_engineering_strain(e, angle)
+    c, s = cos(angle), sin(angle)
+    x, y, g = e
+    [c*c*x+s*s*y+c*s*g, s*s*x+c*c*y-c*s*g,
+     2c*s*(y-x)+(c*c-s*s)*g]
+end
+
+"""Explicit physical ply-face fields, separate from the legacy z1/z2 schema.
+
+The recovered shell membrane strain and curvature are transformed into the
+same laminate axes as the constitutive operator, then into each ply's axes.
+Both faces of every ply are sampled at the element recovery location. These
+are in-plane plane-stress fields; no transverse/interlaminar failure is implied.
+Research settings with separate membrane/bending material frames do not define
+one physical ply frame, so that case remains explicitly unavailable.
+"""
+function _recovery_ply_face_rows(prop, mats, eps_mem, kappa, membrane_angle, bending_angle)
+    unavailable(note) = (Any[], Any[], note)
+    abs(membrane_angle-bending_angle) <= 1e-10 ||
+        return unavailable("Ply-face recovery unavailable: membrane and bending use different constitutive frames.")
+    all(isfinite, eps_mem) && all(isfinite, kappa) ||
+        return unavailable("Ply-face recovery unavailable: nonfinite generalized shell strain.")
+    data = get(prop, "PLY_DATA", nothing)
+    data isa AbstractVector && !isempty(data) ||
+        return unavailable("Ply-face recovery unavailable: original laminate plies are missing.")
+    membrane = _recovery_rotate_engineering_strain(eps_mem, membrane_angle)
+    curvature = _recovery_rotate_engineering_strain(kappa, bending_angle)
+    strain_rows, stress_rows = Any[], Any[]
+    for (ip, pd) in enumerate(data)
+        mid = get(pd, "mid", nothing)
+        mid isa Integer || return unavailable("Ply-face recovery unavailable: a ply material ID is missing.")
+        mat = get(mats, string(mid), nothing)
+        mat isa AbstractDict || return unavailable("Ply-face recovery unavailable: a ply material is missing.")
+        type = haskey(mat,"E1") ? "MAT8" :
+            (haskey(mat,"G11") || get(mat,"TYPE","")=="MAT2") ? "unsupported" :
+            haskey(mat,"E") ? "MAT1" : "unsupported"
+        type == "unsupported" && return unavailable("Ply-face recovery unavailable: unsupported ply material.")
+        lower, upper, theta = get(pd,"z_bot",nothing), get(pd,"z_top",nothing), get(pd,"theta",nothing)
+        all(v -> v isa Real && isfinite(v), (lower, upper, theta)) && upper > lower ||
+            return unavailable("Ply-face recovery unavailable: ply geometry is missing or invalid.")
+        Q = get(pd,"Qbar",nothing)
+        Q isa AbstractMatrix && size(Q)==(3,3) && all(isfinite,Q) ||
+            return unavailable("Ply-face recovery unavailable: ply constitutive matrix is missing or invalid.")
+        meta = Dict{String,Any}("ply"=>ip,"material_id"=>Int(mid),"material_type"=>type,
+            "angle_deg"=>Float64(theta),"z_bottom"=>Float64(lower),"z_top"=>Float64(upper))
+        strain, stress = copy(meta), copy(meta)
+        angle = deg2rad(theta); c, s = cos(angle), sin(angle)
+        for (face,z) in (("bottom",lower),("top",upper))
+            laminate_strain = membrane .+ z .* curvature
+            e = _recovery_rotate_engineering_strain(laminate_strain, angle)
+            sigma = Q * laminate_strain
+            sx, sy, txy = sigma
+            s1 = c*c*sx+s*s*sy+2c*s*txy
+            s2 = s*s*sx+c*c*sy-2c*s*txy
+            t12 = c*s*(sy-sx)+(c*c-s*s)*txy
+            all(isfinite,e) && all(isfinite,(s1,s2,t12)) ||
+                return unavailable("Ply-face recovery unavailable: nonfinite ply response.")
+            strain[face] = Dict("e1"=>e[1],"e2"=>e[2],"g12"=>e[3])
+            stress[face] = Dict("s1"=>s1,"s2"=>s2,"t12"=>t12,
+                "von_mises"=>sqrt(s1*s1-s1*s2+s2*s2+3t12*t12))
+        end
+        push!(strain_rows,strain);push!(stress_rows,stress)
+    end
+    return strain_rows, stress_rows, "Every ply bottom/top at the element recovery location; ply material axes, engineering shear strain. In-plane fields only; no transverse/interlaminar failure check."
+end
+
 # 2026-08-05: the CTRIA3 macro-quad moment blend (edge-connectivity-weighted
 # average of virtual-sub-quad moments into interior-triangle recovery) was
 # removed together with the macro-quad construction itself. Recovery is now
@@ -304,6 +371,8 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
         rectangular_pcomp_recovery = false
         ply_strain_transform = nothing
         ply_membrane_transform = nothing
+        ply_face_membrane_angle = 0.0
+        ply_face_bending_angle = 0.0
 
         if n==4
             i1, i2, i3, i4 = id_map[nids[1]], id_map[nids[2]], id_map[nids[3]], id_map[nids[4]]
@@ -345,6 +414,7 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
             end
             clt_Cm = nothing
             clt_Cb = nothing
+            beta = 0.0
             material_shear_rotation = 0.0
             membrane_shear_center_row = false
             if get(prop, "TYPE", "") == "PCOMP_CLT" && haskey(prop, "Cm")
@@ -393,6 +463,8 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                 end
             end
             clt_Bmb = get(prop,"Bmb",nothing)
+            ply_face_membrane_angle = beta + membrane_frame_phi
+            ply_face_bending_angle = beta + bending_frame_phi
             clt_Bmb = clt_Bmb === nothing ? nothing : copy(clt_Bmb)
             # Historical/raw PCOMP surrogates may contain only A/D/ply data.
             # Keep their existing recovery instead of inventing a transverse law.
@@ -598,6 +670,8 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                     shell_material_coordinate_id(el),
                     model["CORDs"],
                 )
+                ply_face_membrane_angle = beta
+                ply_face_bending_angle = beta
                 if abs(beta) > 1e-10
                     cb = cos(beta); sb = sin(beta)
                     c2 = cb^2; s2 = sb^2; cs = cb*sb
@@ -642,10 +716,15 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
         end
 
         is_pcomp = get(prop, "TYPE", "") == "PCOMP_CLT" && haskey(prop, "PLY_DATA")
+        ply_face_strains, ply_face_stresses, ply_face_note = nothing, nothing, ""
         if is_pcomp
             t_total = prop["T"]
             eps_mem = (e_z1 .+ e_z2) ./ 2.0
             kappa = (e_z2 .- e_z1) ./ t_total
+            if static_fields === nothing
+                ply_face_strains, ply_face_stresses, ply_face_note = _recovery_ply_face_rows(
+                    prop, model["MATs"], eps_mem, kappa, ply_face_membrane_angle, ply_face_bending_angle)
+            end
             Cm_eff = clt_Cm === nothing ? prop["Cm"] : clt_Cm
             Cb_eff = clt_Cb === nothing ? prop["Cb"] : clt_Cb
             # These resultants are emitted only by full row recovery. Retain
@@ -739,8 +818,18 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
             Dict("fiber_dist" => t, "normal_x" => e[1], "normal_y" => e[2], "shear_xy" => e[3], "major" => major, "minor" => minor)
         end
 
-        push!(results_json["stresses"][elem_key], Dict("eid" => eid, "z1" => make_stress_entry(s_z1, stress_z1), "z2" => make_stress_entry(s_z2, stress_z2)))
-        push!(results_json["strains"][elem_key], Dict("eid" => eid, "z1" => make_strain_entry(eps_mem_out, 0.0), "z2" => make_strain_entry(kappa_nast_out, -1.0)))
+        stress_row = Dict{String,Any}("eid" => eid, "z1" => make_stress_entry(s_z1, stress_z1), "z2" => make_stress_entry(s_z2, stress_z2))
+        strain_row = Dict{String,Any}("eid" => eid, "z1" => make_strain_entry(eps_mem_out, 0.0), "z2" => make_strain_entry(kappa_nast_out, -1.0))
+        if is_pcomp
+            for (row, faces) in ((stress_row,ply_face_stresses),(strain_row,ply_face_strains))
+                row["ply_faces"] = faces
+                row["ply_faces_complete"] = !isempty(faces) && length(faces)==length(prop["PLY_DATA"])
+                row["ply_faces_note"] = ply_face_note
+                row["ply_faces_coordinate_system"] = "ply material 1/2 axes"
+            end
+        end
+        push!(results_json["stresses"][elem_key], stress_row)
+        push!(results_json["strains"][elem_key], strain_row)
     end
 end
 

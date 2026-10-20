@@ -27,6 +27,42 @@ Fuel density is in **Fuel tank**. Display → Environment groups each plane's
 visibility, finish, color and position; choose **Customize lighting** for
 individual light intensities and directions.
 
+**Materials → Material allowables** stores optional limits for each material.
+Choose **Stress** for isotropic MAT1 materials: the largest recovered von Mises
+stress is divided by the specified allowable. Generated-model inputs use GPa
+and save Pa; imported-model inputs use the deck's stress units. Choose **Strain**
+for orthotropic MAT8 laminate plies: enter positive limits for longitudinal and
+transverse tension/compression and in-plane engineering shear. Strains are
+dimensionless (`0.005` means `0.5%`); engineering shear `γ12` is twice tensor shear.
+Limits are user supplied; an empty or incomplete definition is not assessed.
+The generated material library remains isotropic; imported MAT8 materials expose
+their strain criteria without changing their source elastic properties.
+
+In **Results**, select **Material allowable utilization** to color assessed
+elements. A ratio above 1 exceeds the limit. **Inspect** reports the governing
+material, ply, face and component, the demand, allowable, reserve ratio `1/U`
+and margin `1/U - 1`. Every laminate ply and both ply faces must have valid
+criteria and recovery for the element to be assessed. Missing elements remain
+gray and the Results note explains the coverage. Comparisons use recovered
+element sample locations, not extrapolated corner maxima or interlaminar
+stresses. The maximum-strain criterion treats material-axis components
+independently; it does not include failure interaction or progressive damage.
+See [NASA's laminate failure-criterion discussion](https://ntrs.nasa.gov/citations/19990052628)
+for the scope and limitations of such in-plane laminate checks.
+
+Checks apply to current SOL101, converged full-load SOL106 and SOL105 static
+preload results. Eigenmode amplitudes are arbitrary and are not assessed. For
+nonlinear results the reserve ratio is a demand ratio, not a predicted load
+multiplier. Beams lacking a recovered equivalent stress are unassessed; axial
+stress alone is not substituted for von Mises stress. Editing allowables updates
+the comparison without rerunning the FE solution. Criteria are retained by
+Study/TOML, while a newly imported model or result archive clears unrelated limits.
+Old outputs without complete ply-face recovery must be rerun. Boxer-generated
+and explicitly configured imported analyses request strain output; when preserving
+an imported source analysis, its authored output requests remain authoritative.
+If they suppress strain output, choose an explicit solution in **Analysis of
+imported model** and rerun to obtain laminate strain checks.
+
 Use **Project → Open JFEM results…** (also available on the opening screen)
 to choose a `.jfem` result file from any folder with the normal system file
 browser. Boxer reads the mesh and all stored result states in the background,

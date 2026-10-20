@@ -160,12 +160,13 @@ function imported_analysis_model(m,raw=nothing)
     end
     isempty(order)&&throw(ArgumentError("No source static/preload subcase is available for the selected solution"))
     clean(row)=filter(line->!(output_override && occursin(r"^\s*ESE(?:\s*\([^)]*\))?\s*="i,line)) &&
+        !((options["solution"]!="source"||options["follower"]!="source") && occursin(r"^\s*STRAIN(?:\s*\([^)]*\))?\s*="i,line)) &&
         !(options["solution"]!="source" && occursin(r"^\s*(METHOD|CMETHOD|STATSUB|NLPARM|TSTEP)(?:\s*\([^)]*\))?\s*="i,line)),row)
     for line in clean(globals);println(io,line);end
     output_override && println(io,"ESE(PLOT) = ",options["buckling_deformation_energy"] ? "ALL" : "NONE")
     # Output-only overlays preserve source solution requests and EIGRL limits.
     if options["solution"]!="source"||options["follower"]!="source"
-        println(io,"DISPLACEMENT(PRINT) = ALL\nSTRESS(PRINT) = ALL\nFORCE(PRINT) = ALL\nSPCFORCES(PRINT) = ALL")
+        println(io,"DISPLACEMENT(PRINT) = ALL\nSTRESS(PRINT) = ALL\nSTRAIN(PRINT) = ALL\nFORCE(PRINT) = ALL\nSPCFORCES(PRINT) = ALL")
     end
     mapping=Dict{Int,Int}();nextsid=maximum(keys(blocks))+1
     cases=Any[]

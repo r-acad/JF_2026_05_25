@@ -5,6 +5,23 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Material allowables and result utilization
+
+- Add optional material limits in Materials for generated and imported models:
+  isotropic MAT1 von Mises stress and orthotropic MAT8 laminate engineering
+  strain, with separate longitudinal/transverse tension/compression and shear
+  limits. Preserve criteria in Study and TOML files without changing stiffness,
+  mass or the solved load case. No default material strengths are assumed.
+- Recover both faces of every laminate ply in material axes and display
+  material utilization, governing ply/component, reserve ratio and margin for
+  current physical static results, including buckling preload. Missing limits,
+  incomplete recovery and unsupported equivalent stresses remain unassessed.
+  Normalized modes, stale results and incomplete nonlinear solves are excluded.
+- Request strain output in generated and explicitly configured imported analyses;
+  source-preserving imported analyses retain their original output requests.
+  Older results without ply recovery need to be rerun for laminate assessment.
+- Keep explosion distance inputs at the normal numeric-field height and width.
+
 ### Boxer form and navigation consistency
 
 - Show **Analysis of imported model** only for retained external FE input

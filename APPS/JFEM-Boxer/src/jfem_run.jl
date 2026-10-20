@@ -1041,7 +1041,8 @@ function scaled_linear_result(d::AbstractDict,scale::Real)
     mechanical=Set(["t1","t2","t3","r1","r2","r3","normal_x","normal_y","shear_xy",
         "von_mises","major","minor","axial","axial_end_a","axial_end_b","torsional",
         "fx","fy","fxy","mx","my","mxy","qx","qy","shear_1","shear_2","torque",
-        "moment_a1","moment_a2","moment_b1","moment_b2","p1","p2","p3","p4","p5","p6","p7","p8"])
+        "moment_a1","moment_a2","moment_b1","moment_b2","p1","p2","p3","p4","p5","p6","p7","p8",
+        "e1","e2","g12","s1","s2","t12"])
     function scale_values!(value)
         if value isa AbstractDict
             for (key,item) in value
@@ -1363,7 +1364,7 @@ function element_results_payload(m::Model, results::AbstractDict)
     rotations = Dict(gr.eids[e] => shell_result_rotation(m, gr, e; path=frame_path)
                      for gr in m.groups if gr.kind !== :bar for e in 1:n_elements(gr))
     records = Dict{String,Any}()
-    for (source_key, target_key) in (("stresses", "stress"), ("forces", "forces"))
+    for (source_key, target_key) in (("stresses", "stress"), ("strains", "strain"), ("forces", "forces"))
         source = get(results, source_key, nothing)
         source isa AbstractDict || continue
         for (family, kind, card) in (("quad4", :quad, "CQUAD4"),
@@ -1388,8 +1389,11 @@ function element_results_payload(m::Model, results::AbstractDict)
                 if target_key == "forces"
                     fields = kind === :bar ? BAR_FORCE_FIELDS : SHELL_FORCE_FIELDS
                     record["force_units"] = Dict(k => unit for (k, _, unit) in fields if haskey(data, k))
-                else
+                elseif target_key == "stress"
                     record["stress_units"] = "Pa; fiber_dist in m"
+                else
+                    record["strain_units"] = kind === :bar ? "Engineering strain (dimensionless)" :
+                        "Engineering strain (dimensionless); legacy z1 is membrane strain, z2 is negative curvature (1/m). ply_faces are explicit bottom/top strains in each ply's material axes."
                 end
             end
         end

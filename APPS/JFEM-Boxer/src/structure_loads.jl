@@ -44,7 +44,7 @@ end
 
 function structural_mass_data(m::Model)::StructuralMassData
     register_shell_stringer_mass_geometry!(m.params,m.groups,m.xyz,m.grid)
-    signature=hash(sort!([k=>v for (k,v) in m.params if startswith(k,"properties.")||startswith(k,"material.")||startswith(k,"materials.")||startswith(k,"nonstructural.")||k in ("leading_edge.t_skin","leading_edge.t_rib","stringers.shell_offsets")];by=first))
+    signature=hash(sort!([k=>v for (k,v) in m.params if k!="materials.allowables"&&(startswith(k,"properties.")||startswith(k,"material.")||startswith(k,"materials.")||startswith(k,"nonstructural.")||k in ("leading_edge.t_skin","leading_edge.t_rib","stringers.shell_offsets"))];by=first))
     lock(STRUCTURE_MASS_LOCK) do
         cached=STRUCTURE_MASS_CACHE[]
         cached!==nothing&&cached.groups===m.groups&&cached.xyz===m.xyz&&cached.signature==signature&&return cached.data

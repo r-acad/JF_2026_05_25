@@ -303,6 +303,9 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
     println(io, "ECHO = NONE")
     println(io, "DISPLACEMENT(PLOT) = ALL")
     println(io, "SPCFORCES(PLOT) = ALL")
+    # Retain engineering-strain recovery for later material-allowable changes.
+    # Criteria remain Study metadata and never alter the structural problem.
+    println(io, "STRAIN(PLOT) = ALL")
     if sol=="105" && (get(p,"output.buckling_deformation_energy",false) || get(p,"output.buckling_energy_density",false))
         println(io,"ESE(PLOT) = ALL")
     end
