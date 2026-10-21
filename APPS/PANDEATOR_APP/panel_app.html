@@ -9,6 +9,7 @@
      When served by panel_server.jl these resolve to /vendor/...; opening the file
      directly (file://) also works since the paths are relative. -->
 <script src="vendor/babylon.js"></script>
+<script src="../jfem_graphics.js"></script>
 <script src="vendor/msgpack.min.js"></script>
 <style>
   :root { --bg:#1b1b1f; --panel:#26262c; --accent:#00d0ff; --txt:#ddd; }
@@ -279,7 +280,8 @@
 </div>
 
 <script src="../jfem_binary.js"></script>
-<script>
+<div id="graphics-status" role="status" style="position:fixed;right:12px;top:56px;padding:5px 8px;background:#182a3be8;color:#d8ecff;border-radius:4px;font-size:11px;line-height:1.4;max-width:min(45vw,480px);z-index:20">Checking graphics support...</div>
+<script type="text/plain" id="panel-app-source">
 "use strict";
 // =====================================================================
 //  PART 1 - small helpers
@@ -288,13 +290,13 @@ const $ = id => document.getElementById(id);
 // Default the server URL: if the page was served over http(s) (i.e. by the
 // Julia panel_server), talk to that same origin; if opened as a file://, fall
 // back to the local server port.
-window.addEventListener("DOMContentLoaded", ()=>{
+(()=>{
   const b=$("bridge");
   if (b && !b.value){
     b.value = (location.protocol==="http:"||location.protocol==="https:")
       ? location.origin : "http://127.0.0.1:8088";
   }
-});
+})();
 function serverBase(){
   const v=$("bridge").value.trim().replace(/\/+$/,"");
   if (v) return v;
@@ -806,8 +808,8 @@ function gatherParams(){
 // =====================================================================
 //  PART 5 - Babylon viewer + v4 parseJFEM (ported from postv11.html)
 // =====================================================================
-const canvas=$("renderCanvas");
-const engine=new BABYLON.Engine(canvas,true,{preserveDrawingBuffer:true});
+const canvas=JFEMGraphicsBoot.canvas;
+const engine=JFEMGraphicsBoot.engine;
 let scene, camera, shellMesh=null, ghostMesh=null, wireMesh=null;
 let femData=null, femUnitScale=0.001;  // mm -> m
 let headLight=null, shadowLight=null, shadowGen=null;
@@ -1717,7 +1719,7 @@ $("previewBtn").addEventListener("click",()=>{ try{ currentBDF(); previewMesh();
 function getMsgpack(){
   const m = window.MessagePack || window.msgpack || (typeof MessagePack!=="undefined"?MessagePack:null);
   if(!m || typeof m.encode!=="function" || typeof m.decode!=="function"){
-    throw new Error("msgpack library failed to load (check your internet connection / the CDN <script> tag).");
+    throw new Error("The bundled MessagePack library did not load. Extract the complete application and refresh the browser.");
   }
   return m;
 }
@@ -1915,5 +1917,6 @@ try{ currentBDF(); previewMesh(); }catch(e){ /* defaults should always work */ }
 // Debug: ?analyze=1 auto-runs Analyze on load (handy for headless testing).
 try{ if(new URLSearchParams(location.search).get("analyze")==="1"){ setTimeout(analyze, 300); } }catch(_){}
 </script>
+<script>window.jfemGraphicsReady=JFEMGraphics.bootInline({sourceId:'panel-app-source'});</script>
 </body>
 </html>

@@ -4,6 +4,7 @@ include("environment_setup.jl")
 using .JFEMEnvironmentSetup
 using Pkg
 using Libdl
+using SHA
 include("sysimage_provenance.jl")
 
 repo_root()=normpath(joinpath(@__DIR__,"..",".."))
@@ -109,7 +110,7 @@ function verification_command(name,project)
         "using WingFEGen; println(\"JFEM-Boxer module verified.\")"
     elseif name=="PANDEATOR"
         "include("*repr(joinpath(project,"APPS","PANDEATOR_APP","panel_server.jl"))*"); "*
-        "for route in (\"/\",\"/health\",\"/vendor/msgpack.min.js\",\"/vendor/babylon.js\",\"/jfem_binary.js\"); "*
+        "for route in (\"/\",\"/health\",\"/vendor/msgpack.min.js\",\"/vendor/babylon.js\",\"/jfem_binary.js\",\"/jfem_graphics.js\",\"/vendor/glslang/glslang.js\",\"/vendor/glslang/glslang.wasm\",\"/vendor/twgsl/twgsl.js\",\"/vendor/twgsl/twgsl.wasm\"); "*
         "handle(HTTP.Request(\"GET\",route)).status==200 || error(\"PANDEATOR route failed: \"*route); end; "*
         "println(\"PANDEATOR module and browser routes verified (no analysis run).\")"
     else
@@ -119,9 +120,83 @@ function verification_command(name,project)
     `$executable --startup-file=no --history-file=no --project=$project -e $script`
 end
 
-function verify_viewer_assets(repo)
-    for path in ("APPS/JFEM_results_viewer/postv11.html","APPS/jfem_binary.js","APPS/PANDEATOR_APP/vendor/babylon.js")
-        isfile(joinpath(repo,path)) || error("Static results viewer asset missing: $path. Extract the complete repository.")
+function browser_asset_groups(selection=:all)
+    selection in (:all,:solver,:wingfegen) || error("Unknown browser asset selection: $selection")
+    groups=Pair{String,String}[]
+    selection!=:solver && push!(groups,"APPS/JFEM-Boxer/web"=>"APPS/JFEM-Boxer/web/vendor")
+    if selection!=:wingfegen
+        push!(groups,"APPS/PANDEATOR_APP"=>"APPS/PANDEATOR_APP/vendor")
+        push!(groups,"APPS/JFEM_results_viewer"=>"APPS/PANDEATOR_APP/vendor")
+    end
+    groups
+end
+
+function browser_asset_path(repo,base,relative)
+    # Reject CDN substitutions and paths outside the extracted distribution.
+    occursin(r"^[A-Za-z][A-Za-z0-9+.-]*:",relative) && error("Browser assets must be bundled locally: $relative")
+    startswith(relative,"//") && error("Browser assets must be bundled locally: $relative")
+    plain=first(split(relative,r"[?#]";limit=2))
+    isabspath(plain) && error("Browser asset path must be relative: $relative")
+    path=normpath(joinpath(base,plain));inside=relpath(path,abspath(repo))
+    (inside==".."||startswith(inside,"../")||startswith(inside,"..\\")) && error("Browser asset escapes the repository: $relative")
+    isfile(path) || error("Bundled browser asset missing: $(relpath(path,repo)). Extract the complete repository again.")
+    path
+end
+
+"""Check local HTML dependencies before package installation; only stdlibs are needed."""
+function verify_browser_asset_files(repo;selection=:all)
+    root=abspath(repo)
+    for (directory,vendor) in browser_asset_groups(selection)
+        base=joinpath(root,directory)
+        entry=directory=="APPS/JFEM-Boxer/web" ? "index.html" : directory=="APPS/PANDEATOR_APP" ? "panel_app.html" : "postv11.html"
+        browser_asset_path(root,base,entry)
+        browser_asset_path(root,joinpath(root,vendor),"provenance.json")
+        # Include table/plan windows as well as each application's initial page.
+        for file in readdir(base;join=true)
+            endswith(lowercase(file),".html")||continue
+            for tag in eachmatch(r"(?is)<(?:script|link)\b[^>]*>",read(file,String))
+                attribute=startswith(lowercase(tag.match),"<script") ? "src" : "href"
+                found=match(Regex("(?i)\\b"*attribute*"\\s*=\\s*[\"']([^\"']+)[\"']"),tag.match)
+                if found!==nothing
+                    # Boxer serves explicitly shared application scripts through
+                    # /shared; the on-disk files live directly under APPS.
+                    relative=found[1]
+                    if directory=="APPS/JFEM-Boxer/web" && startswith(relative,"shared/")
+                        browser_asset_path(root,joinpath(root,"APPS"),chopprefix(relative,"shared/"))
+                    else
+                        browser_asset_path(root,base,relative)
+                    end
+                end
+            end
+        end
+    end
+    return true
+end
+
+function read_browser_provenance(path)
+    # JSON is an existing shared-project dependency. Load it only after
+    # instantiate so a first installation does not require it in advance.
+    isdefined(@__MODULE__,:JSON)||(@eval import JSON)
+    # Keep both the newly imported binding and JSON methods in the latest world;
+    # return ordinary Dicts so callers do not depend on newly loaded JSON types.
+    Base.invokelatest(() -> JSON.parsefile(path;dicttype=Dict{String,Any}))
+end
+
+"""Verify the shipped browser bundles without contacting a CDN or registry."""
+function verify_viewer_assets(repo;selection=:all)
+    verify_browser_asset_files(repo;selection)
+    for vendor in unique(last.(browser_asset_groups(selection)))
+        base=joinpath(abspath(repo),vendor)
+        receipt=read_browser_provenance(joinpath(base,"provenance.json"))
+        entries=get(receipt,"dependencies",nothing)
+        entries isa AbstractVector&&!isempty(entries)||error("No browser dependencies recorded in $vendor/provenance.json")
+        for item in entries
+            filename=get(item,"filename","");expected=lowercase(get(item,"local_sha256",""))
+            !isempty(filename)&&occursin(r"^[0-9a-f]{64}$",expected)||error("Invalid browser asset receipt in $vendor/provenance.json")
+            path=browser_asset_path(repo,base,filename)
+            actual=open(sha256,path)|>bytes2hex
+            actual==expected||error("Bundled browser asset checksum mismatch: $vendor/$filename. Extract the complete repository again; do not mix files from different versions.")
+        end
     end
     return true
 end
@@ -173,6 +248,8 @@ function main(args=ARGS)
         println("  Sysimage: not requested (use --sysimage to build one)")
     end
     options[:dry_run] && return 0
+    println("[Browser assets] Checking bundled app files before package installation...");flush(stdout)
+    verify_browser_asset_files(repo;selection=options[:selection])
     Pkg.offline(options[:offline])
     options[:offline] && println("Offline mode: only existing package/artifact caches can be used.")
     for (name,project) in projects
@@ -180,6 +257,8 @@ function main(args=ARGS)
         Pkg.activate(project)
         options[:update_registry] && !options[:offline] && Pkg.Registry.update()
         Pkg.instantiate(;allow_autoprecomp=false)
+        verify_viewer_assets(repo;selection=options[:selection])
+        println("[Browser assets] Local scripts, styles and pinned bundle checksums verified; no CDN downloads are needed.")
         if options[:precompile]
             println("[$name] Precompiling packages (may take several minutes)...");flush(stdout)
             withenv("JULIA_NUM_PRECOMPILE_TASKS"=>get(ENV,"JULIA_NUM_PRECOMPILE_TASKS","2"),
@@ -196,8 +275,7 @@ function main(args=ARGS)
     if options[:verify] && options[:selection]!=:wingfegen
         println("[PANDEATOR] Verifying server and browser routes without a warm-up solve...");flush(stdout)
         run(verification_command("PANDEATOR",repo))
-        verify_viewer_assets(repo)
-        println("[Static viewer] Bundled browser assets verified; open APPS/JFEM_results_viewer/postv11.html.")
+        println("[Results viewer] Bundled browser assets verified; launch Results-viewer.cmd (Windows) or Results-viewer.sh (Linux/macOS).")
     end
     println("\nApplication dependency setup complete.")
     if options[:sysimage]!==nothing

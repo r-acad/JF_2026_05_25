@@ -21,6 +21,8 @@
 WingFEGen/** text eol=lf
 WingFEGen/*.cmd text eol=crlf
 WingFEGen/web/vendor/** -text whitespace=cr-at-eol
+APPS/JFEM-Boxer/web/vendor/** -text whitespace=-blank-at-eol,-blank-at-eof,cr-at-eol
+APPS/PANDEATOR_APP/vendor/** -text whitespace=-blank-at-eol,-blank-at-eof,cr-at-eol
 
 # Execution receipts bind exact input/output bytes. Preserve this collection on
 # every platform, including authored decks, numerical CSVs and figure sources.

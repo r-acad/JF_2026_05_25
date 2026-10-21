@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LUDWIG Post-Processing</title>
   <script src="../PANDEATOR_APP/vendor/babylon.js"></script>
+  <script src="../jfem_graphics.js"></script>
     <style>
         body, html { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; background: #222; user-select: none; }
         #renderCanvas { width: 100%; height: 100%; touch-action: none; outline: none; }
@@ -526,7 +527,7 @@
     <canvas id="renderCanvas"></canvas>
 
     <script src="../jfem_binary.js"></script>
-    <script>
+    <script type="text/plain" id="viewer-app-source">
         // =================================================================
         //  TAB SYSTEM
         // =================================================================
@@ -596,8 +597,8 @@
         // =================================================================
         //  1. SCENE SETUP
         // =================================================================
-        const canvas = document.getElementById("renderCanvas");
-        const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true });
+        const canvas = JFEMGraphicsBoot.canvas;
+        const engine = JFEMGraphicsBoot.engine;
         const selectionBox = document.getElementById("selectionBox");
         canvas.oncontextmenu = e => e.preventDefault();
 
@@ -2654,5 +2655,7 @@
             pivotMarker.scaling = new BABYLON.Vector3(s, s, s);
         }
     </script>
+    <div id="graphics-status" role="status" style="position:fixed;right:12px;top:10px;padding:5px 8px;background:#182a3be8;color:#d8ecff;border-radius:4px;font-size:11px;line-height:1.4;max-width:min(45vw,480px);z-index:20">Checking graphics support...</div>
+    <script>window.jfemGraphicsReady=JFEMGraphics.bootInline({sourceId:'viewer-app-source',vendorBase:'../PANDEATOR_APP/vendor/'});</script>
 </body>
 </html>

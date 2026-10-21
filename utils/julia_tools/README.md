@@ -847,11 +847,14 @@ python '.\utils\python_client\jfem_manifest_cli.py' make --input-dir C:\models -
 ## Post-Processing
 
 The fastest commands above skip `.jfem` export. When you need interactive
-visual inspection, enable binary export for that run and open:
+visual inspection, enable binary export for that run and launch
+`Results-viewer.cmd` on Windows or `bash Results-viewer.sh` on Linux/macOS from
+the repository root. The launcher starts a small local browser-asset server so
+the viewer can use WebGPU; it does not load or run the FE solver. Keep its
+console open while using the viewer, then press Ctrl+C to stop it.
 
-```text
-APPS/JFEM_results_viewer/postv11.html
-```
+Without Julia, you can open `APPS/JFEM_results_viewer/postv11.html` directly as a
+WebGL fallback. Both options use bundled libraries and work offline.
 
 The viewer loads `.jfem` result files directly in the browser. Boxer also opens
 them through **Project / Open JFEM results**. The shared binary reader accepts

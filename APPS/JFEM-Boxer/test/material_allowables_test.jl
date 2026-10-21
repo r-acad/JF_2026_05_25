@@ -5,14 +5,24 @@ out=abspath(only(ARGS));mkpath(out)
 
 suite=@testset "Study material assessment limits" begin
     stress=Dict{String,Any}("material_id"=>1,"mode"=>"stress","stress"=>320e6)
-    strain=Dict{String,Any}("material_id"=>81,"mode"=>"strain","e1_t"=>.012,"e1_c"=>.009,
+    strain=Dict{String,Any}("material_id"=>81,"mode"=>"strain","strain_tension"=>.012,"strain_compression"=>.009)
+    legacy=Dict{String,Any}("material_id"=>81,"mode"=>"strain","e1_t"=>.012,"e1_c"=>.009,
         "e2_t"=>.004,"e2_c"=>.006,"g12"=>.018)
     rows=W.normalize_material_allowables([strain,stress])
     @test rows==[stress,strain]
     @test isempty(W.default_params()["materials.allowables"])
     @test W.normalize_material_allowables([Dict("material_id"=>81,"mode"=>"strain")])==[Dict("material_id"=>81,"mode"=>"strain")]
+    partial=Dict{String,Any}("material_id"=>81,"mode"=>"strain","strain_tension"=>.012)
+    @test W.normalize_material_allowables([partial])==[partial]
+    @test W.normalize_material_allowables([legacy])==[legacy]
+    @test !haskey(only(W.normalize_material_allowables([legacy])),"strain_tension")
+    @test !haskey(only(W.normalize_material_allowables([legacy])),"strain_compression")
+    @test W.normalize_material_allowables([merge(legacy,strain)])==[merge(legacy,strain)]
     for bad in ([merge(stress,Dict("stress"=>v))] for v in (0.,-1.,NaN,Inf,true,"300"))
         @test_throws ArgumentError W.normalize_material_allowables(bad)
+    end
+    for field in ("strain_tension","strain_compression"), value in (0.,-1.,NaN,Inf,true,"0.005")
+        @test_throws ArgumentError W.normalize_material_allowables([merge(strain,Dict(field=>value))])
     end
     for bad in ([stress,stress],[merge(stress,Dict("extra"=>1))],
                 [merge(stress,Dict("material_id"=>0))],[merge(stress,Dict("mode"=>"auto"))])
@@ -33,6 +43,12 @@ suite=@testset "Study material assessment limits" begin
     jsonroundtrip,unknown=W.normalize_params(JSON.parse(JSON.json(normalized)))
     @test isempty(unknown)
     @test jsonroundtrip["materials.allowables"]==rows
+    legacy_parameters,unknown=W.normalize_params(merge(p,Dict("materials.allowables"=>[legacy])))
+    @test isempty(unknown)
+    legacy_roundtrip,unknown=W.normalize_params(W.flatten_toml(TOML.parse(W.params_to_toml(legacy_parameters))))
+    @test isempty(unknown)
+    @test legacy_roundtrip["materials.allowables"]==[legacy]
+    @test !haskey(only(legacy_roundtrip["materials.allowables"]),"strain_tension")
     @test W.material_payload(W.material_definition(p,1))["allowables"]==stress
     @test !haskey(W.material_payload(W.material_definition(p,2)),"allowables")
     baseline=merge(p,Dict("materials.allowables"=>Any[]))
@@ -83,13 +99,13 @@ suite=@testset "Study material assessment limits" begin
     token="material-allowables-test"
     W.IMPORTED_MODELS[token]=imported
     try
-        replacement=[merge(strain,Dict("e1_t"=>.02))]
+        replacement=[merge(strain,Dict("strain_tension"=>.02))]
         requested=W.request_imported_model(Dict("parameters"=>Dict("imported_deck"=>Dict("token"=>token,"signature"=>source["signature"]),"materials.allowables"=>replacement)))
         @test requested.params["materials.allowables"]==replacement
         @test imported.params["materials.allowables"]==rows
         @test W.imported_analysis_signature(requested)==W.imported_analysis_signature(imported)
         @test requested.params["imported.source"]==imported.params["imported.source"]
-        @test_throws ArgumentError W.request_imported_model(Dict("parameters"=>Dict("imported_deck"=>Dict("token"=>token),"materials.allowables"=>[merge(strain,Dict("g12"=>-1.))])))
+        @test_throws ArgumentError W.request_imported_model(Dict("parameters"=>Dict("imported_deck"=>Dict("token"=>token),"materials.allowables"=>[merge(strain,Dict("strain_compression"=>-1.))])))
     finally
         delete!(W.IMPORTED_MODELS,token)
     end

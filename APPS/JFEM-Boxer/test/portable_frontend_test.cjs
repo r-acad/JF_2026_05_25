@@ -5,7 +5,7 @@ const app=path.resolve(__dirname,'..'),web=path.join(app,'web'),checks=[];
 function check(name,run){run();checks.push(name);console.log('PASS '+name);}
 function files(directory){return fs.readdirSync(directory,{withFileTypes:true}).flatMap(entry=>entry.isDirectory()?files(path.join(directory,entry.name)):[path.join(directory,entry.name)]);}
 const assets=files(web),scripts=assets.filter(file=>file.endsWith('.js')),own=assets.filter(file=>!file.startsWith(path.join(web,'vendor')+path.sep));
-function asset(from,url){assert(!/^(?:https?:)?\/\//i.test(url),'Runtime asset must be local: '+url);const clean=url.split(/[?#]/)[0];if(!clean||/^(?:data:|blob:|#)/.test(clean))return;const file=path.resolve(path.dirname(from),clean);assert(file.startsWith(web+path.sep),'Asset escapes web directory: '+url);assert(fs.statSync(file).isFile(),'Missing asset: '+url);}
+function asset(from,url){assert(!/^(?:https?:)?\/\//i.test(url),'Runtime asset must be local: '+url);const clean=url.split(/[?#]/)[0];if(!clean||/^(?:data:|blob:|#)/.test(clean))return;const shared=/^shared\/(jfem_binary|jfem_graphics)\.js$/.test(clean),file=shared?path.join(app,'..',path.basename(clean)):path.resolve(path.dirname(from),clean);assert(shared||file.startsWith(web+path.sep),'Asset escapes web directory: '+url);assert(fs.statSync(file).isFile(),'Missing asset: '+url);}
 check('All four application/detached HTML pages resolve local scripts and styles',()=>{
  const pages=assets.filter(file=>file.endsWith('.html'));assert.deepEqual(pages.map(file=>path.basename(file)).sort(),['index.html','panel_table.html','plan_view.html','sensitivity_table.html']);
  for(const file of pages){const text=fs.readFileSync(file,'utf8');for(const match of text.matchAll(/<(?:script|link)\b[^>]*\b(?:src|href)=["']([^"']+)["']/g))asset(file,match[1]);}
@@ -21,8 +21,9 @@ check('Application runtime assets contain no development-workspace dependencies'
  for(const file of own.filter(file=>/\.(?:js|css|html)$/.test(file))){const text=fs.readFileSync(file,'utf8');for(const pattern of patterns)assert(!pattern.test(text),path.relative(app,file)+' contains '+pattern);}
 });
 check('Pinned vendor files, licenses and upstream notices are complete and unchanged',()=>{
- const provenance=JSON.parse(fs.readFileSync(path.join(web,'vendor/provenance.json'),'utf8'));assert.equal(provenance.dependencies.length,3);
- for(const row of provenance.dependencies){const bytes=fs.readFileSync(path.join(web,'vendor',row.filename));assert.equal(bytes.length,row.local_bytes);assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'),row.upstream_sha256);assert.equal(row.exact_match,true);}
+ const provenance=JSON.parse(fs.readFileSync(path.join(web,'vendor/provenance.json'),'utf8')),names=new Set(provenance.dependencies.map(row=>row.filename));
+ for(const file of ['babylon.js','babylonjs.loaders.min.js','msgpack.min.js','glslang/glslang.js','glslang/glslang.wasm','twgsl/twgsl.js','twgsl/twgsl.wasm','glslang/LICENSE.upstream','twgsl/LICENSE.upstream'])assert(names.has(file),'Missing provenance: '+file);
+ for(const row of provenance.dependencies){const bytes=fs.readFileSync(path.join(web,'vendor',row.filename));assert.equal(bytes.length,row.local_bytes);assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'),row.local_sha256);if(row.upstream_sha256)assert.equal(row.local_sha256,row.upstream_sha256);if(row.upstream_git_blob){const blob=crypto.createHash('sha1').update(Buffer.from(`blob ${bytes.length}\0`)).update(bytes).digest('hex');assert.equal(blob,row.upstream_git_blob);}if(row.exact_match!==undefined)assert.equal(row.exact_match,true);}
  for(const name of ['babylon.LICENSE.md','babylon.NOTICE.md','babylonjs-loaders.LICENSE.md','msgpack.LICENSE'])assert(fs.readFileSync(path.join(web,'vendor',name),'utf8').trim().length>20);
  assert(fs.existsSync(path.join(app,'THIRD_PARTY_NOTICES.md')));
  const B=require(path.join(web,'vendor/babylon.js'));assert.equal(B.Engine.Version,'9.27.1');

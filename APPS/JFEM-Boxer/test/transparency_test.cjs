@@ -1,6 +1,6 @@
 'use strict';
-// Portable lifecycle checks; exact rendered colors are covered privately in
-// translucency_browser_test.cjs using the actual bundled Babylon engine.
+// Portable lifecycle checks; renderer_compatibility_browser_test.cjs checks
+// visible pixels and GPU resource lifetime using the actual bundled engine.
 const assert=require('node:assert/strict'),T=require('../web/transparency.js');
 class Observable{constructor(){this.items=[];}add(fn){this.items.push(fn);return fn;}remove(fn){this.items=this.items.filter(x=>x!==fn);}notify(){for(const fn of this.items)fn();}}
 class LinesMesh{}

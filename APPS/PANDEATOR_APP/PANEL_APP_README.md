@@ -27,6 +27,13 @@ elapsed-seconds counter** is shown while the solver runs.
 The whole server side is **Julia only** — no Python. The browser talks to a
 small Julia HTTP server over **msgpack**.
 
+Rendering prefers WebGPU and uses WebGL as a fallback, with the active renderer
+shown below the analysis controls. Babylon.js 7.54.3, MessagePack 2.8.0 and the
+matching WebGPU shader compilers are bundled in `vendor/`; graphics require no
+CDN connection. Exact source versions, hashes and included license notices are
+listed in [vendor/provenance.json](vendor/provenance.json). The results viewer
+uses the same local libraries.
+
 ## Files
 
 | File | Role |

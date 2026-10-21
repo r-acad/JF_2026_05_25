@@ -33,9 +33,11 @@ end
 
 # Assessment criteria belong to the Study, independently of elastic material
 # data. In particular, native MAT8 strength fields do not imply a von Mises or
-# maximum-strain criterion and must never be reinterpreted as one.
+# principal-strain criterion and must never be reinterpreted as one.
 function normalize_material_allowables(value)
-    fields=("stress","e1_t","e1_c","e2_t","e2_c","g12")
+    # Retain the older directional limits when opening saved Studies. They do
+    # not define principal-strain limits and are deliberately never converted.
+    fields=("stress","strain_tension","strain_compression","e1_t","e1_c","e2_t","e2_c","g12")
     allowed=Set(("material_id","mode",fields...))
     out=Dict{String,Any}[];seen=Set{Int}()
     for row in material_rows(value,"materials.allowables",100000)

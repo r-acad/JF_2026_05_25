@@ -3692,9 +3692,9 @@ function viewportDisplayActions() {
   ];
 }
 
-function initScene() {
+function initScene(initializedEngine = null) {
   const canvas = document.getElementById("render");
-  state.engine = new BABYLON.Engine(canvas, true, {
+  state.engine = initializedEngine || new BABYLON.Engine(canvas, true, {
     preserveDrawingBuffer: true,
     stencil: true,
   });
@@ -7518,8 +7518,12 @@ function showStartupStudyNotice(notice) {
     throw new Error("the MsgPack decoder did not load from web/vendor/msgpack.min.js");
   }
   activity()?.update(startup, {detail:"Initializing the 3D viewport…"});
-  await paintActivity(); initScene();
-  log("Babylon.js " + BABYLON.Engine.Version + " ready");
+  await paintActivity();
+  const graphics=await JFEMGraphics.create({canvas:document.getElementById("render"),vendorBase:"vendor/",
+    onStatus:status=>{JFEMGraphics.statusElement()(status);activity()?.update(startup,{detail:status.message+(status.backend==='starting'?'':status.detail?' · '+status.detail:'')});}});
+  initScene(graphics.engine);
+  log("Babylon.js " + BABYLON.Engine.Version + " ready · " + graphics.backend +
+    (graphics.fallbackReason?" fallback: "+graphics.fallbackReason:""),graphics.fallbackReason?"warn":"good");
   await loadInput({deferModel:true,deferReferences:true});
   activity()?.end(startup);if(activity())activity().startup=null;
   meshStatus("Choose a Study to start", "pending");

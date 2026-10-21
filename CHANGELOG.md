@@ -5,13 +5,32 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Offline graphics and WebGPU startup
+
+- Prefer WebGPU in Boxer, PANDEATOR and the results viewer. Fall back to WebGL
+  when the adapter or initialization is unavailable, and display the active
+  renderer and fallback reason. Recreate the canvas after a failed WebGPU
+  initialization so the WebGL fallback can acquire its own context.
+- Bundle the matching GLSL/WGSL compiler JavaScript and WebAssembly alongside
+  the pinned Babylon libraries. Verify local assets and their hashes during
+  installation; graphics startup and local geometry imports need no CDN.
+- Keep translucent FE surfaces visible with WebGPU using the depth peeler's
+  half-float depth path. Preserve the real GPU capabilities and the existing
+  ten-layer bound. Fix custom shadow sampling and metallic mirror readiness
+  for consistent shader compilation in both graphics backends.
+- Launch the results viewer through a lightweight local asset server so normal
+  launches can use WebGPU. Direct HTML opening remains a WebGL fallback.
+
 ### Material allowables and result utilization
 
 - Add optional material limits in Materials for generated and imported models:
-  isotropic MAT1 von Mises stress and orthotropic MAT8 laminate engineering
-  strain, with separate longitudinal/transverse tension/compression and shear
-  limits. Preserve criteria in Study and TOML files without changing stiffness,
+  isotropic MAT1 von Mises stress and orthotropic MAT8 laminate principal strain,
+  with dimensionless tensile and compressive strain limits. Assess laminates
+  containing one orthotropic material; mixed-material laminates remain
+  unassessed. Preserve criteria in Study and TOML files without changing stiffness,
   mass or the solved load case. No default material strengths are assumed.
+- Retain legacy directional strain inputs without silently reinterpreting them
+  as principal limits; require the two principal limits before assessment.
 - Recover both faces of every laminate ply in material axes and display
   material utilization, governing ply/component, reserve ratio and margin for
   current physical static results, including buckling preload. Missing limits,

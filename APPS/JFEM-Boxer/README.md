@@ -31,9 +31,11 @@ individual light intensities and directions.
 Choose **Stress** for isotropic MAT1 materials: the largest recovered von Mises
 stress is divided by the specified allowable. Generated-model inputs use GPa
 and save Pa; imported-model inputs use the deck's stress units. Choose **Strain**
-for orthotropic MAT8 laminate plies: enter positive limits for longitudinal and
-transverse tension/compression and in-plane engineering shear. Strains are
-dimensionless (`0.005` means `0.5%`); engineering shear `γ12` is twice tensor shear.
+for laminates made entirely from one orthotropic MAT8 material: enter a tensile
+principal-strain limit and a positive compressive principal-strain limit.
+Both are dimensionless (`0.005` means `0.5%`). All plies must use the same
+material ID; their orientations may differ. Laminates mixing material IDs or
+isotropic and orthotropic plies are unassessed for this strain criterion.
 Limits are user supplied; an empty or incomplete definition is not assessed.
 The generated material library remains isotropic; imported MAT8 materials expose
 their strain criteria without changing their source elastic properties.
@@ -45,10 +47,15 @@ and margin `1/U - 1`. Every laminate ply and both ply faces must have valid
 criteria and recovery for the element to be assessed. Missing elements remain
 gray and the Results note explains the coverage. Comparisons use recovered
 element sample locations, not extrapolated corner maxima or interlaminar
-stresses. The maximum-strain criterion treats material-axis components
-independently; it does not include failure interaction or progressive damage.
-See [NASA's laminate failure-criterion discussion](https://ntrs.nasa.gov/citations/19990052628)
-for the scope and limitations of such in-plane laminate checks.
+stresses. At each ply face the two in-plane principal strains are
+`εmax/min = (ε1 + ε2)/2 ± sqrt(((ε1 − ε2)/2)^2 + (γ12/2)^2)`, where
+`γ12` is engineering shear strain, twice the strain tensor's off-diagonal.
+Positive `εmax` is compared with the tensile limit; the magnitude of negative
+`εmin` is compared with the compressive limit. The largest ratio across all
+plies and both faces governs. This is a principal-strain limit check, not a
+directional ply-failure or progressive-damage model. Earlier Studies containing
+five directional strain limits remain loadable, but those limits are never
+converted: enter the two principal-strain limits explicitly before assessment.
 
 Checks apply to current SOL101, converged full-load SOL106 and SOL105 static
 preload results. Eigenmode amplitudes are arbitrary and are not assessed. For

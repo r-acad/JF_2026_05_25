@@ -18,5 +18,8 @@ and creates the shared sysimage automatically. Then double-click a launcher:
 ![JFEM-Boxer model](<../utils/images/fgen-model.png>)
 
 Keep the full `APPS/` tree together. The two result viewers share `jfem_binary.js`,
-including static-preload and buckling-mode output support. JFEM-Boxer and PANDEATOR
-use local Julia servers; the static viewer needs no Julia process or CDN.
+including static-preload and buckling-mode output support. The application
+launchers use local Julia servers. The results-viewer server only serves its
+bundled browser assets, without loading the FE solver, and enables WebGPU where
+available. Directly opening `JFEM_results_viewer/postv11.html` remains a WebGL
+fallback without Julia. All three viewers work offline without CDN downloads.

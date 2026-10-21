@@ -140,7 +140,7 @@
 <h2 id="quickstart">Quick Start</h2>
 
 <div class="workflow">
-    <div class="step"><span class="step-num">1</span> Open <code>postv11.html</code> in any modern browser (Chrome, Edge, Firefox)</div>
+    <div class="step"><span class="step-num">1</span> Run the Results-viewer launcher for your operating system. It opens the local viewer address in your browser, with WebGPU preferred. Keep its console open while viewing results.</div>
     <div class="step"><span class="step-num">2</span> Click the <strong>Struct</strong> tab</div>
     <div class="step"><span class="step-num">3</span> Load a <code>.jfem</code> file using the <span class="model-tag model-tag-a">Model A</span> file input</div>
     <div class="step"><span class="step-num">4</span> The model appears in the 3D viewport with color-coded results</div>
@@ -148,7 +148,8 @@
 </div>
 
 <div class="tip">
-No server or installation required. Just open the HTML file directly in your browser. The only dependency (Babylon.js) is loaded from a CDN.
+The launcher starts a lightweight local server using the installed shared Julia environment. It serves only bundled browser assets and does not load the FE solver or expose your result files. Use Ctrl+C in its console to stop it. As a fallback without Julia or a server, open postv11.html directly in your browser for WebGL rendering. Babylon.js and the result reader are bundled locally, so both options work offline without a CDN or browser cache. Keep the complete extracted repository together.
+The renderer prefers WebGPU when served from a local HTTP address and uses WebGL as a fallback, with the active backend and any fallback reason shown at the top right. Opening this page directly from disk uses WebGL because browsers restrict loading local WebAssembly shader compilers. WebGPU compiler files are bundled with Babylon.js.
 </div>
 
 <div class="warn">

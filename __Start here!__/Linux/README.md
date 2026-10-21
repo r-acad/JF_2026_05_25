@@ -25,13 +25,15 @@ From this Linux folder, run the matching command:
 | --- | --- |
 | `bash JFEM-Boxer.sh` | Lifting-surface modeling and analysis. |
 | `bash PANDEATOR.sh` | Stiffened-panel modeling and analysis. |
-| `bash Results-viewer.sh` | Existing `.jfem` results in the default browser. |
+| `bash Results-viewer.sh` | Existing `.jfem` results through a lightweight local server; WebGPU preferred. |
 | `bash JFEM-solver.sh` | A deck chooser, or a terminal prompt if no dialog tool is available. |
 
 You can pass a deck directly: `bash JFEM-solver.sh '/path/to/model.bdf'`.
-Root launchers remain available. Keep the Boxer/PANDEATOR terminal open while
+Root launchers remain available. Keep the Boxer/PANDEATOR/results-viewer terminal open while
 using the local browser app; press **Ctrl+C** there to stop it.
-The viewer can also open `APPS/JFEM_results_viewer/postv11.html` directly.
+The results-viewer server loads only browser assets, not the FE solver. If Julia
+is unavailable, the launcher opens the offline WebGL viewer directly. Opening
+`APPS/JFEM_results_viewer/postv11.html` directly provides the same fallback.
 
 Commands below assume a terminal opened in this Linux folder.
 
@@ -73,7 +75,18 @@ revision. Setup builds it for this computer and launchers check its receipt.
 4. If a package or artifact is missing, repeat setup on the connected computer
    and refresh the copied depot. Keep the pinned Manifest unchanged.
 
-The results viewer opens existing `.jfem` files offline using bundled assets.
+Boxer, PANDEATOR and the results viewer use bundled Babylon.js and browser
+libraries, with no CDN downloads or pre-existing browser cache needed. Setup
+includes the WebGPU shader compilers. The renderer prefers WebGPU and falls
+back to WebGL if needed, reporting the active backend and fallback reason. Setup
+verifies their files and checksums, including with `--boxer-only`. Keep the
+complete repository together. If setup reports a missing or changed browser
+asset, extract a fresh complete copy of the same release; do not copy individual
+library files from another release.
+
+Opening local models, solving them and reading `.jfem` results work offline
+after Julia setup. Downloading new UIUC airfoils requires internet; locally
+imported airfoils and profiles embedded in saved Studies work offline.
 Julia packages and images are platform-specific; a cache from another operating
 system is not sufficient.
 

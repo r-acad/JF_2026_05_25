@@ -1,6 +1,6 @@
 # Third-party frontend software
 
-WingFEGen serves its frontend libraries from `web/vendor/`. These files are
+JFEM-Boxer serves its frontend libraries from `web/vendor/`. These files are
 included deliberately so the application does not need a CDN to start. They
 retain their own licenses; the application's license does not replace them.
 
@@ -9,11 +9,16 @@ retain their own licenses; the application's license does not replace them.
 | `web/vendor/babylon.js` | Babylon.js (`babylonjs`) 9.27.1 | Apache-2.0 | [License](web/vendor/babylon.LICENSE.md), [upstream notice](web/vendor/babylon.NOTICE.md) |
 | `web/vendor/babylonjs.loaders.min.js` | `babylonjs-loaders` 9.27.1 | Apache-2.0 | [License](web/vendor/babylonjs-loaders.LICENSE.md) |
 | `web/vendor/msgpack.min.js` | `@msgpack/msgpack` 2.8.0 | ISC | [License and copyright](web/vendor/msgpack.LICENSE) |
+| `web/vendor/glslang/` | GLSL compiler distributed with Babylon.js 9.27.1 | Upstream component licenses | [License notices](web/vendor/glslang/LICENSE.upstream) |
+| `web/vendor/twgsl/` | Tint WGSL compiler distributed with Babylon.js 9.27.1 | BSD-3-Clause and upstream component notices | [License notices](web/vendor/twgsl/LICENSE.upstream) |
 
-On 2026-10-08 all three JavaScript files were compared with their pinned
+On 2026-10-21 all three JavaScript files were compared with their pinned
 upstream npm distribution archives and matched byte for byte. They are
 unmodified upstream bundles. Exact package URLs, integrity strings, file sizes
 and SHA-256 hashes are recorded in [provenance.json](web/vendor/provenance.json).
+The WebGPU compiler JavaScript and WebAssembly files are pinned to the matching
+Babylon source commit; their Git blob identities and local hashes are recorded
+in the same manifest. Compiler notices are included in each compiler directory.
 
 ## Upstream sources
 
@@ -43,13 +48,13 @@ Reference geometry uses the included STL/OBJ/GLB loaders. OBJ material sidecars
 are ignored, external GLB geometry buffers and Draco/meshopt compression are
 rejected, and imported materials are skipped. The application generates its
 metallic-view reflection map locally. The larger Babylon distribution contains
-optional network-capable features; WingFEGen does not require their CDN assets
+optional network-capable features; JFEM-Boxer does not require their CDN assets
 for its supported viewer and reference-import paths.
 
 The Julia backend dependencies are declared separately by `Project.toml` and
 `Manifest.toml`; their licenses are not replaced by this frontend notice.
 
-Run `node test/portable_frontend_test.cjs` from the WingFEGen directory for
+Run `node test/portable_frontend_test.cjs` from the JFEM-Boxer directory for
 offline asset, syntax, vendored-library and pure frontend smoke checks. The test
 uses only Node.js builtins and bundled sources; it does not start a server or
 run an analysis.

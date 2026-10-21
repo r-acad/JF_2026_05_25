@@ -28,25 +28,25 @@ const [modulePath='playwright',output]=process.argv.slice(2),web=path.resolve(__
 
   await page.locator('#allowable-material').selectOption('8');assert(await page.locator('#allowable-mode option[value=stress]').evaluate(el=>el.disabled));
   await page.locator('#allowable-mode').selectOption('strain');assert.match(await status.textContent(),/Incomplete limits/);
-  const limits={e1_t:.01,e1_c:.006,e2_t:.004,e2_c:.008,g12:.02};
+  const limits={strain_tension:.01,strain_compression:.006};
   for(const[key,value]of Object.entries(limits))await page.locator('#allowable-'+key).fill(String(value));
-  assert.equal(await page.locator('.allowable-fields input:visible').count(),5);assert(!(await status.isVisible()));
+  assert.equal(await page.locator('.allowable-fields input:visible').count(),2);assert(!(await status.isVisible()));
   assert.deepEqual((await rows())[1],{material_id:8,mode:'strain',...limits});
-  await page.locator('#panel-material-allowables summary').click();assert.match(await page.locator('#panel-material-allowables details').innerText(),/engineering shear strain, twice tensor shear/);
+  await page.locator('#panel-material-allowables summary').click();assert.match(await page.locator('#panel-material-allowables details').innerText(),/engineering shear strain, twice tensor shear/);assert.match(await page.locator('#panel-material-allowables details').innerText(),/every ply uses the same orthotropic MAT8 material ID/);
   await page.locator('#panel-material-allowables summary').click();
-  checks.push('MAT8 exposes all five dimensionless strain limits, explains engineering shear, and detects incomplete limits');
+  checks.push('MAT8 exposes exactly two dimensionless principal-strain limits, explains tensor shear and the same-material laminate restriction');
 
   const saved=await rows();await page.locator('#allowable-material').selectOption('1');assert.equal(await page.locator('#allowable-stress').inputValue(),'0.25');
   await page.locator('#allowable-material').selectOption('8');for(const[key,value]of Object.entries(limits))assert.equal(await page.locator('#allowable-'+key).inputValue(),String(value));
   await page.evaluate(()=>{savedRows=JSON.parse(JSON.stringify(savedRows));allowableEditor.refresh();});assert.deepEqual(await rows(),saved);assert.equal(await page.locator('#allowable-material').inputValue(),'8');
   checks.push('Switching materials and restoring serialized rows preserves each material and its selected basis');
 
-  await page.locator('#allowable-e1_t').fill('-0.01');assert.match(await status.textContent(),/positive/);assert(await page.evaluate(()=>{try{allowableEditor.assertValid();return false}catch{return true}}));
-  await page.locator('#allowable-e1_t').fill('0');assert.match(await status.textContent(),/positive/);
-  await page.locator('#allowable-e1_t').fill('');assert.match(await status.textContent(),/Incomplete/);
-  await page.locator('#allowable-e1_t').pressSequentially('1e');assert(await page.locator('#allowable-e1_t').evaluate(el=>el.validity.badInput));assert.match(await status.textContent(),/positive/);
-  assert.deepEqual((await rows())[1].e1_t,{raw:'invalid number'});
-  await page.locator('#allowable-e1_t').fill('.01');assert(!(await status.isVisible()));await page.evaluate(()=>allowableEditor.assertValid());
+  await page.locator('#allowable-strain_tension').fill('-0.01');assert.match(await status.textContent(),/positive/);assert(await page.evaluate(()=>{try{allowableEditor.assertValid();return false}catch{return true}}));
+  await page.locator('#allowable-strain_tension').fill('0');assert.match(await status.textContent(),/positive/);
+  await page.locator('#allowable-strain_tension').fill('');assert.match(await status.textContent(),/Incomplete/);
+  await page.locator('#allowable-strain_tension').pressSequentially('1e');assert(await page.locator('#allowable-strain_tension').evaluate(el=>el.validity.badInput));assert.match(await status.textContent(),/positive/);
+  assert.deepEqual((await rows())[1].strain_tension,{raw:'invalid number'});
+  await page.locator('#allowable-strain_tension').fill('.01');assert(!(await status.isVisible()));await page.evaluate(()=>allowableEditor.assertValid());
   checks.push('Negative, zero, blank, and unfinished exponent input stay visibly invalid or incomplete and can be corrected');
 
   const widths=[];
@@ -60,7 +60,7 @@ const [modulePath='playwright',output]=process.argv.slice(2),web=path.resolve(__
   checks.push('All inputs fit narrow, ordinary and maximized panes at 280, 360 and 1000 pixels');
 
   await page.locator('#allowable-mode').selectOption('none');assert.deepEqual(await rows(),[saved[0]]);assert.equal(await page.locator('.allowable-fields input:visible').count(),0);
-  await page.evaluate(()=>allowableEditor.refresh());assert.equal(await page.locator('#allowable-e1_t').inputValue(),'');
+  await page.evaluate(()=>allowableEditor.refresh());assert.equal(await page.locator('#allowable-strain_tension').inputValue(),'');
   checks.push('Not assessed removes only the chosen material criterion; refreshing clears its former values');
 
   await page.evaluate(()=>setup({source:true,materials:[{id:41,type:'MAT1',name:'Imported metal'},{id:93,type:'MAT8',name:'Imported composite'}]}));
@@ -70,6 +70,20 @@ const [modulePath='playwright',output]=process.argv.slice(2),web=path.resolve(__
   if(output)await page.locator('#workspace-content').screenshot({path:path.join(output,'imported-stress-allowable.png')});
   await page.locator('#allowable-material').selectOption('93');await page.locator('#allowable-mode').selectOption('strain');for(const[key,value]of Object.entries(limits))await page.locator('#allowable-'+key).fill(String(value));assert.deepEqual((await rows())[1],{material_id:93,mode:'strain',...limits});
   checks.push('Imported material IDs and names are retained; stress uses source units while strains remain dimensionless');
+
+  const legacy={material_id:8,mode:'strain',e1_t:.01,e1_c:.006,e2_t:.004,e2_c:.008,g12:.02};
+  await page.evaluate(row=>setup({materials:[{id:8,type:'MAT8',name:'Older Study material'}],rows:[row]}),legacy);
+  assert.deepEqual(await rows(),[legacy]);assert.equal(await page.evaluate(()=>changes),0);
+  assert.equal(await page.locator('#allowable-strain_tension').inputValue(),'');assert.equal(await page.locator('#allowable-strain_compression').inputValue(),'');
+  assert.equal(await page.locator('.allowable-fields input:visible').count(),2);assert.equal(await page.locator('#allowable-e1_t').count(),0);
+  assert.match(await status.textContent(),/Saved directional limits are not converted/);
+  await page.locator('#allowable-strain_tension').fill('.012');assert.match(await status.textContent(),/Incomplete limits/);
+  assert.deepEqual((await rows())[0],{...legacy,strain_tension:.012});
+  await page.locator('#allowable-strain_compression').fill('.008');assert(!(await status.isVisible()));
+  assert.deepEqual((await rows())[0],{...legacy,strain_tension:.012,strain_compression:.008});
+  await page.evaluate(()=>allowableEditor.refresh());assert.equal(await page.locator('#allowable-strain_tension').inputValue(),'0.012');
+  if(output)await page.locator('#workspace-content').screenshot({path:path.join(output,'legacy-explicit-principal-limits.png')});
+  checks.push('Older directional rows load unchanged and remain unassessed until both new limits are explicitly entered; original fields are retained');
 
   await page.evaluate(()=>setup({materials:[{id:1,type:'MAT1'}],rows:[{material_id:1,mode:'strain',e1_t:.01,e1_c:.006,e2_t:.004,e2_c:.008,g12:.02}]}));
   assert.equal(await page.locator('#allowable-material option').count(),1);assert.equal(await page.locator('#allowable-mode').inputValue(),'strain');assert.match(await status.textContent(),/incompatible with MAT1/);assert(await page.locator('#allowable-mode option[value=strain]').evaluate(el=>el.disabled));

@@ -76,7 +76,7 @@ void main(){
   groundMaterial.customShaderNameResolve=(_name,_uniforms,_buffers,_samplers,defines)=>{
    if(scene.useOrderIndependentTransparency&&groundMaterial.needAlphaBlending()){
     defines.push('#define ORDER_INDEPENDENT_TRANSPARENCY');
-    if(!scene.getEngine().getCaps().textureFloatLinearFiltering)defines.push('#define ORDER_INDEPENDENT_TRANSPARENCY_16BITS');
+    if(scene._boxerHalfFloatOITDepth||!scene.getEngine().getCaps().textureFloatLinearFiltering)defines.push('#define ORDER_INDEPENDENT_TRANSPARENCY_16BITS');
    }
    return groundShader;
   };
@@ -106,12 +106,17 @@ void main(){
    // view. The bounded mirror uses normal alpha sorting in its own render
    // pass. Do not call the public OIT setter twice per frame: it invalidates
    // every material in the scene. Each pass already has its own draw cache.
-   const renderMirror=mirror.render.bind(mirror);
-   mirror.render=(...args)=>{
+   const renderMirror=mirror.render.bind(mirror),readyMirror=mirror.isReadyForRendering.bind(mirror);
+   const inMirrorPass=(action,args)=>{
     const oit=scene._useOrderIndependentTransparency;
-    try{scene._useOrderIndependentTransparency=false;return renderMirror(...args);}
+    try{scene._useOrderIndependentTransparency=false;return action(...args);}
     finally{scene._useOrderIndependentTransparency=oit;scene.resetCachedMaterial();}
    };
+   mirror.render=(...args)=>inMirrorPass(renderMirror,args);
+   // Scene readiness also prepares materials in the mirror's render pass.
+   // It must use the same alpha-sorting mode as rendering: otherwise that
+   // pass can retain PREPASS while enabling OIT, declaring glFragColor twice.
+   mirror.isReadyForRendering=(...args)=>inMirrorPass(readyMirror,args);
    mirror.renderListPredicate=mesh=>mesh!==meshes.ground&&mesh!==meshes.symmetry&&
     !mesh.metadata?.wingViewHelper&&mesh.isEnabled()&&mesh.isVisible&&mesh.visibility>0&&mesh.getTotalVertices()>0;
    mirror.clearColor=new B.Color4(.06,.075,.09,1);

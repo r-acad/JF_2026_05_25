@@ -403,6 +403,11 @@ function handle(req::HTTP.Request)
             read(joinpath(APP_DIR, "..", "jfem_binary.js")))
     end
 
+    if method == "GET" && target == "/jfem_graphics.js"
+        return HTTP.Response(200, ["Content-Type" => "application/javascript; charset=utf-8"],
+            read(joinpath(APP_DIR, "..", "jfem_graphics.js")))
+    end
+
     if method == "GET" && (target == "/health" || target == "/ping")
         return _msgpack_response(Dict(
             "ok" => true,

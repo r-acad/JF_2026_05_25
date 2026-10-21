@@ -80,6 +80,7 @@ const MIME_TYPES = Dict(
     ".toml" => "text/plain; charset=utf-8",
     ".txt" => "text/plain; charset=utf-8",
     ".map" => "application/json; charset=utf-8",
+    ".wasm" => "application/wasm",
 )
 
 json_response(obj; status::Int = 200) =
@@ -846,6 +847,9 @@ function make_router(st::AppState)
     HTTP.register!(router, "GET", "/shared/jfem_binary.js", req ->
         HTTP.Response(200, ["Content-Type"=>"application/javascript; charset=utf-8"],
             read(joinpath(dirname(st.root),"jfem_binary.js"))))
+    HTTP.register!(router, "GET", "/shared/jfem_graphics.js", req ->
+        HTTP.Response(200, ["Content-Type" => "application/javascript; charset=utf-8"],
+            read(joinpath(dirname(st.root),"jfem_graphics.js"))))
     HTTP.register!(router, "POST", "/api/import_reference", req -> handle_import_reference(st,req))
     HTTP.register!(router, "GET", "/api/import_reference/browse", req -> handle_import_reference_browse(st,req))
     HTTP.register!(router, "POST", "/api/import_reference/pick", req -> handle_import_reference_pick(st,req))

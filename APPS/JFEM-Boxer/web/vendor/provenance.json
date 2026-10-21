@@ -1,5 +1,6 @@
 {
-  "verified_at": "2026-10-08",
+  "verified_at": "2026-10-21",
+  "verification": "Fresh registry tarball download; distribution integrity verified before extracting each exact upstream file.",
   "dependencies": [
     {
       "package": "babylonjs",
@@ -14,12 +15,37 @@
       "upstream_sha256": "43c3c68af157ef26b505dc21e1041f6a2fae934259c25d8d4f936330594ef825",
       "local_bytes": 8562017,
       "local_sha256": "43c3c68af157ef26b505dc21e1041f6a2fae934259c25d8d4f936330594ef825",
-      "exact_match": true,
-      "same_without_crlf": true,
-      "license_entries": [
-        "package/license.md",
-        "package/NOTICE.md"
-      ]
+      "exact_match": true
+    },
+    {
+      "package": "babylonjs",
+      "version": "9.27.1",
+      "metadata_url": "https://registry.npmjs.org/babylonjs/9.27.1",
+      "tarball_url": "https://registry.npmjs.org/babylonjs/-/babylonjs-9.27.1.tgz",
+      "tarball_integrity": "sha512-OMkeegejudhCw7fTco+m7h2iu3Lp8I1jlq4vAjOIe46sgJtR1zIbuOrhHd6lUTYDDPpxpSswiCZYev2yWFvynA==",
+      "license": "Apache-2.0",
+      "upstream_file": "package/license.md",
+      "filename": "babylon.LICENSE.md",
+      "upstream_bytes": 9226,
+      "upstream_sha256": "9362ea9ea17cb221a20cbbd63f404710834cc273d2a9a7b60314fd68ab702cd6",
+      "local_bytes": 9226,
+      "local_sha256": "9362ea9ea17cb221a20cbbd63f404710834cc273d2a9a7b60314fd68ab702cd6",
+      "exact_match": true
+    },
+    {
+      "package": "babylonjs",
+      "version": "9.27.1",
+      "metadata_url": "https://registry.npmjs.org/babylonjs/9.27.1",
+      "tarball_url": "https://registry.npmjs.org/babylonjs/-/babylonjs-9.27.1.tgz",
+      "tarball_integrity": "sha512-OMkeegejudhCw7fTco+m7h2iu3Lp8I1jlq4vAjOIe46sgJtR1zIbuOrhHd6lUTYDDPpxpSswiCZYev2yWFvynA==",
+      "license": "Apache-2.0",
+      "upstream_file": "package/NOTICE.md",
+      "filename": "babylon.NOTICE.md",
+      "upstream_bytes": 46,
+      "upstream_sha256": "225463efd81558f120a6e0cdd7f4c1007ed486006d1228c4849fee0c49715823",
+      "local_bytes": 46,
+      "local_sha256": "225463efd81558f120a6e0cdd7f4c1007ed486006d1228c4849fee0c49715823",
+      "exact_match": true
     },
     {
       "package": "babylonjs-loaders",
@@ -34,11 +60,22 @@
       "upstream_sha256": "326280024c28fd5db6b23917dc99040c1891ad848a044de104e8af99fa83e53e",
       "local_bytes": 846654,
       "local_sha256": "326280024c28fd5db6b23917dc99040c1891ad848a044de104e8af99fa83e53e",
-      "exact_match": true,
-      "same_without_crlf": true,
-      "license_entries": [
-        "package/license.md"
-      ]
+      "exact_match": true
+    },
+    {
+      "package": "babylonjs-loaders",
+      "version": "9.27.1",
+      "metadata_url": "https://registry.npmjs.org/babylonjs-loaders/9.27.1",
+      "tarball_url": "https://registry.npmjs.org/babylonjs-loaders/-/babylonjs-loaders-9.27.1.tgz",
+      "tarball_integrity": "sha512-7EjBId2OAaRtuCFIZN4asiKeAnE9JH6lIE5kXGqwzMZqr8Vf+N+x4F0lvttHKYPK4sTr+PB4JsckokkVVYE5vQ==",
+      "license": "Apache-2.0",
+      "upstream_file": "package/license.md",
+      "filename": "babylonjs-loaders.LICENSE.md",
+      "upstream_bytes": 9226,
+      "upstream_sha256": "9362ea9ea17cb221a20cbbd63f404710834cc273d2a9a7b60314fd68ab702cd6",
+      "local_bytes": 9226,
+      "local_sha256": "9362ea9ea17cb221a20cbbd63f404710834cc273d2a9a7b60314fd68ab702cd6",
+      "exact_match": true
     },
     {
       "package": "@msgpack/msgpack",
@@ -53,11 +90,82 @@
       "upstream_sha256": "43f39b184e9aebefca2b258ddfcdf03ce382190bca3e2e9e78d0b9b432d181b8",
       "local_bytes": 31572,
       "local_sha256": "43f39b184e9aebefca2b258ddfcdf03ce382190bca3e2e9e78d0b9b432d181b8",
-      "exact_match": true,
-      "same_without_crlf": true,
-      "license_entries": [
-        "package/LICENSE"
-      ]
+      "exact_match": true
+    },
+    {
+      "package": "@msgpack/msgpack",
+      "version": "2.8.0",
+      "metadata_url": "https://registry.npmjs.org/@msgpack/msgpack/2.8.0",
+      "tarball_url": "https://registry.npmjs.org/@msgpack/msgpack/-/msgpack-2.8.0.tgz",
+      "tarball_integrity": "sha512-h9u4u/jiIRKbq25PM+zymTyW6bhTzELvOoUd+AvYriWOAKpLGnIamaET3pnHYoI5iYphAHBI4ayx0MehR+VVPQ==",
+      "license": "ISC",
+      "upstream_file": "package/LICENSE",
+      "filename": "msgpack.LICENSE",
+      "upstream_bytes": 740,
+      "upstream_sha256": "d95a411bcdadac85d678a99367ff51719e53539fa5ee9994943cd760c4ae64e4",
+      "local_bytes": 740,
+      "local_sha256": "d95a411bcdadac85d678a99367ff51719e53539fa5ee9994943cd760c4ae64e4",
+      "exact_match": true
+    },
+    {
+      "package": "Babylon.js WebGPU glslang",
+      "version": "9.27.1",
+      "filename": "glslang/glslang.js",
+      "source_url": "https://raw.githubusercontent.com/BabylonJS/Babylon.js/8b086dc2b313b61918b0dc3854d3a1d0aff4530e/packages/tools/babylonServer/public/glslang/glslang.js",
+      "source_commit": "8b086dc2b313b61918b0dc3854d3a1d0aff4530e",
+      "upstream_git_blob": "cbf013c055afc929e568fdae497f9a91b37a2075",
+      "local_bytes": 16030,
+      "local_sha256": "c3a3c2a47284b16b60293fa08a5842fbe8689ac617edc857ab6cb8134a590db4",
+      "exact_match": true
+    },
+    {
+      "package": "Babylon.js WebGPU glslang",
+      "version": "9.27.1",
+      "filename": "glslang/glslang.wasm",
+      "source_url": "https://raw.githubusercontent.com/BabylonJS/Babylon.js/8b086dc2b313b61918b0dc3854d3a1d0aff4530e/packages/tools/babylonServer/public/glslang/glslang.wasm",
+      "source_commit": "8b086dc2b313b61918b0dc3854d3a1d0aff4530e",
+      "upstream_git_blob": "d951d65e063a930ad0d841848367f7b8cc6b2703",
+      "local_bytes": 943680,
+      "local_sha256": "d79453e0803ebcdf3753c6b1d8d51543b52fed96f7f0d4aec94acd847e225169",
+      "exact_match": true
+    },
+    {
+      "package": "Babylon.js WebGPU twgsl",
+      "version": "9.27.1",
+      "filename": "twgsl/twgsl.js",
+      "source_url": "https://raw.githubusercontent.com/BabylonJS/Babylon.js/8b086dc2b313b61918b0dc3854d3a1d0aff4530e/packages/tools/babylonServer/public/twgsl/twgsl.js",
+      "source_commit": "8b086dc2b313b61918b0dc3854d3a1d0aff4530e",
+      "upstream_git_blob": "dcc7c1f4458232d94c0a8356884acfd41d85f6bc",
+      "local_bytes": 74555,
+      "local_sha256": "b4f1f66263b801210f955f74aa71f1939be647ce0fd80ea5befd12a78499d5ff",
+      "exact_match": true
+    },
+    {
+      "package": "Babylon.js WebGPU twgsl",
+      "version": "9.27.1",
+      "filename": "twgsl/twgsl.wasm",
+      "source_url": "https://raw.githubusercontent.com/BabylonJS/Babylon.js/8b086dc2b313b61918b0dc3854d3a1d0aff4530e/packages/tools/babylonServer/public/twgsl/twgsl.wasm",
+      "source_commit": "8b086dc2b313b61918b0dc3854d3a1d0aff4530e",
+      "upstream_git_blob": "03e28fc3b294b99d811e443318e8b21a14447036",
+      "local_bytes": 1702916,
+      "local_sha256": "a434c2decdbb38caadf5f486d806384a1543554828c983c77922b2d92579914c",
+      "exact_match": true
+    },
+    {
+      "package": "KhronosGroup/glslang license notice",
+      "filename": "glslang/LICENSE.upstream",
+      "source_url": "https://raw.githubusercontent.com/KhronosGroup/glslang/5a0d62504b8126220a924613a902e620351d5ebf/LICENSE.txt",
+      "source_commit": "5a0d62504b8126220a924613a902e620351d5ebf",
+      "local_bytes": 54615,
+      "local_sha256": "17e70c676e1521ff3e4686f04a2053d93a7e28a33be8de7ec37ab0ff72feb677"
+    },
+    {
+      "package": "google/dawn license notice",
+      "filename": "twgsl/LICENSE.upstream",
+      "source_url": "https://raw.githubusercontent.com/google/dawn/b4ea001870c1e05e4588470e6c8de7f6d17c8845/LICENSE",
+      "source_commit": "b4ea001870c1e05e4588470e6c8de7f6d17c8845",
+      "local_bytes": 11829,
+      "local_sha256": "0493f897193af1796d5054659f45ec7d4c5af648fa67a99f01d30e55cc805abc"
     }
   ]
 }

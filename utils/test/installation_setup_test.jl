@@ -47,6 +47,8 @@ end
     repo=InstallationSetup.repo_root()
     @test InstallationSetup.verify_viewer_assets(repo)
     @test occursin("/health",string(InstallationSetup.verification_command("PANDEATOR",repo)))
+    @test occursin("/jfem_graphics.js",string(InstallationSetup.verification_command("PANDEATOR",repo)))
+    @test occursin("/vendor/twgsl/twgsl.wasm",string(InstallationSetup.verification_command("PANDEATOR",repo)))
     @test_throws ErrorException InstallationSetup.verification_command("unknown",repo)
     viewer=read(joinpath(repo,"APPS","JFEM_results_viewer","postv11.html"),String)
     scripts=[m[1] for m in eachmatch(r"<script\s+src=\"([^\"]+)\"",viewer)]
@@ -88,6 +90,55 @@ end
         @test InstallationSetup.build_sysimage(root,reuse;runner=cmd->error("current image must be reused"))==image
         write(joinpath(root,"src","tiny.jl"),"# modified\n")
         @test_throws ErrorException InstallationSetup.build_sysimage(root,options;runner=cmd->nothing)
+    end
+end
+
+@testset "Offline browser distribution checks" begin
+    @test InstallationSetup.parse_options(["--boxer-only"])[:selection]==:wingfegen
+    mktempdir() do root
+        boxer=joinpath(root,"APPS","JFEM-Boxer","web")
+        panel=joinpath(root,"APPS","PANDEATOR_APP")
+        viewer=joinpath(root,"APPS","JFEM_results_viewer")
+        mkpath(boxer);mkpath(panel);mkpath(viewer)
+        for (base,entry) in ((boxer,"index.html"),(panel,"panel_app.html"))
+            mkpath(joinpath(base,"vendor"))
+            write(joinpath(base,"vendor","babylon.js"),"/* pinned fixture */")
+            digest=bytes2hex(InstallationSetup.sha256(read(joinpath(base,"vendor","babylon.js"))))
+            write(joinpath(base,"vendor","provenance.json"),"""{"dependencies":[{"filename":"babylon.js","local_sha256":"$digest"}]}""")
+            write(joinpath(base,entry),"<script defer src='vendor/babylon.js'></script><link rel='stylesheet' href='style.css'>")
+            write(joinpath(base,"style.css"),"body{}")
+        end
+        write(joinpath(viewer,"postv11.html"),"<script src=\"../PANDEATOR_APP/vendor/babylon.js\"></script><script src='../jfem_binary.js'></script>")
+        write(joinpath(root,"APPS","jfem_binary.js"),"/* reader */")
+        write(joinpath(root,"APPS","jfem_graphics.js"),"/* graphics */")
+        write(joinpath(boxer,"panel_table.html"),"<script src='table.js?v=1'></script>")
+        write(joinpath(boxer,"table.js"),"/* popup */")
+        open(joinpath(boxer,"index.html"),"a") do io
+            write(io,"<script src='shared/jfem_graphics.js'></script>")
+        end
+        @test InstallationSetup.verify_browser_asset_files(root)
+        @test InstallationSetup.verify_viewer_assets(root)
+        @test InstallationSetup.verify_viewer_assets(root;selection=:wingfegen)
+        rm(joinpath(root,"APPS","jfem_graphics.js"))
+        @test_throws ErrorException InstallationSetup.verify_browser_asset_files(root;selection=:wingfegen)
+        write(joinpath(root,"APPS","jfem_graphics.js"),"/* graphics */")
+        rm(joinpath(boxer,"table.js"))
+        @test_throws ErrorException InstallationSetup.verify_browser_asset_files(root;selection=:wingfegen)
+        write(joinpath(boxer,"table.js"),"/* popup */")
+        write(joinpath(boxer,"vendor","babylon.js"),"/* changed bytes! */")
+        @test InstallationSetup.verify_browser_asset_files(root;selection=:wingfegen)
+        @test_throws ErrorException InstallationSetup.verify_viewer_assets(root;selection=:wingfegen)
+        write(joinpath(boxer,"vendor","babylon.js"),"/* pinned fixture */")
+        write(joinpath(boxer,"panel_table.html"),"<script src='https://cdn.example.invalid/library.js'></script>")
+        @test_throws ErrorException InstallationSetup.verify_browser_asset_files(root;selection=:wingfegen)
+        write(joinpath(boxer,"panel_table.html"),"<script src='//cdn.example.invalid/library.js'></script>")
+        @test_throws ErrorException InstallationSetup.verify_browser_asset_files(root;selection=:wingfegen)
+        write(joinpath(boxer,"panel_table.html"),"<script src='table.js'></script>")
+        rm(joinpath(panel,"vendor","babylon.js"))
+        @test InstallationSetup.verify_viewer_assets(root;selection=:wingfegen)
+        @test_throws ErrorException InstallationSetup.verify_viewer_assets(root)
+        @test_throws ErrorException InstallationSetup.verify_viewer_assets(root;selection=:unknown)
+        @test_throws ErrorException InstallationSetup.browser_asset_path(root,boxer,"../../../../../outside.js")
     end
 end
 
