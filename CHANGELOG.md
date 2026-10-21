@@ -5,6 +5,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Property stress envelopes and material editing
+
+- Add Results → Stress Report for property-level SOL101/SOL106 von Mises
+  envelopes and reserve factors across load cases. Offer maximum, equal-element
+  average, or average at/below a chosen percentile, while retaining absolute
+  peaks, governing cases and recovery coverage. Export CSV, Markdown and HTML.
+- Group material definitions and allowables under one Material library selector.
+  Enter generated-model stress limits in MPa while retaining Pa in saved files;
+  imported models keep their explicitly labeled source stress units.
+- Exclude stale, failed, partial-load and modal results from stress assessment.
+  Withhold reserve factors when case/recovery coverage is incomplete or a
+  compatible allowable is unavailable. Retain imported PSHELL material roles
+  so mixed-material shells cannot silently receive a single-material limit.
+
 ### Offline graphics and WebGPU startup
 
 - Prefer WebGPU in Boxer, PANDEATOR and the results viewer. Fall back to WebGL

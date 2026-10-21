@@ -31,8 +31,23 @@
   const compression=sample(Math.min(0,minimum),row.strain_compression,{...common,component:'Compressive principal strain'});
   return tension.utilization>=compression.utilization?tension:compression;
  }
+ function equivalentStressSample(property,record){
+  if(!property)return{reason:'Material definition unavailable.'};
+  if(property.type==='PCOMP')return{reason:'Laminate stresses require ply-face recovery and material-specific assessment.'};
+  // No axial-stress substitution for beam equivalent stress. Only consume
+  // explicitly recovered von Mises values, including solid/shell samples.
+  if(property.type==='PSHELL'&&!['z1','z2'].every(face=>finite(record?.stress?.[face]?.von_mises)&&record.stress[face].von_mises>=0))return{reason:'Both shell-face von Mises samples are required.'};
+  let worst=null,invalid=false;
+  const visit=(value,path=[])=>{if(!value||typeof value!=='object')return;for(const[key,item]of Object.entries(value)){if(key==='von_mises'){if(!finite(item)||item<0){invalid=true;continue;}if(!worst||item>worst.demand)worst={demand:item,face:path.join(' / ')||'element'};}else if(item&&typeof item==='object')visit(item,[...path,key]);}};
+  visit(record?.stress);
+  return invalid?{reason:'Invalid equivalent stress sample.'}:worst||{reason:'Equivalent von Mises stress was not recovered for this element.'};
+ }
  function assessElement(property,record,rows){
   if(!property)return{reason:'Material definition unavailable.'};
+  if(property.type==='PSHELL'){
+   const ids=new Set([property.material_id,property.material?.id,...(Array.isArray(property.material_ids)?property.material_ids:[]),...Object.values(property.material_roles||{})].map(Number).filter(id=>Number.isInteger(id)&&id>0));
+   if(ids.size>1)return{reason:'This PSHELL uses different materials for membrane, bending, shear or coupling. A single isotropic stress allowable cannot assess the combined recovery.'};
+  }
   const limits=rows instanceof Map?rows:new Map(rows.map(row=>[row.material_id,row]));
   const plies=property.type==='PCOMP'?property.plies:null;
   const parts=plies?.length?plies.map((ply,i)=>({material:ply.material,mid:ply.material_id??ply.material?.id,ply:i+1})):[{material:property.material,mid:property.material_id??property.material?.id}];
@@ -60,14 +75,8 @@
      if(!value)return{reason:'Incomplete ply-face '+row.mode+' recovery.'};candidates.push(value);
     }
    }else{
-    // No axial-stress substitution for beam equivalent stress. Only consume
-    // explicitly recovered von Mises values, including solid/shell samples.
-    if(property.type==='PSHELL'&&!['z1','z2'].every(face=>finite(record?.stress?.[face]?.von_mises)&&record.stress[face].von_mises>=0))return{reason:'Both shell-face von Mises samples are required.'};
-    let invalid=false;
-    const visit=(value,path=[])=>{if(!value||typeof value!=='object')return;for(const[key,item]of Object.entries(value)){if(key==='von_mises'){if(!finite(item)||item<0){invalid=true;continue;}candidates.push(sample(item,row.stress,{material_id:part.mid,face:path.join(' / ')||'element',criterion:'Von Mises stress',unit:'stress'}));}else if(item&&typeof item==='object')visit(item,[...path,key]);}};
-    visit(record?.stress);
-    if(invalid)return{reason:'Invalid equivalent stress sample.'};
-    if(!candidates.length)return{reason:'Equivalent von Mises stress was not recovered for this element.'};
+    const equivalent=equivalentStressSample(property,record);if(equivalent.reason)return equivalent;
+    candidates.push(sample(equivalent.demand,row.stress,{material_id:part.mid,face:equivalent.face,criterion:'Von Mises stress',unit:'stress'}));
    }
    for(const candidate of candidates){if(!finite(candidate.utilization))return{reason:'Demand / allowable ratio exceeds numeric range.'};if(!worst||candidate.utilization>worst.utilization)worst=candidate;}
   }
@@ -86,15 +95,18 @@
   return{details,reasons,total,assessed:byId.size,worst,contour:{name:'Material allowable utilization',unit:'ratio',location:'element',domain:'all',byId,min:byId.size?min:0,max:byId.size?max:0,note}};
  }
  function materialsFromGroups(groups){const materials=new Map();for(const g of groups||[]){const p=g.properties;for(const mat of [p?.material,...(p?.plies||[]).map(ply=>ply.material)])if(Number.isInteger(mat?.id))materials.set(mat.id,mat);}return [...materials.values()].sort((a,b)=>a.id-b.id);}
- function editor({document:doc,host,readMaterials,readRows,onChange,sourceUnits=()=>false}){
+ function editor({document:doc,host,readMaterials,readRows,onChange,sourceUnits=()=>false,materialLibrary=null,showDefinition=false}){
   const el=(tag,text,cls)=>{const node=doc.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;};
-  const title=el('h2','Material allowables'),note=el('p','Optional limits for the current material. These are saved with the Study and compared with physical static results. Changing a limit updates the comparison without rerunning the solver.','pick-note');
+  const title=el(materialLibrary?'h4':'h2',showDefinition?'Material library':'Material allowables'),note=el('p','Optional limits for the selected material. Saved with the Study; changing a limit updates the comparison without rerunning the solver.','pick-note');
   const label=el('label','Material','display-control'),select=el('select');select.id='allowable-material';label.append(select);
+  label.hidden=!!materialLibrary;
+  const definition=el('section',undefined,'material-imported-definition');definition.hidden=!showDefinition;
+  const allowableHeading=el('h3','Material allowables');allowableHeading.hidden=!showDefinition;
   const modeLabel=el('label','Compare with','display-control'),mode=el('select');mode.id='allowable-mode';for(const[value,text]of[['none','Not assessed'],['stress','Stress · von Mises (isotropic)'],['strain','Strain · principal (orthotropic laminate)']]){const opt=el('option',text);opt.value=value;mode.append(opt);}modeLabel.append(mode);
   const fields=el('div',undefined,'allowable-fields'),info=el('p',undefined,'pick-note'),status=el('p',undefined,'material-error');status.setAttribute('role','status');
   const help=el('details',undefined,'ui-form-help');help.append(el('summary','How allowable comparisons work'),el('p','MAT1: compare the recovered von Mises stress with one positive stress limit. Principal-strain checks apply only to laminates whose every ply uses the same orthotropic MAT8 material ID; ply angles may differ. Enter two dimensionless limits: tension and a positive compression magnitude (0.005 means 0.5%). At both faces of every ply, εmax/min = (ε1 + ε2) / 2 ± sqrt(((ε1 − ε2) / 2)² + (γ12 / 2)²). γ12 is engineering shear strain, twice tensor shear. Compare positive εmax with the tensile limit and the magnitude of negative εmin with the compressive limit; the largest ratio governs. Heterogeneous laminates, missing limits or missing recovery remain unassessed. Saved directional limits are retained but never converted to principal-strain limits. These are pointwise elastic checks, not damage or progressive-failure models. Reserve factor = 1 / utilization and margin = reserve factor - 1. For nonlinear results these are demand ratios, not predicted load multipliers. Eigenmode amplitudes are arbitrary and cannot be checked. If an imported deck suppresses STRAIN output, select an explicit solution in Analysis of imported model and rerun; preserving the source analysis also preserves its output requests.'));
   const controls={};for(const key of ['stress',...STRAINS]){const row=el('label',LABELS[key],'material-field'),input=el('input');input.type='number';input.step='any';input.min='0';input.id='allowable-'+key;input.setAttribute('aria-label',LABELS[key]);row.append(input);fields.append(row);controls[key]={row,input};input.addEventListener('input',store);}
-  host.replaceChildren(title,note,label,modeLabel,fields,info,status,help);let catalogue=[];
+  host.classList.add('material-allowables');host.replaceChildren(title,label,definition,allowableHeading,note,modeLabel,fields,info,status,help);let catalogue=[];
   const read=()=>JSON.parse(JSON.stringify(readRows()||[]));
   function store(){
    const previous=read().find(row=>row.material_id===Number(select.value));
@@ -104,7 +116,7 @@
     // Retain old Study data for reference, without inventing new limits.
     for(const key of LEGACY_STRAINS)if(previous?.[key]!==undefined)row[key]=previous[key];
     // Preserve the dormant basis values when toggling, without using them.
-    for(const key of ['stress',...STRAINS]){const input=controls[key].input;if(input.value!==''||input.validity.badInput)row[key]=input.validity.badInput?{raw:'invalid number'}:Number(input.value)*(key==='stress'&&!sourceUnits()?1e9:1);}
+    for(const key of ['stress',...STRAINS]){const input=controls[key].input;if(input.value!==''||input.validity.badInput)row[key]=input.validity.badInput?{raw:'invalid number'}:Number(input.value)*(key==='stress'&&!sourceUnits()?1e6:1);}
     rows.push(row);
    }
    rows.sort((a,b)=>a.material_id-b.material_id);onChange(rows);describe();
@@ -112,17 +124,29 @@
   function describe(){
    const row=read().find(row=>row.material_id===Number(select.value)),mat=catalogue.find(mat=>mat.id===Number(select.value));
    for(const[key,{row:field}]of Object.entries(controls))field.hidden=mode.value==='none'||(mode.value==='stress'?key!=='stress':key==='stress');
-   controls.stress.row.firstChild.textContent='Von Mises stress limit ('+(sourceUnits()?'source stress units':'GPa')+')';
-   info.textContent=mode.value==='strain'?'Enter both principal-strain limits. Strain 0.005 = 0.5%; compression is a positive magnitude. Applies only to laminates made entirely from this MAT8 material; ply angles may differ.':mode.value==='stress'?(sourceUnits()?'Use the same stress units as the imported deck; no unit conversion is inferred.':'Stress limits are displayed in GPa and stored in Pa.'):'No allowable comparison for this material.';
+   controls.stress.row.firstChild.textContent='Von Mises stress limit ('+(sourceUnits()?'source stress units':'MPa')+')';
+   info.textContent=mode.value==='strain'?'Enter both principal-strain limits. Strain 0.005 = 0.5%; compression is a positive magnitude. Applies only to laminates made entirely from this MAT8 material; ply angles may differ.':mode.value==='stress'?(sourceUnits()?'Use the same stress units as the imported deck; no unit conversion is inferred.':'Stress limits are displayed in MPa and stored in Pa. 1 MPa = 1,000,000 Pa.'):'No allowable comparison for this material.';
    try{validate(read());status.textContent=row&&!compatible(mat,row)?'This basis is incompatible with '+(mat?.type||'the unavailable material')+'.':row&&missing(row).length?'Incomplete limits: this material will remain unassessed.'+(row.mode==='strain'&&LEGACY_STRAINS.some(key=>row[key]!==undefined)?' Saved directional limits are not converted; enter both principal-strain limits.':''):'';}catch(error){status.textContent=error.message;}status.hidden=!status.textContent;
   }
-  function show(){const row=read().find(row=>row.material_id===Number(select.value)),mat=catalogue.find(mat=>mat.id===Number(select.value));mode.value=row?.mode||'none';for(const opt of mode.options)opt.disabled=opt.value!=='none'&&!compatible(mat,{mode:opt.value});for(const[key,{input}]of Object.entries(controls))input.value=finite(row?.[key])?String(Number((row[key]*(key==='stress'&&!sourceUnits()?1e-9:1)).toPrecision(15))):'';describe();}
+  function renderDefinition(mat){
+   if(!showDefinition)return;
+   const heading=el('h3',mat?'Material '+mat.id+' · '+(mat.type||'Unknown type'):'Material definition'),note=el('p','Source material definition (read-only). Values retain the imported deck’s units. Edit the source deck to change its elastic properties.','material-note'),table=el('dl',undefined,'material-definition-values');
+   const names={e:'Young modulus',g:'Shear modulus',nu:'Poisson ratio',rho:'Density',e1:'Longitudinal modulus E1',e2:'Transverse modulus E2',nu12:'Poisson ratio ν12',g12:'Shear modulus G12',g1z:'Shear modulus G1z',g2z:'Shear modulus G2z'},seen=new Set();
+   for(const[key,value]of Object.entries(mat||{})){
+    const canonical=key.replace(/_Pa$|_kg_m3$/,'').toLowerCase();
+    if(['id','mid','type','name'].includes(canonical)||!finite(value)||seen.has(canonical)||canonical==='e'&&mat.type==='MAT8'&&finite(mat.E1_Pa??mat.E1??mat.e1))continue;
+    seen.add(canonical);table.append(el('dt',names[canonical]||key),el('dd',format(value)));
+   }
+   definition.replaceChildren(heading,note,table);if(!table.children.length)definition.append(el('p','No elastic-property detail is available for this material.','material-note'));
+  }
+  function show(){const row=read().find(row=>row.material_id===Number(select.value)),mat=catalogue.find(mat=>mat.id===Number(select.value));mode.value=row?.mode||'none';for(const opt of mode.options)opt.disabled=opt.value!=='none'&&!compatible(mat,{mode:opt.value});for(const[key,{input}]of Object.entries(controls))input.value=finite(row?.[key])?String(Number((row[key]*(key==='stress'&&!sourceUnits()?1e-6:1)).toPrecision(15))):'';renderDefinition(mat);describe();}
   function refresh(){
-   const previous=select.value;catalogue=[...(readMaterials()||[])];for(const row of read())if(!catalogue.some(mat=>mat.id===row.material_id))catalogue.push({id:row.material_id,type:'Unavailable',name:'Saved material not in current model'});
+   catalogue=[...(readMaterials()||[])];for(const row of read())if(!catalogue.some(mat=>mat.id===row.material_id))catalogue.push({id:row.material_id,type:'Unavailable',name:'Saved material not in current model'});materialLibrary?.setSupplementalMaterials(catalogue.filter(mat=>mat.type==='Unavailable'));const previous=String(materialLibrary?.selectedMaterialId()??select.value);
    select.replaceChildren();for(const mat of catalogue){const opt=el('option',mat.id+' · '+(mat.name||mat.type||'Material')+' ('+(mat.type||'unknown')+')');opt.value=mat.id;select.append(opt);}if([...select.options].some(opt=>opt.value===previous))select.value=previous;select.disabled=!catalogue.length;mode.disabled=!catalogue.length;show();
   }
-  select.addEventListener('change',show);mode.addEventListener('change',store);refresh();
-  return{refresh,assertValid:()=>validate(read()),destroy:()=>host.replaceChildren()};
+  function selectMaterial(id){if([...select.options].some(option=>Number(option.value)===Number(id))){select.value=String(id);show();}}
+  select.addEventListener('change',show);mode.addEventListener('change',store);const unsubscribe=materialLibrary?.onMaterialSelection(()=>refresh());refresh();
+  return{host,refresh,selectMaterial,assertValid:()=>validate(read()),destroy:()=>{unsubscribe?.();host.replaceChildren();}};
  }
- return{KEY,STRAINS,validate,missing,compatible,assessElement,build,materialsFromGroups,editor,format};
+ return{KEY,STRAINS,validate,missing,compatible,equivalentStressSample,assessElement,build,materialsFromGroups,editor,format};
 });

@@ -27,9 +27,10 @@ Fuel density is in **Fuel tank**. Display → Environment groups each plane's
 visibility, finish, color and position; choose **Customize lighting** for
 individual light intensities and directions.
 
-**Materials → Material allowables** stores optional limits for each material.
+**Materials → Material library** groups each material definition with its
+optional allowables. Select a material once to edit both its properties and limits.
 Choose **Stress** for isotropic MAT1 materials: the largest recovered von Mises
-stress is divided by the specified allowable. Generated-model inputs use GPa
+stress is divided by the specified allowable. Generated-model inputs use MPa
 and save Pa; imported-model inputs use the deck's stress units. Choose **Strain**
 for laminates made entirely from one orthotropic MAT8 material: enter a tensile
 principal-strain limit and a positive compressive principal-strain limit.
@@ -69,6 +70,48 @@ and explicitly configured imported analyses request strain output; when preservi
 an imported source analysis, its authored output requests remain authoritative.
 If they suppress strain output, choose an explicit solution in **Analysis of
 imported model** and rerun to obtain laminate strain checks.
+
+**Results → Stress Report** contains two property tables: **Von Mises stress**
+and **Reserve Factor**. It includes current SOL101 and converged, full-load
+SOL106 physical solutions; modal solutions and SOL105, including its static
+preload, are outside this report. Choose all eligible load cases or a particular
+case. In a generated SOL106 comparison, the full-load linear SOL101 comparison
+is identified separately. The largest property statistic across the selected
+cases is the envelope, with the governing case shown alongside it.
+
+Choose the property statistic:
+
+- **Maximum:** the largest recovered element von Mises stress in the region.
+- **Average:** the arithmetic mean of the element peak stresses, with equal
+  weight for each element, independent of element area or volume.
+- **Average below percentile:** compute the chosen percentile of element
+  peak stresses in each property and case, discard stresses above that cutoff,
+  and average the retained values. At 95%, the highest approximately 5% are
+  discarded; small regions and tied values need not discard exactly 5%.
+  Ties at the cutoff are retained, allowing only machine-roundoff differences
+  (16 relative machine epsilons). The cutoff uses linear
+  interpolation at rank `(n - 1) × percentile / 100` in the sorted sample list.
+
+Each element contributes its largest explicitly recovered von Mises value
+across its faces or integration points. Both PSHELL faces are required. The
+**Absolute maximum** column always retains the peak and its EID and case,
+including when the selected average excludes it. Coverage details show the
+retained/discarded counts and cutoff. Stresses use MPa for generated SI models;
+an imported deck's undeclared unit system remains labeled **source stress units**.
+
+The reserve factor is the material's allowable stress divided by the chosen
+property envelope. Values below 1 exceed the specified allowable. A missing
+case withholds reserve factors across the selected case envelope; incomplete
+element recovery withholds the affected property's factor. Missing material
+limits, mixed-material PSHELLs, laminates and beams without recovered equivalent
+stress are explicitly unassessed. Zero demand has no finite reserve factor.
+Laminate principal-strain checks remain in FE Results. For SOL106 this ratio
+compares demand with a limit; it does not predict the nonlinear failure load.
+
+Use **Maximize** for wide tables, filter by property/name/material, and export
+CSV, Markdown or HTML. Exports contain all filtered properties, the selected
+method and coverage notes. Values are presented with at most five significant
+digits. Editing allowables updates the report without rerunning the solver.
 
 Use **Project → Open JFEM results…** (also available on the opening screen)
 to choose a `.jfem` result file from any folder with the normal system file

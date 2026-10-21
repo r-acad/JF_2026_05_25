@@ -576,7 +576,7 @@ const WORKSPACE_TABS = [
   ["Model", "sections", "Stringers"], ["Model", "ribproperties", "Ribs"], ["Model", "sparproperties", "Spars"], ["Model", "leproperties", "Leading Edge"], ["Model", "nonstructural", "Mass"], ["Model", "supports", "Constraints"],
   ["Summary", "weights", "Mass properties"], ["Summary", "summary", "General"],
   ["Loads", "cases", "Cases"], ["Loads", "vlmmesh", "VLM settings"], ["Loads", "loadplots", "Load plots"],
-  ["Solve", "analysis", "FE Analysis"], ["Solve", "sensitivity", "Sensitivity"], ["Solve", "results", "FE Results"], ["Solve", "sensitivityresults", "Sensitivity"], ["Solve", "deck", "Deck"], ["Solve", "log", "Log"],
+  ["Solve", "analysis", "FE Analysis"], ["Solve", "sensitivity", "Sensitivity"], ["Solve", "results", "FE Results"], ["Solve", "stressreport", "Stress Report"], ["Solve", "sensitivityresults", "Sensitivity"], ["Solve", "deck", "Deck"], ["Solve", "log", "Log"],
   ["View", "display", "Entities"], ["View", "displaygeometry", "Geometry"], ["View", "displayloads", "Loads&Constraints"], ["View", "displayproperties", "Properties"], ["View", "displayappearance", "Appearance"], ["View", "displaylabels", "Axes & labels"], ["View", "displayenvironment", "Environment"], ["View", "displaymass", "Mass properties"], ["View", "inspect", "Inspect"],
 ];
 const WORKSPACE_GROUP_TAB = {
@@ -600,10 +600,10 @@ const WORKSPACE_MENUS = {
   properties:{tabs:PROPERTY_TABS,current:"shells",label:"Properties"},
   overview:{tabs:SUMMARY_TABS,current:"weights",label:"Summary"},
   analysismenu:{tabs:new Set(["analysis","sensitivity"]),current:"analysis",label:"Analysis"},
-  resultsmenu:{tabs:new Set(["results","sensitivityresults"]),current:"results",label:"Results"},
+  resultsmenu:{tabs:new Set(["results","stressreport","sensitivityresults"]),current:"results",label:"Results"},
   displaymenu:{tabs:new Set(["display","displaygeometry","displayloads","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"]),current:"display",label:"Display"},
 };
-const WORKSPACE_MAIN_TABS = WORKSPACE_TABS.filter(([,id]) => !["cases","airfoils","loft","movablesurfaces","movablestructure","sections","ribproperties","sparproperties","leproperties","nonstructural","summary","ribs","stringerlayout","leadingedge","loadplots","sensitivity","sensitivityresults","displaygeometry","displayloads","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"].includes(id)).map(tab => tab[1] === "planform" ? ["Geometry","geometrymenu","Geometry"] : tab[1] === "box" ? ["Geometry","structure","Structure"] : tab[1] === "vlmmesh" ? ["Loads","aerodynamics","Loads"] : tab[1] === "shells" ? ["Model", "properties", "Properties"] : tab[1] === "weights" ? ["Summary","overview","Summary"] : tab[1] === "analysis" ? ["Solve","analysismenu","Analysis"] : tab[1] === "results" ? ["Solve","resultsmenu","Results"] : tab[1] === "display" ? ["View","displaymenu","Display"] : tab);
+const WORKSPACE_MAIN_TABS = WORKSPACE_TABS.filter(([,id]) => !["cases","airfoils","loft","movablesurfaces","movablestructure","sections","ribproperties","sparproperties","leproperties","nonstructural","summary","ribs","stringerlayout","leadingedge","loadplots","sensitivity","sensitivityresults","stressreport","displaygeometry","displayloads","displayproperties","displayappearance","displaylabels","displayenvironment","displaymass"].includes(id)).map(tab => tab[1] === "planform" ? ["Geometry","geometrymenu","Geometry"] : tab[1] === "box" ? ["Geometry","structure","Structure"] : tab[1] === "vlmmesh" ? ["Loads","aerodynamics","Loads"] : tab[1] === "shells" ? ["Model", "properties", "Properties"] : tab[1] === "weights" ? ["Summary","overview","Summary"] : tab[1] === "analysis" ? ["Solve","analysismenu","Analysis"] : tab[1] === "results" ? ["Solve","resultsmenu","Results"] : tab[1] === "display" ? ["View","displaymenu","Display"] : tab);
 const parentTab = id => Object.keys(WORKSPACE_MENUS).find(key=>WORKSPACE_MENUS[key].tabs.has(id));
 
 function leaveInspection(){
@@ -683,6 +683,7 @@ function activateWorkspaceTab(id, options = {}) {
   if (id === "log" && liveLog.follow) logEl.scrollTop = logEl.scrollHeight;
   if (id === "sensitivity") state.sensitivity?.refreshContext();
   if (id === "material") refreshMaterialAllowableEditor();
+  if (id === "stressreport") refreshStressReport();
   if (id === "stringerlayout") state.stringerLayout?.refresh();
   if (["displaygeometry","displayenvironment"].includes(id)) {state.geometryDisplay?.rebuild();syncGeometryControls();}
   if (state.data) applyAeroOverlayStyles();
@@ -1438,25 +1439,29 @@ function updateAnalysisValidity() {
   if(resultsHavePendingDrafts()&&state.sensitivityMap)clearSensitivityMap();
   const status = analysisValidity(),sensitivity=sensitivityResultValidity();
   const feAvailable=physicalResultsAvailable(),sensitivityAvailable=sensitivityResultsAvailable();
-  const anyCurrent=status.current||sensitivity.current;
-  const combined={current:anyCurrent,reason:!feAvailable&&!sensitivityAvailable?"No FE or sensitivity results are available for case "+state.activeCase+". Select a solved case or run an analysis.":status.current?status.reason:sensitivity.current?sensitivity.reason:status.reason};
+  const stressCases=typeof WingStressReportData!=='undefined'?WingStressReportData.caseList(stressReportContext()):null;
+  const stressAvailable=!!(stressCases?.included.length||stressCases?.excluded.some(c=>c.relevant));
+  const anyCurrent=status.current||sensitivity.current||!!stressCases?.complete;
+  const combined={current:anyCurrent,reason:!feAvailable&&!sensitivityAvailable&&!stressAvailable?"No FE or sensitivity results are available for case "+state.activeCase+". Select a solved case or run an analysis.":status.current?status.reason:sensitivity.current?sensitivity.reason:stressCases?.complete?"Current SOL101/SOL106 cases are available in Stress Report.":status.reason};
   const selected=state.results;
   const feCurrent=!!selected&&!state.modelDirty&&!resultsHavePendingDrafts()&&selected.matches&&selected.available!==false&&!selected.historical&&
     !/failed|cancelled|canceled|timeout|stopped/i.test(selected.status||"")&&
     (!selected.convergence||selected.convergence.converged===true&&selected.convergence.full_load===true&&!selected.convergence.partial)&&
     (!selected.signature||selected.signature===state.modelSignature)&&!!(selected.static||selected.modes?.length||selected.compactBuckling);
   const feStatus={current:status.current||feCurrent,reason:feCurrent?"The selected physical solution matches this model. "+(status.current?status.reason:"Other cases or the requested analysis may still need Run in JFEM."):status.reason};
-  for (const id of ["tab-resultsmenu","tab-results","tab-sensitivityresults","btn-jfem"]) {
+  for (const id of ["tab-resultsmenu","tab-results","tab-sensitivityresults","tab-stressreport","btn-jfem"]) {
     const el = document.getElementById(id); if (!el) continue;
-    const shown=id==="btn-jfem"?status:id==="tab-sensitivityresults"?sensitivity:id==="tab-results"?feStatus:combined;
-    const available=id==="tab-sensitivityresults"?sensitivityAvailable:id==="tab-resultsmenu"?feAvailable||sensitivityAvailable:feAvailable;
+    const shown=id==="btn-jfem"?status:id==="tab-stressreport"?{current:!!stressCases?.complete,reason:"Property stress envelopes and reserve factors across SOL101/SOL106 cases. Coverage is shown in the report."}:id==="tab-sensitivityresults"?sensitivity:id==="tab-results"?feStatus:combined;
+    const available=id==="tab-stressreport"?stressAvailable:id==="tab-sensitivityresults"?sensitivityAvailable:id==="tab-resultsmenu"?feAvailable||sensitivityAvailable||stressAvailable:feAvailable;
     el.setAttribute("data-analysis-current",String(available&&shown.current));
     el.setAttribute("data-analysis-state",!available?"empty":shown.current?"current":"stale");
     el.title = (id === "btn-jfem" ? "Run the selected analysis for every enabled load case. " : "") + (!available?"No "+(id==="tab-sensitivityresults"?"sensitivity ":id==="tab-results"?"FE ":"")+"results are available for case "+state.activeCase+".":shown.reason);
-    el.setAttribute("aria-label",(id === "btn-jfem" ? "Run in JFEM" : id==="tab-results"?"FE Results":id==="tab-sensitivityresults"?"Sensitivity results":"Results") + (!available?" — no results available":shown.current ? " — results current" : " — analysis required"));
+    el.setAttribute("aria-label",(id === "btn-jfem" ? "Run in JFEM" : id==="tab-stressreport"?"Stress Report":id==="tab-results"?"FE Results":id==="tab-sensitivityresults"?"Sensitivity results":"Results") + (!available?" — no results available":shown.current ? " — results current" : " — analysis required"));
   }
   const sensitivityTab=document.getElementById("tab-sensitivityresults");
   if(sensitivityTab){sensitivityTab.disabled=!sensitivityResultsAvailable();sensitivityTab.setAttribute("aria-disabled",String(sensitivityTab.disabled));}
+  const stressTab=document.getElementById('tab-stressreport');
+  if(stressTab){stressTab.disabled=!stressAvailable;stressTab.setAttribute('aria-disabled',String(!stressAvailable));}
   const note = document.getElementById("analysis-validity");
   if (note) { note.textContent = status.reason; note.setAttribute("data-analysis-current",String(status.current));note.setAttribute("data-analysis-state",!feAvailable?"empty":status.current?"current":"stale"); }
   const warning=document.getElementById("fe-results-validity");
@@ -1473,6 +1478,7 @@ function updateAnalysisValidity() {
   state.propertyDisplay?.refresh();
   if(state.propertyDisplay?.enabled)updateViewportLegends();
   syncMaterialAssessmentNote();
+  refreshStressReport();
   return status;
 }
 
@@ -1750,8 +1756,12 @@ function readMaterialAllowables(){
 
 function refreshMaterialAllowableEditor(){
   if(typeof WingMaterialAllowables==='undefined')return;
-  const host=document.getElementById('panel-material-allowables');if(!host)return;
-  if(!state.allowablesEditor)state.allowablesEditor=WingMaterialAllowables.editor({document,host,
+  const materialLibrary=state.importedDeck?null:state.materialsEditor;
+  const standalone=document.getElementById('panel-material-allowables');
+  if(standalone)standalone.hidden=!state.importedDeck||workspaceUI.activeTab!=='material';
+  const host=materialLibrary?.allowablesHost||standalone;if(!host)return;
+  if(state.allowablesEditor&&state.allowablesEditor.host!==host){state.allowablesEditor.destroy();state.allowablesEditor=null;}
+  if(!state.allowablesEditor)state.allowablesEditor=WingMaterialAllowables.editor({document,host,materialLibrary,showDefinition:!!state.importedDeck,
     readMaterials:()=>{
       if(state.importedDeck)return state.data?.materials?.library||WingMaterialAllowables.materialsFromGroups(state.data?.groups);
       let library=[];try{library=JSON.parse(document.getElementById('p-materials.library')?.value||'[]');}catch{}
@@ -1777,7 +1787,7 @@ function currentMaterialAssessment(){
 }
 
 function allowableDisplayValue(value,unit){
-  return unit==='strain'?eng(value,5)+' strain':eng(value*(state.importedDeck?1:1e-9),5)+(state.importedDeck?' source stress units':' GPa');
+  return unit==='strain'?eng(value,5)+' strain':eng(value*(state.importedDeck?1:1e-6),5)+(state.importedDeck?' source stress units':' MPa');
 }
 
 function syncMaterialAssessmentNote(){
@@ -1803,6 +1813,21 @@ function refreshMaterialAssessmentControls(){
     applyContour();if(state.selectedElement!==null)showElement(state.selectedElement);
   }
   syncMaterialAssessmentNote();
+  refreshStressReport();
+}
+
+function stressReportContext(){
+  const cases=modelCases(),solution=Number(state.importedDeck?WingImportedAnalysis.solution(state.importedDeck):document.getElementById('p-output.solution')?.value||state.values?.['output.solution']);
+  return{elements:state.elements,cases:state.resultCases,allowables:readMaterialAllowables(),sourceUnits:!!state.importedDeck,
+    signature:state.modelSignature,meshIdentity:state.meshIdentity,modelDirty:!!state.modelDirty,pendingDrafts:resultsHavePendingDrafts(),running:!!(state.polling||state.solverStarting),
+    caseLabels:new Map(cases.map(c=>[Number(c.id),c.label||'Load case '+c.id])),
+    expectedCases:cases.map(c=>({...c,solution:c.solution||solution})).filter(c=>[101,106].includes(Number(c.solution))).map(c=>({id:c.id,label:c.label,solution:c.solution,enabled:c.enabled}))};
+}
+
+function refreshStressReport(){
+  if(typeof WingStressReport==='undefined'||workspaceUI.activeTab!=='stressreport')return;
+  if(!state.stressReport)state.stressReport=WingStressReport.install({document,host:document.getElementById('panel-stressreport'),readContext:stressReportContext,onEditAllowables:()=>activateWorkspaceTab('material')});
+  state.stressReport.refresh();
 }
 
 function collectParams({includeView = false} = {}) {
@@ -3211,7 +3236,7 @@ async function loadReferenceSource(raw) {
 function syncModelNavigation(){
   const imported=!!state.importedDeck;
   const materials=document.getElementById('tab-material');
-  if(materials){materials.setAttribute('aria-controls',imported?'panel-material-allowables':'group-materials panel-material-allowables');materials.title=imported?'Set assessment allowables for source materials. Elastic properties remain defined by the imported deck.':'Edit material properties and optional stress or strain allowables.';}
+  if(materials){materials.setAttribute('aria-controls',imported?'panel-material-allowables':'group-materials');materials.title=imported?'Set assessment allowables for source materials. Elastic properties remain defined by the imported deck.':'Edit material properties and optional stress or strain allowables.';}
   for(const id of GENERATED_MODEL_TABS){
     const button=document.getElementById('tab-'+id);if(!button)continue;
     if(imported){if(!button.dataset.modelUnavailable)button.dataset.availableTitle=button.title;button.dataset.modelUnavailable='true';button.disabled=true;button.title='This form defines a Boxer-generated lifting surface. For this imported model, use Display, Loads / Cases, Constraints or Analysis.';}

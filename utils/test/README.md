@@ -14,6 +14,14 @@ Individual
 large application model. The JFEM-Boxer browser/generator checks live separately
 under `APPS/JFEM-Boxer/test/`.
 
+The material and stress-report checks include `material_allowables_test.cjs`,
+`material_library_browser_test.cjs`, `stress_report_data_test.cjs` and
+`stress_report_material_roles_test.jl`. They verify MPa/Pa conversion, saved
+material limits, percentile trimming, per-case envelopes, incomplete recovery
+and mixed-material exclusions. `stress_report_browser_test.cjs` replays actual
+multicase solver payloads through the app and checks the tables and exports;
+its header describes the required local fixtures and browser arguments.
+
 The Boxer geometry checks cover local coordinate-file parsing, loft thickness
 and twist interpolation, exact maximum-thickness evaluation, shared structural/
 aerodynamic/fuel geometry, and portable drawing settings. Run

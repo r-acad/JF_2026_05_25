@@ -1,4 +1,11 @@
-#panel-material-allowables h2{font-size:15px;margin:0 0 12px}
+.material-allowables h2,.material-allowables h3,.material-allowables h4{font-size:14px;margin:0 0 12px}
+.material-allowables [hidden]{display:none!important}
+.material-allowables .display-control{display:grid;grid-template-columns:minmax(0,1fr);gap:5px;margin:10px 0;font-size:12px}
+.material-allowables .display-control select{max-width:100%;min-width:0;width:100%}
+.material-imported-definition{margin:12px 0;padding:12px;border:1px solid #34485e;border-radius:5px;background:#0d1723}
+.material-definition-values{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px 10px;font-size:12px}
+.material-definition-values dt,.material-definition-values dd{margin:0;overflow-wrap:anywhere}
+.material-definition-values dd{text-align:right;font-variant-numeric:tabular-nums}
 .allowable-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px;align-items:end}
 .allowable-fields .material-field:first-child{grid-column:1/-1}
 .allowable-fields input{width:100%}

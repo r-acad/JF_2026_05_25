@@ -22,9 +22,9 @@ const [modulePath='playwright',output]=process.argv.slice(2),web=path.resolve(__
   assert.equal(await page.locator('#allowable-material option').count(),2);assert.equal(await page.locator('#allowable-mode').inputValue(),'none');assert.equal(await page.locator('.allowable-fields input:visible').count(),0);
   assert(await page.locator('#allowable-mode option[value=strain]').evaluate(el=>el.disabled));assert(!(await page.locator('#allowable-mode option[value=stress]').evaluate(el=>el.disabled)));
   await page.locator('#allowable-mode').selectOption('stress');assert.match(await status.textContent(),/Incomplete limits/);
-  await page.locator('#allowable-stress').fill('0.25');assert.deepEqual(await rows(),[{material_id:1,mode:'stress',stress:250e6}]);assert(!(await status.isVisible()));
-  assert.match(await page.locator('#allowable-stress').locator('..').textContent(),/GPa/);assert.equal(await page.locator('.allowable-fields input:visible').count(),1);
-  checks.push('Generated MAT1 uses a single stress limit with GPa to Pa conversion and incompatible strain mode disabled');
+  await page.locator('#allowable-stress').fill('250');assert.deepEqual(await rows(),[{material_id:1,mode:'stress',stress:250e6}]);assert(!(await status.isVisible()));
+  assert.match(await page.locator('#allowable-stress').locator('..').textContent(),/MPa/);assert.equal(await page.locator('.allowable-fields input:visible').count(),1);
+  checks.push('Generated MAT1 uses a single stress limit with MPa to Pa conversion and incompatible strain mode disabled');
 
   await page.locator('#allowable-material').selectOption('8');assert(await page.locator('#allowable-mode option[value=stress]').evaluate(el=>el.disabled));
   await page.locator('#allowable-mode').selectOption('strain');assert.match(await status.textContent(),/Incomplete limits/);
@@ -36,7 +36,7 @@ const [modulePath='playwright',output]=process.argv.slice(2),web=path.resolve(__
   await page.locator('#panel-material-allowables summary').click();
   checks.push('MAT8 exposes exactly two dimensionless principal-strain limits, explains tensor shear and the same-material laminate restriction');
 
-  const saved=await rows();await page.locator('#allowable-material').selectOption('1');assert.equal(await page.locator('#allowable-stress').inputValue(),'0.25');
+  const saved=await rows();await page.locator('#allowable-material').selectOption('1');assert.equal(await page.locator('#allowable-stress').inputValue(),'250');
   await page.locator('#allowable-material').selectOption('8');for(const[key,value]of Object.entries(limits))assert.equal(await page.locator('#allowable-'+key).inputValue(),String(value));
   await page.evaluate(()=>{savedRows=JSON.parse(JSON.stringify(savedRows));allowableEditor.refresh();});assert.deepEqual(await rows(),saved);assert.equal(await page.locator('#allowable-material').inputValue(),'8');
   checks.push('Switching materials and restoring serialized rows preserves each material and its selected basis');

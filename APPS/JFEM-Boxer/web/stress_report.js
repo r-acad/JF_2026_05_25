@@ -1,0 +1,110 @@
+/* Results / Stress Report: property statistics across physical load cases. */
+(function(root){
+ 'use strict';
+ function install({document,host,readContext,onEditAllowables}){
+  const data=root.WingStressReportData,finite=Number.isFinite;
+  let report=null,cache=null,table='stress',page=0;
+  const pageSize=100;
+  function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;}
+  function select(id,items){const node=el('select');node.id=id;for(const[value,text]of items){const option=el('option',text);option.value=value;node.append(option);}return node;}
+  function field(text,input){const label=el('label',undefined,'stress-report-field');label.append(el('span',text),input);return label;}
+  const introduction=el('p','Compare property regions across current SOL101 and converged, full-load SOL106 cases. Use Maximize for wider tables.','pick-note');
+  const controls=el('div',undefined,'stress-report-controls');
+  const scope=select('stress-report-case',[['all','All eligible load cases']]);
+  const method=select('stress-report-method',[['maximum','Maximum'],['mean','Average'],['trimmed_mean','Average below percentile']]);
+  const percentile=el('input');percentile.id='stress-report-percentile';percentile.type='number';percentile.min='0.1';percentile.max='100';percentile.step='0.1';percentile.value='95';
+  const percentileField=field('Keep at or below percentile (%)',percentile);percentileField.hidden=true;
+  method.title='Calculate this statistic within each property and load case, then take the largest case value. Averages weight elements equally.';
+  percentile.title='Compute the percentile of element peak stresses separately for each property and case. Average values at or below the cutoff; retain ties and discard only values strictly above it.';
+  const search=el('input');search.id='stress-report-search';search.type='search';search.placeholder='Property ID, name or material';
+  controls.append(field('Load cases',scope),field('Property envelope',method),percentileField,field('Filter properties',search));
+  const switcher=el('div',undefined,'stress-report-tabs');switcher.setAttribute('role','group');switcher.setAttribute('aria-label','Stress report tables');
+  const stressButton=el('button','Von Mises stress'),reserveButton=el('button','Reserve Factor');stressButton.id='stress-report-stress';reserveButton.id='stress-report-reserve';
+  for(const button of[stressButton,reserveButton])button.type='button';switcher.append(stressButton,reserveButton);
+  const actions=el('div',undefined,'stress-report-actions');
+  for(const[format,title,mime]of[['csv','CSV','text/csv'],['markdown','Markdown','text/markdown'],['html','HTML','text/html']]){
+   const button=el('button','Export '+title,'mini');button.type='button';button.id='stress-report-export-'+format;
+   button.onclick=()=>{refresh();if(!report||!percentile.checkValidity())return;const shown=filteredReport(),blob=new Blob([data[format](shown,table)],{type:mime+';charset=utf-8'}),url=URL.createObjectURL(blob),link=el('a');link.href=url;link.download='property-'+(table==='reserve'?'reserve-factors':'stress-report')+'.'+(format==='markdown'?'md':format);link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};actions.append(button);
+  }
+  const edit=el('button','Edit material allowables','mini');edit.type='button';edit.onclick=onEditAllowables;actions.append(edit);
+  const status=el('p',undefined,'stress-report-status');status.id='stress-report-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+  const legend=el('div',undefined,'stress-report-legend');
+  const viewport=el('div',undefined,'stress-report-table-scroll');viewport.tabIndex=0;viewport.setAttribute('role','region');viewport.setAttribute('aria-label','Property results table');
+  const grid=el('table');grid.id='stress-report-table';viewport.append(grid);
+  const paging=el('div',undefined,'stress-report-actions'),previous=el('button','Previous','mini'),next=el('button','Next','mini'),pageNote=el('span');previous.type=next.type='button';paging.append(previous,pageNote,next);
+  const details=el('details'),detailsTitle=el('summary','Load cases and recovery coverage');details.append(detailsTitle);const coverage=el('div');details.append(coverage);
+  const help=el('details'),helpTitle=el('summary','How the envelope and reserve factor are calculated'),helpText=el('p');help.append(helpTitle,helpText);
+  host.replaceChildren(introduction,controls,switcher,actions,status,legend,viewport,paging,details,help);
+  function filteredReport(){const term=search.value.trim().toLowerCase();return{...report,rows:report.rows.filter(row=>!term||[row.label,...row.names,...row.materialIds.map(mid=>'MID '+mid)].join(' ').toLowerCase().includes(term))};}
+  function showCoverage(){
+   coverage.replaceChildren();
+   for(const item of report.includedCases)coverage.append(el('p','Included: '+item.label));
+   for(const item of report.excludedCases)coverage.append(el('p','Excluded: '+item.label+' — '+item.reason));
+   for(const item of report.missingCases)coverage.append(el('p','Missing: '+item.label+' — '+item.reason));
+   const shown=filteredReport().rows;
+   coverage.append(el('p','Element recovery details below follow the filtered property page. Exports include all filtered properties.'));
+   for(const row of shown.slice(page*pageSize,(page+1)*pageSize)){
+    if(!row.reasons.length&&method.value!=='trimmed_mean')continue;
+    const section=el('details');section.append(el('summary',row.label+' · '+row.coverage.recovered+' / '+row.coverage.total+' element/case samples'));
+    for(const c of row.caseResults){const retained=method.value==='trimmed_mean'?' · '+c.retained+' retained, '+c.discarded+' above cutoff '+stress(c.cutoff):'';section.append(el('p',c.label+': '+c.recovered+' / '+c.total+' recovered'+retained));}
+    for(const item of row.reasons)section.append(el('p',item.caseLabel+': '+item.count+' element(s) — '+item.reason));coverage.append(section);
+   }
+  }
+  function stress(value){return finite(value)?data.format(value*report.stressFactor):'Unavailable';}
+  function render(){
+   if(!report)return;
+   const shown=filteredReport(),rows=shown.rows,unit=report.stressUnit,isReserve=table==='reserve';
+   stressButton.setAttribute('aria-pressed',String(!isReserve));reserveButton.setAttribute('aria-pressed',String(isReserve));
+   const pending=report.missingCases.length+report.excludedCases.filter(c=>c.relevant).length;
+   status.dataset.complete=String(report.complete);
+   status.textContent=rows.length+' / '+report.rows.length+' properties · '+report.includedCases.length+' physical solutions · '+report.coverage.recovered+' / '+report.coverage.total+' recovered element/case samples'+(report.complete?'':pending?' · Missing or incomplete cases: '+pending+'. Reserve factors withheld.':' · Incomplete recovery; affected properties are not assessed.');
+   if(!report.includedCases.length)status.textContent='No eligible current SOL101 or full-load SOL106 stress results. Run an analysis with element stress recovery. See coverage below for exclusions.';
+   const scale=data.colorScales(shown,table);legend.replaceChildren();
+   if(isReserve){legend.append(el('span','Reserve factor = allowable / envelope. Red: below 1 · Blue: at least 1 · Gray: unavailable.'));}
+   else if(finite(scale.min)){const bar=el('span',undefined,'stress-report-colorbar');bar.style.background=root.WingColorScales.gradient('viridis',scale.min,scale.max);legend.append(bar,el('span',data.format(scale.min*scale.factor)+' – '+data.format(scale.max*scale.factor)+' '+unit+' · displayed envelope range'));}
+   const headers=isReserve?['Property / material','Allowable','Envelope','Reserve Factor','Governing load case','Coverage / assessment']:['Property / type','Absolute maximum','Peak element / case','Envelope','Governing load case','Recovery'];
+   const caption=el('caption',(isReserve?'Reserve factors':'Von Mises stress')+' · '+data.methodLabel(report)+' · '+(isReserve?'stress in ':'')+unit);
+   const head=el('thead'),header=el('tr');for(const text of headers){const cell=el('th',text);cell.scope='col';header.append(cell);}head.append(header);const body=el('tbody');
+   page=Math.max(0,Math.min(page,Math.ceil(rows.length/pageSize)-1));
+   for(const row of rows.slice(page*pageSize,(page+1)*pageSize)){
+    const tr=el('tr');tr.dataset.pid=String(row.pid);tr.dataset.status=row.status;
+    const id=el('th');id.scope='row';id.append(el('strong',row.label),el('small',isReserve?row.materialIds.map(mid=>'MID '+mid).join(', '):row.propertyType),el('small',row.names.join(' · ')));tr.append(id);
+    function cell(text){const c=el('td',text);tr.append(c);return c;}
+    function colored(value,display){const c=cell(display);if(finite(value)){const badge=el('span',display,'stress-report-value');if(isReserve){badge.dataset.reserve=value<1?'below':'within';}else{const rgb=scale.color(value,'viridis');if(rgb){badge.style.background=root.WingColorScales.css(rgb);badge.style.color=rgb[0]*.299+rgb[1]*.587+rgb[2]*.114>.54?'#102436':'#fff';}}c.replaceChildren(badge);}return c;}
+    if(isReserve){cell(stress(row.allowableStress));cell(stress(row.envelopeStress));colored(row.reserveFactor,finite(row.reserveFactor)?data.format(row.reserveFactor):'Unavailable');cell(row.envelopeCaseLabel||'—');cell(row.coverage.recovered+' / '+row.coverage.total+' · '+(row.reserveFactorReason||(row.reserveFactor<1?'Allowable exceeded':'Within specified allowable')));}
+    else{cell(stress(row.maxStress));cell(row.maxEid?'EID '+row.maxEid+' · '+row.maxFace+' · '+row.maxCaseLabel:'Unavailable');colored(row.envelopeStress,stress(row.envelopeStress));cell(row.envelopeCaseLabel||'—');cell(row.coverage.recovered+' / '+row.coverage.total+' · '+row.status);}
+    body.append(tr);
+   }
+   if(!rows.length){const tr=el('tr'),td=el('td',report.rows.length?'No properties match this filter.':'No supported structural property regions are available.');td.colSpan=headers.length;tr.append(td);body.append(tr);}
+   grid.replaceChildren(caption,head,body);previous.disabled=page===0;next.disabled=(page+1)*pageSize>=rows.length;paging.hidden=rows.length<=pageSize;pageNote.textContent=(page*pageSize+1)+'–'+Math.min((page+1)*pageSize,rows.length)+' of '+rows.length;
+   for(const button of actions.querySelectorAll('[id^="stress-report-export-"]'))button.disabled=!report.includedCases.length||!rows.length;
+   helpText.textContent=report.note+' Reserve Factor is available only for isotropic properties with a positive stress allowable. Laminate principal-strain checks remain in FE Results → Material allowable utilization. Exports contain every filtered row, not just this page.';
+   if(details.open)showCoverage();else coverage.replaceChildren();
+  }
+  details.ontoggle=()=>{if(details.open&&report)showCoverage();};
+  function refresh(force=false){
+   const context=readContext();
+   // Results normally replace the whole map. Also detect individual case updates
+   // without serializing the potentially very large element stress dictionaries.
+   const records=[];
+   for(const[id,parent]of context.cases||[]){
+    records.push(id,parent,parent.analysis,parent.modeKind);
+    for(const[key,r]of parent.variants?.size?parent.variants:[['default',parent]])records.push(key,r,r.elementResults,r.static,r.signature,r.meshIdentity,r.matches,r.available,r.historical,r.status,r.analysis,r.loadScale,r.convergence?.converged,r.convergence?.full_load,r.convergence?.partial,JSON.stringify(r.validationIssues));
+   }
+   const deps=[context.elements,context.cases,context.allowables,context.sourceUnits,context.signature,context.meshIdentity,context.modelDirty,context.pendingDrafts,context.running,JSON.stringify(context.expectedCases),JSON.stringify([...(context.caseLabels||[])]),scope.value,method.value,percentile.value,...records];
+   if(!force&&cache&&deps.length===cache.length&&deps.every((v,i)=>v===cache[i]))return report;
+   const selected=scope.value;scope.replaceChildren();const all=el('option','All eligible load cases');all.value='all';scope.append(all);
+   for(const c of context.expectedCases||[]){const option=el('option',c.label||'Load case '+c.id);option.value=String(c.id);scope.append(option);}
+   // Imported result sets can carry cases not present in older Study metadata.
+   for(const[id]of context.cases||[]){if([...scope.options].some(o=>o.value===String(id)))continue;const option=el('option',context.caseLabels?.get(id)||'Load case '+id);option.value=String(id);scope.append(option);}
+   scope.value=[...scope.options].some(o=>o.value===selected)?selected:'all';
+   percentileField.hidden=method.value!=='trimmed_mean';
+   if(!percentile.checkValidity()){percentile.reportValidity();return report;}
+   report=data.build({...context,caseId:scope.value==='all'?'all':Number(scope.value),method:method.value,percentile:Number(percentile.value)});cache=deps;page=0;render();return report;
+  }
+  scope.onchange=method.onchange=percentile.onchange=()=>refresh(true);search.oninput=()=>{page=0;render();};
+  stressButton.onclick=()=>{table='stress';render();};reserveButton.onclick=()=>{table='reserve';render();};previous.onclick=()=>{page--;render();};next.onclick=()=>{page++;render();};
+  return{refresh,invalidate(){cache=null;},get report(){return report;}};
+ }
+ root.WingStressReport={install};
+})(globalThis);

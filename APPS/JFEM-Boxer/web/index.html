@@ -47,6 +47,7 @@
   <link rel="stylesheet" href="mass_properties.css">
   <link rel="stylesheet" href="materials_editor.css">
   <link rel="stylesheet" href="material_allowables.css">
+  <link rel="stylesheet" href="stress_report.css">
   <link rel="stylesheet" href="flight_conditions.css">
   <link rel="stylesheet" href="ui_consistency.css">
 </head>
@@ -447,7 +448,8 @@
           <p id="sensitivity-map-status" class="pick-note" role="status"></p>
         </div>
       </section>
-      <section id="panel-results" class="workspace-panel" data-workspace-panel="results" role="tabpanel" aria-labelledby="tab-results" hidden>
+    <section id="panel-stressreport" class="workspace-panel" data-workspace-panel="stressreport" role="tabpanel" aria-labelledby="tab-stressreport" hidden></section>
+    <section id="panel-results" class="workspace-panel" data-workspace-panel="results" role="tabpanel" aria-labelledby="tab-results" hidden>
       <p id="fe-results-validity" class="pick-note model-warning" role="status" aria-live="polite" hidden></p>
       <fieldset id="result-reaction-controls"><legend>Constraint reactions</legend>
         <label class="ctl check"><input id="results-show-support-forces" type="checkbox" checked disabled><span>Display constraint reactions</span></label>
@@ -700,6 +702,8 @@
 <script src="disk_results.js" defer></script>
 <script src="ui_layout.js" defer></script>
 <script src="material_allowables.js" defer></script>
+<script src="stress_report_data.js" defer></script>
+<script src="stress_report.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>

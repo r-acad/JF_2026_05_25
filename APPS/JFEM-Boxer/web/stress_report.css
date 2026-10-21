@@ -1,0 +1,29 @@
+#panel-stressreport{min-width:0}
+#tab-stressreport[data-analysis-state="current"]{color:#71e4ad}
+#tab-stressreport[data-analysis-state="stale"]{color:#ff858d}
+#tab-stressreport[data-analysis-state="empty"]{color:#94a3b3}
+.stress-report-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:16px 0}
+.stress-report-field{display:flex;flex-direction:column;gap:6px;font-size:13px;min-width:0}
+.stress-report-field select,.stress-report-field input{width:100%;min-width:0;box-sizing:border-box}
+.stress-report-field[hidden]{display:none}
+.stress-report-tabs,.stress-report-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:12px 0}
+.stress-report-tabs button[aria-pressed="true"]{background:#176da8;border-color:#53adee;color:white}
+.stress-report-status{padding:12px;border-left:4px solid #e5a94f;background:#403421;color:#ffe0a6;line-height:1.5}
+.stress-report-status[data-complete="true"]{border-color:#53adee;background:#18394c;color:#d1edff}
+.stress-report-legend{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:12px;line-height:1.5;margin:12px 0;color:#b7cbd9}
+.stress-report-colorbar{display:inline-block;min-width:130px;width:180px;height:12px;border:1px solid #6e879b;border-radius:2px}
+.stress-report-table-scroll{overflow:auto;max-height:65vh;border:1px solid #38546b;border-radius:6px;background:#102231}
+.stress-report-table-scroll:focus-visible{outline:2px solid #53adee;outline-offset:2px}
+#stress-report-table{width:100%;border-collapse:separate;border-spacing:0;font-variant-numeric:tabular-nums;font-size:13px;line-height:1.45;min-width:780px}
+#stress-report-table caption{text-align:left;padding:12px;font-weight:600;background:#142c40;color:#e4f3ff}
+#stress-report-table th,#stress-report-table td{padding:11px 13px;text-align:left;border-bottom:1px solid #304b60;vertical-align:top;max-width:300px;overflow-wrap:anywhere}
+#stress-report-table thead th{position:sticky;top:0;background:#243f54;color:#e1f1fc;z-index:1}
+#stress-report-table tbody tr:nth-child(even){background:#162d3f}
+#stress-report-table tbody th{min-width:115px}
+#stress-report-table small{display:block;color:#9fb8c9;font-size:11px;font-weight:400;margin-top:4px}
+.stress-report-value{display:inline-block;padding:5px 9px;border-radius:4px;font-weight:600;white-space:nowrap}
+.stress-report-value[data-reserve="below"]{background:#752b37;color:#ffdde2}
+.stress-report-value[data-reserve="within"]{background:#15577b;color:#dcf3ff}
+#panel-stressreport details{margin-top:14px;border:1px solid #38546b;border-radius:5px;padding:10px;font-size:13px;line-height:1.6}
+#panel-stressreport details p{margin:8px 0}
+#panel-stressreport summary{cursor:pointer;font-weight:600}

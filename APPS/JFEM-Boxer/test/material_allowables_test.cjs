@@ -21,6 +21,15 @@ check('MAT1 shell uses the largest recovered von Mises value, not signed normal 
  near(result.utilization,1.2);near(result.reserve_factor,5/6);near(result.margin,-1/6);
  assert.equal(result.demand,300e6);assert.equal(result.allowable,250e6);assert.equal(result.face,'z2');assert.equal(result.material_id,1);
 });
+check('Multi-material PSHELL recovery stays visible but cannot use a single isotropic allowable',()=>{
+ const record={stress:{z1:{von_mises:150e6},z2:{von_mises:300e6}}};
+ for(const metadata of [{material_ids:[1,2]},{material_roles:{membrane:1,bending:2}},{material_ids:[2],material_roles:{shear:2}}]){
+  const property={...shell,...metadata};unassessed(A.assessElement(property,record,[stressLimit]),/PSHELL uses different materials/);
+  assert.deepEqual(A.equivalentStressSample(property,record),{demand:300e6,face:'z2'});
+ }
+ const same={...shell,material_ids:[1,1],material_roles:{membrane:1,bending:1,shear:1}};
+ near(A.assessElement(same,record,[stressLimit]).utilization,1.2);
+});
 check('Solid integration-point recovery uses the governing sample',()=>{
  const result=A.assessElement(solid,{stress:{centroid:{von_mises:100e6},integration_points:[{von_mises:125e6},{von_mises:200e6}]}},new Map([[1,stressLimit]]));
  near(result.utilization,.8);near(result.margin,.25);assert.equal(result.face,'integration_points / 1');

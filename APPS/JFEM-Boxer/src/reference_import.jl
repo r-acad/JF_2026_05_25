@@ -262,7 +262,11 @@ function imported_properties(model,group;material_cache=nothing)
         return result
     end
     mat=imported_material(model,prop["MID"],material_cache)
-    Dict{String,Any}("type"=>"PSHELL","pid"=>pid,"thickness_m"=>thickness,"z_bottom_m"=>-thickness/2,"z_top_m"=>thickness/2,"material"=>mat,"material_id"=>prop["MID"],"areal_mass_kg_m2"=>thickness*get(mat,"rho_kg_m3",0.)+get(prop,"NSM",0.))
+    # Independent membrane/bending/shear/coupling materials cannot be assigned
+    # one stress allowable silently. Preserve the positive material references
+    # for postprocessing; zero and negative field sentinels are not materials.
+    roles=Dict{String,Int}(field=>Int(get(prop,field,0)) for field in ("MID","MID2","MID3","MID4") if get(prop,field,0) isa Integer && get(prop,field,0)>0)
+    Dict{String,Any}("type"=>"PSHELL","pid"=>pid,"thickness_m"=>thickness,"z_bottom_m"=>-thickness/2,"z_top_m"=>thickness/2,"material"=>mat,"material_id"=>prop["MID"],"material_ids"=>sort!(unique!(collect(values(roles)))),"material_roles"=>roles,"areal_mass_kg_m2"=>thickness*get(mat,"rho_kg_m3",0.)+get(prop,"NSM",0.))
 end
 
 function imported_model(native,source,p;cards=Dict())
