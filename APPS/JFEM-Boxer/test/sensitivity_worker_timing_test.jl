@@ -1,12 +1,10 @@
 using Test,JSON,OpenJFEM
+include(joinpath(@__DIR__,"..","src","sensitivity_worker_core.jl"))
 length(ARGS)<=1 || error("Usage: sensitivity_worker_timing_test.jl [fixture.json] (run under the containing solver project)")
 @testset "Sensitivity bootstrap and measured timing contract" begin
     mktempdir() do dir
-        source=read(joinpath(@__DIR__,"..","src","sensitivity_worker.jl"),String)
-        helpers=source[first(findfirst("function bootstrap_json",source)):first(findfirst("const WORKER_STAGE",source))-1]
-        worker=Module(:TimingWorkerFixture)
-        Base.include(worker,joinpath(@__DIR__,"..","src","sensitivity_io.jl"))
-        Base.include_string(worker,"const DIRECTORY="*repr(dir)*"\n"*helpers)
+        worker=JFEMSensitivityWorker
+        worker.reset_worker!(dir,dirname(dirname(dirname(@__DIR__))))
         Base.invokelatest() do
         for (phase,category) in (("bootstrap","preparation"),("baseline_parse","preparation"),
                 ("forward","numerical"),("adjoint","numerical"),("operators","numerical"),

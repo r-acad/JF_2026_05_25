@@ -1,5 +1,6 @@
 using Test,JSON
 include(joinpath(@__DIR__,"..","src","sensitivity_io.jl"))
+include(joinpath(@__DIR__,"..","src","sensitivity_worker_core.jl"))
 length(ARGS)<=1||error("Usage: sensitivity_progress_lifecycle_test.jl [fixture.json]")
 mutable struct JobFixture
     outdir::String
@@ -15,11 +16,8 @@ stop=first(findfirst("function start_sensitivity_job",source))-1
 include_string(@__MODULE__,source[start:stop])
 @testset "Sensitivity worker progress and terminal lifecycle" begin
     mktempdir() do dir
-        worker=Module(:ProgressWorkerFixture)
-        Base.include(worker,joinpath(@__DIR__,"..","src","sensitivity_io.jl"))
-        source=read(joinpath(@__DIR__,"..","src","sensitivity_worker.jl"),String)
-        helpers=source[first(findfirst("function bootstrap_json",source)):first(findfirst("const WORKER_STAGE",source))-1]
-        Base.include_string(worker,"const DIRECTORY="*repr(dir)*"\n"*helpers)
+        worker=JFEMSensitivityWorker
+        worker.reset_worker!(dir,dirname(dirname(dirname(@__DIR__))))
         publish_progress=Base.invokelatest(getfield,worker,:progress)
         Base.invokelatest(publish_progress,Dict("phase"=>"native_package_load","detail"=>"Loading the cached JFEM solver package; an installation or source change may require precompilation"))
         cached=JSON.parsefile(joinpath(dir,"progress.json"))

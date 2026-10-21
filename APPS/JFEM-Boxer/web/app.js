@@ -1819,13 +1819,14 @@ function refreshMaterialAssessmentControls(){
 function stressReportContext(){
   const cases=modelCases(),solution=Number(state.importedDeck?WingImportedAnalysis.solution(state.importedDeck):document.getElementById('p-output.solution')?.value||state.values?.['output.solution']);
   return{elements:state.elements,cases:state.resultCases,allowables:readMaterialAllowables(),sourceUnits:!!state.importedDeck,
+    panels:state.data?.stiffened_panels?.panels||[],componentGroups:state.data?.groups||[],generated:!!state.data&&!state.importedDeck&&!state.data.imported_deck,
     signature:state.modelSignature,meshIdentity:state.meshIdentity,modelDirty:!!state.modelDirty,pendingDrafts:resultsHavePendingDrafts(),running:!!(state.polling||state.solverStarting),
     caseLabels:new Map(cases.map(c=>[Number(c.id),c.label||'Load case '+c.id])),
     expectedCases:cases.map(c=>({...c,solution:c.solution||solution})).filter(c=>[101,106].includes(Number(c.solution))).map(c=>({id:c.id,label:c.label,solution:c.solution,enabled:c.enabled}))};
 }
 
 function refreshStressReport(){
-  if(typeof WingStressReport==='undefined'||workspaceUI.activeTab!=='stressreport')return;
+  if(typeof WingStressReport==='undefined'||(workspaceUI.activeTab!=='stressreport'&&!state.stressReport))return;
   if(!state.stressReport)state.stressReport=WingStressReport.install({document,host:document.getElementById('panel-stressreport'),readContext:stressReportContext,onEditAllowables:()=>activateWorkspaceTab('material')});
   state.stressReport.refresh();
 }

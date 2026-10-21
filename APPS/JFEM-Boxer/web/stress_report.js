@@ -3,7 +3,7 @@
  'use strict';
  function install({document,host,readContext,onEditAllowables}){
   const data=root.WingStressReportData,finite=Number.isFinite;
-  let report=null,cache=null,table='stress',page=0;
+  let report=null,cache=null,table='stress',page=0,lastContext=null;
   const pageSize=100;
   function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;}
   function select(id,items){const node=el('select');node.id=id;for(const[value,text]of items){const option=el('option',text);option.value=value;node.append(option);}return node;}
@@ -28,6 +28,8 @@
   }
   const edit=el('button','Edit material allowables','mini');edit.type='button';edit.onclick=onEditAllowables;actions.append(edit);
   const status=el('p',undefined,'stress-report-status');status.id='stress-report-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+  const detached=root.WingReserveFactorTables?.connect({readSnapshot:()=>({report,panels:lastContext?.panels||[],componentGroups:lastContext?.componentGroups||[],generated:!!lastContext?.generated,caseScopeLabel:scope.selectedOptions[0]?.textContent||'All eligible load cases'}),onError:message=>{status.textContent=message;status.dataset.complete='false';}});
+  detached?.installButton(actions);
   const legend=el('div',undefined,'stress-report-legend');
   const viewport=el('div',undefined,'stress-report-table-scroll');viewport.tabIndex=0;viewport.setAttribute('role','region');viewport.setAttribute('aria-label','Property results table');
   const grid=el('table');grid.id='stress-report-table';viewport.append(grid);
@@ -60,7 +62,7 @@
    status.textContent=rows.length+' / '+report.rows.length+' properties · '+report.includedCases.length+' physical solutions · '+report.coverage.recovered+' / '+report.coverage.total+' recovered element/case samples'+(report.complete?'':pending?' · Missing or incomplete cases: '+pending+'. Reserve factors withheld.':' · Incomplete recovery; affected properties are not assessed.');
    if(!report.includedCases.length)status.textContent='No eligible current SOL101 or full-load SOL106 stress results. Run an analysis with element stress recovery. See coverage below for exclusions.';
    const scale=data.colorScales(shown,table);legend.replaceChildren();
-   if(isReserve){legend.append(el('span','Reserve factor = allowable / envelope. Red: below 1 · Blue: at least 1 · Gray: unavailable.'));}
+   if(isReserve){legend.append(el('span','Reserve factor = allowable / envelope. Red: below 1 · Neutral: exactly 1 · Blue: above 1 · Gray: unavailable.'));}
    else if(finite(scale.min)){const bar=el('span',undefined,'stress-report-colorbar');bar.style.background=root.WingColorScales.gradient('viridis',scale.min,scale.max);legend.append(bar,el('span',data.format(scale.min*scale.factor)+' – '+data.format(scale.max*scale.factor)+' '+unit+' · displayed envelope range'));}
    const headers=isReserve?['Property / material','Allowable','Envelope','Reserve Factor','Governing load case','Coverage / assessment']:['Property / type','Absolute maximum','Peak element / case','Envelope','Governing load case','Recovery'];
    const caption=el('caption',(isReserve?'Reserve factors':'Von Mises stress')+' · '+data.methodLabel(report)+' · '+(isReserve?'stress in ':'')+unit);
@@ -70,7 +72,7 @@
     const tr=el('tr');tr.dataset.pid=String(row.pid);tr.dataset.status=row.status;
     const id=el('th');id.scope='row';id.append(el('strong',row.label),el('small',isReserve?row.materialIds.map(mid=>'MID '+mid).join(', '):row.propertyType),el('small',row.names.join(' · ')));tr.append(id);
     function cell(text){const c=el('td',text);tr.append(c);return c;}
-    function colored(value,display){const c=cell(display);if(finite(value)){const badge=el('span',display,'stress-report-value');if(isReserve){badge.dataset.reserve=value<1?'below':'within';}else{const rgb=scale.color(value,'viridis');if(rgb){badge.style.background=root.WingColorScales.css(rgb);badge.style.color=rgb[0]*.299+rgb[1]*.587+rgb[2]*.114>.54?'#102436':'#fff';}}c.replaceChildren(badge);}return c;}
+    function colored(value,display){const c=cell(display);if(finite(value)){const badge=el('span',display,'stress-report-value');if(isReserve){badge.dataset.reserve=value<1?'below':value>1?'within':'threshold';}else{const rgb=scale.color(value,'viridis');if(rgb){badge.style.background=root.WingColorScales.css(rgb);badge.style.color=rgb[0]*.299+rgb[1]*.587+rgb[2]*.114>.54?'#102436':'#fff';}}c.replaceChildren(badge);}return c;}
     if(isReserve){cell(stress(row.allowableStress));cell(stress(row.envelopeStress));colored(row.reserveFactor,finite(row.reserveFactor)?data.format(row.reserveFactor):'Unavailable');cell(row.envelopeCaseLabel||'—');cell(row.coverage.recovered+' / '+row.coverage.total+' · '+(row.reserveFactorReason||(row.reserveFactor<1?'Allowable exceeded':'Within specified allowable')));}
     else{cell(stress(row.maxStress));cell(row.maxEid?'EID '+row.maxEid+' · '+row.maxFace+' · '+row.maxCaseLabel:'Unavailable');colored(row.envelopeStress,stress(row.envelopeStress));cell(row.envelopeCaseLabel||'—');cell(row.coverage.recovered+' / '+row.coverage.total+' · '+row.status);}
     body.append(tr);
@@ -80,10 +82,11 @@
    for(const button of actions.querySelectorAll('[id^="stress-report-export-"]'))button.disabled=!report.includedCases.length||!rows.length;
    helpText.textContent=report.note+' Reserve Factor is available only for isotropic properties with a positive stress allowable. Laminate principal-strain checks remain in FE Results → Material allowable utilization. Exports contain every filtered row, not just this page.';
    if(details.open)showCoverage();else coverage.replaceChildren();
+   detached?.refresh();
   }
   details.ontoggle=()=>{if(details.open&&report)showCoverage();};
   function refresh(force=false){
-   const context=readContext();
+   const context=readContext();lastContext=context;
    // Results normally replace the whole map. Also detect individual case updates
    // without serializing the potentially very large element stress dictionaries.
    const records=[];
@@ -91,7 +94,7 @@
     records.push(id,parent,parent.analysis,parent.modeKind);
     for(const[key,r]of parent.variants?.size?parent.variants:[['default',parent]])records.push(key,r,r.elementResults,r.static,r.signature,r.meshIdentity,r.matches,r.available,r.historical,r.status,r.analysis,r.loadScale,r.convergence?.converged,r.convergence?.full_load,r.convergence?.partial,JSON.stringify(r.validationIssues));
    }
-   const deps=[context.elements,context.cases,context.allowables,context.sourceUnits,context.signature,context.meshIdentity,context.modelDirty,context.pendingDrafts,context.running,JSON.stringify(context.expectedCases),JSON.stringify([...(context.caseLabels||[])]),scope.value,method.value,percentile.value,...records];
+   const deps=[context.elements,context.cases,context.allowables,context.sourceUnits,context.signature,context.meshIdentity,context.modelDirty,context.pendingDrafts,context.running,context.panels,context.componentGroups,context.generated,JSON.stringify(context.expectedCases),JSON.stringify([...(context.caseLabels||[])]),scope.value,method.value,percentile.value,...records];
    if(!force&&cache&&deps.length===cache.length&&deps.every((v,i)=>v===cache[i]))return report;
    const selected=scope.value;scope.replaceChildren();const all=el('option','All eligible load cases');all.value='all';scope.append(all);
    for(const c of context.expectedCases||[]){const option=el('option',c.label||'Load case '+c.id);option.value=String(c.id);scope.append(option);}
@@ -104,7 +107,7 @@
   }
   scope.onchange=method.onchange=percentile.onchange=()=>refresh(true);search.oninput=()=>{page=0;render();};
   stressButton.onclick=()=>{table='stress';render();};reserveButton.onclick=()=>{table='reserve';render();};previous.onclick=()=>{page--;render();};next.onclick=()=>{page++;render();};
-  return{refresh,invalidate(){cache=null;},get report(){return report;}};
+  return{refresh,invalidate(){cache=null;},destroy(){detached?.destroy();},get report(){return report;}};
  }
  root.WingStressReport={install};
 })(globalThis);

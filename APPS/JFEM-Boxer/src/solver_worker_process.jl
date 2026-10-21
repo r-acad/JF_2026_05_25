@@ -54,13 +54,15 @@ end
 function worker_run(request,index)
     bdf=abspath(String(request["bdf"]));outdir=abspath(String(request["outdir"]))
     logpath=joinpath(outdir,"solver_stdout.log")
-    isfile(bdf) || error("Deck not found: $bdf")
+    sensitivity=get(request,"command","")=="sensitivity"
+    sensitivity || isfile(bdf) || error("Deck not found: $bdf")
     isdir(outdir) || error("Prepared output directory not found: $outdir")
     formats=_parse_format_letters(String(request["formats"]))
     requested=get(request,"environment",Dict())
     requested isa AbstractDict || error("Worker environment must be an object")
     all(key->startswith(String(key),"JFEM_"),keys(requested)) || error("Only JFEM run flags may be supplied")
     previous=Dict(key=>value for (key,value) in ENV if startswith(key,"JFEM_"))
+    previous_blas_threads=LinearAlgebra.BLAS.get_num_threads()
     runtime=merge(WORKER_RUNTIME,Dict("request_id"=>request["id"],"request_index"=>index,
         "bdf"=>bdf,"output_dir"=>outdir,"started_unix"=>time()))
     code=0;message=""
@@ -71,20 +73,32 @@ function worker_run(request,index)
         for (key,value) in requested;ENV[String(key)]=String(value);end
         ENV["JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES"]="true"
         ENV["JFEM_SUPPRESS_THREAD_HINT"]="1"
-        ENV["JFEM_EXPORT_BINARY"]=formats[:export_jfem_binary] ? "true" : "false"
+        sensitivity || (ENV["JFEM_EXPORT_BINARY"]=formats[:export_jfem_binary] ? "true" : "false")
         open(joinpath(outdir,"solver_worker.json"),"w") do io;JSON.print(io,runtime,2);end
         open(logpath,"w") do log
             redirect_stdout(log) do
                 redirect_stderr(log) do
                     try
                         println("[Worker] Session $WORKER_SESSION, request $index; independent deck and output directory")
-                        write_run_manifest(outdir;repo_root=WORKER_REPO,bdf_path=bdf,
-                            script_path=@__FILE__,args=[JSON.json(request)],
-                            applied_flags=_manifest_jfem_environment(),
-                            extra=Dict{String,Any}("persistent_worker"=>true,"worker_pid"=>getpid(),
-                                "worker_session_id"=>WORKER_SESSION,"worker_request_index"=>index,
-                                "output_formats"=>request["formats"]))
-                        OpenJFEM.main(bdf;output_dir=outdir,formats...)
+                        if sensitivity
+                            isdefined(@__MODULE__,:JFEMSensitivityWorker) ||
+                                include(joinpath(@__DIR__,"sensitivity_worker_core.jl"))
+                            handler=Base.invokelatest(getfield,@__MODULE__,:JFEMSensitivityWorker)
+                            completed=Base.invokelatest(handler.run_sensitivity_worker,outdir,WORKER_REPO;runtime)
+                            if !completed
+                                code=1
+                                errorpath=joinpath(outdir,"error.json")
+                                message=isfile(errorpath) ? String(JSON.parsefile(errorpath)["message"]) : "Sensitivity worker failed"
+                            end
+                        else
+                            write_run_manifest(outdir;repo_root=WORKER_REPO,bdf_path=bdf,
+                                script_path=@__FILE__,args=[JSON.json(request)],
+                                applied_flags=_manifest_jfem_environment(),
+                                extra=Dict{String,Any}("persistent_worker"=>true,"worker_pid"=>getpid(),
+                                    "worker_session_id"=>WORKER_SESSION,"worker_request_index"=>index,
+                                    "output_formats"=>request["formats"]))
+                            OpenJFEM.main(bdf;output_dir=outdir,formats...)
+                        end
                     catch error
                         code=1;message=sprint(showerror,error)
                         showerror(stderr,error,catch_backtrace());println(stderr)
@@ -97,6 +111,7 @@ function worker_run(request,index)
     finally
         for key in collect(keys(ENV));startswith(key,"JFEM_") && delete!(ENV,key);end
         merge!(ENV,previous)
+        LinearAlgebra.BLAS.set_num_threads(previous_blas_threads)
     end
     runtime["finished_unix"]=time();runtime["exit_code"]=code
     open(joinpath(outdir,"solver_worker.json"),"w") do io;JSON.print(io,runtime,2);end
@@ -114,7 +129,7 @@ for line in eachline(stdin)
         id=get(request,"id",nothing)
         command=get(request,"command","")
         command=="quit" && break
-        command=="run" || error("Unknown solver worker command: $command")
+        command in ("run","sensitivity") || error("Unknown solver worker command: $command")
         global request_index+=1
         reply=worker_run(request,request_index)
         # Drop per-case model/result storage while retaining compiled methods.

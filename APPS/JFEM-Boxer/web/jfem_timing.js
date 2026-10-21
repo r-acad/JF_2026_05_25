@@ -3,6 +3,11 @@
  const duration=value=>Number.isFinite(value)&&value>=0?(value>0&&value<0.1?value.toPrecision(3):value.toFixed(1))+' s':'unavailable';
  function completion(job){
   const timing=job.timings;
+  const compute=(job.worker_timings||job.progress?.worker_timings||job.result?.worker_timings)?.sensitivity_compute;
+  if(!timing?.available&&compute&&Number.isFinite(compute.wall_seconds))return[
+   'JFEM calculation '+(job.state&&job.state!=='done'?job.state:'completed')+': execution excluding measured compilation '+duration(compute.execution_seconds)+'; measured Julia compilation '+duration(compute.compilation_seconds)+'.',
+   'This calculation scope includes deck preparation, the baseline solve, adjoint, derivatives and intermediate exports; it is not a pure solution-time measurement. Calculation wall '+duration(compute.wall_seconds)+'; total request elapsed '+duration(job.seconds)+'. Worker startup and final result writing are outside the calculation scope. Nested baseline timings overlap this total.'+(compute.compilation_seconds>compute.wall_seconds?' Compilation measurements overlap across Julia threads; elapsed execution cannot be obtained by subtracting them from wall time.':'')
+  ];
   if(!timing?.available||!Number.isFinite(timing.solution_seconds))return[
    'JFEM finished; measured solution time is unavailable. Total elapsed: '+duration(job.seconds)+'. Reading available results…',
    'This run did not report separate solution and compilation timings. Total elapsed is not a solution-time measurement.'
@@ -35,13 +40,13 @@
   result.push(...stageEntries(job.timings?.stages,label));
   // Older sensitivity workers expose measured startup stages independently.
   // Their nested native_analysis aggregate must never be summed with its parent.
-  const worker=job.worker_timings||job.progress?.worker_timings;
+  const worker=job.worker_timings||job.progress?.worker_timings||job.result?.worker_timings;
   if(worker&&!job.timings?.stages?.length)for(const [name,value]of Object.entries(worker)){
    if(!Number.isFinite(value?.seconds))continue;
    const compile=value.compilation_seconds??value.compile_seconds,execution=Object.hasOwn(value,'execution_seconds')?value.execution_seconds:Number.isFinite(compile)&&compile<=value.seconds?value.seconds-compile:null;
    result.push({kind:'preparation',text:label+' worker phase · '+name.replaceAll('_',' ')+': wall '+duration(value.seconds)+
     '; measured Julia compilation '+duration(compile)+'; execution excluding compilation '+duration(execution)+
-    '; garbage collection '+duration(value.gc_seconds)+'. Phase scopes may overlap; these rows are not an additive total.'});
+    '; garbage collection '+duration(value.gc_seconds)+'. Phase scopes may overlap; these rows are not an additive total.'+(compile>value.seconds?' Compilation measurements also overlap across Julia threads; elapsed execution is unavailable.':'')});
   }
   if(worker?.native_analysis?.stages?.length&&!job.timings?.stages?.length)result.push(...stageEntries(worker.native_analysis.stages,label+' baseline'));
   const unseparated=job.result?.timings_seconds||job.progress?.timings_seconds;

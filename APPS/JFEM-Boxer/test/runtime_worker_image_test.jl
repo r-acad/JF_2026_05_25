@@ -6,7 +6,8 @@ const output=abspath(ARGS[1]);mkpath(output)
 const app=dirname(@__DIR__)
 const repo=W.WingFEGenBootstrap.locate_solver(app)
 const require_images="--require-images" in ARGS
-tests=@testset "Packaged Boxer model crosses actual import and sensitivity workers" begin
+tests=try
+@testset "Packaged Boxer model crosses actual import and sensitivity workers" begin
     runtime=W.sensitivity_worker_runtime(repo;select_image=true)
     @test length(runtime.command.exec)==1 # GUI -J flags cannot be inherited.
     @test haskey(runtime.metadata,"sysimage_status")
@@ -69,7 +70,16 @@ tests=@testset "Packaged Boxer model crosses actual import and sensitivity worke
     @test bytes2hex(W.SHA.sha256(read(joinpath(dirname(actual["project"]),"Manifest.toml"))))==saved["manifest_sha256"]
     @test actual["manifest_sha256"]==saved["manifest_sha256"]
     @test actual["packages"]==expected_packages
+    @test actual["threads"]>=1
+    @test actual["blas_threads"]==1
+    @test process_running(job.proc)
+    @test result["worker_runtime"]["session_id"]==status["worker"]["worker_session_id"]
     require_images&&(@test realpath(actual["image"])==realpath(runtime.metadata["sysimage"]))
+end
+finally
+    # Sensitivity now shares the retained FE process. Finish its owned service
+    # even when an assertion fails; do not depend on interpreter shutdown.
+    W.shutdown_solver_worker!()
 end
 counts=Test.get_test_counts(tests)
 write(joinpath(output,"summary.json"),W.JSON.json(Dict("passed"=>true,

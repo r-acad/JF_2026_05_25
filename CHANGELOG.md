@@ -5,6 +5,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Reusable sensitivity solver and reserve-factor tables
+
+- Run sensitivity requests in the same persistent Julia worker as FE analyses,
+  retaining loaded packages and compiled methods between runs. Keep each model,
+  request, output directory and log independent, and retain queue, cancellation,
+  restart and source-change safeguards. Report compilation separately from
+  execution across the complete sensitivity calculation.
+- Extend the installation's shared-image workload to generated skin thickness,
+  T-stringer dimensions and material sensitivities, alongside imported models.
+- Add **Open reserve factor table** to Stress Report, with rib-bay/component
+  grids, a flat property list and CSV, Markdown and HTML exports. Use red below
+  RF = 1, neutral at 1 and blue above 1. Follow the report's selected cases and
+  envelope method; keep incomplete or unsupported assessments uncolored.
+
 ### Thin-surface transparency
 
 - Fix bands and triangular artifacts between closely spaced translucent FE

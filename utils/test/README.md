@@ -22,6 +22,20 @@ and mixed-material exclusions. `stress_report_browser_test.cjs` replays actual
 multicase solver payloads through the app and checks the tables and exports;
 its header describes the required local fixtures and browser arguments.
 
+`reserve_factor_table_data_test.cjs` checks structural locations, actual property
+regions, incomplete assessments, the RF = 1 color threshold and exports.
+`reserve_factor_table_browser_test.cjs` checks the complete app and detached
+window with recovered SOL101/SOL106 payloads, verified generated-model locations,
+live/off-tab updates, invalidation and exports. Its header lists fixture and
+browser arguments; synthetic samples are used only to exercise color thresholds.
+`sensitivity_warmup_test.jl` runs the installation's imported/generated
+sensitivity workloads and checks finite analytic results with one baseline
+solve and no perturbed equilibrium solves.
+`sensitivity_persistent_worker_test.jl OUTPUT` uses a controlled IPC worker to
+check shared FE/sensitivity ordering, independent outputs, errors, cancellation,
+timeout, crash/restart and application shutdown. Run it with `--threads=4` from
+the shared project. Its synthetic replies test lifecycle behavior, not accuracy.
+
 The rendering checks use the bundled Babylon engine. `graphics_engine_test.cjs`
 checks WebGPU startup and capability fallback; Boxer's
 `renderer_compatibility_browser_test.cjs` checks Standard/PBR surfaces, ground

@@ -79,6 +79,15 @@ case. In a generated SOL106 comparison, the full-load linear SOL101 comparison
 is identified separately. The largest property statistic across the selected
 cases is the envelope, with the governing case shown alongside it.
 
+**Open reserve factor table ↗** opens a separate, resizable table window with
+the same structural-group layout as the sensitivity table. Generated models
+can be arranged by rib bay and component; imported models retain their actual
+property list. Shared properties appear once as shared regions rather than
+being assigned fictitious local values. The window follows the Stress Report's
+case selection, envelope method and material limits. RF below 1 is red, RF above
+1 is blue, and exactly 1 is neutral. Missing or incomplete assessments remain
+uncolored. Export the displayed data to CSV, Markdown or self-contained HTML.
+
 Choose the property statistic:
 
 - **Maximum:** the largest recovered element von Mises stress in the region.
@@ -1214,13 +1223,20 @@ their own limit. There is no separate two-hour sensitivity cap. The control
 also applies to imported models. Existing studies retain their saved timeout;
 set it to 0 to remove that limit.
 
-The first FE analysis starts a Julia solver worker. Later analyses reuse that
+The first FE or sensitivity analysis starts a Julia solver worker. Later analyses reuse that
 process, its loaded packages and compiled methods. The worker uses the same
 root `Project.toml`, `Manifest.toml` and verified shared sysimage as the app.
-First-use code can still compile during an analysis. Only one FE request runs
+First-use code can still compile during an analysis. Only one solver request runs
 at a time; every request gets a fresh model, immutable deck snapshot, output
 directory, result files and log. Per-request `JFEM_*` flags and CLI output
 options are applied independently.
+
+Sensitivity no longer starts a separate Julia process for each calculation.
+Repeated runs can reuse both the baseline solver and derivative specializations.
+The timing log distinguishes compilation from execution; the first run after
+installation, a source update or worker restart can take longer. Installation's
+precompile workload covers imported properties and generated skin, T-stringer
+and material derivatives; uncommon model features may still compile on first use.
 
 The Log identifies the worker PID and session. Each run's `solver_worker.json`
 records its runtime, project, manifest hash, request index and start/finish
@@ -1234,8 +1250,8 @@ out an active analysis stops its worker; the next run starts a fresh process.
 Cancelling a queued request leaves the active request alone. A crashed worker
 is replaced on the next run, and closing the app stops its owned worker and
 rejects further submissions. Source, manifest or initialization-only runtime
-setting changes also cause a fresh worker. Import and sensitivity workers keep
-their separate lifecycles; the GUI prevents FE/sensitivity overlap.
+setting changes also cause a fresh worker. The lightweight import worker keeps
+its separate lifecycle; FE and sensitivity requests share the solver queue.
 
 The focused regression runs with
 `julia --project=. APPS/JFEM-Boxer/test/solver_worker_test.jl OUTPUT --native`

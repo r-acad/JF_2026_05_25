@@ -8,7 +8,9 @@ The helper files in this directory share that root Project/Manifest and sysimage
 ## Shared image workloads
 
 Normal setup includes representative static, modal, buckling, nonlinear,
-generation and sensitivity workloads. To add your own representative cases,
+generation and sensitivity workloads. Sensitivity warmup includes imported
+material properties and generated skin, T-stringer and material dimensions.
+To add your own representative cases,
 run one of these from the repository root:
 
 ```powershell

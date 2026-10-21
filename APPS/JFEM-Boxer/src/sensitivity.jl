@@ -271,25 +271,31 @@ mutable struct SensitivityJob
     model::Model
     request::Dict{String,Any}
     lk::ReentrantLock
+    worker_job::Union{Nothing,JfemJob}
 end
+SensitivityJob(id,outdir,proc,started,finished,state,message,model,request,lk)=
+    SensitivityJob(id,outdir,proc,started,finished,state,message,model,request,lk,nothing)
 
 isdefined(@__MODULE__,:SensitivityFileIO)||include("sensitivity_io.jl")
 function sensitivity_json_write(path,data)
     SensitivityFileIO.write_text(path,JSON.json(data))
 end
 
-function finish_sensitivity_job!(job;monitor_error=nothing)
+function finish_sensitivity_job!(job;monitor_error=nothing,exitcode=nothing,failure_reason="")
     lock(job.lk) do
         try
             if job.state===:running
                 monitor_error===nothing||throw(monitor_error)
                 path=joinpath(job.outdir,"result.json")
-                job.state=job.proc.exitcode==0&&isfile(path) ?
+                code=exitcode===nothing ? job.proc.exitcode : exitcode
+                job.state=code==0&&isfile(path) ?
                     (get(JSON.parse(SensitivityFileIO.read_text(path)),"status","")=="partial" ? :partial : :done) : :failed
                 job.message=job.state===:done ? "Sensitivity study completed" : job.state===:partial ?
                     "Sensitivity study completed with unavailable derivatives; inspect the affected rows" : "Sensitivity worker failed; inspect its log"
                 if job.state===:failed&&isfile(joinpath(job.outdir,"error.json"))
                     job.message=String(JSON.parse(SensitivityFileIO.read_text(joinpath(job.outdir,"error.json")))["message"])
+                elseif job.state===:failed&&!isempty(failure_reason)
+                    job.message=String(failure_reason)
                 end
             end
         catch failure
@@ -310,46 +316,39 @@ function enforce_sensitivity_timeout!(job;now=time())
     return job
 end
 
-function start_sensitivity_job(model,request,root,id)
+function start_sensitivity_job(model,request,root,id;worker_factory=create_solver_worker)
     config=sensitivity_request(model,request)
     repo,_=find_jfem(root;hint=String(model.params["jfem.repo"]))
     repo===nothing&&throw(ArgumentError("JFEM solver repository was not found"))
-    runtime=sensitivity_worker_runtime(repo;select_image=true)
     base=model.params["jfem.output_dir"];base=isabspath(base) ? base : abspath(joinpath(root,base));mkpath(base)
     dir=mktempdir(base;prefix="sensitivity_"*Dates.format(Dates.now(),"yyyymmdd_HHMMSS_"),cleanup=false)
     Serialization.serialize(joinpath(dir,"model.jls"),model)
     sensitivity_json_write(joinpath(dir,"request.json"),config)
-    sensitivity_json_write(joinpath(dir,"runtime.json"),runtime.metadata)
-    job=SensitivityJob(String(id),dir,nothing,time(),nothing,:running,"Starting sensitivity worker",model,config,ReentrantLock())
-    command=`$(runtime.command) $(runtime.sysimage_args) --startup-file=no --threads=1 --project=$repo $(joinpath(@__DIR__,"sensitivity_worker.jl")) $dir $repo`
-    Sys.iswindows()&&(command=Cmd(command;windows_hide=true))
-    output=open(joinpath(dir,"sensitivity.log"),"w")
-    try
-        job.proc=run(pipeline(addenv(command,"OPENBLAS_NUM_THREADS"=>"1","JULIA_NUM_THREADS"=>"1");stdout=output,stderr=output);wait=false)
-    finally;close(output);end
-    Threads.@spawn begin
-        monitor_error=nothing
-        try
-            while process_running(job.proc)
-                sleep(.25)
-                enforce_sensitivity_timeout!(job)
-                job.state===:running||break
-            end
-            try wait(job.proc) catch end
-        catch failure
-            monitor_error=failure
-        finally
-            finish_sensitivity_job!(job;monitor_error)
-        end
-    end
+    job=SensitivityJob(String(id),dir,nothing,time(),nothing,:running,"Waiting for the shared Julia solver",model,config,ReentrantLock())
+    # The proxy uses the ordinary worker queue, source/runtime invalidation,
+    # cancellation ownership and application-shutdown lifecycle. It is never
+    # published as an FE result job and has its own output directory and log.
+    proxy=JfemJob(String(id),"Sensitivity",joinpath(dir,"baseline.bdf"),dir,
+        joinpath(dir,"sensitivity.log"),repo,model,nothing,String[],ReentrantLock(),
+        job.started,nothing,:queued,0,"")
+    job.worker_job=proxy
+    completion=(proxy,code;failure_reason="")->finish_sensitivity_worker_request!(job,proxy,code;failure_reason)
+    launch_jfem_process!(proxy;worker_factory,command="sensitivity",completion)
     return job
 end
 
 function cancel_sensitivity_job!(job;message="Sensitivity study cancelled",state=:cancelled)
-    lock(job.lk) do
-        job.state===:running||return job
+    changed=lock(job.lk) do
+        job.state===:running||return false
         job.state=state;job.message=message;job.finished=time()
-        # This is the directly owned worker process, never a global process search.
+        true
+    end
+    changed || return job
+    if job.worker_job!==nothing
+        # Killing a queued or completed proxy cannot stop a process currently
+        # owned by another request (including an ordinary FE solve).
+        kill_job!(job.worker_job;message,state)
+    else
         if job.proc!==nothing&&process_running(job.proc)
             try kill(job.proc) catch error;process_running(job.proc)&&rethrow(error);end
         end
@@ -357,11 +356,33 @@ function cancel_sensitivity_job!(job;message="Sensitivity study cancelled",state
     return job
 end
 
+function finish_sensitivity_worker_request!(job,proxy,code;failure_reason="")
+    lock(proxy.lk) do
+        proxy.exitcode=Int(code);proxy.finished===nothing&&(proxy.finished=time())
+        proxy.cancel_requested || (proxy.state=code==0 ? :done : :failed;proxy.message=String(failure_reason))
+    end
+    lock(job.lk) do
+        job.proc=proxy.proc
+        if proxy.cancel_requested && job.state===:running
+            job.state=proxy.state;job.message=proxy.message;job.finished=proxy.finished
+        end
+    end
+    finish_sensitivity_job!(job;exitcode=code,failure_reason)
+end
+
 function sensitivity_status(job)
     lock(job.lk) do
         result=Dict{String,Any}("id"=>job.id,"state"=>String(job.state),"message"=>job.message,
             "seconds"=>(job.finished===nothing ? time() : job.finished)-job.started,
             "outdir"=>job.outdir,"request"=>job.request)
+        if job.worker_job!==nothing
+            proxy=job.worker_job
+            lock(proxy.lk) do
+                job.proc=proxy.proc
+                result["worker"]=copy(proxy.progress)
+                job.state===:running&&(result["message"]=get(proxy.progress,"message",job.message))
+            end
+        end
         if isfile(joinpath(job.outdir,"baseline_manifest.json"))
             try result["baseline_analysis"]=sensitivity_baseline_metadata(job.outdir) catch end
         end

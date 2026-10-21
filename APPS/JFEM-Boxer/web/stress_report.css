@@ -8,6 +8,8 @@
 .stress-report-field[hidden]{display:none}
 .stress-report-tabs,.stress-report-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:12px 0}
 .stress-report-tabs button[aria-pressed="true"]{background:#176da8;border-color:#53adee;color:white}
+.stress-report-actions #btn-reserve-factor-table{background:#176da8;border-color:#53adee;color:#fff;font-weight:600}
+.stress-report-actions #btn-reserve-factor-table:hover:not(:disabled){background:#2586c7}
 .stress-report-status{padding:12px;border-left:4px solid #e5a94f;background:#403421;color:#ffe0a6;line-height:1.5}
 .stress-report-status[data-complete="true"]{border-color:#53adee;background:#18394c;color:#d1edff}
 .stress-report-legend{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:12px;line-height:1.5;margin:12px 0;color:#b7cbd9}
@@ -27,3 +29,5 @@
 #panel-stressreport details{margin-top:14px;border:1px solid #38546b;border-radius:5px;padding:10px;font-size:13px;line-height:1.6}
 #panel-stressreport details p{margin:8px 0}
 #panel-stressreport summary{cursor:pointer;font-weight:600}
+
+.stress-report-value[data-reserve="threshold"]{background:#f5f6f8;color:#102235}

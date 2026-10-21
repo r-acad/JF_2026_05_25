@@ -1,5 +1,6 @@
 # One directly owned FE worker per server. Requests are serialized; importing
-# geometry and computing sensitivities retain their separate existing services.
+# geometry retains its separate service. FE and sensitivity requests share the
+# same package instance and compiled methods, with isolated per-request storage.
 mutable struct JfemSolverWorker
     process::Base.Process
     input::Pipe
@@ -207,7 +208,7 @@ function solver_worker_reply!(job,worker,log,cursor)
     end
 end
 
-function run_persistent_solver_job!(job;worker_factory=create_solver_worker)
+function run_persistent_solver_job!(job;worker_factory=create_solver_worker,command="run",completion=finish_jfem_process!)
     worker=nothing;cursor=JobDiskCursor();log="";exitcode=1;failure_reason=""
     try
         lock(SOLVER_EXECUTION_LOCK) do
@@ -229,7 +230,10 @@ function run_persistent_solver_job!(job;worker_factory=create_solver_worker)
                     job.progress["worker_runtime"]=copy(worker.runtime)
                 end
                 append_job_lines!(job,["[Worker] $(reused ? "Reusing" : "Ready") Julia PID $(getpid(worker.process)); session $(worker.runtime["session_id"])"])
-                request=Dict("command"=>"run","id"=>job.outdir,"bdf"=>job.bdf,"outdir"=>job.outdir,
+                if command=="sensitivity"
+                    sensitivity_json_write(joinpath(job.outdir,"runtime.json"),worker.runtime)
+                end
+                request=Dict("command"=>command,"id"=>job.outdir,"bdf"=>job.bdf,"outdir"=>job.outdir,
                     "formats"=>String(job.model.params["jfem.output_formats"]),
                     "environment"=>Dict(k=>v for (k,v) in ENV if startswith(k,"JFEM_")))
                 log=joinpath(job.outdir,"solver_stdout.log");cursor=JobDiskCursor()
@@ -262,7 +266,7 @@ function run_persistent_solver_job!(job;worker_factory=create_solver_worker)
         failure_reason="Solver worker could not start: "*sprint(showerror,error)
         append_job_lines!(job,[failure_reason])
     finally
-        try finish_jfem_process!(job,exitcode;failure_reason) finally
+        try completion(job,exitcode;failure_reason) finally
             job.log_done=true
             lock(SOLVER_WORKER_LOCK) do;delete!(SOLVER_PENDING_JOBS,job);end
         end
@@ -271,7 +275,7 @@ function run_persistent_solver_job!(job;worker_factory=create_solver_worker)
 end
 
 """Submit a run immediately; one persistent Julia process executes requests serially."""
-function launch_jfem_process!(job::JfemJob;worker_factory=create_solver_worker)
+function launch_jfem_process!(job::JfemJob;worker_factory=create_solver_worker,command="run",completion=finish_jfem_process!)
     admitted=lock(SOLVER_WORKER_LOCK) do
         lock(job.lk) do
             if job.cancel_requested
@@ -287,7 +291,10 @@ function launch_jfem_process!(job::JfemJob;worker_factory=create_solver_worker)
             :accepted
         end
     end
-    admitted===:cancelled && return job
+    if admitted===:cancelled
+        completion===finish_jfem_process! || completion(job,1;failure_reason=job.message)
+        return job
+    end
     if admitted===:closed
         lock(job.lk) do
             job.started=time();job.finished=job.started;job.state=:failed;job.exitcode=1;job.log_done=true
@@ -295,9 +302,10 @@ function launch_jfem_process!(job::JfemJob;worker_factory=create_solver_worker)
             job.progress["phase"]="failed";job.progress["message"]=job.message
         end
         append_job_lines!(job,[job.message])
+        completion===finish_jfem_process! || completion(job,1;failure_reason=job.message)
         return job
     end
-    Threads.@spawn run_persistent_solver_job!(job;worker_factory)
+    Threads.@spawn run_persistent_solver_job!(job;worker_factory,command,completion)
     Threads.@spawn begin
         while job.state===:running;sleep(.25);enforce_job_timeout!(job);end
     end
