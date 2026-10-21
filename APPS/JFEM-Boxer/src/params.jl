@@ -28,6 +28,7 @@ end
 
 function ParamSpec(key, label, kind, default, group; unit = "", help = "",
                    choices = String[])
+    startswith(label,"Minimum ")&&(help="Editable family minimum and inherited starting dimension. Active local overrides may equal or exceed it; values below it are rejected. Deliberately edit this minimum to change the lower bound for the whole family. "*help)
     return ParamSpec(key, label, kind, default, group, unit, help, choices)
 end
 
@@ -122,9 +123,9 @@ const SCHEMA = ParamSpec[
               help = "Target pitch from the root master to the next master. With intermediate masters, pitch is measured along the 3D rear-spar reference path and rounded to whole bays per interval. Without intermediate masters the existing reference-line spacing is preserved"),
     ParamSpec("stringers.model", "Stringer elements", :choice, "beam", "Stringer layout";
               choices=["beam","shell"], help="Beam uses a T-section PBARL and CBAR on each stringer path. Shell uses PSHELL webs and a bonded skin-plus-flange section sharing skin nodes. Its thickness is the additional flange thickness plus the thinnest skin on either side under its footprint; original footprint skin faces are replaced once. Mixed materials or composites use PCOMP. Set flange width to zero for blade-only stringers. Blade interiors are not welded to intersecting rib webs. Run-out links retain their small beam section."),
-    ParamSpec("stringers.euler_fixity_coefficient", "Euler fixity coefficient", :float, 1.0, "Stringer layout";
+    ParamSpec("stringers.euler_fixity_coefficient", "Euler fixity coefficient", :float, 1.0, "Beam sections";
               help="Multiplier c in the analytical stringer-column estimate Pcr = c × pi² × EI / L², with L the full rib-to-rib stringer length. c=1 means pinned-pinned, 4 fixed-fixed, about 2.046 fixed-pinned, and 0.25 fixed-free. This assessment includes half the adjacent skin strip on each side and uses the weakest principal bending stiffness; it does not change FE constraints, stiffness or loads. Set c to reflect actual end restraint, not to adjust a calculated margin."),
-    ParamSpec("stringers.skin_fixity_coefficient", "Skin buckling fixity coefficient", :float, 1.0, "Stringer layout";
+    ParamSpec("stringers.skin_fixity_coefficient", "Skin buckling fixity coefficient", :float, 1.0, "Shell properties";
               help="Multiplier on the effective skin-plate bending stiffness in the analytical combined compression/shear buckling estimate. 1 uses simply supported rectangular-plate Ritz modes. A larger value is an engineering allowance for rotational edge restraint; it does not impose exact clamped edges or change FE constraints. The dimensions are the averages of opposite actual 3D rib/stringer/spar boundary-path lengths. Set a finite positive value based on justified restraint data; this is separate from the Euler stringer-column end coefficient."),
     ParamSpec("stringers.orientation", "Blade direction", :choice, "surface_normal", "Stringer layout";
               choices=["surface_normal","coordinate_axis"], help="Surface normal follows the local skin normal, directed into the box. Coordinate axis keeps the blade parallel to X, Y or Z of the selected rectangular coordinate system, choosing the inward sign on each skin. An axis tangent to the skin cannot define a blade and is rejected."),
@@ -165,9 +166,9 @@ const SCHEMA = ParamSpec[
     # Keep dotted TOML sections contiguous; the group controls its UI placement.
     ParamSpec("leading_edge.chord_elements", "Leading-edge skin elements, nose to spar", :int, 8, "Mesh";
               help = "Whole number from 2 to 100 of shell elements across EACH leading-edge skin, from the nose to the front spar, in every spanwise mesh interval. Also sets the chordwise columns in leading-edge ribs. Default 8 gives 8 upper and 8 lower skin elements per interval, with approximately equal surface arc-length spacing. Elements per rib bay sets spanwise refinement; Vertical elements sets rib height refinement. Front-spar boundary nodes stay shared. Applies when Create leading-edge structure is enabled; independent of Aero chord points and VLM panels"),
-    ParamSpec("leading_edge.t_skin", "Leading-edge skin thickness", :float, 0.0015, "Leading-edge properties";
+    ParamSpec("leading_edge.t_skin", "Minimum leading-edge skin thickness", :float, 0.0015, "Leading-edge properties";
               unit = "m", help = "Monolithic thickness of both leading-edge skins; sandwich construction uses its face/core dimensions"),
-    ParamSpec("leading_edge.t_rib", "Leading-edge rib thickness", :float, 0.0015, "Leading-edge properties";
+    ParamSpec("leading_edge.t_rib", "Minimum leading-edge rib thickness", :float, 0.0015, "Leading-edge properties";
               unit = "m", help = "Monolithic thickness of leading-edge rib extensions; sandwich construction uses its face/core dimensions"),
 
     # --- fuel tank ---------------------------------------------------------
@@ -283,43 +284,43 @@ const SCHEMA = ParamSpec[
               help = "Select an isotropic material for stringers, spar caps, rib stiffeners and fixed-area runout connectors"),
 
     # --- properties --------------------------------------------------------
-    ParamSpec("properties.t_skin_upper", "Upper skin thickness", :float, 0.0025,
+    ParamSpec("properties.t_skin_upper", "Minimum upper skin thickness", :float, 0.0025,
               "Properties"; unit = "m", help = "Default monolithic thickness of the upper main-box skin in metres. It changes shell stiffness and mass; panel overrides can set local values. Sandwich skins use their assigned face/core thicknesses. Leading-edge skins have separate properties"),
-    ParamSpec("properties.t_skin_lower", "Lower skin thickness", :float, 0.0022,
+    ParamSpec("properties.t_skin_lower", "Minimum lower skin thickness", :float, 0.0022,
               "Properties"; unit = "m", help = "Default monolithic thickness of the lower main-box skin in metres. It changes shell stiffness and mass; panel overrides can set local values. Sandwich skins use their assigned face/core thicknesses. Leading-edge skins have separate properties"),
     ParamSpec("properties.panels", "Individual stiffened-panel properties", :panelproperties, Any[], "Properties";
               help = "Physical panel key and layout token, with sparse skin and stringer properties. Blank values inherit shared defaults. Reset overrides before changing the geometry or rib/stringer/runout layout"),
     ParamSpec("properties.components", "Physical component table overrides", :componentproperties, Any[], "Properties";
               help = "Sparse rib, spar, cap and leading-edge table overrides; blank cells inherit shared defaults"),
-    ParamSpec("properties.t_spar_web", "Spar web thickness", :float, 0.0030,
+    ParamSpec("properties.t_spar_web", "Minimum spar web thickness", :float, 0.0030,
               "Spar properties"; unit = "m", help = "Default for both spars. Individual physical rib bays can override either web thickness below"),
-    ParamSpec("properties.t_rib_web", "Rib web thickness", :float, 0.0020,
+    ParamSpec("properties.t_rib_web", "Minimum rib web thickness", :float, 0.0020,
               "Rib properties"; unit = "m", help = "Default main-box rib thickness; override individual physical ribs below"),
     ParamSpec("properties.rib_stiffeners_enabled", "Create vertical rib stiffeners", :bool, true, "Rib properties";
               help = "Vertical T bars at physical stringer columns of each main-box rib. Skin mesh subdivisions do not add stiffeners"),
-    ParamSpec("properties.rib_stiffener_flange_width", "T flange width", :float, 0.030, "Rib properties"; unit = "m",
+    ParamSpec("properties.rib_stiffener_flange_width", "Minimum T flange width", :float, 0.030, "Rib properties"; unit = "m",
               help = "Full width of the rib stiffener's T-section flange (PBARL DIM1), whose outer face lies on the rib-web datum. Must exceed the T web thickness. Individual rib properties can override this default"),
-    ParamSpec("properties.rib_stiffener_height", "T overall height", :float, 0.032, "Rib properties"; unit = "m",
+    ParamSpec("properties.rib_stiffener_height", "Minimum T overall height", :float, 0.032, "Rib properties"; unit = "m",
               help = "Total depth of the rib stiffener's T cross-section, including flange thickness (PBARL DIM2), not its skin-to-skin bar length. The web extends outboard from the rib, or inboard at the final rib. Must exceed flange thickness"),
-    ParamSpec("properties.rib_stiffener_flange_thickness", "T flange thickness", :float, 0.002, "Rib properties"; unit = "m",
+    ParamSpec("properties.rib_stiffener_flange_thickness", "Minimum T flange thickness", :float, 0.002, "Rib properties"; unit = "m",
               help = "Thickness of the rib stiffener's flange plate (PBARL T DIM3). Must be positive and less than its overall cross-section height. Together with the other T dimensions it sets area, bending stiffness and centroid offset"),
-    ParamSpec("properties.rib_stiffener_web_thickness", "T web thickness", :float, 0.002, "Rib properties"; unit = "m",
+    ParamSpec("properties.rib_stiffener_web_thickness", "Minimum T web thickness", :float, 0.002, "Rib properties"; unit = "m",
               help = "Thickness of the rib stiffener's projecting web plate (PBARL T DIM4). Must be positive and less than flange width. This is the stiffener cross-section dimension; main rib shell thickness is set separately"),
     ParamSpec("properties.ribs", "Individual rib properties", :ribproperties, Any[], "Rib properties";
               help = "Overrides by physical rib number: web thickness, vertical stiffeners enabled, and PBARL T dimensions. Unset values inherit the defaults"),
     ParamSpec("properties.spar_bays", "Individual spar bay properties", :sparproperties, Any[], "Spar properties";
               help = "Optional front/rear web thickness overrides. Bay b spans physical ribs b and b+1; unset values inherit the default thickness"),
-    ParamSpec("properties.stringer_flange_width", "Stringer flange width", :float, 0.030,
+    ParamSpec("properties.stringer_flange_width", "Minimum stringer flange width", :float, 0.030,
               "Beam sections"; unit = "m",
               help = "Attached flange width, centred on the stringer path. Beam mode requires a positive T flange (PBARL DIM1). In shell mode, zero creates only the blade; a positive width replaces the footprint skin by one skin-plus-flange shell section. Neighbouring flange footprints must not overlap."),
-    ParamSpec("properties.stringer_height", "Stringer overall height", :float, 0.032,
+    ParamSpec("properties.stringer_height", "Minimum stringer overall height", :float, 0.032,
               "Beam sections"; unit = "m",
               help = "Beam: PBARL T DIM2, including flange thickness; the CBAR includes the centroid offset. Shell: blade depth is overall height minus flange thickness, or the full height when flange width is zero. Shell flange and skin use a shared midsurface attachment."),
-    ParamSpec("properties.stringer_flange_thickness", "Stringer flange thickness", :float, 0.002,
+    ParamSpec("properties.stringer_flange_thickness", "Minimum stringer flange thickness", :float, 0.002,
               "Beam sections"; unit = "m", help = "Additional attached flange thickness (PBARL DIM3). In shell mode the combined footprint property adds the thinnest adjacent skin thickness to this value. A composite flange uses this total with its specified face thicknesses and the remaining core. Must be less than overall height when a flange exists. Ignored for zero-width shell blades. Changing it changes blade depth and requires remeshing."),
-    ParamSpec("properties.stringer_web_thickness", "Stringer web thickness", :float, 0.002,
+    ParamSpec("properties.stringer_web_thickness", "Minimum stringer web thickness", :float, 0.002,
               "Beam sections"; unit = "m", help = "Blade/web thickness (PBARL DIM4 or web PSHELL). With a flange it must be smaller than flange width. A zero-width shell blade has no flange-width restriction."),
-    ParamSpec("properties.spar_cap_side", "Square spar cap side", :float, 0.020,
+    ParamSpec("properties.spar_cap_side", "Minimum square spar cap side", :float, 0.020,
               "Spar properties"; unit = "m",
               help = "PBARL BAR with equal DIM1 and DIM2. One face lies against the skin; the square extends into the box"),
 
@@ -790,6 +791,7 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
     validate_materials(p)
     validate_nonstructural_mass(p)
     validate_panel_properties(p)
+    validate_minimum_gauges(p)
 
     for k in ("planform.sweep_ref_xc", "planform.twist_axis_xc", "rbe3.ref_xc")
         0.0 <= p[k] <= 1.0 || throw(ArgumentError("$k must be in [0, 1], got $(p[k])"))

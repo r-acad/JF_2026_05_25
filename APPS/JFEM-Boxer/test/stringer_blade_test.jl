@@ -65,8 +65,13 @@ checks=@testset "Stringer free-web metadata follows physical PBARL T members" be
             open(joinpath(dir,"model.bdf"),"w") do io;W.write_deck(IOContext(io,:full_precision=>true),m);end
             # Sparse physical-panel overrides must be used, not shared defaults.
             firstrow=first(rows);firstpanel=first(payload["stiffened_panels"]["panels"])
+            # This thin-web diagnostic deliberately permits a 1.5 mm family
+            # floor; preserve the intended local section under sizing bounds.
+            p["properties.stringer_web_thickness"]=.0015
             p["properties.panels"]=[Dict("key"=>firstpanel["key"],"layout_token"=>payload["stiffened_panels"]["layout_token"],
                 "stringer"=>Dict("height"=>.045,"flange_thickness"=>.003,"web_thickness"=>.0015,"material"=>2))]
+            append!(p["properties.panels"],[Dict("key"=>panel["key"],"layout_token"=>payload["stiffened_panels"]["layout_token"],
+                "stringer"=>Dict("web_thickness"=>.002)) for panel in payload["stiffened_panels"]["panels"] if panel["key"]!=firstpanel["key"]])
             overridden=W.stringer_blade_payload(blade_build(p));changed=only(filter(row->row["key"]==firstrow["key"],overridden))
             @test all(bar["web_height_m"]≈.042&&bar["web_thickness_m"]==.0015&&bar["material_id"]==2&&bar["young_pa"]==210e9 for bar in changed["bars"])
             @test all(all(bar["material_id"]==1 for bar in row["bars"]) for row in overridden if row["key"]!=firstrow["key"])

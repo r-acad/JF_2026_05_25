@@ -185,6 +185,7 @@ function element_properties(m::Model, gr::ElemGroup)
         merge!(out,shell_material_definition(p,gr.pid))
         out["axes"]=shell_material_description(gr)
     end
+    out["minimum_gauge"]=property_minimum_gauge(p,gr.pid;definition=out)
     return out
 end
 

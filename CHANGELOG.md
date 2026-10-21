@@ -5,6 +5,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Minimum gauges and governing reserve factors
+
+- Move skin buckling fixity to Properties / Skin and Euler stringer fixity to
+  Properties / Stringers. Label initial shell, stringer, cap and stiffener
+  dimensions as minima; reject smaller active local overrides in the editor and
+  generator, including sandwich layers. Preserve editable family minima.
+  Apply the same minimum-gauge tracking to movable-surface shells, honor resolved
+  component overrides and permit active local flanges on default shell blades.
+- Add a Minimum RF assessment over applicable material stress/laminate strain,
+  stringer-column, free-web and skin-panel checks, using verified physical element
+  membership. Show the governing case, failure mode and RF in the property table
+  and detached table presentations, with the same information in exports.
+- Highlight complete passing RF cells in yellow when their relevant properties
+  are at minimum gauge. Retain explicit unavailable assessments and shared scopes;
+  do not infer missing checks or minimum gauges for imported properties.
+- Clear RF results and exports while the percentile input is invalid, including
+  an empty value, so a previous passing assessment cannot survive a model change.
+
 ### Skin panel buckling
 
 - Add a skin-panel RF mode using actual rib/stringer/spar-bounded skin regions,

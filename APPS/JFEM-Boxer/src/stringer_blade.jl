@@ -14,7 +14,12 @@ function stringer_blade_payload(m::Model;layout=nothing)
     layout===nothing&&(layout=stiffened_panel_layout(m.grid))
     isempty(layout.panels)&&return Any[]
     owned=Dict{Int,Vector{ElemGroup}}()
+    members=Dict{Int,Vector{Int}}()
     for group in m.groups
+        if component_base_pid(group.pid) in (PID_STRINGER,PID_STRINGER_WEB)
+            id=stiffened_panel_id(group.pid)
+            id===nothing||append!(get!(members,id,Int[]),group.eids)
+        end
         group.kind===:bar&&component_base_pid(group.pid)==PID_STRINGER||continue
         panel_id=stiffened_panel_id(group.pid)
         panel_id===nothing&&continue
@@ -35,6 +40,8 @@ function stringer_blade_payload(m::Model;layout=nothing)
             "end_kind"=>end_rib===nothing ? "runout" : "rib",
             "start_eta"=>m.grid.etas[panel.start_row+1],"end_eta"=>m.grid.etas[panel.end_row+1],
             "length_m"=>0.,"bars"=>Any[],"status"=>"unassessed","reason"=>"",
+            "member_element_ids"=>sort!(unique(get(members,panel.id,Int[]))),"membership_complete"=>true,
+            "applicable"=>!shell_stringers(m.params),
             "method"=>"Elastic isotropic long outstand plate; supported flange junction and free web tip; arithmetic mean of signed bar axial stresses")
         push!(rows,row)
         if shell_stringers(m.params)

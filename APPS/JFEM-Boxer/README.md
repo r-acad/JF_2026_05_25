@@ -27,6 +27,18 @@ Fuel density is in **Fuel tank**. Display → Environment groups each plane's
 visibility, finish, color and position; choose **Customize lighting** for
 individual light intensities and directions.
 
+**Properties → Skin / Stringers / Spars / Ribs / Leading edge** defines the
+initial section dimensions as **minimum gauges**. Local property overrides may
+increase these dimensions, but an edit below the corresponding minimum is
+rejected with an explanation; the generator never silently changes the requested
+section. An empty local override inherits its minimum. You may deliberately
+edit a family minimum in Properties. This changes the model and requires updated
+FE results. For sandwich skins, both the active face/core minima and total
+thickness minimum apply. Zero-width shell stringers omit the flange when the
+minimum flange width is zero. Disabled stiffeners do not impose dormant bounds.
+Movable-surface structures likewise define four minimum skin/web/rib thicknesses;
+their current bay properties directly inherit the corresponding surface minimum.
+
 **Materials → Material library** groups each material definition with its
 optional allowables. Select a material once to edit both its properties and limits.
 Choose **Stress** for isotropic MAT1 materials: the largest recovered von Mises
@@ -92,6 +104,33 @@ and RF values above 2 use dark-orange numbers on a light backing for contrast.
 Missing or incomplete assessments remain uncolored. Export the displayed data
 to CSV, Markdown or self-contained HTML.
 
+Choose **Assessment → Minimum RF** to envelope all applicable criteria over
+the selected SOL101/SOL106 cases: material stress or laminate principal strain,
+Euler stringer-column buckling, free-web instability and skin-panel buckling.
+The table retains one row per actual property ID. A physical column or panel
+assessment contributes to each property whose elements actually belong to it;
+the details identify that shared physical scope. This does not create a separate
+local stress estimate for each contributing property. The detached table's
+**Presentation** selector offers **Minimum RF**, **Critical case** and
+**Failure mode**; the latter two also display the governing numerical RF.
+
+A complete RF above 1 has a **yellow background** when the relevant property
+dimensions are all at their minimum gauges. In a standalone physical column or
+panel assessment, all its participating properties must be at their minima;
+in the combined property table, the test concerns that row's property. A larger
+dimension prevents the minimum-gauge marker. Unknown bounds and imported
+properties never acquire inferred minima. This highlighting overrides the chosen
+palette; values above 2 retain dark-orange numbers.
+
+If an applicable criterion lacks recovery, material limits, membership or a
+supported assessment, the complete minimum RF remains unavailable. Details
+retain the lowest available ratio and explain missing checks. Imported models
+have an explicitly identified material-only envelope. A no-demand **99** marker
+never governs over a finite calculated RF, even if that finite RF exceeds 99;
+99 is shown only when every applicable assessed criterion has no demand.
+Older generated Studies need a model refresh to obtain property bounds and
+physical membership; existing below-minimum overrides must be corrected first.
+
 Choose the property statistic:
 
 - **Maximum:** the largest recovered element von Mises stress in the region.
@@ -112,13 +151,16 @@ including when the selected average excludes it. Coverage details show the
 retained/discarded counts and cutoff. Stresses use MPa for generated SI models;
 an imported deck's undeclared unit system remains labeled **source stress units**.
 
-The reserve factor is the material's allowable stress divided by the chosen
+For **Assessment → Von Mises stress**, the reserve factor is the material's
+allowable stress divided by the chosen
 property envelope. Values below 1 exceed the specified allowable. A missing
 case withholds reserve factors across the selected case envelope; incomplete
 element recovery withholds the affected property's factor. Missing material
 limits, mixed-material PSHELLs, laminates and beams without recovered equivalent
 stress are explicitly unassessed. Zero demand has no finite reserve factor.
-Laminate principal-strain checks remain in FE Results. For SOL106 this ratio
+Laminate principal-strain checks are available in FE Results and in the combined
+Minimum RF assessment; percentile trimming applies only to the material-stress
+criterion. For SOL106 this ratio
 compares demand with a limit; it does not predict the nonlinear failure load.
 
 Use **Maximize** for wide tables, filter by property/name/material, and export
@@ -126,7 +168,7 @@ CSV, Markdown or HTML. Exports contain all filtered properties, the selected
 method and coverage notes. Values are presented with at most five significant
 digits. Editing allowables updates the report without rerunning the solver.
 
-Choose **Failure mode → Euler column buckling** for a stringer and its
+Choose **Assessment → Euler column buckling** for a stringer and its
 associated skin between two ribs. This is a separate capacity check from
 the material-stress reserve factor. It uses actual generated beam or shell
 stringer sections, plus half the physical skin width to the neighboring
@@ -134,7 +176,7 @@ stringer or spar on each side, including local skin thickness and section
 offsets. A combined skin-and-flange shell contributes once. The report and
 separate table identify each physical stringer/rib bay and the governing case.
 
-In **Structure → Stringers**, set **Euler fixity coefficient** `c`:
+In **Properties → Stringers**, set **Euler fixity coefficient** `c`:
 
 - `1`: pinned at both ends (default).
 - `4`: fixed at both ends.
@@ -170,7 +212,7 @@ Run-out fragments without two rib end restraints are explicitly unassessed.
 For SOL106 the ratio compares recovered compression with an elastic capacity;
 it is not a prediction of the nonlinear failure load.
 
-Choose **Failure mode → Stringer blade instability** to assess local buckling
+Choose **Assessment → Stringer blade instability** to assess local buckling
 of the free web of a generated PBARL T stringer. The table shows critical stress,
 average compressive stress, RF, governing case and the web dimensions. It uses
 the conventional long-outstand-plate expression
@@ -208,7 +250,7 @@ stringers do not have the requested bar-stress recovery and are explicitly
 unassessed by this method. Normal T-stringer portions ending at a run-out can
 be assessed locally; the small fixed-area run-out connector bars are excluded.
 
-Choose **Failure mode → Skin panel buckling** for the skin compartments between
+Choose **Assessment → Skin panel buckling** for the skin compartments between
 two ribs and adjacent stringers or spar caps. These are the full skin strips
 between support lines, not the half-skin regions used in the stringer-column
 check. For example, three stringers define four skin strips between the spars.
@@ -251,7 +293,7 @@ mesh eigenanalysis or a postbuckling/collapse prediction. Thin-plate kinematics
 neglect transverse-shear deformation. Sandwich face wrinkling and core instability
 require separate checks, especially for thick skins with soft cores.
 
-**Structure → Stringers → Skin buckling fixity coefficient** sets `c` independently
+**Properties → Skin → Skin buckling fixity coefficient** sets `c` independently
 of the Euler stringer coefficient. The default **1** means simply supported
 plate edges. A larger value scales the capacity to represent a justified
 restraint allowance; it does not impose exact clamped edges or change FE

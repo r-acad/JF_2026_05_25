@@ -175,6 +175,8 @@ function skin_buckling_payload(m::Model;layout=nothing)
             row=Dict{String,Any}("key"=>"$(skin):bay$(bay):skinstrip$(strip):segment$(segment)","skin"=>skin,"rib_bay"=>bay,
                 "strip_index"=>strip,"segment"=>segment,"label"=>"Skin strip $strip","boundary_labels"=>String[],
                 "property_ids"=>sort!(unique(face.pid for face in items)),
+                "member_element_ids"=>sort!(unique(face.eid for face in items)),
+                "membership_complete"=>all(eid_counts[face.eid]==1 for face in items),"applicable"=>true,
                 "panel_ids"=>sort!(unique(Int(face.panel_id) for face in items if face.panel_id!==nothing)),
                 "status"=>"unassessed","reason"=>"","length_m"=>0.,"width_m"=>0.,"elements"=>Any[],
                 "fixity_coefficient"=>Float64(get(m.params,"stringers.skin_fixity_coefficient",1.)),

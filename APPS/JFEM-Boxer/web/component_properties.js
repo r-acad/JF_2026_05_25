@@ -9,8 +9,8 @@
     const doc=host.ownerDocument,wrap=doc.createElement("section");wrap.className="component-properties";
     const title=doc.createElement("h3");title.textContent=rib?"Individual ribs":"Individual spar bays";wrap.append(title);
     const note=doc.createElement("p");note.className="group-note";note.textContent=rib?
-      "Blank cells inherit the defaults above. Thicknesses and T dimensions below are in mm. Physical rib numbers do not change when the shell mesh is refined.":
-      "Optional overrides in mm. Blank cells use the default 3 mm (or your edited default). Bay b is between ribs b and b+1. Spar caps use the square section above.";wrap.append(note);
+      "Blank cells inherit the minimum gauges above. Local dimensions may increase them, but cannot be smaller. Thicknesses and T dimensions below are in mm. Physical rib numbers do not change when the mesh is refined.":
+      "Optional overrides in mm, at or above the minimum gauges in Properties. Blank cells inherit those minima. Bay b is between ribs b and b+1. Spar caps use the square section above.";wrap.append(note);
     const info=doc.createElement("p");info.className="group-note";wrap.append(info);
     const scroll=doc.createElement("div");scroll.className="component-table-scroll";
     const table=doc.createElement("table");table.className="component-table";const head=table.createTHead().insertRow();
@@ -29,6 +29,7 @@
     const fields=rib?["thickness",...T_FIELDS]:["front_thickness","rear_thickness"];
     const defaultKey=field=>rib?(field==="thickness"?"properties.t_rib_web":"properties.rib_stiffener_"+field):"properties.t_spar_web";
     const value=key=>Number(doc.getElementById("p-"+key)?.value);
+    function gaugeParameters(){const p=Object.fromEntries(fields.map(field=>[defaultKey(field),value(defaultKey(field))]));p['materials.shells']=JSON.parse(doc.getElementById('p-materials.shells')?.value||'[]');p['properties.components']=JSON.parse(doc.getElementById('p-properties.components')?.value||'[]');p['properties.rib_stiffeners_enabled']=doc.getElementById('p-properties.rib_stiffeners_enabled')?.checked!==false;return p;}
     function read() {return Array.from(body.rows).map(tr=>{
       const row={[idKey]:tr.querySelector('[data-field="'+idKey+'"]').value.trim()===""?NaN:Number(tr.querySelector('[data-field="'+idKey+'"]').value)};
       for(const field of fields){const text=tr.querySelector('[data-field="'+field+'"]').value.trim();if(text!=="")row[field]=Number(text)/1000;}
@@ -43,6 +44,9 @@
         if(count&&id>limit)throw Error((rib?"Rib ":"Bay ")+id+" is outside the current "+limit+" "+(rib?"ribs":"bays")+".");
         for(const field of fields)if(row[field]!==undefined&&(!Number.isFinite(row[field])||row[field]<=0))throw Error((rib?"Rib ":"Bay ")+id+": dimensions must be positive.");
         if(rib){const shape=root.WingSectionEditor.section("T",T_FIELDS.map(field=>row[field]??value(defaultKey(field))));if(!shape.valid)throw Error("Rib "+id+": "+shape.error);}
+        const p=gaugeParameters(),family=rib?'rib_web':'spar_web',base={kind:'monolithic',face_thickness:.0005,core_thickness:.01,...p['materials.shells'].find(r=>r.component===family)},local=part=>p['properties.components'].find(r=>r.key===part+':'+id)||{};
+        for(const field of rib?['thickness']:['front_thickness','rear_thickness']){const override=local(rib?'rib_web':field==='front_thickness'?'front_web':'rear_web'),section={...base,...override};if(section.kind==='sandwich')section.core_thickness=override.core_thickness??(row[field]===undefined?base.core_thickness:row[field]-2*section.face_thickness);else section.thickness=override.thickness??row[field]??value(defaultKey(field));root.WingMinimumGaugeInputs.validate(p,family,section,(rib?'Rib ':'Bay ')+id);}
+        if(rib){const override=local('rib_stiffener');root.WingMinimumGaugeInputs.validate(p,'rib_stiffener',{...Object.fromEntries(T_FIELDS.map(field=>[field,override[field]??row[field]??value(defaultKey(field))])),enabled:override.enabled??row.stiffener_enabled??p['properties.rib_stiffeners_enabled']},'Rib '+id+' stiffener');}
       }
       return rows.filter(row=>Object.keys(row).length>1).sort((a,b)=>a[idKey]-b[idKey]);
     }
@@ -53,7 +57,8 @@
       previewStatus.textContent=(row.rib?"R "+row.rib:"Default")+": "+(shape.valid?"T section · area "+root.WingNumbers.format(shape.area*1e6,5)+" mm². Flange lies in the rib plane; web projects into the adjacent bay.":shape.error);
     }
     function update(notify=false){
-      for(const input of body.querySelectorAll("input[data-field]")){const field=input.dataset.field;if(fields.includes(field))input.placeholder=String(Number((1000*value(defaultKey(field))).toPrecision(8)));}
+      const p=gaugeParameters(),shell=p['materials.shells'].find(r=>r.component===(rib?'rib_web':'spar_web'));
+      for(const input of body.querySelectorAll("input[data-field]")){const field=input.dataset.field;if(fields.includes(field)){const minimum=Math.max(value(defaultKey(field)),field.includes('thickness')&&!T_FIELDS.includes(field)&&shell?.kind==='sandwich'?2*shell.face_thickness+shell.core_thickness:0);input.placeholder=String(Number((1000*minimum).toPrecision(8)));input.min=String(1000*minimum);input.title='Minimum gauge: '+Number((1000*minimum).toPrecision(8))+' mm; blank inherits the current property.';}}
       try{canonical.value=JSON.stringify(validate(read()));status.textContent="";status.hidden=true;}catch(e){status.textContent=e.message;status.hidden=false;}
       drawPreview();refresh();if(notify)onEdit?.(key);
     }

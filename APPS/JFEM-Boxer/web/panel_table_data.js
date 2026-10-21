@@ -1,5 +1,5 @@
 /* Physical panel overrides: sparse SI values; blank fields inherit defaults. */
-(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.WingPanelTableData=api;})(globalThis,function(){
+(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./minimum_gauge_inputs.js'):root.WingMinimumGaugeInputs);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingPanelTableData=api;})(globalThis,function(gauge){
  'use strict';
  const PARAMETER='properties.panels';
  const FIELDS={skins:[
@@ -58,6 +58,7 @@
   else if(definition.type==='kind'){if(!['monolithic','sandwich'].includes(value))throw Error('Choose monolithic or sandwich construction.');row[target][field]=value;}
   else{const number=Number(value)/(definition.scale||1),allowZero=kind==='stringers'&&snapshot.parameters?.['stringers.model']==='shell'&&(field==='flange_width'||field==='flange_thickness'&&effective(snapshot,panel,kind).flange_width===0);if(!Number.isFinite(number)||(allowZero?number<0:number<=0)||definition.type==='material'&&!Number.isInteger(number))throw Error(definition.label+' must be a valid '+(allowZero?'non-negative ':'positive ')+(definition.type==='material'?'material ID.':'number.'));row[target][field]=number;}
   validateSection({...inherited(snapshot,panel,kind),...row[target]},kind,snapshot.parameters);
+  gauge.validate(snapshot.parameters,kind==='skins'?panel.skin+'_skin':'stringer',{...inherited(snapshot,panel,kind),...row[target]},'P'+panel.id);
   if(!Object.keys(row[target]).length)delete row[target];if(!row.skin&&!row.stringer){if(index>=0)list.splice(index,1);}else if(index<0)list.push(row);
   return list.sort((a,b)=>a.key.localeCompare(b.key,undefined,{numeric:true}));
  }
@@ -67,5 +68,6 @@
  }
  function matrix(snapshot,skin){const panels=(snapshot.panels||[]).filter(p=>p.skin===skin),stringers=[...new Set(panels.map(p=>Number(p.stringer)))].sort((a,b)=>a-b),bays=[...new Set(panels.map(p=>Number(p.rib_bay)))].sort((a,b)=>a-b),cells=new Map();for(const p of panels){const key=p.stringer+':'+p.rib_bay;if(!cells.has(key))cells.set(key,[]);cells.get(key).push(p);}for(const list of cells.values())list.sort((a,b)=>a.segment-b.segment||a.id-b.id);return{stringers,bays,cells};}
  function display(value,field){return typeof value==='number'?String(Number((value*(field.scale||1)).toPrecision(10))):String(value??'');}
- return{PARAMETER,FIELDS,section,parameters,rows,materialList,inherited,override,fieldState,sameField,effective,validateSection,update,compact,matrix,display};
+ const minimum=(s,item,kind,field)=>gauge.fieldMinimum(s.parameters,kind==='skins'?item.skin+'_skin':'stringer',effective(s,item,kind),field);
+ return{PARAMETER,FIELDS,section,parameters,rows,materialList,inherited,override,fieldState,sameField,effective,validateSection,update,compact,matrix,display,minimum,gauge};
 });

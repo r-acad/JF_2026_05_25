@@ -59,6 +59,19 @@ signed membrane averaging and incomplete-data gates. The main and detached
 table workflows are exercised by `skin_buckling_report_browser_test.cjs`;
 its header lists geometry and optional actual-recovery fixture arguments.
 These tests concern the documented equivalent rectangular thin-plate model.
+The minimum-gauge checks are `minimum_gauge_test.jl OUTPUT`
+(active family/local bounds, generated sections and exact physical membership),
+`minimum_gauge_edge_test.jl` (local sandwich flanges on default blades and
+movable-surface minima),
+`minimum_gauge_sensitivity_test.jl` (one-sided steps at bounds and unchanged
+analytic derivatives), `minimum_gauge_inputs_test.cjs` (editor validation), and
+`minimum_gauge_inputs_browser_test.cjs` (relocated controls, saved parameters,
+local tables and sandwich inputs). `minimum_rf_data_test.cjs` checks the combined
+property RF envelope, verified shared membership, laminate strain criteria,
+incomplete coverage, minimum-gauge highlighting and no-demand markers.
+`minimum_rf_report_browser_test.cjs` exercises the main/detached reports, critical
+case/mode presentations and exports with actual recovered payloads. Browser
+test headers list their generated fixtures and local browser dependencies.
 `sensitivity_warmup_test.jl` runs the installation's imported/generated
 sensitivity workloads and checks finite analytic results with one baseline
 solve and no perturbed equilibrium solves.

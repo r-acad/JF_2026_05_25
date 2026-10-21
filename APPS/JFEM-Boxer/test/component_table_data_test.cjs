@@ -13,7 +13,7 @@ s.parameters[api.PARAMETER]=api.update(s,'sparwebs','front_web:1','thickness',''
 assert.throws(()=>api.update(s,'sparwebs','front_web:1','material','99'),/material/i);
 s=snapshot('sparcaps');assert.equal(s.panels.length,12);assert.equal(api.update(s,'sparcaps','front_upper_cap:1','side','25')[0].side,.025);
 s=snapshot('ribwebs');assert.equal(s.panels.length,4);assert.equal(api.inherited(s,s.panels[1],'ribwebs').thickness,.004);
-s=snapshot('ribstiffeners');assert.equal(api.inherited(s,s.panels[1],'ribstiffeners').height,.04);assert.equal(api.update(s,'ribstiffeners','rib_stiffener:2','enabled','false')[0].enabled,false);assert.throws(()=>api.update(s,'ribstiffeners','rib_stiffener:2','height','1'),/flange thickness/);
+s=snapshot('ribstiffeners');assert.equal(api.inherited(s,s.panels[1],'ribstiffeners').height,.04);assert.equal(api.update(s,'ribstiffeners','rib_stiffener:2','enabled','false')[0].enabled,false);assert.throws(()=>api.update(s,'ribstiffeners','rib_stiffener:2','height','1'),/flange thickness/i);
 s=snapshot('leskins');assert.deepEqual(api.matrix(s).bays,[1,3]);assert.equal(s.panels.length,4);
 s=snapshot('leribs');assert.deepEqual(api.matrix(s).bays,[1,2,3,4]);assert.deepEqual(api.compact(s,'leribs'),s);
 assert.equal(api.compact({parameters,ribs:[{},{}],readOnly:true},'ribwebs').panels.length,0);

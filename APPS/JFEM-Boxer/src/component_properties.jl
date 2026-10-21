@@ -174,6 +174,7 @@ function model_property_definitions(m::Model)
         else
             merge!(entry,shell_material_definition(m.params,group.pid))
         end
+        entry["minimum_gauge"]=property_minimum_gauge(m.params,group.pid;definition=entry)
         entries[group.pid]=entry
     end
     return [entries[pid] for pid in sort!(collect(keys(entries)))]

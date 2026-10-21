@@ -440,7 +440,7 @@ const HELP_TOPICS = {
     "Spars has a separate live drawing and point tables for the front and rear spars. Spar points use eta and ?x/c offsets from their scalar Front spar or Rear spar locations, independently of aerodynamic edges. Zero follows the nominal spar, and positive/negative values shift aft/forward by that fraction of the base chord. Legacy absolute xc records load without moving the geometry. Points at eta 0 or 1 replace the normal endpoint; other unspecified endpoints use the Front spar and Rear spar values. Both spars must stay inside the refined surface over the modeled box, with the front ahead of the rear. Spar kinks change the structural box, caps, runouts and tank boundaries. Spar reference paths use the base trapezoid, while the structural skin, nose and spar heights follow the refined airfoil loft. Extra kink mesh rows do not add physical ribs.",
     "Each rear-spar point has a Stringer angle in degrees, default 0, measured from the rear-spar segment arriving from the previous point (or the root). Stringers follow continuous piecewise paths and may kink at those stations. The final segment to the tip reuses the last angle relative to its own rear-spar segment. With rear points present, these values replace the hidden global stringer angle. Removing every rear point restores the global angle. A point at the root has no incoming segment; its angle is used only when it is the sole rear point.",
     "Structure groups Spars, Ribs and Leading Edge in separate forms. Leading Edge contains Pylon / leading-edge gaps. Enter excluded physical bay numbers or ranges, for example 2,4-6, or check numbered bays. Bay b spans ribs b and b+1. Exclusions outside the selected leading-edge rib range remain saved but are ignored; excluding all selected bays produces no leading-edge mesh. The Mesh lock protects the gap definition.",
-    "Lock Planform protects the base lifting-surface geometry, aerodynamic edge points and airfoils; Lock Mesh protects spar points, box layout, subdivisions and RBE3/constraint parameters. Use both locks to keep geometry and meshing inputs fixed while editing material or property tables. Blank property-table cells inherit the defaults. Study and TOML saves retain all panel, rib and spar-bay overrides; Studies also retain the editing locks.",
+    "Lock Planform protects the base lifting-surface geometry, aerodynamic edge points and airfoils; Lock Mesh protects spar points, box layout, subdivisions and RBE3/constraint parameters. Use both locks to keep geometry and meshing inputs fixed while editing material or property tables. Blank property-table cells inherit the minimum gauges. Local dimensions cannot be below those minima. Study and TOML saves retain all panel, rib and spar-bay overrides; Studies also retain the editing locks.",
     "2. Open Cases under Loads. Name each case and choose Prescribed lift, or Aerodynamic (VLM) to compute loads from speed, density and angle of attack. Add or duplicate cases to compare conditions. VLM controls the shared aerodynamic mesh.",
     "3. Open Loads / Visualization for Mesh, Pressure (Pa) and Cp views and transferred forces/moments. Buckling results include the corresponding SOL101 preload as a separate analysis. Choose Linear static (101), Buckling (105), or Nonlinear comparison (106 + 101) in Analysis and press Run in JFEM; all included cases are solved. Results, the written Deck and the Log each have their own tab. Normal modes (103) use no applied loads.",
     "Save Study and Load Study in the top header use a portable .wingfem.json file containing parameters, load cases, embedded 3D references, display options and camera/panel settings. Load Study offers recent projects and a Browse action. Open latest disk file reads the current file; Open stored copy restores its last saved or loaded snapshot. Results stay in their analysis folders. Loading regenerates the mesh; run the analysis for fresh results from Analysis → Run in JFEM. New Study starts from the application defaults without writing a file.",
@@ -486,11 +486,11 @@ const HELP_TOPICS = {
     "Sandwich decks use explicit PCOMP layers. Recovered face stresses are evaluated at the outer ply midpoints; they are not exact outer-surface stresses or failure indices.",
   ]},
   "Rib properties": {title:"Rib webs and vertical T stiffeners",paragraphs:[
-    "The default main-box rib web is 2 mm thick. Override any physical rib by number; blank cells inherit the current defaults. Global inputs use metres and the override table uses mm. Rib layout and orientations remain in Structure → Ribs.",
+    "The initial main-box rib web minimum gauge is 2 mm. Increase individual rib properties by number; blank cells inherit the current minimum gauges. Global inputs use metres and the override table uses mm. Rib layout and orientations remain in Structure → Ribs.",
     "Vertical stiffeners use PBARL T sections and share nodes with the rib web from lower to upper skin at physical stringer columns. Refining the skin mesh does not add stiffeners. Their flange lies in the rib plane, with the web projecting into the outboard bay (inboard at the final rib). Override dimensions or turn stiffeners off for individual ribs. Display → Full 3D sections shows their orientation."
   ]},
   "Spar properties": {title:"Spar webs and caps",paragraphs:[
-    "The web default is 3 mm. Optional bay overrides set the front and rear spar independently, in mm. Bay b spans physical ribs b and b+1. Blank cells inherit the default, including after you change that default.",
+    "The initial web minimum gauge is 3 mm. Optional bay overrides at or above it set the front and rear spar independently, in mm. Bay b spans physical ribs b and b+1. Blank cells inherit the default, including after you change that default.",
     "Square spar caps use PBARL BAR dimensions and run along the skin intersections. This tab changes properties; edit spar paths in Structure → Spars. Study and TOML saves retain the per-bay overrides."
   ]},
   "Analysis": { title: "Choose an analysis", paragraphs: [
@@ -572,7 +572,7 @@ function parameterRow(spec, values) {
 const WORKSPACE_TABS = [
   ["Geometry", "planform", "Planform"], ["Geometry", "airfoils", "Airfoils"], ["Geometry", "loft", "Loft"], ["Geometry", "movablesurfaces", "Movable surfaces"], ["Geometry", "box", "Spars"], ["Geometry", "ribs", "Ribs"],
   ["Geometry", "stringerlayout", "Stringers"], ["Geometry", "leadingedge", "Leading Edge"], ["Geometry", "movablestructure", "Movable surfaces"], ["Geometry", "fuel", "Fuel tank"],
-  ["Model", "mesh", "Structural Mesh"], ["Model", "material", "Materials"], ["Model", "shells", "Skins"],
+  ["Model", "mesh", "Structural Mesh"], ["Model", "material", "Materials"], ["Model", "shells", "Skin"],
   ["Model", "sections", "Stringers"], ["Model", "ribproperties", "Ribs"], ["Model", "sparproperties", "Spars"], ["Model", "leproperties", "Leading Edge"], ["Model", "nonstructural", "Mass"], ["Model", "supports", "Constraints"],
   ["Summary", "weights", "Mass properties"], ["Summary", "summary", "General"],
   ["Loads", "cases", "Cases"], ["Loads", "vlmmesh", "VLM settings"], ["Loads", "loadplots", "Load plots"],
@@ -862,7 +862,7 @@ function buildForm(schema, values) {
     det.setAttribute("data-workspace-panel", tabId); det.setAttribute("role", "tabpanel"); det.setAttribute("aria-labelledby", "tab-" + tabId);
     const tabButton = document.getElementById("tab-" + tabId);
     if (tabButton && name !== "JFEM solver") tabButton.setAttribute("aria-controls", det.id);
-    const sum = document.createElement("div"); sum.className = "parameter-heading"; const text = document.createElement("h2"); text.textContent = ({"Mesh":"Structural Mesh","Torsion box":"Spars","Shell properties":"Skins","Beam sections":"Stringers","Rib properties":"Rib properties","Spar properties":"Spar properties","Stringer layout":"Stringers","RBE3 and supports":"RBE3 and constraints"})[name] || name;
+    const sum = document.createElement("div"); sum.className = "parameter-heading"; const text = document.createElement("h2"); text.textContent = ({"Mesh":"Structural Mesh","Torsion box":"Spars","Shell properties":"Skin","Beam sections":"Stringers","Rib properties":"Rib properties","Spar properties":"Spar properties","Stringer layout":"Stringers","RBE3 and supports":"RBE3 and constraints"})[name] || name;
     sum.append(text);
     const groupHelp=HELP_TOPICS[name] || {title:text.textContent,paragraphs:specs.filter(spec=>spec.help?.trim()&&spec.help.trim()!==spec.label).map(spec=>spec.label+": "+spec.help)};
     if(groupHelp.paragraphs.length)sum.append(helpButton(text.textContent,groupHelp));
@@ -882,7 +882,7 @@ function buildForm(schema, values) {
     }
     if (name === "VLM settings" || name === "Beam sections") {
       const note = document.createElement("p"); note.className = "group-note";
-      note.textContent = name === "VLM settings" ? "Shared aerodynamic mesh. Choose Aerodynamic (VLM) and set flight conditions in the Cases tab." : "Choose beam or shell stringers in Structure → Stringers. Dimensions are in metres. For shells, set flange width to zero to create blades only. Spar caps are in Properties → Spars.";
+      note.textContent = name === "VLM settings" ? "Shared aerodynamic mesh. Choose Aerodynamic (VLM) and set flight conditions in the Cases tab." : "Set minimum section dimensions in metres. Local property overrides may increase these gauges but cannot reduce them. Choose beam or shell stringers in Structure → Stringers; zero minimum flange width permits blades without flanges. Spar caps are in Properties → Spars.";
       det.appendChild(note);
     }
     for (const spec of specs) {

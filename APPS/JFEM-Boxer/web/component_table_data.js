@@ -2,6 +2,7 @@
 (function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./panel_table_data.js'):root.WingPanelTableData);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingComponentTableData=api;})(globalThis,function(base){
  'use strict';
  const PARAMETER='properties.components',clone=v=>JSON.parse(JSON.stringify(v));
+ const FAMILY={sparwebs:'spar_web',sparcaps:'spar_cap',ribwebs:'rib_web',ribstiffeners:'rib_stiffener',leskins:'leading_edge_skin',leribs:'leading_edge_rib'};
  const CATALOG={sparwebs:{title:'Spar web properties',parts:['front_web','rear_web'],rows:['Front spar','Rear spar']},sparcaps:{title:'Spar cap properties',parts:['front_upper_cap','front_lower_cap','rear_upper_cap','rear_lower_cap'],rows:['Front upper','Front lower','Rear upper','Rear lower']},ribwebs:{title:'Rib web properties',parts:['rib_web'],rows:['Main-box web'],ribs:true},ribstiffeners:{title:'Rib stiffener properties',parts:['rib_stiffener'],rows:['Vertical T stiffeners'],ribs:true},leskins:{title:'Leading-edge skin properties',parts:['leading_upper_skin','leading_lower_skin'],rows:['Upper skin','Lower skin'],leading:true},leribs:{title:'Leading-edge rib properties',parts:['leading_rib'],rows:['Leading-edge web'],leading:true,ribs:true}};
  const FIELDS=Object.fromEntries(Object.keys(CATALOG).map(kind=>[kind,kind==='sparcaps'?[{name:'side',label:'Square cap side',unit:'mm',scale:1000,type:'number'},{name:'material',label:'Material',type:'material'}]:kind==='ribstiffeners'?[...base.FIELDS.stringers.map(f=>({...f,label:f.name==='material'?'Stiffener material':f.label})),{name:'enabled',label:'Create stiffeners',type:'boolean'}]:base.FIELDS.skins]));
  const rows=p=>{let value=p?.[PARAMETER]||[];if(typeof value==='string')value=JSON.parse(value);if(!Array.isArray(value))throw Error('Component overrides must be a table.');return value;};
@@ -25,6 +26,7 @@
   const next={...inherited(s,item,kind),...row};if(next.kind==='sandwich'&&next.legacy_total_thickness!==undefined&&row.core_thickness===undefined)next.core_thickness=next.legacy_total_thickness-2*next.face_thickness;
   if(kind==='sparcaps'){if(!(Number.isFinite(next.side)&&next.side>0))throw Error('The cap side must be positive.');if(!base.materialList(s.parameters).some(m=>m.id===next.material))throw Error('Choose a material from the Study library.');}
   else base.validateSection(next,kind==='ribstiffeners'?'stringers':'skins',s.parameters);
+  base.gauge.validate(s.parameters,FAMILY[kind],next,item.label||key);
   if(Object.keys(row).length===1){if(i>=0)result.splice(i,1);}else if(i<0)result.push(row);
   return result.sort((a,b)=>a.key.localeCompare(b.key,undefined,{numeric:true}));
  }
@@ -35,5 +37,6 @@
   return{parameters,panels,rib_count:n,layout_token:raw.component_layout_token||raw.layout_token||'',modelDirty:!!raw.modelDirty,busy:!!raw.busy,updating:!!raw.updating,readOnly:!!raw.readOnly,error:String(raw.error||'')};
  }
  function matrix(s){const stringers=[...new Set(s.panels.map(p=>p.stringer))].sort((a,b)=>a-b),bays=[...new Set(s.panels.map(p=>p.rib_bay))].sort((a,b)=>a-b),cells=new Map();for(const p of s.panels)cells.set(p.stringer+':'+p.rib_bay,[p]);return{stringers,bays,cells};}
- return{PARAMETER,FIELDS,CATALOG,section:()=>null,rows,materialList:base.materialList,inherited,override,fieldState,sameField:base.sameField,effective,update,compact,matrix,display:base.display,component:true};
+ const minimum=(s,item,kind,field)=>base.gauge.fieldMinimum(s.parameters,FAMILY[kind],effective(s,item,kind),field);
+ return{PARAMETER,FIELDS,CATALOG,section:()=>null,rows,materialList:base.materialList,inherited,override,fieldState,sameField:base.sameField,effective,update,compact,matrix,display:base.display,component:true,minimum};
 });

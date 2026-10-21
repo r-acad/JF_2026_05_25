@@ -309,13 +309,21 @@ function stringer_euler_payload(m::Model;layout=stiffened_panel_layout(m.grid),c
     # Use actual neighboring faces/properties, never extrapolate this bay's
     # skin or substitute its thickness for a different physical region.
     face_indices=Dict(upper=>euler_face_index(EulerSectionFace[face for ((bay,side),items) in faces if side==upper for face in items]) for upper in (true,false))
+    members_by_panel=Dict{Int,Vector{Int}}()
+    for group in m.groups
+        component_base_pid(group.pid) in (PID_STRINGER,PID_STRINGER_WEB,PID_STRINGER_FLANGE)||continue
+        id=stiffened_panel_id(group.pid)
+        id===nothing||append!(get!(members_by_panel,id,Int[]),group.eids)
+    end
     rows=Dict{String,Any}[]
     for panel in layout.panels
+        member_ids=Set(get(members_by_panel,panel.id,Int[]))
         row=Dict{String,Any}("panel_id"=>panel.id,"key"=>panel_key(panel),"skin"=>panel.upper ? "upper" : "lower",
             "rib_bay"=>panel.bay,"stringer"=>panel.stringer,"segment"=>panel.segment,
             "pid"=>shell_stringers(m.params) ? panel_stringer_web_pid(panel.id) : panel.stringer_pid,
             "length_m"=>0.,"fixity_coefficient"=>Float64(get(m.params,"stringers.euler_fixity_coefficient",1.)),
             "stations"=>Any[],"status"=>"unassessed","reason"=>"",
+            "member_element_ids"=>Int[],"membership_complete"=>false,"applicable"=>true,
             "method"=>"Euler column; actual local section cuts and full rib-to-rib path length; free transverse laminate relaxation; oblique thin-strip projection")
         push!(rows,row)
         try
@@ -346,6 +354,7 @@ function stringer_euler_payload(m::Model;layout=stiffened_panel_layout(m.grid),c
                 if edge.group!==nothing
                     append!(station["parts"],euler_beam_parts(m,edge,origin,axis,y,z))
                     push!(station["force_terms"],Dict("eid"=>edge.group.eids[edge.element],"pid"=>edge.group.pid,"kind"=>"beam_axial"))
+                    push!(member_ids,edge.group.eids[edge.element])
                 end
                 for face in euler_section_candidates(face_indices[panel.upper],origin,axis,y,lo,hi)
                     face.part=="web"&&panels[face.panel_id].column!=panel.column&&continue
@@ -362,6 +371,7 @@ function stringer_euler_payload(m::Model;layout=stiffened_panel_layout(m.grid),c
                     end
                     cut=euler_shell_part(face,section,clipped,origin,axis,y,z;laws);cut===nothing&&continue
                     push!(station["parts"],cut.part);push!(station["force_terms"],cut.force)
+                    push!(member_ids,face.eid)
                     face.part=="web" ? (web_found=true) : push!(coverage,cut.interval)
                 end
                 edge.group===nothing&&!web_found&&throw(ArgumentError("The shell stringer web does not intersect its section"))
@@ -370,11 +380,13 @@ function stringer_euler_payload(m::Model;layout=stiffened_panel_layout(m.grid),c
                 push!(row["stations"],station)
             end
             row["status"]="ready"
+            row["membership_complete"]=true
         catch failure
             failure isa ArgumentError||rethrow()
             row["reason"]=sprint(showerror,failure)
             empty!(row["stations"])
         end
+        row["member_element_ids"]=sort!(collect(member_ids))
     end
     rows
 end

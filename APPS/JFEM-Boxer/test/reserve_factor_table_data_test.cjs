@@ -132,6 +132,7 @@ test('A missing report returns an empty honest flat table',()=>{
  const snapshot=data.compact({report:null,caseScopeLabel:'All eligible cases'});assert.equal(snapshot.report,null);const model=data.build(snapshot);
  assert.equal(model.view,'flat');assert.deepEqual(model.rows,[]);assert.equal(model.scale.count,0);assert.equal(model.scale.min,null);
  assert.deepEqual(model.groups,[{id:'all',label:'All properties'}]);assert.match(data.csv(model),/All eligible cases/);
+ const invalid=data.compact({report:null,requestedFailureMode:'minimum_rf',error:'Invalid percentile',generated:true,panels:[panel(1)],componentGroups:[{pid:3000001,name:'FRONT_SPAR_WEB_P3000001'}]});assert.equal(invalid.requestedFailureMode,'minimum_rf');const cleared=data.build(invalid);assert.deepEqual(cleared.rows,[]);assert.equal(cleared.scale.count,0);assert.equal(cleared.error,'Invalid percentile');
 });
 test('RF colors saturate at two while high numbers retain dark-orange readable text in every palette',()=>{
  const bounds=data.scale([{pid:1,value:.7},{pid:2,value:99}]);
@@ -169,5 +170,21 @@ test('Skin RF99 describes an averaged-state sentinel and incomplete plate assess
  const r=row(5000001,99,{rowKey:'skin:one',skinBuckling:{noDestabilizingLoad:true}}),good=data.build({report:{...report([r]),failureMode:'skin_buckling'}});
  assert.equal(good.rows[0].value,99);assert.match(good.rows[0].reason,/No destabilizing averaged membrane state/);assert.match(good.rows[0].reason,/local element stresses/);assert.equal(good.groups[0].label,'All skin panels');
  for(const reason of['Missing signed membrane recovery.','Plate Ritz basis did not converge.','Panel boundary is not quadrilateral.']){const bad=data.build({report:{...report([{...r,complete:false,reserveFactorReason:reason}]),failureMode:'skin_buckling'}});assert.equal(bad.rows[0].value,null);assert.equal(bad.scale.count,0);assert.equal(bad.rows[0].reason,reason);}
+});
+test('Minimum-gauge yellow requires complete known floors and strictly RF above one in every palette',()=>{
+ const make=(rf,extra={})=>row(5000001,rf,{minimumGauge:{known:true,atMinimum:true},...extra}),bounds=data.scale([{pid:5000001,value:.8},{pid:6000001,value:99}]);
+ for(const[palette]of data.PALETTES){for(const rf of[1.001,2,8,99]){const r=make(rf,{combined:{sentinel:rf===99}});assert(data.atMinimumGauge(r));assert.equal(data.valueColor(rf,bounds,palette,r),data.MINIMUM_GAUGE_COLOR);}
+  for(const r of[make(.999),make(1),make(2,{minimumGauge:{known:false,atMinimum:true}}),make(2,{minimumGauge:{known:true,atMinimum:false}}),make(2,{complete:false}),make(2,{coverage:{recovered:1,total:2}})]){assert(!data.atMinimumGauge(r));assert.equal(data.valueColor(r.reserveFactor,bounds,palette,r),data.valueColor(r.reserveFactor,bounds,palette));}}
+ const model=data.build({report:report([make(3)])});assert.match(data.html(model),/background:rgb\(255, 222, 89\)/);assert.match(data.csv(model),/All relevant dimensions at minimum/);assert.equal(data.valueInk(3,bounds,'signed',make(3)).color,'#963e00');
+});
+test('Combined minima preserve shared property ownership and governing physical scope in every presentation',()=>{
+ const r=row(5000001,1.3,{minimumGauge:{known:true,atMinimum:true},combined:{governingMode:'euler_column',governingModeLabel:'Euler column buckling',governingCase:'Case 4',governingScope:'Upper stringer 1 between ribs1-2, including tributary skin',knownMinimum:1.3,complete:true,sentinel:false},envelopeCaseLabel:'Case 4'});
+ const snapshot={report:{...report([r]),failureMode:'minimum_rf'},generated:true,panels:[panel(1),{...panel(2,2),shell_pid:5000001}],group:'upper'};
+ for(const[presentation]of data.PRESENTATIONS){const m=data.build({...snapshot,presentation});assert.equal(m.rows.length,3);assert.equal(m.rows.find(x=>x.pid===5000001).shared,true);assert.equal(m.matrix.shared.length,1);assert(m.matrix.cells.get('stringer:1:1').some(x=>x.sharedReference&&x.value===null));const t=data.table(m);assert.equal(t.headers[5],'Minimum reserve factor');const selected=t.rows.find(x=>x[0]===r.label);assert.equal(selected[5],'1.3');assert.equal(selected[6],'Case 4');assert.equal(selected[7],'Euler column buckling');assert.match(selected[8],/tributary skin/);assert.equal(m.presentation,presentation);for(const text of[data.csv(m),data.markdown(m),data.html(m)])assert.match(text,/Governing physical scope/);}
+ assert.equal(data.presentationValue(r,'critical_case'),'Case 4');assert.equal(data.presentationValue(r,'failure_mode'),'Euler column buckling');assert.equal(data.presentationValue(r,'reserve_factor'),'1.3');
+});
+test('An incomplete combined minimum stays unassessed even when the known candidate is favorable and at minimum gauge',()=>{
+ const r=row(17,2,{complete:false,reserveFactorReason:'An applicable skin-panel check is missing.',coverage:{recovered:1,total:2},minimumGauge:{known:true,atMinimum:true},combined:{knownMinimum:2,complete:false}}),m=data.build({report:{...report([r]),failureMode:'minimum_rf'},presentation:'failure_mode'});
+ assert.equal(m.rows[0].value,null);assert.equal(m.scale.count,0);assert(!data.atMinimumGauge(r));assert(!data.html(m).includes('background:rgb(255, 222, 89)'));assert.match(data.csv(m),/missing/);assert.equal(data.table(m).rows[0][11],'2');
 });
 console.log(passed+' reserve factor table data tests passed.');
