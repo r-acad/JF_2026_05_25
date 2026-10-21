@@ -1218,7 +1218,7 @@ function affectsModel(key,params) {
     return rows.some(row=>row.enabled);
   }
   return !key.startsWith("sensitivity.") && !["output.title", "output.reference_file", "jfem.repo", "jfem.output_dir",
-           "jfem.output_formats", "jfem.timeout_minutes", "materials.allowables", "stringers.euler_fixity_coefficient"].includes(key);
+           "jfem.output_formats", "jfem.timeout_minutes", "materials.allowables", "stringers.euler_fixity_coefficient", "stringers.skin_fixity_coefficient"].includes(key);
 }
 
 function readPlanformParams() {
@@ -1524,7 +1524,7 @@ function parameterEdited(key) {
   if(key.startsWith("airfoil."))state.airfoilEditor?.refresh?.();
   if(key.startsWith("loft.")||key==="planform.twist_tip")state.loftEditor?.refresh?.();
   markStudyModified();
-  if(key==="stringers.euler_fixity_coefficient"){
+  if(["stringers.euler_fixity_coefficient","stringers.skin_fixity_coefficient"].includes(key)){
     refreshStressReport();
     return;
   }
@@ -1826,7 +1826,9 @@ function stressReportContext(){
     panels:state.data?.stiffened_panels?.panels||[],componentGroups:state.data?.groups||[],generated:!!state.data&&!state.importedDeck&&!state.data.imported_deck,
     eulerColumns:state.data?.stiffened_panels?.euler_columns,
     stringerBlades:state.data?.stiffened_panels?.blade_columns,
+    skinBucklingPanels:state.data?.stiffened_panels?.skin_buckling_panels,
     eulerFixityCoefficient:(()=>{const input=document.getElementById('p-stringers.euler_fixity_coefficient');return input?(input.value.trim()===''?NaN:Number(input.value)):state.values?.['stringers.euler_fixity_coefficient'];})(),
+    skinFixityCoefficient:(()=>{const input=document.getElementById('p-stringers.skin_fixity_coefficient');return input?(input.value.trim()===''?NaN:Number(input.value)):state.values?.['stringers.skin_fixity_coefficient'];})(),
     signature:state.modelSignature,meshIdentity:state.meshIdentity,modelDirty:!!state.modelDirty,pendingDrafts:resultsHavePendingDrafts(),running:!!(state.polling||state.solverStarting),
     caseLabels:new Map(cases.map(c=>[Number(c.id),c.label||'Load case '+c.id])),
     expectedCases:cases.map(c=>({...c,solution:c.solution||solution})).filter(c=>[101,106].includes(Number(c.solution))).map(c=>({id:c.id,label:c.label,solution:c.solution,enabled:c.enabled}))};

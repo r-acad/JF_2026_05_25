@@ -51,6 +51,14 @@ The browser test uses those recovered payloads as well as explicitly synthetic
 samples for threshold colors, mixed stress signs and incomplete recovery;
 its header lists the required arguments. This is an elastic local plate check,
 not a validation of crippling, yielding or nonlinear collapse.
+`skin_buckling_test.jl` checks actual rib/stringer/spar-bounded compartments,
+physical boundary lengths, shell-result frames, laminate bending stiffness and
+the separately saved skin fixity control. `skin_buckling_data_test.cjs` checks
+the plate energy matrices, combined biaxial/shear loads, mode convergence,
+signed membrane averaging and incomplete-data gates. The main and detached
+table workflows are exercised by `skin_buckling_report_browser_test.cjs`;
+its header lists geometry and optional actual-recovery fixture arguments.
+These tests concern the documented equivalent rectangular thin-plate model.
 `sensitivity_warmup_test.jl` runs the installation's imported/generated
 sensitivity workloads and checks finite analytic results with one baseline
 solve and no perturbed equilibrium solves.

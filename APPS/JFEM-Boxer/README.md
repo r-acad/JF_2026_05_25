@@ -208,6 +208,61 @@ stringers do not have the requested bar-stress recovery and are explicitly
 unassessed by this method. Normal T-stringer portions ending at a run-out can
 be assessed locally; the small fixed-area run-out connector bars are excluded.
 
+Choose **Failure mode → Skin panel buckling** for the skin compartments between
+two ribs and adjacent stringers or spar caps. These are the full skin strips
+between support lines, not the half-skin regions used in the stringer-column
+check. For example, three stringers define four skin strips between the spars.
+The length and width are the averages of the opposite actual 3D boundary-path
+lengths; nominal rib/stringer pitches are not substituted.
+
+For every eligible load case, recovered shell membrane resultants are rotated
+into a common panel frame: x from the inboard to outboard rib midpoint,
+projected into the mean skin plane, and y perpendicular to x in that plane.
+The table reports area-weighted mean `σx`, `σy` and `τxy` in **MPa**, with tension
+positive. Through-thickness mean stress is the membrane resultant divided by
+the actual local thickness. This also applies to laminates, where averaging
+outer-face stresses would not generally give the membrane mean. Buckling uses
+the area-weighted resultants themselves, preserving thickness variations.
+
+The equivalent rectangular thin plate uses a double-sine displacement series
+`w = Σ amn sin(mπx/L) sin(nπy/W)`. Its bending energy and the work of the averaged
+membrane loads define `c Kb a = RF Kg a`; the smallest positive multiplier is
+the panel RF. This combines biaxial compression and shear in one calculation
+and retains the stabilizing effect of tension. Both symmetric and antisymmetric
+mode families are included. The energy approach is described in
+[NACA TN 1222](https://ntrs.nasa.gov/citations/19930082111) and
+[NACA TN 1223](https://ntrs.nasa.gov/citations/19930082113); the double-sine Ritz
+approach also accommodates anisotropic laminate bending stiffness, as described
+in [this laminate buckling study](https://doi.org/10.1016/0020-7403(90)90063-O).
+
+For a uniform isotropic panel under longitudinal compression alone, this reduces
+to `σcr = c k π² E / [12(1−ν²)] × (t/W)²`, with
+`k = min_m (m W/L + L/(m W))²` over positive integer half-wave counts `m`.
+The long-plate limit is `k = 4`. The combined-load calculation uses the full
+eigenproblem instead of assigning this uniaxial coefficient to shear or biaxial
+loading.
+
+Current isotropic and laminate section stiffnesses are transformed into the
+panel frame and area-averaged. For membrane/bending-coupled sections the effective
+matrix is `D* = D − Bᵀ A⁻¹ B`, a membrane-free bending approximation. The method
+retains bending/twisting coupling. It approximates a curved, tapered or skewed
+panel by a flat rectangle with averaged geometry and loading; it is not a local
+mesh eigenanalysis or a postbuckling/collapse prediction. Thin-plate kinematics
+neglect transverse-shear deformation. Sandwich face wrinkling and core instability
+require separate checks, especially for thick skins with soft cores.
+
+**Structure → Stringers → Skin buckling fixity coefficient** sets `c` independently
+of the Euler stringer coefficient. The default **1** means simply supported
+plate edges. A larger value scales the capacity to represent a justified
+restraint allowance; it does not impose exact clamped edges or change FE
+constraints. Editing it refreshes the RF table without another FE solve.
+
+The lowest RF across current SOL101 and converged full-load SOL106 cases governs.
+The table and exports retain signed mean stresses, measured dimensions, fixity,
+governing case and recovery/convergence information. Complete cases with no
+destabilizing averaged membrane loading show **99**. Missing recovery, unsupported
+panel boundaries and unresolved numerical convergence remain unassessed.
+
 FE stress legends, element inspection and stress-based sensitivity display
 adapters use **MPa** when the source stress units are known. Stored solver values
 and raw result exports retain their recorded units. Imported results with no

@@ -156,4 +156,18 @@ test('Unavailable blade recovery never becomes a colored RF99 and imported IDs d
  const model=data.build({report:{...report([r]),failureMode:'stringer_blade'},generated:false,panels:[panel(1)],group:'upper'});
  assert.equal(model.rows[0].value,null);assert.equal(model.scale.count,0);assert.equal(model.rows[0].locations.length,0);assert.equal(model.view,'flat');assert.equal(model.groups[0].label,'All stringer blades');assert.match(model.rows[0].reason,/unavailable/);
 });
+test('Skin buckling uses actual support strips with multiple properties rather than stringer half-skin ownership',()=>{
+ const labels=['Front spar-S1','S1-S2','S2-S3','S3-Rear spar'],make=(strip,bay,rf)=>row(5000001,rf,{rowKey:'skin:upper:'+bay+':'+strip,label:labels[strip-1],propertyIds:[5000001,5000002],locations:[{group:'upper',rowKey:'skin_strip:'+strip,rowLabel:labels[strip-1],stripIndex:strip,index:bay,columnLabel:'R'+bay+'-R'+(bay+1),key:'upper:'+bay+':'+strip,part:'skin_panel'}],skinBuckling:{averageStressX:-30e6,averageStressY:5e6,averageShear:-8e6,length:.8,width:.12,fixityCoefficient:1.3,sourceCount:12,basisOrder:12,convergenceError:.0004,noDestabilizingLoad:false}});
+ const rows=[make(4,2,2.5),make(2,1,.9),make(1,1,1.2),make(3,1,1.4),make(4,1,2.5)],model=data.build({report:{...report(rows),failureMode:'skin_buckling'},generated:true,panels:[panel(1)],group:'upper'});
+ assert.equal(model.matrix.shared.length,0);assert.equal(model.rows.length,5);assert.deepEqual(model.matrix.rows.map(r=>r.label),labels);assert.equal(model.matrix.cells.get('skin_strip:4:1').length,1);assert.equal(model.matrix.cells.get('skin_strip:4:2').length,1);assert.equal(model.matrix.cells.has('stringer:1:1'),false);assert.equal(model.scale.count,5);
+ const filtered=data.build({report:{...report(rows),failureMode:'skin_buckling'},generated:true,filter:'5000002'});assert.equal(filtered.rows.length,5,'Filter must include every actual property in the physical skin compartment.');
+ const t=data.table(model);assert.equal(t.headers[0],'Skin panel');assert.equal(t.rows[0][6],'-30');assert.equal(t.rows[0][7],'5');assert.equal(t.rows[0][8],'-8');assert.equal(t.rows[0][12],'0.8');assert.equal(t.rows[0][13],'0.12');assert.equal(t.rows[0][14],'1.3');assert.equal(t.rows[0][18],'5000001; 5000002');
+ for(const text of[data.csv(model),data.markdown(model),data.html(model)]){assert.match(text,/Skin panel buckling/);assert.match(text,/Average sigma x \(MPa\)/);assert.match(text,/Average tau xy \(MPa\)/);assert.match(text,/Convergence error/);assert.match(text,/5000002/);}
+ assert.match(data.html(model),/<td style="background:rgb\(42, 105, 181\);color:#963e00"><span[^>]+>2\.5<\/span><\/td>/);
+});
+test('Skin RF99 describes an averaged-state sentinel and incomplete plate assessment remains uncolored',()=>{
+ const r=row(5000001,99,{rowKey:'skin:one',skinBuckling:{noDestabilizingLoad:true}}),good=data.build({report:{...report([r]),failureMode:'skin_buckling'}});
+ assert.equal(good.rows[0].value,99);assert.match(good.rows[0].reason,/No destabilizing averaged membrane state/);assert.match(good.rows[0].reason,/local element stresses/);assert.equal(good.groups[0].label,'All skin panels');
+ for(const reason of['Missing signed membrane recovery.','Plate Ritz basis did not converge.','Panel boundary is not quadrilateral.']){const bad=data.build({report:{...report([{...r,complete:false,reserveFactorReason:reason}]),failureMode:'skin_buckling'}});assert.equal(bad.rows[0].value,null);assert.equal(bad.scale.count,0);assert.equal(bad.rows[0].reason,reason);}
+});
 console.log(passed+' reserve factor table data tests passed.');

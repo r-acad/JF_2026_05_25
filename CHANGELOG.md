@@ -5,6 +5,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Skin panel buckling
+
+- Add a skin-panel RF mode using actual rib/stringer/spar-bounded skin regions,
+  measured average boundary dimensions and area-weighted membrane stresses.
+  Combine biaxial loading and shear in a rectangular-plate Ritz calculation,
+  including current isotropic/laminate bending stiffness and tension effects.
+- Add a separate skin buckling fixity coefficient under Structure / Stringers.
+  Show MPa stress components, governing case, dimensions and coverage in the
+  main and detached RF tables and CSV/Markdown/HTML exports. Keep unsupported
+  geometry, incomplete recovery and unresolved convergence explicitly unassessed.
+
 ### Stringer free-web instability
 
 - Add a Stringer blade instability failure mode to Stress Report and the separate
