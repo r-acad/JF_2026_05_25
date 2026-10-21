@@ -40,6 +40,17 @@ generated geometry fixtures with explicitly synthetic force samples to check
 live fixity edits, the RF 99 marker, incomplete recovery and detached tables;
 its header lists browser arguments. These checks validate the documented
 elastic column assessment, not local plate buckling or nonlinear collapse.
+The separate free-web checks are `stringer_blade_test.jl OUTPUT`
+(actual PBARL T geometry, material data and source-member ownership),
+`stringer_blade_data_test.cjs` (elastic outstand capacity, signed arithmetic
+stress averages, coverage and case envelopes), and
+`stringer_blade_report_browser_test.cjs` (main/detached tables and exports).
+The Julia test optionally accepts the existing Euler recovery directory as
+its second argument to check actual recovered SOL101/SOL106 bar stresses.
+The browser test uses those recovered payloads as well as explicitly synthetic
+samples for threshold colors, mixed stress signs and incomplete recovery;
+its header lists the required arguments. This is an elastic local plate check,
+not a validation of crippling, yielding or nonlinear collapse.
 `sensitivity_warmup_test.jl` runs the installation's imported/generated
 sensitivity workloads and checks finite analytic results with one baseline
 solve and no perturbed equilibrium solves.

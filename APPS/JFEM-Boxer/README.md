@@ -170,6 +170,44 @@ Run-out fragments without two rib end restraints are explicitly unassessed.
 For SOL106 the ratio compares recovered compression with an elastic capacity;
 it is not a prediction of the nonlinear failure load.
 
+Choose **Failure mode → Stringer blade instability** to assess local buckling
+of the free web of a generated PBARL T stringer. The table shows critical stress,
+average compressive stress, RF, governing case and the web dimensions. It uses
+the conventional long-outstand-plate expression
+
+`σcr = 0.425 × π² E / [12(1 − ν²)] × (tw / hw)²`,
+
+where `tw` is the current web thickness and `hw = H − tf` is the clear blade
+height from the attached flange to the free tip. The attached longitudinal edge
+is treated as simply supported and the opposite edge is free; no extra flange
+rotational restraint or finite-length benefit is credited. This coefficient
+and the plate equation are documented in
+[FHWA-HIF-19-063, equation (29), printed page 86](https://rosap.ntl.bts.gov/view/dot/42925/dot_42925_DS1.pdf#page=102).
+The Euler fixity coefficient does not affect this separate local check.
+
+For each eligible SOL101 or converged full-load SOL106 case, the arithmetic
+mean of the signed axial bar stresses in that physical rib-bay/stringer segment
+is calculated. If both end axial stresses are recovered, their mean first
+defines the element value. Every element has equal weight; this is an element
+average, not a length-weighted average. Tension is positive. The compressive
+demand is `max(0, −mean stress)`; neither von Mises stress nor the largest bending
+fiber stress replaces it. Thus tensile and compressive samples can cancel in
+the requested average, and this does not assess localized peak compression.
+
+`RF = σcr / average compression`; the smallest RF across the selected load cases
+governs. If section dimensions or materials vary within a segment, its lowest
+local critical stress is used. Complete coverage with no average compression
+gives **99**, even if an individual element is compressive. Missing stresses,
+incomplete cases and stale results remain unassessed. Critical and demand
+stresses are displayed in MPa. The detached RF grid and exports retain the
+physical location, governing case and averaging definition.
+
+This is an elastic, uniform-compression free-web assessment for isotropic beam
+stringers, without yielding, postbuckling or crippling corrections. Shell-mode
+stringers do not have the requested bar-stress recovery and are explicitly
+unassessed by this method. Normal T-stringer portions ending at a run-out can
+be assessed locally; the small fixed-area run-out connector bars are excluded.
+
 FE stress legends, element inspection and stress-based sensitivity display
 adapters use **MPa** when the source stress units are known. Stored solver values
 and raw result exports retain their recorded units. Imported results with no

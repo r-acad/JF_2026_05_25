@@ -144,4 +144,16 @@ test('Euler columns sharing a property remain separate physical rows and do not 
  assert.equal(model.rows.length,2);assert.equal(model.scale.count,2);assert.equal(model.matrix.shared.length,0);assert.equal(model.matrix.cells.get('stringer:1:1')[0].value,.8);assert.equal(model.matrix.cells.get('stringer:1:2')[0].value,99);assert.equal(model.matrix.cells.get('stringer:1:1').length,1);assert.match(model.matrix.cells.get('stringer:1:2')[0].reason,/No compression/);
  const exported=data.table(model);assert.match(exported.headers[6],/Critical load \(N\)/);assert.equal(exported.rows[1][5],'99');assert.equal(exported.rows[1][11],'2');assert.match(data.csv(model),/Euler column buckling/);
 });
+test('Blade regions retain physical ownership even when two bays share a beam property',()=>{
+ const make=(bay,rf)=>row(7000001,rf,{rowKey:'blade:upper:bay'+bay,panelKey:'upper:bay'+bay,locations:[{group:'upper',rowKey:'stringer:1',rowLabel:'U1',index:bay,columnLabel:'R'+bay+'-R'+(bay+1),key:'upper:bay'+bay,part:'stringer_blade',stringer:1}],blade:{criticalStress:120e6,compressionDemand:60e6,averageStress:-60e6,clearHeight:.03,thickness:.002,coefficient:.425,sourceCount:4,noCompression:rf===99}});
+ const model=data.build({report:{...report([make(1,2),make(2,99)]),failureMode:'stringer_blade'},generated:true,panels:[panel(1),panel(2,2)],group:'upper'});
+ assert.equal(model.rows.length,2);assert.equal(model.matrix.shared.length,0);assert.equal(model.matrix.cells.get('stringer:1:1').length,1);assert.equal(model.matrix.cells.get('stringer:1:2').length,1);assert.equal(model.scale.count,2);assert.match(model.rows[1].reason,/No average axial compression/);assert.match(model.rows[1].reason,/individual bars can still be compressive/);
+ const exported=data.table(model);assert.match(exported.headers[6],/Critical buckling stress \(MPa\)/);assert.equal(exported.rows[0][6],'120');assert.equal(exported.rows[0][7],'60');assert.equal(exported.rows[0][11],'-60');assert.equal(exported.rows[0][12],'30');assert.equal(exported.rows[0][13],'2');assert.equal(exported.rows[0][14],'0.425');assert.equal(exported.rows[0][15],'4');
+ for(const text of [data.csv(model),data.markdown(model),data.html(model)]){assert.match(text,/Stringer blade instability/);assert.match(text,/equal-weight arithmetic mean/);assert.match(text,/MPa/);assert.match(text,/Web thickness/);assert.match(text,/Source bars/);}
+});
+test('Unavailable blade recovery never becomes a colored RF99 and imported IDs do not imply ownership',()=>{
+ const r=row(7000001,99,{rowKey:'blade:test',blade:{noCompression:true},complete:false,coverage:{recovered:3,total:4},reserveFactorReason:'One signed axial bar stress is unavailable.',locations:[{group:'upper',rowKey:'stringer:1',index:1}]});
+ const model=data.build({report:{...report([r]),failureMode:'stringer_blade'},generated:false,panels:[panel(1)],group:'upper'});
+ assert.equal(model.rows[0].value,null);assert.equal(model.scale.count,0);assert.equal(model.rows[0].locations.length,0);assert.equal(model.view,'flat');assert.equal(model.groups[0].label,'All stringer blades');assert.match(model.rows[0].reason,/unavailable/);
+});
 console.log(passed+' reserve factor table data tests passed.');

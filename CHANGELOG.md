@@ -5,6 +5,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Stringer free-web instability
+
+- Add a Stringer blade instability failure mode to Stress Report and the separate
+  RF table. Use the current isotropic T-section clear web height and thickness,
+  the classical long-outstand plate buckling stress and the average signed axial
+  bar stress in each physical stringer segment. Show the governing case, critical
+  and average compressive stresses in MPa, geometry and recovery coverage.
+- Keep this local mode separate from global Euler-column buckling. Use RF 99
+  only when complete eligible cases have no average compression; leave missing
+  recovery and unsupported shell stringers unassessed. Include the method,
+  source counts and geometry in report exports and documentation.
+
 ### Stress units, reserve-factor colors and stringer columns
 
 - Display known FE stress quantities in MPa, including contour legends,

@@ -1825,6 +1825,7 @@ function stressReportContext(){
   return{elements:state.elements,cases:state.resultCases,allowables:readMaterialAllowables(),sourceUnits:!!state.importedDeck,
     panels:state.data?.stiffened_panels?.panels||[],componentGroups:state.data?.groups||[],generated:!!state.data&&!state.importedDeck&&!state.data.imported_deck,
     eulerColumns:state.data?.stiffened_panels?.euler_columns,
+    stringerBlades:state.data?.stiffened_panels?.blade_columns,
     eulerFixityCoefficient:(()=>{const input=document.getElementById('p-stringers.euler_fixity_coefficient');return input?(input.value.trim()===''?NaN:Number(input.value)):state.values?.['stringers.euler_fixity_coefficient'];})(),
     signature:state.modelSignature,meshIdentity:state.meshIdentity,modelDirty:!!state.modelDirty,pendingDrafts:resultsHavePendingDrafts(),running:!!(state.polling||state.solverStarting),
     caseLabels:new Map(cases.map(c=>[Number(c.id),c.label||'Load case '+c.id])),
