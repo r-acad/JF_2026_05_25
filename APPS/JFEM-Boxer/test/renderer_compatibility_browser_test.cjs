@@ -22,6 +22,7 @@ const html='<html><body style="margin:0"><canvas id="canvas" width="1000" height
    const B=BABYLON,canvas=document.getElementById('canvas');
    window.engine=backend==='webgpu'?new B.WebGPUEngine(canvas,{antialias:true,enableAllFeatures:true}):new B.Engine(canvas,true);
    if(engine.isWebGPU)await engine.initAsync({jsPath:'/vendor/glslang/glslang.js',wasmPath:'/vendor/glslang/glslang.wasm'},{jsPath:'/vendor/twgsl/twgsl.js',wasmPath:'/vendor/twgsl/twgsl.wasm'});
+   engine.useReverseDepthBuffer=true;
    window.gpuErrors=[];engine._device?.addEventListener('uncapturederror',event=>gpuErrors.push(event.error.message));
    window.scene=new B.Scene(engine);scene.useRightHandedSystem=true;scene.clearColor=new B.Color4(1,1,1,1);
    window.camera=new B.ArcRotateCamera('camera',-.9,1.05,11,new B.Vector3(0,1,0),scene);camera.minZ=.01;
@@ -40,11 +41,19 @@ const html='<html><body style="margin:0"><canvas id="canvas" width="1000" height
    return page.evaluate(async base64=>{const picture=new Image();picture.src='data:image/png;base64,'+base64;await picture.decode();const c=document.createElement('canvas');c.width=picture.width;c.height=picture.height;const ctx=c.getContext('2d');ctx.drawImage(picture,0,0);const pixels=ctx.getImageData(0,0,c.width,c.height).data,top=Math.max(0,Math.floor(groundTop())-6);let modelPixels=0;for(let y=0;y<top;y++)for(let x=0;x<c.width;x++){const i=(y*c.width+x)*4;if(pixels[i+2]>pixels[i]+25&&pixels[i+2]>pixels[i+1]+8)modelPixels++;}return{modelPixels,top};},buffer.toString('base64'));
   }
   for(const material of ['standard','pbr'])for(const oit of [false,true])for(const style of ['solid','wireframe','translucent','metallic']){
-   const state=await page.evaluate(async({material,oit,style})=>{model.material=window[material];model.material.alpha=oit?.45:1;transparency.setEnabled(oit);planes.setGroundAppearance({style,opacity:.4});await render();return{ready:scene.isReady(),filtering:engine.getCaps().textureFloatLinearFiltering,depthTypes:oit?scene.depthPeelingRenderer._depthMrts.map(rt=>rt.textures[0].getInternalTexture().type):[],expectedHalf:BABYLON.Constants.TEXTURETYPE_HALF_FLOAT,gpuErrors:[...gpuErrors]};},{material,oit,style});
-   const pixels=await snapshot(material+'-'+(oit?'translucent':'solid')+'-'+style);assert(pixels.modelPixels>500,'Visible FE surface above ground: '+JSON.stringify({material,oit,style,...pixels}));assert.deepEqual(state.gpuErrors,[]);assert.equal(state.filtering,info.filtering);if(info.webgpu&&oit)assert(state.depthTypes.every(t=>t===state.expectedHalf));results.push({material,oit,style,...pixels,ready:state.ready});
+   const state=await page.evaluate(async({material,oit,style})=>{model.material=window[material];model.material.alpha=oit?.45:1;transparency.setEnabled(oit);planes.setGroundAppearance({style,opacity:.4});await render();return{ready:scene.isReady(),filtering:engine.getCaps().textureFloatLinearFiltering,depthTypes:oit?scene.depthPeelingRenderer._depthMrts.map(rt=>rt.textures[0].getInternalTexture().type):[],expectedFloat:BABYLON.Constants.TEXTURETYPE_FLOAT,gpuErrors:[...gpuErrors]};},{material,oit,style});
+   const pixels=await snapshot(material+'-'+(oit?'translucent':'solid')+'-'+style);assert(pixels.modelPixels>500,'Visible FE surface above ground: '+JSON.stringify({material,oit,style,...pixels}));assert.deepEqual(state.gpuErrors,[]);assert.equal(state.filtering,info.filtering);if(info.webgpu&&oit)assert(state.depthTypes.every(t=>t===state.expectedFloat));results.push({material,oit,style,...pixels,ready:state.ready});
+  }
+  for(const oit of [false,true]){
+   await page.evaluate(async oit=>{model.material=standard;standard.alpha=oit?.45:1;transparency.setEnabled(oit);planes.setGroundAppearance({style:'solid',opacity:.4});lighting.apply({...lighting.capture(),shadows:false,selfShadows:false});await render();},oit);
+   const before=await page.screenshot({path:path.join(out,'shadow-'+oit+'-off.png')});
+   await page.evaluate(async()=>{lighting.apply({...lighting.capture(),shadows:true});await render();});
+   const after=await page.screenshot({path:path.join(out,'shadow-'+oit+'-on.png')});
+   const shadow=await page.evaluate(async({before,after})=>{const read=async png=>{const image=new Image();image.src='data:image/png;base64,'+png;await image.decode();const c=document.createElement('canvas');c.width=image.width;c.height=image.height;const ctx=c.getContext('2d');ctx.drawImage(image,0,0);return ctx.getImageData(0,0,c.width,c.height).data;};const a=await read(before),b=await read(after);let darkened=0;for(let i=0;i<a.length;i+=4)if(a[i]+a[i+1]+a[i+2]-b[i]-b[i+1]-b[i+2]>30)darkened++;return{darkened};},{before:before.toString('base64'),after:after.toString('base64')});
+   assert(shadow.darkened>200,'Ground shadow must visibly darken pixels: '+JSON.stringify({oit,...shadow}));results.push({shadow:{oit,...shadow}});
   }
   // Resize reallocates peeling textures; repeated switching and a newly added
-  // material must retain the paired depth texture and shader precision.
+  // material must retain full depth precision and renderer fixes.
   await page.setViewportSize({width:900,height:700});
   const lifecycle=await page.evaluate(async()=>{
    // Let the engine resize both the backing canvas and its MSAA attachments.

@@ -45,7 +45,7 @@
     const material = new B.StandardMaterial("rib-datums-material", scene);
     material.diffuseColor = B.Color3.Black(); material.emissiveColor = B.Color3.White(); material.specularColor = B.Color3.Black();
     material.disableLighting = true; material.backFaceCulling = false; material.twoSidedLighting = true;
-    material.alpha = .18; material.transparencyMode = B.Material.MATERIAL_ALPHABLEND; material.disableDepthWrite = true; material.depthFunction = B.Constants.LEQUAL;
+    material.alpha = .18; material.transparencyMode = B.Material.MATERIAL_ALPHABLEND; material.disableDepthWrite = true; material.depthFunction = scene.getEngine().useReverseDepthBuffer ? B.Constants.GEQUAL : B.Constants.LEQUAL;
     function tag(mesh, kind) {
       mesh.isPickable = false; mesh.renderingGroupId = 0;
       mesh.metadata = { wingViewHelper: true, ribDatums: true, kind, frame: "Undeformed rib plane", side_m: current.side, count: current.count };
@@ -71,7 +71,7 @@
       meshes.outline?.dispose();
       const outline = meshes.outline = B.MeshBuilder.CreateLineSystem("rib-datum-outlines", { lines, colors:lineColors, updatable: false }, scene);
       outline.color = B.Color3.White(); outline.alpha = 1;
-      if (outline.material) { outline.material.disableDepthWrite = true; outline.material.depthFunction = B.Constants.LEQUAL; }
+      if (outline.material) { outline.material.disableDepthWrite = true; outline.material.depthFunction = scene.getEngine().useReverseDepthBuffer ? B.Constants.GEQUAL : B.Constants.LEQUAL; }
       tag(outline, "outline"); return current;
     }
     function setVisible(value) { visible = !!value; for (const mesh of Object.values(meshes)) mesh.setEnabled(visible && current.count > 0); }

@@ -76,7 +76,7 @@ void main(){
   groundMaterial.customShaderNameResolve=(_name,_uniforms,_buffers,_samplers,defines)=>{
    if(scene.useOrderIndependentTransparency&&groundMaterial.needAlphaBlending()){
     defines.push('#define ORDER_INDEPENDENT_TRANSPARENCY');
-    if(scene._boxerHalfFloatOITDepth||!scene.getEngine().getCaps().textureFloatLinearFiltering)defines.push('#define ORDER_INDEPENDENT_TRANSPARENCY_16BITS');
+    if(!scene.getEngine().getCaps().textureFloatLinearFiltering)defines.push('#define ORDER_INDEPENDENT_TRANSPARENCY_16BITS');
    }
    return groundShader;
   };

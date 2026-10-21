@@ -94,7 +94,7 @@
         for(let i=0;i<unit.indices.length;i++)indices[k*unit.indices.length+i]=k*n+unit.indices[i];
       }
       const mesh=new B.Mesh(name+"-DOF"+dof,scene),material=new B.StandardMaterial(name+"-DOF"+dof+"-material",scene);
-      material.diffuseColor=B.Color3.FromHexString(COLORS[axis]);material.emissiveColor=material.diffuseColor.scale(.45);material.specularColor=B.Color3.Black();material.alpha=1;material.backFaceCulling=false;material.transparencyMode=B.Material.MATERIAL_OPAQUE;material.depthFunction=B.Constants.LEQUAL;material.disableDepthWrite=false;
+      material.diffuseColor=B.Color3.FromHexString(COLORS[axis]);material.emissiveColor=material.diffuseColor.scale(.45);material.specularColor=B.Color3.Black();material.alpha=1;material.backFaceCulling=false;material.transparencyMode=B.Material.MATERIAL_OPAQUE;material.depthFunction=scene.getEngine().useReverseDepthBuffer?B.Constants.GEQUAL:B.Constants.LEQUAL;material.disableDepthWrite=false;
       mesh.material=material;mesh.isPickable=false;mesh.renderingGroupId=2;
       mesh.metadata={supportGlyphs:true,component:"SPC",dof,axis:AXES[axis],shape:records[0].shape,color:COLORS[axis],records};
       const vertexData=new B.VertexData();vertexData.positions=buf;vertexData.normals=normals;vertexData.indices=indices;vertexData.applyToMesh(mesh,true);

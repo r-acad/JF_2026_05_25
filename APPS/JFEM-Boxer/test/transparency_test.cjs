@@ -6,7 +6,7 @@ class Observable{constructor(){this.items=[];}add(fn){this.items.push(fn);return
 class LinesMesh{}
 const B={Constants:{ALWAYS:519},LinesMesh};
 function fixture(supported=true){
- const engine={webGLVersion:supported?2:1,getCaps:()=>({drawBuffersExtension:true,textureFloatRender:true,textureHalfFloatRender:true,blendFloat:true}),depth:515,write:true,alpha:0,
+ const engine={webGLVersion:supported?2:1,getCaps:()=>({drawBuffersExtension:true,textureFloatRender:true,textureHalfFloatRender:true,textureFloatLinearFiltering:true,blendFloat:true}),depth:515,write:true,alpha:0,
   getDepthFunction(){return this.depth;},getDepthWrite(){return this.write;},getAlphaMode(){return this.alpha;},setDepthFunction(v){this.depth=v;},setDepthWrite(v){this.write=v;},setAlphaMode(v){this.alpha=v;}};
  const scene={getEngine:()=>engine,depthPeelingRenderer:{passCount:0},useOrderIndependentTransparency:false,meshes:[],onBeforeActiveMeshesEvaluationObservable:new Observable(),onAfterRenderObservable:new Observable(),resetCachedMaterial(){}};
  const mesh=(group=0)=>{const m={renderingGroupId:group,isDisposed:()=>false,isEnabled:()=>true,isVisible:true,visibility:1,material:{alpha:1,depthFunction:0,disableDepthWrite:false,separateCullingPass:true,needAlphaBlendingForMesh:()=>false},subMeshes:[{render(){}}]};scene.meshes.push(m);return m;};
@@ -57,4 +57,16 @@ function fixture(supported=true){
  T.batchMaterials(f.scene,()=>{});assert(f.scene.blockMaterialDirtyMechanism);assert.equal(calls.all,before);assert.equal(calls.prepass,1);
  f.scene.blockMaterialDirtyMechanism=false;t.dispose();assert.equal(f.scene.markAllMaterialsAsDirty,originalGlobal);assert.equal(f.scene.prePassRenderer._markAllMaterialsAsPrePassDirty,originalPrepass);
 }
-console.log('Transparency capability fallback, mode/group lifecycle, linear material/prepass invalidation, nested/failed batch restoration and exception-safe overlay state passed.');
+{
+ for(const caps of [{blendFloat:false,textureFloatLinearFiltering:true},{blendFloat:true,textureFloatLinearFiltering:false}]){
+  const f=fixture();f.engine.isWebGPU=true;f.engine.getCaps=()=>caps;const t=T.create({BABYLON:B,scene:f.scene});assert.equal(t.supported,false);assert.equal(t.setEnabled(true),false);t.dispose();
+ }
+ const f=fixture(),calls={draws:0,flushes:0},equations=[];f.engine.isWebGPU=true;f.engine.getCaps=()=>({blendFloat:true,textureFloatLinearFiltering:true});f.engine._alphaEquation=[3];
+ const equation=function(value,target=0){equations.push({value,cached:this._alphaEquation[target]});this._alphaEquation[target]=value;};f.engine.setAlphaEquation=equation;
+ f.engine.flushFramebuffer=()=>{assert.equal(calls.draws%3,1);calls.flushes++;};
+ const draw=function(){calls.draws++;};const render=function(fail=false){for(let i=0;i<3;i++){f.engine.setAlphaEquation(3);this._renderSubMeshes();if(fail)throw Error('Peel failure');}};
+ f.scene.depthPeelingRenderer={passCount:0,render,_renderSubMeshes:draw};const t=T.create({BABYLON:B,scene:f.scene});t.setEnabled(true);
+ f.scene.depthPeelingRenderer.render();f.scene.depthPeelingRenderer.render();assert.equal(calls.draws,6);assert.equal(calls.flushes,2);assert(equations.every(e=>e.cached===-1));assert.equal(f.engine.setAlphaEquation,equation);
+ assert.throws(()=>f.scene.depthPeelingRenderer.render(true),/Peel failure/);assert.equal(f.engine.setAlphaEquation,equation);t.dispose();assert.equal(f.scene.depthPeelingRenderer.render,render);assert.equal(f.scene.depthPeelingRenderer._renderSubMeshes,draw);
+}
+console.log('Transparency capabilities, full-float WebGPU one-submit lifecycle and equation restoration, grouping, linear invalidation and overlay state passed.');

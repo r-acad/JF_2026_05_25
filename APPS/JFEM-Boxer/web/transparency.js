@@ -46,51 +46,40 @@
  function create({BABYLON:B=globalThis.BABYLON,scene,throughMeshes=()=>[],onUnsupported=()=>{}}){
   const engine=scene.getEngine(),caps=engine.getCaps(),groups=new Map();
   const restoreInvalidation=linearGlobalInvalidation(scene,B);
-  // The bundled WebGPU depth peeler's full-float path can lose transparent
-  // fragments between its depth and colour passes. Use its existing paired
-  // half-float texture / depth-rounding path explicitly, without changing the
-  // GPU's actual texture-filtering capabilities or other scene textures.
-  // Half-float depth quantizes nearby fragments just as Babylon's fallback
-  // for GPUs without float-linear filtering does; the ten-layer limit remains.
-  const halfDepth=!!(engine.isWebGPU&&B.MaterialPluginBase&&B.ThinTexture),depthRenderers=new Map(),depthPlugins=new Set();
-  const previousHalfDepth=scene._boxerHalfFloatOITDepth;
-  let halfMaterialObserver=null,halfFrameObserver=null;
-  if(halfDepth){
-   scene._boxerHalfFloatOITDepth=true;
-   class HalfDepthPlugin extends B.MaterialPluginBase{
-    constructor(material){super(material,'BoxerHalfFloatOITDepth',200,{BOXER_OIT_HALF_DEPTH:false},true,true);this.doNotSerialize=true;}
-    getClassName(){return 'BoxerHalfFloatOITDepth';}
-    isCompatible(){return true;}
-    prepareDefines(defines){const next=!!this._material.getScene()._boxerHalfFloatOITDepth;if(defines.BOXER_OIT_HALF_DEPTH!==next){defines.BOXER_OIT_HALF_DEPTH=next;defines.markAsUnprocessed();}}
-    getCustomCode(kind){return kind==='fragment'?{CUSTOM_FRAGMENT_DEFINITIONS:'#if defined(BOXER_OIT_HALF_DEPTH) && defined(ORDER_INDEPENDENT_TRANSPARENCY) && !defined(ORDER_INDEPENDENT_TRANSPARENCY_16BITS)\n#define ORDER_INDEPENDENT_TRANSPARENCY_16BITS\n#endif'}:null;}
-   }
-   const pending=new Set(),installed=new WeakMap();
-   function installDepthMaterials(){for(const material of pending){
-    if(!installed.has(material)&&(material instanceof B.StandardMaterial||material instanceof B.PBRBaseMaterial)){
-     const plugin=material.pluginManager?.getPlugin('BoxerHalfFloatOITDepth')||new HalfDepthPlugin(material);installed.set(material,plugin);depthPlugins.add(plugin);
-    }
-   }pending.clear();}
-   function queueMaterial(material){pending.add(material);material.onDisposeObservable.addOnce(()=>{pending.delete(material);depthPlugins.delete(installed.get(material));});}
-   for(const material of scene.materials||[])queueMaterial(material);
-   halfMaterialObserver=scene.onNewMaterialAddedObservable.add(queueMaterial);
-   halfFrameObserver=scene.onBeforeRenderObservable.add(installDepthMaterials);installDepthMaterials();
-  }
-  function prepareDepthTextures(){
+  const depthRenderers=new Map();
+  function prepareDepthRenderer(){
    const renderer=scene.depthPeelingRenderer;
-   if(!halfDepth||depthRenderers.has(renderer))return;
-   const original=renderer._createTextures;
-   const originalType=renderer._depthMrts[0].textures[0].getInternalTexture().type;
-   function replaceDepthTextures(type=B.Constants.TEXTURETYPE_HALF_FLOAT){
-    for(let i=0;i<2;i++){
-     const target=renderer._depthMrts[i],old=target?.textures[0]?.getInternalTexture();
-     if(!old||old.type===type)continue;
-     const texture=engine._createInternalTexture(target.getSize(),{format:B.Constants.TEXTUREFORMAT_RG,type,samplingMode:B.Constants.TEXTURE_NEAREST_SAMPLINGMODE,label:'Boxer OIT depth'},false);
-     // ThinTexture wraps the same reference; release the old allocation once.
-     target.setInternalTexture(texture,0,false);renderer._thinTextures[3*i].dispose();renderer._thinTextures[3*i]=new B.ThinTexture(texture);
+   if(!engine.isWebGPU||depthRenderers.has(renderer)||typeof renderer.render!=="function"||
+     typeof renderer._renderSubMeshes!=="function"||typeof engine.flushFramebuffer!=="function")return;
+   const originalRender=renderer.render,originalDraw=renderer._renderSubMeshes;
+   let firstDepthPass=false;
+   function draw(...args){
+    const result=originalDraw.apply(this,args);
+    if(firstDepthPass){
+     firstDepthPass=false;
+     // Submit the initial RG32F min/max-depth pass before its texture is sampled
+     // by the first peel. Merely ending its render pass is insufficient on the
+     // supported WebGPU path. This queues GPU work once per frame: no readback,
+     // CPU wait or per-element submission is involved. Preserve full precision;
+     // rounding depth to half float merges adjacent thin FE skins into bands.
+     engine.flushFramebuffer();
     }
+    return result;
    }
-   const create=function(...args){const result=original.apply(this,args);replaceDepthTextures();return result;};
-   renderer._createTextures=create;depthRenderers.set(renderer,{original,create,restore:()=>replaceDepthTextures(originalType)});replaceDepthTextures();
+   function render(...args){
+    const originalEquation=engine.setAlphaEquation;
+    function equation(value,target=0){
+     // Babylon's alpha mode setter can reset the actual equation to ADD while
+     // leaving its MAX cache unchanged. Reapply equations during peeling only.
+     if(engine._alphaEquation)engine._alphaEquation[target]=-1;
+     return originalEquation.call(this,value,target);
+    }
+    firstDepthPass=true;engine.setAlphaEquation=equation;
+    try{return originalRender.apply(this,args);}
+    finally{firstDepthPass=false;if(engine.setAlphaEquation===equation)engine.setAlphaEquation=originalEquation;}
+   }
+   renderer.render=render;renderer._renderSubMeshes=draw;
+   depthRenderers.set(renderer,{originalRender,originalDraw,render,draw});
   }
   const prepasses=new Map();
   function preparePrePass(){
@@ -104,7 +93,8 @@
    renderer._markAllMaterialsAsPrePassDirty=mark;prepasses.set(renderer,{original,mark});
   }
   let culling=new WeakSet();
-  const supported=!!(engine.isWebGPU||(engine.webGLVersion>=2&&caps.drawBuffersExtension&&caps.textureFloatRender&&caps.textureHalfFloatRender&&caps.blendFloat));
+  const supported=!!(engine.isWebGPU?(caps.textureFloatLinearFiltering&&caps.blendFloat):
+    (engine.webGLVersion>=2&&caps.drawBuffersExtension&&caps.textureFloatRender&&caps.textureHalfFloatRender&&caps.textureFloatLinearFiltering&&caps.blendFloat));
   let enabled=false,warned=false;
   function restoreGroups(){
    for(const [mesh,group]of groups)if(!mesh.isDisposed())mesh.renderingGroupId=group;groups.clear();
@@ -118,7 +108,7 @@
     enabled=next;scene.useOrderIndependentTransparency=next;
     // Five dual passes retain up to ten depth layers. This bounds the cost for
     // large imported decks; deeper interiors may be omitted at grazing views.
-    if(next){scene.depthPeelingRenderer.passCount=5;prepareDepthTextures();preparePrePass();}else restoreGroups();
+    if(next){scene.depthPeelingRenderer.passCount=5;prepareDepthRenderer();preparePrePass();}else restoreGroups();
    });
    return enabled;
   }
@@ -155,7 +145,7 @@
     }
    }finally{engine.setDepthFunction(depthFunction);engine.setDepthWrite(depthWrite);engine.setAlphaMode(alpha);scene.resetCachedMaterial();}
   });
-  function dispose(){setEnabled(false);restoreInvalidation();for(const[renderer,{original,mark}]of prepasses)if(renderer._markAllMaterialsAsPrePassDirty===mark)renderer._markAllMaterialsAsPrePassDirty=original;prepasses.clear();for(const[renderer,{original,create,restore}]of depthRenderers)if(renderer._createTextures===create){renderer._createTextures=original;restore();}depthRenderers.clear();if(halfMaterialObserver)scene.onNewMaterialAddedObservable.remove(halfMaterialObserver);if(halfFrameObserver)scene.onBeforeRenderObservable.remove(halfFrameObserver);if(halfDepth){if(previousHalfDepth===undefined)delete scene._boxerHalfFloatOITDepth;else scene._boxerHalfFloatOITDepth=previousHalfDepth;}for(const plugin of depthPlugins)plugin.markAllDefinesAsDirty();depthPlugins.clear();scene.onBeforeActiveMeshesEvaluationObservable.remove(before);scene.onAfterRenderObservable.remove(after);}
+  function dispose(){setEnabled(false);restoreInvalidation();for(const[renderer,{original,mark}]of prepasses)if(renderer._markAllMaterialsAsPrePassDirty===mark)renderer._markAllMaterialsAsPrePassDirty=original;prepasses.clear();for(const[renderer,{originalRender,originalDraw,render,draw}]of depthRenderers){if(renderer.render===render)renderer.render=originalRender;if(renderer._renderSubMeshes===draw)renderer._renderSubMeshes=originalDraw;}depthRenderers.clear();scene.onBeforeActiveMeshesEvaluationObservable.remove(before);scene.onAfterRenderObservable.remove(after);}
   return{setEnabled,dispose,supported,get enabled(){return enabled;}};
  }
  return{create,batchMaterials};

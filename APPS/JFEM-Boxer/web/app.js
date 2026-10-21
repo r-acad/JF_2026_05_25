@@ -7544,7 +7544,7 @@ function showStartupStudyNotice(notice) {
   }
   activity()?.update(startup, {detail:"Initializing the 3D viewport…"});
   await paintActivity();
-  const graphics=await JFEMGraphics.create({canvas:document.getElementById("render"),vendorBase:"vendor/",
+  const graphics=await JFEMGraphics.create({canvas:document.getElementById("render"),vendorBase:"vendor/",requireFullPrecisionTransparency:true,
     onStatus:status=>{JFEMGraphics.statusElement()(status);activity()?.update(startup,{detail:status.message+(status.backend==='starting'?'':status.detail?' · '+status.detail:'')});}});
   initScene(graphics.engine);
   log("Babylon.js " + BABYLON.Engine.Version + " ready · " + graphics.backend +

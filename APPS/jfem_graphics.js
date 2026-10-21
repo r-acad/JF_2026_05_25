@@ -54,7 +54,7 @@
     return replacement;
   }
   async function create({BABYLON:B=root.BABYLON,canvas,vendorBase='vendor/',baseURI=root.document?.baseURI,
-    webGLOptions={},webGPUOptions={},onStatus=()=>{},compilerLoader=loadCompilers,replaceFailedCanvas=replaceCanvas}={}){
+    webGLOptions={},webGPUOptions={},requireFullPrecisionTransparency=false,onStatus=()=>{},compilerLoader=loadCompilers,replaceFailedCanvas=replaceCanvas}={}){
     if(!B||!canvas)throw Error('Graphics startup requires Babylon.js and a canvas.');
     let gpu=null,reason='';
     const report=(backend,message,detail='')=>onStatus({backend,message,detail});
@@ -70,6 +70,19 @@
       // Make the supplied local compiler instances ready before custom shaders.
       await gpu.prepareGlslangAndTintAsync?.();
       if(!gpu.isWebGPU)throw Error('WebGPU initialization did not provide a WebGPU engine.');
+      if(requireFullPrecisionTransparency){
+        // The bundled depth peeler chooses RG32F from float filtering support,
+        // but MAX blending also requires the independent float32-blendable
+        // device feature. A half-float substitute merges closely spaced skins.
+        // Check the enabled device capabilities before creating any materials.
+        const caps=gpu.getCaps?.(),missing=[];
+        if(!caps?.textureFloatLinearFiltering)missing.push('32-bit float filtering');
+        if(!caps?.blendFloat)missing.push('32-bit float blending');
+        if(missing.length)throw Error('This WebGPU device lacks '+missing.join(' and ')+' required for precise translucent rendering.');
+        // Preserve precision for closely spaced skins before Boxer creates any
+        // scene or camera; other apps retain their existing depth convention.
+        gpu.useReverseDepthBuffer=true;
+      }
       gpu.jfemGraphics={backend:'WebGPU',fallbackReason:''};
       if(canvas.dataset)canvas.dataset.graphicsBackend='WebGPU';
       report('WebGPU','Renderer: WebGPU','Shader compilers are bundled locally.');
@@ -82,6 +95,9 @@
     let engine;
     try{engine=new B.Engine(canvas,true,{preserveDrawingBuffer:true,stencil:true,...webGLOptions});}
     catch(error){throw Error('Neither graphics backend could start. WebGPU: '+reason+' WebGL: '+errorText(error));}
+    // Boxer also uses float-depth peeling in WebGL 2. Keep its close-surface
+    // precision when this backend is selected; ordinary viewers are unchanged.
+    if(requireFullPrecisionTransparency)engine.useReverseDepthBuffer=true;
     const backend=engine.webGLVersion>=2?'WebGL 2':'WebGL';
     engine.jfemGraphics={backend,fallbackReason:reason};
     if(canvas.dataset)canvas.dataset.graphicsBackend=backend;

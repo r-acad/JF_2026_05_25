@@ -5,6 +5,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Thin-surface transparency
+
+- Fix bands and triangular artifacts between closely spaced translucent FE
+  surfaces. Retain full-precision depth peeling, correct its blend-equation
+  state and submit the initial depth pass before the following passes sample it.
+- Use reversed depth in Boxer for thin-surface precision on both backends and
+  preserve SVG depth ordering, constraint symbols and rib planes. Keep ground
+  finishes and shadows compatible with the depth peeler.
+- Check the GPU features needed for full-precision Boxer transparency during
+  startup and use the existing WebGL fallback if they are unavailable.
+
 ### Property stress envelopes and material editing
 
 - Add Results → Stress Report for property-level SOL101/SOL106 von Mises
@@ -28,9 +39,9 @@ Versions follow [Semantic Versioning](https://semver.org/).
 - Bundle the matching GLSL/WGSL compiler JavaScript and WebAssembly alongside
   the pinned Babylon libraries. Verify local assets and their hashes during
   installation; graphics startup and local geometry imports need no CDN.
-- Keep translucent FE surfaces visible with WebGPU using the depth peeler's
-  half-float depth path. Preserve the real GPU capabilities and the existing
-  ten-layer bound. Fix custom shadow sampling and metallic mirror readiness
+- Keep translucent FE surfaces visible with WebGPU using full-precision depth
+  peeling. Preserve the real GPU capabilities and the existing ten-layer bound.
+  Fix custom shadow sampling and metallic mirror readiness
   for consistent shader compilation in both graphics backends.
 - Launch the results viewer through a lightweight local asset server so normal
   launches can use WebGPU. Direct HTML opening remains a WebGL fallback.

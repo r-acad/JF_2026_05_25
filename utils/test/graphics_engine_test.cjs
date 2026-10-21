@@ -3,13 +3,14 @@ const assert=require('node:assert/strict');
 const graphics=require('../../APPS/jfem_graphics.js');
 const baseURI='http://127.0.0.1:8099/';
 let passed=0;
-function fixture({supported=true,supportError=null,initError=null,prepareError=null,isWebGPU=true,webGLError=null}={}){
+function fixture({supported=true,supportError=null,initError=null,prepareError=null,isWebGPU=true,webGLError=null,caps={textureFloatLinearFiltering:true,blendFloat:true}}={}){
   const calls=[],statuses=[],original={dataset:{},name:'original'},replacement={dataset:{},name:'replacement'};
   class GPU{
     static get IsSupportedAsync(){if(supportError)return Promise.reject(supportError);return Promise.resolve(supported);}
     constructor(canvas,options){calls.push(['gpu',canvas,options]);this.isWebGPU=isWebGPU;}
     async initAsync(...options){calls.push(['init',...options]);if(initError)throw initError;}
     async prepareGlslangAndTintAsync(){calls.push(['prepare']);if(prepareError)throw prepareError;}
+    getCaps(){calls.push(['caps']);return caps;}
     dispose(){calls.push(['dispose']);}
   }
   class GL{constructor(canvas){calls.push(['gl',canvas]);if(webGLError)throw webGLError;this.webGLVersion=2;}}
@@ -64,12 +65,48 @@ async function test(name,run){await run();passed++;console.log('PASS '+name);}
     assert.equal(f.calls[0][1].glslang.wasmPath,baseURI+'vendor/glslang/glslang.wasm');
     assert.equal(f.calls[0][1].twgsl.jsPath,baseURI+'vendor/twgsl/twgsl.js');
     assert.equal(f.statuses.at(-1).backend,'WebGPU');
+    assert.equal(r.engine.useReverseDepthBuffer,undefined,'Other applications retain their existing depth convention');
+  });
+  await test('Full-precision transparency retains WebGPU when both float features are enabled',async()=>{
+    const f=fixture();f.options.requireFullPrecisionTransparency=true;
+    const r=await graphics.create(f.options);
+    assert.equal(r.backend,'WebGPU');assert.equal(r.engine.useReverseDepthBuffer,true);
+    assert.deepEqual(f.calls.map(c=>c[0]),['compilers','gpu','init','prepare','caps']);
+  });
+  await test('Independent float feature gaps fall back before constructing translucent scenes',async()=>{
+    for(const [caps,reason] of [
+      [{textureFloatLinearFiltering:true,blendFloat:false},/32-bit float blending/],
+      [{textureFloatLinearFiltering:false,blendFloat:true},/32-bit float filtering/],
+      [{textureFloatLinearFiltering:false,blendFloat:false},/32-bit float filtering and 32-bit float blending/],
+      [{},/32-bit float filtering and 32-bit float blending/]
+    ]){
+      const f=fixture({caps});f.options.requireFullPrecisionTransparency=true;
+      const r=await graphics.create(f.options);
+      assert.equal(r.backend,'WebGL 2');assert.equal(r.canvas,f.replacement);
+      assert.equal(r.engine.useReverseDepthBuffer,true,'Boxer retains close-surface precision in its fallback backend');
+      assert.match(r.fallbackReason,reason);assert.match(r.fallbackReason,/precise translucent rendering/);
+      assert.deepEqual(f.calls.map(c=>c[0]),['compilers','gpu','init','prepare','caps','dispose','replace','gl']);
+      assert.equal(f.statuses.at(-1).detail,r.fallbackReason);
+      assert.equal(f.replacement.dataset.graphicsBackend,'WebGL 2');
+    }
+  });
+  await test('Applications without the precision requirement retain supported WebGPU devices',async()=>{
+    const f=fixture({caps:{textureFloatLinearFiltering:false,blendFloat:false}});
+    const r=await graphics.create(f.options);
+    assert.equal(r.backend,'WebGPU');assert.equal(f.calls.some(c=>c[0]==='caps'),false);
   });
   await test('No WebGPU adapter uses WebGL without loading compilers',async()=>{
     const f=fixture({supported:false}),r=await graphics.create(f.options);
     assert.equal(r.backend,'WebGL 2');assert.match(r.fallbackReason,/unavailable/);
     assert.deepEqual(f.calls.map(c=>c[0]),['gl']);assert.equal(r.canvas,f.original);
     assert.match(f.statuses.at(-1).message,/fallback/);
+    assert.equal(r.engine.useReverseDepthBuffer,undefined,'Other applications keep their existing WebGL depth convention');
+  });
+  await test('Boxer retains reversed depth when WebGPU is unavailable before initialization',async()=>{
+    const f=fixture({supported:false});f.options.requireFullPrecisionTransparency=true;
+    const r=await graphics.create(f.options);
+    assert.equal(r.backend,'WebGL 2');assert.equal(r.engine.useReverseDepthBuffer,true);
+    assert.equal(r.canvas,f.original);assert.deepEqual(f.calls.map(c=>c[0]),['gl']);
   });
   await test('Direct disk viewer uses WebGL without a hanging WASM request',async()=>{
     const f=fixture();f.options.baseURI='file:///repo/APPS/JFEM_results_viewer/postv11.html';

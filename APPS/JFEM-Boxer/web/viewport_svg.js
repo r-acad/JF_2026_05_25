@@ -19,7 +19,7 @@
  function clipPolygon(input,clipPlanes){let polygon=input;for(const distance of clipPlanes){if(!polygon.length)break;const result=[];for(let i=0;i<polygon.length;i++){const a=polygon[i],b=polygon[(i+1)%polygon.length],da=distance(a),db=distance(b),insideA=da>=0,insideB=db>=0;if(insideA)result.push(a);if(insideA!==insideB)result.push(interpolate(a,b,da/(da-db)));}polygon=result;}return polygon.filter(p=>p[3]>1e-12);}
  function clipSegment(a,b,clipPlanes){let low=0,high=1;for(const distance of clipPlanes){const da=distance(a),db=distance(b);if(da<0&&db<0)return null;if(da<0||db<0){const t=da/(da-db);if(da<0)low=Math.max(low,t);else high=Math.min(high,t);if(low>high)return null;}}const result=[interpolate(a,b,low),interpolate(a,b,high)];return result.every(p=>p[3]>1e-12)?result:null;}
  function transform(p,m){const[x,y,z]=p;return[x*m[0]+y*m[4]+z*m[8]+m[12],x*m[1]+y*m[5]+z*m[9]+m[13],x*m[2]+y*m[6]+z*m[10]+m[14],x*m[3]+y*m[7]+z*m[11]+m[15]];}
- const screen=(p,v)=>({x:v.x+(p[0]/p[3]+1)*v.width/2,y:v.y+(1-p[1]/p[3])*v.height/2,z:p[2]/p[3]});
+ const screen=(p,v)=>({x:v.x+(p[0]/p[3]+1)*v.width/2,y:v.y+(1-p[1]/p[3])*v.height/2,z:(v.reverseDepth?-1:1)*p[2]/p[3]});
  const area=p=>p.reduce((sum,a,i)=>{const b=p[(i+1)%p.length];return sum+a.x*b.y-b.x*a.y;},0);
  const bounds=p=>({left:Math.min(...p.map(p=>p.x)),right:Math.max(...p.map(p=>p.x)),top:Math.min(...p.map(p=>p.y)),bottom:Math.max(...p.map(p=>p.y))});
  function sphereBounds(mesh,source,geometry){
@@ -98,13 +98,15 @@
  }
  async function exportScene(scene,camera,engine,options={}){
   const B=options.BABYLON||root.BABYLON;if(!B||!scene||!camera||!engine)throw Error("SVG export needs an active Babylon scene and camera.");
-  if(engine.useReverseDepthBuffer)throw Error("SVG export does not support a reversed depth buffer.");
   const limits={maxPrimitives:options.maxPrimitives??250000,maxWorkingPrimitives:options.maxWorkingPrimitives??1000000,maxInputPrimitives:options.maxInputPrimitives??4000000,maxVertices:options.maxVertices??5000000,maxOutputBytes:options.maxOutputBytes??64*1024*1024,maxOcclusionReferences:options.maxOcclusionReferences??8000000,maxOcclusionTests:options.maxOcclusionTests??40000000};
   for(const[key,value]of Object.entries(limits))if(!Number.isSafeInteger(value)||value<1)throw Error("Invalid SVG resource limit: "+key);
   const canvas=engine.getRenderingCanvas?.(),width=Math.round(canvas?.clientWidth||engine.getRenderWidth()),height=Math.round(canvas?.clientHeight||engine.getRenderHeight());if(!(width>0&&height>0&&width<=32768&&height<=32768))throw Error("The viewport size is not valid for SVG export.");
   const warnings=new Set(["Vector snapshot uses flat material/vertex colors; lighting, textures and reflections may differ from the interactive renderer.","Surface depth uses painter ordering; intersecting or interpenetrating surfaces may overlap approximately.","Screen-space entity labels, text overlays and selection halos are omitted; active color scales are included."]),warn=message=>warnings.add(message),stats={width,height,meshes:0,instances:0,sourceVertices:0,inputPrimitives:0,polygons:0,lines:0,points:0,compactGlyphs:0,replacedGlyphTriangles:0,emittedPaths:0,aggregatedPrimitives:0,clippedPrimitives:0,hiddenLinePieces:0,lineOcclusionTests:0,yields:0};
   const progress=async(fraction,message)=>{options.onProgress?.(fraction,message);stats.yields++;await pause();};await progress(0,"Capturing the visible viewport");
   const viewport=camera.viewport.toGlobal(width,height),viewProjection=camera.getViewMatrix(true).multiply(camera.getProjectionMatrix(true)),cameraSnapshot={mode:camera.mode,position:(camera.globalPosition||camera.position).clone(),direction:camera.getForwardRay().direction.clone()},clipPlanes=planes(!!engine.isNDCHalfZRange),records=[],cache=new Map();let expandedVertices=0;
+  // Clip-space bounds stay unchanged with reversed Z. Normalize sorting so
+  // painter ordering and hidden-line tests continue to use smaller = nearer.
+  viewport.reverseDepth=!!engine.useReverseDepthBuffer;
   // Capture all mutable buffers and matrices before yielding again, so an
   // animated/deformed scene contributes one coherent frame to the export.
   for(const mesh of scene.meshes){if(mesh.isDisposed?.()||!mesh.isEnabled()||!mesh.isVisible||mesh.visibility<=0||!(mesh.layerMask&camera.layerMask))continue;const source=mesh.sourceMesh||mesh;

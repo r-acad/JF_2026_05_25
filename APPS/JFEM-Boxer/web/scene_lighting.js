@@ -58,7 +58,7 @@
    const shader={vertexSource:`precision highp float;attribute vec3 position;uniform mat4 worldViewProjection;uniform mat4 world;uniform mat4 shadowMatrix;varying vec4 shadowPosition;void main(){shadowPosition=shadowMatrix*world*vec4(position,1.0);gl_Position=worldViewProjection*vec4(position,1.0);}`,
     fragmentSource:`precision highp float;
 #include<oitDeclaration>
-uniform sampler2D shadowSampler;uniform vec2 shadowDepth;uniform float shadowTexel;uniform float packedDepth;varying vec4 shadowPosition;
+uniform sampler2D shadowSampler;uniform vec2 shadowDepth;uniform float shadowDepthSign;uniform float shadowTexel;uniform float packedDepth;varying vec4 shadowPosition;
 float depthAt(vec2 uv){
  // The receiver samples inside a per-fragment bounds check. Explicit LOD
  // avoids implicit derivatives in divergent control flow (invalid in WGSL),
@@ -69,7 +69,7 @@ float depthAt(vec2 uv){
  vec4 value=texture2D(shadowSampler,uv);
 #endif
  return mix(value.r,dot(value,vec4(1.0/16581375.0,1.0/65025.0,1.0/255.0,1.0)),packedDepth);}
-void main(){vec2 uv=shadowPosition.xy/shadowPosition.w*.5+.5;float receiverDepth=(shadowPosition.z+shadowDepth.x)/shadowDepth.y;float occlusion=0.0;
+void main(){vec2 uv=shadowPosition.xy/shadowPosition.w*.5+.5;float receiverDepth=(shadowDepthSign*shadowPosition.z+shadowDepth.x)/shadowDepth.y;float occlusion=0.0;
  if(receiverDepth>=0.0&&receiverDepth<=1.0&&uv.x>=0.0&&uv.x<=1.0&&uv.y>=0.0&&uv.y<=1.0){for(int x=-1;x<=1;x++){for(int y=-1;y<=1;y++){occlusion+=step(depthAt(uv+vec2(float(x),float(y))*shadowTexel),receiverDepth);}}occlusion/=9.0;}
  vec4 color=vec4(0.0,0.0,0.0,.4125*occlusion);gl_FragColor=color;
 #include<oitFragment>
@@ -77,10 +77,10 @@ void main(){vec2 uv=shadowPosition.xy/shadowPosition.w*.5+.5;float receiverDepth
  if(fragDepth==nearestDepth){frontColor.rgb+=color.rgb*color.a*alphaMultiplier;frontColor.a=1.0-alphaMultiplier*(1.0-color.a);}else{backColor+=color;}
 #endif
 }`};
-   const material=new B.ShaderMaterial('ground-shadow-only',scene,shader,{attributes:['position'],uniforms:['worldViewProjection','world','shadowMatrix','shadowDepth','shadowTexel','packedDepth'],samplers:['shadowSampler','oitDepthSampler','oitFrontColorSampler'],needAlphaBlending:true});
+   const material=new B.ShaderMaterial('ground-shadow-only',scene,shader,{attributes:['position'],uniforms:['worldViewProjection','world','shadowMatrix','shadowDepth','shadowDepthSign','shadowTexel','packedDepth'],samplers:['shadowSampler','oitDepthSampler','oitFrontColorSampler'],needAlphaBlending:true});
    material.alpha=.55;material.backFaceCulling=false;material.disableDepthWrite=true;
-   material.customShaderNameResolve=(_name,_uniforms,_buffers,_samplers,defines)=>{if(scene.useOrderIndependentTransparency){defines.push('#define ORDER_INDEPENDENT_TRANSPARENCY');if(scene._boxerHalfFloatOITDepth||!scene.getEngine().getCaps().textureFloatLinearFiltering)defines.push('#define ORDER_INDEPENDENT_TRANSPARENCY_16BITS');}return shader;};
-   material.onBindObservable.add(()=>{const effect=material.getEffect();if(shadows){const map=shadows.getShadowMapForRendering();effect.setTexture('shadowSampler',map);effect.setMatrix('shadowMatrix',shadows.getTransformMatrix());effect.setFloat2('shadowDepth',key.getDepthMinZ(scene.activeCamera),key.getDepthMinZ(scene.activeCamera)+key.getDepthMaxZ(scene.activeCamera));effect.setFloat('shadowTexel',1/map.getSize().width);effect.setFloat('packedDepth',map.textureType===B.Constants.TEXTURETYPE_UNSIGNED_BYTE?1:0);}if(scene.useOrderIndependentTransparency)scene.depthPeelingRenderer.bind(effect);});
+   material.customShaderNameResolve=(_name,_uniforms,_buffers,_samplers,defines)=>{if(scene.useOrderIndependentTransparency){defines.push('#define ORDER_INDEPENDENT_TRANSPARENCY');if(!scene.getEngine().getCaps().textureFloatLinearFiltering)defines.push('#define ORDER_INDEPENDENT_TRANSPARENCY_16BITS');}return shader;};
+   material.onBindObservable.add(()=>{const effect=material.getEffect();if(shadows){const map=shadows.getShadowMapForRendering();effect.setTexture('shadowSampler',map);effect.setMatrix('shadowMatrix',shadows.getTransformMatrix());effect.setFloat2('shadowDepth',key.getDepthMinZ(scene.activeCamera),key.getDepthMinZ(scene.activeCamera)+key.getDepthMaxZ(scene.activeCamera));effect.setFloat('shadowDepthSign',scene.getEngine().useReverseDepthBuffer?-1:1);effect.setFloat('shadowTexel',1/map.getSize().width);effect.setFloat('packedDepth',map.textureType===B.Constants.TEXTURETYPE_UNSIGNED_BYTE?1:0);}if(scene.useOrderIndependentTransparency)scene.depthPeelingRenderer.bind(effect);});
    return material;
   }
   function fitShadowDepth(casters,ground){

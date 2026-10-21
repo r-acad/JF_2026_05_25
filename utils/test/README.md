@@ -22,6 +22,16 @@ and mixed-material exclusions. `stress_report_browser_test.cjs` replays actual
 multicase solver payloads through the app and checks the tables and exports;
 its header describes the required local fixtures and browser arguments.
 
+The rendering checks use the bundled Babylon engine. `graphics_engine_test.cjs`
+checks WebGPU startup and capability fallback; Boxer's
+`renderer_compatibility_browser_test.cjs` checks Standard/PBR surfaces, ground
+finishes, shadows and resize/recreation. `viewport_svg_depth_test.cjs` checks
+surface ordering, hidden lines and constraint/datum depth conventions with
+forward and reversed depth. `transparency_scaling_test.cjs` protects switching
+performance on thousands of property materials. The actual-pixel regression
+`transparency_depth_browser_test.cjs` checks 3 mm-separated skins across a
+30 m model from above, below and rotated, in perspective and orthographic views.
+
 The Boxer geometry checks cover local coordinate-file parsing, loft thickness
 and twist interpolation, exact maximum-thickness evaluation, shared structural/
 aerodynamic/fuel geometry, and portable drawing settings. Run
