@@ -9,6 +9,7 @@ const groups=[{pid:1,kind:'quad',eids:[101,109],properties:{type:'PSHELL',thickn
  {kind:'rbe3',eids:[999],properties:{thickness_m:1}}];
 const data={groups},field=(id,role='single')=>P.build(data,{field:id,materialRole:role});
 eq([...field('shell_thickness').byId],[[101,2],[109,2],[120,9.2]]);eq(field('shell_thickness').total,5);
+eq(field('shell_thickness').defaultPalette,'spectrum');eq(field('beam_area').defaultPalette,undefined);
 near(field('face_thickness').byId.get(120),.6);near(field('core_thickness').byId.get(120),8);near(field('areal_mass').byId.get(120),10.06);near(field('mean_density').byId.get(120),10.06/.0092);
 near(field('beam_area').byId.get(401),136);near(field('beam_area').byId.get(402),1000);near(field('beam_I1').byId.get(401),20000);near(field('beam_I2').byId.get(401),4000);near(field('beam_J').byId.get(401),70);
 for(const [id,n]of [['beam_height',40],['beam_width',30],['beam_flange',2],['beam_web',2]])near(field(id).byId.get(401),n);

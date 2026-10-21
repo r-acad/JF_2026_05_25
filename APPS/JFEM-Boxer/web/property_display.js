@@ -99,7 +99,7 @@
   if(field.id==='beam_J')note+=' J is the torsion constant used by the deck, including its PBARL approximation.';
   if(['beam_I1','beam_I2'].includes(field.id))note+=' About the section centroid in the beam’s local section frame.';
   return{kind:'properties',location:'element',domain:'all',name:field.group+' · '+field.label+(field.sample?' · '+roles[settings.materialRole]:''),
-   unit:field.unit,field:field.id,materialRole:settings.materialRole,byId,min,max,categories:field.categorical?categories:undefined,
+   unit:field.unit,field:field.id,defaultPalette:field.id==='shell_thickness'?'spectrum':undefined,materialRole:settings.materialRole,byId,min,max,categories:field.categorical?categories:undefined,
    count:byId.size,total,caseLabel:(data?.imported_deck?'Imported deck':'Generated model')+' · independent of load case',note};
  }
  function create(host,options={}){

@@ -39,6 +39,11 @@ const read=file=>JSON.parse(fs.readFileSync(file,'utf8'));
    assert.equal(await popup.locator('#structural-group').inputValue(),'all');assert.equal(await popup.locator('#table-view').inputValue(),'flat');assert(await popup.locator('#table-view option[value="grid"]').evaluate(o=>o.disabled));
    for(const row of await page.evaluate(()=>state.stressReport.report.rows))near(Number(await popup.locator('.rf-value[data-pid="'+row.pid+'"]').getAttribute('data-value')),row.reserveFactor);
    assert.match(await popup.locator('#reserve-factor-table thead').textContent(),/source stress units/);
+   assert.match(await popup.locator('#rf-limits').textContent(),/Fixed color limits 0 to 2/);assert.deepEqual(await popup.locator('#rf-ticks span').allTextContents(),['0','1','2']);
+   const high=popup.locator('.rf-high-number').first();if(await high.count())assert.equal(await high.evaluate(el=>getComputedStyle(el).color),'rgb(150, 62, 0)');
+   const paletteValues=await popup.locator('#table-palette option').evaluateAll(nodes=>nodes.map(n=>n.value));assert.deepEqual(paletteValues,['signed','spectrum','viridis','inferno','coolwarm','grayscale']);
+   for(const value of paletteValues){await popup.locator('#table-palette').selectOption(value);assert(await popup.locator('#rf-ramp').evaluate(el=>!!el.style.background));}await popup.locator('#table-palette').selectOption('signed');
+   await page.locator('#stress-report-palette').selectOption('spectrum');assert(await page.locator('.stress-report-colorbar').evaluate(el=>el.style.background.includes('linear-gradient')));
    await page.locator('#stress-report-case').selectOption('17');await popup.waitForFunction(()=>!document.querySelector('#case-scope').textContent.includes('All eligible'));
    for(const method of['maximum','mean','trimmed_mean']){
     await page.locator('#stress-report-method').selectOption(method);await popup.waitForFunction(expected=>document.querySelector('#envelope-method').textContent.includes(expected),{maximum:'Maximum',mean:'Average',trimmed_mean:'Average below percentile'}[method]);

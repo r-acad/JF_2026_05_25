@@ -111,6 +111,7 @@ function stiffened_panels_payload(m::Model)
             "override"=>override))
     end
     Dict{String,Any}("panels"=>rows,"count"=>length(rows),"layout_token"=>context.token,"unassigned_shell_eids"=>unassigned,
+        "euler_columns"=>stringer_euler_payload(m;layout,compact=true),
         "coverage"=>Dict("assigned_shells"=>sum(length(r["shell_eids"]) for r in rows;init=0),
             "assigned_stringer_bars"=>sum(length(g.eids) for g in m.groups if g.kind===:bar&&component_base_pid(g.pid)==PID_STRINGER;init=0),
             "assigned_stringer_shells"=>sum(length(r["stringer_web_eids"])+length(r["stringer_flange_eids"]) for r in rows;init=0),

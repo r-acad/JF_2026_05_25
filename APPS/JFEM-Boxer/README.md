@@ -84,9 +84,13 @@ the same structural-group layout as the sensitivity table. Generated models
 can be arranged by rib bay and component; imported models retain their actual
 property list. Shared properties appear once as shared regions rather than
 being assigned fictitious local values. The window follows the Stress Report's
-case selection, envelope method and material limits. RF below 1 is red, RF above
-1 is blue, and exactly 1 is neutral. Missing or incomplete assessments remain
-uncolored. Export the displayed data to CSV, Markdown or self-contained HTML.
+case selection, failure mode, envelope method and material limits. Both the
+main report and the separate table offer the sensitivity color palettes.
+The default RF palette maps 0–1 to red and 1–2 to blue, with a visible change
+of hue immediately across 1; exactly 1 is neutral. Colors saturate at 2,
+and RF values above 2 use dark-orange numbers on a light backing for contrast.
+Missing or incomplete assessments remain uncolored. Export the displayed data
+to CSV, Markdown or self-contained HTML.
 
 Choose the property statistic:
 
@@ -121,6 +125,57 @@ Use **Maximize** for wide tables, filter by property/name/material, and export
 CSV, Markdown or HTML. Exports contain all filtered properties, the selected
 method and coverage notes. Values are presented with at most five significant
 digits. Editing allowables updates the report without rerunning the solver.
+
+Choose **Failure mode → Euler column buckling** for a stringer and its
+associated skin between two ribs. This is a separate capacity check from
+the material-stress reserve factor. It uses actual generated beam or shell
+stringer sections, plus half the physical skin width to the neighboring
+stringer or spar on each side, including local skin thickness and section
+offsets. A combined skin-and-flange shell contributes once. The report and
+separate table identify each physical stringer/rib bay and the governing case.
+
+In **Structure → Stringers**, set **Euler fixity coefficient** `c`:
+
+- `1`: pinned at both ends (default).
+- `4`: fixed at both ends.
+- Approximately `2.046`: one fixed and one pinned end.
+- `0.25`: one fixed and one free end.
+
+The convention is `Pcr = c × π² × (EI)min / L²`; equivalently the effective
+length factor is `K = 1 / sqrt(c)`. `L` is the full rib-to-rib stringer path
+length. This input changes the assessment, not the FE constraints or the
+solution, and can be edited without rerunning the solver.
+
+At each mesh cross-section, signed stringer axial force and projected shell
+membrane resultants are added over the tributary section. Consecutive elements
+along the span are not added together. Compression gives `RF = Pcr / Ncompression`;
+the smallest ratio across the section cuts and selected SOL101/SOL106 cases
+governs. Stress averaging and percentile trimming do not apply to this mode.
+If all selected cases and section cuts have complete recovery and none is in
+compression, the displayed RF is **99**, a no-compression marker rather than
+a calculated failure multiplier. Missing, stale or incomplete data never receive 99.
+
+The weakest principal bending rigidity is calculated about the elastic section
+centroid, retaining the current material stiffnesses. For MAT1/MAT8 laminates,
+the rotated laminate membrane/bending law is condensed to its axial extension
+and bending terms. Coupling and eccentricity are retained when the strip
+stiffnesses are assembled into the combined column section; a single isotropic
+modulus is not substituted. Transverse and shear laminate resultants are free
+in this strip approximation. The constitutive basis is described in
+[NASA RP-1351, *Basic mechanics of laminated composite plates*](https://ntrs.nasa.gov/citations/19950009349).
+This is an elementary elastic column estimate. Using local section stiffness with the full bay length
+is an approximation for tapered, curved or varying sections. It does not assess
+local skin buckling, stringer crippling, torsional buckling or nonlinear collapse.
+Run-out fragments without two rib end restraints are explicitly unassessed.
+For SOL106 the ratio compares recovered compression with an elastic capacity;
+it is not a prediction of the nonlinear failure load.
+
+FE stress legends, element inspection and stress-based sensitivity display
+adapters use **MPa** when the source stress units are known. Stored solver values
+and raw result exports retain their recorded units. Imported results with no
+declared unit system remain labeled with source units. The default palette for
+**Shells · Total thickness (mm)** is **Blue–green–red**; an explicitly chosen
+property palette is preserved.
 
 Use **Project → Open JFEM results…** (also available on the opening screen)
 to choose a `.jfem` result file from any folder with the normal system file

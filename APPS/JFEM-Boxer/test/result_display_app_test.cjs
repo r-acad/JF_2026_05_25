@@ -11,6 +11,7 @@ const schema=JSON.parse(fs.readFileSync(path.join(fixture,'schema.json'),'utf8')
 try{
  context.on('page',p=>p.on('pageerror',e=>errors.push(e.message)));page.on('pageerror',e=>errors.push(e.message));
  await context.route('http://127.0.0.1:43964/**',route=>{const p=new URL(route.request().url()).pathname;
+  if(p==='/shared/jfem_graphics.js')return route.fulfill({path:path.resolve(web,'../../jfem_graphics.js')});
   if(p==='/api/input')return route.fulfill({json:schema});
   if(['/api/prepare_workspace','/api/generate'].includes(p))return route.fulfill({body:fs.readFileSync(path.join(fixture,'payload.msgpack')),contentType:'application/msgpack'});
   if(p==='/api/last_deck')return route.fulfill({json:{ok:true,available:false}});
@@ -47,10 +48,10 @@ try{
   assert(await page.evaluate(()=>state.results.source==='jfem'||state.results.source==='sensitivity_baseline'));
   checks.push(source+': solved λ/load multiplier and tied physical GRID/property provenance');
  }
- await page.evaluate(()=>{choose('Von Mises stress');window.beforeColors=Array.from(state.shellMeshes.flatMap(mesh=>Array.from(mesh.getVerticesData(BABYLON.VertexBuffer.ColorKind))));markStudySaved();});assert.match(await page.locator('#viewport-legends').innerText(),/GPa/);assert.match(await page.locator('#results-summary').innerText(),/2 GPa/);
+ await page.evaluate(()=>{choose('Von Mises stress');window.beforeColors=Array.from(state.shellMeshes.flatMap(mesh=>Array.from(mesh.getVerticesData(BABYLON.VertexBuffer.ColorKind))));markStudySaved();});assert.match(await page.locator('#viewport-legends').innerText(),/MPa/);assert.match(await page.locator('#results-summary').innerText(),/2000 MPa/);
  const legend=page.locator('#viewport-legends [data-scale="fe"]');await legend.locator('[data-legend-action="limits"]').click();
- assert.equal(await legend.locator('[name="minimum"]').inputValue(),'1');assert.equal(await legend.locator('[name="maximum"]').inputValue(),'2');
- await legend.locator('[name="minimum"]').fill('0.5');await legend.locator('[name="maximum"]').fill('2.5');await legend.locator('.legend-limits-apply').click();
+ assert.equal(await legend.locator('[name="minimum"]').inputValue(),'1000');assert.equal(await legend.locator('[name="maximum"]').inputValue(),'2000');
+ await legend.locator('[name="minimum"]').fill('500');await legend.locator('[name="maximum"]').fill('2500');await legend.locator('.legend-limits-apply').click();
  assert(await page.evaluate(()=>{const r=WingLegends.getLimits(contourValues().limitKey);return Math.abs(r[0]-.5e9)<1e-6&&Math.abs(r[1]-2.5e9)<1e-6;}));
  await legend.locator('[data-legend-action="limits"]').click();const slider=legend.locator('[data-limit-slider="minimum"]');
  await slider.focus();await page.keyboard.press('ArrowRight');assert.equal(await slider.evaluate(el=>el===document.activeElement),true);
@@ -59,20 +60,20 @@ try{
  const manual=await page.evaluate(()=>WingLegends.getLimits(contourValues().limitKey));assert(manual[0]>1e9&&manual[0]<2e9);assert.equal(manual[1],2.5e9);await page.screenshot({path:path.join(out,'stress-range-sliders.png')});
  await legend.locator('[data-limit-slider="maximum"]').focus();await page.keyboard.press('Home');const ordered=await page.evaluate(()=>WingLegends.getLimits(contourValues().limitKey));assert(ordered[0]<ordered[1]);
  await page.keyboard.press('Escape');const saved=await page.evaluate(()=>WingLegends.capture());
- await page.evaluate(()=>{choose('Major principal stress (z1)');});assert.equal(await page.evaluate(()=>contourValues().manual),false);assert.match(await legend.innerText(),/GPa/);
+ await page.evaluate(()=>{choose('Major principal stress (z1)');});assert.equal(await page.evaluate(()=>contourValues().manual),false);assert.match(await legend.innerText(),/MPa/);
  await page.evaluate(saved=>{WingLegends.restore(null);WingLegends.restore(saved);choose('Von Mises stress');},saved);assert.deepEqual(await page.evaluate(()=>WingLegends.getLimits(contourValues().limitKey)),ordered);
- assert.equal(await page.evaluate(()=>state.results.contours[0].values[0]),2e9);checks.push('GPa fields and continuous pointer/keyboard sliders update colors; ordered manual limits persist canonically per result without mutating data');
- const svgUnits=await page.evaluate(async()=>{const original=WingViewportSVG.exportScene,download=WingWorkspace.downloadText;let captured;try{WingViewportSVG.exportScene=async(_s,_c,_e,options)=>{captured=options.legends;return{text:'<svg/>',stats:{}};};WingWorkspace.downloadText=()=>{};await saveViewportSVG();}finally{WingViewportSVG.exportScene=original;WingWorkspace.downloadText=download;}return captured;});assert.equal(svgUnits[0].units,'GPa');assert(Math.abs(svgUnits[0].min-ordered[0]*1e-9)<1e-12);
+ assert.equal(await page.evaluate(()=>state.results.contours[0].values[0]),2e9);checks.push('MPa fields and continuous pointer/keyboard sliders update colors; ordered manual limits persist canonically per result without mutating data');
+ const svgUnits=await page.evaluate(async()=>{const original=WingViewportSVG.exportScene,download=WingWorkspace.downloadText;let captured;try{WingViewportSVG.exportScene=async(_s,_c,_e,options)=>{captured=options.legends;return{text:'<svg/>',stats:{}};};WingWorkspace.downloadText=()=>{};await saveViewportSVG();}finally{WingViewportSVG.exportScene=original;WingWorkspace.downloadText=download;}return captured;});assert.equal(svgUnits[0].units,'MPa');assert(Math.abs(svgUnits[0].min-ordered[0]*1e-6)<1e-12);
  for(const type of ['shell','bar']){
   await page.evaluate(type=>{choose(type==='shell'?'Major principal stress (z1)':'Bar axial stress');showElement(testEids[type]);},type);
   const picked=await page.locator('#pick-content').innerText(),rows=await page.locator('#pick-content tr').evaluateAll(rows=>rows.map(row=>[...row.cells].map(cell=>cell.textContent)));
-  assert.match(picked,/stress: GPa/);assert(rows.some(([k,v])=>k==='stress units'&&v.startsWith('GPa')));
-  assert(rows.some(([k,v])=>k===(type==='shell'?'normal x':'axial')&&v==='2'));
-  assert(rows.some(([k,v])=>k===(type==='shell'?'fiber dist':'p8')&&v===(type==='shell'?'-0.005':'5')));
+  assert.match(picked,/stress: MPa/);assert(rows.some(([k,v])=>k==='stress units'&&v.startsWith('MPa')));
+  assert(rows.some(([k,v])=>k===(type==='shell'?'normal x':'axial')&&v==='2000'));
+  assert(rows.some(([k,v])=>k===(type==='shell'?'fiber dist':'p8')&&v===(type==='shell'?'-0.005':'5000')));
   assert(rows.some(([k,v])=>k===(type==='shell'?'fx':'axial')&&v===(type==='shell'?'1234':'5678')));
  }
- checks.push('Shell components/principals and beam end stresses use GPa; force and fiber-distance fields remain canonical');
- await page.evaluate(()=>{choose('Von Mises stress');document.getElementById('pick-card').hidden=true;state.scene.render();});await page.screenshot({path:path.join(out,'stress-gpa-and-buckling.png')});
+ checks.push('Shell components/principals and beam end stresses use MPa; force and fiber-distance fields remain canonical');
+ await page.evaluate(()=>{choose('Von Mises stress');document.getElementById('pick-card').hidden=true;state.scene.render();});await page.screenshot({path:path.join(out,'stress-mpa-and-buckling.png')});
  assert(await page.evaluate(()=>installResult('sensitivity_baseline',true)));assert.match(await page.locator('#mode-0').innerText(),/3 × source deck preload/);assert.match(await page.locator('#mode-0').getAttribute('title'),/source deck for this subcase/);checks.push('Imported-source sensitivity baseline uses source deck preload with no generated load multiplier');
  await page.evaluate(()=>installResult());
  const scopes=await page.evaluate(()=>{
@@ -83,15 +84,16 @@ try{
  for(const scope of scopes){const box=page.locator('#shared-range-test [data-scale="'+scope+'"]');await box.locator('[data-legend-action="limits"]').click();await box.locator('[data-limit-slider="minimum"]').focus();await page.keyboard.press('ArrowRight');await page.keyboard.press('Escape');assert(await page.evaluate(scope=>{const r=WingLegends.getLimits('slider-fixture:'+scope);return Math.abs(r[0]+99.8)<1e-10&&r[1]===100;},scope));}
  checks.push('Shared min/max sliders cover FE, sensitivity, properties and VLM with independent keys');
  await page.evaluate(()=>document.getElementById('shared-range-test').remove());
+ const propertyPalette=await page.evaluate(()=>{const saved=WingLegends.capture();WingLegends.restore(null);state.propertyDisplay.restore({enabled:true,field:'shell_thickness',materialRole:'single'});applyContour();const initial=WingLegends.getPalette(contourPaletteKey(contourValues()));WingLegends.setPalette('properties','inferno');state.propertyDisplay.restore({enabled:true,field:'beam_area',materialRole:'single'});applyContour();state.propertyDisplay.restore({enabled:true,field:'shell_thickness',materialRole:'single'});applyContour();const explicit=WingLegends.getPalette('properties');state.propertyDisplay.setEnabled(false);WingLegends.restore(saved);applyContour();return{initial,explicit};});assert.deepEqual(propertyPalette,{initial:'spectrum',explicit:'inferno'});checks.push('Shell thickness starts with the blue/green/red spectrum while an explicit property palette survives field changes.');
  await page.evaluate(()=>{
   window.syntheticSensitivity={case_id:state.activeCase,case_label:'Synthetic stress response',solution:'101',baseline:{value:2e9,unit:'Pa'},objective:{type:'shell_stress',element_id:testEids.shell,component:'major',surface:'z1'},method:'analytic_discrete_adjoint',rows:[{id:'properties.t_skin_upper',label:'Upper thickness',value:.002,unit:'m',derivative:-3e9,derivative_unit:'Pa / m',normalized_derivative:-.003,status:'ok'}]};
   acceptSensitivityResult(syntheticSensitivity,state.modelSignature,{job:'synthetic-stress'});state.sensitivity.complete(syntheticSensitivity,state.modelSignature,state.sensitivityMeta);activateWorkspaceTab('sensitivity');
  });
- assert.match(await page.locator('#sensitivity-results').innerText(),/Baseline: 2 GPa/);assert.match(await page.locator('#sensitivity-results').innerText(),/-3 GPa \/ m/);
+ assert.match(await page.locator('#sensitivity-results').innerText(),/Baseline: 2000 MPa/);assert.match(await page.locator('#sensitivity-results').innerText(),/-3000 MPa \/ m/);
  const downloadPromise=page.waitForEvent('download');await page.locator('#sensitivity-csv').click();const download=await downloadPromise;await download.saveAs(path.join(out,'stress-sensitivity.csv'));const csv=fs.readFileSync(path.join(out,'stress-sensitivity.csv'),'utf8');assert(csv.includes('"-3000000000"'));assert(csv.includes('"Pa / m"'));
  const popupPromise=context.waitForEvent('page');await page.locator('#btn-sensitivity-data-table').click();const table=await popupPromise;await table.waitForSelector('.sensitivity-value');await table.locator('#table-mode').selectOption('all');
- assert.match(await table.locator('#baseline').innerText(),/2 GPa/);assert.equal(await table.locator('.sensitivity-value').innerText(),'-3');assert.match(await table.locator('.table-color-scale').innerText(),/GPa \/ m/);await table.screenshot({path:path.join(out,'stress-sensitivity-table.png')});
- checks.push('Sensitivity response, derivative, detached table and scales use GPa; CSV retains full-precision Pa');
+ assert.match(await table.locator('#baseline').innerText(),/2000 MPa/);assert.equal(await table.locator('.sensitivity-value').innerText(),'-3000');assert.match(await table.locator('.table-color-scale').innerText(),/MPa \/ m/);await table.screenshot({path:path.join(out,'stress-sensitivity-table.png')});
+ checks.push('Sensitivity response, derivative, detached table and scales use MPa; CSV retains full-precision Pa');
  assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'summary.json'),JSON.stringify({passed:true,checks,metadata,errors},null,2));console.log('Result display browser: '+checks.length+' groups passed');
 }catch(error){fs.writeFileSync(path.join(out,'failure.json'),JSON.stringify({error:error.stack,checks,errors},null,2));await page.screenshot({path:path.join(out,'failure.png')}).catch(()=>{});throw error;}finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -122,6 +122,8 @@ const SCHEMA = ParamSpec[
               help = "Target pitch from the root master to the next master. With intermediate masters, pitch is measured along the 3D rear-spar reference path and rounded to whole bays per interval. Without intermediate masters the existing reference-line spacing is preserved"),
     ParamSpec("stringers.model", "Stringer elements", :choice, "beam", "Stringer layout";
               choices=["beam","shell"], help="Beam uses a T-section PBARL and CBAR on each stringer path. Shell uses PSHELL webs and a bonded skin-plus-flange section sharing skin nodes. Its thickness is the additional flange thickness plus the thinnest skin on either side under its footprint; original footprint skin faces are replaced once. Mixed materials or composites use PCOMP. Set flange width to zero for blade-only stringers. Blade interiors are not welded to intersecting rib webs. Run-out links retain their small beam section."),
+    ParamSpec("stringers.euler_fixity_coefficient", "Euler fixity coefficient", :float, 1.0, "Stringer layout";
+              help="Multiplier c in the analytical stringer-column estimate Pcr = c × pi² × EI / L², with L the full rib-to-rib stringer length. c=1 means pinned-pinned, 4 fixed-fixed, about 2.046 fixed-pinned, and 0.25 fixed-free. This assessment includes half the adjacent skin strip on each side and uses the weakest principal bending stiffness; it does not change FE constraints, stiffness or loads. Set c to reflect actual end restraint, not to adjust a calculated margin."),
     ParamSpec("stringers.orientation", "Blade direction", :choice, "surface_normal", "Stringer layout";
               choices=["surface_normal","coordinate_axis"], help="Surface normal follows the local skin normal, directed into the box. Coordinate axis keeps the blade parallel to X, Y or Z of the selected rectangular coordinate system, choosing the inward sign on each skin. An axis tangent to the skin cannot define a blade and is rejected."),
     ParamSpec("stringers.shell_offsets", "Offset attached flanges inward", :bool, false, "Stringer layout";
@@ -741,6 +743,9 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
         p[k] >= 0 || throw(ArgumentError("$k must not be negative, got $(p[k])"))
     end
     get(p,"stringers.model","beam") in ("beam","shell") || throw(ArgumentError("Stringer elements must be beam or shell"))
+    coefficient=get(p,"stringers.euler_fixity_coefficient",1.0)
+    coefficient isa Real && !(coefficient isa Bool) && isfinite(coefficient) && coefficient>0 ||
+        throw(ArgumentError("Euler fixity coefficient must be finite and positive"))
     get(p,"stringers.orientation","surface_normal") in ("surface_normal","coordinate_axis") || throw(ArgumentError("Blade direction must be surface_normal or coordinate_axis"))
     get(p,"stringers.axis","z") in ("x","y","z") || throw(ArgumentError("Blade coordinate axis must be x, y or z"))
     cid=get(p,"stringers.axis_cid",0)

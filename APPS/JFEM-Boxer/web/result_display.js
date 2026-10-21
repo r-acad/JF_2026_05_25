@@ -1,21 +1,23 @@
 /* Display adapters only: result arrays, persisted ranges and CSV remain canonical. */
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.WingResultDisplay=api;})(globalThis,function(){
  'use strict';
- function stressUnit(unit=''){return /^Pa(?=$|\s*\/)/.test(unit)?{unit:unit.replace(/^Pa/,'GPa'),factor:1e-9}:{unit,factor:1};}
+ function stressUnit(unit=''){const match=/^(GPa|MPa|kPa|Pa)(?=$|\s*\/|\s*;)/.exec(unit),factors={GPa:1e3,MPa:1,kPa:1e-3,Pa:1e-6};return match?{unit:unit.replace(match[1],'MPa'),factor:factors[match[1]]}:{unit,factor:1};}
  function stressValue(value,unit){return typeof value==='number'?value*stressUnit(unit).factor:value;}
  function stressText(value,unit,format=String){return format(stressValue(value,unit))+(unit?' '+stressUnit(unit).unit:'');}
  function stressSummary(value,format=String){
   if(typeof value!=='string')return value;
-  const match=value.match(/^\s*([+-]?[\d.]+(?:e[+-]?\d+)?)(?:\s+to\s+([+-]?[\d.]+(?:e[+-]?\d+)?))?\s+Pa$/i);
-  return match&&Number.isFinite(Number(match[1]))?format(Number(match[1])*1e-9)+(match[2]?' to '+format(Number(match[2])*1e-9):'')+' GPa':value;
+  const match=value.match(/^\s*([+-]?[\d.]+(?:[eE][+-]?\d+)?)(?:\s+to\s+([+-]?[\d.]+(?:[eE][+-]?\d+)?))?\s+(GPa|MPa|kPa|Pa)$/);
+  const display=match&&stressUnit(match[3]);return match&&Number.isFinite(Number(match[1]))?format(Number(match[1])*display.factor)+(match[2]?' to '+format(Number(match[2])*display.factor):'')+' MPa':value;
  }
  const stressFields=new Set(['normal_x','normal_y','shear_xy','s1','s2','t12','von_mises','major','minor','axial','axial_end_a','axial_end_b','torsional',...Array.from({length:8},(_,i)=>'p'+(i+1))]);
- function stressRecord(record){
-  const sourceUnit=/^GPa\b/.test(record?.stress_units||'')?'GPa':'Pa';
+ function stressRecord(record,{sourceUnit=''}={}){
+  // An imported deck can use any consistent units. Missing metadata must not
+  // silently acquire SI units; callers may explicitly supply known SI context.
+  sourceUnit=record?.stress_units||sourceUnit;
   function visit(value,inStress=false){
    if(Array.isArray(value))return value.map(item=>visit(item,inStress));
    if(!value||typeof value!=='object')return value;
-   return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,key==='stress_units'&&typeof item==='string'?item.replace(/^Pa\b/,'GPa'):inStress&&stressFields.has(key)&&typeof item==='number'?stressValue(item,sourceUnit):visit(item,inStress||key==='stress')]));
+   return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,key==='stress_units'&&typeof item==='string'?stressUnit(item).unit:inStress&&stressFields.has(key)&&typeof item==='number'?stressValue(item,sourceUnit):visit(item,inStress||key==='stress')]));
   }
   return visit(record);
  }

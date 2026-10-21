@@ -28,6 +28,18 @@ regions, incomplete assessments, the RF = 1 color threshold and exports.
 window with recovered SOL101/SOL106 payloads, verified generated-model locations,
 live/off-tab updates, invalidation and exports. Its header lists fixture and
 browser arguments; synthetic samples are used only to exercise color thresholds.
+The Euler column checks are `euler_column_data_test.cjs` (section stiffness,
+signed compression and case coverage), `stringer_euler_test.jl OUTPUT`
+(actual beam/shell sections, offsets, laminate laws and compact payloads), and
+`stringer_euler_spatial_test.jl` (conservative spatial queries).
+Run `stringer_euler_recovery_test.jl OUTPUT` after the geometry test, with the
+same output directory, to solve its generated compression/tension SOL101 and
+SOL106 fixtures and inspect actual recovered forces. Run Julia checks from
+the shared repository project. `euler_report_browser_test.cjs` uses those
+generated geometry fixtures with explicitly synthetic force samples to check
+live fixity edits, the RF 99 marker, incomplete recovery and detached tables;
+its header lists browser arguments. These checks validate the documented
+elastic column assessment, not local plate buckling or nonlinear collapse.
 `sensitivity_warmup_test.jl` runs the installation's imported/generated
 sensitivity workloads and checks finite analytic results with one baseline
 solve and no perturbed equilibrium solves.

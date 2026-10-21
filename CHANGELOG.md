@@ -5,6 +5,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Stress units, reserve-factor colors and stringer columns
+
+- Display known FE stress quantities in MPa, including contour legends,
+  inspection and stress-based sensitivity presentation; retain canonical
+  stored values and explicitly unidentified source units.
+- Offer the sensitivity palettes in Stress Report and its separate reserve-factor
+  tables. Use fixed RF limits 0–2, conspicuous red below 1 and blue above 1,
+  saturation at 2 and dark-orange numbers above 2. Default shell-thickness
+  property colors to Blue–green–red while preserving user palette choices.
+- Add an Euler stringer-column failure mode using actual rib-bay sections,
+  half the adjacent skin on each side and recovered signed axial resultants.
+  Report the lowest reserve factor across section cuts and physical load cases;
+  use 99 only for complete assessments with no compression. Add an assessment-only
+  end-fixity coefficient under Structure → Stringers, defaulting to pinned ends.
+- Retain laminate coupling and shell offsets in column stiffness, index geometric
+  section queries, and send compact section matrices with individual force sources
+  to keep fine-mesh reports responsive.
+
 ### Reusable sensitivity solver and reserve-factor tables
 
 - Run sensitivity requests in the same persistent Julia worker as FE analyses,

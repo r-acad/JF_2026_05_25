@@ -77,15 +77,21 @@ test('Panel segment ordering preserves every real panel and excludes invalid met
 });
 test('Threshold colors are red below one, blue above one and neutral exactly at one',()=>{
  const model=data.build({report:report([row(1,.4),row(2,1),row(3,3)])}),bounds=model.scale;
- assert.deepEqual(bounds,{min:.4,max:3,count:3,threshold:1,unit:'dimensionless'});
+ assert.deepEqual(bounds,{min:0,max:2,actualMin:.4,actualMax:3,count:3,threshold:1,unit:'dimensionless'});
  const rgb=v=>data.valueColor(v,bounds).match(/\d+/g).map(Number);
  assert.ok(rgb(.4)[0]>rgb(.4)[2]);assert.ok(rgb(3)[2]>rgb(3)[0]);assert.deepEqual(rgb(1),[245,246,248]);
- const stops=data.colorStops(bounds);assert.equal(stops[1].value,1);assert.equal(stops[1].position,(1-.4)/(3-.4));
+ assert.ok(rgb(.999999)[0]-rgb(.999999)[2]>60);assert.ok(rgb(1.000001)[2]-rgb(1.000001)[0]>60);
+ for(const palette of ['signed','coolwarm']){
+  const below=data.valueColor(.999,bounds,palette).match(/\d+/g).map(Number),above=data.valueColor(1.001,bounds,palette).match(/\d+/g).map(Number);
+  assert.ok(below[0]-below[2]>60,palette+' remains visibly red below one');assert.ok(above[2]-above[0]>60,palette+' remains visibly blue above one');
+  assert.equal(data.valueColor(1,bounds,palette),'rgb(245, 246, 248)');assert.equal(data.colorStops(bounds,palette).find(s=>s.value===1).position,.5);
+ }
+ const stops=data.colorStops(bounds);assert.equal(stops.find(s=>s.value===1).position,.5);assert.equal(stops[0].value,0);assert.equal(stops.at(-1).value,2);
 });
-test('One-sided and constant scales keep actual bounds without shifting the threshold',()=>{
+test('One-sided and constant RF scales retain fixed zero-to-two colors and separate actual bounds',()=>{
  for(const values of [[2,4],[.2,.7],[1,1],[2,2]]){
   const scale=data.build({report:report(values.map((v,i)=>row(i+1,v)))}).scale;
-  assert.equal(scale.min,Math.min(...values));assert.equal(scale.max,Math.max(...values));assert.ok(data.colorStops(scale).length);
+  assert.equal(scale.min,0);assert.equal(scale.max,2);assert.equal(scale.actualMin,Math.min(...values));assert.equal(scale.actualMax,Math.max(...values));assert.ok(data.colorStops(scale).length);
   assert.equal(data.valueColor(null,scale),null);
  }
  assert.deepEqual(data.colorStops({min:null,max:null}),[]);
@@ -93,7 +99,7 @@ test('One-sided and constant scales keep actual bounds without shifting the thre
 test('Group and text filters bound the scale by relevant displayed properties only',()=>{
  const groups=[{pid:17000001,name:'FRONT_SPAR_WEB_P17000001'},{pid:18000001,name:'REAR_SPAR_WEB_P18000001'}];
  const model=data.build({generated:true,report:report([row(17000001,.8),row(18000001,2),row(88,1000)]),componentGroups:groups,group:'sparwebs',filter:'front spar'});
- assert.equal(model.rows.length,1);assert.equal(model.scale.max,.8);assert.equal(model.scale.min,.8);
+ assert.equal(model.rows.length,1);assert.equal(model.scale.max,2);assert.equal(model.scale.min,0);assert.equal(model.scale.actualMin,.8);assert.equal(model.scale.actualMax,.8);
 });
 test('CSV, Markdown and HTML exports keep coverage, units, cases and five-digit numeric formatting',()=>{
  const r=row(17,1.23456789);r.allowableStress=300e6;r.envelopeStress=243e6;
@@ -107,8 +113,8 @@ test('Imported source stress units are preserved without assuming SI',()=>{
 });
 test('HTML export keeps readable text on dark red/blue and light neutral reserve-factor cells',()=>{
  const model=data.build({report:report([row(1,.4),row(2,1),row(3,3),row(4,null)])}),html=data.html(model);
- assert.match(html,/<td style="background:rgb\(205, 57, 74\);color:#fff">0\.4<\/td>/);
- assert.match(html,/<td style="background:rgb\(42, 105, 181\);color:#fff">3<\/td>/);
+ assert.match(html,/<td style="background:rgb\([\d, ]+\);color:#[a-f\d]+">0\.4<\/td>/);
+ assert.match(html,/<td style="background:rgb\(42, 105, 181\);color:#963e00"><span style="background:#fff1df;color:#963e00;[^"]+">3<\/span><\/td>/);
  assert.match(html,/<td style="background:rgb\(245, 246, 248\);color:#102235">1<\/td>/);
  assert.ok(!/<td style="[^"]+">Unavailable<\/td>/.test(html));
 });
@@ -126,5 +132,16 @@ test('A missing report returns an empty honest flat table',()=>{
  const snapshot=data.compact({report:null,caseScopeLabel:'All eligible cases'});assert.equal(snapshot.report,null);const model=data.build(snapshot);
  assert.equal(model.view,'flat');assert.deepEqual(model.rows,[]);assert.equal(model.scale.count,0);assert.equal(model.scale.min,null);
  assert.deepEqual(model.groups,[{id:'all',label:'All properties'}]);assert.match(data.csv(model),/All eligible cases/);
+});
+test('RF colors saturate at two while high numbers retain dark-orange readable text in every palette',()=>{
+ const bounds=data.scale([{pid:1,value:.7},{pid:2,value:99}]);
+ for(const [palette]of data.PALETTES){assert.equal(data.valueColor(2,bounds,palette),data.valueColor(99,bounds,palette));const ink=data.valueInk(99,bounds,palette);assert.equal(ink.color,'#963e00');assert.equal(ink.backing,'#fff1df');assert.equal(data.colorStops(bounds,palette)[0].value,0);assert.equal(data.colorStops(bounds,palette).at(-1).value,2);}
+ const linear=x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4,luma=hex=>{const rgb=hex.match(/[a-f\d]{2}/g).map(x=>linear(parseInt(x,16)/255));return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;};assert((luma('fff1df')+.05)/(luma('963e00')+.05)>=4.5);
+});
+test('Euler columns sharing a property remain separate physical rows and do not populate skin RF cells',()=>{
+ const make=(bay,rf)=>row(7000001,rf,{rowKey:'euler:upper:bay'+bay,panelKey:'upper:bay'+bay,locations:[{group:'upper',rowKey:'stringer:1',rowLabel:'U1',index:bay,columnLabel:'R'+bay+'-R'+(bay+1),key:'upper:bay'+bay,part:'stringer_column',stringer:1}],euler:{criticalLoad:12000,compressionDemand:6000,length:bay,endFactor:1,weakestEI:1200,noCompression:rf===99}});
+ const model=data.build({report:{...report([make(1,.8),make(2,99)]),failureMode:'euler_column',forceUnit:'N',lengthUnit:'m'},generated:true,panels:[panel(1),panel(2,2)],group:'upper'});
+ assert.equal(model.rows.length,2);assert.equal(model.scale.count,2);assert.equal(model.matrix.shared.length,0);assert.equal(model.matrix.cells.get('stringer:1:1')[0].value,.8);assert.equal(model.matrix.cells.get('stringer:1:2')[0].value,99);assert.equal(model.matrix.cells.get('stringer:1:1').length,1);assert.match(model.matrix.cells.get('stringer:1:2')[0].reason,/No compression/);
+ const exported=data.table(model);assert.match(exported.headers[6],/Critical load \(N\)/);assert.equal(exported.rows[1][5],'99');assert.equal(exported.rows[1][11],'2');assert.match(data.csv(model),/Euler column buckling/);
 });
 console.log(passed+' reserve factor table data tests passed.');

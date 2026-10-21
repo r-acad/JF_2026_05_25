@@ -1218,7 +1218,7 @@ function affectsModel(key,params) {
     return rows.some(row=>row.enabled);
   }
   return !key.startsWith("sensitivity.") && !["output.title", "output.reference_file", "jfem.repo", "jfem.output_dir",
-           "jfem.output_formats", "jfem.timeout_minutes", "materials.allowables"].includes(key);
+           "jfem.output_formats", "jfem.timeout_minutes", "materials.allowables", "stringers.euler_fixity_coefficient"].includes(key);
 }
 
 function readPlanformParams() {
@@ -1524,6 +1524,10 @@ function parameterEdited(key) {
   if(key.startsWith("airfoil."))state.airfoilEditor?.refresh?.();
   if(key.startsWith("loft.")||key==="planform.twist_tip")state.loftEditor?.refresh?.();
   markStudyModified();
+  if(key==="stringers.euler_fixity_coefficient"){
+    refreshStressReport();
+    return;
+  }
   if(workspaceUI.activeTab==="material"&&(key.startsWith("material.")||key==="materials.library"))refreshMaterialAllowableEditor();
   if (/^(planform|airfoil|loft)\./.test(key)) state.movableEditor?.refresh();
   if(key.startsWith("movable_surfaces.")||key.startsWith("materials.")) state.movableStructureEditor?.refresh();
@@ -1820,6 +1824,8 @@ function stressReportContext(){
   const cases=modelCases(),solution=Number(state.importedDeck?WingImportedAnalysis.solution(state.importedDeck):document.getElementById('p-output.solution')?.value||state.values?.['output.solution']);
   return{elements:state.elements,cases:state.resultCases,allowables:readMaterialAllowables(),sourceUnits:!!state.importedDeck,
     panels:state.data?.stiffened_panels?.panels||[],componentGroups:state.data?.groups||[],generated:!!state.data&&!state.importedDeck&&!state.data.imported_deck,
+    eulerColumns:state.data?.stiffened_panels?.euler_columns,
+    eulerFixityCoefficient:(()=>{const input=document.getElementById('p-stringers.euler_fixity_coefficient');return input?(input.value.trim()===''?NaN:Number(input.value)):state.values?.['stringers.euler_fixity_coefficient'];})(),
     signature:state.modelSignature,meshIdentity:state.meshIdentity,modelDirty:!!state.modelDirty,pendingDrafts:resultsHavePendingDrafts(),running:!!(state.polling||state.solverStarting),
     caseLabels:new Map(cases.map(c=>[Number(c.id),c.label||'Load case '+c.id])),
     expectedCases:cases.map(c=>({...c,solution:c.solution||solution})).filter(c=>[101,106].includes(Number(c.solution))).map(c=>({id:c.id,label:c.label,solution:c.solution,enabled:c.enabled}))};
@@ -2577,9 +2583,9 @@ function refreshSensitivityMapCard(){
   const fieldMode=document.getElementById("sensitivity-map-mode").value==="field";
   for(const id of ["sensitivity-property-row","sensitivity-change-row","sensitivity-metric-row"])document.getElementById(id).hidden=fieldMode;
   for(const id of ["sensitivity-field-row","sensitivity-field-quantity-row","sensitivity-visible-row"])document.getElementById(id).hidden=!fieldMode;
-  document.getElementById("sensitivity-map-summary").textContent=(historical?"Historical run · ":"")+(result.case_label||"Case "+(result.case_id||result.request?.case_id||""))+" · "+WingSensitivityResults.objectiveLabel(result)+" · baseline "+WingSensitivityResults.format(base.value)+" "+(base.unit||"");
+  document.getElementById("sensitivity-map-summary").textContent=(historical?"Historical run · ":"")+(result.case_label||"Case "+(result.case_id||result.request?.case_id||""))+" · "+WingSensitivityResults.objectiveLabel(result)+" · baseline "+WingResultDisplay.stressText(base.value,base.unit||"",WingSensitivityResults.format);
   const estimate=document.getElementById("sensitivity-map-estimate");
-  estimate.textContent=effect.valid?"Predicted response change: "+WingResultDisplay.stressText(effect.deltaResponse,effect.responseUnit,WingSensitivityResults.format)+(effect.percentOfBaseline!==null?" ("+WingSensitivityResults.format(effect.percentOfBaseline)+"%)":"")+" · predicted response: "+WingSensitivityResults.format(effect.predictedResponse)+" "+effect.responseUnit+" · first-order estimate.":effect.reason;
+  estimate.textContent=effect.valid?"Predicted response change: "+WingResultDisplay.stressText(effect.deltaResponse,effect.responseUnit,WingSensitivityResults.format)+(effect.percentOfBaseline!==null?" ("+WingSensitivityResults.format(effect.percentOfBaseline)+"%)":"")+" · predicted response: "+WingResultDisplay.stressText(effect.predictedResponse,effect.responseUnit,WingSensitivityResults.format)+" · first-order estimate.":effect.reason;
   let fieldError="";
   if(fieldMode){try{const c=selectedSensitivityField();estimate.textContent=c.field.rows.length+" property derivatives mapped onto "+c.byId.size+" elements. "+c.note;}catch(error){fieldError=error.message;estimate.textContent=fieldError;}}
   const show=document.getElementById("sensitivity-map-show");show.textContent=fieldMode?"Show sensitivity field":"Show property effect on model";
@@ -5385,8 +5391,12 @@ function pushPositions(dp, rotations, rotationScale = 1) {
 
 const COLOR_SCALES = WingColorScales.scales;
 const CMAP = COLOR_SCALES.spectrum;
+let propertyPaletteDefault = "spectrum";
 function contourPaletteKey(contour) {
-  if(contour?.kind==="properties")return "properties";
+  if(contour?.kind==="properties"){
+    propertyPaletteDefault=contour.defaultPalette||"viridis";
+    return "properties";
+  }
   return contour?.kind?.startsWith("sensitivity") ? "sensitivity" : "fe";
 }
 function selectedColorScale(scope="fe") {
@@ -5521,7 +5531,7 @@ function resultCaseLabel() {
 }
 
 function contourDisplayUnits(c){
-  // VLM pressure has its own legend; only FE stress and stress responses use GPa.
+  // VLM pressure has its own legend; FE stress and stress responses use MPa.
   const display=WingResultDisplay.stressUnit(c.unit);
   return{displayUnit:display.unit,displayFactor:display.factor};
 }
@@ -6937,7 +6947,9 @@ function showElement(eid) {
   }
   const results = state.results && state.results.matches ? (state.results.elementResults || {})[String(eid)] : null;
   if (results) {
-    html += "<details open><summary>Element results (stress: GPa)</summary><p class=\"pick-note\">" + esc(resultCaseLabel()) + " · Stress displayed in GPa; other quantities retain SI units. Files and CSV retain their recorded units.</p>" + resultTable(WingResultDisplay.stressRecord(results)) + "</details>";
+    const sourceUnit=results.stress_units||(!state.importedDeck&&!state.diskResults?"Pa":"");
+    const displayUnit=WingResultDisplay.stressUnit(sourceUnit).unit||"source stress units";
+    html += "<details open><summary>Element results (stress: "+esc(displayUnit)+")</summary><p class=\"pick-note\">" + esc(resultCaseLabel()) + " · Other quantities retain their recorded units. Files and CSV retain their recorded units.</p>" + resultTable(WingResultDisplay.stressRecord(results,{sourceUnit})) + "</details>";
   } else {
     html += '<p class="pick-note">No element stress/force results available for this element.</p>';
   }
@@ -7483,7 +7495,7 @@ document.getElementById("btn-real-scale").onclick = () => setRealScale(true);
 document.getElementById("btn-auto-scale").onclick = () => { document.getElementById("deform-scale").value = "0"; setRealScale(false); };
 document.getElementById("result-palette").title="Color scale for FE results. Sensitivity and aerodynamic results have independent palette buttons on their legends.";
 document.getElementById("result-palette").onchange = event => WingLegends.setPalette("fe",event.target.value);
-WingLegends.configure({getPalette:scope=>scope==="sensitivity"||scope==="aero-curvature"?"coolwarm":scope==="properties"?"viridis":"spectrum",
+WingLegends.configure({getPalette:scope=>scope==="sensitivity"||scope==="aero-curvature"?"coolwarm":scope==="properties"?propertyPaletteDefault:"spectrum",
   onLimitsChange:()=>{applyContour();applyVlmContour();applyAeroOverlayStyles();updateViewportLegends();},
   setPalette:(value,scope)=>{if(scope==="fe")document.getElementById("result-palette").value=value;if(scope==="aero-curvature"){applyAeroOverlayStyles();updateViewportLegends();}else if(scope==="vlm")applyVlmContour();else applyContour();},onChange:markStudyViewModified,
   palettes:Array.from(document.getElementById("result-palette").options).map(option=>({value:option.value,label:option.textContent,
