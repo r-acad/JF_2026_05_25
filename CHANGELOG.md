@@ -5,6 +5,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Inspect property regions
+
+- Make Inspect's Edit property button blue. Highlight the picked element with
+  a cyan glow and its visible property peers in amber, following the displayed
+  deformation, bar/shell representation and explosion settings. Preserve layer
+  visibility and RF < 1 filtering without changing underlying field colors.
+- Hide the picked element's local axes when the RF filter hides that element.
+
 ### Manual sizing from reserve factors
 
 - Recalculate supported reserve factors after local property edits using the

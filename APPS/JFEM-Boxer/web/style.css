@@ -100,6 +100,12 @@ button.mini {
 
 button.mini.right { float: right; }
 
+.pick-highlight-key { display: flex; flex-wrap: wrap; gap: 5px 12px; font-size: 11px; color: var(--muted); }
+.pick-highlight-key span { display: inline-flex; align-items: center; gap: 5px; }
+.pick-highlight-key i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.pick-highlight-selected { background: #5deaff; box-shadow: 0 0 4px #5deaff; }
+.pick-highlight-property { background: #ffb52e; }
+
 /* --- parameter form ---------------------------------------------------- */
 
 #form {

@@ -155,6 +155,10 @@ a property that reaches RF 1 or higher disappears from the filtered table and
 field; turn off the filter to inspect or edit it again. **Inspect**
 also shows the selected element's minimum RF and governing failure mode and
 provides **Edit property**, using the same dialog and update behavior.
+The blue **Edit property** button opens the local property editor. The picked
+element has a cyan glow, and the other visible elements with the same property
+have an amber highlight. These inspection overlays follow the displayed shape
+and explosion settings and respect hidden layers and the RF filter.
 Unfinished edits pause remeshing and saving. A changed mesh or locked form cannot
 receive an old draft. Imported properties must be edited in their source file;
 shared defaults, run-out connectors and movable-surface definitions retain their

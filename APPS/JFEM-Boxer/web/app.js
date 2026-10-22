@@ -130,6 +130,7 @@ const state = {
   selectedCoordinate: null,
   selectedNode: null,
   selectionMesh: null,
+  inspectionHighlight: null,
   geometryTools: null,
   nodeIds: null,
   elements: new Map(),
@@ -4023,6 +4024,7 @@ function initScene(initializedEngine = null) {
     syncHistoricalBaselineOverlays();
     suppressSensitivityOverlays();
     syncReserveFactorVisibility();
+    state.inspectionHighlight?.refresh();
     if (!state.results || state.activeMode < -1) return;
     if (!activeShape()) return;
     if (animating()) {
@@ -4105,6 +4107,7 @@ function disposeModel() {
     }
   }
   state.layers.clear();
+  state.inspectionHighlight?.dispose(); state.inspectionHighlight = null;
   if (state.selectionMesh) state.selectionMesh.dispose(false, true);
   state.selectionMesh = null;
   state.selectedElement = null;
@@ -7194,8 +7197,9 @@ function showElement(eid) {
       else if(state.parameterLocks?.isLocked(descriptor.parameter))propertyEditReason='Unlock the Properties form before editing this property.';
       else{if(rfInspection?.sourceContext)reserveFactorSourceEditable(rfInspection.sourceContext,snapshot);propertyEditable=true;}
     }catch(error){propertyEditReason=error?.message||String(error);}
-    html+='<div class="pick-property-edit"><button type="button" class="mini" id="inspect-edit-property"'+(propertyEditable?'':' disabled')+' title="'+esc(propertyEditReason||'Edit this element\'s property. Estimated reserve factors update at fixed analysis loads; rerun the analysis to verify the design.')+'">Edit property P'+esc(String(g.pid))+'</button><p id="inspect-property-edit-status" class="pick-note" role="status">'+esc(propertyEditReason)+'</p></div>';
+    html+='<div class="pick-property-edit"><button type="button" class="mini primary" id="inspect-edit-property"'+(propertyEditable?'':' disabled')+' title="'+esc(propertyEditReason||'Edit this element\'s property. Estimated reserve factors update at fixed analysis loads; rerun the analysis to verify the design.')+'">Edit property P'+esc(String(g.pid))+'</button><p id="inspect-property-edit-status" class="pick-note" role="status">'+esc(propertyEditReason)+'</p></div>';
   }
+  if(['quad','tria','bar','solid'].includes(g.kind))html+='<p class="pick-highlight-key"><span><i class="pick-highlight-selected"></i>Cyan glow: picked element</span>'+(Number(g.pid)>0?'<span><i class="pick-highlight-property"></i>Amber: same property P'+esc(String(g.pid))+'</span>':'')+'</p>';
   const properties = { ...(element.properties || g.properties || {}) };
   if (properties.section) {
     properties.section = { ...properties.section };
@@ -7259,6 +7263,8 @@ function showElement(eid) {
 function updateSelection(positions) {
   state.geometryTools?.refreshSelection(positions);
   if (state.annotations) state.annotations.invalidate();
+  if(state.selectedElement!==null&&typeof WingInspectHighlight!=='undefined')state.inspectionHighlight??=WingInspectHighlight.create({BABYLON,scene:state.scene,state});
+  state.inspectionHighlight?.refresh(true);
   if (state.selectedNode !== null && state.baseline) {
     const index = state.selectedNode, dp = positions || currentPositions();
     if (!state.selectionMesh || !state.selectionMesh.metadata?.nodeSelection) {
@@ -7276,6 +7282,11 @@ function updateSelection(positions) {
   }
   const element = state.elements.get(state.selectedElement);
   if (!element || !state.baseline) return;
+  if(state.inspectionHighlight&&['quad','tria','bar','solid'].includes(element.group.kind)){
+    if(state.selectionMesh)state.selectionMesh.dispose(false,true);
+    state.selectionMesh=null;
+    return;
+  }
   const dp = positions || currentPositions();
   const nodes = element.nodes;
   const pairs = [];
@@ -7409,6 +7420,7 @@ function showNode(index) {
 
 function clearInspection() {
   state.selectedElement = null; state.selectedNode = null;state.selectedCoordinate=null;
+  state.inspectionHighlight?.dispose(); state.inspectionHighlight = null;
   if (state.selectionMesh) state.selectionMesh.dispose(false, true);
   state.selectionMesh = null;
   document.getElementById("pick-card").hidden = true;

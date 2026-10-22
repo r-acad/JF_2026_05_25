@@ -322,18 +322,20 @@
       }
       const springLabels=typeof WingModelEntities!=='undefined'?WingModelEntities.springCandidates(state,positions,showSprings):[];
       if (selected && visibleElement(state, selected)) {
+        const geometryHighlight=!!state.inspectionHighlight&&['quad','tria','bar','solid'].includes(selected.group.kind);
+        const pickedColor=geometryHighlight?'#5deaff':COLORS.selected;
         const anchors = Array.from(selected.nodes, (i) => displayedPoint(state,selected.id,Array.from(positions.subarray(3 * i, 3 * i + 3))));
         const points = anchors.map(project);
         const pairs = ['rbe3','connection'].includes(selected.group.kind) ? points.slice(1).map((_, i) => [0, i + 1]) :
           selected.nodes.length === 2 ? [[0, 1]] : points.map((_, i) => [i, (i + 1) % points.length]);
         ctx.save(); ctx.lineJoin = "round"; ctx.lineCap = "round";
-        if (!occluders.length && ["quad", "tria"].includes(selected.group.kind) && points.every(Boolean)) {
+        if (!geometryHighlight && !occluders.length && ["quad", "tria"].includes(selected.group.kind) && points.every(Boolean)) {
           ctx.beginPath(); points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath();
           ctx.fillStyle = "rgba(255,220,82,0.18)"; ctx.fill();
         }
         ctx.beginPath();
         let segments = 0;
-        for (const [a, b] of pairs) if (points[a] && points[b]) {
+        for (const [a, b] of geometryHighlight?[]:pairs) if (points[a] && points[b]) {
           // The glow is a canvas overlay, so clip its short edge segments
           // against the same opaque depth as IDs instead of drawing X-ray
           // outlines over a solid skin. Only one selected entity is sampled.
@@ -354,7 +356,7 @@
           ctx.shadowBlur = 0; ctx.strokeStyle = "#fffbea"; ctx.lineWidth = 2; ctx.stroke();
         }
         stats.selectedOutlineSegments = segments;
-        if(points[0]&&anchors.every(p=>p.every((value,axis)=>value===anchors[0][axis]))&&!depthIndex().isOccluded({kind:'element',id:state.selectedElement,point:anchors[0]},points[0])){
+        if(!geometryHighlight&&points[0]&&anchors.every(p=>p.every((value,axis)=>value===anchors[0][axis]))&&!depthIndex().isOccluded({kind:'element',id:state.selectedElement,point:anchors[0]},points[0])){
           ctx.beginPath();ctx.arc(points[0].x,points[0].y,10,0,Math.PI*2);ctx.strokeStyle=COLORS.selected;ctx.lineWidth=3;ctx.shadowColor=COLORS.selected;ctx.shadowBlur=12;ctx.stroke();
         }
         ctx.restore();
@@ -362,7 +364,7 @@
         const center = project(anchor);
         if (center && center.x >= 0 && center.x <= width && center.y >= 0 && center.y <= height) {
           const springDetail=springLabels.find(row=>row.id===state.selectedElement),text=springDetail?.text||elementStyle(selected).name + " " + state.selectedElement;
-          if (badge(text, center, COLORS.selected, true, springDetail||{ kind: "element", id: state.selectedElement, point: anchor }))
+          if (badge(text, center, pickedColor, true, springDetail||{ kind: "element", id: state.selectedElement, point: anchor }))
             stats.selected = { id: state.selectedElement, text, ...center };
         }
       }

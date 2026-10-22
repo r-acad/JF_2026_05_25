@@ -116,7 +116,7 @@
    if(disposed)return;const state=getState(),element=state.elements.get(state.selectedElement),note=controls["picked-axes-note"];
    if(!element){clearFrame();if(note)note.textContent="Pick a shell or bar to show its local x, y and z axes.";return;}
    if(!["quad","tria","bar"].includes(element.group.kind)){clearFrame();if(note)note.textContent="This connection or point mass has no shell or bar local frame. Inspect its source coordinate system and DOF definitions below.";return;}
-   if(!state.layers.get(element.group.name)?.visible){clearFrame();if(note)note.textContent="Selected element is hidden; its local axes are hidden too.";return;}
+   if(!state.layers.get(element.group.name)?.visible||(state.rfVisibleElementIds&&!state.rfVisibleElementIds.has(element.id))){clearFrame();if(note)note.textContent="Selected element is hidden; its local axes are hidden too.";return;}
    const g=element.group;if(!g.axes||!state.baseline){clearFrame();if(note)note.textContent="No exported local frame is available for this element.";return;}
    if(controls["show-picked-axes"]?.checked===false){clearFrame();if(note)note.textContent="Selected-element axes are switched off.";return;}
    const current=positions||pose?.positions||getPositions(),nodes=Array.from(element.nodes),baseline=nodes.map(n=>point(state.baseline,n)),displayed=nodes.map(n=>point(current,n));
