@@ -333,6 +333,18 @@ mode families are included. The energy approach is described in
 approach also accommodates anisotropic laminate bending stiffness, as described
 in [this laminate buckling study](https://doi.org/10.1016/0020-7403(90)90063-O).
 
+If the initial basis does not converge, an additional nested refinement follows
+the compressive principal-load direction. This matters when strong tension and
+shear produce an oblique, short-wavelength buckle: a basis sized from panel
+aspect ratio alone can miss it. Both mode directions are increased, both parity
+families are retained, and two successive RF changes must remain within 0.5%.
+Isotropic or specially orthotropic bending uses exact diagonal normalization to
+keep the larger check efficient. Details show the actual recovery coverage,
+basis size and refinement change. Missing forces and an unconverged calculation
+are identified separately; neither is replaced by a passing RF. The need for
+additional Ritz terms under combined tension and shear is also discussed in
+[Sathiyaseelan and Baskar's plate study](https://doi.org/10.12989/sem.2012.42.6.867).
+
 For a uniform isotropic panel under longitudinal compression alone, this reduces
 to `σcr = c k π² E / [12(1−ν²)] × (t/W)²`, with
 `k = min_m (m W/L + L/(m W))²` over positive integer half-wave counts `m`.

@@ -5,6 +5,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Skin buckling under tension and shear
+
+- Refine unresolved skin-panel buckling checks along the compressive principal
+  load direction, retaining signed tension/shear and both buckling mode families.
+  Require two successive refinements within 0.5%; preserve incomplete-recovery
+  and unsupported-topology guards.
+- Use exact diagonal bending normalization where applicable to reduce the cost
+  of larger plate bases. Keep the initial fast assessment for ordinary panels.
+- Identify missing membrane recovery separately from plate-basis convergence
+  and expose the recovery, basis and refinement details in RF tables and Inspect.
+
 ### Reserve-factor model fields and T-section recovery
 
 - Add Stress Report 3D fields for Minimum RF, each failure criterion, governing

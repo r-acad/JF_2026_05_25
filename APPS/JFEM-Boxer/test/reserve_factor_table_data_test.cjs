@@ -228,4 +228,18 @@ test('Conservative stress recovery remains disclosed in direct and combined row 
  }
  assert.deepEqual(data.recoveryMethodNotes({}),[]);assert.deepEqual(data.recoveryMethodNotes({recoveryMethods:[{method:'documented_recovery'}]}),['documented_recovery']);
 });
+test('Plate diagnostics distinguish complete recovery with unresolved convergence from missing membrane results',()=>{
+ const c={label:'Case 1',method:'Double-sine Ritz',recovered:3,total:3,converged:false,basisM:17,basisN:13,basisSize:221,convergenceError:.6,targetTolerance:.005,modeLimit:256,reason:'All membrane results recovered; basis not converged.'},r=row(17,null,{complete:false,skinBuckling:{},caseResults:[c]});
+ const note=data.plateDiagnosticNotes(r).join(' ');assert.match(note,/Membrane recovery 3 \/ 3/);assert.match(note,/eigenvalue not converged/);assert.match(note,/Basis 17 × 13 \(221 terms\)/);assert.match(note,/ΔRF 60%; target 0.5%/);assert.match(note,/Basis limit 256/);assert.equal(data.reserveValue(r).value,null);
+ const missing={...r,caseResults:[{...c,recovered:2,basisM:0,basisN:0,basisSize:0,convergenceError:null,reason:'Missing membrane forces for EID 42.'}]};const missingNote=data.plateDiagnosticNotes(missing).join(' ');assert.match(missingNote,/Incomplete membrane recovery/);assert.match(missingNote,/EID 42/);assert.doesNotMatch(missingNote,/eigenvalue not converged|Basis limit/);
+});
+test('Converged enriched plate details preserve both refinement checks and do not change the computed RF',()=>{
+ const c={label:'Case 1',method:'Double-sine Ritz',recovered:3,total:3,converged:true,basisM:13,basisN:61,basisSize:793,convergenceError:.0015,targetTolerance:.005,basisStage:'load_direction',history:[{relativeChange:.003},{relativeChange:.0015}]},r=row(17,14000,{skinBuckling:{},caseResults:[c]});
+ const notes=data.plateDiagnosticNotes(r);assert.match(notes.join(' '),/Converged plate assessment/);assert.match(notes.join(' '),/Load-direction basis enrichment/);assert.match(notes.join(' '),/Last two nested refinement changes: 0.3%, 0.15%/);assert.equal(data.reserveValue(r).value,14000);
+ const m=data.build(data.compact({report:{...report([r]),failureMode:'skin_buckling'}}));for(const output of[data.csv(m),data.markdown(m),data.html(m)]){assert.match(output,/Plate assessment details/);assert.match(output,/Basis 13 × 61/);}
+});
+test('Combined plate diagnostics retain distinct per-case reasons and scopes without creating a numeric RF',()=>{
+ const r=row(17,null,{complete:false,combined:{assessments:[{failureMode:'skin_buckling',modeLabel:'Skin buckling',scope:'Synthetic plate region',plateCases:[{label:'Case A',recovered:3,total:3,converged:false,basisM:13,basisN:13,basisSize:169,reason:'Basis unresolved.'},{label:'Case B',recovered:2,total:3,reason:'Missing EID 41.'}]}]}}),m=data.build(data.compact({report:{...report([r]),failureMode:'minimum_rf'}}));
+ const notes=data.plateDiagnosticNotes(m.rows[0].record);assert.equal(notes.length,2);assert.match(notes[0],/Skin buckling · Synthetic plate region · Case A/);assert.match(notes[1],/Case B: Membrane recovery 2 \/ 3.*Missing EID 41/);assert.equal(m.rows[0].value,null);assert.match(data.csv(m),/Case A.*Case B/);
+});
 console.log(passed+' reserve factor table data tests passed.');

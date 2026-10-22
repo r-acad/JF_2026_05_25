@@ -115,6 +115,41 @@ test('Plate mode ignores unrelated percentile trimming and empty models explain 
 test('All exports include signed MPa membrane stresses, dimensions, fixity and convergence',()=>{
  const r=build(),t=S.table(r,'reserve');assert.match(t.title,/Skin-panel buckling/);assert.match(t.headers.join(' '),/Mean spanwise stress \(MPa\)/);for(const text of [S.csv(r),S.markdown(r),S.html(r)]){assert.match(text,/fixity coefficient/);assert.match(text,/Average length/);assert.match(text,/refinement/);assert.match(text,/membrane/);}assert.match(S.html(r),/color:#963e00/);
 });
+test('Tension-dominated shear uses short-wave refinement and agrees with independent large-basis integration',()=>{
+ // Independent Gaussian weak-form integration and SciPy generalized roots,
+ // 64 by 96 sine terms; the 48 by 96 change is below 0.0041%.
+ const d=[[1,.33,0],[.33,1,0],[0,0,.335]],r=P.solvePlate(4,1,d,[-1,-.002,.0525]);
+ assert.equal(r.converged,true);assert.equal(r.basisStage,'load_direction');assert.equal(r.noDestabilizingLoad,undefined);near(r.reserveFactor,4459655.901738232,.005);assert(r.basisSize>256&&r.basisSize<=1024);assert.equal(r.targetTolerance,.005);assert.equal(r.modeLimit,1024);
+ const steps=r.history.filter(s=>s.stage==='load_direction');for(let i=1;i<steps.length;i++){assert(steps[i].m>steps[i-1].m);assert(steps[i].n>steps[i-1].n);if(steps[i-1].reserveFactor!=null)assert(steps[i].reserveFactor<=steps[i-1].reserveFactor*(1+1e-10));}
+ assert(steps.at(-1).relativeChange<=.005&&steps.at(-2).relativeChange<=.005);near(steps.at(-1).reserveFactor,r.reserveFactor);
+});
+
+test('Targeted orthotropic refinement preserves axis and shear-reversal invariance',()=>{
+ const d=[[2,.2,0],[.2,1,0],[0,0,.4]],n=[-1,-.002,.0525],r=P.solvePlate(4,1,d,n);assert(r.converged);near(r.reserveFactor,4459716.298543719,.005);
+ const swapped=P.solvePlate(1,4,[[1,.2,0],[.2,2,0],[0,0,.4]],[-.002,-1,.0525]);assert(swapped.converged);near(swapped.reserveFactor,r.reserveFactor,1e-8);
+ near(P.solvePlate(4,1,d,[-1,-.002,-.0525]).reserveFactor,r.reserveFactor,1e-8);
+ near(P.solvePlate(4,1,d,n.map(x=>x*2)).reserveFactor,r.reserveFactor/2,1e-10);
+});
+
+test('The diagonal bending shortcut equals a full Cholesky congruence and retains nonzero anisotropic coupling',()=>{
+ for(const d of [[[2,.2,0],[.2,1,0],[0,0,.4]],[[2,.2,1e-4],[.2,1,-3e-4],[1e-4,-3e-4,.4]]]){
+  const n=[1,.4,.6],mat=P.buildMatrices(2.3,1,d,5,7),G=Float64Array.from(mat.gx,(x,i)=>n[0]*x+n[1]*mat.gy[i]+n[2]*mat.gxy[i]),L=P.cholesky(mat.bending,mat.n),mu=P.largestEigenvalue(P.transformGeometric(L,G,mat.n),mat.n),r=P.criticalForBasis(2.3,1,d,n,5,7);near(r.reserveFactor,1/mu,1e-10);
+ }
+});
+
+test('Explicit basis limits and near-noise positive eigenvalues remain unassessed rather than RF99',()=>{
+ const d=[[1,.33,0],[.33,1,0],[0,0,.335]],limited=P.solvePlate(4,1,d,[-1,-.002,.0525],{maxDimension:256});assert.equal(limited.converged,false);assert.equal(limited.reserveFactor,null);assert(limited.history.every(s=>s.stage==='geometry'));assert.equal(limited.modeLimit,256);
+ const cancellation=P.criticalForBasis(1,1,d,[1,-1+1e-15,0],1,1);assert.equal(cancellation.reserveFactor,null);assert(cancellation.largestEigenvalue<=cancellation.eigenvalueResolution);
+ const almostTensile=P.solvePlate(4,1,d,[-1,-1,1+1e-12]);assert.equal(almostTensile.converged,false);assert.equal(almostTensile.reserveFactor,null);assert.notEqual(almostTensile.noDestabilizingLoad,true);
+ for(const options of[{tolerance:0},{tolerance:NaN},{maxDimension:0},{maxDimension:NaN}])assert(P.solvePlate(1,1,D,[1,.4,.6],options).reason);
+});
+
+test('Per-case convergence diagnostics and history preserve actual load and fixity scaling',()=>{
+ const d=[[1,.33,0],[.33,1,0],[0,0,.335]],p=panel({length_m:4,elements:[element(1,{bending_matrix_Nm:d})]}),r=build(p,{1:{fx:2,fy:.004,fxy:-.105}},{skinFixityCoefficient:3}).rows[0];assert(r.complete);assert.equal(r.skinBuckling.basisStage,'load_direction');assert.equal(r.caseResults[0].targetTolerance,.005);assert.equal(r.caseResults[0].modeLimit,1024);near(r.reserveFactor,3*P.solvePlate(4,1,d,[-1,-.002,.0525]).reserveFactor/2);near(r.caseResults[0].history.at(-1).reserveFactor,r.reserveFactor);near(r.skinBuckling.history.at(-1).reserveFactor,r.reserveFactor);
+ const unresolved=build(panel({length_m:1000}),{1:{fx:-2,fy:-1,fxy:4}}).rows[0];assert.match(unresolved.reserveFactorReason,/basis has not converged/);assert.match(unresolved.reserveFactorReason,/all membrane resultants were recovered/);assert(!/Incomplete case or membrane/.test(unresolved.reserveFactorReason));
+ assert.match(S.csv(build(p,{1:{fx:2,fy:.004,fxy:-.105}})),/up to 1024 terms/);
+});
+
 test('Geometry/eigen caches are bounded and repeated calls preserve the same answer',()=>{
  const before=P.cacheInfo(),a=P.solvePlate(1.3,1,D,[.4,.1,.9]),b=P.solvePlate(1.3,1,D,[.4,.1,.9]);assert.deepEqual(a,b);const after=P.cacheInfo();assert.ok(after.matrixBytes<=after.matrixByteLimit);assert.ok(after.resultEntries<=after.resultLimit);assert.ok(after.matrixEntries<=128);assert.ok(after.resultEntries>=before.resultEntries);
 });

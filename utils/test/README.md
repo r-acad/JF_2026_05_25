@@ -82,6 +82,12 @@ the plate energy matrices, combined biaxial/shear loads, mode convergence,
 signed membrane averaging and incomplete-data gates. The main and detached
 table workflows are exercised by `skin_buckling_report_browser_test.cjs`;
 its header lists geometry and optional actual-recovery fixture arguments.
+`skin_rf_convergence_browser_test.cjs` accepts external geometry, recovery and
+expected-result fixtures to check difficult tension/shear convergence through
+the tables, exports, 3D fields and Inspect. It also removes one recovery record
+temporarily to verify that incomplete data stay unassessed. Numerical tests
+cover direction-guided refinement, diagonal normalization, noise-floor rejection
+and independent large-basis reference values.
 These tests concern the documented equivalent rectangular thin-plate model.
 `component_buckling_test.jl OUTPUT` checks spar/rib support topology, exact
 element membership, mapped web cells, current laminate laws and cap/stiffener

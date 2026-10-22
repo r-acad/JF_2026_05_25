@@ -74,7 +74,7 @@
   return{available:valid,reason:!members.complete?members.reason:checked.reason||'',reserveFactor:valid?checked.value:null,rowKey:row.rowKey||mode+':P'+row.pid,propertyIds:members.propertyIds,memberElementIds:members.elementIds,
    modeKey,modeLabel:mode==='minimum_rf'?row.combined?.governingModeLabel||'':FAILURE_MODES[mode],caseKey:row.envelopeCaseKey||'',caseLabel:row.envelopeCaseLabel||'',scope:mode==='minimum_rf'?row.combined?.governingScope||source.scope:source.scope,
    propertyScope:propertyModes.has(mode)?'Full property P'+row.pid:'',noDemand:valid&&noDemand(row,mode),minimumGauge:gauge,coverage:row.coverage,status:valid?'complete':row.status||'unavailable',
-   notes:[...(tables.caseCertificateNotes?.(row)||[]),...(row.caseResults||[]).flatMap(c=>(c.recoveryMethods||[]).map(m=>c.label+': '+(m.description||m.method))),...(row.combined?.assessments||[]).flatMap(a=>(a.recoveryMethods||[]).map(m=>m.description||m.method))],
+   notes:[...(tables.caseCertificateNotes?.(row)||[]),...(tables.plateDiagnosticNotes?.(row)||[]),...(row.caseResults||[]).flatMap(c=>(c.recoveryMethods||[]).map(m=>c.label+': '+(m.description||m.method))),...(row.combined?.assessments||[]).flatMap(a=>(a.recoveryMethods||[]).map(m=>m.description||m.method))],
    colorRecord:{complete:valid,coverage:row.coverage,reserveFactorReason:valid?'':members.reason||checked.reason,minimumGauge:gauge}};
  }
  function category(detail,report,kind){
@@ -101,7 +101,7 @@
   const categoryMap=new Map();let actualMin=null,actualMax=null;
   for(const [eid,candidates]of buckets){
    const missing=candidates.filter(c=>!c.available);
-   if(missing.length){const reason=[...new Set(missing.map(c=>c.scope+': '+c.reason))].join(' ');unavailableById.set(eid,reason);detailsById.set(eid,{available:false,status:'unassessed',reason,assessments:candidates});continue;}
+   if(missing.length){const reason=[...new Set(missing.map(c=>c.scope+': '+c.reason))].join(' ');unavailableById.set(eid,reason);detailsById.set(eid,{available:false,status:'unassessed',reason,notes:[...new Set(missing.flatMap(c=>c.notes||[]))],assessments:candidates});continue;}
    const computed=candidates.filter(c=>!c.noDemand),eligible=computed.length?computed:candidates;
    const governing=eligible.reduce((best,c)=>!best||c.reserveFactor<best.reserveFactor||c.reserveFactor===best.reserveFactor&&String(c.rowKey)<String(best.rowKey)?c:best,null);
    const detail={...governing,assessments:candidates};delete detail.colorRecord;

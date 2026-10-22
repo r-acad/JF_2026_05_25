@@ -7042,7 +7042,8 @@ function showElement(eid) {
       'Minimum gauge':detail.minimumGauge?.known?(detail.minimumGauge.atMinimum?'All relevant dimensions at minimum':'Above minimum'):'Unknown',
       ...(detail.noDemand?{'Interpretation':'RF 99 is a no-demand sentinel, not a calculated margin.'}:{}),
       ...(detail.notes?.length?{'Assessment notes':detail.notes.join(' ')}:{}),
-    }:{Status:c.stale?c.note:detail?.reason||c.unavailableById.get(eid)||'No applicable complete assessment.'};
+    }:{Status:c.stale?c.note:detail?.reason||c.unavailableById.get(eid)||'No applicable complete assessment.',
+      ...(!c.stale&&detail?.notes?.length?{'Assessment details':detail.notes.join(' ')}:{})};
     html+='<details open><summary>'+esc(c.name)+'</summary><p class="pick-note">'+esc(c.caseLabel)+'</p>'+resultTable(shown)+'</details>';
   }
   const panel=state.panelIndex?.byElement.get(eid);

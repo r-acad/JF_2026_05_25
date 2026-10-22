@@ -7,7 +7,7 @@
  const finite=n=>typeof n==='number'&&Number.isFinite(n),positive=n=>finite(n)&&n>0;
  const failure=reason=>({reason,converged:false});
  const matrixCache=new Map(),resultCache=new Map();let matrixBytes=0;
- const MATRIX_BYTE_LIMIT=24*1024*1024,MAX_DIMENSION=256,RESULT_LIMIT=2048,TOLERANCE=.005;
+ const MATRIX_BYTE_LIMIT=24*1024*1024,FAST_DIMENSION=256,MAX_DIMENSION=1024,RESULT_LIMIT=2048,TOLERANCE=.005;
  function cacheGet(cache,key){const value=cache.get(key);if(value){cache.delete(key);cache.set(key,value);}return value;}
  function rememberMatrix(key,value){const bytes=3*value.blocks.reduce((sum,block)=>sum+block.n*block.n,0)*8;matrixCache.set(key,{...value,bytes});matrixBytes+=bytes;while(matrixBytes>MATRIX_BYTE_LIMIT||matrixCache.size>128){const first=matrixCache.keys().next().value;matrixBytes-=matrixCache.get(first).bytes;matrixCache.delete(first);}return value;}
  function clearCaches(){matrixCache.clear();resultCache.clear();matrixBytes=0;}
@@ -80,17 +80,29 @@
   // mode parity change. Thus m+n parity is conserved. Solve both independent
   // families, preserving the lower symmetric OR antisymmetric buckling root.
   for(const parity of [0,1]){const indices=matrices.modes.map((mode,i)=>(mode.m+mode.n)%2===parity?i:-1).filter(i=>i>=0),n=indices.length;if(!n)continue;
-   const extract=A=>Float64Array.from({length:n*n},(_,k)=>A[indices[Math.floor(k/n)]*matrices.n+indices[k%n]]),L=cholesky(extract(matrices.bending),n);if(!L)return failure('The plate basis has a singular or numerically indefinite bending matrix.');
-   blocks.push({n,gx:transformGeometric(L,extract(matrices.gx),n),gy:transformGeometric(L,extract(matrices.gy),n),gxy:transformGeometric(L,extract(matrices.gxy),n)});
+   const extract=A=>Float64Array.from({length:n*n},(_,k)=>A[indices[Math.floor(k/n)]*matrices.n+indices[k%n]]),d=flatten(D);
+   if(d[2]===0&&d[5]===0){
+    // Orthotropic/isotropic bending is exactly diagonal in this basis. This
+    // is the same congruence as the Cholesky route, with no cubic factoring or
+    // triangular solves; it makes the short-wave fallback practical.
+    const diagonal=indices.map(i=>Math.sqrt(matrices.bending[i*matrices.n+i]));if(!diagonal.every(positive))return failure('The plate basis has a singular or numerically indefinite bending matrix.');
+    const normalize=A=>Float64Array.from({length:n*n},(_,k)=>A[indices[Math.floor(k/n)]*matrices.n+indices[k%n]]/(diagonal[Math.floor(k/n)]*diagonal[k%n]));
+    blocks.push({n,gx:normalize(matrices.gx),gy:normalize(matrices.gy),gxy:normalize(matrices.gxy)});
+   }else{
+    const L=cholesky(extract(matrices.bending),n);if(!L)return failure('The plate basis has a singular or numerically indefinite bending matrix.');
+    blocks.push({n,gx:transformGeometric(L,extract(matrices.gx),n),gy:transformGeometric(L,extract(matrices.gy),n),gxy:transformGeometric(L,extract(matrices.gxy),n)});
+   }
   }
   return rememberMatrix(key,{n:matrices.n,blocks});
  }
  function criticalForBasis(length,width,D,N,mMax,nMax){
   const why=validateGeometry(length,width,D);if(why)return failure(why);if(!Array.isArray(N)||N.length!==3||!N.every(finite))return failure('Three finite signed membrane resultants are required.');
   if(!Number.isSafeInteger(mMax)||!Number.isSafeInteger(nMax)||Math.min(mMax,nMax)<1||mMax*nMax>MAX_DIMENSION)return failure('The requested plate basis exceeds the assessment size limit.');
-  const p=basisPrepared(length,width,D,mMax,nMax);if(p.reason)return p;let mu=-Infinity;
-  for(const block of p.blocks){const G=new Float64Array(block.n*block.n);for(let i=0;i<G.length;i++)G[i]=N[0]*block.gx[i]+N[1]*block.gy[i]+N[2]*block.gxy[i];const eigenvalue=largestEigenvalue(G,block.n);if(eigenvalue===null||!finite(eigenvalue))return failure('The plate eigenvalue calculation is numerically unresolved.');mu=Math.max(mu,eigenvalue);}
-  return{reserveFactor:mu>0?1/mu:null,largestEigenvalue:mu,basisM:mMax,basisN:nMax,basisSize:p.n};
+  const p=basisPrepared(length,width,D,mMax,nMax);if(p.reason)return p;let mu=-Infinity,eigenvalueResolution=0;
+  for(const block of p.blocks){const G=new Float64Array(block.n*block.n);let norm=0;for(let i=0;i<block.n;i++){let sum=0;for(let j=0;j<block.n;j++){const k=i*block.n+j,x=N[0]*block.gx[k],y=N[1]*block.gy[k],xy=N[2]*block.gxy[k];G[k]=x+y+xy;sum+=Math.abs(x)+Math.abs(y)+Math.abs(xy);}norm=Math.max(norm,sum);}eigenvalueResolution=Math.max(eigenvalueResolution,128*block.n*Number.EPSILON*norm);const eigenvalue=largestEigenvalue(G,block.n);if(eigenvalue===null||!finite(eigenvalue))return failure('The plate eigenvalue calculation is numerically unresolved.');mu=Math.max(mu,eigenvalue);}
+  // A positive value at the numerical noise floor cannot establish a finite
+  // buckling multiplier. This guard never turns weak compression into RF 99.
+  return{reserveFactor:mu>eigenvalueResolution?1/mu:null,largestEigenvalue:mu,eigenvalueResolution,basisM:mMax,basisN:nMax,basisSize:p.n};
  }
  function diagonalPlate(length,width,d,N){
   const [Nx,Ny]=N,D11=d[0],D22=d[4],H=d[1]+2*d[8],ax=(Math.PI/length)**2,by=(Math.PI/width)**2;
@@ -119,25 +131,46 @@
   const direction=N.map(x=>x/magnitude);if(Math.abs(direction[2])<=roundoff)direction[2]=0;
   const trace=direction[0]+direction[1],gap=Math.hypot(direction[0]-direction[1],2*direction[2]),minor=.5*(trace-gap),principal=direction[2]===0?Math.max(direction[0],direction[1]):trace<0?(direction[0]*direction[1]-direction[2]*direction[2])/minor:.5*(trace+gap);
   if(principal<=0)return{reserveFactor:99,noDestabilizingLoad:true,converged:true,convergenceError:0,basisOrder:0,basisSize:0,method:'No destabilizing mean membrane stress'};
-  const tolerance=options.tolerance??TOLERANCE,maxDimension=options.maxDimension??MAX_DIMENSION,key=[length,width,...d,...direction,tolerance,maxDimension].join('|'),cached=cacheGet(resultCache,key);
-  if(cached)return{...cached,reserveFactor:cached.reserveFactor==null?null:cached.reserveFactor/magnitude};
+  const tolerance=options.tolerance??TOLERANCE,maxDimension=Math.min(options.maxDimension??MAX_DIMENSION,MAX_DIMENSION);
+  if(!positive(tolerance)||!Number.isSafeInteger(maxDimension)||maxDimension<1)return failure('Plate convergence tolerance and mode limit must be positive finite values.');
+  const key=[length,width,...d,...direction,tolerance,maxDimension].join('|'),cached=cacheGet(resultCache,key);
+  const scaled=answer=>({...answer,reserveFactor:answer.reserveFactor==null?null:answer.reserveFactor/magnitude,...(answer.history?{history:answer.history.map(step=>({...step,reserveFactor:step.reserveFactor==null?null:step.reserveFactor/magnitude}))}:{})});
+  if(cached)return scaled(cached);
   let answer;
   if(d[2]===0&&d[5]===0&&direction[2]===0)answer=diagonalPlate(length,width,d,direction);
   else{
-   const aspect=length/width*(d[4]/d[0])**.25,orders=[3,5,7,9,11,13,15,17,19],history=[];let stable=0,previous=null;
-   for(const q of orders){
-    const m=Math.max(q,Math.ceil(aspect)+q-1),n=Math.max(q,Math.ceil(1/aspect)+q-1);if(m*n>maxDimension)break;
-    const trial=criticalForBasis(length,width,d,direction,m,n);if(trial.reason){answer=trial;break;}
-    if(!positive(trial.reserveFactor)){previous=null;stable=0;continue;}
-    const error=previous===null?null:Math.abs(previous-trial.reserveFactor)/trial.reserveFactor;history.push({order:q,m,n,reserveFactor:trial.reserveFactor,relativeChange:error});
-    stable=error!==null&&error<=tolerance?stable+1:0;previous=trial.reserveFactor;
-    answer={...trial,converged:stable>=2,basisOrder:q,convergenceError:error,method:'Simply supported double-sine Ritz plate',history};
-    if(stable>=2)break;
+   const aspect=length/width*(d[4]/d[0])**.25,history=[];let best=Infinity;
+   function refine(stage,dimensions,limit){
+    let stable=0,previous=null;
+    for(let q=3;q<=63;q+=2){
+     const [m,n]=dimensions(q);if(!Number.isSafeInteger(m)||!Number.isSafeInteger(n)||m*n>limit)break;
+     const trial=criticalForBasis(length,width,d,direction,m,n);if(trial.reason){answer={...trial,history};break;}
+     const positiveMode=positive(trial.reserveFactor),error=positiveMode&&previous!==null?Math.abs(previous.reserveFactor-trial.reserveFactor)/trial.reserveFactor:null;
+     // Refinements must enlarge both axes within the SAME nested family.
+     // Changing the allocation starts a fresh convergence sequence.
+     stable=error!==null&&error<=tolerance&&m>previous.m&&n>previous.n?stable+1:0;
+     history.push({stage,order:q,m,n,reserveFactor:positiveMode?trial.reserveFactor:null,relativeChange:error});
+     const notWorseThanKnown=positiveMode&&trial.reserveFactor<=best*(1+64*Number.EPSILON);if(positiveMode)best=Math.min(best,trial.reserveFactor);
+     previous=positiveMode?{reserveFactor:trial.reserveFactor,m,n}:null;
+     answer={...trial,converged:stable>=2&&notWorseThanKnown,basisOrder:q,basisStage:stage,convergenceError:error,targetTolerance:tolerance,modeLimit:maxDimension,method:'Simply supported double-sine Ritz plate',history};
+     if(answer.converged)break;
+    }
    }
-   if(!answer?.converged)answer={...answer,reserveFactor:null,converged:false,reason:answer?.reason||'The coupled plate basis has not converged within the interactive mode limit; no reserve factor is assigned.'};
+   refine('geometry',q=>[Math.max(q,Math.ceil(aspect)+q-1),Math.max(q,Math.ceil(1/aspect)+q-1)],Math.min(FAST_DIMENSION,maxDimension));
+   if(!answer?.converged&&maxDimension>FAST_DIMENSION){
+    // A strong tensile resultant can leave a weak, oblique compressive
+    // principal direction. Its short waves can run across the narrow side,
+    // opposite to the geometric-aspect allocation. The eigenvector guides
+    // ONLY the allocation of sine terms: the complete signed load tensor
+    // and bending matrix still enter every eigenproblem, in the same axes.
+    let ratio=aspect;
+    if(direction[2]!==0){const x=direction[2],y=principal-direction[0],candidate=length/width*Math.abs(x/y);if(positive(candidate))ratio=candidate;}
+    refine('load_direction',q=>ratio>=1?[Math.ceil(q*ratio),q]:[q,Math.ceil(q/ratio)],maxDimension);
+   }
+   if(!answer?.converged)answer={...answer,reserveFactor:null,converged:false,targetTolerance:tolerance,modeLimit:maxDimension,history,reason:answer?.reason||'The coupled plate basis has not converged within the interactive mode limit; no reserve factor is assigned.'};
   }
   resultCache.set(key,answer);while(resultCache.size>RESULT_LIMIT)resultCache.delete(resultCache.keys().next().value);
-  return{...answer,reserveFactor:answer.reserveFactor==null?null:answer.reserveFactor/magnitude};
+  return scaled(answer);
  }
  const recordsOf=result=>result?.elementResults??result?.element_results;
  const recordAt=(records,eid)=>records instanceof Map?records.get(eid)??records.get(String(eid)):records?.[String(eid)];
@@ -167,18 +200,18 @@
    const demand=baseReason?{recovered:0,total:Math.max(1,panel.elements?.length||0),complete:false,reasons:[{reason:baseReason,count:1}]}:panelDemand(prepared,recordsOf(item.result));recovered+=demand.recovered;for(const reason of demand.reasons)reasons.push({...reason,caseLabel:item.label});
    const assessment=demand.complete?solvePlate(prepared.length,prepared.width,prepared.D,demand.compressionResultants):failure('Incomplete skin-panel membrane recovery.');if(demand.complete&&assessment.reason)reasons.push({reason:assessment.reason,count:1,caseLabel:item.label});
    const rf=assessment.converged?(assessment.noDestabilizingLoad?99:assessment.reserveFactor*c):null,valid=assessment.converged&&positive(rf);
-   const row={caseKey:item.caseKey,caseId:item.caseId,label:item.label,solution:item.solution,total:demand.total,recovered:demand.recovered,averageStressX:demand.complete?demand.stress[0]:null,averageStressY:demand.complete?demand.stress[1]:null,averageShear:demand.complete?demand.stress[2]:null,membraneResultants:demand.complete?demand.membrane:null,reserveFactor:valid?rf:null,noDestabilizingLoad:assessment.noDestabilizingLoad===true,converged:valid,basisOrder:assessment.basisOrder??null,basisM:assessment.basisM??null,basisN:assessment.basisN??null,basisSize:assessment.basisSize??null,convergenceError:assessment.convergenceError??null,modeM:assessment.modeM??null,modeN:assessment.modeN??null,method:assessment.method||'',reason:assessment.reason||''};caseResults.push(row);
+   const row={caseKey:item.caseKey,caseId:item.caseId,label:item.label,solution:item.solution,total:demand.total,recovered:demand.recovered,averageStressX:demand.complete?demand.stress[0]:null,averageStressY:demand.complete?demand.stress[1]:null,averageShear:demand.complete?demand.stress[2]:null,membraneResultants:demand.complete?demand.membrane:null,reserveFactor:valid?rf:null,noDestabilizingLoad:assessment.noDestabilizingLoad===true,converged:valid,basisOrder:assessment.basisOrder??null,basisStage:assessment.basisStage??null,targetTolerance:assessment.targetTolerance??null,modeLimit:assessment.modeLimit??null,history:(assessment.history||[]).map(step=>({...step,reserveFactor:step.reserveFactor==null?null:step.reserveFactor*c})),basisM:assessment.basisM??null,basisN:assessment.basisN??null,basisSize:assessment.basisSize??null,convergenceError:assessment.convergenceError??null,modeM:assessment.modeM??null,modeN:assessment.modeN??null,method:assessment.method||'',reason:assessment.reason||''};caseResults.push(row);
    if(valid&&!row.noDestabilizingLoad){allNonDestabilizing=false;if(!governing||rf<governing.reserveFactor)governing=row;}
   }
   if(baseReason&&!reasons.length)reasons.push({reason:baseReason,count:1,caseLabel:''});
   const complete=!baseReason&&cases.complete&&caseResults.length>0&&caseResults.every(r=>r.recovered===r.total&&r.converged),noDestabilizingLoad=complete&&allNonDestabilizing,reserveFactor=complete?(noDestabilizingLoad?99:governing?.reserveFactor??null):null,selected=governing||caseResults.find(r=>r.converged)||caseResults.find(r=>[r.averageStressX,r.averageStressY,r.averageShear].every(finite))||null;
   const propertyIds=[...new Set((panel.property_ids||panel.elements?.map(e=>e.pid)||[]).map(Number).filter(n=>Number.isSafeInteger(n)&&n>0))],materialIds=[...new Set((panel.elements||[]).flatMap(e=>e.material_ids||[]).map(Number).filter(n=>Number.isSafeInteger(n)&&n>0))];
-  const reserveFactorReason=baseReason||(!complete?'Incomplete case or membrane recovery, or unconverged plate basis; panel reserve factor is not assessed.':''),total=Math.max(1,panel.elements?.length||0)*(cases.included.length+cases.excluded.filter(c=>c.relevant).length+cases.missing.length);
+  const reserveFactorReason=baseReason||(complete?'':!cases.complete?'The selected load-case set is incomplete; panel reserve factor is not assessed.':!caseResults.length?'No eligible static load case is available for this panel.':caseResults.some(r=>r.recovered!==r.total)?'Incomplete signed membrane recovery; panel reserve factor is not assessed.':'The plate basis has not converged for '+caseResults.filter(r=>!r.converged).map(r=>r.label).join('; ')+'; all membrane resultants were recovered, but no panel reserve factor is assigned.'),total=Math.max(1,panel.elements?.length||0)*(cases.included.length+cases.excluded.filter(c=>c.relevant).length+cases.missing.length);
   const note=noDestabilizingLoad?'RF 99 means the fully recovered mean membrane stress has no destabilizing compression/shear combination in any included case; it is a display sentinel, not a calculated failure multiplier.':'';
   return{rowKey:'skin:'+panel.key,panelKey:panel.key,pid:propertyIds[0],propertyIds,panelIds:panel.panel_ids||[],label:(panel.skin==='upper'?'Upper':'Lower')+' · R'+panel.rib_bay+'–R'+(Number(panel.rib_bay)+1)+' · '+(panel.label||panel.key)+(Number(panel.segment)>1?' · segment '+panel.segment:''),names:['Skin panel buckling'],propertyType:'Skin panel plate',materialIds,locations:panelLocations(panel),elementCount:panel.elements?.length||0,maxStress:null,envelopeStress:null,allowableStress:null,envelopeCaseLabel:governing?.label||'',envelopeCaseKey:governing?.caseKey||'',reserveFactor,reserveFactorReason,complete,status:complete?'complete':recovered?'partial':'unavailable',coverage:{recovered,total},caseResults,reasons,
-   skinBuckling:{averageStressX:selected?.averageStressX??null,averageStressY:selected?.averageStressY??null,averageShear:selected?.averageShear??null,membraneResultants:selected?.membraneResultants??null,criticalFactor:noDestabilizingLoad?null:reserveFactor,length:panel.length_m,width:panel.width_m,fixityCoefficient:c,sourceCount:panel.elements?.length||0,noDestabilizingLoad,governingCase:governing?.label||'',basisOrder:selected?.basisOrder??null,basisM:selected?.basisM??null,basisN:selected?.basisN??null,basisSize:selected?.basisSize??null,convergenceError:selected?.convergenceError??null,modeM:selected?.modeM??null,modeN:selected?.modeN??null,method:selected?.method||'',note}};
+   skinBuckling:{averageStressX:selected?.averageStressX??null,averageStressY:selected?.averageStressY??null,averageShear:selected?.averageShear??null,membraneResultants:selected?.membraneResultants??null,criticalFactor:noDestabilizingLoad?null:reserveFactor,length:panel.length_m,width:panel.width_m,fixityCoefficient:c,sourceCount:panel.elements?.length||0,noDestabilizingLoad,governingCase:governing?.label||'',basisOrder:selected?.basisOrder??null,basisStage:selected?.basisStage??null,targetTolerance:selected?.targetTolerance??null,modeLimit:selected?.modeLimit??null,history:selected?.history||[],basisM:selected?.basisM??null,basisN:selected?.basisN??null,basisSize:selected?.basisSize??null,convergenceError:selected?.convergenceError??null,modeM:selected?.modeM??null,modeN:selected?.modeN??null,method:selected?.method||'',note}};
  }
- const NOTE='Skin-panel buckling uses an equivalent rectangular plate bounded by the actual ribs and stringer/spar paths. Length and width are the mean lengths of the two opposite physical sides. Recovered shell membrane resultants divided by each actual thickness give the mean membrane stresses; they are transformed to common panel span/transverse axes and area averaged. The buckling demand is the area-weighted membrane resultant, not average thickness multiplied by average stress. Tension is positive in the displayed stresses; both normal components and signed shear enter one geometric-stiffness matrix, retaining tensile stabilization. The area-weighted effective plate bending matrix includes the full anisotropic terms. For coupled laminates, membrane-free D − Bᵀ A⁻¹ B is an equivalent-plate approximation. A double-sine Rayleigh–Ritz basis imposes simply supported edges; two successive refinements must change the reserve factor by no more than 0.5%. Uncoupled compression uses an exact integer-mode search with an omitted-mode bound. The user skin fixity coefficient multiplies bending stiffness (1 is simply supported); it is an engineering restraint factor, not an exact clamped-edge solution. This elastic homogenized thin-plate check omits transverse-shear deformation, sandwich-face wrinkling, core instability, local peaks, variable-field instability, plasticity and nonlinear/postbuckling collapse. The worst complete SOL101/full-load SOL106 case governs. Incomplete recovery, unsupported panel topology and unresolved basis convergence are unassessed. RF 99 means no destabilizing averaged membrane load, not a finite calculated buckling multiplier. Stress-percentile trimming and stringer Euler fixity do not apply.';
+ const NOTE='Skin-panel buckling uses an equivalent rectangular plate bounded by the actual ribs and stringer/spar paths. Length and width are the mean lengths of the two opposite physical sides. Recovered shell membrane resultants divided by each actual thickness give the mean membrane stresses; they are transformed to common panel span/transverse axes and area averaged. The buckling demand is the area-weighted membrane resultant, not average thickness multiplied by average stress. Tension is positive in the displayed stresses; both normal components and signed shear enter one geometric-stiffness matrix, retaining tensile stabilization. The area-weighted effective plate bending matrix includes the full anisotropic terms. For coupled laminates, membrane-free D − Bᵀ A⁻¹ B is an equivalent-plate approximation. A double-sine Rayleigh–Ritz basis imposes simply supported edges; two successive nested refinements, each increasing both mode directions, must change the reserve factor by no more than 0.5%. The usual geometry-based allocation is limited to 256 terms; unresolved cases use a compression-direction allocation with up to 1024 terms. This changes only the numerical basis, never the full signed loading or plate axes. A positive eigenvalue at the floating-point noise floor remains unassessed. Uncoupled compression uses an exact integer-mode search with an omitted-mode bound. The user skin fixity coefficient multiplies bending stiffness (1 is simply supported); it is an engineering restraint factor, not an exact clamped-edge solution. This elastic homogenized thin-plate check omits transverse-shear deformation, sandwich-face wrinkling, core instability, local peaks, variable-field instability, plasticity and nonlinear/postbuckling collapse. The worst complete SOL101/full-load SOL106 case governs. Incomplete recovery, unsupported panel topology and unresolved basis convergence are unassessed. RF 99 means no destabilizing averaged membrane load, not a finite calculated buckling multiplier. Stress-percentile trimming and stringer Euler fixity do not apply.';
  function build(input,cases){const panels=Array.isArray(input.skinBucklingPanels)?input.skinBucklingPanels:[],rows=panels.map(panel=>assessPanel(panel,cases,input));return{failureMode:'skin_buckling',rows,includedCases:cases.included.map(({result,...item})=>item),excludedCases:cases.excluded.map(({result,...item})=>item),missingCases:cases.missing,method:'area_mean',percentile:100,stressUnit:'MPa',stressFactor:1e-6,lengthUnit:'m',complete:cases.complete&&rows.length>0&&rows.every(r=>r.complete),coverage:{recovered:rows.reduce((a,r)=>a+r.coverage.recovered,0),total:rows.reduce((a,r)=>a+r.coverage.total,0),properties:rows.length},note:NOTE+(!panels.length?' No actual skin-panel geometry is available for this model.':'')};}
  return{buildMatrices,largestEigenvalue,cholesky,transformGeometric,validateGeometry,criticalForBasis,solvePlate,preparePanel,panelDemand,panelLocations,assessPanel,build,clearCaches,cacheInfo,NOTE};
 });
