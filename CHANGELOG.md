@@ -5,6 +5,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Reserve-factor model fields and T-section recovery
+
+- Add Stress Report 3D fields for Minimum RF, each failure criterion, governing
+  load case and governing failure mode. Color actual shell and beam membership,
+  retain fixed RF palettes and verified minimum-gauge yellow, and identify
+  governing scope and missing checks when inspecting elements.
+- Refresh active fields after assessment edits and withhold stale or incomplete
+  regions. Keep category legends separate from numerical RF scales and restore
+  ordinary results when another contour is selected.
+- Recover a documented conservative equivalent-stress envelope for eligible
+  thin-walled isotropic T beams from complete section forces, including bending,
+  transverse shear and torsion. Reprocess eligible generated result records;
+  keep unsupported sections and missing recovery explicitly unavailable.
+  This postprocessing change leaves FE stiffness and solutions unchanged.
+
 ### Aerodynamic references and assessment defaults
 
 - Give generated 2024 aluminium materials an editable 300 MPa von Mises

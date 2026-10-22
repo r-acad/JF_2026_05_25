@@ -33,6 +33,22 @@ regions, incomplete assessments, the RF = 1 color threshold and exports.
 window with recovered SOL101/SOL106 payloads, verified generated-model locations,
 live/off-tab updates, invalidation and exports. Its header lists fixture and
 browser arguments; synthetic samples are used only to exercise color thresholds.
+`rf_field_data_test.cjs` checks actual-EID projection, shared criterion ownership,
+overlapping incomplete regions, categorical identities and current-result cache
+invalidation. `rf_field_browser_test.cjs` replays actual recovered results through
+Boxer and checks every shell/beam vertex color, 3D sections, legends, live
+assessment edits, stale-result gates, inspection and competing display modes.
+Its header lists the fixture, output and Playwright arguments.
+
+`beam_stress_envelope_test.jl OUTPUT` checks the thin-walled T equivalent-stress
+envelope against independent section calculations and sampled stress fields,
+including sign, scale, missing-resultant and unsupported-section cases.
+`beam_equivalent_recovery_test.jl OUTPUT` solves small synthetic CBAR/CBEAM
+SOL101 and SOL106 cases and checks recovered equivalent stresses.
+`APPS/JFEM-Boxer/test/beam_stress_payload_test.jl FIXTURE RECOVERY OUTPUT`
+checks upgrading actual earlier force records through Boxer's result reader
+without another solve. Keep its generated outputs outside the source folders.
+
 The Euler column checks are `euler_column_data_test.cjs` (section stiffness,
 signed compression and case coverage), `stringer_euler_test.jl OUTPUT`
 (actual beam/shell sections, offsets, laminate laws and compact payloads), and

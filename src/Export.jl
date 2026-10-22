@@ -3154,6 +3154,10 @@ function collect_jfem_subcase_data(u, sub_res, id_map, jfem_node_ids, jfem_quads
             for pk in ["p1","p2","p3","p4"]
                 vm = max(vm, abs(get(s["end_a"], pk, 0.0)), abs(get(s["end_b"], pk, 0.0)))
             end
+            # Explicit section-equivalent recovery includes all resultants;
+            # keep the legacy display scalar only when that field is absent.
+            explicit_vm=get(s,"von_mises",nothing)
+            explicit_vm isa Real&&isfinite(explicit_vm)&&explicit_vm>=0&&(vm=explicit_vm)
             bar_jfem[base+7] = safe_f32(vm)
         end
     end

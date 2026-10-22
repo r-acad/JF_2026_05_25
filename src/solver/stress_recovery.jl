@@ -999,6 +999,14 @@ function recover_bar_stresses!(
     active_load_id=nothing,
     active_load_scale::Float64=1.0,
 )
+    # A self-equilibrated distributed load can have a zero end-load vector
+    # while retaining interior stress. Inspect selected load membership, not
+    # only the condensed vector; unrelated inactive cards do not invalidate it.
+    active_scales = _load_sid_scales(model, active_load_id, active_load_scale)
+    active_body_loading = any(any(haskey(active_scales,Int(get(load,"SID",0)))
+        for load in get(model,key,Any[])) for key in ("GRAVs","RFORCEs","ACCELs","ACCEL1s"))
+    distributed_beams = Set(Int(get(load,"EID",0)) for load in get(model,"PLOAD1s",Any[])
+        if haskey(active_scales,Int(get(load,"SID",0))))
     @inline function frame_force_dict_from_local(f_local)
         return Dict(
             "axial" => f_local[7],
@@ -1141,6 +1149,9 @@ function recover_bar_stresses!(
             strain_entry["axial_end_a"] = axial_strain_a
             strain_entry["axial_end_b"] = axial_strain_b
         end
+        merge!(stress_entry,beam_t_stress_envelope(prop,forces;
+            material_type=get(mat,"TYPE","MAT1"),varying_section=station_recovery!==nothing,
+            distributed_loading=norm(fixed_end_load)>1e-12||active_body_loading||eid in distributed_beams))
         push!(results_json["stresses"]["cbar"], stress_entry)
         push!(results_json["strains"]["cbar"], strain_entry)
     end
@@ -1261,6 +1272,9 @@ function recover_bar_stresses!(
             strain_entry["axial_end_a"] = axial_strain_a
             strain_entry["axial_end_b"] = axial_strain_b
         end
+        merge!(stress_entry,beam_t_stress_envelope(prop,forces;
+            material_type=get(mat,"TYPE","MAT1"),varying_section=station_recovery!==nothing,
+            distributed_loading=norm(fixed_end_load)>1e-12||active_body_loading||eid in distributed_beams))
         push!(results_json["stresses"]["cbar"], stress_entry)
         push!(results_json["strains"]["cbar"], strain_entry)
     end

@@ -53,7 +53,19 @@
    panels:(raw.panels||[]).map(p=>Object.fromEntries(['id','key','skin','rib_bay','stringer','segment','shell_pid','stringer_pid','stringer_web_pid','stringer_flange_pid'].filter(k=>p[k]!==undefined).map(k=>[k,p[k]]))),
    componentGroups:entries(raw.componentGroups||raw.properties).map(p=>Object.fromEntries(['pid','name','part','index','component_key'].filter(k=>p[k]!==undefined).map(k=>[k,p[k]])))};
  }
- function reserveValue(record){
+ function recoveryMethods(record){
+  const unique=new Map();
+  function collect(item){
+   if(!item||typeof item!=='object')return;
+   for(const recovery of item.recoveryMethods||[]){const method=String(recovery?.method||'').trim(),description=String(recovery?.description||'').trim();if(method||description)unique.set(method+'\0'+description,{method,description});}
+   for(const sample of item.caseResults||[])collect(sample);
+   for(const assessment of item.combined?.assessments||[])collect(assessment);
+  }
+  collect(record);return [...unique.values()];
+ }
+ function recoveryMethodNotes(record){return recoveryMethods(record).map(recovery=>recovery.description||recovery.method);}
+ function reserveValue(record){const value=assessmentValue(record),notes=recoveryMethodNotes(record);return notes.length?{...value,reason:[value.reason,...notes.map(note=>'Stress recovery: '+note)].filter(Boolean).join(' ')}:value;}
+ function assessmentValue(record){
   if(!record)return{value:null,status:'unavailable',reason:'No stress-report result is available for this property.'};
   if(record.complete!==true||record.coverage?.recovered!==record.coverage?.total||!(record.coverage?.total>0))return{value:null,status:record.status||'partial',reason:record.reserveFactorReason||'Incomplete case or element coverage; reserve factor is not assessed.'};
   if(record.reserveFactorReason)return{value:null,status:'unassessed',reason:record.reserveFactorReason};
@@ -165,5 +177,5 @@
  function csv(model){const t=table(model);return '\uFEFF'+[[t.title],...notes(model).map(n=>[n]),[],t.headers,...t.rows].map(row=>row.map(csvCell).join(',')).join('\r\n')+'\r\n';}
  function markdown(model){const t=table(model);return '# '+t.title+'\n\n'+notes(model).map(escapeMD).join('\n\n')+'\n\n| '+t.headers.map(escapeMD).join(' | ')+' |\n| '+t.headers.map(()=>'---').join(' | ')+' |\n'+t.rows.map(row=>'| '+row.map(escapeMD).join(' | ')+' |').join('\n')+'\n';}
  function html(model){const t=table(model);return '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>'+t.title+'</title><style>body{font:15px/1.5 system-ui,sans-serif;color:#163047;background:white;margin:2rem}table{border-collapse:collapse;width:100%}td,th{padding:.5rem;border:1px solid #bfd0dd;text-align:left}th{background:#e4eef6}tr{break-inside:avoid}</style></head><body><h1>'+t.title+'</h1>'+notes(model).map(n=>'<p>'+escapeHTML(n)+'</p>').join('')+'<table><thead><tr>'+t.headers.map(n=>'<th>'+escapeHTML(n)+'</th>').join('')+'</tr></thead><tbody>'+t.rows.map((row,i)=>'<tr>'+row.map((v,j)=>'<td'+(j===5?valueStyle(model.rows[i].value,model.scale,model.palette,model.rows[i].record):'')+'>'+(j===5&&model.rows[i].value>2?'<span style="background:#fff1df;color:#963e00;padding:2px 4px;border-radius:2px">'+escapeHTML(v)+'</span>':escapeHTML(v))+'</td>').join('')+'</tr>').join('')+'</tbody></table></body></html>\n';}
- return{GROUPS,PARTS,FAMILIES,PALETTES,PRESENTATIONS,FAILURE_MODES,MODE_INFO,modeInfo,componentNote,MINIMUM_GAUGE_COLOR,atMinimumGauge,minimumGaugeLabel,caseCertificateNotes,presentationValue,format,panelLocations,compact,reserveValue,build,scale,valueColor,valueInk,colorStops,table,notes,csv,markdown,html};
+ return{GROUPS,PARTS,FAMILIES,PALETTES,PRESENTATIONS,FAILURE_MODES,MODE_INFO,modeInfo,componentNote,MINIMUM_GAUGE_COLOR,atMinimumGauge,minimumGaugeLabel,caseCertificateNotes,recoveryMethods,recoveryMethodNotes,presentationValue,format,panelLocations,compact,reserveValue,build,scale,valueColor,valueInk,colorStops,table,notes,csv,markdown,html};
 });

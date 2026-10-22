@@ -218,4 +218,14 @@ test('Certified non-governing cases retain lower bounds without inventing a reso
  const notes=data.caseCertificateNotes(r);assert.equal(notes.length,1);assert.match(notes[0],/RF ≥ 14.5; certified non-governing; case eigenvalue unresolved/);assert.equal(c.reserveFactor,null);const m=data.build({report:{...report([r]),failureMode:'spar_web_buckling'}});assert.equal(m.rows[0].value,2);for(const text of[data.csv(m),data.markdown(m),data.html(m)]){assert.match(text,/Certified non-governing cases/);assert.match(text,/case eigenvalue unresolved/);}
  const combined={...r,caseResults:[],combined:{assessments:[{modeLabel:'Spar web buckling',scope:'Front spar R1–R2',certifiedCases:[c]}]}},summary=data.build({report:{...report([combined]),failureMode:'minimum_rf'}});assert.match(data.csv(summary),/Front spar R1–R2.*Weak compression/);assert.equal(data.caseCertificateNotes(combined).length,1);
 });
+test('Conservative stress recovery remains disclosed in direct and combined row tooltips and detached exports',()=>{
+ const recovery={method:'thin_walled_t_section_envelope',description:'Conservative thin-walled T-section equivalent-stress envelope: maximum total axial+bending normal stress at both ends and all polygon vertices, combined with bounded VQ/I transverse shear and free-warping Saint-Venant torsion. Maxima may occur at different points.'};
+ for(const combined of[false,true]){
+  const r=row(7000123,combined?.51677:2.0419686,combined?{combined:{assessments:[{failureMode:'von_mises',recoveryMethods:[recovery],caseResults:[{recoveryMethods:[recovery]}]}]}}:{recoveryMethods:[recovery],caseResults:[{recoveryMethods:[recovery]}]});
+  const model=data.build(data.compact({report:{...report([r]),failureMode:combined?'minimum_rf':'von_mises'}}));
+  assert.deepEqual(data.recoveryMethods(r),[recovery]);assert.deepEqual(data.recoveryMethodNotes(r),[recovery.description]);assert.equal(model.rows[0].value,r.reserveFactor);assert.equal(model.rows[0].reason.split(recovery.description).length,2);
+  for(const output of[data.csv(model),data.markdown(model),data.html(model)]){assert.match(output,/Conservative thin-walled T-section equivalent-stress envelope/);assert.match(output,/Maxima may occur at different points/);}
+ }
+ assert.deepEqual(data.recoveryMethodNotes({}),[]);assert.deepEqual(data.recoveryMethodNotes({recoveryMethods:[{method:'documented_recovery'}]}),['documented_recovery']);
+});
 console.log(passed+' reserve factor table data tests passed.');

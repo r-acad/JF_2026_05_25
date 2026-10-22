@@ -47,13 +47,17 @@
  function equivalentStressSample(property,record){
   if(!property)return{reason:'Material definition unavailable.'};
   if(property.type==='PCOMP')return{reason:'Laminate stresses require ply-face recovery and material-specific assessment.'};
+  const recovery=record?.stress?.von_mises_recovery;
+  if(recovery?.status==='unavailable')return{reason:recovery.reason||'Equivalent-stress recovery is unavailable for this section and its recorded resultants.'};
   // No axial-stress substitution for beam equivalent stress. Only consume
   // explicitly recovered von Mises values, including solid/shell samples.
   if(property.type==='PSHELL'&&!['z1','z2'].every(face=>finite(record?.stress?.[face]?.von_mises)&&record.stress[face].von_mises>=0))return{reason:'Both shell-face von Mises samples are required.'};
   let worst=null,invalid=false;
   const visit=(value,path=[])=>{if(!value||typeof value!=='object')return;for(const[key,item]of Object.entries(value)){if(key==='von_mises'){if(!finite(item)||item<0){invalid=true;continue;}if(!worst||item>worst.demand)worst={demand:item,face:path.join(' / ')||'element'};}else if(item&&typeof item==='object')visit(item,[...path,key]);}};
   visit(record?.stress);
-  return invalid?{reason:'Invalid equivalent stress sample.'}:worst||{reason:'Equivalent von Mises stress was not recovered for this element.'};
+  if(invalid)return{reason:'Invalid equivalent stress sample.'};
+  if(worst)return{...worst,...(recovery?.status==='complete'?{recovery:{method:String(recovery.method||''),description:String(recovery.description||'')}}:{})};
+  return{reason:['PBAR','PBARL','PBEAM','PBEAML'].includes(property.type)?'Equivalent von Mises stress was not recovered for this bar. Rerun with complete section/resultant recovery; axial stress alone cannot establish a von Mises reserve factor.':'Equivalent von Mises stress was not recovered for this element.'};
  }
  function assessElement(property,record,rows){
   if(!property)return{reason:'Material definition unavailable.'};

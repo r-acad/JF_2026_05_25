@@ -165,7 +165,7 @@
       const palette=getPalette(entry.paletteKey||entry.kind),chosen=config.palettes.find(p=>p.value===palette),paletteName=chosen?.label||palette;
       if(hidden)return'<section class="viewport-scale is-collapsed" data-scale="'+escape(entry.kind)+'" aria-label="'+escape(title)+' color scale">'+
         actionButton("restore",key,"Show "+title+" color scale",restoreIcon)+"</section>";
-      const paletteButton=config.setPalette?actionButton("palette",key,"Choose "+title+" color scale ("+paletteName+")",paletteIcon,
+      const paletteButton=config.setPalette&&entry.paletteEditable!==false?actionButton("palette",key,"Choose "+title+" color scale ("+paletteName+")",paletteIcon,
         'aria-haspopup="menu" aria-expanded="'+opened+'"'):"";
       const range=getLimits(entry.limitKey),limitsButton=entry.limitKey&&!entry.categories?actionButton("limits",key,"Set "+title+" color-scale limits",restoreIcon,'aria-expanded="'+(openLimits===key)+'"'):"";
       const low=range?.[0]??entry.min,high=range?.[1]??entry.max,padding=high>low?0:Math.max(Math.abs(low)*.1,1e-12),sliderMin=low-padding,sliderMax=high+padding;

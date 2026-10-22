@@ -153,7 +153,7 @@ const state = {
   loadPlots: null,
   sensitivity: null, sensitivityBusy: false, sensitivityJob: null, sensitivityTimer: null, sensitivitySignature: null, sensitivityActivity: null,
   sensitivityResult: null, sensitivityMeta: null, sensitivityMap: null,
-  panelIndex: null, panelView: null, propertyDisplay: null,
+  panelIndex: null, panelView: null, propertyDisplay: null, rfField: null,
   weightsView: null,
   fuelIsolation: null,
   lastTransfer: { bytes: 0, seconds: 0 },
@@ -640,6 +640,7 @@ function activateWorkspaceTab(id, options = {}) {
   if (id === "leproperties" && !leadingEdgePropertiesAvailable()) id = "leadingedge";
   if (id === "sensitivityresults" && !sensitivityResultsAvailable()) id = "results";
   if (id === "results" && state.sensitivityMap) clearSensitivityMap();
+  if (id === "results" && state.rfField) clearReserveFactorField();
   if (id === "results" && state.propertyDisplay?.enabled) {state.propertyDisplay.setEnabled(false);applyContour();}
   if (id === "results" && state.data) {
     // Panel/tank inspection can be entered after the baseline was loaded.
@@ -1630,7 +1631,7 @@ function installPropertyDisplay(){
   state.propertyDisplay=WingPropertyDisplay.create(document.getElementById("property-display-controls"),{
     data:()=>state.data,stale:()=>state.modelDirty||resultsHavePendingDrafts(),
     onChange:settings=>{
-      if(settings.enabled){if(state.panelView)setPanelDisplay(false,false);clearSensitivityMap();activateWorkspaceTab("displayproperties");}
+      if(settings.enabled){if(state.panelView)setPanelDisplay(false,false);clearSensitivityMap();clearReserveFactorField();activateWorkspaceTab("displayproperties");}
       applyContour();updateAnalysisValidity();markStudyViewModified();
     }
   });
@@ -1853,8 +1854,58 @@ function stressReportContext(){
 
 function refreshStressReport(){
   if(typeof WingStressReport==='undefined'||(workspaceUI.activeTab!=='stressreport'&&!state.stressReport))return;
-  if(!state.stressReport)state.stressReport=WingStressReport.install({document,host:document.getElementById('panel-stressreport'),readContext:stressReportContext,onEditAllowables:()=>activateWorkspaceTab('material')});
+  if(!state.stressReport)state.stressReport=WingStressReport.install({document,host:document.getElementById('panel-stressreport'),readContext:stressReportContext,onEditAllowables:()=>activateWorkspaceTab('material'),
+    onShowField:showReserveFactorField,onClearField:clearReserveFactorField,readFieldState:reserveFactorFieldState});
   state.stressReport.refresh();
+}
+
+function reserveFactorFieldState(){return{active:!!state.rfField,message:state.rfField?.message||''};}
+
+function unavailableReserveFactorField(contour,reason){
+  return{...contour,byId:new Map(),colorById:new Map(),detailsById:new Map(),unavailableById:new Map(),available:0,complete:false,stale:true,
+    coverage:{available:0,total:contour.total,unavailable:contour.total},
+    categories:[],min:0,max:contour.categorical?0:2,actualMin:null,actualMax:null,note:reason};
+}
+
+function showReserveFactorField(request,{blockedReason=''}={}){
+  if(!state.data)return{active:false,message:'Create or import a model first.'};
+  const previous=state.rfField?.previous;
+  const failureMode=request.kind==='failure_rf'?request.failureMode:'minimum_rf';
+  // Case/mode category switches and palette edits reuse the assessed report.
+  // The data layer still verifies its complete input/result provenance.
+  const cached=state.rfField?.contour.report?.failureMode===failureMode?state.rfField.contour.report:state.stressReport?.report;
+  let contour;
+  try{contour=blockedReason&&state.rfField?unavailableReserveFactorField(state.rfField.contour,blockedReason):
+    WingRFFieldData.build({...stressReportContext(),report:cached,...request});}
+  catch(error){
+    if(state.rfField){state.rfField.contour=unavailableReserveFactorField(state.rfField.contour,error.message);state.rfField.message=error.message;applyContour();}
+    throw error;
+  }
+  if(blockedReason)contour=unavailableReserveFactorField(contour,blockedReason);
+  contour.caseLabel=(request.caseId==='all'?'All eligible load cases':'Load case '+request.caseId)+' · undeformed model';
+  if(!previous){
+    clearSensitivityMap();
+    state.propertyDisplay?.setEnabled(false);
+    if(state.panelView)setPanelDisplay(false);
+    restoreFuelIsolation();
+  }
+  const message=(blockedReason||contour.stale)?blockedReason||contour.note:
+    contour.name+' · '+contour.available+' / '+contour.total+' elements assessed; gray = unassessed or inapplicable.';
+  state.rfField={request:{...request},contour,message,previous:previous||{animate:document.getElementById('animate').checked,resultsHidden:document.getElementById('results-card').hidden}};
+  document.getElementById('animate').checked=false;document.getElementById('results-card').hidden=true;
+  restoreBaseline();applyDeformation();applyContour();syncResultOverlays();
+  state.stressReport?.syncFieldState();
+  return reserveFactorFieldState();
+}
+
+function clearReserveFactorField({render=true}={}){
+  const field=state.rfField;if(!field)return{active:false,message:'RF field cleared.'};
+  state.rfField=null;
+  document.getElementById('animate').checked=field.previous.animate;
+  document.getElementById('results-card').hidden=field.previous.resultsHidden;
+  state.stressReport?.syncFieldState();
+  if(render&&state.data){applyDeformation();applyContour();syncResultOverlays();}
+  return{active:false,message:'RF field cleared.'};
 }
 
 function collectParams({includeView = false} = {}) {
@@ -2667,6 +2718,7 @@ function showSensitivityMap(result,row,options={}){
 }
 
 function displaySensitivityContour(contour){
+  clearReserveFactorField();
   state.propertyDisplay?.setEnabled(false);
   if(state.panelView)setPanelDisplay(false);
   restoreFuelIsolation();
@@ -2729,7 +2781,7 @@ async function showSensitivityBaseline(result,context,options={}){
     const response=await postParams("/api/sensitivity/baseline",{parameters,...handle},token);if(!response.ok)throw Error(await readError(response));
     const payload=await decodePayload(await response.arrayBuffer());
     if(state.modelDirty||state.modelSignature!==signature||payload.node_count!==state.data.nodes.count||payload.compatibility?.map_allowed!==true)throw Error("The sensitivity baseline does not match the displayed FEM.");
-    clearSensitivityMap();if(state.panelView)setPanelDisplay(false);restoreFuelIsolation();
+    clearSensitivityMap();clearReserveFactorField();if(state.panelView)setPanelDisplay(false);restoreFuelIsolation();
     state.resultCases??=new Map();let selected;
     for(const c of payload.load_cases||[]){
       const baseline=decodeResultCase(c,payload,signature);if(!baseline.matches)throw Error("Baseline parameters no longer match the Study.");
@@ -3920,6 +3972,7 @@ function renderMovableSurfaces(data, visible = true) {
 }
 
 function disposeModel() {
+  clearReserveFactorField({render:false});
   state.movablePreview?.dispose(); state.movablePreview = null;
   state.loftCuts?.dispose(); state.loftCuts = null;
   state.fuelMassDisplay?.dispose(); state.fuelMassDisplay = null;
@@ -4632,6 +4685,7 @@ function setPanelDisplay(enabled,redraw=true){
     restoreFuelIsolation();
     state.propertyDisplay?.setEnabled(false);
     clearSensitivityMap();
+    clearReserveFactorField();
     const previous=new Map();
     for(const group of state.data?.groups||[]){
       if(!["quad","tria","bar"].includes(group.kind))continue;
@@ -5100,6 +5154,7 @@ function syncNonlinearWarning() {
 }
 
 function selectResultAnalysis(id) {
+  clearReserveFactorField();
   clearSensitivityMap();
   const result = currentResultVariants().get(id);
   if (!result) return;
@@ -5259,7 +5314,7 @@ function syncComparisonVisibility() {
 }
 
 function activeShape() {
-  if(state.sensitivityMap)return null;
+  if(state.sensitivityMap||state.rfField)return null;
   const r = state.results;
   if (!r || !r.matches || r.available === false) return null;
   if (state.activeMode >= 0 && r.modes[state.activeMode]) {
@@ -5467,7 +5522,7 @@ function contourOptions() {
 /** Element values remain keyed by true REFERENCE EID, never by a shared node. */
 function contourValues() {
   const c=rawContourValues();
-  if(!c||c.kind==="panels")return c;
+  if(!c||c.kind==="panels"||c.kind==="reserve_factor_field")return c;
   if(c.kind==="properties"){
     const stale=state.modelDirty||resultsHavePendingDrafts(),note=c.note+(stale?" Definition changed: showing the last generated FEM.":"");
     const shape=activeShape(),caseLabel=shape?(state.importedDeck?"Imported properties":"Generated properties")+" · geometry: "+resultCaseLabel()+" · deformation ×"+eng(amplitude(),5)+(animating()?" (animated peak)":""):c.caseLabel+" · undeformed";
@@ -5481,6 +5536,12 @@ function contourValues() {
 }
 
 function rawContourValues() {
+  if(state.rfField){
+    const contour=state.rfField.contour;
+    // Do not let a delayed form refresh leave stale RF colors on screen.
+    return !contour.stale&&(state.modelDirty||state.polling||state.solverStarting||resultsHavePendingDrafts())?
+      unavailableReserveFactorField(contour,'Current completed results are required; the model is being edited or analyzed.'):contour;
+  }
   if(state.propertyDisplay?.enabled)return state.propertyDisplay.contour();
   if(state.sensitivityMap)return state.sensitivityMap.contour;
   if(state.panelView)return state.panelView.contour;
@@ -5525,7 +5586,8 @@ function beamContourApplies(c) {
     !!c.byId && state.barMeshes.some(mesh => mesh.elementIds.some(id => c.byId.has(id))));
 }
 
-function contourRGB(c, value) {
+function contourRGB(c, value, eid) {
+  if(c.kind==="reserve_factor_field")return c.colorById.get(eid)||c.categories?.find(category=>category.value===value)?.color||[.32,.36,.41];
   if(c.kind==="panels")return c.colors.get(value)||[.32,.36,.41];
   if(c.categories&&Number.isFinite(value)){
     // Discrete assignments need recognizable swatches even on a dark canvas.
@@ -5542,7 +5604,17 @@ function contourGradient(min, max,scope="fe") {
 }
 
 function propertyLegendCategories(c){
+  if(c.kind==="reserve_factor_field"&&!c.categorical)return undefined;
   return c.categories?.map(category=>({...category,color:"#"+contourRGB(c,category.value).map(v=>Math.round(255*v).toString(16).padStart(2,"0")).join("")}));
+}
+
+function reserveFactorFieldLegend(c){
+  const gradient='linear-gradient(to right, '+WingReserveFactorTableData.colorStops({min:0,max:2},c.palette).map(stop=>stop.color+' '+(stop.position*100)+'%').join(', ')+')';
+  return{kind:'reserve-factor',paletteEditable:false,title:c.name,unit:c.unit,min:c.min,max:c.max,categories:propertyLegendCategories(c),caseLabel:c.caseLabel,gradient,
+    formatNumber:WingReserveFactorTableData.format,note:c.stale?c.note:[c.available+' / '+c.total+' elements assessed','Gray = unassessed or inapplicable',
+      c.categorical?'Category colors identify the governing check': 'RF colors: 0–2; saturated above 2 · Yellow = RF > 1 at minimum gauge',
+      !c.categorical&&Number.isFinite(c.actualMin)?'Actual RF range '+WingReserveFactorTableData.format(c.actualMin)+'–'+WingReserveFactorTableData.format(c.actualMax):'',
+      'Inspect an element for the RF, case, scope and assessment details'].filter(Boolean).join(' · ')};
 }
 
 function resultCaseLabel() {
@@ -5561,7 +5633,8 @@ function contourDisplayUnits(c){
 function updateViewportLegends() {
   if (typeof WingLegends === "undefined") return;
   const entries=[], c=contourValues();
-  if (c&&c.kind!=="panels") entries.push({kind:c.kind==="properties"?"properties":"fe",paletteKey:contourPaletteKey(c),categories:propertyLegendCategories(c),formatNumber:c.kind?.startsWith("sensitivity")?WingSensitivityResults.format:undefined,limitKey:c.limitKey,title:c.name,unit:c.unit,...contourDisplayUnits(c),min:c.min,max:c.max,caseLabel:c.caseLabel||resultCaseLabel(),
+  if(c?.kind==="reserve_factor_field")entries.push(reserveFactorFieldLegend(c));
+  else if (c&&c.kind!=="panels") entries.push({kind:c.kind==="properties"?"properties":"fe",paletteKey:contourPaletteKey(c),categories:propertyLegendCategories(c),formatNumber:c.kind?.startsWith("sensitivity")?WingSensitivityResults.format:undefined,limitKey:c.limitKey,title:c.name,unit:c.unit,...contourDisplayUnits(c),min:c.min,max:c.max,caseLabel:c.caseLabel||resultCaseLabel(),
     gradient:contourGradient(c.min,c.max,contourPaletteKey(c)),note:[c.kind?.startsWith("sensitivity")?"Undeformed model · full element values":c.location==="node"?"Element mean displacement · no cross-element averaging":
       beamContourApplies(c)?"Full elements · gray = unavailable":"Full elements · gray = unavailable; beams keep group colors",
       typeof c.note==="string"?c.note:"",aeroSurfaceStyle()==="wireframe"&&aeroContourProtection()&&state.layers.get("AERO_SURFACE")?.visible?"Aero loft uses wireframe to reveal shell contours":""].filter(Boolean).join(" · ")});
@@ -5598,7 +5671,7 @@ function applyContour() {
     const colors = new Float32Array(mesh.elementIds.length * stride * 4);
     mesh.elementIds.forEach((id, index) => {
       const value = barContour ? elementContourValue(c, mesh, index) : undefined;
-      const rgb = barContour ? contourRGB(c,value) : [base.r, base.g, base.b];
+      const rgb = barContour ? contourRGB(c,value,id) : [base.r, base.g, base.b];
       for (let vertex = 0; vertex < stride; vertex++) colors.set([...rgb, 1], 4 * stride * index + 4 * vertex);
     });
     mesh.updateVerticesData(BABYLON.VertexBuffer.ColorKind, colors);
@@ -5623,7 +5696,7 @@ function applyContour() {
     } else {
       for (let e = 0; e < nv / mesh.nodesPerElement; e++) {
         const value = elementContourValue(c, mesh, e);
-        const rgb = contourRGB(c,value);
+        const rgb = contourRGB(c,value,mesh.elementIds[e]);
         for (let k = 0; k < mesh.nodesPerElement; k++) {
           const i = e * mesh.nodesPerElement + k;
           colors[4 * i] = rgb[0]; colors[4 * i + 1] = rgb[1];
@@ -5644,7 +5717,8 @@ function applyContour() {
     return;
   }
   legend.className = "";
-  WingLegends.render(legend,[{kind:c.kind==="properties"?"properties":"fe",paletteKey:contourPaletteKey(c),categories:propertyLegendCategories(c),formatNumber:c.kind?.startsWith("sensitivity")?WingSensitivityResults.format:undefined,limitKey:c.limitKey,title:c.name,unit:c.unit,...contourDisplayUnits(c),min:c.min,max:c.max,caseLabel:c.caseLabel||resultCaseLabel(),gradient:contourGradient(c.min,c.max,contourPaletteKey(c)),
+  if(c.kind==="reserve_factor_field")WingLegends.render(legend,[reserveFactorFieldLegend(c)]);
+  else WingLegends.render(legend,[{kind:c.kind==="properties"?"properties":"fe",paletteKey:contourPaletteKey(c),categories:propertyLegendCategories(c),formatNumber:c.kind?.startsWith("sensitivity")?WingSensitivityResults.format:undefined,limitKey:c.limitKey,title:c.name,unit:c.unit,...contourDisplayUnits(c),min:c.min,max:c.max,caseLabel:c.caseLabel||resultCaseLabel(),gradient:contourGradient(c.min,c.max,contourPaletteKey(c)),
     note:["Full elements · no averaging across elements",c.location==="node"?"Element mean displacement":"Gray = unavailable",barContour?"Bar contour replaces stringer/cap colors.":"No applicable beam values; beams retain group colors.",typeof c.note==="string"?c.note:""].filter(Boolean).join(" · ")}]);
   updateViewportLegends();
   if (state.selectedElement !== null) showElement(state.selectedElement);
@@ -5668,6 +5742,7 @@ function bucklingLoadLabel(multiplier) {
 }
 
 function selectMode(i) {
+  clearReserveFactorField();
   clearSensitivityMap();
   const r = state.results;
   if (!r) return;
@@ -5712,6 +5787,7 @@ function stepMode(delta) {
 }
 
 function showResults() {
+  clearReserveFactorField();
   clearSensitivityMap();
   const r = state.results;
   const card = document.getElementById("results-card");
@@ -5828,6 +5904,7 @@ function showResults() {
 }
 
 function clearResults() {
+  clearReserveFactorField();
   clearSensitivityMap();
   disposeComparisonOverlay();
   state.results = null;
@@ -6185,6 +6262,7 @@ function isolateFuelTank() {
     if(state.panelView)setPanelDisplay(false);
     state.propertyDisplay?.setEnabled(false);
     clearSensitivityMap();
+    clearReserveFactorField();
     state.fuelIsolation = new Map(Array.from(state.layers, ([name, layer]) => [name, layer.visible]));
     state.contourIdx = 0;
     document.getElementById("contour-select").value = "0";
@@ -6676,7 +6754,7 @@ function applyBarDepthPolicy() {
 
 function aeroContourProtection(){
   const options=contourOptions(),selected=options[Math.min(state.contourIdx,options.length-1)];
-  const hasContour=!!state.propertyDisplay?.enabled||!!state.sensitivityMap||!!state.panelView||!!selected&&selected.kind!=="none"||workspaceUI.activeTab==="results"&&!!activeShape();
+  const hasContour=!!state.rfField||!!state.propertyDisplay?.enabled||!!state.sensitivityMap||!!state.panelView||!!selected&&selected.kind!=="none"||workspaceUI.activeTab==="results"&&!!activeShape();
   return hasContour && (state.data?.groups||[]).some(group=>["quad","tria"].includes(group.kind)&&state.layers.get(group.name)?.visible);
 }
 function aeroSurfaceStyle(){
@@ -6953,6 +7031,19 @@ function showElement(eid) {
   if(state.propertyDisplay?.enabled){
     const c=state.propertyDisplay.contour(),value=c.byId.get(eid),label=c.categories?.find(category=>category.value===value)?.label;
     html+='<details open><summary>Displayed property</summary><p>'+esc(c.name)+': '+esc(label??(Number.isFinite(value)?eng(value,6)+' '+c.unit:'Not applicable / unavailable'))+'</p></details>';
+  }
+  if(state.rfField){
+    const c=contourValues(),detail=c.detailsById.get(eid),shown=detail?.available?{
+      'Reserve factor':WingReserveFactorTableData.format(detail.reserveFactor),
+      'Critical load case':detail.caseLabel||'No demand',
+      'Failure mode':detail.modeLabel||'No demand',
+      'Physical scope':detail.scope,
+      ...(detail.propertyScope?{'Applied to':detail.propertyScope}:{}),
+      'Minimum gauge':detail.minimumGauge?.known?(detail.minimumGauge.atMinimum?'All relevant dimensions at minimum':'Above minimum'):'Unknown',
+      ...(detail.noDemand?{'Interpretation':'RF 99 is a no-demand sentinel, not a calculated margin.'}:{}),
+      ...(detail.notes?.length?{'Assessment notes':detail.notes.join(' ')}:{}),
+    }:{Status:c.stale?c.note:detail?.reason||c.unavailableById.get(eid)||'No applicable complete assessment.'};
+    html+='<details open><summary>'+esc(c.name)+'</summary><p class="pick-note">'+esc(c.caseLabel)+'</p>'+resultTable(shown)+'</details>';
   }
   const panel=state.panelIndex?.byElement.get(eid);
   if(panel)html+='<details open><summary>Stiffened panel</summary>'+resultTable({Panel:panel.label,ID:panel.id,Skin:panel.skin,"Rib bay":panel.rib_bay,"Skin PID":panel.shell_pid,...(panel.stringer_model==="shell"?{"Stringer web PID":panel.stringer_web_pid,"Stringer flange PID":panel.stringer_flange_pid??"None (blade only)"}:{"Stringer PID":panel.stringer_pid}),"Skin shell elements":panel.shell_eids.length,"Stringer elements":panel.stringer_eids.length,"Start":panel.start_kind,"End":panel.end_kind})+'</details>';
@@ -7532,6 +7623,7 @@ document.getElementById("animate").onchange = () => {
   if(state.propertyDisplay?.enabled)applyContour();
 };
 document.getElementById("contour-select").onchange = (e) => {
+  clearReserveFactorField();
   state.propertyDisplay?.setEnabled(false);
   clearSensitivityMap();
   state.contourIdx = parseInt(e.target.value, 10);

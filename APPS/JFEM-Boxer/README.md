@@ -96,6 +96,25 @@ case. In a generated SOL106 comparison, the full-load linear SOL101 comparison
 is identified separately. The largest property statistic across the selected
 cases is the envelope, with the governing case shown alongside it.
 
+Under **3D model fields**, choose **Minimum RF**, an individual failure-mode
+RF, **Critical case for minimum RF**, or **Critical failure mode for minimum RF**,
+then click **Show field**. The field uses the load-case scope and property
+envelope selected above; the table's text filter does not exclude model regions.
+Changing these settings, allowables or assessment fixities refreshes the active
+field. **Clear field** restores ordinary result viewing. The RF field uses the
+undeformed model because an envelope can be governed by different cases in
+different regions. It works with shell surfaces, beam lines and 3D sections.
+
+Numerical fields offer the table palettes, with fixed RF limits 0 and 2 and
+minimum-gauge yellow where verified. Critical cases and failure modes use
+named category colors. Gray means unassessed or inapplicable. Inspect an element
+to see its RF, governing case, failure mode, physical scope and missing-check
+reason. Property envelopes color the whole property; individual physical
+column/panel checks color only their recorded constituent elements. Overlapping
+checks use the lowest RF, but an incomplete applicable overlap remains gray.
+Editing the model or starting an analysis withholds old field values until
+current completed results are available.
+
 **Open reserve factor table ↗** opens a separate, resizable table window with
 the same structural-group layout as the sensitivity table. Generated models
 can be arranged by rib bay and component; imported models retain their actual
@@ -164,8 +183,31 @@ case withholds reserve factors across the selected case envelope; incomplete
 element recovery withholds the affected property's factor. Missing material
 limits, mixed-material PSHELLs, laminates and beams without recovered equivalent
 stress are explicitly unassessed. Zero demand has no finite reserve factor.
+
+For constant isotropic **PBARL T** beams, JFEM recovers a documented
+**thin-walled T-section equivalent-stress envelope** from the complete axial,
+shear, torque and end-moment resultants. It combines the largest total
+axial-plus-bending normal stress at the actual section vertices with bounded
+transverse-shear flow and Saint-Venant torsional shear. This is a conservative
+envelope within that beam-section model: the normal and shear maxima need not
+occur at the same point. It is not an exact pointwise three-dimensional von
+Mises stress and excludes junction concentrations and restrained warping.
+The method requires flange thickness / full width and web thickness / clear
+height no greater than 0.10, consistent section properties, and no varying
+section or distributed element loading. Unsupported sections and incomplete
+resultants retain an explicit unavailable reason. Recovery details identify
+this approximation wherever it contributes to the RF.
+
+Boxer's native-result reader can reprocess existing generated records containing
+all required force resultants without another FE solve. Legacy imported results
+require a fresh solve to establish section and loading provenance. The method
+does not change element stiffness, solved displacements or buckling eigenvalues.
+Its shear-flow and open-section torsion assumptions follow the
+[Mississippi State structural-analysis notes](https://www.ae.msstate.edu/tupas/SA2/chA14.7_text.html)
+and [open-section torsion notes](https://www.ae.msstate.edu/tupas/SA2/chA6.6_text.html).
+
 Laminate principal-strain checks are available in FE Results and in the combined
-Minimum RF assessment; percentile trimming applies only to the material-stress
+Minimum RF assessment, and as a separate 3D RF field; percentile trimming applies only to the material-stress
 criterion. For SOL106 this ratio
 compares demand with a limit; it does not predict the nonlinear failure load.
 

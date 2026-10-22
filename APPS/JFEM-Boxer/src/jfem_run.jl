@@ -1042,7 +1042,9 @@ function scaled_linear_result(d::AbstractDict,scale::Real)
         "von_mises","major","minor","axial","axial_end_a","axial_end_b","torsional",
         "fx","fy","fxy","mx","my","mxy","qx","qy","shear_1","shear_2","torque",
         "moment_a1","moment_a2","moment_b1","moment_b2","p1","p2","p3","p4","p5","p6","p7","p8",
-        "e1","e2","g12","s1","s2","t12"])
+        "e1","e2","g12","s1","s2","t12",
+        "normal_bound","transverse_shear_bound","torsional_shear_bound",
+        "combined_shear_bound","section_torque_bound"])
     function scale_values!(value)
         if value isa AbstractDict
             for (key,item) in value
@@ -1288,7 +1290,28 @@ function complete_stringer_stresses!(m::Model, records::AbstractDict)
                 end
             end
             record["section_recovery_points_yz_m"] = points
-            record["stress_units"] = "Pa; end_a/end_b are bending stresses at T polygon vertices p1-p8; add axial for total normal stress"
+            record["stress_units"] = (is_imported_model(m) ? "Source stress units" : "Pa") * "; end_a/end_b are bending stresses at T polygon vertices p1-p8; add axial for total normal stress"
+            # Preserve a native recovery decision, including an unavailable
+            # distributed-load/taper scope. Older generated results can be
+            # reprocessed from complete force rows: generated loading is
+            # nodal, and the current section carries all physical dimensions.
+            if !haskey(stress,"von_mises_recovery")
+                if is_imported_model(m)
+                    stress["von_mises_recovery"]=Dict("status"=>"unavailable",
+                        "method"=>"thin_walled_t_section_envelope",
+                        "reason"=>"This older imported result lacks beam-load recovery provenance. Rerun the model to verify interior-load and section applicability.")
+                else
+                    prop=Dict("TYPE"=>section["shape"],"DIMS"=>section["dimensions_m"],
+                        "A"=>section["area_m2"],"I1"=>section["I1_m4"],"I2"=>section["I2_m4"],"J"=>section["J_m4"])
+                    material=material_payload(bar_material_definition(m.params,gr.pid))
+                    merge!(stress,beam_t_stress_envelope(prop,forces;material_type=get(material,"type","unknown")))
+                end
+            end
+            recovery=get(stress,"von_mises_recovery",nothing)
+            if !is_imported_model(m)&&recovery isa AbstractDict&&get(recovery,"status","")=="complete"
+                stress["von_mises_recovery"]=merge(Dict{String,Any}(recovery),
+                    Dict("units"=>Dict("stress"=>"Pa","moment"=>"N m")))
+            end
         end
     end
     return records
