@@ -115,6 +115,25 @@ checks use the lowest RF, but an incomplete applicable overlap remains gray.
 Editing the model or starting an analysis withholds old field values until
 current completed results are available.
 
+**Only elements with RF < 1** in the Stress Report's 3D field controls isolates
+fully assessed elements below the selected criterion's threshold. For critical
+case or failure-mode colors, the filter uses the governing minimum RF. RF = 1
+and unavailable assessments are excluded. Existing entity visibility still
+applies; clearing the field restores the previous display. The separate
+**Only RF < 1** table filter also applies to CSV, Markdown and HTML exports.
+
+Each generated-property cell has **Edit property**. The dialog edits the actual
+local skin, stringer, spar, rib or leading-edge override in mm. Shared physical
+checks offer the properties they involve. A shell stringer's web and flange
+remain one physical section and update together. Values below an enforced
+minimum gauge turn the input and source cell red and cannot be applied. Cancel
+leaves the Study unchanged. Apply marks the model and previous results out of
+date: use Live mesh or Create FEM, then rerun the analysis to obtain new RFs.
+Unfinished edits pause remeshing and saving. A changed mesh or locked form cannot
+receive an old draft. Imported properties must be edited in their source file;
+shared defaults, run-out connectors and movable-surface definitions retain their
+existing Properties or Structure editors.
+
 **Open reserve factor table ↗** opens a separate, resizable table window with
 the same structural-group layout as the sensitivity table. Generated models
 can be arranged by rib bay and component; imported models retain their actual
@@ -813,6 +832,15 @@ other markers: metres for generated models, unconverted source length units
 for imported decks. The default is 0.01; the setting is retained in Studies
 and changes no spring stiffness or physical dimensions.
 The **Loads** dropdown contains Visualization, VLM settings and Load plots.
+
+**Loads → Load plots** provides taller graphs that grow when the form is
+maximized. **Light mode** switches the graphs, axes and controls to a light
+background with contrasting curves; the display choice is saved with the Study.
+Each graph has an **Export SVG** button. Its vector file includes the selected
+case, title, axes, units, visible curve legends and definitions, using the
+current light or dark theme. Lift exports also include the aerodynamic
+coefficients and equal-lift ellipse. Exports remain editable and sharp at any
+size, and flag data from an older mesh when parameters have changed.
 
 In **Loads → Load plots**, **Section lift coefficient × chord · cₗ c [m]**
 overlays a dashed elliptical reference with the same signed total lift as the

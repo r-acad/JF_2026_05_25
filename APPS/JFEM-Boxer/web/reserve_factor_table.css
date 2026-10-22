@@ -7,6 +7,11 @@ header label{flex-shrink:0}#table-view{width:205px}#structural-group{min-width:2
 .rf-value.rf-presentation{display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;white-space:normal;font-size:14px}.rf-primary-label{font-weight:600;line-height:1.4}.rf-presentation .rf-high-number,.rf-presentation .rf-number{flex-shrink:0;font-size:15px}.rf-minimum-note{color:#f5d763}html[data-table-theme="light"] .rf-minimum-note{color:#785b00}
 
 .rf-assessment-details{font-size:11px;line-height:1.45}.rf-assessment-details summary{cursor:pointer;font-weight:600}.rf-assessment-details p{margin:6px 0}
+.rf-filter-toggle{display:flex;align-items:center;gap:6px}.rf-filter-toggle input{width:auto}
+.rf-property-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}.rf-property-actions button{padding:4px 7px;font-size:11px}
+.rf-edit-origin.rf-below-minimum,html[data-table-theme="light"] .rf-edit-origin.rf-below-minimum{background:#a62532!important;color:#fff!important;outline:2px solid #ef5865;padding:6px;border-radius:4px}
+.rf-edit-origin.rf-below-minimum strong,.rf-edit-origin.rf-below-minimum small,html[data-table-theme="light"] .rf-edit-origin.rf-below-minimum strong,html[data-table-theme="light"] .rf-edit-origin.rf-below-minimum small{color:#fff!important}
+.rf-gauge-error{font-weight:700}
 
 /* Opening a long method/certification note must not squeeze the adjacent bays. */
 #reserve-factor-table:not(.rf-list){table-layout:fixed;width:100%}

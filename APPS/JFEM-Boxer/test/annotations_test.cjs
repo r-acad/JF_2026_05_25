@@ -13,6 +13,10 @@ const state = { selectedElement: 11, elements: new Map([[11,element(11,"tria","L
   layers: new Map(["LOWER_SKIN_RUNOUTS","SPAR_CAPS","RBE3","RBE3_NODES","SPC"].map((name)=>[name,{visible:true}])),
   markers: [{kind:"SPC",node:0},{kind:"RBE3_NODES",node:3}], nodeIds:Int32Array.from([101,102,103,901]),data:{nodes:{n_structural:3}} };
 const candidates = A.labelCandidates(state, positions, true, true);
+state.rfVisibleElementIds=new Set([12]);
+assert.deepEqual(A.labelCandidates(state,positions,true,true).map(c=>c.text).sort(),['B 12','N 101','N 102']);
+state.rfVisibleElementIds=new Set();assert.deepEqual(A.labelCandidates(state,positions,true,true),[]);
+state.rfVisibleElementIds=null;
 const reactions=new B.Mesh('reaction-values',scene),reactionVertices=new Float32Array(58*3);
 reactionVertices.set([2,3,4],3);reactionVertices.set([-2,-3,-4],3*54);
 reactions.setVerticesData('position',reactionVertices,true);reactions.position.set(10,20,30);

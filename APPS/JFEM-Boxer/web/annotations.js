@@ -31,6 +31,7 @@
   }
   function displayedPoint(state,id,p){return state.panelExplosion?.point(id,p)||p;}
   function visibleElement(state, element) {
+    if(state.rfVisibleElementIds&&!state.rfVisibleElementIds.has(element.id))return false;
     const layer = state.layers.get(element.group.name) || state.layers.get(element.group.base_group || baseGroup(element.group.name));
     return !layer || layer.visible;
   }
@@ -47,6 +48,7 @@
     }
     if (showNodes) {
       for (const marker of state.markers) {
+        if(state.rfVisibleElementIds&&!visibleNodes.has(marker.node))continue;
         const layer = state.layers.get(marker.kind);
         if (layer && layer.visible) {
           visibleNodes.add(marker.node);
@@ -55,8 +57,8 @@
           else if (marker.kind === "FUEL_RBE3_NODES") nodeStyles.set(marker.node, layer.color || COLORS.fuel);
         }
       }
-      if(state.layers.get("SPC")?.visible)for(const node of state.supportGlyphs?.nodes || []){visibleNodes.add(node);nodeStyles.set(node,COLORS.support);}
-      if (state.layers.get("NODES")?.visible) for (let i = 0; i < state.data.nodes.n_structural; i++) visibleNodes.add(i);
+      if(state.layers.get("SPC")?.visible)for(const node of state.supportGlyphs?.nodes || [])if(!state.rfVisibleElementIds||visibleNodes.has(node)){visibleNodes.add(node);nodeStyles.set(node,COLORS.support);}
+      if (!state.rfVisibleElementIds&&state.layers.get("NODES")?.visible) for (let i = 0; i < state.data.nodes.n_structural; i++) visibleNodes.add(i);
       for (const node of visibleNodes) candidates.push({ text: "N " + state.nodeIds[node], id: state.nodeIds[node], kind: "node",
         color: nodeStyles.get(node) || COLORS.node, point: Array.from(positions.subarray(3 * node, 3 * node + 3)) });
     }

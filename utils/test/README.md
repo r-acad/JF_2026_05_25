@@ -40,6 +40,21 @@ Boxer and checks every shell/beam vertex color, 3D sections, legends, live
 assessment edits, stale-result gates, inspection and competing display modes.
 Its header lists the fixture, output and Playwright arguments.
 
+`rf_field_visibility_test.cjs` verifies index filtering, exact picking ownership,
+hidden-layer restoration and geometry replacement. `rf_filter_browser_test.cjs`
+checks RF below/equal/above 1 through complete Boxer startup, including thick
+shells, 3D bars, labels, picking and stale-result gates.
+`rf_property_editor_test.cjs` and `rf_property_editor_browser_test.cjs` check
+exact PID-to-local-override mapping, SI/mm conversion, section validation,
+minimum gauges and atomic dialog commits. `rf_property_bridge_browser_test.cjs`
+exercises the detached RF table against the live Study, including invalid red
+drafts, locked/stale inputs, cancellation and result invalidation. Browser
+fixture/output/Playwright arguments are documented in each test header.
+`load_plots_test.cjs` checks themes and standalone SVG content;
+`aerodynamic_load_plots_browser_test.cjs` checks actual multicase plots, light
+mode, responsive graph heights, visible-component exports and stale annotations.
+These checks exercise UI behavior; they do not constitute new solver validation.
+
 `beam_stress_envelope_test.jl OUTPUT` checks the thin-walled T equivalent-stress
 envelope against independent section calculations and sampled stress fields,
 including sign, scale, missing-resultant and unsupported-section cases.

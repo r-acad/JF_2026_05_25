@@ -106,7 +106,7 @@
      if(front?.hit&&front.distance<along-Math.max(1e-5,getState().diag*2e-5)){hit=scene.pick(x,y,m=>eligible(m)&&!(m instanceof B.LinesMesh),false,camera);lineHit=null;}}
     if(hit?.hit&&hit.pickedPoint){const mesh=hit.pickedMesh,meta=mesh.metadata;let source=mesh.name;
      if(meta?.wingReferenceId!==undefined)source="reference geometry";
-     else if(meta?.feGroup){const index=lineHit?lineHit.index:meta.faceElements?meta.faceElements[hit.faceId]:Math.floor(hit.faceId/meta.facesPerElement);source=meta.feGroup.name+(mesh.elementIds?.[index]!==undefined?" / EID "+mesh.elementIds[index]:"");}
+     else if(meta?.feGroup){const face=lineHit?lineHit.index:hit.faceId,index=meta.faceElements?meta.faceElements[face]:Math.floor(face/(meta.facesPerElement||1));source=meta.feGroup.name+(mesh.elementIds?.[index]!==undefined?" / EID "+mesh.elementIds[index]:"");}
      chosen={position:lineHit?lineHit.position:hit.pickedPoint.asArray(),source};}}
    if(!chosen){status("No visible geometry at this point. Choose a surface or enable visible-node snapping.");return true;}
    points.push(chosen);if(points.length===2)active=false;drawMeasurement();status(points.length===1?"Point A set. Click point B; Escape exits measurement mode.":"Measurement complete. Ordinary inspection is active again.");return true;

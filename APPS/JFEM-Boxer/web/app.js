@@ -1409,7 +1409,8 @@ function physicalResultsAvailable() {
   return false;
 }
 
-function resultsHavePendingDrafts(){return !!state.panelTables?.hasDrafts?.();}
+function resultsHavePendingDrafts(){return !!(state.panelTables?.hasDrafts?.()||state.rfPropertyDrafts);}
+function assertReserveFactorDraftFinished(){if(state.rfPropertyDrafts)throw Error('Apply or cancel the reserve-factor property edit before saving or running the model.');}
 
 function sensitivityResultValidity() {
   const result=state.sensitivityResult;
@@ -1640,7 +1641,7 @@ function installPropertyDisplay(){
 function installPanelTables(){
   if(typeof WingPanelTables==='undefined')return;
   if(!state.panelTables)state.panelTables=WingPanelTables.connect({
-    readSnapshot:()=>({parameters:collectParams(),panels:state.data?.stiffened_panels?.panels||[],
+    readSnapshot:()=>({parameters:collectParams({allowReserveFactorDraft:true}),panels:state.data?.stiffened_panels?.panels||[],
       ribs:state.data?.annotations?.ribs||[],readOnly:!!state.importedDeck,
       layout_token:state.data?.stiffened_panels?.layout_token,modelDirty:state.modelDirty,
       busy:state.workspaceBusy||state.loadingInput,updating:state.meshRequestInFlight}),
@@ -1653,6 +1654,54 @@ function installPanelTables(){
     onError:message=>log('Panel table: '+message,'warn'),
   });
   state.panelTables.installButtons(document);
+}
+
+// The detached RF table edits the live Study through the same canonical
+// panel/component overrides as Properties. Never apply to an older mesh.
+function reserveFactorPropertyContext(){
+  return{parameters:collectParams({allowReserveFactorDraft:true}),data:state.data,groups:state.data?.groups||[],
+    panels:state.data?.stiffened_panels?.panels||[],ribs:state.data?.annotations?.ribs||[],
+    layout_token:state.data?.stiffened_panels?.layout_token,readOnly:!!state.importedDeck,
+    busy:!!(state.workspaceBusy||state.loadingInput||state.busy||state.exportBusy||state.polling||state.solverStarting||state.sensitivityBusy),
+    updating:!!state.meshRequestInFlight};
+}
+function openReserveFactorPropertyEditor(pid,doc=document,hooks={}){
+  if(typeof WingRFPropertyEditor==='undefined')throw Error('Refresh JFEM-Boxer to load the property editor.');
+  state.rfPropertyEditor?.close();
+  const snapshot=reserveFactorPropertyContext(),signature=formSignature(),meshIdentity=state.meshIdentity;
+  if(state.modelDirty&&(state.rfPropertyEditSignature!==signature||state.rfPropertyEditMeshIdentity!==meshIdentity))
+    throw Error('The model definition has changed. Create FEM before editing a property from these results.');
+  const descriptor=WingRFPropertyEditor.resolve(snapshot,pid);
+  if(!descriptor.editable)throw Error(descriptor.reason);
+  if(state.parameterLocks?.isLocked(descriptor.parameter))throw Error('Unlock the Properties form before editing this property.');
+  let handle,closed=false;
+  handle=WingRFPropertyEditor.open({document:doc,descriptor,
+    onDraftChange:detail=>{
+      const changed=!!state.rfPropertyDrafts!==!!detail.hasDrafts;
+      state.rfPropertyDrafts=!!detail.hasDrafts;hooks.onDraftChange?.(detail);
+      if(detail.hasDrafts)cancelAutoMeshTimer();
+      if(changed){updateAnalysisValidity();state.sensitivity?.refreshContext();updateFileStatus();state.autosave?.changed();}
+    },
+    onApply:({values,layoutToken})=>{
+      if(state.meshIdentity!==meshIdentity||formSignature()!==signature||state.data?.stiffened_panels?.layout_token!==layoutToken)
+        throw Error('The Study or mesh changed while this editor was open. Cancel, refresh the table and edit the current property.');
+      const prepared=WingRFPropertyEditor.prepare(reserveFactorPropertyContext(),pid,values);
+      if(state.parameterLocks?.isLocked(prepared.parameter))throw Error('Unlock the Properties form before applying this edit.');
+      const input=document.getElementById('p-'+prepared.parameter);
+      if(!input)throw Error('Refresh JFEM-Boxer to load the property schema.');
+      input.value=JSON.stringify(prepared.rows);parameterEdited(prepared.parameter);
+      for(const editor of state.componentEditors||[])editor.refresh?.();
+      state.rfPropertyEditSignature=formSignature();state.rfPropertyEditMeshIdentity=meshIdentity;
+      log('Updated P'+pid+' from the reserve-factor table. Regenerate and rerun the analysis for new reserve factors.','warn');
+    },
+    onClose:()=>{
+      closed=true;state.rfPropertyDrafts=false;if(state.rfPropertyEditor===handle)state.rfPropertyEditor=null;
+      hooks.onDraftChange?.({pid,hasDrafts:false,belowMinimumFields:[]});
+      if(state.autoMeshPending){state.autoMeshDueAt=performance.now()+AUTO_MESH_DELAY_MS;scheduleAutoMesh();}
+      updateAnalysisValidity();state.sensitivity?.refreshContext();updateFileStatus();state.autosave?.changed();
+    }});
+  if(!closed)state.rfPropertyEditor=handle;
+  return handle;
 }
 
 function leadingEdgePropertiesAvailable() {
@@ -1704,8 +1753,8 @@ function scheduleAutoMesh() {
     meshStatus("Model changed · press Create FEM", "stale");
     return;
   }
-  if (state.panelTables?.hasDrafts()) {
-    meshStatus("Finish the panel table edits to update the mesh", "pending");
+  if (resultsHavePendingDrafts()) {
+    meshStatus("Apply or cancel the property edits to update the mesh", "pending");
     return;
   }
   if (state.polling || state.solverStarting || state.sensitivityBusy) {
@@ -1721,7 +1770,7 @@ function scheduleAutoMesh() {
   state.autoMeshTimer = setTimeout(() => {
     state.autoMeshTimer = null;
     if (!state.autoMeshPending || !state.autoMeshEnabled) return;
-    if (state.busy || state.exportBusy || state.loadingInput || state.meshRequestInFlight || state.polling || state.solverStarting || state.sensitivityBusy || state.panelTables?.hasDrafts()) {
+    if (state.busy || state.exportBusy || state.loadingInput || state.meshRequestInFlight || state.polling || state.solverStarting || state.sensitivityBusy || resultsHavePendingDrafts()) {
       scheduleAutoMesh();
       return;
     }
@@ -1855,14 +1904,29 @@ function stressReportContext(){
 function refreshStressReport(){
   if(typeof WingStressReport==='undefined'||(workspaceUI.activeTab!=='stressreport'&&!state.stressReport))return;
   if(!state.stressReport)state.stressReport=WingStressReport.install({document,host:document.getElementById('panel-stressreport'),readContext:stressReportContext,onEditAllowables:()=>activateWorkspaceTab('material'),
-    onShowField:showReserveFactorField,onClearField:clearReserveFactorField,readFieldState:reserveFactorFieldState});
+    onShowField:showReserveFactorField,onClearField:clearReserveFactorField,readFieldState:reserveFactorFieldState,onEditProperty:openReserveFactorPropertyEditor});
   state.stressReport.refresh();
 }
 
-function reserveFactorFieldState(){return{active:!!state.rfField,message:state.rfField?.message||''};}
+function reserveFactorFieldState(){return{active:!!state.rfField,onlyBelowOne:!!state.rfField?.request.onlyBelowOne,message:state.rfField?.message||''};}
+
+const RF_EMPTY_ELEMENT_IDS=new Set();
+function syncReserveFactorVisibility(){
+  const field=state.rfField,enabled=!!field?.request.onlyBelowOne;
+  if(!enabled){
+    const wasActive=state.rfVisibility?.active;state.rfVisibility?.sync(null);
+    if(wasActive){state.edgeVisibilityKey=null;applyBeamStyle();syncMeshEdges();state.annotations?.invalidate();}
+    return;
+  }
+  if(!state.rfVisibility)state.rfVisibility=WingRFFieldVisibility.create({state,syncImported:mesh=>WingImportedRender.sync(mesh,state.layers)});
+  const stale=field.contour.stale||state.modelDirty||state.polling||state.solverStarting||resultsHavePendingDrafts();
+  const allowed=stale?RF_EMPTY_ELEMENT_IDS:field.contour.failingElementIds||RF_EMPTY_ELEMENT_IDS,changed=state.rfVisibility.allowed!==allowed;
+  state.rfVisibility.sync(allowed);
+  if(changed){state.edgeVisibilityKey=null;syncMeshEdges();state.annotations?.invalidate();}
+}
 
 function unavailableReserveFactorField(contour,reason){
-  return{...contour,byId:new Map(),colorById:new Map(),detailsById:new Map(),unavailableById:new Map(),available:0,complete:false,stale:true,
+  return{...contour,byId:new Map(),colorById:new Map(),detailsById:new Map(),unavailableById:new Map(),failingElementIds:RF_EMPTY_ELEMENT_IDS,available:0,complete:false,stale:true,
     coverage:{available:0,total:contour.total,unavailable:contour.total},
     categories:[],min:0,max:contour.categorical?0:2,actualMin:null,actualMax:null,note:reason};
 }
@@ -1890,10 +1954,12 @@ function showReserveFactorField(request,{blockedReason=''}={}){
     restoreFuelIsolation();
   }
   const message=(blockedReason||contour.stale)?blockedReason||contour.note:
-    contour.name+' · '+contour.available+' / '+contour.total+' elements assessed; gray = unassessed or inapplicable.';
+    contour.name+' · '+contour.available+' / '+contour.total+' elements assessed; '+(request.onlyBelowOne?
+      contour.failingElementIds.size+' assessed elements have RF < 1. Other elements are hidden; entity visibility still applies.':'gray = unassessed or inapplicable.');
   state.rfField={request:{...request},contour,message,previous:previous||{animate:document.getElementById('animate').checked,resultsHidden:document.getElementById('results-card').hidden}};
   document.getElementById('animate').checked=false;document.getElementById('results-card').hidden=true;
   restoreBaseline();applyDeformation();applyContour();syncResultOverlays();
+  syncReserveFactorVisibility();
   state.stressReport?.syncFieldState();
   return reserveFactorFieldState();
 }
@@ -1901,6 +1967,7 @@ function showReserveFactorField(request,{blockedReason=''}={}){
 function clearReserveFactorField({render=true}={}){
   const field=state.rfField;if(!field)return{active:false,message:'RF field cleared.'};
   state.rfField=null;
+  syncReserveFactorVisibility();
   document.getElementById('animate').checked=field.previous.animate;
   document.getElementById('results-card').hidden=field.previous.resultsHidden;
   state.stressReport?.syncFieldState();
@@ -1908,7 +1975,8 @@ function clearReserveFactorField({render=true}={}){
   return{active:false,message:'RF field cleared.'};
 }
 
-function collectParams({includeView = false} = {}) {
+function collectParams({includeView = false, allowReserveFactorDraft = false} = {}) {
+  if(!allowReserveFactorDraft)assertReserveFactorDraftFinished();
   readMaterialAllowables();
   state.allowablesEditor?.assertValid();
   if(state.importedDeck)return {model_kind:'reference',"materials.allowables":readMaterialAllowables(),"jfem.timeout_minutes":readRunTimeout(),imported_deck:{token:state.importedDeck.token,signature:state.importedDeck.signature,analysis:WingImportedAnalysis.options(state.importedDeck.source?.analysis)}};
@@ -2478,14 +2546,14 @@ function markStudyViewModified() {
   state.studyViewRevision++;
 }
 function markStudySaved(revision = state.studyRevision) {
-  state.studyDirty = revision !== state.studyRevision || !!state.panelTables?.hasDrafts?.(); updateFileStatus();
+  state.studyDirty = revision !== state.studyRevision || resultsHavePendingDrafts(); updateFileStatus();
   state.autosave?.changed();
 }
 function updateFileStatus() {
   const status=document.getElementById("study-file-status"),saved=document.getElementById("file-save-status"),server=document.getElementById("server-input-path");
   const saveButton=document.getElementById("btn-save-model");
   if (saveButton) {
-    const dirty=state.studyDirty || !!state.panelTables?.hasDrafts?.();
+    const dirty=state.studyDirty || resultsHavePendingDrafts();
     saveButton.dataset.saved=String(!dirty);
     saveButton.title=(dirty ? "Unsaved definition changes. " : "Study definition saved. ")+(state.studyFileHandle ? "Save to "+state.studyFile+". Use Save Study as… to choose another file." : "Choose a filename and folder for this Study. If the browser picker is unavailable, a system Save dialog lets you choose the folder.")+" Camera and display changes do not change this indicator; saving still includes their current settings.";
     saveButton.setAttribute("aria-description",dirty ? "Unsaved changes" : "Study saved");
@@ -2912,7 +2980,7 @@ async function previewStudyComments(file,context={}) {
 
 async function saveModelDefinition({saveAs=false,noteText} = {}) {
   if (!workspaceOperationAvailable()) return false;
-  try { state.panelTables?.assertValidDraft?.(); }
+  try { state.panelTables?.assertValidDraft?.(); assertReserveFactorDraftFinished(); }
   catch(error) { showOperationError("Study not saved",error.message);log(error.message,"warn");return false; }
   const title=state.importedDeck ? fileBasename(state.importedDeck.source.name).replace(/\.(bdf|dat|nas)$/i,"") : state.values["output.title"];
   const name=state.studyFile || WingWorkspace.filename(title);
@@ -2967,6 +3035,7 @@ async function autosaveStudy(stamp) {
     throw Error("Autosave needs write access. Click Save Study to grant it, then re-enable Autosave. Your changes remain unsaved.");
   if(!current())return false;
   state.panelTables?.assertValidDraft?.();
+  assertReserveFactorDraftFinished();
   // Freeze parameters, view, notes and source before any server/file awaits.
   state.allowablesEditor?.assertValid();
   const parameters=JSON.parse(JSON.stringify(state.importedDeck?{...state.values,"materials.allowables":readMaterialAllowables(),"sensitivity.settings":state.sensitivity?.serialize()||""}:collectParams()));parameters["references.items"]=[];
@@ -2994,9 +3063,9 @@ function installAutosave(){
   if(state.autosave||typeof WingAutosave==="undefined")return;
   const control=document.getElementById("auto-save"),label=document.getElementById("autosave-label"),status=document.getElementById("autosave-status");
   state.autosave=WingAutosave.create({
-    read:()=>({enabled:control.checked,dirty:state.studyDirty||!!state.panelTables?.hasDrafts?.(),revision:state.studyRevision,epoch:state.studyEpoch,
+    read:()=>({enabled:control.checked,dirty:state.studyDirty||resultsHavePendingDrafts(),revision:state.studyRevision,epoch:state.studyEpoch,
       blocked:!state.autoMeshReady?"Autosave waits for a Study.":state.studyRestoring||state.loadingInput||state.workspaceBusy||state.studyCommentOpen?"Autosave waits for the Study operation.":
-        state.panelTables?.hasDrafts?.()?"Autosave waits for unfinished property-table edits.":
+        resultsHavePendingDrafts()?"Autosave waits for unfinished property-table edits.":
         state.reference?.loading||state.reference?.saving||state.reference?.isInteracting()?"Autosave waits for reference editing.":
         state.meshRequestInFlight||state.busy||state.exportBusy||state.polling||state.solverStarting||state.sensitivityBusy?"Autosave waits for the active model or analysis operation.":""}),
     save:autosaveStudy,
@@ -3242,7 +3311,7 @@ async function loadModelDefinition(file, options = {}) {
         state.autoMeshPending=false;setModelDirty(false);fitView();
       }
       staged.finalize();
-      state.panelTables?.resetDrafts?.();
+      state.rfPropertyEditor?.close();state.panelTables?.resetDrafts?.();
       state.studyNotes=parametersOnly ? {text:"",history:[]} : definition.notes;
       state.studyCreatedAt=parametersOnly ? null : definition.created_at || null;
       state.studySavedAt=parametersOnly ? null : definition.saved_at || definition.created_at || null;
@@ -3399,7 +3468,7 @@ async function loadDiskResults(file,{choose}={}) {
       // References belong to a Study and must never remain attached to an
       // unrelated archived mesh. A staged empty set is reversible on error.
       const references=await state.reference?.stagePortable([],view.reference);references?.commit();references?.finalize();
-      state.panelTables?.resetDrafts?.();setModelDirty(false);selectLoadCase(state.activeCase);fitView();
+      state.rfPropertyEditor?.close();state.panelTables?.resetDrafts?.();setModelDirty(false);selectLoadCase(state.activeCase);fitView();
       updateFileStatus();showStats(mesh,file.size,0);activateWorkspaceTab('results');
       log('Opened '+file.name+': '+mesh.nodes.count+' GRID nodes; '+results.load_cases.length+' result case(s). '+mesh.imported_deck.warnings.join(' '),'good');
       meshStatus('Stored results: '+file.name,'current');return true;
@@ -3909,6 +3978,7 @@ function initScene(initializedEngine = null) {
     enforcePanelIsolation();
     syncHistoricalBaselineOverlays();
     suppressSensitivityOverlays();
+    syncReserveFactorVisibility();
     if (!state.results || state.activeMode < -1) return;
     if (!activeShape()) return;
     if (animating()) {
@@ -4261,21 +4331,28 @@ function markerMesh(name, positions, nodes, hex, radius) {
 }
 
 /** Unique element edges of every shell group, for the FE wireframe. */
-function shellEdgePairs(groups) {
+function shellEdgePairs(groups,allowed=null) {
   const seen = new Set();
   const pairs = [];
   for (const g of groups) {
-    if(g.kind==="solid"){
+    if(g.kind==="solid"&&!allowed){
       const edges=asI32(g.edge_conn);for(let i=0;i<edges.length;i+=2){const a=edges[i],b=edges[i+1],key=a<b?a+":"+b:b+":"+a;if(!seen.has(key)){seen.add(key);pairs.push(a,b);}}continue;
     }
-    if (g.kind !== "quad" && g.kind !== "tria") continue;
-    const stride = g.n_per_elem || (g.kind === "tria" ? 3 : 4);
+    if (g.kind !== "quad" && g.kind !== "tria" && g.kind !== "solid") continue;
+    const stride = g.n_per_elem || (g.kind === "quad" ? 4 : 3),ids=allowed?groupIds(g):null;
+    // Solid render groups contain external triangular faces, not volume
+    // connectivity. Keep their recorded perimeter edges: a tessellation
+    // diagonal is not a physical edge of a quadrilateral solid face.
+    let perimeter=null;
+    if(g.kind==="solid"){perimeter=new Set();const edges=asI32(g.edge_conn);for(let i=0;i<edges.length;i+=2){const a=edges[i],b=edges[i+1];perimeter.add(a<b?a+":"+b:b+":"+a);}}
     const conn = asI32(g.conn);
     for (let e = 0; e < conn.length / stride; e++) {
+      if(allowed&&!allowed.has(ids[e]))continue;
       for (let t = 0; t < stride; t++) {
         const a = conn[stride * e + t];
         const b = conn[stride * e + ((t + 1) % stride)];
         const key = a < b ? a + ":" + b : b + ":" + a;
+        if(perimeter&&!perimeter.has(key))continue;
         if (seen.has(key)) continue;
         seen.add(key);
         pairs.push(a, b);
@@ -4747,10 +4824,10 @@ function syncMeshEdges(){
     if(property&&state.panelExplosion.active){
       // Keep imported models with thousands of PIDs batched. Duplicate an
       // edge only across properties, then offset each property's own copy.
-      const chunks=[...batches].map(([pid,members])=>({pid,edges:shellEdgePairs(members)})),size=chunks.reduce((n,c)=>n+c.edges.length,0),pairs=new Int32Array(size),ranges=[];let start=0;
+      const chunks=[...batches].map(([pid,members])=>({pid,edges:shellEdgePairs(members,state.rfVisibleElementIds)})),size=chunks.reduce((n,c)=>n+c.edges.length,0),pairs=new Int32Array(size),ranges=[];let start=0;
       for(const chunk of chunks){pairs.set(chunk.edges,start);ranges.push({pid:chunk.pid,start,count:chunk.edges.length});start+=chunk.edges.length;}
       const mesh=lineMesh("MESH_EDGES-PROPERTIES",currentPositions(),pairs,layer.color,EXTRA_STYLE.MESH_EDGES.alpha,true);if(mesh){mesh.renderingGroupId=1;mesh.material.zOffset=-1;mesh.explodedVertexRanges=ranges;applyExplodedVertices(mesh);layer.meshes.push(mesh);}count=size/2;
-    }else for(const [id,members]of batches){const edges=shellEdgePairs(members),mesh=lineMesh("MESH_EDGES"+(id==null?"":"-P"+id),currentPositions(),edges,layer.color,EXTRA_STYLE.MESH_EDGES.alpha,true);count+=edges.length/2;
+    }else for(const [id,members]of batches){const edges=shellEdgePairs(members,state.rfVisibleElementIds),mesh=lineMesh("MESH_EDGES"+(id==null?"":"-P"+id),currentPositions(),edges,layer.color,EXTRA_STYLE.MESH_EDGES.alpha,true);count+=edges.length/2;
       if(mesh){mesh.renderingGroupId=1;mesh.material.zOffset=-1;if(property)mesh.explodedPropertyId=id;else mesh.explodedPanelId=id;state.panelExplosion?.applyMesh(mesh,id);layer.meshes.push(mesh);}}
     layer.count=count+" edges";state.edgeVisibilityKey=key;
   }
@@ -5611,7 +5688,7 @@ function propertyLegendCategories(c){
 function reserveFactorFieldLegend(c){
   const gradient='linear-gradient(to right, '+WingReserveFactorTableData.colorStops({min:0,max:2},c.palette).map(stop=>stop.color+' '+(stop.position*100)+'%').join(', ')+')';
   return{kind:'reserve-factor',paletteEditable:false,title:c.name,unit:c.unit,min:c.min,max:c.max,categories:propertyLegendCategories(c),caseLabel:c.caseLabel,gradient,
-    formatNumber:WingReserveFactorTableData.format,note:c.stale?c.note:[c.available+' / '+c.total+' elements assessed','Gray = unassessed or inapplicable',
+    formatNumber:WingReserveFactorTableData.format,note:c.stale?c.note:[c.available+' / '+c.total+' elements assessed',state.rfField?.request.onlyBelowOne?'Only assessed RF < 1 shown; RF ≥ 1 and unassessed elements hidden':'Gray = unassessed or inapplicable',
       c.categorical?'Category colors identify the governing check': 'RF colors: 0–2; saturated above 2 · Yellow = RF > 1 at minimum gauge',
       !c.categorical&&Number.isFinite(c.actualMin)?'Actual RF range '+WingReserveFactorTableData.format(c.actualMin)+'–'+WingReserveFactorTableData.format(c.actualMax):'',
       'Inspect an element for the RF, case, scope and assessment details'].filter(Boolean).join(' · ')};
@@ -5710,6 +5787,7 @@ function applyContour() {
 
   applyAeroOverlayStyles();
   syncFuelResultOverlay(c);
+  syncReserveFactorVisibility();
   if (!c||c.kind==="panels") {
     legend.className = "empty";
     WingLegends.render(legend,[]);
@@ -7174,8 +7252,9 @@ function modelVectorAt(values, index) {
 
 function visibleNodeIndices() {
   const nodes = new Set();
-  for (const element of state.elements.values()) if (state.layers.get(element.group.name)?.visible)
+  for (const element of state.elements.values()) if (state.layers.get(element.group.name)?.visible&&(!state.rfVisibleElementIds||state.rfVisibleElementIds.has(element.id)))
     for (const node of element.nodes) nodes.add(node);
+  if(state.rfVisibleElementIds)return nodes;
   for (const marker of state.markers) if (state.layers.get(marker.kind)?.visible) nodes.add(marker.node);
   if(state.layers.get("SPC")?.visible)for(const node of state.supportGlyphs?.nodes || [])nodes.add(node);
   if (state.layers.get("NODES")?.visible) for (let i = 0; i < state.data.nodes.n_structural; i++) nodes.add(i);
@@ -7283,11 +7362,11 @@ function pickNode(x, y, {inspect=true}={}) {
 function pickElement(x, y, {filter=document.getElementById("inspect-entity")?.value||"all",inspect=true}={}) {
   if (filter === "nodes") return pickNode(x, y,{inspect});
   if(filter==='coordinate'){
-    const pick=state.scene.pick(x,y,mesh=>mesh.isEnabled()&&mesh.isPickable&&mesh.metadata?.coordinateIds);
+    const pick=state.scene.pick(x,y,mesh=>mesh.isEnabled()&&mesh.isVisible&&mesh.isPickable&&mesh.metadata?.coordinateIds);
     const cid=WingModelEntities.pickedCoordinateId(pick);if(cid===undefined)return null;
     showCoordinate(cid);expandPanel('pick-card');return cid;
   }
-  const eligible = (mesh) => mesh.isEnabled() && mesh.isPickable && mesh.metadata?.feGroup && inspectionMatches(mesh.metadata.feGroup,filter);
+  const eligible = (mesh) => mesh.isEnabled() && mesh.isVisible && mesh.isPickable && mesh.metadata?.feGroup && inspectionMatches(mesh.metadata.feGroup,filter);
   const foreground = !!document.getElementById("show-bars-through")?.checked;
   const occluded = inspectionDepthTest();
   // Give visible coplanar bars a pick target on their skin edge. Hidden bars

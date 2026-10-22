@@ -18,10 +18,12 @@
     {key:"fuel",label:"Fuel inertia",color:"#c7a0ff"},
     {key:"total",label:"Total",color:"#63ddb1"},
   ];
+  const THEMES={dark:{background:'#111c27',text:'#e0eaf2',muted:'#a6bbcd',grid:'#26394a',zero:'#72899a',cursor:'#d8e5ef',colors:{aerodynamic:'#6ebdff',structure:'#f7bd66',fuel:'#c7a0ff',total:'#63ddb1',elliptical:'#ffd276'}},light:{background:'#ffffff',text:'#20384d',muted:'#415b70',grid:'#dce5ec',zero:'#718394',cursor:'#263f54',colors:{aerodynamic:'#0969b4',structure:'#a95b00',fuel:'#7b3fb0',total:'#00785b',elliptical:'#a95b00'}}};
+  const plotHeight=width=>Math.round(Math.max(340,Math.min(520,width*.43)));
   function validateState(value){
-    if(value==null)return {mode:"distributed",visible:COMPONENTS.map(c=>c.key)};
-    if(typeof value!=="object"||Array.isArray(value)||Object.keys(value).some(key=>!['mode','visible'].includes(key))||!['distributed','fe'].includes(value.mode)||!Array.isArray(value.visible)||value.visible.some(key=>!COMPONENTS.some(c=>c.key===key))||new Set(value.visible).size!==value.visible.length)throw new Error("Invalid load-plot display settings.");
-    return {mode:value.mode,visible:COMPONENTS.filter(c=>value.visible.includes(c.key)).map(c=>c.key)};
+    if(value==null)return {mode:"distributed",visible:COMPONENTS.map(c=>c.key),theme:"dark"};
+    if(typeof value!=="object"||Array.isArray(value)||Object.keys(value).some(key=>!['mode','visible','theme'].includes(key))||!['distributed','fe'].includes(value.mode)||!Array.isArray(value.visible)||value.visible.some(key=>!COMPONENTS.some(c=>c.key===key))||new Set(value.visible).size!==value.visible.length||value.theme!==undefined&&!Object.hasOwn(THEMES,value.theme))throw new Error("Invalid load-plot display settings.");
+    return {mode:value.mode,visible:COMPONENTS.filter(c=>value.visible.includes(c.key)).map(c=>c.key),theme:value.theme||"dark"};
   }
   function samples(data,spec,component="total",mode="distributed") {
     const source=spec.source==="resultants"?(mode==="fe"?data?.fe_resultants?.[component]:data?.components?.[component])??(component==="total"?data?.resultants:null):data?.[spec.source];
@@ -44,7 +46,7 @@
     const doc=host.ownerDocument;
     const element=(tag,cls,text)=>{const e=doc.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;};
     const svgElement=(tag,attrs,text)=>{const e=doc.createElementNS("http://www.w3.org/2000/svg",tag);for(const [k,v] of Object.entries(attrs||{}))e.setAttribute(k,String(v));if(text!==undefined)e.textContent=text;return e;};
-    let cases=[],active=1,dirty=false,lastWidth=0,mode="distributed",visible=new Set(COMPONENTS.map(c=>c.key));
+    let cases=[],active=1,dirty=false,lastWidth=0,mode="distributed",theme="dark",visible=new Set(COMPONENTS.map(c=>c.key));
     function aerodynamicPerformance(summary,data) {
       const box=element("div","plot-aero-performance");
       const solved=summary?.method==="vortex_lattice",ar=solved?(summary.aspect_ratio??((2*data.semispan_m)**2/summary.reference_area_m2)):null;
@@ -56,15 +58,37 @@
       const note=solved?"Selected aerodynamic case · full-span coefficients before the structural load multiplier. Inviscid e is not the viscous Oswald factor; profile drag is not modeled.":"Prescribed lift has no aerodynamic wake solution: induced drag and span efficiency are unavailable. The equal-lift ellipse remains a geometric comparison.";
       box.appendChild(element("p","plot-explanation",note));return box;
     }
-    function plot(data,spec,width,summary) {
+    function exportSVG(data,spec,summary,caseLabel) {
+      // Rebuild at a publication-friendly vector width, independent of a
+      // narrow options pane. The exported diagram carries its own styles.
+      const card=plot(data,spec,988,summary,{exporting:true}),graph=card.querySelector('svg');if(!graph)return null;
+      const palette=THEMES[theme],width=1000,pad=20,svg=svgElement('svg',{xmlns:'http://www.w3.org/2000/svg',width,role:'img','aria-label':spec.title+' — '+caseLabel});
+      svg.append(svgElement('title',{},spec.title+' · '+spec.symbol+' ['+spec.unit+']'),svgElement('desc',{},'Selected load case: '+caseLabel+'. '+(dirty?'Parameters changed; data belong to the last created mesh.':'Current generated load distribution.')));
+      const background=svgElement('rect',{width:'100%',height:'100%',fill:palette.background});svg.append(background);
+      svg.append(svgElement('style',{},`text{font-family:Arial,Helvetica,sans-serif;fill:${palette.text}}.plot-tick{fill:${palette.muted};font-size:11px}.plot-grid{stroke:${palette.grid};stroke-width:1}.plot-zero{stroke:${palette.zero};stroke-width:1}`));
+      let y=30;
+      function paragraph(text,size=12,color=palette.muted){if(!text)return;const limit=Math.floor((width-2*pad)/(size*.6)),words=String(text).trim().split(/\s+/),lines=[];let line='';for(const word of words){if(line&&line.length+word.length+1>limit){lines.push(line);line=word;}else line+=(line?' ':'')+word;}if(line)lines.push(line);for(const value of lines){svg.append(svgElement('text',{x:pad,y,'font-size':size,fill:color,style:'fill:'+color},value));y+=size*1.5;}y+=6;}
+      paragraph(spec.title+' · '+spec.symbol+' ['+spec.unit+']',20,palette.text);
+      paragraph('Load case '+caseLabel+(spec.source==='resultants'?' · '+(mode==='fe'?'Exact FE point loads':'Distributed sources'):''),13);
+      if(dirty)paragraph('Parameters changed — these graphs belong to the last created mesh.',12,theme==='light'?'#995000':'#ffbe71');
+      const graphHeight=Number(graph.getAttribute('height'));graph.setAttribute('x',pad);graph.setAttribute('y',y);graph.setAttribute('width',width-2*pad);graph.querySelectorAll('.plot-interaction').forEach(e=>e.remove());svg.append(graph);y+=graphHeight+25;
+      let lx=pad;for(const line of graph.querySelectorAll('.plot-series')){const label=line.querySelector('title')?.textContent||line.dataset.component,span=44+label.length*8;if(lx+span>width-pad){lx=pad;y+=24;}svg.append(svgElement('line',{x1:lx,y1:y-4,x2:lx+28,y2:y-4,stroke:line.getAttribute('stroke'),'stroke-width':line.getAttribute('stroke-width'),...(line.hasAttribute('stroke-dasharray')?{'stroke-dasharray':line.getAttribute('stroke-dasharray')}:{})}),svgElement('text',{x:lx+35,y,'font-size':12},label));lx+=span+22;}y+=26;
+      if(spec.source==='distribution'){paragraph([...card.querySelectorAll('.plot-aero-metric')].map(e=>e.firstElementChild.textContent+' = '+e.lastElementChild.textContent).join(' · '),13,palette.text);}
+      const notes=spec.source==='distribution'?[card.querySelector('.plot-aero-performance .plot-explanation')?.textContent,data.distribution?.note,data.distribution?.elliptical_note,summary?.span_efficiency_note]:[mode==='fe'?'Exact deck point loads: jumps occur at the FE application nodes.':'Distributed aerodynamic and inertia sources integrated along the span.',data.reference_note,data.sign_note,data.resultant_note];
+      for(const note of new Set(notes.filter(Boolean)))paragraph(note);
+      svg.setAttribute('height',Math.ceil(y+pad));svg.setAttribute('viewBox',`0 0 ${width} ${Math.ceil(y+pad)}`);
+      return '<?xml version="1.0" encoding="UTF-8"?>\n'+new doc.defaultView.XMLSerializer().serializeToString(svg)+'\n';
+    }
+    function plot(data,spec,width,summary,{exporting=false,caseLabel=''}={}) {
       const card=element("section","span-plot");card.dataset.quantity=spec.key;
-      card.appendChild(element("h3","",spec.title+" · "+spec.symbol+" ["+spec.unit+"]"));
+      const heading=element('div','plot-heading');heading.appendChild(element("h3","",spec.title+" · "+spec.symbol+" ["+spec.unit+"]"));card.append(heading);
       const curves=spec.source==="distribution"?[{key:"aerodynamic",label:spec.symbol,color:spec.color,points:samples(data,spec)},
         {key:"elliptical",label:"Equal-lift ellipse",color:"#ffd276",dashed:true,points:samples(data,{...spec,key:"elliptical_cl_chord_m"})}].filter(c=>c.points.length):
         COMPONENTS.filter(c=>visible.has(c.key)).map(c=>({...c,points:samples(data,spec,c.key,mode)})).filter(c=>c.points.length);
-      const points=curves.flatMap(c=>c.points);
+      const palette=THEMES[theme];for(const c of curves)c.color=palette.colors[c.key]||c.color;const points=curves.flatMap(c=>c.points);
       if(!points.length) {card.appendChild(element("p","pick-note",spec.source==="resultants"&&!visible.size?"Select at least one resultant curve above.":"This quantity is unavailable for this load case."));return card;}
-      const widthPx=Math.max(268,width-28),height=218,left=65,right=16,top=15,bottom=40;
+      if(!exporting){const button=element('button','mini plot-export','Export SVG');button.type='button';button.setAttribute('aria-label','Export '+spec.title+' as SVG');button.title='Save this graph with its selected case, visible curves, units, legend and definitions. Uses the current light or dark theme.';button.onclick=()=>{const text=exportSVG(data,spec,summary,caseLabel);if(!text)return;const url=doc.defaultView.URL.createObjectURL(new Blob([text],{type:'image/svg+xml;charset=utf-8'})),link=element('a');link.href=url;link.download='load-case-'+String(active).replace(/[^a-z0-9_-]/gi,'_')+'-'+spec.key+'.svg';link.click();setTimeout(()=>doc.defaultView.URL.revokeObjectURL(url),1000);};heading.append(button);}
+      const widthPx=Math.max(268,width-28),height=plotHeight(width),left=65,right=16,top=15,bottom=40;
       const b=bounds(points),sx=x=>left+(x-b.xmin)/(b.xmax-b.xmin)*(widthPx-left-right),sy=y=>height-bottom-(y-b.ymin)/(b.ymax-b.ymin)*(height-top-bottom);
       const svg=svgElement("svg",{viewBox:`0 0 ${widthPx} ${height}`,width:"100%",height,role:"img","aria-label":spec.title+" versus span y in metres"});
       svg.appendChild(svgElement("title",{},spec.title+" ["+spec.unit+"]"));
@@ -88,8 +112,8 @@
         const line=svgElement("path",{d:path,fill:"none",stroke:curve.color,"stroke-width":curve.key==="total"?2.8:1.6,"vector-effect":"non-scaling-stroke",class:"plot-series","data-component":curve.key,...(curve.dashed?{"stroke-dasharray":"6 4"}:{})});
         line.appendChild(svgElement("title",{},curve.label));svg.appendChild(line);
       }
-      const cursor=svgElement("line",{x1:0,x2:0,y1:top,y2:height-bottom,stroke:"#d8e5ef","stroke-dasharray":"3 3",visibility:"hidden"});svg.appendChild(cursor);
-      const dot=svgElement("circle",{cx:0,cy:0,r:4,fill:"#d8e5ef",visibility:"hidden"});svg.appendChild(dot);
+      const cursor=svgElement("line",{x1:0,x2:0,y1:top,y2:height-bottom,stroke:palette.cursor,"stroke-dasharray":"3 3",visibility:"hidden",class:'plot-interaction'});svg.appendChild(cursor);
+      const dot=svgElement("circle",{cx:0,cy:0,r:4,fill:palette.cursor,visibility:"hidden",class:'plot-interaction'});svg.appendChild(dot);
       const readout=element("p","plot-readout","Move over the graph to read values.");
       svg.addEventListener("pointermove",event=>{
         const rect=svg.getBoundingClientRect(),px=(event.clientX-rect.left)*widthPx/rect.width,py=(event.clientY-rect.top)*height/rect.height;
@@ -109,7 +133,8 @@
       return card;
     }
     function render() {
-      const width=host.clientWidth || 330;lastWidth=width;host.replaceChildren();
+      const width=host.clientWidth || 330;lastWidth=width;host.replaceChildren();host.dataset.plotTheme=theme;host.classList.add('load-plots');
+      const toolbar=element('div','plot-toolbar'),themeButton=element('button','mini',theme==='dark'?'Light mode':'Dark mode');themeButton.type='button';themeButton.id='plots-theme-toggle';themeButton.setAttribute('aria-pressed',String(theme==='light'));themeButton.title='Change the plot and exported SVG backgrounds; keeps the model viewport theme unchanged.';themeButton.onclick=()=>{theme=theme==='dark'?'light':'dark';render();onChange();};toolbar.append(themeButton);host.append(toolbar);
       const label=element("label","case-picker-label","Displayed load case");label.htmlFor="plots-case-select";
       const select=element("select");select.id="plots-case-select";select.setAttribute("aria-label","Load plots case");
       for(const c of cases){const option=element("option","",c.id+" · "+c.label);option.value=c.id;select.appendChild(option);}
@@ -125,12 +150,12 @@
         const toggles=element("div","plot-component-toggles");
         for(const component of COMPONENTS){const item=element("label","plot-component"),check=element("input");check.type="checkbox";check.checked=visible.has(component.key);check.dataset.component=component.key;check.setAttribute("aria-label",component.label+" curve");
           check.onchange=()=>{if(check.checked)visible.add(component.key);else visible.delete(component.key);render();onChange();};
-          const swatch=element("span","plot-swatch");swatch.style.background=component.color;item.append(check,swatch,doc.createTextNode(component.label));toggles.appendChild(item);}
+          const swatch=element("span","plot-swatch");swatch.style.background=THEMES[theme].colors[component.key];item.append(check,swatch,doc.createTextNode(component.label));toggles.appendChild(item);}
         tools.appendChild(toggles);host.appendChild(tools);
         host.appendChild(element("p","plot-explanation",mode==="fe"?"Exact deck application: separate upward aerodynamic and downward inertia loads create real steps at their FE nodes. These steps depend on the load transfer mesh.":"Distributed sources: panel loads, filled fuel volumes and structural element masses are integrated along the span. Root forces and moments match the deck; concentrated rib loads keep their jumps."));
         if(!data.structure_inertia)host.appendChild(element("p","plot-explanation","Structural inertia is disabled for this case. Enable Include structural inertia in Cases to apply the shared acceleration to the dry structure."));
       }
-      const stack=element("div","span-plot-stack");for(const spec of SPECS)stack.appendChild(plot(data,spec,width,current?.loads?.summary));host.appendChild(stack);
+      const stack=element("div","span-plot-stack");for(const spec of SPECS)stack.appendChild(plot(data,spec,width,current?.loads?.summary,{caseLabel:current.id+' · '+current.label}));host.appendChild(stack);
       const notes=element("details","plot-notes");notes.appendChild(element("summary","","Definitions, axes and signs"));
       for(const text of [data.distribution?.note,data.distribution?.elliptical_note,current?.loads?.summary?.span_efficiency_note,data.reference_note,data.sign_note,data.resultant_note,data.structure_inertia_migration_note])if(text)notes.appendChild(element("p","pick-note",text));
       host.appendChild(notes);
@@ -139,9 +164,9 @@
     const observer=Observer?new Observer(()=>{if(Math.abs(host.clientWidth-lastWidth)>2)render();}):null;
     observer?.observe(host);
     return {update(next,id,stale){cases=next||[];active=id;dirty=!!stale;render();},
-      capture(){return {mode,visible:COMPONENTS.filter(c=>visible.has(c.key)).map(c=>c.key)};},
-      restore(value){const next=validateState(value);mode=next.mode;visible=new Set(next.visible);render();},
-      dispose(){observer?.disconnect();host.replaceChildren();}};
+      capture(){return {mode,visible:COMPONENTS.filter(c=>visible.has(c.key)).map(c=>c.key),theme};},
+      restore(value){const next=validateState(value);mode=next.mode;visible=new Set(next.visible);theme=next.theme;render();},
+      dispose(){observer?.disconnect();host.replaceChildren();host.classList.remove('load-plots');delete host.dataset.plotTheme;}};
   }
-  return {SPECS,COMPONENTS,samples,bounds,format,create,validateState};
+  return {SPECS,COMPONENTS,THEMES,plotHeight,samples,bounds,format,create,validateState};
 });

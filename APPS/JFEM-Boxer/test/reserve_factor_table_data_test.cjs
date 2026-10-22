@@ -242,4 +242,18 @@ test('Combined plate diagnostics retain distinct per-case reasons and scopes wit
  const r=row(17,null,{complete:false,combined:{assessments:[{failureMode:'skin_buckling',modeLabel:'Skin buckling',scope:'Synthetic plate region',plateCases:[{label:'Case A',recovered:3,total:3,converged:false,basisM:13,basisN:13,basisSize:169,reason:'Basis unresolved.'},{label:'Case B',recovered:2,total:3,reason:'Missing EID 41.'}]}]}}),m=data.build(data.compact({report:{...report([r]),failureMode:'minimum_rf'}}));
  const notes=data.plateDiagnosticNotes(m.rows[0].record);assert.equal(notes.length,2);assert.match(notes[0],/Skin buckling · Synthetic plate region · Case A/);assert.match(notes[1],/Case B: Membrane recovery 2 \/ 3.*Missing EID 41/);assert.equal(m.rows[0].value,null);assert.match(data.csv(m),/Case A.*Case B/);
 });
+test('Strict below-one filtering excludes the threshold and unavailable results in lists, grids and exports',()=>{
+ const rows=[row(5000001,.9999),row(7000001,1),row(5000002,2),row(7000002,.4,{complete:false}),row(5000003,.3,{coverage:{recovered:1,total:2}}),row(7000003,null)];
+ for(const presentation of ['reserve_factor','critical_case','failure_mode'])for(const view of ['flat','grid']){
+  const m=data.build({generated:true,panels:[panel(1),panel(2,2),panel(3,3)],report:report(rows),group:'upper',view,presentation,onlyBelowOne:true});
+  assert.deepEqual(m.rows.map(r=>r.pid),[5000001]);assert.equal(m.onlyBelowOne,true);assert.equal(data.table(m).rows.length,1);
+  for(const output of[data.csv(m),data.markdown(m),data.html(m)]){assert.match(output,/RF filter: fully assessed RF strictly below 1/);assert.match(output,/5000001/);assert.doesNotMatch(output,/7000001|5000002|7000002|5000003|7000003/);}
+ }
+ assert.equal(data.build({report:report(rows),view:'flat',onlyBelowOne:false}).rows.length,6);
+ assert.equal(data.build({report:report([row(1,1),row(2,null)]),onlyBelowOne:true}).rows.length,0);
+});
+test('A shared failing property remains one full-property assessment after filtering',()=>{
+ const r=row(5000001,.5),m=data.build({generated:true,panels:[panel(1),{...panel(2,2),shell_pid:5000001}],report:report([r]),group:'upper',onlyBelowOne:true});
+ assert.equal(m.rows.length,1);assert.equal(m.matrix.shared.length,1);assert.equal(m.matrix.shared[0].pid,5000001);assert.equal(data.table(m).rows.length,1);
+});
 console.log(passed+' reserve factor table data tests passed.');

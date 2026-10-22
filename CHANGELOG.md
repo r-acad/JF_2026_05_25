@@ -5,6 +5,19 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Reserve-factor isolation, property editing and load plots
+
+- Filter Stress Report 3D fields and detached Reserve factors tables to assessed
+  RF values strictly below 1, retaining actual element ownership and restoring
+  the previous entity visibility when the filter is cleared.
+- Edit generated skin, stringer, spar, rib and leading-edge properties directly
+  from RF cells. Validate local overrides against the existing minimum gauges,
+  show below-gauge drafts in red, and require new analysis after applied edits.
+  Protect edits against stale meshes, locked forms and concurrent Study changes.
+- Make aerodynamic load graphs taller, add a persistent light theme, and export
+  individual graphs as standalone SVGs with case labels, units, legends and
+  the visible aerodynamic curves and metrics.
+
 ### Stringer run-outs at rib datums
 
 - Terminate full-size beam and shell stringers at the inboard physical rib of

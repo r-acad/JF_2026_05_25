@@ -1,7 +1,7 @@
 /* Results / Stress Report: property statistics across physical load cases. */
 (function(root){
  'use strict';
- function install({document,host,readContext,onEditAllowables,onShowField,onClearField,readFieldState}){
+ function install({document,host,readContext,onEditAllowables,onEditProperty,onShowField,onClearField,readFieldState}){
   const data=root.WingStressReportData,tableData=root.WingReserveFactorTableData,finite=Number.isFinite;
   const modeInfo=mode=>tableData.modeInfo(mode);
   let report=null,cache=null,table='stress',page=0,lastContext=null,validationError='';const palettes={stress:'viridis',reserve:'signed'};
@@ -41,10 +41,14 @@
   const fieldPalette=select('stress-report-field-palette',tableData.PALETTES);fieldPalette.value='signed';
   fieldPalette.title='Numerical RF fields use fixed limits 0 and 2. Critical-case and failure-mode fields use category colors instead. Gray regions have no complete assessment.';
   const fieldTools=el('div',undefined,'stress-report-field-tools'),showField=el('button','Show field','mini'),clearField=el('button','Clear field','mini');showField.type=clearField.type='button';showField.id='stress-report-show-field';clearField.id='stress-report-clear-field';showField.disabled=clearField.disabled=true;fieldTools.append(showField,clearField);
+  const onlyFailing=el('input');onlyFailing.type='checkbox';onlyFailing.id='stress-report-field-only-failing';
+  const onlyFailingLabel=el('label',undefined,'stress-report-field-filter');onlyFailingLabel.append(onlyFailing,el('span','Show only elements with RF < 1'));
+  onlyFailingLabel.title='Temporarily hide elements with RF ≥ 1 and elements without a complete RF assessment. Critical-case and failure-mode fields use their governing numerical RF. Existing entity visibility choices are preserved; turn this off or clear the field to restore them.';
+  fieldTools.append(onlyFailingLabel);
   const fieldStatus=el('p','Choose a field to color the full model.','stress-report-field-status');fieldStatus.id='stress-report-field-status';fieldStatus.setAttribute('role','status');fieldStatus.setAttribute('aria-live','polite');
-  fields3D.append(field('Field',fieldMode),field('Field color scale',fieldPalette),fieldTools,el('p','Uses the selected load-case scope and property envelope above, across the whole model. The table text filter does not hide or exclude regions. Incomplete regions remain gray.','pick-note'),fieldStatus);
+  fields3D.append(field('Field',fieldMode),field('Field color scale',fieldPalette),fieldTools,el('p','Uses the selected load-case scope and property envelope above, across the whole model. The table text filter does not hide regions. Incomplete regions remain gray unless the RF < 1 filter is enabled.','pick-note'),fieldStatus);
   let localFieldState={active:false,message:''},fieldPending=false,fieldEpoch=0,fieldActionError='';
-  function getFieldRequest(){const value=fieldMode.value;return{kind:value.startsWith('rf:')?'failure_rf':value,...(value.startsWith('rf:')?{failureMode:value.slice(3)}:{}),caseId:scope.value==='all'?'all':Number(scope.value),method:method.value,percentile:Number(percentile.value),palette:fieldPalette.value};}
+  function getFieldRequest(){const value=fieldMode.value;return{kind:value.startsWith('rf:')?'failure_rf':value,...(value.startsWith('rf:')?{failureMode:value.slice(3)}:{}),caseId:scope.value==='all'?'all':Number(scope.value),method:method.value,percentile:Number(percentile.value),palette:fieldPalette.value,onlyBelowOne:onlyFailing.checked};}
   function fieldState(){return readFieldState?.()||localFieldState;}
   function fieldBlockReason(){return validationError||(!report?'Create a current Stress Report first.':lastContext?.modelDirty||lastContext?.pendingDrafts?'The model has changed. Run a current analysis before showing an RF field.':lastContext?.running?'An analysis is running. RF fields are withheld until current results are available.':!report.includedCases.length?'No eligible current SOL101 or full-load SOL106 result is available.':'');}
   function syncFieldState(next){if(next&&typeof next==='object')localFieldState={...localFieldState,...next};const current=fieldState(),blocked=fieldBlockReason();showField.disabled=fieldPending||!!blocked;clearField.disabled=!current.active&&!fieldPending;showField.setAttribute('aria-pressed',String(!!current.active));fieldPalette.disabled=['critical_case','critical_failure'].includes(fieldMode.value);fieldStatus.textContent=fieldPending?'Preparing the 3D field…':blocked||fieldActionError||(current.message||(!current.active?'Choose a field to color the full model.':'Field shown in the 3D model.'));fieldStatus.dataset.active=String(!!current.active);fieldStatus.dataset.blocked=String(!!blocked||!!fieldActionError);}
@@ -58,8 +62,9 @@
   }
   showField.onclick=()=>{refresh();requestField(false);};clearField.onclick=()=>{fieldEpoch++;fieldPending=false;fieldActionError='';const next=onClearField?.();syncFieldState(next||{active:false,message:'RF field cleared.'});};
   fieldMode.onchange=fieldPalette.onchange=()=>{syncFieldState();requestField(true);};
+  onlyFailing.onchange=()=>{syncFieldState();requestField(true);};
   const status=el('p',undefined,'stress-report-status');status.id='stress-report-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');
-  const detached=root.WingReserveFactorTables?.connect({readSnapshot:()=>({report,requestedFailureMode:failureMode.value,error:validationError,panels:lastContext?.panels||[],componentGroups:lastContext?.componentGroups||[],generated:!!lastContext?.generated,caseScopeLabel:scope.selectedOptions[0]?.textContent||'All eligible load cases'}),onFailureMode:value=>{failureMode.value=value;if(value!=='von_mises')table='reserve';refresh(true);if(report?.failureMode!==value)throw new Error(validationError||'The selected assessment is unavailable.');},onError:message=>{status.textContent=message;status.dataset.complete='false';}});
+  const detached=root.WingReserveFactorTables?.connect({readSnapshot:()=>({report,requestedFailureMode:failureMode.value,error:validationError,panels:lastContext?.panels||[],componentGroups:lastContext?.componentGroups||[],generated:!!lastContext?.generated,caseScopeLabel:scope.selectedOptions[0]?.textContent||'All eligible load cases'}),onEditProperty,onFailureMode:value=>{failureMode.value=value;if(value!=='von_mises')table='reserve';refresh(true);if(report?.failureMode!==value)throw new Error(validationError||'The selected assessment is unavailable.');},onError:message=>{status.textContent=message;status.dataset.complete='false';}});
   detached?.installButton(actions);
   const legend=el('div',undefined,'stress-report-legend');
   const viewport=el('div',undefined,'stress-report-table-scroll');viewport.tabIndex=0;viewport.setAttribute('role','region');viewport.setAttribute('aria-label','Property results table');

@@ -115,8 +115,12 @@
   categories.forEach((item,i)=>{item.value=i+1;if(labels.get(item.label)>1)item.label+=' ['+item.caseKey+']';});
   if(categorical){const ids=new Map(categories.map(c=>[c.key,c.value]));for(const [eid,detail]of detailsById)if(detail.available&&detail.categoryKey)byId.set(eid,ids.get(detail.categoryKey));}
   for(const [eid,reason]of unavailableById)if(!detailsById.has(eid))detailsById.set(eid,{available:false,status:'unassessed',reason,propertyIds:[index.elements.get(eid).pid]});
+  // Category IDs are presentation values, never reserve factors. Filter using
+  // the same completely assessed, governing numerical RF as the table.
+  const failingElementIds=new Set();
+  for(const [eid,detail]of detailsById)if(byId.has(eid)&&detail.available&&finite(detail.reserveFactor)&&detail.reserveFactor<1)failingElementIds.add(eid);
   const available=byId.size,total=index.elements.size,note=NOTE+(stale?' '+stale:'')+(issues.length?' '+issues.length+' physical-region membership/assessment issue(s) remain; see element details.':'');
-  return{kind:'reserve_factor_field',fieldKind:opt.kind,failureMode:opt.failureMode,palette:opt.palette,name:title,title,unit:categorical?'category':'RF',location:'element',domain:'all',byId,colorById,detailsById,unavailableById,categorical,categories,gradient:categorical?[]:tables.colorStops({min:0,max:2},opt.palette),min:categorical?(categories.length?1:0):0,max:categorical?categories.length:2,actualMin,actualMax,available,total,coverage:{available,total,unavailable:total-available},complete:available===total&&total>0,issues,stale:!!stale,message:stale||available+' / '+total+' structural elements assessed; gray = unassessed or inapplicable.',note,report};
+  return{kind:'reserve_factor_field',fieldKind:opt.kind,failureMode:opt.failureMode,palette:opt.palette,name:title,title,unit:categorical?'category':'RF',location:'element',domain:'all',byId,colorById,detailsById,unavailableById,failingElementIds,categorical,categories,gradient:categorical?[]:tables.colorStops({min:0,max:2},opt.palette),min:categorical?(categories.length?1:0):0,max:categorical?categories.length:2,actualMin,actualMax,available,total,coverage:{available,total,unavailable:total-available},complete:available===total&&total>0,issues,stale:!!stale,message:stale||available+' / '+total+' structural elements assessed; gray = unassessed or inapplicable.',note,report};
  }
  function build(input={},request={}){
   const opt=options(input,request),context={...input,...request,failureMode:opt.failureMode},cached=input.report;

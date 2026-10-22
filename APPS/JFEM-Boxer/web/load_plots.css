@@ -1,31 +1,41 @@
 #panel-loadplots { max-width: 1200px; margin: 0 auto; }
-#plots-case-select { width:100%; padding:8px; border:1px solid var(--line,#2b3d4b); background:#101820; color:#dce7ef; border-radius:4px; }
-.plot-status { font-size:12px; color:#9ac7df; margin:12px 0; }
-.plot-status.stale { color:#ffbe71; }
-.plot-controls { margin:0 0 8px; padding:10px; border:1px solid #344b60; border-radius:5px; }
-.plot-controls legend { color:#c5d7e7; font-size:12px; padding:0 5px; }
+.load-plots { --plot-bg:#111c27; --plot-text:#e0eaf2; --plot-muted:#a6bbcd; --plot-line:#344b60; --plot-grid:#26394a; --plot-zero:#72899a; --plot-input:#101820; --plot-status:#9ac7df; --plot-stale:#ffbe71; }
+.load-plots[data-plot-theme="light"] { --plot-bg:#fff; --plot-text:#20384d; --plot-muted:#415b70; --plot-line:#b4c5d3; --plot-grid:#dce5ec; --plot-zero:#718394; --plot-input:#fff; --plot-status:#285d7d; --plot-stale:#995000; background:#f3f6fa; color:var(--plot-text); border-radius:7px; padding:12px; box-sizing:border-box; }
+.plot-toolbar { display:flex; justify-content:flex-end; margin:0 0 8px; }
+.plot-heading { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+.plot-heading h3 { flex:1; min-width:150px; margin:0!important; }
+.plot-export { white-space:nowrap; flex-shrink:0; }
+#load-plots[data-plot-theme="light"] :is(button,select) { color:var(--plot-text); background:#e6eef6; border-color:var(--plot-line); }
+#load-plots[data-plot-theme="light"] :is(button:hover,button:focus-visible) { background:#d5e6f5; }
+#load-plots[data-plot-theme="light"] :is(.case-picker-label,.pick-note,.plot-notes summary) { color:var(--plot-text); }
+#load-plots[data-plot-theme="light"] .plot-notes { background:var(--plot-bg); border-color:var(--plot-line); }
+#plots-case-select { width:100%; padding:8px; border:1px solid var(--plot-line); background:var(--plot-input); color:var(--plot-text); border-radius:4px; }
+.plot-status { font-size:12px; color:var(--plot-status); margin:12px 0; }
+.plot-status.stale { color:var(--plot-stale); }
+#load-plots .plot-controls { margin:0 0 8px; padding:10px; border:1px solid var(--plot-line); border-radius:5px; }
+#load-plots .plot-controls legend { color:var(--plot-text); font-size:12px; padding:0 5px; }
 .plot-mode-label { display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:12px; }
-.plot-mode-label select { min-width:165px; max-width:65%; background:#101820; color:#dce7ef; border:1px solid #344b60; border-radius:4px; padding:6px; }
+.plot-mode-label select { min-width:165px; max-width:65%; background:var(--plot-input); color:var(--plot-text); border:1px solid var(--plot-line); border-radius:4px; padding:6px; }
 .plot-component-toggles { display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:12px; }
-.plot-component { display:flex; gap:6px; align-items:center; color:#d4e2ed; font-size:12px; cursor:pointer; }
+.plot-component { display:flex; gap:6px; align-items:center; color:var(--plot-text); font-size:12px; cursor:pointer; }
 .plot-component input { margin:0; }
 .plot-swatch { width:15px; height:3px; border-radius:2px; }
-.plot-explanation { color:#a9bfd0; font-size:12px; line-height:1.5; margin:8px 0 12px; }
+.plot-explanation { color:var(--plot-muted); font-size:12px; line-height:1.5; margin:8px 0 12px; }
 .span-plot-stack { display:flex; flex-direction:column; gap:14px; }
-.span-plot { background:#111c27; border:1px solid #2a3c4d; border-radius:7px; overflow:hidden; padding:12px; }
-.span-plot h3 { margin:0 0 8px; color:#e0eaf2; font-size:13px; font-weight:600; }
+.span-plot { background:var(--plot-bg); border:1px solid var(--plot-line); border-radius:7px; overflow:hidden; padding:12px; }
+.span-plot h3 { margin:0 0 8px; color:var(--plot-text); font-size:13px; font-weight:600; }
 .span-plot svg { display:block; overflow:visible; touch-action:pan-y; }
-.plot-tick { fill:#a6bbcd; font-family:system-ui,sans-serif; font-size:11px; }
-.plot-grid { stroke:#26394a; stroke-width:1; }
-.plot-zero { stroke:#72899a; stroke-width:1; }
-.plot-readout { min-height:30px; margin:5px 0 0; font-size:11px; line-height:15px; color:#bbcedd; font-variant-numeric:tabular-nums; }
+.plot-tick { fill:var(--plot-muted); font-family:system-ui,sans-serif; font-size:11px; }
+.plot-grid { stroke:var(--plot-grid); stroke-width:1; }
+.plot-zero { stroke:var(--plot-zero); stroke-width:1; }
+.plot-readout { min-height:30px; margin:5px 0 0; font-size:11px; line-height:15px; color:var(--plot-muted); font-variant-numeric:tabular-nums; }
 .plot-notes { margin-top:15px; font-size:12px; }
-.plot-curve-legend { display:flex; flex-wrap:wrap; gap:6px 18px; font-size:12px; color:#d4e2ed; }
+.plot-curve-legend { display:flex; flex-wrap:wrap; gap:6px 18px; font-size:12px; color:var(--plot-text); }
 .plot-curve-legend > span { display:flex; align-items:center; gap:7px; }
 .plot-legend-line { display:inline-block; width:25px; border-top:2px solid; }
-.plot-aero-performance { margin-top:12px; padding-top:10px; border-top:1px solid #344b60; display:flex; flex-wrap:wrap; gap:9px 24px; }
-.plot-aero-metric { display:flex; flex-direction:column; gap:4px; font-size:11px; color:#b5c9da; }
-.plot-aero-metric strong { color:#e0eaf2; font-size:16px; font-variant-numeric:tabular-nums; }
+.plot-aero-performance { margin-top:12px; padding-top:10px; border-top:1px solid var(--plot-line); display:flex; flex-wrap:wrap; gap:9px 24px; }
+.plot-aero-metric { display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--plot-muted); }
+.plot-aero-metric strong { color:var(--plot-text); font-size:16px; font-variant-numeric:tabular-nums; }
 .plot-aero-performance .plot-explanation { flex-basis:100%; margin:0; }
 .vlm-force-scale { display:flex; gap:5px; align-items:center; justify-content:flex-end; }
 .vlm-force-scale input { width:85px; }
