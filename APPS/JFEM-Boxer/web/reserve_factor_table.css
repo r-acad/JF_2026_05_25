@@ -7,3 +7,8 @@ header label{flex-shrink:0}#table-view{width:205px}#structural-group{min-width:2
 .rf-value.rf-presentation{display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;white-space:normal;font-size:14px}.rf-primary-label{font-weight:600;line-height:1.4}.rf-presentation .rf-high-number,.rf-presentation .rf-number{flex-shrink:0;font-size:15px}.rf-minimum-note{color:#f5d763}html[data-table-theme="light"] .rf-minimum-note{color:#785b00}
 
 .rf-assessment-details{font-size:11px;line-height:1.45}.rf-assessment-details summary{cursor:pointer;font-weight:600}.rf-assessment-details p{margin:6px 0}
+
+/* Opening a long method/certification note must not squeeze the adjacent bays. */
+#reserve-factor-table:not(.rf-list){table-layout:fixed;width:100%}
+#reserve-factor-table:not(.rf-list) tbody th,#reserve-factor-table:not(.rf-list) thead th:first-child{width:180px;min-width:180px;white-space:normal}
+#reserve-factor-table:not(.rf-list) .rf-cell{min-width:0;overflow-wrap:anywhere}

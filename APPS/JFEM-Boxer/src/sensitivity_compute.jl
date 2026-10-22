@@ -3,7 +3,7 @@ sensitivity_canonical(v::AbstractVector)=sensitivity_canonical.(v)
 sensitivity_canonical(v)=v
 function sensitivity_definition(params;version=2,omit_empty_panels=true)
     haskey(params,"imported.source")&&return [("imported_signature",String(params["imported.source"]["signature"]))]
-    sensitivity_canonical(Dict(k=>v for (k,v) in params if k ∉ ("materials.allowables","stringers.euler_fixity_coefficient","stringers.skin_fixity_coefficient")&&!startswith(k,"sensitivity.")&&
+    sensitivity_canonical(Dict(k=>v for (k,v) in params if k ∉ ("materials.allowables","stringers.euler_fixity_coefficient","stringers.skin_fixity_coefficient",COMPONENT_RF_FIXITY_KEYS...)&&!startswith(k,"sensitivity.")&&
         (version==1||!startswith(k,"view."))&&
         !(version==2&&omit_empty_panels&&k=="properties.panels"&&v isa AbstractVector&&isempty(v))))
 end

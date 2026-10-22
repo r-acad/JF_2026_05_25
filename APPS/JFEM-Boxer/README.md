@@ -106,7 +106,8 @@ to CSV, Markdown or self-contained HTML.
 
 Choose **Assessment → Minimum RF** to envelope all applicable criteria over
 the selected SOL101/SOL106 cases: material stress or laminate principal strain,
-Euler stringer-column buckling, free-web instability and skin-panel buckling.
+Euler stringer-column buckling, free-web instability, skin-panel buckling,
+spar/rib web buckling and spar-cap/rib-stiffener column buckling.
 The table retains one row per actual property ID. A physical column or panel
 assessment contributes to each property whose elements actually belong to it;
 the details identify that shared physical scope. This does not create a separate
@@ -304,6 +305,77 @@ The table and exports retain signed mean stresses, measured dimensions, fixity,
 governing case and recovery/convergence information. Complete cases with no
 destabilizing averaged membrane loading show **99**. Missing recovery, unsupported
 panel boundaries and unresolved numerical convergence remain unassessed.
+
+For **spars and ribs**, the Assessment selector also provides **Spar-web
+buckling**, **Rib-web buckling**, **Spar cap column buckling**, **Rib stiffener
+column buckling** and **Rib-stiffener blade instability**. Open the reserve-factor
+table and select the corresponding structural group to inspect each physical
+region, its governing case, dimensions, demand and capacity. These checks also
+contribute to **Minimum RF** for every property actually involved. Material
+strength remains a separate applicable check: a buckling ratio alone does not
+establish a complete minimum RF. In particular, a beam record containing only
+axial and normal fibre stresses does not supply the explicitly recovered
+equivalent stress required by the material von Mises assessment.
+
+**Web panels.** Spar panels are bounded by adjacent ribs and the upper/lower
+skin lines. Rib panels are bounded by actual through-height stiffeners, or by
+the spars when no intervening stiffener exists. Additional mesh divisions do
+not become fictitious supports. Opposite boundary paths determine the average
+length and height of an equivalent rectangle. The model records each element's
+location in that rectangle and its stress transformation.
+
+The web check uses the same simply supported double-sine thin-plate bending
+model as the skin check, but retains the **spatial membrane field**: each shell
+cell contributes its own signed, transformed membrane resultants. Exact
+sine/cosine integrals over the mapped cells give the geometric matrix. This
+retains biaxial compression, signed shear and stabilizing tension; opposite
+tensile and compressive regions under bending do not disappear through whole-web
+averaging. The displayed MPa values are area-weighted means for interpretation,
+not the loads substituted into the spatial buckling calculation. The use of a
+Fourier/Ritz energy method for spatial loads is described in
+[*A generalized analytical approach to the buckling of
+simply supported rectangular plates under arbitrary loads*](https://doi.org/10.1016/j.engstruct.2007.07.025).
+Classical compression, bending, shear and combined-load plate cases are covered
+in [NACA TN 3781](https://ntrs.nasa.gov/citations/19930084505).
+
+Current isotropic/laminate bending laws are transformed and area-averaged,
+including the membrane-free `D*` approximation described above. Two successive
+basis refinements must change RF by no more than 0.5% before reporting an
+individual case's numerical RF. An unresolved case can be excluded from the
+governing envelope only when a conservative energy bound proves its critical
+factor exceeds another case's converged factor. Its own RF remains unavailable,
+and the details retain the bound and the reason it cannot govern. This shortcut
+does not apply to missing recovery, missing cases or invalid geometry. If no
+converged case governs and no such proof is possible, the envelope remains
+unassessed. The FE mesh must resolve the stress gradient: one centroidal result
+through the web height cannot reveal missing sub-element tension/compression.
+Curved/skewed geometry is still an equivalent rectangular-plate approximation,
+not a local FE eigenanalysis. Holes, overlapping cells, incomplete boundaries
+and missing recovery are not assigned a fabricated RF.
+
+**Caps and rib stiffeners.** The Euler check uses the actual member path
+between ribs for a spar cap, or between skins for a rib stiffener. It uses the
+current PBARL section's weakest centroidal bending rigidity and recovered axial
+force at the section cuts. Only the member contributes stiffness and force;
+no tributary skin/web stiffness or intermediate elastic bracing is credited.
+`Pcr = c π² (EI)min / L²`; the lowest local capacity-to-compression ratio across
+the member and selected cases governs. The classical elastic-column basis is
+described in [MIT's beam buckling notes](https://www.ocw.mit.edu/courses/2-002-mechanics-and-materials-ii-spring-2004/bc25a56b5a91ad29ca5c7419616686f7_lec2.pdf).
+This is a bare-member engineering estimate; it does not assess lateral-torsional
+buckling or crippling. Rib T-stiffeners additionally use the free-web formula
+above, with the signed arithmetic mean of their recovered axial bar stresses.
+
+**Properties → Spars** contains the spar-web and spar-cap fixity coefficients;
+**Properties → Ribs** contains the rib-web and rib-stiffener coefficients.
+All default to **1**. Web coefficients scale the plate capacity; column
+coefficients follow the Euler convention above. Changing them recalculates the
+report without changing FE constraints or rerunning the solution. The rib-stiffener
+free-web check has no additional fixity multiplier. Complete cases without
+destabilizing web loading or member compression show the **99** marker;
+incomplete or unsupported assessments remain unavailable. For SOL106, all these
+ratios compare recovered full-load demand with elastic capacities, rather than
+predicting a nonlinear collapse load. Imported models require verified component
+support topology before these generated-component checks can be used.
 
 FE stress legends, element inspection and stress-based sensitivity display
 adapters use **MPa** when the source stress units are known. Stored solver values

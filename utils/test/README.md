@@ -59,6 +59,18 @@ signed membrane averaging and incomplete-data gates. The main and detached
 table workflows are exercised by `skin_buckling_report_browser_test.cjs`;
 its header lists geometry and optional actual-recovery fixture arguments.
 These tests concern the documented equivalent rectangular thin-plate model.
+`component_buckling_test.jl OUTPUT` checks spar/rib support topology, exact
+element membership, mapped web cells, current laminate laws and cap/stiffener
+sections. It writes small generated fixtures for
+`component_buckling_recovery_test.jl FIXTURE OUTPUT [linear-only]`, which runs
+opposite axial and bending SOL101 cases and, unless disabled, a converged
+full-load SOL106 case. `component_buckling_data_test.cjs` checks spatial plate
+energy, stress gradients, conservative non-governing-case bounds, column/blade
+capacities and strict incomplete-data gates. `component_rf_report_browser_test.cjs` exercises all five component
+assessments, relocated fixity controls, live updates, detached grids and
+exports; its header gives fixture/browser arguments. These validate the
+documented elastic component assessments, not nonlinear collapse or all
+possible modes of structural failure.
 The minimum-gauge checks are `minimum_gauge_test.jl OUTPUT`
 (active family/local bounds, generated sections and exact physical membership),
 `minimum_gauge_edge_test.jl` (local sandwich flanges on default blades and

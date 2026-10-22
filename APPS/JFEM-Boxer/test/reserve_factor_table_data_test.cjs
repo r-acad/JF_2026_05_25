@@ -187,4 +187,35 @@ test('An incomplete combined minimum stays unassessed even when the known candid
  const r=row(17,2,{complete:false,reserveFactorReason:'An applicable skin-panel check is missing.',coverage:{recovered:1,total:2},minimumGauge:{known:true,atMinimum:true},combined:{knownMinimum:2,complete:false}}),m=data.build({report:{...report([r]),failureMode:'minimum_rf'},presentation:'failure_mode'});
  assert.equal(m.rows[0].value,null);assert.equal(m.scale.count,0);assert(!data.atMinimumGauge(r));assert(!data.html(m).includes('background:rgb(255, 222, 89)'));assert.match(data.csv(m),/missing/);assert.equal(data.table(m).rows[0][11],'2');
 });
+test('Component web panels retain physical compartments and spatial-field semantics in grids and exports',()=>{
+ for(const [mode,group,part,label]of[['spar_web_buckling','sparwebs','front_web','Front spar'],['rib_web_buckling','ribwebs','rib_web','Main-box web']]){
+  const make=(segment,rf)=>row(3000001,rf,{rowKey:mode+':'+segment,label:label+' compartment '+segment,propertyIds:[3000001,3000002],componentBuckling:{kind:part,method:'plate',scope:label+' compartment '+segment,note:'Spatial membrane force recovery.'},locations:[{group,rowKey:part,rowLabel:label,index:1,columnLabel:group==='ribwebs'?'R1':'R1–R2',key:mode+':'+segment,part,segment}],skinBuckling:{averageStressX:-30e6,averageStressY:5e6,averageShear:-8e6,length:.8,width:.12,fixityCoefficient:1.3,sourceCount:12,basisOrder:12,convergenceError:.0004,noDestabilizingLoad:rf===99}});
+  const rows=[make(1,1.2),make(2,99)],model=data.build({report:{...report(rows),failureMode:mode},generated:true,group});
+  assert.equal(model.rows.length,2);assert.equal(model.matrix.shared.length,0);assert.equal(model.matrix.cells.get(part+':1').length,2);assert.equal(model.scale.count,2);assert.equal(model.matrix.ribs,group==='ribwebs');assert.match(model.rows[1].reason,/spatial membrane field/);assert.match(model.note,/spatial/);assert.match(model.note,/Displayed stresses are area averages/);
+  const t=data.table(model);assert.equal(t.headers[0],data.modeInfo(mode).entity);assert.equal(t.rows[0][6],'-30');assert.equal(t.rows[0][7],'5');assert.equal(t.rows[0][8],'-8');assert.equal(t.rows[0][12],'0.8');assert.equal(t.rows[0][13],'0.12');
+  for(const text of[data.csv(model),data.markdown(model),data.html(model)]){assert(text.includes(data.FAILURE_MODES[mode]));assert.match(text,/spatial signed membrane-force field/);assert.match(text,/MPa/);}
+  const imported=data.build({report:{...report(rows),failureMode:mode},generated:false,group});assert.equal(imported.view,'flat');assert(imported.rows.every(r=>r.locations.length===0));
+ }
+});
+test('Cap and rib-stiffener columns expose loads, geometry and exact component locations',()=>{
+ for(const [mode,group,part]of[['spar_cap_buckling','sparcaps','front_upper_cap'],['rib_stiffener_buckling','ribstiffeners','rib_stiffener']]){
+  const r=row(8000001,2,{rowKey:mode+':physical',label:'Actual physical member',componentBuckling:{kind:part,method:'column',scope:'Member between restraints'},locations:[{group,rowKey:part,rowLabel:'Member A',index:2,columnLabel:group==='sparcaps'?'R2–R3':'R2',key:mode,part}],euler:{criticalLoad:12000,compressionDemand:6000,length:.6,endFactor:1.5,weakestEI:1200}});
+  const m=data.build({report:{...report([r]),failureMode:mode,forceUnit:'N',lengthUnit:'m'},generated:true,group});assert.equal(m.view,'grid');assert.equal(m.rows.length,1);assert.equal(m.matrix.cells.get(part+':2')[0].value,2);const t=data.table(m);assert.match(t.headers[6],/Critical load \(N\)/);assert.equal(t.rows[0][6],'12000');assert.equal(t.rows[0][7],'6000');assert.equal(t.rows[0][11],'0.6');assert.equal(t.rows[0][12],'1.5');assert.match(m.note,/isolated-member/);assert.match(m.note,/does not include adjacent skin or web/);
+  for(const presentation of['critical_case','failure_mode'])assert(data.table(data.build({...m,report:m.report,generated:true,presentation})).rows[0].includes(data.presentationValue(r,presentation,mode)));
+ }
+});
+test('Rib-stiffener free-web assessment uses blade quantities without Euler end-fixity credit',()=>{
+ const r=row(2000002,1.5,{rowKey:'ribblade:2:1',componentBuckling:{kind:'rib_stiffener',method:'blade'},locations:[{group:'ribstiffeners',rowKey:'stiffener:1',rowLabel:'Stiffener1',index:2,columnLabel:'R2',key:'2:1',part:'rib_stiffener'}],blade:{criticalStress:120e6,compressionDemand:80e6,averageStress:-80e6,clearHeight:.03,thickness:.002,coefficient:.425,sourceCount:4}}),m=data.build({report:{...report([r]),failureMode:'rib_stiffener_blade'},generated:true,group:'ribstiffeners'});
+ assert.equal(m.view,'grid');assert.equal(m.rows.length,1);assert.equal(m.groups[0].label,'All rib stiffener blades');const t=data.table(m);assert.equal(t.rows[0][6],'120');assert.equal(t.rows[0][7],'80');assert.equal(t.rows[0][12],'30');assert.equal(t.rows[0][13],'2');assert.match(m.note,/no Euler end-fixity credit/);assert.equal(data.presentationValue(r,'failure_mode','rib_stiffener_blade'),'Rib-stiffener blade instability');
+});
+test('Incomplete component checks cannot become a colored or minimum-gauge RF99',()=>{
+ for(const mode of['spar_web_buckling','rib_web_buckling','spar_cap_buckling','rib_stiffener_buckling','rib_stiffener_blade']){
+  const r=row(3000001,99,{rowKey:mode,complete:false,coverage:{recovered:1,total:2},reserveFactorReason:'A physical member recovery is unavailable.',minimumGauge:{known:true,atMinimum:true}}),m=data.build({report:{...report([r]),failureMode:mode},generated:true});assert.equal(m.rows[0].value,null);assert.equal(m.scale.count,0);assert(!data.atMinimumGauge(r));assert(!data.html(m).includes('background:rgb(255, 222, 89)'));
+ }
+});
+test('Certified non-governing cases retain lower bounds without inventing a resolved case RF',()=>{
+ const c={label:'Weak compression',reserveFactor:null,converged:false,lowerBound:14.5,certifiedNonGoverning:true,boundReason:'Conservative bending bound exceeds the converged envelope.'},r=row(3000001,2,{componentBuckling:{kind:'spar_web'},caseResults:[c,{...c,label:'Uncertified',certifiedNonGoverning:false},{...c,label:'Unproven',certifiedNonGoverning:undefined}]});
+ const notes=data.caseCertificateNotes(r);assert.equal(notes.length,1);assert.match(notes[0],/RF ≥ 14.5; certified non-governing; case eigenvalue unresolved/);assert.equal(c.reserveFactor,null);const m=data.build({report:{...report([r]),failureMode:'spar_web_buckling'}});assert.equal(m.rows[0].value,2);for(const text of[data.csv(m),data.markdown(m),data.html(m)]){assert.match(text,/Certified non-governing cases/);assert.match(text,/case eigenvalue unresolved/);}
+ const combined={...r,caseResults:[],combined:{assessments:[{modeLabel:'Spar web buckling',scope:'Front spar R1–R2',certifiedCases:[c]}]}},summary=data.build({report:{...report([combined]),failureMode:'minimum_rf'}});assert.match(data.csv(summary),/Front spar R1–R2.*Weak compression/);assert.equal(data.caseCertificateNotes(combined).length,1);
+});
 console.log(passed+' reserve factor table data tests passed.');

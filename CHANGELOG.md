@@ -5,6 +5,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Spar and rib reserve factors
+
+- Add physical spar/rib web plates, rib-to-rib spar-cap columns and skin-to-skin
+  rib-stiffener columns, preserving actual element/property membership. Assess
+  rib T-stiffener free-web instability separately.
+- Retain cellwise signed web membrane loads in a converged double-sine plate
+  calculation, including bending stress gradients, biaxial loading, shear and
+  tension. Use current isotropic/laminate stiffnesses and actual dimensions.
+- Add independent postprocessing fixity controls in Properties / Spars and Ribs.
+  Keep FE inputs, cached solutions and sensitivity signatures unchanged by them.
+- Expose component RF grids, governing cases, physical-scope details and exports;
+  include the new criteria in Minimum RF with existing palettes and minimum-gauge
+  highlighting. Preserve explicit unavailable states for missing material
+  recovery, unsupported topology and unconverged plate assessments.
+
 ### Minimum gauges and governing reserve factors
 
 - Move skin buckling fixity to Properties / Skin and Euler stringer fixity to

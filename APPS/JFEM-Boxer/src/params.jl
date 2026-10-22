@@ -127,6 +127,14 @@ const SCHEMA = ParamSpec[
               help="Multiplier c in the analytical stringer-column estimate Pcr = c × pi² × EI / L², with L the full rib-to-rib stringer length. c=1 means pinned-pinned, 4 fixed-fixed, about 2.046 fixed-pinned, and 0.25 fixed-free. This assessment includes half the adjacent skin strip on each side and uses the weakest principal bending stiffness; it does not change FE constraints, stiffness or loads. Set c to reflect actual end restraint, not to adjust a calculated margin."),
     ParamSpec("stringers.skin_fixity_coefficient", "Skin buckling fixity coefficient", :float, 1.0, "Shell properties";
               help="Multiplier on the effective skin-plate bending stiffness in the analytical combined compression/shear buckling estimate. 1 uses simply supported rectangular-plate Ritz modes. A larger value is an engineering allowance for rotational edge restraint; it does not impose exact clamped edges or change FE constraints. The dimensions are the averages of opposite actual 3D rib/stringer/spar boundary-path lengths. Set a finite positive value based on justified restraint data; this is separate from the Euler stringer-column end coefficient."),
+    ParamSpec("properties.spar_web_buckling_fixity", "Spar web buckling fixity coefficient", :float, 1.0, "Spar properties";
+              help="Positive multiplier on web-plate bending stiffness. 1 uses simply supported rectangular-plate Ritz modes between actual adjacent ribs and upper/lower skin or cap paths. Local signed membrane resultants retain compression and shear variation across the web. The equivalent rectangle uses averages of opposite 3D boundary lengths. Values above 1 approximate justified rotational restraint; they do not impose exact clamped edges or change the FE model."),
+    ParamSpec("properties.rib_web_buckling_fixity", "Rib web buckling fixity coefficient", :float, 1.0, "Rib properties";
+              help="Positive multiplier on rib-web plate bending stiffness. 1 uses simply supported Ritz modes. Each actual compartment is bounded by skins and neighboring vertical rib stiffeners or spar webs; mesh refinement alone adds no supports. Without vertical stiffeners the whole rib web is assessed. Local compression and shear are retained. This equivalent rectangular-plate assessment does not alter FE constraints."),
+    ParamSpec("properties.spar_cap_euler_fixity", "Spar cap Euler fixity coefficient", :float, 1.0, "Spar properties";
+              help="Coefficient c in Pcr=c*pi^2*(EI)min/L^2 for each bare spar-cap member over its actual rib-to-rib path. 1 is pinned-pinned, 4 fixed-fixed, about 2.046 fixed-pinned and 0.25 fixed-free. Uses the actual section and material with signed beam axial force; no adjacent skin or web stiffness is credited. A varying or curved member uses an approximate local-stiffness envelope with the full path length. This is an assessment setting only."),
+    ParamSpec("properties.rib_stiffener_euler_fixity", "Rib stiffener Euler fixity coefficient", :float, 1.0, "Rib properties";
+              help="Coefficient c in Pcr=c*pi^2*(EI)min/L^2 for each actual vertical rib stiffener between lower and upper skin supports. 1 is pinned-pinned; use justified end restraint. The weakest centroidal bending stiffness of the actual T section is used, without rib-web stiffness credit. This elastic column estimate is separate from the local T free-web instability check and does not alter FE constraints."),
     ParamSpec("stringers.orientation", "Blade direction", :choice, "surface_normal", "Stringer layout";
               choices=["surface_normal","coordinate_axis"], help="Surface normal follows the local skin normal, directed into the box. Coordinate axis keeps the blade parallel to X, Y or Z of the selected rectangular coordinate system, choosing the inward sign on each skin. An axis tangent to the skin cannot define a blade and is rejected."),
     ParamSpec("stringers.shell_offsets", "Offset attached flanges inward", :bool, false, "Stringer layout";
@@ -752,6 +760,11 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
     skin_coefficient=get(p,"stringers.skin_fixity_coefficient",1.0)
     skin_coefficient isa Real && !(skin_coefficient isa Bool) && isfinite(skin_coefficient) && skin_coefficient>0 ||
         throw(ArgumentError("Skin buckling fixity coefficient must be finite and positive"))
+    for key in COMPONENT_RF_FIXITY_KEYS
+        value=get(p,key,1.)
+        value isa Real&&!(value isa Bool)&&isfinite(value)&&value>0||
+            throw(ArgumentError("$key must be finite and positive"))
+    end
     get(p,"stringers.orientation","surface_normal") in ("surface_normal","coordinate_axis") || throw(ArgumentError("Blade direction must be surface_normal or coordinate_axis"))
     get(p,"stringers.axis","z") in ("x","y","z") || throw(ArgumentError("Blade coordinate axis must be x, y or z"))
     cid=get(p,"stringers.axis_cid",0)

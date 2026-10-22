@@ -1218,7 +1218,8 @@ function affectsModel(key,params) {
     return rows.some(row=>row.enabled);
   }
   return !key.startsWith("sensitivity.") && !["output.title", "output.reference_file", "jfem.repo", "jfem.output_dir",
-           "jfem.output_formats", "jfem.timeout_minutes", "materials.allowables", "stringers.euler_fixity_coefficient", "stringers.skin_fixity_coefficient"].includes(key);
+           "jfem.output_formats", "jfem.timeout_minutes", "materials.allowables", "stringers.euler_fixity_coefficient", "stringers.skin_fixity_coefficient",
+           "properties.spar_web_buckling_fixity", "properties.rib_web_buckling_fixity", "properties.spar_cap_euler_fixity", "properties.rib_stiffener_euler_fixity"].includes(key);
 }
 
 function readPlanformParams() {
@@ -1524,7 +1525,7 @@ function parameterEdited(key) {
   if(key.startsWith("airfoil."))state.airfoilEditor?.refresh?.();
   if(key.startsWith("loft.")||key==="planform.twist_tip")state.loftEditor?.refresh?.();
   markStudyModified();
-  if(["stringers.euler_fixity_coefficient","stringers.skin_fixity_coefficient"].includes(key)){
+  if(["stringers.euler_fixity_coefficient","stringers.skin_fixity_coefficient","properties.spar_web_buckling_fixity","properties.rib_web_buckling_fixity","properties.spar_cap_euler_fixity","properties.rib_stiffener_euler_fixity"].includes(key)){
     refreshStressReport();
     return;
   }
@@ -1827,6 +1828,8 @@ function stressReportContext(){
     eulerColumns:state.data?.stiffened_panels?.euler_columns,
     stringerBlades:state.data?.stiffened_panels?.blade_columns,
     skinBucklingPanels:state.data?.stiffened_panels?.skin_buckling_panels,
+    componentBuckling:state.data?.component_buckling,
+    componentFixities:Object.fromEntries(Object.entries({spar_web_buckling:'properties.spar_web_buckling_fixity',rib_web_buckling:'properties.rib_web_buckling_fixity',spar_cap_buckling:'properties.spar_cap_euler_fixity',rib_stiffener_buckling:'properties.rib_stiffener_euler_fixity'}).map(([mode,key])=>{const input=document.getElementById('p-'+key);return[mode,input?(input.value.trim()===''?NaN:Number(input.value)):state.values?.[key]];})),
     eulerFixityCoefficient:(()=>{const input=document.getElementById('p-stringers.euler_fixity_coefficient');return input?(input.value.trim()===''?NaN:Number(input.value)):state.values?.['stringers.euler_fixity_coefficient'];})(),
     skinFixityCoefficient:(()=>{const input=document.getElementById('p-stringers.skin_fixity_coefficient');return input?(input.value.trim()===''?NaN:Number(input.value)):state.values?.['stringers.skin_fixity_coefficient'];})(),
     signature:state.modelSignature,meshIdentity:state.meshIdentity,modelDirty:!!state.modelDirty,pendingDrafts:resultsHavePendingDrafts(),running:!!(state.polling||state.solverStarting),

@@ -417,6 +417,7 @@ function mesh_payload(m::Model; progress = stage -> nothing)
         "title" => String(m.params["output.title"]),
         "model_params" => copy(m.params),
         "stiffened_panels" => stiffened_panels_payload(m),
+        "component_buckling" => component_buckling_payload(m),
         "planform" => Dict{String,Any}(
             "area_m2" => m.wing.area, "aspect_ratio" => m.wing.aspect_ratio,
             "root_chord_m" => m.wing.chord_root, "tip_chord_m" => m.wing.chord_tip,
