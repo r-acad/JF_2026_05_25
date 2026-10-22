@@ -321,14 +321,15 @@ function stringer_euler_payload(m::Model;layout=stiffened_panel_layout(m.grid),c
         row=Dict{String,Any}("panel_id"=>panel.id,"key"=>panel_key(panel),"skin"=>panel.upper ? "upper" : "lower",
             "rib_bay"=>panel.bay,"stringer"=>panel.stringer,"segment"=>panel.segment,
             "pid"=>shell_stringers(m.params) ? panel_stringer_web_pid(panel.id) : panel.stringer_pid,
-            "length_m"=>0.,"fixity_coefficient"=>Float64(get(m.params,"stringers.euler_fixity_coefficient",1.)),
+            "length_m"=>0.,"fixity_coefficient"=>Float64(something(get(m.params,"stringers.euler_fixity_coefficient",1.),1.)),
             "stations"=>Any[],"status"=>"unassessed","reason"=>"",
             "member_element_ids"=>Int[],"membership_complete"=>false,"applicable"=>true,
+            "end_restraints_complete"=>panel.start_row==m.grid.ribs[panel.bay]&&panel.end_row==m.grid.ribs[panel.bay+1],
+            "start_support"=>panel.start_row==m.grid.ribs[panel.bay] ? "rib" : "runout",
+            "end_support"=>panel.end_row==m.grid.ribs[panel.bay+1] ? "rib" : "runout",
             "method"=>"Euler column; actual local section cuts and full rib-to-rib path length; free transverse laminate relaxation; oblique thin-strip projection")
         push!(rows,row)
         try
-            panel.start_row==m.grid.ribs[panel.bay]&&panel.end_row==m.grid.ribs[panel.bay+1]||
-                throw(ArgumentError("Stringer run-out segments do not have two rib end restraints"))
             current=get(edges,panel.id,Any[]);isempty(current)&&throw(ArgumentError("The stringer has no physical beam or blade attachment path"))
             row["length_m"]=sum(norm3(edge.b.-edge.a) for edge in current)
             row["length_m"]>1e-10||throw(ArgumentError("The rib-to-rib stringer length is zero"))
@@ -379,8 +380,17 @@ function stringer_euler_payload(m::Model;layout=stiffened_panel_layout(m.grid),c
                 compact&&(station["parts"]=euler_compact_parts(station["parts"]))
                 push!(row["stations"],station)
             end
-            row["status"]="ready"
             row["membership_complete"]=true
+            # Geometry and applicable end restraints are different facts. A
+            # runout still has real section/skin membership, even though this
+            # rib-to-rib Euler model cannot assign its end-restraint factor.
+            # Retain that membership so its unavailable check is not spread
+            # to unrelated skin and stringer properties.
+            if row["end_restraints_complete"]
+                row["status"]="ready"
+            else
+                row["reason"]="This stringer runs out before a rib. Its section geometry is available, but the rib-to-rib Euler check requires a defined runout-end restraint; no reserve factor is assigned"
+            end
         catch failure
             failure isa ArgumentError||rethrow()
             row["reason"]=sprint(showerror,failure)

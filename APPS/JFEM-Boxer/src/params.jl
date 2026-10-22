@@ -284,8 +284,8 @@ const SCHEMA = ParamSpec[
               help = "Mass per unit volume of material ID 1. It contributes to dry structural mass, CG, inertia, normal modes and enabled structural-inertia loads for assigned components. Fuel density is a separate parameter"),
     ParamSpec("materials.library", "Additional materials", :materials, default_material_library(), "Materials";
               help = "Material 1 uses the values above. Additional rows define id >= 2, name, E in Pa, nu and rho in kg/m3. " * MATERIAL_IDEALIZATION_NOTE),
-    ParamSpec("materials.allowables", "Material allowables", :materialallowables, Dict{String,Any}[], "Materials";
-              help = "Optional Study assessment limits. Isotropic materials use a von Mises stress limit. Laminates made from one orthotropic material use two dimensionless limits compared with the tensile and compressive principal strains at both faces of every ply. Enter the compression limit as a positive magnitude; 0.005 strain means 0.5 percent. Missing principal-strain limits remain unassessed, and older directional limits are not converted automatically. These criteria do not change stiffness, mass or the solver deck."),
+    ParamSpec("materials.allowables", "Material allowables", :materialallowables, default_material_allowables(), "Materials";
+              help = "Optional Study assessment limits. AL2024 starts with the user-requested editable von Mises design value of 300 MPa, not certified alloy-temper data. Other materials retain their explicit limits. Isotropic materials use a von Mises stress limit. Laminates made from one orthotropic material use two dimensionless limits compared with the tensile and compressive principal strains at both faces of every ply. Enter the compression limit as a positive magnitude; 0.005 strain means 0.5 percent. Missing principal-strain limits remain unassessed, and older directional limits are not converted automatically. These criteria do not change stiffness, mass or the solver deck."),
     ParamSpec("materials.shells", "Shell materials and construction", :shellmaterials, default_shell_materials(), "Materials";
               help = "Per-component monolithic MAT1 or symmetric face/core/face PCOMP. Face thickness is per face. Rib and spar-bay overrides are total thickness and change the core only, requiring total > twice face thickness"),
     ParamSpec("materials.bars", "Beam materials", :barmaterials, default_bar_materials(), "Materials";
@@ -594,6 +594,12 @@ function normalize_loft_stations(value, key::AbstractString)
 end
 
 function coerce_value(spec::ParamSpec, v)
+    # Saved definitions predating these assessment controls may contain null.
+    # Explicit zero, blank or nonfinite edits still pass through strict validation.
+    if spec.key in ("stringers.euler_fixity_coefficient","stringers.skin_fixity_coefficient",COMPONENT_RF_FIXITY_KEYS...)
+        v===nothing&&return 1.0
+        v isa Bool&&throw(ArgumentError("$(spec.key) must be a finite positive coefficient"))
+    end
     # Preserve useful row-specific diagnostics for interactive point editing.
     spec.kind === :planformpoints && return normalize_planform_points(v, spec.key)
     spec.kind in (:masterribs,:riborientations) && return normalize_rib_tables(v,spec.key)
@@ -711,6 +717,7 @@ function normalize_params(flat::AbstractDict)
     p["ribs.masters"]=normalize_rib_tables(p["ribs.masters"],"ribs.masters";end_eta=p["box.end_eta"])
     p["leading_edge.rib_orientations"]=normalize_rib_tables(p["leading_edge.rib_orientations"],"leading_edge.rib_orientations")
     migrate_legacy_sections!(p, flat)
+    apply_material_allowable_defaults!(p)
     validate_params(p)
     return p, unknown
 end

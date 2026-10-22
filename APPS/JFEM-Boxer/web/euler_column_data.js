@@ -53,6 +53,7 @@
   return{area,axialStiffness,centroidY:cy,centroidZ:cz,EIyy,EIzz,EIyz,weakestEI,materialIds:[...new Set(parts.flatMap(p=>[p.material_id,...(p.material_ids||[])]).map(Number).filter(n=>Number.isSafeInteger(n)&&n>0))]};
  }
  function criticalLoad(stiffness,length,endFactor=1){
+  endFactor??=1;
   if(!positive(length))return failure('A positive full rib-to-rib unbraced length is required.');
   if(!positive(endFactor))return failure('The Euler end-fixity coefficient must be a finite positive number.');
   if(!positive(stiffness))return failure('A positive weakest-axis bending stiffness is required.');

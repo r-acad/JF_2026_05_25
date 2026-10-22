@@ -3,6 +3,18 @@
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.WingMaterialAllowables=api;})(globalThis,function(){
  'use strict';
  const KEY='materials.allowables',STRAINS=['strain_tension','strain_compression'],LEGACY_STRAINS=['e1_t','e1_c','e2_t','e2_c','g12'];
+ const DEFAULT_ORIGIN='al2024_design_default',DEFAULT_STRESS=300e6;
+ const isAl2024=material=>material?.type==='MAT1'&&typeof material.name==='string'&&/(?:^|[^a-z0-9])(?:aluminium|aluminum|al|aa)[\s_-]*2024(?:$|[^0-9])|^\s*2024(?:$|[^0-9])/i.test(material.name);
+ function withDefaults(materials,rows,{sourceUnits=false}={}){
+  if(rows===null||rows===undefined)rows=[];
+  if(!Array.isArray(rows))return rows;
+  if(sourceUnits)return rows.filter(row=>!(row.origin===DEFAULT_ORIGIN&&row.mode==='stress'&&row.stress===DEFAULT_STRESS)).map(original=>{const row={...original};if(row.origin===DEFAULT_ORIGIN)delete row.origin;return row;});
+  const catalogue=new Map((materials||[]).map(m=>[Number(m.id),m])),out=[];
+  for(const original of rows){const row={...original};if(row.origin===DEFAULT_ORIGIN){const untouched=row.mode==='stress'&&row.stress===DEFAULT_STRESS;if(untouched&&!isAl2024(catalogue.get(Number(row.material_id))))continue;if(!untouched)delete row.origin;}out.push(row);}
+  const present=new Set(out.map(r=>Number(r.material_id)));
+  for(const[id,material]of catalogue)if(Number.isInteger(id)&&id>0&&!present.has(id)&&isAl2024(material))out.push({material_id:id,mode:'stress',stress:DEFAULT_STRESS,origin:DEFAULT_ORIGIN});
+  return out.sort((a,b)=>a.material_id-b.material_id);
+ }
  const LABELS={stress:'Von Mises stress',strain_tension:'Tensile principal strain limit',strain_compression:'Compressive principal strain limit (positive magnitude)',e1_t:'Legacy longitudinal tensile limit',e1_c:'Legacy longitudinal compressive limit',e2_t:'Legacy transverse tensile limit',e2_c:'Legacy transverse compressive limit',g12:'Legacy engineering shear limit'};
  const finite=n=>typeof n==='number'&&Number.isFinite(n),positive=n=>finite(n)&&n>0;
  const format=n=>finite(n)?Number(n.toPrecision(5)).toString():'Unavailable';
@@ -11,13 +23,14 @@
   const ids=new Set();
   for(const row of rows){
    if(!Number.isInteger(row.material_id)||row.material_id<1||ids.has(row.material_id))throw Error('Material allowable IDs must be positive and unique.');
-   ids.add(row.material_id);if(!['stress','strain'].includes(row.mode))throw Error('Choose stress or strain allowables.');
+   ids.add(row.material_id);if(!['none','stress','strain'].includes(row.mode))throw Error('Choose no assessment, stress or strain allowables.');
+   if(row.origin!==undefined&&row.origin!==DEFAULT_ORIGIN)throw Error('Unknown material allowable default origin.');
    for(const key of ['stress',...STRAINS,...LEGACY_STRAINS])if(row[key]!==undefined&&!positive(row[key]))throw Error('Material '+row.material_id+': '+LABELS[key]+' must be finite and positive.');
   }
   return rows;
  }
  function compatible(mat,row){return row?.mode==='stress'?mat?.type==='MAT1':row?.mode==='strain'?mat?.type==='MAT8':false;}
- function missing(row){return(row?.mode==='stress'?['stress']:STRAINS).filter(key=>!positive(row?.[key]));}
+ function missing(row){return(row?.mode==='none'?[]:row?.mode==='stress'?['stress']:STRAINS).filter(key=>!positive(row?.[key]));}
  function sample(demand,limit,details){const utilization=Math.abs(demand)/limit;return{...details,demand,allowable:limit,utilization,reserve_factor:utilization>0?1/utilization:null,margin:utilization>0?1/utilization-1:null};}
  function strainSample(face,row,details){
   if(!face||!['e1','e2','g12'].every(key=>finite(face[key])))return null;
@@ -60,6 +73,7 @@
   for(const part of parts){
    const row=limits.get(Number(part.mid)),mat=part.material;
    if(!row)return{reason:'No allowable for material '+(part.mid??'unknown')+'.'};
+   if(row.mode==='none')return{reason:'Material '+part.mid+' is explicitly set to Not assessed.'};
    if(!compatible(mat,row))return{reason:'Material '+part.mid+': use von Mises stress for MAT1 or principal strain for MAT8.'};
    if(missing(row).length)return{reason:'Material '+part.mid+': incomplete '+row.mode+' limits.'+(row.mode==='strain'&&LEGACY_STRAINS.some(key=>row[key]!==undefined)?' Saved directional limits are not converted; enter both principal-strain limits.':'')};
    let candidates=[];
@@ -118,7 +132,7 @@
     // Preserve the dormant basis values when toggling, without using them.
     for(const key of ['stress',...STRAINS]){const input=controls[key].input;if(input.value!==''||input.validity.badInput)row[key]=input.validity.badInput?{raw:'invalid number'}:Number(input.value)*(key==='stress'&&!sourceUnits()?1e6:1);}
     rows.push(row);
-   }
+   }else if(catalogue.some(mat=>mat.id===Number(select.value)&&mat.type!=='Unavailable'))rows.push({material_id:Number(select.value),mode:'none'});
    rows.sort((a,b)=>a.material_id-b.material_id);onChange(rows);describe();
   }
   function describe(){
@@ -126,7 +140,8 @@
    for(const[key,{row:field}]of Object.entries(controls))field.hidden=mode.value==='none'||(mode.value==='stress'?key!=='stress':key==='stress');
    controls.stress.row.firstChild.textContent='Von Mises stress limit ('+(sourceUnits()?'source stress units':'MPa')+')';
    info.textContent=mode.value==='strain'?'Enter both principal-strain limits. Strain 0.005 = 0.5%; compression is a positive magnitude. Applies only to laminates made entirely from this MAT8 material; ply angles may differ.':mode.value==='stress'?(sourceUnits()?'Use the same stress units as the imported deck; no unit conversion is inferred.':'Stress limits are displayed in MPa and stored in Pa. 1 MPa = 1,000,000 Pa.'):'No allowable comparison for this material.';
-   try{validate(read());status.textContent=row&&!compatible(mat,row)?'This basis is incompatible with '+(mat?.type||'the unavailable material')+'.':row&&missing(row).length?'Incomplete limits: this material will remain unassessed.'+(row.mode==='strain'&&LEGACY_STRAINS.some(key=>row[key]!==undefined)?' Saved directional limits are not converted; enter both principal-strain limits.':''):'';}catch(error){status.textContent=error.message;}status.hidden=!status.textContent;
+   if(row?.origin===DEFAULT_ORIGIN)info.textContent+=' AL2024 starts at the user-requested editable design value of 300 MPa; this is not certified alloy-temper data.';
+   try{validate(read());status.textContent=row&&row.mode!=='none'&&!compatible(mat,row)?'This basis is incompatible with '+(mat?.type||'the unavailable material')+'.':row&&missing(row).length?'Incomplete limits: this material will remain unassessed.'+(row.mode==='strain'&&LEGACY_STRAINS.some(key=>row[key]!==undefined)?' Saved directional limits are not converted; enter both principal-strain limits.':''):'';}catch(error){status.textContent=error.message;}status.hidden=!status.textContent;
   }
   function renderDefinition(mat){
    if(!showDefinition)return;
@@ -148,5 +163,5 @@
   select.addEventListener('change',show);mode.addEventListener('change',store);const unsubscribe=materialLibrary?.onMaterialSelection(()=>refresh());refresh();
   return{host,refresh,selectMaterial,assertValid:()=>validate(read()),destroy:()=>{unsubscribe?.();host.replaceChildren();}};
  }
- return{KEY,STRAINS,validate,missing,compatible,equivalentStressSample,assessElement,build,materialsFromGroups,editor,format};
+ return{KEY,STRAINS,DEFAULT_ORIGIN,DEFAULT_STRESS,isAl2024,withDefaults,validate,missing,compatible,equivalentStressSample,assessElement,build,materialsFromGroups,editor,format};
 });

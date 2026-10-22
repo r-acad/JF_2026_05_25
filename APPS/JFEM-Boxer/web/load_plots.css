@@ -20,6 +20,13 @@
 .plot-zero { stroke:#72899a; stroke-width:1; }
 .plot-readout { min-height:30px; margin:5px 0 0; font-size:11px; line-height:15px; color:#bbcedd; font-variant-numeric:tabular-nums; }
 .plot-notes { margin-top:15px; font-size:12px; }
+.plot-curve-legend { display:flex; flex-wrap:wrap; gap:6px 18px; font-size:12px; color:#d4e2ed; }
+.plot-curve-legend > span { display:flex; align-items:center; gap:7px; }
+.plot-legend-line { display:inline-block; width:25px; border-top:2px solid; }
+.plot-aero-performance { margin-top:12px; padding-top:10px; border-top:1px solid #344b60; display:flex; flex-wrap:wrap; gap:9px 24px; }
+.plot-aero-metric { display:flex; flex-direction:column; gap:4px; font-size:11px; color:#b5c9da; }
+.plot-aero-metric strong { color:#e0eaf2; font-size:16px; font-variant-numeric:tabular-nums; }
+.plot-aero-performance .plot-explanation { flex-basis:100%; margin:0; }
 .vlm-force-scale { display:flex; gap:5px; align-items:center; justify-content:flex-end; }
 .vlm-force-scale input { width:85px; }
 #fuel-view-actions { margin:8px 0; }

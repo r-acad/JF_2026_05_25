@@ -179,7 +179,7 @@ function skin_buckling_payload(m::Model;layout=nothing)
                 "membership_complete"=>all(eid_counts[face.eid]==1 for face in items),"applicable"=>true,
                 "panel_ids"=>sort!(unique(Int(face.panel_id) for face in items if face.panel_id!==nothing)),
                 "status"=>"unassessed","reason"=>"","length_m"=>0.,"width_m"=>0.,"elements"=>Any[],
-                "fixity_coefficient"=>Float64(get(m.params,"stringers.skin_fixity_coefficient",1.)),
+                "fixity_coefficient"=>Float64(something(get(m.params,"stringers.skin_fixity_coefficient",1.),1.)),
                 "result_frame"=>"Boxer shell material axes after element_results_payload rotation",
                 "method"=>"Equivalent rectangular skin plate; averaged opposite actual 3D support-path lengths; local laminate membrane-free bending rigidity")
             push!(rows,row)

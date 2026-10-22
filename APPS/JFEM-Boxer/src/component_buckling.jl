@@ -198,7 +198,7 @@ function component_web_buckling_payload(m,data)
                 "locations"=>[location],"property_ids"=>sort!(unique(face.pid for face in items)),
                 "member_element_ids"=>sort!(unique(face.eid for face in items)),"membership_complete"=>all(data.eid_counts[face.eid]==1 for face in items),
                 "applicable"=>true,"status"=>"unassessed","reason"=>"","length_m"=>0.,"width_m"=>0.,"elements"=>Any[],
-                "fixity_coefficient"=>Float64(get(m.params,is_spar ? COMPONENT_RF_FIXITY_KEYS[1] : COMPONENT_RF_FIXITY_KEYS[2],1.)),
+                "fixity_coefficient"=>Float64(something(get(m.params,is_spar ? COMPONENT_RF_FIXITY_KEYS[1] : COMPONENT_RF_FIXITY_KEYS[2],1.),1.)),
                 "result_frame"=>"Boxer shell material axes after element_results_payload rotation",
                 "method"=>"Equivalent rectangular supported web plate; actual connected support paths; membrane-free laminate bending rigidity; spatial element membrane resultants")
             push!(rows,row)
@@ -253,7 +253,7 @@ function component_column_buckling_payload(m,data)
             "part"=>part,"rib_bay"=>iscap ? index : nothing,"rib"=>rib,"stringer"=>ordinal,"locations"=>[location],
             "pid"=>length(pids)==1 ? only(pids) : nothing,"property_ids"=>pids,"member_element_ids"=>sort!(unique(eids)),
             "membership_complete"=>all(data.eid_counts[eid]==1 for eid in eids),"applicable"=>true,"length_m"=>0.,"stations"=>Any[],
-            "status"=>"unassessed","reason"=>"","fixity_coefficient"=>Float64(get(m.params,iscap ? COMPONENT_RF_FIXITY_KEYS[3] : COMPONENT_RF_FIXITY_KEYS[4],1.)),
+            "status"=>"unassessed","reason"=>"","fixity_coefficient"=>Float64(something(get(m.params,iscap ? COMPONENT_RF_FIXITY_KEYS[3] : COMPONENT_RF_FIXITY_KEYS[4],1.),1.)),
             "method"=>"Bare-member elastic Euler column; actual section centroidal principal bending stiffness and full modeled support-to-support path; no tributary skin or web stiffness credit")
         push!(rows,row)
         blade=iscap ? nothing : merge(copy(row),Dict{String,Any}("bars"=>Any[],"kind"=>"rib_stiffener_blade",

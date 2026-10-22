@@ -181,6 +181,18 @@ function vlm_pg_map(alpha, mach)
     return (;beta,to_wind,to_body,point,normal,velocity,forward)
 end
 
+"""Inviscid span efficiency from full-wing lift and Trefftz-plane induced drag.
+
+This is not the viscous Oswald factor of a fitted total-drag polar. Do not clamp
+to one: nonplanar wakes and finite-resolution VLM results need not obey the
+ideal planar lifting-line bound. Zero induced drag leaves the ratio undefined.
+"""
+function inviscid_span_efficiency(cl, cdi, aspect_ratio)
+    all(isfinite, (cl,cdi,aspect_ratio)) && cdi > 0 && aspect_ratio > 0 || return nothing
+    efficiency=cl^2/(pi*aspect_ratio*cdi)
+    return isfinite(efficiency) ? efficiency : nothing
+end
+
 """
     solve_vlm(w, p)
 
@@ -279,6 +291,8 @@ function solve_vlm(w::Wing, p::AbstractDict)
     cf=2 .* pg.to_wind(coefficient_total)
     total_force, total_moment = load_resultant(panels)
     incidence = vlm_incidence_warnings(w, p)
+    cdi=VortexLattice.far_field_drag(system)/pg.beta^4
+    aspect_ratio=w.span^2/w.area
     summary = Dict{String,Any}(
         "method" => "vortex_lattice", "engine" => "VortexLattice.jl $(pkgversion(VortexLattice))",
         "panels" => actual_nc * actual_ns, "span_panels" => actual_ns, "chord_panels" => actual_nc,
@@ -298,7 +312,10 @@ function solve_vlm(w::Wing, p::AbstractDict)
         "compressibility" => "Prandtl-Glauert wind-axis geometry transformation with physical Kutta-Joukowski forces",
         "pg_beta" => pg.beta,
         "load_factor" => p["loads.load_factor"], "load_multiplier_note" => LOAD_MULTIPLIER_NOTE, "CL" => cf[3],
-        "CDi" => VortexLattice.far_field_drag(system)/pg.beta^4, "CDi_nearfield" => cf[1],
+        "CDi" => cdi, "CDi_nearfield" => cf[1],
+        "reference_span_m" => w.span, "aspect_ratio" => aspect_ratio,
+        "span_efficiency" => inviscid_span_efficiency(cf[3],cdi,aspect_ratio),
+        "span_efficiency_note" => "Inviscid span efficiency e = CL^2/(pi AR CDi), with AR = full projected span^2/full reference area and induced CDi from the VLM Trefftz far-wake calculation. CL and CDi describe this selected aerodynamic case before the structural load multiplier. This is not a viscous Oswald factor fitted to a total-drag polar; no profile drag is included. Zero induced drag leaves e undefined. Nonplanar geometry or discretization can produce e above one; values are not clipped.",
         "force_N" => collect(total_force), "moment_Nm" => collect(total_moment),
         "lift_N" => -sin(alpha) * total_force[1] + cos(alpha) * total_force[3],
         "coefficient_basis" => "unscaled full real-planform area and MAC; forces/moments are the scaled right semi-span; edge kinks and twist refinement add panels",

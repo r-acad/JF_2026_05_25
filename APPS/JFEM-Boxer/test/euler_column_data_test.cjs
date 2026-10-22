@@ -16,6 +16,16 @@ test('A rectangular pinned column reproduces the analytical weakest-axis Euler l
  const load=E.criticalLoad(section.weakestEI,2);near(load.value,Math.PI**2*70e9*.1*.02**3/(12*4));
  const row=build().rows[0];near(row.reserveFactor,load.value/1000);assert.equal(row.euler.noCompression,false);assert.equal(row.coverage.recovered,1);
 });
+
+test('Complete runout geometry never implies an invented Euler end restraint',()=>{
+ const reason='This stringer runs out before a rib; a defined runout-end restraint is required.';
+ const c=column({status:'unassessed',reason,membership_complete:true,end_restraints_complete:false,member_element_ids:[1]});
+ for(const axial of [-1000,1000]){
+  const row=build(c,{1:{axial}}).rows[0];
+  assert.equal(row.complete,false);assert.equal(row.reserveFactor,null);
+  assert.equal(row.coverage.recovered,0);assert.match(row.reserveFactorReason,/runout-end restraint/);
+ }
+});
 test('An integrated T and tributary skin use current geometry and include offset parallel-axis stiffness',()=>{
  // Symmetric about y=0: weakest in-plane EI is the exact sum of each
  // rectangular strip's E*t*b^3/12; the offset flange affects out-of-plane EI.

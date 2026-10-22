@@ -276,6 +276,10 @@ function imported_model(native,source,p;cards=Dict())
     index=Dict(id=>i for (i,id) in enumerate(ids));xyz=Float64[x for id in ids for x in native["GRIDs"][string(id)]["X"]]
     all(isfinite,xyz)||throw(ArgumentError("Imported GRID coordinates must be finite"))
     params=Dict{String,Any}(deepcopy(p));params["fuel.enabled"]=false;params["loads.structure_inertia"]=false
+    # Generated AL2024 defaults are SI design values, not properties of an
+    # imported MID with unknown source units. Preserve only explicit criteria.
+    params["materials.allowables"]=[Dict(key=>value for (key,value) in row if key!="origin") for row in get(params,"materials.allowables",Any[])
+        if !(get(row,"origin",nothing)==AL2024_DEFAULT_ORIGIN&&get(row,"mode",nothing)=="stress"&&get(row,"stress",nothing)==AL2024_DESIGN_ALLOWABLE)]
     params["output.title"]=source["name"];params["output.solution"]=string(native["SOL"])
     params["imported.native"]=native;params["imported.source"]=source
     params["imported.entity_sources"]=imported_entity_sources(cards)

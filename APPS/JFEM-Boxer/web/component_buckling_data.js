@@ -59,6 +59,7 @@
  // therefore give a lower bound for *every* positive buckling eigenvalue.
  // This certifies only a non-governing case; it is never a case eigenvalue.
  function spatialLowerBound(length,width,D,cells,fixity=1){
+  fixity??=1;
   const why=plate.validateGeometry(length,width,D)||validateTiling(cells);if(why||!positive(fixity))return null;
   const d=flatten(D),scale=Math.max(...d.map(Math.abs)),rounding=64*Number.EPSILON;
   const lower=Math.min(...[0,1,2].map(i=>d[3*i+i]/scale-[0,1,2].filter(j=>j!==i).reduce((sum,j)=>sum+Math.abs(d[3*i+j]/scale),0)))-rounding;

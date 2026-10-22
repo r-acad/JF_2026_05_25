@@ -1752,11 +1752,24 @@ function readRunTimeout() {
   return value;
 }
 
+function readAllowableMaterials(){
+  if(state.importedDeck||state.diskResults)return state.data?.materials?.library||WingMaterialAllowables.materialsFromGroups(state.data?.groups);
+  let library=[];try{library=JSON.parse(document.getElementById('p-materials.library')?.value||JSON.stringify(state.values?.['materials.library']||[]));}catch{}
+  return[{id:1,type:'MAT1',name:document.getElementById('p-material.name')?.value??state.values?.['material.name']??'Material 1'},...library.map(mat=>({...mat,type:'MAT1'}))];
+}
+
 function readMaterialAllowables(){
   const input=document.getElementById('p-materials.allowables');
-  if(!input)return state.values['materials.allowables']||[];
-  const raw=input.value||'[]';if(state.allowableRowsCache?.raw===raw)return state.allowableRowsCache.rows;
-  try{const rows=JSON.parse(raw);state.allowableRowsCache={raw,rows};return rows;}catch{return[];}
+  const raw=input?(input.value||'[]'):JSON.stringify(state.values?.['materials.allowables']||[]);
+  const materials=readAllowableMaterials(),sourceUnits=!!(state.importedDeck||state.diskResults);
+  const catalogue=JSON.stringify([sourceUnits,materials.map(({id,type,name})=>[id,type,name])]);
+  if(state.allowableRowsCache?.raw===raw&&state.allowableRowsCache.catalogue===catalogue)return state.allowableRowsCache.rows;
+  try{
+    const rows=WingMaterialAllowables.withDefaults(materials,JSON.parse(raw),{sourceUnits}),saved=JSON.stringify(rows);
+    if(input&&saved!==raw)input.value=saved;
+    state.values['materials.allowables']=rows;
+    state.allowableRowsCache={raw:saved,catalogue,rows};return rows;
+  }catch{return[];}
 }
 
 function refreshMaterialAllowableEditor(){
@@ -1767,11 +1780,7 @@ function refreshMaterialAllowableEditor(){
   const host=materialLibrary?.allowablesHost||standalone;if(!host)return;
   if(state.allowablesEditor&&state.allowablesEditor.host!==host){state.allowablesEditor.destroy();state.allowablesEditor=null;}
   if(!state.allowablesEditor)state.allowablesEditor=WingMaterialAllowables.editor({document,host,materialLibrary,showDefinition:!!state.importedDeck,
-    readMaterials:()=>{
-      if(state.importedDeck)return state.data?.materials?.library||WingMaterialAllowables.materialsFromGroups(state.data?.groups);
-      let library=[];try{library=JSON.parse(document.getElementById('p-materials.library')?.value||'[]');}catch{}
-      return[{id:1,type:'MAT1',name:document.getElementById('p-material.name')?.value||'Material 1'},...library.map(mat=>({...mat,type:'MAT1'}))];
-    },readRows:readMaterialAllowables,sourceUnits:()=>!!state.importedDeck,
+    readMaterials:readAllowableMaterials,readRows:readMaterialAllowables,sourceUnits:()=>!!(state.importedDeck||state.diskResults),
     onChange:rows=>{
       state.values['materials.allowables']=rows;
       const input=document.getElementById('p-materials.allowables');if(input)input.value=JSON.stringify(rows);
@@ -1821,6 +1830,11 @@ function refreshMaterialAssessmentControls(){
   refreshStressReport();
 }
 
+function readBucklingFixity(key){
+  const input=document.getElementById('p-'+key);
+  return input?(input.value.trim()===''?NaN:Number(input.value)):(state.values?.[key]??1);
+}
+
 function stressReportContext(){
   const cases=modelCases(),solution=Number(state.importedDeck?WingImportedAnalysis.solution(state.importedDeck):document.getElementById('p-output.solution')?.value||state.values?.['output.solution']);
   return{elements:state.elements,cases:state.resultCases,allowables:readMaterialAllowables(),sourceUnits:!!state.importedDeck,
@@ -1829,9 +1843,9 @@ function stressReportContext(){
     stringerBlades:state.data?.stiffened_panels?.blade_columns,
     skinBucklingPanels:state.data?.stiffened_panels?.skin_buckling_panels,
     componentBuckling:state.data?.component_buckling,
-    componentFixities:Object.fromEntries(Object.entries({spar_web_buckling:'properties.spar_web_buckling_fixity',rib_web_buckling:'properties.rib_web_buckling_fixity',spar_cap_buckling:'properties.spar_cap_euler_fixity',rib_stiffener_buckling:'properties.rib_stiffener_euler_fixity'}).map(([mode,key])=>{const input=document.getElementById('p-'+key);return[mode,input?(input.value.trim()===''?NaN:Number(input.value)):state.values?.[key]];})),
-    eulerFixityCoefficient:(()=>{const input=document.getElementById('p-stringers.euler_fixity_coefficient');return input?(input.value.trim()===''?NaN:Number(input.value)):state.values?.['stringers.euler_fixity_coefficient'];})(),
-    skinFixityCoefficient:(()=>{const input=document.getElementById('p-stringers.skin_fixity_coefficient');return input?(input.value.trim()===''?NaN:Number(input.value)):state.values?.['stringers.skin_fixity_coefficient'];})(),
+    componentFixities:Object.fromEntries(Object.entries({spar_web_buckling:'properties.spar_web_buckling_fixity',rib_web_buckling:'properties.rib_web_buckling_fixity',spar_cap_buckling:'properties.spar_cap_euler_fixity',rib_stiffener_buckling:'properties.rib_stiffener_euler_fixity'}).map(([mode,key])=>[mode,readBucklingFixity(key)])),
+    eulerFixityCoefficient:readBucklingFixity('stringers.euler_fixity_coefficient'),
+    skinFixityCoefficient:readBucklingFixity('stringers.skin_fixity_coefficient'),
     signature:state.modelSignature,meshIdentity:state.meshIdentity,modelDirty:!!state.modelDirty,pendingDrafts:resultsHavePendingDrafts(),running:!!(state.polling||state.solverStarting),
     caseLabels:new Map(cases.map(c=>[Number(c.id),c.label||'Load case '+c.id])),
     expectedCases:cases.map(c=>({...c,solution:c.solution||solution})).filter(c=>[101,106].includes(Number(c.solution))).map(c=>({id:c.id,label:c.label,solution:c.solution,enabled:c.enabled}))};
@@ -1844,6 +1858,7 @@ function refreshStressReport(){
 }
 
 function collectParams({includeView = false} = {}) {
+  readMaterialAllowables();
   state.allowablesEditor?.assertValid();
   if(state.importedDeck)return {model_kind:'reference',"materials.allowables":readMaterialAllowables(),"jfem.timeout_minutes":readRunTimeout(),imported_deck:{token:state.importedDeck.token,signature:state.importedDeck.signature,analysis:WingImportedAnalysis.options(state.importedDeck.source?.analysis)}};
   if(state.data?.imported_deck)throw Error('Imported deck identity is unavailable. Read the deck or reopen its Study; a generated lifting surface will not be substituted.');
@@ -3116,6 +3131,7 @@ async function loadModelDefinition(file, options = {}) {
       // display state and copy all embedded references before reading a BDF.
       const parameters=JSON.parse(JSON.stringify(state.defaults||state.values));
       parameters["references.items"]=[];parameters["sensitivity.settings"]="";
+      parameters["materials.allowables"]=[];
       definition={parameters,view:WingWorkspace.newModelView(document),notes:{text:"",history:[]}};
       items=[];
     } else { studyText=await file.text(); ({data:definition,items}=WingWorkspace.parse(studyText));definition.view=WingWorkspace.completeView(definition.view,document); }

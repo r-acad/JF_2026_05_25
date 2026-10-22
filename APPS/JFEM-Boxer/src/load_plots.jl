@@ -200,6 +200,19 @@ function plot_resultant_arrays(m,ys,events,evaluate)
     result
 end
 
+"""Signed equal-lift ellipse, integrated exactly over the plotted strip bins."""
+function elliptical_reference_distribution(lows,highs,widths,lifts,q)
+    cumulative(eta)=begin
+        t=clamp(eta,0.,1.)
+        2/pi*(asin(t)+t*sqrt(max(0.,1-t^2)))
+    end
+    shares=cumulative.(highs).-cumulative.(lows)
+    # Normalize the actual bins, rather than a point-sampled ellipse. This
+    # preserves the plotted net lift even for nonuniform, refined VLM strips.
+    reference_lifts=sum(lifts).*shares./sum(shares)
+    return reference_lifts./(q.*widths),reference_lifts
+end
+
 function spanwise_load_data(m::Model, loads)
     p, w = m.params, m.wing
     q = flight_condition(p)["q_Pa"]
@@ -231,9 +244,12 @@ function spanwise_load_data(m::Model, loads)
         end
         coefficient_note = "Equivalent coefficient from prescribed global-z lift/(q*projected strip width), using this case's speed and density. Includes the dimensionless load multiplier; this is not a solved aerodynamic section coefficient."
     end
+    ellipse,ellipse_lifts=elliptical_reference_distribution(lows,highs,widths,lifts,q)
     distribution = Dict{String,Any}("eta"=>eta,"eta_lo"=>lows,"eta_hi"=>highs,"y_m"=>ys,
         "strip_width_m"=>widths,"chord_m"=>chords,"strip_lift_N"=>lifts,
         "lift_N_per_m"=>lifts ./ widths,"cl_chord_m"=>lifts ./ (q .* widths),
+        "elliptical_cl_chord_m"=>ellipse,"elliptical_strip_lift_N"=>ellipse_lifts,
+        "elliptical_note"=>"Dashed equal-lift ellipse: the ideal sqrt(1-eta^2) distribution integrated exactly within each displayed span strip, then normalized to this case's signed semi-span lift. Both curves are strip averages; their integrals are identical, including the load multiplier. Negative lift reverses the ellipse and zero net lift gives a zero reference. This geometric reference is not an additional aerodynamic solution.",
         "q_Pa"=>q,"total_lift_N"=>sum(lifts),"note"=>coefficient_note)
 
     located(load)=(position=Tuple(m.xyz[3load.node+1:3load.node+3]),force=load.force,moment=load.moment)

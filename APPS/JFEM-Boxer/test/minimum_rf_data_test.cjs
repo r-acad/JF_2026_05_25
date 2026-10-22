@@ -16,6 +16,30 @@ check('A shared physical scope keeps full scope plus exact overlapping EID proof
 check('The same PID spanning multiple physical scopes retains one true property row',()=>{const {input,reports}=scenario();input.elements.set(3,element(20));reports.von_mises.rows.pop();input.skinBucklingPanels[0].elements[1].pid=20;const out=M.build(input,reports);assert.equal(out.rows.length,2);assert.equal(out.rows[1].reserveFactor,2);assert.equal(out.rows[1].combined.assessments.filter(a=>a.failureMode==='skin_buckling').length,1);});
 check('Missing applicable criteria block passing RF while retaining known available minimum',()=>{const {input,reports}=scenario();reports.euler_column.rows[0].complete=false;reports.euler_column.rows[0].reserveFactor=null;reports.euler_column.rows[0].reserveFactorReason='Missing axial force';const out=M.build(input,reports);assert.equal(out.rows[0].reserveFactor,null);assert.equal(out.rows[0].combined.knownMinimum,3);assert.equal(out.rows[1].reserveFactor,null);assert.equal(out.rows[2].reserveFactor,2);assert.match(out.rows[0].reserveFactorReason,/Missing axial force/);assert.equal(R.atMinimumGauge(out.rows[0],3),false);});
 check('Unassessed geometry membership survives missing calculation arrays',()=>{const {input,reports}=scenario();input.eulerColumns[0]={key:'column',member_element_ids:[1,2],membership_complete:false,stations:[]};const out=M.build(input,reports);assert.equal(out.rows[0].complete,false);assert.equal(out.rows[1].complete,false);assert.equal(out.rows[2].complete,true);assert.match(out.rows[0].reserveFactorReason,/membership/);});
+check('A generated runout with complete section membership only blocks its actual shared properties',()=>{
+ const {input,reports}=scenario();input.generated=true;
+ for(const e of input.elements.values())e.group.name='UPPER_SKIN';
+ // P20 also contains an element away from this runout. The original property
+ // still gets one unavailable envelope, rather than a false passing subset.
+ input.elements.set(4,element(20));input.elements.get(4).group.name='UPPER_SKIN';
+ const reason='This stringer runs out before a rib; a defined runout-end restraint is required.';
+ Object.assign(input.eulerColumns[0],{member_element_ids:[1,2],membership_complete:true,end_restraints_complete:false,status:'unassessed',reason});
+ Object.assign(reports.euler_column.rows[0],{complete:false,reserveFactor:null,reserveFactorReason:reason});
+ const out=M.build(input,reports);
+ assert.deepEqual(out.rows.map(r=>r.reserveFactor),[null,null,2]);
+ assert.equal(out.coverageGaps.length,0);
+ assert.match(out.rows[1].reserveFactorReason,/runout-end restraint/);
+ assert.equal(out.rows[1].combined.assessments.find(a=>a.failureMode==='euler_column').physicalElementCount,2);
+ assert.equal(out.rows[2].complete,true);
+});
+check('A genuinely incomplete generated section still prevents an unproven passing envelope',()=>{
+ const {input,reports}=scenario();input.generated=true;
+ for(const e of input.elements.values())e.group.name='UPPER_SKIN';
+ Object.assign(input.eulerColumns[0],{membership_complete:false,member_element_ids:[1,2]});
+ const out=M.build(input,reports);
+ assert(out.rows.every(r=>!r.complete&&r.reserveFactor===null));
+ assert(out.coverageGaps.some(g=>/incomplete physical membership/.test(g.reason)));
+});
 check('Current EID/PID disagreement never borrows stale physical ownership',()=>{const {input,reports}=scenario();input.eulerColumns[0].stations[0].force_terms[0].pid=999;const out=M.build(input,reports);assert.equal(out.rows[0].reserveFactor,null);assert.match(out.rows[0].reserveFactorReason,/differs from the current model/);assert.equal(out.rows.some(r=>r.pid===999),false);});
 check('Unknown external members suppress that criterion without inferred property identities',()=>{const {input,reports}=scenario();input.eulerColumns[0].stations[0].force_terms.push({eid:999,pid:999});const out=M.build(input,reports);assert.equal(out.rows[0].reserveFactor,null);assert.match(out.rows[0].reserveFactorReason,/missing from the current model/);assert.equal(out.rows.length,3);});
 check('Completely unmapped criteria remain explicit report warnings',()=>{const {input,reports}=scenario();input.eulerColumns[0].stations=[];const out=M.build(input,reports);assert.equal(out.unmappedCriteria.length,1);assert.match(out.note,/could not be assigned/);assert.match(S.markdown(out,'reserve'),/Unassigned Euler/);});

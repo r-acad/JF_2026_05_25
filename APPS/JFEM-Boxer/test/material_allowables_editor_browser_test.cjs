@@ -59,9 +59,9 @@ const [modulePath='playwright',output]=process.argv.slice(2),web=path.resolve(__
   if(output){fs.mkdirSync(output,{recursive:true});await page.locator('#workspace-content').screenshot({path:path.join(output,'generated-strain-allowables.png')});}
   checks.push('All inputs fit narrow, ordinary and maximized panes at 280, 360 and 1000 pixels');
 
-  await page.locator('#allowable-mode').selectOption('none');assert.deepEqual(await rows(),[saved[0]]);assert.equal(await page.locator('.allowable-fields input:visible').count(),0);
+  await page.locator('#allowable-mode').selectOption('none');assert.deepEqual(await rows(),[saved[0],{material_id:8,mode:'none'}]);assert.equal(await page.locator('.allowable-fields input:visible').count(),0);
   await page.evaluate(()=>allowableEditor.refresh());assert.equal(await page.locator('#allowable-strain_tension').inputValue(),'');
-  checks.push('Not assessed removes only the chosen material criterion; refreshing clears its former values');
+  checks.push('Not assessed persists an explicit opt-out for the chosen material; refreshing clears its former values');
 
   await page.evaluate(()=>setup({source:true,materials:[{id:41,type:'MAT1',name:'Imported metal'},{id:93,type:'MAT8',name:'Imported composite'}]}));
   assert.equal(await page.locator('#allowable-material option').count(),2);assert.match(await page.locator('#allowable-material').textContent(),/41.*Imported metal/);
@@ -87,8 +87,14 @@ const [modulePath='playwright',output]=process.argv.slice(2),web=path.resolve(__
 
   await page.evaluate(()=>setup({materials:[{id:1,type:'MAT1'}],rows:[{material_id:1,mode:'strain',e1_t:.01,e1_c:.006,e2_t:.004,e2_c:.008,g12:.02}]}));
   assert.equal(await page.locator('#allowable-material option').count(),1);assert.equal(await page.locator('#allowable-mode').inputValue(),'strain');assert.match(await status.textContent(),/incompatible with MAT1/);assert(await page.locator('#allowable-mode option[value=strain]').evaluate(el=>el.disabled));
-  await page.locator('#allowable-mode').selectOption('none');assert.deepEqual(await rows(),[]);
+  await page.locator('#allowable-mode').selectOption('none');assert.deepEqual(await rows(),[{material_id:1,mode:'none'}]);
   checks.push('A restored incompatible basis is flagged and can be removed without corrupting its saved input');
+
+  await page.evaluate(()=>setup({materials:[{id:1,type:'MAT1',name:'AL2024'}],rows:WingMaterialAllowables.withDefaults([{id:1,type:'MAT1',name:'AL2024'}],[])}));
+  assert.equal(await page.locator('#allowable-stress').inputValue(),'300');assert.match(await page.locator('.allowable-fields + .pick-note').textContent(),/user-requested editable design value/);
+  await page.locator('#allowable-stress').fill('275');assert.deepEqual(await rows(),[{material_id:1,mode:'stress',stress:275e6}]);
+  await page.locator('#allowable-mode').selectOption('none');await page.evaluate(()=>{savedRows=WingMaterialAllowables.withDefaults(materialCatalogue,JSON.parse(JSON.stringify(savedRows)));allowableEditor.refresh();});assert.deepEqual(await rows(),[{material_id:1,mode:'none'}]);assert.equal(await page.locator('#allowable-mode').inputValue(),'none');assert(!(await status.isVisible()));
+  checks.push('AL2024 displays the editable300MPa design default, preserves edits and persists an explicit Not-assessed choice');
 
   await page.evaluate(()=>setup({materials:[],rows:[{material_id:77,mode:'stress',stress:200e6}]}));
   assert.equal(await page.locator('#allowable-material option').count(),1);assert.match(await page.locator('#allowable-material').textContent(),/Saved material not in current model/);assert.match(await status.textContent(),/incompatible with Unavailable/);

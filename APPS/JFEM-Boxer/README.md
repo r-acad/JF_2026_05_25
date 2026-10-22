@@ -49,7 +49,12 @@ principal-strain limit and a positive compressive principal-strain limit.
 Both are dimensionless (`0.005` means `0.5%`). All plies must use the same
 material ID; their orientations may differ. Laminates mixing material IDs or
 isotropic and orthotropic plies are unassessed for this strain criterion.
-Limits are user supplied; an empty or incomplete definition is not assessed.
+Generated **2024 aluminium** materials start with a **300 MPa von Mises limit**.
+This is an editable design default, not a certified allowable for every temper,
+product form or temperature. Existing explicit limits are preserved. Select
+**Not assessed** to disable the check; that choice is saved with the Study.
+Other materials and imported files with undeclared stress units receive no
+automatic allowable. An empty or incomplete explicit limit is not assessed.
 The generated material library remains isotropic; imported MAT8 materials expose
 their strain criteria without changing their source elastic properties.
 
@@ -189,6 +194,10 @@ length factor is `K = 1 / sqrt(c)`. `L` is the full rib-to-rib stringer path
 length. This input changes the assessment, not the FE constraints or the
 solution, and can be edited without rerunning the solver.
 
+Missing fixity coefficients in older Studies default to **1** for stringer,
+skin, spar and rib checks. Explicit zero, negative or unfinished inputs are
+invalid; they are not replaced by the default.
+
 At each mesh cross-section, signed stringer axial force and projected shell
 membrane resultants are added over the tributary section. Consecutive elements
 along the span are not added together. Compression gives `RF = Pcr / Ncompression`;
@@ -210,6 +219,10 @@ This is an elementary elastic column estimate. Using local section stiffness wit
 is an approximation for tapered, curved or varying sections. It does not assess
 local skin buckling, stringer crippling, torsional buckling or nonlinear collapse.
 Run-out fragments without two rib end restraints are explicitly unassessed.
+Their known sections and associated skin membership are retained; only the
+properties actually involved inherit that incomplete check. A missing run-out
+end restraint does not invalidate unrelated rib-to-rib regions. Regenerate an
+older mesh to replace its incomplete membership metadata.
 For SOL106 the ratio compares recovered compression with an elastic capacity;
 it is not a prediction of the nonlinear failure load.
 
@@ -744,6 +757,26 @@ other markers: metres for generated models, unconverted source length units
 for imported decks. The default is 0.01; the setting is retained in Studies
 and changes no spring stiffness or physical dimensions.
 The **Loads** dropdown contains Visualization, VLM settings and Load plots.
+
+In **Loads → Load plots**, **Section lift coefficient × chord · cₗ c [m]**
+overlays a dashed elliptical reference with the same signed total lift as the
+selected case. Both traces are strip averages: the ellipse is integrated over
+each actual strip, including nonuniform VLM spacing, rather than sampled at
+its centre. Negative lift reverses the reference; zero net lift gives a zero
+reference. The load multiplier scales both curves. The reference uses the full
+aerodynamic semi-span, even where the structural box stops before the tip.
+
+For VLM cases, the plot also shows the full-wing lift coefficient `CL`, induced
+drag coefficient `CDi`, aspect ratio `AR = span² / area`, and **inviscid span
+efficiency** `e = CL² / (π AR CDi)`. `CDi` comes from the VLM far-wake calculation;
+these aerodynamic coefficients precede the structural load multiplier. The
+efficiency is the inviscid counterpart of the Oswald factor, without a fitted
+viscous/profile-drag correction. An ideal planar elliptical loading has `e = 1`;
+nonplanar configurations are not artificially capped at 1. See
+[NASA's induced-drag explanation](https://www1.grc.nasa.gov/beginners-guide-to-aeronautics/induced-drag-coefficient/).
+Prescribed-load cases still show the equal-lift reference, but do not invent a
+drag coefficient or efficiency. Undefined ratios, including zero lift with
+zero induced drag, remain unavailable.
 
 SOL105 results include the actual **SOL101 preload** as a separate analysis
 alongside buckling modes. Export recovers requested stress, force and reaction

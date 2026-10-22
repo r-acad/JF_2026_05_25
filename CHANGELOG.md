@@ -5,6 +5,19 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Aerodynamic references and assessment defaults
+
+- Give generated 2024 aluminium materials an editable 300 MPa von Mises
+  allowable. Preserve explicit limits and saved opt-outs; do not infer SI
+  allowables for imported files. Missing legacy buckling fixities default to 1
+  while invalid explicit edits remain invalid.
+- Overlay a signed, equal-lift elliptical reference on the section-lift plot.
+  Show the selected VLM case's lift and induced-drag coefficients, aspect ratio
+  and inviscid span efficiency, with its distinction from a viscous Oswald factor.
+- Preserve complete physical skin/stringer membership for run-out sections even
+  when their Euler end restraint is undefined. Their unavailable assessment no
+  longer incorrectly disables unrelated rib-bay properties.
+
 ### Spar and rib reserve factors
 
 - Add physical spar/rib web plates, rib-to-rib spar-cap columns and skin-to-skin

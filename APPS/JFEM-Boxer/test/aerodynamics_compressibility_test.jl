@@ -4,7 +4,7 @@ const W=WingFEGen
 const evidence=Dict{String,Any}()
 function params(mach;extra=Dict())
     merge(W.default_params(),Dict{String,Any}("loads.method"=>"vortex_lattice",
-        "loads.load_factor"=>1.0,"loads.torque_y"=>0.0,"aero.speed"=>120.0,
+        "loads.load_factor"=>1.0,"loads.torque_y"=>0.0,"aero.atmosphere"=>"manual","aero.speed"=>120.0,
         "aero.speed_of_sound"=>(mach==0 ? 1e12 : 120.0/mach),
         "aero.span_panels"=>16,"aero.chord_panels"=>4,
         "planform.sweep"=>0.0,"planform.dihedral"=>0.0,"planform.twist_tip"=>0.0,

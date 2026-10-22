@@ -144,7 +144,7 @@ checks=@testset "Global minimum gauges and actual generated-property metadata" b
     rm=gauge_build(runout)
     failed=filter(row->row["status"]!="ready",W.stringer_euler_payload(rm))
     @test !isempty(failed)
-    @test all(row["applicable"]&&row["membership_complete"]===false&&!isempty(row["member_element_ids"]) for row in failed)
+    @test all(row["applicable"]&&row["membership_complete"]===true&&row["end_restraints_complete"]===false&&!isempty(row["member_element_ids"]) for row in failed)
     failedskin=filter(row->row["status"]!="ready",W.skin_buckling_payload(rm))
     @test !isempty(failedskin)
     @test all(!isempty(row["member_element_ids"]) for row in failedskin)

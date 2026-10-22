@@ -45,10 +45,22 @@
     const element=(tag,cls,text)=>{const e=doc.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;};
     const svgElement=(tag,attrs,text)=>{const e=doc.createElementNS("http://www.w3.org/2000/svg",tag);for(const [k,v] of Object.entries(attrs||{}))e.setAttribute(k,String(v));if(text!==undefined)e.textContent=text;return e;};
     let cases=[],active=1,dirty=false,lastWidth=0,mode="distributed",visible=new Set(COMPONENTS.map(c=>c.key));
-    function plot(data,spec,width) {
+    function aerodynamicPerformance(summary,data) {
+      const box=element("div","plot-aero-performance");
+      const solved=summary?.method==="vortex_lattice",ar=solved?(summary.aspect_ratio??((2*data.semispan_m)**2/summary.reference_area_m2)):null;
+      const cl=solved?summary.CL:null,cdi=solved?summary.CDi:null;
+      const efficiency=solved?(summary.span_efficiency??(Number.isFinite(cl)&&Number.isFinite(cdi)&&cdi>0&&Number.isFinite(ar)&&ar>0?cl*cl/(Math.PI*ar*cdi):null)):null;
+      for(const [key,label,value]of[["span-efficiency","Oswald / span efficiency e (inviscid)",efficiency],["induced-drag","Induced drag Cᴅᵢ",cdi],["lift-coefficient","Lift Cₗ",cl],["aspect-ratio","Aspect ratio AR",ar]]){
+        const item=element("div","plot-aero-metric"),term=element("span","",label),number=element("strong","",Number.isFinite(value)?format(value):"Unavailable");number.dataset.metric=key;number.dataset.value=Number.isFinite(value)?String(value):"";item.append(term,number);box.appendChild(item);
+      }
+      const note=solved?"Selected aerodynamic case · full-span coefficients before the structural load multiplier. Inviscid e is not the viscous Oswald factor; profile drag is not modeled.":"Prescribed lift has no aerodynamic wake solution: induced drag and span efficiency are unavailable. The equal-lift ellipse remains a geometric comparison.";
+      box.appendChild(element("p","plot-explanation",note));return box;
+    }
+    function plot(data,spec,width,summary) {
       const card=element("section","span-plot");card.dataset.quantity=spec.key;
       card.appendChild(element("h3","",spec.title+" · "+spec.symbol+" ["+spec.unit+"]"));
-      const curves=spec.source==="distribution"?[{key:"aerodynamic",label:spec.symbol,color:spec.color,points:samples(data,spec)}]:
+      const curves=spec.source==="distribution"?[{key:"aerodynamic",label:spec.symbol,color:spec.color,points:samples(data,spec)},
+        {key:"elliptical",label:"Equal-lift ellipse",color:"#ffd276",dashed:true,points:samples(data,{...spec,key:"elliptical_cl_chord_m"})}].filter(c=>c.points.length):
         COMPONENTS.filter(c=>visible.has(c.key)).map(c=>({...c,points:samples(data,spec,c.key,mode)})).filter(c=>c.points.length);
       const points=curves.flatMap(c=>c.points);
       if(!points.length) {card.appendChild(element("p","pick-note",spec.source==="resultants"&&!visible.size?"Select at least one resultant curve above.":"This quantity is unavailable for this load case."));return card;}
@@ -73,7 +85,7 @@
       }
       for(const curve of curves){
         const path=curve.points.map((p,i)=>(i?"L":"M")+sx(p.x).toFixed(3)+","+sy(p.y).toFixed(3)).join(" ");
-        const line=svgElement("path",{d:path,fill:"none",stroke:curve.color,"stroke-width":curve.key==="total"?2.8:1.6,"vector-effect":"non-scaling-stroke",class:"plot-series","data-component":curve.key});
+        const line=svgElement("path",{d:path,fill:"none",stroke:curve.color,"stroke-width":curve.key==="total"?2.8:1.6,"vector-effect":"non-scaling-stroke",class:"plot-series","data-component":curve.key,...(curve.dashed?{"stroke-dasharray":"6 4"}:{})});
         line.appendChild(svgElement("title",{},curve.label));svg.appendChild(line);
       }
       const cursor=svgElement("line",{x1:0,x2:0,y1:top,y2:height-bottom,stroke:"#d8e5ef","stroke-dasharray":"3 3",visibility:"hidden"});svg.appendChild(cursor);
@@ -89,7 +101,12 @@
         readout.textContent="y = "+format(nearest.x)+" m"+(nearest.side&&nearest.side!=="cut"?" · "+nearest.side:"")+" · "+values.join(" · ");
       });
       svg.addEventListener("pointerleave",()=>{cursor.setAttribute("visibility","hidden");dot.setAttribute("visibility","hidden");});
-      card.append(svg,readout);return card;
+      card.append(svg,readout);
+      if(spec.source==="distribution"){
+        const legend=element("div","plot-curve-legend");for(const curve of curves){const item=element("span"),swatch=element("span","plot-legend-line");swatch.style.borderTopColor=curve.color;if(curve.dashed)swatch.style.borderTopStyle="dashed";item.append(swatch,doc.createTextNode(curve.label));legend.appendChild(item);}card.appendChild(legend);
+        card.appendChild(aerodynamicPerformance(summary,data));
+      }
+      return card;
     }
     function render() {
       const width=host.clientWidth || 330;lastWidth=width;host.replaceChildren();
@@ -113,9 +130,9 @@
         host.appendChild(element("p","plot-explanation",mode==="fe"?"Exact deck application: separate upward aerodynamic and downward inertia loads create real steps at their FE nodes. These steps depend on the load transfer mesh.":"Distributed sources: panel loads, filled fuel volumes and structural element masses are integrated along the span. Root forces and moments match the deck; concentrated rib loads keep their jumps."));
         if(!data.structure_inertia)host.appendChild(element("p","plot-explanation","Structural inertia is disabled for this case. Enable Include structural inertia in Cases to apply the shared acceleration to the dry structure."));
       }
-      const stack=element("div","span-plot-stack");for(const spec of SPECS)stack.appendChild(plot(data,spec,width));host.appendChild(stack);
+      const stack=element("div","span-plot-stack");for(const spec of SPECS)stack.appendChild(plot(data,spec,width,current?.loads?.summary));host.appendChild(stack);
       const notes=element("details","plot-notes");notes.appendChild(element("summary","","Definitions, axes and signs"));
-      for(const text of [data.distribution?.note,data.reference_note,data.sign_note,data.resultant_note,data.structure_inertia_migration_note])if(text)notes.appendChild(element("p","pick-note",text));
+      for(const text of [data.distribution?.note,data.distribution?.elliptical_note,current?.loads?.summary?.span_efficiency_note,data.reference_note,data.sign_note,data.resultant_note,data.structure_inertia_migration_note])if(text)notes.appendChild(element("p","pick-note",text));
       host.appendChild(notes);
     }
     const Observer=doc.defaultView?.ResizeObserver;

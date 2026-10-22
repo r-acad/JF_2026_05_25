@@ -80,6 +80,7 @@
   }
   if(mids.size!==1)return{value:null,materialIds:[...mids],reason:'The property region contains different materials; no common allowable is assumed.'};
   const mid=[...mids][0],matching=(Array.isArray(rows)?rows:[]).filter(row=>Number(row?.material_id)===mid);
+  if(matching.length===1&&matching[0].mode==='none')return{value:null,materialIds:[mid],reason:'Material '+mid+' is explicitly set to Not assessed.'};
   if(matching.length!==1||matching[0].mode!=='stress'||!finite(matching[0].stress)||matching[0].stress<=0)return{value:null,materialIds:[mid],reason:'Enter one positive von Mises stress allowable for material '+mid+'.'};
   return{value:matching[0].stress,materialIds:[mid],reason:''};
  }

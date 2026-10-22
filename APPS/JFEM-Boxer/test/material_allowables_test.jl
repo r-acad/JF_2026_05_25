@@ -10,7 +10,7 @@ suite=@testset "Study material assessment limits" begin
         "e2_t"=>.004,"e2_c"=>.006,"g12"=>.018)
     rows=W.normalize_material_allowables([strain,stress])
     @test rows==[stress,strain]
-    @test isempty(W.default_params()["materials.allowables"])
+    @test W.default_params()["materials.allowables"]==W.default_material_allowables()
     @test W.normalize_material_allowables([Dict("material_id"=>81,"mode"=>"strain")])==[Dict("material_id"=>81,"mode"=>"strain")]
     partial=Dict{String,Any}("material_id"=>81,"mode"=>"strain","strain_tension"=>.012)
     @test W.normalize_material_allowables([partial])==[partial]
@@ -47,8 +47,8 @@ suite=@testset "Study material assessment limits" begin
     @test isempty(unknown)
     legacy_roundtrip,unknown=W.normalize_params(W.flatten_toml(TOML.parse(W.params_to_toml(legacy_parameters))))
     @test isempty(unknown)
-    @test legacy_roundtrip["materials.allowables"]==[legacy]
-    @test !haskey(only(legacy_roundtrip["materials.allowables"]),"strain_tension")
+    @test legacy_roundtrip["materials.allowables"]==vcat(W.default_material_allowables(),[legacy])
+    @test !haskey(last(legacy_roundtrip["materials.allowables"]),"strain_tension")
     @test W.material_payload(W.material_definition(p,1))["allowables"]==stress
     @test !haskey(W.material_payload(W.material_definition(p,2)),"allowables")
     baseline=merge(p,Dict("materials.allowables"=>Any[]))

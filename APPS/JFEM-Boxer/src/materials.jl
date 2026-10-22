@@ -3,6 +3,34 @@
 const MATERIAL_SHELL_COMPONENTS=("upper_skin","lower_skin","spar_web","rib_web","leading_edge_skin","leading_edge_rib","stringer_flange")
 const MATERIAL_BAR_COMPONENTS=("stringer","spar_cap","rib_stiffener","runout")
 const MATERIAL_IDEALIZATION_NOTE="Illustrative editable isotropic elastic properties. Optional allowables are user-supplied postprocessing criteria, not certified material strengths. Foam and honeycomb use effective isotropic MAT1 approximations; directional core behavior, crushing and damage are not modeled."
+const AL2024_DESIGN_ALLOWABLE=300e6
+const AL2024_DEFAULT_ORIGIN="al2024_design_default"
+is_al2024_name(name)=name isa AbstractString && occursin(r"(?:^|[^a-z0-9])(?:aluminium|aluminum|al|aa)[\s_-]*2024(?:$|[^0-9])|^\s*2024(?:$|[^0-9])"i,String(name))
+default_material_allowables()=Dict{String,Any}[Dict("material_id"=>1,"mode"=>"stress","stress"=>AL2024_DESIGN_ALLOWABLE,"origin"=>AL2024_DEFAULT_ORIGIN)]
+
+"""Apply the editable user-requested AL2024 design default, without replacing explicit criteria."""
+function apply_material_allowable_defaults!(p)
+    materials=vcat([Dict("id"=>1,"name"=>get(p,"material.name",""))],get(p,"materials.library",Any[]))
+    names=Dict(Int(row["id"])=>get(row,"name","") for row in materials)
+    rows=Dict{String,Any}[]
+    for original in get(p,"materials.allowables",Any[])
+        row=Dict{String,Any}(original);id=Int(row["material_id"])
+        if get(row,"origin",nothing)==AL2024_DEFAULT_ORIGIN
+            untouched=get(row,"mode",nothing)=="stress"&&get(row,"stress",nothing)==AL2024_DESIGN_ALLOWABLE
+            untouched&&!is_al2024_name(get(names,id,""))&&continue
+            untouched||delete!(row,"origin")
+        end
+        push!(rows,row)
+    end
+    present=Set(Int(row["material_id"]) for row in rows)
+    for (id,name) in names
+        id in present&&continue
+        is_al2024_name(name)||continue
+        push!(rows,Dict("material_id"=>id,"mode"=>"stress","stress"=>AL2024_DESIGN_ALLOWABLE,"origin"=>AL2024_DEFAULT_ORIGIN))
+    end
+    p["materials.allowables"]=sort!(rows;by=row->row["material_id"])
+    p
+end
 default_material_library()=Dict{String,Any}[
     Dict("id"=>2,"name"=>"Steel (generic)","E"=>210e9,"nu"=>.30,"rho"=>7850.),
     Dict("id"=>3,"name"=>"Foam core (effective isotropic)","E"=>.1e9,"nu"=>.30,"rho"=>80.),
@@ -35,18 +63,23 @@ end
 # data. In particular, native MAT8 strength fields do not imply a von Mises or
 # principal-strain criterion and must never be reinterpreted as one.
 function normalize_material_allowables(value)
+    value===nothing&&return Dict{String,Any}[]
     # Retain the older directional limits when opening saved Studies. They do
     # not define principal-strain limits and are deliberately never converted.
     fields=("stress","strain_tension","strain_compression","e1_t","e1_c","e2_t","e2_c","g12")
-    allowed=Set(("material_id","mode",fields...))
+    allowed=Set(("material_id","mode","origin",fields...))
     out=Dict{String,Any}[];seen=Set{Int}()
     for row in material_rows(value,"materials.allowables",100000)
         all(key->key in allowed,keys(row))||throw(ArgumentError("Material allowables contain an unsupported field"))
         id=material_integer(get(row,"material_id",nothing),"Allowable material ID")
         id in seen&&throw(ArgumentError("Duplicate allowables for material $id"));push!(seen,id)
         mode=get(row,"mode",nothing)
-        mode in ("stress","strain")||throw(ArgumentError("Material $id allowable mode must be stress or strain"))
+        mode in ("none","stress","strain")||throw(ArgumentError("Material $id allowable mode must be none, stress or strain"))
         result=Dict{String,Any}("material_id"=>id,"mode"=>String(mode))
+        if haskey(row,"origin")
+            row["origin"]==AL2024_DEFAULT_ORIGIN||throw(ArgumentError("Material $id allowable default origin is invalid"))
+            result["origin"]=String(row["origin"])
+        end
         for field in fields
             haskey(row,field)||(continue)
             result[field]=material_positive(row[field],"Material $id allowable $field")

@@ -21,6 +21,11 @@ material limits, percentile trimming, per-case envelopes, incomplete recovery
 and mixed-material exclusions. `stress_report_browser_test.cjs` replays actual
 multicase solver payloads through the app and checks the tables and exports;
 its header describes the required local fixtures and browser arguments.
+`material_defaults_test.jl` and `material_defaults_test.cjs` check the editable
+AL2024 default, explicit opt-outs, imported-unit exclusions and missing fixities.
+`assessment_defaults_browser_test.cjs SCHEMA_JSON OUTPUT PLAYWRIGHT` checks
+the actual forms, parameter persistence, material renaming and FE-signature
+invariance; use a schema JSON produced by a generator fixture.
 
 `reserve_factor_table_data_test.cjs` checks structural locations, actual property
 regions, incomplete assessments, the RF = 1 color threshold and exports.
@@ -32,6 +37,9 @@ The Euler column checks are `euler_column_data_test.cjs` (section stiffness,
 signed compression and case coverage), `stringer_euler_test.jl OUTPUT`
 (actual beam/shell sections, offsets, laminate laws and compact payloads), and
 `stringer_euler_spatial_test.jl` (conservative spatial queries).
+`stringer_euler_membership_test.jl OUTPUT` checks that beam and shell run-outs
+retain exact physical skin/member ownership even when their Euler end restraint
+is unsupported, without changing valid neighboring regions.
 Run `stringer_euler_recovery_test.jl OUTPUT` after the geometry test, with the
 same output directory, to solve its generated compression/tension SOL101 and
 SOL106 fixtures and inspect actual recovered forces. Run Julia checks from
@@ -84,6 +92,13 @@ incomplete coverage, minimum-gauge highlighting and no-demand markers.
 `minimum_rf_report_browser_test.cjs` exercises the main/detached reports, critical
 case/mode presentations and exports with actual recovered payloads. Browser
 test headers list their generated fixtures and local browser dependencies.
+`aerodynamic_load_plots_test.jl OUTPUT` checks signed equal-lift elliptical
+references, nonuniform strip integration, case multipliers and inviscid
+efficiency from full-wing VLM coefficients. It emits a six-case fixture for
+`aerodynamic_load_plots_browser_test.cjs`; that test checks case changes,
+plotted traces, hover values and metric availability in the complete app.
+The coefficient comparison retains the documented VLM discretization tolerance;
+it does not claim an exact Oswald factor from a coarse mesh or a viscous model.
 `sensitivity_warmup_test.jl` runs the installation's imported/generated
 sensitivity workloads and checks finite analytic results with one baseline
 solve and no perturbed equilibrium solves.
