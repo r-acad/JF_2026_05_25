@@ -40,6 +40,13 @@ Boxer and checks every shell/beam vertex color, 3D sections, legends, live
 assessment edits, stale-result gates, inspection and competing display modes.
 Its header lists the fixture, output and Playwright arguments.
 
+`stress_report_snapshot_test.cjs` checks retained assessments through property
+edits, in-place result-status changes and mesh regeneration, while keeping the
+original solved properties and recovery together. New-Study isolation and
+same-model missing/failed-result guards remain explicit. The live property
+bridge test also checks sequential edits, mismatch notices in all exports,
+remapping protection and replacement by matching new recovery.
+
 `rf_field_visibility_test.cjs` verifies index filtering, exact picking ownership,
 hidden-layer restoration and geometry replacement. `rf_filter_browser_test.cjs`
 checks RF below/equal/above 1 through complete Boxer startup, including thick

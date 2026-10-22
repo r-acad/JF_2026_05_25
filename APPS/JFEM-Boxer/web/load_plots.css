@@ -14,6 +14,14 @@
 .plot-status.stale { color:var(--plot-stale); }
 #load-plots .plot-controls { margin:0 0 8px; padding:10px; border:1px solid var(--plot-line); border-radius:5px; }
 #load-plots .plot-controls legend { color:var(--plot-text); font-size:12px; padding:0 5px; }
+.plot-grid-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px 18px; margin:10px 0 14px; font-size:12px; color:var(--plot-text); }
+.plot-grid-toggle,.plot-grid-spacing { display:flex; align-items:center; gap:7px; }
+#load-plots .plot-grid-toggle input { margin:0; }
+#load-plots #plots-grid-spacing { width:100px; min-width:0; padding:6px 8px; color:var(--plot-text); background:var(--plot-input); border:1px solid var(--plot-line); border-radius:4px; }
+#load-plots #plots-grid-spacing:invalid { border-color:var(--plot-stale); }
+.plot-grid-error,.plot-grid-warning { color:var(--plot-stale); font-size:12px; line-height:1.4; }
+.plot-grid-error:empty { display:none; }
+.plot-grid-warning { margin:0 0 8px; }
 .plot-mode-label { display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:12px; }
 .plot-mode-label select { min-width:165px; max-width:65%; background:var(--plot-input); color:var(--plot-text); border:1px solid var(--plot-line); border-radius:4px; padding:6px; }
 .plot-component-toggles { display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:12px; }

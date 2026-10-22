@@ -5,6 +5,19 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Load-plot grid and retained RF tables
+
+- Add a visible-by-default vertical grid to load plots, with show/hide and
+  spacing in metres. Automatic spacing, saved Study settings and SVG exports
+  use the same grid; excessively dense spacing reports a clear limit.
+- Keep Stress Report and Reserve factors tables visible after property edits
+  and remeshing, with a prominent model/results mismatch notice in the app
+  and exports. Preserve the solved model, material allowables and fixities
+  together, allowing sequential local property edits before another analysis.
+- Replace retained assessments when matching new results arrive and clear them
+  for a new Study. Keep current 3D field checks strict and reject property-cell
+  edits when geometry changes make the old property mapping ambiguous.
+
 ### Reserve-factor isolation, property editing and load plots
 
 - Filter Stress Report 3D fields and detached Reserve factors tables to assessed

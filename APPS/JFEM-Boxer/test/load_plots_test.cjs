@@ -1,7 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict'),plots=require('../web/load_plots.js');
 const legacy={mode:'fe',visible:['fuel','aerodynamic']},old=JSON.stringify(legacy),state=plots.validateState(legacy);
-assert.deepEqual(state,{mode:'fe',visible:['aerodynamic','fuel'],theme:'dark'});assert.equal(JSON.stringify(legacy),old);
+assert.deepEqual(state,{mode:'fe',visible:['aerodynamic','fuel'],theme:'dark',verticalGrid:true,gridSpacing:null});assert.equal(JSON.stringify(legacy),old);
 const light={...state,theme:'light'};assert.deepEqual(plots.validateState(JSON.parse(JSON.stringify(light))),light);
 assert.equal(plots.validateState().theme,'dark');for(const bad of[{...light,theme:'white'},{...light,theme:null},{...light,mode:'fake'},{...light,visible:['fuel','fuel']},{...light,extra:true}])assert.throws(()=>plots.validateState(bad));
 assert(plots.plotHeight(300)>=340);assert(plots.plotHeight(1200)>plots.plotHeight(300));assert(plots.plotHeight(3000)<=520);
@@ -16,3 +16,14 @@ const workspace=require('../web/workspace.js'),view=workspace.newModelView();
 view.loadPlots=light;workspace.validateView(view);assert.equal(workspace.completeView(JSON.parse(JSON.stringify(view))).loadPlots.theme,'light');
 view.loadPlots={mode:'fe',visible:['total']};workspace.validateView(view);assert.equal(view.loadPlots.theme,'dark');
 console.log('PASS complete Study view preserves light mode and accepts legacy plot state');
+
+const gridState={...light,verticalGrid:false,gridSpacing:.25};assert.deepEqual(plots.validateState(gridState),gridState);
+view.loadPlots=gridState;workspace.validateView(view);assert.deepEqual(workspace.completeView(JSON.parse(JSON.stringify(view))).loadPlots,gridState);
+for(const bad of[{...light,verticalGrid:1},{...light,gridSpacing:0},{...light,gridSpacing:-1},{...light,gridSpacing:Infinity},{...light,gridSpacing:NaN},{...light,gridSpacing:'.5'}])assert.throws(()=>plots.validateState(bad));
+assert.deepEqual(plots.verticalGridLines(.3,2.8,.5).values,[.5,1,1.5,2,2.5]);
+assert.deepEqual(plots.verticalGridLines(-1.1,.1,.25).values,[-1,-.75,-.5,-.25,0]);
+const decimal=plots.verticalGridLines(.3,.6,.1);assert.equal(decimal.values.length,4);assert(Math.abs(decimal.values[0]-.3)<1e-14);assert(Math.abs(decimal.values[3]-.6)<1e-14);
+for(const [a,b]of[[0,5.7],[10,50],[0,.0001]]){const grid=plots.verticalGridLines(a,b);assert(grid.spacing>0&&grid.values.length>=4&&grid.values.length<=11&&!grid.limited);}
+const dense=plots.verticalGridLines(0,10,.0001);assert(dense.limited);assert.deepEqual(dense.values,[]);assert(dense.minimumSpacing>0);assert(plots.verticalGridLines(0,10,dense.minimumSpacing*1.001).values.length<=plots.MAX_GRID_LINES);
+assert(plots.verticalGridLines(1e10,1e10+1,1e-9).limited);assert.throws(()=>plots.verticalGridLines(0,1,0));assert.throws(()=>plots.verticalGridLines(0,1,-1));
+console.log('PASS persisted vertical grids, global-coordinate alignment, fractional/negative spans, automatic spacing and bounded SVG complexity');

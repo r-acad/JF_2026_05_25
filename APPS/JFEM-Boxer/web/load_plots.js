@@ -20,10 +20,21 @@
   ];
   const THEMES={dark:{background:'#111c27',text:'#e0eaf2',muted:'#a6bbcd',grid:'#26394a',zero:'#72899a',cursor:'#d8e5ef',colors:{aerodynamic:'#6ebdff',structure:'#f7bd66',fuel:'#c7a0ff',total:'#63ddb1',elliptical:'#ffd276'}},light:{background:'#ffffff',text:'#20384d',muted:'#415b70',grid:'#dce5ec',zero:'#718394',cursor:'#263f54',colors:{aerodynamic:'#0969b4',structure:'#a95b00',fuel:'#7b3fb0',total:'#00785b',elliptical:'#a95b00'}}};
   const plotHeight=width=>Math.round(Math.max(340,Math.min(520,width*.43)));
+  const MAX_GRID_LINES=400;
+  function verticalGridLines(xmin,xmax,requested=null){
+    if(!Number.isFinite(xmin)||!Number.isFinite(xmax)||xmax<=xmin)return {values:[],spacing:null,limited:false};
+    const span=xmax-xmin,raw=span/8,power=10**Math.floor(Math.log10(raw));
+    const automatic=[1,2,5,10].map(n=>n*power).find(n=>n>=raw)||power*10;
+    const spacing=requested===null?automatic:requested;
+    if(!Number.isFinite(spacing)||spacing<=0)throw new Error('Grid spacing must be a positive finite distance in metres.');
+    const tolerance=1e-10,first=Math.ceil(xmin/spacing-tolerance),last=Math.floor(xmax/spacing+tolerance),count=last-first+1;
+    const limited=count>MAX_GRID_LINES||!Number.isSafeInteger(first)||!Number.isSafeInteger(last);
+    return {spacing,limited,minimumSpacing:span/(MAX_GRID_LINES-1),values:limited?[]:Array.from({length:Math.max(0,count)},(_,i)=>{const x=(first+i)*spacing;return Object.is(x,-0)?0:x;})};
+  }
   function validateState(value){
-    if(value==null)return {mode:"distributed",visible:COMPONENTS.map(c=>c.key),theme:"dark"};
-    if(typeof value!=="object"||Array.isArray(value)||Object.keys(value).some(key=>!['mode','visible','theme'].includes(key))||!['distributed','fe'].includes(value.mode)||!Array.isArray(value.visible)||value.visible.some(key=>!COMPONENTS.some(c=>c.key===key))||new Set(value.visible).size!==value.visible.length||value.theme!==undefined&&!Object.hasOwn(THEMES,value.theme))throw new Error("Invalid load-plot display settings.");
-    return {mode:value.mode,visible:COMPONENTS.filter(c=>value.visible.includes(c.key)).map(c=>c.key),theme:value.theme||"dark"};
+    if(value==null)return {mode:"distributed",visible:COMPONENTS.map(c=>c.key),theme:"dark",verticalGrid:true,gridSpacing:null};
+    if(typeof value!=="object"||Array.isArray(value)||Object.keys(value).some(key=>!['mode','visible','theme','verticalGrid','gridSpacing'].includes(key))||!['distributed','fe'].includes(value.mode)||!Array.isArray(value.visible)||value.visible.some(key=>!COMPONENTS.some(c=>c.key===key))||new Set(value.visible).size!==value.visible.length||value.theme!==undefined&&!Object.hasOwn(THEMES,value.theme)||value.verticalGrid!==undefined&&typeof value.verticalGrid!=='boolean'||value.gridSpacing!==undefined&&value.gridSpacing!==null&&(!Number.isFinite(value.gridSpacing)||value.gridSpacing<=0))throw new Error("Invalid load-plot display settings.");
+    return {mode:value.mode,visible:COMPONENTS.filter(c=>value.visible.includes(c.key)).map(c=>c.key),theme:value.theme||"dark",verticalGrid:value.verticalGrid??true,gridSpacing:value.gridSpacing??null};
   }
   function samples(data,spec,component="total",mode="distributed") {
     const source=spec.source==="resultants"?(mode==="fe"?data?.fe_resultants?.[component]:data?.components?.[component])??(component==="total"?data?.resultants:null):data?.[spec.source];
@@ -46,7 +57,7 @@
     const doc=host.ownerDocument;
     const element=(tag,cls,text)=>{const e=doc.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;};
     const svgElement=(tag,attrs,text)=>{const e=doc.createElementNS("http://www.w3.org/2000/svg",tag);for(const [k,v] of Object.entries(attrs||{}))e.setAttribute(k,String(v));if(text!==undefined)e.textContent=text;return e;};
-    let cases=[],active=1,dirty=false,lastWidth=0,mode="distributed",theme="dark",visible=new Set(COMPONENTS.map(c=>c.key));
+    let cases=[],active=1,dirty=false,lastWidth=0,mode="distributed",theme="dark",visible=new Set(COMPONENTS.map(c=>c.key)),verticalGrid=true,gridSpacing=null;
     function aerodynamicPerformance(summary,data) {
       const box=element("div","plot-aero-performance");
       const solved=summary?.method==="vortex_lattice",ar=solved?(summary.aspect_ratio??((2*data.semispan_m)**2/summary.reference_area_m2)):null;
@@ -71,6 +82,7 @@
       paragraph(spec.title+' · '+spec.symbol+' ['+spec.unit+']',20,palette.text);
       paragraph('Load case '+caseLabel+(spec.source==='resultants'?' · '+(mode==='fe'?'Exact FE point loads':'Distributed sources'):''),13);
       if(dirty)paragraph('Parameters changed — these graphs belong to the last created mesh.',12,theme==='light'?'#995000':'#ffbe71');
+      const gridNote=card.querySelector('.plot-grid-warning');if(gridNote)paragraph(gridNote.textContent,12,theme==='light'?'#995000':'#ffbe71');
       const graphHeight=Number(graph.getAttribute('height'));graph.setAttribute('x',pad);graph.setAttribute('y',y);graph.setAttribute('width',width-2*pad);graph.querySelectorAll('.plot-interaction').forEach(e=>e.remove());svg.append(graph);y+=graphHeight+25;
       let lx=pad;for(const line of graph.querySelectorAll('.plot-series')){const label=line.querySelector('title')?.textContent||line.dataset.component,span=44+label.length*8;if(lx+span>width-pad){lx=pad;y+=24;}svg.append(svgElement('line',{x1:lx,y1:y-4,x2:lx+28,y2:y-4,stroke:line.getAttribute('stroke'),'stroke-width':line.getAttribute('stroke-width'),...(line.hasAttribute('stroke-dasharray')?{'stroke-dasharray':line.getAttribute('stroke-dasharray')}:{})}),svgElement('text',{x:lx+35,y,'font-size':12},label));lx+=span+22;}y+=26;
       if(spec.source==='distribution'){paragraph([...card.querySelectorAll('.plot-aero-metric')].map(e=>e.firstElementChild.textContent+' = '+e.lastElementChild.textContent).join(' · '),13,palette.text);}
@@ -92,6 +104,11 @@
       const b=bounds(points),sx=x=>left+(x-b.xmin)/(b.xmax-b.xmin)*(widthPx-left-right),sy=y=>height-bottom-(y-b.ymin)/(b.ymax-b.ymin)*(height-top-bottom);
       const svg=svgElement("svg",{viewBox:`0 0 ${widthPx} ${height}`,width:"100%",height,role:"img","aria-label":spec.title+" versus span y in metres"});
       svg.appendChild(svgElement("title",{},spec.title+" ["+spec.unit+"]"));
+      if(verticalGrid){
+        const grid=verticalGridLines(b.xmin,b.xmax,gridSpacing);
+        if(grid.limited)card.appendChild(element('p','plot-grid-warning','Vertical grid hidden: this spacing exceeds the '+MAX_GRID_LINES+'-line limit. Increase spacing to at least '+format(grid.minimumSpacing)+' m or clear it for Auto.'));
+        for(const x of grid.values)svg.appendChild(svgElement('line',{x1:sx(x),x2:sx(x),y1:top,y2:height-bottom,class:'plot-grid plot-grid-vertical','data-y-m':x}));
+      }
       for(let k=0;k<5;k++) {
         const y=b.ymin+(b.ymax-b.ymin)*k/4,x=b.xmin+(b.xmax-b.xmin)*k/4;
         svg.appendChild(svgElement("line",{x1:left,y1:sy(y),x2:widthPx-right,y2:sy(y),class:"plot-grid"}));
@@ -142,6 +159,12 @@
       const current=cases.find(c=>Number(c.id)===Number(active)),data=current?.loads?.spanwise;
       if(!data){host.appendChild(element("p","pick-note",current?.loads?.method==="imported" ? "Lifting surface spanwise load plots do not apply to imported decks. The viewport shows native equivalent nodal loads; the original load cards and subcase selections remain authoritative." : "Create the model to plot its load distributions. A supported load case with RBE3 stations is required."));return;}
       const status=element("p",dirty?"plot-status stale":"plot-status",dirty?"Parameters changed — these graphs belong to the last created mesh.":"Applied loads · "+current.label);status.setAttribute("role","status");host.appendChild(status);
+      const gridTools=element('div','plot-grid-controls'),gridLabel=element('label','plot-grid-toggle'),gridCheck=element('input');gridCheck.type='checkbox';gridCheck.id='plots-vertical-grid';gridCheck.checked=verticalGrid;gridCheck.onchange=()=>{verticalGrid=gridCheck.checked;render();onChange();};gridLabel.append(gridCheck,doc.createTextNode('Vertical grid'));
+      const spacingLabel=element('label','plot-grid-spacing','Spacing (m)'),spacingInput=element('input');spacingInput.type='number';spacingInput.id='plots-grid-spacing';spacingInput.step='any';spacingInput.min='0';spacingInput.placeholder='Auto';spacingInput.value=gridSpacing===null?'':String(gridSpacing);spacingInput.disabled=!verticalGrid;spacingInput.setAttribute('aria-label','Vertical grid spacing in meters');spacingInput.title='Positive spacing along global span y, in meters; grid lines are multiples of this distance from y = 0. Leave blank for automatic spacing. At most '+MAX_GRID_LINES+' lines are drawn per graph.';
+      const spacingError=element('span','plot-grid-error');spacingError.setAttribute('role','status');
+      spacingInput.oninput=()=>{spacingInput.setCustomValidity('');spacingError.textContent='';};
+      spacingInput.onchange=()=>{const text=spacingInput.value.trim(),next=text===''?null:Number(text);if(spacingInput.validity.badInput||next!==null&&(!Number.isFinite(next)||next<=0)){const message='Enter a positive spacing in meters, or leave blank for Auto.';spacingInput.setCustomValidity(message);spacingError.textContent=message;spacingInput.reportValidity();return;}gridSpacing=next;render();onChange();};
+      spacingLabel.append(spacingInput);gridTools.append(gridLabel,spacingLabel,spacingError);host.append(gridTools);
       if(data.components){
         const tools=element("fieldset","plot-controls"),legend=element("legend","","Resultant curves");tools.appendChild(legend);
         const label=element("label","plot-mode-label","Load representation"),view=element("select");view.id="plots-representation";
@@ -164,9 +187,9 @@
     const observer=Observer?new Observer(()=>{if(Math.abs(host.clientWidth-lastWidth)>2)render();}):null;
     observer?.observe(host);
     return {update(next,id,stale){cases=next||[];active=id;dirty=!!stale;render();},
-      capture(){return {mode,visible:COMPONENTS.filter(c=>visible.has(c.key)).map(c=>c.key),theme};},
-      restore(value){const next=validateState(value);mode=next.mode;visible=new Set(next.visible);theme=next.theme;render();},
+      capture(){return {mode,visible:COMPONENTS.filter(c=>visible.has(c.key)).map(c=>c.key),theme,verticalGrid,gridSpacing};},
+      restore(value){const next=validateState(value);mode=next.mode;visible=new Set(next.visible);theme=next.theme;verticalGrid=next.verticalGrid;gridSpacing=next.gridSpacing;render();},
       dispose(){observer?.disconnect();host.replaceChildren();host.classList.remove('load-plots');delete host.dataset.plotTheme;}};
   }
-  return {SPECS,COMPONENTS,THEMES,plotHeight,samples,bounds,format,create,validateState};
+  return {SPECS,COMPONENTS,THEMES,plotHeight,verticalGridLines,MAX_GRID_LINES,samples,bounds,format,create,validateState};
 });

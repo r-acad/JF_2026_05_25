@@ -63,7 +63,7 @@ function expectedValues(raw,ownership,method,selected='all'){
     checks.push(scenario+': editing the imported material allowable refreshes reserve factors immediately without changing model signature or rerunning; all three exports contain full report metadata.');
     await page.evaluate(()=>setWorkspaceMaximized('stressreport'));await page.screenshot({path:path.join(out,scenario+'-reserve-maximized.png')});await page.locator('#stress-report-stress').click();await page.screenshot({path:path.join(out,scenario+'-stress-maximized.png')});await page.evaluate(()=>setWorkspaceMaximized(null));await page.setViewportSize({width:1050,height:820});await page.screenshot({path:path.join(out,scenario+'-stress-narrow.png')});await page.locator('#stress-report-table').scrollIntoViewIfNeeded();await page.screenshot({path:path.join(out,scenario+'-stress-narrow-table.png')});
     const checksInvalid=await page.evaluate(()=>{
-     const outcomes=[],original=state.resultCases.get(42),test=(name,change,restore)=>{change();refreshStressReport();outcomes.push({name,rows:state.stressReport.report.rows.map(r=>({rf:r.reserveFactor,status:r.status})),excluded:state.stressReport.report.excludedCases.map(c=>c.reason),missing:state.stressReport.report.missingCases});restore();refreshStressReport();};
+     const outcomes=[],original=state.resultCases.get(42),test=(name,change,restore)=>{const previous=state.stressReport.report.rows.map(r=>({rf:r.reserveFactor,status:r.status}));change();refreshStressReport();outcomes.push({name,previous,stale:state.stressReport.report.stale,warning:document.getElementById('stress-report-stale').textContent,rows:state.stressReport.report.rows.map(r=>({rf:r.reserveFactor,status:r.status})),excluded:state.stressReport.report.excludedCases.map(c=>c.reason),missing:state.stressReport.report.missingCases});restore();refreshStressReport();};
      test('missing case',()=>state.resultCases.delete(42),()=>state.resultCases.set(42,original));
      const oldStatus=original.status;test('failed case',()=>original.status='failed',()=>original.status=oldStatus);
      test('dirty model',()=>state.modelDirty=true,()=>state.modelDirty=false);
@@ -71,8 +71,8 @@ function expectedValues(raw,ownership,method,selected='all'){
      const oldAnalysis=original.analysis,oldKind=original.modeKind;test('excluded buckling',()=>{original.analysis='SOL105_BUCKLING';original.modeKind='buckling';},()=>{original.analysis=oldAnalysis;original.modeKind=oldKind;});
      return outcomes;
     });
-    for(const item of checksInvalid){assert(item.rows.every(r=>r.rf===null),JSON.stringify(item));if(item.name==='missing case')assert(item.missing.length>0);else assert(item.excluded.length>0);}
-    checks.push(scenario+': in-place missing/failed/dirty/partial/buckling changes immediately withhold reserve factors and retain explanatory coverage.');
+    for(const item of checksInvalid){if(item.name==='dirty model'){assert.equal(item.stale,true);assert.deepEqual(item.rows,item.previous);assert.match(item.warning,/Model and results are not in sync/);continue;}assert(item.rows.every(r=>r.rf===null),JSON.stringify(item));assert.equal(item.stale,false);if(item.name==='missing case')assert(item.missing.length>0);else assert(item.excluded.length>0);}
+    checks.push(scenario+': unsolved model edits retain the previous assessment with a mismatch warning; same-model missing/failed/partial/buckling cases still withhold RFs with explanatory coverage.');
     observed.push({scenario,loaded,all,guards:checksInvalid});await context.close();
    }catch(error){fs.writeFileSync(path.join(out,scenario+'-failure.json'),JSON.stringify({error:error.stack,checks,errors,requests},null,2));await page.screenshot({path:path.join(out,scenario+'-failure.png')});throw error;}
   }

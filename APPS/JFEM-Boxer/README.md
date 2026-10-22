@@ -128,7 +128,12 @@ checks offer the properties they involve. A shell stringer's web and flange
 remain one physical section and update together. Values below an enforced
 minimum gauge turn the input and source cell red and cannot be applied. Cancel
 leaves the Study unchanged. Apply marks the model and previous results out of
-date: use Live mesh or Create FEM, then rerun the analysis to obtain new RFs.
+date. The RF tables remain visible with a model/results mismatch notice, so you
+can edit several properties before rerunning. They retain the old model properties,
+allowables, fixities and load cases; they do not combine new sections with old
+stresses. Use Live mesh or Create FEM, then rerun the analysis to obtain new RFs.
+The notice also appears in exported tables. A new Study clears the retained
+assessment; a matching new analysis replaces it automatically.
 Unfinished edits pause remeshing and saving. A changed mesh or locked form cannot
 receive an old draft. Imported properties must be edited in their source file;
 shared defaults, run-out connectors and movable-surface definitions retain their
@@ -841,6 +846,11 @@ case, title, axes, units, visible curve legends and definitions, using the
 current light or dark theme. Lift exports also include the aerodynamic
 coefficients and equal-lift ellipse. Exports remain editable and sharp at any
 size, and flag data from an older mesh when parameters have changed.
+**Vertical grid** shows or hides spanwise grid lines in every graph. Enter
+**Spacing (m)** to place lines at multiples of that distance along global y;
+leave it blank for automatic spacing. These choices are saved with the Study
+and included in SVG exports. A warning replaces the vertical grid if a spacing
+would require more than 400 lines; increase it or return to Auto.
 
 In **Loads → Load plots**, **Section lift coefficient × chord · cₗ c [m]**
 overlays a dashed elliptical reference with the same signed total lift as the

@@ -1443,7 +1443,8 @@ function updateAnalysisValidity() {
   const status = analysisValidity(),sensitivity=sensitivityResultValidity();
   const feAvailable=physicalResultsAvailable(),sensitivityAvailable=sensitivityResultsAvailable();
   const stressCases=typeof WingStressReportData!=='undefined'?WingStressReportData.caseList(stressReportContext()):null;
-  const stressAvailable=!!(stressCases?.included.length||stressCases?.excluded.some(c=>c.relevant));
+  const retainedStress=state.stressReport?.report,retainedAvailable=retainedStress?.source?.studyEpoch===state.studyEpoch&&retainedStress?.includedCases?.length>0;
+  const stressAvailable=!!(stressCases?.included.length||stressCases?.excluded.some(c=>c.relevant)||retainedAvailable);
   const anyCurrent=status.current||sensitivity.current||!!stressCases?.complete;
   const combined={current:anyCurrent,reason:!feAvailable&&!sensitivityAvailable&&!stressAvailable?"No FE or sensitivity results are available for case "+state.activeCase+". Select a solved case or run an analysis.":status.current?status.reason:sensitivity.current?sensitivity.reason:stressCases?.complete?"Current SOL101/SOL106 cases are available in Stress Report.":status.reason};
   const selected=state.results;
@@ -1658,6 +1659,18 @@ function installPanelTables(){
 
 // The detached RF table edits the live Study through the same canonical
 // panel/component overrides as Properties. Never apply to an older mesh.
+function reserveFactorTopologySignature(signature){
+  if(!signature)return null;
+  try{return JSON.stringify(JSON.parse(signature).filter(([key])=>/^(planform|airfoil|loft|box|ribs|mesh|stringers|leading_edge|movable_surfaces|movable_structure)\./.test(key)));}
+  catch(_){return null;}
+}
+function reserveFactorSourceEditable(source,snapshot){
+  if(!source)return false;
+  if(source.studyEpoch!==state.studyEpoch)throw Error('These results belong to another Study. Open the current Study report before editing.');
+  if(!source.topologySignature||source.topologySignature!==reserveFactorTopologySignature(formSignature())||source.layoutToken!==snapshot.layout_token)
+    throw Error('The geometry or rib/stringer layout changed since these results. The old RF table remains available; edit the current Properties forms or rerun analysis before editing from these cells.');
+  return true;
+}
 function reserveFactorPropertyContext(){
   return{parameters:collectParams({allowReserveFactorDraft:true}),data:state.data,groups:state.data?.groups||[],
     panels:state.data?.stiffened_panels?.panels||[],ribs:state.data?.annotations?.ribs||[],
@@ -1669,7 +1682,8 @@ function openReserveFactorPropertyEditor(pid,doc=document,hooks={}){
   if(typeof WingRFPropertyEditor==='undefined')throw Error('Refresh JFEM-Boxer to load the property editor.');
   state.rfPropertyEditor?.close();
   const snapshot=reserveFactorPropertyContext(),signature=formSignature(),meshIdentity=state.meshIdentity;
-  if(state.modelDirty&&(state.rfPropertyEditSignature!==signature||state.rfPropertyEditMeshIdentity!==meshIdentity))
+  const mappedSource=reserveFactorSourceEditable(hooks.sourceContext,snapshot);
+  if(!mappedSource&&state.modelDirty&&(state.rfPropertyEditSignature!==signature||state.rfPropertyEditMeshIdentity!==meshIdentity))
     throw Error('The model definition has changed. Create FEM before editing a property from these results.');
   const descriptor=WingRFPropertyEditor.resolve(snapshot,pid);
   if(!descriptor.editable)throw Error(descriptor.reason);
@@ -1692,7 +1706,7 @@ function openReserveFactorPropertyEditor(pid,doc=document,hooks={}){
       input.value=JSON.stringify(prepared.rows);parameterEdited(prepared.parameter);
       for(const editor of state.componentEditors||[])editor.refresh?.();
       state.rfPropertyEditSignature=formSignature();state.rfPropertyEditMeshIdentity=meshIdentity;
-      log('Updated P'+pid+' from the reserve-factor table. Regenerate and rerun the analysis for new reserve factors.','warn');
+      log('Updated P'+pid+' from the reserve-factor table. The RF tables retain the last analysed model; rerun analysis to update them.','warn');
     },
     onClose:()=>{
       closed=true;state.rfPropertyDrafts=false;if(state.rfPropertyEditor===handle)state.rfPropertyEditor=null;
@@ -1887,7 +1901,7 @@ function readBucklingFixity(key){
 
 function stressReportContext(){
   const cases=modelCases(),solution=Number(state.importedDeck?WingImportedAnalysis.solution(state.importedDeck):document.getElementById('p-output.solution')?.value||state.values?.['output.solution']);
-  return{elements:state.elements,cases:state.resultCases,allowables:readMaterialAllowables(),sourceUnits:!!state.importedDeck,
+  return{studyEpoch:state.studyEpoch,layoutToken:state.data?.stiffened_panels?.layout_token,topologySignature:reserveFactorTopologySignature(state.modelSignature),elements:state.elements,cases:state.resultCases,allowables:readMaterialAllowables(),sourceUnits:!!state.importedDeck,
     panels:state.data?.stiffened_panels?.panels||[],componentGroups:state.data?.groups||[],generated:!!state.data&&!state.importedDeck&&!state.data.imported_deck,
     eulerColumns:state.data?.stiffened_panels?.euler_columns,
     stringerBlades:state.data?.stiffened_panels?.blade_columns,
