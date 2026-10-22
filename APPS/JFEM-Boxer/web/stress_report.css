@@ -47,3 +47,5 @@
 
 .stress-report-stale{padding:12px 14px;border:1px solid #d39a45;border-radius:6px;background:#493315;color:#ffdc99;line-height:1.5;font-weight:600;}
 .stress-report-stale[hidden]{display:none;}
+
+#stale-results-viewport-warning[data-rf-estimate="true"]{background:#493315;border-color:#d39a45;color:#ffdc99;}

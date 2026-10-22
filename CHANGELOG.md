@@ -5,6 +5,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Manual sizing from reserve factors
+
+- Recalculate supported reserve factors after local property edits using the
+  last solved element forces and shell resultants with the regenerated section
+  and plate properties. Label the values as fixed-load sizing estimates and
+  replace them when matching analysis results arrive.
+- Refresh RF table colors and active 3D fields after edits, including hiding
+  newly passing regions when the RF < 1 filter is enabled. Preserve explicit
+  coverage and geometry/load compatibility checks.
+- Show minimum RF and its governing failure mode when inspecting an element,
+  with direct property editing and the same sizing feedback.
+
 ### Load-plot grid and retained RF tables
 
 - Add a visible-by-default vertical grid to load plots, with show/hide and

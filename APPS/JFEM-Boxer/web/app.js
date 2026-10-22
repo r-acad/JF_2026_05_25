@@ -1475,8 +1475,7 @@ function updateAnalysisValidity() {
     warning.textContent=stale?(selected.historical?"Historical baseline: the saved load convention differs from the current model. ":"The model has changed since this analysis. ")+
       (selected.matches?"Showing the retained solution on its matching mesh; these values are not results for the edited definition.":"Mesh coordinates or connectivity differ. Retained summaries and reports remain available; deformation and contours are disabled."):"";
   }
-  const viewportWarning=document.getElementById("stale-results-viewport-warning");
-  if(viewportWarning){viewportWarning.hidden=!warning||warning.hidden||!selected?.matches||!!state.sensitivityMap;viewportWarning.textContent=viewportWarning.hidden?"":"Previous analysis — model definition has changed. Results are retained for comparison.";}
+  syncResultsViewportWarning();
   const empty=document.querySelector?.("#panel-results .results-empty");if(empty)empty.hidden=!!selected;
   refreshSensitivityDisplayButtons();
   state.propertyDisplay?.refresh();
@@ -1523,6 +1522,9 @@ function parameterEdited(key) {
   }
   if(state.importedDeck && !["sensitivity.settings","jfem.timeout_minutes"].includes(key))return;
   if (state.parameterLocks?.guard(key)) return;
+  // Capture the solved sections before the first sizing edit, even if the
+  // user has not opened Stress Report or Inspect in this session yet.
+  if(!state.stressReport&&!state.modelDirty&&state.resultCases?.size&&/^(properties|material|materials)\./.test(key))refreshStressReport(true);
   if (key === "leading_edge.enabled") syncLeadingEdgePropertiesTab();
   if (key.startsWith("stringers.")||key==="properties.stringer_flange_width") syncStringerModelControls();
   if(key.startsWith("airfoil."))state.airfoilEditor?.refresh?.();
@@ -1664,6 +1666,18 @@ function reserveFactorTopologySignature(signature){
   try{return JSON.stringify(JSON.parse(signature).filter(([key])=>/^(planform|airfoil|loft|box|ribs|mesh|stringers|leading_edge|movable_surfaces|movable_structure)\./.test(key)));}
   catch(_){return null;}
 }
+// Fixed-load sizing may regenerate sections without launching an FE solve.
+// Geometry, loads and constraints must still be the analysed definition.
+function reserveFactorSizingSignature(signature){
+  try{return JSON.stringify(JSON.parse(signature).filter(([key])=>!/^(properties|material|materials)\./.test(key)));}
+  catch(_){return null;}
+}
+function reserveFactorSizingUpdatePending(){
+  const source=state.stressReport?.sourceContext;
+  if(!source||!state.stressReport?.report?.includedCases?.length||!state.modelDirty||state.importedDeck||state.diskResults||source.studyEpoch!==state.studyEpoch||!source.generated)return false;
+  const baseline=reserveFactorSizingSignature(source.signature);
+  return !!baseline&&baseline===reserveFactorSizingSignature(formSignature());
+}
 function reserveFactorSourceEditable(source,snapshot){
   if(!source)return false;
   if(source.studyEpoch!==state.studyEpoch)throw Error('These results belong to another Study. Open the current Study report before editing.');
@@ -1706,7 +1720,7 @@ function openReserveFactorPropertyEditor(pid,doc=document,hooks={}){
       input.value=JSON.stringify(prepared.rows);parameterEdited(prepared.parameter);
       for(const editor of state.componentEditors||[])editor.refresh?.();
       state.rfPropertyEditSignature=formSignature();state.rfPropertyEditMeshIdentity=meshIdentity;
-      log('Updated P'+pid+' from the reserve-factor table. The RF tables retain the last analysed model; rerun analysis to update them.','warn');
+      log('Updated P'+pid+' from the reserve-factor table. Updating estimated reserve factors at fixed element loads; rerun analysis to include redistribution.','warn');
     },
     onClose:()=>{
       closed=true;state.rfPropertyDrafts=false;if(state.rfPropertyEditor===handle)state.rfPropertyEditor=null;
@@ -1763,7 +1777,7 @@ function scheduleAutoMesh() {
   if(state.importedDeck)return;
   cancelAutoMeshTimer();
   if (!state.autoMeshPending || !state.autoMeshReady) return;
-  if (!state.autoMeshEnabled) {
+  if (!state.autoMeshEnabled&&!reserveFactorSizingUpdatePending()) {
     meshStatus("Model changed · press Create FEM", "stale");
     return;
   }
@@ -1783,12 +1797,12 @@ function scheduleAutoMesh() {
   const delay = Math.max(0, state.autoMeshDueAt - performance.now());
   state.autoMeshTimer = setTimeout(() => {
     state.autoMeshTimer = null;
-    if (!state.autoMeshPending || !state.autoMeshEnabled) return;
+    if (!state.autoMeshPending || (!state.autoMeshEnabled&&!reserveFactorSizingUpdatePending())) return;
     if (state.busy || state.exportBusy || state.loadingInput || state.meshRequestInFlight || state.polling || state.solverStarting || state.sensitivityBusy || resultsHavePendingDrafts()) {
       scheduleAutoMesh();
       return;
     }
-    createFEM({ automatic: true });
+    createFEM({ automatic: true, forSizing:reserveFactorSizingUpdatePending() });
   }, delay);
 }
 
@@ -1901,7 +1915,7 @@ function readBucklingFixity(key){
 
 function stressReportContext(){
   const cases=modelCases(),solution=Number(state.importedDeck?WingImportedAnalysis.solution(state.importedDeck):document.getElementById('p-output.solution')?.value||state.values?.['output.solution']);
-  return{studyEpoch:state.studyEpoch,layoutToken:state.data?.stiffened_panels?.layout_token,topologySignature:reserveFactorTopologySignature(state.modelSignature),elements:state.elements,cases:state.resultCases,allowables:readMaterialAllowables(),sourceUnits:!!state.importedDeck,
+  return{nodePositions:state.baseline,nodeIds:state.nodeIds,definitionSignature:formSignature(),studyEpoch:state.studyEpoch,layoutToken:state.data?.stiffened_panels?.layout_token,topologySignature:reserveFactorTopologySignature(state.modelSignature),elements:state.elements,cases:state.resultCases,allowables:readMaterialAllowables(),sourceUnits:!!state.importedDeck,
     panels:state.data?.stiffened_panels?.panels||[],componentGroups:state.data?.groups||[],generated:!!state.data&&!state.importedDeck&&!state.data.imported_deck,
     eulerColumns:state.data?.stiffened_panels?.euler_columns,
     stringerBlades:state.data?.stiffened_panels?.blade_columns,
@@ -1915,11 +1929,19 @@ function stressReportContext(){
     expectedCases:cases.map(c=>({...c,solution:c.solution||solution})).filter(c=>[101,106].includes(Number(c.solution))).map(c=>({id:c.id,label:c.label,solution:c.solution,enabled:c.enabled}))};
 }
 
-function refreshStressReport(){
-  if(typeof WingStressReport==='undefined'||(workspaceUI.activeTab!=='stressreport'&&!state.stressReport))return;
+function refreshStressReport(forceInstall=false){
+  if(typeof WingStressReport==='undefined'||(!forceInstall&&workspaceUI.activeTab!=='stressreport'&&!state.stressReport))return;
   if(!state.stressReport)state.stressReport=WingStressReport.install({document,host:document.getElementById('panel-stressreport'),readContext:stressReportContext,onEditAllowables:()=>activateWorkspaceTab('material'),
     onShowField:showReserveFactorField,onClearField:clearReserveFactorField,readFieldState:reserveFactorFieldState,onEditProperty:openReserveFactorPropertyEditor});
   state.stressReport.refresh();
+}
+
+function syncResultsViewportWarning(){
+  const note=document.getElementById('stale-results-viewport-warning');if(!note)return;
+  const estimated=state.rfField?.contour.estimated&&!state.rfField.contour.stale,warning=document.getElementById('fe-results-validity');
+  note.dataset.rfEstimate=String(!!estimated);
+  note.hidden=!estimated&&(!warning||warning.hidden||!state.results?.matches||!!state.sensitivityMap);
+  note.textContent=note.hidden?'':estimated?'Estimated RFs at fixed element loads. Rerun analysis to confirm load redistribution.':'Previous analysis \u2014 model definition has changed. Results are retained for comparison.';
 }
 
 function reserveFactorFieldState(){return{active:!!state.rfField,onlyBelowOne:!!state.rfField?.request.onlyBelowOne,message:state.rfField?.message||''};}
@@ -1954,13 +1976,13 @@ function showReserveFactorField(request,{blockedReason=''}={}){
   const cached=state.rfField?.contour.report?.failureMode===failureMode?state.rfField.contour.report:state.stressReport?.report;
   let contour;
   try{contour=blockedReason&&state.rfField?unavailableReserveFactorField(state.rfField.contour,blockedReason):
-    WingRFFieldData.build({...stressReportContext(),report:cached,...request});}
+    WingRFFieldData.build({...state.stressReport?.assessmentContext||stressReportContext(),report:cached,...request});}
   catch(error){
     if(state.rfField){state.rfField.contour=unavailableReserveFactorField(state.rfField.contour,error.message);state.rfField.message=error.message;applyContour();}
     throw error;
   }
   if(blockedReason)contour=unavailableReserveFactorField(contour,blockedReason);
-  contour.caseLabel=(request.caseId==='all'?'All eligible load cases':'Load case '+request.caseId)+' · undeformed model';
+  contour.caseLabel=(contour.estimated?'Estimated at fixed loads \u00b7 ':'')+(request.caseId==='all'?'All eligible load cases':'Load case '+request.caseId)+' · undeformed model';
   if(!previous){
     clearSensitivityMap();
     state.propertyDisplay?.setEnabled(false);
@@ -1968,13 +1990,13 @@ function showReserveFactorField(request,{blockedReason=''}={}){
     restoreFuelIsolation();
   }
   const message=(blockedReason||contour.stale)?blockedReason||contour.note:
-    contour.name+' · '+contour.available+' / '+contour.total+' elements assessed; '+(request.onlyBelowOne?
+    (contour.estimated?'Estimated at fixed element loads. Rerun analysis for redistributed loads. ':'')+contour.name+' · '+contour.available+' / '+contour.total+' elements assessed; '+(request.onlyBelowOne?
       contour.failingElementIds.size+' assessed elements have RF < 1. Other elements are hidden; entity visibility still applies.':'gray = unassessed or inapplicable.');
   state.rfField={request:{...request},contour,message,previous:previous||{animate:document.getElementById('animate').checked,resultsHidden:document.getElementById('results-card').hidden}};
   document.getElementById('animate').checked=false;document.getElementById('results-card').hidden=true;
   restoreBaseline();applyDeformation();applyContour();syncResultOverlays();
   syncReserveFactorVisibility();
-  state.stressReport?.syncFieldState();
+  state.stressReport?.syncFieldState();syncResultsViewportWarning();
   return reserveFactorFieldState();
 }
 
@@ -1986,6 +2008,7 @@ function clearReserveFactorField({render=true}={}){
   document.getElementById('results-card').hidden=field.previous.resultsHidden;
   state.stressReport?.syncFieldState();
   if(render&&state.data){applyDeformation();applyContour();syncResultOverlays();}
+  syncResultsViewportWarning();
   return{active:false,message:'RF field cleared.'};
 }
 
@@ -2303,13 +2326,14 @@ async function createFEM(options = {}) {
     if (!automatic) log(e.message, "err");
     return false;
   }
+  const sizingView=reserveFactorSizingUpdatePending()?{request:state.rfField?.request?{...state.rfField.request}:null,element:state.selectedElement}:null;
   state.meshRequestInFlight = true;
   setBusy(true);
   const signature = formSignature(params);
   log("generating the mesh…");
-  meshStatus(automatic ? "Updating model…" : "Creating FEM…", "building");
+  meshStatus(options.forSizing ? "Updating sizing sections and estimated RFs" : automatic ? "Updating model…" : "Creating FEM…", "building");
   const t0 = performance.now();
-  const token = activity()?.begin("Creating FEM", {detail:"Building mesh, fuel report and load cases…"});
+  const token = activity()?.begin(options.forSizing?"Updating sizing estimate":"Creating FEM", {detail:options.forSizing?"Regenerating sections for reserve factors at fixed element loads":"Building mesh, fuel report and load cases…"});
   try {
     const res = await postParams("/api/generate", params, token);
     if (!res.ok) {
@@ -2348,6 +2372,11 @@ async function createFEM(options = {}) {
     setModelDirty(false);
     state.autoMeshPending = false;
     meshStatus("Model is up to date", "current");
+    if(sizingView){
+      refreshStressReport();
+      if(sizingView.request)showReserveFactorField(sizingView.request,{blockedReason:(!state.stressReport?.report||state.stressReport.report.stale)?'The edited model cannot be estimated from the retained loads. See Stress Report.':''});
+      if(sizingView.element!==null&&state.elements.has(sizingView.element))showElement(sizingView.element);
+    }
     showStats(data, byteLength, (performance.now() - t0) / 1000);
     log("mesh received: " + data.nodes.count + " nodes, " +
         totalElements(data) + " elements, " +
@@ -2371,6 +2400,7 @@ async function createFEM(options = {}) {
     activity()?.end(token);
     state.meshRequestInFlight = false;
     setBusy(false);
+    if(sizingView&&state.selectedElement!==null&&state.elements.has(state.selectedElement))showElement(state.selectedElement);
   }
 }
 
@@ -4056,6 +4086,7 @@ function renderMovableSurfaces(data, visible = true) {
 }
 
 function disposeModel() {
+  state.rfInspectionCache=null;
   clearReserveFactorField({render:false});
   state.movablePreview?.dispose(); state.movablePreview = null;
   state.loftCuts?.dispose(); state.loftCuts = null;
@@ -5702,7 +5733,7 @@ function propertyLegendCategories(c){
 function reserveFactorFieldLegend(c){
   const gradient='linear-gradient(to right, '+WingReserveFactorTableData.colorStops({min:0,max:2},c.palette).map(stop=>stop.color+' '+(stop.position*100)+'%').join(', ')+')';
   return{kind:'reserve-factor',paletteEditable:false,title:c.name,unit:c.unit,min:c.min,max:c.max,categories:propertyLegendCategories(c),caseLabel:c.caseLabel,gradient,
-    formatNumber:WingReserveFactorTableData.format,note:c.stale?c.note:[c.available+' / '+c.total+' elements assessed',state.rfField?.request.onlyBelowOne?'Only assessed RF < 1 shown; RF ≥ 1 and unassessed elements hidden':'Gray = unassessed or inapplicable',
+    formatNumber:WingReserveFactorTableData.format,note:c.stale?c.note:[c.estimated?'Fixed-load estimate; rerun analysis to include redistribution':'',c.available+' / '+c.total+' elements assessed',state.rfField?.request.onlyBelowOne?'Only assessed RF < 1 shown; RF ≥ 1 and unassessed elements hidden':'Gray = unassessed or inapplicable',
       c.categorical?'Category colors identify the governing check': 'RF colors: 0–2; saturated above 2 · Yellow = RF > 1 at minimum gauge',
       !c.categorical&&Number.isFinite(c.actualMin)?'Actual RF range '+WingReserveFactorTableData.format(c.actualMin)+'–'+WingReserveFactorTableData.format(c.actualMax):'',
       'Inspect an element for the RF, case, scope and assessment details'].filter(Boolean).join(' · ')};
@@ -7096,6 +7127,44 @@ function resultTable(value) {
   return (rows ? "<table>" + rows + "</table>" : "") + nested;
 }
 
+function inspectReserveFactor(eid){
+  if(typeof WingRFFieldData==='undefined'||typeof WingStressReportData==='undefined')return null;
+  try{
+    // Inspect is also called by contour rendering. Updating an already active
+    // report here could recursively request a field while it is being drawn.
+    if(!state.stressReport)refreshStressReport(true);
+    const controller=state.stressReport,context=controller?.assessmentContext;
+    if(!context)return null;
+    if(controller.report?.stale&&!controller.report.estimated)return{reason:controller.report.staleMessage||'The retained reserve factors describe the previous model; update its sizing estimate or rerun analysis.',sourceContext:controller.sourceContext};
+    const request={...controller.getFieldRequest(),kind:'minimum_rf',failureMode:'minimum_rf',onlyBelowOne:false};
+    const previous=state.rfInspectionCache,requestKey=JSON.stringify(request),validityKey=JSON.stringify([context.studyEpoch,context.modelDirty,context.pendingDrafts,context.running,context.estimated]);
+    const cached=controller.report?.failureMode==='minimum_rf'?controller.report:previous?.contour.report;
+    const input={...context,...request,report:cached};
+    let contour;
+    if(previous&&previous.requestKey===requestKey&&previous.validityKey===validityKey&&previous.certificate===context.estimateCertificate&&previous.report===cached&&WingStressReportData.currentContext(cached,input))contour=previous.contour;
+    else{
+      contour=WingRFFieldData.build(input,request);
+      state.rfInspectionCache={requestKey,validityKey,certificate:context.estimateCertificate,report:contour.report,contour};
+    }
+    return{contour,detail:contour.detailsById.get(eid),sourceContext:controller.sourceContext};
+  }catch(error){return{reason:error?.message||String(error)};}
+}
+
+function inspectReserveFactorTable(contour,detail,eid){
+  return detail?.available?{
+    'Reserve factor':WingReserveFactorTableData.format(detail.reserveFactor),
+    'Critical load case':detail.caseLabel||'No demand',
+    'Failure mode':detail.modeLabel||'No demand',
+    'Physical scope':detail.scope,
+    ...(detail.propertyScope?{'Applied to':detail.propertyScope}:{}),
+    'Minimum gauge':detail.minimumGauge?.known?(detail.minimumGauge.atMinimum?'All relevant dimensions at minimum':'Above minimum'):'Unknown',
+    ...(contour.estimated?{'Assessment':'Fixed-load sizing estimate. Rerun analysis to verify load redistribution and equilibrium.'}:{}),
+    ...(detail.noDemand?{'Interpretation':'RF 99 is a no-demand sentinel, not a calculated margin.'}:{}),
+    ...(detail.notes?.length?{'Assessment notes':detail.notes.join(' ')}:{}),
+  }:{Status:contour.stale?contour.note:detail?.reason||contour.unavailableById.get(eid)||'No applicable complete assessment.',
+    ...(!contour.stale&&detail?.notes?.length?{'Assessment details':detail.notes.join(' ')}:{})};
+}
+
 function showElement(eid) {
   const element = state.elements.get(eid);
   if (!element) return;
@@ -7108,6 +7177,25 @@ function showElement(eid) {
     "Property ID": g.pid === undefined ? "—" : g.pid,
     "GRID IDs": Array.from(element.nodes, (i) => state.nodeIds[i]) });
   if(element.leadingEdgeFallback) html+='<p class="rib-fallback-warning" role="note">Leading-edge rib '+esc(String(element.leadingEdgeFallback.rib))+': flight direction fallback. '+esc(element.leadingEdgeFallback.reason)+'</p>';
+  const rfInspection=inspectReserveFactor(eid),inspectionContour=rfInspection?.contour;
+  if(inspectionContour){
+    const request=state.stressReport.getFieldRequest(),scope=request.caseId==='all'?'All eligible load cases':'Load case '+request.caseId;
+    html+='<details id="inspect-rf-assessment" open><summary>'+esc(inspectionContour.name)+'</summary><p class="pick-note">'+esc(scope)+(inspectionContour.estimated?' · Fixed-load estimate':'')+'</p>'+resultTable(inspectReserveFactorTable(inspectionContour,rfInspection.detail,eid))+'</details>';
+  }else if(rfInspection?.reason)html+='<p id="inspect-rf-assessment" class="pick-note">Reserve factors unavailable: '+esc(rfInspection.reason)+'</p>';
+  if(state.rfField&&state.rfField.contour.failureMode!=='minimum_rf'){
+    const c=contourValues();
+    html+='<details open><summary>Displayed field · '+esc(c.name)+'</summary><p class="pick-note">'+esc(c.caseLabel)+'</p>'+resultTable(inspectReserveFactorTable(c,c.detailsById.get(eid),eid))+'</details>';
+  }
+  let propertyEditReason='',propertyEditable=false;
+  if(Number(g.pid)>0&&typeof WingRFPropertyEditor!=='undefined'){
+    try{
+      const snapshot=reserveFactorPropertyContext(),descriptor=WingRFPropertyEditor.resolve(snapshot,Number(g.pid));
+      if(!descriptor.editable)propertyEditReason=descriptor.reason;
+      else if(state.parameterLocks?.isLocked(descriptor.parameter))propertyEditReason='Unlock the Properties form before editing this property.';
+      else{if(rfInspection?.sourceContext)reserveFactorSourceEditable(rfInspection.sourceContext,snapshot);propertyEditable=true;}
+    }catch(error){propertyEditReason=error?.message||String(error);}
+    html+='<div class="pick-property-edit"><button type="button" class="mini" id="inspect-edit-property"'+(propertyEditable?'':' disabled')+' title="'+esc(propertyEditReason||'Edit this element\'s property. Estimated reserve factors update at fixed analysis loads; rerun the analysis to verify the design.')+'">Edit property P'+esc(String(g.pid))+'</button><p id="inspect-property-edit-status" class="pick-note" role="status">'+esc(propertyEditReason)+'</p></div>';
+  }
   const properties = { ...(element.properties || g.properties || {}) };
   if (properties.section) {
     properties.section = { ...properties.section };
@@ -7123,20 +7211,6 @@ function showElement(eid) {
   if(state.propertyDisplay?.enabled){
     const c=state.propertyDisplay.contour(),value=c.byId.get(eid),label=c.categories?.find(category=>category.value===value)?.label;
     html+='<details open><summary>Displayed property</summary><p>'+esc(c.name)+': '+esc(label??(Number.isFinite(value)?eng(value,6)+' '+c.unit:'Not applicable / unavailable'))+'</p></details>';
-  }
-  if(state.rfField){
-    const c=contourValues(),detail=c.detailsById.get(eid),shown=detail?.available?{
-      'Reserve factor':WingReserveFactorTableData.format(detail.reserveFactor),
-      'Critical load case':detail.caseLabel||'No demand',
-      'Failure mode':detail.modeLabel||'No demand',
-      'Physical scope':detail.scope,
-      ...(detail.propertyScope?{'Applied to':detail.propertyScope}:{}),
-      'Minimum gauge':detail.minimumGauge?.known?(detail.minimumGauge.atMinimum?'All relevant dimensions at minimum':'Above minimum'):'Unknown',
-      ...(detail.noDemand?{'Interpretation':'RF 99 is a no-demand sentinel, not a calculated margin.'}:{}),
-      ...(detail.notes?.length?{'Assessment notes':detail.notes.join(' ')}:{}),
-    }:{Status:c.stale?c.note:detail?.reason||c.unavailableById.get(eid)||'No applicable complete assessment.',
-      ...(!c.stale&&detail?.notes?.length?{'Assessment details':detail.notes.join(' ')}:{})};
-    html+='<details open><summary>'+esc(c.name)+'</summary><p class="pick-note">'+esc(c.caseLabel)+'</p>'+resultTable(shown)+'</details>';
   }
   const panel=state.panelIndex?.byElement.get(eid);
   if(panel)html+='<details open><summary>Stiffened panel</summary>'+resultTable({Panel:panel.label,ID:panel.id,Skin:panel.skin,"Rib bay":panel.rib_bay,"Skin PID":panel.shell_pid,...(panel.stringer_model==="shell"?{"Stringer web PID":panel.stringer_web_pid,"Stringer flange PID":panel.stringer_flange_pid??"None (blade only)"}:{"Stringer PID":panel.stringer_pid}),"Skin shell elements":panel.shell_eids.length,"Stringer elements":panel.stringer_eids.length,"Start":panel.start_kind,"End":panel.end_kind})+'</details>';
@@ -7171,6 +7245,13 @@ function showElement(eid) {
     html += "<details><summary>Nodal translations x, y, z (" + (state.activeMode >= 0 ? "normalized mode" : "m") + ")</summary>" + resultTable(displacements) + "</details>";
   }
   document.getElementById("pick-content").innerHTML = html;
+  const editProperty=document.getElementById('inspect-edit-property');
+  if(editProperty&&propertyEditable)editProperty.onclick=()=>{
+    try{openReserveFactorPropertyEditor(Number(g.pid),document,{sourceContext:rfInspection?.sourceContext,onDraftChange:detail=>{
+      if(!detail.hasDrafts)queueMicrotask(()=>{if(state.selectedElement===eid&&state.elements.has(eid))showElement(eid);});
+    }});}
+    catch(error){const status=document.getElementById('inspect-property-edit-status');if(status)status.textContent=error?.message||String(error);}
+  };
   document.getElementById("pick-card").hidden = false;
   updateSelection();
 }
@@ -7219,7 +7300,7 @@ function updateSelection(positions) {
   }
   const layer = state.layers.get(element.group.name);
   state.selectionMesh.position.copyFromFloats(...(state.panelExplosion?.offsetElement(element.id)||[0,0,0]));
-  state.selectionMesh.setEnabled(!layer || layer.visible);
+  state.selectionMesh.setEnabled((!layer || layer.visible)&&(!state.rfVisibleElementIds||state.rfVisibleElementIds.has(element.id)));
 }
 
 function inspectionMatches(group, filter = document.getElementById("inspect-entity")?.value || "all") {

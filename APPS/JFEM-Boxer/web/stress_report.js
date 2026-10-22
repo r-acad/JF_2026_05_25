@@ -4,7 +4,7 @@
  function install({document,host,readContext,onEditAllowables,onEditProperty,onShowField,onClearField,readFieldState}){
   const data=root.WingStressReportData,tableData=root.WingReserveFactorTableData,finite=Number.isFinite;
   const modeInfo=mode=>tableData.modeInfo(mode);
-  let report=null,cache=null,table='stress',page=0,lastContext=null,liveContext=null,validationError='';
+  let report=null,cache=null,table='stress',page=0,lastContext=null,liveContext=null,sourceContext=null,validationError='';
   const snapshots=root.WingStressReportSnapshot.create();const palettes={stress:'viridis',reserve:'signed'};
   const pageSize=100;
   function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;}
@@ -66,7 +66,7 @@
   onlyFailing.onchange=()=>{syncFieldState();requestField(true);};
   const status=el('p',undefined,'stress-report-status');status.id='stress-report-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');
   const staleNotice=el('p',undefined,'stress-report-stale');staleNotice.id='stress-report-stale';staleNotice.hidden=true;staleNotice.setAttribute('role','status');
-  const detached=root.WingReserveFactorTables?.connect({readSnapshot:()=>({report,requestedFailureMode:failureMode.value,error:validationError,panels:lastContext?.panels||[],componentGroups:lastContext?.componentGroups||[],generated:!!lastContext?.generated,caseScopeLabel:scope.selectedOptions[0]?.textContent||'All eligible load cases'}),onEditProperty:(pid,doc,hooks)=>onEditProperty?.(pid,doc,{...hooks,sourceContext:lastContext}),onFailureMode:value=>{failureMode.value=value;if(value!=='von_mises')table='reserve';refresh(true);if(report?.failureMode!==value)throw new Error(validationError||'The selected assessment is unavailable.');},onError:message=>{status.textContent=message;status.dataset.complete='false';}});
+  const detached=root.WingReserveFactorTables?.connect({readSnapshot:()=>({report,requestedFailureMode:failureMode.value,error:validationError,panels:lastContext?.panels||[],componentGroups:lastContext?.componentGroups||[],generated:!!lastContext?.generated,caseScopeLabel:scope.selectedOptions[0]?.textContent||'All eligible load cases'}),onEditProperty:(pid,doc,hooks)=>onEditProperty?.(pid,doc,{...hooks,sourceContext}),onFailureMode:value=>{failureMode.value=value;if(value!=='von_mises')table='reserve';refresh(true);if(report?.failureMode!==value)throw new Error(validationError||'The selected assessment is unavailable.');},onError:message=>{status.textContent=message;status.dataset.complete='false';}});
   detached?.installButton(actions);
   const legend=el('div',undefined,'stress-report-legend');
   const viewport=el('div',undefined,'stress-report-table-scroll');viewport.tabIndex=0;viewport.setAttribute('role','region');viewport.setAttribute('aria-label','Property results table');
@@ -108,7 +108,7 @@
   }
   function render(){
    if(!report)return;
-   staleNotice.hidden=!report.stale;staleNotice.textContent=report.staleMessage||'';
+   staleNotice.hidden=!report.stale&&!report.estimated;staleNotice.textContent=report.estimateMessage||report.staleMessage||'';staleNotice.dataset.estimated=String(!!report.estimated);
    const shown=filteredReport(),rows=shown.rows,unit=report.stressUnit,info=modeInfo(report.failureMode),minimum=report.failureMode==='minimum_rf',euler=info.kind==='column',blade=info.kind==='blade',skin=info.kind==='plate',instability=euler||blade||skin||minimum,isReserve=table==='reserve';
    palette.value=palettes[table];palette.options[0].textContent=isReserve?'Red below 1 / blue above 1':'Signed red (-) / blue (+)';stressButton.disabled=instability;reserveButton.disabled=false;
    edit.hidden=instability&&!minimum;method.closest('label').hidden=instability&&!minimum;introduction.textContent=info.component?tableData.componentNote(report.failureMode):minimum?'Compare each property across all applicable failure checks and selected load cases. The minimum complete RF governs; plate and column contributors retain their full physical scope. Yellow marks RF above 1 with every relevant dimension at minimum gauge.':skin?'Assess skin panels under combined biaxial membrane stress and shear. Each case uses the panel-average signed stress state; the lowest elastic plate buckling reserve factor governs. Set the skin buckling fixity coefficient under Properties → Skin.':blade?'Assess local free-web instability of beam stringers between ribs. Each case uses the signed arithmetic average axial bar stress; the lowest critical-stress / average-compression ratio governs.':euler?'Assess each physical stringer column across current SOL101 and converged, full-load SOL106 cases. The lowest section/case reserve factor governs. Set the end-fixity coefficient c under Properties → Stringers.':'Compare property regions across current SOL101 and converged, full-load SOL106 cases. Use Maximize for wider tables.';
@@ -151,7 +151,9 @@
   }
   details.ontoggle=()=>{if(details.open&&report)showCoverage();};
   function refresh(force=false){
-   liveContext=readContext();const retained=snapshots.select(liveContext),context=retained.context;lastContext=context;
+   liveContext=readContext();const retained=snapshots.select(liveContext);sourceContext=retained.context;
+   const estimate=retained.stale&&root.WingRFSizingEstimate?root.WingRFSizingEstimate.project(sourceContext,liveContext):null;
+   const estimated=!!estimate?.estimated,context=estimated?estimate.context:retained.context;lastContext=context;
    // Results normally replace the whole map. Also detect individual case updates
    // without serializing the potentially very large element stress dictionaries.
    const records=[];
@@ -159,7 +161,7 @@
     records.push(id,parent,parent.analysis,parent.modeKind);
     for(const[key,r]of parent.variants?.size?parent.variants:[['default',parent]])records.push(key,r,r.elementResults,r.static,r.signature,r.meshIdentity,r.matches,r.available,r.historical,r.status,r.analysis,r.loadScale,r.convergence?.converged,r.convergence?.full_load,r.convergence?.partial,JSON.stringify(r.validationIssues));
    }
-   const deps=[retained.stale,retained.message,context.studyEpoch,context.elements,context.cases,context.allowables,context.sourceUnits,context.signature,context.meshIdentity,context.modelDirty,context.pendingDrafts,context.running,context.panels,context.componentGroups,context.generated,context.eulerColumns,context.eulerFixityCoefficient,context.stringerBlades,context.skinBucklingPanels,context.skinFixityCoefficient,context.componentBuckling,JSON.stringify(context.componentFixities),JSON.stringify(context.expectedCases),JSON.stringify([...(context.caseLabels||[])]),failureMode.value,scope.value,method.value,percentile.value,...records];
+   const deps=[estimated,estimate?.message,retained.stale,retained.message,context.studyEpoch,context.elements,context.cases,context.allowables,context.sourceUnits,context.signature,context.meshIdentity,context.modelDirty,context.pendingDrafts,context.running,context.panels,context.componentGroups,context.generated,context.eulerColumns,context.eulerFixityCoefficient,context.stringerBlades,context.skinBucklingPanels,context.skinFixityCoefficient,context.componentBuckling,JSON.stringify(context.componentFixities),JSON.stringify(context.expectedCases),JSON.stringify([...(context.caseLabels||[])]),failureMode.value,scope.value,method.value,percentile.value,...records];
    if(!force&&cache&&deps.length===cache.length&&deps.every((v,i)=>v===cache[i]))return report;
    const selected=scope.value;scope.replaceChildren();const all=el('option','All eligible load cases');all.value='all';scope.append(all);
    for(const c of context.expectedCases||[]){const option=el('option',c.label||'Load case '+c.id);option.value=String(c.id);scope.append(option);}
@@ -172,14 +174,15 @@
    validationError='';
    try{const built=data.build({...context,failureMode:failureMode.value,caseId:scope.value==='all'?'all':Number(scope.value),method:method.value,percentile:percentileValue});
     const source=retained.source?Object.fromEntries(['studyEpoch','signature','meshIdentity','capturedAt'].map(key=>[key,retained.source[key]])):null;
-    report=Object.assign(built,{stale:retained.stale,staleMessage:retained.message,source,note:(retained.stale?retained.message+' ':'')+built.note});}
+    const notice=estimated?estimate.message:retained.message+(estimate?.message?' '+estimate.message:'');
+    report=Object.assign(built,{stale:retained.stale&&!estimated,staleMessage:retained.stale&&!estimated?notice:'',estimated,estimateMessage:estimated?notice:'',source,note:(retained.stale?notice+' ':'')+built.note});}
    catch(error){return withholdReport('Cannot calculate the Stress Report: '+(error?.message||String(error)));}
    cache=deps;page=0;render();requestField(true);return report;
   }
   scope.onchange=method.onchange=percentile.onchange=()=>refresh(true);search.oninput=()=>{page=0;render();};
   failureMode.onchange=()=>{if(failureMode.value!=='von_mises')table='reserve';refresh(true);};palette.onchange=()=>{palettes[table]=palette.value;render();};
   stressButton.onclick=()=>{table='stress';render();};reserveButton.onclick=()=>{table='reserve';render();};previous.onclick=()=>{page--;render();};next.onclick=()=>{page++;render();};
-  return{refresh,getFieldRequest,syncFieldState,invalidate(){cache=null;},destroy(){fieldEpoch++;snapshots.reset();detached?.destroy();},get report(){return report;}};
+  return{refresh,getFieldRequest,syncFieldState,invalidate(){cache=null;},destroy(){fieldEpoch++;snapshots.reset();detached?.destroy();},get report(){return report;},get assessmentContext(){return lastContext;},get sourceContext(){return sourceContext;}};
  }
  root.WingStressReport={install};
 })(globalThis);

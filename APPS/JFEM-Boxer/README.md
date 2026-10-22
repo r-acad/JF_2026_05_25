@@ -112,8 +112,9 @@ to see its RF, governing case, failure mode, physical scope and missing-check
 reason. Property envelopes color the whole property; individual physical
 column/panel checks color only their recorded constituent elements. Overlapping
 checks use the lowest RF, but an incomplete applicable overlap remains gray.
-Editing the model or starting an analysis withholds old field values until
-current completed results are available.
+Property edits can update these fields with the fixed-load sizing estimate
+described below. Changes to geometry, loads or constraints withhold outdated
+fields until a compatible completed analysis is available.
 
 **Only elements with RF < 1** in the Stress Report's 3D field controls isolates
 fully assessed elements below the selected criterion's threshold. For critical
@@ -128,12 +129,32 @@ checks offer the properties they involve. A shell stringer's web and flange
 remain one physical section and update together. Values below an enforced
 minimum gauge turn the input and source cell red and cannot be applied. Cancel
 leaves the Study unchanged. Apply marks the model and previous results out of
-date. The RF tables remain visible with a model/results mismatch notice, so you
-can edit several properties before rerunning. They retain the old model properties,
-allowables, fixities and load cases; they do not combine new sections with old
-stresses. Use Live mesh or Create FEM, then rerun the analysis to obtain new RFs.
-The notice also appears in exported tables. A new Study clears the retained
-assessment; a matching new analysis replaces it automatically.
+date. Boxer rebuilds the affected property and assessment metadata, then updates
+the RF tables and active RF field using a **fixed-load sizing estimate**. This
+works with Live mesh off and does not run another equilibrium solution. Element
+forces and shell membrane/bending resultants stay at their last solved values;
+stress is recovered for the edited sections, and buckling capacity is recomputed
+from the edited section or plate properties. Successive edits always use the
+original solved forces, rather than compounding previous estimates.
+The estimate requires unchanged structural node positions, connectivity, loads and
+constraints. Thickness, beam-section and material edits can satisfy this;
+changing a shell stringer's height or flange width moves its mesh and requires
+a new analysis.
+
+An amber notice identifies estimated values in the app and table exports. This
+is a preliminary indication for manual sizing: changing stiffness redistributes
+forces in the real structure, and changing mass can change inertia loads. Rerun
+the FE analysis to confirm the design. Changed geometry, loads or constraints
+cannot produce a trustworthy estimate; the previous report stays available with
+its mismatch notice instead. Unsupported recovery and missing applicable failure
+checks remain unassessed. A new Study clears the retained assessment, and matching
+new analysis results replace both the baseline and the sizing estimate.
+
+Cell and 3D colors update with the estimated RF. With **Only RF < 1** enabled,
+a property that reaches RF 1 or higher disappears from the filtered table and
+field; turn off the filter to inspect or edit it again. **Inspect**
+also shows the selected element's minimum RF and governing failure mode and
+provides **Edit property**, using the same dialog and update behavior.
 Unfinished edits pause remeshing and saving. A changed mesh or locked form cannot
 receive an old draft. Imported properties must be edited in their source file;
 shared defaults, run-out connectors and movable-surface definitions retain their

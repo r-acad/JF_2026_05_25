@@ -44,8 +44,23 @@ Its header lists the fixture, output and Playwright arguments.
 edits, in-place result-status changes and mesh regeneration, while keeping the
 original solved properties and recovery together. New-Study isolation and
 same-model missing/failed-result guards remain explicit. The live property
-bridge test also checks sequential edits, mismatch notices in all exports,
-remapping protection and replacement by matching new recovery.
+bridge test checks the retained-report fallback after external loads change,
+including sequential edits, mismatch notices in all exports, remapping
+protection and replacement by matching new recovery.
+
+`rf_sizing_browser_test.cjs` exercises manual sizing through the full Boxer app,
+detached RF table and element inspection. Authentic generated mesh variants and
+explicit synthetic membrane loads provide known RF changes after thickness
+edits; the checks cover updated table/vertex colors, failing-only visibility,
+successive edits against the original loads, estimate notices, load-change
+guards and replacement by new recovery. Its header lists fixture, output and
+Playwright arguments. This validates the sizing workflow, not FE load
+redistribution or solver parity.
+
+`rf_sizing_estimate_test.cjs` checks fixed-force recovery for shell membrane and
+bending demand, coupled laminates and thin-walled T beams, including unchanged
+baseline data, repeated estimates, numeric/coverage guards and rejection of
+changed physical geometry.
 
 `rf_field_visibility_test.cjs` verifies index filtering, exact picking ownership,
 hidden-layer restoration and geometry replacement. `rf_filter_browser_test.cjs`

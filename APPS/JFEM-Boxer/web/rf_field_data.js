@@ -1,6 +1,6 @@
 /* Project assessed reserve factors onto actual FE element IDs. Property checks
  * retain their whole-property scope; physical checks retain their exact members. */
-(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./stress_report_data.js'):root.WingStressReportData,typeof module==='object'&&module.exports?require('./minimum_rf_data.js'):root.WingMinimumRFData,typeof module==='object'&&module.exports?require('./reserve_factor_table_data.js'):root.WingReserveFactorTableData,typeof module==='object'&&module.exports?require('./component_buckling_data.js'):root.WingComponentBucklingData);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingRFFieldData=api;})(globalThis,function(stress,minimum,tables,component){
+(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./stress_report_data.js'):root.WingStressReportData,typeof module==='object'&&module.exports?require('./minimum_rf_data.js'):root.WingMinimumRFData,typeof module==='object'&&module.exports?require('./reserve_factor_table_data.js'):root.WingReserveFactorTableData,typeof module==='object'&&module.exports?require('./component_buckling_data.js'):root.WingComponentBucklingData,typeof module==='object'&&module.exports?require('./rf_sizing_estimate.js'):root.WingRFSizingEstimate);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingRFFieldData=api;})(globalThis,function(stress,minimum,tables,component,sizing){
  'use strict';
  const finite=n=>typeof n==='number'&&Number.isFinite(n);
  const FAILURE_MODES=Object.freeze({...minimum.MODES});
@@ -10,6 +10,7 @@
  const modes=Object.keys(FAILURE_MODES);
  const modeColors=['#0277bd','#ad1457','#00897b','#ef6c00','#6a1b9a','#3949ab','#8d6e00','#00838f','#c62828','#5d4037'];
  const NOTE='Colors apply to actual element membership. A property-wide stress or combined RF colors its whole property region; a physical plate, blade or column RF colors its recorded members, including shared constituents. Overlapping applicable checks use their lowest computed RF, and any incomplete overlapping check leaves those elements unassessed. RF 99 is a no-demand sentinel only when explicitly identified; it never outranks a calculated RF greater than 99. Critical-case and failure-mode categories require a complete minimum-RF assessment. Gray means unassessed or inapplicable, not zero. SOL106 RFs are demand ratios, not predicted failure-load multipliers.';
+ const ESTIMATE_NOTE='Estimated reserve factors use the edited local properties with the previous analysis force resultants held fixed. Loads, load redistribution and equilibrium have not been recalculated. Rerun the FE analysis before accepting the design.';
  function options(input={},request={}){
   const kind=request.kind??input.kind??'minimum_rf';if(!Object.hasOwn(FIELD_KINDS,kind))throw Error('Unknown reserve-factor field presentation: '+kind);
   const failureMode=kind==='failure_rf'?(request.failureMode??input.failureMode??'von_mises'):'minimum_rf';
@@ -36,6 +37,9 @@
  }
  function caseSignature(cases){return(cases||[]).map(c=>String(c.caseKey)+'|'+String(c.solution)).sort().join('\n');}
  function freshness(input,report){
+  const estimated=sizing?.isEstimateContext(input)===true;
+  if((input.estimated||input.estimateCertificate||report.estimated)&&!estimated)return 'The fixed-load estimate does not match the current Study, properties or recovery. Rebuild the assessment before displaying estimated reserve factors.';
+  if(report.stale&&!estimated)return 'This is a retained assessment of the previous model. Only a validated fixed-load sizing estimate can color edited elements.';
   if(input.modelDirty||input.pendingDrafts)return 'The model definition has unsolved changes. Rerun the selected cases before displaying reserve factors.';
   if(input.running)return 'Analysis is running; completed current results are required.';
   if(input.cases!==undefined){
@@ -91,7 +95,7 @@
  function project(input={},report,request={}){
   const opt=options(input,request),index=minimum.modelIndex(input),categorical=opt.kind==='critical_case'||opt.kind==='critical_failure';
   if(!report||report.failureMode!==opt.failureMode)throw Error('The requested field requires a '+opt.failureMode+' report.');
-  const title=opt.kind==='failure_rf'?(FAILURE_MODES[opt.failureMode]+' reserve factor'):FIELD_KINDS[opt.kind],byId=new Map(),colorById=new Map(),detailsById=new Map(),unavailableById=new Map(),buckets=new Map(),issues=[],stale=freshness(input,report);
+  const estimated=sizing?.isEstimateContext(input)===true,title=(estimated?'Estimated ':'')+(opt.kind==='failure_rf'?(FAILURE_MODES[opt.failureMode]+' reserve factor'):FIELD_KINDS[opt.kind]),byId=new Map(),colorById=new Map(),detailsById=new Map(),unavailableById=new Map(),buckets=new Map(),issues=[],stale=freshness(input,report);
   for(const eid of index.elements.keys())unavailableById.set(eid,stale||'No applicable complete assessment is associated with this element.');
   if(!stale)for(const source of sources(input,report,index)){
    const detail=detailFor(source,report,index);
@@ -104,7 +108,7 @@
    if(missing.length){const reason=[...new Set(missing.map(c=>c.scope+': '+c.reason))].join(' ');unavailableById.set(eid,reason);detailsById.set(eid,{available:false,status:'unassessed',reason,notes:[...new Set(missing.flatMap(c=>c.notes||[]))],assessments:candidates});continue;}
    const computed=candidates.filter(c=>!c.noDemand),eligible=computed.length?computed:candidates;
    const governing=eligible.reduce((best,c)=>!best||c.reserveFactor<best.reserveFactor||c.reserveFactor===best.reserveFactor&&String(c.rowKey)<String(best.rowKey)?c:best,null);
-   const detail={...governing,assessments:candidates};delete detail.colorRecord;
+   const detail={...governing,estimated,assessments:candidates};delete detail.colorRecord;
    if(categorical){const item=category(governing,report,opt.kind);if(item.reason){detail.available=false;detail.reason=item.reason;unavailableById.set(eid,item.reason);detailsById.set(eid,detail);continue;}categoryMap.set(item.key,item);detail.categoryKey=item.key;colorById.set(eid,item.color);}
    else{byId.set(eid,governing.reserveFactor);colorById.set(eid,rgb(tables.valueColor(governing.reserveFactor,{min:0,max:2},opt.palette,governing.colorRecord)));}
    actualMin=actualMin===null?governing.reserveFactor:Math.min(actualMin,governing.reserveFactor);actualMax=actualMax===null?governing.reserveFactor:Math.max(actualMax,governing.reserveFactor);
@@ -119,13 +123,13 @@
   // the same completely assessed, governing numerical RF as the table.
   const failingElementIds=new Set();
   for(const [eid,detail]of detailsById)if(byId.has(eid)&&detail.available&&finite(detail.reserveFactor)&&detail.reserveFactor<1)failingElementIds.add(eid);
-  const available=byId.size,total=index.elements.size,note=NOTE+(stale?' '+stale:'')+(issues.length?' '+issues.length+' physical-region membership/assessment issue(s) remain; see element details.':'');
-  return{kind:'reserve_factor_field',fieldKind:opt.kind,failureMode:opt.failureMode,palette:opt.palette,name:title,title,unit:categorical?'category':'RF',location:'element',domain:'all',byId,colorById,detailsById,unavailableById,failingElementIds,categorical,categories,gradient:categorical?[]:tables.colorStops({min:0,max:2},opt.palette),min:categorical?(categories.length?1:0):0,max:categorical?categories.length:2,actualMin,actualMax,available,total,coverage:{available,total,unavailable:total-available},complete:available===total&&total>0,issues,stale:!!stale,message:stale||available+' / '+total+' structural elements assessed; gray = unassessed or inapplicable.',note,report};
+  const available=byId.size,total=index.elements.size,note=(estimated?ESTIMATE_NOTE+' ':'')+NOTE+(stale?' '+stale:'')+(issues.length?' '+issues.length+' physical-region membership/assessment issue(s) remain; see element details.':'');
+  return{kind:'reserve_factor_field',fieldKind:opt.kind,failureMode:opt.failureMode,palette:opt.palette,name:title,title,unit:categorical?'category':'RF',location:'element',domain:'all',byId,colorById,detailsById,unavailableById,failingElementIds,categorical,categories,gradient:categorical?[]:tables.colorStops({min:0,max:2},opt.palette),min:categorical?(categories.length?1:0):0,max:categorical?categories.length:2,actualMin,actualMax,available,total,coverage:{available,total,unavailable:total-available},complete:available===total&&total>0,issues,estimated,stale:!!stale,message:stale||(estimated?'Fixed-load estimate · ':'')+available+' / '+total+' structural elements assessed; gray = unassessed or inapplicable.',note,report};
  }
  function build(input={},request={}){
   const opt=options(input,request),context={...input,...request,failureMode:opt.failureMode},cached=input.report;
   const report=cached?.failureMode===opt.failureMode&&!freshness(context,cached)&&(context.cases===undefined||stress.currentContext(cached,context))?cached:stress.build(context);
   return project(context,report,opt);
  }
- return{FIELD_KINDS,FAILURE_MODES,NOTE,options,categoryColor,build,project};
+ return{FIELD_KINDS,FAILURE_MODES,NOTE,ESTIMATE_NOTE,options,categoryColor,build,project};
 });
