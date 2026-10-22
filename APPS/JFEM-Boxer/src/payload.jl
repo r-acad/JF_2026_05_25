@@ -316,6 +316,7 @@ function physical_annotations(m::Model)
             "index" => index, "side" => upper ? "upper" : "lower",
             "label" => (upper ? "U" : "L") * string(index),
             "nodes" => nodes, "eids" => eids, "runout_eids" => runout_eids,
+            "runout_nodes" => isempty(runout_edges) ? Int[] : vcat(first(runout_edges)[1],[edge[2] for edge in runout_edges]),
             "runout_anchor_nodes" => isempty(runout_edges) ? Int[] : collect(runout_edges[cld(length(runout_edges), 2)]),
             "runout_anchor_weights" => isempty(runout_edges) ? Float64[] : [0.5, 0.5],
             "anchor_nodes" => collect(anchor), "anchor_weights" => [0.5, 0.5]))

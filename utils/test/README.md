@@ -89,6 +89,11 @@ temporarily to verify that incomplete data stay unassessed. Numerical tests
 cover direction-guided refinement, diagonal normalization, noise-floor rejection
 and independent large-basis reference values.
 These tests concern the documented equivalent rectangular thin-plate model.
+`stringer_runout_rib_test.jl [OUTPUT]` checks that beam and shell stringers
+terminate at physical rib datums, with 5 mm² connectors to the next spar row.
+It covers front/rear run-outs, simultaneous terminations, angled ribs, mesh
+refinement, kink excursions, strict clearance thresholds, conforming skin
+coverage and complete skin/column assessment boundaries.
 `component_buckling_test.jl OUTPUT` checks spar/rib support topology, exact
 element membership, mapped web cells, current laminate laws and cap/stiffener
 sections. It writes small generated fixtures for

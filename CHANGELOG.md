@@ -5,6 +5,19 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Stringer run-outs at rib datums
+
+- Terminate full-size beam and shell stringers at the inboard physical rib of
+  the bay where the spar-clearance threshold is reached. Connect that rib
+  endpoint to the next spar mesh node with the existing 5 mm² square bar.
+- Keep simultaneous run-outs conforming with shared skin triangle fans and
+  complete rib-to-rib normal stringer sections. Look ahead across geometric
+  breakpoints independently of the selected FE subdivisions.
+- Show rib-aligned endpoints and separate run-out connectors in the stringer
+  plan view. Mark older analyses historical: regenerate the mesh and rerun
+  analysis after this geometry change; obsolete panel overrides retain their
+  existing explicit reset requirement.
+
 ### Skin buckling under tension and shear
 
 - Refine unresolved skin-panel buckling checks along the compressive principal

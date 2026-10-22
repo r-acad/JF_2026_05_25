@@ -1,7 +1,7 @@
 /* Stringer directions and their live structural plan view. */
 (function(root,factory){const api=factory(root,typeof module==='object'&&module.exports?require('./spar_view.js'):root.WingSparView,typeof module==='object'&&module.exports?require('./planform_view.js'):root.WingPlanformView);if(typeof module==='object'&&module.exports)module.exports=api;else root.WingStringerLayout=api;})(globalThis,function(root,Spar,Planform){
  'use strict';
- const PARAM_KEYS=[...new Set([...Spar.PARAM_KEYS,'box.stringer_pitch','mesh.stringer_runout_ratio'])];
+ const PARAM_KEYS=[...new Set([...Spar.PARAM_KEYS,'box.stringer_pitch','mesh.stringer_runout_ratio','box.rib_pitch','ribs.masters','mesh.elements_between_ribs'])];
  const number=v=>root.WingNumbers?root.WingNumbers.format(v,5):Number(v.toPrecision(6)).toString();
  const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  function ribAPI(){return root.WingRibLayout||(typeof require==='function'?require('./rib_layout.js'):null);}
@@ -17,7 +17,7 @@
   return Array.from({length:limit},(_,i)=>Math.round(i*(count-1)/(limit-1)));
  }
  function referencePaths(params,geometry,maxPaths){
-  const pitch=params['box.stringer_pitch'],ratio=params['mesh.stringer_runout_ratio']??.75;
+  const pitch=params['box.stringer_pitch'],ratio=params['mesh.stringer_runout_ratio']??.75,tolerance=1e-10*Math.max(geometry.rootChord,pitch);
   if(!Number.isFinite(pitch)||pitch<=0)throw Error('Stringer pitch must be a positive number.');
   if(!Number.isFinite(ratio)||ratio<=0||ratio>1)throw Error('Run-out threshold must be greater than zero and no greater than one.');
   if(!geometry.stringerSegments.every(segment=>Number.isFinite(segment.absoluteAngle)&&Math.abs(segment.absoluteAngle)<89))throw Error(geometry.error||'Stringer directions must remain within 89 degrees of the span axis.');
@@ -26,13 +26,30 @@
   const offset=eta=>{let value=0;for(const segment of geometry.stringerSegments){const end=Math.min(eta,segment.endEta);if(end>segment.startEta)value+=(end-segment.startEta)*geometry.semispan*Math.tan(segment.absoluteAngle*Math.PI/180);if(eta<=segment.endEta)break;}return value;};
   const endEta=geometry.sparEnd.eta,stations=[...new Set([0,endEta,...Object.values(geometry.edgeVertices).flat().map(v=>v.eta),...geometry.stringerSegments.flatMap(s=>[s.startEta,s.endEta])].filter(v=>v>=0&&v<=endEta))].sort((a,b)=>a-b),margin=(geometry.rootWidth-(count-1)*pitch)/2,rootFront=Spar.sample(geometry,0,0).position[0],rootY=geometry.points.rootReference[1],rootZ=geometry.points.rootReference[2],clearance=pitch*ratio;
   const point=(rootX,eta)=>[rootX+offset(eta),rootY+eta*geometry.semispan,rootZ+eta*geometry.semispan*Math.tan(geometry.dihedralDeg*Math.PI/180)],gaps=(rootX,eta)=>{const x=rootX+offset(eta);return[x-Spar.sample(geometry,0,eta).position[0],Spar.sample(geometry,1,eta).position[0]-x];};
+  const Rib=ribAPI(),ribs=Rib?.physical(params),subdivisions=params['mesh.elements_between_ribs']??3;
+  if(!ribs?.valid)throw Error(ribs?.error||'Define valid physical ribs before previewing stringer run-outs.');
+  if(!Number.isSafeInteger(subdivisions)||subdivisions<1)throw Error('Elements per rib bay must be a positive whole number.');
+  function snapRunout(rootX,hit){
+   const trigger=point(rootX,hit.eta),vertices=stations.map(eta=>({eta,position:point(rootX,eta)}));
+   // Ribs may be inclined: find the actual reference-line intersection,
+   // rather than rounding the stringer ETA to the rear-spar rib anchor.
+   let lo=1,hi=ribs.ribCount;while(lo<hi){const mid=Math.ceil((lo+hi)/2),rib=ribs.at(mid),rear=Spar.sample(geometry,1,rib.eta).position,side=(trigger[0]-rear[0])*rib.direction[1]-(trigger[1]-rear[1])*rib.direction[0];if(side>=-1e-10)lo=mid;else hi=mid-1;}
+   const rib=ribs.at(Math.min(lo,ribs.ribCount-1)),next=ribs.at(rib.number+1),rear=Spar.sample(geometry,1,rib.eta).position,hits=Rib.intersection(rear,rib.direction,vertices,endEta);
+   if(hits.length!==1)throw Error('A stringer must intersect its preceding rib datum once. Adjust the rib or stringer angles.');
+   const end=hits[0],arc=Rib.arc(geometry,rib.eta,next.eta),nominal=ribs.rows.length?arc.etaAt(1/subdivisions):rib.eta+(next.eta-rib.eta)/subdivisions;
+   // The generated mesh can add rows at geometry kinks. Inclined master-rib
+   // meshes resolve spar/stringer kinks locally instead of inserting rows.
+   const inclined=rib.delta!==0||next.delta!==0,breaks=[...Object.values(geometry.surfaceVertices||{}).flat().map(p=>p.eta),...(!inclined?stations:[])],connectorEta=Math.min(nominal,...breaks.filter(eta=>eta>rib.eta+1e-12&&eta<nominal)),f=(connectorEta-rib.eta)/(next.eta-rib.eta),delta=rib.delta+(next.delta-rib.delta)*f,direction=[-Math.cos(delta),Math.sin(delta),0],connectorRear=Spar.sample(geometry,1,connectorEta).position;
+   let target=connectorRear;if(hit.edge===0){const targets=Rib.intersection(connectorRear,direction,geometry.edgeVertices[Spar.POINT_KEYS[0]],endEta);if(targets.length!==1)throw Error('The run-out connector row must meet the front spar once.');target=targets[0].position;}
+   return{eta:end.eta,triggerEta:hit.eta,rib:rib.number,edge:hit.edge,points:[end.position,target]};
+  }
   const paths=[];
   for(const i of sampledIndices(count,maxPaths)){
    const rootX=rootFront+margin+i*pitch,points=[point(rootX,0)];let runout=null;
    for(let j=1;j<stations.length;j++){
     const a=stations[j-1],b=stations[j],ga=gaps(rootX,a),gb=gaps(rootX,b),hits=[];
-    for(let edge=0;edge<2;edge++)if(gb[edge]<clearance-1e-10){const eta=ga[edge]<=clearance?a:a+(b-a)*(ga[edge]-clearance)/(ga[edge]-gb[edge]);hits.push({eta,edge});}
-    if(hits.length){hits.sort((a,b)=>a.eta-b.eta);const hit=hits[0],last=point(rootX,hit.eta);if(hit.eta>a+1e-12)points.push(last);runout={eta:hit.eta,edge:hit.edge,points:[last,Spar.sample(geometry,hit.edge,hit.eta).position]};break;}
+    for(let edge=0;edge<2;edge++)if(gb[edge]<clearance-tolerance){const eta=ga[edge]<=clearance?a:a+(b-a)*(ga[edge]-clearance)/(ga[edge]-gb[edge]);hits.push({eta,edge});}
+    if(hits.length){hits.sort((a,b)=>a.eta-b.eta);runout=snapRunout(rootX,hits[0]);points.splice(0,points.length,...stations.filter(eta=>eta<runout.eta-1e-12).map(eta=>point(rootX,eta)),runout.points[0]);break;}
     points.push(point(rootX,b));
    }
    paths.push({index:i+1,side:'reference',label:'S'+(i+1),points,runout});
@@ -45,8 +62,9 @@
   const paths=[];
   for(const i of sampledIndices(all.length,maxPaths)){
    const source=all[i];if(!source||!Array.isArray(source.nodes)||source.nodes.length<2||!['upper','lower'].includes(source.side))throw Error('Generated stringer paths are incomplete. Recreate the FEM.');
-   const points=source.nodes.map(node=>{if(!Number.isSafeInteger(node)||node<0||3*node+2>=xyz.length)throw Error('Generated stringer node lies outside the model. Recreate the FEM.');const p=[xyz[3*node],xyz[3*node+1],xyz[3*node+2]];if(!p.every(Number.isFinite))throw Error('Generated stringer coordinates must be finite.');return p;});
-   paths.push({index:source.index,side:source.side,label:source.label||String(source.index),points,runout:null});
+   let points=source.nodes.map(node=>{if(!Number.isSafeInteger(node)||node<0||3*node+2>=xyz.length)throw Error('Generated stringer node lies outside the model. Recreate the FEM.');const p=[xyz[3*node],xyz[3*node+1],xyz[3*node+2]];if(!p.every(Number.isFinite))throw Error('Generated stringer coordinates must be finite.');return p;}),runout=null;
+   if(Array.isArray(source.runout_nodes)&&source.runout_nodes.length){const first=source.nodes.indexOf(source.runout_nodes[0]),tail=source.nodes.slice(first);if(first<0||tail.length!==source.runout_nodes.length||tail.some((node,i)=>node!==source.runout_nodes[i]))throw Error('Generated run-out nodes must follow the end of the stringer attachment path. Recreate the FEM.');runout={points:points.slice(first),generated:true};points=points.slice(0,first+1);}
+   paths.push({index:source.index,side:source.side,label:source.label||String(source.index),points,runout});
   }
   return{paths,count:all.length,sampled:paths.length<all.length};
  }
@@ -63,16 +81,16 @@
  }
  function drawing(data,{transform=null,selected=null}={}){
   if(!data.drawable)return'';transform||=Planform.editorTransform(data.geometry);const map=transform.map;
-  let svg='<title>Stringer layout with lifting-surface outline, spars and ribs</title><desc>'+escape(data.generated?'Projection of the actual generated upper and lower stringer attachment paths.':'Untwisted reference stringer paths, clipped at the first projected run-out clearance. Create FEM to view the actual upper and lower paths and connectors.')+'</desc>'+Spar.referenceDrawing(data.geometry,{transform,ribs:data.ribs});
+  let svg='<title>Stringer layout with lifting-surface outline, spars and ribs</title><desc>'+escape(data.generated?'Projection of the actual generated upper and lower stringer attachment paths; dashed lines are fixed-area run-out connectors.':'Untwisted reference stringer paths end at the preceding physical rib datum of a threshold-triggered bay. Dashed connectors join the spar immediately outboard. Create FEM for the actual upper and lower surface intersections.')+'</desc>'+Spar.referenceDrawing(data.geometry,{transform,ribs:data.ribs});
   for(const path of data.paths){const id=path.side+'-'+path.index,active=id===selected;
-   svg+=`<polyline class="sl-path sl-${path.side}${active?' sl-selected':''}" data-stringer="${escape(id)}" points="${path.points.map(p=>map(p).join(',')).join(' ')}" tabindex="0" role="button" aria-label="${escape(path.label)} ${path.side} stringer; select to highlight"><title>${escape(path.label)} - ${path.side==='reference'?'untwisted reference':path.side+' skin'}${path.runout?' - reference run-out at eta '+number(path.runout.eta):''}</title></polyline>`;
-   if(path.runout)svg+=`<polyline class="sl-runout${active?' sl-selected':''}" points="${path.runout.points.map(p=>map(p).join(',')).join(' ')}"><title>${escape(path.label)} reference connector to ${path.runout.edge?'rear':'front'} spar</title></polyline>`;
+   svg+=`<polyline class="sl-path sl-${path.side}${active?' sl-selected':''}" data-stringer="${escape(id)}" points="${path.points.map(p=>map(p).join(',')).join(' ')}" tabindex="0" role="button" aria-label="${escape(path.label)} ${path.side} stringer; select to highlight"><title>${escape(path.label)} - ${path.side==='reference'?'untwisted reference':path.side+' skin'}${path.runout&&!path.runout.generated?' - ends at rib R'+path.runout.rib+', eta '+number(path.runout.eta)+'; threshold at eta '+number(path.runout.triggerEta):''}</title></polyline>`;
+   if(path.runout)svg+=`<polyline class="sl-runout${active?' sl-selected':''}" points="${path.runout.points.map(p=>map(p).join(',')).join(' ')}"><title>${escape(path.label)} ${path.runout.generated?'generated':'reference'} 5 mm² connector from rib datum to ${path.runout.generated?'spar':path.runout.edge?'rear spar':'front spar'} immediately outboard</title></polyline>`;
   }
   return svg;
  }
  function install(host,{read,onEdit,isLocked=()=>false,readValues,readGenerated,onViewChange}={}){
   const doc=host.ownerDocument,section=doc.createElement('section');section.className='stringer-segment-angles stringer-layout-editor';
-  section.innerHTML='<div class="sl-preview"><div class="sl-preview-title"><h3>Stringer plan view</h3></div><div class="sl-canvas structural-plan-canvas"><svg id="stringer-layout-svg" viewBox="0 0 800 340" role="group" aria-label="Stringer paths, ribs, spars and refined lifting-surface outline"></svg></div><p class="structural-plan-legend"><i class="surface"></i>Lifting surface <i class="base"></i>Base trapezoid <i class="front"></i>Front spar <i class="rear"></i>Rear spar <i class="rib"></i>Ribs <i class="sl-upper"></i>Upper <i class="sl-lower"></i>Lower <i class="sl-reference"></i>Reference</p><p class="sl-status" role="status"></p><p class="sl-preview-error" role="alert" hidden></p></div><div class="sl-angle-editor"><h3>Stringer angles along the rear spar</h3><p class="pick-note">Angles are relative to the rear-spar segment from the preceding point (or root). The last angle continues to the tip. Define the segment positions in Structure - Spars. Pitch, angle and run-out edits update the reference paths immediately; Create FEM gives the actual upper and lower attachment paths.</p><div data-angles></div><p data-angle-error role="alert" hidden></p></div>';const heading=host.querySelector('.parameter-heading');if(heading)heading.after(section);else host.append(section);
+  section.innerHTML='<div class="sl-preview"><div class="sl-preview-title"><h3>Stringer plan view</h3></div><div class="sl-canvas structural-plan-canvas"><svg id="stringer-layout-svg" viewBox="0 0 800 340" role="group" aria-label="Stringer paths, ribs, spars and refined lifting-surface outline"></svg></div><p class="structural-plan-legend"><i class="surface"></i>Lifting surface <i class="base"></i>Base trapezoid <i class="front"></i>Front spar <i class="rear"></i>Rear spar <i class="rib"></i>Ribs <i class="sl-upper"></i>Upper <i class="sl-lower"></i>Lower <i class="sl-reference"></i>Reference <i class="sl-connector"></i>Run-out connector</p><p class="sl-status" role="status"></p><p class="sl-preview-error" role="alert" hidden></p></div><div class="sl-angle-editor"><h3>Stringer angles along the rear spar</h3><p class="pick-note">Angles are relative to the rear-spar segment from the preceding point (or root). The last angle continues to the tip. Define the segment positions in Structure - Spars. Pitch, angle and run-out edits update the reference paths immediately; Create FEM gives the actual upper and lower attachment paths.</p><div data-angles></div><p data-angle-error role="alert" hidden></p></div>';const heading=host.querySelector('.parameter-heading');if(heading)heading.after(section);else host.append(section);
   const output=section.querySelector('[data-angles]'),error=section.querySelector('[data-angle-error]'),svg=section.querySelector('svg'),status=section.querySelector('.sl-status'),previewError=section.querySelector('.sl-preview-error');
   svg.dataset.viewKey='stringer-layout';
   const viewport=root.WingSVGViewport?.install(svg,{host:svg.parentElement,title:'Stringer layout',exportName:'stringer-layout.svg',snapSelector:'polygon,polyline,.pf-box-end',isGeometryTarget:target=>!!target.closest?.('[data-stringer]'),onChange:onViewChange});
@@ -84,7 +102,7 @@
    svg.innerHTML=drawing(data,{selected});
    if(data.drawable){const t=Planform.editorTransform(data.geometry),o=t.map([0,0,0]);viewport?.setMetric({origin:{x:o[0],y:o[1]},x:{x:t.scale,y:0},y:{x:0,y:t.scale},unit:'m',horizontalLabel:'\u0394y',verticalLabel:'\u0394x',gridSpacing:1});}
    const chosen=data.paths?.find(path=>path.side+'-'+path.index===selected);
-   status.textContent=data.drawable?(data.generated?'Generated attachment paths':'Untwisted reference preview')+' - '+data.pathCount+' '+(data.generated?'upper/lower paths':'physical stringers')+(data.sampled?' - '+data.paths.length+' evenly sampled for this drawing':'')+(chosen?' - Selected '+chosen.label:'')+(data.generated?'':' - Run-outs approximate projected clearance; create FEM for actual surface intersections.'):'Complete the planform, spars, pitch and angles to preview the stringers.';
+   status.textContent=data.drawable?(data.generated?'Generated attachment paths':'Untwisted reference preview')+' - '+data.pathCount+' '+(data.generated?'upper/lower paths':'physical stringers')+(data.sampled?' - '+data.paths.length+' evenly sampled for this drawing':'')+(chosen?' - Selected '+chosen.label:'')+(data.generated?'':' - Ends snap to physical rib datums; dashed connectors join the spar immediately outboard. Create FEM for actual surface intersections.'):'Complete the planform, spars, pitch and angles to preview the stringers.';
    viewport?.refresh();
   }
   function refresh(){

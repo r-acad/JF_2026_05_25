@@ -23,7 +23,7 @@
 #    * spar cap bars         i = 0 and i = ni, on k = 0 and k = nh
 #    * stringer bars         active physical stringer indices, on both skins
 #    * shell-only lines      chordwise subdivisions between physical boundaries
-#    * runout bars           last active stringer node -> next spar cap node
+#    * runout bars           terminating rib/stringer node -> next spar cap node
 #    * runout triangles      skin cells with one collapsed edge
 #
 #  Interior web points are linearly interpolated between the lower and upper
@@ -325,14 +325,36 @@ function plane_skin_xc(w, eta, target_x, fs, rs, upper)
     return (lo + hi) / 2
 end
 
+"""Look ahead over each physical rib bay, independently of the FE subdivisions.
+
+The first bay in which a stringer falls below its clearance limit is its runout
+bay. Its normal section ends at the inboard rib, and its first following
+edge is the small runout connector. Geometry anchors and intermediate
+probes retain local clearance dips, including a kink that reverses before
+the next rib. Upper and lower paths retire together.
 """
-Build variable-width skin rows, retiring a line at the first station where
-either skin comes within the requested fraction of a pitch of a spar in
-projected x. Both skin lines
-terminate together, preserving a conforming rib web. A terminating line is
-merged into the cap at that station; the preceding edge becomes a runout.
-Refine a span strip if several lines would terminate at the same spar, so
-each collapse produces one triangle without overlapping connectors.
+function stringer_runout_schedule(w,p,rib_etas,count,probe)
+    anchors=with_stations(rib_etas,vcat(planform_breakpoints(w),spar_breakpoints(p),
+        stringer_path(w,p).kink_etas,loft_integration_etas(w)))
+    states=zeros(Int,count);schedule=Vector{Vector{Int}}()
+    for bay in 1:length(rib_etas)-1
+        a,b=rib_etas[bay:bay+1]
+        cuts=vcat(a,filter(eta->a<eta<b,anchors),b)
+        for q in 1:length(cuts)-1,k in 1:8
+            all(!iszero,view(states,2:count-1))&&break
+            eta=k==8 ? cuts[q+1] : cuts[q]+(cuts[q+1]-cuts[q])*k/8
+            states=probe(eta,states)
+        end
+        push!(schedule,copy(states))
+    end
+    return schedule
+end
+
+"""Build conforming skin rows with every normal stringer ending at a rib.
+
+All stringers retiring in the same bay end at its inboard rib. Their next
+nodes coincide with the corresponding spar node, making small runout bars
+and a non-overlapping triangle fan, even for simultaneous retirements.
 """
 function stringer_grid(w, p, xcs, base_etas, base_ribs, nh)
     layout=physical_rib_layout(w,p)
@@ -343,12 +365,12 @@ function stringer_grid(w, p, xcs, base_etas, base_ribs, nh)
     path = stringer_path(w, p)
     roots = [section_point(w, 0.0, xc, 0.0)[1] for xc in xcs]
     count = length(xcs)
-    etas = Float64[0.0]
-    states = [zeros(Int, count)]
+    etas = Float64[base_etas...]
+    ribs = Int[base_ribs...]
+    rib_etas=etas[ribs.+1]
     tol = 1e-10 * max(w.chord_root, pitch)
 
-    function advance(eta, depth = 0)
-        prev = states[end]
+    function probe(eta,prev)
         next = copy(prev)
         fs, rs = spar_surface_xc(w, spars, eta, :front), spar_surface_xc(w, spars, eta, :rear)
         # Use the most restrictive upper/lower clearance at each spar.
@@ -362,22 +384,22 @@ function stringer_grid(w, p, xcs, base_etas, base_ribs, nh)
                 next[i] = df <= dr ? -1 : 1
             end
         end
-        nf = sum(prev[i] == 0 && next[i] == -1 for i in 2:count-1; init = 0)
-        nr = sum(prev[i] == 0 && next[i] == 1 for i in 2:count-1; init = 0)
-        if nf > 1 || nr > 1
-            depth < 40 || throw(ArgumentError("stringer runouts could not be separated; check the pitch and angle"))
-            advance((etas[end] + eta) / 2, depth + 1)
-            advance(eta, depth + 1)
-        else
-            push!(etas, eta)
-            push!(states, next)
-        end
+        return next
     end
-    for eta in base_etas[2:end]
-        advance(eta)
+    schedule=stringer_runout_schedule(w,p,rib_etas,count,probe)
+    collapsed=zeros(Int,count,length(etas))
+    for bay in eachindex(schedule),j in ribs[bay]+2:ribs[bay+1]+1
+        collapsed[:,j].=schedule[bay]
     end
-    ribs = [searchsortedfirst(etas, base_etas[j+1]) - 1 for j in base_ribs]
-    collapsed = hcat(states...)
+    # A very narrow nonlinear clearance dip must never be hidden by the
+    # mesh-independent lookahead probes or by the inverse-skin clamping.
+    for j in 2:length(etas)
+        current=view(collapsed,:,j)
+        checked=probe(etas[j],current)
+        changed=findfirst(i->checked[i]!=current[i],2:count-1)
+        changed===nothing||throw(ArgumentError(
+            "stringer $changed crosses its runout clearance at ETA $(etas[j]) between the geometry probes; add a spar/path or loft anchor at this clearance minimum before meshing"))
+    end
     lower = Matrix{Float64}(undef, count, length(etas))
     upper = similar(lower)
     for (j, eta) in enumerate(etas), i in 1:count
@@ -754,7 +776,7 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
     end
 
     # Optional load-carrying leading edge. Every skin row uses the same span
-    # stations as the box, including inserted runout stations; ribs occur only
+    # stations as the box, including mandatory geometry anchors; ribs occur only
     # at physical rib stations. The complete front-spar boundary is shared.
     le_ribs = Int[]
     le_stations = Matrix{Float64}(undef,0,0)

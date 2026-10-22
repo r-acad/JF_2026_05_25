@@ -43,7 +43,7 @@ function rib_intersection_cuts(w,context,end_eta)
         vcat(planform_breakpoints(w),context.arc.spar.breakpoints,context.path.kink_etas,w.airfoil_etas)))))
 end
 
-function oriented_row(w,context,eta,previous,pitch,cuts)
+function oriented_row(w,context,eta,previous,pitch,cuts;detect_runouts=true)
     plane=main_rib_plane(w,context,eta);count=length(context.roots)
     clearance=pitch*get(context.params,"mesh.stringer_runout_ratio",1.0)
     states=copy(previous);lx=zeros(count);ux=zeros(count);le=zeros(count);ue=zeros(count)
@@ -88,7 +88,11 @@ function oriented_row(w,context,eta,previous,pitch,cuts)
                 df,dr=x-front,rear-x
                 min(df,dr)>=clearance&&throw(ArgumentError("stringer $index cannot intersect master-rib row at rear ETA $eta; reduce the rib angle or adjust the stringer path"))
             end
-            min(df,dr)<clearance-1e-10*max(w.chord_root,pitch)&&(states[index]=df<=dr ? -1 : 1)
+            below_clearance=min(df,dr)<clearance-1e-10*max(w.chord_root,pitch)
+            !detect_runouts&&below_clearance&&throw(ArgumentError(
+                "stringer $(index-1) crosses its runout clearance on the row at rear-spar ETA $eta between the geometry probes; add a spar/path or loft anchor at this clearance minimum before meshing"))
+            detect_runouts&&below_clearance&&(states[index]=df<=dr ? -1 : 1)
+            !solved&&states[index]==0&&throw(ArgumentError("normal stringer $index cannot intersect its terminating rib; adjust the rib angle or stringer path"))
         end
         if states[index]!=0
             source=states[index]<0 ? 1 : count
@@ -103,21 +107,13 @@ function oriented_stringer_grid(w,p,xcs,base_etas,base_ribs,nh,layout)
     context=merge(layout,(params=p,path=stringer_path(w,p),roots=roots,fuel_cache=Dict{Tuple{Int,Int},Float64}()))
     cuts=rib_intersection_cuts(w,context,Float64(p["box.end_eta"]))
     count=length(xcs);pitch=p["box.stringer_pitch"]
-    etas=Float64[0.0]
+    etas=Float64[base_etas...];ribs=Int[base_ribs...]
+    schedule=stringer_runout_schedule(w,p,etas[ribs.+1],count,
+        (eta,previous)->oriented_row(w,context,eta,previous,pitch,cuts).states)
     rows=[(states=zeros(Int,count),lx=copy(xcs),ux=copy(xcs),le=zeros(count),ue=zeros(count))]
-    function advance(eta,depth=0)
-        previous=last(rows).states;row=oriented_row(w,context,eta,previous,pitch,cuts)
-        nf=Base.count(i->previous[i]==0&&row.states[i]==-1,2:length(xcs)-1)
-        nr=Base.count(i->previous[i]==0&&row.states[i]==1,2:length(xcs)-1)
-        if nf>1||nr>1
-            depth<40||throw(ArgumentError("master-rib stringer runouts cannot be separated; adjust pitch or angle"))
-            advance((last(etas)+eta)/2,depth+1);advance(eta,depth+1)
-        else
-            push!(etas,eta);push!(rows,row)
-        end
+    for bay in eachindex(schedule),j in ribs[bay]+2:ribs[bay+1]+1
+        push!(rows,oriented_row(w,context,etas[j],schedule[bay],pitch,cuts;detect_runouts=false))
     end
-    for eta in base_etas[2:end];advance(eta);end
-    ribs=[searchsortedfirst(etas,base_etas[j+1])-1 for j in base_ribs]
     g=BoxGrid(w,xcs,etas,nh,ribs,hcat([row.lx for row in rows]...),hcat([row.ux for row in rows]...),hcat([row.states for row in rows]...),
         collect(1:length(xcs)-2),hcat([row.le for row in rows]...),hcat([row.ue for row in rows]...),context)
     # Kinks cut different stringers at different row coordinates when ribs are

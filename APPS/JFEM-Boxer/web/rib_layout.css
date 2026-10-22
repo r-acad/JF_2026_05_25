@@ -32,6 +32,7 @@
 .sl-path.sl-upper { stroke:#53d9ed; }
 .sl-path.sl-lower { stroke:#e69bd4; stroke-dasharray:5 3; }
 .sl-runout { fill:none; stroke:#e9c389; stroke-width:1.5; stroke-dasharray:3 3; pointer-events:none; }
+.structural-plan-legend i.sl-connector { border-top:2px dashed #e9c389; background:none; }
 .sl-path.sl-selected,.sl-runout.sl-selected,.sl-path:focus-visible { stroke:#fff; stroke-width:3; outline:none; }
 .sl-status { font-size:11px; line-height:1.5; color:#b7cfdf; margin:6px 0; }
 .sl-preview-error { font-size:12px; color:#ffc2c6; background:#482830; padding:7px; border:1px solid #944e5b; border-radius:4px; }

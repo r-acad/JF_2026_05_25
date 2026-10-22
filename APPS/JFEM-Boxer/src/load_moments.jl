@@ -4,7 +4,9 @@
 # even when every user parameter and every mesh node remains unchanged.
 # Local component property ownership is also versioned so older sensitivity
 # scopes cannot be shown as current against the newly split property cards.
-const APPLIED_LOAD_VERSION = "rib_aero_bay_mass_wrenches_pg_runout5mm2_combinedflanges_v5"
+# Rib-datum runouts change the generated mesh, stiffness and structural mass.
+# Historical studies must not reuse their solved fields as current results.
+const APPLIED_LOAD_VERSION = "rib_aero_bay_mass_wrenches_pg_runout5mm2_ribdatum_combinedflanges_v6"
 const APPLIED_MOMENT_ROUTING_NOTE = "All aerodynamic forces and moments act at rib-plane external RBE3 centers. All fuel and structural inertia forces and moments act at fuel/mass bay RBE3 centers. Bracketing span weights preserve force and global moment; moved forces add (source position - target position) cross force. Massless bay references add no fuel capacity or CONM2 mass. Inertia loads and all applied couples remain fixed in global axes."
 
 function moment_span_weights(station_ys, y)

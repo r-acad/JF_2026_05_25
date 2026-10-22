@@ -586,8 +586,10 @@ Each drawing has its own camera and reference image. **Maximize** gives Spars,
 Ribs and Stringers a large drawing beside an independently scrolling parameter
 column. The rib editor retains
 its draggable position and angle handles. The stringer drawing shows pitch,
-segment angles and approximate run-outs before generating the FEM. When the
-current FEM is available, it shows the actual upper/lower attachment paths;
+segment angles and approximate run-outs before generating the FEM. A reference
+run-out ends the normal stringer at the preceding physical rib datum and shows
+its connector to the spar immediately outboard. When the current FEM is
+available, it shows the actual upper/lower attachment paths and connectors;
 after geometry edits it returns to the labeled reference preview until the FEM
 is rebuilt. Large layouts sample only the drawing, preserving the complete
 model. Right-button pan, exact zoom, window zoom, grid, dimensions and SVG
@@ -1316,11 +1318,19 @@ positions. This changes neither the FEM nor any result. SVG captures the
 exploded view; STL/GLB retain physical geometry. The settings travel with a Study.
 
 **Structure / Stringers / Run-out threshold** defaults to 0.75 for
-new studies. A normal stringer terminates at a spar when either skin's
-projected x-clearance is below that fraction of its pitch. The ratio must be
-greater than zero and at most one. Legacy studies and TOML definitions retain
-the original ratio of 1.0 so their existing panel overrides stay attached to
-the same physical panels; root stringer pitch is unchanged.
+new studies. A run-out is triggered when either skin's projected x-clearance
+to a spar falls below that fraction of its nominal pitch. The normal stringer
+ends at the preceding physical rib datum of the bay containing the trigger;
+its connector starts at that datum and joins the spar immediately outboard.
+Both upper and lower stringers terminate together. Mesh rows and geometry
+kinks are not extra rib supports.
+
+The ratio must be greater than zero and at most one. Legacy studies and TOML
+definitions without this setting retain a clearance ratio of 1.0; they use
+the same rib-datum termination rule when regenerated. Root stringer pitch is
+unchanged. This changes the physical panel boundaries from earlier versions:
+regenerate the FEM, reset obsolete panel overrides when requested, and rerun
+analyses before using previous results.
 
 Run-out connectors use a fixed **5 mm² square section**: side 2.2361 mm,
 `I1 = I2 = 2.0833333e-12 m⁴`, and square torsional constant

@@ -70,14 +70,12 @@ checks=@testset "Skin compartment geometry, stresses and laminate bending" begin
         @test length(unique(row["key"] for row in rows))==length(rows)
         ready=filter(row->row["status"]=="ready",rows)
         @test !isempty(ready)
-        kind=="runout"||(@test length(ready)==length(rows))
+        @test length(ready)==length(rows)
         all_ids=[element["eid"] for row in ready for element in row["elements"]]
         @test length(all_ids)==length(unique(all_ids))
         actual=Dict(eid=>(group,index) for group in m.groups if group.kind in (:quad,:tria)&&W.component_base_pid(group.pid) in (W.PID_SKIN_UPPER,W.PID_SKIN_LOWER,W.PID_STRINGER_FLANGE) for (index,eid) in enumerate(group.eids))
-        if kind!="runout"
-            @test Set(all_ids)==Set(keys(actual))
-            @test sum(row["area_m2"] for row in rows)≈sum(W.weight_shell_area(W.element_points(m,group,index)) for (group,index) in values(actual))
-        end
+        @test Set(all_ids)==Set(keys(actual))
+        @test sum(row["area_m2"] for row in rows)≈sum(W.weight_shell_area(W.element_points(m,group,index)) for (group,index) in values(actual))
         for row in ready
             left=first(row["boundary_labels"])
             @test row["strip_index"]==(startswith(left,"S") ? parse(Int,left[2:end])+1 : 1)
@@ -117,7 +115,8 @@ checks=@testset "Skin compartment geometry, stresses and laminate bending" begin
             @test any(row["length_m"]>.5 for row in rows)
             @test any(row["skew_angle_deg"]>20 for row in rows)
         elseif kind=="runout"
-            @test any(row["status"]=="unassessed" for row in rows)
+            @test any(!isempty(group.eids)&&W.component_base_pid(group.pid)==W.PID_STRINGER_RUNOUT for group in m.groups)
+            @test all(panel.start_row in m.grid.ribs&&panel.end_row in m.grid.ribs for panel in W.stiffened_panel_layout(m.grid).panels)
         elseif kind=="shell_mixed"
             shell_rows=rows
             @test any(length(element["material_ids"])>1 for row in rows for element in row["elements"])

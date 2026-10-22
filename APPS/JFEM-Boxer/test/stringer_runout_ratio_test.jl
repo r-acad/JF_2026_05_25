@@ -60,7 +60,7 @@ end
     end
     m=W.build_model(parameters(.75))
     @test W.all_checks_pass(m)
-    @test any(pair->pair[1]=="Stringer runout distance / pitch",m.info)
+    @test any(pair->pair[1]=="Run-out threshold",m.info)
     @test any(g->g.kind==:tria&&W.n_elements(g)>0,m.groups)
     # Old saved signatures omitted the ratio; only the legacy one-pitch rule
     # may match them. Load-formulation version remains a separate stale guard.
