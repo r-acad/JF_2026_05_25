@@ -5,6 +5,112 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Application layout
+
+- Document `APPS/JFEM-Boxer` as the authoritative application source, using
+  the repository root Julia environment, shared sysimage and double-click launcher.
+
+### Element formulation consistency
+
+- Use directional neutral-surface rigidity in coupled triangular-shell
+  residual bending flexibility, while retaining the full compatible
+  membrane-bending coupling. Preserve that coupling in laminate membrane
+  force and bending-moment output. Verify reference-plane shifts, material
+  frames, offsets and constitutive derivatives with independent fixtures.
+- Recover work-conjugate element-area-mean transverse shear for ordinary
+  laminate triangles using the Julia MITC3 operator in SOL101, SOL103 and
+  SOL105. Match the assembled section tensors, material frame and offset;
+  retain compact output behavior. Identify mean and legacy recovery paths
+  explicitly in result diagnostics. Active director maps and alternate
+  element/backend routes remain outside this bounded correction.
+- Preserve shell corner thicknesses and absolute/fractional TFLAG input.
+  Apply the actual section variation to elastic energy, consistent modal
+  mass, prestress, recovered fields and strain-energy density. Nonuniform
+  thickness is supported for ordinary planar rectangular PSHELL CQUAD4
+  elements in SOL101, SOL103 and SOL105; uniform values reuse the ordinary
+  constant-section path. Retain corner inputs and offsets in result export.
+  Report unsupported load, sensitivity and alternate-backend combinations
+  explicitly instead of using property thickness silently.
+- Use the complete Wilson membrane basis for ordinary planar MAT2 shells.
+  Keep THETA/MCID material axes independent of interpolation, including
+  equivalent MAT1, MAT2 and MAT8 section descriptions. Apply the same compatible
+  differential prestress and assumed transverse-gradient work to ordinary
+  planar PSHELL buckling, while retaining explicit legacy interpolation options.
+- Preserve quadrilateral integration area across changes of length units.
+  Check Jacobian degeneracy relative to the element geometry instead of
+  replacing small physical areas with a fixed dimensional floor. Use the
+  same measures in elastic, prestress and recovered shell fields.
+- Retain weak physical rotational coordinates in modal analysis; remove only
+  exact joint-zero stiffness and mass columns. Scale bounded dense inertia
+  counts by diagonal congruence before classifying mixed coordinate units.
+- Default shell drilling stabilization to K6ROT=100 for linear and nonlinear
+  solutions. Retain explicit deck values, including zero, and environment
+  overrides; report the effective value in solver diagnostics.
+- Use compatible nodal normal strains, center-sampled membrane shear and
+  full compatible laminate curvatures for the initial-stress field of ordinary
+  planar quadrilateral laminates in linear buckling. Keep elastic enhancement in
+  elastic stiffness and recovered elastic forces; retain the separate director,
+  warped, alternate-plate and nonlinear formulations.
+- Restore the complete quadrilateral enhanced membrane field, including a
+  zero-mean mapping that preserves affine strain on tapered elements. Use
+  the same elastic membrane operator across solution types.
+- Account for directional neutral-surface relaxation in coupled-laminate
+  residual bending flexibility while retaining the physical A/B/D law.
+  Treat omitted and zero MAT8 transverse-shear inputs consistently.
+- Derive quadrilateral section enrichment from the membrane constitutive law,
+  then evaluate the full physical A/B/D energy and its analytic derivatives.
+  Retain plate Poisson relaxation and recover laminate resultants with the
+  same displacement and curvature fields used by the elastic operator.
+- Retain Gauss-point twisting curvature in ordinary quadrilateral sections,
+  including coupled laminates, instead of substituting only its center value.
+- Use material-independent warped quadrilateral interpolation. Project out
+  artificial geometric drilling stiffness in the primitive element frame,
+  before physical offsets, warped-surface maps and grid coordinate changes.
+- Use an assumed natural-shear field and nine normal enhancement modes for
+  linear hexahedra, preserving rigid motion and constant-stress patches on
+  distorted meshes. Recover centroid/corner strains and centroid prestress
+  from the same condensed field used by the elastic operator.
+- Honor coupled mass requests for CBEAM, rods and linear solids. Transform
+  beam section inertia and offsets consistently with their elastic operators.
+  Apply independent nonstructural mass-axis offsets even when the structural
+  centroid lies on the beam reference axis. Integrate rod and coupled-beam
+  nonstructural line mass independently of area, retaining signed additions.
+- Compute T-section torsion, shear areas and axis locations from section
+  equilibrium instead of separate thin-wall approximations. Share these
+  properties and their analytic shape derivatives with Boxer.
+- Apply CBUSH coordinate-system orientation and the physical spring location,
+  including the translation/rotation coupling of separated end grids.
+- Read shell reference-surface offsets and apply their rigid-arm kinematics
+  consistently to stiffness, prestress and recovered forces. Retain the
+  shell-card convention that offsets do not relocate the mass matrix.
+- Recover ordinary isotropic shell transverse shear from its physical
+  area-mean shear work, avoiding a corner-gradient blend that could erase
+  valid shear. Identify the recovery location in result diagnostics.
+  Apply the same recovery for automatic and explicitly selected SOL106
+  formal methods, which retain the same transverse-shear energy.
+
+### Buckling eigenvalue extraction
+
+- Preserve repeated eigenvalue multiplicities on small symmetric buckling
+  pencils with a bounded, selected eigensolution. Retain the requested mode
+  count and check the recovered eigenvectors against the original pencil.
+- Use independent deterministic buckling starting vectors; the former
+  phase-shifted family could span only four directions and miss repeated modes.
+
+### Modal mass rank
+
+- Detect massless linear combinations in small modal pencils after diagonal
+  scaling, including combinations created by rigid offsets. Bound finite-mode
+  requests by the numerical mass rank; enforce rank completeness only when
+  stiffness and inertia certificates justify it. Preserve indefinite-pencil
+  handling and report empty modal mass without inventing finite roots.
+- Use a quadratic-form roundoff bound for modal mass in bounded, certified
+  positive-semidefinite pencils. Retain existing eigenvector residual tests
+  and the separate policy for indefinite or unclassified pencils.
+- Reject unsupported Boxer geometric-sensitivity replay branches explicitly
+  instead of differentiating an older initial-stress interpolation. Retain
+  the verified default isotropic geometric replay.
+
 ### Inspect property regions
 
 - Make Inspect's Edit property button blue. Highlight the picked element with

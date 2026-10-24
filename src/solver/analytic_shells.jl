@@ -7,7 +7,10 @@ mutable struct AnalyticShellCapture
     calls::Dict{Int,Vector{Any}}
     lock::ReentrantLock
 end
-AnalyticShellCapture(model) = AnalyticShellCapture(model, Dict{Int,Any}(), Dict{Int,Vector{Any}}(), ReentrantLock())
+function AnalyticShellCapture(model)
+    assert_no_corner_thickness_analytic(model)
+    return AnalyticShellCapture(model, Dict{Int,Any}(), Dict{Int,Vector{Any}}(), ReentrantLock())
+end
 
 @inline _analytic_shell_call(::Nothing, eid, f, args...; kwargs...) = f(args...; kwargs...)
 function _analytic_shell_call(c::AnalyticShellCapture, eid, f, args...; kwargs...)

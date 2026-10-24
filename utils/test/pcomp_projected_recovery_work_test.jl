@@ -132,5 +132,9 @@ end
 end
 
 @testset "Projected laminate resultants agree with elastic virtual work" begin
-    PcompProjectedRecoveryWorkFixture.checks()
+    # This fixture checks the optional selective-center operator. Production
+    # uses the complete membrane; keep its legacy alternative explicitly tested.
+    withenv("JFEM_SOL105_PCOMP_MEMBRANE_SELC"=>"true") do
+        PcompProjectedRecoveryWorkFixture.checks()
+    end
 end

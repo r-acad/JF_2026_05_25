@@ -97,6 +97,7 @@ function run_checks()
             @test_throws ArgumentError S.analytic_shell_constitutive(model,105)
             for g in 0:2
                 a,b,c,d=4g.+(1,2,3,4)
+                @test all(!only(cap.contexts[e].calls).kwargs.membrane_incomp for e in (a,b,c,d))
                 @test isapprox(cap.contexts[a].Ke,cap.contexts[b].Ke;rtol=2e-11)
                 membrane=[6(i-1)+j for i in 1:4 for j in 1:2]
                 @test isapprox(cap.contexts[c].Ke[membrane,membrane],cap.contexts[d].Ke[membrane,membrane];rtol=2e-11)

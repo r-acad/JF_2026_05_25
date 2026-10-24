@@ -220,9 +220,15 @@ end
 end
 
 @testset "Manufactured warped anisotropic laminate prestress energy" begin
-    WarpedPcompPrestressFixture.checks()
+    # The manufactured stress oracle here uses center shear. Select that
+    # optional formulation explicitly rather than relying on a global default.
+    withenv("JFEM_SOL105_PCOMP_MEMBRANE_SELC"=>"true", "JFEM_PCOMP_COUPLED_PROJECTED"=>"true") do
+        WarpedPcompPrestressFixture.checks()
+    end
 end
 
 @testset "Warped uncoupled laminate actual assembly exclusions" begin
-    WarpedPcompPrestressFixture.eligibility_checks()
+    withenv("JFEM_SOL105_PCOMP_MEMBRANE_SELC"=>"true", "JFEM_PCOMP_COUPLED_PROJECTED"=>"true") do
+        WarpedPcompPrestressFixture.eligibility_checks()
+    end
 end

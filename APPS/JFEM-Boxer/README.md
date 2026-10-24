@@ -1,5 +1,10 @@
 # JFEM-Boxer
 
+This folder (`APPS/JFEM-Boxer`) is the authoritative application source.
+Develop and run Boxer here, using the repository root Julia project and shared
+sysimage. On Windows, double-click `JFEM-Boxer.cmd` here or at the repository
+root. No separate generator checkout or source synchronization is required.
+
 JFEM-Boxer is the finite-element generator and browser interface included
 with OpenJFEM. It generates shell/bar lifting surfaces, aerodynamic lattices and
 load cases, writes REFERENCE decks, launches the solver in this repository and

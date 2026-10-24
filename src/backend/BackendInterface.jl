@@ -98,6 +98,7 @@ function static_compliance_thickness_gradient(backend::AbstractJFEMBackend, resu
 end
 
 function static_compliance_thickness_gradient(results::AbstractDict; pids=nothing)
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
     return static_compliance_thickness_gradient(backend, results; pids=pids)
 end
@@ -107,6 +108,7 @@ function static_displacement_thickness_gradient(backend::AbstractJFEMBackend, re
 end
 
 function static_displacement_thickness_gradient(results::AbstractDict, response::AbstractDict; pids=nothing)
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
     return static_displacement_thickness_gradient(backend, results, response; pids=pids)
 end
@@ -116,6 +118,7 @@ function static_compliance_design_gradient(backend::AbstractJFEMBackend, results
 end
 
 function static_compliance_design_gradient(results::AbstractDict, design_variables::AbstractVector)
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
     return static_compliance_design_gradient(backend, results, design_variables)
 end
@@ -125,6 +128,7 @@ function static_displacement_design_gradient(backend::AbstractJFEMBackend, resul
 end
 
 function static_displacement_design_gradient(results::AbstractDict, response::AbstractDict, design_variables::AbstractVector)
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
     return static_displacement_design_gradient(backend, results, response, design_variables)
 end
@@ -134,6 +138,7 @@ function static_ks_displacement_design_gradient(backend::AbstractJFEMBackend, re
 end
 
 function static_ks_displacement_design_gradient(results::AbstractDict, response::AbstractDict, design_variables::AbstractVector)
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
     return static_ks_displacement_design_gradient(backend, results, response, design_variables)
 end
@@ -143,6 +148,7 @@ function static_ks_von_mises_design_gradient(backend::AbstractJFEMBackend, resul
 end
 
 function static_ks_von_mises_design_gradient(results::AbstractDict, response::AbstractDict, design_variables::AbstractVector)
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
     return static_ks_von_mises_design_gradient(backend, results, response, design_variables)
 end
@@ -152,6 +158,7 @@ function static_ks_ply_failure_design_gradient(backend::AbstractJFEMBackend, res
 end
 
 function static_ks_ply_failure_design_gradient(results::AbstractDict, response::AbstractDict, design_variables::AbstractVector)
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
     return static_ks_ply_failure_design_gradient(backend, results, response, design_variables)
 end
@@ -161,6 +168,7 @@ function structural_mass_design_gradient(backend::AbstractJFEMBackend, results::
 end
 
 function structural_mass_design_gradient(results::AbstractDict, design_variables::AbstractVector)
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
     return structural_mass_design_gradient(backend, results, design_variables)
 end
@@ -187,6 +195,7 @@ function buckling_load_factor_thickness_gradient(
     cluster_abs_tol::Real=1e-10,
     mode_tracking=nothing,
 )
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
     return buckling_load_factor_thickness_gradient(
         backend,
@@ -222,6 +231,7 @@ function buckling_load_factor_design_gradient(
     cluster_abs_tol::Real=1e-10,
     mode_tracking=nothing,
 )
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
     return buckling_load_factor_design_gradient(
         backend,
@@ -257,6 +267,7 @@ function buckling_load_factor_ks_design_gradient(
     cluster_rel_tol::Real=1e-8,
     cluster_abs_tol::Real=1e-10,
 )
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
     return buckling_load_factor_ks_design_gradient(
         backend,
@@ -292,6 +303,7 @@ function modal_eigenvalue_design_gradient(
     cluster_abs_tol::Real=1e-10,
     mode_tracking=nothing,
 )
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     backend = backend_from_name(get(results, "backend", JFEM_BACKEND_DEFAULT))
     return modal_eigenvalue_design_gradient(
         backend,

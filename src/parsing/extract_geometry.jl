@@ -136,6 +136,38 @@ function extract_shells(cards)
         end
         if id > 0 && length(nodes) >= 3
             d[string(id)] = Dict{String,Any}("ID"=>id, "PID"=>pid, "NODES"=>nodes, "THETA"=>theta, "MCID"=>mcid, "MCID_SPECIFIED"=>is_mcid, "TYPE"=>card_name)
+            if card_name in ("CQUAD4", "CTRIA3")
+                # These cards place the reference-surface offset immediately
+                # after THETA/MCID, including large-field continuations.
+                zoffs=Float64(parse_reference_number(safe_get(c,theta_pos+1,""),0.0))
+                isfinite(zoffs) || throw(ArgumentError("$card_name $id has a non-finite ZOFFS"))
+                d[string(id)]["ZOFFS"]=zoffs
+                # Preserve corner thicknesses separately from the property.
+                # The first continuation has a reserved field, then TFLAG and Ti.
+                # A free-field parent may retain a named continuation marker.
+                marker=strip(string(safe_get(c,11,"")))
+                shift=(!isempty(marker) && first(marker) in ('+','*') &&
+                       parse_reference_number(marker,nothing) === nothing) ? 1 : 0
+                flag_raw=strip(string(safe_get(c,12+shift,"")))
+                flag_value=isempty(flag_raw) ? 0 : parse_reference_number(flag_raw,nothing)
+                flag_value isa Number && isfinite(flag_value) && flag_value in (0,1) ||
+                    throw(ArgumentError("$card_name $id requires integer TFLAG 0 or 1"))
+                corner=Union{Nothing,Float64}[]
+                for k in 1:n_nodes
+                    raw=strip(string(safe_get(c,12+shift+k,"")))
+                    if isempty(raw)
+                        push!(corner,nothing)
+                    else
+                        value=parse_reference_number(raw,nothing)
+                        value isa Number && isfinite(value) && value > 0 ||
+                            throw(ArgumentError("$card_name $id requires a positive finite corner thickness or a blank field"))
+                        push!(corner,Float64(value))
+                    end
+                end
+                d[string(id)]["TFLAG"]=Int(flag_value)
+                d[string(id)]["CORNER_THICKNESSES"]=corner
+                d[string(id)]["CORNER_THICKNESSES_SPECIFIED"]=length(c)>10+shift
+            end
         end
     end
     return d

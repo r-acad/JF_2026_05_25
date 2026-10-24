@@ -2238,6 +2238,7 @@ function _adjoint_full_response_fd(dv, results, responses)
 end
 
 function solve_adjoint(results::Dict, adjoint_config_path::String)
+    assert_no_corner_thickness_analytic(results["model"])
     if results["sol_type"] != 101
         error("[ADJOINT] Adjoint solver requires SOL 101 results (got SOL $(results["sol_type"]))")
     end

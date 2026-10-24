@@ -43,6 +43,9 @@ ENDDATA
             C=Q*p["Cs"]*Q'
             expected=F.quad4_macneal_mean_shear_resultant(xy,u,D,C,p["T"];Cm=A,Bmb=B)
             row=only(output["forces"]["quad4"])
+            section=F.quad4_condensed_section_fields(xy,u,A,B,D,C,p["T"],1.0;k6rot=0.0)
+            @test isapprox([row["fx"],row["fy"],row["fxy"]],section.N_average;rtol=2e-10)
+            @test isapprox([row["mx"],row["my"],row["mxy"]],-section.M_average;rtol=2e-10)
             @test [row["qx"],row["qy"]] ≈ expected rtol=2e-10
             @test all(isfinite(row[k]) for k in ("fx","fy","fxy","mx","my","mxy","qx","qy"))
         end

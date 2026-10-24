@@ -105,12 +105,13 @@ ENDDATA
         row=only(output["forces"]["quad4"])
         @test [row["qx"],row["qy"]] ≈ expected rtol=1e-10
         @test all(isfinite(row[k]) for k in ("fx","fy","fxy","mx","my","mxy","qx","qy"))
-        function has_mean_recovery()
+        function recovered_fields()
             fields=Dict{String,Any}(key=>Dict("quad4"=>Any[],"tria3"=>Any[])
                 for key in ("forces","forces_bilin","stresses","strains"))
             S.recover_shell_stresses!(model,ids,X,R,u,normals,Dict{Int,Float64}(),fields)
-            !isempty(get(get(fields,"recovery_diagnostics",Dict()),"area_mean_transverse_shear_eids",Int[]))
+            fields
         end
+        has_mean_recovery() = !isempty(get(get(recovered_fields(),"recovery_diagnostics",Dict()),"area_mean_transverse_shear_eids",Int[]))
         # Alternate assembly operators must keep their existing recovery
         # until equivalence with the physical mean operator is established.
         switches=["JFEM_Q4_MACNEAL_RIGID_SHEAR_FORCE"=>"true",
@@ -126,8 +127,21 @@ ENDDATA
                 @test !has_mean_recovery()
             end
         end
-        for sol in (103,106)
-            model["SOL"]=sol
+        model["SOL"]=103
+        @test !has_mean_recovery()
+        # Legacy SOL106 reuses the same infinitesimal elastic section law.
+        # Its force output must therefore retain the same physical shear work.
+        model["SOL"]=106
+        for method in ("auto","legacy")
+            model["PARAM_NLMETHOD"]=method
+            fields=recovered_fields()
+            @test fields["recovery_diagnostics"]["area_mean_transverse_shear_eids"]==[1]
+            force=only(fields["forces"]["quad4"])
+            @test isapprox([force["qx"],force["qy"]],expected;rtol=1e-10)
+        end
+        # Formal finite-strain operators have a separate recovery contract.
+        for method in ("formal_shell_green_lagrange","formal_shell_von_karman")
+            model["PARAM_NLMETHOD"]=method
             @test !has_mean_recovery()
         end
     end

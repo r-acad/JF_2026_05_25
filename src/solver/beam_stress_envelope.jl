@@ -33,6 +33,10 @@ function beam_t_stress_envelope(prop::AbstractDict, forces::AbstractDict;
     area=b*tf+hw*tw;yc=(hw*tw*hw/2+b*tf*(hw+tf/2))/area;yf=hw+tf/2
     i1=tw*hw^3/12+hw*tw*(yc-hw/2)^2+b*tf^3/12+b*tf*(yf-yc)^2
     i2=hw*tw^3/12+tf*b^3/12;j=(hw*tw^3+b*tf^3)/3
+    if get(prop,"TORSION_FORMULATION","")=="saint_venant_2d"
+        j=get(prop,"J",nothing)
+        numeric(j)&&j>0||return unavailable("The finite-thickness section torsion constant must be positive and finite.")
+    end
     for (key,expected) in (("A",area),("I1",i1),("I2",i2),("J",j))
         value=get(prop,key,nothing)
         numeric(value)&&value>0&&isapprox(value,expected;rtol=1e-8,atol=0.)||return unavailable("Beam $key is inconsistent with its physical T dimensions; equivalent-stress recovery cannot invent a compatible section.")

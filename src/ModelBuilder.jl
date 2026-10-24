@@ -8,6 +8,12 @@
 
 using Dates
 
+# Both omitted and explicitly zero MAT8 transverse moduli denote zero
+# transverse-shear flexibility. Test the numeric law, not the spelling of
+# the input, so card and JSON builds choose the same rigid-shear limit.
+@inline mat8_rigid_transverse_shear(mat) =
+    iszero(get(mat, "G1Z", 0.0)) && iszero(get(mat, "G2Z", 0.0))
+
 @inline function pcomp_whitney_shear_enabled()
     raw = lowercase(strip(get(ENV, "JFEM_PCOMP_WHITNEY_SHEAR", "true")))
     return raw in ("1", "true", "yes", "on")
@@ -588,7 +594,7 @@ function build_model(cards, cc)
             ply_data = []  # store per-ply Qbar and z for stress recovery
             all_plies_isotropic = true
             saw_mat8_ply = false
-            all_mat8_plies_blank_transverse_shear = true
+            all_mat8_plies_rigid_transverse_shear = true
             for ply in pc["PLIES"]
                 pmid = string(ply["MID"])
                 haskey(mats, pmid) || throw(ArgumentError("PCOMP $pid references missing ply material $pmid"))
@@ -600,16 +606,14 @@ function build_model(cards, cc)
                 if haskey(pm, "E1")  # MAT8
                     all_plies_isotropic = false
                     saw_mat8_ply = true
-                    g1z_blank = Bool(get(pm, "G1Z_BLANK", false))
-                    g2z_blank = Bool(get(pm, "G2Z_BLANK", false))
-                    all_mat8_plies_blank_transverse_shear &= (g1z_blank && g2z_blank)
+                    all_mat8_plies_rigid_transverse_shear &= mat8_rigid_transverse_shear(pm)
                     E1 = pm["E1"]; E2 = pm["E2"]; nu12 = pm["NU12"]; G12 = pm["G12"]
                     G13 = Float64(get(pm, "G1Z", 0.0))
                     G23 = Float64(get(pm, "G2Z", 0.0))
                     G13 <= 0.0 && (G13 = G12)
                     G23 <= 0.0 && (G23 = G12)
                 else  # MAT1 (isotropic)
-                    all_mat8_plies_blank_transverse_shear = false
+                    all_mat8_plies_rigid_transverse_shear = false
                     E1 = pm["E"]; E2 = pm["E"]; nu12 = pm["NU"]; G12 = pm["G"]
                     G13 = G12
                     G23 = G12
@@ -681,7 +685,7 @@ function build_model(cards, cc)
                                 "T_REF" => total_t, "Cm_ref" => copy(A), "Bmb_ref" => Bmb === nothing ? nothing : copy(Bmb),
                                 "Cb_ref" => copy(D), "Cs_ref" => copy(Cs_lam),
                                 "IS_ISOTROPIC" => all_plies_isotropic,
-                                "TRANSVERSE_SHEAR_RIGID_LIMIT" => saw_mat8_ply && all_mat8_plies_blank_transverse_shear,
+                                "TRANSVERSE_SHEAR_RIGID_LIMIT" => saw_mat8_ply && all_mat8_plies_rigid_transverse_shear,
                                 "PLY_DATA" => ply_data,
                                 "PCOMP_Z0_DEFAULT"=>get(pc, "Z0_DEFAULT", false), "PCOMP_Z0"=>z0,
                                 "PCOMP_LAM"=>get(pc, "LAM", ""), "PCOMP_WHITNEY_SHEAR"=>whitney_on,
@@ -1099,7 +1103,7 @@ function build_model_from_json(raw::AbstractDict)
         ply_data = []
         all_plies_isotropic = true
         saw_mat8_ply = false
-        all_mat8_plies_blank_transverse_shear = true
+        all_mat8_plies_rigid_transverse_shear = true
 
         for ply in plies
             pmid = string(Int(ply["MID"]))
@@ -1112,15 +1116,13 @@ function build_model_from_json(raw::AbstractDict)
             if haskey(pm, "E1")  # MAT8
                 all_plies_isotropic = false
                 saw_mat8_ply = true
-                g1z_blank = Bool(get(pm, "G1Z_BLANK", false))
-                g2z_blank = Bool(get(pm, "G2Z_BLANK", false))
-                all_mat8_plies_blank_transverse_shear &= (g1z_blank && g2z_blank)
+                all_mat8_plies_rigid_transverse_shear &= mat8_rigid_transverse_shear(pm)
                 E1 = Float64(pm["E1"]); E2 = Float64(pm["E2"])
                 nu12 = Float64(pm["NU12"]); G12 = Float64(pm["G12"])
                 G13 = Float64(get(pm, "G1Z", 0.0)); G23 = Float64(get(pm, "G2Z", 0.0))
                 G13 <= 0.0 && (G13 = G12); G23 <= 0.0 && (G23 = G12)
             else
-                all_mat8_plies_blank_transverse_shear = false
+                all_mat8_plies_rigid_transverse_shear = false
                 E1 = Float64(pm["E"]); E2 = E1; nu12 = Float64(pm["NU"]); G12 = Float64(pm["G"])
                 G13 = G12; G23 = G12
             end
@@ -1178,7 +1180,7 @@ function build_model_from_json(raw::AbstractDict)
             "T_REF"=>total_t, "Cm_ref"=>copy(A_mat), "Bmb_ref"=>Bmb === nothing ? nothing : copy(Bmb),
             "Cb_ref"=>copy(D_mat), "Cs_ref"=>copy(Cs_lam),
             "IS_ISOTROPIC"=>all_plies_isotropic,
-            "TRANSVERSE_SHEAR_RIGID_LIMIT"=>saw_mat8_ply && all_mat8_plies_blank_transverse_shear,
+            "TRANSVERSE_SHEAR_RIGID_LIMIT"=>saw_mat8_ply && all_mat8_plies_rigid_transverse_shear,
             "PLY_DATA"=>ply_data,
             "PCOMP_Z0_DEFAULT"=>z0_default, "PCOMP_Z0"=>z0,
             "PCOMP_LAM"=>lam_field, "PCOMP_WHITNEY_SHEAR"=>whitney_on2,
@@ -1201,60 +1203,16 @@ function build_model_from_json(raw::AbstractDict)
             "F1"=>Float64(get(p, "F1", 0.0)), "F2"=>Float64(get(p, "F2", 0.0)),
         )
     end
-    # PBARL: if present, we need the full computation — use existing extract_pbarl via cards
-    # For JSON input, PBARL has TYPE + DIMS; the computation is complex so we handle it inline
-    for (pid, p) in get(bd, "PBARL", Dict())
-        type_str = string(get(p, "TYPE", "ROD"))
-        dims = Float64.(get(p, "DIMS", Float64[]))
-        mid = Int(p["MID"])
-        # Minimal PBARL section property computation for common types
-        A, I1, I2, J = 1.0, 1.0, 1.0, 1.0
-        if type_str == "ROD" && length(dims) >= 1
-            R = dims[1]; A = pi*R^2; I1 = pi*R^4/4; I2 = I1; J = pi*R^4/2
-        elseif type_str == "BAR" && length(dims) >= 2
-            w, h = dims[1], dims[2]; A = w*h; I1 = w*h^3/12; I2 = h*w^3/12
-            J = ReferenceParser.rectangular_section_torsion(w,h)
-        elseif (type_str == "TUBE" || type_str == "TUBE2") && length(dims) >= 2
-            Ro, Ri = dims[1], ReferenceParser._tube_inner_radius(type_str, dims)
-            A = pi*(Ro^2-Ri^2); I1 = pi*(Ro^4-Ri^4)/4; I2 = I1; J = pi*(Ro^4-Ri^4)/2
-        elseif type_str == "BOX" && length(dims) >= 4
-            w, h, tw, th = dims[1], dims[2], dims[3], dims[4]
-            wi, hi = max(w-2*tw, 0), max(h-2*th, 0)
-            A = w*h - wi*hi; I1 = (w*h^3-wi*hi^3)/12; I2 = (h*w^3-hi*wi^3)/12
-            J = 2*tw*th*(w-tw)^2*(h-th)^2 / max(tw*(w-tw)+th*(h-th), 1e-30)
-        end
-        merged_bars[pid] = Dict{String,Any}(
-            "PID"=>Int(p["PID"]), "MID"=>mid, "A"=>A, "I"=>I1, "I1"=>I1, "I2"=>I2, "J"=>J,
-            "TYPE"=>type_str, "K1"=>0.0, "K2"=>0.0, "DIMS"=>dims,
-            "C1"=>0.0, "C2"=>0.0, "D1"=>0.0, "D2"=>0.0,
-            "E1"=>0.0, "E2"=>0.0, "F1"=>0.0, "F2"=>0.0,
-        )
-    end
-    for (pid, p) in get(bd, "PBEAML", Dict())
-        type_str = string(get(p, "TYPE", "ROD"))
-        dims = Float64.(get(p, "DIMS", Float64[]))
-        mid = Int(p["MID"])
-        A, I1, I2, J = 1.0, 1.0, 1.0, 1.0
-        if type_str == "ROD" && length(dims) >= 1
-            R = dims[1]; A = pi*R^2; I1 = pi*R^4/4; I2 = I1; J = pi*R^4/2
-        elseif type_str == "BAR" && length(dims) >= 2
-            w, h = dims[1], dims[2]; A = w*h; I1 = w*h^3/12; I2 = h*w^3/12
-            J = ReferenceParser.rectangular_section_torsion(w,h)
-        elseif (type_str == "TUBE" || type_str == "TUBE2") && length(dims) >= 2
-            Ro, Ri = dims[1], ReferenceParser._tube_inner_radius(type_str, dims)
-            A = pi*(Ro^2-Ri^2); I1 = pi*(Ro^4-Ri^4)/4; I2 = I1; J = pi*(Ro^4-Ri^4)/2
-        elseif type_str == "BOX" && length(dims) >= 4
-            w, h, tw, th = dims[1], dims[2], dims[3], dims[4]
-            wi, hi = max(w-2*tw, 0), max(h-2*th, 0)
-            A = w*h - wi*hi; I1 = (w*h^3-wi*hi^3)/12; I2 = (h*w^3-hi*wi^3)/12
-            J = 2*tw*th*(w-tw)^2*(h-th)^2 / max(tw*(w-tw)+th*(h-th), 1e-30)
-        end
-        merged_bars[pid] = Dict{String,Any}(
-            "PID"=>Int(p["PID"]), "MID"=>mid, "A"=>A, "I"=>I1, "I1"=>I1, "I2"=>I2, "J"=>J,
-            "TYPE"=>type_str, "K1"=>0.0, "K2"=>0.0, "DIMS"=>dims,
-            "C1"=>0.0, "C2"=>0.0, "D1"=>0.0, "D2"=>0.0,
-            "E1"=>0.0, "E2"=>0.0, "F1"=>0.0, "F2"=>0.0,
-        )
+    # Dimension-defined sections use one computation for deck and JSON inputs.
+    # In particular, retain the PBEAML neutral/shear-axis distinction.
+    for family in ("PBARL", "PBEAML"), (pid,p) in get(bd,family,Dict())
+        type_str=uppercase(string(get(p,"TYPE","ROD")))
+        dims=Float64.(get(p,"DIMS",Float64[]))
+        card=Any[family,"",Int(p["PID"]),Int(p["MID"]),get(p,"GROUP",""),type_str]
+        family=="PBEAML" && append!(card,fill("",4))
+        append!(card,dims); push!(card,Float64(get(p,"NSM",0.0)))
+        parsed=family=="PBEAML" ? ReferenceParser.extract_pbeaml([card]) : ReferenceParser.extract_pbarl([card])
+        merge!(merged_bars,parsed)
     end
     for (pid, p) in get(bd, "PBEAM", Dict())
         # Preserve station data and the neutral/shear-axis offsets in this

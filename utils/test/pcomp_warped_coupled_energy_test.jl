@@ -103,5 +103,9 @@ end
 end
 
 @testset "Warped coupled laminate work-dual energy and recovery" begin
-    PcompWarpedCoupledEnergyFixture.checks()
+    # This test exercises the optional projected formulation explicitly.
+    withenv("JFEM_PCOMP_COUPLED_PROJECTED"=>"true",
+            "JFEM_SOL105_PCOMP_MEMBRANE_SELC"=>"true") do
+        PcompWarpedCoupledEnergyFixture.checks()
+    end
 end

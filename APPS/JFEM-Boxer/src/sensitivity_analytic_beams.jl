@@ -1,3 +1,5 @@
+isdefined(@__MODULE__, :BeamSectionWarping) || include("beam_section_runtime.jl")
+
 # Exact directional derivatives of the generated beam model. No property or
 # displacement finite differences are used here. Directions are SI values per
 # one selected UI variable unit (the caller applies, e.g., GPa -> Pa scaling).
@@ -5,7 +7,8 @@
 """PBARL section values and exact directional derivatives for T, BAR and ROD.
 
 `dimensions` uses native PBARL order. `As_y/z` reproduces the current parser:
-BAR/ROD Cowper factors are evaluated at its fixed nu=0.3, not the MAT1 nu.
+BAR uses its energy-equivalent 5/6 area; ROD uses the fixed nu=0.3 Cowper factor.
+T uses the same converged section solve and exact implicit gradients as the parser.
 `offset_y` follows WingFEGen's outside-face placement for T/BAR.
 """
 function sensitivity_analytic_section(shape::AbstractString,dimensions,direction=zeros(length(dimensions)))
@@ -26,11 +29,17 @@ function sensitivity_analytic_section(shape::AbstractString,dimensions,direction
         I1=t*q^3/3+b*(h^3-q^3)/3-A*yc^2
         dI1=q^3*dt/3+t*q^2*dq+(h^3-q^3)*db/3+b*(h^2*dh-q^2*dq)-yc^2*dA-2A*yc*dyc
         I2=(q*t^3+f*b^3)/12;dI2=(t^3*dq+3q*t^2*dt+b^3*df+3f*b^2*db)/12
-        J=(q*t^3+b*f^3)/3;dJ=(t^3*dq+3q*t^2*dt+f^3*db+3b*f^2*df)/3
+        section=BeamSectionWarping.t_section_warping(dims...)
+        section.J_gradient===nothing && throw(ArgumentError(
+            "Independent T-dimension sensitivity is unavailable at a rectangular limiting shape; " *
+            "use a BAR section or explicit section properties for this limit."))
+        J=section.J;dJ=dot(collect(section.J_gradient),d)
         offset_y=yc-h;doffset_y=dyc-dh
         polygon=[[h-yc,-b/2],[h-yc,b/2],[q-yc,b/2],[q-yc,t/2],[-yc,t/2],[-yc,-t/2],[q-yc,-t/2],[q-yc,-b/2]]
         dpolygon=[[dh-dyc,-db/2],[dh-dyc,db/2],[dq-dyc,db/2],[dq-dyc,dt/2],[-dyc,dt/2],[-dyc,-dt/2],[dq-dyc,-dt/2],[dq-dyc,-db/2]]
-        As_y=aw;As_z=af;dAs_y=t*dq+q*dt;dAs_z=f*db+b*df
+        As_y=section.K1*A;As_z=section.K2*A
+        dAs_y=section.K1*dA+A*dot(collect(section.K1_gradient),d)
+        dAs_z=section.K2*dA+A*dot(collect(section.K2_gradient),d)
     elseif shape=="BAR"
         length(dims)==2||throw(ArgumentError("BAR section needs two dimensions"))
         b,h=dims;db,dh=d;b>0&&h>0||throw(ArgumentError("BAR dimensions must be positive"))
@@ -53,7 +62,7 @@ function sensitivity_analytic_section(shape::AbstractString,dimensions,direction
         offset_y=-h/2;doffset_y=-dh/2
         polygon=[[h/2,-b/2],[h/2,b/2],[-h/2,b/2],[-h/2,-b/2]]
         dpolygon=[[dh/2,-db/2],[dh/2,db/2],[-dh/2,db/2],[-dh/2,-db/2]]
-        factor=10*1.3/(12+11*.3);As_y=As_z=factor*A;dAs_y=dAs_z=factor*dA
+        factor=5/6;As_y=As_z=factor*A;dAs_y=dAs_z=factor*dA
     elseif shape=="ROD"
         length(dims)==1||throw(ArgumentError("ROD section needs one radius"))
         r=only(dims);dr=only(d);r>0||throw(ArgumentError("ROD radius must be positive"))

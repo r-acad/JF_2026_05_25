@@ -1,3 +1,57 @@
+"""Extract at most `nev` pairs from a bounded symmetric transformed pencil.
+
+The selected Hermitian driver preserves repeated eigenspaces. For a two-sided
+magnitude request, value-only end searches determine the two selected vector
+ranges; the total number of requested eigenvectors is still exactly `nev`.
+"""
+function _buckling_symmetric_subset(operator, n::Int, nev::Int, selector::Symbol)
+    0 < nev <= n || throw(ArgumentError("Invalid selected buckling eigenpair count"))
+    C=zeros(Float64,n,n)
+    for j=1:n
+        e=zeros(Float64,n);e[j]=1.0
+        C[:,j]=operator(e)
+    end
+    all(isfinite,C) || throw(ArgumentError("Nonfinite symmetric buckling operator"))
+    asymmetry=norm(C-C')/max(norm(C),floatmin(Float64))
+    asymmetry<=100sqrt(eps(Float64)) || throw(ArgumentError("Buckling operator is not numerically self-adjoint"))
+    C .= 0.5 .* (C+C')
+    value_candidates=0
+    selected=if selector===:LR
+        collect(n:-1:n-nev+1)
+    elseif selector===:SR
+        collect(1:nev)
+    elseif selector===:LM
+        # Every largest-magnitude root belongs to one of these end ranges.
+        # Their overlap is deduplicated by global index, preserving equal
+        # eigenvalues as separate directions rather than unique numbers.
+        lows=eigvals(Symmetric(C),1:nev)
+        highs=eigvals(Symmetric(C),n-nev+1:n)
+        candidates=Dict{Int,Float64}(i=>lows[i] for i=1:nev)
+        for i=1:nev;candidates[n-nev+i]=highs[i];end
+        value_candidates=length(candidates)
+        sort!(collect(keys(candidates));by=i->(-abs(candidates[i]),i))[1:nev]
+    else
+        throw(ArgumentError("Unsupported symmetric buckling selector $selector"))
+    end
+    ordered=sort(selected)
+    values=Dict{Int,Float64}();vectors=Dict{Int,Vector{Float64}}()
+    first=1
+    while first<=length(ordered)
+        last=first
+        while last<length(ordered)&&ordered[last+1]==ordered[last]+1;last+=1;end
+        range=ordered[first]:ordered[last]
+        result=eigen(Symmetric(C),range)
+        for (j,index) in enumerate(range)
+            values[index]=result.values[j]
+            vectors[index]=Vector(result.vectors[:,j])
+        end
+        first=last+1
+    end
+    return [values[i] for i in selected],[vectors[i] for i in selected],
+        (;converged=nev,numops=n,eigenvalue_only_candidates=value_candidates,
+          eigenvectors_requested=nev,operator_asymmetry=asymmetry)
+end
+
 # solve_case.jl — Subcase solver orchestrator
 
 @solver_stage "loads" "Assemble applied loads" function _assemble_applied_force(ndof, model, id_map, X, load_id, node_R, rbe3_map;
@@ -57,14 +111,9 @@
 end
 
 function _deterministic_buckling_start_vector(n::Int, ordinal::Int)
-    seed = buckling_rng_seed()
-    v = Vector{Float64}(undef, n)
-    phase = 0.137 * (seed + 1) + 0.731 * ordinal
-    @inbounds for i in 1:n
-        x = i + phase
-        v[i] = sin(0.7548776662466927 * x) + 0.5 * cos(1.246979603717467 * x)
-    end
-    return v
+    # Reuse the independent counter-hashed streams already used by modal
+    # extraction. Phase changes in two sinusoids span at most four directions.
+    return _deterministic_sol103_start_vector(n, ordinal)
 end
 
 function _buckling_raw_csv_cell(x)
@@ -2568,8 +2617,14 @@ function _buckling_sturm_count(K_ff, Kg_ff, sigma::Float64;
         # (~170 MB per count at CRM-class sizes).
         issymmetric(M) || (M = 0.5 * (M + M'))
         if n <= 600
-            # Exact: count negative eigenvalues of the (small) dense symmetric M.
-            evs = eigvals(Symmetric(Matrix(M)))
+            # Sylvester inertia is unchanged by a nonsingular diagonal congruence.
+            # Scale coordinate units before classifying the bounded dense pencil.
+            Md = Matrix(M)
+            scales = [v > 0 ? inv(sqrt(v)) : 1.0 for v in abs.(diag(Md))]
+            for j in 1:n, i in 1:n
+                Md[i,j] = (Md[i,j] * scales[i]) * scales[j]
+            end
+            evs = eigvals(Symmetric(Md))
             return count(<(0.0), evs)
         else
             # Sparse symmetric-indefinite inertia via CHOLMOD LDLᵀ pivot signs.
@@ -3079,38 +3134,79 @@ end
             local vals_kk, vecs_kk, info
             raw_ritz_vectors_returned = 0
             block_lanczos = false
+            symmetric_subset = false
             block_error = nothing
+            # A single starting vector cannot span a repeated eigenspace.
+            # Use a selected symmetric driver in the bounded small-pencil
+            # regime. Larger jobs retain the optional BlockLanczos backend.
+            partial_symmetric_max_dof = max(solver_env_int("JFEM_SOL105_PARTIAL_SYMMETRIC_MAX_DOF", 600), 0)
+            small_symmetric_subset = size(M, 1) <= partial_symmetric_max_dof
+            shifted_spd = occursin("cholesky", lowercase(string(factor_backend)))
             can_block = strict_requested_count && nev_request > 1 &&
                         isempty(active_excluded) &&
-                        occursin("cholesky", lowercase(string(factor_backend))) &&
-                        solver_env_bool("JFEM_SOL105_BLOCK_LANCZOS", false)
+                        (small_symmetric_subset || (shifted_spd &&
+                            solver_env_bool("JFEM_SOL105_BLOCK_LANCZOS", false)))
             if can_block
                 try
+                    default_block_size = small_symmetric_subset ? nev_request : min(nev_request, 2)
                     block_size = min(nev_request, max(solver_env_int(
-                        "JFEM_SOL105_BLOCK_SIZE", min(nev_request, 2)), 1))
-                    factor_copy = copy(M_factor)
+                        "JFEM_SOL105_BLOCK_SIZE", default_block_size), 1))
+                    # Interior shifts can be indefinite despite SPD elastic
+                    # K. Its Cholesky frame makes the shifted operator
+                    # C*(I-sigma*C)^(-1) symmetric, with C=L^-1*B*L^-T.
+                    # This extra factorization is limited to small pencils.
+                    block_metric = shifted_spd ? "shifted" : "elastic"
+                    factor_copy = if shifted_spd
+                        copy(M_factor)
+                    elseif reduced
+                        _timed_factorization(cholesky, Symmetric(K_ff[live_dofs,live_dofs]))
+                    else
+                        elastic_factor, _ = ensure_eigen_solve_factorization!(eigen_ctx)
+                        eigen_ctx.factor_backend == "cholesky" || throw(ArgumentError(
+                            "Symmetric buckling extraction requires an SPD elastic metric"))
+                        copy(elastic_factor)
+                    end
                     factor_perm = factor_copy.p
                     factor_L = LowerTriangular(sparse(factor_copy.L))
                     B_perm = B[factor_perm, factor_perm]
-                    starts = Vector{Vector{Float64}}([Vector{Float64}(start_vec)])
-                    for _ in 2:block_size
-                        extra = next_start_vector()
-                        reduced && (extra = extra[live_dofs])
-                        push!(starts, extra)
-                    end
+                    # Counter-hashed streams can span an arbitrary repeated
+                    # eigenspace. Phase-shifted sinusoidal starts span at most
+                    # four directions, regardless of requested block width.
+                    starts = [_deterministic_sol103_start_vector(size(B, 1), j)
+                              for j in 1:block_size]
                     push!(diagnostics["eigsolve_requests"], Dict{String,Any}(
                         "attempt" => attempt_name,
                         "requested_eigenpairs" => nev_request,
                         "selector" => string(spectrum_selector),
                         "sigma" => sigma,
-                        "algorithm" => "BlockLanczos",
+                        "algorithm" => small_symmetric_subset ? "SymmetricSubset" : "BlockLanczos",
                         "block_size" => block_size,
+                        "metric" => block_metric,
                     ))
-                    vals_kk, vecs_y, info = eigsolve(
-                        y -> factor_L \ (B_perm * (factor_L' \ Vector(y))),
-                        Block(starts), nev_request, spectrum_selector;
-                        krylovdim=kd, maxiter=krylov_maxiter, tol=krylov_tol,
-                        eager=true, ishermitian=true)
+                    block_operator = if shifted_spd
+                        y -> factor_L \ (B_perm * (factor_L' \ Vector(y)))
+                    else
+                        y -> begin
+                            u = zeros(Float64, size(B, 1))
+                            u[factor_perm] = factor_L' \ Vector(y)
+                            z = M_factor \ (B * u)
+                            factor_L' * z[factor_perm]
+                        end
+                    end
+                    vals_kk, vecs_y, info = if small_symmetric_subset
+                        _buckling_symmetric_subset(block_operator, size(B, 1),
+                            nev_request, spectrum_selector)
+                    else
+                        eigsolve(block_operator, Block(starts), nev_request,
+                            spectrum_selector; krylovdim=kd, maxiter=krylov_maxiter,
+                            tol=krylov_tol, eager=true, ishermitian=true)
+                    end
+                    if small_symmetric_subset
+                        diagnostics["eigsolve_requests"][end]["eigenvalue_only_candidates"] =
+                            info.eigenvalue_only_candidates
+                        diagnostics["eigsolve_requests"][end]["eigenvectors_requested"] =
+                            info.eigenvectors_requested
+                    end
                     raw_ritz_vectors_returned = length(vecs_y)
                     n_backmap = min(nev_request, info.converged,
                                     raw_ritz_vectors_returned)
@@ -3120,13 +3216,15 @@ end
                             Vector{Float64}(real.(vecs_y[i]))
                         u
                     end for i in 1:n_backmap]
-                    block_lanczos = true
+                    symmetric_subset = small_symmetric_subset
+                    block_lanczos = !small_symmetric_subset
                 catch err
                     block_error = sprint(showerror, err)
-                    log_msg("[BUCKLING] BlockLanczos unavailable ($block_error); using Arnoldi")
+                    method_name = small_symmetric_subset ? "Selected symmetric extraction" : "BlockLanczos"
+                    log_msg("[BUCKLING] $method_name unavailable ($block_error); using Arnoldi")
                 end
             end
-            if !block_lanczos
+            if !(block_lanczos || symmetric_subset)
                 push!(diagnostics["eigsolve_requests"], Dict{String,Any}(
                     "attempt" => attempt_name,
                     "requested_eigenpairs" => nev_request,
@@ -3235,6 +3333,7 @@ end
                 "factorization" => factor_backend,
                 "shifted_factor_cache_hit" => shifted_factor_cache_hit,
                 "block_lanczos" => block_lanczos,
+                "symmetric_subset" => symmetric_subset,
                 "block_error" => block_error,
             )
             return lambdas, vecs
@@ -3486,7 +3585,10 @@ end
         if targeted !== nothing
             eigenvalues, eigenvectors = targeted
             solved = true
-            diagnostics["solver_backend"] = "krylov_eigrl_target"
+            used_subset = any(get(a, "symmetric_subset", false)
+                for a in diagnostics["solver_attempts"])
+            diagnostics["solver_backend"] = used_subset ?
+                "symmetric_subset_eigrl_target" : "krylov_eigrl_target"
         elseif has_range
             # Do not silently replace a failed [V1,V2] search with roots near
             # zero or the legacy hard-coded sigma=1 fallback. Those spectra can
@@ -4923,7 +5025,9 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
         !haskey(mats, mid) && continue
         nids = el["NODES"]; n = length(nids)
         mat = _effective_mat1_for_nodes(model, mid, nids)
-        h = Float64(prop["T"])
+        corner_data=shell_corner_thickness_model_data(model,prop,el)
+        h=corner_data===nothing ? Float64(prop["T"]) :
+            corner_data.uniform ? first(corner_data.thickness) : corner_data.reference_thickness
         rho = Float64(get(mat, "RHO", 0.0))
         nsm = Float64(get(prop, "NSM", 0.0))  # non-structural mass per unit area
         laminate_mass_moments=get!(shell_mass_moments,pid) do
@@ -4962,9 +5066,18 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
                 lc_buf4[k,1] = dot(pk-c_ctr, v1); lc_buf4[k,2] = dot(pk-c_ctr, v2)
             end
 
-            Me_loc = shell_mass_formulation === :coupled_consistent ?
-                FEM.consistent_mass_quad4(lc_buf4, rho_eff, h;mass_moments=inertia_moments) :
+            Me_loc = if corner_data!==nothing && !corner_data.uniform
+                xyz=[node_coords[idx,j] for idx in (i1,i2,i3,i4),j in 1:3]
+                shell_variable_thickness_domain(model,prop,el,lc_buf4,xyz)
+                shell_mass_formulation===:coupled_consistent || throw(ArgumentError(
+                    "CQUAD4 $(el["ID"]) nonuniform corner thickness currently requires COUPMASS=1"))
+                FEM.quad4_variable_thickness_mass(lc_buf4,corner_data.thickness,rho;
+                    nsm=nsm,rotary=shell_inertia!==:reference_surface)
+            elseif shell_mass_formulation === :coupled_consistent
+                FEM.consistent_mass_quad4(lc_buf4, rho_eff, h;mass_moments=inertia_moments)
+            else
                 FEM.reference_lumped_mass_quad4(lc_buf4, rho_eff, h)
+            end
 
             # Build T (24×24)
             fill!(T_buf, 0.0)
@@ -5144,9 +5257,15 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
         A_rod = Float64(get(prop, "A", 0.0))
         J_rod = Float64(get(prop, "J", 0.0))
 
-        # Effective density: rho_eff = rho + NSM/A
-        rho_rod = A_rod > 1e-30 ? rho + nsm_rod / A_rod : rho
-        Me_loc = FEM.reference_lumped_mass_rod(L, rho_rod, A_rod, J_rod)
+        # Structural density and NSM are independent measures. Integrate
+        # the NSM line directly so a zero-area rod retains its assigned mass.
+        Me_loc = cbar_coupled_mass ? FEM.reference_coupled_mass_rod(L, rho, A_rod) :
+                                   FEM.reference_lumped_mass_rod(L, rho, A_rod, J_rod)
+        if !iszero(nsm_rod)
+            unit_line = cbar_coupled_mass ? FEM.reference_coupled_mass_rod(L, 1.0, 1.0) :
+                                           FEM.reference_lumped_mass_rod(L, 1.0, 1.0, 0.0)
+            Me_loc .+= nsm_rod .* unit_line
+        end
 
         e1 = (p2 - p1) / L
         e2 = abs(e1[3]) < 0.9 ? normalize(cross(e1, SVector(0.0,0.0,1.0))) : normalize(cross(e1, SVector(1.0,0.0,0.0)))
@@ -5187,7 +5306,7 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
         !haskey(mats, mid) && continue
         mat = _effective_mat1_for_nodes(model, mid, [ga, gb])
         rho = Float64(get(mat, "RHO", 0.0))
-        rho < 1e-30 && continue
+        (rho < 1e-30 && Float64(get(rod, "NSM", 0.0)) < 1e-30) && continue
 
         p1 = SVector{3}(node_coords[i1,:]); p2 = SVector{3}(node_coords[i2,:])
         L = norm(p2 - p1)
@@ -5198,15 +5317,14 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
         nsm = Float64(get(rod, "NSM", 0.0))
 
         J_rod = Float64(get(rod, "J", 0.0))
-        Me_loc = FEM.reference_lumped_mass_rod(L, rho, A_rod, J_rod)
-
-        # Add NSM contribution (lumped at both ends, translational only)
-        if nsm > 0
-            nsm_total = nsm * L
-            for d in [1, 2, 3]
-                Me_loc[d, d] += nsm_total / 2.0
-                Me_loc[6+d, 6+d] += nsm_total / 2.0
-            end
+        # Structural density and NSM are independent measures. Integrate
+        # the NSM line directly so a zero-area rod retains its assigned mass.
+        Me_loc = cbar_coupled_mass ? FEM.reference_coupled_mass_rod(L, rho, A_rod) :
+                                   FEM.reference_lumped_mass_rod(L, rho, A_rod, J_rod)
+        if !iszero(nsm)
+            unit_line = cbar_coupled_mass ? FEM.reference_coupled_mass_rod(L, 1.0, 1.0) :
+                                           FEM.reference_lumped_mass_rod(L, 1.0, 1.0, 0.0)
+            Me_loc .+= nsm .* unit_line
         end
 
         e1 = (p2 - p1) / L
@@ -5238,8 +5356,13 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
         end
     end
 
-    # --- CBEAM elements (same mass formulation as CBAR) ---
-    for (_, beam) in cbeams
+    # CBEAM uses the consistent axial/Hermite interpolation and the physical
+    # polar section inertia when coupled mass is requested. CBAR has its own
+    # axial blend and must not be substituted here.
+    for (eid, beam) in cbeams
+        if cbar_coupled_mass && (get(beam, "PA", 0) != 0 || get(beam, "PB", 0) != 0)
+            throw(ArgumentError("Coupled CBEAM mass with PA/PB releases is not implemented (CBEAM $eid)."))
+        end
         ga, gb = beam["GA"], beam["GB"]
         (!haskey(id_map, ga) || !haskey(id_map, gb)) && continue
         i1, i2 = id_map[ga], id_map[gb]
@@ -5253,7 +5376,8 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
         (rho < 1e-30 && nsm_beam < 1e-30) && continue
 
         p1 = SVector{3}(node_coords[i1,:]); p2 = SVector{3}(node_coords[i2,:])
-        L = norm(p2 - p1)
+        wa, wb, has_offset, p1_mass, p2_mass = bar_offsets_and_endpoints(beam, p1, p2)
+        L = norm(p2_mass - p1_mass)
         L < 1e-12 && continue
 
         A_beam = Float64(get(prop, "A", 0.0))
@@ -5263,14 +5387,42 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
 
         # Effective density including NSM
         rho_beam = A_beam > 1e-30 ? rho + nsm_beam / A_beam : rho
-        # CBEAM lumped mass includes torsional inertia, unlike CBAR -- the
-        # two elements' reference spectra prove their respective conventions.
-        Me_loc = FEM.reference_lumped_mass_frame3d(L, rho_beam, A_beam, J, Iy, Iz;
-                                                 torsion_inertia=true)
+        Me_loc = cbar_coupled_mass ?
+            FEM.consistent_mass_frame3d(L, rho, A_beam, Iy, Iz) +
+                nsm_beam .* FEM.consistent_mass_frame3d(L, 1.0, 1.0, 0., 0.) :
+            FEM.reference_lumped_mass_frame3d(L, rho_beam, A_beam, J, Iy, Iz;
+                                             torsion_inertia=true)
+        centroid_mass_axis_active = cbar_coupled_mass &&
+            _pbeam_neutral_axis_transform(prop)!==nothing
+        independent_nsm_axis = cbar_coupled_mass && !iszero(nsm_beam) &&
+            any(k->!iszero(get(prop,k,0.)),("M1A","M2A","M1B","M2B"))
+        if centroid_mass_axis_active || independent_nsm_axis
+            # Structural inertia follows the centroid, while an independent
+            # NSM line follows its own M1/M2 offsets from the shear axis.
+            function mass_axis_map(first1,first2,second1,second2)
+                C=Matrix{Float64}(I,12,12)
+                for (base,n1,n2) in ((0,first1,first2),(6,second1,second2))
+                    C[base+1,base+5]=n2; C[base+1,base+6]=-n1
+                    C[base+2,base+4]=-n2; C[base+3,base+4]=n1
+                end
+                C
+            end
+            n1=centroid_mass_axis_active ? get(prop,"N1A",0.) : 0.
+            n2=centroid_mass_axis_active ? get(prop,"N2A",0.) : 0.
+            n1b=centroid_mass_axis_active ? get(prop,"N1B",n1) : 0.
+            n2b=centroid_mass_axis_active ? get(prop,"N2B",n2) : 0.
+            C=mass_axis_map(n1,n2,n1b,n2b)
+            Me_loc=C'*FEM.consistent_mass_frame3d(L,rho,A_beam,Iy,Iz)*C
+            if !iszero(nsm_beam)
+                m1=get(prop,"M1A",0.);m2=get(prop,"M2A",0.)
+                Cm=mass_axis_map(m1,m2,get(prop,"M1B",m1),get(prop,"M2B",m2))
+                Me_loc+=nsm_beam .* (Cm'*FEM.consistent_mass_frame3d(L,1.0,1.0,0.,0.)*Cm)
+            end
+        end
 
         # Transformation
-        e1 = (p2 - p1) / L
-        vbar = haskey(beam, "V") ? SVector{3}(Float64.(beam["V"])) : SVector(0.0, 0.0, 1.0)
+        e1 = (p2_mass - p1_mass) / L
+        vbar = resolve_bar_vref(beam, p1, id_map, node_coords)
         e2_raw = vbar - dot(vbar, e1)*e1
         e2_len = norm(e2_raw)
         e2 = e2_len > 1e-12 ? e2_raw/e2_len : SVector(0.0, 1.0, 0.0)
@@ -5286,6 +5438,10 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
                 T12[base+rr, base+cc] = TR[rr,cc]
                 T12[base+3+rr, base+3+cc] = TR[rr,cc]
             end
+        end
+        if has_offset
+            T12[1:3, 4:6] = -Rel_t * skew3(wa) * node_R[i1]
+            T12[7:9, 10:12] = -Rel_t * skew3(wb) * node_R[i2]
         end
         Me12 = T12' * Me_loc * T12
 
@@ -5339,13 +5495,15 @@ assemble_modal_mass(model,id_map,node_coords,node_R,ndof;kwargs...) =
             Me_loc = FEM.consistent_mass_tetra10(view(coords_buf_solid, 1:10, :), rho)
             ndof_el = 30
         elseif etype == "CTETRA" && nn == 4
-            Me_loc = FEM.reference_lumped_mass_tetra4(view(coords_buf_solid, 1:4, :), rho)
+            Me_loc = cbar_coupled_mass ? FEM.consistent_mass_tetra4(view(coords_buf_solid, 1:4, :), rho) :
+                                        FEM.reference_lumped_mass_tetra4(view(coords_buf_solid, 1:4, :), rho)
             ndof_el = 12
         elseif etype == "CHEXA" && nn == 8
-            Me_loc = haskey(model,"abaqus_import") ? FEM.consistent_mass_hexa8(view(coords_buf_solid, 1:8, :), rho) : FEM.reference_lumped_mass_hexa8(view(coords_buf_solid, 1:8, :), rho)
+            Me_loc = (cbar_coupled_mass || haskey(model,"abaqus_import")) ? FEM.consistent_mass_hexa8(view(coords_buf_solid, 1:8, :), rho) : FEM.reference_lumped_mass_hexa8(view(coords_buf_solid, 1:8, :), rho)
             ndof_el = 24
         elseif etype == "CPENTA" && nn == 6
-            Me_loc = FEM.reference_lumped_mass_cpenta6(view(coords_buf_solid, 1:6, :), rho)
+            Me_loc = cbar_coupled_mass ? FEM.consistent_mass_cpenta6(view(coords_buf_solid, 1:6, :), rho) :
+                                        FEM.reference_lumped_mass_cpenta6(view(coords_buf_solid, 1:6, :), rho)
             ndof_el = 18
         else
             continue
@@ -5622,6 +5780,63 @@ function _sol103_shifted_factorization(K_ff, M_ff, mass_tol, stiff_tol, eigrl_v2
     error("SOL103 could not factor the unchanged K + alpha*M pencil using positive-shift Cholesky or sparse LU; the pencil may have a joint K/M nullspace")
 end
 
+# Roundoff scale of the quadratic form v'Mv. The absolute products retain
+# physical units and are invariant under diagonal changes of DOF coordinates.
+# Sparse traversal avoids materializing a second mass matrix.
+function _sol103_mass_quadratic_roundoff(M,v)
+    n=length(v)
+    size(M)==(n,n) || throw(DimensionMismatch("Mass quadratic form dimensions differ"))
+    scale=0.0
+    if M isa SparseMatrixCSC
+        rows=rowvals(M);values=nonzeros(M)
+        for j in 1:n
+            column=0.0
+            for p in nzrange(M,j)
+                column+=abs(v[rows[p]])*abs(values[p])
+            end
+            scale+=abs(v[j])*column
+        end
+    else
+        for j in 1:n
+            column=0.0
+            for i in 1:n
+                column+=abs(v[i])*abs(M[i,j])
+            end
+            scale+=abs(v[j])*column
+        end
+    end
+    # Standard gamma bound for matrix-vector accumulation followed by a dot
+    # product; no dimensional absolute floor or external result is involved.
+    neps=(2n+2)*eps(Float64)
+    return neps<1.0 ? (neps/(1.0-neps))*scale : Inf
+end
+
+# Numerical mass rank for bounded pencils, after diagonal congruence removes
+# physical coordinate units. This finds massless linear combinations even
+# when rigid offsets or coordinate rotations leave every diagonal nonzero.
+function _sol103_small_mass_signature(M; max_dof::Int=600)
+    n=size(M,1)
+    size(M,2)==n || throw(DimensionMismatch("Modal mass matrix must be square"))
+    n<=max(max_dof,0) || return (status=:outside_bound,rank=nothing,nullity=nothing,tolerance=nothing,minimum_eigenvalue=nothing)
+    all(isfinite,M) || return (status=:nonfinite,rank=nothing,nullity=nothing,tolerance=nothing,minimum_eigenvalue=nothing)
+    n==0 && return (status=:positive_semidefinite,rank=0,nullity=0,tolerance=0.0,minimum_eigenvalue=0.0)
+    d=diag(M)
+    any(<(0.0),d) && return (status=:indefinite,rank=nothing,nullity=nothing,tolerance=nothing,minimum_eigenvalue=nothing)
+    scales=[v>0 ? inv(sqrt(v)) : 1.0 for v in d]
+    H=Matrix{Float64}(M)
+    for j in 1:n,i in 1:n
+        H[i,j]=(H[i,j]*scales[i])*scales[j]
+    end
+    all(isfinite,H) || return (status=:nonfinite,rank=nothing,nullity=nothing,tolerance=nothing,minimum_eigenvalue=nothing)
+    values=eigvals(Symmetric(H))
+    # A dimension-scaled floating-point backward-error bound, independent of
+    # the requested frequencies and of any external solver's result values.
+    tolerance=n*eps(Float64)*maximum(abs,values;init=0.0)
+    minimum(values)<-tolerance && return (status=:indefinite,rank=nothing,nullity=nothing,tolerance=tolerance,minimum_eigenvalue=minimum(values))
+    mass_rank=count(>(tolerance),values)
+    return (status=:positive_semidefinite,rank=mass_rank,nullity=n-mass_rank,tolerance=tolerance,minimum_eigenvalue=minimum(values))
+end
+
 function _sol103_dense_spectrum_resolution(vals,lambda_reference)
     scale=maximum((abs(Float64(x)) for x in vals if isfinite(x));init=1.0)
     zero_tolerance=512eps(Float64)*max(Float64(lambda_reference),1.0)
@@ -5632,6 +5847,13 @@ function _sol103_dense_spectrum_resolution(vals,lambda_reference)
     unresolved_negative=any(x->isfinite(x)&&
         -spectral_error_bound<=x < -zero_tolerance,vals)
     (;zero_tolerance,spectral_error_bound,unresolved_negative)
+end
+
+function _sol103_exact_zero_column(A, i)
+    if A isa SparseMatrixCSC
+        return all(p -> iszero(nonzeros(A)[p]), nzrange(A, i))
+    end
+    return all(iszero, view(A, :, i))
 end
 
 @solver_stage "eigensolve" "Modal eigenvalue solution" function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
@@ -5707,14 +5929,11 @@ end
     # An indefinite but regular pencil can have a coupled massless coordinate
     # with K_ii=0; fixing it changes its finite spectrum. Check the actual
     # stiffness column before classifying a coordinate as unsupported.
-    function stiffness_column_is_zero(i)
-        if K_ff isa SparseMatrixCSC
-            values = nonzeros(K_ff)
-            return all(p -> abs(values[p]) <= stiff_tol, nzrange(K_ff, i))
-        end
-        return maximum(abs, view(K_ff, :, i); init=0.0) <= stiff_tol
-    end
-    drop_mass_idx = [i for i in massless_idx if stiff_diag[i] <= stiff_tol && stiffness_column_is_zero(i)]
+    # Physical rotational stiffness may be arbitrarily small after a change of
+    # length units. Only an exact joint-zero K/M column is an absent coordinate.
+    drop_mass_idx = [i for i in massless_idx if
+        _sol103_exact_zero_column(K_ff, i) && _sol103_exact_zero_column(M_ff, i)]
+    diagnostics["massless_coordinate_removal_policy"] = "exact_joint_zero_K_M_columns"
     keep_mass_idx = isempty(drop_mass_idx) ? collect(1:n_free) : setdiff(collect(1:n_free), drop_mass_idx)
     mass_filter_removed = length(drop_mass_idx)
     if mass_filter_removed > 0
@@ -5728,8 +5947,8 @@ end
         diagnostics["fixed_dofs"] = length(fixed_dofs)
         diagnostics["massless_free_dofs_removed"] = mass_filter_removed
         diagnostics["massless_free_dof_tolerance"] = mass_tol
-        diagnostics["massless_zero_stiffness_dof_tolerance"] = stiff_tol
-        log_msg("[MODES] AUTOSPC massless zero-stiffness filter removed $mass_filter_removed DOFs (mass tol=$(round(mass_tol; sigdigits=4)), stiffness tol=$(round(stiff_tol; sigdigits=4)))")
+        diagnostics["massless_zero_stiffness_dof_tolerance"] = 0.0
+        log_msg("[MODES] AUTOSPC massless zero-stiffness filter removed $mass_filter_removed DOFs (exact joint-zero K/M columns)")
         if n_free == 0
             log_msg("[MODES] ERROR: No dynamic DOFs remain after massless-DOF filtering")
             diagnostics["solver_backend"] = "failed"
@@ -5738,13 +5957,29 @@ end
     else
         diagnostics["massless_free_dofs_removed"] = 0
         diagnostics["massless_free_dof_tolerance"] = mass_tol
-        diagnostics["massless_zero_stiffness_dof_tolerance"] = stiff_tol
+        diagnostics["massless_zero_stiffness_dof_tolerance"] = 0.0
     end
     mass_diag = abs.(diag(M_ff))
     stiff_diag = abs.(diag(K_ff))
     singular_mass = any(<=(mass_tol), mass_diag)
     singular_mass_retained = count(<=(mass_tol), mass_diag)
+    mass_signature = _sol103_small_mass_signature(M_ff;
+        max_dof=max(solver_env_int("JFEM_SOL103_MASS_RANK_MAX_DOF",600),0))
+    bounded_mass_rank = mass_signature.status===:positive_semidefinite ? mass_signature.rank : nothing
+    singular_mass |= bounded_mass_rank!==nothing && bounded_mass_rank<n_free
+    diagnostics["mass_spectrum_classification"] = Dict{String,Any}(
+        "status"=>string(mass_signature.status),"rank"=>mass_signature.rank,
+        "nullity"=>mass_signature.nullity,"scaled_tolerance"=>mass_signature.tolerance,
+        "minimum_scaled_eigenvalue"=>mass_signature.minimum_eigenvalue,
+        "policy"=>"Diagonal-congruence PSD rank within a bounded floating-point resolution")
     diagnostics["singular_mass_coordinates_retained"] = singular_mass_retained
+    if bounded_mass_rank===0
+        diagnostics["solver_backend"]="no_finite_mass"
+        diagnostics["returned_modes"]=0
+        diagnostics["failure_reason"]="The retained modal mass matrix has no positive mass directions; no finite natural modes exist."
+        log_msg("[MODES] No positive mass directions remain; returning no finite natural modes")
+        return return_diagnostics ? (Float64[],Float64[],zeros(ndof,0),diagnostics) : (Float64[],Float64[],zeros(ndof,0))
+    end
     if singular_mass
         log_msg("[MODES] Retaining $singular_mass_retained massless stiff DOFs for shift-invert modal solve")
     end
@@ -5953,17 +6188,22 @@ end
             else
                 lower_mode_count + in_band_target
             end
-            # If M is singular and V2 is unbounded, the pencil can contain
-            # infinite roots.  Still ask Krylov for ND finite roots, but leave
-            # strict target completeness to the interval inertia certificate.
-            strict_mode_target = if singular_mass && upper_mode_count === nothing
+            # A singular mass pencil can contain infinite roots. For a bounded
+            # PSD mass spectrum with a positive shifted factor and no negative
+            # finite roots, require its numerical rank at most. Otherwise retain
+            # interval-inertia completeness policy.
+            strict_mode_target = if bounded_mass_rank!==nothing && !indefinite_shift &&
+               sturm_origin===0 && upper_mode_count===nothing
+                min(global_mode_target,bounded_mass_rank)
+            elseif singular_mass && upper_mode_count === nothing
                 0
             elseif lower_mode_count === nothing && upper_mode_count !== nothing
                 min(num_modes_request, upper_mode_count, n_free)
             else
                 min(global_mode_target, n_free)
             end
-            request_mode_target = min(global_mode_target, n_free)
+            request_mode_target = min(global_mode_target, n_free,
+                bounded_mass_rank===nothing ? n_free : bounded_mass_rank)
             retry_mode_target = request_mode_target
             num_modes_request = min(max(
                 request_mode_target > 0 ? request_mode_target : 1, 1), n_free)
@@ -5985,6 +6225,17 @@ end
             k_scale = maximum(stiff_diag; init=1.0)
             m_scale = maximum(mass_diag; init=1.0)
 
+            # For bounded PSD mass, a positive shifted Cholesky factor and
+            # zero negative inertia certify a regular finite modal pencil.
+            # Only that physical class uses the unit-consistent quadratic-form
+            # mass bound. Higher-index/indefinite or unclassified pencils retain
+            # their existing acceptance policy; no residual gate is changed.
+            certified_psd_mass_floor = bounded_mass_rank!==nothing &&
+                factor_backend=="positive_mass_shift_cholesky" && sturm_origin===0
+            diagnostics["quadratic_mass_floor_active"] = certified_psd_mass_floor
+            diagnostics["mass_acceptance_metric"] = certified_psd_mass_floor ?
+                "quadratic_form_roundoff_gamma_2n_plus_2_certified_psd_pencil" :
+                "legacy_unclassified_or_indefinite_pencil_policy"
             accepted_lambdas = Float64[]
             accepted_vecs = Vector{Float64}[]
             accepted_mvecs = Vector{Float64}[]
@@ -6001,10 +6252,11 @@ end
                 v = Float64.(real.(vector_seed))
                 mv = Vector{Float64}(M_ff * v)
                 mass_norm = dot(v, mv)
-                mass_floor = max(
-                    256.0 * eps(Float64) * m_scale * dot(v, v),
-                    1.0e-30,
-                )
+                mass_floor = certified_psd_mass_floor ?
+                    _sol103_mass_quadratic_roundoff(M_ff,v) : max(
+                        256.0 * eps(Float64) * m_scale * dot(v, v),
+                        1.0e-30,
+                    )
                 if !(isfinite(mass_norm) && mass_norm > mass_floor)
                     rejected_massless[] += 1
                     return false

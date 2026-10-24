@@ -66,5 +66,9 @@ end
 end
 
 @testset "Legacy nonlinear coupled laminate dispatch and linear limit" begin
-    Sol106CoupledDispatchFixture.checks()
+    # This test exercises the optional projected formulation explicitly.
+    withenv("JFEM_PCOMP_COUPLED_PROJECTED"=>"true",
+            "JFEM_SOL105_PCOMP_MEMBRANE_SELC"=>"true") do
+        Sol106CoupledDispatchFixture.checks()
+    end
 end

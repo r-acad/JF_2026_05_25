@@ -1302,7 +1302,8 @@ function complete_stringer_stresses!(m::Model, records::AbstractDict)
                         "reason"=>"This older imported result lacks beam-load recovery provenance. Rerun the model to verify interior-load and section applicability.")
                 else
                     prop=Dict("TYPE"=>section["shape"],"DIMS"=>section["dimensions_m"],
-                        "A"=>section["area_m2"],"I1"=>section["I1_m4"],"I2"=>section["I2_m4"],"J"=>section["J_m4"])
+                        "A"=>section["area_m2"],"I1"=>section["I1_m4"],"I2"=>section["I2_m4"],"J"=>section["J_m4"],
+                        "TORSION_FORMULATION"=>get(section,"torsion_formulation",""))
                     material=material_payload(bar_material_definition(m.params,gr.pid))
                     merge!(stress,beam_t_stress_envelope(prop,forces;material_type=get(material,"type","unknown")))
                 end

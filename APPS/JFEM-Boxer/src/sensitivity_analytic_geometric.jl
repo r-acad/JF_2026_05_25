@@ -6,6 +6,7 @@ lc_buf4 lc3 u_elem24 u_elem18 T_buf T18 dofs_buf24 dofs_t3 Kg_global Kg18
 kg_reference_kdjj_iso_branch kg_reference_kdjj_pcomp_branch kg_flat_dkmq_branch kg_flat_plate_branch
 kg_covariant_branch kg_global_ready assumed_transverse warp_preload_map
 elem_mitc4_3d_kg_recovery elem_snorm_curvature_kg kg_coupled_projected
+kg_coupled_condensed kg_differential_prestress
 kg_compatible_membrane elem_membrane_incomp_kg kg_iso_exact_membrane kg_membrane_selc
 slope_membrane_kg curvature_membrane membrane_incomp_center_jacobian kg_material_shear_rotation
 elem_is_flat_kg Bmb_kg Bmb_override_t3 snorm_pq_kg coords3d_local_buf4
@@ -51,6 +52,12 @@ function sensitivity_geometric_shell_replay(native,ctx,direction=Dict(),x=0.;loc
         warp=g(:warp_preload_map);ue=warp===nothing ? u : warp*u
         K=F.geometric_stiffness_quad4_reference_kdjj_iso(g(:lc_buf4),ue,c.E,c.nu,c.h;assumed_transverse=g(:assumed_transverse,false))
     else
+        # These section routes also require their exact assumed-transverse
+        # completion and primitive-frame drilling pullback. Reusing the older
+        # membrane helper would differentiate a different geometric operator.
+        for key in (:kg_differential_prestress,:kg_coupled_condensed)
+            g(key,false)&&reject("exact replay of the resolved $key section operator is not available; a buckling sensitivity cannot be reported for this branch")
+        end
         for key in (:kg_reference_kdjj_pcomp_branch,:kg_flat_dkmq_branch,:kg_flat_plate_branch,:kg_covariant_branch,
                 :kg_global_ready,:elem_mitc4_3d_kg_recovery,:kg_coupled_projected)
             g(key,false)&&reject("unsupported resolved native branch $key")

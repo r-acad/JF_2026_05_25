@@ -38,7 +38,7 @@ end
     withenv("JFEM_PARAM_K6ROT"=>nothing,"JFEM_PARAM_K6ROT_STATIC"=>nothing,"JFEM_PARAM_K6ROT_EIG"=>nothing) do
         for solution in (101,103,105,106,129)
             model=Dict{String,Any}("SOL"=>solution)
-            expected=solution in (106,129) ? 100.0 : 0.0
+            expected=100.0
             for branch in (false,true)
                 data=S.k6rot_metadata(model,branch)
                 @test data["value"] == expected == S.solver_k6rot(S.reference_k6rot_default(model),branch)
@@ -46,6 +46,9 @@ end
             end
             model["PARAM_K6ROT"]=1.
             @test S.k6rot_metadata(model)["value"] == 1.
+            @test S.k6rot_metadata(model)["source"] == "deck:PARAM,K6ROT"
+            model["PARAM_K6ROT"]=0.
+            @test S.k6rot_metadata(model)["value"] == 0.
             @test S.k6rot_metadata(model)["source"] == "deck:PARAM,K6ROT"
         end
         model=Dict{String,Any}("SOL"=>105,"PARAM_K6ROT"=>1.)
@@ -86,6 +89,17 @@ end
             # This tiny actual SOL105 solve verifies the emitted footer and
             # proves an EIG-only override cannot change a shared static K.
             deck=fixture(directory)
+            # The omitted control must produce the same physical operator as
+            # an explicit 100; explicit zero must still remove drilling energy.
+            omitted=deepcopy(deck); delete!(omitted,"PARAM_K6ROT")
+            explicit=deepcopy(deck); explicit["PARAM_K6ROT"]=100.
+            zeroed=deepcopy(deck); zeroed["PARAM_K6ROT"]=0.
+            Kdefault=S.assemble_stiffness(omitted)[1]
+            Kexplicit=S.assemble_stiffness(explicit)[1]
+            Kzero=S.assemble_stiffness(zeroed)[1]
+            @test Kdefault == Kexplicit
+            @test norm(Kdefault-Kzero)>0.
+            @test eigmin(Symmetric(Matrix(Kdefault-Kzero))) >= -1e-10norm(Kdefault-Kzero)
             baseline=redirect_stdout(devnull) do
                 OpenJFEM.solve_model(OpenJFEM.ReferenceParityBackend(),deck)
             end

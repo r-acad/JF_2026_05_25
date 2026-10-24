@@ -14,6 +14,7 @@ using ..FEM
 
 include("input_context.jl")
 include("helpers.jl")
+include("shell_corner_thickness.jl")
 include("snorm.jl")
 include("loads.jl")
 include("constraints.jl")

@@ -198,6 +198,8 @@ function _tacs_validate_shell_slice(
         pid = string(Int(get(el, "PID", 0)))
         prop = get(get(model, "PSHELLs", Dict()), pid, nothing)
         prop === nothing && error("TACS-formulation $label element $eid references missing shell property $pid.")
+        Solver.shell_corner_thickness_data(el,prop)===nothing || throw(ArgumentError(
+            "TACS-formulation forward analysis does not support explicit corner thickness Ti on shell $eid. Use the native solver for supported corner-thickness sections."))
         prop_type = uppercase(string(get(prop, "TYPE", "PSHELL")))
         if prop_type == "PSHELL"
             mid = string(Int(get(prop, "MID", 0)))
@@ -4177,6 +4179,7 @@ function _tacs_structural_mass_coordinate_derivative(model::Dict, dv::AbstractDi
 end
 
 function structural_mass_design_gradient(::TACSFormulationBackend, results::AbstractDict, design_variables::AbstractVector)
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     model = results["model"]
     _tacs_validate_shell_slice(
         model;
@@ -4245,6 +4248,7 @@ function structural_mass_design_gradient(::TACSFormulationBackend, results::Abst
 end
 
 function static_compliance_thickness_gradient(::TACSFormulationBackend, results::AbstractDict; pids=nothing)
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     model = results["model"]
     _tacs_validate_sol101_slice(model)
     ctx = _tacs_static_response_context(
@@ -4287,6 +4291,7 @@ function static_compliance_thickness_gradient(::TACSFormulationBackend, results:
 end
 
 function static_compliance_design_gradient(::TACSFormulationBackend, results::AbstractDict, design_variables::AbstractVector)
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     model = results["model"]
     _tacs_validate_shell_slice(
         model;
@@ -4351,6 +4356,7 @@ function static_compliance_design_gradient(::TACSFormulationBackend, results::Ab
 end
 
 function static_displacement_thickness_gradient(::TACSFormulationBackend, results::AbstractDict, response::AbstractDict; pids=nothing)
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     model = results["model"]
     _tacs_validate_sol101_slice(model)
     ctx = _tacs_static_response_context(
@@ -4396,6 +4402,7 @@ function static_displacement_thickness_gradient(::TACSFormulationBackend, result
 end
 
 function static_displacement_design_gradient(::TACSFormulationBackend, results::AbstractDict, response::AbstractDict, design_variables::AbstractVector)
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     model = results["model"]
     _tacs_validate_shell_slice(
         model;
@@ -4463,6 +4470,7 @@ function static_displacement_design_gradient(::TACSFormulationBackend, results::
 end
 
 function static_ks_displacement_design_gradient(::TACSFormulationBackend, results::AbstractDict, response::AbstractDict, design_variables::AbstractVector)
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     model = results["model"]
     _tacs_validate_shell_slice(
         model;
@@ -4528,6 +4536,7 @@ function static_ks_displacement_design_gradient(::TACSFormulationBackend, result
 end
 
 function static_ks_von_mises_design_gradient(::TACSFormulationBackend, results::AbstractDict, response::AbstractDict, design_variables::AbstractVector)
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     model = results["model"]
     _tacs_validate_shell_slice(
         model;
@@ -4597,6 +4606,7 @@ function static_ks_von_mises_design_gradient(::TACSFormulationBackend, results::
 end
 
 function static_ks_ply_failure_design_gradient(::TACSFormulationBackend, results::AbstractDict, response::AbstractDict, design_variables::AbstractVector)
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     model = results["model"]
     _tacs_validate_sol101_slice(model)
     ctx = _tacs_static_response_context(
@@ -4848,6 +4858,7 @@ function modal_eigenvalue_design_gradient(
     cluster_abs_tol::Real=1e-10,
     mode_tracking=nothing,
 )
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     Int(get(results, "sol_type", 0)) == 103 ||
         error("TACS modal eigenvalue design gradient requires SOL103 results.")
     selected_mode, tracking_diag = _tacs_resolve_tracked_mode(
@@ -5189,6 +5200,7 @@ function buckling_load_factor_thickness_gradient(
     cluster_abs_tol::Real=1e-10,
     mode_tracking=nothing,
 )
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     Int(get(results, "sol_type", 0)) == 105 ||
         error("TACS buckling load-factor gradient requires SOL105 results.")
     selected_mode, tracking_diag = _tacs_resolve_tracked_mode(
@@ -5313,6 +5325,7 @@ function buckling_load_factor_design_gradient(
     cluster_abs_tol::Real=1e-10,
     mode_tracking=nothing,
 )
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     Int(get(results, "sol_type", 0)) == 105 ||
         error("TACS buckling load-factor design gradient requires SOL105 results.")
     selected_mode, tracking_diag = _tacs_resolve_tracked_mode(
@@ -5594,6 +5607,7 @@ function buckling_load_factor_ks_design_gradient(
     cluster_rel_tol::Real=1e-8,
     cluster_abs_tol::Real=1e-10,
 )
+    Solver.assert_no_corner_thickness_analytic(results["model"])
     Int(get(results, "sol_type", 0)) == 105 ||
         error("TACS buckling load-factor KS gradient requires SOL105 results.")
     model = results["model"]

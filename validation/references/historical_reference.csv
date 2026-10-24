@@ -1,18 +1,18 @@
 case_id,quantity_name,value,notes
-MYSTRAN_sol101_simple,T1_node_1013,3.053279E-03,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.
+MYSTRAN_sol101_simple,T1_node_1013,0.0030625,Implementation regression scalar refreshed on 2026-10-23 after verified formulation corrections. This is not an independent analytical validation target.
 MYSTRAN_sol105_buckling,lambda_1,1.035817E+04,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.
 CRM_wingbox_modal_mode1,eigenvalue,1.117764E+02,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.
 CRM_wingbox_modal_mode2,eigenvalue,9.903101E+02,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.
 CRM_wingbox_modal_mode3,eigenvalue,1.355943E+03,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.
 CRM_wingbox_modal_mode4,eigenvalue,5.946717E+03,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.
 CRM_wingbox_modal_mode5,eigenvalue,1.044876E+04,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.
-MH_curved_beam_in_plane,tip_disp_in_plane,7.278696E-02,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.
-MH_twisted_beam_in_plane,tip_disp_in_plane,5.382142E-03,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.
-MH_curved_beam_refined,tip_disp_in_plane,8.790054E-02,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.
+MH_curved_beam_in_plane,tip_disp_in_plane,0.0775096514500336,Implementation regression scalar refreshed on 2026-10-23 after verified formulation corrections. This is not an independent analytical validation target.
+MH_twisted_beam_in_plane,tip_disp_in_plane,0.0053878981266657,Implementation regression scalar refreshed on 2026-10-23 after verified formulation corrections. This is not an independent analytical validation target.
+MH_curved_beam_refined,tip_disp_in_plane,0.0882675857400903,Implementation regression scalar refreshed on 2026-10-23 after verified formulation corrections. This is not an independent analytical validation target.
 MH_pinched_cylinder_refined,radial_disp_under_load,-1.828632E-05,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.
-MH_twisted_beam_out_of_plane,tip_disp_out_of_plane,1.707296E-03,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.
+MH_twisted_beam_out_of_plane,tip_disp_out_of_plane,0.00172906262125352,Implementation regression scalar refreshed on 2026-10-23 after verified formulation corrections. This is not an independent analytical validation target.
 MH_scordelis_lo,midedge_vertical_disp,-3.200028E-01,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.
-MH_pinched_cylinder,radial_disp_under_load,-9.563499E-06,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.
-MH_hemispherical_shell,radial_disp_at_load,9.874839E-02,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.
+MH_pinched_cylinder,radial_disp_under_load,-9.71026772718294e-06,Implementation regression scalar refreshed on 2026-10-23 after verified formulation corrections. This is not an independent analytical validation target.
+MH_hemispherical_shell,radial_disp_at_load,0.0989037949358873,Implementation regression scalar refreshed on 2026-10-23 after verified formulation corrections. This is not an independent analytical validation target.
 TG_plate_preload_ux,preload_ux_node_36,-4.761905E-12,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.
 BA_cylinder_preload_uz,preload_uz_node_1,4.771601E-10,Historical regression scalar retained from an earlier release. Independent public source artifact is not included; this is not a published validation target.

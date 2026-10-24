@@ -93,5 +93,9 @@ end
 end
 
 @testset "Flat convex coupled laminate energy and recovery" begin
-    PcompPlanarCoupledEnergyFixture.checks()
+    # This test exercises the optional projected formulation explicitly.
+    withenv("JFEM_PCOMP_COUPLED_PROJECTED"=>"true",
+            "JFEM_SOL105_PCOMP_MEMBRANE_SELC"=>"true") do
+        PcompPlanarCoupledEnergyFixture.checks()
+    end
 end

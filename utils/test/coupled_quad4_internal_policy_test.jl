@@ -25,7 +25,7 @@ function energy_reference(x,A,B,D; membrane=false,bending=false)
             fields[4,p+5]=grad[1,k];fields[5,p+4]=-grad[2,k]
             fields[6,p+5]=gc[2,k];fields[6,p+4]=-gc[1,k]
         end
-        gp=jac\[-2r 0.;0. -2s]
+        gp=(jc\[-2r 0.;0. -2s])*(det(jc)/det(jac))
         fields[1,25]=gp[1,1];fields[3,25]=gp[2,1]
         fields[2,26]=gp[2,1];fields[3,26]=gp[1,1]
         fields[1,27]=gp[1,2];fields[3,27]=gp[2,2]
@@ -111,7 +111,12 @@ function shear_quadrature_checks()
 end
 end
 
-@testset "Coupled quadrilateral internal modes follow the requested energy" begin
-    CoupledQuad4InternalPolicyFixture.checks()
-    CoupledQuad4InternalPolicyFixture.shear_quadrature_checks()
+@testset "Explicit stationary quadrilateral internal-mode policy" begin
+    # Retain independent coverage of the optional D/ABD-stationary policy.
+    # Production uses A-derived kinematic maps; its physical energy, patch,
+    # derivatives and recovery have separate independent tests.
+    withenv("JFEM_Q4_SECTION_KINEMATIC_ENRICHMENT"=>"false") do
+        CoupledQuad4InternalPolicyFixture.checks()
+        CoupledQuad4InternalPolicyFixture.shear_quadrature_checks()
+    end
 end

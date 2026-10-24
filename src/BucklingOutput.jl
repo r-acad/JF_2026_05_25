@@ -172,7 +172,24 @@ function _buckling_element_volume(model, family, element)
     pid = string(get(element,"PID",0))
     if family == "CSHELLs"
         prop = get(get(model,"PSHELLs",Dict()),pid,nothing); prop === nothing && return nothing
-        thickness = Float64(get(prop,"T",0)); thickness > 0 || return nothing
+        corner_data=Solver.shell_corner_thickness_data(element,prop)
+        if corner_data!==nothing && !corner_data.uniform
+            length(nodes)==4 || return nothing
+            points=[StaticArrays.SVector{3}(xyz[i,:]) for i=1:4]
+            v1,v2,_=Solver.shell_element_frame_quad4(points...,
+                Solver.q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_STATIC"))
+            center=sum(points)/4;xy=[dot(q-center,v) for q in points,v in (v1,v2)]
+            # ESE's numerator comes from the production stiffness capture.
+            # Its physical volume must use the same element-local section.
+            Solver.shell_variable_thickness_domain(model,prop,element,xy,xyz)
+            return sum(begin
+                shape=[(1-r)*(1-s),(1+r)*(1-s),(1+r)*(1+s),(1-r)*(1+s)]/4
+                dr,ds=FEM.shape_derivs_quad(r,s)
+                norm(cross(xyz'*dr,xyz'*ds))*dot(shape,corner_data.thickness)
+            end for r in (-1/sqrt(3),1/sqrt(3)),s in (-1/sqrt(3),1/sqrt(3)))
+        end
+        thickness = corner_data===nothing ? Float64(get(prop,"T",0)) : corner_data.thickness[1]
+        thickness > 0 || return nothing
         area = if length(nodes)==3
             norm(cross(xyz[2,:]-xyz[1,:],xyz[3,:]-xyz[1,:]))/2
         elseif haskey(_BUCKLING_SHELL_TRIANGLES,length(nodes))

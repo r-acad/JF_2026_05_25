@@ -165,7 +165,12 @@ function extract_pbarl(cards)
             yc = (hw*tw*hw/2 + bf*tf*(hw + tf/2)) / A
             I1 = tw*hw^3/12 + tw*hw*(yc - hw/2)^2 + bf*tf^3/12 + bf*tf*(hw + tf/2 - yc)^2
             I2 = hw*tw^3/12 + tf*bf^3/12
-            J = (hw*tw^3 + bf*tf^3) / 3
+            if type == "T"
+                section=t_section_warping(bf,h_t,tf,tw)
+                J=section.J;K1=section.K1;K2=section.K2
+            else
+                J=(hw*tw^3+bf*tf^3)/3
+            end
         elseif type == "Z" && length(dims) >= 4
             bf = dims[1]; tf = dims[2]; hw = dims[3]; h_z = dims[4]
             tw = tf
@@ -209,6 +214,7 @@ function extract_pbarl(cards)
         end
         d[string(pid)] = Dict("PID"=>pid, "MID"=>mid, "A"=>A, "I"=>I1, "I1"=>I1, "I2"=>I2, "J"=>J, "TYPE"=>type, "K1"=>K1, "K2"=>K2,
             "C1"=>C1, "C2"=>C2, "D1"=>D1, "D2"=>D2, "E1"=>E1, "E2"=>E2, "F1"=>F1, "F2"=>F2, "DIMS"=>copy(dims), "NSM"=>Float64(nsm))
+        type=="T" && (d[string(pid)]["TORSION_FORMULATION"]="saint_venant_2d")
     end
     return d
 end
@@ -388,6 +394,14 @@ function extract_pbeaml(cards)
         end
     end
     properties = extract_pbarl(cards)
+    for prop in values(properties)
+        prop["LIBRARY_CARD"]="PBEAML"
+        if prop["TYPE"] == "T"
+            section=t_section_warping(prop["DIMS"]...)
+            prop["N1A"]=prop["N1B"]=section.N1
+            prop["N2A"]=prop["N2B"]=0.0
+        end
+    end
     for c in cards
         pid = to_id(parse_reference_number(safe_get(c, 3)))
         haskey(properties, string(pid)) || continue
@@ -735,8 +749,8 @@ function compute_pbarl_shear_factors(type::String, dims::Vector{Float64}, nu::Fl
         return (K, K)
 
     elseif type == "BAR" && length(dims) >= 2
-        # Solid rectangle: Cowper formula
-        K = 10.0*(1.0+nu) / (12.0+11.0*nu)
+        # Energy-equivalent area of the parabolic rectangular shear field.
+        K = 5.0/6.0
         return (K, K)
 
     elseif type == "BOX" && length(dims) >= 4

@@ -32,9 +32,9 @@ ENDDATA
         remote_mpc = remote_grids * "MPC,10,101,1,1.,102,1,-1."
         mat1 = "MAT1,1,7.E10,,.3"
         mat2 = "MAT2,1,1.1E11,2.E10,5.E9,7.E10,3.E9,3.E10"
-        # The planar materials now use the compatible projected membrane.
-        # Retain a genuinely warped MAT2 cell to exercise Wilson selection
-        # and its historical global-topology switch independently of that fix.
+        # Production uses the complete membrane operator independently of
+        # remote topology. Retain a warped MAT2 cell and explicitly opt into
+        # the old weighting branch when checking its diagnostic fixture.
         materials = [(mat1,0.0), (mat2,0.0), (mat2,0.004)]
         changed_by_old_gate = Float64[]
         withenv("JFEM_SOL101_Q4_CROSS_MEMBRANE_WEIGHTS_MIXED_TOPOLOGY" => nothing,
@@ -48,10 +48,14 @@ ENDDATA
                     @test isapprox(local_shell_matrix(material, connection;warp=warp), standalone;
                         rtol=1e-12, atol=0)
                 end
-                legacy = withenv("JFEM_SOL101_Q4_CROSS_MEMBRANE_WEIGHTS_MIXED_TOPOLOGY" => "0") do
-                    local_shell_matrix(material, remote_rigid;warp=warp)
+                legacy_change = withenv("JFEM_SOL101_Q4_CROSS_MEMBRANE_WEIGHTS_ENABLED" => "true") do
+                    legacy_standalone=local_shell_matrix(material;warp=warp)
+                    legacy=withenv("JFEM_SOL101_Q4_CROSS_MEMBRANE_WEIGHTS_MIXED_TOPOLOGY" => "0") do
+                        local_shell_matrix(material, remote_rigid;warp=warp)
+                    end
+                    norm(legacy-legacy_standalone)/norm(legacy_standalone)
                 end
-                push!(changed_by_old_gate, norm(legacy-standalone)/norm(standalone))
+                push!(changed_by_old_gate, legacy_change)
             end
         end
         # Ensure this fixture actually exercises the historical global gate.

@@ -85,5 +85,9 @@ end
 end
 
 @testset "Modal laminate elastic energy and reference-surface inertia" begin
-    ModalShellInertiaFixture.checks()
+    # Exercise modal inertia with the optional projected elastic law.
+    withenv("JFEM_PCOMP_COUPLED_PROJECTED"=>"true",
+            "JFEM_SOL105_PCOMP_MEMBRANE_SELC"=>"true") do
+        ModalShellInertiaFixture.checks()
+    end
 end

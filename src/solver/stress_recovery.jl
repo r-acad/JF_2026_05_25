@@ -186,24 +186,66 @@ function _pshell_local_constitutive_gap(prop, model)
     return false
 end
 
+# Work-conjugate output for the ordinary homogeneous isotropic shell law.
+# More general constitutive or geometric branches retain their own contracts.
+function _pshell_macneal_mean_shear_data(model, prop, mat, coords, coords3d, snorm_pq, curvature)
+    get(prop, "TYPE", "") == "PCOMP_CLT" && return nothing
+    # Parsed MAT1 dictionaries predate the optional material TYPE metadata.
+    get(mat, "TYPE", "MAT1") == "MAT1" || return nothing
+    _pshell_local_constitutive_gap(prop, model) && return nothing
+    sol = get(model, "SOL", 101)
+    # SOL106 retains this same linear transverse-shear energy, including
+    # explicit formal membrane methods. Recover its work-conjugate mean Q.
+    sol in (101, 105, 106) || return nothing
+    curvature === nothing || return nothing
+    (snorm_pq === nothing || all(iszero, snorm_pq)) || return nothing
+    lowercase(strip(get(ENV, "JFEM_Q4_KERNEL_STATIC", get(ENV, "JFEM_Q4_KERNEL", "macneal")))) == "macneal" || return nothing
+    all(solver_env_float(key, 1.0) == 1.0 for key in (
+        "JFEM_Q4_MACNEAL_BENDING_SCALE", "JFEM_Q4_MACNEAL_CURVED_BENDING_SCALE",
+        "JFEM_Q4_MACNEAL_BENDING_ISOLATED_SCALE", "JFEM_Q4_STATIC_COMPONENT_CM_SCALE",
+        "JFEM_Q4_STATIC_COMPONENT_CM11_SCALE", "JFEM_Q4_STATIC_COMPONENT_CM22_SCALE",
+        "JFEM_Q4_STATIC_COMPONENT_CM66_SCALE", "JFEM_Q4_STATIC_COMPONENT_CB_SCALE",
+        "JFEM_Q4_STATIC_COMPONENT_CS_SCALE", "JFEM_Q4_STATIC_COMPONENT_BMB_SCALE")) || return nothing
+    any(key -> solver_env_bool(key, false), (
+        "JFEM_Q4_MACNEAL_RIGID_SHEAR_FORCE", "JFEM_SOL101_Q4_ISO_EXACT_MEMBRANE")) && return nothing
+    solver_env_float("JFEM_Q4_MACNEAL_ASPECT_MAX", 1e30) >= 1e30 || return nothing
+    h = Float64(get(prop, "T", 0.0))
+    br = Float64(get(prop, "BEND_RATIO", 1.0))
+    tst = Float64(get(prop, "TS_T", 5 / 6))
+    h > 0 && br > 1e-12 && tst > 0 && all(isfinite, (h, br, tst)) || return nothing
+    C = pshell_plane_stress_matrix(mat, 0.0)
+    Cs, _ = shell_transverse_shear_matrix(mat, h, tst)
+    all(isfinite, C) && all(isfinite, Cs) && isposdef(Symmetric(C)) && isposdef(Symmetric(Cs)) || return nothing
+    rigid = get(prop, "MID3", 0) == 0 && ((sol == 101 &&
+        solver_env_bool("JFEM_SOL101_PSHELL_BLANK_MID3_RIGID_SHEAR", true)) ||
+        (sol == 105 && solver_env_bool("JFEM_SOL105_PSHELL_BLANK_MID3_RIGID_SHEAR", true)))
+    warp = coords3d === nothing || !FEM.fem_env_bool("JFEM_Q4_WARP_TRANSFORM", true) ? nothing :
+        FEM.quad4_finite_warp_displacement_map(coords, coords3d)
+    return (A=h * C, D=br * h^3 / 12 * C, Cs=Cs, h=h, rigid=rigid, warp=warp)
+end
+
 """Bounded center recovery for homogeneous anisotropic rectangular PSHELLs.
 The common MID1/MID2 identifies a physical through-thickness tensor. MID3
 supplies an independent positive transverse law. Corners and other shell
 formulations retain their unavailable-field status.
 """
-function _pshell_rectangular_anisotropic_recovery_data(model,prop,el,id_map,X,snorm_normals)
+function _pshell_rectangular_anisotropic_recovery_data(model,prop,el,id_map,X,snorm_normals;
+        corner_thickness::Bool=false)
     get(prop,"TYPE","")=="PCOMP_CLT" && return nothing
-    get(model,"SOL",101) in (101,105) || return nothing
+    get(model,"SOL",101) in (corner_thickness ? (101,103,105) : (101,105)) || return nothing
     nids=get(el,"NODES",Int[]);length(nids)==4 || return nothing
     all(k->get(id_map,k,0)>0,nids) || return nothing
     mid=Int(get(prop,"MID",0));mid>0 && Int(get(prop,"MID2",0))==mid || return nothing
     Int(get(prop,"MID3",0))>0 && Int(get(prop,"MID4",0))==0 || return nothing
-    Float64(get(prop,"BEND_RATIO",1.))==1. || return nothing
-    h=Float64(get(prop,"T",0.));isfinite(h)&&h>0 || return nothing
+    br=Float64(get(prop,"BEND_RATIO",1.))
+    (corner_thickness ? isfinite(br)&&br>0 : br==1.) || return nothing
+    corner_data=corner_thickness ? shell_corner_thickness_data(el,prop) : nothing
+    h=corner_data===nothing ? Float64(get(prop,"T",0.)) : corner_data.reference_thickness
+    isfinite(h)&&h>0 || return nothing
     tst=Float64(get(prop,"TS_T",5/6));isfinite(tst)&&tst>0 || return nothing
-    iszero(get(el,"ZOFFS",0.)) || return nothing
+    (corner_thickness || iszero(get(el,"ZOFFS",0.))) || return nothing
     get(model,"_active_temp_sid",nothing)===nothing || return nothing
-    all(k->!haskey(snorm_normals,id_map[k]),nids) || return nothing
+    (corner_thickness || all(k->!haskey(snorm_normals,id_map[k]),nids)) || return nothing
     # Experimental kinematics have separate force-recovery contracts. An
     # explicitly supplied research option must not silently select this path.
     for key in keys(ENV)
@@ -211,11 +253,12 @@ function _pshell_rectangular_anisotropic_recovery_data(model,prop,el,id_map,X,sn
             "JFEM_SOL101_","JFEM_SOL105_STATIC_","JFEM_PARAM_SNORM")) && return nothing
     end
     mats=get(model,"MATs",Dict());mat=get(mats,string(mid),nothing)
-    mat!==nothing && get(mat,"TYPE","") in ("MAT2","MAT8") || return nothing
-    required=get(mat,"TYPE","")=="MAT8" ? ("E1","E2","NU12","G12") : ("G11","G12","G13","G22","G23","G33")
+    mat!==nothing && get(mat,"TYPE","MAT1") in (corner_thickness ? ("MAT1","MAT2","MAT8") : ("MAT2","MAT8")) || return nothing
+    required=get(mat,"TYPE","")=="MAT8" ? ("E1","E2","NU12","G12") :
+        get(mat,"TYPE","MAT1")=="MAT1" ? ("E","NU") : ("G11","G12","G13","G22","G23","G33")
     all(k->get(mat,k,nothing) isa Real && isfinite(mat[k]),required) || return nothing
     shear=get(mats,string(prop["MID3"]),nothing);shear===nothing && return nothing
-    typ=get(shear,"TYPE","");typ in ("MAT1","MAT2","MAT8") || return nothing
+    typ=get(shear,"TYPE","MAT1");typ in ("MAT1","MAT2","MAT8") || return nothing
     if typ=="MAT2"
         all(iszero(get(shear,k,0.)) for k in ("G13","G23","G33")) || return nothing
     elseif typ=="MAT8"
@@ -223,6 +266,10 @@ function _pshell_rectangular_anisotropic_recovery_data(model,prop,el,id_map,X,sn
     end
     p=[SVector{3}(X[id_map[k],:]) for k in nids]
     v1,v2,v3=shell_element_frame_quad4(p...,q4_frame_mode_from_env("JFEM_Q4_FRAME_MODE_STATIC"))
+    if corner_thickness
+        pq=snorm_element_pq(v1,v2,v3,[id_map[k] for k in nids],snorm_normals)
+        (pq===nothing || all(iszero,pq)) || return nothing
+    end
     center=sum(p)/4;xy=[dot(q-center,v) for q in p,v in (v1,v2)]
     FEM.quad4_is_axis_aligned_rectangle(xy) || return nothing
     xyz=reduce(vcat,permutedims.(p))
@@ -232,7 +279,7 @@ function _pshell_rectangular_anisotropic_recovery_data(model,prop,el,id_map,X,sn
     C=pshell_plane_stress_matrix(mat,beta)
     Cs,_=shell_transverse_shear_matrix(shear,h,tst,beta)
     all(isfinite,C)&&all(isfinite,Cs)&&isposdef(Symmetric(C))&&isposdef(Symmetric(Cs)) || return nothing
-    (C=C,Cm=h*C,Cb=(h^3/12)*C,Cs=Cs,h=h)
+    (C=C,Cm=h*C,Cb=(br*h^3/12)*C,Cs=Cs,h=h)
 end
 
 # Default projected MacNeal PCOMP branch, shared by physical recovery and
@@ -310,6 +357,34 @@ function _recovery_compact_ply_data_safe(ply_data)
     return true
 end
 
+# The mean-force identity is used only with the same ordinary linear laminate
+# operator as assembly. Other triangle routes retain their existing recovery.
+function _tria3_pcomp_mean_shear_supported(model,prop,p1,p2,p3,indices,normals,pq)
+    get(model,"SOL",101) in (101,103,105) || return false
+    root = parentmodule(@__MODULE__)
+    root.backend_from_model(model) isa root.ReferenceParityBackend || return false
+    get(prop,"TYPE","") == "PCOMP_CLT" || return false
+    all(haskey(prop,k) for k in ("Cm","Cb","Cs")) || return false
+    lowercase(strip(FEM.fem_env_str("JFEM_TRIA3_PLATE_KERNEL","mitc3"))) == "mitc3" || return false
+    snorm_director_enabled() && return false
+    (pq === nothing || all(iszero,pq)) || return false
+    if get(model,"SOL",101)==103
+        q4_pcomp_axis_mode("JFEM_Q4_PCOMP_AXIS_MODE_EIG") ==
+            q4_pcomp_axis_mode("JFEM_Q4_PCOMP_AXIS_MODE_STATIC") || return false
+    end
+    raw_normal = cross(p2-p1,p3-p1)
+    normal_length = norm(raw_normal)
+    isfinite(normal_length) && normal_length > 0 || return false
+    normal = raw_normal / normal_length
+    for idx in indices
+        haskey(normals,idx) || continue
+        ni=normals[idx]
+        # A tilted recovery frame must not hide an active director map.
+        norm(cross(normal,ni)) <= 64eps(Float64)*norm(ni) || return false
+    end
+    return true
+end
+
 """Recover full shell rows, or only lazy SOL105 tuples into `static_fields`.
 The compact request preserves unavailable-field diagnostics and skips unused
 force/corner tables; the default retains the complete recovery schema.
@@ -332,9 +407,19 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
         pid = string(el["PID"])
         if !haskey(model["PSHELLs"], pid); continue; end
         prop = model["PSHELLs"][pid]
+        corner_data = shell_corner_thickness_data(el,prop)
+        variable_thickness = corner_data!==nothing && !corner_data.uniform
+        if corner_data!==nothing && corner_data.uniform
+            # Ti belongs to the element; never change a shared property in place.
+            prop=copy(prop);prop["T"]=corner_data.thickness[1]
+        end
+        reported_thickness=Float64(prop["T"])
         constitutive_gap = _pshell_local_constitutive_gap(prop, model)
-        anisotropic_center = constitutive_gap ?
-            _pshell_rectangular_anisotropic_recovery_data(model,prop,el,id_map,X,snorm_normals) : nothing
+        anisotropic_center = constitutive_gap || variable_thickness ?
+            _pshell_rectangular_anisotropic_recovery_data(model,prop,el,id_map,X,snorm_normals;
+                corner_thickness=variable_thickness) : nothing
+        variable_thickness && anisotropic_center===nothing && throw(ArgumentError(
+            "Shell $eid nonuniform corner-thickness recovery requires ordinary planar rectangular PSHELL kinematics and compatible positive material laws"))
         if constitutive_gap && anisotropic_center === nothing
             diagnostic = get!(results_json, "recovery_diagnostics") do
                 Dict{String,Any}("status" => "partial",
@@ -368,6 +453,7 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
         quad4_bilin_rows = Any[]
         stress_ok = true
         coupled_projected_recovery = false
+        coupled_condensed_recovery = false
         rectangular_pcomp_recovery = false
         ply_strain_transform = nothing
         ply_membrane_transform = nothing
@@ -406,6 +492,7 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                 mul!(view(u_el,(k-1)*6+1:(k-1)*6+3), node_transform, view(u_global,(idx-1)*6+1:(idx-1)*6+3))
                 mul!(view(u_el,(k-1)*6+4:(k-1)*6+6), node_transform, view(u_global,(idx-1)*6+4:(idx-1)*6+6))
             end
+            shell_reference_offset_displacement!(u_el,Float64(get(el,"ZOFFS",0.0)))
             br = get(prop, "BEND_RATIO", 1.0)
             if !is_pcomp_clt
                 _subtract_thermal_shell_displacements!(u_el,
@@ -486,16 +573,16 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                 clt_Bmb !== nothing && any(!iszero,clt_Bmb)
             clt_Cs = nothing
             ply_strain_transform = nothing
-            # Also retain the actual laminate transverse law for ordinary
-            # planar MacNeal cells. Their stiffness does not use the isotropic
-            # surrogate G inferred from the equivalent membrane material.
+            # Recover the actual laminate section and transverse law for
+            # ordinary MacNeal cells, including the finite-warp displacement
+            # congruence. Material-dependent surrogate recovery would lose
+            # the A-derived curvature enrichment and the physical B coupling.
             compatible_center_recovery = complete_clt_recovery &&
                 q4_pcomp_compatible_recovery_enabled(model,prop,view(lc_buf,1:4,:),coords3d_sr,snorm_pq)
             mean_shear_recovery = compatible_center_recovery || (complete_clt_recovery && is_pcomp_clt &&
-                get(model,"SOL",101) in (101,105) &&
+                (get(model,"SOL",101) in (101,105) || coupled_pcomp_legacy_nonlinear_enabled(model)) &&
                 !rectangular_pcomp_recovery && (snorm_pq === nothing || maximum(abs,snorm_pq) <= 1e-12) &&
                 curvature_membrane === nothing &&
-                (coords3d_sr === nothing || FEM.quad4_finite_warp_displacement_map(view(lc_buf,1:4,:),coords3d_sr) === nothing) &&
                 lowercase(get(ENV,"JFEM_Q4_KERNEL_STATIC",get(ENV,"JFEM_Q4_KERNEL","macneal"))) == "macneal" &&
                 !solver_env_bool("JFEM_SOL101_Q4_PCOMP_EXACT_MEMBRANE",false) &&
                 !solver_env_bool("JFEM_SOL105_STATIC_PCOMP_EXACT_MEMBRANE",false) &&
@@ -541,7 +628,26 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                 angle=beta+bending_frame_phi;ca=cos(angle);sa=sin(angle)
                 ply_strain_transform=[ca^2 sa^2 ca*sa;sa^2 ca^2 -ca*sa;-2ca*sa 2ca*sa ca^2-sa^2]
             end
-            if anisotropic_center !== nothing
+            coupled_condensed_recovery = !planar_pcomp_recovery && !compatible_center_recovery &&
+                mean_shear_recovery && solver_env_bool("JFEM_Q4_COUPLED_CONDENSED_RECOVERY",true)
+            if variable_thickness
+                data=anisotropic_center
+                packet=shell_variable_thickness_packet(model,prop,el,view(lc_buf,1:4,:),
+                    coords3d_sr,data.Cm,data.Cb,data.Cs,Float64(mat["E"]);
+                    supported_kinematics=snorm_pq===nothing || all(iszero,snorm_pq))
+                fields=FEM.quad4_variable_thickness_fields(packet,u_el)
+                reported_thickness=fields.reported_thickness
+                e_z1=fields.eps_center-(reported_thickness/2)*fields.kappa_center
+                e_z2=fields.eps_center+(reported_thickness/2)*fields.kappa_center
+                s_z1=data.C*e_z1;s_z2=data.C*e_z2
+                N=fields.N_reported;M=-fields.M_reported;Q=fields.Q_mean
+                if static_fields===nothing
+                    diagnostic=get!(results_json,"recovery_diagnostics",Dict{String,Any}("status"=>"partial"))
+                    push!(get!(diagnostic,"unavailable_corner_force_eids",Int[]),eid)
+                    diagnostic["corner_force_reason"]="Variable-thickness center resultants and fiber fields are recovered; corner-force interpolation remains unsupported."
+                    get!(results_json,"solver_diagnostics",Dict{String,Any}())["shell_recovery"]=diagnostic
+                end
+            elseif anisotropic_center !== nothing
                 N,M,Q,s_z1,s_z2,e_z1,e_z2 = _pshell_rectangular_anisotropic_center(view(lc_buf,1:4,:),u_el,anisotropic_center;recover_resultants=static_fields === nothing)
                 if static_fields === nothing
                     diagnostic=get!(results_json,"recovery_diagnostics",Dict{String,Any}("status"=>"partial"))
@@ -556,6 +662,12 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                     Cm_override=clt_Cm,
                     Cb_override=clt_Cb,
                     coupled_projected=coupled_projected_recovery,Bmb_override=clt_Bmb,
+                    coupled_condensed=coupled_condensed_recovery,
+                    recovery_bending_incomp=solver_env_bool("JFEM_Q4_STATIC_BENDING_INCOMP",true),
+                    recovery_membrane_incomp=get(model,"SOL",101)==105 ?
+                        sol105_static_membrane_incomp_enabled() :
+                        solver_env_bool("JFEM_Q4_STATIC_MEMBRANE_INCOMP",true),
+                    recovery_kernel_mode=get(ENV,"JFEM_Q4_KERNEL_STATIC",get(ENV,"JFEM_Q4_KERNEL","macneal")),
                     compatible_center=compatible_center_recovery,
                     recover_shear=static_fields === nothing,
                     Cs_override=clt_Cs,shear_workspace=coupled_shear_workspace,
@@ -569,6 +681,18 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                     snorm_pq=snorm_pq,
                     coords_3d=coords3d_sr)
                 N, M, Q, s_z1, s_z2, e_z1, e_z2 = recovered
+                pshell_mean_shear_data = static_fields === nothing ?
+                    _pshell_macneal_mean_shear_data(model, prop, mat, view(lc_buf, 1:4, :), coords3d_sr, snorm_pq, curvature_membrane) : nothing
+                if pshell_mean_shear_data !== nothing
+                    data = pshell_mean_shear_data
+                    projected_u = data.warp === nothing ? u_el : data.warp * u_el
+                    coupled_shear_workspace === nothing && (coupled_shear_workspace = FEM.create_macneal_shear_workspace())
+                    Q = FEM.quad4_macneal_mean_shear_resultant(view(lc_buf, 1:4, :), projected_u,
+                        data.D, data.Cs, data.h; Cm=data.A, msws=coupled_shear_workspace, rigid_shear=data.rigid)
+                    diagnostic = get!(results_json, "recovery_diagnostics", Dict{String,Any}())
+                    push!(get!(diagnostic, "area_mean_transverse_shear_eids", Int[]), eid)
+                    diagnostic["transverse_shear_location"] = "Area-mean MacNeal shear resultants; not a distorted-element centroid extrapolation."
+                end
                 # The symmetric branch retains its elastic and geometric
                 # operators. Its center Q must nevertheless use the same
                 # actual laminate shear law, continuously as B tends to zero.
@@ -579,7 +703,7 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                         rigid_shear=Bool(get(prop,"TRANSVERSE_SHEAR_RIGID_LIMIT",false)) &&
                             solver_env_bool("JFEM_MAT8_BLANK_TS_RIGID_LIMIT",true))
                 elseif mean_shear_recovery || coupled_projected_recovery
-                    if !coupled_projected_recovery && !compatible_center_recovery
+                    if !coupled_projected_recovery && !coupled_condensed_recovery && !compatible_center_recovery
                         Q = FEM.quad4_macneal_mean_shear_resultant(view(lc_buf,1:4,:),u_el,
                             clt_Cb,clt_Cs,Float64(prop["T"]);Cm=clt_Cm,Bmb=clt_Bmb,
                             msws=coupled_shear_workspace,
@@ -592,7 +716,7 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                 end
                 if static_fields === nothing
                     N_corners, M_corners = recovered[8], recovered[9]
-                    Q_out = if clt_Cm === nothing && curvature_membrane === nothing && abs(br) > 1e-12
+                    Q_out = if pshell_mean_shear_data === nothing && clt_Cm === nothing && curvature_membrane === nothing && abs(br) > 1e-12
                         _quad4_blend_recovered_shear(Q, _quad4_equilibrium_shear_from_bending(view(lc_buf,1:4,:), M_corners))
                     else
                         collect(Q)
@@ -648,6 +772,7 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                 mul!(view(u_el,(k-1)*6+1:(k-1)*6+3), node_transform, view(u_global,(idx-1)*6+1:(idx-1)*6+3))
                 mul!(view(u_el,(k-1)*6+4:(k-1)*6+6), node_transform, view(u_global,(idx-1)*6+4:(idx-1)*6+6))
             end
+            shell_reference_offset_displacement!(u_el,Float64(get(el,"ZOFFS",0.0)))
             br = get(prop, "BEND_RATIO", 1.0)
             if !is_pcomp_clt
                 _subtract_thermal_shell_displacements!(u_el,
@@ -660,9 +785,14 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
             end
             clt_Cm = nothing
             clt_Cb = nothing
+            clt_Cs = nothing
+            clt_Bmb = nothing
             if get(prop, "TYPE", "") == "PCOMP_CLT" && haskey(prop, "Cm")
                 clt_Cm = copy(prop["Cm"])
                 clt_Cb = haskey(prop, "Cb") ? copy(prop["Cb"]) : nothing
+                clt_Cs = haskey(prop,"Cs") ? copy(prop["Cs"]) : nothing
+                clt_Bmb = get(prop, "Bmb", nothing)
+                clt_Bmb = clt_Bmb === nothing ? nothing : copy(clt_Bmb)
                 beta = shell_pcomp_material_rotation(
                     pcomp_axis_mode,
                     v1, v2, v3, p1, p2,
@@ -679,10 +809,34 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                     if clt_Cb !== nothing
                         _rotate_constitutive_3x3!(clt_Cb, c2, s2, cs, s2, c2, -cs, -2cs, 2cs, c2-s2)
                     end
+                    if clt_Cs !== nothing
+                        a11,a12,a22=clt_Cs[1,1],clt_Cs[1,2],clt_Cs[2,2]
+                        shear_s=-sb
+                        clt_Cs[1,1]=cb^2*a11+2cb*shear_s*a12+sb^2*a22
+                        clt_Cs[1,2]=-cb*shear_s*a11+(cb^2-sb^2)*a12+cb*shear_s*a22
+                        clt_Cs[2,1]=clt_Cs[1,2]
+                        clt_Cs[2,2]=sb^2*a11-2cb*shear_s*a12+cb^2*a22
+                    end
+                    if clt_Bmb !== nothing
+                        _rotate_constitutive_3x3!(clt_Bmb, c2, s2, cs, s2, c2, -cs, -2cs, 2cs, c2-s2)
+                    end
                 end
             end
             try
                 N, M, Q, s_z1, s_z2, e_z1, e_z2 = FEM.stress_strain_tria3(view(lc_buf,1:3,:), u_el, mat["E"], mat["NU"], Float64(prop["T"]); bend_ratio=br, Cm_override=clt_Cm)
+                if static_fields === nothing
+                    diagnostic=get!(results_json,"recovery_diagnostics",Dict{String,Any}())
+                    if _tria3_pcomp_mean_shear_supported(model,prop,p1,p2,p3,sr_indices,snorm_normals,tri_snorm_pq)
+                        Q=FEM.tria3_area_mean_shear_resultant(view(lc_buf,1:3,:),u_el,
+                            clt_Cm,clt_Cb,clt_Cs,Float64(prop["T"]),mat["G"];
+                            bend_ratio=br,Bmb=clt_Bmb)
+                        push!(get!(diagnostic,"area_mean_tria3_transverse_shear_eids",Int[]),eid)
+                        diagnostic["tria3_area_mean_shear_definition"]="Area-mean transverse shear from affine virtual work of the ordinary linear MITC3 laminate element; not a centroid extrapolation."
+                    else
+                        push!(get!(diagnostic,"legacy_tria3_transverse_shear_eids",Int[]),eid)
+                        diagnostic["tria3_legacy_shear_definition"]="Legacy isotropic assumed-shear estimate; not verified as work-conjugate for this element route."
+                    end
+                end
             catch e
                 @warn "Stress recovery failed for TRIA3 $eid: $e"
                 stress_ok = false
@@ -695,20 +849,20 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
         if !stress_ok; continue; end
 
         eps_mem_out = (e_z1 .+ e_z2) ./ 2.0
-        kappa_nast_out = (e_z1 .- e_z2) ./ prop["T"]
-        stress_z1 = -prop["T"] / 2
-        stress_z2 = prop["T"] / 2
+        kappa_nast_out = (e_z1 .- e_z2) ./ reported_thickness
+        stress_z1 = -reported_thickness / 2
+        stress_z2 = reported_thickness / 2
 
         # The kernels recover ordinary-shell stresses at +/-T/2. PSHELL
         # Z1/Z2 select output locations in that same linear through-thickness
         # field; they do not change force resultants or generalized strains.
         # Keep the default endpoints untouched, including their arithmetic.
         if get(prop, "TYPE", "") != "PCOMP_CLT"
-            requested_z1 = _pshell_stress_fiber_distance(prop, "Z1")
-            requested_z2 = _pshell_stress_fiber_distance(prop, "Z2")
+            requested_z1 = _pshell_stress_fiber_is_default(prop,"Z1") ? -reported_thickness/2 : Float64(prop["Z1"])
+            requested_z2 = _pshell_stress_fiber_is_default(prop,"Z2") ? reported_thickness/2 : Float64(prop["Z2"])
             if requested_z1 != stress_z1 || requested_z2 != stress_z2
                 stress_mid = (s_z1 .+ s_z2) ./ 2.0
-                stress_gradient = (s_z2 .- s_z1) ./ prop["T"]
+                stress_gradient = (s_z2 .- s_z1) ./ reported_thickness
                 requested_z1 != stress_z1 && (s_z1 = stress_mid .+ requested_z1 .* stress_gradient)
                 requested_z2 != stress_z2 && (s_z2 = stress_mid .+ requested_z2 .* stress_gradient)
                 stress_z1, stress_z2 = requested_z1, requested_z2
@@ -734,9 +888,15 @@ function recover_shell_stresses!(model, id_map, X, node_R, u_global, snorm_norma
                 size(Cm_eff) == (3,3) && size(Cb_eff) == (3,3) &&
                 eps_mem isa Vector{Float64} && kappa isa Vector{Float64} &&
                 length(eps_mem) == 3 && length(kappa) == 3
-            if !plain_unused_resultants && !coupled_projected_recovery
+            if !plain_unused_resultants && !coupled_projected_recovery && !coupled_condensed_recovery
                 N = Cm_eff * eps_mem
                 M = -Cb_eff * kappa
+                if elem_key == "tria3" && clt_Bmb !== nothing
+                    # Integrate the same coupled laminate law used by elastic
+                    # assembly and preload recovery. Printed M has opposite sign.
+                    N += clt_Bmb * kappa
+                    M -= transpose(clt_Bmb) * eps_mem
+                end
             end
 
             ply_data = prop["PLY_DATA"]
@@ -1436,6 +1596,20 @@ function recover_solid_stresses!(model, id_map, X, node_R, u_global, stresses, r
         E_mat = Float64(mat["E"]); nu_mat = Float64(mat["NU"])
         D = FEM.iso_3d_constitutive(E_mat, nu_mat)
 
+        # Use the same assumed strain and condensed normal modes as the
+        # ordinary eight-node solid stiffness. Alternative formulations retain
+        # their existing recovery convention.
+        enhanced_fields = nothing
+        if etype == "CHEXA" && nn == 8 && get(el,"ABAQUS_TYPE","") != "C3D8" &&
+                FEM.fem_env_bool("JFEM_CHEXA8_EAS", true) &&
+                FEM.fem_env_bool("JFEM_CHEXA8_NATURAL_SHEAR", true)
+            points = ((0.,0.,0.), (-1.,-1.,-1.), (1.,-1.,-1.),
+                (1.,1.,-1.), (-1.,1.,-1.), (-1.,-1.,1.),
+                (1.,-1.,1.), (1.,1.,1.), (-1.,1.,1.))
+            enhanced_fields = FEM.hexa8_section_fields(
+                view(coords_buf, 1:8, :), E_mat, nu_mat, u_el; points=points)
+        end
+
         # Compute B at centroid and recover stress
         local B_cen
         local elem_key::String
@@ -1455,6 +1629,9 @@ function recover_solid_stresses!(model, id_map, X, node_R, u_global, stresses, r
             continue
         end
 
+        if enhanced_fields !== nothing
+            B_cen = enhanced_fields.states[1].B
+        end
         stress_vec, strain_vec, vm = FEM.stress_solid_3d(B_cen, D, u_el)
         stresses[eid] = vm
 
@@ -1487,6 +1664,9 @@ function recover_solid_stresses!(model, id_map, X, node_R, u_global, stresses, r
                     B_corner[4,c+1]=dy; B_corner[4,c+2]=dx
                     B_corner[5,c+2]=dz; B_corner[5,c+3]=dy
                     B_corner[6,c+1]=dz; B_corner[6,c+3]=dx
+                end
+                if enhanced_fields !== nothing
+                    B_corner = enhanced_fields.states[ci+1].B
                 end
                 s_c, _, vm_c = FEM.stress_solid_3d(B_corner, D, u_el)
                 push!(corner_stresses, Dict("grid"=>nids[ci], "sxx"=>s_c[1],"syy"=>s_c[2],"szz"=>s_c[3],

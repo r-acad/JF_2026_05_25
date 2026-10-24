@@ -14,6 +14,33 @@ _timed_factorization(f,args...;kwargs...) = _measure_solver_stage(
 
 # helpers.jl — Small utility functions for the solver
 
+"""Map GRID degrees of freedom to a shell's offset reference surface.
+
+In the element frame, u_surface = u_grid + rotation × (0,0,ZOFFS).
+Left multiplication of an existing frame map preserves GRID coordinate systems
+and the same virtual-work transformation for stiffness and prestress.
+The shell-card mass convention remains at the GRID surface.
+"""
+function shell_reference_offset_transform!(T::AbstractMatrix,z::Real)
+    iszero(z) && return T
+    isfinite(z) || throw(ArgumentError("Shell ZOFFS must be finite"))
+    @inbounds for base in 0:6:size(T,1)-1, col in axes(T,2)
+        T[base+1,col]+=z*T[base+5,col]
+        T[base+2,col]-=z*T[base+4,col]
+    end
+    return T
+end
+
+function shell_reference_offset_displacement!(u::AbstractVector,z::Real)
+    iszero(z) && return u
+    isfinite(z) || throw(ArgumentError("Shell ZOFFS must be finite"))
+    @inbounds for base in 0:6:length(u)-1
+        u[base+1]+=z*u[base+5]
+        u[base+2]-=z*u[base+4]
+    end
+    return u
+end
+
 function log_msg(message::String)
     println("[$(Dates.format(now(), "HH:MM:SS"))] $message")
     # Solver phases can run for minutes without yielding to an async flusher.
@@ -532,16 +559,10 @@ end
 end
 
 @inline function sol105_static_membrane_incomp_enabled()
-    # Default OFF (2026-04-29). Wilson-Taylor incompatible membrane modes were
-    # turned on in the static K to reduce shear-locking on bending-dominant
-    # cases. Empirically they soften the static stiffness too much for the
-    # bending-prestress class of validation cases and hurt the eigenvalue magnitudes
-    # against Reference (tail-box model first-eigenvalue rel err: 13.3% with bubbles
-    # vs 2.9% without; 3wp magnitudes also improve). Reference's CQUAD4 (MacNeal
-    # lineage) does not include Wilson-Taylor membrane bubbles, so removing
-    # them brings JFEM closer to Reference's static K. Re-enable with
-    # JFEM_SOL105_STATIC_MEMBRANE_INCOMP=true for the older default.
-    return solver_env_bool("JFEM_SOL105_STATIC_MEMBRANE_INCOMP", false)
+    # The preload and modal/linear elastic problems share the same membrane
+    # operator. Retain the complete stationary internal-coordinate basis;
+    # changing the solution sequence must not change element stiffness.
+    return solver_env_bool("JFEM_SOL105_STATIC_MEMBRANE_INCOMP", true)
 end
 
 
@@ -1756,4 +1777,64 @@ function _conm2_mass_basic(model, cm, grid_position)
     inertia_local = [a -b -d; -b c -e; -d -e f]
     block[4:6,4:6] += frame * inertia_local * frame'
     return block
+end
+
+"""Resolve optional shell corner thicknesses without altering the property.
+
+Blank absolute entries inherit T; blank fractional entries inherit factor one.
+The returned reference thickness is only a constitutive normalization value.
+"""
+function shell_corner_thickness_data(el, prop)
+    raw=get(el,"CORNER_THICKNESSES",nothing)
+    raw === nothing && return nothing
+    all(isnothing,raw) && return nothing
+    eid=get(el,"ID","?")
+    kind=uppercase(string(get(el,"TYPE","CQUAD4")))
+    kind in ("CQUAD4","CTRIA3") || throw(ArgumentError(
+        "Shell $eid corner thicknesses are implemented for CQUAD4 and CTRIA3 input layouts only"))
+    n=kind=="CQUAD4" ? 4 : 3
+    length(raw)==n || throw(ArgumentError("Shell $eid requires $n corner thickness entries"))
+    startswith(uppercase(string(get(prop,"TYPE","PSHELL"))),"PCOMP") &&
+        throw(ArgumentError("Shell $eid corner thicknesses with a laminate property are not implemented"))
+    flag=get(el,"TFLAG",0)
+    flag isa Number && isfinite(flag) && flag in (0,1) ||
+        throw(ArgumentError("Shell $eid requires integer TFLAG 0 or 1"))
+    h=Float64(get(prop,"T",0.0))
+    isfinite(h) && h>=0 || throw(ArgumentError("Shell $eid has an invalid reference thickness"))
+    flag==1 && h<=0 && throw(ArgumentError("Shell $eid fractional thicknesses require positive property T"))
+    thickness=Float64[]
+    for value in raw
+        t=if value === nothing
+            h
+        else
+            value isa Number && isfinite(value) && value>0 ||
+                throw(ArgumentError("Shell $eid requires positive finite corner thicknesses"))
+            flag==1 ? Float64(value)*h : Float64(value)
+        end
+        isfinite(t) && t>0 || throw(ArgumentError("Shell $eid has an unresolved corner thickness"))
+        push!(thickness,t)
+    end
+    uniform=all(==(first(thickness)),thickness)
+    reference_thickness=h>0 ? h : sum(thickness)/n
+    return (;thickness,uniform,reference_thickness)
+end
+
+"""Reject analytic sensitivities until element corner-thickness chain rules exist.
+
+Absolute Ti values and fractional Ti values have different property-thickness
+derivatives, including when all corners have the same value. Do not replay a
+property-only derivative for either case. An absent or all-blank continuation
+is the ordinary property-thickness model and remains supported.
+"""
+function assert_no_corner_thickness_analytic(model)
+    props=get(model,"PSHELLs",Dict())
+    for el in values(get(model,"CSHELLs",Dict()))
+        get(el,"CORNER_THICKNESSES",nothing)===nothing && continue
+        pid=string(get(el,"PID","?"))
+        prop=get(props,pid,Dict{String,Any}())
+        data=shell_corner_thickness_data(el,prop)
+        data===nothing && continue
+        throw(ArgumentError("Analytic sensitivities for shell $(get(el,"ID","?")) with explicit corner thickness Ti are not implemented. Absolute and fractional Ti require element-specific stiffness, mass, prestress and load chain rules, including uniform Ti."))
+    end
+    return nothing
 end

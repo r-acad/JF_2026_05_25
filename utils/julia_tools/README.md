@@ -158,13 +158,45 @@ The earlier assembly improvements remain active:
   its stability-trial factorization (`JFEM_EIGEN_TRIAL_FACTOR_KEEP=false`
   opts out), and binary exports are staged as a single write. All are
   verified bit-identical.
+- **Repeated buckling roots**: strict partial-mode requests on eligible
+  symmetric pencils with at most 600 free degrees of freedom use a selected
+  symmetric eigensolver. It retains repeated eigenvalues by index, requests
+  only the specified number of eigenvectors, and checks the original-pencil
+  residuals. `JFEM_SOL105_PARTIAL_SYMMETRIC_MAX_DOF` changes this work bound;
+  `0` disables the automatic path. A positive-definite shifted or elastic
+  metric is required. Larger or genuinely indefinite pencils retain their
+  iterative path; a requested mode count alone does not certify that every
+  repeated direction among the lowest roots was found.
+- **Laminate initial stress**: planar ordinary MacNeal quadrilateral laminates in
+  SOL105 use compatible nodal normal strains, center membrane shear and full
+  compatible curvature for the initial-stress field. Elastic output retains
+  the enhanced elastic recovery. Set `JFEM_Q4_DIFFERENTIAL_PRESTRESS=false`
+  only to compare with the previous elastic-recovery interpolation. Warped,
+  director, alternate-plate and nonlinear paths retain their separate formulations.
+  `JFEM_Q4_DIFFERENTIAL_PRESTRESS_WARPED=true` explicitly enables a diagnostic
+  projected extension; it does not establish the complete warped-shell
+  initial-stress tangent, including initial moments and eccentricity terms.
+- **Modal mass rank**: small modal pencils detect massless combinations after
+  diagonal scaling, including combinations hidden by offsets. The default
+  `JFEM_SOL103_MASS_RANK_MAX_DOF=600` bounds this classification work; `0`
+  disables it. Diagnostics report rank, nullity and numerical tolerance.
+  Finite-mode requests are capped by this rank. Rank completeness additionally
+  requires the positive-stiffness certificate; larger or indefinite pencils
+  retain their existing extraction policy.
+  For a bounded PSD mass pencil with a positive shifted Cholesky factor and
+  zero negative stiffness inertia, modal mass is checked against the roundoff
+  bound of its own quadratic form. This avoids a cutoff that depends on the
+  units of the coordinates. Diagnostics identify whether this check is active.
+  Eigenvector residual tests are unchanged; indefinite, higher-index and
+  unclassified pencils retain the existing mass-acceptance policy.
 - **Research opt-ins** (OFF by default):
   `JFEM_SOL105_SHIFT_FACTOR_FUSION=true` fuses shifted-solve
   factorizations with Sturm certificates;
   `JFEM_SOL105_SYMM_LANCZOS=true` runs the zero-shift buckling
   eigensolve as symmetric Lanczos via a Cholesky congruence; and
   `JFEM_SOL105_BLOCK_LANCZOS=true` uses deterministic block starts (default
-  block size 2) to preserve exact repeated eigenspaces. The block option may
+  block size 2) to improve repeated-eigenspace coverage. Its block width must
+  span the relevant multiplicity; it does not certify completeness. The block option may
   construct more Ritz pairs than `ND` and was slower on the audited large
   case, so it is intentionally outside the default exact-count profile.
 

@@ -1,3 +1,5 @@
+isdefined(@__MODULE__, :BeamSectionWarping) || include("beam_section_runtime.jl")
+
 # Dimension-defined sections shared by the PBARL writer and the 3D viewer.
 # PBARL T: DIM1=flange width (z), DIM2=overall height (y), DIM3=flange
 # thickness, DIM4=web thickness. Positive local y points from the web tip
@@ -51,8 +53,8 @@ Section polygon coordinates are `[local_y, local_z]`, about the centroid.
 `offset_y_m` is the centroid offset from the shell GRID line. Both CBAR ends
 use this same offset along the projected section orientation, so the analytical
 axis remains parallel to the GRID line. The outer flange/cap face lies on the
-skin or rib datum. Areas and bending inertias are exact; J uses the JFEM PBARL
-approximations, explicitly identified in `torsion_model`.
+skin or rib datum. Areas and bending inertias are exact; the torsion model is
+explicitly identified in `torsion_model` and shared with the solver parser.
 """
 function section_definition(p::AbstractDict, pid::Integer)
     haskey(p,"imported.native")&&return imported_section(imported_native(p)["PBARLs"][string(pid)])
@@ -69,7 +71,8 @@ function section_definition(p::AbstractDict, pid::Integer)
         i1 = tw * hw^3 / 12 + aw * (yc - hw / 2)^2 +
              b * tf^3 / 12 + af * (hw + tf / 2 - yc)^2
         i2 = hw * tw^3 / 12 + tf * b^3 / 12
-        torsion = (hw * tw^3 + b * tf^3) / 3
+        section=BeamSectionWarping.t_section_warping(b,h,tf,tw)
+        torsion=section.J
         polygon = [[h-yc, -b/2], [h-yc, b/2], [hw-yc, b/2],
                    [hw-yc, tw/2], [-yc, tw/2], [-yc, -tw/2],
                    [hw-yc, -tw/2], [hw-yc, -b/2]]
@@ -77,7 +80,8 @@ function section_definition(p::AbstractDict, pid::Integer)
             "type" => "PBARL", "shape" => "T", "dimensions_m" => [b,h,tf,tw],
             "polygon_yz_m" => polygon, "offset_y_m" => -(h-yc),
             "area_m2" => area, "I1_m4" => i1, "I2_m4" => i2, "J_m4" => torsion,
-            "torsion_model" => "JFEM PBARL open-section thin-wall approximation",
+            "torsion_model" => "Saint-Venant section finite elements; 0.01% successive-mesh tolerance",
+            "torsion_formulation" => "saint_venant_2d",
             "placement" => base_pid==PID_STRINGER ? "Flange outer face at skin; web inward; centroid offset included in CBAR" :
                 "Flange outer face on rib-web datum; web outboard (final rib inboard); centroid offset included in CBAR")
     elseif base_pid == PID_SPAR_CAP

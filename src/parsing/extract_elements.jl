@@ -56,10 +56,20 @@ function extract_cbush(cards)
         ga  = to_id(parse_reference_number(safe_get(c, 5), 0))
         gb  = to_id(parse_reference_number(safe_get(c, 6), 0))
         # Fields 7-9: GO or X1,X2,X3 (orientation); field 10: CID
-        cid = to_id(parse_reference_number(safe_get(c, 10), 0))
+        cid = to_id(parse_reference_number(safe_get(c, 10), -1))
+        x1 = strip(string(safe_get(c, 7, "")))
+        x2 = strip(string(safe_get(c, 8, "")))
+        x3 = strip(string(safe_get(c, 9, "")))
+        g0 = tryparse(Int, x1) !== nothing && isempty(x2) && isempty(x3) ? parse(Int,x1) : 0
+        v = g0 > 0 ? zeros(3) : [Float64(parse_reference_number(x,0.0)) for x in (x1,x2,x3)]
+        b = _bar_continuation_base(c)
+        s = Float64(parse_reference_number(safe_get(c,b+1),0.5))
+        ocid = to_id(parse_reference_number(safe_get(c,b+2),-1))
+        offset = [Float64(parse_reference_number(safe_get(c,b+k),0.0)) for k in 3:5]
         if eid > 0 && ga > 0
-            d[string(eid)] = Dict("ID"=>eid, "PID"=>pid,
-                "GA"=>ga, "GB"=>gb, "CID"=>cid, "TYPE"=>"CBUSH")
+            d[string(eid)] = Dict{String,Any}("ID"=>eid, "PID"=>pid,
+                "GA"=>ga, "GB"=>gb, "CID"=>cid, "TYPE"=>"CBUSH",
+                "G0"=>g0, "V"=>v, "S"=>s, "OCID"=>ocid, "SI"=>offset)
         end
     end
     return d

@@ -1301,6 +1301,25 @@ function _reference_input_grid_records(model)
     return records
 end
 
+function _shell_export_mean_thickness(element, prop)
+    p=prop===nothing ? Dict{String,Any}() : prop
+    data=Solver.shell_corner_thickness_data(element,p)
+    return data===nothing ? Float64(get(p,"T",0.0)) : sum(data.thickness)/length(data.thickness)
+end
+
+function _jfem_shell_corner_thickness_inputs(model)
+    rows=Any[]
+    for el in _reference_sorted_values_by_id(get(model,"CSHELLs",Dict()),"ID")
+        raw=get(el,"CORNER_THICKNESSES",nothing)
+        raw===nothing && continue
+        (get(el,"CORNER_THICKNESSES_SPECIFIED",false) || any(!isnothing,raw)) || continue
+        push!(rows,Dict("EID"=>get(el,"ID",0),"TFLAG"=>get(el,"TFLAG",0),
+            "RAW_CORNER_THICKNESSES"=>raw,
+            "CONTINUATION_SPECIFIED"=>get(el,"CORNER_THICKNESSES_SPECIFIED",false)))
+    end
+    return rows
+end
+
 function _reference_input_shell_records(model)
     quads = _REFERENCECquad4Rec[]
     trias = _REFERENCECTRIA3Rec[]
@@ -1313,10 +1332,17 @@ function _reference_input_shell_records(model)
         theta = _reference_f64(get(element, "THETA", 0.0))
         mcid = _reference_i64(get(element, "MCID", 0))
         eid = _reference_i64(get(element, "ID", 0))
+        flag=_reference_i64(get(element,"TFLAG",0))
+        raw=get(element,"CORNER_THICKNESSES",fill(nothing,length(node_ids)))
+        # Keep the native absolute/fractional convention. The companion JSON
+        # retains blank fields, which a numeric compound record cannot express.
+        Solver.shell_corner_thickness_data(element,prop===nothing ? Dict() : prop)
+        values=[v===nothing ? (flag==1 ? 1.0 : thickness) : Float64(v) for v in raw]
+        zoffs=_reference_f64(get(element,"ZOFFS",0.0))
         if length(node_ids) == 4
-            push!(quads, _REFERENCECquad4Rec(eid, pid, _reference_tuple_i64(node_ids, 4), theta, 0.0, 0, (thickness, thickness, thickness, thickness), mcid, 1))
+            push!(quads, _REFERENCECquad4Rec(eid, pid, _reference_tuple_i64(node_ids, 4), theta, zoffs, flag, _reference_tuple_f64(values,4), mcid, 1))
         elseif length(node_ids) == 3
-            push!(trias, _REFERENCECTRIA3Rec(eid, pid, _reference_tuple_i64(node_ids, 3), theta, 0.0, 0, (thickness, thickness, thickness), mcid, 1))
+            push!(trias, _REFERENCECTRIA3Rec(eid, pid, _reference_tuple_i64(node_ids, 3), theta, zoffs, flag, _reference_tuple_f64(values,3), mcid, 1))
         end
     end
     return quads, trias
@@ -1768,6 +1794,12 @@ function _reference_write_input_tables(file, model)
     quads, trias = _reference_input_shell_records(model)
     _reference_write_custom(file, "/REFERENCE/INPUT/ELEMENT/CQUAD4", quads, _reference_cquad4_dtype)
     _reference_write_custom(file, "/REFERENCE/INPUT/ELEMENT/CTRIA3", trias, _reference_ctria3_dtype)
+    thickness_inputs=_jfem_shell_corner_thickness_inputs(model)
+    if !isempty(thickness_inputs)
+        # Raw null entries preserve inherited thickness when reopening inputs.
+        _reference_require_group(file,"/JFEM/INPUT")
+        file["/JFEM/INPUT/SHELL_CORNER_THICKNESS_JSON"]=JSON.json(thickness_inputs)
+    end
     # Keep the standard compact input record unchanged. This companion table
     # preserves the distinction between an integer BASIC MCID=0 and THETA=0.
     orientations = _jfem_shell_material_orientation_records(model)
@@ -2859,7 +2891,7 @@ function build_jfem_element_tables(model, id_map)
         if !all(n -> haskey(id_map, n), nids); continue; end
         pid = get(el, "PID", 0)
         prop = find_prop(pshells, pid)
-        t = Float32(prop !== nothing ? get(prop, "T", 0.0) : 0.0)
+        t = Float32(_shell_export_mean_thickness(el,prop))
         if length(nids) == 4
             push!(jfem_quads, (eid, pid, nids, t))
         elseif length(nids) == 3

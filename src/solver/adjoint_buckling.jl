@@ -2402,6 +2402,7 @@ Run adjoint sensitivity analysis on SOL 105 buckling results.
 Computes dλ/dx for each eigenvalue and design variable.
 """
 function solve_adjoint_buckling(results::Dict, adjoint_config_path::String)
+    assert_no_corner_thickness_analytic(results["model"])
     if results["sol_type"] != 105
         error("[ADJOINT-BUCK] Requires SOL 105 results (got SOL $(results["sol_type"]))")
     end
