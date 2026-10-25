@@ -70,7 +70,7 @@ tests=@testset "Axial actuators, relocated conforming ribs and underside lugs" b
     @test all(diff([r["eta"] for r in crowded]).<=.375+1e-12)
     @test any(get(r,"gap_refinement",false) for r in crowded)
     for (kind,underside,deflected,knee) in (("aileron",false,false,false),("flap",true,true,false),("flap",true,true,true))
-        name=knee ? "exterior_knee_flap" : underside ? "underside_flap" : "front_spar_aileron"
+        name=knee ? "close_front_spar_flap" : underside ? "underside_flap" : "front_spar_aileron"
         p=axial_mesh_parameters(;kind,underside,deflected)
         if knee;p["movable_surfaces.items"][1]["hinge_z_start"]=p["movable_surfaces.items"][1]["hinge_z_end"]=0.;end
         write(joinpath(out,name*"_parameters.json"),W.JSON.json(p))
@@ -80,7 +80,7 @@ tests=@testset "Axial actuators, relocated conforming ribs and underside lugs" b
         @test all(diff(surface["rib_etas"]).<=surface["nominal_rib_pitch_eta"]*1.5+1e-12)
         for joint in aa
             rib=surface["rib_sections"][joint["master_rib_index"]]
-            @test joint["underside_lug"]==underside
+            @test joint["underside_lug"]==(underside&&!knee)
             @test joint["actuator_nodes"][2]==rib["front_upper"]
             @test joint["actuator_nodes"][1]==findfirst(==((W.ni(m.grid),m.grid.ribs[joint["rib"]],m.grid.nh)),m.node_keys)
             @test joint["actuator_pid"]!=joint["pid"]
@@ -92,14 +92,15 @@ tests=@testset "Axial actuators, relocated conforming ribs and underside lugs" b
                 @test abs(dot(m.xyz[3n-2:3n].-joint["origin"],joint["lug_plane_normal"]))<1e-9
             end
             for n in joint["surface_nodes"]
-                @test n in (underside ? rib["lower_nodes"] : rib["perimeter_nodes"])
+                @test n in (underside&&!knee ? rib["lower_nodes"] : rib["perimeter_nodes"])
             end
-            if underside;@test joint["lug_plane_normal"]≈joint["axis"];end
+            if underside&&!knee;@test joint["lug_plane_normal"]≈joint["axis"];end
             if knee
-                @test joint["lug_shape"]=="exterior knee"
-                n=joint["lug_knee_node"]
-                @test abs(dot(m.xyz[3n-2:3n].-joint["origin"],joint["lug_plane_normal"]))<1e-9
-                @test haskey(m.movable_structure["node_etas"],n)
+                # A small x/c clearance alone no longer moves the fitting to
+                # the underside: hinges inside the foil attach to the spar.
+                @test joint["control_lug_attachment"]=="front spar"
+                @test rib["front_lower"] in joint["surface_nodes"]
+                @test rib["front_upper"] in joint["surface_nodes"]
             end
         end
         @test W.validate_movable_actuator_paths(m)===nothing
@@ -107,7 +108,7 @@ tests=@testset "Axial actuators, relocated conforming ribs and underside lugs" b
         write(joinpath(out,"axial_mesh_diagnostics.json"),W.JSON.json(reports))
         if knee
             p["output.solution"]="103";p["output.n_modes"]=6
-            modal_model=W.build_model(p);modal_path=joinpath(out,"exterior_knee_modal.bdf")
+            modal_model=W.build_model(p);modal_path=joinpath(out,"close_front_spar_modal.bdf")
             W.write_reference(modal_model,modal_path;large_field=true)
             write(modal_path,replace(read(modal_path,String),"BEGIN BULK"=>"BEGIN BULK\nPARAM,K6ROT,0."))
             modal=OpenJFEM.solve_model(OpenJFEM.bdf_to_model(modal_path))
@@ -116,10 +117,28 @@ tests=@testset "Axial actuators, relocated conforming ribs and underside lugs" b
             last(reports)["first_modal_eigenvalue"]=eigen
         end
     end
+    coincident=axial_mesh_parameters(;kind="flap")
+    merge!(coincident,Dict("airfoil.root"=>"NACA0012","airfoil.tip"=>"NACA0012",
+        "planform.taper_ratio"=>1.,"planform.sweep"=>0.,"planform.dihedral"=>0.,"planform.twist_tip"=>0.))
+    cs=only(coincident["movable_surfaces.items"])
+    cs["front_spar_end"]=cs["front_spar_start"];cs["hinge_start"]=cs["hinge_end"]=cs["front_spar_start"]
+    cs["hinge_z_start"]=cs["hinge_z_end"]=-.5
+    cm=W.build_model(coincident);surface=only(cm.movable_structure["surfaces"])
+    for joint in cm.movable_structure["attachments"]
+        rib=surface["rib_sections"][joint["master_rib_index"]]
+        @test joint["surface_ref"]==rib["front_lower"]
+        @test !joint["underside_lug"]
+        lugs=only(filter(g->g.pid==joint["lug_pid"],cm.groups))
+        for j in eachindex(lugs.eids)
+            ns=lugs.conn[3j-2:3j];points=[cm.xyz[3n-2:3n] for n in ns]
+            @test norm(cross(points[2]-points[1],points[3]-points[1]))>1e-12
+        end
+    end
+    push!(reports,axial_torque_check(cm,"coincident_front_lower_hinge"))
     inside=axial_mesh_parameters(;kind="flap",underside=true)
     inside["movable_surfaces.items"][1]["hinge_start"]=.81;inside["movable_surfaces.items"][1]["hinge_end"]=.83
     inside["movable_surfaces.items"][1]["hinge_z_start"]=inside["movable_surfaces.items"][1]["hinge_z_end"]=0.
-    @test_throws ArgumentError W.build_model(inside)
+    @test all(!a["underside_lug"] for a in W.build_model(inside).movable_structure["attachments"])
     missing=axial_mesh_parameters();empty!(missing["movable_structure.attachments"])
     @test_throws ArgumentError W.build_model(missing)
     collision=axial_mesh_parameters();collision["movable_structure.attachments"][2]["eta"]=.27

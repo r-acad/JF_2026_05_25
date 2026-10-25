@@ -124,8 +124,8 @@
   });
   const after=scene.onAfterRenderObservable.add(()=>{
    if(!enabled)return;
-   const through=new Set(throughMeshes()),overlays=new Set(through);
-   for(const mesh of scene.meshes)if(mesh.material?.depthFunction===B.Constants.ALWAYS)overlays.add(mesh);
+   const through=new Set(throughMeshes()),overlays=new Set([...through].map(mesh=>mesh._wingScreenStroke||mesh));
+   for(const mesh of scene.meshes)if(mesh.material?.depthFunction===B.Constants.ALWAYS)overlays.add(mesh._wingScreenStroke||mesh);
    if(!overlays.size)return;
    const depthFunction=engine.getDepthFunction(),depthWrite=engine.getDepthWrite(),alpha=engine.getAlphaMode();
    try{
@@ -135,7 +135,7 @@
      // Custom translucent triangle shaders require their own composition.
      // Current explicit FE overlays are opaque geometry or LinesMesh.
      const blending=material.needAlphaBlendingForMesh(mesh);
-     if(blending&&!(mesh instanceof B.LinesMesh))continue;
+     if(blending&&!(mesh instanceof B.LinesMesh)&&!mesh.metadata?.wingStrokeSource)continue;
      const originalDepth=material.depthFunction,originalWrite=material.disableDepthWrite;
      try{
       material.depthFunction=B.Constants.ALWAYS;material.disableDepthWrite=true;

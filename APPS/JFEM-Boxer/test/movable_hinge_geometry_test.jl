@@ -40,7 +40,11 @@ end
     restored,_=W.normalize_params(W.flatten_toml(TOML.parse(W.params_to_toml(p))))
     @test W.build_model(restored).xyz==m.xyz
     q=deepcopy(p);q["movable_structure.surfaces"][1]["end_eta"]=.95;@test_throws ArgumentError W.build_model(q)
-    q=deepcopy(p);q["movable_surfaces.items"][1]["hinge_start"]=q["movable_surfaces.items"][1]["hinge_end"]=.75;@test_throws ArgumentError W.build_model(q)
+    q=deepcopy(p);q["movable_surfaces.items"][1]["hinge_start"]=q["movable_surfaces.items"][1]["hinge_end"]=.75
+    # A hinge exactly on a spar GRID reuses that GRID and omits collapsed
+    # triangles; no coincident free node or zero-area shell is introduced.
+    qm=W.build_model(q)
+    @test all(a->a["surface_ref"] in a["surface_nodes"],qm.movable_structure["attachments"])
     q=deepcopy(p);q["movable_structure.attachments"][2]["rib"]=2
     @test W.movable_structure_data(W.build_model(q))["attachments"][2]["rib"]==4 # eta overrides a stale manual rib
     q=deepcopy(p);q["movable_structure.surfaces"][1]["mesh_deflected"]=true;rotated=W.build_model(q)

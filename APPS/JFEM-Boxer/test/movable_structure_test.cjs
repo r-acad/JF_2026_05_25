@@ -18,4 +18,8 @@ assert.equal(S.normalize([{...row,max_rib_pitch_ratio:1}],[{...a,actuator_stiffn
 assert.equal(S.normalize([row],[{...a,fitting:'shell_lugs',actuator:false,lateral_stay:false}],geometry).attachments[0].actuator,false);checks++;
 const ribs=[{index:3,eta:.6},{index:1,eta:.2},{index:2,eta:.4},{index:4,eta:.8}];
 for(const [eta,start,end,excluded,expected]of [[.51,.2,.8,[],3],[.5,.2,.8,[],2],[.1,.4,.8,[],2],[.8,.2,.6,[],3],[.41,.2,.8,[2],3],[.5,.45,.55,[],null],[NaN,0,1,[],null]]){assert.equal(S.nearestAttachmentRib(eta,ribs,start,end,excluded)?.index??null,expected);checks++;}
+const unordered=[{...a,eta:.7},{...a,surface:'Aileron',eta:.5},{...a,eta:.3}],before=JSON.stringify(unordered);
+assert.deepEqual(S.normalize([row,{...row,surface:'Aileron'}],unordered,[...geometry,{...geometry[0],name:'Aileron'}]).attachments.map(r=>[r.surface,r.eta]),[['Aileron',.5],['Flap',.3],['Flap',.7]]);checks++;
+assert.equal(JSON.stringify(unordered),before);checks++;
+assert.deepEqual(S.orderAttachments([{surface:'Flap',eta:.4,id:1},{surface:'Flap',eta:null,id:2},{surface:'Flap',eta:.4,id:3}]).map(r=>r.id),[1,3,2]);checks++;
 console.log(JSON.stringify({passed:true,checks,scope:'Structure bounds, optional legacy-empty state, separate attachments, rigid and free/elastic hinge definitions'}));

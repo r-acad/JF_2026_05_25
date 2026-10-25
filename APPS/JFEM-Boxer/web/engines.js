@@ -11,8 +11,10 @@
   const HELP = [
     'The engine is a flexible beam aligned with BASIC X, the line-of-flight direction, with two CBAR elements meeting at the centre of gravity. Its midpoint and centre of gravity share the entered BASIC X, Y and Z coordinates in metres. The endpoints are X minus half the length and X plus half the length. These coordinates are independent of the wing planform; they do not move automatically when the wing changes. A newly added engine starts with example values; replace its location, mass, length and stiffness data with the actual installation data.',
     'The engine mass is concentrated once at the centre of gravity. The two elastic beam elements are massless. The CG inertia uses a uniform slender-line estimate: Iyy = Izz = mass times length squared / 12 and Ixx = 0. This inertia estimate does not distribute the mass over the beam elements and does not represent axial spin inertia. Engine mass is independent of the elastic beam area and material density.',
-    'Young\'s modulus E and shear modulus G are entered in GPa and saved in Pa. Area A is in square metres; bending inertias I1 and I2 and torsional constant J are in m to the fourth power. Both CBAR halves point along BASIC +X, with local Y along BASIC Y and local Z along BASIC Z. I1 is about Z (bending in XY); I2 is about Y (bending in XZ). These values define the finite axial, bending and torsional stiffnesses EA, EI1, EI2 and GJ. The defaults are illustrative rather than measured engine properties. Both halves share these values; their central node can translate and rotate elastically relative to the mounts.',
-    'The front attachment uses the selected physical wing-box rib at its front spar. The aft attachment uses its selected rib and the specified x/c fraction of the complete local aerodynamic chord. Choose a distinct aft location inside the structural box. Both attachments may use the same rib. RBE3 interpolation recovers each mount from a surrounding wing patch. Rigid arms join the mounts to the corresponding engine-beam endpoints, leaving the CG free to respond through the elastic beam. This transfers engine inertia without rigidifying either wing patch. No separate elastic pylon-shell structure is defined.',
+    'Young\'s modulus E and shear modulus G are entered in GPa and saved in Pa. Area A is in square metres; bending inertias I1 and I2 and torsional constant J are in m to the fourth power. Both CBAR halves point along BASIC +X, with local Y along BASIC Y and local Z along BASIC Z. I1 is about Z (bending in XY); I2 is about Y (bending in XZ). These values define the finite axial, bending and torsional stiffnesses EA, EI1, EI2 and GJ. The defaults are illustrative rather than measured engine properties. Both halves share these values. The CG follows the upper-cap RBE3; the aft end follows the lower attachment RBE3. The forward beam end is free.',
+    'The front RBE3 joins the beam midpoint / CG directly to the first two upper front-spar-cap mesh nodes inboard and the first two outboard of the selected front rib: four nodes, excluding the node on that rib. The aft RBE3 joins the aft beam end directly to the corresponding four lower front-spar-cap nodes around the selected aft rib, plus the existing lower-surface node on that rib nearest the requested x/c. Both attachments may use the same rib. There are no intermediate rigid mounting arms.',
+    'Aft x/c is measured from the leading edge as a fraction of the complete local aerodynamic chord. The point snaps to an existing lower-rib node; a target outside the structural box selects its nearest boundary node. Inspect the aft RBE3 to see requested and actual x/c. Refine the rib mesh if a closer point is needed. Each selected rib needs at least two distinct cap nodes on both sides; choose an interior rib or refine the span mesh if generation reports insufficient nodes.',
+    'RBE3 interpolation transfers forces and moments without making the wing patch rigid. Cap-node translations are used; a collinear or nearly collinear patch also uses the cap rotation needed to recover rotation about that line. This avoids a singular attachment without adding wing nodes elsewhere. No separate elastic pylon-shell structure is defined.',
     'Rib choices follow the numbered physical ribs shown in the current FEM. After changing the wing or rib layout, Create FEM refreshes those choices; existing engine definitions are preserved for review. Selecting a different rib changes its attachment location, while the engine centre stays at its entered coordinates.',
     'Enabled engines contribute mass and inertia to the FE model. Their inertial loads use each load case\'s acceleration when structural inertia is enabled. Disable an engine to omit it from the FEM without deleting its definition. Engine definitions are saved with the Study. Create FEM and rerun the analysis after making changes.'
   ];
@@ -49,7 +51,7 @@
     });
   }
 
-  function install(host, { onEdit = () => {}, onHelp, readRibs = () => [], isLocked = () => false, createFEM } = {}) {
+  function install(host, { onEdit = () => {}, onHelp, readRibs = () => [], isLocked = () => false, createFEM, onRename = () => {}, onRemove = () => {} } = {}) {
     const doc = host.ownerDocument, stored = doc.getElementById('p-' + KEY);
     if (!stored) return null;
     const heading = host.querySelector('.parameter-heading h2');
@@ -83,7 +85,7 @@
     const fromDisplay = (key, input) => { const value = numeric(input); return value === null ? null : ['E', 'G'].includes(key) ? Number((value * 1e9).toPrecision(15)) : value; };
     function drafts() {
       return rows.map(row => Object.fromEntries(Object.entries(row.inputs).map(([key, input]) =>
-        [key, typeof defaults[key] === 'boolean' ? input.checked : typeof defaults[key] === 'number' ? fromDisplay(key, input) : input.value])));
+        [key, key==='name'?row.committedName:typeof defaults[key] === 'boolean' ? input.checked : typeof defaults[key] === 'number' ? fromDisplay(key, input) : input.value])));
     }
     function ribs() {
       try { return (readRibs() || []).filter(rib => Number.isInteger(rib.index) && rib.index > 0 && Number.isFinite(rib.eta)); }
@@ -131,7 +133,28 @@
         wrap.append(input);
       }
       row.inputs[key] = input; parent.append(wrap);
-      input.addEventListener('input', () => { if (!isLocked()) { row.legend.textContent = row.inputs.name.value.trim() || 'Engine'; sync(); updateInertia(row); } });
+      input.addEventListener('input', () => { if (!isLocked()) {
+        row.legend.textContent = row.inputs.name.value.trim() || 'Engine';
+        // Keep the engine's committed identity during typing. A rename and all
+        // load-case references are committed together on change/blur.
+        if(key==='name'){choose(selected);return;}
+        sync(); updateInertia(row);
+      } });
+      if(key==='name'){
+        const commitName=()=>{
+        if(isLocked())return;
+        const next=input.value.trim(),previous=row.committedName;
+        if(!next||[...next].length>80||rows.some(other=>other!==row&&other.inputs.name.value.trim()===next)){
+          input.value=previous;row.legend.textContent=previous;choose(selected);
+          initialError='Use a distinct engine name of 1 to 80 characters; the previous name and thrust assignments were kept.';check();return;
+        }
+        if(next===previous){input.value=previous;return;}
+        try{onRename(previous,next);row.committedName=next;sync();}
+        catch(exception){input.value=previous;row.legend.textContent=previous;sync();initialError=exception.message;check();}
+        };
+        input.addEventListener('change',commitName);
+        input.addEventListener('blur',commitName);
+      }
       return input;
     }
     function updateRibChoices(row, catalog) {
@@ -162,7 +185,7 @@
         stiffness = make('fieldset', 'engine-fields'), stiffnessTitle = make('legend', '', 'Flexible beam stiffness'), stiffnessGrid = make('div', 'engine-grid'),
         attachments = make('fieldset', 'engine-fields'), attachmentTitle = make('legend', '', 'Wing-box attachments'), attachmentGrid = make('div', 'engine-grid'),
         inertia = make('p', 'pick-note'), remove = make('button', 'mini ghost', 'Remove engine');
-      const row = { value, box, legend, inputs: {}, selects: {}, inertia, remove }; rows.push(row);
+      const row = { value, box, legend, inputs: {}, selects: {}, inertia, remove, committedName:value.name.trim() }; rows.push(row);
       field(identity, row, 'name', 'Name', 'Distinct engine name used in the model and Study.');
       field(identity, row, 'enabled', 'Include in FEM', 'Off preserves this engine definition but omits its beam, attachments and mass from the FEM.');
       for (const key of ['x', 'y', 'z']) field(locationGrid, row, key, 'BASIC ' + key.toUpperCase() + ' (m)', 'Engine beam midpoint and centre of gravity in the BASIC model coordinate system, in metres. X follows the line of flight; Y is spanwise; Z is normal to the reference planform.');
@@ -177,15 +200,18 @@
         ['J', 'Torsional constant J (m⁴)', 'Saint-Venant torsional constant of the equivalent beam section. Torsional stiffness is G times J, independent of its CG mass inertia.']
       ]) field(stiffnessGrid, row, key, label, tip);
       for (const [key, label, tip] of [
-        ['front_rib', 'Front attachment rib', 'Front engine attachment at the front spar of this physical main-box rib.'],
-        ['aft_rib', 'Aft attachment rib', 'Aft engine attachment on this physical main-box rib; its chordwise position is the separate aft x/c input.']
+        ['front_rib', 'Front attachment rib', 'Connect the beam midpoint / CG to the first two upper front-spar-cap mesh nodes inboard and the first two outboard of this rib. The nominal rib node is excluded; at least two distinct nodes are needed on each side.'],
+        ['aft_rib', 'Aft attachment rib', 'Connect the aft beam end to the first two lower front-spar-cap mesh nodes on each side of this rib, plus its lower-surface node nearest the specified aft x/c.']
       ]) {
         const input = field(attachmentGrid, row, key, label, tip), select = make('select'); input.type = 'hidden';
         select.dataset.engineRib = key; select.setAttribute('aria-label', label); select.title = tip; input.parentElement.append(select); row.selects[key] = select;
         select.onchange = () => { if (!isLocked()) { input.value = select.value; sync(); } };
       }
-      field(attachmentGrid, row, 'aft_xc', 'Aft attachment x/c', 'Fraction of the complete local aerodynamic chord at the aft rib, measured from the leading edge. It must lie within the structural box, at a location distinct from the front attachment; the mesh generator checks the actual geometry.');
-      remove.type = 'button'; remove.onclick = () => { if (isLocked()) return; rows = rows.filter(item => item !== row); box.remove(); sync(); refresh(); };
+      field(attachmentGrid, row, 'aft_xc', 'Aft attachment x/c', 'Fraction of the complete local aerodynamic chord measured from the leading edge. Selects the nearest existing lower-surface node on the aft rib, including the nearest box boundary if outside the box. Inspect the aft RBE3 for requested and actual x/c; refine the rib mesh for a closer point.');
+      remove.type = 'button'; remove.title='Remove this engine and its thrust assignments from every load case.';
+      remove.onclick = () => { if (isLocked()) return;
+        try{onRemove(row.committedName);}catch(exception){initialError=exception.message;check();return;}
+        rows = rows.filter(item => item !== row); box.remove(); sync(); refresh(); };
       location.append(locationTitle, locationGrid); beam.append(beamTitle, beamGrid, inertia); stiffness.append(stiffnessTitle, stiffnessGrid); attachments.append(attachmentTitle, attachmentGrid);
       box.append(legend, identity, location, beam, stiffness, attachments, remove); list.append(box); updateInertia(row); return row;
     }
@@ -226,7 +252,13 @@
     host.addEventListener('parameterlockchange', refresh); refresh();
     return {
       refresh, readDrafts: () => ({ [KEY]: drafts() }),
-      assertValidDraft() { const message = check(); if (message) throw Error(message); },
+      assertValidDraft() {
+        // Saving by keyboard may occur before blur. Finish a pending rename
+        // through the same atomic path used by the visible name control.
+        for(const row of rows)if(row.inputs.name.value.trim()!==row.committedName)
+          row.inputs.name.dispatchEvent(new doc.defaultView.Event('change',{bubbles:true}));
+        const message = check(); if (message) throw Error(message);
+      },
       destroy() { destroyed = true; host.removeEventListener('parameterlockchange', refresh); editor.remove(); }
     };
   }

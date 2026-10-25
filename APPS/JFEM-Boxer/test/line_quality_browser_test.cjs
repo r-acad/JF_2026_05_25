@@ -49,12 +49,14 @@ if(!['webgpu','webgl'].includes(backend))throw Error('Choose webgpu or webgl.');
    const centers=[];let coverage=0,partial=0,redPixels=0;const bins=new Set();
    for(let x=55;x<905;x++){let sum=0,weighted=0;for(let y=25;y<160;y++){const i=(y*c.width+x)*4,r=d[i],g=d[i+1],b=d[i+2],weight=Math.max(0,r-(g+b)/2);if(weight<2)continue;sum+=weight;weighted+=weight*(y+.5);coverage+=weight;redPixels++;if(weight>8&&weight<195)partial++;bins.add(Math.round(weight));}if(sum>15)centers.push([x+.5,weighted/sum]);}
    const n=centers.length,mx=centers.reduce((s,p)=>s+p[0],0)/n,my=centers.reduce((s,p)=>s+p[1],0)/n;let xy=0,xx=0;for(const[x,y]of centers){xy+=(x-mx)*(y-my);xx+=(x-mx)**2;}const slope=xy/xx,intercept=my-slope*mx,jitter=Math.sqrt(centers.reduce((s,[x,y])=>s+(y-slope*x-intercept)**2,0)/n);
-   let colored=0,wrong=0,grid=0,hiddenGreen=0;for(let y=170;y<c.height;y++)for(let x=0;x<c.width;x++){const i=(y*c.width+x)*4,r=d[i],g=d[i+1],b=d[i+2];if(Math.max(r,b)-g>30&&g<220){colored++;if(b-r<20)wrong++;}if(r<80&&g<100&&b<130)grid++;if(g>r+30&&g>b+30)hiddenGreen++;}
+   // A genuinely reversed peel is red-dominant. Dark antialiased grid pixels
+   // may approach neutral and must not be mistaken for a reversed blue skin.
+   let colored=0,wrong=0,grid=0,hiddenGreen=0;for(let y=170;y<c.height;y++)for(let x=0;x<c.width;x++){const i=(y*c.width+x)*4,r=d[i],g=d[i+1],b=d[i+2];if(Math.max(r,b)-g>30&&g<220){colored++;if(r>b+10)wrong++;}if(r<80&&g<100&&b<130)grid++;if(g>r+30&&g>b+30)hiddenGreen++;}
    return{width:c.width,height:c.height,calibration:{samples:n,coverage,partial,redPixels,levels:bins.size,jitter,slope},sheet:{colored,wrong,wrongFraction:wrong/colored,grid,hiddenGreen}};
   },png.toString('base64'));}
   const cases=[['front-translucent',-1.1,.9,false,false],['grazing-translucent',-1.1,1.42,false,false],['orthographic-translucent',-.6,1.15,true,false],['front-solid',-.9,.9,false,true]];
   for(const[name,alpha,beta,ortho,solid]of cases){
-   await page.evaluate(async p=>{quality?.dispose();quality=null;engine.setHardwareScalingLevel(1);engine.resize();pose(p);await render();},{alpha,beta,ortho,solid});const before=await capture(name+'-before');
+   await page.evaluate(async p=>{quality?.dispose();quality=null;engine.setHardwareScalingLevel(1/devicePixelRatio);engine.resize();pose(p);await render();},{alpha,beta,ortho,solid});const before=await capture(name+'-before');
    await page.evaluate(async()=>{quality=WingLineQuality.create({BABYLON,scene,camera,canvas:document.getElementById('canvas')});await render();});const after=await capture(name+'-after');
    const state=await page.evaluate(()=>({gpuErrors:[...gpuErrors],width:engine.getRenderWidth(),height:engine.getRenderHeight(),camera:[camera.alpha,camera.beta,camera.mode],ready:scene.isReady()}));
    results.push({name,before,after,state,jitterReductionPercent:100*(1-after.calibration.jitter/before.calibration.jitter)});
@@ -69,7 +71,18 @@ if(!['webgpu','webgl'].includes(backend))throw Error('Choose webgpu or webgl.');
   await page.evaluate(async()=>{skins.forEach(m=>m.setEnabled(false));edges.forEach(m=>m.setEnabled(false));await render();});
   const occlusionControl=await capture('hidden-line-visible-control');assert(occlusionControl.sheet.hiddenGreen>100,'The occlusion probe must be visible without the skin');
   await page.setViewportSize({width:880,height:660});await page.evaluate(async()=>{engine.resize();quality?.resize?.();await render();});
-  const lifecycle=await page.evaluate(async()=>{const active=camera._postProcesses.filter(Boolean).length;quality.dispose();await render();return{active,disposed:camera._postProcesses.filter(Boolean).length,errors:[...gpuErrors]};});assert.deepEqual(lifecycle.errors,[]);assert.equal(lifecycle.disposed,0);assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
-  fs.writeFileSync(path.join(out,'summary.json'),JSON.stringify({passed:true,info,results,occlusionControl,lifecycle,errors,external},null,2));console.log(backend+': four real-pixel scenes improve line smoothness and preserve dense FE skins, with no GPU errors.');
+  const lifecycle=await page.evaluate(async()=>{
+   const B=BABYLON,c=B.Color4.FromHexString('#4d99ccb3'),source=B.MeshBuilder.CreateLineSystem('vertex-colored-probe',{lines:[[new B.Vector3(-2,1,0),new B.Vector3(2,1,0)]],colors:[[c,c]],updatable:true},scene);
+   // Loft cuts deliberately set both the native uniform and vertex colors.
+   // Native vertex-colored lines ignore that uniform; do not multiply twice.
+   source.color=new B.Color3(c.r,c.g,c.b);await render();const proxy=source._wingScreenStroke,white=proxy.material.emissiveColor.asArray(),colors=Array.from(proxy.getVerticesData('color'));
+   const first=proxy.getVerticesData('position'),other=proxy.getVerticesData('strokeOther'),indices=proxy.getIndices(),points=source.getVerticesData('position').slice();points[1]+=.15;source.updateVerticesData('position',points,true);await render();
+   const reused=first===proxy.getVerticesData('position')&&other===proxy.getVerticesData('strokeOther')&&indices===proxy.getIndices(),moved=proxy.getVerticesData('position')[1]===points[1];
+   source.updateIndices(Int32Array.from([]));await render();const empty=!proxy.isEnabled();source.updateIndices(Int32Array.from([0,1]));await render();const restored=proxy.isEnabled()&&proxy.getTotalIndices()===6;
+   const hidden=B.MeshBuilder.CreateLines('lazy-hidden-probe',{points:[B.Vector3.Zero(),B.Vector3.One()]},scene);hidden.setEnabled(false);await render();const lazy=!hidden._wingScreenStroke;hidden.setEnabled(true);await render();const shown=!!hidden._wingScreenStroke;
+   const active=camera._postProcesses.filter(Boolean).length;quality.dispose();await render();
+   return{active,disposed:camera._postProcesses.filter(Boolean).length,remainingStrokes:scene.meshes.filter(m=>m.metadata?.wingStrokeSource).length,white,colors,expected:[c.r**2.2,c.g**2.2,c.b**2.2,c.a],reused,moved,empty,restored,lazy,shown,errors:[...gpuErrors]};
+  });assert.deepEqual(lifecycle.errors,[]);assert.equal(lifecycle.disposed,0);assert.equal(lifecycle.remainingStrokes,0);assert.deepEqual(lifecycle.white,[1,1,1]);for(let k=0;k<lifecycle.colors.length;k++)assert(Math.abs(lifecycle.colors[k]-lifecycle.expected[k%4])<1e-6);assert(lifecycle.reused&&lifecycle.moved&&lifecycle.empty&&lifecycle.restored&&lifecycle.lazy&&lifecycle.shown);assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
+  fs.writeFileSync(path.join(out,'summary.json'),JSON.stringify({passed:true,info,results,occlusionControl,lifecycle,errors,external},null,2));console.log(backend+': four real-pixel scenes, color preservation, reused animation buffers, index filtering, lazy hidden layers and disposal pass without GPU errors.');
  }catch(e){fs.writeFileSync(path.join(out,'failure.json'),JSON.stringify({error:e.stack,results,errors,external},null,2));throw e;}finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e.stack);process.exitCode=1;});

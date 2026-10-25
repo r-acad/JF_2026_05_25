@@ -5,6 +5,38 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Boxer line clarity and engine thrust
+
+- Draw mesh and connection lines with a consistent screen width and stronger
+  edge contrast in solid and translucent views. Preserve depth visibility,
+  picking, deformation and SVG geometry on WebGPU and WebGL.
+- Add signed thrust in N for each engine under Loads / Cases. Apply thrust at
+  the engine CG, forward along BASIC -X for positive inputs, with the case
+  multiplier applied once and independently of structural inertia.
+- Include thrust in SOL101/SOL106 loads and SOL105 static preloads. Preserve
+  mass in SOL103, case inheritance, Study/TOML round trips and engine renames.
+  Report individual engine forces in the load-routing log.
+
+### Engine attachments at the CG and spar caps
+
+- Join the engine CG directly to two upper front-spar-cap nodes on each side
+  of the selected front rib using an RBE3.
+- Join the aft beam end to the corresponding lower-cap nodes around its rib
+  and the nearest existing lower-rib node to the requested x/c. Report the
+  requested and actual position in Inspect; remove intermediate RBE2 arms.
+- Preserve moment transfer for collinear cap patches and diagnose insufficient
+  neighboring nodes. Earlier engine results require regeneration and analysis.
+
+### Movable hinge fittings, mesh spacing and view preservation
+
+- Attach movable hinge lugs to the front spar for z/t at or above -0.5. Use
+  underside fittings only below the lower airfoil contour, extending the
+  fitting to the front spar through connected rib edges.
+- Redistribute movable mesh divisions around physical ribs and spars to avoid
+  near-coincident grid lines that create slender skin strips.
+- Keep attachment rows ordered by eta and preserve the camera when manually
+  regenerating an existing FEM.
+
 ### Boxer 3D line smoothing
 
 - Smooth the final 3D image, including translucent mesh edges, with FXAA.

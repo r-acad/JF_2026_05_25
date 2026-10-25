@@ -29,4 +29,6 @@ for(const [key,field,value]of [
 const display=copy(normalized);display['movable_surfaces.items'][0].color='#abcdef';display['movable_surfaces.items'][0].deflection=20;assert.equal(sig(display),sig(normalized));checks++;
 const deflected=copy(normalized);deflected['movable_structure.surfaces'][0].mesh_deflected=true;const moved=copy(deflected);moved['movable_surfaces.items'][0].deflection=20;assert.notEqual(sig(deflected),sig(moved));checks++;
 const explicitMidpoint=copy(normalized);explicitMidpoint['movable_surfaces.items'][0].hinge_z_start=0;explicitMidpoint['movable_surfaces.items'][0].hinge_z_end=0;assert.equal(sig(legacy),sig(explicitMidpoint));checks++;
+const ordered=copy(normalized);ordered['movable_structure.attachments'].push({...ordered['movable_structure.attachments'][0],eta:.7,rib:5});const unsorted=copy(ordered);unsorted['movable_structure.attachments'].reverse();assert.equal(sig(ordered),sig(unsorted));checks++;
+for(const [key,value]of [['eta',.8],['actuator_stiffness',2e7]]){const editedAttachment=copy(unsorted);editedAttachment['movable_structure.attachments'][0][key]=value;assert.notEqual(sig(ordered),sig(editedAttachment));checks++;}
 console.log(JSON.stringify({passed:true,checks}));

@@ -16,7 +16,7 @@
     {key:"aerodynamic",label:"Aerodynamic",color:"#6ebdff",description:"Contribution from the applied aerodynamic forces and moments."},
     {key:"structure",label:"Structural inertia",color:"#f7bd66",description:"Contribution from dry structural mass under the case acceleration."},
     {key:"fuel",label:"Fuel inertia",color:"#c7a0ff",description:"Contribution from the selected fuel mass under the case acceleration."},
-    {key:"engine",label:"Engine inertia",color:"#f282aa",description:"Concentrated engine forces at their actual centers of gravity, under the case acceleration."},
+    {key:"engine",label:"Engine loads",color:"#f282aa",description:"Engine thrust plus enabled engine inertia, applied at each actual centre of gravity. The case load multiplier is applied once to both contributions."},
     {key:"total",label:"Total",color:"#63ddb1",description:"Algebraic sum of all applied source contributions, including curves hidden in this view."},
   ];
   const THEMES={dark:{background:'#111c27',text:'#e0eaf2',muted:'#a6bbcd',grid:'#26394a',zero:'#72899a',cursor:'#d8e5ef',colors:{aerodynamic:'#6ebdff',structure:'#f7bd66',fuel:'#c7a0ff',engine:'#f282aa',total:'#63ddb1',elliptical:'#ffd276'}},light:{background:'#ffffff',text:'#20384d',muted:'#415b70',grid:'#dce5ec',zero:'#718394',cursor:'#263f54',colors:{aerodynamic:'#0969b4',structure:'#a95b00',fuel:'#7b3fb0',engine:'#b31e60',total:'#00785b',elliptical:'#a95b00'}}};

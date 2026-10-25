@@ -26,7 +26,7 @@ function snapped_movable_attachments(p,s,row,rib_etas)
         push!(seen,ri)
         push!(out,merge(copy(a),Dict{String,Any}("requested_eta"=>a["eta"],"eta"=>rib_etas[ri],"rib"=>ri)))
     end
-    out
+    sort!(out;by=r->r["eta"])
 end
 
 function normalize_movable_structure(value,key)
@@ -71,6 +71,7 @@ function normalize_movable_structure(value,key)
         end
         push!(out,row)
     end
+    attachment&&sort!(out;by=r->(r["surface"],r["eta"]))
     out
 end
 
@@ -225,9 +226,12 @@ function add_movable_structure!(reg,g,p,groups,eid)
         rot=movable_rotation(w,s,row["mesh_deflected"]);aa=snapped_movable_attachments(p,s,row,g.etas[g.ribs.+1])
         aa=movable_attachment_planes(g,s,row,rot,aa)
         rib_layout=movable_master_rib_layout(a,b,row,aa);rib_etas=[r["eta"] for r in rib_layout]
-        etas=movable_distinct_stations(vcat([lo+(hi-lo)*k/row["span_elements"] for (lo,hi) in zip(rib_etas[1:end-1],rib_etas[2:end]) for k in 0:row["span_elements"]],
-            filter(t->a<t<b,g.etas),filter(t->a<t<b,loft_control_etas(w))))
-        us=sort!(unique(vcat(collect(range(0.,1.;length=row["chord_elements"]+1)),row["secondary_spar"]>0 ? [row["secondary_spar"]] : Float64[])))
+        # The control has its own conforming rib mesh. Main-box element rows
+        # are not control ribs: merging the two unrelated station sets created
+        # arbitrarily thin strips, even far from a hinge. Evaluate the actual
+        # loft at each control node instead of importing another mesh's rows.
+        etas=movable_span_stations(w,row,rib_etas)
+        us=movable_chord_stations(row)
         nh=row["height_elements"];edge=s["edge"]=="trailing" ? 1. : 0.
         rib_node_etas=movable_rib_eta_grid(w,s,row,rot,rib_layout,aa,us,nh)
         actual_eta(i,j,k)=begin
@@ -253,7 +257,10 @@ function add_movable_structure!(reg,g,p,groups,eid)
         end
         caches=Dict{Tuple{Int,Int,Symbol},Any}()
         function shell(family,station,conn)
-            nodes=unique(collect(conn));length(nodes)<3&&return
+            nodes=unique(collect(conn))
+            family in (31,32)&&length(nodes)<3&&throw(ArgumentError("$(s["name"]) skin, bay $station: the control skin has collapsed to fewer than three distinct nodes. Check the control chord and rib/hinge geometry; the collapsed skin has not been exported."))
+            length(nodes)<3&&return
+            family in (31,32)&&validate_movable_skin_cell(reg,nodes,"$(s["name"]) $(family==31 ? "upper" : "lower") skin, bay $station")
             kind=length(nodes)==3 ? :tria : :quad
             pid=family*1_000_000+si*1000+station
             name=("MOVABLE_UPPER_SKIN","MOVABLE_LOWER_SKIN","MOVABLE_HINGE_WEB","MOVABLE_SPAR_WEB","MOVABLE_RIB_WEBS")[family-30]
@@ -323,7 +330,11 @@ function add_movable_structure!(reg,g,p,groups,eid)
                 append!(interpolation_links,main_links)
                 for link in interpolation_links;link["eid"]=eid;eid+=1;end
             end
-            boxref,moveref=free(center),free(center)
+            # At exactly the lower front corner the lug can collapse to a
+            # direct hinge-to-spar connection. Reuse that physical GRID rather
+            # than introducing coincident free GRIDs and zero-area triangles.
+            coincident=attachment["fitting"]=="shell_lugs"&&underside_fitting===nothing ? findfirst(n->sum(abs2,reg.xyz[3n-2:3n].-center)<=100tol^2,fitting_nodes) : nothing
+            boxref,moveref=free(center),coincident===nothing ? free(center) : fitting_nodes[coincident]
             knee=underside_fitting!==nothing&&underside_fitting.knee_point!==nothing ? free(underside_fitting.knee_point) : 0
             knee>0&&(metadata["node_etas"][knee]=(rot.unrotate(underside_fitting.knee_point)[2]-w.root_ref_y)/w.semispan)
             metadata["node_etas"][boxref]=metadata["node_etas"][moveref]=hinge_eta
@@ -347,6 +358,7 @@ function add_movable_structure!(reg,g,p,groups,eid)
                     for (n1,n2,tip) in triangles
                         p1=reg.xyz[3n1-2:3n1];p2=reg.xyz[3n2-2:3n2];p3=reg.xyz[3tip-2:3tip]
                         area2=sqrt(sum(abs2,cross3(p2.-p1,p3.-p1)))
+                        side=="movable surface"&&coincident!==nothing&&area2<=tol*max(sqrt(sum(abs2,p2.-p1)),tol)&&continue
                         area2>tol*max(sqrt(sum(abs2,p2.-p1)),tol)||throw(ArgumentError("$(s["name"]): $side hinge lug at eta $eta has zero area. Separate the true hinge line from the control front spar and main-box spar, or use idealized fittings."))
                         push!(lug.eids,eid);push!(rec["lug_eids"],eid);append!(lug.conn,(n1,n2,tip));eid+=1
                         for n in (n1,n2)

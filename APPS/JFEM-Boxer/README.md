@@ -10,10 +10,11 @@ with OpenJFEM. It generates shell/bar lifting surfaces, aerodynamic lattices and
 load cases, writes REFERENCE decks, launches the solver in this repository and
 displays structural results and property sensitivities.
 
-The 3D viewport smooths mesh edges automatically in solid and translucent
-views. Final-image antialiasing also covers translucent surfaces, which use
-separate rendering buffers. WebGPU remains preferred, with WebGL as fallback.
-Native line width, model colors and transparency depth accuracy are preserved.
+The 3D viewport draws crisp mesh edges with a consistent screen width in solid
+and translucent views. Antialiasing smooths their boundaries without reducing
+them to faint hairlines on high-DPI displays. Edges retain depth testing, model
+colors, picking and deformation; hidden lines do not show through solid parts.
+WebGPU remains preferred, with WebGL as fallback.
 
 The forms follow the modelling workflow: **Geometry** and **Structure** define
 the lifting surface; **Materials**, **Properties** and **Constraints** define
@@ -33,16 +34,27 @@ values are illustrative and should be replaced with the intended equivalent
 engine section. The beam is centered at the CG and aligned with BASIC X
 (flight direction). Define the front mount by its physical front-spar rib,
 and the aft mount by its physical rib and local airfoil x/c. Both mounts may
-use the same rib. The aft point must lie between the wing-box spars; invalid
-locations are explained rather than silently moved. Create FEM refreshes the
-available ribs after a geometry edit. Definitions are saved with the Study.
+use the same rib. Create FEM refreshes the available ribs after a geometry
+edit. Definitions are saved with the Study.
+
+The front RBE3 connects the **beam midpoint / CG** directly to the first two
+**upper front-spar-cap** mesh nodes inboard and first two outboard of the
+front attachment rib (four nodes; the nominal rib node is excluded).
+The aft RBE3 connects the **aft beam end** to the corresponding four
+**lower front-spar-cap** nodes around the aft attachment rib, plus the
+existing lower-surface node on that rib nearest the specified x/c. Requested
+and actual x/c are available in Inspect. A target outside the box snaps to
+its nearest boundary node. Each rib needs at least two distinct cap nodes on
+each side; choose an interior rib or refine the span mesh if needed.
 
 This is a **flexible beam with concentrated engine mass**: one CONM2 at the CG carries the mass
 and uniform slender-beam inertia, `Iyy = Izz = mass * length² / 12`, `Ixx = 0`.
 Two elastic CBAR segments join the CG to the beam ends. Their zero-density
-material avoids duplicating the CG mass. Each beam end connects through a
-rigid arm to an RBE3 mount patch, so the entered beam stiffness governs load
-transfer between the engine and wing. The CG remains a free beam node.
+material avoids duplicating the CG mass. The CG and aft-end motions follow
+their wing RBE3 connections; the forward beam end is free. There are no
+intermediate rigid mounting arms. RBE3s use cap-node translations; collinear
+or nearly collinear patches also use the cap rotation needed to recover
+rotation about the cap line without adding other attachment nodes.
 The attachment idealisation adds no pylon material mass or flexible pylon
 shells. Beam cylinder radius is only a display
 size. Use Inspect to identify the beam, CG mass or attachment. Engine mass is
@@ -51,6 +63,28 @@ Loads, **Include structural inertia** applies the case's signed acceleration
 and load multiplier to each engine CG. Weight summaries and load plots show
 the engine contribution separately; bay mass aggregation does not duplicate
 or relocate the engine mass.
+
+When engines are defined, **Loads > Cases > Engine thrust** provides a signed
+force in **N for each engine**, separately for each load case. Positive thrust
+acts forward along **BASIC -X** at the engine CG; negative thrust acts aft.
+The case's **Load multiplier** scales it once. Thrust is independent of
+**Include structural inertia**, so an engine can apply thrust with inertia
+loads switched off. Disabled engines retain their inputs but apply no thrust.
+Engine mass is unchanged by the thrust setting.
+
+An additional case without its own thrust schedule inherits the complete
+schedule from case 1. Editing an engine creates a separate schedule for that
+case; **Use case 1 thrust** restores inheritance. Engines omitted from an
+explicit schedule have zero thrust, and an explicit empty schedule means all
+engines are off. Engine renames update the assignments; removing an engine
+removes its thrust assignments with a notification.
+
+SOL101 and SOL106 apply thrust as a fixed BASIC-direction force. SOL105
+includes it in the static preload, which is scaled by the buckling factor
+along with the other preload forces. SOL103 normal modes does not use applied
+forces. Regenerate the FEM and rerun the analysis after changing thrust.
+The load-routing log lists each engine's input thrust, multiplier and applied
+CG force. Load plots include engine thrust and inertia in the engine curve.
 
 **Loads > Cases > Distribution** includes **Schrenk (ellipse + chord)** for
 prescribed lift. It averages an equal-area elliptical distribution and the actual
@@ -691,6 +725,8 @@ FEM, just as changes to the main box do.
 In **Structure → Movable surfaces**, select a geometry and click **Add structure**.
 Use the surface selector to edit one existing structure and its attachments at
 a time. Switching the selector preserves the other structures' entries.
+Attachments are listed and saved in ascending eta order. Selecting a rib or
+committing an eta edit reorders the existing rows without losing their settings.
 Set skin, web and rib materials from the Materials library, their thicknesses,
 rib bays and mesh subdivisions. The generated monolithic shell structure has
 upper/lower skins, a front-spar web, optional secondary spar and end/internal
@@ -700,6 +736,14 @@ zero omits it. **Mesh at preview deflection** uses the geometry angle in the
 actual FE mesh; otherwise the structure is generated in its neutral position.
 **Structural end eta** can stop the structure before the aerodynamic surface
 ends; zero retains the full surface span.
+
+Movable-surface mesh divisions follow their own ribs and secondary spar.
+Subdivisions are spaced within each physical interval, so an almost coincident
+secondary spar does not add a narrow strip beside a regular mesh line. Refining
+the main wing no longer inserts unrelated rows into the control skins. Physical
+geometry stations remain represented. If required features are too close, or
+attachment obliquity would collapse or invert a skin cell, generation identifies
+the affected surface and the geometry or mesh setting to adjust.
 
 Select the movable surface to edit from the dropdown in either Geometry or
 Structure; the other surfaces retain their settings. Each attachment specifies
@@ -720,22 +764,26 @@ fixed. **Maximum rib-pitch ratio** limits the gap to a multiple of the original
 nominal pitch (default 1.5); larger gaps receive intermediate ribs. Attachment
 ribs are masters, and the adjacent skins and webs share their mesh nodes.
 
-If the hinge is less than 3% of the local full-airfoil chord ahead of the
-movable front spar, or lies behind it, the movable lug attaches to the underside
-of this master rib. Its plane is normal to the hinge, including for flaps.
-For a hinge ahead of the front spar, a two-triangle bracket around the lower
-front corner is used when a direct underside triangle would cross the skin.
-The extra corner stays outside both the front web and lower skin; the hinge
-position is preserved. Hinge z/t can also place the hinge below the airfoil.
-A hinge inside the closed control section is rejected with an explanation.
-Otherwise the movable lug extends from its front spar. The lugs must have
-nonzero area. **Lateral RBE2 stays** connect each hinge tip
+When the interpolated hinge z/t setting is **-0.5 or higher**, the movable lug
+attaches to the **front spar**, including hinges close to or behind that spar.
+An underside lug is used only when z/t is below -0.5 and the actual straight
+hinge line is below the local lower airfoil contour. Its plane is normal to the
+hinge, including for flaps. The underside fitting follows the existing lower
+rib edges all the way to the front spar; it cannot end on an isolated skin cell.
+The hinge position is preserved, and a fitting that would cross the section is
+rejected with an explanation. At a hinge coincident with a front-spar node,
+the existing node is used directly instead of generating zero-area triangles.
+**Lateral RBE2 stays** connect each hinge tip
 to the upper spar-cap node of its own box's next outboard rib; at the last rib,
 the previous rib is used. These are rigid arms tying all three target
 translations, not axial-only rods. The app rejects conflicting dependent cap nodes.
 The arms are required for a rigid joint to transmit rotational restraint without
 relying on shell drilling stabilization. They are optional for an axial actuator,
 whose real spar-cap endpoints provide its force lever arm.
+
+Manual **Create FEM** and the **G** shortcut preserve the current 3D camera,
+including its target, orientation, zoom and projection. The first model is
+fitted automatically; use **Fit** to frame the complete model again.
 
 For these physical lugs, **Restrained hinge** joins local translations 1/2/3 and
 rotations 5/6 with an RBE2, leaving relative rotation 4 about the hinge free.

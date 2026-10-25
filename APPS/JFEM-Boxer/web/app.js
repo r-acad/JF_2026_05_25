@@ -48,7 +48,7 @@ const isForegroundBar = group => !!group && FOREGROUND_BARS.has(group.base_group
 const EXTRA_STYLE = {
   NODES:        { color: "#ecf4ff", label: "Structural nodes" },
   AERO_SURFACE: { color: "#8fa0b3", alpha: 0.12, label: "Deformed Aerodynamic loft" },
-  MESH_EDGES:   { color: "#33465a", alpha: .65, label: "Element edges" },
+  MESH_EDGES:   { color: "#33465a", alpha: .9, label: "Element edges" },
   RBE3:         { color: "#f4b8d6", label: "RBE3 for Loads" },
   RBE3_NODES:   { color: "#e45ad4", label: "Aerodynamic load reference nodes" },
   FUEL_RBE3:    { color: "#f4b8d6", label: "Fuel RBE3 spiders · 123456" },
@@ -388,6 +388,7 @@ const CASE_FIELDS = [
   ["fuel_accel_x", "Inertia acceleration x (g)", "loads.fuel_accel_x"],
   ["fuel_accel_y", "Inertia acceleration y (g)", "loads.fuel_accel_y"],
   ["fuel_accel_z", "Inertia acceleration z (g)", "loads.fuel_accel_z"],
+  ["engine_thrust", "Engine thrust", "loads.engine_thrust"],
 ];
 const CASE_GLOBAL_KEYS = new Set(["loads.label", ...CASE_FIELDS.map((field) => field[2])]);
 const CHOICE_LABELS = {
@@ -544,7 +545,7 @@ function parameterModelValue(key, value) {
   return key === "material.E" ? Number((value * 1e9).toPrecision(15)) : value;
 }
 
-const JSON_TABLE_KINDS = new Set(["planformpoints","masterribs","riborientations","airfoilstations","loftstations","movablesurfaces","movablestructure","movableattachments","engines","supportsets","ribproperties","sparproperties","panelproperties","componentproperties","materials","shellmaterials","barmaterials","materialallowables"]);
+const JSON_TABLE_KINDS = new Set(["planformpoints","masterribs","riborientations","airfoilstations","loftstations","movablesurfaces","movablestructure","movableattachments","engines","enginethrust","supportsets","ribproperties","sparproperties","panelproperties","componentproperties","materials","shellmaterials","barmaterials","materialallowables"]);
 function parameterRow(spec, values) {
   const unitText = spec.key === "material.E" ? "GPa" : spec.unit;
   const helpText = spec.help || (spec.key === "material.E" ? "Elastic tensile/compressive stiffness, entered in GPa: 71 GPa = 71000000000 Pa. Calculations and saved inputs use Pa." : "");
@@ -828,6 +829,7 @@ function buildForm(schema, values) {
   state.movableEditor?.destroy?.(); state.movableEditor = null;
   state.movableStructureEditor?.destroy?.(); state.movableStructureEditor = null;
   state.enginesEditor?.destroy?.(); state.enginesEditor = null;
+  state.engineThrustNotice = '';
   state.supportEditor?.destroy?.(); state.supportEditor = null;
   state.stringerLayout?.destroy?.(); state.stringerLayout = null;
   state.materialsEditor?.destroy?.(); state.materialsEditor = null;
@@ -927,6 +929,8 @@ function buildForm(schema, values) {
     });
     if (name === "Engines" && typeof WingEngines !== "undefined") state.enginesEditor = WingEngines.install(det, {
       onEdit:parameterEdited,onHelp:openHelp,readRibs:currentSupportRibs,isLocked:()=>state.parameterLocks?.isLocked("engines.items")||false,
+      onRename:(oldName,newName)=>updateEngineThrustAssignments(oldName,newName),
+      onRemove:name=>updateEngineThrustAssignments(name,null),
       createFEM:()=>{const button=document.getElementById("btn-create");if(!button||button.disabled)throw Error("Finish the current operation before creating the FEM.");button.click();},
     });
     if (name === "Fuel tank" && typeof WingFuelTankView !== "undefined") state.fuelTankView = WingFuelTankView.install(det, {
@@ -1034,13 +1038,32 @@ function baseCaseValue(key) {
   const input = document.getElementById("p-" + key);
   if (spec && spec.kind === "bool") return input ? input.checked : !!state.values[key];
   const raw = spec && input ? input.value : state.values[key];
+  if (spec && JSON_TABLE_KINDS.has(spec.kind)) return typeof raw === 'string' ? JSON.parse(raw || '[]') : raw || [];
   if (spec && (spec.kind === "float" || spec.kind === "int")) return raw === "" ? "" : Number(raw);
   return raw;
 }
 
 function effectiveCase(c) {
   const fields = Object.fromEntries(CASE_FIELDS.map(([field, , key]) => [field, c && c[field] !== undefined ? c[field] : baseCaseValue(key)]));
-  return { ...fields, id: c ? Number(c.id) : 1, label: c ? c.label : baseCaseValue("loads.label") || "Load case 1", enabled: !c || c.enabled !== false };
+  return { ...fields, engine_thrust:JSON.parse(JSON.stringify(fields.engine_thrust || [])), id: c ? Number(c.id) : 1, label: c ? c.label : baseCaseValue("loads.label") || "Load case 1", enabled: !c || c.enabled !== false };
+}
+
+function updateEngineThrustAssignments(oldName,newName) {
+  if(typeof WingEngineThrust==='undefined')return;
+  const input=document.getElementById('p-loads.engine_thrust');
+  const base=baseCaseValue('loads.engine_thrust')||[];
+  const transform=rows=>newName===null ? rows.filter(row=>row.engine!==oldName) : WingEngineThrust.renamed(rows,oldName,newName);
+  // Calculate every update before applying any, so a conflicting saved name
+  // cannot partially rename thrust in just some of the load cases.
+  const updatedBase=transform(base),updates=state.loadCases.map(row=>row.engine_thrust===undefined?undefined:transform(row.engine_thrust));
+  const count=base.filter(row=>row.engine===oldName).length+state.loadCases.reduce((n,row)=>n+(row.engine_thrust||[]).filter(item=>item.engine===oldName).length,0);
+  if(input)input.value=JSON.stringify(updatedBase);
+  for(const [index,row]of state.loadCases.entries())if(updates[index]!==undefined)row.engine_thrust=updates[index];
+  if(count){
+    state.engineThrustNotice=newName===null ? 'Removed '+oldName+' and its thrust assignments from '+count+' explicit load-case schedule(s).' : 'Thrust assignments now follow the renamed engine: '+oldName+' → '+newName+'.';
+    log(state.engineThrustNotice,'warn');
+  }
+  buildLoadCaseEditor();
 }
 
 function updateEigenvalueExplanation(solution) {
@@ -1165,6 +1188,7 @@ function buildLoadCaseEditor() {
       : "Lift matching is off. Prescribed lift or the entered VLM flight condition determines the aerodynamic load.";
   };
   for (const [key, label, globalKey, method] of CASE_FIELDS) {
+    if(key==='engine_thrust')continue;
     if (typeof WingFlightConditions !== "undefined" && WingFlightConditions.FIELDS.includes(key)) continue;
     if (method && method !== (current.method || "analytic")) continue;
     const spec = state.schema.find((item) => item.key === globalKey);
@@ -1239,6 +1263,16 @@ function buildLoadCaseEditor() {
   const note = document.createElement("p"); note.id = "case-analysis-note"; note.className = "case-workflow"; host.appendChild(note); updateCaseAnalysisNote();
   refreshLiftTarget();
   if(typeof WingUILayout!=="undefined")WingUILayout.cases(document);
+  if(typeof WingEngineThrust!=='undefined' && document.getElementById('p-loads.engine_thrust')) {
+    const engines=state.enginesEditor?.readDrafts?.()?.['engines.items']??JSON.parse(document.getElementById('p-engines.items')?.value||'[]');
+    WingEngineThrust.mount({host,engines,read:()=>effectiveCase(c).engine_thrust,
+      write:rows=>{if(c)c.engine_thrust=rows;else document.getElementById('p-loads.engine_thrust').value=JSON.stringify(rows);changed('loads.engine_thrust');},
+      inherited:!!c&&c.engine_thrust===undefined,
+      onInherit:c?()=>{delete c.engine_thrust;changed('loads.cases');buildLoadCaseEditor();}:null,
+      isLocked:()=>state.parameterLocks?.isLocked(c?'loads.cases':'loads.engine_thrust')||false,
+      notice:state.engineThrustNotice||''});
+    host.append(note);
+  }
 }
 
 // Output naming and solver location do not alter the FE model or its loads.
@@ -1326,6 +1360,10 @@ function formSignature(params) {
   if(state.diskResults)return state.diskResults.signature;
   if(state.importedDeck)return WingImportedAnalysis.signature(state.importedDeck);
   return JSON.stringify(state.schema.filter((s) => affectsModel(s.key,params)).map((s) => {
+    if(s.kind==='enginethrust') {
+      const value=params?params[s.key]||[]:baseCaseValue(s.key)||[];
+      return[s.key,typeof WingEngineThrust!=='undefined'?WingEngineThrust.canonical(value):value];
+    }
     if(s.kind==="engines") {
       const value=params?params[s.key]||[]:state.enginesEditor?.readDrafts?.()?.[s.key]??JSON.parse(document.getElementById("p-"+s.key)?.value||"[]");
       return[s.key,typeof WingEngines!=="undefined"?WingEngines.canonical(value):value];
@@ -1337,7 +1375,7 @@ function formSignature(params) {
       if(s.kind==="movablestructure"&&typeof WingMovableStructure!=="undefined")
         value=value.map(row=>({...WingMovableStructure.defaults,...row}));
       if(s.kind==="movableattachments"&&typeof WingMovableStructure!=="undefined")
-        value=value.map(row=>({...WingMovableStructure.attachmentDefaults,...row}));
+        value=WingMovableStructure.orderAttachments(value.map(row=>({...WingMovableStructure.attachmentDefaults,...row})));
       if(s.kind==="movablesurfaces") {
         const structures=params?.["movable_structure.surfaces"]??JSON.parse(document.getElementById("p-movable_structure.surfaces")?.value||"[]");
         const active=new Map(structures.filter(row=>row.enabled!==false).map(row=>[row.surface,row]));
@@ -1391,6 +1429,7 @@ function formSignature(params) {
       return [s.key, cases.map((raw, index) => {
         const id = Number(raw.id === undefined ? index + 2 : raw.id);
         const row = { ...raw, id, label: String(raw.label === undefined ? "Load case " + id : raw.label).trim(), enabled: raw.enabled === undefined ? true : raw.enabled };
+        if(typeof WingEngineThrust!=='undefined')row.engine_thrust=WingEngineThrust.canonical(raw.engine_thrust??(params?params['loads.engine_thrust']:baseCaseValue('loads.engine_thrust'))??[]);
         for (const key of ["lift_total", "aircraft_mass", "maneuver_factor", "load_factor", "torque_y", "speed", "density", "alpha", "fuel_percent", "fuel_accel_x", "fuel_accel_y", "fuel_accel_z"])
           if (row[key] !== undefined) row[key] = Number(row[key]);
         return Object.keys(row).sort().map((key) => [key, row[key]]);
@@ -1604,6 +1643,7 @@ function parameterEdited(key) {
   // Never show paths from the previous generated mesh as the current preview.
   state.modelDirty = !state.data || signature !== state.modelSignature;
   if (/^(planform|airfoil|loft|box|ribs|leading_edge|mesh|engines)\./.test(key)) state.enginesEditor?.refresh();
+  if(key==='engines.items')buildLoadCaseEditor();
   if (/^(planform|box|ribs|stringers|leading_edge|mesh|properties|movable_surfaces)\./.test(key)) state.stringerLayout?.refresh();
   state.panelTables?.refresh();
   if (key === "leading_edge.rib_orientation") syncLeadingEdgeOrientation();
@@ -2123,6 +2163,7 @@ function collectParams({includeView = false, allowReserveFactorDraft = false} = 
       for (const c of state.loadCases) {
         if (!String(c.label === undefined ? "Load case " + c.id : c.label).trim()) bad.push("case " + c.id + " name");
         for (const [field, label, globalKey] of CASE_FIELDS) {
+          if(field==='engine_thrust')continue;
           if (state.schema.find(item => item.key === globalKey)?.kind === "choice" || c[field] === undefined) continue;
           if (["follower_forces","structure_inertia"].includes(field) ? typeof c[field] !== "boolean" : c[field] === "" || !Number.isFinite(Number(c[field]))) {
             bad.push("case " + c.id + " " + label);
@@ -2171,6 +2212,11 @@ function collectParams({includeView = false, allowReserveFactorDraft = false} = 
   }
   if (bad.length) {
     throw new Error("these fields need a value: " + bad.join(", "));
+  }
+  if(typeof WingEngineThrust!=='undefined' && state.schema.some(spec=>spec.kind==='enginethrust')) {
+    out['loads.engine_thrust']=WingEngineThrust.normalize(out['loads.engine_thrust']||[],out['engines.items']||[]);
+    for(const row of out['loads.cases']||[])if(row.engine_thrust!==undefined)
+      row.engine_thrust=WingEngineThrust.normalize(row.engine_thrust,out['engines.items']||[]);
   }
   if (typeof WingPlanformView !== "undefined" && state.schema.some(spec => WingPlanformView.POINT_KEYS?.includes(spec.key))) {
     const planform = WingPlanformView.derive(out);
@@ -2459,7 +2505,9 @@ async function createFEM(options = {}) {
     }
     state.values = params;
     state.data = data;
-    await buildModelResponsive(data, { preserveView: automatic || options.preserveView === true }, token);
+    // Manual regeneration preserves the view just like Live mesh. An initial
+    // model still fits because there is no previous baseline to preserve.
+    await buildModelResponsive(data, { preserveView: options.preserveView !== false }, token);
     state.modelSignature = signature;
     // A pending profile/reference callback can edit inputs while the scene yields,
     // even though the form is inert. Never erase the queued newer definition.
@@ -4704,7 +4752,7 @@ function* buildModelSteps(data, options = {}) {
     if(!attachments?.count)continue;
     const lines = asI32(attachments.lines);
     const spider = lineMesh(layerName, positions, lines,
-                            EXTRA_STYLE[layerName].color, 0.5, true);
+                            EXTRA_STYLE[layerName].color, 0.85, true);
     if (spider && attachments.elements && attachments.eids) {
       const ids = asI32(attachments.eids);
       const gridIndex = new Map(Array.from(state.nodeIds, (id, i) => [id, i]));

@@ -32,7 +32,7 @@ function ParamSpec(key, label, kind, default, group; unit = "", help = "",
     return ParamSpec(key, label, kind, default, group, unit, help, choices)
 end
 
-const LOAD_MULTIPLIER_NOTE = "Dimensionless multiplier applied once to prescribed lift, VLM forces and moments, and prescribed torque. A value of 1.5 converts limit loads to ultimate only when the defined case already represents limit loads; it is not an additional n-g conversion."
+const LOAD_MULTIPLIER_NOTE = "Dimensionless multiplier applied once to prescribed lift, VLM forces and moments, prescribed torque, engine thrust and enabled inertia forces. A value of 1.5 converts limit loads to ultimate only when the defined case already represents limit loads; it is not an additional n-g conversion."
 
 # Aircraft lift matching is independent of the final design/safety multiplier.
 const AIRCRAFT_LIFT_GRAVITY = 9.80665
@@ -91,7 +91,7 @@ const SCHEMA = ParamSpec[
         help="Locate each bearing by movable-surface eta and a main-box rib/front or rear spar. Triangular shell lugs extend both rib/spar edges to the true hinge; optional lateral RBE2 arms reach adjacent upper caps. Legacy idealized RBE3/RBE2 fittings remain available. Select actuator ribs and their axial stiffness. Physical hinges join relative local DOFs 12356 through RBE2, leaving rotation 4 free about hinge x; selected actuator ribs add a finite-length CBUSH K1 in N/m between the main rear upper spar cap and the control front upper spar cap. Rigid joins all six relative DOFs. Lateral RBE2 arms prescribe all three cap translations, not an axial-only rod. Legacy idealized hinges retain finite translation/tilt stiffness. A zero actuator stiffness omits the actuator."),
 
     ParamSpec("engines.items", "Engine / pylon", :engines, Any[], "Engines";
-        help="Define each engine by its center of gravity in BASIC XYZ metres, mass, length, elastic moduli E/G, section A/I1/I2/J, front-spar attachment rib and aft attachment rib and x/c. Two elastic CBAR segments lie along BASIC X with the CG at their common node. One CONM2 at the CG carries the complete mass and line-mass inertia Iy=Iz=mL^2/12, Ix=0; the beam itself has zero density. Endpoints connect through rigid arms and RBE3 wing patches. Engine mass is always included in modal analysis; Include structural inertia enables static acceleration loads. Replace the illustrative stiffness defaults with the intended equivalent engine section."),
+        help="Define each engine by its center of gravity in BASIC XYZ metres, mass, length, elastic moduli E/G, section A/I1/I2/J, front-spar attachment rib and aft attachment rib and x/c. Two elastic CBAR segments lie along BASIC X with the CG at their common node. One CONM2 at the CG carries the complete mass and line-mass inertia Iy=Iz=mL^2/12, Ix=0; the beam itself has zero density. An RBE3 joins the CG to the two upper front-spar-cap nodes on each side of the front rib. Another joins the aft beam end to the equivalent lower-cap nodes around the aft rib and its nearest lower-surface node to the requested x/c. There are no intermediate rigid arms. Engine mass is always included in modal analysis; Include structural inertia enables static acceleration loads. Set independent engine thrusts in Loads / Cases. Replace the illustrative stiffness defaults with the intended equivalent engine section."),
 
     # --- planform ----------------------------------------------------------
     ParamSpec("planform.area", "Base lifting surface area", :float, 16.0, "Planform";
@@ -266,6 +266,8 @@ const SCHEMA = ParamSpec[
               help = "Percentage of each wet bay's usable capacity: 0 empty to 100 full. The bay fills upward at this percentage of its gross geometry, while the tank's Fill efficiency factor scales volume, mass and inertia uniformly without changing fill height or CG. Enable, bound and set the tank efficiency in Fuel tank"),
     ParamSpec("loads.structure_inertia", "Include structural inertia", :bool, true, "Loads";
               help = "Apply the same signed global acceleration and load multiplier to dry structural shell/bar mass and defined engine masses as to fuel. Includes bar centroid offsets; excludes separate aerodynamic display/export shells. Existing definitions without this setting retain fuel-only acceleration until enabled"),
+    ParamSpec("loads.engine_thrust", "Engine thrust", :enginethrust, Any[], "Loads";
+              unit = "N", help = "Signed thrust for each defined engine at its center of gravity. Positive thrust points forward along BASIC -X; negative values reverse it. The load multiplier scales thrust once. Thrust is independent of Include structural inertia and remains fixed in BASIC axes, including SOL106. Disabled engines retain their values but apply no thrust. An additional case without a thrust schedule inherits the complete schedule from case 1. Engines omitted from an explicit schedule have zero thrust; an explicit empty table means all engines are off."),
     ParamSpec("loads.fuel_accel_x", "Inertia acceleration x", :float, 0.0, "Loads"; unit = "g",
               help = "Signed global force per unit mass, multiplied by standard gravity and the load multiplier. Applies to fuel and, when Include structural inertia is enabled, the dry structure and engines. Zero all axes for mass without inertia loads"),
     ParamSpec("loads.fuel_accel_y", "Inertia acceleration y", :float, 0.0, "Loads"; unit = "g",
@@ -669,6 +671,7 @@ function coerce_value(spec::ParamSpec, v)
     spec.kind === :loftstations && return normalize_loft_stations(v,spec.key)
     spec.kind === :movablesurfaces && return normalize_movable_surfaces(v)
     spec.kind === :engines && return normalize_engines(v)
+    spec.kind === :enginethrust && return normalize_engine_thrust(v)
     spec.kind in (:movablestructure,:movableattachments) && return normalize_movable_structure(v,spec.key)
     spec.kind === :supportsets && return normalize_support_sets(v)
     spec.kind === :loadcases && return normalize_load_cases(v)
@@ -964,18 +967,20 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
         planform.aspect_ratio >= 2 || throw(ArgumentError(
             "vortex_lattice requires actual planform aspect ratio >= 2"))
     end
+    thrusts=engine_thrust_inputs(p)
     # Aerodynamic loads use station spiders; fuel has separate bay spiders.
     if sol in ("101", "105", "106")
         aero_loading=p["loads.method"]=="vortex_lattice" || abs(effective_prescribed_lift(p))+abs(p["loads.torque_y"])>0
         fuel_loading=p["fuel.enabled"] && fuel_fill_efficiency(p)>0 && p["loads.fuel_percent"]>0 &&
             any(p["loads.fuel_accel_"*axis]!=0 for axis in ("x","y","z"))
         structure_loading=p["loads.structure_inertia"] && any(p["loads.fuel_accel_"*axis]!=0 for axis in ("x","y","z"))
+        thrust_loading=any(!iszero,values(thrusts))
         (!aero_loading || p["rbe3.enabled"]) || throw(ArgumentError(
             "SOL $sol applies the lift at the RBE3 reference nodes, so " *
             "rbe3.enabled must be true"))
-        (aero_loading || fuel_loading || structure_loading) && abs(p["loads.load_factor"])>0 ||
+        (aero_loading || fuel_loading || structure_loading || thrust_loading) && abs(p["loads.load_factor"])>0 ||
             throw(ArgumentError(
-                "SOL $sol needs nonzero lift, torque, enabled structural acceleration or fuel acceleration with fuel present, and a nonzero load multiplier"))
+                "SOL $sol needs nonzero lift, torque, engine thrust, enabled structural acceleration or fuel acceleration with fuel present, and a nonzero load multiplier"))
     end
 
     solver_timeout_seconds(p)
@@ -1046,7 +1051,7 @@ function toml_value(spec::ParamSpec, v)
         panel_literal(x) = x isa AbstractString ? toml_string_literal(x) : x isa AbstractDict ?
             "{"*join((string(k," = ",panel_literal(value)) for (k,value) in sort!(collect(x);by=first)),", ")*"}" : string(x)
         return "["*join(panel_literal.(normalize_panel_properties(v)),", ")*"]"
-    elseif spec.kind in (:engines, :movablestructure, :movableattachments, :movablesurfaces, :loftstations, :loadcases, :planformpoints, :masterribs, :riborientations, :supportsets, :ribproperties, :sparproperties, :componentproperties, :materials, :materialallowables, :shellmaterials, :barmaterials)
+    elseif spec.kind in (:engines, :enginethrust, :movablestructure, :movableattachments, :movablesurfaces, :loftstations, :loadcases, :planformpoints, :masterribs, :riborientations, :supportsets, :ribproperties, :sparproperties, :componentproperties, :materials, :materialallowables, :shellmaterials, :barmaterials)
         literal(x) = x isa AbstractString ? toml_string_literal(x) :
             x isa AbstractDict ? "{" * join((string(toml_string_literal(String(k)), " = ", literal(value)) for (k, value) in sort!(collect(x); by=first)), ", ") * "}" :
             x isa AbstractVector ? "[" * join(literal.(x), ", ") * "]" : string(x)

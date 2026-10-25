@@ -119,6 +119,7 @@ function load_payload(loads; model::Union{Nothing,Model} = nothing)
         "node_index"=>s.node,"gid"=>s.gid,"eta"=>(model.xyz[3s.node+2]-model.wing.root_ref_y)/model.wing.semispan,
         "position"=>model.xyz[3s.node+1:3s.node+3],"force"=>collect(s.force),"moment"=>collect(s.moment),
         "follower_forces"=>false) for s in applied.engine]
+    result["engine_loads"]=applied===nothing ? Any[] : applied.diagnostics["engine_loads"]
     result["moment_stations"]=applied===nothing ? Any[] : [merge(load_record(s),Dict{String,Any}(
         "node_index"=>s.node_index-1,"gid"=>s.gid,"follower_forces"=>false,
         "target_kind"=>s.target_kind,"target_rbe3_eid"=>s.target_rbe3_eid,"fuel_bay"=>s.fuel_bay,"massless"=>s.massless,

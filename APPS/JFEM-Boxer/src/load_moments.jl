@@ -6,21 +6,31 @@
 # scopes cannot be shown as current against the newly split property cards.
 # Rib-datum runouts change the generated mesh, stiffness and structural mass.
 # Historical studies must not reuse their solved fields as current results.
-const APPLIED_LOAD_VERSION = "rib_aero_bay_mass_wrenches_pg_runout5mm2_ribdatum_combinedflanges_tiprbe3_controlpaths_axialactuators_engineflexible_v12"
-const APPLIED_MOMENT_ROUTING_NOTE = "Aerodynamic forces and moments retain their assigned main-box or movable-surface RBE3 centers, including massless references beyond each structural tip. Fuel and structural shell/bar inertia forces and moments act at fuel/mass bay RBE3 centers. Engine inertia acts directly at each engine CG and passes through its own attachments; it is never transferred to wing mass bays. Bracketing span weights preserve force and global moment; moved forces add (source position - target position) cross force. Massless bay references add no fuel capacity or CONM2 mass. Inertia loads and all applied couples remain fixed in global axes."
+const APPLIED_LOAD_VERSION = "rib_aero_bay_mass_wrenches_pg_runout5mm2_ribdatum_combinedflanges_tiprbe3_controlpaths_axialactuators_engineflexible_movablequality_enginecapmounts_thrust_v15"
+const APPLIED_MOMENT_ROUTING_NOTE = "Aerodynamic forces and moments retain their assigned main-box or movable-surface RBE3 centers, including massless references beyond each structural tip. Fuel and structural shell/bar inertia forces and moments act at fuel/mass bay RBE3 centers. Engine inertia and thrust act directly at each engine CG and pass through its own attachments; they are never transferred to wing mass bays. Positive thrust is forward, BASIC -X, independent of the structural-inertia switch and scaled once by the load multiplier. Bracketing span weights preserve force and global moment; moved forces add (source position - target position) cross force. Massless bay references add no fuel capacity or CONM2 mass. Inertia loads, engine thrust and all applied couples remain fixed in global axes."
 
-"""Engine dead inertia loads at their actual CGs, preserving the mount load path.
+"""Engine dead inertia and thrust loads at their actual CGs, preserving the mount load path.
 
 The structural-inertia switch and case acceleration/multiplier apply once.
-Engine CONM2 mass remains in the exported model even when this switch is off.
+Thrust is independent of that switch and positive forward along BASIC -X.
+Engine CONM2 mass remains in the exported model even when both loads are off.
 """
 function engine_applied_loads(m::Model;params=m.params)
     acceleration=structure_acceleration(params)
-    all(iszero,acceleration)&&return NamedTuple[]
-    [(node=Int(engine["cg_node"])-1,gid=m.node_ids[Int(engine["cg_node"])],
-        force=Float64(engine["mass_kg"]).*acceleration,moment=AERO_ZERO,
-        target_rbe3_eid=nothing)
-        for engine in engine_structure_data(m)["engines"] if engine["mass_kg"]>0]
+    thrusts=engine_thrust_inputs(params);factor=Float64(params["loads.load_factor"])
+    result=NamedTuple[]
+    for engine in engine_records(m)
+        inertia=Float64(engine["mass_kg"]).*acceleration
+        unscaled=get(thrusts,engine["name"],0.);thrust=(-unscaled*factor,0.,0.)
+        force=inertia.+thrust
+        all(isfinite,force)||throw(ArgumentError("$(engine["name"]): combined engine thrust and inertia force is not finite"))
+        all(iszero,inertia)&&all(iszero,thrust)&&continue
+        push!(result,(node=Int(engine["cg_node"])-1,gid=m.node_ids[Int(engine["cg_node"])],
+            name=engine["name"],force=force,moment=AERO_ZERO,inertia_force=inertia,
+            thrust_force=thrust,thrust_input_n=unscaled,load_factor=factor,
+            target_rbe3_eid=first(engine["rbe3_eids"])))
+    end
+    result
 end
 
 function moment_span_weights(station_ys, y)
@@ -164,7 +174,15 @@ function routed_applied_loads(m::Model, loads; params=m.params)
         Dict("grid"=>s.gid,"target_kind"=>s.target_kind,"eta"=>s.eta,"magnitude_Nm"=>norm3(s.moment),
             "moment_Nm"=>collect(s.moment),"source_moments_Nm"=>Dict(String(k)=>collect(v) for (k,v) in pairs(s.source_moments)))
     end
-    lines=String["Load routing: aerodynamic resultants retain their assigned main/control RBE3s; fuel/structural resultants use bay RBE3s, including force-transfer lever arms; engine inertia acts directly at each engine CG."]
+    diagnostics["engine_loads"]=Any[Dict("engine"=>load.name,"grid"=>load.gid,
+        "thrust_input_N"=>load.thrust_input_n,"load_multiplier"=>load.load_factor,
+        "thrust_force_N"=>collect(load.thrust_force),"inertia_force_N"=>collect(load.inertia_force),
+        "combined_force_N"=>collect(load.force)) for load in engines]
+    lines=String["Load routing: aerodynamic resultants retain their assigned main/control RBE3s; fuel/structural resultants use bay RBE3s, including force-transfer lever arms; engine inertia and thrust act directly at each engine CG."]
+    for load in engines
+        push!(lines,@sprintf("%s: CG GRID %d; signed thrust %.9g N x load multiplier %.9g = %.9g N forward (BASIC -X); structural inertia added separately.",
+            load.name,load.gid,load.thrust_input_n,load.load_factor,-load.thrust_force[1]))
+    end
     for key in ("aerodynamic","fuel","structure","engine")
         d=diagnostics["sources"][key]
         push!(lines,@sprintf("%s: %d source loads to %d references; force residual %.3g N, origin-moment residual %.3g N m.",key,d["source_count"],d["target_count"],d["force_error_N"],d["moment_error_Nm"]))

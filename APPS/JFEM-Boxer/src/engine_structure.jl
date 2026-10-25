@@ -4,7 +4,7 @@ const ENGINE_DEFAULTS=Dict{String,Any}("name"=>"Engine 1","enabled"=>true,
     "x"=>0.,"y"=>1.,"z"=>-1.,"mass"=>1000.,"length"=>3.,
     "front_rib"=>2,"aft_rib"=>2,"aft_xc"=>.55,
     "E"=>70e9,"G"=>26e9,"A"=>.01,"I1"=>1e-4,"I2"=>1e-4,"J"=>2e-4)
-const ENGINE_MODEL_NOTE="Two elastic CBAR halves lie along BASIC X, centered at the entered CG, with editable E, G, A, I1, I2 and J. Example stiffness values must be replaced with engine data. The beam material has zero density and NSM: a single CONM2 carries the complete mass at the CG, with uniform slender-line inertia Iy=Iz=mL^2/12 and Ix=0. Wing-patch RBE3 references and massless RBE2 mounting arms connect the two beam ends. This includes finite beam flexibility and wing coupling; pylon flexibility and distributed engine deformation inertia are not inferred from mass or length."
+const ENGINE_MODEL_NOTE="Two elastic CBAR halves lie along BASIC X, centered at the entered CG, with editable E, G, A, I1, I2 and J. Example stiffness values must be replaced with engine data. The beam material has zero density and NSM: a single CONM2 carries the complete mass at the CG, with uniform slender-line inertia Iy=Iz=mL^2/12 and Ix=0. The CG is the front RBE3 reference, using the first two upper front-spar cap nodes inboard and outboard of the selected front rib. The aft beam end is the aft RBE3 reference, using the equivalent lower cap nodes about its selected rib plus the nearest existing lower-rib node to the requested x/c. A collinear or nearly collinear patch also uses one cap-direction rotation to preserve every rigid motion and transfer moments. No intermediate mount nodes or RBE2 arms are added. The forward half remains an elastic overhang; pylon flexibility and distributed engine deformation inertia are not inferred from mass or length."
 
 function normalize_engines(value)
     value isa AbstractVector&&length(value)<=100||throw(ArgumentError("engines.items must be a table of at most 100 engines"))
@@ -24,6 +24,36 @@ function normalize_engines(value)
         push!(result,row)
     end
     result
+end
+
+"""Case thrusts use engine names, never row positions, and retain signed newtons."""
+function normalize_engine_thrust(value)
+    value isa AbstractVector&&length(value)<=100||throw(ArgumentError("loads.engine_thrust must be a table of at most 100 engine thrusts"))
+    result=Dict{String,Any}[];names=Set{String}()
+    for raw in value
+        raw isa AbstractDict&&all(k->k in ("engine","thrust_n"),keys(raw))||
+            throw(ArgumentError("Each engine thrust must contain only engine and thrust_n"))
+        name=get(raw,"engine",nothing);force=get(raw,"thrust_n",0.)
+        name isa AbstractString&&!isempty(strip(name))&&length(name)<=80||
+            throw(ArgumentError("Each engine thrust needs its engine name"))
+        name=strip(name);name in names&&throw(ArgumentError("Thrust for engine $name is repeated"));push!(names,name)
+        force isa Real&&!(force isa Bool)&&isfinite(force)||throw(ArgumentError("$name: thrust must be a finite signed value in N"))
+        push!(result,Dict{String,Any}("engine"=>name,"thrust_n"=>Float64(force)))
+    end
+    sort!(result;by=row->row["engine"])
+end
+
+"""Retain disabled-engine inputs, but refuse to silently drop renamed/deleted loads."""
+function engine_thrust_inputs(p)
+    defined=Dict(row["name"]=>row["enabled"] for row in normalize_engines(get(p,"engines.items",Any[])))
+    thrusts=normalize_engine_thrust(get(p,"loads.engine_thrust",Any[]))
+    for row in thrusts
+        haskey(defined,row["engine"])||iszero(row["thrust_n"])||throw(ArgumentError(
+            "Engine thrust refers to missing engine $(repr(row["engine"])). Review this load case's engine thrust after renaming or deleting an engine; select the intended engine or clear its thrust."))
+        isfinite(row["thrust_n"]*Float64(get(p,"loads.load_factor",1.)))||throw(ArgumentError(
+            "$(row["engine"]): thrust times the load multiplier must be finite"))
+    end
+    Dict(row["engine"]=>row["thrust_n"] for row in thrusts if get(defined,row["engine"],false))
 end
 
 function validate_engine_structure(p)
@@ -46,68 +76,101 @@ function engine_free_node!(reg,point)
     n
 end
 
-"""Reject translation-only RBE3 patches that cannot recover all rigid motions."""
-function validate_engine_patch(reg,nodes,label)
+"""Choose only the supplemental rotation needed by a collinear RBE3 patch.
+
+Translations on a straight cap line cannot identify rotation about that line.
+The generated cap GRID displacement frames are BASIC (only separate movable
+hinge GRIDs receive a CD), so the largest BASIC component of the line direction
+completes its rank without adding other wing nodes or all three rotations.
+"""
+function engine_patch_rotation(reg,nodes,label)
     length(nodes)>=3||throw(ArgumentError("$label needs at least three distinct wing nodes"))
-    points=[Tuple(reg.xyz[3n-2:3n]) for n in nodes];origin=first(points)
-    lengths=[norm3(p.-origin) for p in points];scale=maximum(lengths)
+    points=[reg.xyz[3n-2:3n] for n in nodes];center=sum(points)/length(points)
+    offsets=[p-center for p in points];scale=maximum(norm3(v) for v in offsets)
     scale>1e-12||throw(ArgumentError("$label collapses to one position"))
-    direction=(points[argmax(lengths)].-origin)./scale
-    maximum(norm3(cross3(direction,(p.-origin)./scale)) for p in points)>1e-8||
-        throw(ArgumentError("$label is collinear and cannot transfer all moments; refine the local spar/rib mesh"))
-    nothing
+    covariance=zeros(3,3)
+    for v in offsets
+        q=v/scale
+        covariance.+=q*q'
+    end
+    axes=LinearAlgebra.eigen(LinearAlgebra.Symmetric(covariance))
+    # Dimensionless spread avoids a units-dependent collinearity test. Very
+    # slight curvature is not used as an enormous artificial moment lever arm.
+    spread=max(0.,axes.values[1]+axes.values[2])/axes.values[3]
+    rotation=spread<=1e-6 ? argmax(abs.(axes.vectors[:,3]))+3 : 0
+    rotation,spread
+end
+
+"""The two existing cap FE nodes on each side, excluding the nominal rib."""
+function engine_cap_nodes(reg,g,row,kind,upper)
+    ri=row[kind*"_rib"];j=g.ribs[ri];last_j=nj(g);side=upper ? "upper" : "lower"
+    j>=2&&last_j-j>=2||throw(ArgumentError(
+        "$(row["name"]): $kind attachment at R$ri needs two existing $side front-spar cap FE nodes on each side of the rib; only $(min(j,2)) inboard and $(min(last_j-j,2)) outboard are available. Choose an interior rib or increase the spanwise mesh density. The nominal-rib node is not substituted."))
+    rows=Int[j-2,j-1,j+1,j+2];k=upper ? g.nh : 0
+    nodes=Int[get(reg.index,(0,jj,k),0) for jj in rows]
+    all(>(0),nodes)&&length(unique(nodes))==4||throw(ArgumentError(
+        "$(row["name"]): $kind attachment at R$ri cannot find four distinct existing $side front-spar cap FE nodes. Check the spar mesh before defining this attachment."))
+    nodes,rows
+end
+
+function engine_mount_interpolation!(mount,reg,row)
+    rotation,spread=engine_patch_rotation(reg,mount["nodes"],"$(row["name"]) $(mount["kind"]) attachment at R$(mount["rib"])")
+    groups=Any[Dict{String,Any}("weight"=>1.,"components"=>123,"nodes"=>copy(mount["nodes"]))]
+    # Only cap nodes supply the missing rotation, also when the aft rib point
+    # lies on that cap. The added lower-rib point keeps its translation role.
+    rotation>0&&push!(groups,Dict{String,Any}("weight"=>1.,"components"=>rotation,"nodes"=>copy(mount["cap_nodes"])))
+    mount["components"]=123;mount["rotation_component"]=rotation
+    mount["transverse_spread_ratio"]=spread;mount["weight_groups"]=groups
+    mount["patch_note"]*=rotation>0 ? "; translations plus BASIC rotation $(rotation-3) on the four cap nodes to resolve a collinear/near-collinear cap line" : "; translations only"
+    mount
 end
 
 function engine_front_mount!(reg,g,row)
-    ri=row["front_rib"];j=g.ribs[ri]
-    # One vertical spar line alone cannot resolve all three rotations. Use the
-    # actual adjacent spar cell(s), with the requested rib as the mount center.
-    rows=max(0,j-1):min(length(g.etas)-1,j+1)
-    nodes=unique(Int[node!(reg,g,0,jj,k) for jj in rows for k in 0:g.nh])
-    point=(grid_point(g,0,j,0).+grid_point(g,0,j,g.nh))./2
-    validate_engine_patch(reg,nodes,"$(row["name"]) front-spar attachment at R$ri")
-    Dict{String,Any}("kind"=>"front","rib"=>ri,"eta"=>g.etas[j+1],
-        "xc"=>(g.lower_xcs[1,j+1]+g.upper_xcs[1,j+1])/2,
-        "position_m"=>collect(point),"nodes"=>nodes,"components"=>123,
-        "patch_note"=>"Front-spar cells immediately adjoining the selected physical rib; translations only")
+    ri=row["front_rib"];j=g.ribs[ri];nodes,rows=engine_cap_nodes(reg,g,row,"front",true)
+    mount=Dict{String,Any}("kind"=>"front","rib"=>ri,"eta"=>g.etas[j+1],
+        "xc"=>g.upper_xcs[1,j+1],"actual_xc"=>g.upper_xcs[1,j+1],
+        "position_m"=>collect(grid_point(g,0,j,g.nh)),"nodes"=>nodes,"cap_nodes"=>copy(nodes),
+        "cap_span_indices"=>rows,"inboard_cap_nodes"=>nodes[[2,1]],"outboard_cap_nodes"=>nodes[[3,4]],
+        "patch_note"=>"First two upper front-spar cap FE nodes inboard and outboard of the nominal rib, excluding the rib itself")
+    engine_mount_interpolation!(mount,reg,row)
 end
 
 function engine_aft_mount!(reg,g,row)
-    ri=row["aft_rib"];j=g.ribs[ri];xc=row["aft_xc"]
-    xcs=[(g.lower_xcs[i+1,j+1]+g.upper_xcs[i+1,j+1])/2 for i in 0:ni(g)]
-    xcs[1]-1e-12<=xc<=xcs[end]+1e-12||throw(ArgumentError(
-        "$(row["name"]): aft attachment x/c=$xc lies outside the structural box at R$ri (front $(xcs[1]), rear $(xcs[end])). Choose a point between the spars; no attachment is silently moved."))
-    # Collapsed run-out columns share real nodes. Keep distinct columns before
-    # bracketing the attachment; the patch stays a nonzero rib-web rectangle.
-    columns=Int[0]
-    for i in 1:ni(g);xcs[i+1]-xcs[last(columns)+1]>1e-12&&push!(columns,i);end
-    length(columns)>=2||throw(ArgumentError("$(row["name"]): aft attachment rib has no chordwise extent"))
-    ii=clamp(searchsortedlast(xcs[columns.+1],xc),1,length(columns)-1);a,b=columns[ii],columns[ii+1]
-    t=clamp((xc-xcs[a+1])/(xcs[b+1]-xcs[a+1]),0.,1.)
-    mid(i)=(grid_point(g,i,j,0).+grid_point(g,i,j,g.nh))./2
-    point=(1-t).*mid(a).+t.*mid(b)
-    nodes=unique(Int[node!(reg,g,i,j,k) for i in (a,b) for k in 0:g.nh])
-    validate_engine_patch(reg,nodes,"$(row["name"]) aft attachment at R$ri")
-    Dict{String,Any}("kind"=>"aft","rib"=>ri,"eta"=>g.etas[j+1],"xc"=>xc,
-        "position_m"=>collect(point),"nodes"=>nodes,"components"=>123,
-        "patch_note"=>"Actual rib-web cell columns bracketing the requested x/c; translations only")
+    ri=row["aft_rib"];j=g.ribs[ri];xc=row["aft_xc"];cap_nodes,rows=engine_cap_nodes(reg,g,row,"aft",false)
+    # Use an existing lower-skin node on the physical rib. Duplicate logical
+    # stringer columns at a runout map to the same cap node; deduplicate them.
+    candidates=Tuple{Int,Int,Float64}[];seen=Set{Int}()
+    for i in 0:ni(g)
+        side=g.collapsed[i+1,j+1];column=side<0 ? 0 : side>0 ? ni(g) : i
+        node=get(reg.index,(column,j,0),0)
+        node>0&&!(node in seen)||continue
+        push!(seen,node);push!(candidates,(node,column,g.lower_xcs[column+1,j+1]))
+    end
+    isempty(candidates)&&throw(ArgumentError("$(row["name"]): aft attachment R$ri has no existing lower-surface rib nodes"))
+    chosen=candidates[argmin([abs(c[3]-xc) for c in candidates])]
+    node,column,actual_xc=chosen;nodes=unique(vcat(cap_nodes,node))
+    mount=Dict{String,Any}("kind"=>"aft","rib"=>ri,"eta"=>g.etas[j+1],"xc"=>xc,"actual_xc"=>actual_xc,
+        "position_m"=>reg.xyz[3node-2:3node],"nodes"=>nodes,"cap_nodes"=>copy(cap_nodes),
+        "cap_span_indices"=>rows,"inboard_cap_nodes"=>cap_nodes[[2,1]],"outboard_cap_nodes"=>cap_nodes[[3,4]],
+        "rib_node"=>node,"rib_column"=>column,
+        "patch_note"=>"First two lower front-spar cap FE nodes on each side of the nominal rib plus its existing lower-surface node nearest the requested x/c")
+    engine_mount_interpolation!(mount,reg,row)
 end
 
-"""Wing patches -> mount references -> beam ends; the elastic beam CG stays free."""
+"""Wing-cap interpolation connects directly to the engine CG and aft end."""
 function add_engine_structure!(reg,g,p,eid)
     data=Dict{String,Any}("engines"=>Any[],"note"=>ENGINE_MODEL_NOTE)
     used_materials=Set(material["id"] for material in material_definitions(p));next_mid=90_000_001
     for (index,row) in enumerate(normalize_engines(get(p,"engines.items",Any[])))
         row["enabled"]||continue
         front=engine_front_mount!(reg,g,row);aft=engine_aft_mount!(reg,g,row)
-        norm3(Tuple(aft["position_m"]-front["position_m"]))>1e-10*max(row["length"],1.)||
-            throw(ArgumentError("$(row["name"]): front and aft mounts coincide; choose distinct attachment locations"))
-        for mount in (front,aft)
-            mount["ref"]=engine_free_node!(reg,mount["position_m"]);mount["eid"]=eid;eid+=1
-        end
         center=[row["x"],row["y"],row["z"]];cg=engine_free_node!(reg,center)
         a=engine_free_node!(reg,center+[-row["length"]/2,0.,0.]);b=engine_free_node!(reg,center+[row["length"]/2,0.,0.])
-        arm_eids=[eid,eid+1];eid+=2
+        for (mount,reference) in ((front,cg),(aft,b))
+            mount["ref"]=reference;mount["reference_position_m"]=reg.xyz[3reference-2:3reference]
+            mount["eid"]=eid;eid+=1
+        end
+        arm_eids=Int[]
         beam_eids=[eid,eid+1];mass_eid=eid+2;eid+=3
         while next_mid in used_materials;next_mid+=1;end
         mid=next_mid;push!(used_materials,mid);next_mid+=1
@@ -133,10 +196,11 @@ function write_engine_structure(io,m)
     for r in engine_records(m)
         comment!(io,r["name"]*": mass "*string(r["mass_kg"])*" kg, length "*string(r["length_m"])*" m")
         for mount in r["mounts"]
-            card!(io,"RBE3",Any[mount["eid"],nothing,m.node_ids[mount["ref"]],123456,1.,123,m.node_ids[mount["nodes"]]...])
-        end
-        for (eid,node,mount) in zip(r["arm_eids"],r["beam_nodes"][[1,3]],r["mounts"])
-            card!(io,"RBE2",(eid,m.node_ids[mount["ref"]],123456,m.node_ids[node]))
+            fields=Any[mount["eid"],nothing,m.node_ids[mount["ref"]],123456]
+            for group in mount["weight_groups"]
+                append!(fields,Any[group["weight"],group["components"],m.node_ids[group["nodes"]]...])
+            end
+            card!(io,"RBE3",fields)
         end
         card!(io,"MAT1",(r["mid"],r["E"],r["G"],nothing,0.))
         card!(io,"PBAR",(r["pid"],r["mid"],r["A"],r["I1"],r["I2"],r["J"],0.))
@@ -150,17 +214,17 @@ end
 
 function engine_connection_payload(m)
     collections=[Dict{String,Any}("name"=>name,"card"=>card,"point_mass"=>card=="CONM2","elements"=>Any[])
-        for (name,card) in (("ENGINE_ATTACHMENTS","RBE3"),("ENGINE_BEAMS","CBAR"),("ENGINE_MASSES","CONM2"),("ENGINE_MOUNT_ARMS","RBE2"))]
+        for (name,card) in (("ENGINE_ATTACHMENTS","RBE3"),("ENGINE_BEAMS","CBAR"),("ENGINE_MASSES","CONM2"))]
     add(i,eid,nodes,props)=push!(collections[i]["elements"],Dict("eid"=>eid,"type"=>collections[i]["card"],"nodes"=>nodes.-1,"properties"=>props))
     for r in engine_records(m)
         properties=Dict{String,Any}("Engine"=>r["name"],"Mass kg"=>r["mass_kg"],"Length m"=>r["length_m"],"Role"=>"Engine attachment")
         beam_properties=merge(properties,Dict("Role"=>"Elastic engine beam with concentrated CG mass",
             "PID"=>r["pid"],"MID"=>r["mid"],"E Pa"=>r["E"],"G Pa"=>r["G"],"Area m2"=>r["A"],"I1 m4"=>r["I1"],"I2 m4"=>r["I2"],"J m4"=>r["J"]))
         for mount in r["mounts"]
-            add(1,mount["eid"],vcat(mount["ref"],mount["nodes"]),merge(properties,Dict("Attachment"=>mount["kind"],"Rib"=>mount["rib"],"x/c"=>mount["xc"],"Interpolation"=>mount["patch_note"])))
-        end
-        for (eid,node,mount) in zip(r["arm_eids"],r["beam_nodes"][[1,3]],r["mounts"])
-            add(4,eid,[mount["ref"],node],merge(properties,Dict("Role"=>"Massless rigid mounting arm")))
+            add(1,mount["eid"],vcat(mount["ref"],mount["nodes"]),merge(properties,Dict("Attachment"=>mount["kind"],"Rib"=>mount["rib"],
+                "Requested x/c"=>mount["xc"],"Actual x/c"=>mount["actual_xc"],"Reference"=>(mount["kind"]=="front" ? "Engine CG" : "Aft beam end"),
+                "Independent translation components"=>123,
+                "Supplemental rotation component"=>mount["rotation_component"],"Interpolation"=>mount["patch_note"])))
         end
         for (eid,a,b) in zip(r["beam_eids"],r["beam_nodes"][1:2],r["beam_nodes"][2:3])
             add(2,eid,[a,b],beam_properties)
@@ -174,7 +238,12 @@ function engine_structure_payload(m)
     data=deepcopy(engine_structure_data(m));data["node_indices_zero_based"]=true
     for r in get(data,"engines",Any[])
         r["cg_grid"]=m.node_ids[r["cg_node"]];r["cg_node"]-=1;r["beam_nodes"].-=1
-        for mount in r["mounts"];mount["ref"]-=1;mount["nodes"].-=1;end
+        for mount in r["mounts"]
+            mount["reference_grid"]=m.node_ids[mount["ref"]];mount["ref"]-=1
+            for key in ("nodes","cap_nodes","inboard_cap_nodes","outboard_cap_nodes");mount[key].-=1;end
+            haskey(mount,"rib_node")&&(mount["rib_node"]-=1)
+            for group in mount["weight_groups"];group["nodes"].-=1;end
+        end
     end
     data
 end

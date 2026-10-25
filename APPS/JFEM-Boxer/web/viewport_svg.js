@@ -109,7 +109,7 @@
   viewport.reverseDepth=!!engine.useReverseDepthBuffer;
   // Capture all mutable buffers and matrices before yielding again, so an
   // animated/deformed scene contributes one coherent frame to the export.
-  for(const mesh of scene.meshes){if(mesh.isDisposed?.()||!mesh.isEnabled()||!mesh.isVisible||mesh.visibility<=0||!(mesh.layerMask&camera.layerMask))continue;const source=mesh.sourceMesh||mesh;
+  for(const mesh of scene.meshes){if(mesh.metadata?.wingStrokeSource||mesh.isDisposed?.()||!mesh.isEnabled()||!mesh.isVisible||mesh.visibility<=0||!(mesh.layerMask&camera.layerMask))continue;const source=mesh.sourceMesh||mesh;
    if(textureLabel(mesh,source)){warn("Textured label planes are omitted, rather than exported as opaque rectangles.");continue;}
    if(!source.getVerticesData)continue;const positions=source.getVerticesData(B.VertexBuffer.PositionKind);if(!positions?.length)continue;
    let geometry=cache.get(source.geometry||source);if(!geometry){const colors=source.getVerticesData(B.VertexBuffer.ColorKind),indices=source.isUnIndexed?null:source.getIndices();geometry={positions:Float32Array.from(positions),colors:colors?Float32Array.from(colors):null,indices:indices?Uint32Array.from(indices):null};cache.set(source.geometry||source,geometry);stats.sourceVertices+=positions.length/3;if(stats.sourceVertices>limits.maxVertices)throw Error("SVG source geometry exceeds its vertex limit. Hide some entities and try again.");}

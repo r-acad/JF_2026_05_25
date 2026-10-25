@@ -620,7 +620,7 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
         comment!(io, "WARNING: no RBE3 stations, so no lift could be applied")
     end
     if !isempty(applied.mass)
-        comment!(io,"Fuel and dry-structure inertia FORCE at bay RBE3s, plus engine inertia at engine CG references; fixed BASIC directions; force-transfer lever arms retained in MOMENT")
+        comment!(io,"Fuel and dry-structure inertia FORCE at bay RBE3s, plus engine inertia and thrust at engine CG references; fixed BASIC directions; force-transfer lever arms retained in MOMENT")
         for load in applied.mass
             norm3(load.force)>0&&card!(io,"FORCE",(case.id,load.gid,0,1.0,load.force...))
         end

@@ -17,7 +17,7 @@ function engine_mass_params()
         "loads.fuel_accel_x"=>.2,"loads.fuel_accel_y"=>-.3,"loads.fuel_accel_z"=>-2.,
         "fuel.enabled"=>false,"leading_edge.enabled"=>false,"output.solution"=>"101",
         "engines.items"=>Any[Dict("name"=>"Test engine","x"=>-.4,"y"=>1.4,"z"=>-1.2,
-            "mass"=>300.,"length"=>2.4,"front_rib"=>2,"aft_rib"=>3,"aft_xc"=>.55)]))
+            "mass"=>300.,"length"=>2.4,"front_rib"=>3,"aft_rib"=>3,"aft_xc"=>.55)]))
 end
 build(p)=W.build_model(first(W.normalize_params(p)))
 
@@ -127,7 +127,7 @@ checks=@testset "Engine mass and direct CG inertia" begin
             @test load.moment==(0.,0.,0.)
             target=only(filter(s->s.target_kind=="engine_mass",applied.mass))
             @test target.gid==model.node_ids[engine["cg_node"]]
-            @test target.target_rbe3_eid===nothing # free CG between the two flexible beam halves
+            @test target.target_rbe3_eid==first(engine["rbe3_eids"]) # CG is now the front-cap RBE3 reference
             @test target.source_forces.engine==load.force
             @test target.source_forces.structure==(0.,0.,0.)
             @test target.position==Tuple(engine["center_of_gravity_m"])

@@ -28,6 +28,7 @@ if(!out)throw Error('Expected output folder');fs.mkdirSync(out,{recursive:true})
   await visible().locator('[data-engine-rib=front_rib]').selectOption('3');await visible().locator('[data-engine-rib=aft_rib]').selectOption('4');await visible().locator('[data-engine-field=aft_xc]').fill('.62');
   assert.match(await visible().locator('.pick-note').textContent(),/3381/);
   await page.locator('#engine-add').click();await visible().locator('[data-engine-field=name]').fill('Outer engine');
+  await visible().locator('[data-engine-field=name]').blur();
   assert.equal(await page.locator('#engine-edit option').count(),2);
   const before=await page.evaluate(()=>editor.readDrafts()),editCount=await page.evaluate(()=>edits.length);
   assert.equal(before['engines.items'][0].E,68e9);assert.equal(before['engines.items'][0].G,25e9);assert.equal(before['engines.items'][0].J,.0003);

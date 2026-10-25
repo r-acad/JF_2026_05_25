@@ -35,6 +35,55 @@ function movable_master_rib_layout(a,b,row,attachments)
     ribs
 end
 
+"""Partition around a real secondary spar, without adding a near-duplicate row."""
+function movable_chord_stations(row)
+    n=row["chord_elements"];secondary=row["secondary_spar"]
+    secondary<=0&&return collect(range(0.,1.;length=n+1))
+    min(secondary,1-secondary)>=1/(100max(n,2))||throw(ArgumentError("$(row["surface"]): the secondary spar is too close to a control boundary for this chord mesh. Increase chord elements or move the secondary spar; its exact location cannot be merged with another spar to hide a slender cell."))
+    # Keep both physical spar positions exact. Allocate the requested cells
+    # between their intervals, then redistribute each interval uniformly.
+    n=max(n,2);left=clamp(round(Int,n*secondary),1,n-1)
+    vcat(collect(range(0.,secondary;length=left+1)),collect(range(secondary,1.;length=n-left+1))[2:end])
+end
+
+"""Retain physical ribs and geometry anchors; repartition their intervals."""
+function movable_span_stations(w,row,rib_etas)
+    scalar_stations(etas,values,method)=method===:linear ? first(physical_polyline(etas,values)) : etas
+    anchors=movable_distinct_stations(vcat(planform_breakpoints(w),w.airfoil_etas,
+        scalar_stations(w.thickness_etas,w.thickness_values,w.thickness_interpolation),
+        scalar_stations(w.twist_etas,w.twist_values,w.twist_interpolation),
+        scalar_stations(w.vertical_shift_etas,w.vertical_shift_values,w.vertical_shift_interpolation)))
+    result=Float64[]
+    for (lo,hi) in zip(rib_etas[1:end-1],rib_etas[2:end])
+        target=(hi-lo)/row["span_elements"]
+        cuts=movable_distinct_stations(vcat(lo,filter(t->lo+1e-10<t<hi-1e-10,anchors),hi))
+        for (a,b) in zip(cuts[1:end-1],cuts[2:end])
+            b-a>=target/100||throw(ArgumentError("$(row["surface"]): a required geometry station and rib/geometry station at eta $a and $b are nearly coincident. Move the geometry station or rib, or refine the movable span mesh; preserving both in this mesh would create an extremely slender skin strip."))
+            n=max(1,round(Int,(b-a)/target))
+            append!(result,[a+(b-a)*i/n for i in 0:n-1])
+        end
+    end
+    push!(result,last(rib_etas))
+    result
+end
+
+"""Reject collapsed, inverted or extremely slender control skins explicitly."""
+function validate_movable_skin_cell(reg,nodes,label)
+    pts=[reg.xyz[3n-2:3n] for n in nodes];n=length(pts)
+    edges=[pts[i%n+1].-pts[i] for i in 1:n];lengths=sqrt.([sum(abs2,e) for e in edges])
+    longest=maximum(lengths);shortest=minimum(lengths)
+    longest>0&&shortest>longest/100||throw(ArgumentError("$label: skin edge aspect ratio exceeds 100 or the cell has collapsed. Separate physical ribs/spars or refine the longer mesh direction; no element has been silently removed."))
+    triangles=[cross3(pts[i].-pts[1],pts[i+1].-pts[1]) for i in 2:n-1]
+    normal=ntuple(k->sum(t[k] for t in triangles),3)
+    area2=sqrt(sum(abs2,normal));area2>1e-10*longest^2||throw(ArgumentError("$label: control skin has zero area; check its rib, hinge and spar geometry."))
+    for i in 1:n
+        corner=cross3(edges[i],.-edges[mod1(i-1,n)])
+        jacobian=sum(corner.*normal)/(lengths[i]*lengths[mod1(i-1,n)]*area2)
+        jacobian>sinpi(1/180)||throw(ArgumentError("$label: a control skin corner is inverted or narrower than one degree. Move the attachment ribs apart or reduce their obliquity; the invalid cell has not been exported."))
+    end
+    nothing
+end
+
 function movable_attachment_planes(g,s,row,rot,attachments)
     a,b=s["eta_start"],movable_structural_end(row,s);delta=rot.h1.-rot.h0
     map(attachments) do original
@@ -48,7 +97,7 @@ function movable_attachment_planes(g,s,row,rot,attachments)
             rot.h0.+t.*delta,s["eta_start"]+t*(s["eta_end"]-s["eta_start"])
         end
         normal=s["kind"]=="flap" ? (0.,1.,0.) : rot.axis
-        center,hinge_eta=center_at(normal);clearance=0.;underside=false
+        center,hinge_eta=center_at(normal);clearance=0.;underside=false;requested_ratio=0.;actual_ratio=0.
         for iteration in 1:4
             center,hinge_eta=center_at(normal)
             section_eta=clamp(hinge_eta,a,b)
@@ -56,14 +105,25 @@ function movable_attachment_planes(g,s,row,rot,attachments)
             chordlen=sqrt(sum(abs2,chordvec));chordaxis=chordvec./chordlen
             front=(upper_point(g.wing,section_eta,rot.front_spar(section_eta)).+lower_point(g.wing,section_eta,rot.front_spar(section_eta)))./2
             clearance=sum((front.-center).*chordaxis)/chordlen
-            underside=attachment["fitting"]=="shell_lugs"&&s["edge"]=="trailing"&&clearance<.03-1e-12
+            requested_ratio=movable_chord_coordinate(s,"hinge_z",section_eta)
+            leading=section_point(g.wing,section_eta,0.,0.)
+            xc=clamp(sum((center.-leading).*chordaxis)/chordlen,0.,1.)
+            lo,up=lower_point(g.wing,section_eta,xc),upper_point(g.wing,section_eta,xc)
+            thickness=up.-lo;thickness2=sum(abs2,thickness)
+            actual_ratio=thickness2>eps(chordlen)^2 ? sum((center.-(lo.+up)./2).*thickness)/thickness2 : requested_ratio
+            # The hinge is straight between its endpoints; with twist/camber
+            # its local height need not equal an interpolation of endpoint z/t.
+            # Both the requested limit and the actual lower contour must be
+            # crossed. The exact -0.5 boundary remains a front-spar fitting.
+            underside=attachment["fitting"]=="shell_lugs"&&s["edge"]=="trailing"&&requested_ratio<-.5-1e-12&&actual_ratio<-.5-1e-12
             desired=s["kind"]=="flap"&&!underside ? (0.,1.,0.) : rot.axis
             sum(abs2,desired.-normal)<1e-20&&break
-            iteration==4&&throw(ArgumentError("$(s["name"]): this hinge lies on the 3% chord fitting transition and changes sides when its master rib rotates. Move the hinge slightly forward or aft to choose a stable fitting layout"))
+            iteration==4&&throw(ArgumentError("$(s["name"]): the hinge crosses the lower airfoil contour when its master rib rotates. Adjust hinge z/t slightly to choose a stable fitting layout"))
             normal=desired
         end
         a-1e-10<=hinge_eta<=b+1e-10||throw(ArgumentError("$(s["name"]): the attachment plane at rib $(attachment["rib"]) meets the hinge outside the control structure; select an interior rib or adjust the hinge"))
-        merge!(attachment,Dict("hinge_center"=>center,"hinge_eta"=>hinge_eta,"plane_normal"=>normal,"underside_lug"=>underside,"front_spar_clearance_c"=>clearance))
+        merge!(attachment,Dict("hinge_center"=>center,"hinge_eta"=>hinge_eta,"plane_normal"=>normal,"underside_lug"=>underside,"front_spar_clearance_c"=>clearance,
+            "requested_hinge_z_t"=>requested_ratio,"actual_hinge_z_t"=>actual_ratio))
         attachment
     end
 end
@@ -138,12 +198,13 @@ function movable_underside_fitting(reg,lower,upper,center,normal,label)
         midpoint=((triangle[1][1]+triangle[2][1]+triangle[3][1])/3,(triangle[1][2]+triangle[2][2]+triangle[3][2])/3)
         !inside_polygon(midpoint)
     end
-    # Prefer the closest visible lower-skin cell. An edge of a concave section
-    # farther from the hinge can be visible when the nearest one is not.
+    # Every lower fitting starts at the lower front-spar node. Extend a
+    # conforming fan along the existing lower-rib edges to the hinge region;
+    # choosing only its closest skin cell left the spar outside the load path.
     order=sortperm([abs((lp[i][1]+lp[i+1][1])/2-hinge[1]) for i in 1:length(lp)-1])
     for index in order
-        if exterior_triangle((lp[index],lp[index+1],hinge))
-            return (foot_nodes=[lower[index],lower[index+1]],triangles=[(lower[index],lower[index+1],0)],knee_point=nothing,shape="single triangle")
+        if all(i->exterior_triangle((lp[i],lp[i+1],hinge)),1:index)
+            return (foot_nodes=lower[1:index+1],triangles=[(lower[i],lower[i+1],0) for i in 1:index],knee_point=nothing,shape="front-spar-connected lower fan")
         end
     end
     # A hinge ahead of the front web can be above the lower skin without being

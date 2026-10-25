@@ -12,6 +12,7 @@ const LOAD_CASE_FIELDS = Dict(
     "follower_forces" => "loads.follower_forces",
     "fuel_percent" => "loads.fuel_percent",
     "structure_inertia" => "loads.structure_inertia",
+    "engine_thrust" => "loads.engine_thrust",
     "fuel_accel_x" => "loads.fuel_accel_x", "fuel_accel_y" => "loads.fuel_accel_y",
     "fuel_accel_z" => "loads.fuel_accel_z",
 )
