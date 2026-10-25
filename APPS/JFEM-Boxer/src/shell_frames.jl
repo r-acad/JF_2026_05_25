@@ -64,7 +64,7 @@ function shell_material_frame(m, gr::ElemGroup, e::Int;
         x = unit3(cross3((0.0,0.0,1.0),z))
         (x[1]<0 || (x[1]==0 && x[2]<0)) && (x = -1 .* x)
     else
-        nominal = (slope, 1.0, tand(m.params["planform.dihedral"]))
+        nominal = (slope, 1.0, tand(m.params["planform.dihedral"])+vertical_shift_slope(m.wing,eta))
         x = unit3(nominal .- sum(nominal .* z) .* z)
         norm3(x) < 0.5 && (x = unit3((1.0, 0.0, 0.0) .- z[1] .* z))
     end

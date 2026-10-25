@@ -101,6 +101,17 @@ const allDry=V.overlay(V.derive({...tankParams,"fuel.disabled_bays":"3-8"}),defa
 assert(!allDry.includes('data-fuel-region="wet"'));assert(allDry.includes('data-fuel-region="dry"'));
 const off=V.derive({...tankParams,"fuel.enabled":false});assert.equal(off.fuel,null);
 checks.push("Absent, malformed and all-dry tanks never retain a stale wet outline");
+const Shared = require("../web/svg_viewport.js");
+const referenceImage={name:"legacy.png",width:1,height:1,dataUrl:"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII="};
+const legacyPlan=V.validateState({image:referenceImage,transform:{x:120,y:170,scale:40},opacity:.45});
+Shared.restoreAll({});
+const promoted=V.seedLegacyReference(legacyPlan,base);assert.equal(promoted.imageScope,"shared");assert.equal(Shared.getSharedReference().image.name,"legacy.png");
+const remapped=V.applySharedReference(promoted,base,Shared.getSharedReference());for(const key of ["x","y","scale"])near(remapped.transform[key],legacyPlan.transform[key]);
+assert.equal(V.applySharedReference(promoted,base,null).image,null);
+assert.equal(V.applySharedReference(legacyPlan,base,null).image.name,"legacy.png");
+Shared.restoreAll({[Shared.SHARED_PLAN_REFERENCE]:Shared.defaults()});
+assert.equal(V.seedLegacyReference(legacyPlan,base).imageScope,"local");assert.equal(Shared.getSharedReference().image,null);
+checks.push("Legacy detached-only images migrate to a shared physical record; intentional local images survive and cleared shared images stay cleared");
 const summary = { passed: true, groups: checks.length, numericComparisons: numeric, checks };
 if (out) { fs.mkdirSync(out, { recursive: true }); fs.writeFileSync(path.join(out, "unit-summary.json"), JSON.stringify(summary, null, 2)); fs.writeFileSync(path.join(out, "geometry-fixtures.json"), JSON.stringify([{ name: "straight", parameters: base }, { name: "perturbed_gaps", parameters: bentParams }], null, 2)); }
 console.log(`Dimensioned plan view passed ${checks.length} unit groups and ${numeric} numerical comparisons.`);

@@ -9,6 +9,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function (root, Spar, Gaps, Ribs) {
   "use strict";
   const PARAM_KEYS = [...new Set([...Spar.PARAM_KEYS.filter(key => key !== "box.stringer_angle"),
+    ...(Ribs?.PARAM_KEYS || []), ...Gaps.PARAM_KEYS, "movable_surfaces.items",
     "box.rib_pitch", "ribs.masters", "fuel.enabled", "fuel.start_rib", "fuel.end_rib", "fuel.disabled_bays"])];
   const instances = new WeakMap();
   const number = value => root.WingNumbers ? root.WingNumbers.format(value, 4) : Number(value.toPrecision(5)).toString();
@@ -108,6 +109,9 @@
       const points = geometry.activeVertices[Spar.POINT_KEYS[edge]];
       svg += `<polyline class="ftv-spar ftv-${edge ? "rear" : "front"}" points="${points.map(point => map(point.position).join(",")).join(" ")}"/>`;
     }
+    // The tank's own ribs and spars carry selection styling. Add only the
+    // remaining shared context, rather than drawing those lines twice.
+    svg += Spar.contextDrawing(data.planContext, {transform: {map}, includeSpars: false, includeRibs: false});
     const labels = new Set([1, data.ribCount]);
     if (data.valid) { labels.add(data.first); labels.add(data.last); }
     for(const rib of data.ribs)if(rib.boundary&&data.valid)labels.add(rib.index);
@@ -153,6 +157,10 @@
       let data, params;
       try { params = readValues(); data = derive(params); }
       catch (exception) { data = {valid: false, drawable: false, enabled: params?.["fuel.enabled"] === true, error: exception.message || "Complete the tank and lifting surface inputs to preview the extent."}; }
+      // Outside derive(): the shared context also derives the dimensioned
+      // view, whose fuel extent reuses derive(). Keep optional draft context
+      // from suppressing an otherwise valid tank preview.
+      if (data.drawable) try { data.planContext = Spar.contextGeometry(params); } catch (_) { data.planContext = null; }
       if (create) {
         const available = isAvailable(), defined = available && data.enabled === true;
         host.classList.toggle("fuel-tank-uncreated", !defined);

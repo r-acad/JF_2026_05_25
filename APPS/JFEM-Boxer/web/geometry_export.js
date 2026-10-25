@@ -23,8 +23,8 @@
   if(!loads)return [];
   const routed=Array.isArray(loads.moment_stations),records=[];
   if(Array.isArray(loads.force_stations))for(const station of loads.force_stations)records.push({...station,
-   source:station.target_kind==='external_rbe3'?'aerodynamic':'combined inertia',routed_force:true,
-   force:Array.from(station.force||[0,0,0]),moment:[0,0,0],follower_forces:station.target_kind==='external_rbe3'&&station.follower_forces===true});
+   source:['external_rbe3','control_rbe3'].includes(station.target_kind)?'aerodynamic':'combined inertia',routed_force:true,
+   force:Array.from(station.force||[0,0,0]),moment:[0,0,0],follower_forces:['external_rbe3','control_rbe3'].includes(station.target_kind)&&station.follower_forces===true});
   else for(const [key,source]of[["stations","aerodynamic"],["fuel_stations","fuel inertia"],["structure_stations","structural inertia"]])
    for(const station of loads[key]||[])records.push({...station,source,force:Array.from(station.force||[0,0,0]),moment:routed?[0,0,0]:Array.from(station.moment||[0,0,0]),
     follower_forces:key!=="stations"?false:typeof station.follower_forces==="boolean"?station.follower_forces:typeof loads.follower_forces==="boolean"?loads.follower_forces:undefined});

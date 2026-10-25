@@ -1,0 +1,178 @@
+using Test, LinearAlgebra, WingFEGen, OpenJFEM
+const W=WingFEGen
+out=isempty(ARGS) ? mktempdir() : abspath(first(ARGS));mkpath(out)
+function engine_test_params(;oriented=false)
+    p=merge(W.default_params(),Dict{String,Any}("planform.area"=>2.,"planform.aspect_ratio"=>2.,"planform.taper_ratio"=>.8,
+        "airfoil.root"=>"NACA2412","airfoil.tip"=>"NACA2412","planform.sweep"=>12.,"planform.dihedral"=>3.,"planform.twist_tip"=>-2.,
+        "box.rib_pitch"=>.25,"box.stringer_pitch"=>.2,"mesh.elements_between_ribs"=>2,"mesh.elements_spar_height"=>2,
+        "mesh.aero_chord_points"=>9,"airfoil.n_points"=>31,"loads.method"=>"analytic","loads.lift_total"=>1.,
+        "loads.structure_inertia"=>false,"fuel.enabled"=>false,"loads.cases"=>Any[],"output.solution"=>"101"))
+    p["engines.items"]=[merge(W.ENGINE_DEFAULTS,Dict("name"=>"Test engine","x"=>.1,"y"=>.5,"z"=>-.5,
+        "mass"=>25.,"length"=>.6,"front_rib"=>2,"aft_rib"=>3,"aft_xc"=>.55))]
+    if oriented
+        p["planform.sweep"]=12.;p["planform.dihedral"]=3.;p["planform.twist_tip"]=-2.;p["planform.taper_ratio"]=.8
+        p["ribs.masters"]=[Dict("eta"=>.5,"mode"=>"rear_spar_angle","angle"=>90.,"pitch"=>.25)]
+    end
+    first(W.normalize_params(p))
+end
+function engine_deck(m,name)
+    path=joinpath(out,name*".bdf");W.write_reference(m,path;large_field=true)
+    # Remove shell drilling stabilization for the stringent global-moment
+    # equilibrium check; this is independent of the new interpolation path.
+    write(path,replace(read(path,String),"BEGIN BULK"=>"BEGIN BULK\nPARAM,K6ROT,0."))
+    path,OpenJFEM.bdf_to_model(path)
+end
+function engine_rigid_checks(m,parsed)
+    ids=Dict(id=>i for (i,id) in enumerate(m.node_ids));n=length(m.node_ids)
+    X=permutedims(reshape(m.xyz,3,n));Id=Matrix{Float64}(I,3,3)
+    map=OpenJFEM.Solver.assemble_constraints(parsed,ids,X,[Id for _ in 1:n],Int[],Int[],Float64[])[1]
+    @test all(!haskey(map,independent) for pairs in values(map) for (independent,_) in pairs)
+    @test all(!haskey(map,6(node-1)+c) for gr in m.groups for node in gr.conn for c in 1:6)
+    engine=only(W.engine_records(m));nodes=vcat(engine["beam_nodes"][[1,3]],[r["ref"] for r in engine["mounts"]])
+    @test all(!haskey(map,6(engine["cg_node"]-1)+c) for c in 1:6)
+    rigid=zeros(6n,6)
+    for i in 1:n,j in 1:3
+        rigid[6(i-1)+j,j]=1.
+        rigid[6(i-1).+(1:3),j+3]=cross(Id[:,j],X[i,:]);rigid[6(i-1)+3+j,j+3]=1.
+    end
+    for node in nodes,c in 1:6
+        dof=6(node-1)+c;@test haskey(map,dof)
+        recovered=sum(coefficient.*rigid[independent,:] for (independent,coefficient) in map[dof])
+        @test recovered≈rigid[dof,:] atol=1e-10 rtol=1e-10
+    end
+    # The transposed constraint map must conserve arbitrary forces AND moments
+    # applied at a mounted beam end all the way to terminal wing mesh DOFs.
+    f=[12.,-15.,-250.];moment=[3.,4.,-2.];applied=vcat(f,moment);terminal=zeros(6n)
+    endnode=first(engine["beam_nodes"])
+    for c in 1:6,(independent,coefficient) in map[6(endnode-1)+c]
+        terminal[independent]+=coefficient*applied[c]
+    end
+    force=zeros(3);torque=zeros(3)
+    for i in 1:n
+        fi=terminal[6(i-1).+(1:3)];mi=terminal[6(i-1).+(4:6)]
+        force+=fi;torque+=mi+cross(X[i,:],fi)
+    end
+    @test force≈f atol=1e-9 rtol=1e-11
+    @test torque≈moment+cross(X[endnode,:],f) atol=1e-9 rtol=1e-11
+end
+function clamped_engine_response(m,name;scale_E=1.,force=[0.,0.,-1000.])
+    r=only(W.engine_records(m));path=joinpath(out,name*".bdf")
+    patches=sort!(unique(vcat([mount["nodes"] for mount in r["mounts"]]...)))
+    allnodes=sort!(unique(vcat(patches,r["beam_nodes"],[mount["ref"] for mount in r["mounts"]])))
+    open(path,"w") do base
+        io=IOContext(base,:large_field=>true)
+        println(io,"SOL 101\nCEND\nSPC=1\nLOAD=1\nDISPLACEMENT=ALL\nSPCFORCES=ALL\nBEGIN BULK\nPARAM,AUTOSPC,NO")
+        for n in allnodes;W.card!(io,"GRID",(m.node_ids[n],nothing,m.xyz[3n-2:3n]...));end
+        W.write_engine_structure(io,m)
+        W.card!(io,"SPC1",Any[1,123456,m.node_ids[patches]...])
+        W.card!(io,"FORCE",(1,m.node_ids[r["cg_node"]],0,1.,force...))
+        println(io,"ENDDATA")
+    end
+    deck=OpenJFEM.bdf_to_model(path);deck["MATs"][string(r["mid"])]["E"]*=scale_E
+    result=OpenJFEM.solve_model(deck);case=only(result["subcases"])
+    displacement=only(filter(d->d["grid_id"]==m.node_ids[r["cg_node"]],case["displacements"]))
+    @test case["solver_diagnostics"]["linear_solver"]["regularization_shift"]==0
+    @test case["solver_diagnostics"]["bc_partition"]["post_factorization_singular_dofs"]==0
+    [displacement[k] for k in ("t1","t2","t3")]
+end
+reports=Any[]
+tests=@testset "Elastic engine beam, attachment geometry and native constraints" begin
+    @test W.normalize_engines(Any[])==Any[]
+    @test_throws ArgumentError W.normalize_engines([Dict("mass"=>-1.)])
+    @test_throws ArgumentError W.normalize_engines([Dict("length"=>0.)])
+    @test_throws ArgumentError W.normalize_engines([Dict("front_rib"=>1.5)])
+    @test_throws ArgumentError W.normalize_engines([Dict("x"=>NaN)])
+    @test_throws ArgumentError W.normalize_engines([Dict("unknown"=>1)])
+    @test_throws ArgumentError W.normalize_engines([Dict("I1"=>0.)])
+    @test_throws ArgumentError W.normalize_engines([Dict("E"=>-1.)])
+    @test_throws ArgumentError W.normalize_engines([Dict("name"=>"same"),Dict("name"=>"same")])
+    p=engine_test_params();m=W.build_model(p);r=only(W.engine_records(m))
+    @test W.all_checks_pass(m)
+    @test r["mass_kg"]==25.
+    @test r["length_m"]==.6
+    @test r["inertia_kg_m2"]==[[0.,0.,0.],[0.,.75,0.],[0.,0.,.75]]
+    @test m.xyz[3r["cg_node"]-2:3r["cg_node"]]==[.1,.5,-.5]
+    @test m.xyz[3r["beam_nodes"][1]-2:3r["beam_nodes"][1]]≈[-.2,.5,-.5]
+    @test m.xyz[3r["beam_nodes"][3]-2:3r["beam_nodes"][3]]≈[.4,.5,-.5]
+    @test length(W.engine_element_ids(m))==7
+    @test all(!occursin("ENGINE",g.name) for g in m.groups)
+    front,aft=r["mounts"];@test front["rib"]==2;@test aft["rib"]==3;@test aft["xc"]==.55
+    j=m.grid.ribs[2];@test front["position_m"]≈collect((W.grid_point(m.grid,0,j,0).+W.grid_point(m.grid,0,j,m.grid.nh))./2)
+    @test all(m.node_keys[n][1]==0 for n in front["nodes"])
+    @test all(m.node_keys[n][2]==m.grid.ribs[3] for n in aft["nodes"])
+    payload=W.engine_structure_payload(m);@test only(payload["engines"])["cg_node"]==r["cg_node"]-1
+    @test only(payload["engines"])["cg_grid"]==m.node_ids[r["cg_node"]]
+    @test length(vcat([c["elements"] for c in W.engine_connection_payload(m)]...))==7
+    for collection in W.engine_connection_payload(m),element in collection["elements"]
+        @test haskey(element["properties"],"PID")== (collection["card"]=="CBAR")
+    end
+    path,parsed=engine_deck(m,"engine_static")
+    @test length(parsed["CONM2s"])==1
+    @test length(parsed["RBE2s"])==2
+    @test length(parsed["RBE3s"])==length(m.rbe3)+2
+    @test parsed["PBARLs"][string(r["pid"])]["I1"]==r["I1"]
+    @test parsed["PBARLs"][string(r["pid"])]["I2"]==r["I2"]
+    @test parsed["MATs"][string(r["mid"])]["RHO"]==0.
+    @test all(parsed["CBARs"][string(id)]["PID"]==r["pid"] for id in r["beam_eids"])
+    engine_rigid_checks(m,parsed)
+    # Root equilibrium is checked against engine-applied force/couple, with no
+    # automatic singular-DOF fix or artificial beam material stiffness.
+    force=[12.,-15.,-250.];moment=[3.,4.,-2.];cg=m.node_ids[r["cg_node"]]
+    text=replace(read(path,String),r"(?m)^(?:FORCE|MOMENT)\*[^\r\n]*\r?\n\*[^\r\n]*\r?\n"=>"")
+    text=replace(text,"ENDDATA"=>"FORCE,1,$cg,0,1.,12.,-15.,-250.\nMOMENT,1,$cg,0,1.,3.,4.,-2.\nENDDATA")
+    write(path,text);forward=OpenJFEM.solve_model(OpenJFEM.bdf_to_model(path));case=only(forward["subcases"])
+    diagnostics=case["solver_diagnostics"]
+    @test diagnostics["bc_partition"]["post_factorization_singular_dofs"]==0
+    @test diagnostics["linear_solver"]["regularization_shift"]==0
+    @test diagnostics["linear_solver"]["relative_residual"]<1e-8
+    reactionF=zeros(3);reactionM=zeros(3)
+    for rr in case["spc_forces"]
+        i=findfirst(==(rr["grid_id"]),m.node_ids);f=[rr[k] for k in ("t1","t2","t3")]
+        reactionF+=f;reactionM+=[rr[k] for k in ("r1","r2","r3")]+cross(m.xyz[3i-2:3i],f)
+    end
+    @test reactionF≈-force atol=1e-6
+    @test reactionM≈-(moment+cross(r["center_of_gravity_m"],force)) atol=1e-6
+    push!(reports,Dict("case"=>"engine_static","reaction_force_N"=>reactionF,"reaction_moment_Nm"=>reactionM,"solver_diagnostics"=>diagnostics))
+    modalp=deepcopy(p);modalp["output.solution"]="103";modalp["output.n_modes"]=6
+    modalmodel=W.build_model(modalp);modalpath,modaldeck=engine_deck(modalmodel,"engine_modal")
+    modal=OpenJFEM.solve_model(modaldeck)
+    eigen=W.sensitivity_response(modal,modalmodel,Dict("type"=>"frequency_eigenvalue","mode"=>1)).value
+    @test isfinite(eigen)&&eigen>0
+    push!(reports,Dict("case"=>"engine_modal","first_eigenvalue"=>eigen))
+    # A CG point load on a beam with both endpoint frames clamped has the exact
+    # Euler-Bernoulli center displacement F L^3 / (192 E I). I1 bends in XY;
+    # I2 bends in XZ. Doubling E must halve this elastic compliance.
+    anisop=deepcopy(p);anisop["engines.items"][1]["I2"]=2e-4
+    anisom=W.build_model(anisop);ar=only(W.engine_records(anisom))
+    displ=clamped_engine_response(anisom,"engine_clamped_vertical")
+    expected=-1000ar["length_m"]^3/(192ar["E"]*ar["I2"])
+    @test displ[3]≈expected rtol=1e-8 atol=1e-13
+    stiffer=clamped_engine_response(anisom,"engine_clamped_double_E";scale_E=2.)
+    @test stiffer[3]≈displ[3]/2 rtol=1e-8 atol=1e-13
+    lateral=clamped_engine_response(anisom,"engine_clamped_lateral";force=[0.,-1000.,0.])
+    @test lateral[2]≈-1000ar["length_m"]^3/(192ar["E"]*ar["I1"]) rtol=1e-8 atol=1e-13
+    push!(reports,Dict("case"=>"clamped_elastic_beam","computed_vertical_m"=>displ[3],"analytical_vertical_m"=>expected,"double_E_vertical_m"=>stiffer[3]))
+    # Same-rib mounts, edge x/c, disabled rows, changed physical rib layout and
+    # both lower and upper invalid bounds are exercised explicitly.
+    same=deepcopy(p);same["engines.items"][1]["aft_rib"]=2
+    same_model=W.build_model(same);_,same_parsed=engine_deck(same_model,"engine_same_rib");engine_rigid_checks(same_model,same_parsed)
+    bad=deepcopy(p);bad["engines.items"][1]["aft_xc"]=0.;@test_throws ArgumentError W.build_model(bad)
+    bad["engines.items"][1]["aft_xc"]=1.;@test_throws ArgumentError W.build_model(bad)
+    bad=deepcopy(p);bad["engines.items"][1]["front_rib"]=999;@test_throws ArgumentError W.validate_engine_structure(bad)
+    disabled=deepcopy(p);disabled["engines.items"][1]["enabled"]=false
+    @test isempty(W.engine_records(W.build_model(disabled)))
+    oriented=W.build_model(engine_test_params(;oriented=true));@test W.all_checks_pass(oriented)
+    _,oriented_parsed=engine_deck(oriented,"engine_oriented_rib");engine_rigid_checks(oriented,oriented_parsed)
+    multiple=deepcopy(p);push!(multiple["engines.items"],merge(W.ENGINE_DEFAULTS,Dict("name"=>"Second engine","y"=>.7,"mass"=>30.)))
+    multiple["loads.structure_inertia"]=true;multiple["output.include_aero_shells"]=true
+    multiple_model=W.build_model(multiple);@test length(W.engine_records(multiple_model))==2
+    @test W.all_checks_pass(multiple_model)
+    _,multiple_parsed=engine_deck(multiple_model,"engine_two_with_bay_references")
+    @test length(multiple_parsed["CONM2s"])==2
+    ids=vcat([gr.eids for gr in multiple_model.groups]...,[sp.eid for sp in multiple_model.rbe3],
+        [sp.eid for sp in multiple_model.fuel_rbe3],W.engine_element_ids(multiple_model))
+    @test length(ids)==length(unique(ids))
+    @test length(multiple_parsed["RBE2s"])==4
+end
+counts=Test.get_test_counts(tests)
+write(joinpath(out,"engine_structure_summary.json"),W.JSON.json(Dict("passed"=>true,"assertions"=>counts.passes+counts.cumulative_passes,"cases"=>reports)))

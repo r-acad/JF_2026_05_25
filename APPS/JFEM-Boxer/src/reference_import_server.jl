@@ -60,7 +60,7 @@ function imported_run_worker(st,repo,dir,progress)
     waiting=time()
     islocked(worker.lock)&&progress("Waiting for the importer preparation to finish; no analysis is running")
     lock(worker.lock) do
-        process_running(worker.process)||throw(ArgumentError("Import worker stopped; try Read Reference again"))
+        process_running(worker.process)||throw(ArgumentError("Import worker stopped; try Read Nastran again"))
         warm=isfile(joinpath(worker.queue,"ready.txt"))
         progress(warm ? "Using the ready native parser" : "Starting the native parser; loading its package cache")
         temporary=joinpath(worker.queue,"request.tmp")
@@ -85,7 +85,7 @@ function imported_run_worker(st,repo,dir,progress)
     end
 end
 
-"""Prepare parser methods only after Read Reference is opened, without a solve."""
+"""Prepare parser methods only after Read Nastran is opened, without a solve."""
 function handle_import_reference_prepare(st,req)
     try
         repo,_=find_jfem(st.root;hint=String(st.params["jfem.repo"]))

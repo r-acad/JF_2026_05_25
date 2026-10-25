@@ -7,18 +7,19 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function (root,numbers) {
   "use strict";
   const SPECS = [
-    {key:"cl_chord_m",source:"distribution",title:"Section lift coefficient × chord",symbol:"cₗ c",unit:"m",color:"#6ebdff"},
-    {key:"shear_z_N",source:"resultants",title:"Vertical shear",symbol:"V_z",unit:"N",color:"#63ddb1"},
-    {key:"bending_x_Nm",source:"resultants",title:"Bending moment",symbol:"M_x",unit:"N·m",color:"#f7bd66"},
-    {key:"torque_y_Nm",source:"resultants",title:"Torque",symbol:"M_y",unit:"N·m",color:"#c7a0ff"},
+    {key:"cl_chord_m",source:"distribution",title:"Section lift coefficient × chord",symbol:"cₗ c",unit:"m",color:"#6ebdff",definition:"Applied section lift coefficient times local chord. The dashed ellipse carries the same integrated lift."},
+    {key:"shear_z_N",source:"resultants",title:"Vertical shear",symbol:"V_z",unit:"N",color:"#63ddb1",definition:"V_z is the global-Z applied force outboard of each span cut; positive is upward (+Z)."},
+    {key:"bending_x_Nm",source:"resultants",title:"Bending moment",symbol:"M_x",unit:"N·m",color:"#f7bd66",definition:"M_x is the moment of outboard applied loads about global X at the cut reference; positive follows the right-hand rule."},
+    {key:"torque_y_Nm",source:"resultants",title:"Torque",symbol:"M_y",unit:"N·m",color:"#c7a0ff",definition:"M_y is the torque of outboard applied loads about global Y at the cut reference; positive follows the right-hand rule."},
   ];
   const COMPONENTS=[
-    {key:"aerodynamic",label:"Aerodynamic",color:"#6ebdff"},
-    {key:"structure",label:"Structural inertia",color:"#f7bd66"},
-    {key:"fuel",label:"Fuel inertia",color:"#c7a0ff"},
-    {key:"total",label:"Total",color:"#63ddb1"},
+    {key:"aerodynamic",label:"Aerodynamic",color:"#6ebdff",description:"Contribution from the applied aerodynamic forces and moments."},
+    {key:"structure",label:"Structural inertia",color:"#f7bd66",description:"Contribution from dry structural mass under the case acceleration."},
+    {key:"fuel",label:"Fuel inertia",color:"#c7a0ff",description:"Contribution from the selected fuel mass under the case acceleration."},
+    {key:"engine",label:"Engine inertia",color:"#f282aa",description:"Concentrated engine forces at their actual centers of gravity, under the case acceleration."},
+    {key:"total",label:"Total",color:"#63ddb1",description:"Algebraic sum of all applied source contributions, including curves hidden in this view."},
   ];
-  const THEMES={dark:{background:'#111c27',text:'#e0eaf2',muted:'#a6bbcd',grid:'#26394a',zero:'#72899a',cursor:'#d8e5ef',colors:{aerodynamic:'#6ebdff',structure:'#f7bd66',fuel:'#c7a0ff',total:'#63ddb1',elliptical:'#ffd276'}},light:{background:'#ffffff',text:'#20384d',muted:'#415b70',grid:'#dce5ec',zero:'#718394',cursor:'#263f54',colors:{aerodynamic:'#0969b4',structure:'#a95b00',fuel:'#7b3fb0',total:'#00785b',elliptical:'#a95b00'}}};
+  const THEMES={dark:{background:'#111c27',text:'#e0eaf2',muted:'#a6bbcd',grid:'#26394a',zero:'#72899a',cursor:'#d8e5ef',colors:{aerodynamic:'#6ebdff',structure:'#f7bd66',fuel:'#c7a0ff',engine:'#f282aa',total:'#63ddb1',elliptical:'#ffd276'}},light:{background:'#ffffff',text:'#20384d',muted:'#415b70',grid:'#dce5ec',zero:'#718394',cursor:'#263f54',colors:{aerodynamic:'#0969b4',structure:'#a95b00',fuel:'#7b3fb0',engine:'#b31e60',total:'#00785b',elliptical:'#a95b00'}}};
   const plotHeight=width=>Math.round(Math.max(340,Math.min(520,width*.43)));
   const MAX_GRID_LINES=400;
   function verticalGridLines(xmin,xmax,requested=null){
@@ -87,14 +88,14 @@
       let lx=pad;for(const line of graph.querySelectorAll('.plot-series')){const label=line.querySelector('title')?.textContent||line.dataset.component,span=44+label.length*8;if(lx+span>width-pad){lx=pad;y+=24;}svg.append(svgElement('line',{x1:lx,y1:y-4,x2:lx+28,y2:y-4,stroke:line.getAttribute('stroke'),'stroke-width':line.getAttribute('stroke-width'),...(line.hasAttribute('stroke-dasharray')?{'stroke-dasharray':line.getAttribute('stroke-dasharray')}:{})}),svgElement('text',{x:lx+35,y,'font-size':12},label));lx+=span+22;}y+=26;
       if(spec.source==='distribution'){paragraph([...card.querySelectorAll('.plot-aero-metric')].map(e=>e.firstElementChild.textContent+' = '+e.lastElementChild.textContent).join(' · '),13,palette.text);}
       const notes=spec.source==='distribution'?[card.querySelector('.plot-aero-performance .plot-explanation')?.textContent,data.distribution?.note,data.distribution?.elliptical_note,summary?.span_efficiency_note]:[mode==='fe'?'Exact deck point loads: jumps occur at the FE application nodes.':'Distributed aerodynamic and inertia sources integrated along the span.',data.reference_note,data.sign_note,data.resultant_note];
-      for(const note of new Set(notes.filter(Boolean)))paragraph(note);
+      for(const note of new Set([card.querySelector(".plot-definition")?.textContent,...notes].filter(Boolean)))paragraph(note);
       svg.setAttribute('height',Math.ceil(y+pad));svg.setAttribute('viewBox',`0 0 ${width} ${Math.ceil(y+pad)}`);
       return '<?xml version="1.0" encoding="UTF-8"?>\n'+new doc.defaultView.XMLSerializer().serializeToString(svg)+'\n';
     }
     function plot(data,spec,width,summary,{exporting=false,caseLabel=''}={}) {
       const card=element("section","span-plot");card.dataset.quantity=spec.key;
       const heading=element('div','plot-heading');heading.appendChild(element("h3","",spec.title+" · "+spec.symbol+" ["+spec.unit+"]"));card.append(heading);
-      const curves=spec.source==="distribution"?[{key:"aerodynamic",label:spec.symbol,color:spec.color,points:samples(data,spec)},
+      const curves=spec.source==="distribution"?[{key:"aerodynamic",label:"Applied aerodynamic lift",color:spec.color,points:samples(data,spec)},
         {key:"elliptical",label:"Equal-lift ellipse",color:"#ffd276",dashed:true,points:samples(data,{...spec,key:"elliptical_cl_chord_m"})}].filter(c=>c.points.length):
         COMPONENTS.filter(c=>visible.has(c.key)).map(c=>({...c,points:samples(data,spec,c.key,mode)})).filter(c=>c.points.length);
       const palette=THEMES[theme];for(const c of curves)c.color=palette.colors[c.key]||c.color;const points=curves.flatMap(c=>c.points);
@@ -143,10 +144,10 @@
       });
       svg.addEventListener("pointerleave",()=>{cursor.setAttribute("visibility","hidden");dot.setAttribute("visibility","hidden");});
       card.append(svg,readout);
-      if(spec.source==="distribution"){
-        const legend=element("div","plot-curve-legend");for(const curve of curves){const item=element("span"),swatch=element("span","plot-legend-line");swatch.style.borderTopColor=curve.color;if(curve.dashed)swatch.style.borderTopStyle="dashed";item.append(swatch,doc.createTextNode(curve.label));legend.appendChild(item);}card.appendChild(legend);
-        card.appendChild(aerodynamicPerformance(summary,data));
-      }
+      const legend=element("div","plot-curve-legend");legend.setAttribute("aria-label",spec.title+" curve legend");
+      for(const curve of curves){const item=element("span"),swatch=element("span","plot-legend-line");item.dataset.component=curve.key;item.title=curve.description||curve.label;swatch.style.borderTopColor=curve.color;swatch.style.borderTopWidth=curve.key==="total"?"3px":"2px";if(curve.dashed)swatch.style.borderTopStyle="dashed";item.append(swatch,doc.createTextNode(curve.label));legend.appendChild(item);}card.appendChild(legend);
+      card.appendChild(element("p","plot-explanation plot-definition",spec.definition+(spec.source==="resultants"?" Total is the signed sum of aerodynamic, structural, fuel and engine inertia contributions, even when a source curve is hidden. These are applied-load resultants; the balancing internal cut action has opposite sign.":"")));
+      if(spec.source==="distribution")card.appendChild(aerodynamicPerformance(summary,data));
       return card;
     }
     function render() {
@@ -176,7 +177,7 @@
           const swatch=element("span","plot-swatch");swatch.style.background=THEMES[theme].colors[component.key];item.append(check,swatch,doc.createTextNode(component.label));toggles.appendChild(item);}
         tools.appendChild(toggles);host.appendChild(tools);
         host.appendChild(element("p","plot-explanation",mode==="fe"?"Exact deck application: separate upward aerodynamic and downward inertia loads create real steps at their FE nodes. These steps depend on the load transfer mesh.":"Distributed sources: panel loads, filled fuel volumes and structural element masses are integrated along the span. Root forces and moments match the deck; concentrated rib loads keep their jumps."));
-        if(!data.structure_inertia)host.appendChild(element("p","plot-explanation","Structural inertia is disabled for this case. Enable Include structural inertia in Cases to apply the shared acceleration to the dry structure."));
+        if(!data.structure_inertia)host.appendChild(element("p","plot-explanation","Structural inertia is disabled for this case. Enable Include structural inertia in Cases to apply the shared acceleration to the dry structure and engines."));
       }
       const stack=element("div","span-plot-stack");for(const spec of SPECS)stack.appendChild(plot(data,spec,width,current?.loads?.summary,{caseLabel:current.id+' · '+current.label}));host.appendChild(stack);
       const notes=element("details","plot-notes");notes.appendChild(element("summary","","Definitions, axes and signs"));

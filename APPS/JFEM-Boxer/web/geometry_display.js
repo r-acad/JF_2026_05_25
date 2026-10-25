@@ -13,9 +13,15 @@
   return result;
  }
  function create({document:doc=globalThis.document,BABYLON:B=globalThis.BABYLON,state,onChange=()=>{},setLayerVisible,available=()=>true}){
-  let originals=new Map(),environment=null,referenceStamp='';const materials=new Map(),referenceColors=new Map(),referenceControls=new Map();
+  let originals=new Map(),environment=null,referenceStamp='';const materials=new Map(),referenceColors=new Map(),referenceControls=new Map(),originalMaterialFields=new Map();
   const saved=()=>state.geometryAppearance||{};
-  function remember(mesh){if(originals.has(mesh))return;const m=mesh.material;originals.set(mesh,{material:m,useVertexColors:mesh.useVertexColors,color:mesh.color?.clone(),alpha:mesh.alpha,fields:m?{diffuseColor:m.diffuseColor?.clone(),emissiveColor:m.emissiveColor?.clone(),alpha:m.alpha,wireframe:m.wireframe,transparencyMode:m.transparencyMode}:null});}
+  function remember(mesh){
+   if(originals.has(mesh))return;const m=mesh.material;
+   // Several reference meshes may share a material. Capture it before the first
+   // mesh is painted so reset and filled finishes recover the same original.
+   if(m&&!originalMaterialFields.has(m))originalMaterialFields.set(m,{diffuseColor:m.diffuseColor?.clone(),emissiveColor:m.emissiveColor?.clone(),alpha:m.alpha,wireframe:m.wireframe,transparencyMode:m.transparencyMode,zOffset:m.zOffset,zOffsetUnits:m.zOffsetUnits});
+   originals.set(mesh,{material:m,useVertexColors:mesh.useVertexColors,color:mesh.color?.clone(),alpha:mesh.alpha,fields:m?originalMaterialFields.get(m):null});
+  }
   function material(mesh,metallic){
    remember(mesh);
    if(!metallic){mesh.material=originals.get(mesh).material;return mesh.material;}
@@ -34,6 +40,10 @@
    mesh.useVertexColors=false;
    if(m instanceof B.PBRMaterial)m.albedoColor=rgb;else{m.diffuseColor=rgb;m.emissiveColor=rgb.scale(m.disableLighting?1:.025);}
    m.alpha=value.style==='translucent'?value.opacity:1;m.wireframe=value.style==='wireframe';
+   // WebGPU rejects any depth bias on line-list pipelines. Wireframe changes
+   // triangle topology to lines; restore its original bias for filled finishes.
+   const bias=originals.get(mesh).fields;
+   m.zOffset=m.wireframe?0:(bias?.zOffset??0);m.zOffsetUnits=m.wireframe?0:(bias?.zOffsetUnits??0);
    m.transparencyMode=m.alpha<1?B.Material.MATERIAL_ALPHABLEND:B.Material.MATERIAL_OPAQUE;
    m.backFaceCulling=false;m.twoSidedLighting=true;
   }
@@ -116,7 +126,7 @@
    for(const id of['entity-group-overlays']){const group=doc.getElementById(id);if(group)group.hidden=true;}
    const referenceHost=doc.getElementById('geometry-references');if(referenceHost){
     referenceHost.classList.add('geometry-compact-references');
-    let heading=doc.getElementById('geometry-reference-heading');if(!heading){heading=node('h3','display-section-heading','Reference geometry');heading.id='geometry-reference-heading';}referenceHost.prepend(heading);
+    // Reference files and their appearance/placement controls share a dedicated Display tab.
     // Appearance belongs beside each reference. Keep the original selected-item
     // controls as synchronized API endpoints, without presenting them twice.
     for(const id of['reference-visible','reference-wireframe','reference-opacity'])rowFor(id)?.classList.add('geometry-duplicate-control');
@@ -128,6 +138,9 @@
     const header=ensure('geometry-cuts-header',cuts,'geometry-card-header'),fields=ensure('geometry-cuts-fields',header,'geometry-card-fields'),toggle=rowFor('show-loft-cuts');
     if(toggle){toggle.classList.add('geometry-visibility');header.prepend(toggle);}
     const color=compactField(rowFor('loft-cut-color'),'Color');if(color)fields.append(color);
+    const referenceHeader=ensure('geometry-reference-cuts-header',cuts,'geometry-card-header'),referenceFields=ensure('geometry-reference-cuts-fields',referenceHeader,'geometry-card-fields'),referenceToggle=rowFor('show-reference-loft-cuts');
+    if(referenceToggle){referenceToggle.classList.add('geometry-visibility');referenceHeader.prepend(referenceToggle);}
+    const referenceColor=compactField(rowFor('reference-loft-cut-color'),'Color');if(referenceColor)referenceFields.append(referenceColor);
     const count=rowFor('loft-cut-count');if(count){count.classList.add('geometry-compact-option');cuts.append(count);}
    }
    const hasAero=state.layers.has('AERO_SURFACE')&&available('AERO_SURFACE'),hasSections=!!state.aeroDisplay?.sections?.length;
@@ -153,7 +166,7 @@
    if(!state.data)host.append(node('p','pick-note','Create or read a model to show its available geometry.'));
    compact();apply();
   }
-  function reset(){for(const[mesh,old]of originals)if(!mesh.isDisposed?.()){mesh.material=old.material;mesh.useVertexColors=old.useVertexColors;if(old.color)mesh.color=old.color;mesh.alpha=old.alpha;if(old.fields)for(const[key,value]of Object.entries(old.fields))if(value!==undefined)old.material[key]=value;}for(const[m,colors]of referenceColors){m.diffuseColor=colors[0];m.emissiveColor=colors[1];}referenceColors.clear();for(const m of materials.values())m.dispose(false,false);materials.clear();originals.clear();environment?.dispose();environment=null;state.viewPlanes?.setGroundAppearance();}
+  function reset(){for(const[mesh,old]of originals)if(!mesh.isDisposed?.()){mesh.material=old.material;mesh.useVertexColors=old.useVertexColors;if(old.color)mesh.color=old.color;mesh.alpha=old.alpha;if(old.fields)for(const[key,value]of Object.entries(old.fields))if(value!==undefined)old.material[key]=value;}for(const[m,colors]of referenceColors){m.diffuseColor=colors[0];m.emissiveColor=colors[1];}referenceColors.clear();for(const m of materials.values())m.dispose(false,false);materials.clear();originals.clear();originalMaterialFields.clear();environment?.dispose();environment=null;state.viewPlanes?.setGroundAppearance();}
   function syncReferences(){const next=JSON.stringify((state.reference?.entries||[]).map(e=>[e.id,e.name]));if(next!==referenceStamp){referenceStamp=next;rebuild();}else syncReferenceFields();}
   return{apply,rebuild,compact,reset,syncReferences};
  }

@@ -10,6 +10,11 @@ with OpenJFEM. It generates shell/bar lifting surfaces, aerodynamic lattices and
 load cases, writes REFERENCE decks, launches the solver in this repository and
 displays structural results and property sensitivities.
 
+The 3D viewport smooths mesh edges automatically in solid and translucent
+views. Final-image antialiasing also covers translucent surfaces, which use
+separate rendering buffers. WebGPU remains preferred, with WebGL as fallback.
+Native line width, model colors and transparency depth accuracy are preserved.
+
 The forms follow the modelling workflow: **Geometry** and **Structure** define
 the lifting surface; **Materials**, **Properties** and **Constraints** define
 its FE model; **Loads → Cases** defines the conditions to solve. Shared VLM
@@ -18,6 +23,58 @@ shows the controls relevant to the selected solution. Results-file and deck
 export settings are expandable below the solution controls; file commands
 remain in **Project**.
 
+**Model > Engines** defines engines attached to the generated wing. Click
+**Add engine**, then choose the engine from the selector to edit its name,
+enabled state, center of gravity in BASIC X/Y/Z metres, mass in kg and full
+beam length in metres. Edit its elastic moduli E and G (GPa), area A (m²),
+bending moments of area I1/I2 and torsional constant J (m⁴). I1 is about BASIC Z
+(bending in XY); I2 is about BASIC Y (bending in XZ). Initial stiffness
+values are illustrative and should be replaced with the intended equivalent
+engine section. The beam is centered at the CG and aligned with BASIC X
+(flight direction). Define the front mount by its physical front-spar rib,
+and the aft mount by its physical rib and local airfoil x/c. Both mounts may
+use the same rib. The aft point must lie between the wing-box spars; invalid
+locations are explained rather than silently moved. Create FEM refreshes the
+available ribs after a geometry edit. Definitions are saved with the Study.
+
+This is a **flexible beam with concentrated engine mass**: one CONM2 at the CG carries the mass
+and uniform slender-beam inertia, `Iyy = Izz = mass * length² / 12`, `Ixx = 0`.
+Two elastic CBAR segments join the CG to the beam ends. Their zero-density
+material avoids duplicating the CG mass. Each beam end connects through a
+rigid arm to an RBE3 mount patch, so the entered beam stiffness governs load
+transfer between the engine and wing. The CG remains a free beam node.
+The attachment idealisation adds no pylon material mass or flexible pylon
+shells. Beam cylinder radius is only a display
+size. Use Inspect to identify the beam, CG mass or attachment. Engine mass is
+included in modal analysis even when acceleration loads are disabled. In
+Loads, **Include structural inertia** applies the case's signed acceleration
+and load multiplier to each engine CG. Weight summaries and load plots show
+the engine contribution separately; bay mass aggregation does not duplicate
+or relocate the engine mass.
+
+**Loads > Cases > Distribution** includes **Schrenk (ellipse + chord)** for
+prescribed lift. It averages an equal-area elliptical distribution and the actual
+planform chord distribution, including edge perturbations. Both are normalized
+to the prescribed semi-span lift before the load multiplier is applied. This is
+a preliminary load approximation for untwisted wings, not a twist-sensitive VLM
+solution. See [Schrenk, NACA-TM-948](https://ntrs.nasa.gov/citations/19930094469).
+
+**Project > Read Nastran** opens BDF/DAT/NAS inputs and resolves their INCLUDE
+files. The Windows Open dialog appears in front of other windows while parser
+preparation continues in the background. Cancel closes only the picker. You can
+also paste a full path in the importer. Abaqus remains a separate Project action.
+
+The viewport icon bar includes **Measure**. Pick two points for their straight-line
+distance, or choose **Distance along an axis** and a coordinate system and X/Y/Z
+axis. The tool shows both the absolute projected distance and its signed component,
+with a projected segment and witness line. BASIC uses global axes; cylindrical
+and spherical system choices use their defining Cartesian axes, as labelled.
+Enable **Snap to visible FE nodes** for grid-to-grid measurements. Measurements
+are snapshots of the currently displayed geometry, in metres for generated
+models and source units for imported decks; restart after changing deformation
+or placement. Fuel-tank envelopes include outlines of their boundaries and
+creases, leaving triangulation diagonals hidden.
+
 **Analysis of imported model** appears only after loading an external FE input
 file. Generated geometry forms are disabled while that model is active; use
 Display and Inspect to examine it, Loads → Cases for source cases, and Analysis
@@ -25,7 +82,9 @@ to solve it. Opening a generated Study restores its editing forms. Archived
 `.jfem` results provide visualization without an imported-source analysis form.
 
 Use the single **Maximize / Restore** action in the pane header to enlarge any
-form or drawing. Detailed explanations and less frequent settings are under
+form or drawing. These size controls use a neutral grey background in both
+states, including the Deck, Log, Sensitivity, Load plots and TOML preview.
+Detailed explanations and less frequent settings are under
 expandable headings; warnings and current status remain visible. The same
 controls and values are saved regardless of whether their section is expanded.
 Fuel density is in **Fuel tank**. Display → Environment groups each plane's
@@ -100,6 +159,15 @@ preload, are outside this report. Choose all eligible load cases or a particular
 case. In a generated SOL106 comparison, the full-load linear SOL101 comparison
 is identified separately. The largest property statistic across the selected
 cases is the envelope, with the governing case shown alongside it.
+
+The RF assessment and **Show only RF < 1** filter are shared between the 3D
+view and the Reserve factors table. Selecting a failure mode or Minimum RF in
+either updates the other; critical-case and failure-mode displays use Minimum RF.
+The detached filtered property list initially shows all groups; an explicit group
+filter explains how many properties it hides. Different assessments can have
+different failing sets: a property may pass von Mises yet fail buckling. Missing
+coverage remains **Unassessed** and is not converted into a passing reserve factor.
+Edit material allowables in **Materials > Material library**.
 
 Under **3D model fields**, choose **Minimum RF**, an individual failure-mode
 RF, **Critical case for minimum RF**, or **Critical failure mode for minimum RF**,
@@ -554,6 +622,11 @@ describe a contour from the trailing edge around the leading edge and back to
 the trailing edge, with an optional name line. These are geometry coordinates,
 not polar or pressure-coefficient output.
 
+Selecting a UIUC catalogue entry first displays a **Preview**, without replacing
+the current airfoil. Choose **Use selected profile** to apply it, or **Cancel
+selection** / **Esc** to keep the original airfoil and source. **Browse** reopens
+the chooser. A failed or abandoned download leaves the existing coordinates intact.
+
 In **Loft**, add optional **Target t/c** stations: `0.12` means a maximum
 chordwise thickness of 12% of local chord. The generator scales the blended
 section's half-thickness about its unchanged mid-camber line. This changes the
@@ -564,21 +637,50 @@ including nonzero root twist. Clear it to restore the original zero-root to
 **Tip twist** law. The twist schedule, its interpolation, twist axis and fallback
 Tip twist value are grouped in the same **Twist distribution** box.
 
-Each schedule independently selects **Linear**, `w=s`, or **Cosine**,
-`w=(1-cos(πs))/2`, between adjacent eta stations, where
-`s=(eta-eta_i)/(eta_j-eta_i)` and `value=(1-w)value_i+w value_j`.
+The **Vertical shift** schedule accepts eta and **Vertical shift (% semi-span)**
+pairs. For projected semi-span `s`, the translation is
+`delta_z(eta) = s * shift_percent(eta) / 100`: with `s = 10 m`, `+2%` raises a
+section by `0.2 m`. Positive values translate along BASIC +Z, normal to the
+planform XY plane; negative values lower the section. The translation is added
+after thickness, twist and dihedral, without changing the section's thickness
+or twist. Clear the schedule for zero translation.
+
+Each schedule independently selects **Linear**, `w=t`, or **Cosine**,
+`w=(1-cos(πt))/2`, between adjacent eta stations, where
+`t=(eta-eta_i)/(eta_j-eta_i)` and `value=(1-w)value_i+w value_j`.
 Cosine gives zero interpolation slope at the anchors. Outside the entered
 range, the nearest value is held constant; one station defines a constant
 schedule. Airfoil shape interpolation remains a separate choice in Airfoils.
+The same interpolation and endpoint rules apply to vertical shift. Newly added
+Loft stations use four significant figures and appear immediately in eta order;
+existing and manually entered values retain their precision.
 
 In **Movable surfaces**, use **Add movable surface** to define a flap, aileron,
 slat, elevator, rudder, tab or other named surface. Set its leading/trailing
-edge, start/end semi-span fractions (eta), hinge x/c at each end, preview
-deflection in degrees and color. Hinge x/c interpolates linearly between the
-span limits. Adjacent surfaces may share an endpoint; overlapping footprints
-are rejected. The plan drawing shows neutral footprints and dashed hinge cuts;
-the 3D preview rotates the trimmed loft about the straight axis joining the two
-midcamber hinge endpoints. Positive deflection lowers a horizontal trailing
+edge, start/end semi-span fractions (eta), front-spar x/c and hinge x/c at each
+end, preview deflection in degrees and color. The front spar bounds the control
+structure; the separate hinge line defines its rotation axis. Both chordwise
+positions interpolate between the span limits. Older Studies inherit their
+front-spar positions from the previous hinge inputs, retaining their geometry.
+**Inboard hinge z/t** and **Outboard hinge z/t** position the hinge endpoints
+relative to the local airfoil midpoint at the entered hinge x/c. A value of 0
+uses the midpoint, +0.5 the upper surface, -0.5 the lower surface, and -2 a
+point two local thicknesses below the midpoint. This direction follows the
+airfoil section's twist; the physical hinge remains a straight line between
+its two endpoints. Existing Studies default both ratios to zero.
+Adjacent surfaces may share an endpoint; overlapping footprints
+are rejected. Each newly added surface starts at the outermost existing
+surface end and extends outboard, leaving earlier gaps unchanged. If no span
+remains, shorten the outermost surface before adding another.
+
+The plan drawing uses translucent fills for the lifting-surface outline and
+control footprints so the reference image remains visible; dashed lines identify
+the hinges. **3D preview finish** selects **Translucent** (default), **Solid**,
+**Wireframe** or **Metallic** for all movable-surface geometry previews, retaining
+the individual surface colors. The choice is saved with the Study and does not
+change materials or structural properties. The 3D preview rotates the trimmed
+loft about the straight axis joining the two
+hinge endpoints, including their z/t offsets. Positive deflection lowers a horizontal trailing
 edge. Use the question-mark help for the sign convention and curved-loft limits.
 Definitions save with the Study and TOML and respect the Planform editing lock.
 Surfaces without an enabled structure are **geometry previews** and do not
@@ -587,38 +689,116 @@ structure and attachments. Editing geometry then invalidates the corresponding
 FEM, just as changes to the main box do.
 
 In **Structure → Movable surfaces**, select a geometry and click **Add structure**.
+Use the surface selector to edit one existing structure and its attachments at
+a time. Switching the selector preserves the other structures' entries.
 Set skin, web and rib materials from the Materials library, their thicknesses,
 rib bays and mesh subdivisions. The generated monolithic shell structure has
-upper/lower skins, a hinge closure web, optional secondary spar and end/internal
+upper/lower skins, a front-spar web, optional secondary spar and end/internal
 ribs sharing nodes. Each component has separate properties per movable rib bay.
-**Secondary spar fraction** is measured from the hinge toward the outer edge;
+**Secondary spar fraction** is measured from the front spar toward the outer edge;
 zero omits it. **Mesh at preview deflection** uses the geometry angle in the
 actual FE mesh; otherwise the structure is generated in its neutral position.
+**Structural end eta** can stop the structure before the aerodynamic surface
+ends; zero retains the full surface span.
 
-Each attachment specifies a hinge eta, physical main-box rib and front/rear
-spar. The default **Restrained hinge** uses translation stiffness in N/m,
-tilt stiffness in Nm/rad and hinge/actuator stiffness in Nm/rad, all **per
-attachment**. The local x-axis follows the straight hinge axis; actuator
-stiffness acts about x and tilt stiffness about y/z. The initial values are
-modeling examples to be replaced with joint data. A zero actuator value gives
-a free hinge and may leave a rigid-body mode or prevent static equilibrium
-under hinge torque. **Rigid attachment** joins all six relative DOFs exactly.
-Massless RBE3/RBE2 fittings distribute the load to the selected box spar/rib
-and movable hinge web. Inspect the fittings and their coordinate systems in
-Display or Inspect. Study and TOML files retain all these settings.
+Select the movable surface to edit from the dropdown in either Geometry or
+Structure; the other surfaces retain their settings. Each attachment specifies
+a main-box rib directly, or a requested eta that snaps to the closest eligible
+rib. The rib and eta controls stay synchronized. Select the front/rear main-box
+spar for the lug. New attachments use **Triangular shell lugs**: shell fans extend from the
+two box edges to separate, coincident nodes on the true hinge line. Choose their
+material and minimum thickness. For flaps, each lug lies in a plane in the line
+of flight (constant BASIC Y). For other types it lies normal to the true 3D
+hinge line. The plane passes through the selected main-box rib's spar midpoint;
+its intersection with a swept hinge can have a different eta from that rib.
+Where the plane cuts between existing spar nodes, interpolation constraints
+connect the lug to the actual spar edges. The application rejects missing or
+ambiguous intersections rather than creating detached triangles.
+The closest available interior movable rib moves to the attachment plane,
+instead of retaining it and inserting a second nearby rib. End closures remain
+fixed. **Maximum rib-pitch ratio** limits the gap to a multiple of the original
+nominal pitch (default 1.5); larger gaps receive intermediate ribs. Attachment
+ribs are masters, and the adjacent skins and webs share their mesh nodes.
+
+If the hinge is less than 3% of the local full-airfoil chord ahead of the
+movable front spar, or lies behind it, the movable lug attaches to the underside
+of this master rib. Its plane is normal to the hinge, including for flaps.
+For a hinge ahead of the front spar, a two-triangle bracket around the lower
+front corner is used when a direct underside triangle would cross the skin.
+The extra corner stays outside both the front web and lower skin; the hinge
+position is preserved. Hinge z/t can also place the hinge below the airfoil.
+A hinge inside the closed control section is rejected with an explanation.
+Otherwise the movable lug extends from its front spar. The lugs must have
+nonzero area. **Lateral RBE2 stays** connect each hinge tip
+to the upper spar-cap node of its own box's next outboard rib; at the last rib,
+the previous rib is used. These are rigid arms tying all three target
+translations, not axial-only rods. The app rejects conflicting dependent cap nodes.
+The arms are required for a rigid joint to transmit rotational restraint without
+relying on shell drilling stabilization. They are optional for an axial actuator,
+whose real spar-cap endpoints provide its force lever arm.
+
+For these physical lugs, **Restrained hinge** joins local translations 1/2/3 and
+rotations 5/6 with an RBE2, leaving relative rotation 4 about the hinge free.
+One coordinate system per surface has x along the hinge, from inboard to outboard;
+the hinge GRIDs use that system. These are relative constraints between the
+boxes, not SPCs grounding the aircraft. Select **Actuator on this rib** to add a
+finite-length CBUSH from the main wing box's upper rear spar cap to the movable
+surface's upper front spar cap at the attachment rib. Its local x-axis follows
+the member and only axial K1 is nonzero. Enter stiffness in **N/m**: axial force
+equals stiffness times relative axial displacement. The default 10,000,000 N/m
+is example data and must be replaced with the actuator's stiffness. Hinge
+rotational restraint follows from this force and the actual lever arm, rather
+than an added torsional spring. **Rigid attachment** joins all six relative DOFs.
+Without an actuator or rigid attachment, a free hinge can prevent static
+equilibrium under hinge torque and introduce a rigid-body mode. Boxer explains
+this before SOL101, SOL105 or SOL106 runs, including sensitivity runs. The free
+hinge geometry, deck export and SOL103 mode calculation remain available. An
+actuator passing through the hinge axis has no first-order lever arm; static
+preflight also identifies this dead-center geometry.
+
+Keep the usual automatic handling of unused shell rotations enabled. Interior
+rib nodes can have a free drilling rotation when drilling stabilization is zero;
+this is separate from the physical hinge rotation and axial actuator restraint.
+
+**Idealized fittings** retain the earlier massless RBE3/RBE2 distribution and
+finite six-direction CBUSH: translation stiffness in N/m, tilt stiffness about
+local y/z in Nm/rad, and hinge stiffness about x in Nm/rad. Existing Studies
+retain that fitting type and behavior. An enabled actuator adds the separate
+axial cap-to-cap member. Old hinge stiffness in Nm/rad is never reinterpreted as
+axial stiffness in N/m. All stiffnesses are per attachment.
+Inspect the fittings, lugs and coordinate systems in Display or Inspect.
+Study and TOML files retain all these settings.
+
+Actuator CBUSH elements appear as gold cylinders with the **Connections** display
+layer. Each cylinder joins the actual two spar-cap nodes and follows both nodes
+when deformation is displayed. In **Display → Axes&Labels**, enable **Actuator
+stiffness labels** to identify the CBUSH and its axial stiffness in N/m.
 
 Click **Create FEM** after edits. The added structure contributes mass and
 stiffness to FE analyses and enabled structural inertia loads. Use **Distributed**
 structural mass to retain its hinge dynamics. Its footprint must remain outside
 the adjacent main-box spar; turn off the existing Leading Edge structure before
-meshing a leading-edge movable surface. VLM continues to use the original
-common loft and does not automatically load these new surfaces. The fittings
-represent idealized load paths, without bearing contact or bracket detail.
+meshing a leading-edge movable surface. VLM panel forces are assigned to the
+main box or modeled control according to their span and chord positions, with
+force-arm moments retained. A panel crossing a component boundary belongs to
+the component at its force application point; refine the VLM mesh where this
+boundary resolution matters. VLM still solves the original common camber loft;
+this transfer does not recompute pressure for control deflection or perform an
+aeroelastic iteration. Prescribed spanwise lift has no chordwise pressure data
+and remains applied to the main box rather than inventing a control load split.
+
+Where the main or movable structural box ends before its aerodynamic surface,
+massless RBE3 reference grids extend the load and displacement mapping to the
+remaining span. They distribute forces and moments to the terminal rib and
+recover aerodynamic motion from the solved reference translations and rotations.
+They do not add structural stiffness, skin or mass to the overhang.
 
 All 2D drawings provide exact **View zoom (%)** entry. Hold **Alt** while using
 the wheel for one tenth of the normal zoom step; combine it with **Ctrl/Cmd**
 for fine image-only scaling. To register a reference image, choose **Pin image
 point**, pick a point on the image, then its matching point in the drawing.
+With **Snap geometry** enabled, the second point snaps to visible geometry,
+including rib datums; the first point remains a freely chosen image landmark.
 The image moves to align those two points immediately. Subsequent zooms keep this match fixed until you clear the pin or move the image
 independently. **Filled figures** switches the dimensioned plan view between
 filled areas and outlines. Image alignment, pins, zoom and fill visibility are
@@ -629,14 +809,27 @@ Use **right-button drag** to pan any 2D drawing, including the detached
 available immediately without choosing a tool. Middle-drag does not pan.
 Geometry handles retain their editing gestures; **Window zoom** also allows
 selection over these handles. Hold **Ctrl/Cmd** while right-dragging to move
-only the reference image. The window expands to the canvas aspect ratio
-without distorting geometry; a very small selection does nothing. Press **Esc**
-to cancel window zoom. Panning remains available while other drawing tools are
-selected.
+only the reference image. The window uses the mouse-down and mouse-up
+positions as its opposite corners, in any drag direction. On release, the
+complete selected area is centered and fitted without stretching. A different
+selection aspect ratio leaves extra space along one axis; it does not move the
+selection corners while dragging. Very small, horizontal or vertical selections
+do nothing. Press **Esc** to cancel window zoom. Panning remains available
+while other drawing tools are selected.
 
-**Structure / Spars**, **Ribs** and **Stringers** use the same untwisted plan
-background: lifting-surface outline, structural box, spar paths and rib datums.
-Each drawing has its own camera and reference image. **Maximize** gives Spars,
+**Structure / Spars**, **Ribs**, **Stringers** and **Leading edge**, together with
+**Geometry / Movable surfaces**, use the same untwisted plan background:
+refined lifting-surface outline, base trapezoid, structural box and spar paths,
+with the active form's rib, stringer or movable-surface overlay. This keeps the
+geometry reference consistent while editing different components.
+Planform, Spars, Ribs, Stringers, Fuel Tank, Movable Surfaces and the dimensioned plan share their reference
+image and its alignment in physical coordinates by default. Loading an image
+offers all plan views or the current view only; applying to all also replaces
+any individual-view image. A shared image's placement, scale, aspect ratio,
+opacity and pin follow it between views, while cameras remain independent.
+Airfoil and section images remain independent. The Study embeds the shared
+image once and retains any per-view exceptions. Existing distinct view images
+remain separate until explicitly shared. **Maximize** gives Spars,
 Ribs and Stringers a large drawing beside an independently scrolling parameter
 column. The rib editor retains
 its draggable position and angle handles. The stringer drawing shows pitch,
@@ -658,6 +851,53 @@ image aspect ratio by stretching its horizontal axis about its center or pin.
 **Original ratio** restores the image file's proportions. These controls never
 change model geometry. Image proportions, alignment and pins are retained in
 Studies, TOML and SVG exports.
+
+In the Planform and Spars point editors, **Add point** rounds the generated
+values to four significant figures and immediately orders the rows by eta.
+Changing eta also reorders rows. Existing and manually entered values retain
+their precision.
+
+The Planform and Spars point tables show explicit root and tip rows. Their eta
+values stay locked at **0** and **1** during numeric, keyboard and mouse edits;
+their chordwise offsets remain editable. Interior handles retain their entered
+positions. An interior point close to the tip does not replace the tip endpoint.
+If a very short end segment returns sharply to that endpoint, Boxer reports a
+nonfatal **Geometry warning** with its span gap, chordwise return and edge angle.
+Inspect the feature and move the handle to the endpoint only if that was your
+intent; the generator does not alter intentional geometry automatically.
+
+At a point, **Fix incoming angle** constrains the preceding segment's angle in
+the untwisted BASIC XY plane. Zero is parallel to +Y and positive angles turn
+aft toward +X. Boxer keeps the selected point and both eta values fixed and
+adjusts the **previous point's chordwise offset** to satisfy the angle. Adjacent
+constraints are solved from tip toward root. Clearing the constraint retains
+the resulting geometry and makes the segment freely editable again. In a narrow
+parameter pane, the compact **Fix angle** checkbox and degree input appear below
+the eta and offset fields; wider forms keep them in a separate table column.
+
+In **Structure / Stringers**, **Stringer angle reference** selects the local
+**rear spar** (default), local **front spar**, or **global +Y**. Zero follows the
+selected spar, or runs normal to the symmetry plane for global +Y. Positive
+angles turn aft. Changing the reference retains the entered angles and therefore
+changes the paths; front-spar kinks are included when that spar is selected.
+Rear-spar point rows still specify the piecewise angle stations.
+
+Rib and stringer pitch spinners advance by **0.1 m**; smaller exact values may
+still be typed. **Add master rib** appends a station halfway between the last
+master and **End ETA**, rounded to four significant figures where there is room.
+It does not insert the new master into an earlier interval. Its outgoing pitch
+starts from the root pitch and remains independently editable.
+
+Local panel properties are retained whenever their physical skin or stringer
+membership is unchanged, even when an adjacent runout changes. If an edit moves
+a stringer endpoint, changes a skin boundary, or changes the rib/stringer count,
+**Review affected panel assignments** identifies the affected regions and values.
+You can keep all assignments and return, download them, or explicitly retain
+compatible assignments and rebuild with shared defaults only for the affected
+parts. Skin and stringer assignments are checked separately. A small dimension
+change can cross a pitch threshold and change the stringer count; the review
+shows both counts rather than treating this as an invalid geometry. No local
+assignments are discarded automatically.
 
 On Windows, double-click **JFEM-Boxer.cmd** in `__Start here!__/Windows`, at the
 repository root, or in this app folder. Setup builds the shared JFEM/app sysimage automatically; the launcher checks
@@ -871,6 +1111,15 @@ The **Loads** dropdown contains Visualization, VLM settings and Load plots.
 **Loads → Load plots** provides taller graphs that grow when the form is
 maximized. **Light mode** switches the graphs, axes and controls to a light
 background with contrasting curves; the display choice is saved with the Study.
+Each graph identifies its own visible curves with a colored legend and a short
+quantity definition. Resultant curves distinguish **Aerodynamic**, **Structural
+inertia**, **Fuel inertia** and **Total**. Total remains the algebraic sum of all
+applied contributions, including curves hidden by the display selector. Vertical
+shear is the global-Z force outboard of the cut; bending and torque are the
+outboard-load moments about global X and Y at the cut reference. Positive
+moments follow the right-hand rule. The lift graph identifies the applied
+section lift and the dashed equal-lift ellipse separately.
+
 Each graph has an **Export SVG** button. Its vector file includes the selected
 case, title, axes, units, visible curve legends and definitions, using the
 current light or dark theme. Lift exports also include the aerodynamic
@@ -1004,7 +1253,10 @@ optional external-resource details.
 4. Define materials, skins, stringers, ribs, spars and leading-edge properties
    under **Model / Properties**. Detached panel tables assign local overrides;
    blank entries inherit the shared values. Rows are stringers, columns are rib
-   bays, and P-numbers match the panel display.
+   bays, and P-numbers match the panel display. Geometry and mesh-density edits
+   retain these overrides while physical rib/stringer/runout membership stays
+   unchanged. Older saved studies migrate their panel identity when opened;
+   a genuinely changed panel layout requires reviewing or resetting overrides.
    All property tables color the active field using its actual effective range
    and units, with a choice of palettes. Material fields use named swatches;
    inactive sandwich fields and disabled stiffeners stay neutral. The Leading
@@ -1041,6 +1293,13 @@ after restarting it, use **Save Study as** to select the file again. If you chos
 a download because neither picker was available, Autosave keeps a persistent
 browser recovery copy and never downloads repeatedly. Write or storage errors
 leave Project orange and explain what remains unsaved.
+
+**Save Study**, **Save Study as** and each Autosave include the embedded shared
+2D background image and any local image exceptions, together with their
+placement, scale, aspect ratio, opacity, pin and drawing settings. Reopening
+the Study restores them without requiring the original image files. Image or
+camera edits alone do not trigger Autosave; use Save Study to capture those
+changes immediately.
 
 The definition is saved independently from solved results. Exported decks and
 solver result files remain in their run directories. A stale model/result is
@@ -1315,19 +1574,64 @@ toggle. Enable both to show both label sets or clear both to hide them. Older
 Studies using Off/Ribs/Stringers/Both are migrated without losing the choice.
 
 **Display / Geometry** groups aerodynamic surfaces and VLM layers, individual
-airfoil sections, fuel volume, undeformed/deformed overlays, ground/symmetry/rib
-planes and imported reference geometry. Each available geometric layer can be
+airfoil sections, fuel volume, undeformed/deformed overlays and rib datum
+planes. **Display / Reference Geometry** contains external geometry import and
+its placement, units, visibility, color, opacity and finish controls. Ground and
+symmetry controls are under **Display / Environment**. Each geometric layer can be
 shown or hidden. Appearance controls provide colors and, for surfaces, solid,
 wireframe, translucent or metallic finishes with opacity where applicable.
 Individual airfoil visibility is retained when toggling the whole airfoil layer.
 Reference files retain their visibility, transform, opacity and wireframe controls.
 These settings are saved with the Study without changing FE materials or results.
+**Link XYZ scale** applies the same multiplicative change to all three scale
+values when a numeric value or axis-scale handle changes. Equal scales remain
+equal; existing unequal proportions are retained (for example, `2 / 3 / 4`
+becomes `4 / 6 / 8` when X changes to `4`). Enabling the link alone does not
+resize the reference. Disable it to scale individual axes. The setting is saved
+separately for each reference, and **Lock placement** protects scale edits too.
+**Display / Properties** contains both **Explode panels** and **Explode by property**;
+enabling either switches off the other. Panel isolation and panel-ID labels are
+in the stiffened-panel inspection section above them.
+**Show loft intersections** draws the requested equally spaced sections using
+the selected color. **Cut reference geometry** intersects loaded reference
+surfaces at those same planes, using a separate **Reference color**. Both use
+the baseline loft's BASIC Y span positions, so the sections can be compared
+directly even when the aerodynamic loft is deformed. Reference cuts follow the
+reference geometry's current placement and scale and remain available when its
+source surfaces are hidden. Double-click a 2D drawing to fit its view without
+changing the reference image's registration, scale or aspect ratio.
 The **Ground plane / Finish** choices are solid, wireframe, translucent and
 metallic. Metallic reflects the actual visible model across the chosen ground
 height. The reflection follows visibility/deformation and uses a bounded render
 target only while the metallic ground is shown. Translucent provides opacity.
 The current aerodynamic loft has one control; a separate **Undeformed aero
 reference** appears when a deformed result can be compared with the original.
+
+In **Load cases / Aircraft lift target**, enter the complete aircraft mass in kg
+and the maneuver load factor `n`. **Match lift to aircraft mass and load factor**
+sets the half-wing demand to `mass × 9.80665 × n / 2`. Prescribed loading retains
+the selected spanwise distribution but replaces its total lift. VLM solves the
+angle of attack for this wind-axis lift using the entered speed, atmosphere and
+loft, retaining the resulting pressures, forces and moments. Its entered angle
+is the initial guess; the solved angle and residual appear in the log. Matching
+off retains the original prescribed lift or VLM angle of attack.
+The existing **Load multiplier** is a separate final factor (for example, 1.5
+for ultimate loading); the form shows both the matched target and final load.
+This assumes symmetric flight with the main wing carrying all aircraft lift.
+Fuel fill and inertia accelerations remain separately specified. VLM searches
+between −30° and +30° and reports failure if it cannot reach the target; existing
+high-incidence warnings still apply because VLM does not predict stall.
+
+**Materials / Material library** provides **Predefined alloy**
+choices **Al7075-T6 DTD5014** and **Al2024-T3 DTD5070B** from the wingbox report.
+**Add selected alloy** creates an editable copy with an unused material ID;
+select that material in a component's assignment. The presets use respectively
+76 and 73.1 GPa, and 2810 and 2780 kg/m³. Their tensile/shear/compression strengths,
+`m` and `fn` remain in **Report material values** and are saved with the Study.
+Poisson ratio 0.33 is an explicitly identified assumption. These source strengths
+are distinct from the editable von Mises allowable; the existing AL2024 300 MPa
+design default remains unchanged. `m` and `fn` are retained for reference and do
+not activate a nonlinear material law.
 
 Coordinate inspection identifies frame usage: **CP** locates GRIDs, **CD** defines
 GRID displacement components, and **MCID** orients shell material directions.
@@ -1640,6 +1944,14 @@ the static preload and its buckling subcase. Exact Float64 free-field output
 used for native sensitivities remains separate from this portable format.
 
 ## Analysis timings and buckling preload results
+
+Generated-model results are displayed only when their source definition and
+mesh are compatible with the current Study. Angle-constrained point offsets
+are derived from the independent geometry inputs; their canonical representation
+prevents harmless browser/Julia floating-point roundoff from rejecting an
+otherwise unchanged analysis. Geometry, angle, load, material, property and
+constraint edits still require compatible updated results. This check does not
+accept results from a different model or bypass mesh identity checks.
 
 **Analysis → FE Analysis → Run timeout (0 = unlimited)** sets an optional
 elapsed-time limit in minutes, saved with the Study. The default, **0**, allows

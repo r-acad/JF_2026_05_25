@@ -124,9 +124,11 @@ function aerodynamic_plot_sources(m,loads)
             push!(sources,plot_strip(lo,hi,panel.force,panel.moment.+cross3(panel.position,panel.force);slope))
         end
         torque=Float64(p["loads.torque_y"])*p["loads.load_factor"];shares=station_load_shares(m)
-        for (i,s) in enumerate(loads.stations)
-            lo=i==1 ? w.root_ref_y : (loads.stations[i-1].position[2]+s.position[2])/2
-            hi=i==length(loads.stations) ? w.root_ref_y+w.semispan : (s.position[2]+loads.stations[i+1].position[2])/2
+        main_gids=Set(m.node_ids[sp.ref] for sp in m.rbe3)
+        main_stations=filter(s->s.gid in main_gids,loads.stations)
+        for (i,s) in enumerate(main_stations)
+            lo=i==1 ? w.root_ref_y : (main_stations[i-1].position[2]+s.position[2])/2
+            hi=i==length(main_stations) ? w.root_ref_y+w.semispan : (s.position[2]+main_stations[i+1].position[2])/2
             torque==0||push!(sources,plot_strip(lo,hi,AERO_ZERO,(0.,torque*shares[i],0.);slope=AERO_ZERO))
         end
     end
@@ -224,7 +226,7 @@ function spanwise_load_data(m::Model, loads)
             bounds = extrema(c[2] for c in panel.corners)
             strips[bounds] = get(strips, bounds, AERO_ZERO) .+ panel.force
         end
-        alpha = deg2rad(p["aero.alpha"])
+        alpha = deg2rad(get(loads.summary,"alpha_deg",p["aero.alpha"]))
         for ((lo,hi), force) in sort!(collect(strips); by=first)
             center = (lo+hi)/2; e = (center-w.root_ref_y)/w.semispan
             push!(eta,e); push!(ys,center); push!(widths,hi-lo)
@@ -235,7 +237,7 @@ function spanwise_load_data(m::Model, loads)
     else
         # Exact bin integrals of the prescribed distribution preserve total
         # lift even at an elliptical tip; the plotted value is a bin average.
-        total = Float64(p["loads.lift_total"]) * p["loads.load_factor"]
+        total = effective_prescribed_lift(p) * p["loads.load_factor"]
         for i in 1:100
             lo,hi = (i-1)/100, i/100; e = (lo+hi)/2
             share = lift_fraction(p["loads.distribution"],w,hi)-lift_fraction(p["loads.distribution"],w,lo)
@@ -255,14 +257,18 @@ function spanwise_load_data(m::Model, loads)
     located(load)=(position=Tuple(m.xyz[3load.node+1:3load.node+3]),force=load.force,moment=load.moment)
     applied=routed_applied_loads(m,loads)
     couples=Dict(key=>[merge(s,(moment=getproperty(s.source_moments,Symbol(key)),)) for s in applied.moments]
-        for key in ("aerodynamic","fuel","structure"))
+        for key in ("aerodynamic","fuel","structure","engine"))
     points=Dict("aerodynamic"=>vcat(applied.aerodynamic,couples["aerodynamic"]),
         "fuel"=>vcat(located.(applied.fuel),couples["fuel"]),
-        "structure"=>vcat(located.(applied.structure),couples["structure"]))
+        "structure"=>vcat(located.(applied.structure),couples["structure"]),
+        "engine"=>vcat(located.(applied.engine),couples["engine"]))
     stations=vcat(values(points)...);acceleration=structure_acceleration(p)
     structure=all(iszero,acceleration) ? NamedTuple[] : structural_mass_sources(m)
     aero=aerodynamic_plot_sources(m,loads)
     events=Set{Float64}(first(s.points)[2] for s in structure if all(p->p[2]==first(s.points)[2],s.points))
+    # Engine mass is a concentrated CG source in both the physical and FE
+    # views. Retain its shear jump instead of spreading it into wing bays.
+    union!(events,(m.xyz[3s.node+2] for s in applied.engine))
     fuel_cuts=lock(FUEL_GEOMETRY_LOCK) do
         reduce(vcat,(bay.cuts for bay in fuel_geometry_bays(m));init=Float64[])
     end
@@ -273,8 +279,11 @@ function spanwise_load_data(m::Model, loads)
     ys=sort!(unique(vcat(w.root_ref_y.+w.semispan.*etas,source_ys)))
     components=Dict{String,Any}();fe=Dict{String,Any}()
     point_events=Set(s.position[2] for s in stations);fe_ys=sort!(unique(vcat(ys,collect(point_events))))
-    for key in ("aerodynamic","structure","fuel")
-        if key=="structure"&&!isempty(structure)
+    for key in ("aerodynamic","structure","fuel","engine")
+        if key=="engine"
+            index=plot_point_index(points[key])
+            components[key]=plot_resultant_arrays(m,ys,events,(y,side)->plot_point_resultant(index,y,side))
+        elseif key=="structure"&&!isempty(structure)
             integrals=structural_cut_integrals(structure,ys,events);cut=Ref(0)
             components[key]=plot_resultant_arrays(m,ys,events,(y,side)->begin
                 cut[]+=1;i=cut[]
@@ -297,7 +306,7 @@ function spanwise_load_data(m::Model, loads)
     end
     for data in (components,fe)
         total=deepcopy(data["aerodynamic"])
-        for key in ("shear_z_N","bending_x_Nm","torque_y_Nm");total[key]=data["aerodynamic"][key].+data["structure"][key].+data["fuel"][key];end
+        for key in ("shear_z_N","bending_x_Nm","torque_y_Nm");total[key]=data["aerodynamic"][key].+data["structure"][key].+data["fuel"][key].+data["engine"][key];end
         data["total"]=total
     end
     resultants=components["total"];force,moment=load_resultant(stations)
@@ -306,7 +315,7 @@ function spanwise_load_data(m::Model, loads)
         "box_end_eta"=>last(m.grid.etas),"semispan_m"=>w.semispan,"root_ref_y_m"=>w.root_ref_y,"reference_xc"=>p["rbe3.ref_xc"],
         "reference_note"=>"Moments about the refined lifting surface's swept/twisted chord-line point at the RBE3 reference x/c at each cut; components remain global x/y/z.",
         "sign_note"=>"Outboard applied-load resultant: positive shear is global +z, bending is right-hand +x, torque is right-hand +y. The balancing internal cut action has opposite sign. At a station, inboard includes its applied load and outboard excludes it.",
-        "resultant_note"=>"Exact FE point loads shows only the written RBE3 loads: aerodynamic FORCE/MOMENT at rib references and combined fuel/structural inertia FORCE/MOMENT at bay references, including moved-force lever arms. Distributed view instead reconstructs the original physical aerodynamic strips, filled fuel volume and structural mass at their actual centroids. It does not add the transfer couples a second time. Both views preserve each source's complete root force and moment. No spline smoothing. Unboxed aerodynamic loading extends beyond the final rib only in the distributed source view. These are applied-load diagrams, not recovered stresses.",
+        "resultant_note"=>"Exact FE point loads shows the written loads: aerodynamic FORCE/MOMENT at rib references, combined fuel/structural inertia FORCE/MOMENT at bay references including moved-force lever arms, and engine inertia directly at engine CGs. Distributed view reconstructs the physical aerodynamic strips, filled fuel volume and structural mass at their actual centroids; engines retain their concentrated CG loads. It does not add the transfer couples a second time. Both views preserve each source's complete root force and moment. No spline smoothing. Unboxed aerodynamic loading extends beyond the final rib only in the distributed source view. These are applied-load diagrams, not recovered stresses.",
         "moment_routing_note"=>APPLIED_MOMENT_ROUTING_NOTE,
         "structure_inertia"=>get(p,"loads.structure_inertia",false),"structure_inertia_migration_note"=>get(p,"structure_inertia_migration_note",""),
         "units"=>Dict("eta"=>"1","y_m"=>"m","cl_chord_m"=>"m","shear_z_N"=>"N","bending_x_Nm"=>"N m","torque_y_Nm"=>"N m"),

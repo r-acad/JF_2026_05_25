@@ -228,6 +228,8 @@ function sensitivity_request(m,raw)
     obj=Dict{String,Any}(get(request,"objective",Dict()));kind=get(obj,"type","")
     haskey(SENSITIVITY_OBJECTIVES,kind)||throw(ArgumentError("Select a sensitivity objective"))
     solution=sensitivity_solution(request);options=catalog["solutions"][solution]
+    is_imported_model(m) || validate_movable_run(m.params;solution)
+    is_imported_model(m) || validate_movable_actuator_paths(m;solution)
     options["available"]||throw(ArgumentError(options["reason"]))
     kind in options["objectives"]||throw(ArgumentError("Objective $kind is not available for SOL$solution. Select a compatible objective."))
     case in options["case_ids"]||throw(ArgumentError(get(options["case_reasons"],string(case),"The selected case is not available for SOL$solution sensitivity")))

@@ -276,8 +276,10 @@ struct Model
     le_rib_metadata::Vector{Dict{String,Any}}
     fuel_rbe3::Vector{FuelBaySpider}
     movable_structure::Dict{String,Any}
+    engine_structure::Dict{String,Any}
 end
 
+Model(args::Vararg{Any,20})=Model(args...,Dict{String,Any}("engines"=>Any[],"note"=>ENGINE_MODEL_NOTE))
 Model(args::Vararg{Any,19})=Model(args...,Dict{String,Any}("surfaces"=>Any[],"attachments"=>Any[],"node_etas"=>Dict{Int,Float64}()))
 
 Model(params,wing,grid,node_ids,xyz,node_keys,n_struct,groups,rbe3,spc,aero_xyz,aero_quads,aero_nloop,aero_map,aero_weights,info,checks)=
@@ -814,6 +816,8 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
     n_struct = length(reg.keys)
 
     eid,movable_structure=add_movable_structure!(reg,g,p,groups,eid)
+    eid=add_unboxed_control_references!(reg,g,p,movable_structure,eid)
+    eid,engine_structure=add_engine_structure!(reg,g,p,eid)
     n_struct=length(reg.keys)
 
     # --- RBE3 spiders ------------------------------------------------------
@@ -846,6 +850,7 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
             push!(rbe3, RBE3Spider(eid, refidx, unique(dep), jr, ref_eta))
             eid += 1
         end
+        eid=add_unboxed_aero_references!(reg,g,p,rbe3,eid)
     end
 
     # --- supports on selected physical rib intersections -------------------
@@ -869,12 +874,16 @@ function build_model(p::AbstractDict; progress = stage -> nothing)
     aero_map,aero_w=oriented_ribs(g) ? aero_attachment_oriented(g,reg,aero_nloop,aero_etas,aero_xyz) : !w.perturbed && !spar_geometry(p).perturbed && isempty(w.intermediate_afs) ?
         aero_attachment(g, reg, aero_nloop, length(aero_etas), aero_uv, aero_xyz) :
         aero_attachment_refined(g, reg, aero_nloop, aero_etas, aero_xyz)
+    bind_unboxed_aero_points!(aero_map,aero_w,aero_xyz,g,rbe3,aero_etas,aero_nloop)
+    bind_control_aero_points!(aero_map,aero_w,aero_xyz,w,p,movable_structure,aero_etas,aero_nloop)
 
     node_ids = collect(1:length(reg.keys))
     model = Model(Dict{String,Any}(p), w, g, node_ids, reg.xyz, reg.keys,
                   n_struct, groups, rbe3, spc, aero_xyz, aero_quads, aero_nloop,
                   aero_map, aero_w,
-                  Tuple{String,String}[], Tuple{String,String,Bool}[],le_metadata,FuelBaySpider[],movable_structure)
+                  Tuple{String,String}[], Tuple{String,String,Bool}[],le_metadata,FuelBaySpider[],movable_structure,engine_structure)
+    migration=panel_override_migration(p)
+    migration===nothing||record_panel_override_migration!(model.params,migration)
 
     oriented_ribs(g)&&validate_main_rib_mesh(model)
 
@@ -1071,20 +1080,14 @@ function aero_attachment_refined(g::BoxGrid, reg::NodeRegistry, n_loop::Int,
     return nmap,weights
 end
 
-"""Unboxed aero-point span offset from its terminal-rib projection (model axes)."""
+"""Offset from the interpolated FE anchor to the actual aero point (BASIC axes)."""
 function aero_rotation_levers(m::Model)
     lever = zeros(length(m.aero_xyz))
-    if oriented_ribs(m.grid)
-        stride=length(m.aero_map)÷(length(m.aero_xyz)÷3)
-        for a in 1:length(m.aero_xyz)÷3,axis in 1:3
-            projected=sum(m.aero_weights[stride*(a-1)+k]*m.xyz[3m.aero_map[stride*(a-1)+k]-3+axis] for k in 1:stride)
-            lever[3a-3+axis]=m.aero_xyz[3a-3+axis]-projected
-        end
-        return lever
-    end
-    end_y = m.grid.wing.root_ref_y + last(m.grid.etas) * m.grid.wing.semispan
-    for a in 1:length(m.aero_xyz)÷3
-        lever[3a-1] = max(m.aero_xyz[3a-1] - end_y, 0.0)
+    isempty(lever) && return lever
+    stride=length(m.aero_map)÷(length(m.aero_xyz)÷3)
+    for a in 1:length(m.aero_xyz)÷3,axis in 1:3
+        projected=sum(m.aero_weights[stride*(a-1)+k]*m.xyz[3m.aero_map[stride*(a-1)+k]-3+axis] for k in 1:stride)
+        lever[3a-3+axis]=m.aero_xyz[3a-3+axis]-projected
     end
     return lever
 end
@@ -1118,6 +1121,8 @@ function model_info(m::Model, n_str_bays::Int, n_rib_bays::Int)
             join(["ETA "*fmt(eta)*": t/c "*fmt(tc) for (eta,tc) in zip(w.thickness_etas,w.thickness_values)],"; ")*" ("*String(w.thickness_interpolation)*")"),
         ("Loft twist", isempty(w.twist_etas) ? "Linear from zero at root to "*fmt(rad2deg(w.twist_tip))*" deg at tip" :
             join(["ETA "*fmt(eta)*": "*fmt(rad2deg(angle))*" deg" for (eta,angle) in zip(w.twist_etas,w.twist_values)],"; ")*" ("*String(w.twist_interpolation)*")"),
+        ("Loft vertical shift", isempty(w.vertical_shift_etas) ? "None" :
+            join(["ETA "*fmt(eta)*": "*fmt(value)*"% semi-span" for (eta,value) in zip(w.vertical_shift_etas,w.vertical_shift_values)],"; ")*" ("*String(w.vertical_shift_interpolation)*", BASIC +Z)"),
         ("Lifting surface box End ETA", string(last(g.etas))),
         ("Structural box span", fmt(last(g.etas) * w.semispan) * " m"),
         ("Root chord", fmt(w.chord_root) * " m"),
@@ -1149,6 +1154,9 @@ function model_info(m::Model, n_str_bays::Int, n_rib_bays::Int)
         ("RBE3 reference nodes", string(length(m.rbe3))),
         ("Nodes total", string(length(m.node_ids))),
     ]
+    for warning in planform_endpoint_warnings(p,w)
+        push!(info,("Geometry warning",warning["message"]))
+    end
     component_counts=Dict{Tuple{String,Symbol},Int}()
     for gr in m.groups
         key=(component_base_group(gr.name),gr.kind)
@@ -1194,7 +1202,7 @@ function mesh_checks(m::Model)
     seen = Dict{NTuple{4,Int},Int}()
     dup = 0
     for n in 1:m.n_struct
-        m.node_keys[n][1]==-4&&continue # coincident bearing references are intentional
+        m.node_keys[n][1] in (-4,-6)&&continue # coincident bearing/engine interpolation references are intentional
         partition=m.node_keys[n][1]==-3 ? m.node_keys[n][3] : 0
         key = (partition,round(Int, m.xyz[3n-2] / tol),
                round(Int, m.xyz[3n-1] / tol),
@@ -1232,13 +1240,28 @@ function mesh_checks(m::Model)
         hist[v] = get(hist, v, 0) + 1
     end
     free = get(hist, 1, 0)
+    # A bracket is an open plate, not part of either closed torsion box.
+    # Its area/connectivity remain checked above; exclude only its edge uses
+    # from the closed-box and exposed-stringer boundary classifications.
+    box_and_blade_edges=copy(edges)
+    lug_free=0
+    for gr in m.groups
+        div(gr.pid,1_000_000)==37&&gr.kind===:tria||continue
+        for el in eachindex(gr.eids),q in 1:3
+            nodes=view(gr.conn,3(el-1)+1:3el);key=minmax(nodes[q],nodes[mod1(q+1,3)])
+            get(edges,key,0)==1&&(lug_free+=1)
+            remaining=box_and_blade_edges[key]-1
+            remaining==0 ? delete!(box_and_blade_edges,key) : (box_and_blade_edges[key]=remaining)
+        end
+    end
     push!(out, ("Degenerate shells", string(degenerate), degenerate == 0))
+    lug_free>0&&push!(out,("Intentional free hinge-lug edges",string(lug_free),true))
     if get(m.params,"stringers.model","beam")=="shell"
         # Blade tips and exposed ends are valid free boundaries. The closed
         # aerodynamic box must still have no unattached shell edge.
         boxedges=Dict{Tuple{Int,Int},Int}()
         for gr in m.groups
-            gr.kind in (:quad,:tria)&&component_base_pid(gr.pid)!=PID_STRINGER_WEB||continue
+            gr.kind in (:quad,:tria)&&component_base_pid(gr.pid)!=PID_STRINGER_WEB&&div(gr.pid,1_000_000)!=37||continue
             nn=gr.kind===:quad ? 4 : 3
             for el in eachindex(gr.eids),q in 1:nn
                 nodes=view(gr.conn,nn*(el-1)+1:nn*el);a,b=nodes[q],nodes[mod1(q+1,nn)]
@@ -1247,11 +1270,12 @@ function mesh_checks(m::Model)
         end
         boxfree=count(==(1),values(boxedges))
         push!(out,("Free shell edges (closed box)",string(boxfree),boxfree==0))
-        unexpected=shell_stringer_unexpected_free_edges(m,edges)
+        unexpected=shell_stringer_unexpected_free_edges(m,box_and_blade_edges)
         push!(out,("Free shell stringer edges (blade tips and ends)",string(free),unexpected==0))
         push!(out,("Unexpected free shell edges",string(unexpected),unexpected==0))
     else
-        push!(out, ("Free shell edges (closed box)", string(free), free == 0))
+        boxfree=count(==(1),values(box_and_blade_edges))
+        push!(out, ("Free shell edges (closed box)", string(boxfree), boxfree == 0))
     end
     push!(out, ("Edge use 2 / 3 / 4+",
                 string(get(hist, 2, 0)) * " / " * string(get(hist, 3, 0)) * " / " *
@@ -1289,6 +1313,14 @@ function mesh_checks(m::Model)
         end
         # A reference node must never appear among its own dependent grids.
         sp.ref in sp.dep && (bad += 1)
+    end
+    for r in engine_records(m)
+        for n in r["beam_nodes"];(1<=n<=nn)||(bad+=1);end
+        for mount in r["mounts"]
+            (1<=mount["ref"]<=nn)||(bad+=1)
+            for n in mount["nodes"];(1<=n<=nn)||(bad+=1);end
+            mount["ref"] in mount["nodes"]&&(bad+=1)
+        end
     end
     for s in m.spc
         (1 <= s <= m.n_struct) || (bad += 1)

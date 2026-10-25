@@ -107,7 +107,7 @@
   return{collapsed:value.collapsed===true};
  }
  const ICONS={top:'<path d="M3 15 10 4h4l7 11-9-2zM12 4v15"/>',iso:'<path d="m12 2 9 5v10l-9 5-9-5V7zm-9 5 9 5 9-5M12 12v10"/>',side:'<path d="m3 15 17-5-5 7H3zm5-2V8l4 4"/>',front:'<path d="M2 14h20M12 6v14M9 14a3 3 0 1 1 6 0"/>',projection:'<path d="M3 5h7v14H3zm11 2 7-3v16l-7-3zM10 5l11-1M10 19l11 1"/>'};
- function create({BABYLON:B=globalThis.BABYLON,scene,camera,engine,host,onView,onChange=()=>{},displayActions=[],ground=null,translucency=null,inspection=null,onSaveSVG=null,onExportError=null}){
+ function create({BABYLON:B=globalThis.BABYLON,scene,camera,engine,host,onView,onChange=()=>{},displayActions=[],ground=null,translucency=null,inspection=null,measurement=null,onSaveSVG=null,onExportError=null}){
   const labels={top:["Top","Top: look down global -Z, with global +X downwards"],iso:["Isometric","Isometric view"],side:["Side","Side: look along global +Y (span)"],front:["Front","Front: look aft along global +X"]};
   host.innerHTML="";host.setAttribute("role","toolbar");host.setAttribute("aria-label","Model views and display controls");
   const buttons={};let disposed=false,collapsed=false;
@@ -140,12 +140,21 @@
   if(inspection){
    const button=host.ownerDocument.createElement("button");button.type="button";button.id="view-inspect";button.className="viewport-tool viewport-inspect-tool";
    button.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 6 6M10 7v6M7 10h6"/></svg><span>Inspect</span>';host.appendChild(button);buttons.inspect=button;
-   button.onclick=()=>{if(inspection.read().active&&inspection.deactivate)inspection.deactivate();else inspection.activate();syncInspection();};
+   button.onclick=()=>{showMeasurement(false);if(inspection.read().active&&inspection.deactivate)inspection.deactivate();else inspection.activate();syncInspection();};
    inspectionFilter=host.ownerDocument.createElement("label");inspectionFilter.id="viewport-inspection-filter";inspectionFilter.className="viewport-inspection-filter";
    const caption=host.ownerDocument.createElement("span");caption.textContent="Inspect entity";
    inspectionSelect=host.ownerDocument.createElement("select");inspectionSelect.id="view-inspect-entity";inspectionSelect.setAttribute("aria-label","Entity to inspect in viewport");inspectionSelect.title="Choose an entity type and open Inspect. Left-click a matching visible entity in the model.";
    inspectionFilter.append(caption,inspectionSelect);host.appendChild(inspectionFilter);
    inspectionSelect.onchange=()=>{const value=inspectionSelect.value;inspection.activate();inspection.select(value);syncInspection();};
+  }
+  let measurementPanel=null,measurementHome=null,measurementNext=null;
+  function showMeasurement(show){if(!measurementPanel)return;measurementPanel.hidden=!show;buttons.measure.setAttribute('aria-expanded',String(show));buttons.measure.setAttribute('aria-pressed',String(show));if(show)measurement.start?.();else measurement.cancel?.();}
+  if(measurement?.panel){
+   measurementPanel=measurement.panel;measurementHome=measurementPanel.parentNode;measurementNext=measurementPanel.nextSibling;
+   const button=host.ownerDocument.createElement('button');button.type='button';button.id='view-measure';button.className='viewport-tool';button.title='Measure between two picked points: straight-line distance or projection along a coordinate axis.';button.setAttribute('aria-label','Measure in 3D');button.setAttribute('aria-controls',measurementPanel.id);button.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 16 13-13 5 5L8 21zm4-4 2 2m2-6 2 2m2-6 2 2"/></svg><span>Measure</span>';host.append(button);buttons.measure=button;
+   measurementPanel.classList.add('viewport-measure-panel');measurementPanel.hidden=true;measurementPanel.setAttribute('role','region');host.append(measurementPanel);
+   const close=host.ownerDocument.createElement('button');close.type='button';close.id='view-measure-close';close.className='mini';close.textContent='Close';close.setAttribute('aria-label','Close measurement');close.onclick=()=>{showMeasurement(false);button.focus();};measurementPanel.prepend(close);
+   button.onclick=()=>showMeasurement(measurementPanel.hidden);showMeasurement(false);
   }
   if(onSaveSVG){
    const exportTitle="Save visible geometry and color scales as flat-color SVG vectors. Textures, reflections and screen labels are omitted; intersecting surfaces use approximate depth ordering.";
@@ -178,6 +187,7 @@
    if(inspectionFilter)inspectionFilter.hidden=collapsed||inspection.read().active!==true;
    if(groundControl)groundControl.hidden=collapsed||ground.read().visible===false;
    if(translucencyControl)translucencyControl.hidden=collapsed||translucency.read().visible===false;
+   if(collapsed&&measurementPanel&&!measurementPanel.hidden)showMeasurement(false);
    hide.hidden=collapsed;show.hidden=!collapsed;
    hide.setAttribute("aria-expanded",String(!collapsed));show.setAttribute("aria-expanded",String(!collapsed));
    if(focus)(collapsed?show:hide).focus();
@@ -203,7 +213,7 @@
   function fit(){ratio=verticalRatio();lastRadius=-1;refresh();}
   buttons.projection.onclick=()=>projection(camera.mode!==B.Camera.ORTHOGRAPHIC_CAMERA);
   const observer=scene.onBeforeRenderObservable.add(()=>refresh());refresh(true);
-  return{refresh,fit,projection,syncDisplay,syncInspection,capture:()=>({collapsed}),restore(value){collapse(validateState(value).collapsed);syncDisplay();},setCollapsed(value){collapse(validateState({collapsed:value}).collapsed,true);},destroy(){disposed=true;scene.onBeforeRenderObservable.remove(observer);host.replaceChildren();host.classList.remove("is-collapsed");}};
+  return{refresh,fit,projection,syncDisplay,syncInspection,capture:()=>({collapsed}),restore(value){collapse(validateState(value).collapsed);syncDisplay();},setCollapsed(value){collapse(validateState({collapsed:value}).collapsed,true);},destroy(){disposed=true;scene.onBeforeRenderObservable.remove(observer);if(measurementPanel){showMeasurement(false);measurementPanel.classList.remove('viewport-measure-panel');measurementPanel.querySelector('#view-measure-close')?.remove();measurementHome?.insertBefore(measurementPanel,measurementNext?.parentNode===measurementHome?measurementNext:null);measurementPanel.hidden=false;}host.replaceChildren();host.classList.remove("is-collapsed");}};
  }
  return{VIEWS,validateState,create,center,stopMotion,installCatiaZoom,installCursorPan};
 });

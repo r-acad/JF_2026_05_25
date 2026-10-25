@@ -9,6 +9,7 @@
       {id:"loaded",label:"Structure + fuel",mass:t.loaded_mass_kg,weight:t.loaded_weight_N}];
     if(data.components?.some(row=>row.id==="exported_aero_shells"))rows.push({id:"deck",label:"Exported FE deck",mass:t.deck_mass_kg,weight:t.deck_weight_N});
     if(t.nonstructural_mass_kg>0){rows[0].label="Dry mass (structure + non-structural)";rows[2].label="Dry mass + fuel";rows.splice(1,0,{id:"nonstructural",label:"Of which non-structural mass",mass:t.nonstructural_mass_kg,weight:t.nonstructural_weight_N,note:"Already included in dry mass above; do not add this subtotal again."});}
+    if(t.engine_mass_kg>0){rows.splice(rows.findIndex(row=>row.id==="fuel"),0,{id:"engine",label:"Engines",mass:t.engine_mass_kg,weight:t.engine_weight_N,note:"Separate CG masses; not included in the dry structural subtotal."});rows.find(row=>row.id==="loaded").label="Structure + engines + fuel";}
     return rows;
   }
   function create(host,onCase){
@@ -59,13 +60,17 @@
       host.append(massTable(data.components.map(row=>({id:row.id,label:row.label,mass:row.mass_kg,weight:row.weight_N,note:row.note})),"weights-table weights-components"));
       const details=el("details","weights-details");details.append(el("summary","","Calculation basis and element counts"));
       for(const row of data.components){
+        if(row.kind==="engine_mass"){
+          details.append(el("p","",row.label+": "+format(row.mass_kg)+" kg; "+format(row.length_m)+" m flexible beam with lumped CG mass and slender-line inertia; CG ["+(row.center_of_gravity_m||[]).map(format).join(", ")+"] m. "+row.note));
+          continue;
+        }
         const dimension=row.kind==="bar"?format(row.length_m)+" m × "+format(row.section_area_m2)+" m²":format(row.area_m2)+" m² × "+format(row.thickness_m)+" m";
         details.append(el("p","",row.label+": "+row.count+" elements; "+dimension+"; "+format(row.mass_kg)+" kg using each assigned material"+(row.kind==="bar"?".":" and laminate ply density.")));
         if(row.nonstructural_mass_kg>0)details.append(el("p","pick-note","Includes "+format(row.nonstructural_mass_kg)+" kg of added non-structural mass; material mass is "+format(row.material_mass_kg)+" kg."));
         if(row.property_count>1)details.append(el("p","pick-note",row.kind==="bar"?"Multiple sections: area "+format(row.section_area_m2_min*1e6)+"–"+format(row.section_area_m2_max*1e6)+" mm². The value above is weighted by element length.":"Multiple thicknesses: "+format(row.thickness_m_min*1000)+"–"+format(row.thickness_m_max*1000)+" mm. The value above is weighted by element area."));
       }
       details.append(el("p","",data.method));host.append(details);
-      host.append(el("p","pick-note","Weight is mass × "+format(data.gravity_m_s2)+" m/s² (standard gravity). Cases controls the applied fuel acceleration, scaled by its load multiplier; structural self-weight is not applied automatically."));
+      host.append(el("p","pick-note","Weight is mass × "+format(data.gravity_m_s2)+" m/s² (standard gravity). Cases controls the shared inertia acceleration, scaled once by its load multiplier. Include structural inertia applies it to dry structure and engines; their self-weight is not applied automatically."));
       host.append(el("p","pick-note",data.note));
       if(data.components.some(row=>row.id==="exported_aero_shells"))host.append(el("p","weights-stale","Exported aero shells are unconnected FE elements. Their mass is included in Exported FE deck, separately from dry structure; it is excluded from Structure + fuel."));
     }

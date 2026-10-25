@@ -206,16 +206,19 @@ extra symmetry factor or an implicit n-g conversion). Prescribed torque uses
 the same multiplier. A multiplier of 1.5 converts limit loads to ultimate only
 when the defined aerodynamic case already represents limit loads.
 """
-function solve_vlm(w::Wing, p::AbstractDict)
+function solve_vlm(w::Wing, p::AbstractDict; aerodynamic_mesh=nothing, match_lift=true)
     validate_params(p)
+    if match_lift && aircraft_lift_matching(p)
+        return solve_vlm_aircraft_lift(w, p; aerodynamic_mesh)
+    end
     nc, ns = Int(p["aero.chord_panels"]), Int(p["aero.span_panels"])
-    mesh = vlm_mesh(w, nc, ns)
+    mesh = aerodynamic_mesh === nothing ? vlm_mesh(w, nc, ns) : aerodynamic_mesh
     grid = mesh.grid
     actual_nc = size(grid, 2) - 1
     actual_ns = size(grid, 3) - 1
     # VortexLattice mirrors about y=0. Solve in translated-root coordinates,
     # then return absolute FE positions; translation must not alter loads.
-    origin = (w.root_ref_x, w.root_ref_y, w.root_ref_z)
+    origin = (w.root_ref_x, w.root_ref_y, w.root_ref_z+vertical_shift(w,0.0))
     local_grid = grid .- reshape(collect(origin),3,1,1)
     condition = flight_condition(p)
     speed, rho = condition["speed_m_s"], condition["density_kg_m3"]
@@ -283,7 +286,7 @@ function solve_vlm(w::Wing, p::AbstractDict)
             error("Vortex lattice returned non-finite loads or normal at chord panel $i, span panel $j")
         pressure = sum(force .* normal) / area
         isfinite(pressure) || error("Vortex lattice returned non-finite panel pressure")
-        push!(panels, (eta = local_center[2] / w.semispan, position = center,
+        push!(panels, (eta = local_center[2] / w.semispan, xc = .75mesh.xcs[i]+.25mesh.xcs[i+1], position = center,
                        force = force, moment = moment, corners = corners,
                        area = area, normal = normal, control_normal = compressible ? pg.normal(panel.ncp) : Tuple(panel.ncp),
                        pressure = pressure, cp = pressure / q))
@@ -309,6 +312,7 @@ function solve_vlm(w::Wing, p::AbstractDict)
         "speed_m_s" => speed, "density_kg_m3" => rho, "alpha_deg" => p["aero.alpha"],
         "Mach" => mach, "q_Pa" => q,
         "flight_condition" => condition,
+        "lift_matching" => Dict{String,Any}("enabled" => false),
         "compressibility" => "Prandtl-Glauert wind-axis geometry transformation with physical Kutta-Joukowski forces",
         "pg_beta" => pg.beta,
         "load_factor" => p["loads.load_factor"], "load_multiplier_note" => LOAD_MULTIPLIER_NOTE, "CL" => cf[3],
@@ -326,8 +330,95 @@ end
 
 """Prescribed chord-proportional loads follow the real piecewise-linear chord."""
 function lift_fraction(kind::AbstractString, w::Wing, eta::Float64)
+    kind == "schrenk" && return 0.5 * (lift_fraction("elliptical", w, eta) + lift_fraction("chord", w, eta))
     kind == "chord" && w.perturbed && return chord_area_fraction(w, clamp(eta, 0.0, 1.0))
     return lift_fraction(kind, w.taper, eta)
+end
+
+"""Case metadata shared by prescribed loading, VLM, export and the browser."""
+function aircraft_lift_summary(p)
+    aircraft_lift_matching(p) || return Dict{String,Any}("enabled" => false)
+    target = aircraft_half_lift(p)
+    return Dict{String,Any}("enabled" => true,
+        "aircraft_mass_kg" => Float64(p["loads.aircraft_mass"]),
+        "maneuver_factor" => Float64(p["loads.maneuver_factor"]),
+        "gravity_m_s2" => AIRCRAFT_LIFT_GRAVITY,
+        "target_unscaled_half_lift_N" => target,
+        "target_scaled_half_lift_N" => target * Float64(p["loads.load_factor"]),
+        "note" => AIRCRAFT_LIFT_NOTE)
+end
+
+"""Trim actual VLM lift, retaining the solved forces and couples (no load rescaling).
+
+The scalar root is the wind-axis half-wing lift before the final structural
+load multiplier. Each trial recomputes the circulation and wake direction at
+its angle of attack. Reuse the geometric mesh, and solve only at unit design
+multiplier so zero or negative multipliers cannot affect the aerodynamic trim.
+The finite +/-30 degree bracket prevents unbounded incidence searches; the
+normal attached-flow warning still applies above 12 degrees local incidence.
+"""
+function solve_vlm_aircraft_lift(w::Wing, p::AbstractDict; aerodynamic_mesh=nothing)
+    mesh = aerodynamic_mesh === nothing ? vlm_mesh(w, Int(p["aero.chord_panels"]), Int(p["aero.span_panels"])) : aerodynamic_mesh
+    trial = copy(p)
+    trial["loads.load_factor"] = 1.0
+    target = aircraft_half_lift(p)
+    tolerance = max(1e-6, abs(target)*1e-8)
+    evaluations = 0
+    function evaluate(alpha)
+        trial["aero.alpha"] = alpha
+        result = solve_vlm(w, trial; aerodynamic_mesh=mesh, match_lift=false)
+        evaluations += 1
+        residual = Float64(result.summary["lift_N"]) - target
+        isfinite(residual) || throw(ArgumentError("Aircraft lift matching returned non-finite VLM lift at $alpha degrees"))
+        return result, residual
+    end
+    initial = Float64(p["aero.alpha"])
+    alpha = clamp(initial, -30.0, 30.0)
+    solution, residual = evaluate(alpha)
+    if abs(residual) > tolerance
+        lo, hi = -30.0, 30.0
+        lower, flo = evaluate(lo)
+        upper, fhi = evaluate(hi)
+        if abs(flo) <= tolerance
+            solution, residual, alpha = lower, flo, lo
+        elseif abs(fhi) <= tolerance
+            solution, residual, alpha = upper, fhi, hi
+        else
+            signbit(flo) != signbit(fhi) || throw(ArgumentError(@sprintf(
+                "Cannot match aircraft half-wing lift %.6g N: VLM gives %.6g N at -30 deg and %.6g N at +30 deg. Change aircraft mass/load factor, speed or geometry. VLM does not predict stall.", target, target+flo, target+fhi)))
+            # Bracketed secant with a bisection safeguard. Never extrapolate
+            # outside the aerodynamic bracket or silently scale the pressure.
+            for iteration in 1:40
+                candidate = (lo*fhi-hi*flo)/(fhi-flo)
+                margin = 1e-4*(hi-lo)
+                alpha = isfinite(candidate) && lo+margin < candidate < hi-margin ? candidate : (lo+hi)/2
+                solution, residual = evaluate(alpha)
+                abs(residual) <= tolerance && break
+                if signbit(residual) == signbit(flo)
+                    lo, flo = alpha, residual
+                else
+                    hi, fhi = alpha, residual
+                end
+            end
+            abs(residual) <= tolerance || throw(ArgumentError(@sprintf(
+                "Aircraft lift matching did not converge: target %.6g N, residual %.6g N after %d VLM solutions", target, residual, evaluations)))
+        end
+    end
+    multiplier = Float64(p["loads.load_factor"])
+    panels = [merge(panel, (force=multiplier.*panel.force, moment=multiplier.*panel.moment,
+        pressure=multiplier*panel.pressure, cp=multiplier*panel.cp)) for panel in solution.panels]
+    summary = copy(solution.summary)
+    for key in ("force_N", "moment_Nm")
+        summary[key] = multiplier .* summary[key]
+    end
+    summary["lift_N"] *= multiplier
+    summary["load_factor"] = multiplier
+    summary["lift_matching"] = merge(aircraft_lift_summary(p), Dict{String,Any}(
+        "alpha_initial_deg" => initial, "alpha_solved_deg" => alpha,
+        "achieved_unscaled_half_lift_N" => target + residual,
+        "residual_N" => residual, "iterations" => evaluations,
+        "trim_angle_bounds_deg" => [-30.0, 30.0], "lift_axis" => "wind"))
+    return (;panels, summary)
 end
 
 """Sum forces and right-hand moments about the global origin."""
@@ -343,56 +434,37 @@ end
 """
     transfer_aero_loads(m, panels)
 
-Linearly distribute each panel resultant between its two bracketing RBE3
-reference stations. At reference r_j, add w_j F and
+Identify the modeled control footprint containing the panel application point,
+then linearly distribute its resultant between that component's bracketing RBE3
+reference stations. Other panels use the main-box references. At reference r_j, add w_j F and
 w_j [M_panel + (r_panel-r_j) x F]. Thus both force and moment about every origin
 are conserved, including pitching torque from chordwise offsets and camber.
-Panels beyond the last structural rib are carried entirely by its RBE3,
-including the additional spanwise moment arm of the unboxed wing tip.
+Panels beyond the last structural rib use massless outboard RBE3 references
+attached to that rib, retaining the unboxed wing tip moment arm.
 """
 function transfer_aero_loads(m::Model, panels)
     isempty(m.rbe3) && throw(ArgumentError("aerodynamic transfer requires RBE3 reference nodes"))
-    etas = [sp.eta for sp in m.rbe3]
-    issorted(etas) || error("RBE3 reference stations must be ordered root to tip")
-    positions = [Tuple(m.xyz[3sp.ref-2:3sp.ref]) for sp in m.rbe3]
-    forces = fill(AERO_ZERO, length(etas))
-    moments = fill(AERO_ZERO, length(etas))
+    routing=aerodynamic_routing(m);references=routing.refs
+    positions=[Tuple(m.xyz[3sp.ref-2:3sp.ref]) for sp in references]
+    forces=fill(AERO_ZERO,length(references));moments=copy(forces)
     for panel in panels
-        if length(etas) == 1
-            brackets = ((1, 1.0),)
-        else
-            lo = clamp(searchsortedlast(etas, panel.eta), 1, length(etas) - 1)
-            t = clamp((panel.eta - etas[lo]) / (etas[lo+1] - etas[lo]), 0.0, 1.0)
-            brackets = ((lo, 1 - t), (lo+1, t))
-        end
-        for (j, weight) in brackets
-            forces[j] = forces[j] .+ weight .* panel.force
-            moments[j] = moments[j] .+ weight .* (panel.moment .+
-                cross3(panel.position .- positions[j], panel.force))
+        for (j,weight) in aerodynamic_target_weights(routing,panel.position;eta=panel.eta)
+            forces[j]=forces[j].+weight.*panel.force
+            moments[j]=moments[j].+weight.*(panel.moment.+cross3(panel.position.-positions[j],panel.force))
         end
     end
-    return [(node_index = sp.ref, gid = m.node_ids[sp.ref], eta = sp.eta,
-             position = positions[j], force = forces[j], moment = moments[j])
-            for (j, sp) in enumerate(m.rbe3)]
+    return [(node_index=sp.ref,gid=m.node_ids[sp.ref],eta=sp.eta,position=positions[j],force=forces[j],moment=moments[j])
+        for (j,sp) in enumerate(references)]
 end
 
-"""Moment of the analytic lift beyond the box end, shifted to its final RBE3.
-
-The existing tributary force rule already assigns the complete outboard lift
-to the last rib. Retain its moment arm as a couple there. Full-span boxes keep
-their established station-force convention. Integrating in asin(eta) removes
-the elliptical distribution's tip singularity; eight-point Gauss integration
-then resolves the smooth swept/twisted chord-line moment arm.
-"""
-function analytic_outboard_couple(m::Model)
-    isempty(m.rbe3) && return AERO_ZERO
-    sp = last(m.rbe3)
-    sp.eta >= 1.0 && return AERO_ZERO
-    total = Float64(m.params["loads.lift_total"]) * m.params["loads.load_factor"]
+"""Integrate a prescribed strip's force-arm moment about a reference GRID."""
+function analytic_strip_moment(m::Model,eta_lo,eta_hi,origin)
+    eta_hi>eta_lo || return AERO_ZERO
+    total = effective_prescribed_lift(m.params) * m.params["loads.load_factor"]
     total == 0 && return AERO_ZERO
     kind = String(m.params["loads.distribution"])
-    origin = Tuple(m.xyz[3sp.ref-2:3sp.ref])
-    cuts = vcat(sp.eta, [eta for eta in planform_breakpoints(m.wing) if sp.eta < eta < 1.0], 1.0)
+    cuts = vcat(eta_lo, filter(eta->eta_lo<eta<eta_hi,
+        sort!(unique(vcat(planform_breakpoints(m.wing),m.wing.vertical_shift_etas)))), eta_hi)
     nodes = (0.1834346424956498, 0.5255324099163290, 0.7966664774136267, 0.9602898564975363)
     weights = (0.3626837833783620, 0.3137066458778873, 0.2223810344533745, 0.1012285362903763)
     moment = AERO_ZERO
@@ -402,9 +474,11 @@ function analytic_outboard_couple(m::Model)
         for (node, weight) in zip(nodes, weights), sign in (-1, 1)
             theta = mid + sign * half * node
             eta, cosine = sincos(theta)
-            density = kind == "elliptical" ? (4 / pi) * cosine :
-                      kind == "chord" ? (m.wing.perturbed ? chord(m.wing, eta) / chord_integral(m.wing, 1.0) :
-                          2 * (1 - (1 - m.wing.taper) * eta) / (1 + m.wing.taper)) : 1.0
+            ellipse_density = (4 / pi) * cosine
+            chord_density = m.wing.perturbed ? chord(m.wing, eta) / chord_integral(m.wing, 1.0) :
+                2 * (1 - (1 - m.wing.taper) * eta) / (1 + m.wing.taper)
+            density = kind == "elliptical" ? ellipse_density : kind == "chord" ? chord_density :
+                kind == "schrenk" ? 0.5 * (ellipse_density + chord_density) : 1.0
             position = section_point(m.wing, eta, Float64(m.params["rbe3.ref_xc"]), 0.0)
             force = (0.0, 0.0, total * density * cosine * half * weight)
             moment = moment .+ cross3(position .- origin, force)
@@ -413,14 +487,35 @@ function analytic_outboard_couple(m::Model)
     return moment
 end
 
+"""Continuous load outside the physical box, about its final physical rib."""
+function analytic_outboard_couple(m::Model)
+    physical=filter(sp->sp.station>=0,m.rbe3)
+    isempty(physical) && return AERO_ZERO
+    sp=last(physical)
+    return analytic_strip_moment(m,sp.eta,1.,Tuple(m.xyz[3sp.ref-2:3sp.ref]))
+end
+
+"""Carry each unboxed tributary strip at its own RBE3 without losing its arm."""
+function analytic_outboard_station_moments(m::Model)
+    isempty(m.rbe3) && return NTuple{3,Float64}[]
+    physical=filter(sp->sp.station>=0,m.rbe3)
+    isempty(physical) && return fill(AERO_ZERO,length(m.rbe3))
+    start=last(physical).eta
+    etas=[sp.eta for sp in m.rbe3]
+    return [begin
+        lo=max(start,i==1 ? 0. : (etas[i-1]+sp.eta)/2)
+        hi=i==length(etas) ? 1. : (sp.eta+etas[i+1])/2
+        analytic_strip_moment(m,lo,hi,Tuple(m.xyz[3sp.ref-2:3sp.ref]))
+    end for (i,sp) in enumerate(m.rbe3)]
+end
+
 """Add the prescribed right-hand global-y torque at RBE3 reference grids."""
 function add_prescribed_torque(m::Model, stations)
     torque = Float64(get(m.params, "loads.torque_y", 0.0)) * m.params["loads.load_factor"]
     torque == 0 && return stations
     shares = station_load_shares(m)
-    length(shares) == length(stations) || error("torque requires all RBE3 stations")
-    return [merge(s, (moment = s.moment .+ (0.0, torque * shares[j], 0.0),))
-            for (j, s) in enumerate(stations)]
+    by_gid=Dict(m.node_ids[sp.ref]=>shares[j] for (j,sp) in enumerate(m.rbe3))
+    return [merge(s,(moment=s.moment.+(0.0,torque*get(by_gid,s.gid,0.0),0.0),)) for s in stations]
 end
 
 function compute_aerodynamic_loads(m::Model)
@@ -434,7 +529,8 @@ function compute_aerodynamic_loads(m::Model)
         solution.summary["moment_error_Nm"] = norm3(moment .- pm .- (0.0, torque, 0.0))
         solution.summary["moment_Nm"] = collect(moment)
         solution.summary["prescribed_torque_y_Nm"] = torque
-        solution.summary["transfer"] = "Bracketing RBE3 centers; outboard panels go to the final rib with their moment arms; all forces and moments conserved"
+        solution.summary["control_loading_note"] = "Loads are routed using the modeled control footprint; the VLM pressure solution still uses the continuous, undeflected camber surface. Preset control deflection and elastic motion do not recompute aerodynamic pressures."
+        solution.summary["transfer"] = "Each VLM panel resultant goes to its modeled control-surface RBE3s when its application point lies in that footprint; otherwise to main-box RBE3s. Massless references cover unboxed tips. Force and moment are conserved; prescribed global-y torque remains on main-box references."
         return (stations = stations, panels = solution.panels, summary = solution.summary)
     end
     by_gid = Dict(m.node_ids[sp.ref] => sp for sp in m.rbe3)
@@ -443,22 +539,22 @@ function compute_aerodynamic_loads(m::Model)
                  force = (0.0, 0.0, fz), moment = AERO_ZERO)
                 for (gid, fz, eta) in analytic_lift_forces(m)]
     outboard_couple = analytic_outboard_couple(m)
-    if !isempty(stations)
-        stations[end] = merge(stations[end], (moment = outboard_couple,))
-    end
+    strip_moments=analytic_outboard_station_moments(m)
+    stations=[merge(s,(moment=strip_moments[i],)) for (i,s) in enumerate(stations)]
     stations = add_prescribed_torque(m, stations)
     f, moment = load_resultant(stations)
     summary = Dict{String,Any}(
         "method" => "analytic", "engine" => "Prescribed lift distribution",
         "flight_condition" => flight_condition(m.params),
         "distribution" => m.params["loads.distribution"],
+        "lift_matching" => aircraft_lift_summary(m.params),
         "lift_N" => f[3], "load_factor" => m.params["loads.load_factor"],
         "load_multiplier_note" => LOAD_MULTIPLIER_NOTE,
         "force_N" => collect(f), "moment_Nm" => collect(moment),
         "prescribed_torque_y_Nm" => torque,
         "outboard_transfer_couple_Nm" => collect(outboard_couple),
         "force_error_N" => 0.0, "moment_error_Nm" => 0.0,
-        "limitations" => "Prescribed vertical station forces and global-y torque; unboxed-tip lift retains its moment arm at the final rib; no aerodynamic solve",
+        "limitations" => "Prescribed vertical station forces and global-y torque act on main-box references. No chordwise pressure distribution is specified, so no control-surface share is invented. Use VLM for separate control loading. Massless outboard RBE3s retain unboxed-strip moment arms; no aerodynamic solve",
     )
     return (stations = stations, panels = NamedTuple[], summary = summary)
 end

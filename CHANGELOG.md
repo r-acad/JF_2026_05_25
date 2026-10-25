@@ -5,7 +5,174 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Boxer 3D line smoothing
+
+- Smooth the final 3D image, including translucent mesh edges, with FXAA.
+  Keep up to four MSAA samples for solid geometry on both WebGPU and WebGL.
+- Preserve thin-line width and full-precision transparency depth buffers;
+  avoid increasing high-DPI render resolution, which makes native mesh lines
+  fainter and multiplies transparency-buffer memory.
+
+### Boxer engine definitions
+
+- Add **Model / Engines** with named engine definitions, BASIC XYZ center of
+  gravity, mass, length, editable E/G/A/I1/I2/J stiffness properties, front
+  attachment rib, aft attachment rib and aft x/c.
+- Generate flexible two-segment CBAR engine beams with one CG mass/inertia and
+  end attachments through front-spar and aft rib RBE3 patches. Include engine mass in
+  modal analysis, weight summaries and enabled structural inertia loads exactly
+  once, independently of the wing's distributed/concentrated mass setting.
+- Show pickable engine beams, CGs and attachment connections, with geometry
+  that follows deformed results. Save definitions with Studies and TOML inputs.
+
+### Boxer axial actuators and attachment ribs
+
+- Model actuators as finite-length axial CBUSH members between upper main-box
+  rear spar caps and movable front spar caps, with stiffness in N/m and real
+  endpoints in the viewport. Preserve separate legacy hinge stiffness units.
+- Relocate the closest available movable rib to each attachment and subdivide
+  gaps exceeding an editable pitch ratio, defaulting to 1.5. Add conforming
+  underside master-rib lugs for hinges close to or behind the movable front spar.
+- Select a single movable surface in Geometry and select attachment ribs directly,
+  synchronizing eta. Diagnose axial actuators with no effective hinge lever arm
+  before static, preload and nonlinear analyses.
+
+### Boxer movable-surface editing and hinge visualization
+
+- Expand the movable-surface drawing to use the maximized workspace and select
+  one structural movable surface at a time without losing other form entries.
+- Add inboard/outboard hinge z/t positions measured from the airfoil midpoint
+  in local thickness units, preserving zero-offset defaults in existing Studies.
+- Snap attachment locations to eligible main-box rib datums and align physical
+  lug planes normal to the hinge, or in line of flight for flap surfaces.
+- Display actuators as pickable cylinders and provide optional
+  stiffness labels under Display / Axes&Labels.
+
+### Boxer measurement, assessment consistency and file selection
+
+- Add an icon-bar 3D measurement panel for point-to-point distance or projection
+  along a BASIC/model coordinate axis, including signed values and node snapping.
+- Draw fuel-tank boundary and crease outlines without triangulation diagonals.
+- Link RF assessment and RF < 1 filtering between Stress Report, the detached
+  reserve-factor table and 3D fields; explain explicit property-group exclusions.
+- Keep material-allowable editing in Material library and remove the redundant
+  Results buttons.
+- Label the deck import command Read Nastran; bring native Windows Open/Save
+  dialogs to the foreground without unsigned scripts or execution-policy changes.
+- Separate movable front-spar and true hinge coordinates; add triangular shell
+  lugs, hinge-aligned relative joints, lateral RBE2 stays and per-rib axial
+  CBUSH actuators, while retaining existing idealized attachment definitions.
+- Require physical torque arms for lug actuators/rigid joints, and explain
+  unrestrained hinge mechanisms before static/preload and sensitivity runs;
+  retain free-hinge modal analysis and deck export.
+- Allow movable structures to end before their aerodynamic span. Use massless
+  RBE3 references beyond main/control structural tips for conservative force,
+  moment and displacement transfer. Route VLM forces to the owning component
+  and use each reference's own rotation arm in the deformed loft.
+- Keep prescribed spanwise lift on the main box; report that no chordwise load
+  split is defined. Control load transfer does not add an aeroelastic iteration.
+
+### Boxer result compatibility and display controls
+
+- Canonicalize angle-constrained point offsets for result-source identity so
+  browser/Julia roundoff cannot reject an unchanged completed analysis. Keep
+  independent inputs and mesh compatibility checks strict.
+- Use neutral grey for every Maximize / Restore button. Place compact incoming
+  angle controls below eta and offset fields in narrow point-editor panes.
+- Make 2D window zoom follow the exact mouse-down and mouse-up corners in all
+  drag directions; fit the selected area without stretching after release and
+  safely ignore empty or very small rectangles.
+- Use translucent movable-surface plan drawings so reference images remain
+  visible. Add a Study-persisted 3D preview finish with translucent, solid,
+  wireframe and metallic choices, defaulting to translucent.
+- Place newly added movable surfaces outboard of all existing surfaces and
+  explain when no outboard span remains.
+- Give every spanwise load plot its own visible-curve legend and quantity/sign
+  definition, including these explanations in exported SVGs.
+
+### Boxer geometry editing and reference controls
+
+- Use a common untwisted plan background for Spars, Ribs, Stringers,
+  Leading edge and Movable surfaces, with each editor's relevant overlays.
+- Keep explicit root/tip point eta values fixed during mouse, keyboard and
+  numeric editing. Add optional incoming-segment angle constraints that adjust
+  the previous point's chordwise offset while retaining both span stations.
+- Warn about short, abrupt planform endpoint returns with physical dimensions
+  and the local edge angle; preserve the user's geometry for review.
+- Let stringer angles reference the local rear spar, local front spar or
+  global +Y. Include front-spar kinks when that reference is selected.
+- Use 0.1 m pitch spinner increments and append new master ribs after the last
+  existing master, before the final box boundary.
+- Preview catalogue airfoils before applying them; provide explicit apply and
+  cancel actions and retain the current profile after abandoned or failed loads.
+- Add per-reference linked XYZ scaling that retains existing axis proportions
+  for numeric and gizmo edits, with Study persistence and placement locking.
+
+### Boxer loft shaping and reference sections
+
+- Add an optional vertical-shift schedule in Geometry / Loft, expressed as
+  signed percent of projected semi-span. Apply it along BASIC +Z, normal to
+  the planform XY plane, after thickness, twist and dihedral. Use independent
+  linear/cosine interpolation, endpoint clamping and zero shift when empty.
+- Round newly added Loft stations to four significant figures and immediately
+  sort them by eta while preserving existing and manually entered precision.
+- Cut imported reference geometry at the same baseline BASIC Y planes as the
+  loft intersections, with an independent color and the current reference
+  placement and scale. Allow the source surfaces to be hidden while retaining
+  their section lines.
+- Preserve embedded shared and local 2D background images and their settings
+  through Save Study, Save Study as and Autosave, without requiring the original
+  image files when reopening a Study.
+
+### Boxer shared drawings and panel assignment review
+
+- Share background images and physical alignment across plan drawings by
+  default, with explicit current-view exceptions and an apply-to-all option.
+  Save one shared image plus individual exceptions in the Study.
+- Correct left-drag window zoom over noneditable geometry and narrow selections;
+  retain geometry editing on active handles and snap image registration to
+  visible geometry, including rib datums.
+- Round newly added Planform/Spars point values to four significant figures and
+  sort rows immediately by eta without reducing manually entered precision.
+- Reconcile local panel overrides by skin/stringer membership. Preserve
+  compatible assignments across adjacent runout changes and provide a detailed
+  review, backup and explicit rebuild action when assignments need attention.
+
+### Boxer reference display and model editing
+
+- Fix imported-reference Wire mode blanking the WebGPU scene when translucent
+  FE rendering is active. Preserve appearance, placement and Study restoration;
+  verify both WebGPU and WebGL.
+- Preserve panel overrides across compatible geometry and mesh-density edits.
+  Identify panels by physical rib/stringer/runout topology and authenticate
+  legacy saved-study identities before migration; retain checks for changed
+  panel membership and synchronize migrated identities with the editor.
+- Keep embedded airfoil coordinates consistent with the selected source.
+  Switching between local files, UIUC and NACA retains valid source-specific
+  choices and ignores abandoned asynchronous selections.
+
+### Boxer geometry and aircraft loading
+
+- Fix loft-cut and aerodynamic-wireframe rendering on WebGPU by removing
+  unsupported line depth bias; verify WebGPU and WebGL rendering.
+- Separate Display / Reference Geometry controls and expose panel explosion
+  beside property explosion. Double-click fits shared 2D drawings and the
+  detached dimensioned plan without altering reference-image registration.
+- Add per-case aircraft mass and maneuver load factor with optional half-wing
+  lift matching. Prescribed loads use the target directly; VLM solves incidence
+  and reports the achieved lift and residual. Preserve a separate load multiplier.
+- Add selectable Al7075-T6 DTD5014 and Al2024-T3 DTD5070B report presets, retaining
+  their source strength data independently of the editable assessment allowable.
+
+### Prescribed aerodynamic loads
+
+- Add normalized Schrenk lift distribution to Boxer load cases, using the actual
+  perturbed planform, with consistent tip-load moments and regression checks.
+
 ### Application layout
+
+- Remove the redundant Windows forwarding launcher `run_fe_generator.cmd`;
+  use `JFEM-Boxer.cmd` to start the app.
 
 - Document `APPS/JFEM-Boxer` as the authoritative application source, using
   the repository root Julia environment, shared sysimage and double-click launcher.

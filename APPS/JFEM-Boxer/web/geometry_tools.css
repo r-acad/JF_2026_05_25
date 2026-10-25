@@ -5,6 +5,10 @@
 #measure-tool { margin:18px 0; padding-top:14px; border-top:1px solid #334356; }
 #measure-tool h3 { margin:0 0 10px; font-size:13px; }
 #measure-tool .hud-row { flex-wrap:wrap; }
+.measure-control { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:8px 0; font-size:12px; }
+.measure-control select { flex:1; min-width:0; padding:6px; background:#0e1c2b; color:#e3efff; border:1px solid #4a627c; border-radius:4px; }
+#measure-tool.viewport-measure-panel { position:absolute; top:calc(100% + 7px); right:0; width:340px; max-width:calc(100vw - 32px); max-height:calc(100vh - 180px); overflow:auto; box-sizing:border-box; margin:0; padding:14px; border:1px solid #587493; border-radius:6px; background:#152538f5; color:#e3efff; box-shadow:0 4px 18px #0006; }
+#view-measure-close { float:right; margin-left:8px; }
 #measure-values table { width:100%; border-collapse:collapse; margin-top:10px; font-size:12px; }
 #measure-values th, #measure-values td { padding:5px 3px; text-align:left; vertical-align:top; overflow-wrap:anywhere; }
 #measure-values th { width:32%; color:#a9bdce; font-weight:500; }

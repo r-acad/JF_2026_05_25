@@ -68,6 +68,12 @@ function property_minimum_gauge(p,pid::Integer;definition=nothing)
         "can_reduce"=>false,"dimensions"=>Any[],"reason"=>reason)
     haskey(p,"imported.native")&&return not_applicable("Imported properties have no user-defined family minimum gauge.")
     if is_movable_pid(pid)
+        if div(pid,1_000_000)==37
+            property=definition===nothing ? movable_shell_property(p,pid) : definition
+            dimension=minimum_dimension("thickness",property["thickness_m"],property["thickness_m"],
+                "movable_structure.attachments#$(property["movable_surface"])#lug_thickness";label="Hinge lug thickness")
+            return Dict{String,Any}("status"=>"known","at_minimum"=>true,"can_reduce"=>false,"dimensions"=>[dimension])
+        end
         family,index=divrem(pid,1_000_000);surface_index=index÷1000
         rows=movable_structure_rows(p)
         1<=surface_index<=length(rows)||throw(ArgumentError("Unknown movable property $pid"))

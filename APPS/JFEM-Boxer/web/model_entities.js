@@ -62,15 +62,117 @@
         if(/^CELAS/.test(collection.card))mesh.explodedElementRanges=faces.map((index,line)=>({id:ids[index],start:2*line,count:2}));}
       // Two different GRID IDs can share one position. Those zero-length
       // springs need the same pickable marker as a one-GRID mass/connection.
-      const points=collection.elements.filter(el=>collection.point_mass||el.nodes.length<2||el.nodes.every(n=>[0,1,2].every(a=>positions[3*n+a]===positions[3*el.nodes[0]+a])));
+      const actuators=actuatorGlyphs(collection);
+      const actuatorIds=new Set(actuators.map(g=>g.eid));
+      const points=collection.elements.filter(el=>!actuatorIds.has(el.eid)&&(collection.point_mass||el.nodes.length<2||el.nodes.every(n=>[0,1,2].every(a=>positions[3*n+a]===positions[3*el.nodes[0]+a]))));
       if(points.length){
         const marks=markerMesh(collection.name,positions,points.map(el=>el.nodes[0]),hex,Math.max(markerRadius(),diag*1e-8))||[];
         marks.forEach((mark,i)=>attachMarker(mark,state.elements.get(points[i].eid)));meshes.push(...marks);
       }
-      addLayer(collection.name,collection.card+(collection.point_mass?' mass attachment nodes':' connections'),hex,collection.elements.length+' elements',meshes);
+      meshes.push(...actuatorMeshes(globalThis.BABYLON,{state,positions,collection,glyphs:actuators,diag}));
+      meshes.push(...engineBeamMeshes(globalThis.BABYLON,{state,positions,collection,diag}));
+      const label=({ENGINE_BEAMS:'Engine beams',ENGINE_ATTACHMENTS:'Engine RBE3 attachments',ENGINE_MOUNT_ARMS:'Engine rigid mounting arms',ENGINE_MASSES:'Engine masses / CG'})[collection.name];
+      addLayer(collection.name,label||collection.card+(collection.point_mass?' mass attachment nodes':' connections'),hex,collection.elements.length+' elements',meshes);
     }
     const radius=globalThis.document?.getElementById('celas-radius')?.value??.01;
     syncSpringStyle({state,positions,enabled:!!globalThis.document?.getElementById('show-celas-cylinders')?.checked,radius});
+  }
+  // Axial actuators span their actual attachment GRIDs. Cylinder radius is a
+  // display size; their length and orientation follow the displayed FE nodes.
+  // Historical torsional restraints retain a clearly distinct symbol/label.
+  function actuatorGlyphs(collection){
+    if(collection.card!=='CBUSH')return[];
+    return (collection.elements||[]).flatMap(el=>{
+      const p=el.properties||{},explicit=Number(p.actuator_eid)===Number(el.eid);
+      if(p.kind==='rigid')return[];
+      const axial=explicit&&Number(p.K1_N_per_m)>0;
+      const legacy=!axial&&((!explicit&&p.fitting==='idealized'&&p.kind==='hinge'&&Number(p.joint_eid)===Number(el.eid))||(explicit&&Number(p.K4_Nm_per_rad)>0));
+      const stiffness=Number(axial?p.K1_N_per_m:p.K4_Nm_per_rad??p.hinge_stiffness),axis=axial?p.actuator_axis:p.hinge_axis;
+      if((!axial&&!legacy)||!Number.isFinite(stiffness)||stiffness<=0||!Array.isArray(axis)||axis.length!==3||!axis.every(Number.isFinite)||!(Math.hypot(...axis)>0)||el.nodes?.length!==2)return[];
+      const norm=Math.hypot(...axis);
+      return [{eid:el.eid,pid:axial?p.actuator_pid??p.pid??p.PID:p.pid??p.PID,cid:axial?p.actuator_cid??p.axis_system??p.cid:p.axis_system??p.cid,layer:collection.name,nodes:el.nodes,axis:toView(axis.map(x=>x/norm)),stiffness,axial,legacy,
+        surface:p.surface||'',role:legacy?'Hinge restraint':'Actuator'}];
+    });
+  }
+  function actuatorLabel(glyph){
+    return [glyph.role+' CBUSH '+glyph.eid+' · PBUSH '+(glyph.pid??'?'),
+      (glyph.axial?'K1 = ':'K4 = ')+Number(glyph.stiffness.toPrecision(5))+(glyph.axial?' N/m':' N·m/rad')+' · CID '+(glyph.cid??'?')+' x'];
+  }
+  function actuatorMeshes(B,{state,positions,collection,glyphs=actuatorGlyphs(collection),diag}){
+    if(!B||!glyphs.length)return[];
+    const displayRadius=Math.max(Number(diag)*.003,1e-8),meshes=[];
+    for(const glyph of glyphs){
+      const length=Math.hypot(...[0,1,2].map(a=>positions[3*glyph.nodes[1]+a]-positions[3*glyph.nodes[0]+a]));
+      const radius=glyph.axial?Math.min(displayRadius,Math.max(length*.06,1e-8)):displayRadius;
+      const mesh=B.MeshBuilder.CreateCylinder(collection.name+'-actuator-'+glyph.eid,{height:1,diameter:2*radius,tessellation:24,updatable:true},state.scene);
+      const material=new B.StandardMaterial(mesh.name+'-material',state.scene);
+      material.diffuseColor=B.Color3.FromHexString('#ffb84d');material.emissiveColor=material.diffuseColor.scale(.5);material.specularColor=new B.Color3(.65,.65,.65);material.specularPower=45;material.maxSimultaneousLights=6;mesh.material=material;
+      mesh.parent=state.root;mesh.isPickable=true;mesh.actuatorCylinder=true;
+      mesh.metadata={feGroup:{name:collection.name,kind:'connection'},elementId:glyph.eid,actuator:glyph,displayOnly:true};mesh.elementIds=Int32Array.of(glyph.eid);
+      const record={mesh,actuator:glyph,displayLength:7*radius};state.deformable.push(record);updateActuatorMesh(B,record,positions,null,0,state.panelExplosion);
+      // End rims make the axis and finite display extent readable in a dense
+      // shell/connection view, without drawing triangulation diagonals.
+      mesh.enableEdgesRendering(.95);mesh.edgesWidth=.08;mesh.edgesColor=new B.Color4(.25,.12,.025,1);
+      meshes.push(mesh);
+    }
+    return meshes;
+  }
+  function updateActuatorMesh(B,record,positions,rotations,scale=1,explosion){
+    const g=record.actuator,center=[0,0,0];
+    for(const node of g.nodes)for(let a=0;a<3;a++)center[a]+=positions[3*node+a]/g.nodes.length;
+    const offset=explosion?.offsetElement(g.eid)||[0,0,0];record.mesh.position.set(...center.map((v,a)=>v+offset[a]));
+    let axis=new B.Vector3(...g.axis);
+    if(g.axial){
+      const delta=[0,1,2].map(a=>positions[3*g.nodes[1]+a]-positions[3*g.nodes[0]+a]),length=Math.hypot(...delta);
+      record.mesh.isVisible=Number.isFinite(length)&&length>1e-12;
+      if(!record.mesh.isVisible)return;
+      record.mesh.scaling.y=length;axis.copyFromFloats(...delta.map(v=>v/length));
+    }else record.mesh.scaling.y=record.displayLength;
+    // The actuator housing follows the main-box end of the hinge. Result
+    // rotations are BASIC XYZ, whereas the viewport uses YZX.
+    if(!g.axial&&rotations&&scale){const n=g.nodes[0],r=toView(Array.from(rotations.subarray(3*n,3*n+3),v=>v*scale)),angle=Math.hypot(...r);if(angle>1e-14&&Number.isFinite(angle))axis=axis.applyRotationQuaternion(B.Quaternion.RotationAxis(new B.Vector3(...r).scale(1/angle),angle));}
+    const x=B.Vector3.Cross(Math.abs(axis.y)<.9?B.Axis.Y:B.Axis.X,axis).normalize(),z=B.Vector3.Cross(x,axis).normalize();
+    record.mesh.rotationQuaternion=B.Quaternion.RotationQuaternionFromAxis(x,axis,z);
+  }
+  function engineBeamMeshes(B,{state,positions,collection,diag}){
+    if(!B||collection.name!=='ENGINE_BEAMS')return[];
+    const meshes=[];
+    for(const el of collection.elements||[]){
+      if(el.nodes?.length!==2)continue;
+      // Radius is a display size only. Actual centerline endpoints and length
+      // belong to the massless elastic CBARs; mass/inertia live at the engine CG.
+      const radius=Math.max(Math.min(diag*.006,Number(el.properties?.['Length m']||1)*.035),1e-8);
+      const mesh=B.MeshBuilder.CreateCylinder(collection.name+'-'+el.eid,{height:1,diameter:2*radius,tessellation:24},state.scene);
+      const material=new B.StandardMaterial(mesh.name+'-material',state.scene);
+      material.diffuseColor=B.Color3.FromHexString('#ffc45b');material.emissiveColor=material.diffuseColor.scale(.3);material.specularColor=new B.Color3(.6,.6,.6);material.specularPower=45;material.maxSimultaneousLights=6;
+      mesh.material=material;mesh.parent=state.root;mesh.engineBeamCylinder=true;
+      attachMarker(mesh,state.elements.get(el.eid));mesh.metadata.displayOnly=true;
+      const record={mesh,engineBeam:{eid:el.eid,nodes:el.nodes}};state.deformable.push(record);updateEngineBeamMesh(B,record,positions,state.panelExplosion);
+      mesh.enableEdgesRendering(.95);mesh.edgesWidth=.08;mesh.edgesColor=new B.Color4(.35,.18,.03,1);meshes.push(mesh);
+    }
+    return meshes;
+  }
+  function updateEngineBeamMesh(B,record,positions,explosion){
+    const g=record.engineBeam,a=g.nodes[0],b=g.nodes[1],delta=[0,1,2].map(k=>positions[3*b+k]-positions[3*a+k]),length=Math.hypot(...delta);
+    record.mesh.isVisible=Number.isFinite(length)&&length>1e-12;if(!record.mesh.isVisible)return;
+    const offset=explosion?.offsetElement(g.eid)||[0,0,0];
+    record.mesh.position.set(...[0,1,2].map(k=>(positions[3*a+k]+positions[3*b+k])/2+offset[k]));record.mesh.scaling.y=length;
+    const axis=new B.Vector3(...delta.map(v=>v/length)),x=B.Vector3.Cross(Math.abs(axis.y)<.9?B.Axis.Y:B.Axis.X,axis).normalize(),z=B.Vector3.Cross(x,axis).normalize();
+    record.mesh.rotationQuaternion=B.Quaternion.RotationQuaternionFromAxis(x,axis,z);
+  }
+  function actuatorCandidates(state,positions,enabled){
+    if(!enabled||!positions||!state.data)return[];
+    const result=[];
+    for(const collection of state.data.imported_connections||[]){
+      if(!state.layers.get(collection.name)?.visible)continue;
+      for(const g of actuatorGlyphs(collection)){
+        const point=[0,0,0];for(const node of g.nodes)for(let a=0;a<3;a++)point[a]+=positions[3*node+a]/g.nodes.length;
+        if(!point.every(Number.isFinite))continue;
+        const lines=actuatorLabel(g);
+        result.push({kind:'actuator-label',id:g.eid,lines,text:lines.join('\n'),color:'#ffca7a',point:state.panelExplosion?.point(g.eid,point)||point});
+      }
+    }
+    return result;
   }
   function springGlyphs(collection){
     const glyphs=[];
@@ -221,5 +323,5 @@
     }
     return result;
   }
-  return{COLORS,AXIS_COLORS,typeLabel,coordinateReference,coordinateUsage,coordinateDescription,springRadius,color,kind,toView,pickedElementId,attachMarker,renderConnections,springGlyphs,springMeshes,syncSpringStyle,coordinateMeshes,pickedCoordinateId,coordinateCandidates,coordinateLabelGroups,springPropertyLabel,springEndpointLabel,springCandidates};
+  return{COLORS,AXIS_COLORS,typeLabel,coordinateReference,coordinateUsage,coordinateDescription,springRadius,color,kind,toView,pickedElementId,attachMarker,renderConnections,actuatorGlyphs,actuatorLabel,actuatorMeshes,updateActuatorMesh,actuatorCandidates,engineBeamMeshes,updateEngineBeamMesh,springGlyphs,springMeshes,syncSpringStyle,coordinateMeshes,pickedCoordinateId,coordinateCandidates,coordinateLabelGroups,springPropertyLabel,springEndpointLabel,springCandidates};
 });

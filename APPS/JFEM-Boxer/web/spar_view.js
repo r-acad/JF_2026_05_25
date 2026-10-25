@@ -2,7 +2,7 @@
 (function(root,factory){const api=factory(root,typeof module==="object"&&module.exports?require("./planform_view.js"):root.WingPlanformView);if(typeof module==="object"&&module.exports)module.exports=api;else root.WingSparView=api;})(typeof globalThis!=="undefined"?globalThis:this,function(root,P){
  "use strict";
  const POINT_KEYS=["box.front_spar_points","box.rear_spar_points"],ANCHOR_KEYS=["box.front_spar_xc","box.rear_spar_xc"];
- const PARAM_KEYS=[...P.PARAM_KEYS,...ANCHOR_KEYS,...POINT_KEYS,"box.stringer_angle","box.rib_pitch","ribs.masters"],views=new WeakMap();
+ const PARAM_KEYS=[...P.PARAM_KEYS,...ANCHOR_KEYS,...POINT_KEYS,"box.stringer_angle","box.stringer_angle_reference","box.rib_pitch","ribs.masters"],views=new WeakMap();
  const number=value=>root.WingNumbers?root.WingNumbers.format(value,6):Number(value.toPrecision(6)).toString();
  function sample(data,edge,eta){
   const vertices=data.edgeVertices[POINT_KEYS[edge]];if(!vertices||!Number.isFinite(eta)||eta<0||eta>1)throw new Error("Spar samples need edge 0 or 1 and eta between 0 and 1.");
@@ -22,7 +22,7 @@
   const controls={},edgeVertices={};
   for(let e=0;e<POINT_KEYS.length;e++){
    const key=POINT_KEYS[e],label=e===0?"Front spar":"Rear spar",raw=params[key]===undefined?[]:params[key];
-   let rows;try{rows=P.normalizePointRows(raw,key,params);}catch(error){return{valid:false,error:error.message,invalid:[key]};}controls[key]=rows;
+   let rows;try{rows=P.constrainPointRows(P.normalizePointRows(raw,key,params),key,params);}catch(error){return{valid:false,error:error.message,invalid:[key]};}controls[key]=rows;
    const vertices=rows.slice();if(!vertices.some(p=>p.eta===0))vertices.unshift({eta:0,dxc:0});if(!vertices.some(p=>p.eta===1))vertices.push({eta:1,dxc:0});
    edgeVertices[key]=vertices.map(p=>({...p,xc:anchors[e]+p.dxc,q:(anchors[e]+p.dxc)*chord(p.eta),position:at(p.eta,anchors[e]+p.dxc)}));
   }
@@ -30,8 +30,17 @@
   const edgeOffset=(edge,eta)=>{const v=data.edgeVertices[P.POINT_KEYS[edge]];let i=1;while(i<v.length-1&&v[i].eta<eta)i++;const a=v[i-1],b=v[i],f=(eta-a.eta)/(b.eta-a.eta);return a.delta+f*(b.delta-a.delta);};
   const breaks=[...new Set([0,endEta,...Object.values(edgeVertices).flat().map(p=>p.eta),...Object.values(data.edgeVertices).flat().map(p=>p.eta)])].sort((a,b)=>a-b),stations=breaks.map(eta=>{const leading=edgeOffset(0,eta),trailing=chord(eta)+edgeOffset(1,eta),front=sampleAt(0,eta),rear=sampleAt(1,eta);return{eta,front,rear,leading,trailing,surfaceFront:(front.q-leading)/(trailing-leading),surfaceRear:(rear.q-leading)/(trailing-leading)};});
   if(stations.some(s=>s.eta<=endEta&&!(s.leading<s.front.q&&s.front.q<s.rear.q&&s.rear.q<s.trailing)))report("Within the modeled box, both spars must remain inside the refined lifting surface without crossing or touching. Change the spar points or the lifting surface outline.",[...POINT_KEYS,...P.POINT_KEYS]);
-  const stringerSegments=[],rearPoints=controls[POINT_KEYS[1]],rearVertices=edgeVertices[POINT_KEYS[1]];
-  if(rearPoints.length)for(let i=1;i<rearVertices.length;i++){
+  const stringerSegments=[],rearPoints=controls[POINT_KEYS[1]],rearVertices=edgeVertices[POINT_KEYS[1]],stringerReference=params["box.stringer_angle_reference"]??"rear_spar";
+  if(!["rear_spar","front_spar","global_y"].includes(stringerReference))report("Choose Rear spar, Front spar or Global Y for stringer angles.",["box.stringer_angle_reference"]);
+  if(stringerReference!=="rear_spar"){
+   const knots=[...new Set([0,1,...rearPoints.map(p=>p.eta),...(stringerReference==="front_spar"?edgeVertices[POINT_KEYS[0]].map(p=>p.eta):[])])].sort((a,b)=>a-b);
+   for(let i=1;i<knots.length;i++){
+    const a=knots[i-1],b=knots[i],angle=rearPoints.length?(rearPoints.find(p=>p.eta>=b)||rearPoints.at(-1)).stringer_angle:(params["box.stringer_angle"]??0);
+    const va=sampleAt(0,a),vb=sampleAt(0,b),datumAngle=stringerReference==="global_y"?0:Math.atan2(vb.position[0]-va.position[0],(b-a)*data.semispan)*180/Math.PI,absoluteAngle=datumAngle+angle,active=a<endEta;
+    if(active&&!(Number.isFinite(absoluteAngle)&&Math.abs(absoluteAngle)<89))report(`Stringer direction on eta ${number(a)} to ${number(b)} must stay within 89 degrees of +Y.`,["box.stringer_angle_reference",POINT_KEYS[1]]);
+    stringerSegments.push({startEta:a,endEta:b,angle,datumAngle,absoluteAngle,active});
+   }
+  }else if(rearPoints.length)for(let i=1;i<rearVertices.length;i++){
    const a=rearVertices[i-1],b=rearVertices[i],explicit=rearPoints.find(p=>p.eta===b.eta),angle=explicit?explicit.stringer_angle:rearPoints.at(-1).stringer_angle,dy=(b.eta-a.eta)*data.semispan,dx=dy*Math.tan(data.sweepDeg*Math.PI/180)-data.sweepRef*(chord(b.eta)-chord(a.eta))+b.q-a.q,datumAngle=Math.atan2(dx,dy)*180/Math.PI,absoluteAngle=datumAngle+angle,active=a.eta<endEta;
    if(active&&!(Number.isFinite(absoluteAngle)&&Math.abs(absoluteAngle)<89))report(`Rear-spar stringer angle on eta ${number(a.eta)} to ${number(b.eta)} gives an absolute direction of ${number(absoluteAngle)} degrees; its magnitude must be below 89 degrees.`,[POINT_KEYS[1]]);
    stringerSegments.push({startEta:a.eta,endEta:b.eta,angle,datumAngle,absoluteAngle,active});
@@ -50,7 +59,7 @@
  // Resolve lazily: the rib preview itself uses the plain spar geometry.
  function ribAPI(){return root.WingRibLayout||(typeof require==="function"?require("./rib_layout.js"):null);}
  function ribDatums(params,maxRibs=400){const api=ribAPI();return api?api.derive(params,{maxRibs}):{ribs:[]};}
- function editorGeometry(params){return{...derive(params),ribDatums:ribDatums(params)};}
+ function editorGeometry(params){return{...derive(params),ribDatums:ribDatums(params),planContext:contextGeometry(params)};}
  function snapPoint(params,edge,index){
   const data=derive(params),point=params[POINT_KEYS[edge]]?.[index];
   if(!point||!Number.isFinite(point.eta)||!Number.isFinite(point.dxc)||!(data.valid||data.drawable))throw Error("Enter finite eta and delta x/c coordinates before snapping.");
@@ -62,6 +71,28 @@
   for(const rib of layout.ribs){const [rx,ry]=rib.rear,[ux,uy]=rib.direction,den=dx*uy-dy*ux;if(Math.abs(den)<1e-14)continue;const eta=((rx-a[0])*uy-(ry-a[1])*ux)/den;if(eta>=-1e-12&&eta<=layout.endEta+1e-12&&!used.some(v=>Math.abs(v-eta)<=1e-10))candidates.push({eta:Math.max(0,Math.min(layout.endEta,eta)),rib:rib.number});}
   if(!candidates.length)throw Error("No unused rib datum intersects this point's delta x/c path inside the box.");
   candidates.sort((a,b)=>Math.abs(a.eta-point.eta)-Math.abs(b.eta-point.eta));return candidates[0];
+ }
+ // Geometry for contextual overlays is derived only while drawing, never
+ // from derive(): rib construction itself depends on plain spar geometry.
+ function contextGeometry(params,{base:suppliedBase}={}){
+  const dimensional=root.WingDimensionedPlanView||(typeof require==="function"?require("./dimensioned_plan_view.js"):null),base=suppliedBase||dimensional?.derive(params),plan=base?.planform||P.derive(params),spars=base?.spars||derive(params),ribs=base?.ribs||ribDatums(params).ribs||[],movables=[];
+  if(base?.planContext&&!suppliedBase)return base.planContext;
+  if(plan.valid||plan.drawable){
+   const at=(edge,eta)=>{const v=plan.edgeVertices[P.POINT_KEYS[edge]];let i=1;while(i<v.length-1&&v[i].eta<eta)i++;const a=v[i-1],b=v[i],f=(eta-a.eta)/(b.eta-a.eta);return a.position.map((x,k)=>x+f*(b.position[k]-x));};
+   for(const row of params["movable_surfaces.items"]||[]){if(!Number.isFinite(row.eta_start)||!Number.isFinite(row.eta_end)||!(row.eta_end>row.eta_start))continue;const stations=[...new Set([...Array.from({length:25},(_,i)=>row.eta_start+(row.eta_end-row.eta_start)*i/24),...Object.values(plan.edgeVertices).flat().map(p=>p.eta).filter(t=>t>row.eta_start&&t<row.eta_end)])].sort((a,b)=>a-b),hinge=[],front_spar=[],edge=[];
+    for(const eta of stations){const a=at(0,eta),b=at(1,eta),f=(eta-row.eta_start)/(row.eta_end-row.eta_start),xc=row.hinge_start+f*(row.hinge_end-row.hinge_start);hinge.push(a.map((x,k)=>x+xc*(b[k]-x)));const sx=(row.front_spar_start??row.hinge_start)+f*((row.front_spar_end??row.hinge_end)-(row.front_spar_start??row.hinge_start));front_spar.push(a.map((x,k)=>x+sx*(b[k]-x)));edge.push(row.edge==="leading"?a:b);}
+    if([...hinge,...front_spar,...edge].flat().every(Number.isFinite))movables.push({name:row.name||"Movable surface",color:/^#[0-9a-f]{6}$/i.test(row.color)?row.color:"#d195ff",hinge,front_spar,outline:[...edge,...front_spar.slice().reverse()]});
+   }
+  }
+  return{planform:plan,spars,ribs,movables,physical:base?.physical};
+ }
+ function contextDrawing(context,{transform,includeSpars=true,includeRibs=true,includeLeadingEdge=true}={}){
+  if(!context||!transform)return"";const map=transform.map,line=(points,cls,extra="")=>`<polyline class="${cls}" points="${points.map(p=>map(p).join(",")).join(" ")}" ${extra}/>`,escape=value=>String(value).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));let svg='<g class="plan-context" aria-label="Spars, ribs, leading edge and movable surfaces">';
+  const data=context.spars;if(includeSpars&&(data?.valid||data?.drawable))for(let e=0;e<2;e++)svg+=line(data.activeVertices[POINT_KEYS[e]].map(p=>p.position),`sf-spar sf-${e===0?"front":"rear"}`);
+  for(const rib of context.ribs||[]){if(includeRibs&&rib.front&&rib.rear)svg+=line([rib.front,rib.rear],"plan-context-rib");if(includeLeadingEdge&&rib.noseActive&&rib.leading&&rib.front)svg+=line([rib.leading,rib.front],"plan-context-leading");}
+  const active=includeLeadingEdge?(context.ribs||[]).filter(r=>r.noseActive&&r.leading):[],physical=context.physical;for(let i=1;i<active.length;i++)if(active[i].number===active[i-1].number+1&&(!physical||(physical.enabled&&active[i-1].number>=physical.start&&active[i-1].number<physical.end&&!physical.disabled.includes(active[i-1].number)))){const a=active[i-1].leading,b=active[i].leading,interior=context.planform?.edgeVertices?.[P.POINT_KEYS[0]]?.filter(v=>v.position[1]>Math.min(a[1],b[1])+1e-12&&v.position[1]<Math.max(a[1],b[1])-1e-12).map(v=>v.position)||[];if(a[1]>b[1])interior.reverse();svg+=line([a,...interior,b],"plan-context-leading");}
+  for(const surface of context.movables||[])svg+=`<g class="plan-context-movable" style="--surface-color:${surface.color}"><title>${escape(surface.name)}: neutral movable-surface footprint</title><polygon points="${surface.outline.map(p=>map(p).join(",")).join(" ")}"/>${line(surface.hinge,"plan-context-hinge")}</g>`;
+  return svg+"</g>";
  }
  // Common untwisted plan context for Spars, Ribs and Stringers. The caller
  // owns its viewport and editable overlays; these paths never share cameras.
@@ -80,7 +111,7 @@
  }
  function drawing(data,{transform=P.editorTransform(data),selected=null,locked=false,pointOrder=null}={}){
   if(!data.valid&&!data.drawable)return"";const map=transform.map;
-  let svg='<title>Independent front and rear spar reference paths with the refined lifting surface</title><desc>Drag spar points or edit their eta and delta x/c offsets. The actual skin and spar heights follow the refined surface; the reference paths stay independent.</desc>'+referenceDrawing(data,{transform,ribs:data.ribDatums?.ribs});
+  let svg='<title>Independent front and rear spar reference paths with the refined lifting surface</title><desc>Drag spar points or edit their eta and delta x/c offsets. The actual skin and spar heights follow the refined surface; the reference paths stay independent.</desc>'+referenceDrawing(data,{transform,ribs:data.ribDatums?.ribs})+contextDrawing(data.planContext,{transform,includeSpars:false,includeRibs:false});
   for(let edge=0;edge<2;edge++){
    const key=POINT_KEYS[edge],name=edge===0?"Front":"Rear",prefix=edge===0?"F":"R";
    for(let i=0;i<data.controls[key].length;i++){
@@ -93,7 +124,7 @@
  function install(host,options){
   const doc=host.ownerDocument;let view=views.get(doc);
   if(!view){view={editor:null};for(const event of ["input","change"])doc.addEventListener(event,e=>{const key=PARAM_KEYS.find(k=>e.target?.id==="p-"+k);if(key)view.editor?.externalChange(key);});views.set(doc,view);}
-  view.editor?.destroy();view.editor=P.createPointEditor(host,options,view,{pointKeys:POINT_KEYS,derive:editorGeometry,drawing,snapPoint,editInvalid:true,name:"Spar paths",className:"spar-editor",svgId:"spar-editor-svg",edgeNames:["Front spar","Rear spar"],prefixes:["F","R"],extraFields:[[],[{key:"stringer_angle",hidden:true,label:"Stringer angle (deg)",default:0,help:"Incoming segment: preceding rear point (or root) to this point. The final angle continues from the final point to the tip, relative to that rear-spar segment."}]],fieldDisabled:(edge,field,point,rows)=>edge===1&&field==="stringer_angle"&&point?.eta===0&&rows.some(p=>p.eta>0)?"Unused root angle: the next positive-eta point defines the incoming segment. A sole root point defines the full span.":"",edgeHelp:["","Edit stringer angles in Structure / Stringers. Each angle applies to the incoming rear-spar segment; the last angle continues to the tip. New points default to 0 degrees."],onRender:params=>{const legacy=doc.getElementById("row-box.stringer_angle");if(legacy)legacy.hidden=(params[POINT_KEYS[1]]||[]).length>0;},emptyText:"No perturbations: follows the base spar location.",legend:'<i class="sf-front"></i>Front <i class="sf-rear"></i>Rear <i class="surface"></i>Lifting surface <i class="base"></i>Base trapezoid',metrics:(data,locked)=>`Root box width ${number(data.rootWidth)} m · End width ${number(data.endWidth)} m${locked?" · Mesh parameters locked":""}`,helpStart:'This is the untwisted reference plan view. Define the base spar positions below, then refine each path with points. <b>η</b> is the fraction of the projected half-span. <b>\u0394x/c</b> is the offset from the corresponding nominal spar location, measured in <em>base trapezoid</em> chord fractions: 0 follows the nominal spar, +0.2 moves aft and -0.2 forward by 20% of the chord. Offsets follow changes to the nominal spar and the base trapezoid. The structural skins, nose and spar heights follow the refined lifting surface. Both spars must fit inside that surface throughout the modeled box. Dashed lines show physical rib datums in this untwisted view. Use <b>Snap to rib</b> beside a point to move its eta onto the nearest available rib datum while keeping its offset. Snapping is a one-time edit; later rib changes do not move the point.',helpEnd:'Straight segments join spar points in physical space. Missing root/tip points have zero offset from the nominal spar locations. The solid paths stop at Box end η; dashed extensions show the definition toward the tip. Drag a point, use the tables, or use arrow keys (Shift for larger steps), Enter for the table, and Escape to cancel a drag. The <b>Mesh lock</b> protects these parameters.'});return view.editor;
+  view.editor?.destroy();view.editor=P.createPointEditor(host,options,view,{pointKeys:POINT_KEYS,derive:editorGeometry,drawing,snapPoint,editInvalid:true,name:"Spar paths",className:"spar-editor",svgId:"spar-editor-svg",edgeNames:["Front spar","Rear spar"],prefixes:["F","R"],extraFields:[[],[{key:"stringer_angle",hidden:true,label:"Stringer angle (deg)",default:0,help:"Incoming segment: preceding rear point (or root) to this point. The final angle continues from the final point to the tip, relative to that rear-spar segment."}]],fieldDisabled:(edge,field,point,rows)=>edge===1&&field==="stringer_angle"&&point?.eta===0&&rows.some(p=>p.eta>0)?"Unused root angle: the next positive-eta point defines the incoming segment. A sole root point defines the full span.":"",edgeHelp:["","Edit stringer angles in Structure / Stringers. Each angle applies to the incoming rear-spar segment; the last angle continues to the tip. New points default to 0 degrees."],onRender:params=>{const legacy=doc.getElementById("row-box.stringer_angle");if(legacy)legacy.hidden=(params[POINT_KEYS[1]]||[]).length>0;},emptyText:"No perturbations: follows the base spar location.",legend:'<i class="sf-front"></i>Front <i class="sf-rear"></i>Rear <i class="surface"></i>Lifting surface <i class="base"></i>Base trapezoid',metrics:(data,locked)=>`Root box width ${number(data.rootWidth)} m · End width ${number(data.endWidth)} m${locked?" · Mesh parameters locked":""}`,helpStart:'This is the untwisted reference plan view. Define the base spar positions below, then refine each path with points. <b>η</b> is the fraction of the projected half-span. <b>\u0394x/c</b> is the offset from the corresponding nominal spar location, measured in <em>base trapezoid</em> chord fractions: 0 follows the nominal spar, +0.2 moves aft and -0.2 forward by 20% of the chord. Offsets follow changes to the nominal spar and the base trapezoid. The structural skins, nose and spar heights follow the refined lifting surface. Both spars must fit inside that surface throughout the modeled box. Dashed lines show physical rib datums in this untwisted view. Use <b>Snap to rib</b> beside a point to move its eta onto the nearest available rib datum while keeping its offset. Snapping is a one-time edit; later rib changes do not move the point.',helpEnd:'Straight segments join spar points in physical space. Root and tip are always visible at fixed eta 0 and 1; their chordwise offsets remain editable. The solid paths stop at Box end η; dashed extensions show the definition toward the tip. Drag a point, use the tables, or use arrow keys (Shift for larger steps), Enter for the table, and Escape to cancel a drag. The <b>Mesh lock</b> protects these parameters.'});return view.editor;
  }
- return{POINT_KEYS,PARAM_KEYS,derive,sample,referenceDrawing,drawing,install,ribDatums,snapPoint};
+ return{POINT_KEYS,PARAM_KEYS,derive,sample,referenceDrawing,drawing,install,ribDatums,snapPoint,contextGeometry,contextDrawing};
 });

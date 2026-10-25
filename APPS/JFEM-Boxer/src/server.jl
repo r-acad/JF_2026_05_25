@@ -94,6 +94,13 @@ msgpack_response(obj) =
 error_response(err; status::Int = 400) =
     json_response(Dict{String,Any}("ok" => false, "error" => err); status = status)
 
+function panel_override_error_response(error::PanelOverrideConflict)
+    json_response(Dict{String,Any}("ok"=>false,"code"=>"panel_override_conflict",
+        "error"=>error.message,"message"=>error.message,"details"=>error.details,
+        "can_reconcile"=>get(error.details,"can_reconcile",false),
+        "compatible_rows"=>error.compatible_rows,"affected_rows"=>error.affected_rows);status=409)
+end
+
 include("study_save_server.jl")
 
 """
@@ -270,9 +277,11 @@ function handle_sensitivity_catalog(st::AppState,req)
     try
         params,raw=sensitivity_parameters(req)
         imported=request_imported_model(raw)
+        imported===nothing&&migrate_legacy_panel_overrides!(params,st.model)
         model=imported===nothing ? build_model(params;progress=request_progress(st,req)) : imported
         return json_response(Dict("ok"=>true,"catalog"=>sensitivity_catalog(model)))
     catch error
+        error isa PanelOverrideConflict&&return panel_override_error_response(error)
         return error_response("Sensitivity properties: "*describe_error(error))
     end
 end
@@ -284,6 +293,7 @@ function handle_sensitivity_run(st::AppState,req;start_job=start_sensitivity_job
         any(job.state===:running for job in values(st.sensitivity_jobs))&&throw(ArgumentError("A sensitivity job is already running; wait or stop it first"))
         params,raw=sensitivity_parameters(req)
         imported=request_imported_model(raw)
+        imported===nothing&&migrate_legacy_panel_overrides!(params,st.model)
         model=imported===nothing ? build_model(params;progress=request_progress(st,req)) : imported
         all_checks_pass(model)||throw(ArgumentError("Correct the FEM connectivity checks before sensitivity analysis"))
         st.job_counter+=1;id="sensitivity"*string(st.job_counter)
@@ -291,6 +301,7 @@ function handle_sensitivity_run(st::AppState,req;start_job=start_sensitivity_job
         st.sensitivity_jobs[id]=job
         return json_response(Dict("ok"=>true,"job"=>id,"state"=>String(job.state),"outdir"=>job.outdir))
     catch error
+        error isa PanelOverrideConflict&&return panel_override_error_response(error)
         return error_response("Sensitivity analysis: "*describe_error(error))
     finally
         unlock(st.job_lock)
@@ -383,6 +394,7 @@ function handle_generate(st::AppState, req)
     progress = request_progress(st, req)
     try
         params = params_from_request(st, req)
+        migrate_legacy_panel_overrides!(params,st.model)
         t0 = time()
         model = build_model(params; progress)
         dt = time() - t0
@@ -394,6 +406,7 @@ function handle_generate(st::AppState, req)
         progress("done")
         return msgpack_response(payload)
     catch e
+        e isa PanelOverrideConflict&&return panel_override_error_response(e)
         @error "mesh generation failed" exception = (e, catch_backtrace())
         return error_response(describe_error(e))
     end
@@ -418,6 +431,7 @@ function handle_workspace(st::AppState, req; generate::Bool = false)
         end
         return json_response(Dict("ok" => true, "parameters" => params))
     catch e
+        e isa PanelOverrideConflict&&return panel_override_error_response(e)
         return error_response(describe_error(e))
     end
 end
@@ -600,6 +614,7 @@ function handle_reference(st::AppState, req)
         imported=request_imported_model(JSON.parse(String(req.body)))
         imported===nothing||return handle_imported_reference(st,imported)
         params = params_from_request(st, req)
+        migrate_legacy_panel_overrides!(params,st.model)
         model = build_model(params; progress)
         st.params = params
         st.model = model
@@ -613,6 +628,7 @@ function handle_reference(st::AppState, req)
         @info "REFERENCE deck written" path = result["path"] lines = result["lines"]
         return json_response(result)
     catch e
+        e isa PanelOverrideConflict&&return panel_override_error_response(e)
         @error "writing the REFERENCE deck failed" exception = (e, catch_backtrace())
         return error_response(describe_error(e))
     end
@@ -664,6 +680,7 @@ function handle_run_jfem(st::AppState, req; start_job=start_jfem_job)
         imported===nothing||return handle_imported_reference(st,imported;run=true,start_job,progress)
         st.model!==nothing&&is_imported_model(st.model)&&throw(ArgumentError("The current model is an imported Reference deck, but this request omitted its source handle. Read the deck or reopen its Study before running; no lifting surface model was generated."))
         params = params_from_request(st, req)
+        migrate_legacy_panel_overrides!(params,st.model)
         model = build_model(params; progress)
         st.params = params
         st.model = model
@@ -689,6 +706,7 @@ function handle_run_jfem(st::AppState, req; start_job=start_jfem_job)
             "runs" => [job_run_summary(child) for child in job.runs],
         ))
     catch e
+        e isa PanelOverrideConflict&&return panel_override_error_response(e)
         @error "starting the JFEM run failed" exception = (e, catch_backtrace())
         return error_response(describe_error(e))
     finally

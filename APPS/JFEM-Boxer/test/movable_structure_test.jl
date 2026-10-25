@@ -3,7 +3,7 @@ const W=WingFEGen;const N=OpenJFEM
 out=isempty(ARGS) ? mktempdir() : abspath(first(ARGS));mkpath(out)
 function parameters()
     p=merge(W.default_params(),Dict{String,Any}("planform.area"=>2.,"planform.aspect_ratio"=>2.,"planform.taper_ratio"=>1.,
-        "planform.sweep"=>0.,"planform.dihedral"=>0.,"planform.twist_tip"=>0.,"box.rib_pitch"=>.5,"box.stringer_pitch"=>.2,
+        "planform.sweep"=>0.,"planform.dihedral"=>0.,"planform.twist_tip"=>0.,"box.end_eta"=>1.,"box.rib_pitch"=>.25,"box.stringer_pitch"=>.2,
         "mesh.elements_between_ribs"=>1,"mesh.elements_spar_height"=>1,"mesh.aero_chord_points"=>9,"airfoil.n_points"=>31,
         "loads.method"=>"analytic","loads.lift_total"=>1.,"loads.structure_inertia"=>false,"fuel.enabled"=>false,"loads.cases"=>Any[],
         "output.solution"=>"101","output.n_modes"=>6))
@@ -29,13 +29,13 @@ tests=@testset "Movable-surface structure, fittings and analysis" begin
     @test W.all_checks_pass(m)
     @test length(W.movable_structure_data(m)["attachments"])==2
     movable=filter(g->W.is_movable_pid(g.pid),m.groups)
-    @test length(unique(g.pid for g in movable if startswith(g.name,"MOVABLE_UPPER_SKIN")))==2
+    @test length(unique(g.pid for g in movable if startswith(g.name,"MOVABLE_UPPER_SKIN")))==3 # two master ribs plus fixed span-end closures
     @test all(g->W.shell_thickness(m.params,g.pid)>0,movable)
     @test all(g->all(isfinite,Iterators.flatten(W.shell_material_frame(m,g,1))),movable)
     payload=W.mesh_payload(m)
     @test length(payload["movable_structure"]["surfaces"])==1
-    @test length(payload["imported_connections"])==3
-    @test length(filter(c->c["id"]>=80_000_000,payload["coordinate_systems"]["systems"]))==2
+    @test length(payload["imported_connections"])==4
+    @test length(filter(c->c["id"]>=80_000_000,payload["coordinate_systems"]["systems"]))==1
     @test !any(k->startswith(k,"generated."),keys(payload["model_params"]))
     @test all(g->haskey(g,"display_label"),filter(g->W.is_movable_pid(g["pid"]),payload["groups"]))
     saved=W.params_to_toml(m.params);restored,unknown=W.normalize_params(W.flatten_toml(TOML.parse(saved)))
@@ -55,8 +55,9 @@ tests=@testset "Movable-surface structure, fittings and analysis" begin
     @test dm.xyz!=m.xyz
     @test [a["origin"] for a in W.movable_structure_data(dm)["attachments"]]==[a["origin"] for a in W.movable_structure_data(m)["attachments"]]
     @test W.weights_payload(dm)["totals"]["structure_mass_kg"]≈W.weights_payload(m)["totals"]["structure_mass_kg"] rtol=1e-10
-    bad=deepcopy(p);bad["movable_structure.attachments"][1]["eta"]=1.;@test_throws ArgumentError build(bad)
-    bad=deepcopy(p);bad["movable_structure.attachments"][1]["rib"]=99;@test_throws ArgumentError build(bad)
+    bad=deepcopy(p);bad["movable_structure.attachments"][1]["eta"]=.74;@test_throws ArgumentError build(bad) # both requests snap to one rib
+    stale=deepcopy(p);stale["movable_structure.attachments"][1]["rib"]=99
+    @test W.movable_structure_data(build(stale))["attachments"][1]["rib"]==2
     bad=deepcopy(p);bad["movable_structure.surfaces"][1]["skin_material"]=99;@test_throws ArgumentError build(bad)
     bad=deepcopy(p);empty!(bad["movable_structure.attachments"]);@test_throws ArgumentError build(bad)
     bad=deepcopy(p);bad["mass.structural_representation"]="bay_concentrated";@test_throws ArgumentError build(bad)
@@ -69,7 +70,7 @@ tests=@testset "Movable-surface structure, fittings and analysis" begin
     for (name,kind,kh) in (("soft_hinge","hinge",1e3),("restrained_hinge","hinge",1e5),("rigid","rigid",1e4))
         q=deepcopy(p);for a in q["movable_structure.attachments"];a["kind"]=kind;a["hinge_stiffness"]=kh;end
         model=build(q);path,parsed=deck(model,name;tipload=true)
-        @test length(parsed["RBE3s"])==length(model.rbe3)+2
+        @test length(parsed["RBE3s"])==length(model.rbe3)+2+length(W.movable_structure_data(model)["load_references"])
         @test length(parsed["RBE2s"])==(kind=="rigid" ? 4 : 2)
         @test length(parsed["CBUSHs"])==(kind=="rigid" ? 0 : 2)
         if kind=="hinge"

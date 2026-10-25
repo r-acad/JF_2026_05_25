@@ -9,7 +9,7 @@ function normalize_plan_view(value)
     sizeof(value) <= 12 * 1024 * 1024 || throw(ArgumentError("Plan-view metadata exceeds 12 MiB"))
     data = try JSON.parse(value) catch; throw(ArgumentError("Invalid plan-view JSON metadata")) end
     data isa AbstractDict || throw(ArgumentError("Plan-view metadata must be an object"))
-    allowed = Set(["version", "theme", "mirror", "showSpars", "showRibs", "showRibLabels", "filledFigures", "opacity", "image", "imageAspectRatio", "pin", "transform", "viewport", "grid", "snap", "measurements"])
+    allowed = Set(["version", "theme", "mirror", "showSpars", "showRibs", "showRibLabels", "filledFigures", "opacity", "image", "imageScope", "imageAspectRatio", "pin", "transform", "viewport", "grid", "snap", "measurements"])
     all(k -> k in allowed, keys(data)) || throw(ArgumentError("Unknown plan-view setting"))
     version = get(data, "version", 1)
     version isa Real && !(version isa Bool) && version == 1 || throw(ArgumentError("Unsupported plan-view version"))
@@ -78,6 +78,11 @@ function normalize_plan_view(value)
         out[transform_key] = t
     end
     image = get(data, "image", nothing)
+    # Existing per-view images retain their registration; the frontend can
+    # promote a single legacy plan image after its physical mapping is known.
+    scope = get(data, "imageScope", image === nothing ? "shared" : "local")
+    scope in ("shared", "local") || throw(ArgumentError("Image scope must be shared or local"))
+    out["imageScope"] = scope
     if image !== nothing
         image isa AbstractDict && Set(keys(image)) == Set(["name", "dataUrl", "width", "height"]) || throw(ArgumentError("Invalid plan-view background image"))
         name = image["name"]
@@ -126,10 +131,10 @@ function normalize_drawings(value)
     sizeof(value) <= 96 * 1024 * 1024 || throw(ArgumentError("Drawing metadata exceeds 96 MiB"))
     data = try JSON.parse(value) catch; throw(ArgumentError("Invalid drawing JSON metadata")) end
     data isa AbstractDict || throw(ArgumentError("Drawing metadata must be an object"))
-    names = Set(["movable-surfaces-plan", "planform", "spars", "master-ribs", "leading-edge-ribs", "fuel-tank", "stringer-layout", "stringer-section",
+    names = Set(["shared-plan-reference", "movable-surfaces-plan", "planform", "spars", "master-ribs", "leading-edge-ribs", "fuel-tank", "stringer-layout", "stringer-section",
         "spar-cap-section", "rib-stiffener-section", "rib-override-section", "airfoil-root", "airfoil-tip",
         ("material-" * name for name in ("upper_skin", "lower_skin", "spar_web", "rib_web", "leading_edge_skin", "leading_edge_rib", "stringer_flange"))...])
-    fields = Set(["version", "theme", "opacity", "image", "imageAspectRatio", "pin", "filledFigures", "transform", "viewport", "grid", "snap", "measurements"])
+    fields = Set(["version", "theme", "opacity", "image", "imageScope", "imageAspectRatio", "pin", "filledFigures", "transform", "viewport", "grid", "snap", "measurements"])
     out = Dict{String,Any}()
     for (name, state) in data
         name in names || occursin(r"^airfoil-station-([1-9]|[1-9][0-9]|100)$", name) || throw(ArgumentError("Unknown drawing metadata key: $name"))

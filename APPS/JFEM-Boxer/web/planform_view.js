@@ -11,12 +11,26 @@
  function normalizePointRows(raw,key,params={}){
   if(!Array.isArray(raw)||raw.length>100)throw new Error(key+" must contain an array of at most 100 points.");
   const rear=key==="box.rear_spar_points",nominal=nominalPointXc(key,params),rows=[];
-  for(const p of raw){const fields=p&&typeof p==="object"?Object.keys(p).sort().join(","):"",coordinate=p&&Object.hasOwn(p,"dxc")?"dxc":"xc",expected=["eta",coordinate].sort().join(","),withAngle=["eta",coordinate,"stringer_angle"].sort().join(",");
-   if(!p||(fields!==expected&&!(rear&&fields===withAngle))||typeof p.eta!=="number"||!Number.isFinite(p.eta)||p.eta<0||p.eta>1||typeof p[coordinate]!=="number"||!Number.isFinite(p[coordinate]))throw new Error(key+": use eta between 0 and 1 and a finite dxc offset (or legacy xc, never both).");
+  for(const p of raw){const coordinate=p&&Object.hasOwn(p,"dxc")?"dxc":"xc",allowed=["eta",coordinate,"incoming_angle_deg",...(rear?["stringer_angle"]:[])];
+   if(!p||Object.keys(p).some(field=>!allowed.includes(field))||typeof p.eta!=="number"||!Number.isFinite(p.eta)||p.eta<0||p.eta>1||typeof p[coordinate]!=="number"||!Number.isFinite(p[coordinate]))throw new Error(key+": use eta between 0 and 1 and a finite dxc offset (or legacy xc, never both).");
    const dxc=p[coordinate]-(coordinate==="xc"?nominal:0);if(!Number.isFinite(dxc))throw new Error(key+": dxc must be finite.");const row={eta:p.eta===0?0:p.eta,dxc};
+   if(Object.hasOwn(p,"incoming_angle_deg")){const angle=p.incoming_angle_deg;if(typeof angle!=="number"||!Number.isFinite(angle)||Math.abs(angle)>=90||p.eta===0)throw Error(key+": an incoming angle needs a positive-eta point and an angle strictly between -90 and 90 degrees.");row.incoming_angle_deg=angle;}
    if(rear){const angle=Object.hasOwn(p,"stringer_angle")?p.stringer_angle:0;if(typeof angle!=="number"||!Number.isFinite(angle))throw new Error("Rear spar: stringer angle must be finite.");row.stringer_angle=angle;}rows.push(row);
   }
   rows.sort((a,b)=>a.eta-b.eta);if(rows.some((p,i)=>i&&p.eta===rows[i-1].eta))throw new Error(key+": each point must have a different eta.");return rows;
+ }
+ // Endpoints are visible, fixed-span controls in the editor. Sparse legacy
+ // arrays remain sparse until edited, so merely previewing a Study is safe.
+ function endpointRows(raw,key,params={}){
+  const rows=(raw||[]).map(p=>({...p,dxc:p.dxc===undefined?p.xc-nominalPointXc(key,params):p.dxc})).sort((a,b)=>a.eta-b.eta),rear=key==="box.rear_spar_points";
+  const endpoint=eta=>({eta,dxc:0,...(rear?{stringer_angle:rows.length?(eta===1?rows.at(-1).stringer_angle??0:rows.find(p=>p.eta>0)?.stringer_angle??0):params["box.stringer_angle"]??0}:{})});
+  if(!rows.some(p=>p.eta===0))rows.unshift(endpoint(0));if(!rows.some(p=>p.eta===1))rows.push(endpoint(1));return rows;
+ }
+ function constrainPointRows(rows,key,params){
+  if(!rows.some(p=>Object.hasOwn(p,"incoming_angle_deg")))return rows;
+  const result=endpointRows(rows,key,params),span=Math.sqrt(params["planform.area"]*params["planform.aspect_ratio"]),semispan=span/2,taper=params["planform.taper_ratio"],rootChord=2*params["planform.area"]/(span*(1+taper)),nominal=nominalPointXc(key,params),reference=params["planform.sweep_ref_xc"],slope=Math.tan(params["planform.sweep"]*RAD),chord=eta=>rootChord*(1-(1-taper)*eta),base=eta=>eta*semispan*slope+(nominal-reference)*chord(eta);
+  for(let i=result.length-1;i>0;i--){const point=result[i],previous=result[i-1];if(!Object.hasOwn(point,"incoming_angle_deg"))continue;previous.dxc=(base(point.eta)+point.dxc*chord(point.eta)-(point.eta-previous.eta)*semispan*Math.tan(point.incoming_angle_deg*RAD)-base(previous.eta))/chord(previous.eta);if(!Number.isFinite(previous.dxc))throw Error(key+": the incoming angle cannot be represented at these dimensions.");}
+  return result;
  }
  function normalizePointParams(params){const out={...params};for(const key of [...POINT_KEYS,"box.front_spar_points","box.rear_spar_points"])if(Object.hasOwn(params,key))out[key]=normalizePointRows(params[key],key,params);return out;}
  // UI migration must preserve malformed/duplicate draft rows so users can
@@ -43,7 +57,7 @@
   const controls={},edgeVertices={};
   for(let e=0;e<POINT_KEYS.length;e++){
    const key=POINT_KEYS[e],label=e===0?"Leading edge":"Trailing edge",raw=params[key]===undefined?[]:params[key];
-   let rows;try{rows=normalizePointRows(raw,key,params);}catch(error){return{valid:false,error:error.message,invalid:[key]};}
+   let rows;try{rows=constrainPointRows(normalizePointRows(raw,key,params),key,params);}catch(error){return{valid:false,error:error.message,invalid:[key]};}
    controls[key]=rows;
    const anchored=rows.slice();if(!anchored.some(p=>p.eta===0))anchored.unshift({eta:0,dxc:0});if(!anchored.some(p=>p.eta===1))anchored.push({eta:1,dxc:0});
    edgeVertices[key]=anchored.map(p=>({...p,xc:e+p.dxc,delta:p.dxc*chord(p.eta),position:at(p.eta,e+p.dxc)}));
@@ -98,6 +112,7 @@
   if(!data.valid)return"";
   const map=transform.map,poly=(points,cls)=>`<polygon points="${points.map(p=>map(p).join(",")).join(" ")}" class="${cls}"/>`;
   let svg='<title>Editable lifting surface planform, positive x aft and positive y towards the tip</title><desc>Drag leading and trailing edge points, or edit their eta and delta x/c offsets in the tables. The dashed outline is the base trapezoid.</desc>'+poly(data.right,"pf-wing")+poly(data.baseRight,"pf-base");
+  const contextAPI=root.WingSparView||(typeof require==="function"?require("./spar_view.js"):null);svg+=contextAPI?.contextDrawing(data.planContext,{transform})||"";
   for(let e=0;e<POINT_KEYS.length;e++)for(let i=0;i<data.controls[POINT_KEYS[e]].length;i++){
    const p=data.controls[POINT_KEYS[e]][i],v=data.edgeVertices[POINT_KEYS[e]].find(q=>q.eta===p.eta),xy=map(v.position),name=e===0?"Leading":"Trailing",active=selected?.edge===e&&selected?.eta===p.eta,orderIndex=pointOrder?.[POINT_KEYS[e]]?.findIndex(q=>q.eta===p.eta),labelIndex=orderIndex>=0?orderIndex:i;
    svg+=`<g class="pf-point ${e===0?"pf-leading":"pf-trailing"}${active?" pf-selected":""}" data-edge="${e}" data-index="${i}" data-eta="${p.eta}" tabindex="${locked?-1:0}" role="button" aria-disabled="${locked}" aria-label="${name} edge point ${labelIndex+1}: eta ${number(p.eta)}, delta x/c ${number(p.dxc)}. Arrow keys move; Shift for larger steps; Enter focuses table."><circle class="pf-point-hit" cx="${xy[0]}" cy="${xy[1]}" r="17"/><circle class="pf-point-dot" cx="${xy[0]}" cy="${xy[1]}" r="7"/><text x="${xy[0]+12}" y="${xy[1]+(e===0?-12:22)}">${e===0?"L":"T"}${labelIndex+1}</text></g>`;
@@ -106,9 +121,9 @@
   return svg;
  }
  function createEditor(host,options,view,config={}){
-  const keys=config.pointKeys||POINT_KEYS,deriveData=config.derive||derive,draw=config.drawing||editorDrawing,makeTransform=config.transform||editorTransform,edgeNames=config.edgeNames||["Leading edge","Trailing edge"],prefixes=config.prefixes||["L","T"],extraFields=config.extraFields||keys.map(()=>[]);
+  const keys=config.pointKeys||POINT_KEYS,deriveData=config.derive||(params=>{const data=derive(params),api=root.WingSparView||(typeof require==="function"?require("./spar_view.js"):null);return{...data,planContext:api?.contextGeometry(params)};}),draw=config.drawing||editorDrawing,makeTransform=config.transform||editorTransform,edgeNames=config.edgeNames||["Leading edge","Trailing edge"],prefixes=config.prefixes||["L","T"],extraFields=config.extraFields||keys.map(()=>[]);
   const doc=host.ownerDocument,section=doc.createElement("section");section.className="planform-editor";section.setAttribute("aria-label","Planform perturbation editor");
-  section.innerHTML='<div class="planform-editor-sticky"><div class="planform-editor-toolbar"><strong>Planform</strong><span class="pf-legend"><i></i>Refined <i class="base"></i>Base trapezoid</span></div><div class="planform-view-canvas planform-editor-canvas"><svg id="planform-editor-svg" viewBox="0 0 800 340" aria-label="Editable lifting surface planform" role="group"></svg></div><p class="planform-editor-metrics" aria-live="polite"></p><p class="planform-editor-error" role="alert" hidden></p></div><p class="planform-editor-help">Define the trapezoid below, then refine either edge with points. Drag a point or edit its table row. <b>η</b> is the fraction of the projected half-span. <b>\u0394x/c</b> is the offset from the nominal edge, measured as a fraction of the <em>base trapezoid</em> chord: 0 follows that edge, +0.2 moves aft by 20% of the chord, and -0.2 moves forward. The offsets follow changes to the trapezoid. The aerodynamic and structural outer surfaces both follow this refined outline. Spar reference paths keep their independent base-trapezoid coordinates in Box; their heights, the skins, nose and fuel volume update with the surface.</p><div class="planform-point-tables"></div><p class="planform-editor-help">Straight segments join the points in physical space. Missing root/tip points have zero offset from the base edges. Add points at η = 0 or 1 to move these endpoints. Select a point and use arrow keys (Shift for a larger step), Enter for its table row, or Escape to cancel a drag.</p>';
+  section.innerHTML='<div class="planform-editor-sticky"><div class="planform-editor-toolbar"><strong>Planform</strong><span class="pf-legend"><i></i>Refined <i class="base"></i>Base trapezoid</span></div><div class="planform-view-canvas planform-editor-canvas"><svg id="planform-editor-svg" viewBox="0 0 800 340" aria-label="Editable lifting surface planform" role="group"></svg></div><p class="planform-editor-metrics" aria-live="polite"></p><p class="planform-editor-error" role="alert" hidden></p></div><p class="planform-editor-help">Define the trapezoid below, then refine either edge with points. Drag a point or edit its table row. <b>η</b> is the fraction of the projected half-span. <b>\u0394x/c</b> is the offset from the nominal edge, measured as a fraction of the <em>base trapezoid</em> chord: 0 follows that edge, +0.2 moves aft by 20% of the chord, and -0.2 moves forward. The offsets follow changes to the trapezoid. The aerodynamic and structural outer surfaces both follow this refined outline. Spar reference paths keep their independent base-trapezoid coordinates in Box; their heights, the skins, nose and fuel volume update with the surface.</p><div class="planform-point-tables"></div><p class="planform-editor-help">Straight segments join the points in physical space. The root and tip points have fixed eta and editable chordwise offsets. Select a point and use arrow keys (Shift for a larger step), Enter for its table row, or Escape to cancel a drag.</p>';
   if(config.name){section.classList.add(config.className||"custom-point-editor");section.setAttribute("aria-label",config.name+" perturbation editor");section.querySelector("strong").textContent=config.name;section.querySelector("svg").id=config.svgId;section.querySelector("svg").setAttribute("aria-label",config.name+" diagram");}
   if(config.legend)section.querySelector(".pf-legend").innerHTML=config.legend;
   if(config.helpStart)section.querySelector(".planform-editor-help").innerHTML=config.helpStart;
@@ -119,13 +134,15 @@
   // styling with it instead of depending on the former section ancestor.
   if(config.className)sticky.classList.add(config.className);
   svg.dataset.viewKey=config.name?"spars":"planform";
-  const viewport=globalThis.WingSVGViewport?.install(svg,{host:svg.parentElement,title:config.name||"Planform",exportName:svg.dataset.viewKey+".svg",snapSelector:"polygon,polyline,.pf-point-dot,.pf-box-end",isGeometryTarget:target=>!!target.closest?.("[data-edge]"),onChange:options.onViewChange});
-  let selected=null,drag=null,lastValid=null,contextError="",notifiedDrafts=null;
+  const viewport=globalThis.WingSVGViewport?.install(svg,{host:svg.parentElement,title:config.name||"Planform",exportName:svg.dataset.viewKey+".svg",snapSelector:"polygon,polyline,.pf-point-dot,.pf-box-end,.sf-rib-datum line",isGeometryTarget:target=>{const handle=target.closest?.("[data-edge]");return !!handle&&handle.getAttribute("aria-disabled")!=="true";},onChange:options.onViewChange});
+  const angleHelp=doc.createElement("p");angleHelp.className="planform-editor-help";angleHelp.textContent="Root and tip controls always stay at eta 0 and 1; edit their offsets to move them chordwise. Fix incoming angle anchors the selected point and moves the preceding point in x/c. The angle is measured from BASIC +Y towards +X (0 degrees is perpendicular to the symmetry plane). Adjacent fixed angles propagate changes inboard. Release the angle checkbox to edit the preceding offset freely.";tables.after(angleHelp);
+  const warning=doc.createElement("p");warning.className="planform-editor-warning";warning.hidden=true;error.after(warning);
+  let selected=null,drag=null,lastValid=null,contextError="",notifiedDrafts=null,sortingTables=false;
   const supported=keys.every(key=>doc.getElementById("p-"+key));
   const locked=()=>!supported||!!options.isLocked?.(),read=()=>options.readValues();
   const canDraw=data=>data.valid||!!(config.editInvalid&&data.drawable);
   const setError=message=>{error.hidden=!message;error.textContent=message||"";};
-  function readDrafts(){const params={...read()};for(let edge=0;edge<keys.length;edge++){const key=keys[edge],table=tables.querySelector(`[data-key="${key}"]`);params[key]=table?Array.from(table.querySelectorAll("tbody tr")).map(row=>{const result={};for(const field of ["eta","dxc",...extraFields[edge].map(f=>f.key)]){const input=row.querySelector(`[data-field="${field}"]`);result[field]=input.value.trim()===""?NaN:Number(input.value);}return result;}):params[key]||[];}return params;}
+  function readDrafts(){const params={...read()};for(let edge=0;edge<keys.length;edge++){const key=keys[edge],table=tables.querySelector(`[data-key="${key}"]`);params[key]=table?Array.from(table.querySelectorAll("tbody tr")).map(row=>{const result={};for(const field of ["eta","dxc",...extraFields[edge].map(f=>f.key)]){const input=row.querySelector(`[data-field="${field}"]`);result[field]=input.value.trim()===""?NaN:Number(input.value);}if(row.querySelector('[data-field="fix_incoming_angle"]')?.checked){const angle=row.querySelector('[data-field="incoming_angle_deg"]');result.incoming_angle_deg=angle.value.trim()===""?NaN:Number(angle.value);}return result;}):endpointRows(params[key]||[],key,params);}return params;}
   function notifyDraftEdits(params){const next=Object.fromEntries(keys.map(key=>[key,JSON.stringify(params[key])])),changed=notifiedDrafts?keys.filter(key=>next[key]!==notifiedDrafts[key]):[];notifiedDrafts=next;for(const key of changed)options.onEdit?.(key);}
   function render(data,{fixed=null,message=""}={}){
    setError(message||(!data.valid?data.error+(config.editInvalid?" Continue editing the points or base parameters; FEM generation is blocked until the definition is valid.":""):contextError||( !supported?"Restart the generator and refresh to enable perturbation points.":"" )));
@@ -136,17 +153,45 @@
    if(canDraw(data)){const t=fixed||editorTransform(data),o=t.map([0,0,0]);viewport?.setMetric?.({origin:{x:o[0],y:o[1]},x:{x:t.scale,y:0},y:{x:0,y:t.scale},unit:"m",gridSpacing:1});}
    viewport?.refresh();
    const drafts=readDrafts();
-   for(const control of tables.querySelectorAll("input,button")){const group=control.closest(".planform-edge-table"),edge=Number(group.dataset.edge),row=control.closest("tr"),index=row?Array.from(row.parentElement.children).indexOf(row):-1,reason=config.fieldDisabled?.(edge,control.dataset.field,drafts[keys[edge]][index],drafts[keys[edge]])||"";control.disabled=locked()||!!reason||(control.matches(".planform-point-add")&&group.querySelectorAll("tbody tr").length>=100);if(control.dataset.field&&extraFields[edge].some(f=>f.key===control.dataset.field))control.title=reason||extraFields[edge].find(f=>f.key===control.dataset.field).help||"";}
+   for(const control of tables.querySelectorAll("input,button")){const group=control.closest(".planform-edge-table"),edge=Number(group.dataset.edge),row=control.closest("tr"),index=row?Array.from(row.parentElement.children).indexOf(row):-1,point=drafts[keys[edge]][index],ordered=drafts[keys[edge]].slice().sort((a,b)=>a.eta-b.eta),next=ordered[ordered.indexOf(point)+1],field=control.dataset.field,angleOn=row?.querySelector('[data-field="fix_incoming_angle"]')?.checked,reason=config.fieldDisabled?.(edge,field,point,drafts[keys[edge]])||"";
+    const fixedSpan=row?.dataset.fixedEta!==undefined&&(field==="eta"||control.matches(".planform-point-remove,.planform-point-snap")),noAngle=point?.eta===0&&(field==="fix_incoming_angle"||field==="incoming_angle_deg"),derivedOffset=field==="dxc"&&next?.incoming_angle_deg!==undefined;
+    control.disabled=locked()||!!reason||fixedSpan||noAngle||derivedOffset||(field==="incoming_angle_deg"&&!angleOn)||(control.matches(".planform-point-add")&&group.querySelectorAll("tbody tr").length>=100);
+    if(derivedOffset&&data.valid&&!drag){const corrected=data.controls[keys[edge]].find(p=>p.eta===point.eta);if(corrected)control.value=String(corrected.dxc);}
+    if(fixedSpan)control.title="Root and tip remain at eta 0 and 1. Their chordwise offsets can be edited.";else if(derivedOffset)control.title="Computed from the next point's fixed incoming angle. Release that angle to edit this offset independently.";
+    if(field&&extraFields[edge].some(f=>f.key===field))control.title=reason||extraFields[edge].find(f=>f.key===field).help||"";
+   }
+   const shortReturns=[];for(const key of keys){const vertices=data.edgeVertices?.[key]||[];for(let i=1;i<vertices.length;i++){const a=vertices[i-1],b=vertices[i],delta=b.eta-a.eta;if(delta>0&&delta<.005&&(a.eta===0||b.eta===1)&&Math.abs(Math.atan2(b.position[0]-a.position[0],b.position[1]-a.position[1])/RAD)>70)shortReturns.push(`${edgeNames[keys.indexOf(key)]}: very short, steep segment at the ${a.eta===0?"root":"tip"}. Check the visible endpoint offset; nearby interior points do not replace the eta 0 or 1 endpoint.`);}}
+   warning.hidden=!shortReturns.length;warning.textContent=shortReturns.join(" ");
    config.onRender?.(drafts,data);
   }
   function refresh(){if(drag)return;const data=deriveData(readDrafts());render(data);if(view.dialog?.open)view.refresh();}
   function tableFocus(edge,index,field="eta"){const input=tables.querySelectorAll("tbody")[edge]?.children[index]?.querySelector(`[data-field="${field}"]`);input?.focus();input?.select();}
+  function sortTables(){
+   const active=doc.activeElement;
+   sortingTables=true;
+   try{for(let edge=0;edge<keys.length;edge++){
+    const body=tables.querySelector(`[data-key="${keys[edge]}"] tbody`);if(!body)continue;
+    const eta=row=>{const input=row.querySelector('[data-field="eta"]');return input.value.trim()===""?Infinity:Number(input.value);};
+    const ordered=Array.from(body.children).sort((a,b)=>eta(a)-eta(b));
+    ordered.forEach((row,i)=>{
+     if(body.children[i]!==row)body.insertBefore(row,body.children[i]||null);
+     row.querySelector("th").textContent=prefixes[edge]+(i+1);
+     for(const input of row.querySelectorAll("input[data-field]")){const field=input.dataset.field,extra=extraFields[edge].find(f=>f.key===field);input.setAttribute("aria-label",`${edgeNames[edge]} point ${i+1} ${extra?.label||({eta:"eta",dxc:"delta x/c",fix_incoming_angle:"fix incoming angle",incoming_angle_deg:"incoming angle (deg)"}[field])}`);}
+     row.querySelector(".planform-point-remove")?.setAttribute("aria-label",`Remove ${edgeNames[edge].toLowerCase()} point ${i+1}`);
+     row.querySelector(".planform-point-snap")?.setAttribute("aria-label",`Snap ${edgeNames[edge].toLowerCase()} point ${i+1} eta to rib datum`);
+    });
+   }}finally{sortingTables=false;}
+   // Move the existing rows, rather than rebuilding their inputs, so a
+   // committed eta keeps focus and any untouched high-precision draft text.
+   if(active?.isConnected&&tables.contains(active)&&doc.activeElement!==active)active.focus({preventScroll:true});
+  }
   function editDraft(params,focus=null){
+   const focusEta=focus?params[keys[focus.edge]][focus.index]?.eta:undefined;
    if(commit(params,focus))return true;
    if(!config.editInvalid||locked())return false;
    // An intermediate repair need not fix every spar at once. Retain it in the
    // visible tables only; collectParams still requires a fully valid draft.
-   setTables(params);refresh();notifyDraftEdits(params);if(focus)tableFocus(focus.edge,focus.index,focus.field);return true;
+   setTables(params);if(focus)selected={edge:focus.edge,eta:focusEta};refresh();notifyDraftEdits(readDrafts());if(focus)tableFocus(focus.edge,readDrafts()[keys[focus.edge]].findIndex(point=>point.eta===focusEta),focus.field);return true;
   }
   function addPoint(edge){
    if(locked())return;
@@ -162,11 +207,14 @@
     if(!vertices.some(v=>v.eta===0))vertices.unshift({eta:0,dxc});
     if(!vertices.some(v=>v.eta===1))vertices.push({eta:1,dxc});
    }
-   let best=1;for(let i=2;i<vertices.length;i++)if(vertices[i].eta-vertices[i-1].eta>vertices[best].eta-vertices[best-1].eta)best=i;
-   const a=vertices[best-1],b=vertices[best],eta=(a.eta+b.eta)/2;
-   let dxc=a.dxc/2+b.dxc/2;
-   if(canDraw(data)){const chord=t=>data.rootChord*(1-(1-data.taper)*t);dxc=(a.dxc*chord(a.eta)/2+b.dxc*chord(b.eta)/2)/chord(eta);}
-   p[key].push({eta,dxc,...Object.fromEntries(extraFields[edge].map(f=>[f.key,f.default]))});p[key].sort((a,b)=>a.eta-b.eta);editDraft(p,{edge,index:p[key].findIndex(v=>v.eta===eta)});
+   const rounded=value=>Number(Number(value).toPrecision(4));
+   const gaps=vertices.slice(1).map((b,i)=>({a:vertices[i],b})).sort((x,y)=>(y.b.eta-y.a.eta)-(x.b.eta-x.a.eta));
+   const gap=gaps.find(({a,b})=>{const eta=rounded((a.eta+b.eta)/2);return eta>a.eta&&eta<b.eta&&!p[key].some(point=>point.eta===eta);});
+   if(!gap){setError("No distinct four-significant-figure eta fits between the current points. Edit or remove an existing point first.");return;}
+   const {a,b}=gap,eta=rounded((a.eta+b.eta)/2),fraction=(eta-a.eta)/(b.eta-a.eta);
+   let dxc=(1-fraction)*a.dxc+fraction*b.dxc;
+   if(canDraw(data)){const chord=t=>data.rootChord*(1-(1-data.taper)*t);dxc=((1-fraction)*a.dxc*chord(a.eta)+fraction*b.dxc*chord(b.eta))/chord(eta);}
+   p[key].push({eta,dxc:rounded(dxc),...Object.fromEntries(extraFields[edge].map(f=>[f.key,rounded(f.default)]))});p[key].sort((a,b)=>a.eta-b.eta);editDraft(p,{edge,index:p[key].findIndex(v=>v.eta===eta)});
   }
   function setTables(params){
    tables.replaceChildren();
@@ -175,11 +223,15 @@
     const bar=doc.createElement("div");bar.className="planform-edge-heading";const h=doc.createElement("h3");h.textContent=title;const add=doc.createElement("button");add.type="button";add.className="planform-point-add";add.textContent="+ Add point";add.setAttribute("aria-label","Add "+title.toLowerCase()+" point");bar.append(h,add);group.appendChild(bar);
     const table=doc.createElement("table");table.dataset.key=key;table.innerHTML='<thead><tr><th scope="col">Point</th><th scope="col">η (span)</th><th scope="col">\u0394x/c (offset)</th><th scope="col"><span class="pf-sr-only">Remove</span></th></tr></thead><tbody></tbody>';for(const field of extraFields[edge]){const th=doc.createElement("th");th.scope="col";th.hidden=!!field.hidden;th.textContent=field.label;th.title=field.help||"";table.querySelector("thead tr").insertBefore(th,table.querySelector("thead tr").lastChild);}group.appendChild(table);
     if(config.edgeHelp?.[edge]){const note=doc.createElement("p");note.className="planform-edge-note";note.textContent=config.edgeHelp[edge];group.appendChild(note);}
-    const rows=Array.isArray(params[key])?params[key].map(p=>({...p,dxc:p.dxc===undefined?p.xc-nominalPointXc(key,params):p.dxc})).sort((a,b)=>a.eta-b.eta):[];
+    const angleHeading=doc.createElement("th");angleHeading.className="pf-incoming-heading";angleHeading.textContent="Incoming angle (deg)";angleHeading.title="Angle from BASIC +Y toward +X, normal to the symmetry plane. Anchor this point; move the preceding point's chordwise offset. Adjacent fixed segments propagate the change inboard.";table.querySelector("thead tr").insertBefore(angleHeading,table.querySelector("thead tr").lastChild);
+    const rows=endpointRows(Array.isArray(params[key])?params[key]:[],key,{...read(),...params});
     for(let i=0;i<rows.length;i++){
-     const row=doc.createElement("tr"),name=doc.createElement("th");name.scope="row";name.textContent=prefixes[edge]+(i+1);row.appendChild(name);
-     for(const field of ["eta","dxc",...extraFields[edge].map(f=>f.key)]){const extra=extraFields[edge].find(f=>f.key===field),td=doc.createElement("td"),input=doc.createElement("input");input.type="number";input.step=["eta","dxc"].includes(field)?"0.1":"any";input.value=String(rows[i][field]===undefined?extra?.default:rows[i][field]);input.dataset.field=field;input.setAttribute("aria-label",`${title} point ${i+1} ${extra?.label||(field==="eta"?"eta":"delta x/c")}`);if(field==="eta"){input.min="0";input.max="1";}td.hidden=!!extra?.hidden;td.appendChild(input);row.appendChild(td);input.addEventListener("input",()=>{selected={edge,eta:Number(row.querySelector('[data-field="eta"]').value)};refresh();if(config.editInvalid&&!locked())notifyDraftEdits(readDrafts());});input.addEventListener("change",()=>{if(locked())return;commit(readDrafts(),null,true);});input.addEventListener("focus",()=>{selected={edge,eta:Number(row.querySelector('[data-field="eta"]').value)};refresh();});}
-     const td=doc.createElement("td"),remove=doc.createElement("button");remove.type="button";remove.className="planform-point-remove";remove.textContent="×";remove.setAttribute("aria-label",`Remove ${title.toLowerCase()} point ${i+1}`);remove.onclick=()=>{if(locked())return;const p=readDrafts();p[key].splice(i,1);const focus={edge,index:Math.min(i,p[key].length-1)};if(!commit(p,focus)){setTables(p);refresh();if(config.editInvalid)notifyDraftEdits(p);tableFocus(focus.edge,focus.index);}};if(config.snapPoint){const snap=doc.createElement("button");snap.type="button";snap.className="planform-point-snap";snap.textContent="Snap to rib";snap.title="Move only eta to the nearest available physical rib datum line, preserving delta x/c. This is a one-time edit, not a persistent constraint.";snap.setAttribute("aria-label",`Snap ${title.toLowerCase()} point ${i+1} eta to rib datum`);snap.onclick=()=>{if(locked())return;try{const p=readDrafts(),result=config.snapPoint(p,edge,i);p[key][i].eta=result.eta;editDraft(p,{edge,index:i});}catch(e){setError(e.message);}};td.appendChild(snap);}td.appendChild(remove);row.appendChild(td);table.querySelector("tbody").appendChild(row);
+     const row=doc.createElement("tr"),name=doc.createElement("th");name.scope="row";name.textContent=prefixes[edge]+(i+1);row.appendChild(name);if((i===0&&rows[i].eta===0)||(i===rows.length-1&&rows[i].eta===1))row.dataset.fixedEta=String(rows[i].eta);
+     for(const field of ["eta","dxc",...extraFields[edge].map(f=>f.key)]){const extra=extraFields[edge].find(f=>f.key===field),td=doc.createElement("td"),input=doc.createElement("input");input.type="number";input.step=["eta","dxc"].includes(field)?"0.1":"any";input.value=String(rows[i][field]===undefined?extra?.default:rows[i][field]);input.dataset.field=field;input.setAttribute("aria-label",`${title} point ${i+1} ${extra?.label||({eta:"eta",dxc:"delta x/c",fix_incoming_angle:"fix incoming angle",incoming_angle_deg:"incoming angle (deg)"}[field])}`);if(field==="eta"){input.min="0";input.max="1";}td.hidden=!!extra?.hidden;td.dataset.column=field;td.appendChild(input);row.appendChild(td);input.addEventListener("input",()=>{selected={edge,eta:Number(row.querySelector('[data-field="eta"]').value)};refresh();if(config.editInvalid&&!locked())notifyDraftEdits(readDrafts());});input.addEventListener("change",()=>{if(locked()||sortingTables)return;if(!commit(readDrafts(),null,true)){sortTables();refresh();if(config.editInvalid)notifyDraftEdits(readDrafts());}});input.addEventListener("focus",()=>{selected={edge,eta:Number(row.querySelector('[data-field="eta"]').value)};refresh();});}
+     const angleCell=doc.createElement("td"),angleWrap=doc.createElement("label"),fix=doc.createElement("input"),angle=doc.createElement("input");angleCell.className="pf-incoming-cell";angleWrap.className="pf-incoming-control";fix.type="checkbox";fix.dataset.field="fix_incoming_angle";fix.checked=rows[i].incoming_angle_deg!==undefined;fix.setAttribute("aria-label",`${title} point ${i+1} fix incoming angle`);angle.type="number";angle.step="0.1";angle.min="-89.999999";angle.max="89.999999";angle.dataset.field="incoming_angle_deg";angle.value=String(rows[i].incoming_angle_deg??0);angle.setAttribute("aria-label",`${title} point ${i+1} incoming angle (deg)`);angleWrap.title=angleHeading.title;const angleLabel=doc.createElement("span");angleLabel.className="pf-incoming-label";angleLabel.textContent="Fix angle";const angleUnit=doc.createElement("span");angleUnit.className="pf-incoming-unit";angleUnit.textContent="deg";angleWrap.append(fix,angleLabel,angle,angleUnit);angleCell.append(angleWrap);row.append(angleCell);
+     const angleChange=()=>{if(locked())return;if(!commit(readDrafts(),null,true)){sortTables();refresh();notifyDraftEdits(readDrafts());}};
+     fix.addEventListener("change",()=>{if(fix.checked&&rows[i].incoming_angle_deg===undefined){const params=readDrafts(),index=Array.from(row.parentElement.children).indexOf(row),current=params[key][index];delete current.incoming_angle_deg;const geometry=deriveData(params),vertices=geometry.edgeVertices?.[key],v=vertices?.findIndex(p=>p.eta===current.eta);if(v>0){const a=vertices[v-1].position,b=vertices[v].position;angle.value=String(Math.atan2(b[0]-a[0],b[1]-a[1])/RAD);}}angleChange();});angle.addEventListener("change",angleChange);angle.addEventListener("input",()=>{refresh();if(config.editInvalid)notifyDraftEdits(readDrafts());});
+     const td=doc.createElement("td"),remove=doc.createElement("button");td.className="pf-point-actions";remove.type="button";remove.className="planform-point-remove";remove.textContent="×";remove.setAttribute("aria-label",`Remove ${title.toLowerCase()} point ${i+1}`);remove.onclick=()=>{if(locked())return;const p=readDrafts(),index=Array.from(row.parentElement.children).indexOf(row);p[key].splice(index,1);const focus={edge,index:Math.min(index,p[key].length-1)};if(!commit(p,focus)){setTables(p);refresh();if(config.editInvalid)notifyDraftEdits(p);tableFocus(focus.edge,focus.index);}};if(config.snapPoint){const snap=doc.createElement("button");snap.type="button";snap.className="planform-point-snap";snap.textContent="Snap to rib";snap.title="Move only eta to the nearest available physical rib datum line, preserving delta x/c. This is a one-time edit, not a persistent constraint.";snap.setAttribute("aria-label",`Snap ${title.toLowerCase()} point ${i+1} eta to rib datum`);snap.onclick=()=>{if(locked())return;try{const p=readDrafts(),index=Array.from(row.parentElement.children).indexOf(row),result=config.snapPoint(p,edge,index);p[key][index].eta=result.eta;editDraft(p,{edge,index});}catch(e){setError(e.message);}};td.appendChild(snap);}td.appendChild(remove);row.appendChild(td);table.querySelector("tbody").appendChild(row);
     }
     if(!rows.length){const empty=doc.createElement("p");empty.className="planform-edge-empty";empty.textContent=config.emptyText||"No perturbations: follows the base edge.";group.appendChild(empty);}
     add.onclick=()=>addPoint(edge);tables.appendChild(group);
@@ -204,7 +256,7 @@
    if(locked()){setTables(read());refresh();return false;}
    const data=deriveData(params);if(!data.valid){render(data);return false;}
    for(const key of keys){const canonical=doc.getElementById("p-"+key),serialized=JSON.stringify(data.controls[key]);if(canonical&&canonical.value!==serialized)canonical.value=serialized;}
-   const focusEta=focus?params[keys[focus.edge]][focus.index]?.eta:undefined;selected=focus?{edge:focus.edge,eta:focusEta}:selected;if(!keepTables)setTables(data.controls);render(data);notifyDraftEdits(data.controls);if(view.dialog?.open)view.refresh();if(focus)tableFocus(focus.edge,data.controls[keys[focus.edge]].findIndex(p=>p.eta===focusEta),focus.field);return true;
+   const focusEta=focus?params[keys[focus.edge]][focus.index]?.eta:undefined;selected=focus?{edge:focus.edge,eta:focusEta}:selected;if(keepTables)sortTables();else setTables(data.controls);render(data);notifyDraftEdits(data.controls);if(view.dialog?.open)view.refresh();if(focus)tableFocus(focus.edge,data.controls[keys[focus.edge]].findIndex(p=>p.eta===focusEta),focus.field);return true;
   }
   function endDrag(cancel=false){if(!drag)return;const previous=drag;drag=null;try{svg.releasePointerCapture(previous.pointerId);}catch(_){}svg.classList.remove("dragging");if(cancel||locked()){setTables(previous.original);render(deriveData(previous.original));}else if(config.editInvalid){editDraft(previous.latest);}else if(!commit(previous.latest)){setTables(previous.original);render(deriveData(previous.original),{message:"Move was not applied. "+deriveData(previous.latest).error});}}
   function pointerReader(){const inverse=svg.getScreenCTM().inverse(),placement=viewport?.capture().viewport||{x:0,y:0,scale:1};return event=>({x:(inverse.a*event.clientX+inverse.c*event.clientY+inverse.e-placement.x)/placement.scale,y:(inverse.b*event.clientX+inverse.d*event.clientY+inverse.f-placement.y)/placement.scale});}
@@ -226,14 +278,14 @@
    for(const key of keys)params[key]=drag.original[key].map(p=>({...p}));
    const point=params[keys[drag.edge]][drag.index];
    if(dx!==0||dy!==0){
-    const value=drag.transform.unmap(drag.anchor[0]+dx,drag.anchor[1]+dy),eta=dx===0?point.eta:Math.max(0,Math.min(1,value.eta)),baseChord=drag.data.rootChord*(1-(1-drag.data.taper)*eta),baseLE=drag.data.points.rootLE[0]+eta*(drag.data.points.tipLE[0]-drag.data.points.rootLE[0]);
+    const value=drag.transform.unmap(drag.anchor[0]+dx,drag.anchor[1]+dy),eta=dx===0||point.eta===0||point.eta===1?point.eta:Math.max(0.0000001,Math.min(.9999999,value.eta)),baseChord=drag.data.rootChord*(1-(1-drag.data.taper)*eta),baseLE=drag.data.points.rootLE[0]+eta*(drag.data.points.tipLE[0]-drag.data.points.rootLE[0]);
     point.eta=eta;point.dxc=(value.x-baseLE)/baseChord-nominalPointXc(keys[drag.edge],drag.original);
    }
    selected.eta=point.eta;drag.latest=params;const data=deriveData(params);
    if(canDraw(data))render(data,{fixed:drag.transform});else{render(drag.data,{fixed:drag.transform,message:data.error});const g=doc.createElementNS("http://www.w3.org/2000/svg","circle");g.setAttribute("cx",String(drag.anchor[0]+dx));g.setAttribute("cy",String(drag.anchor[1]+dy));g.setAttribute("r","10");g.setAttribute("class","pf-invalid-point");(svg.querySelector("[data-svgview-geometry]")||svg).appendChild(g);viewport?.refresh();}
   });
   svg.addEventListener("pointerup",()=>endDrag());svg.addEventListener("pointercancel",()=>endDrag(true));svg.addEventListener("lostpointercapture",()=>{if(drag)endDrag(true);});
-  svg.addEventListener("keydown",event=>{if(event.key==="Escape"&&drag){event.preventDefault();endDrag(true);return;}const target=event.target.closest("[data-edge]");if(!target||locked())return;const edge=Number(target.dataset.edge),params=readDrafts(),index=params[keys[edge]].findIndex(p=>p.eta===Number(target.dataset.eta));if(event.key==="Enter"){event.preventDefault();tableFocus(edge,index);return;}if(!["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"].includes(event.key))return;event.preventDefault();const p=params[keys[edge]][index],step=event.shiftKey?.05:.005;if(event.key==="ArrowLeft"||event.key==="ArrowRight")p.eta=Math.max(0,Math.min(1,p.eta+(event.key==="ArrowRight"?step:-step)));else p.dxc+=event.key==="ArrowDown"?step:-step;selected={edge,eta:p.eta};if(editDraft(params)){svg.querySelector(`[data-edge="${edge}"][data-eta="${p.eta}"]`)?.focus();}});
+  svg.addEventListener("keydown",event=>{if(event.key==="Escape"&&drag){event.preventDefault();endDrag(true);return;}const target=event.target.closest("[data-edge]");if(!target||locked())return;const edge=Number(target.dataset.edge),params=readDrafts(),index=params[keys[edge]].findIndex(p=>p.eta===Number(target.dataset.eta));if(event.key==="Enter"){event.preventDefault();tableFocus(edge,index);return;}if(!["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"].includes(event.key))return;event.preventDefault();const p=params[keys[edge]][index],step=event.shiftKey?.05:.005;if(event.key==="ArrowLeft"||event.key==="ArrowRight"){if(p.eta!==0&&p.eta!==1)p.eta=Math.max(.0000001,Math.min(.9999999,p.eta+(event.key==="ArrowRight"?step:-step)));}else p.dxc+=event.key==="ArrowDown"?step:-step;selected={edge,eta:p.eta};if(editDraft(params)){svg.querySelector(`[data-edge="${edge}"][data-eta="${p.eta}"]`)?.focus();}});
   const cancelKey=event=>{if(event.key==="Escape"&&drag){event.preventDefault();endDrag(true);}};doc.addEventListener("keydown",cancelKey);
   host.addEventListener("parameterlockchange",()=>{endDrag(true);setTables(read());refresh();notifiedDrafts=Object.fromEntries(keys.map(key=>[key,JSON.stringify(readDrafts()[key])]));});
   setTables(read());refresh();notifyDraftEdits(readDrafts());
@@ -273,5 +325,5 @@
   editor.sticky.querySelector(".planform-editor-toolbar").appendChild(button);
   if(view.dialog.open){view.button=button;view.refresh();}return editor;
  }
- return{PARAM_KEYS,POINT_KEYS,nominalPointXc,normalizePointRows,normalizePointParams,migratePointParams,derive,drawing,editorTransform,editorDrawing,createPointEditor:createEditor,install};
+ return{PARAM_KEYS,POINT_KEYS,nominalPointXc,normalizePointRows,endpointRows,constrainPointRows,normalizePointParams,migratePointParams,derive,drawing,editorTransform,editorDrawing,createPointEditor:createEditor,install};
 });

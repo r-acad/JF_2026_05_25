@@ -1,0 +1,61 @@
+'use strict';
+// node engines_browser_test.cjs OUTPUT PLAYWRIGHT
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const [out,modulePath='playwright']=process.argv.slice(2),web=path.resolve(__dirname,'../web');
+if(!out)throw Error('Expected output folder');fs.mkdirSync(out,{recursive:true});
+(async()=>{
+ const {chromium}=require(modulePath),browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_PATH||undefined}),page=await browser.newPage({viewport:{width:1600,height:1100}}),errors=[],checks=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ try{
+  await page.setContent('<html><body><input id="p-engines.items" type="hidden" value="[]"><main id="group-engines"><div class="parameter-heading"><h2>Engines</h2><button class="help-icon" aria-label="Help: Engines">?</button></div></main></body></html>');
+  for(const file of ['style.css','engines.css'])await page.addStyleTag({path:path.join(web,file)});
+  await page.addStyleTag({content:'body{display:block;overflow:auto;background:#14202c;color:#dceafa;font:14px system-ui;margin:12px}#group-engines{width:390px;padding:14px;border:1px solid #426078}'});
+  await page.addScriptTag({path:path.join(web,'engines.js')});
+  await page.evaluate(()=>{
+   window.edits=[];window.locked=false;window.created=0;
+   window.ribs=[{index:1,eta:0},{index:2,eta:.25},{index:3,eta:.5},{index:4,eta:.75},{index:5,eta:1}];
+   window.install=()=>WingEngines.install(document.getElementById('group-engines'),{readRibs:()=>ribs,isLocked:()=>locked,onEdit:key=>edits.push(key),createFEM:()=>created++});
+   window.editor=install();
+  });
+  assert(await page.locator('#engine-edit').isHidden());assert.deepEqual(await page.evaluate(()=>editor.readDrafts()['engines.items']),[]);assert.equal(await page.locator('#group-engines [aria-label^="Help:"]').count(),1);
+  await page.locator('#engine-add').click();assert.equal(await page.locator('.engine-card:not([hidden])').count(),1);
+  const visible=()=>page.locator('.engine-card:not([hidden])');
+  assert.equal(await visible().locator('[data-engine-rib=front_rib]').inputValue(),'2');
+  await visible().locator('[data-engine-field=mass]').fill('2300');await visible().locator('[data-engine-field=length]').fill('4.2');
+  assert.equal(await visible().locator('[data-engine-field=E]').inputValue(),'70');assert.equal(await visible().locator('[data-engine-field=G]').inputValue(),'26');
+  for(const [key,value]of [['E','68'],['G','25'],['A','.012'],['I1','.00016'],['I2','.00018'],['J','.0003']])await visible().locator('[data-engine-field='+key+']').fill(value);
+  await visible().locator('[data-engine-field=x]').fill('-1.25');await visible().locator('[data-engine-field=y]').fill('4.4');await visible().locator('[data-engine-field=z]').fill('-1.8');
+  await visible().locator('[data-engine-rib=front_rib]').selectOption('3');await visible().locator('[data-engine-rib=aft_rib]').selectOption('4');await visible().locator('[data-engine-field=aft_xc]').fill('.62');
+  assert.match(await visible().locator('.pick-note').textContent(),/3381/);
+  await page.locator('#engine-add').click();await visible().locator('[data-engine-field=name]').fill('Outer engine');
+  assert.equal(await page.locator('#engine-edit option').count(),2);
+  const before=await page.evaluate(()=>editor.readDrafts()),editCount=await page.evaluate(()=>edits.length);
+  assert.equal(before['engines.items'][0].E,68e9);assert.equal(before['engines.items'][0].G,25e9);assert.equal(before['engines.items'][0].J,.0003);
+  await page.locator('#engine-edit').selectOption('0');await page.locator('#engine-edit').selectOption('1');
+  assert.deepEqual(await page.evaluate(()=>editor.readDrafts()),before);assert.equal(await page.evaluate(()=>edits.length),editCount);
+  checks.push('Flexible beam stiffness is editable; E/G display in GPa and persist in Pa; engine dropdown preserves independent physical definitions without dirtying a study when browsing');
+  await page.locator('#engine-edit').selectOption('0');await page.evaluate(()=>{window.originalRibs=ribs;ribs=[];editor.refresh();});
+  assert(await visible().locator('[data-engine-rib=front_rib]').isDisabled());assert.match(await visible().locator('[data-engine-rib=front_rib]').textContent(),/R3.*awaiting FEM/);
+  assert.deepEqual(await page.evaluate(()=>editor.readDrafts()),before);
+  await page.evaluate(()=>{ribs=originalRibs.filter(r=>r.index!==3);editor.refresh();});assert.match(await page.locator('.engine-error').textContent(),/R3.*not in the current FEM/);
+  assert.equal(await page.evaluate(()=>editor.readDrafts()['engines.items'][0].front_rib),3);
+  await visible().locator('[data-engine-rib=front_rib]').selectOption('4');assert(await page.locator('.engine-error').isHidden());
+  assert.equal(await page.evaluate(()=>editor.readDrafts()['engines.items'][0].front_rib),4);
+  checks.push('Stale rib catalogs preserve assignments; removed ribs produce an actionable validation message instead of silently relocating the engine');
+  await visible().locator('[data-engine-field=mass]').fill('0');assert.match(await page.locator('.engine-error').textContent(),/positive/);
+  await page.locator('#engine-create-fem').click();assert.equal(await page.evaluate(()=>created),0);
+  await visible().locator('[data-engine-field=mass]').fill('2300');await page.locator('#engine-create-fem').click();assert.equal(await page.evaluate(()=>created),1);
+  await page.evaluate(()=>{locked=true;document.getElementById('group-engines').dispatchEvent(new Event('parameterlockchange'));});
+  assert(await visible().locator('[data-engine-field=x]').isDisabled());assert(await page.locator('#engine-add').isDisabled());assert(!(await page.locator('#engine-edit').isDisabled()));
+  await page.locator('#engine-edit').selectOption('1');await page.evaluate(()=>{locked=false;document.getElementById('group-engines').dispatchEvent(new Event('parameterlockchange'));});
+  await visible().locator('[data-engine-field=enabled]').uncheck();assert.match(await page.locator('#engine-edit option').last().textContent(),/disabled/);
+  checks.push('Physical validation prevents invalid model requests; mesh lock protects edits while allowing engine selection; Include in FEM preserves disabled engine data');
+  const saved=await page.evaluate(()=>editor.readDrafts());
+  await page.evaluate(saved=>{editor.destroy();document.getElementById('p-engines.items').value=JSON.stringify(saved['engines.items']);window.editor=install();},saved);
+  assert.deepEqual(await page.evaluate(()=>editor.readDrafts()),saved);
+  const overflow=await page.locator('#group-engines').evaluate(e=>e.scrollWidth>e.clientWidth);assert.equal(overflow,false);
+  await page.locator('#group-engines').screenshot({path:path.join(out,'engine-editor.png')});
+  checks.push('Study definitions round-trip with all engines and settings; compact editor has no horizontal overflow');
+  assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'summary.json'),JSON.stringify({passed:true,checks,errors},null,2));console.log(JSON.stringify({passed:true,checks}));
+ }catch(error){await page.screenshot({path:path.join(out,'failure.png')});throw error;}finally{await browser.close();}
+})().catch(error=>{console.error(error);process.exitCode=1;});

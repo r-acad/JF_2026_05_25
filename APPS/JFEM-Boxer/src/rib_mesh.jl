@@ -40,7 +40,7 @@ end
 
 function rib_intersection_cuts(w,context,end_eta)
     return sort!(unique(vcat(collect(range(0.0,end_eta;length=33)),filter(eta->0<=eta<=end_eta,
-        vcat(planform_breakpoints(w),context.arc.spar.breakpoints,context.path.kink_etas,w.airfoil_etas)))))
+        vcat(planform_breakpoints(w),context.arc.spar.breakpoints,context.path.kink_etas,w.airfoil_etas,w.vertical_shift_etas)))))
 end
 
 function oriented_row(w,context,eta,previous,pitch,cuts;detect_runouts=true)
@@ -306,7 +306,7 @@ shells touching a split front cap use the same boundary vertices automatically.
 """
 function split_oriented_kink_edges!(reg,g,groups,eid;p=nothing)
     context=g.rib_layout;w=g.wing
-    breaks=sort!(unique(vcat(context.arc.spar.breakpoints,context.path.kink_etas,planform_breakpoints(w))))
+    breaks=sort!(unique(vcat(context.arc.spar.breakpoints,context.path.kink_etas,planform_breakpoints(w),w.vertical_shift_etas)))
     filter!(eta->1e-10<eta<last(g.etas)-1e-10,breaks)
     isempty(breaks)&&return eid
     splits=Dict{Tuple{Int,Int},Vector{Int}}()

@@ -466,6 +466,8 @@ very model.
 """
 function prepare_jfem_job(model::Model, params::AbstractDict, root::AbstractString,
                           bdf::AbstractString, id::AbstractString; outdir=nothing)
+    is_imported_model(model) || validate_movable_run(params)
+    is_imported_model(model) || validate_movable_actuator_paths(model)
     repo, launcher = find_jfem(root; hint = String(params["jfem.repo"]))
     repo === nothing && throw(ArgumentError(
         "the JFEM solver was not found. Set jfem.repo to the JFEM repository " *

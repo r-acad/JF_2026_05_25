@@ -97,3 +97,5 @@
 
 .dpv-image-aspect input { width:90px; min-width:0; box-sizing:border-box; color:#e1eef7; background:#0b1722; border:1px solid #466276; border-radius:4px; padding:5px; font:inherit; }
 .dpv-image-aspect input:disabled { opacity:.5; }
+
+.dpv-image-settings select { border:1px solid #426079; border-radius:4px; padding:4px 6px; background:#193345; color:#e3edf7; font:inherit; }

@@ -18,11 +18,17 @@ const near=(a,b)=>assert(Math.abs(a-b)<2e-5*Math.max(1,Math.abs(b)),`${a} != ${b
    },{kind,base});
    await page.evaluate(image=>testView.restore({...testView.capture(),image,pin:{image:{x:.25,y:.5},drawing:{x:400,y:200}},transform:{x:360,y:120,scale:160},viewport:{x:12,y:-9,scale:1.3}}),image);
    const svg=page.locator(kind==="shared"?"#shared svg":kind==="detached"?"#view svg":"#planform-view-svg"),capture=()=>page.evaluate(()=>testView.capture()),restore=s=>page.evaluate(s=>testView.restore(s),s),windowButton=page.locator(kind==="fallback"?'#planform-view-dialog [data-svgv-window="toggle"]':'[data-svgv-window="toggle"]');
+   const literalRectangle=()=>svg.locator(".svgv-window-rectangle").evaluate(el=>{const m=el.getScreenCTM(),x=Number(el.getAttribute("x")),y=Number(el.getAttribute("y")),w=Number(el.getAttribute("width")),h=Number(el.getAttribute("height"));return{x:m.a*x+m.c*y+m.e,y:m.b*x+m.d*y+m.f,width:m.a*w,height:m.d*h};});
    const client=async p=>svg.evaluate((el,p)=>{const m=el.getScreenCTM();return{x:m.a*p.x+m.c*p.y+m.e,y:m.b*p.x+m.d*p.y+m.f};},p);
    const pan=async({ctrl=false,cancel=false}={})=>{const before=await capture(),r=await svg.boundingBox(),a={x:r.x+r.width*.45,y:r.y+r.height*.45},b={x:a.x+42,y:a.y+27};const delta=await svg.evaluate((el,{a,b})=>{const m=el.getScreenCTM().inverse();return{x:m.a*(b.x-a.x)+m.c*(b.y-a.y),y:m.b*(b.x-a.x)+m.d*(b.y-a.y)};},{a,b});
     if(ctrl)await page.keyboard.down("Control");await page.mouse.move(a.x,a.y);await page.mouse.down({button:"right"});await page.mouse.move(b.x,b.y,{steps:3});if(cancel)await page.keyboard.press("Escape");await page.mouse.up({button:"right"});if(ctrl)await page.keyboard.up("Control");const after=await capture();
     if(cancel)assert.deepEqual(after,before);else if(ctrl){assert.deepEqual(after.viewport,before.viewport);assert.equal(after.pin,null);near(after.transform.x,before.transform.x+delta.x/before.viewport.scale);near(after.transform.y,before.transform.y+delta.y/before.viewport.scale);}else{assert.deepEqual(after.transform,before.transform);assert.deepEqual(after.pin,before.pin);near(after.viewport.x,before.viewport.x+delta.x);near(after.viewport.y,before.viewport.y+delta.y);}return after;};
-   const original=await capture();await pan();await pan({ctrl:true});await pan({cancel:true});await restore(original);
+   const original=await capture();
+   // Double-click returns every shared and detached view to its full drawing,
+   // without altering the independently registered reference image or pin.
+   const fitRect=await svg.boundingBox();await page.mouse.dblclick(fitRect.x+fitRect.width*.1,fitRect.y+fitRect.height*.1);
+   const fitted=await capture();assert.deepEqual(fitted.viewport,{x:0,y:0,scale:1});assert.deepEqual(fitted.transform,original.transform);assert.deepEqual(fitted.pin,original.pin);await restore(original);
+   await pan();await pan({ctrl:true});await pan({cancel:true});await restore(original);
    if(kind==="shared"){const point=await client({x:original.viewport.x+300*original.viewport.scale,y:original.viewport.y+200*original.viewport.scale});await page.mouse.move(point.x,point.y);await page.mouse.down({button:"right"});await page.mouse.move(point.x+20,point.y+10);await page.mouse.up({button:"right"});assert.equal(await page.evaluate(()=>modelEdits),0);await restore(original);await page.mouse.click(point.x,point.y);assert.equal(await page.evaluate(()=>modelEdits),1);await page.evaluate(()=>modelEdits=0);}
    assert.equal(await svg.evaluate(el=>{const e=new MouseEvent("contextmenu",{bubbles:true,cancelable:true,button:2});el.dispatchEvent(e);return e.defaultPrevented;}),true);
    assert.equal(await page.evaluate(()=>{const e=new MouseEvent("contextmenu",{bubbles:true,cancelable:true,button:2});document.body.dispatchEvent(e);return e.defaultPrevented;}),false);
@@ -38,7 +44,7 @@ const near=(a,b)=>assert(Math.abs(a-b)<2e-5*Math.max(1,Math.abs(b)),`${a} != ${b
    const r=await svg.boundingBox(),a={x:r.x+r.width*.2,y:r.y+r.height*.15},b={x:r.x+r.width*.6,y:r.y+r.height*.45};
    const selectedDrawingCenter=await svg.evaluate((el,{a,b,state})=>{const p=el.createSVGPoint();p.x=(a.x+b.x)/2;p.y=(a.y+b.y)/2;const q=p.matrixTransform(el.getScreenCTM().inverse());return{x:(q.x-state.viewport.x)/state.viewport.scale,y:(q.y-state.viewport.y)/state.viewport.scale};},{a,b,state:original});
    await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y,{steps:3});
-   const aspect=await svg.locator(".svgv-window-rectangle").evaluate(el=>Number(el.getAttribute("width"))/Number(el.getAttribute("height")));near(aspect,r.width/r.height);
+   const selectionBounds=await literalRectangle();near(selectionBounds.x,a.x);near(selectionBounds.y,a.y);near(selectionBounds.width,b.x-a.x);near(selectionBounds.height,b.y-a.y);
    const exported=await svg.evaluate(el=>WingSVGViewport.serializeSVG(el));assert(!exported.includes('class="svgv-window-rectangle"'));
    await page.screenshot({path:path.join(out,kind+"-window-selection.png")});await page.mouse.up();
    const zoomed=await capture();near(zoomed.viewport.scale/original.viewport.scale,2.5);assert.deepEqual(zoomed.transform,original.transform);assert.deepEqual(zoomed.pin,original.pin);assert.equal(await windowButton.getAttribute("aria-pressed"),"false");
@@ -47,8 +53,35 @@ const near=(a,b)=>assert(Math.abs(a-b)<2e-5*Math.max(1,Math.abs(b)),`${a} != ${b
    await restore(original);await windowButton.click();await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y);await svg.press("Escape");await page.mouse.up();assert.deepEqual(await capture(),original);assert.equal(await svg.locator(".svgv-window-rectangle").count(),0);
    await windowButton.click();await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(a.x+2,a.y+2);await page.mouse.up();assert.deepEqual(await capture(),original);assert.equal(await windowButton.getAttribute("aria-pressed"),"true");await windowButton.click();
    await windowButton.click();await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y);await svg.dispatchEvent("pointercancel",{pointerId:1});await page.mouse.up();assert.deepEqual(await capture(),original);assert.equal(await windowButton.getAttribute("aria-pressed"),"false");
+   // The live outline must remain under both pointer corners, not expand to
+   // the canvas aspect ratio. Exercise letterboxing, resized and maximized
+   // canvases, all drag directions, and an already zoomed / pinned image.
+   for(const layout of [{name:"narrow",width:1050,height:1250,sw:700,sh:650},{name:"wide",width:1700,height:1050,sw:1300,sh:450},{name:"maximized",width:1850,height:1450,sw:1650,sh:850}]){
+    await page.setViewportSize({width:layout.width,height:layout.height});
+    if(kind==="shared")await page.evaluate(layout=>{document.getElementById("shared").style.width=(layout.sw+20)+"px";testSvg.style.width=layout.sw+"px";testSvg.style.height=layout.sh+"px";},layout);
+    await restore(original);await windowButton.scrollIntoViewIfNeeded();
+    for(const [sx,sy,ex,ey]of [[.2,.2,.68,.48],[.68,.48,.2,.2],[.2,.48,.68,.2],[.68,.2,.2,.48]]){
+     await restore(original);if(await windowButton.getAttribute("aria-pressed")!=="true")await windowButton.click();
+     const bounds=await svg.boundingBox(),from={x:bounds.x+bounds.width*sx,y:bounds.y+bounds.height*sy},to={x:bounds.x+bounds.width*ex,y:bounds.y+bounds.height*ey};
+     await page.mouse.move(from.x,from.y);await page.mouse.down();await page.mouse.move(to.x,to.y,{steps:4});
+     const rect=await literalRectangle();near(rect.x,Math.min(from.x,to.x));near(rect.y,Math.min(from.y,to.y));near(rect.width,Math.abs(to.x-from.x));near(rect.height,Math.abs(to.y-from.y));
+     if(sx===.2&&sy===.2&&layout.name==="maximized")await page.screenshot({path:path.join(out,kind+"-literal-corners-maximized.png")});
+     await page.mouse.up();const after=await capture();near(after.viewport.scale/original.viewport.scale,Math.min(1/Math.abs(ex-sx),1/Math.abs(ey-sy)));assert.deepEqual(after.transform,original.transform);assert.deepEqual(after.pin,original.pin);
+    }
+    // Horizontal and vertical drags are not windows, and must not throw or
+    // create a click on underlying geometry after a long drag.
+    for(const delta of [{x:120,y:0},{x:0,y:100},{x:120,y:2}]){
+     await restore(original);if(await windowButton.getAttribute("aria-pressed")!=="true")await windowButton.click();const bounds=await svg.boundingBox(),from={x:bounds.x+bounds.width*.35,y:bounds.y+bounds.height*.35};
+     await page.mouse.move(from.x,from.y);await page.mouse.down();await page.mouse.move(from.x+delta.x,from.y+delta.y);await page.mouse.up();assert.deepEqual(await capture(),original);assert.equal(await svg.locator(".svgv-window-rectangle").count(),0);
+    }
+    await svg.press("Escape");
+   }
+   // Use the release event position even if no pointermove was dispatched
+   // at the final location (for example, when the browser coalesces events).
+   await restore(original);await windowButton.click();const releaseBounds=await svg.boundingBox(),releaseStart={x:releaseBounds.x+releaseBounds.width*.2,y:releaseBounds.y+releaseBounds.height*.2},releaseEnd={x:releaseBounds.x+releaseBounds.width*.7,y:releaseBounds.y+releaseBounds.height*.5};
+   await page.mouse.move(releaseStart.x,releaseStart.y);await page.mouse.down();await page.mouse.move(releaseStart.x+40,releaseStart.y+30);await svg.dispatchEvent("pointerup",{pointerId:1,button:0,clientX:releaseEnd.x,clientY:releaseEnd.y});await page.mouse.up();near((await capture()).viewport.scale/original.viewport.scale,2);await restore(original);
    await windowButton.click();const pin=page.locator(kind==="fallback"?'#planform-view-dialog [data-svgv-pin="pick"]':'[data-svgv-pin="pick"]');await pin.click();assert.equal(await windowButton.getAttribute("aria-pressed"),"false");await pan({ctrl:true});await pan({cancel:true});assert.equal(await pin.getAttribute("aria-pressed"),"true");await svg.press("Escape");
-   assert.equal(await page.evaluate(()=>JSON.stringify(parameters)),JSON.stringify(base));checks.push({kind,right_pan:true,ctrl_right_image_pan:true,default_left_window:true,middle_drag_inert:true,right_pan_over_handles:kind==="shared"?"pass":"not_applicable_read_only",right_pan_while_measuring_and_picking:true,right_pan_escape:true,canvas_context_menu_only:true,aspect_correct_window:true,window_centers_selection:true,pinned_registration_unchanged:true,reversed_drag:true,tiny_box_noop:true,cancel_escape_toggle_pointer:true,no_model_edits:true});await page.close();
+   assert.equal(await page.evaluate(()=>JSON.stringify(parameters)),JSON.stringify(base));checks.push({kind,double_click_fit:true,right_pan:true,ctrl_right_image_pan:true,default_left_window:true,middle_drag_inert:true,right_pan_over_handles:kind==="shared"?"pass":"not_applicable_read_only",right_pan_while_measuring_and_picking:true,right_pan_escape:true,canvas_context_menu_only:true,literal_corner_window:true,window_centers_selection:true,pinned_registration_unchanged:true,reversed_drag:true,four_drag_quadrants:true,resized_and_maximized:true,release_coordinate_used:true,degenerate_drag_noop:true,tiny_box_noop:true,cancel_escape_toggle_pointer:true,no_model_edits:true});await page.close();
   }
   assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,"receipt.json"),JSON.stringify({passed:true,checks,errors},null,2));console.log(JSON.stringify({passed:true,checks},null,2));
  }finally{await browser.close();}

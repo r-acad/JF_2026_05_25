@@ -9,7 +9,14 @@
   return vector.map((v,i)=>v+s*turn[i]+c*second[i]);
  }
  const xyzToView=p=>[p[1],p[2],p[0]],viewToXyz=p=>[p[2],p[0],p[1]];
- function attach(points,stations,baseline,{etas=null}={}){
+ function attach(points,stations,baseline,{etas=null,bindings=null}={}){
+  if(bindings!==null){
+   if(!Array.isArray(bindings)||bindings.length!==points.length/3)throw Error("VLM attachment count does not match its geometry.");
+   return bindings.map((row,i)=>{
+    if(!Array.isArray(row)||!row.length||row.some(a=>!Number.isInteger(a.node_index)||a.node_index<0||3*a.node_index+2>=baseline.length||!Number.isFinite(a.weight)||a.weight<0)||Math.abs(row.reduce((s,a)=>s+a.weight,0)-1)>1e-10)throw Error("VLM attachment contains invalid GRID weights.");
+    const p=Array.from(points.slice(3*i,3*i+3));return{p,anchors:row.filter(a=>a.weight>0).map(a=>({node:a.node_index,gid:a.gid,w:a.weight,lever:p.map((v,k)=>v-baseline[3*a.node_index+k])}))};
+   });
+  }
   const useEta=etas&&etas.length===points.length/3&&etas.every(Number.isFinite)&&(stations||[]).every(s=>Number.isFinite(s.eta));
   const anchors=(stations||[]).filter(s=>Number.isInteger(s.node_index)&&s.node_index>=0&&3*s.node_index+2<baseline.length)
    .map(s=>({node:s.node_index,gid:s.gid,y:useEta?s.eta:baseline[3*s.node_index]})).sort((a,b)=>a.y-b.y);

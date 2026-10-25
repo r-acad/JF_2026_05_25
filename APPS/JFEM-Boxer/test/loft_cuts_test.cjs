@@ -63,7 +63,7 @@ check(display.available&&!display.mesh,'Available geometry creates no hidden hel
 display.configure({visible:true,count:3});
 check(display.mesh.enabled&&display.mesh.isPickable===false&&display.mesh.color==='#00ffff','Opaque cyan nonpickable helper.');
 check(display.mesh.parent===parent&&display.mesh.metadata.wingViewHelper&&display.mesh.renderingGroupId===1,'Helper follows the model root and normal overlay group.');
-check(display.mesh.material.transparencyMode===0&&display.mesh.material.alpha===1&&display.mesh.material.zOffset<0,'Opaque lines have a small depth bias.');
+check(display.mesh.material.transparencyMode===0&&display.mesh.material.alpha===1&&display.mesh.material.zOffset===0&&display.mesh.material.zOffsetUnits===0,'Opaque line primitives have WebGPU-compatible zero depth bias.');
 check(Array.from(display.mesh.colors).every((v,i)=>v===(i%4===0?0:1)),'The actual line vertex-color buffer is opaque cyan.');
 check(!source.enabled&&display.mesh.enabled,'Cuts remain visible while the source loft is hidden.');
 const firstMesh=display.mesh,beforeReads=reads;display.configure({visible:true,count:3});

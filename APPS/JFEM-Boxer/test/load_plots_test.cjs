@@ -27,3 +27,15 @@ for(const [a,b]of[[0,5.7],[10,50],[0,.0001]]){const grid=plots.verticalGridLines
 const dense=plots.verticalGridLines(0,10,.0001);assert(dense.limited);assert.deepEqual(dense.values,[]);assert(dense.minimumSpacing>0);assert(plots.verticalGridLines(0,10,dense.minimumSpacing*1.001).values.length<=plots.MAX_GRID_LINES);
 assert(plots.verticalGridLines(1e10,1e10+1,1e-9).limited);assert.throws(()=>plots.verticalGridLines(0,1,0));assert.throws(()=>plots.verticalGridLines(0,1,-1));
 console.log('PASS persisted vertical grids, global-coordinate alignment, fractional/negative spans, automatic spacing and bounded SVG complexity');
+
+const engineState=plots.validateState({mode:'fe',visible:['engine','total']});
+assert.deepEqual(engineState.visible,['engine','total']);
+view.loadPlots=engineState;workspace.validateView(view);assert.deepEqual(workspace.completeView(JSON.parse(JSON.stringify(view))).loadPlots,engineState);
+const weights=require('../web/weights.js'),massData={totals:{structure_mass_kg:10,structure_weight_N:98.0665,engine_mass_kg:20,engine_weight_N:196.133,
+  nonstructural_mass_kg:2,nonstructural_weight_N:19.6133,fuel_mass_kg:3,fuel_weight_N:29.41995,loaded_mass_kg:33,loaded_weight_N:323.61945},components:[]};
+const original=JSON.stringify(massData),massRows=weights.totalRows(massData);
+assert.equal(massRows.find(r=>r.id==='structure').mass,10);assert.equal(massRows.find(r=>r.id==='engine').mass,20);
+assert.equal(massRows.find(r=>r.id==='loaded').mass,33);assert.equal(massRows.find(r=>r.id==='loaded').label,'Structure + engines + fuel');
+assert.equal(massRows.filter(r=>r.id==='engine').length,1);assert.equal(JSON.stringify(massData),original);
+assert(!weights.totalRows({totals:{...massData.totals,engine_mass_kg:0},components:[]}).some(r=>r.id==='engine'));
+console.log('PASS engine curve Study state and separate mass subtotal without double counting');

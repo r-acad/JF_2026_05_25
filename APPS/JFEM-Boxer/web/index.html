@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="airfoils.css">
   <link rel="stylesheet" href="loft.css">
   <link rel="stylesheet" href="movable_surfaces.css">
+  <link rel="stylesheet" href="engines.css">
   <link rel="stylesheet" href="geometry_export.css">
   <link rel="stylesheet" href="project_menu.css">
   <link rel="stylesheet" href="display_groups.css">
@@ -75,7 +76,7 @@
         <button id="btn-view-toml" disabled title="Inspect the current definition as TOML, or read the configured server TOML file. This does not save or reload anything.">View TOML</button>
         <span id="toml-help" class="file-tooltip" role="tooltip">TOML stores model parameters, constraints, load cases, all loaded reference placements and cache paths, and the Plan view background image. Saving caches unlinked references without overwriting the server input. Reference paths depend on this server's input folder; use Save Study to move embedded geometry, all display settings, other images and notes between computers. Import validates before replacing the current Study.</span>
       </span>
-      <button id="btn-read-reference" disabled title="Choose a local Reference deck; its INCLUDE files are read automatically. Review native properties, solve its load cases and compute supported sensitivities. Save Study embeds the complete deck source.">Read Reference</button>
+      <button id="btn-read-reference" disabled title="Choose a local Nastran deck; its INCLUDE files are read automatically. Review native properties, solve its load cases and compute supported sensitivities. Save Study embeds the complete deck source.">Read Nastran</button>
       <button id="btn-read-abaqus" disabled title="Read a local Abaqus .inp or .inp.gz file, including node sets and surfaces. Mesh-only inputs can be given an explicit material and static or modal analysis setup.">Read Abaqus</button>
       <button id="btn-read-results" disabled title="Open a stored .jfem binary with its own mesh and result states. No source deck or solver run is required.">Open JFEM results…</button>
       <input id="results-file" type="file" accept=".jfem" hidden>
@@ -107,7 +108,8 @@
         </div>
       </details>
     </section>
-    <div id="model-error" role="alert" hidden><button id="model-error-close" class="mini" type="button" aria-label="Dismiss error" title="Acknowledge this message. Its details remain in Log.">Close</button><strong id="model-error-title">Model update failed</strong><p id="model-error-text"></p></div>
+    <div id="model-error" role="alert" hidden><button id="model-error-close" class="mini" type="button" aria-label="Dismiss error" title="Acknowledge this message. Its details remain in Log.">Close</button><strong id="model-error-title">Model update failed</strong><p id="model-error-text"></p><button id="model-error-review" class="mini" type="button" hidden>Review affected panel assignments</button></div>
+    <details id="model-geometry-notice" class="rib-fallback-warning" role="status" hidden open><summary>Check end geometry</summary><p id="model-geometry-notice-text"></p><button id="model-geometry-notice-close" class="mini" type="button" title="Dismiss this notice; details remain in Log and Summary.">Close</button></details>
   </header>
 
   <nav id="workspace-nav" aria-label="Lifting surface workspace">
@@ -129,7 +131,7 @@
         <div id="analysis-runtime-options"></div>
         <div id="imported-analysis" hidden></div>
       </section>
-      <details id="imported-deck-info" hidden><summary id="imported-deck-title"></summary><p>Imported deck is authoritative. Review source cases in Loads → Cases and boundary conditions in Model → Constraints. These forms are read-only; selecting a case updates the loads and constraints in the viewport. Review properties in Display → Properties or Inspect; use Analysis, Sensitivity and Results normally. Read Reference replaces the deck; New Study returns to generated geometry. Save Study embeds the complete source, including INCLUDE content. TOML describes generated lifting surfaces only.</p><ul id="imported-deck-warnings"></ul></details>
+      <details id="imported-deck-info" hidden><summary id="imported-deck-title"></summary><p>Imported deck is authoritative. Review source cases in Loads → Cases and boundary conditions in Model → Constraints. These forms are read-only; selecting a case updates the loads and constraints in the viewport. Review properties in Display → Properties or Inspect; use Analysis, Sensitivity and Results normally. Read Nastran replaces the deck; New Study returns to generated geometry. Save Study embeds the complete source, including INCLUDE content. TOML describes generated lifting surfaces only.</p><ul id="imported-deck-warnings"></ul></details>
       <div id="form"><p class="muted">reading parameters&hellip;</p></div>
       <section id="panel-material-allowables" class="workspace-panel" data-workspace-panel="material" role="tabpanel" aria-labelledby="tab-material" hidden></section>
       <section class="workspace-panel" data-workspace-panel="cases" data-imported-only role="tabpanel" aria-labelledby="tab-cases" hidden><div id="imported-cases" hidden></div></section>
@@ -220,19 +222,6 @@
       <section id="panel-display" class="workspace-panel display-pane" data-workspace-panel="display" role="tabpanel" aria-labelledby="tab-display" hidden>
       <div id="hud-left" class="hud">
       <div class="parameter-heading"><h2>Entities</h2></div>
-      <label class="layer"><input id="show-panels" type="checkbox" disabled><span>Panels · isolate stiffened skins</span></label>
-      <label class="layer"><input id="show-panel-ids" type="checkbox" checked disabled><span>Show panel IDs</span></label>
-      <p id="stiffened-panel-note" class="pick-note">Create FEM to identify stiffened panels.</p>
-      <fieldset id="panel-explosion-controls" disabled>
-        <legend>Exploded stiffened panels</legend>
-        <label class="layer"><input id="explode-panels" type="checkbox" disabled><span>Explode panels</span></label>
-        <label class="display-control">Spread from <select id="explode-origin"><option value="centroid">Structural GRID centroid</option><option value="midspan">Bounding-box midspan center</option><option value="ribbay">Individual rib-bay centers</option><option value="rib">Corresponding rib center (inboard)</option></select></label>
-        <label class="display-control">Distance (m)<input id="explode-distance" type="number" min="0" max="10000" step="0.1" value="1"></label>
-        <label class="display-control">Manual spread<input id="explode-slider" type="range" min="0" max="10" step="0.01" value="1" aria-label="Manually spread panels" title="Drag to change the view-only distance and enable explosion. Zero restores physical positions."></label>
-        <p id="explode-note" class="pick-note">View only: each panel skin and stringer move together. Elements, their axes and P labels follow; shared GRID markers, rib/stringer datums, loads and aero stay assembled. Results retain physical values. Distances between moved panels are display distances. SVG captures this view; STL/GLB retain physical coordinates.</p>
-        <p class="pick-note">Rib-bay centers use the midpoint between adjacent ribs. Corresponding rib centers use the inboard rib of each panel's bay (R1 for R1–R2), including runouts. Uncheck Explode panels to restore the assembled view.</p>
-        <p id="explode-error" class="pick-note" role="alert" hidden></p>
-      </fieldset>
       <div class="entity-actions"><button id="entities-show-all" class="mini" disabled>Show all model entities</button><button id="entities-hide-all" class="mini" disabled>Hide all model entities</button></div>
       <p class="pick-note">Group checkboxes include available model layers. Deformation overlays require results. Bulk actions leave imported references and context planes unchanged.</p>
       <div class="button-row"><button id="btn-collapse-layer-groups" type="button">Collapse all trees</button><button id="btn-expand-layer-groups" type="button">Expand all trees</button></div>
@@ -252,7 +241,7 @@
         <div class="parameter-heading"><h2>Geometry</h2></div>
         <label class="case-picker-label" for="geometry-case-select">Displayed load case</label>
         <select id="geometry-case-select" aria-label="Geometry load case" disabled></select>
-        <p class="pick-note">Show or hide surfaces, all defined airfoil sections, reference geometry and rib datums. Colors and finishes here change only the view; structural materials and analysis results are unchanged. Ground and symmetry planes are in Environment.</p>
+        <p class="pick-note">Show or hide surfaces, all defined airfoil sections and rib datums. Imported STL, OBJ and GLB overlays are in Reference Geometry. Colors and finishes here change only the view; structural materials and analysis results are unchanged. Ground and symmetry planes are in Environment.</p>
         <fieldset id="geometry-results"><legend>Structural shape and references</legend>
           <label class="layer"><input id="geometry-show-structure" type="checkbox" disabled><span>Structural model · current FE shape</span></label>
           <p class="pick-note">The structural model follows the selected FE result and magnification. With no active shape it is undeformed. Choose individual shells and beams in Entities.</p>
@@ -266,18 +255,32 @@
           <legend>Spanwise loft cuts</legend>
           <label class="layer"><input id="show-loft-cuts" type="checkbox"><span>Show loft intersections</span></label>
           <label class="display-control">Color<input id="loft-cut-color" type="color" value="#00ffff" aria-label="Loft intersection color"></label>
+          <label class="layer" title="Intersect all loaded reference surfaces at the same span positions as the loft, using their current placement and scale. Reference cuts can remain visible while the reference surface is hidden."><input id="show-reference-loft-cuts" type="checkbox"><span>Cut reference geometry</span></label>
+          <label class="display-control">Reference color<input id="reference-loft-cut-color" type="color" value="#ff40d8" aria-label="Reference intersection color"></label>
           <label class="display-control">Number of cuts<input id="loft-cut-count" type="number" min="1" max="200" step="1" value="10" aria-label="Number of spanwise loft cuts"></label>
           <p id="loft-cut-note" class="pick-note">Create a model with an aerodynamic loft to show its spanwise intersections.</p>
         </fieldset>
         <fieldset id="geometry-context"><legend>Rib references</legend></fieldset>
         <div id="geometry-appearance-controls"></div>
-        <div id="geometry-references"></div>
       </section>
 
       <section id="panel-displayproperties" class="workspace-panel display-pane" data-workspace-panel="displayproperties" role="tabpanel" aria-labelledby="tab-displayproperties" hidden>
         <div class="parameter-heading"><h2>Structural properties</h2></div>
         <p class="pick-note">Color the generated FEM by its actual shell, beam and material properties, including local overrides. No analysis is required. Entity visibility and the current deformation setting are preserved.</p>
         <div id="property-display-controls"></div>
+        <label class="layer"><input id="show-panels" type="checkbox" disabled><span>Panels · isolate stiffened skins</span></label>
+        <label class="layer"><input id="show-panel-ids" type="checkbox" checked disabled><span>Show panel IDs</span></label>
+        <p id="stiffened-panel-note" class="pick-note">Create FEM to identify stiffened panels.</p>
+        <fieldset id="panel-explosion-controls" disabled>
+          <legend>Exploded stiffened panels</legend>
+          <label class="layer"><input id="explode-panels" type="checkbox" disabled><span>Explode panels</span></label>
+          <label class="display-control">Spread from <select id="explode-origin"><option value="centroid">Structural GRID centroid</option><option value="midspan">Bounding-box midspan center</option><option value="ribbay">Individual rib-bay centers</option><option value="rib">Corresponding rib center (inboard)</option></select></label>
+          <label class="display-control">Distance (m)<input id="explode-distance" type="number" min="0" max="10000" step="0.1" value="1"></label>
+          <label class="display-control">Manual spread<input id="explode-slider" type="range" min="0" max="10" step="0.01" value="1" aria-label="Manually spread panels" title="Drag to change the view-only distance and enable explosion. Zero restores physical positions."></label>
+          <p id="explode-note" class="pick-note">View only: each panel skin and stringer move together. Elements, their axes and P labels follow; shared GRID markers, rib/stringer datums, loads and aero stay assembled. Results retain physical values. Distances between moved panels are display distances. SVG captures this view; STL/GLB retain physical coordinates.</p>
+          <p class="pick-note">Rib-bay centers use the midpoint between adjacent ribs. Corresponding rib centers use the inboard rib of each panel's bay (R1 for R1–R2), including runouts. Uncheck Explode panels to restore the assembled view.</p>
+          <p id="explode-error" class="pick-note" role="alert" hidden></p>
+        </fieldset>
         <fieldset id="property-explosion-controls" disabled>
           <legend>Exploded properties</legend>
           <label class="layer"><input id="explode-properties" type="checkbox" disabled><span>Explode by property (PID)</span></label>
@@ -336,6 +339,7 @@
       <div class="parameter-heading"><h2>Axes and labels</h2></div>
       <fieldset id="display-axes-labels">
         <legend>Axes &amp; labels</legend>
+        <label class="layer" title="Label the visible axial actuator cylinders with their CBUSH element, PBUSH property, actuator coordinate system and axial stiffness K1 in N/m. Cylinders connect the actual upper spar-cap attachment grids and follow their displayed deformation; only their radius is a display size. Older torsional hinge joints are separately labeled Hinge restraint with K4 in N·m/rad."><input id="show-actuator-stiffness" type="checkbox"><span>Actuator stiffness labels</span></label>
         <label class="layer"><input id="show-shell-axes" type="checkbox" disabled><span>Shell local x axes</span></label>
         <label class="layer" title="Draw material x (red) and y (green) at each shell center. Composite ply angles are measured from these reference directions. Isotropic stiffness is orientation-independent, but directional stresses are not. Coordinate labels have their own switch below."><input id="show-material-axes" type="checkbox" disabled><span>Shell material axes</span></label>
         <label class="layer" title="Label each visible shell with its EID and material-coordinate MCID, or its THETA angle from edge G1–G2. Labels can be shown independently of the axis arrows. Overlapping or occluded labels are omitted; zoom in or hide surrounding shells to see more."><input id="show-material-axis-labels" type="checkbox" disabled><span>Material coordinate labels</span></label>
@@ -530,6 +534,11 @@
       <p id="picked-axes-note" class="pick-note">Pick a shell or bar to show its local x, y and z axes.</p>
       <section id="measure-tool" aria-label="Two-point measurement">
         <h3>Measure two points <button id="btn-measure-help" class="help-button" type="button" aria-label="Measurement and local axes help">?</button></h3>
+        <label class="measure-control">Measure<select id="measure-mode"><option value="distance">Straight-line distance</option><option value="axis">Distance along an axis</option></select></label>
+        <div id="measure-axis-options" hidden>
+          <label class="measure-control">Coordinate system<select id="measure-coordinate" title="Uses the fixed defining Cartesian triad, including for cylindrical and spherical systems."><option value="0">BASIC · global axes</option></select></label>
+          <label class="measure-control">Axis<select id="measure-axis"><option value="x">X</option><option value="y">Y</option><option value="z">Z</option></select></label>
+        </div>
         <div class="hud-row"><button id="btn-measure" class="mini" type="button" aria-pressed="false">Start measurement</button><button id="btn-measure-clear" class="mini" type="button" disabled>Clear</button></div>
         <label class="ctl check"><input id="measure-snap-nodes" type="checkbox"><span>Snap to visible FE nodes</span></label>
         <p id="measure-status" class="pick-note" role="status">Measure two points on the displayed geometry.</p>
@@ -574,8 +583,10 @@
       </div>
       <div class="workspace-empty deck-empty"><span class="empty-icon" aria-hidden="true">&#x2261;</span><h2>No deck written yet</h2><p id="deck-empty-status">Use <b>Write deck</b> or <b>Run in JFEM</b>. The last created deck remains here after closing this panel, refreshing the browser or restarting the app.</p></div>
       </section>
-      <section id="panel-reference" class="workspace-panel" data-workspace-panel="reference" role="tabpanel" aria-labelledby="tab-reference" hidden>
-        <div id="reference-panel"></div>
+      <section id="panel-displayreference" class="workspace-panel display-pane" data-workspace-panel="displayreference" role="tabpanel" aria-labelledby="tab-displayreference" hidden>
+        <div class="parameter-heading"><h2>Reference Geometry</h2></div>
+        <p class="pick-note">Load external STL, OBJ or GLB geometry, then set its visibility, color, opacity, units, position, rotation and scale. Save Study embeds these references and their placement. Reference geometry is a visual overlay; it does not add structural elements or loads.</p>
+        <div id="geometry-references"><div id="reference-panel"></div></div>
       </section>
     </div>
   </aside>
@@ -647,6 +658,7 @@
 <script src="vlm_deformation.js" defer></script>
 <script src="scene_lighting.js" defer></script>
 <script src="transparency.js" defer></script>
+<script src="line_quality.js" defer></script>
 <script src="mass_properties.js" defer></script>
 <script src="property_display.js" defer></script>
 <script src="aero_display.js" defer></script>
@@ -667,6 +679,7 @@
 <script src="loft.js" defer></script>
 <script src="movable_surfaces.js" defer></script>
 <script src="movable_structure.js" defer></script>
+<script src="engines.js" defer></script>
 <script src="weights.js" defer></script>
 <script src="summary_export.js" defer></script>
 <script src="reference.js" defer></script>
@@ -719,6 +732,7 @@
 <script src="reserve_factor_table_window.js" defer></script>
 <script src="stress_report_snapshot.js" defer></script>
 <script src="stress_report.js" defer></script>
+<script src="panel_override_review.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>

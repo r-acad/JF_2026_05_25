@@ -14,6 +14,7 @@
     "Load local STL, OBJ or self-contained GLB geometry to compare with the lifting surface. References stay in this browser session when Create FEM rebuilds the model. They are not FE elements and are not included in loads, analysis or Reference export.",
     "Choose the source units and axes. STL/OBJ default to metres and FE coordinates: x aft, y toward the tip, z up. GLB defaults to metres and Y up: file X maps to FE x, file Y to FE z, and file Z to negative FE y. Change these settings if the source uses another convention.",
     "Select Move, Rotate or Scale and drag the handles. Red is FE x, green FE y and blue FE z. Move/Rotate use global FE directions; Scale uses the reference's rotated directions. Numeric positions use metres, rotations use degrees (fixed x, then y, then z), and scales are dimensionless. Transforms act about the file origin; Reset restores its original placement.",
+    "Link XYZ scale applies the same multiplicative factor to all three scale values when one numeric input or an axis scale handle changes. Equal values stay equal; existing unequal proportions are retained (for example, 2/3/4 becomes 4/6/8 when X changes to 4). Turning the link on does not change the geometry. Unlink to edit an axis independently. The choice is saved for each reference.",
     "Lock placement protects the selected reference's position, rotation, scale, source units and source axes, including Reset and the transform handles. You can still select, fit, hide or change its appearance. Each reference has its own lock; unlock it before moving it again. Save Study or save its linked TOML settings to retain the lock. Older files load unlocked.",
     "Imports use neutral translucent geometry. OBJ material/texture sidecars are ignored. GLB must contain its buffers; Draco/meshopt compressed geometry needs an uncompressed export. After import, choose Save a portable copy to keep it with the server TOML input, or Session only. Browsers cannot disclose the original absolute file path. Saving copies the file into the input's .reference_assets folder and records its relative path and placement. Later changes are written by Save reference settings or Server input > Overwrite server input. Keep the input and its assets folder together when moving them.",
     "Save Study in the top header writes one .wingfem.json file containing every loaded reference, including session-only imports, with its source bytes and current placement. Load Study restores this portable file without changing the server's TOML input. Save TOML as creates cached copies for any unlinked references and includes every loaded reference's path and placement. These paths resolve relative to the configured server input folder; use a Study to move the complete project between computers. Neither action overwrites the server TOML. A missing reference must be restored or explicitly forgotten before a complete file can be saved."
@@ -64,7 +65,7 @@
     const log = options.onLog || (() => {});
     const entries = [], controls = {}, unavailable = new Map();
     let selected = null, sequence = 0, loading = 0, disposed = false, dragging = false, ignoreUntil = 0;
-    let mode = "move", gizmos = null, saving = false;
+    let mode = "move", gizmos = null, saving = false, geometryRevision = 0;
     function changed() { if (options.onChange) options.onChange(api); }
     function selectedEntry() { return entries.find((entry) => entry.id === selected) || null; }
     function notify(message, kind) {
@@ -92,6 +93,7 @@
       controls.units.value = entry.units; controls.axis.value = entry.axis;
       controls.units.disabled = entry.locked; controls.axis.disabled = entry.locked;
       controls.lock.checked = entry.locked;
+      controls.scaleLinked.checked = entry.scaleLinked === true; controls.scaleLinked.disabled = entry.locked;
       controls.reset.disabled = entry.locked;
       controls.lockStatus.textContent = entry.locked ? "Placement locked. Unlock to move, rotate, scale, reset or change source units/axes." : "Placement unlocked. Changes affect only this reference.";
       controls.lockStatus.classList.toggle("locked",entry.locked);
@@ -112,7 +114,7 @@
       const transform = getTransform(entry);
       return { version: 1, id: entry.savedId, asset_path: entry.assetPath, source_name: entry.name,
         units: entry.units, axis: entry.axis, position_m: precise(transform.position), rotation_deg: precise(transform.rotation),
-        scale: precise(transform.scale), visible: entry.visible, opacity: entry.opacity, wireframe: entry.wireframe, locked: entry.locked };
+        scale: precise(transform.scale), visible: entry.visible, opacity: entry.opacity, wireframe: entry.wireframe, locked: entry.locked, scale_linked: entry.scaleLinked === true };
     }
     function serialize() {
       return [...Array.from(unavailable.values(), (record) => ({...record})),
@@ -226,7 +228,7 @@
           entry.locked = false;
           setSource({units:record.units,axis:record.axis});
           setTransform({position:record.position_m,rotation:record.rotation_deg,scale:record.scale});
-          setVisible(record.visible); setAppearance({opacity:record.opacity,wireframe:record.wireframe});
+          setScaleLinked(record.scale_linked === true); setVisible(record.visible); setAppearance({opacity:record.opacity,wireframe:record.wireframe});
           setLocked(record.locked === true);
           entry.savedSnapshot = canonical(recordFor(entry));
         } catch (error) {
@@ -285,7 +287,7 @@
       const staged = [], previous = entries.slice(), previousMissing = new Map(unavailable);
       const previousSelection = selected, previousMode = mode;
       let committed = false, finished = false;
-      const disposeEntry = (entry) => { entry.container.dispose(); entry.root.dispose(); entry.material.dispose(); };
+      const disposeEntry = (entry) => { entry.container.dispose(); entry.root.dispose(); entry.material.dispose(); entry.wireMaterial?.dispose(); };
       try {
         for (const {file, metadata} of items) {
           const entry = await importFile(file, {units:metadata.units,axis:metadata.axis,detached:true});
@@ -293,9 +295,8 @@
           entry.root.position.copyFromFloats(...toView(metadata.position_m));
           entry.root.rotationQuaternion = rotationQuaternion(B, metadata.rotation_deg);
           entry.root.scaling.copyFromFloats(...toView(metadata.scale));
-          entry.visible = metadata.visible; entry.opacity = metadata.opacity; entry.wireframe = metadata.wireframe; entry.locked = metadata.locked === true;
-          entry.material.alpha = entry.opacity; entry.material.wireframe = entry.wireframe;
-          entry.material.transparencyMode = entry.opacity < 1 ? B.Material.MATERIAL_ALPHABLEND : B.Material.MATERIAL_OPAQUE;
+          entry.visible = metadata.visible; entry.opacity = metadata.opacity; entry.wireframe = metadata.wireframe; entry.locked = metadata.locked === true; entry.scaleLinked = metadata.scale_linked === true;
+          applyAppearance(entry);
           entry.persistenceChoice = "session"; entry.portableSource = true;
           if (options.linked && metadata.asset_path) {
             entry.assetPath=metadata.asset_path;entry.savedId=metadata.id;
@@ -313,7 +314,7 @@
           entries.splice(0, entries.length, ...staged); unavailable.clear();
           for (const entry of staged) entry.root.setEnabled(entry.visible);
           selected = staged[view.selectedIndex]?.id || staged[staged.length-1]?.id || null;
-          setMode(view.mode || "move"); changed();
+          geometryRevision++; setMode(view.mode || "move"); changed();
         },
         rollback() {
           if (finished) return; finished = true;
@@ -323,7 +324,7 @@
             for (const entry of previous) entry.root.setEnabled(entry.visible);
             selected = previousSelection;
           }
-          staged.forEach(disposeEntry); setMode(previousMode); updatePersistenceControls();
+          staged.forEach(disposeEntry); if(committed)geometryRevision++; setMode(previousMode); updatePersistenceControls(); if(committed)changed();
         },
         finalize() {
           if (finished || !committed) return; finished = true;
@@ -348,7 +349,22 @@
       if (values.position) entry.root.position.copyFromFloats(...toView(values.position));
       if (values.rotation) entry.root.rotationQuaternion = rotationQuaternion(B, values.rotation);
       if (values.scale) entry.root.scaling.copyFromFloats(...toView(values.scale));
-      entry.root.computeWorldMatrix(true); updateFields(); changed();
+      entry.root.computeWorldMatrix(true); geometryRevision++; updateFields(); changed();
+    }
+    function setScaleLinked(value) {
+      const entry = selectedEntry(); if (!entry || entry.locked) return false;
+      if (typeof value !== "boolean") throw new Error("Link XYZ scale must be Boolean.");
+      entry.scaleLinked = value; syncScaleLink(); updateFields(); changed(); return true;
+    }
+    function syncScaleLink() {
+      const gizmo = gizmos?.gizmos.scaleGizmo;
+      if (gizmo) for (const axis of ["xGizmo", "yGizmo", "zGizmo"]) gizmo[axis].uniformScaling = selectedEntry()?.scaleLinked === true;
+    }
+    function setScaleAxis(axis, value) {
+      const entry = selectedEntry(); if (!entry || entry.locked) return false;
+      if (!Number.isInteger(axis) || axis < 0 || axis > 2 || !Number.isFinite(value) || value <= 0) throw new Error("Scale values must be positive finite numbers.");
+      const current = getTransform(entry).scale, scale = entry.scaleLinked ? current.map(v => v * (value / current[axis])) : current.slice();
+      scale[axis] = value; setTransform({scale}); return true;
     }
     function ensureGizmos() {
       if (gizmos) return;
@@ -365,14 +381,14 @@
           axisGizmo.coloredMaterial.emissiveColor = B.Color3.FromHexString(color).scale(0.45);
         }
         gizmo.onDragStartObservable.add(() => { dragging = !selectedEntry()?.locked; });
-        gizmo.onDragObservable.add(updateFields);
+        gizmo.onDragObservable.add(() => { geometryRevision++; updateFields(); });
         gizmo.onDragEndObservable.add(() => {
           dragging = false; ignoreUntil = Date.now() + 150;
           const entry = selectedEntry();
           if (entry && !entry.locked) {
             for (const axis of ["x", "y", "z"]) entry.root.scaling[axis] = Math.max(1e-6, entry.root.scaling[axis]);
           }
-          updateFields(); changed();
+          geometryRevision++; updateFields(); changed();
         });
       }
     }
@@ -386,6 +402,7 @@
         gizmos.rotationGizmoEnabled = editable && mode === "rotate";
         gizmos.scaleGizmoEnabled = editable && mode === "scale";
         gizmos.attachToNode(editable && entry.visible && mode !== "off" ? entry.root : null);
+        syncScaleLink();
       }
       updateFields();
     }
@@ -407,7 +424,7 @@
       if (entry.locked) { updateFields(); return false; }
       const units = values.units || entry.units, axis = values.axis || entry.axis;
       if (!UNITS[units] || !["fe", "yup"].includes(axis)) throw new Error("Unsupported reference units or source axes.");
-      entry.units = units; entry.axis = axis; applySource(entry); updateFields(); changed();
+      entry.units = units; entry.axis = axis; applySource(entry); geometryRevision++; updateFields(); changed();
     }
     function select(id) {
       selected = entries.some((entry) => entry.id === Number(id)) ? Number(id) : null;
@@ -443,20 +460,42 @@
       for(const entry of entries){if(entry.visible!==!!visible)modified=true;entry.visible=!!visible;entry.root.setEnabled(entry.visible);}
       setMode(mode);updateFields();if(modified)changed();
     }
+    function applyAppearance(entry) {
+      entry.material.alpha = entry.opacity; entry.material.wireframe = entry.wireframe;
+      entry.material.transparencyMode = entry.opacity < 1 ? B.Material.MATERIAL_ALPHABLEND : B.Material.MATERIAL_OPAQUE;
+      if (entry.wireframe && !entry.wireMaterial) {
+        // Depth peeling excludes line topology. StandardMaterial nevertheless
+        // compiles its peeling fragment outputs whenever scene OIT is enabled,
+        // which invalidates WebGPU's main framebuffer and blanks the whole model.
+        // Use a normal RGBA line shader, sharing the original triangle buffers
+        // and Babylon's cached wire indices. No FE material or scene mode changes.
+        const wire = entry.wireMaterial = new B.ShaderMaterial(entry.root.name + "-wire", scene, {
+          vertexSource: "precision highp float; attribute vec3 position; uniform mat4 worldViewProjection; void main(void){ gl_Position=worldViewProjection*vec4(position,1.0); }",
+          fragmentSource: "precision highp float; uniform vec4 referenceColor; void main(void){ gl_FragColor=referenceColor; }"
+        }, { attributes:["position"], uniforms:["worldViewProjection","referenceColor"], needAlphaBlending:true });
+        wire.wireframe = true; wire.backFaceCulling = false; wire.disableDepthWrite = true;
+        const color = new B.Color4();
+        wire.onBindObservable.add(() => {
+          color.set(entry.material.diffuseColor.r, entry.material.diffuseColor.g, entry.material.diffuseColor.b, entry.opacity);
+          wire.setColor4("referenceColor", color);
+        });
+      }
+      if (entry.wireMaterial) entry.wireMaterial.alpha = entry.opacity;
+      for (const mesh of entry.meshes) mesh.material = entry.wireframe ? entry.wireMaterial : entry.material;
+    }
     function setAppearance(values) {
       const entry = selectedEntry(); if (!entry) return;
       if (values.opacity !== undefined) entry.opacity = Math.max(0.03, Math.min(1, Number(values.opacity)));
       if (values.wireframe !== undefined) entry.wireframe = !!values.wireframe;
-      entry.material.alpha = entry.opacity; entry.material.wireframe = entry.wireframe;
-      entry.material.transparencyMode = entry.opacity < 1 ? B.Material.MATERIAL_ALPHABLEND : B.Material.MATERIAL_OPAQUE;
+      applyAppearance(entry);
       updateFields(); changed();
     }
     function reset() { setTransform({ position: [0,0,0], rotation: [0,0,0], scale: [1,1,1] }); }
     function remove(id = selected) {
       const index = entries.findIndex((entry) => entry.id === Number(id)); if (index < 0) return;
-      const [entry] = entries.splice(index, 1);
+      const [entry] = entries.splice(index, 1); geometryRevision++;
       if (gizmos) gizmos.attachToNode(null);
-      entry.container.dispose(); entry.root.dispose(); entry.material.dispose();
+      entry.container.dispose(); entry.root.dispose(); entry.material.dispose(); entry.wireMaterial?.dispose();
       select(entries.length ? entries[Math.min(index, entries.length-1)].id : null);
       notify("Removed reference " + entry.name);
     }
@@ -499,7 +538,7 @@
           persistenceChoice:settings.savedRecord ? "saved" : "pending", assetPath:settings.savedRecord && settings.savedRecord.asset_path || null,
           savedId:settings.savedRecord && settings.savedRecord.id || null, savedSnapshot:"",
           triangles: meshes.reduce((n, mesh) => n + Math.floor(mesh.getTotalIndices()/3), 0),
-          units, axis, opacity: 0.35, wireframe: false, visible: true, locked: false };
+          units, axis, opacity: 0.35, wireframe: false, visible: true, locked: false, scaleLinked: false };
         const importedRoots = [...container.meshes, ...container.transformNodes].filter((node) => !node.parent);
         for (const name of ["lights", "cameras", "animationGroups", "particleSystems"]) {
           for (const item of container[name] || []) item.dispose();
@@ -509,7 +548,11 @@
           // Imported names can collide with the FEM's disposable axis-* helpers.
           mesh.name = root.name + "-" + mesh.name;
           mesh.isPickable = false; mesh.renderingGroupId = 0;
-          mesh.metadata = { ...(mesh.metadata || {}), wingReferenceId: entry.id };
+          // Remember primitive type before replacing the imported material. A
+          // subsequent Wire appearance still represents the same triangle skin.
+          const primitive=mesh.material?.fillMode??B.Material.TriangleFillMode;
+          const triangles=mesh.getClassName?.()!=="LinesMesh"&&[B.Material.TriangleFillMode,B.Material.WireFrameFillMode].includes(primitive);
+          mesh.metadata = { ...(mesh.metadata || {}), wingReferenceId: entry.id, wingReferenceTriangles:triangles };
           if (mesh.getTotalVertices() > 0) mesh.material = material;
         }
         applySource(entry); container.addAllToScene();
@@ -517,7 +560,7 @@
         if (!bounds(entry)) throw new Error("The reference bounds are not finite.");
         if (settings.detached) return entry;
         previousSelection = selected;
-        entries.push(entry); selected = entry.id;
+        entries.push(entry); selected = entry.id; geometryRevision++;
         setAppearance({}); setMode(mode);
         notify("Loaded " + file.name + ": " + entry.triangles.toLocaleString() + " triangles", "good");
         changed(); return entry;
@@ -528,7 +571,7 @@
           if (gizmos) gizmos.attachToNode(null);
         }
         if (container) container.dispose();
-        if (entry) { entry.root.dispose(); entry.material.dispose(); }
+        if (entry) { entry.root.dispose(); entry.material.dispose(); entry.wireMaterial?.dispose(); }
         try { setMode(mode); } catch (_) { updateFields(); }
         notify("Reference import failed: " + error.message, "err");
         throw error;
@@ -601,11 +644,18 @@
           input.id = "reference-" + key + "-" + axis; input.setAttribute("aria-label", "Reference " + key + " " + axis);
           if (key === "scale") input.min = "0.000001";
           input.onchange = () => {
-            try { const values = controls[key].map((el) => el.value.trim() === "" ? NaN : Number(el.value)); setTransform({[key]:values}); input.setCustomValidity(""); }
+            try { if (key === "scale") setScaleAxis(a, input.value.trim() === "" ? NaN : Number(input.value)); else { const values = controls[key].map((el) => el.value.trim() === "" ? NaN : Number(el.value)); setTransform({[key]:values}); } input.setCustomValidity(""); }
             catch (error) { input.setCustomValidity(error.message); input.reportValidity(); }
           };
           row.append(input); group.append(row); controls[key].push(input);
-        } content.append(group);
+        }
+        if (key === "scale") {
+          const linkRow = node("label", null, "reference-scale-link"); controls.scaleLinked = node("input"); controls.scaleLinked.type = "checkbox"; controls.scaleLinked.id = "reference-scale-linked";
+          controls.scaleLinked.title = "Multiply X, Y and Z by the same factor when one value or an axis handle changes. Existing ratios are preserved; enabling this link does not change the current scale.";
+          controls.scaleLinked.onchange = event => setScaleLinked(event.target.checked);
+          linkRow.append(controls.scaleLinked, node("span", "Link XYZ scale")); group.append(linkRow);
+        }
+        content.append(group);
       }
       const check = (label, id, action) => { const row = node("label", null, "reference-check"), input = node("input"); input.type = "checkbox"; input.id = id; input.onchange = action; row.append(input,node("span",label)); content.append(row); return input; };
       controls.visible = check("Show reference", "reference-visible", (event) => setVisible(event.target.checked));
@@ -620,13 +670,16 @@
       })); content.append(actions);
     }
     function dispose() {
-      disposed = true;
+      disposed = true; geometryRevision++;
       if (gizmos) { gizmos.dispose(); gizmos = null; }
-      for (const entry of entries.splice(0)) { entry.container.dispose(); entry.root.dispose(); entry.material.dispose(); }
+      for (const entry of entries.splice(0)) { entry.container.dispose(); entry.root.dispose(); entry.material.dispose(); entry.wireMaterial?.dispose(); }
       unavailable.clear(); selected = null; if (host) host.replaceChildren();
     }
-    const api = { entries, get active() { return selectedEntry(); }, get gizmos() { return gizmos; },
-      get mode() { return mode; }, get loading() { return loading; }, get saving() { return saving; }, importFile, select, setTransform, getTransform,
+    // Hidden reference surfaces remain sectionable for uncluttered comparison.
+    // Lines, helpers and unavailable assets never participate in surface cuts.
+    const sectionMeshes=()=>entries.flatMap(entry=>entry.meshes.filter(mesh=>!mesh.isDisposed?.()&&mesh.metadata?.wingReferenceTriangles!==false&&!mesh.metadata?.wingViewHelper&&mesh.getClassName?.()!=="LinesMesh"));
+    const api = { entries, sectionMeshes, get geometryRevision(){return geometryRevision;}, get active() { return selectedEntry(); }, get gizmos() { return gizmos; },
+      get mode() { return mode; }, get loading() { return loading; }, get saving() { return saving; }, importFile, select, setTransform, getTransform, setScaleLinked, setScaleAxis,
       setSource, setMode, setLocked, setVisible, setAllVisible, setAppearance, reset, remove, fit, bounds, dispose,
       serialize, restore, markSaved, enroll, forget, saveSettings, exportPortable, prepareTomlRecords, stagePortable,
       isInteracting: () => dragging || Date.now() < ignoreUntil };

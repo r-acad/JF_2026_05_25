@@ -115,6 +115,10 @@ function load_payload(loads; model::Union{Nothing,Model} = nothing)
         "node_index"=>s.node,"gid"=>s.gid,"eta"=>(model.xyz[3s.node+2]-model.wing.root_ref_y)/model.wing.semispan,
         "position"=>model.xyz[3s.node+1:3s.node+3],"force"=>collect(s.force),"moment"=>collect(s.moment),
         "follower_forces"=>false) for s in applied.structure]
+    result["engine_stations"]=model===nothing ? Any[] : [Dict{String,Any}(
+        "node_index"=>s.node,"gid"=>s.gid,"eta"=>(model.xyz[3s.node+2]-model.wing.root_ref_y)/model.wing.semispan,
+        "position"=>model.xyz[3s.node+1:3s.node+3],"force"=>collect(s.force),"moment"=>collect(s.moment),
+        "follower_forces"=>false) for s in applied.engine]
     result["moment_stations"]=applied===nothing ? Any[] : [merge(load_record(s),Dict{String,Any}(
         "node_index"=>s.node_index-1,"gid"=>s.gid,"follower_forces"=>false,
         "target_kind"=>s.target_kind,"target_rbe3_eid"=>s.target_rbe3_eid,"fuel_bay"=>s.fuel_bay,"massless"=>s.massless,
@@ -122,7 +126,7 @@ function load_payload(loads; model::Union{Nothing,Model} = nothing)
         "source_force_arm_moments_Nm"=>Dict(String(key)=>collect(value) for (key,value) in pairs(s.source_force_arm_moments)))) for s in applied.moments]
     result["force_stations"]=applied===nothing ? stations : [merge(load_record(s),Dict{String,Any}(
         "node_index"=>s.node_index-1,"gid"=>s.gid,
-        "follower_forces"=>s.target_kind=="external_rbe3"&&get(model.params,"loads.follower_forces",false),
+        "follower_forces"=>s.target_kind in ("external_rbe3","control_rbe3")&&get(model.params,"loads.follower_forces",false),
         "target_kind"=>s.target_kind,"target_rbe3_eid"=>s.target_rbe3_eid,"fuel_bay"=>s.fuel_bay,"massless"=>s.massless,
         "source_forces_N"=>Dict(String(key)=>collect(value) for (key,value) in pairs(s.source_forces)))) for s in applied.forces]
     result["routing_diagnostics"]=applied===nothing ? nothing : applied.diagnostics
@@ -139,6 +143,8 @@ function load_payload(loads; model::Union{Nothing,Model} = nothing)
                           for (panel,center) in zip(loads.panels,centers)]
         result["vlm"] = Dict{String,Any}("xyz" => blob_f32(xyz),
             "conn" => blob_i32(collect(0:4count-1)), "count" => count,
+            "vertex_bindings" => model===nothing ? nothing : aerodynamic_point_bindings(model,[corner for panel in loads.panels for corner in panel.corners]),
+            "load_bindings" => model===nothing ? nothing : aerodynamic_point_bindings(model,[panel.position for panel in loads.panels]),
             "pressure" => blob_f32([p.pressure for p in loads.panels]),
             "cp" => blob_f32([p.cp for p in loads.panels]),
             "area" => blob_f32([p.area for p in loads.panels]),
@@ -409,6 +415,11 @@ function mesh_payload(m::Model; progress = stage -> nothing)
 
     progress("payload")
     coordinates=generated_coordinate_payload(groups;node_count=length(m.node_ids))
+    hinge_frames=movable_grid_frames(m)
+    if !isempty(hinge_frames)
+        basic=first(coordinates["systems"]);basic["usage"]["grid_cd"]-=length(hinge_frames);coordinate_usage!(basic,basic["usage"])
+        coordinates["note"]=replace(coordinates["note"],"GRID positions (CP) and displacement axes (CD) use BASIC."=>"GRID positions (CP) use BASIC. Physical hinge-tip GRID displacement frames use their hinge CORD2R; all other CD frames use BASIC.")
+    end
     append!(coordinates["systems"],movable_coordinate_records(m))
     return Dict{String,Any}(
         "ok" => true,
@@ -417,6 +428,7 @@ function mesh_payload(m::Model; progress = stage -> nothing)
                   "connectivity is zero-based into nodes.xyz",
         "title" => String(m.params["output.title"]),
         "model_params" => copy(m.params),
+        "geometry_warnings" => planform_endpoint_warnings(m.params,m.wing),
         "stiffened_panels" => stiffened_panels_payload(m),
         "component_buckling" => component_buckling_payload(m),
         "planform" => Dict{String,Any}(
@@ -444,7 +456,8 @@ function mesh_payload(m::Model; progress = stage -> nothing)
             "station_etas"=>path.etas,"slopes_dx_dy"=>path.slopes,
             "offsets_x_m"=>path.offsets,"angles_deg"=>path.angles,
             "per_rear_point"=>path.per_point,
-            "note"=>"Each angle applies to the segment ending at its rear-spar point; the last angle continues to the tip. Paths remain continuous at the knots."),
+            "angle_reference"=>get(m.params,"box.stringer_angle_reference","rear_spar"),
+            "note"=>"Each entered angle applies to the interval ending at its rear-spar point; the last continues to the tip. Directions use the selected local spar or BASIC +Y reference. Paths remain continuous at the knots."),
         "fuel" => fuel,
         "weights" => weights,
         "annotations" => annotations,
@@ -458,8 +471,9 @@ function mesh_payload(m::Model; progress = stage -> nothing)
         ),
         "groups" => groups,
         "coordinate_systems" => coordinates,
-        "movable_structure" => Dict("surfaces"=>movable_structure_data(m)["surfaces"],"attachments"=>movable_structure_data(m)["attachments"]),
-        "imported_connections" => movable_connection_payload(m),
+        "movable_structure" => Dict("surfaces"=>movable_structure_data(m)["surfaces"],"attachments"=>movable_structure_data(m)["attachments"],"load_references"=>get(movable_structure_data(m),"load_references",Any[])),
+        "engine_structure" => engine_structure_payload(m),
+        "imported_connections" => vcat(movable_connection_payload(m),engine_connection_payload(m)),
         "rbe3" => Dict{String,Any}(
             "count" => length(m.rbe3),
             "refs" => blob_i32(rbe3_refs; offset = -1),
@@ -471,7 +485,7 @@ function mesh_payload(m::Model; progress = stage -> nothing)
                 "connected_grids" => m.node_ids[sp.dep],
                 "reference_components" => "123456",
                 "connected_components" => "123", "weight" => 1.0,
-                "eta" => sp.eta) for sp in m.rbe3],
+                "eta" => sp.eta,"virtual_outboard"=>sp.station<0) for sp in m.rbe3],
         ),
         "fuel_rbe3" => Dict{String,Any}(
             "count"=>length(m.fuel_rbe3),"refs"=>blob_i32([sp.ref for sp in m.fuel_rbe3];offset=-1),
@@ -500,7 +514,8 @@ function mesh_payload(m::Model; progress = stage -> nothing)
             "map" => blob_i32(m.aero_map; offset = -1),
             "weights" => blob_f32(m.aero_weights),
             "rotation_lever_m" => blob_f32(aero_rotation_levers(m)),
-            "deformation_note" => oriented_ribs(m.grid) ? "Display-only aero overlay: continuous blending between rib-row projections plus rotational offsets preserves rigid translations and infinitesimal rotations. General strain away from the angled rib planes is approximated. No aero-overlay stiffness or force-transfer connection is modeled." : "Aerodynamic nodes interpolate between structural section projections; beyond the final box rib the overlay follows a rigid terminal-rib extension for display only. No aerodynamic-overlay stiffness is modeled.",
+            "reference_point_mask" => blob_i32(aerodynamic_reference_point_mask(m)),
+            "deformation_note" => "The aerodynamic loft follows solved FE translations and rotations. Beyond the box, massless RBE3 grids transfer loads to the terminal structural rib and interpolate deformation back to the aerodynamic surface; they add no elastic skin or mass. Inboard section blending approximates general strain away from structural sections. VLM pressures are not automatically recomputed during a structural solve.",
         ),
         "bbox" => bbox_of(m),
         "info" => vcat(Any[Any[k, v] for (k, v) in m.info],

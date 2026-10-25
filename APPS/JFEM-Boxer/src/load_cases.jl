@@ -2,6 +2,8 @@
 const LOAD_CASE_FIELDS = Dict(
     "method" => "loads.method", "lift_total" => "loads.lift_total",
     "load_factor" => "loads.load_factor", "distribution" => "loads.distribution",
+    "match_aircraft_lift" => "loads.match_aircraft_lift",
+    "aircraft_mass" => "loads.aircraft_mass", "maneuver_factor" => "loads.maneuver_factor",
     "torque_y" => "loads.torque_y", "speed" => "aero.speed",
     "density" => "aero.density", "alpha" => "aero.alpha",
     "speed_of_sound" => "aero.speed_of_sound", "atmosphere" => "aero.atmosphere",

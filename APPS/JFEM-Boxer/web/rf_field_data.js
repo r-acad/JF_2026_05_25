@@ -122,7 +122,7 @@
   // Category IDs are presentation values, never reserve factors. Filter using
   // the same completely assessed, governing numerical RF as the table.
   const failingElementIds=new Set();
-  for(const [eid,detail]of detailsById)if(byId.has(eid)&&detail.available&&finite(detail.reserveFactor)&&detail.reserveFactor<1)failingElementIds.add(eid);
+  for(const [eid,detail]of detailsById)if(byId.has(eid)&&detail.available&&tables.isBelowOne(detail.reserveFactor))failingElementIds.add(eid);
   const available=byId.size,total=index.elements.size,note=(estimated?ESTIMATE_NOTE+' ':'')+NOTE+(stale?' '+stale:'')+(issues.length?' '+issues.length+' physical-region membership/assessment issue(s) remain; see element details.':'');
   return{kind:'reserve_factor_field',fieldKind:opt.kind,failureMode:opt.failureMode,palette:opt.palette,name:title,title,unit:categorical?'category':'RF',location:'element',domain:'all',byId,colorById,detailsById,unavailableById,failingElementIds,categorical,categories,gradient:categorical?[]:tables.colorStops({min:0,max:2},opt.palette),min:categorical?(categories.length?1:0):0,max:categorical?categories.length:2,actualMin,actualMax,available,total,coverage:{available,total,unavailable:total-available},complete:available===total&&total>0,issues,estimated,stale:!!stale,message:stale||(estimated?'Fixed-load estimate · ':'')+available+' / '+total+' structural elements assessed; gray = unassessed or inapplicable.',note,report};
  }

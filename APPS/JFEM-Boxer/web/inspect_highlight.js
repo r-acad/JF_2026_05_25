@@ -95,7 +95,9 @@
    selectedMesh=new B.Mesh('inspection-selected-glow',scene);selectedMesh.isPickable=false;selectedMesh.renderingGroupId=2;selectedMesh.metadata={wingViewHelper:true,inspectionHighlight:true,selectedHighlight:true};
    const mat=new B.StandardMaterial('inspection-selected-glow-material',scene);mat.diffuseColor=B.Color3.FromHexString(SELECTED);mat.emissiveColor=B.Color3.FromHexString(SELECTED);mat.disableLighting=true;mat.backFaceCulling=false;mat.disableDepthWrite=true;mat.zOffset=-1;selectedMesh.material=mat;
    peerMesh=new B.LinesMesh('inspection-property-peers',scene);peerMesh.isPickable=false;peerMesh.renderingGroupId=2;peerMesh.color=B.Color3.FromHexString(PEERS);peerMesh.alpha=.96;peerMesh.metadata={wingViewHelper:true,inspectionHighlight:true,peerHighlight:true};
-   if(peerMesh.material){peerMesh.material.zOffset=-1;peerMesh.material.disableDepthWrite=true;}
+   // Line-list primitives cannot use a depth bias on WebGPU. Keep the
+   // orange peer edges at their physical depth; selected glow uses triangles.
+   if(peerMesh.material){peerMesh.material.zOffset=0;peerMesh.material.zOffsetUnits=0;peerMesh.material.disableDepthWrite=true;}
    if(B.GlowLayer){try{glow=new B.GlowLayer('inspection-selected-halo',scene,{mainTextureFixedSize:512,blurKernelSize:16,renderingGroupId:2});glow.intensity=.75;glow.addIncludedOnlyMesh(selectedMesh);}catch(_){glow?.dispose();glow=null;}}
   }
   function applyVertices(mesh,data){

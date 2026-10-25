@@ -1,0 +1,54 @@
+'use strict';
+// Start Boxer with a small generated lifting surface, then:
+// node test/loft_study_integration_browser_test.cjs <url> <evidence-dir> <playwright-module>
+// Uses real save/reopen paths with an in-memory writable file handle; no desktop dialogs.
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const {chromium}=require(process.argv[4]),out=path.resolve(process.argv[3]);fs.mkdirSync(out,{recursive:true});
+function same(actual,expected,label='saved settings'){
+ if(typeof actual==='number'&&typeof expected==='number'){assert(Math.abs(actual-expected)<=1e-10*Math.max(1,Math.abs(expected)),label);return;}
+ if(actual&&expected&&typeof actual==='object'&&typeof expected==='object'){assert.deepEqual(Object.keys(actual).sort(),Object.keys(expected).sort(),label);for(const key of Object.keys(expected))same(actual[key],expected[key],label+'.'+key);return;}
+ assert.deepEqual(actual,expected,label);
+}
+(async()=>{const browser=await chromium.launch({channel:'chrome',headless:true,args:['--enable-unsafe-webgpu','--disable-gpu-sandbox']}),page=await browser.newPage({viewport:{width:1550,height:1080}}),errors=[],checks=[];
+page.on('pageerror',e=>errors.push(e.message));
+try{
+ await page.goto(process.argv[2]);await page.getByRole('button',{name:'Start new study',exact:true}).click();
+ const ready=()=>page.waitForFunction(()=>state.data?.nodes?.count&&!state.meshRequestInFlight&&!state.workspaceBusy&&!state.loadingInput,null,{timeout:180000});await ready();
+ await page.evaluate(()=>{document.getElementById('auto-save').checked=false;state.autosave?.destroy();document.getElementById('auto-mesh').checked=false;document.getElementById('auto-mesh').dispatchEvent(new Event('change',{bubbles:true}));});
+ await page.evaluate(()=>{activateWorkspaceTab('loft');});
+ const before=await page.evaluate(()=>Array.from(asF32(state.data.aero.xyz)));
+ await page.locator('[data-loft-add="vertical_shift"]').click();
+ const shift=page.locator('[data-loft-kind="vertical_shift"] .loft-station-row');
+ await shift.first().getByLabel('Vertical shift (% semi-span)',{exact:true}).fill('-2');await shift.last().getByLabel('Vertical shift (% semi-span)',{exact:true}).fill('4');
+ await page.locator('[id="p-loft.vertical_shift_interpolation"]').selectOption('cosine');await page.locator('#btn-create').click();await ready();
+ const translated=await page.evaluate(before=>{const xyz=asF32(state.data.aero.xyz),ys=before.filter((_,i)=>i%3===1),lo=Math.min(...ys),s=Math.max(...ys)-lo;let maxError=0;for(let i=0;i<xyz.length;i+=3){const eta=(before[i+1]-lo)/s,dz=s*(-2+6*(1-Math.cos(Math.PI*eta))/2)/100;maxError=Math.max(maxError,Math.abs(xyz[i]-before[i]),Math.abs(xyz[i+1]-before[i+1]),Math.abs(xyz[i+2]-before[i+2]-dz));}return{before:before.length,after:xyz.length,maxError,span:s};},before);
+ assert.equal(translated.before,translated.after);assert(translated.maxError<1e-6,JSON.stringify(translated));checks.push('Loft UI changes every aerodynamic section by the prescribed cosine vertical shift');
+ const png=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=120;c.height=80;const x=c.getContext('2d');x.fillStyle='white';x.fillRect(0,0,120,80);x.strokeStyle='blue';x.strokeRect(5,5,110,70);return c.toDataURL();});
+ const upload=async(id,name,scope)=>{await page.locator('#'+id).locator('..').locator('[data-svgv=file]').setInputFiles({name,mimeType:'image/png',buffer:Buffer.from(png.split(',')[1],'base64')});if(scope)await page.locator('.svgv-image-scope-dialog button[value='+scope+']').click();await page.waitForFunction(({id,name})=>document.getElementById(id).wingViewport.capture().image?.name===name,{id,name});};
+ await page.evaluate(()=>{activateWorkspaceTab('box');setWorkspaceMaximized('box');});await upload('spar-editor-svg','shared-reference.png');
+ const host=page.locator('#spar-editor-svg').locator('..');await host.locator('.svgv-image-options summary').first().click();await host.locator('[data-svgv=aspect]').fill('1.8');await host.locator('[data-svgv=aspect]').press('Tab');await host.locator('[data-svgv=opacity]').evaluate(e=>{e.value=.4;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));});
+ await page.evaluate(()=>{activateWorkspaceTab('ribs');setWorkspaceMaximized('ribs');});await upload('rib-layout-svg','local-ribs.png','local');
+ const reference=await page.evaluate(async()=>{const p=Array.from(asF32(state.data.aero.xyz)),ys=p.filter((_,i)=>i%3===1),lo=Math.min(...ys)-1,hi=Math.max(...ys)+1;
+  const obj=`o comparison\nv -5 ${lo} 0\nv 5 ${lo} 0\nv 5 ${hi} 0\nv -5 ${hi} 0\nf 1 2 3\nf 1 3 4\n`;
+  await state.reference.importFile(new File([obj],'comparison.obj',{type:'text/plain'}));state.reference.setMode('off');state.reference.setVisible(false);
+  document.getElementById('show-loft-cuts').checked=true;document.getElementById('show-reference-loft-cuts').checked=true;document.getElementById('loft-cut-count').value='7';document.getElementById('reference-loft-cut-color').value='#e600ff';syncLoftCuts();
+  return{planes:state.loftCuts.planes,loft:state.loftCuts.segmentCount,reference:state.loftCuts.referenceSegmentCount,sections:state.loftCuts.referenceSections.map(s=>s.plane),enabled:state.loftCuts.referenceMesh?.isEnabled(),disabled:document.getElementById('show-reference-loft-cuts').disabled,sourceVisible:state.reference.active.visible};});
+ assert.equal(reference.planes.length,7);assert.deepEqual(reference.planes,reference.sections);assert(reference.loft>0&&reference.reference>0);assert(reference.enabled&&!reference.disabled);assert.equal(reference.sourceVisible,false);checks.push('Loaded hidden reference geometry is cut by exactly the same seven loft planes');
+ const toggles=await page.evaluate(()=>{const builds=state.loftCuts.referenceBuilds,input=document.getElementById('show-reference-loft-cuts');input.checked=false;input.dispatchEvent(new Event('change',{bubbles:true}));const hidden=!state.loftCuts.referenceMesh.isEnabled();input.checked=true;input.dispatchEvent(new Event('change',{bubbles:true}));return{hidden,shown:state.loftCuts.referenceMesh.isEnabled(),builds,reused:state.loftCuts.referenceBuilds===builds};});
+ assert(toggles.hidden&&toggles.shown&&toggles.reused);checks.push('Reference cuts hide and show again without recomputing static geometry');
+ const movement=await page.evaluate(()=>{const initial=state.loftCuts.referenceBuilds;state.reference.setTransform({position:[0,0,.1]});const after=state.loftCuts.referenceBuilds;state.reference.setAppearance({opacity:.4});syncLoftCuts();return{initial,after,appearance:state.loftCuts.referenceBuilds};});
+ assert(movement.after>movement.initial);assert.equal(movement.after,movement.appearance);checks.push('Reference placement refreshes cuts while appearance changes reuse their geometry');
+ await page.evaluate(()=>{setWorkspaceMaximized(null);activateWorkspaceTab('displaygeometry');});await page.screenshot({path:path.join(out,'loft-reference-comparison.png')});
+ const expected=await page.evaluate(()=>WingSVGViewport.captureAll());
+ const receipt=await page.evaluate(async()=>{window.studyWrites=[];window.savePickerCalls=0;window.testHandle={kind:'file',name:'loft-reference-roundtrip.wingfem.json',queryPermission:async()=> 'granted',requestPermission:async()=> 'granted',createWritable:async()=>({write:async text=>studyWrites.push(text),close:async()=>{},abort:async()=>{}})};window.showSaveFilePicker=async()=>{savePickerCalls++;return testHandle;};const first=await saveModelDefinition({saveAs:true,noteText:'Vertical shift and reference geometry comparison.'});if(!first)throw Error('Save As failed');const second=await saveModelDefinition();if(!second)throw Error('Save failed');document.getElementById('auto-save').checked=true;const auto=await autosaveStudy({epoch:state.studyEpoch,revision:state.studyRevision});document.getElementById('auto-save').checked=false;if(!auto)throw Error('Autosave failed');return{writes:studyWrites,pickerCalls:savePickerCalls};});
+ assert.equal(receipt.writes.length,3);assert.equal(receipt.pickerCalls,1);
+ for(const text of receipt.writes){const saved=JSON.parse(text);same(saved.view.drawings,expected);assert.equal(Object.values(saved.view.drawings).filter(d=>d.image).length,2);assert.equal(saved.view.controls['show-reference-loft-cuts'],true);assert.equal(saved.view.controls['reference-loft-cut-color'],'#e600ff');assert.equal(saved.references.length,1);assert.equal(saved.parameters['loft.vertical_shift_interpolation'],'cosine');assert.deepEqual(saved.parameters['loft.vertical_shift_stations'],[{eta:0,shift_percent:-2},{eta:1,shift_percent:4}]);}
+ checks.push('Save As, Save and Autosave write embedded shared/local background images, placement settings, shifted loft and reference cut preferences');
+ const text=receipt.writes[0];fs.writeFileSync(path.join(out,'loft-reference-roundtrip.wingfem.json'),text);
+ const reopened=await page.evaluate(async text=>{const ok=await loadModelDefinition(new File([text],'loft-reference-roundtrip.wingfem.json',{type:'application/json'}),{recent:true});if(!ok)throw Error('Study reopen failed');return{filename:state.studyFile};},text);await ready();
+ const after=await page.evaluate(()=>({drawings:WingSVGViewport.captureAll(),cuts:{planes:state.loftCuts.planes,reference:state.loftCuts.referenceSegmentCount,color:state.loftCuts.referenceColor,visible:state.loftCuts.referenceMesh?.isEnabled()},shift:collectParams()['loft.vertical_shift_stations'],method:collectParams()['loft.vertical_shift_interpolation'],shared:WingSVGViewport.getSharedReference()}));
+ // Camera zoom can be adapted to a resized form on reopening; physical image settings are invariant.
+ for(const [id,drawing]of Object.entries(expected)){const actual=after.drawings[id];assert(actual,id);for(const key of ['image','transform','opacity','imageAspectRatio','pin','imageScope'])same(actual[key],drawing[key],id+'.'+key);}
+ assert.equal(after.cuts.planes.length,7);assert(after.cuts.reference>0&&after.cuts.visible);assert.equal(after.cuts.color,'#e600ff');assert.deepEqual(after.shift,[{eta:0,shift_percent:-2},{eta:1,shift_percent:4}]);assert.equal(after.method,'cosine');checks.push('Actual saved file reopens with all image alignments, local exceptions, vertical shift and reference cuts restored');
+ assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'loft-study-integration.json'),JSON.stringify({passed:true,checks,translated,reference,movement,saveWrites:receipt.writes.length,pickerCalls:receipt.pickerCalls,reopened,errors},null,2));console.log(JSON.stringify({passed:true,checks,translated,reference,saveWrites:receipt.writes.length,errors}));
+}catch(error){await page.screenshot({path:path.join(out,'loft-study-integration-failure.png')});console.error({checks,errors});throw error;}finally{await browser.close();}})().catch(error=>{console.error(error);process.exitCode=1;});

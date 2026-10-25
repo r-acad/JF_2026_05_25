@@ -48,12 +48,12 @@
  }
  function cases(doc){
   const host=doc.getElementById('load-cases-editor');if(!host)return;
-  const loading=[],scaling=[],inertia=[];let target=null;
+  const loading=[],aircraft=[],scaling=[],inertia=[];let target=null;
   for(const child of Array.from(host.children)){
-   if(child.id.startsWith('case-row-')){const key=child.id.slice(9);target=['fuel_percent','structure_inertia','fuel_accel_x','fuel_accel_y','fuel_accel_z'].includes(key)?inertia:['torque_y','load_factor','follower_forces'].includes(key)?scaling:loading;}
-   if(target&&(child.classList.contains('case-field')||child.classList.contains('case-method-note')||child.id==='case-follower-status'||child.classList.contains('flight-conditions')))target.push(child);
+   if(child.id.startsWith('case-row-')){const key=child.id.slice(9);target=['match_aircraft_lift','aircraft_mass','maneuver_factor'].includes(key)?aircraft:['fuel_percent','structure_inertia','fuel_accel_x','fuel_accel_y','fuel_accel_z'].includes(key)?inertia:['torque_y','load_factor','follower_forces'].includes(key)?scaling:loading;}
+   if(target&&(child.classList.contains('case-field')||child.classList.contains('case-method-note')||child.id==='case-follower-status'||child.id==='case-aircraft-lift-target'||child.classList.contains('flight-conditions')))target.push(child);
   }
-  for(const[id,title,items]of[['loading','Applied loading',loading],['scaling','Load scale and direction',scaling],['inertia','Fuel and inertia',inertia]]){
+  for(const[id,title,items]of[['loading','Applied loading',loading],['aircraft','Aircraft lift target',aircraft],['scaling','Load scale and direction',scaling],['inertia','Fuel and inertia',inertia]]){
    const box=group(doc,host,'case-'+id+'-fields',title,items);if(!box)continue;
    help(doc,box,'case-'+id+'-help','How these settings work',[...box.children].filter(el=>el.classList.contains('case-method-note')));
   }
@@ -61,10 +61,10 @@
  }
  function staticPanels(doc){
   const row=id=>doc.getElementById(id)?.closest('label'),byId=id=>doc.getElementById(id);
-  const entities=byId('hud-left'),explosion=byId('panel-explosion-controls');
-  if(entities&&explosion){
-   const box=group(doc,entities,'panel-inspection-options','Stiffened-panel inspection',[row('show-panels'),row('show-panel-ids'),byId('stiffened-panel-note'),explosion],{details:true});
-   const layers=byId('layers');if(box&&layers)layers.before(box);
+  const properties=byId('panel-displayproperties'),explosion=byId('panel-explosion-controls');
+  if(properties&&explosion){
+   const box=group(doc,properties,'panel-inspection-options','Panel isolation and labels',[row('show-panels'),row('show-panel-ids'),byId('stiffened-panel-note')],{details:true});
+   if(box)explosion.before(box);
    help(doc,explosion,'panel-explosion-help','About spread distances',[...explosion.querySelectorAll(':scope > p:not([role])')]);
   }
   const axes=byId('display-axes-labels');
@@ -72,7 +72,7 @@
    group(doc,axes,'display-element-axes','Element axes',[row('show-shell-axes'),row('show-material-axes'),row('show-material-axis-labels'),row('show-bar-axes'),axes.querySelector('.display-axis-key')]);
    const coordinates=group(doc,axes,'display-coordinate-axes','Coordinate systems',[row('show-coordinate-labels'),byId('coordinate-inspection')]);
    const note=axes.querySelector(':scope > p.pick-note');if(note)help(doc,coordinates,'display-coordinate-help','Reading coordinate labels',[note]);
-   group(doc,axes,'display-entity-labels','Entity labels',[row('show-node-ids'),row('show-element-ids'),row('id-label-size'),byId('id-label-status')]);
+   group(doc,axes,'display-entity-labels','Entity labels',[row('show-node-ids'),row('show-element-ids'),row('show-actuator-stiffness'),row('id-label-size'),byId('id-label-status')]);
    const legend=axes.querySelector(':scope > legend');if(legend)legend.hidden=true;axes.classList.add('ui-section-container');
   }
   const input=byId('panel-input');if(input)input.querySelector('.parameter-heading')?.setAttribute('hidden','');

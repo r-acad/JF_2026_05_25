@@ -7,7 +7,7 @@ function normalize_references(items)
     result = Dict{String,Any}[]
     ids = Set{String}()
     allowed = Set(("version", "id", "asset_path", "source_name", "units", "axis", "position_m",
-        "rotation_deg", "scale", "visible", "opacity", "wireframe", "locked"))
+        "rotation_deg", "scale", "visible", "opacity", "wireframe", "locked", "scale_linked"))
     for (i, raw) in enumerate(items)
         raw isa AbstractDict || throw(ArgumentError("reference $i must be a table"))
         row = Dict{String,Any}(String(k) => v for (k,v) in raw)
@@ -42,6 +42,8 @@ function normalize_references(items)
         end
         get(row, "locked", false) isa Bool || throw(ArgumentError("reference $i locked must be Boolean"))
         row["locked"] = get(row, "locked", false)
+        get(row,"scale_linked",false) isa Bool || throw(ArgumentError("reference $i scale_linked must be Boolean"))
+        row["scale_linked"]=get(row,"scale_linked",false)
         opacity = get(row, "opacity", nothing)
         opacity isa Real && isfinite(opacity) && 0 <= opacity <= 1 || throw(ArgumentError("invalid reference opacity"))
         row["opacity"] = Float64(opacity)

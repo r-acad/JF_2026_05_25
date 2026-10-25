@@ -595,7 +595,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 #sidebar > .panel-heading .panel-toggle { margin: 0 9px 0 0; }
 #workspace-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 #btn-max-drawing { margin-left: auto; padding: 3px 8px; font-size: 11px; flex: 0 0 auto; }
-#btn-max-drawing[aria-pressed="true"] { color: #dceeff; background: #23557a; }
+
 .drawing-workbench,.drawing-stage,.drawing-parameters { display: contents; }
 @media (min-width:1100px) {
   .drawing-maximized .parameter-section:has(> .drawing-workbench) { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; }
@@ -756,3 +756,12 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 #imported-analysis .display-control {display:flex;flex-direction:column;align-items:stretch;gap:6px;margin:12px 0}
 #imported-analysis .display-control select {width:100%;max-width:100%;min-width:0}
 #imported-analysis .display-control input {width:100%;max-width:100%;box-sizing:border-box}
+
+/* Workspace and preview size actions use the same neutral grey in both states. */
+button[id^="btn-max-"],button[data-toml="maximize"],
+button[id^="btn-max-"][aria-pressed="true"],button[data-toml="maximize"][aria-pressed="true"] {
+  background:#4b4b4b; border-color:#777; color:#f5f5f5;
+}
+button[id^="btn-max-"]:hover:not(:disabled),button[data-toml="maximize"]:hover:not(:disabled) {
+  background:#606060; border-color:#999;
+}

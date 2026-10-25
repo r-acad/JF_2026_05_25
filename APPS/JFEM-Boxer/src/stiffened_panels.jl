@@ -111,6 +111,7 @@ function stiffened_panels_payload(m::Model)
             "override"=>override))
     end
     Dict{String,Any}("panels"=>rows,"count"=>length(rows),"layout_token"=>context.token,"unassigned_shell_eids"=>unassigned,
+        "override_migration"=>panel_override_migration(m.params),
         "euler_columns"=>stringer_euler_payload(m;layout,compact=true),
         "blade_columns"=>stringer_blade_payload(m;layout),
         "skin_buckling_panels"=>skin_buckling_payload(m;layout),
@@ -118,5 +119,5 @@ function stiffened_panels_payload(m::Model)
             "assigned_stringer_bars"=>sum(length(g.eids) for g in m.groups if g.kind===:bar&&component_base_pid(g.pid)==PID_STRINGER;init=0),
             "assigned_stringer_shells"=>sum(length(r["stringer_web_eids"])+length(r["stringer_flange_eids"]) for r in rows;init=0),
             "unassigned_shells"=>sum(length,values(unassigned))),
-        "note"=>"One panel per skin and contiguous normal-stringer segment within a physical rib bay. Its skin extends aft to the next normal stringer or rear spar; the foremost active stringer also owns the forward strip. Kink triangles inherit their parent panel. Fixed-area runout connectors are excluded. Row strips with no normal stringer retain their original skin property and are reported as unassigned. Sparse panel overrides inherit blank fields from shared skin/stringer defaults. Beam sections retain dimension sensitivities. Shell stringers expose material and web-thickness sensitivities; their width, height and flange thickness change the mesh and require regeneration. Geometry/layout changes require resetting overrides before regeneration.")
+        "note"=>"One panel per skin and contiguous normal-stringer segment within a physical rib bay. Its skin extends aft to the next normal stringer or rear spar; the foremost active stringer also owns the forward strip. Kink triangles inherit their parent panel. Fixed-area runout connectors are excluded. Row strips with no normal stringer retain their original skin property and are reported as unassigned. Sparse panel overrides inherit blank fields from shared skin/stringer defaults. Beam sections retain dimension sensitivities. Shell stringers expose material and web-thickness sensitivities; their width, height and flange thickness change the mesh and require regeneration. Coordinate and mesh-density changes preserve overrides while physical rib/stringer/runout membership is unchanged. Changed panel membership requires reviewing or resetting overrides.")
 end

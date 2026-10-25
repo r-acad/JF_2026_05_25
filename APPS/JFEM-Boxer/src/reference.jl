@@ -159,10 +159,11 @@ end
     lift_fraction(kind, taper, eta) -> Float64
 
 Fraction of the semi-span lift carried inboard of span station `eta`, for the
-three spanwise distributions. Each one integrates to exactly 1 at the tip, so
+prescribed spanwise distributions. Each one integrates to exactly 1 at the tip, so
 the station forces always sum to the requested total.
 
     elliptical   f(e) = (4/pi) sqrt(1 - e^2)
+    schrenk      arithmetic mean of normalized ellipse and chord distributions
     chord        f(e) proportional to the local chord
     uniform      f(e) = 1
 """
@@ -170,6 +171,8 @@ function lift_fraction(kind::AbstractString, taper::Float64, eta::Float64)
     e = clamp(eta, 0.0, 1.0)
     if kind == "elliptical"
         return (2.0 / pi) * (e * sqrt(max(1.0 - e^2, 0.0)) + asin(e))
+    elseif kind == "schrenk"
+        return 0.5 * (lift_fraction("elliptical", taper, e) + lift_fraction("chord", taper, e))
     elseif kind == "chord"
         return 2.0 * (e - 0.5 * (1.0 - taper) * e^2) / (1.0 + taper)
     else
@@ -184,7 +187,7 @@ The lift load set: one vertical force per RBE3 station, as
 `(grid id, force in N, span station)`.
 
 Each station carries the lift of its tributary strip, bounded by the midpoints
-to its neighbours, so the forces sum to `lift_total * load_factor` whatever the
+to its neighbours, so the forces sum to effective base lift times `load_factor` whatever the
 rib spacing. They act along global +z at the RBE3 reference node, which spreads
 them through the spider into the whole rib boundary rather than into one grid.
 """
@@ -192,7 +195,7 @@ function analytic_lift_forces(m::Model)
     out = Tuple{Int,Float64,Float64}[]
     isempty(m.rbe3) && return out
     p = m.params
-    total = Float64(p["loads.lift_total"]) * Float64(p["loads.load_factor"])
+    total = effective_prescribed_lift(p) * Float64(p["loads.load_factor"])
     kind = String(p["loads.distribution"])
     etas = [sp.eta for sp in m.rbe3]
     n = length(etas)
@@ -301,6 +304,7 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
             fmt(p["box.front_spar_xc"]), " c, rear spar ",
             fmt(p["box.rear_spar_xc"]), " c")
     println(io, "ECHO = NONE")
+    any(a->!isempty(get(a,"interpolation_links",Any[])),movable_structure_data(m)["attachments"])&&println(io,"MPC = 80000001")
     println(io, "DISPLACEMENT(PLOT) = ALL")
     println(io, "SPCFORCES(PLOT) = ALL")
     # Retain engineering-strain recovery for later material-allowable changes.
@@ -403,9 +407,10 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
     # --- grids -------------------------------------------------------------
     banner!(io, "GRID: " * string(m.n_struct) * " structural, " *
                 string(length(m.node_ids) - m.n_struct) * " RBE3 reference")
+    hinge_grid_frames=movable_grid_frames(m)
     for n in 1:length(m.node_ids)
-        card!(io, "GRID", (m.node_ids[n], nothing,
-                           m.xyz[3n-2], m.xyz[3n-1], m.xyz[3n]))
+        fields=(m.node_ids[n],nothing,m.xyz[3n-2],m.xyz[3n-1],m.xyz[3n])
+        card!(io,"GRID",haskey(hinge_grid_frames,n) ? (fields...,hinge_grid_frames[n]) : fields)
     end
 
     # --- shell and bar elements -------------------------------------------
@@ -461,6 +466,10 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
         nq = length(m.aero_quads) ÷ 4
         id0 = maximum(gr -> isempty(gr.eids) ? 0 : maximum(gr.eids), m.groups) + 1
         id0 = max(id0, isempty(m.rbe3) ? id0 : last(m.rbe3).eid + 1)
+        for collection in movable_connection_payload(m), element in collection["elements"]
+            id0 = max(id0, element["eid"] + 1)
+        end
+        id0=max(id0,maximum(engine_element_ids(m);init=0)+1)
         id0 = max(id0, isempty(m.fuel_rbe3) ? id0 : maximum(concentrated ? structural_conm2_eid(m,sp) : sp.mass_eid for sp in m.fuel_rbe3)+1)
         nid0 = length(m.node_ids) + 1
         banner!(io, "AERO_LOFT: " * string(nq) * " CQUAD4, PID " *
@@ -485,6 +494,7 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
     end
 
     write_movable_attachments(io,m)
+    write_engine_structure(io,m)
 
     # --- properties and material ------------------------------------------
     banner!(io, "Properties and material")
@@ -586,6 +596,15 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
                     string(length(loads.stations)) * " RBE3 reference nodes")
         comment!(io, loads.summary["engine"] * "; load multiplier " * eng(case.params["loads.load_factor"]) * " (dimensionless)")
         comment!(io, LOAD_MULTIPLIER_NOTE)
+        matching = get(loads.summary,"lift_matching",Dict{String,Any}())
+        if get(matching,"enabled",false)
+            comment!(io,"Aircraft lift match: complete mass " * eng(matching["aircraft_mass_kg"]) *
+                " kg; n = " * eng(matching["maneuver_factor"]) *
+                "; base half-wing lift " * eng(matching["target_unscaled_half_lift_N"]) * " N")
+            comment!(io,AIRCRAFT_LIFT_NOTE)
+            haskey(matching,"alpha_solved_deg") && comment!(io,
+                "VLM solved alpha " * eng(matching["alpha_solved_deg"]) * " deg; unscaled half-wing lift residual " * eng(matching["residual_N"]) * " N")
+        end
         comment!(io, "Total force (N): " * join(eng.(loads.summary["force_N"]), ", "))
         comment!(io, "Moment about origin (Nm): " * join(eng.(loads.summary["moment_Nm"]), ", "))
         for s in applied.aerodynamic
@@ -601,7 +620,7 @@ function write_deck(io::IO, m::Model; frozen_load_cases=nothing, comparison=fals
         comment!(io, "WARNING: no RBE3 stations, so no lift could be applied")
     end
     if !isempty(applied.mass)
-        comment!(io,"Combined fuel and dry-structure inertia FORCE at fuel/mass bay RBE3s; fixed BASIC directions; force-transfer lever arms retained in MOMENT")
+        comment!(io,"Fuel and dry-structure inertia FORCE at bay RBE3s, plus engine inertia at engine CG references; fixed BASIC directions; force-transfer lever arms retained in MOMENT")
         for load in applied.mass
             norm3(load.force)>0&&card!(io,"FORCE",(case.id,load.gid,0,1.0,load.force...))
         end

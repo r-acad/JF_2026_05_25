@@ -18,17 +18,20 @@
     if(data.type==="initialize"){
       revision=data.revision;
       values=data.values;
+      WingSVGViewport.setSharedReference(data.sharedReference||null,{notify:false});
       if(!view)view=WingDimensionedPlanView.install(document.getElementById("detached-plan-view"),{
         readValues:()=>values,onChange(){send("changed",{saved:view.capture()});}
       });
       view.restore(data.saved);connected=true;refreshModel();
     }else if(data.type==="values"&&view){values=data.values;refreshModel();}
-    else if(data.type==="restore"&&view){revision=data.revision;view.restore(data.saved);}
+    else if(data.type==="restore"&&view){revision=data.revision;WingSVGViewport.setSharedReference(data.sharedReference||null,{notify:false});view.restore(data.saved);}
+    else if(data.type==='shared-reference'){WingSVGViewport.setSharedReference(data.sharedReference||null,{replaceAll:data.replaceAll===true,notify:false});}
     else if(data.type==="disconnected")disconnect();
   });
   function disconnect(){connected=false;status.textContent="Study window disconnected. This drawing is the last received view; reopen Plan View from your Study to reconnect.";status.classList.add("plan-window-disconnected");document.body.insertBefore(status,document.getElementById("detached-plan-view"));}
   if(!parent||!token){status.textContent="Open Plan View using the Plan View button in the main JFEM-Boxer Study window.";return;}
   send("ready");
+  WingSVGViewport.subscribeSharedReference((sharedReference,meta)=>send('shared-reference',{sharedReference,replaceAll:meta.replaceAll}));
   const timer=setInterval(()=>{
     if(parent.closed){disconnect();clearInterval(timer);}
     else {

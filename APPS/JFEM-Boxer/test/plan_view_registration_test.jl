@@ -17,11 +17,13 @@ end
     @test normalized["pin"] == pin
     @test normalized["filledFigures"] === false
     @test normalized["viewport"] == value["viewport"]
+    @test normalized["imageScope"] == "local"
     @test JSON.parse(F.normalize_plan_view(JSON.json(normalized))) == normalized
     legacy = JSON.parse(F.normalize_plan_view("{}"))
     @test legacy["imageAspectRatio"] === nothing
     @test legacy["pin"] === nothing
     @test legacy["filledFigures"] === true
+    @test legacy["imageScope"] == "shared"
     for name in ("planform", "airfoil-root", "spars", "stringer-layout", "material-stringer_flange")
         roundtrip = JSON.parse(F.normalize_drawings(JSON.json(Dict(name => value))))
         @test roundtrip[name]["imageAspectRatio"] == 2.5
@@ -29,6 +31,17 @@ end
         @test roundtrip[name]["filledFigures"] === false
         @test JSON.parse(F.normalize_drawings(JSON.json(roundtrip))) == roundtrip
     end
+    shared = merge(value, Dict("imageScope"=>"shared"))
+    independent = merge(value, Dict("imageScope"=>"local"))
+    views = JSON.parse(F.normalize_drawings(JSON.json(Dict("shared-plan-reference"=>shared,"planform"=>Dict("imageScope"=>"shared"),"spars"=>independent))))
+    @test views["shared-plan-reference"]["image"] == image
+    @test views["shared-plan-reference"]["imageScope"] == "shared"
+    @test views["planform"]["image"] === nothing
+    @test views["planform"]["imageScope"] == "shared"
+    @test views["spars"]["image"] == image
+    @test views["spars"]["imageScope"] == "local"
+    @test JSON.parse(F.normalize_drawings(JSON.json(views))) == views
+    @test_throws ArgumentError F.normalize_plan_view(JSON.json(merge(value,Dict("imageScope"=>"invalid"))))
     for bad in (merge(value, Dict("imageAspectRatio" => 0)), merge(value, Dict("imageAspectRatio" => 1001)), merge(value, Dict("imageAspectRatio" => true)), merge(value, Dict("filledFigures" => 1)), merge(value, Dict("image" => nothing)),
         merge(value, Dict("pin" => Dict("image" => pin["image"]))),
         merge(value, Dict("pin" => Dict("image" => Dict("x" => -1, "y" => 0), "drawing" => pin["drawing"]))),

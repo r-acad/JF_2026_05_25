@@ -90,16 +90,24 @@
  }
  function install(host,{read,onEdit,isLocked=()=>false,readValues,readGenerated,onViewChange}={}){
   const doc=host.ownerDocument,section=doc.createElement('section');section.className='stringer-segment-angles stringer-layout-editor';
-  section.innerHTML='<div class="sl-preview"><div class="sl-preview-title"><h3>Stringer plan view</h3></div><div class="sl-canvas structural-plan-canvas"><svg id="stringer-layout-svg" viewBox="0 0 800 340" role="group" aria-label="Stringer paths, ribs, spars and refined lifting-surface outline"></svg></div><p class="structural-plan-legend"><i class="surface"></i>Lifting surface <i class="base"></i>Base trapezoid <i class="front"></i>Front spar <i class="rear"></i>Rear spar <i class="rib"></i>Ribs <i class="sl-upper"></i>Upper <i class="sl-lower"></i>Lower <i class="sl-reference"></i>Reference <i class="sl-connector"></i>Run-out connector</p><p class="sl-status" role="status"></p><p class="sl-preview-error" role="alert" hidden></p></div><div class="sl-angle-editor"><h3>Stringer angles along the rear spar</h3><p class="pick-note">Angles are relative to the rear-spar segment from the preceding point (or root). The last angle continues to the tip. Define the segment positions in Structure - Spars. Pitch, angle and run-out edits update the reference paths immediately; Create FEM gives the actual upper and lower attachment paths.</p><div data-angles></div><p data-angle-error role="alert" hidden></p></div>';const heading=host.querySelector('.parameter-heading');if(heading)heading.after(section);else host.append(section);
+  section.innerHTML='<div class="sl-preview"><div class="sl-preview-title"><h3>Stringer plan view</h3></div><div class="sl-canvas structural-plan-canvas"><svg id="stringer-layout-svg" viewBox="0 0 800 340" role="group" aria-label="Stringer paths, ribs, spars and refined lifting-surface outline"></svg></div><p class="structural-plan-legend"><i class="surface"></i>Lifting surface <i class="base"></i>Base trapezoid <i class="front"></i>Front spar <i class="rear"></i>Rear spar <i class="rib"></i>Ribs <i class="sl-upper"></i>Upper <i class="sl-lower"></i>Lower <i class="sl-reference"></i>Reference <i class="sl-connector"></i>Run-out connector</p><p class="sl-status" role="status"></p><p class="sl-preview-error" role="alert" hidden></p></div><div class="sl-angle-editor"><h3>Spanwise stringer directions</h3><p class="pick-note">Choose the local rear spar, local front spar or Global Y as the angle reference. Zero follows the selected spar, or runs normal to the symmetry plane for Global Y; positive sweeps aft. Angle intervals are defined by the rear-spar eta points in Structure - Spars. The last angle continues to the tip. Pitch, angle and run-out edits update the reference paths immediately; Create FEM gives the actual upper and lower attachment paths.</p><div data-angles></div><p data-angle-error role="alert" hidden></p></div>';const heading=host.querySelector('.parameter-heading');if(heading)heading.after(section);else host.append(section);
+  const referenceRow=doc.getElementById('row-box.stringer_angle_reference'),referenceParent=referenceRow?.parentNode,referenceNext=referenceRow?.nextSibling;if(referenceRow)section.querySelector('.sl-angle-editor h3').after(referenceRow);
   const output=section.querySelector('[data-angles]'),error=section.querySelector('[data-angle-error]'),svg=section.querySelector('svg'),status=section.querySelector('.sl-status'),previewError=section.querySelector('.sl-preview-error');
   svg.dataset.viewKey='stringer-layout';
-  const viewport=root.WingSVGViewport?.install(svg,{host:svg.parentElement,title:'Stringer layout',exportName:'stringer-layout.svg',snapSelector:'polygon,polyline,.pf-box-end',isGeometryTarget:target=>!!target.closest?.('[data-stringer]'),onChange:onViewChange});
+  // Stringer paths are selectable, not draggable geometry controls. Permit
+  // window zoom over their lines; remember a short click before the viewport
+  // captures the pointer and retargets the browser's click event to the SVG.
+  let pointerSelection=null;
+  const rememberSelection=event=>{pointerSelection=event.button===0?{id:event.target.closest?.('[data-stringer]')?.dataset.stringer,x:event.clientX,y:event.clientY}:null;};
+  svg.addEventListener('pointerdown',rememberSelection,true);
+  const viewport=root.WingSVGViewport?.install(svg,{host:svg.parentElement,title:'Stringer layout',exportName:'stringer-layout.svg',snapSelector:'polygon,polyline,.pf-box-end,.sf-rib-datum line',isGeometryTarget:()=>false,onChange:onViewChange});
   let destroyed=false,selected=null,lastData=null;
   function refreshDrawing(){
    if(destroyed)return;
    let data;try{data=derive(readValues?readValues():{}, {generated:readGenerated?.()});}catch(e){data={valid:false,drawable:false,error:e.message,paths:[]};}lastData=data;
    previewError.hidden=data.valid;previewError.textContent=data.error||'';
    svg.innerHTML=drawing(data,{selected});
+   if(data.drawable&&Spar.contextGeometry){const context=Spar.contextGeometry(readValues?readValues():{});svg.insertAdjacentHTML('beforeend',Spar.contextDrawing(context,{transform:Planform.editorTransform(data.geometry),includeSpars:false,includeRibs:false}));}
    if(data.drawable){const t=Planform.editorTransform(data.geometry),o=t.map([0,0,0]);viewport?.setMetric({origin:{x:o[0],y:o[1]},x:{x:t.scale,y:0},y:{x:0,y:t.scale},unit:'m',horizontalLabel:'\u0394y',verticalLabel:'\u0394x',gridSpacing:1});}
    const chosen=data.paths?.find(path=>path.side+'-'+path.index===selected);
    status.textContent=data.drawable?(data.generated?'Generated attachment paths':'Untwisted reference preview')+' - '+data.pathCount+' '+(data.generated?'upper/lower paths':'physical stringers')+(data.sampled?' - '+data.paths.length+' evenly sampled for this drawing':'')+(chosen?' - Selected '+chosen.label:'')+(data.generated?'':' - Ends snap to physical rib datums; dashed connectors join the spar immediately outboard. Create FEM for actual surface intersections.'):'Complete the planform, spars, pitch and angles to preview the stringers.';
@@ -111,7 +119,7 @@
    // Preserve focused angle drafts, while always updating the drawing above.
    if(output.contains(doc.activeElement))return;
    output.replaceChildren();error.hidden=true;
-   if(!points.length){const p=doc.createElement('p');p.className='pick-note';p.textContent='No rear-spar perturbation points: the default angle applies along the full span.';output.append(p);return;}
+   if(!points.length){const p=doc.createElement('p');p.className='pick-note';p.textContent='No rear-spar perturbation points: the default angle applies along the full span using the selected reference.';output.append(p);return;}
    const table=doc.createElement('table');table.className='stringer-angle-table';table.innerHTML='<thead><tr><th>Span eta</th><th>Angle (deg)</th></tr></thead><tbody></tbody>';
    for(const row of segments(points)){
     const tr=doc.createElement('tr'),label=doc.createElement('th'),value=doc.createElement('td');label.scope='row';label.textContent=row.unused?'Root point (unused)':String(row.start)+' - '+String(row.end);tr.append(label,value);
@@ -121,10 +129,10 @@
     table.tBodies[0].append(tr);
    }output.append(table);
   }
-  function select(event){const hit=event.target.closest?.('[data-stringer]');if(!hit)return;if(event.type==='keydown'&&!['Enter',' '].includes(event.key))return;if(event.type==='keydown')event.preventDefault();selected=selected===hit.dataset.stringer?null:hit.dataset.stringer;refreshDrawing();}
+  function select(event){const hit=event.target.closest?.('[data-stringer]'),id=hit?.dataset.stringer||(event.type==='click'&&event.button===0&&pointerSelection&&Math.hypot(event.clientX-pointerSelection.x,event.clientY-pointerSelection.y)<5?pointerSelection.id:null);pointerSelection=null;if(!id)return;if(event.type==='keydown'&&!['Enter',' '].includes(event.key))return;if(event.type==='keydown')event.preventDefault();selected=selected===id?null:id;refreshDrawing();}
   const onExternal=event=>{if(PARAM_KEYS.some(key=>event.target?.id==='p-'+key))refresh();},onLock=()=>{for(const input of section.querySelectorAll('[data-point-index]'))input.disabled=isLocked()||!!segments(read?.()||[]).find(r=>r.index===Number(input.dataset.pointIndex)&&!r.inherited)?.unused;refreshDrawing();};
   doc.addEventListener('input',onExternal);doc.addEventListener('change',onExternal);host.addEventListener('parameterlockchange',onLock);svg.addEventListener('click',select);svg.addEventListener('keydown',select);
-  refresh();return{refresh,refreshDrawing,section,viewport,captureView:()=>viewport?.capture(),restoreView:value=>viewport?.restore(value),data:()=>lastData,destroy(){destroyed=true;viewport?.destroy();doc.removeEventListener('input',onExternal);doc.removeEventListener('change',onExternal);host.removeEventListener('parameterlockchange',onLock);section.remove();}};
+  refresh();return{refresh,refreshDrawing,section,viewport,captureView:()=>viewport?.capture(),restoreView:value=>viewport?.restore(value),data:()=>lastData,destroy(){destroyed=true;if(referenceRow&&referenceParent)referenceParent.insertBefore(referenceRow,referenceNext?.parentNode===referenceParent?referenceNext:null);viewport?.destroy();svg.removeEventListener('pointerdown',rememberSelection,true);doc.removeEventListener('input',onExternal);doc.removeEventListener('change',onExternal);host.removeEventListener('parameterlockchange',onLock);section.remove();}};
  }
  return{PARAM_KEYS,segments,referencePaths,generatedPaths,derive,drawing,install};
 });

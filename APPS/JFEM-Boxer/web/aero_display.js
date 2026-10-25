@@ -84,9 +84,10 @@
    info.wirePositions=new Float32Array(info.pairs.length*3);info.wireColors=new Float32Array(info.pairs.length*4).fill(1);
    vd.positions=info.wirePositions;vd.indices=Int32Array.from(info.pairs,(_,i)=>i);vd.colors=info.wireColors;vd.applyToMesh(wire,true);
    wire.color=B.Color3.White();wire.alpha=1;wire.parent=info.mesh.parent;wire.isPickable=false;wire.renderingGroupId=1;
-   // Opaque line primitives survive transparent composition. A small depth
-   // bias reveals the loft at coincident FE skins without drawing through it.
-   wire.material.zOffset=-2;wire.material.zOffsetUnits=-2;wire.material.disableDepthWrite=false;
+   // Opaque lines survive transparent composition. WebGPU requires zero
+   // depth bias for line-list primitives; a polygon offset invalidates the
+   // entire frame. Use the actual loft positions with normal depth testing.
+   wire.material.zOffset=0;wire.material.zOffsetUnits=0;wire.material.disableDepthWrite=false;
    wire.metadata={wingViewHelper:true,aeroWireframe:true};wire.setEnabled(false);info.wire=wire;
    updateWire(info);return wire;
   }

@@ -1,0 +1,14 @@
+.engine-actions { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+.engine-picker { display:flex; flex-direction:column; gap:5px; margin:12px 0; font-size:12px; }
+.engine-card,.engine-fields { min-width:0; padding:10px; margin:12px 0; border:1px solid #426078; border-radius:5px; }
+.engine-card legend,.engine-fields legend { padding:0 5px; color:#c4daed; }
+.engine-fields legend { font-size:12px; }
+.engine-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.engine-grid label { display:flex; flex-direction:column; min-width:0; gap:5px; font-size:12px; }
+.engine-grid label.layer { flex-direction:row; align-items:center; }
+.engine-grid :is(input,select),#engine-edit { width:100%; min-width:0; box-sizing:border-box; padding:7px; font:inherit; color:#e2eff8; background:#0f1a24; border:1px solid #4b657a; border-radius:4px; }
+.engine-grid input[type=checkbox] { width:auto; }
+.engine-grid :disabled { opacity:.5; }
+.engine-card[hidden] { display:none; }
+.engine-error { color:#ffb5a6; font-size:13px; }
+.engine-editor { max-width:880px; }

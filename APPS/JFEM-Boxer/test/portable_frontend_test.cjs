@@ -6,11 +6,11 @@ function check(name,run){run();checks.push(name);console.log('PASS '+name);}
 function files(directory){return fs.readdirSync(directory,{withFileTypes:true}).flatMap(entry=>entry.isDirectory()?files(path.join(directory,entry.name)):[path.join(directory,entry.name)]);}
 const assets=files(web),scripts=assets.filter(file=>file.endsWith('.js')),own=assets.filter(file=>!file.startsWith(path.join(web,'vendor')+path.sep));
 function asset(from,url){assert(!/^(?:https?:)?\/\//i.test(url),'Runtime asset must be local: '+url);const clean=url.split(/[?#]/)[0];if(!clean||/^(?:data:|blob:|#)/.test(clean))return;const shared=/^shared\/(jfem_binary|jfem_graphics)\.js$/.test(clean),file=shared?path.join(app,'..',path.basename(clean)):path.resolve(path.dirname(from),clean);assert(shared||file.startsWith(web+path.sep),'Asset escapes web directory: '+url);assert(fs.statSync(file).isFile(),'Missing asset: '+url);}
-check('All four application/detached HTML pages resolve local scripts and styles',()=>{
- const pages=assets.filter(file=>file.endsWith('.html'));assert.deepEqual(pages.map(file=>path.basename(file)).sort(),['index.html','panel_table.html','plan_view.html','sensitivity_table.html']);
+check('All application/detached HTML pages resolve local scripts and styles',()=>{
+ const pages=assets.filter(file=>file.endsWith('.html'));assert.deepEqual(pages.map(file=>path.basename(file)).sort(),['index.html','panel_table.html','plan_view.html','reserve_factor_table.html','sensitivity_table.html']);
  for(const file of pages){const text=fs.readFileSync(file,'utf8');for(const match of text.matchAll(/<(?:script|link)\b[^>]*\b(?:src|href)=["']([^"']+)["']/g))asset(file,match[1]);}
  for(const file of own.filter(file=>file.endsWith('.css')))for(const match of fs.readFileSync(file,'utf8').matchAll(/url\(\s*["']?([^\s"')]+)/g))asset(file,match[1]);
- for(const name of ['decode-worker.js','plan_view.html','panel_table.html','sensitivity_table.html'])assert(fs.existsSync(path.join(web,name)));
+ for(const name of ['decode-worker.js','plan_view.html','panel_table.html','reserve_factor_table.html','sensitivity_table.html'])assert(fs.existsSync(path.join(web,name)));
  asset(path.join(web,'decode-worker.js'),'vendor/msgpack.min.js');
 });
 check('Every bundled JavaScript asset parses without a frontend build tool',()=>{
@@ -47,4 +47,4 @@ check('Sensitivity tables keep recorded derivatives and unavailable values disti
  const S=require(path.join(web,'sensitivity_table_data.js')),row={id:'properties.panels#lower:bay2:stringer3:segment1#skin#thickness',panel_key:'lower:bay2:stringer3:segment1',pids:[6000004],field_key:'shell.thickness',field_label:'Shell thickness',value:.002,derivative:-2,derivative_unit:'m / m',unit:'m',status:'ok'},result={case_id:1,baseline:{value:.02,unit:'m'},objective:{type:'displacement',node_id:1,component:'z'},rows:[row]};
  assert.equal(S.panel(row).id,4);assert.equal(S.value(result,row).value,-2);assert.equal(S.value(result,row,'normalized').value,-.2);assert.equal(S.value(result,{...row,status:'failed'}).value,null);assert.equal(S.value({...result,baseline:{value:0}},row,'normalized').value,null);assert(S.csv({result}).includes(row.id));assert.equal(S.matrix({result,compatibility:{topology_match:false},panels:[]},'lower',S.family(row).key).cells.get('3:2')[0].id,4);
 });
-console.log(JSON.stringify({passed:true,groups:checks.length,javascript_assets:scripts.length,html_pages:4,checks},null,2));
+console.log(JSON.stringify({passed:true,groups:checks.length,javascript_assets:scripts.length,html_pages:5,checks},null,2));

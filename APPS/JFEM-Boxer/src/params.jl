@@ -34,6 +34,13 @@ end
 
 const LOAD_MULTIPLIER_NOTE = "Dimensionless multiplier applied once to prescribed lift, VLM forces and moments, and prescribed torque. A value of 1.5 converts limit loads to ultimate only when the defined case already represents limit loads; it is not an additional n-g conversion."
 
+# Aircraft lift matching is independent of the final design/safety multiplier.
+const AIRCRAFT_LIFT_GRAVITY = 9.80665
+const AIRCRAFT_LIFT_NOTE = "Symmetric full-aircraft equilibrium: each half lifting surface carries n*m*g/2, with g = 9.80665 m/s2. Assumes this lifting surface carries all aircraft lift; tail lift, asymmetric loading and thrust components are not subtracted. The separate Load multiplier is applied once afterwards. This option does not change fuel fill or the explicitly entered structural/fuel inertia accelerations."
+aircraft_lift_matching(p::AbstractDict) = get(p, "loads.match_aircraft_lift", false)
+aircraft_half_lift(p::AbstractDict) = 0.5 * Float64(p["loads.aircraft_mass"]) * AIRCRAFT_LIFT_GRAVITY * Float64(p["loads.maneuver_factor"])
+effective_prescribed_lift(p::AbstractDict) = aircraft_lift_matching(p) ? aircraft_half_lift(p) : Float64(p["loads.lift_total"])
+
 const SCHEMA = ParamSpec[
     ParamSpec("mass.structural_representation", "Structural mass representation", :choice, "distributed", "Mass";
         choices=["distributed","bay_concentrated"], help="Distributed keeps material and non-structural mass on the structural elements. Bay concentrated replaces their exported mass with one CONM2, including CG offset and inertia, at each physical rib bay's RBE3 reference. Study densities and stiffness remain unchanged; intended for global normal modes. Fuel retains its separate CONM2."),
@@ -70,14 +77,21 @@ const SCHEMA = ParamSpec[
               help="Optional ETA and section twist in degrees, about the Twist axis. Positive is nose up. Empty retains the legacy linear twist from zero at root to Tip twist. A nonempty schedule replaces Tip twist; outside its first/last station the angle is constant"),
     ParamSpec("loft.twist_interpolation", "Twist interpolation", :choice, "linear", "Loft";
               choices=["linear","cosine"], help="Interpolate twist independently of airfoil shape and thickness: s=(eta-eta_i)/(eta_j-eta_i), linear weight s or cosine weight (1-cos(pi*s))/2. Cosine reaches each specified angle with zero spanwise slope. Shared by the structural mesh and aerodynamic camber surface"),
+    ParamSpec("loft.vertical_shift_stations", "Vertical shift stations", :loftstations, Any[], "Loft";
+              help="Optional ETA and signed vertical shift in percent of projected semi-span: delta z = semi-span times shift percent / 100. Positive moves the complete section in BASIC +Z, normal to the reference XY planform, after thickness and twist. Chord, x/y coordinates and section thickness stay unchanged. Empty means zero shift; one station gives a constant translation; values beyond the first/last station remain constant"),
+    ParamSpec("loft.vertical_shift_interpolation", "Vertical shift interpolation", :choice, "linear", "Loft";
+              choices=["linear","cosine"], help="Interpolate vertical shift independently of thickness and twist. With t=(eta-eta_i)/(eta_j-eta_i), linear uses weight t; cosine uses (1-cos(pi*t))/2 and has zero shift slope at each station. The same translation applies to structural and aerodynamic geometry, fuel and mass locations"),
 
     ParamSpec("movable_surfaces.items", "Movable surfaces", :movablesurfaces, Any[], "Movable surfaces";
-        help="Named leading- or trailing-edge regions defined by span eta, hinge x/c at each end and preview deflection. Saved with the Study and TOML. Optional FE shells and hinge attachments are defined in Structure / Movable surfaces. Geometry without an enabled structure remains a preview; VLM uses the original common loft."),
+        help="Named leading- or trailing-edge regions defined by span eta, independent control front-spar and true hinge x/c at each end, and preview deflection. Saved with the Study and TOML. Optional FE shells and hinge attachments are defined in Structure / Movable surfaces. Geometry without an enabled structure remains a preview; VLM uses the original common loft."),
 
     ParamSpec("movable_structure.surfaces", "Surface structures", :movablestructure, Any[], "Movable structures";
-        help="Optional load-carrying shells for each defined movable surface: upper/lower skins, hinge web, optional secondary spar and ribs. Independent properties per movable rib bay. Monolithic materials are selected from the material library. Distributed structural mass is required."),
+        help="Optional load-carrying shells for each defined movable surface: upper/lower skins, control front spar, optional secondary spar and ribs. Structural end eta can stop the box inboard of its aerodynamic tip. Independent properties per movable rib bay. Monolithic materials are selected from the material library. Distributed structural mass is required."),
     ParamSpec("movable_structure.attachments", "Attachments to main box", :movableattachments, Any[], "Movable structures";
-        help="Locate each bearing by movable-surface eta and a main-box rib/front or rear spar. RBE3 distributes loads onto the adjacent spar/rib; a rigid fitting connects the movable hinge web. Rigid joins all six DOFs. Elastic hinge uses local-axis CBUSH/PBUSH: x along the hinge, translational stiffness in N/m and rotational/actuator stiffness in Nm/rad. Zero actuator stiffness releases hinge rotation."),
+        help="Locate each bearing by movable-surface eta and a main-box rib/front or rear spar. Triangular shell lugs extend both rib/spar edges to the true hinge; optional lateral RBE2 arms reach adjacent upper caps. Legacy idealized RBE3/RBE2 fittings remain available. Select actuator ribs and their axial stiffness. Physical hinges join relative local DOFs 12356 through RBE2, leaving rotation 4 free about hinge x; selected actuator ribs add a finite-length CBUSH K1 in N/m between the main rear upper spar cap and the control front upper spar cap. Rigid joins all six relative DOFs. Lateral RBE2 arms prescribe all three cap translations, not an axial-only rod. Legacy idealized hinges retain finite translation/tilt stiffness. A zero actuator stiffness omits the actuator."),
+
+    ParamSpec("engines.items", "Engine / pylon", :engines, Any[], "Engines";
+        help="Define each engine by its center of gravity in BASIC XYZ metres, mass, length, elastic moduli E/G, section A/I1/I2/J, front-spar attachment rib and aft attachment rib and x/c. Two elastic CBAR segments lie along BASIC X with the CG at their common node. One CONM2 at the CG carries the complete mass and line-mass inertia Iy=Iz=mL^2/12, Ix=0; the beam itself has zero density. Endpoints connect through rigid arms and RBE3 wing patches. Engine mass is always included in modal analysis; Include structural inertia enables static acceleration loads. Replace the illustrative stiffness defaults with the intended equivalent engine section."),
 
     # --- planform ----------------------------------------------------------
     ParamSpec("planform.area", "Base lifting surface area", :float, 16.0, "Planform";
@@ -115,7 +129,7 @@ const SCHEMA = ParamSpec[
     ParamSpec("box.front_spar_points", "Front spar perturbation points", :planformpoints, Any[], "Torsion box";
               help = "Front-spar eta/dxc offsets from the nominal Front spar location: zero nominal, positive aft, negative forward in base-chord fractions. Straight segments join the physical points. Missing endpoints use zero offset. Both spars must remain inside the refined lifting surface through End ETA"),
     ParamSpec("box.rear_spar_points", "Rear spar perturbation points", :planformpoints, Any[], "Torsion box";
-              help = "Rear-spar eta/dxc offsets from the nominal Rear spar location: zero nominal, positive aft, negative forward in base-chord fractions. Each point has stringer_angle in degrees (default 0) for its incoming segment relative to the rear spar; the final segment repeats the last angle. An eta=0 angle is unused unless it is the only point"),
+              help = "Rear-spar eta/dxc offsets from the nominal Rear spar location: zero nominal, positive aft, negative forward in base-chord fractions. Each point has a stringer angle in degrees for its incoming segment, measured from the selected rear spar, front spar or global Y reference. The final segment repeats the last angle. An eta=0 angle is unused unless it is the only point. Incoming spar-segment angle is a separate optional constraint: it moves the preceding point's offset to achieve the specified angle to +Y."),
     ParamSpec("box.end_eta", "End ETA", :float, 0.9, "Torsion box";
               help = "Final closed rib position as a fraction of the full lifting surface semispan (0 < ETA <= 1). Aerodynamics retain the full lifting surface; outboard loads transfer to this rib with their moment arms"),
     ParamSpec("box.rib_pitch", "Root outgoing rib pitch", :float, 0.6, "Ribs";
@@ -145,10 +159,12 @@ const SCHEMA = ParamSpec[
               choices=["x","y","z"], help="Axis of the selected coordinate system to which the blade height direction is parallel. Its sign is chosen toward the inside of the box; Z of BASIC is useful for vertical blades. The direction must not be tangent to the skin."),
     ParamSpec("box.stringer_pitch", "Default stringer pitch", :float, 0.150, "Stringer layout";
               unit = "m",
-              help = "Exact chordwise x-spacing between adjacent physical stringers at the root, in metres; 0.150 means 150 mm. Reducing it usually adds stringers. Paths follow the chosen rear-spar-relative directions and can run out into a spar. Elements between stringers refines shells without changing this physical pitch"),
-    ParamSpec("box.stringer_angle", "Stringer angle to rear spar", :float, 0.0,
+              help = "Exact chordwise x-spacing between adjacent physical stringers at the root, in metres; 0.150 means 150 mm. Reducing it usually adds stringers. Paths follow the selected stringer direction reference and can run out into a spar. Elements between stringers refines shells without changing this physical pitch"),
+    ParamSpec("box.stringer_angle_reference", "Stringer angle reference", :choice, "rear_spar", "Stringer layout";
+              choices=["rear_spar","front_spar","global_y"], help="Measure all stringer angles from the local rear spar, local front spar, or BASIC +Y (normal to the symmetry plane). Zero follows the chosen spar, or runs normal to the symmetry plane with Global Y. Positive rotates aft toward +X. Segment positions remain those of the rear-spar points; front-spar kinks are included when it is the reference. Changing the reference preserves the entered angle values."),
+    ParamSpec("box.stringer_angle", "Default stringer angle", :float, 0.0,
               "Stringer layout"; unit = "deg",
-              help = "Used only when there are no rear-spar perturbation points: angle relative to the untwisted rear-spar datum, positive aft. With rear-spar points, their individual Stringer angle values define continuous kinked stringer paths and this global value is ignored"),
+              help = "Used when there are no rear-spar perturbation points: angle in degrees from the selected Stringer angle reference, positive aft. With rear-spar points, their individual angle values define continuous piecewise paths and replace this fallback."),
 
     ParamSpec("ribs.masters", "Intermediate master ribs", :masterribs, Any[], "Ribs";
               help = "Intermediate masters: ETA at the rear spar, orientation, angle in degrees from the immediately inboard rear-spar segment's outboard tangent toward the nose (90 is perpendicular), and outgoing pitch in metres. Root/final closures are fixed line of flight. Secondary positions and absolute directions interpolate between masters; pitch follows the 3D rear-spar reference path"),
@@ -229,11 +245,17 @@ const SCHEMA = ParamSpec[
     ParamSpec("loads.lift_total", "Lift, semi-span", :float, 6000.0, "Loads";
               unit = "N",
               help = "Unscaled prescribed lift carried by the modelled half lifting surface; define the intended base load level before applying the load multiplier"),
+    ParamSpec("loads.match_aircraft_lift", "Match lift to aircraft mass and load factor", :bool, false, "Loads";
+              help = "When enabled, prescribed loading uses n*m*g/2 instead of entered semi-span lift; VLM solves angle of attack to match that wind-axis lift at the entered speed and atmosphere. When disabled, all supplied lift and flight inputs are used as entered. " * AIRCRAFT_LIFT_NOTE),
+    ParamSpec("loads.aircraft_mass", "Complete aircraft mass", :float, 1000.0, "Loads";
+              unit = "kg", help = "Total aircraft mass at this load case's mass status, including structure, payload and fuel. Enter mass, not weight, and not half-wing mass. Used only when Match lift is enabled. " * AIRCRAFT_LIFT_NOTE),
+    ParamSpec("loads.maneuver_factor", "Aircraft load factor n", :float, 1.0, "Loads";
+              unit = "g", help = "Lift divided by complete-aircraft weight: 1 is level-flight lift, 3 requests three times weight, and negative values request downward lift. Distinct from the final Load multiplier (for example 1.5 for ultimate loads). Used only when Match lift is enabled; inertia acceleration remains an explicit case input."),
     ParamSpec("loads.load_factor", "Load multiplier", :float, 1.5, "Loads";
               unit = "dimensionless", help = LOAD_MULTIPLIER_NOTE * " Negative values reverse forces and moments."),
     ParamSpec("loads.distribution", "Spanwise distribution", :choice, "elliptical",
-              "Loads"; choices = ["elliptical", "chord", "uniform"],
-              help = "Shape of prescribed lift along the full aerodynamic semispan: elliptical falls to zero at the tip, chord follows local chord length, and uniform gives constant lift per span. Each shape is normalized to Lift, semi-span before applying the load multiplier. Used by prescribed lift, not the VLM solution"),
+              "Loads"; choices = ["elliptical", "schrenk", "chord", "uniform"],
+              help = "Shape of prescribed lift along the full aerodynamic semispan: elliptical falls to zero at the tip, Schrenk averages equal-area elliptical and actual planform distributions (a preliminary unswept/untwisted-wing approximation, not a VLM solution), chord follows local chord length, and uniform gives constant lift per span. Each shape is normalized to Lift, semi-span before applying the load multiplier. Used by prescribed lift, not the VLM solution"),
     ParamSpec("loads.torque_y", "Torque about global y", :float, 0.0, "Loads";
               unit = "N m", help = "Unscaled prescribed couple at RBE3 centers; right-hand +y, distributed by tributary strips and scaled once by the same load multiplier"),
     ParamSpec("loads.follower_forces", "Follower forces", :bool, false, "Loads";
@@ -243,13 +265,13 @@ const SCHEMA = ParamSpec[
     ParamSpec("loads.fuel_percent", "Fuel status", :float, 100.0, "Loads"; unit = "%",
               help = "Percentage of each wet bay's usable capacity: 0 empty to 100 full. The bay fills upward at this percentage of its gross geometry, while the tank's Fill efficiency factor scales volume, mass and inertia uniformly without changing fill height or CG. Enable, bound and set the tank efficiency in Fuel tank"),
     ParamSpec("loads.structure_inertia", "Include structural inertia", :bool, true, "Loads";
-              help = "Apply the same signed global acceleration and load multiplier to dry structural shell/bar mass as to fuel. Includes bar centroid offsets; excludes separate aerodynamic display/export shells. Existing definitions without this setting retain fuel-only acceleration until enabled"),
+              help = "Apply the same signed global acceleration and load multiplier to dry structural shell/bar mass and defined engine masses as to fuel. Includes bar centroid offsets; excludes separate aerodynamic display/export shells. Existing definitions without this setting retain fuel-only acceleration until enabled"),
     ParamSpec("loads.fuel_accel_x", "Inertia acceleration x", :float, 0.0, "Loads"; unit = "g",
-              help = "Signed global force per unit mass, multiplied by standard gravity and the load multiplier. Applies to fuel and, when Include structural inertia is enabled, the dry structure. Zero all axes for mass without inertia loads"),
+              help = "Signed global force per unit mass, multiplied by standard gravity and the load multiplier. Applies to fuel and, when Include structural inertia is enabled, the dry structure and engines. Zero all axes for mass without inertia loads"),
     ParamSpec("loads.fuel_accel_y", "Inertia acceleration y", :float, 0.0, "Loads"; unit = "g",
-              help = "Signed global y acceleration shared by fuel and enabled structural inertia; scaled once by the load multiplier"),
+              help = "Signed global y acceleration shared by fuel and enabled structural/engine inertia; scaled once by the load multiplier"),
     ParamSpec("loads.fuel_accel_z", "Inertia acceleration z", :float, -1.0, "Loads"; unit = "g",
-              help = "Signed global z acceleration shared by fuel and enabled structural inertia. Default -1 applies downward weight; scaled once by the load multiplier. Fixed global directions, including in SOL106; no inferred reversal for aircraft acceleration"),
+              help = "Signed global z acceleration shared by fuel and enabled structural/engine inertia. Default -1 applies downward weight; scaled once by the load multiplier. Fixed global directions, including in SOL106; no inferred reversal for aircraft acceleration"),
 
     # --- aerodynamics ------------------------------------------------------
     ParamSpec("aero.atmosphere", "Atmosphere", :choice, "isa1976", "Aerodynamics";
@@ -297,7 +319,7 @@ const SCHEMA = ParamSpec[
     ParamSpec("properties.t_skin_lower", "Minimum lower skin thickness", :float, 0.0022,
               "Properties"; unit = "m", help = "Default monolithic thickness of the lower main-box skin in metres. It changes shell stiffness and mass; panel overrides can set local values. Sandwich skins use their assigned face/core thicknesses. Leading-edge skins have separate properties"),
     ParamSpec("properties.panels", "Individual stiffened-panel properties", :panelproperties, Any[], "Properties";
-              help = "Physical panel key and layout token, with sparse skin and stringer properties. Blank values inherit shared defaults. Reset overrides before changing the geometry or rib/stringer/runout layout"),
+              help = "Physical panel key and layout token, with sparse skin and stringer properties. Blank values inherit shared defaults. Geometry and mesh-density edits retain overrides while physical rib/stringer/runout membership is unchanged. Changed membership requires reviewing or resetting the affected overrides"),
     ParamSpec("properties.components", "Physical component table overrides", :componentproperties, Any[], "Properties";
               help = "Sparse rib, spar, cap and leading-edge table overrides; blank cells inherit shared defaults"),
     ParamSpec("properties.t_spar_web", "Minimum spar web thickness", :float, 0.0030,
@@ -447,11 +469,12 @@ function normalize_planform_points(value, key::AbstractString = "planform points
             throw(ArgumentError("$key point $i has invalid field names"))
         fields = Set(String(k) for k in keys(raw))
         coordinate = "dxc" in fields ? "dxc" : "xc"
-        (fields == Set(["eta", coordinate]) || rear && fields == Set(["eta", coordinate, "stringer_angle"])) ||
-            throw(ArgumentError("$key point $i must contain eta and dxc (or legacy xc, never both)" * (rear ? ", optionally stringer_angle" : " only")))
+        required=Set(["eta",coordinate]);allowed=union(required,Set(["incoming_angle_deg"]),rear ? Set(["stringer_angle"]) : Set{String}())
+        issubset(required,fields)&&issubset(fields,allowed) ||
+            throw(ArgumentError("$key point $i must contain eta and dxc (or legacy xc, never both), optionally incoming_angle_deg" * (rear ? " and stringer_angle" : "")))
         row = Dict(String(k) => v for (k, v) in raw)
         rear && !haskey(row,"stringer_angle") && (row["stringer_angle"] = 0.0)
-        for field in (rear ? ("eta", coordinate, "stringer_angle") : ("eta", coordinate))
+        for field in union(rear ? ["eta",coordinate,"stringer_angle"] : ["eta",coordinate],haskey(row,"incoming_angle_deg") ? ["incoming_angle_deg"] : String[])
             v = row[field]
             v isa Real && !(v isa Bool) && isfinite(v) && isfinite(Float64(v)) ||
                 throw(ArgumentError("$key point $i $field must be a finite number"))
@@ -465,10 +488,48 @@ function normalize_planform_points(value, key::AbstractString = "planform points
         push!(used, eta)
         normalized = Dict("eta" => eta, "dxc" => dxc)
         rear && (normalized["stringer_angle"] = Float64(row["stringer_angle"]))
+        if haskey(row,"incoming_angle_deg")
+            angle=Float64(row["incoming_angle_deg"])
+            -90<angle<90||throw(ArgumentError("$key incoming segment angle must be strictly between -90 and 90 degrees to +Y"))
+            eta>0||throw(ArgumentError("$key root point has no previous segment to constrain"))
+            normalized["incoming_angle_deg"]=angle
+        end
         push!(out, normalized)
     end
     sort!(out; by = row -> row["eta"])
     return out
+end
+
+"""Enforce physical incoming segment angles, keeping each outboard anchor fixed.
+
+Backward substitution allows adjacent constrained segments. Missing endpoints
+are materialized only when a constraint needs them; unconstrained legacy rows
+are preserved exactly. Constraints are defined in the untwisted BASIC XY plane.
+"""
+function apply_point_angle_constraints!(p::AbstractDict)
+    for key in ("planform.leading_edge_points","planform.trailing_edge_points","box.front_spar_points","box.rear_spar_points")
+        raw=get(p,key,Any[])
+        raw isa AbstractVector||throw(ArgumentError("$key must be an array of perturbation points"))
+        any(row->row isa AbstractDict&&haskey(row,"incoming_angle_deg"),raw)||continue
+        nominal=point_nominal(p,key);rows=normalize_planform_points(raw,key;nominal)
+        rear=key=="box.rear_spar_points";fallback=Float64(get(p,"box.stringer_angle",0.0))
+        endpoint(eta)=rear ? Dict("eta"=>eta,"dxc"=>0.0,"stringer_angle"=>(isempty(rows) ? fallback : last(rows)["stringer_angle"])) : Dict("eta"=>eta,"dxc"=>0.0)
+        first(rows)["eta"]>0&&pushfirst!(rows,endpoint(0.0));last(rows)["eta"]<1&&push!(rows,endpoint(1.0))
+        s=sqrt(p["planform.area"]*p["planform.aspect_ratio"])/2
+        cr=p["planform.area"]/(s*(1+p["planform.taper_ratio"]))
+        chord(eta)=cr*(1-(1-p["planform.taper_ratio"])*eta)
+        ref=Float64(p["planform.sweep_ref_xc"]);sweep=deg2rad(p["planform.sweep"])
+        x(row)=row["eta"]*s*tan(sweep)+(nominal+row["dxc"]-ref)*chord(row["eta"])
+        for i in length(rows):-1:2
+            current,previous=rows[i],rows[i-1]
+            haskey(current,"incoming_angle_deg")||continue
+            xp=x(current)-(current["eta"]-previous["eta"])*s*tand(current["incoming_angle_deg"])
+            previous["dxc"]=(xp-previous["eta"]*s*tan(sweep))/chord(previous["eta"])+ref-nominal
+            isfinite(previous["dxc"])||throw(ArgumentError("$key constrained segment cannot be represented at these dimensions"))
+        end
+        p[key]=rows
+    end
+    return p
 end
 
 """Parse physical leading-edge bay exclusions without expanding unbounded ranges."""
@@ -568,6 +629,7 @@ end
 """Validate independent scalar loft schedules without adding implicit endpoints."""
 function normalize_loft_stations(value, key::AbstractString)
     field = key == "loft.thickness_stations" ? "tc" : key == "loft.twist_stations" ? "twist" :
+        key == "loft.vertical_shift_stations" ? "shift_percent" :
         throw(ArgumentError("unknown loft station table $key"))
     value isa AbstractVector || throw(ArgumentError("$key must be an array of ETA/$field rows"))
     length(value)<=100 || throw(ArgumentError("$key allows at most 100 stations"))
@@ -582,7 +644,7 @@ function normalize_loft_stations(value, key::AbstractString)
             throw(ArgumentError("$key row $i $field must be finite"))
         if field=="tc"
             0<scalar<=1 || throw(ArgumentError("$key row $i t/c must be greater than 0 and at most 1"))
-        else
+        elseif field=="twist"
             abs(scalar)<45 || throw(ArgumentError("$key row $i twist must be strictly between -45 and 45 degrees"))
         end
         push!(rows,Dict("eta"=>Float64(eta),field=>Float64(scalar)))
@@ -606,6 +668,7 @@ function coerce_value(spec::ParamSpec, v)
     spec.kind === :airfoilstations && return normalize_airfoil_stations(v)
     spec.kind === :loftstations && return normalize_loft_stations(v,spec.key)
     spec.kind === :movablesurfaces && return normalize_movable_surfaces(v)
+    spec.kind === :engines && return normalize_engines(v)
     spec.kind in (:movablestructure,:movableattachments) && return normalize_movable_structure(v,spec.key)
     spec.kind === :supportsets && return normalize_support_sets(v)
     spec.kind === :loadcases && return normalize_load_cases(v)
@@ -841,6 +904,7 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
 
     # The edge difference is linear between the union of all point stations;
     # a positive chord at those stations is sufficient over the whole lifting surface.
+    apply_point_angle_constraints!(p)
     planform = planform_geometry(p)
     spar_geometry(p)
     normalize_rib_tables(get(p,"ribs.masters",Any[]),"ribs.masters";end_eta=p["box.end_eta"])
@@ -864,10 +928,18 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
         1e-12 <= p[key] < 1 || throw(ArgumentError("$key must be at least 1e-12 and less than 1"))
     end
 
-    String(p["loads.distribution"]) in ("elliptical", "chord", "uniform") ||
-        throw(ArgumentError("loads.distribution must be elliptical, chord or uniform"))
+    String(p["loads.distribution"]) in ("elliptical", "schrenk", "chord", "uniform") ||
+        throw(ArgumentError("loads.distribution must be elliptical, schrenk, chord or uniform"))
     isfinite(p["loads.lift_total"]) && p["loads.lift_total"] >= 0 ||
         throw(ArgumentError("loads.lift_total must not be negative"))
+    get(p,"loads.match_aircraft_lift",false) isa Bool ||
+        throw(ArgumentError("loads.match_aircraft_lift must be true or false"))
+    isfinite(get(p,"loads.aircraft_mass",1000.0)) && get(p,"loads.aircraft_mass",1000.0) > 0 ||
+        throw(ArgumentError("loads.aircraft_mass must be a positive finite complete-aircraft mass in kg"))
+    isfinite(get(p,"loads.maneuver_factor",1.0)) ||
+        throw(ArgumentError("loads.maneuver_factor must be finite"))
+    aircraft_lift_matching(p) && !isfinite(aircraft_half_lift(p)) &&
+        throw(ArgumentError("aircraft mass and load factor produce a non-finite lift target"))
     isfinite(p["loads.load_factor"]) ||
         throw(ArgumentError("loads.load_factor must be a number"))
     String(p["loads.method"]) in ("analytic", "vortex_lattice") ||
@@ -894,7 +966,7 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
     end
     # Aerodynamic loads use station spiders; fuel has separate bay spiders.
     if sol in ("101", "105", "106")
-        aero_loading=p["loads.method"]=="vortex_lattice" || abs(p["loads.lift_total"])+abs(p["loads.torque_y"])>0
+        aero_loading=p["loads.method"]=="vortex_lattice" || abs(effective_prescribed_lift(p))+abs(p["loads.torque_y"])>0
         fuel_loading=p["fuel.enabled"] && fuel_fill_efficiency(p)>0 && p["loads.fuel_percent"]>0 &&
             any(p["loads.fuel_accel_"*axis]!=0 for axis in ("x","y","z"))
         structure_loading=p["loads.structure_inertia"] && any(p["loads.fuel_accel_"*axis]!=0 for axis in ("x","y","z"))
@@ -922,10 +994,11 @@ function validate_params(p::AbstractDict; check_cases::Bool = true)
         throw(ArgumentError("airfoil.interpolation must be linear or cosine"))
     normalize_movable_surfaces(get(p,"movable_surfaces.items",Any[]))
     validate_movable_structure(p)
-    for table in ("loft.thickness_stations","loft.twist_stations")
+    validate_engine_structure(p)
+    for table in ("loft.thickness_stations","loft.twist_stations","loft.vertical_shift_stations")
         normalize_loft_stations(get(p,table,Any[]),table)
     end
-    for key in ("loft.thickness_interpolation","loft.twist_interpolation")
+    for key in ("loft.thickness_interpolation","loft.twist_interpolation","loft.vertical_shift_interpolation")
         get(p,key,"linear") in ("linear","cosine") || throw(ArgumentError("$key must be linear or cosine"))
     end
     if p["fuel.enabled"] || p["leading_edge.enabled"] || !isempty(get(p,"ribs.masters",Any[])) || !isempty(p["properties.ribs"]) || !isempty(p["properties.spar_bays"]) || !isempty(get(p,"properties.components",Any[])) || get(p,"supports.mode","root")=="custom" && !isempty(support_sets)
@@ -973,8 +1046,10 @@ function toml_value(spec::ParamSpec, v)
         panel_literal(x) = x isa AbstractString ? toml_string_literal(x) : x isa AbstractDict ?
             "{"*join((string(k," = ",panel_literal(value)) for (k,value) in sort!(collect(x);by=first)),", ")*"}" : string(x)
         return "["*join(panel_literal.(normalize_panel_properties(v)),", ")*"]"
-    elseif spec.kind in (:movablestructure, :movableattachments, :movablesurfaces, :loftstations, :loadcases, :planformpoints, :masterribs, :riborientations, :supportsets, :ribproperties, :sparproperties, :componentproperties, :materials, :materialallowables, :shellmaterials, :barmaterials)
-        literal(x) = x isa AbstractString ? toml_string_literal(x) : string(x)
+    elseif spec.kind in (:engines, :movablestructure, :movableattachments, :movablesurfaces, :loftstations, :loadcases, :planformpoints, :masterribs, :riborientations, :supportsets, :ribproperties, :sparproperties, :componentproperties, :materials, :materialallowables, :shellmaterials, :barmaterials)
+        literal(x) = x isa AbstractString ? toml_string_literal(x) :
+            x isa AbstractDict ? "{" * join((string(toml_string_literal(String(k)), " = ", literal(value)) for (k, value) in sort!(collect(x); by=first)), ", ") * "}" :
+            x isa AbstractVector ? "[" * join(literal.(x), ", ") * "]" : string(x)
         return "[" * join(("{" * join((string(k, " = ", literal(v)) for (k, v) in sort!(collect(row); by = first)), ", ") * "}" for row in v), ", ") * "]"
     elseif spec.kind === :bool
         return v ? "true" : "false"
@@ -1066,6 +1141,7 @@ function schema_payload(p::AbstractDict, input_path::AbstractString)
         "input_file" => input_path,
         "units" => "SI (m, N, kg, Pa)",
         "schema" => specs,
+        "material_presets" => report_alloy_presets(),
         "values" => values,
     )
 end

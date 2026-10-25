@@ -35,6 +35,36 @@ default_material_library()=Dict{String,Any}[
     Dict("id"=>2,"name"=>"Steel (generic)","E"=>210e9,"nu"=>.30,"rho"=>7850.),
     Dict("id"=>3,"name"=>"Foam core (effective isotropic)","E"=>.1e9,"nu"=>.30,"rho"=>80.),
     Dict("id"=>4,"name"=>"Honeycomb core (effective isotropic)","E"=>.2e9,"nu"=>.25,"rho"=>50.)]
+
+# These are reusable library presets, not replacements for saved material IDs.
+# Report strengths retain their original meaning; they are not von Mises limits.
+function report_alloy_presets()
+    [Dict{String,Any}("name"=>name,"E"=>E,"nu"=>.33,"rho"=>rho,
+        "reference_data"=>Dict{String,Any}("source"=>"Mai Nguyen Van wingbox report, material table (page 5)",
+            "ultimate_tensile_Pa"=>uts,"shear_Pa"=>shear,"compression_proof_Pa"=>proof,
+            "m"=>m,"fn_Pa"=>fn,"poisson_note"=>"Poisson ratio 0.33 is assumed; it is not specified in the report."))
+     for (name,E,rho,uts,shear,proof,m,fn) in (
+        ("Al7075-T6 DTD5014",76e9,2810.,572e6,331e6,487e6,22.2,444e6),
+        ("Al2024-T3 DTD5070B",73.1e9,2780.,483e6,283e6,342e6,16.6,301e6))]
+end
+
+function normalize_material_reference_data(value)
+    value isa AbstractDict||throw(ArgumentError("Material reference_data must be a table"))
+    fields=("ultimate_tensile_Pa","shear_Pa","compression_proof_Pa","m","fn_Pa")
+    allowed=Set(("source","poisson_note",fields...))
+    all(key->key in allowed,keys(value))||throw(ArgumentError("Material reference_data contains an unsupported field"))
+    out=Dict{String,Any}()
+    for key in ("source","poisson_note")
+        haskey(value,key)||continue
+        text=value[key]
+        text isa AbstractString&&length(text)<=1000&&!any(iscntrl,text)||throw(ArgumentError("Material reference $key must be single-line text"))
+        out[key]=String(text)
+    end
+    for key in fields
+        haskey(value,key)&&(out[key]=material_positive(value[key],"Material reference $key"))
+    end
+    out
+end
 default_shell_material(component)=Dict{String,Any}("component"=>component,"kind"=>"monolithic","material"=>1,
     "face_material"=>1,"core_material"=>3,"face_thickness"=>.0005,"core_thickness"=>.01)
 # Flanges inherit the existing stringer material unless explicitly assigned.
@@ -108,7 +138,8 @@ end
 function normalize_material_library(value)
     out=Dict{String,Any}[];seen=Set{Int}()
     for row in material_rows(value,"materials.library",256)
-        Set(keys(row))==Set(("id","name","E","nu","rho"))||throw(ArgumentError("Each material needs exactly id, name, E (Pa), nu and rho (kg/m3)"))
+        required=Set(("id","name","E","nu","rho"))
+        issubset(required,Set(keys(row)))&&issubset(Set(keys(row)),union(required,Set(("reference_data",))))||throw(ArgumentError("Each material needs id, name, E (Pa), nu and rho (kg/m3), with optional reference_data"))
         id=material_integer(row["id"],"Material id";minimum=2)
         id in seen&&throw(ArgumentError("Duplicate material id $id"));push!(seen,id)
         row["name"] isa AbstractString||throw(ArgumentError("Material $id name must be text"))
@@ -116,6 +147,7 @@ function normalize_material_library(value)
         nu=row["nu"];nu isa Real&&!(nu isa Bool)&&isfinite(nu)&&0<=nu<.5||throw(ArgumentError("Material $id Poisson ratio must be in [0, 0.5); negative (auxetic) ratios are not supported by the current solver input path"))
         push!(out,Dict("id"=>id,"name"=>name,"E"=>material_positive(row["E"],"Material $id E"),
             "nu"=>Float64(nu),"rho"=>material_positive(row["rho"],"Material $id density")))
+        haskey(row,"reference_data")&&(last(out)["reference_data"]=normalize_material_reference_data(row["reference_data"]))
     end
     return sort!(out,by=r->r["id"])
 end
@@ -155,6 +187,7 @@ end
 function material_payload(row)
     result=Dict{String,Any}("id"=>row["id"],"name"=>row["name"],"E_Pa"=>row["E"],"nu"=>row["nu"],"rho_kg_m3"=>row["rho"],"type"=>"MAT1")
     haskey(row,"allowables")&&(result["allowables"]=deepcopy(row["allowables"]))
+    haskey(row,"reference_data")&&(result["reference_data"]=deepcopy(row["reference_data"]))
     result
 end
 function material_assignment(p,component;shell=true)

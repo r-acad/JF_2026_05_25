@@ -44,8 +44,19 @@ tests=@testset "Combined flange footprint, laminate, eccentricity and analysis" 
     source=W.shell_stringer_skin_sources(m.params,panel["stringer_flange_pid"])
     @test length(source)==2
     keybyid=Dict(row["shell_pid"]=>row["key"] for row in rows["panels"])
+    # Establish the thin local value as the permitted family minimum first.
+    minimum_key=panel["skin"]=="upper" ? "properties.t_skin_upper" : "properties.t_skin_lower"
+    nominal_skin_thickness=p[minimum_key];p[minimum_key]=.0015
     p["properties.panels"]=[Dict("key"=>keybyid[s["pid"]],"layout_token"=>rows["layout_token"],
         "skin"=>Dict("thickness"=>i==1 ? .005 : .0015)) for (i,s) in enumerate(source)]
+    # Preserve untouched neighbors so the selected thin skin is a unique
+    # section minimum, as required by the analytic derivative assertions.
+    selected_keys=Set(row["key"] for row in p["properties.panels"])
+    for row in rows["panels"]
+        row["skin"]==panel["skin"]&&!(row["key"] in selected_keys)||continue
+        push!(p["properties.panels"],Dict("key"=>row["key"],"layout_token"=>rows["layout_token"],
+            "skin"=>Dict("thickness"=>nominal_skin_thickness)))
+    end
     changed=build(p);combined=W.shell_material_definition(changed.params,panel["stringer_flange_pid"])
     @test combined["underlying_skin_pid"]==last(source)["pid"]
     @test combined["skin_thickness_m"]==.0015
@@ -147,7 +158,7 @@ tests=@testset "Combined flange footprint, laminate, eccentricity and analysis" 
     cuts=[W.structural_source_moments(v,-Inf,"inboard") for v in density_sources]
     @test sum(first(v) for v in cuts)≈total_mass rtol=1e-12
     @test sum(collect(last(v)) for v in cuts)≈first_moment rtol=1e-12
-    @test endswith(W.APPLIED_LOAD_VERSION,"combinedflanges_v5")
+    @test endswith(W.APPLIED_LOAD_VERSION,"combinedflanges_v6")
     browser_fixture(mixed,"shell");browser_fixture(laminate,"laminate")
     p=fixture_params();p["properties.stringer_flange_width"]=0.;blade=build(p)
     @test isempty(flange_properties(blade))

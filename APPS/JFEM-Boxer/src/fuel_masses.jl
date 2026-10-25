@@ -131,7 +131,8 @@ function add_fuel_references!(m::Model)
         ribs=selection===nothing ? (1:length(m.grid.ribs)-1) : (selection.first_rib:selection.last_rib-1)
         bays=[fuel_bay_geometry(m,rib) for rib in ribs]
     end
-    eid=maximum(vcat([0],[e for group in m.groups for e in group.eids],[sp.eid for sp in m.rbe3]))+1
+    eid=maximum(vcat([0],[e for group in m.groups for e in group.eids],[sp.eid for sp in m.rbe3],
+        [element["eid"] for collection in movable_connection_payload(m) for element in collection["elements"]],engine_element_ids(m)))+1
     for bay in bays
         rows=(m.grid.ribs[bay.rib],m.grid.ribs[bay.rib+1]);columns=ni(m.grid)
         # Connect only the two rib/skin intersection curves. Interior rib and

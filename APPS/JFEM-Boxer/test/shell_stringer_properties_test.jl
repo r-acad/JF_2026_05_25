@@ -115,8 +115,17 @@ tests=@testset "Shell stringer properties, export and conserved mass" begin
     @test all(get(prop,"NSM",0.)==0. for key in ("PSHELLs","PBARs","PBARLs") for prop in values(get(cnative,key,Dict())))
     # A per-panel blade keeps independent material/web thickness and no flange property.
     firstpanel=first(panels["panels"])
+    # Zero-width local blades require an explicitly zero family width minimum.
+    # Keep every other panel's original flange to test mixed construction.
+    nominal_flange_width=p["properties.stringer_flange_width"]
+    p["properties.stringer_flange_width"]=0.
     p["properties.panels"]=[Dict("key"=>firstpanel["key"],"layout_token"=>panels["layout_token"],
         "stringer"=>Dict("flange_width"=>0.,"flange_thickness"=>0.,"web_thickness"=>.003,"material"=>1))]
+    for panel in panels["panels"]
+        panel["key"]==firstpanel["key"]&&continue
+        push!(p["properties.panels"],Dict("key"=>panel["key"],"layout_token"=>panels["layout_token"],
+            "stringer"=>Dict("flange_width"=>nominal_flange_width)))
+    end
     mixed=W.build_model(W.normalize_params(p)[1]);mixedpanels=W.stiffened_panels_payload(mixed)
     changed=only(filter(row->row["key"]==firstpanel["key"],mixedpanels["panels"]))
     @test changed["stringer_flange_pid"]===nothing

@@ -18,7 +18,9 @@
 #       twist,
 #    3. scaling by the local chord,
 #    4. offsetting to `sweep_ref_xc` of the refined section. Its z follows
-#       the dihedralled base reference line, while its x follows both edges.
+#       the dihedralled base reference line, while its x follows both edges,
+#    5. translating the complete section by the optional vertical shift,
+#       measured in percent of projected semi-span along BASIC +Z.
 #
 #  Base area, aspect ratio and taper define a projected x-y trapezoid.
 #  Perturbation points use that trapezoid's eta and local x/c; straight physical
@@ -79,6 +81,9 @@ struct Wing
     twist_etas::Vector{Float64}
     twist_values::Vector{Float64} # rad
     twist_interpolation::Symbol
+    vertical_shift_etas::Vector{Float64}
+    vertical_shift_values::Vector{Float64} # signed percent of projected semi-span
+    vertical_shift_interpolation::Symbol
     # Exact maximum gap of each adjacent-profile blend, queried in O(log n).
     thickness_envelopes::Vector{ThicknessEnvelope}
 end
@@ -135,7 +140,7 @@ function loft_scalar(etas::AbstractVector, values::AbstractVector, method::Symbo
     return (1-weight)*values[i]+weight*values[i+1]
 end
 
-loft_control_etas(w::Wing)=sort!(unique(vcat(w.thickness_etas,w.twist_etas)))
+loft_control_etas(w::Wing)=sort!(unique(vcat(w.thickness_etas,w.twist_etas,w.vertical_shift_etas)))
 
 """Quadrature cuts at scalar anchors and changes of the maximum-gap location.
 
@@ -237,6 +242,53 @@ function planform_geometry(p::AbstractDict)
         trailing_etas, trailing_offsets, perturbed)
 end
 
+"""Nonfatal diagnostics for a very short, steep planform end segment.
+
+An interior control handle does not replace the root/tip endpoint. In particular,
+a handle accidentally dragged just inboard of the tip can create a real return
+to the nominal endpoint. Retain that geometry (it may be intentional), but expose
+its physical size and whether the endpoint was supplied explicitly. Inspect the
+physical polyline so redundant collinear handles cannot create a warning.
+"""
+function planform_endpoint_warnings(p::AbstractDict, g=planform_geometry(p))
+    warnings=Dict{String,Any}[]
+    base_c(eta)=(1-eta)*g.base_chord_root+eta*g.base_chord_tip
+    for (edge,baseline,etas,offsets) in (("leading",0.,g.leading_etas,g.leading_offsets),
+                                       ("trailing",1.,g.trailing_etas,g.trailing_offsets))
+        length(etas)>2 || continue
+        points=normalize_planform_points(get(p,"planform.$(edge)_edge_points",Any[]),
+            "planform.$(edge)_edge_points";nominal=baseline)
+        for (end_name,i,j) in (("root",1,2),("tip",length(etas),length(etas)-1))
+            endpoint_eta,eta=etas[i],etas[j]
+            span_fraction=abs(endpoint_eta-eta)
+            gap=span_fraction*g.semispan
+            returned=abs(offsets[i]-offsets[j])
+            # This is a feature warning, not an element-quality rejection.
+            # Require both a short end segment and a steep perturbation return;
+            # ordinary high-sweep wings and harmless tiny edits remain quiet.
+            0<span_fraction<=.01 && returned>4gap && returned>1e-8g.semispan || continue
+            explicit=any(row->row["eta"]==endpoint_eta,points)
+            dx=(endpoint_eta-eta)*g.semispan*tan(deg2rad(p["planform.sweep"]))+
+                (baseline-p["planform.sweep_ref_xc"])*(base_c(endpoint_eta)-base_c(eta))+
+                offsets[i]-offsets[j]
+            sweep=rad2deg(atan(abs(dx)/gap))
+            endpoint=explicit ? "explicit $end_name endpoint" : "implicit nominal $end_name endpoint"
+            label=uppercasefirst(edge)*" edge"
+            message="$label: the handle at eta=$(round(eta;digits=8)) returns "*
+                "$(round(returned;digits=6)) m toward the $endpoint over only "*
+                "$(round(gap;digits=6)) m of span (local edge sweep "*
+                "$(round(sweep;digits=2)) deg). This creates a sharp geometric feature. "*
+                "If the handle was intended to define the $end_name, set its eta to $endpoint_eta; "*
+                "otherwise retain this intentional end segment. Geometry has not been changed."
+            push!(warnings,Dict{String,Any}("code"=>"ABRUPT_ENDPOINT_RETURN",
+                "edge"=>edge,"end"=>end_name,"eta"=>eta,"endpoint_eta"=>endpoint_eta,
+                "endpoint_explicit"=>explicit,"gap_m"=>gap,"return_m"=>returned,
+                "sweep_deg"=>sweep,"message"=>message))
+        end
+    end
+    return warnings
+end
+
 """
     make_wing(p) -> Wing
 
@@ -252,9 +304,11 @@ function make_wing(p::AbstractDict)
     intermediate=Airfoil[intermediate_airfoil(p,row) for row in stations]
     thickness=normalize_loft_stations(get(p,"loft.thickness_stations",Any[]),"loft.thickness_stations")
     twists=normalize_loft_stations(get(p,"loft.twist_stations",Any[]),"loft.twist_stations")
+    shifts=normalize_loft_stations(get(p,"loft.vertical_shift_stations",Any[]),"loft.vertical_shift_stations")
     thickness_method=Symbol(get(p,"loft.thickness_interpolation","linear"))
     twist_method=Symbol(get(p,"loft.twist_interpolation","linear"))
-    thickness_method in (:linear,:cosine) && twist_method in (:linear,:cosine) ||
+    shift_method=Symbol(get(p,"loft.vertical_shift_interpolation","linear"))
+    thickness_method in (:linear,:cosine) && twist_method in (:linear,:cosine) && shift_method in (:linear,:cosine) ||
         throw(ArgumentError("loft interpolation must be linear or cosine"))
 
     g = planform_geometry(p)
@@ -276,6 +330,7 @@ function make_wing(p::AbstractDict)
                 Symbol(get(p,"airfoil.interpolation","linear")),
                 Float64[row["eta"] for row in thickness],Float64[row["tc"] for row in thickness],thickness_method,
                 Float64[row["eta"] for row in twists],Float64[deg2rad(row["twist"]) for row in twists],twist_method,
+                Float64[row["eta"] for row in shifts],Float64[row["shift_percent"] for row in shifts],shift_method,
                 isempty(thickness) ? ThicknessEnvelope[] : section_thickness_data(vcat(root_af,intermediate,tip_af)))
 end
 
@@ -290,7 +345,9 @@ function base_wing(w::Wing)
         [0.0,1.0],[0.0,0.0],[0.0,1.0],[0.0,0.0],false,
         copy(w.airfoil_etas),copy(w.intermediate_afs),w.airfoil_interpolation,
         copy(w.thickness_etas),copy(w.thickness_values),w.thickness_interpolation,
-        copy(w.twist_etas),copy(w.twist_values),w.twist_interpolation,copy(w.thickness_envelopes))
+        copy(w.twist_etas),copy(w.twist_values),w.twist_interpolation,
+        copy(w.vertical_shift_etas),copy(w.vertical_shift_values),w.vertical_shift_interpolation,
+        copy(w.thickness_envelopes))
 end
 
 """Structural skin and aerodynamic surface share the same refined airfoil loft."""
@@ -381,6 +438,9 @@ function stringer_path(p::AbstractDict)
 end
 
 function stringer_path_geometry(p,cr,ct,taper,semispan,sweep,sweep_ref)
+    reference=get(p,"box.stringer_angle_reference","rear_spar")
+    reference in ("rear_spar","front_spar","global_y")||throw(ArgumentError("Stringer angle reference must be rear_spar, front_spar or global_y"))
+    reference!="rear_spar"&&return referenced_stringer_path_geometry(p,cr,ct,taper,semispan,sweep,sweep_ref,reference)
     baseline=Float64(p["box.rear_spar_xc"])
     points=normalize_planform_points(get(p,"box.rear_spar_points",Any[]),"box.rear_spar_points";nominal=baseline)
     end_eta=Float64(p["box.end_eta"])
@@ -441,6 +501,48 @@ function stringer_path_geometry(p,cr,ct,taper,semispan,sweep,sweep_ref)
         offsets[i]=kink_offsets[j]+slopes[starts[j]]*(etas[i]-kink_etas[j])*semispan
     end
     return (;etas,slopes,offsets,kink_etas,kink_offsets,angles,directions,rear_slopes,per_point=true,semispan)
+end
+
+"""Stringer directions referenced to the local front spar or the symmetry normal.
+
+Rear-point eta stations retain the angle schedule. A front-spar reference adds
+its real kinks without changing those entered angles. Coordinates integrate
+the resulting slopes, so the stringer never jumps at a change of reference slope.
+"""
+function referenced_stringer_path_geometry(p,cr,ct,taper,semispan,sweep,sweep_ref,reference)
+    rear=normalize_planform_points(get(p,"box.rear_spar_points",Any[]),"box.rear_spar_points";nominal=p["box.rear_spar_xc"])
+    spar=spar_geometry(p);end_eta=Float64(p["box.end_eta"])
+    etas=sort!(unique(vcat(0.0,1.0,[point["eta"] for point in rear],reference=="front_spar" ? spar.front_etas : Float64[])))
+    angle_etas=[point["eta"] for point in rear];n=length(etas)-1
+    c(eta)=cr*(1-(1-taper)*eta)
+    function datum_slope(edge,a,b)
+        stations,positions,nominal,perturbed=edge==:front ?
+            (spar.front_etas,spar.front_positions,p["box.front_spar_xc"],spar.front_perturbed) :
+            (spar.rear_etas,spar.rear_positions,p["box.rear_spar_xc"],spar.rear_perturbed)
+        !perturbed&&return tan(sweep)+(nominal-sweep_ref)*(ct-cr)/semispan
+        i=clamp(searchsortedlast(stations,(a+b)/2),1,length(stations)-1)
+        lo,hi=stations[i],stations[i+1];dy=(hi-lo)*semispan
+        return tan(sweep)+(-sweep_ref*(c(hi)-c(lo))+positions[i+1]-positions[i])/dy
+    end
+    slopes=zeros(n);angles=zeros(n);directions=zeros(n);rear_slopes=zeros(n)
+    for i in 1:n
+        a,b=etas[i],etas[i+1]
+        angle=isempty(rear) ? Float64(p["box.stringer_angle"]) : rear[min(searchsortedfirst(angle_etas,b),length(rear))]["stringer_angle"]
+        datum=reference=="global_y" ? 0.0 : atan(datum_slope(:front,a,b))
+        direction=rad2deg(datum)+angle
+        isfinite(direction)&&(a>=end_eta||abs(direction)<89)||throw(ArgumentError("Stringer angle from $reference on eta=$a to $b gives $direction degrees to +Y; active directions must stay within +/-89 degrees"))
+        slopes[i]=tan(datum+deg2rad(angle));angles[i]=angle;directions[i]=direction;rear_slopes[i]=datum_slope(:rear,a,b)
+    end
+    starts=[1]
+    for i in 2:n
+        abs(slopes[i]-slopes[last(starts)])<=8eps(max(abs(slopes[i]),abs(slopes[last(starts)])))||push!(starts,i)
+    end
+    kink_etas=vcat(etas[starts],last(etas));kink_offsets=zeros(length(kink_etas))
+    for i in eachindex(starts)
+        kink_offsets[i+1]=kink_offsets[i]+slopes[starts[i]]*(kink_etas[i+1]-kink_etas[i])*semispan
+    end
+    offsets=[let j=clamp(searchsortedlast(kink_etas,eta),1,length(starts));kink_offsets[j]+slopes[starts[j]]*(eta-kink_etas[j])*semispan end for eta in etas]
+    return (;etas,slopes,offsets,kink_etas,kink_offsets,angles,directions,rear_slopes,per_point=!isempty(rear),semispan)
 end
 
 function stringer_segment(path::NamedTuple,eta::Real)
@@ -506,6 +608,25 @@ root-zero to tip twist; nonempty schedules have independent interpolation.
 twist(w::Wing, eta::Real) = isempty(w.twist_etas) ? w.twist_tip * eta :
     loft_scalar(w.twist_etas,w.twist_values,w.twist_interpolation,eta)
 
+"""Section translation in BASIC +Z, independent of chord, thickness and twist."""
+vertical_shift(w::Wing, eta::Real) = isempty(w.vertical_shift_etas) ? 0.0 :
+    (w.semispan/100)*loft_scalar(w.vertical_shift_etas,w.vertical_shift_values,w.vertical_shift_interpolation,eta)
+
+"""Derivative of vertical shift with respect to projected span y.
+
+Schedules clamp outside their anchors. Linear anchors use the outboard slope;
+cosine anchors have zero slope. A constant schedule has zero slope everywhere.
+"""
+function vertical_shift_slope(w::Wing, eta::Real)
+    etas,values=w.vertical_shift_etas,w.vertical_shift_values
+    length(etas)<2 && return 0.0
+    (eta<first(etas)||eta>=last(etas)) && return 0.0
+    i=clamp(searchsortedlast(etas,eta),1,length(etas)-1)
+    delta=etas[i+1]-etas[i]
+    weight=w.vertical_shift_interpolation===:cosine ? (pi/2)*sinpi((eta-etas[i])/delta) : 1.0
+    return ((values[i+1]-values[i])/100)/delta*weight
+end
+
 """Point on the swept and dihedralled BASE trapezoid datum at span station eta."""
 function base_reference_point(w::Wing, eta::Real)
     y = eta * w.semispan
@@ -516,12 +637,14 @@ end
 """
     reference_point(w, eta) -> (x, y, z)
 
-Point at sweep_ref of the refined untwisted section. Its y/z follow the base
-datum; its x follows the refined chord. Root reference inputs locate the BASE
-datum, which remains available through `base_reference_point`.
+Point at sweep_ref of the refined untwisted section. Its y follows the base
+datum, x follows the refined chord, and z adds the optional vertical shift.
+Root reference inputs locate the unchanged BASE datum, which remains available
+through `base_reference_point`.
 """
 function reference_point(w::Wing, eta::Real)
     xr, yr, zr = base_reference_point(w, eta)
+    isempty(w.vertical_shift_etas) || (zr += vertical_shift(w,eta))
     w.perturbed || return (xr, yr, zr)
     le = edge_offset(w.leading_etas, w.leading_offsets, eta)
     te = edge_offset(w.trailing_etas, w.trailing_offsets, eta)

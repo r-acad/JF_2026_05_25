@@ -55,3 +55,10 @@ svg.svgv-window-zoom:not(.svgv-panning):not(.dpv-dragging),svg.svgv-window-zoom:
 .svgv-image-window-host { display:flex; justify-content:flex-start; }
 .svgv-image-options small { max-width:270px; line-height:1.4; color:#b1c9dc; }
 svg.svgv-image-window-zoom:not(.svgv-panning):not(.dpv-dragging),svg.svgv-image-window-zoom:not(.svgv-panning):not(.dpv-dragging) [role=button] { cursor:crosshair; }
+
+.svgv-image-scope-dialog { max-width:460px; padding:22px; border:1px solid #58738c; border-radius:12px; background:#142638; color:#e4eef6; font:14px/1.5 system-ui,sans-serif; }
+.svgv-image-scope-dialog::backdrop { background:#061320a6; }
+.svgv-image-scope-dialog h3 { margin:0 0 8px; }
+.svgv-image-scope-dialog button { margin:6px 6px 0 0; padding:8px 12px; border:1px solid #658099; border-radius:5px; background:#263e54; color:#fff; cursor:pointer; }
+.svgv-image-scope-dialog button.primary { background:#176ba9; border-color:#6bb9f0; }
+.svgv-image-scope-dialog button:focus-visible { outline:2px solid #a3d9ff; outline-offset:2px; }

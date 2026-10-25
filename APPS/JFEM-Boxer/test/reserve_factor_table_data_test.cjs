@@ -256,4 +256,13 @@ test('A shared failing property remains one full-property assessment after filte
  const r=row(5000001,.5),m=data.build({generated:true,panels:[panel(1),{...panel(2,2),shell_pid:5000001}],report:report([r]),group:'upper',onlyBelowOne:true});
  assert.equal(m.rows.length,1);assert.equal(m.matrix.shared.length,1);assert.equal(m.matrix.shared[0].pid,5000001);assert.equal(data.table(m).rows.length,1);
 });
+test('Shared below-one predicate and snapshot preserve exact threshold and assessment scope',()=>{
+ for(const value of [0,.2,.999999])assert.equal(data.isBelowOne(value),true);
+ for(const value of [1,1.000001,2,-1,NaN,Infinity,null,undefined,'0.5'])assert.equal(data.isBelowOne(value),false);
+ const snapshot=data.compact({report:report([row(1,.5),row(2,.8),row(3,2),row(4,.4,{complete:false})]),onlyBelowOne:true});
+ assert.equal(snapshot.onlyBelowOne,true);
+ const all=data.build(snapshot),filtered=data.build({...snapshot,filter:'P1'});
+ assert.equal(all.rows.length,2);assert.equal(filtered.rows.length,1);assert.equal(filtered.eligibleCount,2);
+ assert.equal(data.compact({report:snapshot.report}).onlyBelowOne,false);
+});
 console.log(passed+' reserve factor table data tests passed.');

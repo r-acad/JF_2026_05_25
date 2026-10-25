@@ -7,6 +7,16 @@
  const point=(p,n)=>Array.from(p.slice(3*n,3*n+3)),center=points=>points.reduce((a,p)=>add(a,scale(p,1/points.length)),[0,0,0]);
  const toFE=p=>[p[2],p[0],p[1]],toView=p=>[p[1],p[2],p[0]];
  function distance(a,b){const delta=toFE(sub(b,a));return{a:toFE(a),b:toFE(b),delta,length:Math.hypot(...delta)};}
+ function axisDistance(a,b,axis){
+  if(!Array.isArray(axis)||axis.length!==3||!axis.every(Number.isFinite)||Math.hypot(...axis)<1e-12)throw Error('Choose a valid measurement axis.');
+  const d=distance(a,b),direction=unit(axis),signed=dot(d.delta,direction);
+  return{...d,direction,signed,along:Math.abs(signed),projection:add(a,toView(scale(direction,signed)))};
+ }
+ function measurementFrames(systems=[]){
+  const frames=[{id:'0',label:'BASIC · global axes',type:'RECTANGULAR',x:[1,0,0],y:[0,1,0],z:[0,0,1]}],seen=new Set(['0']);
+  for(const row of systems){const id=String(row.id);if(seen.has(id)||!['x','y','z'].every(k=>Array.isArray(row[k])&&row[k].length===3&&row[k].every(Number.isFinite)&&Math.hypot(...row[k])>1e-12))continue;seen.add(id);frames.push({...row,id,label:'CID '+id+' · '+String(row.type||'rectangular').toLowerCase()+(row.type==='RECTANGULAR'?'':' defining axes')});}
+  return frames;
+ }
  function closestSegment(p,a,b){const ab=sub(b,a),n=dot(ab,ab),t=n?Math.max(0,Math.min(1,dot(sub(p,a),ab)/n)):0;return add(a,scale(ab,t));}
 
  /** Transport the reference MCID frame by the shell's displayed in-plane map.
@@ -33,17 +43,22 @@
   frame.origin=add(center(current),add(scale(avgY,section?.offset_y_m||0),scale(avgZ,section?.offset_z_m||0)));
   return frame;
  }
- const HELP=["Start measurement, then click two visible points. Distance and signed dx, dy, dz are in FE global x/y/z axes and metres. The first point is A and the second is B; deltas are B minus A.",
+ const HELP=["Use Measure in the 3D icon bar, then click two visible points. Distance is the straight-line Euclidean length. Along axis projects B minus A onto the selected unit direction; the distance is its absolute value, and the signed component is shown separately. You can change the direction after picking without repeating the clicks.",
+  "BASIC X/Y/Z are the model's global axes. A model coordinate system provides its resolved defining X/Y/Z directions. For cylindrical or spherical systems these are the fixed Cartesian defining axes, not radial, tangential or angular-coordinate differences. Generated models use metres; imported models retain the source deck's length units.",
   "Surfaces and bar geometry of the displayed FE model, the visible aerodynamic surface, and imported reference geometry can be measured. Force arrows, axes, constraints, RBE3 spiders, selection highlights and other helpers are excluded. Optional node snapping uses visible structural GRID positions near the click and rejects points behind geometry.",
   "A measurement is a snapshot of the currently displayed shape, including its deformation magnification and reference placement. It does not follow later deformation or reference movement. Restart to measure the new state. Rebuilding the FE model clears it. Markers use the Display panel's marker radius; measurements never enter the FE model, loads or geometry exports.",
-  "Two clicks finish measurement mode; ordinary inspection then resumes. Dragging still orbits/pans, the middle mouse button still centers on a node, and Escape leaves measurement mode. Clear removes the snapshot.",
+  "Two clicks finish measurement mode; normal picking then resumes. Dragging still orbits/pans, the middle mouse button still centers on a node, and Escape leaves measurement mode. Clear removes the snapshot.",
   "A selected shell or bar shows its own local x/y/z frame, independently of the all-element axis switches. Selected axes are an inspection overlay and remain visible through surfaces, like the selection highlight; hiding the selected element's layer hides its frame. Generated shell axes start from the exported MCID/material frame and are transported with displayed shell geometry. Imported shell glyphs show geometric axes; imported beam glyphs use GRID reference lines without OFFT/CD or end-offset transformations. Their source definitions remain authoritative in the native analysis. Bar axes follow its displayed end points and nodal section rotations, including the section centroid offset. Contour components remain in their reported reference local axes. A highly magnified shape is a visualization, not a new analysis. RBE3 constraints have no shell/bar local frame."];
 
  function create(B,options){
   const {scene,camera,engine,canvas,getState,getPositions}=options,doc=canvas.ownerDocument;
-  const controls=Object.fromEntries(["btn-measure","btn-measure-clear","measure-snap-nodes","measure-status","measure-values","show-picked-axes","picked-axes-note","btn-measure-help","btn-clear-pick"].map(id=>[id,doc.getElementById(id)]));
+  const controls=Object.fromEntries(["btn-measure","btn-measure-clear","measure-mode","measure-coordinate","measure-axis","measure-axis-options","measure-snap-nodes","measure-status","measure-values","show-picked-axes","picked-axes-note","btn-measure-help","btn-clear-pick"].map(id=>[id,doc.getElementById(id)]));
   const overlay=doc.createElement("div");overlay.className="geometry-tools-overlay";canvas.parentElement.appendChild(overlay);
-  let active=false,points=[],labels=[],measurementMeshes=[],axisMeshes=[],frameLabels=[],selectedFrame=null,pose=null,disposed=false;
+  let active=false,points=[],labels=[],measurementMeshes=[],axisMeshes=[],frameLabels=[],selectedFrame=null,pose=null,disposed=false,frames=measurementFrames();
+  const units=()=>getState().importedDeck||getState().data?.imported_deck?'source units':'m';
+  function refreshFrames(){frames=measurementFrames(getState().data?.coordinate_systems?.systems);const select=controls['measure-coordinate'];if(!select)return;const previous=select.value;select.replaceChildren();for(const frame of frames){const option=doc.createElement('option');option.value=frame.id;option.textContent=frame.label;select.append(option);}select.value=frames.some(f=>f.id===previous)?previous:'0';}
+  function selectedAxis(){const axis=controls['measure-axis']?.value||'x',frame=frames.find(f=>f.id===(controls['measure-coordinate']?.value||'0'))||frames[0];return{axis,frame,direction:frame[axis],label:(frame.id==='0'?'BASIC':'CID '+frame.id)+' '+axis.toUpperCase()};}
+  function assessment(){if(points.length!==2)return null;const a=selectedAxis();return controls['measure-mode']?.value==='axis'?{...axisDistance(points[0].position,points[1].position,a.direction),axis:a}:distance(points[0].position,points[1].position);}
   const fmt=n=>options.format?options.format(n,7):Number(n.toPrecision(7)).toString();
   function label(text,color,position){const el=doc.createElement("span");el.className="geometry-tool-label";el.textContent=text;el.style.color=color;overlay.appendChild(el);return{element:el,position};}
   function disposeMeshes(meshes){for(const mesh of meshes)mesh.dispose(false,true);meshes.length=0;}
@@ -51,11 +66,12 @@
   function helper(mesh){mesh.isPickable=false;mesh.renderingGroupId=2;mesh.metadata={geometryTool:true};if(mesh.material){mesh.material.disableDepthWrite=true;mesh.material.depthFunction=B.Engine.ALWAYS;}return mesh;}
   function status(text){if(controls["measure-status"])controls["measure-status"].textContent=text;}
   function updateUI(){
+   if(controls['measure-axis-options'])controls['measure-axis-options'].hidden=controls['measure-mode']?.value!=='axis';
    if(controls["btn-measure"]){controls["btn-measure"].textContent=active?"Restart measurement":points.length?"New measurement":"Start measurement";controls["btn-measure"].setAttribute("aria-pressed",String(active));}
    if(controls["btn-measure-clear"])controls["btn-measure-clear"].disabled=!points.length&&!active;
    canvas.classList.toggle("measuring",active);
    const host=controls["measure-values"];if(!host)return;host.replaceChildren();
-   if(points.length===2){const d=distance(points[0].position,points[1].position);const rows=[["Distance",fmt(d.length)+" m"],["dx, dy, dz",d.delta.map(fmt).join(", ")+" m"],["A (x, y, z)",d.a.map(fmt).join(", ")+" m"],["B (x, y, z)",d.b.map(fmt).join(", ")+" m"]];
+   if(points.length===2){const d=assessment(),u=' '+units(),rows=[...(d.axis?[["Along "+d.axis.label,fmt(d.along)+u],["Signed component",fmt(d.signed)+u]]:[]),["Distance",fmt(d.length)+u],["dx, dy, dz",d.delta.map(fmt).join(", ")+u],["A (x, y, z)",d.a.map(fmt).join(", ")+u],["B (x, y, z)",d.b.map(fmt).join(", ")+u]];
     const table=doc.createElement("table");for(const [name,value]of rows){const row=doc.createElement("tr"),key=doc.createElement("th"),cell=doc.createElement("td");key.textContent=name;cell.textContent=value;row.append(key,cell);table.appendChild(row);}host.appendChild(table);
     const note=doc.createElement("p");note.className="pick-note";note.textContent="Snapshot of displayed geometry. A: "+points[0].source+"; B: "+points[1].source+". Restart after changing deformation or placement.";host.appendChild(note);
    }
@@ -68,16 +84,18 @@
     material.diffuseColor=B.Color3.FromHexString("#ffdb73");material.emissiveColor=material.diffuseColor;sphere.material=material;helper(sphere);sphere.metadata.endpoint=true;sphere.position.copyFromFloats(...points[i].position);measurementMeshes.push(sphere);
     labels.push(label(i?"B":"A","#ffdb73",points[i].position));
    }
-   if(points.length===2){const line=helper(B.MeshBuilder.CreateLines("measure-distance",{points:points.map(p=>new B.Vector3(...p.position))},scene));line.color=B.Color3.FromHexString("#ffdb73");measurementMeshes.push(line);labels.push(label(fmt(distance(points[0].position,points[1].position).length)+" m","#ffdb73",center(points.map(p=>p.position))));}
+   if(points.length===2){const d=assessment(),line=helper(B.MeshBuilder.CreateLines("measure-distance",{points:points.map(p=>new B.Vector3(...p.position))},scene));line.color=B.Color3.FromHexString(d.axis?'#adbccc':'#ffdb73');measurementMeshes.push(line);
+    if(d.axis){const color={x:'#ff7279',y:'#62e6ac',z:'#72baff'}[d.axis.axis],a=new B.Vector3(...points[0].position),q=new B.Vector3(...d.projection),b=new B.Vector3(...points[1].position),projected=helper(B.MeshBuilder.CreateLines('measure-axis-distance',{points:[a,q]},scene));projected.color=B.Color3.FromHexString(color);measurementMeshes.push(projected);if(B.Vector3.Distance(q,b)>Math.max(1e-12,1e-12*(getState().diag||1))){const witness=helper(B.MeshBuilder.CreateDashedLines('measure-axis-witness',{points:[q,b],dashSize:.02*Math.max(1e-6,getState().diag),gapSize:.01*Math.max(1e-6,getState().diag),dashNb:32},scene));witness.color=B.Color3.FromHexString('#adbccc');measurementMeshes.push(witness);}labels.push(label(d.axis.label+': '+fmt(d.along)+' '+units(),color,center([points[0].position,d.projection])));}
+    else labels.push(label(fmt(d.length)+' '+units(),'#ffdb73',center(points.map(p=>p.position))));}
    updateRadii();updateUI();
   }
   function clear(){active=false;points=[];drawMeasurement();status("Measure two points on the displayed geometry.");}
-  function restart(){clear();active=true;updateUI();status("Click point A on visible geometry. Escape exits measurement mode.");}
+  function restart(){refreshFrames();clear();active=true;updateUI();status("Click point A on visible geometry. Escape exits measurement mode.");}
   function cancel(){active=false;updateUI();status(points.length===2?"Measurement snapshot retained.":"Measurement paused. Restart or clear to begin again.");}
   function eligible(mesh){
    if(!mesh||mesh.isDisposed()||!mesh.isEnabled()||!mesh.isVisible||mesh.visibility<=0||mesh.material?.alpha===0)return false;
    const kind=mesh.metadata?.feGroup?.kind;
-   return kind==="quad"||kind==="tria"||kind==="bar"||mesh.metadata?.wingReferenceId!==undefined||mesh.name==="AERO_SURFACE";
+   return kind==="quad"||kind==="tria"||kind==="bar"||kind==="solid"||mesh.metadata?.wingReferenceId!==undefined||mesh.name==="AERO_SURFACE"||mesh.name==="REFERENCE_AERO"||mesh.name==="FUEL_TANK"||mesh.metadata?.movableSurfacePreview&&!(mesh instanceof B.LinesMesh);
   }
   function surface(x,y){return scene.pick(x,y,eligible,false,camera);}
   function linePoint(hit){
@@ -109,7 +127,7 @@
      else if(meta?.feGroup){const face=lineHit?lineHit.index:hit.faceId,index=meta.faceElements?meta.faceElements[face]:Math.floor(face/(meta.facesPerElement||1));source=meta.feGroup.name+(mesh.elementIds?.[index]!==undefined?" / EID "+mesh.elementIds[index]:"");}
      chosen={position:lineHit?lineHit.position:hit.pickedPoint.asArray(),source};}}
    if(!chosen){status("No visible geometry at this point. Choose a surface or enable visible-node snapping.");return true;}
-   points.push(chosen);if(points.length===2)active=false;drawMeasurement();status(points.length===1?"Point A set. Click point B; Escape exits measurement mode.":"Measurement complete. Ordinary inspection is active again.");return true;
+   points.push(chosen);if(points.length===2)active=false;drawMeasurement();status(points.length===1?"Point A set. Click point B; Escape exits measurement mode.":"Measurement complete. Normal picking is active again.");return true;
   }
   function clearFrame(){disposeMeshes(axisMeshes);removeLabels(frameLabels);selectedFrame=null;}
   function refreshSelection(positions){
@@ -144,12 +162,13 @@
   const observer=scene.onBeforeRenderObservable.add(renderLabels),escape=event=>{if(event.key==="Escape"&&active){event.preventDefault();cancel();}};doc.addEventListener("keydown",escape);
   if(controls["btn-measure"])controls["btn-measure"].onclick=restart;
   if(controls["btn-measure-clear"])controls["btn-measure-clear"].onclick=clear;
+  for(const id of ['measure-mode','measure-coordinate','measure-axis'])if(controls[id])controls[id].onchange=()=>drawMeasurement();
   if(controls["show-picked-axes"])controls["show-picked-axes"].onchange=()=>refreshSelection();
   if(controls["btn-measure-help"])controls["btn-measure-help"].onclick=()=>options.onHelp?.({title:"Measure and inspect local axes",paragraphs:HELP});
   if(controls["btn-clear-pick"])controls["btn-clear-pick"].onclick=()=>{options.clearSelection?.();refreshSelection();};
-  updateUI();
-  return{get active(){return active;},get points(){return points.map(p=>({position:p.position.slice(),source:p.source}));},get selectedFrame(){return selectedFrame;},get measurementMeshes(){return measurementMeshes;},get axisMeshes(){return axisMeshes;},restart,clear,cancel,pick,eligible,setPose,resetModel,refreshSelection,updateRadii,
+  refreshFrames();updateUI();
+  return{get active(){return active;},get points(){return points.map(p=>({position:p.position.slice(),source:p.source}));},get assessment(){return assessment();},get selectedFrame(){return selectedFrame;},get measurementMeshes(){return measurementMeshes;},get axisMeshes(){return axisMeshes;},restart,clear,cancel,pick,eligible,setPose,resetModel,refreshSelection,updateRadii,
    dispose(){if(disposed)return;resetModel();disposed=true;scene.onBeforeRenderObservable.remove(observer);doc.removeEventListener("keydown",escape);overlay.remove();}};
  }
- return{create,distance,closestSegment,shellFrame,barFrame,toFE,toView,HELP};
+ return{create,distance,axisDistance,measurementFrames,closestSegment,shellFrame,barFrame,toFE,toView,HELP};
 });
